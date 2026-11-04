@@ -167,11 +167,16 @@ A project CLAUDE.md can be stored in either
 ./CLAUDE.md
 or
 ./.claude/CLAUDE.md
-. Create this file and add instructions that apply to anyone working on the project: build and test commands, coding standards, architectural decisions, naming conventions, and common workflows. These instructions are shared with your team through version control, so focus on project-level standards rather than personal preferences. To confirm the file loaded, run
-/context
+. Create this file and add instructions that apply to anyone working on the project: build and test commands, coding standards, architectural decisions, naming conventions, and common workflows. These instructions are shared with your team through version control, so focus on project-level standards rather than personal preferences.
+To confirm the file loaded, run
+/context all
 in a session and check the list under
 Memory files
-.
+. In
+fullscreen mode
+,
+/context
+alone collapses that list.
 Run
 /init
 to generate a starting CLAUDE.md automatically. Claude analyzes your codebase and creates a file with build commands, test instructions, and project conventions it discovers. If a CLAUDE.md already exists,
@@ -411,7 +416,4 @@ your-project/
 Rules without
 paths
 frontmatter
-are loaded at launch with the same priority as
-.claude/CLAUDE.md
-.
 [snapshot truncated]

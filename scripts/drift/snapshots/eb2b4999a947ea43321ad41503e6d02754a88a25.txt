@@ -50,10 +50,9 @@ Project scope
 User scope
 Scope hierarchy and precedence
 Environment variable expansion in .mcp.json
-Supported syntax
-Expansion locations
 Example with variable expansion
 Unset variables without a default
+Variables set to an empty string
 Credential variables that read as empty
 How references appear in /mcp and CLI output
 Practical examples
@@ -65,6 +64,7 @@ Use a fixed OAuth callback port
 Use pre-configured OAuth credentials
 Override OAuth metadata discovery
 Restrict OAuth scopes
+Use OAuth with a server behind an authenticating proxy
 Use dynamic headers for custom authentication
 Where the helper runs
 Which variables a helper can read
@@ -83,15 +83,18 @@ Raise the limit for a specific tool
 Images in tool results
 Tool input schemas with a root-level combinator
 Tools with invalid input schemas
+Tools whose input schema the API refuses
 Tools with names longer than 128 characters
 Require approval for a specific tool
 Mark tools that are safe to call twice
 Respond to MCP elicitation requests
+Answer an elicitation request in a cloud session
 Elicitation modes Claude Code declares
 Use MCP resources
 Reference MCP resources
 Scale with MCP tool search
 Tool search for MCP server authors
+Change the description length limits
 Mark a tool to load upfront or stay deferred
 Configure tool search
 Tool search through an LLM gateway
@@ -266,7 +269,7 @@ system/init
 event’s
 mcp_server_errors
 field
-, so scripts can detect that the server never loaded. This requires Claude Code v2.1.219 or later.
+, so scripts can detect that the server never loaded.
 ​
 Option 2: Add a remote SSE server
 The SSE (Server-Sent Events) transport is deprecated. Use HTTP servers instead, where available.
@@ -612,12 +615,4 @@ example
 Add MCP servers from JSON configuration
 covers shell escaping and the
 --scope
-flag for
-add-json
-. To share the server with your team instead, add
---scope project
-, or add the entry under
-mcpServers
-in
-.mcp.json
 [snapshot truncated]

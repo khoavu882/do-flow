@@ -437,6 +437,6 @@ Validate output is valid JSON
 ./my-hook.sh | jq .
 Further reading
 GitHub Copilot hooks reference
-GitHub Copilot on GitHub.com
+GitHub Copilot on GitHub.com and GitHub Mobile
 GitHub Copilot CLI
-Configure the development environment
+Configure the development environment for agents on GitHub Actions

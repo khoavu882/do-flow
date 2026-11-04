@@ -212,428 +212,446 @@ By default, this file is located at
 . Override its location with the
 COPILOT_PROVIDERS_CONFIG
 environment variable.
-agents/
-Store personal custom agent definitions here as
-.agent.md
-files. Agents placed in this directory are available in all your sessions. If a personal agent and a project-level agent have the same ID—for example, if both top-level files are named
-reviewer.agent.md
-—the personal agent takes precedence. The optional
-name
-frontmatter field does not control deduplication, so agents with the same
-name
-but different IDs both load.
-For more information, see
-Creating and using custom agents for GitHub Copilot CLI
+Models in this file are available alongside the models provided by your Copilot subscription. After editing the file manually, restart Copilot CLI to load your changes. For setup instructions, see
+Adding LLM models to GitHub Copilot CLI
 .
-skills/
-Store personal custom skill definitions here. Each skill lives in a subdirectory containing a
-SKILL.md
-file—for example,
-~/.copilot/skills/my-skill/SKILL.md
-. Personal skills are available in all your sessions. Project-level skills take precedence over personal skills if they share the same name.
-For more information, see
-Adding agent skills for GitHub Copilot CLI
-.
-hooks/
-Store user-level hook scripts here. These hooks apply to all your sessions. You can also define hooks inline in your user configuration file (
-~/.copilot/settings.json
-) using the
-hooks
-key. Repository-level hooks (in
-.github/hooks/
-) are loaded alongside user-level hooks.
-For more information, see
-Using hooks with GitHub Copilot CLI
-.
-extensions/
-Store user-level extension files here. Extensions in this directory are available across sessions.
-You can create files in this directory manually, or scaffold an extension and then edit the generated file.
-Automatically managed files
-The following items are managed by the CLI. You generally should not edit them manually.
-config.json
-Stores internal application state that is managed automatically by the CLI, including authentication data, installed plugin metadata, and other runtime information. You should not normally need to edit this file.
-Note
-Earlier versions of Copilot CLI stored both user settings and application state in
-config.json
-. User-editable settings are now located in
-settings.json
-. Settings left in
-config.json
-are ignored. This file only holds internal state such as installed plugins and trusted folders.
-permissions-config.json
-Stores your saved tool and directory permission decisions, organized by project location. When you approve a tool or grant access to a directory for the current location, the CLI records the decision here so you aren&#x27;t prompted again in the same repository or directory.
-Note
-If you want to reset permissions for a project, you can delete the relevant entry from this file. However, editing the file while a session is running may cause unexpected behavior. The CLI automatically removes entries whose location path no longer exists on disk.
-File location
-Copilot CLI resolves the file from the configuration directory.
-Priority
-Source
-File used
-1
---config-dir=DIRECTORY
-DIRECTORY/
-permissions-config.json
-2
-COPILOT_HOME
-$COPILOT_HOME/
-permissions-config.json
-3
-Default
-~/
-.copilot/
-permissions-config.json
-The CLI uses only the first applicable configuration directory in this order. It doesn&#x27;t also load
-permissions-config.json
-from the lower-priority locations.
-The
---config-dir
-option is a legacy option. Prefer
-COPILOT_HOME
-when you need to change the configuration directory.
-On Windows, the default file is typically:
-C:\Users\YOUR-USER\.copilot\permissions-config.json
-Older builds used an extensionless file named
-permissions-config
-. If
-permissions-config.json
-doesn&#x27;t exist but the extensionless file does, the CLI still honors the legacy file. Use
-permissions-config.json
-for new edits.
-Previous XDG-based configuration locations are migrated to
-~/.copilot
-at startup when
-COPILOT_HOME
-isn&#x27;t set.
-Location keys
-The top-level
-locations
-object is keyed by an absolute path.
-For a Git repository, use the Git root used for permission scoping.
-Linked worktrees resolve to the main repository root, so they share permissions with the main worktree.
-Submodules use their own working directory.
-For a directory that isn&#x27;t in a Git repository, use the normalized current working directory.
-The key must match the location where Copilot CLI is running. If the key doesn&#x27;t match, the saved approvals won&#x27;t apply.
-The CLI loads the matching location&#x27;s approvals when a session starts and when the active working directory changes.
-Schema
-The file must contain a JSON object.
+Warning
+API keys, bearer tokens, and header values in this file are stored as plain text. Do not commit the file to a repository or share it without removing credentials. Values such as
+$MY_API_KEY
+are literal strings, not references to environment variables.
+Provider configuration structure
+Use a JSON object, without comments or trailing commas. The file contains two arrays. Each provider defines a connection, and each model refers to one of those providers by name. In the tables below,
+[]
+means an entry in an array. For example,
+models[].capabilities.supports.vision
+is the
+vision
+setting inside
+supports
+, inside
+capabilities
+, inside a model entry.
 Field
 Type
 Required
 Default
-Allowed values
 Description
-locations
-Object
-No
-{}
-Absolute path keys
-Map of location keys to saved approvals.
-locations.<key>
-Object
-No
-{}
-Any absolute location key
-Saved approvals for one repository or directory.
-locations.<key>.tool_approvals
-Array
+providers
+Array of objects
 No
 []
-Approval objects
-Tools approved for this location.
-locations.<key>.allowed_directories
-Array of strings
+Provider connections. See
+Provider settings
+.
+models
+Array of objects
 No
 []
-Absolute directory paths
-Extra directories that the path gate can access for this location. Each directory must exist when the CLI applies the configuration.
-locations.<key>.tool_approvals[].kind
+Models available through those connections. See
+Model settings
+.
+An absent or empty file, or a file with no provider or model entries, allows the CLI to fall back to
+COPILOT_PROVIDER_*
+environment variables. A
+null
+value for either array is treated as an empty array. A file with invalid JSON or invalid provider or model entries produces a configuration error instead.
+To use a configured model when starting the CLI, pass
+PROVIDER-NAME/MODEL-ID
+to the
+--model
+option.
+PROVIDER-NAME
+is the provider&#x27;s
+name
+value, and
+MODEL-ID
+is the model&#x27;s
+id
+value. For example, run
+copilot --model local/qwen3:8b
+. Alternatively, during an interactive session, you can enter
+/model
+and choose the model from the picker.
+This file configures connections, model capabilities, and model instructions for use in Copilot CLI. The JSON in this file is not a provider API request body. Settings are not passed through to the provider when you add them to this file.
+Provider settings
+Each entry in
+providers
+accepts the following fields. Only
+name
+and
+baseUrl
+are always required. Authentication requirements depend on the provider.
+Field
+Type
+Required
+Default
+Description
+providers[].name
 String
 Yes
 None
-commands
-,
-read
-,
-write
-,
-mcp
-,
-mcp-sampling
-,
-memory
-,
-custom-tool
-,
-extension-management
-,
-extension-permission-access
-Selects the approval type.
-command
-Identifiers
-Array of strings
-Yes, for
-commands
-None
-Command identifiers
-Shell command identifiers to approve.
-serverName
+A unique name for this connection, such as
+"local"
+or
+"my-anthropic"
+. Must not contain
+/
+. Models refer to this name using their
+provider
+field.
+providers[].type
 String
-Yes, for
-mcp
+No
+"openai"
+The connection type:
+"openai"
+for OpenAI-compatible APIs,
+"azure"
+for Azure OpenAI,
+"anthropic"
+for Anthropic&#x27;s Messages API, or
+"local_model"
+for a local model served by
+llama-server
+.
+providers[].base
+Url
+String containing a URL or file path
+Yes
+None
+The provider&#x27;s API base URL. For OpenAI-compatible APIs, include the required API prefix, such as
+https:/
+/
+api.openai.com/
+v1
+or
+http:/
+/
+127.0.0.1:11434/
+v1
+for Ollama. For direct Anthropic access, use
+https:/
+/
+api.anthropic.com
+. For Azure, use your resource endpoint. With
+"type": "local_model"
+, this can instead be a path to a
+.gguf
+model file.
+providers[].wire
+Api
+String
+No
+"completions"
+The API format for OpenAI and Azure connections:
+"completions"
+for Chat Completions or
+"responses"
+for the Responses API. Ignored for Anthropic.
+providers[].transport
+String
+No
+"http"
+Accepts
+"http"
+or
+"websockets"
+. WebSockets require
+"type": "openai"
 and
-mcp-sampling
-None
-MCP server name
-MCP server to approve.
-toolName
-String or
-null
-Yes, for
-mcp
-None
-MCP tool name, or
-null
-MCP tool to approve. Use
-null
-to approve every tool on the server.
-toolName
+"wireApi": "responses"
+, and the provider must support that transport.
+providers[].api
+Key
 String
-Yes, for
-custom-tool
-None
-Custom tool name
-Custom tool to approve by exact name.
-operation
+Provider-dependent
+Unset
+The provider&#x27;s API key. Can be omitted for an unauthenticated local server.
+providers[].bearer
+Token
 String
-No, for
-extension-management
-Omitted
-Extension operation name
-Extension-management operation to approve. Omit this field to approve all extension-management operations.
-extensionName
+Provider-dependent
+Unset
+A bearer token, without the
+Bearer
+prefix. Takes precedence over
+apiKey
+when both are set. This is a static token, not a token-refresh command.
+providers[].headers
+Object
+No
+Unset
+Additional HTTP headers, with header names as keys and strings as values.
+providers[].headers.<header-name>
 String
-Yes, for
-extension-permission-access
-None
-Extension name
-Extension whose access to permission-gated capabilities is approved.
-permissions-config.json
-doesn&#x27;t support deny rules, "ask" rules, default modes, URL rules, tool filtering, or repository-local shared policy. For those behaviors, use command-line options such as
---deny-tool
+No
+Unset
+The value of a header, for example
+"X-Project": "my-project"
+. Use
+apiKey
+or
+bearerToken
+for standard provider authentication.
+providers[].azure
+Object
+No
+Unset
+Azure-specific options. Contains the
+apiVersion
+field described below.
+providers[].azure.api
+Version
+String
+No
+Unset
+The Azure API version to request. When set to a non-empty version string supported by your endpoint, the CLI uses the versioned deployment API. When omitted, the CLI uses the versionless
+/openai/v1
+API.
+providers[].local
+Model
+Object
+No
+Unset
+Server options for a CLI-managed
+.gguf
+model. See
+Local model server settings
+.
+providers[].model
+Provider
+String
+No
+Inferred from the connection
+A provider label used only for telemetry. Recognized values are
+"openai"
 ,
---available-tools
+"anthropic"
 ,
---excluded-tools
+"azure_openai"
 ,
---allow-url
+"ollama"
+,
+"lm_studio"
+,
+"foundry_local"
 , and
---deny-url
-. Saved URL rules are stored in
-settings.json
-, not in
-permissions-config.json
+"llama_cpp"
+. Does not change the connection protocol or model behavior.
+providers[].has
+Bearer
+Token
+Provider
+Boolean
+No
+false
+Indicates that an application using the SDK supplies tokens through a callback. Omit this when configuring the CLI manually. Setting it to
+true
+in this file does not register a token provider.
+The named-provider file does not support
+apiKeyCommand
+. Do not put credentials or token-refresh commands in
+metadata
+or
+localModel.args
 .
-Unknown fields aren&#x27;t part of the schema. The CLI may ignore them, and later writes may remove them.
-Approval kinds
-Each item in
-tool_approvals
-must be one of the following objects.
-kind
-Required fields
-Optional fields
-Meaning
-commands
-command
-Identifiers
-None
-Approves matching shell command identifiers.
-read
-None
-None
-Approves read tool requests. Interactive CLI sessions already approve reads automatically, so this is usually unnecessary.
-write
-None
-None
-Approves file creation and modification tool requests. A path prompt can still apply for paths outside the allowed directories.
-mcp
-serverName
-,
-toolName
-None
-Approves one MCP tool, or every tool on the server when
-toolName
+Local model server settings
+These settings apply only when
+providers[].type
 is
-null
+"local_model"
+and
+baseUrl
+is a path to a
+.gguf
+file. The CLI starts
+llama-server
+when the model is first used. The executable must be installed and available on
+PATH
+. Use an absolute model path to avoid depending on the directory from which you start the CLI.
+If
+baseUrl
+is an HTTP or HTTPS URL, the CLI connects to that existing server and does not use these startup settings. They also do not configure Ollama or other OpenAI-compatible servers.
+All fields inside
+providers[].localModel
+are optional.
+Field
+Type
+Default
+Description
+providers[].local
+Model.ctx
+Size
+Non-negative integer
+llama-server
+default
+Requested context size in tokens, passed as
+--ctx-size
+. The actual allocation can be smaller than requested.
+providers[].local
+Model.n
+Gpu
+Layers
+Non-negative integer
+llama-server
+default
+Number of model layers to offload to the GPU, passed as
+--n-gpu-layers
 .
-mcp-sampling
-serverName
-None
-Approves MCP sampling requests for one server.
-memory
-None
-None
-Approves memory write and vote requests.
-custom-tool
-toolName
-None
-Approves a custom tool by exact name.
-extension-management
-None
-operation
-Approves extension management. If
-operation
-is omitted, all extension-management operations match.
-extension-permission-access
-extensionName
-None
-Approves an extension&#x27;s access to permission-gated capabilities.
-For MCP approvals,
-serverName
-must match the configured MCP server name exactly. Use the raw server name from your MCP configuration, not a sanitized tool-name prefix.
-Shell command matching
-permissions-config.json
-doesn&#x27;t support regular expressions or general glob patterns. String values are matched literally, except that a trailing
-:*
-in a shell
-commandIdentifiers
-value matches the text before
-:*
-, either by itself or followed by a space and more text. A plain
-*
-has no special meaning, so
-git*
-doesn&#x27;t match
-git status
+providers[].local
+Model.parallel
+Non-negative integer
+1
+Number of server slots, passed as
+--parallel
+. Multiple slots can divide the available context between requests.
+providers[].local
+Model.args
+Array of strings
+[]
+Additional
+llama-server
+arguments. Each argument is a separate string, such as
+["--threads", "8"]
+. These follow the arguments generated from the fields above.
+providers[].local
+Model.persist
+Boolean
+false
+Requests that the managed server remain running after a clean CLI exit so a later CLI process can reuse it. Otherwise, the CLI cleans up the server on exit.
+providers[].local
+Model.logs
+String containing a file path or
+"inherit"
+Output discarded
+Appends the server&#x27;s standard output and error output to the specified file. Use an absolute path.
+"inherit"
+sends output to the terminal and can interfere with the CLI display.
+The CLI manages the server&#x27;s model path, host, and port. You cannot pass
+--model
+,
+-m
+,
+--host
+, or
+--port
+through
+args
+, including forms such as
+--port=8080
 .
-Pattern
-Matches
-Doesn&#x27;t match
-git status
-git status
-git status --short
-git:*
-git
-,
-git status
-,
-git push
-gitea
-gh pr:*
-gh pr
-,
-gh pr view
-,
-gh pr create
-gh repo view
-Directory matching
-allowed_directories
-entries allow Copilot CLI to access paths inside those directories without a separate path prompt. They don&#x27;t approve the tool operation itself. For example, editing a file in an allowed directory can still require a
-write
-approval.
-Each
-allowed_directories
-entry must be an absolute, non-empty, accessible directory. The CLI resolves symlinks before comparing paths, blocks UNC network paths unless they are extended-length local paths, compares paths case-insensitively on Windows, and compares paths case-sensitively on other platforms. If an entry can&#x27;t be applied, the CLI logs a warning and skips that entry.
-Examples
-Allow all Git subcommands and access an extra local directory:
-JSON
-{
-"locations": {
-"C:\\src\\my-repo": {
-"tool_approvals": [
-{
-"kind": "commands",
-"commandIdentifiers": ["git:*"]
-}
-],
-"allowed_directories": ["C:\\src\\shared-docs"]
-}
-}
-}
-{
-"locations"
-:
-{
-"C:\\src\\my-repo"
-:
-{
-"tool_approvals"
-:
-[
-{
-"kind"
-:
-"commands"
-,
-"commandIdentifiers"
-:
-[
-"git:*"
-]
-}
-]
-,
-"allowed_directories"
-:
-[
-"C:\\src\\shared-docs"
-]
-}
-}
-}
-Allow selected commands while still asking before file writes:
-JSON
-{
-"locations": {
-"/Users/<name>/src/my-repo": {
-"tool_approvals": [
-{
-"kind": "commands",
-"commandIdentifiers": [
-"git status",
-"git diff",
-"git log",
-"npm test",
-"npm run build"
-]
-}
-]
-}
-}
-}
-{
-"locations"
-:
-{
-"/Users/<name>/src/my-repo"
-:
-{
-"tool_approvals"
-:
-[
-{
-"kind"
-:
-"commands"
-,
-"commandIdentifiers"
-:
-[
-"git status"
-,
-"git diff"
-,
-"git log"
-,
-"npm test"
-,
-"npm run build"
-]
-}
-]
-}
-}
-}
-Approve file writes and one MCP server for a repository:
-JSON
-{
+Model settings
+Each entry in
+models
+accepts the following fields. Only
+id
+and
+provider
+are required.
+Field
+Type
+Required
+Default
+Description
+models[].id
+String
+Yes
+None
+The model identifier used in the CLI. Must be unique within its provider. Also used as the provider&#x27;s model name unless
+wireModel
+is set.
+models[].provider
+String
+Yes
+None
+Must match the
+name
+of an entry in
+providers
+.
+models[].wire
+Model
+String
+No
+Value of
+id
+The model or deployment name sent to the provider. Use this when the provider expects a different name from the ID you want to select in the CLI.
+models[].modelId
+String
+No
+Value of
+id
+The model identity used to look up the CLI&#x27;s model-specific behavior and defaults. For an alias or deployment name, set this to the underlying model&#x27;s recognized ID. This does not change the model name sent to the provider.
+models[].name
+String
+No
+PROVIDER-NAME/
+MODEL-ID
+A display name for the model. Does not change its selection ID.
+models[].max
+Prompt
+Tokens
+Integer
+No
+Model-dependent, otherwise
+128000
+The input token budget. Use a positive whole number that matches your model and deployment.
+models[].max
+Context
+Window
+Tokens
+Integer
+No
+Known model limit, otherwise unset
+The total context-window limit, including input and output tokens. Set this for models whose limit the CLI does not know.
+models[].max
+Output
+Tokens
+Integer
+No
+Model- and provider-dependent
+The output token budget. The provider and the model&#x27;s reasoning requirements can further constrain the output.
+models[].capabilities
+Object
+No
+Model defaults
+Describes supported features and limits. See
+Model capabilities
+.
+models[].system
+Message
+Object
+No
+Standard CLI instructions
+Adds to, replaces, or customizes the system instructions for this model. See
+Model system messages
+.
+models[].metadata
+Object
+No
+Unset
+Additional descriptive data, including information saved when a model is discovered. See
+Model metadata
+.
+The three token-limit fields accept whole numbers from
+0
+to
+4294967295
+. Use positive values appropriate for your deployment rather than relying on
+0
+as a way to disable a limit. These settings tell the CLI what limits to use, but do not increase the model&#x27;s actual capacity.
+Model capabilities
+The
+models[].capabilities
+object describes the model. Setting a feature to
+true
+does not add that feature to a model that does not support it.
+Field
+Type
+Description
+models[].capabilities.family
+String
+Descriptive model-family identifier. Use
+modelId
+, not this field, to choose the CLI&#x27;s model-specific behavior.
 [snapshot truncated]

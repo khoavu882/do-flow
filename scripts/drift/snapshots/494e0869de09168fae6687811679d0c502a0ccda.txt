@@ -33,6 +33,10 @@ UserPromptSubmit
 SubagentStop
 ,
 Stop
+For each model request attempt
+PreModelRequest
+,
+PostModelRequest
 When you interrupt an active turn
 Interrupt
 (doesn’t run for subagents)
@@ -710,9 +714,16 @@ and
 CLAUDE_PLUGIN_DATA
 for
 compatibility with existing plugin hooks.
-Plugin hooks use the same event schema as other hooks. Installing or enabling a
-plugin doesn’t automatically trust its hooks; Codex skips plugin-bundled hooks
-until you review and trust the current hook definition.
+Plugin hooks use the same event schema as other hooks. Review and trust them
+before they run. In the CLI, open
+/hooks
+. In the desktop app, select
+Review hooks
+in the composer or open
+Settings > Hooks
+.
+If a plugin update changes a bundled script,
+Codex requires a new review even if the hook definition stays the same.
 Matcher patterns
 The
 matcher
@@ -749,6 +760,11 @@ Values are
 manual
 or
 auto
+PreModelRequest
+,
+PostModelRequest
+not supported
+Both events run for each model request attempt
 PreCompact
 compaction trigger
 Values are
@@ -906,27 +922,4 @@ Current hook event name
 model
 string
 Codex-specific extension. Active model slug
-Turn-scoped hooks list
-turn_id
-as a Codex-specific extension in their
-event-specific tables.
-SessionStart
-,
-PreToolUse
-,
-PermissionRequest
-,
-PostToolUse
-,
-UserPromptSubmit
-,
-SubagentStart
-,
-SubagentStop
-,
-Stop
-, and
-Interrupt
-also include
-permission_mode
 [snapshot truncated]

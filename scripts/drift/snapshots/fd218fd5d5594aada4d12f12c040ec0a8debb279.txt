@@ -465,7 +465,7 @@ opencode.json
 The model ID in your OpenCode config uses the format
 provider/model-id
 . For example, if you’re using
-OpenCode Zen
+OpenCode Models
 , you would use
 opencode/gpt-6.1-sol
 for GPT-6.1 Sol.
@@ -1012,5 +1012,4 @@ Build agent
 Plan agent
 : Analysis and planning without making changes
 Review agent
-: Code review with read-only access plus documentation tools
 [snapshot truncated]

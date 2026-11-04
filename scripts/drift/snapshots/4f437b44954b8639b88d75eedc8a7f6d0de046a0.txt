@@ -61,6 +61,8 @@ MessageDisplay output
 PreToolUse
 PreToolUse input
 PreToolUse decision control
+PreToolUse updatedInput in auto mode
+PreToolUse ask decisions in auto mode
 Tools that require user interaction
 Defer a tool call for later
 PermissionRequest
@@ -761,5 +763,4 @@ setting can’t disable managed hooks from outside managed settings.
 The
 HTTP hook allowlists
 apply to hooks from every source, including managed policy settings:
-allowedHttpHookUrls
 [snapshot truncated]

@@ -265,7 +265,12 @@ commands, run
 codex mcp --help
 . For a server that supports OAuth, run
 codex mcp login <server-name>
-.
+. If you’re using a terminal without a local
+browser, run
+codex mcp login <server-name> --no-browser
+. Open the printed
+authorization URL in a browser and sign in. Paste the full redirect URL back
+into the terminal, even if the browser can’t load the callback page.
 Terminal UI (TUI)
 In the
 codex
@@ -314,11 +319,6 @@ env_vars
 (optional): Environment variables to allow and forward.
 cwd
 (optional): Working directory to start the server from.
-experimental_environment
-(optional): Set to
-remote
-to start the stdio
-server through a remote executor environment when one is available.
 env_vars
 can contain plain variable names or objects with a source:
 env_vars = [
@@ -381,6 +381,12 @@ codex mcp login <server-name>
 separately to start an MCP
 OAuth login.
 Other configuration options
+environment_id
+selects the environment for a stdio or Streamable HTTP
+server. It defaults to
+local
+. To connect through a remote executor, use
+its registered environment ID.
 startup_timeout_sec
 (optional): Timeout (seconds) for the server to start. Default:
 10
@@ -393,10 +399,17 @@ enabled
 (optional): Set
 false
 to disable a server without deleting it.
-required
-(optional): Set
-true
-to make startup fail if this enabled server can’t initialize.
+Set
+required = true
+to make startup fail if this enabled server isn’t
+ready. By default,
+startup_readiness = "connection"
+requires a live connection.
+Set
+startup_readiness = "catalog"
+to let a valid cached tool catalog
+satisfy startup while the server connects. Tool calls still need a live
+connection.
 enabled_tools
 (optional): Tool allow list.
 disabled_tools
@@ -446,27 +459,4 @@ https://mcp.example.com
 --oauth-client-id
 my-client
 For a confidential client, also pass
---oauth-client-secret
-. Read the secret
-from an environment variable:
-codex
-mcp
-add
-example
---url
-https://mcp.example.com
---oauth-client-id
-my-client
---oauth-client-secret
-"
-$MCP_CLIENT_SECRET
-"
-This option requires a nonempty client ID and secret. Codex saves the secret as
-mcp_servers.example.oauth.client_secret
-in
-config.toml
-. Keep that file
-private and out of version control.
-Codex displays the complete callback URL to register with your provider:
-OAuth callback URL: http://127.0.0.1/callback
 [snapshot truncated]

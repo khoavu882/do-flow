@@ -1,6 +1,6 @@
 In this article
 GitHub Copilot hooks reference
-Find hook events, configuration formats, and input payloads for hooks in Copilot CLI and Copilot cloud agent.
+Find hook events, configuration formats, and input payloads for hooks in Copilot CLI and Copilot in the cloud.
 Copy markdown
 In this article
 Introduction
@@ -21,7 +21,7 @@ Disable all hooks
 Further reading
 Introduction
 Hooks are external commands that execute at specific lifecycle points during a session, enabling custom automation, security controls, and integrations.
-Hooks are supported in two Copilot surfaces: Copilot CLI and Copilot cloud agent. Most of the configuration format and event payloads are identical, but the execution environment and the set of events that can fire differ.
+Hooks are supported in two Copilot surfaces: Copilot CLI and Copilot in the cloud. Most of the configuration format and event payloads are identical, but the execution environment and the set of events that can fire differ.
 Throughout this article, behavior that differs between the two surfaces is called out in "CLI only" and "Cloud agent only" notes. Anything not marked applies to both.
 Hooks locations
 The locations where hooks run, and where you can store hook configuration files, depend on the surface:
@@ -80,7 +80,7 @@ hooks.json
 (or under
 hooks/hooks.json
 ) inside the plugin&#x27;s installation directory.
-Copilot cloud agent
+Copilot in the cloud
 — hooks run inside the ephemeral Linux sandbox that cloud agent provisions for each job. The sandbox is non-interactive, has a constrained network, and is destroyed when the job ends. A subset of events fires, and only
 bash
 (or
@@ -92,7 +92,7 @@ files in the cloned repository.
 Policy hooks
 Note
 Copilot CLI only.
-Policy hooks are not supported under Copilot cloud agent.
+Policy hooks are not supported under Copilot in the cloud.
 Policy hooks are machine-wide hooks loaded by administrators. They load before all other hooks and cannot be disabled by
 disableAllHooks
 .
@@ -175,7 +175,7 @@ Unsupported
 Remote or organization-hosted agent definitions do not run scoped hooks.
 Cloud agent execution environment
 This section applies to
-Copilot cloud agent only
+Copilot in the cloud only
 . It describes constraints that affect how you write hook scripts and configure hook entries for cloud agent jobs.
 Property
 Value
@@ -203,7 +203,7 @@ Restricted by the cloud agent firewall. By default only GitHub and Copilot hostn
 https:/
 /
 hooks.example.com
-) requires an admin-configured firewall allow rule.
+) requires an admin-configured firewall allow rule. The cloud agent firewall applies only to Copilot in the cloud jobs.
 Available environment variables
 GITHUB_COPILOT_
 API_TOKEN
@@ -719,8 +719,4 @@ matcher
 regex pattern (the value of the
 matcher
 field) on
-notification_type
-.
-Optional — can inject
-additionalContext
 [snapshot truncated]

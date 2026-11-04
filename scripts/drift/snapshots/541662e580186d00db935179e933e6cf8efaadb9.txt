@@ -43,13 +43,11 @@ multi-step workflows
 example, “How to run database migrations”).
 Where rules are stored
 Section titled “Where rules are stored”
-Antigravity discovers rules across multiple scopes, listed below in order of
-precedence (highest to lowest). Rules are
+Antigravity discovers rules in two scopes: your workspace, including parent
+folders up to the repository root, and your global configuration. Rules are
 cumulative
-rather than
-replacement-based: Antigravity combines all discovered rules across global,
-workspace, and directory scopes into the prompt. When instructions conflict,
-more specific directory rules take priority.
+rather than replacement-based: Antigravity combines all the rules
+it finds into the prompt.
 Directory-scoped rules
 Section titled “Directory-scoped rules”
 You can place an
@@ -58,11 +56,8 @@ or
 GEMINI.md
 file—or a
 .agents/rules/
-directory—in
-any subdirectory
-of your project. Whenever Antigravity reads or
-edits a file, it walks up the directory tree from that file’s folder to the
-workspace root, loading rules at each level:
+directory—in your workspace folder and in any parent folder up to the
+repository root. Antigravity loads rules at each of these levels:
 &#x3C;dir>/AGENTS.md
 or
 &#x3C;dir>/GEMINI.md
@@ -73,6 +68,10 @@ or
 (and legacy
 &#x3C;dir>/.agent/rules/*.md
 )
+Antigravity doesn’t load rules from subfolders below the workspace folder, even
+when the agent reads or edits files there. For details, see
+Customization discovery
+.
 Global rules
 Section titled “Global rules”
 Global rules apply across
@@ -116,7 +115,7 @@ Antigravity treats
 its entire content as plain Markdown and keeps it continuously active
 (
 always_on
-) for its directory scope.
+).
 Every
 .md
 file inside
@@ -263,9 +262,11 @@ manual
 @
 mention only)
 : Antigravity never loads these
-rules automatically. The agent injects the rule only when you explicitly
+rules automatically. Antigravity adds the rule to your message only when you
 @
--mention it in chat (ideal for release checklists or audit rubrics).
+-mention it
+(ideal for release checklists or audit
+rubrics). The Antigravity CLI doesn’t support rule mentions.
 Advanced features and limits
 Section titled “Advanced features and limits”
 File includes
@@ -338,17 +339,19 @@ create
 : [
 "deprecated_rules.md"
 ,
-"legacy/"
-] },
+"draft_rules.md"
+]
+},
 {
 "path"
 :
-"rules"
+".agents/rules"
 ,
 "include_only"
 : [
 "frontend/react.md"
-] }
+]
+}
 ]
 }
 Size limits and token budgets
@@ -405,15 +408,19 @@ AGENTS.md
 GEMINI.md
 , or
 .agents/rules/*.md
-in your
-workspace root or any project subdirectory.
+in a
+project folder or any parent folder up to the repository root.
 Global rules
 :
 ~/.gemini/AGENTS.md
 ,
 ~/.gemini/GEMINI.md
-, or modular
-rules in
+,
+~/.gemini/config/AGENTS.md
+,
+~/.gemini/config/GEMINI.md
+, or modular rules
+in
 ~/.gemini/config/rules/*.md
 .
 Antigravity CLI
@@ -429,21 +436,28 @@ AGENTS.md
 GEMINI.md
 , or
 .agents/rules/*.md
-at the repository root or in subdirectories.
+in the folder where you start
+agy
+or any parent folder
+up to the repository root.
 Global rules
 :
 ~/.gemini/AGENTS.md
 ,
 ~/.gemini/GEMINI.md
 ,
-~/.gemini/config/rules/*.md
+~/.gemini/config/AGENTS.md
+,
+~/.gemini/config/GEMINI.md
 , or
-~/.gemini/antigravity-cli/rules/*.md
+~/.gemini/config/rules/*.md
 .
 Plugin rules
 : Antigravity automatically activates rules packaged inside
-installed plugins under
-~/.gemini/antigravity-cli/plugins/&#x3C;plugin_name>/rules/
+installed
+plugins
+under
+~/.gemini/config/plugins/&#x3C;plugin-folder>/rules/
 .
 Antigravity IDE &#x26; Extensions
 Section titled “Antigravity IDE &#x26; Extensions”
@@ -473,8 +487,8 @@ AGENTS.md
 GEMINI.md
 , or
 .agents/rules/*.md
-within
-your project or subdirectories.
+in your
+project folder or any parent folder up to the repository root.
 Global rules
 :
 ~/.gemini/AGENTS.md
@@ -484,9 +498,9 @@ Global rules
 ~/.gemini/config/rules/*.md
 .
 Previous
-Agent skills
-Next
 IDE workflows
+Next
+Build plugins
 About Google
 Google Products
 Privacy

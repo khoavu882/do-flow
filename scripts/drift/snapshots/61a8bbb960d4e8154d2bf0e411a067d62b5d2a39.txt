@@ -43,6 +43,10 @@ Monitoring
 : You can directly monitor the progress of any subagent by clicking into its conversation in the subagent panel or pressing
 Alt+J
 in the CLI.
+Direct messages
+: To give a subagent new instructions without going through the parent agent, open its conversation and type in its message box. Refer to
+Mentions and quoting
+.
 Built-in subagents
 Section titled “Built-in subagents”
 Antigravity comes pre-packaged with several specialized subagents out of the box:
@@ -311,19 +315,19 @@ challenges, and non-trivial refactoring within interactive coding sessions
 Boost documentation
 .
 Multi-agent teamwork (
-/teamwork-preview
+/teamwork
 )
-Section titled “Multi-agent teamwork (/teamwork-preview)”
+Section titled “Multi-agent teamwork (/teamwork)”
 Note
 Plan availability
 : The
-/teamwork-preview
+/teamwork
 command is available on
 paid
 plans
 across the Google Antigravity App and the Antigravity CLI.
 Using
-/teamwork-preview
+/teamwork
 coordinates a team of specialized AI
 agents designed for large software projects, multi-file refactoring, and complex
 research. The team handles milestone decomposition, parallel implementation,
@@ -417,6 +421,15 @@ Inspect the subagent’s entire reasoning log, including its private internal th
 Press
 Esc
 to exit and return to the main Agent Manager list.
+Sending a message to a subagent
+Section titled “Sending a message to a subagent”
+To give a subagent new instructions without going through the parent agent, start your prompt with
+@
+followed by the subagent’s name and your message, such as
+@research:API-Key-Header-Researcher Also check the tests.
+Refer to
+Mentions and quoting
+.
 Monitoring background tasks with
 /tasks
 Section titled “Monitoring background tasks with /tasks”
@@ -473,7 +486,7 @@ Boost deep reasoning (
 )
 : Explore on-demand multi-agent reasoning.
 Teamwork agent teams (
-/teamwork-preview
+/teamwork
 )
 : Launch collaborative multi-agent teams for long-horizon projects.
 Settings, rendering, and keybindings
@@ -485,9 +498,9 @@ Plugins and skills
 Slash commands catalog
 : Review all available slash commands across Antigravity surfaces.
 Previous
-IDE workflows
+/voice
 Next
-Lifecycle hooks
+Customization discovery
 About Google
 Google Products
 Privacy

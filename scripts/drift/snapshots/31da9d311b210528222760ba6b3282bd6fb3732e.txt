@@ -314,19 +314,23 @@ project_root_markers = []
 to skip searching parent directories and treat the current working directory as the project root.
 Custom model providers
 If your organization provides a model gateway, follow
-Sign in with ChatGPT through a gateway
-or
-Use API/provider credentials
+Connect to a gateway
 for client setup and verification. For organization-wide deployment, see
 Roll out a gateway
 .
-A model provider defines how Codex connects to a model (base URL, wire API, authentication, and optional HTTP headers). Custom providers can’t reuse the reserved built-in provider IDs:
+A model provider defines how Codex connects to a model (base URL, wire API, authentication, and optional HTTP headers). Choose a unique ID for custom providers. Codex reserves
 openai
 ,
 ollama
-, and
+,
 lmstudio
-.
+,
+amazon-bedrock
+,
+amazon-bedrock-runtime
+, and
+gcp
+for its built-in providers.
 Define more providers and point
 model_provider
 at them:
@@ -417,6 +421,17 @@ http_headers = { "X-Example-Header" =
 env_http_headers = { "X-Example-Features" =
 "EXAMPLE_FEATURES"
 }
+For browser sign-in through your organization’s identity provider, use
+native gateway OAuth
+.
+Configure
+[model_providers.<id>.gateway_oauth]
+with the authorization and token
+URLs, public client ID, and token delivery settings. This works with
+requires_openai_auth = false
+; ChatGPT sign-in, PowerShell, the Azure CLI, and
+an external credential helper aren’t required. The gateway must accept the OAuth
+token in the configured cookie or custom header.
 Use command-backed authentication when a provider needs Codex to fetch bearer tokens from an external credential helper:
 [
 model_providers
@@ -463,12 +478,16 @@ experimental_bearer_token
 requires_openai_auth
 .
 Amazon Bedrock provider
-Codex includes a built-in
-amazon-bedrock
-model provider. Set it directly as
+Set
 model_provider
-; unlike custom providers, this built-in provider supports only
-the nested AWS profile and region overrides.
+to
+amazon-bedrock
+for the Bedrock Mantle endpoint or
+amazon-bedrock-runtime
+for the Runtime endpoint. To select the AWS credentials
+and region for Mantle, configure its
+aws
+table.
 model_provider =
 "amazon-bedrock"
 model =
@@ -493,6 +512,58 @@ For the full setup flow, authentication options, supported models, and feature
 availability, see
 Use ChatGPT Work and Codex with Amazon
 Bedrock
+.
+Google Cloud Vertex AI provider
+To use a model your project can access on Vertex AI, set the built-in provider in
+config.toml
+.
+model_provider =
+"gcp"
+[
+model_providers
+.
+gcp
+]
+project_id =
+"my-project"
+location =
+"global"
+If you omit
+project_id
+or
+location
+, Codex reads
+GOOGLE_CLOUD_PROJECT
+or
+GOOGLE_CLOUD_LOCATION
+, respectively. The location defaults to
+global
+.
+To use default authentication, install the Google Cloud CLI on the machine
+running Codex. To sign in locally, run
+gcloud auth application-default login
+.
+Codex runs
+gcloud auth application-default print-access-token
+to obtain
+access tokens.
+To use a specific ADC file, set
+credential_file
+to its absolute path under
+[model_providers.gcp]
+. Codex sets
+GOOGLE_APPLICATION_CREDENTIALS
+to that
+path for the authentication command.
+If your deployment uses a different endpoint, token command, or static
+headers, configure
+base_url
+,
+auth
+, or
+http_headers
+under
+[model_providers.gcp]
 .
 OSS mode (local providers)
 Codex can run against a local “open source” provider such as Ollama or LM
@@ -564,9 +635,6 @@ model_reasoning_summary =
 model_verbosity =
 "low"
 # Shorten responses
-model_supports_reasoning_summaries =
-true
-# Force reasoning
 model_context_window =
 128000
 # Context window size
@@ -630,68 +698,4 @@ false
 [
 sandbox_workspace_write
 ]
-exclude_tmpdir_env_var =
-false
-# Allow $TMPDIR
-exclude_slash_tmp =
-false
-# Allow /tmp
-writable_roots = [
-"/Users/<name>/.pyenv/shims"
-]
-network_access =
-false
-# Opt in to outbound network
-[
-auto_review
-]
-policy =
-"""
-Use your organization's automatic review policy.
-"""
-Named permission profiles
-For built-in profiles, custom profile syntax, and the full filesystem and
-network configuration model, see
-Permissions
-.
-For the complete key list and requirements constraints, see
-Configuration Reference
-and
-Managed configuration
-.
-In workspace-write mode, some environments keep
-.git/
-,
-.agents/
-,
-.codex/
-, and
-.aws/
-read-only even when the rest of the workspace is
-writable. This is why commands like
-git commit
-may still require approval to
-run outside the sandbox. If you want Codex to skip specific commands (for
-example, block
-git commit
-outside the sandbox), use
-rules
-.
-Disable sandboxing entirely (use only if your environment already isolates processes):
-sandbox_mode =
-"danger-full-access"
-Shell environment policy
-shell_environment_policy
-controls which environment variables Codex passes to
-spawned commands. Start with an empty environment using
-inherit = "none"
-, or
-inherit a trimmed set using
-inherit = "core"
-. Add explicit values and keyed
-filters to avoid passing unnecessary secrets to spawned commands.
-[
-shell_environment_policy
-]
-inherit =
 [snapshot truncated]
