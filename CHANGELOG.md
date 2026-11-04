@@ -15,6 +15,11 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+## [2.0.3] - 2026-11-05
+
+### Changed
+- **Upstream drift review (issue #71):** 50 watched pages across the eight harness doc sets were reviewed against the facts DoFlow records; the drift baseline is refreshed (`npm run drift -- --update`, now `drifted=0`). Two recorded facts changed. The Antigravity CLI docs now also list `~/.gemini/skills/` and `~/.gemini/antigravity-cli/skills/` as global skills paths; the install target `~/.gemini/config/skills` is unchanged and was confirmed to load on agy 1.5.0 (note in `harnesses.json` and `docs/setup.md`). The Codex event table records the new `PreModelRequest` and `PostModelRequest` hook events as not wired.
+
 ## [2.0.2] - 2026-11-05
 
 ### Added
