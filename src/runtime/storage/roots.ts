@@ -31,16 +31,9 @@ function createPruneSettingsResolver({ roots, fsImpl = fs, onView }: any = {}): 
     if (!loadedView) {
       loadedView = true;
       try {
-        let settingsRegistry;
-        if (fsImpl !== fs) {
-          const { loadSettingsRegistry } = require('../settings/registry.ts');
-          const loaded = loadSettingsRegistry({ fsImpl });
-          if (!loaded.ok) throw new Error(loaded.detail);
-          settingsRegistry = loaded.registry;
-        }
-        const { loadSettings } = require('../settings/resolve.ts');
+        const { loadSettings, registryOn } = require('../settings/resolve.ts');
         const projectRoot = roots['project-doflow'] ? path.dirname(roots['project-doflow']) : null;
-        view = loadSettings({ projectRoot, env: resolverEnv, fsImpl, ...(settingsRegistry ? { registry: settingsRegistry } : {}) });
+        view = loadSettings({ projectRoot, env: resolverEnv, fsImpl, ...registryOn(fsImpl) });
       } catch {
         // A settings registry fault fails closed for every root, as it did for each old call.
         view = null;
@@ -69,15 +62,8 @@ function readPruneSetting({ roots, rootId, fsImpl = fs }: any = {}): { setting: 
   const resolverEnv: Record<string, string> = {};
   if (roots['config-home']) resolverEnv.XDG_CONFIG_HOME = path.dirname(roots['config-home']);
   try {
-    let settingsRegistry;
-    if (fsImpl !== fs) {
-      const { loadSettingsRegistry } = require('../settings/registry.ts');
-      const loaded = loadSettingsRegistry({ fsImpl });
-      if (!loaded.ok) throw new Error(loaded.detail);
-      settingsRegistry = loaded.registry;
-    }
-    const { loadSettings } = require('../settings/resolve.ts');
-    const view = loadSettings({ projectRoot, global, env: resolverEnv, fsImpl, ...(settingsRegistry ? { registry: settingsRegistry } : {}) });
+    const { loadSettings, registryOn } = require('../settings/resolve.ts');
+    const view = loadSettings({ projectRoot, global, env: resolverEnv, fsImpl, ...registryOn(fsImpl) });
     const resolved = view.get('storage.prune', global ? 'global' : 'project');
     return {
       setting: resolved.value === 'on' ? 'on' : 'off',

@@ -18,7 +18,7 @@
 
 const nodeFs = require('node:fs');
 const { isDeepStrictEqual } = require('node:util');
-const { loadSettings } = require('../settings/resolve.ts');
+const { loadSettings, registryOn } = require('../settings/resolve.ts');
 const { foldInto, finalize, EVENT_TYPES } = require('./fold.ts');
 
 const HOUR_MS = 3600000;
@@ -53,14 +53,7 @@ function retentionWindow({ env = process.env, projectRoot, fsImpl = nodeFs }: an
   const parsed = parseWindow(env);
   if (parsed.state === 'invalid') return parsed;
   try {
-    let settingsRegistry;
-    if (fsImpl !== nodeFs) {
-      const { loadSettingsRegistry } = require('../settings/registry.ts');
-      const loaded = loadSettingsRegistry({ fsImpl });
-      if (!loaded.ok) throw new Error(loaded.detail);
-      settingsRegistry = loaded.registry;
-    }
-    const view = loadSettings({ projectRoot, env, fsImpl, ...(settingsRegistry ? { registry: settingsRegistry } : {}) });
+    const view = loadSettings({ projectRoot, env, fsImpl, ...registryOn(fsImpl) });
     const retention = view.get('storage.retentionHours', 'project');
     if (retention.state === 'invalid') return { state: 'invalid', raw: invalidRaw(retention, env) };
     if (retention.explicit) {
