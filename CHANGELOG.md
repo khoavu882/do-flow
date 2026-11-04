@@ -15,6 +15,27 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+## [2.0.2] - 2026-11-05
+
+### Added
+- **Nine-section `data-model.md` template (feature 139):** the template now has a domain inventory and data dictionary, one lifecycle per stateful entity (state diagram plus transition and illegal-transition tables), cross-entity coupling, invariants, an ownership matrix, an event catalogue, and retention, PII and migration. Every row names its Source (`FR-###`, `NFR-###`, `IC-###`, `code:<path>:<line>` or `proposed`); a `proposed` row is copied to design.md Open Points. A worked example loads on demand from `do-design/references/data_model_example.md`. Guard G18 checks entity coverage, state parity and Source cells. The `feature` context rail rises to 248,726 bytes.
+- **The review package carries the must-carry rules block** (FU-txy416).
+
+### Changed
+- **`update` without `-t` acts on the harnesses already installed** (it installed claude into a project that had only codex).
+- **`remove` deletes the instruction files DoFlow created** (pi, opencode, copilot; `opencode.json` when it is left empty), and a whitespace-only leftover counts as absent on the next install; `status` stops listing a removed harness.
+- **Every `advice.*` setting is security-relevant:** `config set` and `config unset` refuse all of them, as the docs already said. `config set` writes through a symlinked settings file and keeps the link; a link pointing outside the project is refused. A rewrite that would change a number of more than 15 digits is refused.
+- **Release detection:** an unrecorded tag takes a feature out of a release only when it is stable and earlier than the tag being recorded.
+- **Roadmap rows of a class the loop does not run** show Status `manual`.
+
+### Fixed
+- **macOS path aliasing:** a project installed through `/var/...` and updated, reconciled or removed from `/private/var/...` no longer fails; the project root is canonical.
+- **`remove -t pi` over a project installed by v1.14.2 or 0fcd973** no longer fails verification.
+- **Antigravity `remove` restores `AGENTS.md` byte for byte** (each cycle used to add a newline); a stale `~/.gemini/bin/doflow-run` shim is retired when it matches a known legacy hash.
+- **Storage and locks:** stale tmp unlinks count against the removal cap; the semantic lock is not reclaimed while its Python child lives; foreign report folders are kept when their root is missing.
+- **Shared perf fixtures** reach the policy main path; the Pi advisory row is marked unverified; the unread `foreignMaxAgeDays` key is gone.
+- About one hundred smaller follow-up fixes from the 2026-11-04 sweeps (FU-ids in the commit subjects), mostly guard, test-isolation, parser and error-message corrections.
+
 ## [2.0.1] - 2026-11-03
 
 ### Added

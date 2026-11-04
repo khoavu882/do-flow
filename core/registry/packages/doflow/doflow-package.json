@@ -1,9 +1,9 @@
 {
   "manifest": 1,
   "id": "doflow",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "summary": "DoFlow first-party presets",
-  "doflow": "=2.0.1",
+  "doflow": "=2.0.2",
   "contributions": [
     {
       "point": "debate-preset",
