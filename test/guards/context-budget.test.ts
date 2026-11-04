@@ -218,7 +218,8 @@ test('G13: controls — the overhead bound binds (a bound of 0 turns the real re
 // ── G13 (same budget family): loaded context per representative task ─────────────────────────────
 //
 // The always-loaded ceiling above measures what every session pays before typing; this measures
-// what a TASK pays end-to-end — the SKILL.md entry plus every references/*.md that entry names,
+// what a TASK pays end-to-end — the SKILL.md entry plus every references/*.md that entry names (by bare
+// name or by another skill's path, e.g. ../do-document/references/x.md; each resolved file counts once),
 // summed over the unique skills a task class's resolved workflow stages invoke (review A3: "the
 // existing always-loaded guidance budget … does not measure end-to-end skill loading"). Unlike the
 // exact ceiling above, these are loose drift rails, not byte-for-byte pins: skills are edited
@@ -251,35 +252,75 @@ test('G13: controls — the overhead bound binds (a bound of 0 turns the real re
 // supports per-call model selection — stated so a tier is never claimed applied that the host could
 // not set, and kept in the reference (not the capped skill) so it costs the skill window nothing.
 const TASK_CONTEXT_RAILS: any = new Map([
-  ['feature', 237560], // AU-P5 raise (trimmed): the Unattended stage section in WORKFLOW_HANDOFF.md and one attendance line per stage skill, measured 237,522 B. journey-first design.md raise: ARTIFACT_FORMAT.md names the design.md section order and the Concepts/Journeys slots (G13 counts it in full), plus title-based section references in do-design, do-plan and scaffold.md, measured 234,812 B (+1,493 over 233,319). 135 raise: do-execute-plan's parallel_dispatch.md branches on the hand-back status enum (one line), measured 233,319 B. 134 raise: do-plan step 6 records an overlay's MUST downgrade, measured 233,130 B. 134 raise: the constitution MUST gate (do-plan step 6 and DOFLOW_CHAIN.md's two-tier table), measured 233,051 B. 134 raise: do-plan's self-review step (plan-check findings) and the brainstorm round log's coverage line, measured 232,243 B. 131 raise (G75 one-hop fix): do-execute-plan's SKILL.md names the evidence item schema task_attempts.md used to point at, and scaffold.md gains a contents list, measured 231,801 B. 131 raise: three skills' step detail moved into their own references/ (G13 counts each named reference in full, plus the pointer lines), measured 231,536 B. E.1 raise: do-code-review review-findings contract, measured 230,329 B; 046 raise is new prose; 2026-10-12 raises are the archetype dispatch-tier table and the model-tier enforceability note; 080 raise is the task-graph claim/resume flow; 080 review adds report-usage and control refusals (DEC-024)
-  ['dependency-change', 96490], // AU-P5 raise (trimmed): the Unattended stage section in WORKFLOW_HANDOFF.md and one attendance line per stage skill, measured 96,451 B. 134 raise: do-diagnose's Red Flags table (one row from recorded bench failure do-diagnose/1), measured 94,539 B. 131 raise (G75 one-hop fix): do-document's SKILL.md now names RESEARCH_CONFIG.md, which deep_research.md used to point at (G13 had not counted that second hop), measured 94,071 B. 131 raise: do-code-review's tools moved to references/tools.md (pointer line), measured 92,814 B. E.1 raise: do-code-review review-findings contract, measured 85,445 B; 132 raise: do-document names ARTIFACT_VOICE.md (G13 counts it in full), measured 92,734 B
-  ['bug', 72860], // AU-P5 raise (trimmed): the Unattended stage section in WORKFLOW_HANDOFF.md and one attendance line per stage skill, measured 72,817 B. 134 raise: do-diagnose's Red Flags table (one row from recorded bench failure do-diagnose/1), measured 71,044 B
-  ['refactor', 72860], // AU-P5 raise (trimmed): the Unattended stage section in WORKFLOW_HANDOFF.md and one attendance line per stage skill, measured 72,817 B. 134 raise: same do-diagnose table, measured 71,044 B
-  ['documentation', 65800], // AU-P5 raise (trimmed): the Unattended stage section in WORKFLOW_HANDOFF.md and one attendance line per stage skill, measured 65,756 B. 131 raise (G75 one-hop fix): do-document's SKILL.md now names RESEARCH_CONFIG.md, which deep_research.md used to point at (G13 had not counted that second hop), measured 64,179 B. 131 raise: do-code-review's tools moved to references/tools.md (pointer line), measured 62,922 B. 132 raise: do-document names ARTIFACT_VOICE.md (G13 counts it in full) and gains the rewrite clause, measured 62,802 B; before that under 57,000 B
-  ['operations', 54750], // AU-P5 raise (trimmed): the Unattended stage section in WORKFLOW_HANDOFF.md and one attendance line per stage skill, measured 54,705 B. 131 raise (G75 one-hop fix): do-document's SKILL.md now names RESEARCH_CONFIG.md, which deep_research.md used to point at (G13 had not counted that second hop), measured 53,401 B. 132 raise: do-document names ARTIFACT_VOICE.md (G13 counts it in full), measured 52,100 B; before that under 45,000 B
-  ['review', 42160], // AU-P5 raise (trimmed): the Unattended stage section in WORKFLOW_HANDOFF.md and one attendance line per stage skill, measured 42,122 B.
+  ['feature', 242720], // FU-dbc1b9 raise: a reference named by a cross-skill path (../do-document/references/embedded-research.md, 5,174 B) now counts once per workflow, measured 242,716 B; earlier numbers below predate it. AU-P5 raise (trimmed): the Unattended stage section in WORKFLOW_HANDOFF.md and one attendance line per stage skill, measured 237,522 B. journey-first design.md raise: ARTIFACT_FORMAT.md names the design.md section order and the Concepts/Journeys slots (G13 counts it in full), plus title-based section references in do-design, do-plan and scaffold.md, measured 234,812 B (+1,493 over 233,319). 135 raise: do-execute-plan's parallel_dispatch.md branches on the hand-back status enum (one line), measured 233,319 B. 134 raise: do-plan step 6 records an overlay's MUST downgrade, measured 233,130 B. 134 raise: the constitution MUST gate (do-plan step 6 and DOFLOW_CHAIN.md's two-tier table), measured 233,051 B. 134 raise: do-plan's self-review step (plan-check findings) and the brainstorm round log's coverage line, measured 232,243 B. 131 raise (G75 one-hop fix): do-execute-plan's SKILL.md names the evidence item schema task_attempts.md used to point at, and scaffold.md gains a contents list, measured 231,801 B. 131 raise: three skills' step detail moved into their own references/ (G13 counts each named reference in full, plus the pointer lines), measured 231,536 B. E.1 raise: do-code-review review-findings contract, measured 230,329 B; 046 raise is new prose; 2026-10-12 raises are the archetype dispatch-tier table and the model-tier enforceability note; 080 raise is the task-graph claim/resume flow; 080 review adds report-usage and control refusals (DEC-024)
+  ['dependency-change', 101620], // FU-dbc1b9 raise: a reference named by a cross-skill path (../do-document/references/embedded-research.md, 5,174 B) now counts once per workflow, measured 101,619 B; earlier numbers below predate it. AU-P5 raise (trimmed): the Unattended stage section in WORKFLOW_HANDOFF.md and one attendance line per stage skill, measured 96,451 B. 134 raise: do-diagnose's Red Flags table (one row from recorded bench failure do-diagnose/1), measured 94,539 B. 131 raise (G75 one-hop fix): do-document's SKILL.md now names RESEARCH_CONFIG.md, which deep_research.md used to point at (G13 had not counted that second hop), measured 94,071 B. 131 raise: do-code-review's tools moved to references/tools.md (pointer line), measured 92,814 B. E.1 raise: do-code-review review-findings contract, measured 85,445 B; 132 raise: do-document names ARTIFACT_VOICE.md (G13 counts it in full), measured 92,734 B
+  ['bug', 77990], // FU-dbc1b9 raise: a reference named by a cross-skill path (../do-document/references/embedded-research.md, 5,174 B) now counts once per workflow, measured 77,985 B; earlier numbers below predate it. AU-P5 raise (trimmed): the Unattended stage section in WORKFLOW_HANDOFF.md and one attendance line per stage skill, measured 72,817 B. 134 raise: do-diagnose's Red Flags table (one row from recorded bench failure do-diagnose/1), measured 71,044 B
+  ['refactor', 77990], // FU-dbc1b9 raise: a reference named by a cross-skill path (../do-document/references/embedded-research.md, 5,174 B) now counts once per workflow, measured 77,985 B; earlier numbers below predate it. AU-P5 raise (trimmed): the Unattended stage section in WORKFLOW_HANDOFF.md and one attendance line per stage skill, measured 72,817 B. 134 raise: same do-diagnose table, measured 71,044 B
+  ['documentation', 70930], // FU-dbc1b9 raise: a reference named by a cross-skill path (../do-document/references/embedded-research.md, 5,174 B) now counts once per workflow, measured 70,930 B; earlier numbers below predate it. AU-P5 raise (trimmed): the Unattended stage section in WORKFLOW_HANDOFF.md and one attendance line per stage skill, measured 65,756 B. 131 raise (G75 one-hop fix): do-document's SKILL.md now names RESEARCH_CONFIG.md, which deep_research.md used to point at (G13 had not counted that second hop), measured 64,179 B. 131 raise: do-code-review's tools moved to references/tools.md (pointer line), measured 62,922 B. 132 raise: do-document names ARTIFACT_VOICE.md (G13 counts it in full) and gains the rewrite clause, measured 62,802 B; before that under 57,000 B
+  ['operations', 59880], // FU-dbc1b9 raise: a reference named by a cross-skill path (../do-document/references/embedded-research.md, 5,174 B) now counts once per workflow, measured 59,879 B; earlier numbers below predate it. AU-P5 raise (trimmed): the Unattended stage section in WORKFLOW_HANDOFF.md and one attendance line per stage skill, measured 54,705 B. 131 raise (G75 one-hop fix): do-document's SKILL.md now names RESEARCH_CONFIG.md, which deep_research.md used to point at (G13 had not counted that second hop), measured 53,401 B. 132 raise: do-document names ARTIFACT_VOICE.md (G13 counts it in full), measured 52,100 B; before that under 45,000 B
+  ['review', 47300], // FU-dbc1b9 raise: a reference named by a cross-skill path (../do-document/references/embedded-research.md, 5,174 B) now counts once per workflow, measured 47,296 B; earlier numbers below predate it. AU-P5 raise (trimmed): the Unattended stage section in WORKFLOW_HANDOFF.md and one attendance line per stage skill, measured 42,122 B.
   // Pre-114 history, measured 2026-10-11: research 35,302 B after the IC-019 second-opinion text in do/SKILL.md (the 114 raise below supersedes it).
   ['research', 54200], // AU-P5 raise (trimmed): the Unattended stage section in WORKFLOW_HANDOFF.md and one attendance line per stage skill, measured 54,163 B. 131 raise (review fix): pm_routing.md and program_mode.md keep the pointers test/e2e/do-program-mode.test.ts pins, beside SKILL.md naming the same files, measured 53,896 B. 131 raise (G75 one-hop fix): do's SKILL.md now names ORCHESTRATION.md, MODEL_SELECTION.md and do-document's RESEARCH_CONFIG.md path, which pm_routing.md, program_mode.md and deep_research.md used to point at (G13 had not counted those second hops), measured 53,831 B. 132 raise: do-document names ARTIFACT_VOICE.md (G13 counts it in full), measured 46,430 B. maint-p0: the advise call templates, now in do/references/advice_calls.md (G13 counts a named reference in full), measured 38,864 B, 2026-10-27; before them 37,744 B (114 raise: program mode reference and pointer, 37,840 B)
-  ['trivial-edit', 30000],
+  ['trivial-edit', 34760], // FU-dbc1b9 raise: a reference named by a cross-skill path (../do-document/references/embedded-research.md, 5,174 B) now counts once per workflow, measured 34,752 B; earlier numbers below predate it.
 ]);
 
-function skillLoadedBytes(skillName: any, loadedReferences: any = new Set()) {
-  const skillsDir = path.join(GUIDANCE, '..', 'skills');
+// A reference named as `references/x.md` resolves beside the naming skill, else in shared guidance. One
+// named as `<skill>/references/x.md` (any path prefix) resolves in that skill when the file is there.
+// `loadedReferences` holds the normalized resolved paths, so a file two skills name counts once.
+function skillLoadedBytes(skillName: any, loadedReferences: any = new Set(), skillsDir: any = path.join(GUIDANCE, '..', 'skills'), guidanceDir: any = GUIDANCE) {
   const entryFile = path.join(skillsDir, skillName, 'SKILL.md');
   if (!fs.existsSync(entryFile)) return null;
   const text = fs.readFileSync(entryFile, 'utf8');
   let total = Buffer.byteLength(text, 'utf8');
-  const named: any = new Set([...text.matchAll(/references\/([A-Za-z0-9_./-]+\.md)/g)].map((m) => m[1]));
-  for (const ref of named) {
-    const localRef = path.join(skillsDir, skillName, 'references', ref);
-    const refFile = fs.existsSync(localRef) ? localRef : path.join(GUIDANCE, 'references', ref);
-    if (fs.existsSync(refFile) && !loadedReferences.has(refFile)) {
-      loadedReferences.add(refFile);
-      total += Buffer.byteLength(fs.readFileSync(refFile, 'utf8'), 'utf8');
-    }
+  const named: any = new Map();
+  for (const m of text.matchAll(/(?:([A-Za-z0-9_-]+)\/)?references\/([A-Za-z0-9_./-]+\.md)/g)) {
+    named.set(`${m[1] ?? ''}\0${m[2]}`, { skill: m[1], ref: m[2] });
+  }
+  for (const { skill, ref } of named.values()) {
+    const candidates = [
+      ...(skill ? [path.join(skillsDir, skill, 'references', ref)] : []),
+      path.join(skillsDir, skillName, 'references', ref),
+      path.join(guidanceDir, 'references', ref),
+    ];
+    const found = candidates.find((candidate) => fs.existsSync(candidate));
+    if (!found) continue;
+    const refFile = path.resolve(found);
+    if (loadedReferences.has(refFile)) continue;
+    loadedReferences.add(refFile);
+    total += Buffer.byteLength(fs.readFileSync(refFile, 'utf8'), 'utf8');
   }
   return total;
 }
+
+function skillTree(t: any, files: any) {
+  const root = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'doflow-g13-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  for (const [rel, body] of Object.entries(files)) {
+    fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+    fs.writeFileSync(path.join(root, rel), body as string);
+  }
+  return { skillsDir: path.join(root, 'skills'), guidanceDir: path.join(root, 'guidance') };
+}
+
+test('G13 controls: same-skill, cross-skill and shared references each count once', (t) => {
+  const { skillsDir, guidanceDir } = skillTree(t, {
+    'skills/a/SKILL.md': 'AAAA see references/own.md, b/references/other.md, core/shared/skills/b/references/other.md and references/shared.md',
+    'skills/a/references/own.md': '1'.repeat(10),
+    'skills/b/SKILL.md': 'BBBB see references/other.md and a/references/own.md',
+    'skills/b/references/other.md': '2'.repeat(20),
+    'guidance/references/shared.md': '3'.repeat(40),
+  });
+  const size = (name: any, seen: any) => skillLoadedBytes(name, seen, skillsDir, guidanceDir);
+  const a = fs.statSync(path.join(skillsDir, 'a', 'SKILL.md')).size;
+  const b = fs.statSync(path.join(skillsDir, 'b', 'SKILL.md')).size;
+  const seen = new Set();
+  // Same-skill (10), cross-skill named twice (20 once) and shared guidance (40).
+  assert.equal(size('a', seen), a + 10 + 20 + 40);
+  // b names its own other.md and a's own.md, both already loaded in this workflow: nothing more.
+  assert.equal(size('b', seen), b);
+  // A fresh workflow pays for both again, by normalized path.
+  assert.equal(size('b', new Set()), b + 20 + 10);
+});
 
 test('G13: every task class stays within its loaded-context rail', () => {
   const { WorkflowEngine } = require('../../src/runtime/workflow-engine.ts');
