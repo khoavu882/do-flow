@@ -308,6 +308,13 @@ reading it whole:
   attributes, keys and cardinalities of that subdomain alone. The table catalog of entities, keys,
   indexes and ORM file references is unchanged and stays below the views. Splitting one diagram into
   views must not drop an entity, a key or a constraint the single diagram carried.
+- **`data-model.md` §3 to §9 — lifecycles, coupling and the rest.** §3 Lifecycles holds every
+  entity state, one `#### Lifecycle: <entity>` block each, and nothing else restates a state; §4 to
+  §9 are Cross-entity coupling, Invariants, Ownership / CRUD matrix, Event catalogue, Retention, PII
+  and migration, and History. Each `#### Dictionary: <entity>` row and each row of the §3 to §8
+  tables ends in a `Source` cell holding one of `FR-###`, `IC-###`, `code:<path>:<line>`,
+  `proposed`, or `UNKNOWN -> Open Point`. A `proposed` or `UNKNOWN -> Open Point` row is copied to
+  `design.md` Open Points for Review. A conditional section takes `N/A: [why]`.
 
 ### The `N/A: [why]` escape
 

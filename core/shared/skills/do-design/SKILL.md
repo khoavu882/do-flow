@@ -136,6 +136,10 @@ a `design.md` for it invents an artifact its workflow never reads.
    create one: fill Data Model and Sequence / Data Flow in `design.md` — the content
    `specs.md`'s former §2 and the template's old §6 carried — exactly as the old two-file
    convention did, and leave that dir's layout alone — this feature migrates nothing.
+   Otherwise fill `data-model.md` §1 to §9. Read `references/data_model_example.md` only while filling it.
+   Each table row ends in a Source tag; copy every `proposed` row to `design.md` Open Points for
+   Review. `design.md` Journeys keep user-visible states only and link to `./data-model.md` §3 for
+   the entity states.
 The template is `templates/doflow/design-template.md` in the install step 1 resolved: take `constitution_base` from that JSON and swap its trailing `guidance/references/CONSTITUTION_BASE.md` for that path.
    Fill `[REQUIREMENT_PATH]` with step 1's own resolved `requirement` field, verbatim
    (repo-root-relative, exactly as the resolver returns it) — never hand-compute it, which is only
@@ -167,7 +171,7 @@ Filling the C4 levels, read the guidance tree's `references/DIAGRAM_GUIDE.md` fi
    ```
    Run it a second time against the specs path when step 6 wrote one — `specs.md`'s §1 Interface
    Contracts is an indexed section, so it is checked the same way. Run it a third time against the
-   data-model path when step 6 wrote one — `data-model.md`'s §3 History is its one indexed section,
+   data-model path when step 6 wrote one — `data-model.md`'s §9 History is its one indexed section,
    checked the same way, even though its §1/§2 stay free-form. Surface findings verbatim; a
    non-zero exit is advisory and does not halt the chain.
 8. **Batch this stage's evidence** — one pass here at the stage boundary, never one call per fact.

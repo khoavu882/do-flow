@@ -458,3 +458,96 @@ test('G18: every template journey has a picture, a state diagram and a rules tab
   assert.match(journeys, /^### Eligibility \/ decision inputs/m, 'Journeys scaffolds no decision-inputs table');
   assert.doesNotMatch(template('design-template.md'), /```mermaid\s+mindmap/, 'DIAGRAM_GUIDE.md excludes mindmap');
 });
+
+// --- data-model.md coverage (feature 139, IC-003) --------------------------------------------------
+// The checks are pure functions over a text, in test/helper/data-model-parity.ts, so a dry-run fill
+// can call them too. They run on the template's headings, on the worked example (which must pass)
+// and on altered copies of the example (each of which must fail, naming the entity or state).
+
+const {
+  templateHeadingFindings, entityCoverageFindings, stateParityFindings, sourceCellFindings,
+} = require('../helper/data-model-parity.ts');
+
+const DATA_MODEL_EXAMPLE = path.join(
+  REPO, 'core', 'shared', 'skills', 'do-design', 'references', 'data_model_example.md');
+const dataModelExample = () => read(DATA_MODEL_EXAMPLE);
+const allDataModelFindings = (text: any) => [
+  ...entityCoverageFindings(text), ...stateParityFindings(text), ...sourceCellFindings(text),
+];
+
+/** `text` with the one occurrence of `from` replaced by `to`; throws when `from` is absent, so an
+ * alteration that stops matching the example fails loudly instead of testing an unaltered copy. */
+function alter(text: any, from: any, to: any) {
+  assert.ok(text.split(from).length === 2, `the worked example no longer holds exactly one of: ${from}`);
+  return text.replace(from, to);
+}
+
+test('G18: the data-model template pins its nine headings, the #### Flow: level, the callout and the Transitions header', () => {
+  assert.deepEqual(templateHeadingFindings(template('data-model-template.md')), []);
+});
+
+test('G18: the data-model template holds no filled example row', () => {
+  const body = template('data-model-template.md').replace(/<!--[\s\S]*?-->/g, '');
+  let fenced = false;
+  const rows: any[] = [];
+  for (const line of body.split('\n')) {
+    if (/^```/.test(line)) { fenced = !fenced; continue; }
+    if (!fenced && /^\|/.test(line) && !/^\|[\s|:-]+\|?$/.test(line)) rows.push(line);
+  }
+  assert.ok(rows.length > 0, 'the data-model template scaffolds no table row');
+  const filled = rows.filter((row: any) => {
+    const cells = row.replace(/^\||\|$/g, '').split('|').map((c: any) => c.trim());
+    // The header row is not a filled row; a body row is bare placeholders, optionally in backticks.
+    return !cells.every((c: any) => /^`?\[[^\]]*\]`?$/.test(c)) && !/^\|\s*(Domain|Field|Table|From|Invariant|Entity|Event|Trigger entity)/.test(row);
+  });
+  assert.deepEqual(filled, [], 'the data-model template scaffolds a table row that is not a bare placeholder');
+});
+
+test('G18: the data-model worked example returns no finding from any of the four checks', () => {
+  const text = dataModelExample();
+  assert.deepEqual(entityCoverageFindings(text), []);
+  assert.deepEqual(stateParityFindings(text), []);
+  assert.deepEqual(sourceCellFindings(text), []);
+  assert.deepEqual(templateHeadingFindings(text), []);
+});
+
+test('G18: an entity with no dictionary heading in the worked example is named', () => {
+  const text = alter(dataModelExample(), '#### Dictionary: OrderLine', '#### Fields: OrderLine');
+  const findings = entityCoverageFindings(text);
+  assert.ok(findings.some((f: any) => /OrderLine/i.test(f) && /Dictionary/.test(f)),
+    `no finding names OrderLine's missing dictionary heading: ${JSON.stringify(findings)}`);
+});
+
+test('G18: an entity with no lifecycle heading in the worked example is named', () => {
+  const text = alter(dataModelExample(), '#### Lifecycle: OrderLine', '#### Stateless: OrderLine');
+  const findings = entityCoverageFindings(text);
+  assert.ok(findings.some((f: any) => /OrderLine/i.test(f) && /Lifecycle/.test(f)),
+    `no finding names OrderLine's missing lifecycle heading: ${JSON.stringify(findings)}`);
+});
+
+test('G18: a state removed from the transition table of the worked example is named', () => {
+  let text = dataModelExample();
+  // Shipped is reached by one row and left by another; dropping both takes it out of From and To.
+  text = alter(text, '| Paid | ship | stock picked | Warehouse | tracking number set | Shipped | OrderShipped | IC-001 |\n', '');
+  text = alter(text, '| Shipped | confirm delivery | carrier scan | System | none | Closed | OrderClosed | UNKNOWN -> Open Point |\n', '');
+  const findings = stateParityFindings(text);
+  assert.ok(findings.some((f: any) => /Order/.test(f) && /Shipped/.test(f)),
+    `no finding names the state Shipped of the Order lifecycle: ${JSON.stringify(findings)}`);
+});
+
+test('G18: an 11-state diagram in the worked example is named', () => {
+  // The example draws four states; seven more make eleven.
+  const extra = [1, 2, 3, 4, 5, 6, 7].map((n) => `    Closed --> Extra${n}: step ${n}\n`).join('');
+  const text = alter(dataModelExample(), '    Shipped --> Closed: confirm delivery\n',
+    `    Shipped --> Closed: confirm delivery\n${extra}`);
+  const findings = stateParityFindings(text);
+  assert.ok(findings.some((f: any) => /Order/.test(f) && /11 states/.test(f)),
+    `no finding names the 11-state Order diagram: ${JSON.stringify(findings)}`);
+});
+
+test('G18: a row with an empty Source cell in the worked example is named', () => {
+  const text = alter(dataModelExample(), '| OrderClosed | proposed |\n', '| OrderClosed |  |\n');
+  const findings = sourceCellFindings(text);
+  assert.ok(findings.some((f: any) => /Transitions/.test(f) && /"New"/.test(f)),
+    `no finding names the Transitions row of state New: ${JSON.stringify(findings)}`);
+});
