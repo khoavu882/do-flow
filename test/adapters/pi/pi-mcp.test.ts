@@ -591,6 +591,32 @@ test('P16: an owned row whose file moved is removed from the old file and create
   assert.equal(mcpRowsOf(second.ledger).length, SERVERS.length);
 });
 
+test('FU-jyrh6w: an MCP path move leaves no tombstone, keeps sibling and edited entries, and retires an old one', () => {
+  const root = scratch();
+  const oldDir = path.join(scratch(), 'old-agent');
+  const oldFile = path.join(oldDir, 'mcp.json');
+  const oldText = '{\n  "mcpServers": {\n    "mine": {"command": "x"}\n  }\n}\n';
+  writeFile(oldFile, oldText);
+  const first = run({ root, adapter: createPiAdapter({ env: { PI_CODING_AGENT_DIR: oldDir } }) });
+  const [edited, ...rest] = SERVERS.map((server: any) => server.id);
+  // The user edits one owned entry in the old file before the move: it is released and kept.
+  const doc = JSON.parse(fs.readFileSync(oldFile, 'utf8'));
+  doc.mcpServers[edited] = { command: 'mine-now' };
+  fs.writeFileSync(oldFile, JSON.stringify(doc, null, 2));
+  const second = run({ root, ledger: first.ledger });
+  assert.deepEqual(second.ledger.tombstones, [], 'the entry-scoped move records no whole-file tombstone');
+  const after = JSON.parse(fs.readFileSync(oldFile, 'utf8')).mcpServers;
+  assert.deepEqual(after[edited], { command: 'mine-now' }, 'the edited entry survives');
+  assert.equal(after.mine.command, 'x', 'the sibling entry survives');
+  for (const id of rest) assert.equal(id in after, false, 'an unedited owned entry left the old file');
+  // A tombstone an earlier run left for Pi's mcp.json is retired by the next update; others stay.
+  const legacy = { harness: 'pi', assetId: 'guidance.codex-pointer', fromTarget: oldFile, toTarget: userFile(root), fingerprint: 'a'.repeat(64), movedAt: '2026-01-01T00:00:00.000Z' };
+  const other = { ...legacy, assetId: 'skills.doflow', fromTarget: path.join(oldDir, 'SKILL.md') };
+  const third = run({ root, ledger: { ...second.ledger, tombstones: [legacy, other] } });
+  assert.deepEqual(third.ledger.tombstones, [other]);
+  assert.deepEqual(JSON.parse(fs.readFileSync(oldFile, 'utf8')).mcpServers, after, 'repeated updates leave the old file alone');
+});
+
 test('P17 (capability): Pi declares MCP supported with its MCP pages and .pi/mcp.json as the native target', () => {
   const pi = harnessFor(registry, 'pi');
   assert.equal(pi.capabilities.mcp.status, 'supported');

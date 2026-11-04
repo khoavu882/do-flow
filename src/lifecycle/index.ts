@@ -913,7 +913,15 @@ function updateLedger({ ledger, scope, scopeRoot, verifications, changes, recove
   // Record the relocation, then sweep the stale copy — but only when its bytes still hash to the
   // fingerprint DoFlow last verified there. A mismatch means someone edited that file after us:
   // their content outranks our tidiness, so the file stays and the unswept tombstone says why.
+  // An MCP entry is one member of a file the user shares, and the adapter has already taken it out
+  // of (or released it in) the old file by entry. A whole-file tombstone for it would carry the
+  // entry's fingerprint, never match the file's bytes and so stay unswept for good. Earlier runs
+  // left such rows behind for Pi's mcp.json (which borrows the guidance.codex-pointer asset id);
+  // they are retired here, and no file is touched.
+  next.tombstones = next.tombstones.filter((entry: any) => entry.sweptAt || entry.harness !== 'pi'
+    || entry.assetId !== 'guidance.codex-pointer' || path.basename(String(entry.fromTarget)) !== 'mcp.json');
   for (const resource of next.resources) {
+    if (resource.kind === 'mcp-server') continue;
     const prior = priorByIdentity.get(`${resource.harness}\u0000${resource.assetId}\u0000${resource.identity ?? ''}`);
     if (!prior || prior.target === resource.target) continue;
     if (!next.tombstones.some((entry: any) => entry.harness === resource.harness
