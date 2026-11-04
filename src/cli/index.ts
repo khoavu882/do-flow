@@ -710,7 +710,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --request <text>, --request-file <file>  classify (mutually exclusive; optional second opinion)
       --view brief|full                     followup --action list (default brief), lifecycle --action overview, classify (default full); brief drops detail, full is the whole answer
       --cursor <c>, --limit <n>             followup --action list (the cursor is opaque: pass back a page's nextCursor); also transcript --action read
-      --intent, --query, --check            route
+      --intent, --query, --check, --harness  route
       --statement, --claim-id,
       --evidence-id, --relation             claim
       --kind, --provenance, --provider,

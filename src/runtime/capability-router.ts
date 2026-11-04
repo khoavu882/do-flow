@@ -298,6 +298,15 @@ class CapabilityRouter {
     };
   }
 
+  /** The registry's `capabilities.mcp.toolName` template for a harness id, or null when it has none. */
+  harnessToolTemplate(harnessId: string): string | null {
+    return this.harnessList().find((item: any) => item.id === harnessId)?.capabilities?.mcp?.toolName || null;
+  }
+
+  harnessList(): any[] {
+    return parseYamlFile(path.join(this.registryDir, 'harnesses.json'), this.fsImpl).harnesses || [];
+  }
+
   /**
    * Formats concrete execution instructions for a provider based on intent parameters.
    *
@@ -320,7 +329,17 @@ class CapabilityRouter {
     // back to the registry entry with that id.
     const mcp = provider.mcp
       || Object.values(this.capabilities).flatMap((cap: any) => cap.providers || []).find((p: any) => p.id === provider.id && p.mcp)?.mcp;
-    const mcpTool = mcp ? { mcpTool: `mcp__${mcp.server}__${mcp.tool}` } : {};
+    // Default (no `params.harness`): the Claude tool-name form, unchanged. With a target harness:
+    // that harness's registry `capabilities.mcp.toolName` template, or — when it has no verified
+    // template — the neutral `{server, tool}` identifiers and no tool name.
+    let mcpTool: any = {};
+    if (mcp && !params.harness) mcpTool = { mcpTool: `mcp__${mcp.server}__${mcp.tool}` };
+    else if (mcp) {
+      const template = this.harnessToolTemplate(params.harness);
+      mcpTool = template
+        ? { mcpTool: template.replace('{server}', () => mcp.server).replace('{tool}', () => mcp.tool) }
+        : { mcp: { server: mcp.server, tool: mcp.tool } };
+    }
     const withDisplay = (result: any) => ({ ...mcpTool, ...result, ...(result.argv ? { cliCommand: result.argv.map(shellQuote).join(' ') } : {}) });
 
     if (provider.id === 'semble.search') {
@@ -580,15 +599,19 @@ class CapabilityRouter {
  * @param {string} [options.projectRoot]
  * @returns {number} exit code
  */
-function handleRouteCommand({ intent, query, check = false, json = false, projectRoot }: any = {}): number {
+function handleRouteCommand({ intent, query, check = false, json = false, projectRoot, harness }: any = {}): number {
   const router = new CapabilityRouter({ repoRoot: REPO_ROOT, projectRoot });
   if (typeof intent !== 'string' || intent.trim() === '') {
     return usageError('route', `--intent is required. Declared intents: ${Object.keys(router.routes).join(', ')}`, json);
   }
 
+  if (harness !== undefined && !router.harnessList().some((item: any) => item.id === harness)) {
+    return usageError('route', `unknown --harness '${harness}'. Known harnesses: ${router.harnessList().map((item: any) => item.id).join(', ')}`, json);
+  }
+
   let resolution: any;
   try {
-    resolution = router.resolveIntent(intent, { query, path: projectRoot || '.' }, { deepCheck: check });
+    resolution = router.resolveIntent(intent, { query, path: projectRoot || '.', ...(harness ? { harness } : {}) }, { deepCheck: check });
   } catch (error: any) {
     return usageError('route', `${error.message}. Declared intents: ${Object.keys(router.routes).join(', ')}`, json, error);
   }
