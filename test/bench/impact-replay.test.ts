@@ -24,7 +24,6 @@
 const { test, after, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { execFileSync, spawnSync } = require('node:child_process');
 
@@ -530,8 +529,8 @@ function gitIn(cwd: any, args: any) {
 }
 const VALID_CFG = { impactReplay: { commits: 5, minCommits: 1, ceiling: 0.5, timeoutMs: 30000 } };
 
-test('FU-spza2p: a --rev starting with - is refused before git sees it', () => {
-  assert.throws(() => impactReplay.replayCommits({ rev: '--output=/tmp/x', tmpDir: os.tmpdir() }), /not a usable revision/);
+test('FU-spza2p: a --rev starting with - is refused before git sees it', (t) => {
+  assert.throws(() => impactReplay.replayCommits({ rev: '--output=/tmp/x', tmpDir: tempDir(t, 'doflow-replay-rev-') }), /not a usable revision/);
   assert.equal(impactReplay.cmdImpactReplay(VALID_CFG, { rev: '-x' }), 2);
 });
 
