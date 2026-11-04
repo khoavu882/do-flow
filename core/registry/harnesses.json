@@ -655,6 +655,14 @@
             "Interrupt": {
               "status": "different",
               "note": "Native Interrupt runs when a turn is interrupted, not for subagents; no DoFlow policy maps to it."
+            },
+            "PreModelRequest": {
+              "status": "different",
+              "note": "Native PreModelRequest exists (no matcher; output is diagnostic only); no DoFlow policy maps to it and no hook is wired."
+            },
+            "PostModelRequest": {
+              "status": "different",
+              "note": "Native PostModelRequest exists (no matcher; output is diagnostic only); no DoFlow policy maps to it and no hook is wired."
             }
           }
         },
@@ -2955,7 +2963,7 @@
             "https://antigravity.google/docs/skills",
             "https://antigravity.google/docs/cli/gcli-migration"
           ],
-          "note": "Antigravity discovers folder-form skills under .agents/skills (project) and ~/.gemini/config/skills (global, App/IDE and verified on local agy CLI installation; ~/.gemini/antigravity-cli/ is the internal state/runtime root without a skills directory).",
+          "note": "Antigravity discovers folder-form skills under .agents/skills (project) and ~/.gemini/config/skills (global). The CLI migration docs (fetched 2026-11-04) also list ~/.gemini/skills/ and ~/.gemini/antigravity-cli/skills/ as global paths; the install target is unchanged and was verified live on agy 1.5.0 on 2026-11-04: a fresh `agy -p` session listed every DoFlow skill installed only under ~/.gemini/config/skills while neither other directory existed.",
           "verification": "Confirm the skill is discoverable by agy from .agents/skills."
         },
         "agents": {
