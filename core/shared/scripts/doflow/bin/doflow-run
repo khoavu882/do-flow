@@ -339,6 +339,23 @@ resolve_node_cli() {
   return 1
 }
 
+# A checkout found from the caller's cwd may be older than its local develop branch. Keep this
+# advisory on stderr so the selected CLI's stdout and exit status remain untouched.
+warn_checkout_pwd_behind_develop() {
+  local cwd head counts head_only develop_only
+  [ "$NODE_CLI_SOURCE" = "checkout-pwd" ] || return 0
+  cwd="$(pwd -P 2>/dev/null || pwd)"
+  head="$(git -C "$cwd" rev-parse --verify HEAD 2>/dev/null)" || return 0
+  git -C "$cwd" show-ref --verify --quiet refs/heads/develop || return 0
+  counts="$(git -C "$cwd" rev-list --left-right --count HEAD...refs/heads/develop 2>/dev/null)" || return 0
+  read -r head_only develop_only <<EOF
+$counts
+EOF
+  case "$head_only:$develop_only" in
+    0:[1-9]* ) printf 'doflow-run: warning: selected runtime %s at %s is behind local develop\n' "$NODE_CLI_PATH" "$head" >&2 ;;
+  esac
+}
+
 # ---------------------------------------------------------------------------------- reporting
 
 wants_json=false
@@ -585,6 +602,7 @@ dispatch_node() {
     fail 2 "cli-not-found" \
       "verb '$verb' is served by the Node CLI, which could not be located; set DOFLOW_CLI to a doflow.js path, install the package (npm i -g @khoavu882/doflow), or run from a checkout"
   fi
+  warn_checkout_pwd_behind_develop
   if [ "$NODE_CLI_KIND" = "script" ]; then
     command -v node >/dev/null 2>&1 || fail 2 "node-not-found" \
       "verb '$verb' needs node on PATH to run $NODE_CLI_PATH"
