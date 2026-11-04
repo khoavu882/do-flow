@@ -4,7 +4,7 @@
 // TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 const os = require('node:os');
 const path = require('node:path');
-const { resolveTargets, toolDirs } = require('../../install/targets.ts');
+const { resolveTargets, installedTargets, toolDirs } = require('../../install/targets.ts');
 const { resolveContext, printContext } = require('../../install/context.ts');
 const { DEFAULT_BACKUP_RETENTION, createFileBackup, applyRetention, retentionNote } = require('../../install/backup.ts');
 const { backupSetFromPlan } = require('../../install/backup-set.ts');
@@ -29,12 +29,17 @@ const {
 
 function cmdUpdate(o: any): void {
   refuseHomeRootedProject(o, 'update');
-  const targets = resolveTargets(o.targets);
+  const requested = resolveTargets(o.targets); // validates an explicit -t before anything is read
   const scope = scopeOf(o);
   const hold = holdRunLock(o, scope, 'update');
   try {
     const dirs = toolDirs(scope);
     const lifecyclePaths = installPaths(scope);
+    const existingManifest = readInstallManifest({ scopeRoot: lifecyclePaths.scopeRoot });
+    // No -t: act on the harnesses this scope's manifest lists as installed, not on the install default.
+    // With no manifest (or none listed) the default stays, as before.
+    const listed = installedTargets(existingManifest);
+    const targets = o.targets?.length || !listed.length ? requested : listed;
     const backupRoot = lifecyclePaths.backupRoot;
     const commit = sourceCommit(SCRIPT_DIR);
     printContext(resolveContext({ repoRoot: REPO_ROOT, targets, dirs, sourceCommit: commit, ...scope }));
@@ -42,7 +47,6 @@ function cmdUpdate(o: any): void {
     // Never interactive: update reuses each harness's recorded selection, or applies an explicit --mcp
     // override, without re-prompting.
     const registry = loadRegistry({ repoRoot: REPO_ROOT });
-    const existingManifest = readInstallManifest({ scopeRoot: lifecyclePaths.scopeRoot });
     const { lock, ledger } = scopeSelectionState(scope);
     const selection = resolveMcpSelections({
       cmd: 'update', requested: o.mcp, targets, registry, lock, ledger, manifestServers: existingManifest?.mcpServers ?? null,

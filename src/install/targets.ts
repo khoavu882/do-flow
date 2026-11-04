@@ -59,6 +59,14 @@ function resolveTargets(requested: string[] | undefined, { registry }: { registr
   return [...new Set(targets)];
 }
 
+/** The harnesses an install manifest lists as installed, in VALID order; [] when there is no
+ * manifest or it lists none DoFlow still knows (a retired id is not a target). `update` without
+ * `-t` acts on these instead of DEFAULT_TARGETS, so it never installs a harness the scope lacks. */
+function installedTargets(manifest: any): string[] {
+  const tools = manifest?.tools ?? {};
+  return VALID.filter((id) => Object.hasOwn(tools, id) && tools[id]?.installed !== false);
+}
+
 interface ToolDirsOptions {
   global?: boolean;
   projectRoot?: string;
@@ -103,4 +111,4 @@ function toolDirs(opts: ToolDirsOptions = {}): Record<string, string> {
   };
 }
 
-module.exports = { VALID, DEFAULT_TARGETS, resolveTargets, toolDirs };
+module.exports = { VALID, DEFAULT_TARGETS, resolveTargets, installedTargets, toolDirs };
