@@ -36,15 +36,10 @@ nav:
   - Use DoFlow:
       - Guide: guide.md
       - How DoFlow works: how-doflow-work.md
-      - Harnesses: capability-map.md
-      - Governance: enterprise-governance.md
   - Reference:
       - Commands and skills: reference.md
       - Settings: settings.md
-      - Flags: flags.md
   - Contributing:
-      - Architecture: architecture.md
-      - Distribution notes: distribution-notes.md
       - Specs:
           - Orchestrator context modes: specs/orchestrator-context-modes.md
           - Operating modes: specs/operating-modes.md
@@ -53,7 +48,6 @@ nav:
 
 not_in_nav: |
   /overview.md
-  /refactor-plan.md
 
 validation:
   omitted_files: warn

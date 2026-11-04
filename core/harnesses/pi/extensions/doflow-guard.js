@@ -6,7 +6,6 @@ import { fileURLToPath } from 'node:url';
 const BRIDGE = new URL('../../shared/hooks/bridge/bridge.sh', import.meta.url);
 const ROUTES = [
   { tools: ['edit', 'write'], policy: 'pre-implementation-gate' },
-  { tools: ['bash'], policy: 'pre-bash-guard' },
 ];
 const LIMIT = 1024 * 1024;
 const TIMEOUT_MS = 5000;
@@ -136,7 +135,9 @@ export default function (pi) {
       if (profile !== 'compat-1' && profile !== 'strict-1') captureFailure(policy, 'fault-profile-unknown');
       if (!existsSync(BRIDGE)) {
         captureFailure(policy, 'bridge-missing');
-        return { block: true, reason: '[doflow] shared hooks lack the bridge; run: doflow update -t pi' };
+        // D1: a missing bridge allows (the failure is recorded for doctor); only strict-1, a person's opt-in, blocks.
+        if (profile === 'strict-1') return { block: true, reason: '[doflow] shared hooks lack the bridge; run: doflow update -t pi' };
+        return undefined;
       }
       let model;
       try {

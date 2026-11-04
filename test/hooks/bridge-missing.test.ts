@@ -27,7 +27,7 @@ function nativeFixture(relativePath: any) {
   return row.native;
 }
 
-test('every current front door renders its IC-036 fallback with the bridge removed', (t) => {
+test('every current front door allows with the bridge removed and denies only under strict-1', (t) => {
   const mirror = tempDir(t, 'doflow-bridge-missing-');
   execFileSync(bashPath(), [path.join(__dirname, 'build-install-mirror.sh'), mirror]);
   fs.rmSync(path.join(mirror, '.doflow/shared/hooks/bridge'), { recursive: true, force: true });
@@ -35,7 +35,6 @@ test('every current front door renders its IC-036 fallback with the bridge remov
   const doors = [
     ...[
       ['pre-implement-gate.sh', 'claude/pre-implement-gate/deny.json'],
-      ['pre-bash-guard.sh', 'claude/pre-bash-guard/deny.json'],
       ['mcp-tool-guard.sh', 'claude/mcp-tool-guard/deny.json'],
     ].map(([door, fixture]) => ({ harness: 'claude', door, fixture, render: 'claude-tool' })),
     ...[
@@ -46,7 +45,6 @@ test('every current front door renders its IC-036 fallback with the bridge remov
     { harness: 'claude', door: 'user-prompt-submit.sh', fixture: 'claude/user-prompt-submit/perf.json', render: 'silent' },
     ...[
       ['pre-implement-gate.sh', 'codex/pre-implement-gate/deny.json'],
-      ['pre-bash-guard.sh', 'codex/pre-bash-guard/deny.json'],
       ['mcp-tool-guard.sh', 'codex/mcp-tool-guard/deny.json'],
     ].map(([door, fixture]) => ({ harness: 'codex', door, fixture, render: 'claude-tool' })),
     ...[
@@ -57,7 +55,6 @@ test('every current front door renders its IC-036 fallback with the bridge remov
     { harness: 'codex', door: 'user-prompt-submit.sh', fixture: 'codex/user-prompt-submit/perf.json', render: 'silent' },
     ...[
       ['pre-implement-gate.sh', 'kiro/pre-implement-gate/deny.json', 'kiro-tool'],
-      ['pre-bash-guard.sh', 'kiro/pre-bash-guard/deny.json', 'kiro-tool'],
       ['mcp-tool-guard.sh', 'kiro/mcp-tool-guard/deny.json', 'kiro-tool'],
       ['session-start.sh', 'kiro/session-start/perf.json', 'silent'],
       ['stop-check.sh', 'kiro/stop-check/v3-deny.json', 'silent'],
@@ -67,37 +64,48 @@ test('every current front door renders its IC-036 fallback with the bridge remov
   for (const row of doors) {
     const input = JSON.stringify(nativeFixture(row.fixture));
     const script = path.join(mirror, `.${row.harness}/hooks`, row.door);
-    const result = spawnSync(bashPath(), [script], {
-      input,
-      encoding: 'utf8',
-      env: childEnv(),
-    });
-    // A removed bridge can exit before spawnSync finishes writing stdin; only EPIPE is expected.
-    assert.ok(result.error === undefined || result.error.code === 'EPIPE', `${row.harness}/${row.door} starts`);
+    const run = (extra: any) => {
+      const result = spawnSync(bashPath(), [script], { input, encoding: 'utf8', env: childEnv(extra) });
+      // A removed bridge can exit before spawnSync finishes writing stdin; only EPIPE is expected.
+      assert.ok(result.error === undefined || result.error.code === 'EPIPE', `${row.harness}/${row.door} starts`);
+      return result;
+    };
     const reason = REASON(row.harness);
+    // The default profile (compat-1): a missing bridge allows. The kiro tool doors warn on stderr; no door denies.
+    const allowed = run({ DOFLOW_FAULT_PROFILE: 'compat-1' });
+    assert.equal(allowed.status, 0, `${row.harness}/${row.door} compat-1 exit: ${allowed.stderr}`);
+    assert.equal(allowed.stdout, row.render === 'codex-empty' ? '{}\n' : '', `${row.harness}/${row.door} compat-1 stdout`);
+    if (row.render === 'kiro-tool') {
+      assert.equal(allowed.stderr.trim().split('\n').pop(), reason, `${row.harness}/${row.door} compat-1 warning`);
+    } else {
+      assert.equal(allowed.stderr, '', `${row.harness}/${row.door} compat-1 stderr`);
+    }
+
+    // strict-1, a person's opt-in, keeps the old deny on a tool door.
+    const strict = run({ DOFLOW_FAULT_PROFILE: 'strict-1' });
     if (row.render === 'claude-tool') {
-      assert.equal(result.status, 0, `${row.harness}/${row.door} exit`);
-      assert.deepEqual(JSON.parse(result.stdout), {
+      assert.equal(strict.status, 0, `${row.harness}/${row.door} strict-1 exit`);
+      assert.deepEqual(JSON.parse(strict.stdout), {
         hookSpecificOutput: {
           hookEventName: 'PreToolUse',
           permissionDecision: 'deny',
           permissionDecisionReason: reason,
         },
-      }, `${row.harness}/${row.door} native deny`);
-      assert.equal(result.stderr, '', `${row.harness}/${row.door} stderr`);
+      }, `${row.harness}/${row.door} strict-1 native deny`);
+      assert.equal(strict.stderr, '', `${row.harness}/${row.door} strict-1 stderr`);
     } else if (row.render === 'kiro-tool') {
-      assert.equal(result.status, 2, `${row.harness}/${row.door} exit: ${result.stderr}`);
-      assert.equal(result.stdout, '', `${row.harness}/${row.door} stdout`);
-      assert.equal(result.stderr.trim().split('\n').pop(), reason, `${row.harness}/${row.door} reason`);
+      assert.equal(strict.status, 2, `${row.harness}/${row.door} strict-1 exit: ${strict.stderr}`);
+      assert.equal(strict.stdout, '', `${row.harness}/${row.door} strict-1 stdout`);
+      assert.equal(strict.stderr.trim().split('\n').pop(), reason, `${row.harness}/${row.door} strict-1 reason`);
     } else {
-      assert.equal(result.status, 0, `${row.harness}/${row.door} exit`);
-      assert.equal(result.stdout, row.render === 'codex-empty' ? '{}\n' : '', `${row.harness}/${row.door} stdout`);
-      assert.equal(result.stderr, '', `${row.harness}/${row.door} stderr`);
+      assert.equal(strict.status, 0, `${row.harness}/${row.door} strict-1 exit`);
+      assert.equal(strict.stdout, row.render === 'codex-empty' ? '{}\n' : '', `${row.harness}/${row.door} strict-1 stdout`);
+      assert.equal(strict.stderr, '', `${row.harness}/${row.door} strict-1 stderr`);
     }
   }
 });
 
-test('Antigravity runner treats a missing bridge as out of step under both fault profiles', (t) => {
+test('Antigravity runner allows a missing bridge under compat-1 and denies the gate only under strict-1', (t) => {
   const copy = tempDir(t, 'doflow-antigravity-bridge-missing-');
   fs.cpSync(HOOKS, copy, { recursive: true });
   fs.rmSync(path.join(copy, 'bridge', 'bridge.sh'));
@@ -111,7 +119,8 @@ test('Antigravity runner treats a missing bridge as out of step under both fault
       encoding: 'utf8', env,
     });
     assert.equal(gate.status, 0, `${profile} gate exit`);
-    assert.deepEqual(JSON.parse(gate.stdout), { decision: 'deny', reason }, `${profile} native gate deny`);
+    if (profile === 'strict-1') assert.deepEqual(JSON.parse(gate.stdout), { decision: 'deny', reason }, `${profile} native gate deny`);
+    else assert.deepEqual(JSON.parse(gate.stdout), { decision: 'allow' }, `${profile} gate allows`);
 
     const stop = spawnSync(process.execPath, [runner, 'Stop'], {
       input: JSON.stringify({ terminationReason: 'finished' }), encoding: 'utf8', env,

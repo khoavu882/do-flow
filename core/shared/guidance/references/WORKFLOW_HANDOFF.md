@@ -40,6 +40,23 @@ With or without a register, record in this step each finding left unfixed, item 
 and gate answer that defers work:
 `"$DOFLOW" followup --action add --stage <stage> --statement "<one line>"`.
 
+## Unattended stage
+
+Per stage run `"$DOFLOW" attendance --task-id "<feature_slug>"`. Unless it printed a line starting
+`unattended`, ask as the skill says. Otherwise RULE_04 applies and:
+
+1. **Ask nothing, decide no gate.** Gates are the loop's: no `decide-gate` (not even for zero
+   markers); hand off and stop. A gate is never a default, nor is closing a goal.
+2. **The run supplies** the class (`taskClass` in `orchestrate --action status --task-id
+   "<feature_slug>" --json`), the slug (the `feat/<slug>` branch) and `commit.branch`. A rejected
+   class, several slugs, a `--from` clash or readiness `ASK_USER` halts.
+3. **Record an adopted default** in the decision batch: `channel` `default`, `rationale`
+   `unattended:<source>`, `stage` the nearest accepted ownership-table name.
+4. **Halt, never hand off,** when no sensible default exists, a contract would change or a
+   permission is denied: `"$DOFLOW" followup --action add --stage <stage as in 3> --statement
+   "<why it blocks>"`, report and stop; the row is held.
+5. **Never apply `--fix` or send private context** (leave the request `unresolved`).
+
 ## The handoff call
 
 After a skill finishes its work, call the resolved runtime seam:
@@ -71,7 +88,8 @@ Use `--result passed|failed|unverified` to record the stage's outcome. Omission 
 For bug reproduction, observing the expected failure can satisfy the stage contract; the command's
 nonzero exit alone is not the stage verdict. Reruns append a note and preserve the original outcome.
 
-Only handle an `awaitingGate` if the skill owns that gate and the handoff just completed its anchor.
+Only handle an `awaitingGate` if the skill owns that gate and the handoff just completed its anchor;
+unattended, never handle one (§ Unattended stage).
 Follow the owning skill's decision rules; this API supplies no authorization. A deferral is not a
 rejection. The lower-level `decide-gate` action remains explicit.
 

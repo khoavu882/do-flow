@@ -123,6 +123,23 @@ test('views.ts exports the nearest-rank percentile, unchanged', () => {
 
 // ── latency hotspots (IC-003) ───────────────────────────────────────────────────────────────────
 
+test('hotspots: derived test spans group by test_class, not under one name', (t) => {
+  const lines: any[] = [];
+  let tc = 0;
+  // Five unit runs of 500 ms and five lint runs of 20 s: one group would read as a hotspot, two steady ones do not.
+  for (const [cls, secs] of [['test.unit', 1], ['test.lint', 20]] as any[]) {
+    for (let i = 0; i < 5; i += 1) {
+      tc += 1;
+      const base = tc * 100;
+      const hook = (event: any, when: any) => ({ timestamp: sec(when), kind: 'hook', harness: 'claude', event, policy: 'post-shell-observe', verdict: 'observe', duration_ms: null, session: 's1', tool: 'Bash', tool_call_id: `tc${tc}`, test_class: cls });
+      lines.push(hook('PreToolUse', base), hook('PostToolUse', base + secs));
+    }
+  }
+  const a = analyzeDir(seed(t, lines));
+  assert.deepEqual(a.latency.map((r: any) => [r.kind, r.name, r.count]), [['test', 'test.lint', 5], ['test', 'test.unit', 5]]);
+  assert.equal(detector(a, 'latency-hotspots').status, 'CLEAR');
+});
+
 test('hotspots: p95 = 4x p50 with a 1500 ms tail is one FINDING; its spans are those above p50', (t) => {
   const a = analyzeDir(seed(t, durations([500, 500, 500, 500, 2000])));
   const d = detector(a, 'latency-hotspots');
@@ -159,8 +176,8 @@ test('hotspots: 4 samples is NOT_DETERMINED; steady durations are CLEAR', (t) =>
 });
 
 test('hotspots: hook lines without a post-shell observation carry no duration, so NOT_DETERMINED (NFR-008)', (t) => {
-  const hooks = [1, 2, 3, 4, 5, 6].map((i) => ({ timestamp: sec(i), kind: 'hook', harness: 'claude', event: 'PreToolUse', policy: 'pre-bash-guard',
-    verdict: 'allow', duration_ms: null, tool: 'Bash', tool_call_id: `tc${i}` }));
+  const hooks = [1, 2, 3, 4, 5, 6].map((i) => ({ timestamp: sec(i), kind: 'hook', harness: 'claude', event: 'UserPromptSubmit', policy: 'user-prompt-submit',
+    verdict: 'allow', duration_ms: null }));
   const a = analyzeDir(seed(t, hooks));
   assert.equal(detector(a, 'latency-hotspots').status, 'NOT_DETERMINED');
   assert.equal(a.verdict, 'insufficient-data');
@@ -590,7 +607,7 @@ test('context: per session hook calls, emissions, bytes, duplicates by digest, r
     hook('s1', 'refused:mandatory-over-budget', 200, 'deadbeef', at('10:00:04')),
     hook('s1', 'emit', 1000, 'deadbeef', at('10:00:05')),
     hook('s1', 'emit', 50, '01234567', at('10:00:06')),
-    hook('s1', undefined, null, null, at('10:00:07')), // a pre-bash-guard-like line without the fields
+    hook('s1', undefined, null, null, at('10:00:07')), // a hook line without the fields
     hook('s2', 'emit', 300, 'deadbeef', at('10:00:08')), // same digest, other session: not a duplicate
     hook(null, 'emit', 999, 'deadbeef', at('10:00:09')), // no session: not counted
     span('verify.run', 'verify.run', { attrs: { status: 'PASS' } }),

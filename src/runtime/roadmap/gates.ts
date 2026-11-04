@@ -78,10 +78,16 @@ function narrow(base: any, override: any): { policy: any; key: string | null } {
   return { policy, key: null };
 }
 
+/** What a person does about `no-policy`; the reason id stays the closed one. Never a fallback to the packaged policy. */
+const NO_POLICY_HINT = 'develop has no committed core/registry/gates.json. Run `doflow roadmap --action init-policy` to write the packaged policy, '
+  + 'review it, and commit it on develop, or add `--commit` to commit it on develop in one step when develop is not checked out in a worktree '
+  + '(otherwise it prints the commands to run there; agent-docs/ may stay gitignored). The policy is read only from develop\'s committed head, '
+  + 'never the working tree, a feature branch or the package.';
+
 /** Base bytes must come from develop. This pure function never selects or reads a branch. */
 function loadPolicy(baseBytes: string | Buffer | null | undefined, overrideBytes?: string | Buffer | null): any {
   const denied = (reason: string) => ({ ok: false, policy: null, digest: null, reason, reasons: [reason] });
-  if (baseBytes === null || baseBytes === undefined) return denied('no-policy');
+  if (baseBytes === null || baseBytes === undefined) return { ...denied('no-policy'), annotations: { hint: NO_POLICY_HINT } };
   let base: any;
   try { base = JSON.parse(String(baseBytes)); } catch { return denied('policy-invalid'); }
   if (!policyValid(base)) return denied('policy-invalid');
@@ -245,10 +251,13 @@ function evaluate(policy: any, cls: string, gateId: string, facts: any[]): any {
         const decisions = Array.isArray(backing?.decisions) ? backing.decisions.filter(object) : [];
         for (const finding of converged) {
           if (finding.status === 'refuted' && !evidenceLocator(finding.evidence)) reasons.push(`refuted-without-evidence:${finding.id}`);
-          if (finding.status === 'user-accepted' && !decisions.some((d: any) => d.id === finding.decision && USER_CHANNELS.has(d.channel))) reasons.push(`accepted-without-user-decision:${finding.id}`);
+          // AU D4: a note or should-fix may rest on a default-channel (agent) decision, so an unattended session
+          // records what it decided without claiming a person did. A blocker (or any other severity) keeps both checks.
+          const blocker = finding.severity !== 'note' && finding.severity !== 'should-fix';
+          if (finding.status === 'user-accepted' && !decisions.some((d: any) => d.id === finding.decision && (USER_CHANNELS.has(d.channel) || (!blocker && d.channel === 'default')))) reasons.push(`accepted-without-user-decision:${finding.id}`);
           // C5: any session can add a question-channel register entry, so channel membership is not a
-          // person. Policy evaluation never accepts a user-accepted disposition; a person decides that gate.
-          if (finding.status === 'user-accepted') reasons.push(`user-accepted-needs-person:${finding.id}`);
+          // person. Policy evaluation never accepts a user-accepted blocker; a person decides that gate.
+          if (finding.status === 'user-accepted' && blocker) reasons.push(`user-accepted-needs-person:${finding.id}`);
           if (finding.status === 'fixed' && backing?.ancestors?.[finding.fixedIn] !== true) reasons.push(`fixed-not-ancestor:${finding.id}`);
         }
       }

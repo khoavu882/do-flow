@@ -133,3 +133,40 @@ test('config list prints both views generically for a registered 8th key', (t) =
   assert.match(output, new RegExp(`    project ${fixture.project.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\\\/]\\.doflow[\\\\/]settings\\.json: "off" — decided`));
   assert.match(output, new RegExp(`    user ${fixture.xdg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\\\/]doflow[\\\\/]settings\\.json: "on" — decided`));
 });
+
+test('a project-only key ignores user/global values and env; project and local files alone decide', (t) => {
+  const fixture = createSettingsEnv(t, { prefix: 'doflow-settings-register-project-only-' });
+  const repoRoot = path.join(fixture.dir, 'repo');
+  const key = 'storage.plantedProjectOnly';
+  const raw = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'settings.json'), 'utf8'));
+  raw.keys[key] = {
+    type: 'integer', min: 1, default: 5, scope: 'project-only', combine: 'override', securityRelevant: true, failSafe: { state: 'invalid' },
+    env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
+    consumers: ['src/runtime/settings/resolve.ts'], description: 'A fixture project-only key.',
+  };
+  writeFixtureRepo(repoRoot, raw);
+  const loaded = loadSettingsRegistry({ repoRoot, verifyRefs: true, checkConsumers: true });
+  assert.equal(loaded.ok, true, loaded.ok ? '' : loaded.detail);
+  const get = () => loadSettings({ projectRoot: fixture.project, env: fixture.env({ DOFLOW_PLANTED_PROJECT_ONLY: '9' }), registry: loaded.registry });
+
+  fixture.writeUserSettings({ schema: 1, [key]: 8 });
+  let view = get();
+  for (const name of ['project', 'global']) {
+    const r = view.get(key, name);
+    assert.equal(r.value, 5);
+    assert.equal(r.origin.layer, 'default');
+    assert.equal(r.candidates.find((c: any) => c.layer === 'user').status, 'ignored-scope');
+    assert.match(r.candidates.find((c: any) => c.layer === 'user').reason, /project-only/);
+    assert.equal(r.candidates.some((c: any) => c.layer === 'env'), false);
+  }
+  fixture.writeProjectSettings({ schema: 1, [key]: 6 });
+  view = get();
+  assert.equal(view.get(key).value, 6);
+  assert.equal(view.get(key).origin.layer, 'project');
+  assert.equal(view.get(key, 'global').value, 5);
+  fixture.writeProjectLocal({ schema: 1, [key]: 7 });
+  assert.equal(get().get(key).value, 7);
+  assert.equal(get().get(key).origin.layer, 'local');
+  fixture.writeUserSettings({ schema: 1, [key]: 'text' });
+  assert.equal(get().get(key).candidates.find((c: any) => c.layer === 'user').status, 'ignored-scope', 'scope precedes type validation, mirroring global-only');
+});

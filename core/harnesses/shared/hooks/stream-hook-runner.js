@@ -21,11 +21,10 @@ const antigravityAdapter = require('./adapters/antigravity');
 
 // Tool-name classification for PreToolUse, generalized to the union every Phase A canonical
 // script's own case statement already recognizes (session-context.sh/pre-implementation-gate.sh/
-// mcp-tool-guard.sh/pre-bash-guard.sh headers) rather than only the two harnesses this runner
+// mcp-tool-guard.sh headers) rather than only the two harnesses this runner
 // drives — kept in sync with those scripts, not redefined independently of them.
 const MCP_TOOL_PATTERN = /^mcp_/i;
 const EDIT_TOOL_PATTERN = /^(replace_file_content|write_to_file|multi_replace_file_content|edit_file|write_file|create_file|replace_file|replace|Edit|Write|MultiEdit|apply_patch)$/i;
-const COMMAND_TOOL_PATTERN = /^(run_command|run_shell_command|Bash|bash)$/i;
 
 // ── Failure capture (feature 046: IC-010, IC-011, IC-014, IC-015, IC-018) ─────────────────────────
 //
@@ -363,21 +362,22 @@ function resolveProjectRoot(workspacePaths) {
  */
 function delegateToPolicy(projectRoot, agent, event, policyId, nativeRaw) {
   const bridgeSh = path.join(__dirname, 'bridge', 'bridge.sh');
-  if (!fs.existsSync(bridgeSh)) {
-    captureHookFailure({ command: policyId, kind: 'bridge-missing' });
-    if (policyId === 'stop-check') {
-      return { v: 1, harness: agent, event, policy: policyId, policyVersion: 0, outcome: 'unsupported', code: 'bridge-missing', effect: 'proceed' };
-    }
-    return {
-      v: 1, harness: agent, event, policy: policyId, policyVersion: 0,
-      outcome: 'deny', code: 'bridge-missing', reason: '[doflow] shared hooks lack the bridge; run: doflow update -t antigravity', effect: 'block',
-    };
-  }
   const profile = process.env.DOFLOW_FAULT_PROFILE || 'compat-1';
   const effectiveProfile = profile === 'compat-1' || profile === 'strict-1' ? profile : 'compat-1';
   if (profile !== effectiveProfile) captureHookFailure({ command: policyId, kind: 'fault-profile-unknown' });
-  const blockingPolicy = ['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard', 'stop-check'].includes(policyId);
+  const blockingPolicy = ['pre-implementation-gate', 'mcp-tool-guard', 'stop-check'].includes(policyId);
   const faultEffect = effectiveProfile === 'strict-1' && blockingPolicy ? 'block' : 'proceed';
+  if (!fs.existsSync(bridgeSh)) {
+    captureHookFailure({ command: policyId, kind: 'bridge-missing' });
+    // D1: a missing bridge allows with a recorded warning; only strict-1, a person's opt-in, blocks a tool call.
+    if (policyId === 'stop-check' || faultEffect === 'proceed') {
+      return { v: 1, harness: agent, event, policy: policyId, policyVersion: 0, outcome: 'unsupported', code: 'bridge-missing', faultProfile: effectiveProfile, effect: 'proceed' };
+    }
+    return {
+      v: 1, harness: agent, event, policy: policyId, policyVersion: 0,
+      outcome: 'deny', code: 'bridge-missing', reason: '[doflow] shared hooks lack the bridge; run: doflow update -t antigravity', faultProfile: effectiveProfile, effect: 'block',
+    };
+  }
   const faultDecision = (code) => ({
     v: 1, harness: agent, event, policy: policyId, policyVersion: 0,
     outcome: 'error', code, reason: code, faultProfile: effectiveProfile, effect: faultEffect,
@@ -415,7 +415,6 @@ function delegateToPolicy(projectRoot, agent, event, policyId, nativeRaw) {
 function classifyPreToolUsePolicy(toolName) {
   if (MCP_TOOL_PATTERN.test(toolName)) return 'mcp-tool-guard.sh';
   if (EDIT_TOOL_PATTERN.test(toolName)) return 'pre-implementation-gate.sh';
-  if (COMMAND_TOOL_PATTERN.test(toolName)) return 'pre-bash-guard.sh';
   return null;
 }
 
@@ -431,7 +430,7 @@ function evaluatePreToolUsePolicy(payload, nativeRaw, projectRoot, agent) {
  * decision. Every event this runner drives maps to at most one Phase A script:
  *   SessionStart -> session-context.sh (side-effect only; the script's own contract says it never
  *                   denies, so its exit code is not propagated as a decision)
- *   PreToolUse   -> mcp-tool-guard.sh | pre-implementation-gate.sh | pre-bash-guard.sh, chosen by
+ *   PreToolUse   -> mcp-tool-guard.sh | pre-implementation-gate.sh, chosen by
  *                   the tool-name classification above
  *   Stop         -> stop-check.sh
  *   PostToolUse, PreInvocation -> no Phase A policy owns these yet (post-edit-lint.sh's collector

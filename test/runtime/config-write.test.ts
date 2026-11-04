@@ -120,16 +120,22 @@ test('set refuses advice.model (D-2), verify.reuse, workers.billing, workers.ena
   assert.equal(fs.existsSync(f.projectFile('settings.json')), false);
 });
 
-test('set and unset refuse guard.workerDropDatabases as security (C-1) and write nothing', (t) => {
+test('set and unset refuse every advice.* key as security, kinds and models included, and write nothing', (t) => {
   const f = createSettingsEnv(t);
-  const set = refusal(f.run(['config', 'set', 'guard.workerDropDatabases', '"scratch_db"', '--layer', 'project', '--json']), 'guard.workerDropDatabases');
-  assert.equal(set.code, 'security');
+  const advice = Object.keys(REGISTRY.keys).filter((key) => key.startsWith('advice.'));
+  assert.ok(advice.length >= 16, 'the advice.* keys are in the registry');
+  for (const key of advice) {
+    const value = REGISTRY.keys[key].type === 'string' ? '"anything-here"' : '"shadow"';
+    for (const layer of ['user', 'project', 'local']) {
+      for (const args of [['set', key, value], ['unset', key]]) {
+        const entry = refusal(f.run(['config', ...args, '--layer', layer, '--json']), key);
+        assert.equal(entry.code, 'security', `${args[0]} ${key} ${layer}`);
+      }
+    }
+  }
+  assert.equal(fs.existsSync(f.configDir), false, 'no config home was created');
   assert.equal(fs.existsSync(f.projectFile('settings.json')), false);
-  f.writeProjectSettings({ schema: 1, 'guard.workerDropDatabases': 'kept_db' });
-  const before = fs.readFileSync(f.projectFile('settings.json'), 'utf8');
-  const unset = refusal(f.run(['config', 'unset', 'guard.workerDropDatabases', '--layer', 'project', '--json']), 'guard.workerDropDatabases');
-  assert.equal(unset.code, 'security');
-  assert.equal(fs.readFileSync(f.projectFile('settings.json'), 'utf8'), before);
+  assert.equal(fs.existsSync(f.projectFile('settings.local.json')), false);
 });
 
 test('set refuses an invariant.* key as locked and names the invariant', (t) => {
@@ -321,6 +327,22 @@ test('an invalid advice.model at a layer that may widen it trips advice.enabled 
   assert.equal(listed.json.keys['advice.model'].meta.securityRelevant, true);
 });
 
+test('an invalid advice.models.<kind> is security-relevant too: it trips advice.enabled and config list exits 1', (t) => {
+  const f = createSettingsEnv(t);
+  f.writeProjectSettings({ schema: 1, 'advice.models.tier': 7 });
+  const listed = f.run(['config', 'list', '--json']);
+  assert.equal(listed.status, 1, listed.stderr);
+  assert.equal(listed.json.keys['advice.enabled'].origin.via, 'fail-safe');
+  assert.equal(listed.json.keys['advice.models.tier'].meta.securityRelevant, true);
+});
+
+test('config list reports an invalid non-security value and still exits 0 (documented), while a security one exits 1', (t) => {
+  const f = createSettingsEnv(t);
+  f.writeProjectSettings({ schema: 1, 'review.rounds': 'many' });
+  const listed = f.run(['config', 'list', '--json']);
+  assert.equal(listed.status, 0, listed.stderr);
+});
+
 test('advise --action configure still writes advice.model (a person command, not config set)', (t) => {
   const f = createSettingsEnv(t);
   f.writeUserSettings({ schema: 1, 'advice.model': 'clef-flash' });
@@ -372,6 +394,55 @@ test('unset removes the key from the layer file and keeps the others', (t) => {
   assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
   assert.equal(result.json.ok, true);
   assert.deepEqual(readJson(f.projectFile('settings.json')), { schema: 1, 'storage.prune': 'off' });
+});
+
+test('set and unset write through a symlinked user settings.json and keep the link', (t) => {
+  const f = createSettingsEnv(t);
+  const dotfiles = path.join(f.dir, 'dotfiles');
+  fs.mkdirSync(dotfiles, { recursive: true });
+  fs.mkdirSync(f.configDir, { recursive: true });
+  const target = path.join(dotfiles, 'doflow.json');
+  fs.writeFileSync(target, `${JSON.stringify({ schema: 1, 'storage.prune': 'off' })}\n`);
+  const link = f.userFile('settings.json');
+  fs.symlinkSync(target, link);
+
+  assert.equal(f.run(['config', 'set', 'review.rounds', '3', '--layer', 'user']).status, 0);
+  assert.equal(fs.lstatSync(link).isSymbolicLink(), true, 'set keeps the link');
+  assert.deepEqual(readJson(target), { schema: 1, 'review.rounds': 3, 'storage.prune': 'off' });
+
+  assert.equal(f.run(['config', 'unset', 'review.rounds', '--layer', 'user']).status, 0);
+  assert.equal(fs.lstatSync(link).isSymbolicLink(), true, 'unset keeps the link');
+  assert.deepEqual(readJson(target), { schema: 1, 'storage.prune': 'off' });
+  assert.deepEqual(fs.readdirSync(dotfiles), ['doflow.json']);
+});
+
+test('set refuses a project settings.json that links outside the project, naming the file, and copies nothing', (t) => {
+  const f = createSettingsEnv(t);
+  const outside = path.join(f.dir, 'elsewhere.json');
+  fs.writeFileSync(outside, `${JSON.stringify({ schema: 1, 'storage.prune': 'off' })}\n`);
+  fs.mkdirSync(path.dirname(f.projectFile('settings.json')), { recursive: true });
+  fs.symlinkSync(outside, f.projectFile('settings.json'));
+  const before = fs.readFileSync(outside, 'utf8');
+
+  for (const args of [['set', 'review.rounds', '3'], ['unset', 'storage.prune']]) {
+    const entry = refusal(f.run(['config', ...args, '--layer', 'project', '--json']), args[1]);
+    assert.equal(entry.code, 'write-failed');
+    assert.ok(entry.message.startsWith(f.projectFile('settings.json')), entry.message);
+    assert.match(entry.message, /outside the project/);
+  }
+  assert.equal(fs.readFileSync(outside, 'utf8'), before);
+  assert.equal(fs.existsSync(`${f.projectFile('settings.json')}.config.bak`), false, 'the outside file was not copied');
+});
+
+test('unset refuses to rewrite a file holding a number JSON cannot write back, naming that key', (t) => {
+  const f = createSettingsEnv(t);
+  const text = '{\n  "schema": 1,\n  "future.id": 12345678901234567890,\n  "review.rounds": 3\n}\n';
+  fs.mkdirSync(path.dirname(f.projectFile('settings.json')), { recursive: true });
+  fs.writeFileSync(f.projectFile('settings.json'), text);
+  const entry = refusal(f.run(['config', 'unset', 'review.rounds', '--layer', 'project', '--json']), 'review.rounds');
+  assert.equal(entry.code, 'write-failed');
+  assert.match(entry.message, /'future\.id'/);
+  assert.equal(fs.readFileSync(f.projectFile('settings.json'), 'utf8'), text, 'the file is untouched');
 });
 
 test('set and unset keep the bytes they replace in one <file>.config.bak (C-10); a first write needs none', (t) => {
@@ -556,7 +627,8 @@ test('schema --json lists every registry key with the IC-007 fields, and the inv
     assert.equal(entry.locked, false);
   }
   const byKey = Object.fromEntries(keys.map((k: any) => [k.key, k]));
-  for (const key of ['advice.enabled', 'advice.provider', 'advice.endpoint', 'advice.model', 'verify.reuse', 'autopilot.enabled', 'workers.billing', 'workers.enabled', 'workers.models', 'guard.workerDropDatabases']) {
+  for (const key of Object.keys(REGISTRY.keys).filter((k) => k.startsWith('advice.'))) assert.equal(byKey[key].writable, false, key);
+  for (const key of ['advice.enabled', 'advice.provider', 'advice.endpoint', 'advice.model', 'verify.reuse', 'autopilot.enabled', 'workers.billing', 'workers.enabled', 'workers.models']) {
     assert.equal(byKey[key].writable, false, key);
   }
   assert.equal(byKey['review.rounds'].writable, true);

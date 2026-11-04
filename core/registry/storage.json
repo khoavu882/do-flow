@@ -596,8 +596,7 @@
       "match": "^[0-9a-f]{12}$",
       "rule": "report-orphan",
       "bound": {
-        "orphanGraceHours": 24,
-        "foreignMaxAgeDays": 180
+        "orphanGraceHours": 24
       },
       "protect": null,
       "moments": [
@@ -1703,6 +1702,14 @@
     {
       "file": "src/runtime/history-compactor.ts",
       "reason": "agent-docs deliverable (decisions/history archive and artifact stub)"
+    },
+    {
+      "file": "src/runtime/intake/engine.ts",
+      "reason": "user-provided files in a feature's additional-context folder: sorted into category subfolders and filed prompt text, each move journaled in the intake manifest"
+    },
+    {
+      "file": "src/runtime/intake/manifest.ts",
+      "reason": "agent-docs deliverable (additional-context/.intake/manifest.json: the journaled record of every intake move)"
     },
     {
       "file": "src/runtime/lifecycle/intent-writer.ts",

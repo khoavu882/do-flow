@@ -194,6 +194,17 @@ function planCodexAgents({ scope, codexDir, projectRoot, sourceDir, sourceVersio
     else if (current === null || current !== agent.source) changes.push({ type: current === null ? 'create' : 'update', identity, file, content: agent.source });
     nextManagedResources.push(resourceFor(agent, scope, sourceVersion));
   }
+  // An owned agent the source no longer ships (removed, or downgraded out of the selection): the ledger
+  // row is dropped above, so the file has to be dealt with here or it stays in ~/.codex/agents for good.
+  // An unmodified file is removed; one the user changed is released (ownership dropped, file kept).
+  const shipped = new Set(agents.map((agent: any) => `agent:${agent.name}`));
+  for (const [identity, record] of owned) {
+    if (shipped.has(identity) || !/^agent:[a-z][a-z0-9-]*$/.test(identity)) continue;
+    const file = destinationFor(directory, identity.slice('agent:'.length));
+    if (!fsImpl.existsSync(file)) continue;
+    if (fingerprint(fsImpl.readFileSync(file, 'utf8')) === record.fingerprint) changes.push({ type: 'remove', identity, file });
+    else changes.push({ type: 'remove', identity, file, release: true });
+  }
   if (conflicts.length) return { ok: false, status: 'conflict', directory, agents, changes: [], conflicts, managedResources };
   return {
     ok: true, status: changes.length ? 'change' : 'unchanged', directory, agents, changes, conflicts: [],
@@ -203,7 +214,10 @@ function planCodexAgents({ scope, codexDir, projectRoot, sourceDir, sourceVersio
 
 function applyCodexAgents(plan: any, { dryRun = false, fsImpl = fs }: { dryRun?: boolean, fsImpl?: any } = {}): any {
   if (!plan.ok || dryRun || plan.status === 'unchanged') return { ...plan, applied: false };
-  for (const change of plan.changes) atomicWrite(change.file, change.content, fsImpl);
+  for (const change of plan.changes) {
+    if (change.type !== 'remove') atomicWrite(change.file, change.content, fsImpl);
+    else if (!change.release) fsImpl.rmSync(change.file, { force: true });
+  }
   return { ...plan, applied: true };
 }
 

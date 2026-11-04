@@ -8,18 +8,19 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const net = require('node:net');
 const { createVerbRunner } = require('./verb-runner.ts');
 const { handshake } = require('./handshake.ts');
-const { createServer, BIND_HOST } = require('./server.ts');
+const { createServer, BIND_HOST, remoteAddressError } = require('./server.ts');
 const { consoleRoutes } = require('./routes.ts');
-const { processSessions } = require('./session.ts');
+const { createSessions, processSessions, PHONE_SESSION_TTL_MS } = require('./session.ts');
 const { doflowCore } = require('../package.json');
 
 const WEB_ROOT = path.join(__dirname, '..', 'web');
 const SHUTDOWN_MS = 2_000;
-const USAGE = 'usage: doflow-ui --core <absolute path to bin/doflow.js> [--project <absolute dir>] [--port <0..65535>]';
+const USAGE = 'usage: doflow-ui --core <absolute path to bin/doflow.js> [--project <absolute dir>] [--port <0..65535>] [--listen-address <private local IP> --tls-cert <absolute path> --tls-key <absolute path>]';
 
-type Flags = { core: string, project: string, port: number };
+type Flags = { core: string, project: string, port: number, listenAddress?: string, tlsCert?: string, tlsKey?: string };
 type Io = {
   env: Record<string, string | undefined>,
   cwd: string,
@@ -33,7 +34,7 @@ function parseFlags(argv: readonly string[], cwd: string): Flags | { error: stri
   const given: Record<string, string> = {};
   for (let index = 0; index < argv.length; index += 2) {
     const name = argv[index];
-    if (!['--core', '--project', '--port'].includes(name)) return { error: `unknown argument ${JSON.stringify(name)}` };
+    if (!['--core', '--project', '--port', '--listen-address', '--tls-cert', '--tls-key'].includes(name)) return { error: `unknown argument ${JSON.stringify(name)}` };
     if (Object.hasOwn(given, name)) return { error: `${name} given twice` };
     if (index + 1 >= argv.length) return { error: `${name} needs a value` };
     given[name] = argv[index + 1];
@@ -51,7 +52,20 @@ function parseFlags(argv: readonly string[], cwd: string): Flags | { error: stri
   const portText = given['--port'] ?? '0';
   const port = /^\d{1,5}$/.test(portText) ? Number(portText) : NaN;
   if (!(port >= 0 && port <= 65535)) return { error: '--port must be an integer 0..65535' };
-  return { core, project, port };
+  const listenAddress = given['--listen-address'];
+  const tlsCert = given['--tls-cert'];
+  const tlsKey = given['--tls-key'];
+  if (listenAddress !== undefined || tlsCert !== undefined || tlsKey !== undefined) {
+    if (listenAddress === undefined || tlsCert === undefined || tlsKey === undefined) {
+      return { error: '--listen-address, --tls-cert, and --tls-key must be supplied together' };
+    }
+    if (listenAddress === BIND_HOST) return { error: `--listen-address must be a private network address; omit it for default loopback access (${BIND_HOST})` };
+    if (net.isIP(listenAddress) === 0) return { error: '--listen-address must be a literal IP address, not a DNS name' };
+    if (!path.isAbsolute(tlsCert) || !path.isAbsolute(tlsKey)) return { error: '--tls-cert and --tls-key must be absolute paths' };
+    const problem = remoteAddressError(listenAddress);
+    if (problem) return { error: problem };
+  }
+  return { core, project, port, ...(listenAddress === undefined ? {} : { listenAddress, tlsCert, tlsKey }) };
 }
 
 /** Runs the Console; resolves with the exit code (on a boot failure, or once a signal has shut it down). */
@@ -70,15 +84,27 @@ async function main(argv: readonly string[], io: Io = { env: process.env, cwd: p
     return 2;
   }
 
+  const sessions = flags.listenAddress
+    ? createSessions({ scope: 'phone', sessionTtlMs: PHONE_SESSION_TTL_MS })
+    : processSessions;
   let app: any;
   try {
-    app = await createServer({ webRoot: WEB_ROOT, port: flags.port, routes: consoleRoutes(runner, processSessions) });
+    app = await createServer({
+      webRoot: WEB_ROOT,
+      port: flags.port,
+      routes: consoleRoutes(runner, sessions),
+      ...(flags.listenAddress ? {
+        host: flags.listenAddress,
+        tls: { certPath: flags.tlsCert!, keyPath: flags.tlsKey! },
+      } : {}),
+    });
   } catch (error: any) {
     runner.stop();
-    io.stderr.write(`doflow ui: cannot listen on ${BIND_HOST}:${flags.port} (${error && error.code ? error.code : 'error'})\n`);
+    const detail = error && typeof error.message === 'string' ? error.message : error && error.code ? error.code : 'error';
+    io.stderr.write(`doflow ui: cannot listen on ${flags.listenAddress ?? BIND_HOST}:${flags.port} (${detail})\n`);
     return 1;
   }
-  io.stdout.write(`doflow ui: http://${BIND_HOST}:${app.port}/#c=${processSessions.mintLaunchCode()}\n`);
+  io.stdout.write(`doflow ui: ${app.origin}/#c=${sessions.mintLaunchCode()}\n`);
 
   return new Promise<number>((resolve) => {
     let stopping = false;

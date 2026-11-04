@@ -193,6 +193,60 @@ test('Claude adapter leaves a foreign settings.json standing on remove, strippin
   assert.deepEqual(commands, ['foreign-tool hook'], 'only DoFlow hooks are stripped');
 });
 
+// pre-bash-guard was retired: an install from before still carries its settings.json entry, and the
+// update prunes the script that entry points at. A merge must drop it and keep every other hook.
+for (const scope of ['global', 'project'] as const) {
+  test(`Claude adapter drops the retired pre-bash-guard hook entry on a ${scope} update and keeps the user's own hooks`, () => {
+    const { repoRoot, projectRoot } = fixture();
+    const asset2 = settingsAssetFixture(repoRoot);
+    const context = { repoRoot, assets: [asset2] };
+    const scopeRoot = scope === 'global' ? suiteTempDir('doflow-claude-adapter-retired-') : projectRoot;
+    const prefix = scope === 'global' ? '~/.claude/hooks/' : '${CLAUDE_PROJECT_DIR}/.claude/hooks/';
+    const settingsPath = path.join(scopeRoot, '.claude', 'settings.json');
+    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+    fs.writeFileSync(settingsPath, JSON.stringify({
+      model: 'user-choice',
+      hooks: {
+        SessionStart: [{ hooks: [{ type: 'command', command: `${prefix}session-start.sh` }] }],
+        PreToolUse: [
+          { matcher: 'Bash', hooks: [{ type: 'command', command: `${prefix}pre-bash-guard.sh` }] },
+          { matcher: 'Bash', hooks: [{ type: 'command', command: 'foreign-tool guard' }] },
+        ],
+      },
+    }));
+    const planned = claude.plan({ assets: [asset2], scope, scopeRoot, context, ledger: { resources: [] } });
+    claude.apply({ changes: planned.changes, scope, scopeRoot, context });
+    const after = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    const preTool = after.hooks.PreToolUse.flatMap((entry: any) => entry.hooks.map((h: any) => h.command));
+    assert.deepEqual(preTool, ['foreign-tool guard']);
+    assert.equal(after.model, 'user-choice');
+    assert.equal(after.hooks.SessionStart[0].hooks[0].command, `${prefix}session-start.sh`);
+    // A second run has nothing left to change.
+    const ledger = { resources: planned.changes.map((c: any) => ({ harness: 'claude', assetId: asset2.id, kind: 'settings-file', identity: c.identity, fingerprint: c.fingerprint })) };
+    const again = claude.plan({ assets: [asset2], scope, scopeRoot, context, ledger });
+    assert.deepEqual(again.changes.filter((c: any) => c.identity === 'settings.json'), []);
+  });
+}
+
+test('Claude adapter remove also strips a retired pre-bash-guard entry an update never reached', () => {
+  const { repoRoot, projectRoot } = fixture();
+  const asset2 = settingsAssetFixture(repoRoot);
+  const context = { repoRoot, assets: [asset2] };
+  const settingsPath = path.join(projectRoot, '.claude', 'settings.json');
+  fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+  fs.writeFileSync(settingsPath, JSON.stringify({
+    hooks: { PreToolUse: [
+      { matcher: 'Bash', hooks: [{ type: 'command', command: '${CLAUDE_PROJECT_DIR}/.claude/hooks/pre-bash-guard.sh' }] },
+      { matcher: 'Bash', hooks: [{ type: 'command', command: 'foreign-tool guard' }] },
+    ] },
+  }));
+  const ledger = { resources: [{ harness: 'claude', assetId: asset2.id, kind: 'settings-file', identity: 'settings.json', fingerprint: 'x' }] };
+  const removal = claude.plan({ assets: [asset2], scope: 'project', scopeRoot: projectRoot, context: { ...context, operation: 'remove' }, ledger, removing: true });
+  claude.remove({ changes: removal.changes });
+  const after = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+  assert.deepEqual(after.hooks.PreToolUse.flatMap((entry: any) => entry.hooks.map((h: any) => h.command)), ['foreign-tool guard']);
+});
+
 test('Claude discovery reports the servers configured in .mcp.json, sorted, and null when the file is absent', () => {
   const projectRoot = suiteTempDir('doflow-claude-configured-');
   const context = { homeDir: suiteTempDir('doflow-claude-configured-home-') };

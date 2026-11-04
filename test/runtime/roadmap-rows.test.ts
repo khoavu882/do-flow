@@ -350,6 +350,53 @@ test('pick: skips rows with write-set overlap, unmerged needs, or unsupported cl
   assert.equal(outcome.skips['111'], 'class-unsupported');
 });
 
+// AU-P1: the G-L1 scenario that pinned `needs-exclusive` now picks its documentation row, so the reason is pinned here.
+test('pick skips a row without a write set as needs-exclusive while another row is in flight, and picks it alone', () => {
+  const rows: any = [
+    { id: '120', slug: '120-busy', title: 'Busy', class: 'feature', needs: [], writeSet: ['src/a/'] },
+    { id: '121', slug: '121-open', title: 'Open', class: 'bug', needs: [], writeSet: [] },
+  ];
+  const busy: any = new Map([['120', { status: 'in-flight', row: rows[0] }], ['121', { status: 'not-started', row: rows[1] }]]);
+  const outcome = pick(rows, busy, { wipLimit: 2 });
+  assert.equal(outcome.picked, null);
+  assert.equal(outcome.skips['121'], 'needs-exclusive');
+  const alone: any = new Map([['120', { status: 'merged', row: rows[0] }], ['121', { status: 'not-started', row: rows[1] }]]);
+  assert.equal(pick(rows, alone, { wipLimit: 2 }).picked.id, '121');
+});
+
+test('AU-P1: pick takes the four loop classes and skips research, review, operations and dependency-change as class-unsupported', () => {
+  // dependency-change is out on purpose: a package.json dependency-key change is always denied protected-path:package.json
+  // (gates.ts), so such a row could never merge on its own. A user ruling reopens it.
+  const classes = ['bug', 'refactor', 'documentation', 'trivial-edit', 'research', 'review', 'operations', 'dependency-change'];
+  const rows: any = classes.map((cls, i) => ({ id: String(130 + i), slug: `${130 + i}-${cls}`, title: cls, class: cls, needs: [], writeSet: [`area${i}/`] }));
+  for (const [i, cls] of classes.entries()) {
+    const one: any = new Map([[rows[i].id, { status: 'not-started', row: rows[i] }]]);
+    const outcome = pick([rows[i]], one, { wipLimit: 2 });
+    if (i < 4) assert.equal(outcome.picked?.id, rows[i].id, cls);
+    else { assert.equal(outcome.picked, null, cls); assert.equal(outcome.skips[rows[i].id], 'class-unsupported', cls); }
+  }
+});
+
+test('render: a not-started dependency-change row shows `manual`, a loop-class row stays `not-started`', () => {
+  const rows: any = [
+    { id: '140', slug: '140-deps', title: 'Deps', class: 'dependency-change', needs: [], writeSet: ['package.json'] },
+    { id: '141', slug: '141-fix', title: 'Fix', class: 'bug', needs: ['140'], writeSet: ['src/x/'] },
+    { id: '142', slug: '142-live', title: 'Live', class: 'dependency-change', needs: [], writeSet: ['package.json'] },
+  ];
+  const statuses: any = new Map([
+    ['140', { rowId: '140', status: 'not-started', evidence: null }],
+    ['141', { rowId: '141', status: 'not-started', evidence: null }],
+    ['142', { rowId: '142', status: 'in-flight', evidence: null }],
+  ]);
+  const lines = render(rows, statuses).split('\n');
+  const cells = (id: string) => lines.find((l: string) => l.startsWith(`| ${id} |`))!.split('|').map((c: string) => c.trim());
+  assert.equal(cells('140')[5], 'manual');
+  assert.equal(cells('140')[7], 'class-unsupported');
+  assert.equal(cells('141')[5], 'not-started');
+  assert.equal(cells('142')[5], 'in-flight');
+  assert.ok(!render(rows, statuses).includes('blocked'));
+});
+
 test('pick negative control: two in-flight rows pick none with wip-full', () => {
   const rows: any = [
     {

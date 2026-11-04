@@ -22,6 +22,7 @@ const { STAGES: CHAIN_STAGES } = require('../decision-register.ts');
 const { isSafeSlug, invalidSlugRefusal } = require('../task-scope.ts');
 const { resolveActiveFeature } = require('../feature-resolve.ts');
 const { SETTLE_AS, withDerivedDone } = require('./fold.ts');
+const { pageItems } = require('../verb-view.ts');
 const { appendEvents, readFold, byFromChannel, randomChars } = require('./event-store.ts');
 const { deriveStatuses } = require('./status.ts');
 const { writeIntent, kebabTitle } = require('./intent-writer.ts');
@@ -334,12 +335,37 @@ function reportFollowup({ root, statement, input, release, feature, channel, now
 
 // ── list ───────────────────────────────────────────────────────────────────────────────────────
 
-/** IC-006 `list`: `state` is open (default), taken, done, dismissed or all. */
-function listFollowups({ root, state = 'open', hasBody, fsImpl = nodeFs, statuses, now = new Date() }: any) {
-  if (state !== 'all' && !STATES.includes(state)) throw new FollowupUsageError(`--state must be one of ${[...STATES, 'all'].join(', ')} (got '${state}')`);
+/** The most items one list answer holds, however large a `--limit` asks for (IC-004). */
+const LIST_MAX_LIMIT = 100;
+
+/** The key the fold orders on and a list cursor names: the creating event's time in ms, then its event id (IC-008). */
+function followupOrderKey(item: any) {
+  const created = item.history[0];
+  return { atMs: Date.parse(created.at), event: created.event };
+}
+
+/**
+ * IC-006 `list`: `state` is open (default), taken, done, dismissed or all. `ids` keeps the named items (and, with no
+ * `state`, looks in every state); an id that is no item at all is the `unknown-id` refusal. With `cursor`, `limit` or
+ * `defaultLimit` the answer holds one page of `items` plus `shown` and `nextCursor`; with none it is the whole list.
+ */
+function listFollowups({ root, state, ids, cursor, limit, defaultLimit = null, hasBody, fsImpl = nodeFs, statuses, now = new Date() }: any) {
+  const wanted = ids === undefined ? null : parseIds(ids);
+  const wantedState = state === undefined ? (wanted ? 'all' : 'open') : state;
+  if (wantedState !== 'all' && !STATES.includes(wantedState)) throw new FollowupUsageError(`--state must be one of ${[...STATES, 'all'].join(', ')} (got '${wantedState}')`);
   const { fold, followups } = loadFollowups(root, { hasBody, fsImpl, statuses, now });
-  const items = state === 'all' ? followups : followups.filter((item: any) => item.state === state);
-  return { ok: true, action: 'list', state, count: items.length, items, conflicts: fold.conflicts, unreadable: fold.unreadable, unreadableReasons: fold.unreadableReasons, next: [] };
+  let matched = followups;
+  if (wanted) {
+    const known = new Set(followups.map((item: any) => item.id));
+    const unknown = wanted.filter((id) => !known.has(id));
+    if (unknown.length) return refusal('list', 'unknown-id', `${unknown.join(', ')} ${unknown.length === 1 ? 'is' : 'are'} not a follow-up in this store. Nothing was listed.`);
+    matched = followups.filter((item: any) => wanted.includes(item.id));
+  }
+  if (wantedState !== 'all') matched = matched.filter((item: any) => item.state === wantedState);
+  const answer: any = { ok: true, action: 'list', state: wantedState, count: matched.length, items: matched, conflicts: fold.conflicts, unreadable: fold.unreadable, unreadableReasons: fold.unreadableReasons, next: [] };
+  if (cursor === undefined && limit === undefined && defaultLimit === null) return answer;
+  const page = pageItems(matched, { cursor, limit, defaultLimit, maxLimit: LIST_MAX_LIMIT, key: followupOrderKey });
+  return { ...answer, items: page.items, shown: page.shown, nextCursor: page.nextCursor };
 }
 
 // ── take, settle, promote ──────────────────────────────────────────────────────────────────────
@@ -431,7 +457,7 @@ function promoteFollowups({ root, ids, title, channel, now = new Date(), fsImpl 
 }
 
 module.exports = {
-  addFollowups, reportFollowup, listFollowups, takeFollowups, settleFollowups, promoteFollowups,
+  addFollowups, reportFollowup, listFollowups, followupOrderKey, takeFollowups, settleFollowups, promoteFollowups,
   loadFollowups, readBatchFile, resolveFeatureSlug, parseIds, oneLine, channelBy,
   FollowupUsageError, STAGES, STATES, SOURCE_KINDS, STATEMENT_MAX,
 };

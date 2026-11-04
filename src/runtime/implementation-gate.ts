@@ -107,8 +107,8 @@ function refusalText(code: any, { taskId, slug = null, template, record = null, 
 }
 
 /**
- * Which harnesses run this gate before each source edit and which meet it first at handoff, from the
- * gate's own mapping in lifecycle.json (`pre-implementation-gate`): `supported`, or `different`
+ * Which harnesses run this gate's advisory hook before each source edit and which meet the runtime refusal first at
+ * handoff, from the gate's own mapping in lifecycle.json (`pre-implementation-gate`): `supported`, or `different`
  * with no prerequisite, runs it; a prerequisite (such as Codex's hook review) is named, since until
  * it is met nothing was checked; `unavailable` has no hook layer for it. Empty when the registry
  * cannot be read.
@@ -134,8 +134,8 @@ function harnessHookNote({ repoRoot = REPO_ROOT }: any = {}): string {
     const parts = [];
     if (runs.length) parts.push(`${runs.join(', ')} ${runs.length === 1 ? 'runs' : 'run'} this check before each source edit`);
     for (const [key, ids] of gated) parts.push(`${ids.join(', ')} ${ids.length === 1 ? 'runs' : 'run'} it only after ${key}`);
-    if (none.length) parts.push(`${none.join(', ')} ${none.length === 1 ? 'has' : 'have'} no hook layer, so this refusal is ${none.length === 1 ? 'its' : 'their'} first check`);
-    return `Edit-time check: ${parts.join('; ')}.`;
+    if (none.length) parts.push(`${none.join(', ')} ${none.length === 1 ? 'has' : 'have'} no hook layer, so this refusal is ${none.length === 1 ? 'its' : 'their'} only check`);
+    return `Edit-time check: ${parts.join('; ')}. The hook only advises and never refuses an edit; this refusal is the runtime's.`;
   } catch {
     return '';
   }
@@ -401,15 +401,22 @@ function findNamespacedRun({ stateRoot, taskId, exec }: any) {
   const name = `${taskId}.json`;
   const missing = { status: 'missing', file: null, root: null, origin: null, candidates: [] };
   const inRoot = (root: string) => runFilesAt(root).filter((entry) => entry.namespace !== null && path.basename(entry.file) === name);
+  // A flat run in another checkout that names no feature is any feature's, so `list` shows it and
+  // `status` opens it; read through the same safe read as every other run (a link, FIFO or device
+  // is never opened, and is not a match).
+  const flatInRoot = (root: string) => runFilesAt(root).filter((entry) => {
+    if (entry.namespace !== null || path.basename(entry.file) !== name) return false;
+    try { return namesNoFeature(JSON.parse(readRunText(fs, entry.file, runStoreDir(root)) as string)); } catch { return false; }
+  });
   const settle = (entries: Array<{ file: string; namespace: string|null }>, root: string, origin: 'current'|'other') => (
     entries.length === 1
-      ? { status: 'found', file: entries[0].file, root, origin, candidates: [], slug: entries[0].namespace as string }
+      ? { status: 'found', file: entries[0].file, root, origin, candidates: [], ...(entries[0].namespace !== null ? { slug: entries[0].namespace } : {}) }
       : { ...missing, status: 'ambiguous', byFeature: true, candidates: entries.map((entry) => entry.file) });
   const here = inRoot(stateRoot);
   if (here.length > 0) return settle(here, stateRoot, 'current');
   const checkouts = listCheckouts({ cwd: stateRoot, ...(exec ? { exec } : {}) });
   if (!checkouts.ok || checkouts.sandbox) return missing;
-  const matches = checkouts.others.flatMap((root: string) => inRoot(root).map((entry) => ({ ...entry, root })));
+  const matches = checkouts.others.flatMap((root: string) => [...inRoot(root), ...flatInRoot(root)].map((entry) => ({ ...entry, root })));
   if (matches.length === 0) return missing;
   return settle(matches, matches[0].root, 'other');
 }
@@ -568,6 +575,7 @@ module.exports = {
   featureSlugFor,
   runSlugOf,
   orchestrationRuns,
+  runEntriesAt,
   selectRunEntries,
   findRunFile,
   RUN_STORE_REL,

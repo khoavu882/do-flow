@@ -106,7 +106,7 @@ function addFollowups(repo: any, slug: any, statements: any, stage = 'review') {
   return ok(repo.dir, ['followup', '--action', 'add', '--slug', slug, '--stage', stage, '--batch', file]).created;
 }
 
-const listFollowups = (repo: any, state = 'open') => ok(repo.dir, ['followup', '--action', 'list', '--state', state]).items;
+const listFollowups = (repo: any, state = 'open') => ok(repo.dir, ['followup', '--action', 'list', '--state', state, '--view', 'full']).items;
 
 /** What git and the working tree held before a verb, so a later check can prove nothing was committed, staged or ignored. */
 function gitSnapshot(repo: any) {

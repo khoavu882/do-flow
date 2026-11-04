@@ -25,6 +25,7 @@ const { MARKER_START, MARKER_END } = require('../../helper/marker-merge.ts');
 const { destructiveCommandGlobs } = require('../../helper/guardrails.ts');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths.ts');
 const { renderGuidancePointer } = require('../guidance-pointer.ts');
+const { isBlank, createdByDoFlow, creationOrigin, removeCreatedFile } = require('../created-file.ts');
 
 const HARNESS = 'opencode';
 /**
@@ -141,7 +142,8 @@ function createOpenCodeAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS]
   }
 
   function managedInstruction(existing: any, rendered: any) {
-    if (existing === null) return { ok: true, operation: 'create', content: rendered };
+    // A file holding only whitespace has nothing to protect and counts as absent.
+    if (existing === null || isBlank(existing)) return { ok: true, operation: 'create', content: rendered };
     const start = existing.indexOf(MARKER_START);
     const end = existing.indexOf(MARKER_END);
     if (start === -1 && end === -1) return { ok: false, conflict: `${INSTRUCTION_FILE} exists without a DoFlow managed section` };
@@ -316,7 +318,9 @@ function createOpenCodeAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS]
       else if (outcome.operation !== 'none' && outcome.content !== null) {
         changes.push({ assetId: guidance.id, target: found.paths.instruction, operation: outcome.operation,
           content: outcome.content, ownershipIdentity: `${HARNESS}:instructions:managed-section`,
-          fingerprint: fingerprint(outcome.content), harness: HARNESS, projection: { renderer: 'opencode-instructions' } });
+          fingerprint: fingerprint(outcome.content), harness: HARNESS, projection: { renderer: 'opencode-instructions' },
+          // A file DoFlow created and a removal that leaves only whitespace: the file goes (remove()).
+          ...(removing && createdByDoFlow(ledger, HARNESS, `${HARNESS}:instructions:managed-section`, found.paths.instruction) ? { deleteWhenBlank: true } : {}) });
       }
     }
 
@@ -336,7 +340,9 @@ function createOpenCodeAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS]
           // src/adapters/copilot/index.ts's analogous mcp-merge change already carries).
           operation: removing ? 'remove' : (found.config.exists ? 'update' : 'create'), content: `${JSON.stringify(next, null, 2)}\n`,
           ownershipIdentity: `${HARNESS}:config:registration`, fingerprint: fingerprint(next),
-          harness: HARNESS, projection: { renderer: 'opencode-config' } });
+          harness: HARNESS, projection: { renderer: 'opencode-config' },
+          // A file DoFlow created that a removal leaves empty goes too (remove()).
+          ...(removing && createdByDoFlow(ledger, HARNESS, `${HARNESS}:config:registration`, found.paths.config) ? { deleteWhenEmpty: true } : {}) });
       }
     } else if (removing) {
       changes.push(...releasedConfigRow({ assets, paths: found.paths, ledger }));
@@ -384,12 +390,27 @@ function createOpenCodeAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS]
       if (change.operation !== 'remove') continue;
       if (change.kind === 'copy-tree-file' || change.kind === 'mcp-server') continue; // routed below
       if (typeof change.content !== 'string') continue;
+      if (change.deleteWhenBlank && isBlank(change.content) && removeCreatedFile(change.target, fsImpl)) { removed += 1; continue; }
       writeChange(change, fsImpl);
       removed += 1;
     }
     removed += writeMcpEntries(changes, { container: MCP_CONTAINER, fsImpl });
+    // After the entry removals, which edit the same file: what is left of a config DoFlow created.
+    for (const change of changes) {
+      if (change.deleteWhenEmpty && configIsEmpty(change.target, fsImpl) && removeCreatedFile(change.target, fsImpl)) removed += 1;
+    }
     removed += removeCopyTreeAssets(changes, { fsImpl });
     return { removed };
+  }
+
+  /** True when the file holds nothing but an empty JSON object (or only whitespace). */
+  function configIsEmpty(file: string, fsImpl: any) {
+    try {
+      const text = fsImpl.readFileSync(file, 'utf8');
+      if (isBlank(text)) return true;
+      const value = JSON.parse(text);
+      return value !== null && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 0;
+    } catch { return false; }
   }
 
   function verify({ scope, scopeRoot, assets = [], mcp = [], mcpAdoptable = [], discovery, ledger, operation, context = {}, fsImpl = fs }: any) {
@@ -399,6 +420,10 @@ function createOpenCodeAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS]
     const resources = [];
     const conflicts = [];
     const instructionsAssetId = assets.find((asset: any) => asset.capability === 'instructions')?.id ?? pseudoAssetId(assets);
+    const originOf = (ownershipIdentity: string, target: string, before: any) => {
+      const origin = creationOrigin({ ledger, harness: HARNESS, ownershipIdentity, target, before });
+      return origin ? { origin } : {};
+    };
 
     const hasSection = typeof found.instruction === 'string'
       && found.instruction.includes(MARKER_START) && found.instruction.includes(MARKER_END);
@@ -408,7 +433,8 @@ function createOpenCodeAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS]
     if (hasSection) {
       resources.push({ assetId: instructionsAssetId, target: found.paths.instruction,
         ownershipIdentity: `${HARNESS}:instructions:managed-section`, fingerprint: fingerprint(found.instruction),
-        sourceVersion: context.sourceVersion ?? 'unknown', projection: { renderer: 'opencode-instructions' } });
+        sourceVersion: context.sourceVersion ?? 'unknown', projection: { renderer: 'opencode-instructions' },
+        ...originOf(`${HARNESS}:instructions:managed-section`, found.paths.instruction, discovery ? discovery.instruction : undefined) });
     }
 
     if (!found.mcpSnapshot[found.paths.config].ok) {
@@ -424,7 +450,8 @@ function createOpenCodeAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS]
       if (registered) {
         resources.push({ assetId: pseudoAssetId(assets), target: found.paths.config,
           ownershipIdentity: `${HARNESS}:config:registration`, fingerprint: fingerprint(value),
-          sourceVersion: context.sourceVersion ?? 'unknown', projection: { renderer: 'opencode-config' } });
+          sourceVersion: context.sourceVersion ?? 'unknown', projection: { renderer: 'opencode-config' },
+          ...originOf(`${HARNESS}:config:registration`, found.paths.config, discovery ? (discovery.config.exists ? {} : null) : undefined) });
       }
       if (context.permissions) {
         const ours = guardrailBashRules(context);

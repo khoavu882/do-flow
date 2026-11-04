@@ -109,15 +109,16 @@ function readBounded(file: string, maxBytes: number): { text: string } | { missi
   }
 }
 
-function parseRecordLines(file: string): { records: any[] } | { error: string } {
+function parseRecordLines(file: string): { records: any[]; text: string } | { error: string } {
   const read = readBounded(file, MAX_RECORD_BYTES);
   if ('error' in read) return { error: read.error };
+  const text = 'text' in read ? read.text : '';
   const records: any[] = [];
-  for (const [index, line] of ('text' in read ? read.text : '').split('\n').entries()) {
+  for (const [index, line] of text.split('\n').entries()) {
     if (!line.trim()) continue;
     try { records.push(JSON.parse(line)); } catch (error: any) { return { error: `line ${index + 1}: ${error.message}` }; }
   }
-  return { records };
+  return { records, text };
 }
 
 type RunLookup = { status: 'none' } | { status: 'found'; taskId: string; taskClass: string }
@@ -219,25 +220,47 @@ function loadEnforcementInputs(registry: any, { harnessesFile = path.join(REPO_R
 }
 
 /**
+ * The gate policy a review resolves its seat floor from: the shipped gates.json narrowed by the project's
+ * `.doflow/gates.override.json` (read as roadmap gate-b reads it, 119 IC-005). `override` says whether one was applied;
+ * an unreadable or widening override is `ok: false` with the loader's reason. Shared with `doflow rules`.
+ */
+function loadGatePolicy(cwd: string | null):
+  { ok: true; policy: any; override: 'none' | 'applied'; overrideFile: string | null } | { ok: false; reason: string; overrideFile: string | null } {
+  const { projectLayerSource } = require('../settings/project-layers.ts');
+  const layers = projectLayerSource(cwd, fs);
+  const overrideFile: string | null = layers.layersFrom ? path.join(layers.layersFrom, 'gates.override.json') : null;
+  let override: string | null = null;
+  if (overrideFile) {
+    try { override = fs.readFileSync(overrideFile, 'utf8'); } catch (error: any) { if (error?.code !== 'ENOENT') override = ''; }
+  }
+  const loaded = loadPolicy(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'gates.json'), 'utf8'), override);
+  if (!loaded.ok) return { ok: false, reason: String(loaded.reason), overrideFile };
+  return { ok: true, policy: loaded.policy, override: override === null ? 'none' : 'applied', overrideFile };
+}
+
+/**
  * The inputs `resolveProtocol` needs beyond the change facts: the project's settings as the plain `settingsView`
  * the resolver reads (`{ key: { value, layer } }`, 119 L-B8), whether the review is `unattended` (autopilot is not
  * is on, so the class seat floor binds; maint-thin), the gate policy (the shipped gates.json narrowed by the
  * project's `.doflow/gates.override.json`, read as roadmap gate-b reads it, 119 IC-005; null when there is no task class, so
  * no floor), the protocols registry and the enforcement inputs (`loadEnforcementInputs`). A base, override or registry the loaders reject is a refusal carrying the loader's
- * reason (and the override file). Shared with the `protocol` verb.
+ * reason (and the override file). Shared with the `protocol` verb. `replaced` names the settings a prepared run
+ * (`config validate --prepared-run`) writes to the project layer: an invalid project candidate of such a key is
+ * replaced by it, so it does not refuse here.
  */
-function loadProtocolInputs(taskClass: string | null, cwd: string, env: Record<string, string | undefined> = process.env):
+function loadProtocolInputs(taskClass: string | null, cwd: string, env: Record<string, string | undefined> = process.env, replaced: ReadonlySet<string> = new Set()):
   { gatePolicy: any; unattended: boolean; registry: any; settingsView: Record<string, { value: unknown; layer: string }>; agentAccess: Record<string, string>; readOnlyLimits: any[] } | { error: string; message: string } {
   const settingsView: Record<string, { value: unknown; layer: string }> = {};
   try {
     const settings = require('../settings/resolve.ts').loadSettings({ projectRoot: path.resolve(cwd), env });
     for (const key of PROTOCOL_SETTINGS) {
       const resolution = settings.get(key);
-      // C-6: an invalid project or local review.* candidate would silently fall back to the default: refuse instead.
-      // A preset key refuses an invalid user candidate too.
-      const invalid = key.endsWith('.preset') ? invalidPresetCandidate(resolution)
-        : key.startsWith('review.') ? invalidProjectCandidate(resolution) : undefined;
-      if (invalid) return { error: 'settings-unavailable', message: `${key} in ${invalid.source}: ${invalid.reason}` };
+      // C-6: an invalid project or local review.* candidate would silently fall back to the default: refuse instead,
+      // except a project candidate that a prepared run replaces. A preset key refuses an invalid user candidate too.
+      const judged = replaced.has(key) ? { ...resolution, candidates: (resolution.candidates ?? []).filter((c: any) => c.layer !== 'project') } : resolution;
+      const stands = key.endsWith('.preset') ? invalidPresetCandidate(judged)
+        : key.startsWith('review.') ? invalidProjectCandidate(judged) : undefined;
+      if (stands) return { error: 'settings-unavailable', message: `${key} in ${stands.source}: ${stands.reason}` };
       settingsView[key] = { value: resolution.value, layer: resolution.origin.layer };
     }
   } catch (error: any) {
@@ -245,16 +268,9 @@ function loadProtocolInputs(taskClass: string | null, cwd: string, env: Record<s
   }
   let gatePolicy: any = null;
   if (taskClass) {
-    const { projectLayerSource } = require('../settings/project-layers.ts');
-    const layers = projectLayerSource(cwd, fs);
-    const overrideFile: string | null = layers.layersFrom ? path.join(layers.layersFrom, 'gates.override.json') : null;
-    let override: string | null = null;
-    if (overrideFile) {
-      try { override = fs.readFileSync(overrideFile, 'utf8'); } catch (error: any) { if (error?.code !== 'ENOENT') override = ''; }
-    }
-    const loaded = loadPolicy(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'gates.json'), 'utf8'), override);
+    const loaded = loadGatePolicy(cwd);
     if (!loaded.ok) {
-      return { error: String(loaded.reason).split(':')[0], message: `${loaded.reason} (core/registry/gates.json narrowed by ${overrideFile ?? 'no project override'})` };
+      return { error: String(loaded.reason).split(':')[0], message: `${loaded.reason} (core/registry/gates.json narrowed by ${loaded.overrideFile ?? 'no project override'})` };
     }
     gatePolicy = loaded.policy;
   }
@@ -417,12 +433,14 @@ async function handleReviewStart({ slug, base, preset, json = false, cwd, env, r
     result.applicable = result.notApplicable === null;
 
     let nextCommand: string | null = null;
+    let seen: { head: string | null; clean: boolean; text: string } | null = null;
     if (result.applicable) {
       const state = readHeadState(cwd, env);
       result.head = state.head;
       result.clean = state.clean;
       const parsed = parseRecordLines(verificationRunRecordFile(verificationRunsRoot(cwd), verifyId as string));
       if ('error' in parsed) return refuse('records-unreadable', parsed.error);
+      seen = { head: state.head, clean: state.clean, text: parsed.text };
       result.reasons = reviewPrecondition({ records: parsed.records, head: state.head, clean: state.clean, slug: verifyId });
       if (result.reasons.length) {
         result.ok = false;
@@ -495,6 +513,14 @@ async function handleReviewStart({ slug, base, preset, json = false, cwd, env, r
     const decided = resolveProtocol({ ...facts, advicePick: null });
     if (!decided.ok) return refuseResolution(decided.reason);
     const advice = await askAdvice({ decision: { depth: decided.protocol.depth, scope }, risk: result.risk, taskClass, slug: resolvedSlug, files: paths ? paths.length : null, cwd, env, adviceClient });
+    // The advice await can take a while: what the precondition and the risk were read from must still stand.
+    if (seen && advice.status !== 'off') {
+      const now = readHeadState(cwd, env);
+      const records = parseRecordLines(verificationRunRecordFile(verificationRunsRoot(cwd), verifyId as string));
+      if (now.head !== seen.head || now.clean !== seen.clean || 'error' in records || records.text !== seen.text) {
+        return refuse('state-moved', 'HEAD, the working tree or the verification records changed while the advice was asked; run review start again');
+      }
+    }
     const resolved = resolveProtocol({ ...facts, advicePick: advice.pick });
     if (!resolved.ok) return refuseResolution(resolved.reason);
     const { protocol } = resolved;
@@ -515,4 +541,4 @@ async function handleReviewStart({ slug, base, preset, json = false, cwd, env, r
   }
 }
 
-module.exports = { reviewPrecondition, handleReviewStart, loadProtocolInputs, loadEnforcementInputs, validSlug };
+module.exports = { reviewPrecondition, handleReviewStart, loadProtocolInputs, loadEnforcementInputs, loadGatePolicy, validSlug };

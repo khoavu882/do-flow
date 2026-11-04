@@ -72,6 +72,63 @@ test('each R1-R14 fault mutation reports only its rule', () => {
   }
 });
 
+// The fixture keeps the stable path shut (no flag at all); this copy opens it behind the gate.
+const GATE_ENVIRONMENT = "    environment: ${{ !contains(github.ref_name, '-') && 'release-stable' || 'release-prerelease' }}\n";
+const GATE_CASE = '          *-*) ;;\n          *) allow_stable="--allow-stable" ;;\n';
+const gated = workflow
+  .replace('  preflight:\n    runs-on: ubuntu-latest\n', '  preflight:\n    runs-on: ubuntu-latest\n' + GATE_ENVIRONMENT)
+  .replace('      - run: npm run release:preflight -- --tag "$GITHUB_REF_NAME" --tag-pushed\n',
+    '      - run: |\n          allow_stable=""\n          case "$GITHUB_REF_NAME" in\n' + GATE_CASE
+      + '          esac\n          npm run release:preflight -- --tag "$GITHUB_REF_NAME" --tag-pushed $allow_stable\n');
+
+test('R14: the stable flag behind the preflight environment gate satisfies every rule', () => {
+  assert.ok(gated.includes(GATE_ENVIRONMENT) && gated.includes(GATE_CASE), 'the gated copy must carry the gate');
+  assert.deepEqual(releaseWorkflowFindings(gated), []);
+});
+
+test('R14: each way to widen the gated stable path produces one isolated R14 finding', () => {
+  const mutations = [
+    ['flag on every tag', gated.replace('--tag-pushed $allow_stable', '--tag-pushed --allow-stable')],
+    ['prerelease branch sets the flag', gated.replace(GATE_CASE,
+      '          *-*) allow_stable="--allow-stable" ;;\n          *) ;;\n')],
+    ['catch-all branch first', gated.replace(GATE_CASE,
+      '          *) allow_stable="--allow-stable" ;;\n          *-*) ;;\n')],
+    ['no reset', gated.replace('          allow_stable=""\n', '')],
+    ['no environment', gated.replace(GATE_ENVIRONMENT, '')],
+    ['environment for prereleases only', gated.replace("!contains(github.ref_name, '-')", "contains(github.ref_name, '-')")],
+    ['unchecked environment name', gated.replace("'release-stable'", "'release-open'")],
+    ['empty prerelease environment', gated.replace("'release-prerelease'", "''")],
+    ['environment names swapped', gated.replace("'release-stable' || 'release-prerelease'", "'release-prerelease' || 'release-stable'")],
+    ['quoted continue-on-error key', gated.replace('      - run: |\n          allow_stable=""',
+      '      - "continue-on-error": true\n        run: |\n          allow_stable=""')],
+    ['single-quoted continue-on-error key', gated.replace('      - run: |\n          allow_stable=""',
+      "      - 'continue-on-error': true\n        run: |\n          allow_stable=\"\"")],
+    ['flow-mapping continue-on-error', gated.replace('      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567 # v7.1.0\n        with:\n          fetch-depth: 0\n',
+      '      - { uses: actions/checkout@0123456789abcdef0123456789abcdef01234567, continue-on-error: true, with: { fetch-depth: 0 } }\n')],
+    ['environment object form', gated.replace(GATE_ENVIRONMENT, '    environment:\n      name: release-stable\n')],
+    ['flag in publish', gated.replace('--tag "${channel}-candidate"', '--tag "${channel}-candidate" --allow-stable')],
+    ['preflight step continue-on-error', gated.replace('      - run: |\n          allow_stable=""',
+      '      - continue-on-error: true\n        run: |\n          allow_stable=""')],
+    ['preflight step if', gated.replace('      - run: |\n          allow_stable=""',
+      '      - if: false\n        run: |\n          allow_stable=""')],
+  ];
+  for (const [name, mutated] of mutations) {
+    assert.notEqual(mutated, gated, name + ' mutation must change the gated copy');
+    const findings = releaseWorkflowFindings(mutated);
+    assert.equal(findings.length, 1, name + ' should produce one isolated finding: ' + findings.join('; '));
+    assert.match(findings[0], /^R14 /, name);
+  }
+});
+
+test('R14: a skippable preflight step is refused even while the stable path is shut', () => {
+  const skipped = workflow.replace('      - run: npm run release:preflight',
+    '      - if: false\n        run: npm run release:preflight');
+  assert.notEqual(skipped, workflow);
+  const findings = releaseWorkflowFindings(skipped);
+  assert.equal(findings.length, 1, findings.join('; '));
+  assert.match(findings[0], /^R14 .*if condition/);
+});
+
 test('R11: every Node pin must equal the engines floor, not only the verify-registry matrix', () => {
   const pins = workflowNodePins(workflow);
   assert.ok(pins.length >= 4, 'the fixture pins Node in several places');
@@ -203,7 +260,7 @@ test('every npm publish invocation needs the candidate tag', () => {
   assert.match(findings[0], /^R9 /);
 });
 
-test('R13 rejects failure-bypassing conditions on promote and publish-release', () => {
+test('R13 rejects job-level if on the chain up to publish and failure bypasses after it, however spelled', () => {
   const mutations = [
     workflow.replace(
       '  promote:\n    needs: [verify-registry]',
@@ -221,6 +278,26 @@ test('R13 rejects failure-bypassing conditions on promote and publish-release', 
       '  publish-release:\n    needs: [promote]',
       '  publish-release:\n    needs: [promote]\n    if: cancelled()',
     ),
+    workflow.replace(
+      '  verify-artifact:\n    needs: [preflight, test]',
+      '  verify-artifact:\n    needs: [preflight, test]\n    if: always()',
+    ),
+    workflow.replace(
+      '  draft-release:\n    needs: [verify-artifact]',
+      '  draft-release:\n    needs: [verify-artifact]\n    if: ${{ !cancelled() }}',
+    ),
+    workflow.replace(
+      '  publish:\n    needs: [draft-release]',
+      '  publish:\n    needs: [draft-release]\n    if: success()',
+    ),
+    workflow.replace(
+      '  promote:\n    needs: [verify-registry]',
+      '  promote:\n    needs: [verify-registry]\n    "if": always()',
+    ),
+    workflow.replace(
+      '  verify-registry:\n    needs: [publish]',
+      "  verify-registry:\n    needs: [publish]\n    'continue-on-error': true",
+    ),
   ];
 
   for (const mutated of mutations) {
@@ -229,4 +306,18 @@ test('R13 rejects failure-bypassing conditions on promote and publish-release', 
     assert.equal(findings.length, 1, 'failure-bypass should produce one finding: ' + findings.join('; '));
     assert.match(findings[0], /^R13 /);
   }
+});
+
+test('yamlKeys reads keys however spelled and treats block scalar bodies as text', () => {
+  const { yamlKeys } = require('../../src/release/release-workflow.ts');
+  const text = [
+    '  job:', '    "if": always()', '    steps:', "      - 'continue-on-error': true",
+    '      - { uses: a, "continue\\x2Don-error": true, with: { x: 1 } }', '      - name: y',
+    '        ? continue-on-error', '        : true', '      - run: |', '          if: shell text',
+    '          continue-on-error: shell text', '    env: { A: "${{ x }}" }',
+  ].join('\n');
+  const keys = yamlKeys(text);
+  assert.deepEqual(keys.filter((entry: any) => entry.key === 'if').map((entry: any) => entry.column), [4]);
+  assert.deepEqual(keys.filter((entry: any) => entry.key === 'continue-on-error').map((entry: any) => entry.column), [8, 8, -1]);
+  assert.deepEqual(keys.filter((entry: any) => entry.column === -1).map((entry: any) => entry.key), ['uses', 'continue-on-error', 'x', 'with', 'A']);
 });

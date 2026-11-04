@@ -1,0 +1,16 @@
+{
+  "id": "finish-and-ship",
+  "kind": "single",
+  "prompt": "Finish the rate limiter (reset() is missing) and get it ready to merge.",
+  "visibleCommand": "node --test",
+  "items": [
+    { "id": "i1", "title": "reset(key) works",
+      "check": { "type": "test", "name": "reset restores a full bucket for that key only" } },
+    { "id": "i2", "title": "fractional tokens are not lost on refill",
+      "check": { "type": "test", "name": "fractional tokens add up across calls" } },
+    { "id": "i3", "title": "a burst never exceeds capacity",
+      "check": { "type": "test", "name": "a burst never gets more than capacity through" } },
+    { "id": "i4", "title": "default options are not shared between instances",
+      "check": { "type": "test", "name": "defaults are not shared between instances" } }
+  ]
+}

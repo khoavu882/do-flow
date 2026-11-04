@@ -4,8 +4,7 @@ _DOFLOW_SRC=${0//\\//}; case $_DOFLOW_SRC in */*) _DOFLOW_POLDIR=${_DOFLOW_SRC%/
 # mcp-tool-guard.sh — Canonical Policy Library: PreToolUse(mcp_*) hook
 #
 # Intercepts every MCP tool call and blocks matches against mcp-policy.conf, the
-# same TAB-separated pattern<TAB>reason convention pre-bash-guard.sh uses for
-# shell commands. Ships with mcp-policy.conf carrying zero active patterns, so
+# TAB-separated pattern<TAB>reason format. Ships with mcp-policy.conf carrying zero active patterns, so
 # this is pure infrastructure until real usage data justifies specific deny
 # rules — see agent-docs/research/hook-governance-agent-tool-mcp-skill.md §3.2.
 #
@@ -39,8 +38,7 @@ else
   else
     printf '[mcp-tool-guard] DoFlow hooks out of step; run: doflow update\n' >&2
   fi
-  doflow_decide deny contract-missing
-  exit 2
+  exit 0
 fi
 doflow_decision_init mcp-tool-guard 1
 command -v jq >/dev/null 2>&1 || {
@@ -64,8 +62,8 @@ else
     ( . "$_DOFLOW_POLDIR/capture-failure.sh"; doflow_capture_failure mcp-tool-guard envelope-missing ) >/dev/null 2>&1 || true
   fi
   if [[ "${DOFLOW_AGENT:-}" =~ ^[a-z]+$ ]]; then printf '[mcp-tool-guard] DoFlow hooks out of step; run: doflow update -t %s\n' "$DOFLOW_AGENT" >&2; else printf '[mcp-tool-guard] DoFlow hooks out of step; run: doflow update\n' >&2; fi
-  doflow_decide deny "${DF_ENV_CODE:-envelope-missing}"
-  exit 2
+  doflow_decide unsupported "${DF_ENV_CODE:-envelope-missing}"
+  exit 0
 fi
 
 POLICY_FILE="$_DOFLOW_POLDIR/mcp-policy.conf"

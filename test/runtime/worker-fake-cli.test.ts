@@ -1,7 +1,7 @@
 'use strict';
 // 081 IC-029 (DEC-036): the fake harness CLI and the fake worker descriptors every worker test
 // uses. No case starts a real harness (NFR-002): each child's PATH is a scratch bin/ holding only
-// the links this file made plus the directory of process.execPath (RK9), and each child env sets
+// the links this file made plus a scratch directory holding one `node` link (RK9), and each child env sets
 // or omits the five DOFLOW_* identity variables explicitly.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -221,7 +221,10 @@ test('fake cli: the scratch bin holds only the links this test made (RK9)', POSI
   const f = fixture(t, { version: [{ print: 'fake' }] }, names);
   assert.deepEqual(fs.readdirSync(f.bin).sort(), [...names].sort());
   const entries = f.childPath.split(path.delimiter);
-  assert.deepEqual(entries, [f.bin, path.dirname(process.execPath)]);
+  assert.deepEqual(entries, [f.bin, `${f.bin}-node`]);
+  assert.deepEqual(fs.readdirSync(entries[1]), ['node'], 'the second entry holds node and nothing else');
+  assert.equal(fs.realpathSync(path.join(entries[1], 'node')), fs.realpathSync(process.execPath));
+  assert.ok(!entries.includes(path.dirname(process.execPath)), 'the node install directory is not on the child PATH');
   for (const name of names) {
     const found = entries.filter((dir: any) => fs.existsSync(path.join(dir, name)));
     assert.deepEqual(found, [f.bin], `${name} resolves only to the scratch bin`);

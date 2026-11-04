@@ -36,7 +36,7 @@ function defineHookScriptTests(harness: any) {
       assert.ok(decision, `the door recorded no decision: ${stderr}`);
       assert.equal(decision.v, 1);
       assert.equal(decision.harness, harness);
-      assert.equal(decision.outcome, 'deny');
+      assert.equal(decision.outcome, 'advisory');
       assert.equal(decision.code, 'missing-artifacts');
       // From now on each script has a ledger row of its own, owned by this harness.
       const rows = ledgerRows(c).filter((row: any) => row.kind === 'hooks-script');

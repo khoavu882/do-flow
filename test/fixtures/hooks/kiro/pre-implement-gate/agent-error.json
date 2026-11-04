@@ -7,16 +7,19 @@
       "path": "src/a.js"
     }
   },
+  "env": {
+    "DOFLOW_FAULT_PROFILE": "strict-1"
+  },
   "state": "none",
   "fault": "crash-exit-1",
   "expect": {
-    "exit": 1,
+    "exit": 2,
     "stdout": "",
     "stderrIncludes": "[pre-implementation-gate] DoFlow policy error; details: doflow-run failure list",
     "decision": {
       "outcome": "error",
       "code": "exit-1",
-      "effect": "proceed"
+      "effect": "block"
     },
     "envelope": {
       "version": 1,
@@ -33,6 +36,6 @@
     },
     "failurePoint": "eval-error:exit-1",
     "taskStateUnchanged": true,
-    "modelVisibleBytesMax": 79
+    "modelVisibleBytesMax": 80
   }
 }

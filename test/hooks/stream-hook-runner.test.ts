@@ -32,16 +32,13 @@ test('stream-hook-runner: resolveProjectRoot skips a non-git workspacePaths entr
 test('stream-hook-runner: policy routing classifies native Antigravity tool calls', () => {
   assert.equal(classifyPreToolUsePolicy('mcp__github__create_issue'), 'mcp-tool-guard.sh');
   assert.equal(classifyPreToolUsePolicy('Edit'), 'pre-implementation-gate.sh');
-  assert.equal(classifyPreToolUsePolicy('run_command'), 'pre-bash-guard.sh');
+  assert.equal(classifyPreToolUsePolicy('run_command'), null, 'shell commands are not routed to any policy');
   assert.equal(classifyPreToolUsePolicy('view_file'), null);
 });
 
 test('stream-hook-runner: delegateToPolicy evaluates native payloads through the bridge', () => {
-  const benign = delegateToPolicy(process.cwd(), 'antigravity', 'PreToolUse', 'pre-bash-guard', JSON.stringify({ toolCall: { name: 'run_command', args: { CommandLine: 'npm test' } } }));
+  const benign = delegateToPolicy(process.cwd(), 'antigravity', 'PreToolUse', 'pre-implementation-gate', JSON.stringify({ toolCall: { name: 'view_file', args: { AbsolutePath: 'README.md' } } }));
   assert.equal(benign.effect, 'proceed');
-  const blocked = delegateToPolicy(process.cwd(), 'antigravity', 'PreToolUse', 'pre-bash-guard', JSON.stringify({ toolCall: { name: 'run_command', args: { CommandLine: 'rm -rf /' } } }));
-  assert.equal(blocked.effect, 'block');
-  assert.match(blocked.reason, /pre-bash-guard.*blocked/i);
 });
 
 test('stream-hook-runner: evaluateEvent delegates Stop and leaves observation events alone', () => {
@@ -112,11 +109,11 @@ function capPair(runner: any, args: any, stdin: any, options: any = {}) {
   return { on, a };
 }
 
-/** A scratch copy of the hooks folder whose pre-bash-guard.sh is replaced by `body`. */
+/** A scratch copy of the hooks folder whose pre-implementation-gate.sh is replaced by `body`. */
 function runnerWithPolicy(body: any) {
   const dir = suiteTempDir('doflow-runner-hooks-');
   fs.cpSync(HOOKS_DIR, dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'policies', 'pre-bash-guard.sh'), `#!/usr/bin/env bash\ncat >/dev/null   # read the payload like a real policy: a script that exits first makes the runner's stdin write fail with EPIPE\n${body}\n`, { mode: 0o755 });
+  fs.writeFileSync(path.join(dir, 'policies', 'pre-implementation-gate.sh'), `#!/usr/bin/env bash\ncat >/dev/null   # read the payload like a real policy: a script that exits first makes the runner's stdin write fail with EPIPE\n${body}\n`, { mode: 0o755 });
   return path.join(dir, 'stream-hook-runner.js');
 }
 
@@ -253,43 +250,46 @@ test('stream-hook-runner capture: the sentinel and the environment switch turn c
   }
 });
 
-const PRE_BASH = JSON.stringify({ toolCall: { name: 'run_command', args: { CommandLine: 'ls' } } });
+const PRE_EDIT = JSON.stringify({ toolCall: { name: 'write_to_file', args: { TargetFile: 'src/a.ts' } } });
 
 test('stream-hook-runner capture: bridge classifies a policy signal and returns its effect decision', () => {
   const runner = runnerWithPolicy('kill -9 $$');
-  const { on, a } = capPair(runner, ['PreToolUse'], PRE_BASH);
+  const { on, a } = capPair(runner, ['PreToolUse'], PRE_EDIT);
   assert.equal(a.status, 0);
   assert.match(a.stdout, /"decision":"allow"/);
   const [line] = capLines(on);
   assert.equal(capLines(on).length, 1);
-  assert.deepEqual([line.source, line.command, line.kind, line.message, line.frame, line.exit], ['hook', 'pre-bash-guard', 'eval-error:signal-KILL', '', null, null]);
+  assert.deepEqual([line.source, line.command, line.kind, line.message, line.frame, line.exit], ['hook', 'pre-implementation-gate', 'eval-error:signal-KILL', '', null, null]);
 });
 
 test('stream-hook-runner capture: SIGTERM, SIGINT and SIGPIPE are not recorded; other signals get their own kind', () => {
   for (const signal of ['TERM', 'INT', 'PIPE']) {
-    const { on, a } = capPair(runnerWithPolicy(`kill -${signal} $$`), ['PreToolUse'], PRE_BASH);
+    const { on, a } = capPair(runnerWithPolicy(`kill -${signal} $$`), ['PreToolUse'], PRE_EDIT);
     assert.match(a.stdout, /"decision":"allow"/, signal);
     assert.equal(capLines(on).length, 0, `SIG${signal} is not a fault`);
   }
-  const segv = capPair(runnerWithPolicy('kill -SEGV $$'), ['PreToolUse'], PRE_BASH);
-  const kill = capPair(runnerWithPolicy('kill -KILL $$'), ['PreToolUse'], PRE_BASH);
+  const segv = capPair(runnerWithPolicy('kill -SEGV $$'), ['PreToolUse'], PRE_EDIT);
+  const kill = capPair(runnerWithPolicy('kill -KILL $$'), ['PreToolUse'], PRE_EDIT);
   const [a] = capLines(segv.on);
   const [b] = capLines(kill.on);
   assert.deepEqual([a.kind, b.kind], ['eval-error:signal-SEGV', 'eval-error:signal-KILL']);
   assert.notEqual(fingerprint(a), fingerprint(b), 'a SEGV and a KILL do not share a fingerprint');
 });
 
-test('stream-hook-runner capture: policy exit stubs become bridge decisions with the same allow/deny effects', () => {
-  for (const [body, expected] of [
-    ['echo "[pre-bash-guard] blocked" >&2\nexit 2', 'deny'],
-    ['exit 0', 'allow'],
-    ['exit 1', 'deny'],
-  ]) {
-    const { a } = capPair(runnerWithPolicy(body), ['PreToolUse'], PRE_BASH);
-    assert.equal(JSON.parse(a.stdout).decision, expected, body);
+test('stream-hook-runner capture: policy exit stubs become bridge decisions; only a deny record or strict-1 blocks', () => {
+  const denyRecord = `printf '\\036%s\\n' '{"v":1,"policy":"pre-implementation-gate","policyVersion":1,"outcome":"deny","code":"blocked"}' >&3`;
+  for (const [body, expected, env] of [
+    [`${denyRecord}\necho "[pre-implementation-gate] blocked" >&2\nexit 2`, 'deny', {}],
+    ['echo "[pre-implementation-gate] blocked" >&2\nexit 2', 'allow', {}],
+    ['exit 0', 'allow', {}],
+    ['exit 1', 'allow', {}],
+    ['exit 1', 'deny', { DOFLOW_FAULT_PROFILE: 'strict-1' }],
+  ] as any) {
+    const { a } = capPair(runnerWithPolicy(body), ['PreToolUse'], PRE_EDIT, { env });
+    assert.equal(JSON.parse(a.stdout).decision, expected, `${body} ${JSON.stringify(env)}`);
   }
   const runner = runnerWithPolicy('exit 0');
-  const { on, a } = capPair(runner, ['PreToolUse'], PRE_BASH, { env: { PATH: path.join(capScratch.dir, 'no-such-bin') } });
+  const { on, a } = capPair(runner, ['PreToolUse'], PRE_EDIT, { env: { PATH: path.join(capScratch.dir, 'no-such-bin') } });
   assert.equal(a.status, 0);
   assert.equal(JSON.parse(a.stdout).decision, 'allow');
 });
@@ -316,7 +316,7 @@ test('stream-hook-runner: a bridge timeout is a compat proceed and a strict bloc
   assert.deepEqual(capLines(strict).map((line: any) => line.kind), ['bridge-timeout']);
 });
 
-test('stream-hook-runner: missing bridge is out of step while a failing bridge follows the fault profile', () => {
+test('stream-hook-runner: missing bridge allows under compat-1 and denies the gate only under strict-1, while a failing bridge follows the fault profile', () => {
   const missingRunner = runnerWithoutBridge();
   const failingRunner = runnerWithBridge('exit 1');
   const gateInput = JSON.stringify({ toolCall: { name: 'write_to_file', args: { AbsolutePath: 'src/a.js' } } });
@@ -328,7 +328,7 @@ test('stream-hook-runner: missing bridge is out of step while a failing bridge f
     const gateMissing = capMachine(`missing-gate-${profile}`);
     const gate = runRunner(gateMissing, missingRunner, ['PreToolUse'], gateInput, { env });
     assert.equal(gate.status, 0);
-    assert.deepEqual(JSON.parse(gate.stdout), { decision: 'deny', reason });
+    assert.deepEqual(JSON.parse(gate.stdout), profile === 'strict-1' ? { decision: 'deny', reason } : { decision: 'allow' });
     assert.deepEqual(capLines(gateMissing).map((line: any) => line.kind), ['bridge-missing']);
 
     const stopMissing = capMachine(`missing-stop-${profile}`);
@@ -366,10 +366,10 @@ test('stream-hook-runner: a bridge that exits before reading a large payload is 
 test('stream-hook-runner capture: captureHookFailure writes the IC-011 line, caps it at 2048 bytes, rotates at 1 MiB and keeps four', () => {
   const m: any = capMachine('unit');
   const env: any = { ...process.env, HOME: m.home, XDG_CONFIG_HOME: m.xdg, DOFLOW_FAILURE_CAPTURE: '', DOFLOW_AGENT: 'codex' };
-  assert.equal(runnerModule.captureHookFailure({ command: 'pre-bash-guard', kind: 'patterns-missing' }, env), true);
+  assert.equal(runnerModule.captureHookFailure({ command: 'pre-implementation-gate', kind: 'policy-file-missing' }, env), true);
   assert.equal(runnerModule.captureHookFailure({ command: '/tmp/some arg', kind: 'x'.repeat(500), frame: 'f'.repeat(100) }, env), true);
   const [first, second] = capLines(m);
-  assert.deepEqual([first.command, first.harness, first.kind], ['pre-bash-guard', 'codex', 'patterns-missing']);
+  assert.deepEqual([first.command, first.harness, first.kind], ['pre-implementation-gate', 'codex', 'policy-file-missing']);
   assert.equal(second.command, 'unknown');
   assert.equal(second.kind.length, 80);
   assert.ok(Buffer.byteLength(JSON.stringify(second)) + 1 <= 2048);
@@ -392,7 +392,7 @@ test('stream-hook-runner capture: a FIFO at the failure file is skipped at once,
   const env: any = { ...process.env, HOME: m.home, XDG_CONFIG_HOME: m.xdg, DOFLOW_FAILURE_CAPTURE: '' };
   // In a child process with a time limit: a blocking open would hang this test, not just fail it.
   const child = require('node:child_process').spawnSync(process.execPath, ['-e',
-    `console.log(require(${JSON.stringify(RUNNER)}).captureHookFailure({ command: 'pre-bash-guard', kind: 'x' }))`], { env, encoding: 'utf8', timeout: 10000 });
+    `console.log(require(${JSON.stringify(RUNNER)}).captureHookFailure({ command: 'pre-implementation-gate', kind: 'x' }))`], { env, encoding: 'utf8', timeout: 10000 });
   assert.equal(child.status, 0, child.stderr);
   assert.equal(child.stdout.trim(), 'false');
 });
@@ -406,7 +406,7 @@ test('stream-hook-runner capture: the project label is ~ for a symlinked HOME, a
   const capture = (cwd: any, env: any) => {
     fs.rmSync(m.events, { force: true });
     const child = require('node:child_process').spawnSync(process.execPath, ['-e',
-      `console.log(require(${JSON.stringify(RUNNER)}).captureHookFailure({ command: 'pre-bash-guard', kind: 'x' }))`], { cwd, env, encoding: 'utf8', timeout: 10000 });
+      `console.log(require(${JSON.stringify(RUNNER)}).captureHookFailure({ command: 'pre-implementation-gate', kind: 'x' }))`], { cwd, env, encoding: 'utf8', timeout: 10000 });
     assert.equal(child.stdout.trim(), 'true', child.stderr);
     return capLines(m)[0].project;
   };
@@ -420,7 +420,7 @@ test('stream-hook-runner capture: the project label is ~ for a symlinked HOME, a
 test('stream-hook-runner capture: a runner line and a bash-style line with the same fields share one fingerprint', () => {
   const m = capMachine('fp');
   const env: any = { ...process.env, HOME: m.home, XDG_CONFIG_HOME: m.xdg, DOFLOW_FAILURE_CAPTURE: '' };
-  runnerModule.captureHookFailure({ command: 'pre-bash-guard', kind: 'patterns-missing' }, env);
+  runnerModule.captureHookFailure({ command: 'pre-implementation-gate', kind: 'policy-file-missing' }, env);
   const [line] = capLines(m);
   assert.equal(fingerprint(line), fingerprint({ ...line, version: '0.0.1', project: '~/other', at: '2030-01-01T00:00:00.000Z' }));
 });

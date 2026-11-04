@@ -108,6 +108,18 @@ test('ui-launcher: the core sibling is found, printed, and spawned with --core, 
   assert.deepEqual(seen.argv, ['--core', path.join(core, 'bin', 'doflow.js'), '--project', project, '--port', '4321']);
 });
 
+test('ui-launcher: private TLS flags reach the Console binary unchanged', (t) => {
+  const { scope, core, project } = layout(t);
+  const bin = fakePackage(path.join(scope, 'doflow-ui'));
+  const r = runHandler([project, '--listen-address', '192.168.1.2', '--tls-cert', '/tmp/fullchain.pem', '--tls-key', '/tmp/private-key.pem'], core);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stderr, `doflow ui: using ${bin}\n`);
+  assert.deepEqual(JSON.parse(r.stdout.trim()).argv, [
+    '--core', path.join(core, 'bin', 'doflow.js'), '--project', project,
+    '--listen-address', '192.168.1.2', '--tls-cert', '/tmp/fullchain.pem', '--tls-key', '/tmp/private-key.pem',
+  ]);
+});
+
 test('ui-launcher: the core sibling wins over a project node_modules copy', (t) => {
   const { root, scope, core, project } = layout(t);
   const sibling = fakePackage(path.join(scope, 'doflow-ui'));
@@ -142,11 +154,11 @@ test('ui-launcher: a package.json without its bin is not an install', (t) => {
 test('ui-launcher: usage errors exit 2 before any lookup or spawn', (t) => {
   const { scope, core, project } = layout(t);
   fakePackage(path.join(scope, 'doflow-ui'));
-  for (const argv of [[project, '--port', 'abc'], [project, '--port', '70000'], [project, project], [project, '--json'], ['--port=-1']]) {
+  for (const argv of [[project, '--port', 'abc'], [project, '--port', '70000'], [project, project], [project, '--json'], ['--port=-1'], [project, '--listen-address', '192.168.1.2']]) {
     const r = runHandler(argv, core, { env: { T_EXIT: '9' } });
     assert.equal(r.status, 2, `${argv.join(' ')}: ${r.stderr}`);
     assert.equal(r.stdout, '', `${argv.join(' ')}: nothing is spawned`);
-    assert.match(r.stderr, /^doflow ui: usage: doflow ui \[<project>\] \[--port N\]\n$/, argv.join(' '));
+    assert.match(r.stderr, /^doflow ui: usage: doflow ui \[<project>\] \[--port N\] \[--listen-address <private IP> --tls-cert <absolute path> --tls-key <absolute path>\]\n$/, argv.join(' '));
   }
 });
 

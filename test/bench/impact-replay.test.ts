@@ -24,7 +24,6 @@
 const { test, after, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { execFileSync, spawnSync } = require('node:child_process');
 
@@ -517,6 +516,99 @@ test('CLI: unknown flag exits 2', () => {
 test('CLI: --out without value exits 2', () => {
   const res = runner.main(['impact-replay', '--out']);
   assert.equal(res, 2);
+});
+
+// ---------------------------------------------------------------------------
+// 5b. Replay hygiene (FU-spza2p): scrubbed child env, tar status, --rev, symlink restore, group kill
+
+const GIT_IDENTITY = {
+  GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 't@example.com', GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 't@example.com',
+};
+function gitIn(cwd: any, args: any) {
+  return execFileSync('git', args, { cwd, env: { ...process.env, ...GIT_IDENTITY }, encoding: 'utf8' });
+}
+const VALID_CFG = { impactReplay: { commits: 5, minCommits: 1, ceiling: 0.5, timeoutMs: 30000 } };
+
+test('FU-spza2p: a --rev starting with - is refused before git sees it', (t) => {
+  assert.throws(() => impactReplay.replayCommits({ rev: '--output=/tmp/x', tmpDir: tempDir(t, 'doflow-replay-rev-') }), /not a usable revision/);
+  assert.equal(impactReplay.cmdImpactReplay(VALID_CFG, { rev: '-x' }), 2);
+});
+
+test('FU-spza2p: a failed tar extraction is an error, not an empty export', (t) => {
+  const { repoDir, shas } = buildFixtureRepo(tempDir(t, 'doflow-replay-tar-'));
+  assert.throws(() => impactReplay.exportCommit({ repoRoot: repoDir, sha: shas[0], targetDir: path.join(repoDir, 'no', 'such', 'dir') }), /could not extract/);
+  const ok = tempDir(t, 'doflow-replay-tar-ok-');
+  impactReplay.exportCommit({ repoRoot: repoDir, sha: shas[0], targetDir: ok });
+  assert.ok(fs.existsSync(path.join(ok, 'package.json')));
+});
+
+test('FU-spza2p: the replayed test run sees an allowlisted environment, not the caller\'s', (t) => {
+  const dir = tempDir(t, 'doflow-replay-env-');
+  fs.writeFileSync(path.join(dir, 'env.test.js'), `require('node:fs').writeFileSync('seen.json', JSON.stringify(process.env));\n`);
+  const saved = { token: process.env.REPLAY_SECRET_TOKEN, opts: process.env.NODE_OPTIONS, gitDir: process.env.GIT_DIR };
+  process.env.REPLAY_SECRET_TOKEN = 'sekret';
+  process.env.NODE_OPTIONS = '--no-warnings';
+  process.env.GIT_DIR = '/nonexistent';
+  try {
+    const res = impactReplay.runTestsInExport({ exportDir: dir, testFiles: ['env.test.js'], timeoutMs: 30000 });
+    assert.equal(res.isFailed, false, res.stderr);
+  } finally {
+    for (const [key, value] of [['REPLAY_SECRET_TOKEN', saved.token], ['NODE_OPTIONS', saved.opts], ['GIT_DIR', saved.gitDir]]) {
+      if (value === undefined) delete process.env[key as any]; else process.env[key as any] = value as any;
+    }
+  }
+  const seen = JSON.parse(fs.readFileSync(path.join(dir, 'seen.json'), 'utf8'));
+  for (const name of ['REPLAY_SECRET_TOKEN', 'NODE_OPTIONS', 'GIT_DIR']) assert.equal(seen[name], undefined, `${name} is not inherited`);
+  assert.ok(seen.PATH, 'PATH is kept');
+  assert.notEqual(seen.HOME, process.env.HOME, 'HOME is the scratch home');
+});
+
+test('FU-spza2p: a timeout kills the whole test process group, not only the direct child', { skip: process.platform === 'win32' }, (t) => {
+  const dir = tempDir(t, 'doflow-replay-timeout-');
+  fs.writeFileSync(path.join(dir, 'hang.test.js'), [
+    "const { spawn } = require('node:child_process');",
+    "const child = spawn('sleep', ['60'], { stdio: 'ignore' });",
+    "require('node:fs').writeFileSync('sleeper.pid', String(child.pid));",
+    'setInterval(() => {}, 1000);',
+    '',
+  ].join('\n'));
+  const res = impactReplay.runTestsInExport({ exportDir: dir, testFiles: ['hang.test.js'], timeoutMs: 2500 });
+  assert.equal(res.isFailed, true);
+  const pid = Number(fs.readFileSync(path.join(dir, 'sleeper.pid'), 'utf8'));
+  t.after(() => { try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ } });
+  const deadline = Date.now() + 3000;
+  let alive = true;
+  while (alive && Date.now() < deadline) {
+    try { process.kill(pid, 0); spawnSync('sleep', ['0.1']); } catch { alive = false; }
+  }
+  assert.equal(alive, false, 'the grandchild of the timed-out run is gone');
+});
+
+test('FU-spza2p: restoring a parent file never writes through a symlink the export holds', { skip: process.platform === 'win32' }, (t) => {
+  const base = tempDir(t, 'doflow-replay-link-');
+  const repoDir = path.join(base, 'repo');
+  fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+  fs.mkdirSync(path.join(repoDir, 'test'), { recursive: true });
+  const canary = path.join(base, 'canary.js');
+  fs.writeFileSync(canary, 'module.exports = 1; // canary\n');
+  gitIn(repoDir, ['init', '-q', '-b', 'main']);
+  fs.writeFileSync(path.join(repoDir, 'package.json'), JSON.stringify({ name: 'f', scripts: { test: 'node --test' } }));
+  fs.writeFileSync(path.join(repoDir, 'src', 'link.js'), 'module.exports = 1;\n');
+  const testBody = (note: any) => `const assert = require('node:assert/strict');\nconst test = require('node:test');\n// ${note}\ntest('t', () => assert.equal(require(${JSON.stringify('../src/link.js')}), 1));\n`;
+  fs.writeFileSync(path.join(repoDir, 'test', 'link.test.js'), testBody('one'));
+  gitIn(repoDir, ['add', '-A']);
+  gitIn(repoDir, ['commit', '-q', '-m', 'base']);
+  fs.rmSync(path.join(repoDir, 'src', 'link.js'));
+  fs.symlinkSync(canary, path.join(repoDir, 'src', 'link.js'));
+  fs.writeFileSync(path.join(repoDir, 'test', 'link.test.js'), testBody('two'));
+  gitIn(repoDir, ['add', '-A']);
+  gitIn(repoDir, ['commit', '-q', '-m', 'turn link.js into a symlink']);
+  const scratchTmp = path.join(base, 'scratch');
+  fs.mkdirSync(scratchTmp);
+  const before = fs.readFileSync(canary, 'utf8');
+  const report = impactReplay.replayCommits({ repoRoot: repoDir, commitsCount: 5, minCommits: 1, timeoutMs: 30000, tmpDir: scratchTmp, outPath: null, skipBaseline: true });
+  assert.equal(report.summary.evaluated, 1, JSON.stringify(report.summary));
+  assert.equal(fs.readFileSync(canary, 'utf8'), before, 'the file the symlink pointed at was not rewritten');
 });
 
 // ---------------------------------------------------------------------------

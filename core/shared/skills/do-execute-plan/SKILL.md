@@ -34,6 +34,8 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
 "$DOFLOW" paths --json
 ```
 
+Once per stage, after `feature_slug` resolves, run `"$DOFLOW" attendance --task-id "<feature_slug>"`; `unattended` → `references/WORKFLOW_HANDOFF.md` § Unattended stage.
+
    - Enforce hard prerequisite gate: `"$DOFLOW" prereqs --require-plan` (requires
      `requirement.md`, `design.md`, `plan.md`).
    - Read `<feature_dir>/state.md` if it exists — the cross-session execution record, per
@@ -45,9 +47,9 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
    - Name exactly one class id for the work this run executes. `/do-flow` passes one when it
      invoked this skill; a user who named one settles it; otherwise derive it from `plan.md`.
      ```bash
-     "$DOFLOW" classify --task-class "<proposed>" --calling-skill do-execute-plan --json
+     "$DOFLOW" classify --task-class "<proposed>" --calling-skill do-execute-plan --view brief --json
      ```
-Branch on the returned `outcome` field, not the exit code.
+Branch on `outcome`, not the exit code.
 - **`ACCEPTED`** — the returned `workflow` is this run's plan of record; read `stages`, `gates` and `handoff` off it rather than from memory.
 - **`REJECTED`** — **stop.** Print `message` verbatim (it already names `validClasses` and any `suggestions`), ask the user to choose from `validClasses`, then re-validate. Never substitute `feature`.
   A rejection may be about **you** rather than the class (`reason: caller-not-a-stage`). Then the fix is to propose one of the classes in `fit.hostingClasses`, or to hand the work to the skill this class names for the stage you meant — not to re-propose the same class.
@@ -204,7 +206,7 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
 
 ## Embedded feature research
 
-For an external fact gap or explicit request, follow the conditional protocol in `../do-document/references/embedded-research.md` before stage completion.
+For an external fact gap or request, follow the Gap or request protocol in `../do-document/references/embedded-research.md` before stage completion.
 
 ## Boundaries
 **Will:** Propose a task class and have the runtime validate it, put the approval gate standing

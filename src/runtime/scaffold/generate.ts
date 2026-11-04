@@ -336,13 +336,13 @@ function planSourceStubs({ byPath, scaffoldDir, repoRoot, fsImpl, slug, message,
         ? reqs.map((r: any) => `requirement:   ${r.id} — ${r.summary}`)
         : ['requirement:   none — no user story on the owning task resolves to a requirement']),
       ...(comps.length
-        ? comps.map((c: any) => `component:     ${c.id} — ${c.name} (design.md §3)`)
+        ? comps.map((c: any) => `component:     ${c.id} — ${c.name} (design.md Components & Boundaries)`)
         : ['component:     none — no design component serves this task\'s requirements']),
     ];
 
     const bodyParts: string[] = [''];
     if (declared.length) {
-      header.push(`shape:         declared in design.md §4 (${[...new Set(declared.map((d: any) => d.component))].join(', ')}), quoted below`);
+      header.push(`shape:         declared in design.md API / Interface Contracts (${[...new Set(declared.map((d: any) => d.component))].join(', ')}), quoted below`);
       for (const decl of declared) {
         const lines = decl.block.split('\n');
         const shown = lines.slice(0, 40);
@@ -354,11 +354,11 @@ function planSourceStubs({ byPath, scaffoldDir, repoRoot, fsImpl, slug, message,
         ].join('\n'));
       }
     } else {
-      header.push('shape:         not declared in design.md §4 — placeholder signature below');
+      header.push('shape:         not declared in design.md API / Interface Contracts — placeholder signature below');
       // Not a skip — the file was emitted. Conflating the two would let 29 "we wrote it, but the
       // design never said what it should look like" rows hide inside a skip count, which is the
       // opposite of what the manifest is for.
-      shapeUndeclared.push({ path: path.join('src', file) + STUB_SUFFIX, why: 'design.md §4 declares no interface for this file\'s component — the signature below is a placeholder, not a contract' });
+      shapeUndeclared.push({ path: path.join('src', file) + STUB_SUFFIX, why: 'design.md API / Interface Contracts declares no interface for this file\'s component — the signature below is a placeholder, not a contract' });
     }
 
     const pkg = snake(words(path.basename(path.dirname(file)) || 'scaffold')).replace(/_/g, '');
@@ -422,7 +422,7 @@ function planTestStubs({ requirement, componentsForRequirement, language, slug, 
           'reads as coverage. Replace the body, do not delete the failure.',
           '',
           `requirement:   ${id}${req ? ` — ${req.summary}` : ' — not present in the requirement index'}`,
-          ...(comps.length ? comps.map((c: any) => `component:     ${c.id} — ${c.name} (design.md §3)`) : []),
+          ...(comps.length ? comps.map((c: any) => `component:     ${c.id} — ${c.name} (design.md Components & Boundaries)`) : []),
           `criteria:      ${cases.length} from requirement.md §6`,
           `language:      ${language.id} (detected from ${language.signal} by command-detect.ts)`,
         ];
@@ -789,7 +789,7 @@ function renderManifest(result: any, planned: Map<string, any>): string {
     '_Nothing generated._');
 
   lines.push('## Emitted without a declared shape', '');
-  lines.push('These files exist and are traceable, but `design.md` §4 never declared an interface for',
+  lines.push('These files exist and are traceable, but `design.md` API / Interface Contracts never declared an interface for',
     'them, so their signature is a placeholder rather than a contract. Reviewing the placeholder as',
     'if it were the designed API is the mistake this section exists to prevent.', '');
   table(['Path', 'Why'], result.shapeUndeclared.map((s: any) => [s.path, s.why]),

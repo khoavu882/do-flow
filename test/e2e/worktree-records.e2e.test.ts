@@ -181,7 +181,9 @@ test('two sweeps at once both exit 0 and every record ends in the main checkout 
 });
 
 test('flat records of a feature without a register (096-114 style) are still read, and the first write lands in the namespace', (t) => {
-  const { main, doflow, state } = linkedWorld(t);
+  const { main, wt, doflow, state } = linkedWorld(t);
+  // A feature without a register: only it reads an identity-less flat record (FU-c9agck).
+  for (const root of [main, wt]) fs.rmSync(path.join(root, 'agent-docs', 'doflow', SLUG, 'decisions'), { recursive: true });
   // Written before C-1 by a feature without a register: flat, naming no feature.
   const flat = state(main, 'evidence/A.1.json');
   ok(doflow(main, 'evidence', '--task-id', 'A.1', '--action', 'add', '--kind', 'exact-search', '--provenance', 'extracted',

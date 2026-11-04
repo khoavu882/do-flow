@@ -286,13 +286,15 @@ describe('Runtime reach after a standalone install', { skip: SKIP, concurrency: 
     assert.ok(updated.stdout.includes(`[INFO] claude: ${CLAUDE_REFRESH}`), updated.stdout);
     const door = path.join(cell.proj, '.claude', 'hooks', 'pre-implement-gate.sh');
     assert.ok(fs.readFileSync(door).equals(fs.readFileSync(path.join(REPO, 'core', 'harnesses', 'claude', 'hooks', 'pre-implement-gate.sh'))), 'the claude gate door equals the source after `update -t pi`');
-    // And the refreshed door works against the refreshed tree: a source edit with no design.md is denied natively.
+    // And the refreshed door works against the refreshed tree: a source edit with no design.md is advised natively, never denied.
     const gated = noDesignProject(cell);
     const gate = spawnSync(bashPath(), [door], { cwd: gated, encoding: 'utf8',
       env: { ...emptyEnv(cell), PATH: process.env.PATH, DOFLOW_PROJECT_DIR: gated, DOFLOW_AGENT: 'claude', CLAUDE_CONFIG_DIR: '', CLAUDE_PROJECT_DIR: '' },
       input: `${JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 'reach', tool_name: 'Edit', tool_input: { file_path: 'src/a.js' } })}\n` });
     assert.equal(gate.status, 0, gate.stderr);
-    assert.equal(JSON.parse(gate.stdout).hookSpecificOutput.permissionDecision, 'deny', gate.stdout);
+    const advice = JSON.parse(gate.stdout).hookSpecificOutput;
+    assert.equal(advice.permissionDecision, undefined, gate.stdout);
+    assert.match(advice.additionalContext, /\[pre-implementation-gate\] doflow gate: feature .* is missing requirement\.md, design\.md, or plan\.md/, gate.stdout);
     // Every file THIS checkout's source produces is present and byte-correct in the mirror after
     // the update — the reconciliation this cell exists to prove.
     for (const rel of filesUnder(path.join(REPO, 'src'))) {
@@ -436,4 +438,41 @@ describe('Runtime reach after a standalone install', { skip: SKIP, concurrency: 
 
   test(`mixed versions: a ${LEGACY_TAG} install updates to this checkout's runtime and is removed cleanly`, { skip: tagSkip(LEGACY_TAG) }, mixedVersion(LEGACY_TAG, false));
   test(`mixed versions: a ${OLDER_TAG} install, whose guidance differs from this checkout's, updates with no source edit`, { skip: tagSkip(OLDER_TAG) }, mixedVersion(OLDER_TAG, true));
+
+  // `remove -t pi` over a legacy `-t claude,pi` install, with no update first: Pi's verifier compares the
+  // shared trees to this checkout's source and read the legacy bytes Claude's rows still own as Pi's
+  // conflicts. 0fcd973 holds Pi rows for them (retained removals); v1.14.2 holds none.
+  const removeWithoutUpdate = (REF: any) => async () => {
+    const cell = newCell('remove-legacy');
+    const legacy = path.join(cell.dir, 'legacy');
+    fs.mkdirSync(legacy);
+    const archive = spawnSync('git', ['archive', '--format=tar', '-o', path.join(cell.dir, 'legacy.tar'), REF], { cwd: REPO, encoding: 'utf8' });
+    assert.equal(archive.status, 0, archive.stderr);
+    const extract = spawnSync('tar', ['-x', '-f', path.join(cell.dir, 'legacy.tar'), '-C', legacy], { encoding: 'utf8' });
+    assert.equal(extract.status, 0, extract.stderr);
+    const older: any = await install(cell, 'project', 'claude,pi', path.join(legacy, 'bin', 'doflow.js'));
+    assert.equal(older.status, 0, `${REF} install: ${older.stderr}`);
+
+    const guidance = path.join(cell.proj, '.doflow', 'guidance');
+    const claudeFiles = () => filesUnder(guidance).sort();
+    const before = claudeFiles();
+    assert.ok(before.length > 0, `the ${REF} install wrote no guidance`);
+
+    const run = (harness: any) => spawn(cell, process.execPath, [CLI, 'remove', 'proj', '-f', '-t', harness], cell.dir, 'y\n');
+    const pi: any = await run('pi');
+    assert.equal(pi.status, 0, `remove -t pi: ${pi.stdout}${pi.stderr}`);
+    assert.deepEqual(claudeFiles(), before, 'removing pi leaves the guidance claude still owns');
+    assert.equal(fs.existsSync(path.join(cell.proj, '.pi', 'skills')), false, 'pi skills are gone');
+    const ledger = JSON.parse(fs.readFileSync(path.join(cell.proj, '.doflow', 'state', 'ledger.json'), 'utf8'));
+    assert.deepEqual(ledger.resources.filter((row: any) => row.harness === 'pi'), [], 'pi holds no ledger row after its removal');
+
+    const claude: any = await run('claude');
+    assert.equal(claude.status, 0, `remove -t claude: ${claude.stdout}${claude.stderr}`);
+    assert.equal(fs.existsSync(guidance), false, 'removing the last claimant reclaims the guidance');
+  };
+  const commitSkip = (ref: any) => (spawnSync('git', ['cat-file', '-e', `${ref}^{commit}`], { cwd: REPO }).status === 0
+    ? false
+    : `the ${ref} commit is absent from this clone, so the legacy remove did not run`);
+  test(`remove without update: a ${LEGACY_TAG} claude,pi install loses pi alone, then claude`, { skip: tagSkip(LEGACY_TAG) }, removeWithoutUpdate(LEGACY_TAG));
+  test('remove without update: a 0fcd973 claude,pi install loses pi alone, then claude', { skip: commitSkip('0fcd973') }, removeWithoutUpdate('0fcd973'));
 });

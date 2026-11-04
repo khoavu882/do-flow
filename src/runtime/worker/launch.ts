@@ -3,8 +3,7 @@
 // Feature 081 B.3 (IC-003, IC-012; DEC-030, DEC-037, DEC-045): the real launcher.
 //
 // `launchEnv` names the worker in the caller's environment: the caller's variables are inherited
-// unchanged (DEC-045), except for the five identity variables, DOFLOW_WORKER_RUN and the optional
-// project-only DOFLOW_GUARD_DROP_DATABASES launch snapshot (112). The run segment of
+// unchanged (DEC-045), except for the five identity variables and DOFLOW_WORKER_RUN. The run segment of
 // the claim's run key is the worker's run, or, when that segment is the default `local`, the run
 // id without its `w-` prefix (DEC-037), so the worker always resolves to a launched identity and
 // its 078 unit `L.<run>.<lineage>.<token>` is unique to this run. A child run (082 IC-015) is
@@ -24,12 +23,9 @@
 // and the emission text is never returned for storage.
 
 const crypto = require('node:crypto');
-const fs = require('node:fs');
-const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { emitContext, utf8Bytes } = require('../context/arbitrate.ts');
 const { grantSummary } = require('../context/summary-store.ts');
-const { loadSettings } = require('../settings/resolve.ts');
 
 type Env = Record<string, string | undefined>;
 /** 120 IC-011 / IC-012: the binding shape consumed by the recipe assembler. */
@@ -37,11 +33,9 @@ type ModelBinding = { model: string | null; flag: 'supported' | 'unevidenced' | 
 
 /** IC-012: the names a launch may set, in the order the run record lists them. The first five are the
  * identity contract; `DOFLOW_WORKER_RUN` (110) carries the worker run id `w-<12 hex>` and nothing else,
- * so the worker's telemetry can name its own run. The seventh variable (112) is an optional
- * snapshot of project-only database names. Neither is part of the stored identity. */
+ * so the worker's telemetry can name its own run. It is not part of the stored identity. */
 const WORKER_RUN_VAR = 'DOFLOW_WORKER_RUN';
-const DROP_DATABASES_VAR = 'DOFLOW_GUARD_DROP_DATABASES';
-const ENV_SET = Object.freeze(['DOFLOW_RUN_ID', 'DOFLOW_LINEAGE_ID', 'DOFLOW_ATTEMPT', 'DOFLOW_SESSION_ROLE', 'DOFLOW_WORKTREE', WORKER_RUN_VAR, DROP_DATABASES_VAR]);
+const ENV_SET = Object.freeze(['DOFLOW_RUN_ID', 'DOFLOW_LINEAGE_ID', 'DOFLOW_ATTEMPT', 'DOFLOW_SESSION_ROLE', 'DOFLOW_WORKTREE', WORKER_RUN_VAR]);
 const PROMPT_ELEMENT = '{prompt}';
 const LAST_MESSAGE_FILE_ELEMENT = '{lastMessageFile}';
 const MODEL_ELEMENT = '{model}';
@@ -73,31 +67,8 @@ class LaunchUsageError extends Error {
   }
 }
 
-/** 112: read the owning project's layers at launch, never the worker checkout, caller snapshot or
- * the launcher's process environment. Every fault omits the exemption. A fresh env copy bypasses
- * settings memoisation so an earlier launch cannot pin stale authorisation. */
-function dropDatabases(execWorktree: string, env: Env): string | null {
-  try {
-    if (!path.isAbsolute(execWorktree)) return null;
-    const canonical = fs.realpathSync(execWorktree);
-    if (!fs.statSync(canonical).isDirectory()) return null;
-    const dispatch = /^(.*)\/\.doflow\/state\/dispatch-worktrees\/d-[0-9a-f]{12}$/.exec(canonical);
-    if (!dispatch || dispatch[0] !== canonical) return null;
-    const projectRoot = dispatch[1] || path.parse(canonical).root;
-    const resolved = loadSettings({ projectRoot, env: { ...env } }).get('guard.workerDropDatabases', 'project');
-    // 086's linked-checkout fallback is not authority for this exemption. An invalid project file
-    // also voids the snapshot, even if a different layer could have supplied a usable value.
-    if (resolved.origin.checkout !== 'own' || !['project', 'local'].includes(resolved.origin.layer)
-      || resolved.candidates.some((c: any) => ['project', 'local'].includes(c.layer) && c.status === 'invalid')) return null;
-    const value = resolved.value;
-    if (typeof value !== 'string' || Buffer.byteLength(value, 'utf8') > 1024
-      || /^[a-z][a-z0-9_]{0,62}( [a-z][a-z0-9_]{0,62})*$/.exec(value)?.[0] !== value || value.split(' ').length > 32) return null;
-    return value;
-  } catch { return null; }
-}
-
-/** The five identity variables, optional worker run id and project-only guard snapshot. Both
- * launch-only values replace (or remove) caller values; the caller's environment is never mutated. */
+/** The five identity variables and the optional worker run id. The run id replaces (or removes) the
+ * caller's value; the caller's environment is never mutated. */
 function withIdentity(env: Env, identity: WorkerIdentity, execWorktree: string, runId?: string): Env {
   if (runId !== undefined && !RUN_ID.test(runId)) throw new LaunchUsageError('run-id-malformed', `launch: run id must match ${RUN_ID}: ${runId}`);
   const out: Env = {
@@ -110,12 +81,9 @@ function withIdentity(env: Env, identity: WorkerIdentity, execWorktree: string, 
   };
   if (runId !== undefined) out[WORKER_RUN_VAR] = runId;
   else delete out[WORKER_RUN_VAR];
-  delete out[DROP_DATABASES_VAR];
   // 120 IC-003: the primary declaration names the person's main session, never a worker.
   delete out.DOFLOW_PRIMARY_HARNESS;
   delete out.DOFLOW_PRIMARY_MODEL;
-  const databases = dropDatabases(execWorktree, env);
-  if (databases !== null) out[DROP_DATABASES_VAR] = databases;
   return out;
 }
 

@@ -17,6 +17,7 @@ const { renderMcpIndex } = require('./mcp-index.ts');
 const { hasBashCapableShell } = require('./bash-availability.ts');
 const { planHookCompanions } = require('./hook-step.ts');
 const { tieredRegistry, hookHoldersFromLedger, hooksTieredOff, withoutHookSources, planHookTierRemovals } = require('./hook-tier.ts');
+const { forgetManifestTools } = require('../install/manifest.ts');
 const { readLock, lockPackages } = require('../state/lockfile.ts');
 const { resolveRegistrySource } = require('../adapters/resolve-source.ts');
 const { planRetiredHarnesses, planHandovers, handoversFor, applyRetiredHarnesses, retiredReleaseKeys, claimKey } = require('./retired-harnesses.ts');
@@ -118,6 +119,34 @@ function markUnownedAbsences(statuses: any, ledger: any, harness: any) {
   ));
 }
 
+/** An adapter verifies every asset the current source declares for it, comparing disk to source. For
+ * an asset the removal leaves this harness nothing to delete from, that is not its business: the
+ * files belong to another harness's rows (retained removals, or an older install that gave this
+ * harness no rows there: a v1.14.2 Pi install recorded none for the guidance, scripts and runtime
+ * trees) and so carry that install's legacy bytes. Those bytes read as conflicts on files this
+ * removal never touches, and the ones that do match source would be written back as NEW rows for
+ * the harness being removed. So for such an asset the `conflict` status, its `<assetId>: ...`
+ * conflict strings and its copy-tree resources are dropped. An asset the plan deletes from, or one
+ * where a ledger row has no removal, is judged exactly as before. Without a ledger nothing is
+ * proven settled, so the strict reading is kept. */
+function dropSettledAssetVerification(verification: any, statuses: any, conflicts: any, removals: any, ledger: any) {
+  const unchanged = { resources: verification.resources, statuses, conflicts };
+  if (!ledger) return unchanged;
+  const rows = (ledger.resources || []).filter((resource: any) => resource.harness === verification.harness);
+  const settled = (assetId: any) => !removals.some((change: any) => change.assetId === assetId && !change.retained)
+    && !rows.some((row: any) => row.assetId === assetId && !removals.some((change: any) => matchesChange(row, change)));
+  const settledAssets = new Set([
+    ...statuses.filter((status: any) => status?.status === 'conflict').map((status: any) => status.assetId),
+    ...verification.resources.filter((resource: any) => resource?.kind === 'copy-tree-file').map((resource: any) => resource.assetId),
+  ].filter((assetId: any) => assetId && settled(assetId)));
+  if (!settledAssets.size) return unchanged;
+  return {
+    resources: verification.resources.filter((resource: any) => !(resource?.kind === 'copy-tree-file' && settledAssets.has(resource.assetId))),
+    statuses: statuses.map((status: any) => (settledAssets.has(status?.assetId) && status.status === 'conflict' ? { ...status, status: 'not-managed' } : status)),
+    conflicts: conflicts.filter((reason: any) => ![...settledAssets].some((assetId) => String(reason).startsWith(`${assetId}: `))),
+  };
+}
+
 function normalizeRemovalVerification(verification: any, changes: any, ledger: any) {
   const removals = changes.filter((change: any) => change.operation === 'remove' && change.harness === verification.harness);
   if (!removals.length) return verification;
@@ -128,7 +157,9 @@ function normalizeRemovalVerification(verification: any, changes: any, ledger: a
   // before.
   const removed = removals.filter((change: any) => !change.retained);
   let statuses = [...verification.statuses];
-  const conflicts = [...(verification.conflicts || [])];
+  let conflicts = [...(verification.conflicts || [])];
+  let resources: any[];
+  ({ resources, statuses, conflicts } = dropSettledAssetVerification(verification, statuses, conflicts, removals, ledger));
   for (const change of removed) {
     const outcome = reconcileRemovedChange(verification, statuses, change);
     if (outcome.conflict) { conflicts.push(outcome.conflict); continue; }
@@ -137,7 +168,7 @@ function normalizeRemovalVerification(verification: any, changes: any, ledger: a
   }
   // After reconciling the plan's own removals, so this only ever judges what the plan left over.
   statuses = markUnownedAbsences(statuses, ledger, verification.harness);
-  return { ...verification, statuses, conflicts, ok: removalVerificationOk(verification.ok, statuses, conflicts) };
+  return { ...verification, resources, statuses, conflicts, ok: removalVerificationOk(verification.ok, statuses, conflicts) };
 }
 
 /** An adapter may initially report ok:false because a now-removed resource is missing. Once
@@ -913,7 +944,15 @@ function updateLedger({ ledger, scope, scopeRoot, verifications, changes, recove
   // Record the relocation, then sweep the stale copy — but only when its bytes still hash to the
   // fingerprint DoFlow last verified there. A mismatch means someone edited that file after us:
   // their content outranks our tidiness, so the file stays and the unswept tombstone says why.
+  // An MCP entry is one member of a file the user shares, and the adapter has already taken it out
+  // of (or released it in) the old file by entry. A whole-file tombstone for it would carry the
+  // entry's fingerprint, never match the file's bytes and so stay unswept for good. Earlier runs
+  // left such rows behind for Pi's mcp.json (which borrows the guidance.codex-pointer asset id);
+  // they are retired here, and no file is touched.
+  next.tombstones = next.tombstones.filter((entry: any) => entry.sweptAt || entry.harness !== 'pi'
+    || entry.assetId !== 'guidance.codex-pointer' || path.basename(String(entry.fromTarget)) !== 'mcp.json');
   for (const resource of next.resources) {
+    if (resource.kind === 'mcp-server') continue;
     const prior = priorByIdentity.get(`${resource.harness}\u0000${resource.assetId}\u0000${resource.identity ?? ''}`);
     if (!prior || prior.target === resource.target) continue;
     if (!next.tombstones.some((entry: any) => entry.harness === resource.harness
@@ -924,6 +963,16 @@ function updateLedger({ ledger, scope, scopeRoot, verifications, changes, recove
         fingerprint: prior.fingerprint ?? null, movedAt: new Date().toISOString(),
       });
     }
+  }
+  // A legacy retirement: an adapter removed an old projection that no row owned (its change carries
+  // `legacyRetirement.toTarget`, where the claim lives now). Journaled as a tombstone already swept.
+  for (const change of changes) {
+    if (!change.legacyRetirement || change.operation !== 'remove' || change.retained) continue;
+    const { harness, assetId, target: fromTarget, fingerprint } = change;
+    const toTarget = change.legacyRetirement.toTarget;
+    if (next.tombstones.some((entry: any) => entry.harness === harness && entry.fromTarget === fromTarget && entry.toTarget === toTarget)) continue;
+    const at = new Date().toISOString();
+    next.tombstones.push({ harness, assetId, fromTarget, toTarget, fingerprint, movedAt: at, sweptAt: at });
   }
   const claims = new Set(next.resources.map((resource: any) => resource.target));
   for (const entry of next.tombstones) {
@@ -970,7 +1019,13 @@ function verifyLifecycle({ plan, adapters, context = {} }: any) {
   return { verifications, conflicts, ok: conflicts.length === 0 && verifications.every((result) => result.ok !== false) };
 }
 
-function assertPlanApplicable(plan: any, stateRoot: any, acceptPrerequisites: any) {
+function assertPlanApplicable(plan: any, stateRoot: any, acceptPrerequisites: any, mode: any = 'apply') {
+  // A repeated remove: the ledger holds nothing for these harnesses and the plan changes nothing. That is a
+  // finished job, not the malformed plan refused below; the CLI answers this code with a note and exit 0.
+  if (mode === 'remove' && plan.safe && !plan.changes.length && !(plan.retiredHarnesses ?? []).some((item: any) => item.changes.length)
+    && !(plan.ledger?.resources ?? []).some((resource: any) => plan.targets.some((target: any) => target.harness === resource.harness))) {
+    throw Object.assign(new Error(`Nothing to remove for ${plan.targets.map((target: any) => target.harness).join(', ')}: DoFlow owns no native resources there.`), { code: 'DOFLOW_NOTHING_TO_REMOVE' });
+  }
   if (!plan.safe && !(acceptPrerequisites && plan.conflicts.length === 0)) throw new Error('Refusing to apply an unsafe lifecycle plan');
   if (!stateRoot) throw new Error('stateRoot is required before lifecycle mutation');
   // A retirement is native work no live harness lists: a plan holding only that is applicable.
@@ -1036,7 +1091,7 @@ function assertBashAvailableForHooks(plan: any, mode: any, hasBashCapableShellFn
 }
 
 function applyLifecycle({ plan, registry, adapters, stateRoot, ledger = plan.ledger, context = {}, mode = 'apply', acceptPrerequisites = false, writeLedgerFn = writeLedger, writeRecoveryRecordFn = writeRecoveryRecord, hasBashCapableShellFn = hasBashCapableShell }: any) {
-  assertPlanApplicable(plan, stateRoot, acceptPrerequisites);
+  assertPlanApplicable(plan, stateRoot, acceptPrerequisites, mode);
   assertBashAvailableForHooks(plan, mode, hasBashCapableShellFn);
   const recovery = writeRecoveryRecordFn(stateRoot, { status: 'pending', changes: plan.changes });
   const completedHarnesses = [];
@@ -1146,9 +1201,37 @@ function settleSuspendedProjection({ homeDir }: any): void {
   }
 }
 
+/** Remove the directories a removal emptied, from each removed file's folder upward, tool root
+ * included (`.pi`, `.opencode`, `.agents`); `rmdir` refuses a folder that holds anything, so no
+ * file is touched. The walk stops at the scope root and never takes a shared `.config` folder. */
+function pruneEmptiedDirs(changes: any[], scopeRoot: string, fsImpl: any = fs) {
+  const root = path.resolve(scopeRoot);
+  for (const change of changes) {
+    if (change.operation !== 'remove' || change.retained || change.release || typeof change.target !== 'string') continue;
+    let dir = path.dirname(path.resolve(change.target));
+    if (!isUnder(dir, root)) continue;
+    // The removed file's own folders may already be gone; the first one still standing starts the walk.
+    while (dir !== root && isUnder(dir, root) && !fsImpl.existsSync(dir)) dir = path.dirname(dir);
+    while (dir !== root && isUnder(dir, root) && path.basename(dir) !== '.config') {
+      try { fsImpl.rmdirSync(dir); } catch { break; }
+      dir = path.dirname(dir);
+    }
+  }
+}
+
+/** Stop the install manifest listing a harness the removal left with no ownership row. */
+function forgetRemovedTools(targets: string[], ledger: any, scopeRoot: string) {
+  const standing = new Set((ledger?.resources || []).map((resource: any) => resource.harness));
+  const gone = (targets || []).filter((harness) => !standing.has(harness));
+  if (gone.length) forgetManifestTools({ scopeRoot, tools: gone });
+}
+
 function removeLifecycle(options: any) {
   const plan = planLifecycle({ ...options, context: { ...(options.context || {}), operation: 'remove' } });
-  return applyLifecycle({ ...options, plan, mode: 'remove', acceptPrerequisites: options.acceptPrerequisites });
+  const result = applyLifecycle({ ...options, plan, mode: 'remove', acceptPrerequisites: options.acceptPrerequisites });
+  pruneEmptiedDirs(plan.targets.flatMap((target: any) => target.changes), plan.scopeRoot);
+  forgetRemovedTools(options.targets, result.ledger, plan.scopeRoot);
+  return result;
 }
 
 module.exports = { OPERATIONS, MCP_KEEP, recordMcpOwnership, isPackageAsset, registryScope, normalizeTargets, normalizeChange, matchesChange, normalizeRemovalVerification, adapterConflicts, planLifecycle, verifyLifecycle, applyLifecycle, removeLifecycle, updateLedger, mcpIndexPath, applyMcpIndex, targetNeedsHooks, assertBashAvailableForHooks, hookWiringStatus, markRetainedRemovals, retentionSummary, PRUNED_TREES, settleSuspendedProjection };

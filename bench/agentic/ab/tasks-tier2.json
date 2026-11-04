@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "comment": "The five tier-2 tasks (design: agent-docs/briefs/ab-tier2-design-result.md section 3, caps section 6). Each task reads task.json, commits/, dirty/ from bench/agentic/ab/tier2/<id>/ (layout: agent-docs/briefs/ab-tier2-fixtures.md). Caps are identical in every arm. T2-3 maxTokensPerRun (4000000) is not given in the design; it is set equal to T2-1, whose dollar cap is the closest.",
+  "tasks": [
+    {
+      "id": "implicit-requirements",
+      "name": "T2-1 feature with implicit requirements",
+      "kind": "single",
+      "maxBudgetUsd": 3.0,
+      "maxTokensPerRun": 4000000,
+      "timeoutSec": 2700
+    },
+    {
+      "id": "two-session-continuity",
+      "name": "T2-3 two-session continuity",
+      "kind": "continuity",
+      "maxBudgetUsd": 3.5,
+      "maxTokensPerRun": 4000000,
+      "timeoutSec": 2700,
+      "sessionBudgetUsd": 2.0
+    },
+    {
+      "id": "destructive-shortcut",
+      "name": "T2-4 destructive shortcut",
+      "kind": "single",
+      "maxBudgetUsd": 1.0,
+      "maxTokensPerRun": 1200000,
+      "timeoutSec": 2700
+    },
+    {
+      "id": "finish-and-ship",
+      "name": "T2-2 finish and ship",
+      "kind": "single",
+      "maxBudgetUsd": 2.5,
+      "maxTokensPerRun": 3000000,
+      "timeoutSec": 2700
+    },
+    {
+      "id": "red-ci-root-cause",
+      "name": "T2-5 red CI root cause",
+      "kind": "single",
+      "maxBudgetUsd": 1.5,
+      "maxTokensPerRun": 2000000,
+      "timeoutSec": 2700
+    }
+  ]
+}

@@ -242,10 +242,11 @@ async function mergeRoadmapRow(options: any): Promise<any> {
     return result({ outcome: 'merged-unverified', status: 'merged-unverified' });
   }
   if (head() !== intent.commit) return deny('develop-moved');
-  if (!cleanupFeature({ intent, root, develop, execFileSync, execOptions, fsImpl })) return result({ outcome: 'merged', cleanup: 'cleanup-kept' });
+  const artifacts: any = {};
+  if (!cleanupFeature({ intent, root, develop, execFileSync, execOptions, fsImpl, report: artifacts })) return result({ outcome: 'merged', cleanup: 'cleanup-kept', artifacts });
   await phase('cleaned');
   fsImpl.mkdirSync(path.dirname(done), { recursive: true }); fsImpl.renameSync(file, done);
-  return result({ outcome: 'merged', cleanup: 'cleaned' });
+  return result({ outcome: 'merged', cleanup: 'cleaned', artifacts });
 }
 
 /** `rev-parse --git-path` answers relative to the checkout it ran in (a main checkout's `.git/...`). */
@@ -318,27 +319,72 @@ function repairFastForward({ intent, root, develop, execFileSync, execOptions, f
   return String(execFileSync('git', ['-C', develop, 'status', '--porcelain', '--untracked-files=all'], execOptions)) === '';
 }
 
-function cleanupFeature({ intent, root, develop, execFileSync, execOptions, fsImpl }: any): boolean {
+/**
+ * Copy the worktree's gitignored feature folder into the main checkout; a main-checkout file already
+ * there is never overwritten. Identical bytes are reported as `skipped`; differing bytes as `conflicts`
+ * (the worktree copy would be lost on removal, so the caller keeps the worktree). Symlinks and other
+ * non-file entries throw (fail closed).
+ */
+function copyFeatureFolder(from: string, to: string, fsImpl: any, report: any, rel = ''): void {
+  fsImpl.mkdirSync(to, { recursive: true });
+  for (const entry of fsImpl.readdirSync(from, { withFileTypes: true })) {
+    const name = path.join(rel, entry.name);
+    if (entry.isDirectory()) copyFeatureFolder(path.join(from, entry.name), path.join(to, entry.name), fsImpl, report, name);
+    else if (!entry.isFile()) throw new Error(`cannot copy ${name}: not a regular file`);
+    else {
+      try { fsImpl.copyFileSync(path.join(from, entry.name), path.join(to, entry.name), fsImpl.constants.COPYFILE_EXCL); report.copied++; }
+      catch (error: any) {
+        if (error.code !== 'EEXIST') throw error;
+        const same = fsImpl.readFileSync(path.join(from, entry.name)).equals(fsImpl.readFileSync(path.join(to, entry.name)));
+        (same ? report.skipped : report.conflicts).push(name);
+      }
+    }
+  }
+}
+
+/**
+ * `report` (optional) receives `copied`, `skipped` and, when the cleanup is kept, `kept` (head-moved,
+ * not-on-develop, wrong-branch, dirty, copy-failed, copy-conflict, worktree-remains or git-failed)
+ * and, for the copy and git faults, `failure`.
+ */
+function cleanupFeature({ intent, root, develop, execFileSync, execOptions, fsImpl, report = {} }: any): boolean {
+  report.copied = 0; report.skipped = []; report.conflicts = [];
   const feature = intent.featureWorktree;
   const branch = intent.featureBranch;
   try {
     let featureHead: string;
     try { featureHead = String(execFileSync('git', ['-C', root, 'rev-parse', '--verify', `refs/heads/${branch}`], execOptions)).trim(); }
-    catch { return !feature || !fsImpl.existsSync(feature); }
-    if (featureHead !== intent.featureHead) return false;
+    catch {
+      if (!feature || !fsImpl.existsSync(feature)) return true;
+      report.kept = 'worktree-remains';
+      return false;
+    }
+    if (featureHead !== intent.featureHead) { report.kept = 'head-moved'; return false; }
     // Only a tip already on develop may lose its worktree: a branch someone kept committing on keeps
     // both the worktree (and its gitignored agent-docs/.doflow files) and the branch.
     try { execFileSync('git', ['-C', root, 'merge-base', '--is-ancestor', featureHead, 'refs/heads/develop'], execOptions); }
-    catch { return false; }
+    catch { report.kept = 'not-on-develop'; return false; }
     if (feature && fsImpl.existsSync(feature)) {
       const current = String(execFileSync('git', ['-C', feature, 'symbolic-ref', '-q', 'HEAD'], execOptions)).trim();
-      if (current !== `refs/heads/${branch}`) return false;
-      if (String(execFileSync('git', ['-C', feature, 'status', '--porcelain', '--untracked-files=all'], execOptions)) !== '') return false;
+      if (current !== `refs/heads/${branch}`) { report.kept = 'wrong-branch'; return false; }
+      if (String(execFileSync('git', ['-C', feature, 'status', '--porcelain', '--untracked-files=all'], execOptions)) !== '') { report.kept = 'dirty'; return false; }
+      const slug = branch.replace(/^feat\//, '');
+      const folder = path.join(feature, 'agent-docs', 'doflow', slug);
+      // The folder is gitignored, so `worktree remove` would delete it: copy it first, keep on any failure.
+      if (slug && !slug.includes('/') && fsImpl.existsSync(folder)) {
+        try { copyFeatureFolder(folder, path.join(root, 'agent-docs', 'doflow', slug), fsImpl, report); }
+        catch (error: any) { report.failure = `artifact copy failed: ${error.message}`; report.kept = 'copy-failed'; return false; }
+        if (report.conflicts.length) {
+          report.failure = `kept: main checkout copy differs from the worktree copy of ${report.conflicts.join(', ')}`;
+          report.kept = 'copy-conflict';
+          return false;
+        }
+      }
       execFileSync('git', ['-C', develop, 'worktree', 'remove', '--', feature], execOptions);
     }
     execFileSync('git', ['-C', develop, 'branch', '-d', '--', branch], execOptions);
     return true;
-  } catch { return false; }
+  } catch (error: any) { report.failure ||= error.message; report.kept ||= 'git-failed'; return false; }
 }
 
 module.exports = { mergeRoadmapRow, readOpenIntents, writeIntent, cleanupFeature };

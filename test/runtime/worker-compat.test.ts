@@ -157,19 +157,22 @@ test('compat: identity control, a row promoted to supported is reported', () => 
   assert.deepEqual(identityFindings(copy, HARNESSES), ["identity row for 'claude' is 'supported', not 'limitation'"]);
 });
 
-// RK9: the scratch PATH is the scratch bin plus the directory of process.execPath. That node
-// directory can hold real harness binaries (on some machines claude, codex and others sit beside
-// node), so this test does not claim the node directory is empty of them. It asserts what keeps
-// them unreachable: the scratch bin holds only fake links, every fake name resolves to the scratch
-// bin alone, and no fake name is a real registry binary name, so no test lookup lands on one.
+// RK9: the scratch PATH is the scratch bin plus a scratch directory holding one `node` link. The
+// node install directory can hold real harness binaries (on some machines claude, codex and others
+// sit beside node), so it is never a PATH entry. This test asserts what keeps them unreachable: the
+// scratch bin holds only fake links, the node directory holds only node, every fake name resolves
+// to the scratch bin alone, and no fake name is a real registry binary name.
 test('compat: a scratch PATH from the fake-CLI helper resolves no linked name outside its own bin (RK9)', POSIX_ONLY, (t) => {
   const names = Object.values(DESCRIPTORS).map((block) => block.cli.binary);
   const realBinaries = HARNESSES.harnesses.map((h: any) => h.worker.cli.binary);
   const bin = path.join(tempDir(t, 'doflow-compat-'), 'bin');
   const childPath = linkBin(bin, names);
   const nodeDir = path.dirname(process.execPath);
+  const scratchNode = `${bin}-node`;
 
-  assert.deepEqual(childPath.split(path.delimiter), [bin, nodeDir], 'scratch bin plus the node directory, nothing else');
+  assert.deepEqual(childPath.split(path.delimiter), [bin, scratchNode], 'scratch bin plus a node-only scratch directory, nothing else');
+  assert.deepEqual(fs.readdirSync(scratchNode), ['node'], 'the second entry holds node and nothing else');
+  assert.ok(!childPath.split(path.delimiter).includes(nodeDir), 'the node install directory is not on the child PATH');
   assert.deepEqual(fs.readdirSync(bin).sort(), [...names].sort(), 'the scratch bin holds only the links the helper made');
   for (const name of fs.readdirSync(bin)) {
     assert.equal(fs.realpathSync(path.join(bin, name)), fs.realpathSync(FAKE_CLI), `${name} is a link to the fake CLI`);
@@ -181,8 +184,7 @@ test('compat: a scratch PATH from the fake-CLI helper resolves no linked name ou
   for (const real of realBinaries) {
     assert.ok(!resolveOnPath(real, childPath).includes(bin), `real binary '${real}' is not in the scratch bin`);
   }
-  const besideNode = realBinaries.filter((real: any) => fs.existsSync(path.join(nodeDir, real)));
-  if (besideNode.length) t.diagnostic(`real harness binaries beside node (unreachable by fake names): ${besideNode.join(', ')}`);
+  for (const real of realBinaries) assert.deepEqual(resolveOnPath(real, childPath), [], `real binary '${real}' is on no child PATH entry`);
 });
 
 test('compat: scratch PATH control, an extra entry or a stray real-named link is reported', POSIX_ONLY, (t) => {

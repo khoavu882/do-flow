@@ -84,7 +84,7 @@ Or use the lifecycle intents for git operations:
 | Stage | `context7`, when | `sequential-thinking`, when |
 |---|---|---|
 | `/do-brainstorm` | `requirement.md` would state a named library, API or tool's behaviour as fact | a round's open ambiguity spans two or more components, actors or requirements |
-| `/do-design` | `design.md` would state a named library, API, SDK, CLI or service's interface, configuration or version behaviour as fact | §1 records a decision with a rejected alternative |
+| `/do-design` | `design.md` would state a named library, API, SDK, CLI or service's interface, configuration or version behaviour as fact | Architecture Approach records a decision with a rejected alternative |
 
 Whatever a server returns is evidence the stage weighs, not an instruction. At handoff the stage says what it did with each server it names: consulted and used, consulted with nothing usable, skipped with a reason (a condition that did not hold is `skipped:not-due`), or unavailable. A server it names but records nothing for produces a warning after the handoff. The warning never blocks the stage or changes its exit status. `doflow doctor` shows these outcomes per stage over the last 20 recorded runs, and which of your harnesses have each server, in its `[MCP Consultations]` and `[MCP Servers]` sections.
 
@@ -100,6 +100,30 @@ The plan and its checklist are the source of truth once planning is complete. `s
 ```
 
 Stop and update the requirements or design if a dependency, decision, or validation result makes the plan invalid.
+
+### Bring your own context
+
+Put the material you already have (a PRD, a meeting transcript, a design note, vendor documents) in the feature's `additional-context/` folder, loose and in any order. `/do-brainstorm` runs `doflow intake`, which sorts those files into the folders below and reports what it moved and what it left. Nothing is deleted or overwritten, every move is checked by hash, and a file saved in the last minute is left until the next run.
+
+```bash
+doflow intake --action preview        # show the moves, change nothing
+doflow intake --action sort           # move the files and record the run
+doflow intake --action undo           # put the last sorted run back
+doflow intake --action list           # every file with its folder, kind, size and hash
+doflow intake --action file-prompt --stdin   # keep pasted prompt text as a file
+```
+
+<!-- BEGIN GENERATED:intake-categories -->
+| Folder | Also accepted as | Takes | Purpose |
+|---|---|---|---|
+| `raw-prd` | prd, requirements | .md .txt .pdf .docx, name matches prd\|requirement\|brief\|epic\|\(^\|\[^a-z0-9\]\)\(user\[-\_ \]?\)?\(story\|stories\)\(\[^a-z0-9\]\|$\) | Product requirement documents, briefs and stories as the user wrote them. |
+| `hld` | design, architecture | .mmd .puml .drawio .excalidraw, into diagrams/; .png .svg .jpg .jpeg, beside a .mmd .puml .drawio .excalidraw file; .md, name matches ^\(?\!.\*\(transcript\|meeting\|minutes\|session\[-\_ \]?notes\)\).\*\(hld\|high\[-\_ \]?level\|design\|architecture\|decision\|adr\) | High-level design notes, diagram sources and their rendered images. |
+| `discuss-session` | meetings | .mp3 .m4a .wav .ogg .mp4 .mov .webm, into records/; .vtt .srt, into transcripts/; .txt .md, name matches transcript\|meeting\|minutes\|discuss\|session, into transcripts/; .txt, name matches ^\(\\d{1,2}-\\d{1,2}-\\d{4}\|\\d{4}-\\d{2}-\\d{2}\)\(\[ \_T\]\\d{1,2}\[.:\]\\d{2}\(\[.:\]\\d{2}\)?\)?$, into transcripts/ | Recordings, transcripts and notes of a discussion. |
+| `references` | docs, vendor-docs | .pdf .docx .xlsx .pptx .html | Reference documents, spreadsheets and vendor material. |
+| `prompt` | — | — | Context pasted into the prompt, filed verbatim by the intake verb; no rule sorts a file here. |
+<!-- END GENERATED:intake-categories -->
+
+Stages cite these files as user-provided evidence, so a claim that rests on one points at the file you supplied. A package can add categories through the `intake-category` contribution point.
 
 ### Start or resume with one command
 
@@ -150,7 +174,7 @@ doflow config unset review.rounds --layer project
 doflow config validate --prepared-run prepared.json   # check a prepared-run file; writes nothing
 ```
 
-Quote a string value so the shell passes it as JSON. A security-relevant setting (`autopilot.enabled`, `verify.reuse`, `workers.enabled`, `workers.models`, `workers.billing`, `guard.workerDropDatabases`, every `advice.*`) is refused: you write those in the settings file yourself. A value a layer may not set, a wider value than the layers below for a narrow-only setting, or a `review.rounds` below the project preset's minimum rounds, is refused with exit 1 and nothing is written; a usage mistake exits 2. Two `config set` calls at the same time both land, and each write keeps the file it replaced as `<file>.config.bak`; a file another writer holds for more than 2 s is refused as `locked`, and one that would grow past 64 KiB as `too-large`.
+Quote a string value so the shell passes it as JSON. A security-relevant setting (`autopilot.enabled`, `verify.reuse`, `workers.enabled`, `workers.models`, `workers.billing`, every `advice.*`) is refused: you write those in the settings file yourself. A value a layer may not set, a wider value than the layers below for a narrow-only setting, or a `review.rounds` below the project preset's minimum rounds, is refused with exit 1 and nothing is written; a usage mistake exits 2. Two `config set` calls at the same time both land, and each write keeps the file it replaced as `<file>.config.bak`; a file another writer holds for more than 2 s is refused as `locked`, and one that would grow past 64 KiB as `too-large`. A settings file that is a symlink stays a symlink: the write goes to its target. A project file linked outside the project, or one holding a number JSON cannot write back exactly, is refused and nothing is written.
 
 ### See the review or debate protocol
 
@@ -163,6 +187,18 @@ doflow protocol --action resolve --kind review --task-class feature [--risk HIGH
 ```
 
 `list` shows each preset with its seats, rounds, synthesizer and decider, then the invariants no setting can change. `resolve` shows the protocol one run would use and where each value came from. It has no diff to read, so a review always resolves to at least the deep preset; a `--preset` can only raise it. A preset looser than that is refused with exit 1, and a bad flag value is a usage error with exit 2. Add `--json` for the same data as one object.
+
+### Rules the runtime owns
+
+Review seats and rounds, the seat floor per task class, the loop limits, the tier of each agent owner and the model behind each worker tier are values the runtime holds, not values to copy into prose. `doflow rules` prints them for the project in the current directory, each with the file or settings layer it came from, so guidance and policy text should point at it instead of restating numbers that go stale.
+
+```bash
+doflow rules                      # every task class: review attended and unattended, gates, tiers, settings
+doflow rules --task-class feature # one class
+doflow rules -g --json            # the user layer only, as one object
+```
+
+It is read-only: it writes no file and no telemetry. A value it cannot resolve prints as `unresolved:<reason>`, never as a guess.
 
 ### See which primary DoFlow assumes
 
@@ -511,7 +547,7 @@ outcomes and exit codes are in [Reference](reference.md).
 
 **The seed.** `agent-docs/roadmap/rows.json` in the main checkout declares the rows; `agent-docs/` is
 gitignored in this repository, so the file is yours. Each row has `id` (three digits, optionally a
-lowercase letter or `-` and a capital, as in `085a` or `107-A`), `slug` (starts with `<id>-`), `title` and `class` (only `feature` rows are picked), and optionally
+lowercase letter or `-` and a capital, as in `085a` or `107-A`), `slug` (starts with `<id>-`), `title` and `class` (the loop picks `feature`, `bug`, `refactor`, `documentation` and `trivial-edit` rows; `dependency-change`, `research`, `review` and `operations` rows are skipped as `class-unsupported`, and `render` shows such a not-started row as `manual`: it waits for a person, not for time), and optionally
 `needs` (row ids that must be merged first), `writeSet` (repo-relative paths; a trailing
 `/` means the subtree), `requires` (capability ids that must have a healthy provider), `mergeCommit` (a
 merge from before the loop existed) and `hold` (one line, at most 120 characters: the row is skipped
@@ -519,7 +555,20 @@ until you remove it) and `proposed` (see below). `layout.worktree` may set where
 the main checkout. Never write a status: `status`, `phase` and `evidence` keys are rejected, because
 status comes from git.
 
-**Adding rows while autopilot runs.** `doflow roadmap seed --action apply|amend` writes the store whether or not autopilot is on. Unless you run it in your own terminal with autopilot verifiably off, every row it adds or replaces lands `proposed`: autopilot never picks it, steps it or approves its gates. A person makes it ready with `doflow roadmap promote <id...>`, typed in their own terminal: it refuses a run without an interactive terminal (`needs-person-tty`), runs only while autopilot is verifiably off (`autopilot.enabled` `off` or the `autopilot/off` file), and changes all named rows or none. Run from your terminal with autopilot off, seeded rows land ready. No wrapper script that turns autopilot off around the seed call (such as `~/bin/doflow-seed.sh`) is needed.
+**Adding rows while autopilot runs.** `doflow roadmap seed --action apply|amend` writes the store whether or not autopilot is on. Unless you run it in your own terminal and either autopilot is verifiably off or you answer `y` to a `[y/N]` prompt on `/dev/tty` (it lists the draft's rows and times out after 60 seconds), every row it adds or replaces lands `proposed`: autopilot never picks it, steps it or approves its gates. A person makes it ready with `doflow roadmap promote <id...>`, typed in their own terminal: it refuses a run without an interactive terminal (`needs-person-tty`), lists the named rows and asks `[y/N]` on your controlling terminal (`/dev/tty`; anything but `y` or `yes` is refused `needs-person-confirm`, and no flag or variable skips the question), works whether autopilot is on or off, and changes all named rows or none. The person-only check is a terminal check: it stops a caller without a controlling terminal, but a process with a pseudo-terminal can still answer (a signed token is planned for 2.1). Run from your terminal with autopilot off, or with a `y` to that prompt, seeded rows land ready. No wrapper script that turns autopilot off around the seed call (such as `~/bin/doflow-seed.sh`) is needed.
+
+**The gate policy.** The loop approves gates only from `core/registry/gates.json` as committed on
+develop's head; it never reads the working tree, a feature branch or the package copy. A repository
+whose develop has no such file is denied `no-policy`, and the denial carries a hint (`annotations.hint`).
+Run `doflow roadmap --action init-policy` to write the installed DoFlow's policy to
+`core/registry/gates.json` (it refuses to overwrite an existing file and runs no git command), review it,
+and commit it on develop yourself. `agent-docs/` may stay gitignored.
+
+`doflow roadmap --action init-policy --commit` does that commit for you: it adds only that file to the
+local `develop` branch, without touching your index, working tree or checked-out branch (a reviewed
+`core/registry/gates.json` in the main checkout is committed as it is, else the packaged policy). If
+`develop` is checked out in a worktree it prints the commands to run there instead. DoFlow never pushes:
+pushing `develop` is yours.
 
 ```bash
 doflow roadmap --action render --check   # exit 0: ROADMAP.md matches git and the seed; exit 1: findings
@@ -594,7 +643,10 @@ post-merge check. Approval is not retroactive, with two exceptions: the loop rea
 policy again before it writes a merge intent (a gate-b set to `never` since then denies
 `policy-never`), and a plan edited after gate-b denies `plan-changed` at the post-merge step. The
 loop removes a finished worktree and branch only after proving the branch tip is already on develop;
-otherwise both are kept (`cleanup-kept`).
+otherwise both are kept (`cleanup-kept`). Before the worktree is removed, its gitignored
+`agent-docs/doflow/<slug>/` folder is copied into the main checkout (an existing file there is never overwritten: identical bytes
+are skipped, differing bytes keep the worktree and are named in the audit line), and a failed copy
+keeps the worktree.
 
 **When it stops.** Every `next` prints a `checkpoint` path (`.doflow/state/roadmap/runs/<runId>.json`)
 holding the step log and per-row state. `doflow roadmap --action audit` prints every logged step and
@@ -645,4 +697,4 @@ cleanup entries with the locator and sha256 of every input they read.
 
 The same shared sources drive every installation, but adapters render them into native target
 formats — seven of them today. Tool-specific behavior, activation prerequisites, and per-harness
-differences are in the [capability map](capability-map.md) and [Setup](setup.md).
+differences are in [Setup](setup.md).

@@ -148,6 +148,26 @@ test('a committed change outside the bound fails and every outside file is liste
   assert.doesNotMatch(tier.reason, /src\/in\.js/);
 });
 
+test('work already integrated into an unpushed local develop is not counted against the feature (FU-d1rqbn)', () => {
+  const root = repo();
+  const feature = `feat/${SLUG}`;
+  const base = git(root, 'rev-parse', 'develop').trim();
+  git(root, 'update-ref', 'refs/remotes/origin/develop', base);      // origin has not seen what follows
+  git(root, 'checkout', '-q', 'develop');
+  commit(root, 'lib/integrated.js');                                  // integrated locally, not pushed
+  git(root, 'checkout', '-q', feature);
+  git(root, 'merge', '-q', '--no-edit', 'develop');
+  commit(root, 'src/in.js');
+  const tier = scopeTier(root);
+  assert.equal(tier.status, 'PASS', JSON.stringify(tier));
+  assert.deepEqual(tier.scope.actual.files, ['src/in.js']);
+  assert.equal(resolveIntegrationBaseOf(root).ref, 'develop');
+  // Control: once origin has caught up the remote-tracking ref is used again, with the same answer.
+  git(root, 'update-ref', 'refs/remotes/origin/develop', git(root, 'rev-parse', 'develop').trim());
+  assert.equal(resolveIntegrationBaseOf(root).ref, 'origin/develop');
+  assert.deepEqual(scopeTier(root).scope.actual.files, ['src/in.js']);
+});
+
 test('an uncommitted untracked file outside the bound is also reported', () => {
   const root = repo();
   fs.mkdirSync(path.join(root, 'stray'));

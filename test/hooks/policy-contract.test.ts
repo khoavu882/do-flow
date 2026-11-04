@@ -38,7 +38,7 @@ function recordLines(output: any) {
 describe('policy contract decision records', () => {
   test('unset and invalid descriptors write no bytes on any stream', () => {
     for (const fd of [null, '0', '1', '2', '10', 'a']) {
-      const r: any = withRecordPipe('doflow_decision_init pre-bash-guard 1; doflow_decide deny blocked', { fd });
+      const r: any = withRecordPipe('doflow_decision_init pre-implementation-gate 1; doflow_decide deny blocked', { fd });
       assert.equal(r.status, 0);
       assert.equal(r.stdout, '');
       assert.equal(r.stderr, '');
@@ -46,24 +46,24 @@ describe('policy contract decision records', () => {
   });
 
   test('writes provisional record before decisions with ordered compact framing', () => {
-    const r = withRecordPipe('doflow_decision_init pre-bash-guard 1; doflow_decide deny blocked; doflow_decide advisory noted');
+    const r = withRecordPipe('doflow_decision_init pre-implementation-gate 1; doflow_decide deny blocked; doflow_decide advisory noted');
     assert.equal(r.status, 0);
     assert.deepEqual(r.stdout.split('\n').filter(Boolean).map((line: any) => line.slice(1)), [
-      '{"v":1,"policy":"pre-bash-guard","policyVersion":1,"outcome":"allow","code":"allow"}',
-      '{"v":1,"policy":"pre-bash-guard","policyVersion":1,"outcome":"deny","code":"blocked"}',
-      '{"v":1,"policy":"pre-bash-guard","policyVersion":1,"outcome":"advisory","code":"noted"}',
+      '{"v":1,"policy":"pre-implementation-gate","policyVersion":1,"outcome":"allow","code":"allow"}',
+      '{"v":1,"policy":"pre-implementation-gate","policyVersion":1,"outcome":"deny","code":"blocked"}',
+      '{"v":1,"policy":"pre-implementation-gate","policyVersion":1,"outcome":"advisory","code":"noted"}',
     ]);
     assert.deepEqual(recordLines(r.stdout), [
-      { v: 1, policy: 'pre-bash-guard', policyVersion: 1, outcome: 'allow', code: 'allow' },
-      { v: 1, policy: 'pre-bash-guard', policyVersion: 1, outcome: 'deny', code: 'blocked' },
-      { v: 1, policy: 'pre-bash-guard', policyVersion: 1, outcome: 'advisory', code: 'noted' },
+      { v: 1, policy: 'pre-implementation-gate', policyVersion: 1, outcome: 'allow', code: 'allow' },
+      { v: 1, policy: 'pre-implementation-gate', policyVersion: 1, outcome: 'deny', code: 'blocked' },
+      { v: 1, policy: 'pre-implementation-gate', policyVersion: 1, outcome: 'advisory', code: 'noted' },
     ]);
   });
 
   test('replaces invalid codes and works without jq', (t) => {
     const dir = tempDir(t, 'doflow-no-jq-');
     const env: any = { ...process.env, LC_ALL: 'en_US.UTF-8', PATH: dir, DOFLOW_DECISION_FD: '3' };
-    const r = spawnSync(BASH, ['-c', `( . '${CONTRACT}'; doflow_decision_init pre-bash-guard 1; doflow_decide deny Bad; doflow_decide deny aB; doflow_decide deny é ) 3>&1`], {
+    const r = spawnSync(BASH, ['-c', `( . '${CONTRACT}'; doflow_decision_init pre-implementation-gate 1; doflow_decide deny Bad; doflow_decide deny aB; doflow_decide deny é ) 3>&1`], {
       encoding: 'utf8', env,
     });
     assert.equal(r.status, 0);
@@ -132,7 +132,7 @@ test('closed decision fd keeps v1 policy calls byte-identical to 0fcd973, includ
   assert.equal(archive.status, 0, archive.stderr.toString());
   const extracted = spawnSync('tar', ['-x', '-C', dir], { input: archive.stdout });
   assert.equal(extracted.status, 0, extracted.stderr.toString());
-  const policies: any = ['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard', 'session-context', 'stop-check', 'user-prompt-submit', 'subagent-audit'];
+  const policies: any = ['pre-implementation-gate', 'mcp-tool-guard', 'session-context', 'stop-check', 'user-prompt-submit', 'subagent-audit'];
   const run = (root: any, policy: any, input: any) => {
     const policyDir = path.join(root, 'core/harnesses/shared/hooks/policies');
     const result = spawnSync(BASH, [path.join(policyDir, `${policy}.sh`)], {
@@ -145,7 +145,7 @@ test('closed decision fd keeps v1 policy calls byte-identical to 0fcd973, includ
   };
   const currentRoot = path.resolve(__dirname, '../..');
   for (const policy of policies) {
-    const inputs = ['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard'].includes(policy)
+    const inputs = ['pre-implementation-gate', 'mcp-tool-guard'].includes(policy)
       ? loadCorpus(policy).map((row: any) => [row.name, row.input])
       : [[`${policy}-fixture`, JSON.stringify(policy === 'stop-check'
         ? { last_assistant_message: 'TODO: finish this' }

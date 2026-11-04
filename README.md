@@ -28,7 +28,7 @@ flowchart LR
 |---|---|
 | Repeatable delivery work | 13 skills, including `/do-brainstorm`, `/do-plan`, `/do-test`, and `/do-code-review` |
 | Specialist review | 7 agents — `spec-analyst`, `system-architect`, `delivery-lead`, `core-implementer`, `quality-guardian`, `reviewer`, `research-writer` |
-| Safer automation | Claude hooks block destructive commands and unfinished implementation stubs |
+| Safer automation | Hooks advise when an edit starts before the spec exists and when work looks unfinished; the runtime enforces order and readiness at the stage handoff |
 | Shared standards | Rules for safety, workflow, quality, and clarification across supported tools |
 | Session continuity | Claude and Codex hooks capture lightweight Git context and compact-session summaries and deliver them on a session's first prompt |
 
@@ -125,10 +125,9 @@ Kiro's hooks are not in Kiro v3's
 untrusted-workspace exclusion list; an untrusted workspace asks before every shell command, and
 whether that covers hook commands is undocumented. Copilot CLI documents hooks, settings, and a
 plugin marketplace upstream; DoFlow still installs none of those there. OpenCode and Pi
-standard-adopt `AGENTS.md` for seamless zero-drift rule projection. See `docs/capability-map.md`
-and the [installation matrix](docs/setup.md#what-gets-installed) for the exact mapping.
+standard-adopt `AGENTS.md` for seamless zero-drift rule projection. See the
+[installation matrix](docs/setup.md#what-gets-installed) for the exact mapping.
 
 ## Contributing
 
-The repository layout and deployment model are documented in the [Architecture guide](docs/architecture.md).
-Run `npm test` and the shell suites described there before submitting changes.
+Run `npm test` and the shell suites under `test/` before submitting changes.

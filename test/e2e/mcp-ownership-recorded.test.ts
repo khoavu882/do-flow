@@ -33,3 +33,16 @@ test('a server Copilot co-owns through a no-change update survives removing Clau
   const reconcile = ok('reconcile', project, '--dry-run');
   assert.match(reconcile.stdout, /Observed state matches doflow\.lock/);
 });
+
+test('a real remove prints the plan notice for a Pi MCP file it leaves untouched', () => {
+  const project = path.join(scratch.dir, 'pi-project');
+  fs.mkdirSync(project);
+  const doflow = (...args: any[]) => spawnSync('node', [DOFLOW, ...args], { env: scratch.env(), input: '\n', encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+  const ok = (...args: any[]) => { const r = doflow(...args); assert.equal(r.status, 0, `${args.join(' ')}\n${r.stdout}${r.stderr}`); return r; };
+
+  ok('install', project, '--force', '--no-backup', '-t', 'pi', '--mcp', 'context7');
+  const file = path.join(project, '.pi', 'mcp.json');
+  fs.appendFileSync(file, ', trailing');
+  const removed = ok('remove', project, '--force', '-t', 'pi');
+  assert.match(removed.stdout, /\[INFO\] pi: MCP: left .*mcp\.json untouched because it cannot be edited safely/);
+});

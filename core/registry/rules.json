@@ -8,8 +8,8 @@
       "statement": "Conflict order: Safety > Scope > Quality > Speed. Prototype != Production requirements.",
       "sourceFile": "core/shared/guidance/rules/RULES.md",
       "category": "safety",
-      "enforcement": "mechanical",
-      "enforcementRef": "core/harnesses/shared/hooks/policies/pre-bash-guard.sh",
+      "enforcement": "advisory",
+      "enforcementRef": null,
       "neverAblate": true,
       "ablationCandidate": false
     },
@@ -64,7 +64,7 @@
       "sourceFile": "core/shared/guidance/PRINCIPLES.md",
       "category": "workflow",
       "enforcement": "mechanical",
-      "enforcementRef": "core/harnesses/shared/hooks/policies/pre-implementation-gate.sh",
+      "enforcementRef": "src/runtime/workflow-orchestrator.ts",
       "neverAblate": false,
       "ablationCandidate": true
     },
@@ -159,11 +159,11 @@
     {
       "id": "rule-workflow-doflow-chain",
       "tag": "workflow",
-      "statement": "Feature delivery follows the doflow chain — see references/DOFLOW_CHAIN.md for the phase-gated flow, artifact contracts, and the enforced gate.",
+      "statement": "Feature delivery follows the doflow chain — see references/DOFLOW_CHAIN.md for the phase-gated flow, artifact contracts, and the advisory implement gate.",
       "sourceFile": "core/shared/guidance/rules/RULES.md",
       "category": "workflow",
       "enforcement": "mechanical",
-      "enforcementRef": "core/harnesses/shared/hooks/policies/pre-implementation-gate.sh",
+      "enforcementRef": "src/runtime/workflow-orchestrator.ts",
       "neverAblate": false,
       "ablationCandidate": true
     },
@@ -173,8 +173,8 @@
       "statement": "Start it = Finish it. No partial features, TODO stubs, mocks, or \"not implemented\" throws.",
       "sourceFile": "core/shared/guidance/rules/RULES.md",
       "category": "workflow",
-      "enforcement": "mechanical",
-      "enforcementRef": "core/harnesses/shared/hooks/policies/stop-check.sh",
+      "enforcement": "advisory",
+      "enforcementRef": null,
       "neverAblate": false,
       "ablationCandidate": true
     },
@@ -401,7 +401,7 @@
     {
       "id": "rule-questions-noninteractive-fallback",
       "tag": "questions",
-      "statement": "Non-Interactive Fallback: When no native interactive question tool... is available: Do NOT generate {stage}-questions.md files... Adopt the recommended default choice, record the adopted decision and rationale in the stage notes or artifact, and proceed with execution.",
+      "statement": "Non-Interactive Fallback: When no native interactive question tool... is available, or attendance printed unattended for this stage: Do NOT generate {stage}-questions.md files... Adopt the recommended default choice, record the adopted decision and rationale in the stage notes or artifact, and proceed with execution.",
       "sourceFile": "core/shared/guidance/rules/RULES.md",
       "category": "questions",
       "enforcement": "advisory",

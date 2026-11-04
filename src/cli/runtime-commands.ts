@@ -54,6 +54,7 @@ const { handleLeakScanCommand } = require('../runtime/leak-scan.ts');
 const { handleRecoverCommand } = require('../runtime/recovery.ts');
 const { handleScaffoldCommand } = require('../runtime/scaffold/generate.ts');
 const { handleDecisionCommand, isReservedChannel, CHANNEL_RESERVED } = require('../runtime/decision-register.ts');
+const { handleIntakeCommand } = require('../runtime/intake/index.ts');
 const { handleFollowupCommand, handleLifecycleCommand, handleGoalCommand } = require('../runtime/lifecycle/cli.ts');
 const { projectRoot: lifecycleProjectRoot } = require('../runtime/lifecycle/root.ts');
 const { upkeepAfterVerb } = require('../runtime/storage/upkeep.ts');
@@ -63,17 +64,22 @@ const { handlePlanCheckCommand } = require('../runtime/plan-check.ts');
 const { handleSlotCommand } = require('../runtime/slot-command.ts');
 const { handleReviewCommand } = require('../runtime/review/command.ts');
 const { handleProtocolCommand } = require('../runtime/review/protocol-command.ts');
+const { handleRulesCommand } = require('../runtime/rules-report.ts');
 const { handlePackageCommand } = require('../runtime/packages/command.ts');
 const { handleModelsCommand } = require('../runtime/models/command.ts');
+const { handleWorktreeCommand } = require('../runtime/roadmap/worktree-cleanup.ts');
+const { handleAttendanceCommand } = require('../runtime/roadmap/attendance.ts');
 // `plan-check` is read-only (115 IC-001): no upkeep, which would write `.gitignore` and `upkeep-due`.
 // `review` writes only its one telemetry line (095 IC-003).
 // `protocol` only prints the registry and the resolved protocol (119 IC-004), so it has nothing to keep up.
+// `rules` only prints the values the runtime owns, with their sources, and writes nothing.
 // `primary` only prints the resolved main session (120 IC-008) and writes nothing.
 // `fleet` only lists the projects this machine knows from two read-only stores (093 IC-019) and writes nothing.
 // `transcript` only reads agents' transcripts and DoFlow's own records and prints them (093 IC-022, IC-023); it writes nothing.
+// `attendance` is read-only; `worktree --action cleanup` removes a merged feature's worktree under the roadmap lease and writes no DoFlow state, so neither runs upkeep.
 // `package` stays here (122 IC-012): `new` writes only the target folder; `add --plan`, `update --plan` and `remove` write the store and lock and run upkeep (see `runsUpkeep`).
 // `slot` is not here: `run`, `list` and `release` write the slot files and run upkeep; only `slot --action peek` is read-only and skips it (093 IC-018 b, see `runsUpkeep`).
-const NO_UPKEEP = new Set(['storage', 'config', 'plan-check', 'review', 'protocol', 'primary', 'package', 'models', 'fleet', 'transcript']);
+const NO_UPKEEP = new Set(['storage', 'config', 'plan-check', 'review', 'protocol', 'rules', 'primary', 'package', 'models', 'fleet', 'transcript', 'worktree', 'attendance']);
 const runsUpkeep = (o: any): boolean => (!NO_UPKEEP.has(o.cmd) && !(o.cmd === 'slot' && o.actionGiven && o.action === 'peek'))
   || (o.cmd === 'package' && ((typeof o.planId === 'string' && (o.action === 'add' || o.action === 'update')) || o.action === 'remove'));
 // Required on first use, so a CLI whose failure modules cannot be loaded still runs every other verb.
@@ -126,7 +132,9 @@ function handleRoadmapVerbCommand(o: any): number {
   const action = o.actionGiven ? o.action : undefined;
   if (o.positional[0] === 'seed') return finishRuntime(handleSeedCommand({ action, draft: o.draft, json: o.json, cwd: process.cwd(), root: resolveMainRoot(evidenceRoot(o)) }));
   if (o.positional[0] === 'promote') return finishRuntime(handlePromoteCommand({ ids: o.positional.slice(1), json: o.json, root: resolveMainRoot(process.cwd()) }));
-  return handleRoadmapCommand({ action, check: o.check, json: o.json, run: o.run, row: o.row, cwd: evidenceRoot(o) });
+  // `init-policy --commit` commits the policy onto develop; it lives outside the loop's tree (G53, G54). Any other action with --commit is the loop's exit 2.
+  if (o.commit && action === 'init-policy') return require('../runtime/policy-init.ts').commitPolicyCommand({ json: o.json, root: resolveMainRoot(evidenceRoot(o)), repoRoot: REPO_ROOT });
+  return handleRoadmapCommand({ action, check: o.check, commit: o.commit, json: o.json, run: o.run, row: o.row, cwd: evidenceRoot(o), repoRoot: REPO_ROOT });
 }
 
 /**
@@ -374,10 +382,12 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     // The feature is resolved from the working directory (or --slug) by the same resolver
     // `scaffold` uses; the flags are the caller's own statements, validated by the register module.
     case 'decision': return handleDecisionCommand({ action: o.action, projectRoot: evidenceRoot(o), slug: o.slug, json: o.json, flags: { topic: o.topic, statement: o.statement, channel: o.channel, stage: o.stage, rationale: o.rationale, supersedes: o.supersedes, refs: o.refs, source: o.source, batch: o.batchPath, all: o.all } });
+    // 136: the feature is resolved the way `decision` resolves it; the engine moves files only inside its additional-context folder.
+    case 'intake': return handleIntakeCommand({ action: o.action, projectRoot: evidenceRoot(o), slug: o.slug, json: o.json, flags: { runId: o.runId, stdin: o.stdin, file: o.file, stage: o.stage } });
     // Feature 046: the project's follow-up store lives at the repository root (never `-g`, which
     // the handlers refuse), so the working directory is the starting point, not a scope switch.
-    case 'followup': return handleFollowupCommand({ action: o.actionGiven ? o.action : undefined, cwd: evidenceRoot(o), global: o.global, slug: o.slug, json: o.json, flags: { statement: o.statement, stage: o.stage, source: o.source, taskClass: o.taskClass, taskId: o.taskId, release: o.release, batch: o.batchPath, channel: o.channel, state: o.state, ids: o.ids, as: o.as, reason: o.reason, evidence: o.evidence, title: o.title, file: o.file, stdin: o.stdin, text: o.text, feature: o.feature, tag: o.tag, confirm: o.confirm, exclude: o.exclude } });
-    case 'lifecycle': return handleLifecycleCommand({ action: o.actionGiven ? o.action : undefined, cwd: evidenceRoot(o), global: o.global, slug: o.slug, json: o.json, flags: { take: o.take, intent: o.intent, goal: o.goal, maintain: o.maintain, since: o.since, tag: o.tag, confirm: o.confirm, feature: o.feature, exclude: o.exclude, reason: o.reason, channel: o.channel } });
+    case 'followup': return handleFollowupCommand({ action: o.actionGiven ? o.action : undefined, cwd: evidenceRoot(o), global: o.global, slug: o.slug, json: o.json, flags: { statement: o.statement, stage: o.stage, source: o.source, taskClass: o.taskClass, taskId: o.taskId, release: o.release, batch: o.batchPath, channel: o.channel, state: o.state, ids: o.ids, view: o.view, cursor: o.cursor, limit: o.limit, as: o.as, reason: o.reason, evidence: o.evidence, title: o.title, file: o.file, stdin: o.stdin, text: o.text, feature: o.feature, tag: o.tag, confirm: o.confirm, exclude: o.exclude } });
+    case 'lifecycle': return handleLifecycleCommand({ action: o.actionGiven ? o.action : undefined, cwd: evidenceRoot(o), global: o.global, slug: o.slug, json: o.json, flags: { view: o.view, take: o.take, intent: o.intent, goal: o.goal, maintain: o.maintain, since: o.since, tag: o.tag, confirm: o.confirm, feature: o.feature, exclude: o.exclude, reason: o.reason, channel: o.channel } });
     case 'goal': return handleGoalCommand({ action: o.actionGiven ? o.action : undefined, cwd: evidenceRoot(o), global: o.global, slug: o.slug, json: o.json, flags: { goal: o.goal, statement: o.statement, item: o.item, text: o.text, evidence: o.evidence, unmet: o.unmet, replace: o.replace, reason: o.reason, channel: o.channel } });
     // The failure store is per machine, so `-g` changes nothing and the working directory only matters
     // to `settle --as imported`, which looks for the DoFlow repository from there.
@@ -385,7 +395,7 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     // The rest of design §4.2's Node arm. REPO_ROOT locates the registries that ship with the
     // package (workflows, capabilities, verification); evidenceRoot(o) locates the caller's own
     // state and source tree, following the same scope rules as every other command.
-    case 'classify': return handleClassifyCommand({ taskClass: o.taskClass, rationale: o.rationale, proposedBy: o.proposedBy, callingSkill: o.callingSkill, request: o.request, requestFile: o.requestFile, taskId: o.taskId, projectRoot: evidenceRoot(o), json: o.json });
+    case 'classify': return handleClassifyCommand({ taskClass: o.taskClass, rationale: o.rationale, proposedBy: o.proposedBy, callingSkill: o.callingSkill, view: o.view, request: o.request, requestFile: o.requestFile, taskId: o.taskId, projectRoot: evidenceRoot(o), json: o.json });
     case 'workflow': return handleWorkflowCommand({ taskClass: o.taskClass, json: o.json });
     case 'orchestrate': return handleOrchestrateCommand({ action: o.action, taskId: o.taskId, taskClass: o.taskClass, stage: o.stage, gate: o.gate, node: o.node, decision: o.decision, policy: o.policy, note: o.note, reason: o.reason, forced: o.forced, verificationPlan: o.verificationPlan, scope: o.scope, invariants: o.invariants, result: o.result, mcpOutcome: o.mcpOutcome, callingSkill: o.callingSkill, slug: o.slug, recordSlug: storeSlug, dryRun: o.dryRun, json: o.json, repoRoot: REPO_ROOT, stateRoot: storeRoot, sourceRoot: evidenceRoot(o), buildAdapters: buildAdapterRegistry });
     case 'research-request': return handleResearchRequestCommand({ slug: storeSlug, action: o.action === 'status' ? 'list' : o.action, taskId: requireTaskId(o), stageId: o.stageId, question: o.question, reason: o.reason, blocking: o.blocking === undefined ? undefined : o.blocking === 'true' ? true : o.blocking === 'false' ? false : o.blocking, requestId: o.requestId, outcome: o.researchOutcome, claimId: o.claimId, evidenceIds: o.evidenceIds, gap: o.gap, json: o.json, projectRoot: storeRoot, sourceRoot: evidenceRoot(o) });
@@ -405,9 +415,9 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     case 'brief-tools': return handleBriefToolsCommand({ owner: o.owner, tier: o.tier, harness: o.harness, slug: o.slug, headingLevel: o.headingLevel, tasks: o.tasks, json: o.json, repoRoot: REPO_ROOT, projectRoot: storeRoot, buildAdapters: buildAdapterRegistry });
     case 'advise': return handleAdviseCommand({ action: o.action, actionGiven: o.actionGiven, kind: o.kind, server: o.server, state: o.state, stateFile: o.stateFile, staticAnswer: o.staticAnswer, questionsFile: o.questionsFile, taskId: o.taskId, pickId: o.pickId, actual: o.actual, model: o.model, endpoint: o.endpoint, off: o.off, project: o.project, force: o.force, global: o.global, json: o.json, projectRoot: evidenceRoot(o) });
     case 'model-role': return handleModelRoleCommand({ role: o.role, exclude: o.exclude, excludeFamilies: o.excludeFamily, json: o.json, repoRoot: REPO_ROOT });
-    case 'route': return handleRouteCommand({ intent: o.intent, query: o.query, check: o.check, json: o.json, projectRoot: evidenceRoot(o) });
+    case 'route': return handleRouteCommand({ intent: o.intent, query: o.query, harness: o.harness, check: o.check, json: o.json, projectRoot: evidenceRoot(o) });
     case 'claim': return handleClaimCommand({ slug: storeSlug, taskId: requireTaskId(o), action: o.action, statement: o.statement, claimId: o.claimId, evidenceId: o.evidenceId, replacedBy: o.replacedBy, relation: o.relation, role: o.role, json: o.json, stateRoot: storeRoot });
-    case 'context-pack': return handleContextPackCommand({ taskId: requireTaskId(o), taskClass: o.taskClass, objective: o.objective, json: o.json, stateRoot: storeRoot, sourceRoot: evidenceRoot(o), slug: storeSlug, mandatoryFile: o.mandatoryFile, harness: o.harness, maxBytes: o.maxBytes, bare: o.bare, noRecord: o.noRecord, reason: o.reason, since: o.since, expand: o.expand });
+    case 'context-pack': return handleContextPackCommand({ taskId: requireTaskId(o), taskClass: o.taskClass, objective: o.objective, json: o.json, stateRoot: storeRoot, sourceRoot: evidenceRoot(o), slug: storeSlug, explicitSlug: o.slug || null, mandatoryFile: o.mandatoryFile, harness: o.harness, maxBytes: o.maxBytes, bare: o.bare, noRecord: o.noRecord, reason: o.reason, since: o.since, expand: o.expand });
     // 078 IC-005 and IC-013: identity is the process environment's alone, never a flag.
     case 'context-emit': return handleContextEmitCommand({ event: o.event, cwd: o.cwd, session: o.session, harness: o.harness, nudge: o.nudge, maxBytes: o.maxBytes, taskId: o.taskId || undefined, slug: o.slug || undefined, stateRoot: redirected ? storeRoot : undefined, peek: o.peek, json: o.json });
     case 'context-grant': return handleContextGrantCommand({ summary: o.summary, toRun: o.toRun, toLineage: o.toLineage, fromWorktree: o.fromWorktree, fromRun: o.fromRun, fromLineage: o.fromLineage, maxBytes: o.maxBytes, json: o.json });
@@ -421,12 +431,15 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     // One --path only: a second occurrence reaches the handler as a list, which it refuses as usage.
     case 'review': return handleReviewCommand({ action: o.actionGiven ? o.action : undefined, slug: o.slug, path: o.paths?.length === 1 ? o.paths[0] : o.paths, base: o.base, preset: o.preset, json: o.json, cwd: process.cwd(), env: process.env });
     case 'protocol': return handleProtocolCommand({ action: o.actionGiven ? o.action : undefined, kind: o.kind, taskClass: o.taskClass, risk: o.risk, preset: o.preset, positional: o.positional, json: o.json, cwd: process.cwd() });
+    case 'rules': return handleRulesCommand({ taskClass: o.taskClass, json: o.json, global: o.global, positional: o.positional, env: process.env, cwd: process.cwd() });
     case 'primary': return handlePrimaryCommand({ action: o.actionGiven ? o.action : undefined, json: o.json, flags: o.flagsGiven, env: process.env, cwd: process.cwd() });
     case 'package': return handlePackageCommand({ action: o.actionGiven ? o.action : undefined, path: o.paths?.length === 1 ? o.paths[0] : o.paths, id: o.id, source: o.source, index: o.index, packageVersion: o.packageVersion, plan: o.planId, repair: o.repair, points: o.points, dir: o.dir, json: o.json });
     case 'slot': return handleSlotCommand({ action: o.actionGiven ? o.action : undefined, name: o.name, label: o.label, timeout: o.timeout, noWait: Boolean(o.noWait), command: o.slotCommand, by: o.by, reason: o.reason, positional: o.positional, extraFlags: o.extraFlags, json: o.json, env: process.env, cwd: process.cwd() });
     case 'fleet': return handleFleetCommand({ action: o.actionGiven ? o.action : undefined, json: o.json, flags: o.flagsGiven, env: process.env, cwd: process.cwd() });
     case 'transcript': return handleTranscriptCommand({ action: o.actionGiven ? o.action : undefined, agent: o.agent, cursor: o.cursor, limit: o.limit, window: o.window, json: o.json, flags: o.flagsGiven, env: process.env, cwd: process.cwd() });
     case 'models': return handleModelsCommand({ action: o.actionGiven ? o.action : (o.positional?.[0] || 'list'), positional: o.positional, harness: o.harness, model: o.model, json: o.json, projectRoot: evidenceRoot(o) });
+    case 'worktree': return handleWorktreeCommand({ action: o.actionGiven ? o.action : undefined, slug: o.slug, json: o.json, flags: o.flagsGiven, env: process.env, cwd: process.cwd() });
+    case 'attendance': return handleAttendanceCommand({ taskId: o.taskId, run: o.run, json: o.json, flags: o.flagsGiven, env: process.env, cwd: process.cwd() });
     default: console.error(`doflow: unknown command '${o.cmd}'`); process.exit(1);
   }
 }

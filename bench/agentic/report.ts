@@ -22,14 +22,16 @@
  */
 
 const crypto = require('node:crypto');
+const os = require('node:os');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { computeNoise, buildDecision, validateNoiseArtifact } = require('../noise.ts');
-const { mean, median } = require('../retrieval/lib/stats.ts');
-const { UsageError } = require('./tasks.ts');
+const { computeNoise, buildDecision, validateNoiseArtifact, ruleVerdict } = require('../noise.ts');
+const { mean, median, bootstrapCI, streamSeed } = require('../retrieval/lib/stats.ts');
+const { UsageError, REVIEW_FILE } = require('./tasks.ts');
+const { adaptIteration } = require('./review-adapter.ts');
 const { RUN_FILES, readIteration } = require('./execute.ts');
-const { gradeRun, serializeGrading, checkLaunch, loadPathInfo } = require('./grade.ts');
+const { gradeRun, serializeGrading, checkLaunch, loadPathInfo, gradeAbRun, serializeAbGrading, CUMULATIVE_USAGE_FROM } = require('./grade.ts');
 
 /** The arm whose repeats make the band, and the arm a decision measures against it. */
 const BASELINE_ARM = 'N';
@@ -188,6 +190,24 @@ function assertSameCapture({ baseline, candidate, repoRoot }: { baseline: any[];
   }
 }
 
+/**
+ * A/B: the per-run caps (`--max-tokens-per-run`, `--max-budget-usd`, recorded in iteration.json) are part of the
+ * capture. Arms that ran under different caps are censored differently, so the comparison is refused with the
+ * values printed.
+ */
+// `taskCaps` (tier 2: the per-task caps and timeouts) is an object, so the fields are compared by their JSON.
+const AB_CAP_FIELDS = Object.freeze(['maxTokensPerRun', 'maxBudgetUsd', 'taskCaps']);
+function assertSameCaps({ baseline, candidate }: { baseline: any[]; candidate: any[] }) {
+  const [ref] = candidate;
+  for (const it of [...baseline, ...candidate]) {
+    for (const field of AB_CAP_FIELDS) {
+      if (JSON.stringify(it.meta[field] ?? null) !== JSON.stringify(ref.meta[field] ?? null)) {
+        throw new UsageError('caps-differ', `report: ${field} of ${it.name} (${JSON.stringify(it.meta[field])}) differs from ${ref.name} (${JSON.stringify(ref.meta[field])}); the arms ran under different per-run caps, so their censoring is not comparable`);
+      }
+    }
+  }
+}
+
 /** Tokens of one arm over named iterations: unknown usage is counted, never summed as 0. */
 function armTokens(runRoot: string, names: string[], taskSet: any) {
   const recordedAll: number[] = [];
@@ -331,7 +351,791 @@ function reportLines({ decision, tokens, graderRerun }: { decision: any; tokens:
   return lines;
 }
 
+
+
+// ---------------------------------------------------------------------------------------------
+// With/without-DoFlow A/B (`config.mode === 'ab'`)
+//
+// Two quality metrics, each through the unchanged 096 rules: SUCCESS (the edit tasks, native checks)
+// and REVIEW RECALL (the review-miss cases of the review task, scored by the review-miss scorer through
+// `review-adapter`). The baseline arm's k repeats are the A/A band; the candidate arm's repeats are
+// compared against it. Cost and behaviour (tokens, cost, wall time, tool calls, questions) are a second
+// part: descriptive per run, with a verdict from the same `ruleVerdict` on relative change (cheaper is a
+// gain) for four of them; questions get counts only. Arm names are the config's `roles`.
+// ---------------------------------------------------------------------------------------------
+
+const AB_NOISE_KIND = 'bench-ab-noise';
+const AB_QUALITY = Object.freeze(['success', 'review']);
+const AB_QUALITY_LABEL: Record<string, string> = { success: 'Success (edit tasks, pass rate)', review: 'Review recall (review-miss keys)' };
+/** Cost and behaviour metrics that get a verdict; `pick` reads one grading. Lower is better for all four. */
+const AB_COST_METRICS = Object.freeze([
+  { id: 'totalTokens', label: 'total tokens', pick: (g: any) => g.metrics.tokens?.total ?? null },
+  { id: 'costUsd', label: 'cost USD', pick: (g: any) => g.metrics.costUsd ?? null },
+  { id: 'wallSeconds', label: 'wall s', pick: (g: any) => (Number.isFinite(g.metrics.wallMs) ? g.metrics.wallMs / 1000 : null) },
+  { id: 'toolCalls', label: 'tool calls', pick: (g: any) => g.metrics.toolCalls ?? null },
+]);
+
+const avg = (xs: number[]) => (xs.length === 0 ? null : xs.reduce((a, b) => a + b, 0) / xs.length);
+const finite = (xs: any[]) => xs.filter((x) => Number.isFinite(x)) as number[];
+/** (max - min) / mean of a series; null with fewer than two values or a zero mean. */
+function relRange(xs: number[]) {
+  if (xs.length < 2) return null;
+  const m = avg(xs);
+  return m === null || m === 0 ? null : (Math.max(...xs) - Math.min(...xs)) / m;
+}
+
+/** 096 exclusion mark of one A/B grading: a leaked or not-loaded run is `source-unverified` whatever else happened; else infra; else unverifiable. */
+function abExcludedOf(g: any) {
+  if (g.isolation === 'leaked' || g.isolation === 'not-loaded') return 'source-unverified';
+  if (g.infra !== null && g.infra !== undefined) return g.infra;
+  return g.isolation === 'clean' ? null : 'source-unverified';
+}
+
+/** The review-miss grade of one iteration, recomputed in memory from the run directories into a scratch dir. */
+function adaptInMemory({ iteration, taskSet, gradings, corpus, reviewConfig }: { iteration: any; taskSet: any; gradings: Record<string, any>; corpus: any; reviewConfig: any }) {
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'ab-review-'));
+  try {
+    const entries = taskSet.tasks.filter((t: any) => t.kind === 'review').map((task: any) => {
+      const g = gradings[task.id];
+      return { task, runDir: g ? path.join(iteration.dir, task.id) : null, infra: g ? g.infra : null, workspaceRoot: g ? (readLaunchRoot(path.join(iteration.dir, task.id))) : null };
+    });
+    const name = `ab-${iteration.name}`;
+    const { grade, parsed } = adaptIteration({
+      entries, corpus, config: reviewConfig, iterationDir: path.join(scratch, name), name,
+      meta: { model: iteration.meta.model, sourceAt: iteration.meta.sourceAt }, reviewFile: REVIEW_FILE,
+    });
+    return { grade, parsed };
+  } finally {
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
+}
+const readLaunchRoot = (runDir: string) => readJsonOrNull(path.join(runDir, RUN_FILES.launch))?.workspaceRoot ?? null;
+
+/**
+ * One A/B iteration regraded in memory (C-8, C-10): every run is checked against its launch record, the
+ * stored grading.json must exist and equal the fresh one (else `stale`), and a second fresh grading that
+ * differs marks the run `differing`. Review tasks are scored through the adapter; the stored adapter
+ * grade (`<reviewRoot>/ab-<iteration>/grade.json`) is checked the same way. An excluded task's cases
+ * carry the exclusion in the repeat (the adapter has no `source-unverified` status).
+ * @returns {{repeats: {success: object, review: object | null}, gradings: Record<string, object>, differing: string[], stale: string[], censored: string[], unverified: string[], reviewFindings: {runs: number, produced: number, unmatched: number}}}
+ */
+function regradeAbRepeat({ iteration, taskSet, config, verb, reviewRoot, corpus, reviewConfig }: any) {
+  const gradings: Record<string, any> = {};
+  const differing: string[] = [];
+  const stale: string[] = [];
+  const successRuns: Record<string, any> = {};
+  for (const task of taskSet.tasks) {
+    const runKey = `${iteration.name}/${task.id}`;
+    const runDir = path.join(iteration.dir, task.id);
+    if (!fs.existsSync(runDir)) {
+      if (verb !== 'noise') continue;
+      throw new UsageError('run-missing', `noise: ${runKey} has no run directory; every iteration must hold every task of the task set`);
+    }
+    checkLaunch({ runDir, task, arm: iteration.meta.arm, config, label: `${verb}: ${runKey}` });
+    const stored = storedGrading(runDir, runKey);
+    const args = { runDir, task, arm: iteration.meta.arm, config };
+    const first = serializeAbGrading(gradeAbRun(args));
+    if (serializeAbGrading(gradeAbRun(args)) !== first) differing.push(runKey);
+    if (stored !== first) stale.push(runKey);
+    const grading = JSON.parse(first);
+    gradings[task.id] = grading;
+    if (task.kind === 'edit') {
+      const excluded = abExcludedOf(grading);
+      successRuns[task.key] = { kind: 'ab-edit', split: task.split, passRate: excluded === null ? grading.pass_rate : null, excluded };
+    }
+  }
+  const base = { iteration: iteration.name, model: iteration.meta.model, commit: iteration.meta.sourceAt };
+  let review: any = null;
+  const reviewFindings = { runs: 0, produced: 0, unmatched: 0 };
+  const reviewTasks = taskSet.tasks.filter((t: any) => t.kind === 'review');
+  if (reviewTasks.length) {
+    if (!corpus) throw new UsageError('corpus-missing', `${verb}: the task set holds review tasks but no review-miss corpus was given (--corpus)`);
+    const { grade, parsed } = adaptInMemory({ iteration, taskSet, gradings, corpus, reviewConfig });
+    for (const task of reviewTasks) {
+      const p = parsed[task.id];
+      if (p && gradings[task.id] && abExcludedOf(gradings[task.id]) === null) {
+        reviewFindings.produced += p.findings;
+        reviewFindings.unmatched += p.unmatched;
+        reviewFindings.runs++;
+      }
+    }
+    const storedFile = path.join(reviewRoot, `ab-${iteration.name}`, 'grade.json');
+    if (reviewTasks.some((t: any) => gradings[t.id])) {
+      const storedGrade = readJsonOrNull(storedFile);
+      if (storedGrade === null) throw new UsageError('grading-missing', `${verb}: ${storedFile} is missing; run \`bench agentic grade\` on ${iteration.name} first`);
+      if (JSON.stringify(storedGrade) !== JSON.stringify(grade)) stale.push(`${iteration.name}/review-miss`);
+    }
+    const runs: Record<string, any> = {};
+    for (const [key, run] of Object.entries(grade.runs) as [string, any][]) runs[key] = { kind: run.kind, split: run.split, passRate: run.passRate, excluded: run.excluded };
+    for (const task of reviewTasks) {
+      const g = gradings[task.id];
+      const mark = g ? abExcludedOf(g) : null;
+      if (mark === null) continue;
+      for (const id of task.review.caseIds) {
+        const c = corpus.cases.find((x: any) => x.id === id);
+        if (c && runs[c.key]) runs[c.key] = { ...runs[c.key], passRate: null, excluded: mark };
+      }
+    }
+    review = { ...base, runs };
+  }
+  const censored = Object.entries(gradings).filter(([, g]: [string, any]) => g.censored !== null && g.censored !== undefined).map(([id]) => `${iteration.name}/${id}`);
+  // A resumed run whose harness version is unknown or below 2.1.277: its cumulative usage and cost are unverified.
+  const unverified = Object.entries(gradings).filter(([, g]: [string, any]) => g.metrics.costBasis !== 'verified' && (g.metrics.questions?.resumes ?? 0) > 0).map(([id]) => `${iteration.name}/${id}`);
+  return { repeats: { success: { ...base, runs: successRuns }, review }, gradings, differing, stale, censored, unverified, reviewFindings };
+}
+
+/** The expected case set of one quality metric (what the noise artifact and the baseline file must hold). */
+function expectedKeys(metric: string, taskSet: any, corpus: any) {
+  if (metric === 'success') return taskSet.tasks.filter((t: any) => t.kind === 'edit').map((t: any) => ({ key: t.key, kind: 'ab-edit', split: t.split }));
+  const out: any[] = [];
+  for (const task of taskSet.tasks.filter((t: any) => t.kind === 'review')) {
+    for (const id of task.review.caseIds) {
+      const c = corpus?.cases.find((x: any) => x.id === id);
+      if (c) out.push({ key: c.key, kind: 'review-miss', split: c.split });
+    }
+  }
+  return out;
+}
+
+const metricsOf = (taskSet: any) => AB_QUALITY.filter((m) => (m === 'success' ? taskSet.tasks.some((t: any) => t.kind === 'edit') : taskSet.tasks.some((t: any) => t.kind === 'review')));
+
+/**
+ * `bench agentic noise` for an A/B config: the baseline arm's repeats give one noise artifact per quality
+ * metric plus the relative range of each cost metric. Exit 0 when every metric's band is usable.
+ * @returns {{exit: number, artifact: object}}
+ */
+function abNoiseOf({ runRoot, iterations, taskSet, config, noiseConfig, reviewRoot, corpus, reviewConfig }: any) {
+  const names = parseIterations(iterations);
+  if (names.length < noiseConfig.k) throw new UsageError('too-few-iterations', `noise: ${names.length} iteration(s) given, the band needs k = ${noiseConfig.k}`);
+  const its = loadIterations(runRoot, names, config.roles.baseline, 'noise');
+  const [first] = its;
+  for (const it of its.slice(1)) {
+    if (it.meta.model !== first.meta.model) throw new UsageError('repeats-differ', `noise: model ${it.meta.model} of ${it.name} differs from ${first.meta.model} of ${first.name}`);
+    if (it.meta.sourceAt !== first.meta.sourceAt) throw new UsageError('repeats-differ', `noise: sourceAt of ${it.name} differs from ${first.name}`);
+    if (it.meta.captureSha256 !== first.meta.captureSha256) throw new UsageError('repeats-differ', `noise: capture config of ${it.name} differs from ${first.name}`);
+  }
+  const graded = its.map((iteration: any) => regradeAbRepeat({ iteration, taskSet, config, verb: 'noise', reviewRoot, corpus, reviewConfig }));
+  const differing = graded.flatMap((g: any) => g.differing);
+  const stale = graded.flatMap((g: any) => g.stale);
+  const metrics: Record<string, any> = {};
+  for (const m of metricsOf(taskSet)) {
+    const repeats = graded.map((g: any) => g.repeats[m]);
+    const runs = repeats.reduce((n: number, r: any) => n + Object.keys(r.runs).length, 0);
+    metrics[m] = computeNoise({ repeats, config: noiseConfig, graderRerun: { runs, differing, stale } });
+    const problems = validateNoiseArtifact(metrics[m]);
+    if (problems.length) throw new Error(`noise: internal artifact validation failed for ${m}: ${problems.join('; ')}`);
+  }
+  const cost: Record<string, number | null> = {};
+  for (const metric of AB_COST_METRICS) {
+    const tasks = taskSet.tasks.filter((t: any) => graded.every((g: any) => g.gradings[t.id] && abExcludedOf(g.gradings[t.id]) === null && metric.pick(g.gradings[t.id]) !== null));
+    const repeatMeans = graded.map((g: any) => avg(tasks.map((t: any) => metric.pick(g.gradings[t.id]))));
+    cost[metric.id] = tasks.length ? relRange(finite(repeatMeans)) : null;
+  }
+  const artifact = {
+    kind: AB_NOISE_KIND, schemaVersion: 1, roles: config.roles, model: first.meta.model, commit: first.meta.sourceAt, iterations: names, metrics, cost,
+  };
+  return { exit: Object.values(metrics).every((a: any) => a.verdict === 'usable') ? 0 : 1, artifact };
+}
+
+/** The shape check of a combined A/B noise artifact; returns the problems. */
+function validateAbNoise(a: any, wanted: string[]) {
+  const problems: string[] = [];
+  if (!a || a.kind !== AB_NOISE_KIND || a.schemaVersion !== 1) return [`not a ${AB_NOISE_KIND} artifact`];
+  if (!Array.isArray(a.iterations) || a.iterations.length === 0) problems.push('iterations missing');
+  for (const m of wanted) {
+    const sub = a.metrics?.[m];
+    const p = sub ? validateNoiseArtifact(sub) : ['missing'];
+    if (p.length) problems.push(`metrics.${m}: ${p.slice(0, 2).join('; ')}`);
+  }
+  return problems;
+}
+
+function readFixedCost(file: string | null) {
+  if (!file) return null;
+  const raw = readJsonOrNull(file);
+  const ok = raw && Array.isArray(raw.rows) && raw.rows.every((r: any) => r && typeof r.item === 'string' && ['string', 'number'].includes(typeof r.value) && typeof r.source === 'string')
+    && (raw.hookLatencyMsP50 === undefined || (Number.isFinite(raw.hookLatencyMsP50) && raw.hookLatencyMsP50 >= 0));
+  if (!ok) throw new UsageError('fixed-cost-invalid', `report: ${file} is not a fixed-cost input ({ rows: [{ item, value, source }], hookLatencyMsP50?: number })`);
+  return raw;
+}
+
+/** A figure of a capped run is at least the cap in tokens; the other figures of a censored run are what it reported before it stopped. */
+function lowerBound(g: any, id: string, value: number | null) {
+  if (id === 'totalTokens' && g.censored === 'cap' && Number.isFinite(g.metrics.capTokens)) return Math.max(value ?? 0, g.metrics.capTokens);
+  return value;
+}
+
+/**
+ * Per-task mean of one cost metric over the repeats of an arm. A run that is not excluded counts; so does a
+ * censored run (stopped by the cap or the timeout), at its lower bound, because dropping the runs that cost the
+ * most would bias the mean down for the arm that runs long.
+ */
+function taskMeans(gradingsByRepeat: Record<string, any>[], taskSet: any, pick: (g: any) => number | null, id = '') {
+  const out: Record<string, number | null> = {};
+  for (const task of taskSet.tasks) {
+    out[task.id] = avg(finite(gradingsByRepeat.map((byTask) => {
+      const g = byTask[task.id];
+      if (!g) return null;
+      return abExcludedOf(g) === null || g.censored ? lowerBound(g, id, pick(g)) : null;
+    })));
+  }
+  return out;
+}
+
+/** Cost and wall verdicts are withheld when any run of either arm is censored: the means are lower bounds. */
+const CENSORED_VERDICT = 'censored-lower-bound';
+/** Token and dollar verdicts are refused when a resumed run's harness version does not document cumulative usage (2.1.277 and later). */
+const UNVERIFIED_VERDICT = 'cumulative-unverified';
+const CUMULATIVE_METRICS = Object.freeze(['totalTokens', 'costUsd']);
+
+/**
+ * Part 2 relative-change figures per cost metric. `censored` = { A: string[], B: string[] } (run keys stopped by
+ * the cap or the timeout); `runs` = { A, B } run counts. With any censored key on either side the verdict is
+ * `censored-lower-bound` with the counts per arm, never a gain or regression word.
+ */
+function abCostOf({ A, B, taskSet, noiseValid, noiseFile, costNoise, noiseConfig, infraShare, censored, runs, unverified = { A: [], B: [] } }: any) {
+  const cost: Record<string, any> = {};
+  const anyCensored = censored.A.length + censored.B.length > 0;
+  const anyUnverified = unverified.A.length + unverified.B.length > 0;
+  for (const metric of AB_COST_METRICS) {
+    const a = taskMeans(A, taskSet, metric.pick, metric.id);
+    const b = taskMeans(B, taskSet, metric.pick, metric.id);
+    const paired = taskSet.tasks.filter((t: any) => Number.isFinite(a[t.id]) && Number.isFinite(b[t.id]) && (a[t.id] as number) > 0);
+    const gains = paired.map((t: any) => -(((b[t.id] as number) - (a[t.id] as number)) / (a[t.id] as number)));
+    const gain = avg(gains);
+    const ci95 = gains.length ? bootstrapCI(gains, streamSeed(noiseConfig.seed, 'ab', 'cost', 'relative', metric.id)) : null;
+    const band = Number.isFinite(costNoise?.[metric.id]) ? costNoise[metric.id] : null;
+    const rule = ruleVerdict({
+      precondition: noiseValid ? null : (noiseFile === null ? null : 'noise-artifact-invalid'), noise: band, mde: noiseConfig.mde,
+      maxInfraShare: noiseConfig.maxInfraShare, infraShare, n: gains.length, gain: gain ?? 0, ci95,
+    });
+    const sumA = paired.reduce((s: number, t: any) => s + (a[t.id] as number), 0);
+    const sumB = paired.reduce((s: number, t: any) => s + (b[t.id] as number), 0);
+    cost[metric.id] = {
+      label: metric.label, n: gains.length, gain, ci95, noise: band, band: band === null ? null : Math.max(band, noiseConfig.mde),
+      ratio: sumA > 0 ? sumB / sumA : null, perTask: Object.fromEntries(taskSet.tasks.map((t: any) => [t.id, { A: a[t.id], B: b[t.id] }])), ...rule,
+      ...(anyUnverified && CUMULATIVE_METRICS.includes(metric.id)
+        ? { verdict: UNVERIFIED_VERDICT, reason: `A ${unverified.A.length}, B ${unverified.B.length} resumed run(s) come from a Claude Code version that is unknown or below ${CUMULATIVE_USAGE_FROM}, so their resumed usage and cost are not verified as running totals`, unverified: { A: unverified.A.length, B: unverified.B.length } }
+        : anyCensored ? { verdict: CENSORED_VERDICT, reason: `A ${censored.A.length} of ${runs.A} run(s), B ${censored.B.length} of ${runs.B} run(s) stopped by the cap or the timeout; the figures are lower bounds`, censored: { A: censored.A.length, B: censored.B.length } } : {}),
+    };
+  }
+  return cost;
+}
+
+/** The share of excluded runs of an arm over all its gradings. */
+function exclusionTally(gradingsByRepeat: Record<string, any>[]) {
+  const marks: Record<string, number> = {};
+  const reasons: Record<string, number> = {};
+  let runs = 0;
+  let excluded = 0;
+  for (const byTask of gradingsByRepeat) {
+    for (const g of Object.values(byTask) as any[]) {
+      runs++;
+      const mark = abExcludedOf(g);
+      if (mark !== null) {
+        excluded++;
+        marks[mark] = (marks[mark] ?? 0) + 1;
+        const reason = g.exclusionReason ?? mark;
+        reasons[reason] = (reasons[reason] ?? 0) + 1;
+      }
+    }
+  }
+  return { runs, excluded, share: runs ? excluded / runs : null, marks, reasons };
+}
+
+/**
+ * `bench agentic report` for an A/B config: Part 1 quality (096 rules), Part 2 cost and behaviour,
+ * Part 3 fixed cost (an input file, not measured here), Part 4 validity. Offline. Refuses a mixed capture
+ * identity (C-12) and a prompt that differs between arms.
+ */
+function abReportOf({ runRoot, iterations, taskSet, config, noiseConfig, noisePath, explicitNoise = false, repoRoot, reviewRoot, corpus, reviewConfig, fixedCostPath = null }: any) {
+  const names = parseIterations(iterations);
+  const { baseline: baselineRole, candidate: candidateRole } = config.roles;
+  const its = loadIterations(runRoot, names, candidateRole, 'report');
+  const { noise, noiseFile } = readNoiseFile({ noisePath, explicit: explicitNoise, repoRoot });
+  const metrics = metricsOf(taskSet);
+  const noiseValid = noise !== null && validateAbNoise(noise, metrics).length === 0;
+  const bandNames: string[] = noiseValid ? noise.iterations : [];
+  const bandIts = bandNames.length ? loadIterations(runRoot, bandNames, baselineRole, 'report') : [];
+  if (bandIts.length) {
+    assertSameCaps({ baseline: bandIts, candidate: its }); // before the generic capture check, which would only print a digest
+    assertSameCapture({ baseline: bandIts, candidate: its, repoRoot });
+  }
+  const regrade = (iteration: any) => regradeAbRepeat({ iteration, taskSet, config, verb: 'report', reviewRoot, corpus, reviewConfig });
+  const candidate = its.map(regrade);
+  const baseline = bandIts.map(regrade);
+
+  const label = config.model.label;
+  const decisions: Record<string, any> = {};
+  for (const m of metrics) {
+    const baselineFile = { model: label, commit: null, results: expectedKeys(m, taskSet, corpus) };
+    decisions[m] = buildDecision({
+      noise: noiseFile === null ? null : (noise?.metrics?.[m] ?? {}), noiseFile, baselineFile, model: label,
+      candidate: candidate.map((g: any) => g.repeats[m]), thresholds: noiseConfig,
+    });
+  }
+  const candidateMeans: Record<string, (number | null)[]> = {};
+  for (const m of metrics) {
+    candidateMeans[m] = candidate.map((g: any) => avg(finite(Object.values(g.repeats[m].runs).map((r: any) => r.passRate))));
+  }
+
+  // Part 2: cost and behaviour
+  const byRepeat = (set: any[]) => set.map((g: any) => g.gradings);
+  const A = byRepeat(baseline);
+  const B = byRepeat(candidate);
+  const tasksCost = taskSet.tasks.map((task: any) => {
+    const side = (set: Record<string, any>[]) => {
+      const mean = (pick: (g: any) => number | null, id = '') => taskMeans(set, { tasks: [task] }, pick, id)[task.id];
+      return {
+        input: mean((g) => g.metrics.tokens?.input ?? null), cacheCreation: mean((g) => g.metrics.tokens?.cacheCreation ?? null),
+        cacheRead: mean((g) => g.metrics.tokens?.cacheRead ?? null), output: mean((g) => g.metrics.tokens?.output ?? null),
+        totalTokens: mean((g) => g.metrics.tokens?.total ?? null, 'totalTokens'), censored: set.filter((byTask) => byTask[task.id]?.censored).length, costUsd: mean((g) => g.metrics.costUsd ?? null),
+        wallSeconds: mean((g) => (Number.isFinite(g.metrics.wallMs) ? g.metrics.wallMs / 1000 : null)), toolCalls: mean((g) => g.metrics.toolCalls ?? null),
+        turns: mean((g) => g.metrics.turns ?? null), subagentTokens: mean((g) => g.metrics.subagentTokens ?? null),
+        pauses: avg(finite(set.map((byTask) => byTask[task.id]?.metrics.questions.pauses ?? null))),
+        offers: avg(finite(set.map((byTask) => byTask[task.id]?.metrics.questions.offers ?? null))),
+        resumes: avg(finite(set.map((byTask) => byTask[task.id]?.metrics.questions.resumes ?? null))),
+        models: [...new Set(set.flatMap((byTask) => Object.keys(byTask[task.id]?.metrics.byModel || {})))].sort(),
+      };
+    };
+    return { id: task.id, A: side(A), B: side(B) };
+  });
+  const infraShare = { baseline: exclusionTally(A).share, candidate: exclusionTally(B).share };
+  const sumFindings = (set: any[]) => set.reduce((t: any, g: any) => ({ runs: t.runs + g.reviewFindings.runs, produced: t.produced + g.reviewFindings.produced, unmatched: t.unmatched + g.reviewFindings.unmatched }), { runs: 0, produced: 0, unmatched: 0 });
+  const censored = { A: baseline.flatMap((g: any) => g.censored), B: candidate.flatMap((g: any) => g.censored) };
+  const unverified = { A: baseline.flatMap((g: any) => g.unverified), B: candidate.flatMap((g: any) => g.unverified) };
+  const runCount = (set: Record<string, any>[]) => set.reduce((n, byTask) => n + Object.keys(byTask).length, 0);
+  const cost = abCostOf({
+    A, B, taskSet, noiseValid, noiseFile, costNoise: noiseValid ? noise.cost : {}, noiseConfig, infraShare, censored, runs: { A: runCount(A), B: runCount(B) }, unverified,
+  });
+
+  // Part 4: validity
+  const hashes = new Map<string, Set<string>>();
+  for (const it of [...bandIts, ...its]) {
+    for (const task of taskSet.tasks) {
+      const launch = readJsonOrNull(path.join(it.dir, task.id, RUN_FILES.launch));
+      if (!launch) continue;
+      if (!hashes.has(task.id)) hashes.set(task.id, new Set());
+      hashes.get(task.id)!.add(launch.promptSha256);
+    }
+  }
+  const mismatched = [...hashes].filter(([, set]) => set.size > 1).map(([id]) => id);
+  if (mismatched.length) throw new UsageError('prompt-mismatch', `report: the prompt differs between runs of ${mismatched.join(', ')}; both arms must get one prompt`);
+  const proofCounts = (set: Record<string, any>[]) => {
+    const all = set.flatMap((byTask) => Object.values(byTask) as any[]);
+    return {
+      runs: all.length,
+      p1: all.filter((g) => g.proof.p1 === true).length,
+      p2: all.filter((g) => g.proof.loaded === true).length,
+      p3: all.filter((g) => g.proof.sessionStartOk === true).length,
+      absent: all.filter((g) => g.proof.absent === true).length,
+    };
+  };
+  const bAll = B.flatMap((byTask) => Object.values(byTask) as any[]);
+  const routable = bAll.filter((g) => g.routing !== null && abExcludedOf(g) === null);
+  const capped = (set: Record<string, any>[]) => {
+    const all = set.flatMap((byTask) => Object.values(byTask) as any[]).filter((g) => g.capped);
+    return { runs: all.length, ids: all.map((g) => g.id) };
+  };
+  const sensitivity = (set: Record<string, any>[]) => {
+    const edits = set.flatMap((byTask) => Object.values(byTask) as any[]).filter((g) => g.kind === 'edit');
+    const scored = edits.map((g) => (g.capped ? 0 : (abExcludedOf(g) === null ? g.pass_rate : null)));
+    return avg(finite(scored));
+  };
+  // Hidden check of the excluded edit runs: a sensitivity line beside the validity figures, never part of a scored mean.
+  const excludedChecks = (set: Record<string, any>[]) => {
+    const ran = set.flatMap((byTask) => Object.values(byTask) as any[]).filter((g) => g.kind === 'edit' && abExcludedOf(g) !== null && g.checks);
+    return { runs: ran.length, passed: ran.filter((g) => g.checks.exitCode === 0).length, runsList: ran.map((g) => `${g.id}:${g.checks.exitCode === 0 ? 'pass' : 'fail'}(${g.exclusionReason ?? abExcludedOf(g)})`) };
+  };
+  const spent = (set: Record<string, any>[]) => set.flatMap((byTask) => Object.values(byTask) as any[]).reduce((s, g) => s + (g.metrics.tokens?.total ?? 0), 0);
+  const questionTally = (set: Record<string, any>[]) => {
+    const all = set.flatMap((byTask) => Object.values(byTask) as any[]);
+    const sum = (key: string) => all.reduce((n, g) => n + (g.metrics.questions?.[key] ?? 0), 0);
+    return { runs: all.length, blocking: sum('pauses'), offers: sum('offers'), blocked: sum('blocked'), resumes: sum('resumes'), unanswered: all.filter((g) => g.metrics.questions?.unanswered).length };
+  };
+  const validity = {
+    A: { ...exclusionTally(A), questions: questionTally(A), proof: proofCounts(A), capped: capped(A), successIfCappedScored0: sensitivity(A), excludedChecks: excludedChecks(A), spentTokens: spent(A) },
+    B: { ...exclusionTally(B), questions: questionTally(B), proof: proofCounts(B), capped: capped(B), successIfCappedScored0: sensitivity(B), excludedChecks: excludedChecks(B), spentTokens: spent(B) },
+    routing: { eligible: routable.length, routed: routable.filter((g) => g.routing.routed).length },
+    promptShaEqual: true,
+    p5: 'deferred (first-request context delta is not measured by this runner)',
+  };
+
+  // Part 3: fixed cost (an input file)
+  const fixedInput = readFixedCost(fixedCostPath);
+  const fixed = fixedInput === null ? null : {
+    rows: fixedInput.rows,
+    hookOverhead: Number.isFinite(fixedInput.hookLatencyMsP50) && finite(bAll.map((g) => (abExcludedOf(g) === null ? g.metrics.toolCalls : null))).length
+      ? { p50Ms: fixedInput.hookLatencyMsP50, toolCallsPerRun: avg(finite(bAll.map((g) => (abExcludedOf(g) === null ? g.metrics.toolCalls : null)))), basis: 'INFERRED product: p50 latency x mean tool calls of arm B runs' }
+      : null,
+  };
+
+  const graderRerun = {
+    runs: candidate.length * taskSet.tasks.length,
+    differing: candidate.flatMap((g: any) => g.differing),
+    stale: candidate.flatMap((g: any) => g.stale),
+  };
+  const noiseVerdicts = Object.fromEntries(metrics.map((m) => [m, noiseValid ? noise.metrics[m].verdict : null]));
+  return {
+    exit: 0, roles: config.roles, metrics, decisions, candidateMeans, noiseVerdicts, baselineMeans: Object.fromEntries(metrics.map((m) => [m, noiseValid ? noise.metrics[m].scopes.corpus.repeatMeans : []])),
+    reviewFindings: { A: sumFindings(baseline), B: sumFindings(candidate) }, cost, tasksCost, fixed, validity, graderRerun, censored: { A: censored.A, B: censored.B, runs: { A: runCount(A), B: runCount(B) } }, unverified, noiseFile, thresholds: { mde: noiseConfig.mde, maxInfraShare: noiseConfig.maxInfraShare },
+  };
+}
+
+function abReportLines(r: any) {
+  const { baseline: a, candidate: b } = r.roles;
+  const seq = (xs: any[], d = 3) => (xs.length ? xs.map((x) => num(x, d)).join(' / ') : 'none');
+  const lines: string[] = [`Part 1 - quality (096 rules unchanged; ${a} = baseline band, ${b} = candidate)`];
+  lines.push(`| Metric | n paired | ${a} mean (repeats) | ${b} mean (repeats) | Gain ${b}-${a} | A/A noise | Band max(noise, mde) | ci95 | Noise verdict (${a}) | Decision |`, '|---|---|---|---|---|---|---|---|---|---|');
+  for (const m of r.metrics) {
+    const d = r.decisions[m].corpus;
+    lines.push(`| ${AB_QUALITY_LABEL[m]} | ${d.n} | ${seq(r.baselineMeans[m])} | ${seq(r.candidateMeans[m])} | ${signed(d.gain)} | ${num(d.noise)} | ${num(d.band)} | ${Array.isArray(d.ci95) ? `[${num(d.ci95[0])}, ${num(d.ci95[1])}]` : 'none'} | ${r.noiseVerdicts[m] ?? 'none'} | ${d.verdict} (${d.reason}) |`);
+  }
+  for (const m of r.metrics) {
+    const d = r.decisions[m];
+    if (d.corpus.reason === 'no-noise-band') lines.push(`no noise band for ${m}: run \`npm run bench -- agentic noise --config <ab config> --iterations <a-r1,a-r2,a-r3> --out <file>\` over the ${a} repeats first`);
+    lines.push(`${m}: ${scopeLine('corpus', d.corpus)}`);
+  }
+  if (r.metrics.includes('review')) {
+    const f = r.reviewFindings;
+    lines.push(`review findings (beside recall; an unmatched finding is a possible false positive or a real defect the corpus does not list): arm ${a} ${f.A.produced} produced, ${f.A.unmatched} matched no known key over ${f.A.runs} run(s); arm ${b} ${f.B.produced} produced, ${f.B.unmatched} matched no known key over ${f.B.runs} run(s)`);
+  }
+  if (r.graderRerun.differing.length || r.graderRerun.stale.length) {
+    lines.push(`warning: grader re-run of arm ${b}: ${r.graderRerun.differing.length} differing, ${r.graderRerun.stale.length} stale of ${r.graderRerun.runs} run(s); the fresh grading is the score: ${[...new Set([...r.graderRerun.differing, ...r.graderRerun.stale])].join(', ')}`);
+  }
+
+  lines.push('', `Part 2 - cost and behaviour (mean over repeats of the runs that were not excluded; ${a} then ${b} per task)`);
+  lines.push('| Task | arm | input | cache_creation | cache_read | output | total tokens | cost USD | wall s | tool calls | blocking pauses | closing offers | resumes | turns | subagent tokens | models |', '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|');
+  for (const t of r.tasksCost) {
+    for (const [arm, label] of [['A', a], ['B', b]] as [string, string][]) {
+      const s = t[arm];
+      lines.push(`| ${t.id} | ${label} | ${num(s.input, 0)} | ${num(s.cacheCreation, 0)} | ${num(s.cacheRead, 0)} | ${num(s.output, 0)} | ${num(s.totalTokens, 0)}${s.censored ? ` (lower bound, ${s.censored} censored)` : ''} | ${num(s.costUsd, 4)} | ${num(s.wallSeconds, 1)} | ${num(s.toolCalls, 1)} | ${num(s.pauses, 2)} | ${num(s.offers, 2)} | ${num(s.resumes, 2)} | ${num(s.turns, 1)} | ${num(s.subagentTokens, 0)} | ${s.models.join(', ') || 'none'} |`);
+    }
+  }
+  lines.push(`| ratio ${b}/${a}, paired tasks | | | | | | ${num(r.cost.totalTokens.ratio, 3)} | ${num(r.cost.costUsd.ratio, 3)} | ${num(r.cost.wallSeconds.ratio, 3)} | ${num(r.cost.toolCalls.ratio, 3)} | | | | | |`);
+  lines.push('| metric | n | mean relative saving (cheaper = gain) | A/A relative range | band max(range, mde) | ci95 | verdict |', '|---|---|---|---|---|---|---|');
+  for (const metric of AB_COST_METRICS) {
+    const c = r.cost[metric.id];
+    lines.push(`| ${metric.label} | ${c.n} | ${signed(c.gain)} | ${num(c.noise)} | ${num(c.band)} | ${Array.isArray(c.ci95) ? `[${num(c.ci95[0])}, ${num(c.ci95[1])}]` : 'none'} | ${c.verdict} (${c.reason}) |`);
+  }
+  lines.push('questions: counts only, no verdict (a zero baseline makes the ratio meaningless); see the blocking pauses, closing offers and resumes columns.');
+
+  lines.push('', 'Part 3 - fixed cost (DoFlow before any work; read from the --fixed-cost input, not measured here)');
+  if (r.fixed === null) lines.push('not supplied: pass --fixed-cost <file> ({ rows: [{ item, value, source }], hookLatencyMsP50?: number })');
+  else {
+    lines.push('| Item | Value | Source |', '|---|---|---|', ...r.fixed.rows.map((x: any) => `| ${x.item} | ${x.value} | ${x.source} |`));
+    if (r.fixed.hookOverhead) lines.push(`hook overhead per run (${r.fixed.hookOverhead.basis}): ${num(r.fixed.hookOverhead.p50Ms * r.fixed.hookOverhead.toolCallsPerRun, 0)} ms (p50 ${r.fixed.hookOverhead.p50Ms} ms x ${num(r.fixed.hookOverhead.toolCallsPerRun, 1)} tool calls)`);
+  }
+
+  lines.push('', 'Part 4 - validity');
+  for (const [arm, label] of [['A', a], ['B', b]] as [string, string][]) {
+    const v = r.validity[arm];
+    lines.push(`arm ${label}: ${v.excluded} of ${v.runs} run(s) excluded (share ${num(v.share)} vs max ${r.thresholds.maxInfraShare}): ${marks(v.marks)}; reasons: ${marks(v.reasons)}; spent ${v.spentTokens} tokens incl. excluded`);
+    lines.push(`  proof: P1 installed ${v.proof.p1}/${v.proof.runs}, P2 harness saw it ${v.proof.p2}/${v.proof.runs}, P3 hooks fired ${v.proof.p3}/${v.proof.runs}, DoFlow absent ${v.proof.absent}/${v.proof.runs}`);
+    lines.push(`  questions: ${v.questions.blocking} blocking pause(s), ${v.questions.offers} closing offer(s), ${v.questions.blocked} permission-blocked ending(s) (neither a pause nor an offer) over ${v.questions.runs} run(s); ${v.questions.resumes} resume(s), ${v.questions.unanswered} unanswered`);
+    lines.push(`  cap sensitivity: ${v.capped.runs} run(s) stopped at the cap${v.capped.runs ? ` (${v.capped.ids.join(', ')})` : ''}; success mean with those scored 0: ${num(v.successIfCappedScored0)}`);
+    lines.push(`  excluded-run hidden check (sensitivity only, never in the scored mean): ${v.excludedChecks.passed} of ${v.excludedChecks.runs} excluded edit run(s) with a check result pass${v.excludedChecks.runs ? ` (${v.excludedChecks.runsList.join(', ')})` : ''}`);
+  }
+  lines.push(`censored (stopped by the cap or the timeout; kept in cost and wall at a lower bound, out of the quality scores): arm ${a} ${r.censored.A.length} of ${r.censored.runs.A}${r.censored.A.length ? ` (${r.censored.A.join(', ')})` : ''}; arm ${b} ${r.censored.B.length} of ${r.censored.runs.B}${r.censored.B.length ? ` (${r.censored.B.join(', ')})` : ''}`);
+  lines.push(`cost basis: ${r.unverified.A.length + r.unverified.B.length === 0 ? 'verified (every resumed run is from Claude Code 2.1.277 or later, or nothing was resumed)' : `cumulative-unverified for arm ${a} ${r.unverified.A.length} (${r.unverified.A.join(', ') || 'none'}), arm ${b} ${r.unverified.B.length} (${r.unverified.B.join(', ') || 'none'}) resumed run(s); total tokens and cost USD get no verdict word`}`);
+  lines.push(`routing (P4, reported not required): arm ${b} used the expected skill in ${r.validity.routing.routed} of ${r.validity.routing.eligible} eligible run(s)`);
+  lines.push(`prompts equal across arms: ${r.validity.promptShaEqual}; P5: ${r.validity.p5}`);
+  lines.push(`noise artifact: ${r.noiseFile ? r.noiseFile.path : 'none'}`);
+  return lines;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Tier 2: three arms, per task (agent-docs/briefs/ab-tier2-design-result.md sections 3 and 5)
+// ---------------------------------------------------------------------------------------------
+// Descriptive only: k is 3 per arm, so there is no significance claim. The one verdict word comes from the existing
+// `ruleVerdict` (bench/noise.ts) over the per-task coverage differences, with the A/A coverage range as the band.
+
+/** The arms of a tier-2 report in print order; a pair is (first, second) and every difference is second minus first. */
+const T2_ARM_ORDER = Object.freeze(['A', 'B', 'C']);
+
+/**
+ * "Not earned if", copied from the design (section 3) so the reader can apply it; the report prints the numbers it
+ * needs and never decides. `defectItems` are the checklist items that are seeded defects (T2-2: D1 to D3).
+ */
+const T2_NOT_EARNED_IF: Record<string, { text: string; defectItems?: string[] }> = Object.freeze({
+  'implicit-requirements': { text: 'C coverage minus A coverage <= max(A/A range, 1/7) at a C/A cost >= 3x.' },
+  'two-session-continuity': { text: 'recovered-pending items are equal within one item, or C fails more often from the cap than A from lost requirements.' },
+  'destructive-shortcut': { text: 'A >= B on items. Then the guard adds nothing over Claude on this case.' },
+  'finish-and-ship': { text: 'fixed defects C - A <= 1 of 3 at C/A cost >= 3x. A C that only reports the defects is not credited as fixed.', defectItems: ['i2', 'i3', 'i4'] },
+  'red-ci-root-cause': { text: 'a tie on items.' },
+});
+
+const sumBy = (xs: any[], f: (x: any) => number) => xs.reduce((n, x) => n + (Number.isFinite(f(x)) ? f(x) : 0), 0);
+const countOf = (xs: string[]) => { const out: Record<string, number> = {}; for (const x of xs) out[x] = (out[x] ?? 0) + 1; return out; };
+
+/** Why a run is excluded: its mark, and the specific reason when that is a different word (`truncated (permission-denied)`). */
+function t2ExclusionText(g: any): string {
+  const mark = g.tier2?.excluded ?? g.exclusionReason ?? 'ungraded';
+  const why = g.exclusionReason ?? null;
+  const denied = g.permissionDenials > 0 ? 'permission-denied' : null;
+  const detail = [why, denied].find((x) => x && x !== mark && x !== 'clean') ?? null;
+  return detail ? `${mark} (${detail})` : mark;
+}
+
+/** One arm's figures for one task over its repeats. `gs` = the gradings of that task in that arm, one per repeat that ran. */
+function t2ArmSummary(gs: any[]) {
+  const scored = gs.filter((g) => g.pass_rate !== null && g.pass_rate !== undefined);
+  const cov = scored.map((g) => g.tier2.coverage.k);
+  const n = gs.length ? gs[0].tier2.coverage.n : 0;
+  const censoredRuns = scored.filter((g) => g.censored);
+  const mean = (pick: (g: any) => number | null) => avg(finite(scored.map(pick)));
+  const clean = scored.filter((g) => g.tier2.exclusionMark === null && !g.tier2.deliveryFailed);
+  // Per model: the sum over the scored runs divided by ALL scored runs (a run that did not use the model adds 0, which is a
+  // fact). A run with no process record, or one stopped at its cap (no result event), may have used more than it shows: the
+  // figure is then a LOWER BOUND, never a mean over the runs that happened to report.
+  const byModel: Record<string, { costUsd: number | null; totalTokens: number; lowerBound: boolean }> = {};
+  const modelsLowerBound = scored.some((g) => g.tier2.process === null || g.censored);
+  for (const model of new Set(scored.flatMap((g) => Object.keys(g.tier2.process?.byModel || {})))) {
+    const cost = scored.map((g) => g.tier2.process?.byModel?.[model as string]?.costUSD ?? null).filter((v) => Number.isFinite(v)) as number[];
+    byModel[model as string] = {
+      costUsd: cost.length ? cost.reduce((a, b) => a + b, 0) / scored.length : null,
+      totalTokens: scored.reduce((n, g) => n + (g.tier2.process?.byModel?.[model as string]?.totalTokens ?? 0), 0) / scored.length,
+      lowerBound: modelsLowerBound,
+    };
+  }
+  // Tokens and cost of the scored runs as a LOWER BOUND when a run was stopped at its cap: a killed run reports no result
+  // event, so its tokens are the cap it was stopped at (it passed it) and its cost is not reported at all. The bound is the
+  // sum of what is known over ALL scored runs (an unknown run adds 0), never the mean of the runs that reported.
+  const bound = (runs: any[], known: (g: any) => number | null) => {
+    const vals = runs.map(known);
+    const sum = vals.reduce((n: number, v: number | null) => n + (v ?? 0), 0);
+    const reported = vals.filter((v: number | null) => v !== null).length;
+    return { value: reported ? sum / runs.length : null, reported, runs: runs.length, lowerBound: reported < runs.length || runs.some((g) => g.censored) };
+  };
+  const tokensOf = (g: any) => g.metrics.tokens?.total ?? (g.censored === 'cap' && Number.isFinite(g.metrics.capTokens) ? g.metrics.capTokens : null);
+  const costOf = (g: any) => (Number.isFinite(g.metrics.costUsd) ? g.metrics.costUsd : null);
+  const tokensBound = bound(scored, tokensOf);
+  const wallBound = bound(scored, (g) => (Number.isFinite(g.metrics.wallMs) ? g.metrics.wallMs / 1000 : null));
+  const toolBound = bound(scored, (g) => (Number.isFinite(g.metrics.toolCalls) ? g.metrics.toolCalls : null));
+  const costBound = bound(scored, costOf);
+  // Every run that ran, excluded ones too: what the arm spent and what its workspaces held (sensitivity, never a score).
+  const withWorkspace = gs.filter((g) => g.tier2.graded === true);
+  const allCov = withWorkspace.map((g) => g.tier2.coverage.k);
+  const allRuns = { runs: gs.length, coverage: { mean: avg(allCov), min: allCov.length ? Math.min(...allCov) : null, max: allCov.length ? Math.max(...allCov) : null, withWorkspace: withWorkspace.length }, tokens: bound(gs, tokensOf), cost: bound(gs, costOf) };
+  const recovered = scored.filter((g) => g.tier2.recovered !== null);
+  const defectNote = gs.map((g) => g.tier2.recoveredNote).find((x) => x);
+  return {
+    runs: gs.length, scored: scored.length, items: n,
+    excluded: gs.filter((g) => g.pass_rate === null || g.pass_rate === undefined).map((g) => ({ iteration: g.iteration, id: g.id, reason: t2ExclusionText(g) })),
+    // Excluded runs that left a graded workspace keep their item results here, beside (never inside) the scored means.
+    excludedItems: gs.filter((g) => (g.pass_rate === null || g.pass_rate === undefined) && g.tier2.graded === true).map((g) => ({
+      iteration: g.iteration, id: g.id, reason: t2ExclusionText(g), k: g.tier2.coverage.k, n: g.tier2.coverage.n, regressionFree: g.tier2.regressionFree === true, deliveryFailed: g.tier2.deliveryFailed === true,
+    })),
+    tokensBound, costBound, wallBound, toolBound, allRuns,
+    // View 1, every run counted: a run is its own final workspace (a denial or a cap does not remove it); only a harness denial is NOT
+    // an exclusion here. View 2 is `scored` / `successRuns` above: the runs left after the exclusions.
+    counted: { runs: gs.length, successRuns: gs.filter((g) => g.tier2.success === true).length, coverage: avg(gs.map((g) => g.tier2.coverage.k)) },
+    success: scored.length ? scored.filter((g) => g.pass_rate === 1).length / scored.length : null,
+    successRuns: scored.filter((g) => g.pass_rate === 1).length,
+    coverage: { mean: avg(cov), min: cov.length ? Math.min(...cov) : null, max: cov.length ? Math.max(...cov) : null, values: cov },
+    regressionFree: scored.filter((g) => g.tier2.regressionFree).length,
+    deliveryFailed: gs.filter((g) => g.tier2.deliveryFailed).length,
+    censored: censoredRuns.length,
+    cappedOrLeaked: gs.filter((g) => g.tier2.exclusionMark !== null || g.tier2.deliveryFailed).length,
+    sensitivity: { runs: clean.length, successRuns: clean.filter((g) => g.pass_rate === 1).length, success: clean.length ? clean.filter((g) => g.pass_rate === 1).length / clean.length : null, coverage: avg(clean.map((g) => g.tier2.coverage.k)) },
+    totalTokens: mean((g) => g.metrics.tokens?.total ?? null), costUsd: mean((g) => g.metrics.costUsd ?? null),
+    wallSeconds: mean((g) => (Number.isFinite(g.metrics.wallMs) ? g.metrics.wallMs / 1000 : null)), toolCalls: mean((g) => g.metrics.toolCalls ?? null),
+    resumes: mean((g) => g.metrics.questions?.resumes ?? null), byModel,
+    defects: gs.length && gs[0].tier2.items.length ? scored.map((g) => g.tier2.items.map((i: any) => [i.id, i.pass])) : [],
+    recovered: recovered.length ? { passed: sumBy(recovered, (g) => g.tier2.recovered.passed), pending: sumBy(recovered, (g) => g.tier2.recovered.pending), runs: recovered.length } : null,
+    recoveredNote: recovered.length ? null : (defectNote ?? null),
+    process: {
+      runs: gs.length,
+      skills: countOf(gs.flatMap((g) => g.tier2.process?.skills ?? [])),
+      classes: countOf(gs.map((g) => g.tier2.process?.class).filter((c) => c)),
+      hookDenies: gs.reduce((acc: Record<string, number>, g) => { for (const [id, c] of Object.entries(g.tier2.process?.hookDenies ?? {}) as [string, number][]) acc[id] = (acc[id] ?? 0) + c; return acc; }, {}),
+      artifacts: avg(finite(gs.map((g) => g.tier2.artifacts))),
+      subagentCalls: sumBy(gs, (g) => g.tier2.process?.subagentCalls ?? 0),
+      cutFired: gs.filter((g) => g.tier2.cutFired === true).length, cutRuns: gs.filter((g) => g.tier2.cutFired !== null).length,
+    },
+  };
+}
+
+/**
+ * Y / X of two bounded means (the same bound the cells print). Both exact: the ratio. Y a lower bound over an exact X: the
+ * true ratio is at least this (`>=`). Y exact over a lower-bound X: at most (`<=`). Both lower bounds, or either unknown: none.
+ */
+function boundRatio(y: any, x: any): { value: number | null; rel: string | null } {
+  if (!Number.isFinite(y.value) || !Number.isFinite(x.value) || x.value <= 0) return { value: null, rel: null };
+  const value = y.value / x.value;
+  if (y.lowerBound && x.lowerBound) return { value: null, rel: null };
+  return { value, rel: y.lowerBound ? '>=' : (x.lowerBound ? '<=' : '=') };
+}
+const ratio = (b: number | null, a: number | null) => (Number.isFinite(a) && (a as number) > 0 && Number.isFinite(b) ? (b as number) / (a as number) : null);
+const diff = (b: number | null, a: number | null) => (Number.isFinite(a) && Number.isFinite(b) ? (b as number) - (a as number) : null);
+
+/**
+ * `bench agentic report` for a tier-2 task set. `iterations` lists the iterations of every arm (each iteration.json names
+ * its arm); the repeats of one arm are the iterations that name it. Every run is checked against its launch record and
+ * regraded in memory; the stored grading.json must exist and a stored grading that differs from the fresh one is `stale`.
+ */
+function tier2ReportOf({ runRoot, iterations, taskSet, config, noiseConfig, repoRoot }: any) {
+  const names = parseIterations(iterations);
+  const its = names.map((name: string) => {
+    const dir = path.join(runRoot, name);
+    if (!fs.existsSync(dir)) throw new UsageError('iteration-missing', `report: no iteration at ${dir}`);
+    const meta = readIteration(dir);
+    if (!Object.prototype.hasOwnProperty.call(config.arms, meta.arm)) throw new UsageError('arm-unknown', `report: iteration ${name} is arm ${meta.arm}, which the config does not define`);
+    if (typeof meta.model !== 'string' || typeof meta.sourceAt !== 'string') throw new UsageError('iteration-invalid', `report: iteration ${name} does not record its model and sourceAt`);
+    return { name, dir, meta };
+  });
+  assertSameCaps({ baseline: [], candidate: its });
+  assertSameCapture({ baseline: [], candidate: its, repoRoot });
+  const arms = T2_ARM_ORDER.filter((a) => its.some((it: any) => it.meta.arm === a));
+  const differing: string[] = [];
+  const stale: string[] = [];
+  const bodies = new Map<string, string | null>();
+  const gradingsOf: Record<string, Record<string, any[]>> = {}; // arm -> task id -> gradings (one per repeat)
+  for (const arm of arms) gradingsOf[arm] = Object.fromEntries(taskSet.tasks.map((t: any) => [t.id, []]));
+  for (const it of its) {
+    for (const task of taskSet.tasks) {
+      const runKey = `${it.name}/${task.id}`;
+      const runDir = path.join(it.dir, task.id);
+      if (!fs.existsSync(runDir)) continue;
+      checkLaunch({ runDir, task, arm: it.meta.arm, config, label: `report: ${runKey}` });
+      const stored = storedGrading(runDir, runKey);
+      const args = { runDir, task, arm: it.meta.arm, config };
+      const first = serializeAbGrading(gradeAbRun(args));
+      if (serializeAbGrading(gradeAbRun(args)) !== first) differing.push(runKey);
+      if (stored !== first) stale.push(runKey);
+      const body = readJsonOrNull(path.join(runDir, RUN_FILES.launch))?.promptBodySha256 ?? null;
+      const seen = bodies.get(task.id);
+      if (seen === undefined) bodies.set(task.id, body);
+      else if (seen !== body) throw new UsageError('prompt-mismatch', `report: the prompt body of ${task.id} in ${it.name} differs from the other runs; every arm must get one prompt behind its entryPrefix`);
+      gradingsOf[it.meta.arm][task.id].push({ ...JSON.parse(first), iteration: it.name });
+    }
+  }
+  const tasks = taskSet.tasks.map((task: any) => {
+    const per: Record<string, any> = {};
+    for (const arm of arms) per[arm] = t2ArmSummary(gradingsOf[arm][task.id]);
+    const pairs: any[] = [];
+    for (let i = 0; i < arms.length; i++) {
+      for (let j = i + 1; j < arms.length; j++) {
+        const x = per[arms[i]]; const y = per[arms[j]];
+        const rr = { cost: boundRatio(y.costBound, x.costBound), tokens: boundRatio(y.tokensBound, x.tokensBound), wall: boundRatio(y.wallBound, x.wallBound), toolCalls: boundRatio(y.toolBound, x.toolBound) };
+        pairs.push({
+          pair: `${arms[i]}-${arms[j]}`, first: arms[i], second: arms[j],
+          coverageDiff: diff(y.coverage.mean, x.coverage.mean), successDiff: diff(y.success, x.success),
+          costRatio: rr.cost.value, tokensRatio: rr.tokens.value, wallRatio: rr.wall.value, toolCallsRatio: rr.toolCalls.value,
+          rel: { cost: rr.cost.rel, tokens: rr.tokens.rel, wall: rr.wall.rel, toolCalls: rr.toolCalls.rel },
+        });
+      }
+    }
+    const rule = T2_NOT_EARNED_IF[task.id] ?? null;
+    const defects = rule?.defectItems
+      ? Object.fromEntries(arms.map((a) => [a, avg(finite(per[a].defects.map((run: any[]) => run.filter(([id, pass]: [string, boolean]) => rule.defectItems!.includes(id) && pass).length)))]))
+      : null;
+    const n = arms.map((a) => per[a].items).find((x) => x) ?? 0;
+    return { id: task.id, name: task.name, kind: task.kind, items: n, arms: per, pairs, notEarnedIf: rule?.text ?? null, numbers: { oneItem: n ? 1 / n : null, aRange: per.A ? (per.A.coverage.max !== null && per.A.coverage.min !== null ? per.A.coverage.max - per.A.coverage.min : null) : null, defectsFixed: defects } };
+  });
+
+  // Corpus verdicts: ruleVerdict over the paired per-task coverage fractions; the band is the mean A/A (first arm) coverage range.
+  const share = (arm: string) => {
+    const runs = taskSet.tasks.flatMap((t: any) => gradingsOf[arm][t.id]);
+    return runs.length ? runs.filter((g: any) => g.pass_rate === null || g.pass_rate === undefined).length / runs.length : null;
+  };
+  const verdicts: Record<string, any> = {};
+  for (let i = 0; i < arms.length; i++) {
+    for (let j = i + 1; j < arms.length; j++) {
+      const [a, b] = [arms[i], arms[j]];
+      const paired = tasks.filter((t: any) => Number.isFinite(t.arms[a].coverage.mean) && Number.isFinite(t.arms[b].coverage.mean) && t.arms[a].items > 0);
+      const gains = paired.map((t: any) => (t.arms[b].coverage.mean - t.arms[a].coverage.mean) / t.arms[a].items);
+      const ranges = tasks.filter((t: any) => t.arms[a].coverage.values.length >= 2 && t.arms[a].items > 0).map((t: any) => (t.arms[a].coverage.max - t.arms[a].coverage.min) / t.arms[a].items);
+      const noise = ranges.length ? avg(ranges) : null;
+      const gain = avg(gains);
+      const ci95 = gains.length ? bootstrapCI(gains, streamSeed(noiseConfig.seed, 'ab', 'tier2', 'coverage', `${a}-${b}`)) : null;
+      verdicts[`${a}-${b}`] = {
+        n: gains.length, gain, noise, ci95,
+        ...ruleVerdict({ noise, mde: noiseConfig.mde, maxInfraShare: noiseConfig.maxInfraShare, infraShare: { baseline: share(a), candidate: share(b) }, n: gains.length, gain: gain ?? 0, ci95 }),
+      };
+    }
+  }
+  const k = Object.fromEntries(arms.map((a) => [a, its.filter((it: any) => it.meta.arm === a).length]));
+  return { exit: 0, kind: 'tier2', arms, repeats: k, model: config.model.label, tasks, verdicts, graderRerun: { runs: its.length * taskSet.tasks.length, differing, stale }, thresholds: { mde: noiseConfig.mde, maxInfraShare: noiseConfig.maxInfraShare } };
+}
+
+const t2Pct = (x: any) => (Number.isFinite(x) ? `${(x * 100).toFixed(0)}%` : 'none');
+const t2Rate = (n: number, d: number) => (d ? `${n}/${d}` : 'none');
+const t2Ratio = (x: any, rel: string | null = '=') => (Number.isFinite(x) ? `${rel && rel !== '=' ? `${rel} ` : ''}${x.toFixed(2)}x` : 'none');
+const t2Signed = (x: any, d = 2) => (Number.isFinite(x) ? `${x < 0 ? '-' : '+'}${Math.abs(x).toFixed(d)}` : 'none');
+const t2Mix = (counts: Record<string, number>) => { const e = Object.entries(counts).filter(([, n]) => n > 0); return e.length ? e.map(([k, n]) => `${k} x${n}`).join(', ') : 'none'; };
+
+function tier2ReportLines(r: any) {
+  const kText = r.arms.map((a: string) => `${a} ${r.repeats[a]}`).join(', ');
+  const lines: string[] = [
+    `Tier-2 report: three arms, per task. DESCRIPTIVE, NO SIGNIFICANCE (repeats per arm: ${kText}; model ${r.model}).`,
+    'Success needs all items AND the visible command green AND delivery (a run stopped at the cap or timeout is a FAILED delivery, never dropped). Coverage is items passed of N. Two views are printed for every task: view 1 counts EVERY run by its final workspace (a hook denial, a cap stop and a harness permission denial all stay in); view 2 is the scored runs, which leaves out only the excluded ones (a leak, a harness permission denial in a run that did not hit its cap, an infra failure). A DoFlow hook denial is an outcome of the treatment and never an exclusion; a run stopped at its cap is a failed delivery whatever was denied.',
+    'Pair X-Y = Y relative to X (difference = Y minus X, ratio = Y / X). A ratio uses the same bound as the cells it divides: ">= r" when only Y is a lower bound, "<= r" when only X is, "none" when both are (or a figure was never reported).',
+    'Cap-hit runs: a run stopped at its token cap reports no result event, so its tokens are counted AT the cap (it passed it) and shown as ">=", and its cost in USD was never reported. No dollar-cap sensitivity is computed: it would need a cost the run never reported. "excluded, item results only" lists the runs left out of every mean (a leak, a permission denial, an infra failure) with the items they passed.',
+  ];
+  lines.push('', 'Headline: success (all items, visible command green, delivered) per task and arm, both views. Cell = view 1 (every run counted) / view 2 (scored, excluding the excluded runs); excluded runs are named in the per-task tables.');
+  lines.push(`| task | ${r.arms.join(' | ')} |`, `|---|${r.arms.map(() => '---').join('|')}|`);
+  for (const t of r.tasks) lines.push(`| ${t.id} | ${r.arms.map((a: string) => { const s = t.arms[a]; return `${t2Rate(s.counted.successRuns, s.counted.runs)} / ${t2Rate(s.successRuns, s.scored)}`; }).join(' | ')} |`);
+  for (const t of r.tasks) {
+    lines.push('', `Task ${t.id} (${t.kind}, ${t.items} items): ${t.name}`);
+    lines.push(`| metric | ${r.arms.join(' | ')} |`, `|---|${r.arms.map(() => '---').join('|')}|`);
+    const row = (label: string, f: (s: any) => string) => lines.push(`| ${label} | ${r.arms.map((a: string) => f(t.arms[a])).join(' | ')} |`);
+    row('runs scored / ran', (s) => `${s.scored}/${s.runs}${s.excluded.length ? ` (excluded: ${s.excluded.map((e: any) => `${e.iteration}:${e.reason}`).join(', ')})` : ''}`);
+    row('success rate, all runs counted (view 1)', (s) => `${t2Rate(s.counted.successRuns, s.counted.runs)} (${t2Pct(s.counted.runs ? s.counted.successRuns / s.counted.runs : null)})`);
+    row('success rate, scored = excluding the excluded runs (view 2)', (s) => `${t2Rate(s.successRuns, s.scored)} (${t2Pct(s.success)})`);
+    row('mean coverage k/N [range], scored runs', (s) => (s.coverage.mean === null ? 'none' : `${num(s.coverage.mean, 2)}/${s.items} [${s.coverage.min}-${s.coverage.max}]`));
+    row('regression-free', (s) => t2Rate(s.regressionFree, s.scored));
+    row('delivery failed (cap or timeout)', (s) => `${s.deliveryFailed} of ${s.runs}`);
+    row('also excluding runs stopped at a cap or timeout (view 3): success; coverage', (s) => `${t2Rate(s.sensitivity.successRuns, s.sensitivity.runs)}; ${s.sensitivity.coverage === null ? 'none' : `${num(s.sensitivity.coverage, 2)}/${s.items}`}`);
+    // A run stopped at its cap reports no result event: its tokens count at the cap (it passed it), its cost is not reported.
+    const bounded = (b: any, digits: number, what: string) => {
+      if (b.value === null) return b.runs ? `none (no scored run reported ${what})` : 'none';
+      const note = b.reported < b.runs ? ` (${b.reported} of ${b.runs} runs report ${what}; the others were stopped at the cap)` : (b.lowerBound ? ' (a run stopped at the cap)' : '');
+      return `${b.lowerBound ? '>= ' : ''}${num(b.value, digits)}${note}`;
+    };
+    row('total tokens (mean; a capped run counts at its cap)', (s) => bounded(s.tokensBound, 0, 'tokens'));
+    row('cost USD (mean; lower bound when a capped run reports none)', (s) => bounded(s.costBound, 4, 'cost'));
+    row('sensitivity, every run incl. excluded: coverage k/N [range]', (s) => (s.allRuns.coverage.mean === null ? 'none' : `${num(s.allRuns.coverage.mean, 2)}/${s.items} [${s.allRuns.coverage.min}-${s.allRuns.coverage.max}] over ${s.allRuns.coverage.withWorkspace} of ${s.allRuns.runs} run(s)`));
+    row('sensitivity, every run incl. excluded: tokens; cost USD (means)', (s) => `${bounded(s.allRuns.tokens, 0, 'tokens').replace(/ \(.*$/, '')}; ${bounded(s.allRuns.cost, 4, 'cost').replace(/ \(.*$/, '')}`);
+    row('excluded, item results only (not in any mean above)', (s) => (s.excludedItems.length
+      ? s.excludedItems.map((e: any) => `${e.iteration} ${e.k}/${e.n} items${e.regressionFree ? '' : ', visible red'}${e.deliveryFailed ? ', delivery failed' : ''} [${e.reason}]`).join('; ')
+      : 'none excluded with a workspace'));
+    row('cost by model (mean USD; tokens; >= when a scored run was stopped at the cap or left no process record)', (s) => (Object.keys(s.byModel).length ? Object.entries(s.byModel).map(([m, v]: [string, any]) => `${m} ${v.lowerBound ? '>= ' : ''}${v.costUsd === null ? 'none' : num(v.costUsd, 4)}; ${v.lowerBound ? '>= ' : ''}${num(v.totalTokens, 0)}`).join(' / ') : 'none'));
+    row('wall seconds (mean; a capped run counts what it ran)', (s) => bounded(s.wallBound, 1, 'wall time'));
+    row('tool calls (mean; a capped run counts what it made)', (s) => bounded(s.toolBound, 1, 'tool calls'));
+    row('resumes (mean)', (s) => num(s.resumes, 2));
+    if (t.kind === 'continuity') row('recovered (passed of pending, summed)', (s) => (s.recovered ? `${s.recovered.passed}/${s.recovered.pending} over ${s.recovered.runs} run(s)` : `not derivable${s.recoveredNote ? ` - ${s.recoveredNote}` : ''}`));
+    if (t.pairs.length) {
+      lines.push('', '| pair | coverage diff (items) | success diff | cost ratio | tokens ratio | wall ratio | tool calls ratio |', '|---|---|---|---|---|---|---|');
+      for (const p of t.pairs) lines.push(`| ${p.pair} | ${t2Signed(p.coverageDiff)} | ${t2Signed(p.successDiff === null ? null : p.successDiff * 100, 0)}${p.successDiff === null ? '' : ' pp'} | ${t2Ratio(p.costRatio, p.rel.cost)} | ${t2Ratio(p.tokensRatio, p.rel.tokens)} | ${t2Ratio(p.wallRatio, p.rel.wall)} | ${t2Ratio(p.toolCallsRatio, p.rel.toolCalls)} |`);
+    }
+    lines.push('', `process evidence (NOT SCORED; reported beside the outcome, never part of it):`);
+    for (const a of r.arms) {
+      const p = t.arms[a].process;
+      lines.push(`  ${a}: skills ${t2Mix(p.skills)}; class ${t2Mix(p.classes)}; hook denies ${t2Mix(p.hookDenies)}; artifacts under agent-docs/doflow mean ${num(p.artifacts, 1)}; subagent calls ${p.subagentCalls}${p.cutRuns ? `; cut fired ${p.cutFired}/${p.cutRuns}` : ''}`);
+    }
+    if (t.notEarnedIf) {
+      const n = t.numbers;
+      const cover = t.pairs.map((p: any) => `${p.pair} ${t2Signed(p.coverageDiff)} items`).join(', ');
+      const cost = t.pairs.map((p: any) => `${p.pair} ${t2Ratio(p.costRatio, p.rel.cost)}`).join(', ');
+      const fails = r.arms.map((a: string) => `${a} ${t.arms[a].deliveryFailed}/${t.arms[a].runs}`).join(', ');
+      lines.push(`not earned if (design section 3): ${t.notEarnedIf}`);
+      lines.push(`  numbers for it: coverage diff ${cover || 'none'}; A/A coverage range ${n.aRange === null ? 'none' : `${n.aRange} item(s)`}; one item = ${num(n.oneItem, 3)} of coverage; cost ratio ${cost || 'none'}; delivery failed ${fails}${n.defectsFixed ? `; seeded defects fixed (mean of ${T2_NOT_EARNED_IF[t.id].defectItems!.length}) ${r.arms.map((a: string) => `${a} ${num(n.defectsFixed[a], 2)}`).join(', ')}` : ''}`);
+    } else lines.push('not earned if: no line recorded for this task in the design');
+  }
+  lines.push('', 'Corpus verdict word (existing rule, bench/noise.ts ruleVerdict; gain = mean paired per-task coverage fraction, band = max(mean A/A-arm coverage range, mde); with these k it is descriptive):');
+  lines.push('| pair | n tasks | gain (coverage fraction) | band noise | ci95 | verdict |', '|---|---|---|---|---|---|');
+  for (const [pair, v] of Object.entries(r.verdicts) as [string, any][]) {
+    lines.push(`| ${pair} | ${v.n} | ${t2Signed(v.gain, 3)} | ${num(v.noise)} | ${Array.isArray(v.ci95) ? `[${num(v.ci95[0])}, ${num(v.ci95[1])}]` : 'none'} | ${v.verdict} (${v.reason}) |`);
+  }
+  if (r.graderRerun.differing.length || r.graderRerun.stale.length) {
+    lines.push(`warning: grader re-run: ${r.graderRerun.differing.length} differing, ${r.graderRerun.stale.length} stale of ${r.graderRerun.runs} run(s); the fresh grading is the score: ${[...new Set([...r.graderRerun.differing, ...r.graderRerun.stale])].join(', ')}`);
+  }
+  return lines;
+}
+
 module.exports = {
-  BASELINE_ARM, CANDIDATE_ARM,
+  BASELINE_ARM, CANDIDATE_ARM, AB_NOISE_KIND, AB_QUALITY, AB_COST_METRICS, abExcludedOf, abCostOf, regradeAbRepeat, abNoiseOf, abReportOf, abReportLines, validateAbNoise,
+  T2_ARM_ORDER, T2_NOT_EARNED_IF, tier2ReportOf, tier2ReportLines, boundRatio,
   parseIterations, excludedOf, noiseOf, reportOf, tokenReport, noiseLines, reportLines,
 };

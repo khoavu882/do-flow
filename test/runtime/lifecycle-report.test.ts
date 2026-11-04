@@ -234,7 +234,7 @@ test('the verb: --file, --stdin and --text (with the = form for a leading dash),
   assert.equal(viaText.status, 0, viaText.stderr);
   assert.equal(run(repo.dir, ['followup', '--action', 'report', '--statement', 'x', '--text', '-- inline', '--json']).status, 2, 'the space form refuses a value starting with -');
 
-  const listed = run(repo.dir, ['followup', '--action', 'list', '--json']);
+  const listed = run(repo.dir, ['followup', '--action', 'list', '--view', 'full', '--json']);
   assert.equal(listed.json.count, 3);
   assert.deepEqual(listed.json.items.map((i: any) => i.body), ['on-this-machine', 'on-this-machine', 'on-this-machine']);
   assert.equal(listed.json.items.every((i: any) => i.source.kind === 'report'), true);

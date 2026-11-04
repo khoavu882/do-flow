@@ -10,18 +10,17 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { REPO, loadCorpus, parseRecords, runPolicy, encodeEnvelope } = require('../helper/hook-fixtures.ts');
 const { tempDir } = require('../helper/tmp.ts');
-const { rowsDigest, renderEnforcementMatrix, NEVER_BLOCKING_EVENTS } = require('../../src/lifecycle/coverage.ts');
-// The docs block renders the registry through the docs generator's inert() (Markdown and HTML in a
-// registry value are escaped), so the shipped block is compared with that rendering.
-const { inert } = require('../../src/release/docs-blocks.ts');
+const { rowsDigest, NEVER_BLOCKING_EVENTS } = require('../../src/lifecycle/coverage.ts');
 const { hookReachabilityFindings, runnerHeaderFindings, dependencyTargets } = require('../helper/hook-reachability.ts');
 
 const POLICY_DIR = path.join(REPO, 'core/harnesses/shared/hooks/policies');
 const BRIDGE_DIR = path.join(REPO, 'core/harnesses/shared/hooks/bridge');
-const POLICIES: any = ['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard', 'session-context', 'stop-check', 'user-prompt-submit', 'subagent-audit'];
-const BLOCKING: any = ['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard', 'stop-check'];
+const POLICIES: any = ['pre-implementation-gate', 'mcp-tool-guard', 'session-context', 'stop-check', 'user-prompt-submit', 'subagent-audit'];
+const BLOCKING: any = ['pre-implementation-gate', 'mcp-tool-guard', 'stop-check'];
+// The bridge renders an advisory line through policies/deny-json.sh, the one file G38.3 allows to emit
+// additionalContext or systemMessage; no bridge file holds that token itself.
 const TOKENS: any = [
-  'requirement.md', 'design.md', 'plan.md', '.doflow/state', 'blocked-patterns', 'mcp-policy.conf',
+  'requirement.md', 'design.md', 'plan.md', '.doflow/state', 'mcp-policy.conf',
   'claude -p', 'codex exec', 'gemini -p', 'pi -p', 'kiro-cli chat', 'additionalContext',
 ];
 
@@ -118,9 +117,10 @@ function syntaxErrorTree(root: any, syntaxError: any = true) {
   return tree;
 }
 
-function bridgeRun(tree: any, harness: any, event: any, policy: any) {
+function bridgeRun(tree: any, harness: any, event: any, policy: any, extraEnv: any = {}) {
   return spawnSync(bashPath(), [path.join(tree, 'bridge/bridge.sh'), harness, event, policy, '--emit', 'native'], {
-    cwd: tree, encoding: 'utf8', input: '{}', env: { ...process.env, DOFLOW_FAILURE_CAPTURE: 'off', DOFLOW_DECISION_FD: '' },
+    cwd: tree, encoding: 'utf8', input: '{}',
+    env: { ...process.env, DOFLOW_FAILURE_CAPTURE: 'off', DOFLOW_DECISION_FD: '', DOFLOW_FAULT_PROFILE: '', ...extraEnv },
   });
 }
 
@@ -138,26 +138,6 @@ test('G34.1 control: each seeded forbidden token is reported with its file', (t)
   const findings = boundaryFindings(walkFiles(root).map((file: any) => [path.relative(root, file), fs.readFileSync(file, 'utf8')]));
   assert.equal(findings.length, seeded.length);
   for (const [file] of seeded) assert.ok(findings.some((finding: any) => finding.startsWith(`${file}:`)), file);
-});
-
-function architectureFindings(text: any) {
-  const section = text.split('## Lifecycle bridges\n')[1]?.split('\n## ')[0] || '';
-  const required: any = [
-    'Install adapter', 'Lifecycle bridge', 'Harness execution adapter',
-    'Decide a policy outcome', 'Hold policy rules', '081 defines and builds it', '077 assigns it no implementation obligation',
-  ];
-  return required.filter((part: any) => !section.includes(part));
-}
-
-test('G34.2: architecture documents the three responsibilities and 081 ownership boundary', () => {
-  const text = fs.readFileSync(path.join(REPO, 'docs/architecture.md'), 'utf8');
-  assert.deepEqual(architectureFindings(text), []);
-});
-
-test('G34.2 control: removing the 081 ownership line is detected in memory', () => {
-  const text = fs.readFileSync(path.join(REPO, 'docs/architecture.md'), 'utf8');
-  const mutated = text.replace('077 assigns it no implementation obligation', '077 owns the harness execution adapter');
-  assert.ok(architectureFindings(mutated).includes('077 assigns it no implementation obligation'));
 });
 
 test('G35.1: envelope.jq reproduces every corpus case expected envelope', () => {
@@ -198,10 +178,10 @@ test('G35.2: unknown envelope versions are unsupported and absent version is mis
   for (const policy of POLICIES) for (const input of ['', '[]', '{}', '{"doflow_event":{}}']) {
     assert.equal(contractClass(input), 'missing', `${policy} classifies ${JSON.stringify(input)} as missing`);
     const result = runPolicy(policy, input);
-    const blocking = ['pre-implementation-gate','pre-bash-guard','mcp-tool-guard'].includes(policy);
+    const outOfStep = ['pre-implementation-gate','mcp-tool-guard'].includes(policy);
     const native = policy === 'user-prompt-submit' ? '{}' : '';
-    assert.deepEqual({status:result.status,stdout:result.stdout,stderr:result.stderr}, blocking
-      ? {status:2,stdout:'',stderr:`[${policy}] DoFlow hooks out of step; run: doflow update\n`}
+    assert.deepEqual({status:result.status,stdout:result.stdout,stderr:result.stderr}, outOfStep
+      ? {status:0,stdout:'',stderr:`[${policy}] DoFlow hooks out of step; run: doflow update\n`}
       : {status:0,stdout:native,stderr:''}, `${policy} IC-036 result for ${JSON.stringify(input)}`);
   }
 });
@@ -235,7 +215,7 @@ test('G35.3: canonical policy no-fd bytes match committed 0fcd973 goldens and re
       ? [] : loadCorpus(policy);
     if (corpus.length > 0) {
       const preferred: any = ({
-        'pre-implementation-gate': 'native-read', 'pre-bash-guard': 'native-safe-command',
+        'pre-implementation-gate': 'native-read',
         'mcp-tool-guard': 'native-builtin-allow', 'stop-check': 'default-allow',
       } as any)[policy];
       row = corpus.find((item: any) => item.name === preferred) || corpus[0];
@@ -245,7 +225,7 @@ test('G35.3: canonical policy no-fd bytes match committed 0fcd973 goldens and re
     }
     assert.ok(row, `${policy}: golden corpus exists`);
     const native = JSON.parse(row.input);
-    const events: any = { 'pre-implementation-gate': 'PreToolUse', 'pre-bash-guard': 'PreToolUse', 'mcp-tool-guard': 'PreToolUse', 'session-context': 'SessionStart', 'stop-check': 'Stop', 'user-prompt-submit': 'UserPromptSubmit', 'subagent-audit': 'SubagentStart' };
+    const events: any = { 'pre-implementation-gate': 'PreToolUse', 'mcp-tool-guard': 'PreToolUse', 'session-context': 'SessionStart', 'stop-check': 'Stop', 'user-prompt-submit': 'UserPromptSubmit', 'subagent-audit': 'SubagentStart' };
     const input: any = native.doflow_event?.version === 1 ? row.input : encodeEnvelope('claude', events[policy], policy, row.input);
     const actual = runPolicy(policy, input);
     assert.deepEqual({ status: actual.status, stdout: actual.stdout, stderr: actual.stderr },
@@ -266,18 +246,31 @@ test('G35.3 control: a temporary policy that writes fd 3 unconditionally breaks 
     { status: 0, stdout: '', stderr: '' }, 'the unconditional fd writer breaks the no-fd golden assertion');
 });
 
-test('G35.4: unmarked syntax errors block on every blocking bridge with the fixed reason', (t) => {
+const SYNTAX_CASES: any = [
+  ['claude', 'PreToolUse'], ['codex', 'PreToolUse'], ['kiro', 'PreToolUse'],
+  ['antigravity', 'PreToolUse'], ['antigravity', 'Stop'], ['pi', 'tool_call'], ['claude', 'Stop'], ['codex', 'Stop'], ['kiro', 'Stop'],
+];
+const SYNTAX_FIXED = '[pre-implementation-gate] DoFlow policy error; details: doflow-run failure list';
+
+test('G35.4: unmarked syntax errors block on every blocking bridge with the fixed reason under strict-1', (t) => {
   const root = tempDir(t, 'doflow-g35-exit-two-');
   const tree = syntaxErrorTree(root);
-  const cases: any = [
-    ['claude', 'PreToolUse'], ['codex', 'PreToolUse'], ['kiro', 'PreToolUse'],
-    ['antigravity', 'PreToolUse'], ['antigravity', 'Stop'], ['pi', 'tool_call'], ['claude', 'Stop'], ['codex', 'Stop'], ['kiro', 'Stop'],
-  ];
-  for (const [harness, event] of cases) {
-    const result = bridgeRun(tree, harness, event, 'pre-implementation-gate');
-    const fixed = '[pre-implementation-gate] DoFlow policy error; details: doflow-run failure list';
-    assert.ok((result.stdout + result.stderr).includes(fixed), `${harness}:${event} renders fixed reason`);
+  for (const [harness, event] of SYNTAX_CASES) {
+    const result = bridgeRun(tree, harness, event, 'pre-implementation-gate', { DOFLOW_FAULT_PROFILE: 'strict-1' });
+    assert.ok((result.stdout + result.stderr).includes(SYNTAX_FIXED), `${harness}:${event} renders fixed reason`);
     assert.equal((result.stdout + result.stderr).includes('syntax error'), false, `${harness}:${event} hides parser diagnostic`);
+  }
+});
+
+test('G35.4 control: under compat-1 an unmarked syntax error proceeds on every bridge and hides the parser diagnostic', (t) => {
+  const root = tempDir(t, 'doflow-g35-exit-two-compat-');
+  const tree = syntaxErrorTree(root);
+  for (const [harness, event] of SYNTAX_CASES) {
+    const result = bridgeRun(tree, harness, event, 'pre-implementation-gate');
+    const output = result.stdout + result.stderr;
+    assert.equal(result.status, 0, `${harness}:${event} proceeds`);
+    assert.doesNotMatch(output, /"deny"|"block"|"continue"|permissionDecision/, `${harness}:${event} renders no block`);
+    assert.equal(output.includes('syntax error'), false, `${harness}:${event} hides parser diagnostic`);
   }
 });
 
@@ -295,8 +288,9 @@ test('G35.5: every exit 2 in every canonical policy is preceded by doflow_decide
 });
 
 test('G35.5 control: removing one deny record call identifies the unrecorded exit', () => {
-  const text = fs.readFileSync(path.join(POLICY_DIR, 'stop-check.sh'), 'utf8');
-  const mutated = text.replace('doflow_decide deny unfinished-work', '# reverted call');
+  const text = fs.readFileSync(path.join(POLICY_DIR, 'mcp-tool-guard.sh'), 'utf8');
+  const mutated = text.replace('doflow_decide deny blocked-pattern', '# reverted call');
+  assert.notEqual(mutated, text);
   assert.ok(policyHasDenyBeforeEveryExit(mutated).length > 0);
 });
 
@@ -364,6 +358,12 @@ function honestyFindings(coverage: any, root: any = REPO) {
     if (row.verification === 'unverified' && row.class === 'blocking') errors.push(`${rowKey(row)} unverified class`);
     if (NEVER_BLOCKING_EVENTS.has(key) && row.class === 'blocking') errors.push(`${rowKey(row)} never-blocking event`);
     if (row.policy === 'pre-implementation-gate' && !row.doesNotCover.includes('writes via shell commands')) errors.push(`${rowKey(row)} missing shell-write exclusion`);
+    if (row.harness === 'pi' && row.event === 'tool_call' && row.profile === 'cli-extension' && row.policy === 'pre-implementation-gate') {
+      const oldLiveCapture = evidence.some((p: any) => p.kind === 'live' && p.locator.includes('probe-2026-10-14.jsonl'));
+      if (row.class !== 'advisory' || (oldLiveCapture && (row.verification !== 'unverified' || !evidence.some((p: any) => p.kind === 'live' && p.locator.startsWith('historical blocking evidence:'))))) {
+        errors.push(`${rowKey(row)} historical Pi blocking capture cannot certify advisory behavior`);
+      }
+    }
     if ((row.harness === 'pi' && ['user-headless','project-headless'].includes(row.profile)) && row.class !== 'unknown') errors.push(`${rowKey(row)} Pi headless must stay unknown`);
     if (row.harness === 'pi' && row.profile.startsWith('project-') && !row.prerequisites.includes('project-trust')) errors.push(`${rowKey(row)} missing Pi project-trust`);
     if (row.harness === 'pi' && row.profile === 'no-extensions' && row.class !== 'unsupported') errors.push(`${rowKey(row)} Pi no-extensions must be unsupported`);
@@ -383,13 +383,6 @@ function joinFindings(coverage: any, lifecycle: any, inventory: any) {
     if (installed && row.harnessVersion.tested !== installed && !row.caveats.includes(`version-drift:${installed}`)) errors.push(`${rowKey(row)} missing version-drift caveat`);
   }
   return errors;
-}
-function matrixDocFindings(text: any, coverage: any) {
-  const start = '<!-- BEGIN GENERATED:enforcement-matrix -->'; const end = '<!-- END GENERATED:enforcement-matrix -->';
-  const a = text.indexOf(start), b = text.indexOf(end);
-  if (a < 0 || b < a) return ['enforcement matrix markers missing'];
-  const actual = text.slice(a + start.length, b).trim();
-  return actual === renderEnforcementMatrix(inert(coverage)) ? [] : ['enforcement matrix differs from renderer'];
 }
 function parityEnumeratesCorpus(files: any) {
   const parityFiles = fs.readdirSync(path.join(REPO, 'test/hooks')).filter((f: any) => /^(bridge-parity(?:-[^.]+)?|pi-bridge)\.test\.ts$/.test(f));
@@ -450,7 +443,7 @@ function templateEntries(root: any = REPO) {
   if (antigravity.includes('pre-implementation-gate.sh')) entries.push({harness:'antigravity',event:'PreToolUse',policy:'pre-implementation-gate'});
   if (antigravity.includes('stop-check.sh')) entries.push({harness:'antigravity',event:'Stop',policy:'stop-check'});
   const pi = fs.readFileSync(path.join(root,'core/harnesses/pi/extensions/doflow-guard.js'),'utf8');
-  for (const policy of ['pre-implementation-gate','pre-bash-guard']) if (pi.includes(`policy: '${policy}'`)) entries.push({harness:'pi',event:'tool_call',policy});
+  for (const policy of ['pre-implementation-gate']) if (pi.includes(`policy: '${policy}'`)) entries.push({harness:'pi',event:'tool_call',policy});
   if (pi.includes("'mcp-tool-guard'")) entries.push({harness:'pi',event:'tool_call',policy:'mcp-tool-guard'});
   return entries;
 }
@@ -523,20 +516,20 @@ function wiredTemplateFindings(coverage: any, lifecycle: any, root: any = REPO) 
     for (const [event, command] of hooks) {
       const basename = path.basename(String(command).match(/[\w-]+\.sh/)?.[0] || '');
       const policy = basename.replace(/^pre-implement-gate$/, 'pre-implementation-gate').replace(/\.sh$/, '');
-      if (['pre-implementation-gate','pre-bash-guard','mcp-tool-guard','session-context','stop-check'].includes(policy) && !coverage.rows.some((r: any) => r.harness === harness && r.event === event && r.policy === policy && r.wired)) errors.push(`${harness}/${event}/${policy} template missing wired row`);
+      if (['pre-implementation-gate','mcp-tool-guard','session-context','stop-check'].includes(policy) && !coverage.rows.some((r: any) => r.harness === harness && r.event === event && r.policy === policy && r.wired)) errors.push(`${harness}/${event}/${policy} template missing wired row`);
     }
   }
   const antigravity = fs.readFileSync(path.join(root, 'src/adapters/antigravity/index.ts'), 'utf8');
   for (const policy of ['pre-implementation-gate','stop-check']) if (antigravity.includes(`${policy}.sh`) && !coverage.rows.some((r: any) => r.harness === 'antigravity' && r.policy === policy && r.wired)) errors.push(`antigravity/${policy} template missing wired row`);
   const pi = fs.readFileSync(path.join(root, 'core/harnesses/pi/extensions/doflow-guard.js'), 'utf8');
-  for (const policy of ['pre-implementation-gate','pre-bash-guard','mcp-tool-guard']) if (pi.includes(`policy: '${policy}'`) && !coverage.rows.some((r: any) => r.harness === 'pi' && r.event === 'tool_call' && r.policy === policy && r.wired)) errors.push(`pi/tool_call/${policy} route missing wired row`);
+  for (const policy of ['pre-implementation-gate','mcp-tool-guard']) if (pi.includes(`policy: '${policy}'`) && !coverage.rows.some((r: any) => r.harness === 'pi' && r.event === 'tool_call' && r.policy === policy && r.wired)) errors.push(`pi/tool_call/${policy} route missing wired row`);
   return errors;
 }
 function kiroStopFindings(coverage: any) {
   return coverage.rows.filter((r: any) => r.harness === 'kiro' && r.event === 'Stop').flatMap((r: any) => {
     const pinned = r.provenance.some((p: any) => p.kind === 'doc' && (/^https?:\/\//.test(p.locator) || /^[^/\s]+@[^/\s]+\s+\S/.test(p.locator)));
-    const fixture = r.provenance.some((p: any) => p.kind === 'fixture' && fs.existsSync(path.join(REPO,p.locator)) && (() => { const f=JSON.parse(fs.readFileSync(path.join(REPO,p.locator),'utf8')); return f.expect?.decision?.outcome==='deny'||f.expect?.result?.block===true; })());
-    return (r.class !== 'unknown' || !pinned || !fixture) ? [`${rowKey(r)} must be unknown with external doc and deny fixture provenance`] : [];
+    const fixture = r.provenance.some((p: any) => p.kind === 'fixture' && fs.existsSync(path.join(REPO,p.locator)) && (() => { const f=JSON.parse(fs.readFileSync(path.join(REPO,p.locator),'utf8')); return ['deny','advisory'].includes(f.expect?.decision?.outcome)||f.expect?.result?.block===true; })());
+    return (r.class !== 'unknown' || !pinned || !fixture) ? [`${rowKey(r)} must be unknown with external doc and unfinished-work finding fixture provenance`] : [];
   });
 }
 
@@ -549,16 +542,26 @@ test('G36.1 control: deleting provenance from a copied row fails', () => { const
 test('G36.2: coverage rows satisfy IC-022 rules 1 to 4 and 8', () => { assert.deepEqual(honestyFindings(readCoverage()), []); });
 test('G36.2 control: flipping Pi observation to blocking is detected', () => { const c=structuredClone(readCoverage()); c.rows.find((r: any)=>r.harness==='pi'&&r.event==='tool_execution_start').class='blocking'; assert.ok(honestyFindings(c).some((x: any)=>x.includes('never-blocking'))); });
 test('G36.2 control: blocking session context is rejected by timing rule 3', () => {const c=structuredClone(readCoverage());c.rows.find((r: any)=>r.policy==='session-context'&&r.harness==='claude').class='blocking';assert.ok(honestyFindings(c).some((x: any)=>x.includes('blocking timing')));});
-test('G36.2 control: package.json and an error fixture cannot support a blocking row', () => {const c=structuredClone(readCoverage()),r=c.rows.find((x: any)=>x.policy==='stop-check'&&x.harness==='claude');r.provenance.find((p: any)=>p.kind==='doc').locator='package.json';r.provenance.find((p: any)=>p.kind==='fixture').locator='test/fixtures/hooks/claude/stop-check/exit-2.json';assert.ok(honestyFindings(c).some((x: any)=>x.includes('blocking evidence')));});
-test('G36.2 control: removing the Pi live record is detected', (t) => {const c=structuredClone(readCoverage()),root=tempDir(t,'doflow-g362-live-control-');fs.cpSync(path.join(REPO,'test/fixtures/hooks'),path.join(root,'test/fixtures/hooks'),{recursive:true});fs.rmSync(path.join(root,'test/fixtures/hooks/pi/live/probe-2026-10-14.jsonl'));assert.ok(honestyFindings(c,root).some((x: any)=>x.includes('Pi tool_call live evidence')));});
+test('G36.2 control: package.json and an error fixture cannot support a blocking row', () => {const c=structuredClone(readCoverage()),r=c.rows.find((x: any)=>x.policy==='mcp-tool-guard'&&x.harness==='claude'&&x.class==='blocking');r.provenance.find((p: any)=>p.kind==='doc').locator='package.json';r.provenance.find((p: any)=>p.kind==='fixture').locator='test/fixtures/hooks/claude/stop-check/exit-2.json';assert.ok(honestyFindings(c).some((x: any)=>x.includes('blocking evidence')));});
+test('G36.2 control: removing the Pi live record is detected', (t) => {const c=structuredClone(readCoverage());c.rows.find((x: any)=>x.policy==='pre-implementation-gate'&&x.harness==='pi'&&x.event==='tool_call'&&x.profile==='cli-extension').class='blocking';const root=tempDir(t,'doflow-g362-live-control-');fs.cpSync(path.join(REPO,'test/fixtures/hooks'),path.join(root,'test/fixtures/hooks'),{recursive:true});fs.rmSync(path.join(root,'test/fixtures/hooks/pi/live/probe-2026-10-14.jsonl'));assert.ok(honestyFindings(c,root).some((x: any)=>x.includes('Pi tool_call live evidence')));});
+
+test('FU-2c618z: the historical Pi blocking capture cannot certify current advisory behavior', () => {
+  const coverage = readCoverage();
+  const row = coverage.rows.find((x: any) => x.policy === 'pre-implementation-gate' && x.harness === 'pi' && x.event === 'tool_call' && x.profile === 'cli-extension');
+  assert.equal(row.class, 'advisory');
+  assert.equal(row.verification, 'unverified');
+  assert.ok(row.provenance.some((p: any) => p.kind === 'live' && p.locator.startsWith('historical blocking evidence:')));
+  const falselyVerified = structuredClone(coverage);
+  const mutatedRow = falselyVerified.rows.find((x: any) => x.policy === row.policy && x.harness === row.harness && x.event === row.event && x.profile === row.profile);
+  mutatedRow.verification = 'verified';
+  assert.ok(honestyFindings(falselyVerified).some((finding: any) => finding.includes('historical Pi blocking capture cannot certify advisory behavior')));
+});
 test('G36.3: lifecycle supported, different, and unavailable mappings join to rows', () => { const {lifecycle,coverage}=g36Data(); assert.deepEqual(joinFindings(coverage,lifecycle,JSON.parse('{"rows":[]}')).filter((x: any)=>x.includes('missing row')||x.includes('missing unavailable')), []); });
 test('G36.3 control: a supported mapping without a coverage row is detected', () => { const {lifecycle,coverage}=g36Data(); const c=structuredClone(coverage); c.rows=c.rows.filter((r: any)=>!(r.policy==='stop-check'&&r.harness==='claude')); assert.ok(joinFindings(c,lifecycle,{rows:[]}).some((x: any)=>x.includes('missing row'))); });
 test('G36.4: wired rows join inventory and installed-version caveats', () => { const {lifecycle,coverage,inventory}=g36Data(); assert.deepEqual(joinFindings(coverage,lifecycle,inventory).filter((x: any)=>x.includes('inventory')||x.includes('version-drift')), []); });
 test('G36.4 control: removing an inventory row is detected', () => { const {lifecycle,coverage,inventory}=g36Data(); const i=structuredClone(inventory); i.rows=i.rows.filter((r: any)=>!(r.harness==='claude'&&r.event==='PreToolUse')); assert.ok(joinFindings(coverage,lifecycle,i).some((x: any)=>x.includes('inventory event'))); });
 test('G36.5: rowsDigest is the digest of canonical rows', () => { const c=readCoverage(); assert.equal(c.rowsDigest, rowsDigest(c.rows)); });
 test('G36.5 control: a changed row without a digest refresh is detected', () => { const c=structuredClone(readCoverage()); c.rows[0].event='Mutated'; assert.notEqual(c.rowsDigest, rowsDigest(c.rows)); });
-test('G36.6: generated enforcement matrix matches renderer', () => { assert.deepEqual(matrixDocFindings(fs.readFileSync(path.join(REPO,'docs/capability-map.md'),'utf8'),readCoverage()),[]); });
-test('G36.6 control: mutating a rendered matrix cell in memory is detected', () => { const c=readCoverage(); const text=fs.readFileSync(path.join(REPO,'docs/capability-map.md'),'utf8').replace('| claude |','| mutated |'); assert.ok(matrixDocFindings(text,c).length); });
 test('G36.7: every gate row declares shell writes outside its coverage', () => { assert.deepEqual(honestyFindings(readCoverage()).filter((x: any)=>x.includes('shell-write')),[]); });
 test('G36.7 control: deleting shell-write exclusion is detected', () => { const c=structuredClone(readCoverage()); c.rows[0].doesNotCover=[]; assert.ok(honestyFindings(c).some((x: any)=>x.includes('shell-write'))); });
 test('G37.1: wired events have corpus fixtures enumerated by their parity suite', () => { const files=corpusFiles(); assert.deepEqual(parityEnumeratesCorpus(files),[]); assert.deepEqual(missingWiredFixtures(readCoverage(),files),[]); });
@@ -598,7 +601,7 @@ test('G37.3 control: orphan hook files are reported, including a mutually-refere
 test('G37.3 control: the bare-safe policy directory variable keeps capture-failure reachable', () => {
   const source = 'case $0 in */*) _DOFLOW_POLDIR=${0%/*} ;; *) _DOFLOW_POLDIR=. ;; esac\n. "$_DOFLOW_POLDIR/capture-failure.sh"\n';
   const shipped: any = [
-    'core/harnesses/shared/hooks/policies/pre-bash-guard.sh',
+    'core/harnesses/shared/hooks/policies/mcp-tool-guard.sh',
     'core/harnesses/shared/hooks/policies/capture-failure.sh',
   ];
   assert.deepEqual(dependencyTargets(REPO, shipped[0], shipped, source), [shipped[1]]);
@@ -634,7 +637,8 @@ test('G37.3 control: wiring to a missing door is reported for every door harness
     assert.ok(hookReachabilityFindings(root, tracked).some((finding: any) => finding.includes('missing-door.sh')), harness);
   }
 });
-test('G37.4: Kiro Stop rows remain unknown with documented and fixture provenance', () => { assert.deepEqual(kiroStopFindings(readCoverage()),[]); });
+test('G37.4: Kiro Stop rows remain unknown with documented and finding-fixture provenance', () => { assert.deepEqual(kiroStopFindings(readCoverage()),[]); });
+test('G37.4 control: a Kiro Stop row whose fixture records no finding is detected', () => { const c=structuredClone(readCoverage()); const r=c.rows.find((x: any)=>x.harness==='kiro'&&x.event==='Stop'&&x.class==='unknown'); r.provenance.find((p: any)=>p.kind==='fixture').locator='test/fixtures/hooks/kiro/stop-check/perf.json'; assert.ok(kiroStopFindings(c).length); });
 test('G37.4 control: Kiro Stop set to blocking is detected', () => { const c=structuredClone(readCoverage()); const r=c.rows.find((x: any)=>x.harness==='kiro'&&x.event==='Stop'); r.class='blocking'; assert.ok(kiroStopFindings(c).length); });
 test('G37.5: deny and error fixtures pin valid visible-byte ceilings and Pi result sizes', () => {assert.deepEqual(corpusShapeFindings(corpusFiles()),[]);});
 test('G37.5 control: an error fixture without a ceiling is detected', (t) => {const root=tempDir(t,'doflow-g375-control-');const file=path.join(root,'error.json');fs.writeFileSync(file,JSON.stringify({expect:{decision:{outcome:'error'}}}));assert.ok(corpusShapeFindings([file]).some((x: any)=>x.includes('missing modelVisibleBytesMax')));});

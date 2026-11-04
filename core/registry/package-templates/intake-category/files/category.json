@@ -1,0 +1,8 @@
+{
+  "id": "{{local}}",
+  "names": [],
+  "summary": "Replace this with what files this category holds.",
+  "rules": [
+    { "extensions": ["pdf"], "namePattern": "replace-with-a-name-pattern" }
+  ]
+}

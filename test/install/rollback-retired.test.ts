@@ -71,6 +71,16 @@ test('rollback of a sweeping run restores every retired row, the released ones i
   assert.equal(ledger.resources.length, s.built.ledger.resources.length + 1, 'no row is duplicated');
 });
 
+test('FU-qejthh: a ledger-only backup (a sweep that released rows and changed no file) restores the retired rows and targets.<id>', () => {
+  const s = swept({ backedUp: [] });
+  const outcome = s.restore();
+  assert.deepEqual(outcome.failed, []);
+  const ledger = readLedger(s.state);
+  assert.deepEqual(of(ledger, 'oldtool'), of(s.built.ledger, 'oldtool'));
+  assert.deepEqual(ledger.targets.oldtool, s.built.ledger.targets.oldtool);
+  assert.deepEqual(of(ledger, 'claude'), of(s.after, 'claude'), 'a live row stays the current one');
+});
+
 test('a second rollback of the same backup changes no ledger byte', () => {
   const s = swept();
   s.restore();
@@ -99,6 +109,32 @@ test('rows the replacement now owns get the retired claimant back, and the next 
   assert.equal(action(s.built.targets.instructions), 'release', 'a file antigravity claims is released: row dropped, file stays');
   assert.equal(action(s.built.targets.shared), 'release');
   assert.equal(retiredReleaseKeys(plans).size, of(ledger, 'oldtool').length, 'every retired row leaves the ledger in that run');
+});
+
+test('FU-jmdgtt: a retired whole file whose restore fails does not bring its row back', () => {
+  const s = swept();
+  const agent = s.built.targets.agent;
+  fs.mkdirSync(agent); // a directory where the file was: the restore of that one file cannot rename onto it
+  const outcome = s.restore();
+  assert.deepEqual(outcome.failed.map((item: any) => item.path), [agent]);
+  const rows = of(readLedger(s.state), 'oldtool');
+  assert.ok(!rows.some((row: any) => row.target === agent), 'no row for the file that stayed unrestored');
+  assert.equal(rows.length, of(s.built.ledger, 'oldtool').length - 1, 'every other retired row still comes back');
+});
+
+test('FU-6p4x2v: a registry that cannot be read stops the restore before it writes anything', () => {
+  const s = swept();
+  const registryModule = require('../../src/registry/index.ts');
+  const original = registryModule.loadRegistry;
+  registryModule.loadRegistry = () => { throw new Error('registry unreadable'); };
+  try {
+    const plan = planRestore({ bid: fs.readdirSync(path.join(s.scopeRoot, '.doflow', 'backups')).filter((n: string) => !n.startsWith('.'))[0],
+      backupRoot: path.join(s.scopeRoot, '.doflow', 'backups'), scope: 'global', scopeRoot: s.scopeRoot, targets: ['claude'], explicitTargets: false, dirs: {}, ledgerFile: s.ledgerFile });
+    assert.throws(() => executeRestore(plan, { backupRoot: path.join(s.scopeRoot, '.doflow', 'backups') }), /cannot read the registry to find retired harnesses: registry unreadable/);
+  } finally {
+    registryModule.loadRegistry = original;
+  }
+  for (const [file, bytes] of s.bytes) assert.ok(!fs.existsSync(file) || !fs.readFileSync(file).equals(bytes as Buffer), `untouched: ${file}`);
 });
 
 test('--target narrows the retired rows with the files: none of an untargeted retired harness comes back', () => {

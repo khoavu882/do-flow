@@ -650,7 +650,7 @@ describe('overview text form lists failures', () => {
 });
 
 describe('import dedupe and no-home text (review fixes)', () => {
-  const follow = (m: any) => JSON.parse(spawnSync(process.execPath, [BIN, 'followup', '--action', 'list', '--state', 'all', '--json'], { cwd: m.project, env: m.env, encoding: 'utf8' }).stdout).items;
+  const follow = (m: any) => JSON.parse(spawnSync(process.execPath, [BIN, 'followup', '--action', 'list', '--state', 'all', '--view', 'full', '--json'], { cwd: m.project, env: m.env, encoding: 'utf8' }).stdout).items;
 
   test('import, settle as noise, import again: the second import is refused and exactly one follow-up exists', () => {
     const m = machine('dedupe');

@@ -6,14 +6,14 @@
       "gate-a": { "autopilot": "approve", "predicates": ["protected-paths", "plan-verification-absent", "plan-parses", "markers-zero:design", "markers-zero:plan", "needs-merged", "requires-reachable", "plan-within-write-set"] },
       "gate-b": { "autopilot": "approve", "minSeats": 2, "predicates": ["protected-paths", "plan-verification-absent", "verify-pass-on-head", "findings-valid", "no-dropped-findings", "dispositions-backed", "blockers-zero"] }
     },
-    "bug": {},
-    "refactor": {},
+    "bug": { "gate-b": { "autopilot": "approve", "minSeats": 2, "predicates": ["protected-paths", "plan-verification-absent", "verify-pass-on-head", "findings-valid", "no-dropped-findings", "dispositions-backed", "blockers-zero"] } },
+    "refactor": { "gate-b": { "autopilot": "approve", "minSeats": 2, "predicates": ["protected-paths", "plan-verification-absent", "verify-pass-on-head", "findings-valid", "no-dropped-findings", "dispositions-backed", "blockers-zero"] } },
     "review": {},
     "research": {},
-    "documentation": {},
+    "documentation": { "gate-b": { "autopilot": "approve", "minSeats": 2, "predicates": ["protected-paths", "plan-verification-absent", "verify-pass-on-head", "findings-valid", "no-dropped-findings", "dispositions-backed", "blockers-zero"] } },
     "dependency-change": {},
     "operations": {},
-    "trivial-edit": {}
+    "trivial-edit": { "gate-b": { "autopilot": "approve", "minSeats": 2, "predicates": ["protected-paths", "plan-verification-absent", "verify-pass-on-head", "findings-valid", "no-dropped-findings", "dispositions-backed", "blockers-zero"] } }
   },
   "protected": {
     "paths": ["core/registry/gates.json", "src/runtime/roadmap/", "core/registry/verification.json", "src/runtime/workflow-orchestrator.ts", "src/runtime/decision-register.ts", "core/registry/settings.json", "core/harnesses/shared/hooks/policies/", ".github/workflows/"],
@@ -27,6 +27,6 @@
     "unresolved-clarifications", "markers-open", "protected-path", "plan-unparsable", "need-unmerged", "prerequisite-no-source", "capability-unreachable", "write-set-exceeded",
     "verify-missing", "verify-not-pass", "verify-flaky", "findings-missing", "findings-invalid", "review-stale-head", "seats-too-few", "finding-dropped", "refuted-without-evidence", "accepted-without-user-decision", "user-accepted-needs-person", "fixed-not-ancestor", "blockers-open",
     "lease-held", "lease-lost", "stage-not-performed", "plan-exit-refused", "report-changed", "pause-not-machine", "facts-unreadable", "autopilot-disabled",
-    "git-too-old", "merge-conflict", "develop-wrong-branch", "develop-dirty", "ff-running", "develop-moved", "head-moved", "no-develop-worktree", "plan-changed", "needs-person", "needs-person-tty"
+    "git-too-old", "merge-conflict", "develop-wrong-branch", "develop-dirty", "ff-running", "develop-moved", "head-moved", "no-develop-worktree", "plan-changed", "needs-person-tty", "needs-person-confirm"
   ]
 }

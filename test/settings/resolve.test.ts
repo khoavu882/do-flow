@@ -18,7 +18,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { createSettingsEnv, userDecision, write, REPO }: any = require('../helper/settings-fixtures.ts');
 const { tempDir }: any = require('../helper/tmp.ts');
-const { loadSettings, clearSettingsCache }: any = require('../../src/runtime/settings/resolve.ts');
+const { loadSettings, registryOn, clearSettingsCache }: any = require('../../src/runtime/settings/resolve.ts');
 const { loadSettingsRegistry }: any = require('../../src/runtime/settings/registry.ts');
 const { PROJECT_NOTE }: any = require('../../src/runtime/settings/legacy.ts');
 const { MARKER }: any = require('../../src/runtime/settings/project-layers.ts');
@@ -68,6 +68,16 @@ test('C2: a user decision-model {enabled:true, model} enables from the old file;
     `${file} is deprecated; set "advice.enabled" in ${f.userFile('settings.json')} (read through 2.x)`,
     `${file} is deprecated; set "advice.model" in ${f.userFile('settings.json')} (read through 2.x)`,
   ]);
+});
+
+test('C2b: the deprecation note names only the keys settings.json does not already hold', (t: any) => {
+  const f = fx(t);
+  const file = f.writeUserDecision({ schema: 1, enabled: true, model: 'm' });
+  f.writeUserSettings({ schema: 1, 'advice.enabled': true });
+  const v = load(f);
+  for (const key of ['advice.enabled', 'advice.model']) v.get(key);
+  const deprecated = v.notes.filter((n: any) => n.code === 'deprecated').map((n: any) => n.text);
+  assert.deepEqual(deprecated, [`${file} is deprecated; set "advice.model" in ${f.userFile('settings.json')} (read through 2.x)`]);
 });
 
 test('C3: a project {enabled:false} narrows: decided by the project file in the project view only', (t: any) => {
@@ -909,4 +919,15 @@ test('without a config home, the fail-safe owns failure.capture and the env cand
   const withHome = load(f, { env: { DOFLOW_FAILURE_CAPTURE: 'off' } }).get('failure.capture', 'global');
   assert.equal(withHome.origin.layer, 'env');
   assert.equal(withHome.candidates.find((candidate: any) => candidate.layer === 'env').status, 'decided', 'control: the env holds origin when a config home exists');
+});
+
+test('FU-vva1x8: registryOn names no registry for the real fs and loads the shipped one through another fs', () => {
+  assert.deepEqual(registryOn(fs), {});
+  const reads: string[] = [];
+  const other = { ...fs, readFileSync: (file: any, ...rest: any[]) => { reads.push(String(file)); return (fs as any).readFileSync(file, ...rest); } };
+  const { registry } = registryOn(other);
+  assert.ok(registry.keys.has('storage.prune'));
+  assert.ok(reads.some((file) => file.endsWith(REGISTRY)), 'the registry was read through the given fs');
+  const broken = { ...fs, readFileSync: () => { throw new Error('unreadable'); }, existsSync: () => false };
+  assert.throws(() => registryOn(broken));
 });

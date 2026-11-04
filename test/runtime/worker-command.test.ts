@@ -325,6 +325,25 @@ test('110 a run through the command and supervisor gives the worker DOFLOW_WORKE
   assert.deepEqual(Object.keys(ended.identity).sort(), ['attempt', 'lineage', 'run', 'runSource']);
 });
 
+test('FU-g57xqe a relative PATH entry is read against the caller cwd and the run launches the discovered binary', POSIX, async (t) => {
+  const p: any = project(t, { scenario: { run: [{ emit: SUCCESS }] } });
+  p.env.FAKE_HARNESS_LOG = path.join(p.dir, 'fake-log.jsonl');
+  // The probed claude is dir/relbin/fake-claude; the execution worktree holds a different file of the same name.
+  const probed = linkBin(path.join(p.dir, 'relbin'), ['fake-claude']);
+  const decoyDir = path.join(p.execWorktree, 'relbin');
+  fs.mkdirSync(decoyDir);
+  fs.writeFileSync(path.join(decoyDir, 'fake-claude'), '#!/bin/sh\nexit 7\n', { mode: 0o755 });
+  p.env.PATH = ['relbin', probed, p.env.PATH].join(path.delimiter);
+  await p.probe();
+  const { exit, body } = await p.run();
+  assert.equal(exit, 0, JSON.stringify(body));
+  const ended = await waitEnded(p, body.runId);
+  assert.equal(ended.descriptor.cli.binary, path.join(p.dir, 'relbin', 'fake-claude'), 'the descriptor stores the discovered absolute path');
+  assert.equal(ended.recipe.binary, 'fake-claude', 'the recipe keeps the registry binary name');
+  assert.equal(readLog(p.env.FAKE_HARNESS_LOG).filter((line: any) => line.argv.includes('--read-only')).length, 1, 'the discovered fake ran, not the same-named file in the worktree');
+  assert.equal(ended.report?.status, 'success', JSON.stringify(ended.report));
+});
+
 // ── Started runs, run-exists, status and cancel ───────────────────────────────────────────────
 
 test('a started run returns started with its deadline; a second run on the token is run-exists', POSIX, async (t) => {
@@ -344,16 +363,15 @@ test('a started run returns started with its deadline; a second run on the token
   assert.equal(body.deadline, record.deadline);
   assert.equal(Date.parse(record.deadline) - Date.parse(record.startedAt), 60000);
   // DEC-054: what the insert wrote.
-  assert.deepEqual(record.descriptor, DESCRIPTORS.claude);
+  // The descriptor is the registry block with the probed binary pinned to its absolute path (FU-g57xqe).
+  assert.deepEqual(record.descriptor, { ...DESCRIPTORS.claude, cli: { ...DESCRIPTORS.claude.cli, binary: path.join(p.dir, 'bin', 'fake-claude') } });
   assert.equal(record.timeoutSeconds, 60);
   assert.deepEqual(record.prompt, { path: p.promptFile, sha256: crypto.createHash('sha256').update('do the task').digest('hex'), bytes: 11 });
   assert.equal(record.recipe.binary, 'fake-claude');
   assert.equal(record.envInherited, true);
-  // 112: the old six plus the optional project-only drop-database snapshot.
-  assert.equal(record.envSet.length, 7);
+  assert.equal(record.envSet.length, 6);
   assert.deepEqual(record.envSet, [...ENV_SET]);
-  assert.equal(record.envSet.at(-2), 'DOFLOW_WORKER_RUN');
-  assert.equal(record.envSet.at(-1), 'DOFLOW_GUARD_DROP_DATABASES');
+  assert.equal(record.envSet.at(-1), 'DOFLOW_WORKER_RUN');
   assert.deepEqual(record.identity, { run: 'r1', lineage: 'main', attempt: String(p.token), runSource: 'claim' });
   assert.deepEqual(record.caller, { cwd: p.dir, runKey: p.key.runKey, run: 'r1', lineage: 'main', attempt: null, role: 'main', lineageKind: p.key.identity.lineageKind });
   assert.ok(record.supervisor && record.supervisor.pid, 'the supervisor pid is recorded');
@@ -403,6 +421,7 @@ test('--wait returns the ended run with the three outcomes kept apart', POSIX, a
   assert.equal(body.verified, null, 'a success report changes no task state (DEC-010)');
   assert.equal(body.attemptActive, true);
   assert.equal(body.output.stdout.path, `worker-output/${body.runId}.out.log`);
+  assert.equal(Object.hasOwn(body.output, 'lastMessage'), false, 'a recipe without a final-message file has no such pointer');
   assert.equal(Object.hasOwn(readRuns(p.store)[body.runId], 'resultOffered'), false);
   assert.deepEqual(p.ledgerBytes(), before);
   const ended = await p.cmd({ action: 'cancel', workerRun: body.runId, by: 'main', reason: 'late' });

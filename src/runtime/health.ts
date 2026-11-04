@@ -30,6 +30,10 @@ const { REPO_ROOT } = require('../helper/repo-root.ts');
 const { readGrants, detectedProjectRoot } = require('./packages/grants.ts');
 const { readState, grantRevoked } = require('./packages/state.ts');
 const { transcriptsDoctorView } = require('./transcripts/registry.ts');
+const { readLedger, stateRoot } = require('../state/index.ts');
+const { readRegularFileText } = require('./task-scope.ts');
+const { migrationPending } = require('./lifecycle/store-upkeep.ts');
+const { isRunNamespaceDir, isSupersededFlatRun } = require('./storage/work-status.ts');
 
 /** Answered a probe. */
 const HEALTHY = 'HEALTHY';
@@ -85,9 +89,10 @@ const SCAN_FILE_LIMIT = 4000;
  * @param {Object} [options]
  * @param {Function} [options.execFileImpl=execFileSync]
  * @param {number} [options.timeoutMs=PROBE_TIMEOUT_MS]
+ * @param {boolean} [options.retryOnTimeout] run the probe once more after a timeout; defaults to true for git only
  * @returns {{ok: boolean, output: string, durationMs: number, timedOut: boolean, error: string|null}}
  */
-function runProbe(command: any, { execFileImpl = execFileSync, timeoutMs = PROBE_TIMEOUT_MS }: any = {}) {
+function runProbe(command: any, { execFileImpl = execFileSync, timeoutMs = PROBE_TIMEOUT_MS, retryOnTimeout = path.basename(String(command[0])) === 'git' }: any = {}): any {
   const [bin, ...args] = command;
   const started = Number(process.hrtime.bigint() / 1000000n);
   try {
@@ -108,6 +113,9 @@ function runProbe(command: any, { execFileImpl = execFileSync, timeoutMs = PROBE
     // repairs — a timeout usually means a first-run index build, a non-zero exit usually means a
     // broken install — so they are reported apart rather than as one failure string.
     const timedOut = error.killed === true || error.code === 'ETIMEDOUT' || error.signal === 'SIGTERM';
+    // A cold macOS git shim can outlast the first probe and answer at once the second time, which made the
+    // first `doflow doctor` exit 1 falsely (FU-93wtsf). Only the git probe is retried, once.
+    if (timedOut && retryOnTimeout) return runProbe(command, { execFileImpl, timeoutMs, retryOnTimeout: false });
     return {
       ok: false,
       output: '',
@@ -607,22 +615,21 @@ function mcpConsultationsView({ projectRoot, fsImpl }: any) {
   const listed: Array<{ rel: string; name: string; namespace: string; run: any }> = [];
   const readRunFile = (rel: string, name: string, namespace: string): void => {
     let run;
-    try { run = JSON.parse(fsImpl.readFileSync(path.join(dir, rel), 'utf8')); } catch { run = null; }
+    try { run = JSON.parse(readRegularFileText(path.join(dir, rel), fsImpl) ?? 'null'); } catch { run = null; }
     listed.push({ rel, name, namespace, run });
   };
   let entries: any[] = [];
   try { entries = fsImpl.readdirSync(dir, { withFileTypes: true }); } catch { entries = []; }
   for (const entry of entries) if (entry.name.endsWith('.json') && !entry.isDirectory()) readRunFile(entry.name, entry.name, '');
   for (const entry of entries) {
-    if (!entry.isDirectory() || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(entry.name) || entry.name.endsWith('.lock')) continue;
+    if (!entry.isDirectory() || !isRunNamespaceDir(entry.name)) continue;
     let inner: any[] = [];
     try { inner = fsImpl.readdirSync(path.join(dir, entry.name), { withFileTypes: true }); } catch { inner = []; }
     for (const file of inner) if (file.name.endsWith('.json') && !file.isDirectory()) readRunFile(`${entry.name}/${file.name}`, file.name, entry.name);
   }
   listed.sort((a, b) => byText(a.rel, b.rel));
   // A flat run whose namespaced copy exists is that copy's seed, not a second run.
-  const files = listed.filter((one) => one.namespace !== '' || !listed.some((other) => other.namespace !== '' && other.name === one.name
-    && (typeof one.run?.featureSlug !== 'string' || one.run.featureSlug === other.namespace)));
+  const files = listed.filter((one) => one.namespace !== '' || !isSupersededFlatRun(one.name, one.run, listed.filter((other) => other.namespace !== '')));
   let unreadableRuns = 0;
   const bySkill = new Map();
   for (const { name, run } of files) {
@@ -809,6 +816,59 @@ function nodeSecurityWarning(version: string): { kind: string, subject: string, 
   };
 }
 
+/**
+ * The Claude permission lists a user's own array hides. `mergeSettings` keeps an existing array whole
+ * (a union would widen the user's own permissions), so a settings.json that already had a
+ * `permissions.allow`, `deny` or `ask` array never receives DoFlow's entries for that list. A file is
+ * judged only when the install ledger of its scope records a Claude `settings.json` projection (the
+ * ledger, not hook presence, so an install with Claude outside `hooks.harnesses` is judged too); the
+ * ledgers read are the global one and each project one on the walk from `projectRoot` up to the home
+ * directory, the same walk the reach check makes. The entries named are the shipped ones missing from
+ * the user's array, so the person can add them or leave the list as it is.
+ */
+function claudePermissionWarnings({ repoRoot, projectRoot, homeDir, fsImpl = fs }: any): Array<{ kind: string, subject: string, detail: string }> {
+  let managed: any;
+  try {
+    managed = JSON.parse(fsImpl.readFileSync(path.join(repoRoot, 'core', 'harnesses', 'claude', 'settings', 'settings.json'), 'utf8'));
+  } catch { return []; }
+  const lists: Record<string, any> = managed?.permissions && typeof managed.permissions === 'object' ? managed.permissions : {};
+  const projects = (() => {
+    const found: string[] = [];
+    const home = path.resolve(homeDir);
+    for (let dir = path.resolve(projectRoot); dir !== home; dir = path.dirname(dir)) {
+      found.push(dir);
+      if (path.dirname(dir) === dir) break;
+    }
+    return found;
+  })();
+  const scopes = [
+    { installRoot: path.resolve(homeDir), stateDir: stateRoot({ scope: 'global', homeDir }) },
+    ...projects.map((installRoot) => ({ installRoot, stateDir: path.join(installRoot, '.doflow', 'state') })),
+  ];
+  const warnings: Array<{ kind: string, subject: string, detail: string }> = [];
+  for (const { installRoot, stateDir } of scopes) {
+    let ledger: any;
+    try { ledger = readLedger(stateDir, { fsImpl }); } catch { continue; }
+    const projected = (ledger?.resources || []).some((resource: any) => resource?.harness === 'claude' && resource.kind === 'settings-file' && resource.identity === 'settings.json');
+    if (!projected) continue;
+    const file = path.join(installRoot, '.claude', 'settings.json');
+    let current: any;
+    try { current = JSON.parse(fsImpl.readFileSync(file, 'utf8')); } catch { continue; }
+    for (const [list, shipped] of Object.entries<any>(lists)) {
+      const own = current?.permissions?.[list];
+      if (!Array.isArray(own) || !Array.isArray(shipped)) continue;
+      const missing = shipped.filter((entry: any) => !own.includes(entry));
+      if (!missing.length) continue;
+      warnings.push({
+        kind: 'claude-permissions-user-array',
+        subject: `${file}: permissions.${list}`,
+        detail: `your own permissions.${list} list wins whole, so DoFlow's entries are absent from it (${missing.join(', ')}); DoFlow never merges into a list you wrote, so add them yourself if you want that behaviour`,
+      });
+    }
+  }
+  return warnings;
+}
+
 function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, execFileImpl, fsImpl = fs, detector, adapters, env = process.env, nodeVersion = process.version, homeDir, tmpDir, now }: any = {}) {
   const root = repoRoot || REPO_ROOT;
   const registry = loadRegistry({ repoRoot: root });
@@ -873,8 +933,13 @@ function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, exec
       .map((row: any) => ({ kind: 'runtime-no-reach', subject: `${row.harness}:${row.scope}`, detail: `${row.reason}; fix: ${row.fix}` })),
   ];
   const nodeWarning = nodeSecurityWarning(nodeVersion);
+  const home = homeDir ?? (typeof env?.HOME === 'string' && path.isAbsolute(env.HOME) ? env.HOME : os.homedir());
   const warnings = [
     ...(nodeWarning ? [nodeWarning] : []),
+    ...claudePermissionWarnings({ repoRoot: root, projectRoot, homeDir: home, fsImpl }),
+    ...(migrationPending(path.resolve(projectRoot), { fsImpl })
+      ? [{ kind: 'lifecycle-migration-pending', subject: 'lifecycle store', detail: 'the lifecycle store has not been copied yet from agent-docs/lifecycle; run any followup, lifecycle or goal command once without DOFLOW_UPKEEP=off. doctor wrote nothing.' }]
+      : []),
     ...freshness
       .filter((item) => item.state === 'STALE')
       .map((item) => ({ kind: 'index-stale', subject: item.providerId, detail: `${item.label} is behind the working tree; refresh with: ${item.refresh}` })),
@@ -1371,7 +1436,8 @@ async function handleDoctorCommand({ json = false, repoRoot, projectRoot = proce
 
   if (report.warnings.length) {
     console.log('\n[Warnings] — not blocking; a stale or unprobeable provider still degrades cleanly, and a Node below the security release of its line is named here');
-    for (const warning of report.warnings) console.log(`  ${warning.subject.padEnd(18)}${warning.detail}`);
+    // A subject at or past the column width (a file path) would run into its detail, so it gets a gap.
+    for (const warning of report.warnings) console.log(`  ${warning.subject.padEnd(18)}${warning.subject.length >= 18 ? '  ' : ''}${warning.detail}`);
   }
 
   console.log('\n[Findings]');
@@ -1395,6 +1461,7 @@ module.exports = {
   probeProviders,
   probeLocalProvider,
   probeFreshness,
+  claudePermissionWarnings,
   PROVIDER_ARTIFACTS,
   newestSourceMtime,
   detectProjectCommands,

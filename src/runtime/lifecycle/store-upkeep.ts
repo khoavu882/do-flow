@@ -342,9 +342,9 @@ function retainLocked(root: any, options: any = {}) {
   if (!release) return outcome(0, [], true);
   try {
     const swept = sweepStaleTmp(fsImpl, root, now, staleTmpMs, { maxFiles, shouldStop });
-    if (swept.partial) return outcome(0, [], true);
+    if (swept.partial) return outcome(swept.removed, [], true);
     const result = retain(fsImpl, root, window, now, { maxFiles: Math.max(0, maxFiles - swept.removed), shouldStop });
-    return outcome(result.removedCount, result.warning, result.partial, result.selected, result.code);
+    return outcome(swept.removed + result.removedCount, result.warning, result.partial, result.selected, result.code);
   } finally {
     release();
   }
@@ -356,6 +356,16 @@ function needsPrune(fsImpl: any, root: any, window: any, now: any) {
   const cutoff = now.getTime() - window.ms;
   if (!namesIn(fsImpl, path.join(root, EVENTS_REL)).some((name: any) => isEventName(name) && idTime(name) < cutoff)) return false;
   return selectExpired(readEvents(root, { fsImpl }).events, { now, windowMs: window.ms }).files.length > 0;
+}
+
+/**
+ * Whether the old `agent-docs/lifecycle` copy still waits to be copied. Read-only (no lock, no
+ * write, `DOFLOW_UPKEEP` not consulted), for `doctor`; an unreadable folder counts as not pending.
+ */
+function migrationPending(root: string, { fsImpl = nodeFs }: any = {}) {
+  try {
+    return !hasMarker(fsImpl, root) && !storeHasEvents(fsImpl, root) && legacyEventFiles(fsImpl, root).length > 0;
+  } catch { return false; }
 }
 
 /**
@@ -439,4 +449,4 @@ function prepareStore(root: string, { env = process.env, now = new Date(), fsImp
   }
 }
 
-module.exports = { prepareStore, retainLocked, removedLine, STALE_TMP_MS, LEGACY_LIFECYCLE_REL, LEGACY_EVENTS_REL, MARKER_REL };
+module.exports = { prepareStore, migrationPending, retainLocked, removedLine, STALE_TMP_MS, LEGACY_LIFECYCLE_REL, LEGACY_EVENTS_REL, MARKER_REL };

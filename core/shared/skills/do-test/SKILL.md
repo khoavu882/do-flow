@@ -109,7 +109,7 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
 
 ## Embedded feature research
 
-For an external fact gap or explicit request, follow the conditional protocol in `../do-document/references/embedded-research.md` before stage completion.
+For an external fact gap or request, follow the Gap or request protocol in `../do-document/references/embedded-research.md` before stage completion.
 
 ## Boundaries
 **Will:** Run the compiled tiers, report every status (including unreached), coverage, and failure traces; hand off the current stage in a chain.

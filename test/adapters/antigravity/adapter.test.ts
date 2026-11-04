@@ -91,7 +91,7 @@ test('107-B C-5: a global install plans the skills, and no doc says Antigravity 
   const planned = adapter.plan(input);
   const skillsDir = path.join(home, '.gemini', 'config', 'skills') + path.sep;
   assert.ok(planned.changes.some((c: any) => c.assetId === 'skills.doflow' && c.target.startsWith(skillsDir)), 'global scope plans skills.doflow under ~/.gemini/config/skills');
-  for (const doc of ['docs/architecture.md', 'docs/capability-map.md', 'docs/guide.md', 'docs/setup.md']) {
+  for (const doc of ['docs/guide.md', 'docs/setup.md']) {
     const text = fs.readFileSync(path.join(REPO, doc), 'utf8').replace(/\s+/g, ' ');
     assert.doesNotMatch(text, /Antigravity has no skills at global scope|Antigravity at global scope, which has no skills/, `${doc} still says Antigravity has no skills at global scope`);
   }
@@ -436,7 +436,7 @@ const { execFileSync } = require('node:child_process');
 
 // Front doors resolve the Canonical Policy Library via a path relative to their installed
 // location, not their source location — see build-install-mirror.sh for why this mirror exists.
-const HOOKS_MIRROR = path.join(REPO, 'tmp', 'hooks-mirror');
+const HOOKS_MIRROR = suiteTempDir('doflow-hooks-mirror-');
 execFileSync(bashPath(), [path.join(REPO, 'test', 'hooks', 'build-install-mirror.sh'), HOOKS_MIRROR]);
 const GATE_SHIM = path.join(HOOKS_MIRROR, '.antigravity', 'hooks', 'pre-implementation-gate.sh');
 
@@ -465,7 +465,7 @@ SHIM_TEST('pre-implementation-gate shim recognizes Antigravity\'s own native too
   assert.equal(decision.decision, 'allow', 'a non-mutating tool must never trip the gate');
 });
 
-SHIM_TEST('pre-implementation-gate shim denies write_to_file when a started feature is missing specs', () => {
+SHIM_TEST('pre-implementation-gate shim allows write_to_file when a started feature is missing specs, advising instead of denying', () => {
   const scratchRepo = suiteTempDir('doflow-agy-gate-');
   execFileSync('git', ['init', '-q'], { cwd: scratchRepo });
   execFileSync('git', ['checkout', '-q', '-b', 'feat/999-scratch'], { cwd: scratchRepo });
@@ -479,13 +479,13 @@ SHIM_TEST('pre-implementation-gate shim denies write_to_file when a started feat
     });
     assert.equal(result.code, 0);
     const decision = JSON.parse(result.stdout);
-    assert.equal(decision.decision, 'deny', `${toolName} must be recognized and denied`);
+    assert.equal(decision.decision, 'allow', `${toolName} is recognized and the missing-artifacts advisory does not block it`);
   }
 });
 
 // ── stop-check.sh shim stdin contract ─────────────────────────────────────────
-// The shim translates Antigravity's documented Stop payload into the same gate Claude's stop-check
-// enforces. Its defining property is fail-open: every ambiguity exits 0 silently, because a stop
+// The shim translates Antigravity's documented Stop payload into the same check Claude's stop-check
+// runs (advisory only). Its defining property is fail-open: every ambiguity exits 0 silently, because a stop
 // hook that breaks session ending is worse than an under-gated one.
 
 const STOP_SHIM = path.join(HOOKS_MIRROR, '.antigravity', 'hooks', 'stop-check.sh');
@@ -511,7 +511,7 @@ function transcriptWith(lines: any) {
   return file;
 }
 
-SHIM_TEST('stop-check shim blocks with the documented {decision:continue} when the last response carries stubs', () => {
+SHIM_TEST('stop-check shim lets a stubbed last response end the session silently; the unfinished-work advisory never blocks', () => {
   const transcript = transcriptWith([
     { role: 'user', content: 'go' },
     { role: 'assistant', content: 'Writing the module now.' },
@@ -519,9 +519,7 @@ SHIM_TEST('stop-check shim blocks with the documented {decision:continue} when t
   ]);
   const { code, stdout } = runStopShim({ executionNum: 1, terminationReason: 'model_stop', fullyIdle: true, transcriptPath: transcript });
   assert.equal(code, 0);
-  const decision = JSON.parse(stdout);
-  assert.equal(decision.decision, 'continue');
-  assert.match(decision.reason, /[Tt][Oo][Dd][Oo]|stub/);
+  assert.equal(stdout, '', 'an advisory is silence on the Stop stream, not {decision:continue}');
 });
 
 SHIM_TEST('stop-check shim lets a clean response end the session silently', () => {
@@ -616,13 +614,6 @@ test('Antigravity discovery reports the servers in mcp_config.json, sorted, and 
   assert.deepStrictEqual(adapter.discover({ scope: 'project', scopeRoot: root, ledger: { resources: [] } }).mcpConfigured, ['alpha', 'zeta']);
 });
 
-// 107-B re-review N-c: the discard rule is the vendor page's statement, not something agy was seen
-// to do; the architecture doc qualifies it the way CHANGELOG.md does.
-test('107-B N-c: docs/architecture.md states the always_on discard rule as vendor-stated and unverified', () => {
-  const text = fs.readFileSync(path.join(REPO, 'docs', 'architecture.md'), 'utf8').replace(/\s+/g, ' ');
-  assert.match(text, /without which Antigravity discards a rules file per the vendor page, unverified against `agy`/);
-});
-
 // 107-B re-review N-d: the registry said DoFlow skips the Antigravity global skills scope; a global
 // install plans skills under ~/.gemini/config/skills (asserted above), so no registry note says otherwise.
 test('107-B N-d: no Antigravity registry note says DoFlow skips the global skills scope', () => {
@@ -630,3 +621,25 @@ test('107-B N-d: no Antigravity registry note says DoFlow skips the global skill
   const text = JSON.stringify(registry.harnesses ? registry.harnesses.find((h: any) => h.id === 'antigravity') : registry);
   assert.doesNotMatch(text, /skips the global skills scope/);
 });
+
+// install -> remove must hand a person's AGENTS.md back byte for byte, whether or not it ends in a
+// newline, and no matter how many cycles run (no separator drift).
+for (const [label, original] of [['trailing newline', '# mine\n'], ['no trailing newline', '# mine'], ['blank-line ending', '# mine\n\n']]) {
+  test(`AGENTS.md (${label}) is byte-identical after three install -> remove cycles`, () => {
+    const registry = loadRegistry({ repoRoot: REPO });
+    const root = scratch();
+    const input = harnessInput(registry, { scopeRoot: root });
+    const agentsPath = path.join(root, 'AGENTS.md');
+    fs.writeFileSync(agentsPath, original);
+    for (let cycle = 1; cycle <= 3; cycle += 1) {
+      const planned = adapter.plan(input);
+      adapter.apply({ ...input, changes: planned.changes });
+      assert.ok(fs.readFileSync(agentsPath, 'utf8').startsWith(original), 'install keeps the person\'s bytes as the prefix');
+      assert.ok(fs.readFileSync(agentsPath, 'utf8').includes('doflow:start'));
+      const removeContext = { ...input.context, operation: 'remove' };
+      const removalPlan = adapter.plan({ ...input, context: removeContext });
+      adapter.remove({ ...input, changes: removalPlan.changes, context: removeContext });
+      assert.equal(fs.readFileSync(agentsPath, 'utf8'), original, `cycle ${cycle}`);
+    }
+  });
+}

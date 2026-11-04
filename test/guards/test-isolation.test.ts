@@ -12,7 +12,10 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 const { REPO } = require('./_shared.ts');
+const { tempDir } = require('../helper/tmp.ts');
+const { linkBin } = require('../helper/fake-harness-cli.ts');
 
 const TEST_ROOT = path.join(REPO, 'test');
 const THIS_GUARD = 'test/guards/test-isolation.test.ts';
@@ -94,4 +97,54 @@ test('G69 negative control: out-of-repo and sibling reads are detected', () => {
 
   const safeInRepo = `const p = path.join(REPO_ROOT, 'test', 'fixtures');`;
   assert.equal(findViolations(safeInRepo).length, 0);
+});
+
+// G69b — a worker-launching test never puts the interpreter's install directory on a child PATH (FU-gs7vzm).
+// That directory can hold real codex, gemini or claude binaries (081 D.3, NFR-002). A child gets a scratch
+// bin holding the fakes plus a `node` link, which is what linkBin and the dispatch sandbox build.
+const LAUNCHERS = /fake-harness-cli|dispatch-sandbox/;
+
+/** Lines that build a PATH from dirname(process.execPath): not a comment, not an assertion, not the win32 branch. */
+function findInterpreterDirOnPath(text: string): Array<{ line: number; match: string }> {
+  const found: Array<{ line: number; match: string }> = [];
+  text.split(/\r?\n/).forEach((line, i) => {
+    if (/^\s*(?:\/\/|\/\*|\*)/.test(line) || !/dirname\(process\.execPath\)/.test(line)) return;
+    if (/assert|win32/.test(line) || !/delimiter|PATH/.test(line)) return;
+    found.push({ line: i + 1, match: line.trim() });
+  });
+  return found;
+}
+
+test('G69b: no worker-launching test or helper adds the interpreter install directory to a PATH', () => {
+  const offenders: string[] = [];
+  for (const rel of testFiles().filter((f) => f !== THIS_GUARD && !f.startsWith(FIXTURES))) {
+    const text = fs.readFileSync(path.join(REPO, rel), 'utf8');
+    if (!LAUNCHERS.test(text) && !/helper\/(?:fake-harness-cli|dispatch-sandbox)\.ts$/.test(rel)) continue;
+    for (const v of findInterpreterDirOnPath(text)) offenders.push(`${rel}:${v.line} -> ${v.match}`);
+  }
+  assert.deepEqual(offenders, [], 'these files put dirname(process.execPath) on a child PATH:\n  ' + offenders.join('\n  '));
+});
+
+test('G69b negative control: a PATH built from the interpreter directory is detected, assertions and comments are not', () => {
+  assert.equal(findInterpreterDirOnPath("const env = { PATH: [bin, path.dirname(process.execPath)].join(path.delimiter) };").length, 1);
+  assert.equal(findInterpreterDirOnPath('PATH: `${path.dirname(process.execPath)}:/usr/bin`').length, 1);
+  assert.equal(findInterpreterDirOnPath("assert.ok(!entries.includes(path.dirname(process.execPath)), 'never the node directory');").length, 0);
+  assert.equal(findInterpreterDirOnPath('// PATH never holds path.dirname(process.execPath)').length, 0);
+  assert.equal(findInterpreterDirOnPath("if (process.platform === 'win32') return [dir, path.dirname(process.execPath)].join(path.delimiter);").length, 0);
+});
+
+test('G69b control: linkBin gives a PATH where node runs and no neighbouring harness binary is reachable', { skip: process.platform === 'win32' && 'the node link is POSIX only' }, (t: any) => {
+  const bin = path.join(tempDir(t, 'doflow-linkbin-'), 'bin');
+  const childPath = linkBin(bin, ['fake-claude']);
+  const entries = childPath.split(path.delimiter);
+  assert.equal(entries.length, 2);
+  assert.ok(!entries.includes(path.dirname(process.execPath)), 'the install directory is not an entry');
+  assert.deepEqual(fs.readdirSync(entries[1]), ['node'], 'the second entry holds node alone');
+  const harnessNames = require('../../core/registry/harnesses.json').harnesses
+    .flatMap((h: any) => [h.id, h.worker?.cli?.binary].filter(Boolean));
+  for (const name of new Set(harnessNames)) {
+    assert.deepEqual(entries.filter((dir: string) => fs.existsSync(path.join(dir, name as string))), [], `${name} is on no PATH entry`);
+  }
+  const ran = spawnSync('node', ['-e', 'process.stdout.write(String(process.version))'], { env: { PATH: childPath }, encoding: 'utf8' });
+  assert.equal(ran.stdout, process.version, 'node still resolves from the scratch PATH');
 });

@@ -13,8 +13,7 @@ function safeText(value: any): string {
   if (typeof value === 'string') {
     try {
       text = JSON.stringify(value).slice(1, -1)
-        .replace(/\u2028/g, '\\u2028')
-        .replace(/\u2029/g, '\\u2029');
+        .replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, (c: string) => { const cp = c.codePointAt(0) as number; return cp > 0xffff ? `\\u{${cp.toString(16)}}` : `\\u${cp.toString(16).padStart(4, '0')}`; });
     } catch {
       text = '';
     }
@@ -734,12 +733,21 @@ function deriveStatus(
 }
 
 /**
+ * The task classes the roadmap loop runs: the feature chain, and the four classes that take a
+ * gate-b-only policy (core/registry/gates.json). research, review and operations stay out: they
+ * produce no change the loop could merge. dependency-change stays out too: a change to any
+ * package.json dependency key is always denied `protected-path:package.json` (gates.ts), so such a
+ * row could never merge without a person; a user ruling reopens it.
+ */
+const LOOP_CLASSES: readonly string[] = Object.freeze(['feature', 'bug', 'refactor', 'documentation', 'trivial-edit']);
+
+/**
  * S1 Pick table: chooses the next ready row in seed order.
  * - Ready only when all needs are merged
  * - Write set disjoint from all in-flight rows
  * - WIP bound (default 2)
  * - Row without a write set runs alone
- * - Non-feature class is class-unsupported
+ * - A class outside LOOP_CLASSES (research, review, operations, dependency-change, anything else) is class-unsupported
  * - Yields one reason per skipped row
  */
 function pick(
@@ -782,7 +790,7 @@ function pick(
     }
 
     // Class check
-    if (row.class !== 'feature') {
+    if (!LOOP_CLASSES.includes(row.class)) {
       skips[row.id] = 'class-unsupported';
       continue;
     }
@@ -856,7 +864,8 @@ function render(
   for (const row of rows) {
     const info = getInfo(row.id);
     const needsStr = row.needs && row.needs.length > 0 ? row.needs.join(', ') : '-';
-    const statusStr = info.status;
+    // A not-started row of a class the loop does not run waits for a person, not for time: `manual`.
+    const statusStr = info.status === 'not-started' && !LOOP_CLASSES.includes(row.class) ? 'manual' : info.status;
 
     let evidenceStr = '-';
     if (info.evidence) {
@@ -1107,6 +1116,7 @@ module.exports = {
   check,
   seedFindings,
   registryClasses,
+  LOOP_CLASSES,
   SEED_RULES,
   ROW_KEYS,
   TOP_KEYS,

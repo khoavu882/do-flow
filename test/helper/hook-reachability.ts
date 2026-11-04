@@ -106,7 +106,7 @@ function dependencyTargets(root: any, file: any, files: any, text: any) {
       for (const base of ['core/harnesses/shared/hooks/policies/', 'core/harnesses/shared/hooks/bridge/', 'core/harnesses/shared/hooks/adapters/']) add(base + name);
     }
   }
-  for (const policy of ['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard', 'stop-check', 'session-context', 'user-prompt-submit', 'subagent-audit']) {
+  for (const policy of ['pre-implementation-gate', 'mcp-tool-guard', 'stop-check', 'session-context', 'user-prompt-submit', 'subagent-audit']) {
     if (text.includes(policy)) add(`core/harnesses/shared/hooks/policies/${policy}.sh`);
   }
   return [...targets];

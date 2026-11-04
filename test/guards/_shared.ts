@@ -5,6 +5,7 @@
 // all need, never assertions.
 const fs = require('node:fs');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const GUIDANCE = path.join(REPO, 'core', 'shared', 'guidance');
@@ -79,6 +80,21 @@ function dispatcherVerbs() {
   return new Set([...shell, ...node, 'help']);
 }
 
+/** Every verb the `doflow` CLI and the `doflow-run` dispatcher accept: the `Commands:` list of
+ * `doflow --help` plus the dispatcher's own verb table. */
+function cliVerbs() {
+  const help = execFileSync(process.execPath, [path.join(REPO, 'bin', 'doflow.js'), '--help'], { encoding: 'utf8' });
+  const verbs: any = new Set(dispatcherVerbs());
+  let inCommands = false;
+  for (const line of help.split('\n')) {
+    if (line === 'Commands:') { inCommands = true; continue; }
+    if (inCommands && /^\S/.test(line)) break;
+    const match = inCommands && line.match(/^ {2}([a-z][a-z-]*)(?: |$)/);
+    if (match) verbs.add(match[1]);
+  }
+  return verbs;
+}
+
 module.exports = {
-  REPO, GUIDANCE, SKILLS, AGENT_SPECS, frontmatterKeys, frontmatterKeysOf, skillFiles, agentSpecFiles, coreTextFiles, dispatcherVerbs,
+  REPO, GUIDANCE, SKILLS, AGENT_SPECS, frontmatterKeys, frontmatterKeysOf, skillFiles, agentSpecFiles, coreTextFiles, dispatcherVerbs, cliVerbs,
 };

@@ -11,12 +11,11 @@ const { tempDir } = require('../helper/tmp.ts');
 const FIXTURE_ROOT = path.join(REPO, 'test/fixtures/hooks');
 
 const POLICIES = new Set([
-  'pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard', 'session-context',
+  'pre-implementation-gate', 'mcp-tool-guard', 'session-context',
   'stop-check', 'user-prompt-submit', 'subagent-audit',
 ]);
 const STEM_POLICY: any = {
   'pre-implement-gate': 'pre-implementation-gate',
-  'pre-bash-guard': 'pre-bash-guard',
   'mcp-tool-guard': 'mcp-tool-guard',
   'session-start': 'session-context',
   'stop-check': 'stop-check',
@@ -69,6 +68,19 @@ function runPolicy(policyDir: any, policy: any, input: any, cwd: any, env: any) 
 
 function verdict(status: any) {
   return status === 0 ? 'allow' : 'deny';
+}
+
+// The implement gate and the Stop check were deny policies at 0fcd973 and are advise-only now: where the
+// baseline denied, the current policy exits 0 and prints the baseline's finding on stderr; where the
+// baseline allowed, it allows. Every other policy keeps the baseline verdict (mcp-tool-guard's blocked-pattern deny).
+const ADVISORY_SINCE_BASELINE = new Set(['pre-implementation-gate', 'stop-check']);
+
+/** The current result's verdict relative to the baseline's, as a string that names a mismatch. */
+function verdictRelation(policy: any, currentResult: any, oldResult: any) {
+  if (!ADVISORY_SINCE_BASELINE.has(policy)) return verdict(currentResult.status) === verdict(oldResult.status) ? 'same' : `${verdict(oldResult.status)} became ${verdict(currentResult.status)}`;
+  if (currentResult.status !== 0) return `advisory policy exited ${currentResult.status}`;
+  if (verdict(oldResult.status) === 'allow') return 'same';
+  return currentResult.stderr.includes(oldResult.stderr.trim().split('\n').pop()) ? 'same' : 'baseline deny finding is not advised';
 }
 
 function projectFor(scratch: any, name: any, state: any) {
@@ -163,19 +175,19 @@ test('each canonical corpus v1 policy verdict matches its 0fcd973 native verdict
     const currentResult = runPolicy(current, policy, v1, project, currentEnv);
     const oldResult = runPolicy(baseline, policy, native, project, oldEnv);
     // DEC-025/IC-013 alter front-door fault rendering and missing-policy behavior; this compares policy verdicts only.
-    assert.equal(verdict(currentResult.status), verdict(oldResult.status), `${label}: payload=${v1} v1 ${currentResult.status} ${JSON.stringify(currentResult)} vs 0fcd973 native ${oldResult.status} ${JSON.stringify(oldResult)}`);
+    assert.equal(verdictRelation(policy, currentResult, oldResult), 'same', `${label}: payload=${v1} v1 ${currentResult.status} ${JSON.stringify(currentResult)} vs 0fcd973 native ${oldResult.status} ${JSON.stringify(oldResult)}`);
   });
 });
 
-test('negative control: changing the current gate deny exit breaks the legacy verdict comparison', (t) => {
+test('negative control: restoring a deny exit in the current gate breaks the legacy verdict comparison', (t) => {
   const baseline = archiveBaseline(t).policies;
   const root = tempDir(t, 'doflow-verdict-negative-control-');
   const policyDir = path.join(root, 'policies');
   fs.cpSync(path.join(REPO, 'core/harnesses/shared/hooks/policies'), policyDir, { recursive: true });
   const gate = path.join(policyDir, 'pre-implementation-gate.sh');
   const original = fs.readFileSync(gate, 'utf8');
-  const changed = original.replace(/(doflow_decide deny missing-artifacts\n\s*)exit 2/, '$1exit 0');
-  assert.notEqual(changed, original, 'current gate has the missing-artifacts deny exit');
+  const changed = original.replace(/(doflow_decide advisory missing-artifacts\n\s*)exit 0/, '$1exit 2');
+  assert.notEqual(changed, original, 'current gate has the missing-artifacts advisory exit');
   fs.writeFileSync(gate, changed);
   const file = path.join(FIXTURE_ROOT, 'claude/pre-implement-gate/deny.json');
   const fixture = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -185,5 +197,8 @@ test('negative control: changing the current gate deny exit breaks the legacy ve
   const v1 = encodeNative('claude', 'PreToolUse', 'pre-implementation-gate', fixture.native, env);
   const flipped = runPolicy(policyDir, 'pre-implementation-gate', v1, project, env);
   assert.equal(verdict(oldResult.status), 'deny');
-  assert.equal(verdict(flipped.status), 'allow', 'flipped policy no longer matches the 0fcd973 deny verdict');
+  const intact = runPolicy(path.join(REPO, 'core/harnesses/shared/hooks/policies'), 'pre-implementation-gate', v1, project, env);
+  assert.equal(verdictRelation('pre-implementation-gate', intact, oldResult), 'same', 'control: the shipped gate advises where 0fcd973 denied');
+  assert.equal(verdict(flipped.status), 'deny');
+  assert.notEqual(verdictRelation('pre-implementation-gate', flipped, oldResult), 'same', 'a gate that denies again no longer matches the advise-only relation');
 });

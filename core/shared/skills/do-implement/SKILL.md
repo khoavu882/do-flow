@@ -53,6 +53,8 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
 
 **Stop when** every work-list finding the contract names has an answer or a stated gap, **and** the last round produced no new work-list finding. A round that only restates what you already have is the last round. Report the remaining gaps rather than continuing.
 
+Once per stage, after `feature_slug` resolves, run `"$DOFLOW" attendance --task-id "<feature_slug>"`; `unattended` → `references/WORKFLOW_HANDOFF.md` § Unattended stage.
+
 2. **Resolve the task id, then evaluate readiness — skip only when standalone**:
    - `<task id>` is the same unit every recording stage keys on: the plan task id when one exists,
      otherwise the feature slug that step 1's `"$DOFLOW" paths --json` resolved, or the issue id you
@@ -73,9 +75,9 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
      of `bug`, `refactor`, `dependency-change` or `trivial-edit` the recorded work already fits.
      `do-implement` never serves `feature`; that class's implementation stage is `/do-execute-plan`.
      ```bash
-     "$DOFLOW" classify --task-class "<proposed>" --calling-skill do-implement --json
+     "$DOFLOW" classify --task-class "<proposed>" --calling-skill do-implement --view brief --json
      ```
-     Branch on the returned `outcome`, not the exit code. `ACCEPTED` — the returned `workflow` names
+     Branch on `outcome`, not the exit code. `ACCEPTED` — the returned `workflow` names
      the validated class to evaluate readiness against. `REJECTED` — stop, print `message` verbatim
      (it names `validClasses`), ask the user to choose from that set, then re-validate; never
      substitute `feature` for the class that was rejected.
@@ -118,8 +120,8 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
      established.
    - The repository's `pre-implement-gate` hook checks file existence (`requirement.md` /
      `design.md` / `plan.md`) on every `Edit`/`Write` call regardless of which skill is editing. On
-     a harness with an edit hook it also denies the edit of a task held to a readiness record that
-     is not `READY`; this step writes that record, and is not a way around the hook.
+     a harness with an edit hook it also advises when a held task's readiness record is not
+     `READY`; the hook never denies. This step writes that record, and is not a way around it.
 
 3. **Understand before writing**:
    - Read the files the change touches and their immediate neighbors — naming conventions, error
@@ -146,8 +148,8 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
      unimplemented mock functions, or `throw new Error('Not implemented')` placeholders in the
      produced change. Every changed component must be fully wired and functional.
    - Before the first source edit, a run for this task needs step 2's recorded readiness to be
-     `READY`: the hook denies the edit otherwise where there is one, and elsewhere step 7's handoff
-     is refused after the edits are made. A standalone `NEEDS_EVIDENCE` does not pass it.
+     `READY`: the edit hook only advises, and the runtime refuses step 7's handoff after the edits are
+     made. A standalone `NEEDS_EVIDENCE` does not pass it.
    - Keep it scoped to what was asked — no bonus refactors, no speculative abstractions (the same
      scope-discipline rule the chain's own artifacts would otherwise remind you of; here, hold
      yourself to it directly).
@@ -215,6 +217,6 @@ advance past the mutating stage only this skill may complete.
 multi-task checklist through specialist subagents — that is `/do-execute-plan`'s job once a real
 plan exists; silently override the repository's own `pre-implement-gate` hook. That hook triggers
 on any `Edit`/`Write` call, not on which skill made it — a branch mid-chain with a started feature
-but no `design.md` still gets blocked here exactly as it would anywhere else, and that is by
+but no `design.md` still gets the same advisory here as it would anywhere else, and that is by
 design, not a gap this skill works around. Resolve a workflow gate, or start a workflow run for a
 standalone implementation.

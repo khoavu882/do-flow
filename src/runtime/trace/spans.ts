@@ -9,6 +9,7 @@ const { resolveRunsLocation, normalizeRunRecord } = require('./ledger.ts');
 const { SAFE_TOKEN } = require('./telemetry.ts');
 const { finish } = require('./render.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
+const { isRunNamespaceDir, isSupersededFlatRun } = require('../storage/work-status.ts');
 
 /**
  * `trace spans` (088 IC-011, FR-005, DD-5): spans projected offline from the records that already
@@ -63,7 +64,6 @@ const { REPO_ROOT } = require('../../helper/repo-root.ts');
 
 const PARTITION = /^\d{4}-\d{2}-\d{2}\.jsonl$/;
 const STORE_FILE = /^[A-Za-z0-9][A-Za-z0-9._-]*\.json$/;
-const NAMESPACE_DIR = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const HEX16 = /^[0-9a-f]{16}$/;
 const HEX32 = /^[0-9a-f]{32}$/;
 const WORKER_RUN_ID = /^w-[0-9a-f]{12}$/;
@@ -201,15 +201,14 @@ function readStores(fsImpl: any, stateDir: string, rel: string, gaps: any[], kin
   if (!namespaced) return out.map(({ file, value }) => ({ file, value }));
   let entries: any[] = [];
   try { entries = fsImpl.readdirSync(base, { withFileTypes: true }); } catch { entries = []; }
-  const namespaces = entries.filter((entry: any) => entry.isDirectory() && NAMESPACE_DIR.test(entry.name) && !entry.name.endsWith('.lock'))
+  const namespaces = entries.filter((entry: any) => entry.isDirectory() && isRunNamespaceDir(entry.name))
     .map((entry: any) => entry.name).sort();
   for (const namespace of namespaces) {
     const dir = path.join(base, namespace);
     for (const name of listDir(fsImpl, dir, STORE_FILE)) read(`${rel}/${namespace}/${name}`, name, dir, namespace);
   }
-  const copied = (flat: any): boolean => out.some((other) => other.namespace !== ''
-    && other.name === flat.name && (typeof flat.value.featureSlug !== 'string' || flat.value.featureSlug === other.namespace));
-  return out.filter((entry) => entry.namespace !== '' || !copied(entry)).map(({ file, value }) => ({ file, value }));
+  const copies = out.filter((other) => other.namespace !== '');
+  return out.filter((entry) => entry.namespace !== '' || !isSupersededFlatRun(entry.name, entry.value, copies)).map(({ file, value }) => ({ file, value }));
 }
 
 const objects = (v: any): Array<[string, any]> => (v && typeof v === 'object' && !Array.isArray(v)

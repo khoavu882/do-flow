@@ -15,12 +15,11 @@
   "fault": "none",
   "expect": {
     "exit": 0,
-    "stdoutIncludes": "\"permissionDecision\":\"deny\"",
     "stderrIncludes": null,
-    "modelVisibleBytesMax": 400,
+    "modelVisibleBytesMax": 0,
     "decision": {
       "outcome": "unsupported",
-      "effect": "block"
+      "effect": "proceed"
     },
     "envelope": {
       "version": 1,
@@ -31,6 +30,7 @@
       "identity": {
         "session": "copilot-gate-unknown-field"
       }
-    }
+    },
+    "stdout": ""
   }
 }

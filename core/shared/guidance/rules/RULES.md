@@ -8,7 +8,7 @@ Conflict order: Safety > Scope > Quality > Speed. Prototype != Production requir
 - **Parallel when write sets are disjoint; otherwise sequential.** Use task lists past 3 tasks when available.
 - Run lint/typecheck before marking complete.
 - Check deps (package.json) and existing patterns before any changes.
-- Feature delivery follows the doflow chain — see `references/DOFLOW_CHAIN.md` for the phase-gated flow, artifact contracts, and the enforced gate.
+- Feature delivery follows the doflow chain — see `references/DOFLOW_CHAIN.md` for the phase-gated flow, artifact contracts, and the advisory implement gate.
 - Start it = Finish it. No partial features, TODO stubs, mocks, or "not implemented" throws. <!-- must-carry -->
 - All generated code must work as specified; no scaffolding placeholders.
 
@@ -35,7 +35,7 @@ Conflict order: Safety > Scope > Quality > Speed. Prototype != Production requir
 - One question that unblocks beats three that re-litigate settled choices.
 
 **Non-Interactive Fallback**
-When no native interactive question tool (one that presents options and returns the user's choice) is available in the current session:
+When no native interactive question tool (one that presents options and returns the user's choice) is available in the current session, or `"$DOFLOW" attendance` printed `unattended` for this stage (the rules in WORKFLOW_HANDOFF.md § Unattended stage apply; a gate is never a default):
 - Do NOT generate `{stage}-questions.md` files or halt execution waiting for manual file edits.
 - Adopt the recommended default choice, record the adopted decision and rationale in the stage notes or artifact, and proceed with execution.
 - If no sensible default exists and execution cannot safely proceed without user input, report the specific ambiguity and halt.

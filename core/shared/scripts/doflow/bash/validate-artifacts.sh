@@ -216,7 +216,7 @@ for f in "${targets[@]}"; do
     esac
   fi
   # Paths reach awk through the environment: -v would process backslash escapes inside them.
-  out=$(DF_ART_DIR="$(dirname "$f")" DF_HIST_ROOT="$hist_root" awk -v is_plan="$([ "$(basename "$f")" = "plan.md" ] && echo 1 || echo 0)" \
+  out=$(LC_ALL=C DF_ART_DIR="$(dirname "$f")" DF_HIST_ROOT="$hist_root" awk -v is_plan="$([ "$(basename "$f")" = "plan.md" ] && echo 1 || echo 0)" \
     -v stale_map="$file_stale_map" -v reg_ok="$file_reg_ok" -v known_ids="$file_known_ids" -v sq="'" '
     # Inline markup is presentation, not value: "**Superseded → X**" and "`Live`" mean the same as
     # their bare forms, so emphasis is stripped before any comparison.

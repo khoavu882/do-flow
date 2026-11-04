@@ -28,7 +28,7 @@ test('negative control: a child env that keeps the developer\'s HOME or ~/.confi
   assert.ok(env.HOME.startsWith(SCRATCH_HOME.dir) && env.XDG_CONFIG_HOME.startsWith(SCRATCH_HOME.dir), 'the default child env is the scratch one');
 });
 const BRIDGE_TEST = JQ.status === 0 ? test : test.skip;
-const POLICIES: any = ['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard', 'session-context', 'stop-check', 'user-prompt-submit', 'subagent-audit'];
+const POLICIES: any = ['pre-implementation-gate', 'mcp-tool-guard', 'session-context', 'stop-check', 'user-prompt-submit', 'subagent-audit'];
 const FIXED = '[pre-implementation-gate] DoFlow policy error; details: doflow-run failure list';
 
 function makeTree(policyBody?: any) {
@@ -36,7 +36,7 @@ function makeTree(policyBody?: any) {
   fs.mkdirSync(path.join(dir, 'bridge'), { recursive: true });
   fs.mkdirSync(path.join(dir, 'policies'), { recursive: true });
   for (const file of ['bridge.sh', 'envelope.jq', 'respond.sh']) fs.copyFileSync(path.join(ROOT, 'core/harnesses/shared/hooks/bridge', file), path.join(dir, 'bridge', file));
-  for (const file of ['deny-json.sh', 'capture-failure.sh']) fs.copyFileSync(path.join(ROOT, 'core/harnesses/shared/hooks/policies', file), path.join(dir, 'policies', file));
+  for (const file of ['deny-json.sh', 'capture-failure.sh', 'contract.sh']) fs.copyFileSync(path.join(ROOT, 'core/harnesses/shared/hooks/policies', file), path.join(dir, 'policies', file));
   for (const id of POLICIES) {
     fs.writeFileSync(path.join(dir, 'policies', `${id}.sh`), policyBody || `#!/bin/bash\nprintf '\\036%s\\n' '{"v":1,"policy":"${id}","policyVersion":1,"outcome":"allow","code":"allow"}' >&3\nexit 0\n`);
     fs.chmodSync(path.join(dir, 'policies', `${id}.sh`), 0o755);
@@ -179,7 +179,7 @@ BRIDGE_TEST('IC-036 encode fault preserves compat result and blocks strict block
     ['claude', 'PreToolUse'], ['codex', 'PreToolUse'],
     ['kiro', 'PreToolUse'], ['antigravity', 'PreToolUse'], ['pi', 'tool_call'],
   ];
-  const blocking: any = ['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard', 'stop-check'];
+  const blocking: any = ['pre-implementation-gate', 'mcp-tool-guard', 'stop-check'];
   for (const [harness, event] of bridges) {
     for (const policy of [...blocking, 'session-context', 'user-prompt-submit', 'subagent-audit']) {
       for (const profile of ['compat-1', 'strict-1']) {
@@ -252,10 +252,10 @@ BRIDGE_TEST('unsupported blocks under strict-1 with the fixed native reason; den
 BRIDGE_TEST('IC-011 full profile, harness, outcome grid including unknown-profile fallback', () => {
   const dir = makeTree();
   const rows: any = [
-    ['claude','PreToolUse','pre-implementation-gate','error','exit-2-unmarked','block'],
-    ['claude','PreToolUse','pre-implementation-gate','error','exit-9','block'],
-    ['claude','PreToolUse','pre-implementation-gate','error','signal-SEGV','block'],
-    ['codex','PreToolUse','pre-implementation-gate','error','exit-9','block'],
+    ['claude','PreToolUse','pre-implementation-gate','error','exit-2-unmarked','proceed'],
+    ['claude','PreToolUse','pre-implementation-gate','error','exit-9','proceed'],
+    ['claude','PreToolUse','pre-implementation-gate','error','signal-SEGV','proceed'],
+    ['codex','PreToolUse','pre-implementation-gate','error','exit-9','proceed'],
     ['claude','PreToolUse','pre-implementation-gate','deny','denied','block'],
     ['codex','PreToolUse','pre-implementation-gate','deny','denied','block'],
     ['kiro','PreToolUse','pre-implementation-gate','error','exit-9','proceed'],
@@ -263,27 +263,27 @@ BRIDGE_TEST('IC-011 full profile, harness, outcome grid including unknown-profil
     ['kiro','PreToolUse','pre-implementation-gate','unsupported','x','proceed'],
     ['kiro','PreToolUse','pre-implementation-gate','deny','denied','block'],
     ['claude','Stop','stop-check','error','exit-9','proceed'],
-    ['claude','Stop','stop-check','error','exit-2-unmarked','block'],
+    ['claude','Stop','stop-check','error','exit-2-unmarked','proceed'],
     ['claude','Stop','stop-check','error','signal-SEGV','proceed'],
     ['claude','Stop','stop-check','unsupported','x','proceed'],
     ['claude','Stop','stop-check','deny','denied','block'],
     ['codex','Stop','stop-check','error','exit-9','proceed'],
-    ['codex','Stop','stop-check','error','exit-2-unmarked','block'],
+    ['codex','Stop','stop-check','error','exit-2-unmarked','proceed'],
     ['codex','Stop','stop-check','error','signal-SEGV','proceed'],
     ['codex','Stop','stop-check','unsupported','x','proceed'],
     ['codex','Stop','stop-check','deny','denied','block'],
     ['kiro','Stop','stop-check','error','exit-9','proceed'],
-    ['kiro','Stop','stop-check','error','exit-2-unmarked','block'],
+    ['kiro','Stop','stop-check','error','exit-2-unmarked','proceed'],
     ['kiro','Stop','stop-check','error','signal-SEGV','proceed'],
     ['kiro','Stop','stop-check','unsupported','x','proceed'],
     ['kiro','Stop','stop-check','deny','denied','block'],
-    ['antigravity','PreToolUse','pre-implementation-gate','error','exit-9','block'],
-    ['antigravity','Stop','stop-check','error','exit-9','block'],
+    ['antigravity','PreToolUse','pre-implementation-gate','error','exit-9','proceed'],
+    ['antigravity','Stop','stop-check','error','exit-9','proceed'],
     ['antigravity','Stop','stop-check','error','signal-SEGV','proceed'],
     ['antigravity','Stop','stop-check','unsupported','x','proceed'],
     ['antigravity','Stop','stop-check','deny','denied','block'],
-    ['pi','tool_call','pre-implementation-gate','error','exit-9','block'],
-    ['pi','tool_call','pre-implementation-gate','error','signal-SEGV','block'],
+    ['pi','tool_call','pre-implementation-gate','error','exit-9','proceed'],
+    ['pi','tool_call','pre-implementation-gate','error','signal-SEGV','proceed'],
     ['pi','tool_call','pre-implementation-gate','unsupported','x','proceed'],
     ['pi','tool_call','pre-implementation-gate','deny','denied','block'],
     ['claude','PreToolUse','pre-implementation-gate','unsupported','x','proceed'],
@@ -293,9 +293,9 @@ BRIDGE_TEST('IC-011 full profile, harness, outcome grid including unknown-profil
   for (const profile of ['compat-1', 'strict-1', 'mystery']) {
     for (const [harness0,event,policy,outcome,code,compat] of rows) {
       const harness = harness0 === 'session' ? 'claude' : harness0;
-      // DEC-039: strict-1 Stop faults proceed; explicit Stop denies still block.
-      const expected = profile === 'strict-1' && event === 'Stop' && outcome !== 'deny' ? 'proceed'
-        : profile === 'strict-1' && ['pre-implementation-gate','stop-check'].includes(policy) && ['error','unsupported','bridgefault'].includes(outcome) ? 'block' : compat;
+      // D1: under compat-1 only a policy deny blocks. strict-1, a person's opt-in, also blocks a fault of the
+      // implement gate; a stop-check fault and every session-context fault still proceed.
+      const expected = profile === 'strict-1' && policy === 'pre-implementation-gate' && ['error','unsupported','bridgefault'].includes(outcome) ? 'block' : compat;
       if (outcome === 'bridgefault') {
         const policyPath = path.join(dir, 'policies', `${policy}.sh`);
         fs.renameSync(policyPath, `${policyPath}.missing`);
@@ -349,23 +349,14 @@ BRIDGE_TEST('IC-011 table-driven full effect grid for each bridge and both profi
   for (const profile of ['compat-1','strict-1','mystery']) {
     for (const b of bridges) for (const scenario of scenarios) {
       if (b.kind === 'context' && scenario === 'deny') continue;
-      const isBlocking = b.kind !== 'context';
-      const expected = scenario === 'deny' || (scenario === 'unmarked' && b.kind !== 'context')
-        ? 'block'
-        : profile === 'strict-1' && isBlocking && ['numeric','signal','recorded-error','unsupported','bridge-spawn'].includes(scenario) ? 'block'
-        : scenario === 'bridge-spawn' ? (profile === 'strict-1' && isBlocking ? 'block' : 'proceed')
-          : scenario === 'unsupported' || scenario === 'recorded-error' ? (profile === 'strict-1' && isBlocking ? 'block' : 'proceed')
-            : scenario === 'numeric' ? (['claude','codex','pi','antigravity'].includes(b.kind) ? 'block' : 'proceed')
-              : scenario === 'signal' ? (['claude','codex','pi'].includes(b.kind) ? 'block' : 'proceed')
-                : 'proceed';
+      // D1: only a deny blocks under compat-1; strict-1 also blocks any fault of the implement gate (never stop-check or context).
+      const expected = scenario === 'deny' || (profile === 'strict-1' && b.p === 'pre-implementation-gate') ? 'block' : 'proceed';
       if (scenario === 'bridge-spawn') {
         const target = path.join(dir,'policies',`${b.p}.sh`);
         fs.renameSync(target,`${target}.missing`);
         const result: any=run(dir,b.h,b.e,b.p,{},['--emit','decision'],{DOFLOW_FAULT_PROFILE:profile});
         fs.renameSync(`${target}.missing`,target);
-        // DEC-039: strict-1 Stop spawn faults proceed after capture.
-        const spawnExpected = profile === 'strict-1' && b.e === 'Stop' ? 'proceed' : expected;
-        assert.equal(JSON.parse(result.stdout).effect,spawnExpected,`${profile} ${b.h}:${b.e} bridge-spawn`);
+        assert.equal(JSON.parse(result.stdout).effect,expected,`${profile} ${b.h}:${b.e} bridge-spawn`);
         continue;
       }
       const record = scenario === 'deny' ? `printf '\\036%s\\n' '{"outcome":"deny","code":"blocked","policyVersion":1}' >&3\nprintf denied >&2\n`
@@ -375,19 +366,15 @@ BRIDGE_TEST('IC-011 table-driven full effect grid for each bridge and both profi
       fs.writeFileSync(path.join(dir,'policies',`${b.p}.sh`),`#!/bin/bash\n${record}exit ${status}\n`);
       const result: any=run(dir,b.h,b.e,b.p,{},['--emit','decision'],{DOFLOW_FAULT_PROFILE:profile});
       const decision = JSON.parse(result.stdout);
-        // DEC-039: Stop errors and unsupported outcomes proceed, while an explicit deny blocks.
-        const stopFault = b.e === 'Stop' && scenario !== 'deny';
-      const cellExpected = profile === 'strict-1' && stopFault ? 'proceed' : expected;
-        assert.equal(decision.effect,cellExpected,`${profile} ${b.h}:${b.e} ${scenario}`);
+      const cellExpected = expected;
+      assert.equal(decision.effect,cellExpected,`${profile} ${b.h}:${b.e} ${scenario}`);
       assert.equal(result.status,0,`${profile} ${b.h}:${b.e} ${scenario} decision exit`);
       assert.equal(result.stderr,'',`${profile} ${b.h}:${b.e} ${scenario} decision stderr`);
 
       const native: any=run(dir,b.h,b.e,b.p,{},['--emit','native'],{DOFLOW_FAULT_PROFILE:profile});
       const passThrough = scenario === 'numeric' || scenario === 'signal';
-      const shouldPassStatus = cellExpected === 'proceed' && (
-        (passThrough && (b.kind === 'context' || b.kind === 'kiro-tool' || b.kind === 'claude-stop')) ||
-        (scenario === 'unmarked' && (b.kind === 'context' || b.kind === 'claude-stop'))
-      );
+      // Only the context policies pass a raw exit through; the blocking-set policies proceed with status 0 on every harness.
+      const shouldPassStatus = cellExpected === 'proceed' && b.kind === 'context' && (passThrough || scenario === 'unmarked');
       const nativeBlockStatus = cellExpected === 'block' && (b.kind === 'kiro-tool' || (b.e === 'Stop' && b.kind !== 'antigravity')) ? 2 : 0;
       assert.equal(native.status, shouldPassStatus ? (scenario === 'signal' ? 139 : scenario === 'unmarked' ? 2 : 9) : nativeBlockStatus,
         `${profile} ${b.h}:${b.e} ${scenario} native exit`);
@@ -395,8 +382,7 @@ BRIDGE_TEST('IC-011 table-driven full effect grid for each bridge and both profi
       if (cellExpected === 'proceed') {
         const expectedStdout = b.kind === 'codex-stop' ? '{}\n' : b.kind === 'antigravity' && b.e === 'PreToolUse' ? '{"decision":"allow"}\n' : '';
         assert.equal(native.stdout,expectedStdout,`${profile} ${b.h}:${b.e} ${scenario} proceed stdout`);
-        if (cellExpected === 'proceed' && (['numeric','signal'].includes(scenario) || scenario === 'unmarked') && (b.kind === 'kiro-tool' || b.kind === 'claude-stop')) assert.equal(native.stderr,`[${b.p}] DoFlow policy error; details: doflow-run failure list${b.kind === 'claude-stop' ? '\n' : ''}`,`${profile} ${b.h}:${b.e} ${scenario} fixed diagnostic on stderr`);
-        else assert.equal(native.stderr,'',`${profile} ${b.h}:${b.e} ${scenario} proceed stderr`);
+        assert.equal(native.stderr,'',`${profile} ${b.h}:${b.e} ${scenario} proceed stderr`);
       } else {
         assert.notEqual(native.stdout + native.stderr,'',`${profile} ${b.h}:${b.e} ${scenario} block has native response`);
         if (scenario !== 'deny') assert.ok((native.stdout + native.stderr).includes(`[${b.p}] DoFlow policy error; details: doflow-run failure list`),`${profile} ${b.h}:${b.e} ${scenario} native fixed reason`);
@@ -431,25 +417,29 @@ BRIDGE_TEST('DEC-026 preserves door-specific policy streams for every allow/proc
         const status = scenario === 'numeric' ? 9 : scenario === 'signal' ? 139 : 0;
         fs.writeFileSync(policy, `#!/bin/bash\nprintf 'policy stdout\\n'\nprintf 'policy stderr\\n\\n' >&2\n${record}exit ${status}\n`);
 
-        const expectedEffect = profile === 'strict-1' && b.kind !== 'context' && scenario !== 'allow' ? 'block'
-          : scenario === 'numeric' ? (['claude','codex','antigravity-tool','antigravity-stop','pi'].includes(b.kind) ? 'block' : 'proceed')
-            : scenario === 'signal' ? (['claude','codex','pi'].includes(b.kind) ? 'block' : 'proceed')
-              : 'proceed';
+        // D1: no fault blocks under compat-1; strict-1 blocks a fault of the implement gate only.
+        const expectedEffect = profile === 'strict-1' && b.p === 'pre-implementation-gate' && scenario !== 'allow' ? 'block' : 'proceed';
         if (expectedEffect !== 'proceed') continue;
 
         const result: any = run(dir,b.h,b.e,b.p,{},['--emit','native'],{DOFLOW_FAULT_PROFILE:profile});
         const label = `${profile} ${b.h}:${b.e} ${scenario}`;
         const decision: any = run(dir,b.h,b.e,b.p,{},['--emit','decision'],{DOFLOW_FAULT_PROFILE:profile});
         assert.equal(JSON.parse(decision.stdout).effect,'proceed',`${label}: table cell proceeds`);
-        const dropToolStreams = ['claude','codex','kiro-tool','antigravity-tool','antigravity-stop','pi'].includes(b.kind) && ['pre-implementation-gate','pre-bash-guard','mcp-tool-guard'].includes(b.p);
-        const dropToolStderr = ['claude','codex','antigravity-tool','antigravity-stop','pi'].includes(b.kind) && ['pre-implementation-gate','pre-bash-guard','mcp-tool-guard'].includes(b.p);
+        const dropToolStreams = ['claude','codex','kiro-tool','antigravity-tool','antigravity-stop','pi'].includes(b.kind) && ['pre-implementation-gate','mcp-tool-guard'].includes(b.p);
+        const dropToolStderr = ['claude','codex','antigravity-tool','antigravity-stop','pi'].includes(b.kind) && ['pre-implementation-gate','mcp-tool-guard'].includes(b.p);
         const dropKiroStopStdout = b.kind === 'kiro-stop' && b.p === 'stop-check';
         if (b.kind === 'context' && scenario !== 'allow') {
           assert.equal(result.stderr,'',`${label}: context fault is silent`);
         } else if (b.kind === 'kiro-stop' && ['numeric','signal'].includes(scenario)) {
           assert.equal(result.stderr,'',`${label}: failed Kiro Stop stderr stays private`);
         } else if ((b.kind === 'kiro-tool' || b.kind === 'claude-stop') && ['numeric','signal'].includes(scenario)) {
-          assert.equal(result.stderr,`[${b.p}] DoFlow policy error; details: doflow-run failure list${b.kind === 'claude-stop' ? '\n' : ''}`,`${label}: fixed IC-013 reason`);
+          // D1: a failed blocking-set policy proceeds with status 0, so these doors render nothing.
+          assert.equal(result.stderr,'',`${label}: failed policy renders no stderr`);
+          assert.equal(result.status,0,`${label}: failed policy proceeds`);
+        } else if (scenario === 'unsupported' && ['claude','codex','claude-stop','codex-stop'].includes(b.kind)) {
+          // D1: the out-of-step line reaches the model as advice on stdout, not as stderr.
+          assert.equal(result.stderr,'',`${label}: advice replaces the stderr echo`);
+          assert.match(result.stdout,/policy stderr/,`${label}: advice carries the policy line`);
         } else if (b.kind === 'codex-stop' && ['numeric','signal'].includes(scenario)) {
           // DEC-037: Codex Stop suppresses raw stderr from a crashed policy.
           assert.equal(result.stderr,'',`${label}: Codex Stop suppresses policy stderr`);
@@ -466,7 +456,7 @@ BRIDGE_TEST('DEC-026 preserves door-specific policy streams for every allow/proc
 
 BRIDGE_TEST('DEC-025 missing policy is a captured bridge-spawn for every policy kind', () => {
   const cases: any = [
-    ['pre-implementation-gate','claude','PreToolUse',true], ['pre-bash-guard','claude','PreToolUse',true],
+    ['pre-implementation-gate','claude','PreToolUse',true],
     ['mcp-tool-guard','claude','PreToolUse',true], ['stop-check','claude','Stop',true],
     ['session-context','claude','SessionStart',false], ['user-prompt-submit','claude','UserPromptSubmit',false],
     ['subagent-audit','claude','SubagentStart',false],
@@ -503,11 +493,62 @@ BRIDGE_TEST('DEC-025 missing policy is a captured bridge-spawn for every policy 
 
 BRIDGE_TEST('tool-door policy stdout cannot precede a native deny response', () => {
   const dir = makeTree(`#!/bin/bash\nprintf 'stub stdout\\n'\nprintf 'private reason\\n' >&2\nexit 1\n`);
-  const result: any = run(dir, 'claude', 'PreToolUse', 'pre-implementation-gate', {}, ['--emit','native']);
+  // strict-1 turns the fault into the fixed native deny; nothing of the stub's streams precedes it.
+  const result: any = run(dir, 'claude', 'PreToolUse', 'pre-implementation-gate', {}, ['--emit','native'], { DOFLOW_FAULT_PROFILE: 'strict-1' });
   const response = JSON.parse(result.stdout);
   assert.equal(response.hookSpecificOutput.permissionDecision, 'deny');
   assert.equal(response.hookSpecificOutput.permissionDecisionReason, FIXED);
   assert.equal(result.stderr, '');
+  // compat-1 proceeds: no deny, and the stub's stdout and stderr stay out of the response.
+  const compat: any = run(dir, 'claude', 'PreToolUse', 'pre-implementation-gate', {}, ['--emit','native']);
+  assert.equal(compat.status, 0);
+  assert.equal(compat.stdout, '');
+  assert.equal(compat.stderr, '');
+});
+
+BRIDGE_TEST('D1 advice: an advisory or out-of-step line reaches the model as advice on claude and codex, and keeps its stream elsewhere', () => {
+  const LINE = '[pre-implementation-gate] missing-artifacts: requirement.md, design.md';
+  const dir = makeTree();
+  const policyBody = (id: any, outcome: any) => `#!/bin/bash\nprintf '%s\\n' '${LINE}' >&2\nprintf '\\036%s\\n' '{"v":1,"policy":"${id}","policyVersion":1,"outcome":"${outcome}","code":"missing-artifacts"}' >&3\nexit 0\n`;
+  const rows: any = [
+    ['claude', 'PreToolUse', 'pre-implementation-gate', 'pretool'],
+    ['codex', 'PreToolUse', 'pre-implementation-gate', 'pretool'],
+    ['claude', 'PreToolUse', 'mcp-tool-guard', 'pretool'],
+    ['codex', 'PreToolUse', 'mcp-tool-guard', 'pretool'],
+    ['claude', 'Stop', 'stop-check', 'stop'],
+    ['codex', 'Stop', 'stop-check', 'stop'],
+    ['kiro', 'PreToolUse', 'pre-implementation-gate', 'stderr'],
+    ['antigravity', 'PreToolUse', 'pre-implementation-gate', 'dropped'],
+    ['pi', 'tool_call', 'pre-implementation-gate', 'dropped'],
+  ];
+  for (const [harness, event, policy, kind] of rows) {
+    for (const outcome of ['advisory', 'unsupported']) {
+      fs.writeFileSync(path.join(dir, 'policies', `${policy}.sh`), policyBody(policy, outcome));
+      const label = `${harness}:${event}:${policy} ${outcome}`;
+      const decision: any = run(dir, harness, event, policy, {}, ['--emit', 'decision']);
+      assert.equal(JSON.parse(decision.stdout).effect, 'proceed', `${label}: never blocks`);
+      const result: any = run(dir, harness, event, policy, {}, ['--emit', 'native']);
+      assert.equal(result.status, 0, `${label}: exits 0`);
+      if (kind === 'pretool') {
+        assert.equal(result.stderr, '', `${label}: advice replaces the stderr echo`);
+        const out = JSON.parse(result.stdout);
+        assert.deepEqual(out, { hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: LINE } }, `${label}: additionalContext, no permissionDecision`);
+      } else if (kind === 'stop') {
+        assert.equal(result.stderr, '', `${label}: advice replaces the stderr echo`);
+        assert.deepEqual(JSON.parse(result.stdout), { systemMessage: LINE }, `${label}: systemMessage`);
+      } else if (kind === 'stderr') {
+        assert.equal(result.stdout, '', `${label}: no stdout`);
+        assert.equal(result.stderr.trim(), LINE, `${label}: stderr line kept`);
+      } else {
+        assert.equal(result.stderr, '', `${label}: tool stderr dropped`);
+        assert.equal(result.stdout.includes('missing-artifacts'), false, `${label}: no advice rendered`);
+      }
+    }
+  }
+  // An allow record carries no advice even when the policy wrote a stderr line.
+  fs.writeFileSync(path.join(dir, 'policies/pre-implementation-gate.sh'), policyBody('pre-implementation-gate', 'allow'));
+  const allowed: any = run(dir, 'claude', 'PreToolUse', 'pre-implementation-gate', {}, ['--emit', 'native']);
+  assert.equal(allowed.stdout, '', 'allow renders no advice');
 });
 
 BRIDGE_TEST('unknown-profile fallback records fault-profile-unknown', () => {
@@ -521,7 +562,7 @@ BRIDGE_TEST('unknown-profile fallback records fault-profile-unknown', () => {
   assert.match(events, /"kind":"fault-profile-unknown"/);
 });
 
-BRIDGE_TEST('--emit native renders blocking outcomes for every IC-012 native response and hides stub stderr', () => {
+BRIDGE_TEST('--emit native renders strict-1 blocks for every IC-012 native response and hides stub stderr', () => {
   const dir = makeTree();
   const cases: any = [
     ['claude','PreToolUse',{}], ['codex','PreToolUse',{}],
@@ -531,7 +572,8 @@ BRIDGE_TEST('--emit native renders blocking outcomes for every IC-012 native res
   for (const [harness,event,input,env={}] of cases) {
     const p = path.join(dir, 'policies/pre-implementation-gate.sh');
     fs.writeFileSync(p, `#!/bin/bash\nprintf raw-secret >&2\nexit 2\n`);
-    const result: any = run(dir, harness, event, 'pre-implementation-gate', input, ['--emit','native'], env);
+    // strict-1 blocks the faulting implement gate; compat-1 proceeds on the same raw exit 2 (covered below).
+    const result: any = run(dir, harness, event, 'pre-implementation-gate', input, ['--emit','native'], { DOFLOW_FAULT_PROFILE: 'strict-1', ...env });
     assert.notEqual(result.stdout + result.stderr, '', `${harness}:${event} has native block response`);
     assert.equal((result.stdout + result.stderr).includes('raw-secret'), false, `${harness}:${event} hides policy stderr`);
     assert.ok(Buffer.byteLength(FIXED) <= 80);
@@ -541,25 +583,29 @@ BRIDGE_TEST('--emit native renders blocking outcomes for every IC-012 native res
     else if (harness === 'codex' && event === 'Stop') { assert.equal(result.stdout.trim(), '{}'); assert.ok(result.stderr.includes(FIXED)); }
     else if (harness === 'kiro' && event === 'Stop' && env.DOFLOW_KIRO_ENGINE === 'v3') assert.equal(JSON.parse(result.stdout).reason, FIXED);
     else assert.ok(result.stderr.includes(FIXED), `${harness}:${event} fixed reason on stderr`);
-    const decision: any = run(dir,harness,event,'pre-implementation-gate',input,['--emit','decision'],env);
+    const decision: any = run(dir,harness,event,'pre-implementation-gate',input,['--emit','decision'],{ DOFLOW_FAULT_PROFILE: 'strict-1', ...env });
     const object = JSON.parse(decision.stdout);
     assert.equal(JSON.stringify(object).includes('raw-secret'),false,`${harness}:${event} decision hides policy stderr`);
     assert.equal(object.reason,object.code,`${harness}:${event} IC-008 error reason is code`);
+    assert.equal(object.effect,'block',`${harness}:${event} strict-1 blocks the faulting gate`);
+    // D1: the same raw exit 2 proceeds under compat-1 with nothing on stdout or stderr beyond the allow render.
+    const compat: any = run(dir,harness,event,'pre-implementation-gate',input,['--emit','decision'],env);
+    assert.equal(JSON.parse(compat.stdout).effect,'proceed',`${harness}:${event} compat-1 proceeds on a raw exit 2`);
   }
 });
 
 BRIDGE_TEST('--emit native covers every IC-012 bridge row and Kiro engine', () => {
   const dir = makeTree();
   const cases: any = [
-    ['claude','PreToolUse','pre-implementation-gate'], ['claude','PreToolUse','pre-bash-guard'], ['claude','PreToolUse','mcp-tool-guard'],
+    ['claude','PreToolUse','pre-implementation-gate'], ['claude','PreToolUse','mcp-tool-guard'],
     ['claude','SessionStart','session-context'], ['claude','UserPromptSubmit','user-prompt-submit'], ['claude','SubagentStart','subagent-audit'],
     ['claude','SubagentStop','subagent-audit'], ['claude','Stop','stop-check'],
-    ['codex','PreToolUse','pre-implementation-gate'], ['codex','PreToolUse','pre-bash-guard'], ['codex','PreToolUse','mcp-tool-guard'],
+    ['codex','PreToolUse','pre-implementation-gate'], ['codex','PreToolUse','mcp-tool-guard'],
     ['codex','SessionStart','session-context'], ['codex','UserPromptSubmit','user-prompt-submit'], ['codex','SubagentStart','subagent-audit'], ['codex','SubagentStop','subagent-audit'], ['codex','Stop','stop-check'],
     ['kiro','PreToolUse','pre-implementation-gate'], ['kiro','SessionStart','session-context'], ['kiro','agentSpawn','session-context'],
     ['kiro','Stop','stop-check'], ['kiro','Stop','stop-check',{DOFLOW_KIRO_ENGINE:'v3'}],
     ['antigravity','PreToolUse','pre-implementation-gate'], ['antigravity','PreToolUse','stop-check'], ['antigravity','Stop','pre-implementation-gate'], ['antigravity','Stop','stop-check'],
-    ['pi','tool_call','pre-implementation-gate'], ['pi','tool_call','pre-bash-guard'], ['pi','tool_call','mcp-tool-guard'],
+    ['pi','tool_call','pre-implementation-gate'], ['pi','tool_call','mcp-tool-guard'],
   ];
   for (const [harness,event,policy,env={}] of cases) {
     const result: any = run(dir,harness,event,policy,{},['--emit','native'],env);
@@ -574,26 +620,22 @@ BRIDGE_TEST('Kiro agent camelCase events share IDE effects and rendering while t
   const dir = makeTree();
   const policy = path.join(dir, 'policies/pre-implementation-gate.sh');
   const cases: any = [
-    {
-      event: 'preToolUse', status: 2, body: '#!/bin/bash\necho private >&2\nexit 2\n',
-      stderr: `${FIXED}`, stdout: '',
-    },
-    {
-      event: 'PreToolUse', status: 2, body: '#!/bin/bash\necho private >&2\nexit 2\n',
-      stderr: `${FIXED}`, stdout: '',
-    },
-    {
-      event: 'preToolUse', status: 1, body: '#!/bin/bash\necho private >&2\nexit 1\n',
-      stderr: FIXED, stdout: '',
-    },
+    { event: 'preToolUse', body: '#!/bin/bash\necho private >&2\nexit 2\n' },
+    { event: 'PreToolUse', body: '#!/bin/bash\necho private >&2\nexit 2\n' },
+    { event: 'preToolUse', body: '#!/bin/bash\necho private >&2\nexit 1\n' },
   ];
   for (const row of cases) {
     fs.writeFileSync(policy, row.body);
-    const result = run(dir, 'kiro', row.event, 'pre-implementation-gate');
-    assert.equal(result.status, row.status, `${row.event} preserves Kiro PreToolUse status`);
-    assert.equal(result.stdout, row.stdout, `${row.event} native stdout`);
-    assert.equal(result.stderr, row.stderr, `${row.event} renders fixed reason without extra newline`);
+    // strict-1 blocks through Kiro's exit 2 and the fixed reason; compat-1 proceeds silently with status 0.
+    const result = run(dir, 'kiro', row.event, 'pre-implementation-gate', {}, [], { DOFLOW_FAULT_PROFILE: 'strict-1' });
+    assert.equal(result.status, 2, `${row.event} strict-1 preserves Kiro PreToolUse block status`);
+    assert.equal(result.stdout, '', `${row.event} native stdout`);
+    assert.equal(result.stderr, FIXED, `${row.event} renders fixed reason without extra newline`);
     assert.equal(result.stderr.includes('private'), false, `${row.event} hides stub stderr`);
+    const compat = run(dir, 'kiro', row.event, 'pre-implementation-gate');
+    assert.equal(compat.status, 0, `${row.event} compat-1 proceeds`);
+    assert.equal(compat.stdout, '', `${row.event} compat-1 stdout`);
+    assert.equal(compat.stderr, '', `${row.event} compat-1 stderr`);
   }
 
   const trace = path.join(dir, 'agent-stop-trace.jsonl');
@@ -614,7 +656,7 @@ BRIDGE_TEST('Kiro agent camelCase events share IDE effects and rendering while t
 BRIDGE_TEST('sourced bridge survives set -euo pipefail; jq and node process counts, trace and decode edge cases', () => {
   const dir = makeTree();
   const errorDir = makeTree('#!/bin/bash\nprintf raw-secret >&2\nexit 2\n');
-  const sourced = spawnSync(bashPath(), ['-c', `set -euo pipefail; . "${path.join(errorDir, 'bridge/bridge.sh')}"; if doflow_bridge claude PreToolUse pre-implementation-gate </dev/null; then code=0; else code=$?; fi; printf 'AFTER:%s' "$code"`], { encoding: 'utf8', env: childEnv() });
+  const sourced = spawnSync(bashPath(), ['-c', `set -euo pipefail; . "${path.join(errorDir, 'bridge/bridge.sh')}"; if doflow_bridge claude PreToolUse pre-implementation-gate </dev/null; then code=0; else code=$?; fi; printf 'AFTER:%s' "$code"`], { encoding: 'utf8', env: childEnv({ DOFLOW_FAULT_PROFILE: 'strict-1' }) });
   assert.equal(sourced.status, 0, sourced.stderr);
   assert.match(sourced.stdout, /permissionDecisionReason/);
   assert.match(sourced.stdout, /AFTER:0/);

@@ -20,7 +20,9 @@
   "scripts": {
     "test": "node --test \"test/**/*.test.ts\"",
     "typecheck": "npx -y -p typescript@5.7.2 tsc -p tsconfig.json",
-    "build:diagrams": "node scripts/build-diagrams.ts"
+    "build:diagrams": "node scripts/build-diagrams.ts",
+    "build:package": "node scripts/build-package.ts",
+    "prepack": "node -e \"if (!require(\\\"node:fs\\\").existsSync(\\\"src/main.js\\\")) { console.error(\\\"Build the Console package first: npm run build:package, then npm pack .pack\\\"); process.exit(1); }\""
   },
   "devDependencies": {
     "pele": "1.1.1"

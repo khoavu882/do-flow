@@ -301,7 +301,8 @@ const PRE_COMPACT_HOOKS: any = [
   'core/harnesses/claude/hooks/pre-compact.sh',
   'core/harnesses/codex/hooks/pre-compact.impl.sh',
 ];
-const G38_3_ALLOWED: any = new Set([`${POLICIES}/emission.jq`, `${POLICIES}/emission.sh`, ...PRE_COMPACT_HOOKS]);
+// deny-json.sh holds the D1 advice emitters: an advisory line to the model on PreToolUse, to the user on Stop.
+const G38_3_ALLOWED: any = new Set([`${POLICIES}/emission.jq`, `${POLICIES}/emission.sh`, `${POLICIES}/deny-json.sh`, ...PRE_COMPACT_HOOKS]);
 const CONTEXT_TOKEN = /\b(additionalContext|systemMessage|custom_instructions)\b/;
 const PRINT = /^\s*(?:printf|echo|cat|jq)\b/;
 const LOOKUP = /\bdoflow_emission_rule\s+compact-instructions\./;
@@ -309,8 +310,20 @@ const LOOKUP = /\bdoflow_emission_rule\s+compact-instructions\./;
 const isHookFile = (file: any) => /^core\/harnesses\/(?:[^/]+\/)*hooks\//.test(file)
   || file.startsWith('core/harnesses/pi/extensions/') || file === RUNNER_JS;
 
+// The D1 advice emitters put a line into the model's context (PreToolUse) or the user's (Stop). Only the
+// bridge's renderer may call them; the file that defines them is the only other place the names appear.
+const ADVICE_EMITTER = /\bemit_(?:pretooluse|stop)_advice\b/;
+const ADVICE_CALLERS: any = new Set([`${BRIDGE}/respond.sh`, `${POLICIES}/deny-json.sh`]);
+
 function checkG38_3({ files }: any) {
   const findings: any = [];
+  for (const [file, text] of files) {
+    if (ADVICE_CALLERS.has(file)) continue;
+    executedLines(file, text).forEach((line: any, index: any) => {
+      const match = line.match(ADVICE_EMITTER);
+      if (match) findings.push(`G38.3 ${file}:${index + 1} calls ${match[0]} outside bridge/respond.sh`);
+    });
+  }
   for (const [file, text] of files) {
     if (!isHookFile(file) || G38_3_ALLOWED.has(file)) continue;
     executedLines(file, text).forEach((line: any, index: any) => {
@@ -469,7 +482,7 @@ function checkG38_4({ files }: any) {
 // ── G38.5: checks are never deduplicated ────────────────────────────────────────────────────────
 
 const IC016_FILES: any = [
-  `${POLICIES}/pre-implementation-gate.sh`, `${POLICIES}/pre-bash-guard.sh`, `${POLICIES}/mcp-tool-guard.sh`,
+  `${POLICIES}/pre-implementation-gate.sh`, `${POLICIES}/mcp-tool-guard.sh`,
   `${POLICIES}/stop-check.sh`, `${BRIDGE}/bridge.sh`, `${BRIDGE}/envelope.jq`, `${BRIDGE}/respond.sh`, RUNNER_JS,
 ];
 const FORBIDDEN_SOURCES: any = new Set(['emission.sh', 'emission-rules.sh', 'summary-store.sh']);
@@ -525,8 +538,8 @@ const CASES = JSON.parse(fs.readFileSync(path.join(REPO, CASES_REL), 'utf8'));
 const FIELDS: any = ['RUN', 'ATTEMPT', 'LINEAGE', 'ROLE', 'WORKTREE', 'KIND', 'UNIT'];
 const BASH = bashPath();
 const UNKNOWN_ROLE = '[doflow] unknown DOFLOW_SESSION_ROLE; treating session as worker\n';
-// The five identity variables only. DOFLOW_WORKER_RUN (110) is a sixth launch variable; DOFLOW_GUARD_DROP_DATABASES
-// (112) is an optional seventh. Neither is identity: the tests after G38.6 pin that both sides ignore them.
+// The five identity variables only. DOFLOW_WORKER_RUN (110) is a sixth launch variable, not identity: the test after
+// G38.6 pins that both sides ignore it.
 const IDENTITY_VARS: any = ['DOFLOW_RUN_ID', 'DOFLOW_ATTEMPT', 'DOFLOW_LINEAGE_ID', 'DOFLOW_SESSION_ROLE', 'DOFLOW_WORKTREE'];
 
 /** `bash` and `ts` map an event key (case name, or `sequence #event`) to one result object. */
@@ -537,13 +550,6 @@ function checkG38_6({ keys, bash, ts }: any) {
     const b = JSON.stringify(ts.get(key) ?? null);
     if (a !== b) findings.push(`G38.6 ${CASES_REL}: "${key}" identity.sh ${a} vs identity.ts ${b}`);
   }
-  return findings;
-}
-
-function checkIdentityVariableReads({ variable, before, after }: any) {
-  const findings: any = [];
-  if (JSON.stringify(after.bash) !== JSON.stringify(before.bash)) findings.push(`G38.6 identity.sh reads ${variable}`);
-  if (JSON.stringify(after.ts) !== JSON.stringify(before.ts)) findings.push(`G38.6 identity.ts reads ${variable}`);
   return findings;
 }
 
@@ -749,6 +755,31 @@ test('G38.3 control: a hook printing systemMessage on its own is one finding', (
   const seeded: any = withFile(file, `${shipped.get(file)}\njq -n --arg m x '{systemMessage: $m}'\n`);
   one(checkG38_3({ files: seeded }), `${file}:${seeded.get(file).split('\n').length - 1} emits systemMessage`);
 });
+test('G38.3 control: the advise-only emitters stay in deny-json.sh; the same line in the gate or the bridge is one finding', () => {
+  const allowed = 'core/harnesses/shared/hooks/policies/deny-json.sh';
+  assert.match(shipped.get(allowed), /additionalContext/);
+  assert.match(shipped.get(allowed), /systemMessage/);
+  for (const file of ['core/harnesses/shared/hooks/policies/pre-implementation-gate.sh', 'core/harnesses/shared/hooks/bridge/bridge.sh']) {
+    const seeded: any = withFile(file, `${shipped.get(file)}\nprintf '{"hookSpecificOutput":{"additionalContext":"x"}}'\n`);
+    one(checkG38_3({ files: seeded }), `${file}:${seeded.get(file).split('\n').length - 1} emits additionalContext`);
+  }
+});
+test('G38.3 control: the advice emitters are callable only from bridge/respond.sh', () => {
+  const caller = 'core/harnesses/shared/hooks/bridge/respond.sh';
+  assert.match(shipped.get(caller), /emit_pretooluse_advice/);
+  assert.match(shipped.get(caller), /emit_stop_advice/);
+  for (const [file, fn] of [['core/harnesses/shared/hooks/policies/session-context.sh', 'emit_pretooluse_advice'],
+    ['core/harnesses/claude/hooks/session-start.sh', 'emit_stop_advice'],
+    ['core/harnesses/shared/hooks/policies/pre-implementation-gate.sh', 'emit_pretooluse_advice']]) {
+    const seeded: any = withFile(file, `${shipped.get(file)}\n${fn} "$(cat README.md)"\n`);
+    one(checkG38_3({ files: seeded }), `${file}:${seeded.get(file).split('\n').length - 1} calls ${fn}`);
+  }
+});
+test('G38.3 control (RK6): a comment naming an advice emitter passes', () => {
+  const file = 'core/harnesses/shared/hooks/policies/session-context.sh';
+  const seeded: any = withFile(file, `${shipped.get(file)}\n# emit_pretooluse_advice is the bridge's\n`);
+  assert.deepEqual(checkG38_3({ files: seeded }), []);
+});
 test('G38.3 control: a pre-compact hook that prints without its rule lookup is one finding', () => {
   const file = 'core/harnesses/claude/hooks/pre-compact.sh';
   const seeded = edit(file, '  doflow_emission_rule compact-instructions.instructions "$_DF_ROLE"\n', '  :\n');
@@ -829,7 +860,7 @@ test('G38.5: IC-016 check files reference no emission state and source no emissi
   assert.deepEqual(checkG38_5({ files: shipped }), []);
 });
 test('G38.5 control: a gate reading the injected token is one finding', () => {
-  const file = `${POLICIES}/pre-bash-guard.sh`;
+  const file = `${POLICIES}/pre-implementation-gate.sh`;
   const seeded = withFile(file, `${shipped.get(file)}\n[ -e "$STATE_DIR/sessions/$sid/injected" ] && exit 0\n`);
   one(checkG38_5({ files: seeded }), 'references emission state `injected`');
 });
@@ -874,37 +905,6 @@ test('G38.6: DOFLOW_WORKER_RUN is not an identity variable; neither implementati
   assert.deepEqual(bashB, bashA, 'identity.sh ignores DOFLOW_WORKER_RUN');
   assert.deepEqual(tsB, tsA, 'identity.ts ignores DOFLOW_WORKER_RUN');
   assert.equal(tsA.kind, 'launched');
-});
-
-test('G38.6: DOFLOW_GUARD_DROP_DATABASES is not an identity variable; neither implementation reads it', (t) => {
-  const dir = tempDir(t, 'doflow-g38-drop-databases-');
-  const config = path.join(dir, 'config');
-  const env: any = { DOFLOW_RUN_ID: 'r7', DOFLOW_LINEAGE_ID: 'w2', DOFLOW_ATTEMPT: '3', DOFLOW_SESSION_ROLE: 'worker', DOFLOW_WORKTREE: dir };
-  const withDatabases: any = { ...env, DOFLOW_GUARD_DROP_DATABASES: 'app_test' };
-  const { resolveIdentity } = require('../../src/runtime/context/identity.ts');
-  const sides = (e: any, tag: any) => {
-    const home = path.join(dir, `home-${tag}`);
-    fs.mkdirSync(home, { recursive: true });
-    return { bash: bashEvent(config, home, e, 's-1', dir), ts: tsEvent(resolveIdentity, config, home, e, 's-1', dir) };
-  };
-  const before = sides(env, 'a');
-  const after = sides(withDatabases, 'b');
-  assert.deepEqual(after.bash, before.bash, 'identity.sh ignores DOFLOW_GUARD_DROP_DATABASES');
-  assert.deepEqual(after.ts, before.ts, 'identity.ts ignores DOFLOW_GUARD_DROP_DATABASES');
-  assert.deepEqual(checkIdentityVariableReads({ variable: 'DOFLOW_GUARD_DROP_DATABASES', before, after }), []);
-  assert.equal(before.ts.kind, 'launched');
-});
-
-test('G38.6 control: a side that reads DOFLOW_GUARD_DROP_DATABASES is named', () => {
-  const before: any = { bash: { kind: 'launched' }, ts: { kind: 'launched' } };
-  assert.deepEqual(
-    checkIdentityVariableReads({ variable: 'DOFLOW_GUARD_DROP_DATABASES', before, after: { ...before, bash: { kind: 'changed' } } }),
-    ['G38.6 identity.sh reads DOFLOW_GUARD_DROP_DATABASES'],
-  );
-  assert.deepEqual(
-    checkIdentityVariableReads({ variable: 'DOFLOW_GUARD_DROP_DATABASES', before, after: { ...before, ts: { kind: 'changed' } } }),
-    ['G38.6 identity.ts reads DOFLOW_GUARD_DROP_DATABASES'],
-  );
 });
 
 module.exports = { checkG38_1, checkG38_2, checkG38_3, checkG38_4, checkG38_5, checkG38_6 };

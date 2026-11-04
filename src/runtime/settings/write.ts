@@ -189,10 +189,74 @@ function writeLayer({ file, set = {}, unset = [], scrubKeys = [], force = false,
   }
 }
 
+/**
+ * Where a write to `file` lands. A symlinked settings file (a dotfile manager's link) is written
+ * through to its target so the link survives; a project or local file whose link leads outside the
+ * project, or leads nowhere, is refused rather than read through or copied.
+ */
+function writeTarget(file: string, fsImpl: any): { ok: true; target: string } | { ok: false; result: any } {
+  let stat: any;
+  try { stat = fsImpl.lstatSync(file); } catch { return { ok: true, target: file }; }
+  if (!stat.isSymbolicLink()) return { ok: true, target: file };
+  let real: string;
+  try { real = fsImpl.realpathSync(file); } catch {
+    return { ok: false, result: invalid(file, 'is a symbolic link that does not resolve to a file; nothing was written', 'scope') };
+  }
+  const directory = path.dirname(file);
+  if (path.basename(directory) === '.doflow') {
+    try {
+      const rel = path.relative(fsImpl.realpathSync(path.dirname(directory)), real);
+      if (!rel || rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) throw new Error('outside');
+    } catch {
+      return { ok: false, result: invalid(file, 'is a symbolic link to a path outside the project; nothing was written', 'scope') };
+    }
+  }
+  return { ok: true, target: real };
+}
+
+/** The most significant digits a JSON number keeps exactly when it is read as a double and written back. */
+const EXACT_DIGITS = 15;
+const NUMBER_AT = /-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/y;
+
+/**
+ * The first top-level key of `text` (a JSON document) holding a number that `JSON.parse` followed by
+ * `JSON.stringify` would change in value: more than 15 digits and not a safe integer.
+ */
+function inexactNumberKey(text: string): string | null {
+  let depth = 0;
+  let current: string | null = null;
+  for (let i = 0; i < text.length;) {
+    const ch = text[i];
+    if (ch === '"') {
+      let end = i + 1;
+      while (end < text.length && text[end] !== '"') end += text[end] === '\\' ? 2 : 1;
+      if (depth === 1) {
+        let after = end + 1;
+        while (after < text.length && /\s/.test(text[after])) after++;
+        if (text[after] === ':') { try { current = JSON.parse(text.slice(i, end + 1)); } catch { current = null; } }
+      }
+      i = end + 1;
+    } else if (ch === '{' || ch === '[') { depth++; i++; }
+    else if (ch === '}' || ch === ']') { depth--; i++; }
+    else if (ch === '-' || (ch >= '0' && ch <= '9')) {
+      NUMBER_AT.lastIndex = i;
+      const match = NUMBER_AT.exec(text);
+      if (!match) { i++; continue; }
+      const token = match[0];
+      const digits = token.replace(/[eE].*$/, '').replace(/[-.]/g, '').replace(/^0+/, '').replace(/0+$/, '');
+      if (digits.length > EXACT_DIGITS && !(/^-?\d+$/.test(token) && Number.isSafeInteger(Number(token))) && current !== null) return current;
+      i += token.length;
+    } else i++;
+  }
+  return null;
+}
+
 const INVALID = Symbol('invalid layer');
 
 /** The read, merge and rename of `writeLayer`, run while it holds the layer's lock. */
 function replaceLayer({ file, registry, set, unsetKeys, scrubKeys, force, expect, backup, fsImpl }: any): any {
+  const landing = writeTarget(file, fsImpl);
+  if (!landing.ok) return landing.result;
   let before: Record<string, unknown> | null = null;
   let existing: Record<string, unknown> = {};
   let layer: any;
@@ -231,6 +295,13 @@ function replaceLayer({ file, registry, set, unsetKeys, scrubKeys, force, expect
   for (const [key, value] of Object.entries(set)) values[key] = value;
   for (const key of unsetKeys) delete values[key];
 
+  if (layer?.status === 'ok' && typeof layer.source === 'string') {
+    const kept = inexactNumberKey(layer.source);
+    if (kept !== null && Object.hasOwn(values, kept) && !Object.hasOwn(set, kept)) {
+      return invalid(file, `key '${kept}' holds a number with more digits than JSON can rewrite exactly; nothing was written; edit the file by hand`, 'number-precision');
+    }
+  }
+
   const after = layerDocument(registry, values);
   const bytes = serializeLayer(after);
   const tooLarge = oversize(file, bytes);
@@ -244,7 +315,7 @@ function replaceLayer({ file, registry, set, unsetKeys, scrubKeys, force, expect
   const directory = path.dirname(file);
   let temporary: string | null = null;
   try {
-    temporary = path.join(directory, `.${path.basename(file)}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`);
+    temporary = path.join(path.dirname(landing.target), `.${path.basename(landing.target)}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`);
     fsImpl.writeFileSync(temporary, bytes, { flag: 'wx', mode: 0o600 });
     fsImpl.chmodSync(temporary, 0o600);
     if (path.basename(directory) === '.doflow') {
@@ -253,7 +324,7 @@ function replaceLayer({ file, registry, set, unsetKeys, scrubKeys, force, expect
         return invalid(file, '.doflow symlink points outside the project', 'scope');
       }
     }
-    fsImpl.renameSync(temporary, file);
+    fsImpl.renameSync(temporary, landing.target);
     temporary = null;
     clearSettingsCache();
     return { ok: true, file, before, after };

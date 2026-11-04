@@ -8,7 +8,24 @@
       "verdict": "PASS",
       "observations": 13,
       "comparator": "==",
-      "threshold": 0
+      "threshold": 0,
+      "excluded": [
+        {
+          "corpus": "guidance",
+          "class": "impact-refactor",
+          "reason": "not-applicable"
+        },
+        {
+          "corpus": "guidance",
+          "class": "unavailable-provider",
+          "reason": "not-applicable"
+        },
+        {
+          "corpus": "guidance",
+          "class": "verification-failure",
+          "reason": "not-applicable"
+        }
+      ]
     },
     {
       "id": "T-002",
@@ -26,7 +43,29 @@
       "verdict": "FAIL",
       "observations": 12,
       "comparator": ">=",
-      "threshold": 0.95
+      "threshold": 0.95,
+      "excluded": [
+        {
+          "corpus": "code",
+          "class": "verification-failure",
+          "reason": "metric-absent"
+        },
+        {
+          "corpus": "guidance",
+          "class": "impact-refactor",
+          "reason": "not-applicable"
+        },
+        {
+          "corpus": "guidance",
+          "class": "unavailable-provider",
+          "reason": "not-applicable"
+        },
+        {
+          "corpus": "guidance",
+          "class": "verification-failure",
+          "reason": "not-applicable"
+        }
+      ]
     },
     {
       "id": "T-005",
@@ -43,7 +82,24 @@
       "verdict": "PASS",
       "observations": 13,
       "comparator": "==",
-      "threshold": 1
+      "threshold": 1,
+      "excluded": [
+        {
+          "corpus": "guidance",
+          "class": "impact-refactor",
+          "reason": "not-applicable"
+        },
+        {
+          "corpus": "guidance",
+          "class": "unavailable-provider",
+          "reason": "not-applicable"
+        },
+        {
+          "corpus": "guidance",
+          "class": "verification-failure",
+          "reason": "not-applicable"
+        }
+      ]
     },
     {
       "id": "T-008",

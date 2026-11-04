@@ -10,8 +10,9 @@
 // process.execPath, a `git` symlink to the resolved git binary, and named system tools only when a
 // test asks for them (082 DEC-056, NFR-002). It never contains dirname(process.execPath): a node
 // install directory can hold real codex, antigravity or claude binaries. The fake names are
-// `fake-<harness>` so no real harness binary is ever hit. linkBin's returned PATH (bin/ plus the
-// node directory) is the 081 shape its existing callers assert; no new test uses it.
+// `fake-<harness>` so no real harness binary is ever hit. linkBin's returned PATH is bin/ plus a
+// sibling scratch `<bin>-node/` holding one `node` link, which its callers pass as the child PATH; the
+// node install directory itself is added only on win32, where links need a privilege.
 //
 // Each invocation appends one JSON line `{ argv, cwd, doflowEnv[, workerRun] }` to FAKE_HARNESS_LOG, where
 // doflowEnv holds the five DOFLOW_* identity values (null when unset). It then classifies itself by
@@ -259,7 +260,7 @@ async function main() {
 
 /**
  * Links the fake CLI into `dir` under each name in `names` (a `.cmd` shim on win32) and returns the
- * child PATH: `dir` plus the directory of process.execPath, nothing else.
+ * child PATH: `dir` plus a scratch directory holding only a `node` link (see linkNodeOnly).
  */
 function linkBin(dir: any, names: any) {
   fs.mkdirSync(dir, { recursive: true });
@@ -270,7 +271,21 @@ function linkBin(dir: any, names: any) {
       fs.symlinkSync(FAKE_CLI, path.join(dir, name));
     }
   }
-  return [dir, path.dirname(process.execPath)].join(path.delimiter);
+  if (process.platform === 'win32') return [dir, path.dirname(process.execPath)].join(path.delimiter);
+  return [dir, linkNodeOnly(dir)].join(path.delimiter);
+}
+
+/**
+ * A scratch directory next to `dir` holding one `node` link to process.execPath, and nothing else. The
+ * interpreter's own install directory is never a PATH entry: it can hold real codex, gemini or claude
+ * binaries a child would then launch (081 D.3, NFR-002). Returns that directory.
+ */
+function linkNodeOnly(dir: any) {
+  const nodeDir = path.join(path.dirname(dir), `${path.basename(dir)}-node`);
+  fs.mkdirSync(nodeDir, { recursive: true });
+  const link = path.join(nodeDir, 'node');
+  if (!fs.existsSync(link)) fs.symlinkSync(process.execPath, link);
+  return nodeDir;
 }
 
 /** Writes `scenario` to `<dir>/scenario.json` and returns that path, for FAKE_HARNESS_SCENARIO. */

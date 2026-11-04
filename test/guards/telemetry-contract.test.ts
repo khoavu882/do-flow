@@ -12,6 +12,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const { spawnSync } = require('node:child_process');
 const path = require('node:path');
 const { REPO } = require('./_shared.ts');
 const { tempDir, suiteTempDir, removeTree } = require('../helper/tmp.ts');
@@ -232,7 +233,6 @@ const PINNED_NODE_FILES: any = ['core/harnesses/pi/extensions/doflow-guard.js', 
 const PINNED_RUNNER_DOORS: any = ['core/harnesses/antigravity/hooks/pre-implementation-gate.sh', 'core/harnesses/antigravity/hooks/stop-check.sh'];
 /** Shell observation must remain covered by the same no-node scan as the pre-tool front doors. */
 const PINNED_SHELL_DOORS: any = [
-  ...['claude', 'codex', 'kiro'].map((harness) => `core/harnesses/${harness}/hooks/pre-bash-guard.sh`),
   'core/harnesses/claude/hooks/post-shell-observe.sh',
 ];
 function checkPinnedShellDoors(files: any) {
@@ -491,6 +491,18 @@ function checkZeroDependencies(packageText: any, adviceGuardText: any, consolePa
   return errors;
 }
 
+// The files[] spellings above are only a hint: npm also packs console/ for a glob such as 'c*nsole/**', '**/*.js'
+// or '*'. The packed file list is the truth (FU-w0b8k4), so the shipped-tree test asks npm for it.
+function checkPackedPaths(packedPaths: any) {
+  return packedPaths.filter((p: any) => /^(?:\.\/)?console(?:\/|$)/i.test(p)).map((p: any) => `npm pack ships ${p}`);
+}
+
+function npmPackedPaths() {
+  const r = spawnSync('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], { cwd: REPO, encoding: 'utf8', shell: process.platform === 'win32' });
+  assert.equal(r.status, 0, r.stderr);
+  return JSON.parse(r.stdout)[0].files.map((f: any) => f.path);
+}
+
 // --- G45.6: telemetry dirs are declared runs/ subdirectories the ledger readers skip -------------
 
 const LEDGER_PARTITION = /^\d{4}-\d{2}-\d{2}\.jsonl$/;
@@ -677,22 +689,12 @@ test('G45.1: observer runtime has its own measure and the prose states hook late
   assert.match(v0, /L3 is null with the flag on and `off` with the flag off; dispatch is null/);
 });
 
-test('088 docs name the shipped reports, manifest exits, guard inventory and observed baseline', () => {
+test('088 docs name the shipped reports, manifest exits and observed baseline', () => {
   const reference = fs.readFileSync(path.join(REPO, 'docs/reference.md'), 'utf8');
   assert.doesNotMatch(reference, /pVal|significant|summary\.md/);
   const baseline = reference.split('\n').find((line: any) => line.startsWith('| `bench verify-baseline '));
   assert.match(baseline, /`report\.json`, `report\.md`/);
   assert.match(baseline, /manifest mismatch exits 1.*malformed snapshot\/manifest exits 2/);
-
-  const architecture = fs.readFileSync(path.join(REPO, 'docs/architecture.md'), 'utf8').split('### The guard suite\n')[1].split('## Contributor guardrails')[0];
-  const entries: any = [...architecture.matchAll(/^- \*\*(G\d+)\*\* \(`([^`]+\.test\.ts)`/gm)];
-  const files: any = new Set(entries.map((entry: any) => entry[2]));
-  const numbers: any = new Set(entries.map((entry: any) => entry[1]));
-  const guards = fs.readdirSync(path.join(REPO, 'test/guards')).filter((file: any) => file.endsWith('.test.ts'));
-  assert.ok(entries.length > 40 && guards.length > 50, 'the guard directory and inventory were found');
-  for (const file of files) assert.ok(guards.includes(file), `${file} is an actual guard`);
-  assert.match(architecture, new RegExp(`holds\\s+${guards.length} test files`));
-  assert.ok(architecture.includes(`${entries.length} entries across ${files.size} test files and carries ${numbers.size} distinct G-numbers`));
 
   const release = fs.readFileSync(path.join(REPO, 'CHANGELOG.md'), 'utf8').split('\n').find((line: any) => line.startsWith('- **Feature 088b '));
   assert.match(release, /`tool_duration_ms`.*`duration_ms:null`/);
@@ -736,6 +738,12 @@ test('G45.5: console/package.json, when present, has no dependency map and only 
     fs.readFileSync(path.join(REPO, 'test/guards/advice.test.ts'), 'utf8'),
     consoleText,
   ), []);
+});
+
+test('G45.5: npm pack --dry-run lists no console/ path', () => {
+  const packed = npmPackedPaths();
+  assert.ok(packed.includes('package.json') && packed.some((p: any) => p.startsWith('src/')), 'the packed list was read');
+  assert.deepEqual(checkPackedPaths(packed), []);
 });
 
 test('G45.6: telemetry stores are declared runs/ subdirectories, and the ledger readers do not see them', (t) => {
@@ -860,7 +868,7 @@ test('G45.2 self-test: a hook file with node -e fails, a comment or a quoted wor
   const door = (rel: any, line: any) => checkNoNodeOnHooks([...PINNED_NODE_FILES.map((file: any) => ({ rel: file, text: '' })), { rel, text: `#!/usr/bin/env bash\n${line}\n` }]);
   const runner = 'exec node "$(dirname "$0")/../../.doflow/shared/hooks/stream-hook-runner.js" PreToolUse';
   assert.deepEqual(door(PINNED_RUNNER_DOORS[0], runner), [], 'the pinned door may hand over to the shared runner');
-  assert.equal(door('core/harnesses/codex/hooks/pre-bash-guard.sh', runner).length, 1, 'no other door may');
+  assert.equal(door('core/harnesses/codex/hooks/pre-implementation-gate.sh', runner).length, 1, 'no other door may');
   assert.equal(door(PINNED_RUNNER_DOORS[0], 'exec node -e "1"').length, 1, 'and the pinned door may do nothing else');
   const extra = checkNoNodeOnHooks([...PINNED_NODE_FILES.map((rel: any) => ({ rel, text: '' })), { rel: 'core/harnesses/claude/hooks/new.js', text: '' }]);
   assert.deepEqual(extra, ['core/harnesses/claude/hooks/new.js is a node file on a hook path and is not in the pinned list']);
@@ -993,6 +1001,14 @@ test('G45.5 self-test: files entry variants /console, Console/ and src/../consol
   assert.deepEqual(checkZeroDependencies('{"files":["Console/"]}', guard), ['package.json files ships console (Console/)']);
   assert.deepEqual(checkZeroDependencies('{"files":["src/../console"]}', guard), ['package.json files ships console (src/../console)']);
   assert.deepEqual(checkZeroDependencies('{"files":["../console"]}', guard), []);
+});
+
+test('G45.5 self-test: a packed console/ path fails whatever files[] entry produced it (FU-w0b8k4)', () => {
+  assert.deepEqual(checkPackedPaths(['package.json', 'src/a.ts']), []);
+  assert.deepEqual(checkPackedPaths(['package.json', 'console/app.js']), ['npm pack ships console/app.js']);
+  assert.deepEqual(checkPackedPaths(['Console/app.js', 'src/console.ts', 'consoles/x']), ['npm pack ships Console/app.js']);
+  // A glob entry the spelling check passes still packs console/; the list check catches it.
+  assert.deepEqual(checkZeroDependencies('{"files":["c*nsole/**"]}', "test('G30.2: shipped package has no runtime dependencies', () => {});"), []);
 });
 
 test('G45.6 self-test: an undeclared store, a non-runs path, a ledger-shaped path and an unlisted writer fail', () => {

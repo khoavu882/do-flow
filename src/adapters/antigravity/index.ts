@@ -26,6 +26,7 @@ const { MARKER_START, MARKER_END, removeMarkedSection } = require('../../helper/
 const { planTree, applyTree, removeTree, verifyTree, resolveTransform, copyTreeAssets, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, readJson, sourceDirFor } = require('../copy-tree.ts');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths.ts');
 const { renderGuidancePointer } = require('../guidance-pointer.ts');
+const { replacementManagesFile } = require('../../lifecycle/retired-harnesses.ts');
 const { readMcpFiles, planMcpEntries, verifyMcpEntries, ownedMcpIds, writeMcpEntries } = require('../mcp-entries.ts');
 
 const HARNESS = 'antigravity';
@@ -229,8 +230,9 @@ function managedInstruction(existing: any, rendered: any, { name = 'AGENTS.md', 
   if (start === -1 && predecessor) start = existing.indexOf(PREDECESSOR_MARKER_START);
   const end = existing.indexOf(MARKER_END);
   if (start === -1 && end === -1) {
-    const separator = existing === '' || existing.endsWith('\n') ? '\n' : '\n\n';
-    const content = `${existing}${separator}${rendered}`;
+    // Always exactly one '\n' before the span, so strippedInstruction can take back exactly that one
+    // byte whatever the file ended with (a file with no final newline just gets the span on the next line).
+    const content = `${existing}\n${rendered}`;
     return { ok: true, operation: 'merge', content };
   }
   if (start === -1 || end === -1 || end < start) return { ok: false, conflict: `${name} has malformed DoFlow managed-section markers` };
@@ -245,7 +247,11 @@ function strippedInstruction(existing: any) {
   if (start === -1 || end === -1 || end < start) return null;
   let after = end + MARKER_END.length;
   if (existing[after] === '\n') after += 1;
-  return `${existing.slice(0, start)}${existing.slice(after)}`;
+  const before = existing.slice(0, start);
+  const rest = existing.slice(after);
+  // Exact inverse of managedInstruction's append: a span at the end of the file goes with the one '\n'
+  // put before it. A span with the person's text after it was placed, not appended; it keeps its before.
+  return `${rest === '' && before.endsWith('\n') ? before.slice(0, -1) : before}${rest}`;
 }
 
 // ---- copy-tree components (skills, agents, locator) ----
@@ -318,6 +324,45 @@ function planTrees({ assets, paths, scope, neutralResources, removing, repoRoot,
   return { changes, conflicts, targets, notices: [...siblingReplacedNotices(treeResults), ...notices] };
 }
 
+// ---- legacy Gemini shim ----
+
+/** sha256 of every `doflow-run` locator the retired Gemini adapter wrote to ~/.gemini/bin, which
+ * moved to ~/.gemini/config/bin in f7928c48. Each is a blob of core/harnesses/shared/locator/doflow-run
+ * that was current while the adapter still projected to ~/.gemini/bin (blob: commit that introduced
+ * it): 22340592: e575b259, 34bb6c6c: 1fbab132, 344ebd52: a3c15cdb. Hashes only; the bodies stay in git. */
+const LEGACY_GEMINI_SHIM_SHA256 = Object.freeze([
+  'bee62b0a97b9365fba95541a2d2979b1dd57f63a13e0d7bcc6077147664008a4',
+  '66530de094c6ec22bda9219b19f9c02e6a076068aa671b5eb6dff463d06f966a',
+  '9b5cae2a84d7486deff8ecabe477c06af5802d77af6efa72476897f08b8864d6',
+]);
+
+/** The one change that retires a stale ~/.gemini/bin/doflow-run: global scope only, and only a
+ * regular file (never a link) whose bytes equal a shipped legacy shim. Anything else at that path
+ * is the person's and is left alone. No ledger row owns the file, so the change carries
+ * `legacyRetirement` and the lifecycle journals it as a swept tombstone (src/lifecycle/index.ts). */
+function planLegacyGeminiShim({ assets, paths, scope, fsImpl = fs }: any) {
+  const none = { changes: [], notices: [] };
+  const locator = scope === 'global' ? (assets ?? []).find((asset: any) => asset.id === 'locator.doflow') : null;
+  const currentDir = locator && treeDestFor(locator, paths, scope);
+  if (!currentDir) return none;
+  const target = path.join(paths.root, '.gemini', 'bin', 'doflow-run');
+  let digest;
+  try {
+    if (!fsImpl.lstatSync(target).isFile()) return none;
+    digest = sha256File(fsImpl, target);
+  } catch { return none; }
+  if (!LEGACY_GEMINI_SHIM_SHA256.includes(digest)) return none;
+  return {
+    changes: [{
+      assetId: locator.id, target, operation: 'remove', kind: 'copy-tree-file', identity: 'bin/doflow-run',
+      ownershipIdentity: `doflow:${HARNESS}:legacy:locator.doflow:bin/doflow-run`,
+      fingerprint: digest, projection: { renderer: 'copy-tree' },
+      legacyRetirement: { toTarget: path.join(currentDir, 'doflow-run') },
+    }],
+    notices: ['removed ~/.gemini/bin/doflow-run: an unmodified older DoFlow shim, replaced by ~/.gemini/config/bin/doflow-run'],
+  };
+}
+
 function runTreeChanges(changes: any, mode: any) {
   // Route by what each change IS, not by which verb invoked us: remove() delegates here with a
   // plan full of operation:'remove' changes, and applyTree deliberately skips those — so routing
@@ -367,17 +412,13 @@ function instructionTarget({ paths, assets, registry }: any) {
   if (!paths.instruction) return null;
   if (scopeOf(paths) === 'project') return paths.instruction;
   if (!(assets ?? []).some((asset: any) => asset.id === POINTER_ASSET_ID)) return null;
-  const declaredBy = (harness: any) => {
-    if (harness?.id === HARNESS || !harness?.paths?.instruction) return false;
-    try { return resolveHarnessPaths({ instruction: harness.paths.instruction }, { scope: 'global', scopeRoot: paths.root, homeDir: paths.root }).instruction === paths.instruction; } catch { return false; }
-  };
-  return (registry?.harnesses ?? []).some(declaredBy) ? null : paths.instruction;
+  return replacementManagesFile({ registry, harnessId: HARNESS, surface: 'instruction', target: paths.instruction, scope: 'global', scopeRoot: paths.root }) ? paths.instruction : null;
 }
 
 /** How this run stands to a section it took over (IC-007): the lifecycle's handover verdict for the
  * file, this harness's own row on it, and whether a person-edited file stays as it is (`retained`:
  * edited before the handover, or kept since, and no --force). `predecessor` lets the retired
- * harness's span count as the section to replace; `keptRow` is a row recorded as kept. A handover
+ * harness's span count as the section to replace; `keptRow` is any own row on the file. A handover
  * file whose DoFlow span already is this harness's render was written by DoFlow itself (a run that
  * threw after that write and before its ledger write), so it does not count as edited. */
 function instructionState({ target, context, resources, paths, fsImpl = fs }: any) {
@@ -391,7 +432,7 @@ function instructionState({ target, context, resources, paths, fsImpl = fs }: an
   };
   const edited = (handover?.edited === true && !ownWrite()) || ownRow?.retainedEdit === true;
   return { predecessor: Boolean(handover) || ownRow?.retainedEdit === true, retained: edited && context.force !== true,
-    keptRow: ownRow?.retainedEdit === true };
+    keptRow: ownRow !== null };
 }
 
 function instructionsChange(target: any, fields: any) {
@@ -492,6 +533,7 @@ function plan(options: any = {}, impl: any = {}) {
   const instructions = planInstructions({ paths, target: instructionFile, removing, fsImpl,
     state: instructionState({ target: instructionFile, context, resources: neutralResources, paths, fsImpl }) });
   const trees = planTrees({ assets: options.assets, paths, scope, neutralResources, removing, repoRoot: context.repoRoot, force: context.force === true, fsImpl });
+  const legacyShim = removing ? { changes: [], notices: [] } : planLegacyGeminiShim({ assets: options.assets, paths, scope, fsImpl });
   const mcp = planMcpEntries({
     ...mcpEntriesInput({ paths, mcp: selectedServers, mcpAdoptable: options.mcpAdoptable, resources: neutralResources }),
     files: discovery.mcpSnapshot, removing,
@@ -501,14 +543,14 @@ function plan(options: any = {}, impl: any = {}) {
   const hooksPlan = context.hooksOff === true && !removing ? { changes: [], conflicts: [] }
     : planHooks({ paths, scope, neutralResources, removing, repoRoot: context.repoRoot, fsImpl });
 
-  const changes = [...instructions.changes, ...trees.changes, ...mcp.changes, ...hooksPlan.changes];
+  const changes = [...instructions.changes, ...trees.changes, ...legacyShim.changes, ...mcp.changes, ...hooksPlan.changes];
   const conflicts = [...instructions.conflicts, ...trees.conflicts, ...mcp.conflicts, ...hooksPlan.conflicts];
   return {
     changes,
     conflicts,
     prerequisites: [],
     requiredNativeResources: changes,
-    notices: [...instructions.notices, ...trees.notices, ...mcp.notices],
+    notices: [...instructions.notices, ...trees.notices, ...legacyShim.notices, ...mcp.notices],
   };
 }
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
-# deny-json.sh — shared PreToolUse deny-JSON emitters for front-door dispatchers.
+# deny-json.sh — shared PreToolUse deny-JSON and advice-JSON emitters for front-door dispatchers.
 #
 # Deliberately carries no `set` directive (unlike lib.sh, which sets -euo
 # pipefail on source): a front door needs `set -e` OFF while it captures a
@@ -51,5 +51,27 @@ emit_pretooluse_deny_nested() {
     }'
   else
     printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":%s}}\n' "$(_doflow_json_reason "$reason")"
+  fi
+}
+
+# Advice emitters (D1, advise-only hooks). An advisory outcome never changes a decision; these put its
+# one line where a harness shows it. Claude/Codex PreToolUse: additionalContext reaches the model, and
+# carries no permissionDecision, so the user's own permission prompt still applies. Claude/Codex Stop:
+# systemMessage is shown to the user and, unlike additionalContext, does not continue the turn.
+emit_pretooluse_advice() {
+  local line="$1"
+  if command -v jq >/dev/null 2>&1; then
+    jq -n --arg line "$line" '{hookSpecificOutput: {hookEventName: "PreToolUse", additionalContext: $line}}'
+  else
+    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":%s}}\n' "$(_doflow_json_reason "$line")"
+  fi
+}
+
+emit_stop_advice() {
+  local line="$1"
+  if command -v jq >/dev/null 2>&1; then
+    jq -n --arg line "$line" '{systemMessage: $line}'
+  else
+    printf '{"systemMessage":%s}\n' "$(_doflow_json_reason "$line")"
   fi
 }

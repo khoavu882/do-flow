@@ -11,7 +11,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp.ts');
-const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator.ts');
+const { spawnSync } = require('node:child_process');
+const { WorkflowOrchestrator, recordStagePack } = require('../../src/runtime/workflow-orchestrator.ts');
+const { createScratch } = require('../helper/scratch-env.ts');
 const { handleContextPackCommand } = require('../../src/runtime/context-pack.ts');
 const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
 const { projectSpans } = require('../../src/runtime/trace/spans.ts');
@@ -230,4 +232,110 @@ test('issue-9: a malformed packs value on a run node never blocks completion and
   const stage = current(orch, 'feat-m').id;
   orch.completeStage({ taskId: 'feat-m', stageId: stage });
   assert.equal(Object.hasOwn(completion(readRun(dir, 'feat-m'), stage), 'packs'), false);
+});
+
+const DIGEST = `sha256:${'a'.repeat(64)}`;
+const packsOf = (file: any) => JSON.parse(fs.readFileSync(file, 'utf8')).program.map((n: any) => n.packs).filter(Boolean);
+
+test('issue-9 C1: a namespace folder swapped for a link after the guarded read is refused; the file outside the store is untouched', (t) => {
+  const { dir, orch } = project(t);
+  const outside = tempDir(t, 'doflow-stage-pack-outside-');
+  orch.start({ taskId: 'T.1', taskClass: 'trivial-edit' });
+  const text = fs.readFileSync(runFile(dir, 'T.1'), 'utf8');
+  fs.rmSync(runFile(dir, 'T.1'));
+  const namespace = path.join(STATE(dir), 'orchestration', 'feat');
+  fs.mkdirSync(namespace);
+  fs.writeFileSync(path.join(namespace, 'T.1.json'), text);
+  fs.writeFileSync(path.join(outside, 'T.1.json'), text);
+  let swapped = false;
+  const fsImpl = new Proxy(fs, {
+    get(target: any, key: any) {
+      if (key === 'mkdirSync') {
+        return (...args: any[]) => {
+          if (!swapped) { swapped = true; fs.renameSync(namespace, `${namespace}.moved`); fs.symlinkSync(outside, namespace); }
+          return target.mkdirSync(...args);
+        };
+      }
+      const value = target[key];
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+  assert.equal(recordStagePack({ stateRoot: dir, taskId: 'T.1', slug: 'feat', digest: DIGEST, fsImpl }), null);
+  assert.equal(swapped, true, 'the swap happened between the guarded read and the update');
+  assert.equal(fs.readFileSync(path.join(outside, 'T.1.json'), 'utf8'), text, 'the file outside the store is byte-for-byte as it was');
+  assert.deepEqual(fs.readdirSync(outside), ['T.1.json']);
+});
+
+test('issue-9 C3: a packs item whose id or digest is not a string never throws and is left out; good items are kept', (t) => {
+  const bad: any[] = [{ taskId: { toString: null }, digest: DIGEST }, 5, null, 'a b/../x', { taskId: 7, digest: DIGEST }, { taskId: {}, digest: DIGEST },
+    { taskId: 'ok', digest: { toString: null } }, { taskId: ['a'], digest: DIGEST }, { taskId: 'ok', digest: [DIGEST] }];
+  for (const [i, item] of bad.entries()) {
+    const { dir, orch } = project(t);
+    const id = `c3-${i}`;
+    orch.start({ taskId: id, taskClass: 'trivial-edit' });
+    const disk = readRun(dir, id);
+    disk.program[disk.cursor].packs = [item, { taskId: 'good', digest: DIGEST }];
+    fs.writeFileSync(runFile(dir, id), JSON.stringify(disk));
+    const stage = current(orch, id).id;
+    orch.completeStage({ taskId: id, stageId: stage });
+    assert.deepEqual(completion(readRun(dir, id), stage).packs, [{ taskId: 'good', digest: DIGEST }], JSON.stringify(item));
+  }
+});
+
+test('issue-9 C4: a legacy flat task run gets the pack, not the feature run', (t) => {
+  const { dir, orch } = project(t);
+  orch.start({ taskId: 'T.1', taskClass: 'trivial-edit' }); // flat T.1.json, names no feature
+  orch.start({ taskId: 'feat', taskClass: 'trivial-edit' });
+  assert.deepEqual(recordStagePack({ stateRoot: dir, taskId: 'T.1', slug: 'feat', digest: DIGEST }), { runTaskId: 'T.1', stage: current(orch, 'T.1').id });
+  assert.deepEqual(packsOf(runFile(dir, 'T.1')), [[{ taskId: 'T.1', digest: DIGEST }]]);
+  assert.deepEqual(packsOf(runFile(dir, 'feat')), []);
+});
+
+test('issue-9 C4: a flat run that names another feature is not taken for this one', (t) => {
+  const { dir, orch } = project(t);
+  orch.start({ taskId: 'T.1', taskClass: 'trivial-edit' });
+  const other = readRun(dir, 'T.1');
+  other.featureSlug = 'elsewhere';
+  fs.writeFileSync(runFile(dir, 'T.1'), JSON.stringify(other));
+  orch.start({ taskId: 'feat', taskClass: 'trivial-edit' });
+  assert.equal(recordStagePack({ stateRoot: dir, taskId: 'T.1', slug: 'feat', digest: DIGEST }).runTaskId, 'feat');
+  assert.deepEqual(packsOf(runFile(dir, 'T.1')), []);
+});
+
+/** C2: the real CLI in a git repo on `feat/stage-link` with a RUNNING `stage-link` run. */
+function cliRepo(t: any) {
+  const scratch = createScratch('doflow-stage-pack-cli-');
+  t.after(() => scratch.remove());
+  const dir = scratch.dir;
+  const env = scratch.env();
+  const git = (...args: any[]) => { const r = spawnSync('git', args, { cwd: dir, env, encoding: 'utf8' }); assert.equal(r.status, 0, r.stderr); };
+  git('init', '-q', '-b', 'main');
+  git('commit', '-q', '--allow-empty', '-m', 'init');
+  git('checkout', '-q', '-b', 'feat/stage-link');
+  const orch: any = new WorkflowOrchestrator({ repoRoot: REPO, stateDir: path.join(STATE(dir), 'orchestration'), env: { DOFLOW_TELEMETRY: 'off' }, cwd: dir });
+  orch.start({ taskId: 'stage-link', taskClass: 'trivial-edit' });
+  const cli = (...extra: string[]) => {
+    const r = spawnSync(process.execPath, [path.join(REPO, 'bin', 'doflow.js'), 'context-pack', '--task-id', 'T.9', '--task-class', 'feature', '--json', ...extra], { cwd: dir, env, encoding: 'utf8' });
+    assert.equal(JSON.parse(r.stdout).delivery.recorded, true, r.stderr);
+  };
+  return { dir, cli, runPacks: () => packsOf(runFile(dir, 'stage-link')) };
+}
+
+test('issue-9 C2: the branch name alone does not select a run for the stage-pack link', (t) => {
+  const { cli, runPacks } = cliRepo(t);
+  cli();
+  assert.deepEqual(runPacks(), [], 'no --slug and no feature pointer: the run on branch feat/stage-link is not picked');
+});
+
+test('issue-9 C2: an explicit --slug selects the feature run', (t) => {
+  const { cli, runPacks } = cliRepo(t);
+  cli('--slug', 'stage-link');
+  assert.equal(runPacks().length, 1);
+});
+
+test('issue-9 C2: a feature pointer on its recorded branch selects the feature run', (t) => {
+  const { dir, cli, runPacks } = cliRepo(t);
+  recordFeature({ storeRoot: dir, cwd: dir, slug: 'stage-link', taskId: 'stage-link' });
+  cli();
+  assert.equal(runPacks().length, 1);
 });

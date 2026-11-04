@@ -37,7 +37,7 @@ const shipped = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'core/registry/
 test('IC-017, IC-018: the shipped blocks load and validate, one entry per harness and per behaviour × harness', () => {
   const coverage = shipped();
   assert.deepEqual(validate(coverage), []);
-  assert.equal(coverage.revision, 3);
+  assert.equal(coverage.revision, 4);
   assert.equal(base.coverage.endOfTurn.length, base.harnesses.length, 'the shipped registry loads with endOfTurn');
   assert.equal(base.coverage.behaviours.length, 6 * base.harnesses.length, 'and with behaviours (42 pairs)');
   for (const entry of coverage.behaviours.filter((item: any) => item.status === 'enforced')) {

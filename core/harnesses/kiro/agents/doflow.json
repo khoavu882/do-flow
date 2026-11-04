@@ -17,16 +17,6 @@
       "timeout": 10
     },
     {
-      "name": "doflow-pre-bash-guard",
-      "trigger": "preToolUse",
-      "matcher": "shell",
-      "action": {
-        "type": "command",
-        "command": "bash \"$(root=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$root/.kiro/hooks/pre-bash-guard.sh\" ] && printf '%s/.kiro/hooks/pre-bash-guard.sh' \"$root\" || printf '%s/.kiro/hooks/pre-bash-guard.sh' \"$HOME\")\""
-      },
-      "timeout": 10
-    },
-    {
       "name": "doflow-mcp-tool-guard",
       "trigger": "preToolUse",
       "matcher": "*",

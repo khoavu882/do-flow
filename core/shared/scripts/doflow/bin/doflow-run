@@ -339,6 +339,23 @@ resolve_node_cli() {
   return 1
 }
 
+# A checkout found from the caller's cwd may be older than its local develop branch. Keep this
+# advisory on stderr so the selected CLI's stdout and exit status remain untouched.
+warn_checkout_pwd_behind_develop() {
+  local cwd head counts head_only develop_only
+  [ "$NODE_CLI_SOURCE" = "checkout-pwd" ] || return 0
+  cwd="$(pwd -P 2>/dev/null || pwd)"
+  head="$(git -C "$cwd" rev-parse --verify HEAD 2>/dev/null)" || return 0
+  git -C "$cwd" show-ref --verify --quiet refs/heads/develop || return 0
+  counts="$(git -C "$cwd" rev-list --left-right --count HEAD...refs/heads/develop 2>/dev/null)" || return 0
+  read -r head_only develop_only <<EOF
+$counts
+EOF
+  case "$head_only:$develop_only" in
+    0:[1-9]* ) printf 'doflow-run: warning: selected runtime %s at %s is behind local develop\n' "$NODE_CLI_PATH" "$head" >&2 ;;
+  esac
+}
+
 # ---------------------------------------------------------------------------------- reporting
 
 wants_json=false
@@ -413,6 +430,7 @@ Workflow and evidence:
   outcome          record a task's terminal state with its basis, or show what was recorded
   scaffold         emit the code scaffold the active feature's artifacts imply
   decision         register, list or compact the active feature's decisions
+  intake           sort, preview, undo, list or file prompt text for the feature's additional-context folder
   followup         record, list, take, settle, promote or report what a feature left unfinished
   lifecycle        overview, init, status, release or merged: follow-ups and feature tracking for the project
   goal             add, check, link, list or close a goal and its checklist
@@ -421,12 +439,15 @@ Workflow and evidence:
   plan-check       check a plan's task lines the way the task-attempt ledger reads them
   review           validate a feature's review/findings.json, print counts and advisories (review-package assembles the payload)
   protocol         print the review and debate protocol presets, or the one a run would use (read-only)
+  rules            print the values the runtime owns for this project, each with its source (read-only)
   primary          resolve which harness and model the main session runs (read-only)
   fleet            list the projects this machine knows (read-only)
   transcript       read an agent's recent events, or the project's traffic (read-only)
   package          list the contribution points a package may fill, check a package directory, list/show packages (read-only), add/update a local package (a plan, then --plan applies it), or enable/disable/trust/exempt/revoke/verify/remove one
   slot             named machine-wide queue: run a command as its one holder, list or release
   models           synchronize, list, or inspect observed models across workers (--action sync|list|describe)
+  worktree         remove a merged feature's worktree and branch, never by force (--action cleanup --slug <slug>)
+  attendance       say whether a person is watching a stage (read-only; --task-id <slug> [--run <id>])
 
 Verification and recovery:
   verify           compile the contract, run checks, emit the report
@@ -551,8 +572,8 @@ shell_helper_for() {
 # command list; an unbuilt verb is dispatched and the CLI answers for itself.
 is_node_verb() {
   case "$1" in
-    classify|workflow|route|evidence|claim|readiness|context-pack|context-emit|context-grant|retrieval-plan|outcome|scaffold|decision|followup|lifecycle|goal|failure|verify|recover|leak-scan|\
-trace|stats|indicators|discover|inventory|capabilities|enforcement|doctor|config|orchestrate|research-request|task-attempt|worker|dispatch|retrieve|model-role|storage|brief-tools|advise|roadmap|plan-check|review|protocol|primary|fleet|transcript|package|slot|models) return 0 ;;
+    classify|workflow|route|evidence|claim|readiness|context-pack|context-emit|context-grant|retrieval-plan|outcome|scaffold|decision|intake|followup|lifecycle|goal|failure|verify|recover|leak-scan|\
+trace|stats|indicators|discover|inventory|capabilities|enforcement|doctor|config|orchestrate|research-request|task-attempt|worker|dispatch|retrieve|model-role|storage|brief-tools|advise|roadmap|plan-check|review|protocol|rules|primary|fleet|transcript|package|slot|models|worktree|attendance) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -581,6 +602,7 @@ dispatch_node() {
     fail 2 "cli-not-found" \
       "verb '$verb' is served by the Node CLI, which could not be located; set DOFLOW_CLI to a doflow.js path, install the package (npm i -g @khoavu882/doflow), or run from a checkout"
   fi
+  warn_checkout_pwd_behind_develop
   if [ "$NODE_CLI_KIND" = "script" ]; then
     command -v node >/dev/null 2>&1 || fail 2 "node-not-found" \
       "verb '$verb' needs node on PATH to run $NODE_CLI_PATH"

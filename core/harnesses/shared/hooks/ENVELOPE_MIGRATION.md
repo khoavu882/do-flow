@@ -36,7 +36,7 @@ them through), but sending nothing for a non-edit tool is equally correct and ch
 ## Version and mixed-install rules
 
 - A missing envelope or version, empty or non-object input, or a missing `contract.sh` is out of
-  step. The gate, bash guard and MCP guard deny with `DoFlow hooks out of step; run: doflow update
+  step. The gate and MCP guard deny with `DoFlow hooks out of step; run: doflow update
   -t <harness>`; Stop and context policies exit silently, except the prompt hook emits its `{}`
   no-op. Other envelope versions are unsupported and policies evaluate nothing.
 - If a door cannot load `bridge/bridge.sh`, it renders its fixed native out-of-step response. The

@@ -116,12 +116,12 @@ async function buildAdviceDoctor({ repoRoot = REPO_ROOT, projectRoot = process.c
         decisionModels: [], lastCall: latestCall(window.records),
       };
     }
-    return { decisionModel, advice, _inspection: inspection, _offReason: setting.state === 'off' ? offReason(setting) : null };
+    return { decisionModel, advice, _inspection: inspection, _offReason: setting.state === 'off' ? (loaded.ok ? offReason(setting) : `unreadable advice registry: ${loaded.detail}`) : null };
   } catch (error: any) {
     return { decisionModel: { setting: { state: 'off', reason: 'config-invalid', decidedBy: { user: null, project: null }, modelFrom: null, notes: [error.message] },
       endpoint: { url: null, state: 'not-checked', version: null, minVersion: null, versionOk: false, message: null },
       model: { name: null, installed: false, decisionCapable: false }, decisionModels: [], lastCall: null },
-      advice: { windowDays: WINDOW_DAYS, store: 'advice-picks-user', kinds: [], unreadableLines: 0 }, _inspection: null, _offReason: 'unreadable setting in decision-model.json' };
+      advice: { windowDays: WINDOW_DAYS, store: 'advice-picks-user', kinds: [], unreadableLines: 0 }, _inspection: null, _offReason: `advice doctor could not complete: ${error.message}` };
   }
 }
 

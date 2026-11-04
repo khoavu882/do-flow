@@ -157,6 +157,31 @@ test('C-3: presets equal to or stricter than the effective settings pass', (t) =
   assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
 });
 
+test('FU-xtffjw: an invalid project review.preset or debate.preset that the prepared settings replace does not refuse the run', (t) => {
+  const { f, validate } = setup(t);
+  f.writeProjectSettings({ schema: 1, 'review.preset': 'bogus-9', 'debate.preset': 'bogus-9' });
+  const result = validate({
+    schema: 1, taskClass: 'bug', settings: { 'review.preset': 'review-deep', 'debate.preset': 'debate-3' },
+    presets: { review: 'review-deep', debate: 'debate-3' },
+  });
+  assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+  // The replaced value is the one judged: a looser preset than it is still not-narrower.
+  const looser = validate({
+    schema: 1, taskClass: 'bug', settings: { 'review.preset': 'review-deep', 'debate.preset': 'debate-3' }, presets: { review: 'review-single' },
+  });
+  assert.equal(entryFor(looser, 'presets.review').code, 'not-narrower');
+});
+
+test('FU-xtffjw: a live settings fault the prepared run cannot replace is a validation entry (exit 1), not a usage fault (exit 2)', (t) => {
+  const { f, validate } = setup(t);
+  f.writeUserSettings({ schema: 1, 'review.preset': 'bogus-9' });
+  const result = validate({ schema: 1, taskClass: 'bug', settings: { 'review.preset': 'review-deep' }, presets: { review: 'review-deep' } });
+  const entry = entryFor(result, 'presets.review');
+  assert.equal(entry.code, 'settings-unavailable');
+  assert.match(entry.message, /review\.preset/, entry.message);
+  assert.match(entry.message, /settings\.json/, entry.message);
+});
+
 test('presets.review that is not a review preset, and presets.debate that is not a debate preset, are enum', (t) => {
   const { validate } = setup(t);
   const result = validate({ ...VALID(), presets: { review: 'debate-3', debate: 'review-deep' } });

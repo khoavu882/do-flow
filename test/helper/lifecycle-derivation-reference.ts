@@ -169,12 +169,46 @@ function refDerive({ root, fold, facts }: any) {
   return { ...refResult(releaseMode, ref, null, statuses, notDetected, behind), integrationSha: pinned, evidenceCommits };
 }
 
+/** Semver parts of a `vX.Y.Z[-pre]` tag, and the semver 2.0 precedence between two of them. */
+function refSemverParts(name: any) {
+  const m = /^v(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/.exec(name);
+  return m ? { nums: [Number(m[1]), Number(m[2]), Number(m[3])], pre: m[4] ? m[4].split('.') : null } : { nums: [0, 0, 0], pre: null };
+}
+function refSemverCompare(a: any, b: any) {
+  const x = refSemverParts(a);
+  const y = refSemverParts(b);
+  for (let i = 0; i < 3; i++) if (x.nums[i] !== y.nums[i]) return x.nums[i] < y.nums[i] ? -1 : 1;
+  if (!x.pre || !y.pre) return x.pre === y.pre ? 0 : x.pre ? -1 : 1;
+  for (let i = 0; i < Math.max(x.pre.length, y.pre.length); i++) {
+    const p = x.pre[i];
+    const q = y.pre[i];
+    if (p === undefined) return -1;
+    if (q === undefined) return 1;
+    if (p === q) continue;
+    const pn = /^\d+$/.test(p);
+    const qn = /^\d+$/.test(q);
+    if (pn && qn) return Number(p) < Number(q) ? -1 : 1;
+    if (pn !== qn) return pn ? -1 : 1;
+    return p < q ? -1 : 1;
+  }
+  return 0;
+}
+
 /** The release preview (no `--confirm`, no `--feature`, no `--exclude`), as IC-020 reads it. */
 function refRelease({ root, tag, fold, facts }: any) {
-  const otherTags = { ...facts, release_tags: facts.release_tags.filter((name: any) => name !== tag) };
+  // Of the other tags only a RECORDED one, or a stable one EARLIER than `tag` (lower version, or a strict ancestor commit), stays.
+  const tagCommit = refGitOut(root, ['rev-parse', '--verify', '--quiet', `refs/tags/${tag}^{commit}`]) || null;
+  const recordedNames = new Set(fold.releases.map((r: any) => r.tag));
+  const earlierStable = (name: any) => {
+    if (refSemverParts(name).pre) return false;
+    if (refSemverCompare(name, tag) < 0) return true;
+    const commit = refGitOut(root, ['rev-parse', '--verify', '--quiet', `refs/tags/${name}^{commit}`]);
+    return Boolean(tagCommit && commit) && commit !== tagCommit
+      && refGitOut(root, ['merge-base', '--is-ancestor', commit, tagCommit]) !== null;
+  };
+  const otherTags = { ...facts, release_tags: facts.release_tags.filter((name: any) => name !== tag && (recordedNames.has(name) || earlierStable(name))) };
   const derived: any = refDerive({ root, fold, facts: otherTags });
   const anc = exactAncestry(root);
-  const tagCommit = refGitOut(root, ['rev-parse', '--verify', '--quiet', `refs/tags/${tag}^{commit}`]) || null;
   const bound = tagCommit || derived.integrationSha;
   const known = new Set(facts.release_tags);
   let previousTag;

@@ -476,6 +476,9 @@ function drive({ repo, scenario, fixture, fault, chooser, plan, deadlineMs, gran
         actor.parked = null;
         if (!actor.ended) {
           fail('child-crash', `${actor.name} exited ${signal || code} without DONE/THREW${actor.stderr ? `: ${actor.stderr.trim().split('\n').at(-1)}` : ''}`);
+        } else if (code !== 0 || signal) {
+          // A terminal protocol line is not a clean end: an actor that dies after it did not finish its exit.
+          fail('child-crash', `${actor.name} exited ${signal || code} after ${actor.outcome.kind}`);
         }
         if (actors.every((a: any) => a.closed)) {
           clearTimeout(timer);

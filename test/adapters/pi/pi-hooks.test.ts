@@ -209,7 +209,7 @@ test('pi guard extension installs, verifies and removes at project scope with th
 
 test('Pi project-scope headless coverage stays unknown and records project trust', () => {
   const coverage = JSON.parse(fs.readFileSync(path.join(ROOT, 'core/registry/lifecycle.json'), 'utf8')).coverage;
-  for (const policy of ['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard']) {
+  for (const policy of ['pre-implementation-gate', 'mcp-tool-guard']) {
     const row = coverage.rows.find((item: any) => item.harness === 'pi' && item.policy === policy
       && item.event === 'tool_call' && item.profile === 'project-headless');
     assert.ok(row, `${policy} project-headless row exists`);

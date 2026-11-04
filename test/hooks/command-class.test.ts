@@ -62,7 +62,7 @@ function native(command: any, event: any = EVENTS[0]) {
   const payload = JSON.parse(fs.readFileSync(path.join(REPO, FIXTURES, file), 'utf8')).native;
   return { ...payload, tool_input: { command } };
 }
-function encode(payload: any, { root = REPO, mode = 'encode', harness = 'claude', policy = 'pre-bash-guard' }: any = {}) {
+function encode(payload: any, { root = REPO, mode = 'observe', harness = 'claude', policy = 'post-shell-observe' }: any = {}) {
   const result = spawnSync('jq', [...JQ_B, '-c', '--arg', 'harness', harness, '--arg', 'event', payload.hook_event_name || 'PreToolUse', '--arg', 'policy', policy,
     ...(mode === null ? [] : ['--arg', 'mode', mode]), '-f', path.join(root, BRIDGE, 'envelope.jq')], {
     input: JSON.stringify(payload), encoding: 'utf8', env: env(root), timeout: 5000,
@@ -114,10 +114,12 @@ test('30 commands classify by the highest segment and telemetry contains classes
   const root = project(t);
   for (const [command, expected] of CASES) {
     const payload = native(command);
-    const encoded = encode({ ...payload, hook_event_name: 'PreToolUse' });
-    assert.equal(encoded.length, 2);
+    const encoded = encode(payload);
+    assert.equal(encoded.length, 1);
     assert.equal(encoded[0].test_class, expected, command);
-    assert.equal(encoded[1].doflow_event.command, command, 'classification does not change the policy envelope');
+    const envelope = encode(payload, { mode: 'encode', policy: 'pre-implementation-gate' });
+    assert.equal(envelope.length, 2);
+    assert.equal(envelope[1].doflow_event.command, command, 'classification does not change the policy envelope');
     noContent([encoded[0]]);
     const count = lines(root).length;
     observe(root, payload);
@@ -128,19 +130,20 @@ test('30 commands classify by the highest segment and telemetry contains classes
   }
 });
 
-test('all five harness decoders classify the same command; other policies and modes do not add a class', () => {
+test('all five harness decoders classify the same command; the five decoders agree on the command and only observe mode adds a class', () => {
   const command = 'npm test';
   for (const harness of ['claude', 'codex', 'kiro', 'antigravity', 'pi']) {
     const payload = harness === 'pi' ? { toolName: 'bash', input: { command } }
       : harness === 'antigravity' ? { toolCall: { name: 'run_command', args: { CommandLine: command } } }
         : { tool_name: 'Bash', tool_input: { command } };
-    assert.equal(encode(payload, { harness })[0].test_class, 'test.full', harness);
+    assert.equal(encode(payload, { harness, mode: 'encode', policy: 'pre-implementation-gate' })[1].doflow_event.command, command, harness);
   }
   const payload = native(command);
-  assert.equal(encode(payload, { policy: 'mcp-tool-guard' })[0].test_class, null);
-  assert.equal(encode({ ...payload, tool_name: 'Edit' })[0].test_class, null);
+  assert.equal(encode(payload)[0].test_class, 'test.full');
+  assert.equal(encode(payload, { mode: 'encode', policy: 'pre-implementation-gate' })[0].test_class, null);
+  assert.deepEqual(encode({ ...payload, tool_name: 'Edit' }), [{ dft: 1 }], 'a non-command tool yields no tuple');
   for (const mode of [null, 'minimal']) assert.equal(encode(payload, { mode }).length, 1);
-  assert.equal(encode(payload, { mode: 'observe', policy: 'post-shell-observe' }).length, 1, 'observe returns only the tuple');
+  assert.equal(encode(payload).length, 1, 'observe returns only the tuple');
 });
 
 test('assignments, cd, segment priority, runner boundaries and malformed commands', () => {
@@ -195,10 +198,10 @@ test('pre and post pair by BOTH session and tool_call_id in the real span projec
   for (const event of EVENTS) observe(root, native('npm test', event));
   const posts = lines(root);
   const records = posts.flatMap((post: any, i: any) => {
-    const pre = encode({ ...native('npm test', post.event), hook_event_name: 'PreToolUse' })[0];
+    const pre = encode({ ...native('npm test', post.event), hook_event_name: 'PreToolUse' }, { mode: 'encode', policy: 'pre-implementation-gate' })[0];
     assert.deepEqual([pre.session, pre.tool_call_id], [post.session, post.tool_call_id]);
     const timestamp = new Date(Date.now() + i * 10000).toISOString();
-    const start: any = { ...pre, kind: 'hook', event: 'PreToolUse', harness: 'claude', policy: 'pre-bash-guard', verdict: 'allow', timestamp, duration_ms: null };
+    const start: any = { ...pre, kind: 'hook', event: 'PreToolUse', harness: 'claude', policy: 'pre-implementation-gate', verdict: 'allow', timestamp, duration_ms: null };
     delete start.dft; delete start.date;
     return [start, { ...start, session: 'other-session' }, { ...start, tool_call_id: 'other-call' },
       { ...post, timestamp: new Date(Date.parse(timestamp) + 2000).toISOString() }];
@@ -292,7 +295,7 @@ test('negative control: emitting the raw command instead of class makes the SAME
   noContent([records[0]]);
   // The scratch encoder is installed beneath .doflow; invoke it without executing any command.
   const scratchEncoder = path.join(root, '.doflow/shared/hooks/bridge/envelope.jq');
-  const result = spawnSync('jq', [...JQ_B, '-c', '--arg', 'harness', 'claude', '--arg', 'event', 'PreToolUse', '--arg', 'policy', 'pre-bash-guard', '--arg', 'mode', 'encode', '-f', scratchEncoder], {
+  const result = spawnSync('jq', [...JQ_B, '-c', '--arg', 'harness', 'claude', '--arg', 'event', 'PostToolUse', '--arg', 'policy', 'post-shell-observe', '--arg', 'mode', 'observe', '-f', scratchEncoder], {
     input: JSON.stringify(payload), encoding: 'utf8', env: env(root),
   });
   assert.equal(result.status, 0, result.stderr);

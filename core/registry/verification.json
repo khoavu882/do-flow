@@ -15,11 +15,6 @@
       "testTargeted"
     ],
     "planOverrideBlock": "doflow-verification",
-    "completion": {
-      "requires": "all-required-tiers-pass",
-      "override": "explicit-user-acceptance",
-      "overrideRequiresAccepter": true
-    },
     "unresolvedDetectionFailureClass": "CONTEXT_MISSING",
     "notes": [
       "A tier whose command could not be detected and was not explicitly declared absent resolves to UNRESOLVED, and an UNRESOLVED required tier forces the whole report to INCONCLUSIVE. A gate never answers PASS about a check it did not run.",

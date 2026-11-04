@@ -2,12 +2,15 @@
 
 **Feature:** [NNN-slug] · **Requirement:** [REQUIREMENT_PATH] · **Maturity:** Draft · **Created:** [DATE]
 
-> System shape — architecture, APIs, data/interface contracts. Reads [REQUIREMENT_PATH].
+> System shape — architecture, journeys, APIs, data/interface contracts. Reads [REQUIREMENT_PATH].
 > Distinct from plan.md's HOW-to-implement; this is HOW-it's-shaped.
+>
+> Journey-first: business and engineering read the front half (Architecture Approach through
+> Journeys) on one page, in plain nouns. The component-level sections follow it.
 >
 > Structure follows `references/ARTIFACT_FORMAT.md`: indexed sections carry a table above full
 > `**Detail**`, the document-level `Maturity` is `Draft`, `In review` or `Approved`, the item-level
-> `Status` is only `Live` or `Superseded → <ref>`, and superseded prose moves to §9.
+> `Status` is only `Live` or `Superseded → <ref>`, and superseded prose moves to the History section.
 
 ## 1. Architecture Approach
 
@@ -27,18 +30,25 @@
 | [what is being settled] | [the shape this design gives it] | [person or role accountable] | no |
 | [what is being settled] | [the shape this design gives it] | [person or role accountable] | yes: [what must happen first] |
 
-[Component boundaries, where this fits in the existing system, 2–4 sentences.]
+<!-- Acts as the summary. In 2–4 sentences or bullets, in plain nouns with no component IDs or code
+     names: who gains what and why, the goal of this phase, and where it plugs into the existing
+     system. Leave out implementation detail: that belongs in Components & Boundaries. -->
+
+[Who this is for and why, the goal of this phase, and where it fits in the existing system.]
 
 ## 2. System Overview (C4)
 
-<!-- The visual complement to §1 — lets a reader unfamiliar with this feature see the shape before
-     reading prose. C4 is kept as the conceptual zoom model (Context → Container → Component) and
-     rendered with Mermaid `flowchart` + `subgraph`. Each level heading is written
-     "C4 Level N: ...", so no level label collides with a §3 component ID such as C3.
+<!-- The visual complement to Architecture Approach — lets a reader unfamiliar with this feature see
+     the shape before reading prose. C4 is kept as the conceptual zoom model (Context → Container →
+     Component) and rendered with Mermaid `flowchart` + `subgraph`. Each level heading is written
+     "C4 Level N: ...", so no level label collides with a component ID such as C3.
 
      Do NOT use the C4Context / C4Container diagram types. They are experimental in Mermaid: no
      direction control, relationship labels collide with arrowheads, and rendering varies across
      viewers. `flowchart` is the most widely supported type and puts labels legibly on the arrow.
+
+     EVERY edge carries a label saying what flows over it (a request, a record, money, a file),
+     never a bare arrow.
 
      Skip a level with "N/A: [why]". For a trivial single-file change with no new external
      interaction, write "N/A: [why]" for the whole section. -->
@@ -100,8 +110,8 @@ flowchart LR
 ### C4 Level 3: Component
 
 <!-- Required when this feature touches 3+ components within a single container; otherwise write
-     "N/A: covered by §3 Components & Boundaries". On a small change this diagram restates the §3
-     table verbatim, and a diagram that adds nothing trains authors to tick boxes. -->
+     "N/A: covered by Components & Boundaries". On a small change this diagram restates the
+     Components & Boundaries table verbatim, and a diagram that adds nothing trains authors to tick boxes. -->
 
 [Internals of the container this feature changes — handlers, services, ports, adapters.]
 
@@ -117,7 +127,85 @@ flowchart TB
     C_B -->|"[persists]"| STORE
 ```
 
-## 3. Components & Boundaries
+[One closing sentence: what this feature decides versus where the data or money moves.]
+
+## 3. Concepts
+
+<!-- Write the handful of nouns a reader must hold to follow the Journeys, in plain words: no
+     component IDs, no code names. One `flowchart` of how they relate (every edge labelled with the
+     relationship), then a glossary table. Leave out anything a journey does not use. Write
+     "N/A: [why]" for a design with no domain vocabulary worth defining. -->
+
+```mermaid
+flowchart LR
+    TERM_A["[Concept A]"]
+    TERM_B["[Concept B]"]
+    TERM_C["[Concept C]"]
+
+    TERM_A -->|"[relationship, e.g. has many]"| TERM_B
+    TERM_B -->|"[relationship, e.g. is checked against]"| TERM_C
+```
+
+| Term | Meaning |
+|---|---|
+| [Concept A] | [one plain sentence] |
+| [Concept B] | [one plain sentence] |
+
+## 4. Journeys
+
+<!-- One `### Journey N — <name>` per user or system journey, in the order a reader meets them. Each
+     carries one picture (a `flowchart` or a `sequenceDiagram`), a `stateDiagram-v2` for EVERY
+     stateful thing the journey creates, and a small rules table. Write in plain nouns: no component
+     IDs, no code names. Leave out internal calls that no actor sees. Write "N/A: [why]" for the
+     whole section when the design has no user or system journey (a pure library or refactor). -->
+
+### Journey 1 — [journey name]
+
+[One sentence: who starts this journey and what it ends with.]
+
+```mermaid
+flowchart LR
+    START["[trigger]"] -->|"[what flows]"| CHECK{"[decision]"}
+    CHECK -->|"[pass: what flows]"| DONE["[outcome]"]
+    CHECK -->|"[fail: what flows]"| STOP["[alternate outcome]"]
+```
+
+```mermaid
+stateDiagram-v2
+    [*] --> Created
+    Created --> Active: [guarded transition]
+    Active --> Ended: [guarded transition]
+    Ended --> [*]
+```
+
+| Rule | Why it holds |
+|---|---|
+| [a rule this journey enforces] | [the reason, or what breaks without it] |
+
+### Worked example
+
+<!-- Real numbers that make the rules checkable: one case that passes and one that does not, then the
+     result. Close with one caveat sentence saying what is not guaranteed. Leave out hypothetical
+     values you cannot compute. -->
+
+| Candidate | Eligible? | Why | Result |
+|---|---|---|---|
+| [case that passes, with a real figure] | yes | [which rule it meets] | [computed outcome] |
+| [case that fails, with a real figure] | no | [which rule it breaks] | [computed outcome] |
+
+[Caveat: what is shown but not guaranteed, and where it is re-checked.]
+
+### Eligibility / decision inputs
+
+<!-- A TABLE, never a mindmap: DIAGRAM_GUIDE.md excludes `mindmap`. One row per group of inputs the
+     decision reads; say what the first version reads and what comes later. -->
+
+| Input group | What is read | Read in this version? |
+|---|---|---|
+| [group, e.g. the user] | [the facts checked] | yes |
+| [group, e.g. the limits] | [the facts checked] | later: [why] |
+
+## 5. Components & Boundaries
 
 | ID | Component | Kind | Serves | Status |
 |---|---|---|---|---|
@@ -134,7 +222,7 @@ flowchart TB
   - **Does not own:** [what a reader could expect it to hold but another component does].
   - **Contracts:** [the FR-### and IC-### identifiers it serves].
 
-## 4. API / Interface Contracts
+## 6. API / Interface Contracts
 
 <!-- Endpoints, CLI verb signatures, and repository/service interfaces that anchor implementation
      live in ./specs.md §1 Interface Contracts, not here — each as one ID-bearing IC-### entry so
@@ -142,7 +230,7 @@ flowchart TB
      this feature genuinely introduces no interface contracts; otherwise leave a one-line pointer,
      e.g. "See ./specs.md §1." -->
 
-## 5. Data Model
+## 7. Data Model
 
 The data-model shape is governed by `./data-model.md` §1.
 
@@ -150,7 +238,7 @@ The data-model shape is governed by `./data-model.md` §1.
      ./data-model.md §1 Data Model, not here. Write `N/A: [why]` if this feature introduces no data
      model or UX changes; otherwise leave a one-line pointer, e.g. "See ./data-model.md §1." -->
 
-## 6. Sequence / Data Flow
+## 8. Sequence / Data Flow
 
 The data-flow shape is governed by `./data-model.md` §2.
 
@@ -159,7 +247,7 @@ The data-flow shape is governed by `./data-model.md` §2.
      no non-trivial interaction sequence; otherwise leave a one-line pointer, e.g.
      "See ./data-model.md §2." -->
 
-## 7. Design Risks & Alternatives Considered
+## 9. Design Risks & Alternatives Considered
 
 | ID | Risk / Alternative | Disposition | Status |
 |---|---|---|---|
@@ -169,7 +257,16 @@ The data-flow shape is governed by `./data-model.md` §2.
 
 - **R1** → [why this shape was chosen, or why the risk is accepted and what it costs if it lands].
 
-## 8. Assumptions
+## 10. Open Points for Review
+
+<!-- The questions this design could not answer, ending the design instead of a bare risk list. One
+     bold-led question per bullet, followed by the reasoning already known (a figure, a trade-off, the
+     option you lean to). Lead each with the question in bold; do not number them with an ID. Write
+     "None — no open points." when every question was settled. -->
+
+- **[A question a reviewer must answer?]** [The reasoning already known and the option leaned to.]
+
+## 11. Assumptions
 
 <!-- With a decision register, a row from a "Decide for me" pick cites its DEC-### in Basis: see ARTIFACT_FORMAT.md §12. -->
 
@@ -185,7 +282,7 @@ The data-flow shape is governed by `./data-model.md` §2.
      and detail if every design-level ambiguity was resolved by a direct answer rather than the
      defer escape hatch during /do-design's clarification loop. -->
 
-## 9. History
+## 12. History
 
 <!-- Superseded design decisions move here; the index row above stays as a tombstone with
      `Superseded → <ref>`. -->

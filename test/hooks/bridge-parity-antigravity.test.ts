@@ -65,6 +65,9 @@ function run(row: any, index: any) {
     const policy = path.join(mirror, '.doflow/shared/hooks/policies/pre-implementation-gate.sh');
     fs.writeFileSync(policy, "#!/usr/bin/env bash\nprintf '%200s\\n' '' | tr ' ' x >&2\nexit 9\n", { mode: 0o755 });
   }
+  if (row.fixture.mcpPolicyAppend) {
+    fs.appendFileSync(path.join(mirror, '.doflow/shared/hooks/policies/mcp-policy.conf'), `${row.fixture.mcpPolicyAppend}\n`);
+  }
   const event = row.stem === 'stop-check' ? 'Stop' : 'PreToolUse';
   const runner = path.join(mirror, '.doflow/shared/hooks/stream-hook-runner.js');
   const result = spawnSync(process.execPath, [runner, event], {
@@ -88,15 +91,11 @@ function run(row: any, index: any) {
   if (row.fixture.expect.stdout === '<deny-json>') {
     const body = JSON.parse(result.stdout);
     assert.equal(body.decision, 'deny', `${label}: native deny`);
-    assert.match(body.reason, /^\[pre-implementation-gate\] doflow gate: feature .* is missing/);
+    assert.match(body.reason, /^\[mcp-tool-guard\] .* \(tool: mcp_gh_delete_repo\)$/);
   } else if (row.fixture.expect.stdout === '<error-json>') {
     const body = JSON.parse(result.stdout);
     assert.deepEqual(body, { decision: 'deny', reason: '[pre-implementation-gate] DoFlow policy error; details: doflow-run failure list' }, `${label}: fixed error render`);
     assert.equal(result.stdout.includes('x'.repeat(200)), false, `${label}: raw policy stderr is hidden`);
-  } else if (row.fixture.expect.stdout === '<continue-json>') {
-    const body = JSON.parse(result.stdout);
-    assert.equal(body.decision, 'continue', `${label}: Stop block`);
-    assert.match(body.reason, /^\[stop-check\]/, `${label}: Stop reason`);
   } else if (row.fixture.expect.stdout !== undefined) {
     assert.equal(result.stdout, row.fixture.expect.stdout, `${label}: stdout`);
   }

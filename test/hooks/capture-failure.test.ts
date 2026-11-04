@@ -23,13 +23,12 @@ const scratch = createScratch('doflow-hook-capture-');
 after(() => scratch.remove());
 
 let n = 0;
-/** A scratch machine with its own copy of the policy folder, optionally without the two pattern files. */
+/** A scratch machine with its own copy of the policy folder, optionally without the MCP policy file. */
 function machine(name: any, { patterns = true } = {}) {
   const dir = path.join(scratch.dir, `${name}-${n++}`);
   const pol = path.join(dir, 'policies');
   fs.cpSync(POLICIES, pol, { recursive: true });
   if (!patterns) {
-    fs.rmSync(path.join(pol, 'blocked-patterns.conf'));
     fs.rmSync(path.join(pol, 'mcp-policy.conf'));
   }
   const m: any = { dir, pol, home: path.join(dir, 'home'), xdg: path.join(dir, 'xdg'), cwd: path.join(dir, 'project') };
@@ -47,7 +46,7 @@ function run(m: any, policy: any, stdin: any, { env = {}, dropHome = false, cwd 
 }
 
 const lines = (m: any) => (fs.existsSync(m.events) ? fs.readFileSync(m.events, 'utf8').split('\n').filter(Boolean).map((l: any) => JSON.parse(l)) : []);
-const bash = (tool: any, command: any, harness = 'claude') => encodeEnvelope(harness, 'PreToolUse', 'pre-bash-guard', JSON.stringify({ tool_name: tool, tool_input: { command } }));
+const mcp = encodeEnvelope('claude', 'PreToolUse', 'mcp-tool-guard', JSON.stringify({ tool_name: 'mcp__srv__tool', tool_input: {} }));
 
 /** Same call with capture on and off in twin machines; the two must be identical. */
 function pair(policy: any, stdin: any, { patterns = false, env = {}, dropHome = false } = {}) {
@@ -60,123 +59,7 @@ function pair(policy: any, stdin: any, { patterns = false, env = {}, dropHome = 
   return { on, off, a };
 }
 
-describe('pre-bash-guard patterns-missing', { skip: !HAS_JQ && 'jq is not installed' }, () => {
-  const cases = [
-    ['an allowed command', bash('Bash', 'ls -la'), 0],
-    ['a floor deny (rm -rf /)', bash('Bash', 'rm -rf /'), 2],
-    ['a floor deny of the home directory', bash('Bash', 'rm -rf ~'), 2],
-    ['the run_shell_command tool name', encodeEnvelope('antigravity', 'PreToolUse', 'pre-bash-guard', JSON.stringify({ toolCall: { name: 'run_shell_command', args: { CommandLine: 'echo hi' } } })), 0],
-  ];
-  for (const [name, stdin, status] of cases) {
-    test(`${name}: recorded once; output and status identical with capture off`, () => {
-      const { on, a } = pair('pre-bash-guard.sh', stdin);
-      assert.equal(a.status, status);
-      const out = lines(on);
-      assert.equal(out.length, 1);
-      assert.deepEqual([out[0].source, out[0].command, out[0].kind, out[0].message, out[0].frame, out[0].exit], ['hook', 'pre-bash-guard', 'patterns-missing', '', null, null]);
-    });
-  }
-  for (const [name, stdin, status] of [
-    ['malformed stdin', 'not json at all', 2],
-    ['empty stdin', '', 2],
-    ['a non-Bash tool', bash('Read', 'ls'), 0],
-    ['an empty command', bash('Bash', ''), 0],
-    ['a JSON document with no tool name', '{"a":1}', 2],
-  ]) {
-    test(`${name}: never reaches the fail-open branch, so nothing is recorded, output identical`, () => {
-      const { on, a } = pair('pre-bash-guard.sh', stdin);
-      assert.equal(a.status, status);
-      if (status === 2) assert.equal(lines(on).at(-1).kind, 'envelope-missing');
-      else assert.equal(lines(on).length, 0);
-    });
-  }
-  test('with the pattern file present nothing is recorded and a deny is unchanged', () => {
-    const { on, a }: any = pair('pre-bash-guard.sh', bash('Bash', 'rm -rf /'), { patterns: true });
-    assert.equal(a.status, 2);
-    assert.equal(lines(on).length, 0);
-    assert.equal(fs.existsSync(on.failures), false);
-  });
-  test('HOME unset with no XDG_CONFIG_HOME: skipped, output and status identical', () => {
-    for (const stdin of [bash('Bash', 'ls'), bash('Bash', 'rm -rf /'), 'not json']) {
-      const { a } = pair('pre-bash-guard.sh', stdin, { dropHome: true });
-      assert.ok([0, 2].includes(a.status));
-    }
-  });
-  // 086 C23 (IC-003 case 9): a relative XDG_CONFIG_HOME is ignored, so a usable HOME decides.
-  test('a relative XDG_CONFIG_HOME is ignored: the line lands in $HOME/.config/doflow/failures', () => {
-    const m = machine('relxdg', { patterns: false });
-    const r = run(m, 'pre-bash-guard.sh', bash('Bash', 'ls'), { env: { XDG_CONFIG_HOME: 'rel/cfg' } });
-    assert.equal(r.status, 0);
-    assert.equal(fs.existsSync(path.join(m.cwd, 'rel')), false, 'never read against the working directory');
-    assert.equal(fs.readFileSync(path.join(m.home, '.config', 'doflow', 'failures', 'events.jsonl'), 'utf8').split('\n').filter(Boolean).length, 1);
-  });
-  test('a relative XDG_CONFIG_HOME with HOME unset: no config home, skipped, output identical', () => {
-    const on = machine('relxdg-nohome-on', { patterns: false });
-    const off = machine('relxdg-nohome-off', { patterns: false });
-    const go = (m: any, extra: any) => {
-      const env = { ...process.env, XDG_CONFIG_HOME: 'rel/cfg', DOFLOW_FAILURE_CAPTURE: '', DOFLOW_AGENT: '', ...extra };
-      delete env.HOME;
-      const r = spawnSync(BASH, [path.join(m.pol, 'pre-bash-guard.sh')], { cwd: m.cwd, env, input: bash('Bash', 'rm -rf /'), encoding: 'utf8' });
-      return [r.status, r.stdout, r.stderr];
-    };
-    const a = go(on, {});
-    assert.deepEqual(a, go(off, { DOFLOW_FAILURE_CAPTURE: 'off' }));
-    assert.equal(a[0], 2, 'the floor still denies');
-    assert.deepEqual(fs.readdirSync(on.cwd), [], 'nothing created in the working directory');
-  });
-  test('without XDG_CONFIG_HOME the line lands in $HOME/.config/doflow/failures', () => {
-    const m = machine('homeconfig', { patterns: false });
-    const env: any = { ...process.env, HOME: m.home, DOFLOW_FAILURE_CAPTURE: '', DOFLOW_AGENT: '' };
-    delete env.XDG_CONFIG_HOME;
-    spawnSync(BASH, [path.join(m.pol, 'pre-bash-guard.sh')], { cwd: m.cwd, env, input: bash('Bash', 'ls'), encoding: 'utf8' });
-    assert.equal(fs.readFileSync(path.join(m.home, '.config', 'doflow', 'failures', 'events.jsonl'), 'utf8').split('\n').filter(Boolean).length, 1);
-  });
-  test('an unwritable store is silent', () => {
-    const on = machine('unwritable', { patterns: false });
-    const blocker = path.join(on.dir, 'blocker');
-    fs.writeFileSync(blocker, 'x');
-    const a = run(on, 'pre-bash-guard.sh', bash('Bash', 'rm -rf /'), { env: { XDG_CONFIG_HOME: blocker } });
-    const b = run(on, 'pre-bash-guard.sh', bash('Bash', 'rm -rf /'), { env: { DOFLOW_FAILURE_CAPTURE: 'off' } });
-    assert.deepEqual(a, b);
-    assert.equal(a.status, 2);
-  });
-  test('the switch: env values and the sentinel turn it off', () => {
-    for (const value of ['off', 'OFF', '0', 'false', 'No']) {
-      const m: any = machine('switch', { patterns: false });
-      run(m, 'pre-bash-guard.sh', bash('Bash', 'ls'), { env: { DOFLOW_FAILURE_CAPTURE: value } });
-      assert.equal(fs.existsSync(m.failures), false, value);
-    }
-    const m: any = machine('sentinel', { patterns: false });
-    fs.mkdirSync(m.failures, { recursive: true });
-    fs.writeFileSync(path.join(m.failures, 'off'), 'x');
-    run(m, 'pre-bash-guard.sh', bash('Bash', 'ls'), { env: { DOFLOW_FAILURE_CAPTURE: 'on' } });
-    assert.deepEqual(fs.readdirSync(m.failures), ['off']);
-  });
-  test('a missing helper file changes nothing', () => {
-    const m: any = machine('nohelper', { patterns: false });
-    fs.rmSync(path.join(m.pol, 'capture-failure.sh'));
-    const withHelper = machine('withhelper', { patterns: false });
-    const a = run(m, 'pre-bash-guard.sh', bash('Bash', 'rm -rf /'));
-    const b = run(withHelper, 'pre-bash-guard.sh', bash('Bash', 'rm -rf /'), { env: { DOFLOW_FAILURE_CAPTURE: 'off' } });
-    assert.deepEqual(a, b);
-    assert.equal(fs.existsSync(m.failures), false);
-  });
-  test('a hostile helper that sets -e, installs a trap, prints and exits non-zero changes nothing (the subshell isolates it)', () => {
-    const hostile = (m: any) => fs.writeFileSync(path.join(m.pol, 'capture-failure.sh'),
-      'set -euo pipefail\ntrap \'exit 9\' EXIT\ndoflow_capture_failure() { echo oops; echo err >&2; false; exit 9; }\n');
-    for (const stdin of [bash('Bash', 'ls'), bash('Bash', 'rm -rf /')]) {
-      const bad = machine('hostile', { patterns: false });
-      hostile(bad);
-      const good = machine('good', { patterns: false });
-      const a = run(bad, 'pre-bash-guard.sh', stdin);
-      const b = run(good, 'pre-bash-guard.sh', stdin, { env: { DOFLOW_FAILURE_CAPTURE: 'off' } });
-      assert.deepEqual(a, b);
-    }
-  });
-});
-
 describe('mcp-tool-guard policy-file-missing', { skip: !HAS_JQ && 'jq is not installed' }, () => {
-    const mcp = encodeEnvelope('claude', 'PreToolUse', 'mcp-tool-guard', JSON.stringify({ tool_name: 'mcp__srv__tool', tool_input: {} }));
   test('recorded once; output and status identical with capture off', () => {
     const { on, a } = pair('mcp-tool-guard.sh', mcp);
     assert.deepEqual([a.status, a.stdout, a.stderr], [0, '', '']);
@@ -195,7 +78,7 @@ describe('mcp-tool-guard policy-file-missing', { skip: !HAS_JQ && 'jq is not ins
         assert.equal(a.status, 0);
         assert.equal(lines(on).length, 0);
       } else {
-        assert.equal(a.status, 2);
+        assert.equal(a.status, 0, 'out of step is allowed with a line, never denied');
         assert.equal(lines(on).at(-1).kind, 'envelope-missing');
       }
     });
@@ -215,6 +98,77 @@ describe('mcp-tool-guard policy-file-missing', { skip: !HAS_JQ && 'jq is not ins
     const { a } = pair('mcp-tool-guard.sh', mcp, { dropHome: true });
     assert.equal(a.status, 0);
   });
+  // 086 C23 (IC-003 case 9): a relative XDG_CONFIG_HOME is ignored, so a usable HOME decides.
+  test('a relative XDG_CONFIG_HOME is ignored: the line lands in $HOME/.config/doflow/failures', () => {
+    const m = machine('relxdg', { patterns: false });
+    const r = run(m, 'mcp-tool-guard.sh', mcp, { env: { XDG_CONFIG_HOME: 'rel/cfg' } });
+    assert.equal(r.status, 0);
+    assert.equal(fs.existsSync(path.join(m.cwd, 'rel')), false, 'never read against the working directory');
+    assert.equal(fs.readFileSync(path.join(m.home, '.config', 'doflow', 'failures', 'events.jsonl'), 'utf8').split('\n').filter(Boolean).length, 1);
+  });
+  test('a relative XDG_CONFIG_HOME with HOME unset: no config home, skipped, output identical', () => {
+    const on = machine('relxdg-nohome-on', { patterns: false });
+    const off = machine('relxdg-nohome-off', { patterns: false });
+    const go = (m: any, extra: any) => {
+      const env = { ...process.env, XDG_CONFIG_HOME: 'rel/cfg', DOFLOW_FAILURE_CAPTURE: '', DOFLOW_AGENT: '', ...extra };
+      delete env.HOME;
+      const r = spawnSync(BASH, [path.join(m.pol, 'mcp-tool-guard.sh')], { cwd: m.cwd, env, input: mcp, encoding: 'utf8' });
+      return [r.status, r.stdout, r.stderr];
+    };
+    const a = go(on, {});
+    assert.deepEqual(a, go(off, { DOFLOW_FAILURE_CAPTURE: 'off' }));
+    assert.equal(a[0], 0, 'a missing policy file still fails open');
+    assert.deepEqual(fs.readdirSync(on.cwd), [], 'nothing created in the working directory');
+  });
+  test('without XDG_CONFIG_HOME the line lands in $HOME/.config/doflow/failures', () => {
+    const m = machine('homeconfig', { patterns: false });
+    const env: any = { ...process.env, HOME: m.home, DOFLOW_FAILURE_CAPTURE: '', DOFLOW_AGENT: '' };
+    delete env.XDG_CONFIG_HOME;
+    spawnSync(BASH, [path.join(m.pol, 'mcp-tool-guard.sh')], { cwd: m.cwd, env, input: mcp, encoding: 'utf8' });
+    assert.equal(fs.readFileSync(path.join(m.home, '.config', 'doflow', 'failures', 'events.jsonl'), 'utf8').split('\n').filter(Boolean).length, 1);
+  });
+  test('an unwritable store is silent', () => {
+    const on = machine('unwritable', { patterns: false });
+    const blocker = path.join(on.dir, 'blocker');
+    fs.writeFileSync(blocker, 'x');
+    const a = run(on, 'mcp-tool-guard.sh', mcp, { env: { XDG_CONFIG_HOME: blocker } });
+    const b = run(on, 'mcp-tool-guard.sh', mcp, { env: { DOFLOW_FAILURE_CAPTURE: 'off' } });
+    assert.deepEqual(a, b);
+    assert.equal(a.status, 0);
+  });
+  test('the switch: env values and the sentinel turn it off', () => {
+    for (const value of ['off', 'OFF', '0', 'false', 'No']) {
+      const m: any = machine('switch', { patterns: false });
+      run(m, 'mcp-tool-guard.sh', mcp, { env: { DOFLOW_FAILURE_CAPTURE: value } });
+      assert.equal(fs.existsSync(m.failures), false, value);
+    }
+    const m: any = machine('sentinel', { patterns: false });
+    fs.mkdirSync(m.failures, { recursive: true });
+    fs.writeFileSync(path.join(m.failures, 'off'), 'x');
+    run(m, 'mcp-tool-guard.sh', mcp, { env: { DOFLOW_FAILURE_CAPTURE: 'on' } });
+    assert.deepEqual(fs.readdirSync(m.failures), ['off']);
+  });
+  test('a missing helper file changes nothing', () => {
+    const m: any = machine('nohelper', { patterns: false });
+    fs.rmSync(path.join(m.pol, 'capture-failure.sh'));
+    const withHelper = machine('withhelper', { patterns: false });
+    const a = run(m, 'mcp-tool-guard.sh', mcp);
+    const b = run(withHelper, 'mcp-tool-guard.sh', mcp, { env: { DOFLOW_FAILURE_CAPTURE: 'off' } });
+    assert.deepEqual(a, b);
+    assert.equal(fs.existsSync(m.failures), false);
+  });
+  test('a hostile helper that sets -e, installs a trap, prints and exits non-zero changes nothing (the subshell isolates it)', () => {
+    const hostile = (m: any) => fs.writeFileSync(path.join(m.pol, 'capture-failure.sh'),
+      'set -euo pipefail\ntrap \'exit 9\' EXIT\ndoflow_capture_failure() { echo oops; echo err >&2; false; exit 9; }\n');
+    for (const stdin of [mcp, mcp]) {
+      const bad = machine('hostile', { patterns: false });
+      hostile(bad);
+      const good = machine('good', { patterns: false });
+      const a = run(bad, 'mcp-tool-guard.sh', stdin);
+      const b = run(good, 'mcp-tool-guard.sh', stdin, { env: { DOFLOW_FAILURE_CAPTURE: 'off' } });
+      assert.deepEqual(a, b);
+    }
+  });
 });
 
 describe('the helper (IC-018)', () => {
@@ -229,13 +183,13 @@ describe('the helper (IC-018)', () => {
   test('writes one line: the IC-011 fields, no output, status 0, under the guards\' set -uo pipefail', () => {
     const m = machine('h-line', { patterns: false });
     fs.mkdirSync(path.join(m.home, 'work', 'app'), { recursive: true });
-    const r = call(m, ['pre-bash-guard', 'patterns-missing'], { env: { DOFLOW_AGENT: 'codex' }, cwd: path.join(m.home, 'work', 'app') });
+    const r = call(m, ['mcp-tool-guard', 'policy-file-missing'], { env: { DOFLOW_AGENT: 'codex' }, cwd: path.join(m.home, 'work', 'app') });
     assert.deepEqual([r.status, r.stdout, r.stderr], [0, 'status=0\n', '']);
     const [line] = lines(m);
     assert.deepEqual(Object.keys(line), ['v', 'at', 'source', 'command', 'harness', 'version', 'project', 'kind', 'message', 'frame', 'exit']);
     assert.match(line.at, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.000Z$/);
     assert.deepEqual([line.source, line.command, line.harness, line.project, line.kind, line.message, line.frame, line.exit],
-      ['hook', 'pre-bash-guard', 'codex', '~/work/app', 'patterns-missing', '', null, null]);
+      ['hook', 'mcp-tool-guard', 'codex', '~/work/app', 'policy-file-missing', '', null, null]);
   });
   test('works under no options and under set -e too (it is sourced in a subshell, but must not depend on that)', () => {
     for (const options of [':', 'set -e', 'set -euo pipefail']) {
@@ -253,26 +207,26 @@ describe('the helper (IC-018)', () => {
     fs.writeFileSync(path.join(proj, '.doflow', '.install-manifest.json'), JSON.stringify({ script_version: '3.1.4', last_operation: 'install' }, null, 2));
     const copy = path.join(proj, '.claude', 'hooks', 'capture-failure.sh');
     fs.copyFileSync(HELPER, copy);
-    call(m, ['pre-bash-guard', 'patterns-missing'], { helper: copy });
+    call(m, ['mcp-tool-guard', 'policy-file-missing'], { helper: copy });
     assert.equal(lines(m)[0].version, '3.1.4');
     const global = machine('h-version-global', { patterns: false });
     fs.mkdirSync(path.join(global.home, '.doflow'), { recursive: true });
     fs.writeFileSync(path.join(global.home, '.doflow', '.install-manifest.json'), JSON.stringify({ script_version: '2.0.1' }, null, 2));
     const loose = path.join(global.dir, 'capture-failure.sh');
     fs.copyFileSync(HELPER, loose);
-    call(global, ['pre-bash-guard', 'patterns-missing'], { helper: loose });
+    call(global, ['mcp-tool-guard', 'policy-file-missing'], { helper: loose });
     assert.equal(lines(global)[0].version, '2.0.1');
     const none = machine('h-version-none', { patterns: false });
     fs.copyFileSync(HELPER, path.join(none.dir, 'capture-failure.sh'));
-    call(none, ['pre-bash-guard', 'patterns-missing'], { helper: path.join(none.dir, 'capture-failure.sh') });
+    call(none, ['mcp-tool-guard', 'policy-file-missing'], { helper: path.join(none.dir, 'capture-failure.sh') });
     assert.equal(lines(none)[0].version, 'unknown');
   });
   test('invalid policy and point names: a bad policy becomes unknown, a bad point records nothing', () => {
     const m = machine('h-names', { patterns: false });
-    call(m, ['Bad Name;', 'patterns-missing']);
-    call(m, ['pre-bash-guard', 'bad point"']);
-    call(m, ['pre-bash-guard', '']);
-    assert.deepEqual(lines(m).map((l: any) => [l.command, l.kind]), [['unknown', 'patterns-missing']]);
+    call(m, ['Bad Name;', 'policy-file-missing']);
+    call(m, ['mcp-tool-guard', 'bad point"']);
+    call(m, ['mcp-tool-guard', '']);
+    assert.deepEqual(lines(m).map((l: any) => [l.command, l.kind]), [['unknown', 'policy-file-missing']]);
   });
   test('a working directory with quotes, backslashes, control characters and unicode stays one valid JSON line, within 1000 bytes', () => {
     const m: any = machine('h-escape', { patterns: false });
@@ -281,7 +235,7 @@ describe('the helper (IC-018)', () => {
     const win = process.platform === 'win32';
     const nasty = path.join(m.dir, win ? "we'ird na me caf\u00e9 \u4e2d" : 'we"ird\\na\tme caf\u00e9 \u4e2d');
     fs.mkdirSync(nasty);
-    call(m, ['pre-bash-guard', 'patterns-missing'], { cwd: nasty });
+    call(m, ['mcp-tool-guard', 'policy-file-missing'], { cwd: nasty });
     const raw = fs.readFileSync(m.events, 'utf8');
     assert.equal(raw.split('\n').filter(Boolean).length, 1);
     assert.ok(lines(m)[0].project.includes(win ? "we'ird na me caf" : 'we"ird\\na me caf'));
@@ -291,7 +245,7 @@ describe('the helper (IC-018)', () => {
     const m: any = machine('h-long', { patterns: false });
     const long = path.join(m.dir, (process.platform === 'win32' ? "q'" : 'q"').repeat(60)); // a double quote is not a legal NTFS name character
     fs.mkdirSync(long, { recursive: true });
-    call(m, ['pre-bash-guard', 'patterns-missing'], { cwd: long, env: { DOFLOW_AGENT: 'a'.repeat(40) } });
+    call(m, ['mcp-tool-guard', 'policy-file-missing'], { cwd: long, env: { DOFLOW_AGENT: 'a'.repeat(40) } });
     assert.ok(Buffer.byteLength(fs.readFileSync(m.events, 'utf8')) <= 1000);
     assert.equal(lines(m).length, 1);
   });
@@ -301,28 +255,28 @@ describe('the helper (IC-018)', () => {
     fs.writeFileSync(m.events, '');
     fs.truncateSync(m.events, 1048576);
     fs.appendFileSync(m.events, '\n');
-    call(m, ['pre-bash-guard', 'patterns-missing']);
-    call(m, ['pre-bash-guard', 'patterns-missing']);
+    call(m, ['mcp-tool-guard', 'policy-file-missing']);
+    call(m, ['mcp-tool-guard', 'policy-file-missing']);
     assert.deepEqual(fs.readdirSync(m.failures), ['events.jsonl']);
     assert.ok(fs.statSync(m.events).size > 1048576);
   });
   test('the folder is 0700 and the new file 0600', { skip: process.platform === 'win32' }, () => {
     const m: any = machine('h-modes', { patterns: false });
-    call(m, ['pre-bash-guard', 'patterns-missing']);
+    call(m, ['mcp-tool-guard', 'policy-file-missing']);
     assert.equal(fs.statSync(m.failures).mode & 0o777, 0o700);
     assert.equal(fs.statSync(m.events).mode & 0o777, 0o600);
   });
   test('it reads no stdin', () => {
     const m = machine('h-stdin', { patterns: false });
-    const r = spawnSync(BASH, ['-c', '. "$1"; doflow_capture_failure pre-bash-guard patterns-missing; echo "left=$(cat)"', 'x', HELPER],
+    const r = spawnSync(BASH, ['-c', '. "$1"; doflow_capture_failure mcp-tool-guard policy-file-missing; echo "left=$(cat)"', 'x', HELPER],
       { cwd: m.cwd, env: { ...process.env, HOME: m.home, XDG_CONFIG_HOME: m.xdg, DOFLOW_FAILURE_CAPTURE: '' }, input: 'payload-stays-here', encoding: 'utf8' });
     assert.equal(r.stdout, 'left=payload-stays-here\n');
   });
   test('the same line the Node writer would produce folds into one entry with the Node writer\'s lines', () => {
     const { fingerprint } = require('../../src/runtime/failure/store.ts');
     const m = machine('h-fp', { patterns: false });
-    call(m, ['pre-bash-guard', 'patterns-missing']);
-    call(m, ['pre-bash-guard', 'patterns-missing']);
+    call(m, ['mcp-tool-guard', 'policy-file-missing']);
+    call(m, ['mcp-tool-guard', 'policy-file-missing']);
     const [a, b] = lines(m);
     assert.equal(fingerprint(a), fingerprint(b));
   });
@@ -333,7 +287,6 @@ describe('what the guard policies must not do (DEC-018, DEC-032)', () => {
   const code = (text: any) => text.split('\n').filter((l: any) => !l.trim().startsWith('#')).join('\n');
 
   const capturePoints = {
-    'pre-bash-guard.sh': ['contract-missing', 'dependency-missing:jq', 'unsupported:envelope-version', 'envelope-missing', 'patterns-missing'],
     'mcp-tool-guard.sh': ['contract-missing', 'dependency-missing:jq', 'unsupported:envelope-version', 'envelope-missing', 'policy-file-missing'],
     'pre-implementation-gate.sh': ['contract-missing', 'dependency-missing:jq', 'edit-without-target', 'unsupported:envelope-version', 'envelope-missing'],
   };
@@ -374,7 +327,7 @@ describe('switch parsing parity and FIFOs (hook helper)', () => {
   test('the helper reads DOFLOW_FAILURE_CAPTURE exactly as the Node writer does', () => {
     for (const value of SWITCH_INPUTS) {
       const m = machine('parity', { patterns: false });
-      spawnSync(BASH, ['-c', '. "$1"; doflow_capture_failure pre-bash-guard patterns-missing', 'x', HELPER],
+      spawnSync(BASH, ['-c', '. "$1"; doflow_capture_failure mcp-tool-guard policy-file-missing', 'x', HELPER],
         { cwd: m.cwd, env: { ...process.env, HOME: m.home, XDG_CONFIG_HOME: m.xdg, DOFLOW_FAILURE_CAPTURE: value }, encoding: 'utf8' });
       assert.equal(lines(m).length === 0, captureIsOff('/nonexistent-home', { DOFLOW_FAILURE_CAPTURE: value }), JSON.stringify(value));
     }
@@ -385,11 +338,10 @@ describe('switch parsing parity and FIFOs (hook helper)', () => {
     fs.mkdirSync(m.failures, { recursive: true });
     assert.equal(spawnSync('mkfifo', [m.events]).status, 0);
     const started = Date.now();
-    const r = spawnSync(BASH, [path.join(m.pol, 'pre-bash-guard.sh')], {
-      cwd: m.cwd, env: { ...process.env, HOME: m.home, XDG_CONFIG_HOME: m.xdg, DOFLOW_FAILURE_CAPTURE: '' }, input: bash('Bash', 'rm -rf /'), encoding: 'utf8', timeout: 20000,
+    const r = spawnSync(BASH, [path.join(m.pol, 'mcp-tool-guard.sh')], {
+      cwd: m.cwd, env: { ...process.env, HOME: m.home, XDG_CONFIG_HOME: m.xdg, DOFLOW_FAILURE_CAPTURE: '' }, input: mcp, encoding: 'utf8', timeout: 20000,
     });
     assert.ok(Date.now() - started < 15000, 'returned promptly');
-    assert.equal(r.status, 2);
-    assert.match(r.stderr, /Catastrophic delete blocked/);
+    assert.equal(r.status, 0);
   });
 });

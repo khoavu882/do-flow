@@ -21,7 +21,10 @@ case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; th
 # Usage:
 #   do-review-package.sh --task=<id> --base=<sha> --head=<sha> [--slug=<slug>] [--json]
 #
-# Emits: {path, commits, bytes, base, head}
+# Emits: {path, commits, bytes, base, head}, plus missing[] when the rules block could not be built.
+#
+# Between the title and the commit list the package carries the "Rules that apply to you" block: the
+# mustCarry lines of the rule ledger (core/registry/rules.json), as the task and group briefs print them.
 
 set -uo pipefail
 
@@ -96,10 +99,40 @@ if [ "${commits:-0}" -eq 0 ]; then
   exit 2
 fi
 
+# The registry file `core/registry/<name>` of the runtime this script belongs to: next to the checkout or
+# projected runtime found above this script, else the global projected runtime (as do-task-brief.sh).
+registry_file() { # registry_file <name>
+  local d="$script_dir" c
+  while [ -n "$d" ] && [ "$d" != "/" ]; do
+    for c in "$d/core/registry/$1" "$d/runtime/core/registry/$1"; do
+      if [ -f "$c" ]; then printf '%s' "$c"; return 0; fi
+    done
+    d="$(dirname "$d")"
+  done
+  c="${HOME:-}/.doflow/runtime/core/registry/$1"
+  if [ -f "$c" ]; then printf '%s' "$c"; fi
+  return 0
+}
+
+missing='[]'
+rules_block=""
+rules_file="$(registry_file rules.json)"
+if [ -z "$rules_file" ]; then
+  missing='["brief-rules: core/registry/rules.json is missing"]'
+else
+  rule_lines="$(jq -r 'if (.mustCarry | type) == "array" and (.mustCarry | length) > 0 and (.mustCarry | all(type == "string")) then .mustCarry[] | "- " + . else empty end' "$rules_file" 2>/dev/null)"
+  if [ -z "$rule_lines" ]; then
+    missing='["brief-rules: core/registry/rules.json has no mustCarry array"]'
+  else
+    rules_block="$(printf '## Rules that apply to you\n\n%s\n' "$rule_lines")"
+  fi
+fi
+
 write_ok=1
 {
   echo "# Review package: $base7..$head7"
   echo
+  if [ -n "$rules_block" ]; then printf '%s\n\n' "$rules_block"; fi
   echo "## Commits"
   git log --oneline "$base..$head_ref"
   echo
@@ -127,5 +160,6 @@ jq -n \
   --argjson commits "${commits:-0}" \
   --argjson bytes "${bytes:-0}" \
   --arg base "$base7" --arg head "$head7" \
-  '{path:$path, commits:$commits, bytes:$bytes, base:$base, head:$head}'
+  --argjson missing "$missing" \
+  '{path:$path, commits:$commits, bytes:$bytes, base:$base, head:$head} + (if ($missing | length) > 0 then {missing:$missing} else {} end)'
 exit 0

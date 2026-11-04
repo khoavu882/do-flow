@@ -564,6 +564,7 @@ test('classify sorts every IC-005 outcome into the rows of the error table (6.6)
   assert.equal(key(401, 'unauthenticated', { exchange: 'none', sessionWorked: false }), 'session-unauth');
   assert.equal(key(401, 'unauthenticated', { exchange: 'ok', sessionWorked: true }), 'session-ended');
   assert.equal(key(403, 'forbidden-origin'), 'forbidden-origin');
+  assert.deepEqual(c(403, 'phone-scope'), { scope: 'inline', key: 'phone-scope', auto: false, status: 403, code: 'phone-scope' });
   assert.equal(key(null, null), 'offline');
   assert.equal(key(503, 'core-unreachable'), 'runtime-missing');
   assert.equal(key(503, 'core-version'), 'runtime-range');
@@ -849,6 +850,16 @@ test('error: run-not-found is final (no retry), names the way back, and the hear
   await advance(20_000);
   assert.equal(apiCalls(page, '/api/runs/feat-a/nope').length, 1, 'not retried');
   assert.equal(page.conn.getAttribute('data-state'), 'done');
+});
+
+test('phone scope: restricted view explains access and links to runs without retrying', async () => {
+  const page = await start({ hash: '#/sessions', fetch: (target, init) => (target === '/api/sessions' ? errorReply(403, 'phone-scope') : standard(target, init)) });
+  assert.equal(text(page.main.querySelector('.state-panel__title')), 'This view is unavailable on a phone session');
+  assert.match(text(page.main), /Phone sessions can view runs and workflows/);
+  assert.equal(page.main.querySelector('a.btn').getAttribute('href'), '#/');
+  assert.equal(page.main.querySelector('.countdown'), null);
+  await advance(20_000);
+  assert.equal(apiCalls(page, '/api/sessions').length, 1);
 });
 
 test('no-runtime: a full page with the facts and the command; /api/info is retried until the core returns', async () => {
@@ -2069,14 +2080,15 @@ const replayOf = (page: Page): any => ({
 });
 const scrubTo = (page: Page, index: number) => { const { range } = replayOf(page); range.value = String(index); range.fire('input'); };
 
-test('E.4 run view: the bar sits below the timeline; scrubbing draws the rail and the slot at that event, with a banner; a poll keeps the place; play runs to the end; Back to live clears it', async () => {
+test('E.4 run view: replay sits between activity and timeline; scrubbing draws the rail and slot at that event, with a banner; a poll keeps the place; play runs to the end; Back to live clears it', async () => {
   mods.home.resetHome();
   // Run events at 60, 50, 40, 30 and 20 min ago plus A.2 claimed (50) and finished (40), A.1 claimed (12): ten events.
   const page = await start({ hash: '#/run/feat-a/run-1', fetch: runRoute(() => runBodyWith(frow('run-1', 4), replayEvents(), GRAPH_PLAN())) });
   const kids = page.main.querySelector('.view-body').children.filter((c: any) => c instanceof El).map((c: El) => c.className.split(' ')[0]);
-  assert.ok(kids.indexOf('replay') > kids.indexOf('replay-host'), `the bar is after the run view: ${kids}`);
+  assert.deepEqual(kids, ['replay-host'], `the run view and contextual replay controls share one ordered host: ${kids}`);
   const hosted = page.main.querySelector('.replay-host').children.filter((c: any) => c instanceof El).map((c: El) => c.className.split(' ')[0]);
-  assert.equal(hosted[hosted.length - 1], 'timeline', `and the timeline is the last thing in it: ${hosted}`);
+  assert.ok(hosted.indexOf('activity') < hosted.indexOf('replay'), `activity comes before its replay controls: ${hosted}`);
+  assert.ok(hosted.indexOf('replay') < hosted.indexOf('timeline'), `replay controls sit next to the timeline: ${hosted}`);
   let r = replayOf(page);
   assert.equal(r.bar.getAttribute('data-mode'), 'live');
   assert.equal(r.banner.getAttribute('hidden'), '', 'no banner while live');
@@ -2092,6 +2104,8 @@ test('E.4 run view: the bar sits below the timeline; scrubbing draws the rail an
   assert.equal(r.banner.getAttribute('hidden'), null);
   assert.match(text(r.banner), /^Replaying .+ · event 2 of 8: discovery completed, passed$/);
   assert.equal(text(page.main.querySelector('.activity__name')), 'Name of gate-0', 'the slot shows the gate the run stood at then');
+  const replayOrder = page.main.querySelector('.replay-host').children.filter((c: any) => c instanceof El).map((c: El) => c.className.split(' ')[0]);
+  assert.ok(replayOrder.indexOf('replay__banner') < replayOrder.indexOf('activity'), `the replay notice labels history before it is read: ${replayOrder}`);
   assert.equal(page.main.querySelectorAll('.rail__item').filter((b: El) => b.getAttribute('data-state') === 'done').length, 1);
 
   r.button('Next event').fire('click');
@@ -3396,4 +3410,29 @@ test('133 shortcuts: with no main region the view heading takes the focus', asyn
     keydownOn(page, 'Escape');
     assert.ok(h1 !== null && page.doc.activeElement === h1, 'focus is on the view heading');
   });
+});
+
+test('replay keeps its controls attached while scrubbing and starting playback', async () => {
+  const page = installPage({ fetch: () => reply(204) });
+  const { withReplay, releaseReplay } = await import(url('views/replay.js'));
+  const data = { timeline: { events: [{ action: 'start', at: '2026-01-01T00:00:00Z' }, { action: 'complete-stage', at: '2026-01-01T00:00:01Z' }] }, tasks: null };
+  const local: any = {};
+  const [host] = withReplay(data, local, () => [new El('div', page.doc), Object.assign(new El('div', page.doc), { className: 'timeline' })], { place: 'before-timeline' });
+  const bar = host.querySelector('.replay');
+  const range = host.querySelector('[data-focus-key="replay-range"]');
+  const play = host.querySelector('[data-focus-key="replay-play"]');
+  // Any removal of the bar, even if immediately reinserted, loses real browser focus/pointer capture.
+  const replace = host.replaceChildren.bind(host);
+  host.replaceChildren = (...nodes: any[]) => { assert.fail('replay host replaced its controls'); };
+  range.focus();
+  range.value = '0';
+  range.fire('input');
+  assert.equal(bar.parent, host);
+  assert.equal(page.doc.activeElement, range);
+  play.focus();
+  play.fire('click');
+  assert.equal(bar.parent, host);
+  assert.equal(page.doc.activeElement, play);
+  releaseReplay(local);
+  host.replaceChildren = replace;
 });

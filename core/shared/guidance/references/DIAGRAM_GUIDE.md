@@ -136,7 +136,7 @@ it carries.
 
 Some features author diagrams in PlantUML under `design/c4/` and commit the render. These apply on top of everything above.
 
-**C4 divides by level**: `context.puml`, `container.puml`, `component.puml`, one file each; a level not drawn has no file. The Mermaid in `design.md` §2 is generated from these, so editing it by hand
+**C4 divides by level**: `context.puml`, `container.puml`, `component.puml`, one file each; a level not drawn has no file. The Mermaid in `design.md` System Overview (C4) is generated from these, so editing it by hand
 is a change the next render discards.
 
 **The generated view drops seven things** — element type, technology, description, sprite, tag, link

@@ -503,7 +503,20 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
         hooks = { ...hooks, ok: false, status: 'conflict', changes: [], errors: ['Codex hooks.json was modified outside DoFlow'] };
       }
     }
+    if (hooks.ok) hooks = withStaleScriptReleases(hooks, scriptRows(neutralResources, context));
     return hooks;
+  }
+
+  /** A script row for a name the source no longer ships (a retired front door) is released with the
+   * plan, so the ledger does not keep a row for a file the update deletes. The script itself goes by
+   * its bytes (deployCodexHooks), so this only drops the row. */
+  function withStaleScriptReleases(hooks: any, rows: any[]) {
+    const shipped = new Set(hooks.scriptNames);
+    const releases = rows.filter((row: any) => !shipped.has(row.identity)).map((row: any) => ({ type: 'remove', assetId: row.assetId, identity: row.identity,
+      target: row.target, ownershipIdentity: row.ownershipIdentity, kind: row.kind, release: true }));
+    if (!releases.length) return hooks;
+    return { ...hooks, changes: [...hooks.changes, ...releases],
+      ...(hooks.status === 'unchanged' ? { status: 'change', scriptsOnly: true } : {}) };
   }
 
   /** Agents/hooks share one removing-vs-planning fork: removal always owns both via the neutral

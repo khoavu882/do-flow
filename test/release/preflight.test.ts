@@ -52,6 +52,11 @@ function fixture(t: any, options: any = {}) {
     }
     if (command === 'git' && args[0] === 'log') return options.mergeSubjects || '';
     if (command === 'git' && args[0] === 'status') return options.dirty ? ' M package.json\n' : '';
+    if (command === 'gh' && args[0] === 'api') {
+      if (options.stableEnvironment === undefined) throw new Error('gh: Not Found (HTTP 404)');
+      return typeof options.stableEnvironment === 'string'
+        ? options.stableEnvironment : JSON.stringify(options.stableEnvironment);
+    }
     if (command === 'npm' && args[0] === 'view') {
       if (options.networkError) {
         throw Object.assign(new Error('getaddrinfo ENOTFOUND registry.npmjs.org'), { code: 'ENOTFOUND' });
@@ -74,6 +79,7 @@ function fixture(t: any, options: any = {}) {
     offline: Boolean(options.offline),
     tagPushed: Boolean(options.tagPushed),
     allowStable: Boolean(options.allowStable),
+    envImpl: options.env || { GITHUB_REPOSITORY: 'khoavu882/doflow' },
     execFileSyncImpl,
   };
   const run = (overrides = {}) => runPreflight({ ...baseOptions, ...overrides });
@@ -138,13 +144,64 @@ test('--tag-pushed fails when the release tag is on another commit', (t) => {
   assert.equal(check(result, 'tag-at-head').ok, false);
 });
 
+const PROTECTED = {
+  name: 'release-stable',
+  protection_rules: [{ type: 'required_reviewers', prevent_self_review: false,
+    reviewers: [{ type: 'User', reviewer: { login: 'khoavu882' } }] }],
+};
+
 test('stable releases require --allow-stable', (t) => {
-  const denied = fixture(t, { version: '2.0.0' });
+  const denied = fixture(t, { version: '2.0.0', stableEnvironment: PROTECTED });
   assert.equal(check(denied.result, 'stable-allowed').ok, false);
   assert.match(check(denied.result, 'stable-allowed').message, /--allow-stable/);
+  assert.equal(denied.calls.some((call: any) => call[0] === 'gh'), false, 'no flag, no environment lookup');
 
-  const allowed = fixture(t, { version: '2.0.0', allowStable: true });
+  const allowed = fixture(t, { version: '2.0.0', allowStable: true, stableEnvironment: PROTECTED });
   assert.equal(check(allowed.result, 'stable-allowed').ok, true);
+  assert.ok(allowed.calls.some((call: any) => call.join(' ')
+    === 'gh api repos/khoavu882/doflow/environments/release-stable'));
+});
+
+test('--allow-stable fails closed unless release-stable names a required reviewer', (t) => {
+  const refusals: any = [
+    ['environment missing (404)', {}],
+    ['auto-created environment with no rules', { stableEnvironment: { name: 'release-stable', protection_rules: [] } }],
+    ['wait timer only', { stableEnvironment: { name: 'release-stable',
+      protection_rules: [{ type: 'wait_timer', wait_timer: 5 }] } }],
+    ['reviewers under another rule type', { stableEnvironment: { name: 'release-stable',
+      protection_rules: [{ type: 'branch_policy', reviewers: PROTECTED.protection_rules[0].reviewers }] } }],
+    ['reviewer rule with no reviewer', { stableEnvironment: { name: 'release-stable',
+      protection_rules: [{ type: 'required_reviewers', reviewers: [] }] } }],
+    ['another environment answered', { stableEnvironment: { ...PROTECTED, name: 'release-open' } }],
+    ['unreadable answer', { stableEnvironment: 'not json' }],
+    ['malformed repository', { stableEnvironment: PROTECTED, env: { GITHUB_REPOSITORY: 'a/b/../c d' } }],
+    ['offline', { stableEnvironment: PROTECTED, offline: true }],
+  ];
+  for (const [name, options] of refusals) {
+    const { result, calls } = fixture(t, { version: '2.0.0', allowStable: true, ...options });
+    const gate = check(result, 'stable-allowed');
+    assert.equal(gate.ok, false, name);
+    assert.equal(gate.skipped, undefined, name + ' must fail, not skip');
+    assert.match(gate.message, /stable release refused/, name);
+    assert.equal(result.ok, false, name + ' must fail the whole preflight');
+    if (name === 'offline' || name === 'malformed repository') {
+      assert.equal(calls.some((call: any) => call[0] === 'gh'), false, name + ' must not call gh');
+    }
+  }
+});
+
+test('a prerelease never looks up the stable environment, with or without --allow-stable', (t) => {
+  for (const allowStable of [false, true]) {
+    const { result, calls } = fixture(t, { allowStable });
+    assert.equal(check(result, 'stable-allowed').ok, true);
+    assert.equal(calls.some((call: any) => call[0] === 'gh'), false);
+  }
+});
+
+test('without GITHUB_REPOSITORY the lookup lets gh resolve the current repository', (t) => {
+  const { result, calls } = fixture(t, { version: '2.0.0', allowStable: true, stableEnvironment: PROTECTED, env: {} });
+  assert.equal(check(result, 'stable-allowed').ok, true);
+  assert.ok(calls.some((call: any) => call.join(' ') === 'gh api repos/{owner}/{repo}/environments/release-stable'));
 });
 
 test('an already-published npm version fails', (t) => {

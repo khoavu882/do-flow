@@ -11,7 +11,7 @@ _DOFLOW_SRC=${0//\\//}; case $_DOFLOW_SRC in */*) _DOFLOW_POLDIR=${_DOFLOW_SRC%/
 # Today there is zero record of which of the installed agents/ specialists actually run, how often, or
 # whether one is invoked outside its intended use (e.g. everything routing through general-purpose
 # instead of do-code-review/security-engineer) — this hook is the evidence base a future policy
-# hook (e.g. an agent-aware pre-bash-guard extension) would need before writing rules on a guess.
+# hook (e.g. an agent-aware tool guard) would need before writing rules on a guess.
 # Per agent-docs/research/hook-governance-agent-tool-mcp-skill.md §3.1: pure logging, no deny path,
 # safe to ship immediately, and the recommended first step before any tighter agent governance.
 #
@@ -67,6 +67,26 @@ TIMESTAMP=$(date -u +%FT%TZ)
 
 SESSION_PATH=$(ensure_session_dir "$SESSION_ID")
 
+# One SubagentStop record per session+agent id. A harness that runs another harness's hook wiring as
+# well as its own (Copilot with a Claude install, issue 21) delivers each stop twice, possibly at the
+# same moment. mkdir is the atomic claim: the delivery that creates the marker writes the record, a
+# delivery that finds it is a duplicate. SubagentStart, an id-less stop and an id that is not a plain
+# token (no safe marker name) are always recorded, and any failure to claim records anyway (fail open).
+STOP_CLAIM=""
+STOP_EVENT_KEY=$(printf '%s' "$EVENT" | tr 'A-Z_' 'a-z')
+if [ "$STOP_EVENT_KEY" = "subagentstop" ] && [ -n "$AGENT_ID" ] && [ "${#AGENT_ID}" -le 128 ]; then
+  case "$AGENT_ID" in
+    [A-Za-z0-9]*) case "$AGENT_ID" in *[!A-Za-z0-9._-]*) ;; *)
+      if mkdir -p "$SESSION_PATH/subagent-stops" 2>/dev/null; then
+        if mkdir "$SESSION_PATH/subagent-stops/$AGENT_ID" 2>/dev/null; then
+          STOP_CLAIM="$SESSION_PATH/subagent-stops/$AGENT_ID"
+        elif [ -d "$SESSION_PATH/subagent-stops/$AGENT_ID" ]; then
+          exit 0
+        fi
+      fi ;; esac ;;
+  esac
+fi
+
 jq -nc \
   --arg ts "$TIMESTAMP" \
   --arg session "$SESSION_ID" \
@@ -74,6 +94,10 @@ jq -nc \
   --arg agent_type "$AGENT_TYPE" \
   --arg agent_id "$AGENT_ID" \
   '{timestamp: $ts, session_id: $session, event: $event, agent_type: $agent_type, agent_id: $agent_id}' \
-  >> "$SESSION_PATH/subagent-audit.log" 2>/dev/null || doflow_decide error audit-write-failed
+  >> "$SESSION_PATH/subagent-audit.log" 2>/dev/null || {
+    # Release the claim so a later delivery of the same stop can still be recorded.
+    [ -z "$STOP_CLAIM" ] || rmdir "$STOP_CLAIM" 2>/dev/null || true
+    doflow_decide error audit-write-failed
+  }
 
 exit 0

@@ -1,5 +1,5 @@
 'use strict';
-// `doflow ui [<project>] [--port N]` — run the DoFlow Console, a separately installed package
+// `doflow ui [<project>] [--port N] [private TLS flags]` — run the DoFlow Console, a separately installed package
 // (092 IC-008). The package is found by file existence and never loaded into the core: this module
 // loads only node:fs, node:path and node:child_process (test/runtime/ui-launcher.test.ts). It never
 // listens, reads DoFlow state, installs anything, or adds a variable to the Console's environment.
@@ -10,7 +10,7 @@ const { spawn } = require('node:child_process');
 
 /** The package's entry, fixed by its own contract (093 IC-002). */
 const CONSOLE_BIN = path.join('bin', 'doflow-ui.js');
-const USAGE = 'doflow ui: usage: doflow ui [<project>] [--port N]';
+const USAGE = 'doflow ui: usage: doflow ui [<project>] [--port N] [--listen-address <private IP> --tls-cert <absolute path> --tls-key <absolute path>]';
 const NOT_INSTALLED = 'doflow ui: the Console is not installed. Install it with: npm install -g @khoavu882/doflow-ui';
 
 /** The Console bin when `dir` holds both the package's package.json and its bin, else null. */
@@ -37,8 +37,15 @@ function findConsole(coreRoot: string, project: string): string | null {
 /** `coreRoot` is this core's package root, passed in by the COMMANDS table (src/helper/repo-root.ts owns it). */
 function cmdUi(o: any, coreRoot: string): Promise<void> | void {
   const port = o.port;
-  const otherFlags = o.flagsGiven.filter((flag: string) => flag !== '--port' && !flag.startsWith('--port='));
+  const uiFlags = new Set(['--listen-address', '--tls-cert', '--tls-key']);
+  const otherFlags = o.flagsGiven.filter((flag: string) => {
+    const name = flag.split('=', 1)[0];
+    return name !== '--port' && !uiFlags.has(name);
+  });
+  const remoteValues = [o.listenAddress, o.tlsCert, o.tlsKey];
+  const remoteCount = remoteValues.filter((value: unknown) => value !== undefined).length;
   if (o.positional.length > 1 || otherFlags.length > 0
+    || (remoteCount !== 0 && remoteCount !== remoteValues.length)
     || (port !== undefined && !(/^[0-9]{1,5}$/.test(port) && Number(port) <= 65535))) {
     console.error(USAGE);
     process.exitCode = 2;
@@ -56,6 +63,9 @@ function cmdUi(o: any, coreRoot: string): Promise<void> | void {
   const args = [bin, '--core', path.join(coreRoot, 'bin', 'doflow.js')];
   if (o.positional.length > 0) args.push('--project', project);
   if (port !== undefined) args.push('--port', port);
+  if (o.listenAddress !== undefined) args.push('--listen-address', o.listenAddress);
+  if (o.tlsCert !== undefined) args.push('--tls-cert', o.tlsCert);
+  if (o.tlsKey !== undefined) args.push('--tls-key', o.tlsKey);
   const child = spawn(process.execPath, args, { stdio: 'inherit' });
 
   // Stay up until the Console exits, so its exit code is ours. A terminal Ctrl-C already reaches the

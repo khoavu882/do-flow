@@ -78,8 +78,8 @@ test('G51: each seeded workflow fault reports its IC-004 rule', () => {
     ) },
     { name: 'R6 comment-only tag-pushed', rules: ['R6'], text: replaceOnce(
       workflow,
-      '      - run: npm run release:preflight -- --tag "$GITHUB_REF_NAME" --tag-pushed',
-      '      # --tag-pushed\n      - run: npm run release:preflight -- --tag "$GITHUB_REF_NAME"',
+      '          npm run release:preflight -- --tag "$GITHUB_REF_NAME" --tag-pushed $allow_stable',
+      '          # --tag-pushed\n          npm run release:preflight -- --tag "$GITHUB_REF_NAME" $allow_stable',
     ) },
     { name: 'R7 missing graph edge', rules: ['R7'], text: replaceOnce(
       workflow,
@@ -146,6 +146,36 @@ test('G51: each seeded workflow fault reports its IC-004 rule', () => {
       '  promote:\n    needs: [verify-registry]',
       '  promote:\n    needs: [verify-registry]\n    if: failure()',
     ) },
+    { name: 'R13 verify-artifact always()', rules: ['R13'], text: replaceOnce(
+      workflow,
+      '  verify-artifact:\n    needs: [preflight, test]',
+      '  verify-artifact:\n    needs: [preflight, test]\n    if: always()',
+    ) },
+    { name: 'R13 draft-release !cancelled()', rules: ['R13'], text: replaceOnce(
+      workflow,
+      '  draft-release:\n    needs: [verify-artifact]',
+      '  draft-release:\n    needs: [verify-artifact]\n    if: ${{ !cancelled() }}',
+    ) },
+    { name: 'R13 publish always()', rules: ['R13'], text: replaceOnce(
+      workflow,
+      '  publish:\n    needs: [draft-release]',
+      '  publish:\n    needs: [draft-release]\n    if: always()',
+    ) },
+    { name: 'R13 publish plain if', rules: ['R13'], text: replaceOnce(
+      workflow,
+      '  publish:\n    needs: [draft-release]',
+      "  publish:\n    needs: [draft-release]\n    if: github.ref_type == 'tag'",
+    ) },
+    { name: 'R13 promote quoted if key', rules: ['R13'], text: replaceOnce(
+      workflow,
+      '  promote:\n    needs: [verify-registry]',
+      '  promote:\n    needs: [verify-registry]\n    "if": always()',
+    ) },
+    { name: 'R13 publish single-quoted continue-on-error key', rules: ['R13'], text: replaceOnce(
+      workflow,
+      '  publish:\n    needs: [draft-release]',
+      "  publish:\n    needs: [draft-release]\n    'continue-on-error': true",
+    ) },
     { name: 'R14 allow-stable', rules: ['R14'], text: replaceOnce(
       workflow,
       '--tag-pushed',
@@ -165,6 +195,89 @@ test('G51: each seeded workflow fault reports its IC-004 rule', () => {
     if (name === 'R3 aliases') {
       assert.ok(findings.some((finding: any) => finding.includes('aliases are not allowed in release.yml')),
         'alias seed must use the specified finding text');
+    }
+  }
+});
+
+// The stable path is open, and only behind the reviewer gate: each seed below is one way to open
+// it wider (a prerelease or another job carrying the flag, the job running outside the protected
+// environment, or the preflight step being skippable) and must be reported by R14.
+const ENVIRONMENT_LINE = "    environment: ${{ !contains(github.ref_name, '-') && 'release-stable' || 'release-prerelease' }}\n";
+const FLAG_CASE = '            *-*) ;;\n            *) allow_stable="--allow-stable" ;;\n';
+
+test('G51: the committed workflow opens the stable path only through the release-stable gate', () => {
+  const { STABLE_ENVIRONMENT } = require('../../src/release/release-workflow.ts');
+  assert.equal(STABLE_ENVIRONMENT, 'release-stable');
+  assert.equal((workflow.match(/allow-stable/g) || []).length, 1, 'the flag is named once');
+  assert.ok(workflow.includes('  preflight:\n    runs-on: ubuntu-latest\n') && workflow.includes(ENVIRONMENT_LINE)
+    && workflow.includes(FLAG_CASE), 'preflight carries the environment binding and the stable-only flag');
+  assert.ok(workflow.indexOf(ENVIRONMENT_LINE) < workflow.indexOf('  test:\n'), 'the binding is on preflight');
+});
+
+test('G51: each way to widen the stable path is reported by R14', () => {
+  const seeds: any = [
+    ['flag on every tag', replaceOnce(workflow, '--tag-pushed $allow_stable', '--tag-pushed --allow-stable $allow_stable')],
+    ['flag in the prerelease branch', replaceOnce(workflow, FLAG_CASE,
+      '            *-*) allow_stable="--allow-stable" ;;\n            *) ;;\n')],
+    ['catch-all branch first', replaceOnce(workflow, FLAG_CASE,
+      '            *) allow_stable="--allow-stable" ;;\n            *-*) ;;\n')],
+    ['flag set before the case', replaceOnce(replaceOnce(workflow, FLAG_CASE, '            *-*) ;;\n            *) ;;\n'),
+      '          allow_stable=""\n', '          allow_stable="--allow-stable"\n')],
+    ['no reset, so an inherited value survives', replaceOnce(workflow, '          allow_stable=""\n', '')],
+    ['reset keeps an inherited value', replaceOnce(workflow, '          allow_stable=""\n',
+      '          allow_stable="$allow_stable"\n')],
+    ['reassigned after the case', replaceOnce(workflow, '          esac\n',
+      '          esac\n          allow_stable="$EXTRA_FLAGS"\n')],
+    ['reset after the case', replaceOnce(replaceOnce(workflow, '          allow_stable=""\n', ''),
+      '          esac\n', '          esac\n          allow_stable=""\n')],
+    ['environment binding removed', replaceOnce(workflow, ENVIRONMENT_LINE, '')],
+    ['stable tags bound to the prerelease environment', replaceOnce(workflow, ENVIRONMENT_LINE,
+      "    environment: ${{ contains(github.ref_name, '-') && 'release-stable' || 'release-prerelease' }}\n")],
+    ['environment names swapped', replaceOnce(workflow, ENVIRONMENT_LINE,
+      "    environment: ${{ !contains(github.ref_name, '-') && 'release-prerelease' || 'release-stable' }}\n")],
+    ['an environment preflight does not check', replaceOnce(workflow, ENVIRONMENT_LINE,
+      "    environment: ${{ !contains(github.ref_name, '-') && 'release-open' || 'release-prerelease' }}\n")],
+    ['empty prerelease environment name', replaceOnce(workflow, ENVIRONMENT_LINE,
+      "    environment: ${{ !contains(github.ref_name, '-') && 'release-stable' || '' }}\n")],
+    ['flag in another job', replaceOnce(workflow, '      - run: npm run build:package\n      - name: Fail if',
+      '      - run: npm run release:preflight -- --tag "$GITHUB_REF_NAME" --tag-pushed --allow-stable\n'
+        + '      - run: npm run build:package\n      - name: Fail if')],
+    ['quoted flag in another job', replaceOnce(workflow, '        run: npm publish .pack',
+      '        run: echo -"-allow-stable" && npm publish .pack')],
+    ['flag outside every job', replaceOnce(workflow, 'permissions: {}\n\njobs:',
+      'permissions: {}\n\nenv:\n  FLAGS: --allow-stable\n\njobs:')],
+    ['preflight step continue-on-error', replaceOnce(workflow, '      - name: Run release preflight\n',
+      '      - name: Run release preflight\n        continue-on-error: true\n')],
+    ['preflight step if', replaceOnce(workflow, '      - name: Run release preflight\n',
+      '      - name: Run release preflight\n        if: false\n')],
+    ['preflight job if', replaceOnce(workflow, '  preflight:\n    runs-on: ubuntu-latest\n',
+      '  preflight:\n    if: always()\n    runs-on: ubuntu-latest\n')],
+    ['preflight step "continue-on-error" double-quoted', replaceOnce(workflow, '      - name: Run release preflight\n',
+      '      - name: Run release preflight\n        "continue-on-error": true\n')],
+    ["preflight step 'continue-on-error' single-quoted", replaceOnce(workflow, '      - name: Run release preflight\n',
+      "      - name: Run release preflight\n        'continue-on-error': true\n")],
+    ['preflight step continue-on-error escaped', replaceOnce(workflow, '      - name: Run release preflight\n',
+      '      - name: Run release preflight\n        "continue\\x2Don-error": true\n')],
+    ['preflight step continue-on-error explicit key', replaceOnce(workflow, '      - name: Run release preflight\n',
+      '      - name: Run release preflight\n        ? continue-on-error\n        : true\n')],
+    ['preflight step continue-on-error in a flow mapping', replaceOnce(workflow,
+      '      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n        with:\n          fetch-depth: 0\n',
+      '      - { uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1, continue-on-error: true, with: { fetch-depth: 0 } }\n')],
+    ['preflight step "if" double-quoted', replaceOnce(workflow, '      - name: Run release preflight\n',
+      '      - name: Run release preflight\n        "if": false\n')],
+    ['flag passed quoted', replaceOnce(workflow, '--tag-pushed $allow_stable', '--tag-pushed "$allow_stable"')],
+  ];
+  for (const [name, mutated] of seeds) {
+    assert.notEqual(mutated, workflow, `${name} seed must change a copy of the workflow`);
+    const findings = releaseWorkflowFindings(mutated);
+    assert.ok(findings.some((finding: any) => finding.startsWith('R14 ')),
+      `${name} seed must be reported by R14; got: ${findings.join('; ') || '(none)'}`);
+    for (const key of ['continue-on-error', 'if']) {
+      if (name.startsWith('preflight step ' + (key === 'if' ? '"if"' : '')) && name.includes(key)) {
+        assert.ok(findings.some((finding: any) => finding.startsWith('R14 ') && finding.includes(key === 'if'
+          ? 'must not declare an if condition' : 'must not declare continue-on-error')),
+        `${name} seed must be caught by the ${key} key check; got: ${findings.join('; ')}`);
+      }
     }
   }
 });

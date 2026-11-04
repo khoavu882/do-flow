@@ -139,6 +139,15 @@ for (const [name, options, reason] of [
   });
 }
 
+test('an absent develop policy carries an actionable hint and the same closed reason id', t => {
+  const f: any = fixture(t, { missing: true });
+  const result = decide(f);
+  assert.deepEqual(result.reasons, ['no-policy']);
+  assert.match(result.annotations?.hint || '', /core\/registry\/gates\.json/);
+  assert.match(result.annotations?.hint || '', /commit it on develop/);
+  assert.match(result.annotations?.hint || '', /roadmap --action init-policy/);
+});
+
 test('override narrows the develop policy and binds its bytes', t => {
   const f = fixture(t);
   const bytes = JSON.stringify({ loop: { maxSteps: 1 } });
@@ -195,6 +204,26 @@ test('C5: a blocker user-accepted on a question-channel decision denies autopilo
   assert.notEqual(person.state, 'AWAITING_GATE');
   assert.equal(f.orch.readRun(SLUG).program.find((n: any) => n.id === 'gate-b').status, 'approved');
   assert.equal(f.orch.readRun(SLUG).history.at(-1).by, undefined);
+});
+
+test('AU D4: a note user-accepted on a default-channel decision passes autopilot gate-b; the same acceptance on a blocker is denied', t => {
+  const accept = (severity: string) => {
+    const f: any = fixture(t, { gateId: 'gate-b', predicates: ['dispositions-backed', 'blockers-zero'] });
+    const added = addDecisions({ featureDir: f.featureDir, slug: SLUG, now: FIXED, items: [{ topic: 'accept-finding',
+      statement: 'Accept C1.', channel: 'default', stage: 'review', rationale: 'Agent default on a minor finding.' }] });
+    assert.equal(added.finding, undefined, JSON.stringify(added));
+    const [decision] = readRegister(f.featureDir).decisions;
+    write(path.join(f.featureDir, 'review/findings.json'), JSON.stringify({ schema: 1, row: '001', slug: SLUG, reviewedHead: 'a'.repeat(40),
+      seats: [], converged: [{ id: 'C1', from: [], severity, locator: 'src/x.ts:1', status: 'user-accepted', decision: decision.id }] }));
+    return { f, result: decide(f) };
+  };
+  const note = accept('note');
+  assert.equal(note.result.decision, 'pass', JSON.stringify(note.result.reasons));
+  assert.notEqual(note.result.state, 'AWAITING_GATE');
+  const blocker = accept('blocker');
+  assert.equal(blocker.result.decision, 'deny');
+  assert.deepEqual(blocker.result.reasons, ['accepted-without-user-decision:C1', 'user-accepted-needs-person:C1']);
+  assert.equal(blocker.result.state, 'AWAITING_GATE');
 });
 
 test('unknown seed row cannot be approved by policy', t => {

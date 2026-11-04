@@ -36,6 +36,7 @@ const path = require('node:path');
 const { MARKER_START, MARKER_END } = require('../../helper/marker-merge.ts');
 const { planTree, applyTree, removeTree, verifyTree, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, sourceDirFor, resolveTransform } = require('../copy-tree.ts');
 const { renderGuidancePointer } = require('../guidance-pointer.ts');
+const { isBlank, createdByDoFlow, creationOrigin, removeCreatedFile } = require('../created-file.ts');
 const { readMcpFiles, planMcpEntries, verifyMcpEntries, ownedMcpIds, writeMcpEntries } = require('../mcp-entries.ts');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths.ts');
 
@@ -108,7 +109,8 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS],
    * file it doesn't fully own is a decision for the file's owner, not a guess for the installer. Add
    * an empty marker pair to opt in. */
   function managedInstruction(existing: any, rendered: any) {
-    if (existing === null) return { ok: true, operation: 'create', content: rendered };
+    // A file holding only whitespace has nothing to protect and counts as absent.
+    if (existing === null || isBlank(existing)) return { ok: true, operation: 'create', content: rendered };
     const start = existing.indexOf(MARKER_START);
     const end = existing.indexOf(MARKER_END);
     if (start === -1 && end === -1) return { ok: false, conflict: `${INSTRUCTION_FILE} exists without a DoFlow managed section` };
@@ -132,7 +134,7 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS],
   /** Plan the single instructions change (or none). Global scope always yields no change and no
    * conflict — the user-level ~/.copilot/copilot-instructions.md is not projected, so there is no
    * global target, the same way other adapters skip a capability they do not project at a scope. */
-  function planInstructionsChange({ assets, found, scope, scopeRoot, context, removing, fsImpl }: any) {
+  function planInstructionsChange({ assets, found, scope, scopeRoot, context, removing, ledger, fsImpl }: any) {
     if (!found.paths.instruction) return { changes: [], conflicts: [] };
     // The marker-managed instruction file is one specific asset: exclude tree-projected rule
     // assets (copilot-rule-instructions), whose `source` is a directory, not a file.
@@ -148,6 +150,8 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS],
         assetId: guidance.id, target: found.paths.instruction, operation: outcome.operation,
         content: outcome.content, ownershipIdentity: `${HARNESS}:instructions:managed-section`,
         fingerprint: fingerprint(outcome.content), harness: HARNESS, projection: { renderer: 'copilot-instructions' },
+        // A file DoFlow created and a removal that leaves only whitespace: the file goes (remove()).
+        ...(removing && createdByDoFlow(ledger, HARNESS, `${HARNESS}:instructions:managed-section`, found.paths.instruction) ? { deleteWhenBlank: true } : {}),
       }],
       conflicts: [],
     };
@@ -305,7 +309,7 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS],
     const conflicts = [];
     const removing = context.operation === 'remove';
 
-    const instructions = planInstructionsChange({ assets, found, scope, scopeRoot, context, removing, fsImpl });
+    const instructions = planInstructionsChange({ assets, found, scope, scopeRoot, context, removing, ledger, fsImpl });
     changes.push(...instructions.changes);
     conflicts.push(...instructions.conflicts);
 
@@ -365,6 +369,7 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS],
       if (change.operation !== 'remove') continue;
       if (change.projection?.renderer === 'copy-tree' || change.kind === 'mcp-server') continue;
       if (typeof change.content !== 'string') continue;
+      if (change.deleteWhenBlank && isBlank(change.content) && removeCreatedFile(change.target, fsImpl)) { removed += 1; continue; }
       writeChange(change, fsImpl);
       removed += 1;
     }
@@ -389,9 +394,11 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS],
         status: hasSection ? 'managed' : 'absent', target: found.paths.instruction,
         ownershipIdentity: `${HARNESS}:instructions:managed-section` });
       if (hasSection) {
+        const origin = creationOrigin({ ledger, harness: HARNESS, ownershipIdentity: `${HARNESS}:instructions:managed-section`, target: found.paths.instruction, before: discovery?.instruction });
         resources.push({ assetId, target: found.paths.instruction,
           ownershipIdentity: `${HARNESS}:instructions:managed-section`, fingerprint: fingerprint(found.instruction),
-          sourceVersion: context.sourceVersion ?? 'unknown', projection: { renderer: 'copilot-instructions' } });
+          sourceVersion: context.sourceVersion ?? 'unknown', projection: { renderer: 'copilot-instructions' },
+          ...(origin ? { origin } : {}) });
       }
     }
 

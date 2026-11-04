@@ -496,18 +496,6 @@
       "enforced": false
     },
     {
-      "id": "hook.shared.pre-bash-guard",
-      "kind": "hook",
-      "argv": [
-        "bash",
-        "core/harnesses/shared/hooks/policies/pre-bash-guard.sh"
-      ],
-      "stdinFixture": "bench/perf/fixtures/shared/pre-bash-guard.json",
-      "harness": "shared",
-      "intentClass": "hook",
-      "enforced": true
-    },
-    {
       "id": "hook.shared.user-prompt-submit",
       "kind": "hook",
       "argv": [
@@ -622,24 +610,6 @@
         "fixture": "bench/perf/fixtures/hook-bridge-project",
         "git": true
       }
-    },
-    {
-      "id": "hook.claude.pre-bash-guard",
-      "kind": "hook",
-      "argv": [
-        "bash",
-        "{mirror}/.claude/hooks/pre-bash-guard.sh"
-      ],
-      "harness": "claude",
-      "intentClass": "hook",
-      "enforced": false,
-      "setup": {
-        "kind": "hook-install-mirror",
-        "fixture": "bench/perf/fixtures/hook-bridge-project",
-        "git": true
-      },
-      "stdinFixture": "test/fixtures/hooks/claude/pre-bash-guard/perf.json",
-      "stdinField": "native"
     },
     {
       "id": "hook.claude.pre-compact",
@@ -814,24 +784,6 @@
       }
     },
     {
-      "id": "hook.codex.pre-bash-guard",
-      "kind": "hook",
-      "argv": [
-        "bash",
-        "{mirror}/.codex/hooks/pre-bash-guard.sh"
-      ],
-      "harness": "codex",
-      "intentClass": "hook",
-      "enforced": false,
-      "setup": {
-        "kind": "hook-install-mirror",
-        "fixture": "bench/perf/fixtures/hook-bridge-project",
-        "git": true
-      },
-      "stdinFixture": "test/fixtures/hooks/codex/pre-bash-guard/perf.json",
-      "stdinField": "native"
-    },
-    {
       "id": "hook.codex.pre-compact",
       "kind": "hook",
       "argv": [
@@ -1003,42 +955,6 @@
         "git": true
       },
       "stdinFixture": "test/fixtures/hooks/kiro/mcp-tool-guard/agent-perf.json",
-      "stdinField": "native"
-    },
-    {
-      "id": "hook.kiro.pre-bash-guard",
-      "kind": "hook",
-      "argv": [
-        "bash",
-        "{mirror}/.kiro/hooks/pre-bash-guard.sh"
-      ],
-      "harness": "kiro",
-      "intentClass": "hook",
-      "enforced": false,
-      "setup": {
-        "kind": "hook-install-mirror",
-        "fixture": "bench/perf/fixtures/hook-bridge-project",
-        "git": true
-      },
-      "stdinFixture": "test/fixtures/hooks/kiro/pre-bash-guard/perf.json",
-      "stdinField": "native"
-    },
-    {
-      "id": "hook.kiro.pre-bash-guard.agent-config",
-      "kind": "hook",
-      "argv": [
-        "bash",
-        "{mirror}/.kiro/hooks/pre-bash-guard.sh"
-      ],
-      "harness": "kiro",
-      "intentClass": "hook",
-      "enforced": false,
-      "setup": {
-        "kind": "hook-install-mirror",
-        "fixture": "bench/perf/fixtures/hook-bridge-project",
-        "git": true
-      },
-      "stdinFixture": "test/fixtures/hooks/kiro/pre-bash-guard/agent-perf.json",
       "stdinField": "native"
     },
     {
@@ -1216,30 +1132,6 @@
       "note": "excludes the in-process extension spawn"
     },
     {
-      "id": "hook.pi.tool-call-pre-bash-guard",
-      "kind": "hook",
-      "argv": [
-        "bash",
-        "core/harnesses/shared/hooks/bridge/bridge.sh",
-        "pi",
-        "tool_call",
-        "pre-bash-guard"
-      ],
-      "harness": "pi",
-      "intentClass": "hook",
-      "enforced": false,
-      "stdinFixture": "test/fixtures/hooks/pi/tool_call/perf-bash.json",
-      "stdinField": "native",
-      "setup": {
-        "kind": "copy-fixture-project",
-        "fixture": "bench/perf/fixtures/hook-bridge-project",
-        "git": true,
-        "branch": "feat/perf",
-        "cwdProject": true
-      },
-      "note": "excludes the in-process extension spawn"
-    },
-    {
       "id": "hook.pi.tool-call-mcp-tool-guard",
       "kind": "hook",
       "argv": [
@@ -1297,7 +1189,14 @@
       "harness": "shared",
       "intentClass": "hook",
       "stdinFixture": "bench/perf/fixtures/shared/pre-implementation-gate.json",
-      "enforced": false
+      "enforced": false,
+      "setup": {
+        "kind": "copy-fixture-project",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true,
+        "branch": "feat/perf",
+        "cwdProject": true
+      }
     },
     {
       "id": "hook.shared.session-context",
@@ -1610,10 +1509,6 @@
       "unmeasured": "measurement deferred to V.2"
     },
     {
-      "surfaceId": "hook.claude.pre-bash-guard",
-      "unmeasured": "measurement deferred to V.2"
-    },
-    {
       "surfaceId": "hook.claude.pre-compact",
       "unmeasured": "measurement deferred to V.2"
     },
@@ -1654,10 +1549,6 @@
       "unmeasured": "measurement deferred to V.2"
     },
     {
-      "surfaceId": "hook.codex.pre-bash-guard",
-      "unmeasured": "measurement deferred to V.2"
-    },
-    {
       "surfaceId": "hook.codex.pre-compact",
       "unmeasured": "measurement deferred to V.2"
     },
@@ -1694,10 +1585,6 @@
       "unmeasured": "measurement deferred to V.2"
     },
     {
-      "surfaceId": "hook.kiro.pre-bash-guard",
-      "unmeasured": "measurement deferred to V.2"
-    },
-    {
       "surfaceId": "hook.kiro.pre-implement-gate",
       "unmeasured": "measurement deferred to V.2"
     },
@@ -1716,10 +1603,6 @@
     {
       "surfaceId": "hook.antigravity.stop-check",
       "unmeasured": "measurement deferred to V.2"
-    },
-    {
-      "surfaceId": "hook.antigravity.pre-bash-guard",
-      "unmeasured": "088 A.2 bridge surface; no measurement yet, measured in D.4"
     },
     {
       "surfaceId": "hook.shared.capture-failure",
@@ -1883,26 +1766,6 @@
       "redos": 0,
       "headroomMs": 36.15,
       "ceilingMs": 181,
-      "status": "proposed"
-    },
-    {
-      "surfaceId": "hook.shared.pre-bash-guard",
-      "platform": "darwin",
-      "arch": "arm64",
-      "machineId": "bea6dc6a8e0a",
-      "measuredOn": "2026-10-13",
-      "runs": 30,
-      "warmups": 3,
-      "interleave": "seeded-shuffle-per-round",
-      "seed": 20261012,
-      "p50Ms": 16.97,
-      "p95Ms": 22.51,
-      "maxMs": 26.11,
-      "madMs": 1.6,
-      "controlP50Ms": 27.29,
-      "redos": 0,
-      "headroomMs": 10,
-      "ceilingMs": 33,
       "status": "proposed"
     },
     {
@@ -2110,10 +1973,6 @@
       "unmeasured": "measurement deferred to V.2"
     },
     {
-      "surfaceId": "hook.kiro.pre-bash-guard.agent-config",
-      "unmeasured": "measurement deferred to V.2"
-    },
-    {
       "surfaceId": "hook.kiro.pre-implement-gate.agent-config",
       "unmeasured": "measurement deferred to V.2"
     },
@@ -2127,10 +1986,6 @@
     },
     {
       "surfaceId": "hook.copilot.doflow-mcp-tool-guard",
-      "unmeasured": "no fixture"
-    },
-    {
-      "surfaceId": "hook.copilot.doflow-pre-bash-guard",
       "unmeasured": "no fixture"
     },
     {
@@ -2158,33 +2013,8 @@
       "unmeasured": "measurement deferred to V.2"
     },
     {
-      "surfaceId": "hook.pi.tool-call-pre-bash-guard",
-      "unmeasured": "measurement deferred to V.2"
-    },
-    {
       "surfaceId": "hook.pi.tool-call-mcp-tool-guard",
       "unmeasured": "measurement deferred to V.2"
-    },
-    {
-      "surfaceId": "hook.shared.pre-bash-guard",
-      "platform": "darwin",
-      "arch": "arm64",
-      "machineId": "6295d410c5bc",
-      "measuredOn": "2026-10-14",
-      "runs": 30,
-      "warmups": 3,
-      "interleave": "seeded-shuffle-per-round",
-      "seed": 20261012,
-      "p50Ms": 17.83,
-      "p95Ms": 35.51,
-      "maxMs": 44.97,
-      "madMs": 1.51,
-      "controlP50Ms": 27.44,
-      "redos": 0,
-      "headroomMs": 10,
-      "ceilingMs": 46,
-      "status": "approved",
-      "approvedOn": "2026-10-14"
     },
     {
       "surfaceId": "hook.shared.user-prompt-submit",
@@ -2306,27 +2136,6 @@
       "headroomMs": 10,
       "ceilingMs": 25,
       "status": "proposed"
-    },
-    {
-      "surfaceId": "hook.claude.pre-bash-guard",
-      "platform": "darwin",
-      "arch": "arm64",
-      "machineId": "6295d410c5bc",
-      "measuredOn": "2026-10-14",
-      "runs": 30,
-      "warmups": 3,
-      "interleave": "seeded-shuffle-per-round",
-      "seed": 20261012,
-      "p50Ms": 35.49,
-      "p95Ms": 40.11,
-      "maxMs": 47.85,
-      "madMs": 2.02,
-      "controlP50Ms": 27.44,
-      "redos": 0,
-      "headroomMs": 10.03,
-      "ceilingMs": 51,
-      "status": "approved",
-      "approvedOn": "2026-10-14"
     },
     {
       "surfaceId": "hook.claude.pre-compact",
@@ -2535,27 +2344,6 @@
       "status": "proposed"
     },
     {
-      "surfaceId": "hook.codex.pre-bash-guard",
-      "platform": "darwin",
-      "arch": "arm64",
-      "machineId": "6295d410c5bc",
-      "measuredOn": "2026-10-14",
-      "runs": 30,
-      "warmups": 3,
-      "interleave": "seeded-shuffle-per-round",
-      "seed": 20261012,
-      "p50Ms": 35.93,
-      "p95Ms": 50.04,
-      "maxMs": 56.66,
-      "madMs": 1.95,
-      "controlP50Ms": 27.44,
-      "redos": 0,
-      "headroomMs": 12.51,
-      "ceilingMs": 63,
-      "status": "approved",
-      "approvedOn": "2026-10-14"
-    },
-    {
       "surfaceId": "hook.codex.pre-compact",
       "platform": "darwin",
       "arch": "arm64",
@@ -2743,48 +2531,6 @@
       "approvedOn": "2026-10-14"
     },
     {
-      "surfaceId": "hook.kiro.pre-bash-guard",
-      "platform": "darwin",
-      "arch": "arm64",
-      "machineId": "6295d410c5bc",
-      "measuredOn": "2026-10-14",
-      "runs": 30,
-      "warmups": 3,
-      "interleave": "seeded-shuffle-per-round",
-      "seed": 20261012,
-      "p50Ms": 51.22,
-      "p95Ms": 66.2,
-      "maxMs": 81.45,
-      "madMs": 3.28,
-      "controlP50Ms": 27.44,
-      "redos": 0,
-      "headroomMs": 16.55,
-      "ceilingMs": 83,
-      "status": "approved",
-      "approvedOn": "2026-10-14"
-    },
-    {
-      "surfaceId": "hook.kiro.pre-bash-guard.agent-config",
-      "platform": "darwin",
-      "arch": "arm64",
-      "machineId": "6295d410c5bc",
-      "measuredOn": "2026-10-14",
-      "runs": 30,
-      "warmups": 3,
-      "interleave": "seeded-shuffle-per-round",
-      "seed": 20261012,
-      "p50Ms": 49.29,
-      "p95Ms": 66.7,
-      "maxMs": 69.89,
-      "madMs": 2.83,
-      "controlP50Ms": 27.44,
-      "redos": 0,
-      "headroomMs": 16.68,
-      "ceilingMs": 84,
-      "status": "approved",
-      "approvedOn": "2026-10-14"
-    },
-    {
       "surfaceId": "hook.kiro.pre-implement-gate",
       "platform": "darwin",
       "arch": "arm64",
@@ -2968,26 +2714,6 @@
       "redos": 0,
       "headroomMs": 49.87,
       "ceilingMs": 100,
-      "status": "proposed"
-    },
-    {
-      "surfaceId": "hook.pi.tool-call-pre-bash-guard",
-      "platform": "darwin",
-      "arch": "arm64",
-      "machineId": "6295d410c5bc",
-      "measuredOn": "2026-10-14",
-      "runs": 30,
-      "warmups": 3,
-      "interleave": "seeded-shuffle-per-round",
-      "seed": 20261012,
-      "p50Ms": 34.03,
-      "p95Ms": 56.98,
-      "maxMs": 60.81,
-      "madMs": 2.12,
-      "controlP50Ms": 27.44,
-      "redos": 0,
-      "headroomMs": 14.25,
-      "ceilingMs": 72,
       "status": "proposed"
     },
     {

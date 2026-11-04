@@ -9,7 +9,7 @@ const { buildInstallMirror, createScratch, createScratchGitRepo, jqSorted } = re
 
 const REPO = path.resolve(__dirname, '../..');
 const FIXTURES = path.join(REPO, 'test/fixtures/hooks');
-const CANONICAL: any = new Set(['pre-implement-gate', 'pre-bash-guard', 'mcp-tool-guard', 'session-start', 'user-prompt-submit', 'subagent-audit', 'stop-check']);
+const CANONICAL: any = new Set(['pre-implement-gate', 'mcp-tool-guard', 'session-start', 'user-prompt-submit', 'subagent-audit', 'stop-check']);
 const scratch = createScratch('doflow-bridge-parity-');
 after(() => scratch.remove());
 
@@ -140,7 +140,7 @@ function runFixture({ harness, stem, fixturePath, fixture }: any, index: any) {
     assert.ok(!result.stdout.includes('P'.repeat(200)), `${label}: private policy stderr is not forwarded`);
   }
   if (fixture.fault === 'stop-exit-2' || fixture.fault === 'stop-exit-7') {
-    assert.equal(result.stderr, '[stop-check] DoFlow policy error; details: doflow-run failure list\n', `${label}: fixed Stop reason has baseline newline`);
+    assert.equal(result.stderr, '', `${label}: a Stop policy fault proceeds with empty stderr`);
     assert.equal(result.stderr.includes('private'), false, `${label}: raw Stop stderr is hidden`);
   }
   if (fixture.expect.taskStateUnchanged) assert.deepEqual(snapshotState(project), before, `${label}: task state unchanged`);

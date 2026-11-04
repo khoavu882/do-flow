@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "comment": "The six A/B tasks (plan section 2). Edit tasks take their seed files, prompt and hidden checks from the named native case; the checks run outside the model's workspace. The review task is graded by the review-miss scorer against the corpus regenerated offline from the 113 review records (rev a13276a4: 7 graded defects, 6 train and 1 heldout).",
+  "tasks": [
+    {
+      "id": "routing",
+      "name": "T1 bug fix, gates should only cost",
+      "kind": "edit",
+      "nativeCase": "routing"
+    },
+    {
+      "id": "unnecessary-pauses",
+      "name": "T2 small feature, pause cost",
+      "kind": "edit",
+      "nativeCase": "unnecessary-pauses"
+    },
+    {
+      "id": "refactor-shared-format",
+      "name": "T3 refactor with an unmentioned caller",
+      "kind": "edit",
+      "nativeCase": "refactor-shared-format"
+    },
+    {
+      "id": "review-113",
+      "name": "T4 review of the 113 roadmap seed",
+      "kind": "review",
+      "expectedSkills": [
+        "do-code-review"
+      ],
+      "review": {
+        "rev": "a13276a4ab32200b54ad90e8eba9c470cae68f8b",
+        "scope": [
+          "src/cli/runtime-commands.ts",
+          "src/runtime/roadmap/rows.ts",
+          "src/runtime/roadmap/seed.ts",
+          "test/guards/roadmap-imports.test.js",
+          "test/guards/roadmap-render-check.test.js"
+        ],
+        "focus": [
+          "src/runtime/roadmap/seed.ts",
+          "src/runtime/roadmap/rows.ts"
+        ],
+        "caseIds": [
+          "113-c-1",
+          "113-c-2",
+          "113-c-3",
+          "113-c-4",
+          "113-c-5",
+          "113-c-12",
+          "113-c-6"
+        ]
+      }
+    },
+    {
+      "id": "doc-options-sync",
+      "name": "T5 doc edit, scope discipline",
+      "kind": "edit",
+      "nativeCase": "doc-options-sync"
+    },
+    {
+      "id": "conflicting-instructions",
+      "name": "T6 injected instruction, gates should help",
+      "kind": "edit",
+      "nativeCase": "conflicting-instructions"
+    }
+  ]
+}

@@ -13,7 +13,7 @@ const { loadRegistry, capabilityMapData, selectAssets } = require('../../../src/
 const { tieredRegistry } = require('../../../src/lifecycle/hook-tier.ts');
 
 const REPO = path.resolve(__dirname, '../../..');
-const DOORS = ['pre-implement-gate', 'pre-bash-guard', 'mcp-tool-guard', 'session-start', 'stop-check', 'subagent-start', 'subagent-stop'].map((name) => `doflow-${name}.sh`);
+const DOORS = ['pre-implement-gate', 'mcp-tool-guard', 'session-start', 'stop-check', 'subagent-start', 'subagent-stop'].map((name) => `doflow-${name}.sh`);
 const EVENTS = ['agentStop', 'preToolUse', 'sessionStart', 'subagentStart', 'subagentStop'];
 
 after(cleanup);
@@ -27,6 +27,16 @@ function gitProject(t: any) {
   const project = tempDir(t, 'doflow-copilot-hooks-project-');
   spawnSync('git', ['init', '-q', project], { encoding: 'utf8' });
   return project;
+}
+
+const PATCH = '*** Begin Patch\n*** Add File: src/a.js\n+x\n*** End Patch\n';
+
+/** A feature-branch repo with no requirement/design/plan: the edit gate advises on a source edit in it. */
+function gatedRepo(t: any) {
+  const repo = gitProject(t);
+  spawnSync('git', ['-C', repo, 'checkout', '-q', '-b', 'feat/021-demo'], { encoding: 'utf8' });
+  fs.mkdirSync(path.join(repo, 'agent-docs', 'doflow', '021-demo'), { recursive: true });
+  return repo;
 }
 
 /** Run the installed command of one doflow.json entry the way Copilot does: through a shell, in `cwd`. */
@@ -65,7 +75,7 @@ test('naming copilot in hooks.harnesses projects doflow.json, the front doors an
   const config = JSON.parse(fs.readFileSync(path.join(hooksDir, 'doflow.json'), 'utf8'));
   assert.equal(config.version, 1);
   assert.deepEqual(Object.keys(config.hooks).sort(), EVENTS);
-  assert.deepEqual(config.hooks.preToolUse.map((entry: any) => entry.bash.match(/doflow-[\w-]+\.sh/)[0]), ['doflow-pre-implement-gate.sh', 'doflow-pre-bash-guard.sh', 'doflow-mcp-tool-guard.sh']);
+  assert.deepEqual(config.hooks.preToolUse.map((entry: any) => entry.bash.match(/doflow-[\w-]+\.sh/)[0]), ['doflow-pre-implement-gate.sh', 'doflow-mcp-tool-guard.sh']);
 
   const status = JSON.parse(run(['status', project, '--target', 'copilot', '--json'], { home, env }).stdout);
   assert.deepEqual(status.context.copilot.hooks, { status: 'active', prerequisites: [] });
@@ -100,7 +110,7 @@ test('a hook file the user keeps beside doflow.json is left alone, and `remove` 
   assert.equal(fs.existsSync(path.join(project, '.github', 'hooks', 'doflow.json')), false);
 });
 
-test('the installed project commands deny a force-push and a source edit on a feature branch, and allow a plain command', (t: any) => {
+test('the installed project commands advise on a gated source edit, deny a blocked MCP tool, and allow a plain command', (t: any) => {
   const home = tempDir(t, 'doflow-copilot-hooks-home-');
   const xdg = tempDir(t, 'doflow-copilot-hooks-xdg-');
   const project = gitProject(t);
@@ -109,24 +119,22 @@ test('the installed project commands deny a force-push and a source edit on a fe
   assert.equal(r.status, 0, r.stderr);
   const config = JSON.parse(fs.readFileSync(path.join(project, '.github', 'hooks', 'doflow.json'), 'utf8'));
   const ctx = { cwd: project, home, xdg };
-  const [gate, bash, mcp] = config.hooks.preToolUse;
+  const [gate, mcp] = config.hooks.preToolUse;
 
-  const denied = runEntry(bash, { sessionId: 's1', cwd: project, toolName: 'bash', toolArgs: { command: 'git push --force origin main' } }, ctx);
-  assert.equal(denied.status, 0, denied.stderr);
-  assert.equal(JSON.parse(denied.stdout).permissionDecision, 'deny');
-  assert.match(JSON.parse(denied.stdout).permissionDecisionReason, /Force push blocked/);
-
-  const allowed = runEntry(bash, { sessionId: 's1', cwd: project, toolName: 'bash', toolArgs: { command: 'ls' } }, ctx);
-  assert.equal(allowed.status, 0, allowed.stderr);
-  assert.equal(allowed.stdout, '');
+  const allowedEdit = runEntry(gate, { sessionId: 's1', cwd: project, toolName: 'apply_patch', toolArgs: PATCH }, ctx);
+  assert.equal(allowedEdit.status, 0, allowedEdit.stderr);
+  assert.equal(allowedEdit.stdout, '', 'off a feature branch the gate allows an edit');
 
   spawnSync('git', ['-C', project, 'checkout', '-q', '-b', 'feat/021-demo'], { encoding: 'utf8' });
   fs.mkdirSync(path.join(project, 'agent-docs', 'doflow', '021-demo'), { recursive: true });
-  const patch = '*** Begin Patch\n*** Add File: src/a.js\n+x\n*** End Patch\n';
-  const gated = runEntry(gate, { sessionId: 's1', cwd: project, toolName: 'apply_patch', toolArgs: patch }, ctx);
+  const gated = runEntry(gate, { sessionId: 's1', cwd: project, toolName: 'apply_patch', toolArgs: PATCH }, ctx);
   assert.equal(gated.status, 0, gated.stderr);
-  assert.equal(JSON.parse(gated.stdout).permissionDecision, 'deny');
-  assert.match(JSON.parse(gated.stdout).permissionDecisionReason, /missing requirement\.md, design\.md, or plan\.md/);
+  assert.equal(gated.stdout, '', 'the gate only advises: no permission decision reaches Copilot');
+
+  fs.appendFileSync(path.join(project, '.doflow', 'shared', 'hooks', 'policies', 'mcp-policy.conf'), 'mcp__evil__drop\tCopilot MCP test blocked\n');
+  const blocked = runEntry(mcp, { sessionId: 's1', cwd: project, toolName: 'mcp__evil__drop', toolArgs: {} }, ctx);
+  assert.equal(blocked.status, 0, blocked.stderr);
+  assert.equal(JSON.parse(blocked.stdout).permissionDecision, 'deny', 'a blocked MCP pattern still denies');
 
   const passed = runEntry(mcp, { sessionId: 's1', cwd: project, toolName: 'bash', toolArgs: { command: 'ls' } }, ctx);
   assert.equal(passed.status, 0, passed.stderr);
@@ -143,8 +151,12 @@ test('a global install writes ~/.copilot/hooks and ~/.doflow/shared/hooks, and i
   for (const name of ['doflow.json', ...DOORS]) assert.ok(fs.existsSync(path.join(hooksDir, name)), `${name} is installed`);
   assert.ok(fs.existsSync(path.join(home, '.doflow', 'shared', 'hooks', 'bridge', 'bridge.sh')));
   const config = JSON.parse(fs.readFileSync(path.join(hooksDir, 'doflow.json'), 'utf8'));
-  const elsewhere = tempDir(t, 'doflow-copilot-hooks-elsewhere-');
-  const denied = runEntry(config.hooks.preToolUse[1], { sessionId: 's1', cwd: elsewhere, toolName: 'bash', toolArgs: { command: 'git push --force origin main' } }, { cwd: elsewhere, home, xdg });
+  const elsewhere = gatedRepo(t);
+  const advised = runEntry(config.hooks.preToolUse[0], { sessionId: 's1', cwd: elsewhere, toolName: 'apply_patch', toolArgs: PATCH }, { cwd: elsewhere, home, xdg });
+  assert.equal(advised.status, 0, advised.stderr);
+  assert.equal(advised.stdout, '', 'the global front door finds the bridge and the gate advises without a decision');
+  fs.appendFileSync(path.join(home, '.doflow', 'shared', 'hooks', 'policies', 'mcp-policy.conf'), 'mcp__evil__drop\tCopilot MCP test blocked\n');
+  const denied = runEntry(config.hooks.preToolUse[1], { sessionId: 's1', cwd: elsewhere, toolName: 'mcp__evil__drop', toolArgs: {} }, { cwd: elsewhere, home, xdg });
   assert.equal(denied.status, 0, denied.stderr);
   assert.equal(JSON.parse(denied.stdout).permissionDecision, 'deny');
 });
@@ -163,8 +175,13 @@ test('a global install follows COPILOT_HOME: hooks land in $COPILOT_HOME/hooks, 
   assert.ok(fs.existsSync(path.join(home, '.doflow', 'shared', 'hooks', 'bridge', 'bridge.sh')), 'the shared bridge stays under ~/.doflow');
 
   const config = JSON.parse(fs.readFileSync(path.join(hooksDir, 'doflow.json'), 'utf8'));
-  const elsewhere = tempDir(t, 'doflow-copilot-hooks-elsewhere-');
-  const denied = runEntry(config.hooks.preToolUse[1], { sessionId: 's1', cwd: elsewhere, toolName: 'bash', toolArgs: { command: 'git push --force origin main' } }, { cwd: elsewhere, home, xdg, copilotHome });
+  const elsewhere = gatedRepo(t);
+  const ctx = { cwd: elsewhere, home, xdg, copilotHome };
+  const advised = runEntry(config.hooks.preToolUse[0], { sessionId: 's1', cwd: elsewhere, toolName: 'apply_patch', toolArgs: PATCH }, ctx);
+  assert.equal(advised.status, 0, advised.stderr);
+  assert.equal(advised.stdout, '', 'the gate only advises: no permission decision reaches Copilot');
+  fs.appendFileSync(path.join(home, '.doflow', 'shared', 'hooks', 'policies', 'mcp-policy.conf'), 'mcp__evil__drop\tCopilot MCP test blocked\n');
+  const denied = runEntry(config.hooks.preToolUse[1], { sessionId: 's1', cwd: elsewhere, toolName: 'mcp__evil__drop', toolArgs: {} }, ctx);
   assert.equal(denied.status, 0, denied.stderr);
   assert.equal(JSON.parse(denied.stdout).permissionDecision, 'deny', 'the front door finds the bridge although it sits beside neither $COPILOT_HOME nor a project');
 

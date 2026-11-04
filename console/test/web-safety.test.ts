@@ -295,12 +295,18 @@ test('layout F1: the pill takes the free space from 768, so the theme control si
   assert.equal(effective(rules, '.conn', 'margin-left', 768), 'auto');
 });
 
-test('layout F3: the summary stacks in one column below 768, and skeleton tiles are exactly the tile heights', () => {
+test('layout F3: summary gives needs-you priority, running support and finished quiet history', () => {
   const rules = cssRules(appCss);
-  // CD-B4 replaces D.2's one-column strip (1fr) and its 62 px / 122 px tiles: one row of three 102 px tiles below 768, 150 px from 768.
   assert.equal(effective(rules, '.summary', 'grid-template-columns', 360), 'repeat(3, minmax(0, 1fr))');
   assert.equal(effective(rules, '.summary', 'grid-template-columns', 767), 'repeat(3, minmax(0, 1fr))');
-  assert.equal(effective(rules, '.summary', 'grid-template-columns', 768), 'repeat(3, minmax(0, 1fr))');
+  assert.equal(effective(rules, '.summary', 'grid-template-columns', 768), 'minmax(0, 1.8fr) repeat(2, minmax(0, 1fr))');
+  assert.equal(effective(rules, '.tile[data-state="awaiting"]', 'min-height', 768), '172px');
+  assert.equal(effective(rules, '.tile[data-state="running"]', 'min-height', 768), '138px');
+  assert.equal(effective(rules, '.tile[data-state="running"]', 'background', 360), 'var(--surface-2)');
+  assert.equal(effective(rules, '.tile[data-state="done"]', 'background', 360), 'transparent');
+  assert.equal(effective(rules, '.tile[data-state="done"] .tile__count', 'color', 360), 'var(--text-muted)');
+  const equalCards = cssRules(appCss.replace('minmax(0, 1.8fr) repeat(2, minmax(0, 1fr))', 'repeat(3, minmax(0, 1fr))'));
+  assert.notEqual(effective(equalCards, '.summary', 'grid-template-columns', 768), effective(rules, '.summary', 'grid-template-columns', 768));
   assert.equal(effective(rules, '.tile', 'min-height', 360), '102px');
   assert.equal(effective(rules, '.tile', 'min-height', 768), '150px');
   assert.equal(effective(rules, '.skel--tile', 'height', 360), effective(rules, '.tile', 'min-height', 360));
@@ -336,9 +342,14 @@ test('layout F5: command blocks wrap below 768 and scroll inside themselves from
 test('layout E.1 F1/F2: the phone row gives the title a full line; from 768 rows are 76 px and the meta drops the workflow name until 1024', () => {
   const rules = cssRules(appCss);
   const areas = (width: number) => effective(rules, '.run-row', 'grid-template-areas', width);
-  // CD-B6 replaces F1's "title title" "state time" "rail rail" "meta meta" at 144 px with a 116 px phone row.
+  // Compact rows retain separate title, rail, metadata, state and time areas.
   assert.equal(areas(360), '"title title title" "rail rail rail" "meta state time"');
-  assert.equal(effective(rules, '.run-row', 'min-height', 360), '116px');
+  assert.equal(effective(rules, '.run-row', 'min-height', 360), 'calc(var(--target) * 2 + var(--space-1))');
+  assert.equal(effective(rules, '.run-row', 'padding', 360), 'var(--space-2) var(--space-4)');
+  assert.equal(effective(rules, '.run-row__title', 'min-width', 360), '0');
+  assert.equal(effective(rules, '.run-row__rail', 'min-width', 360), '0');
+  const missingRail = cssRules(appCss.replace('"title title title" "rail rail rail" "meta state time"', '"title title title" "title title title" "meta state time"'));
+  assert.notEqual(effective(missingRail, '.run-row', 'grid-template-areas', 360), areas(360));
   assert.equal(areas(768), '"title rail state" "meta rail time"');
   assert.equal(effective(rules, '.run-row', 'min-height', 768), '76px');
   assert.equal(effective(rules, '.run-row', 'grid-template-columns', 768), 'minmax(0, 1fr) var(--rail-col) 9rem');
@@ -494,18 +505,39 @@ test('control: a planted state word, storage call or missing masked line turns t
   assert.equal(fleetFindings('views/fleet.js', fs.readFileSync(path.join(copy, 'views', 'fleet.js'), 'utf8')).length, 2);
 });
 
-test('layout CD-B9 (V.10): below 768 the header is three rows with no menu: brand and pill, the nav across the width, the theme control; from 768 one row', () => {
+test('layout CD-B9: phone header keeps pause and theme reachable alongside navigation', () => {
   const rules = cssRules(appCss);
-  assert.equal(effective(rules, '.site-header__inner', 'grid-template-areas', 360), '"brand conn" "nav nav" "theme theme"');
+  assert.equal(effective(rules, '.site-header__inner', 'grid-template-areas', 360), '"brand conn" "nav nav" "pause theme"');
+  assert.equal(effective(rules, '.pause', 'grid-area', 360), 'pause');
+  assert.equal(effective(rules, '.theme', 'grid-area', 360), 'theme');
+  assert.equal(effective(rules, '.pause__label', 'white-space', 360), 'nowrap');
+  const orphanPause = cssRules(appCss.replace('"brand conn" "nav nav" "pause theme"', '"brand conn" "nav nav" "theme theme"'));
+  assert.notEqual(effective(orphanPause, '.site-header__inner', 'grid-template-areas', 360), effective(rules, '.site-header__inner', 'grid-template-areas', 360));
   assert.equal(effective(rules, '.site-header__inner', 'grid-template-rows', 360), 'var(--header-h) auto 48px');
   assert.equal(effective(rules, '.nav', 'justify-self', 360), 'stretch');
   assert.equal(effective(rules, '.conn', 'justify-self', 360), 'end');
   assert.equal(effective(rules, '.nav ul', 'flex-wrap', 359), 'wrap', 'the list may wrap as a fallback below 360');
-  assert.equal(effective(rules, '.site-header__inner', 'display', 768), 'flex');
   assert.equal(effective(rules, '.nav ul', 'flex-wrap', 768), 'nowrap');
   const html = fs.readFileSync(path.join(WEB_ROOT, 'index.html'), 'utf8');
   assert.deepEqual([...html.matchAll(/class="nav__link" href="([^"]+)">([^<]+)</g)].map((m) => m[2]), ['Runs', 'Workflows', 'Sessions', 'Fleet']);
   assert.ok(!/<button[^>]*menu/i.test(html), 'no menu button');
+});
+
+test('layout CD-B9: tablet header separates navigation until the desktop row fits', () => {
+  const rules = cssRules(appCss);
+  for (const width of [768, 1024, 1099]) {
+    assert.equal(effective(rules, '.site-header__inner', 'display', width), 'grid');
+    assert.equal(effective(rules, '.site-header__inner', 'grid-template-areas', width), '"brand conn pause theme" "nav nav nav nav"');
+    assert.equal(effective(rules, '.site-header__inner', 'grid-template-columns', width), 'minmax(0, 1fr) auto auto auto');
+    assert.equal(effective(rules, '.site-header__inner', 'grid-template-rows', width), 'var(--header-h) auto');
+  }
+  assert.equal(effective(rules, '.site-header__inner', 'display', 1100), 'flex');
+  assert.equal(effective(rules, '.site-header__inner', 'height', 1100), 'var(--header-h)');
+  const earlyDesktop = cssRules(appCss.replace('@media (min-width: 1100px)', '@media (min-width: 768px)'));
+  assert.equal(effective(earlyDesktop, '.site-header__inner', 'display', 768), 'flex');
+  assert.notEqual(effective(earlyDesktop, '.site-header__inner', 'display', 768), effective(rules, '.site-header__inner', 'display', 768));
+  const orphanPause = cssRules(appCss.replace('"brand conn pause theme" "nav nav nav nav"', '"brand conn conn theme" "nav nav nav nav"'));
+  assert.notEqual(effective(orphanPause, '.site-header__inner', 'grid-template-areas', 768), effective(rules, '.site-header__inner', 'grid-template-areas', 768));
 });
 
 test('layout V.10: the project row, the Fleet grid and the sheet follow the bands of the design note', () => {

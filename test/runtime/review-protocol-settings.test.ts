@@ -35,7 +35,7 @@ function resolve({ thin = false, ...overrides }: any = {}) {
   const view = overrides.settingsView ?? {};
   const settingsView = thin || Object.hasOwn(view, 'review.preset') ? view : { ...AUTO, ...view };
   return resolveProtocol({
-    kind: 'review', taskClass: 'bug', risk: 'LOW', paths: LIGHT, runPreset: null, advicePick: null,
+    kind: 'review', taskClass: 'operations', risk: 'LOW', paths: LIGHT, runPreset: null, advicePick: null,
     gatePolicy: GATES.policy, registry: REGISTRY, riskPolicy: RISK_POLICY, ...overrides, settingsView,
   });
 }
@@ -63,7 +63,7 @@ test('maint-thin: review.preset review-single on a code-scope change is taken: t
   assert.equal(auto.protocol.origins.id, 'risk');
 });
 
-test('review.preset review-deep over a light LOW bug is taken with its layer as origin; auto runs the risk rule; no setting is thin', () => {
+test('review.preset review-deep over a light LOW change is taken with its layer as origin; auto runs the risk rule; no setting is thin', () => {
   const got = resolve({ settingsView: set('review.preset', 'review-deep', 'project') });
   assert.equal(got.protocol.id, 'review-deep');
   assert.equal(got.protocol.origins.id, 'project');
@@ -246,9 +246,9 @@ test('settings: under a user auto, a project review.preset review-single is not-
 test('settings: a project review.preset review-deep narrows auto and the protocol takes origin project', (t) => {
   const f = createSettingsEnv(t);
   f.writeProjectSettings({ schema: 1, 'review.preset': 'review-deep' });
-  const inputs = inputsFor(f, 'bug');
+  const inputs = inputsFor(f, 'operations');
   assert.deepEqual(inputs.settingsView['review.preset'], { value: 'review-deep', layer: 'project' });
-  const got = run(inputs, { taskClass: 'bug', risk: 'LOW', paths: LIGHT });
+  const got = run(inputs, { taskClass: 'operations', risk: 'LOW', paths: LIGHT });
   assert.equal(got.protocol.id, 'review-deep');
   assert.equal(got.protocol.origins.id, 'project');
 });

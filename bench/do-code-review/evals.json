@@ -55,7 +55,7 @@
       "kind": "triggering",
       "split": "train",
       "name": "prose-review-uses-content-type-path",
-      "prompt": "/do-code-review Review the markdown in docs/architecture.md",
+      "prompt": "/do-code-review Review the markdown in docs/guide.md",
       "expected_output": "The markdown content-type reviewer is used, not a language checker",
       "files": [],
       "assertions": [

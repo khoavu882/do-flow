@@ -33,3 +33,5 @@ items with the required author. After a failed/stopped agent, check status, log,
 
 Use sensible defaults. Ask one structured question only when a contract or behavior changes beyond
 the request; resolve agent questions rather than forwarding a list.
+Unattended, that same case halts per RULE_04 (WORKFLOW_HANDOFF.md § Unattended stage): the
+recommended default is not adopted.

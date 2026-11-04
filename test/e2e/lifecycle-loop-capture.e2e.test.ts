@@ -17,7 +17,9 @@ after(() => scratch.remove());
 /** A project directory for crash tests, with its own machine-wide failure home. */
 function crashSandbox(name: any) {
   const dir = path.join(scratch.dir, unique(name));
-  const project = path.join(dir, 'project');
+  // Under the scratch HOME, so the stored label is `~/<name>/project` whatever length TMPDIR has; a project
+  // outside HOME is stored as its masked path cut to 200 characters, which drops the tail the test reads.
+  const project = path.join(scratch.home, path.basename(dir), 'project');
   const xdg = path.join(dir, 'xdg');
   fs.mkdirSync(project, { recursive: true });
   fs.mkdirSync(xdg, { recursive: true });

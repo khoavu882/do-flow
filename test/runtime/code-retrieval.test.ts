@@ -109,6 +109,49 @@ test('semantic failure is appended to the existing retrieval plan with its origi
   assert.equal(result.response.attempts.find((a: any) => a.provider === 'semble.search').recordedAttempt.n, semantic.n);
 });
 
+// FU-2z5eax: an incomplete corpus leaves the search answer classifiable and skips the semantic provider.
+test('incomplete corpus: an empty lexical answer is EMPTY/empty-answer, semantic is skipped, gaps stay and absence is not established', async (t) => {
+  const f = fixture(t); const taskId = 't-incomplete-corpus';
+  assert.equal(declare(f.root, taskId, 'locate-concept'), 0);
+  const inventory = { ...f.inventory, complete: false, skipped: [{ path: 'big.bin', reason: 'file-too-large' }] };
+  let semanticCalls = 0;
+  const result = await executeCodeRetrieval({ query: 'quantum flux capacitor lookup', root: f.root, taskId, need: 'locate-concept', profile: 'hybrid', modelPath: '/fake/model', providers: {
+    router, inventory,
+    lexicalSearch: () => ({ candidates: [], complete: true, rejections: [], accounting: {}, coverage: { complete: true } }),
+    semanticQuery: async () => { semanticCalls += 1; return { ok: false, reason: 'provider-error', freshness: 'UNKNOWN', candidates: [] }; },
+  } });
+  assert.equal(result.exit, 0);
+  assert.equal(result.response.queryClass, 'conceptual');
+  assert.equal(semanticCalls, 0, 'semantic is not executed on an incomplete inventory');
+  assert.deepEqual(result.response.attempts.map((a: any) => a.provider), ['native.rg'], 'no semantic attempt or provider failure is recorded');
+  assert.equal(result.response.attempts[0].complete, false);
+  assert.equal(result.response.effectiveProfile, 'lexical-only');
+  const recorded = readPlan(f.root, taskId).needs[0].attempts;
+  assert.deepEqual(recorded.map((a: any) => [a.provider, a.status, a.reason]), [['native.rg', 'EMPTY', 'empty-answer']]);
+  assert.deepEqual(result.response.gaps, [
+    { source: 'admission', reason: 'file-too-large', count: 1 },
+    { source: 'semantic', reason: 'incomplete-corpus-skipped' },
+  ]);
+  assert.equal(result.response.coverage.complete, false);
+  assert.equal(result.response.absenceEstablished, false);
+});
+
+test('incomplete corpus control: a lexical deadline is still a timeout and a lexical fault still provider-error', async (t) => {
+  const f = fixture(t);
+  const inventory = { ...f.inventory, complete: false, skipped: [{ path: 'big.bin', reason: 'file-too-large' }] };
+  for (const [reason, expected] of [['deadline', 'timeout'], ['not-regular-file', 'provider-error']]) {
+    const taskId = `t-incomplete-${reason}`;
+    assert.equal(declare(f.root, taskId, 'locate-known-symbol'), 0);
+    const result = await executeCodeRetrieval({ query: 'parseToken', root: f.root, taskId, need: 'locate-known-symbol', providers: {
+      router, inventory,
+      lexicalSearch: () => ({ candidates: [], complete: false, rejections: [{ reason }], accounting: {}, coverage: { complete: false } }),
+    } });
+    assert.equal(result.exit, 0, JSON.stringify(result.response));
+    const [attempt] = readPlan(f.root, taskId).needs[0].attempts;
+    assert.deepEqual([attempt.status, attempt.reason], ['UNREACHED', expected], reason);
+  }
+});
+
 test('explicit index action calls lifecycle only and rejects simultaneous query', async (t) => {
   const f = fixture(t); let calls = 0;
   const providers: any = { router, inventory: f.inventory, lifecycle: async ({ action, modelPath }: any) => {

@@ -70,7 +70,17 @@ function runtime(exe: any, args: any, { home, cwd, env = {} }: any = {}) {
 // A drive path in that list must be in MSYS form (/c/...): bash splits PATH on every colon, so a
 // `C:/...` entry would be read as the two entries `C` and `/...` and node would never be found.
 const msysDir = (p: any) => String(p).replace(/\\/g, '/').replace(/^([A-Za-z]):\//, (_m: any, d: any) => `/${d.toLowerCase()}/`);
-const MINIMAL_PATH = `/usr/bin:/bin:${msysDir(path.dirname(process.execPath))}`;
+// Node comes from a scratch directory holding one `node` link, not from path.dirname(process.execPath):
+// where `npm link` or a global install puts doflow beside node, that directory would put a `doflow` on
+// the very PATH the no-CLI cases assert has none. win32 cannot link without a privilege, so it keeps the
+// node directory (a global doflow there is a Windows-only gap the cases already tolerate).
+function nodeOnlyDir() {
+  if (IS_WIN) return msysDir(path.dirname(process.execPath));
+  const dir = scratch('node-only');
+  fs.symlinkSync(process.execPath, path.join(dir, 'node'));
+  return dir;
+}
+const MINIMAL_PATH = `/usr/bin:/bin:${nodeOnlyDir()}`;
 
 function walk(dir: any, out: any = []) {
   let entries;
@@ -516,7 +526,7 @@ function promoteThrough(exe: any, { home, cwd }: any) {
   for (const [i, id] of ids.entries()) assert.ok(text.includes(`- ${id}: ${PROMOTE_STATEMENTS[i]}`), `the intent names ${id}`);
 
   // The follow-ups are settled: each shows the intent it went to, and stays open.
-  const listed = verb(['--action', 'list']);
+  const listed = verb(['--action', 'list', '--view', 'full']);
   assert.deepEqual(listed.items.map((i: any) => [i.id, i.state, i.intent]).sort(), ids.map((id: any) => [id, 'open', promoted.intent]).sort());
   assert.equal(fs.readdirSync(path.join(cwd, '.doflow', 'state', 'lifecycle', 'events')).length, 3, 'two additions and one promotion are events in the project');
   return { text: text.replace(/FU-[0-9a-z]{6}/g, 'FU-ID').replace(/\*\*Date:\*\* \d{4}-\d\d-\d\d/, '**Date:** DATE'), ids };
@@ -609,4 +619,13 @@ test('048: project scope, removing pi keeps the shared tree codex still claims, 
 
 test('048: global scope, removing pi keeps the shared tree claude still claims, and removing claude reclaims it', () => {
   assertRemovalKeepsClaimedFiles({ tag: 'retain-global', scope: 'global', first: 'claude', second: 'pi' });
+});
+
+test('FU-qj1e0b: the no-CLI PATH resolves node from a node-only directory, never the node install directory', { skip: IS_WIN }, () => {
+  const entries = MINIMAL_PATH.split(':');
+  assert.equal(entries.length, 3);
+  assert.ok(!entries.includes(path.dirname(process.execPath)), 'the install directory is not an entry');
+  assert.deepEqual(fs.readdirSync(entries[2]), ['node']);
+  const resolved = spawnSync('/bin/sh', ['-c', 'command -v node'], { env: { PATH: MINIMAL_PATH }, encoding: 'utf8' });
+  assert.equal(resolved.stdout.trim(), path.join(entries[2], 'node'));
 });

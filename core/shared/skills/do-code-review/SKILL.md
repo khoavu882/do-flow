@@ -145,7 +145,8 @@ DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
    Run `"$DOFLOW" review --action check` (errors, advisories, counts); fix every error before the handoff.
 
 4. **Record the handoff, then handle this stage's gate** — read the guidance tree's
-   `references/WORKFLOW_HANDOFF.md`. When a feature is active, use its slug:
+   `references/WORKFLOW_HANDOFF.md`. When a feature is active, use its slug, and run `"$DOFLOW" attendance --task-id "<feature_slug>"` once (`unattended` → that file's
+   § Unattended stage):
    ```bash
    "$DOFLOW" orchestrate --action handoff --task-id "<feature_slug>" --calling-skill do-code-review --result <passed|failed> --note "<verdict and finding counts>" --json
    ```
@@ -157,8 +158,9 @@ DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
    - **The gate after this stage — check that one exists before trying to resolve one.** Read the
      handoff response's `awaitingGate` field; do not re-derive it from `workflow.gates[]`.
      - **`awaitingGate` is non-null and its `gateId` is anchored after this stage** — `gate-b`,
-       "Before commit or merge", in the `feature` workflow, which is the only shipped class with any
-       gate at all. This stage is that workflow's last and nothing downstream runs to ask it (its own
+       "Before commit or merge", in the `feature` workflow, the only shipped class that declares a gate
+       itself. Unattended, neither ask nor decide it: report and stop (the loop
+       decides). Attended: this stage is that workflow's last and nothing downstream runs to ask it (its own
        `handoff` sends commit and merge to `/do-git`, outside the workflow), so ask it here: put
        `awaitingGate.prompt` to the user through the question tool as a plain go/no-go. Its trigger
        is `always` — nothing in this review's own output answers it, so never approve it mechanically.
@@ -171,7 +173,8 @@ DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
        user can decide later. Do not send `--decision reject` for a deferral: reject terminates the
        run outright, which is a different answer from "not now", and do not force the approval.
      - **`awaitingGate` is `null`** — there is no gate to resolve. `bug`, `refactor`, `review`,
-       `documentation` and `dependency-change` declare none, so the response comes back with the run
+       `documentation` and `dependency-change` declare none of their own (a loop run's `gate-b` is the loop's:
+       call nothing), so the response comes back with the run
        either `COMPLETED` or simply advanced. Say the review is recorded and stop: do not fabricate a
        prompt, and do not call `decide-gate` on a gate that does not exist.
      - When `/do-flow` is driving the chain it presents this gate and records the answer itself. That
@@ -189,7 +192,7 @@ DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
 
 ## Embedded feature research
 
-For an external fact gap or explicit request, follow the conditional protocol in `../do-document/references/embedded-research.md` before stage completion.
+For an external fact gap or request, follow the Gap or request protocol in `../do-document/references/embedded-research.md` before stage completion.
 
 ## Boundaries
 

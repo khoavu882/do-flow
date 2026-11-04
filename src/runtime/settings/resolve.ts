@@ -214,6 +214,18 @@ function loadSettings({ projectRoot = null, global = false, env = process.env, r
   return view;
 }
 
+/**
+ * The registry to pass `loadSettings` with `fsImpl`: none for the real file system (the shipped one),
+ * else the registry read through that file system. Throws when it is unusable (callers fail closed).
+ */
+function registryOn(fsImpl: any): { registry?: any } {
+  if (fsImpl === nodeFs) return {};
+  const { loadSettingsRegistry } = require('./registry.ts');
+  const loaded = loadSettingsRegistry({ fsImpl });
+  if (!loaded.ok) throw new Error(loaded.detail);
+  return { registry: loaded.registry };
+}
+
 function buildView(registry: any, home: any, root: string | null, global: boolean, env: any, fsImpl: any, protocols: any, only: string[] | null): any {
   const { REGISTRY_FILE } = require('./registry.ts');
   const { REF_META } = require('./refs.ts');
@@ -346,6 +358,9 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
   /** The candidates of one key in one view, lowest layer first (the env last). */
   function rawCandidates(key: string, spec: any, viewName: ViewName): Raw[] {
     const out: Raw[] = [];
+    // The legacy file's deprecation note waits until the new file has been read: it tells the reader to set the
+    // key there, which is noise when settings.json already holds it (FU-3xc3fj).
+    const deprecated: Array<{ layer: 'user' | 'project'; file: string }> = [];
     const legacyAt = (layer: 'user' | 'project', base: string, checkout: Checkout): void => {
       for (const entry of spec.legacy) {
         if (entry.layer !== layer) continue;
@@ -362,9 +377,7 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
         } else {
           out.push({ ...base0, display: displayOf(spec, read.value), value: read.value, fault: null });
         }
-        if (once(`deprecated\0${file}\0${key}`)) {
-          notes.push({ code: 'deprecated', key, source: file, text: `${file} is deprecated; set "${key}" in ${newPath(layer)} (read through 2.x)` });
-        }
+        deprecated.push({ layer, file });
       }
     };
     const fileAt = (layer: 'user' | 'project' | 'local', file: string, checkout: Checkout): void => {
@@ -432,6 +445,13 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
         } else {
           out.push({ ...base0, value: null, fault: null, noEffect: true });
         }
+      }
+    }
+    for (const { layer, file } of deprecated) {
+      const held = reads.get(newPath(layer));
+      if (held?.status === 'ok' && held.values.has(key)) continue;
+      if (once(`deprecated\0${file}\0${key}`)) {
+        notes.push({ code: 'deprecated', key, source: file, text: `${file} is deprecated; set "${key}" in ${newPath(layer)} (read through 2.x)` });
       }
     }
     return out;
@@ -702,4 +722,4 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
   return view;
 }
 
-module.exports = { loadSettings, clearSettingsCache };
+module.exports = { loadSettings, registryOn, clearSettingsCache };

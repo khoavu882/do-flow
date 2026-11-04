@@ -54,6 +54,11 @@ interface HandleSeedCommandOptions {
   err?: (s: string) => void;
   classes?: string[];
   isTTY?: boolean;
+  /** Shows the prompt and returns the person's answer line, or null when no answer can be read. Test seam. */
+  confirm?: (prompt: string) => string | null;
+  /** Clock and sleep for the default timed terminal reader. Test seam: no real waiting. */
+  ttyClock?: () => number;
+  ttySleep?: (ms: number) => void;
 }
 
 function judgeDraft({
@@ -379,7 +384,7 @@ function printTextResult(
   if ((op === 'apply' || op === 'amend') && result.ok) {
     line1 += `, ${result.writes} files written`;
     if (Array.isArray(result.proposed) && result.proposed.length > 0) {
-      line1 += `, ${result.proposed.length} proposed (no person verified, or autopilot is not verifiably off; a person runs in their terminal, with autopilot off: doflow roadmap promote ${result.proposed.map(safeText).join(' ')})`;
+      line1 += `, ${result.proposed.length} proposed (no person verified, or autopilot is not verifiably off; a person runs in their terminal: doflow roadmap promote ${result.proposed.map(safeText).join(' ')})`;
     }
   }
   if (result.seed && result.seed.sha256 === null) {
@@ -481,6 +486,9 @@ function handleSeedCommand(options: HandleSeedCommandOptions = {}): number {
     err = (s: string) => console.error(s),
     classes,
     isTTY = process.stdin.isTTY === true,
+    confirm,
+    ttyClock,
+    ttySleep,
   } = options;
 
   const usage = (message: string): number => {
@@ -583,13 +591,37 @@ function handleSeedCommand(options: HandleSeedCommandOptions = {}): number {
   }
 
   // 4. Apply / Amend action
-  // (a) maint-thin: a seed write is allowed whatever the switch says. Rows land as drafted (ready) only when BOTH
-  // autopilot is verifiably off (the fail-closed seed reader) AND stdin is an interactive terminal: a model with a
-  // shell controls the environment (an empty config home reads as off), so the switch alone cannot tell a person.
-  // Otherwise every row it adds or amends lands `proposed`, which autopilot never picks or advances until a person
-  // runs `roadmap promote`.
+  // (a) maint-thin / AU C05: a seed write is allowed whatever the switch says. Rows land as drafted (ready) only when
+  // stdin is an interactive terminal AND either autopilot is verifiably off (the fail-closed seed reader) or a person
+  // answers yes to the same `/dev/tty` [y/N] that `roadmap promote` uses. A model with a shell controls the
+  // environment (an empty config home reads as off), so the switch alone cannot tell a person; and without the prompt
+  // a model with a pty could land ready rows while autopilot is on, which widens the queue. No terminal, or no/other
+  // answer, lands every row it adds or amends `proposed`, which autopilot never picks or advances until a person runs
+  // `roadmap promote`. The prompt comes before the roadmap lease (Ctrl-C would otherwise leave the lease behind) and
+  // only for a draft that judges clean against the store as read now. No flag or environment variable skips it.
   const switchReader = readSwitch || readSeedSwitch;
-  const landProposed = isTTY !== true || switchReader(env, fsImpl).enabled !== false;
+  let landProposed = isTTY !== true || switchReader(env, fsImpl).enabled !== false;
+  if (landProposed && isTTY === true) {
+    const preFacts = gitFacts || gatherGitFacts({ root });
+    const pre = preFacts.unreadable && preFacts.unreadable.length > 0 ? null
+      : judgeDraft({ draftRaw, seedRaw, gitFacts: preFacts, op: action, classes });
+    if (pre && pre.ok) {
+      const rowsList = (JSON.parse(draftRaw).rows || []).filter((r: any) => r && typeof r === 'object');
+      const ids = rowsList.map((r: any) => safeText(r.id));
+      const titles = rowsList.map((r: any) => `  ${safeText(r.id)}  ${safeText(r.title)}`);
+      const prompt = `${titles.join('\n')}\nLand ${ids.length} row(s) ready for autopilot (autopilot is not verifiably off): ${ids.join(' ')}? [y/N] `;
+      let answer: string | null = null;
+      try {
+        if (confirm) answer = confirm(prompt);
+        else {
+          const read = readTtyLine(prompt, { timeoutMs: SEED_PROMPT_TIMEOUT_MS, now: ttyClock, sleep: ttySleep });
+          answer = read.answer;
+          if (read.timedOut) err(`doflow roadmap seed: the [y/N] prompt timed out after ${Math.round(SEED_PROMPT_TIMEOUT_MS / 1000)} s with no answer; rows land proposed (run: doflow roadmap promote <id...>)`);
+        }
+      } catch { answer = null; }
+      if (typeof answer === 'string' && /^(y|yes)$/i.test(answer.trim())) landProposed = false;
+    }
+  }
 
   // (b) Acquire lease
   const leaseDir = path.join(root, '.doflow', 'state', 'roadmap');
@@ -818,25 +850,97 @@ interface HandlePromoteCommandOptions {
   root?: string;
   fsImpl?: any;
   gitFacts?: any;
-  readSwitch?: (env?: any, fsImpl?: any) => { enabled: boolean; switch: any };
   alive?: (proc: any) => boolean | 'unknown';
-  env?: any;
   pid?: number;
   host?: string;
   now?: () => Date;
   out?: (s: string) => void;
   err?: (s: string) => void;
   isTTY?: boolean;
+  /** Shows the prompt and returns the person's answer line, or null when no answer can be read. Test seam. */
+  confirm?: (prompt: string) => string | null;
+}
+
+/** How long the seed prompt waits for a person before it counts as "no" (promote waits without limit). */
+const SEED_PROMPT_TIMEOUT_MS = 60000;
+const TTY_POLL_MS = 25;
+
+function sleepMs(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+interface TtyReadOptions {
+  /** 0 or absent: block until the person answers. Above 0: give up after that many ms and report `timedOut`. */
+  timeoutMs?: number;
+  now?: () => number;
+  sleep?: (ms: number) => void;
 }
 
 /**
- * maint-thin: `roadmap promote <id...>`, person only. A model with a shell controls the environment, so an
- * environment check alone cannot tell a person: pointing XDG_CONFIG_HOME at an empty folder reads as "off". The verb
- * therefore first requires an interactive terminal on stdin (refused `needs-person-tty`, nothing written), then reads
- * the switch with the fail-closed seed reader as a second check: unless autopilot is verifiably off it refuses
- * `needs-person` and writes nothing. Under the roadmap lease it drops the
- * `proposed` mark of every named row, so autopilot may pick it. All or nothing: an unknown id, a row that is not
- * proposed, or a duplicate id is a finding and nothing is written. Exit 0 promoted, 1 refused or findings, 2 usage.
+ * Reads one answer line from the controlling terminal (`/dev/tty`), never from stdin, an argument or the environment.
+ * `answer` is null when the terminal cannot be opened or read, the line is too long, or the optional timeout passes
+ * (`timedOut`). A timed read opens the terminal non-blocking and polls, so a pty that stays open without an answer
+ * cannot hold the caller for ever.
+ */
+function readTtyLine(prompt: string, options: TtyReadOptions = {}): { answer: string | null; timedOut: boolean } {
+  const { timeoutMs = 0, now = Date.now, sleep = sleepMs } = options;
+  const timed = timeoutMs > 0;
+  let fd: number;
+  try { fd = timed ? fs.openSync('/dev/tty', fs.constants.O_RDWR | fs.constants.O_NONBLOCK) : fs.openSync('/dev/tty', 'r+'); } catch { return { answer: null, timedOut: false }; }
+  const deadline = timed ? now() + timeoutMs : Infinity;
+  let timedOut = false;
+  // one byte; 0 at end of input, -1 when the timeout passed
+  const readByte = (buf: Buffer): number => {
+    for (;;) {
+      try { return fs.readSync(fd, buf, 0, 1, null); }
+      catch (error: any) {
+        if (!timed || (error?.code !== 'EAGAIN' && error?.code !== 'EWOULDBLOCK')) throw error;
+        if (now() >= deadline) { timedOut = true; return -1; }
+        sleep(TTY_POLL_MS);
+      }
+    }
+  };
+  try {
+    fs.writeSync(fd, prompt);
+    const buf = Buffer.alloc(1);
+    let line = '';
+    let ended = false;
+    for (let i = 0; i < 64 && !ended; i += 1) {
+      const n = readByte(buf);
+      if (n < 0) return { answer: null, timedOut: true };
+      if (n === 0 || buf[0] === 10) ended = true;
+      else line += String.fromCharCode(buf[0]);
+    }
+    // drain what is left of the typed line (bounded), so it is not left in the terminal queue
+    const tooLong = !ended;
+    for (let i = 0; i < 4096 && !ended; i += 1) {
+      const n = readByte(buf);
+      if (n < 0) return { answer: null, timedOut: true };
+      if (n === 0 || buf[0] === 10) ended = true;
+    }
+    return { answer: tooLong ? null : line, timedOut: false };
+  } catch {
+    return { answer: null, timedOut };
+  } finally {
+    try { fs.closeSync(fd); } catch { /* ignore close failure */ }
+  }
+}
+
+/** The untimed reader `roadmap promote` uses: a person runs that verb and may take as long as they need. */
+function readTtyAnswer(prompt: string): string | null {
+  return readTtyLine(prompt).answer;
+}
+
+/**
+ * maint-thin: `roadmap promote <id...>`, person only. A model with a shell controls the environment, so neither an
+ * environment check nor the autopilot switch can tell a person. The verb requires an interactive terminal on stdin
+ * (refused `needs-person-tty`, nothing written), validates the named rows, then prints their ids and titles and asks
+ * `[y/N]` on the controlling terminal (`/dev/tty`): no `/dev/tty`, or an answer other than y/yes, is refused
+ * `needs-person-confirm` and nothing is written. No flag or environment variable skips the prompt, and the autopilot
+ * switch is not read. The prompt comes before the roadmap lease (Ctrl-C would otherwise leave the lease behind); under
+ * the lease the store is read again and must equal what was shown, then the verb drops the `proposed` mark of every
+ * named row, so autopilot may pick it. All or nothing: an unknown id, a row that is not proposed, or a duplicate id is a finding (reported before any
+ * prompt) and nothing is written. Exit 0 promoted, 1 refused or findings, 2 usage.
  */
 function handlePromoteCommand(options: HandlePromoteCommandOptions = {}): number {
   const {
@@ -845,15 +949,14 @@ function handlePromoteCommand(options: HandlePromoteCommandOptions = {}): number
     root = resolveMainRoot(process.cwd()),
     fsImpl = fs,
     gitFacts,
-    readSwitch,
     alive,
-    env = process.env,
     pid,
     host,
     now,
     out = (s: string) => console.log(s),
     err = (s: string) => console.error(s),
     isTTY = process.stdin.isTTY === true,
+    confirm = readTtyAnswer,
   } = options;
   const emit = (result: any, code: number, detail?: string): number => {
     if (json) out(JSON.stringify(result));
@@ -879,13 +982,32 @@ function handlePromoteCommand(options: HandlePromoteCommandOptions = {}): number
     return emit({ ...base, reason: 'needs-person-tty' }, 1,
       'promote runs only from an interactive terminal: a person runs doflow roadmap promote in their own shell');
   }
-  const switchReader = readSwitch || readSeedSwitch;
-  if (switchReader(env, fsImpl).enabled !== false) {
-    const { configHome } = require('../config-home.ts');
-    const home = configHome(env).dir;
-    const homeText = home ? safeText(home) : 'the config home (none resolves: set HOME or XDG_CONFIG_HOME)';
-    return emit({ ...base, reason: 'needs-person' }, 1,
-      `autopilot is not verifiably off for this config home; a person sets autopilot.enabled to off in ${homeText}/settings.json or creates ${homeText}/autopilot/off, then promotes`);
+
+  // Read, validate and ask BEFORE taking the lease: Ctrl-C kills the process inside the terminal read, so a lease held
+  // across the prompt would be left behind. The lease is taken after the answer, and the store is read again under it.
+  let raw: string;
+  try { raw = fsImpl.readFileSync(storePath, 'utf8'); }
+  catch (error: any) { return emit({ ...base, findings: ids.map((id) => ({ rule: 'row-not-found', rowId: id, message: `no store at ${storePath}: ${safeText(error.message)}` })) }, 1); }
+  const storeFindings = seedFindings(raw);
+  if (storeFindings.length > 0) return emit({ ...base, findings: storeFindings }, 1);
+  const doc = JSON.parse(raw);
+  const findings: any[] = [];
+  const seen = new Set<string>();
+  for (const id of ids) {
+    const row = doc.rows.find((r: any) => r.id === id);
+    if (seen.has(id)) findings.push({ rule: 'duplicate-id', rowId: id, message: `Row '${safeText(id)}' is named twice` });
+    else if (!row) findings.push({ rule: 'row-not-found', rowId: id, message: `Row '${safeText(id)}' not found in store` });
+    else if (row.proposed !== true) findings.push({ rule: 'row-not-proposed', rowId: id, message: `Row '${safeText(id)}' is not proposed` });
+    seen.add(id);
+  }
+  if (findings.length > 0) return emit({ ...base, findings }, 1);
+  const titles = ids.map((id) => `  ${safeText(id)}  ${safeText(doc.rows.find((r: any) => r.id === id).title)}`);
+  const prompt = `${titles.join('\n')}\nPromote ${ids.length} row(s): ${ids.map(safeText).join(' ')}? [y/N] `;
+  let answer: string | null = null;
+  try { answer = confirm(prompt); } catch { answer = null; }
+  if (typeof answer !== 'string' || !/^(y|yes)$/i.test(answer.trim())) {
+    return emit({ ...base, reason: 'needs-person-confirm' }, 1,
+      'promote needs a person to answer y on the controlling terminal (/dev/tty); there is no flag or variable that skips the prompt');
   }
 
   const leaseDir = path.join(root, '.doflow', 'state', 'roadmap');
@@ -901,22 +1023,12 @@ function handlePromoteCommand(options: HandlePromoteCommandOptions = {}): number
   const lease = acquireLease(leaseDir, me, alive || noPsAlive, fsImpl);
   if (!lease.ok) return emit({ ...base, reason: 'lease-held' }, 1);
   try {
-    let raw: string;
-    try { raw = fsImpl.readFileSync(storePath, 'utf8'); }
-    catch (error: any) { return emit({ ...base, findings: ids.map((id) => ({ rule: 'row-not-found', rowId: id, message: `no store at ${storePath}: ${safeText(error.message)}` })) }, 1); }
-    const storeFindings = seedFindings(raw);
-    if (storeFindings.length > 0) return emit({ ...base, findings: storeFindings }, 1);
-    const doc = JSON.parse(raw);
-    const findings: any[] = [];
-    const seen = new Set<string>();
-    for (const id of ids) {
-      const row = doc.rows.find((r: any) => r.id === id);
-      if (seen.has(id)) findings.push({ rule: 'duplicate-id', rowId: id, message: `Row '${safeText(id)}' is named twice` });
-      else if (!row) findings.push({ rule: 'row-not-found', rowId: id, message: `Row '${safeText(id)}' not found in store` });
-      else if (row.proposed !== true) findings.push({ rule: 'row-not-proposed', rowId: id, message: `Row '${safeText(id)}' is not proposed` });
-      seen.add(id);
+    let current: string | null = null;
+    try { current = fsImpl.readFileSync(storePath, 'utf8'); } catch { current = null; }
+    if (current !== raw) {
+      return emit({ ...base, reason: 'needs-person-confirm' }, 1,
+        'the roadmap store changed after the rows were shown; nothing was written, run doflow roadmap promote again');
     }
-    if (findings.length > 0) return emit({ ...base, findings }, 1);
     const rows = doc.rows.map((r: any) => {
       if (!ids.includes(r.id)) return r;
       const { proposed, ...ready } = r;

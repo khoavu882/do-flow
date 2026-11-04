@@ -40,27 +40,33 @@ function parseAt(value: any): number | null {
   return Number.isNaN(ms) ? null : ms;
 }
 
-/** Every record in a directory, plus the names of the ones that did not parse. A file that cannot be
- * read is counted and named rather than skipped: a report that quietly drops what it could not read
- * overstates its own coverage, which is the defect `malformedLines` already guards against for runs. */
-function readRecords(dir: string, fsImpl: any = fs): any {
-  if (!fsImpl.existsSync(dir)) return { records: [], unreadable: [], exists: false };
-  const records: any[] = [];
+/** Every run the `list` action shows (flat and namespaced, this checkout and the other ones, each
+ * logical run once), plus the ones that could not be read, named with a fixed reason. A file that
+ * cannot be read is counted and named rather than skipped: a report that quietly drops what it could
+ * not read overstates its own coverage, which is the defect `malformedLines` already guards against
+ * for runs. The reason is never the error's own text, which can carry a path or file bytes. */
+function readRecords(root: string): any {
+  const { orchestrationRuns, runEntriesAt, selectRunEntries, runStoreDir } = require('../implementation-gate.ts');
+  const listed = orchestrationRuns({ stateRoot: root });
   const unreadable: any[] = [];
-  for (const name of fsImpl.readdirSync(dir).sort()) {
-    if (!name.endsWith('.json')) continue;
-    try {
-      const parsed = JSON.parse(fsImpl.readFileSync(path.join(dir, name), 'utf8'));
-      if (!parsed || typeof parsed !== 'object' || !parsed.taskId) {
-        unreadable.push({ file: name, reason: 'not an orchestration record' });
-        continue;
-      }
-      records.push(parsed);
-    } catch (err: any) {
-      unreadable.push({ file: name, reason: err.message });
+  let entries: any[];
+  if (listed.ok) entries = selectRunEntries(listed.entries);
+  else {
+    entries = selectRunEntries(runEntriesAt(root, 'current'));
+    unreadable.push({ file: '(other checkouts)', reason: 'could not be listed' });
+  }
+  const records: any[] = [];
+  for (const entry of entries) {
+    const name = entry.origin === 'other' ? entry.file : path.relative(runStoreDir(entry.root), entry.file);
+    if (entry.error) {
+      unreadable.push({ file: name, reason: entry.error === 'io' ? 'not a regular file' : 'not valid JSON' });
+    } else if (!entry.record || typeof entry.record !== 'object' || !entry.record.taskId) {
+      unreadable.push({ file: name, reason: 'not an orchestration record' });
+    } else {
+      records.push(entry.record);
     }
   }
-  return { records, unreadable, exists: true };
+  return { records, unreadable, exists: entries.length > 0 || fs.existsSync(orchestrationDir(root)) };
 }
 
 /** A stage row is "not work done" when the orchestrator backfilled it or imported it rather than
@@ -196,8 +202,7 @@ function printClass(group: any): void {
 }
 
 function handleIndicatorsCommand({ json = false, projectRoot = process.cwd() } = {}): number {
-  const dir = orchestrationDir(projectRoot);
-  const read = readRecords(dir);
+  const read = readRecords(projectRoot);
   const view = buildIndicators(read);
 
   if (json) {

@@ -123,6 +123,38 @@ test('session: every read route is 401 without the cookie and no verb runs', asy
   assert.deepEqual(runner.calls, []);
 });
 
+test('phone session: only the four phone GET routes are allowed', async () => {
+  const runner = scripted();
+  const sessions = createSessions({ scope: 'phone' });
+  const token = sessions.exchange(sessions.mintLaunchCode());
+  const cookie = `${cookieName(4310)}=${token}`;
+  const routes = consoleRoutes(runner, sessions);
+  const invoke = (route: any, params: Record<string, string> = {}) => route.handler({
+    req: { headers: { cookie } }, port: 4310, params, pathname: route.path, webRoot: '/tmp', res: {},
+  });
+
+  const allowed = [
+    ['/api/info', {}],
+    ['/api/runs', {}],
+    ['/api/runs/:slug/:taskId', { slug: 'feat-a', taskId: 'run-1' }],
+    ['/api/workflows', {}],
+  ] as const;
+  for (const [path, params] of allowed) {
+    const route = routes.find((item: any) => item.method === 'GET' && item.path === path);
+    assert.ok(route, path);
+    const reply = await invoke(route, params as Record<string, string>);
+    assert.notEqual(reply.status, 403, `${path} is in phone scope`);
+  }
+
+  for (const path of ['/api/sessions', '/api/fleet', '/api/transcript', '/api/stream']) {
+    const route = routes.find((item: any) => item.method === 'GET' && item.path === path);
+    assert.ok(route, path);
+    const reply = await invoke(route);
+    assert.equal(reply.status, 403, path);
+    assert.deepEqual(JSON.parse(reply.body), errorBody('phone-scope'), path);
+  }
+});
+
 test('params: a slug or task id failing the IC-003 pattern is 400 usage before any verb runs', async (t) => {
   const runner = scripted();
   const { json } = await harness(runner, t);

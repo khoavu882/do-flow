@@ -230,14 +230,15 @@ const bySortKey = (a: any, b: any): number => (a < b ? -1 : a > b ? 1 : 0);
  * Injected readers (all optional; a missing one contributes nothing):
  * - `ledger.queryEvidence({taskId})` -> evidence items (active ones count)
  * - `requests.list(taskId)` -> research requests
- * - `briefRecords` -> IC-018 records already parsed, each `{ runTaskId, stage, tasks, expected }`
+ * - `briefRecords` -> IC-018 records already parsed, each `{ runTaskId, stage, createdAt, tasks, expected }`
  * - `readReport(path)` -> report text, or null when the file is missing
  * - `reach.anyHarnessHas(server)` -> true | false | null (unknown); never decides an outcome
  * - `reach.harnessWith(server)` -> the display name of a harness that has the server, or null
  * - `harnessName(id)` -> a harness id's display name (for a brief record's `harness`)
- * - `addCommand(server)` -> the text after "add it:" in the unavailable notice
+ * - `addCommand(server, harnessId)` -> the text after "add it:" in the unavailable notice; `harnessId` is the harness
+ *   of the brief that found the server unreachable, or null when no brief names one
  * - `since` -> ISO time of the previous stage's completion (or the run start); rule 3 counts only
- *   evidence observed after it
+ *   evidence observed after it, and only brief records created after it
  *
  * @returns {{ record: object, warnings: object[], notices: object[], evidenceToAdd: object[] }}
  */
@@ -266,8 +267,11 @@ function resolveConsultations({
   // ingested (design A6).
   const toolsUsed: any[] = [];
   const fromReports = new Map<string, any[]>();
+  // A stage visited twice leaves briefs from the earlier visit: when `since` is known only a brief created
+  // after it counts, and a record with no creation time (written before it was stamped) cannot be placed.
   const records = (Array.isArray(briefRecords) ? briefRecords : [])
-    .filter((record: any) => record && stageId && taskId && record.stage === stageId && record.runTaskId === taskId);
+    .filter((record: any) => record && stageId && taskId && record.stage === stageId && record.runTaskId === taskId
+      && (since === null || (typeof record.createdAt === 'string' && record.createdAt > since)));
   const reports: Array<{ id: string; report: string }> = [];
   for (const record of records) {
     for (const task of record.tasks || []) {
@@ -347,10 +351,12 @@ function resolveConsultations({
   // brief writes `unreachable` only where every config the harness merges was read (IC-017).
   const unreachable = new Map<string, any>();
   const reachableOn = new Map<string, any>();
+  const unreachableOn = new Map<string, any>();
   for (const record of records) {
     for (const expected of record.expected || []) {
       if (!expected || typeof expected.server !== 'string') continue;
       if (expected.reach === 'unreachable' && !unreachable.has(expected.server)) unreachable.set(expected.server, record.tasks?.[0]?.id);
+      if (expected.reach === 'unreachable' && !unreachableOn.has(expected.server)) unreachableOn.set(expected.server, record.harness ?? null);
       if (expected.reach === 'reachable' && !reachableOn.has(expected.server)) reachableOn.set(expected.server, record.harness ?? null);
     }
   }
@@ -415,7 +421,7 @@ function resolveConsultations({
           text: `[WARN] mcp: ${server} reported unavailable but ${has} has it configured`,
         });
       }
-      const add = !has && typeof addCommand === 'function' ? addCommand(server) : null;
+      const add = !has && typeof addCommand === 'function' ? addCommand(server, unreachableOn.get(server) ?? null) : null;
       notices.push({
         kind: 'unavailable', server,
         text: `[INFO] mcp: ${server} unavailable to ${skill}${add ? `; add it: ${add}` : ''}`,

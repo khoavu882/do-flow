@@ -132,3 +132,19 @@ test('formatExecution derives mcpTool from the provider mcp descriptor and omits
   const without = router.formatExecution('locate-concept', { id: 'acme.find' }, { query: 'q' });
   assert.equal('mcpTool' in without, false);
 });
+
+test('formatExecution mcpTool: default form unchanged, explicit harness uses its registry template, no template gives neutral identifiers', () => {
+  const router = new CapabilityRouter({ repoRoot: REPO });
+  const provider = { id: 'acme.find', mcp: { server: 'acme', tool: 'find' } };
+  assert.equal(router.formatExecution('locate-concept', provider, { query: 'q' }).mcpTool, 'mcp__acme__find');
+  const claude = router.formatExecution('locate-concept', provider, { query: 'q', harness: 'claude' });
+  assert.equal(claude.mcpTool, 'mcp__acme__find');
+  const noTemplate = router.harnessList().find((item: any) => !item.capabilities?.mcp?.toolName);
+  assert.ok(noTemplate, 'the registry has a harness without a verified toolName template');
+  const neutral = router.formatExecution('locate-concept', provider, { query: 'q', harness: noTemplate.id });
+  assert.equal('mcpTool' in neutral, false);
+  assert.deepEqual(neutral.mcp, { server: 'acme', tool: 'find' });
+  const custom = new CapabilityRouter({ repoRoot: REPO });
+  custom.harnessList = () => [{ id: 'x', capabilities: { mcp: { toolName: '{server}.{tool}' } } }];
+  assert.equal(custom.formatExecution('locate-concept', provider, { query: 'q', harness: 'x' }).mcpTool, 'acme.find');
+});

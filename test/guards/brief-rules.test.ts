@@ -195,6 +195,51 @@ test('G78 control: a script with no rule ledger above it still writes the brief 
   assert.ok(data.missing.some((m: string) => /^brief-rules: .*rules\.json/.test(m)), JSON.stringify(data.missing));
 });
 
+// --- the real do-review-package.sh (FU-txy416): the same rules block as the briefs, before the diff -----
+
+const PACKAGE_SCRIPT = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bash', 'do-review-package.sh');
+
+/** A feature repo with one commit after `base`; runs the package script from `script` and returns its JSON and file text. */
+function reviewPackage(script = PACKAGE_SCRIPT) {
+  const dir = freshDir('rp');
+  const git = (...args: string[]) => spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.test', ...args], { cwd: dir, encoding: 'utf8', env: scratch.env() });
+  git('init', '-q', '-b', 'main');
+  git('commit', '-q', '--allow-empty', '-m', 'init');
+  git('checkout', '-q', '-b', `feat/${FEATURE}`);
+  fs.mkdirSync(path.join(dir, 'agent-docs', 'doflow', FEATURE), { recursive: true });
+  const base = git('rev-parse', 'HEAD').stdout.trim();
+  fs.writeFileSync(path.join(dir, 'change.txt'), 'changed\n');
+  git('add', 'change.txt');
+  git('commit', '-q', '-m', 'change');
+  const head = git('rev-parse', 'HEAD').stdout.trim();
+  const res = spawnSync('bash', [script, `--task=A.1`, `--base=${base}`, `--head=${head}`, `--slug=${FEATURE}`], {
+    cwd: dir, encoding: 'utf8', timeout: 300000, env: scratch.env({ DOFLOW_CLI: path.join(REPO, 'bin', 'doflow.js') }),
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const data = JSON.parse(res.stdout);
+  return { data, md: data.path ? fs.readFileSync(path.join(dir, data.path), 'utf8') : '' };
+}
+
+test('G78 (f): the real review package carries every must-carry line once, before the commits and the diff', () => {
+  const lines = mustCarryLines(source);
+  const { data, md } = reviewPackage();
+  assert.equal(Object.hasOwn(data, 'missing'), false, JSON.stringify(data));
+  assert.deepEqual(ruleFindings(md, lines), []);
+  assert.match(md, /^# Review package: [0-9a-f]+\.\.[0-9a-f]+\n\n## Rules that apply to you\n\n- /);
+  assert.ok(md.indexOf('## Rules that apply to you') < md.indexOf('## Commits'));
+  assert.ok(md.indexOf(lines[lines.length - 1]) < md.indexOf('## Diff'));
+  assert.match(md, /\+changed/, 'the diff is still there');
+});
+
+test('G78 control: a package script with no rule ledger above it still writes the package and names the loss in missing', () => {
+  const tree = freshDir('rp-tree');
+  fs.cpSync(path.dirname(PACKAGE_SCRIPT), path.join(tree, 'doflow', 'bash'), { recursive: true });
+  const homeless = reviewPackage(path.join(tree, 'doflow', 'bash', 'do-review-package.sh'));
+  assert.doesNotMatch(homeless.md, /Rules that apply to you/);
+  assert.match(homeless.md, /## Diff/);
+  assert.ok(homeless.data.missing.some((m: string) => /^brief-rules: .*rules\.json/.test(m)), JSON.stringify(homeless.data));
+});
+
 // --- the report contract: tool evidence, then the final status line --------------------------------
 
 const workflowIds = (): string[] => JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'workflows.json'), 'utf8')).agents.handback.statuses.map((x: any) => x.id);

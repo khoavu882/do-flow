@@ -12,8 +12,42 @@ const os = require('node:os');
 const path = require('node:path');
 const net = require('node:net');
 const http = require('node:http');
-const { createServer } = require('../src/server.ts');
+const { createServer, isPrivateAddress, isAssignedAddress, urlHost, allowedAuthorities } = require('../src/server.ts');
 const { ROUTES } = require('../src/routes.ts');
+
+test('private IPv6 addresses use canonical URL and interface forms without binding', () => {
+  const interfaces = { en0: [{ address: 'fd12:0:0:0:0:0:0:1' }] };
+  assert.equal(isPrivateAddress('FD12:0:0:0:0:0:0:1'), true);
+  assert.equal(isAssignedAddress('fd12::1', interfaces), true);
+  assert.equal(urlHost('FD12:0:0:0:0:0:0:1'), '[fd12::1]');
+  assert.equal(isPrivateAddress('fd12::1%en0'), false);
+  assert.equal(isPrivateAddress('fe80::1'), false);
+  for (const address of ['fc00::', 'fcff::1', 'fd00::1', 'fdff:ffff::1']) {
+    assert.equal(isPrivateAddress(address), true, address);
+  }
+  for (const address of ['fc::1', 'fd::1', 'fbff::1', 'fe00::1']) {
+    assert.equal(isPrivateAddress(address), false, address);
+  }
+});
+
+test('authority allowlists accept default-port forms only for the expected host and protocol', () => {
+  for (const host of ['192.168.1.2', '[fd12::1]']) {
+    const { hosts, origins } = allowedAuthorities(host, 443, true);
+    for (const value of [host, `${host}:443`]) assert.ok(hosts.has(value), value);
+    for (const value of [`https://${host}`, `https://${host}:443`]) assert.ok(origins.has(value), value);
+    for (const value of [`${host}:444`, 'evil.test', 'localhost']) assert.equal(hosts.has(value), false, value);
+    for (const value of [`http://${host}`, `https://${host}:444`, `https://${host}/`, 'https://evil.test']) {
+      assert.equal(origins.has(value), false, value);
+    }
+    const other = allowedAuthorities(host, 8443, true);
+    assert.equal(other.hosts.has(host), false);
+    assert.equal(other.origins.has(`https://${host}`), false);
+  }
+  const local = allowedAuthorities('127.0.0.1', 80, false);
+  for (const value of ['127.0.0.1', '127.0.0.1:80', 'localhost', 'localhost:80']) assert.ok(local.hosts.has(value), value);
+  for (const value of ['http://127.0.0.1', 'http://127.0.0.1:80', 'http://localhost', 'http://localhost:80']) assert.ok(local.origins.has(value), value);
+  assert.equal(local.origins.has('https://127.0.0.1'), false);
+});
 
 // Pinned here, not imported: the test is the contract's copy (092 IC-010).
 const CSP = "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; "
@@ -118,13 +152,13 @@ test('bind: listens on the literal 127.0.0.1, on an OS-picked port by default', 
   assert.ok(port > 0);
 });
 
-test('bind: every host other than the literal 127.0.0.1 is refused before anything listens', async () => {
+test('bind: remote hosts are refused before anything listens unless they qualify for explicit TLS mode', async () => {
   const original = http.createServer;
   let created = 0;
   http.createServer = (...args: any[]) => { created += 1; return original(...args); };
   try {
     for (const host of ['0.0.0.0', '::', '::1', 'localhost', '127.0.0.2', '192.168.1.10', '', ' 127.0.0.1']) {
-      await assert.rejects(createServer({ webRoot, host }), /127\.0\.0\.1/, `host ${JSON.stringify(host)}`);
+      await assert.rejects(createServer({ webRoot, host }), /refused remote bind|requires absolute TLS/i, `host ${JSON.stringify(host)}`);
     }
   } finally {
     http.createServer = original;

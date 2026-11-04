@@ -202,10 +202,10 @@ function declaredLevelCells() {
   return [...firstColumnValues(sec), ...prose];
 }
 
-/** design-template.md §2's level headings, UNFILTERED, for the same reason. Matches any
+/** design-template.md System Overview (C4) level headings, UNFILTERED, for the same reason. Matches any
  * "### <label>: ..." heading in §2 rather than only the "C4 Level N" shape. */
 function templateLevelHeadings() {
-  const sec = section(template('design-template.md'), /^## 2\. /);
+  const sec = section(template('design-template.md'), /^## \d+\. System Overview/);
   // No colon is required: "### C3" and "### C3 — Component" are exactly the ambiguous spellings
   // this feeds the collision test, and a colon-only match would be blind to both.
   return [...sec.matchAll(/^###\s+(.+?)\s*$/gm)].map(([, h]) => h.split(/[:—–]/)[0].trim());
@@ -218,7 +218,7 @@ function declaredLevels() {
   return [...new Set(declaredLevelCells().filter((v) => /^C4 /.test(v)))];
 }
 
-/** design-template.md §2's "### C4 Level N: ..." headings, label only. */
+/** design-template.md System Overview (C4) "### C4 Level N: ..." headings, label only. */
 function templateLevels() {
   return templateLevelHeadings().filter((v) => /^C4 Level \d+$/.test(v));
 }
@@ -227,7 +227,7 @@ test('G18: design-template.md\'s C4 headings match ARTIFACT_FORMAT.md §4\'s lev
   const declared = declaredLevels();
   assert.ok(declared.length === 3, `ARTIFACT_FORMAT.md §4 should declare 3 C4 levels, found ${declared.length}`);
   assertSameSet(declared, templateLevels(),
-    'ARTIFACT_FORMAT.md §4 level table', 'templates/doflow/design-template.md §2 headings');
+    'ARTIFACT_FORMAT.md §4 level table', 'templates/doflow/design-template.md System Overview (C4) headings');
 });
 
 // The generated-block markers are shared by three files that never import each other: the projector
@@ -236,7 +236,7 @@ test('G18: design-template.md\'s C4 headings match ARTIFACT_FORMAT.md §4\'s lev
 // neither, which left the verb reporting ok:true and blockWritten:false on every new feature -- the
 // source-versus-view drift the verb exists to remove, arriving as silence. One check over all three
 // so it cannot be marked done again without being done.
-test('G18: design-template.md §2 ships the generated-block markers the runtime agrees on', () => {
+test('G18: design-template.md System Overview (C4) ships the generated-block markers the runtime agrees on', () => {
   const OPEN = '<!-- generated from';
   const CLOSE = '<!-- end generated -->';
   const runtimeUsers: any = [
@@ -248,16 +248,16 @@ test('G18: design-template.md §2 ships the generated-block markers the runtime 
     assert.ok(text.includes(OPEN), `${label} no longer uses the open marker '${OPEN}'`);
     assert.ok(text.includes(CLOSE), `${label} no longer uses the close marker '${CLOSE}'`);
   }
-  const sec = section(template('design-template.md'), /^## 2\. /);
+  const sec = section(template('design-template.md'), /^## \d+\. System Overview/);
   const open = sec.indexOf(OPEN);
-  assert.notEqual(open, -1, 'design-template.md §2 carries no open marker, so render-puml can never write its block');
+  assert.notEqual(open, -1, 'design-template.md System Overview (C4) carries no open marker, so render-puml can never write its block');
   const close = sec.indexOf(CLOSE);
   assert.ok(close > open, 'the close marker must follow the open one, or the rewrite reads them as absent');
   assert.equal(sec.slice(open + OPEN.length).indexOf(OPEN), -1,
     'exactly one marked region: the projector emits one block per run, so a second pair could never be filled');
 });
 
-test('G18: no C4 level label collides with a design.md §3 component ID', () => {
+test('G18: no C4 level label collides with a design.md component ID', () => {
   // `^C[0-9]+$` is what a component ID looks like (C1, C3). A level spelled that way is ambiguous
   // between the third zoom level and the third component -- the defect this feature removed.
   //
@@ -267,10 +267,10 @@ test('G18: no C4 level label collides with a design.md §3 component ID', () => 
   // even with both sides reverted to `C1`/`C2`/`C3`, which is the exact regression it guards.
   const offenders = [
     ...declaredLevelCells().map((v) => [`ARTIFACT_FORMAT.md §4`, v]),
-    ...templateLevelHeadings().map((v) => [`design-template.md §2`, v]),
+    ...templateLevelHeadings().map((v) => [`design-template.md System Overview (C4)`, v]),
   ].filter(([, label]) => /^C[0-9]+$/.test(label));
   assert.deepEqual(offenders, [],
-    `these C4 level labels match ^C[0-9]+$, the design.md §3 component-ID pattern, and are `
+    `these C4 level labels match ^C[0-9]+$, the design.md component-ID pattern, and are `
     + `therefore ambiguous:\n  ${offenders.map(([side, v]) => `${side}: ${v}`).join('\n  ')}`);
 });
 
@@ -278,15 +278,15 @@ test('G18: no C4 level label collides with a design.md §3 component ID', () => 
 
 const REVIEWER_SECTIONS = section(declaration(), /^## 10\. /);
 
-test('G18: design-template.md §1 carries the decision-and-blocker columns §10 declares', () => {
+test('G18: design-template.md Architecture Approach carries the decision-and-blocker columns §10 declares', () => {
   const declared = REVIEWER_SECTIONS.replace(/\s+/g, ' ').match(/A table with the columns ((?:`[^`]+`[,\s]*(?:and )?)+)/);
   assert.ok(declared, 'ARTIFACT_FORMAT.md §10 no longer declares the decision-summary columns');
-  const sec = section(template('design-template.md'), /^## 1\. /);
+  const sec = section(template('design-template.md'), /^## \d+\. Architecture Approach/);
   const header = sec.split('\n').find((l: any) => /^\|.*\|/.test(l));
-  assert.ok(header, 'design-template.md §1 carries no table at all');
+  assert.ok(header, 'design-template.md Architecture Approach carries no table at all');
   const cells = header.split('|').slice(1, -1).map((c: any) => c.trim()).filter(Boolean);
   assertSameSet(backticked(declared[1]), cells,
-    'ARTIFACT_FORMAT.md §10 decision-summary columns', 'templates/doflow/design-template.md §1 table header');
+    'ARTIFACT_FORMAT.md §10 decision-summary columns', 'templates/doflow/design-template.md Architecture Approach table header');
 });
 
 test('G18: specs-template.md carries the §1 family grouping; data-model-template.md carries the §2-shaped data-model views §10 declares', () => {
@@ -329,9 +329,9 @@ function declaredComponentLabels() {
   return backticked(sec).filter((v) => /^\*\*.+:\*\*$/.test(v));
 }
 
-/** The labels design-template.md §3 actually transcribes, in document order, de-duplicated. */
+/** The labels design-template.md Components & Boundaries actually transcribes, in document order, de-duplicated. */
 function templateComponentLabels(): any {
-  const sec = section(template('design-template.md'), /^## 3\. /);
+  const sec = section(template('design-template.md'), /^## \d+\. Components & Boundaries/);
   const seen: any = [];
   for (const [, label] of sec.matchAll(/(\*\*[A-Z][^*]*?:\*\*)/g)) {
     // Skip the entry's own ID label -- "- **C1:**" opens the entry, the four labels nest beneath it.
@@ -341,7 +341,7 @@ function templateComponentLabels(): any {
   return seen;
 }
 
-test('G18: design-template.md §3 transcribes §10\'s component labels, in order', () => {
+test('G18: design-template.md Components & Boundaries transcribes §10\'s component labels, in order', () => {
   // Without this, the four labels were declared in §10, carved out in ARTIFACT_VOICE.md, and
   // transcribed into the template with nothing comparing them -- renaming or dropping one left
   // every other assertion green. That is the same defect as the header-field check above.
@@ -351,9 +351,9 @@ test('G18: design-template.md §3 transcribes §10\'s component labels, in order
   const transcribed = templateComponentLabels();
   assert.deepEqual(transcribed, declared,
     'ARTIFACT_FORMAT.md §10 declares the component detail labels and their order; '
-    + `templates/doflow/design-template.md §3 must transcribe them exactly.\n`
+    + `templates/doflow/design-template.md Components & Boundaries must transcribe them exactly.\n`
     + `  §10 declares:  ${declared.join(' ')}\n`
-    + `  §3 transcribes: ${transcribed.join(' ') || '(none)'}`);
+    + `  the template transcribes: ${transcribed.join(' ') || '(none)'}`);
 });
 
 // --- comparison 5: checker rule names vs the rule list §9 documents ------------------------------
@@ -394,4 +394,254 @@ test('G18: validate-artifacts.sh\'s rules and ARTIFACT_FORMAT.md §9\'s `Checked
     + `  implemented rules: ${[...implemented].sort().join(', ')}`);
   assertSameSet([...implemented], [...documented],
     'validate-artifacts.sh finding() rules', 'ARTIFACT_FORMAT.md §9 `Checked:` list');
+});
+
+// --- comparison 7: the design.md section order and its journey front half ------------------------
+//
+// design.md is journey-first. ARTIFACT_FORMAT.md declares the section order (§10) and the diagram
+// slot registry (§4); the template transcribes both. Without a comparison, adding, renaming or
+// reordering a section in only one place is silent: readers and parsers locate a section by title.
+
+const titleOf = (heading: any) => heading.replace(/^##\s+\d+\.\s+/, '').trim();
+
+/** The template's `## N. <title>` headings, title only, in document order (HTML comments blanked). */
+function templateTitles() {
+  const text = template('design-template.md').replace(/<!--[\s\S]*?-->/g, (m: any) => m.replace(/[^\n]/g, ''));
+  return [...text.matchAll(/^##\s+\d+\.\s+(.+?)\s*$/gm)].map(([, title]) => title);
+}
+
+function declaredDesignOrder() {
+  const sec = section(declaration(), /^### The `design\.md` section order/);
+  const titles = backticked((sec.split('\n\n')[1] ?? '').split('Readers')[0]);
+  assert.ok(titles.length > 0, 'ARTIFACT_FORMAT.md §10 no longer lists the design.md section order');
+  return titles;
+}
+
+test('G18: design-template.md\'s section titles equal the order ARTIFACT_FORMAT.md §10 declares, twelve of them', () => {
+  const declared = declaredDesignOrder();
+  assert.equal(declared.length, 12, `ARTIFACT_FORMAT.md §10 should declare 12 design.md sections, found ${declared.length}`);
+  assert.deepEqual(templateTitles(), declared,
+    'ARTIFACT_FORMAT.md §10 declares the design.md section order; templates/doflow/design-template.md must carry the same titles in the same order');
+});
+
+test('G18: every design.md row of the §4 slot registry names a template section that carries its diagram type', () => {
+  const registry = section(declaration(), /^## 4\. Diagrams/);
+  const rows = [...registry.matchAll(/^\|\s*`design\.md`\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*$/gm)].map(([, title, slot]) => [title, slot]);
+  assert.ok(rows.length >= 3, `the slot registry should carry design.md rows for System Overview, Concepts and Journeys, found ${rows.length}`);
+  const titles = templateTitles();
+  for (const [title, slot] of rows) {
+    assert.ok(titles.includes(title), `the slot registry names design.md section "${title}", but the template has no such title`);
+    const heading = new RegExp(`^## \\d+\\. ${title.replace(/[()]/g, '\\$&')}\\s*$`);
+    // Comments are blanked and only a fenced block counts: prose naming a diagram type is not one.
+    const body = section(template('design-template.md'), heading).replace(/<!--[\s\S]*?-->/g, '');
+    // ", plus" separates required parts of a slot; within a part, "or" offers alternatives.
+    for (const part of slot.split(/,\s*plus\s/)) {
+      const types = ['flowchart', 'sequenceDiagram', 'stateDiagram-v2'].filter((type) => part.includes(`\`${type}\``));
+      if (!types.length) continue;
+      assert.ok(types.some((type) => new RegExp('```mermaid\\s+' + type).test(body)),
+        `the slot registry gives "${title}" ${types.join(' or ')}, but the template section scaffolds no fenced block of it`);
+    }
+  }
+});
+
+test('G18: every template journey has a picture, a state diagram and a rules table; no mindmap anywhere', () => {
+  const journeys = section(template('design-template.md'), /^## \d+\. Journeys/);
+  const blocks = journeys.split(/^(?=### )/m).filter((b: any) => /^### Journey \d+ — /.test(b));
+  assert.ok(blocks.length >= 1, 'the template Journeys section scaffolds no "### Journey N — <name>" block');
+  for (const block of blocks) {
+    const name = block.split('\n')[0];
+    assert.match(block, /```mermaid\s+(flowchart|sequenceDiagram)/, `${name}: no flowchart or sequenceDiagram picture`);
+    assert.match(block, /```mermaid\s+stateDiagram-v2/, `${name}: no stateDiagram-v2`);
+    assert.match(block, /^\|\s*Rule\s*\|/m, `${name}: no rules table`);
+  }
+  assert.match(journeys, /^### Worked example/m, 'Journeys scaffolds no worked example');
+  assert.match(journeys, /^### Eligibility \/ decision inputs/m, 'Journeys scaffolds no decision-inputs table');
+  assert.doesNotMatch(template('design-template.md'), /```mermaid\s+mindmap/, 'DIAGRAM_GUIDE.md excludes mindmap');
+});
+
+// --- data-model.md coverage (feature 139, IC-003) --------------------------------------------------
+// The checks are pure functions over a text, in test/helper/data-model-parity.ts, so a dry-run fill
+// can call them too. They run on the template's headings, on the worked example (which must pass)
+// and on altered copies of the example (each of which must fail, naming the entity or state).
+
+const {
+  templateHeadingFindings, entityCoverageFindings, stateParityFindings, sourceCellFindings,
+} = require('../helper/data-model-parity.ts');
+
+const DATA_MODEL_EXAMPLE = path.join(
+  REPO, 'core', 'shared', 'skills', 'do-design', 'references', 'data_model_example.md');
+const dataModelExample = () => read(DATA_MODEL_EXAMPLE);
+const allDataModelFindings = (text: any) => [
+  ...entityCoverageFindings(text), ...stateParityFindings(text), ...sourceCellFindings(text),
+];
+
+/** `text` with the one occurrence of `from` replaced by `to`; throws when `from` is absent, so an
+ * alteration that stops matching the example fails loudly instead of testing an unaltered copy. */
+function alter(text: any, from: any, to: any) {
+  assert.ok(text.split(from).length === 2, `the worked example no longer holds exactly one of: ${from}`);
+  return text.replace(from, to);
+}
+
+test('G18: the data-model template pins its nine headings, the #### Flow: level, the callout and the Transitions header', () => {
+  assert.deepEqual(templateHeadingFindings(template('data-model-template.md')), []);
+});
+
+test('G18: the data-model template holds no filled example row', () => {
+  const body = template('data-model-template.md').replace(/<!--[\s\S]*?-->/g, '');
+  let fenced = false;
+  const rows: any[] = [];
+  for (const line of body.split('\n')) {
+    if (/^```/.test(line)) { fenced = !fenced; continue; }
+    if (!fenced && /^\|/.test(line) && !/^\|[\s|:-]+\|?$/.test(line)) rows.push(line);
+  }
+  assert.ok(rows.length > 0, 'the data-model template scaffolds no table row');
+  const filled = rows.filter((row: any) => {
+    const cells = row.replace(/^\||\|$/g, '').split('|').map((c: any) => c.trim());
+    // The header row is not a filled row; a body row is bare placeholders, optionally in backticks.
+    return !cells.every((c: any) => /^`?\[[^\]]*\]`?$/.test(c)) && !/^\|\s*(Domain|Field|Table|From|Invariant|Entity|Event|Trigger entity)/.test(row);
+  });
+  assert.deepEqual(filled, [], 'the data-model template scaffolds a table row that is not a bare placeholder');
+});
+
+test('G18: the data-model worked example returns no finding from any of the four checks', () => {
+  const text = dataModelExample();
+  assert.deepEqual(entityCoverageFindings(text), []);
+  assert.deepEqual(stateParityFindings(text), []);
+  assert.deepEqual(sourceCellFindings(text), []);
+  assert.deepEqual(templateHeadingFindings(text), []);
+});
+
+test('G18: an entity with no dictionary heading in the worked example is named', () => {
+  const text = alter(dataModelExample(), '#### Dictionary: OrderLine', '#### Fields: OrderLine');
+  const findings = entityCoverageFindings(text);
+  assert.ok(findings.some((f: any) => /OrderLine/i.test(f) && /Dictionary/.test(f)),
+    `no finding names OrderLine's missing dictionary heading: ${JSON.stringify(findings)}`);
+});
+
+test('G18: an entity with no lifecycle heading in the worked example is named', () => {
+  const text = alter(dataModelExample(), '#### Lifecycle: OrderLine', '#### Stateless: OrderLine');
+  const findings = entityCoverageFindings(text);
+  assert.ok(findings.some((f: any) => /OrderLine/i.test(f) && /Lifecycle/.test(f)),
+    `no finding names OrderLine's missing lifecycle heading: ${JSON.stringify(findings)}`);
+});
+
+test('G18: a state removed from the transition table of the worked example is named', () => {
+  let text = dataModelExample();
+  // Shipped is reached by one row and left by another; dropping both takes it out of From and To.
+  text = alter(text, '| Paid | ship | stock picked | Warehouse | tracking number set | Shipped | OrderShipped | IC-001 |\n', '');
+  text = alter(text, '| Shipped | confirm delivery | carrier scan | System | none | Closed | OrderClosed | UNKNOWN -> Open Point |\n', '');
+  const findings = stateParityFindings(text);
+  assert.ok(findings.some((f: any) => /Order/.test(f) && /Shipped/.test(f)),
+    `no finding names the state Shipped of the Order lifecycle: ${JSON.stringify(findings)}`);
+});
+
+test('G18: an 11-state diagram in the worked example is named', () => {
+  // The example draws four states; seven more make eleven.
+  const extra = [1, 2, 3, 4, 5, 6, 7].map((n) => `    Closed --> Extra${n}: step ${n}\n`).join('');
+  const text = alter(dataModelExample(), '    Shipped --> Closed: confirm delivery\n',
+    `    Shipped --> Closed: confirm delivery\n${extra}`);
+  const findings = stateParityFindings(text);
+  assert.ok(findings.some((f: any) => /Order/.test(f) && /11 states/.test(f)),
+    `no finding names the 11-state Order diagram: ${JSON.stringify(findings)}`);
+});
+
+test('G18: a <<choice>> pseudo-state as a transition target is not held to the Transitions table or the cap', () => {
+  const base = dataModelExample();
+  // Unaltered control: a plain extra state that is in no table row is named.
+  const plain = alter(base, '    New --> Closed: cancel\n', '    New --> Review: cancel\n');
+  assert.ok(stateParityFindings(plain).some((f: any) => /Review/.test(f)), 'a plain unlisted state must be named');
+  // The same transition through a declared choice is clean; fork and join behave alike.
+  for (const kind of ['choice', 'fork', 'join']) {
+    const text = alter(base, '    New --> Closed: cancel\n',
+      `    state Review <<${kind}>>\n    New --> Review: cancel\n    Review --> Closed\n`);
+    assert.deepEqual(stateParityFindings(text), [], `<<${kind}>> pseudo-state was counted as a state`);
+  }
+  // Pseudo-states do not count toward the cap: ten real states plus a choice stay at the cap.
+  const nine = [1, 2, 3, 4, 5, 6].map((n) => `    Closed --> Extra${n}\n`).join('');
+  const withChoice = alter(base, '    Shipped --> Closed: confirm delivery\n',
+    `    Shipped --> Closed: confirm delivery\n${nine}    state Pick <<choice>>\n    Closed --> Pick\n`);
+  assert.ok(!stateParityFindings(withChoice).some((f: any) => /cap/.test(f)), 'a choice counted toward the cap');
+});
+
+test('G18: a composite state and its nested states are counted once, in the same diagram', () => {
+  const base = dataModelExample();
+  const composite = (n: number) => {
+    const nested = Array.from({ length: n }, (_, i) => `        Inner${i + 1} --> Inner${i + 1}\n`).join('');
+    return alter(base, '    Shipped --> Closed: confirm delivery\n',
+      `    Shipped --> Closed: confirm delivery\n    state Packing {\n        [*] --> Inner1\n${nested}    }\n`);
+  };
+  // Packing + 4 nested + the 4 drawn states = 9: under the cap, and each is named once by parity.
+  const findings = stateParityFindings(composite(4));
+  assert.ok(!findings.some((f: any) => /cap/.test(f)), `composite miscounted: ${JSON.stringify(findings)}`);
+  assert.ok(findings.some((f: any) => /state Packing /.test(f)), 'the composite itself is a state of the diagram');
+  assert.equal(findings.filter((f: any) => /state Inner1 /.test(f)).length, 1);
+  // Seven nested + composite + 4 drawn = 12: over the cap, so the nested states do count.
+  assert.ok(stateParityFindings(composite(7)).some((f: any) => /Order/.test(f) && /12 states/.test(f)));
+});
+
+test('G18: a Source cell of NFR-001 passes and a bogus token is named', () => {
+  const row = '| A Closed order never changes | Order | code path rejects updates | NFR-001 |';
+  assert.ok(dataModelExample().includes(row), 'the worked example sources a row from NFR-001');
+  assert.deepEqual(sourceCellFindings(dataModelExample()), []);
+  for (const bogus of ['NFR-1', 'NFRS-001', 'NFR-001 FR-001']) {
+    const findings = sourceCellFindings(alter(dataModelExample(), row, row.replace('NFR-001', bogus)));
+    assert.ok(findings.some((f: any) => /Source cell/.test(f) && /"A Closed order never changes"/.test(f)),
+      `no finding names the bogus Source token ${bogus}: ${JSON.stringify(findings)}`);
+  }
+});
+
+test('G18: a row with an empty Source cell in the worked example is named', () => {
+  const text = alter(dataModelExample(), '| OrderClosed | proposed |\n', '| OrderClosed |  |\n');
+  const findings = sourceCellFindings(text);
+  assert.ok(findings.some((f: any) => /Transitions/.test(f) && /"New"/.test(f)),
+    `no finding names the Transitions row of state New: ${JSON.stringify(findings)}`);
+});
+
+// Feature 139 review: each fixed gap in the parity helpers has an altered copy of the example that
+// the unfixed helper reported clean.
+
+test('G18: a Dictionary heading inside a code fence does not count as the entity\'s dictionary', () => {
+  const fenced = alter(dataModelExample(), '#### Dictionary: OrderLine\n', '```\n#### Dictionary: OrderLine\n```\n');
+  const findings = entityCoverageFindings(fenced);
+  assert.ok(findings.some((f: any) => /OrderLine/i.test(f) && /Dictionary/.test(f)),
+    `a fenced heading was counted: ${JSON.stringify(findings)}`);
+  // A fenced heading line also does not end the block it sits in.
+  const inside = alter(dataModelExample(), '| id | uuid | no | generated once | none | code:src/orders/line.ts:8 |\n',
+    '| id | uuid | no | generated once | none | code:src/orders/line.ts:8 |\n```\n#### Lifecycle: Ghost\n```\n');
+  assert.deepEqual(entityCoverageFindings(inside), []);
+});
+
+test('G18: a Source cell holding more than one token is named', () => {
+  const row = '| An Order has at least one OrderLine | Order, OrderLine | check at placement | FR-002 |';
+  for (const multi of ['FR-001, proposed', 'FR-001,proposed', 'FR-001, FR-002']) {
+    const findings = sourceCellFindings(alter(dataModelExample(), row, row.replace('FR-002', multi)));
+    assert.ok(findings.some((f: any) => /Invariants/.test(f) && /"An Order has at least one OrderLine"/.test(f)),
+      `no finding names the multi-token Source cell "${multi}": ${JSON.stringify(findings)}`);
+  }
+});
+
+test('G18: a Dictionary row or a Coupling row with an invalid Source cell is named', () => {
+  const dict = '| status | string | no | one of New, Paid, Shipped, Closed | none | FR-001 |';
+  const dictFindings = sourceCellFindings(alter(dataModelExample(), dict, dict.replace('FR-001', 'garbage')));
+  assert.ok(dictFindings.some((f: any) => /Dictionary/.test(f) && /"status"/.test(f)),
+    `no finding names the Dictionary row status: ${JSON.stringify(dictFindings)}`);
+  const na = 'N/A: one actor-owned entity changes state; OrderLine has no state to couple.';
+  const coupling = (source: string) => alter(dataModelExample(), na,
+    '| Trigger entity and transition | Effect on entity | Via event | Source |\n|---|---|---|---|\n'
+    + `| Order: Paid → Shipped | OrderLine: none | OrderShipped | ${source} |`);
+  assert.deepEqual(sourceCellFindings(coupling('FR-001')), []);
+  const findings = sourceCellFindings(coupling('garbage'));
+  assert.ok(findings.some((f: any) => /Coupling/.test(f) && /"Order: Paid → Shipped"/.test(f)),
+    `no finding names the Coupling row: ${JSON.stringify(findings)}`);
+});
+
+test('G18: a double-quoted ER entity needs a dictionary and a lifecycle heading, quotes stripped', () => {
+  const ghost = alter(dataModelExample(), '    ORDER ||--|{ ORDERLINE : "contains"\n',
+    '    ORDER ||--|{ ORDERLINE : "contains"\n    "GHOST ENTITY" ||--o{ ORDER : "haunts"\n');
+  const findings = entityCoverageFindings(ghost);
+  assert.ok(findings.some((f: any) => /GHOST ENTITY/.test(f) && /Dictionary/.test(f)), JSON.stringify(findings));
+  assert.ok(findings.some((f: any) => /GHOST ENTITY/.test(f) && /Lifecycle/.test(f)), JSON.stringify(findings));
+  const covered = alter(ghost, '## 4. Cross-entity coupling',
+    '#### Dictionary: GHOST ENTITY\n\nNone.\n\n#### Lifecycle: GHOST ENTITY\n\nN/A: stateless, a placeholder.\n\n## 4. Cross-entity coupling');
+  assert.deepEqual(entityCoverageFindings(covered), []);
 });

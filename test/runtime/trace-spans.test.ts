@@ -68,7 +68,7 @@ const LEDGER_LINES: any = [
 ];
 
 const TELEMETRY_LINES: any = [
-  { timestamp: at('11:10:00'), kind: 'hook', run: 'r1', lineage: 'l1', attempt: 2, harness: 'claude', event: 'PreToolUse', policy: 'pre-bash-guard', verdict: 'allow', duration_ms: null, session: 's1', tool: 'Bash', tool_call_id: 'tc1' }, // 1
+  { timestamp: at('11:10:00'), kind: 'hook', run: 'r1', lineage: 'l1', attempt: 2, harness: 'claude', event: 'PreToolUse', policy: 'post-shell-observe', verdict: 'observe', duration_ms: null, session: 's1', tool: 'Bash', tool_call_id: 'tc1' }, // 1: the opener of the pre/post fold; no shipped hook writes a PreToolUse line now, the builder still folds one
   { timestamp: at('11:20:00'), kind: 'verify.run', run: 'r1', lineage: 'l1', attempt: 2, verify_id: VERIFY_ID, source: 'verb', task: 'A.1', risk: 'LOW', status: 'FAIL' }, // 2
   { timestamp: at('11:20:01'), kind: 'verify.check', run: 'r1', lineage: 'l1', attempt: 2, verify_id: VERIFY_ID, tier: 'targeted-tests', status: 'FAIL' }, // 3
   { kind: 'bogus', timestamp: at('11:21:00') }, // 4: not a telemetry kind
@@ -391,7 +391,7 @@ test('CLI: other `trace` calls and `stats` are unchanged and never load the span
 
 const POSIX = process.platform !== 'win32';
 /** sha256 of the JSON view over `seed(t)`, taken with the reader as it was before C.2d. */
-const GOLDEN_SHA = 'a338b303f7f02546f72bc9fc2ea6b266012b7f75a6b4a966c740bdc02d9138ef';
+const GOLDEN_SHA = '77278eddf54e5b8112d10ca840b209f3923bc5f2dca0ca3177f53bd257d5d8df';
 
 /** Runs the projection in a child that is killed after 3 s: a hang is a failure, not a stall. */
 function viewInChild(dir: any) {
@@ -492,7 +492,7 @@ function orchD(taskId: any, end: any = null) {
 }
 
 const lineD = (timestamp: any, extra: any = {}) => ({ timestamp, verb: 'dispatch', run: 'r6', lineage: 'l6', ...extra });
-const hookD = (timestamp: any) => ({ timestamp, kind: 'hook', run: 'r6', lineage: 'l6', attempt: null, harness: 'claude', event: 'PreToolUse', policy: 'pre-bash-guard', verdict: 'allow', duration_ms: null, session: 's6', tool: 'Bash', tool_call_id: 'tc6' });
+const hookD = (timestamp: any) => ({ timestamp, kind: 'hook', run: 'r6', lineage: 'l6', attempt: null, harness: 'claude', event: 'PostToolUse', policy: 'post-shell-observe', verdict: 'observe', duration_ms: null, session: 's6', tool: 'Bash', tool_call_id: 'tc6' });
 
 function seedD(t: any, { run = runD(), ledger = [], telemetry = [], orchestration = {}, dispatch = {} }: any = {}) {
   const extraStores: any = { 'task-attempts/d.json': { runs: { [KEY_D]: run }, tasks: {} } };
@@ -723,7 +723,7 @@ test('110 P1: B\'s worker joins B\'s attempt', (t) => {
 test('110 P2: hooks with attempt 1 in B\'s worker lifetime only, one session, join under B\'s worker with join:activity', (t) => {
   const { dir }: any = seed110(t, {
     telemetry: [
-      { timestamp: at('10:36:00'), kind: 'hook', run: 'r110', lineage: 'l110', attempt: 1, harness: 'codex', event: 'PreToolUse', policy: 'pre-bash-guard', verdict: 'allow', duration_ms: null, session: 's-b', tool: 'Bash', tool_call_id: 'tc1' },
+      { timestamp: at('10:36:00'), kind: 'hook', run: 'r110', lineage: 'l110', attempt: 1, harness: 'claude', event: 'PostToolUse', policy: 'post-shell-observe', verdict: 'observe', duration_ms: null, session: 's-b', tool: 'Bash', tool_call_id: 'tc1' },
     ],
   });
   const v = view(dir);
@@ -752,7 +752,7 @@ test('110 P3: a dispatch verify.run in B\'s window joins B', (t) => {
 test('110 P4: a hook with worker_run = A\'s worker, at a time both windows hold, joins A (id beats window)', (t) => {
   const { dir }: any = seed110(t, {
     telemetry: [
-      { timestamp: at('10:38:00'), kind: 'hook', run: 'r110', lineage: 'l110', attempt: 1, harness: 'codex', event: 'PreToolUse', policy: 'pre-bash-guard', verdict: 'allow', duration_ms: null, session: 's-a', tool: 'Bash', tool_call_id: 'tc1', worker_run: 'w-aaaaaaaaaaaa' },
+      { timestamp: at('10:38:00'), kind: 'hook', run: 'r110', lineage: 'l110', attempt: 1, harness: 'claude', event: 'PostToolUse', policy: 'post-shell-observe', verdict: 'observe', duration_ms: null, session: 's-a', tool: 'Bash', tool_call_id: 'tc1', worker_run: 'w-aaaaaaaaaaaa' },
     ],
   });
   const v = view(dir);
@@ -808,7 +808,7 @@ test('110 N1: two workers, same (run,lineage,attempt), overlapping lifetimes, ho
       },
     },
     telemetry: [
-      { timestamp: at('10:42:00'), kind: 'hook', run: 'r110', lineage: 'l110', attempt: 1, harness: 'codex', event: 'PreToolUse', policy: 'pre-bash-guard', verdict: 'allow', duration_ms: null, session: 's-n1', tool: 'Bash', tool_call_id: 'tc1' },
+      { timestamp: at('10:42:00'), kind: 'hook', run: 'r110', lineage: 'l110', attempt: 1, harness: 'claude', event: 'PostToolUse', policy: 'post-shell-observe', verdict: 'observe', duration_ms: null, session: 's-n1', tool: 'Bash', tool_call_id: 'tc1' },
     ],
   });
   const v = view(dir);
@@ -837,8 +837,8 @@ test('110 N2: one session whose lines fall in two workers\' lifetimes leaves the
       },
     },
     telemetry: [
-      { timestamp: at('10:35:00'), kind: 'hook', run: 'r110', lineage: 'l110', attempt: 1, harness: 'codex', event: 'PreToolUse', policy: 'pre-bash-guard', verdict: 'allow', duration_ms: null, session: 's-split', tool: 'Bash', tool_call_id: 'tc1' },
-      { timestamp: at('10:42:00'), kind: 'hook', run: 'r110', lineage: 'l110', attempt: 1, harness: 'codex', event: 'PreToolUse', policy: 'pre-bash-guard', verdict: 'allow', duration_ms: null, session: 's-split', tool: 'Bash', tool_call_id: 'tc2' },
+      { timestamp: at('10:35:00'), kind: 'hook', run: 'r110', lineage: 'l110', attempt: 1, harness: 'claude', event: 'PostToolUse', policy: 'post-shell-observe', verdict: 'observe', duration_ms: null, session: 's-split', tool: 'Bash', tool_call_id: 'tc1' },
+      { timestamp: at('10:42:00'), kind: 'hook', run: 'r110', lineage: 'l110', attempt: 1, harness: 'claude', event: 'PostToolUse', policy: 'post-shell-observe', verdict: 'observe', duration_ms: null, session: 's-split', tool: 'Bash', tool_call_id: 'tc2' },
     ],
   });
   const v = view(dir);
@@ -888,7 +888,7 @@ test('110 N5: the existing two-worktree control (:214) unchanged', (t) => {
 test('110 ADV1: hook whose worker_run names no worker is ambiguous, not joined with join:activity or parented to another worker', (t) => {
   const { dir }: any = seed110(t, {
     telemetry: [
-      { timestamp: at('10:38:00'), kind: 'hook', run: 'r110', lineage: 'l110', attempt: 1, harness: 'codex', event: 'PreToolUse', policy: 'pre-bash-guard', verdict: 'allow', duration_ms: null, session: 's-d', tool: 'Bash', tool_call_id: 'tc1', worker_run: 'w-dddddddddddd' },
+      { timestamp: at('10:38:00'), kind: 'hook', run: 'r110', lineage: 'l110', attempt: 1, harness: 'claude', event: 'PostToolUse', policy: 'post-shell-observe', verdict: 'observe', duration_ms: null, session: 's-d', tool: 'Bash', tool_call_id: 'tc1', worker_run: 'w-dddddddddddd' },
     ],
   });
   const v = view(dir);
@@ -937,7 +937,7 @@ test('110 ADV3: verify.run with dispatch_run and task null joins its dispatch ru
 test('110 P7: hook with worker_run overrides a single T3 candidate when worker slug window is closed', (t) => {
   const { dir }: any = seed110(t, {
     telemetry: [
-      { timestamp: at('10:52:00'), kind: 'hook', run: 'r110', lineage: 'l110', attempt: 1, harness: 'codex', event: 'PreToolUse', policy: 'pre-bash-guard', verdict: 'allow', duration_ms: null, session: 's-b', tool: 'Bash', tool_call_id: 'tc1', worker_run: 'w-bbbbbbbbbbbb' },
+      { timestamp: at('10:52:00'), kind: 'hook', run: 'r110', lineage: 'l110', attempt: 1, harness: 'claude', event: 'PostToolUse', policy: 'post-shell-observe', verdict: 'observe', duration_ms: null, session: 's-b', tool: 'Bash', tool_call_id: 'tc1', worker_run: 'w-bbbbbbbbbbbb' },
     ],
   });
   const v = view(dir);
@@ -955,7 +955,7 @@ test('D4 observer duration: spans.ts reads tool_duration_ms on observer lines, f
     telemetry: [
       { timestamp: at('11:15:00'), kind: 'hook', run: 'r1', lineage: 'l1', attempt: 2, harness: 'claude', event: 'PostToolUse', policy: 'post-shell-observe', verdict: 'observe', duration_ms: null, tool_duration_ms: 189, session: 's-obs-1', tool: 'Bash', tool_call_id: 'tc-unpaired-1' },
       { timestamp: at('11:16:00'), kind: 'hook', run: 'r1', lineage: 'l1', attempt: 2, harness: 'claude', event: 'PostToolUse', policy: 'post-shell-observe', verdict: 'observe', duration_ms: 104, session: 's-obs-2', tool: 'Bash', tool_call_id: 'tc-unpaired-2' },
-      { timestamp: at('11:17:00'), kind: 'hook', run: 'r1', lineage: 'l1', attempt: 2, harness: 'claude', event: 'PreToolUse', policy: 'pre-bash-guard', verdict: 'allow', duration_ms: null, tool_duration_ms: 999, session: 's-obs-3', tool: 'Bash', tool_call_id: 'tc-unpaired-3' },
+      { timestamp: at('11:17:00'), kind: 'hook', run: 'r1', lineage: 'l1', attempt: 2, harness: 'claude', event: 'UserPromptSubmit', policy: 'user-prompt-submit', verdict: 'allow', duration_ms: null, tool_duration_ms: 999, session: 's-obs-3' },
     ],
   });
   const v = view(dir);

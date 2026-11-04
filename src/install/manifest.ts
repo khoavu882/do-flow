@@ -25,6 +25,20 @@ function canonicalManifestPath(scopeRoot: string): string {
   return path.join(path.resolve(scopeRoot), '.doflow', MANIFEST_FILE_NAME);
 }
 
+/** Atomic same-directory write of the manifest document. */
+function atomicWrite(file: string, manifest: object, date: Date): void {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  // Security: the temp file must live next to `file` itself, not a shared os.tmpdir() — a
+  // world-writable /tmp plus a PID+timestamp-derived (i.e. guessable) name is a symlink-race
+  // waiting to happen (plant a symlink at the predicted path, the write clobbers its target).
+  // 'wx' (O_CREAT|O_EXCL) refuses to open through an existing symlink or file at all, and being
+  // on the same filesystem as `file` makes the final rename a guaranteed atomic same-fs op
+  // (os.tmpdir() offered no such guarantee — e.g. containers where /tmp is a separate tmpfs mount).
+  const tmp = path.join(path.dirname(file), `.install-manifest-${process.pid}-${date.getTime()}.json.tmp`);
+  fs.writeFileSync(tmp, `${JSON.stringify(manifest, null, 2)}\n`, { flag: 'wx' });
+  fs.renameSync(tmp, file); // atomic on the same filesystem, matches sync.sh's mktemp + mv
+}
+
 interface WriteManifestInput {
   scopeRoot?: string;
   claudeDir?: string;
@@ -88,17 +102,27 @@ function writeManifest({ scopeRoot, claudeDir, scriptVersion, operation, repoRoo
   const resources = managedResources ?? existingManagedResources;
   if (resources !== undefined) manifest.managed_resources = resources;
 
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  // Security: the temp file must live next to `file` itself, not a shared os.tmpdir() — a
-  // world-writable /tmp plus a PID+timestamp-derived (i.e. guessable) name is a symlink-race
-  // waiting to happen (plant a symlink at the predicted path, the write clobbers its target).
-  // 'wx' (O_CREAT|O_EXCL) refuses to open through an existing symlink or file at all, and being
-  // on the same filesystem as `file` makes the final rename a guaranteed atomic same-fs op
-  // (os.tmpdir() offered no such guarantee — e.g. containers where /tmp is a separate tmpfs mount).
-  const tmp = path.join(path.dirname(file), `.install-manifest-${process.pid}-${date.getTime()}.json.tmp`);
-  fs.writeFileSync(tmp, `${JSON.stringify(manifest, null, 2)}\n`, { flag: 'wx' });
-  fs.renameSync(tmp, file); // atomic on the same filesystem, matches sync.sh's mktemp + mv
+  atomicWrite(file, manifest, date);
   return file;
+}
+
+/**
+ * After a removal: stop listing `tools` as installed. Nothing else in the record changes except the
+ * operation and time, and a missing or unreadable manifest is left alone (nothing lists them).
+ * Returns whether the file was rewritten.
+ */
+function forgetManifestTools({ scopeRoot, tools, date = new Date() }: { scopeRoot: string; tools: string[]; date?: Date }): boolean {
+  const file = canonicalManifestPath(scopeRoot);
+  if (!fs.existsSync(file)) return false;
+  let manifest: any;
+  try { manifest = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return false; }
+  const listed = tools.filter((tool) => manifest?.tools && Object.hasOwn(manifest.tools, tool));
+  if (!listed.length) return false;
+  for (const tool of listed) delete manifest.tools[tool];
+  manifest.last_operation = 'remove';
+  manifest.last_run = date.toISOString().replace(/\.\d+Z$/, 'Z');
+  atomicWrite(file, manifest, date);
+  return true;
 }
 
 /** null if no manifest yet. */
@@ -141,5 +165,5 @@ function readManifest(claudeDir: string): any {
 
 module.exports = {
   LEGACY_MANIFEST_FILE_NAME, MANIFEST_FILE_NAME, manifestPath, canonicalManifestPath,
-  writeManifest, readManifest, readInstallManifest,
+  writeManifest, forgetManifestTools, readManifest, readInstallManifest,
 };

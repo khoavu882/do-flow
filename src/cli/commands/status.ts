@@ -136,7 +136,7 @@ function cmdStatus(o: any): void {
     if (line) console.log(line);
     if (status.errors.length) console.log(`  ${`${label} issues:`.padEnd(24)}${status.errors.join('; ')}`);
     if (harness === 'codex') {
-      console.log('  Codex capability gaps: no Claude-only event emulation is installed; review docs/capability-map.md#codex-capability-detail');
+      console.log('  Codex capability gaps: no Claude-only event emulation is installed');
     }
   }
   if (ctx.registry) {

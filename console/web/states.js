@@ -77,6 +77,7 @@ function classify(error, ctx = {}) {
     const key = ctx.exchange === 'used' ? 'session-used' : ctx.sessionWorked ? 'session-ended' : 'session-unauth';
     return { scope: 'session', key, auto: false, status, code };
   }
+  if (status === 403 && code === 'phone-scope') return { scope: 'inline', key: 'phone-scope', auto: false, status, code };
   if (status === 403) return { scope: 'session', key: 'forbidden-origin', auto: false, status, code };
   if (status === 503 && (code === 'core-unreachable' || code === 'core-version')) {
     return { scope: 'runtime', key: code === 'core-version' ? 'runtime-range' : 'runtime-missing', auto: true, status, code };
@@ -109,6 +110,7 @@ const ERROR_COPY = Object.freeze({
     hint: (/** @type {string} */ range) => ['', 'doflow --version', ` shows the version. The Console needs ${range}.`],
   },
   'cannot-list': { title: () => 'Could not list this project’s checkouts', sentence: 'Git did not answer for this project.', hint: () => ['', 'git worktree list', ' shows them.'] },
+  'phone-scope': { title: () => 'This view is unavailable on a phone session', sentence: 'Phone sessions can view runs and workflows. Open the Console locally to use this view.', link: 'Back to Runs' },
   'run-not-found': { title: () => 'This run is not in the record', sentence: 'It may have been removed, or its checkout deleted.', link: 'Back to Runs' },
   'not-found': { title: () => 'This page does not exist', sentence: 'The address does not match any Console view.', link: 'Back to Runs' },
   refused: { title: () => 'The Console refused this request', sentence: 'This is a bug in the Console page. Reload; if it happens again, run `doflow ui` again.', reload: true },

@@ -52,11 +52,10 @@ function asFields(id: any) {
 
 const quiet = () => {};
 
-/** DOFLOW_WORKTREE is honoured only when it is a /-rooted existing directory (identity.ts readWorktree; the bash twin tests `/*`,
- * and the worker worktree exemption in policies/pre-bash-guard.sh requires the same POSIX-rooted path). A Windows
+/** DOFLOW_WORKTREE is honoured only when it is a /-rooted existing directory (identity.ts readWorktree; the bash twin tests `/*`). A Windows
  * path (C:\\x) is not /-rooted, so a case that sets it to a placeholder directory cannot be expressed there. */
 const POSIX_ROOTED_ONLY = (env: any) => process.platform === 'win32' && Object.values(env ?? {}).some((v: any) => typeof v === 'string' && /\$WT/.test(v));
-const WIN_SKIP = 'DOFLOW_WORKTREE must be /-rooted (identity.ts readWorktree, policies/pre-bash-guard.sh): a Windows drive path is not honoured by design';
+const WIN_SKIP = 'DOFLOW_WORKTREE must be /-rooted (identity.ts readWorktree): a Windows drive path is not honoured by design';
 
 /** The DEC-044 store setups a binding event may name (see the cases.json comment). */
 function applySetup(setup: any, sessions: any, unit: any, sessionId: any, root: any) {

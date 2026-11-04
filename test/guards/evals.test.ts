@@ -567,12 +567,11 @@ test('G11/034: an outputs-scoped assertion is graded from outputs/, not gated on
 
 test('G11/034: no shipped document claims the bench corpus is ignored by Git', () => {
   // The corpus went local-only twice, and after re-tracking it three documents still said it was
-  // ignored — CLAUDE.md, bench/README.md and docs/architecture.md's repository map. Two survived the
+  // ignored — CLAUDE.md, bench/README.md and a docs repository map. Two survived the
   // feature whose whole purpose was correcting that claim, because they sat in sections nobody was
   // editing at the time.
   const docs = [
     path.join(REPO, 'bench', 'README.md'),
-    path.join(REPO, 'docs', 'architecture.md'),
   ].filter((f) => fs.existsSync(f));
   const offenders: any = [];
   for (const doc of docs) {

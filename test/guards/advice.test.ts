@@ -39,7 +39,7 @@ function pathLines(files: any, predicate: any): any {
 function checkG30Hooks({ files }: any) {
   const findings: any = [];
   for (const hit of pathLines(files, (file: any) => /^core\/harnesses\/(?:[^/]+\/)*hooks\//.test(file))) {
-    if (/\badvise\b|runtime\/advice|--request/.test(hit.text)) {
+    if (/\badvise\b(?!-)|runtime\/advice|--request/.test(hit.text)) {
       findings.push(`${hit.file}:${hit.line} contains an advice dispatch token`);
     }
   }
@@ -306,8 +306,10 @@ test('G30.1 control: names violating hook paths, including nested hooks, and lin
   const findings = checkG30Hooks({ files: new Map([
     ['core/harnesses/demo/hooks/hook.sh', 'safe\ndoflow advise --kind tier\n'],
     ['core/harnesses/demo/sub/hooks/hook.js', "require('runtime/advice/client');\n"],
+    ['core/harnesses/demo/hooks/prose.sh', '# the gate is advise-only, never denies\n'],
   ]) });
   assert.ok(findings.some((finding: any) => finding.includes('core/harnesses/demo/hooks/hook.sh:2')));
+  assert.ok(!findings.some((finding: any) => finding.includes('prose.sh')));
   assert.ok(findings.some((finding: any) => finding.includes('core/harnesses/demo/sub/hooks/hook.js:1')));
 });
 test('G30.2: shipped package has no runtime dependencies', () => {

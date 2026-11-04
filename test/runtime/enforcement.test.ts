@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { interpreterSpawn } = require('../helper-platform.ts');
-const { enforcementFor, renderEnforcementMatrix, rowsDigest, UnknownEnforcementTarget } = require('../../src/lifecycle/coverage.ts');
+const { enforcementFor, rowsDigest, UnknownEnforcementTarget } = require('../../src/lifecycle/coverage.ts');
 const ROOT = path.resolve(__dirname, '../..');
 const row = (values: any = {}) => ({ policy: 'gate', harness: 'claude', event: 'PreToolUse', timing: 'pre-tool', profile: 'any', wired: true, class: 'blocking', verification: 'verified', prerequisites: [], covers: ['edit', 'write'], doesNotCover: ['shell'], caveats: [], ...values });
 const coverage = (rows: any) => ({ schemaVersion: 1, revision: 1, rowsDigest: 'sha256:' + 'a'.repeat(64), profiles: { any: 'all', narrow: 'narrow' }, rows });
@@ -37,30 +37,11 @@ test('unknown targets throw typed errors', () => {
 test('wildcard policy rows do not hide known lifecycle policies', () => {
   const block = coverage([
     row({ policy: '*', harness: 'copilot', event: 'unavailable', timing: 'pre-tool', class: 'unsupported', verification: 'unverified', wired: false }),
-    row({ policy: 'pre-bash-guard', harness: 'claude' }),
+    row({ policy: 'mcp-tool-guard', harness: 'claude' }),
   ]);
-  const answer = enforcementFor(block, { harness: 'copilot', policy: 'pre-bash-guard' });
+  const answer = enforcementFor(block, { harness: 'copilot', policy: 'mcp-tool-guard' });
   assert.equal(answer.enforced, false);
   assert.equal(answer.class, 'unsupported');
-});
-
-test('matrix rendering sorts policy, harness, event and profile independent of row order', () => {
-  const rows: any = [
-    row({ policy: 'stop-check', harness: 'antigravity', event: 'Stop', profile: 'z' }),
-    row({ policy: 'pre-bash-guard', harness: 'codex', event: 'PreToolUse', profile: 'any' }),
-    row({ policy: 'pre-implementation-gate', harness: 'claude', event: 'PostToolUse', profile: 'any' }),
-    row({ policy: 'pre-implementation-gate', harness: 'claude', event: 'PreToolUse', profile: 'z' }),
-    row({ policy: 'pre-implementation-gate', harness: 'claude', event: 'PreToolUse', profile: 'any' }),
-  ];
-  const rendered = renderEnforcementMatrix(coverage(rows));
-  const tuples = rendered.split('\n').slice(3).map((line: any) => line.replace(/^\| /, '').replace(/ \|$/, '').split(' | ').slice(0, 5).join('/'));
-  assert.deepEqual(tuples, [
-    'pre-implementation-gate/claude/PostToolUse/any/blocking',
-    'pre-implementation-gate/claude/PreToolUse/any/blocking',
-    'pre-implementation-gate/claude/PreToolUse/z/blocking',
-    'pre-bash-guard/codex/PreToolUse/any/blocking',
-    'stop-check/antigravity/Stop/z/blocking',
-  ]);
 });
 
 test('shipped coverage digest and every-row IC-022 caveats are correct', () => {
@@ -119,11 +100,14 @@ test('enforcement CLI reports json, text, exit codes, errors and dispatcher pass
   let result = run(['enforcement', '--harness', 'opencode', '--policy', 'pre-implementation-gate', '--json']);
   assert.equal(result.status, 1); assert.equal(JSON.parse(result.stdout).class, 'unsupported');
   result = run(['enforcement', '--harness', 'claude', '--policy', 'pre-implementation-gate', '--json']);
-  assert.equal(result.status, 0); assert.equal(JSON.parse(result.stdout).enforced, true);
+  assert.equal(result.status, 1); assert.equal(JSON.parse(result.stdout).class, 'advisory'); assert.equal(JSON.parse(result.stdout).enforced, false);
   result = run(['enforcement', '--harness', 'claude', '--policy', 'pre-implementation-gate']);
-  assert.equal(result.status, 0);
-  assert.match(result.stdout, /claude pre-implementation-gate: enforced/);
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /claude pre-implementation-gate: not enforced \(advisory, verified\)/);
   assert.match(result.stdout, /does not cover: writes via shell commands/);
+  result = run(['enforcement', '--harness', 'claude', '--policy', 'mcp-tool-guard']);
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /claude mcp-tool-guard: enforced \(blocking, verified\)/);
   result = run(['enforcement', '--harness', 'unknown', '--policy', 'pre-implementation-gate', '--json']);
   assert.equal(result.status, 2); assert.deepEqual(JSON.parse(result.stdout).error, 'unknown-harness');
   for (const harness of ['opencode']) {
@@ -132,8 +116,8 @@ test('enforcement CLI reports json, text, exit codes, errors and dispatcher pass
     assert.ok(['unsupported', 'unknown'].includes(JSON.parse(result.stdout).class));
   }
   result = run(['enforcement', '--harness', 'copilot', '--policy', 'pre-implementation-gate', '--json']);
-  assert.equal(result.status, 0); assert.equal(JSON.parse(result.stdout).class, 'blocking'); assert.equal(JSON.parse(result.stdout).enforced, true);
-  result = run(['enforcement', '--harness', 'copilot', '--policy', 'pre-bash-guard', '--json']);
+  assert.equal(result.status, 1); assert.equal(JSON.parse(result.stdout).class, 'advisory'); assert.equal(JSON.parse(result.stdout).enforced, false);
+  result = run(['enforcement', '--harness', 'claude', '--policy', 'mcp-tool-guard', '--json']);
   assert.equal(result.status, 0); assert.equal(JSON.parse(result.stdout).enforced, true);
   result = run(['enforcement', '--harness', 'claude', '--policy', 'missing', '--json']);
   assert.equal(result.status, 2);
@@ -147,6 +131,6 @@ test('enforcement CLI reports json, text, exit codes, errors and dispatcher pass
   result = run(['enforcement', '--harness', 'claude', '--policy', 'missing']);
   assert.equal(result.status, 2); assert.match(result.stderr, /Unknown policy/);
   result = run(['enforcement', '--json']); assert.equal(result.status, 2); assert.equal(JSON.parse(result.stdout).error, 'usage');
-  result = run(['enforcement', '--harness', 'claude', '--policy', 'pre-implementation-gate', '--json'], path.join(ROOT, 'core/shared/scripts/doflow/bin/doflow-run'));
+  result = run(['enforcement', '--harness', 'claude', '--policy', 'mcp-tool-guard', '--json'], path.join(ROOT, 'core/shared/scripts/doflow/bin/doflow-run'));
   assert.equal(result.status, 0); assert.equal(JSON.parse(result.stdout).enforced, true);
 });

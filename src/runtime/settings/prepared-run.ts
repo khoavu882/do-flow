@@ -188,6 +188,7 @@ function validatePrepared(doc: Record<string, any>, ctx: any): Entry[] {
   if (Object.hasOwn(doc, 'presets') && !isObject(doc.presets)) errors.push(entry('presets', null, 'type', 'presets must be an object with review and debate preset ids'));
   let loaded: any = null; // the start verb's inputs, loaded once and only when a preset is checked
   const inputs = (): any => (loaded ??= ctx.inputs(taskClass));
+  let settingsFault: string | null = null; // a live settings fault the prepared values do not replace: one entry per preset
   for (const kind of ['review', 'debate']) {
     if (!Object.hasOwn(presets, kind)) continue;
     const order: string[] = presetIds(protocols, kind); // the effective core order: the only ids that have a rank
@@ -201,6 +202,10 @@ function validatePrepared(doc: Record<string, any>, ctx: any): Entry[] {
     // The effective preset setting (C-3): the user/project/local layers `review --action start` reads, with this
     // file's own entry as the project layer, applied by the resolver's rule (settingsPick) to the loosest preset.
     const settingKey = `${kind}.preset`;
+    if (settingsFault === null) {
+      try { inputs(); } catch (error: any) { if (!error.settings) throw error; settingsFault = error.message; }
+    }
+    if (settingsFault !== null) { errors.push(entry(key, null, 'settings-unavailable', settingsFault)); continue; }
     const view: Record<string, any> = { ...inputs().settingsView };
     const current = view[settingKey];
     if (typeof settings[settingKey] === 'string' && (!current || ['default', 'user', 'project'].includes(current.layer))) {
@@ -239,6 +244,11 @@ function report(file: string, errors: Entry[], json: boolean, notes: string[] = 
   return finishRuntime(errors.length === 0 ? 0 : 1);
 }
 
+/** The settings keys the prepared run writes to the project layer: applied before the live settings are judged. */
+function replaced(doc: Record<string, any>): Set<string> {
+  return new Set(isObject(doc.settings) ? Object.keys(doc.settings).filter((key) => doc.settings[key] !== null) : []);
+}
+
 function handlePreparedRun({ file, json, registry, repoRoot, projectRoot, env, fsImpl = nodeFs }: any): number {
   let text: string;
   try { text = fsImpl.readFileSync(path.resolve(file), 'utf8'); } catch { return usageError('config', `cannot read the prepared run ${file}`, json); }
@@ -255,8 +265,8 @@ function handlePreparedRun({ file, json, registry, repoRoot, projectRoot, env, f
       registry, protocols: protocols.registry, classes: taskClasses(repoRoot, fsImpl), env, projectRoot: root, repoRoot, fsImpl, notes,
       // what `review --action start` loads: the protocol settings view and gates.json narrowed by the project's override
       inputs: (taskClass: string | null): any => {
-        const inputs = require('../review/start.ts').loadProtocolInputs(taskClass, root, env);
-        if ('error' in inputs) throw Object.assign(new Error(inputs.message), { usage: true });
+        const inputs = require('../review/start.ts').loadProtocolInputs(taskClass, root, env, replaced(doc));
+        if ('error' in inputs) throw Object.assign(new Error(inputs.message), inputs.error === 'settings-unavailable' ? { settings: true } : { usage: true });
         return inputs;
       },
     };

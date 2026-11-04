@@ -96,17 +96,20 @@ test('a decorated owner "quality-guardian (Opus)" at tier frontier warns; a deco
   assert.deepEqual(reviewer.body.warnings, []);
 });
 
-test('claim matching stays exact: the declared decorated owner is the owner of record', (t) => {
+test('a claim compares the owner without its trailing parenthetical and case-insensitively, as plan-check does; a different owner is still refused', (t) => {
   const p = project(t, plan(['- [ ] A.1 Verify — owner: quality-guardian (Opus); tier: frontier; files: a.js']));
   const started = p.run('task-attempt', ['--action', 'start', '--slug', SLUG, '--by', 'lead', '--json']);
   assert.equal(started.status, 0, started.stderr || started.stdout);
-  const claimArgs: any = ['--action', 'claim', '--slug', SLUG, '--task', 'A.1', '--owner', 'quality-guardian', '--mode', 'subagent', '--epoch', '1', '--json'];
-  const mismatch = p.run('task-attempt', claimArgs);
-  assert.notEqual(mismatch.status, 0, mismatch.stdout);
-  assert.match(mismatch.stdout + mismatch.stderr, /owner-mismatch/);
-  const overridden = p.run('task-attempt', [...claimArgs, '--owner-override', 'decorated declaration']);
-  assert.equal(overridden.status, 0, overridden.stderr || overridden.stdout);
-  assert.equal(JSON.parse(overridden.stdout).disposition, 'claimed');
+  const claimArgs = (owner: any) => ['--action', 'claim', '--slug', SLUG, '--task', 'A.1', '--owner', owner, '--mode', 'subagent', '--epoch', '1', '--json'];
+  const other = p.run('task-attempt', claimArgs('reviewer'));
+  assert.notEqual(other.status, 0, other.stdout);
+  assert.match(other.stdout + other.stderr, /owner-mismatch/);
+  // The case rule is plan-check's own (the review-owner match is case-insensitive).
+  const claimed = p.run('task-attempt', claimArgs('Quality-Guardian'));
+  assert.equal(claimed.status, 0, claimed.stderr || claimed.stdout);
+  const body = JSON.parse(claimed.stdout);
+  assert.equal(body.disposition, 'claimed');
+  assert.equal(Object.hasOwn(body, 'ownerOverride'), false, 'no override was needed');
 });
 
 test('a plan with a problem and a review-owner task reports both, in text and in JSON', (t) => {

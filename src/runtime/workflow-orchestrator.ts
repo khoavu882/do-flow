@@ -99,7 +99,7 @@ function iso(now: any) { return (now ?? new Date()).toISOString(); }
 /** The well-formed `{ taskId, digest }` items of a node's `packs`, in delivery order. */
 function stagePacks(packs: any): Array<{ taskId: string; digest: string }> {
   return (Array.isArray(packs) ? packs : [])
-    .filter((p: any) => p && ID_PATTERN.test(String(p.taskId ?? '')) && PACK_DIGEST.test(String(p.digest ?? '')))
+    .filter((p: any) => p && typeof p.taskId === 'string' && typeof p.digest === 'string' && ID_PATTERN.test(p.taskId) && PACK_DIGEST.test(p.digest))
     .map((p: any) => ({ taskId: p.taskId, digest: p.digest }));
 }
 
@@ -115,22 +115,25 @@ function stagePacks(packs: any): Array<{ taskId: string; digest: string }> {
  * else (no run, a gate, a finished run, an unreadable or locked record) records nothing: unknown,
  * never a guess. A delivery the node already ends with writes nothing, so a repeat leaves the
  * run's revision alone. Never throws.
+ * `checkout` (`{ repoRoot, branch }`) is the caller's already-resolved checkout, so the pointer lookup
+ * spawns no git child of its own.
  * @returns {{ runTaskId: string, stage: string }|null} where the pack was recorded
  */
-function recordStagePack({ stateRoot, sourceRoot = stateRoot, taskId, slug = null, digest, fsImpl = fs }: any): any {
+function recordStagePack({ stateRoot, sourceRoot = stateRoot, taskId, slug = null, digest, checkout = null, fsImpl = fs }: any): any {
   try {
     if (!ID_PATTERN.test(String(taskId ?? '')) || !PACK_DIGEST.test(String(digest ?? ''))) return null;
     const storeDir = runStoreDir(stateRoot);
     const locate = (runTaskId: string, feature: string | null) => {
       const { file, read } = recordIn({ base: storeDir, namespace: feature && feature !== runTaskId ? feature : null, name: `${runTaskId}.json`, fsImpl });
-      return read === file && fsImpl.existsSync(file) ? { runTaskId, file } : null;
+      // `read` is the namespaced file when it exists, else a legacy flat file that is this feature's.
+      return fsImpl.existsSync(read) ? { runTaskId, file: read } : null;
     };
     let found = locate(taskId, isSafeSlug(slug) ? slug : null);
     if (!found) {
       let feature = isSafeSlug(slug) ? slug : null;
       let featureRun = feature;
       if (!feature) {
-        const active = require('./feature-pointer.ts').activeEntry({ storeRoot: stateRoot, cwd: sourceRoot });
+        const active = require('./feature-pointer.ts').activeEntry({ storeRoot: stateRoot, cwd: sourceRoot, checkout });
         if (active && isSafeSlug(active.slug)) {
           feature = active.slug;
           featureRun = ID_PATTERN.test(String(active.taskId ?? '')) ? active.taskId : active.slug;
@@ -144,6 +147,10 @@ function recordStagePack({ stateRoot, sourceRoot = stateRoot, taskId, slug = nul
     let stage: string | null = null;
     updateTaskState({
       fsImpl, file: found.file, acquire: (impl: any, target: string) => boundedAcquire(impl, target, { retries: 3, waitMs: 5 }),
+      // The guarded check again INSIDE the lock, before the unguarded read and the write: a namespace
+      // folder swapped for a link since the check above is refused here (null result). A swap after
+      // this line and before the rename is the accepted, much narrower window.
+      prepare: () => { readRunRecord(fsImpl, found.file, storeDir); },
       build(disk: any) {
         const program = Array.isArray(disk?.program) ? disk.program : [];
         const node = disk?.state === 'RUNNING' && Number.isInteger(disk.cursor) ? program[disk.cursor] : null;
@@ -187,6 +194,29 @@ function compileProgram(workflow: any) {
   }
   if (gates.length) throw new Error(`Unanchored gate(s) in workflow '${workflow.taskClass}': ${gates.map((g) => g.id).join(', ')}`);
   return nodes;
+}
+
+/** The stage a loop program adds to a class that has no review stage of its own (trivial-edit). */
+const LOOP_REVIEW_STAGE = Object.freeze({
+  id: 'review', skill: 'do-code-review', agent: 'reviewer', kind: 'review', readinessTemplate: null, optional: false,
+  purpose: 'Review the delivered change and report an approval status.',
+});
+
+/**
+ * The program the roadmap loop runs for a task class (AU-P1). The loop is unattended, so it takes
+ * no optional stage out of the walk: every stage is required, a class without a review stage gets
+ * one, and a `gate-b` follows the last review so the class's gate-b policy (core/registry/gates.json)
+ * can approve the merge. The feature class already has all of that. workflows.json is not changed:
+ * an attended `/do-implement` run keeps its gate-free program.
+ */
+function loopWorkflow(workflow: any) {
+  if ((workflow.gates || []).some((gate: any) => gate.id === 'gate-b')) return workflow;
+  const stages = (workflow.stages || []).map((stage: any) => ({ ...stage, optional: false }));
+  if (!stages.some((stage: any) => stage.kind === 'review')) stages.push({ ...LOOP_REVIEW_STAGE });
+  const review = stages.filter((stage: any) => stage.kind === 'review').at(-1);
+  const gate = { id: 'gate-b', name: 'Before commit or merge', afterStage: review.id, kind: 'approval', trigger: 'always',
+    prompt: 'Review is complete. Proceed to commit and merge?' };
+  return { ...workflow, stages, gates: [...(workflow.gates || []), gate] };
 }
 
 class WorkflowOrchestrator {
@@ -278,11 +308,15 @@ class WorkflowOrchestrator {
     return run;
   }
 
-  /** Begin a new run. An existing run for the same task id is refused — resume instead. */
-  start({ taskId, taskClass, now }: any = {}) {
+  /** Begin a new run. An existing run for the same task id is refused — resume instead.
+   * `loopProgram` is the roadmap loop's option only (loopWorkflow): the run journal records it, and no
+   * verb passes it. */
+  start({ taskId, taskClass, now, loopProgram = false }: any = {}) {
     assertSafeId(taskId, 'taskId');
     if (this.readRun(taskId)) throw new Error(`Workflow run '${taskId}' already exists; resume it instead of restarting`);
-    const workflow = this.engine.resolveWorkflow(taskClass); // unknown classes are rejected loudly
+    const resolved = this.engine.resolveWorkflow(taskClass); // unknown classes are rejected loudly
+    const workflow = loopProgram ? loopWorkflow(resolved) : resolved;
+    const looped = workflow !== resolved; // the feature class already is a loop program: its journal is unchanged
     const program = compileProgram(workflow);
     const run = {
       version: 1,
@@ -293,8 +327,9 @@ class WorkflowOrchestrator {
       state: runState('RUNNING'),
       cursor: 0,
       program,
-      history: [{ at: iso(now), action: 'start', detail: `task-class=${taskClass}` }],
+      history: [{ at: iso(now), action: 'start', detail: `task-class=${taskClass}${looped ? ' program=roadmap-loop' : ''}` }],
       startedAt: iso(now),
+      ...(looped ? { programKind: 'roadmap-loop' } : {}),
       // The feature the run belongs to, so another checkout can tell it from a run with the same id.
       ...(this.featureSlug ? { featureSlug: this.featureSlug } : {}),
       ...this.traceFields(),
@@ -449,9 +484,13 @@ class WorkflowOrchestrator {
         },
         harnessName: displayName,
         since,
-        addCommand: (server: any) => {
+        addCommand: (server: any, harnessId: any = null) => {
           const reach = reachOf();
-          const row = reach?.harnesses.find((item: any) => !['selected', 'configured'].includes(item.servers[server]));
+          const has = (item: any) => ['selected', 'configured'].includes(item.servers[server]);
+          // The brief's own harness is where the server was missing; another harness having it says nothing.
+          const target = harnessId ? reach?.harnesses.find((item: any) => item.id === harnessId) : null;
+          if (target) return has(target) ? null : reach.addCommand(target.id, target.scope, server);
+          const row = reach?.harnesses.find((item: any) => !has(item));
           return row ? reach.addCommand(row.id, row.scope, server) : null;
         },
       });
@@ -842,7 +881,7 @@ class WorkflowOrchestrator {
     }
     const loaded = loadPolicy(baseBytes, overrideBytes);
     const policy = { id: policyId, digest: loaded.digest };
-    if (!loaded.ok) return { ...this.snapshot(run), decision: 'deny', reasons: loaded.reasons, reason: loaded.reason, policy, inputs: [] };
+    if (!loaded.ok) return { ...this.snapshot(run), decision: 'deny', reasons: loaded.reasons, reason: loaded.reason, policy, inputs: [], ...(loaded.annotations ? { annotations: loaded.annotations } : {}) };
 
     const slug = runSlugOf(run, root) || this.featureSlug || run.taskId;
     let seed: any = null;
@@ -1440,6 +1479,7 @@ function handleOrchestrateCommand({
     if (snapshot.policy) console.log(snapshot.decision === 'pass'
       ? `${gate} ${snapshot.taskId} approved by policy ${snapshot.policy.id}@${snapshot.policy.digest} (${snapshot.inputs.length} inputs)`
       : `${gate} ${snapshot.taskId} denied by policy: ${snapshot.reasons.join(', ')}`);
+    if (snapshot.annotations?.hint) console.log(`  ${snapshot.annotations.hint}`);
     if (snapshot.progress) console.log(`Progress: ${snapshot.progress.done}/${snapshot.progress.total}`);
     if (snapshot.current) {
       console.log(snapshot.awaitingGate
@@ -1457,4 +1497,4 @@ function handleOrchestrateCommand({
   }
 }
 
-module.exports = { WorkflowOrchestrator, RUN_STATES, GATE_DECISIONS, STAGE_OUTCOMES, handleOrchestrateCommand, recordStagePack };
+module.exports = { WorkflowOrchestrator, loopWorkflow, RUN_STATES, GATE_DECISIONS, STAGE_OUTCOMES, handleOrchestrateCommand, recordStagePack };

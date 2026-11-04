@@ -146,20 +146,23 @@ function checkCommandVerbs(root: any, help: any): any {
   const problems: any = [];
   for (const page of readNav(root).map((entry: any) => entry.path)) {
     const lines = read(root, `docs/${page}`).split(/\r?\n/);
-    let inFence = false;
+    // A fence opens with ``` or ~~~ and closes with the same marker (FU-5944my).
+    let fence: any = null;
     lines.forEach((line: any, index: any) => {
-      if (/^\s*```/.test(line)) {
-        inFence = !inFence;
+      const marker = line.match(/^\s*(```|~~~)/);
+      if (marker) {
+        if (fence === null) fence = marker[1];
+        else if (fence === marker[1]) fence = null;
         return;
       }
       const mentions: any = [];
-      if (inFence) {
-        const command = line.match(/^\s*(?:\$\s+)?(doflow-run|doflow|"\$DOFLOW")\s+(\S+)/);
-        if (command) mentions.push({ kind: command[1] === 'doflow' ? 'doflow' : 'run', word: command[2] });
+      if (fence !== null) {
+        const command = line.match(/^\s*(?:\$\s+)?(npx\s+(?:-y\s+)?@khoavu882\/doflow|doflow-run|doflow|"\$DOFLOW")\s+(\S+)/);
+        if (command) mentions.push({ kind: /^(?:doflow$|npx)/.test(command[1]) ? 'doflow' : 'run', word: command[2] });
       }
       for (const span of line.matchAll(/`([^`\n]+)`/g)) {
-        const command = span[1].match(/^\s*(doflow-run|doflow)\s+(\S+)/);
-        if (command) mentions.push({ kind: command[1] === 'doflow' ? 'doflow' : 'run', word: command[2] });
+        const command = span[1].match(/^\s*(npx\s+(?:-y\s+)?@khoavu882\/doflow|doflow-run|doflow)\s+(\S+)/);
+        if (command) mentions.push({ kind: /^(?:doflow$|npx)/.test(command[1]) ? 'doflow' : 'run', word: command[2] });
       }
       for (const mention of mentions) {
         const verb = mentionedVerb(mention.word);
@@ -319,9 +322,9 @@ test('G61.b generated markers on every docs page are registered to that page, pa
     const findings = checkMarkers(COPY);
     assert.ok(findings.some((finding: any) => finding.page.includes('guide.md') && finding.id === 'nosuch'), `an indented or trailing-space marker is still a marker: ${JSON.stringify(findings)}`);
   });
-  withSeededFile(COPY, 'docs/capability-map.md', (original: any) => original.replace(/(<!-- BEGIN GENERATED:[^\s>]+ -->)/, '$1\n<!-- BEGIN GENERATED:settings-keys -->'), () => {
+  withSeededFile(COPY, 'docs/how-doflow-work.md', (original: any) => original.replace(/(<!-- BEGIN GENERATED:[^\s>]+ -->)/, '$1\n<!-- BEGIN GENERATED:settings-keys -->'), () => {
     const findings = checkMarkers(COPY);
-    assert.ok(findings.some((finding: any) => finding.page.includes('capability-map.md')), JSON.stringify(findings));
+    assert.ok(findings.some((finding: any) => finding.page.includes('how-doflow-work.md')), JSON.stringify(findings));
   });
 });
 
@@ -347,6 +350,11 @@ test('G61.d documented command verbs exist in CLI help', (): any => {
   write(COPY, 'docs/guide.md', seeded);
   const hits = checkCommandVerbs(COPY, captureHelp(COPY));
   assert.ok(hits.some((hit: any) => hit.startsWith('guide.md:') && hit.endsWith(': nosuchverb')), hits.join('\n'));
+  // FU-5944my: an npx form and a ~~~ fence are read like the plain forms.
+  write(COPY, 'docs/guide.md', `${original}\n~~~sh\nnpx @khoavu882/doflow nosuchnpx\n~~~\n\nRun \`npx -y @khoavu882/doflow nosuchinline\`.\n`);
+  const forms = checkCommandVerbs(COPY, captureHelp(COPY));
+  assert.ok(forms.some((hit: any) => hit.endsWith(': nosuchnpx')), forms.join('\n'));
+  assert.ok(forms.some((hit: any) => hit.endsWith(': nosuchinline')), forms.join('\n'));
   write(COPY, 'docs/guide.md', original);
   assert.deepEqual(repoHits, [], `repo command hits (page:line: word):\n${repoHits.join('\n')}`);
   assert.deepEqual(copyHits, [], `copy command hits (page:line: word):\n${copyHits.join('\n')}`);

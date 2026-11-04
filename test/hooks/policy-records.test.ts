@@ -5,7 +5,7 @@ const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp.ts');
 const { createScratch, childEnv: scratchChildEnv } = require('../helper/scratch-env.ts');
 const { encodeEnvelope } = require('../helper/hook-fixtures.ts');
@@ -90,19 +90,19 @@ describe('B.2 policy decision records', () => {
     });
   }
 
-  test('stop-check records its blocking stub decision', (t) => {
+  test('stop-check records its advisory stub decision', (t) => {
     const configHome = tempDir(t, 'doflow-policy-records-stop-deny-');
     const payload = JSON.stringify({ session_id: 'stop-deny', last_assistant_message: '// TODO: finish' });
     const result = run('stop-check', payload, { records: true, configHome });
-    assert.equal(result.status, 2, result.stderr);
+    assert.equal(result.status, 0, result.stderr);
     assert.match(result.stderr, /unfinished-work marker/);
     assert.deepEqual(parseRecords(result.records), [
       { v: 1, policy: 'stop-check', policyVersion: 1, outcome: 'allow', code: 'allow' },
-      { v: 1, policy: 'stop-check', policyVersion: 1, outcome: 'deny', code: 'unfinished-work' },
+      { v: 1, policy: 'stop-check', policyVersion: 1, outcome: 'advisory', code: 'unfinished-work' },
     ]);
   });
 
-  test('stop-check golden pins deny stderr and the leak warning', (t) => {
+  test('stop-check golden pins the advisory stderr and the leak warning', (t) => {
     const root = tempDir(t, 'doflow-policy-records-stop-warning-');
     const configHome = path.join(root, 'config');
     const home = path.join(root, 'home');
@@ -119,7 +119,7 @@ describe('B.2 policy decision records', () => {
     assert.deepEqual(parseRecords(actual.records), [
       { v: 1, policy: 'stop-check', policyVersion: 1, outcome: 'allow', code: 'allow' },
       { v: 1, policy: 'stop-check', policyVersion: 1, outcome: 'advisory', code: 'internal-identifiers-found' },
-      { v: 1, policy: 'stop-check', policyVersion: 1, outcome: 'deny', code: 'unfinished-work' },
+      { v: 1, policy: 'stop-check', policyVersion: 1, outcome: 'advisory', code: 'unfinished-work' },
     ]);
   });
 
@@ -202,6 +202,87 @@ describe('B.2 policy decision records', () => {
       { v: 1, policy: 'subagent-audit', policyVersion: 1, outcome: 'allow', code: 'allow' },
       { v: 1, policy: 'subagent-audit', policyVersion: 1, outcome: 'error', code: 'audit-write-failed' },
     ]);
+  });
+
+  describe('subagent-audit stop dedupe (FU-ydxscg)', () => {
+    const ev = (event: any, session: any, id: any) => JSON.stringify({ session_id: session, hook_event_name: event, agent_type: 'worker', ...(id === undefined ? {} : { agent_id: id }) });
+    const logOf = (configHome: any, session: any) => {
+      const file = path.join(configHome, 'doflow/session-env/sessions', session, 'subagent-audit.log');
+      return fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map((line: any) => JSON.parse(line)) : [];
+    };
+    const deliver = (configHome: any, input: any) => {
+      const result = run('subagent-audit', input, { configHome });
+      assert.equal(result.status, 0, result.stderr);
+      return result;
+    };
+
+    test('a repeated stop for one session and agent is recorded once', (t) => {
+      const configHome = tempDir(t, 'doflow-audit-dedupe-');
+      for (let i = 0; i < 3; i += 1) deliver(configHome, ev('SubagentStop', 's1', 'a1'));
+      assert.deepEqual(logOf(configHome, 's1').map((r: any) => [r.event, r.agent_id]), [['SubagentStop', 'a1']]);
+    });
+
+    test('concurrent stop deliveries are recorded once', async (t) => {
+      const configHome = tempDir(t, 'doflow-audit-concurrent-');
+      const input = ev('SubagentStop', 's1', 'a1');
+      const envelope = encodeEnvelope('claude', 'SubagentStop', 'subagent-audit', input);
+      await Promise.all(Array.from({ length: 12 }, () => new Promise<void>((resolve, reject) => {
+        const child = spawn(BASH, [path.join(POLICY_DIR, 'subagent-audit.sh')], {
+          env: childEnv({ ...msysArgConvGuards(), XDG_CONFIG_HOME: configHome }), stdio: ['pipe', 'ignore', 'ignore'],
+        });
+        child.on('error', reject);
+        child.on('close', (code: any) => (code === 0 ? resolve() : reject(new Error(`exit ${code}`))));
+        child.stdin.end(envelope);
+      })));
+      assert.equal(logOf(configHome, 's1').length, 1);
+    });
+
+    test('distinct agents and distinct sessions each keep their stop record', (t) => {
+      const configHome = tempDir(t, 'doflow-audit-distinct-');
+      deliver(configHome, ev('SubagentStop', 's1', 'a1'));
+      deliver(configHome, ev('SubagentStop', 's1', 'a2'));
+      deliver(configHome, ev('SubagentStop', 's2', 'a1'));
+      assert.deepEqual(logOf(configHome, 's1').map((r: any) => r.agent_id), ['a1', 'a2']);
+      assert.deepEqual(logOf(configHome, 's2').map((r: any) => r.agent_id), ['a1']);
+    });
+
+    test('start events are never deduped and a start plus a stop both survive', (t) => {
+      const configHome = tempDir(t, 'doflow-audit-start-');
+      deliver(configHome, ev('SubagentStart', 's1', 'a1'));
+      deliver(configHome, ev('SubagentStart', 's1', 'a1'));
+      deliver(configHome, ev('SubagentStop', 's1', 'a1'));
+      deliver(configHome, ev('SubagentStop', 's1', 'a1'));
+      assert.deepEqual(logOf(configHome, 's1').map((r: any) => r.event), ['SubagentStart', 'SubagentStart', 'SubagentStop']);
+    });
+
+    test('stops with no agent id, or an id that is not a plain token, are always recorded', (t) => {
+      const configHome = tempDir(t, 'doflow-audit-idless-');
+      for (const id of [undefined, undefined, '', '../x', '../x']) deliver(configHome, ev('SubagentStop', 's1', id));
+      assert.equal(logOf(configHome, 's1').length, 5);
+    });
+
+    test('a failed log write releases the claim, so a later delivery of the same stop is recorded', (t) => {
+      const configHome = tempDir(t, 'doflow-audit-release-');
+      const session = path.join(configHome, 'doflow/session-env/sessions/s1');
+      fs.mkdirSync(path.join(session, 'subagent-audit.log'), { recursive: true });
+      const failed = run('subagent-audit', ev('SubagentStop', 's1', 'a1'), { records: true, configHome });
+      assert.equal(failed.status, 0, failed.stderr);
+      assert.equal(parseRecords(failed.records).at(-1).code, 'audit-write-failed');
+      assert.equal(fs.existsSync(path.join(session, 'subagent-stops', 'a1')), false, 'the claim is released');
+      fs.rmSync(path.join(session, 'subagent-audit.log'), { recursive: true });
+      deliver(configHome, ev('SubagentStop', 's1', 'a1'));
+      assert.equal(logOf(configHome, 's1').length, 1);
+    });
+
+    test('an unusable claim directory fails open and still records', (t) => {
+      const configHome = tempDir(t, 'doflow-audit-failopen-');
+      const session = path.join(configHome, 'doflow/session-env/sessions/s1');
+      fs.mkdirSync(session, { recursive: true });
+      fs.writeFileSync(path.join(session, 'subagent-stops'), 'a file, not a directory');
+      deliver(configHome, ev('SubagentStop', 's1', 'a1'));
+      deliver(configHome, ev('SubagentStop', 's1', 'a1'));
+      assert.equal(logOf(configHome, 's1').length, 2, 'no claim could be made, so each delivery is recorded');
+    });
   });
 
   test('sourced policy decisions remain safe under set -euo pipefail', () => {

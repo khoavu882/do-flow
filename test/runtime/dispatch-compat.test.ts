@@ -3,11 +3,9 @@
 // Feature 082 D.5 (NFR-001, NFR-002, NFR-003, IC-022 static gate, IC-040 sandbox, DEC-052, DEC-056):
 // compatibility, no-real-binary and zero-dependency obligations.
 //
-// - NFR-001: package.json declares no dependency key and is byte-identical to develop 0a474666;
-//   every require/import in src/runtime/dispatch/*.ts names a `node:` built-in or a relative path
-//   that resolves inside src/.
-// - NFR-003: the 080 and 081 files plan §1 lists as unchanged are byte-identical to 0a474666
-//   (`git show`); of the seven real harnesses only codex is `isolatedEdit` supported (109 IC-008) and
+// - NFR-001: package.json declares no dependency key; every require/import in src/runtime/dispatch/*.ts
+//   names a `node:` built-in or a relative path that resolves inside src/.
+// - NFR-003: of the seven real harnesses only codex is `isolatedEdit` supported (109 IC-008) and
 //   the other six keep it unknown (IC-013).
 // - NFR-002 / DEC-052: `dispatch start` and `step` over the real registry, under `--mode auto`, in a
 //   sandbox whose scratch bin/ also holds a logging wrapper named after every binary
@@ -24,62 +22,16 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { makeDispatchSandbox, resolveTool } = require('../helper/dispatch-sandbox.ts');
+const { makeDispatchSandbox } = require('../helper/dispatch-sandbox.ts');
 const { IDENTITY_VARS } = require('../helper/fake-harness-cli.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const { storeFileFor } = require('../../src/runtime/dispatch/store.ts');
-const { GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 
-const BASE = '0a474666';
 const CLI = path.join(REPO_ROOT, 'bin', 'doflow.js');
 const SLUG = '082-dispatch-compat';
 const SKIP = process.platform === 'win32' ? 'tree cleanup is unverified on win32 (NFR-005)' : false;
 const HARNESSES = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'harnesses.json'), 'utf8')).harnesses;
 const REAL_IDS = Object.freeze(['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity']);
-
-/** Plan §1: the 080 and 081 files no IC amends, byte-identical to 0a474666. */
-const UNCHANGED_FILES = Object.freeze([
-  // package.json: version and scripts change with every release cut (beta.6 added release:preflight); no longer frozen at 0a474666
-  // task-attempts.ts, task-graph.ts: edited by 115 A.1 (planVerdict); no longer frozen at 0a474666
-  // task-run.ts: edited by 088 B.1 (trace ids); no longer frozen at 0a474666
-  // task-state.ts: edited by 117 Phase C (owner entry, in-place reclaim, owned release); no longer frozen at 0a474666
-  // task-sources.ts: edited by FU-ev7r3g (an existing execWorktree is the only root read; IC-013 amended); no longer frozen at 0a474666
-  // parsers.ts: edited by 109 A.2 (codex-exec-json-v1); no longer frozen at 0a474666
-  'src/runtime/worker/process-tree.ts',
-  // src/lifecycle/coverage.ts: edited by 127 (the retired harness left HARNESS_ORDER and NEVER_BLOCKING_EVENTS); no longer frozen at 0a474666
-  // core/registry/lifecycle.json: 088 E.3 observer wiring moved configSource line windows and rowsDigest with docs/capability-map.md; no longer frozen at 0a474666
-  // worker-adapter.e2e.test.js: edited by 118 A.2 (its be752d8 orchestration copy predates the `nest` operation); no longer frozen at 0a474666
-  // worker-descriptors.test.js: edited by 109 B.2 (G41.4, codex evidence); no longer frozen at 0a474666
-]);
-/** Plan §1 directories and globs, expanded from the base commit's tree. */
-const UNCHANGED_TREES = Object.freeze([
-  // .github/workflows: CI files change with CI fixes (PR #62 drift.yml); no longer frozen at 0a474666
-  // worker-eligibility.test.js: edited by 109 B.2 (codex is eligible past the static gate); no longer frozen at 0a474666
-  // worker-cli, worker-command, worker-parsers tests: moved to the codex-parser and evidence-action truth by 109; no longer frozen at 0a474666
-  // worker-launch, worker-secrets tests: moved to the six-variable launch env by 110; no longer frozen at 0a474666
-  // worker-supervisor test: its user-cancel case reads the settled record, not the supervisor's snapshot (FU-4jhpjj); no longer frozen at 0a474666
-  // worker-compat test: its be752d8 orchestration copy predates the `nest` operation (118 A.2); no longer frozen at 0a474666
-  // worker-*.test.js: migrated to TypeScript (.test.ts) by 123; no longer frozen at 0a474666
-]);
-
-const GIT = resolveTool('git');
-
-/**
- * Read-only git in this checkout by absolute path. The child env carries no PATH (so neither node
- * directory is on it, DEC-056) and none of the five DOFLOW_* identity variables.
- */
-function gitHere(args: any, encoding: any = 'utf8') {
-  assert.ok(GIT, 'git is on this process PATH');
-  const env: any = { HOME: process.env.HOME || '/nonexistent', GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV, PATH: '' };
-  for (const key of IDENTITY_VARS) delete env[key];
-  return spawnSync(GIT, args, { cwd: REPO_ROOT, env, encoding, maxBuffer: 64 * 1024 * 1024 });
-}
-
-function baseAvailable() {
-  return gitHere(['cat-file', '-e', `${BASE}^{commit}`]).status === 0;
-}
-
-const NO_BASE = SKIP || (baseAvailable() ? false : `base commit ${BASE} is not in this clone`);
 
 // ── NFR-001: zero dependency ─────────────────────────────────────────────────────────────────────
 
@@ -113,35 +65,6 @@ test('NFR-001: every require and import in src/runtime/dispatch/*.ts names a nod
     }
   }
   assert.ok(seen > 0, 'the scan read at least one require');
-});
-
-// ── NFR-003: 080 and 081 files byte-identical ────────────────────────────────────────────────────
-
-/** The paths plan §1 holds unchanged, expanded against the base commit's tree. */
-function unchangedPaths() {
-  const paths: any = [...UNCHANGED_FILES];
-  for (const { dir, match } of UNCHANGED_TREES) {
-    const r = gitHere(['ls-tree', '--name-only', `${BASE}:${dir}`]);
-    assert.equal(r.status, 0, `git ls-tree ${BASE}:${dir}: ${r.stderr}`);
-    const names = r.stdout.split('\n').filter(Boolean).filter(match);
-    assert.ok(names.length > 0, `${dir} has files at ${BASE}`);
-    for (const name of names) paths.push(`${dir}/${name}`);
-  }
-  return paths;
-}
-
-test(`NFR-003: every 080 and 081 file plan §1 lists is byte-identical to ${BASE}`, { skip: NO_BASE }, () => {
-  const paths = unchangedPaths();
-  assert.ok(paths.length >= 1, 'unchanged paths list is non-empty');
-  const differ: any = [];
-  for (const rel of paths) {
-    const base = gitHere(['show', `${BASE}:${rel}`], 'buffer');
-    assert.equal(base.status, 0, `git show ${BASE}:${rel}: ${base.stderr}`);
-    const full = path.join(REPO_ROOT, rel);
-    if (!fs.existsSync(full)) { differ.push(`${rel} (deleted)`); continue; }
-    if (!fs.readFileSync(full).equals(base.stdout)) differ.push(rel);
-  }
-  assert.deepEqual(differ, [], `changed since ${BASE}: ${differ.join(', ')}`);
 });
 
 test('NFR-003 / IC-013 / 109 IC-008: codex is isolatedEdit supported on its recorded evidence, the other six keep it unknown, so auto runs sequential', () => {

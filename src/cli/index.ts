@@ -53,6 +53,16 @@ function assertNoBackupRequiresForce(o: any): void {
   }
 }
 
+/**
+ * Reports an argument error and exits. `review` answers in its own JSON usage shape when `--json` is anywhere in the
+ * arguments (before or after the bad one); every other verb prints the plain line on stderr.
+ */
+function argError(o: any, argv: string[], message: string, code: number): never {
+  if (o.cmd === 'review' && argv.includes('--json')) console.log(JSON.stringify({ ok: false, error: 'usage', message }));
+  else console.error(`doflow: ${message}`);
+  process.exit(code);
+}
+
 function parseArgs(argv: string[]): any {
   const o: any = { cmd: null, positional: [], targets: [], mcp: null, dryRun: false, force: false, adopt: false,
     otlpHttp: false,
@@ -66,7 +76,9 @@ function parseArgs(argv: string[]): any {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a.startsWith('-')) o.flagsGiven.push(a);
-    switch (a) {
+    // `--commit` is the roadmap verb's own flag: anywhere else it must reach the default branch and get
+    // that verb's unknown-flag answer, as it did before it was added. '' matches no case.
+    switch (a === '--commit' && o.cmd !== 'roadmap' ? '' : a.startsWith('--action=') ? '--action' : a) {
       case '-h': case '--help': o.help = true; break;
       case '-v': o.version = true; break;
       case '--version':
@@ -90,7 +102,7 @@ function parseArgs(argv: string[]): any {
       case '--':
         if (o.cmd === 'slot') { o.slotCommand = argv.slice(i + 1); i = argv.length; break; }
         if (o.cmd === 'plan-check') break;
-        console.error(unknownFlagMessage(a)); process.exit(o.cmd === 'protocol' || o.cmd === 'config' ? 2 : 1);
+        argError(o, argv, unknownFlagMessage(a), unknownFlagExit(o.cmd));
         break;
       // worker --action run|describe|select: the isolated-edit recipe and baseline (082 IC-014).
       case '--edit': o.edit = true; break;
@@ -105,6 +117,8 @@ function parseArgs(argv: string[]): any {
       // context-emit: decide and render without taking a claim or writing a ledger line.
       case '--peek': o.peek = true; break;
       case '--check': o.check = true; break;
+      // roadmap --action init-policy: commit the policy onto local develop by plumbing instead of only writing it.
+      case '--commit': o.commit = true; break;
       // package --action verify: rewrite an unreadable state.json (never widens, 122 IC-009).
       case '--repair': o.repair = true; break;
       // decision --action list: every decision by id, not just the live ones.
@@ -144,14 +158,16 @@ function parseArgs(argv: string[]): any {
         o.tools = val.split(',').map((s) => s.trim()).filter(Boolean); i++; break;
       }
       case '--action': {
-        const val = argv[i + 1];
+        // `--action <value>` or `--action=<value>`.
+        const inline = a.startsWith('--action=');
+        const val = inline ? a.slice('--action='.length) : argv[i + 1];
         // `review`, `protocol`, `config`, `primary` and `package` answer a missing value as usage, exit 2; other verbs keep exit 1.
-        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(o.cmd === 'review' || o.cmd === 'protocol' || o.cmd === 'config' || o.cmd === 'primary' || o.cmd === 'fleet' || o.cmd === 'transcript' || o.cmd === 'package' ? 2 : 1); }
-        o.action = val; o.actionGiven = true; i++; break;
+        if (val === undefined || val === '' || val.startsWith('-')) argError(o, argv, '--action requires a value', o.cmd === 'review' || o.cmd === 'protocol' || o.cmd === 'config' || o.cmd === 'primary' || o.cmd === 'fleet' || o.cmd === 'transcript' || o.cmd === 'package' || o.cmd === 'worktree' ? 2 : 1);
+        o.action = val; o.actionGiven = true; if (!inline) i++; break;
       }
       case '--task-class': {
         const val = argv[i + 1];
-        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(o.cmd === 'protocol' ? 2 : 1); }
+        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(o.cmd === 'protocol' || o.cmd === 'rules' ? 2 : 1); }
         o.taskClass = val; i++; break;
       }
       case '--task-id': {
@@ -232,7 +248,7 @@ function parseArgs(argv: string[]): any {
         if (runtime !== null) { i = runtime; break; }
         // slot, primary, fleet and transcript report an unknown flag as their own usage error (exit 2, 115 IC-008, 120 IC-008).
         if (a.startsWith('-') && (o.cmd === 'slot' || o.cmd === 'primary' || o.cmd === 'fleet' || o.cmd === 'transcript')) (o.extraFlags = o.extraFlags || []).push(a);
-        else if (a.startsWith('-') && o.cmd !== 'plan-check') { console.error(unknownFlagMessage(a)); process.exit(o.cmd === 'protocol' || o.cmd === 'config' ? 2 : 1); }
+        else if (a.startsWith('-') && o.cmd !== 'plan-check') argError(o, argv, unknownFlagMessage(a), unknownFlagExit(o.cmd));
         else if (!o.cmd) o.cmd = a;
         else o.positional.push(a);
       }
@@ -242,15 +258,20 @@ function parseArgs(argv: string[]): any {
   return o;
 }
 
+/** Verbs that answer an unrecognised flag as a usage error (exit 2); every other verb keeps exit 1. */
+function unknownFlagExit(cmd: string | null): number {
+  return cmd === 'protocol' || cmd === 'config' || cmd === 'rules' || cmd === 'review' || cmd === 'worktree' || cmd === 'attendance' ? 2 : 1;
+}
+
 /** Longest part of an unrecognised argument echoed back; the rest is cut and marked. */
 const UNKNOWN_FLAG_ECHO_CHARS = 80;
 
-/** The unknown-flag error: the argument is untrusted text, so it is made print-safe (no control
+/** The unknown-flag message (without the `doflow: ` prefix): the argument is untrusted text, so it is made print-safe (no control
  * characters, one line) and cut to a bounded length (FU-8eqytg). */
 function unknownFlagMessage(arg: string): string {
   const safe = printSafe(String(arg));
   const shown = safe.length > UNKNOWN_FLAG_ECHO_CHARS ? `${safe.slice(0, UNKNOWN_FLAG_ECHO_CHARS)}...` : safe;
-  return `doflow: unknown flag '${shown}'`;
+  return `unknown flag '${shown}'`;
 }
 
 /** Single-value arguments of the runtime verbs → the option key each one writes. */
@@ -258,6 +279,9 @@ const RUNTIME_STRING_FLAGS = new Map([
   // `scaffold`. The resolver's own ambiguous-feature error tells the caller to "re-run with
   // --slug=<chosen>"; without this flag that hint would name an argument this CLI rejects.
   ['--slug', 'slug'],
+  ['--listen-address', 'listenAddress'], // ui: explicit private interface for TLS phone access
+  ['--tls-cert', 'tlsCert'],             // ui: absolute PEM certificate chain
+  ['--tls-key', 'tlsKey'],               // ui: absolute PEM private key
   // `--reason <text>` is parsed by its own case above; this entry is the `--reason=<text>` spelling
   // of the same flag (FU-8eqytg), so the two forms mean the same on every verb that accepts it.
   ['--reason', 'reason'],
@@ -265,6 +289,7 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--request', 'request'],            // classify: request text for an advisory second opinion
   ['--request-file', 'requestFile'],   // classify: request text read from a file
   // decision --action add. `--statement`, `--stage`, `--slug` and `--batch` above are shared.
+  ['--run-id', 'runId'],               // intake --action undo: the sort run to undo (default: the latest)
   ['--topic', 'topic'],                // the subject key a decision is live on
   ['--channel', 'channel'],            // question | gate | prompt | default | resolution
   ['--supersedes', 'supersedes'],      // comma-separated DEC-### ids this decision replaces
@@ -422,8 +447,9 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--dir', 'dir'],                   // package --action new: authored package target directory
   ['--name', 'name'],                  // slot: the slot's name, 1 to 64 characters of a-z, 0-9 and - (115 IC-008)
   ['--label', 'label'],                // slot --action run: the holder's label, at most 80 characters (115 IC-008)
-  ['--cursor', 'cursor'],              // transcript --action read: the cursor an earlier read returned (093 IC-022)
-  ['--limit', 'limit'],                // transcript --action read: at most this many events, validated in the verb (093 IC-022)
+  ['--cursor', 'cursor'],              // transcript --action read: the cursor an earlier read returned (093 IC-022) · followup --action list: the nextCursor of an earlier page (137 IC-004)
+  ['--limit', 'limit'],                // transcript --action read: at most this many events, validated in the verb (093 IC-022) · followup --action list: the page size (137 IC-004)
+  ['--view', 'view'],                  // followup --action list, lifecycle --action overview, classify: brief or full, validated in the verb (137 IC-001)
   ['--window', 'window'],              // transcript --action stats: minutes, 1 to 60, validated in the verb (093 IC-023)
   ['--port', 'port'],                  // ui: the Console's port, 0 to 65535, checked in commands/ui.ts (092 IC-008)
 ]);
@@ -472,6 +498,7 @@ function parseRuntimeFlag(arg: string, argv: string[], i: number, o: any): numbe
   const inline = eq === -1 ? null : arg.slice(eq + 1);
   const key = RUNTIME_STRING_FLAGS.get(name) || RUNTIME_LIST_FLAGS.get(name) || RUNTIME_INT_FLAGS.get(name);
   if (!key) return null;
+  if ((name === '--listen-address' || name === '--tls-cert' || name === '--tls-key') && o.cmd !== 'ui') return null;
 
   let value: any = inline;
   let next = i;
@@ -483,14 +510,14 @@ function parseRuntimeFlag(arg: string, argv: string[], i: number, o: any): numbe
     // `--batch <file|->`. Rejecting it made the documented spelling exit 2 while only `--batch=-`
     // worked — a help text endorsing a form the parser refuses.
     const isStdin = value === '-';
-    if (value === undefined || (value.startsWith('-') && !isStdin)) { console.error(`doflow: ${name} requires a value`); process.exit(2); }
+    if (value === undefined || (value.startsWith('-') && !isStdin)) argError(o, argv, `${name} requires a value`, 2);
     next = i + 1;
   }
-  if (value === '') { console.error(`doflow: ${name} requires a value`); process.exit(2); }
+  if (value === '') argError(o, argv, `${name} requires a value`, 2);
 
   if (RUNTIME_INT_FLAGS.has(name)) {
     const parsed = parseInt(value, 10);
-    if (!Number.isFinite(parsed) || parsed < 0) { console.error(`doflow: ${name} expects a non-negative integer, got '${value}'`); process.exit(2); }
+    if (!Number.isFinite(parsed) || parsed < 0) argError(o, argv, `${name} expects a non-negative integer, got '${value}'`, 2);
     o[key] = parsed;
   } else if (RUNTIME_LIST_FLAGS.has(name)) {
     // --exclude and --exclude-family both accept comma lists or repeated flags. Keep --exclude's
@@ -533,7 +560,7 @@ Commands:
   context-grant        Grant one compacted summary to a launched run and lineage (--summary, --to-run, --to-lineage)
   retrieval-plan       Declare a stage's information needs, attempt retrieval, then report every declared item
   outcome              Record a task's terminal state with its basis, or show it (--task-id)
-  classify             Validate a proposed task class and return its workflow (--task-class)
+  classify             Validate a proposed task class and return its workflow (--task-class [--view brief|full])
   workflow             Resolve a task class to its stages, gates and readiness templates
   orchestrate          Start or resume a run: complete stages, decide gates (--action)
   research-request     Open, list or resolve a feature-stage research question (--task-id)
@@ -547,7 +574,7 @@ Commands:
   route                Resolve an information need to a healthy provider (--intent)
   verify               Compile the verification contract and report against it (--task-id)
   recover              Classify a verification failure and plan the bounded retry (--error)
-  trace                Trajectory of the current or most recent workflow (run ledger);
+  trace                Trajectory of the current or most recent workflow (run ledger).
                        trace spans [<project>] the span view; trace analyze [<project>] its detectors (exit 1 on a finding);
                        trace export --otlp-http [<project>] export spans via OTLP/HTTP
   stats                Aggregate local run-ledger usage
@@ -555,7 +582,7 @@ Commands:
   discover             Missed capability opportunities in recorded runs
   inventory            Shadowed copies, drift and unmanaged files across both install scopes
   storage              Report stored data and retention bounds (--action report|prune|upkeep)
-  config               Show each setting's effective value and where it came from, print the settings schema, or validate, set or unset one (exit 0 ok, 1 refused, 2 usage):
+  config               Show each setting's effective value and where it came from, print the settings schema, or validate, set or unset one (exit 0 ok, 1 refused, 2 usage).
                        config [list] [--show-origin] [--json] [-g] [<project path>]   read-only
                        config schema [--json]   every key with its type, values, default, scope and whether config set may write it, the locked invariants and the presets
                        config validate <key> <json-value> [--layer user|project|local] [--json]   check a value, writes nothing
@@ -564,31 +591,39 @@ Commands:
                        config unset <key> --layer user|project|local [--json]   remove the key from that layer's file
   scaffold             Emit the reviewable code scaffold the active feature's artifacts imply
   decision             Register, list or compact the active feature's decisions (--action init|add|list|compact)
-  followup             Record, list, take, settle, promote or report what a feature left unfinished (--action add|list|take|settle|promote|report)
-  lifecycle            Open follow-ups, feature tracking, releases and status for the project (--action overview|init|release|status|merged)
+  intake               Sort, preview, undo, list or file prompt text for the active feature's additional-context folder (--action sort|preview|undo|list|file-prompt)
+  followup             Record, list, take, settle, promote or report what a feature left unfinished (--action add|list|take|settle|promote|report; list: [--view brief|full] [--cursor <c>] [--limit <n>] [--ids <FU-id,...>])
+  lifecycle            Open follow-ups, feature tracking, releases and status for the project (--action overview|init|release|status|merged; overview: [--view brief|full])
   goal                 Add, check, link, list or close a goal and its checklist (--action add|item|check|link|list|done)
   failure              List, settle or switch off the failures DoFlow captured on this machine (--action list|settle|capture)
                        (a value beginning with '-' must be written --flag=value)
-  roadmap              Session-driven autopilot runner (--action render|status|next|audit [--check] [--row <id>] [--run <id>]);
+  roadmap              Session-driven autopilot runner (--action render|status|next|audit|init-policy [--check] [--row <id>] [--run <id>]).
+                       roadmap --action init-policy [--commit] writes the gate policy for review, or with --commit commits it onto local develop when develop is not checked out in a worktree (otherwise it prints the commands to run there; never pushes);
                        roadmap seed --action check|apply|amend --draft <path> [--json] validates and writes new rows;
-                       rows written while autopilot is on land proposed; roadmap promote <id...> [--json] (person, autopilot off) makes them ready
+                       rows written while autopilot is on land proposed; roadmap promote <id...> [--json] (person: asks y/N on the terminal) makes them ready
   plan-check           Check a plan's task lines the way the task-attempt ledger reads them: plan-check <plan path> [--json]
-  review               Validate a feature's review/findings.json; print errors, advisories and counts (exit 0 valid, 1 invalid, 2 usage):
+  review               Validate a feature's review/findings.json; print errors, advisories and counts (exit 0 valid, 1 invalid, 2 usage).
                        review --action check [--slug <name> | --path <findings.json>] [--json]
                        review --action start [--slug <name>] [--base <ref>] [--json] [--preset <id>]   verify precondition and review protocol; --base must be the review's base (exit 0 ok or not applicable, 1 refused, 2 usage)
-  protocol             Print the review and debate protocol presets, or the one a run would use (read-only, writes nothing):
+  protocol             Print the review and debate protocol presets, or the one a run would use (read-only, writes nothing).
                        protocol --action list [--kind review|debate] [--json]
                        protocol --action resolve --kind review|debate [--task-class <id>] [--risk <level>] [--preset <id>] [--json]   (exit 0 resolved, 1 refused, 2 usage)
-  primary              Resolve which harness and model the main session runs (read-only):
+  rules                Print the values the runtime owns for this project, each with its source (read-only, writes nothing).
+                       rules [--task-class <id>] [-g] [--json] [<project>]   review protocol per class (attended and unattended), gate floors and loop limits, tiers and worker models, review and autopilot settings (exit 0, 2 usage)
+  primary              Resolve which harness and model the main session runs (read-only).
                        primary --action resolve [--json]   (exit 0, 1 refused, 2 usage)
                        primary --action observed [--json]   checkouts and session hook records (exit 0, 1 cannot list checkouts, 2 usage)
-  fleet                List the projects this machine knows (read-only):
+  fleet                List the projects this machine knows (read-only).
                        fleet --action projects [--json]   from the user-state upkeep-roots and the hook project directories (exit 0, 1 cannot list projects, 2 usage)
                        fleet --action tree [--json]   one project's agent hierarchy as nodes and edges (exit 0, 1 cannot list checkouts, 2 usage)
-  transcript           Read an agent's recent events, or the project's traffic (read-only, run in a project):
+  transcript           Read an agent's recent events, or the project's traffic (read-only, run in a project).
                        transcript --action read --agent <key> [--cursor <c>] [--limit <n>] [--json]   masked events and DoFlow's record events (exit 0, 1 agent-not-in-project or session-not-in-project, 2 usage)
                        transcript --action stats [--window <minutes 1..60>] [--json]   events per minute, tool calls, tokens, who works with whom (exit 0, 2 usage)
-  package              List the contribution points a package may fill, check a package directory, show the packages, add and update a local package, or turn it on and off:
+  worktree             Remove a merged feature's worktree and branch, never by force (--action cleanup).
+                       worktree --action cleanup --slug <row slug> [--json]   copies agent-docs/doflow/<slug> back to the main checkout first (exit 0 cleaned, 1 kept or lease-held with the reason, 2 usage)
+  attendance           Say whether a person is watching a stage (read-only).
+                       attendance --task-id <row slug> [--run <rl-id>] [--json]   prints "unattended <source>" or "attended <reason>" (exit 0, 2 usage)
+  package              List the contribution points a package may fill, check a package directory, show the packages, add and update a local package, or turn it on and off.
                        package --action points [--json]
                        package --action check --path <dir> [--json]   (read-only; exit 0 clean, 1 findings, 2 usage)
                        package --action list [--id <id>] [--json]   (read-only; exit 0, 1 when a package is neither active nor disabled)
@@ -603,7 +638,7 @@ Commands:
                        package --action revoke --id <id> [--json]   (records a revocation in state.json; only a later trust line counts)
                        package --action remove --id <id> [--json]   (disables, deletes the store entry and lock row, records a revocation and a removed tombstone, then lists the settings, records and grant lines that still name the package and rewrites none; exit 0, 1 unknown id or the bundled package, 2 no --id)
                        package --action verify [--repair] [--json]   (re-hashes enabled third-party entries and records suspensions; exit 0 intact, 1 findings; --repair rewrites an unreadable state.json)
-  slot                 Named machine-wide queue, one holder at a time (--action run|list|peek|release);
+  slot                 Named machine-wide queue, one holder at a time (--action run|list|peek|release).
                        slot --action run --name <name> [--label <text>] [--timeout <s>] [--no-wait] -- <command> [args...]
                        slot --action release --name <name> --by <who> --reason <text>
   models               Synchronize, list, or inspect observed models across workers (--action sync|list|describe)
@@ -655,8 +690,9 @@ Runtime verb arguments (accept --flag value or --flag=value):
                        lifecycle: overview|init|release|status|merged
                        goal: add|item|check|link|list|done
                        failure: list|settle|capture
-                       roadmap: render|status|next|audit (seed: check|apply|amend; promote <id...>)
+                       roadmap: render|status|next|audit|init-policy (seed: check|apply|amend; promote <id...>)
                        slot: run|list|peek|release
+                       worktree: cleanup
                        models: sync|list|describe
                        review: check|start
                        protocol: list|resolve
@@ -684,7 +720,9 @@ Runtime verb arguments (accept --flag value or --flag=value):
                                             disposition in the JSON; 2 usage or an unreadable store or plan)
       --rationale, --proposed-by, --calling-skill    classify
       --request <text>, --request-file <file>  classify (mutually exclusive; optional second opinion)
-      --intent, --query, --check            route
+      --view brief|full                     followup --action list (default brief), lifecycle --action overview, classify (default full); brief drops detail, full is the whole answer
+      --cursor <c>, --limit <n>             followup --action list (the cursor is opaque: pass back a page's nextCursor); also transcript --action read
+      --intent, --query, --check, --harness  route
       --statement, --claim-id,
       --evidence-id, --relation             claim
       --kind, --provenance, --provider,
@@ -756,6 +794,8 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --tag, --confirm, --feature,
       --exclude (repeatable), --reason      lifecycle (release, merged)
       --fp, --as, --reason, --set, --all    failure (list, settle, capture)
+      --run-id <id>                         intake --action undo (default: the latest sort run that has a move to undo)
+      --stdin | --file <path>, --stage      intake --action file-prompt (the text, unchanged, from exactly one of --stdin or --file; --stage names the filing stage)
       --harness, --need (repeatable),
       --model-check, --budget-tokens,
       --task, --token, --prompt-file,
@@ -834,6 +874,8 @@ async function main(argv: string[]): Promise<any> {
     if (handler) return handler(o);
     return await dispatchRuntimeCommand(o);
   } catch (error: any) {
+    // A repeated `remove` with nothing left is a finished job, not a failure (FU-0wgcyt).
+    if (error?.code === 'DOFLOW_NOTHING_TO_REMOVE') { console.log(`[INFO] ${error.message}`); return; }
     // Recorded silently when it is a programming error (IC-016); the output and exit status below
     // are the same whether or not anything was written.
     // Required here, not at load, so a CLI whose failure modules cannot be loaded still runs as today.

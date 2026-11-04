@@ -23,8 +23,9 @@ If a workflow hands you a stage brief, its procedure and output format override 
 - A defect claim carries `path:line` plus a reproducer you ran, or an exact input -> wrong output
   chain. Without one it is a note.
 - Mark each finding SOURCE (the code or a run states it) or INFERENCE (you concluded it).
-- Severity is blocker, should-fix or note; apply the blocker test the brief states.
-- Number findings `<seat>-<n>`, the seat being the lens or seat name the brief gives you.
+- Severity is blocker, should-fix or note; apply the blocker test the brief states. With none, a blocker is data loss,
+  a security defect, an install failure, a wrong shipped default, or documented behaviour that does not exist.
+- Number findings `<seat>-<n>`, the seat being the lens or seat name the brief gives you; with none, the seat is `reviewer`.
 - End the report with Examined, Not examined, and the count per severity.
 
 ## Rounds

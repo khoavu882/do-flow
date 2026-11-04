@@ -17,7 +17,7 @@ const NATIVE = { hook_event_name: 'PreToolUse', session_id: 'role-parity', cwd: 
 function encode(role: string) {
   const env: any = { ...process.env, DOFLOW_TELEMETRY: '', DOFLOW_SESSION_ROLE: role };
   for (const name of ['DOFLOW_RUN_ID', 'DOFLOW_LINEAGE_ID', 'DOFLOW_ATTEMPT', 'DOFLOW_WORKTREE', 'DOFLOW_TASK_ID']) delete env[name];
-  const result = spawnSync('jq', [...JQ_B, '-c', '--arg', 'harness', 'claude', '--arg', 'event', 'PreToolUse', '--arg', 'policy', 'pre-bash-guard', '--arg', 'mode', 'encode', '-f', ENVELOPE], {
+  const result = spawnSync('jq', [...JQ_B, '-c', '--arg', 'harness', 'claude', '--arg', 'event', 'PreToolUse', '--arg', 'policy', 'pre-implementation-gate', '--arg', 'mode', 'encode', '-f', ENVELOPE], {
     input: JSON.stringify(NATIVE), env, encoding: 'utf8',
   });
   assert.equal(result.status, 0, result.stderr);

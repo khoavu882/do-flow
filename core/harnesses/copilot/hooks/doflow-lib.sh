@@ -69,8 +69,8 @@ copilot_bridge_payload() {
 }
 
 # copilot_front_door <script-dir> <event> <policy> <fail>: run one shared policy through the bridge.
-# <fail> is `deny` for a pre-tool policy (a missing bridge denies the tool call, as Copilot's
-# preToolUse hooks are fail-closed on a non-zero exit anyway) or `open` for every other event.
+# <fail> is `deny` for a pre-tool policy (a missing bridge denies the tool call only under strict-1)
+# or `open` for every other event.
 copilot_front_door() {
   local dir="$1" event="$2" policy="$3" fail="${4:-open}" raw payload bridge status=0
   raw=$(cat)
@@ -83,7 +83,8 @@ copilot_front_door() {
   # User hooks under a custom $COPILOT_HOME sit beside no .doflow; the bridge is then in $HOME/.doflow.
   [ -f "$bridge" ] || bridge="${HOME:-}/.doflow/shared/hooks/bridge/bridge.sh"
   if [ ! -f "$bridge" ] || ! . "$bridge" 2>/dev/null; then
-    if [ "$fail" = deny ]; then
+    # D1: a missing bridge allows. Only DOFLOW_FAULT_PROFILE=strict-1, a person's opt-in, denies a pre-tool call.
+    if [ "$fail" = deny ] && [ "${DOFLOW_FAULT_PROFILE:-}" = strict-1 ]; then
       printf '%s\n' '{"permissionDecision":"deny","permissionDecisionReason":"[doflow] shared hooks lack the bridge; run: doflow update -t copilot"}'
     fi
     return 0

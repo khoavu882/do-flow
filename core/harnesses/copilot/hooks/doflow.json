@@ -18,12 +18,6 @@
       },
       {
         "type": "command",
-        "bash": "bash \"$(root=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$root/.github/hooks/doflow-pre-bash-guard.sh\" ] && printf '%s/.github/hooks/doflow-pre-bash-guard.sh' \"$root\" || printf '%s/hooks/doflow-pre-bash-guard.sh' \"${COPILOT_HOME:-$HOME/.copilot}\")\"",
-        "cwd": ".",
-        "timeoutSec": 20
-      },
-      {
-        "type": "command",
         "bash": "bash \"$(root=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$root/.github/hooks/doflow-mcp-tool-guard.sh\" ] && printf '%s/.github/hooks/doflow-mcp-tool-guard.sh' \"$root\" || printf '%s/hooks/doflow-mcp-tool-guard.sh' \"${COPILOT_HOME:-$HOME/.copilot}\")\"",
         "cwd": ".",
         "timeoutSec": 20

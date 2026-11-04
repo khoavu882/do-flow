@@ -163,6 +163,16 @@ worse than an honest abstention.
 A programmatic assertion whose input is missing — no `transcript.txt`, for instance — **fails** with
 that reason recorded. A check nobody could run is not a pass.
 
+### What a triggering run grades
+
+A triggering run records a routing decision (`routing.json`) and which skill source it read, so only the
+routing and provenance types (`skill_resolved`, `skill_invoked`, `skill_not_invoked`, `skill_not_routed`)
+are graded for it. Any other assertion on a triggering case (`output_matches`, `file_exists`, `manual`, ...)
+asserts behavior the run never produces: `grade` reports it in `grading.json` as `excluded: true` with
+`passed: null`, it does not count toward the case's pass rate, and it is not left for the grader subagent.
+`plan` states the count per run as `grading.excludedBehavioralAssertions`. Behavioral cases grade every
+assertion as before.
+
 ### Should-not-trigger cases
 
 A triggering case may assert the opposite of routing: a near miss of a skill's description, which

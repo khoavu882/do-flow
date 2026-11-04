@@ -25,7 +25,6 @@ const BASH = bashPath();
 const BASH_MAJOR = Number(spawnSync(BASH, ['-c', 'printf %s "${BASH_VERSINFO[0]}"'], { encoding: 'utf8' }).stdout);
 const expectedDuration = (value: any) => BASH_MAJOR < 5 ? null : (Number.isInteger(value) && value >= 0 ? value : 'not-a-duration');
 const LINE_KEYS: any = ['kind', 'harness', 'event', 'policy', 'verdict', 'duration_ms', 'emit_reason', 'emit_bytes', 'emit_digest', 'timestamp', 'session', 'tool', 'tool_call_id', 'run', 'lineage', 'attempt', 'role', 'worker_run', 'tool_duration_ms', 'test_class'];
-const TEST_CLASS_VALUES: any = new Set(['verify.verb', 'test.full', 'test.scoped', 'test.other', 'none']);
 const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const INJECT_FROM = 'session:dft_token($d.identity.session)';
 const INJECT_TO = 'session:error("088-injected-tuple-fault")';
@@ -36,15 +35,11 @@ let projects = 0;
 let homes = 0;
 
 const SURFACES: any = {
-  'claude:pre-bash-guard': { harness: 'claude', event: 'PreToolUse', policy: 'pre-bash-guard', door: '.claude/hooks/pre-bash-guard.sh', fixture: 'claude/pre-bash-guard/perf.json', tool: 'Bash' },
-  'codex:pre-bash-guard': { harness: 'codex', event: 'PreToolUse', policy: 'pre-bash-guard', door: '.codex/hooks/pre-bash-guard.sh', fixture: 'codex/pre-bash-guard/perf.json', tool: 'Bash' },
-  'kiro:pre-bash-guard': { harness: 'kiro', event: 'PreToolUse', policy: 'pre-bash-guard', door: '.kiro/hooks/pre-bash-guard.sh', fixture: 'kiro/pre-bash-guard/perf.json', tool: 'Bash' },
-  'antigravity:pre-bash-guard': { harness: 'antigravity', event: 'PreToolUse', policy: 'pre-bash-guard', runner: true, fixture: 'antigravity/pre-bash-guard/perf.json', tool: 'run_command' },
-  'pi:pre-bash-guard': { harness: 'pi', event: 'tool_call', policy: 'pre-bash-guard', bridge: true, fixture: 'pi/tool_call/perf-bash.json', tool: 'bash' },
   'claude:user-prompt-submit': { harness: 'claude', event: 'UserPromptSubmit', policy: 'user-prompt-submit', door: '.claude/hooks/user-prompt-submit.sh', fixture: 'claude/user-prompt-submit/perf.json', tool: null },
   'codex:user-prompt-submit': { harness: 'codex', event: 'UserPromptSubmit', policy: 'user-prompt-submit', door: '.codex/hooks/user-prompt-submit.sh', fixture: 'codex/user-prompt-submit/perf.json', tool: null },
 };
-const GUARDS = Object.values(SURFACES).filter((surface: any) => surface.policy === 'pre-bash-guard');
+const PROMPT = SURFACES['claude:user-prompt-submit'];
+const CODEX_PROMPT = SURFACES['codex:user-prompt-submit'];
 
 /** An install-shaped project: front doors under .<harness>/hooks, the bridge under .doflow/shared. */
 function project({ state = 'runs', envelope }: any = {}) {
@@ -85,16 +80,7 @@ function fixtureNative(surface: any) {
   return JSON.parse(fs.readFileSync(path.join(FIXTURES, surface.fixture), 'utf8')).native;
 }
 
-/** A native payload for `command` on a pre-bash-guard surface. */
-function commandNative(surface: any, command: any) {
-  const native = fixtureNative(surface);
-  if (surface.harness === 'antigravity') native.toolCall.args.CommandLine = command;
-  else if (surface.harness === 'pi') native.input.command = command;
-  else native.tool_input.command = command;
-  return native;
-}
-
-/** Runs a surface the way its harness does: front door, Antigravity runner, or the Pi bridge call. */
+/** Runs a surface the way its harness does: front door, Antigravity runner, or a direct bridge call. */
 function run(root: any, surface: any, native: any, { env = {}, cwd = root }: any = {}) {
   const payload = JSON.parse(JSON.stringify(native));
   if (Array.isArray(payload.workspacePaths)) payload.workspacePaths = [root];
@@ -117,13 +103,6 @@ function hookLines(configDir: any) {
     assert.match(name, /^\d{4}-\d{2}-\d{2}\.jsonl$/);
     return fs.readFileSync(path.join(dir, name), 'utf8').split('\n').filter(Boolean).map((line: any) => JSON.parse(line));
   });
-}
-
-function denied(surface: any, result: any) {
-  if (surface.harness === 'kiro') return result.status === 2 && /Catastrophic delete blocked/.test(result.stderr);
-  if (surface.harness === 'claude' || surface.harness === 'codex') return /"permissionDecision":\s*"deny"/.test(result.stdout);
-  if (surface.harness === 'pi') return /"block":\s*true/.test(result.stdout);
-  return /"decision":\s*"deny"/.test(result.stdout);
 }
 
 function utcDates() {
@@ -199,7 +178,6 @@ function commandCountMap(off: any) {
 }
 
 const OFF_BASELINES: any = {
-  'claude:pre-bash-guard': { bash: 1, cat: 2, dirname: 1, jq: 2 },
   'claude:user-prompt-submit': { bash: 1, cat: 2, dirname: 1, jq: 3, mkdir: 1 },
 };
 
@@ -214,9 +192,9 @@ function compareForkCounts(root: any, surface: any, native: any, shimDir: any) {
   return { off, on, deltaByCommand: commandCountDelta(off, on) };
 }
 
-test('telemetry adds at most one external command on pre-bash-guard and user-prompt-submit', () => {
+test('telemetry adds at most one external command on user-prompt-submit', () => {
   const shimDir = commandShims();
-  for (const key of ['claude:pre-bash-guard', 'claude:user-prompt-submit']) {
+  for (const key of ['claude:user-prompt-submit']) {
     const surface = SURFACES[key];
     const root = project();
     const counts = compareForkCounts(root, surface, fixtureNative(surface), shimDir);
@@ -241,7 +219,7 @@ test('negative control: a planted date fork exceeds the one-command telemetry bu
   assert.ok(bridge.includes(append), 'the scratch bridge has the hook-line append point');
   fs.writeFileSync(bridgePath, bridge.replace(append, `date >/dev/null 2>&1 || true\n  ${append}`));
 
-  const surface = SURFACES['claude:pre-bash-guard'];
+  const surface = PROMPT;
   const counts = compareForkCounts(root, surface, fixtureNative(surface), shimDir);
   assert.deepEqual(counts.deltaByCommand, { date: 1, mkdir: 1 }, 'the planted date is counted with mkdir');
   assert.throws(() => assertForkBudget(counts, 'planted date negative control'), /adds 2 external commands; budget is 1/);
@@ -259,34 +237,28 @@ test('one allowlisted hook line per harness fixture, with the contract keys and 
     const line = lines.at(-1);
     const expectedKeys = LINE_KEYS;
     assert.deepEqual(Object.keys(line), expectedKeys, `${surface.harness}/${surface.policy}: key order`);
-    if (surface.policy === 'pre-bash-guard') {
-      assert.ok(Object.hasOwn(line, 'test_class') && TEST_CLASS_VALUES.has(line.test_class), `${surface.harness}/${surface.policy}: test_class uses the closed vocabulary`);
-    } else {
-      assert.equal(line.test_class, null, `${surface.harness}/${surface.policy}: test_class is null`);
-    }
+    assert.equal(line.test_class, null, `${surface.harness}/${surface.policy}: test_class is null`);
     assert.match(line.timestamp, TIMESTAMP);
     assert.deepEqual({ ...line, timestamp: 'T' }, {
       kind: 'hook', harness: surface.harness, event: surface.event, policy: surface.policy, verdict: 'allow',
       duration_ms: expectedDuration(line.duration_ms),
-      // Rider R1 (091): null off the prompt policy; there, emit with the stdout byte count, else silence.
-      ...(surface.policy === 'pre-bash-guard'
-        ? { emit_reason: null, emit_bytes: null, emit_digest: null }
-        : result.stdout === '{}\n'
-          ? { emit_reason: 'silent:unchanged', emit_bytes: 0, emit_digest: null }
-          : { emit_reason: 'emit', emit_bytes: Buffer.byteLength(result.stdout), emit_digest: /^[0-9a-f]{8}$/.test(line.emit_digest) ? line.emit_digest : 'not-8-hex' }),
+      // Rider R1 (091): emit with the stdout byte count, else silence.
+      ...(result.stdout === '{}\n'
+        ? { emit_reason: 'silent:unchanged', emit_bytes: 0, emit_digest: null }
+        : { emit_reason: 'emit', emit_bytes: Buffer.byteLength(result.stdout), emit_digest: /^[0-9a-f]{8}$/.test(line.emit_digest) ? line.emit_digest : 'not-8-hex' }),
       timestamp: 'T', session: native.session_id || null, tool: surface.tool,
-      tool_call_id: surface.harness === 'pi' ? native.toolCallId : null, run: 'run-088', lineage: 'lineage-088', attempt: 2, role: null, worker_run: null,
+      tool_call_id: null, run: 'run-088', lineage: 'lineage-088', attempt: 2, role: null, worker_run: null,
       tool_duration_ms: null,
-      test_class: surface.policy === 'pre-bash-guard' ? 'none' : null,
+      test_class: null,
     }, `${surface.harness}/${surface.policy}: line`);
-    const content = native.prompt || native.tool_input?.command || native.input?.command || native.toolCall?.args?.CommandLine;
+    const content = native.prompt;
     assert.ok(content && !JSON.stringify(line).includes(content), `${surface.harness}/${surface.policy}: no command or prompt in the line`);
   }
 });
 
 test('the committed hook fixture strictly pins bridge keys, including test_class and tool_duration_ms', () => {
   const root = project();
-  run(root, SURFACES['claude:pre-bash-guard'], fixtureNative(SURFACES['claude:pre-bash-guard']));
+  run(root, PROMPT, fixtureNative(PROMPT));
   const [written] = hookLines(path.join(root, '.doflow'));
   const fixture = fs.readFileSync(HOOK_FIXTURE, 'utf8').split('\n').filter(Boolean).map((line: any) => JSON.parse(line));
   assert.equal(fixture.length, 1);
@@ -296,7 +268,7 @@ test('the committed hook fixture strictly pins bridge keys, including test_class
   assert.equal(written.tool_duration_ms, fixture[0].tool_duration_ms);
 });
 
-test('a non-command hook line carries "test_class":null, and telemetry off writes no line', () => {
+test('a hook line carries "test_class":null, and telemetry off writes no line', () => {
   for (const key of ['claude:user-prompt-submit', 'codex:user-prompt-submit']) {
     const surface = SURFACES[key];
     const root = project();
@@ -315,7 +287,7 @@ test('a non-command hook line carries "test_class":null, and telemetry off write
 
 test('identifiers that fail their rule are null: run local, a bad lineage, attempt 0, a session with a space', () => {
   const root = project();
-  const surface = SURFACES['claude:pre-bash-guard'];
+  const surface = PROMPT;
   const native: any = { ...fixtureNative(surface), session_id: 'has space', tool_use_id: 'toolu_088' };
   run(root, surface, native, { env: { DOFLOW_RUN_ID: 'local', DOFLOW_LINEAGE_ID: 'bad/lineage', DOFLOW_ATTEMPT: '0' } });
   const [line] = hookLines(path.join(root, '.doflow'));
@@ -324,8 +296,8 @@ test('identifiers that fail their rule are null: run local, a bad lineage, attem
 
 test('an MCP tool name is never recorded as the tool (canary)', () => {
   const root = project();
-  const surface = SURFACES['pi:pre-bash-guard'];
-  run(root, surface, { ...fixtureNative(surface), toolName: 'mcp__canary088server__canary088tool' });
+  const surface = PROMPT;
+  run(root, surface, { ...fixtureNative(surface), tool_name: 'mcp__canary088server__canary088tool' });
   const lines = hookLines(path.join(root, '.doflow'));
   assert.equal(lines.length, 1);
   assert.equal(lines[0].tool, null);
@@ -338,7 +310,7 @@ const STRIP_KEYS = (source: any) => source
 
 /** The role and worker_run assertions, shared by the production test and its negative control. */
 function assertRoleAndWorkerRun(root: any) {
-  const surface = SURFACES['claude:pre-bash-guard'];
+  const surface = PROMPT;
   const config = path.join(root, '.doflow');
   run(root, surface, fixtureNative(surface), { env: { DOFLOW_SESSION_ROLE: 'worker', DOFLOW_WORKER_RUN: WORKER_RUN } });
   run(root, surface, fixtureNative(surface), { env: { DOFLOW_SESSION_ROLE: 'main' } });
@@ -360,7 +332,7 @@ test('negative control: a tuple without the role and worker_run keys fails the r
 
 test('a role outside main|worker is written as worker (as identity.ts reads it) and a worker_run outside ^w-[0-9a-f]{12}$ as null', () => {
   const root = project();
-  const surface = SURFACES['claude:pre-bash-guard'];
+  const surface = PROMPT;
   const bad: any = ['W-0123456789AB', 'w-0123456789a', 'w-0123456789abc', 'w-0123456789ag', 'x-0123456789ab', 'free text', 'w-0123456789ab\n', '../etc/passwd'];
   for (const value of bad) run(root, surface, fixtureNative(surface), { env: { DOFLOW_SESSION_ROLE: 'intruder', DOFLOW_WORKER_RUN: value } });
   const lines = hookLines(path.join(root, '.doflow'));
@@ -375,20 +347,11 @@ test('telemetry off writes no file even with role and worker_run set', () => {
   assert.equal(fs.existsSync(telemetryDir(path.join(root, '.doflow'))), false);
 });
 
-test('a deny is recorded as a deny on every pre-bash-guard harness', () => {
-  const root = project();
-  for (const surface of GUARDS) {
-    const result = run(root, surface, commandNative(surface, 'rm -rf /'));
-    assert.ok(denied(surface, result), `${surface.harness}: rm -rf / denied\n${result.stdout}${result.stderr}`);
-    assert.equal(hookLines(path.join(root, '.doflow')).at(-1).verdict, 'deny', `${surface.harness}: verdict`);
-  }
-});
-
 test('a surface outside the allowlist writes nothing', () => {
   const root = project();
   const config = path.join(root, '.doflow');
   const bridge = path.join(root, '.doflow/shared/hooks/bridge/bridge.sh');
-  for (const [harness, event, policy] of [['claude', 'PreToolUse', 'mcp-tool-guard'], ['claude', 'PreToolUse', 'pre-implementation-gate'], ['kiro', 'PreToolUse', 'user-prompt-submit'], ['claude', 'Stop', 'pre-bash-guard'], ['opencode', 'PreToolUse', 'pre-bash-guard']]) {
+  for (const [harness, event, policy] of [['claude', 'PreToolUse', 'mcp-tool-guard'], ['claude', 'PreToolUse', 'pre-implementation-gate'], ['kiro', 'PreToolUse', 'user-prompt-submit'], ['claude', 'Stop', 'user-prompt-submit'], ['opencode', 'UserPromptSubmit', 'user-prompt-submit']]) {
     const result = spawnSync(BASH, [bridge, harness, event, policy], { cwd: root, input: '{"hook_event_name":"PreToolUse","session_id":"s","tool_name":"Bash","tool_input":{"command":"ls"}}\n', encoding: 'utf8', env: baseEnv(root, {}) });
     assert.equal(result.error, undefined);
     assert.deepEqual(hookLines(config), [], `${harness}:${event}:${policy} writes nothing`);
@@ -403,7 +366,7 @@ test('telemetry off writes nothing and creates nothing', () => {
 });
 
 test('no write without <config>/state, and no directory above runs/telemetry is created', () => {
-  const surface = SURFACES['claude:pre-bash-guard'];
+  const surface = PROMPT;
   const bare = project({ state: 'none' });
   run(bare, surface, fixtureNative(surface));
   assert.equal(fs.existsSync(path.join(bare, '.doflow/state')), false, 'no state directory');
@@ -440,7 +403,7 @@ test('no store above cwd: the bridge returns 0 without treating /state as a conf
 
   const bridgePath = path.join(REPO, 'core/harnesses/shared/hooks/bridge/bridge.sh');
   const result = spawnSync(BASH, [
-    '-c', 'source "$2"; source "$1"; doflow_bridge_hook_line codex PreToolUse pre-bash-guard', 'bash', bridgePath, startup,
+    '-c', 'source "$2"; source "$1"; doflow_bridge_hook_line codex UserPromptSubmit user-prompt-submit', 'bash', bridgePath, startup,
   ], {
     cwd,
     encoding: 'utf8',
@@ -467,7 +430,7 @@ test('no store above cwd: the bridge returns 0 without treating /state as a conf
 test('S1: a hook from a dispatch worktree writes one line to the project store only', () => {
   const root = project();
   const worktree = dispatchWorktree(root);
-  run(root, SURFACES['codex:pre-bash-guard'], fixtureNative(SURFACES['codex:pre-bash-guard']), { cwd: worktree });
+  run(root, CODEX_PROMPT, fixtureNative(CODEX_PROMPT), { cwd: worktree });
   assert.equal(hookLines(path.join(root, '.doflow')).length, 1, 'the project gets one line');
   assert.deepEqual(hookLines(path.join(worktree, '.doflow')), [], 'the worktree gets no line');
   assert.equal(fs.existsSync(path.join(worktree, '.doflow/state/runs')), false, 'the worktree gets no state/runs');
@@ -477,7 +440,7 @@ test('S2: an old worktree state/runs fragment does not shadow the project store'
   const root = project();
   const worktree = dispatchWorktree(root);
   fs.mkdirSync(path.join(worktree, '.doflow/state/runs'), { recursive: true });
-  run(root, SURFACES['codex:pre-bash-guard'], fixtureNative(SURFACES['codex:pre-bash-guard']), { cwd: worktree });
+  run(root, CODEX_PROMPT, fixtureNative(CODEX_PROMPT), { cwd: worktree });
   assert.equal(hookLines(path.join(root, '.doflow')).length, 1, 'the project gets one line');
   assert.deepEqual(hookLines(path.join(worktree, '.doflow')), [], 'the old fragment gets no line');
   assert.equal(fs.existsSync(telemetryDir(path.join(worktree, '.doflow'))), false, 'the old fragment gets no telemetry directory');
@@ -486,7 +449,7 @@ test('S2: an old worktree state/runs fragment does not shadow the project store'
 test('C1: telemetry off writes nothing in the project or worktree store', () => {
   const root = project();
   const worktree = dispatchWorktree(root);
-  run(root, SURFACES['codex:pre-bash-guard'], fixtureNative(SURFACES['codex:pre-bash-guard']), {
+  run(root, CODEX_PROMPT, fixtureNative(CODEX_PROMPT), {
     cwd: worktree, env: { DOFLOW_TELEMETRY: 'off' },
   });
   assert.deepEqual(hookLines(path.join(root, '.doflow')), [], 'the project gets no line');
@@ -500,7 +463,7 @@ test('C2: a flat project without runs does not fall through to the HOME store', 
   const home = scratch.path(`flat-home-${homes += 1}`);
   fs.mkdirSync(home, { recursive: true });
   fs.mkdirSync(path.join(home, '.doflow/state/runs'), { recursive: true });
-  const surface = SURFACES['codex:pre-bash-guard'];
+  const surface = CODEX_PROMPT;
   run(root, surface, fixtureNative(surface), {
     env: { HOME: home, XDG_CONFIG_HOME: path.join(home, '.config') },
   });
@@ -523,7 +486,7 @@ test('a linked worktree subdirectory writes to the store of the checkout it live
   git('worktree', 'add', '-q', '-b', 'wt', 'tmp/wt');
   const sub = path.join(root, 'tmp/wt/sub');
   fs.mkdirSync(sub);
-  const surface = SURFACES['pi:pre-bash-guard'];
+  const surface = PROMPT;
   run(root, surface, fixtureNative(surface));
   run(root, surface, fixtureNative(surface), { cwd: sub });
   assert.equal(hookLines(path.join(root, '.doflow')).length, 2, 'main checkout and worktree share one store');
@@ -538,7 +501,7 @@ test('a linked worktree subdirectory writes to the store of the checkout it live
 test('duration_ms is null on bash < 5 even when EPOCHREALTIME comes from the environment', () => {
   const version = Number(spawnSync(BASH, ['-c', 'printf %s "${BASH_VERSINFO[0]}"'], { encoding: 'utf8' }).stdout);
   const root = project();
-  const surface = SURFACES['claude:pre-bash-guard'];
+  const surface = PROMPT;
   run(root, surface, fixtureNative(surface), { env: { EPOCHREALTIME: '1700000000.000000' } });
   const [line] = hookLines(path.join(root, '.doflow'));
   if (version < 5) assert.equal(line.duration_ms, null);
@@ -566,9 +529,7 @@ test('stdout, stderr and exit are byte-equal with telemetry on, off and faulted,
   const faulted = faultedProjects();
   try {
     for (const surface of Object.values(SURFACES)) {
-      const natives: any = surface.policy === 'pre-bash-guard'
-        ? [['allow', commandNative(surface, 'printf safe')], ['deny', commandNative(surface, 'rm -rf /')]]
-        : [['prompt', fixtureNative(surface)]];
+      const natives: any = [['prompt', fixtureNative(surface)]];
       for (const [kind, native] of natives) {
         const label: any = `${surface.harness}/${surface.policy}/${kind}`;
         const expected = run(on, surface, native, { env: { DOFLOW_TELEMETRY: 'off' } });
@@ -588,24 +549,50 @@ test('stdout, stderr and exit are byte-equal with telemetry on, off and faulted,
   assert.ok(hookLines(path.join(on, '.doflow')).length > 0);
 });
 
-test('an injected encode-tuple fault still denies rm -rf / on every pre-bash-guard harness, under compat-1 and strict-1', () => {
+/** A feature branch with no plan.md: the pre-implementation gate advises on an edit there. */
+function gateRepo() {
+  const git = (cwd: any, ...args: any[]) => {
+    const result = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', ...args], { cwd, encoding: 'utf8', env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null' } });
+    assert.equal(result.status, 0, result.stderr);
+  };
+  const repo = scratch.path(`gate-repo-${projects += 1}`);
+  fs.mkdirSync(path.join(repo, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'src/a.js'), 'a\n');
+  fs.writeFileSync(path.join(repo, '.gitignore'), 'agent-docs/\n.doflow/\n');
+  git(repo, 'init', '-q', '-b', 'main');
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-q', '-m', 'init');
+  git(repo, 'checkout', '-q', '-b', 'feat/900-demo');
+  const feature = path.join(repo, 'agent-docs/doflow/900-demo/intention');
+  fs.mkdirSync(feature, { recursive: true });
+  fs.writeFileSync(path.join(feature, 'requirement.md'), '# requirement\n');
+  return repo;
+}
+const GATE: any = { harness: 'claude', event: 'PreToolUse', policy: 'pre-implementation-gate', door: '.claude/hooks/pre-implement-gate.sh' };
+function gateEdit(root: any, repo: any, env: any = {}) {
+  const native = { hook_event_name: 'PreToolUse', session_id: 'gate-088', cwd: repo, tool_name: 'Edit', tool_input: { file_path: path.join(repo, 'src/a.js') } };
+  return run(root, GATE, native, { cwd: repo, env: { DOFLOW_PROJECT_DIR: repo, ...env } });
+}
+// The gate never denies: it hands the model its out-of-step line as PreToolUse additionalContext, and no permissionDecision.
+const gateAdvised = (result: any) => /"additionalContext":\s*"[^"]*doflow gate/.test(result.stdout) && !/"permissionDecision"/.test(result.stdout) && result.status === 0;
+
+test('an injected encode-tuple fault still advises on a gated edit, under compat-1 and strict-1', () => {
+  const repo = gateRepo();
   const root = project({ envelope: (source: any) => source.replace(INJECT_FROM, INJECT_TO) });
-  for (const surface of GUARDS) {
-    for (const profile of ['compat-1', 'strict-1']) {
-      const result = run(root, surface, commandNative(surface, 'rm -rf /'), { env: { DOFLOW_FAULT_PROFILE: profile } });
-      assert.ok(denied(surface, result), `${surface.harness}/${profile}: rm -rf / still denied\n${result.stdout}${result.stderr}`);
-    }
+  assert.ok(gateAdvised(gateEdit(project(), repo)), 'the unfaulted gate advises on the edit');
+  for (const profile of ['compat-1', 'strict-1']) {
+    const result = gateEdit(root, repo, { DOFLOW_FAULT_PROFILE: profile });
+    assert.ok(gateAdvised(result), `${profile}: the edit is still advised on\n${result.stdout}${result.stderr}`);
   }
 });
 
-test('negative control: the same fault without the try wrapper switches the guard off under compat-1', () => {
+test('negative control: the same fault without the try wrapper silences the gate advice under compat-1', () => {
+  const repo = gateRepo();
   const root = project({
     envelope: (source: any) => {
       assert.ok(source.includes('[try (') && source.includes(') catch {dft:1}]'), 'the production tuple is try-wrapped');
       return source.replace(INJECT_FROM, INJECT_TO).replace('[try (', '[(').replace(') catch {dft:1}]', ')]');
     },
   });
-  const surface = SURFACES['claude:pre-bash-guard'];
-  const result = run(root, surface, commandNative(surface, 'rm -rf /'));
-  assert.equal(denied(surface, result), false, 'an uncaught telemetry fault is a guard bypass; the try is what prevents it');
+  assert.equal(gateAdvised(gateEdit(root, repo)), false, 'an uncaught telemetry fault switches the gate off; the try is what prevents it');
 });

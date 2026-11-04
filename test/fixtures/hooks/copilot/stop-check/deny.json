@@ -32,13 +32,12 @@
   ],
   "expect": {
     "exit": 0,
-    "stdoutIncludes": "\"decision\":\"block\"",
-    "stderrIncludes": null,
-    "modelVisibleBytesMax": 400,
+    "stderrIncludes": "[stop-check] The last response contains an unfinished-work marker",
+    "modelVisibleBytesMax": 0,
     "decision": {
-      "outcome": "deny",
+      "outcome": "advisory",
       "code": "unfinished-work",
-      "effect": "block"
+      "effect": "proceed"
     },
     "envelope": {
       "version": 1,
@@ -48,6 +47,7 @@
       "identity": {
         "session": "copilot-stop-deny"
       }
-    }
+    },
+    "stdout": ""
   }
 }

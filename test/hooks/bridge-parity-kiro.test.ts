@@ -12,7 +12,6 @@ const REPO = path.resolve(__dirname, '../..');
 const FIXTURES = path.join(REPO, 'test/fixtures/hooks/kiro');
 const POLICIES: any = {
   'pre-implement-gate': 'pre-implementation-gate',
-  'pre-bash-guard': 'pre-bash-guard',
   'mcp-tool-guard': 'mcp-tool-guard',
   'session-start': 'session-context',
   'stop-check': 'stop-check',

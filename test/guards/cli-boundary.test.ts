@@ -1,6 +1,6 @@
 'use strict';
 
-// CLI boundary guard — installer commands extraction (docs/architecture.md#boundary-ratchets).
+// CLI boundary guard — installer commands extraction.
 //
 // bin/doflow.js used to be a 1215-line monolith holding parseArgs and nine cmd* handlers. The
 // extraction moved all of that into src/cli/, applying the repo's own verb-table doctrine to the

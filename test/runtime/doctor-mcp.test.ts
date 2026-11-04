@@ -274,6 +274,18 @@ test('FU-c2ddw2 a run namespaced under its feature slug is counted; a flat seed 
   assert.equal(report.mcp.consultations.unreadableRuns, 1, 'an unreadable namespaced journal is counted unreadable');
 });
 
+test('FU-sc3ztc a flat run naming no feature is still counted when an unrelated namespace shares its file name, and a namespace dir holding ".." is not walked', (t) => {
+  const f = fixture(t);
+  const history: any = [entry('2026-10-11T09:00:00.000Z', 'design', consultations('do-design', [FIRST], [[FIRST, 'consulted-used']]))];
+  const journal = (taskId: any, featureSlug?: any) => JSON.stringify({ version: 1, taskId, taskClass: 'feature', state: 'RUNNING', ...(featureSlug ? { featureSlug } : {}), history });
+  const orchestration = path.join(f.proj, '.doflow', 'state', 'orchestration');
+  write(path.join(orchestration, 'shared.json'), journal('shared'));
+  write(path.join(orchestration, 'other-ns', 'shared.json'), journal('shared', 'other-ns'));
+  write(path.join(orchestration, 'a..b', 'hidden.json'), journal('hidden', 'a..b'));
+  const design = stage(JSON.parse(doctor(f, [f.proj, '--json']).stdout), 'do-design');
+  assert.equal(design.runs, 2, 'the featureless flat run and the namespaced run are both counted; the ".." directory is not walked');
+});
+
 test('every outcome recorded is quiet: one used, one skipped, no "no outcome" line', (t) => {
   const f = fixture(t);
   run(f, 'quiet', [

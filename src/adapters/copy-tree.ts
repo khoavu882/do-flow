@@ -371,14 +371,13 @@ function kiroHook({ name, trigger, matcher, script, timeout }: { name: string, t
   };
 }
 
-/** The three preToolUse hooks every DoFlow-rendered Kiro agent carries. The MCP guard uses the
+/** The two preToolUse hooks every DoFlow-rendered Kiro agent carries. The MCP guard uses the
  * "*" matcher: Kiro documents "@<server>" (every tool of one server) and "*" but no all-MCP
  * matcher, and mcp-tool-guard.sh exits 0 immediately for any non-MCP tool name, so "*" costs one
  * fast no-op for built-in tools and still covers every MCP server. */
 function kiroPreToolUseHooks(): any[] {
   return [
     kiroHook({ name: 'doflow-pre-implementation-gate', trigger: 'preToolUse', matcher: 'write', script: 'pre-implement-gate.sh', timeout: 10 }),
-    kiroHook({ name: 'doflow-pre-bash-guard', trigger: 'preToolUse', matcher: 'shell', script: 'pre-bash-guard.sh', timeout: 10 }),
     kiroHook({ name: 'doflow-mcp-tool-guard', trigger: 'preToolUse', matcher: '*', script: 'mcp-tool-guard.sh', timeout: 10 }),
   ];
 }
@@ -662,6 +661,13 @@ function applyTree({ changes = [], fsImpl = fs, transform }: any): { applied: nu
     if (change.operation === 'remove') continue;
     fsImpl.mkdirSync(path.dirname(change.target), { recursive: true });
     const sourceStat = fsImpl.statSync(change.source);
+    // A destination symlink (`install -f` plans over one) is replaced by the regular file, never written through:
+    // its target, which may be a file outside the install, keeps its bytes and mode.
+    try {
+      if (fsImpl.lstatSync(change.target).isSymbolicLink()) fsImpl.unlinkSync(change.target);
+    } catch (error: any) {
+      if (error.code !== 'ENOENT') throw error;
+    }
     if (mapContent) {
       // Re-derive the bytes from the source at write time instead of copying it: the transform,
       // not the source file, is what the recorded fingerprint describes. Keeps recovery retries

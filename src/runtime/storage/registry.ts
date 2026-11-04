@@ -13,7 +13,7 @@ const RULES: Map<string, string[]> = new Map([
   ['date-partition', ['maxAgeDays']],
   ['recovery', ['keepNewest']],
   ['lifecycle-settled', ['defaultHours']],
-  ['report-orphan', ['orphanGraceHours', 'foreignMaxAgeDays']],
+  ['report-orphan', ['orphanGraceHours']],
   ['age', ['maxAgeDays']],
   ['existing', []],
   ['control', []],
@@ -132,7 +132,7 @@ function formatBound(store: any): string {
     case 'date-partition': return `prune partitions older than ${bound.maxAgeDays} days`;
     case 'recovery': return `keep newest ${bound.keepNewest}, plus the snapshot named by the ledger`;
     case 'lifecycle-settled': return `retain settled events for ${bound.defaultHours} hours`;
-    case 'report-orphan': return `prune orphan bodies after ${bound.orphanGraceHours} hours; foreign folders after ${bound.foreignMaxAgeDays} days`;
+    case 'report-orphan': return `prune orphan bodies after ${bound.orphanGraceHours} hours; foreign folders are kept`;
     case 'age': return `prune inactive directories after ${bound.maxAgeDays} days`;
     case 'existing':
     case 'control': return bound.text;

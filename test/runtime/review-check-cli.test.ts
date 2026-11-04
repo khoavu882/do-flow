@@ -220,6 +220,72 @@ test('C-8: an inherited GIT_DIR naming another repository does not redirect the 
   assert.deepEqual(JSON.parse(res.stdout).errors, [`preExistingAt-not-ancestor:${data.converged[0].id}`]);
 });
 
+test('FU-rdy770: the ancestry check strips all twelve repository-local variables and keeps injected configuration', (t) => {
+  const s = scratch(t);
+  const commit = (text: any) => {
+    fs.writeFileSync(path.join(s.cwd, 'tracked.txt'), text);
+    assert.equal(s.git(['add', 'tracked.txt']).status, 0);
+    assert.equal(s.git(['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', text]).status, 0);
+    return s.git(['rev-parse', 'HEAD']).stdout.trim();
+  };
+  assert.equal(s.git(['init', '-q']).status, 0);
+  const first = commit('first');
+  const second = commit('second');
+  const keys = [
+    'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_OBJECT_DIRECTORY', 'GIT_DIR', 'GIT_WORK_TREE', 'GIT_IMPLICIT_WORK_TREE',
+    'GIT_GRAFT_FILE', 'GIT_INDEX_FILE', 'GIT_NO_REPLACE_OBJECTS', 'GIT_REPLACE_REF_BASE', 'GIT_PREFIX',
+    'GIT_SHALLOW_FILE', 'GIT_COMMON_DIR',
+  ];
+  // A git on PATH that records the GIT_ variables it was started with, then runs the real one.
+  const bin = path.join(s.root, 'bin');
+  fs.mkdirSync(bin);
+  const seen = path.join(s.root, 'seen.txt');
+  const real = spawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).stdout.trim();
+  fs.writeFileSync(path.join(bin, 'git'), `#!/bin/sh\nenv | grep '^GIT_' | sort > '${seen}'\nexec '${real}' "$@"\n`, { mode: 0o755 });
+  const data = record();
+  data.reviewedHead = first;
+  Object.assign(data.converged[0], { origin: 'pre-existing', preExistingAt: second });
+  s.write('review/findings.json', data);
+  for (const key of keys) s.env[key] = path.join(s.root, 'nowhere');
+  Object.assign(s.env, { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'http.extraHeader', GIT_CONFIG_VALUE_0: 'Authorization: x', PATH: `${bin}${path.delimiter}${process.env.PATH}` });
+  const res = s.cli(['--action', 'check', '--path', 'review/findings.json', '--json']);
+  assert.equal(res.status, 1, res.stdout + res.stderr);
+  const names = fs.readFileSync(seen, 'utf8').split('\n').filter(Boolean).map((line: any) => line.split('=')[0]);
+  assert.deepEqual(names.filter((name: any) => keys.includes(name)), [], 'no repository-local variable reaches git');
+  assert.ok(names.includes('GIT_CONFIG_COUNT') && names.includes('GIT_CONFIG_KEY_0'), 'injected configuration is kept');
+});
+
+test('FU-hae1rp: --action=check works, a duplicate --path is a usage error, and --json shapes every parser error', (t) => {
+  const s = scratch(t);
+  s.write('review/findings.json', record());
+  const inline = s.cli(['--action=check', '--path', 'review/findings.json', '--json']);
+  assert.equal(inline.status, 0, inline.stdout + inline.stderr);
+  assert.equal(JSON.parse(inline.stdout).valid, true);
+
+  const twice = s.cli(['--action', 'check', '--path', 'review/findings.json', '--path', 'review/findings.json', '--json']);
+  assert.equal(twice.status, 2, twice.stdout + twice.stderr);
+  assert.deepEqual(JSON.parse(twice.stdout), { ok: false, error: 'usage', message: '--path may be given only once' });
+  const twiceText = s.cli(['--action', 'check', '--path', 'a', '--path', 'b']);
+  assert.equal(twiceText.status, 2);
+  assert.match(twiceText.stdout, /--path may be given only once/);
+
+  for (const args of [['--bogus', '--json'], ['--json', '--bogus']]) {
+    const unknown = s.cli(['--action', 'check', ...args]);
+    assert.equal(unknown.status, 2, unknown.stdout + unknown.stderr);
+    assert.deepEqual(JSON.parse(unknown.stdout), { ok: false, error: 'usage', message: "unknown flag '--bogus'" });
+    assert.equal(unknown.stderr, '');
+  }
+  const noValue = s.cli(['--json', '--action']);
+  assert.equal(noValue.status, 2);
+  assert.deepEqual(JSON.parse(noValue.stdout), { ok: false, error: 'usage', message: '--action requires a value' });
+  const empty = s.cli(['--action=']);
+  assert.equal(empty.status, 2);
+  assert.match(empty.stderr, /--action requires a value/);
+  const plain = s.cli(['--bogus']);
+  assert.equal(plain.status, 2);
+  assert.match(plain.stderr, /doflow: unknown flag '--bogus'/);
+});
+
 test('C-9: --action with no value is a usage error, exit 2', (t) => {
   const s = scratch(t);
   const res = s.cli(['--action']);

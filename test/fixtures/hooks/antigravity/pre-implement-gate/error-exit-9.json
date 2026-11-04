@@ -17,16 +17,16 @@
   "fault": "policy-exit-9",
   "expect": {
     "exit": 0,
-    "stdout": "<error-json>",
+    "stdout": "{\"decision\":\"allow\"}\n",
     "stderrIncludes": null,
-    "modelVisibleBytesMax": 111,
+    "modelVisibleBytesMax": 21,
     "decision": {
       "harness": "antigravity",
       "event": "PreToolUse",
       "policy": "pre-implementation-gate",
       "outcome": "error",
       "code": "exit-9",
-      "effect": "block"
+      "effect": "proceed"
     },
     "envelope": {
       "version": 1,

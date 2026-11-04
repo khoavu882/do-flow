@@ -11,7 +11,7 @@ const { suiteTempDir } = require('../helper/tmp.ts');
 const ROOT = path.resolve(__dirname, '../..');
 const BRIDGE_DIR = path.join(ROOT, 'core/harnesses/shared/hooks/bridge');
 const POLICY_IDS: any = [
-  'pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard', 'stop-check',
+  'pre-implementation-gate', 'mcp-tool-guard', 'stop-check',
   'session-context', 'user-prompt-submit', 'subagent-audit',
 ];
 
@@ -25,7 +25,7 @@ function makeTree(policyBody?: any) {
       : path.join(BRIDGE_DIR, file);
     fs.copyFileSync(source, path.join(dir, 'bridge', file));
   }
-  for (const file of ['deny-json.sh', 'capture-failure.sh']) {
+  for (const file of ['deny-json.sh', 'capture-failure.sh', 'contract.sh']) {
     fs.copyFileSync(path.join(ROOT, 'core/harnesses/shared/hooks/policies', file), path.join(dir, 'policies', file));
   }
   for (const id of POLICY_IDS) {
@@ -50,6 +50,39 @@ test('gate denies still run when TMPDIR is unusable on each shell door', async (
     const dir = makeTree(`#!/bin/bash\nprintf '\\036%s\\n' '{"outcome":"deny","code":"blocked","policyVersion":1}' >&3\necho blocked >&2\nexit 2\n`);
     const result = run(dir, harness, event, 'pre-implementation-gate', {}, [], { TMPDIR: '/nonexistent' });
     assert.match(result.stdout, /blocked/, `${harness}:${event} native deny reason survives TMPDIR failure`);
+  });
+});
+
+test('a missing contract.sh is a bridge-spawn fault that proceeds under compat-1 and blocks the gate under strict-1', () => {
+  const dir = makeTree();
+  fs.unlinkSync(path.join(dir, 'policies/contract.sh'));
+  const compat: any = run(dir, 'claude', 'PreToolUse', 'pre-implementation-gate', {}, ['--emit', 'decision']);
+  const decision = JSON.parse(compat.stdout);
+  assert.equal(decision.outcome, 'error');
+  assert.equal(decision.code, 'bridge-spawn');
+  assert.equal(decision.effect, 'proceed');
+  const strict: any = run(dir, 'claude', 'PreToolUse', 'pre-implementation-gate', {}, ['--emit', 'decision'], { DOFLOW_FAULT_PROFILE: 'strict-1' });
+  assert.equal(JSON.parse(strict.stdout).effect, 'block');
+});
+
+test('a missing contract.sh says so through the bridge: the out-of-step line under compat-1, a deny under strict-1', async (t) => {
+  for (const harness of ['claude', 'codex', 'kiro']) for (const policy of ['pre-implementation-gate', 'mcp-tool-guard']) await t.test(`${harness}/${policy}`, () => {
+    const dir = makeTree();
+    fs.unlinkSync(path.join(dir, 'policies/contract.sh'));
+    const line = `[${policy}] DoFlow hooks out of step; run: doflow update -t ${harness}`;
+    const compat: any = run(dir, harness, 'PreToolUse', policy, {}, [], { DOFLOW_AGENT: harness });
+    assert.equal(compat.status, 0, `${harness} proceeds`);
+    if (harness === 'kiro') {
+      assert.equal(compat.stdout, '');
+      assert.equal(compat.stderr.trim(), line);
+    } else {
+      const out = JSON.parse(compat.stdout);
+      assert.equal(out.hookSpecificOutput.additionalContext, line);
+      assert.equal(out.hookSpecificOutput.permissionDecision, undefined);
+    }
+    const strict: any = run(dir, harness, 'PreToolUse', policy, {}, [], { DOFLOW_AGENT: harness, DOFLOW_FAULT_PROFILE: 'strict-1' });
+    if (harness === 'kiro') assert.equal(strict.status, 2);
+    else assert.equal(JSON.parse(strict.stdout).hookSpecificOutput.permissionDecision, 'deny');
   });
 });
 

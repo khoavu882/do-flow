@@ -17,15 +17,16 @@
   "fault": "none",
   "expect": {
     "exit": 0,
-    "stdout": "<deny-json>",
+    "stdout": "{\"decision\":\"allow\"}\n",
     "stderrIncludes": null,
-    "modelVisibleBytesMax": 323,
+    "modelVisibleBytesMax": 21,
     "decision": {
       "harness": "antigravity",
       "event": "PreToolUse",
       "policy": "pre-implementation-gate",
-      "outcome": "deny",
-      "effect": "block"
+      "outcome": "advisory",
+      "code": "missing-artifacts",
+      "effect": "proceed"
     },
     "envelope": {
       "version": 1,

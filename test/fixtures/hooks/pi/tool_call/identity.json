@@ -1,14 +1,16 @@
 {
   "native": {
     "type": "tool_call",
-    "toolName": "bash",
-    "toolCallId": "bash-identity",
+    "toolName": "edit",
+    "toolCallId": "edit-identity",
     "input": {
-      "command": "printf ok"
+      "path": "src/a.js",
+      "oldText": "a",
+      "newText": "b"
     }
   },
-  "policy": "pre-bash-guard",
-  "state": "none",
+  "policy": "pre-implementation-gate",
+  "state": "all-artifacts",
   "env": {
     "DOFLOW_FAULT_PROFILE": "compat-1",
     "DOFLOW_TASK_ID": "078-pi-identity",
@@ -33,9 +35,11 @@
       "version": 1,
       "harness": "pi",
       "event": "tool_call",
-      "operation": "command",
-      "tool": "bash",
-      "command": "printf ok",
+      "operation": "edit",
+      "tool": "edit",
+      "paths": [
+        "src/a.js"
+      ],
       "taskId": "078-pi-identity",
       "identity": {
         "run": "run-pi-1",
@@ -45,7 +49,7 @@
         "worktree": "/tmp/doflow-worktree-pi"
       },
       "correlation": {
-        "toolCallId": "bash-identity"
+        "toolCallId": "edit-identity"
       }
     }
   }

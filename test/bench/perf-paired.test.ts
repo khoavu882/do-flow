@@ -263,16 +263,3 @@ test('runSurfaceProcess applies the env overlay: a string sets, null removes, ab
     else process.env[key] = saved;
   }
 });
-
-test('hook.antigravity.pre-bash-guard is a surface over the stream runner with a shell-command fixture, and it runs', () => {
-  const { surfaces } = runner.enumerateHookSurfaces({ repoRoot: REPO_ROOT, isToolInstalledFn: () => true });
-  const surface = surfaces.find((s: any) => s.id === 'hook.antigravity.pre-bash-guard');
-  assert.ok(surface, 'surface enumerated');
-  assert.deepEqual(surface.argv.slice(-2), [path.join('core', 'harnesses', 'shared', 'hooks', 'stream-hook-runner.js'), 'PreToolUse']);
-  assert.equal(surface.stdinFixture, path.join('test', 'fixtures', 'hooks', 'antigravity', 'pre-bash-guard', 'perf.json'));
-  assert.equal(surface.stdinField, 'native');
-  const native = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, surface.stdinFixture), 'utf8')).native;
-  assert.equal(native.toolCall.name, 'run_command');
-  assert.equal(typeof native.toolCall.args.CommandLine, 'string');
-  assert.equal(typeof runner.runSurfaceProcess(surface, REPO_ROOT), 'number');
-});

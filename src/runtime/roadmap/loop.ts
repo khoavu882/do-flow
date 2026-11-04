@@ -15,6 +15,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { execFileSync: defaultExecFileSync } = require('node:child_process');
 const { listCheckouts } = require('../checkouts.ts');
+const { readRegularFileText } = require('../task-scope.ts');
 const { withGitMemo } = require('../git-memo.ts');
 const {
   parseSeed,
@@ -23,6 +24,7 @@ const {
   render,
   renderRoadmapFile,
   check,
+  LOOP_CLASSES,
 } = require('./rows.ts');
 const { gatherGitFacts, sha256Digest } = require('./facts.ts');
 const { loadPolicy, verifyRecordReasons } = require('./gates.ts');
@@ -68,7 +70,35 @@ function usageError(message: string, json: boolean = false): number {
 }
 
 /**
- * Dispatches roadmap CLI actions: render [--check], status, next and audit. `next` resolves to a
+ * `init-policy`: copies the installed DoFlow's gates.json to `<project>/core/registry/gates.json` for a
+ * person to review and commit on develop. It refuses an existing file and runs no command; the loop
+ * still reads the policy only from develop's committed head, never from this copy.
+ */
+function initPolicyCommand(options: RoadmapCommandOptions): number {
+  const { json = false, fsImpl = fs } = options;
+  const root = options.root || resolveMainRoot(options.cwd || process.cwd());
+  const rel = 'core/registry/gates.json';
+  const target = path.join(root, rel);
+  const fail = (message: string): number => {
+    if (json) console.log(JSON.stringify({ schema: 1, action: 'init-policy', error: 'not-written', detail: message }));
+    else console.error(`doflow roadmap: ${message}`);
+    process.exitCode = 1;
+    return 1;
+  };
+  const bytes = fsImpl.readFileSync(path.join(options.repoRoot, rel));
+  try {
+    fsImpl.mkdirSync(path.dirname(target), { recursive: true });
+    fsImpl.writeFileSync(target, bytes, { flag: 'wx' });
+  } catch (error: any) {
+    return fail(error.code === 'EEXIST' ? `${target} already exists; it was not overwritten` : `cannot write ${target}: ${error.message}`);
+  }
+  if (json) console.log(JSON.stringify({ schema: 1, action: 'init-policy', written: rel, root }));
+  else console.log(`wrote ${target}\nReview it, then commit this on develop. The loop reads the policy only from develop's committed head.`);
+  return 0;
+}
+
+/**
+ * Dispatches roadmap CLI actions: render [--check], status, next, audit and init-policy. `next` resolves to a
  * promise of the exit code (the merge step awaits its fast-forward child).
  */
 function handleRoadmapCommand(options: RoadmapCommandOptions = {}): any {
@@ -81,10 +111,13 @@ function handleRoadmapCommand(options: RoadmapCommandOptions = {}): any {
     fsImpl = fs,
   } = options;
 
+  // `init-policy --commit` is a person-run command that lives outside this tree (src/runtime/policy-init.ts); the loop never commits.
+  if (options.commit) return usageError('--commit belongs to --action init-policy', json);
   if (action === 'next') return nextCommand(options);
   if (action === 'audit') return auditCommand(options);
+  if (action === 'init-policy') return initPolicyCommand(options);
   if (!action || (action !== 'render' && action !== 'status')) {
-    return usageError("--action must be 'render', 'status', 'next' or 'audit'", json);
+    return usageError("--action must be 'render', 'status', 'next', 'audit' or 'init-policy'", json);
   }
 
   const root = options.root || resolveMainRoot(cwd);
@@ -345,6 +378,8 @@ const PLAN_FILES = ['plan.md', 'planning/plan.md'];
 const DISPATCH_ACTOR = 'doflow-dispatch';
 /** The actor this loop names in the dispatch commands it yields. */
 const LOOP_ACTOR = 'doflow-roadmap';
+/** The envelope's attendance field: the literal the stage skill reads. attendance.ts (P3) owns the verb and the rule. */
+const attendanceOf = (runId: string): { mode: 'unattended'; run: string } => ({ mode: 'unattended', run: runId });
 const QUOTA = /^quota\b/i;
 /** Stage artifacts, two layouts each (the decision-register.ts artifact list). */
 const DOC_ARTIFACTS: Record<string, string[]> = {
@@ -627,11 +662,17 @@ const tripwireFile = (ctx: any): string => path.join(ctx.dir, 'tripwire', 'event
 function readTripwire(ctx: any): any {
   const file = tripwireFile(ctx);
   try {
-    const value = JSON.parse(ctx.fsImpl.readFileSync(file, 'utf8'));
+    try { ctx.fsImpl.lstatSync(file); } catch (error: any) {
+      if (error.code === 'ENOENT') return { schema: 1, reverts: [], unverified: [] };
+      throw error;
+    }
+    // A bounded read: a link, a FIFO or a file over the record cap is never opened as the record.
+    const text = readRegularFileText(file, ctx.fsImpl);
+    if (text === null) throw new Error('not a regular file within the record size cap');
+    const value = JSON.parse(text);
     if (!value || value.schema !== 1 || !Array.isArray(value.reverts) || !Array.isArray(value.unverified)) throw new Error('not a schema 1 tripwire record');
     return value;
   } catch (error: any) {
-    if (error.code === 'ENOENT') return { schema: 1, reverts: [], unverified: [] };
     throw new Unreadable(['tripwire'], error.message);
   }
 }
@@ -649,21 +690,37 @@ function runRecordFileOf(checkout: string, row: any): string {
   return verificationRunRecordFile(verificationRunsRoot(checkout), row.slug);
 }
 
-/** IC-008: the bytes a stage must change. The implementation artifact is the feature branch head. */
-function stageArtifact(ctx: any, row: any, worktree: string, stage: string): { artifact: string; sha256: string | null } {
-  if (stage === 'implementation') {
+/** Stage kinds with no file of their own: performed = a new, non-backfilled handoff of the stage (AU-P1). */
+const HANDOFF_ONLY_KINDS = ['reproduction', 'analysis', 'retrieval'];
+
+/** The stage kind of a program node, else the stage id (the feature chain's ids are its kinds). */
+const kindOf = (run: any, stage: string): string => (run?.program || []).find((n: any) => n?.type === 'stage' && n.id === stage)?.kind ?? stage;
+
+/**
+ * IC-008: the bytes a stage must change, keyed by the stage's KIND so a class's own stage ids
+ * (regression-verification, authoring, ...) resolve. implementation and synthesis: the feature
+ * branch head; verification: the verify run record; reproduction, analysis, retrieval: no file,
+ * the count of the stage's handoffs; the rest: the stage's document.
+ */
+function stageArtifact(ctx: any, row: any, worktree: string, stage: string, kind: string = stage, run: any = null): { artifact: string; sha256: string | null } {
+  if (kind === 'implementation' || kind === 'synthesis') {
     const { featureHead } = readHeads(ctx, row);
     return { artifact: `refs/heads/feat/${row.slug}`, sha256: sha256Digest(featureHead) };
   }
-  if (stage === 'verification') {
+  if (HANDOFF_ONLY_KINDS.includes(kind)) {
+    const handoffs = (run?.history || []).filter((entry: any) => entry && entry.node === stage
+      && ((entry.action === 'complete-stage' && !entry.backfilled) || entry.action === 'annotate')).length;
+    return { artifact: `handoff:${stage}`, sha256: sha256Digest(String(handoffs)) };
+  }
+  if (kind === 'verification') {
     // Where `verify --action report` appends (IC-007): the lifecycle root, not the feature checkout.
     const file = runRecordFileOf(worktree, row);
     try { return { artifact: file, sha256: sha256Digest(ctx.fsImpl.readFileSync(file)) }; }
     catch (error: any) { if (error.code === 'ENOENT') return { artifact: file, sha256: null }; throw new Unreadable([`artifact:${file}`], error.message); }
   }
   const base = artifactRootOf(ctx, row, worktree);
-  const candidates = DOC_ARTIFACTS[stage];
-  if (!candidates) throw new Unreadable([`stage:${stage}`], `no artifact is declared for stage '${stage}'`);
+  const candidates = DOC_ARTIFACTS[kind];
+  if (!candidates) throw new Unreadable([`stage:${stage}`], `no artifact is declared for stage '${stage}' (kind '${kind}')`);
   for (const rel of candidates) {
     try { return { artifact: rel, sha256: sha256Digest(ctx.fsImpl.readFileSync(path.join(base, rel))) }; }
     catch (error: any) { if (error.code !== 'ENOENT') throw new Unreadable([`artifact:${path.join(base, rel)}`], error.message); }
@@ -695,33 +752,47 @@ function verifyArgvOf(ctx: any, row: any, worktree: string): string[] | null {
   return typeof script === 'string' && script.trim() ? ['npm', 'test'] : null;
 }
 
+/**
+ * `verify --scope`: the change-scope tier is required at every risk level and resolves from a plan or
+ * a declared scope. Four loop classes declare theirs in the readiness record (verify refuses a flag
+ * that differs from it); documentation has no readiness stage and no plan, so the row's own write set
+ * is its declared scope.
+ */
+const scopeFlagsOf = (row: any): string[] => (row.class === 'documentation' && Array.isArray(row.writeSet) && row.writeSet.length
+  ? ['--scope', row.writeSet.join(',')] : []);
+
 /** IC-008 envelope. Argv arrays only: the session runs them, nothing here is a shell string. */
-function envelopeFor(ctx: any, row: any, worktree: string, stage: string, skill: string, before: any, verifyCommand: string[] | null = null): any {
+function envelopeFor(ctx: any, row: any, worktree: string, stage: string, skill: string, before: any, verifyCommand: string[] | null = null,
+  kind: string = stage, dispatches: boolean = stage === 'implementation'): any {
   const handoff = ['orchestrate', '--action', 'handoff', '--task-id', row.slug, '--calling-skill', skill, '--note', '<text>'];
   const base = { outcome: 'perform', runId: ctx.record.runId, row: row.id, slug: row.slug, stage, skill, worktree,
-    artifactRoot: artifactRootOf(ctx, row, worktree), before, issuedAt: ctx.now().toISOString() };
+    artifactRoot: artifactRootOf(ctx, row, worktree), before, issuedAt: ctx.now().toISOString(), attendance: attendanceOf(ctx.record.runId) };
   const next = ['roadmap', '--action', 'next', '--run', ctx.record.runId];
-  if (stage === 'verification') {
-    return { ...base, after: [['verify', '--action', 'report', '--task-id', row.slug, '--baseline-ref', mergeBaseOf(ctx, row)], handoff], next };
+  if (kind === 'verification') {
+    return { ...base, after: [['verify', '--action', 'report', '--task-id', row.slug, '--baseline-ref', mergeBaseOf(ctx, row), ...scopeFlagsOf(row)], handoff], next,
+      afterNote: 'verify exits non-zero for a FAIL or INCONCLUSIVE result and still records it: run the handoff next whatever it exits' };
   }
-  if (stage !== 'implementation') return { ...base, after: handoff, next };
+  // Only the feature chain dispatches workers (plan tasks); the other classes' implementation is a plain stage.
+  // Nothing but the session commits its edits here, and a stage whose branch head did not move is not performed.
+  if (!dispatches) return { ...base, ...(kind === 'implementation' || kind === 'synthesis' ? { commit: { branch: `feat/${row.slug}` } } : {}), after: handoff, next };
   return { ...base, after: [
-    ['dispatch', '--action', 'start', '--slug', row.slug, '--by', LOOP_ACTOR, '--billing-cap', 'free', ...(verifyCommand ? ['--verify-argv', JSON.stringify(verifyCommand)] : [])],
+    ['dispatch', '--action', 'start', '--slug', row.slug, '--by', LOOP_ACTOR, '--billing-cap', 'free', '--fallback', 'auto', ...(verifyCommand ? ['--verify-argv', JSON.stringify(verifyCommand)] : [])],
     ['dispatch', '--action', 'run', '--slug', row.slug, '--by', LOOP_ACTOR],
     handoff,
   ], next };
 }
 
 /** IC-008: performed = the artifact exists, its bytes changed, and the stage's own handoff is newer. */
-function performedCheck(ctx: any, row: any, worktree: string, run: any, perform: any): { ok: boolean; current: any } {
-  const current = stageArtifact(ctx, row, worktree, perform.stage);
+function performedCheck(ctx: any, row: any, worktree: string, run: any, perform: any): { ok: boolean; current: any; handedOff?: boolean } {
+  const current = stageArtifact(ctx, row, worktree, perform.stage, kindOf(run, perform.stage), run);
   if (current.sha256 === null) return { ok: false, current };
 
   // FU-rcshhx: allow adopting rows whose design/plan artifacts were already completed and recorded
-  // in the orchestration run history, even if current.sha256 === perform.before?.sha256.
+  // in the orchestration run history, even if current.sha256 === perform.before?.sha256. A completion that a
+  // later skill's catch-up only backfilled is not such a record (AU-P1).
   const isDesignOrPlan = perform.stage === 'design' || perform.stage === 'planning';
   const alreadyCompleted = isDesignOrPlan && (run.history || []).some((entry: any) =>
-    entry && entry.node === perform.stage && (entry.action === 'complete-stage' || entry.action === 'annotate')
+    entry && entry.node === perform.stage && ((entry.action === 'complete-stage' && !entry.backfilled) || entry.action === 'annotate')
   );
   if (alreadyCompleted) return { ok: true, current };
 
@@ -730,7 +801,7 @@ function performedCheck(ctx: any, row: any, worktree: string, run: any, perform:
   const handedOff = (run.history || []).some((entry: any) => entry && entry.node === perform.stage
     && ((entry.action === 'complete-stage' && !entry.backfilled) || entry.action === 'annotate')
     && Date.parse(entry.at) > issued);
-  return { ok: handedOff, current };
+  return { ok: handedOff, current, handedOff };
 }
 
 function orchestrationFor(ctx: any, row: any, worktree: string): { orch: any; run: any } {
@@ -744,7 +815,9 @@ function orchestrationFor(ctx: any, row: any, worktree: string): { orch: any; ru
   // artifactRootOf finds it (the feature checkout, else the main one).
   const planExitCheck = () => require('../plan-content.ts').planStageExit({ roots: [...new Set([worktree, runRoot, ctx.root])], slug: row.slug });
   const orch = new WorkflowOrchestrator({ repoRoot: ctx.repoRoot, projectRoot: runRoot, sourceRoot: worktree,
-    stateDir: path.join(runRoot, '.doflow', 'state', 'orchestration'), featureSlug: row.slug, fsImpl: ctx.fsImpl, env: ctx.env, cwd: worktree, planExitCheck });
+    stateDir: path.join(runRoot, '.doflow', 'state', 'orchestration'), featureSlug: row.slug, fsImpl: ctx.fsImpl, env: ctx.env, cwd: worktree, planExitCheck,
+    // FR-006, as the orchestrate verb wires it: the ledger is found from any checkout of the row.
+    taskAttemptCheck: () => require('../task-attempts.ts').checkCompletion({ slug: row.slug, cwd: worktree, fsImpl: ctx.fsImpl }) });
   let run: any;
   try { run = orch.readRun(row.slug); } catch (error: any) { throw new Unreadable([source], error.message); }
   if (run && (!Array.isArray(run.program) || !Number.isInteger(run.cursor) || typeof run.state !== 'string' || !Array.isArray(run.history))) {
@@ -950,6 +1023,10 @@ async function mergeStep(ctx: any, row: any, source: { intent?: any; run?: any; 
   const intent = source.intent || null;
   let gate: any = null;
   let approvedHead: string | null = null;
+  // The attendance marker of an earlier post-merge perform is consumed by this call (re-set below when the
+  // verification is still pending), so it never outlives the step it names. It is not a `perform`: the
+  // performed checks and the merge step read only slot.perform and the merge intent.
+  delete slot.postMerge;
   if (intent && slot.held?.kind === 'intent') delete slot.held;
   if (!intent) {
     const entry = [...source.run.history].reverse().find((h: any) => h?.action === 'decide-gate' && h.node === 'gate-b' && h.detail === 'approve');
@@ -973,7 +1050,7 @@ async function mergeStep(ctx: any, row: any, source: { intent?: any; run?: any; 
     const current = loopPolicy(ctx);
     const gateB = current.ok ? current.policy.classes?.[row.class]?.['gate-b'] : null;
     const refusal = !current.ok ? current.reason : !gateB ? 'class-unsupported' : gateB.autopilot === 'never' ? 'policy-never' : null;
-    if (refusal) return heldDeny(ctx, row, 'merge-policy', refusal, sha256Digest(JSON.stringify([refusal, current.digest ?? null])));
+    if (refusal) return heldDeny(ctx, row, 'merge-policy', refusal, sha256Digest(JSON.stringify([refusal, current.digest ?? null])), { annotations: current.annotations });
     if (slot.held?.kind === 'merge-policy') delete slot.held;
   }
   if (intent && intent.phase === 'ff-done' && intent.verifiedHead !== intent.commit && !intent.status) {
@@ -989,8 +1066,11 @@ async function mergeStep(ctx: any, row: any, source: { intent?: any; run?: any; 
       const before = { artifact: runRecordFileOf(intent.developWorktree, row), sha256: null };
       const perform = { outcome: 'perform', runId: ctx.record.runId, row: row.id, slug: row.slug, stage: 'verification', skill: 'do-test',
         purpose: 'post-merge', worktree: intent.developWorktree, artifactRoot: null, head: intent.commit, before, issuedAt: ctx.now().toISOString(),
-        after: ['verify', '--action', 'report', '--task-id', row.slug, '--baseline-ref', intent.developHead, ...postMergePlan(ctx, row, intent)],
+        attendance: attendanceOf(ctx.record.runId),
+        after: ['verify', '--action', 'report', '--task-id', row.slug, '--baseline-ref', intent.developHead, ...postMergePlan(ctx, row, intent), ...scopeFlagsOf(row)],
         next: ['roadmap', '--action', 'next', '--run', ctx.record.runId] };
+      // AU-P10: the one fact attendance.ts reads to answer `unattended` for this stage (the envelope above says so too).
+      slot.postMerge = { stage: 'verification', purpose: 'post-merge', head: intent.commit, issuedAt: perform.issuedAt };
       return finish(ctx, { outcome: 'perform', row: row.id, slug: row.slug, perform });
     }
   }
@@ -1050,8 +1130,8 @@ async function mergeStep(ctx: any, row: any, source: { intent?: any; run?: any; 
   } else delete slot.held;
   // Decision C12: the S8 tail is one cleanup step; `rendered` says whether this call wrote the table.
   const rendered = result.fileWrites > 0;
-  return finish(ctx, { ...base, outcome: 'acted', step: 'cleanup', annotations: { commit: result.commit, cleanup: result.cleanup, rendered },
-    audit: `cleanup ${row.slug} ${result.commit} (${result.cleanup}${rendered ? ', table rendered' : ''})` });
+  return finish(ctx, { ...base, outcome: 'acted', step: 'cleanup', annotations: { commit: result.commit, cleanup: result.cleanup, rendered, artifacts: result.artifacts },
+    audit: `cleanup ${row.slug} ${result.commit} (${result.cleanup}${rendered ? ', table rendered' : ''})${keptReason(result.artifacts)}` });
 }
 
 async function gateStep(ctx: any, row: any, orch: any, gateId: string, worktree: string): Promise<any> {
@@ -1084,19 +1164,20 @@ async function gateStep(ctx: any, row: any, orch: any, gateId: string, worktree:
     audit: `${gateId} ${row.slug} denied by policy: ${result.reasons.join(', ')}${result.rule ? ` (rule ${result.rule})` : ''}` });
 }
 
-function performStep(ctx: any, row: any, worktree: string, node: any): any {
+function performStep(ctx: any, row: any, worktree: string, node: any, run: any): any {
   const slot = (ctx.record.rows[row.id] ||= {});
-  if (node.id === 'review') {
+  const kind = node.kind ?? node.id;
+  if (kind === 'review') {
     // IC-007: gate-b's own verify rule, applied before the review envelope is spent. No question, no prompt.
     const head = readHeads(ctx, row).featureHead;
     const reasons = postMergeReasons(row, worktree, head, ctx.fsImpl);
     if (reasons.length) {
       return heldDeny(ctx, row, 'review', reasons[0],
-        sha256Digest(JSON.stringify({ reasons, head, record: stageArtifact(ctx, row, worktree, 'verification').sha256 })), { step: 'review', reasons });
+        sha256Digest(JSON.stringify({ reasons, head, record: stageArtifact(ctx, row, worktree, 'verification', 'verification').sha256 })), { step: 'review', reasons });
     }
     if (slot.held?.kind === 'review') delete slot.held;
   }
-  slot.perform = envelopeFor(ctx, row, worktree, node.id, node.skill, stageArtifact(ctx, row, worktree, node.id));
+  slot.perform = envelopeFor(ctx, row, worktree, node.id, node.skill, stageArtifact(ctx, row, worktree, node.id, kind, run), null, kind, false);
   return finish(ctx, { outcome: 'perform', row: row.id, slug: row.slug, perform: slot.perform });
 }
 
@@ -1207,7 +1288,7 @@ function implementationStep(ctx: any, row: any, worktree: string): any {
         slot.perform = envelopeFor(ctx, row, worktree, 'implementation', 'do-execute-plan',
           { artifact: `refs/heads/feat/${row.slug}`, sha256: slot.claimHead ? sha256Digest(slot.claimHead) : null }, verifyCommand);
       }
-      return finish(ctx, { ...base, outcome: 'denied', reason: 'stage-not-performed', rule: 'perform/implementation', perform: slot.perform });
+      return hold('stage-not-performed', { outcome: 'denied', reason: 'stage-not-performed', rule: 'perform/implementation', perform: slot.perform });
     }
     case 'blocked':
       return hold('stuck', { outcome: 'blocked', reason: 'stuck', rule: facts.repeated ? 'dispatch/repeated' : 'dispatch/blocked', annotations: { dispatch: 'blocked', cause: facts.cause } });
@@ -1221,10 +1302,32 @@ function implementationStep(ctx: any, row: any, worktree: string): any {
   }
 }
 
+/**
+ * A feature run gets its decision register from do-brainstorm, which creates the folder. The other
+ * classes have no such stage, and gate-b's policy approval is recorded in that register, so the loop
+ * creates it once, before any artifact lands in the folder. A folder that already holds artifacts and
+ * no register is left alone (initRegister's `predates-register`): the gate then names it unreadable.
+ */
+function ensureRegister(ctx: any, row: any, worktree: string): any {
+  const { initRegister } = require('../decision-register.ts');
+  const featureDir = path.join(worktree, 'agent-docs', 'doflow', row.slug);
+  if (ctx.fsImpl.existsSync(path.join(featureDir, 'decisions', 'register.json'))) {
+    if (ctx.record.rows[row.id]?.held?.kind === 'register') delete ctx.record.rows[row.id].held;
+    return null;
+  }
+  const stop = boundary(ctx, row);
+  if (stop) return stop;
+  const made = initRegister({ featureDir, slug: row.slug, fsImpl: ctx.fsImpl });
+  if (!made.finding) return null;
+  // The folder predates a register: gate-b could not record its approval. Denied once, then held by digest.
+  return heldDeny(ctx, row, 'register', 'facts-unreadable', sha256Digest(JSON.stringify([made.finding, made.message])),
+    { step: 'pick', rule: 'loop/facts', annotations: { unreadable: ['decision-register'], finding: made.finding } });
+}
+
 /** One in-flight row: pending perform check, then its orchestration state. Returns a result or a skip. */
 async function stepRow(ctx: any, row: any, worktrees: Map<string, string>): Promise<any> {
   const slot = (ctx.record.rows[row.id] ||= {});
-  if (row.class !== 'feature') return { skip: 'class-unsupported' };
+  if (!LOOP_CLASSES.includes(row.class)) return { skip: 'class-unsupported' };
   // A seed hold (decision C8) also stops autopilot from advancing a row already in flight.
   if (row.hold) return { skip: 'row-held' };
   // maint-thin: so does a proposed row (a branch a person started by hand); a person promotes it first.
@@ -1237,13 +1340,19 @@ async function stepRow(ctx: any, row: any, worktrees: Map<string, string>): Prom
     // A claim interrupted after `worktree add`: finish it.
     const stop = boundary(ctx, row);
     if (stop) return stop;
-    orch.start({ taskId: row.slug, taskClass: 'feature', now: ctx.now() });
+    orch.start({ taskId: row.slug, taskClass: row.class, now: ctx.now(), loopProgram: true });
     return finish(ctx, { outcome: 'acted', step: 'pick', row: row.id, slug: row.slug, annotations: { worktree }, audit: `pick ${row.slug}: run started in ${worktree}` });
   }
+  if (row.class !== 'feature') {
+    const refused = ensureRegister(ctx, row, worktree);
+    if (refused) return refused;
+  }
   const node = run.cursor < run.program.length ? run.program[run.cursor] : null;
-  const atImplementation = run.state === 'RUNNING' && node?.type === 'stage' && node.id === 'implementation';
+  // Only the feature chain dispatches workers at implementation; any other class's implementation is a plain stage.
+  const dispatches = row.class === 'feature';
+  const atImplementation = dispatches && run.state === 'RUNNING' && node?.type === 'stage' && node.id === 'implementation';
   if (slot.perform && !(atImplementation && slot.perform.stage === 'implementation')) {
-    if (slot.perform.stage === 'implementation') {
+    if (dispatches && slot.perform.stage === 'implementation') {
       // The session handed off right after `dispatch run`: land the dispatch before checking the head.
       const landing = landDispatch(ctx, row, worktree, dispatchFactsOf(ctx, row));
       if (landing) return landing;
@@ -1258,19 +1367,35 @@ async function stepRow(ctx: any, row: any, worktrees: Map<string, string>): Prom
       }
     }
     if (!checked.ok) {
+      // K59: a stage that never hands off is denied once per input state, then held by digest, so it
+      // neither spends a step per call nor keeps other rows from advancing. A changed artifact or a
+      // new handoff changes the digest and the stage is judged again.
+      const digest = sha256Digest(JSON.stringify({ stage: slot.perform.stage, sha256: checked.current.sha256, handedOff: Boolean(checked.handedOff) }));
+      if (slot.held?.kind === 'stage' && slot.held.inputsDigest === digest) return { skip: `held:${slot.held.reason}` };
+      slot.held = { kind: 'stage', reason: 'stage-not-performed', inputsDigest: digest };
+      // A handoff-only stage whose only handoff was a catch-up backfill (another skill's handoff walked past it) can never
+      // change its digest on its own: only an annotate of the stage, which counts as a handoff, releases the hold.
+      const backfilled = (run.history || []).some((entry: any) => entry && entry.node === slot.perform.stage && entry.backfilled === true);
+      const release = HANDOFF_ONLY_KINDS.includes(kindOf(run, slot.perform.stage))
+        ? { release: ['orchestrate', '--action', 'annotate', '--task-id', row.slug, '--node', slot.perform.stage, '--note', '<what was done>'], backfilled }
+        : undefined;
       return finish(ctx, { outcome: 'denied', reason: 'stage-not-performed', row: row.id, slug: row.slug, rule: `perform/${slot.perform.stage}`,
-        evidence: [{ locator: checked.current.artifact, sha256: checked.current.sha256 }], perform: slot.perform });
+        evidence: [{ locator: checked.current.artifact, sha256: checked.current.sha256 }], annotations: release, perform: slot.perform });
     }
+    if (slot.held?.kind === 'stage' || slot.held?.kind === 'dispatch') delete slot.held;
     delete slot.perform;
   }
   if (run.state === 'REJECTED') return { skip: 'run-rejected' };
   if (run.state === 'AWAITING_GATE' && node?.type === 'gate') return gateStep(ctx, row, orch, node.id, worktree);
   if (run.state === 'COMPLETED') return mergeStep(ctx, row, { run, worktree });
   if (run.state === 'RUNNING' && node?.type === 'stage') {
-    return node.id === 'implementation' ? implementationStep(ctx, row, worktree) : performStep(ctx, row, worktree, node);
+    return dispatches && node.id === 'implementation' ? implementationStep(ctx, row, worktree) : performStep(ctx, row, worktree, node, run);
   }
   throw new Unreadable([`orchestration:${row.slug}`], `run state '${run.state}' has no actionable node`);
 }
+
+/** The audit line names why a cleanup was kept (artifact conflicts), not only `--json`. */
+const keptReason = (artifacts: any): string => (artifacts?.conflicts?.length ? `: ${artifacts.failure}` : '');
 
 /** Render if stale (at most one write), then merge.ts's non-force cleanup; a kept row is held. */
 function finishMergedRow(ctx: any, row: any, rows: any[], statuses: any, worktree: string | null, worktrees: Map<string, string>): any {
@@ -1286,16 +1411,18 @@ function finishMergedRow(ctx: any, row: any, rows: any[], statuses: any, worktre
   // C10: the switch (and the lease) is read again after the render, right before the cleanup.
   const stopCleanup = boundary(ctx, row);
   if (stopCleanup) return stopCleanup;
-  const cleaned = cleanupFeature({ intent: { featureWorktree: worktree, featureBranch: `feat/${row.slug}`, featureHead },
+  const artifacts: any = {};
+  const cleaned = cleanupFeature({ intent: { featureWorktree: worktree, featureBranch: `feat/${row.slug}`, featureHead }, report: artifacts,
     root: ctx.root, develop, execFileSync: ctx.execFileSync, execOptions: ctx.gitOptions, fsImpl: ctx.fsImpl });
   slot.done = true;
+  delete slot.postMerge; // a row merged without an open intent has no post-merge verification left to mark
   if (!cleaned) {
     if (slot.held?.kind === 'cleanup' && !written) return { skip: 'cleanup-kept' };
     slot.held = { kind: 'cleanup', reason: 'cleanup-kept' };
   } else delete slot.held;
   const cleanup = cleaned ? 'cleaned' : 'cleanup-kept';
-  return finish(ctx, { outcome: 'acted', step: 'cleanup', row: row.id, slug: row.slug, annotations: { cleanup, rendered: written },
-    audit: `cleanup ${row.slug} merged without an intent: ${cleanup}${written ? ', table rendered' : ''}` });
+  return finish(ctx, { outcome: 'acted', step: 'cleanup', row: row.id, slug: row.slug, annotations: { cleanup, rendered: written, artifacts },
+    audit: `cleanup ${row.slug} merged without an intent: ${cleanup}${written ? ', table rendered' : ''}${keptReason(artifacts)}` });
 }
 
 /** The seed layout, kept a sibling of the main checkout: seed text never chooses an arbitrary path. */
@@ -1319,7 +1446,7 @@ async function claimStep(ctx: any, row: any, seed: any, developHead: string): Pr
   const stopStart = boundary(ctx, row);
   if (stopStart) return stopStart;
   const { orch } = orchestrationFor(ctx, row, worktree);
-  orch.start({ taskId: row.slug, taskClass: 'feature', now: ctx.now() });
+  orch.start({ taskId: row.slug, taskClass: row.class, now: ctx.now(), loopProgram: true });
   return finish(ctx, { outcome: 'acted', step: 'pick', row: row.id, slug: row.slug, annotations: { worktree, developHead },
     audit: `pick ${row.slug} at ${developHead} into ${worktree}` });
 }
@@ -1331,7 +1458,7 @@ async function underLease(ctx: any, options: any): Promise<any> {
   ctx.fresh = loaded.fresh;
 
   const policy = loopPolicy(ctx);
-  if (!policy.ok) return finish(ctx, { outcome: 'denied', reason: policy.reason, reasons: policy.reasons, rule: 'loop/policy' });
+  if (!policy.ok) return finish(ctx, { outcome: 'denied', reason: policy.reason, reasons: policy.reasons, rule: 'loop/policy', annotations: policy.annotations });
   ctx.policy = policy.policy;
   const record = ctx.record;
   record.maxSteps = policy.policy.loop.maxSteps;
@@ -1535,6 +1662,7 @@ async function nextCommand(options: any): Promise<number> {
   if (json) console.log(JSON.stringify(r));
   else {
     console.log(`roadmap next: ${r.outcome}${r.step ? ` ${r.step}` : ''}${r.row ? ` row ${r.row}` : ''}${r.reason ? `: ${r.reasons.join(', ')}` : ''}${r.annotations?.switch ? ` (switch: ${r.annotations.switch})` : ''}${r.runId ? ` [${r.runId} #${r.n}]` : ''}`);
+    if (r.annotations?.hint) console.log(`  ${r.annotations.hint}`);
     if (r.perform) console.log(JSON.stringify(r.perform));
     if (r.skips) for (const [id, reason] of Object.entries(r.skips)) console.log(`  ${id.padEnd(6)} ${reason}`);
   }
@@ -1597,4 +1725,6 @@ module.exports = {
   // The lease primitive, exported for its interleaving test (C8).
   acquireLease,
   releaseLease, resolveMainRoot, noPsAlive,
+  // The orchestrator the loop builds for a row, exported for its wiring test (FU-e4yr45).
+  orchestrationFor,
 };

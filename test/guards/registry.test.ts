@@ -3,7 +3,7 @@
 // G5 — registry truth. The only guard that reads src/ and core/harnesses/ as data. It answers a
 // question no other test asks: does the registry describe the code that actually exists? A
 // capability declared `unavailable` while its deployer ships is not a stale comment — it is
-// published as fact in the generated capability map.
+// published as fact in the registry's capability data.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -66,10 +66,10 @@ test('G5: a capability marked unavailable has no deployer contradicting it', () 
     }
   }
   assert.deepEqual(offenders, [],
-    `declared unavailable while a deployer ships — the capability map publishes this as fact:\n  ${offenders.join('\n  ')}`);
+    `declared unavailable while a deployer ships — the registry publishes this as fact:\n  ${offenders.join('\n  ')}`);
 });
 
-// The one capability where "supported but we ship nothing" is NOT legitimate: the capability map
+// The one capability where "supported but we ship nothing" is NOT legitimate: the registry's capability data
 // shows `Supported` for Settings as DoFlow merging keys into the harness's settings file. So every
 // harness declared `settings: supported` must PLAN a write to its settings native target. The plan
 // is the real one: registryLifecycleView runs the registered adapters in-process against a scratch
@@ -104,7 +104,7 @@ test('G5: a harness declaring settings supported plans a write to its settings f
   }
   assert.ok(checked > 0, 'no harness declares settings supported: the check ran on nothing');
   assert.deepEqual(offenders, [],
-    `declared settings supported but the adapter plans no settings write — the capability map publishes this as fact:\n  ${offenders.join('\n  ')}`);
+    `declared settings supported but the adapter plans no settings write — the registry publishes this as fact:\n  ${offenders.join('\n  ')}`);
 });
 
 test('G5 negative control: a plan with the settings step filtered out, or a harness with no settings target, plans no settings write', (t: any) => {

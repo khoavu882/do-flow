@@ -7,9 +7,9 @@
   "state": "none",
   "fault": "stop-exit-7",
   "expect": {
-    "exit": 7,
+    "exit": 0,
     "stdout": "",
-    "stderrIncludes": "[stop-check] DoFlow policy error; details: doflow-run failure list\n",
+    "stderrIncludes": null,
     "decision": {
       "outcome": "error",
       "code": "exit-7",
@@ -26,6 +26,6 @@
     },
     "failurePoint": "eval-error:exit-7",
     "taskStateUnchanged": true,
-    "modelVisibleBytesMax": 67
+    "modelVisibleBytesMax": 0
   }
 }

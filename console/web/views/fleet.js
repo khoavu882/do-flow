@@ -248,7 +248,7 @@ function countsLine(counts) {
 function createProjectRow(project, now, maxRate) {
   descriptionSeq += 1;
   const id = `pd-${descriptionSeq}`;
-  const li = h('li', { class: 'project-row', dataset: { key: project.projectKey, focusKey: `project:${project.projectKey}` } }, [
+  const li = h('li', { class: 'project-row', dataset: { key: project.projectKey, current: project.current ? 'true' : 'false', focusKey: `project:${project.projectKey}` } }, [
     h('div', { class: 'pr__name' }, [h('a', { class: 'pr__link', href: `#/fleet/${project.projectKey}`, 'aria-describedby': id }, ''), h('span', { class: 'pr__tag' }), h('span', { class: 'pr__co' })]),
     h('div', { class: 'pr__agents' }, [h('span', { class: 'pr__counts' }), h('span', { class: 'pr__seen' })]),
     h('div', { class: 'pr__models' }),
@@ -262,6 +262,7 @@ function createProjectRow(project, now, maxRate) {
 
 /** @param {any} li @param {any} project @param {number} now @param {number} maxRate */
 function patchProjectRow(li, project, now, maxRate) {
+  li.dataset.current = project.current ? 'true' : 'false';
   const part = projectRowParts(project, now, maxRate);
   setText(li.querySelector('.pr__link'), project.label);
   const tag = li.querySelector('.pr__tag');

@@ -37,13 +37,15 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
 
 `feature_slug` `null` with a non-empty `candidate_slugs` is an unresolved choice, not "no active feature": ask one option per entry, re-resolve with `"$DOFLOW" paths --json --slug="<chosen>"`, and use that slug for the rest of this flow. `/do-flow` passing `--slug` already resolves it — no prompt then.
 
+Once per stage, after `feature_slug` resolves, run `"$DOFLOW" attendance --task-id "<feature_slug>"`; `unattended` → `references/WORKFLOW_HANDOFF.md` § Unattended stage.
+
 2. **Propose one task class; the runtime validates it** — name exactly one class id for the work
    being planned. `/do-flow` passes one when it invoked this skill; a user who named one settles it;
    otherwise derive it from `requirement.md` and `design.md`, not from their mere existence.
    ```bash
-   "$DOFLOW" classify --task-class "<proposed>" --calling-skill do-plan --json
+   "$DOFLOW" classify --task-class "<proposed>" --calling-skill do-plan --view brief --json
    ```
-Branch on the returned `outcome` field, not the exit code.
+Branch on `outcome`, not the exit code.
 - **`ACCEPTED`** — the returned `workflow` is this run's plan of record; read `stages`, `gates` and `handoff` off it rather than from memory.
 - **`REJECTED`** — **stop.** Print `message` verbatim (it already names `validClasses` and any `suggestions`), ask the user to choose from `validClasses`, then re-validate. Never substitute `feature`.
   A rejection may be about **you** rather than the class (`reason: caller-not-a-stage`). Then the fix is to propose one of the classes in `fit.hostingClasses`, or to hand the work to the skill this class names for the stage you meant — not to re-propose the same class.
@@ -59,8 +61,8 @@ stages to implementation, and writing them a `plan.md` adds a gate their workflo
 not have.
 
 3. **Precondition (advisory)** — if `has_requirement` or `has_design` is false, warn and offer to
-   run `/do-brainstorm` / `/do-design` first. This gate is **advisory** (skippable), not the hard
-   hook gate.
+   run `/do-brainstorm` / `/do-design` first. This gate is **advisory** (skippable), like the edit
+   hook.
 4. **Read inputs** — compile the recorded prior context first, using the same task id rule step 10
    uses below (the plan task id for anything already scoped to a single `- [ ]` task, otherwise the
    feature slug):
@@ -77,10 +79,10 @@ not have.
    **Also read `specs.md` when step 1's `has_specs` is true** — use that flag, never a filesystem
    check of your own, and read the `specs` path the resolver returned. `/do-design` moves the
    interface and data-model contracts out of `design.md` into `specs.md` §1 as numbered `IC-###`
-   entries, so on a feature that has one, `design.md`'s §4/§5 are a pointer and the contracts this
+   entries, so on a feature that has one, `design.md`'s API / Interface Contracts and Data Model sections are a pointer and the contracts this
    plan must decompose toward live only in `specs.md`. Planning from `design.md` alone on such a
    feature plans against a pointer. When `has_specs` is false (an old-layout feature dir, which never
-   had a `specs.md`), the contracts are still in `design.md` §4/§5 and there is nothing extra to
+   had a `specs.md`), the contracts are still in `design.md` (API / Interface Contracts, Data Model) and there is nothing extra to
    read. Read
    `constitution_base`,
    then read `constitution_local` **only when `has_constitution_local` is true** — use that flag,
@@ -124,7 +126,7 @@ Filling §8's task dependency graph, read the guidance tree's `references/DIAGRA
    SHOULD`) and PASS/FAIL; a base MUST that tier-2 makes SHOULD names that overlay version in its
    row. On a violation, revise the approach first. A MUST marked FAIL or left
    without a row refuses step 11's handoff; a SHOULD FAIL is a note. That refusal is the runtime's,
-   beside the hard hook that covers artifact existence (`references/DOFLOW_CHAIN.md` scopes both).
+   beside the advisory hook on artifact existence (`references/DOFLOW_CHAIN.md` scopes both).
    There is no waiver: revise the plan, or a person amends the constitution with `/do-constitution`.
 7. **Decompose into Tasks (section 8)** — dependency-ordered, `[US#]`-traced to the requirement's
    user stories, owner+files named per task, with checkpoints and completion criteria.
@@ -197,7 +199,8 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
    ```bash
    "$DOFLOW" render-audit --slug="<task id>" --json
    ```
-   Leave any returned approval gate for `/do-flow` or `/do-execute-plan` to present.
+   Leave any returned approval gate for `/do-flow` or `/do-execute-plan` to present (unattended: the loop
+   decides it by policy).
 
 12. **Stop** — report the plan path, Constitution Check result, the task count (`[P]`/sequential),
    and the derived branch name/repo count when the Repo Branch Plan is populated.
@@ -208,7 +211,7 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
 
 ## Embedded feature research
 
-For an external fact gap or explicit request, follow the conditional protocol in `../do-document/references/embedded-research.md` before stage completion.
+For an external fact gap or request, follow the Gap or request protocol in `../do-document/references/embedded-research.md` before stage completion.
 
 ## Boundaries
 **Will:** propose a task class and have the runtime validate it, read requirement + design + specs

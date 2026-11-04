@@ -243,3 +243,15 @@ test('ideation re-open on a stage that is not discovery or design is still refus
   assert.equal(store.blockingGap('feature', 'design'), null);
   assert.equal(opened.id, store.list('feature')[0].id);
 });
+
+test('FU-d88kp0: a FIFO or a link as the run file is refused without blocking or reading it', { skip: process.platform === 'win32' }, t => {
+  const { spawnSync } = require('node:child_process');
+  const { root, store } = fixture(t);
+  const store2 = path.join(root, '.doflow/state/orchestration');
+  const fifo = path.join(store2, 'piped.json');
+  assert.equal(spawnSync('mkfifo', [fifo]).status, 0);
+  assert.throws(() => store.stageFor('piped', 'design'), /not a regular file/);
+  fs.symlinkSync(path.join(store2, 'feature.json'), path.join(store2, 'linked.json'));
+  assert.throws(() => store.stageFor('linked', 'design'), /not a regular file/);
+  assert.equal(store.stageFor('feature', 'design').id, 'design', 'an ordinary run is still read');
+});

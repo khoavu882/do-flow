@@ -150,7 +150,7 @@ async function emitToolCall(handlers: any, event: any, ctx: any) {
 
 test('corpus fixtures cover each routed policy and the no-spawn read', () => {
   const cases = fs.readdirSync(CORPUS).filter((name: any) => name.endsWith('.json')).map((name: any) => name.slice(0, -5));
-  for (const name of ['edit-deny', 'edit-allow', 'write-deny', 'write-allow', 'bash-deny', 'bash-allow', 'nested-mcp-deny', 'read', 'perf-edit', 'perf-bash', 'perf-mcp']) {
+  for (const name of ['edit-deny', 'edit-allow', 'write-deny', 'write-allow', 'nested-mcp-deny', 'read', 'perf-edit', 'perf-mcp']) {
     assert.ok(cases.includes(name), `fixture exists: ${name}`);
     const row = fixture(name);
     assert.ok(row.native && row.expect && Object.hasOwn(row, 'policy'), `${name} is a complete IC-028 row`);
@@ -190,7 +190,7 @@ test('corpus fixtures route through the extension and preserve the serialized ca
 });
 
 test('installed Pi extension drives the real bridge and policies in fixture-selected repo states', async (t) => {
-  const cases: any = ['edit-deny', 'edit-allow', 'write-deny', 'write-allow', 'bash-deny', 'nested-mcp-deny'];
+  const cases: any = ['edit-deny', 'edit-allow', 'write-deny', 'write-allow', 'nested-mcp-deny'];
   for (const name of cases) {
     await t.test(name, async (subtest: any) => {
       const row = fixture(name);
@@ -245,7 +245,7 @@ test('frozen event input, including nested calls, is never changed', async (t) =
 test('simulated Pi dispatch stops at the first block and treats thrown handlers as blocks', async (t) => {
   const handler = await loadExtension(t, bridgeShim(t, { stdout: '{"block":true,"reason":"denied"}' }));
   let laterHandlerCalls = 0;
-  const event: any = { type: 'tool_call', toolName: 'bash', toolCallId: 'dispatch', input: { command: 'true' } };
+  const event: any = { type: 'tool_call', toolName: 'edit', toolCallId: 'dispatch', input: {} };
   assert.deepEqual(await emitToolCall([handler, async () => { laterHandlerCalls += 1; }], event, context(CWD)), {
     block: true,
     reason: 'denied',
@@ -280,30 +280,40 @@ test('spawn errors and timeout proceed and request detached failure capture', as
   const missing = path.join(bridgeDir, 'bridge.sh');
   fs.writeFileSync(missing, 'exit 7\n');
   const handler = await loadExtension(t, missing);
-  assert.equal(await handler({ type: 'tool_call', toolName: 'bash', toolCallId: 'spawn', input: { command: 'true' } }, context(CWD)), undefined);
-  assert.equal(await handler({ type: 'tool_call', toolName: 'bash', toolCallId: 'sync-spawn', input: { command: 'true' } }, context(42)), undefined);
+  assert.equal(await handler({ type: 'tool_call', toolName: 'edit', toolCallId: 'spawn', input: {} }, context(CWD)), undefined);
+  assert.equal(await handler({ type: 'tool_call', toolName: 'edit', toolCallId: 'sync-spawn', input: {} }, context(42)), undefined);
   let captureContents = '';
   for (let attempt = 0; attempt < 100; attempt += 1) {
     if (fs.existsSync(captureLog)) captureContents = fs.readFileSync(captureLog, 'utf8');
-    if (captureContents.endsWith('\n') && captureContents.includes('pre-bash-guard bridge-spawn')) break;
+    if (captureContents.endsWith('\n') && captureContents.includes('pre-implementation-gate bridge-spawn')) break;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   assert.ok(captureContents.endsWith('\n'), 'spawn capture is a complete line');
-  assert.match(captureContents, /pre-bash-guard bridge-spawn/);
+  assert.match(captureContents, /pre-implementation-gate bridge-spawn/);
 
   const slow = bridgeShim(t, { delay: 10, root: bridgeDir });
   const timeoutHandler = await loadExtension(t, slow);
-  assert.equal(await timeoutHandler({ type: 'tool_call', toolName: 'bash', toolCallId: 'timeout', input: { command: 'true' } }, context(CWD)), undefined);
+  assert.equal(await timeoutHandler({ type: 'tool_call', toolName: 'edit', toolCallId: 'timeout', input: {} }, context(CWD)), undefined);
   for (let attempt = 0; attempt < 100 && !fs.readFileSync(captureLog, 'utf8').includes('bridge-timeout'); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
-  assert.match(fs.readFileSync(captureLog, 'utf8'), /pre-bash-guard bridge-timeout/);
+  assert.match(fs.readFileSync(captureLog, 'utf8'), /pre-implementation-gate bridge-timeout/);
 });
 
-test('a missing bridge blocks routed tool calls and captures bridge-missing', async (t) => {
+test('a missing bridge allows routed tool calls under compat-1, blocks them under strict-1, and captures bridge-missing', async (t) => {
   const root = tempDir(t, 'doflow-pi-bridge-missing-');
   const captureLog = captureRecorder(root);
   const missing = path.join(root, 'bridge', 'bridge.sh');
   const handler = await loadExtension(t, missing);
-  assert.deepEqual(await handler({ type: 'tool_call', toolName: 'edit', toolCallId: 'missing', input: {} }, context(CWD)), {
+  const previousProfile = process.env.DOFLOW_FAULT_PROFILE;
+  t.after(() => {
+    if (previousProfile === undefined) delete process.env.DOFLOW_FAULT_PROFILE;
+    else process.env.DOFLOW_FAULT_PROFILE = previousProfile;
+  });
+  delete process.env.DOFLOW_FAULT_PROFILE;
+  assert.equal(await handler({ type: 'tool_call', toolName: 'edit', toolCallId: 'missing', input: {} }, context(CWD)), undefined, 'compat-1 allows');
+  await waitForText(captureLog, 'pre-implementation-gate bridge-missing');
+  fs.writeFileSync(captureLog, '');
+  process.env.DOFLOW_FAULT_PROFILE = 'strict-1';
+  assert.deepEqual(await handler({ type: 'tool_call', toolName: 'edit', toolCallId: 'missing-strict', input: {} }, context(CWD)), {
     block: true,
     reason: '[doflow] shared hooks lack the bridge; run: doflow update -t pi',
   });
@@ -325,10 +335,10 @@ test('output overflow, non-zero exit and malformed bridge answer allow with one 
       fs.mkdirSync(bridgeDir);
       const bridge: any = bridgeShim(subtest, { ...options, root: bridgeDir });
       const handler = await loadExtension(subtest, bridge);
-      const result = await handler({ type: 'tool_call', toolName: 'bash', toolCallId: name, input: { command: 'true' } }, context(CWD));
+      const result = await handler({ type: 'tool_call', toolName: 'edit', toolCallId: name, input: {} }, context(CWD));
       assert.equal(result, undefined, 'compat-1 allows bridge faults');
-      await waitForText(captureLog, `pre-bash-guard ${point}`);
-      assert.deepEqual(fs.readFileSync(captureLog, 'utf8').trim().split('\n'), [`pre-bash-guard ${point}`]);
+      await waitForText(captureLog, `pre-implementation-gate ${point}`);
+      assert.deepEqual(fs.readFileSync(captureLog, 'utf8').trim().split('\n'), [`pre-implementation-gate ${point}`]);
     });
   }
 });
@@ -340,9 +350,9 @@ test('strict-1 blocks a bridge spawn failure with the fixed reason', async (t) =
   const missing = path.join(tempDir(t, 'doflow-pi-strict-'), 'absent.sh');
   fs.writeFileSync(missing, 'exit 7\n');
   const handler = await loadExtension(t, missing);
-  assert.deepEqual(await handler({ type: 'tool_call', toolName: 'bash', toolCallId: 'strict', input: { command: 'true' } }, context(CWD)), {
+  assert.deepEqual(await handler({ type: 'tool_call', toolName: 'edit', toolCallId: 'strict', input: {} }, context(CWD)), {
     block: true,
-    reason: '[pre-bash-guard] DoFlow policy error; details: doflow-run failure list',
+    reason: '[pre-implementation-gate] DoFlow policy error; details: doflow-run failure list',
   });
 });
 
@@ -355,7 +365,7 @@ test('an abort signal kills the active child process', async (t) => {
   const shim = bridgeShim(t, { delay: 10, backgroundPid: pidFile, root: bridgeDir });
   const handler = await loadExtension(t, shim);
   const controller: any = new AbortController();
-  const running = handler({ type: 'tool_call', toolName: 'bash', toolCallId: 'abort', input: { command: 'true' } }, context(CWD, controller.signal));
+  const running = handler({ type: 'tool_call', toolName: 'edit', toolCallId: 'abort', input: {} }, context(CWD, controller.signal));
   let pidContents = '';
   for (let attempt = 0; attempt < 100; attempt += 1) {
     if (fs.existsSync(pidFile)) pidContents = fs.readFileSync(pidFile, 'utf8');

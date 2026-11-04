@@ -171,16 +171,6 @@ test('equal responses give equal digests and a changed response a different one'
   assert.notEqual(a.digest, c.digest, 'a changed response changes the digest');
 });
 
-test('a pre-bash-guard line carries the three emit keys as null', () => {
-  const w = world();
-  const input = `${JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 'pbg-091', tool_name: 'Bash', tool_input: { command: 'printf canary091' } })}\n`;
-  const r = spawnSync(BASH, [path.join(w.root, '.claude/hooks/pre-bash-guard.sh')], { cwd: w.root, input, encoding: 'utf8', env: env(w) });
-  assert.equal(r.status, 0, r.stderr);
-  const [line] = lines(w);
-  assert.deepEqual(emitOf(line), NULLS);
-  assert.ok(Object.hasOwn(JSON.parse(line), 'emit_reason'));
-});
-
 test('a policy record with an invalid value writes all three keys as null, and output is unchanged', () => {
   const planted = [
     '{"v":1,"emit":{"reason":"canary091 please refactor the login flow","bytes":12,"digest":null}}',

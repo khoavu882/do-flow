@@ -7,13 +7,13 @@
   "state": "none",
   "fault": "stop-exit-2",
   "expect": {
-    "exit": 2,
+    "exit": 0,
     "stdout": "",
-    "stderrIncludes": "[stop-check] DoFlow policy error; details: doflow-run failure list\n",
+    "stderrIncludes": null,
     "decision": {
       "outcome": "error",
       "code": "exit-2-unmarked",
-      "effect": "block"
+      "effect": "proceed"
     },
     "envelope": {
       "version": 1,
@@ -26,6 +26,6 @@
     },
     "failurePoint": "eval-error:exit-2-unmarked",
     "taskStateUnchanged": true,
-    "modelVisibleBytesMax": 67
+    "modelVisibleBytesMax": 0
   }
 }

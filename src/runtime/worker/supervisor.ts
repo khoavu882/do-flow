@@ -321,22 +321,33 @@ function boundedWait(promise: Promise<any>, ms: number): Promise<any> {
   return Promise.race([promise, bound]).finally(() => clearTimeout(timer));
 }
 
-/** Reads only the bounded Codex output-last-message prefix; absent or unreadable files are optional. */
-function readLastMessage(parser: any, file: string): void {
-  if (typeof parser.lastMessage !== 'function') return;
+/** What masking did to a retained final message, in the run record beside the stdout and stderr pointers. */
+const ALTERED_WARNING = 'masking altered this final message: it is not suitable for byte-exact patch application; apply the worker\'s changes from its isolated worktree, not from this text';
+
+/**
+ * Reads only the bounded Codex output-last-message prefix; absent or unreadable files are optional.
+ * Returns the pointer the run record keeps (`path` relative to `stateRoot`, the masked `bytes`,
+ * whether masking `altered` the text and, when it did, the `warning`), or null when no file was read.
+ */
+function readLastMessage(parser: any, file: string, stateRoot: string): any {
+  if (typeof parser.lastMessage !== 'function') return null;
   let fd: number | undefined;
   try {
     fd = fs.openSync(file, 'r');
     const bytes = Buffer.alloc(65536);
     const length = fs.readSync(fd, bytes, 0, bytes.length, 0);
-    const masked = maskBody(bytes.subarray(0, length).toString('utf8')).text;
+    const raw = bytes.subarray(0, length).toString('utf8');
+    const masked = maskBody(raw).text;
     parser.lastMessage(masked);
     // NFR-004: the retained copy holds only the masked, bounded text, never the raw worker output.
     fs.closeSync(fd);
     fd = undefined;
-    try { fs.writeFileSync(file, masked, 'utf8'); } catch { fs.rmSync(file, { force: true }); }
+    try { fs.writeFileSync(file, masked, 'utf8'); } catch { fs.rmSync(file, { force: true }); return null; }
+    const altered = masked !== raw;
+    return { path: path.relative(stateRoot, file).split(path.sep).join('/'), bytes: Buffer.byteLength(masked), altered, ...(altered ? { warning: ALTERED_WARNING } : {}) };
   } catch {
     // Codex may not have produced this optional file; that does not change the run outcome.
+    return null;
   } finally {
     if (fd !== undefined) {
       try { fs.closeSync(fd); } catch { /* unreadable/closed files are ignored */ }
@@ -509,7 +520,8 @@ async function superviseRun({
       readOnly = { status: 'unverifiable', changes: [], head: { before: before.head, after: null }, refsChanged: null };
     }
   }
-  if (lastMessageFile) readLastMessage(parser, lastMessageFile);
+  const lastMessage = lastMessageFile ? readLastMessage(parser, lastMessageFile, stateRoot) : null;
+  if (lastMessage) (output as any).lastMessage = lastMessage;
   const report = parser.end();
   // 106 IC-002: a failure whose masked summary holds a declared quota signal is marked quota.
   const quota = quotaOf(report, run.descriptor);

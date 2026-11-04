@@ -107,8 +107,8 @@ not declare is not run here, however familiar it is from the `feature` chain.
      tree's `references/WORKFLOW_HANDOFF.md` (stage `discovery`, channel `question`) so the answers
      are registered and cited; do-brainstorm already recorded discovery's handoff, so record none.
    - **`gate-a`** (after planning) — the conversational checkpoint on top of the already-existing
-     hard hook (`pre-implement-gate.sh`; its scope is in `references/DOFLOW_CHAIN.md`), which remains
-     the real enforcement regardless of what happens here. Options: `Proceed` / `Let me review the artifacts first` / `Stop here`.
+     advisory hook (`pre-implement-gate.sh`; its scope is in `references/DOFLOW_CHAIN.md`), which
+     still reports a missing artifact. Options: `Proceed` / `Let me review the artifacts first` / `Stop here`.
    - **`gate-b`** (after review) — no enforcement hook exists for this today; `/do-git` is a
      separate, always-manually-invoked skill. Frame the question by the review's own approval
      status: on `CHANGES REQUESTED`, foreground addressing the findings rather than offering a bare
@@ -163,8 +163,8 @@ Before a feature stage relies on an external fact that local or user evidence ca
   ambiguous answer.
 - Record each gate answer it collects through `orchestrate --action decide-gate`, so the stage skill
   that owns that gate finds it already resolved instead of asking the user the same question twice.
-- Compose with the existing `pre-implement-gate.sh` hard gate rather than bypass or duplicate it.
-  That hook keys on branch and artifact state, not on class, so it can deny a `bug` or
+- Compose with the existing `pre-implement-gate.sh` advisory hook rather than bypass or duplicate it.
+  That hook keys on branch and artifact state, not on class, so it can advise against a `bug` or
   `trivial-edit` workflow's edits on a branch that already holds an incomplete feature dir —
   surface its message as written.
 

@@ -18,7 +18,7 @@ const readline = require('node:readline');
 const { spawn } = require('node:child_process');
 
 const WORKER_FLAG = '--race-worker';
-const OPERATIONS = ['claim', 'finish', 'release', 'cancel'];
+const OPERATIONS = ['claim', 'finish', 'release', 'cancel', 'resume'];
 
 // ── worker ──────────────────────────────────────────────────────────────────────────────────────
 
@@ -35,7 +35,10 @@ function runWorker(modulePath: any) {
     const until = process.hrtime.bigint() + BigInt(Math.round(skewUs * 1000));
     while (process.hrtime.bigint() < until) { /* spin */ }
     try {
-      const call = { ...args, fsImpl: fs, ...(args.now ? { now: new Date(args.now) } : {}) };
+      // `noGit` stands for a git runner that answers nothing (a fixture whose `.git` is an empty directory);
+      // a function cannot cross the pipe, so the worker builds it.
+      const { noGit, ...rest } = args;
+      const call = { ...rest, fsImpl: fs, ...(rest.now ? { now: new Date(rest.now) } : {}), ...(noGit ? { gitRunner: () => null } : {}) };
       reply({ rep, result: ledger[op](call) });
     } catch (error: any) {
       reply({ rep, error: { name: error.name, code: error.code || null, message: error.message } });
