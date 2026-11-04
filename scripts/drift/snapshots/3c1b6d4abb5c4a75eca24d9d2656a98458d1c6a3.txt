@@ -653,6 +653,24 @@ npmCommand
 string[]
 npm
 Command and arguments used for npm package lookup and installation.
+selfUpdateCommand
+string[]
+None
+Command and arguments
+pi update
+runs to update Pi itself, with
+{packageName}
+,
+{version}
+, and
+{installSpec}
+placeholders.
+PI_SELF_UPDATE_COMMAND
+takes precedence.
+Can only be set in agent-directory settings.
+See
+Custom update command
+.
 See
 Shell aliases
 for shell setup and
@@ -736,7 +754,7 @@ Description
 collapseChangelog
 boolean
 false
-Show a condensed changelog after an update.
+Show a condensed changelog after an update. Also condenses extension package changelogs to one line per package.
 enableInstallTelemetry
 boolean
 true

@@ -44,37 +44,45 @@ Antigravity CLI
 Antigravity IDE
 Antigravity App
 Section titled “Antigravity App”
-In the Antigravity App, you can manage your MCP servers through the
-Installed MCP Servers
-section of your
-Settings
-.
-To view and update your MCP servers:
-Click the
-Settings
-button on the bottom left of your screen.
-Select
+In the Antigravity App, you can manage your MCP servers in the
+MCP Servers
+section of the
 Customizations
-and review the
-Installed MCP Servers
+page.
+To view and update your MCP servers:
+Click
+Customizations
+in the sidebar.
+Click
+Installed
+and scroll to the
+MCP Servers
 section.
 To install an MCP server from the
-Installed MCP Servers
+MCP Servers
 section:
 Click
-Add MCP
-. This connects you to the MCP Store, a searchable list of available MCP servers.
-Search or scroll down to an MCP server you’d like to install.
+Add MCP Server
+(
++
+). This opens a searchable list of available MCP servers.
+Search or scroll to an MCP server you’d like to install.
 Click
 Add
 .
-To manage your MCP servers from this screen:
-Uninstall
-: Click the trash can icon next to the MCP server in the list.
-Disable or enable
-: Click the toggle switch next to the MCP server in the list.
-Refresh
-: Click the refresh button.
+To manage an MCP server, click
+More actions
+(
+⋮
+) next to it, and then choose
+Restart
+,
+Disable
+, or
+Delete
+. To find your configuration file, click
+Copy Config File Path
+in the section header.
 Antigravity CLI
 Section titled “Antigravity CLI”
 Antigravity CLI supports both local
@@ -108,7 +116,11 @@ Workspace configuration
 , which applies only to that workspace.
 Enabled
 plugins
-can also add MCP servers.
+can also add MCP servers (defined in a plugin’s
+&#x3C;plugin-root>/mcp_config.json
+file; see
+Build plugins
+).
 Edit either file directly using the standard
 MCP server configuration structure
 . For example, the following entry connects to a remote server and raises its
@@ -199,7 +211,11 @@ Antigravity SDK MCP guide
 .
 MCP configuration structure
 Section titled “MCP configuration structure”
-Whether configuring custom servers for the Antigravity App, Antigravity IDE, or Antigravity CLI,
+Whether configuring custom servers for the Antigravity App, Antigravity IDE, Antigravity CLI, or a
+plugin
+(
+&#x3C;plugin-root>/mcp_config.json
+),
 mcp_config.json
 follows a standardized JSON schema. The root object contains an
 mcpServers
@@ -454,24 +470,20 @@ If the server doesn’t support dynamic client registration, you can provide you
 If you provide client credentials manually, ensure the following URL is registered as a redirect URI in your OAuth provider:
 https://antigravity.google/oauth-callback
 To connect to an OAuth-enabled server:
-Open
-Agent settings
-with
-Cmd
-+
-,
-(macOS) or
-Ctrl
-+
-,
-(Windows and Linux).
-Navigate to the
+In the Antigravity App, click
 Customizations
-tab and click
+in the sidebar, and then click
+Installed
+.
+Under
+MCP Servers
+, click
 Authenticate
 next to the server.
 Complete authentication in your browser and copy the authorization code.
-Paste the code back into the settings panel and click
+Paste the code into the
+Enter authorization code
+field and click
 Submit
 .
 Once authenticated, the server reconnects automatically.
@@ -626,9 +638,9 @@ agent skill, which tells the agent which tool to pick and how to fall back to th
 Developer Knowledge API
 if the MCP server isn’t available.
 Previous
-/voice
+Lifecycle hooks
 Next
-Agent skills
+Plugins
 About Google
 Google Products
 Privacy

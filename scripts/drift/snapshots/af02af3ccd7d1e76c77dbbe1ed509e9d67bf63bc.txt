@@ -140,7 +140,7 @@ Claude Marketplace
 .
 Claude Code adds Anthropic’s official marketplace the first time you start an interactive terminal session, unless a
 managed policy
-blocks it. Claude Code doesn’t add Anthropic’s community and demo marketplaces on its own. To distinguish the three Anthropic marketplaces, read
+blocks it. Claude Code doesn’t add Anthropic’s community marketplace on its own. To distinguish Anthropic’s marketplaces, read
 Anthropic’s marketplaces
 . To see what the official one lists, open the
 Discover
@@ -182,7 +182,7 @@ Official
 official marketplace names
 , including
 claude-plugins-official
-and the demo marketplace
+and
 claude-code-plugins
 .
 Community

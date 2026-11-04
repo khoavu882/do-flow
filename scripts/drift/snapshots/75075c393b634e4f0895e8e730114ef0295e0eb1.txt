@@ -37,9 +37,9 @@ Best practices
 Scripts and resources
 : Optional helper scripts and data schemas the agent
 can execute.
-When you start a conversation, the agent sees a list of available skills with
-their names and descriptions. If a skill looks relevant to your task, the agent
-reads the full instructions and follows them.
+On every turn, the agent sees a list of available skills with their names and
+descriptions. If a skill looks relevant to your task, the agent reads the full
+instructions and follows them.
 Note
 Note
 : Antigravity defaults to
@@ -112,8 +112,8 @@ Skills follow a
 progressive disclosure
 pattern:
 Discovery
-: When a conversation starts, the agent sees a list of available
-skills with their names and descriptions.
+: On every turn, the agent sees a list of available skills with
+their names and descriptions.
 Activation
 : If a skill looks relevant to your task, the agent reads the
 full
@@ -165,7 +165,9 @@ Global (all workspaces)
 Each scope serves a distinct purpose:
 Workspace skills
 : Scoped to a single project and committed to version
-control to share across your engineering team.
+control to share across your engineering team. Antigravity also reads
+.agents/skills/
+in each parent folder up to the repository root.
 Global skills
 : Available across all projects on your workstation.
 Invoking skills in the Antigravity App
@@ -177,7 +179,7 @@ skills based on your prompt.
 Manual slash command
 : Type
 /&#x3C;skill-name>
-in the prompt panel to
+in the message box to
 explicitly invoke a skill.
 Antigravity CLI
 Section titled “Antigravity CLI”
@@ -188,10 +190,23 @@ Location
 Scope
 &#x3C;workspace-root>/.agents/skills/&#x3C;skill-folder>/
 Workspace-specific
-~/.gemini/antigravity-cli/skills/&#x3C;skill-folder>/
-Global (all workspaces)
-~/.gemini/antigravity-cli/plugins/&#x3C;name>/skills/
-Plugin-provided skills
+~/.gemini/config/skills/&#x3C;skill-folder>/
+Global (all workspaces, shared with the Antigravity App)
+~/.gemini/config/plugins/&#x3C;plugin-folder>/skills/
+Plugin-provided skills (
+Plugins
+)
+Antigravity also reads
+.agents/skills/
+in each parent folder up to the
+repository root. The Antigravity CLI also loads skills from
+~/.gemini/antigravity-cli/skills/
+and
+~/.gemini/skills/
+, which the
+Antigravity App doesn’t read. For details, see
+Customization discovery
+.
 Slash command conversion
 Section titled “Slash command conversion”
 Whenever you define a skill, the CLI
@@ -199,9 +214,13 @@ automatically converts it into a slash
 command
 inside the interactive TUI. For example, creating a skill named
 deploy-staging
-immediately makes
+makes
 /deploy-staging
-available in the prompt box.
+available in the prompt box. If you
+add a skill while the CLI is running, run
+/skills reload
+or start a new
+conversation to update the slash commands.
 Managing skills with plugins
 Section titled “Managing skills with plugins”
 Skills can also be packaged inside plugins and managed with
@@ -259,9 +278,9 @@ Customizations
 menu in the agent
 side panel.
 Previous
-MCP
+Sidecars
 Next
-Rules
+IDE workflows
 About Google
 Google Products
 Privacy

@@ -41,7 +41,6 @@ Legal
 Privacy Policy
 Cookie Preferences
 English
-Loading image...
 Agents
 Apps
 Enterprise
@@ -51,7 +50,6 @@ Community
 Resources
 SIGN IN
 DOWNLOADS
-Loading image...
 Get Started
 Installation
 Authentication
@@ -96,8 +94,8 @@ Experimental
 Troubleshooting
 0.x reference
 CLI
-What&#x27;s new in V3
 Setup & First Run
+Choose an agent harness
 Terminal UI
 Chat
 Fullscreen mode
@@ -106,6 +104,8 @@ Headless mode
 ACP
 Auto complete
 Experimental
+Troubleshooting
+Upgrade from CLI 2.x
 2.x reference
 Crew
 Quick start
@@ -161,6 +161,7 @@ Governance
 Monitor and track
 Settings
 Managed updates
+TLS inspection compatibility
 Billing
 IAM
 Supported regions
@@ -244,8 +245,12 @@ Field
 CLI V3 handling
 toolsSettings
 /upgrade-agent
-converts supported shell and file rules to
+converts supported shell, file, and
+subagent
+settings to
 permissions.rules
+and
+tools
 allowedTools
 /upgrade-agent
 converts entries to capability-level allow rules; new profiles use
@@ -274,6 +279,137 @@ Hook files
 Use
 /upgrade-agent
 to migrate supported fields in older configs.
+Markdown format
+An agent configuration can be a JSON file or a Markdown file with YAML front matter. In Markdown, the front matter holds the supported current configuration fields, and the document body is the system prompt. In JSON, the system prompt lives in the
+prompt
+field. Use Markdown when the system prompt is long or you want to read it as prose; JSON suits generated configs.
+.kiro/agents/backend-dev.md
+:
+markdown
+---
+name
+:
+backend
+-
+dev
+description
+:
+Backend development agent
+model
+:
+claude
+-
+sonnet
+-
+4.6
+tools
+:
+[
+"read"
+,
+"write"
+,
+"shell"
+,
+"web"
+]
+excludedTools
+:
+[
+"knowledge"
+]
+includeMcpJson
+:
+true
+includePowers
+:
+false
+mcpServers
+:
+postgres
+:
+command
+:
+npx
+args
+:
+[
+"-y"
+,
+"@modelcontextprotocol/server-postgres"
+]
+env
+:
+DATABASE_URL
+:
+"${DATABASE_URL}"
+resources
+:
+-
+file
+:
+//./ARCHITECTURE.md
+-
+skill
+:
+//backend
+-
+patterns
+permissions
+:
+rules
+:
+-
+capability
+:
+shell
+match
+:
+[
+"npm *"
+,
+"node *"
+]
+effect
+:
+allow
+welcomeMessage
+:
+"Ready to work on backend code."
+---
+You are a backend developer focused on Node.js and TypeScript.
+Always use async/await. All database queries must be parameterized.
+The
+tools
+field decides which tools the agent can see and call; the
+permissions
+field decides what those tools may do when called. The two use different names:
+tools
+takes selectors such as
+read
+,
+write
+,
+shell
+,
+web
+,
+@mcp
+,
+@builtin
+, and
+*
+, while
+permissions
+takes capability names such as
+fs_read
+,
+fs_write
+, and
+shell
+. For the tools each selector covers, see
+Configuring tool access
+.
 Field reference
 Every agent configuration file can include the following sections:
 name
@@ -295,7 +431,7 @@ permissions
 permissions
 - Inline capability-based access control rules.
 toolsSettings
-- Per-tool configuration (deprecated for shell/fs rules).
+- CLI 2.x legacy per-tool configuration; ignored by CLI V3.
 resources
 - Resources available to the agent.
 hooks
@@ -830,35 +966,28 @@ Security best practices
 section before enabling write tools.
 ToolsSettings field
 Warning
+CLI V3 and IDE 1.0 don&#x27;t read
 toolsSettings
-is deprecated in CLI V3 and IDE 1.0. Use the
+. Use the
 permissions
 field instead for capability-based access control. See
+Permissions
+for the rule schema and
 Permissions migration
-for the full guide.
+for converting CLI 2.x rules.
 The
 toolsSettings
-field provides per-tool configuration. In older versions, this was used for shell command allow/deny lists and file path restrictions. These use cases are now handled by the
-permissions
-field.
-The field is still supported for tool-specific settings that
-permissions
-does not represent. In CLI V3, include a
-permissions
-block so a profile with
+field provides per-tool configuration in CLI 2.x, such as shell command allow and deny lists, file path restrictions, and sub-agent access. CLI V3 ignores
 toolsSettings
-is not classified as unconverted CLI 2.x configuration:
+. A CLI 2.x JSON profile containing
+toolsSettings
+without a
+permissions
+block is skipped by V3 until
+/upgrade-agent
+converts it.
 json
 {
-"permissions"
-:
-{
-"rules"
-:
-[
-]
-}
-,
 "toolsSettings"
 :
 {
@@ -887,6 +1016,57 @@ json
 "reviewer"
 ]
 }
+}
+}
+In CLI V3, express the
+subagent
+settings with
+tools
+and
+permissions
+instead. See
+Configuring sub-agent access
+.
+json
+{
+"tools"
+:
+[
+"read"
+,
+"write"
+,
+"shell"
+,
+"web"
+,
+"subagent/reviewer"
+,
+"subagent/tester"
+]
+,
+"permissions"
+:
+{
+"rules"
+:
+[
+{
+"capability"
+:
+"subagent"
+,
+"match"
+:
+[
+"reviewer"
+]
+,
+"effect"
+:
+"allow"
+}
+]
 }
 }
 Permissions field
@@ -950,121 +1130,4 @@ json
 "shell"
 ,
 "match"
-:
-[
-"rm -rf *"
-,
-"sudo *"
-]
-,
-"effect"
-:
-"deny"
-}
-]
-}
-}
-Each rule has:
-Field
-Description
-capability
-The capability to control:
-fs_read
-,
-fs_write
-,
-shell
-,
-web_fetch
-,
-web_search
-,
-mcp
-,
-subagent
-,
-skill
-,
-power
-,
-context
-,
-diagnostics
-,
-sandbox_network
-; or the
-all
-,
-builtin
-, and
-filesystem
-meta-capabilities. See
-Permissions
-.
-match
-Glob patterns scoping the rule (file paths for fs, command prefixes for shell, server/tool names for MCP)
-effect
-allow
-(proceed silently),
-ask
-(prompt user), or
-deny
-(block always)
-exclude
-Optional glob patterns that must NOT match
-Agent-scoped permissions support all three effects (
-allow
-,
-ask
-,
-deny
-). The deny-overrides algorithm applies: a
-deny
-in any scope wins regardless of
-allow
-rules elsewhere.
-Resources field
-The
-resources
-field gives an agent access to local resources. Resources can be files, skills, or knowledge bases.
-json
-{
-"resources"
-:
-[
-"file://README.md"
-,
-"file://.kiro/steering/**/*.md"
-,
-"skill://.kiro/skills/**/SKILL.md"
-]
-}
-Resources support different types via URI schemes:
-file://
-- Files loaded directly into context at startup
-skill://
-- Skills with metadata loaded at startup, full content loaded on demand
-Both support:
-Specific paths:
-file://README.md
-or
-skill://my-skill.md
-Glob patterns:
-file://.kiro/**/*.md
-or
-skill://.kiro/skills/**/SKILL.md
-Absolute or relative paths
-File resources
-File resources are loaded directly into the agent&#x27;s context when the agent starts. Use these for content the agent always needs.
-json
-{
-"resources"
-:
-[
-"file://README.md"
-,
-"file://docs/**/*.md"
-]
-}
-Skill resources
 [snapshot truncated]

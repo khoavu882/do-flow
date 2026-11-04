@@ -163,7 +163,11 @@ Any skills checked into the machine or container in a shared, system location.
 Use for SDK scripts, automation, and for checking in default admin skills available to each user on the machine.
 SYSTEM
 Bundled with Codex by OpenAI.
-Useful skills relevant to a broad audience such as the skill-creator and plan skills. Available to everyone when they start Codex.
+Includes
+skill-creator
+and
+skill-installer
+. Enabled by default.
 Codex supports symlinked skill folders and follows the symlink target when scanning these locations.
 These locations are for authoring and local discovery. When you want to
 distribute reusable skills beyond a single repo, or optionally bundle them with
@@ -206,9 +210,26 @@ path =
 "/path/to/skill/SKILL.md"
 enabled =
 false
-Restart Codex after changing
-~/.codex/config.toml
+Use exactly one selector per entry. An absolute
+path
+matches one
+SKILL.md
+file. A
+name
+matches every skill with that name. When more than
+one entry matches a skill, the last matching entry wins.
+To turn off all bundled system skills for the current project, add this setting
+to its trusted
+.codex/config.toml
+:
+[
+skills
 .
+bundled
+]
+enabled =
+false
+Restart Codex after changing the configuration.
 Optional metadata
 Add
 agents/openai.yaml

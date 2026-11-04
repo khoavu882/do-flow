@@ -41,7 +41,6 @@ Legal
 Privacy Policy
 Cookie Preferences
 English
-Loading image...
 Agents
 Apps
 Enterprise
@@ -51,7 +50,6 @@ Community
 Resources
 SIGN IN
 DOWNLOADS
-Loading image...
 Get Started
 Installation
 Authentication
@@ -97,8 +95,8 @@ Experimental
 Troubleshooting
 0.x reference
 CLI
-What&#x27;s new in V3
 Setup & First Run
+Choose an agent harness
 Terminal UI
 Chat
 Fullscreen mode
@@ -107,6 +105,8 @@ Headless mode
 ACP
 Auto complete
 Experimental
+Troubleshooting
+Upgrade from CLI 2.x
 2.x reference
 Crew
 Quick start
@@ -162,6 +162,7 @@ Governance
 Monitor and track
 Settings
 Managed updates
+TLS inspection compatibility
 Billing
 IAM
 Supported regions
@@ -938,7 +939,4 @@ Description
 Force re-authentication when a token is expired or invalid
 /mcp cancel-auth
 ^X
-Abort a pending auth flow stuck waiting for browser confirmation
-/mcp logout
-^R
 [snapshot truncated]
