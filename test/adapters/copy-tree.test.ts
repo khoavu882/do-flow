@@ -154,6 +154,44 @@ test('applyTree writes files and preserves the source file mode (hook script +x 
   }
 });
 
+const SYMLINKS = { skip: process.platform.startsWith('win') && 'symlinks need privileges on Windows' };
+
+test('FU-vrc2wb: a forced install replaces a destination symlink with a regular file and leaves its target alone', SYMLINKS, () => {
+  for (const transform of [undefined, () => Buffer.from('rendered\n')]) {
+    const root = scratch();
+    const sourceDir = seedSource(root, { 'hook.sh': 'shipped\n' });
+    fs.chmodSync(path.join(sourceDir, 'hook.sh'), 0o755);
+    const destDir = path.join(root, 'dest');
+    fs.mkdirSync(destDir, { recursive: true });
+    const outside = path.join(root, 'outside.txt');
+    fs.writeFileSync(outside, 'mine\n', { mode: 0o600 });
+    fs.symlinkSync(outside, path.join(destDir, 'hook.sh'));
+
+    const { changes } = planTree({ sourceDir, destDir, force: true, transform });
+    assert.equal(changes.length, 1);
+    applyTree({ changes, transform });
+    const written = path.join(destDir, 'hook.sh');
+    assert.equal(fs.lstatSync(written).isSymbolicLink(), false, 'now a regular file');
+    assert.equal(fs.readFileSync(written, 'utf8'), transform ? 'rendered\n' : 'shipped\n');
+    assert.equal(fs.readFileSync(outside, 'utf8'), 'mine\n', 'the file it pointed at keeps its bytes');
+    assert.equal(fs.statSync(outside).mode & 0o777, 0o600, 'and its mode');
+    assert.equal(fs.statSync(written).mode & 0o777, 0o755, 'the installed file takes the source mode');
+  }
+});
+
+test('FU-vrc2wb: a dangling destination symlink is replaced too, and nothing is created where it pointed', SYMLINKS, () => {
+  const root = scratch();
+  const sourceDir = seedSource(root, { 'a.md': 'shipped\n' });
+  const destDir = path.join(root, 'dest');
+  fs.mkdirSync(destDir, { recursive: true });
+  const missing = path.join(root, 'nowhere.txt');
+  fs.symlinkSync(missing, path.join(destDir, 'a.md'));
+  applyTree({ changes: planTree({ sourceDir, destDir, force: true }).changes });
+  assert.equal(fs.lstatSync(path.join(destDir, 'a.md')).isSymbolicLink(), false);
+  assert.equal(fs.readFileSync(path.join(destDir, 'a.md'), 'utf8'), 'shipped\n');
+  assert.equal(fs.existsSync(missing), false);
+});
+
 test('re-planning after an unchanged apply reports zero changes (idempotent convergence)', () => {
   const root = scratch();
   const sourceDir = seedSource(root, { 'a.md': 'A' });
