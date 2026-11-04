@@ -12,8 +12,8 @@
  * Rules run in the table's order. Normalisation (rules 10 to 13) is a separate step applied to
  * failure messages only, after masking.
  *
- * The module has no I/O and no state; the home directory is read from `HOME` unless the caller
- * passes one.
+ * The module has no I/O and no state; the home directory is read from `HOME` (`USERPROFILE` when
+ * `HOME` is absent or empty, as on Windows) unless the caller passes one.
  */
 
 const MASKED = '<masked>';
@@ -152,7 +152,7 @@ function escapeRegExp(text: string): string { return text.replace(/[.*+?^${}()|[
 
 /** The home directory to abbreviate: an absolute path other than the file system root. */
 function homeOf(options?: any): string | null {
-  const raw = options && 'home' in options ? options.home : process.env.HOME;
+  const raw = options && 'home' in options ? options.home : (process.env.HOME || process.env.USERPROFILE);
   if (typeof raw !== 'string' || !(raw.startsWith('/') || /^[A-Za-z]:[\\/]/.test(raw))) return null;
   const home = raw.replace(/[\\/]+$/, '');
   return home.length > 1 ? home : null;
