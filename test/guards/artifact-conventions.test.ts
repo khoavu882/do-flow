@@ -579,6 +579,17 @@ test('G18: a composite state and its nested states are counted once, in the same
   assert.ok(stateParityFindings(composite(7)).some((f: any) => /Order/.test(f) && /12 states/.test(f)));
 });
 
+test('G18: a Source cell of NFR-001 passes and a bogus token is named', () => {
+  const row = '| A Closed order never changes | Order | code path rejects updates | NFR-001 |';
+  assert.ok(dataModelExample().includes(row), 'the worked example sources a row from NFR-001');
+  assert.deepEqual(sourceCellFindings(dataModelExample()), []);
+  for (const bogus of ['NFR-1', 'NFRS-001', 'NFR-001 FR-001']) {
+    const findings = sourceCellFindings(alter(dataModelExample(), row, row.replace('NFR-001', bogus)));
+    assert.ok(findings.some((f: any) => /Source cell/.test(f) && /"A Closed order never changes"/.test(f)),
+      `no finding names the bogus Source token ${bogus}: ${JSON.stringify(findings)}`);
+  }
+});
+
 test('G18: a row with an empty Source cell in the worked example is named', () => {
   const text = alter(dataModelExample(), '| OrderClosed | proposed |\n', '| OrderClosed |  |\n');
   const findings = sourceCellFindings(text);

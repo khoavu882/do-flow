@@ -14,6 +14,15 @@ function timers() {
   return (process as any).getActiveResourcesInfo().filter((name: string) => name === 'Timeout').length;
 }
 
+test('084 C-11: a lookup that never resolves settles at its own timeout, leaves no DNS timer, and a late callback is ignored', { timeout: 1000 }, async () => {
+  let late: any;
+  const before = timers();
+  const result = await checkEndpoint('http://localhost:11434', { lookup: (_h: any, _o: any, cb: any) => { late = cb; }, timeoutMs: 30 });
+  assert.equal(result.reason, 'timeout');
+  assert.equal(timers(), before, 'no DNS timer is left after the timeout');
+  assert.doesNotThrow(() => late(null, [{ address: '127.0.0.1', family: 4 }]));
+});
+
 test('084 C-11: an already-aborted signal settles DNS validation at once, without a lookup or a timer', { timeout: 1000 }, async () => {
   const calls: any[] = [];
   const controller = new AbortController();

@@ -234,6 +234,9 @@ function inspectArtifacts(index: string, inventory: any, paths: any, model: any,
 // rule: process.kill(pid, 0)) is reclaimed under a claim file named for its token, created `wx`: the claim winner re-reads
 // the lock and removes it only while it still carries the judged token, so a live or newer lock is never removed. A lock
 // from another host, from this process, or without a readable record is never reclaimed.
+// The Python bridge child is what writes the cache, so executeBridge records its pid in the lock as `childPid`; a lock
+// is stale only when the owner and that child are both gone. Ceiling: a Node process killed between spawn and the
+// record leaves a lock without `childPid` (the child is then unprotected for that instant).
 // Ceiling: a reclaimer killed between creating and removing its claim leaves `operation.lock.claim.<token>`, and that
 // lock then waits for a manual removal, which the contention cause names.
 const LOCK_TOKEN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -242,6 +245,12 @@ function readLockOwner(lock: string): any {
     const owner = JSON.parse(regularBytes(lock, 4096).toString('utf8'));
     return owner && Number.isInteger(owner.pid) && typeof owner.hostname === 'string' && LOCK_TOKEN.test(owner.token) ? owner : null;
   } catch { return null; }
+}
+function recordLockChild(lock: string, childPid: number): void {
+  const owner = readLockOwner(lock); if (!owner || owner.pid !== process.pid || !Number.isInteger(childPid)) return;
+  const next = `${lock}.child.${process.pid}`;
+  try { fs.writeFileSync(next, `${JSON.stringify({ ...owner, childPid })}\n`, { flag: 'w', mode: 0o600 }); fs.renameSync(next, lock); }
+  catch { try { fs.unlinkSync(next); } catch {} }
 }
 function reclaimStaleLock(lock: string, owner: any, hostname: string): boolean {
   const claim = `${lock}.claim.${owner.token}`;
@@ -262,7 +271,7 @@ async function acquireSemanticLock(paths: any, { isAlive = defaultIsAlive, hostn
       return () => { fs.closeSync(fd); if (readLockOwner(paths.lock)?.token === token) fs.unlinkSync(paths.lock); };
     } catch (error: any) { if (error.code !== 'EEXIST') throw error; }
     const owner = readLockOwner(paths.lock);
-    if (owner && owner.hostname === hostname && owner.pid !== process.pid && !isAlive(owner.pid) && reclaimStaleLock(paths.lock, owner, hostname)) continue;
+    if (owner && owner.hostname === hostname && owner.pid !== process.pid && !isAlive(owner.pid) && !(Number.isInteger(owner.childPid) && isAlive(owner.childPid)) && reclaimStaleLock(paths.lock, owner, hostname)) continue;
     if (Date.now() >= deadline) {
       throw fault('lock-contention', 'UNKNOWN', `another semantic index operation holds ${paths.lock}${owner ? ` (pid ${owner.pid} on ${owner.hostname})` : ''}; `
         + 'run the command again when it finishes. A lock whose process has exited on this host is reclaimed automatically; '
@@ -300,6 +309,7 @@ function executeBridge(request: any, options: any, paths: any, sandbox: string):
       TRANSFORMERS_CACHE: library, XDG_CACHE_HOME: library, SEMBLE_GRAMMARS_CACHE_DIR: path.join(library, 'grammars'), TORCH_HOME: library,
       TMPDIR: library, TEMP: library, TMP: library, TOKENIZERS_PARALLELISM: 'false', SEMBLE_INDEX_WORKERS: '0' };
     const child = spawn(options.python, [options.bridgePath || path.join(__dirname, 'semble-bridge.py')], { cwd: paths.state, env, stdio: ['pipe', 'pipe', 'pipe'], shell: false });
+    if (child.pid) recordLockChild(paths.lock, child.pid);
     let stdout = ''; let outputBytes = 0; let failure: string | null = null; let done = false;
     const stop = (reason: string) => { if (!failure) failure = reason; child.kill('SIGKILL'); };
     const timer = setTimeout(() => stop('provider-timeout'), deadline);
@@ -362,4 +372,4 @@ async function runSembleQuery(options: any): Promise<any> {
   finally { try { if (temp) fs.rmSync(temp, { recursive: true, force: true }); } catch {} try { if (release) release(); } catch {} }
 }
 module.exports = { SEMBLE_VERSION, SEMBLE_LIMITS, runSembleQuery, resolveSembleInterpreter, checkSembleVersion, semanticStatePaths, digest, fault, inside, safeDirectories,
-  regularBytes, scanTree, inspectModel, inspectBm25, validateInventory, readSource, checkSources, inspectArtifacts, acquireSemanticLock, cleanupTemporary, executeBridge, readCompleted, modelLinkRoots };
+  regularBytes, scanTree, inspectModel, inspectBm25, validateInventory, readSource, checkSources, inspectArtifacts, acquireSemanticLock, recordLockChild, cleanupTemporary, executeBridge, readCompleted, modelLinkRoots };

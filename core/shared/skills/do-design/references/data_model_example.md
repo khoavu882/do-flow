@@ -3,7 +3,7 @@
 **Feature:** 000-order-checkout · **Design:** ./design.md · **Maturity:** Draft · **Created:** 2025-01-01
 
 > Worked example of a filled `data-model.md`. Read it only while filling the template; the domain
-> is invented. FR-001, FR-002 and IC-001 stand for requirement and contract IDs of that feature.
+> is invented. FR-001, FR-002, NFR-001 and IC-001 stand for requirement and contract IDs of that feature.
 
 ## 1. Data Model
 
@@ -141,7 +141,7 @@ N/A: one actor-owned entity changes state; OrderLine has no state to couple.
 | Invariant | Holds over | Enforced by | Source |
 |---|---|---|---|
 | An Order has at least one OrderLine | Order, OrderLine | check at placement | FR-002 |
-| A Closed order never changes | Order | code path rejects updates | code:src/orders/order.ts:57 |
+| A Closed order never changes | Order | code path rejects updates | NFR-001 |
 
 ## 6. Ownership / CRUD matrix
 

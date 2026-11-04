@@ -1189,7 +1189,14 @@
       "harness": "shared",
       "intentClass": "hook",
       "stdinFixture": "bench/perf/fixtures/shared/pre-implementation-gate.json",
-      "enforced": false
+      "enforced": false,
+      "setup": {
+        "kind": "copy-fixture-project",
+        "fixture": "bench/perf/fixtures/hook-bridge-project",
+        "git": true,
+        "branch": "feat/perf",
+        "cwdProject": true
+      }
     },
     {
       "id": "hook.shared.session-context",

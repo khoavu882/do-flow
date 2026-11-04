@@ -14,7 +14,7 @@
 
 <!-- Rules for every section below.
      Source: each row of the §1 dictionary and of every table in §3 to §8 ends with a Source cell
-     holding exactly one of: FR-###, IC-###, code:<path>:<line>, proposed, UNKNOWN -> Open Point.
+     holding exactly one of: FR-###, NFR-###, IC-###, code:<path>:<line>, proposed, UNKNOWN -> Open Point.
      A `proposed` or `UNKNOWN -> Open Point` row is copied to design.md Open Points for Review.
      Placeholders are bracketed and bare; fill them, never leave a row of placeholders in place.
      A conditional section accepts "N/A: [why]" in place of its content.
@@ -35,7 +35,7 @@
 
 ### Conceptual domain map
 
-<!-- A flowchart of entities and relationships, no attributes. "N/A: [why]" if nothing persists. -->
+<!-- A flowchart of entities and relationships, no attributes. "N/A: [why]" if the feature stores no entity (persisted captures count as entities). -->
 
 ```mermaid
 flowchart LR
@@ -180,7 +180,8 @@ N/A: stateless, [why]
 
 ## 7. Event catalogue
 
-<!-- "N/A: [why]" when no event is emitted. -->
+<!-- Domain events this feature emits; external stream events it only consumes are not listed here.
+     "N/A: [why]" when no domain event is emitted. -->
 
 | Event | Emitted by | Payload | Consumers | Source |
 |---|---|---|---|---|

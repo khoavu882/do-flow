@@ -305,6 +305,10 @@ function enumerateHookSurfaces({
       if (hasFixture) {
         surface.stdinFixture = fixtureRel;
       }
+      // The gate's edit fixture only reaches its branch and artifact checks inside a feature-branch project.
+      if (stem === 'pre-implementation-gate') {
+        surface.setup = { kind: 'copy-fixture-project', fixture: 'bench/perf/fixtures/hook-bridge-project', git: true, branch: 'feat/perf', cwdProject: true };
+      }
       surfaces.push(surface);
 
       if (!hasFixture) {
