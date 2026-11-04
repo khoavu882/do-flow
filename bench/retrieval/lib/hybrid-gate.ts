@@ -1,13 +1,23 @@
 'use strict';
 
-const { applicability } = require('./metrics.ts');
+const { applicability, classesFor } = require('./metrics.ts');
 const { CORPORA } = require('./hybrid-protocol.ts');
 
 const PROTOCOL = 'hybrid-c-v1';
 const P2_GATE = 'Conceptual retrieval improves within agreed quality/cost tolerances. Locators are valid; provider faults do not collapse the workflow or produce false absence claims.';
 const REQUIRED_THRESHOLDS = ['T-001', 'T-002', 'T-003', 'T-004', 'T-005', 'T-006', 'T-007', 'T-008'];
 
-/** Missing/underpowered evidence stays unresolved; paid T-005/T-006 are never inferred from offline data. */
+/** A class the protocol does not measure on a corpus never needs evidence there; an unknown class name is treated as applicable. */
+function appliesTo(cls: any, corpus: any) {
+  try { return applicability(cls, corpus).applicable; } catch { return true; }
+}
+
+/**
+ * Missing/underpowered evidence stays unresolved; paid T-005/T-006 are never inferred from offline data. An
+ * absolute row (T-001, T-004, T-007) that would otherwise pass is UNRESOLVED while any applicable C class it covers
+ * is missing, unreached, underpowered or has no value for its metric (IC-010); an observed failure stands, and
+ * classes the protocol does not measure on a corpus are exempt.
+ */
 function evaluate({ aggregates = {}, comparisons = {}, thresholds = {}, protocol = PROTOCOL }: any = {}) {
   if (protocol !== PROTOCOL) throw new Error(`gate requires ${PROTOCOL}`);
   const configured = new Map((thresholds.thresholds || []).map((threshold: any) => [threshold.id, threshold]));
@@ -31,8 +41,12 @@ function evaluate({ aggregates = {}, comparisons = {}, thresholds = {}, protocol
         else if (config === 'C') excluded.push({ corpus, class: cls, reason: skip || 'metric-absent' });
       }
     }
-    // A covered corpus with no C aggregate at all is excluded whole.
-    if (threshold.corpus === '*') for (const corpus of CORPORA) if (!aggregates[corpus]?.C) excluded.push({ corpus, class: threshold.class, reason: 'missing' });
+    // A covered corpus with no C aggregate at all is excluded whole; a C aggregate without an applicable class excludes that class.
+    for (const corpus of threshold.corpus === '*' ? CORPORA : [threshold.corpus]) {
+      const configC = aggregates[corpus]?.C;
+      if (!configC) excluded.push({ corpus, class: threshold.class, reason: 'missing' });
+      else for (const cls of classesFor(corpus)) if ((threshold.class === '*' || threshold.class === cls) && !Object.hasOwn(configC, cls)) excluded.push({ corpus, class: cls, reason: 'missing' });
+    }
     if (threshold.relativeTo) {
       const rows = [];
       // RULE-003 holds for compared classes too: both sides must be measured, applicable and not underpowered.
@@ -70,7 +84,9 @@ function evaluate({ aggregates = {}, comparisons = {}, thresholds = {}, protocol
     if (!values.length) return { id: threshold.id, verdict: 'UNRESOLVED', cause: 'no eligible aggregate observation', excluded };
     const pass = values.every(({ value }) => threshold.comparator === '>=' ? value >= threshold.value
       : threshold.comparator === '<=' ? value <= threshold.value : threshold.comparator === '==' ? value === threshold.value : false);
-    return { id: threshold.id, verdict: pass ? 'PASS' : 'FAIL', observations: values.length,
+    const lacking = excluded.filter((entry) => entry.class === '*' || appliesTo(entry.class, entry.corpus));
+    const verdict = !pass ? 'FAIL' : lacking.length ? 'UNRESOLVED' : 'PASS';
+    return { id: threshold.id, verdict, ...(verdict === 'UNRESOLVED' ? { cause: 'an applicable C class has no eligible evidence' } : {}), observations: values.length,
       value: values.length === 1 ? values[0].value : undefined, comparator: threshold.comparator, threshold: threshold.value, excluded };
   });
   const verdict = rows.some((r) => r.verdict === 'FAIL') ? 'FAIL' : rows.every((r) => r.verdict === 'PASS') ? 'PASS' : 'UNRESOLVED';
