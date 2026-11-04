@@ -389,7 +389,7 @@ test('render: a not-started dependency-change row shows `manual`, a loop-class r
     ['142', { rowId: '142', status: 'in-flight', evidence: null }],
   ]);
   const lines = render(rows, statuses).split('\n');
-  const cells = (id: string) => lines.find((l) => l.startsWith(`| ${id} |`))!.split('|').map((c) => c.trim());
+  const cells = (id: string) => lines.find((l: string) => l.startsWith(`| ${id} |`))!.split('|').map((c: string) => c.trim());
   assert.equal(cells('140')[5], 'manual');
   assert.equal(cells('140')[7], 'class-unsupported');
   assert.equal(cells('141')[5], 'not-started');
