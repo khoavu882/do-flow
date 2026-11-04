@@ -3,7 +3,7 @@
   "evals": [
     {
       "id": 1,
-      "kind": "triggering",
+      "kind": "behavioral",
       "split": "train",
       "name": "truncated-run",
       "assertions": [{ "text": "beta one output is present", "type": "output_matches", "pattern": "beta-one-output" }]
@@ -17,7 +17,7 @@
     },
     {
       "id": 3,
-      "kind": "triggering",
+      "kind": "behavioral",
       "split": "heldout",
       "name": "malformed-run",
       "assertions": [{ "text": "beta three output is present", "type": "output_matches", "pattern": "beta-three-output" }]

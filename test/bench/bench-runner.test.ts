@@ -302,6 +302,46 @@ test('F1: a triggering plan run asks for routing.json and saves it; a behavioral
   }
 });
 
+function corpusCasesOf() {
+  const cfg = runner.loadConfig();
+  return runner.discoverSkills(cfg).flatMap((skill: any) => (runner.loadCases(cfg, skill) || { evals: [] }).evals.map((e: any) => ({ skill, ...e })));
+}
+
+test('FU-h4ez0c: a triggering plan run reports how many behavioral assertions its grading leaves out', () => {
+  const plan = runner.buildPlan(runner.loadConfig(), { iteration: 'fixture' });
+  const cases = new Map(corpusCasesOf().map((c: any) => [`${c.skill}/${c.id}`, c]));
+  const behavioralTypes = (c: any) => (c.assertions || []).filter((a: any) => !['skill_resolved', 'skill_invoked', 'skill_not_invoked', 'skill_not_routed'].includes(a.type)).length;
+  let withExclusions = 0;
+  for (const r of plan.runs.filter((x: any) => x.kind === 'triggering')) {
+    assert.equal(r.grading.scope, 'routing-provenance');
+    assert.equal(r.grading.excludedBehavioralAssertions, behavioralTypes(cases.get(`${r.skill}/${r.evalId}`)));
+    if (r.grading.excludedBehavioralAssertions > 0) withExclusions += 1;
+  }
+  assert.ok(withExclusions > 0, 'the corpus has triggering cases that assert behavior');
+  for (const r of plan.runs.filter((x: any) => x.kind === 'behavioral')) assert.equal(Object.hasOwn(r, 'grading'), false);
+});
+
+test('FU-h4ez0c: grading a triggering run reports behavioral assertions as excluded, never passed, failed or manual', () => {
+  const cfg = runner.loadConfig();
+  const dir = path.join(scratch.dir, 'trig-excluded');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'transcript.txt'), 'ran');
+  fs.writeFileSync(path.join(dir, runner.RUN_ROUTING_FILE), '{"skill":"x","routed":false}');
+  const assertions = [
+    { text: 'x is not routed', type: 'skill_not_routed', skill: 'x' },
+    { text: 'asks a question', type: 'output_matches', pattern: 'never-present' },
+    { text: 'judged by a person', type: 'manual' },
+  ];
+  const grade = (kind: any) => runner.gradeRun(cfg, 'x', { id: 1, name: 'n', kind, split: 'train', assertions }, 'with-skill', dir, null);
+  const triggering = grade('triggering');
+  assert.deepEqual(triggering.expectations.map((x: any) => [x.passed, x.excluded === true]), [[true, false], [null, true], [null, true]]);
+  assert.match(triggering.expectations[1].evidence, /^excluded:/);
+  assert.equal(triggering.pass_rate, 1, 'only the routing assertion decides the verdict');
+  const behavioral = grade('behavioral');
+  assert.deepEqual(behavioral.expectations.map((x: any) => x.passed), [true, false, null], 'a behavioral case still grades every assertion');
+  assert.equal(behavioral.expectations.some((x: any) => x.excluded), false);
+});
+
 // --- split on plan and list (F4, split part) --------------------------------------------------
 
 const RUNNER = path.resolve(__dirname, '../../bench/runner.ts');
