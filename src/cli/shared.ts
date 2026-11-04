@@ -10,7 +10,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
-const { doflowPaths } = require('../install/paths.ts');
+const { doflowPaths, canonicalPath, canonicalLedger } = require('../install/paths.ts');
 const { readInstallManifest } = require('../install/manifest.ts');
 const { DEFAULT_BACKUP_RETENTION, formatBytes } = require('../install/backup.ts');
 const { stateRoot, readLedger } = require('../state/index.ts');
@@ -64,7 +64,9 @@ function buildAdapterRegistry(): any {
 
 /** Resolve {global, projectRoot} scope options for src/install/targets.js#toolDirs from parsed args. */
 function scopeOf(o: any): { global: boolean; projectRoot: string } {
-  return { global: o.global, projectRoot: o.positional[0] || '.' };
+  // The single place a project path enters the verbs: canonical, so an aliased spelling (macOS
+  // /var -> /private/var) and the real one name the same scope, ledger rows and lock.
+  return { global: o.global, projectRoot: o.global ? (o.positional[0] || '.') : canonicalPath(o.positional[0] || '.') };
 }
 
 function installPaths(scope: any): any {
@@ -141,7 +143,7 @@ function scopeSelectionState(scope: any): any {
   const scopeRoot = scope.global ? os.homedir() : path.resolve(scope.projectRoot);
   return {
     lock: readLock(scope.global ? { scope: 'global', homeDir: scopeRoot } : { scope: 'project', projectRoot: scopeRoot }),
-    ledger: readLedger(stateRoot({ scope: scope.global ? 'global' : 'project', projectRoot: scopeRoot, homeDir: scopeRoot })),
+    ledger: canonicalLedger(readLedger(stateRoot({ scope: scope.global ? 'global' : 'project', projectRoot: scopeRoot, homeDir: scopeRoot })), scopeRoot),
     manifestServers: readInstallManifest({ scopeRoot })?.mcpServers ?? null,
   };
 }

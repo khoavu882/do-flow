@@ -19,6 +19,7 @@ const { createCopilotAdapter } = require('../adapters/copilot/index.ts');
 const { createKiroAdapter } = require('../adapters/kiro/index.ts');
 const { createAntigravityAdapter } = require('../adapters/antigravity/index.ts');
 const { planLifecycle } = require('./index.ts');
+const { canonicalPath, canonicalLedger } = require('../install/paths.ts');
 const { formatRetiredPlans } = require('./retired-harnesses.ts');
 const { resolveHookTier, hookTierWarnings } = require('./hook-tier.ts');
 const { stateRoot, readLedger, defaultLedger } = require('../state/index.ts');
@@ -51,9 +52,9 @@ function codexConfigResources(repoRoot: any, fsImpl: any) {
  * reloaded — the same registry also resolves every harness's MCP selection for that command. */
 function registryLifecycleView({ registry, scope, targets, mcpSelections = {}, mcpAdoptable = {}, retainedMcpIds = [], operation, repoRoot, force = false, adopt = false, permissions = false, statusline = false, hookHarnesses, fsImpl = fs }: any) {
   const lifecycleScope = codexScope(scope);
-  const scopeRoot = scope.global ? os.homedir() : path.resolve(scope.projectRoot);
+  const scopeRoot = scope.global ? os.homedir() : canonicalPath(scope.projectRoot);
   const neutralStateRoot = stateRoot({ scope: lifecycleScope, projectRoot: scopeRoot, homeDir: scopeRoot });
-  const ledger = readLedger(neutralStateRoot) ?? defaultLedger({ scope: lifecycleScope, scopeRoot });
+  const ledger = canonicalLedger(readLedger(neutralStateRoot), scopeRoot) ?? defaultLedger({ scope: lifecycleScope, scopeRoot });
   const tier = hookHarnesses ? { harnesses: hookHarnesses, workers: null } : resolveHookTier();
   // Mirrors buildAdapterRegistry() in src/cli/shared.js — including the declared-paths wiring —
   // and is kept as a literal construction here because the registry guard pins every declared

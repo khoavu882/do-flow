@@ -14,6 +14,7 @@
 // caller's `require('../install/targets.ts')` keeps working while the rest of the tree is still `.js`.
 const os = require('node:os');
 const path = require('node:path');
+const { canonicalPath } = require('./paths.ts');
 
 const VALID = ['claude', 'codex', 'copilot', 'kiro', 'opencode', 'pi', 'antigravity'];
 
@@ -91,7 +92,7 @@ interface ToolDirsOptions {
  */
 function toolDirs(opts: ToolDirsOptions = {}): Record<string, string> {
   const { global = false, projectRoot = '.' } = opts;
-  const root = global ? os.homedir() : path.resolve(projectRoot);
+  const root = global ? os.homedir() : canonicalPath(projectRoot);
   return {
     claude: path.join(root, '.claude'),
     codex: path.join(root, '.codex'),
