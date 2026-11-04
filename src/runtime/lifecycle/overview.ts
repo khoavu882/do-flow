@@ -28,6 +28,8 @@ const DISCOVERY_SHOWN = 15;
 const MAINTAIN_SHOWN = 50;
 /** Slugs shown per finished or awaiting-release bucket: those lists only grow, and the overview runs on every brainstorm. */
 const FEATURES_SHOWN = 10;
+/** Entries per list in the JSON brief overview: intents, the ids of one intent, the nudges of one goal (137 FU-2jtkch). */
+const BRIEF_LIST_SHOWN = 10;
 
 const refusal = (action: any, finding: any, message: any) => ({ ok: false, action, finding, message });
 
@@ -116,7 +118,10 @@ function goalView(goal: any, features: any, statuses: any, conflicts: any = []) 
   const met = goal.items.filter((i: any) => i.met).length;
   const nudges = [];
   if (buckets.finished.length) {
-    const who = buckets.finished.length === 1 ? `linked feature ${buckets.finished[0]} is finished` : `linked features ${buckets.finished.join(', ')} are finished`;
+    // The nudge names the most recent finished features only; `features.finished` still lists every one.
+    const finished = shownBucket(buckets.finished);
+    const who = buckets.finished.length === 1 ? `linked feature ${buckets.finished[0]} is finished`
+      : `linked features ${finished.shown.join(', ')}${finished.more ? ` (+${finished.more} more)` : ''} are finished`;
     for (const item of goal.items.filter((i: any) => !i.met)) nudges.push(`${item.id} is unchecked and ${who}`);
   }
   return {
@@ -158,6 +163,31 @@ function nextLines({ shown, open, items, intents, goals, maintain, pendingItems,
     }
   }
   return next;
+}
+
+/**
+ * The JSON brief form of an overview answer: at most BRIEF_LIST_SHOWN intents, ids per intent and nudges per goal. What
+ * was cut is counted in `omitted` (absent when nothing was cut): `intents`, and `intentItems`, `nudges` and
+ * `finished` (the finished features a goal's nudges leave out of their text) per intent or goal that exceeds the
+ * bound. The full view lists everything.
+ */
+function capOverviewBrief(result: any) {
+  const omitted: any = {};
+  const intents = result.intents.slice(0, BRIEF_LIST_SHOWN).map((intent: any) => {
+    if (intent.items.length > BRIEF_LIST_SHOWN) {
+      (omitted.intentItems ??= []).push({ path: intent.path, total: intent.items.length, more: intent.items.length - BRIEF_LIST_SHOWN });
+    }
+    return { ...intent, items: intent.items.slice(0, BRIEF_LIST_SHOWN) };
+  });
+  if (result.intents.length > BRIEF_LIST_SHOWN) omitted.intents = { total: result.intents.length, more: result.intents.length - BRIEF_LIST_SHOWN };
+  const goals = result.goals.map((goal: any) => {
+    const finished = goal.features.finished.length;
+    if (finished > FEATURES_SHOWN) (omitted.finished ??= []).push({ goal: goal.goal, total: finished, more: finished - FEATURES_SHOWN });
+    if (goal.nudges.length <= BRIEF_LIST_SHOWN) return goal;
+    (omitted.nudges ??= []).push({ goal: goal.goal, total: goal.nudges.length, more: goal.nudges.length - BRIEF_LIST_SHOWN });
+    return { ...goal, nudges: goal.nudges.slice(0, BRIEF_LIST_SHOWN) };
+  });
+  return { ...result, intents, goals, ...(Object.keys(omitted).length ? { omitted } : {}) };
 }
 
 /**
@@ -313,4 +343,4 @@ function activeFeature({ root, cwd, now = new Date(), fsImpl = nodeFs }: any) {
   return derived.ok ? { ...derived, active } : { ...result, slug: active.slug, message: `${active.slug} is tracked by its run only; \`lifecycle --action init\` to track it.` };
 }
 
-module.exports = { buildOverview, initFeature, featureStatus, activeFeature, goalView, goalConflicts, goalConflictNext, DISCOVERY_SHOWN, MAINTAIN_SHOWN, FEATURES_SHOWN };
+module.exports = { buildOverview, capOverviewBrief, initFeature, featureStatus, activeFeature, goalView, goalConflicts, goalConflictNext, DISCOVERY_SHOWN, MAINTAIN_SHOWN, FEATURES_SHOWN };

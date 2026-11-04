@@ -15,7 +15,7 @@ const followup = require('./followup.ts');
 const { StoreUnsafeError, StoreLockedError } = require('./event-store.ts');
 const { prepareStore } = require('./store-upkeep.ts');
 const { printSafe } = require('../mask.ts');
-const { buildOverview, initFeature, featureStatus, activeFeature } = require('./overview.ts');
+const { buildOverview, capOverviewBrief, initFeature, featureStatus, activeFeature } = require('./overview.ts');
 const { recordFeature, clearSlug } = require('../feature-pointer.ts');
 const { releaseFeatures, recordMerged } = require('./release.ts');
 const goal = require('./goal.ts');
@@ -44,7 +44,7 @@ const OVERVIEW_BRIEF = Object.freeze({
     '$.followups.items[].id', '$.followups.items[].statement', '$.followups.items[].source', '$.followups.items[].pending',
     '$.intents', '$.goals[].goal', '$.goals[].outcome', '$.goals[].items', '$.goals[].proposeDone', '$.goals[].nudges',
     '$.goals[].conflicts', '$.conflicts', '$.unreadable', '$.unreadableReasons', '$.failures', '$.reason', '$.note',
-    '$.integrationBehind', '$.pending', '$.next',
+    '$.integrationBehind', '$.pending', '$.omitted', '$.next',
   ]),
 });
 /** A brief list answers one page of this many items unless `--limit` says otherwise. */
@@ -301,8 +301,10 @@ function handleLifecycleCommand({ action, cwd, global = false, slug = null, json
       // keeps its 50: that loop settles every pending item. The next lines name the paged list and carry no full-view line.
       if (view === 'brief' && json) {
         const items = flags.maintain ? result.followups.items : result.followups.items.slice(0, BRIEF_PAGE);
-        const brief = { ...result, followups: { ...result.followups, shown: items.length, items } };
-        return emit(withEnvelope(projectBrief(brief, OVERVIEW_BRIEF.keep), { view }), true, lifecycleLines);
+        const brief: any = capOverviewBrief({ ...result, followups: { ...result.followups, shown: items.length, items } });
+        // Something cut from a list: the next lines also say how to get everything.
+        const next = brief.omitted ? [...result.next, ...viewLines('full', { spec: OVERVIEW_BRIEF, carried: { maintain: flags.maintain, since: flags.since }, json: true })] : undefined;
+        return emit(withEnvelope(projectBrief(brief, OVERVIEW_BRIEF.keep), { view, ...(next ? { next } : {}) }), true, lifecycleLines);
       }
     } else if (act === 'init') {
       result = initFeature({ root, slug, take: flags.take, intent: flags.intent, goal: flags.goal });
