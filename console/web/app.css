@@ -706,7 +706,7 @@
     box-shadow: var(--elev-1);
     overflow: hidden;
   }
-  .gate-card[data-openable="true"]:hover { border-color: var(--border-strong); }
+  .gate-card[data-openable="true"]:hover { box-shadow: inset 0 0 0 1px var(--state-awaiting-mark); }
   .gate-card[data-openable="true"]:hover .gate-card__link { text-decoration: underline; }
   .gate-card:has(.gate-card__link:focus-visible) { outline: var(--focus-width) solid var(--focus); outline-offset: var(--focus-offset); overflow: visible; }
   .gate-card__link:focus-visible { outline: none; }
@@ -985,7 +985,7 @@
     }
     .rail--full { display: flex; align-items: flex-start; box-sizing: border-box; width: max-content; min-width: 100%; padding: 0 var(--space-1) 40px; }
     .rail--full .rail__item { display: flex; align-items: flex-start; flex: none; }
-    .rail--full .rail__item + .rail__item::before { flex: 1 0 24px; width: auto; height: 2px; margin: var(--space-4) 0 0; }
+    .rail--full .rail__item + .rail__item::before { flex: 1 0 24px; width: auto; height: 2px; margin: calc(var(--space-4) - 1px) 0 0; }
     /* Six nodes or more: the connectors share the spare width and the rail spans its card; fewer stay compact at 64 px. */
     .rail--full:has(> li:nth-child(6)) > .rail__item + .rail__item { flex: 1 0 auto; }
     .rail--full:not(:has(> li:nth-child(6))) { min-width: 0; }
