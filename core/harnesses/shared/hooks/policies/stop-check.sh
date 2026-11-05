@@ -64,9 +64,13 @@ if ! command -v jq >/dev/null 2>&1; then
   ( . "$POLICY_DIR/capture-failure.sh"; doflow_capture_failure stop-check dependency-missing:jq ) >/dev/null 2>&1 || true
 fi
 require_jq
-SESSION_ID="" ENVELOPE_CLASS=missing
-{ IFS= read -r -d '' ENVELOPE_CLASS; IFS= read -r -d '' SESSION_ID; } < <(
-  printf '%s' "$INPUT" | jq -j 'if ((. | type) != "object") or ((.doflow_event | type) != "object") or ((.doflow_event | has("version")) | not) then "missing" elif ((.doflow_event.version | type) == "number") and .doflow_event.version == 1 then "v1" else "unsupported" end, "\u0000", (.session_id // "" | if type == "string" then rtrimstr("\n") else tojson end), "\u0000"' 2>/dev/null
+SESSION_ID="" ENVELOPE_CLASS=missing TP_RAW="" TP2_RAW="" STOP_ACTIVE=0 HAS_LAM=0 LAM_RAW=""
+# One jq reads the envelope class, the session id and every payload field this policy needs. A string
+# field without a NUL comes back flagged "S"; any other present value is flagged "F" and is read by
+# json_field / jq below, exactly as before.
+{ IFS= read -r -d '' ENVELOPE_CLASS; IFS= read -r -d '' SESSION_ID; IFS= read -r -d '' TP_RAW; IFS= read -r -d '' TP2_RAW; IFS= read -r -d '' STOP_ACTIVE; IFS= read -r -d '' HAS_LAM; IFS= read -r -d '' LAM_RAW; } < <(
+  printf '%s' "$INPUT" | jq -j 'def flag: if type == "string" and (contains("\u0000") | not) then "S" + . else "F" end;
+    if ((. | type) != "object") or ((.doflow_event | type) != "object") or ((.doflow_event | has("version")) | not) then "missing" elif ((.doflow_event.version | type) == "number") and .doflow_event.version == 1 then "v1" else "unsupported" end, "\u0000", (.session_id // "" | if type == "string" then rtrimstr("\n") else tojson end), "\u0000", (.transcript_path // empty | flag), "\u0000", (.transcriptPath // empty | flag), "\u0000", (if (.stop_hook_active // false) == true or (.stop_hook_active // false) == "true" then "1" else "0" end), "\u0000", (if has("last_assistant_message") then "1" else "0" end), "\u0000", (.last_assistant_message // "" | flag), "\u0000"' 2>/dev/null
 ) || true
 ENVELOPE_CLASS=${ENVELOPE_CLASS:-missing}
 if [ ! -f "$POLICY_DIR/contract.sh" ]; then ENVELOPE_CLASS=missing; fi
@@ -81,8 +85,19 @@ if [ "$ENVELOPE_CLASS" = unsupported ] || [ "$ENVELOPE_CLASS" = missing ]; then
   exit 0
 fi
 
-TRANSCRIPT_PATH=$(json_field "$INPUT" ".transcript_path")
-[ -z "$TRANSCRIPT_PATH" ] && TRANSCRIPT_PATH=$(json_field "$INPUT" ".transcriptPath")
+# $(...) drops every trailing newline: so does this, for a value the merged jq read.
+flagged_value() { # <flagged raw> <jq path> -> FLAGGED_VALUE
+  case "$1" in
+    S*)
+      FLAGGED_VALUE=${1#S}
+      while [[ "$FLAGGED_VALUE" == *$'\n' ]]; do FLAGGED_VALUE=${FLAGGED_VALUE%$'\n'}; done
+      ;;
+    "") FLAGGED_VALUE="" ;;
+    *) FLAGGED_VALUE=$(json_field "$INPUT" "$2") ;;
+  esac
+}
+flagged_value "$TP_RAW" ".transcript_path"; TRANSCRIPT_PATH=$FLAGGED_VALUE
+if [ -z "$TRANSCRIPT_PATH" ]; then flagged_value "$TP2_RAW" ".transcriptPath"; TRANSCRIPT_PATH=$FLAGGED_VALUE; fi
 
 # ── 1. Lint dispatch (only when we have a session-scoped edited-files queue) ──
 
@@ -188,7 +203,7 @@ fi
 
 # A stop that continues an earlier block has already been asked to finish once;
 # re-blocking it would loop, so only the lint queue above runs for it.
-[ "$(printf '%s' "$INPUT" | jq -r '.stop_hook_active // false' 2>/dev/null)" = "true" ] && exit 0
+[ "$STOP_ACTIVE" = "1" ] && exit 0
 
 # The payload's own last_assistant_message is the response being stopped on. A present key
 # (even null or empty) is authoritative: the transcript is only read when the key is absent.
@@ -209,8 +224,14 @@ def text: if type == "string" then .
   | text | select(length > 0) ] | last // ""
 JQ
 
-if printf '%s' "$INPUT" | jq -e 'has("last_assistant_message")' >/dev/null 2>&1; then
-  LAST_ASSISTANT_CONTENT=$(printf '%s' "$INPUT" | jq -r '.last_assistant_message // ""' 2>/dev/null || true)
+if [ "$HAS_LAM" = "1" ]; then
+  case "$LAM_RAW" in
+    S*)
+      LAST_ASSISTANT_CONTENT=${LAM_RAW#S}
+      while [[ "$LAST_ASSISTANT_CONTENT" == *$'\n' ]]; do LAST_ASSISTANT_CONTENT=${LAST_ASSISTANT_CONTENT%$'\n'}; done
+      ;;
+    *) LAST_ASSISTANT_CONTENT=$(printf '%s' "$INPUT" | jq -r '.last_assistant_message // ""' 2>/dev/null || true) ;;
+  esac
 else
   # Only parse transcript if we have a path to it
   [ -z "$TRANSCRIPT_PATH" ] && exit 0
