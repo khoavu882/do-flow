@@ -1,0 +1,4 @@
+{"meta":true,"date":"2026-11-05","harness":"opencode","version":"opencode v2.2.5","behaviour":"identity","mode":"opencode run --standalone, project v2 plugin (ctx.tool.hook execute.before)","note":"names only, no values; DOFLOW_RUN_ID, DOFLOW_LINEAGE_ID and DOFLOW_SESSION_ROLE were set to fixed probe values on the launching process and compared inside the plugin process (true/false, value never written)","source":"live probe, FU-ed9zg5 remainder"}
+{"event":"setup","payloadFields":[]}
+{"event":"execute.before","payloadFields":["tool","sessionID","agent","messageID","id","input"]}
+{"envForwarding":{"setOnLauncherProcess":["DOFLOW_RUN_ID","DOFLOW_LINEAGE_ID","DOFLOW_SESSION_ROLE"],"presentInHookProcess":["DOFLOW_RUN_ID","DOFLOW_LINEAGE_ID","DOFLOW_SESSION_ROLE"],"equalsProbeValue":{"DOFLOW_RUN_ID":true,"DOFLOW_LINEAGE_ID":true,"DOFLOW_SESSION_ROLE":true},"inEvents":["setup","execute.before"],"notTested":["DOFLOW_ATTEMPT","DOFLOW_TASK_ID","DOFLOW_WORKTREE"]}}
