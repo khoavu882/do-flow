@@ -190,7 +190,7 @@ test('the pair list is the one of design-system section 3 (spot checks on the lo
 });
 
 test('control: one pair lowered under its bar turns the check red', () => {
-  const lowered = shipped.replace('--text-muted: #4A5463;', '--text-muted: #9AA3B0;');
+  const lowered = shipped.replace('--text-muted: #514C46;', '--text-muted: #9AA3B0;');
   assert.notEqual(lowered, shipped, 'the mutation applied');
   const errors = checkTokens(lowered);
   assert.ok(errors.some((e) => e.startsWith('contrast: light --text-muted on --surface')), errors.join('\n'));
@@ -198,7 +198,7 @@ test('control: one pair lowered under its bar turns the check red', () => {
 
 test('control: the 24 V8 pairs are checked: --surface-3 moved to a mid grey turns each state word and mark on it red, in the dark theme', () => {
   const [head, tail] = shipped.split('[data-theme="dark"] {');
-  const lowered = `${head}[data-theme="dark"] {${tail.replace('--surface-3: #212A36;', '--surface-3: #5A6475;')}`;
+  const lowered = `${head}[data-theme="dark"] {${tail.replace('--surface-3: #262B2F;', '--surface-3: #5A6475;')}`;
   assert.notEqual(lowered, shipped);
   const errors = checkTokens(lowered);
   for (const state of V8_STATES) {
@@ -210,14 +210,14 @@ test('control: the 24 V8 pairs are checked: --surface-3 moved to a mid grey turn
 });
 
 test('control: a V8 pair lowered under its bar in the light theme turns the check red', () => {
-  const lowered = shipped.replace('--state-unknown-mark: #7D8797;', '--state-unknown-mark: #B5BCC8;');
+  const lowered = shipped.replace('--state-unknown-mark: #7E7A72;', '--state-unknown-mark: #B5BCC8;');
   assert.notEqual(lowered, shipped);
   assert.ok(checkTokens(lowered).some((e) => e.startsWith('contrast: light --state-unknown-mark on --surface-3')));
 });
 
 test('control: a dark-theme pair lowered under its bar turns the check red', () => {
   const [head, tail] = shipped.split('[data-theme="dark"] {');
-  const lowered = `${head}[data-theme="dark"] {${tail.replace('--state-failed-fg: #FF8A8A;', '--state-failed-fg: #5A2A2A;')}`;
+  const lowered = `${head}[data-theme="dark"] {${tail.replace('--state-failed-fg: #FF8880;', '--state-failed-fg: #5A2A2A;')}`;
   assert.notEqual(lowered, shipped);
   assert.ok(checkTokens(lowered).some((e) => e.startsWith('contrast: dark --state-failed-fg')));
 });
