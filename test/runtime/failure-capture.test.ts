@@ -11,6 +11,7 @@ const path = require('node:path');
 const { spawnSync, spawn } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env.ts');
 const { suiteTempDir } = require('../helper/tmp.ts');
+const { suiteTempDirOutsideProfile } = require('../helper/outside-profile.ts');
 const { isProgrammingError, errorKind } = require('../../src/runtime/failure/classifier.ts');
 const { failureHome, captureSwitch, captureIsOff } = require('../../src/runtime/failure/home.ts');
 const { captureFailure, captureError, rotateIfDue, MAX_LINE_BYTES, ROTATE_AT_BYTES } = require('../../src/runtime/failure/capture.ts');
@@ -25,9 +26,10 @@ const homeOf = (env: any) => failureHome(env);
 const slashed = (p: any) => (typeof p === 'string' ? p.replace(/\\/g, '/') : p);
 const readLines = (home: any) => fs.readFileSync(path.join(home, 'events.jsonl'), 'utf8').split('\n').filter(Boolean).map((l: any) => JSON.parse(l));
 
-function freshEnv(name: any, extra: any = {}) {
+// `outsideProfile`: win32 keeps the temp folder under the account profile, which `os.homedir()` then names as a home.
+function freshEnv(name: any, extra: any = {}, outsideProfile = false) {
   // A short prefix: a path segment of 32 or more mixed characters is masked as a secret run.
-  const dir = suiteTempDir('doflow-failure-env-');
+  const dir = (outsideProfile ? suiteTempDirOutsideProfile : suiteTempDir)('doflow-failure-env-');
   const home = path.join(dir, 'home');
   const xdg = path.join(dir, 'xdg');
   fs.mkdirSync(home);
@@ -245,7 +247,7 @@ describe('Node writer (IC-011, IC-015)', () => {
   const failureHomeOf = (env: any) => path.join(env.XDG_CONFIG_HOME, 'doflow', 'failures');
 
   test('project: with HOME unset and XDG set, a folder under no known home is stored as its name only', () => {
-    const { dir, env } = freshEnv('project-nohome');
+    const { dir, env } = freshEnv('project-nohome', {}, true);
     const cwd = path.join(dir, 'deep', 'client-app');
     fs.mkdirSync(cwd, { recursive: true });
     delete env.HOME;
@@ -266,7 +268,7 @@ describe('Node writer (IC-011, IC-015)', () => {
   });
 
   test('project: a directory outside HOME, with HOME set, keeps its masked path', () => {
-    const { dir, env } = freshEnv('project-outside');
+    const { dir, env } = freshEnv('project-outside', {}, true);
     const cwd = path.join(dir, 'elsewhere');
     fs.mkdirSync(cwd);
     // capture.ts stores the masked path cut to 200 characters, so a long TMPDIR still has to match.
