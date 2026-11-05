@@ -1,0 +1,9 @@
+{"meta":true,"date":"2026-11-05","harness":"antigravity","version":"agy 1.5.0","behaviour":"identity","mode":"headless","note":"names only, no values; project hooks needed no workspace trust","source":"live probe, report probe-agy.json P3_FU-ed9zg5"}
+{"events":["SessionStart","PreToolUse","PostToolUse","PreInvocation","PostInvocation","Stop"],"stdinFieldsCommon":["artifactDirectoryPath","conversationId","lastUserInput","modelName","transcriptPath","workspacePaths"]}
+{"event":"PreToolUse","extraFields":["stepIdx","toolCall"]}
+{"event":"PostToolUse","extraFields":["stepIdx","toolCall","error"]}
+{"event":"PreInvocation","extraFields":["invocationNum","initialNumSteps"]}
+{"event":"PostInvocation","extraFields":["invocationNum","initialNumSteps"]}
+{"event":"Stop","extraFields":["executionNum","terminationReason","error","fullyIdle"]}
+{"envForwarding":{"presentInHookProcess":["DOFLOW_RUN_ID","DOFLOW_LINEAGE_ID","DOFLOW_SESSION_ROLE"],"inEvents":["SessionStart","PreToolUse","PostToolUse","PreInvocation","PostInvocation","Stop"],"notTested":["DOFLOW_ATTEMPT","DOFLOW_TASK_ID","DOFLOW_WORKTREE"]}}
+{"sessionId":{"payloadField":"conversationId","equalsStreamInitField":"conversation_id"}}

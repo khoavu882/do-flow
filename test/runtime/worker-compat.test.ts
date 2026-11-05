@@ -73,11 +73,15 @@ function orchestrationFindings(registry: any, fixture: any) {
   return findings;
 }
 
-/** Findings for any identity behaviour row that is not `limitation`, or a harness with none (DEC-007). */
+/**
+ * Findings for any identity behaviour row that is not `limitation` without a dated live record that
+ * resolves in the repository, or a harness with no identity row (DEC-007).
+ */
 function identityFindings(lifecycle: any, registry: any) {
   const rows = (lifecycle.coverage?.behaviours ?? []).filter((row: any) => row.behaviour === 'identity');
-  const findings = rows.filter((row: any) => row.status !== 'limitation')
-    .map((row: any) => `identity row for '${row.harness}' is '${row.status}', not 'limitation'`);
+  const findings = rows.filter((row: any) => row.status !== 'limitation' && !(row.provenance ?? []).some((p: any) => p.kind === 'live'
+      && /^\d{4}-\d{2}-\d{2}$/.test(p.date) && fs.existsSync(path.join(REPO, p.locator))))
+    .map((row: any) => `identity row for '${row.harness}' is '${row.status}' without a live record`);
   for (const h of registry.harnesses) {
     if (!rows.some((row: any) => row.harness === h.id)) findings.push(`harness '${h.id}' has no identity row`);
   }
@@ -143,18 +147,20 @@ test('compat: orchestration control, one changed status is reported naming its h
   assert.deepEqual(orchestrationFindings(copy, ORCHESTRATION_BE752D8), ["harness 'codex' orchestration differs from be752d8"]);
 });
 
-test('compat: every identity behaviour row stays limitation (DEC-007)', () => {
+test('compat: every identity behaviour row is limitation or carries a live record (DEC-007)', () => {
   const rows = LIFECYCLE.coverage.behaviours.filter((row: any) => row.behaviour === 'identity');
   assert.equal(rows.length, HARNESSES.harnesses.length, 'one identity row per registered harness');
   assert.deepEqual(identityFindings(LIFECYCLE, HARNESSES), []);
 });
 
-test('compat: identity control, a row promoted to supported is reported', () => {
+test('compat: identity control, a row promoted to enforced without a live record is reported', () => {
   const copy = structuredClone(LIFECYCLE);
   const row = copy.coverage.behaviours.find((r: any) => r.behaviour === 'identity' && r.harness === 'claude');
-  row.status = 'supported';
+  Object.assign(row, { status: 'enforced', tests: ['test/hooks/policy-envelope.test.ts'] });
   delete row.limitation;
-  assert.deepEqual(identityFindings(copy, HARNESSES), ["identity row for 'claude' is 'supported', not 'limitation'"]);
+  assert.deepEqual(identityFindings(copy, HARNESSES), ["identity row for 'claude' is 'enforced' without a live record"]);
+  row.provenance = [{ kind: 'live', locator: 'test/fixtures/hooks/claude/live/missing.jsonl', date: '2026-11-05' }];
+  assert.deepEqual(identityFindings(copy, HARNESSES), ["identity row for 'claude' is 'enforced' without a live record"]);
 });
 
 // RK9: the scratch PATH is the scratch bin plus a scratch directory holding one `node` link. The
