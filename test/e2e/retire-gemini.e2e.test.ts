@@ -103,7 +103,7 @@ test('(1) install -g -t claude releases the gemini install: scripts and agent de
   assert.ok(text.endsWith(`${MARKER_END}\n`), 'nothing follows the section');
   assert.equal(text.split('doflow:start').length - 1, 1, 'exactly one DoFlow section');
   assert.ok(!text.includes('DoFlow pointer') && !text.includes(SHORT_MARKER_START), 'the retired span is replaced, not kept beside the new one');
-  assert.ok(text.includes(path.join(c.home, '.doflow', 'guidance')), 'the section is antigravity\'s pointer to the global guidance tree');
+  assert.ok(text.replaceAll('\\', '/').includes(path.join(c.home, '.doflow', 'guidance').replaceAll('\\', '/')), 'the section is antigravity\'s pointer to the global guidance tree');
   const rows = c.ledger().resources.filter((row: any) => row.target === c.geminiMd);
   assert.deepEqual(rows.map((row: any) => [row.harness, row.ownershipIdentity]), [['antigravity', 'doflow:antigravity:instructions:managed-section']]);
   assert.equal(c.ledger().targets.gemini, undefined, 'the retired target leaves the ledger once no deferred row remains');
