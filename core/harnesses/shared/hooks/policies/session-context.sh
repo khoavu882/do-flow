@@ -44,9 +44,12 @@ if ! command -v jq >/dev/null 2>&1; then
   ( . "$POLICY_DIR/capture-failure.sh"; doflow_capture_failure session-context dependency-missing:jq ) >/dev/null 2>&1 || true
 fi
 require_jq
-SESSION_ID="" ENVELOPE_CLASS=missing
-{ IFS= read -r -d '' ENVELOPE_CLASS; IFS= read -r -d '' SESSION_ID; } < <(
-  printf '%s' "$INPUT" | jq -j 'if ((. | type) != "object") or ((.doflow_event | type) != "object") or ((.doflow_event | has("version")) | not) then "missing" elif ((.doflow_event.version | type) == "number") and .doflow_event.version == 1 then "v1" else "unsupported" end, "\u0000", (.session_id // "" | if type == "string" then rtrimstr("\n") else tojson end), "\u0000"' 2>/dev/null
+SESSION_ID="" ENVELOPE_CLASS=missing CWD_RAW="" TIMESTAMP=""
+# One jq reads the envelope class, session id, cwd and the UTC time. The cwd is taken from here only
+# when it is a string without a NUL (flagged "S"); any other present value is flagged "F" and is read
+# by json_field below, exactly as before.
+{ IFS= read -r -d '' ENVELOPE_CLASS; IFS= read -r -d '' SESSION_ID; IFS= read -r -d '' CWD_RAW; IFS= read -r -d '' TIMESTAMP; } < <(
+  printf '%s' "$INPUT" | jq -j 'if ((. | type) != "object") or ((.doflow_event | type) != "object") or ((.doflow_event | has("version")) | not) then "missing" elif ((.doflow_event.version | type) == "number") and .doflow_event.version == 1 then "v1" else "unsupported" end, "\u0000", (.session_id // "" | if type == "string" then rtrimstr("\n") else tojson end), "\u0000", (.cwd // empty | if type == "string" and (contains("\u0000") | not) then "S" + . else "F" end), "\u0000", (try (now | floor | strftime("%Y-%m-%dT%H:%M:%SZ")) catch ""), "\u0000"' 2>/dev/null
 ) || true
 ENVELOPE_CLASS=${ENVELOPE_CLASS:-missing}
 if [ ! -f "$POLICY_DIR/contract.sh" ]; then ENVELOPE_CLASS=missing; fi
@@ -60,7 +63,14 @@ if [ "$ENVELOPE_CLASS" = unsupported ] || [ "$ENVELOPE_CLASS" = missing ]; then
   fi
   exit 0
 fi
-CWD=$(json_field "$INPUT" ".cwd")
+case "$CWD_RAW" in
+  S*)
+    CWD=${CWD_RAW#S}
+    while [[ "$CWD" == *$'\n' ]]; do CWD=${CWD%$'\n'}; done # $(...) drops every trailing newline
+    ;;
+  "") CWD="" ;;
+  *) CWD=$(json_field "$INPUT" ".cwd") ;;
+esac
 
 package_verify_async() {
   local home="${HOME:-}" lock run config_dir detach=""
@@ -92,47 +102,98 @@ if [[ -z "$SESSION_DIR" ]]; then
   exit 0
 fi
 
+# Two git runs (status, log) answer everything below in the common case, started together so their
+# start-up overlaps. Any other case (not a work tree, detached HEAD, no ahead/behind line, an
+# unexpected log line) falls back to the individual queries, so the recorded values are the ones
+# those queries give.
+git_state_start() {
+  exec 10< <(run_with_timeout 1 -- git -C "$CWD" status --porcelain=v2 --branch --show-stash 2>/dev/null || true)
+  exec 11< <(run_with_timeout 1 -- git -C "$CWD" log --oneline -5 2>/dev/null || true)
+}
+
+git_state_fast() {
+  local status_out="" log_out="" line head="" upstream="" ab="" stash=0 n=0 first
+  IFS= read -r -d '' status_out <&10 || true
+  IFS= read -r -d '' log_out <&11 || true
+  exec 10<&- 11<&-
+  [[ -n "$status_out" ]] || return 1
+  while IFS= read -r line; do
+    case "$line" in
+      "# branch.head "*) head=${line#"# branch.head "} ;;
+      "# branch.upstream "*) upstream=1 ;;
+      "# branch.ab +"*) ab=${line##* -} ;;
+      "# stash "*) stash=${line#"# stash "} ;;
+      "#"*) ;;
+      ?*) n=$((n + 1)) ;;
+    esac
+  done <<< "$status_out"
+  [[ "$head" != "(detached)" && -n "$head" ]] || return 1
+  [[ "$stash" =~ ^[0-9]+$ ]] || return 1
+  if [[ -n "$upstream" && -z "$ab" ]]; then return 1; fi
+  [[ -z "$ab" || "$ab" =~ ^[0-9]+$ ]] || return 1
+  while [[ "$log_out" == *$'\n' ]]; do log_out=${log_out%$'\n'}; done # $(...) drops every trailing newline
+  if [[ -n "$log_out" ]]; then
+    first=${log_out%%$'\n'*}
+    first=${first%% *}
+    [[ "$first" =~ ^[0-9a-f]{4,64}$ ]] || return 1
+    SHA=$first
+  fi
+  COMMITS_RAW=$log_out
+  BRANCH=$head
+  UNCOMMITTED=$n
+  STASH_COUNT=$stash
+  UPSTREAM_BEHIND=${ab:-0}
+  return 0
+}
+
+if [[ -n "$CWD" ]]; then git_state_start; fi
+
 SESSION_PATH=$(ensure_session_dir "$SESSION_ID")
 
 # Clean up stale injected flag from a prior crashed session
-rm -f "$SESSION_PATH/injected"
+if [ -e "$SESSION_PATH/injected" ] || [ -L "$SESSION_PATH/injected" ]; then rm -f "$SESSION_PATH/injected"; fi
 
-TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+[[ -n "$TIMESTAMP" ]] || TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+# Work that does not need the git results runs while git does. A failed mkdir here is retried, and
+# reported, at the point the project directory is used below.
+if [[ -n "$CWD" ]]; then
+  CWD_HASH=$(cwd_hash "$CWD")
+  mkdir -p "$PROJECTS_DIR/$CWD_HASH" 2>/dev/null || true
+fi
 
 # ── Git state capture ─────────────────────────────────────────────────────────
 
 IS_GIT_REPO=false
 BRANCH=""
 SHA=""
-COMMITS_JSON="[]"
+COMMITS_RAW=""
 UNCOMMITTED=0
 STASH_COUNT=0
 UPSTREAM_BEHIND=0
 
-if [[ -n "$CWD" ]] && is_git_worktree "$CWD"; then
-  IS_GIT_REPO=true
+if [[ -n "$CWD" ]]; then
+  if git_state_fast; then
+    IS_GIT_REPO=true
+  elif is_git_worktree "$CWD"; then
+    IS_GIT_REPO=true
 
-  BRANCH=$(git_branch_of "$CWD" || echo "")
-  SHA=$(git_short_sha_of "$CWD" || echo "")
+    BRANCH=$(git_branch_of "$CWD" || echo "")
+    SHA=$(git_short_sha_of "$CWD" || echo "")
 
-  # Last 5 commits as a JSON array of one-liner strings.
-  # Capture git's raw output first (never fatal under pipefail), then build
-  # the JSON array from that captured text in a single jq call whose failure
-  # replaces COMMITS_JSON via assignment rather than appending via echo —
-  # a trailing `|| echo "[]"` on the pipe would double-emit when git log
-  # fails (e.g. zero-commit repo) but jq still prints "[]" downstream.
-  COMMITS_RAW=$(run_with_timeout 1 -- git -C "$CWD" log --oneline -5 2>/dev/null || true)
-  COMMITS_JSON=$(printf '%s' "$COMMITS_RAW" | jq -Rs 'split("\n") | map(select(length > 0))' 2>/dev/null) || COMMITS_JSON="[]"
+    # Last 5 commits as a JSON array of one-liner strings.
+    COMMITS_RAW=$(run_with_timeout 1 -- git -C "$CWD" log --oneline -5 2>/dev/null || true)
 
-  # Count uncommitted (staged + unstaged) files
-  UNCOMMITTED=$(git_uncommitted_count_of "$CWD" || echo "0")
+    # Count uncommitted (staged + unstaged) files
+    UNCOMMITTED=$(git_uncommitted_count_of "$CWD" || echo "0")
 
-  # Count stash entries
-  STASH_COUNT=$(run_with_timeout 1 -- git -C "$CWD" stash list 2>/dev/null | wc -l | tr -d ' ' || echo "0")
+    # Count stash entries
+    STASH_COUNT=$(run_with_timeout 1 -- git -C "$CWD" stash list 2>/dev/null | wc -l | tr -d ' ' || echo "0")
 
-  # How far behind upstream (0 if no upstream configured)
-  # shellcheck disable=SC1083  # @{u} is git upstream ref syntax, not a shell brace expression
-  UPSTREAM_BEHIND=$(run_with_timeout 1 -- git -C "$CWD" rev-list --count HEAD..@{u} 2>/dev/null || echo "0")
+    # How far behind upstream (0 if no upstream configured)
+    # shellcheck disable=SC1083  # @{u} is git upstream ref syntax, not a shell brace expression
+    UPSTREAM_BEHIND=$(run_with_timeout 1 -- git -C "$CWD" rev-list --count HEAD..@{u} 2>/dev/null || echo "0")
+  fi
 fi
 
 # ── Write git-context.json ────────────────────────────────────────────────────
@@ -142,7 +203,7 @@ fi
 jq -n \
   --arg     branch       "$BRANCH" \
   --arg     sha          "$SHA" \
-  --argjson commits      "$COMMITS_JSON" \
+  --arg     commits_raw  "$COMMITS_RAW" \
   --argjson uncommitted  "$UNCOMMITTED" \
   --argjson stash        "$STASH_COUNT" \
   --argjson behind       "$UPSTREAM_BEHIND" \
@@ -152,7 +213,7 @@ jq -n \
   '{
     branch:           $branch,
     sha:              $sha,
-    commits:          $commits,
+    commits:          ($commits_raw | split("\n") | map(select(length > 0))),
     uncommitted_count: $uncommitted,
     stash_count:      $stash,
     upstream_behind:  $behind,
@@ -164,17 +225,18 @@ jq -n \
 # ── Write meta.json ───────────────────────────────────────────────────────────
 
 if [[ -n "$CWD" ]]; then
-  PROJECT_DIR=$(ensure_project_dir "$CWD")
+  PROJECT_DIR="$PROJECTS_DIR/$CWD_HASH"
+  [ -d "$PROJECT_DIR" ] || mkdir -p "$PROJECT_DIR"
   # Preserve compacted_at from the prior session if present
   PRIOR_COMPACTED_AT=""
   if [[ -f "$PROJECT_DIR/meta.json" ]]; then
     PRIOR_COMPACTED_AT=$(jq -r '.compacted_at // empty' "$PROJECT_DIR/meta.json" 2>/dev/null || echo "")
   fi
   META_TMP=$(mktemp "$PROJECT_DIR/.meta.XXXXXX")
-  trap 'rm -f "$META_TMP" 2>/dev/null || true' EXIT
+  trap '[ ! -e "$META_TMP" ] || rm -f "$META_TMP" 2>/dev/null || true' EXIT
   jq -n \
     --arg cwd          "$CWD" \
-    --arg cwd_hash     "$(cwd_hash "$CWD")" \
+    --arg cwd_hash     "$CWD_HASH" \
     --arg last_agent   "$DOFLOW_AGENT" \
     --arg last_active  "$TIMESTAMP" \
     --arg compacted_at "${PRIOR_COMPACTED_AT:-}" \
@@ -192,7 +254,8 @@ fi
 
 # ── Append to sessions.log ────────────────────────────────────────────────────
 
-mkdir -p "$(dirname "$SESSIONS_LOG")"
+SESSIONS_LOG_DIR=${SESSIONS_LOG%/*}
+[ -d "$SESSIONS_LOG_DIR" ] || mkdir -p "$SESSIONS_LOG_DIR"
 echo "$TIMESTAMP START $SESSION_ID ${CWD:-unknown}" >> "$SESSIONS_LOG"
 
 package_verify_async
