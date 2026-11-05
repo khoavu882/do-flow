@@ -119,7 +119,12 @@ fi
 # ── Resolve repo root ───────────────────────────────────────────────────────
 # DOFLOW_PROJECT_DIR (explicit) beats the envelope's projectRoot beats git discovery.
 ROOT="${DOFLOW_PROJECT_DIR:-$ENVELOPE_ROOT}"
+BRANCH_FD=""   # set when the branch query below was started alongside the root discovery
 if [ -z "$ROOT" ]; then
+  # The branch of the discovered root is asked for while the root is found: both queries start at
+  # once and the answer is read at the branch step, unless a resolver names another repo_root.
+  exec 10< <(git branch --show-current 2>/dev/null || true)
+  BRANCH_FD=10
   ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 fi
 
@@ -177,7 +182,13 @@ fi
 # other branch (feat/, feature/, 043-auth, kai/043-auth) runs the feature class and is gated. do-paths.sh
 # classifies fix/bugfix/release/hotfix/trunk the same way (refactor/ and chore/ are its `other`); the
 # chain test fails if the two disagree.
-branch=$(git -C "${repo_root:-$ROOT}" branch --show-current 2>/dev/null || true)
+if [ -z "$repo_root" ] && [ -n "$BRANCH_FD" ]; then
+  branch=""
+  IFS= read -r -d '' branch <&10 || true
+  while [[ "$branch" == *$'\n' ]]; do branch=${branch%$'\n'}; done # $(...) drops every trailing newline
+else
+  branch=$(git -C "${repo_root:-$ROOT}" branch --show-current 2>/dev/null || true)
+fi
 exempt=false
 case "$branch" in
   ""|master|main|develop|trunk|HEAD) exit 0 ;;
@@ -299,6 +310,11 @@ OTHERS=()
 checkouts() {
   [ "$CHECKOUTS_READ" = true ] && return 0
   CHECKOUTS_READ=true
+  # A plain checkout (.git is a directory holding no worktrees folder, and no GIT_* override) has no
+  # other checkout to list, and the list below would leave MAIN and OTHERS empty as well.
+  if [ -d "$repo_root/.git" ] && [ ! -e "$repo_root/.git/worktrees" ] && [ -z "${GIT_DIR:-}${GIT_COMMON_DIR:-}${GIT_WORK_TREE:-}" ]; then
+    return 0
+  fi
   local list here line real current="" main="" paths=() bare=() i
   list=$(git -C "$repo_root" worktree list --porcelain 2>/dev/null) || return 0
   here=$(cd -P "$repo_root" 2>/dev/null && pwd) || return 0
