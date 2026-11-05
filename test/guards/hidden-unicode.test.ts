@@ -17,11 +17,11 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { REPO } = require('./_shared.ts');
 const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
+const { GIT_NULL_CONFIG } = require('../helper/git-null-config.ts');
 
 const SCAN_ROOTS: any = ['core', 'src', 'bin', 'docs'];
 const SCAN_FILES: any = ['README.md'];
@@ -136,7 +136,7 @@ function allTracked(root: any) {
   try {
     return execFileSync('git', ['ls-files', '-z'], {
       cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
-      env: { ...process.env, GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV },
+      env: { ...process.env, GIT_CONFIG_GLOBAL: GIT_NULL_CONFIG, GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV },
     }).split('\0').filter(Boolean);
   } catch {
     // git refuses the checkout when it cannot be listed (on a Windows runner the scratch global config hides
@@ -163,7 +163,7 @@ function filesUnder(root: any, dir: any) {
 function gitTracked(root: any) {
   const out = execFileSync('git', ['ls-files', '-z', '--', ...SCAN_ROOTS, ...SCAN_FILES], {
     cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
-    env: { ...process.env, GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV },
+    env: { ...process.env, GIT_CONFIG_GLOBAL: GIT_NULL_CONFIG, GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV },
   });
   return out.split('\0').filter(Boolean);
 }
