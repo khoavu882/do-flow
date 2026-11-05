@@ -157,7 +157,7 @@ test('retrieve answers after a Kiro-only install, whose steering copy holds the 
   assert.equal(install.status, 0, install.stderr);
   // Steering holds the core set only, so a reference file can come from .doflow/guidance alone.
   assert.ok(!fs.existsSync(path.join(project, '.kiro', 'steering', 'references')), 'steering holds no reference files');
-  assert.ok(retrieveFrom(project, home).some((hit: any) => hit.path.startsWith('references/')), 'the shared guidance tree is installed and indexed');
+  assert.ok(retrieveFrom(project, home).some((hit: any) => hit.path.replaceAll('\\', '/').startsWith('references/')), 'the shared guidance tree is installed and indexed');
 });
 
 test('retrieve skips a project .doflow that holds state but no guidance tree and answers from home', () => {

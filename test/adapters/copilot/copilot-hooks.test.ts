@@ -8,9 +8,11 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { bashPath } = require('../../helper/bash-locator.ts');
 const { tempDir, run, cleanup } = require('../../e2e/cli-e2e.shared.ts');
 const { loadRegistry, capabilityMapData, selectAssets } = require('../../../src/registry/index.ts');
 const { tieredRegistry } = require('../../../src/lifecycle/hook-tier.ts');
+const { expectExecutable } = require('../../helper-platform.ts');
 
 const REPO = path.resolve(__dirname, '../../..');
 const DOORS = ['pre-implement-gate', 'mcp-tool-guard', 'session-start', 'stop-check', 'subagent-start', 'subagent-stop'].map((name) => `doflow-${name}.sh`);
@@ -41,7 +43,7 @@ function gatedRepo(t: any) {
 
 /** Run the installed command of one doflow.json entry the way Copilot does: through a shell, in `cwd`. */
 function runEntry(entry: any, payload: any, { cwd, home, xdg, copilotHome }: any) {
-  return spawnSync('bash', ['-c', entry.bash], {
+  return spawnSync(bashPath(), ['-c', entry.bash], {
     cwd, input: JSON.stringify(payload), encoding: 'utf8',
     env: { ...process.env, HOME: home, XDG_CONFIG_HOME: xdg, ...(copilotHome ? { COPILOT_HOME: copilotHome } : {}), DOFLOW_FAILURE_CAPTURE: 'off', DOFLOW_TELEMETRY: 'off', GIT_CONFIG_GLOBAL: '/dev/null' },
   });
@@ -70,7 +72,7 @@ test('naming copilot in hooks.harnesses projects doflow.json, the front doors an
 
   const hooksDir = path.join(project, '.github', 'hooks');
   for (const name of ['doflow.json', 'doflow-lib.sh', ...DOORS]) assert.ok(fs.existsSync(path.join(hooksDir, name)), `${name} is installed`);
-  for (const name of DOORS) assert.ok(fs.statSync(path.join(hooksDir, name)).mode & 0o111, `${name} is executable`);
+  for (const name of DOORS) expectExecutable(fs, path.join(hooksDir, name), `${name} is executable`);
   assert.ok(fs.existsSync(path.join(project, '.doflow', 'shared', 'hooks', 'bridge', 'bridge.sh')));
   const config = JSON.parse(fs.readFileSync(path.join(hooksDir, 'doflow.json'), 'utf8'));
   assert.equal(config.version, 1);

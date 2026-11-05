@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
 # do-task-brief.sh — compose one task's brief or a group's brief into files the implementer reads.
 #
 # A doflow task is a single checklist line, and plan.md has no "global constraints"

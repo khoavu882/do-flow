@@ -354,6 +354,7 @@ test('R3: the mask uses the injected environment\'s home, and the process home w
   if (real.length > 1) {
     const env = scratch.env();
     delete env.HOME;
+    delete env.USERPROFILE; // scratch.env() mirrors HOME into USERPROFILE on win32, and os.homedir() reads that there
     const out = run(repo.dir, ['followup', '--action', 'report', '--statement', 'no HOME', '--text', `at ${real}/app/main.js:3`, '--json'], { env });
     assert.equal(out.status, 0, out.stderr);
     assert.equal(readEvent(repo, out.json.events[0]).data.excerpt, 'at ~/app/main.js:3');

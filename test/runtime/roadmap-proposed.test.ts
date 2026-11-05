@@ -442,8 +442,8 @@ test('AU C05: the seed prompt gives up after its timeout (no real waiting), prin
   assert.ok(tty.state.clock >= 60000 && tty.state.clock < 60100, `waited on the fake clock only (${tty.state.clock})`);
   assert.equal(tty.state.closed, 1);
   assert.match(tty.state.written, /\[y\/N\] $/);
-  // the timed read opens the terminal non-blocking; the untimed (promote) read does not
-  assert.equal((tty.state.flags & fs.constants.O_NONBLOCK) !== 0, true);
+  // the timed read opens the terminal non-blocking; the untimed (promote) read does not (win32 defines no O_NONBLOCK)
+  if (fs.constants.O_NONBLOCK !== undefined) assert.equal((tty.state.flags & fs.constants.O_NONBLOCK) !== 0, true);
 });
 
 test('AU C05: an answer that arrives before the timeout is honoured by the default timed reader; promote stays untimed', (t) => {

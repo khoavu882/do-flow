@@ -13,6 +13,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { bashPath } = require('../helper/bash-locator.ts');
 const { REPO, AGENT_SPECS } = require('./_shared.ts');
 const { createScratch } = require('../helper/scratch-env.ts');
 const { tempDir } = require('../helper/tmp.ts');
@@ -159,7 +160,7 @@ function project(script = SCRIPT) {
   fs.writeFileSync(path.join(featureDir, 'plan.md'), PLAN);
   fs.writeFileSync(path.join(featureDir, 'requirement.md'), REQUIREMENT);
   return (args: string[], rel: string) => {
-    const res = spawnSync('bash', [script, ...args, `--slug=${FEATURE}`], {
+    const res = spawnSync(bashPath(), [script, ...args, `--slug=${FEATURE}`], {
       cwd: dir, encoding: 'utf8', timeout: 300000, env: scratch.env({ DOFLOW_CLI: path.join(REPO, 'bin', 'doflow.js') }),
     });
     assert.equal(res.status, 0, res.stderr);
@@ -212,7 +213,7 @@ function reviewPackage(script = PACKAGE_SCRIPT) {
   git('add', 'change.txt');
   git('commit', '-q', '-m', 'change');
   const head = git('rev-parse', 'HEAD').stdout.trim();
-  const res = spawnSync('bash', [script, `--task=A.1`, `--base=${base}`, `--head=${head}`, `--slug=${FEATURE}`], {
+  const res = spawnSync(bashPath(), [script, `--task=A.1`, `--base=${base}`, `--head=${head}`, `--slug=${FEATURE}`], {
     cwd: dir, encoding: 'utf8', timeout: 300000, env: scratch.env({ DOFLOW_CLI: path.join(REPO, 'bin', 'doflow.js') }),
   });
   assert.equal(res.status, 0, res.stderr);

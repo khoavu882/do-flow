@@ -7,6 +7,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { bashPath } = require('../helper/bash-locator.ts');
 const { test } = require('node:test');
 
 const REPO = path.resolve(__dirname, '../..');
@@ -19,7 +20,7 @@ const PASCAL: any = {
 const lines = fs.readFileSync(CAPTURE, 'utf8').split('\n').filter(Boolean).map((line: any) => JSON.parse(line));
 
 function normalise(event: any, native: any, env: any = {}) {
-  const result = spawnSync('bash', ['-c', `source '${LIB}'; copilot_bridge_payload '${event}'`], {
+  const result = spawnSync(bashPath(), ['-c', `source '${LIB}'; copilot_bridge_payload '${event}'`], {
     input: typeof native === 'string' ? native : JSON.stringify(native), encoding: 'utf8', env: { ...process.env, ...env },
   });
   assert.equal(result.status, 0, result.stderr);
@@ -110,20 +111,20 @@ test('sessionStart keeps the source and the initial prompt; userPromptSubmitted 
 });
 
 test('a payload jq cannot read is printed unchanged', () => {
-  const result = spawnSync('bash', ['-c', `source '${LIB}'; copilot_bridge_payload PreToolUse`], { input: 'not json', encoding: 'utf8' });
+  const result = spawnSync(bashPath(), ['-c', `source '${LIB}'; copilot_bridge_payload PreToolUse`], { input: 'not json', encoding: 'utf8' });
   assert.equal(result.stdout, 'not json\n');
 });
 
 test('the live deny proof is the flat shape the bridge renders for a preToolUse deny', () => {
   const proof = JSON.parse(fs.readFileSync(path.join(REPO, 'test/fixtures/hooks/copilot/live/deny-proof-2026-10-27.json'), 'utf8'));
-  const rendered = spawnSync('bash', ['-c', `. '${path.join(REPO, 'core/harnesses/shared/hooks/bridge/respond.sh')}'; doflow_render_response copilot PreToolUse deny 'doflow capture test' 2`], { encoding: 'utf8' });
+  const rendered = spawnSync(bashPath(), ['-c', `. '${path.join(REPO, 'core/harnesses/shared/hooks/bridge/respond.sh')}'; doflow_render_response copilot PreToolUse deny 'doflow capture test' 2`], { encoding: 'utf8' });
   assert.equal(rendered.status, 0);
   assert.deepEqual(JSON.parse(rendered.stdout), proof.hookStdout);
   assert.equal(proof.toolRan, false);
 });
 
 test('the Stop deny renders the documented block shape and exits 0', () => {
-  const rendered = spawnSync('bash', ['-c', `. '${path.join(REPO, 'core/harnesses/shared/hooks/bridge/respond.sh')}'; doflow_render_response copilot Stop deny 'unfinished' 2`], { encoding: 'utf8' });
+  const rendered = spawnSync(bashPath(), ['-c', `. '${path.join(REPO, 'core/harnesses/shared/hooks/bridge/respond.sh')}'; doflow_render_response copilot Stop deny 'unfinished' 2`], { encoding: 'utf8' });
   assert.equal(rendered.status, 0);
   assert.deepEqual(JSON.parse(rendered.stdout), { decision: 'block', reason: 'unfinished' });
 });

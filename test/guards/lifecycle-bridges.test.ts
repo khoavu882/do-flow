@@ -77,7 +77,7 @@ function bridgeEnv(extra: any = {}) {
 
 function bridgeInput(harness: any, native: any, fixtureEnv: any = {}, event: any = '') {
   if (harness === 'copilot') {
-    const translated = spawnSync('/bin/bash', ['-c', `. '${path.join(REPO, 'core/harnesses/copilot/hooks/doflow-lib.sh')}'; copilot_bridge_payload '${event}'`], {
+    const translated = spawnSync(bashPath(), ['-c', `. '${path.join(REPO, 'core/harnesses/copilot/hooks/doflow-lib.sh')}'; copilot_bridge_payload '${event}'`], {
       input: JSON.stringify(native), encoding: 'utf8', env: bridgeEnv(fixtureEnv),
     });
     assert.equal(translated.status, 0, translated.stderr);

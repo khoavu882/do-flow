@@ -927,7 +927,7 @@ test('FU-vva1x8: registryOn names no registry for the real fs and loads the ship
   const other = { ...fs, readFileSync: (file: any, ...rest: any[]) => { reads.push(String(file)); return (fs as any).readFileSync(file, ...rest); } };
   const { registry } = registryOn(other);
   assert.ok(registry.keys.has('storage.prune'));
-  assert.ok(reads.some((file) => file.endsWith(REGISTRY)), 'the registry was read through the given fs');
+  assert.ok(reads.some((file) => file.replaceAll('\\', '/').endsWith(REGISTRY)), 'the registry was read through the given fs');
   const broken = { ...fs, readFileSync: () => { throw new Error('unreadable'); }, existsSync: () => false };
   assert.throws(() => registryOn(broken));
 });

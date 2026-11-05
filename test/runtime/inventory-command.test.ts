@@ -117,7 +117,7 @@ function divergedScopes(label: any) {
   ledger.targets.claude = { installed: true, lastUpdated: '2026-01-01T00:00:00.000Z' };
   ledger.resources.push({
     harness: 'claude', scope: 'project', assetId: 'skills.doflow',
-    ownershipIdentity: 'doflow:claude:copy-tree:skills.doflow:do/SKILL.md',
+    ownershipIdentity: `doflow:claude:copy-tree:skills.doflow:${path.join('do', 'SKILL.md')}`,
     target: path.join(projectRoot, '.claude', 'skills', 'do', 'SKILL.md'),
     sourceVersion: 'test', fingerprint: 'sha256:1111111111111111',
     projection: {}, recoveryRef: null, selection: null,
