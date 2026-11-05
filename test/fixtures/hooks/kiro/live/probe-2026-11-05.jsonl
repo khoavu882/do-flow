@@ -1,0 +1,5 @@
+{"meta":true,"date":"2026-11-05","harness":"kiro","version":"kiro-cli 3.0.0","behaviour":"identity","mode":"kiro-cli chat --no-interactive --trust-workspace, project agent hooks","note":"names only, no values; DOFLOW_RUN_ID, DOFLOW_LINEAGE_ID and DOFLOW_SESSION_ROLE were set to fixed probe values on the launching process and compared inside the hook process (true/false, value never written)","source":"live probe, FU-ed9zg5 remainder"}
+{"event":"agentSpawn","payloadFields":["session_id","hook_event_name","cwd"]}
+{"event":"userPromptSubmit","payloadFields":["session_id","hook_event_name","cwd","prompt"]}
+{"event":"stop","payloadFields":["session_id","hook_event_name","cwd"]}
+{"envForwarding":{"setOnLauncherProcess":["DOFLOW_RUN_ID","DOFLOW_LINEAGE_ID","DOFLOW_SESSION_ROLE"],"presentInHookProcess":["DOFLOW_RUN_ID","DOFLOW_LINEAGE_ID","DOFLOW_SESSION_ROLE"],"equalsProbeValue":{"DOFLOW_RUN_ID":true,"DOFLOW_LINEAGE_ID":true,"DOFLOW_SESSION_ROLE":true},"inEvents":["agentSpawn","userPromptSubmit","stop"],"notTested":["DOFLOW_ATTEMPT","DOFLOW_TASK_ID","DOFLOW_WORKTREE"]}}

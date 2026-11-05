@@ -2607,8 +2607,18 @@
       {
         "behaviour": "identity",
         "harness": "claude",
-        "status": "limitation",
-        "limitation": "DOFLOW_* launcher environment forwarding to hook processes is untested on Claude Code 2.1.311 (live probe 2026-11-05 observed only the stdin fields session_id, transcript_path, cwd and hook_event_name; no model and no parent id)"
+        "status": "enforced",
+        "tests": [
+          "test/hooks/policy-envelope.test.ts",
+          "test/hooks/identity-bash.test.ts"
+        ],
+        "provenance": [
+          {
+            "kind": "live",
+            "locator": "test/fixtures/hooks/claude/live/probe-2026-11-05.jsonl",
+            "date": "2026-11-05"
+          }
+        ]
       },
       {
         "behaviour": "identity",
@@ -2620,13 +2630,13 @@
         "behaviour": "identity",
         "harness": "opencode",
         "status": "limitation",
-        "limitation": "no DoFlow hook bridge; OpenCode 2.2.5 plugin payloads carry sessionID, agent and messageID with no parent link (live probe 2026-11-05), and DOFLOW_* environment forwarding is untested"
+        "limitation": "no DoFlow hook bridge for OpenCode: a live probe on 2.2.5 (2026-11-05) saw DOFLOW_RUN_ID, DOFLOW_LINEAGE_ID and DOFLOW_SESSION_ROLE reach a plugin, but nothing in DoFlow consumes them there, so the row is not enforced"
       },
       {
         "behaviour": "identity",
         "harness": "pi",
         "status": "limitation",
-        "limitation": "DOFLOW_* launcher environment forwarding to extension code is untested on Pi 1.4.0 (live probe 2026-11-05 observed ctx.sessionManager.getSessionId() and ctx.model.id, and no session id environment variable)"
+        "limitation": "DOFLOW_* env reached a Pi 1.4.0 extension loaded with -e in a live probe (2026-11-05); the probe hit a usage limit, saw no tool_call event, and project auto-discovery of the extension recorded nothing (cause untested), so enforcement through the installed extension is unverified"
       },
       {
         "behaviour": "identity",
@@ -2647,8 +2657,18 @@
       {
         "behaviour": "identity",
         "harness": "kiro",
-        "status": "limitation",
-        "limitation": "DOFLOW_* launcher environment forwarding to hook processes is untested on Kiro CLI 3.0.0 (live probe 2026-11-05 observed KIRO_SESSION_ID, KIRO_VERSION and KIRO_AGENT_ENGINE in the hook environment, not DOFLOW_* names)"
+        "status": "enforced",
+        "tests": [
+          "test/hooks/policy-envelope.test.ts",
+          "test/hooks/identity-bash.test.ts"
+        ],
+        "provenance": [
+          {
+            "kind": "live",
+            "locator": "test/fixtures/hooks/kiro/live/probe-2026-11-05.jsonl",
+            "date": "2026-11-05"
+          }
+        ]
       },
       {
         "behaviour": "identity",
