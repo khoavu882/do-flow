@@ -585,7 +585,7 @@ const WORKER_ENTRY_FIELDS = new Set(['status', 'evidence', 'verification', 'veri
 // Soft hyphen, Mongolian vowel separator, zero-width and directional marks, word joiner and invisible operators, BOM.
 const INVISIBLE_CHARACTER = /[\u00ad\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff]/;
 const WORKER_RECIPE_FIELDS = new Set(['binary', 'versionArgv', 'argv', 'promptVia', 'parser', 'marker', 'quotaSignals']);
-const WORKER_QUOTA_SIGNALS_FIELDS = new Set(['signals', 'basis', 'evidence']);
+const WORKER_QUOTA_SIGNALS_FIELDS = new Set(['signals', 'unverifiedSignals', 'basis', 'evidence']);
 const WORKER_FACTS = new Set(['hooksLoaded', 'identityForwarded', 'guidanceLoaded', 'login']);
 const WORKER_MODEL_CHECK_FIELDS = new Set(['id', 'argv', 'establishes', 'estimateTokens', 'timeoutSeconds']);
 const WORKER_ARGV_MAX = 32;
@@ -683,22 +683,31 @@ function validateWorker(value: any, location: string, errors: string[]): void {
       else {
         for (const field of Object.keys(quota)) if (!WORKER_QUOTA_SIGNALS_FIELDS.has(field)) fail(key, `quotaSignals has unknown field '${field}'`);
         if (!Array.isArray(quota.signals) || quota.signals.length < 1 || quota.signals.length > 16) fail(key, 'quotaSignals.signals must contain 1 to 16 signals');
-        else {
-          const folded = new Set<string>();
-          for (const signal of quota.signals) {
+        const unverified = quota.unverifiedSignals;
+        if (Object.hasOwn(quota, 'unverifiedSignals')) {
+          // 106 FU-2hfj0d: one basis covers `signals`; a list the transcript does not support lives apart, matched as unverified.
+          if (quota.basis !== 'transcript') fail(key, "quotaSignals.unverifiedSignals requires basis 'transcript' (under 'unverified', put every signal in signals)");
+          if (!Array.isArray(unverified) || unverified.length < 1 || (Array.isArray(quota.signals) ? quota.signals.length : 0) + unverified.length > 16) {
+            fail(key, 'quotaSignals.unverifiedSignals must be a non-empty array, with signals at most 16 in all');
+          }
+        }
+        const folded = new Set<string>();
+        for (const [list, name] of [[quota.signals, 'signals'], [unverified, 'unverifiedSignals']] as const) {
+          if (!Array.isArray(list)) continue;
+          for (const signal of list) {
             if (typeof signal !== 'string' || signal !== signal.trim() || signal.length < 3 || signal.length > 64 || /[\u0000-\u001f\u007f]/.test(signal)) {
-              fail(key, 'quotaSignals.signals must be trimmed strings of 3 to 64 characters without control characters');
+              fail(key, `quotaSignals.${name} must be trimmed strings of 3 to 64 characters without control characters`);
               break;
             }
             // The matcher lowercases both sides, so a signal that differs only by case never adds a match; a
             // zero-width or format character makes one that reads like another yet matches nothing.
             if (INVISIBLE_CHARACTER.test(signal)) {
-              fail(key, 'quotaSignals.signals must not contain zero-width or invisible format characters');
+              fail(key, `quotaSignals.${name} must not contain zero-width or invisible format characters`);
               break;
             }
             const lowered = signal.toLowerCase();
             if (folded.has(lowered)) {
-              fail(key, `quotaSignals.signals has a duplicate signal '${signal}' (compared without letter case)`);
+              fail(key, `quotaSignals.${name} has a duplicate signal '${signal}' (compared without letter case)`);
               break;
             }
             folded.add(lowered);
@@ -948,7 +957,7 @@ function validateRegistry(
     validateAgentLimits(harness.agentLimits, at, errors);
     validateWorker(harness.worker, at, errors);
     const quota = harness.worker?.structuredOutput?.quotaSignals;
-    if (object(quota) && quota.basis === 'transcript' && Array.isArray(quota.evidence) && typeof repoRoot === 'string') {
+    if (sources === 'require' && object(quota) && quota.basis === 'transcript' && Array.isArray(quota.evidence) && typeof repoRoot === 'string') {
       for (const evidence of quota.evidence) {
         if (typeof evidence === 'string' && !fsImpl.existsSync(path.resolve(repoRoot, evidence))) {
           issue(errors, `${at} worker 'structuredOutput'`, `quotaSignals transcript evidence '${evidence}' does not exist`);

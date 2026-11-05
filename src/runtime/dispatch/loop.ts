@@ -1215,16 +1215,17 @@ async function launch(p: any, admitted: any, plan: any, view: any) {
 }
 
 /**
- * 106 IC-004 (D8): the signal basis a hold or step from harness `from` prints: its descriptor's
- * `structuredOutput.quotaSignals.basis`, else the basis of the run's last quota event for it, else
+ * 106 IC-004 (D8): the signal basis a hold or step from harness `from` prints: the basis of the run's
+ * last quota event for it (FU-2hfj0d: a descriptor may hold verified and unverified signals, so the
+ * signal that matched decides), else its descriptor's `structuredOutput.quotaSignals.basis`, else
  * `unverified`. Read outside every lock.
  */
 function basisFor(p: any, f: any, from: string | null): string {
+  const last = (Array.isArray(f.events) ? f.events : []).filter((e: any) => e && e.kind === 'quota' && e.from === from).at(-1);
+  if (last && typeof last.basis === 'string' && last.basis) return last.basis;
   const worker = workerOf(p, from);
   const declared = worker && worker.structuredOutput && worker.structuredOutput.quotaSignals ? worker.structuredOutput.quotaSignals.basis : null;
-  if (typeof declared === 'string' && declared) return declared;
-  const last = (Array.isArray(f.events) ? f.events : []).filter((e: any) => e && e.kind === 'quota' && e.from === from).at(-1);
-  return last && typeof last.basis === 'string' && last.basis ? last.basis : 'unverified';
+  return typeof declared === 'string' && declared ? declared : 'unverified';
 }
 
 /**

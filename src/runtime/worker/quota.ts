@@ -30,14 +30,18 @@ function matchQuota(summary: string | null, signals: string[]): string | null {
 
 /**
  * IC-002: the `report.quota` a finished run's report carries, or null. Only a `failure` report can
- * carry it, and only when its summary matches the descriptor's `structuredOutput.quotaSignals`;
+ * carry it, and only when its summary matches the descriptor's `structuredOutput.quotaSignals` (`signals` first, at the
+ * declared basis, then `unverifiedSignals`, always at basis `unverified`);
  * `success`, `denied` and `unparsed` never do.
  */
 function quotaOf(report: any, descriptor: any): { signal: string; basis: string } | null {
   if (!report || report.status !== 'failure') return null;
   const quotaSignals = descriptor?.structuredOutput?.quotaSignals;
   const signal = matchQuota(report.summary ?? null, quotaSignals?.signals);
-  return signal ? { signal, basis: quotaSignals.basis } : null;
+  if (signal) return { signal, basis: quotaSignals.basis };
+  // FU-2hfj0d: signals no transcript supports sit in `unverifiedSignals` and always report basis `unverified`.
+  const unverified = matchQuota(report.summary ?? null, quotaSignals?.unverifiedSignals);
+  return unverified ? { signal: unverified, basis: 'unverified' } : null;
 }
 
 module.exports = { matchQuota, quotaOf, QUOTA_SCAN_BYTES };

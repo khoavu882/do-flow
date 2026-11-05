@@ -15,6 +15,9 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+### Changed
+- **Codex `usage limit` quota signal is verified from a real transcript (FU-2hfj0d):** `core/worker-evidence/codex/2026-11-05-quota-transcript.json` records one masked usage-limit event taken from a Codex session rollout log (not `codex exec --json` output; the file states the shape difference). `quotaSignals.signals` is now `["usage limit"]` at `basis: transcript`; `rate limit`, `quota exceeded`, `too many requests` and `resource_exhausted` moved to the new optional `unverifiedSignals` list and still report `basis: unverified`. Fallback holds and steps print the basis of the signal that matched. The transcript-evidence file check now runs only in `require` source mode, so a runtime-shaped copy without `core/worker-evidence/` still loads.
+
 ## [2.0.3] - 2026-11-05
 
 ### Changed

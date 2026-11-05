@@ -20,7 +20,9 @@ const { launchEnv, launchRecord } = require('../../src/runtime/worker/launch.ts'
 const { superviseRun } = require('../../src/runtime/worker/supervisor.ts');
 
 /** The codex entry's registry signals, read, not copied (106 review C-6). */
-const SIGNALS = loadRegistry({ repoRoot: path.resolve(__dirname, '../..') }).harnesses.find((h: any) => h.id === 'codex').worker.structuredOutput.quotaSignals.signals;
+const CODEX_QUOTA = loadRegistry({ repoRoot: path.resolve(__dirname, '../..') }).harnesses.find((h: any) => h.id === 'codex').worker.structuredOutput.quotaSignals;
+/** Every codex signal, verified then unverified (FU-2hfj0d). */
+const SIGNALS = [...CODEX_QUOTA.signals, ...CODEX_QUOTA.unverifiedSignals];
 test('quota matcher finds declared codex signals case-insensitively and in declaration order', () => {
   for (const [summary, signal] of [['Rate Limit reached', 'rate limit'], ['USAGE LIMIT', 'usage limit'], ['Quota exceeded for project', 'quota exceeded'], ['429 Too Many Requests', 'too many requests'], ['RESOURCE_EXHAUSTED', 'resource_exhausted']]) {
     assert.equal(matchQuota(summary, SIGNALS), signal);
@@ -29,7 +31,7 @@ test('quota matcher finds declared codex signals case-insensitively and in decla
 });
 
 test('106 C-6: the codex signals match quota phrases and never ordinary failure prose', () => {
-  assert.deepEqual(SIGNALS, ['rate limit', 'usage limit', 'quota exceeded', 'too many requests', 'resource_exhausted']);
+  assert.deepEqual([...SIGNALS].sort(), ['quota exceeded', 'rate limit', 'resource_exhausted', 'too many requests', 'usage limit']);
   for (const summary of ['You have hit your usage limit', 'Rate limit reached', '429 Too Many Requests', 'Quota exceeded for project', 'RESOURCE_EXHAUSTED']) {
     assert.notEqual(matchQuota(summary, SIGNALS), null, summary);
   }
@@ -38,6 +40,44 @@ test('106 C-6: the codex signals match quota phrases and never ordinary failure 
     assert.equal(quotaOf({ status: 'failure', summary }, { structuredOutput: { quotaSignals: { signals: SIGNALS, basis: 'unverified', evidence: [] } } }), null, summary);
   }
 });
+test('FU-2hfj0d: codex verifies only `usage limit` from a real transcript and keeps the other four unverified', () => {
+  const repoRoot = path.resolve(__dirname, '../..');
+  assert.equal(CODEX_QUOTA.basis, 'transcript');
+  assert.deepEqual(CODEX_QUOTA.signals, ['usage limit']);
+  assert.deepEqual(CODEX_QUOTA.unverifiedSignals, ['rate limit', 'quota exceeded', 'too many requests', 'resource_exhausted']);
+  assert.deepEqual(CODEX_QUOTA.evidence, ['core/worker-evidence/codex/2026-11-05-quota-transcript.json']);
+  const record = JSON.parse(fs.readFileSync(path.join(repoRoot, CODEX_QUOTA.evidence[0]), 'utf8'));
+  assert.equal(record.schema, 'doflow-worker-evidence-v1');
+  assert.equal(record.harness, 'codex');
+  assert.deepEqual(record.signalsSupported, CODEX_QUOTA.signals);
+  assert.equal(record.source.notExecJson, true);
+  assert.ok(record.caveats.some((line: string) => /exec --json/.test(line)));
+  // The recorded message is the real one, and the matcher reads its masked text as the verified signal.
+  const message = record.transcript.event.payload.error.message;
+  assert.match(message, /^You’ve hit your usage limit\./);
+  assert.equal(record.transcript.event.payload.error.codex_error_info, 'usage_limit_exceeded');
+  assert.doesNotMatch(JSON.stringify(record), /@|\/Users\/|[0-9a-f]{8}-[0-9a-f]{4}-/);
+  const descriptor: any = { structuredOutput: { quotaSignals: CODEX_QUOTA } };
+  assert.deepEqual(quotaOf({ status: 'failure', summary: message }, descriptor), { signal: 'usage limit', basis: 'transcript' });
+  for (const [summary, signal] of [['429 Too Many Requests', 'too many requests'], ['Rate limit reached', 'rate limit'], ['Quota exceeded', 'quota exceeded'], ['RESOURCE_EXHAUSTED', 'resource_exhausted']]) {
+    assert.deepEqual(quotaOf({ status: 'failure', summary }, descriptor), { signal, basis: 'unverified' }, summary);
+  }
+  assert.equal(quotaOf({ status: 'failure', summary: 'HTTP 429' }, descriptor), null);
+});
+
+test('FU-2hfj0d: unverifiedSignals validate like signals, need a transcript basis and may not repeat a verified signal', () => {
+  const base = { signals: ['usage limit'], basis: 'transcript', evidence: ['core/worker-evidence/codex/2026-11-05-quota-transcript.json'] };
+  const at = "harness 'codex' worker 'structuredOutput'";
+  const fails = (quota: any, expected: RegExp) => assert.ok(validateQuota(quota).some((line: any) => line.includes(at) && expected.test(line)), JSON.stringify(validateQuota(quota)));
+  assert.deepEqual(validateQuota({ ...base, unverifiedSignals: ['rate limit'] }), []);
+  fails({ ...base, unverifiedSignals: [] }, /non-empty/);
+  fails({ ...base, unverifiedSignals: 'rate limit' }, /non-empty/);
+  fails({ ...base, unverifiedSignals: ['Usage Limit'] }, /duplicate/);
+  fails({ ...base, unverifiedSignals: ['ab'] }, /unverifiedSignals must be trimmed strings/);
+  fails({ ...base, unverifiedSignals: Array.from({ length: 16 }, (_, i) => `signal ${i}`) }, /at most 16/);
+  fails({ signals: ['usage limit'], unverifiedSignals: ['rate limit'], basis: 'unverified', evidence: [] }, /requires basis 'transcript'/);
+});
+
 test('quota matcher ignores other failures and scans only a UTF-8 safe 2,000 byte prefix', () => {
   for (const summary of ['400 Bad Request: invalid model', '401 Unauthorized', '502 Bad Gateway', '', null, undefined]) assert.equal(matchQuota(summary, SIGNALS), null);
   assert.equal(QUOTA_SCAN_BYTES, 2000);

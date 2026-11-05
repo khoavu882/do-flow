@@ -102,7 +102,10 @@ const CODEX_RECIPES = {
   oneShot: { argv: ['--ephemeral', '-'], promptVia: 'stdin' },
   structuredOutput: {
     argv: ['--json', '-o', '{lastMessageFile}'], parser: 'codex-exec-json-v1',
-    quotaSignals: { signals: ['rate limit', 'usage limit', 'quota exceeded', 'too many requests', 'resource_exhausted'], basis: 'unverified', evidence: [] },
+    quotaSignals: {
+      signals: ['usage limit'], unverifiedSignals: ['rate limit', 'quota exceeded', 'too many requests', 'resource_exhausted'],
+      basis: 'transcript', evidence: ['core/worker-evidence/codex/2026-11-05-quota-transcript.json'],
+    },
   },
   readOnly: { argv: ['exec', '-s', 'read-only'] },
   isolatedEdit: { argv: ['exec', '-s', 'workspace-write'] },
