@@ -406,6 +406,7 @@ test('only servers with a steps entry are listed, and a registry entry with step
   fs.cpSync(path.join(REPO_ROOT, 'core', 'registry'), path.join(repo, 'core', 'registry'), { recursive: true });
   fs.symlinkSync(path.join(REPO_ROOT, 'core', 'shared'), path.join(repo, 'core', 'shared'));
   fs.symlinkSync(path.join(REPO_ROOT, 'core', 'harnesses'), path.join(repo, 'core', 'harnesses'));
+  fs.symlinkSync(path.join(REPO_ROOT, 'core', 'worker-evidence'), path.join(repo, 'core', 'worker-evidence'));
   for (const name of ['bin', 'src']) fs.symlinkSync(path.join(REPO_ROOT, name), path.join(repo, name));
   fs.copyFileSync(path.join(REPO_ROOT, 'package.json'), path.join(repo, 'package.json'));
   const file = path.join(repo, 'core', 'registry', 'mcp.json');
