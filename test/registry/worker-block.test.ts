@@ -21,7 +21,7 @@ const CODEX_EVIDENCE: any = {
   structuredOutput: [CODEX_RECORD, LIVE_READ_ONLY, LIVE_EDIT],
   spawnDenial: [CODEX_RECORD, LIVE_READ_ONLY, LIVE_EDIT],
   readOnly: [CODEX_RECORD, LIVE_READ_ONLY],
-  isolatedEdit: [CODEX_RECORD, LIVE_EDIT],
+  isolatedEdit: [CODEX_RECORD, LIVE_EDIT, 'core/worker-evidence/codex/2026-11-05-sandbox-probe.json'],
   runnableProbe: [CODEX_RECORD],
 };
 const CODEX_SUPPORTED = ['oneShot', 'structuredOutput', 'readOnly', 'spawnDenial', 'runnableProbe'];
@@ -108,7 +108,7 @@ const CODEX_RECIPES = {
     },
   },
   readOnly: { argv: ['exec', '-s', 'read-only'] },
-  isolatedEdit: { argv: ['exec', '-s', 'workspace-write'] },
+  isolatedEdit: { argv: ['exec', '-s', 'workspace-write'], protectedPaths: ['.git', '.agents', '.codex', '.aws'] },
   spawnDenial: { argv: ['--disable', 'multi_agent', '--disable', 'multi_agent_v2'] },
   runnableProbe: { argv: ['exec', '--help'] },
 };
@@ -117,9 +117,9 @@ test('worker: the six supported codex entries equal their committed status, evid
   const codex = loadRegistry({ repoRoot: REPO }).harnesses.find((harness: any) => harness.id === 'codex').worker;
   assert.deepEqual(Object.keys(CODEX_RECIPES).sort(), [...CODEX_SUPPORTED, 'isolatedEdit'].sort());
   for (const [key, recipe] of Object.entries(CODEX_RECIPES)) {
-    const { status, evidence, verifiedOn, argv, promptVia, parser, quotaSignals } = codex[key];
+    const { status, evidence, verifiedOn, argv, promptVia, parser, quotaSignals, protectedPaths } = codex[key];
     assert.deepEqual(
-      { status, evidence, verifiedOn, argv, promptVia, parser, ...(quotaSignals === undefined ? {} : { quotaSignals }) },
+      { status, evidence, verifiedOn, argv, promptVia, parser, ...(quotaSignals === undefined ? {} : { quotaSignals }), ...(protectedPaths === undefined ? {} : { protectedPaths }) },
       { status: 'supported', evidence: CODEX_EVIDENCE[key], verifiedOn: '2026-10-18', promptVia: undefined, parser: undefined, ...recipe },
       `codex ${key}`,
     );
