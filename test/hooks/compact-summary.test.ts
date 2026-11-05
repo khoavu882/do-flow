@@ -618,6 +618,8 @@ test('PreCompact turns malformed UTF-8 into U+FFFD, equal for Claude and Codex, 
   for (const [label, cwdExpr, replacedKept] of cases) {
     for (const locale of UTF8_LOCALE ? ['C', UTF8_LOCALE] : ['C']) {
       const script = [
+        // The hook's lib.sh defines this wrapper before compact-text.sh runs; native jq.exe ends lines with CRLF unless -b.
+        'case "${OSTYPE:-}" in msys*|cygwin*|win32*) jq() { command jq -b "$@"; } ;; esac',
         'is_git_worktree() { return 1; }',
         `source "${builder}"`,
         `doflow_compact_text ${cwdExpr}`,

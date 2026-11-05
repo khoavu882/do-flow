@@ -316,7 +316,7 @@ test('negative control: a directory swapped for a symlink between plan and apply
   const outside = path.join(path.dirname(p.scopeRoot), 'outside-lib');
   fs.renameSync(path.join(p.dest, 'lib'), outside);
   fs.symlinkSync(outside, path.join(p.dest, 'lib'), 'dir');
-  assert.throws(() => p.apply(planned), /Refusing to remove copy-tree resource lib\/old\.js: it resolves outside/);
+  assert.throws(() => p.apply(planned), /Refusing to remove copy-tree resource lib[\\/]old\.js: it resolves outside/);
   assert.equal(fs.readFileSync(path.join(outside, 'old.js'), 'utf8'), 'v1\n', 'the file outside the tree is untouched');
 });
 
@@ -425,13 +425,13 @@ test('CLI: update names each pruned file and each retained one, in --dry-run and
 
   const dry = cli(['update', proj, '--dry-run', '-t', 'codex']);
   assert.equal(dry.status, 0, dry.stderr);
-  assert.match(dry.stdout, /^\[DRY\] {3}codex: prune \.doflow\/runtime\/src\/retired\.js: no longer shipped, unchanged since DoFlow wrote it$/m);
+  assert.match(dry.stdout, /^\[DRY\] {3}codex: prune \.doflow[\\/]runtime[\\/]src[\\/]retired\.js: no longer shipped, unchanged since DoFlow wrote it$/m);
   assert.match(dry.stdout, /^\[DRY\] {2}codex: retained 1 shared resource\(s\) still claimed by claude$/m);
   assert.ok(fs.existsSync(runtimeFile) && fs.existsSync(scriptsFile), '--dry-run deletes nothing');
 
   const real = cli(['update', proj, '-t', 'codex'], 'y\n');
   assert.equal(real.status, 0, real.stderr);
-  assert.match(real.stdout, /^\[INFO\] codex: prune \.doflow\/runtime\/src\/retired\.js: no longer shipped, unchanged since DoFlow wrote it$/m);
+  assert.match(real.stdout, /^\[INFO\] codex: prune \.doflow[\\/]runtime[\\/]src[\\/]retired\.js: no longer shipped, unchanged since DoFlow wrote it$/m);
   assert.match(real.stdout, /^\[INFO\] codex: retained 1 shared resource\(s\) still claimed by claude$/m);
   assert.equal(fs.existsSync(runtimeFile), false);
   assert.equal(fs.existsSync(scriptsFile), true, 'outside the runtime trees NFR-007 still keeps what claude claims');

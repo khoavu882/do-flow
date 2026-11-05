@@ -52,7 +52,7 @@ function homeCandidates(env: any): string[] {
   const out: string[] = [];
   const add = (value: any) => {
     if (typeof value !== 'string' || !path.isAbsolute(value)) return;
-    const home = value.replace(/\/+$/, '');
+    const home = value.replace(/[\\/]+$/, '');
     if (home.length > 1 && !out.includes(home)) out.push(home);
   };
   add(env.HOME);
@@ -70,8 +70,8 @@ function homeCandidates(env: any): string[] {
 function projectName(env: any): string {
   let cwd: string;
   try { cwd = process.cwd(); } catch { return ''; }
-  const home = homeCandidates(env).find((h) => cwd === h || cwd.startsWith(`${h}/`));
-  if (home) return maskLine(`~${cwd.slice(home.length)}`, { home: null }).text.slice(0, 200);
+  const home = homeCandidates(env).find((h) => cwd === h || cwd.startsWith(`${h}/`) || cwd.startsWith(`${h}${path.sep}`));
+  if (home) return maskLine(`~${cwd.slice(home.length).split(path.sep).join('/')}`, { home: null }).text.slice(0, 200);
   const homeGiven = typeof env.HOME === 'string' && path.isAbsolute(env.HOME);
   if (!homeGiven) return maskLine(path.basename(cwd), { home: null }).text.slice(0, 200);
   return maskLine(cwd, { home: env.HOME }).text.slice(0, 200);
