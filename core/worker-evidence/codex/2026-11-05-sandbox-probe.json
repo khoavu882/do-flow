@@ -1,0 +1,54 @@
+{
+  "binary": "codex",
+  "caveats": [
+    "Manual probe, not a `doflow worker run` record and not a `worker --action evidence` check. A person ran `codex exec -s workspace-write` and, without a model call, `codex sandbox -c 'sandbox_mode=\"workspace-write\"' /bin/zsh -c 'echo x > <path>/probe.txt'` once per path, then listed the directory to confirm the file was absent or present.",
+    "Only nine paths were tried (the nine in `tried`). A path name not in that list is untested, so `protectedPaths` may be incomplete.",
+    "The denial was observed on macOS (seatbelt) as `operation not permitted`. Other operating systems were not tried.",
+    "The `exec -s workspace-write` runs were read from the agent's text report; a sandbox-denied command produced no `command_execution` item in `--json` output.",
+    "A nested `sub/.git` was writable, so a protected name blocks only at the workspace root; the matcher in src/runtime/worker/protected-paths.ts matches a declared path's first segment only."
+  ],
+  "cliVersion": "codex-cli 0.164.0",
+  "establishes": [
+    "protectedPaths"
+  ],
+  "harness": "codex",
+  "kind": "sandbox-probe",
+  "observedOn": "2026-11-05",
+  "platform": "darwin",
+  "probe": {
+    "argvShape": [
+      "exec",
+      "-s",
+      "workspace-write"
+    ],
+    "error": "operation not permitted",
+    "pathsTried": 9,
+    "protected": [
+      ".git",
+      ".agents",
+      ".codex",
+      ".aws"
+    ],
+    "tried": {
+      "blocked": [
+        ".git",
+        ".agents",
+        ".codex",
+        ".aws"
+      ],
+      "writable": [
+        "an ordinary directory",
+        ".foo",
+        ".ssh",
+        ".github",
+        "sub/.git"
+      ]
+    }
+  },
+  "recordedAt": "2026-11-05",
+  "schema": "doflow-worker-evidence-v1",
+  "source": {
+    "kind": "manual-probe",
+    "notWorkerRun": true
+  }
+}

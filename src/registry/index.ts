@@ -575,7 +575,7 @@ const WORKER_CAPABILITIES: Record<string, { allowed: string[], required: string[
 /** Capability entries a `worker` block may carry but need not (082 IC-013, DEC-020; 120 IC-011).
  * Absent reads as `unknown`; present, the entry takes every IC-001 capability-entry rule. */
 const WORKER_OPTIONAL_CAPABILITIES: Record<string, { allowed: string[], required: string[] }> = Object.freeze({
-  isolatedEdit: { allowed: ['argv'], required: ['argv'] },
+  isolatedEdit: { allowed: ['argv', 'protectedPaths'], required: ['argv'] },
   model: { allowed: ['argv'], required: ['argv'] },
 });
 const WORKER_BILLING = new Set(['free', 'metered', 'unknown']);
@@ -584,12 +584,42 @@ const WORKER_ALLOWED_KEYS = Object.freeze([...WORKER_KEYS, ...Object.keys(WORKER
 const WORKER_ENTRY_FIELDS = new Set(['status', 'evidence', 'verification', 'verifiedOn', 'reason']);
 // Soft hyphen, Mongolian vowel separator, zero-width and directional marks, word joiner and invisible operators, BOM.
 const INVISIBLE_CHARACTER = /[\u00ad\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff]/;
-const WORKER_RECIPE_FIELDS = new Set(['binary', 'versionArgv', 'argv', 'promptVia', 'parser', 'marker', 'quotaSignals']);
+const WORKER_RECIPE_FIELDS = new Set(['binary', 'versionArgv', 'argv', 'promptVia', 'parser', 'marker', 'quotaSignals', 'protectedPaths']);
 const WORKER_QUOTA_SIGNALS_FIELDS = new Set(['signals', 'unverifiedSignals', 'basis', 'evidence']);
 const WORKER_FACTS = new Set(['hooksLoaded', 'identityForwarded', 'guidanceLoaded', 'login']);
 const WORKER_MODEL_CHECK_FIELDS = new Set(['id', 'argv', 'establishes', 'estimateTokens', 'timeoutSeconds']);
 const WORKER_ARGV_MAX = 32;
 const WORKER_ARG_MAX_CHARS = 200;
+
+const WORKER_PROTECTED_PATHS_MAX = 16;
+const WORKER_PROTECTED_PATH_MAX_CHARS = 100;
+
+/** FU-kjcv6t: `isolatedEdit.protectedPaths` is 1 to 16 distinct workspace-relative paths the sandbox
+ * refuses to write. Each is a plain path of segments joined by `/`: no leading `/`, no drive letter, no
+ * backslash, no `.` or `..` or empty segment, no glob character, no control or invisible character.
+ * Returns the first problem, or null. Distinctness ignores letter case, as the matcher does. */
+function workerProtectedPathsProblem(value: any): string | null {
+  if (!Array.isArray(value) || value.length < 1 || value.length > WORKER_PROTECTED_PATHS_MAX) {
+    return `protectedPaths must be an array of 1 to ${WORKER_PROTECTED_PATHS_MAX} paths`;
+  }
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (typeof item !== 'string' || item.length < 1 || item.length > WORKER_PROTECTED_PATH_MAX_CHARS) {
+      return `protectedPaths entries must be strings of 1 to ${WORKER_PROTECTED_PATH_MAX_CHARS} characters`;
+    }
+    if (/[\u0000-\u001f\u007f]/.test(item) || INVISIBLE_CHARACTER.test(item)) return 'protectedPaths entries must not contain control or invisible characters';
+    if (/[*?[\]{}]/.test(item)) return `protectedPaths entry '${item}' must not contain a glob character`;
+    if (item.includes('\\') || item.startsWith('/') || /^[A-Za-z]:/.test(item)) return `protectedPaths entry '${item}' must be a relative path with '/' separators`;
+    const segments = item.split('/');
+    if (segments.some((segment) => segment === '' || segment === '.' || segment === '..' || segment !== segment.trim())) {
+      return `protectedPaths entry '${item}' must have plain segments (no '.', '..', empty or padded segment)`;
+    }
+    const folded = item.toLowerCase();
+    if (seen.has(folded)) return `protectedPaths has a duplicate entry '${item}' (compared without letter case)`;
+    seen.add(folded);
+  }
+  return null;
+}
 
 /** A worker argv: an array of 0 to 32 strings, each at most 200 characters and free of NUL. */
 function workerArgvProblem(value: any): string | null {
@@ -675,6 +705,10 @@ function validateWorker(value: any, location: string, errors: string[]): void {
           fail(key, "argv must contain '{lastMessageFile}' only once and only in structuredOutput.argv");
         }
       }
+    }
+    if (Object.hasOwn(entry, 'protectedPaths')) {
+      const problem = workerProtectedPathsProblem(entry.protectedPaths);
+      if (problem) fail(key, problem);
     }
     if (Object.hasOwn(entry, 'parser') && (typeof entry.parser !== 'string' || !entry.parser.trim())) fail(key, 'parser must be a parser id');
     if (key === 'structuredOutput' && Object.hasOwn(entry, 'quotaSignals')) {

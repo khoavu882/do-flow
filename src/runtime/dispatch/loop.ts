@@ -53,6 +53,7 @@ const { cancelRun } = require('../worker/cancel.ts');
 const { activeWorkers, workerGate, inSessionGate } = require('../worker/active.ts');
 const { resolveTier, readBindings, resolveBinding, bindingGap } = require('../worker/models.ts');
 const { resultOfRun } = require('../worker/supervisor.ts');
+const { protectedPathGap } = require('../worker/protected-paths.ts');
 const { readRuns, storeFileFor: runStoreFileFor } = require('../worker/run-store.ts');
 const {
   storeFileFor, readDispatch, mutateDispatch, setRunState, fallbackOf, inSessionOf, appendFallbackEvent, HELD_RUN_STATES, DispatchStoreError, DISPATCH_ID,
@@ -301,6 +302,16 @@ function selectMode({ policy = 'auto', held = false, lastFailureClass = null, ca
       if (!c.eligible) return c;
       const descriptor = entries.find((entry: any) => entry.harness === c.harness)?.worker;
       const gap = bindingGap(resolveBinding({ worker: c.harness, tier: resolvedTier, bindings: rest.bindings, descriptor }));
+      return gap ? { ...c, eligible: false, gaps: [...c.gaps, gap] } : c;
+    });
+  }
+  // FU-kjcv6t: a task whose declared files reach a path the harness's sandbox refuses is no edit task for it.
+  if (Array.isArray(rest.files) && rest.files.length) {
+    const reg = rest.registry || loadRegistry({ repoRoot: REPO_ROOT });
+    const entries = readiness.workerDescriptors({ descriptors: rest.descriptors, registry: reg });
+    candidates = candidates.map((c: any) => {
+      if (!c.eligible) return c;
+      const gap = protectedPathGap(entries.find((entry: any) => entry.harness === c.harness)?.worker, rest.files);
       return gap ? { ...c, eligible: false, gaps: [...c.gaps, gap] } : c;
     });
   }
@@ -1304,7 +1315,7 @@ async function admitAndLaunch(p: any) {
       harness: run.harness || null, needs: Array.isArray(run.needs) ? run.needs : [], descriptors: p.descriptors, registry: p.reg(),
       coverage: p.coverage, env: p.env, cwd: p.cwd, root: p.root, now: () => p.clock().getTime(), platform: p.platform,
       evaluateImpl: p.evaluateImpl, cache: p.cache, fallback: f, owner: p.ownerOf ? p.ownerOf(task) : null, tier: p.tierOf ? p.tierOf(task) : null,
-      task, last: lastWorkerDispatch(s, task), active, bindings,
+      files: p.filesOf ? p.filesOf(task) : [], task, last: lastWorkerDispatch(s, task), active, bindings,
     });
     if (!choice.hold) return choice;
     if (choice.hold.transient) {
