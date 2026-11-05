@@ -57,9 +57,9 @@ function runHookProcess(hookPath: string, { cwd, homeDir, fixtureStdin, env: cus
       timeout: 10000,
     });
     // Some hooks ignore stdin and exit before spawnSync finishes writing it. Node then reports EPIPE
-    // although the child ran to completion, so EPIPE with an exit status is a completed run: the exit
+    // although the child ran to completion (EOF on win32), so EPIPE with an exit status is a completed run: the exit
     // status below decides it, whatever it is. Any other error still fails the measurement.
-    const completed = res.error && (res.error as any).code === 'EPIPE' && res.status !== null;
+    const completed = res.error && ['EPIPE', 'EOF'].includes((res.error as any).code) && res.status !== null; // win32 reports the closed pipe as EOF
     if (res.error && !completed) {
       if ((res.error as any).code === 'ETIMEDOUT') {
         return {
