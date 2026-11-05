@@ -352,7 +352,7 @@ test('bare mode not assumed: a worker mode that skips the hooks reads hooks-load
 
 // ── Scenario: Identity reaches hook processes (US5, FR-009), the probe half ────────────────────
 
-test('identity reaches hook processes: a binding is forwarding observed, a session start alone is not; identity rows stay limitation', POSIX, async (t) => {
+test('identity reaches hook processes: a binding is forwarding observed, a session start alone is not; an identity row leaves limitation only with a live record', POSIX, async (t) => {
   const p: any = project(t, { descriptors: { claude: DESCRIPTORS.claude, codex: claudeAs('fake-codex') }, claim: null });
   const fixed: any = { run: 'probe0000cccc', lineage: 'p0000cccc' };
   const future = new Date(Date.now() + 60000).toISOString().replace(/\.\d{3}Z$/, 'Z');
@@ -383,7 +383,11 @@ test('identity reaches hook processes: a binding is forwarding observed, a sessi
   };
   walk(lifecycle);
   assert.ok(rows.length > 0);
-  for (const row of rows) assert.equal(row.status, 'limitation', row.harness);
+  for (const row of rows) {
+    if (row.status === 'limitation') continue;
+    const live = (row.provenance ?? []).filter((item: any) => item.kind === 'live' && /^\d{4}-\d{2}-\d{2}$/.test(item.date));
+    assert.ok(live.length > 0 && live.every((item: any) => fs.existsSync(path.join(REPO, item.locator))), `${row.harness} left limitation without a live record (DEC-007)`);
+  }
 });
 
 // ── Scenario: Run needs the main session's claim (US3, FR-010) ────────────────────────────────

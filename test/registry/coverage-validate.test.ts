@@ -43,7 +43,11 @@ test('IC-017, IC-018: the shipped blocks load and validate, one entry per harnes
   for (const entry of coverage.behaviours.filter((item: any) => item.status === 'enforced')) {
     for (const file of entry.tests) assert.ok(fs.existsSync(path.join(ROOT, file)), `${entry.behaviour}/${entry.harness}: ${file} exists`);
   }
-  assert.ok(coverage.behaviours.filter((item: any) => item.behaviour === 'identity').every((item: any) => item.status === 'limitation'), 'identity stays a limitation (DEC-004)');
+  // DEC-007: an identity row leaves limitation only on a live observation whose record resolves in the repository.
+  for (const item of coverage.behaviours.filter((entry: any) => entry.behaviour === 'identity' && entry.status !== 'limitation')) {
+    const live = (item.provenance || []).filter((p: any) => p.kind === 'live' && /^\d{4}-\d{2}-\d{2}$/.test(p.date));
+    assert.ok(live.length > 0 && live.every((p: any) => fs.existsSync(path.join(ROOT, p.locator))), `identity/${item.harness} is ${item.status} without a resolvable live record (DEC-007)`);
+  }
 });
 
 test('IC-017: a missing harness in endOfTurn is rejected', () => {
