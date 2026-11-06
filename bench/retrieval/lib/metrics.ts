@@ -163,6 +163,7 @@ function scoreTask({ task, answer, pathInfo }: any) {
     metrics.successAt1 = relevant.length === 0 ? null
       : (cands.length > 0 && task.qrels.some((q: any) => q.rel === 2 && hits(corpus, cands[0], q)) ? 1 : 0);
   }
+  metrics.ndcgAt5 = ndcg(corpus, cands, task.qrels, 5);
   if (corpus === 'code') metrics.ndcgAt10 = ndcg(corpus, cands, task.qrels, 10);
 
   metrics.locatorValidity = locatorValidity(cands, pathInfo, kMax);
@@ -208,6 +209,16 @@ function scoreTask({ task, answer, pathInfo }: any) {
   return out;
 }
 
+/**
+ * nDCG@5 of a candidate list for either corpus (141 DEC-030): the same gain and match rule as `ndcgAt10`, cut at 5.
+ * `candidates` need only carry `rank` and the locator fields; the order is the `rank` order. Null when the task has no
+ * judged positive, since the ideal DCG is then 0 and the task cannot separate two orders.
+ */
+function ndcgAt5Of(corpus: any, candidates: any, qrels: any) {
+  if (corpus !== 'code' && corpus !== 'guidance') throw new Error(`unknown corpus "${corpus}"`);
+  return ndcg(corpus, ordered(candidates || []).slice(0, 5), qrels, 5);
+}
+
 /** Macro mean over the tasks where the value is defined, with `n` beside it. */
 function macro(values: any) {
   const defined = values.filter((v: any) => v != null);
@@ -235,5 +246,5 @@ function aggregate(metricRecords: any) {
 module.exports = {
   CLASSES, RANKING_CLASSES, OUTCOME_CLASSES, K, K_MAX, TOKENS_BASIS,
   kindOf, applicability, classesFor, minNFor,
-  hits, scoreTask, macro, aggregate,
+  hits, scoreTask, ndcgAt5Of, macro, aggregate,
 };

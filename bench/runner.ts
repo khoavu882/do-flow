@@ -1837,8 +1837,9 @@ const USAGE = `doflow bench — evaluation harness for the shipped skills
   node bench/runner.ts coverage [--json]              which skills have triggering + behavioral cases
   node bench/runner.ts advice-coverage [--json]        check decision-model advice corpus coverage
   node bench/runner.ts advice [--kind <kind>] [--split train|heldout] [--json] run advice cases against the local decision model
-  node bench/runner.ts advice-gate --kind <kind> [--model <name>] [--write] [--freeze] [--json]
-                                                      score a kind's heldout cases into a gate verdict; --write stores it, --freeze refreshes corpus digests (no --kind)
+  node bench/runner.ts advice-gate --kind <kind> [--arm choice|ladder|both] [--model <name>] [--write] [--freeze] [--json]
+                                                      score a kind's heldout cases into a gate verdict; --write stores it, --freeze refreshes corpus digests (no --kind);
+                                                      --kind rerank scores nDCG@5 on the retrieval dev split, one verdict per arm (--arm, default both)
   node bench/runner.ts parity [--json]                does the committed baseline still describe the corpus
   node bench/runner.ts list [--skill S] [--split train|heldout] [--json]
                                                       enumerate cases
@@ -1969,7 +1970,8 @@ function parseArgs(argv: any) {
     }
     else if (a === '--arm') {
       opts.arm = argv[++i];
-      if (opts.arm !== 'without-skill') {
+      // `advice-gate` takes the rerank arms; its runner validates them (and refuses them for other kinds).
+      if (opts.arm !== 'without-skill' && cmd !== 'advice-gate') {
         console.error('bench: --arm must be without-skill');
         return { cmd: null, opts: { error: 2 } };
       }
@@ -2130,7 +2132,7 @@ function main(argv: any = process.argv.slice(2)) {
     console.error(`bench ${cmd}: --split is not accepted`);
     return 2;
   }
-  if (opts.arm && cmd !== 'plan') {
+  if (opts.arm && cmd !== 'plan' && cmd !== 'advice-gate') {
     console.error(`bench ${cmd}: --arm is not accepted`);
     return 2;
   }

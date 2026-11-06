@@ -3,7 +3,11 @@
 // `advice-gate` (141 IC-006): asks the decision model every heldout case of one choice or yes/no kind, scores the answers
 // with gate-score.ts and stores one verdict (IC-004) in core/registry/advice-verdicts.json when --write is given.
 // The verdict holds digests, counts and numbers only: no case text, no per-case row. Per-case outcomes (id, pick,
-// latency) go to stdout under --json and are never persisted. The rerank branch and --arm belong to a later task.
+// latency) go to stdout under --json and are never persisted.
+//
+// `--kind rerank [--arm choice|ladder|both]` scores nDCG@5 of the model order against the first-stage order on the
+// retrieval bench's dev split (never the sealed holdout), one verdict per arm bound to (kind, model, arm) and the
+// criteria digest; the paired arm difference and the ladder's would-drop counts are printed to stdout only.
 
 const crypto = require('node:crypto');
 const fs = require('node:fs');
@@ -17,7 +21,9 @@ const { createAdviceClient } = require('../src/runtime/advice/client.ts');
 const { materializeKind } = require('../src/runtime/advice/kinds.ts');
 const { summarizeCases, judge } = require('../src/runtime/advice/gate-score.ts');
 const { gateDigest, canonicalJson } = require('../src/runtime/advice/bench-gate.ts');
+const { resolveRerankCriteria } = require('../src/runtime/advice/criteria.ts');
 const { adviceCoverage } = require('./advice.ts');
+const rerankLib = require('./retrieval/lib/adapters-rerank.ts');
 
 const VERDICTS_FILE = 'advice-verdicts.json';
 const RERANK_KIND = 'rerank';
@@ -52,8 +58,9 @@ function corpusEntry(corpus: any) {
 function unversionedChange(kind: string, stored: any, entry: any): string | null {
   if (!isObject(stored) || stored.digest === entry.digest) return null;
   if (Number.isInteger(stored.corpusVersion) && entry.corpusVersion > stored.corpusVersion) return null;
-  return `kind '${kind}': the heldout cases changed but corpusVersion is still ${entry.corpusVersion} (stored ${stored.corpusVersion}); `
-    + `increment corpusVersion in bench/advice/${kind}.json`;
+  const where = kind === RERANK_KIND ? 'RERANK_CORPUS_VERSION in bench/retrieval/lib/adapters-rerank.ts' : `corpusVersion in bench/advice/${kind}.json`;
+  return `kind '${kind}': the ${kind === RERANK_KIND ? 'dev tasks' : 'heldout cases'} changed but corpusVersion is still ${entry.corpusVersion} (stored ${stored.corpusVersion}); `
+    + `increment ${where}`;
 }
 
 function readVerdictFile(file: string): { ok: true; data: any } | { ok: false; detail: string } {
@@ -101,14 +108,139 @@ function fmt(value: any, digits = 3): string {
 function renderText(verdict: any, written: boolean, writeRequested: boolean): string {
   const q = verdict.quality;
   const lines = [
-    `advice-gate ${verdict.kind} (${verdict.model}): ${verdict.result}`,
+    `advice-gate ${verdict.kind}${verdict.arm ? ` arm ${verdict.arm}` : ''} (${verdict.model}): ${verdict.result}`,
     `  cases: ${verdict.n}, valid ${verdict.valid} (share ${fmt(verdict.validShare)})`,
     `  ${q.metric}: model ${fmt(q.model)}, static ${fmt(q.static)}, delta ${fmt(q.delta)}, ci ${q.ci ? `[${fmt(q.ci[0])}, ${fmt(q.ci[1])}]` : 'n/a'}`,
     `  latency ms: p50 ${fmt(verdict.latencyMs.p50, 0)}, p95 ${fmt(verdict.latencyMs.p95, 0)}`,
   ];
+  if (q.excluded) lines.push(`  excluded from quality (no judged positive): ${q.excluded}`);
+  if (verdict.criteriaDigest) lines.push(`  criteria digest: ${verdict.criteriaDigest}`);
+  if (verdict.armDelta) lines.push(`  armDelta vs ${verdict.armDelta.versus}: ${fmt(verdict.armDelta.delta)}, ci ${verdict.armDelta.ci ? `[${fmt(verdict.armDelta.ci[0])}, ${fmt(verdict.armDelta.ci[1])}]` : 'n/a'}`);
   if (verdict.failedChecks.length) lines.push(`  failed checks: ${verdict.failedChecks.join(', ')}`);
   lines.push(written ? '  verdict written' : writeRequested ? '  verdict not written' : '  not written (pass --write to store it)');
   return lines.join('\n');
+}
+
+function verdictMatches(v: any, kind: string, model: string, arm: string | null): boolean {
+  return isObject(v) && v.kind === kind && v.model === model && (v.arm ?? null) === arm;
+}
+
+/** Real first-stage collection (configuration A over the pinned export); the scratch directory is removed afterwards. */
+function defaultFirstStage(repoRoot: string, tmpOption?: string) {
+  return () => {
+    const tmp = tmpOption ?? path.join(require('node:os').tmpdir(), `doflow-rerank-${process.pid}`);
+    try { return rerankLib.collectFirstStage({ repoRoot, tmp }); } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+  };
+}
+
+/** The rerank branch (IC-006): both arms by default, over the same dev tasks, with the paired difference. */
+async function rerankGate(options: any) {
+  const {
+    kind, model, write = false, json = false, arm, gate, kindEntry, verdictFile, fail,
+    adviceRegistry, setting, client,
+    repoRoot = REPO_ROOT,
+    now = () => new Date(),
+    log = (text: string) => console.log(text),
+  } = options;
+  if (!isObject(kindEntry.params) || !isObject(kindEntry.scoreLadder)) return fail(1, `kind '${kind}' has no params or score ladder in the advice registry`);
+  if (!isObject(setting) || setting.state !== 'on') {
+    return fail(1, `advice is off (${setting?.reason ?? 'not configured'}); configure a decision model first (doflow advise --action configure)`);
+  }
+  const effectiveModel = typeof model === 'string' && model.trim() ? model.trim() : setting.model;
+  if (typeof effectiveModel !== 'string' || !effectiveModel) return fail(1, 'no model: pass --model or configure a decision model');
+  const probe = await client.inspect({ endpoint: setting.endpoint, model: effectiveModel, provider: setting.provider, file: setting.decidedBy?.user ?? undefined });
+  if (probe?.endpoint?.state !== 'reached') {
+    return fail(1, `endpoint ${setting.endpoint} is not reachable (${probe?.endpoint?.message ?? probe?.endpoint?.state ?? 'no answer'})`);
+  }
+  if (!probe.model?.installed) return fail(1, `model '${effectiveModel}' is not installed at ${setting.endpoint}`);
+  if (!probe.model?.decisionCapable) return fail(1, `model '${effectiveModel}' is not decision-capable`);
+
+  // The criteria in force come from the resolver the runtime uses; its digest binds each verdict to them.
+  const criteria = resolveRerankCriteria({
+    value: options.criteriaValue, kind: kindEntry, adviceRegistry, projectRoot: options.projectRoot ?? path.resolve(process.cwd()), env: options.env ?? process.env,
+  });
+  let firstStage: any;
+  try {
+    firstStage = await (options.firstStage ?? defaultFirstStage(repoRoot, options.tmp))();
+  } catch (e: any) {
+    return fail(1, `cannot build the first-stage candidate lists (${e.message})`);
+  }
+  const items = firstStage.items;
+  if (!Array.isArray(items) || items.length === 0) return fail(1, 'the dev split gave no tasks');
+  const entry = {
+    corpusVersion: rerankLib.RERANK_CORPUS_VERSION, digest: `sha256:${firstStage.tasksSha256}`,
+    heldoutCases: items.length, snapshotId: firstStage.snapshotId,
+  };
+
+  const arms = arm === 'both' ? rerankLib.ARMS : [arm];
+  const scored: Record<string, any> = {};
+  for (const name of arms) {
+    scored[name] = await rerankLib.scoreArm({
+      arm: name, items, ask: (request: any) => client.ask(request), model: effectiveModel, criteria, kindEntry,
+      limits: adviceRegistry.limits,
+    });
+  }
+  const armDelta = scored.choice && scored.ladder ? rerankLib.armDifference(scored.choice.cases, scored.ladder.cases, gate) : null;
+
+  const verdicts = arms.map((name: string) => {
+    const metrics = summarizeCases(scored[name].cases, gate, kind);
+    const judged = judge(metrics, gate, kind);
+    return {
+      kind, model: effectiveModel, arm: name, criteriaDigest: criteria.digest,
+      gateVersion: gate.version, gateDigest: gateDigest(gate),
+      corpusVersion: entry.corpusVersion, corpusDigest: entry.digest,
+      runAt: now().toISOString(),
+      host: { platform: process.platform, arch: process.arch },
+      n: metrics.n, valid: metrics.valid, validShare: metrics.validShare,
+      quality: metrics.quality, latencyMs: metrics.latencyMs,
+      armDelta: name === 'ladder' && armDelta ? { versus: armDelta.versus, delta: armDelta.delta, ci: armDelta.ci } : null,
+      result: judged.result, failedChecks: judged.failedChecks,
+    };
+  });
+
+  let written = false;
+  if (write) {
+    const stored = readVerdictFile(verdictFile);
+    if (!stored.ok) return { ...fail(1, stored.detail), verdicts, outcomes: [] };
+    const refusal = unversionedChange(kind, stored.data.corpora[kind], entry);
+    if (refusal) return { ...fail(1, `--write refused: ${refusal}`), verdicts, outcomes: [] };
+    let list = stored.data.verdicts;
+    for (const verdict of verdicts) {
+      const at = list.findIndex((v: any) => verdictMatches(v, kind, effectiveModel, verdict.arm));
+      list = list.flatMap((v: any, index: number) => (index === at ? [verdict] : verdictMatches(v, kind, effectiveModel, verdict.arm) ? [] : [v]));
+      if (at < 0) list.push(verdict);
+    }
+    try {
+      writeVerdictFile(verdictFile, { ...stored.data, corpora: { ...stored.data.corpora, [kind]: entry }, verdicts: list });
+    } catch (e: any) {
+      return { ...fail(1, `cannot write ${verdictFile} (${e.message})`), verdicts, outcomes: [] };
+    }
+    written = true;
+  }
+
+  const wouldDrop = scored.ladder ? rerankLib.wouldDrop(scored.ladder.ladderRows, kindEntry.thresholds) : null;
+  const skipped = (scored[arms[0]].skipped as any[]).map((item) => item.id);
+  const excluded = (scored[arms[0]].outcomes as any[]).filter((o) => o.excluded).map((o) => o.id);
+  if (json) {
+    log(JSON.stringify({
+      verdicts, written, armDelta, wouldDrop, excluded, skipped,
+      cases: Object.fromEntries(arms.map((name: string) => [name, scored[name].outcomes])),
+    }, null, 2));
+  } else {
+    const lines = [...verdicts.map((v: any) => renderText(v, written, write))];
+    if (criteria.warning) lines.push(`criteria: ${criteria.warning}`);
+    lines.push(`dev split: ${items.length} tasks, snapshot ${entry.snapshotId}; criteria ${criteria.source}, digest ${criteria.digest}`);
+    if (skipped.length) lines.push(`skipped (fewer than ${kindEntry.params.minCandidates} first-stage candidates, no call): ${skipped.join(', ')}`);
+    if (excluded.length) lines.push(`excluded (no judged positive): ${excluded.join(', ')}`);
+    if (armDelta) lines.push(`paired nDCG@5, ladder minus choice: ${fmt(armDelta.delta)}, ci ${armDelta.ci ? `[${fmt(armDelta.ci[0])}, ${fmt(armDelta.ci[1])}]` : 'n/a'}, n ${armDelta.n}`);
+    if (wouldDrop) {
+      for (const row of wouldDrop) {
+        lines.push(`would drop (ladder, ${row.field} < ${row.below}): ${row.dropped} of ${row.candidates} candidates, ${row.relevantDropped} of ${row.relevantTotal} judged-relevant`);
+      }
+    }
+    log(lines.join('\n'));
+  }
+  return { code: 0, verdict: verdicts.length === 1 ? verdicts[0] : null, verdicts, outcomes: [] };
 }
 
 /**
@@ -129,7 +261,8 @@ async function adviceGate(options: any = {}) {
   } = options;
   const fail = (code: number, text: string) => { error(`bench advice-gate: ${text}`); return { code, verdict: null, outcomes: [] }; };
 
-  if (arm !== undefined) return fail(2, '--arm applies to the rerank kind only');
+  if (arm !== undefined && kind !== RERANK_KIND) return fail(2, '--arm applies to the rerank kind only');
+  if (arm !== undefined && ![...rerankLib.ARMS, 'both'].includes(arm)) return fail(2, `--arm must be choice, ladder or both (got '${arm}')`);
   if (!isObject(adviceRegistry) || !isObject(adviceRegistry.gate)) return fail(1, 'the advice registry has no gate block');
   const gate = adviceRegistry.gate;
   let sources = options.sources;
@@ -162,8 +295,9 @@ async function adviceGate(options: any = {}) {
 
   if (typeof kind !== 'string' || !kind) return fail(2, '--kind <id> is required');
   const kindEntry = adviceRegistry.kinds.find((entry: any) => entry.id === kind);
-  if (kind === RERANK_KIND || isCallKind(kindEntry)) return fail(2, `kind '${kind}' is not supported by this runner yet: only choice and yes/no kinds can be gated here`);
   if (!kindEntry) return fail(2, `unknown kind '${kind}'`);
+  if (kind === RERANK_KIND) return rerankGate({ ...options, kind, arm: arm ?? 'both', gate, kindEntry, verdictFile, fail });
+  if (isCallKind(kindEntry)) return fail(2, `kind '${kind}' is not supported by this runner: it takes its questions from the call`);
 
   const loaded = loadCorpusFile(corpusDir, kind);
   if (!loaded.ok) return fail(1, loaded.detail);
