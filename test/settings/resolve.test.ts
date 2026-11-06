@@ -579,6 +579,7 @@ test('an unparseable user file marks every key of that layer invalid and affects
   assert.equal(v.get('failure.capture').value, 'on', 'capture reads the file lexically: no match is no setting');
   const userErrors = v.errors.filter((e: any) => e.source === file);
   assert.deepEqual(userErrors.map((e: any) => e.key).sort(), [
+    'advice.criteria.rerank',
     'advice.enabled',
     'advice.endpoint',
     'advice.kinds.followup-triage',

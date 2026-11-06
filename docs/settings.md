@@ -26,6 +26,7 @@ DoFlow configuration layers resolve settings across registry defaults, environme
 | `advice.models.review-depth` | string | — | project-overridable | — | — | Decision-model name for the review-depth kind; unset uses advice.model. |
 | `advice.models.mcp-need` | string | — | project-overridable | — | — | Decision-model name for the mcp-need kind; unset uses advice.model. |
 | `advice.models.followup-triage` | string | — | project-overridable | — | — | Decision-model name for the followup-triage kind; unset uses advice.model. |
+| `advice.criteria.rerank` | string | — | project-overridable | — | — | Rerank criteria override: 5 or 6 lines, the ladder levels 0 to 4 and optionally the choice-arm instruction; an invalid value keeps the registry text with a warning, and a person writes it in the settings file. |
 | `storage.prune` | enum | `on` | project-overridable | — | `prune` | Storage pruning; project value applies to project roots only. |
 | `storage.retentionHours` | integer | `4320` | project-overridable | `DOFLOW_RETENTION_HOURS` | — | Lifecycle-events window in hours; an explicit value applies even while pruning is off. |
 | `failure.capture` | enum | `on` | global-only | `DOFLOW_FAILURE_CAPTURE` | `failures/off` | Capture of DoFlow's own failures on this machine; any layer saying off wins. |
