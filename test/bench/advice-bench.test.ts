@@ -72,6 +72,13 @@ test('adviceCoverage rejects each IC-016 structural violation and malformed corp
     ['empty state', (c: any) => { c.tier.cases[0].state = '  '; }, /tier: .*state must be non-empty/],
     ['UTF-8 state limit', (c: any) => { c.tier.cases[0].state = 'é'.repeat(Math.floor(registry.limits.maxStateBytes / 2) + 1); }, /tier: .*state exceeds maxStateBytes/],
     ['expected option', (c: any) => { c.tier.cases[0].expected = 'invalid'; }, /tier: .*expected must be/],
+    ['schemaVersion', (c: any) => { c.tier.schemaVersion = 1; }, /tier: schemaVersion must be 2/],
+    ['corpusVersion', (c: any) => { c.tier.corpusVersion = 0; }, /tier: corpusVersion must be a positive integer/],
+    ['staticPick option', (c: any) => { c.tier.cases[0].staticPick = 'invalid'; }, /tier: .*staticPick must be one of/],
+    ['missing staticPick', (c: any) => { delete c.tier.cases[0].staticPick; }, /tier: .*staticPick must be one of/],
+    ['origin value', (c: any) => { c.tier.cases[0].origin = 'recorded'; }, /tier: .*origin must be synthetic or consented/],
+    ['missing origin', (c: any) => { delete c.tier.cases[0].origin; }, /tier: .*origin must be synthetic or consented/],
+    ['MCP staticPick', (c: any) => { c['mcp-need'].cases[0].staticPick = 'light'; }, /mcp-need: .*staticPick must be one of yes, no/],
     ['source note', (c: any) => { delete c.tier.cases[0].note; }, /tier: .*note must be non-empty/],
     ['MCP server per case', (c: any) => { c['mcp-need'].cases[0].server = 'missing-server'; }, /mcp-need: mcp-need-001 server .*not a valid/],
     ['MCP question materialization', (c: any, s: any) => { s.mcp.servers.find((server: any) => server.id === 'context7').trigger = ''; }, /mcp-need: mcp-need-001 MCP question could not be materialized/],
@@ -99,6 +106,16 @@ test('adviceCoverage rejects each IC-016 structural violation and malformed corp
     assert.equal(require('../../bench/advice.ts').cmdAdviceCoverage({ adviceRegistry: registry, corpus: null, sources }), 1);
   } finally { console.log = originalLog; }
   assert.match(output, /GAP: corpus: input must be an object/);
+});
+
+test('adviceCoverage treats a criteriaFrom call kind as covered by the retrieval dev tasks, not an advice corpus', () => {
+  const sources: any = { workflows: source('workflows'), verification: source('verification'), mcp: source('mcp') };
+  const corpus = Object.fromEntries(registry.kinds.map(({ id }: any) => [id, require(`../../bench/advice/${id}.json`)]));
+  const withCall = structuredClone(registry);
+  withCall.kinds.push({ id: 'call-kind', type: 'choice', instructions: 'x', criteriaFrom: 'call', staticFrom: 'the first-stage order', askedBy: [] });
+  const result = adviceCoverage({ adviceRegistry: withCall, corpus, sources });
+  assert.ok(!result.gaps.some((item: any) => item.startsWith('call-kind:')), JSON.stringify(result.gaps));
+  assert.ok(result.rows.some((row: any) => row.kind === 'call-kind' && row.missing.length === 0));
 });
 
 test('advice-coverage prints one row per kind, succeeds for corpus and fails for a gap', () => {

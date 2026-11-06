@@ -1,19 +1,295 @@
 {
+  "schemaVersion": 2,
   "kind": "review-depth",
+  "corpusVersion": 1,
   "cases": [
     {
       "id": "review-depth-001",
       "split": "train",
       "state": "Review a routine two-function change with a complete specification and no high-risk interface changes.",
+      "staticPick": "deep",
       "expected": "single",
+      "origin": "synthetic",
       "note": "agent-docs/doflow/063-decision-model-routing/design/specs.md IC-004 review-depth single criterion."
     },
     {
       "id": "review-depth-002",
       "split": "heldout",
       "state": "Review a cross-component authorization change with consequential security trade-offs and independent failure modes.",
+      "staticPick": "deep",
       "expected": "deep",
+      "origin": "synthetic",
       "note": "agent-docs/doflow/063-decision-model-routing/design/specs.md IC-004 review-depth deep criterion."
+    },
+    {
+      "id": "review-depth-003",
+      "split": "heldout",
+      "state": "task class: documentation\nrisk: LOW\nscope: light\nchanged files: 1\ndecided depth: single",
+      "staticPick": "single",
+      "expected": "single",
+      "origin": "synthetic",
+      "note": "Invented state; label per core/registry/advice.json kinds review-depth criteria single."
+    },
+    {
+      "id": "review-depth-004",
+      "split": "heldout",
+      "state": "task class: documentation\nrisk: LOW\nscope: light\nchanged files: 2\ndecided depth: single",
+      "staticPick": "single",
+      "expected": "single",
+      "origin": "synthetic",
+      "note": "Invented state; label per core/registry/advice.json kinds review-depth criteria single."
+    },
+    {
+      "id": "review-depth-005",
+      "split": "heldout",
+      "state": "task class: documentation\nrisk: LOW\nscope: light\nchanged files: 1\ndecided depth: single",
+      "staticPick": "single",
+      "expected": "single",
+      "origin": "synthetic",
+      "note": "Invented state; label per core/registry/advice.json kinds review-depth criteria single."
+    },
+    {
+      "id": "review-depth-006",
+      "split": "heldout",
+      "state": "task class: trivial-edit\nrisk: LOW\nscope: light\nchanged files: 1\ndecided depth: single",
+      "staticPick": "single",
+      "expected": "single",
+      "origin": "synthetic",
+      "note": "Invented state; label per core/registry/advice.json kinds review-depth criteria single."
+    },
+    {
+      "id": "review-depth-007",
+      "split": "heldout",
+      "state": "task class: documentation\nrisk: LOW\nscope: light\nchanged files: 3\ndecided depth: single",
+      "staticPick": "single",
+      "expected": "single",
+      "origin": "synthetic",
+      "note": "Invented state; label per core/registry/advice.json kinds review-depth criteria single."
+    },
+    {
+      "id": "review-depth-008",
+      "split": "heldout",
+      "state": "task class: trivial-edit\nrisk: LOW\nscope: code\nchanged files: 1\ndecided depth: deep",
+      "staticPick": "deep",
+      "expected": "single",
+      "origin": "synthetic",
+      "note": "Invented state; label per core/registry/advice.json kinds review-depth criteria single."
+    },
+    {
+      "id": "review-depth-009",
+      "split": "heldout",
+      "state": "task class: trivial-edit\nrisk: LOW\nscope: code\nchanged files: 1\ndecided depth: deep",
+      "staticPick": "deep",
+      "expected": "single",
+      "origin": "synthetic",
+      "note": "Invented state; label per core/registry/advice.json kinds review-depth criteria single."
+    },
+    {
+      "id": "review-depth-010",
+      "split": "heldout",
+      "state": "task class: bug\nrisk: LOW\nscope: code\nchanged files: 2\ndecided depth: deep",
+      "staticPick": "deep",
+      "expected": "single",
+      "origin": "synthetic",
+      "note": "Invented state; label per core/registry/advice.json kinds review-depth criteria single."
+    },
+    {
+      "id": "review-depth-011",
+      "split": "heldout",
+      "state": "task class: refactor\nrisk: LOW\nscope: code\nchanged files: 2\ndecided depth: deep",
+      "staticPick": "deep",
+      "expected": "single",
+      "origin": "synthetic",
+      "note": "Invented state; label per core/registry/advice.json kinds review-depth criteria single."
+    },
+    {
+      "id": "review-depth-012",
+      "split": "heldout",
+      "state": "task class: dependency-change\nrisk: LOW\nscope: code\nchanged files: 1\ndecided depth: deep",
+      "staticPick": "deep",
+      "expected": "single",
+      "origin": "synthetic",
+      "note": "Invented state; label per core/registry/advice.json kinds review-depth criteria single."
+    },
+    {
+      "id": "review-depth-013",
+      "split": "heldout",
+      "state": "task class: bug\nrisk: MEDIUM\nscope: code\nchanged files: 2\ndecided depth: deep",
+      "staticPick": "deep",
+      "expected": "single",
+      "origin": "synthetic",
+      "note": "Invented state; label per core/registry/advice.json kinds review-depth criteria single."
+    },
+    {
+      "id": "review-depth-014",
+      "split": "heldout",
+      "state": "task class: trivial-edit\nrisk: LOW\nscope: code\nchanged files: 3\ndecided depth: deep",
+      "staticPick": "deep",
+      "expected": "single",
+      "origin": "synthetic",
+      "note": "Invented state; label per core/registry/advice.json kinds review-depth criteria single."
+    },
+    {
+      "id": "review-depth-015",
+      "split": "heldout",
+      "state": "task class: feature\nrisk: LOW\nscope: code\nchanged files: 2\ndecided depth: deep",
+      "staticPick": "deep",
+      "expected": "single",
+      "origin": "synthetic",
+      "note": "Invented state; label per core/registry/advice.json kinds review-depth criteria single."
+    },
+    {
+      "id": "review-depth-016",
+      "split": "heldout",
+      "state": "task class: bug\nrisk: LOW\nscope: code\nchanged files: 1\ndecided depth: deep",
+      "staticPick": "deep",
+      "expected": "single",
+      "origin": "synthetic",
+      "note": "Invented state; label per core/registry/advice.json kinds review-depth criteria single."
+    },
+    {
+      "id": "review-depth-017",
+      "split": "heldout",
+      "state": "task class: feature\nrisk: HIGH\nscope: code\nchanged files: 9\ndecided depth: deep",
+      "staticPick": "deep",
+      "expected": "deep",
+      "origin": "synthetic",
+      "note": "Invented state; label per core/registry/advice.json kinds review-depth criteria deep."
+    },
+    {
+      "id": "review-depth-018",
+      "split": "heldout",
+      "state": "task class: bug\nrisk: HIGH\nscope: code\nchanged files: 3\ndecided depth: deep",
+      "staticPick": "deep",
+      "expected": "deep",
+      "origin": "synthetic",
+      "note": "Invented state; label per core/registry/advice.json kinds review-depth criteria deep."
+    },
+    {
+      "id": "review-depth-019",
+      "split": "heldout",
+      "state": "task class: feature\nrisk: MEDIUM\nscope: code\nchanged files: 12\ndecided depth: deep",
+      "staticPick": "deep",
+      "expected": "deep",
+      "origin": "synthetic",
+      "note": "Invented state; label per core/registry/advice.json kinds review-depth criteria deep."
+    },
+    {
+      "id": "review-depth-020",
+      "split": "heldout",
+      "state": "task class: refactor\nrisk: MEDIUM\nscope: code\nchanged files: 25\ndecided depth: deep",
+      "staticPick": "deep",
+      "expected": "deep",
+      "origin": "synthetic",
+      "note": "Invented state; label per core/registry/advice.json kinds review-depth criteria deep."
+    },
+    {
+      "id": "review-depth-021",
+      "split": "heldout",
+      "state": "task class: operations\nrisk: CRITICAL\nscope: code\nchanged files: 2\ndecided depth: deep",
+      "staticPick": "deep",
+      "expected": "deep",
+      "origin": "synthetic",
+      "note": "Invented state; label per core/registry/advice.json kinds review-depth criteria deep."
+    },
+    {
+      "id": "review-depth-022",
+      "split": "heldout",
+      "state": "task class: dependency-change\nrisk: MEDIUM\nscope: code\nchanged files: 4\ndecided depth: deep",
+      "staticPick": "deep",
+      "expected": "deep",
+      "origin": "synthetic",
+      "note": "Invented state; label per core/registry/advice.json kinds review-depth criteria deep."
+    },
+    {
+      "id": "review-depth-023",
+      "split": "heldout",
+      "state": "task class: bug\nrisk: CRITICAL\nscope: code\nchanged files: 5\ndecided depth: deep",
+      "staticPick": "deep",
+      "expected": "deep",
+      "origin": "synthetic",
+      "note": "Invented state; label per core/registry/advice.json kinds review-depth criteria deep."
+    },
+    {
+      "id": "review-depth-024",
+      "split": "heldout",
+      "state": "task class: feature\nrisk: HIGH\nscope: code\nchanged files: 7\ndecided depth: deep",
+      "staticPick": "deep",
+      "expected": "deep",
+      "origin": "synthetic",
+      "note": "Invented state; label per core/registry/advice.json kinds review-depth criteria deep."
+    },
+    {
+      "id": "review-depth-025",
+      "split": "heldout",
+      "state": "task class: refactor\nrisk: HIGH\nscope: code\nchanged files: 18\ndecided depth: deep",
+      "staticPick": "deep",
+      "expected": "deep",
+      "origin": "synthetic",
+      "note": "Invented state; label per core/registry/advice.json kinds review-depth criteria deep."
+    },
+    {
+      "id": "review-depth-026",
+      "split": "heldout",
+      "state": "task class: feature\nrisk: MEDIUM\nscope: code\nchanged files: 14\ndecided depth: deep",
+      "staticPick": "deep",
+      "expected": "deep",
+      "origin": "synthetic",
+      "note": "Invented state; label per core/registry/advice.json kinds review-depth criteria deep."
+    },
+    {
+      "id": "review-depth-027",
+      "split": "heldout",
+      "state": "task class: documentation\nrisk: HIGH\nscope: light\nchanged files: 2\ndecided depth: deep",
+      "staticPick": "deep",
+      "expected": "deep",
+      "origin": "synthetic",
+      "note": "Invented state; label per core/registry/advice.json kinds review-depth criteria deep."
+    },
+    {
+      "id": "review-depth-028",
+      "split": "heldout",
+      "state": "task class: bug\nrisk: MEDIUM\nscope: code\nchanged files: 8\ndecided depth: deep",
+      "staticPick": "deep",
+      "expected": "deep",
+      "origin": "synthetic",
+      "note": "Invented state; label per core/registry/advice.json kinds review-depth criteria deep."
+    },
+    {
+      "id": "review-depth-029",
+      "split": "heldout",
+      "state": "task class: operations\nrisk: HIGH\nscope: code\nchanged files: 3\ndecided depth: deep",
+      "staticPick": "deep",
+      "expected": "deep",
+      "origin": "synthetic",
+      "note": "Invented state; label per core/registry/advice.json kinds review-depth criteria deep."
+    },
+    {
+      "id": "review-depth-030",
+      "split": "heldout",
+      "state": "task class: refactor\nrisk: CRITICAL\nscope: code\nchanged files: 30\ndecided depth: deep",
+      "staticPick": "deep",
+      "expected": "deep",
+      "origin": "synthetic",
+      "note": "Invented state; label per core/registry/advice.json kinds review-depth criteria deep."
+    },
+    {
+      "id": "review-depth-031",
+      "split": "heldout",
+      "state": "task class: feature\nrisk: CRITICAL\nscope: code\nchanged files: 11\ndecided depth: deep",
+      "staticPick": "deep",
+      "expected": "deep",
+      "origin": "synthetic",
+      "note": "Invented state; label per core/registry/advice.json kinds review-depth criteria deep."
+    },
+    {
+      "id": "review-depth-032",
+      "split": "heldout",
+      "state": "task class: bug\nrisk: HIGH\nscope: code\nchanged files: 6\ndecided depth: deep",
+      "staticPick": "deep",
+      "expected": "deep",
+      "origin": "synthetic",
+      "note": "Invented state; label per core/registry/advice.json kinds review-depth criteria deep."
     }
   ]
 }

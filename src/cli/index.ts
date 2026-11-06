@@ -682,7 +682,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
                        trace analyze --emit followups (the ledger read for evidence ids)
       --action         claim: list|add|link|retract|supersede · evidence: list|add|supersede|retire
                        verify: report|contract · retrieval-plan: declare|report|attempt
-                       outcome: record|show · advise: ask|outcome|configure · tools: see above
+                       outcome: record|show · advise: ask|outcome|configure|report · tools: see above
                        followup: add|list|take|settle|promote|report
                        task-attempt: claim|finish|release|status|start|pause|cancel|resume|inspect|reopen|report-usage
                        worker: discover|probe|describe|select|run|status|cancel|evidence
@@ -765,6 +765,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --questions-file, --server,
       --static                           advise --action ask
       --pick-id, --actual                advise --action outcome
+      --kind [--json]                    advise --action report (read-only counts and latency from this project's records)
       --model, --endpoint, --project,
       --off                              advise --action configure
       --path, --exclude (repeatable)        leak-scan

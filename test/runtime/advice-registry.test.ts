@@ -74,6 +74,47 @@ expectInvalid('missing adapter file', 'providers[0].adapter', (r: any) => { r.pr
 expectInvalid('unknown model provider', 'providers[0].modelProvider', (r: any) => { r.providers[0].modelProvider = 'missing-provider'; });
 expectInvalid('tier criteria keys', 'kinds.tier.criteria', (r: any) => { r.kinds[0].criteria = { ...r.kinds[0].criteria, extra: 'not a tier' }; });
 
+test('141 IC-001: the shipped gate block carries the proposed illustrative defaults', () => {
+  const result = loadAdviceRegistry({ repoRoot: REPO });
+  assert.equal(result.ok, true, result.detail);
+  assert.deepEqual(result.registry.gate, {
+    version: 1, illustrative: true, minCases: 30, validShareMin: 0.99,
+    quality: { lowerBoundAbove: 0, nonInferiorityDelta: 0.02, confidence: 0.95, resamples: 10000, seed: 20261106 },
+    latency: { p95CapMs: { default: 5000, rerank: 3000 }, ratioMax: 2 },
+  });
+});
+
+test('141 IC-001: a registry with no gate block still loads, and exposes no gate (every verdict reads as stale)', (t) => {
+  const result = loadAdviceRegistry(writeFixture(t, (r: any) => { delete r.gate; }));
+  assert.equal(result.ok, true, result.detail);
+  assert.equal(Object.hasOwn(result.registry, 'gate'), false);
+});
+
+expectInvalid('gate that is not an object', 'gate', (r: any) => { r.gate = []; });
+expectInvalid('gate version', 'gate.version', (r: any) => { r.gate.version = 0; });
+expectInvalid('gate illustrative flag', 'gate.illustrative', (r: any) => { r.gate.illustrative = false; });
+expectInvalid('gate minCases zero', 'gate.minCases', (r: any) => { r.gate.minCases = 0; });
+expectInvalid('gate minCases fraction', 'gate.minCases', (r: any) => { r.gate.minCases = 30.5; });
+expectInvalid('gate validShareMin zero', 'gate.validShareMin', (r: any) => { r.gate.validShareMin = 0; });
+expectInvalid('gate validShareMin above one', 'gate.validShareMin', (r: any) => { r.gate.validShareMin = 1.01; });
+expectInvalid('gate validShareMin string', 'gate.validShareMin', (r: any) => { r.gate.validShareMin = '0.99'; });
+expectInvalid('gate quality missing', 'gate.quality', (r: any) => { delete r.gate.quality; });
+expectInvalid('gate lowerBoundAbove', 'gate.quality.lowerBoundAbove', (r: any) => { r.gate.quality.lowerBoundAbove = null; });
+expectInvalid('gate nonInferiorityDelta negative', 'gate.quality.nonInferiorityDelta', (r: any) => { r.gate.quality.nonInferiorityDelta = -0.01; });
+expectInvalid('gate confidence zero', 'gate.quality.confidence', (r: any) => { r.gate.quality.confidence = 0; });
+expectInvalid('gate confidence above one', 'gate.quality.confidence', (r: any) => { r.gate.quality.confidence = 95; });
+expectInvalid('gate resamples below 1000', 'gate.quality.resamples', (r: any) => { r.gate.quality.resamples = 999; });
+expectInvalid('gate seed', 'gate.quality.seed', (r: any) => { r.gate.quality.seed = 1.5; });
+expectInvalid('gate latency missing', 'gate.latency', (r: any) => { delete r.gate.latency; });
+expectInvalid('gate p95 default missing', 'gate.latency.p95CapMs', (r: any) => { delete r.gate.latency.p95CapMs.default; });
+expectInvalid('gate p95 cap not positive', 'gate.latency.p95CapMs', (r: any) => { r.gate.latency.p95CapMs.rerank = 0; });
+expectInvalid('gate ratioMax below one', 'gate.latency.ratioMax', (r: any) => { r.gate.latency.ratioMax = 0.5; });
+
+test('141 IC-004: the shipped verdict file is empty in the IC-004 shape', () => {
+  const file = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/advice-verdicts.json'), 'utf8'));
+  assert.deepEqual(file, { schemaVersion: 1, corpora: {}, verdicts: [] });
+});
+
 test('IC-003: missing and unparseable files return the same failure shape without throwing', (t) => {
   const dir = tempDir(t, 'doflow-advice-registry-');
   const missing = loadAdviceRegistry({ repoRoot: REPO, file: path.join(dir, 'missing.json') });

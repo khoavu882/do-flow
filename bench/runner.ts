@@ -31,6 +31,7 @@ const {
   sha256File,
 } = require('../src/runtime/worktree.ts');
 const { cmdAdviceCoverage, cmdAdvice } = require('./advice.ts');
+const { cmdAdviceGate } = require('./advice-gate.ts');
 const {
   classifyRun,
   INFRA_CLASSES,
@@ -1836,6 +1837,8 @@ const USAGE = `doflow bench — evaluation harness for the shipped skills
   node bench/runner.ts coverage [--json]              which skills have triggering + behavioral cases
   node bench/runner.ts advice-coverage [--json]        check decision-model advice corpus coverage
   node bench/runner.ts advice [--kind <kind>] [--split train|heldout] [--json] run advice cases against the local decision model
+  node bench/runner.ts advice-gate --kind <kind> [--model <name>] [--write] [--freeze] [--json]
+                                                      score a kind's heldout cases into a gate verdict; --write stores it, --freeze refreshes corpus digests (no --kind)
   node bench/runner.ts parity [--json]                does the committed baseline still describe the corpus
   node bench/runner.ts list [--skill S] [--split train|heldout] [--json]
                                                       enumerate cases
@@ -1876,6 +1879,17 @@ function parseArgs(argv: any) {
       opts.kind = value;
       i += 1;
     }
+    else if (a === '--model') {
+      const value = argv[i + 1];
+      if (!value || value.startsWith('--')) {
+        console.error('bench: --model requires a value');
+        return { cmd: null, opts: { error: 2 } };
+      }
+      opts.model = value;
+      i += 1;
+    }
+    else if (a === '--write') opts.write = true;
+    else if (a === '--freeze') opts.freeze = true;
     else if (a === '--iterations') {
       const value = argv[i + 1];
       if (!value || value.startsWith('--')) {
@@ -2108,7 +2122,7 @@ function main(argv: any = process.argv.slice(2)) {
   }
   // Accepted only where it filters something; elsewhere it would be dropped on the floor, which is
   // the failure the unknown-option refusal above exists to prevent.
-  if (opts.kind !== undefined && cmd !== 'advice') {
+  if (opts.kind !== undefined && cmd !== 'advice' && cmd !== 'advice-gate') {
     console.error(`bench ${cmd}: --kind is not accepted`);
     return 2;
   }
@@ -2119,6 +2133,12 @@ function main(argv: any = process.argv.slice(2)) {
   if (opts.arm && cmd !== 'plan') {
     console.error(`bench ${cmd}: --arm is not accepted`);
     return 2;
+  }
+  for (const flag of ['model', 'write', 'freeze']) {
+    if (opts[flag] !== undefined && cmd !== 'advice-gate') {
+      console.error(`bench ${cmd}: --${flag} is not accepted`);
+      return 2;
+    }
   }
   if (opts.snapshot && cmd !== 'verify-baseline') {
     console.error(`bench ${cmd}: --snapshot is not accepted`);
@@ -2149,6 +2169,7 @@ function main(argv: any = process.argv.slice(2)) {
     case 'coverage': return cmdCoverage(cfg, opts);
     case 'advice-coverage': return cmdAdviceCoverage(opts);
     case 'advice': return cmdAdvice(opts);
+    case 'advice-gate': return cmdAdviceGate(opts);
     case 'parity': return cmdParity(cfg, opts);
     case 'list': return cmdList(cfg, opts);
     case 'plan': return cmdPlan(cfg, opts);

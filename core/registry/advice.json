@@ -24,6 +24,26 @@
       "splitTo": 0.65
     }
   },
+  "gate": {
+    "version": 1,
+    "illustrative": true,
+    "minCases": 30,
+    "validShareMin": 0.99,
+    "quality": {
+      "lowerBoundAbove": 0,
+      "nonInferiorityDelta": 0.02,
+      "confidence": 0.95,
+      "resamples": 10000,
+      "seed": 20261106
+    },
+    "latency": {
+      "p95CapMs": {
+        "default": 5000,
+        "rerank": 3000
+      },
+      "ratioMax": 2
+    }
+  },
   "providers": [
     {
       "id": "ollama",
