@@ -120,6 +120,20 @@ test('adviceCoverage treats a criteriaFrom call kind as covered by the retrieval
   assert.ok(result.rows.some((row: any) => row.kind === 'call-kind' && row.missing.length === 0));
 });
 
+test('claim-support corpus: 30+ balanced synthetic heldout cases in the state shape the claim hook builds', () => {
+  const corpus = require('../../bench/advice/claim-support.json');
+  const heldout = corpus.cases.filter((item: any) => item.split === 'heldout');
+  assert.ok(heldout.length >= 30, `heldout ${heldout.length}`);
+  for (const option of ['yes', 'no']) assert.ok(heldout.some((item: any) => item.expected === option), option);
+  const yes = heldout.filter((item: any) => item.expected === 'yes').length;
+  assert.ok(Math.abs(yes - (heldout.length - yes)) <= 2, `yes ${yes} of ${heldout.length}`);
+  for (const item of corpus.cases) {
+    assert.equal(item.origin, 'synthetic');
+    assert.match(item.note, /Invented/);
+    assert.match(item.state, /^claim: [^\n]+\npassage: [^\n]+$/, item.id);
+  }
+});
+
 test('advice-coverage prints one row per kind, succeeds for corpus and fails for a gap', () => {
   const good = run('advice-coverage');
   assert.equal(good.status, 0, good.stderr);

@@ -204,6 +204,8 @@ const RUNTIME_ASKED: any = {
   'review-depth': { caller: 'review', file: 'src/runtime/review/start.ts', outcome: null },
   // 141 B.5: the detached shadow hook of `retrieve` asks it; no ground truth exists at the call site, so no outcome.
   rerank: { caller: 'retrieve', file: 'src/runtime/knowledge/retrieval.ts', outcome: null },
+  // 141 D.3: the detached shadow hook of `claim --action link` asks it; the recorded relation is the static answer, so no outcome line.
+  'claim-support': { caller: 'claim', file: 'src/runtime/claims.ts', outcome: null },
 };
 const ASKS_ADVICE = /\b(?:client\.ask|interceptDecisionPoint)\(/;
 
