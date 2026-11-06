@@ -316,7 +316,7 @@ function handleReport(options: any, runtime: any) {
   if (options.kind !== undefined && options.kind !== null && !ids.includes(options.kind) && options.kind !== 'adhoc') {
     return usageError('advise', `unknown --kind '${options.kind}'; known kinds: ${ids.join(', ')}`, json);
   }
-  const report = buildReport({ roots, kinds: ids, kind: options.kind ?? null });
+  const report = buildReport({ roots, kinds: ids, kind: options.kind ?? null, adviceRegistry, projectRoot: options.projectRoot ?? null, global: options.global === true });
   console.log(json ? JSON.stringify(report, null, 2) : renderText(report));
   return finishRuntime(0);
 }
