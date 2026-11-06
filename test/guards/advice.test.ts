@@ -202,6 +202,8 @@ function checkG31TierText({ files }: any): any {
 const RUNTIME_ASKED: any = {
   'task-class': { caller: 'classify', file: 'src/runtime/task-classifier.ts', outcome: /\bappendOutcome\(/ },
   'review-depth': { caller: 'review', file: 'src/runtime/review/start.ts', outcome: null },
+  // 141 B.5: the detached shadow hook of `retrieve` asks it; no ground truth exists at the call site, so no outcome.
+  rerank: { caller: 'retrieve', file: 'src/runtime/knowledge/retrieval.ts', outcome: null },
 };
 const ASKS_ADVICE = /\b(?:client\.ask|interceptDecisionPoint)\(/;
 

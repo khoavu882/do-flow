@@ -13,6 +13,7 @@ const path = require('node:path');
 const { buildIndex, loadIndex, isFresh } = require('./index-store.ts');
 const { finishRuntime, usageError, captureCaught } = require('../cli-result.ts');
 const { resolveRunsLocation } = require('../trace/ledger.ts');
+const { REPO_ROOT } = require('../../helper/repo-root.ts');
 
 const BM25_K1 = 1.5;
 const BM25_B = 0.75;
@@ -117,9 +118,15 @@ function expandViaGraph(hits: any[], chunks: any[], graph: Map<string, string[]>
   return extras;
 }
 
+// The shortlist is the first-stage list the rerank kind may be asked about (141 IC-010): at most the 16 labels A to P,
+// so the registry's `params.maxCandidates` (never above 16) always fits. It is never printed.
+const SHORTLIST_LIMIT = 16;
+
 /** Ensure the on-disk index matches the corpus, rebuilding only what changed, then rank.
- * Returns {results, rebuilt}. A missing corpus is the caller's usage problem, thrown loudly. */
-function searchGuidance({ corpusDir, indexDir, query, k = 5, fsImpl = fs }: { corpusDir: string; indexDir: string; query: string; k?: number; fsImpl?: any } = {} as any): any {
+ * Returns {results, shortlist, rebuilt}. `shortlist` is `[{ ref, title, text }]` for the first `maxCandidates` BM25 hits,
+ * taken before graph expansion, with the chunk's own text (`results` keeps the 200-character snippet).
+ * A missing corpus is the caller's usage problem, thrown loudly. */
+function searchGuidance({ corpusDir, indexDir, query, k = 5, maxCandidates = SHORTLIST_LIMIT, fsImpl = fs }: { corpusDir: string; indexDir: string; query: string; k?: number; maxCandidates?: number; fsImpl?: any } = {} as any): any {
   if (!fsImpl.existsSync(corpusDir)) {
     throw new Error(`No guidance tree found at '${corpusDir}' — run \`doflow install\` first`);
   }
@@ -130,14 +137,69 @@ function searchGuidance({ corpusDir, indexDir, query, k = 5, fsImpl = fs }: { co
   }
   const loaded = loadIndex({ indexDir, fsImpl });
   if (!loaded) throw new Error(`Index at '${indexDir}' is unreadable after rebuild`);
-  const ranked = bm25Rank(query, loaded.chunks, { k }).map((hit: any) => ({
+  // BM25 order is a stable prefix (ties break on chunk id), so the first k of a longer list are the same k hits.
+  const hits = bm25Rank(query, loaded.chunks, { k: Math.max(k, Math.min(Math.max(0, maxCandidates), SHORTLIST_LIMIT)) });
+  const ranked = hits.slice(0, k).map((hit: any) => ({
     path: hit.path,
     title: hit.title,
     score: Number(hit.score.toFixed(4)),
     snippet: `${hit.text}`.replace(/\s+/g, ' ').slice(0, 200),
   }));
+  const shortlist = hits.slice(0, Math.min(Math.max(0, maxCandidates), SHORTLIST_LIMIT))
+    .map((hit: any) => ({ ref: hit.path, title: hit.title ?? '', text: `${hit.text}` }));
   const graphHits = expandViaGraph(ranked, loaded.chunks, buildImportGraph(corpusDir, { fsImpl }));
-  return { results: [...ranked, ...graphHits], rebuilt: rebuiltFiles };
+  return { results: [...ranked, ...graphHits], shortlist, rebuilt: rebuiltFiles };
+}
+
+/**
+ * Shadow rerank hook (141 IC-010), shared by guidance and code retrieve. Called after the output is printed. It asks the
+ * advisor, detached and unawaited, to order the first-stage `candidates` (`[{ ref, title, text }]`), and records the
+ * answer as a `rerank` pick. It never reads or changes what was printed, the exit status or the order of the results,
+ * and it catches every error: a hook fault, a missing registry or a refused criteria setting is silent here (the
+ * criteria warning is shown by `advise --action report`, so `retrieve` output equals the kind-off run).
+ * Skipped when the kind is off (which includes advice off), or fewer than `params.minCandidates` candidates exist.
+ * `services` is the test seam of the dispatcher (`adviceClient`, `shadowConfig`, `roots`, `fsImpl`, `adviceRegistry`).
+ */
+function fireShadowRerank({ query, candidates, firstStageMs, projectRoot, env, services }: any): void {
+  try {
+    const svc = services && typeof services === 'object' ? services : {};
+    const root = projectRoot || process.cwd();
+    const environment = env || process.env;
+    if (!Array.isArray(candidates) || candidates.length < 2) return;
+    const { resolveShadowConfig } = require('../advice/shadow-config.ts');
+    const shadowConfig = svc.shadowConfig || resolveShadowConfig('rerank', { projectRoot: root, env: environment, fsImpl: svc.fsImpl, roots: svc.roots });
+    if (!shadowConfig || (shadowConfig.mode !== 'shadow' && shadowConfig.mode !== 'act')) return;
+    const adviceRegistry = svc.adviceRegistry || (() => {
+      const loaded = require('../advice/registry.ts').loadAdviceRegistry({ repoRoot: REPO_ROOT });
+      return loaded.ok ? loaded.registry : null;
+    })();
+    const kind = adviceRegistry?.kinds?.find((entry: any) => entry?.id === 'rerank');
+    if (!kind || candidates.length < kind.params.minCandidates) return;
+    const { resolveRerankCriteria } = require('../advice/criteria.ts');
+    const { buildRerankQuestionSet, interpretRerankAnswers, rerankPayload } = require('../advice/rerank.ts');
+    const { interceptDecisionPoint } = require('../advice/shadow-dispatcher.ts');
+    const criteria = resolveRerankCriteria({ kind, adviceRegistry, projectRoot: root, env: environment, fsImpl: svc.fsImpl });
+    const built = buildRerankQuestionSet({
+      query, candidates, params: kind.params, arm: kind.params.arm, criteria, scoreLadder: kind.scoreLadder, limits: adviceRegistry.limits,
+    });
+    if (!built.ok) return;
+    const describe = (call: any) => {
+      const read = interpretRerankAnswers(call.answers, built.labels, built.arm);
+      if (!read.valid) return null;
+      const rerank = {
+        ...rerankPayload({
+          arm: built.arm, labels: built.labels, refs: built.refs, order: read.order, truncated: built.truncated, params: kind.params,
+          firstStageMs, expected: read.expected, confidence: read.confidence, criteriaDigest: criteria.digest,
+        }),
+        criteriaSource: criteria.source,
+      };
+      return { pick: read.order[0], extra: { rerank } };
+    };
+    interceptDecisionPoint({
+      kind: 'rerank', caller: 'retrieve', state: built.questionSet.state, staticPick: 'A', questionSet: built.questionSet,
+      adviceRegistry, budgetMs: kind.budgetMs, describe, projectRoot: root, env: environment,
+    }, { ...svc, shadowConfig }).catch(() => {});
+  } catch { /* advice is advisory: nothing here may change a retrieve result */ }
 }
 
 /** CLI handler for `doflow retrieve`. The corpus is the caller's installed guidance tree; the
@@ -162,7 +224,9 @@ function handleRetrieveCommand(options: any = {}): any {
   }
   const limit = Math.max(1, Math.min(Number(top) || 5, 25));
   try {
-    const { results, rebuilt } = searchGuidance({ corpusDir, indexDir, query: String(query), k: limit });
+    const startedAt = Date.now();
+    const { results, shortlist, rebuilt } = searchGuidance({ corpusDir, indexDir, query: String(query), k: limit });
+    const firstStageMs = Date.now() - startedAt;
     if (!json && rebuilt) console.log(`[INFO] Index refreshed (${rebuilt.length} file(s) re-chunked)`);
     if (json) {
       console.log(JSON.stringify({ query, results }, null, 2));
@@ -174,6 +238,7 @@ function handleRetrieveCommand(options: any = {}): any {
         console.log(`   ${result.snippet}`);
       });
     }
+    fireShadowRerank({ query: String(query), candidates: shortlist, firstStageMs, projectRoot: options.projectRoot, env: options.env, services: options.adviceServices });
     return finishRuntime(0);
   } catch (error: any) {
     captureCaught(error, 'retrieve', 1);
@@ -186,6 +251,7 @@ function handleRetrieveCommand(options: any = {}): any {
  * `root` or cwd, never `stateRoot`: in a linked worktree the state root is the main checkout's feature store. */
 function handleCodeRetrieveCommand(options: any): any {
   const { executeCodeRetrieval } = require('./code-retrieval.ts');
+  const startedAt = Date.now();
   return executeCodeRetrieval({ ...options, root: options.root || process.cwd() }).then((outcome: any) => {
     const response = outcome.response;
     if (options.json) console.log(JSON.stringify(response, null, 2));
@@ -197,6 +263,13 @@ function handleCodeRetrieveCommand(options: any): any {
       if (candidate.snippet) console.log(`   ${candidate.snippet}`);
     });
     if (!options.json && response.gaps?.length) for (const gap of response.gaps) console.error(`[INFO] retrieve gap: ${gap.provider || gap.source || 'retrieval'} ${gap.reason}`);
+    if (response.ok && !response.action && Array.isArray(response.results)) {
+      // The shortlist is the delivered candidates, locator and snippet; `profile` does not change the hook.
+      const candidates = response.results.slice(0, SHORTLIST_LIMIT).map((candidate: any) => ({
+        ref: `${candidate?.locator?.file}:${candidate?.locator?.line}`, title: '', text: typeof candidate?.snippet === 'string' ? candidate.snippet : '',
+      }));
+      fireShadowRerank({ query: String(options.query ?? '').trim(), candidates, firstStageMs: Date.now() - startedAt, projectRoot: options.projectRoot, env: options.env, services: options.adviceServices });
+    }
     return finishRuntime(outcome.exit);
   }).catch((error: any) => {
     captureCaught(error, 'retrieve', 1);
