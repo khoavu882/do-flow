@@ -37,7 +37,12 @@ function versionAtLeast(version: any, minimum: any) {
   return true;
 }
 
+// A decision model reply is a few hundred bytes (an answer per question, plus optional probabilities); the model
+// list a doctor probe reads is the largest. 1 MiB is far above both and bounds a server that never stops writing.
+const MAX_RESPONSE_BYTES = 1024 * 1024;
+
 function networkReason(error: any) {
+  if (error?.code === 'ADVICE_OVERSIZE') return 'malformed-reply';
   return error?.code === 'ADVICE_TIMEOUT' || error?.code === 'ETIMEDOUT' || error?.code === 'ESOCKETTIMEDOUT'
     ? 'timeout' : 'unreachable';
 }
@@ -49,7 +54,7 @@ function timeoutError(message: string) {
 }
 
 /** `signal`, when given, aborts the request the way its own timeout does: the request is destroyed and the timer cleared. */
-function requestAction({ endpoint, action, pinnedLookup, timeoutMs, signal, httpModule = http, httpsModule = https }: any) {
+function requestAction({ endpoint, action, pinnedLookup, timeoutMs, signal, httpModule = http, httpsModule = https, maxResponseBytes = MAX_RESPONSE_BYTES }: any) {
   return new Promise<any>((resolve, reject) => {
     let request: any;
     let settled = false;
@@ -91,7 +96,19 @@ function requestAction({ endpoint, action, pinnedLookup, timeoutMs, signal, http
       };
       request = transport.request(options, (response: any) => {
         const chunks: any[] = [];
-        response.on('data', (chunk: any) => chunks.push(Buffer.from(chunk)));
+        let received = 0;
+        response.on('data', (chunk: any) => {
+          if (settled) return;
+          received += chunk.length;
+          if (received > maxResponseBytes) {
+            const error: any = new Error(`decision model reply exceeded ${maxResponseBytes} bytes`);
+            error.code = 'ADVICE_OVERSIZE';
+            response.destroy();
+            stop(error);
+            return;
+          }
+          chunks.push(Buffer.from(chunk));
+        });
         response.on('error', (error: any) => finish(error));
         response.on('end', () => finish(null, {
           status: response.statusCode || 0,

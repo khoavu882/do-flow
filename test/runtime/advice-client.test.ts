@@ -265,6 +265,36 @@ test('IC-005 unavailable: timeout covers a slow response and never rejects', asy
   assert.equal(records(roots).filter((entry: any) => entry.type === 'miss').length, 1);
 });
 
+test('141 F1: an endless 200 reply is cut at the response cap and recorded as one malformed-reply miss', { timeout: 10000 }, async (t) => {
+  let written = 0;
+  let clientGone = false;
+  const chunk = Buffer.alloc(64 * 1024, 0x61);
+  const server = http.createServer((req, res) => {
+    req.resume();
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.on('close', () => { clientGone = true; });
+    const pump = () => {
+      while (!res.destroyed) {
+        written += chunk.length;
+        if (!res.write(chunk)) { res.once('drain', pump); return; }
+      }
+    };
+    pump();
+  });
+  await new Promise((resolve: any) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => { server.closeAllConnections?.(); server.close(); });
+  const { createClient, roots }: any = fixture(t, { endpoint: `http://127.0.0.1:${server.address().port}`, lookup: loopbackLookup });
+  const result = await createClient().ask({ questionSet: CHOICE_SET, kind: 'tier', caller: 'advise' });
+  assert.equal(result.status, 'unavailable');
+  assert.equal(result.reason, 'malformed-reply');
+  assert.deepEqual(result.answers, []);
+  assert.equal(records(roots).filter((entry: any) => entry.type === 'miss' && entry.reason === 'malformed-reply').length, 1);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.ok(clientGone, 'the client closed the connection');
+  // Backpressure keeps the server from writing far past what the client read: the cap plus socket buffers.
+  assert.ok(written < 32 * 1024 * 1024, `server wrote ${written} bytes`);
+});
+
 test('IC-005 record:false answers without writing picks or misses', async (t) => {
   const server = await startFakeServer();
   onClose(t, server);
