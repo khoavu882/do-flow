@@ -1,6 +1,6 @@
 'use strict';
 
-// 141 IC-009 (choice arm): the rerank question builder, the answer interpreter and the pick-line payload. All pure, so
+// 141 IC-009 (choice and ladder arms): the rerank question builder, the answer interpreter and the pick-line payload. All pure, so
 // every case is a table of fixed numbers; no client, file or network is involved. Fake text only.
 
 const { test } = require('node:test');
@@ -129,7 +129,7 @@ test('an empty text becomes a placeholder naming the ref, so no option is blank'
 
 test('a bad arm, params or criteria is refused instead of guessed', () => {
   assert.deepEqual(build({ arm: 'bogus' }), { ok: false, reason: 'unknown-arm' });
-  assert.deepEqual(build({ arm: 'ladder' }), { ok: false, reason: 'arm-not-built' });
+  assert.deepEqual(build({ arm: 'ladder' }), { ok: false, reason: 'bad-criteria' }); // no scoreLadder
   assert.deepEqual(build({ params: { ...PARAMS, candidateBytes: 0 } }), { ok: false, reason: 'bad-params' });
   assert.deepEqual(build({ params: undefined }), { ok: false, reason: 'bad-params' });
   assert.deepEqual(build({ criteria: {} }), { ok: false, reason: 'bad-criteria' });
@@ -181,8 +181,9 @@ test('an invalid or missing answer returns the first-stage order unchanged', () 
     [{ probabilities: [0.5, 0.5] }],
   ];
   for (const answers of bad) assert.deepEqual(interpretRerankAnswers(answers, labels, 'choice'), fallback, JSON.stringify(answers));
-  // An arm this module does not read yet also falls back, rather than guessing.
+  // Choice-shaped answers are not ladder answers, and an unknown arm is not read at all.
   assert.deepEqual(interpretRerankAnswers([{ probabilities: { A: 0.1, B: 0.9, C: 0 } }], labels, 'ladder'), fallback);
+  assert.deepEqual(interpretRerankAnswers([{ probabilities: { A: 0.1, B: 0.9, C: 0 } }], labels, 'bogus'), fallback);
   // The fallback is a copy: changing it must not touch the caller's labels.
   const result = interpretRerankAnswers(undefined, labels, 'choice');
   result.order.reverse();
@@ -252,4 +253,233 @@ test('no query, candidate or criteria text reaches the payload', () => {
   ]);
   // A criteria digest that is text rather than 12 hex characters is dropped.
   assert.equal(rerankPayload({ arm: 'choice', labels: ['A', 'B'], refs: ['a', 'b'], order: ['A', 'B'], criteriaDigest: INSTRUCTION }).criteriaDigest, null);
+});
+
+// ---- ladder arm (B.10) ----
+
+const LADDER = ['not relevant', 'barely relevant', 'partly relevant', 'mostly relevant', 'fully relevant'];
+const LADDER_CRITERIA = { choiceInstruction: CRITERIA.choiceInstruction, ladder: LADDER };
+const SCORE_LADDER = { instructions: 'Rate how well candidate <label> answers the query.' };
+
+function buildLadder(overrides: Record<string, unknown> = {}) {
+  return buildRerankQuestionSet({
+    query: 'how are verdicts stored', candidates: candidates(4), params: { ...PARAMS, arm: 'ladder' }, arm: 'ladder',
+    criteria: LADDER_CRITERIA, scoreLadder: SCORE_LADDER, limits: LIMITS, ...overrides,
+  });
+}
+
+function scoreAnswers(rows: Array<[number, number]>, labels = 'abcdefghijklmnop') {
+  return rows.map(([score, confidence], i) => ({ name: `rerank-${labels[i]}`, type: 'score', score, confidence }));
+}
+
+test('ladder: state holds named lines and one score question per label carries the criteria', () => {
+  const built = buildLadder({
+    candidates: [
+      { ref: 'docs/a.md', title: 'Alpha', text: 'first  body' },
+      { ref: 'docs/b.md', title: 'Beta', text: '' },
+      { ref: 'docs/c.md', title: '', text: 'third\nbody' },
+    ],
+  });
+  assert.equal(built.ok, true);
+  assert.equal(built.arm, 'ladder');
+  assert.deepEqual(built.labels, ['A', 'B', 'C']);
+  assert.deepEqual(built.refs, ['docs/a.md', 'docs/b.md', 'docs/c.md']);
+  assert.equal(built.questionSet.state, [
+    'query: how are verdicts stored',
+    'candidate_ref[A]: docs/a.md', 'candidate_text[A]: Alpha first body',
+    'candidate_ref[B]: docs/b.md', 'candidate_text[B]: Beta (no text) docs/b.md',
+    'candidate_ref[C]: docs/c.md', 'candidate_text[C]: third body',
+  ].join('\n'));
+  assert.deepEqual(built.questionSet.questions.map((q: any) => q.name), ['rerank-a', 'rerank-b', 'rerank-c']);
+  for (const [i, q] of built.questionSet.questions.entries()) {
+    assert.equal(q.type, 'score');
+    assert.equal(q.instructions, `Rate how well candidate ${'ABC'[i]} answers the query.`);
+    assert.deepEqual(q.criteria, LADDER);
+    assert.notEqual(q.criteria, LADDER, 'criteria is a copy');
+  }
+  assert.equal(validateQuestionSet(built.questionSet, { adviceRegistry: ADVICE_REGISTRY }).ok, true);
+});
+
+test('ladder: 16 labels give names rerank-a to rerank-p and truncation is counted as in the choice arm', () => {
+  const built = buildLadder({ candidates: candidates(16, 'x'.repeat(100)), params: { ...PARAMS, candidateBytes: 20 } });
+  assert.deepEqual(built.questionSet.questions.map((q: any) => q.name), [...'abcdefghijklmnop'].map((l) => `rerank-${l}`));
+  assert.equal(built.truncated, 16);
+  assert.match(built.questionSet.state, /candidate_text\[P\]: Title 15 x+\n?$/);
+});
+
+test('ladder: a missing ladder, missing instructions or an instruction without <label> is refused', () => {
+  assert.deepEqual(buildLadder({ criteria: { choiceInstruction: 'x' } }), { ok: false, reason: 'bad-criteria' });
+  assert.deepEqual(buildLadder({ criteria: { ladder: LADDER.slice(0, 4) } }), { ok: false, reason: 'bad-criteria' });
+  assert.deepEqual(buildLadder({ criteria: { ladder: [...LADDER.slice(0, 4), ' '] } }), { ok: false, reason: 'bad-criteria' });
+  assert.deepEqual(buildLadder({ scoreLadder: undefined }), { ok: false, reason: 'bad-criteria' });
+  assert.deepEqual(buildLadder({ scoreLadder: { instructions: 'no placeholder' } }), { ok: false, reason: 'bad-criteria' });
+  assert.deepEqual(buildLadder({ candidates: candidates(1) }), { ok: false, reason: 'too-few-candidates' });
+  assert.deepEqual(buildLadder({ query: ' ' }), { ok: false, reason: 'empty-query' });
+  assert.deepEqual(buildLadder({ limits: { maxStateBytes: 40 } }), { ok: false, reason: 'state-too-large' });
+});
+
+test('ladder: the design tie example orders C, B, D, A', () => {
+  const labels = ['A', 'B', 'C', 'D'];
+  const result = interpretRerankAnswers(scoreAnswers([[2.1, 0.6], [2.1, 0.8], [3.0, 0.5], [2.1, 0.8]]), labels, 'ladder');
+  assert.equal(result.valid, true);
+  assert.deepEqual(result.order, ['C', 'B', 'D', 'A']);
+  assert.equal(result.top1Changed, true);
+  assert.deepEqual(result.expected, [2.1, 2.1, 3, 2.1]);
+  assert.deepEqual(result.confidence, [0.6, 0.8, 0.5, 0.8]);
+});
+
+test('ladder: values are rounded to 4 decimals before ordering, so a sub-rounding difference is a tie', () => {
+  const labels = ['A', 'B', 'C'];
+  // All three expected scores round to 2. A and B also tie on confidence (0.5 and 0.50004 round to 0.5), so first-stage
+  // rank orders them; C has the higher confidence and goes first.
+  const tied = interpretRerankAnswers(scoreAnswers([[2.00001, 0.5], [2.00004, 0.50004], [1.99996, 0.9]]), labels, 'ladder');
+  assert.deepEqual(tied.order, ['C', 'A', 'B']);
+  assert.deepEqual(tied.expected, [2, 2, 2]);
+  assert.deepEqual(tied.confidence, [0.5, 0.5, 0.9]);
+  assert.equal(tied.top1Changed, true);
+  const sameConfidence = interpretRerankAnswers(scoreAnswers([[2.00001, 0.5], [2.00004, 0.50004]]), ['A', 'B'], 'ladder');
+  assert.deepEqual(sameConfidence.order, ['A', 'B']);
+  assert.equal(sameConfidence.top1Changed, false);
+  // A 0.0001 difference after rounding is a real difference.
+  assert.deepEqual(interpretRerankAnswers(scoreAnswers([[2.0001, 0.5], [2.0002, 0.5]]), ['A', 'B'], 'ladder').order, ['B', 'A']);
+});
+
+test('ladder: a stored record replays to the same order', () => {
+  const labels = ['A', 'B', 'C', 'D', 'E'];
+  const raw: Array<[number, number]> = [[1.123449, 0.71234], [3.99996, 0.2], [1.12341, 0.71238], [3.99999, 0.2], [0.00004, 1]];
+  const live = interpretRerankAnswers(scoreAnswers(raw), labels, 'ladder');
+  const refs = labels.map((l) => `docs/${l}.md`);
+  const stored = JSON.parse(JSON.stringify(rerankPayload({
+    arm: 'ladder', labels, refs, order: live.order, truncated: 0, params: PARAMS, firstStageMs: 9,
+    expected: live.expected, confidence: live.confidence, criteriaDigest: '3f9a1c0b27de',
+  })));
+  // Replay: feed the stored numbers back as score answers.
+  const replay = interpretRerankAnswers(scoreAnswers(stored.expected.map((e: number, i: number) => [e, stored.confidence[i]])), labels, 'ladder');
+  assert.deepEqual(replay.order, stored.order);
+  assert.deepEqual(replay.expected, stored.expected);
+  assert.deepEqual(replay.confidence, stored.confidence);
+  // Fixed values: B (4, 0.2) and D (4, 0.2) tie on both after rounding, so B first; A and C tie at 1.1234 and C has the
+  // higher rounded confidence (0.7124 against 0.7123); E is 0.
+  assert.deepEqual(stored.order, ['B', 'D', 'C', 'A', 'E']);
+});
+
+test('ladder: anything but one valid score answer per label in label order is invalid', () => {
+  const labels = ['A', 'B', 'C'];
+  const fallback = { valid: false, order: labels, top1Changed: false, expected: null, confidence: null };
+  const ok = scoreAnswers([[1, 0.5], [2, 0.5], [3, 0.5]]);
+  assert.equal(interpretRerankAnswers(ok, labels, 'ladder').valid, true);
+  const bad: any[] = [
+    undefined, null, [], 'x', ok.slice(0, 2), [...ok, ok[0]],
+    [ok[1], ok[0], ok[2]], // out of label order
+    [{ ...ok[0], name: 'rerank-A' }, ok[1], ok[2]],
+    [{ ...ok[0], type: 'choice' }, ok[1], ok[2]],
+    [null, ok[1], ok[2]],
+    [{ ...ok[0], score: 4.01 }, ok[1], ok[2]],
+    [{ ...ok[0], score: -0.01 }, ok[1], ok[2]],
+    [{ ...ok[0], score: '2' }, ok[1], ok[2]],
+    [{ ...ok[0], score: NaN }, ok[1], ok[2]],
+    [{ ...ok[0], confidence: 1.01 }, ok[1], ok[2]],
+    [{ ...ok[0], confidence: -0.1 }, ok[1], ok[2]],
+    [{ ...ok[0], confidence: Infinity }, ok[1], ok[2]],
+    [{ ...ok[0], confidence: undefined }, ok[1], ok[2]],
+  ];
+  for (const answers of bad) assert.deepEqual(interpretRerankAnswers(answers, labels, 'ladder'), fallback, JSON.stringify(answers));
+  // Edges of the ranges are valid.
+  assert.equal(interpretRerankAnswers(scoreAnswers([[0, 0], [4, 1], [2, 0.5]]), labels, 'ladder').valid, true);
+});
+
+test('ladder: the payload carries arm, digest, expected and confidence and no text', () => {
+  const labels = ['A', 'B', 'C', 'D'];
+  const refs = ['r0', 'r1', 'r2', 'r3'];
+  const read = interpretRerankAnswers(scoreAnswers([[2.1, 0.6], [2.1, 0.8], [3.0, 0.5], [2.1, 0.8]]), labels, 'ladder');
+  const payload = rerankPayload({
+    arm: 'ladder', labels, refs, order: read.order, truncated: 1, params: PARAMS, firstStageMs: 12,
+    expected: read.expected, confidence: read.confidence, criteriaDigest: '3f9a1c0b27de',
+  });
+  assert.deepEqual(payload, {
+    arm: 'ladder', n: 4, refs, order: ['C', 'B', 'D', 'A'], truncated: 1, candidateBytes: 800, top1Changed: true,
+    firstStageMs: 12, criteriaDigest: '3f9a1c0b27de', expected: [2.1, 2.1, 3, 2.1], confidence: [0.6, 0.8, 0.5, 0.8],
+  });
+  // Arrays of the wrong length or with non-numbers become null rather than text.
+  const bad = rerankPayload({ arm: 'ladder', labels, refs, order: labels, expected: [1, 2], confidence: ['a', 1, 1, 1] });
+  assert.equal(bad.expected, null);
+  assert.equal(bad.confidence, null);
+
+  const QUERY = 'SENTINEL_LADDER_QUERY_44aa';
+  const built = buildLadder({ query: QUERY, criteria: { ...LADDER_CRITERIA, ladder: LADDER.map((l) => `SENTINEL_${l}`) } });
+  assert.ok(JSON.stringify(built.questionSet).includes(QUERY));
+  const recorded = JSON.stringify(rerankPayload({
+    arm: 'ladder', labels: built.labels, refs: built.refs, order: built.labels, expected: [1, 1, 1, 1], confidence: [1, 1, 1, 1],
+    query: QUERY, state: built.questionSet.state, questions: built.questionSet.questions,
+  } as any));
+  for (const sentinel of [QUERY, 'SENTINEL_', 'query:', 'candidate_text']) assert.equal(recorded.includes(sentinel), false, sentinel);
+});
+
+test('ladder: candidate text is cut at a code-point boundary in the state and counted', () => {
+  const built = buildLadder({
+    candidates: [
+      { ref: 'r0', title: 'T', text: '😀'.repeat(50) },
+      { ref: 'r1', title: 'T', text: 'short' },
+      { ref: 'r2', title: 'T', text: 'é'.repeat(50) },
+    ],
+    params: { ...PARAMS, candidateBytes: 21 },
+  });
+  assert.equal(built.truncated, 2);
+  const lines = built.questionSet.state.split('\n');
+  assert.equal(lines[2], `candidate_text[A]: T ${'😀'.repeat(4)}`);
+  assert.equal(lines[4], 'candidate_text[B]: T short');
+  assert.equal(lines[6], `candidate_text[C]: T ${'é'.repeat(9)}`);
+  assert.equal(built.questionSet.state.includes('\ufffd'), false);
+  // A long ref is cut at 256 bytes without splitting a code point, and the payload cuts it the same way.
+  const longRef = buildLadder({ candidates: [{ ref: `${'é'.repeat(200)}`, title: '', text: 'a' }, ...candidates(1)] });
+  const refLine = longRef.questionSet.state.split('\n')[1];
+  assert.equal(Buffer.byteLength(refLine.slice('candidate_ref[A]: '.length), 'utf8'), 256);
+});
+
+test('ladder: a missing, misnamed or duplicated label in the answers falls back to the first-stage order', () => {
+  const labels = ['A', 'B', 'C'];
+  const ok = scoreAnswers([[1, 0.5], [2, 0.5], [3, 0.5]]);
+  const fallback = { valid: false, order: labels, top1Changed: false, expected: null, confidence: null };
+  assert.deepEqual(interpretRerankAnswers([ok[0], ok[2]], labels, 'ladder'), fallback);
+  assert.deepEqual(interpretRerankAnswers([ok[0], ok[0], ok[2]], labels, 'ladder'), fallback);
+  assert.deepEqual(interpretRerankAnswers([ok[0], ok[1], { ...ok[2], name: 'rerank-d' }], labels, 'ladder'), fallback);
+});
+
+test('ladder: ties on score then confidence then rank, with a full three-level cascade', () => {
+  const labels = ['A', 'B', 'C', 'D', 'E'];
+  // E is best on score; B and D tie on score and D has the higher confidence; A and C tie on both, so rank decides.
+  const read = interpretRerankAnswers(scoreAnswers([[1, 0.5], [2, 0.3], [1, 0.5], [2, 0.9], [4, 0]]), labels, 'ladder');
+  assert.deepEqual(read.order, ['E', 'D', 'B', 'A', 'C']);
+  // Deterministic: the same answers always give the same order.
+  const again = interpretRerankAnswers(scoreAnswers([[1, 0.5], [2, 0.3], [1, 0.5], [2, 0.9], [4, 0]]), labels, 'ladder');
+  assert.deepEqual(again, read);
+});
+
+test('ladder: NFR-003, sentinel query and candidate strings reach the question set but never the payload', () => {
+  const Q = 'SENTINEL_Q_9c1e';
+  const T = 'SENTINEL_TITLE_9c1e';
+  const B = 'SENTINEL_BODY_9c1e';
+  const built = buildLadder({ query: Q, candidates: [{ ref: 'docs/a.md', title: T, text: B }, { ref: 'docs/b.md', title: T, text: '' }] });
+  const asked = JSON.stringify(built.questionSet);
+  for (const s of [Q, T, B]) assert.ok(asked.includes(s), s);
+  const read = interpretRerankAnswers(
+    [{ name: 'rerank-a', type: 'score', score: 1, confidence: 0.4, pick: B }, { name: 'rerank-b', type: 'score', score: 3, confidence: 0.9, pick: T }],
+    built.labels, 'ladder');
+  const payload = rerankPayload({
+    arm: 'ladder', labels: built.labels, refs: built.refs, order: read.order, truncated: built.truncated, params: PARAMS,
+    expected: read.expected, confidence: read.confidence, criteriaDigest: '3f9a1c0b27de',
+    query: Q, candidates: [{ title: T, text: B }], state: built.questionSet.state,
+  } as any);
+  const recorded = JSON.stringify(payload);
+  for (const s of [Q, T, B, 'SENTINEL', '(no text)', 'candidate_text']) assert.equal(recorded.includes(s), false, s);
+  assert.deepEqual(payload.order, ['B', 'A']);
+});
+
+test('both arms build from the same inputs without affecting each other', () => {
+  const choice = build();
+  const ladder = buildLadder();
+  assert.equal(choice.questionSet.state, 'query: how are verdicts stored');
+  assert.equal(choice.questionSet.questions.length, 1);
+  assert.equal(ladder.questionSet.questions.length, 4);
+  assert.deepEqual(choice.labels, ladder.labels);
 });

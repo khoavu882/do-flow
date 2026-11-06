@@ -4,9 +4,9 @@
 // retrieval hooks, the bench runner and the tests build and read the same questions from the same inputs.
 //
 // The `choice` arm is one choice question whose options are the candidates (labels A to P); the state is the query
-// alone, as the named field `query:`. The `ladder` arm (one score question per candidate) is added to this file by
-// plan task B.10: it needs a new branch in `buildRerankQuestionSet` and `interpretRerankAnswers`, and `rerankPayload`
-// already carries its `expected` and `confidence` arrays, so no export here changes shape.
+// alone, as the named field `query:`. The `ladder` arm is one `score` question per candidate (`rerank-<l>`); its state
+// adds `candidate_ref[<L>]` and `candidate_text[<L>]` lines, and it is ordered by rounded expected score, then rounded
+// confidence, then first-stage rank (DEC-027).
 //
 // A model order is advice only. Any answer that cannot be read returns the first-stage order unchanged, so the
 // effective order is never worse than "no model" (FR-013). Nothing returned by `rerankPayload` is text a user wrote:
@@ -16,7 +16,10 @@ const LABELS = 'ABCDEFGHIJKLMNOP';
 const REF_BYTES = 256;
 const DIGEST_PATTERN = /^[0-9a-f]{12}$/;
 const CHOICE_ARM = 'choice';
-const KNOWN_ARMS = [CHOICE_ARM, 'ladder'];
+const LADDER_ARM = 'ladder';
+const LADDER_LEVELS = 5;
+const MAX_SCORE = LADDER_LEVELS - 1;
+const KNOWN_ARMS = [CHOICE_ARM, LADDER_ARM];
 
 function isFiniteNumber(value: any): boolean {
   return typeof value === 'number' && Number.isFinite(value);
@@ -67,12 +70,19 @@ function paramsUsable(params: any): boolean {
  * `candidates` is `[{ ref, title, text }]` in first-stage order; only the first `params.maxCandidates` (and never more
  * than the 16 labels) are used. Returns `{ ok: true, arm, questionSet, labels, refs, truncated }` or `{ ok: false, reason }`.
  */
-function buildRerankQuestionSet({ query, candidates, params, arm, criteria, limits }: any = {}): any {
+function buildRerankQuestionSet({ query, candidates, params, arm, criteria, scoreLadder, limits }: any = {}): any {
   if (!KNOWN_ARMS.includes(arm)) return { ok: false, reason: 'unknown-arm' };
-  if (arm !== CHOICE_ARM) return { ok: false, reason: 'arm-not-built' };
   if (!paramsUsable(params)) return { ok: false, reason: 'bad-params' };
-  const instruction = criteria && criteria.choiceInstruction;
+  const ladderArm = arm === LADDER_ARM;
+  const instruction = ladderArm ? scoreLadder && scoreLadder.instructions : criteria && criteria.choiceInstruction;
   if (typeof instruction !== 'string' || !instruction.trim()) return { ok: false, reason: 'bad-criteria' };
+  if (ladderArm) {
+    const ladder = criteria && criteria.ladder;
+    if (!Array.isArray(ladder) || ladder.length !== LADDER_LEVELS || ladder.some((level: any) => typeof level !== 'string' || !level.trim())) {
+      return { ok: false, reason: 'bad-criteria' };
+    }
+    if (!instruction.includes('<label>')) return { ok: false, reason: 'bad-criteria' };
+  }
 
   const queryText = collapseWhitespace(query);
   if (!queryText) return { ok: false, reason: 'empty-query' };
@@ -84,6 +94,7 @@ function buildRerankQuestionSet({ query, candidates, params, arm, criteria, limi
   const labels: string[] = [];
   const refs: string[] = [];
   const options: Record<string, string> = {};
+  const fields: string[] = [];
   let truncated = 0;
   used.forEach((candidate: any, index: number) => {
     const label = LABELS[index];
@@ -94,21 +105,25 @@ function buildRerankQuestionSet({ query, candidates, params, arm, criteria, limi
     labels.push(label);
     refs.push(ref);
     options[label] = cut.text;
+    fields.push(`candidate_ref[${label}]: ${cutBytes(collapseWhitespace(ref), REF_BYTES).text}`, `candidate_text[${label}]: ${cut.text}`);
   });
 
-  const state = `query: ${cutBytes(queryText, params.queryBytes).text}`;
+  const state = [`query: ${cutBytes(queryText, params.queryBytes).text}`, ...(ladderArm ? fields : [])].join('\n');
   const maxStateBytes = limits && limits.maxStateBytes;
   if (isCount(maxStateBytes) && Buffer.byteLength(state, 'utf8') > maxStateBytes) {
     return { ok: false, reason: 'state-too-large' };
   }
 
+  const questions = ladderArm
+    ? labels.map((label) => ({
+      name: `rerank-${label.toLowerCase()}`, type: 'score',
+      instructions: instruction.split('<label>').join(label), criteria: criteria.ladder.slice(),
+    }))
+    : [{ name: 'rerank', type: 'choice', instructions: instruction, options }];
   return {
     ok: true,
-    arm: CHOICE_ARM,
-    questionSet: {
-      state,
-      questions: [{ name: 'rerank', type: 'choice', instructions: instruction, options }],
-    },
+    arm,
+    questionSet: { state, questions },
     labels,
     refs,
     truncated,
@@ -136,6 +151,33 @@ function interpretChoice(answers: any, labels: string[]): any {
   return { valid: true, order, top1Changed: order[0] !== labels[0], expected: null, confidence: null };
 }
 
+function round4(value: number): number {
+  return Math.round(value * 10000) / 10000;
+}
+
+function inRange(value: any, max: number): boolean {
+  return isFiniteNumber(value) && value >= 0 && value <= max;
+}
+
+function interpretLadder(answers: any, labels: string[]): any {
+  if (!Array.isArray(answers) || answers.length !== labels.length) return null;
+  const expected: number[] = [];
+  const confidence: number[] = [];
+  for (let index = 0; index < labels.length; index += 1) {
+    const answer = answers[index];
+    if (!answer || typeof answer !== 'object' || answer.type !== 'score' || answer.name !== `rerank-${labels[index].toLowerCase()}`) return null;
+    if (!inRange(answer.score, MAX_SCORE) || !inRange(answer.confidence, 1)) return null;
+    expected.push(round4(answer.score));
+    confidence.push(round4(answer.confidence));
+  }
+  // Ordering on the rounded values means a replay from a stored record gives the same order (DEC-027).
+  const order = labels
+    .map((label, index) => ({ label, index }))
+    .sort((a, b) => (expected[b.index] - expected[a.index]) || (confidence[b.index] - confidence[a.index]) || (a.index - b.index))
+    .map((entry) => entry.label);
+  return { valid: true, order, top1Changed: order[0] !== labels[0], expected, confidence };
+}
+
 /**
  * Reads the model's answers into an order of `labels`. Anything unreadable returns the first-stage order unchanged with
  * `valid: false`, so the effective order is always usable.
@@ -144,7 +186,7 @@ function interpretRerankAnswers(answers: any, labels: any, arm: any): any {
   const first = Array.isArray(labels) ? labels.slice() : [];
   const fallback = { valid: false, order: first, top1Changed: false, expected: null, confidence: null };
   if (first.length === 0) return fallback;
-  const read = arm === CHOICE_ARM ? interpretChoice(answers, first) : null;
+  const read = arm === CHOICE_ARM ? interpretChoice(answers, first) : arm === LADDER_ARM ? interpretLadder(answers, first) : null;
   return read || fallback;
 }
 
@@ -175,7 +217,7 @@ function rerankPayload({ arm, labels, refs, order, truncated, params, firstStage
     firstStageMs: isFiniteNumber(firstStageMs) && firstStageMs >= 0 ? Math.round(firstStageMs) : null,
     criteriaDigest: typeof criteriaDigest === 'string' && DIGEST_PATTERN.test(criteriaDigest) ? criteriaDigest : null,
   };
-  if (arm !== CHOICE_ARM) {
+  if (arm === LADDER_ARM) {
     payload.expected = numbersOrNull(expected, first.length);
     payload.confidence = numbersOrNull(confidence, first.length);
   }
