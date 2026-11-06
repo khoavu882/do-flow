@@ -119,7 +119,7 @@ The default endpoint is the selected provider's `defaultEndpoint` in `advice.jso
 
 - Lines 1 to 5 are the criteria of the ladder levels 0 to 4, from least to most relevant. They must differ from each other.
 - Line 6 is optional and replaces the choice-arm instruction (`Select the candidate that best answers the query.`).
-- No line may be empty after trimming. The whole value may not exceed 1536 bytes (UTF-8, the `criteriaBytes` of the `rerank` kind in `core/registry/advice.json`) and may hold no control character other than the newline; a carriage return is refused.
+- No line may be empty after trimming. The whole value may not exceed 1536 bytes (UTF-8, the `criteriaBytes` of the `rerank` kind in `core/registry/advice.json`) and may hold no control character other than the newline (a carriage return is refused), no line or paragraph separator (U+2028, U+2029), no bidirectional control (U+202A to U+202E, U+2066 to U+2069, U+200E, U+200F, U+061C) and no zero-width character (U+200B to U+200D, U+2060, U+FEFF).
 
 An invalid value never stops a command. The registry text stays in force, and `doflow advise --action report` shows the first rule that failed next to `criteria in force`. The criteria text is never recorded: a record holds a 12-hex digest of the texts in force and whether they came from the registry or from the setting. A `rerank` verdict is bound to that digest, so changing the text makes it stale.
 

@@ -12,7 +12,7 @@ const { tempDir } = require('../helper/tmp.ts');
 const { loadStorageRegistry } = require('../../src/runtime/storage/registry.ts');
 const { resolveRoots } = require('../../src/runtime/storage/roots.ts');
 const { appendPick, appendMiss, appendOutcome } = require('../../src/runtime/advice/record.ts');
-const { buildReport, renderText, FOOTER } = require('../../src/runtime/advice/report.ts');
+const { buildReport, renderText, FOOTER, GLOBAL_FOOTER } = require('../../src/runtime/advice/report.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const BIN = path.join(REPO, 'bin/doflow.js');
@@ -120,6 +120,21 @@ test('text output states every n, ends with the one-project footer, and carries 
   assert.match(text, /agrees with the recorded outcome: no data \(n=0\)/);
   assert.match(text, /pick duration ms \(n=1\)/);
   assert.equal(text.includes('private state text'), false);
+});
+
+test('141 N1: -g labels the report as the user-level store; the default keeps the one-project label', (t) => {
+  const { roots } = fixture(t);
+  pick(roots, 0, { staticAnswer: 'standard', durationMs: 120, mode: 'shadow' });
+  const global = buildReport({ roots, kinds: KINDS, now: NOW, global: true });
+  assert.equal(global.scope, 'user-level store');
+  const text = renderText(global);
+  assert.ok(text.startsWith('Advice report (user-level store)'));
+  assert.ok(text.endsWith(GLOBAL_FOOTER));
+  assert.equal(GLOBAL_FOOTER, 'Records are from the user-level store only; every figure shows its n.');
+  assert.equal(text.includes('this project'), false);
+  const project = buildReport({ roots, kinds: KINDS, now: NOW });
+  assert.equal(project.scope, 'this project only');
+  assert.ok(renderText(project).endsWith(FOOTER));
 });
 
 test('verdict rows come from the verdict file with the evaluator reason; the shipped empty file gives none', (t) => {

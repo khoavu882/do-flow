@@ -15,6 +15,9 @@ const SCHEMA = 1;
 const MAX_AGE_DAYS = 90;
 const SCOPE = 'this project only';
 const FOOTER = 'Records are from this project only; every figure shows its n.';
+// `-g` reads the user-level folder only, so its header, `scope` and footer say that instead of "this project".
+const GLOBAL_SCOPE = 'user-level store';
+const GLOBAL_FOOTER = 'Records are from the user-level store only; every figure shows its n.';
 const VERDICTS_FILE = 'core/registry/advice-verdicts.json';
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -245,7 +248,7 @@ function buildReport({
     ? claimSupportFigures(picksBy.get('claim-support') || [], missesBy.get('claim-support') || []) : undefined;
   return {
     schema: SCHEMA,
-    scope: SCOPE,
+    scope: global ? GLOBAL_SCOPE : SCOPE,
     window: { from: new Date(at.getTime() - MAX_AGE_DAYS * DAY_MS).toISOString().slice(0, 10), to: at.toISOString().slice(0, 10), maxAgeDays: MAX_AGE_DAYS },
     unreadable,
     kinds: kindsOut,
@@ -347,8 +350,8 @@ function renderText(report: any): string {
       lines.push(`  ${v.kind} ${v.model}${v.arm ? ` (arm ${v.arm})` : ''}: ${v.result ?? 'unknown'}${v.stale ? `, stale: ${v.reason}` : ''}`);
     }
   }
-  lines.push('', FOOTER);
+  lines.push('', report.scope === GLOBAL_SCOPE ? GLOBAL_FOOTER : FOOTER);
   return lines.join('\n');
 }
 
-module.exports = { buildReport, renderText, FOOTER };
+module.exports = { buildReport, renderText, FOOTER, GLOBAL_FOOTER };

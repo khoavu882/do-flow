@@ -28,8 +28,11 @@ const DEFAULT_REGISTRY = Object.freeze({
   choiceInstruction: 'Select the candidate that best answers the query.',
 });
 
-// Every C0 control character except newline, the delete character and the C1 range. A CR is refused too.
-const CONTROL_CHARACTER = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/;
+// Every C0 control character except newline, the delete character and the C1 range (a CR is refused too), plus what
+// can hide or reorder text in a prompt a person reads: the line and paragraph separators U+2028 and U+2029, the
+// bidirectional controls U+202A-U+202E and U+2066-U+2069 (also U+200E, U+200F, U+061C), and the zero-width characters
+// U+200B-U+200D, U+2060 and U+FEFF.
+const CONTROL_CHARACTER = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060\u2066-\u2069\ufeff]/;
 
 interface RerankCriteria {
   ladder: string[];
@@ -59,7 +62,7 @@ function checkValue(value: any, maxBytes: number): { lines: string[] } | { failu
   if (typeof value !== 'string') return { failure: 'is not a string' };
   const bytes = Buffer.byteLength(value, 'utf8');
   if (bytes > maxBytes) return { failure: `is ${bytes} bytes, over the ${maxBytes}-byte limit` };
-  if (CONTROL_CHARACTER.test(value)) return { failure: 'has a control character other than newline' };
+  if (CONTROL_CHARACTER.test(value)) return { failure: 'has a control character other than newline, a line or paragraph separator, a bidirectional control or a zero-width character' };
   const lines = value.split('\n');
   if (lines.length !== LADDER_LEVELS && lines.length !== LADDER_LEVELS + 1) {
     return { failure: `has ${lines.length} lines; expected ${LADDER_LEVELS} or ${LADDER_LEVELS + 1}` };

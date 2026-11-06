@@ -124,6 +124,17 @@ test('a control character other than newline is refused', () => {
   assert.equal(resolveRerankCriteria({ value: VALID5.replace('two text', 'two\r'), params: PARAMS }).source, 'registry', 'CRLF is refused');
 });
 
+test('141 N2: line and paragraph separators, bidirectional controls and zero-width characters are refused', () => {
+  const bad = ['\u2028', '\u2029', '\u202a', '\u202b', '\u202c', '\u202d', '\u202e', '\u2066', '\u2067', '\u2068', '\u2069',
+    '\u200b', '\u200c', '\u200d', '\u200e', '\u200f', '\u2060', '\ufeff'];
+  for (const character of bad) {
+    const result = resolveRerankCriteria({ value: VALID5.replace('two text', `two${character}text`), params: PARAMS });
+    registryFallback(result);
+    assert.match(result.warning, /control character/, JSON.stringify(character));
+  }
+  assert.equal(resolveRerankCriteria({ value: VALID5.replace('two text', 'two \u00e9 \u4e2d text'), params: PARAMS }).source, 'settings', 'ordinary non-ASCII text stays valid');
+});
+
 test('repeated ladder lines are refused, also when they differ only in surrounding space; the choice line may repeat one', () => {
   const dup = resolveRerankCriteria({ value: 'a\nb\nc\nb\ne', params: PARAMS });
   registryFallback(dup);
