@@ -15,8 +15,8 @@ const { resolveShadowConfig } = require('../../src/runtime/advice/shadow-config.
 
 const KINDS: string[] = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/advice.json'), 'utf8')).kinds.map((kind: any) => kind.id);
 
-test('the advice registry still declares the seven kinds this file covers', () => {
-  assert.deepEqual(KINDS, ['tier', 'task-class', 'verify-risk', 'review-depth', 'mcp-need', 'followup-triage', 'rerank']);
+test('the advice registry still declares the eight kinds this file covers', () => {
+  assert.deepEqual(KINDS, ['tier', 'task-class', 'verify-risk', 'review-depth', 'mcp-need', 'followup-triage', 'rerank', 'claim-support']);
 });
 
 // ── config validate ───────────────────────────────────────────────────────────────────────────────

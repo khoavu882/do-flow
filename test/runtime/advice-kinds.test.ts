@@ -35,7 +35,7 @@ test('score criteria preserve order and obey distinct nonempty string bounds', (
   const question: any = { type: 'score', criteria: ['Low', 'High'] };
   assert.equal(validateStaticAnswer(question, 'High').ok, true);
   for (const value of [1, '1', 'high', ' High']) assert.equal(validateStaticAnswer(question, value).ok, false);
-  assert.equal(ADVICE.kinds.length, 7);
+  assert.equal(ADVICE.kinds.length, 8);
   assert.equal(materialize('score').ok, false);
 });
 
@@ -104,6 +104,16 @@ test('141 IC-001: materializeKind refuses a call-built kind as built by its call
     assert.equal(result.reason, 'usage-error');
     assert.match(result.detail, /built by its caller/);
   }
+});
+
+test('141 IC-001: claim-support materializes to its own yes/no question and refuses --server', () => {
+  const result = materialize('claim-support');
+  assert.equal(result.ok, true, result.detail);
+  assert.deepEqual(result.question, {
+    name: 'claim-support', type: 'yesno', instructions: 'Decide whether the claim is fully supported by the passage.',
+    no: 'The passage does not fully support the claim', yes: 'The passage fully supports the claim',
+  });
+  assert.equal(materialize('claim-support', { server: 'x' }).ok, false);
 });
 
 test('IC-004: a criteria source below minOptions makes only that kind unavailable', () => {

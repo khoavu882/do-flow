@@ -150,6 +150,22 @@
         "queryBytes": 2048,
         "criteriaBytes": 1536
       }
+    },
+    {
+      "id": "claim-support",
+      "type": "yesno",
+      "description": "Proposed defaults, no measurement behind them: claim and passage caps of 1024 and 2048 bytes, budgetMs 5000 because a detached shadow call keeps the CLI process alive up to that budget. Asked once per (claim, evidence passage) pair by the claim link hook; shadow only, it never changes a claim or a ledger.",
+      "instructions": "Decide whether the claim is fully supported by the passage.",
+      "no": "The passage does not fully support the claim",
+      "yes": "The passage fully supports the claim",
+      "staticFrom": "the recorded relation (supports means yes, contradicts means no)",
+      "askedBy": ["claim"],
+      "maxMode": "shadow",
+      "budgetMs": 5000,
+      "params": {
+        "claimBytes": 1024,
+        "passageBytes": 2048
+      }
     }
   ]
 }

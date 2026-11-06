@@ -143,6 +143,18 @@ function validateRerankParams(params: any, limits: any, base: string, errors: st
   }
 }
 
+// `params` of the claim-support kind (141 IC-001): both byte caps, and the state they build must fit limits.maxStateBytes.
+const CLAIM_STATE_OVERHEAD = 64;
+function validateClaimSupportParams(params: any, limits: any, base: string, errors: string[]): void {
+  for (const field of ['claimBytes', 'passageBytes']) {
+    if (!isPositiveInteger(params[field])) addError(errors, `${base}.params.${field}`, 'must be a positive integer');
+  }
+  if (isPositiveInteger(params.claimBytes) && isPositiveInteger(params.passageBytes) && isPositiveInteger(limits?.maxStateBytes)
+    && params.claimBytes + params.passageBytes + CLAIM_STATE_OVERHEAD > limits.maxStateBytes) {
+    addError(errors, `${base}.params`, `claimBytes + passageBytes + ${CLAIM_STATE_OVERHEAD} must be at most limits.maxStateBytes`);
+  }
+}
+
 function validateCallBuiltFields(kind: any, registry: any, base: string, errors: string[]): void {
   const callBuilt = kind.criteriaFrom === CALL_BUILT;
   if (Object.hasOwn(kind, 'maxMode') && !MODES.includes(kind.maxMode)) addError(errors, `${base}.maxMode`, `must be one of ${MODES.join(', ')}`);
@@ -161,6 +173,8 @@ function validateCallBuiltFields(kind: any, registry: any, base: string, errors:
       addError(errors, `${base}.params`, 'must be an object');
     } else if (kind.id === 'rerank') {
       validateRerankParams(params, registry.limits, base, errors);
+    } else if (kind.id === 'claim-support') {
+      validateClaimSupportParams(params, registry.limits, base, errors);
     } else {
       for (const [field, value] of Object.entries(params)) {
         if (field !== 'arm' && !isPositiveInteger(value)) addError(errors, `${base}.params.${field}`, 'must be a positive integer');
@@ -283,7 +297,15 @@ function validateAdviceRegistry(registry: any, { repoRoot = REPO_ROOT, models, f
       else ids.add(kind.id);
       if (!['choice', 'yesno'].includes(kind.type)) addError(errors, `${base}.type`, 'must be choice or yesno');
       if (typeof kind.instructions !== 'string' || !kind.instructions.trim()) addError(errors, `${base}.instructions`, 'must be a non-empty string');
-      if (Object.hasOwn(kind, 'criteria') === Object.hasOwn(kind, 'criteriaFrom')) addError(errors, base, 'must have exactly one of criteria or criteriaFrom');
+      // A yes/no kind whose own `no` and `yes` texts are its options (claim-support, 141 IC-001) needs neither source.
+      const ownOptions = kind.type === 'yesno' && !Object.hasOwn(kind, 'criteria') && !Object.hasOwn(kind, 'criteriaFrom');
+      if (ownOptions) {
+        for (const field of ['no', 'yes']) {
+          if (typeof kind[field] !== 'string' || !kind[field].trim()) addError(errors, `${base}.${field}`, 'must be a non-empty string when the kind has no criteria or criteriaFrom');
+        }
+      } else if (Object.hasOwn(kind, 'criteria') === Object.hasOwn(kind, 'criteriaFrom')) {
+        addError(errors, base, 'must have exactly one of criteria or criteriaFrom');
+      }
       if (Object.hasOwn(kind, 'criteria') && (!isObject(kind.criteria) || Object.values(kind.criteria).some((value: any) => typeof value !== 'string' || !value.trim()))) {
         addError(errors, `${base}.criteria`, 'must map option ids to non-empty descriptions');
       }

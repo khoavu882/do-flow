@@ -57,7 +57,7 @@ test('IC-003: shipped registry loads with the fixed limits, bands, providers and
     minVersion: '0.35.1', capability: 'decision',
   }]);
   assert.deepEqual(registry.kinds.map((kind: any) => kind.id), [
-    'tier', 'task-class', 'verify-risk', 'review-depth', 'mcp-need', 'followup-triage', 'rerank',
+    'tier', 'task-class', 'verify-risk', 'review-depth', 'mcp-need', 'followup-triage', 'rerank', 'claim-support',
   ]);
   assert.deepEqual(Object.keys(registry.kinds[0].criteria), MODELS.dispatchTiers.tiers);
   assert.deepEqual(Object.keys(MODELS.providers).length > 0, true);
@@ -225,5 +225,38 @@ expectInvalid('thresholds list too long', 'kinds[6].thresholds.confidenceBelow',
 
 test('141 IC-001: a registry without the rerank kind still loads (no such call is made)', (t) => {
   const result = loadAdviceRegistry(writeFixture(t, (r: any) => { r.kinds = r.kinds.filter((kind: any) => kind.id !== 'rerank'); }));
+  assert.equal(result.ok, true, result.detail);
+});
+
+// ── 141 IC-001: the claim-support kind entry (D.1) ───────────────────────────────────────────────
+
+const claimOf = (r: any) => r.kinds.find((kind: any) => kind.id === 'claim-support');
+
+test('141 IC-001: the shipped claim-support kind is a shadow-only yes/no kind with its own texts and byte caps', () => {
+  const result = loadAdviceRegistry({ repoRoot: REPO });
+  assert.equal(result.ok, true, result.detail);
+  const kind = claimOf(result.registry);
+  assert.equal(kind.type, 'yesno');
+  assert.equal(kind.yes, 'The passage fully supports the claim');
+  assert.equal(kind.no, 'The passage does not fully support the claim');
+  assert.equal(kind.maxMode, 'shadow');
+  assert.equal(kind.budgetMs, 5000);
+  assert.deepEqual(kind.askedBy, ['claim']);
+  assert.deepEqual(kind.params, { claimBytes: 1024, passageBytes: 2048 });
+  assert.equal(Object.hasOwn(kind, 'criteria') || Object.hasOwn(kind, 'criteriaFrom'), false);
+});
+
+expectInvalid('claim-support maxMode', 'kinds[7].maxMode', (r: any) => { claimOf(r).maxMode = 'always'; });
+expectInvalid('claim-support budgetMs above timeoutMs', 'kinds[7].budgetMs', (r: any) => { claimOf(r).budgetMs = 15001; });
+expectInvalid('claim-support yes text empty', 'kinds[7].yes', (r: any) => { claimOf(r).yes = ' '; });
+expectInvalid('claim-support no text missing', 'kinds[7].no', (r: any) => { delete claimOf(r).no; });
+expectInvalid('claim-support claimBytes zero', 'kinds[7].params.claimBytes', (r: any) => { claimOf(r).params.claimBytes = 0; });
+expectInvalid('claim-support passageBytes missing', 'kinds[7].params.passageBytes', (r: any) => { delete claimOf(r).params.passageBytes; });
+expectInvalid('claim-support state rule', 'claimBytes + passageBytes + 64', (r: any) => { claimOf(r).params.passageBytes = r.limits.maxStateBytes; });
+expectInvalid('claim-support with criteria and criteriaFrom both', 'kinds[7]', (r: any) => { claimOf(r).criteria = { a: 'x' }; claimOf(r).criteriaFrom = 'workflows.classes'; });
+expectInvalid('a choice kind with neither criteria nor criteriaFrom', 'kinds[0]', (r: any) => { delete r.kinds[0].criteria; });
+
+test('141 IC-001: a registry without the claim-support kind still loads (no such call is made)', (t) => {
+  const result = loadAdviceRegistry(writeFixture(t, (r: any) => { r.kinds = r.kinds.filter((kind: any) => kind.id !== 'claim-support'); }));
   assert.equal(result.ok, true, result.detail);
 });
