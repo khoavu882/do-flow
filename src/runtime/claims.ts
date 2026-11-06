@@ -407,6 +407,7 @@ function fireShadowClaimSupport({ taskId, claimId, evidenceId, relation, claimSt
     const { materializeKind } = require('./advice/kinds.ts');
     const { buildClaimSupportState, claimSupportPayload } = require('./advice/claim-support.ts');
     const { interceptDecisionPoint } = require('./advice/shadow-dispatcher.ts');
+    const { withAdviceServices } = require('./advice/services.ts');
     const built = buildClaimSupportState({ claim, passage, params: kind.params });
     const question = materializeKind('claim-support', { adviceRegistry });
     if (!built.ok || !question.ok) return;
@@ -424,7 +425,7 @@ function fireShadowClaimSupport({ taskId, claimId, evidenceId, relation, claimSt
       kind: 'claim-support', caller: 'claim', state: built.state, staticPick: relation === 'supports' ? 'yes' : 'no',
       questionSet: { state: built.state, questions: [question.question] }, adviceRegistry, budgetMs: kind.budgetMs, describe,
       projectRoot, env: environment, taskId,
-    }, { ...svc, shadowConfig }).catch(() => {});
+    }, { ...withAdviceServices({ svc, adviceRegistry, projectRoot, env: environment }), shadowConfig }).catch(() => {});
   } catch { /* advice is advisory: nothing here may change a claim or its output */ }
 }
 

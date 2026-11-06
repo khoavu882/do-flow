@@ -288,14 +288,13 @@ function loadProtocolInputs(taskClass: string | null, cwd: string, env: Record<s
 async function askAdvice({ decision, risk, taskClass, slug, files, cwd, env, adviceClient }: any): Promise<{ status: string; pick: string | null; reason?: string | null }> {
   try {
     const { loadAdviceRegistry } = require('../advice/registry.ts');
-    const { loadStorageRegistry } = require('../storage/registry.ts');
-    const { resolveRoots } = require('../storage/roots.ts');
+    const { resolveAdviceRoots } = require('../advice/services.ts');
     const { resolveSetting } = require('../advice/config.ts');
     const { materializeKind } = require('../advice/kinds.ts');
     const { createAdviceClient } = require('../advice/client.ts');
     const loaded = loadAdviceRegistry({ repoRoot: REPO_ROOT });
     if (!loaded.ok) return { status: 'unavailable', pick: null };
-    const roots = resolveRoots({ registry: loadStorageRegistry({ repoRoot: REPO_ROOT }), projectRoot: path.resolve(cwd), env });
+    const roots = resolveAdviceRoots({ projectRoot: cwd, env });
     if (resolveSetting({ adviceRegistry: loaded.registry, roots, env }).state !== 'on') return { status: 'off', pick: null };
     const built = materializeKind('review-depth', { adviceRegistry: loaded.registry });
     if (!built.ok) return { status: 'unavailable', pick: null };

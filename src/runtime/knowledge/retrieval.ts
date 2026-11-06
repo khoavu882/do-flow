@@ -178,6 +178,7 @@ function fireShadowRerank({ query, candidates, firstStageMs, projectRoot, env, s
     const { resolveRerankCriteria } = require('../advice/criteria.ts');
     const { buildRerankQuestionSet, interpretRerankAnswers, rerankPayload } = require('../advice/rerank.ts');
     const { interceptDecisionPoint } = require('../advice/shadow-dispatcher.ts');
+    const { withAdviceServices } = require('../advice/services.ts');
     const criteria = resolveRerankCriteria({ kind, adviceRegistry, projectRoot: root, env: environment, fsImpl: svc.fsImpl });
     const built = buildRerankQuestionSet({
       query, candidates, params: kind.params, arm: kind.params.arm, criteria, scoreLadder: kind.scoreLadder, limits: adviceRegistry.limits,
@@ -198,7 +199,7 @@ function fireShadowRerank({ query, candidates, firstStageMs, projectRoot, env, s
     interceptDecisionPoint({
       kind: 'rerank', caller: 'retrieve', state: built.questionSet.state, staticPick: 'A', questionSet: built.questionSet,
       adviceRegistry, budgetMs: kind.budgetMs, describe, projectRoot: root, env: environment,
-    }, { ...svc, shadowConfig }).catch(() => {});
+    }, { ...withAdviceServices({ svc, adviceRegistry, projectRoot: root, env: environment }), shadowConfig }).catch(() => {});
   } catch { /* advice is advisory: nothing here may change a retrieve result */ }
 }
 
