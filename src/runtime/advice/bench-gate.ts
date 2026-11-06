@@ -85,8 +85,12 @@ function createBenchBar({ registryRoot = REPO_ROOT }: { registryRoot?: string } 
     if (!isObject(corpus) || verdict.corpusVersion !== corpus.corpusVersion || verdict.corpusDigest !== corpus.digest) {
       return result(false, 'verdict stale: corpus changed');
     }
-    if (verdict.criteriaDigest !== null && verdict.criteriaDigest !== undefined && criteriaDigest !== null && verdict.criteriaDigest !== criteriaDigest) {
-      return result(false, 'verdict stale: criteria changed');
+    // Fails closed: a rerank verdict, or any verdict that stores a criteria digest, is only valid for the criteria text
+    // the caller supplies the digest of. A caller that supplies none cannot show the criteria still match.
+    const storedDigest = verdict.criteriaDigest ?? null;
+    if (storedDigest !== null || kind === RERANK_KIND) {
+      if (criteriaDigest === null) return result(false, 'verdict stale: criteria digest not supplied');
+      if (storedDigest !== criteriaDigest) return result(false, 'verdict stale: criteria changed');
     }
 
     let judged: { result: string; failedChecks: string[] };

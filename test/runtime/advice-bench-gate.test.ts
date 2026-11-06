@@ -128,11 +128,22 @@ test('IC-005: a rerank verdict for one arm never stands in for the other or for 
   assert.equal(bar('rerank', 'm', { arm: 'choice', criteriaDigest: '3f9a1c0b27de' }).passed, true);
   assert.equal(bar('rerank', 'm', { arm: 'ladder', criteriaDigest: '3f9a1c0b27de' }).passed, false);
   assert.equal(bar('rerank', 'm').passed, false);
-  // no caller digest: the criteria check is skipped
-  assert.equal(bar('rerank', 'm', { arm: 'choice' }).passed, true);
+  // 141 F2: no caller digest fails closed for a verdict that stores one
+  const missing = bar('rerank', 'm', { arm: 'choice' });
+  assert.equal(missing.passed, false);
+  assert.equal(missing.reason, 'verdict stale: criteria digest not supplied');
+  // a non-rerank verdict that stores a digest fails closed the same way; one that stores none is unaffected
+  const tierWithDigest = verdict({ kind: 'tier', criteriaDigest: 'aaaaaaaaaaaa' });
+  const tierBar = createBenchBar({ registryRoot: fixtureRoot(t, verdictFile([tierWithDigest])) });
+  assert.equal(tierBar('tier', 'm').reason, 'verdict stale: criteria digest not supplied');
+  assert.equal(tierBar('tier', 'm', { criteriaDigest: 'aaaaaaaaaaaa' }).passed, true);
+  // a rerank verdict that stores no digest still needs the caller's
+  const bare = verdict({ kind: 'rerank', arm: 'choice', quality: { metric: 'ndcgAt5', model: 0.5, static: 0.4, delta: 0.1, ci: [0.02, 0.2], excluded: 0 }, latencyMs: { p50: 900, p95: 2500 } });
+  const bareBar = createBenchBar({ registryRoot: fixtureRoot(t, verdictFile([bare], corpora)) });
+  assert.equal(bareBar('rerank', 'm', { arm: 'choice' }).reason, 'verdict stale: criteria digest not supplied');
   // a rerank cap of 3000 ms applies
-  const slow = verdict({ kind: 'rerank', arm: 'choice', latencyMs: { p50: 900, p95: 3500 }, result: 'fail', failedChecks: ['latency'] });
-  const res = createBenchBar({ registryRoot: fixtureRoot(t, verdictFile([slow], corpora)) })('rerank', 'm', { arm: 'choice' });
+  const slow = verdict({ kind: 'rerank', arm: 'choice', criteriaDigest: '3f9a1c0b27de', latencyMs: { p50: 900, p95: 3500 }, result: 'fail', failedChecks: ['latency'] });
+  const res = createBenchBar({ registryRoot: fixtureRoot(t, verdictFile([slow], corpora)) })('rerank', 'm', { arm: 'choice', criteriaDigest: '3f9a1c0b27de' });
   assert.equal(res.reason, 'verdict failed: latency');
 });
 
