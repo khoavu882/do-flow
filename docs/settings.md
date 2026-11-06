@@ -111,6 +111,27 @@ The default endpoint is the selected provider's `defaultEndpoint` in `advice.jso
 
 **One writer by default.** `team.writerCap` ships as 1: worker sessions that write run one at a time, while read-only work still fans out. Raise it (`doflow config set team.writerCap 2 --layer user`) when the write sets are disjoint and you want the speed. Sources for the default: Cognition, "Don't Build Multi-Agents" (2025) and "Multi-Agents: What's Actually Working" (2026), on conflicting implicit decisions between parallel writers; Anthropic, "How we built our multi-agent research system" (2025), where a multi-agent run used about 15 times the tokens of a chat, so it pays only for wide, parallel, read-heavy work; Anthropic, "Building effective agents" (2024), on starting with the simplest pattern that works.
 
+### Decision-model kinds: rerank, claim-support and the rerank criteria
+
+`advice.kinds.rerank` and `advice.kinds.claim-support` take `off`, `shadow` or `act`. Unset means off, and so does an invalid value. `rerank` makes `retrieve` record a model order beside the first-stage order. `claim-support` makes `claim --action link` record the model's support probability beside the recorded relation. Neither changes any output, exit status or stored claim. Both are held at `shadow`: a value of `act` is accepted, the kind runs as `shadow`, and the warning `ACT_NOT_SUPPORTED: kind '<id>' is limited to shadow` goes with the dispatcher's result (`retrieve` and `claim` do not print it). The advice setting must be on, and the kind needs a decision model. `advice.models.rerank` and `advice.models.claim-support` name the model for that kind; unset uses `advice.model`. `doflow advise --action report` shows what the two kinds recorded; the mechanics, caps and the measured latency are in [Reference](reference.md#decision-model-report-evidence-and-shadow-kinds).
+
+`advice.criteria.rerank` replaces the text the model is shown when it judges rerank candidates. It is one string of 5 or 6 lines separated by `\n`:
+
+- Lines 1 to 5 are the criteria of the ladder levels 0 to 4, from least to most relevant. They must differ from each other.
+- Line 6 is optional and replaces the choice-arm instruction (`Select the candidate that best answers the query.`).
+- No line may be empty after trimming. The whole value may not exceed 1536 bytes (UTF-8, the `criteriaBytes` of the `rerank` kind in `core/registry/advice.json`) and may hold no control character other than the newline; a carriage return is refused.
+
+An invalid value never stops a command. The registry text stays in force, and `doflow advise --action report` shows the first rule that failed next to `criteria in force`. The criteria text is never recorded: a record holds a 12-hex digest of the texts in force and whether they came from the registry or from the setting. A `rerank` verdict is bound to that digest, so changing the text makes it stale.
+
+The setting is security-relevant like every `advice.*` key, so `doflow config set` and `config unset` refuse it: a person writes it in the settings file, for example in `.doflow/settings.json`:
+
+```json
+{
+  "schema": 1,
+  "advice.criteria.rerank": "Unrelated to the query.\nSame topic, no help with the query.\nAnswers one aspect of the query.\nAnswers the query but needs other passages.\nAnswers the query fully on its own.\nSelect the passage that best answers the query."
+}
+```
+
 ## Config home
 
 DoFlow's per-machine files (`prompt-nudge`, `prune`, `decision-model.json`, `settings.json`, `failures/`, `reports/`, `session-env/`, `sessions.log`) live in one folder, `<base>/doflow`. The base is `XDG_CONFIG_HOME` when it is set to an absolute path, else `$HOME/.config` when `HOME` is set to an absolute path, else there is no config home. A relative or empty value is ignored, never read against the working directory, and DoFlow does not fall back to the account's home folder. Node code and every shell script and hook resolve it by the same rule.
