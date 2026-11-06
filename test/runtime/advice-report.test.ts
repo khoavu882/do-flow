@@ -344,3 +344,87 @@ test('advise --action report --json carries the rerank block and the criteria in
   assert.match(text.stdout, /would-drop \(measurement only\)/);
   assert.ok(text.stdout.trimEnd().endsWith(FOOTER));
 });
+
+// 141 D.4 (IC-008): the claim-support figures by recorded relation, with the assertion-not-accuracy line.
+
+const CS_KINDS = ['tier', 'claim-support'];
+const CS_NOTE = 'A recorded link is an assertion, not ground truth; agreement here is not accuracy.';
+
+function claimPick(roots: any, minutes: number, relation: string, yes: number, extra: any = {}) {
+  return appendPick({
+    roots, now: () => new Date(Date.parse('2026-06-10T00:00:00.000Z') + minutes * 60000), kind: 'claim-support', caller: 'claim',
+    staticAnswer: relation === 'supports' ? 'yes' : 'no', mode: 'shadow', elevated: false, durationMs: 100 * (minutes + 1),
+    state: `claim: ${SENTINEL}\npassage: ${SENTINEL}`,
+    question: { name: 'claim-support', type: 'yesno' },
+    answer: { name: 'claim-support', type: 'yesno', pick: yes >= 0.5 ? 'yes' : 'no', probabilities: { yes, no: 1 - yes }, confidence: 0.8, strength: { word: 'clear', between: null } },
+    extra: { claimSupport: { claimId: `c-${minutes}`, evidenceId: `e-${minutes}`, relation, claimStatus: 'supported', claimBytes: 12, passageBytes: 30, truncated: false, ...extra } },
+  });
+}
+
+function claimWindow(roots: any) {
+  claimPick(roots, 0, 'supports', 0.9);
+  claimPick(roots, 1, 'supports', 0.7);
+  claimPick(roots, 2, 'supports', 0.2);
+  claimPick(roots, 3, 'contradicts', 0.6);
+  claimPick(roots, 4, 'contradicts', 0.1);
+  appendMiss({ roots, now: NOW, kind: 'claim-support', caller: 'claim', reason: 'timeout', durationMs: 5000 });
+  appendMiss({ roots, now: NOW, kind: 'claim-support', caller: 'claim', reason: 'timeout', durationMs: 5001 });
+  appendMiss({ roots, now: NOW, kind: 'claim-support', caller: 'claim', reason: 'unreachable', durationMs: 20 });
+  // an old line: a claim-support pick written without the payload.
+  rawLine(roots, '2026-06-09', { schema: 1, type: 'pick', pickId: 'adv-1780000000000-dddddd', at: '2026-06-09T01:00:00.000Z', kind: 'claim-support', question: 'claim-support', qtype: 'yesno', options: ['no', 'yes'], pick: 'yes', static: 'yes', durationMs: 50 });
+}
+
+test('claim-support figures by recorded relation carry n, model yes, agreement and misses by reason', (t) => {
+  const { roots } = fixture(t);
+  claimWindow(roots);
+  const c = buildReport({ roots, kinds: CS_KINDS, now: NOW }).claimSupport;
+  assert.deepEqual(c.n, { picks: 6, misses: 3 });
+  assert.deepEqual(c.missesByReason, { timeout: 2, unreachable: 1 });
+  assert.equal(c.withoutPayload, 1);
+  assert.deepEqual(c.byRelation.supports, { n: 3, modelYes: 2, agree: 2 });
+  assert.deepEqual(c.byRelation.contradicts, { n: 2, modelYes: 1, agree: 1 });
+  assert.equal(c.durationMs.n, 6);
+  const text = renderText(buildReport({ roots, kinds: CS_KINDS, now: NOW }));
+  assert.match(text, /claim-support\n {2}picks: 6; misses: 3 \(timeout 2, unreachable 1\)/);
+  assert.match(text, /picks without a claim-support payload: 1 of 6/);
+  assert.match(text, /supports: picks 3; model said yes at p>=0\.5: 2 of 3; .*: 2 of 3 \(67%\), n=3/);
+  assert.match(text, /contradicts: picks 2; model said yes at p>=0\.5: 1 of 2; .*: 1 of 2 \(50%\), n=2/);
+  assert.ok(text.includes(CS_NOTE));
+  assert.ok(text.trimEnd().endsWith(FOOTER), 'the footer stays last');
+});
+
+test('a relation with no records prints no data, and a kind with no records prints no data', (t) => {
+  const { roots } = fixture(t);
+  assert.match(renderText(buildReport({ roots, kinds: CS_KINDS, now: NOW })), /claim-support\n {2}no data/);
+  claimPick(roots, 0, 'supports', 0.9);
+  const report = buildReport({ roots, kinds: CS_KINDS, now: NOW });
+  assert.deepEqual(report.claimSupport.byRelation.contradicts, { n: 0, modelYes: 0, agree: 0 });
+  assert.match(renderText(report), /contradicts: no data \(n=0\)/);
+});
+
+test('a pick with a malformed payload relation or no probability stays readable', (t) => {
+  const { roots } = fixture(t);
+  rawLine(roots, '2026-06-09', { schema: 1, type: 'pick', pickId: 'adv-1780000000002-eeeeee', at: '2026-06-09T02:00:00.000Z', kind: 'claim-support', pick: 'yes', static: 'yes', durationMs: 5, claimSupport: { relation: 'weird' } });
+  rawLine(roots, '2026-06-09', { schema: 1, type: 'pick', pickId: 'adv-1780000000003-ffffff', at: '2026-06-09T02:30:00.000Z', kind: 'claim-support', pick: 'no', static: 'no', durationMs: 5, claimSupport: { relation: 'contradicts' } });
+  const c = buildReport({ roots, kinds: CS_KINDS, now: NOW }).claimSupport;
+  assert.equal(c.withoutPayload, 1);
+  assert.deepEqual(c.byRelation.contradicts, { n: 1, modelYes: 0, agree: 1 });
+});
+
+test('claim-support figures are absent when another kind is selected', (t) => {
+  const { roots } = fixture(t);
+  claimWindow(roots);
+  assert.equal('claimSupport' in buildReport({ roots, kinds: CS_KINDS, kind: 'tier', now: NOW }), false);
+  assert.equal(buildReport({ roots, kinds: CS_KINDS, kind: 'claim-support', now: NOW }).claimSupport.n.picks, 6);
+});
+
+test('no claim, passage or hand-written text reaches the claim-support text or JSON', (t) => {
+  const { roots } = fixture(t);
+  claimWindow(roots);
+  claimPick(roots, 9, 'supports', 0.9, { claim: SENTINEL, passage: SENTINEL, text: SENTINEL });
+  rawLine(roots, '2026-06-09', { schema: 1, type: 'pick', pickId: 'adv-1780000000004-aaaaaa', at: '2026-06-09T03:00:00.000Z', kind: 'claim-support', pick: 'yes', static: 'yes', durationMs: 5, state: SENTINEL, claimSupport: { relation: 'supports', claimId: SENTINEL, evidenceId: SENTINEL, claim: SENTINEL, passage: SENTINEL, claimStatus: SENTINEL } });
+  const report = buildReport({ roots, kinds: CS_KINDS, now: NOW });
+  assert.equal(JSON.stringify(report).includes(SENTINEL), false);
+  assert.equal(renderText(report).includes(SENTINEL), false);
+  assert.equal(report.claimSupport.n.picks, 8, 'the hand-written line is counted');
+});

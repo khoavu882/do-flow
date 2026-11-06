@@ -147,6 +147,42 @@ function rerankFigures(picks: any[], misses: any[], { thresholds, criteria }: an
   };
 }
 
+const RELATIONS = ['supports', 'contradicts'];
+const CLAIM_SUPPORT_NOTE = 'A recorded link is an assertion, not ground truth; agreement here is not accuracy.';
+
+/** True when the model called `yes` at a probability of 0.5 or more; a line without a usable probability falls back to its pick. */
+function calledYes(pick: any): boolean {
+  const p = pick?.probabilities?.yes;
+  return typeof p === 'number' && Number.isFinite(p) ? p >= 0.5 : pick?.pick === 'yes';
+}
+
+/**
+ * The claim-support figures (141 IC-008, DEC-032). A pick is grouped by the relation recorded in its `claimSupport`
+ * payload; a pick without a usable payload (an old line) is counted apart and joins no relation. Only the relation word
+ * and numbers are read from a line, so no claim or passage text can reach the output.
+ */
+function claimSupportFigures(picks: any[], misses: any[]): any {
+  const missesByReason: Record<string, number> = {};
+  for (const miss of misses) {
+    const reason = typeof miss.reason === 'string' && miss.reason ? miss.reason : 'unknown';
+    missesByReason[reason] = (missesByReason[reason] || 0) + 1;
+  }
+  const byRelation: Record<string, { n: number; modelYes: number; agree: number }> = {};
+  for (const relation of RELATIONS) byRelation[relation] = { n: 0, modelYes: 0, agree: 0 };
+  let withoutPayload = 0;
+  for (const pick of picks) {
+    const relation = pick?.claimSupport?.relation;
+    if (!RELATIONS.includes(relation)) { withoutPayload += 1; continue; }
+    const figures = byRelation[relation];
+    const yes = calledYes(pick);
+    figures.n += 1;
+    if (yes) figures.modelYes += 1;
+    if (yes === (relation === 'supports')) figures.agree += 1;
+  }
+  const { n, p50, p95 } = summarize(picks.map((p) => p.durationMs));
+  return { n: { picks: picks.length, misses: misses.length }, withoutPayload, missesByReason, byRelation, durationMs: { n, p50, p95 } };
+}
+
 function readVerdicts(repoRoot: string, kinds: Set<string>, evaluate: any, criteriaDigest: string | null = null): any[] {
   let file: any;
   try { file = JSON.parse(fs.readFileSync(path.join(repoRoot, VERDICTS_FILE), 'utf8')); } catch { return []; }
@@ -205,6 +241,8 @@ function buildReport({
     const entry = (adviceRegistry?.kinds || []).find((k: any) => k?.id === 'rerank');
     rerank = rerankFigures(picksBy.get('rerank') || [], missesBy.get('rerank') || [], { thresholds: entry?.thresholds, criteria: inForce });
   }
+  const claimSupport = shown.includes('claim-support')
+    ? claimSupportFigures(picksBy.get('claim-support') || [], missesBy.get('claim-support') || []) : undefined;
   return {
     schema: SCHEMA,
     scope: SCOPE,
@@ -212,6 +250,7 @@ function buildReport({
     unreadable,
     kinds: kindsOut,
     ...(rerank ? { rerank } : {}),
+    ...(claimSupport ? { claimSupport } : {}),
     verdicts: readVerdicts(repoRoot, new Set(shown), evaluate, rerank?.criteria?.digest ?? null),
   };
 }
@@ -265,6 +304,23 @@ function renderRerank(kindFigs: any, r: any): string[] {
   return lines;
 }
 
+function renderClaimSupport(kindFigs: any, c: any): string[] {
+  if (kindFigs.agreeStatic === null) return ['  no data'];
+  const reasons = Object.entries(c.missesByReason).map(([reason, count]) => `${reason} ${count}`).join(', ');
+  const lines = [`  picks: ${c.n.picks}; misses: ${c.n.misses}${reasons ? ` (${reasons})` : ''}`];
+  if (c.withoutPayload > 0) lines.push(`  picks without a claim-support payload: ${c.withoutPayload} of ${c.n.picks}`);
+  lines.push('  by recorded relation:');
+  for (const relation of RELATIONS) {
+    const r = c.byRelation[relation];
+    if (r.n === 0) { lines.push(`    ${relation}: no data (n=0)`); continue; }
+    const expected = relation === 'supports' ? 'yes' : 'no';
+    lines.push(`    ${relation}: picks ${r.n}; model said yes at p>=0.5: ${r.modelYes} of ${r.n}; agrees with the recorded relation (${relation} means ${expected}): ${ratio({ n: r.n, agree: r.agree })}`);
+  }
+  lines.push(c.durationMs.n === 0 ? '  pick duration ms: no data (n=0)' : `  pick duration ms (n=${c.durationMs.n}): p50 ${c.durationMs.p50}, p95 ${c.durationMs.p95}`);
+  lines.push(`  ${CLAIM_SUPPORT_NOTE}`);
+  return lines;
+}
+
 function renderText(report: any): string {
   const lines = [
     `Advice report (${report.scope})`,
@@ -274,6 +330,7 @@ function renderText(report: any): string {
   for (const [id, f] of Object.entries<any>(report.kinds)) {
     lines.push('', id);
     if (id === 'rerank' && report.rerank) { lines.push(...renderRerank(f, report.rerank)); continue; }
+    if (id === 'claim-support' && report.claimSupport) { lines.push(...renderClaimSupport(f, report.claimSupport)); continue; }
     if (f.agreeStatic === null) { lines.push('  no data'); continue; }
     const reasons = Object.entries(f.missesByReason).map(([reason, count]) => `${reason} ${count}`).join(', ');
     lines.push(`  picks: ${f.n.picks}; misses: ${f.n.misses}${reasons ? ` (${reasons})` : ''}`);
