@@ -57,7 +57,7 @@ test('IC-003: shipped registry loads with the fixed limits, bands, providers and
     minVersion: '0.35.1', capability: 'decision',
   }]);
   assert.deepEqual(registry.kinds.map((kind: any) => kind.id), [
-    'tier', 'task-class', 'verify-risk', 'review-depth', 'mcp-need', 'followup-triage',
+    'tier', 'task-class', 'verify-risk', 'review-depth', 'mcp-need', 'followup-triage', 'rerank',
   ]);
   assert.deepEqual(Object.keys(registry.kinds[0].criteria), MODELS.dispatchTiers.tiers);
   assert.deepEqual(Object.keys(MODELS.providers).length > 0, true);
@@ -171,4 +171,59 @@ test('maint-advise-ext: the packaged tree still rejects a missing adapter and an
   const traversal = load('../registry');
   assert.equal(traversal.ok, false);
   assert.match(traversal.detail, /must be a safe adapter id/);
+});
+
+// ── 141 IC-001: the rerank kind entry and the call-built kind rules ──────────────────────────────
+
+const rerankOf = (r: any) => r.kinds.find((kind: any) => kind.id === 'rerank');
+
+test('141 IC-001: the shipped rerank kind carries the B.3 numbers, the ladder text and the illustrative thresholds', () => {
+  const result = loadAdviceRegistry({ repoRoot: REPO });
+  assert.equal(result.ok, true, result.detail);
+  const kind = rerankOf(result.registry);
+  assert.equal(kind.type, 'choice');
+  assert.equal(kind.criteriaFrom, 'call');
+  assert.equal(kind.maxMode, 'shadow');
+  assert.equal(kind.budgetMs, 5000);
+  assert.deepEqual(kind.askedBy, ['retrieve']);
+  assert.deepEqual(kind.params, {
+    arm: 'choice', minCandidates: 2, maxCandidates: 16, candidateBytes: 800, queryBytes: 2048, criteriaBytes: 1536,
+  });
+  assert.equal(kind.scoreLadder.criteria.length, 5);
+  assert.ok(kind.scoreLadder.instructions.includes('<label>'));
+  assert.deepEqual(kind.thresholds, { illustrative: true, confidenceBelow: [0.5, 0.7, 0.9], expectedBelow: [1, 2] });
+  assert.match(kind.description, /budgetMs 5000/);
+  assert.equal(result.registry.gate.latency.p95CapMs.rerank, 3000, 'the latency bar is not loosened to fit the measurement');
+});
+
+expectInvalid('rerank maxMode', 'kinds[6].maxMode', (r: any) => { rerankOf(r).maxMode = 'always'; });
+expectInvalid('rerank budgetMs below 100', 'kinds[6].budgetMs', (r: any) => { rerankOf(r).budgetMs = 99; });
+expectInvalid('rerank budgetMs above timeoutMs', 'kinds[6].budgetMs', (r: any) => { rerankOf(r).budgetMs = 15001; });
+expectInvalid('rerank budgetMs fraction', 'kinds[6].budgetMs', (r: any) => { rerankOf(r).budgetMs = 5000.5; });
+expectInvalid('kind description empty', 'kinds[6].description', (r: any) => { rerankOf(r).description = ' '; });
+expectInvalid('params without criteriaFrom call or maxMode', 'kinds[0].params', (r: any) => { r.kinds[0].params = { size: 1 }; });
+expectInvalid('params value not a positive integer', 'kinds[4].params.size', (r: any) => { r.kinds[4].maxMode = 'shadow'; r.kinds[4].params = { size: 0 }; });
+expectInvalid('call kind with a static criteria map', 'kinds[6]', (r: any) => { rerankOf(r).criteria = { a: 'x' }; });
+expectInvalid('rerank arm', 'kinds[6].params.arm', (r: any) => { rerankOf(r).params.arm = 'both'; });
+expectInvalid('rerank minCandidates below limits.minOptions', 'kinds[6].params.minCandidates', (r: any) => { rerankOf(r).params.minCandidates = 1; });
+expectInvalid('rerank maxCandidates above the label alphabet', 'kinds[6].params.maxCandidates', (r: any) => { rerankOf(r).params.maxCandidates = 17; });
+expectInvalid('rerank maxCandidates below minCandidates', 'kinds[6].params.minCandidates', (r: any) => { rerankOf(r).params.maxCandidates = 1; rerankOf(r).params.minCandidates = 2; });
+expectInvalid('rerank candidateBytes zero', 'kinds[6].params.candidateBytes', (r: any) => { rerankOf(r).params.candidateBytes = 0; });
+expectInvalid('rerank queryBytes missing', 'kinds[6].params.queryBytes', (r: any) => { delete rerankOf(r).params.queryBytes; });
+expectInvalid('rerank choice-arm body rule', 'maxCandidates * candidateBytes + queryBytes', (r: any) => { rerankOf(r).params.candidateBytes = 1800; });
+expectInvalid('rerank ladder-arm body rule', 'maxCandidates * (candidateBytes + criteriaBytes) + queryBytes', (r: any) => { rerankOf(r).params.criteriaBytes = 2000; });
+expectInvalid('scoreLadder missing on a call kind with an arm', 'kinds[6].scoreLadder', (r: any) => { delete rerankOf(r).scoreLadder; });
+expectInvalid('scoreLadder instructions without <label>', 'kinds[6].scoreLadder.instructions', (r: any) => { rerankOf(r).scoreLadder.instructions = 'Rate it.'; });
+expectInvalid('scoreLadder with 4 levels', 'kinds[6].scoreLadder.criteria', (r: any) => { rerankOf(r).scoreLadder.criteria.pop(); });
+expectInvalid('scoreLadder with a repeated level', 'kinds[6].scoreLadder.criteria', (r: any) => { rerankOf(r).scoreLadder.criteria[1] = rerankOf(r).scoreLadder.criteria[0]; });
+expectInvalid('scoreLadder with an empty level', 'kinds[6].scoreLadder.criteria', (r: any) => { rerankOf(r).scoreLadder.criteria[2] = ' '; });
+expectInvalid('scoreLadder over criteriaBytes', 'kinds[6].scoreLadder.criteria', (r: any) => { rerankOf(r).params.criteriaBytes = 100; });
+expectInvalid('thresholds not illustrative', 'kinds[6].thresholds.illustrative', (r: any) => { rerankOf(r).thresholds.illustrative = false; });
+expectInvalid('thresholds confidence out of range', 'kinds[6].thresholds.confidenceBelow', (r: any) => { rerankOf(r).thresholds.confidenceBelow = [1]; });
+expectInvalid('thresholds expected out of range', 'kinds[6].thresholds.expectedBelow', (r: any) => { rerankOf(r).thresholds.expectedBelow = [0]; });
+expectInvalid('thresholds list too long', 'kinds[6].thresholds.confidenceBelow', (r: any) => { rerankOf(r).thresholds.confidenceBelow = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]; });
+
+test('141 IC-001: a registry without the rerank kind still loads (no such call is made)', (t) => {
+  const result = loadAdviceRegistry(writeFixture(t, (r: any) => { r.kinds = r.kinds.filter((kind: any) => kind.id !== 'rerank'); }));
+  assert.equal(result.ok, true, result.detail);
 });

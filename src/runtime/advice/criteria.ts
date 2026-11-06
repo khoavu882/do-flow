@@ -14,8 +14,9 @@ const SETTING_KEY = 'advice.criteria.rerank';
 const LADDER_LEVELS = 5;
 const DEFAULT_CRITERIA_BYTES = 1536;
 
-// IC-001's proposed registry text. Task B.3 puts the same text in core/registry/advice.json and passes it in as
-// `registry`; these are the values used until a caller does.
+// IC-001's registry text, the same as the `rerank` kind of core/registry/advice.json (test/runtime/advice-criteria.test.ts
+// keeps the two equal). A caller that has the kind passes it as `kind` (or the registry as `adviceRegistry`) and the
+// kind's own text and `params.criteriaBytes` apply; these values are the fallback when it has not.
 const DEFAULT_REGISTRY = Object.freeze({
   ladder: Object.freeze([
     'The candidate is unrelated to the query.',
@@ -91,12 +92,22 @@ function readCriteriaSetting({ projectRoot = null, global = false, env = process
   }
 }
 
+/** The registry's defaults from the `rerank` kind entry: its ladder, its choice instruction and its `params`. */
+function kindDefaults(kind: any): { registry: any; params: any } | null {
+  if (!kind || typeof kind !== 'object') return null;
+  return { registry: { ladder: kind.scoreLadder?.criteria, choiceInstruction: kind.instructions }, params: kind.params };
+}
+
 /**
  * The criteria in force. `value` is the setting's string; when it is `undefined` the setting is read with
- * `projectRoot`, `global`, `env` and `fsImpl`. `registry` is `{ ladder: string[5], choiceInstruction }` and `params`
- * holds `criteriaBytes`; both default to IC-001's proposed values until the registry kind (B.3) supplies them.
+ * `projectRoot`, `global`, `env` and `fsImpl`. The registry text and the byte cap come from, in order: an explicit
+ * `registry` (`{ ladder: string[5], choiceInstruction }`) and `params` (`criteriaBytes`); the `rerank` kind entry given
+ * as `kind` or found in `adviceRegistry`; IC-001's values.
  */
-function resolveRerankCriteria({ value, registry, params, projectRoot, global, env, fsImpl }: any = {}): RerankCriteria {
+function resolveRerankCriteria({ value, registry: givenRegistry, params: givenParams, kind: givenKind, adviceRegistry, projectRoot, global, env, fsImpl }: any = {}): RerankCriteria {
+  const fromKind = kindDefaults(givenKind ?? (Array.isArray(adviceRegistry?.kinds) ? adviceRegistry.kinds.find((entry: any) => entry?.id === 'rerank') : null));
+  const registry = givenRegistry ?? fromKind?.registry;
+  const params = givenParams ?? fromKind?.params;
   const base = registryUsable(registry) ? registry : DEFAULT_REGISTRY;
   const maxBytes = Number.isInteger(params?.criteriaBytes) && params.criteriaBytes > 0 ? params.criteriaBytes : DEFAULT_CRITERIA_BYTES;
   const fallback = (warning: string | null) => inForce(base.ladder, base.choiceInstruction, 'registry', warning);

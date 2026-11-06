@@ -13,6 +13,13 @@ const ADAPTER_DIR = 'src/runtime/advice/providers';
 // checkout, `.js` in the package `build:package` stages (every module there is stripped to `.js`).
 const ADAPTER_EXT = path.extname(__filename);
 const TIER_KIND = 'tier';
+const CALL_BUILT = 'call';
+const MODES = ['off', 'shadow', 'act'];
+// The rerank label alphabet (rerank.ts LABELS): at most this many candidates.
+const RERANK_LABELS = 16;
+const LADDER_LEVELS = 5;
+// The exclusive upper bound of each threshold list: a probability, and a score on the 0 to 4 ladder.
+const THRESHOLD_LISTS: Record<string, number> = { confidenceBelow: 1, expectedBelow: 4 };
 const LIMIT_FIELDS = ['maxStateBytes', 'maxBodyBytes', 'minQuestions', 'maxQuestions', 'minOptions', 'maxOptions'];
 const BAND_FIELDS: Record<string, string[]> = {
   choice: ['clearAt', 'splitWithin'],
@@ -68,6 +75,103 @@ function validateGate(gate: any, errors: string[]): void {
     }
     if (!isNumber(latency.ratioMax) || latency.ratioMax < 1) addError(errors, 'gate.latency.ratioMax', 'must be a number of at least 1');
   }
+}
+
+function utf8Bytes(value: string): number {
+  return Buffer.byteLength(value, 'utf8');
+}
+
+function isPositiveInteger(value: any): boolean {
+  return Number.isInteger(value) && value > 0;
+}
+
+// `scoreLadder` (141 IC-001): the five ladder levels and the instruction that names the candidate by `<label>`.
+function validateScoreLadder(ladder: any, kind: any, base: string, errors: string[]): void {
+  if (!isObject(ladder)) { addError(errors, `${base}.scoreLadder`, 'must be an object'); return; }
+  if (typeof ladder.instructions !== 'string' || !ladder.instructions.includes('<label>')) {
+    addError(errors, `${base}.scoreLadder.instructions`, 'must be a string that contains <label>');
+  }
+  const criteria = ladder.criteria;
+  if (!Array.isArray(criteria) || criteria.length !== LADDER_LEVELS
+    || criteria.some((line: any) => typeof line !== 'string' || !line.trim()) || new Set(criteria).size !== LADDER_LEVELS) {
+    addError(errors, `${base}.scoreLadder.criteria`, `must be exactly ${LADDER_LEVELS} distinct non-empty strings`);
+  } else if (isPositiveInteger(kind.params?.criteriaBytes)
+    && criteria.reduce((sum: number, line: string) => sum + utf8Bytes(line), 0) > kind.params.criteriaBytes) {
+    addError(errors, `${base}.scoreLadder.criteria`, 'must total at most params.criteriaBytes bytes');
+  }
+}
+
+// `thresholds` (141 IC-001): counted by the report and the gate runner, applied to nothing.
+function validateThresholds(thresholds: any, base: string, errors: string[]): void {
+  if (!isObject(thresholds)) { addError(errors, `${base}.thresholds`, 'must be an object'); return; }
+  if (thresholds.illustrative !== true) addError(errors, `${base}.thresholds.illustrative`, 'must be true');
+  for (const [field, upper] of Object.entries(THRESHOLD_LISTS)) {
+    const list = thresholds[field];
+    if (!Array.isArray(list) || list.length > 6 || list.some((value: any) => !isNumber(value) || value <= 0 || value >= upper)) {
+      addError(errors, `${base}.thresholds.${field}`, `must be a list of at most 6 numbers above 0 and below ${upper}`);
+    }
+  }
+}
+
+// `params` of the rerank kind (141 IC-001), with the two request-size rules against limits.maxBodyBytes.
+function validateRerankParams(params: any, limits: any, base: string, errors: string[]): void {
+  if (!['choice', 'ladder'].includes(params.arm)) addError(errors, `${base}.params.arm`, 'must be choice or ladder');
+  for (const field of ['minCandidates', 'maxCandidates', 'candidateBytes', 'queryBytes', 'criteriaBytes']) {
+    if (!isPositiveInteger(params[field])) addError(errors, `${base}.params.${field}`, 'must be a positive integer');
+  }
+  if (Number.isInteger(params.minCandidates) && Number.isInteger(limits?.minOptions) && params.minCandidates < limits.minOptions) {
+    addError(errors, `${base}.params.minCandidates`, 'must be at least limits.minOptions');
+  }
+  if (Number.isInteger(params.minCandidates) && Number.isInteger(params.maxCandidates) && params.minCandidates > params.maxCandidates) {
+    addError(errors, `${base}.params.minCandidates`, 'must not exceed params.maxCandidates');
+  }
+  if (Number.isInteger(params.maxCandidates)) {
+    if (params.maxCandidates > RERANK_LABELS) addError(errors, `${base}.params.maxCandidates`, `must be at most ${RERANK_LABELS}`);
+    if (Number.isInteger(limits?.maxOptions) && params.maxCandidates > limits.maxOptions) {
+      addError(errors, `${base}.params.maxCandidates`, 'must be at most limits.maxOptions');
+    }
+  }
+  const { maxCandidates, candidateBytes, queryBytes, criteriaBytes } = params;
+  const maxBody = limits?.maxBodyBytes;
+  if ([maxCandidates, candidateBytes, queryBytes, criteriaBytes, maxBody].every(isPositiveInteger)) {
+    if (maxCandidates * candidateBytes + queryBytes > maxBody / 2) {
+      addError(errors, `${base}.params`, 'maxCandidates * candidateBytes + queryBytes must be at most half of limits.maxBodyBytes (choice arm)');
+    }
+    if (maxCandidates * (candidateBytes + criteriaBytes) + queryBytes > (maxBody * 3) / 4) {
+      addError(errors, `${base}.params`, 'maxCandidates * (candidateBytes + criteriaBytes) + queryBytes must be at most three quarters of limits.maxBodyBytes (ladder arm)');
+    }
+  }
+}
+
+function validateCallBuiltFields(kind: any, registry: any, base: string, errors: string[]): void {
+  const callBuilt = kind.criteriaFrom === CALL_BUILT;
+  if (Object.hasOwn(kind, 'maxMode') && !MODES.includes(kind.maxMode)) addError(errors, `${base}.maxMode`, `must be one of ${MODES.join(', ')}`);
+  if (Object.hasOwn(kind, 'budgetMs')
+    && (!Number.isInteger(kind.budgetMs) || kind.budgetMs < 100 || (Number.isInteger(registry.timeoutMs) && kind.budgetMs > registry.timeoutMs))) {
+    addError(errors, `${base}.budgetMs`, 'must be an integer from 100 to timeoutMs');
+  }
+  if (Object.hasOwn(kind, 'description') && (typeof kind.description !== 'string' || !kind.description.trim())) {
+    addError(errors, `${base}.description`, 'must be a non-empty string');
+  }
+  if (Object.hasOwn(kind, 'params')) {
+    const params = kind.params;
+    if (!callBuilt && !Object.hasOwn(kind, 'maxMode')) {
+      addError(errors, `${base}.params`, 'is allowed only with criteriaFrom call or maxMode');
+    } else if (!isObject(params)) {
+      addError(errors, `${base}.params`, 'must be an object');
+    } else if (kind.id === 'rerank') {
+      validateRerankParams(params, registry.limits, base, errors);
+    } else {
+      for (const [field, value] of Object.entries(params)) {
+        if (field !== 'arm' && !isPositiveInteger(value)) addError(errors, `${base}.params.${field}`, 'must be a positive integer');
+      }
+    }
+  }
+  if (Object.hasOwn(kind, 'scoreLadder')) validateScoreLadder(kind.scoreLadder, kind, base, errors);
+  else if (callBuilt && isObject(kind.params) && Object.hasOwn(kind.params, 'arm')) {
+    addError(errors, `${base}.scoreLadder`, 'is required on a criteriaFrom call kind that offers the ladder arm');
+  }
+  if (Object.hasOwn(kind, 'thresholds')) validateThresholds(kind.thresholds, base, errors);
 }
 
 function validateAdviceRegistry(registry: any, { repoRoot = REPO_ROOT, models, fsImpl = fs }: any = {}): { ok: boolean; errors: string[] } {
@@ -186,6 +290,7 @@ function validateAdviceRegistry(registry: any, { repoRoot = REPO_ROOT, models, f
       if (Object.hasOwn(kind, 'criteriaFrom') && (typeof kind.criteriaFrom !== 'string' || !kind.criteriaFrom.trim())) {
         addError(errors, `${base}.criteriaFrom`, 'must be a non-empty string');
       }
+      validateCallBuiltFields(kind, registry, base, errors);
       if (typeof kind.staticFrom !== 'string') addError(errors, `${base}.staticFrom`, 'must be a string');
       if (!Array.isArray(kind.askedBy) || kind.askedBy.some((caller: any) => typeof caller !== 'string')) addError(errors, `${base}.askedBy`, 'must be an array of strings');
     }

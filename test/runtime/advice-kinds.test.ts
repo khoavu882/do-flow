@@ -35,7 +35,7 @@ test('score criteria preserve order and obey distinct nonempty string bounds', (
   const question: any = { type: 'score', criteria: ['Low', 'High'] };
   assert.equal(validateStaticAnswer(question, 'High').ok, true);
   for (const value of [1, '1', 'high', ' High']) assert.equal(validateStaticAnswer(question, value).ok, false);
-  assert.equal(ADVICE.kinds.length, 6);
+  assert.equal(ADVICE.kinds.length, 7);
   assert.equal(materialize('score').ok, false);
 });
 
@@ -95,6 +95,15 @@ test('095b IC-003: review-depth is asked by the review verb and its static answe
   assert.match(kind.staticFrom, /gate-b floor/);
   assert.match(kind.staticFrom, /deep/);
   assert.deepEqual(Object.keys(kind.criteria), ['single', 'deep']);
+});
+
+test('141 IC-001: materializeKind refuses a call-built kind as built by its caller, with or without --server', () => {
+  for (const overrides of [{}, { server: 'x' }]) {
+    const result = materialize('rerank', overrides);
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, 'usage-error');
+    assert.match(result.detail, /built by its caller/);
+  }
 });
 
 test('IC-004: a criteria source below minOptions makes only that kind unavailable', () => {

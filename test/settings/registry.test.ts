@@ -85,6 +85,12 @@ const V1 = {
     env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
     consumers: ['src/runtime/advice/shadow-config.ts'],
     description: "Advice mode for the followup-triage kind: off, shadow (record only) or act; unset keeps the kind's own path, the highest layer that sets it decides and an invalid value is off." },
+  // 141 IC-002: rerank is held at shadow by its registry maxMode, so act is accepted and lowered with a warning.
+  'advice.kinds.rerank': { type: 'enum', values: ['off', 'shadow', 'act'], default: null,
+    scope: 'project-overridable', combine: 'override', securityRelevant: true, failSafe: 'off',
+    env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
+    consumers: ['src/runtime/advice/shadow-config.ts'],
+    description: "Advice mode for the rerank kind: off or shadow (record only); act is accepted but held at shadow with a warning; unset keeps the kind off, the highest layer that sets it decides and an invalid value is off." },
   'advice.models.tier': { type: 'string', default: null,
     scope: 'project-overridable', combine: 'override', securityRelevant: true, failSafe: { gate: 'advice.enabled' },
     env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
@@ -115,6 +121,11 @@ const V1 = {
     env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
     consumers: ['src/runtime/advice/shadow-config.ts'],
     description: 'Decision-model name for the followup-triage kind; unset uses advice.model.' },
+  'advice.models.rerank': { type: 'string', default: null,
+    scope: 'project-overridable', combine: 'override', securityRelevant: true, failSafe: { gate: 'advice.enabled' },
+    env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
+    consumers: ['src/runtime/advice/shadow-config.ts'],
+    description: 'Decision-model name for the rerank kind; unset uses advice.model.' },
   // 141 IC-002 (DEC-037): the rerank criteria override, one string read and bounded by src/runtime/advice/criteria.ts.
   'advice.criteria.rerank': { type: 'string', default: null,
     scope: 'project-overridable', combine: 'override', securityRelevant: true, failSafe: { gate: 'advice.enabled' },
@@ -329,7 +340,7 @@ test("the shipped registry pins base keys plus primary, worker and package setti
   assert.equal(SHIPPED.version, 1);
   assert.deepEqual(Object.keys(SHIPPED.keys), Object.keys(V1));
   assert.deepEqual(SHIPPED.keys, V1);
-  assert.equal(Object.keys(SHIPPED.keys).length, 42);
+  assert.equal(Object.keys(SHIPPED.keys).length, 44);
 });
 
 test('prompt-nudge is not registered (D-2) and no key outside the pinned entries exists', () => {
@@ -631,12 +642,14 @@ test('every failSafe form of the shipped registry validates, and each form is re
     'advice.kinds.review-depth': 'off',
     'advice.kinds.mcp-need': 'off',
     'advice.kinds.followup-triage': 'off',
+    'advice.kinds.rerank': 'off',
     'advice.models.tier': { gate: 'advice.enabled' },
     'advice.models.task-class': { gate: 'advice.enabled' },
     'advice.models.verify-risk': { gate: 'advice.enabled' },
     'advice.models.review-depth': { gate: 'advice.enabled' },
     'advice.models.mcp-need': { gate: 'advice.enabled' },
     'advice.models.followup-triage': { gate: 'advice.enabled' },
+    'advice.models.rerank': { gate: 'advice.enabled' },
     'advice.criteria.rerank': { gate: 'advice.enabled' },
     'storage.prune': 'off',
     'storage.retentionHours': { state: 'invalid' },

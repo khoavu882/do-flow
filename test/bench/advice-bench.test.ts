@@ -11,6 +11,8 @@ const { spawnFakeServer } = require('../helper/fake-decision-server.ts');
 const ROOT = path.resolve(__dirname, '../..');
 const scratch = createScratch('doflow-advice-bench-');
 const registry = require('../../core/registry/advice.json');
+// A call-built kind (rerank) has no advice corpus: the retrieval dev tasks score it (141 IC-003).
+const staticKinds = registry.kinds.filter((kind: any) => kind.criteriaFrom !== 'call');
 const source = (id: any) => require(`../../core/registry/${id}.json`);
 const { adviceCoverage } = require('../../bench/advice.ts');
 const fakeServers: any = [];
@@ -43,7 +45,7 @@ function configure(origin: any) {
 
 test('adviceCoverage covers every shipped kind and names a removed case by kind and missing item', () => {
   assert.deepEqual(adviceCoverage().gaps, []);
-  const corpus = Object.fromEntries(registry.kinds.map(({ id }: any) => [id, require(`../../bench/advice/${id}.json`)]));
+  const corpus = Object.fromEntries(staticKinds.map(({ id }: any) => [id, require(`../../bench/advice/${id}.json`)]));
   const result = adviceCoverage({ adviceRegistry: registry, corpus, sources: {
     workflows: source('workflows'), verification: source('verification'), mcp: source('mcp'),
   } });
@@ -58,7 +60,7 @@ test('adviceCoverage covers every shipped kind and names a removed case by kind 
 });
 
 test('adviceCoverage rejects each IC-016 structural violation and malformed corpus fails closed', () => {
-  const good = Object.fromEntries(registry.kinds.map(({ id }: any) => [id, structuredClone(require(`../../bench/advice/${id}.json`))]));
+  const good = Object.fromEntries(staticKinds.map(({ id }: any) => [id, structuredClone(require(`../../bench/advice/${id}.json`))]));
   const sources: any = { workflows: source('workflows'), verification: source('verification'), mcp: source('mcp') };
   const controls: any = [
     ['missing corpus file', (c: any) => { delete c.tier; }, /tier: missing corpus file/],
@@ -110,7 +112,7 @@ test('adviceCoverage rejects each IC-016 structural violation and malformed corp
 
 test('adviceCoverage treats a criteriaFrom call kind as covered by the retrieval dev tasks, not an advice corpus', () => {
   const sources: any = { workflows: source('workflows'), verification: source('verification'), mcp: source('mcp') };
-  const corpus = Object.fromEntries(registry.kinds.map(({ id }: any) => [id, require(`../../bench/advice/${id}.json`)]));
+  const corpus = Object.fromEntries(staticKinds.map(({ id }: any) => [id, require(`../../bench/advice/${id}.json`)]));
   const withCall = structuredClone(registry);
   withCall.kinds.push({ id: 'call-kind', type: 'choice', instructions: 'x', criteriaFrom: 'call', staticFrom: 'the first-stage order', askedBy: [] });
   const result = adviceCoverage({ adviceRegistry: withCall, corpus, sources });
@@ -124,7 +126,7 @@ test('advice-coverage prints one row per kind, succeeds for corpus and fails for
   assert.equal(good.stdout.trim().split('\n').length, registry.kinds.length);
   assert.ok(good.stdout.includes('tier'));
 
-  const broken = Object.fromEntries(registry.kinds.map(({ id }: any) => [id, require(`../../bench/advice/${id}.json`)]));
+  const broken = Object.fromEntries(staticKinds.map(({ id }: any) => [id, require(`../../bench/advice/${id}.json`)]));
   broken.tier = { ...broken.tier, cases: broken.tier.cases.filter((item: any) => item.expected !== 'frontier') };
   let output = '';
   const originalLog = console.log;
@@ -138,7 +140,7 @@ test('advice-coverage prints one row per kind, succeeds for corpus and fails for
   } finally { console.log = originalLog; }
   assert.match(output, /tier: GAP .*frontier/);
 
-  const unregistered = Object.fromEntries(registry.kinds.map(({ id }: any) => [id, require(`../../bench/advice/${id}.json`)]));
+  const unregistered = Object.fromEntries(staticKinds.map(({ id }: any) => [id, require(`../../bench/advice/${id}.json`)]));
   unregistered.orphan = { kind: 'orphan', cases: [] };
   output = '';
   console.log = (line) => { output += `${line}\n`; };

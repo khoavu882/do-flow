@@ -116,6 +116,40 @@
       },
       "staticFrom": "none",
       "askedBy": []
+    },
+    {
+      "id": "rerank",
+      "type": "choice",
+      "description": "Illustrative defaults, set from one B.1 run (M3 Max, clef-flash, 20 guidance queries, load-confounded): 16 candidates of 800 bytes; arm choice because it measured 2 to 3 times faster than ladder (cold p95 4.5 to 11.6 s against 12.8 to 21.7 s), 120 of 120 replies valid; budgetMs 5000 because a detached shadow call keeps the CLI process alive up to that budget, so with these latencies many shadow calls end as timeout misses on this machine; gate.latency.p95CapMs.rerank stays 3000 and is expected to fail here.",
+      "instructions": "Select the candidate that best answers the query.",
+      "criteriaFrom": "call",
+      "staticFrom": "the first-stage top candidate (label A)",
+      "askedBy": ["retrieve"],
+      "maxMode": "shadow",
+      "budgetMs": 5000,
+      "scoreLadder": {
+        "instructions": "Rate how well candidate <label> answers the query, using only the fields for that label.",
+        "criteria": [
+          "The candidate is unrelated to the query.",
+          "The candidate shares the topic but does not help answer the query.",
+          "The candidate answers part of the query or only one aspect of it.",
+          "The candidate answers the query but leaves out detail or needs other passages.",
+          "The candidate answers the query fully on its own."
+        ]
+      },
+      "thresholds": {
+        "illustrative": true,
+        "confidenceBelow": [0.5, 0.7, 0.9],
+        "expectedBelow": [1, 2]
+      },
+      "params": {
+        "arm": "choice",
+        "minCandidates": 2,
+        "maxCandidates": 16,
+        "candidateBytes": 800,
+        "queryBytes": 2048,
+        "criteriaBytes": 1536
+      }
     }
   ]
 }

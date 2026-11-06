@@ -73,6 +73,35 @@ test('the registry text and the byte cap come from the parameters when given', (
   registryFallback(resolveRerankCriteria({ value: null, registry: { ladder: ['x'] }, params: PARAMS }));
 });
 
+test('141 IC-002: the registry text and cap come from the rerank kind entry, given as kind or inside adviceRegistry', () => {
+  const advice = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/advice.json'), 'utf8'));
+  const kind = advice.kinds.find((entry: any) => entry.id === 'rerank');
+  // The built-in fallback and the shipped kind are one text, so a registry edit shows in the digest.
+  assert.deepEqual(kind.scoreLadder.criteria, DEFAULT_REGISTRY.ladder);
+  assert.equal(kind.instructions, DEFAULT_REGISTRY.choiceInstruction);
+  assert.equal(kind.params.criteriaBytes, DEFAULT_CRITERIA_BYTES);
+  for (const given of [{ kind }, { adviceRegistry: advice }]) {
+    const result = resolveRerankCriteria({ value: null, ...given });
+    assert.equal(result.source, 'registry');
+    assert.equal(result.digest, digestOf(kind.scoreLadder.criteria, kind.instructions));
+  }
+  const edited = structuredClone(kind);
+  edited.scoreLadder.criteria[0] = 'Edited level zero.';
+  edited.instructions = 'Edited choice instruction.';
+  edited.params.criteriaBytes = 10;
+  const fallback = resolveRerankCriteria({ value: null, kind: edited });
+  assert.deepEqual(fallback.ladder, edited.scoreLadder.criteria);
+  assert.equal(fallback.choiceInstruction, 'Edited choice instruction.');
+  assert.notEqual(fallback.digest, digestOf(DEFAULT_REGISTRY.ladder, DEFAULT_REGISTRY.choiceInstruction));
+  const capped = resolveRerankCriteria({ value: VALID5, kind: edited });
+  assert.equal(capped.source, 'registry');
+  assert.match(capped.warning, /over the 10-byte limit/);
+  assert.deepEqual(capped.ladder, edited.scoreLadder.criteria, 'a refused value leaves the kind text, not the built-in text');
+  assert.equal(resolveRerankCriteria({ value: VALID5, kind: edited, params: PARAMS }).source, 'settings', 'an explicit params wins');
+  // an adviceRegistry with no rerank kind falls back to the built-in text
+  registryFallback(resolveRerankCriteria({ value: null, adviceRegistry: { kinds: [] } }));
+});
+
 test('too many bytes is refused, counted in UTF-8 bytes; exactly the cap is accepted', () => {
   const exact = [...LADDER.slice(0, 4), 'x'.repeat(1536 - Buffer.byteLength(LADDER.slice(0, 4).join('\n') + '\n'))].join('\n');
   assert.equal(Buffer.byteLength(exact, 'utf8'), 1536);

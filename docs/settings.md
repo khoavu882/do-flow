@@ -20,12 +20,14 @@ DoFlow configuration layers resolve settings across registry defaults, environme
 | `advice.kinds.review-depth` | enum | — | project-overridable | — | — | Advice mode for the review-depth kind: off, shadow \(record only\) or act; unset keeps the kind's own path, the highest layer that sets it decides and an invalid value is off. |
 | `advice.kinds.mcp-need` | enum | — | project-overridable | — | — | Advice mode for the mcp-need kind: off, shadow \(record only\) or act; unset keeps the kind's own path, the highest layer that sets it decides and an invalid value is off. |
 | `advice.kinds.followup-triage` | enum | — | project-overridable | — | — | Advice mode for the followup-triage kind: off, shadow \(record only\) or act; unset keeps the kind's own path, the highest layer that sets it decides and an invalid value is off. |
+| `advice.kinds.rerank` | enum | — | project-overridable | — | — | Advice mode for the rerank kind: off or shadow \(record only\); act is accepted but held at shadow with a warning; unset keeps the kind off, the highest layer that sets it decides and an invalid value is off. |
 | `advice.models.tier` | string | — | project-overridable | — | — | Decision-model name for the tier kind; unset uses advice.model. |
 | `advice.models.task-class` | string | — | project-overridable | — | — | Decision-model name for the task-class kind; unset uses advice.model. |
 | `advice.models.verify-risk` | string | — | project-overridable | — | — | Decision-model name for the verify-risk kind; unset uses advice.model. |
 | `advice.models.review-depth` | string | — | project-overridable | — | — | Decision-model name for the review-depth kind; unset uses advice.model. |
 | `advice.models.mcp-need` | string | — | project-overridable | — | — | Decision-model name for the mcp-need kind; unset uses advice.model. |
 | `advice.models.followup-triage` | string | — | project-overridable | — | — | Decision-model name for the followup-triage kind; unset uses advice.model. |
+| `advice.models.rerank` | string | — | project-overridable | — | — | Decision-model name for the rerank kind; unset uses advice.model. |
 | `advice.criteria.rerank` | string | — | project-overridable | — | — | Rerank criteria override: 5 or 6 lines, the ladder levels 0 to 4 and optionally the choice-arm instruction; an invalid value keeps the registry text with a warning, and a person writes it in the settings file. |
 | `storage.prune` | enum | `on` | project-overridable | — | `prune` | Storage pruning; project value applies to project roots only. |
 | `storage.retentionHours` | integer | `4320` | project-overridable | `DOFLOW_RETENTION_HOURS` | — | Lifecycle-events window in hours; an explicit value applies even while pruning is off. |
