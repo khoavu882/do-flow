@@ -355,3 +355,144 @@ test('084 C-3: a model override never turns an off setting on', async (t) => {
   assert.equal(requests, 0, 'no transport request is made');
   assert.equal(records(roots).length, 0);
 });
+
+// 141 B.11: a `criteriaFrom: "call"` kind takes 1 to maxCandidates questions named `<kind>` or `<kind>-<a to p>`.
+const LADDER = ['Unrelated.', 'Same topic only.', 'Answers part of it.', 'Answers it, needs detail.', 'Answers it fully.'];
+const LETTERS = 'abcdefghijklmnop';
+const CALL_KIND: any = {
+  id: 'rerank', type: 'choice', instructions: 'Select the candidate that best answers the query.',
+  criteriaFrom: 'call', staticFrom: 'the first-stage top candidate', askedBy: ['retrieve'], maxMode: 'shadow', budgetMs: 5000,
+  params: { arm: 'choice', minCandidates: 2, maxCandidates: 16, candidateBytes: 800, queryBytes: 2048, criteriaBytes: 1536 },
+};
+
+function callRegistry(): any {
+  const registry = structuredClone(BASE_ADVICE);
+  registry.kinds = [...registry.kinds.filter((kind: any) => kind.id !== 'rerank'), structuredClone(CALL_KIND)];
+  return registry;
+}
+
+function ladderQuestions(names: string[]): any[] {
+  return names.map((name) => ({ name, type: 'score', instructions: `Rate candidate ${name}.`, criteria: LADDER }));
+}
+
+function ladderNames(count: number): string[] {
+  return Array.from({ length: count }, (_, index) => `rerank-${LETTERS[index]}`);
+}
+
+function scoreAnswer(level: number): any {
+  const probabilities: any = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0 };
+  probabilities[level] = 0.75;
+  probabilities[Math.min(4, level + 1)] += 0.25;
+  const score = Object.entries(probabilities).reduce((total: number, [key, value]: any) => total + Number(key) * value, 0);
+  return { type: 'score', score, legend: Object.fromEntries(LADDER.map((text, index) => [index, text])), probabilities, confidence: 0.8 };
+}
+
+function ladderReply(names: string[]): any {
+  return Object.fromEntries(names.map((name, index) => [name, scoreAnswer(index % 4)]));
+}
+
+async function askCall(t: any, names: string[], { kind = 'rerank', answerNames = names, registry = callRegistry(), state = 'query: q' }: any = {}) {
+  const server = await startFakeServer({ routes: { 'POST /v1/systemone': { status: 200, body: { answers: ladderReply(answerNames) } } } });
+  onClose(t, server);
+  const { createClient, roots }: any = fixture(t, { endpoint: server.origin, adviceOverrides: { kinds: registry.kinds } });
+  const result = await createClient().ask({ questionSet: { state, questions: ladderQuestions(names) }, kind, caller: 'retrieve', record: false });
+  return { result, server, roots };
+}
+
+for (const count of [1, 2, 16]) {
+  test(`141 B.11: a criteriaFrom call kind accepts ${count} lettered question(s) and returns every answer`, async (t) => {
+    const names = count === 1 ? ['rerank'] : ladderNames(count);
+    const { result, server } = await askCall(t, names);
+    assert.equal(result.status, 'answered');
+    assert.deepEqual(result.answers.map((answer: any) => answer.name), names);
+    assert.equal(server.requests.length, 1);
+    result.answers.forEach((answer: any, index: number) => {
+      assert.equal(answer.kind, 'rerank');
+      assert.equal(answer.type, 'score');
+      assert.equal(answer.staticAnswer, null);
+      assert.equal(answer.agrees, null);
+      assert.deepEqual(answer.probabilities, scoreAnswer(index % 4).probabilities);
+      assert.equal(answer.confidence, 0.8);
+      assert.equal(answer.score, scoreAnswer(index % 4).score);
+    });
+  });
+}
+
+test('141 B.11: the base question and the lettered names may be mixed within the limit', async (t) => {
+  const { result } = await askCall(t, ['rerank', 'rerank-b']);
+  assert.equal(result.status, 'answered');
+  assert.equal(result.answers.length, 2);
+});
+
+test('141 B.11: 17 questions are rejected before any request', async (t) => {
+  const names = [...ladderNames(16), 'rerank-q'];
+  const { result, server } = await askCall(t, names);
+  assert.equal(result.status, 'unavailable');
+  assert.equal(result.reason, 'config-invalid');
+  assert.deepEqual(result.answers, []);
+  assert.equal(server.requests.length, 0);
+});
+
+for (const [label, names] of [
+  ['a wrong name', ['rerank-a', 'other-b']],
+  ['a name outside a to p', ['rerank-a', 'rerank-q']],
+  ['an uppercase label', ['rerank-a', 'rerank-B']],
+  ['a two-letter suffix', ['rerank-a', 'rerank-ab']],
+  ['a missing dash', ['rerank-a', 'reranka']],
+  ['a single question with a wrong name', ['tier']],
+  ['a duplicate name', ['rerank-a', 'rerank-a']],
+  ['a duplicate base name', ['rerank', 'rerank']],
+] as any[]) {
+  test(`141 B.11: ${label} is rejected before any request`, async (t) => {
+    const { result, server } = await askCall(t, names);
+    assert.equal(result.status, 'unavailable');
+    assert.equal(result.reason, 'config-invalid');
+    assert.equal(server.requests.length, 0);
+  });
+}
+
+test('141 B.11: a non-call kind with two questions is rejected as today', async (t) => {
+  const server = await startFakeServer();
+  onClose(t, server);
+  const registry = callRegistry();
+  const { createClient }: any = fixture(t, { endpoint: server.origin, adviceOverrides: { kinds: registry.kinds } });
+  const two = { state: 'Choose.', questions: [CHOICE_SET.questions[0], { ...CHOICE_SET.questions[0], name: 'tier-b' }] };
+  const result = await createClient().ask({ questionSet: two, kind: 'tier', caller: 'advise', record: false });
+  assert.equal(result.reason, 'config-invalid');
+  assert.match(result.detail, /does not match kind 'tier'/);
+  const lettered = await createClient().ask({ questionSet: { state: 'Choose.', questions: [{ ...CHOICE_SET.questions[0], name: 'tier-a' }] }, kind: 'tier', caller: 'advise', record: false });
+  assert.equal(lettered.reason, 'config-invalid');
+  assert.equal(server.requests.length, 0);
+});
+
+test('141 B.11: an unregistered kind with a lettered name is rejected', async (t) => {
+  const { result, server } = await askCall(t, ['nokind-a'], { kind: 'nokind' });
+  assert.equal(result.reason, 'config-invalid');
+  assert.equal(server.requests.length, 0);
+});
+
+test('141 B.11: an answer missing one question is a malformed reply and a miss', async (t) => {
+  const names = ladderNames(4);
+  const server = await startFakeServer({ routes: { 'POST /v1/systemone': { status: 200, body: { answers: ladderReply(names.slice(0, 3)) } } } });
+  onClose(t, server);
+  const { createClient, roots }: any = fixture(t, { endpoint: server.origin, adviceOverrides: { kinds: callRegistry().kinds } });
+  const result = await createClient().ask({ questionSet: { state: 'query: q', questions: ladderQuestions(names) }, kind: 'rerank', caller: 'retrieve' });
+  assert.equal(result.status, 'unavailable');
+  assert.equal(result.reason, 'malformed-reply');
+  assert.deepEqual(result.answers, []);
+  assert.equal(records(roots).filter((record: any) => record.type === 'pick').length, 0);
+  const misses = records(roots).filter((record: any) => record.type === 'miss');
+  assert.equal(misses.length, 1);
+  assert.equal(misses[0].kind, 'rerank');
+});
+
+test('141 B.11: a 16-question request stays within limits.maxBodyBytes', async (t) => {
+  const state = ['query: ' + 'q'.repeat(2048), ...LETTERS.split('').flatMap((letter) => [
+    `candidate_ref[${letter.toUpperCase()}]: ${'r'.repeat(256)}`, `candidate_text[${letter.toUpperCase()}]: ${'t'.repeat(800)}`,
+  ])].join('\n');
+  const { result, server } = await askCall(t, ladderNames(16), { state });
+  assert.equal(result.status, 'answered');
+  const bytes = Buffer.byteLength(JSON.stringify(server.requests[0].body), 'utf8');
+  assert.ok(bytes <= BASE_ADVICE.limits.maxBodyBytes, `${bytes} bytes`);
+  assert.equal(Object.keys(server.requests[0].body.questions).length, 16);
+});

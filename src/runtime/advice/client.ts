@@ -119,6 +119,27 @@ function emptyAdviceResult(status: any, reason: any, detail: any, setting: any, 
   };
 }
 
+const CALL_LABELS = 'abcdefghijklmnop';
+
+/**
+ * A kind with `criteriaFrom: "call"` takes 1 to `params.maxCandidates` (at most 16) questions named `<kind>` or
+ * `<kind>-<a to p>` (IC-010); every other kind takes exactly one question named for the kind. Duplicate names
+ * are rejected by validateQuestionSet.
+ */
+function matchesNamedKind(namedKind: any, questionSet: any): boolean {
+  const questions = questionSet?.questions;
+  if (!Array.isArray(questions)) return false;
+  if (namedKind.criteriaFrom !== 'call') return questions.length === 1 && questions[0]?.name === namedKind.id;
+  const max = namedKind.params?.maxCandidates;
+  const limit = Number.isInteger(max) && max > 0 ? Math.min(max, CALL_LABELS.length) : 1;
+  if (questions.length < 1 || questions.length > limit) return false;
+  return questions.every((question: any) => typeof question?.name === 'string'
+    && (question.name === namedKind.id
+      || (question.name.length === namedKind.id.length + 2
+        && question.name.startsWith(`${namedKind.id}-`)
+        && CALL_LABELS.includes(question.name.slice(-1)))));
+}
+
 function createAdviceClient({
   adviceRegistry,
   roots,
@@ -160,7 +181,7 @@ function createAdviceClient({
 
       if (effectiveKind !== 'adhoc') {
         const namedKind = adviceRegistry.kinds?.find((entry: any) => entry.id === effectiveKind);
-        if (!namedKind || questionSet?.questions?.length !== 1 || questionSet.questions[0]?.name !== effectiveKind) {
+        if (!namedKind || !matchesNamedKind(namedKind, questionSet)) {
           return unavailable('config-invalid', `question set does not match kind '${effectiveKind}'`);
         }
       }
