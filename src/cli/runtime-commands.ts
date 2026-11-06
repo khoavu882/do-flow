@@ -117,6 +117,13 @@ function evidenceRoot(o: any): string {
   return path.resolve(o.positional[0] || '.');
 }
 
+/** The project the `retrieve` advice hook records into and reads settings from (141 review F3): the code scope's
+ * explicit `--root`, else the project root git names for the working directory (the cwd itself outside a repository),
+ * so a run from a subdirectory does not write `.doflow/state/advice` under that subdirectory. */
+function retrieveProjectRoot(o: any): string {
+  return o.scope === 'code' && o.root ? path.resolve(o.root) : lifecycleProjectRoot(process.cwd());
+}
+
 /** The `trace` views that take the first positional slot: `spans` (088 IC-011), `analyze` (091 IC-001), `export` (091 IC-006). */
 const TRACE_VIEWS = new Set(['spans', 'analyze', 'export']);
 
@@ -411,12 +418,13 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     // the feature store above. Guidance gets no stateRoot, exactly as before 079, so it resolves from cwd.
     case 'retrieve': return handleRetrieveCommand({ query: o.query, top: o.top, json: o.json, scope: o.scope,
       profile: o.profile, root: o.root, indexAction: o.indexAction, modelPath: o.modelPath,
-      taskId: o.taskId, need: o.need, slug: storeSlug, stateRoot: o.scope === 'code' ? storeRoot : undefined, repoRoot: REPO_ROOT });
+      taskId: o.taskId, need: o.need, slug: storeSlug, stateRoot: o.scope === 'code' ? storeRoot : undefined, repoRoot: REPO_ROOT,
+      projectRoot: retrieveProjectRoot(o) });
     case 'brief-tools': return handleBriefToolsCommand({ owner: o.owner, tier: o.tier, harness: o.harness, slug: o.slug, headingLevel: o.headingLevel, tasks: o.tasks, json: o.json, repoRoot: REPO_ROOT, projectRoot: storeRoot, buildAdapters: buildAdapterRegistry });
     case 'advise': return handleAdviseCommand({ action: o.action, actionGiven: o.actionGiven, kind: o.kind, server: o.server, state: o.state, stateFile: o.stateFile, staticAnswer: o.staticAnswer, questionsFile: o.questionsFile, taskId: o.taskId, pickId: o.pickId, actual: o.actual, model: o.model, endpoint: o.endpoint, off: o.off, project: o.project, force: o.force, global: o.global, json: o.json, projectRoot: evidenceRoot(o) });
     case 'model-role': return handleModelRoleCommand({ role: o.role, exclude: o.exclude, excludeFamilies: o.excludeFamily, json: o.json, repoRoot: REPO_ROOT });
     case 'route': return handleRouteCommand({ intent: o.intent, query: o.query, harness: o.harness, check: o.check, json: o.json, projectRoot: evidenceRoot(o) });
-    case 'claim': return handleClaimCommand({ slug: storeSlug, taskId: requireTaskId(o), action: o.action, statement: o.statement, claimId: o.claimId, evidenceId: o.evidenceId, replacedBy: o.replacedBy, relation: o.relation, role: o.role, json: o.json, stateRoot: storeRoot });
+    case 'claim': return handleClaimCommand({ slug: storeSlug, taskId: requireTaskId(o), action: o.action, statement: o.statement, claimId: o.claimId, evidenceId: o.evidenceId, replacedBy: o.replacedBy, relation: o.relation, role: o.role, json: o.json, stateRoot: storeRoot, projectRoot: evidenceRoot(o) });
     case 'context-pack': return handleContextPackCommand({ taskId: requireTaskId(o), taskClass: o.taskClass, objective: o.objective, json: o.json, stateRoot: storeRoot, sourceRoot: evidenceRoot(o), slug: storeSlug, explicitSlug: o.slug || null, mandatoryFile: o.mandatoryFile, harness: o.harness, maxBytes: o.maxBytes, bare: o.bare, noRecord: o.noRecord, reason: o.reason, since: o.since, expand: o.expand });
     // 078 IC-005 and IC-013: identity is the process environment's alone, never a flag.
     case 'context-emit': return handleContextEmitCommand({ event: o.event, cwd: o.cwd, session: o.session, harness: o.harness, nudge: o.nudge, maxBytes: o.maxBytes, taskId: o.taskId || undefined, slug: o.slug || undefined, stateRoot: redirected ? storeRoot : undefined, peek: o.peek, json: o.json });

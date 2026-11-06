@@ -25,8 +25,7 @@ const { finishRuntime, usageError, captureCaught } = require('./cli-result.ts');
 const fs = require('node:fs');
 const path = require('node:path');
 const { loadAdviceRegistry } = require('./advice/registry.ts');
-const { loadStorageRegistry } = require('./storage/registry.ts');
-const { resolveRoots } = require('./storage/roots.ts');
+const { resolveAdviceRoots } = require('./advice/services.ts');
 const { resolveSetting } = require('./advice/config.ts');
 const { materializeKind } = require('./advice/kinds.ts');
 const { createAdviceClient } = require('./advice/client.ts');
@@ -355,8 +354,7 @@ async function handleBriefToolsCommand({ owner, tier, harness, slug, headingLeve
     if (taskIds.length) {
       try {
         const adviceRegistry = loadAdviceRegistry({ repoRoot });
-        const storageRegistry = loadStorageRegistry({ repoRoot });
-        const roots = resolveRoots({ registry: storageRegistry, projectRoot: path.resolve(projectRoot), env });
+        const roots = resolveAdviceRoots({ projectRoot, env, repoRoot });
         if (adviceRegistry.ok && (adviceClient || resolveSetting({ adviceRegistry: adviceRegistry.registry, roots, env }).state === 'on')) {
           const lines = taskLinesForAdvice({ projectRoot, feature: stage?.feature || slug, tasks: taskIds });
           const built = materializeKind('tier', { adviceRegistry: adviceRegistry.registry });

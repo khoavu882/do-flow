@@ -1,33 +1,322 @@
 {
+  "schemaVersion": 2,
   "kind": "verify-risk",
+  "corpusVersion": 1,
   "cases": [
     {
       "id": "verify-risk-001",
       "split": "train",
       "state": "A small isolated helper change is reversible and can be checked with deterministic checks and tests scoped to the edit.",
+      "staticPick": "MEDIUM",
       "expected": "LOW",
+      "origin": "synthetic",
       "note": "core/registry/verification.json riskLevels.LOW.description."
     },
     {
       "id": "verify-risk-002",
       "split": "heldout",
       "state": "A multi-file runtime change needs the full test suite because it could affect behavior outside the edited modules.",
+      "staticPick": "MEDIUM",
       "expected": "MEDIUM",
+      "origin": "synthetic",
       "note": "core/registry/verification.json riskLevels.MEDIUM.description."
     },
     {
       "id": "verify-risk-003",
       "split": "train",
       "state": "A security-sensitive authentication change touches authorization checks and a migration of stored credentials.",
+      "staticPick": "HIGH",
       "expected": "HIGH",
+      "origin": "synthetic",
       "note": "core/registry/verification.json riskLevels.HIGH.description."
     },
     {
       "id": "verify-risk-004",
       "split": "train",
       "state": "A production outage requires a breaking data migration with a credible risk of data loss.",
+      "staticPick": "HIGH",
       "expected": "CRITICAL",
+      "origin": "synthetic",
       "note": "core/registry/verification.json riskLevels.CRITICAL.description."
+    },
+    {
+      "id": "verify-risk-005",
+      "split": "heldout",
+      "state": "Fix a wrong label on one internal admin button; no logic changes and easy to revert.",
+      "staticPick": "MEDIUM",
+      "expected": "LOW",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/verification.json riskLevels.LOW.description."
+    },
+    {
+      "id": "verify-risk-006",
+      "split": "heldout",
+      "state": "Reword a log message in a single helper; behavior is unchanged and a revert is trivial.",
+      "staticPick": "MEDIUM",
+      "expected": "LOW",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/verification.json riskLevels.LOW.description."
+    },
+    {
+      "id": "verify-risk-007",
+      "split": "heldout",
+      "state": "Rename a private variable inside one function, covered by the unit tests next to it.",
+      "staticPick": "MEDIUM",
+      "expected": "LOW",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/verification.json riskLevels.LOW.description."
+    },
+    {
+      "id": "verify-risk-008",
+      "split": "heldout",
+      "state": "Add a comment block and a missing type annotation to a utility; nothing at runtime changes.",
+      "staticPick": "MEDIUM",
+      "expected": "LOW",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/verification.json riskLevels.LOW.description."
+    },
+    {
+      "id": "verify-risk-009",
+      "split": "heldout",
+      "state": "Adjust a CSS margin on one page; it affects no data and can be rolled back instantly.",
+      "staticPick": "MEDIUM",
+      "expected": "LOW",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/verification.json riskLevels.LOW.description."
+    },
+    {
+      "id": "verify-risk-010",
+      "split": "heldout",
+      "state": "Delete a dead constant that nothing imports; the build confirms it.",
+      "staticPick": "MEDIUM",
+      "expected": "LOW",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/verification.json riskLevels.LOW.description."
+    },
+    {
+      "id": "verify-risk-011",
+      "split": "heldout",
+      "state": "A change spans several modules of the runtime and could alter behavior outside the edited files.",
+      "staticPick": "MEDIUM",
+      "expected": "MEDIUM",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/verification.json riskLevels.MEDIUM.description."
+    },
+    {
+      "id": "verify-risk-012",
+      "split": "heldout",
+      "state": "Replace the sorting routine used by three list views; the broad test suite is the real check.",
+      "staticPick": "MEDIUM",
+      "expected": "MEDIUM",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/verification.json riskLevels.MEDIUM.description."
+    },
+    {
+      "id": "verify-risk-013",
+      "split": "heldout",
+      "state": "Change how configuration defaults merge across loaders in four files.",
+      "staticPick": "MEDIUM",
+      "expected": "MEDIUM",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/verification.json riskLevels.MEDIUM.description."
+    },
+    {
+      "id": "verify-risk-014",
+      "split": "heldout",
+      "state": "Add a new field to an internal response object that five callers read.",
+      "staticPick": "MEDIUM",
+      "expected": "MEDIUM",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/verification.json riskLevels.MEDIUM.description."
+    },
+    {
+      "id": "verify-risk-015",
+      "split": "heldout",
+      "state": "Switch the retry delay calculation used by every background job.",
+      "staticPick": "MEDIUM",
+      "expected": "MEDIUM",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/verification.json riskLevels.MEDIUM.description."
+    },
+    {
+      "id": "verify-risk-016",
+      "split": "heldout",
+      "state": "Move shared date formatting into a new module and update its twelve call sites.",
+      "staticPick": "MEDIUM",
+      "expected": "MEDIUM",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/verification.json riskLevels.MEDIUM.description."
+    },
+    {
+      "id": "verify-risk-017",
+      "split": "heldout",
+      "state": "Change pagination limits across the list endpoints; clients outside this repo may notice.",
+      "staticPick": "MEDIUM",
+      "expected": "MEDIUM",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/verification.json riskLevels.MEDIUM.description."
+    },
+    {
+      "id": "verify-risk-018",
+      "split": "heldout",
+      "state": "Update the caching key format used by two services; stale entries could briefly appear.",
+      "staticPick": "MEDIUM",
+      "expected": "MEDIUM",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/verification.json riskLevels.MEDIUM.description."
+    },
+    {
+      "id": "verify-risk-019",
+      "split": "heldout",
+      "state": "Tune a database query used by the dashboard; results must stay identical across screens.",
+      "staticPick": "MEDIUM",
+      "expected": "MEDIUM",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/verification.json riskLevels.MEDIUM.description."
+    },
+    {
+      "id": "verify-risk-020",
+      "split": "heldout",
+      "state": "Rewrite the auth token label shown in logs across several modules; no check is changed.",
+      "staticPick": "HIGH",
+      "expected": "MEDIUM",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/verification.json riskLevels.MEDIUM.description."
+    },
+    {
+      "id": "verify-risk-021",
+      "split": "heldout",
+      "state": "Change how password reset links are validated and expired.",
+      "staticPick": "MEDIUM",
+      "expected": "HIGH",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/verification.json riskLevels.HIGH.description."
+    },
+    {
+      "id": "verify-risk-022",
+      "split": "heldout",
+      "state": "Modify the authorization check that decides who may delete a project.",
+      "staticPick": "HIGH",
+      "expected": "HIGH",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/verification.json riskLevels.HIGH.description."
+    },
+    {
+      "id": "verify-risk-023",
+      "split": "heldout",
+      "state": "Rework payment retry logic so failed charges are billed again.",
+      "staticPick": "HIGH",
+      "expected": "HIGH",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/verification.json riskLevels.HIGH.description."
+    },
+    {
+      "id": "verify-risk-024",
+      "split": "heldout",
+      "state": "Run a one-time data migration that rewrites the customer address table.",
+      "staticPick": "HIGH",
+      "expected": "HIGH",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/verification.json riskLevels.HIGH.description."
+    },
+    {
+      "id": "verify-risk-025",
+      "split": "heldout",
+      "state": "Update the authentication flow to require a second factor.",
+      "staticPick": "HIGH",
+      "expected": "HIGH",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/verification.json riskLevels.HIGH.description."
+    },
+    {
+      "id": "verify-risk-026",
+      "split": "heldout",
+      "state": "Change how refunds are calculated in the payments service.",
+      "staticPick": "HIGH",
+      "expected": "HIGH",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/verification.json riskLevels.HIGH.description."
+    },
+    {
+      "id": "verify-risk-027",
+      "split": "heldout",
+      "state": "Patch an input-handling flaw flagged by a security scan in the upload endpoint.",
+      "staticPick": "HIGH",
+      "expected": "HIGH",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/verification.json riskLevels.HIGH.description."
+    },
+    {
+      "id": "verify-risk-028",
+      "split": "heldout",
+      "state": "Migrate user records to a new schema with a backfill that touches every row.",
+      "staticPick": "HIGH",
+      "expected": "HIGH",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/verification.json riskLevels.HIGH.description."
+    },
+    {
+      "id": "verify-risk-029",
+      "split": "heldout",
+      "state": "Add signing to session cookies; a mistake would let users impersonate others.",
+      "staticPick": "MEDIUM",
+      "expected": "HIGH",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/verification.json riskLevels.HIGH.description."
+    },
+    {
+      "id": "verify-risk-030",
+      "split": "heldout",
+      "state": "A live outage: orders are being lost, and the repair needs a breaking schema change with possible data loss.",
+      "staticPick": "MEDIUM",
+      "expected": "CRITICAL",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/verification.json riskLevels.CRITICAL.description."
+    },
+    {
+      "id": "verify-risk-031",
+      "split": "heldout",
+      "state": "Production is down; the rollback itself deletes customer records that cannot be restored.",
+      "staticPick": "MEDIUM",
+      "expected": "CRITICAL",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/verification.json riskLevels.CRITICAL.description."
+    },
+    {
+      "id": "verify-risk-032",
+      "split": "heldout",
+      "state": "A breaking change to the public API for all clients goes out during an incident, with no rollback path.",
+      "staticPick": "MEDIUM",
+      "expected": "CRITICAL",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/verification.json riskLevels.CRITICAL.description."
+    },
+    {
+      "id": "verify-risk-033",
+      "split": "heldout",
+      "state": "An emergency migration must rewrite the production ledger in place; a mistake loses financial data.",
+      "staticPick": "HIGH",
+      "expected": "CRITICAL",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/verification.json riskLevels.CRITICAL.description."
+    },
+    {
+      "id": "verify-risk-034",
+      "split": "heldout",
+      "state": "A leaked signing key forces an immediate credential rotation across all production services; a security incident is active.",
+      "staticPick": "HIGH",
+      "expected": "CRITICAL",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/verification.json riskLevels.CRITICAL.description."
+    },
+    {
+      "id": "verify-risk-035",
+      "split": "heldout",
+      "state": "Payment processing is failing for every customer, and the repair re-sends queued charges that may be duplicated.",
+      "staticPick": "HIGH",
+      "expected": "CRITICAL",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/verification.json riskLevels.CRITICAL.description."
     }
   ]
 }

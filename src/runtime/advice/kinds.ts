@@ -51,6 +51,9 @@ function materializeKind(kindId: string, { adviceRegistry, sources = {}, server 
   const kind = kinds.find((entry: any) => entry?.id === kindId);
   if (!kind) return invalid(`unknown kind '${kindId}'`, 'usage-error');
 
+  // A call-built kind (rerank) has no static options: its caller builds the question set per call.
+  if (kind.criteriaFrom === 'call') return invalid(`kind '${kindId}' is built by its caller and has no static question`, 'usage-error');
+
   const serverSource = kind.criteriaFrom === 'mcp.servers[].trigger';
   if (server !== undefined && !serverSource) return invalid('--server is valid only for mcp-need', 'usage-error');
 

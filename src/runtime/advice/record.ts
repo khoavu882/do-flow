@@ -40,6 +40,78 @@ function appendLine({ roots, at, line, fsImpl = fs, store }: any): { file: strin
   }
 }
 
+// The extra payload of a pick (141 IC-007, DEC-028): only the keys `rerank` and `claimSupport`, each rebuilt field by
+// field from an allowlist, so a caller cannot put a query, candidate, claim, passage or criteria text on a line. A value
+// that is not the expected shape drops the whole object (and for kind `rerank` the pick), never a part of it.
+const RERANK_LABELS = 'ABCDEFGHIJKLMNOP';
+const DIGEST_12 = /^[0-9a-f]{12}$/;
+const REF_CHARS = 256;
+const ID_CHARS = 128;
+const ARMS = ['choice', 'ladder'];
+
+function isPlainObject(value: any): boolean {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function countOrNull(value: any): number | null {
+  return Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+function round4(value: number): number {
+  return Math.round(value * 10000) / 10000;
+}
+
+function numbersOrNull(value: any, n: number): number[] | null {
+  return Array.isArray(value) && value.length === n && value.every((item: any) => typeof item === 'number' && Number.isFinite(item))
+    ? value.map(round4) : null;
+}
+
+/** The `rerank` object of IC-007 rebuilt from its allowlisted keys, or null when it is not that shape. */
+function cleanRerank(value: any): any | null {
+  if (!isPlainObject(value) || !ARMS.includes(value.arm)) return null;
+  const n = value.n;
+  if (!Number.isInteger(n) || n < 1 || n > RERANK_LABELS.length) return null;
+  const labels = RERANK_LABELS.slice(0, n).split('');
+  const { refs, order } = value;
+  if (!Array.isArray(refs) || refs.length !== n || refs.some((ref: any) => typeof ref !== 'string')) return null;
+  if (!Array.isArray(order) || order.length !== n || new Set(order).size !== n || order.some((label: any) => !labels.includes(label))) return null;
+  const cleaned: any = {
+    arm: value.arm,
+    n,
+    refs: refs.map((ref: string) => ref.slice(0, REF_CHARS)),
+    order: order.slice(),
+    truncated: countOrNull(value.truncated) ?? 0,
+    candidateBytes: countOrNull(value.candidateBytes),
+    top1Changed: order[0] !== labels[0],
+    firstStageMs: countOrNull(value.firstStageMs),
+    criteriaDigest: typeof value.criteriaDigest === 'string' && DIGEST_12.test(value.criteriaDigest) ? value.criteriaDigest : null,
+  };
+  if (value.criteriaSource === 'registry' || value.criteriaSource === 'settings') cleaned.criteriaSource = value.criteriaSource;
+  if (value.arm === 'ladder') {
+    cleaned.expected = numbersOrNull(value.expected, n);
+    cleaned.confidence = numbersOrNull(value.confidence, n);
+  }
+  return cleaned;
+}
+
+/** The `claimSupport` object of IC-007: ledger ids, the relation and status words, byte counts; never a claim or passage. */
+function cleanClaimSupport(value: any): any | null {
+  if (!isPlainObject(value)) return null;
+  const word = (item: any) => (typeof item === 'string' && /^[A-Za-z0-9_.:-]{1,64}$/.test(item) ? item : null);
+  const id = (item: any) => (typeof item === 'string' && item.length > 0 ? item.slice(0, ID_CHARS) : null);
+  if (value.relation !== 'supports' && value.relation !== 'contradicts') return null;
+  const claimId = id(value.claimId);
+  const evidenceId = id(value.evidenceId);
+  const claimStatus = word(value.claimStatus);
+  if (!claimId || !evidenceId || !claimStatus) return null;
+  return {
+    claimId, evidenceId, relation: value.relation, claimStatus,
+    claimBytes: countOrNull(value.claimBytes) ?? 0,
+    passageBytes: countOrNull(value.passageBytes) ?? 0,
+    truncated: value.truncated === true,
+  };
+}
+
 const PICK_ID = /^adv-[0-9]{13}-[0-9a-f]{6}$/;
 
 function newPickId(epoch: number = Date.now()): string {
@@ -53,32 +125,38 @@ function newPickId(epoch: number = Date.now()): string {
 function appendPick({
   roots, now = () => new Date(), fsImpl = fs, kind, answer, question,
   staticAnswer = null, provider = null, model = null, state, caller, taskId = null, durationMs = 0,
-  pickId: givenPickId, mode, elevated,
+  pickId: givenPickId, mode, elevated, extra,
 }: any = {}): { pickId: string; file: string; store: string } | null {
   try {
     if (typeof state !== 'string' || !answer || !question) return null;
     const at = timestamp(now);
     if (!at) return null;
     const pickId = typeof givenPickId === 'string' && PICK_ID.test(givenPickId) ? givenPickId : newPickId(Date.parse(at));
-    const options = question.type === 'choice' ? Object.keys(question.options || {})
+    // A rerank pick has its own envelope (IC-007) and is written only with a valid payload: the ordinary branch would store
+    // the criteria texts of a score question.
+    const rerank = kind === 'rerank' ? cleanRerank(extra?.rerank) : null;
+    if (kind === 'rerank' && !rerank) return null;
+    const claimSupport = kind === 'claim-support' ? cleanClaimSupport(extra?.claimSupport) : null;
+    const options = rerank ? RERANK_LABELS.slice(0, rerank.n).split('') : question.type === 'choice' ? Object.keys(question.options || {})
       : question.type === 'score' ? [...(question.criteria || [])] : ['no', 'yes'];
     const instructions = kind === 'adhoc' && typeof question.instructions === 'string'
       ? question.instructions.slice(0, 500) : null;
+    const ladder = rerank?.arm === 'ladder';
     const line: any = {
       schema: 1,
       type: 'pick',
       pickId,
       at,
       kind,
-      question: answer.name,
-      qtype: answer.type,
+      question: rerank ? 'rerank' : answer.name,
+      qtype: rerank ? (ladder ? 'score' : 'choice') : answer.type,
       options,
       instructions,
-      pick: answer.pick,
-      strength: answer.strength?.word ?? null,
-      between: answer.strength?.between ?? null,
-      probabilities: answer.probabilities,
-      confidence: answer.confidence ?? null,
+      pick: rerank ? rerank.order[0] : answer.pick,
+      strength: ladder ? null : answer.strength?.word ?? null,
+      between: ladder ? null : answer.strength?.between ?? null,
+      probabilities: ladder ? null : answer.probabilities,
+      confidence: ladder ? null : answer.confidence ?? null,
       static: staticAnswer ?? null,
       provider: provider ?? null,
       model: model ?? null,
@@ -90,7 +168,9 @@ function appendPick({
     };
     if (mode !== undefined) line.mode = mode;
     if (elevated !== undefined) line.elevated = elevated === true;
-    if (answer.type === 'score') {
+    if (rerank) line.rerank = rerank;
+    if (claimSupport) line.claimSupport = claimSupport;
+    if (!rerank && answer.type === 'score') {
       line.criteria = [...(question.criteria || [])];
       line.pickIndex = answer.pickIndex;
       line.score = answer.score;

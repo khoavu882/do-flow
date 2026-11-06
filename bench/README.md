@@ -25,6 +25,7 @@ calls** across 13 skills, so it runs under its own command — the same separati
 ```bash
 node bench/runner.js coverage     # offline, free
 node bench/runner.js advice-coverage # offline decision-model corpus coverage
+npm run bench -- advice-gate --kind tier # gate verdict for one kind; asks the local decision model
 node bench/runner.js plan --iteration baseline > /tmp/plan.json
 ```
 
@@ -107,6 +108,7 @@ runner.js baseline / report
 | `coverage [--json]` | Which skills have triggering + behavioral cases. Exit 1 on any gap — this is what the A.4 guard consumes | no |
 | `advice-coverage [--json]` | Check every decision-model advice kind against its corpus coverage bar | no |
 | `advice [--kind K] [--split train\|heldout] [--json]` | Run advice cases against the configured local decision model; human text rows omit probabilities, while JSON includes probabilities and confidence | local compute only; no paid call |
+| `advice-gate --kind <kind> [--arm choice\|ladder\|both] [--model M] [--write] [--json]`, `advice-gate --freeze` | Ask the configured local decision model every heldout case of one kind and print a gate verdict (cases, valid share, quality difference against the static answer with a 95% interval, p50 and p95 latency). `--write` stores it in `core/registry/advice-verdicts.json`; `--freeze` refreshes the corpus digests there and takes no `--kind` or `--model`. `--arm` is for `--kind rerank`, which is scored on the retrieval dev split (see [`retrieval/README.md`](retrieval/README.md)). Exit 0 verdict produced, 1 setup or write failure, 2 usage. See [Decision-model corpus](#decision-model-corpus-format-2) | local compute only; no paid call |
 | `parity [--json]` | Does the committed baseline still describe the committed corpus. Lists pending cases, exits 1 on a removed, renamed or kind-changed case, a split-changed case whose baseline result recorded `split`, or a wrong `caseCount` | no |
 | `list [--skill S] [--split train\|heldout] [--json]` | Enumerate cases, optionally one side of the corpus | no |
 | `plan --iteration N [--skill S] [--split train\|heldout] [--arm without-skill]` | Emit the subagent dispatch plan as JSON: output paths, pinned model, sandbox commands, each run's skill path + expected hash, and the projected cost against the ceiling. Exit 2 when a known projection is over the ceiling | no |
@@ -117,8 +119,14 @@ runner.js baseline / report
 | `impact-replay [--rev <ref>] [--commits <n>] [--json] [--out F]` | Offline replay of the last `--commits` non-merge commits reachable from `--rev`: each is exported to a scratch directory (`git archive`), its co-changed tests are run, the changed non-test files are restored to their parent versions and the tests run again to find the detecting set (a lower bound), which is compared with `src/runtime/verification/impact.ts`'s selection. No model call. Prints `insufficient-data`, `keep-off` or `selection-candidate`; the verdict enables nothing, because `verify` does not use the selector. Defaults come from the `impactReplay` block of `config.json`; the report goes to `runs/impact-replay/<UTC stamp>.json` unless `--out` is given | no |
 | `review-miss <corpus\|lint\|grade\|noise\|report> [flags]` | The review-miss suite: `corpus` generates cases from the fixed findings of the review records, `lint` checks a corpus file, `grade` scores one iteration's findings, `noise` and `report` build the A/A band and a decision over `bench/noise.js`. Verbs, flags and exit codes: [`review-miss/README.md`](review-miss/README.md). Routed to `bench/review-miss/runner.js`, as `agentic` is | no |
 
-`--split` is accepted by `plan`, `list`, and `advice`; `--arm` by `plan` only. Any other command refuses
-either flag with exit 2, as it does an unknown option.
+`--split` is accepted by `plan`, `list`, and `advice`; `--arm` by `plan` (value `without-skill`) and by `advice-gate` (values `choice`, `ladder`, `both`); `--kind` by `advice` and `advice-gate`; `--model`, `--write` and `--freeze` by `advice-gate` only. Any other command refuses
+the flag with exit 2, as it does an unknown option.
+
+## Decision-model corpus (format 2)
+
+`bench/advice/<kind>.json` holds the cases the decision model is scored on. Format 2 has `schemaVersion` 2, `kind`, an integer `corpusVersion`, and cases with `id`, `split` (`train` or `heldout`), `state`, `staticPick`, `expected`, `origin` and `note`. `origin` is `synthetic` or `consented`; a case is never copied from a user's prompt, state or records. `advice-coverage` checks the format and `advice-gate` scores the `heldout` cases only. Changing a heldout case changes the corpus digest (sha256 of the heldout cases without `note`, ordered by id) and needs a higher `corpusVersion`, or `--write` and `--freeze` refuse. A stored verdict names the digest it was computed on, so a changed corpus makes the verdict stale.
+
+Committed heldout counts (n per kind, all `synthetic`): `tier` 32, `task-class` 36, `verify-risk` 32, `review-depth` 31, `claim-support` 36, `mcp-need` 1, `followup-triage` 1. The gate needs at least 30 cases (`gate.minCases` in `core/registry/advice.json`), so the last two can only give `insufficient-data`. The pass-bar numbers are illustrative values taken from the paper [arXiv 2610.34816](https://arxiv.org/html/2610.34816); tune them in that file. `core/registry/advice-verdicts.json` ships with no verdict, so no kind can run in `act` mode from this corpus today. The full account of the checks, of what makes a verdict stale and of the shadow kinds is in [Reference](../docs/reference.md#decision-model-report-evidence-and-shadow-kinds).
 
 ## Case format
 

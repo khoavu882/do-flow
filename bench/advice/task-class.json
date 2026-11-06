@@ -1,68 +1,376 @@
 {
+  "schemaVersion": 2,
   "kind": "task-class",
+  "corpusVersion": 1,
   "cases": [
     {
       "id": "task-class-001",
       "split": "train",
       "state": "Add a reusable retry option to an upload client, with a requirement, interface design, and tests.",
+      "staticPick": "feature",
       "expected": "feature",
+      "origin": "synthetic",
       "note": "core/registry/workflows.json classes.feature.description."
     },
     {
       "id": "task-class-002",
       "split": "train",
       "state": "A reported billing total changes after removing a line; reproduce it and establish the root cause before fixing it.",
+      "staticPick": "bug",
       "expected": "bug",
+      "origin": "synthetic",
       "note": "core/registry/workflows.json classes.bug.description."
     },
     {
       "id": "task-class-003",
       "split": "train",
       "state": "Restructure an existing router into smaller modules while preserving behavior and checking current invariants.",
+      "staticPick": "refactor",
       "expected": "refactor",
+      "origin": "synthetic",
       "note": "core/registry/workflows.json classes.refactor.description."
     },
     {
       "id": "task-class-004",
       "split": "train",
       "state": "Assess an existing change for correctness and risk, then report findings without implementing them.",
+      "staticPick": "feature",
       "expected": "review",
+      "origin": "synthetic",
       "note": "core/registry/workflows.json classes.review.description."
     },
     {
       "id": "task-class-005",
       "split": "train",
       "state": "Investigate an external framework's current compatibility behavior and deliver a written report, with no repository change.",
+      "staticPick": "research",
       "expected": "research",
+      "origin": "synthetic",
       "note": "core/registry/workflows.json classes.research.description."
     },
     {
       "id": "task-class-006",
       "split": "heldout",
       "state": "Update the shipped setup guide with the current command examples and API description; the deliverable is repository prose.",
+      "staticPick": "documentation",
       "expected": "documentation",
+      "origin": "synthetic",
       "note": "core/registry/workflows.json classes.documentation.description."
     },
     {
       "id": "task-class-007",
       "split": "heldout",
       "state": "Upgrade a package after checking authoritative release notes and compatibility with this project.",
+      "staticPick": "dependency-change",
       "expected": "dependency-change",
+      "origin": "synthetic",
       "note": "core/registry/workflows.json classes.dependency-change.description."
     },
     {
       "id": "task-class-008",
       "split": "heldout",
       "state": "Create a release tag from a verified release candidate and perform the repository lifecycle steps.",
+      "staticPick": "operations",
       "expected": "operations",
+      "origin": "synthetic",
       "note": "core/registry/workflows.json classes.operations.description."
     },
     {
       "id": "task-class-009",
       "split": "heldout",
       "state": "Correct one typo in a README sentence; the change is confined to one file and has no cascading effects.",
+      "staticPick": "documentation",
       "expected": "trivial-edit",
+      "origin": "synthetic",
       "note": "core/registry/workflows.json classes.trivial-edit.description."
+    },
+    {
+      "id": "task-class-010",
+      "split": "heldout",
+      "state": "Introduce a bulk export option for the reports page, with a requirement, interface design and tests.",
+      "staticPick": "feature",
+      "expected": "feature",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/workflows.json classes.feature.description."
+    },
+    {
+      "id": "task-class-011",
+      "split": "heldout",
+      "state": "Build a notification preference screen for account settings with new API endpoints.",
+      "staticPick": "feature",
+      "expected": "feature",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/workflows.json classes.feature.description."
+    },
+    {
+      "id": "task-class-012",
+      "split": "heldout",
+      "state": "Support a second currency across checkout, pricing and receipts; it needs requirements and a design first.",
+      "staticPick": "feature",
+      "expected": "feature",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/workflows.json classes.feature.description."
+    },
+    {
+      "id": "task-class-013",
+      "split": "heldout",
+      "state": "Add a new search filter, and update the user guide to mention it.",
+      "staticPick": "documentation",
+      "expected": "feature",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/workflows.json classes.feature.description."
+    },
+    {
+      "id": "task-class-014",
+      "split": "heldout",
+      "state": "Users get logged out after five minutes instead of thirty; find why and repair it.",
+      "staticPick": "feature",
+      "expected": "bug",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/workflows.json classes.bug.description."
+    },
+    {
+      "id": "task-class-015",
+      "split": "heldout",
+      "state": "The nightly import crashes on empty rows; reproduce the crash and find the root cause.",
+      "staticPick": "bug",
+      "expected": "bug",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/workflows.json classes.bug.description."
+    },
+    {
+      "id": "task-class-016",
+      "split": "heldout",
+      "state": "Search returns duplicate results when a filter is cleared. Reproduce it and trace the cause.",
+      "staticPick": "feature",
+      "expected": "bug",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/workflows.json classes.bug.description."
+    },
+    {
+      "id": "task-class-017",
+      "split": "heldout",
+      "state": "A date parser throws an error on leap days; confirm with a failing test and fix the cause.",
+      "staticPick": "bug",
+      "expected": "bug",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/workflows.json classes.bug.description."
+    },
+    {
+      "id": "task-class-018",
+      "split": "heldout",
+      "state": "Split a large settings module into separate files for reading and writing, keeping behavior identical.",
+      "staticPick": "feature",
+      "expected": "refactor",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/workflows.json classes.refactor.description."
+    },
+    {
+      "id": "task-class-019",
+      "split": "heldout",
+      "state": "Clean up the duplicated validation logic in three handlers without changing behavior.",
+      "staticPick": "refactor",
+      "expected": "refactor",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/workflows.json classes.refactor.description."
+    },
+    {
+      "id": "task-class-020",
+      "split": "heldout",
+      "state": "Restructure the data access layer into repositories while the existing tests stay green.",
+      "staticPick": "refactor",
+      "expected": "refactor",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/workflows.json classes.refactor.description."
+    },
+    {
+      "id": "task-class-021",
+      "split": "heldout",
+      "state": "Rename the internal order helpers and move them to a shared module, behavior unchanged.",
+      "staticPick": "refactor",
+      "expected": "refactor",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/workflows.json classes.refactor.description."
+    },
+    {
+      "id": "task-class-022",
+      "split": "heldout",
+      "state": "Review a teammate's pull request for correctness and security problems and list findings.",
+      "staticPick": "review",
+      "expected": "review",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/workflows.json classes.review.description."
+    },
+    {
+      "id": "task-class-023",
+      "split": "heldout",
+      "state": "Audit the access-control changes in the last release for gaps; do not change code.",
+      "staticPick": "review",
+      "expected": "review",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/workflows.json classes.review.description."
+    },
+    {
+      "id": "task-class-024",
+      "split": "heldout",
+      "state": "Look over the new caching layer for risks and give written feedback only.",
+      "staticPick": "feature",
+      "expected": "review",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/workflows.json classes.review.description."
+    },
+    {
+      "id": "task-class-025",
+      "split": "heldout",
+      "state": "Assess whether the recent merge introduced regressions in checkout, and report what you see.",
+      "staticPick": "operations",
+      "expected": "review",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/workflows.json classes.review.description."
+    },
+    {
+      "id": "task-class-026",
+      "split": "heldout",
+      "state": "Compare two queue libraries for our workload and write up a recommendation; no code change.",
+      "staticPick": "research",
+      "expected": "research",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/workflows.json classes.research.description."
+    },
+    {
+      "id": "task-class-027",
+      "split": "heldout",
+      "state": "Find out how other teams handle schema versioning for event streams and summarize.",
+      "staticPick": "feature",
+      "expected": "research",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/workflows.json classes.research.description."
+    },
+    {
+      "id": "task-class-028",
+      "split": "heldout",
+      "state": "Research the current limits of a hosted vector database and report back.",
+      "staticPick": "research",
+      "expected": "research",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/workflows.json classes.research.description."
+    },
+    {
+      "id": "task-class-029",
+      "split": "heldout",
+      "state": "Investigate why mobile networks drop long requests, based on public sources, and write a summary.",
+      "staticPick": "research",
+      "expected": "research",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/workflows.json classes.research.description."
+    },
+    {
+      "id": "task-class-030",
+      "split": "heldout",
+      "state": "Cut a hotfix branch from the last tag and prepare it for deployment.",
+      "staticPick": "operations",
+      "expected": "operations",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/workflows.json classes.operations.description."
+    },
+    {
+      "id": "task-class-031",
+      "split": "heldout",
+      "state": "Backport the pagination change to the maintenance branch.",
+      "staticPick": "operations",
+      "expected": "operations",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/workflows.json classes.operations.description."
+    },
+    {
+      "id": "task-class-032",
+      "split": "heldout",
+      "state": "Merge the finished feature branch into main after checking it is up to date.",
+      "staticPick": "operations",
+      "expected": "operations",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/workflows.json classes.operations.description."
+    },
+    {
+      "id": "task-class-033",
+      "split": "heldout",
+      "state": "Write an architecture note describing how the job queue retries work.",
+      "staticPick": "feature",
+      "expected": "documentation",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/workflows.json classes.documentation.description."
+    },
+    {
+      "id": "task-class-034",
+      "split": "heldout",
+      "state": "Document the new configuration options in the README.",
+      "staticPick": "documentation",
+      "expected": "documentation",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/workflows.json classes.documentation.description."
+    },
+    {
+      "id": "task-class-035",
+      "split": "heldout",
+      "state": "Update the API reference page for the renamed endpoints.",
+      "staticPick": "refactor",
+      "expected": "documentation",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/workflows.json classes.documentation.description."
+    },
+    {
+      "id": "task-class-036",
+      "split": "heldout",
+      "state": "Bump the HTTP client library to the next minor version after reading its changelog.",
+      "staticPick": "dependency-change",
+      "expected": "dependency-change",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/workflows.json classes.dependency-change.description."
+    },
+    {
+      "id": "task-class-037",
+      "split": "heldout",
+      "state": "Remove an unused date library from the project and drop its imports.",
+      "staticPick": "feature",
+      "expected": "dependency-change",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/workflows.json classes.dependency-change.description."
+    },
+    {
+      "id": "task-class-038",
+      "split": "heldout",
+      "state": "Upgrade the test runner to the latest major release and fix the broken config.",
+      "staticPick": "bug",
+      "expected": "dependency-change",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/workflows.json classes.dependency-change.description."
+    },
+    {
+      "id": "task-class-039",
+      "split": "heldout",
+      "state": "Change a default timeout constant from 30 to 60 in one file.",
+      "staticPick": "feature",
+      "expected": "trivial-edit",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/workflows.json classes.trivial-edit.description."
+    },
+    {
+      "id": "task-class-040",
+      "split": "heldout",
+      "state": "Fix a misspelled word in an error message string.",
+      "staticPick": "bug",
+      "expected": "trivial-edit",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/workflows.json classes.trivial-edit.description."
+    },
+    {
+      "id": "task-class-041",
+      "split": "heldout",
+      "state": "Rename one unclear local variable in a single function.",
+      "staticPick": "refactor",
+      "expected": "trivial-edit",
+      "origin": "synthetic",
+      "note": "Invented wording; label per core/registry/workflows.json classes.trivial-edit.description."
     }
   ]
 }

@@ -53,11 +53,20 @@ function adviceCoverage(options: any = {}) {
     if (typeof id !== 'string' || !id) { gaps.push('advice registry: kind id is missing'); continue; }
     const data = corpus[id];
     const missing: string[] = [];
+    if (kind.criteriaFrom === 'call') {
+      // IC-003: a call-criteria kind (rerank) is scored on the retrieval dev tasks, not on an advice corpus.
+      if (!fs.existsSync(path.join(REPO_ROOT, 'bench/retrieval/tasks/dev.json'))) missing.push('missing bench/retrieval/tasks/dev.json');
+      for (const item of missing) gaps.push(`${id}: ${item}`);
+      rows.push({ kind: id, cases: 0, missing });
+      continue;
+    }
     if (!Object.hasOwn(corpus, id)) missing.push('missing corpus file');
     if (!data || typeof data !== 'object' || Array.isArray(data)) {
       missing.push('corpus file must contain an object');
     }
     if (data && data.kind !== id) missing.push(`kind must match file stem '${id}'`);
+    if (data && data.schemaVersion !== 2) missing.push('schemaVersion must be 2');
+    if (data && !(Number.isInteger(data.corpusVersion) && data.corpusVersion >= 1)) missing.push('corpusVersion must be a positive integer');
     const items = data && Array.isArray(data.cases) ? data.cases : [];
     if (data && !Array.isArray(data.cases)) missing.push('cases must be an array');
     const ids = new Set();
@@ -79,6 +88,8 @@ function adviceCoverage(options: any = {}) {
       else if (Buffer.byteLength(item.state, 'utf8') > registry.limits?.maxStateBytes) missing.push(`${item.id || label} state exceeds maxStateBytes`);
       if (!validExpected.includes(item.expected)) missing.push(`${item.id || label} expected must be one of ${validExpected.join(', ') || '(no valid options)'}`);
       else optionCoverage.add(item.expected);
+      if (!validExpected.includes(item.staticPick)) missing.push(`${item.id || label} staticPick must be one of ${validExpected.join(', ') || '(no valid options)'}`);
+      if (!['synthetic', 'consented'].includes(item.origin)) missing.push(`${item.id || label} origin must be synthetic or consented`);
       if (typeof item.note !== 'string' || !item.note.trim()) missing.push(`${item.id || label} note must be non-empty`);
       if (id === 'mcp-need') {
         const servers = resolvedSources?.mcp?.servers;

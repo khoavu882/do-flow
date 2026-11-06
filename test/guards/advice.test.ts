@@ -193,14 +193,19 @@ function checkG31TierText({ files }: any): any {
 // G31.4 — every registered advice kind has a call site that still exists. Comments never count.
 //  - A runtime-asked kind names the verb that asks it: that source file must, outside comments, ask advice for the kind
 //    (`ask`) and, where the verb records the outcome (`outcome`), record it. `review-depth` records no outcome today
-//    (its client call passes `record: false` and `review start` returns no pick id), so it has `outcome: null`; a skill
-//    step cannot close that gap, and the day the verb records one this entry must say so.
+//    (`review start` returns no pick id; its dispatcher path writes the pick line only, and its unset-kind path
+//    writes nothing), so it has `outcome: null`; a skill step cannot close that gap, and the day the verb records
+//    one this entry must say so.
 //  - Every other kind needs an `advise --kind <id>` line inside a fenced bash block of a SKILL.md or reference, with an
 //    `advise --action outcome` line in the same block or in the next bash block of that file, if that block asks nothing itself. Prose, shell comments and
 //    HTML comments do not count. A new kind lands in one of the two places, or this fails.
 const RUNTIME_ASKED: any = {
   'task-class': { caller: 'classify', file: 'src/runtime/task-classifier.ts', outcome: /\bappendOutcome\(/ },
   'review-depth': { caller: 'review', file: 'src/runtime/review/start.ts', outcome: null },
+  // 141 B.5: the detached shadow hook of `retrieve` asks it; no ground truth exists at the call site, so no outcome.
+  rerank: { caller: 'retrieve', file: 'src/runtime/knowledge/retrieval.ts', outcome: null },
+  // 141 D.3: the detached shadow hook of `claim --action link` asks it; the recorded relation is the static answer, so no outcome line.
+  'claim-support': { caller: 'claim', file: 'src/runtime/claims.ts', outcome: null },
 };
 const ASKS_ADVICE = /\b(?:client\.ask|interceptDecisionPoint)\(/;
 
@@ -364,7 +369,9 @@ test('G31.1 control: names kind and missing coverage item', () => {
   const fixture: any = new Map(shipped);
   const file = 'bench/advice/tier.json';
   const corpus = JSON.parse(fixture.get(file));
-  corpus.cases.pop();
+  // Drop every case of one option: the seeded corpus holds several per option, so one pop no longer uncovers it.
+  const dropped = corpus.cases[corpus.cases.length - 1].expected;
+  corpus.cases = corpus.cases.filter((item: any) => item.expected !== dropped);
   fixture.set(file, JSON.stringify(corpus));
   const findings = checkG31Coverage({ files: fixture });
   assert.ok(findings.some((finding: any) => finding.includes('tier:') && finding.includes('missing expected')));

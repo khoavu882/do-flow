@@ -51,10 +51,16 @@ Each corpus is exactly its listed scopes (IC-011) at the pinned commit. Ground t
 
 Retrieval effectiveness is measured using deterministic metrics defined in IC-009 and statistical comparison methods defined in IC-010:
 
-- **Ranking metrics**: Span recall (`recallAt{k}`), file recall (`fileRecallAt{k}`), Mean Reciprocal Rank (`mrrAt{k}`), `successAt1` (exact-lookup), and `ndcgAt10`.
+- **Ranking metrics**: Span recall (`recallAt{k}`), file recall (`fileRecallAt{k}`), Mean Reciprocal Rank (`mrrAt{k}`), `successAt1` (exact-lookup), `ndcgAt10` (code corpus), and `ndcgAt5` (both corpora, added for the rerank gate below; null for a task with no judged positive).
 - **Integrity and outcome metrics**: `locatorValidity`, `falseAbsence`, `statusMatch`, `missedDependencies` (impact-refactor), `mustIncludeMet` (oversized-context), and `mustSurviveMet` (verification-failure).
 - **Statistics**: Seeded pseudo-random number generation via mulberry32, nearest-rank percentiles, Median Absolute Deviation (MAD), 95% bootstrap confidence intervals (10,000 resamples), and paired sign-flip randomization tests.
 - **Reporting rules**: Results are reported by corpus, class, and harness, never blended. Model self-scoring is never the only metric.
+
+## Rerank gate (feature 141)
+
+`npm run bench -- advice-gate --kind rerank [--arm choice|ladder|both] [--model <name>] [--write] [--json]` scores the local decision model as a reranker on this benchmark's **dev** split. For each dev task it takes the first-stage candidate list (configuration A for the code corpus, B for the guidance corpus, built the way `retrieval run` builds them), asks the model for an order with the shipped question builders (`src/runtime/advice/rerank.ts`), and compares nDCG@5 of the model order with nDCG@5 of the first-stage order. A reply that cannot be read counts as the first-stage order, so a failure stays in the count. A task with fewer than 2 candidates gets no call and is listed as skipped; a task with no judged positive is left out of the quality mean and listed as excluded. Each arm gets its own verdict, bound to the model, the arm and the digest of the rerank criteria in force; the paired difference between the arms and the number of judged-relevant candidates each ladder threshold would have dropped are printed and not stored.
+
+The runner reads `tasks/dev.json` only and refuses any path under `holdout/`; the sealed holdout is not used, so it cannot feed tuning. The corpus digest is the sha256 of the dev task file and `RERANK_CORPUS_VERSION` in `bench/retrieval/lib/adapters-rerank.ts` is raised by hand when the dev tasks or the way lists are cut change. The pass bar is the `gate` block of `core/registry/advice.json` (illustrative values, tunable there); the verdict file ships with no verdict. No result of this gate is published here: it needs the configured model and the pinned export, and none was run for this document. The only measurement made so far is the latency and validity run in `agent-docs/doflow/141-decision-layer-involvement/measurement-b1.md` (one machine, one model, 20 distinct queries per cell, all 120 of 120 replies valid), which says nothing about ranking quality.
 
 ## Orchestration evaluation
 

@@ -381,6 +381,55 @@ class ClaimsManager {
 }
 
 /**
+ * Shadow claim-support hook (141 IC-010). Called after `claim --action link` has saved and printed. It asks the advisor,
+ * detached and unawaited, whether `passage` fully supports `claim`, with the recorded relation as the static answer, and
+ * records the reply as a `claim-support` pick. It reads only what it is handed: it never writes the claims file or the
+ * evidence ledger, never changes a claim, and catches every error, so the command's output, exit status and stored files
+ * equal the kind-off run. Skipped when no `projectRoot` is given, the relation is not `supports` or `contradicts`, the
+ * claim or passage has no text, or the kind is off (which includes advice off). `services` is the dispatcher's test seam
+ * (`adviceClient`, `shadowConfig`, `roots`, `fsImpl`, `adviceRegistry`).
+ */
+function fireShadowClaimSupport({ taskId, claimId, evidenceId, relation, claimStatus, claim, passage, projectRoot, env, services }: any = {}): void {
+  try {
+    if (!projectRoot || (relation !== 'supports' && relation !== 'contradicts')) return;
+    if (typeof claim !== 'string' || !claim.trim() || typeof passage !== 'string' || !passage.trim()) return;
+    const svc = services && typeof services === 'object' ? services : {};
+    const environment = env || process.env;
+    const { resolveShadowConfig } = require('./advice/shadow-config.ts');
+    const shadowConfig = svc.shadowConfig || resolveShadowConfig('claim-support', { projectRoot, env: environment, fsImpl: svc.fsImpl, roots: svc.roots });
+    if (!shadowConfig || (shadowConfig.mode !== 'shadow' && shadowConfig.mode !== 'act')) return;
+    const adviceRegistry = svc.adviceRegistry || (() => {
+      const loaded = require('./advice/registry.ts').loadAdviceRegistry({ repoRoot: REPO_ROOT });
+      return loaded.ok ? loaded.registry : null;
+    })();
+    const kind = adviceRegistry?.kinds?.find((entry: any) => entry?.id === 'claim-support');
+    if (!kind) return;
+    const { materializeKind } = require('./advice/kinds.ts');
+    const { buildClaimSupportState, claimSupportPayload } = require('./advice/claim-support.ts');
+    const { interceptDecisionPoint } = require('./advice/shadow-dispatcher.ts');
+    const { withAdviceServices } = require('./advice/services.ts');
+    const built = buildClaimSupportState({ claim, passage, params: kind.params });
+    const question = materializeKind('claim-support', { adviceRegistry });
+    if (!built.ok || !question.ok) return;
+    const payload = claimSupportPayload({
+      claimId, evidenceId, relation, claimStatus, claimBytes: built.claimBytes, passageBytes: built.passageBytes, truncated: built.truncated,
+    });
+    if (!payload) return;
+    // The model's answer is on the pick line (`probabilities.yes`); a reply that is not a readable yes/no answer is a miss.
+    const describe = (call: any) => {
+      const yes = call?.answer?.probabilities?.yes;
+      if (call?.answer?.type !== 'yesno' || typeof yes !== 'number' || !Number.isFinite(yes)) return null;
+      return { extra: { claimSupport: payload } };
+    };
+    interceptDecisionPoint({
+      kind: 'claim-support', caller: 'claim', state: built.state, staticPick: relation === 'supports' ? 'yes' : 'no',
+      questionSet: { state: built.state, questions: [question.question] }, adviceRegistry, budgetMs: kind.budgetMs, describe,
+      projectRoot, env: environment, taskId,
+    }, { ...withAdviceServices({ svc, adviceRegistry, projectRoot, env: environment }), shadowConfig }).catch(() => {});
+  } catch { /* advice is advisory: nothing here may change a claim or its output */ }
+}
+
+/**
  * Handles `doflow claim` — record a proposition, link evidence to it, or list what is recorded.
  *
  * A claim added here starts as a hypothesis and can only become `supported` through linked
@@ -397,10 +446,11 @@ class ClaimsManager {
  * @param {string} [options.relation='supports'] `link`
  * @param {boolean} [options.json=false]
  * @param {string} [options.stateRoot]
+ * @param {string} [options.projectRoot] `link`: the project the claim-support hook records under; none, no hook
  * @param {string} [options.slug] feature the task belongs to, when not the branch's
  * @returns {number} exit code
  */
-function handleClaimCommand({ taskId, action = 'list', statement, claimId, evidenceId, replacedBy, relation = 'supports', role, json = false, stateRoot, slug }: any = {}): number {
+function handleClaimCommand({ taskId, action = 'list', statement, claimId, evidenceId, replacedBy, relation = 'supports', role, json = false, stateRoot, slug, projectRoot, env, adviceServices }: any = {}): number {
   const root = stateRoot || process.cwd();
   const ledger = new EvidenceLedger({ repoRoot: root, slug });
   ledger.load(taskId);
@@ -408,6 +458,7 @@ function handleClaimCommand({ taskId, action = 'list', statement, claimId, evide
   claims.load(taskId);
 
   let result;
+  let linked: any = null;
   try {
     if (action === 'add') {
       if (typeof statement !== 'string' || statement.trim() === '') {
@@ -432,6 +483,8 @@ function handleClaimCommand({ taskId, action = 'list', statement, claimId, evide
       const status = claims.linkEvidence(claimId, evidenceId, relation);
       claims.save(taskId);
       result = { action, taskId, claim: claims.getClaim(claimId), status };
+      // The texts are copied now: the hook gets values, not the live ledger entries.
+      linked = { claim: claims.getClaim(claimId)?.statement, passage: ledger.getEvidence(evidenceId)?.content, claimStatus: status };
     } else if (action === 'retract') {
       if (!claimId) {
         return usageError('claim', '--claim-id is required for --action retract', json);
@@ -472,6 +525,9 @@ function handleClaimCommand({ taskId, action = 'list', statement, claimId, evide
     }
     console.log('═'.repeat(78) + '\n');
   }
+  if (linked) {
+    fireShadowClaimSupport({ taskId, claimId, evidenceId, relation, ...linked, projectRoot, env, services: adviceServices });
+  }
   return finishRuntime(0);
 }
 
@@ -480,4 +536,5 @@ module.exports = {
   CLAIM_STATUSES,
   TERMINAL_CLAIM_STATUSES,
   handleClaimCommand,
+  fireShadowClaimSupport,
 };

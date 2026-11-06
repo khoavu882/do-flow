@@ -288,26 +288,24 @@ function loadProtocolInputs(taskClass: string | null, cwd: string, env: Record<s
 async function askAdvice({ decision, risk, taskClass, slug, files, cwd, env, adviceClient }: any): Promise<{ status: string; pick: string | null; reason?: string | null }> {
   try {
     const { loadAdviceRegistry } = require('../advice/registry.ts');
-    const { loadStorageRegistry } = require('../storage/registry.ts');
-    const { resolveRoots } = require('../storage/roots.ts');
+    const { resolveAdviceRoots } = require('../advice/services.ts');
     const { resolveSetting } = require('../advice/config.ts');
     const { materializeKind } = require('../advice/kinds.ts');
     const { createAdviceClient } = require('../advice/client.ts');
     const loaded = loadAdviceRegistry({ repoRoot: REPO_ROOT });
     if (!loaded.ok) return { status: 'unavailable', pick: null };
-    const roots = resolveRoots({ registry: loadStorageRegistry({ repoRoot: REPO_ROOT }), projectRoot: path.resolve(cwd), env });
+    const roots = resolveAdviceRoots({ projectRoot: cwd, env });
     if (resolveSetting({ adviceRegistry: loaded.registry, roots, env }).state !== 'on') return { status: 'off', pick: null };
     const built = materializeKind('review-depth', { adviceRegistry: loaded.registry });
     if (!built.ok) return { status: 'unavailable', pick: null };
     const client = adviceClient || createAdviceClient({ adviceRegistry: loaded.registry, roots });
     const state = [`task class: ${taskClass ?? 'none'}`, `risk: ${risk}`, `scope: ${decision.scope}`,
       `changed files: ${files ?? 'unknown'}`, `decided depth: ${decision.depth}`].join('\n');
-    // record: false keeps the verb write-free (IC-001); the pick is not stored.
     const { resolveShadowConfig } = require('../advice/shadow-config.ts');
     const shadow = resolveShadowConfig('review-depth', { projectRoot: path.resolve(cwd), env, roots });
     if (!shadow.kindSet) {
-      // advice.kinds.review-depth unset: ask the client directly, as before the dispatcher. A chosen rollout profile
-      // caps it: off asks nothing, and shadow asks nothing too, since a write-free verb could not record the answer.
+      // advice.kinds.review-depth unset: ask the client directly, as before the dispatcher, and unrecorded. A chosen
+      // rollout profile caps it: off asks nothing, and shadow asks nothing too, since this path records nothing.
       const { profileAdvisorCap, unsetKindPath } = require('../advice/mode.ts');
       const route = unsetKindPath(profileAdvisorCap({ projectRoot: path.resolve(cwd), env }));
       if (route === 'off') return { status: 'off', pick: null };
@@ -324,7 +322,7 @@ async function askAdvice({ decision, risk, taskClass, slug, files, cwd, env, adv
     const intercepted = await interceptDecisionPoint({
       kind: 'review-depth', caller: 'review', state, staticPick: decision.depth,
       questionSet: { state, questions: [built.question] }, adviceRegistry: loaded.registry,
-      taskId: slug, projectRoot: path.resolve(cwd), env, record: false,
+      taskId: slug, projectRoot: path.resolve(cwd), env, record: true,
     }, { adviceClient: client, roots, shadowConfig: shadow });
     // Only act applies a pick, and it is the decision after the raise-only rule.
     const pick = intercepted.effectiveDecision;

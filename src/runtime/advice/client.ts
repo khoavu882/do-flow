@@ -37,7 +37,12 @@ function versionAtLeast(version: any, minimum: any) {
   return true;
 }
 
+// A decision model reply is a few hundred bytes (an answer per question, plus optional probabilities); the model
+// list a doctor probe reads is the largest. 1 MiB is far above both and bounds a server that never stops writing.
+const MAX_RESPONSE_BYTES = 1024 * 1024;
+
 function networkReason(error: any) {
+  if (error?.code === 'ADVICE_OVERSIZE') return 'malformed-reply';
   return error?.code === 'ADVICE_TIMEOUT' || error?.code === 'ETIMEDOUT' || error?.code === 'ESOCKETTIMEDOUT'
     ? 'timeout' : 'unreachable';
 }
@@ -49,7 +54,7 @@ function timeoutError(message: string) {
 }
 
 /** `signal`, when given, aborts the request the way its own timeout does: the request is destroyed and the timer cleared. */
-function requestAction({ endpoint, action, pinnedLookup, timeoutMs, signal, httpModule = http, httpsModule = https }: any) {
+function requestAction({ endpoint, action, pinnedLookup, timeoutMs, signal, httpModule = http, httpsModule = https, maxResponseBytes = MAX_RESPONSE_BYTES }: any) {
   return new Promise<any>((resolve, reject) => {
     let request: any;
     let settled = false;
@@ -91,7 +96,19 @@ function requestAction({ endpoint, action, pinnedLookup, timeoutMs, signal, http
       };
       request = transport.request(options, (response: any) => {
         const chunks: any[] = [];
-        response.on('data', (chunk: any) => chunks.push(Buffer.from(chunk)));
+        let received = 0;
+        response.on('data', (chunk: any) => {
+          if (settled) return;
+          received += chunk.length;
+          if (received > maxResponseBytes) {
+            const error: any = new Error(`decision model reply exceeded ${maxResponseBytes} bytes`);
+            error.code = 'ADVICE_OVERSIZE';
+            response.destroy();
+            stop(error);
+            return;
+          }
+          chunks.push(Buffer.from(chunk));
+        });
         response.on('error', (error: any) => finish(error));
         response.on('end', () => finish(null, {
           status: response.statusCode || 0,
@@ -117,6 +134,27 @@ function emptyAdviceResult(status: any, reason: any, detail: any, setting: any, 
     durationMs,
     answers: [],
   };
+}
+
+const CALL_LABELS = 'abcdefghijklmnop';
+
+/**
+ * A kind with `criteriaFrom: "call"` takes 1 to `params.maxCandidates` (at most 16) questions named `<kind>` or
+ * `<kind>-<a to p>` (IC-010); every other kind takes exactly one question named for the kind. Duplicate names
+ * are rejected by validateQuestionSet.
+ */
+function matchesNamedKind(namedKind: any, questionSet: any): boolean {
+  const questions = questionSet?.questions;
+  if (!Array.isArray(questions)) return false;
+  if (namedKind.criteriaFrom !== 'call') return questions.length === 1 && questions[0]?.name === namedKind.id;
+  const max = namedKind.params?.maxCandidates;
+  const limit = Number.isInteger(max) && max > 0 ? Math.min(max, CALL_LABELS.length) : 1;
+  if (questions.length < 1 || questions.length > limit) return false;
+  return questions.every((question: any) => typeof question?.name === 'string'
+    && (question.name === namedKind.id
+      || (question.name.length === namedKind.id.length + 2
+        && question.name.startsWith(`${namedKind.id}-`)
+        && CALL_LABELS.includes(question.name.slice(-1)))));
 }
 
 function createAdviceClient({
@@ -160,7 +198,7 @@ function createAdviceClient({
 
       if (effectiveKind !== 'adhoc') {
         const namedKind = adviceRegistry.kinds?.find((entry: any) => entry.id === effectiveKind);
-        if (!namedKind || questionSet?.questions?.length !== 1 || questionSet.questions[0]?.name !== effectiveKind) {
+        if (!namedKind || !matchesNamedKind(namedKind, questionSet)) {
           return unavailable('config-invalid', `question set does not match kind '${effectiveKind}'`);
         }
       }
