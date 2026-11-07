@@ -14,11 +14,12 @@ const { processSessions, sessionCookie, readCookie, cookieName } = require('./se
 const { project } = require('./project.ts');
 const { handshake } = require('./handshake.ts');
 const { PARAM_PATTERN, fleetError } = require('./verb-runner.ts');
-const { createStreams, parseLastEventId } = require('./stream.ts');
+const { createStreams, createStreamCap, parseLastEventId, MAX_STREAMS_PER_SESSION } = require('./stream.ts');
 
 type Reply = { status: number, headers?: Record<string, string>, body?: string | Uint8Array };
 type RouteContext = { req: any, res: any, pathname: string, params: Record<string, string>, webRoot: string, port: number, secure?: boolean, session?: { scope: 'read' | 'phone' } };
 type Route = Readonly<{ method: 'GET' | 'POST', path: string, stream?: true, handler: (ctx: RouteContext) => Reply | null | Promise<Reply | null> }>;
+type StreamCap = { acquire(session: object): (() => void) | null, open(): number };
 
 const JSON_TYPE = 'application/json; charset=utf-8';
 const SESSION_PATH = '/api/session';
@@ -418,11 +419,12 @@ const transcriptRoute = (runner: Runner): Route['handler'] => async (ctx) => {
 
 /**
  * The stream route kind: validated here, then handed to stream.ts, which owns the response from
- * `retry:` on. At most two streams per session; a third is `429 stream-limit` as a JSON body before
- * any stream header.
+ * `retry:` on. A stream takes its slot from `cap`, the Console's one stream cap (IC-014): at most four
+ * open stream connections per session; the fifth is `429 stream-limit` as a JSON body before any
+ * stream header.
  */
-const streamRoute = (runner: Runner): Route['handler'] => {
-  const streams = createStreams({ fleet: fleetRead.bind(null, runner), transcript: (project: string, agent: string, cursor: string | null) => transcriptRead(runner, project, agent, cursor) });
+const streamRoute = (runner: Runner, cap: StreamCap): Route['handler'] => {
+  const streams = createStreams({ fleet: fleetRead.bind(null, runner), transcript: (project: string, agent: string, cursor: string | null) => transcriptRead(runner, project, agent, cursor) }, cap);
   return (ctx) => {
     const query = queryOf(ctx.req, ['project', 'agent']);
     const project = query?.get('project');
@@ -438,9 +440,11 @@ const streamRoute = (runner: Runner): Route['handler'] => {
 
 /**
  * The Console's table (IC-005) over `runner`: every /api route but the exchange is behind the session
- * check (buildRoutes), every one is GET, and each answers `{v:1, ...}` or IC-005's error body.
+ * check (buildRoutes), every one is GET, and each answers `{v:1, ...}` or IC-005's error body. The
+ * stream routes share one stream cap (DEC-031), made here once per table.
  */
 function consoleRoutes(runner: Runner, sessions: any = processSessions): readonly Route[] {
+  const streamCap = createStreamCap(MAX_STREAMS_PER_SESSION);
   return buildRoutes(sessions, [
     healthz,
     { method: 'GET', path: '/api/info', handler: () => info(runner) },
@@ -450,7 +454,7 @@ function consoleRoutes(runner: Runner, sessions: any = processSessions): readonl
     { method: 'GET', path: '/api/sessions', handler: () => sessionsView(runner) },
     { method: 'GET', path: '/api/fleet', handler: fleetRoute(runner) },
     { method: 'GET', path: '/api/transcript', handler: transcriptRoute(runner) },
-    { method: 'GET', path: '/api/stream', stream: true, handler: streamRoute(runner) },
+    { method: 'GET', path: '/api/stream', stream: true, handler: streamRoute(runner, streamCap) },
     staticFallback,
   ]);
 }

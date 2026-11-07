@@ -16,7 +16,7 @@ const fs = require('node:fs');
 const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
-const { createStreams, parseLastEventId, FLEET_MS, TRANSCRIPT_MS, KEEPALIVE_MS, MAX_STREAMS_PER_SESSION } = require('../src/stream.ts');
+const { createStreams, createStreamCap, parseLastEventId, FLEET_MS, TRANSCRIPT_MS, KEEPALIVE_MS, MAX_STREAMS_PER_SESSION } = require('../src/stream.ts');
 const { createServer } = require('../src/server.ts');
 const { consoleRoutes } = require('../src/routes.ts');
 const { createSessions, cookieName } = require('../src/session.ts');
@@ -285,20 +285,80 @@ test('Last-Event-ID: <revision>.<cursor> resumes the cursor and keeps the revisi
   }
 });
 
-test('limit: at most two streams per session, a release frees a slot, sessions are independent', () => {
+/** DEC-004: the cap is four, and a cap built from the value gives a session exactly four slots. */
+function assertCapOfFour(value: number) {
+  assert.equal(value, 4, 'MAX_STREAMS_PER_SESSION is 4');
+  const cap = createStreamCap(value);
+  const session = {};
+  for (let slot = 1; slot <= 4; slot += 1) assert.ok(cap.acquire(session), `slot ${slot} opens`);
+  assert.equal(cap.acquire(session), null, 'the fifth slot is refused');
+}
+
+test('limit: at most four streams per session, a release frees a slot, sessions are independent', () => {
+  assertCapOfFour(MAX_STREAMS_PER_SESSION);
+  for (const wrong of [3, 5]) assert.throws(() => assertCapOfFour(wrong), assert.AssertionError, `control: a cap of ${wrong} fails the check`);
   const streams = createStreams(fakeViews([good(fleetBody([]))]));
   const session = {};
   const first = streams.acquire(session);
-  const second = streams.acquire(session);
-  assert.ok(first && second);
-  assert.equal(MAX_STREAMS_PER_SESSION, 2);
+  const others = [streams.acquire(session), streams.acquire(session), streams.acquire(session)];
+  assert.ok(first && others.every(Boolean));
   assert.equal(streams.acquire(session), null);
   assert.ok(streams.acquire({}), 'another session is not limited by this one');
   first!();
   first!();
-  assert.equal(streams.openStreams(), 2, 'a release counts once');
+  assert.equal(streams.openStreams(), 4, 'a release counts once');
   assert.ok(streams.acquire(session));
   assert.equal(streams.acquire(session), null);
+});
+
+test('createStreamCap: counts per session up to max, the next is null', () => {
+  const cap = createStreamCap(2);
+  const session = {};
+  assert.equal(typeof cap.acquire(session), 'function');
+  assert.equal(typeof cap.acquire(session), 'function');
+  assert.equal(cap.acquire(session), null);
+  assert.equal(cap.acquire(session), null, 'a refusal takes no slot');
+  assert.equal(cap.open(), 2);
+});
+
+test('createStreamCap: sessions count independently', () => {
+  const cap = createStreamCap(1);
+  const one = {};
+  const two = {};
+  const held = cap.acquire(one);
+  assert.ok(held);
+  assert.equal(cap.acquire(one), null);
+  assert.ok(cap.acquire(two), 'a full session does not limit another');
+  assert.equal(cap.acquire(two), null);
+  held!();
+  assert.ok(cap.acquire(one), 'a release frees only its own session\'s slot');
+  assert.equal(cap.acquire(two), null);
+});
+
+test('createStreamCap: a release is idempotent, calling it twice frees one slot', () => {
+  const cap = createStreamCap(2);
+  const session = {};
+  const first = cap.acquire(session)!;
+  cap.acquire(session);
+  first();
+  first();
+  assert.equal(cap.open(), 1);
+  assert.ok(cap.acquire(session));
+  assert.equal(cap.acquire(session), null, 'the double release did not free a second slot');
+});
+
+test('createStreamCap: open() is the total of open slots over all sessions', () => {
+  const cap = createStreamCap(4);
+  assert.equal(cap.open(), 0);
+  const a = {};
+  const b = {};
+  const releases = [cap.acquire(a)!, cap.acquire(a)!, cap.acquire(a)!, cap.acquire(b)!];
+  cap.acquire(a);
+  assert.equal(cap.open(), 5);
+  cap.acquire(a);
+  assert.equal(cap.open(), 5, 'a refused acquire is not counted');
+  for (const release of releases) release();
+  assert.equal(cap.open(), 1);
 });
 
 test('a failed tick sends event: error {code, verb, exit} and keeps the stream open; a success resets the count', async () => {
@@ -582,19 +642,20 @@ test('GET /api/stream: headers, retry, then the snapshot (the /api/fleet body), 
   assert.ok(!stream.text().includes(MARKER));
 });
 
-test('GET /api/stream: a third stream of one session is 429 stream-limit JSON before any stream header; a closed one frees a slot', async (t) => {
+test('GET /api/stream: a fifth stream of one session is 429 stream-limit JSON before any stream header; a closed one frees a slot', async (t) => {
   const runner = scripted();
   const { app, cookie } = await harness(runner, t);
   const first = await openStream(app, `/api/stream?project=${keyOf(1)}&agent=${AGENT}`, cookie);
-  const second = await openStream(app, `/api/stream?project=${keyOf(1)}`, cookie);
-  t.after(() => { first.destroy(); second.destroy(); });
-  assert.deepEqual([first.status, second.status], [200, 200]);
-  const third = await get(app, `/api/stream?project=${keyOf(1)}`, cookie);
-  assert.equal(third.status, 429);
-  assert.deepEqual(JSON.parse(third.body), errorBody('stream-limit'));
-  assert.match(String(third.headers['content-type']), /^application\/json/);
-  assert.equal(third.headers['cache-control'], 'no-store');
-  assert.ok(!String(third.headers['content-type']).includes('event-stream'));
+  const others: Array<Awaited<ReturnType<typeof openStream>>> = [];
+  for (let n = 0; n < 3; n += 1) others.push(await openStream(app, `/api/stream?project=${keyOf(1)}`, cookie));
+  t.after(() => { first.destroy(); for (const stream of others) stream.destroy(); });
+  assert.deepEqual([first.status, ...others.map((stream) => stream.status)], [200, 200, 200, 200]);
+  const fifth = await get(app, `/api/stream?project=${keyOf(1)}`, cookie);
+  assert.equal(fifth.status, 429);
+  assert.deepEqual(JSON.parse(fifth.body), errorBody('stream-limit'));
+  assert.match(String(fifth.headers['content-type']), /^application\/json/);
+  assert.equal(fifth.headers['cache-control'], 'no-store');
+  assert.ok(!String(fifth.headers['content-type']).includes('event-stream'));
   first.destroy();
   await first.closed;
   let again: any = null;

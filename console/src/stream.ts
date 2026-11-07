@@ -11,9 +11,10 @@
 // sections (and the keys that left the list), every 1 s `event: transcript` for the selected agent from
 // the current cursor, every 15 s a `: keepalive` comment. `id:` is `<fleetRevision>.<transcriptCursor>`;
 // `Last-Event-ID` resumes both. A failed tick sends `event: error` with `{code, verb, exit}` and keeps
-// the stream open; three failed ticks of one kind in a row close it. At most two open streams per
-// session. Ceiling: one transcript tick reads at most one bounded page (200 events), so a stream that
-// is far behind catches up at one page per second.
+// the stream open; three failed ticks of one kind in a row close it. A stream takes its slot from the
+// injected stream cap (IC-014, DEC-031): at most four open stream connections per session, shared with
+// every stream route. Ceiling: one transcript tick reads at most one bounded page (200 events), so a
+// stream that is far behind catches up at one page per second.
 
 const { securityHeaders } = require('./headers.ts');
 
@@ -21,7 +22,7 @@ const RETRY_MS = 5_000;
 const FLEET_MS = 5_000;
 const TRANSCRIPT_MS = 1_000;
 const KEEPALIVE_MS = 15_000;
-const MAX_STREAMS_PER_SESSION = 2;
+const MAX_STREAMS_PER_SESSION = 4;
 const MAX_FAILED_TICKS = 3;
 /** A client that stops reading is dropped once this much is queued for it. */
 const MAX_QUEUED_BYTES = 1024 * 1024;
@@ -44,24 +45,34 @@ function parseLastEventId(value: unknown): { revision: number, cursor: string | 
   return { revision: Number(match[1]), cursor: CURSOR.test(match[2]) ? match[2] : null };
 }
 
-function createStreams(views: Views) {
-  const open = new Map<object, number>();
+type StreamCap = { acquire(session: object): (() => void) | null, open(): number };
 
-  /** A release function for one more stream of `session`, or null when it already has two. */
+/**
+ * The shared stream cap (IC-014, DEC-031): one per-session counter of open stream connections.
+ * `acquire` gives a release function for one more slot of `session`, or null when it already holds
+ * `max`; a release frees its slot once, however often it is called. `open()` is the total over all
+ * sessions.
+ */
+function createStreamCap(max: number): StreamCap {
+  const held = new Map<object, number>();
   function acquire(session: object): (() => void) | null {
-    const count = open.get(session) ?? 0;
-    if (count >= MAX_STREAMS_PER_SESSION) return null;
-    open.set(session, count + 1);
+    const count = held.get(session) ?? 0;
+    if (count >= max) return null;
+    held.set(session, count + 1);
     let released = false;
     return () => {
       if (released) return;
       released = true;
-      const left = (open.get(session) ?? 1) - 1;
-      if (left <= 0) open.delete(session);
-      else open.set(session, left);
+      const left = (held.get(session) ?? 1) - 1;
+      if (left <= 0) held.delete(session);
+      else held.set(session, left);
     };
   }
+  return { acquire, open: () => [...held.values()].reduce((sum, count) => sum + count, 0) };
+}
 
+/** Streams over `views`, taking their slots from `cap` (routes.ts passes the Console's one cap). */
+function createStreams(views: Views, cap: StreamCap = createStreamCap(MAX_STREAMS_PER_SESSION)) {
   function serve(req: any, res: any, params: Open): void {
     let closed = false;
     let revision = params.revision;
@@ -184,7 +195,7 @@ function createStreams(views: Views) {
     void fleetTick();
   }
 
-  return { acquire, serve, openStreams: () => [...open.values()].reduce((sum, count) => sum + count, 0) };
+  return { acquire: cap.acquire, serve, openStreams: cap.open };
 }
 
-module.exports = { createStreams, parseLastEventId, FLEET_MS, TRANSCRIPT_MS, KEEPALIVE_MS, RETRY_MS, MAX_STREAMS_PER_SESSION, MAX_FAILED_TICKS };
+module.exports = { createStreams, createStreamCap, parseLastEventId, FLEET_MS, TRANSCRIPT_MS, KEEPALIVE_MS, RETRY_MS, MAX_STREAMS_PER_SESSION, MAX_FAILED_TICKS };
