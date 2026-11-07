@@ -1,6 +1,6 @@
 'use strict';
 
-// G41 — worker descriptors (081 IC-031, DEC-013; 109 IC-009). Four checks, each a pure function over an
+// G41 — worker descriptors (081 IC-031, DEC-013; 109 IC-009; 142 IC-013). Five checks, each a pure function over an
 // injected registry, run once on the shipped tree and once on an in-memory copy seeded with one
 // violation per check.
 //
@@ -16,7 +16,11 @@
 //         equal (id, argv, expect, establishes) to core/worker-evidence/<harness>/checks.json, and the
 //         capability is recomputed from the checks that passed (result pass, exit 0, matched lines);
 //         a live-run record counts only when its run succeeded, its result was offered and its
-//         run.argvShape equals the shape the registry recipe assembles (read-only or edit order)
+//         run.argvShape equals the shape the registry recipe assembles (read-only or edit order), and a
+//         read-only run's worktree check was clean. The supported keys of each harness are pinned to the
+//         literal ACCEPTED_KEYS, and each structuredOutput parser to the literal PARSER_BY_HARNESS (142 IC-013)
+//   G41.5 outside codex, each supported readOnly and spawnDenial entry cites a live-run record that
+//         passes the G41.4 test for that key (a cli-check alone is not enough)
 //
 // validateWorker() (src/registry/index.ts) checks shape; this guard checks meaning.
 
@@ -145,7 +149,9 @@ function recordEstablishes(item: any, harnessId: any, key: any, repoRoot: any, w
   if (typeof record.cliVersion !== 'string' || record.cliVersion === '') return false;
   if (!Array.isArray(record.establishes) || !record.establishes.includes(key)) return false;
   if (record.kind === 'live-run') {
-    return record.run?.report?.status === 'success' && record.run?.resultOffered === true && shapeMatchesRecipe(record, key, worker);
+    // A read-only run counts only when the worktree check afterwards was clean (142 IC-013 rule 3).
+    const worktreeOk = record.run?.edit === true || record.run?.readOnly?.status === 'clean';
+    return record.run?.report?.status === 'success' && record.run?.resultOffered === true && worktreeOk && shapeMatchesRecipe(record, key, worker);
   }
   if (record.kind !== 'cli-check' || record.run !== null) return false;
   return checksEstablish(record, harnessId, key, repoRoot);
@@ -161,6 +167,76 @@ function establishingRecordFindings(registry: any, repoRoot: any) {
       if (!evidence.some((item: any) => recordEstablishes(item, harness.id, key, repoRoot, harness.worker))) {
         findings.push(`G41.4: harness '${harness.id}' worker '${key}': supported without a recorded evidence file that establishes it`);
       }
+    }
+  }
+  return findings;
+}
+
+/** The capability keys (not cli/profile/modelChecks) a harness declares `supported`, sorted. */
+function supportedKeys(harness: any) {
+  return Object.entries(harness.worker || {})
+    .filter(([key, entry]: any) => !NOT_CAPABILITIES.has(key) && entry?.status === 'supported')
+    .map(([key]) => key).sort();
+}
+
+/** G41.4 pin: supportedKeys(h) equals accepted[h] (a harness not in the map accepts nothing), and
+ * every accepted harness id names a registry harness. */
+function acceptedKeyFindings(registry: any, accepted: any) {
+  const findings: any = [];
+  const ids = registry.harnesses.map((harness: any) => harness.id);
+  for (const id of Object.keys(accepted)) {
+    if (!ids.includes(id)) findings.push(`G41.4: ACCEPTED_KEYS has an entry for '${id}', which is not a registry harness`);
+  }
+  for (const harness of registry.harnesses) {
+    const listed: any = Object.hasOwn(accepted, harness.id) ? accepted[harness.id] : [];
+    const actual = supportedKeys(harness);
+    for (const key of actual) {
+      if (!listed.includes(key)) findings.push(`G41.4: harness '${harness.id}' worker '${key}' is supported but not in ACCEPTED_KEYS`);
+    }
+    for (const key of listed) {
+      if (!actual.includes(key)) findings.push(`G41.4: ACCEPTED_KEYS lists '${key}' for harness '${harness.id}', which has no such supported registry key`);
+    }
+  }
+  return findings;
+}
+
+/** G41.3 map: a supported structuredOutput declares exactly its mapped parser (a harness with no
+ * mapping may not be supported); one that is not supported declares none; every mapped id is a key
+ * of `parsers`. */
+function parserMapFindings(registry: any, map: any, parsers: any) {
+  const findings: any = [];
+  for (const [id, parser] of Object.entries(map)) {
+    if (!Object.hasOwn(parsers, parser as any)) findings.push(`G41.3: PARSER_BY_HARNESS maps '${id}' to ${JSON.stringify(parser)}, which is not a key of PARSERS`);
+  }
+  for (const harness of registry.harnesses) {
+    const entry = harness.worker?.structuredOutput;
+    if (!entry) continue;
+    const declared = Object.hasOwn(entry, 'parser');
+    if (entry.status === 'supported') {
+      if (!Object.hasOwn(map, harness.id)) findings.push(`G41.3: harness '${harness.id}' has a supported structuredOutput but no entry in PARSER_BY_HARNESS`);
+      else if (entry.parser !== map[harness.id]) findings.push(`G41.3: harness '${harness.id}' declares parser ${JSON.stringify(entry.parser)}, expected ${JSON.stringify(map[harness.id])}`);
+    } else if (declared) {
+      findings.push(`G41.3: harness '${harness.id}' declares a parser on a structuredOutput that is not supported`);
+    }
+  }
+  return findings;
+}
+
+/** G41.5: outside codex, each supported readOnly and spawnDenial entry cites a `live-run` record that
+ * passes recordEstablishes for that key. */
+function liveRecordFindings(registry: any, repoRoot: any) {
+  const findings: any = [];
+  for (const harness of registry.harnesses) {
+    if (harness.id === 'codex') continue; // its records predate the rule
+    for (const key of ['readOnly', 'spawnDenial']) {
+      const entry = harness.worker?.[key];
+      if (entry?.status !== 'supported') continue;
+      const evidence = Array.isArray(entry.evidence) ? entry.evidence : [];
+      const live = evidence.some((item: any) => {
+        if (!recordEstablishes(item, harness.id, key, repoRoot, harness.worker)) return false;
+        try { return JSON.parse(fs.readFileSync(path.resolve(repoRoot, item), 'utf8')).kind === 'live-run'; } catch { return false; }
+      });
+      if (!live) findings.push(`G41.5: harness '${harness.id}' worker '${key}': supported without a live-run record that establishes it`);
     }
   }
   return findings;
@@ -210,7 +286,7 @@ test('G41.3: every declared structuredOutput.parser is a key of PARSERS', () => 
 
 test('G41 control: a dropped block, argv on an unknown entry and an unregistered parser give three named findings', () => {
   const registry = structuredClone(shipped().registry);
-  // antigravity is the harness whose readOnly stays unknown (142 B.8: the other six declare it supported).
+  // antigravity is a harness whose readOnly is unknown, so argv on it is a validator finding.
   const [dropped, unknownArgv, badParser]: any = [registry.harnesses[1], registry.harnesses.find((h: any) => h.id === 'antigravity'), registry.harnesses[3]];
   delete dropped.worker;
   assert.equal(unknownArgv.worker.readOnly.status, 'unknown', 'control precondition: readOnly is unknown');
@@ -240,43 +316,166 @@ test('G41.2 control: supported evidence with neither an existing path nor an htt
   ]);
 });
 
-// Interim (142 B.8): D.1 replaces this with the final PARSER_BY_HARNESS and adds G41.5.
-// claude, copilot, pi and kiro are absent: their C.1, C.2, C.3 and C.5 runs hit a stop rule (usage limit; report `denied`; no live run, model selection not in the recipe; non-clean read-only check), so their five entries are `unknown` again.
+// Literal pins (142 IC-013). Neither is derived from the registry: a new `supported` key or parser
+// fails here until a person edits the lists below in the same change that adds its record.
 const PARSER_BY_HARNESS: any = {
   codex: 'codex-exec-json-v1',
+  claude: 'claude-stream-json-v1',
   opencode: 'opencode-run-json-v1',
+  copilot: 'copilot-json-v1',
+  kiro: 'kiro-stream-json-v1',
+  pi: 'pi-json-v1',
 };
+
+const ACCEPTED_KEYS: any = {
+  codex: ['isolatedEdit', 'model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
+  opencode: ['oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
+  claude: [],
+  copilot: [],
+  pi: [],
+  kiro: [],
+  antigravity: [],
+};
+
+test('G41.3: PARSER_BY_HARNESS names every parser-bearing harness, none for antigravity, each id a key of PARSERS', () => {
+  assert.deepEqual(Object.keys(PARSER_BY_HARNESS).sort(), ['claude', 'codex', 'copilot', 'kiro', 'opencode', 'pi']);
+  assert.ok(!Object.hasOwn(PARSER_BY_HARNESS, 'antigravity'));
+  for (const [id, parser] of Object.entries(PARSER_BY_HARNESS)) assert.ok(Object.hasOwn(PARSERS, parser as any), `${id}: ${parser}`);
+});
 
 test('G41.3: a harness with a supported structuredOutput declares exactly its mapped parser, the others declare none', () => {
   const { registry } = shipped();
-  for (const harness of registry.harnesses) {
-    const entry = harness.worker.structuredOutput;
-    if (Object.hasOwn(PARSER_BY_HARNESS, harness.id)) {
-      assert.equal(entry.status, 'supported', harness.id);
-      assert.equal(entry.parser, PARSER_BY_HARNESS[harness.id], harness.id);
-      assert.ok(Object.hasOwn(PARSERS, entry.parser), harness.id);
-    } else {
-      assert.equal(entry.status, 'unknown', harness.id);
-      assert.ok(!Object.hasOwn(entry, 'parser'), harness.id);
-    }
-  }
+  assert.deepEqual(parserMapFindings(registry, PARSER_BY_HARNESS, PARSERS), []);
+  const antigravity = registry.harnesses.find((h: any) => h.id === 'antigravity');
+  assert.ok(!Object.hasOwn(antigravity.worker.structuredOutput, 'parser'));
+});
+
+test('G41.3 control: a mapped id outside PARSERS, a wrong parser, a parser on a non-supported entry and a supported entry with no mapping are each reported', () => {
+  const registry = structuredClone(shipped().registry);
+  const byId = (id: any) => registry.harnesses.find((h: any) => h.id === id);
+  const outside = parserMapFindings(registry, { ...PARSER_BY_HARNESS, pi: 'not-a-registered-parser' }, PARSERS);
+  assert.equal(outside.length, 1);
+  assert.match(outside[0], /maps 'pi' to "not-a-registered-parser".*not a key of PARSERS/);
+  assert.equal(parserMapFindings(registry, { ...PARSER_BY_HARNESS, opencode: 'codex-exec-json-v1' }, PARSERS).length, 1, 'wrong parser for opencode');
+  byId('claude').worker.structuredOutput.parser = 'codex-exec-json-v1';
+  assert.match(parserMapFindings(registry, PARSER_BY_HARNESS, PARSERS).join('\n'), /harness 'claude' declares a parser on a structuredOutput that is not supported/);
+  delete byId('claude').worker.structuredOutput.parser;
+  Object.assign(byId('antigravity').worker.structuredOutput, { status: 'supported', parser: 'codex-exec-json-v1' });
+  assert.match(parserMapFindings(registry, PARSER_BY_HARNESS, PARSERS).join('\n'), /harness 'antigravity' has a supported structuredOutput but no entry in PARSER_BY_HARNESS/);
 });
 
 test('G41.4: every supported worker entry cites a recorded evidence file that establishes it', () => {
   const { registry } = shipped();
   assert.deepEqual(establishingRecordFindings(registry, REPO), []);
-  // The guard is not vacuous: each harness holds exactly the supported capability entries listed here.
-  // Interim literal list (142 B.8, IC-013 rule 2); D.1 finalises it as ACCEPTED_KEYS with G41.5.
-  const supportedKeys = (harness: any) => Object.entries(harness.worker)
-    .filter(([key, entry]) => !NOT_CAPABILITIES.has(key) && entry?.status === 'supported').map(([key]) => key).sort();
-  const free = ['oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'];
-  const acceptedKeys: any = {
-    codex: ['isolatedEdit', 'model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
-    opencode: free,
-  };
+  // The guard is not vacuous: each harness holds exactly the supported capability entries in ACCEPTED_KEYS.
   for (const harness of registry.harnesses) {
-    assert.deepEqual(supportedKeys(harness), acceptedKeys[harness.id] ?? [], harness.id);
+    assert.deepEqual(supportedKeys(harness), Object.hasOwn(ACCEPTED_KEYS, harness.id) ? ACCEPTED_KEYS[harness.id] : [], harness.id);
   }
+  assert.deepEqual(acceptedKeyFindings(registry, ACCEPTED_KEYS), []);
+  for (const [id, keys] of Object.entries(ACCEPTED_KEYS)) assert.deepEqual(keys, [...(keys as any)].sort(), `${id} keys are sorted`);
+  assert.deepEqual(supportedKeys({ worker: { oneShot: { status: 'supported' } } }), ['oneShot']);
+});
+
+test('G41.4 control: an ACCEPTED_KEYS entry with no registry key, one for no harness, and a registry key with no map entry are each reported', () => {
+  const registry = structuredClone(shipped().registry);
+  const extraKey = acceptedKeyFindings(registry, { ...ACCEPTED_KEYS, pi: ['oneShot'] });
+  assert.equal(extraKey.length, 1);
+  assert.match(extraKey[0], /ACCEPTED_KEYS lists 'oneShot' for harness 'pi'/);
+  const extraHarness = acceptedKeyFindings(registry, { ...ACCEPTED_KEYS, nonesuch: [] });
+  assert.equal(extraHarness.length, 1);
+  assert.match(extraHarness[0], /entry for 'nonesuch', which is not a registry harness/);
+  const { opencode, ...withoutOpencode } = ACCEPTED_KEYS;
+  const missing = acceptedKeyFindings(registry, withoutOpencode);
+  assert.deepEqual(missing.map((f: any) => /worker '(\w+)'/.exec(f)![1]).sort(), [...opencode]);
+  assert.ok(missing.every((f: any) => f.includes("harness 'opencode'") && f.includes('not in ACCEPTED_KEYS')));
+});
+
+test('G41.4 control: a supported key added to claude, kiro, pi or copilot without a map entry fails', () => {
+  for (const id of ['claude', 'kiro', 'pi', 'copilot']) {
+    const registry = structuredClone(shipped().registry);
+    const harness = registry.harnesses.find((h: any) => h.id === id);
+    assert.deepEqual(supportedKeys(harness), [], `${id}: control precondition`);
+    harness.worker.oneShot = { status: 'supported', evidence: ['https://example.invalid/one-shot'], verification: 'control fixture', verifiedOn: '2026-01-01' };
+    assert.deepEqual(acceptedKeyFindings(registry, ACCEPTED_KEYS), [`G41.4: harness '${id}' worker 'oneShot' is supported but not in ACCEPTED_KEYS`], id);
+  }
+});
+
+test('G41.5: outside codex, each supported readOnly and spawnDenial entry cites a live-run record that establishes it', () => {
+  const { registry } = shipped();
+  assert.deepEqual(liveRecordFindings(registry, REPO), []);
+  // Not vacuous: opencode is the harness that must be checked, and it cites such a record for both keys.
+  const opencode = registry.harnesses.find((h: any) => h.id === 'opencode');
+  for (const key of ['readOnly', 'spawnDenial']) {
+    assert.equal(opencode.worker[key].status, 'supported', key);
+    assert.ok(opencode.worker[key].evidence.some((item: any) => /-live-run-/.test(item) && recordEstablishes(item, 'opencode', key, REPO, opencode.worker)), key);
+  }
+});
+
+test('G41.5 control: removing the live-run citation gives exactly one finding per key and G41.4 still holds on the cli-check', () => {
+  const registry = structuredClone(shipped().registry);
+  const opencode = registry.harnesses.find((h: any) => h.id === 'opencode');
+  for (const key of ['readOnly', 'spawnDenial']) {
+    opencode.worker[key].evidence = opencode.worker[key].evidence.filter((item: any) => !/-live-run-/.test(item));
+    assert.ok(opencode.worker[key].evidence.length > 0, `${key}: a cli-check is still cited`);
+  }
+  assert.deepEqual(establishingRecordFindings(registry, REPO), []);
+  assert.deepEqual(liveRecordFindings(registry, REPO), [
+    "G41.5: harness 'opencode' worker 'readOnly': supported without a live-run record that establishes it",
+    "G41.5: harness 'opencode' worker 'spawnDenial': supported without a live-run record that establishes it",
+  ]);
+});
+
+test('G41.5 control: codex is exempt, and a cited live-run record that fails recordEstablishes does not count', (t) => {
+  const registry = structuredClone(shipped().registry);
+  const codex = registry.harnesses.find((h: any) => h.id === 'codex');
+  codex.worker.readOnly.evidence = codex.worker.readOnly.evidence.filter((item: any) => !/-live-run-/.test(item));
+  assert.deepEqual(liveRecordFindings(registry, REPO), [], 'codex needs no live-run citation');
+  const { root, copy } = opencodeScratch(t);
+  const opencode = registry.harnesses.find((h: any) => h.id === 'opencode');
+  const failed = copy('2026-11-07-live-run-read-only.json', 'failed.json', (r: any) => { r.run.report.status = 'failure'; });
+  opencode.worker.readOnly.evidence = [failed];
+  opencode.worker.spawnDenial.evidence = [failed];
+  assert.deepEqual(liveRecordFindings(registry, root), [
+    "G41.5: harness 'opencode' worker 'readOnly': supported without a live-run record that establishes it",
+    "G41.5: harness 'opencode' worker 'spawnDenial': supported without a live-run record that establishes it",
+  ]);
+});
+
+/** A scratch root holding copies of opencode's records, mutated in memory before they are written. */
+function opencodeScratch(t: any) {
+  const root = tempDir(t, 'doflow-g415-');
+  const dir = path.join(root, 'core', 'worker-evidence', 'opencode');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.copyFileSync(path.join(REPO, 'core', 'worker-evidence', 'opencode', 'checks.json'), path.join(dir, 'checks.json'));
+  const copy = (source: any, name: any, mutate: any) => {
+    const record = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'worker-evidence', 'opencode', source), 'utf8'));
+    mutate(record);
+    fs.writeFileSync(path.join(dir, name), JSON.stringify(record));
+    return `core/worker-evidence/opencode/${name}`;
+  };
+  return { root, copy };
+}
+
+test('G41.5 control: a hand-edited live-run record (failed report, non-clean readOnly status, forged establishes) is not accepted by recordEstablishes', (t) => {
+  const opencode = structuredClone(shipped().registry.harnesses.find((h: any) => h.id === 'opencode'));
+  const { root, copy } = opencodeScratch(t);
+  const accepted = (item: any, key: any) => recordEstablishes(item, 'opencode', key, root, opencode.worker);
+  for (const source of ['2026-11-07-live-run-read-only.json', '2026-11-07-live-run-spawn.json']) {
+    for (const key of ['readOnly', 'spawnDenial']) {
+      assert.equal(accepted(copy(source, 'ok.json', () => {}), key), true, `${source}: an intact copy establishes ${key}`);
+      assert.equal(accepted(copy(source, 'failed.json', (r: any) => { r.run.report.status = 'failure'; }), key), false, `${source}: report failure, ${key}`);
+      for (const status of ['violated', 'dirty', '', null, undefined]) {
+        assert.equal(accepted(copy(source, 'ro.json', (r: any) => { r.run.readOnly.status = status; }), key), false, `${source}: readOnly.status ${String(status)}, ${key}`);
+      }
+      assert.equal(accepted(copy(source, 'no-ro.json', (r: any) => { delete r.run.readOnly; }), key), false, `${source}: no readOnly block, ${key}`);
+      assert.equal(accepted(copy(source, 'dropped.json', (r: any) => { r.establishes = r.establishes.filter((k: any) => k !== key); }), key), false, `${source}: establishes without ${key}`);
+    }
+  }
+  // Forged establishes on a cli-check: opencode's checks never established isolatedEdit, and a relabelled kind has no run.
+  const cliCheck = '2026-11-07-cli-check.json';
+  assert.equal(accepted(copy(cliCheck, 'cli.json', () => {}), 'readOnly'), true, 'an intact cli-check establishes readOnly');
+  assert.equal(accepted(copy(cliCheck, 'forged.json', (r: any) => { r.establishes = [...r.establishes, 'isolatedEdit']; }), 'isolatedEdit'), false, 'forged establishes on a cli-check');
+  assert.equal(accepted(copy(cliCheck, 'relabelled.json', (r: any) => { r.kind = 'live-run'; }), 'readOnly'), false, 'a cli-check relabelled live-run');
 });
 
 /** G41.4 / 120 IC-011: isolate codex and bind its seven capabilities to its latest free-check record. */
@@ -379,7 +578,7 @@ test('G41.4 control: a live-run record whose result was not offered or whose run
   const live = (name: any, extra: any) => {
     fs.writeFileSync(path.join(dir, name), JSON.stringify({
       schema: EVIDENCE_SCHEMA, harness: 'codex', kind: 'live-run', cliVersion: 'codex-cli 0.0.0',
-      establishes: ['oneShot'], checks: [], ...extra, run: { edit: false, argvShape: shape, ...extra.run },
+      establishes: ['oneShot'], checks: [], ...extra, run: { edit: false, argvShape: shape, readOnly: { status: 'clean' }, ...extra.run },
     }));
     return `core/worker-evidence/codex/${name}`;
   };
