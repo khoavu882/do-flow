@@ -63,7 +63,7 @@ test('G48: a runtime-shaped copy fails in require mode with missing-source lines
   // FU-2hfj0d: the codex quota transcript is a repository file the runtime-shaped tree does not carry.
   const sourceErrors = result.errors.filter((e: any) => !/quotaSignals transcript evidence .* does not exist/.test(e));
   assert.equal(result.errors.length - sourceErrors.length, 1);
-  assert.equal(sourceErrors.length, 25);
+  assert.equal(sourceErrors.length, 26);
 
   for (const error of sourceErrors) {
     assert.match(error, /source does not exist inside repository: /);
@@ -76,7 +76,7 @@ test('G48: a runtime-shaped copy fails in require mode with missing-source lines
       assert.match(err.message, /^Invalid DoFlow registry:\n- /);
       assert.equal(err.validation.ok, false);
       assert.equal(err.validation.sources, 'require');
-      assert.equal(err.validation.errors.length, 26);
+      assert.equal(err.validation.errors.length, 27);
       return true;
     },
   );

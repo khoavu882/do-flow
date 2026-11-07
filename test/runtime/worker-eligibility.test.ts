@@ -231,11 +231,11 @@ test('select: the real registry selects nothing when no harness is installed (DE
   assert.equal(answer.candidates.length, 7);
   for (const candidate of answer.candidates) {
     assert.equal(candidate.eligible, false, candidate.harness);
-    if (candidate.harness === 'codex') {
-      // 109 IC-008: codex's static entries are supported, so only the discover-time gaps remain.
+    if (['codex', 'claude', 'opencode', 'copilot', 'kiro', 'pi'].includes(candidate.harness)) {
+      // 109 IC-008, 142 IC-009: these harnesses' static entries are supported, so only the discover-time gaps remain.
       assert.deepEqual(candidate.gaps.map((g: any) => g.requirement), ['installed', 'runnable'], candidate.harness);
-      assert.equal(gap(answer, 'codex', 'one-shot'), undefined);
-      assert.equal(gap(answer, 'codex', 'spawn-denial'), undefined);
+      assert.equal(gap(answer, candidate.harness, 'one-shot'), undefined);
+      assert.equal(gap(answer, candidate.harness, 'spawn-denial'), undefined);
       continue;
     }
     assert.equal(gap(answer, candidate.harness, 'one-shot').result, 'unknown', candidate.harness);

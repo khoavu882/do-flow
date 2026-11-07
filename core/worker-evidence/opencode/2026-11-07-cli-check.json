@@ -1,0 +1,95 @@
+{
+  "binary": "opencode",
+  "checks": [
+    {
+      "argv": [
+        "run",
+        "--help"
+      ],
+      "establishes": [
+        "runnableProbe",
+        "oneShot"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+opencode run \\[flags\\] \\[<message\\.\\.\\.>\\]",
+        "^\\s+message\\.\\.\\. string\\s+Message to send"
+      ],
+      "id": "print-one-shot",
+      "matched": [
+        "  opencode run [flags] [<message...>]",
+        "  message... string    Message to send (optional)"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "run",
+        "--help"
+      ],
+      "establishes": [
+        "structuredOutput"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--format choice\\s+Output format \\(choices: default, json\\)",
+        "^\\s+--standalone\\s+Run with a private server"
+      ],
+      "id": "structured-output",
+      "matched": [
+        "  --format choice         Output format (choices: default, json)",
+        "  --standalone                                                        Run with a private server instead of the background service"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "run",
+        "--help"
+      ],
+      "establishes": [
+        "readOnly"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--agent string\\s+Agent to use"
+      ],
+      "id": "read-only-flags",
+      "matched": [
+        "  --agent string          Agent to use"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "run",
+        "--help"
+      ],
+      "establishes": [
+        "spawnDenial"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--agent string\\s+Agent to use"
+      ],
+      "id": "spawn-denial-flags",
+      "matched": [
+        "  --agent string          Agent to use"
+      ],
+      "result": "pass"
+    }
+  ],
+  "cliVersion": "opencode v2.2.5",
+  "establishes": [
+    "oneShot",
+    "readOnly",
+    "runnableProbe",
+    "spawnDenial",
+    "structuredOutput"
+  ],
+  "harness": "opencode",
+  "kind": "cli-check",
+  "recordedAt": "2026-11-07T05:22:31.605Z",
+  "run": null,
+  "schema": "doflow-worker-evidence-v1"
+}

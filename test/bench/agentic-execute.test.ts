@@ -207,10 +207,12 @@ test('selectHarness: chosen by capability from a registry with made-up names; pi
   assert.throws(() => execute.selectHarness(partial, REAL_CONFIG), (e: any) => e.reason === 'harness-none', 'every recipe group is required');
 });
 
-test('selectHarness: the shipped registry yields exactly one harness without a pin', () => {
+test('selectHarness: the shipped registry needs a pin once several harnesses qualify (142: all six with a baseline), and a pin yields one', () => {
   const registry = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'harnesses.json'), 'utf8'));
-  const sel = execute.selectHarness(registry, REAL_CONFIG);
-  assert.equal(typeof sel.id, 'string');
+  assert.throws(() => execute.selectHarness(registry, REAL_CONFIG), (e: any) => e.reason === 'harness-ambiguous'
+    && /6 harnesses qualify \(claude, codex, opencode, pi, copilot, kiro\)/.test(e.message));
+  const sel = execute.selectHarness(registry, { ...REAL_CONFIG, harness: { ...REAL_CONFIG.harness, pin: 'codex' } });
+  assert.equal(sel.id, 'codex');
   assert.equal(typeof sel.recipe.cli.binary, 'string');
 });
 

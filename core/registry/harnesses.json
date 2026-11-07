@@ -300,39 +300,71 @@
           ]
         },
         "oneShot": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read claude's headless CLI documentation and `claude --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no recorded evidence for claude: no free check has captured its one-shot headless flag or how it reads a prompt"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/claude/2026-11-07-cli-check.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness claude --checks core/worker-evidence/claude/checks.json --out core/worker-evidence/claude/2026-11-07-cli-check.json` against the installed claude and read the matched help lines. Recorded 2026-11-07 on claude 2.1.311: the one-shot flags are listed in `--help`. The combination is untested until a live run.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "--no-session-persistence",
+            "-p",
+            "{prompt}"
+          ],
+          "promptVia": "argv"
         },
         "structuredOutput": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read claude's headless CLI documentation and `claude --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no captured claude transcript: its event schema has no parser, and a parser waits for a transcript from its own probe"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/claude/2026-11-07-cli-check.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness claude --checks core/worker-evidence/claude/checks.json --out core/worker-evidence/claude/2026-11-07-cli-check.json` against the installed claude and read the matched help lines. Recorded 2026-11-07 on claude 2.1.311: the output-format flags are listed in `--help`. The event schema is read by the parser from fixtures, not from a live run.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "--output-format",
+            "stream-json",
+            "--verbose"
+          ],
+          "parser": "claude-stream-json-v1"
         },
         "readOnly": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read claude's headless CLI documentation and `claude --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for claude; nothing is inferred from another harness or a model name"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/claude/2026-11-07-cli-check.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness claude --checks core/worker-evidence/claude/checks.json --out core/worker-evidence/claude/2026-11-07-cli-check.json` against the installed claude and read the matched help lines. Recorded 2026-11-07 on claude 2.1.311: the flags are listed in `--help`. Their read-only behaviour is untested until a live run.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "--tools",
+            "Read",
+            "--permission-mode",
+            "plan",
+            "--strict-mcp-config"
+          ]
         },
         "spawnDenial": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read claude's headless CLI documentation and `claude --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no recorded evidence for claude: no free check shows a flag that disables subagent spawning"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/claude/2026-11-07-cli-check.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness claude --checks core/worker-evidence/claude/checks.json --out core/worker-evidence/claude/2026-11-07-cli-check.json` against the installed claude and read the matched help lines. Recorded 2026-11-07 on claude 2.1.311: the flags are listed in `--help`. That they stop a spawn is untested until a live run.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "--disallowedTools",
+            "Task",
+            "Agent"
+          ]
         },
         "runnableProbe": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read claude's headless CLI documentation and `claude --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for claude; nothing is inferred from another harness or a model name"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/claude/2026-11-07-cli-check.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness claude --checks core/worker-evidence/claude/checks.json --out core/worker-evidence/claude/2026-11-07-cli-check.json` against the installed claude and read the matched help lines. Recorded 2026-11-07 on claude 2.1.311: the help text prints; this runs no model.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "--help"
+          ]
         },
         "hooksProbe": {
           "status": "unknown",
@@ -1336,39 +1368,64 @@
           ]
         },
         "oneShot": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read opencode's headless CLI documentation and `opencode --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no recorded evidence for opencode: no free check has captured its one-shot headless flag or how it reads a prompt"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/opencode/2026-11-07-cli-check.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness opencode --checks core/worker-evidence/opencode/checks.json --out core/worker-evidence/opencode/2026-11-07-cli-check.json` against the installed opencode and read the matched help lines. Recorded 2026-11-07 on opencode v2.2.5: the one-shot flags are listed in `--help` only. The combination is untested until a live run.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "{prompt}"
+          ],
+          "promptVia": "argv"
         },
         "structuredOutput": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read opencode's headless CLI documentation and `opencode --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no captured opencode transcript: its event schema has no parser, and a parser waits for a transcript from its own probe"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/opencode/2026-11-07-cli-check.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness opencode --checks core/worker-evidence/opencode/checks.json --out core/worker-evidence/opencode/2026-11-07-cli-check.json` against the installed opencode and read the matched help lines. Recorded 2026-11-07 on opencode v2.2.5: the output-format flags are listed in `--help` only. The event schema is read by the parser from fixtures, not from a live run.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "--standalone",
+            "--format",
+            "json"
+          ],
+          "parser": "opencode-run-json-v1"
         },
         "readOnly": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read opencode's headless CLI documentation and `opencode --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for opencode; nothing is inferred from another harness or a model name"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/opencode/2026-11-07-cli-check.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness opencode --checks core/worker-evidence/opencode/checks.json --out core/worker-evidence/opencode/2026-11-07-cli-check.json` against the installed opencode and read the matched help lines. Recorded 2026-11-07 on opencode v2.2.5: the flags are listed in `--help` only. Their read-only behaviour is untested until a live run. The `doflow-worker-ro` companion agent and `--agent` selecting it are untested until a live run.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "run",
+            "--agent",
+            "doflow-worker-ro"
+          ]
         },
         "spawnDenial": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read opencode's headless CLI documentation and `opencode --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no recorded evidence for opencode: no free check shows a flag that disables subagent spawning"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/opencode/2026-11-07-cli-check.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness opencode --checks core/worker-evidence/opencode/checks.json --out core/worker-evidence/opencode/2026-11-07-cli-check.json` against the installed opencode and read the matched help lines. Recorded 2026-11-07 on opencode v2.2.5: the empty argv relies on the companion agent denying `task`, which is untested until a live run. `--agent` is listed in `--help` only.",
+          "verifiedOn": "2026-11-07",
+          "argv": []
         },
         "runnableProbe": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read opencode's headless CLI documentation and `opencode --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for opencode; nothing is inferred from another harness or a model name"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/opencode/2026-11-07-cli-check.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness opencode --checks core/worker-evidence/opencode/checks.json --out core/worker-evidence/opencode/2026-11-07-cli-check.json` against the installed opencode and read the matched help lines. Recorded 2026-11-07 on opencode v2.2.5: the help text prints; this runs no model.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "run",
+            "--help"
+          ]
         },
         "hooksProbe": {
           "status": "unknown",
@@ -1765,39 +1822,71 @@
           ]
         },
         "oneShot": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read pi's headless CLI documentation and `pi --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no recorded evidence for pi: no free check has captured its one-shot headless flag or how it reads a prompt"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/pi/2026-11-07-cli-check.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness pi --checks core/worker-evidence/pi/checks.json --out core/worker-evidence/pi/2026-11-07-cli-check.json` against the installed pi and read the matched help lines. Recorded 2026-11-07 on pi 1.4.0: the one-shot flags are listed in `--help`. The combination is untested until a live run.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "-p",
+            "--no-session",
+            "--thinking",
+            "off",
+            "--no-skills",
+            "--no-context-files",
+            "--offline",
+            "{prompt}"
+          ],
+          "promptVia": "argv"
         },
         "structuredOutput": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read pi's headless CLI documentation and `pi --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no captured pi transcript: its event schema has no parser, and a parser waits for a transcript from its own probe"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/pi/2026-11-07-cli-check.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness pi --checks core/worker-evidence/pi/checks.json --out core/worker-evidence/pi/2026-11-07-cli-check.json` against the installed pi and read the matched help lines. Recorded 2026-11-07 on pi 1.4.0: the output-format flags are listed in `--help`. The event schema is read by the parser from fixtures, not from a live run.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "--mode",
+            "json"
+          ],
+          "parser": "pi-json-v1"
         },
         "readOnly": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read pi's headless CLI documentation and `pi --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for pi; nothing is inferred from another harness or a model name"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/pi/2026-11-07-cli-check.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness pi --checks core/worker-evidence/pi/checks.json --out core/worker-evidence/pi/2026-11-07-cli-check.json` against the installed pi and read the matched help lines. Recorded 2026-11-07 on pi 1.4.0: the flags are listed in `--help`. Their read-only behaviour is untested until a live run.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "--tools",
+            "read,grep,find,ls"
+          ]
         },
         "spawnDenial": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read pi's headless CLI documentation and `pi --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no recorded evidence for pi: no free check shows a flag that disables subagent spawning"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/pi/2026-11-07-cli-check.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness pi --checks core/worker-evidence/pi/checks.json --out core/worker-evidence/pi/2026-11-07-cli-check.json` against the installed pi and read the matched help lines. Recorded 2026-11-07 on pi 1.4.0: the flags are listed in `--help`. That they stop a spawn is untested until a live run.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "--no-extensions",
+            "--no-mcp"
+          ]
         },
         "runnableProbe": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read pi's headless CLI documentation and `pi --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for pi; nothing is inferred from another harness or a model name"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/pi/2026-11-07-cli-check.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness pi --checks core/worker-evidence/pi/checks.json --out core/worker-evidence/pi/2026-11-07-cli-check.json` against the installed pi and read the matched help lines. Recorded 2026-11-07 on pi 1.4.0: the help text prints; this runs no model.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "--help"
+          ]
         },
         "hooksProbe": {
           "status": "unknown",
@@ -2265,39 +2354,69 @@
           ]
         },
         "oneShot": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read copilot's headless CLI documentation and `copilot --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no recorded evidence for copilot: no free check has captured its one-shot headless flag or how it reads a prompt"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/copilot/2026-11-07-cli-check.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness copilot --checks core/worker-evidence/copilot/checks.json --out core/worker-evidence/copilot/2026-11-07-cli-check.json` against the installed copilot and read the matched help lines. Recorded 2026-11-07 on copilot 1.0.105: the one-shot flags are listed in `--help`. The combination is untested until a live run.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "--trust-folder",
+            "--no-ask-user",
+            "-p",
+            "{prompt}"
+          ],
+          "promptVia": "argv"
         },
         "structuredOutput": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read copilot's headless CLI documentation and `copilot --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no captured copilot transcript: its event schema has no parser, and a parser waits for a transcript from its own probe"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/copilot/2026-11-07-cli-check.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness copilot --checks core/worker-evidence/copilot/checks.json --out core/worker-evidence/copilot/2026-11-07-cli-check.json` against the installed copilot and read the matched help lines. Recorded 2026-11-07 on copilot 1.0.105: the output-format flags are listed in `--help`. The event schema is read by the parser from fixtures, not from a live run.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "--output-format",
+            "json"
+          ],
+          "parser": "copilot-json-v1"
         },
         "readOnly": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read copilot's headless CLI documentation and `copilot --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for copilot; nothing is inferred from another harness or a model name"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/copilot/2026-11-07-cli-check.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness copilot --checks core/worker-evidence/copilot/checks.json --out core/worker-evidence/copilot/2026-11-07-cli-check.json` against the installed copilot and read the matched help lines. Recorded 2026-11-07 on copilot 1.0.105: the flags are listed in `--help`. Their read-only behaviour is untested until a live run.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "--deny-tool",
+            "write",
+            "--deny-tool",
+            "shell"
+          ]
         },
         "spawnDenial": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read copilot's headless CLI documentation and `copilot --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no recorded evidence for copilot: no free check shows a flag that disables subagent spawning"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/copilot/2026-11-07-cli-check.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness copilot --checks core/worker-evidence/copilot/checks.json --out core/worker-evidence/copilot/2026-11-07-cli-check.json` against the installed copilot and read the matched help lines. Recorded 2026-11-07 on copilot 1.0.105: the flags are listed in `--help`. That they stop a spawn is untested until a live run.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "--excluded-tools",
+            "task"
+          ]
         },
         "runnableProbe": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read copilot's headless CLI documentation and `copilot --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for copilot; nothing is inferred from another harness or a model name"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/copilot/2026-11-07-cli-check.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness copilot --checks core/worker-evidence/copilot/checks.json --out core/worker-evidence/copilot/2026-11-07-cli-check.json` against the installed copilot and read the matched help lines. Recorded 2026-11-07 on copilot 1.0.105: the help text prints; this runs no model.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "--help"
+          ]
         },
         "hooksProbe": {
           "status": "unknown",
@@ -2684,39 +2803,67 @@
           ]
         },
         "oneShot": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read kiro's headless CLI documentation and `kiro-cli --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no recorded evidence for kiro-cli: no free check has captured its one-shot headless flag or how it reads a prompt"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/kiro/2026-11-07-cli-check.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness kiro --checks core/worker-evidence/kiro/checks.json --out core/worker-evidence/kiro/2026-11-07-cli-check.json` against the installed kiro-cli and read the matched help lines. Recorded 2026-11-07 on kiro-cli 3.1.0: the one-shot flags are listed in `--help` only. The combination is untested until a live run.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "--trust-workspace",
+            "{prompt}"
+          ],
+          "promptVia": "argv"
         },
         "structuredOutput": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read kiro's headless CLI documentation and `kiro-cli --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no captured kiro-cli transcript: its event schema has no parser, and a parser waits for a transcript from its own probe"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/kiro/2026-11-07-cli-check.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness kiro --checks core/worker-evidence/kiro/checks.json --out core/worker-evidence/kiro/2026-11-07-cli-check.json` against the installed kiro-cli and read the matched help lines. Recorded 2026-11-07 on kiro-cli 3.1.0: the output-format flags are listed in `--help` only. The event schema is read by the parser from fixtures, not from a live run.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "--output-format",
+            "stream-json"
+          ],
+          "parser": "kiro-stream-json-v1"
         },
         "readOnly": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read kiro's headless CLI documentation and `kiro-cli --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for kiro; nothing is inferred from another harness or a model name"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/kiro/2026-11-07-cli-check.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness kiro --checks core/worker-evidence/kiro/checks.json --out core/worker-evidence/kiro/2026-11-07-cli-check.json` against the installed kiro-cli and read the matched help lines. Recorded 2026-11-07 on kiro-cli 3.1.0: the flags are listed in `--help` only. Their read-only behaviour is untested until a live run. The `doflow-worker-ro` companion agent is untested until a live run.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "chat",
+            "--no-interactive",
+            "--agent",
+            "doflow-worker-ro"
+          ]
         },
         "spawnDenial": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read kiro's headless CLI documentation and `kiro-cli --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no recorded evidence for kiro-cli: no free check shows a flag that disables subagent spawning"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/kiro/2026-11-07-cli-check.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness kiro --checks core/worker-evidence/kiro/checks.json --out core/worker-evidence/kiro/2026-11-07-cli-check.json` against the installed kiro-cli and read the matched help lines. Recorded 2026-11-07 on kiro-cli 3.1.0: the flag is listed in `--help` only. That it stops a spawn is untested until a live run.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "--trust-tools=read"
+          ]
         },
         "runnableProbe": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read kiro's headless CLI documentation and `kiro-cli --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for kiro; nothing is inferred from another harness or a model name"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/kiro/2026-11-07-cli-check.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness kiro --checks core/worker-evidence/kiro/checks.json --out core/worker-evidence/kiro/2026-11-07-cli-check.json` against the installed kiro-cli and read the matched help lines. Recorded 2026-11-07 on kiro-cli 3.1.0: the help text prints; this runs no model.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "chat",
+            "--help"
+          ]
         },
         "hooksProbe": {
           "status": "unknown",

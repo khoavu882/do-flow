@@ -210,7 +210,8 @@ test('G41.3: every declared structuredOutput.parser is a key of PARSERS', () => 
 
 test('G41 control: a dropped block, argv on an unknown entry and an unregistered parser give three named findings', () => {
   const registry = structuredClone(shipped().registry);
-  const [dropped, unknownArgv, badParser]: any = [registry.harnesses[1], registry.harnesses[2], registry.harnesses[3]];
+  // antigravity is the harness whose readOnly stays unknown (142 B.8: the other six declare it supported).
+  const [dropped, unknownArgv, badParser]: any = [registry.harnesses[1], registry.harnesses.find((h: any) => h.id === 'antigravity'), registry.harnesses[3]];
   delete dropped.worker;
   assert.equal(unknownArgv.worker.readOnly.status, 'unknown', 'control precondition: readOnly is unknown');
   unknownArgv.worker.readOnly.argv = ['--read-only'];
@@ -239,13 +240,24 @@ test('G41.2 control: supported evidence with neither an existing path nor an htt
   ]);
 });
 
-test('G41.3: codex declares the codex-exec-json-v1 parser and the seven other harnesses declare none', () => {
+// Interim (142 B.8): D.1 replaces this with the final PARSER_BY_HARNESS and adds G41.5.
+const PARSER_BY_HARNESS: any = {
+  codex: 'codex-exec-json-v1',
+  claude: 'claude-stream-json-v1',
+  opencode: 'opencode-run-json-v1',
+  copilot: 'copilot-json-v1',
+  kiro: 'kiro-stream-json-v1',
+  pi: 'pi-json-v1',
+};
+
+test('G41.3: a harness with a supported structuredOutput declares exactly its mapped parser, the others declare none', () => {
   const { registry } = shipped();
   for (const harness of registry.harnesses) {
     const entry = harness.worker.structuredOutput;
-    if (harness.id === 'codex') {
-      assert.equal(entry.status, 'supported');
-      assert.equal(entry.parser, 'codex-exec-json-v1');
+    if (Object.hasOwn(PARSER_BY_HARNESS, harness.id)) {
+      assert.equal(entry.status, 'supported', harness.id);
+      assert.equal(entry.parser, PARSER_BY_HARNESS[harness.id], harness.id);
+      assert.ok(Object.hasOwn(PARSERS, entry.parser), harness.id);
     } else {
       assert.equal(entry.status, 'unknown', harness.id);
       assert.ok(!Object.hasOwn(entry, 'parser'), harness.id);
@@ -256,13 +268,21 @@ test('G41.3: codex declares the codex-exec-json-v1 parser and the seven other ha
 test('G41.4: every supported worker entry cites a recorded evidence file that establishes it', () => {
   const { registry } = shipped();
   assert.deepEqual(establishingRecordFindings(registry, REPO), []);
-  // The guard is not vacuous: codex holds seven supported capability entries, the seven others none.
+  // The guard is not vacuous: each harness holds exactly the supported capability entries listed here.
+  // Interim literal list (142 B.8, IC-013 rule 2); D.1 finalises it as ACCEPTED_KEYS with G41.5.
   const supportedKeys = (harness: any) => Object.entries(harness.worker)
     .filter(([key, entry]) => !NOT_CAPABILITIES.has(key) && entry?.status === 'supported').map(([key]) => key).sort();
+  const free = ['oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'];
+  const acceptedKeys: any = {
+    codex: ['isolatedEdit', 'model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
+    claude: free,
+    opencode: free,
+    copilot: free,
+    kiro: free,
+    pi: free,
+  };
   for (const harness of registry.harnesses) {
-    assert.deepEqual(supportedKeys(harness), harness.id === 'codex'
-      ? ['isolatedEdit', 'model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput']
-      : [], harness.id);
+    assert.deepEqual(supportedKeys(harness), acceptedKeys[harness.id] ?? [], harness.id);
   }
 });
 
@@ -359,6 +379,7 @@ test('G41.4 control: a live-run record whose result was not offered or whose run
   const root = tempDir(t, 'doflow-g414-');
   const registry = structuredClone(shipped().registry);
   const codex = registry.harnesses.find((h: any) => h.id === 'codex');
+  registry.harnesses = [codex]; // scratch root holds codex records only; other harnesses' findings are not under test here
   const dir = path.join(root, 'core', 'worker-evidence', 'codex');
   fs.mkdirSync(dir, { recursive: true });
   const shape = argvShape(codex.worker, '', false);
@@ -386,6 +407,7 @@ test('G41.4 control: the shipped live-run records count, and a copy of either wi
   const root = tempDir(t, 'doflow-g414-real-');
   const registry = structuredClone(shipped().registry);
   const codex = registry.harnesses.find((h: any) => h.id === 'codex');
+  registry.harnesses = [codex]; // scratch root holds codex records only; other harnesses' findings are not under test here
   const dir = path.join(root, 'core', 'worker-evidence', 'codex');
   fs.mkdirSync(dir, { recursive: true });
   const copy = (source: any, name: any, mutate: any) => {
@@ -411,6 +433,7 @@ test('G41.4 control: a live-run record whose argvShape contradicts the recipe it
   const root = tempDir(t, 'doflow-g414-shape-');
   const registry = structuredClone(shipped().registry);
   const codex = registry.harnesses.find((h: any) => h.id === 'codex');
+  registry.harnesses = [codex]; // scratch root holds codex records only; other harnesses' findings are not under test here
   const dir = path.join(root, 'core', 'worker-evidence', 'codex');
   fs.mkdirSync(dir, { recursive: true });
   const copy = (source: any, name: any, mutate: any) => {
