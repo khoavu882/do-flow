@@ -285,7 +285,7 @@ const V1 = {
     needsConfigHome: false,
     legacy: [],
     consumers: ['src/runtime/team/admission.ts', 'src/runtime/team/evaluate.ts'],
-    description: 'Maximum number of concurrent mutating worker sessions across the active task graph; 1 by default, so writes run single-threaded and reads in parallel; the user may raise it.',
+    description: 'Maximum concurrent mutating worker sessions considered by team admission, default 1; dispatch enforces the cap only when team.enforcement is block. The user may raise it.',
   },
   'team.maxAttempts': {
     type: 'integer',
