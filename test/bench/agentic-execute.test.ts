@@ -50,6 +50,7 @@ const AMBIGUOUS: any = { version: 1, harnesses: [...REGISTRY.harnesses, { id: 'g
 const clone = (v: any) => JSON.parse(JSON.stringify(v));
 function testConfig(mutate?: any) {
   const c = clone(REAL_CONFIG);
+  c.harness.pin = null; // the fake registries have no codex; the shipped pin is asserted in the loadConfig and selectHarness tests
   c.model = { label: 'fake:model', argv: ['-m', 'fake-model'] };
   c.home = { env: 'FAKE_HOME', source: '~/.fakehome', copy: ['auth.json'] };
   c.path = ['node', 'git'];
@@ -146,7 +147,7 @@ function assertRefused(s: any, result: any, reason: any) {
 test('loadConfig: the shipped config has both arms, compilable patterns and the IC-003 defaults', () => {
   const c = REAL_CONFIG;
   assert.deepEqual(Object.keys(c.arms).sort(), ['D', 'N']);
-  assert.deepEqual(c.harness, { select: 'worker.readOnly', pin: null });
+  assert.deepEqual(c.harness, { select: 'worker.readOnly', pin: 'codex' });
   assert.equal(c.model.label, 'codex:gpt-6-luna:medium');
   assert.equal(c.timeoutSeconds, 900);
   assert.equal(c.maxTokensPerRun, 250000);
@@ -189,31 +190,40 @@ test('loadConfig: a malformed config is refused with the field named, never defa
 // --- harness selection and argv ---------------------------------------------------------------
 
 test('selectHarness: chosen by capability from a registry with made-up names; pin settles a tie', () => {
-  const sel = execute.selectHarness(REGISTRY, REAL_CONFIG);
+  const UNPINNED = testConfig();
+  const sel = execute.selectHarness(REGISTRY, UNPINNED);
   assert.equal(sel.id, 'alpha');
   assert.equal(sel.recipe.cli.binary, 'fakeharness-alpha');
 
-  assert.throws(() => execute.selectHarness(AMBIGUOUS, REAL_CONFIG), (e: any) => e instanceof UsageError && e.reason === 'harness-ambiguous');
-  const pinned = clone(REAL_CONFIG);
+  assert.throws(() => execute.selectHarness(AMBIGUOUS, UNPINNED), (e: any) => e instanceof UsageError && e.reason === 'harness-ambiguous');
+  const pinned = clone(UNPINNED);
   pinned.harness.pin = 'gamma';
   assert.equal(execute.selectHarness(AMBIGUOUS, pinned).id, 'gamma');
   pinned.harness.pin = 'beta';
   assert.throws(() => execute.selectHarness(AMBIGUOUS, pinned), (e: any) => e.reason === 'harness-none', 'a pin that does not qualify');
 
   const none: any = { version: 1, harnesses: [REGISTRY.harnesses[1]] };
-  assert.throws(() => execute.selectHarness(none, REAL_CONFIG), (e: any) => e instanceof UsageError && e.reason === 'harness-none');
+  assert.throws(() => execute.selectHarness(none, UNPINNED), (e: any) => e instanceof UsageError && e.reason === 'harness-none');
   const partial = clone(REGISTRY);
   partial.harnesses[0].worker.spawnDenial.status = 'unsupported';
-  assert.throws(() => execute.selectHarness(partial, REAL_CONFIG), (e: any) => e.reason === 'harness-none', 'every recipe group is required');
+  assert.throws(() => execute.selectHarness(partial, UNPINNED), (e: any) => e.reason === 'harness-none', 'every recipe group is required');
 });
 
-test('selectHarness: the shipped registry needs a pin once several harnesses qualify (142: two with a baseline, claude, copilot, pi and kiro left unknown by their C.1, C.2, C.3 and C.5 stop rules), and a pin yields one', () => {
+test('selectHarness: the shipped registry yields exactly one harness without a pin', () => {
   const registry = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'harnesses.json'), 'utf8'));
-  assert.throws(() => execute.selectHarness(registry, REAL_CONFIG), (e: any) => e.reason === 'harness-ambiguous'
-    && /2 harnesses qualify \(codex, opencode\)/.test(e.message));
-  const sel = execute.selectHarness(registry, { ...REAL_CONFIG, harness: { ...REAL_CONFIG.harness, pin: 'codex' } });
-  assert.equal(sel.id, 'codex');
+  const sel = execute.selectHarness(registry, REAL_CONFIG);
+  assert.equal(typeof sel.id, 'string');
   assert.equal(typeof sel.recipe.cli.binary, 'string');
+});
+
+test('selectHarness: the shipped config pins codex; with the pin null the shipped registry has two qualifying harnesses and stops', () => {
+  const registry = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'harnesses.json'), 'utf8'));
+  assert.equal(REAL_CONFIG.harness.pin, 'codex');
+  assert.equal(execute.selectHarness(registry, REAL_CONFIG).id, 'codex');
+  const unpinned = clone(REAL_CONFIG);
+  unpinned.harness.pin = null;
+  assert.throws(() => execute.selectHarness(registry, unpinned), (e: any) => e instanceof UsageError
+    && e.reason === 'harness-ambiguous' && /2 harnesses qualify \(codex, opencode\)/.test(e.message));
 });
 
 test('insertModelArgv: equals assembleArgv with the model argv right after the read-only group', () => {

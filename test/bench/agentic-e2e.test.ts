@@ -69,6 +69,7 @@ const REGISTRY: any = {
 const clone = (v: any) => JSON.parse(JSON.stringify(v));
 function configWith(label: any = 'fake:e2e-model') {
   const c = execute.loadConfig();
+  c.harness.pin = null; // the fake registry has one harness, not codex
   c.model = { label, argv: ['-m', 'fake-e2e'] };
   c.home = { env: 'FAKE_HOME', source: '~/.fakehome', copy: ['auth.json'] };
   c.path = ['node', 'git'];
