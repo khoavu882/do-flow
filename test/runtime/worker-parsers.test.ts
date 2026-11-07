@@ -22,11 +22,11 @@ test('the table registers doflow-jsonl-v1 and codex-exec-json-v1 as ordinary pro
 });
 
 const EXPECTED_IDS = [ID, 'codex-exec-json-v1', 'claude-stream-json-v1', 'opencode-run-json-v1',
-  'copilot-json-v1', 'kiro-stream-json-v1', 'pi-json-v1'];
+  'copilot-json-v1', 'kiro-stream-json-v1', 'pi-json-v1', 'agy-stream-json-v1'];
 
-test('PARSERS has exactly the 7 expected ids and parserFor returns each frozen factory', () => {
+test('PARSERS has exactly the 8 expected ids and parserFor returns each frozen factory', () => {
   assert.deepEqual(Object.keys(PARSERS).sort(), EXPECTED_IDS.slice().sort());
-  assert.equal(Object.keys(PARSERS).length, 7);
+  assert.equal(Object.keys(PARSERS).length, 8);
   for (const id of EXPECTED_IDS) {
     const factory = parserFor(id);
     assert.equal(factory, PARSERS[id], id);
@@ -40,7 +40,7 @@ test('PARSERS has exactly the 7 expected ids and parserFor returns each frozen f
 test('the PARSERS table stays frozen', () => {
   assert.ok(Object.isFrozen(PARSERS));
   assert.throws(() => { 'use strict'; (PARSERS as any)['extra-v1'] = PARSERS[ID]; }, TypeError);
-  assert.equal(Object.keys(PARSERS).length, 7);
+  assert.equal(Object.keys(PARSERS).length, 8);
 });
 
 test('an id outside the table still falls back to unparsed with reason parser-unknown', () => {

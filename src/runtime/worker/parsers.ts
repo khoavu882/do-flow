@@ -28,6 +28,7 @@ const opencode = require('./parsers/opencode.ts');
 const copilot = require('./parsers/copilot.ts');
 const kiro = require('./parsers/kiro.ts');
 const pi = require('./parsers/pi.ts');
+const antigravity = require('./parsers/antigravity.ts');
 
 import type { Denial, Report } from './parsers/common.ts';
 
@@ -183,6 +184,7 @@ const PARSERS: Readonly<Record<string, ParserFactory>> = Object.freeze({
   [copilot.ID]: Object.freeze({ id: copilot.ID, create: copilot.create }),
   [kiro.ID]: Object.freeze({ id: kiro.ID, create: kiro.create }),
   [pi.ID]: Object.freeze({ id: pi.ID, create: pi.create }),
+  [antigravity.ID]: Object.freeze({ id: antigravity.ID, create: antigravity.create }),
 });
 
 /** The parser for `id`; the `unparsed` fallback for a null or unknown one. */
