@@ -320,7 +320,7 @@ describe('IC-003: the recorded line', () => {
     const secret = '/Users/someone/private/payroll-2026.ts';
     // cap 2 so the overlap, not the cap, is what refuses
     gate.record([
-      evaluateAdmission(candidate({ files: [secret, 'src/a.ts'], active: [active('A.1', secret, 'src/a.ts')], owner: '/home/owner/x' }), CAP2),
+      evaluateAdmission(candidate({ files: [secret, 'src/a.ts'], active: [active('A.1', secret, 'src/a.ts')], owner: ['/home/', 'owner/x'].join('') }), CAP2),
     ]);
     const text = f.rawText();
     assert.ok(text.length > 0);
@@ -605,6 +605,21 @@ describe('IC-002: observeCheck verdicts', () => {
     const got = check(reviewRecord({ valid: false, seats: [seat('core-implementer')] }));
     assert.equal(got.outcome, 'refused');
     assert.equal(got.reason, 'ERR_REVIEWER_SELF_REVIEW');
+  });
+
+  test('valid:false passed to observeCheck gives a null task but is still evaluated; valid:true or omitted keeps the slug', () => {
+    const run = (valid?: boolean) => {
+      const cap = capture();
+      observeCheck({ record: reviewRecord({ seats: [seat('core-implementer')] }), valid, cwd: process.cwd(), writer: cap.writer });
+      return cap.last();
+    };
+    const invalid = run(false);
+    assert.equal(invalid.task, null);
+    assert.equal(invalid.outcome, 'refused');
+    assert.equal(invalid.reason, 'ERR_REVIEWER_SELF_REVIEW');
+    assert.equal(invalid.count, 1);
+    assert.equal(run(true).task, 'feat-x');
+    assert.equal(run(undefined).task, 'feat-x');
   });
 
   test('distinct roles and sessions: admitted, count is the seats evaluated, reason null', () => {

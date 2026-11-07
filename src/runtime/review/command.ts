@@ -236,7 +236,7 @@ function handleReviewCommand({
   if (counts && record) Object.assign(telemetryRecord, counts, { depth: record.depth ?? null, risk: record.risk ?? null, protocol: telemetryProtocol(record.protocol?.id), head: record.reviewedHead });
   try { telemetryWriter.write([telemetryRecord]); } catch { /* telemetry never changes the check result */ }
   // 143 IC-002: the separation verdict, recorded to its own writer; observation only.
-  try { require('../team/evaluate.ts').observeCheck({ record, cwd, env, writer: teamWriter }); } catch { /* never changes the check result */ }
+  try { require('../team/evaluate.ts').observeCheck({ record, valid, cwd, env, writer: teamWriter }); } catch { /* never changes the check result */ }
 
   return finishRuntime(valid ? 0 : 1);
 }

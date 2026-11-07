@@ -219,11 +219,12 @@ function observeStart({ slug, cwd, env, writer }: { slug: string | null; cwd: st
 }
 
 /** IC-002: the separation verdict of a `review check`, one per call. Never throws. */
-function observeCheck({ record: reviewRecord, cwd, env, writer }: { record: any; cwd: string; env?: Env; writer?: RecordOptions['writer'] }): void {
+function observeCheck({ record: reviewRecord, valid, cwd, env, writer }: { record: any; valid?: boolean; cwd: string; env?: Env; writer?: RecordOptions['writer'] }): void {
   const notEvaluable = (reason: TeamReason, task: unknown = null) => verdict('review-check', 'separation', 'not-evaluable', reason, 'advisory', task);
   let outcome: TeamVerdict;
   try {
-    const task = reviewRecord?.slug;
+    // An invalid record's slug is untrusted text; the existing review.run line keeps it out, and so does this one.
+    const task = valid === false ? null : reviewRecord?.slug;
     if (!reviewRecord || typeof reviewRecord !== 'object' || Array.isArray(reviewRecord)) {
       outcome = notEvaluable('no-record');
     } else if (!reviewRecord.author || typeof reviewRecord.author !== 'object' || typeof reviewRecord.author.agent !== 'string') {

@@ -538,7 +538,7 @@ async function handleReviewStart({ slug, base, preset, json = false, cwd, env, r
     result.protocolDigest = protocolDigest(protocol);
     result.depthBasis = { scope, files: paths ? paths.length : null, base: paths ? baseSha : null, floor, raisedBy };
     result.advice = advice;
-    observeApplicableStart(resolvedSlug, cwd, env, teamWriter);
+    if (result.applicable) observeApplicableStart(resolvedSlug, cwd, env, teamWriter);
     emit(out, json, result, null);
     return finishRuntime(0);
   } catch (error: any) {
