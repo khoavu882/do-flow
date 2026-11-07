@@ -204,6 +204,15 @@ test('denials are capped at 20 stored, counted in full, masked and cut to 200 ch
   assert.match(report.denials[0].detail, /<masked>/);
 });
 
+test('a long tool_name is masked and cut to 200 characters like the detail', () => {
+  const secret = ['sk', 'ant', 'api03', 'A'.repeat(40)].join('-');
+  const report = run([result({ permission_denials: [{ tool_name: 'T'.repeat(60000) }, { tool_name: `${secret} ${'y'.repeat(400)}` }] })]);
+  assert.equal(report.deniedCount, 2);
+  assert.equal(report.denials[0].action.length, 200);
+  assert.ok(report.denials[1].action.length <= 200);
+  assert.ok(!JSON.stringify(report).includes(secret));
+});
+
 test('a denial entry without a readable tool name or target still counts', () => {
   const report = run([result({ permission_denials: [null, 'x', { tool_name: 7 }, { tool_name: 'Edit', tool_input: { file_path: 9 } }] })]);
   assert.equal(report.deniedCount, 4);

@@ -55,7 +55,7 @@ function create() {
         deniedCount++;
         if (denials.length < MAX_DENIALS) {
           const action = typeof entry?.tool_name === 'string' ? entry.tool_name : 'unknown';
-          denials.push({ action: maskLine(action).text, detail: cutChars(maskLine(targetOf(entry)).text, DETAIL_CHARS) });
+          denials.push({ action: cutChars(maskLine(action).text, DETAIL_CHARS), detail: cutChars(maskLine(targetOf(entry)).text, DETAIL_CHARS) });
         }
       }
     }

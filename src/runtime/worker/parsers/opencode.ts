@@ -10,8 +10,11 @@
  *     `step_finish`; `part.reason === "stop"` on the last `step_finish`; `tool_use.part.state.status`;
  *     the tool names `task` and `subagent`; no top-level result event.
  *   - INFERENCE (to be confirmed or dropped by the captured fixture, IC-014): `part.text` on `text`;
- *     `part.tool` on `tool_use`; `part.tokens.input` and `part.tokens.output` on `step_finish`;
- *     `error.message` or `message` on an `error` event (its shape was not observed).
+ *     `part.tool` on `tool_use`; `part.tokens.input` and `part.tokens.output` on `step_finish`.
+ *   - SOURCE (observed, opencode v2.2.5): `error.message` on an `error` event.
+ *     `opencode run --agent <missing> --format json` emits
+ *     `{"type":"error","error":{"message":"Agent not found..."}}`. The top-level `message`
+ *     fallback below was not observed.
  *
  * Decisions:
  *   - Terminal: the last readable `step_finish`. One whose `part.reason` is not a string unsets the

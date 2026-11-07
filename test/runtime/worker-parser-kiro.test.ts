@@ -280,3 +280,15 @@ test('generated input: random lines never throw and always give a valid report s
     assert.notEqual(report.status, 'denied');
   }
 });
+
+test('captured fixtures of every harness hold no real session, execution, turn or request id', () => {
+  const root = path.join(DIR, '..');
+  const idShaped = /sess_[0-9a-zA-Z-]{8,}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\bses_[0-9a-zA-Z]{10,}/;
+  const files = fs.readdirSync(root).flatMap((dir: string) => fs.readdirSync(path.join(root, dir))
+    .filter((name: string) => name.startsWith('captured-')).map((name: string) => path.join(root, dir, name)));
+  assert.ok(files.length >= 5, 'the captured fixtures were found');
+  for (const file of files) {
+    const hit = fs.readFileSync(file, 'utf8').match(idShaped);
+    assert.equal(hit, null, `${path.relative(root, file)} holds an id-shaped string: ${hit && hit[0]}`);
+  }
+});
