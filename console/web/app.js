@@ -7,6 +7,8 @@ import { h, mount, icon, announce, muteAnnouncements } from './dom.js';
 import { notice } from './notices.js';
 import { installShortcuts } from './keys.js';
 import { createPoller, BACKOFF_MS } from './poll.js';
+import { createLiveAdapter } from './live.js';
+import { createLiveStore } from './store.js';
 import {
   classify, clockTime, refreshReltimes, renderLoading, renderEmpty, renderError, renderFullPage, renderPill, createStaleBanner, errorTitle,
 } from './states.js';
@@ -103,8 +105,15 @@ const app = /** @type {any} */ ({
   shortcuts: null, // the keys.js handle
   hiddenAt: null, // when the tab was last hidden, or null
   wasFull: false, // #main last held a full page (focus moves to the heading when a view replaces it)
+  liveStore: null, // the page's one live store (IC-017), made when the first live view starts
 });
 let viewSeq = 0;
+
+/** The page's one live store over one live adapter (IC-016, IC-017): every live view of this page shares it. */
+function pageStore() {
+  if (app.liveStore === null) app.liveStore = createLiveStore({ adapter: createLiveAdapter() });
+  return app.liveStore;
+}
 
 const MIN_SKELETON_MS = 300;
 /** A tab hidden longer than this refetches in full and says so once. */
@@ -344,6 +353,9 @@ function pillFor(view, now) {
   if (poller.lastSuccessAt === null) return { state: 'unknown', long: 'Connecting', short: 'Connecting' };
   const age = Math.max(0, now - poller.lastSuccessAt);
   const text = age < 5000 ? 'just now' : `${age < 60000 ? `${Math.floor(age / 1000)} s` : `${Math.floor(age / 60000)} min`} ago`;
+  // A live view's connector (IC-018, DEC-033) names its mode; the Fleet stream and a plain poller have no `live` or `polling` mode.
+  if (poller.mode === 'live') return { state: 'done', long: `Live · last change ${text}`, short: 'Live' };
+  if (poller.mode === 'polling') return { state: 'unknown', long: `Polling · Updated ${text}`, short: 'Polling' };
   return { state: 'done', long: `Updated ${text}`, short: text };
 }
 
@@ -554,32 +566,42 @@ function startPoller(view, path, intervalMs, heartbeat) {
   view.heartbeat = heartbeat;
   view.paused = false;
   const spec = view.route.view;
+  const fetchOnce = () => (!heartbeat && view.route.view.load ? view.route.view.load(view.local, apiGet) : apiGet(path));
+  const retry = (/** @type {any} */ error) => {
+    const info = classify(error, ctx());
+    if (info.scope === 'session' || info.scope === 'runtime') return false;
+    return heartbeat || view.hasData || info.auto;
+  };
+  // Activity-aware refresh (feature 133): a heartbeat and a view without the hooks stay at the base interval.
+  const isActive = () => heartbeat || !view.hasData || typeof spec.active !== 'function' || spec.active(view.data, nowMs());
+  const size = () => (heartbeat || !view.hasData || typeof spec.size !== 'function' ? 0 : spec.size(view.data));
   if (!heartbeat && typeof spec.connect === 'function') {
-    // A live view reads through a stream of its own (stream.js) that answers the poller interface, so the pill, the stale
-    // banner and "Try again" work unchanged.
+    // A live view reads through a stream of its own (stream.js for the Fleet, the page's live store for the others,
+    // live-view.js) that answers the poller interface, so the pill, the stale banner and "Try again" work unchanged. The
+    // poll hooks are what the connector's own fallback poller uses; the Fleet's connector ignores them.
     const stream = spec.connect(view.local, view.route.params, {
       fetchJson: apiGet,
       onData: (/** @type {any} */ body) => onData(view, body, false),
       onFailure: (/** @type {any} */ error) => onFail(view, error, false),
       onResync: () => { view.resync = true; },
+      store: pageStore,
+      fetchOnce,
+      retry,
+      isActive,
+      size,
     });
     view.poller = stream;
     stream.start();
     return;
   }
   const poller = createPoller({
-    fetchOnce: () => (!heartbeat && view.route.view.load ? view.route.view.load(view.local, apiGet) : apiGet(path)),
+    fetchOnce,
     intervalMs,
     onSuccess: (body) => onData(view, body, heartbeat),
     onFailure: (error) => onFail(view, error, heartbeat),
-    retry: (error) => {
-      const info = classify(error, ctx());
-      if (info.scope === 'session' || info.scope === 'runtime') return false;
-      return heartbeat || view.hasData || info.auto;
-    },
-    // Activity-aware refresh (feature 133): a heartbeat and a view without the hooks stay at the base interval.
-    isActive: () => heartbeat || !view.hasData || typeof spec.active !== 'function' || spec.active(view.data, nowMs()),
-    size: () => (heartbeat || !view.hasData || typeof spec.size !== 'function' ? 0 : spec.size(view.data)),
+    retry,
+    isActive,
+    size,
   });
   view.poller = poller;
   poller.start();

@@ -67,13 +67,45 @@ function needsWorkflows(/** @type {any} */ local, /** @type {any[]} */ runs) {
  * @param {(path: string) => Promise<any>} apiGet
  */
 async function loadHome(local, apiGet) {
-  if (!(local.workflows instanceof Map)) local.workflows = new Map();
-  const first = local.workflowsAt === undefined;
-  const pending = first ? fetchWorkflows(local, apiGet) : null;
+  const pending = firstWorkflows(local, apiGet);
   const body = await apiGet('/api/runs');
   if (pending) await pending;
   else if (needsWorkflows(local, body.runs)) void fetchWorkflows(local, apiGet);
+  return homeData(local, body);
+}
+
+/**
+ * The first workflows read of a view instance: started on the first call, null on later ones. Kept in `local.workflowsFirst`
+ * until it settles, so a live `runs` member that arrives meanwhile waits for it as the first load does.
+ * @param {any} local
+ * @param {(path: string) => Promise<any>} apiGet
+ * @returns {Promise<void> | null}
+ */
+function firstWorkflows(local, apiGet) {
+  if (!(local.workflows instanceof Map)) local.workflows = new Map();
+  if (local.workflowsAt !== undefined) return null;
+  const pending = fetchWorkflows(local, apiGet).finally(() => { local.workflowsFirst = null; });
+  local.workflowsFirst = pending;
+  return pending;
+}
+
+/** The home's data from an `/api/runs` body and the workflows kept in the view instance. @param {any} local @param {any} body */
+function homeData(local, body) {
   return { runs: body.runs, unreadableCount: body.unreadableCount, workflows: local.workflows };
+}
+
+/**
+ * The `/api/runs` wrapping of loadHome for a body that arrived another way (the live `runs` member, IC-012): the workflows are
+ * read as loadHome reads them, and while the first read is pending the data waits for it (a promise is returned).
+ * @param {any} local
+ * @param {any} body an `/api/runs` body
+ * @param {(path: string) => Promise<any>} apiGet
+ */
+function homeOf(local, body, apiGet) {
+  const pending = firstWorkflows(local, apiGet) ?? local.workflowsFirst ?? null;
+  if (pending) return pending.then(() => homeData(local, body));
+  if (needsWorkflows(local, body.runs)) void fetchWorkflows(local, apiGet);
+  return homeData(local, body);
 }
 
 /**
@@ -416,4 +448,4 @@ function skeletonHome() {
   ]);
 }
 
-export { loadHome, renderHome, skeletonHome, homeKey, tickHome, resetHome, FINISHED_CAP, WORKFLOWS_RETRY_MS };
+export { loadHome, homeOf, renderHome, skeletonHome, homeKey, tickHome, resetHome, FINISHED_CAP, WORKFLOWS_RETRY_MS };

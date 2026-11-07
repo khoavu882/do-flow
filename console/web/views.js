@@ -4,7 +4,8 @@
 
 import { h, icon } from './dom.js';
 import { skel, reltime } from './states.js';
-import { loadHome, renderHome, skeletonHome, homeKey, tickHome } from './views/home.js';
+import { loadHome, homeOf, renderHome, skeletonHome, homeKey, tickHome } from './views/home.js';
+import { connectLive } from './live-view.js';
 import { renderRun, tickRun, releaseRun } from './views/run.js';
 import { renderGraph } from './views/graph.js';
 import { renderSessions } from './views/sessions.js';
@@ -102,6 +103,9 @@ function runStep(params, data) {
 
 const slugTask = (/** @type {any} */ params) => `${params.slug} / ${params.taskId}`;
 
+/** The live channel of a run and its task graph (IC-003, IC-018). @param {any} params */
+const runChannel = (params) => `run:${params.slug}:${params.taskId}`;
+
 // ---- skeletons (6.1): the heights are binding for the views that fill them -------------------------
 
 // The crumb and the h1 are real text; the meta line and, below 768, a step line fill the head; the body holds the rail card, the slot and the timeline (D.2 6.1 as amended by E.2 10.2).
@@ -132,7 +136,9 @@ const sessionsKey = (data) => JSON.stringify([data, deriveSessions(data, Date.no
  * the body is re-mounted; `tick(root, nowMs, local)` runs on the shell's 1 s timer. A `live: true` view (V.10, the Fleet
  * views) is mounted once and then patched: `connect(local, params, hooks)` returns a poller-shaped object over a stream,
  * `update(local, data, params)` patches the mounted body, `reroute(local, params, data)` moves between routes of one view
- * without a re-mount (the selected agent changed), and `empty` may be a function of the data.
+ * without a re-mount (the selected agent changed), and `empty` may be a function of the data. The Runs, Run, Tasks and Sessions
+ * views have `connect` too (IC-018, live-view.js: the live store, or their GET polled at their interval) but not `live: true`:
+ * their body is re-mounted by `dataKey` as when polled.
  */
 /** @type {Record<string, any>} */
 const VIEWS = Object.freeze({
@@ -142,6 +148,8 @@ const VIEWS = Object.freeze({
     shapes: ['list', 'workflow'],
     api: () => '/api/runs',
     load: loadHome,
+    // IC-018: the `runs` member of `now`, wrapped as loadHome wraps `/api/runs`; polled every 5 s without the stream.
+    connect: connectLive({ channel: () => 'now', member: 'runs', intervalMs: 5000, wrap: homeOf }),
     dataKey: homeKey,
     tick: tickHome,
     active: (/** @type {any} */ data, /** @type {number} */ nowMs) => data.runs.some((/** @type {any} */ run) => runIsRunning(run, nowMs)),
@@ -165,6 +173,7 @@ const VIEWS = Object.freeze({
     noun: 'this run',
     shapes: ['status', 'timeline', 'attempts', 'workflow'],
     api: (/** @type {any} */ params) => `/api/runs/${params.slug}/${params.taskId}`,
+    connect: connectLive({ channel: runChannel, member: 'run', intervalMs: 3000 }),
     active: (/** @type {any} */ data, /** @type {number} */ nowMs) => Boolean(data && data.run) && runIsRunning(data.run, nowMs),
     size: graphSize,
     pollMs: 3000,
@@ -186,6 +195,7 @@ const VIEWS = Object.freeze({
     // The graph reads the same body as the run view (IC-005): only `tasks` and `tasksReason` draw it, so only they re-mount it.
     shapes: ['status', 'timeline', 'attempts', 'workflow'],
     api: (/** @type {any} */ params) => `/api/runs/${params.slug}/${params.taskId}`,
+    connect: connectLive({ channel: runChannel, member: 'run', intervalMs: 3000 }),
     dataKey: (/** @type {any} */ data) => JSON.stringify([data && data.tasks, data && data.tasksReason]),
     active: (/** @type {any} */ data, /** @type {number} */ nowMs) => Boolean(data && data.run) && runIsRunning(data.run, nowMs),
     size: graphSize,
@@ -204,6 +214,7 @@ const VIEWS = Object.freeze({
     // IC-018 e: the body is built from these six shapes by the server; each section carries its own ok or code.
     shapes: ['observed', 'slots', 'list', 'attempts', 'worker-status', 'roadmap'],
     api: () => '/api/sessions',
+    connect: connectLive({ channel: () => 'now', member: 'sessions', intervalMs: 10000 }),
     dataKey: sessionsKey,
     pollMs: 10000,
     wide: true,

@@ -925,7 +925,7 @@ test('stale: after 15 s of failures the data stays, a banner appears, times read
   assert.match(text(page.region), /^Data is out of date/, 'one message per 2 s: the second is held');
   await advance(2000);
   assert.equal(text(page.region), 'Up to date again.');
-  assert.equal(page.conn.getAttribute('data-state'), 'done');
+  assert.equal(page.conn.getAttribute('data-state'), 'unknown');
 });
 
 test('offline: with data on screen the pill reads Retrying, then Offline once stale, and the banner names the server', async () => {
@@ -951,6 +951,7 @@ test('offline: with no data at all it is a full page that says the Console has s
 
 test('hidden tab: polling and the stale check pause, and nothing flashes stale on return', async () => {
   const page = await start({ hash: '', fetch: standard });
+  await advance(100); // C.3: the live connector settles into polling first (the fake page has no stream support)
   const before = apiCalls(page, '/api/runs').length;
   page.doc.hidden = true;
   for (const fn of page.doc.listeners.get('visibilitychange') ?? []) fn({ type: 'visibilitychange' });
@@ -3264,6 +3265,7 @@ test('133 reconnect: the first data after a long absence announces one summary, 
   await withFreshModules(async () => {
   let runs: any = RUNS;
   const page = await start({ fetch: (target, init) => (target === '/api/runs' ? reply(200, runs) : standard(target, init)) });
+  await advance(100); // C.3: the live connector settles into polling first (the fake page has no stream support)
   const hide = (value: boolean) => { page.doc.hidden = value; for (const fn of page.doc.listeners.get('visibilitychange') ?? []) fn({ type: 'visibilitychange' }); };
   hide(true);
   await advance(60_000);
@@ -3278,6 +3280,7 @@ test('133 reconnect: a short absence keeps the per-item announcements', async ()
   await withFreshModules(async () => {
   let runs: any = { ...RUNS, runs: [row('RUNNING', 'r2')] };
   const page = await start({ fetch: (target, init) => (target === '/api/runs' ? reply(200, runs) : standard(target, init)) });
+  await advance(100); // C.3: the live connector settles into polling first (the fake page has no stream support)
   const hide = (value: boolean) => { page.doc.hidden = value; for (const fn of page.doc.listeners.get('visibilitychange') ?? []) fn({ type: 'visibilitychange' }); };
   hide(true);
   await advance(5_000);
@@ -3435,4 +3438,245 @@ test('replay keeps its controls attached while scrubbing and starting playback',
   assert.equal(page.doc.activeElement, play);
   releaseReplay(local);
   host.replaceChildren = replace;
+});
+
+// ---- feature 149 C.3: the live views (IC-018) -----------------------------------------------------------------
+// Runs, Run, Tasks and Sessions read the page's one live store over a fake EventSource that emits unnamed `message` events
+// (IC-002 envelopes, IC-012 members). Each case boots a private copy of the web root, so the announcer starts clean.
+
+const LIVE_EPOCH = '0a1b2c3d';
+let liveSeq = 0;
+const liveFrame = (ch: string, type: string, data: any) => ({ v: 1, ch, id: `${LIVE_EPOCH}-${(liveSeq += 1)}`, type, at: new Date(Date.now()).toISOString(), data });
+const nowState = (runs: any, sessions: any = sessionsBody()) => ({ state: { runs: { status: 200, body: runs }, sessions: { status: 200, body: sessions } } });
+const RUN_CH = 'run:feat-a:run-1';
+const liveRunBody = (revision: number) => ({ v: 1, run: { ...row('RUNNING'), revision, updatedAt: new Date(Date.now()).toISOString() }, timeline: {}, tasks: null, workflow: {} });
+/** `base` for every GET; the live route (the adapter's probe after the browser gave up) answers `probe()`. */
+const liveRoute = (base: (target: string, init: any) => Reply | Promise<Reply>, probe: () => Reply = () => reply(500)) =>
+  (target: string, init: any) => (target.startsWith('/api/live') ? probe() : base(target, init));
+async function startLive(hash: string, route: (target: string, init: any) => Reply | Promise<Reply>, eventSource: unknown = FakeES): Promise<Page> {
+  FakeES.all = [];
+  liveSeq = 0;
+  return start({ hash, fetch: route, eventSource: eventSource === 'absent' ? undefined : eventSource }, freshWeb());
+}
+const liveES = () => FakeES.all.filter((e) => e.url.startsWith('/api/live') && !e.closed).at(-1)!;
+const pillOf = (page: Page) => [page.conn.getAttribute('data-state'), text(page.conn.querySelector('.conn__long')), text(page.conn.querySelector('.conn__short'))];
+const tileCounts = (page: Page) => page.main.querySelectorAll('.tile').map((t: El) => text(t.querySelector('.tile__count')));
+const RUNS_TWO_WAIT = { v: 1, runs: [row('AWAITING_GATE', 'r1'), row('AWAITING_GATE', 'r7'), row('COMPLETED', 'r4')], unreadableCount: 0 };
+
+test('149 live runs: the first paint is the GET, then frames update the view with no GET timer, and the pill reads Live', async () => {
+  const page = await startLive('#/', liveRoute(standard));
+  assert.deepEqual(tileCounts(page), ['1', '2', '2'], 'painted from the GET before any snapshot');
+  assert.equal(FakeES.all.length, 0, 'the store opens 50 ms after the first subscribe');
+  await advance(100);
+  const es = liveES();
+  assert.equal(es.url, '/api/live?ch=now');
+  es.open();
+  es.emit('message', liveFrame('now', 'snapshot', nowState(RUNS_TWO_WAIT)));
+  await settle();
+  assert.deepEqual(tileCounts(page), ['2', '0', '1']);
+  assert.deepEqual(pillOf(page), ['done', 'Live \u00b7 last change just now', 'Live']);
+  es.emit('message', liveFrame('now', 'patch', { set: { '/runs/body/runs': [row('RUNNING', 'r2')] }, unset: [] }));
+  await settle();
+  assert.deepEqual(tileCounts(page), ['0', '1', '0'], 'a patch of the member reaches the view');
+  await advance(61_000);
+  assert.equal(apiCalls(page, '/api/runs').length, 1, 'only the first paint: no GET timer while live');
+  assert.equal(apiCalls(page, '/api/info').length, 1, 'the boot read only: no heartbeat');
+  assert.equal(apiCalls(page, '/api/live').length, 0, 'no probe while the stream holds');
+  assert.equal(FakeES.all.length, 1, 'one stream');
+  assert.deepEqual(pillOf(page), ['done', 'Live \u00b7 last change 1 min ago', 'Live'], 'the age is the time since the newest frame');
+  assert.equal(page.slot.querySelectorAll('.banner').length, 0, 'an open stream is never stale');
+});
+
+test('149 live runs: a first-paint GET answer that arrives after the snapshot is ignored', async () => {
+  let release: (r: Reply) => void = () => {};
+  const page = await startLive('#/', liveRoute((target, init) => (target === '/api/runs' ? new Promise<Reply>((resolve) => { release = resolve; }) : standard(target, init))));
+  await advance(100);
+  const es = liveES();
+  es.open();
+  es.emit('message', liveFrame('now', 'snapshot', nowState(RUNS_TWO_WAIT)));
+  await settle();
+  assert.deepEqual(tileCounts(page), ['2', '0', '1'], 'the snapshot paints');
+  release(reply(200, RUNS));
+  await settle();
+  assert.deepEqual(tileCounts(page), ['2', '0', '1'], 'the late GET answer does not replace it');
+  assert.deepEqual(pillOf(page), ['done', 'Live \u00b7 last change just now', 'Live']);
+});
+
+test('149 live runs: a closed stream (probe 500) polls every 5 s and says so; the store\'s reopen and the next snapshot return to live', async () => {
+  const page = await startLive('#/', liveRoute(standard, () => reply(500)));
+  await advance(100);
+  const es = liveES();
+  es.open();
+  es.emit('message', liveFrame('now', 'snapshot', nowState(RUNS)));
+  await settle();
+  es.fail(2);
+  await settle();
+  assert.equal(apiCalls(page, '/api/live').length, 1, 'one probe after the browser gave up');
+  assert.equal(apiCalls(page, '/api/runs').length, 2, 'polling starts with a GET at once');
+  assert.equal(text(page.region), 'Push unavailable; polling every 5 seconds.');
+  assert.deepEqual(pillOf(page), ['unknown', 'Polling \u00b7 Updated just now', 'Polling']);
+  assert.deepEqual(tileCounts(page), ['1', '2', '2'], 'the polled body renders');
+  await advance(5000);
+  assert.equal(apiCalls(page, '/api/runs').length, 3, 'then every 5 s');
+  const again = liveES();
+  assert.notEqual(again, es, 'the store reopened after 5 s');
+  assert.equal(again.url, `/api/live?ch=now&since=${encodeURIComponent(`${LIVE_EPOCH}/now=1`)}`, 'from the kept position');
+  again.open();
+  await settle();
+  assert.equal(text(page.region), 'Push restored.', 'an open stream over a kept state is live again: the server sends nothing when nothing moved');
+  await advance(1000);
+  assert.deepEqual(pillOf(page), ['done', 'Live \u00b7 last change just now', 'Live'], 'the age is the newest fetch, a second ago');
+  again.emit('message', liveFrame('now', 'patch', { set: { '/runs/body/runs': RUNS_TWO_WAIT.runs }, unset: [] }));
+  await settle();
+  assert.deepEqual(tileCounts(page), ['2', '0', '1']);
+  const polled = apiCalls(page, '/api/runs').length;
+  await advance(20_000);
+  assert.equal(apiCalls(page, '/api/runs').length, polled, 'the poller stopped');
+});
+
+test('149 live run: a refused stream (429) polls every 3 s; the store reopens after 30 s and the next snapshot is live again', async () => {
+  const page = await startLive('#/run/feat-a/run-1', liveRoute((target, init) => (target === '/api/runs/feat-a/run-1' ? runReply() : standard(target, init)), () => errorReply(429, 'stream-limit')));
+  await advance(100);
+  const es = liveES();
+  assert.equal(es.url, `/api/live?ch=${encodeURIComponent(RUN_CH)}`);
+  es.fail(2);
+  await settle();
+  assert.equal(text(page.region), 'Push unavailable; polling every 3 seconds.');
+  assert.equal(apiCalls(page, '/api/runs/feat-a/run-1').length, 1, 'the first paint keeps its cadence: no extra GET when polling begins');
+  await advance(1000);
+  assert.deepEqual(pillOf(page), ['unknown', 'Polling \u00b7 Updated just now', 'Polling'], 'the shell\'s 1 s status tick names the mode');
+  await advance(2000);
+  assert.equal(apiCalls(page, '/api/runs/feat-a/run-1').length, 2, 'every 3 s');
+  assert.equal(FakeES.all.length, 1, 'no reopen before 30 s');
+  await advance(27_000);
+  const again = liveES();
+  assert.notEqual(again, es);
+  again.open();
+  again.emit('message', liveFrame(RUN_CH, 'snapshot', { state: { run: { status: 200, body: liveRunBody(7) } } }));
+  await settle();
+  assert.equal(text(page.region), 'Push restored.');
+  assert.match(text(page.main), /revision 7/);
+  assert.deepEqual(pillOf(page), ['done', 'Live \u00b7 last change just now', 'Live']);
+  const polled = apiCalls(page, '/api/runs/feat-a/run-1').length;
+  await advance(9000);
+  assert.equal(apiCalls(page, '/api/runs/feat-a/run-1').length, polled, 'no GET timer while live');
+  again.emit('message', liveFrame(RUN_CH, 'patch', { set: { '/run/body/run': { ...liveRunBody(8).run } }, unset: [] }));
+  await settle();
+  assert.match(text(page.main), /revision 8/, 'a patch reaches the run head');
+});
+
+test('149 live run: a member with an error status reaches the view as a failed GET does', async () => {
+  const page = await startLive('#/run/feat-a/nope', liveRoute((target, init) => (target === '/api/runs/feat-a/nope' ? new Promise<Reply>(() => {}) : standard(target, init))));
+  await advance(100);
+  const es = liveES();
+  es.open();
+  es.emit('message', liveFrame('run:feat-a:nope', 'snapshot', { state: { run: { status: 404, body: { error: { code: 'run-not-found', verb: null, exit: null } } } } }));
+  await settle();
+  assert.equal(text(page.main.querySelector('.state-panel__title')), 'This run is not in the record');
+  await advance(100);
+  assert.equal(es.closed, true, 'a final answer ends the view\'s subscription, so the store closes the stream');
+  await advance(20_000);
+  assert.equal(apiCalls(page, '/api/runs/feat-a/nope').length, 1, 'not retried');
+});
+
+test('149 live tasks: frames redraw the graph; an old core (503 live-unavailable) polls every 3 s and the view still renders', async () => {
+  const live = await startLive('#/run/feat-a/run-1/tasks', liveRoute(graphRoute(() => null)));
+  assert.match(text(live.main), /This run has no task plan/, 'the first paint');
+  await advance(100);
+  const es = liveES();
+  assert.equal(es.url, `/api/live?ch=${encodeURIComponent(RUN_CH)}`);
+  es.open();
+  es.emit('message', liveFrame(RUN_CH, 'snapshot', { state: { run: { status: 200, body: runBodyWith(frow('run-1', 3), [ev(60, 'start', null)], GRAPH_PLAN()) } } }));
+  await settle();
+  assert.ok(gcardOf(live, 'B.1'), 'the snapshot draws the graph');
+  assert.deepEqual(pillOf(live), ['done', 'Live \u00b7 last change just now', 'Live']);
+  await advance(9000);
+  assert.equal(apiCalls(live, '/api/runs/feat-a/run-1').length, 1, 'only the first paint');
+  uninstallPage();
+  mock.timers.reset();
+
+  const old = await startLive('#/run/feat-a/run-1/tasks', liveRoute(graphRoute(GRAPH_PLAN), () => errorReply(503, 'live-unavailable')));
+  await advance(100);
+  liveES().fail(2);
+  await settle();
+  assert.equal(text(old.region), 'Push unavailable; polling every 3 seconds.');
+  await advance(1000);
+  assert.deepEqual(pillOf(old), ['unknown', 'Polling \u00b7 Updated just now', 'Polling']);
+  assert.ok(gcardOf(old, 'B.1'), 'the polled body draws the same graph');
+  assert.equal(old.main.querySelector('.state-panel__title'), null, 'no error page: the Console keeps working');
+});
+
+test('149 live sessions: without EventSource it polls every 10 s from the start, as before, and says so', async () => {
+  const page = await startLive('#/sessions', liveRoute(sessionsRoute(() => sessionsBody())), 'absent');
+  assert.equal(apiCalls(page, '/api/sessions').length, 1);
+  await advance(100);
+  assert.equal(FakeES.all.length, 0, 'nothing is opened');
+  assert.equal(text(page.region), 'Push unavailable; polling every 10 seconds.');
+  await advance(1000);
+  assert.deepEqual(pillOf(page), ['unknown', 'Polling \u00b7 Updated just now', 'Polling']);
+  assert.equal(apiCalls(page, '/api/sessions').length, 1);
+  await advance(9000);
+  assert.equal(apiCalls(page, '/api/sessions').length, 2, 'the poll cadence of before');
+  assert.equal(apiCalls(page, '/api/live').length, 0, 'no probe either');
+});
+
+test('149 live sessions: a channel error polls every 10 s; the next snapshot on the same stream is live again', async () => {
+  const page = await startLive('#/sessions', liveRoute(sessionsRoute(() => sessionsBody())));
+  await advance(100);
+  const es = liveES();
+  es.open();
+  es.emit('message', liveFrame('now', 'snapshot', nowState(RUNS, BUSY())));
+  await settle();
+  assert.match(text(page.main), /build/, 'the member draws the slot');
+  assert.deepEqual(pillOf(page), ['done', 'Live \u00b7 last change just now', 'Live']);
+  await advance(6000);
+  es.emit('message', liveFrame('now', 'patch', { set: { '/runs/body/unreadableCount': 3 }, unset: [] }));
+  await settle();
+  await advance(1000);
+  assert.deepEqual(pillOf(page), ['done', 'Live \u00b7 last change 6 s ago', 'Live'], 'a patch of another member is no change of this view');
+  es.emit('message', liveFrame('now', 'error', { code: 'events-down' }));
+  await settle();
+  assert.equal(text(page.region), 'Push unavailable; polling every 10 seconds.');
+  assert.equal(apiCalls(page, '/api/sessions').length, 2, 'polling starts with a GET at once');
+  assert.deepEqual(pillOf(page), ['unknown', 'Polling \u00b7 Updated just now', 'Polling']);
+  await advance(10_000);
+  assert.equal(apiCalls(page, '/api/sessions').length, 3);
+  es.emit('message', liveFrame('now', 'snapshot', nowState(RUNS, BUSY())));
+  await settle();
+  assert.equal(text(page.region), 'Push restored.');
+  assert.deepEqual(pillOf(page), ['done', 'Live \u00b7 last change just now', 'Live']);
+  await advance(30_000);
+  assert.equal(apiCalls(page, '/api/sessions').length, 3, 'the poller stopped');
+});
+
+test('149 live runs: pause closes the stream and nothing is applied; resume reopens with since and reads once', async () => {
+  const page = await startLive('#/', liveRoute(standard));
+  await advance(100);
+  const es = liveES();
+  es.open();
+  es.emit('message', liveFrame('now', 'snapshot', nowState(RUNS_TWO_WAIT)));
+  es.emit('message', liveFrame('now', 'patch', { set: { '/runs/body/unreadableCount': 1 }, unset: [] }));
+  await settle();
+  page.pause.fire('click');
+  assert.equal(page.pause.getAttribute('aria-pressed'), 'true');
+  assert.equal(es.closed, true, 'the pause closes the stream');
+  es.emit('message', liveFrame('now', 'patch', { set: { '/runs/body/runs': [] }, unset: [] }));
+  await settle();
+  assert.deepEqual(tileCounts(page), ['2', '0', '1'], 'nothing is applied while paused');
+  assert.equal(pillOf(page)[2], 'Paused');
+  await advance(60_000);
+  assert.equal(FakeES.all.length, 1, 'nothing reopens while paused');
+  assert.equal(apiCalls(page, '/api/runs').length, 1);
+  page.pause.fire('click');
+  const again = liveES();
+  assert.notEqual(again, es);
+  assert.equal(again.url, `/api/live?ch=now&since=${encodeURIComponent(`${LIVE_EPOCH}/now=2`)}`);
+  await settle();
+  assert.equal(apiCalls(page, '/api/runs').length, 2, 'one read on resume, as a polled view refetches in full');
+  await advance(2000);
+  assert.equal(text(page.region), 'Reconnected. The view was refreshed in full.');
+  again.open();
+  await advance(30_000);
+  assert.equal(apiCalls(page, '/api/runs').length, 2, 'and no GET timer after it');
+  assert.deepEqual(pillOf(page)[0], 'done');
 });

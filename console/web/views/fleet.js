@@ -190,7 +190,7 @@ function connectFleet(local, params, { fetchJson, onData, onFailure, onResync = 
         const was = local.transport.mode;
         local.transport = state;
         if (state.mode === 'fallback' || state.mode === 'limit') {
-          if (was === 'push' || was === 'connecting') notice('push-lost');
+          if (was === 'push' || was === 'connecting') notice('push-lost', '5');
           local.wasFallback = true;
         } else if (state.mode === 'push' && local.wasFallback) {
           notice('push-back');
