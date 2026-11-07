@@ -1,0 +1,62 @@
+{
+  "binary": "pi",
+  "checks": [],
+  "cliVersion": "1.5.0",
+  "establishes": [
+    "oneShot",
+    "structuredOutput",
+    "spawnDenial",
+    "readOnly"
+  ],
+  "harness": "pi",
+  "kind": "live-run",
+  "recordedAt": "2026-11-07T12:23:06.051Z",
+  "run": {
+    "argvShape": [
+      "--tools",
+      "read,grep,find,ls",
+      "--no-extensions",
+      "--no-mcp",
+      "--mode",
+      "json",
+      "-p",
+      "--no-session",
+      "--thinking",
+      "off",
+      "--no-skills",
+      "--no-context-files",
+      "--offline",
+      "<prompt sha256:fef01633710baa6bddf7a3a40ba21f3ab1c7f2f72bdb97ad6aa1d5aff873e32b bytes:139>"
+    ],
+    "edit": false,
+    "exit": 0,
+    "isolation": null,
+    "parser": "pi-json-v1",
+    "readOnly": {
+      "changes": [],
+      "head": {
+        "after": {
+          "object": "d86b401d8ea0f44635c67d438029116ba0854649",
+          "ref": "refs/heads/exec"
+        },
+        "before": {
+          "object": "d86b401d8ea0f44635c67d438029116ba0854649",
+          "ref": "refs/heads/exec"
+        }
+      },
+      "refsChanged": false,
+      "status": "clean"
+    },
+    "report": {
+      "deniedCount": 0,
+      "reason": null,
+      "status": "success",
+      "usage": null
+    },
+    "resultOffered": true,
+    "runId": "w-e0cd09f3b80b",
+    "stdoutBytes": 33321,
+    "withheld": []
+  },
+  "schema": "doflow-worker-evidence-v1"
+}

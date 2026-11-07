@@ -216,14 +216,14 @@ test('selectHarness: the shipped registry yields exactly one harness without a p
   assert.equal(typeof sel.recipe.cli.binary, 'string');
 });
 
-test('selectHarness: the shipped config pins codex; with the pin null the shipped registry has four qualifying harnesses and stops', () => {
+test('selectHarness: the shipped config pins codex; with the pin null the shipped registry has five qualifying harnesses and stops', () => {
   const registry = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'harnesses.json'), 'utf8'));
   assert.equal(REAL_CONFIG.harness.pin, 'codex');
   assert.equal(execute.selectHarness(registry, REAL_CONFIG).id, 'codex');
   const unpinned = clone(REAL_CONFIG);
   unpinned.harness.pin = null;
   assert.throws(() => execute.selectHarness(registry, unpinned), (e: any) => e instanceof UsageError
-    && e.reason === 'harness-ambiguous' && /4 harnesses qualify \(codex, opencode, copilot, kiro\)/.test(e.message));
+    && e.reason === 'harness-ambiguous' && /5 harnesses qualify \(codex, opencode, pi, copilot, kiro\)/.test(e.message));
 });
 
 test('insertModelArgv: equals assembleArgv with the model argv right after the read-only group', () => {

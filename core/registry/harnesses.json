@@ -1804,39 +1804,75 @@
           ]
         },
         "oneShot": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read pi's headless CLI documentation and `pi --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no recorded evidence for pi: no free check has captured its one-shot headless flag or how it reads a prompt"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/pi/2026-11-07-cli-check-model.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness pi --checks core/worker-evidence/pi/checks.json --out core/worker-evidence/pi/2026-11-07-cli-check-model.json` against the installed pi and read the matched help lines. Recorded 2026-11-07 on pi 1.4.0: the one-shot flags are listed in `--help`. The combination is untested until a live run.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "-p",
+            "--no-session",
+            "--thinking",
+            "off",
+            "--no-skills",
+            "--no-context-files",
+            "--offline",
+            "{prompt}"
+          ],
+          "promptVia": "argv"
         },
         "structuredOutput": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read pi's headless CLI documentation and `pi --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no captured pi transcript: its event schema has no parser, and a parser waits for a transcript from its own probe"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/pi/2026-11-07-cli-check-model.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness pi --checks core/worker-evidence/pi/checks.json --out core/worker-evidence/pi/2026-11-07-cli-check-model.json` against the installed pi and read the matched help lines. Recorded 2026-11-07 on pi 1.4.0: the output-format flags are listed in `--help`. The event schema is read by the parser from fixtures, not from a live run.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "--mode",
+            "json"
+          ],
+          "parser": "pi-json-v1"
         },
         "readOnly": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read pi's headless CLI documentation and `pi --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for pi; nothing is inferred from another harness or a model name"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/pi/2026-11-07-cli-check-model.json",
+            "core/worker-evidence/pi/2026-11-07-live-run-read-only.json",
+            "core/worker-evidence/pi/2026-11-07-live-run-spawn.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness pi --checks core/worker-evidence/pi/checks.json --out core/worker-evidence/pi/2026-11-07-cli-check-model.json` against the installed pi and read the matched help lines. Recorded 2026-11-07 on pi 1.4.0: the flags are listed in `--help`. Live runs 2026-11-07 (pi 1.4.0, model openai/gpt-6.1-terra, which the stream reports; it was pinned by a `pi` wrapper on PATH that adds `--model openai/gpt-6.1-terra` and passes `--version` and `--help` through, because a manual worker run does not take a `workers.models` binding): both ran `--tools read,grep,find,ls --no-extensions --no-mcp --mode json -p --no-session --thinking off --no-skills --no-context-files --offline` in a scratch project, ended with report status success, no denied call, a clean worktree and unchanged HEAD and refs. Run w-e0cd09f3b80b asked for a file write: the stream's tool starts were `ls` and `find` only, no write, edit or shell tool, and the worker said no file-writing or shell tool was available. Run w-48ddfd236061 asked for a sub-agent hand-off: no tool was called and the worker said no sub-agent or task tool was available. The records hold only the report status, the clean worktree check and the prompt hash. `--tools` is an allowlist of tool names and `--no-extensions` and `--no-mcp` turn off the extension and MCP tool sources, but the runs show the tools called, not a refused call, so they do not by themselves prove that a write or a spawn would be refused. Limit: one model and one attempt per capability; the user's installed pi packages were switched off by the recipe, not exercised.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "--tools",
+            "read,grep,find,ls"
+          ]
         },
         "spawnDenial": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read pi's headless CLI documentation and `pi --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no recorded evidence for pi: no free check shows a flag that disables subagent spawning"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/pi/2026-11-07-cli-check-model.json",
+            "core/worker-evidence/pi/2026-11-07-live-run-read-only.json",
+            "core/worker-evidence/pi/2026-11-07-live-run-spawn.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness pi --checks core/worker-evidence/pi/checks.json --out core/worker-evidence/pi/2026-11-07-cli-check-model.json` against the installed pi and read the matched help lines. Recorded 2026-11-07 on pi 1.4.0: the flags are listed in `--help`. Live runs 2026-11-07 (pi 1.4.0, model openai/gpt-6.1-terra, which the stream reports; it was pinned by a `pi` wrapper on PATH that adds `--model openai/gpt-6.1-terra` and passes `--version` and `--help` through, because a manual worker run does not take a `workers.models` binding): both ran `--tools read,grep,find,ls --no-extensions --no-mcp --mode json -p --no-session --thinking off --no-skills --no-context-files --offline` in a scratch project, ended with report status success, no denied call, a clean worktree and unchanged HEAD and refs. Run w-e0cd09f3b80b asked for a file write: the stream's tool starts were `ls` and `find` only, no write, edit or shell tool, and the worker said no file-writing or shell tool was available. Run w-48ddfd236061 asked for a sub-agent hand-off: no tool was called and the worker said no sub-agent or task tool was available. The records hold only the report status, the clean worktree check and the prompt hash. `--tools` is an allowlist of tool names and `--no-extensions` and `--no-mcp` turn off the extension and MCP tool sources, but the runs show the tools called, not a refused call, so they do not by themselves prove that a write or a spawn would be refused. Limit: one model and one attempt per capability; the user's installed pi packages were switched off by the recipe, not exercised.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "--no-extensions",
+            "--no-mcp"
+          ]
         },
         "runnableProbe": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read pi's headless CLI documentation and `pi --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for pi; nothing is inferred from another harness or a model name"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/pi/2026-11-07-cli-check-model.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness pi --checks core/worker-evidence/pi/checks.json --out core/worker-evidence/pi/2026-11-07-cli-check-model.json` against the installed pi and read the matched help lines. Recorded 2026-11-07 on pi 1.4.0: the help text prints; this runs no model.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "--help"
+          ]
         },
         "hooksProbe": {
           "status": "unknown",
