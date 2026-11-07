@@ -10,6 +10,7 @@ files in this checkout; everything else is a proposal or an inference and is lab
 |---|---|---|---|
 | D1 | Browser transport for live data | Keep **SSE**, multiplex channels on one stream | One-way fits the read-only Console, the CSP, the Origin/cookie checks and the session cap (S). |
 | D2 | WebSocket | **Not now.** Revisit only if the Console gains write actions that need replies on the same channel | It needs a hand-written `upgrade` handler and frame code in a package with no dependencies (S). |
+| D2b | HTTP/3 and WebTransport | **Not in v2.0.** Keep the client transport behind one adapter so it can be added later (section 7.10) | Node 26.12.1 here has no QUIC; loopback has no packet loss to fix; a native add-on breaks the no-dependency rule |
 | D3 | UDP | **Not to the browser** (impossible). Optional later as a loopback "doorbell" from the runtime to the Console server | Browsers cannot open UDP. A doorbell is lossy, so it can only hint, never carry data. |
 | D4 | Who reads runtime files | The **core**, through one new read-only streaming verb; the Console server only forwards | The core owns schemas and masking; the Console never reads files itself (S). |
 | D5 | Editing settings in the Console | **Read-only in v2.0.** Edit mode is a separate, later decision (section 8) | `POST /api/session` is the only write route today and a test enforces it (S). |
@@ -182,6 +183,8 @@ session-cap rules; degrades to polling when the stream is unavailable; honest fr
 | Polling (today) | yes | yes | yes | one verb spawn per tick | keep as fallback |
 | **SSE** | yes | yes with ids | yes (S: already used for Fleet) | none | **recommended** |
 | WebSocket | yes | yes | needs `upgrade` handler, hand-written frames, Origin and cookie check at upgrade; `connect-src 'self'` for `ws:` is from memory, not tested here | high, no dependency allowed | later, only if D2 changes |
+| SSE over HTTP/3 | yes, but only over TLS the browser trusts | yes | yes | no QUIC server in Node core (7.10) | not now |
+| WebTransport (HTTP/3) | yes (Baseline since Safari 26.4, March 2026, per 2026 articles) | yes, plus optional unreliable datagrams | `https` with explicit port; self-signed needs `serverCertificateHashes` | a native add-on or a hand-written QUIC stack | revisit on the triggers in 7.10 |
 | UDP datagram | **no** (browsers cannot) | no | n/a | n/a | server-side hint only |
 | Unix socket or named pipe (`net` IPC) | no | yes | n/a | medium | server-side only, see 7.4 |
 | `fs.watch` on the state directory | no | no (events coalesce, platform differences) | n/a | low | a hint, always paired with a stat or cursor read |
@@ -283,6 +286,58 @@ before the 101, RFC 6455 text frames only, ping and pong, 1 MiB frame cap, the s
 7.4 so the client store does not change. Test with the existing `stream.test.ts` approach plus a frame
 fuzz test. Check `connect-src 'self'` for `ws:` in Safari before committing (not verified here).
 
+### 7.10 HTTP/3 and WebTransport
+
+Researched 2026-11-07. Sources are marked; blog posts are weaker than specs and are labelled as such.
+
+**What exists**
+
+- **Node (S, this machine):** v26.12.1 rejects `require('node:quic')` and `require('node:http3')` with
+  `ERR_UNKNOWN_BUILTIN_MODULE`, even with `--experimental-quic`, and `process.versions` lists no `ngtcp2`
+  or `nghttp3`. So Node core on this machine has no QUIC and no HTTP/3 server. Upstream tracking is in
+  nodejs/node issue #57281 ("Update on QUIC"); I did not confirm which release will ship it.
+- **Browsers (web sources, 2026):** WebTransport is reported as supported in Chrome 97+, Edge 98+,
+  Firefox 114+ and Safari 26.4+ (shipped March 2026), with the W3C API at Candidate Recommendation
+  (30 July 2026) and the IETF wire drafts still in working-group last call, so not an RFC. Treat these
+  dates as secondary-source claims.
+- **Connecting (S, MDN):** the URL must be `https` with an explicit port. A self-signed server can be
+  trusted with `serverCertificateHashes`: X.509v3, validity under two weeks, ECDSA P-256 (not RSA), the
+  SHA-256 hash passed by the page, and a dedicated connection (`allowPooling` false). That is a good fit
+  for a local tool: the Console could mint a short-lived certificate at launch and hand the hash to the
+  page. Whether Firefox and Safari accept `serverCertificateHashes` I could not confirm (a Mozilla bug
+  tracks it); a W3C issue titled "Consider removing serverCertificateHashes" (#623) is open, so the
+  feature's future is not settled.
+- **Node server options:** `@fails-components/webtransport` (a libquiche C++ binding with prebuilt
+  binaries for macOS, Linux and Windows; its own README calls it a stopgap until Node ships native
+  support) or a pure-JS QUIC project such as `quico` (marked "active development"). Both are
+  dependencies. `console/package.json` forbids any dependency map (S, `package-shape.test.ts`).
+
+**Why it does not help v2.0** (inference from the above and from the Console's shape)
+
+1. Loopback has no packet loss and no round-trip cost to hide; QUIC's gains (no TCP head-of-line
+   blocking, 0-RTT, connection migration, datagrams) show up on lossy or changing networks.
+2. The Console is read-only and one-way. SSE already carries ordered, replayable text with ids; unreliable
+   datagrams add nothing, because the data that matters (state, logs) must not be lost.
+3. Plain HTTP/3 needs TLS that the browser trusts; the local mode serves `http://127.0.0.1` and the
+   remote mode already needs a user-supplied certificate with an IP SAN (S). QUIC adds a second UDP
+   listener and an Alt-Svc handshake on top of that.
+4. A native add-on or a hand-written QUIC stack in a no-dependency package is a security and maintenance
+   cost larger than the whole of phase P1.
+
+**When to revisit** (any one of these)
+
+- `node:quic` ships without a flag and `process.versions` lists the QUIC libraries.
+- Phone or Tailscale use becomes the main way people watch runs, where loss and network switching are
+  real, and measurements show SSE stalls (reconnect time above 3 s p95).
+- A feature needs high-rate, loss-tolerant data (for example a live token-rate graph at 20 Hz) next to
+  reliable log streams.
+
+**How v2.0 keeps the door open:** the client store consumes envelopes (7.4), not an `EventSource`. Put
+the connection behind `web/live.js` with one adapter interface (`open(channels, since)`, `close()`,
+`onFrame`, `onState`) and ship the SSE adapter. A WebTransport adapter would map the same envelope to one
+bidirectional stream per channel, try WebTransport first, and fall back to SSE exactly as the poller falls
+back today. Nothing else in the UI changes.
+
 ## 8. Settings, advice and shadow
 
 **Read path (v2.0).** New verbs `settings-effective` (layers, winner and file per key) and `settings-schema`
@@ -374,6 +429,8 @@ animation; server CPU under 5% idle with one open page.
   (FU-062jdd); the Log and Result tabs work from files, the Process tab shows "unknown".
 - **Q4. Cross-package change.** Section 9 changes the core and the Console together; the Console's
   `doflowCore` range and the contract tests must move in the same release.
+- **Q4b. Transport drift.** WebTransport's spec status and `serverCertificateHashes` support are moving;
+  re-check them against MDN and the browsers' release notes before acting on 7.10.
 - **Q5. Dynamic import.** Splitting JS per area needs `import()` of relative files; `web-safety` allows
   only relative `.js` imports, but I did not confirm it accepts dynamic ones.
 - **Q6. Clock.** A `runs/2027-12-05.jsonl` file exists in this checkout, so some clock was ahead at some
