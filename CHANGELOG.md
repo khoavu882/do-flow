@@ -16,6 +16,7 @@ All notable changes to DoFlow are documented here. Format follows
 ## [Unreleased]
 
 ### Added
+- **`--model` is a supported worker recipe for claude, copilot, pi, opencode and kiro (feature 146, FU-dd64sy):** a free `help-model` check in each harness's `checks.json` read the flag from `--help` (claude 2.1.311, copilot 1.0.105, pi 1.4.0, opencode v2.2.5, kiro-cli 3.1.0) and is recorded in `core/worker-evidence/<harness>/2026-11-07-cli-check-model.json`. A model bound in `workers.models` for these harnesses is now passed as `--model <id>`, so a live run can pin a cheap model instead of the harness default. Whether a given id is accepted is not checked. Antigravity's entry stays `unknown`.
 - **Kiro is a supported read-only headless worker (feature 145, FU-nbb66n):** two recorded live runs on 2026-11-07 (kiro-cli 3.1.0, model `claude-haiku-5.5` pinned through the scratch project's `.kiro/settings/cli.json`, as the stream's `currentValue` reports) ended `success` with a clean worktree, so `runnableProbe`, `oneShot`, `structuredOutput`, `readOnly` and `spawnDenial` are `supported` for kiro again, citing `core/worker-evidence/kiro/2026-11-07-live-run-read-only.json` and `...-spawn.json` (the earlier violated record is replaced). In both runs the model said it had no such tool, so they show the tool list and not a blocked call. The worker needs the `doflow-worker-ro` agent that `doflow install` writes for kiro. The agentic bench stays pinned to `codex`; with the pin null three harnesses qualify (codex, opencode, kiro).
 
 ### Fixed

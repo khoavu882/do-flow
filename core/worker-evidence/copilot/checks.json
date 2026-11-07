@@ -33,6 +33,12 @@
       "argv": ["--help"],
       "expect": ["^\\s+--excluded-tools \\[<tools>\\.\\.\\.\\]$", "These tools will not be available to the model"],
       "establishes": ["spawnDenial"]
+    },
+    {
+      "id": "help-model",
+      "argv": ["--help"],
+      "expect": ["^\\s+--model <model>$"],
+      "establishes": ["model"]
     }
   ]
 }

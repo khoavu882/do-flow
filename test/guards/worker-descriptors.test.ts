@@ -340,11 +340,11 @@ const PARSER_BY_HARNESS: any = {
 
 const ACCEPTED_KEYS: any = {
   codex: ['isolatedEdit', 'model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
-  opencode: ['oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
-  claude: [],
-  copilot: [],
-  pi: [],
-  kiro: ['oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
+  opencode: ['model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
+  claude: ['model'],
+  copilot: ['model'],
+  pi: ['model'],
+  kiro: ['model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
   antigravity: [],
 };
 
@@ -390,7 +390,7 @@ test('G41.4: every supported worker entry cites a recorded evidence file that es
 
 test('G41.4 control: an ACCEPTED_KEYS entry with no registry key, one for no harness, and a registry key with no map entry are each reported', () => {
   const registry = structuredClone(shipped().registry);
-  const extraKey = acceptedKeyFindings(registry, { ...ACCEPTED_KEYS, pi: ['oneShot'] });
+  const extraKey = acceptedKeyFindings(registry, { ...ACCEPTED_KEYS, pi: ['model', 'oneShot'] });
   assert.equal(extraKey.length, 1);
   assert.match(extraKey[0], /ACCEPTED_KEYS lists 'oneShot' for harness 'pi'/);
   const extraHarness = acceptedKeyFindings(registry, { ...ACCEPTED_KEYS, nonesuch: [] });
@@ -406,7 +406,7 @@ test('G41.4 control: a supported key added to claude, pi or copilot without a ma
   for (const id of ['claude', 'pi', 'copilot']) {
     const registry = structuredClone(shipped().registry);
     const harness = registry.harnesses.find((h: any) => h.id === id);
-    assert.deepEqual(supportedKeys(harness), [], `${id}: control precondition`);
+    assert.deepEqual(supportedKeys(harness), ['model'], `${id}: control precondition`);
     harness.worker.oneShot = { status: 'supported', evidence: ['https://example.invalid/one-shot'], verification: 'control fixture', verifiedOn: '2026-01-01' };
     assert.deepEqual(acceptedKeyFindings(registry, ACCEPTED_KEYS), [`G41.4: harness '${id}' worker 'oneShot' is supported but not in ACCEPTED_KEYS`], id);
   }

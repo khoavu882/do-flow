@@ -38,6 +38,12 @@
         "^\\s+--no-mcp\\s+Disable built-in MCP support"
       ],
       "establishes": ["spawnDenial"]
+    },
+    {
+      "id": "help-model",
+      "argv": ["--help"],
+      "expect": ["^\\s+--model <pattern>\\s"],
+      "establishes": ["model"]
     }
   ]
 }

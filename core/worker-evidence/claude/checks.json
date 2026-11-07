@@ -27,6 +27,12 @@
       "argv": ["--help"],
       "expect": ["^\\s+--disallowedTools, --disallowed-tools <tools\\.\\.\\.>$"],
       "establishes": ["spawnDenial"]
+    },
+    {
+      "id": "help-model",
+      "argv": ["--help"],
+      "expect": ["^\\s+--model <model>\\s"],
+      "establishes": ["model"]
     }
   ]
 }

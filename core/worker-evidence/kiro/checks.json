@@ -27,6 +27,12 @@
       "argv": ["chat", "--help"],
       "expect": ["^\\s+--trust-tools <TOOL_NAMES>$"],
       "establishes": ["spawnDenial"]
+    },
+    {
+      "id": "help-model",
+      "argv": ["chat", "--help"],
+      "expect": ["^\\s+--model <MODEL>$"],
+      "establishes": ["model"]
     }
   ]
 }

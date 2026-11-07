@@ -29,6 +29,7 @@ const CODEX_SUPPORTED = ['oneShot', 'structuredOutput', 'readOnly', 'spawnDenial
 // claude, copilot and pi are absent: their C.1, C.2 and C.3 runs hit a stop rule (usage limit; report `denied`; no live run, model selection not in the recipe), so their five entries are `unknown` again.
 const FREE_CHECK_SUPPORTED = ['oneShot', 'structuredOutput', 'readOnly', 'spawnDenial', 'runnableProbe'];
 const FREE_CHECK_HARNESSES = ['opencode', 'kiro'];
+const MODEL_HARNESSES = ['claude', 'copilot', 'pi', 'opencode', 'kiro']; // 146: antigravity's model entry stays unknown (its --help prints to stderr, see its reason)
 const FREE_CHECK_RECIPES: any = {
   opencode: {
     oneShot: { argv: ['{prompt}'], promptVia: 'argv' },
@@ -101,6 +102,14 @@ test('worker: the seven harnesses declare IC-002 values and nothing else as supp
         assert.equal(worker[key].verifiedOn, '2026-10-18', `codex ${key} verifiedOn`);
         continue;
       }
+      if (MODEL_HARNESSES.includes(harness.id) && key === 'model') {
+        // 146: the `--model <id>` flag each CLI lists in --help, recorded by the help-model free check; G41.4 checks the record.
+        assert.equal(worker.model.status, 'supported', `${harness.id} model`);
+        assert.deepEqual(worker.model.evidence, [`core/worker-evidence/${harness.id}/2026-11-07-cli-check-model.json`], `${harness.id} model evidence`);
+        assert.deepEqual(worker.model.argv, ['--model', '{model}'], `${harness.id} model argv`);
+        assert.equal(worker.model.verifiedOn, '2026-11-07', `${harness.id} model verifiedOn`);
+        continue;
+      }
       if (FREE_CHECK_HARNESSES.includes(harness.id) && FREE_CHECK_SUPPORTED.includes(key)) {
         // 142 IC-009: the five entries the recorded free cli-check establishes; the record is checked by G41.4.
         assert.equal(worker[key].status, 'supported', `${harness.id} ${key}`);
@@ -165,8 +174,8 @@ test('worker: the five supported opencode and kiro entries equal their IC-009 re
       const { argv, promptVia, parser } = worker[key];
       assert.deepEqual({ argv, promptVia, parser }, { promptVia: undefined, parser: undefined, ...(recipe as any) }, `${id} ${key}`);
     }
-    // nothing beyond the five: model and the unprobed capabilities stay unknown
-    for (const key of ['hooksProbe', 'guidanceProbe', 'loginProbe', 'persistentSession', 'resume', 'steering', 'isolatedEdit', 'model']) {
+    // nothing beyond the five and the model flag: the unprobed capabilities stay unknown
+    for (const key of ['hooksProbe', 'guidanceProbe', 'loginProbe', 'persistentSession', 'resume', 'steering', 'isolatedEdit']) {
       assert.equal(worker[key].status, 'unknown', `${id} ${key}`);
     }
   }
