@@ -94,12 +94,12 @@ test('authoringIdentities: extracts subagent dispatches that reached submit', (t
           tier: 'standard',
         },
       },
-      // Reached submit: subagent on claude (descriptor model status unknown: requested is claim)
+      // Reached submit: subagent on antigravity (descriptor model status unknown: requested is claim)
       'd-2': {
         dispatchId: 'd-2',
         seq: 0,
         mode: 'subagent',
-        harness: 'claude',
+        harness: 'antigravity',
         phase: 'ended',
         collectedAt: '2026-10-24T13:00:00.000Z',
         endedAt: '2026-10-24T13:05:00.000Z',
@@ -148,8 +148,8 @@ test('authoringIdentities: extracts subagent dispatches that reached submit', (t
   assert.deepEqual(rows, [
     { kind: 'subagent', harness: 'codex', model: 'o3-mini-2025-01-31', channel: 'observed' },
     { kind: 'subagent', harness: 'codex', model: 'o3-mini', channel: 'observed' },
-    { kind: 'subagent', harness: 'claude', model: 'claude-3-5-sonnet-20241022', channel: 'observed' },
-    { kind: 'subagent', harness: 'claude', model: 'claude-3-5-sonnet', channel: 'claim' },
+    { kind: 'subagent', harness: 'antigravity', model: 'claude-3-5-sonnet-20241022', channel: 'observed' },
+    { kind: 'subagent', harness: 'antigravity', model: 'claude-3-5-sonnet', channel: 'claim' },
   ]);
 });
 
