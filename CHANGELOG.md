@@ -15,9 +15,6 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
-### Added
-- **Antigravity is a supported read-only headless worker (FU-d3a711):** two recorded live runs on 2026-11-07 (agy 1.5.3) ended `success` with a clean worktree and unchanged HEAD, so `runnableProbe`, `oneShot`, `structuredOutput`, `readOnly` and `spawnDenial` are `supported` for antigravity, citing `core/worker-evidence/antigravity/2026-11-07-live-run-read-only.json` and `...-spawn.json`. The recipe passes `--settings '{"permissions":{"deny":["write_file(*)","command(*)"]}}'` to natively block file modifications (`write_file`, `edit_file`, etc.) and command executions at runtime with `"Matches user-configured deny rule."`, while `--disable-slash-commands` suppresses slash-command expansion and the `agy-stream-json-v1` parser guards against subagent invocations. In the write run the worker attempted `write_file` and was natively blocked; in the spawn run no subagent tool was called. Six harnesses now qualify as headless workers (codex, opencode, copilot, pi, kiro, antigravity), while the agentic bench stays pinned to codex.
-
 ## [2.3.0] - 2026-11-07
 
 ### Added

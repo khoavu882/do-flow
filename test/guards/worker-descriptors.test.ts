@@ -296,8 +296,8 @@ test('G41.3: every declared structuredOutput.parser is a key of PARSERS', () => 
 
 test('G41 control: a dropped block, argv on an unknown entry and an unregistered parser give three named findings', () => {
   const registry = structuredClone(shipped().registry);
-  // claude is a harness whose readOnly is unknown, so argv on it is a validator finding.
-  const [dropped, unknownArgv, badParser]: any = [registry.harnesses[1], registry.harnesses.find((h: any) => h.id === 'claude'), registry.harnesses[3]];
+  // antigravity is a harness whose readOnly is unknown, so argv on it is a validator finding.
+  const [dropped, unknownArgv, badParser]: any = [registry.harnesses[1], registry.harnesses.find((h: any) => h.id === 'antigravity'), registry.harnesses[3]];
   delete dropped.worker;
   assert.equal(unknownArgv.worker.readOnly.status, 'unknown', 'control precondition: readOnly is unknown');
   unknownArgv.worker.readOnly.argv = ['--read-only'];
@@ -345,7 +345,7 @@ const ACCEPTED_KEYS: any = {
   copilot: ['model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
   pi: ['model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
   kiro: ['model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
-  antigravity: ['oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
+  antigravity: [],
 };
 
 test('G41.3: PARSER_BY_HARNESS names every parser-bearing harness, each id a key of PARSERS', () => {
@@ -356,8 +356,8 @@ test('G41.3: PARSER_BY_HARNESS names every parser-bearing harness, each id a key
 test('G41.3: a harness with a supported structuredOutput declares exactly its mapped parser, the others declare none', () => {
   const { registry } = shipped();
   assert.deepEqual(parserMapFindings(registry, PARSER_BY_HARNESS, PARSERS), []);
-  const claude = registry.harnesses.find((h: any) => h.id === 'claude');
-  assert.ok(!Object.hasOwn(claude.worker.structuredOutput, 'parser'));
+  const antigravity = registry.harnesses.find((h: any) => h.id === 'antigravity');
+  assert.ok(!Object.hasOwn(antigravity.worker.structuredOutput, 'parser'));
 });
 
 test('G41.3 control: a mapped id outside PARSERS, a wrong parser, a parser on a non-supported entry and a supported entry with no mapping are each reported', () => {
@@ -371,6 +371,8 @@ test('G41.3 control: a mapped id outside PARSERS, a wrong parser, a parser on a 
   assert.match(parserMapFindings(registry, PARSER_BY_HARNESS, PARSERS).join('\n'), /harness 'claude' declares a parser on a structuredOutput that is not supported/);
   delete byId('claude').worker.structuredOutput.parser;
   const { antigravity: _, ...withoutAgy } = PARSER_BY_HARNESS;
+  byId('antigravity').worker.structuredOutput.status = 'supported';
+  byId('antigravity').worker.structuredOutput.parser = 'agy-stream-json-v1';
   assert.match(parserMapFindings(registry, withoutAgy, PARSERS).join('\n'), /harness 'antigravity' has a supported structuredOutput but no entry in PARSER_BY_HARNESS/);
 });
 
@@ -447,8 +449,6 @@ test('G41.5 control: codex is exempt, and a cited live-run record that fails rec
   for (const key of ['readOnly', 'spawnDenial']) copilot.worker[key].status = 'unknown';
   const pi = registry.harnesses.find((h: any) => h.id === 'pi');
   for (const key of ['readOnly', 'spawnDenial']) pi.worker[key].status = 'unknown';
-  const antigravity = registry.harnesses.find((h: any) => h.id === 'antigravity');
-  for (const key of ['readOnly', 'spawnDenial']) antigravity.worker[key].status = 'unknown';
   const { root, copy } = opencodeScratch(t);
   const opencode = registry.harnesses.find((h: any) => h.id === 'opencode');
   const failed = copy('2026-11-07-live-run-read-only.json', 'failed.json', (r: any) => { r.run.report.status = 'failure'; });
