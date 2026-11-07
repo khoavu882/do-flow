@@ -8,9 +8,13 @@
  *
  * SOURCE: probe-oc-copilot.json P1b/P1c/P1d (copilot 1.0.104): the `result` event with `exitCode`,
  * the `tool.execution_complete` `success` + `error.code === "denied"`, `subagent.started`.
- * INFERENCE (confirmed or dropped by the captured fixture): `data.content` of `assistant.message`,
- * `data.toolName` and `data.error.code` nesting, the denied target under `data.arguments`, the
- * token field names under `result.usage`.
+ * SOURCE, live run (copilot 1.0.105, 142 C.2): `assistant.message` `data.content` (a string, empty on
+ * a tool-call turn) and `data.error.code` are as inferred. CORRECTED: `tool.execution_complete` carries
+ * `toolCallId` but no `toolName` and no `arguments`; both sit on the earlier `tool.execution_start`
+ * with the same `toolCallId`, so a denial looks them up there (the complete event's own fields, when
+ * present, win).
+ * INFERENCE (not seen live): the token field names under `result.usage` (the live `usage` held
+ * `premiumRequests` and durations only), so `usage` stays null.
  */
 
 const { maskLine, maskBody } = require('../../mask.ts');
@@ -19,6 +23,7 @@ const { MAX_DENIALS, DETAIL_CHARS, SUMMARY_BYTES, cutBytes, cutChars, eventOf, l
 import type { Denial, Report } from './common.ts';
 
 const ID = 'copilot-json-v1';
+const MAX_STARTED = 256;
 
 /** A non-negative integer token count from `usage`, under the camelCase or snake_case name; else null. */
 function tokenCount(usage: any, camel: string, snake: string): number | null {
@@ -47,6 +52,7 @@ function create() {
   let final: string | null = null; // already masked and cut: no raw event text is kept
   let spawnObserved = false;
   let exitCode: number | null = null;
+  const started = new Map<string, { toolName: unknown; arguments: unknown }>(); // by toolCallId, bounded
 
   return {
     oversize(looksJson: boolean): void {
@@ -70,11 +76,19 @@ function create() {
         } else if (event.type === 'tool.execution_complete' && data?.success === false && data?.error?.code === 'denied') {
           deniedCount++;
           if (denials.length < MAX_DENIALS) {
-            const tool = typeof data.toolName === 'string' && data.toolName ? data.toolName : 'tool';
+            const begun = typeof data.toolCallId === 'string' ? started.get(data.toolCallId) : undefined;
+            const name = typeof data.toolName === 'string' && data.toolName ? data.toolName : begun?.toolName;
+            const tool = typeof name === 'string' && name ? name : 'tool';
+            const own = targetOf(data);
             denials.push({
               action: cutChars(maskLine(tool).text, DETAIL_CHARS),
-              detail: cutChars(maskLine(targetOf(data)).text, DETAIL_CHARS),
+              detail: cutChars(maskLine(own || targetOf({ arguments: begun?.arguments })).text, DETAIL_CHARS),
             });
+          }
+        } else if (event.type === 'tool.execution_start') {
+          ignoredLines++; // counted as unread, but remembered so a later denial can name its tool
+          if (typeof data?.toolCallId === 'string' && started.size < MAX_STARTED) {
+            started.set(data.toolCallId, { toolName: data.toolName, arguments: data.arguments });
           }
         } else if (event.type === 'result' && Number.isInteger(event.exitCode)) {
           exitCode = event.exitCode;

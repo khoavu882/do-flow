@@ -1,6 +1,6 @@
 'use strict';
-// 142 B.9 (IC-008, IC-009; FR-004, NFR-001): the recipes of opencode, copilot, kiro and pi (claude's
-// stay `unknown` after its C.1 live run hit a usage limit), read from the real registry and put through the real launch assembly. No case starts a real
+// 142 B.9 (IC-008, IC-009; FR-004, NFR-001): the recipes of opencode, kiro and pi (claude's and copilot's
+// stay `unknown` after their C.1 and C.2 live runs hit a stop rule), read from the real registry and put through the real launch assembly. No case starts a real
 // harness and no case makes a model call: `worker --action describe` runs in process on the real
 // descriptors with only `cli.binary` pointed at a fake CLI (test/helper/fake-harness-cli.ts) on a
 // scratch PATH.
@@ -17,7 +17,7 @@ const { probe, describe } = require('../../src/runtime/worker/readiness.ts');
 const POSIX_ONLY: any = { skip: process.platform === 'win32' && 'the fake CLI is linked by symlink and shebang on POSIX' };
 const REGISTRY = loadRegistry({ repoRoot: path.resolve(__dirname, '..', '..') });
 const WORKER: any = Object.fromEntries(REGISTRY.harnesses.map((h: any) => [h.id, h.worker]));
-const HARNESSES = ['opencode', 'copilot', 'kiro', 'pi'];
+const HARNESSES = ['opencode', 'kiro', 'pi'];
 const PROMPT = 'summarise the module';
 
 // IC-009, written out by hand: readOnly, spawnDenial, structuredOutput, then oneShot, the prompt last
@@ -26,10 +26,6 @@ const IC009: any = {
   opencode: ['run', '--agent', 'doflow-worker-ro',
     '--standalone', '--format', 'json',
     '{prompt}'],
-  copilot: ['--deny-tool', 'write', '--deny-tool', 'shell',
-    '--excluded-tools', 'task',
-    '--output-format', 'json',
-    '--trust-folder', '--no-ask-user', '-p', '{prompt}'],
   kiro: ['chat', '--no-interactive', '--agent', 'doflow-worker-ro',
     '--trust-tools=read',
     '--output-format', 'stream-json',
@@ -99,20 +95,20 @@ test('opencode: the empty spawnDenial argv assembles to the IC-009 argv', () => 
   assert.deepEqual(argvShape(worker, PROMPT).slice(0, 6), argv.slice(0, 6));
 });
 
-test('claude: the five recipe entries are unknown again, so no recipe assembles (C.1 stop rule)', () => {
-  for (const key of ['oneShot', 'structuredOutput', 'readOnly', 'spawnDenial', 'runnableProbe']) {
-    assert.equal(WORKER.claude[key].status, 'unknown', key);
-    assert.deepEqual(WORKER.claude[key].evidence, [], key);
-    assert.equal(Object.hasOwn(WORKER.claude[key], 'argv'), false, key);
+test('claude and copilot: the five recipe entries are unknown again, so no recipe assembles (C.1, C.2 stop rules)', () => {
+  for (const id of ['claude', 'copilot']) for (const key of ['oneShot', 'structuredOutput', 'readOnly', 'spawnDenial', 'runnableProbe']) {
+    assert.equal(WORKER[id][key].status, 'unknown', `${id} ${key}`);
+    assert.deepEqual(WORKER[id][key].evidence, [], `${id} ${key}`);
+    assert.equal(Object.hasOwn(WORKER[id][key], 'argv'), false, `${id} ${key}`);
   }
-  assert.equal(Object.hasOwn(WORKER.claude.structuredOutput, 'parser'), false);
+  for (const id of ['claude', 'copilot']) assert.equal(Object.hasOwn(WORKER[id].structuredOutput, 'parser'), false, id);
 });
 
-test('describe: each of the four is eligible on fake facts; claude and antigravity are not', POSIX_ONLY, async (t) => {
+test('describe: each of the three is eligible on fake facts; claude, copilot and antigravity are not', POSIX_ONLY, async (t) => {
   const dir = tempDir(t, 'doflow-recipes-');
   const root = path.join(dir, 'project');
   fs.mkdirSync(root);
-  const ids = [...HARNESSES, 'claude', 'antigravity'];
+  const ids = [...HARNESSES, 'claude', 'copilot', 'antigravity'];
   // The real descriptors, with only the binary renamed to a fake CLI that exits 0 for version and help.
   const descriptors: any = {};
   for (const id of ids) {
@@ -134,7 +130,7 @@ test('describe: each of the four is eligible on fake facts; claude and antigravi
     assert.deepEqual(answer.requirements.filter((r: any) => r.result !== 'met'), [], id);
     assert.equal(answer.eligible, true, id);
   }
-  for (const id of ['claude', 'antigravity']) {
+  for (const id of ['claude', 'copilot', 'antigravity']) {
     const answer = describe({ descriptors, coverage: REGISTRY.coverage, harness: id, env, cwd: root });
     assert.equal(answer.eligible, false, id);
     assert.ok(answer.requirements.some((r: any) => r.result !== 'met'), id);

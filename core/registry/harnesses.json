@@ -2322,69 +2322,39 @@
           ]
         },
         "oneShot": {
-          "status": "supported",
-          "evidence": [
-            "core/worker-evidence/copilot/2026-11-07-cli-check.json"
-          ],
-          "verification": "Run `node bin/doflow.js worker --action evidence --harness copilot --checks core/worker-evidence/copilot/checks.json --out core/worker-evidence/copilot/2026-11-07-cli-check.json` against the installed copilot and read the matched help lines. Recorded 2026-11-07 on copilot 1.0.105: the one-shot flags are listed in `--help`. The combination is untested until a live run.",
-          "verifiedOn": "2026-11-07",
-          "argv": [
-            "--trust-folder",
-            "--no-ask-user",
-            "-p",
-            "{prompt}"
-          ],
-          "promptVia": "argv"
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read copilot's headless CLI documentation and `copilot --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no recorded evidence for copilot: no free check has captured its one-shot headless flag or how it reads a prompt"
         },
         "structuredOutput": {
-          "status": "supported",
-          "evidence": [
-            "core/worker-evidence/copilot/2026-11-07-cli-check.json"
-          ],
-          "verification": "Run `node bin/doflow.js worker --action evidence --harness copilot --checks core/worker-evidence/copilot/checks.json --out core/worker-evidence/copilot/2026-11-07-cli-check.json` against the installed copilot and read the matched help lines. Recorded 2026-11-07 on copilot 1.0.105: the output-format flags are listed in `--help`. The event schema is read by the parser from fixtures, not from a live run.",
-          "verifiedOn": "2026-11-07",
-          "argv": [
-            "--output-format",
-            "json"
-          ],
-          "parser": "copilot-json-v1"
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read copilot's headless CLI documentation and `copilot --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no captured copilot transcript: its event schema has no parser, and a parser waits for a transcript from its own probe"
         },
         "readOnly": {
-          "status": "supported",
-          "evidence": [
-            "core/worker-evidence/copilot/2026-11-07-cli-check.json"
-          ],
-          "verification": "Run `node bin/doflow.js worker --action evidence --harness copilot --checks core/worker-evidence/copilot/checks.json --out core/worker-evidence/copilot/2026-11-07-cli-check.json` against the installed copilot and read the matched help lines. Recorded 2026-11-07 on copilot 1.0.105: the flags are listed in `--help`. Their read-only behaviour is untested until a live run.",
-          "verifiedOn": "2026-11-07",
-          "argv": [
-            "--deny-tool",
-            "write",
-            "--deny-tool",
-            "shell"
-          ]
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read copilot's headless CLI documentation and `copilot --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for copilot; nothing is inferred from another harness or a model name"
         },
         "spawnDenial": {
-          "status": "supported",
-          "evidence": [
-            "core/worker-evidence/copilot/2026-11-07-cli-check.json"
-          ],
-          "verification": "Run `node bin/doflow.js worker --action evidence --harness copilot --checks core/worker-evidence/copilot/checks.json --out core/worker-evidence/copilot/2026-11-07-cli-check.json` against the installed copilot and read the matched help lines. Recorded 2026-11-07 on copilot 1.0.105: the flags are listed in `--help`. That they stop a spawn is untested until a live run.",
-          "verifiedOn": "2026-11-07",
-          "argv": [
-            "--excluded-tools",
-            "task"
-          ]
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read copilot's headless CLI documentation and `copilot --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no recorded evidence for copilot: no free check shows a flag that disables subagent spawning"
         },
         "runnableProbe": {
-          "status": "supported",
-          "evidence": [
-            "core/worker-evidence/copilot/2026-11-07-cli-check.json"
-          ],
-          "verification": "Run `node bin/doflow.js worker --action evidence --harness copilot --checks core/worker-evidence/copilot/checks.json --out core/worker-evidence/copilot/2026-11-07-cli-check.json` against the installed copilot and read the matched help lines. Recorded 2026-11-07 on copilot 1.0.105: the help text prints; this runs no model.",
-          "verifiedOn": "2026-11-07",
-          "argv": [
-            "--help"
-          ]
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read copilot's headless CLI documentation and `copilot --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for copilot; nothing is inferred from another harness or a model name"
         },
         "hooksProbe": {
           "status": "unknown",

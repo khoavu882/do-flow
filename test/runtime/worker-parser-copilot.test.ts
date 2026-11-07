@@ -1,7 +1,7 @@
 'use strict';
 
 // IC-002 rule 7 / IC-005 / IC-014: copilot-json-v1 decisions, precedence, masking, bounds, fixtures.
-// Every fixture under test/fixtures/worker-parsers/copilot/ is `synthetic` until a live run is cited.
+// Fixtures under test/fixtures/worker-parsers/copilot/ are `synthetic`, except one trimmed capture of the 142 C.2 live run (copilot 1.0.105).
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -56,7 +56,7 @@ test('module exports the id and a factory that returns the IC-001 instance', () 
 test('fixtures: every line is LF-terminated JSON with a _fixture label, no absolute path, no secret', () => {
   const files = fs.readdirSync(FIXTURES).filter((name: string) => name.endsWith('.jsonl')).sort();
   assert.deepEqual(files.map((name: string) => name.replace(/\.jsonl$/, '')),
-    ['denied', 'failure', 'spawn', 'success', 'truncated', 'unknown-events']);
+    ['captured-1.0.105-write-attempt', 'denied', 'failure', 'spawn', 'success', 'truncated', 'unknown-events']);
   const labels = new Set<string>();
   for (const name of files) {
     const raw = fs.readFileSync(path.join(FIXTURES, name), 'utf8');
@@ -69,8 +69,8 @@ test('fixtures: every line is LF-terminated JSON with a _fixture label, no absol
       assert.ok(!/Bearer|api[_-]?key|token["']?\s*[:=]\s*["'][A-Za-z0-9]{16,}/i.test(text), `${name}: secret-shaped`);
     }
   }
-  // Names the provenance (IC-014): while every fixture is synthetic, no captured file exists yet.
-  assert.deepEqual([...labels], ['synthetic']);
+  // Names the provenance (IC-014): one captured file from the C.2 write-attempt run, the rest synthetic.
+  assert.deepEqual([...labels].sort(), ['captured-1.0.105-trimmed', 'synthetic']);
 });
 
 test('fixture success: last non-empty assistant.message is the summary; usage needs both token fields', () => {
@@ -107,6 +107,43 @@ test('fixture denied: tool.execution_complete with error.code denied is a denial
   assert.equal(report.reason, null);
   assert.equal(report.deniedCount, 1);
   assert.deepEqual(report.denials, [{ action: 'create', detail: '' }]);
+});
+
+test('captured fixture (copilot 1.0.105, write attempt): a denial names its tool from the earlier tool.execution_start', () => {
+  const events = fs.readFileSync(path.join(FIXTURES, 'captured-1.0.105-write-attempt.jsonl'), 'utf8')
+    .split('\n').filter(Boolean).map((text: string) => JSON.parse(text));
+  // The real complete event has toolCallId, success and error.code, but neither toolName nor arguments.
+  const completes = events.filter((event: any) => event.type === 'tool.execution_complete');
+  assert.equal(completes.length, 4);
+  for (const event of completes) assert.deepEqual(['toolName', 'arguments'].filter((key) => key in event.data), []);
+  assert.deepEqual(completes.filter((event: any) => event.data.success === false).map((event: any) => event.data.error.code), ['denied', 'denied']);
+  // INFERENCE not seen live: no sub-agent event, and result.usage has no token fields.
+  assert.equal(events.some((event: any) => event.type === 'subagent.started'), false);
+  assert.equal(events.at(-1).usage.inputTokens, undefined);
+  const report = fixture('captured-1.0.105-write-attempt');
+  assert.equal(report.status, 'denied');
+  assert.equal(report.deniedCount, 2);
+  assert.deepEqual(report.denials.map((denial: any) => denial.action), ['bash', 'apply_patch']);
+  assert.equal(report.usage, null);
+  assert.equal(report.summary, null);
+});
+
+test('a denial takes its tool and target from the matching tool.execution_start; the complete event\'s own fields win', () => {
+  const start = (id: any, toolName: any, args: any) => ({ type: 'tool.execution_start', data: { toolCallId: id, toolName, arguments: args } });
+  const complete = (id: any, extra: any = {}) => ({ type: 'tool.execution_complete', data: { toolCallId: id, success: false, error: { code: 'denied' }, ...extra } });
+  const report = run([
+    start('a', 'bash', { command: 'rm -rf build' }), start('b', 'edit', { path: 'x.txt' }),
+    complete('a'), complete('b', { toolName: 'own', arguments: { path: 'y.txt' } }), complete('unknown'),
+  ]);
+  assert.deepEqual(report.denials, [
+    { action: 'bash', detail: 'rm -rf build' }, { action: 'own', detail: 'y.txt' }, { action: 'tool', detail: '' },
+  ]);
+  // The start event is still an unread line for ignoredLines, and the lookup table is bounded (the 257th id is not kept).
+  assert.equal(report.ignoredLines, 2);
+  const many = parser();
+  for (let i = 0; i < 300; i++) line(many, start(`id${i}`, 'bash', { command: 'c' }));
+  line(many, complete('id299'));
+  assert.deepEqual(many.end().denials, [{ action: 'tool', detail: '' }]);
 });
 
 test('denial rules: only success=false with error.code "denied" counts; other failures are ignored', () => {
