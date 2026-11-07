@@ -343,7 +343,7 @@ const ACCEPTED_KEYS: any = {
   opencode: ['model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
   claude: ['model'],
   copilot: ['model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
-  pi: ['model'],
+  pi: ['model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
   kiro: ['model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
   antigravity: [],
 };
@@ -363,9 +363,9 @@ test('G41.3: a harness with a supported structuredOutput declares exactly its ma
 test('G41.3 control: a mapped id outside PARSERS, a wrong parser, a parser on a non-supported entry and a supported entry with no mapping are each reported', () => {
   const registry = structuredClone(shipped().registry);
   const byId = (id: any) => registry.harnesses.find((h: any) => h.id === id);
-  const outside = parserMapFindings(registry, { ...PARSER_BY_HARNESS, pi: 'not-a-registered-parser' }, PARSERS);
+  const outside = parserMapFindings(registry, { ...PARSER_BY_HARNESS, claude: 'not-a-registered-parser' }, PARSERS);
   assert.equal(outside.length, 1);
-  assert.match(outside[0], /maps 'pi' to "not-a-registered-parser".*not a key of PARSERS/);
+  assert.match(outside[0], /maps 'claude' to "not-a-registered-parser".*not a key of PARSERS/);
   assert.equal(parserMapFindings(registry, { ...PARSER_BY_HARNESS, opencode: 'codex-exec-json-v1' }, PARSERS).length, 1, 'wrong parser for opencode');
   byId('claude').worker.structuredOutput.parser = 'codex-exec-json-v1';
   assert.match(parserMapFindings(registry, PARSER_BY_HARNESS, PARSERS).join('\n'), /harness 'claude' declares a parser on a structuredOutput that is not supported/);
@@ -390,9 +390,9 @@ test('G41.4: every supported worker entry cites a recorded evidence file that es
 
 test('G41.4 control: an ACCEPTED_KEYS entry with no registry key, one for no harness, and a registry key with no map entry are each reported', () => {
   const registry = structuredClone(shipped().registry);
-  const extraKey = acceptedKeyFindings(registry, { ...ACCEPTED_KEYS, pi: ['model', 'oneShot'] });
+  const extraKey = acceptedKeyFindings(registry, { ...ACCEPTED_KEYS, claude: ['model', 'oneShot'] });
   assert.equal(extraKey.length, 1);
-  assert.match(extraKey[0], /ACCEPTED_KEYS lists 'oneShot' for harness 'pi'/);
+  assert.match(extraKey[0], /ACCEPTED_KEYS lists 'oneShot' for harness 'claude'/);
   const extraHarness = acceptedKeyFindings(registry, { ...ACCEPTED_KEYS, nonesuch: [] });
   assert.equal(extraHarness.length, 1);
   assert.match(extraHarness[0], /entry for 'nonesuch', which is not a registry harness/);
@@ -402,8 +402,8 @@ test('G41.4 control: an ACCEPTED_KEYS entry with no registry key, one for no har
   assert.ok(missing.every((f: any) => f.includes("harness 'opencode'") && f.includes('not in ACCEPTED_KEYS')));
 });
 
-test('G41.4 control: a supported key added to claude or pi without a map entry fails', () => {
-  for (const id of ['claude', 'pi']) {
+test('G41.4 control: a supported key added to claude without a map entry fails', () => {
+  for (const id of ['claude']) {
     const registry = structuredClone(shipped().registry);
     const harness = registry.harnesses.find((h: any) => h.id === id);
     assert.deepEqual(supportedKeys(harness), ['model'], `${id}: control precondition`);
@@ -447,6 +447,8 @@ test('G41.5 control: codex is exempt, and a cited live-run record that fails rec
   for (const key of ['readOnly', 'spawnDenial']) kiro.worker[key].status = 'unknown';
   const copilot = registry.harnesses.find((h: any) => h.id === 'copilot');
   for (const key of ['readOnly', 'spawnDenial']) copilot.worker[key].status = 'unknown';
+  const pi = registry.harnesses.find((h: any) => h.id === 'pi');
+  for (const key of ['readOnly', 'spawnDenial']) pi.worker[key].status = 'unknown';
   const { root, copy } = opencodeScratch(t);
   const opencode = registry.harnesses.find((h: any) => h.id === 'opencode');
   const failed = copy('2026-11-07-live-run-read-only.json', 'failed.json', (r: any) => { r.run.report.status = 'failure'; });
