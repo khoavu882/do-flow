@@ -137,7 +137,7 @@ How the names are used:
 - Text on a state fill uses `-fg` on `-tint`; a full-rail stage pill is tint, 1.5 px `-mark` border and `-fg` text, because `-fg` on a `-mark` fill is not a proven pair.
 - Type: `--type-xs` to `--type-display` are `font` shorthands (`font: var(--type-md)`); mono text sets `font-family: var(--font-mono)` after it. `--type-display` appears at most once per view and is used at the `--type-xl` size below 768 px. Numbers use `font-variant-numeric: tabular-nums`.
 - Space is the 4 px scale `--space-1` to `--space-8`. Radius: `--radius-sm` tags, `--radius-md` cards, nodes and buttons, `--radius-lg` panels, the activity slot and banners. Chip radius: `--radius-sm` for the status chip `.badge` (with the `.conn` chip, `.model-chip` and `.srow__tag`); controls (`.chip`, `.achip`, the theme control) keep `--radius-pill`.
-- Elevation (hairline panels): `--elev-1` is `none` in both themes, so resting cards carry no shadow and are bounded by `--border` or `--border-strong` and the surface step. Hover and expanded states use an edge or an inset ring (`border-color: var(--border-strong)`, `inset 0 0 0 1px var(--border-strong)`, `inset 0 0 0 2px var(--accent)`), never an outer shadow. `--elev-2` is only for the skip link `.skip`, the side panels `.graph__panel` and `.spanel`, the tablet `.fpanel` sheet, and the popovers `.fpanel__new` and the help dialog `.help__panel`.
+- Elevation (hairline panels): `--elev-1` is `none` in both themes, so resting cards carry no shadow and are bounded by `--border` or `--border-strong` and the surface step. Hover and expanded states use an edge or an inset ring (`border-color: var(--border-strong)`, `inset 0 0 0 1px var(--border-strong)`, `inset 0 0 0 2px var(--accent)`), never an outer shadow. `--elev-2` is only for the skip link `.skip`, the `.inspector` as drawer or sheet, and the popovers `.fpanel__new` and the help dialog `.help__panel`. The detail panels (`.rail-detail`, `.graph__panel`, `.spanel`, `.fpanel`) are shown in the `.inspector` and carry no card of their own.
 - Layout: breakpoints sm < 768, md 768-1279, lg 1280-1919, xl 1920 and up. `--gutter`, `--header-h` and `--target` change per band (see the overrides above). `--target` is the minimum hit size (44 px below 1280, 32 px from 1280); nothing is smaller than `--target-min` (24 px). Content is capped at `--content-max`, prose at `--prose-max`. Layers: `--z-banner`, `--z-header`, `--z-panel`, `--z-skip`.
 - Focus: `outline: var(--focus-width) solid var(--focus)` with `outline-offset: var(--focus-offset)`, on `:focus-visible` only. Heading targets (`h1[tabindex="-1"]`) and `main` show no ring because they are not controls.
 
@@ -167,18 +167,18 @@ Generated list of the top-level class blocks in `app.css` (elements are `block__
 `.bar`, `.brand`, `.brand-gate`, `.brand-line`, `.brand-node`, `.btn`, `.chip`, `.cmd`, `.code-chip`
 `.conn`, `.core-version`, `.countdown`, `.dash`, `.empty`, `.ev`, `.eyebrow`, `.f`, `.facts`
 `.fbanner`, `.filter-status`, `.fleet`, `.fleet-blind`, `.fleet-box`, `.fleet-crumb`
-`.fleet-footer`, `.fleet-grid`, `.fleet-head`, `.fleet-limits`, `.fleet-scrim`, `.fleet-title`
-`.fleet-transport`, `.fleet-tree`, `.fnode`, `.fpanel`, `.ftransport`, `.ftree`, `.full-state`
-`.gate`, `.gate-card`, `.gate-cards`, `.gattempt`, `.gattempts`, `.gcard`, `.gdetail`, `.glane`
-`.graph`, `.grid`, `.grow`, `.help`, `.hint`, `.icon`, `.inspector`, `.masked`, `.model-chip`
-`.mono`, `.nav`, `.navrail`, `.noscript`, `.num`, `.ov-check`, `.ov-cross`, `.ov-forced`, `.page`
-`.pause`, `.pr`, `.project-list`, `.project-row`, `.rail`, `.rail-detail`, `.rail-fallback`
-`.rail-note`, `.rail-scroll`, `.reltime`, `.replay`, `.replay-host`, `.run-head`, `.run-list`
-`.run-rail`, `.run-row`, `.run-section`, `.sbar`, `.segmented`, `.sessions`, `.sfilter`, `.sfoot`
-`.shape`, `.shell`, `.shold`, `.site-header`, `.skel`, `.skeleton`, `.skip`, `.slane`
-`.slane-children`, `.snote`, `.spanel`, `.srow`, `.srows`, `.state-panel`, `.stream`, `.summary`
-`.tag`, `.theme`, `.tile`, `.timeline`, `.tl`, `.tl-item`, `.tl-list`, `.together`, `.traffic`
-`.ttable`, `.vh`, `.view-enter`, `.view-head`, `.view-note`, `.view-title`, `.wf`, `.wf-list`
+`.fleet-footer`, `.fleet-grid`, `.fleet-head`, `.fleet-limits`, `.fleet-title`, `.fleet-transport`
+`.fleet-tree`, `.fnode`, `.fpanel`, `.ftransport`, `.ftree`, `.full-state`, `.gate`, `.gate-card`
+`.gate-cards`, `.gattempt`, `.gattempts`, `.gcard`, `.gdetail`, `.glane`, `.graph`, `.grid`, `.grow`
+`.help`, `.hint`, `.icon`, `.inspector`, `.masked`, `.model-chip`, `.mono`, `.nav`, `.navrail`
+`.noscript`, `.num`, `.ov-check`, `.ov-cross`, `.ov-forced`, `.page`, `.pause`, `.pr`
+`.project-list`, `.project-row`, `.rail`, `.rail-detail`, `.rail-fallback`, `.rail-note`
+`.rail-scroll`, `.reltime`, `.replay`, `.replay-host`, `.run-head`, `.run-list`, `.run-rail`
+`.run-row`, `.run-section`, `.sbar`, `.segmented`, `.sessions`, `.sfilter`, `.sfoot`, `.shape`
+`.shell`, `.shold`, `.site-header`, `.skel`, `.skeleton`, `.skip`, `.slane`, `.slane-children`
+`.snote`, `.spanel`, `.srow`, `.srows`, `.state-panel`, `.stream`, `.summary`, `.tag`, `.theme`
+`.tile`, `.timeline`, `.tl`, `.tl-item`, `.tl-list`, `.together`, `.traffic`, `.ttable`, `.vh`
+`.view-enter`, `.view-head`, `.view-note`, `.view-title`, `.wf`, `.wf-list`
 <!-- /generated -->
 
 What an agent most often touches:
@@ -193,7 +193,7 @@ What an agent most often touches:
 - **Connection chip** `.conn` with `data-state` of `unknown`, `done`, `stale` or `failed`: a shape and a word ("Updated 4 s ago", "Stale", "Offline", "Core unreachable"). It is in the header; `.conn__long` and `.conn__short` swap at 768 px.
 - **Banner** `.banner`, `.banner__text` in `.banner-slot`: state tint, a 4 px left bar, an icon, one sentence and one action. The stale banner has `data-kind="stale"`.
 - **Skeleton** `.skel`, `.skeleton`: `--skeleton` blocks with the final layout's dimensions, `aria-hidden="true"`, shown only after a delay. The shimmer runs only without reduced motion.
-- **Fleet tree** `.ftree`, `.fnode`: `role="tree"` with `role="treeitem"` nodes, a roving tabindex, `aria-selected`, `aria-expanded` when a node has children, and a full `aria-label` per node. **Task graph** `.graph`, `.gcard`, `.grow__btn`: cards and rows expose `aria-expanded` and open a side panel.
+- **Fleet tree** `.ftree`, `.fnode`: `role="tree"` with `role="treeitem"` nodes, a roving tabindex, `aria-selected`, `aria-expanded` when a node has children, and a full `aria-label` per node. **Task graph** `.graph`, `.gcard`, `.grow__btn`: cards and rows expose `aria-expanded` and open the task panel in the `.inspector`.
 - **Model chip** `.model-chip`: mono `--type-xs` on `--surface-2`, a model id and never a state. **Masked chip** `.masked`: the masked icon plus the word "masked", "email" or "ip". **Traffic bar** `.traffic`: a small inline SVG scaled to the largest value on the page, in neutral colours only; the number beside it carries the meaning.
 - **Replay** `.replay`: a range input with an `aria-label`, play, previous, next, and speed buttons that use `aria-pressed`.
 - **Navigation and landmarks:** `.skip` (skip link, visible on focus), `.nav__link` (the current route has `aria-current="page"`), `.vh` (visually hidden, still read by assistive technology), and a polite live region `#announcer` for changes. View titles are `h1` with `tabindex="-1"` so a route change can move focus to them.

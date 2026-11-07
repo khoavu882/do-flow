@@ -550,9 +550,14 @@ test('layout V.10: the project row, the Fleet grid and the sheet follow the band
   assert.equal(effective(rules, '.project-row', 'min-height', 1280), '64px');
   assert.equal(effective(rules, '.fleet-grid', 'grid-template-columns', 360), 'minmax(0, 1fr)');
   assert.equal(effective(rules, '.fleet-grid', 'grid-template-columns', 1280), 'repeat(12, minmax(0, 1fr))');
-  assert.equal(effective(rules, '.fleet-tree', 'grid-column', 1280), '1 / span 5');
-  assert.equal(effective(rules, '.fpanel', 'grid-column', 1280), '6 / span 7');
-  assert.equal(effective(rules, '.fleet-tree', 'grid-column', 1920), '1 / span 3');
-  assert.equal(effective(rules, '.fpanel', 'grid-column', 1920), '4 / span 6');
+  // 149 D.2: the transcript panel is in the shell's inspector, so the grid holds the tree, the traffic and "Working together".
+  assert.equal(effective(rules, '.fleet-tree', 'grid-column', 1280), '1 / span 7');
+  assert.equal(effective(rules, '.together', 'grid-column', 1280), '8 / span 5');
+  assert.equal(effective(rules, '.fleet-tree', 'grid-column', 1920), '1 / span 8');
+  assert.equal(effective(rules, '.together', 'grid-column', 1920), '9 / span 4');
+  for (const width of [360, 768, 1280, 1920]) {
+    assert.equal(effective(rules, '.fpanel', 'grid-column', width), undefined, `${width}: the panel has no place in the Fleet grid`);
+    assert.equal(effective(rules, '.fpanel', 'position', width), undefined, `${width}: the panel is not a sheet of its own`);
+  }
   assert.equal(effective(rules, '.traffic__switch', 'display', 1920), 'none');
 });

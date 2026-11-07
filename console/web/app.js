@@ -13,7 +13,7 @@ import {
   classify, clockTime, refreshReltimes, renderLoading, renderEmpty, renderError, renderFullPage, renderPill, createStaleBanner, errorTitle,
 } from './states.js';
 import { CORE_RANGE, parseRoute, titleFor, navFor } from './views.js';
-import { createInspector } from './shell.js';
+import { createInspector, hidePanel } from './shell.js';
 
 // ---- 1. theme: the module's first statement, before the fragment is read or anything is fetched ----
 
@@ -307,14 +307,22 @@ function paint(view) {
   if (next.busy) main.setAttribute('aria-busy', 'true');
   else main.removeAttribute('aria-busy');
   if (view.painted !== next.key) {
-    const hadFocus = view.body.contains(document.activeElement);
-    const focusKey = focusKeyOf(document.activeElement);
+    // The view's panel sits in the inspector (D.2) and is rebuilt with the body, so focus inside it counts too.
+    const panel = app.els.inspector;
+    const before = document.activeElement;
+    const inPanel = Boolean(panel) && panel.contains(before);
+    const hadFocus = view.body.contains(before) || inPanel;
+    const focusKey = focusKeyOf(before);
     mount(view.body, next.nodes());
     view.painted = next.key;
-    if (hadFocus && !view.body.contains(document.activeElement)) {
-      // E.1 8.4: the element with the same data-focus-key takes the focus back; the heading is the fallback.
-      const again = focusKey === null ? null : view.body.querySelector(`[data-focus-key="${focusKey}"]`);
-      (again ?? view.h1).focus({ preventScroll: true });
+    const after = document.activeElement;
+    const kept = view.body.contains(after) || (inPanel && after === before && panel.contains(after));
+    if (hadFocus && !kept) {
+      // E.1 8.4: the element with the same data-focus-key takes the focus back; the heading is the fallback, or the
+      // inspector's own close control when the open dialog already holds the focus.
+      const again = focusKey === null ? null : view.body.querySelector(`[data-focus-key="${focusKey}"]`) ?? (inPanel ? panel.querySelector(`[data-focus-key="${focusKey}"]`) : null);
+      if (again) again.focus({ preventScroll: true });
+      else if (!(inPanel && panel.contains(after))) view.h1.focus({ preventScroll: true });
     }
   }
   if (view.hasData) updateMeta(view);
@@ -478,8 +486,8 @@ function teardownView() {
   }
   delete mainEl().dataset.stale;
   if (app.els.inspector) delete app.els.inspector.dataset.stale;
-  // The open details belong to the view that is going away.
-  if (app.inspector) app.inspector.close();
+  // The open details belong to the view that is going away: they close without calling back into it.
+  hidePanel(app.inspector, view.local);
 }
 
 /** @param {any} href */
@@ -512,7 +520,8 @@ function startView(route, { first = false, animate = false, focus = true } = {})
     holdUntil: null,
     holdTimer: null,
     announcedError: null,
-    local: {}, // the view's own memory (E.1): what its render, load and tick keep between polls
+    // The view's own memory (E.1): what its render, load and tick keep between polls; its panel opens in `inspector` (D.2).
+    local: { inspector: app.inspector },
     root: null,
     painted: null,
     fullKey: null,

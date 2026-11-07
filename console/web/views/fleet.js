@@ -14,6 +14,7 @@ import { reltime, clockTime, skel } from '../states.js';
 import { createFleetStream } from '../stream.js';
 import { notice } from '../notices.js';
 import { createPanel } from './transcript.js';
+import { showPanel, hidePanel } from '../shell.js';
 import {
   stamp, nodeTitle, titleIsLabel, kindWord, layoutTree, agentCounts, modelsOf, projectRate, agentRows, modelRows, maxOf, barWidth, tokenLine, toolTime,
   pairGroups, partnersOf, overlapIds, transcriptNote, fleetNodeName, projectDescription, mergeFleet,
@@ -799,7 +800,6 @@ function panelHooks(local) {
     nodeOf: (/** @type {string} */ key) => local.layout.byKey.get(key) ?? null,
     select: (/** @type {string} */ key) => selectAgent(local, key),
     back: () => { globalThis.location.hash = `#/fleet/${local.params.project}`; },
-    close: () => { globalThis.location.hash = `#/fleet/${local.params.project}`; },
   };
 }
 
@@ -828,11 +828,11 @@ function renderProject(data, params, local) {
   local.treeNote = h('p', { class: 'view-note fleet-tree__note' });
   local.treeEmpty = h('p', { class: 'fleet-tree__empty' });
   local.panel = createPanel(panelHooks(local));
+  // The panel is not in the grid: the selected agent's transcript is shown in the shell's inspector (D.2).
   local.panelHost = local.panel.el;
-  local.scrim = h('div', { class: 'fleet-scrim', 'aria-hidden': 'true', on: { click: () => globalThis.location && (globalThis.location.hash = `#/fleet/${params.project}`) } });
   local.treeSection = h('section', { class: 'fleet-tree', 'aria-labelledby': 'fleet-tree-title' }, [h('h2', { class: 'vh', id: 'fleet-tree-title' }, 'Agents'), local.treeEmpty, local.treeEl, local.treeNote]);
-  local.grid = h('div', { class: 'fleet-grid' }, [local.treeSection, local.panelHost, trafficSection(local), togetherSection(local)]);
-  local.root = h('div', { class: 'fleet fleet--project', dataset: { selected: params.agent ? 'true' : 'false' } }, [local.els.transport, local.grid, local.scrim]);
+  local.grid = h('div', { class: 'fleet-grid' }, [local.treeSection, trafficSection(local), togetherSection(local)]);
+  local.root = h('div', { class: 'fleet fleet--project', dataset: { selected: params.agent ? 'true' : 'false' } }, [local.els.transport, local.grid]);
   local.panelHost.addEventListener('keydown', (/** @type {any} */ event) => onPanelKey(local, event));
   refreshTransport(local);
   updateProject(local, data, params);
@@ -848,44 +848,17 @@ function renderMissing(local) {
   ]);
 }
 
-/** Escape closes the sheet (or moves the focus back to the selected node at 1280 and up). @param {any} local @param {any} event */
+/**
+ * Escape in the panel: docked (1280 px and up) it moves the focus back to the selected node and leaves the panel open; as
+ * drawer or sheet the inspector closes it, and the selection goes with it. @param {any} local @param {any} event
+ */
 function onPanelKey(local, event) {
-  if (event.key === 'Tab' && local.sheetOpen && local.panelHost) {
-    const stops = Array.from(local.panelHost.querySelectorAll('button, [tabindex="0"]')).filter((/** @type {any} */ el) => el.getAttribute('hidden') === null);
-    if (stops.length === 0) return;
-    const first = stops[0];
-    const last = stops[stops.length - 1];
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
-    return;
-  }
   if (!isKey(event, 'close') || !local.params.agent) return;
+  if (local.inspector && local.inspector.mode() !== 'dock') return;
   const node = local.nodes.get(local.params.agent);
-  if (isSheet()) {
-    event.preventDefault();
-    globalThis.location.hash = `#/fleet/${local.params.project}`;
-    if (node) node.focus({ preventScroll: true });
-  } else if (!isNarrow()) {
-    event.preventDefault();
-    if (node) node.focus({ preventScroll: true });
-  }
+  event.preventDefault();
+  if (node) node.focus({ preventScroll: true });
 }
-
-/** @param {string} query */
-function media(query) {
-  try {
-    return Boolean(globalThis.matchMedia && globalThis.matchMedia(query).matches);
-  } catch {
-    return false;
-  }
-}
-const isSheet = () => media('(min-width: 768px) and (max-width: 1279px)');
-const isNarrow = () => media('(max-width: 767px)');
 
 /** @param {any} local @param {any} params @param {any} data */
 function setSelection(local, params, data) {
@@ -897,19 +870,32 @@ function setSelection(local, params, data) {
     local.panel.setAgent(null);
     local.panel.setMissing('agent-not-in-project');
   } else local.panel.setAgent(node);
-  const open = Boolean(key) && isSheet();
-  local.sheetOpen = open;
-  const behind = [local.treeSection, local.els.traffic];
-  for (const el of behind) {
-    if (!el) continue;
-    if (open) el.setAttribute('inert', '');
-    else el.removeAttribute('inert');
-  }
+  showSelection(local);
   const crumb = document.querySelector('.fleet-crumb');
   const agentCrumb = document.querySelector('.fleet-crumb__agent');
   if (crumb) /** @type {any} */ (crumb).dataset.agent = key && node ? 'true' : 'false';
   if (agentCrumb) setText(agentCrumb, node ? nodeTitle(node) : '');
   for (const [other, el] of local.nodes) el.setAttribute('aria-selected', other === key ? 'true' : 'false');
+}
+
+/**
+ * The inspector holds the panel while an agent is selected; closing it (its close control, Escape or the scrim) goes back
+ * to the project route, which clears the selection. @param {any} local
+ */
+function showSelection(local) {
+  const key = local.params.agent;
+  if (!key) {
+    hidePanel(local.inspector, local);
+    return;
+  }
+  showPanel(local.inspector, local, {
+    title: 'Agent transcript',
+    body: local.panel.el,
+    owner: local.nodes.get(key) ?? null,
+    onClose: () => {
+      if (local.params.agent) globalThis.location.hash = `#/fleet/${local.params.project}`;
+    },
+  });
 }
 
 /** @param {any} local @param {any} data @param {any} params */
@@ -921,13 +907,16 @@ function updateProject(local, data, params) {
     if (!local.missing) {
       local.missing = true;
       mount(local.root, renderMissing(local));
+      // No project, no panel: the selection is shown again when the project is listed again.
+      hidePanel(local.inspector, local);
+      local.selKey = null;
     }
     return;
   }
   if (local.missing) {
     // The project is listed again: the body comes back.
     local.missing = false;
-    mount(local.root, [local.els.transport, local.grid, local.scrim]);
+    mount(local.root, [local.els.transport, local.grid]);
   }
   const h1 = document.querySelector('.fleet-title__label');
   const crumb = document.querySelector('.fleet-crumb__label');
@@ -1017,7 +1006,7 @@ function rerouteProject(local, params, data) {
   // The rows show the selection and the partner tags; the panel starts over for the new agent.
   local.togetherSig = null;
   updateProject(local, data, params);
-  if (params.agent && local.sheetOpen) local.panel.focusTitle();
+  if (params.agent && local.inspector && local.inspector.mode() !== 'dock') local.panel.focusTitle();
 }
 
 // ---- skeletons ---------------------------------------------------------------------------------------------------------

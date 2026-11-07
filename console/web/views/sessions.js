@@ -6,6 +6,7 @@
 // No main session has a heartbeat, so nothing here says a session is active, online or idle: it says what was recorded.
 
 import { isKey } from '../keys.js';
+import { showPanel, hidePanel } from '../shell.js';
 import { h, icon, mount, announce } from '../dom.js';
 import { clockTime, reltime, commandBlock } from '../states.js';
 import {
@@ -254,7 +255,6 @@ function renderSessions(data, params, local) {
     const shown = filterRows(result.rows, memory.filter);
     const keys = shown.flatMap((row) => [`row:${row.key}`, ...(isOpen(row) ? lanesIn(row).map((/** @type {any} */ lane) => `lane:${lane.key}`) : [])]);
     const stop = stopKey(keys);
-    const slotOf = laneOf(memory.selected);
     const items = shown.map((row) => {
       const open = isOpen(row);
       const rowKey = `row:${row.key}`;
@@ -291,8 +291,6 @@ function renderSessions(data, params, local) {
         return h('li', { class: 'slane-item' }, [button, lane.children.length > 0 ? h('ul', { class: 'slane-children' }, lane.children.map((/** @type {any} */ child) => laneItem(child, true))) : null]);
       };
 
-      const slot = h('div', { class: 'srow__panel', 'aria-label': 'Lane details', role: 'region', hidden: !(slotOf && slotOf.row === row) });
-      if (slotOf && slotOf.row === row) mount(slot, panelContent(slotOf.lane, row, nowMs, () => select(null, true), null));
 
       const body = h('div', { class: 'srow__body', hidden: !open }, [
         h('div', { class: 'srow__lanes' }, [
@@ -313,7 +311,7 @@ function renderSessions(data, params, local) {
       return h('li', {
         class: 'srow',
         dataset: { group: row.group, current: row.current ? 'true' : 'false', conflict: row.conflicts.length > 0 ? 'true' : 'false', fresh: freshRows.has(row.key) ? 'true' : null, cleared: clearedRows.has(row.key) ? 'true' : null, kind: row.kind },
-      }, [h('h2', { class: 'srow__title' }, head), body, slot]);
+      }, [h('h2', { class: 'srow__title' }, head), body]);
     });
     mount(rowsHost, [
       h('div', { class: 'srows__heads', 'aria-hidden': 'true' }, ['Checkout', 'Lanes', 'Holds', 'Last record'].map((text) => h('span', {}, text))),
@@ -328,15 +326,28 @@ function renderSessions(data, params, local) {
     if (el) /** @type {any} */ (el).focus({ preventScroll: true });
   }
 
+  /** The lane panel is shown in the shell's inspector (D.2); its close, Escape and scrim close it too. */
   function applyPanel() {
     const found = laneOf(memory.selected);
     root.dataset.open = found ? 'true' : 'false';
     if (!found) {
       panel.setAttribute('hidden', '');
       mount(panel, []);
+      hidePanel(local.inspector, local);
     } else {
+      const key = found.lane.key;
       panel.removeAttribute('hidden');
       mount(panel, panelContent(found.lane, found.row, nowMs, () => select(null, true), 'sessions-panel-title'));
+      showPanel(local.inspector, local, {
+        title: 'Lane details',
+        body: panel,
+        owner: rowsHost.querySelector(`[data-focus-key="lane:${key}"]`),
+        onClose: () => {
+          memory.selected = null;
+          draw();
+          focusKey(`lane:${key}`);
+        },
+      });
     }
   }
 
@@ -377,7 +388,7 @@ function renderSessions(data, params, local) {
     event.preventDefault();
     const target = event.target;
     // The focus goes back to the lane only when it was inside a panel; on a lane it stays where it is.
-    const inPanel = Boolean(target) && typeof target.closest === 'function' && target.closest('.spanel, .srow__panel') !== null;
+    const inPanel = Boolean(target) && typeof target.closest === 'function' && target.closest('.spanel') !== null;
     select(null, inPanel);
   });
 
@@ -395,6 +406,7 @@ function renderSessions(data, params, local) {
 
   // ---- assemble ----
   if (result.empty) {
+    hidePanel(local.inspector, local);
     return h('section', { class: 'sessions sessions--empty', 'aria-label': 'Sessions' }, [
       ...notes,
       absent,
@@ -413,7 +425,7 @@ function renderSessions(data, params, local) {
   draw();
   drawChips();
   const top = [h('div', { class: 'sessions__top' }, [summary, chips, legend]), ...notes, absent, bar];
-  const layout = h('div', { class: 'sessions__layout' }, [rowsHost, panel]);
+  const layout = h('div', { class: 'sessions__layout' }, [rowsHost]);
   mount(root, [...top, layout, footer]);
   return root;
 }

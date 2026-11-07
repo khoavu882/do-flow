@@ -4,6 +4,7 @@
 
 import { isKey } from '../keys.js';
 import { h, icon, mount, announce } from '../dom.js';
+import { showPanel, hidePanel } from '../shell.js';
 import { clockTime } from '../states.js';
 import {
   deriveRail, nodeName, stateWord, formatDuration, liveDuration, fallbackText, stepHead, stepNumber, degradedSentence, changedNodes, runToken, durationLine,
@@ -253,7 +254,6 @@ function renderRunRail(data, params, local) {
   const keyOf = (/** @type {number} */ index, /** @type {any} */ node) => `node:${index}:${node.id}`;
 
   const section = h('section', { class: 'run-rail', 'aria-label': 'Stages' });
-  const detailSlot = h('div', { class: 'rail-detail-slot' });
   /** @type {any[]} */
   const built = [];
 
@@ -272,22 +272,41 @@ function renderRunRail(data, params, local) {
       ensureVisible(local.scroller, target.button);
     }
   };
-  const paintOpen = () => {
+  const paintMarks = () => {
     built.forEach((entry, index) => {
       const open = local.openId === `${nodes[index].type}:${nodes[index].id}`;
       entry.button.setAttribute('aria-expanded', open ? 'true' : 'false');
       if (open) entry.button.dataset.selected = 'true';
       else entry.button.removeAttribute('data-selected');
     });
-    const node = nodes.find((candidate) => `${candidate.type}:${candidate.id}` === local.openId);
-    mount(detailSlot, node ? railDetail(node, data.workflow, { onClose: () => close(true), onEscape: () => close(true) }) : null);
+  };
+  const focusNodeAt = (/** @type {number} */ index) => {
+    if (index >= 0 && built[index]) built[index].button.focus({ preventScroll: true });
+  };
+  // The open node's detail is shown in the shell's inspector (D.2); the inspector's own close, Escape and scrim close it too.
+  const paintOpen = () => {
+    paintMarks();
+    const index = nodes.findIndex((candidate) => `${candidate.type}:${candidate.id}` === local.openId);
+    if (index < 0) {
+      hidePanel(local.inspector, local);
+      return;
+    }
+    showPanel(local.inspector, local, {
+      title: 'Step details',
+      body: railDetail(nodes[index], data.workflow, { onClose: () => close(true), onEscape: () => close(true) }),
+      owner: built[index] ? built[index].button : null,
+      onClose: () => {
+        local.openId = null;
+        paintMarks();
+        focusNodeAt(index);
+      },
+    });
   };
   const close = (/** @type {boolean} */ focusNode) => {
     const id = local.openId;
     local.openId = null;
     paintOpen();
-    const index = nodes.findIndex((node) => `${node.type}:${node.id}` === id);
-    if (focusNode && index >= 0 && built[index]) built[index].button.focus({ preventScroll: true });
+    if (focusNode) focusNodeAt(nodes.findIndex((node) => `${node.type}:${node.id}` === id));
   };
   const handlers = {
     rove,
@@ -362,10 +381,10 @@ function renderRunRail(data, params, local) {
     ? { entry: built[cursorIndex], node: nodes[cursorIndex], index: cursorIndex, count: nodes.length, nameOf }
     : null;
 
-  mount(section, [scroller, degraded ? h('p', { class: 'rail-note' }, [icon('info', 16), /** @type {any} */ (NOTES)[/** @type {string} */ (model.degraded)]]) : null, detailSlot]);
+  mount(section, [scroller, degraded ? h('p', { class: 'rail-note' }, [icon('info', 16), /** @type {any} */ (NOTES)[/** @type {string} */ (model.degraded)]]) : null]);
   if (local.openId !== null) {
-    if (nodes.some((node) => `${node.type}:${node.id}` === local.openId)) paintOpen();
-    else local.openId = null;
+    if (!nodes.some((node) => `${node.type}:${node.id}` === local.openId)) local.openId = null;
+    paintOpen();
   }
   return section;
 }

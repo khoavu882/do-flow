@@ -1305,7 +1305,8 @@
   .gcard__line { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--type-xs); color: var(--text-muted); }
   .gcard__line--why { font-weight: 600; color: var(--text); }
 
-  .graph__panel { display: none; min-width: 0; padding: var(--space-4); background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); box-shadow: var(--elev-2); }
+  /* The task panel is shown in the shell's inspector at every width (149 D.2), so it carries no card of its own. */
+  .graph__panel { min-width: 0; }
   .graph__panelhead { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-2); }
   .graph__paneltitle { min-width: 0; font: var(--type-lg); font-family: var(--font-mono); overflow-wrap: anywhere; }
   .graph__close { flex: none; min-width: var(--target); padding-inline: 0; }
@@ -1336,21 +1337,13 @@
   .grow__id { font: var(--type-sm); font-family: var(--font-mono); font-weight: 600; }
   .grow__layer { margin-inline-start: auto; font: var(--type-xs); color: var(--text-muted); }
   .grow__line { font: var(--type-xs); color: var(--text-muted); overflow-wrap: anywhere; }
-  .grow__panel { padding: 0 var(--space-4) var(--space-4); }
-  .grow__panel .gdetail__facts { margin-top: var(--space-2); }
 
   @media (min-width: 768px) {
     .graph__scroll { display: block; max-height: 60vh; }
     .graph__lanes { display: none; }
-    .graph__panel { display: block; }
   }
   @media (min-width: 1280px) {
     .graph__scroll { max-height: none; }
-    .graph[data-open="true"] .graph__layout { grid-template-columns: minmax(0, 1fr) 360px; align-items: start; }
-    .graph__panel { position: sticky; top: calc(var(--header-h) + var(--space-4)); max-height: calc(100vh - var(--header-h) - 2 * var(--space-4)); overflow: auto; }
-  }
-  @media (min-width: 1920px) {
-    .graph[data-open="true"] .graph__layout { grid-template-columns: minmax(0, 1fr) 420px; }
   }
 
   /* ---- E.4: the replay bar (design.md V5): scrub, play, step, speed, back to live; the banner marks a past moment ---- */
@@ -1441,7 +1434,6 @@
   .shold { padding-inline-start: var(--space-3); font: var(--type-sm); color: var(--text); overflow-wrap: anywhere; border-inline-start: 2px solid var(--border-strong); }
   .srow__conflicts { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; font: var(--type-sm); color: var(--text); }
   .srow__conflict { overflow-wrap: anywhere; }
-  .srow__panel { margin: 0 var(--space-4) var(--space-4); padding: var(--space-4); background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); }
 
   /* A lane reuses the look of a task card (V4): a state-coloured left edge, the mark for what was checked. */
   .slane {
@@ -1487,7 +1479,8 @@
   .slane__state[data-state="unknown"] { color: var(--state-unknown-fg); }
   .slane__line { font: var(--type-xs); color: var(--text-muted); overflow-wrap: anywhere; }
 
-  .spanel { display: none; min-width: 0; padding: var(--space-4); background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); box-shadow: var(--elev-2); }
+  /* The lane panel is shown in the shell's inspector at every width (149 D.2), so it carries no card of its own. */
+  .spanel { min-width: 0; }
   .spanel__head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-2); }
   .spanel__title { min-width: 0; font: var(--type-lg); letter-spacing: var(--tracking-tight); overflow-wrap: anywhere; }
   .spanel__close { flex: none; min-width: var(--target); padding-inline: 0; }
@@ -1518,12 +1511,6 @@
     .srow__colhead { display: none; }
     .srow__lanes, .srow__holds, .srow__last { padding: var(--space-3) var(--space-3) var(--space-4) 0; }
     .srow__conflicts { padding: 0 var(--space-4) var(--space-4); }
-    .srow__panel { grid-column: 1 / -1; }
-  }
-  @media (min-width: 1920px) {
-    .sessions[data-open="true"] .sessions__layout { grid-template-columns: minmax(0, 1fr) 420px; align-items: start; }
-    .spanel { display: block; position: sticky; top: calc(var(--header-h) + var(--space-4)); max-height: calc(100vh - var(--header-h) - 2 * var(--space-4)); overflow: auto; }
-    .srow__panel { display: none; }
   }
 
   /* ---- F.2: the Workflows view. One section per class: the diagram (scrolls inside its figure) and the ordered steps. ---- */
@@ -1745,7 +1732,7 @@
 
 /* ---- forced colours: the task graph keeps its shapes in system colours ---- */
 @media (forced-colors: active) {
-  .gcard, .graph__panel, .glane, .graph__scroll, .graph--empty { border: 1px solid CanvasText; }
+  .gcard, .glane, .graph__scroll, .graph--empty { border: 1px solid CanvasText; }
   .gcard { border-inline-start-width: 4px; }
   .gcard[aria-expanded="true"], .grow__btn[aria-expanded="true"] { outline: 3px solid Highlight; outline-offset: 0; }
   .gcard[data-unresolved="true"] { border-style: dashed; }
@@ -1785,7 +1772,7 @@
 
 /* ---- forced colours: the Sessions view keeps its shapes in system colours ---- */
 @media (forced-colors: active) {
-  .srow, .slane, .sbar, .spanel, .srow__panel, .sfoot__box, .snote, .sfilter__opt { border: 1px solid CanvasText; }
+  .srow, .slane, .sbar, .sfoot__box, .snote, .sfilter__opt { border: 1px solid CanvasText; }
   .slane { border-inline-start-width: 4px; }
   .slane[aria-expanded="true"], .sfilter__opt[aria-checked="true"] { outline: 3px solid Highlight; outline-offset: 0; }
   .slane__mark { background: CanvasText; }
@@ -1881,13 +1868,10 @@
   .fleet-head .fleet-title__tag { margin-inline-start: var(--space-2); font-family: var(--font-sans); vertical-align: middle; }
   .fleet-crumb__agent, .fleet-crumb__sep { display: none; }
   .fleet-grid { display: grid; gap: var(--space-5); grid-template-columns: minmax(0, 1fr); align-items: start; }
-  .fleet--project[data-selected="true"] .fleet-tree, .fleet--project[data-selected="true"] .traffic, .fleet--project[data-selected="true"] .together { display: none; }
-  .fleet--project[data-selected="false"] .fpanel { display: none; }
   @media (max-width: 767px) {
     .fleet-crumb[data-agent="true"] .fleet-crumb__agent, .fleet-crumb[data-agent="true"] .fleet-crumb__sep { display: inline; }
   }
   .fleet-tree__empty { margin: 0; padding: var(--space-5); background: var(--surface); border: 1px dashed var(--border-strong); border-radius: var(--radius-lg); font: var(--type-sm); color: var(--text-muted); }
-  .fleet-scrim { display: none; }
 
   .ftree, .ftree ul { list-style: none; margin: 0; padding: 0; }
   .ftree ul[role="group"] { margin: 0 0 0 var(--space-1); padding: 0 0 0 var(--space-2); border-inline-start: 1px solid var(--border); }
@@ -1918,12 +1902,12 @@
   .fnode__spacer { width: 16px; }
 
   /* The response-stream panel. */
-  .fpanel { display: flex; flex-direction: column; min-width: 0; background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); box-shadow: var(--elev-1); overflow: hidden; min-height: 480px; }
+  /* It is shown in the shell's inspector at every width (149 D.2), which gives it the surface, the edge and the close control. */
+  .fpanel { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
   .fpanel__head { padding: var(--space-4); border-bottom: 1px solid var(--border); }
   .fpanel__titleline { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
   .fpanel__title { margin: 0; font: var(--type-lg); letter-spacing: var(--tracking-tight); overflow-wrap: anywhere; }
   .fpanel__tags { display: inline-flex; gap: var(--space-1); }
-  .fpanel__close { display: none; margin-inline-start: auto; }
   .fpanel__meta { margin: var(--space-1) 0 0; font: var(--type-xs); color: var(--text-muted); display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-2); }
   .fpanel__controls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); margin-top: var(--space-3); }
   .fpanel__filter { display: inline-flex; gap: var(--space-1); }
@@ -2021,37 +2005,20 @@
     .achip { min-height: var(--target); }
   }
 
-  /* From 1280: the tree and the panel side by side, the traffic and "Working together" below. */
+  /* From 1280: the tree and "Working together" side by side, the traffic below; the transcript is in the docked inspector. */
   @media (min-width: 1280px) {
     .fleet-grid { grid-template-columns: repeat(12, minmax(0, 1fr)); }
-    .fleet-tree { grid-column: 1 / span 5; }
-    .fpanel { grid-column: 6 / span 7; position: sticky; top: calc(var(--header-h) + var(--space-5)); height: calc(100dvh - var(--header-h) - 2 * var(--space-5)); min-height: 480px; }
-    .fpanel__scroll { max-height: none; }
-    .traffic { grid-column: 1 / span 8; }
-    .together { grid-column: 9 / span 4; }
-    .fleet--project[data-selected="false"] .fpanel { display: flex; }
-    .fleet--project[data-selected="true"] .fleet-tree, .fleet--project[data-selected="true"] .traffic, .fleet--project[data-selected="true"] .together { display: block; }
-    .fleet--project[data-selected="true"] .fleet-tree { display: block; }
-    .fpanel__close { display: none; }
+    .fleet-tree { grid-column: 1 / span 7; }
+    .traffic { grid-column: 1 / span 12; }
+    .together { grid-column: 8 / span 5; grid-row: 1 / span 1; }
   }
   @media (min-width: 1920px) {
     .fleet-grid { grid-template-columns: repeat(12, minmax(0, 1fr)); }
-    .fleet-tree { grid-column: 1 / span 3; }
-    .fpanel { grid-column: 4 / span 6; }
-    .together { grid-column: 10 / span 3; grid-row: 1 / span 1; }
+    .fleet-tree { grid-column: 1 / span 8; }
+    .together { grid-column: 9 / span 4; grid-row: 1 / span 1; }
     .traffic { grid-column: 1 / span 12; }
     .traffic__switch { display: none; }
     .traffic[data-group="agent"] .ttable--models, .traffic[data-group="model"] .ttable--agents { display: table; }
-  }
-  /* 768-1279: the panel is a sheet over the page from the right, with a scrim behind it. */
-  @media (min-width: 768px) and (max-width: 1279px) {
-    .fleet--project[data-selected="true"] .fleet-tree, .fleet--project[data-selected="true"] .traffic, .fleet--project[data-selected="true"] .together { display: block; }
-    .fleet--project[data-selected="true"] .fpanel {
-      position: fixed; z-index: var(--z-panel); top: var(--header-h); right: 0; bottom: 0; width: min(560px, calc(100% - var(--space-7))); border-radius: 0; background: var(--surface-3); color: var(--text); box-shadow: var(--elev-2);
-    }
-    .fleet--project[data-selected="true"] .fpanel__scroll { max-height: none; }
-    .fleet--project[data-selected="true"] .fpanel__close { display: inline-flex; }
-    .fleet--project[data-selected="true"] .fleet-scrim { display: block; position: fixed; inset: var(--header-h) 0 0 0; z-index: calc(var(--z-panel) - 1); background: var(--scrim); }
   }
 }
 
@@ -2060,11 +2027,8 @@
   .fnode[data-fresh="true"] > .fnode__row { --tint: var(--accent-tint); animation: flash var(--motion-flash) var(--ease-standard) 1; }
   .ev--enter { animation: ev-enter var(--motion-base) var(--ease-standard) both; }
   .fleet-transport { transition: opacity var(--motion-fast) var(--ease-standard); }
-  @media (min-width: 768px) and (max-width: 1279px) {
-    .fleet--project[data-selected="true"] .fpanel { animation: ev-enter var(--motion-base) var(--ease-standard) both; }
-  }
   @media (prefers-reduced-motion: reduce) {
-    .ev--enter, .fleet--project[data-selected="true"] .fpanel { animation-name: none; }
+    .ev--enter { animation-name: none; }
     .fnode[data-fresh="true"] > .fnode__row { animation-name: none; outline: 2px solid var(--text); outline-offset: -2px; }
     .fleet-transport { transition: none; }
   }
@@ -2080,7 +2044,7 @@
   .fnode__glyph--dot::before { background: CanvasText; }
   .fnode__glyph--ring::before { border-color: CanvasText; }
   .fnode[aria-selected="true"] > .fnode__row { outline: 2px solid Highlight; }
-  .ev__tool, .fpanel { border: 1px solid CanvasText; }
+  .ev__tool { border: 1px solid CanvasText; }
   .masked { border: 1px solid CanvasText; }
   .bar__fill { fill: CanvasText; }
   .bar__track { fill: GrayText; }

@@ -145,4 +145,24 @@ function createInspector(options) {
   return { open, close, isOpen: () => current !== null, mode: () => mode, setInspectable };
 }
 
-export { DOCK_QUERY, DRAWER_QUERY, createInspector };
+/**
+ * Shows a view's panel in the inspector (149 D.2, DEC-010). `local` is the view's own memory, kept across the re-mount of a
+ * poll, so a view re-shows its open panel on every re-mount. `spec.onClose` runs only when the inspector closes this showing
+ * (its close control, Escape or the scrim), never when a later showing replaces it or `hidePanel` takes it away.
+ * Without an inspector (a page without the shell) nothing is shown.
+ * @param {any} inspector @param {any} local @param {{ title?: any, body?: any, owner?: any, onClose?: () => void }} spec
+ */
+function showPanel(inspector, local, spec) {
+  if (!inspector) return;
+  const seq = (local.inspectorSeq = (local.inspectorSeq ?? 0) + 1);
+  inspector.open({ ...spec, onClose: () => { if (local.inspectorSeq === seq && typeof spec.onClose === 'function') spec.onClose(); } });
+}
+
+/** The view takes its panel away itself (a toggle, its own close control, a route change): its `onClose` is not called. @param {any} inspector @param {any} local */
+function hidePanel(inspector, local) {
+  if (!inspector) return;
+  local.inspectorSeq = (local.inspectorSeq ?? 0) + 1;
+  inspector.close();
+}
+
+export { DOCK_QUERY, DRAWER_QUERY, createInspector, showPanel, hidePanel };
