@@ -18,9 +18,11 @@ import type { Report } from './common.ts';
 const ID = 'kiro-stream-json-v1';
 
 /**
- * INFERENCE (IC-006): the probe states the `subagent_<agent>` tool naming but not where a
- * `tool_call` event carries it. Read `data.update` (ACP shape) or `data` itself, field `title`,
- * `name` or `toolName`. A live capture (IC-012) confirms or corrects this.
+ * The probe states the `subagent_<agent>` tool naming but not where a `tool_call` event carries it.
+ * Read `data.update` (ACP shape) or `data` itself, field `title`, `name` or `toolName`. The kiro-cli
+ * 3.1.0 capture (142 C.5) confirms `data.update.sessionUpdate === "tool_call"` and `data.update.title`
+ * (a display string such as "Code Intelligence" or "Load skill: do"). Still INFERENCE: that a spawn's
+ * title starts with `subagent` (no run produced one), and the `name` / `toolName` alternatives.
  */
 function toolNameOf(event: any): string | null {
   const data = event.data;

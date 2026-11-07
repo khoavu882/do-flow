@@ -1,9 +1,13 @@
 'use strict';
 
-// IC-002 rule 7, IC-006, IC-014: kiro-stream-json-v1. Every fixture is `synthetic`: shaped from the
-// event names and `runFinished` fields in probe-kiro-pi.json P1b. The `tool_call` name path
-// (`data.update.title`) is INFERENCE, so the spawn fixtures are synthetic until a live capture
-// (IC-012) confirms or corrects it. No `captured` fixture exists yet, and this test names that.
+// IC-002 rule 7, IC-006, IC-014: kiro-stream-json-v1. The synthetic fixtures are shaped from the
+// event names and `runFinished` fields in probe-kiro-pi.json P1b. One captured file (kiro-cli 3.1.0,
+// 142 C.5 write-attempt run) confirms `runFinished.data.{status,stopReason,finalText}` and the
+// `sessionUpdate` `tool_call` path `data.update.sessionUpdate` + `data.update.title`. Still INFERENCE,
+// because the run produced none: a title that starts with `subagent` (the spawn run was not made; the
+// write-attempt run stopped on a non-clean read-only check) and any refused-write event. `title` is a
+// display string in the real stream ("Code Intelligence", "Load skill: do"); `toolId` sits in
+// `_meta.kiro` only for some tools.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -13,7 +17,7 @@ const kiro = require('../../src/runtime/worker/parsers/kiro.ts');
 
 const ID = 'kiro-stream-json-v1';
 const DIR = path.join(__dirname, '..', 'fixtures', 'worker-parsers', 'kiro');
-const LABELS = ['synthetic', 'probe-3.0.0-trimmed', 'captured-3.0.0-trimmed'];
+const LABELS = ['synthetic', 'probe-3.0.0-trimmed', 'captured-3.1.0-trimmed'];
 
 const fixture = (name: string): string[] => fs.readFileSync(path.join(DIR, `${name}.jsonl`), 'utf8').split('\n').filter(Boolean);
 
@@ -50,7 +54,7 @@ test('the module exports its id and a factory', () => {
 
 test('fixtures: LF endings, a known label on every line, no absolute path, no secret shape', () => {
   const names = fs.readdirSync(DIR).filter((n: string) => n.endsWith('.jsonl'));
-  assert.deepEqual(names.sort(), ['failure.jsonl', 'permission-text.jsonl', 'spawn.jsonl', 'success.jsonl', 'truncated.jsonl', 'unknown-events.jsonl']);
+  assert.deepEqual(names.sort(), ['captured-3.1.0-write-attempt.jsonl', 'failure.jsonl', 'permission-text.jsonl', 'spawn.jsonl', 'success.jsonl', 'truncated.jsonl', 'unknown-events.jsonl']);
   for (const name of names) {
     const raw = fs.readFileSync(path.join(DIR, name), 'utf8');
     assert.ok(!raw.includes('\r'), `${name}: CR`);
@@ -60,8 +64,35 @@ test('fixtures: LF endings, a known label on every line, no absolute path, no se
     for (const line of raw.split('\n').filter(Boolean)) assert.ok(LABELS.includes(JSON.parse(line)._fixture), `${name}: label`);
   }
   const captured = names.filter((n: string) => fs.readFileSync(path.join(DIR, n), 'utf8').includes('"captured-'));
-  // Names the gap: with no live-run record cited yet, synthetic files are accepted (IC-014).
-  assert.deepEqual(captured, [], 'a captured fixture now exists: extend this test to parse it');
+  // Only the write-attempt run produced a capture; the spawn run was not made (C.5 stop rule), so the
+  // spawn fixture stays synthetic (IC-014).
+  assert.deepEqual(captured, ['captured-3.1.0-write-attempt.jsonl']);
+  assert.ok(fixture('captured-3.1.0-write-attempt').every((row: string) => JSON.parse(row)._fixture === 'captured-3.1.0-trimmed'), 'wholly captured');
+  console.log('# synthetic kiro fixtures (spawn title and refused-write shapes not observed): failure, permission-text, spawn, success, truncated, unknown-events');
+});
+
+test('captured fixture (kiro-cli 3.1.0): the real stream parses to success and no tool_call is a spawn', () => {
+  const rows = fixture('captured-3.1.0-write-attempt').map((row: string) => JSON.parse(row));
+  const report = run(fixture('captured-3.1.0-write-attempt'));
+  assert.deepEqual(report, {
+    parser: ID, status: 'success', reason: null,
+    summary: 'No. This session has no file-write tool, so I could not create probe-ro.txt.',
+    denials: [], deniedCount: 0, usage: null, ignoredLines: 16,
+  });
+  // The tool_call path the parser reads is the real one: update.sessionUpdate and update.title.
+  const calls = rows.filter((r: any) => r.type === 'sessionUpdate' && r.data.update.sessionUpdate === 'tool_call');
+  assert.deepEqual(calls.map((r: any) => r.data.update.title), ['Code Intelligence', 'Load skill: do']);
+  assert.deepEqual(rows[rows.length - 1].data.status, 'success');
+  assert.deepEqual(rows[rows.length - 1].data.stopReason, 'end_turn');
+});
+
+test('captured shape: the masker turns a numeric `tokens` value into a bare <masked>, and the line is only ignored', () => {
+  // Four lines of the real 3.1.0 stream (session_info_update, context-usage breakdown) were written this way
+  // by the supervisor's masked output file. They are not in the fixture; this is the minimal same shape.
+  const broken = '{"type":"sessionUpdate","data":{"update":{"sessionUpdate":"session_info_update","_meta":{"kiro":{"breakdown":{"tools":{"tokens":<masked>,"percent":0.7}}}}}}}';
+  const report = run([broken, ...fixture('captured-3.1.0-write-attempt')]);
+  assert.equal(report.status, 'success');
+  assert.equal(report.ignoredLines, 17);
 });
 
 test('success: runFinished with status success, stopReason end_turn and finalText', () => {

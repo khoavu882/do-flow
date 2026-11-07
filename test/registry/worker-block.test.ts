@@ -25,10 +25,10 @@ const CODEX_EVIDENCE: any = {
   runnableProbe: [CODEX_RECORD],
 };
 const CODEX_SUPPORTED = ['oneShot', 'structuredOutput', 'readOnly', 'spawnDenial', 'runnableProbe'];
-// 142 B.7, B.8: opencode and kiro hold the same five entries on their 2026-11-07 free cli-check (IC-009).
-// claude, copilot and pi are absent: their C.1, C.2 and C.3 runs hit a stop rule (usage limit; report `denied`; no live run, model selection not in the recipe), so their five entries are `unknown` again.
+// 142 B.7, B.8: opencode holds the same five entries on its 2026-11-07 free cli-check (IC-009).
+// claude, copilot, pi and kiro are absent: their C.1, C.2, C.3 and C.5 runs hit a stop rule (usage limit; report `denied`; no live run, model selection not in the recipe; non-clean read-only check), so their five entries are `unknown` again.
 const FREE_CHECK_SUPPORTED = ['oneShot', 'structuredOutput', 'readOnly', 'spawnDenial', 'runnableProbe'];
-const FREE_CHECK_HARNESSES = ['opencode', 'kiro'];
+const FREE_CHECK_HARNESSES = ['opencode'];
 const FREE_CHECK_RECIPES: any = {
   opencode: {
     oneShot: { argv: ['{prompt}'], promptVia: 'argv' },
@@ -36,13 +36,6 @@ const FREE_CHECK_RECIPES: any = {
     readOnly: { argv: ['run', '--agent', 'doflow-worker-ro'] },
     spawnDenial: { argv: [] },
     runnableProbe: { argv: ['run', '--help'] },
-  },
-  kiro: {
-    oneShot: { argv: ['--trust-workspace', '{prompt}'], promptVia: 'argv' },
-    structuredOutput: { argv: ['--output-format', 'stream-json'], parser: 'kiro-stream-json-v1' },
-    readOnly: { argv: ['chat', '--no-interactive', '--agent', 'doflow-worker-ro'] },
-    spawnDenial: { argv: ['--trust-tools=read'] },
-    runnableProbe: { argv: ['chat', '--help'] },
   },
 };
 const PER_HARNESS_REASON = ['oneShot', 'structuredOutput', 'spawnDenial']; // isolatedEdit's reason is pinned in worker-isolated-edit.test.js
@@ -156,7 +149,7 @@ test('worker: the six supported codex entries equal their committed status, evid
   }
 });
 
-test('worker: the five supported opencode and kiro entries equal their IC-009 recipe', () => {
+test('worker: the five supported opencode entries equal their IC-009 recipe', () => {
   const registry = loadRegistry({ repoRoot: REPO });
   for (const id of FREE_CHECK_HARNESSES) {
     const worker = registry.harnesses.find((harness: any) => harness.id === id).worker;

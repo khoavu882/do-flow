@@ -2713,67 +2713,39 @@
           ]
         },
         "oneShot": {
-          "status": "supported",
-          "evidence": [
-            "core/worker-evidence/kiro/2026-11-07-cli-check.json"
-          ],
-          "verification": "Run `node bin/doflow.js worker --action evidence --harness kiro --checks core/worker-evidence/kiro/checks.json --out core/worker-evidence/kiro/2026-11-07-cli-check.json` against the installed kiro-cli and read the matched help lines. Recorded 2026-11-07 on kiro-cli 3.1.0: the one-shot flags are listed in `--help` only. The combination is untested until a live run.",
-          "verifiedOn": "2026-11-07",
-          "argv": [
-            "--trust-workspace",
-            "{prompt}"
-          ],
-          "promptVia": "argv"
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read kiro's headless CLI documentation and `kiro-cli --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no recorded evidence for kiro-cli: no free check has captured its one-shot headless flag or how it reads a prompt"
         },
         "structuredOutput": {
-          "status": "supported",
-          "evidence": [
-            "core/worker-evidence/kiro/2026-11-07-cli-check.json"
-          ],
-          "verification": "Run `node bin/doflow.js worker --action evidence --harness kiro --checks core/worker-evidence/kiro/checks.json --out core/worker-evidence/kiro/2026-11-07-cli-check.json` against the installed kiro-cli and read the matched help lines. Recorded 2026-11-07 on kiro-cli 3.1.0: the output-format flags are listed in `--help` only. The event schema is read by the parser from fixtures, not from a live run.",
-          "verifiedOn": "2026-11-07",
-          "argv": [
-            "--output-format",
-            "stream-json"
-          ],
-          "parser": "kiro-stream-json-v1"
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read kiro's headless CLI documentation and `kiro-cli --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no captured kiro-cli transcript: its event schema has no parser, and a parser waits for a transcript from its own probe"
         },
         "readOnly": {
-          "status": "supported",
-          "evidence": [
-            "core/worker-evidence/kiro/2026-11-07-cli-check.json"
-          ],
-          "verification": "Run `node bin/doflow.js worker --action evidence --harness kiro --checks core/worker-evidence/kiro/checks.json --out core/worker-evidence/kiro/2026-11-07-cli-check.json` against the installed kiro-cli and read the matched help lines. Recorded 2026-11-07 on kiro-cli 3.1.0: the flags are listed in `--help` only. Their read-only behaviour is untested until a live run. The `doflow-worker-ro` companion agent is untested until a live run.",
-          "verifiedOn": "2026-11-07",
-          "argv": [
-            "chat",
-            "--no-interactive",
-            "--agent",
-            "doflow-worker-ro"
-          ]
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read kiro's headless CLI documentation and `kiro-cli --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for kiro; nothing is inferred from another harness or a model name"
         },
         "spawnDenial": {
-          "status": "supported",
-          "evidence": [
-            "core/worker-evidence/kiro/2026-11-07-cli-check.json"
-          ],
-          "verification": "Run `node bin/doflow.js worker --action evidence --harness kiro --checks core/worker-evidence/kiro/checks.json --out core/worker-evidence/kiro/2026-11-07-cli-check.json` against the installed kiro-cli and read the matched help lines. Recorded 2026-11-07 on kiro-cli 3.1.0: the flag is listed in `--help` only. That it stops a spawn is untested until a live run.",
-          "verifiedOn": "2026-11-07",
-          "argv": [
-            "--trust-tools=read"
-          ]
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read kiro's headless CLI documentation and `kiro-cli --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no recorded evidence for kiro-cli: no free check shows a flag that disables subagent spawning"
         },
         "runnableProbe": {
-          "status": "supported",
-          "evidence": [
-            "core/worker-evidence/kiro/2026-11-07-cli-check.json"
-          ],
-          "verification": "Run `node bin/doflow.js worker --action evidence --harness kiro --checks core/worker-evidence/kiro/checks.json --out core/worker-evidence/kiro/2026-11-07-cli-check.json` against the installed kiro-cli and read the matched help lines. Recorded 2026-11-07 on kiro-cli 3.1.0: the help text prints; this runs no model.",
-          "verifiedOn": "2026-11-07",
-          "argv": [
-            "chat",
-            "--help"
-          ]
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read kiro's headless CLI documentation and `kiro-cli --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for kiro; nothing is inferred from another harness or a model name"
         },
         "hooksProbe": {
           "status": "unknown",
