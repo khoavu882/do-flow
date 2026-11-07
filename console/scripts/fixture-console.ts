@@ -16,9 +16,10 @@
 //   --keep           leave the scratch directory in place on exit (its path goes to stderr)
 //   --tick <seconds> every <seconds>, take the next step of the live run `run-tick`: complete design,
 //                    complete planning (the run now awaits gate-a), approve gate-a (it is RUNNING in
-//                    implementation). A line `tick` on stdin takes the same next step at once. The
-//                    steps end there: completing implementation needs a readiness record, which a
-//                    fixture does not make.
+//                    implementation), then 24 annotations of implementation ("tick 1" to "tick 24"),
+//                    one timeline entry each, so a latency measure gets at least 20 ticks (DEC-048).
+//                    A line `tick` on stdin takes the same next step at once. The steps end there:
+//                    completing implementation needs a readiness record, which a fixture does not make.
 //   --append <seconds> every <seconds> (and on a stdin line `append`), the appending writer adds a reply, a tool call and its
 //                    result to the Claude fixture transcript of the Fleet view; the Console shows them within a second.
 //
@@ -245,6 +246,9 @@ function addRuns(fixture: Fixture, core: string): Array<{ describe: string, args
     { describe: `${live.taskId}: design completed`, args: ['orchestrate', '--action', 'complete-stage', '--task-id', live.taskId, '--stage', 'design', '--result', 'passed', '--slug', live.slug] },
     { describe: `${live.taskId}: planning completed, awaiting gate-a`, before: () => fs.writeFileSync(path.join(main, 'agent-docs', 'doflow', live.slug, 'plan.md'), PASSING_PLAN), args: ['orchestrate', '--action', 'complete-stage', '--task-id', live.taskId, '--stage', 'planning', '--result', 'passed', '--slug', live.slug] },
     { describe: `${live.taskId}: gate-a approved, implementation running`, args: ['orchestrate', '--action', 'decide-gate', '--task-id', live.taskId, '--gate', 'gate-a', '--decision', 'approve', '--slug', live.slug] },
+    // DEC-048: the latency measure needs at least 20 ticks; each annotation adds one timeline entry.
+    ...Array.from({ length: 24 }, (_, i) => ({ describe: `${live.taskId}: implementation annotated, tick ${i + 1}`,
+      args: ['orchestrate', '--action', 'annotate', '--task-id', live.taskId, '--slug', live.slug, '--node', 'implementation', '--note', `tick ${i + 1}`] })),
   ];
 }
 
