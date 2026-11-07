@@ -155,12 +155,12 @@ test('compat: every identity behaviour row is limitation or carries a live recor
 
 test('compat: identity control, a row promoted to enforced without a live record is reported', () => {
   const copy = structuredClone(LIFECYCLE);
-  const row = copy.coverage.behaviours.find((r: any) => r.behaviour === 'identity' && r.harness === 'codex');
+  const row = copy.coverage.behaviours.find((r: any) => r.behaviour === 'identity' && r.harness === 'opencode');
   Object.assign(row, { status: 'enforced', tests: ['test/hooks/policy-envelope.test.ts'] });
   delete row.limitation;
-  assert.deepEqual(identityFindings(copy, HARNESSES), ["identity row for 'codex' is 'enforced' without a live record"]);
-  row.provenance = [{ kind: 'live', locator: 'test/fixtures/hooks/codex/live/missing.jsonl', date: '2026-11-05' }];
-  assert.deepEqual(identityFindings(copy, HARNESSES), ["identity row for 'codex' is 'enforced' without a live record"]);
+  assert.deepEqual(identityFindings(copy, HARNESSES), ["identity row for 'opencode' is 'enforced' without a live record"]);
+  row.provenance = [{ kind: 'live', locator: 'test/fixtures/hooks/opencode/live/missing.jsonl', date: '2026-11-05' }];
+  assert.deepEqual(identityFindings(copy, HARNESSES), ["identity row for 'opencode' is 'enforced' without a live record"]);
 });
 
 // RK9: the scratch PATH is the scratch bin plus a scratch directory holding one `node` link. The
