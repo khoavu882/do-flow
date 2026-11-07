@@ -1,15 +1,15 @@
 ---
-description: The declared execution procedure, the nine task classes, gates, and readiness contracts.
+description: How DoFlow declares a run, from task classes and gates to readiness, evidence, verification and lifecycle.
 ---
 # How DoFlow works
 
-DoFlow gives an AI coding agent a **declared procedure** for a piece of work, instead of letting it
-decide the procedure as it goes. The agent proposes what kind of task this is; a runtime validates
-that proposal against a registry and hands back the stages, gates and contracts that apply. From
-that point the run has a plan of record that neither the agent nor the user has to hold in memory.
+DoFlow gives an AI coding agent a **declared procedure** for a piece of work, instead of letting it decide the
+procedure as it goes. The agent proposes what kind of task this is; a runtime validates that proposal against a
+registry and hands back the stages, gates and contracts that apply. From that point the run has a plan of record that
+neither the agent nor the user has to hold in memory.
 
-This page describes the machinery. For the per-skill surface, see
-[Reference](reference.md).
+This page describes the mechanism. For step-by-step recipes, see the [Guide](guide.md); for the per-skill surface and
+exact commands, see [Reference](reference.md).
 
 ## The shape of a run
 
@@ -28,15 +28,14 @@ flowchart TB
     R --> D["Edits, then verification, then review"]
 ```
 
-Two properties matter more than the diagram. **The class is proposed by the model and validated by
-the runtime, never chosen by the runtime.** And **the validation checks two things**: that the class
-exists, and that the skill asking is actually a stage in that class's workflow. A skill can be
-refused for a class that is perfectly correct, because that class does not route through it.
+Two properties matter more than the diagram. **The class is proposed by the model and validated by the runtime, never
+chosen by the runtime.** And the validation checks two things: that the class exists, and that the skill asking is a
+stage in that class's workflow. A skill can be refused for a correct class because that class does not route through
+it.
 
 ## The nine task classes
 
-Declared in `core/registry/workflows.json`. Stages name skills that already exist; the registry adds
-none.
+Declared in `core/registry/workflows.json`. Stages name skills that already exist; the registry adds none.
 
 <!-- BEGIN GENERATED:task-classes -->
 | Class | Stages | Gates | Readiness |
@@ -52,13 +51,11 @@ none.
 | `trivial-edit` | implementation → verification | — | `trivial-edit` |
 <!-- END GENERATED:task-classes -->
 
-The differences between them are the point. `feature` is the only class with a required discovery stage
-(`research` opens with an optional `scoping` stage of kind `discovery`), and the only one that demands three artifacts before an edit. `refactor` has no discovery stage at all —
-refactoring starts from code that already exists, so its first stage *maps* the system rather than
-eliciting requirements. `refactor` also has no planning stage. `review` has no implementation stage
-by construction, and `research` requires no implementation readiness, because neither authors source.
-
-A class whose stages never mutate source declares no readiness template. That is not an omission:
+The differences between them are the point. `feature` is the only class with a required discovery stage (`research`
+opens with an optional `scoping` stage of kind `discovery`) and the only one that demands three artifacts before an
+edit. `refactor` has no discovery or planning stage: it starts from code that already exists, so its first stage
+*maps* the system. `review` has no implementation stage by construction, and `research` requires no implementation
+readiness, because neither authors source. A class whose stages never mutate source declares no readiness template:
 there is no source edit for a contract to gate.
 
 ## Stages have kinds
@@ -78,8 +75,7 @@ Every stage declares a `kind`, and the kind decides what the stage may do; it al
 | `synthesis` | Produce a written deliverable (a report, reference or record) as the terminal output | no |
 | `operation` | Run a branch, release or merge action that changes repository state without authoring source | no |
 
-`implementation` is the only kind that mutates the tree, and therefore the only kind a readiness
-template can gate.
+`implementation` is the only kind that mutates the tree, and therefore the only kind a readiness template can gate.
 
 ## Gates
 
@@ -91,20 +87,15 @@ A gate pauses the run between stages. Only `feature` declares any:
 | `gate-a` | planning | always | The three artifacts are ready — proceed to implementation? |
 | `gate-b` | review | always | Review is complete — proceed to commit and merge? |
 
-`feature` additionally carries an advisory hook, keyed on branch and artifact state, that notes a
-source edit made before its three artifacts exist — regardless of which skill is doing the editing.
-It never blocks the edit. The runtime enforces the order at the handoff (see "Readiness is four
-states, never a score" below). The hook's advice is meant to reach the model only on Claude Code and
-Codex PreToolUse (not verified in a live session); on the other harnesses it is record-only or a
-stderr line (see [reference](reference.md)).
+`feature` additionally carries an advisory hook, keyed on branch and artifact state, that notes a source edit made
+before its three artifacts exist, whichever skill is editing. It never blocks the edit; the runtime enforces the order
+at the handoff (next section). The advice is meant to reach the model only on Claude Code and Codex PreToolUse (not
+verified in a live session); on the other harnesses it is record-only or a stderr line (see [Reference](reference.md)).
 
-Outside any class, the per-prompt hook on Claude Code and Codex can add one advisory note per
-session suggesting `/do` on the first prompt of the session that reads as a plain code-change request,
-which can be a later prompt. It is not a gate:
-it never blocks a prompt, and it stays silent once work is already under DoFlow. On both harnesses the
-hook now returns its output in one nested `hookSpecificOutput` object, the shape Claude Code honours,
-so the first-prompt Git context and the session title reach Claude Code as well. The other harnesses
-have no such hook. See [Prompt nudge](reference.md#prompt-nudge) for the rules and the off switch.
+Outside any class, the per-prompt hook on Claude Code and Codex can add one advisory note per session suggesting `/do`
+on the first prompt that reads as a plain code-change request. It is not a gate and stays silent once work is already
+under DoFlow; the other harnesses have no such hook. The rules and the off switch are in
+[Prompt nudge](reference.md#prompt-nudge).
 
 ## Readiness is four states, never a score
 
@@ -116,27 +107,25 @@ Before a stage that edits source, the runtime grades the task against its class'
 | `READY` | Every mandatory prerequisite is satisfied |
 | `NEEDS_EVIDENCE` | The contract is understood; the prerequisites are not yet established |
 | `NEEDS_USER_DECISION` | A decision is owed by the user |
-| `BLOCKED` | A claim on this task is `conflicted` — its evidence disagrees with itself |
+| `BLOCKED` | A claim on this task is `conflicted`: its evidence disagrees with itself |
 
-There is no fifth state, no partial state, and no numeric or percentage rendering of any of them.
-The engine fails closed: a requirement it cannot evaluate reads as unmet.
+There is no fifth state, no partial state, and no numeric or percentage rendering of any of them. The engine fails
+closed: a requirement it cannot evaluate reads as unmet. Each evaluation is recorded under `.doflow/state/readiness/`, so a later step can ask whether the task was `READY`
+before its work began. The runtime asks it on all seven harnesses: `orchestrate` `handoff` and `complete-stage` of the
+gated `implementation` stage refuse without a `READY` record of the stage's template made before the call, and name
+the `readiness` command that clears the refusal; `verify` reports `INCONCLUSIVE` in place of `PASS` while a run with
+that stage pending has no such record.
 
-Each evaluation is recorded under `.doflow/state/readiness/`, so a later step can ask whether the task
-was `READY` before its work began instead of evaluating again with whatever it is handed then. The
-runtime asks it on all seven harnesses: `orchestrate` `handoff` and `complete-stage` of the gated
-`implementation` stage refuse without a `READY` record of the stage's template made before the call,
-and name the `readiness` command that clears the refusal; `verify` reports `INCONCLUSIVE` in place
-of `PASS` while a run with that stage pending has no such record. Six harnesses have a hook layer
-(Claude Code, Codex once its hooks are reviewed, Pi, Antigravity, Kiro and Copilot CLI), and there the
-same check also advises on a source edit with the same text and never blocks it: on a feature
-branch whose three artifacts and decision register exist, and while a `feature`, `bug`, `refactor` or `dependency-change` run is
-open with its implementation stage pending (the run is the one named by the host's task id, else by
-the branch's slug). OpenCode has no hook layer, so the handoff and `verify` are
-their only checks. Pi has a `tool_call` guard extension. Its pre-implementation gate is advisory per the code, which has not
-been observed live; project-interactive and user-interactive coverage remains unknown, including
-interactive loading and project-trust behavior. The handoff and `verify` still apply there. `trivial-edit` opts out of the edit-time check on every harness: it is held at
-the handoff and `verify` only. A linked worktree reads the main checkout's feature folder, readiness
-records and runs, and updates a run where it lives.
+Six harnesses have a hook layer (Claude Code, Codex once its hooks are reviewed, Pi, Antigravity, Kiro and Copilot
+CLI), and there the same check also advises on a source edit with the same text and never blocks it. It applies on a
+feature branch whose three artifacts and decision register exist, and while a `feature`, `bug`, `refactor` or
+`dependency-change` run is open with its implementation stage pending (the run is the one named by the host's task id,
+else by the branch's slug). OpenCode has no hook layer, so the handoff and `verify` are its only checks. Pi's
+`tool_call` guard extension is advisory per the code and has not been observed live; project-interactive and
+user-interactive coverage remains unknown, including interactive loading and project-trust behavior. The handoff and
+`verify` still apply there. `trivial-edit` opts out of the edit-time check on every harness: it is held at the handoff and `verify`
+only. A linked worktree reads the main checkout's feature folder, readiness records and runs, and updates a run where
+it lives.
 
 Five classes have a template:
 
@@ -148,8 +137,8 @@ Five classes have a template:
 | `dependency-change` | `compatibility_checked`, `usage_impact`, `verification_command` |
 | `trivial-edit` | `target_identified`, `scope_verified` |
 
-Three different inputs satisfy them, and **knowing which one moved a verdict is the difference
-between a contract that was met and one that was described as met**:
+Three different inputs satisfy them, and **knowing which one moved a verdict is the difference between a contract that
+was met and one that was described as met**:
 
 - **Recorded evidence** satisfies requirements that declare evidence kinds.
 - **A supported claim** satisfies `root_cause`, the one requirement that demands one.
@@ -158,111 +147,81 @@ between a contract that was met and one that was described as met**:
 
 ## Evidence and claims
 
-A stage records what it observed as an evidence batch — one pass at the stage boundary, never one
-call per fact. Each item carries a `kind`, a `source`, a locator or content, and a **provenance**
-that is `extracted`, `inferred`, or `asserted`, with no default. An unstated provenance is refused
-rather than filed as repository fact.
+A stage records what it observed as an evidence batch: one pass at the stage boundary, never one call per fact. Each
+item carries a `kind`, a `source`, a locator or content, and a **provenance** that is `extracted`, `inferred`, or
+`asserted`, with no default. An unstated provenance is refused rather than filed as repository fact.
+`generated-analysis` and `user-statement` can never be `extracted`; that pairing is precisely how a reading of the
+evidence stops being distinguishable from the evidence.
 
-The rule that does the most work: `generated-analysis` and `user-statement` can never be
-`extracted`. That pairing is precisely how a reading of the evidence stops being distinguishable
-from the evidence.
-
-Conclusions are added as **claims**, stored as hypotheses. A claim becomes `supported` only by
-linking evidence the ledger actually holds — a link naming an unknown id is refused, not graded. A
-claim carrying both fresh support and fresh contradiction becomes `conflicted`, which is what makes
-readiness report `BLOCKED`.
-
-Relevance is not confidence. A match count, a ranking or a best hit is a property of the query, not
-of the fact; the ledger records locators, never scores.
+Conclusions are added as **claims**, stored as hypotheses. A claim becomes `supported` only by linking evidence the
+ledger actually holds; a link naming an unknown id is refused, not graded. A claim carrying both fresh support and
+fresh contradiction becomes `conflicted`, which is what makes readiness report `BLOCKED`. Relevance is not confidence:
+a match count, a ranking or a best hit is a property of the query, not of the fact, so the ledger records locators,
+never scores.
 
 ## Verification scales with risk
 
-`core/registry/verification.json` declares nine check tiers in a fixed order —
-`parse`, `build`, `static-analysis`, `targeted-tests`, `broad-tests`, `structural-invariants`,
-`requirement-satisfaction`, `change-scope`, `model-review` — and four risk levels (`LOW`, `MEDIUM`,
-`HIGH`, `CRITICAL`) that select how many of them a change must clear. The risk level also sets the
-bound on how many times a failed check may be retried; the runtime classifies the failure and
+`core/registry/verification.json` declares nine check tiers in a fixed order — `parse`, `build`, `static-analysis`,
+`targeted-tests`, `broad-tests`, `structural-invariants`, `requirement-satisfaction`, `change-scope`, `model-review` —
+and four risk levels (`LOW`, `MEDIUM`, `HIGH`, `CRITICAL`) that select how many of them a change must clear. The risk
+level also sets the bound on how many times a failed check may be retried; the runtime classifies the failure and
 returns the action, so no agent picks its own retry count.
 
 ## After the chain: the lifecycle loop
 
-The chain ends with a reviewed change, but a feature rarely ends with nothing left over. The
-lifecycle loop is what happens around the chain: the feature leaves follow-ups, the next feature
-starts from them, a release finishes what shipped, and a maintain step settles what is still open.
+The chain ends with a reviewed change, but a feature rarely ends with nothing left over. The lifecycle loop is what
+happens around the chain: the feature leaves follow-ups, the next feature starts from them, a release finishes what
+shipped, and a maintain step settles what is still open. The commands are in the Guide:
+[Keep track of what is left](guide.md#keep-track-of-what-is-left).
 
-```mermaid
-flowchart LR
-    F[Feature] --> T[Test] --> R[Review] --> S[Ship] --> L[Release] --> M[Maintain]
-    F -. leaves follow-ups .-> Store[(Lifecycle store)]
-    R -. leaves follow-ups .-> Store
-    Store -. overview before discovery .-> F
-    L -. records what shipped .-> Store
-    M -. settles each open item .-> Store
-```
-
-**Four verbs, one store.** `followup` records and settles deferred work, `lifecycle` shows the
-project's overview, tracks features and records releases, `goal` keeps an outcome and its
-checklist, and `failure` lists what DoFlow captured about itself on this machine. They go through
-the same dispatcher as every other verb, so a skill calls `doflow-run followup` and nothing
-else. `/do maintain` is the entry in the `do` skill that walks the open items; it adds no skill and no task class.
+**Four verbs, one store.** `followup` records and settles deferred work, `lifecycle` shows the project's overview,
+tracks features and records releases, `goal` keeps an outcome and its checklist, and `failure` lists what DoFlow
+captured about itself on this machine. They go through the same dispatcher as every other verb. `/do maintain` is the
+entry in the `do` skill that walks the open items; it adds no skill and no task class.
 
 **The store is a folder of events, not a file.** Each change writes one small JSON file under
-`.doflow/state/lifecycle/events/`, created once and never edited or renamed. The folder is local to
-this machine and not shared. The files of settled items are deleted once they are older than the
-retention window: 180 days by default and the hours `DOFLOW_RETENTION_HOURS` names when it is set.
-While pruning is switched off none are deleted, unless `DOFLOW_RETENTION_HOURS` is set explicitly:
-that window still decides lifecycle-event removal.
-Beside the events sit only a marker recording the one-time copy from the old `agent-docs/lifecycle/`
-folder and the retention switch's journal; there is no running state: every read lists the events,
-orders them by time and id, and folds them into the current picture. Two copies that hold the same files therefore produce
-the same answer, and two processes recording at the same time never write the same file. The price
-is that a read grows with the number of events, which is small for this use. A transition that is
-illegal at its place in the order, such as taking an item that was dismissed, is refused on write
-and listed as a conflict if it arrives in a copied file.
+`.doflow/state/lifecycle/events/`, created once and never edited or renamed, local to this machine and not shared. The
+files of settled items are deleted after a retention window ([Storage and retention](reference.md#storage-and-retention)).
+Beside the events sit only a marker recording the one-time copy from
+the old `agent-docs/lifecycle/` folder and the retention switch's journal; there is no running state: every read lists
+the events, orders them by time and id, and folds them into the current picture. Two copies that hold the same files
+therefore produce the same answer, and two processes recording at the same time never write the same file. The price
+is that a read grows with the number of events, which is small for this use. A transition that is illegal at its place
+in the order, such as taking an item that was dismissed, is refused on write and listed as a conflict if it arrives in
+a copied file.
 
-**Derived versus recorded.** The store records what people and agents did: an item added, taken,
-settled or promoted, a feature tracked, a release recorded, a goal checked. It does not record a
-feature's status. Whether a feature is `in-progress`, `awaiting-release` or `finished` is derived
-from git on every read, from merge evidence into the integration branch and from the release
-record, so a status can never be stale and a later read can change it. A taken follow-up shows as
-done only while its feature derives as finished. Because the status is a fold over facts that
-existed before it, a feature created before the loop is simply untracked: nothing is derived for it
-and it keeps working as it did.
+**Derived versus recorded.** The store records what people and agents did: an item added, taken, settled or promoted,
+a feature tracked, a release recorded, a goal checked. It does not record a feature's status. Whether a feature is
+`in-progress`, `awaiting-release` or `finished` is derived from git on every read, from merge evidence into the
+integration branch and from the release record, so a status can never be stale and a later read can change it. A taken
+follow-up shows as done only while its feature derives as finished. A feature created before the loop is simply
+untracked: nothing is derived for it and it keeps working as it did.
 
-**Decisions only the user makes.** DoFlow proposes and the user decides. A goal is closed only
-through a user channel (`question`, `gate` or `prompt`); the default channel is refused, and a goal
-with unmet items needs a reason. The agent may propose that a goal is done when every item is met,
-and may nudge when a linked feature is finished while an item is unchecked, but it cannot close it.
-Dismissing an item and reopening a dismissed one also need a reason, and every event records
-whether the user or the agent acted.
+**Decisions only the user makes.** DoFlow proposes and the user decides. A goal is closed only through a user channel
+(`question`, `gate` or `prompt`); the default channel is refused, and a goal with unmet items needs a reason. The
+agent may propose that a goal is done when every item is met, and may nudge when a linked feature is finished while an
+item is unchecked, but it cannot close it. Dismissing an item and reopening a dismissed one also need a reason, and
+every event records whether the user or the agent acted.
 
-**What it will not do.** DoFlow never stages, commits or pushes the lifecycle folder, which
-`.doflow/state/.gitignore` keeps out of `git add -A`; nothing in the loop makes a network call; and no part of it blocks an edit, a
-write or a commit. Failure capture is machine-local, masked and switchable off, and it never
-changes the output or exit status of the command it observes.
+**What it will not do.** DoFlow never stages, commits or pushes the lifecycle folder, which `.doflow/state/.gitignore`
+keeps out of `git add -A`; nothing in the loop makes a network call; and no part of it blocks an edit, a write or a
+commit. Failure capture is machine-local, masked and switchable off, and it never changes the output or exit status of
+the command it observes.
 
 ## One seam between skills and the runtime
 
-Every runtime call a skill can make goes through a single dispatcher,
-`core/shared/scripts/doflow/bin/doflow-run`, which owns the whole verb namespace and decides per
-verb whether a shell helper or a `src/cli` command serves it. Skills never name a helper and
-never name a verb's implementation, so a verb can move between the two arms without any caller
-changing.
-
-A skill reaches the dispatcher by walking up from the working directory, then falling back to the
-user's home install. Never by a repo-relative path — a relative path in a shell command resolves
-against the user's project root, not the skill's directory.
+Every runtime call a skill can make goes through a single dispatcher, `core/shared/scripts/doflow/bin/doflow-run`,
+which owns the whole verb namespace and decides per verb whether a shell helper or a `src/cli` command serves it.
+Skills never name a helper and never name a verb's implementation, so a verb can move between the two arms without any
+caller changing. A skill reaches the dispatcher by walking up from the working directory, then falling back to the user's home install.
+Never by a repo-relative path: a relative path in a shell command resolves against the user's project root, not the
+skill's directory.
 
 ## What this buys
 
-The machinery exists so that a run's decisions survive the agent that made them.
-
-- A class the runtime rejected cannot be quietly substituted for a more convenient one.
-- A stage that edits source cannot start on the assumption that prerequisites will work out.
-- What was measured stays distinguishable from what was stated, in the ledger and in the report.
-- Where a run stopped is read from a record, not reconstructed from a transcript — so a session
-  that is compacted, interrupted or resumed by a different agent picks up from artifacts and
-  `git log` rather than from memory.
-
-None of it prevents a wrong decision. It makes the decision, its basis and its author legible
-afterwards, which is the property that survives the conversation.
+The machinery exists so that a run's decisions survive the agent that made them. A class the runtime rejected cannot
+be quietly substituted for a more convenient one. A stage that edits source cannot start on the assumption that
+prerequisites will work out. What was measured stays distinguishable from what was stated. Where a run stopped is read
+from a record, so a session that is compacted, interrupted or resumed by a different agent picks up from artifacts and
+`git log` rather than from memory. None of it prevents a wrong decision. It makes the decision, its basis and its author legible afterwards, which is the
+property that survives the conversation.

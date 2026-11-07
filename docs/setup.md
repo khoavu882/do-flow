@@ -1,10 +1,59 @@
 ---
-description: Prerequisites, install modes and scopes, updates, backup, rollback, MCP servers, and per-tool mapping.
+description: Quick start, prerequisites, install scopes, updates, backup, rollback, MCP servers, and per-tool mapping.
 ---
 # Setup
 
-This is the canonical installation and lifecycle guide for DoFlow. The [Quickstart](quickstart.md)
-contains only the shortest path to a working installation.
+## Quick start
+
+Three steps take you from a clean machine to a first workflow. [Prerequisites](#prerequisites)
+lists the Node.js range and the other requirements.
+
+### 1. Install
+
+Preview the plan, then install only the tools you use. `--target` takes the values listed under
+[Coding agents](#coding-agents). The package is published as `@khoavu882/doflow`; the unscoped
+`doflow` name on npm is an unrelated package.
+
+```bash
+npx @khoavu882/doflow install --dry-run -g --target claude,codex
+npx @khoavu882/doflow install -g --target claude,codex
+```
+
+The rest of this page shortens `npx @khoavu882/doflow` to `doflow`. Both are equivalent, and a linked
+checkout (see [Installation modes](#installation-modes)) gives you the short form directly.
+
+### 2. Verify
+
+```bash
+doflow status -g
+doflow doctor
+```
+
+`status` shows what is installed and where. `doctor` checks the harness adapters, external tools, and
+runtime capabilities. To confirm the tool itself picked DoFlow up, see
+[Verify, state, and recover](#verify-state-and-recover).
+
+### 3. Run one workflow
+
+In Claude Code, run `/do`. In Codex, open a configured project and ask it to use an installed skill
+such as `do-execute-plan` or `do-diagnose`. Then step through the feature chain:
+
+```text
+/do-brainstorm "add an audit export"
+/do-design
+/do-plan
+/do-execute-plan --scope next
+/do-test
+/do-code-review
+```
+
+Or let DoFlow advance the phase sequence with approval gates:
+
+```text
+/do-flow "add an audit export"
+```
+
+For task-based workflows, continue to the [Guide](guide.md).
 
 ## Prerequisites
 
@@ -108,13 +157,13 @@ model or starts Ollama.
 
 ### CLI installation
 
-Install with the CLI, for one tool or several, at user or project scope. It is published as
-`@khoavu882/doflow` — the unscoped `doflow` name on npm is an unrelated package:
+Install with the CLI, for one tool or several, at user (`-g`) or project scope. Always inspect the
+plan with `--dry-run` before the first real installation; the [Quick start](#quick-start) shows the
+`npx` form. Without `-g`, the optional path is the project root and configuration is placed beneath it:
 
 ```bash
-# Always inspect the plan before the first real installation.
-npx @khoavu882/doflow install --dry-run -g
-npx @khoavu882/doflow install -g --target claude,codex
+doflow install ../my-project --target codex
+# -> ../my-project/.codex/
 ```
 
 ### CLI installation from a checkout
@@ -126,20 +175,9 @@ control rather than the published version:
 git clone git@github.com:khoavu882/do-flow.git ~/do-flow
 cd ~/do-flow
 npm link
-
-doflow install --dry-run -g
-doflow install -g --target claude,codex
 ```
 
-Both forms expose the same commands. The rest of this guide writes `doflow`; substitute
-`npx @khoavu882/doflow` if you did not link a checkout.
-
-Without `-g`, the optional path is the project root and configuration is placed beneath it:
-
-```bash
-doflow install ../my-project --target codex
-# -> ../my-project/.codex/
-```
+`doflow` then resolves to your working tree and exposes the same commands as the `npx` form.
 
 ### What gets installed
 
@@ -158,10 +196,9 @@ it currently prints `antigravity-> undefined`; use the table below for that targ
 | Kiro | `~/.kiro/` | `<projectRoot>/.kiro/` |
 | Antigravity | `~/.gemini/config/` | `<projectRoot>/.agents/` **and** `<projectRoot>/AGENTS.md` — see [below](#antigravity-global-instructions-file) |
 
-OpenCode's global config lives at `~/.config/opencode/`, **not** `~/.opencode/` — a path DoFlow's
-own docs asserted incorrectly for several releases. `~/.opencode/` is a plausible guess that
-OpenCode does not read; `src/adapters/opencode/index.ts`'s `nativePaths()` is the authoritative
-implementation, confirmed against <https://opencode.ai/docs>.
+OpenCode's global config lives at `~/.config/opencode/`, **not** `~/.opencode/`, which OpenCode does
+not read. `nativePaths()` in `src/adapters/opencode/index.ts` is the authoritative implementation,
+confirmed against <https://opencode.ai/docs>.
 
 The runtime is shared by every harness in a project. A project install of any one harness writes the
 `doflow-run` dispatcher and the runtime into `<projectRoot>/.doflow/`, and a skill from any harness
@@ -438,10 +475,7 @@ in place of `-g` for a project): DoFlow stops managing that server and keeps you
 
 ## Verify, state, and recover
 
-```bash
-doflow status -g
-doflow list-backups -g
-```
+After the [Quick start](#quick-start) checks, `doflow list-backups -g` shows the restore points.
 
 Use `/do` in Claude Code. In Codex, verify the managed `AGENTS.md` section, skill discovery,
 and any trusted hook/MCP configuration. Unavailable capability rows must remain unavailable rather than appearing as copied files. In

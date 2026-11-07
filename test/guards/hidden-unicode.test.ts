@@ -23,7 +23,7 @@ const { REPO } = require('./_shared.ts');
 const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 const { GIT_NULL_CONFIG } = require('../helper/git-null-config.ts');
 
-const SCAN_ROOTS: any = ['core', 'src', 'bin', 'docs'];
+const SCAN_ROOTS: any = ['core', 'src', 'bin', 'docs', 'specs'];
 const SCAN_FILES: any = ['README.md'];
 
 // Extensions of tracked files that are binary by nature and so may hold NUL bytes. The repository

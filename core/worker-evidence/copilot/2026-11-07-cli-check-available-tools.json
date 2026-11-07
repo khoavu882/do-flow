@@ -57,12 +57,16 @@
       "exit": 0,
       "expect": [
         "^\\s+--deny-tool \\[<tools>\\.\\.\\.\\]$",
-        "Tools the CLI does not have permission to use"
+        "Tools the CLI does not have permission to use",
+        "^\\s+--available-tools \\[<tools>\\.\\.\\.\\]$",
+        "Only these tools will be available to the model"
       ],
       "id": "read-only-flags",
       "matched": [
         "      --deny-tool [<tools>...]",
-        "          Tools the CLI does not have permission to use; will not"
+        "          Tools the CLI does not have permission to use; will not",
+        "      --available-tools [<tools>...]",
+        "          Only these tools will be available to the model"
       ],
       "result": "pass"
     },
@@ -84,10 +88,28 @@
         "          These tools will not be available to the model"
       ],
       "result": "pass"
+    },
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "model"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--model <model>$"
+      ],
+      "id": "help-model",
+      "matched": [
+        "      --model <model>"
+      ],
+      "result": "pass"
     }
   ],
   "cliVersion": "GitHub Copilot CLI 1.0.105.",
   "establishes": [
+    "model",
     "oneShot",
     "readOnly",
     "runnableProbe",
@@ -96,7 +118,7 @@
   ],
   "harness": "copilot",
   "kind": "cli-check",
-  "recordedAt": "2026-11-07T05:23:10.506Z",
+  "recordedAt": "2026-11-07T11:28:44.577Z",
   "run": null,
   "schema": "doflow-worker-evidence-v1"
 }

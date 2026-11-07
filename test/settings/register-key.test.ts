@@ -95,8 +95,8 @@ test('IC-016: verify.v0 registers through the existing consumer and config list 
   assert.equal(defaultView.get('verify.v0').value, 'on');
   assert.equal(defaultView.get('verify.v0').origin.layer, 'default');
 
-  const shippedDocs = fs.readFileSync(path.join(REPO, 'docs', 'settings.md'), 'utf8');
-  const fixtureDocsFile = path.join(fixture.dir, 'docs', 'settings.md');
+  const shippedDocs = fs.readFileSync(path.join(REPO, 'docs', 'reference.md'), 'utf8');
+  const fixtureDocsFile = path.join(fixture.dir, 'docs', 'reference.md');
   fs.mkdirSync(path.dirname(fixtureDocsFile), { recursive: true });
   fs.writeFileSync(fixtureDocsFile, shippedDocs);
   const missingRow = checkSettingsDocs(raw, shippedDocs, loaded.registry);

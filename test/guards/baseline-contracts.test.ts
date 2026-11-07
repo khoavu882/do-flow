@@ -386,27 +386,27 @@ function k2ContractProblems({ operatingModes, boundary, assertNoScoreFields }: a
   const headings = (text: any) => [...text.matchAll(/^## (.+)$/gm)].map((m) => m[1].trim());
   const want27: any = ['Modes', 'Ownership', 'Task states', 'Rules', 'User controls', 'Harness primitives', 'Refresh'];
   const got27 = headings(operatingModes).filter((h) => want27.includes(h));
-  if (JSON.stringify(got27) !== JSON.stringify(want27)) p.push(`docs/specs/operating-modes.md: headings ${JSON.stringify(got27)} differ from IC-027 ${JSON.stringify(want27)}`);
+  if (JSON.stringify(got27) !== JSON.stringify(want27)) p.push(`specs/operating-modes.md: headings ${JSON.stringify(got27)} differ from IC-027 ${JSON.stringify(want27)}`);
   const section = operatingModes.split(/^## Task states$/m)[1]?.split(/^## /m)[0] || '';
   for (const state of ['PLANNED', 'READY', 'RUNNING', 'SUCCEEDED', 'FAILED', 'BLOCKED', 'CANCELLED']) {
     const row = section.split('\n').find((l: any) => l.startsWith(`| ${state} |`));
     const cells = row ? row.split('|').map((c: any) => c.trim()) : [];
-    if (!row) p.push(`docs/specs/operating-modes.md: Task states has no ${state} row`);
-    else if (!['implemented', 'target'].includes(cells[3])) p.push(`docs/specs/operating-modes.md: ${state} Implemented cell must be implemented or target, got ${JSON.stringify(cells[3])}`);
+    if (!row) p.push(`specs/operating-modes.md: Task states has no ${state} row`);
+    else if (!['implemented', 'target'].includes(cells[3])) p.push(`specs/operating-modes.md: ${state} Implemented cell must be implemented or target, got ${JSON.stringify(cells[3])}`);
   }
   const want28: any = ['Candidate', 'Evidence', 'Absence', 'Examples', 'Refresh'];
   const got28 = headings(boundary).filter((h) => want28.includes(h));
-  if (JSON.stringify(got28) !== JSON.stringify(want28)) p.push(`docs/specs/candidate-evidence-boundary.md: headings ${JSON.stringify(got28)} differ from IC-028`);
+  if (JSON.stringify(got28) !== JSON.stringify(want28)) p.push(`specs/candidate-evidence-boundary.md: headings ${JSON.stringify(got28)} differ from IC-028`);
   const examples: any = new Map();
   for (const m of boundary.matchAll(/<!-- example: (\S+) (valid|invalid) -->\n```json\n([\s\S]*?)\n```/g)) examples.set(m[1], m[3]);
-  for (const id of ['valid-1', 'invalid-score-evidence', 'invalid-provider-binding', 'invalid-stale-absence']) if (!examples.has(id)) p.push(`docs/specs/candidate-evidence-boundary.md: example ${id} is missing`);
+  for (const id of ['valid-1', 'invalid-score-evidence', 'invalid-provider-binding', 'invalid-stale-absence']) if (!examples.has(id)) p.push(`specs/candidate-evidence-boundary.md: example ${id} is missing`);
   if (examples.has('invalid-score-evidence')) {
     let threw = false;
     try { assertNoScoreFields(JSON.parse(examples.get('invalid-score-evidence')), ''); } catch { threw = true; }
-    if (!threw) p.push('docs/specs/candidate-evidence-boundary.md: assertNoScoreFields did not throw on invalid-score-evidence');
+    if (!threw) p.push('specs/candidate-evidence-boundary.md: assertNoScoreFields did not throw on invalid-score-evidence');
   }
   if (examples.has('valid-1')) {
-    try { assertNoScoreFields(JSON.parse(examples.get('valid-1')), ''); } catch (e: any) { p.push(`docs/specs/candidate-evidence-boundary.md: valid-1 was rejected: ${e.message.slice(0, 60)}`); }
+    try { assertNoScoreFields(JSON.parse(examples.get('valid-1')), ''); } catch (e: any) { p.push(`specs/candidate-evidence-boundary.md: valid-1 was rejected: ${e.message.slice(0, 60)}`); }
   }
   return p;
 }
@@ -463,16 +463,16 @@ test('G33.15 control: dropping one harness block or one operation is reported wi
 test('G33.16: IC-027 headings and state rows, IC-028 headings and examples, and the score refusal hold', () => {
   const { assertNoScoreFields } = require(path.join(REPO, 'src/runtime/cli.ts'));
   assert.deepEqual(k2ContractProblems({
-    operatingModes: fs.readFileSync(path.join(REPO, 'docs/specs/operating-modes.md'), 'utf8'),
-    boundary: fs.readFileSync(path.join(REPO, 'docs/specs/candidate-evidence-boundary.md'), 'utf8'),
+    operatingModes: fs.readFileSync(path.join(REPO, 'specs/operating-modes.md'), 'utf8'),
+    boundary: fs.readFileSync(path.join(REPO, 'specs/candidate-evidence-boundary.md'), 'utf8'),
     assertNoScoreFields,
   }), []);
 });
 test('G33.16 control: a dropped heading, a dropped state row, a dropped example and a non-throwing refusal are reported', () => {
   const { assertNoScoreFields } = require(path.join(REPO, 'src/runtime/cli.ts'));
-  const operatingModes = fs.readFileSync(path.join(REPO, 'docs/specs/operating-modes.md'), 'utf8')
+  const operatingModes = fs.readFileSync(path.join(REPO, 'specs/operating-modes.md'), 'utf8')
     .replace(/^## Rules$/m, '## Rule').replace(/^\| CANCELLED \|.*$/m, '');
-  const boundary = fs.readFileSync(path.join(REPO, 'docs/specs/candidate-evidence-boundary.md'), 'utf8')
+  const boundary = fs.readFileSync(path.join(REPO, 'specs/candidate-evidence-boundary.md'), 'utf8')
     .replace('<!-- example: invalid-stale-absence invalid -->', '');
   const got = k2ContractProblems({ operatingModes, boundary, assertNoScoreFields: () => {} }).join('\n');
   assert.match(got, /operating-modes\.md: headings .* differ from IC-027/);
@@ -1033,8 +1033,8 @@ const DELIVERABLES_IN_IC030: any = [
   'bench/inventory/tools.json',
   'bench/inventory/coverage.json',
   'bench/inventory/proposals.json',
-  'docs/specs/operating-modes.md',
-  'docs/specs/candidate-evidence-boundary.md',
+  'specs/operating-modes.md',
+  'specs/candidate-evidence-boundary.md',
   'test/runtime/performance-budget.test.ts',
 ];
 

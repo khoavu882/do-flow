@@ -1,0 +1,3 @@
+{"event":"init","init":{"model":"gemini-3.8-flash","cwd":"/work/project","tools":["read_file"],"permission_mode":"always-proceed"},"_fixture":"synthetic"}
+{"event":"step_update","step_update":{"step_index":0,"state":"ACTIVE","step_type":"user_input"},"_fixture":"synthetic"}
+

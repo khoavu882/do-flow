@@ -27,7 +27,7 @@ function docsRows(text: any) {
   while (header < lines.length && !lines[header].startsWith('|')) header++;
   if (header === lines.length) return { error: 'settings table is missing', rows: new Map() };
   const split = (line: any) => line.trim().replace(/^\|/, '').replace(/\|$/, '').split(/(?<!\\)\|/).map((cell: any) => cell.trim().replace(/^`(.*)`$/, '$1'));
-  // docs/settings.md (087b): the generated settings-keys block adds Description after the six
+  // docs/reference.md (087b): the generated settings-keys block adds Description after the six
   // columns this guard compares; the header must be exactly these seven.
   const wanted = ['Key', 'Type', 'Default', 'Scope', 'Env', 'Legacy file', 'Description'];
   const headings = split(lines[header]);

@@ -335,21 +335,21 @@ const PARSER_BY_HARNESS: any = {
   copilot: 'copilot-json-v1',
   kiro: 'kiro-stream-json-v1',
   pi: 'pi-json-v1',
+  antigravity: 'agy-stream-json-v1',
 };
 
 const ACCEPTED_KEYS: any = {
   codex: ['isolatedEdit', 'model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
-  opencode: ['oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
-  claude: [],
-  copilot: [],
-  pi: [],
-  kiro: [],
+  opencode: ['model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
+  claude: ['model'],
+  copilot: ['model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
+  pi: ['model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
+  kiro: ['model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
   antigravity: [],
 };
 
-test('G41.3: PARSER_BY_HARNESS names every parser-bearing harness, none for antigravity, each id a key of PARSERS', () => {
-  assert.deepEqual(Object.keys(PARSER_BY_HARNESS).sort(), ['claude', 'codex', 'copilot', 'kiro', 'opencode', 'pi']);
-  assert.ok(!Object.hasOwn(PARSER_BY_HARNESS, 'antigravity'));
+test('G41.3: PARSER_BY_HARNESS names every parser-bearing harness, each id a key of PARSERS', () => {
+  assert.deepEqual(Object.keys(PARSER_BY_HARNESS).sort(), ['antigravity', 'claude', 'codex', 'copilot', 'kiro', 'opencode', 'pi']);
   for (const [id, parser] of Object.entries(PARSER_BY_HARNESS)) assert.ok(Object.hasOwn(PARSERS, parser as any), `${id}: ${parser}`);
 });
 
@@ -363,15 +363,17 @@ test('G41.3: a harness with a supported structuredOutput declares exactly its ma
 test('G41.3 control: a mapped id outside PARSERS, a wrong parser, a parser on a non-supported entry and a supported entry with no mapping are each reported', () => {
   const registry = structuredClone(shipped().registry);
   const byId = (id: any) => registry.harnesses.find((h: any) => h.id === id);
-  const outside = parserMapFindings(registry, { ...PARSER_BY_HARNESS, pi: 'not-a-registered-parser' }, PARSERS);
+  const outside = parserMapFindings(registry, { ...PARSER_BY_HARNESS, claude: 'not-a-registered-parser' }, PARSERS);
   assert.equal(outside.length, 1);
-  assert.match(outside[0], /maps 'pi' to "not-a-registered-parser".*not a key of PARSERS/);
+  assert.match(outside[0], /maps 'claude' to "not-a-registered-parser".*not a key of PARSERS/);
   assert.equal(parserMapFindings(registry, { ...PARSER_BY_HARNESS, opencode: 'codex-exec-json-v1' }, PARSERS).length, 1, 'wrong parser for opencode');
   byId('claude').worker.structuredOutput.parser = 'codex-exec-json-v1';
   assert.match(parserMapFindings(registry, PARSER_BY_HARNESS, PARSERS).join('\n'), /harness 'claude' declares a parser on a structuredOutput that is not supported/);
   delete byId('claude').worker.structuredOutput.parser;
-  Object.assign(byId('antigravity').worker.structuredOutput, { status: 'supported', parser: 'codex-exec-json-v1' });
-  assert.match(parserMapFindings(registry, PARSER_BY_HARNESS, PARSERS).join('\n'), /harness 'antigravity' has a supported structuredOutput but no entry in PARSER_BY_HARNESS/);
+  const { antigravity: _, ...withoutAgy } = PARSER_BY_HARNESS;
+  byId('antigravity').worker.structuredOutput.status = 'supported';
+  byId('antigravity').worker.structuredOutput.parser = 'agy-stream-json-v1';
+  assert.match(parserMapFindings(registry, withoutAgy, PARSERS).join('\n'), /harness 'antigravity' has a supported structuredOutput but no entry in PARSER_BY_HARNESS/);
 });
 
 test('G41.4: every supported worker entry cites a recorded evidence file that establishes it', () => {
@@ -388,9 +390,9 @@ test('G41.4: every supported worker entry cites a recorded evidence file that es
 
 test('G41.4 control: an ACCEPTED_KEYS entry with no registry key, one for no harness, and a registry key with no map entry are each reported', () => {
   const registry = structuredClone(shipped().registry);
-  const extraKey = acceptedKeyFindings(registry, { ...ACCEPTED_KEYS, pi: ['oneShot'] });
+  const extraKey = acceptedKeyFindings(registry, { ...ACCEPTED_KEYS, claude: ['model', 'oneShot'] });
   assert.equal(extraKey.length, 1);
-  assert.match(extraKey[0], /ACCEPTED_KEYS lists 'oneShot' for harness 'pi'/);
+  assert.match(extraKey[0], /ACCEPTED_KEYS lists 'oneShot' for harness 'claude'/);
   const extraHarness = acceptedKeyFindings(registry, { ...ACCEPTED_KEYS, nonesuch: [] });
   assert.equal(extraHarness.length, 1);
   assert.match(extraHarness[0], /entry for 'nonesuch', which is not a registry harness/);
@@ -400,11 +402,11 @@ test('G41.4 control: an ACCEPTED_KEYS entry with no registry key, one for no har
   assert.ok(missing.every((f: any) => f.includes("harness 'opencode'") && f.includes('not in ACCEPTED_KEYS')));
 });
 
-test('G41.4 control: a supported key added to claude, kiro, pi or copilot without a map entry fails', () => {
-  for (const id of ['claude', 'kiro', 'pi', 'copilot']) {
+test('G41.4 control: a supported key added to claude without a map entry fails', () => {
+  for (const id of ['claude']) {
     const registry = structuredClone(shipped().registry);
     const harness = registry.harnesses.find((h: any) => h.id === id);
-    assert.deepEqual(supportedKeys(harness), [], `${id}: control precondition`);
+    assert.deepEqual(supportedKeys(harness), ['model'], `${id}: control precondition`);
     harness.worker.oneShot = { status: 'supported', evidence: ['https://example.invalid/one-shot'], verification: 'control fixture', verifiedOn: '2026-01-01' };
     assert.deepEqual(acceptedKeyFindings(registry, ACCEPTED_KEYS), [`G41.4: harness '${id}' worker 'oneShot' is supported but not in ACCEPTED_KEYS`], id);
   }
@@ -440,6 +442,13 @@ test('G41.5 control: codex is exempt, and a cited live-run record that fails rec
   const codex = registry.harnesses.find((h: any) => h.id === 'codex');
   codex.worker.readOnly.evidence = codex.worker.readOnly.evidence.filter((item: any) => !/-live-run-/.test(item));
   assert.deepEqual(liveRecordFindings(registry, REPO), [], 'codex needs no live-run citation');
+  // kiro's real live-run records live in the repository, not in the opencode scratch root; its entries are not under test here.
+  const kiro = registry.harnesses.find((h: any) => h.id === 'kiro');
+  for (const key of ['readOnly', 'spawnDenial']) kiro.worker[key].status = 'unknown';
+  const copilot = registry.harnesses.find((h: any) => h.id === 'copilot');
+  for (const key of ['readOnly', 'spawnDenial']) copilot.worker[key].status = 'unknown';
+  const pi = registry.harnesses.find((h: any) => h.id === 'pi');
+  for (const key of ['readOnly', 'spawnDenial']) pi.worker[key].status = 'unknown';
   const { root, copy } = opencodeScratch(t);
   const opencode = registry.harnesses.find((h: any) => h.id === 'opencode');
   const failed = copy('2026-11-07-live-run-read-only.json', 'failed.json', (r: any) => { r.run.report.status = 'failure'; });

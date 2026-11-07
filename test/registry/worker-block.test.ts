@@ -25,10 +25,13 @@ const CODEX_EVIDENCE: any = {
   runnableProbe: [CODEX_RECORD],
 };
 const CODEX_SUPPORTED = ['oneShot', 'structuredOutput', 'readOnly', 'spawnDenial', 'runnableProbe'];
-// 142 B.7, B.8: opencode holds the same five entries on its 2026-11-07 free cli-check (IC-009).
-// claude, copilot, pi and kiro are absent: their C.1, C.2, C.3 and C.5 runs hit a stop rule (usage limit; report `denied`; no live run, model selection not in the recipe; non-clean read-only check), so their five entries are `unknown` again.
+// 142 B.7, B.8: opencode and kiro hold the same five entries on their 2026-11-07 free cli-check (IC-009).
+// claude, copilot and pi are absent: their C.1, C.2 and C.3 runs hit a stop rule (usage limit; report `denied`; no live run, model selection not in the recipe), so their five entries are `unknown` again.
 const FREE_CHECK_SUPPORTED = ['oneShot', 'structuredOutput', 'readOnly', 'spawnDenial', 'runnableProbe'];
-const FREE_CHECK_HARNESSES = ['opencode'];
+const FREE_CHECK_HARNESSES = ['opencode', 'kiro', 'copilot', 'pi'];
+// 147: copilot's checks.json gained the --available-tools expectation, so every copilot entry cites the one record made with it.
+const cliRecord = (id: string) => `core/worker-evidence/${id}/2026-11-07-cli-check${id === 'copilot' ? '-available-tools' : id === 'pi' ? '-model' : ''}.json`;
+const MODEL_HARNESSES = ['claude', 'copilot', 'pi', 'opencode', 'kiro']; // 146: antigravity's model entry stays unknown (its --help prints to stderr, see its reason)
 const FREE_CHECK_RECIPES: any = {
   opencode: {
     oneShot: { argv: ['{prompt}'], promptVia: 'argv' },
@@ -36,6 +39,27 @@ const FREE_CHECK_RECIPES: any = {
     readOnly: { argv: ['run', '--agent', 'doflow-worker-ro'] },
     spawnDenial: { argv: [] },
     runnableProbe: { argv: ['run', '--help'] },
+  },
+  pi: {
+    oneShot: { argv: ['-p', '--no-session', '--thinking', 'off', '--no-skills', '--no-context-files', '--offline', '{prompt}'], promptVia: 'argv' },
+    structuredOutput: { argv: ['--mode', 'json'], parser: 'pi-json-v1' },
+    readOnly: { argv: ['--tools', 'read,grep,find,ls'] },
+    spawnDenial: { argv: ['--no-extensions', '--no-mcp'] },
+    runnableProbe: { argv: ['--help'] },
+  },
+  copilot: {
+    oneShot: { argv: ['--trust-folder', '--no-ask-user', '-p', '{prompt}'], promptVia: 'argv' },
+    structuredOutput: { argv: ['--output-format', 'json'], parser: 'copilot-json-v1' },
+    readOnly: { argv: ['--available-tools', 'view', 'glob', 'grep', '--deny-tool', 'write', '--deny-tool', 'shell'] },
+    spawnDenial: { argv: ['--excluded-tools', 'task'] },
+    runnableProbe: { argv: ['--help'] },
+  },
+  kiro: {
+    oneShot: { argv: ['--trust-workspace', '{prompt}'], promptVia: 'argv' },
+    structuredOutput: { argv: ['--output-format', 'stream-json'], parser: 'kiro-stream-json-v1' },
+    readOnly: { argv: ['chat', '--no-interactive', '--agent', 'doflow-worker-ro'] },
+    spawnDenial: { argv: ['--trust-tools=read'] },
+    runnableProbe: { argv: ['chat', '--help'] },
   },
 };
 const PER_HARNESS_REASON = ['oneShot', 'structuredOutput', 'spawnDenial']; // isolatedEdit's reason is pinned in worker-isolated-edit.test.js
@@ -94,13 +118,21 @@ test('worker: the seven harnesses declare IC-002 values and nothing else as supp
         assert.equal(worker[key].verifiedOn, '2026-10-18', `codex ${key} verifiedOn`);
         continue;
       }
+      if (MODEL_HARNESSES.includes(harness.id) && key === 'model') {
+        // 146: the `--model <id>` flag each CLI lists in --help, recorded by the help-model free check; G41.4 checks the record.
+        assert.equal(worker.model.status, 'supported', `${harness.id} model`);
+        assert.deepEqual(worker.model.evidence, [harness.id === 'copilot' ? cliRecord('copilot') : `core/worker-evidence/${harness.id}/2026-11-07-cli-check-model.json`], `${harness.id} model evidence`);
+        assert.deepEqual(worker.model.argv, ['--model', '{model}'], `${harness.id} model argv`);
+        assert.equal(worker.model.verifiedOn, '2026-11-07', `${harness.id} model verifiedOn`);
+        continue;
+      }
       if (FREE_CHECK_HARNESSES.includes(harness.id) && FREE_CHECK_SUPPORTED.includes(key)) {
         // 142 IC-009: the five entries the recorded free cli-check establishes; the record is checked by G41.4.
         assert.equal(worker[key].status, 'supported', `${harness.id} ${key}`);
-        // 142 C.4: opencode's readOnly and spawnDenial also cite its two 2026-11-07 live runs (G41.5 checks them).
-        const live = harness.id === 'opencode' && (key === 'readOnly' || key === 'spawnDenial')
-          ? ['core/worker-evidence/opencode/2026-11-07-live-run-read-only.json', 'core/worker-evidence/opencode/2026-11-07-live-run-spawn.json'] : [];
-        assert.deepEqual(worker[key].evidence, [`core/worker-evidence/${harness.id}/2026-11-07-cli-check.json`, ...live], `${harness.id} ${key} evidence`);
+        // 142 C.4, 145: opencode's and kiro's readOnly and spawnDenial also cite their two 2026-11-07 live runs (G41.5 checks them).
+        const live = (harness.id === 'opencode' || harness.id === 'kiro' || harness.id === 'copilot' || harness.id === 'pi') && (key === 'readOnly' || key === 'spawnDenial')
+          ? [`core/worker-evidence/${harness.id}/2026-11-07-live-run-read-only.json`, `core/worker-evidence/${harness.id}/2026-11-07-live-run-spawn.json`] : [];
+        assert.deepEqual(worker[key].evidence, [cliRecord(harness.id), ...live], `${harness.id} ${key} evidence`);
         assert.equal(worker[key].verifiedOn, '2026-11-07', `${harness.id} ${key} verifiedOn`);
         continue;
       }
@@ -149,7 +181,7 @@ test('worker: the six supported codex entries equal their committed status, evid
   }
 });
 
-test('worker: the five supported opencode entries equal their IC-009 recipe', () => {
+test('worker: the five supported opencode and kiro entries equal their IC-009 recipe', () => {
   const registry = loadRegistry({ repoRoot: REPO });
   for (const id of FREE_CHECK_HARNESSES) {
     const worker = registry.harnesses.find((harness: any) => harness.id === id).worker;
@@ -158,8 +190,8 @@ test('worker: the five supported opencode entries equal their IC-009 recipe', ()
       const { argv, promptVia, parser } = worker[key];
       assert.deepEqual({ argv, promptVia, parser }, { promptVia: undefined, parser: undefined, ...(recipe as any) }, `${id} ${key}`);
     }
-    // nothing beyond the five: model and the unprobed capabilities stay unknown
-    for (const key of ['hooksProbe', 'guidanceProbe', 'loginProbe', 'persistentSession', 'resume', 'steering', 'isolatedEdit', 'model']) {
+    // nothing beyond the five and the model flag: the unprobed capabilities stay unknown
+    for (const key of ['hooksProbe', 'guidanceProbe', 'loginProbe', 'persistentSession', 'resume', 'steering', 'isolatedEdit']) {
       assert.equal(worker[key].status, 'unknown', `${id} ${key}`);
     }
   }

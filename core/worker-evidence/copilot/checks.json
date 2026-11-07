@@ -25,7 +25,7 @@
     {
       "id": "read-only-flags",
       "argv": ["--help"],
-      "expect": ["^\\s+--deny-tool \\[<tools>\\.\\.\\.\\]$", "Tools the CLI does not have permission to use"],
+      "expect": ["^\\s+--deny-tool \\[<tools>\\.\\.\\.\\]$", "Tools the CLI does not have permission to use", "^\\s+--available-tools \\[<tools>\\.\\.\\.\\]$", "Only these tools will be available to the model"],
       "establishes": ["readOnly"]
     },
     {
@@ -33,6 +33,12 @@
       "argv": ["--help"],
       "expect": ["^\\s+--excluded-tools \\[<tools>\\.\\.\\.\\]$", "These tools will not be available to the model"],
       "establishes": ["spawnDenial"]
+    },
+    {
+      "id": "help-model",
+      "argv": ["--help"],
+      "expect": ["^\\s+--model <model>$"],
+      "establishes": ["model"]
     }
   ]
 }

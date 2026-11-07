@@ -8,7 +8,7 @@ const path = require('node:path');
 const { FIELD_CLASSES } = require('../../src/runtime/context/compose.ts');
 
 const REPO = path.resolve(__dirname, '../..');
-const SPEC_PATH = 'docs/specs/orchestrator-context-modes.md';
+const SPEC_PATH = 'specs/orchestrator-context-modes.md';
 const REFERENCE_PATH = 'docs/reference.md';
 const SKILL_PATHS: any = [
   'core/shared/skills/do-design/SKILL.md',
@@ -69,9 +69,10 @@ function referenceContextPackRow(markdown: any) {
   }
   const link = row.match(/\[classification table\]\(([^)]+)\)/);
   assert.ok(link, 'reference: context-pack row must link the classification table');
-  const target = path.posix.normalize(path.posix.join(path.posix.dirname(REFERENCE_PATH), link[1].split('#')[0]));
-  assert.equal(target, SPEC_PATH, `reference: classification table link must target ${SPEC_PATH}`);
-  return target;
+  // The spec lives outside the published site (specs/), so the reference links it by its repository URL.
+  const target = link[1].split('#')[0];
+  assert.equal(target, `https://github.com/khoavu882/do-flow/blob/main/${SPEC_PATH}`, `reference: classification table link must target ${SPEC_PATH}`);
+  return SPEC_PATH;
 }
 
 test('IC-023 context docs keep the spec and linked reference classification table equal to FIELD_CLASSES', () => {

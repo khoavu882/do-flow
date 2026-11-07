@@ -1,0 +1,64 @@
+{
+  "binary": "copilot",
+  "checks": [],
+  "cliVersion": "GitHub Copilot CLI 1.0.105.",
+  "establishes": [
+    "oneShot",
+    "structuredOutput",
+    "spawnDenial",
+    "readOnly"
+  ],
+  "harness": "copilot",
+  "kind": "live-run",
+  "recordedAt": "2026-11-07T11:30:01.549Z",
+  "run": {
+    "argvShape": [
+      "--available-tools",
+      "view",
+      "glob",
+      "grep",
+      "--deny-tool",
+      "write",
+      "--deny-tool",
+      "shell",
+      "--excluded-tools",
+      "task",
+      "--output-format",
+      "json",
+      "--trust-folder",
+      "--no-ask-user",
+      "-p",
+      "<prompt sha256:fc924c36ebc74ea3e64c8b30f454c06dcc932c54e64c4169a856de22ad01019d bytes:107>"
+    ],
+    "edit": false,
+    "exit": 0,
+    "isolation": null,
+    "parser": "copilot-json-v1",
+    "readOnly": {
+      "changes": [],
+      "head": {
+        "after": {
+          "object": "6373f1f7d50888f0359c59df51bb1b7056c4ed11",
+          "ref": "refs/heads/exec"
+        },
+        "before": {
+          "object": "6373f1f7d50888f0359c59df51bb1b7056c4ed11",
+          "ref": "refs/heads/exec"
+        }
+      },
+      "refsChanged": false,
+      "status": "clean"
+    },
+    "report": {
+      "deniedCount": 0,
+      "reason": null,
+      "status": "success",
+      "usage": null
+    },
+    "resultOffered": true,
+    "runId": "w-9c1523a32dbc",
+    "stdoutBytes": 60400,
+    "withheld": []
+  },
+  "schema": "doflow-worker-evidence-v1"
+}

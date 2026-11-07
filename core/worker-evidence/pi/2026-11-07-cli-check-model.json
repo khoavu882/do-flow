@@ -83,10 +83,28 @@
         "  --no-mcp                       Disable built-in MCP support: no servers connect and no MCP tools"
       ],
       "result": "pass"
+    },
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "model"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--model <pattern>\\s"
+      ],
+      "id": "help-model",
+      "matched": [
+        "  --model <pattern>              Model pattern or ID (supports \"provider/id\" and optional \":<thinking>\")"
+      ],
+      "result": "pass"
     }
   ],
   "cliVersion": "1.4.0",
   "establishes": [
+    "model",
     "oneShot",
     "readOnly",
     "runnableProbe",
@@ -95,7 +113,7 @@
   ],
   "harness": "pi",
   "kind": "cli-check",
-  "recordedAt": "2026-11-07T05:22:22.697Z",
+  "recordedAt": "2026-11-07T10:56:31.189Z",
   "run": null,
   "schema": "doflow-worker-evidence-v1"
 }

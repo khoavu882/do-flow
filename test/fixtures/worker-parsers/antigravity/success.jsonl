@@ -1,0 +1,6 @@
+{"event":"init","init":{"model":"gemini-3.8-flash","cwd":"/work/project","tools":["read_file","list_dir"],"permission_mode":"always-proceed"},"_fixture":"synthetic"}
+{"event":"step_update","step_update":{"step_index":0,"state":"ACTIVE","step_type":"user_input"},"_fixture":"synthetic"}
+{"event":"step_update","step_update":{"step_index":1,"state":"DONE","step_type":"agent_response","text_delta":"Inspecting repository structure."},"_fixture":"synthetic"}
+{"event":"step_update","step_update":{"step_index":2,"state":"DONE","step_type":"tool","tool_name":"read_file"},"_fixture":"synthetic"}
+{"event":"result","result":{"status":"SUCCESS","response":"The repository ships a CLI installer.","usage":{"total_tokens":150,"input_tokens":100,"output_tokens":50}},"_fixture":"synthetic"}
+

@@ -678,7 +678,7 @@ test('G45.1: observer runtime has its own measure and the prose states hook late
   assert.deepEqual(registry.kinds.hook.fields.tool_duration_ms, {
     name: 'doflow.hook.tool_duration_ms', class: 'T1', type: 'uint|null', phase: 'P3',
   });
-  const contract = fs.readFileSync(path.join(REPO, 'docs/specs/telemetry-contract.md'), 'utf8');
+  const contract = fs.readFileSync(path.join(REPO, 'specs/telemetry-contract.md'), 'utf8');
   const hookRows = contract.split('## Hook lines\n')[1].split('## Verify lines\n')[0];
   const latency = hookRows.split('\n').find((line: any) => line.startsWith('| `duration_ms` |'));
   const runtime = hookRows.split('\n').find((line: any) => line.startsWith('| `tool_duration_ms` |'));
