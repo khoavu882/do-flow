@@ -34,11 +34,10 @@ flowchart LR
 
 ## Start here
 
-1. **New to DoFlow?** Follow the [Quickstart](docs/quickstart.md).
-2. **Need installation, updates, or rollback?** Use the [Setup guide](docs/setup.md).
-3. **Want to understand the moving parts?** Read the visual [Overview](docs/index.md#the-component-model).
-4. **Ready to work?** Pick a task pattern from the [Guide](docs/guide.md).
-5. **Looking up a command or capability?** Open the [Reference](docs/reference.md).
+1. **New to DoFlow?** Follow the [Quick start](docs/setup.md#quick-start); [Setup](docs/setup.md) also covers installation, updates, and rollback.
+2. **Want to know what it solves and how the parts fit?** Read the [Home page](docs/index.md) and [How DoFlow works](docs/how-doflow-work.md).
+3. **Ready to work?** Pick a task pattern from the [Guide](docs/guide.md).
+4. **Looking up a command, setting, or capability?** Open the [Reference](docs/reference.md).
 
 ## Install with the CLI
 

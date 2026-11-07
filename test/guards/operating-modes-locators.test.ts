@@ -3,7 +3,7 @@
 /**
  * G40: operating-modes locators resolve (080 IC-027, DEC-012).
  *
- * docs/specs/operating-modes.md marks each task state and user control `implemented` or `target`
+ * specs/operating-modes.md marks each task state and user control `implemented` or `target`
  * and cites the code behind an `implemented` claim as a `path#symbol` locator. G33.16 checks the
  * document's headings and state rows; this guard checks that the claims point at code that exists:
  *
@@ -24,7 +24,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const REPO = path.resolve(__dirname, '..', '..');
-const DOC = 'docs/specs/operating-modes.md';
+const DOC = 'specs/operating-modes.md';
 const MANUAL_CONTROLS: any = ['Pause', 'Cancel', 'Resume', 'Inspect'];
 
 const SYMBOL_LOCATOR = /`([A-Za-z0-9_./-]+\.[A-Za-z0-9]+)#([A-Za-z_$][\w$]*)`/g;

@@ -248,7 +248,7 @@ function seed(text: any, from: any, to: any) {
 
 const storage = () => JSON.parse(read('core/registry/storage.json'));
 const readiness = () => read('src/runtime/worker/readiness.ts');
-const modesDoc = () => read('docs/specs/operating-modes.md');
+const modesDoc = () => read('specs/operating-modes.md');
 const dispatcher = () => read('core/shared/scripts/doflow/bin/doflow-run');
 const ledger = () => read('src/runtime/trace/ledger.ts');
 

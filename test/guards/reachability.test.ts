@@ -34,6 +34,7 @@ function consumerTexts() {
     path.join(REPO, 'core', 'shared', 'skills'),
     path.join(REPO, 'core', 'shared', 'guidance'),
     path.join(REPO, 'docs'),
+    path.join(REPO, 'specs'),
   ];
   for (const root of roots) {
     if (!fs.existsSync(root)) continue;
