@@ -15,10 +15,38 @@ function run(lines: any) {
 }
 
 test('the table registers doflow-jsonl-v1 and codex-exec-json-v1 as ordinary properties and parserFor returns them', () => {
-  assert.deepEqual(Object.keys(PARSERS), [ID, 'codex-exec-json-v1']);
+  assert.deepEqual(Object.keys(PARSERS).slice(0, 2), [ID, 'codex-exec-json-v1']);
   assert.equal(parserFor('codex-exec-json-v1'), PARSERS['codex-exec-json-v1']);
   assert.equal(PARSERS[ID].id, ID);
   assert.equal(parserFor(ID), PARSERS[ID]);
+});
+
+const EXPECTED_IDS = [ID, 'codex-exec-json-v1', 'claude-stream-json-v1', 'opencode-run-json-v1',
+  'copilot-json-v1', 'kiro-stream-json-v1', 'pi-json-v1'];
+
+test('PARSERS has exactly the 7 expected ids and parserFor returns each frozen factory', () => {
+  assert.deepEqual(Object.keys(PARSERS).sort(), EXPECTED_IDS.slice().sort());
+  assert.equal(Object.keys(PARSERS).length, 7);
+  for (const id of EXPECTED_IDS) {
+    const factory = parserFor(id);
+    assert.equal(factory, PARSERS[id], id);
+    assert.equal(factory.id, id);
+    assert.equal(typeof factory.create, 'function');
+    assert.ok(Object.isFrozen(factory), id);
+    assert.equal(factory.create().end().parser, id);
+  }
+});
+
+test('the PARSERS table stays frozen', () => {
+  assert.ok(Object.isFrozen(PARSERS));
+  assert.throws(() => { 'use strict'; (PARSERS as any)['extra-v1'] = PARSERS[ID]; }, TypeError);
+  assert.equal(Object.keys(PARSERS).length, 7);
+});
+
+test('an id outside the table still falls back to unparsed with reason parser-unknown', () => {
+  const parser = parserFor('claude-stream-json-v2');
+  assert.equal(parser.id, 'unparsed');
+  assert.equal(parser.create().end().reason, 'parser-unknown');
 });
 
 test('a success result line gives a success report', () => {

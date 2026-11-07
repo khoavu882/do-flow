@@ -1,0 +1,7 @@
+{"type":"session.mcp_servers_loaded","data":{},"_fixture":"synthetic"}
+{"type":"assistant.reasoning","data":{"content":"thinking"},"_fixture":"synthetic"}
+{"type":"assistant.reasoning_delta","data":{"deltaContent":"th"},"_fixture":"synthetic"}
+{"type":"model.call_end","data":{},"_fixture":"synthetic"}
+{"type":"future.event.kind","data":{"x":1},"_fixture":"synthetic"}
+{"type":"assistant.message","data":{"content":"Done."},"_fixture":"synthetic"}
+{"type":"result","sessionId":"s1","exitCode":0,"usage":{"premiumRequests":1},"_fixture":"synthetic"}

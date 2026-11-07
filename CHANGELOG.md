@@ -15,6 +15,12 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-11-07
+
+### Added
+- **`team.enforcement` setting and `team.verdict` telemetry (feature 143):** `team.enforcement` (`block` or `advisory`, default `advisory`) decides whether dispatch admission skips a task the team admission controller refuses; in `advisory` the verdict is only recorded as a `team.verdict` telemetry line, and review verbs always record only. `doflow doctor`'s Agent Teams section now shows `enforcement` and `wired`, and no longer shows `activeClaimsCount`.
+- **Worker output parsers and per-harness support table (feature 142):** `src/runtime/worker/parsers/` gains parsers for claude (`claude-stream-json-v1`), opencode (`opencode-run-json-v1`), copilot (`copilot-json-v1`), kiro (`kiro-stream-json-v1`) and pi (`pi-json-v1`), each with a recipe and a free flag check in `core/worker-evidence/<harness>/`, and a read-only `doflow-worker-ro` agent for opencode and kiro. After two live runs on 2026-11-07 (opencode v2.2.5, model `opencode/deepseek-v4.1-flash-free`, stream cost 0), opencode is supported for `runnableProbe`, `oneShot`, `structuredOutput`, `readOnly` and `spawnDenial`; the opencode worker needs that agent installed (`doflow install` for opencode). What the opencode records show: a clean worktree and a success report after one request to write and one to hand off to a sub-agent, where the model said it had no such tool. The streams show the model declining, not a tool call being blocked. The mechanism is the shipped agent's deny permissions for `edit`, `shell` and `subagent`, as `opencode debug agents` resolved them on 2026-11-07 (not stored as a record); `*` stays `allow`, so MCP and webfetch tools are not denied. claude, copilot, pi and kiro stay `unknown` (claude stopped on a usage limit, copilot's write attempt ended `denied`, pi had no live run, kiro's read-only check was violated), and antigravity is excluded (FU-h1pcpq). Dispatch policy and ladder order are unchanged. The agentic bench (`bench/agentic/config.json`) now sets `harness.pin` to `codex`: opencode also qualifies for `worker.readOnly` now, and with the pin null `execute` would stop with `harness-ambiguous` instead of selecting codex; an iteration captured before the pin was set has a different capture digest from a new one. See "External worker support by harness" in the reference.
+
 ## [2.1.0] - 2026-11-07
 
 ### Added

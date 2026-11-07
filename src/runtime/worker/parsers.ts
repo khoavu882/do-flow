@@ -21,49 +21,20 @@
  */
 
 const { maskLine, maskBody } = require('../mask.ts');
+const { MAX_DENIALS, DETAIL_CHARS, SUMMARY_BYTES, cutBytes, cutChars, eventOf, lineText } = require('./parsers/common.ts');
+
+const claude = require('./parsers/claude.ts');
+const opencode = require('./parsers/opencode.ts');
+const copilot = require('./parsers/copilot.ts');
+const kiro = require('./parsers/kiro.ts');
+const pi = require('./parsers/pi.ts');
+
+import type { Denial, Report } from './parsers/common.ts';
 
 const JSONL_V1 = 'doflow-jsonl-v1';
 const CODEX_EXEC_JSON_V1 = 'codex-exec-json-v1';
 const UNPARSED = 'unparsed';
-const MAX_DENIALS = 20;
-const DETAIL_CHARS = 200;
-const SUMMARY_BYTES = 2000;
 const RESULT_STATUSES = new Set(['success', 'failure']);
-
-type Denial = { action: string; detail: string };
-type Report = {
-  parser: string;
-  status: 'success' | 'failure' | 'denied' | 'unparsed';
-  reason: string | null;
-  summary: string | null;
-  denials: Denial[];
-  deniedCount: number;
-  usage: { tokens: number } | null;
-  ignoredLines: number;
-};
-
-/** Cuts `text` to at most `max` UTF-8 bytes without splitting a character. */
-function cutBytes(text: string, max: number): string {
-  const bytes = Buffer.from(text, 'utf8');
-  if (bytes.length <= max) return text;
-  let end = max;
-  while (end > 0 && (bytes[end] & 0xc0) === 0x80) end--; // back off a continuation byte
-  return bytes.subarray(0, end).toString('utf8');
-}
-
-/** Cuts `text` to at most `max` characters (code points, so no surrogate pair is split). */
-function cutChars(text: string, max: number): string {
-  const chars = Array.from(text);
-  return chars.length <= max ? text : chars.slice(0, max).join('');
-}
-
-/** Parses one line as a `doflow-jsonl-v1` event, or returns null. */
-function eventOf(text: string): any {
-  let value: any;
-  try { value = JSON.parse(text); } catch { return null; }
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
-  return typeof value.type === 'string' ? value : null;
-}
 
 function createJsonlV1() {
   let result: { status: 'success' | 'failure'; summary: string } | null = null;
@@ -80,7 +51,7 @@ function createJsonlV1() {
       if (looksJson) oversizeJson = true;
     },
     line(text: string): void {
-      const event = eventOf(String(text ?? '').replace(/\r$/, ''));
+      const event = eventOf(lineText(text));
       if (event && event.type === 'result' && RESULT_STATUSES.has(event.status) && typeof event.summary === 'string') {
         result = { status: event.status, summary: event.summary };
       } else if (event && event.type === 'permission-denied' && typeof event.action === 'string' && typeof event.detail === 'string') {
@@ -128,7 +99,7 @@ function createCodexExecJsonV1() {
       if (looksJson) oversizeJson = true;
     },
     line(text: string): void {
-      const event = eventOf(String(text ?? '').replace(/\r$/, ''));
+      const event = eventOf(lineText(text));
       if (!event) {
         ignoredLines++;
         return;
@@ -207,6 +178,11 @@ type ParserFactory = { id: string; create(): ParserInstance };
 const PARSERS: Readonly<Record<string, ParserFactory>> = Object.freeze({
   [JSONL_V1]: Object.freeze({ id: JSONL_V1, create: createJsonlV1 }),
   [CODEX_EXEC_JSON_V1]: Object.freeze({ id: CODEX_EXEC_JSON_V1, create: createCodexExecJsonV1 }),
+  [claude.ID]: Object.freeze({ id: claude.ID, create: claude.create }),
+  [opencode.ID]: Object.freeze({ id: opencode.ID, create: opencode.create }),
+  [copilot.ID]: Object.freeze({ id: copilot.ID, create: copilot.create }),
+  [kiro.ID]: Object.freeze({ id: kiro.ID, create: kiro.create }),
+  [pi.ID]: Object.freeze({ id: pi.ID, create: pi.create }),
 });
 
 /** The parser for `id`; the `unparsed` fallback for a null or unknown one. */

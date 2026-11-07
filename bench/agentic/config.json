@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "harness": {
     "select": "worker.readOnly",
-    "pin": null
+    "pin": "codex"
   },
   "model": {
     "label": "codex:gpt-6-luna:medium",

@@ -1,0 +1,6 @@
+{"type":"session.start","data":{"sessionId":"s1"},"_fixture":"synthetic"}
+{"type":"user.message","data":{"content":"Summarise the repo"},"_fixture":"synthetic"}
+{"type":"assistant.turn_start","data":{"turnId":"0"},"_fixture":"synthetic"}
+{"type":"model.call_start","data":{},"_fixture":"synthetic"}
+{"type":"assistant.message_delta","data":{"deltaContent":"Rea"},"_fixture":"synthetic"}
+{"type":"assistant.message","data":{"content":"Partial answer"},"_fixture":"synthetic"}

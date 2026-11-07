@@ -1,0 +1,4 @@
+{"_fixture":"synthetic","type":"step_start","part":{"type":"step-start"}}
+{"_fixture":"synthetic","type":"tool_use","part":{"tool":"subagent","state":{"status":"completed"}}}
+{"_fixture":"synthetic","type":"text","part":{"text":"Delegated and done."}}
+{"_fixture":"synthetic","type":"step_finish","part":{"reason":"stop","tokens":{"input":8,"output":4}}}

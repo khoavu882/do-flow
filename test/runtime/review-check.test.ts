@@ -346,9 +346,10 @@ test('C-1: an invalid record whose slug is a sha, a seat id or a canary persists
   const files = fs.readdirSync(telemetryDir).filter((name: any) => name.endsWith('.jsonl'));
   assert.equal(files.length, 1);
   const text = fs.readFileSync(path.join(telemetryDir, files[0]), 'utf8');
-  const lines = text.trim().split('\n').map(JSON.parse);
+  // 143: each check also records a team.verdict line; this test pins the review.run lines.
+  const lines = text.trim().split('\n').map(JSON.parse).filter((line: any) => line.kind === 'review.run');
   assert.equal(lines.length, slugs.length);
-  assert.ok(lines.every((line: any) => line.kind === 'review.run' && line.task === null), 'every invalid check persists task null');
+  assert.ok(lines.every((line: any) => line.task === null), 'every invalid check persists task null');
   assert.equal(text.includes(sha), false, 'the sha slug is absent');
   assert.equal(text.includes(SECRET), false, 'the seat id and canary slugs are absent');
 });
@@ -406,10 +407,11 @@ test('end-to-end: real telemetry writer and git verify ancestry and omit planted
   const telemetryDir = path.join(runs, 'telemetry');
   const files = fs.readdirSync(telemetryDir).filter((name: any) => name.endsWith('.jsonl'));
   assert.equal(files.length, 1);
-  const lines = fs.readFileSync(path.join(telemetryDir, files[0]), 'utf8').trim().split('\n').map(JSON.parse);
+  const allLines = fs.readFileSync(path.join(telemetryDir, files[0]), 'utf8').trim().split('\n').map(JSON.parse);
+  // 143: each check also records a team.verdict line; this test pins the review.run lines.
+  const lines = allLines.filter((line: any) => line.kind === 'review.run');
   assert.equal(lines.length, 2);
-  assert.deepEqual(lines.map((line: any) => line.kind), ['review.run', 'review.run']);
-  assert.ok(lines.every((line: any) => !JSON.stringify(line).includes(SECRET)), 'real telemetry lines omit planted content and path');
+  assert.ok(allLines.every((line: any) => !JSON.stringify(line).includes(SECRET)), 'real telemetry lines omit planted content and path');
   assert.equal(lines[0].errors, 0);
   assert.equal(lines[1].errors, 1);
 });

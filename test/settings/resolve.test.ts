@@ -618,6 +618,7 @@ test('an unparseable user file marks every key of that layer invalid and affects
     'rollout.profile',
     'storage.prune',
     'storage.retentionHours',
+    'team.enforcement',
     'team.maxAttempts',
     'team.writerCap',
     'verify.reuse',

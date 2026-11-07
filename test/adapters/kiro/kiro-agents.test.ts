@@ -111,7 +111,7 @@ test('the registry projects shared agents to JSON and declares the doflow agent 
   assert.equal(own.source, 'core/harnesses/kiro/agents');
 });
 
-test('adapter installs <name>.json for all seven specs plus doflow.json, verifies managed, and uninstalls', () => {
+test('adapter installs <name>.json for all seven specs plus doflow.json and doflow-worker-ro.json, verifies managed, and uninstalls', () => {
   const root = scratch(); const adapter = createKiroAdapter();
   const assets = kiroAgentAssets();
   const context = { repoRoot: REPO_ROOT };
@@ -120,7 +120,7 @@ test('adapter installs <name>.json for all seven specs plus doflow.json, verifie
   adapter.apply({ changes: planned.changes });
 
   const agentsDir = path.join(root, '.kiro', 'agents');
-  assert.deepEqual(fs.readdirSync(agentsDir).sort(), [...SPEC_NAMES, 'doflow'].map((name) => `${name}.json`).sort());
+  assert.deepEqual(fs.readdirSync(agentsDir).sort(), [...SPEC_NAMES, 'doflow', 'doflow-worker-ro'].map((name) => `${name}.json`).sort());
   for (const name of SPEC_NAMES) {
     const installed = fs.readFileSync(path.join(agentsDir, `${name}.json`), 'utf8');
     assert.equal(installed, render(`${name}.md`, fs.readFileSync(path.join(SPECS_DIR, `${name}.md`), 'utf8')));

@@ -205,6 +205,10 @@ const isCandidate = (record: any) => record.state === 'READY' || (record.state =
  * { record, store })` IC-022's choice, called outside the lock once per candidate, returning a mode
  * or `{ mode, harness, selection }`. Optional `modelFor(task, { mode, harness, selection })`
  * supplies IC-013 / IC-010 metadata beside that choice, outside every lock and never for a hold.
+ * Optional `team` (143 IC-001, a `teamGate`) evaluates each candidate that passed the earlier skips,
+ * inside the first section with no IO; its verdicts are recorded after the lock is released. Only
+ * mode `block` lets a `refused` verdict skip the candidate (`team:<reason>`); without `team`, or in
+ * `advisory`, the return, actions and stored record are as before.
  *
  * Returns `{ outcome, admitted, skipped, refused, gaps, actions }`: `outcome` is `admitted` when a
  * dispatch was claimed, else `none` or the reason nothing was admitted (`paused`, the run's state,
@@ -212,7 +216,7 @@ const isCandidate = (record: any) => record.state === 'READY' || (record.state =
  * caller's step record.
  */
 function admit({
-  root, slug, ctx, driver, by, modeFor, modelFor, env = process.env, now = () => new Date(), storeFile = null,
+  root, slug, ctx, driver, by, modeFor, modelFor, team = null, env = process.env, now = () => new Date(), storeFile = null,
 }: any) {
   if (typeof modeFor !== 'function') throw usage('admit needs modeFor, IC-022\'s mode choice');
   if (!ctx || typeof ctx.ledgerFile !== 'string' || !Array.isArray(ctx.roots)) throw usage('admit needs ctx with ledgerFile and roots');
@@ -241,7 +245,9 @@ function admit({
   const manager = managerFor(root, slug, 'attempt', env);
 
   // First section: IC-007 steps 1 to 8 and the admitted slots.
+  let verdicts: any[] = [];
   const first = mutateDispatch(file, (store: any) => {
+    verdicts = [];
     const run = store.run;
     if (!run) return { write: false, result: empty('no-run') };
     if (run.state !== 'running' || view.run.control !== 'running') {
@@ -274,6 +280,23 @@ function admit({
       if (mainBusy) { skipped.push({ task, reason: 'main-session-busy', dispatchId: mainBusy.dispatchId }); continue; }
       const gone = workerNotGone(store, task, statuses);
       if (gone) { skipped.push({ task, reason: 'worker-not-gone', dispatchId: gone.dispatchId }); continue; }
+      if (team) {
+        // 143 IC-001: no IO here; a fault is an `error` verdict and never blocks.
+        let verdict: any = null;
+        try {
+          verdict = team.evaluate({
+            task, files: mine, owner: ownerOf.get(task) ?? null, harness: choice.harness ?? null, mode: team.mode,
+            runKey: run.runKey ?? view.run.runKey ?? undefined, priorAttempts: Number.isInteger(record.budget?.used) ? record.budget.used : 0,
+            active: busy.map((b) => ({ task: b.task, files: filesOf.get(b.task) || [] })),
+          });
+        } catch {
+          verdict = null;
+        }
+        if (verdict && typeof verdict === 'object') {
+          verdicts.push(verdict);
+          if (team.mode === 'block' && verdict.outcome === 'refused') { skipped.push({ task, reason: `team:${verdict.reason}` }); continue; }
+        }
+      }
 
       const dispatchId = newDispatchId();
       const metadata = models.get(task);
@@ -294,6 +317,10 @@ function admit({
     }
     return { write: admitted.length > 0, result: { outcome: admitted.length ? 'admitted' : 'none', slots: admitted, skipped } };
   }, fsImpl);
+  // 143 IC-001: recorded once the store lock is released; `record` never throws.
+  if (team && verdicts.length) {
+    try { team.record(verdicts); } catch { /* a recording fault changes no outcome */ }
+  }
   if (!first.slots) return first;
 
   const result: any = { outcome: 'none', admitted: [], skipped: first.skipped, refused: [], gaps: [], actions: [] };

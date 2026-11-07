@@ -1,0 +1,5 @@
+{"_fixture":"synthetic","type":"session.updated","info":{}}
+{"_fixture":"synthetic","type":"step_start","part":{"type":"step-start"}}
+{"_fixture":"synthetic","type":"reasoning","part":{"text":"hidden"}}
+{"_fixture":"synthetic","type":"text","part":{"text":"Answer."}}
+{"_fixture":"synthetic","type":"step_finish","part":{"reason":"stop","tokens":{"input":5,"output":2}}}

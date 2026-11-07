@@ -1,0 +1,9 @@
+{"type":"session","version":3,"id":"00000000-0000-4000-8000-000000000001","_fixture":"synthetic"}
+{"type":"agent_start","_fixture":"synthetic"}
+{"type":"turn_start","_fixture":"synthetic"}
+{"type":"message_start","message":{"role":"user","content":[{"type":"text","text":"say done"}]},"_fixture":"synthetic"}
+{"type":"message_end","message":{"role":"user","content":[{"type":"text","text":"say done"}]},"_fixture":"synthetic"}
+{"type":"message_start","message":{"role":"assistant","content":[]},"_fixture":"synthetic"}
+{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"done"},"_fixture":"synthetic"}
+{"type":"tool_execution_start","toolCallId":"call_1","toolName":"grep","args":{"pattern":"x"},"_fixture":"synthetic"}
+{"type":"tool_execution_end","toolCallId":"call_1","toolName":"grep","isError":false,"_fixture":"synthetic"}
