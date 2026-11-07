@@ -1,0 +1,119 @@
+{
+  "binary": "pi",
+  "checks": [
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "runnableProbe",
+        "oneShot"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+pi \\[options\\] \\[--\\] \\[@files\\.\\.\\.\\] \\[messages\\.\\.\\.\\]",
+        "^\\s+--print, -p\\s+Non-interactive mode: process prompt and exit",
+        "^\\s+--no-session\\s+Don't save session",
+        "^\\s+--thinking <level>\\s+Set thinking level: off,",
+        "^\\s+--no-skills, -ns\\s+Disable skills discovery",
+        "^\\s+--no-context-files, -nc\\s+Disable AGENTS\\.md and CLAUDE\\.md",
+        "^\\s+--offline\\s+Disable startup network operations"
+      ],
+      "id": "print-one-shot",
+      "matched": [
+        "  pi [options] [--] [@files...] [messages...]",
+        "  --print, -p                    Non-interactive mode: process prompt and exit",
+        "  --no-session                   Don't save session (ephemeral)",
+        "  --thinking <level>             Set thinking level: off, minimal, low, medium, high, xhigh, max",
+        "  --no-skills, -ns               Disable skills discovery and loading",
+        "  --no-context-files, -nc        Disable AGENTS.md and CLAUDE.md discovery and loading",
+        "  --offline                      Disable startup network operations (same as PI_OFFLINE=1)"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "structuredOutput"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--mode <mode>\\s+Output mode: text \\(default\\), json, or rpc"
+      ],
+      "id": "structured-output",
+      "matched": [
+        "  --mode <mode>                  Output mode: text (default), json, or rpc"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "readOnly"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--tools, -t <tools>\\s+Comma-separated allowlist of tool names"
+      ],
+      "id": "read-only-flags",
+      "matched": [
+        "  --tools, -t <tools>            Comma-separated allowlist of tool names or patterns (*) to enable"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "spawnDenial"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--no-extensions, -ne\\s+Disable extension discovery",
+        "^\\s+--no-mcp\\s+Disable built-in MCP support"
+      ],
+      "id": "spawn-denial-flags",
+      "matched": [
+        "  --no-extensions, -ne           Disable extension discovery and built-in extensions (explicit -e paths still work)",
+        "  --no-mcp                       Disable built-in MCP support: no servers connect and no MCP tools"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "model"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--model <pattern>\\s"
+      ],
+      "id": "help-model",
+      "matched": [
+        "  --model <pattern>              Model pattern or ID (supports \"provider/id\" and optional \":<thinking>\")"
+      ],
+      "result": "pass"
+    }
+  ],
+  "cliVersion": "1.4.0",
+  "establishes": [
+    "model",
+    "oneShot",
+    "readOnly",
+    "runnableProbe",
+    "spawnDenial",
+    "structuredOutput"
+  ],
+  "harness": "pi",
+  "kind": "cli-check",
+  "recordedAt": "2026-11-07T10:56:31.189Z",
+  "run": null,
+  "schema": "doflow-worker-evidence-v1"
+}

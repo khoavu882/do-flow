@@ -27,6 +27,12 @@
       "argv": ["run", "--help"],
       "expect": ["^\\s+--agent string\\s+Agent to use"],
       "establishes": ["spawnDenial"]
+    },
+    {
+      "id": "help-model",
+      "argv": ["run", "--help"],
+      "expect": ["^\\s+--model, -m string\\s"],
+      "establishes": ["model"]
     }
   ]
 }

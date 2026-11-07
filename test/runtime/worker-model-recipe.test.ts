@@ -182,20 +182,27 @@ test('IC-011: an unknown model entry may not carry argv', () => {
   }, 'model', "recipe field 'argv' is allowed only when status is supported");
 });
 
-test('IC-011: six shipped harnesses declare unknown model without argv; only codex is supported', () => {
+test('IC-011: codex and the five harnesses with a recorded --model help line declare it supported; antigravity stays unknown without argv', () => {
   const harnesses = loadRegistry({ repoRoot: REPO }).harnesses;
   assert.equal(harnesses.length, 7);
   for (const harness of harnesses) {
     const entry = harness.worker.model;
     assert.ok(entry, `${harness.id} declares model`);
-    assert.equal(entry.verifiedOn, DATE);
     assert.equal(Object.keys(harness.worker).indexOf('model'), Object.keys(harness.worker).indexOf('isolatedEdit') + 1);
     if (harness.id === 'codex') {
+      assert.equal(entry.verifiedOn, DATE);
       assert.equal(entry.status, 'supported', harness.id);
       assert.deepEqual(entry.argv, ['-m', '{model}']);
       assert.deepEqual(entry.evidence, ['core/worker-evidence/codex/2026-10-24-cli-check.json']);
+    } else if (['claude', 'copilot', 'pi', 'opencode', 'kiro'].includes(harness.id)) {
+      // 146: the `--model <id>` flag each CLI lists in --help, recorded by the help-model free check.
+      assert.equal(entry.status, 'supported', harness.id);
+      assert.deepEqual(entry.argv, ['--model', '{model}']);
+      assert.deepEqual(entry.evidence, [`core/worker-evidence/${harness.id}/2026-11-07-cli-check-model.json`]);
+      assert.equal(entry.verifiedOn, '2026-11-07');
     } else {
       const binary = harness.worker.cli.binary;
+      assert.equal(entry.verifiedOn, DATE);
       assert.deepEqual(entry, {
         status: 'unknown',
         evidence: [],

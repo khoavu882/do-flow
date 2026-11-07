@@ -1,0 +1,120 @@
+{
+  "binary": "copilot",
+  "checks": [
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "runnableProbe",
+        "oneShot"
+      ],
+      "exit": 0,
+      "expect": [
+        "^Usage: copilot \\[OPTIONS\\] \\[COMMAND\\]",
+        "^\\s+-p, --prompt <text>$",
+        "Execute a prompt in non-interactive mode",
+        "^\\s+--trust-folder$",
+        "^\\s+--no-ask-user$"
+      ],
+      "id": "print-one-shot",
+      "matched": [
+        "Usage: copilot [OPTIONS] [COMMAND]",
+        "  -p, --prompt <text>",
+        "          Execute a prompt in non-interactive mode (exits after",
+        "      --trust-folder",
+        "      --no-ask-user",
+        "  # Execute a prompt in non-interactive mode (exits after completion)"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "structuredOutput"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--output-format <format>$",
+        "\\(JSONL, one JSON"
+      ],
+      "id": "structured-output",
+      "matched": [
+        "      --output-format <format>",
+        "          Output format: 'text' (default) or 'json' (JSONL, one JSON"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "readOnly"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--deny-tool \\[<tools>\\.\\.\\.\\]$",
+        "Tools the CLI does not have permission to use"
+      ],
+      "id": "read-only-flags",
+      "matched": [
+        "      --deny-tool [<tools>...]",
+        "          Tools the CLI does not have permission to use; will not"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "spawnDenial"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--excluded-tools \\[<tools>\\.\\.\\.\\]$",
+        "These tools will not be available to the model"
+      ],
+      "id": "spawn-denial-flags",
+      "matched": [
+        "      --excluded-tools [<tools>...]",
+        "          These tools will not be available to the model"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "model"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--model <model>$"
+      ],
+      "id": "help-model",
+      "matched": [
+        "      --model <model>"
+      ],
+      "result": "pass"
+    }
+  ],
+  "cliVersion": "GitHub Copilot CLI 1.0.105.",
+  "establishes": [
+    "model",
+    "oneShot",
+    "readOnly",
+    "runnableProbe",
+    "spawnDenial",
+    "structuredOutput"
+  ],
+  "harness": "copilot",
+  "kind": "cli-check",
+  "recordedAt": "2026-11-07T10:56:27.174Z",
+  "run": null,
+  "schema": "doflow-worker-evidence-v1"
+}

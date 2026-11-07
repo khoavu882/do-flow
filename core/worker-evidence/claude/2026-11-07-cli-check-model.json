@@ -1,0 +1,120 @@
+{
+  "binary": "claude",
+  "checks": [
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "runnableProbe",
+        "oneShot"
+      ],
+      "exit": 0,
+      "expect": [
+        "^Usage: claude \\[options\\]",
+        "^\\s+-p, --print\\s",
+        "^\\s+--no-session-persistence\\s"
+      ],
+      "id": "print-one-shot",
+      "matched": [
+        "Usage: claude [options] [command] [prompt]",
+        "  --no-session-persistence              Disable session persistence - sessions",
+        "  -p, --print                           Print response and exit (useful for"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "structuredOutput"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--output-format <format>",
+        "or \"stream-json\" \\(realtime",
+        "^\\s+--verbose\\s"
+      ],
+      "id": "structured-output",
+      "matched": [
+        "  --output-format <format>              Output format (only works with --print):",
+        "                                        result), or \"stream-json\" (realtime",
+        "  --verbose                             Override verbose mode setting from"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "readOnly"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--tools <tools\\.\\.\\.>",
+        "^\\s+--permission-mode <mode>",
+        "\"plan\"\\)",
+        "^\\s+--strict-mcp-config\\s"
+      ],
+      "id": "read-only-flags",
+      "matched": [
+        "  --permission-mode <mode>              Permission mode to use for the session",
+        "                                        \"dontAsk\", \"plan\")",
+        "                                        --strict-mcp-config to skip MCP servers",
+        "  --strict-mcp-config                   Only use MCP servers from --mcp-config,",
+        "  --tools <tools...>                    Specify the list of available tools from"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "spawnDenial"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--disallowedTools, --disallowed-tools <tools\\.\\.\\.>$"
+      ],
+      "id": "spawn-denial-flags",
+      "matched": [
+        "  --disallowedTools, --disallowed-tools <tools...>"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "model"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--model <model>\\s"
+      ],
+      "id": "help-model",
+      "matched": [
+        "  --model <model>                       Model for the current session. Provide"
+      ],
+      "result": "pass"
+    }
+  ],
+  "cliVersion": "2.1.311 (Claude Code)",
+  "establishes": [
+    "model",
+    "oneShot",
+    "readOnly",
+    "runnableProbe",
+    "spawnDenial",
+    "structuredOutput"
+  ],
+  "harness": "claude",
+  "kind": "cli-check",
+  "recordedAt": "2026-11-07T10:56:26.692Z",
+  "run": null,
+  "schema": "doflow-worker-evidence-v1"
+}

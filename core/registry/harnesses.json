@@ -384,12 +384,17 @@
           "reason": "no recorded evidence for claude: no free check shows a flag that confines edits to the working directory"
         },
         "model": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read claude's headless CLI documentation and `claude --help`; record the flag that selects the model and its source",
-          "verifiedOn": "2026-10-24",
-          "reason": "no recorded evidence for claude: no free check shows a flag that selects the model"
-        },
+            "status": "supported",
+            "evidence": [
+              "core/worker-evidence/claude/2026-11-07-cli-check-model.json"
+            ],
+            "verification": "Run `node bin/doflow.js worker --action evidence --harness claude --checks core/worker-evidence/claude/checks.json --out <new cli-check path>` against the installed claude and read the matched `--model <model>` line (check help-model). Recorded 2026-11-07 on Claude Code 2.1.311: the flag is listed in `claude --help`. That the CLI accepts a given model id is not checked; the id is passed through.",
+            "verifiedOn": "2026-11-07",
+            "argv": [
+              "--model",
+              "{model}"
+            ]
+          },
         "modelChecks": []
       },
       "contextProfile": {
@@ -1449,12 +1454,17 @@
           "reason": "no recorded evidence for opencode: no free check shows a flag that confines edits to the working directory"
         },
         "model": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read opencode's headless CLI documentation and `opencode --help`; record the flag that selects the model and its source",
-          "verifiedOn": "2026-10-24",
-          "reason": "no recorded evidence for opencode: no free check shows a flag that selects the model"
-        },
+            "status": "supported",
+            "evidence": [
+              "core/worker-evidence/opencode/2026-11-07-cli-check-model.json"
+            ],
+            "verification": "Run `node bin/doflow.js worker --action evidence --harness opencode --checks core/worker-evidence/opencode/checks.json --out <new cli-check path>` against the installed opencode and read the matched `--model, -m string` line (check help-model). Recorded 2026-11-07 on opencode v2.2.5: the flag is listed in `opencode run --help`. That the CLI accepts a given model id is not checked; the id is passed through.",
+            "verifiedOn": "2026-11-07",
+            "argv": [
+              "--model",
+              "{model}"
+            ]
+          },
         "modelChecks": []
       },
       "contextProfile": {
@@ -1878,12 +1888,17 @@
           "reason": "no recorded evidence for pi: no free check shows a flag that confines edits to the working directory"
         },
         "model": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read pi's headless CLI documentation and `pi --help`; record the flag that selects the model and its source",
-          "verifiedOn": "2026-10-24",
-          "reason": "no recorded evidence for pi: no free check shows a flag that selects the model"
-        },
+            "status": "supported",
+            "evidence": [
+              "core/worker-evidence/pi/2026-11-07-cli-check-model.json"
+            ],
+            "verification": "Run `node bin/doflow.js worker --action evidence --harness pi --checks core/worker-evidence/pi/checks.json --out <new cli-check path>` against the installed pi and read the matched `--model <pattern>` line (check help-model). Recorded 2026-11-07 on pi 1.4.0: the flag is listed in `pi --help`. That the CLI accepts a given model id is not checked; the id is passed through.",
+            "verifiedOn": "2026-11-07",
+            "argv": [
+              "--model",
+              "{model}"
+            ]
+          },
         "modelChecks": []
       },
       "contextProfile": {
@@ -2378,12 +2393,17 @@
           "reason": "no recorded evidence for copilot: no free check shows a flag that confines edits to the working directory"
         },
         "model": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read copilot's headless CLI documentation and `copilot --help`; record the flag that selects the model and its source",
-          "verifiedOn": "2026-10-24",
-          "reason": "no recorded evidence for copilot: no free check shows a flag that selects the model"
-        },
+            "status": "supported",
+            "evidence": [
+              "core/worker-evidence/copilot/2026-11-07-cli-check-model.json"
+            ],
+            "verification": "Run `node bin/doflow.js worker --action evidence --harness copilot --checks core/worker-evidence/copilot/checks.json --out <new cli-check path>` against the installed copilot and read the matched `--model <model>` line (check help-model). Recorded 2026-11-07 on Copilot CLI 1.0.105: the flag is listed in `copilot --help`. That the CLI accepts a given model id is not checked; the id is passed through.",
+            "verifiedOn": "2026-11-07",
+            "argv": [
+              "--model",
+              "{model}"
+            ]
+          },
         "modelChecks": []
       },
       "contextProfile": {
@@ -2829,12 +2849,17 @@
           "reason": "no recorded evidence for kiro-cli: no free check shows a flag that confines edits to the working directory"
         },
         "model": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read kiro's headless CLI documentation and `kiro-cli --help`; record the flag that selects the model and its source",
-          "verifiedOn": "2026-10-24",
-          "reason": "no recorded evidence for kiro-cli: no free check shows a flag that selects the model"
-        },
+            "status": "supported",
+            "evidence": [
+              "core/worker-evidence/kiro/2026-11-07-cli-check-model.json"
+            ],
+            "verification": "Run `node bin/doflow.js worker --action evidence --harness kiro --checks core/worker-evidence/kiro/checks.json --out <new cli-check path>` against the installed kiro-cli and read the matched `--model <MODEL>` line (check help-model). Recorded 2026-11-07 on kiro-cli 3.1.0: the flag is listed in `kiro-cli chat --help`. That the CLI accepts a given model id is not checked; the id is passed through.",
+            "verifiedOn": "2026-11-07",
+            "argv": [
+              "--model",
+              "{model}"
+            ]
+          },
         "modelChecks": []
       },
       "contextProfile": {
