@@ -1790,71 +1790,39 @@
           ]
         },
         "oneShot": {
-          "status": "supported",
-          "evidence": [
-            "core/worker-evidence/pi/2026-11-07-cli-check.json"
-          ],
-          "verification": "Run `node bin/doflow.js worker --action evidence --harness pi --checks core/worker-evidence/pi/checks.json --out core/worker-evidence/pi/2026-11-07-cli-check.json` against the installed pi and read the matched help lines. Recorded 2026-11-07 on pi 1.4.0: the one-shot flags are listed in `--help`. The combination is untested until a live run.",
-          "verifiedOn": "2026-11-07",
-          "argv": [
-            "-p",
-            "--no-session",
-            "--thinking",
-            "off",
-            "--no-skills",
-            "--no-context-files",
-            "--offline",
-            "{prompt}"
-          ],
-          "promptVia": "argv"
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read pi's headless CLI documentation and `pi --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no recorded evidence for pi: no free check has captured its one-shot headless flag or how it reads a prompt"
         },
         "structuredOutput": {
-          "status": "supported",
-          "evidence": [
-            "core/worker-evidence/pi/2026-11-07-cli-check.json"
-          ],
-          "verification": "Run `node bin/doflow.js worker --action evidence --harness pi --checks core/worker-evidence/pi/checks.json --out core/worker-evidence/pi/2026-11-07-cli-check.json` against the installed pi and read the matched help lines. Recorded 2026-11-07 on pi 1.4.0: the output-format flags are listed in `--help`. The event schema is read by the parser from fixtures, not from a live run.",
-          "verifiedOn": "2026-11-07",
-          "argv": [
-            "--mode",
-            "json"
-          ],
-          "parser": "pi-json-v1"
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read pi's headless CLI documentation and `pi --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no captured pi transcript: its event schema has no parser, and a parser waits for a transcript from its own probe"
         },
         "readOnly": {
-          "status": "supported",
-          "evidence": [
-            "core/worker-evidence/pi/2026-11-07-cli-check.json"
-          ],
-          "verification": "Run `node bin/doflow.js worker --action evidence --harness pi --checks core/worker-evidence/pi/checks.json --out core/worker-evidence/pi/2026-11-07-cli-check.json` against the installed pi and read the matched help lines. Recorded 2026-11-07 on pi 1.4.0: the flags are listed in `--help`. Their read-only behaviour is untested until a live run.",
-          "verifiedOn": "2026-11-07",
-          "argv": [
-            "--tools",
-            "read,grep,find,ls"
-          ]
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read pi's headless CLI documentation and `pi --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for pi; nothing is inferred from another harness or a model name"
         },
         "spawnDenial": {
-          "status": "supported",
-          "evidence": [
-            "core/worker-evidence/pi/2026-11-07-cli-check.json"
-          ],
-          "verification": "Run `node bin/doflow.js worker --action evidence --harness pi --checks core/worker-evidence/pi/checks.json --out core/worker-evidence/pi/2026-11-07-cli-check.json` against the installed pi and read the matched help lines. Recorded 2026-11-07 on pi 1.4.0: the flags are listed in `--help`. That they stop a spawn is untested until a live run.",
-          "verifiedOn": "2026-11-07",
-          "argv": [
-            "--no-extensions",
-            "--no-mcp"
-          ]
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read pi's headless CLI documentation and `pi --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no recorded evidence for pi: no free check shows a flag that disables subagent spawning"
         },
         "runnableProbe": {
-          "status": "supported",
-          "evidence": [
-            "core/worker-evidence/pi/2026-11-07-cli-check.json"
-          ],
-          "verification": "Run `node bin/doflow.js worker --action evidence --harness pi --checks core/worker-evidence/pi/checks.json --out core/worker-evidence/pi/2026-11-07-cli-check.json` against the installed pi and read the matched help lines. Recorded 2026-11-07 on pi 1.4.0: the help text prints; this runs no model.",
-          "verifiedOn": "2026-11-07",
-          "argv": [
-            "--help"
-          ]
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read pi's headless CLI documentation and `pi --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for pi; nothing is inferred from another harness or a model name"
         },
         "hooksProbe": {
           "status": "unknown",
