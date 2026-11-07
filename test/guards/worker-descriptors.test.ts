@@ -342,7 +342,7 @@ const ACCEPTED_KEYS: any = {
   codex: ['isolatedEdit', 'model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
   opencode: ['model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
   claude: ['model'],
-  copilot: ['model'],
+  copilot: ['model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
   pi: ['model'],
   kiro: ['model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
   antigravity: [],
@@ -402,8 +402,8 @@ test('G41.4 control: an ACCEPTED_KEYS entry with no registry key, one for no har
   assert.ok(missing.every((f: any) => f.includes("harness 'opencode'") && f.includes('not in ACCEPTED_KEYS')));
 });
 
-test('G41.4 control: a supported key added to claude, pi or copilot without a map entry fails', () => {
-  for (const id of ['claude', 'pi', 'copilot']) {
+test('G41.4 control: a supported key added to claude or pi without a map entry fails', () => {
+  for (const id of ['claude', 'pi']) {
     const registry = structuredClone(shipped().registry);
     const harness = registry.harnesses.find((h: any) => h.id === id);
     assert.deepEqual(supportedKeys(harness), ['model'], `${id}: control precondition`);
@@ -445,6 +445,8 @@ test('G41.5 control: codex is exempt, and a cited live-run record that fails rec
   // kiro's real live-run records live in the repository, not in the opencode scratch root; its entries are not under test here.
   const kiro = registry.harnesses.find((h: any) => h.id === 'kiro');
   for (const key of ['readOnly', 'spawnDenial']) kiro.worker[key].status = 'unknown';
+  const copilot = registry.harnesses.find((h: any) => h.id === 'copilot');
+  for (const key of ['readOnly', 'spawnDenial']) copilot.worker[key].status = 'unknown';
   const { root, copy } = opencodeScratch(t);
   const opencode = registry.harnesses.find((h: any) => h.id === 'opencode');
   const failed = copy('2026-11-07-live-run-read-only.json', 'failed.json', (r: any) => { r.run.report.status = 'failure'; });

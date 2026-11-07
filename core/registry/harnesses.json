@@ -2309,39 +2309,77 @@
           ]
         },
         "oneShot": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read copilot's headless CLI documentation and `copilot --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no recorded evidence for copilot: no free check has captured its one-shot headless flag or how it reads a prompt"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/copilot/2026-11-07-cli-check-available-tools.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness copilot --checks core/worker-evidence/copilot/checks.json --out core/worker-evidence/copilot/2026-11-07-cli-check-available-tools.json` against the installed copilot and read the matched help lines. Recorded 2026-11-07 on copilot 1.0.105: the one-shot flags are listed in `--help`. The combination is untested until a live run.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "--trust-folder",
+            "--no-ask-user",
+            "-p",
+            "{prompt}"
+          ],
+          "promptVia": "argv"
         },
         "structuredOutput": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read copilot's headless CLI documentation and `copilot --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no captured copilot transcript: its event schema has no parser, and a parser waits for a transcript from its own probe"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/copilot/2026-11-07-cli-check-available-tools.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness copilot --checks core/worker-evidence/copilot/checks.json --out core/worker-evidence/copilot/2026-11-07-cli-check-available-tools.json` against the installed copilot and read the matched help lines. Recorded 2026-11-07 on copilot 1.0.105: the output-format flags are listed in `--help`. The event schema is read by the parser from fixtures, not from a live run.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "--output-format",
+            "json"
+          ],
+          "parser": "copilot-json-v1"
         },
         "readOnly": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read copilot's headless CLI documentation and `copilot --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for copilot; nothing is inferred from another harness or a model name"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/copilot/2026-11-07-cli-check-available-tools.json",
+            "core/worker-evidence/copilot/2026-11-07-live-run-read-only.json",
+            "core/worker-evidence/copilot/2026-11-07-live-run-spawn.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness copilot --checks core/worker-evidence/copilot/checks.json --out core/worker-evidence/copilot/2026-11-07-cli-check-available-tools.json` against the installed copilot and read the matched help lines. Recorded 2026-11-07 on copilot 1.0.105: the flags are listed in `--help`. Live runs 2026-11-07 (Copilot CLI 1.0.105; the model was chosen by copilot's auto mode and differs between the runs, mai-code-1.1-flash and gpt-6-luna): both ran `--available-tools view glob grep --deny-tool write --deny-tool shell --excluded-tools task --output-format json --trust-folder --no-ask-user -p` in a scratch project, ended with report status success, no denied call, a clean worktree and unchanged HEAD and refs. Run w-ee620ba8747f asked for a file write: the stream's tool starts were only `view` (6) and `grep` (9), no `bash` or edit tool, and the worktree stayed clean, although the model's final line claimed it had created the file. Run w-9c1523a32dbc asked for a sub-agent hand-off: no tool was called and the model said it had no sub-agent tool. The records hold only the report status, the clean worktree check and the prompt hash. `--available-tools` is documented as the only tools the model gets, and the tool starts agree, but the model's own claims are not reliable (a hallucinated success in the first run), so the runs rest on the tool-start events and the clean tree. The four user MCP servers still connect and report their tools in the stream; no MCP tool was called, and whether the allowlist hides them from the model is not checked. An earlier run on the permission-only recipe (`--deny-tool write --deny-tool shell`) had `bash` and `apply_patch` calls refused and ended `denied`, which showed the tools were visible to the model; its record is replaced by these. Limit: one attempt per capability, auto-picked model.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "--available-tools",
+            "view",
+            "glob",
+            "grep",
+            "--deny-tool",
+            "write",
+            "--deny-tool",
+            "shell"
+          ]
         },
         "spawnDenial": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read copilot's headless CLI documentation and `copilot --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no recorded evidence for copilot: no free check shows a flag that disables subagent spawning"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/copilot/2026-11-07-cli-check-available-tools.json",
+            "core/worker-evidence/copilot/2026-11-07-live-run-read-only.json",
+            "core/worker-evidence/copilot/2026-11-07-live-run-spawn.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness copilot --checks core/worker-evidence/copilot/checks.json --out core/worker-evidence/copilot/2026-11-07-cli-check-available-tools.json` against the installed copilot and read the matched help lines. Recorded 2026-11-07 on copilot 1.0.105: the flags are listed in `--help`. Live runs 2026-11-07 (Copilot CLI 1.0.105; the model was chosen by copilot's auto mode and differs between the runs, mai-code-1.1-flash and gpt-6-luna): both ran `--available-tools view glob grep --deny-tool write --deny-tool shell --excluded-tools task --output-format json --trust-folder --no-ask-user -p` in a scratch project, ended with report status success, no denied call, a clean worktree and unchanged HEAD and refs. Run w-ee620ba8747f asked for a file write: the stream's tool starts were only `view` (6) and `grep` (9), no `bash` or edit tool, and the worktree stayed clean, although the model's final line claimed it had created the file. Run w-9c1523a32dbc asked for a sub-agent hand-off: no tool was called and the model said it had no sub-agent tool. The records hold only the report status, the clean worktree check and the prompt hash. `--available-tools` is documented as the only tools the model gets, and the tool starts agree, but the model's own claims are not reliable (a hallucinated success in the first run), so the runs rest on the tool-start events and the clean tree. The four user MCP servers still connect and report their tools in the stream; no MCP tool was called, and whether the allowlist hides them from the model is not checked. An earlier run on the permission-only recipe (`--deny-tool write --deny-tool shell`) had `bash` and `apply_patch` calls refused and ended `denied`, which showed the tools were visible to the model; its record is replaced by these. Limit: one attempt per capability, auto-picked model.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "--excluded-tools",
+            "task"
+          ]
         },
         "runnableProbe": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read copilot's headless CLI documentation and `copilot --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for copilot; nothing is inferred from another harness or a model name"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/copilot/2026-11-07-cli-check-available-tools.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness copilot --checks core/worker-evidence/copilot/checks.json --out core/worker-evidence/copilot/2026-11-07-cli-check-available-tools.json` against the installed copilot and read the matched help lines. Recorded 2026-11-07 on copilot 1.0.105: the help text prints; this runs no model.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "--help"
+          ]
         },
         "hooksProbe": {
           "status": "unknown",
@@ -2395,7 +2433,7 @@
         "model": {
             "status": "supported",
             "evidence": [
-              "core/worker-evidence/copilot/2026-11-07-cli-check-model.json"
+              "core/worker-evidence/copilot/2026-11-07-cli-check-available-tools.json"
             ],
             "verification": "Run `node bin/doflow.js worker --action evidence --harness copilot --checks core/worker-evidence/copilot/checks.json --out <new cli-check path>` against the installed copilot and read the matched `--model <model>` line (check help-model). Recorded 2026-11-07 on Copilot CLI 1.0.105: the flag is listed in `copilot --help`. That the CLI accepts a given model id is not checked; the id is passed through.",
             "verifiedOn": "2026-11-07",

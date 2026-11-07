@@ -198,7 +198,8 @@ test('IC-011: codex and the five harnesses with a recorded --model help line dec
       // 146: the `--model <id>` flag each CLI lists in --help, recorded by the help-model free check.
       assert.equal(entry.status, 'supported', harness.id);
       assert.deepEqual(entry.argv, ['--model', '{model}']);
-      assert.deepEqual(entry.evidence, [`core/worker-evidence/${harness.id}/2026-11-07-cli-check-model.json`]);
+      // copilot's checks.json changed again in 147, so its one record is the later cli-check made with it.
+      assert.deepEqual(entry.evidence, [harness.id === 'copilot' ? 'core/worker-evidence/copilot/2026-11-07-cli-check-available-tools.json' : `core/worker-evidence/${harness.id}/2026-11-07-cli-check-model.json`]);
       assert.equal(entry.verifiedOn, '2026-11-07');
     } else {
       const binary = harness.worker.cli.binary;
