@@ -2127,3 +2127,135 @@
     font-family: var(--font-mono);
   }
 }
+
+/* ---- 149 D.1: the shell (IC-020, DEC-036): rail, canvas and inspector by band -------------------- */
+/* Below 768 the rail is the nav row under the header and the canvas is one column; from 768 the rail is a 56 px icon column;
+   from 1280 it is 200 px with labels and, on an inspectable view, the docked inspector column is always present, so opening
+   or closing the inspector never changes the canvas width. The drawer and the sheet overlay the canvas. */
+@layer layout {
+  .shell {
+    display: grid;
+    grid-template-areas: "nav" "main";
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .shell > .page { grid-area: main; width: 100%; min-width: 0; }
+  .inspector { grid-area: inspector; }
+
+  @media (min-width: 768px) {
+    .shell {
+      grid-template-areas: "nav main";
+      grid-template-columns: var(--navrail-w-icons) minmax(0, 1fr);
+    }
+  }
+  @media (min-width: 1280px) {
+    .shell { grid-template-columns: var(--navrail-w) minmax(0, 1fr); }
+    .shell[data-inspectable="true"] {
+      grid-template-areas: "nav main inspector";
+      grid-template-columns: var(--navrail-w) minmax(0, 1fr) var(--inspector-w);
+    }
+  }
+}
+
+@layer components {
+  /* The rail. It keeps the .nav row rules below 768 (no icons, the list wraps as a fallback). */
+  .navrail {
+    margin: 0;
+    padding-inline: var(--gutter);
+    background: var(--surface);
+    color: var(--text);
+    border-bottom: 1px solid var(--border);
+  }
+  .navrail .navrail__link { gap: var(--space-2); }
+  .navrail__link .icon { display: none; }
+
+  @media (min-width: 768px) {
+    .navrail {
+      position: sticky;
+      top: var(--header-h);
+      align-self: start;
+      height: calc(100vh - var(--header-h));
+      padding-inline: 0;
+      border-bottom: 0;
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+    }
+    .navrail ul { flex-direction: column; align-items: center; gap: var(--space-1); padding-block: var(--space-4); }
+    .navrail .navrail__link { justify-content: center; width: var(--target); padding-inline: 0; border-radius: var(--radius-md); }
+    .navrail__link .icon { display: block; flex: none; }
+    /* Icons only: the label is visually hidden and stays the link's accessible name. */
+    .navrail__label {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+  }
+  @media (min-width: 1280px) {
+    .navrail ul { align-items: stretch; padding-inline: var(--space-3); }
+    .navrail .navrail__link { justify-content: flex-start; width: auto; padding-inline: var(--space-3); }
+    .navrail__label { position: static; width: auto; height: auto; overflow: visible; clip-path: none; }
+  }
+
+  /* The inspector: docked column, drawer or sheet (shell.js sets data-mode). */
+  .inspector {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    background: var(--surface);
+    color: var(--text);
+    border-left: 1px solid var(--border);
+  }
+  .inspector[hidden] { display: none; }
+  .inspector__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    min-height: var(--header-h);
+    padding-inline: var(--space-4) var(--space-2);
+    border-bottom: 1px solid var(--border);
+  }
+  .inspector__title { margin: 0; font: var(--type-md); font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+  .inspector__empty { margin: 0; padding: var(--space-4); font: var(--type-sm); color: var(--text-muted); }
+  .inspector__body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: var(--space-4); }
+  .inspector[data-mode="dock"] {
+    position: sticky;
+    top: var(--header-h);
+    align-self: start;
+    height: calc(100vh - var(--header-h));
+  }
+  .inspector[data-mode="drawer"] {
+    position: fixed;
+    top: var(--header-h);
+    right: 0;
+    bottom: 0;
+    width: min(var(--inspector-w), 100% - var(--space-7));
+    z-index: var(--z-panel);
+    box-shadow: var(--elev-2);
+  }
+  .inspector[data-mode="sheet"] {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    max-height: calc(100vh - var(--header-h));
+    z-index: var(--z-panel);
+    border-left: 0;
+    border-top: 1px solid var(--border);
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    box-shadow: var(--elev-2);
+  }
+  /* The scrim under the drawer or sheet; a click on it closes the inspector. */
+  .inspector__scrim {
+    position: fixed;
+    inset: 0;
+    z-index: calc(var(--z-panel) - 1);
+    background: var(--scrim);
+  }
+  @media (min-width: 768px) {
+    .inspector__scrim { top: var(--header-h); }
+  }
+}

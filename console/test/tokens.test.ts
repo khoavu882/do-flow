@@ -41,7 +41,7 @@ const INVARIANT = [
   '--radius-sm', '--radius-md', '--radius-lg', '--radius-pill',
   '--motion-fast', '--motion-base', '--motion-slow', '--motion-flash', '--motion-pulse', '--motion-march', '--motion-shimmer',
   '--ease-standard', '--ease-exit', '--ease-settle',
-  '--content-max', '--prose-max', '--gutter', '--header-h', '--target', '--target-min', '--focus-width', '--focus-offset',
+  '--content-max', '--prose-max', '--gutter', '--header-h', '--navrail-w', '--navrail-w-icons', '--inspector-w', '--target', '--target-min', '--focus-width', '--focus-offset',
   '--z-banner', '--z-header', '--z-panel', '--z-skip',
 ];
 

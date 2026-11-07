@@ -66,6 +66,9 @@
   --prose-max: 72ch;
   --gutter: 16px;
   --header-h: 56px;
+  --navrail-w: 200px;
+  --navrail-w-icons: 56px;
+  --inspector-w: 400px;
   --target: 44px;
   --target-min: 24px;
   --focus-width: 2px;

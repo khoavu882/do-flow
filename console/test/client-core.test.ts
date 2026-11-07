@@ -41,6 +41,7 @@ before(async () => {
     derive: await import(url('derive/rail.js')),
     home: await import(url('views/home.js')),
     railView: await import(url('views/rail.js')),
+    shell: await import(url('shell.js')),
   };
 });
 after(() => { fs.rmSync(copy, { recursive: true, force: true }); });
@@ -181,7 +182,7 @@ function tags(node: any): string[] {
   return node.children.flatMap((c: any) => (c instanceof El ? [c.tagName.toLowerCase(), ...tags(c)] : []));
 }
 
-const GLOBALS = ['document', 'location', 'history', 'localStorage', 'fetch', 'navigator', 'scrollTo', 'requestAnimationFrame', 'addEventListener', 'getSelection', 'Node', 'EventSource'];
+const GLOBALS = ['document', 'location', 'history', 'localStorage', 'fetch', 'navigator', 'scrollTo', 'requestAnimationFrame', 'addEventListener', 'getSelection', 'Node', 'EventSource', 'matchMedia'];
 let saved: Map<string, PropertyDescriptor | undefined> | null = null;
 
 function setGlobal(name: string, value: unknown) {
@@ -199,11 +200,11 @@ const RUNS = { v: 1, runs: [row('AWAITING_GATE', 'r1'), row('RUNNING', 'r2'), ro
 type Call = { url: string, method: string, body: any, theme: string | undefined, hash: string };
 type Page = {
   doc: any, win: any, calls: Call[], store: Map<string, string>, history: string[], scrolls: Array<[number, number]>, location: any,
-  region: El, main: El, conn: El, slot: El, nav: El[], radios: El[], skip: El, pause: El,
+  region: El, main: El, conn: El, slot: El, nav: El[], radios: El[], skip: El, pause: El, shell: El, inspector: El, media: any,
 };
 
 /** The page of index.html as the shell finds it, a fake window around it, and a scripted fetch. */
-function installPage(opts: { hash?: string, stored?: string | null, throwStorage?: boolean, eventSource?: unknown, fetch: (url: string, init: any) => Reply | Promise<Reply> | 'network' }): Page {
+function installPage(opts: { hash?: string, stored?: string | null, throwStorage?: boolean, eventSource?: unknown, width?: number, fetch: (url: string, init: any) => Reply | Promise<Reply> | 'network' }): Page {
   saved = new Map(GLOBALS.map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
   const doc: any = { activeElement: null, focusLog: [], hidden: false, title: '', listeners: new Map<string, Function[]>() };
   const el = (tag: string, attrs: Record<string, string> = {}, children: any[] = []) => {
@@ -214,21 +215,29 @@ function installPage(opts: { hash?: string, stored?: string | null, throwStorage
   };
   const html = el('html', { class: 'booting' });
   const body = el('body');
-  const link = (href: string, text: string) => el('a', { class: 'nav__link', href }, [text]);
+  const link = (href: string, text: string) => el('a', { class: 'nav__link navrail__link', href }, [el('span', { class: 'navrail__label' }, [text])]);
   const radio = (choice: string) => el('button', { type: 'button', role: 'radio', class: 'theme__opt', 'aria-checked': 'false', tabindex: '-1', 'data-theme-choice': choice }, [el('span', { class: 'theme__label' }, [choice])]);
   const skip = el('a', { class: 'skip', href: '#main' }, ['Skip to content']);
-  const nav = [link('#/', 'Runs'), link('#/workflows', 'Workflows'), link('#/sessions', 'Sessions'), link('#/fleet', 'Fleet')]; // E.7 and V.10: the fake page mirrors index.html's links
+  const nav = [link('#/', 'Now'), link('#/sessions', 'Sessions'), link('#/workflows', 'Workflows'), link('#/fleet', 'Fleet')]; // 149 D.1: the fake page mirrors index.html's rail
   const radios = ['light', 'dark', 'system'].map(radio);
   const conn = el('p', { class: 'conn', id: 'conn', 'data-state': 'unknown' }, [el('span', { class: 'conn__long' }, ['Connecting']), el('span', { class: 'conn__short' }, ['Connecting'])]);
   const pause = el('button', { type: 'button', class: 'btn btn--ghost pause', id: 'pause', 'aria-pressed': 'false', hidden: '' }, [el('span', { class: 'pause__label' }, ['Pause updates'])]);
   const region = el('div', { class: 'vh', id: 'announcer' });
   const main = el('main', { id: 'main', class: 'page', tabindex: '-1' });
   const slot = el('div', { id: 'banner-slot' });
+  const inspector = el('aside', { id: 'inspector', class: 'inspector', 'aria-label': 'Details', hidden: '' }, [
+    el('div', { class: 'inspector__head' }, [el('h2', { class: 'inspector__title', id: 'inspector-title' }, ['Details']),
+      el('button', { type: 'button', class: 'btn btn--ghost inspector__close' }, [el('span', { class: 'vh' }, ['Close details'])])]),
+    el('p', { class: 'inspector__empty' }, ['Select an item to see its details here.']),
+    el('div', { class: 'inspector__body' }),
+  ]);
+  const shell = el('div', { class: 'shell', id: 'shell', 'data-inspectable': 'false' }, [
+    el('nav', { class: 'nav navrail', 'aria-label': 'Primary' }, [el('ul', {}, nav.map((a) => el('li', {}, [a])))]), main, inspector]);
   body.append(skip,
     el('header', { class: 'site-header' }, [el('a', { class: 'brand', href: '#/' }, [el('span', { class: 'brand__name' }, ['DoFlow'])]),
-      el('nav', {}, [el('ul', {}, nav.map((a) => el('li', {}, [a])))]), conn, pause, el('p', { id: 'core-version' }),
+      conn, pause, el('p', { id: 'core-version' }),
       el('div', { class: 'theme' }, radios)]),
-    slot, main, region);
+    slot, shell, region);
   html.append(body);
   Object.assign(doc, {
     documentElement: html, body, activeElement: body,
@@ -249,7 +258,7 @@ function installPage(opts: { hash?: string, stored?: string | null, throwStorage
   const history: string[] = [];
   const calls: Call[] = [];
   const scrolls: Array<[number, number]> = [];
-  const page: any = { doc, calls, store, history, scrolls, location, region, main, conn, slot, nav, radios, skip, pause, reloads: 0 };
+  const page: any = { doc, calls, store, history, scrolls, location, region, main, conn, slot, nav, radios, skip, pause, shell, inspector, reloads: 0 };
   page.win = { dispatch: (type: string) => { for (const fn of winListeners.get(type) ?? []) fn({ type }); } };
 
   setGlobal('document', doc);
@@ -261,6 +270,17 @@ function installPage(opts: { hash?: string, stored?: string | null, throwStorage
   });
   setGlobal('navigator', { platform: 'Linux', clipboard: undefined });
   if ('eventSource' in opts) setGlobal('EventSource', opts.eventSource); // V.10: a fake stream, or none
+  if (opts.width !== undefined) {
+    // 149 D.1: a viewport width the shell reads through matchMedia; page.media.resize(w) fires each list's change.
+    const lists: any[] = [];
+    const min = (query: string) => Number(/min-width:\s*(\d+)px/.exec(query)?.[1] ?? 0);
+    page.media = { width: opts.width, resize(w: number) { page.media.width = w; for (const l of lists) for (const fn of l.fns) fn({ matches: l.matches }); } };
+    setGlobal('matchMedia', (query: string) => {
+      const list = { fns: [] as Function[], get matches() { return page.media.width >= min(query); }, addEventListener(_t: string, fn: Function) { list.fns.push(fn); } };
+      lists.push(list);
+      return list;
+    });
+  }
   setGlobal('scrollTo', (x: number, y: number) => scrolls.push([x, y]));
   setGlobal('requestAnimationFrame', (fn: () => void) => globalThis.setTimeout(fn, 0));
   setGlobal('addEventListener', (type: string, fn: Function) => winListeners.set(type, [...(winListeners.get(type) ?? []), fn]));
@@ -630,10 +650,23 @@ test('index.html provides the elements the shell needs', () => {
   const html = fs.readFileSync(path.join(WEB_ROOT, 'index.html'), 'utf8');
   for (const id of ['main', 'conn', 'core-version', 'banner-slot', 'announcer', 'pause']) assert.match(html, new RegExp(`id="${id}"`));
   assert.match(html, /aria-live="polite"/);
-  assert.deepEqual([...html.matchAll(/class="nav__link" href="([^"]+)"/g)].map((m) => m[1]), ['#/', '#/workflows', '#/sessions', '#/fleet']); // E.7 adds the Sessions link, V.10 the Fleet link
+  assert.deepEqual([...html.matchAll(/class="nav__link navrail__link" href="([^"]+)"><span class="navrail__label">([^<]+)</g)].map((m) => [m[1], m[2]]),
+    [['#/', 'Now'], ['#/sessions', 'Sessions'], ['#/workflows', 'Workflows'], ['#/fleet', 'Fleet']]); // 149 D.1 (IC-020, DEC-035): the rail reads Now
   assert.deepEqual([...html.matchAll(/data-theme-choice="([^"]+)"/g)].map((m) => m[1]), ['light', 'dark', 'system']);
   assert.match(html, /<html lang="en" class="booting">/);
   assert.match(html, /<main id="main" class="page" tabindex="-1">/);
+  // 149 D.1: the header keeps its controls, and after the banner slot the shell holds the rail, #main and the inspector, in that order.
+  const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'));
+  for (const id of ['conn', 'pause', 'core-version']) assert.match(header, new RegExp(`id="${id}"`));
+  assert.match(header, /class="brand"/);
+  assert.match(header, /class="theme" role="radiogroup"/);
+  assert.doesNotMatch(header, /<nav\b/, 'the navigation left the header for the rail');
+  const order = ['id="banner-slot"', '<div class="shell" id="shell" data-inspectable=', '<nav class="nav navrail" aria-label="Primary">', '<main id="main"',
+    '<aside id="inspector" class="inspector" aria-label="Details" hidden>', 'class="inspector__title"', 'class="btn btn--ghost inspector__close"', 'class="inspector__body"'];
+  const at = order.map((piece) => html.indexOf(piece));
+  assert.ok(at.every((index) => index > -1), `every shell piece is present: ${JSON.stringify(at)}`);
+  assert.deepEqual([...at].sort((a, b) => a - b), at, 'in document order');
+  assert.equal([...html.matchAll(/aria-label="Primary"/g)].length, 1, 'one primary navigation');
 });
 
 // ---- app.js: boot --------------------------------------------------------------------------------
@@ -655,7 +688,7 @@ test('boot: the stored theme is applied before anything is fetched, and the frag
   assert.equal(text(heading(page)), 'Runs');
   assert.equal(page.doc.activeElement, page.doc.body, 'first load does not move focus');
   assert.equal(page.doc.focusLog.length, 0);
-  assert.deepEqual(current(page), ['Runs']);
+  assert.deepEqual(current(page), ['Now']);
   assert.equal(text(page.doc.getElementById('core-version')), 'core 2.0.0-beta.7');
   assert.deepEqual(page.radios.map((r) => r.getAttribute('aria-checked')), ['false', 'true', 'false']);
   assert.deepEqual(page.radios.map((r) => r.getAttribute('tabindex')), ['-1', '0', '-1']);
@@ -717,7 +750,7 @@ test('router: a route change sets the title and the current link, and moves focu
   assert.equal(text(heading(page)), 'feat-a / run-1', 'the head is drawn synchronously');
   assert.equal(page.doc.activeElement, heading(page));
   assert.equal(page.doc.title, 'feat-a / run-1 \u00b7 DoFlow Console');
-  assert.deepEqual(current(page), ['Runs']);
+  assert.deepEqual(current(page), ['Now']);
   assert.deepEqual(page.scrolls.at(-1), [0, 0]);
   await settle();
   assert.equal(page.doc.activeElement, heading(page), 'a poll update does not move focus');
@@ -774,6 +807,154 @@ test('router: the skip link moves focus to the heading without changing the rout
 });
 
 // ---- app.js: the global states ---------------------------------------------------------------------
+
+// ---- 149 D.1: the shell's bands and the inspector API (IC-020, DEC-036) -----------------------------
+
+test('shell: data-inspectable per view, the rail icons, and the docked column with its empty note at 1280 px and wider', async () => {
+  assert.deepEqual(Object.fromEntries(Object.entries(mods.views.VIEWS).map(([id, view]: [string, any]) => [id, view.inspectable])),
+    { runs: false, run: true, tasks: true, sessions: true, workflows: false, fleet: false, 'fleet-project': true, 'not-found': false });
+  const page = await start({ hash: '', width: 1440, fetch: standard });
+  assert.deepEqual(page.nav.map((a) => a.querySelector('.icon') && a.querySelector('.icon').getAttribute('class')),
+    ['icon icon--16 icon--rail-now', 'icon icon--16 icon--rail-sessions', 'icon icon--16 icon--rail-workflows', 'icon icon--16 icon--rail-fleet']);
+  assert.equal(page.shell.dataset.inspectable, 'false');
+  assert.equal(page.inspector.dataset.mode, 'dock');
+  assert.equal(page.inspector.getAttribute('hidden'), '', 'no docked column on Runs');
+  for (const [hash, inspectable] of [['#/run/feat-a/run-1', 'true'], ['#/workflows', 'false'], ['#/sessions', 'true'], ['#/run/feat-a/run-1/tasks', 'true'], ['#/x', 'false']]) {
+    page.location.hash = hash;
+    page.win.dispatch('hashchange');
+    await settle();
+    assert.equal(page.shell.dataset.inspectable, inspectable, hash);
+    assert.equal(page.inspector.getAttribute('hidden') === null, inspectable === 'true', `${hash}: the docked column is present exactly on inspectable views`);
+    if (inspectable === 'true') {
+      assert.equal(page.inspector.querySelector('.inspector__empty').getAttribute('hidden'), null, `${hash}: the empty note while nothing is open`);
+      assert.equal(page.inspector.getAttribute('role'), null, 'docked, it is a complementary landmark, not a dialog');
+    }
+  }
+  page.location.hash = '#/run/feat-a/run-1/tasks';
+  page.win.dispatch('hashchange');
+  await settle();
+  assert.deepEqual(current(page), ['Now'], 'Tasks marks Now');
+  assert.equal(page.doc.querySelectorAll('.inspector__scrim').length, 1, 'one scrim');
+  assert.equal(page.doc.querySelector('.inspector__scrim').getAttribute('hidden'), '', 'no scrim when docked');
+});
+
+test('shell: the band follows the width: dock at 1280, drawer from 768 to 1279, sheet below 768, and a resize re-reads it', () => {
+  for (const [width, mode] of [[1920, 'dock'], [1280, 'dock'], [1279, 'drawer'], [768, 'drawer'], [767, 'sheet'], [360, 'sheet']] as Array<[number, string]>) {
+    const page = installPage({ width, fetch: () => reply(204) });
+    const inspector = mods.shell.createInspector({ doc: page.doc, shell: page.shell, el: page.inspector, main: page.main, matchMedia: globalThis.matchMedia });
+    assert.equal(inspector.mode(), mode, `${width} px`);
+    assert.equal(page.inspector.dataset.mode, mode);
+    uninstallPage();
+  }
+  const page = installPage({ width: 1440, fetch: () => reply(204) });
+  const inspector = mods.shell.createInspector({ doc: page.doc, shell: page.shell, el: page.inspector, main: page.main, matchMedia: globalThis.matchMedia });
+  inspector.setInspectable(true);
+  inspector.open({ title: 'Step', body: 'x' });
+  assert.equal(page.inspector.getAttribute('role'), null);
+  page.media.resize(1024);
+  assert.equal(inspector.mode(), 'drawer');
+  assert.equal(page.inspector.getAttribute('role'), 'dialog', 'open across the change, it becomes a dialog');
+  assert.equal(page.inspector.getAttribute('aria-modal'), 'true');
+  assert.equal(page.doc.querySelector('.inspector__scrim').getAttribute('hidden'), null);
+  page.media.resize(1280);
+  assert.equal(inspector.mode(), 'dock');
+  assert.equal(page.inspector.getAttribute('role'), null);
+  assert.equal(page.doc.querySelector('.inspector__scrim').getAttribute('hidden'), '');
+  const noMedia = mods.shell.createInspector({ doc: page.doc, shell: page.shell, el: page.inspector, main: page.main });
+  assert.equal(noMedia.mode(), 'dock', 'without matchMedia it docks');
+});
+
+test('inspector docked: open shows the title and body without taking focus; close empties it, keeps focus and calls onClose once', () => {
+  const page = installPage({ width: 1440, fetch: () => reply(204) });
+  const inspector = mods.shell.createInspector({ doc: page.doc, shell: page.shell, el: page.inspector, main: page.main, matchMedia: globalThis.matchMedia });
+  inspector.setInspectable(true);
+  const owner = page.doc.createElement('button');
+  page.main.append(owner);
+  owner.focus();
+  const closed: string[] = [];
+  const panel = mods.dom.h('p', { class: 'detail' }, 'Step detail');
+  inspector.open({ title: 'implementation', body: panel, owner, onClose: () => closed.push('a') });
+  assert.equal(inspector.isOpen(), true);
+  assert.equal(text(page.inspector.querySelector('.inspector__title')), 'implementation');
+  assert.equal(page.inspector.querySelector('.inspector__body').children[0], panel, 'the view passes the node it built');
+  assert.equal(page.inspector.querySelector('.inspector__empty').getAttribute('hidden'), '');
+  assert.equal(page.doc.activeElement, owner, 'docked, focus stays where it was');
+  inspector.open({ title: 'review', body: 'Other', onClose: () => closed.push('b') });
+  assert.deepEqual(closed, ['a'], 'replacing the content closes the previous owner');
+  assert.equal(text(page.inspector.querySelector('.inspector__body')), 'Other');
+  page.inspector.fire('keydown', { key: 'Escape' });
+  assert.equal(inspector.isOpen(), false, 'the close shortcut closes it');
+  assert.deepEqual(closed, ['a', 'b']);
+  assert.equal(text(page.inspector.querySelector('.inspector__title')), 'Details');
+  assert.equal(page.inspector.querySelector('.inspector__body').children.length, 0);
+  assert.equal(page.inspector.querySelector('.inspector__empty').getAttribute('hidden'), null, 'the empty note is back');
+  assert.equal(page.inspector.getAttribute('hidden'), null, 'the docked column stays, so the canvas does not reflow');
+  assert.equal(page.doc.activeElement, owner);
+  inspector.close();
+  assert.deepEqual(closed, ['a', 'b'], 'a second close is a no-op');
+});
+
+test('inspector as drawer and sheet: a modal dialog with the scrim; focus moves in, Tab stays inside, and closing returns it', () => {
+  for (const width of [1024, 360]) {
+    const page = installPage({ width, fetch: () => reply(204) });
+    const inspector = mods.shell.createInspector({ doc: page.doc, shell: page.shell, el: page.inspector, main: page.main, matchMedia: globalThis.matchMedia });
+    inspector.setInspectable(true);
+    const scrim = page.doc.querySelector('.inspector__scrim');
+    assert.equal(page.inspector.getAttribute('hidden'), '', `${width}: hidden while closed`);
+    assert.equal(scrim.getAttribute('hidden'), '');
+    const owner = page.doc.createElement('button');
+    page.main.append(owner);
+    owner.focus();
+    const link = mods.dom.h('a', { href: '#/fleet' }, 'Open');
+    inspector.open({ title: 'Lane', body: [mods.dom.h('p', {}, 'Lane detail'), link] });
+    const close = page.inspector.querySelector('.inspector__close');
+    assert.equal(page.inspector.getAttribute('hidden'), null);
+    assert.equal(page.inspector.getAttribute('role'), 'dialog');
+    assert.equal(page.inspector.getAttribute('aria-modal'), 'true');
+    assert.equal(page.inspector.getAttribute('aria-label'), 'Details');
+    assert.equal(scrim.getAttribute('hidden'), null);
+    assert.equal(page.doc.activeElement, close, `${width}: focus moves into the inspector`);
+    assert.ok(close.querySelector('.icon'), 'the close button has its icon');
+    page.doc.activeElement = link;
+    let event = page.inspector.fire('keydown', { key: 'Tab' });
+    assert.equal(page.doc.activeElement, close, 'Tab from the last item wraps to the first');
+    assert.equal(event.defaultPrevented, true);
+    event = page.inspector.fire('keydown', { key: 'Tab', shiftKey: true });
+    assert.equal(page.doc.activeElement, link, 'Shift+Tab from the first wraps to the last');
+    event = page.inspector.fire('keydown', { key: 'Tab', shiftKey: true });
+    assert.equal(event.defaultPrevented, false, 'inside the list, Tab moves as usual');
+    page.inspector.fire('keydown', { key: 'Escape' });
+    assert.equal(inspector.isOpen(), false);
+    assert.equal(page.inspector.getAttribute('hidden'), '');
+    assert.equal(page.inspector.getAttribute('role'), null);
+    assert.equal(scrim.getAttribute('hidden'), '');
+    assert.equal(page.doc.activeElement, owner, 'focus returns to the control that opened it');
+
+    inspector.open({ title: 'Lane', body: 'x', owner });
+    owner.remove();
+    scrim.fire('click');
+    assert.equal(inspector.isOpen(), false, 'a click on the scrim closes it');
+    assert.equal(page.doc.activeElement, page.main, 'the owner is gone: focus goes to #main');
+    inspector.open({ title: 'Lane', body: 'x' });
+    close.fire('click');
+    assert.equal(inspector.isOpen(), false, 'the close button closes it');
+    uninstallPage();
+  }
+});
+
+test('stale: setStale marks #inspector beside #main, and a route change clears both', async () => {
+  let down = false;
+  const page = await start({ hash: '#/run/feat-a/run-1', width: 1440, fetch: (target, init) => (target === '/api/runs/feat-a/run-1' ? (down ? errorReply(502, 'core-error') : runReply()) : standard(target, init)) });
+  down = true;
+  await advance(17000);
+  assert.equal(page.main.getAttribute('data-stale'), 'true');
+  assert.equal(page.inspector.getAttribute('data-stale'), 'true');
+  page.location.hash = '#/workflows';
+  page.win.dispatch('hashchange');
+  await settle();
+  assert.equal(page.main.getAttribute('data-stale'), null);
+  assert.equal(page.inspector.getAttribute('data-stale'), null);
+});
 
 test('loaded: the home summary counts the runs by state and flags what needs you', async () => {
   const page = await start({ hash: '', fetch: standard });

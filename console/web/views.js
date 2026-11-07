@@ -144,6 +144,7 @@ const sessionsKey = (data) => JSON.stringify([data, deriveSessions(data, Date.no
 const VIEWS = Object.freeze({
   runs: {
     id: 'runs',
+    inspectable: false,
     noun: 'runs',
     shapes: ['list', 'workflow'],
     api: () => '/api/runs',
@@ -170,6 +171,7 @@ const VIEWS = Object.freeze({
   },
   run: {
     id: 'run',
+    inspectable: true,
     noun: 'this run',
     shapes: ['status', 'timeline', 'attempts', 'workflow'],
     api: (/** @type {any} */ params) => `/api/runs/${params.slug}/${params.taskId}`,
@@ -191,6 +193,7 @@ const VIEWS = Object.freeze({
   },
   tasks: {
     id: 'tasks',
+    inspectable: true,
     noun: 'tasks',
     // The graph reads the same body as the run view (IC-005): only `tasks` and `tasksReason` draw it, so only they re-mount it.
     shapes: ['status', 'timeline', 'attempts', 'workflow'],
@@ -210,6 +213,7 @@ const VIEWS = Object.freeze({
   },
   sessions: {
     id: 'sessions',
+    inspectable: true,
     noun: 'sessions',
     // IC-018 e: the body is built from these six shapes by the server; each section carries its own ok or code.
     shapes: ['observed', 'slots', 'list', 'attempts', 'worker-status', 'roadmap'],
@@ -227,6 +231,7 @@ const VIEWS = Object.freeze({
   },
   workflows: {
     id: 'workflows',
+    inspectable: false,
     noun: 'workflows',
     // IC-005: one `workflow` read per registry class, answered as one body. The registry changes with the core, not by the minute.
     shapes: ['workflow'],
@@ -247,6 +252,7 @@ const VIEWS = Object.freeze({
   },
   fleet: {
     id: 'fleet',
+    inspectable: false,
     noun: 'projects',
     // IC-025: the fleet body is built from these shapes by the server; each project section carries its own ok or code.
     shapes: ['projects', 'tree', 'traffic'],
@@ -268,6 +274,7 @@ const VIEWS = Object.freeze({
   },
   'fleet-project': {
     id: 'fleet-project',
+    inspectable: true,
     noun: 'this project',
     shapes: ['projects', 'tree', 'transcript', 'traffic'],
     api: () => '/api/fleet',
@@ -288,6 +295,7 @@ const VIEWS = Object.freeze({
   },
   'not-found': {
     id: 'not-found',
+    inspectable: false,
     noun: 'this page',
     shapes: [],
     api: () => null,
@@ -344,8 +352,8 @@ function titleFor(route, data = null) {
 }
 
 /**
- * Which nav link is current: Runs on `#/` and every `#/run/...`, Workflows on `#/workflows`, Sessions on `#/sessions`, Fleet on
- * every `#/fleet...`, else none.
+ * Which rail link is current (IC-020, DEC-035): Now on `#/` and every `#/run/...` (the id stays `runs`; the Runs heading and
+ * title keep Runs), Workflows on `#/workflows`, Sessions on `#/sessions`, Fleet on every `#/fleet...`, else none.
  * @param {any} route
  */
 function navFor(route) {

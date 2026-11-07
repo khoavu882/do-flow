@@ -13,6 +13,7 @@ import {
   classify, clockTime, refreshReltimes, renderLoading, renderEmpty, renderError, renderFullPage, renderPill, createStaleBanner, errorTitle,
 } from './states.js';
 import { CORE_RANGE, parseRoute, titleFor, navFor } from './views.js';
+import { createInspector } from './shell.js';
 
 // ---- 1. theme: the module's first statement, before the fragment is read or anything is fetched ----
 
@@ -106,6 +107,7 @@ const app = /** @type {any} */ ({
   hiddenAt: null, // when the tab was last hidden, or null
   wasFull: false, // #main last held a full page (focus moves to the heading when a view replaces it)
   liveStore: null, // the page's one live store (IC-017), made when the first live view starts
+  inspector: null, // the shell's details region (IC-020), see shell.js
 });
 let viewSeq = 0;
 
@@ -367,11 +369,13 @@ function setStale(on, view, now) {
     app.banner = createStaleBanner({ sinceMs: since, onTry: () => view.poller && view.poller.refreshNow() });
     app.els.bannerSlot.append(app.banner.node);
     main.dataset.stale = 'true';
+    if (app.els.inspector) app.els.inspector.dataset.stale = 'true';
     notice('stale', clockTime(since));
   } else if (!on && app.banner !== null) {
     app.banner.leave();
     app.banner = null;
     delete main.dataset.stale;
+    if (app.els.inspector) delete app.els.inspector.dataset.stale;
     if (!view.paused) notice('fresh');
   }
   if (on && app.banner) {
@@ -473,6 +477,9 @@ function teardownView() {
     app.banner = null;
   }
   delete mainEl().dataset.stale;
+  if (app.els.inspector) delete app.els.inspector.dataset.stale;
+  // The open details belong to the view that is going away.
+  if (app.inspector) app.inspector.close();
 }
 
 /** @param {any} href */
@@ -513,6 +520,7 @@ function startView(route, { first = false, animate = false, focus = true } = {})
   };
   app.view = view;
   globalThis.document.title = titleFor(route);
+  if (app.inspector) app.inspector.setInspectable(route.view.inspectable === true);
   const navHref = navFor(route);
   setNav(navHref === null ? null : navHref === 'workflows' ? '#/workflows' : navHref === 'sessions' ? '#/sessions' : navHref === 'fleet' ? '#/fleet' : '#/');
   paint(view);
@@ -823,9 +831,21 @@ function boot() {
       bannerSlot: document.getElementById('banner-slot'),
       pause: document.getElementById('pause'),
       navLinks: Array.from(document.querySelectorAll('.nav__link')),
+      shell: document.getElementById('shell'),
+      inspector: document.getElementById('inspector'),
     };
     const brand = document.querySelector('.brand');
     if (brand && !brand.querySelector('.icon')) brand.prepend(icon('brand', 28));
+    /** @type {Record<string, string>} */
+    const railIcons = { '#/': 'rail-now', '#/sessions': 'rail-sessions', '#/workflows': 'rail-workflows', '#/fleet': 'rail-fleet' };
+    for (const link of app.els.navLinks) {
+      const name = railIcons[link.getAttribute('href')];
+      if (name && !link.querySelector('.icon')) link.prepend(icon(name, 16));
+    }
+    if (app.els.shell && app.els.inspector) {
+      const matchMedia = typeof globalThis.matchMedia === 'function' ? (/** @type {string} */ query) => globalThis.matchMedia(query) : undefined;
+      app.inspector = createInspector({ doc: document, shell: app.els.shell, el: app.els.inspector, main: app.els.main, matchMedia });
+    }
     setupThemeControl(document.querySelector('.theme'));
     if (app.els.pause) app.els.pause.addEventListener('click', () => togglePause());
     // The one shortcut registry (keys.js) binds the document once; each entry's action is a plain call into the shell.
