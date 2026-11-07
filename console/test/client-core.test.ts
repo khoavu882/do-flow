@@ -2217,7 +2217,9 @@ test('E.3 lane list: each lane is a section with its tasks in layer order, depen
   assert.equal(row.getAttribute('aria-expanded'), 'true');
   const slot = page.inspector.querySelector('.graph__panel');
   assert.equal(slot.getAttribute('hidden'), null);
-  assert.match(text(slot.querySelector('.gattempt')), /^Attempt 1quality-guardian · sequentialfinished, completed\d\d:\d\d to \d\d:\d\d \(10 min\)$/);
+  // sinceStamp prefixes `D Mon ` when the instant is not on today's local date, so a run just after
+  // midnight shows the day on a start or end from the previous date (FU-8xhd5w).
+  assert.match(text(slot.querySelector('.gattempt')), /^Attempt 1quality-guardian · sequentialfinished, completed(?:\d{1,2} [A-Z][a-z]{2} )?\d\d:\d\d to (?:\d{1,2} [A-Z][a-z]{2} )?\d\d:\d\d \(10 min\)$/);
   assert.equal(page.inspector.querySelectorAll('.graph__panel').filter((s: El) => s.getAttribute('hidden') === null).length, 1);
   row.fire('click');
   assert.equal(row.getAttribute('aria-expanded'), 'false');
