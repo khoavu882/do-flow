@@ -10,7 +10,7 @@ files in this checkout; everything else is a proposal or an inference and is lab
 |---|---|---|---|
 | D1 | Browser transport for live data | Keep **SSE**, multiplex channels on one stream | One-way fits the read-only Console, the CSP, the Origin/cookie checks and the session cap (S). |
 | D2 | WebSocket | **Not now.** Revisit only if the Console gains write actions that need replies on the same channel | It needs a hand-written `upgrade` handler and frame code in a package with no dependencies (S). |
-| D2b | HTTP/3 and WebTransport | **Not in v2.0.** Keep the client transport behind one adapter so it can be added later (section 7.10) | Node 26.12.1 here has no QUIC; loopback has no packet loss to fix; a native add-on breaks the no-dependency rule |
+| D2b | HTTP/3 and WebTransport | **Not in v2.0.** Keep the client transport behind one adapter so it can be added later (section 7.10) | The official Node 26.12.1 binary is built without QUIC; loopback has no packet loss to fix; a native add-on breaks the no-dependency rule |
 | D3 | UDP | **Not to the browser** (impossible). Optional later as a loopback "doorbell" from the runtime to the Console server | Browsers cannot open UDP. A doorbell is lossy, so it can only hint, never carry data. |
 | D4 | Who reads runtime files | The **core**, through one new read-only streaming verb; the Console server only forwards | The core owns schemas and masking; the Console never reads files itself (S). |
 | D5 | Editing settings in the Console | **Read-only in v2.0.** Edit mode is a separate, later decision (section 8) | `POST /api/session` is the only write route today and a test enforces it (S). |
@@ -292,10 +292,14 @@ Researched 2026-11-07. Sources are marked; blog posts are weaker than specs and 
 
 **What exists**
 
-- **Node (S, this machine):** v26.12.1 rejects `require('node:quic')` and `require('node:http3')` with
-  `ERR_UNKNOWN_BUILTIN_MODULE`, even with `--experimental-quic`, and `process.versions` lists no `ngtcp2`
-  or `nghttp3`. So Node core on this machine has no QUIC and no HTTP/3 server. Upstream tracking is in
-  nodejs/node issue #57281 ("Update on QUIC"); I did not confirm which release will ship it.
+- **Node (S, this machine):** the official prebuilt Node v26.12.1 (installed from nodejs.org through nvm)
+  accepts `--experimental-quic` but has `process.config.variables.node_use_quic === false`, so
+  `require('node:quic')` still fails with `ERR_UNKNOWN_BUILTIN_MODULE` and `process.versions` lists no
+  `ngtcp2` or `nghttp3`. The code path exists in the Node source (an upstream commit adds the
+  `--experimental-quic` option), but the shipped binary is built without it, so a user would have to
+  compile Node themselves. Node 26 became LTS ("Lithium", 26.13.0, Oct 2026); its release page and the
+  26.8.2 page contain no QUIC entry (my search of both pages found none). Upstream tracking:
+  nodejs/node issue #57281.
 - **Browsers (web sources, 2026):** WebTransport is reported as supported in Chrome 97+, Edge 98+,
   Firefox 114+ and Safari 26.4+ (shipped March 2026), with the W3C API at Candidate Recommendation
   (30 July 2026) and the IETF wire drafts still in working-group last call, so not an RFC. Treat these
@@ -326,7 +330,7 @@ Researched 2026-11-07. Sources are marked; blog posts are weaker than specs and 
 
 **When to revisit** (any one of these)
 
-- `node:quic` ships without a flag and `process.versions` lists the QUIC libraries.
+- An official Node binary reports `node_use_quic: true` (or ships `node:quic` without a custom build) and `process.versions` lists the QUIC libraries.
 - Phone or Tailscale use becomes the main way people watch runs, where loss and network switching are
   real, and measurements show SSE stalls (reconnect time above 3 s p95).
 - A feature needs high-rate, loss-tolerant data (for example a live token-rate graph at 20 Hz) next to
