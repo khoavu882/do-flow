@@ -93,12 +93,22 @@ function parserFindings(registry: any, parsers: any) {
 const EVIDENCE_SCHEMA = 'doflow-worker-evidence-v1';
 const NOT_CAPABILITIES: any = new Set(['cli', 'profile', 'modelChecks']);
 
-/** The checks file a cli-check record is bound to: core/worker-evidence/<harness>/checks.json. */
-function checksSpec(harnessId: any, repoRoot: any) {
+/** The checks file a record is bound to: core/worker-evidence/<harness>/checks.json. */
+function checksFile(harnessId: any, repoRoot: any) {
   try {
     const spec = JSON.parse(fs.readFileSync(path.resolve(repoRoot, 'core', 'worker-evidence', harnessId, 'checks.json'), 'utf8'));
-    return spec && Array.isArray(spec.checks) ? spec.checks : null;
+    return spec && Array.isArray(spec.checks) ? spec : null;
   } catch { return null; }
+}
+
+const checksSpec = (harnessId: any, repoRoot: any) => checksFile(harnessId, repoRoot)?.checks ?? null;
+
+/** True when `cliVersion` matches the harness's own `version.expect` from its checks.json (a hand-typed
+ * 'x' or another harness's version line does not). */
+function cliVersionMatches(cliVersion: any, harnessId: any, repoRoot: any) {
+  const expect = checksFile(harnessId, repoRoot)?.version?.expect;
+  if (typeof expect !== 'string') return false;
+  try { return new RegExp(expect).test(cliVersion); } catch { return false; }
 }
 
 const sameJson = (a: any, b: any) => JSON.stringify(a) === JSON.stringify(b);
@@ -146,7 +156,7 @@ function recordEstablishes(item: any, harnessId: any, key: any, repoRoot: any, w
   let record;
   try { record = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return false; }
   if (!record || record.schema !== EVIDENCE_SCHEMA || record.harness !== harnessId) return false;
-  if (typeof record.cliVersion !== 'string' || record.cliVersion === '') return false;
+  if (typeof record.cliVersion !== 'string' || !cliVersionMatches(record.cliVersion, harnessId, repoRoot)) return false;
   if (!Array.isArray(record.establishes) || !record.establishes.includes(key)) return false;
   if (record.kind === 'live-run') {
     // A read-only run counts only when the worktree check afterwards was clean (142 IC-013 rule 3).
@@ -574,6 +584,7 @@ test('G41.4 control: a live-run record whose result was not offered or whose run
   registry.harnesses = [codex]; // scratch root holds codex records only; other harnesses' findings are not under test here
   const dir = path.join(root, 'core', 'worker-evidence', 'codex');
   fs.mkdirSync(dir, { recursive: true });
+  fs.copyFileSync(path.join(REPO, 'core', 'worker-evidence', 'codex', 'checks.json'), path.join(dir, 'checks.json')); // the version pattern a record is checked against
   const shape = argvShape(codex.worker, '', false);
   const live = (name: any, extra: any) => {
     fs.writeFileSync(path.join(dir, name), JSON.stringify({
@@ -602,6 +613,7 @@ test('G41.4 control: the shipped live-run records count, and a copy of either wi
   registry.harnesses = [codex]; // scratch root holds codex records only; other harnesses' findings are not under test here
   const dir = path.join(root, 'core', 'worker-evidence', 'codex');
   fs.mkdirSync(dir, { recursive: true });
+  fs.copyFileSync(path.join(REPO, 'core', 'worker-evidence', 'codex', 'checks.json'), path.join(dir, 'checks.json')); // the version pattern a record is checked against
   const copy = (source: any, name: any, mutate: any) => {
     const record = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'worker-evidence', 'codex', source), 'utf8'));
     mutate(record);
@@ -628,6 +640,7 @@ test('G41.4 control: a live-run record whose argvShape contradicts the recipe it
   registry.harnesses = [codex]; // scratch root holds codex records only; other harnesses' findings are not under test here
   const dir = path.join(root, 'core', 'worker-evidence', 'codex');
   fs.mkdirSync(dir, { recursive: true });
+  fs.copyFileSync(path.join(REPO, 'core', 'worker-evidence', 'codex', 'checks.json'), path.join(dir, 'checks.json')); // the version pattern a record is checked against
   const copy = (source: any, name: any, mutate: any) => {
     const record = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'worker-evidence', 'codex', source), 'utf8'));
     mutate(record);
@@ -646,4 +659,26 @@ test('G41.4 control: a live-run record whose argvShape contradicts the recipe it
     assert.equal(findingsFor(key, [shapeOf(`extra-${key}.json`, (shape: any) => { shape.push('--extra'); })]).length, 1, `an extra element does not establish ${key}`);
     assert.equal(findingsFor(key, [shapeOf(`kind-${key}.json`, (shape: any, r: any) => { r.run.edit = key === 'readOnly'; })]).length, 1, `the other run kind does not establish ${key}`);
   }
+});
+
+test('G41.4 control: a hand-edited cliVersion that does not match the harness version pattern establishes nothing', (t) => {
+  // 'x', a blank, another harness's version line and a non-string fail; the shipped line passes.
+  for (const bad of ['x', '', 'opencode v2.2.5', 'codex-cli', 'v0.163.0', 7, null]) {
+    const { root, registry } = scratchRecordRoot(t, (record: any) => { record.cliVersion = bad; });
+    assert.equal(establishingRecordFindings(registry, root).length, 7, `cliVersion ${JSON.stringify(bad)} must withdraw all seven codex keys`);
+  }
+  const ok = scratchRecordRoot(t, (record: any) => { record.cliVersion = 'codex-cli 9.9.9'; });
+  assert.equal(establishingRecordFindings(ok.registry, ok.root).length, 0, 'a well-formed version line is accepted (the pattern checks the shape, not the number)');
+  // the same rule holds for a live-run record
+  const { root, copy } = opencodeScratch(t);
+  const opencode = structuredClone(shipped().registry.harnesses.find((h: any) => h.id === 'opencode'));
+  for (const bad of ['x', 'opencode v9']) {
+    opencode.worker.readOnly.evidence = [copy('2026-11-07-live-run-read-only.json', 'bad-version.json', (r: any) => { r.cliVersion = bad; })];
+    assert.equal(establishingRecordFindings({ harnesses: [opencode] }, root).filter((f: any) => f.includes("'readOnly'")).length, 1, `live-run cliVersion ${bad}`);
+  }
+  opencode.worker.readOnly.evidence = [copy('2026-11-07-live-run-read-only.json', 'ok-version.json', () => {})];
+  assert.deepEqual(establishingRecordFindings({ harnesses: [opencode] }, root).filter((f: any) => f.includes("'readOnly'")), []);
+  // a missing or version-less checks.json leaves nothing to match against
+  fs.rmSync(path.join(root, 'core', 'worker-evidence', 'opencode', 'checks.json'));
+  assert.equal(establishingRecordFindings({ harnesses: [opencode] }, root).filter((f: any) => f.includes("'readOnly'")).length, 1);
 });
