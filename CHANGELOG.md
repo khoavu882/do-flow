@@ -15,6 +15,9 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+- **`team.enforcement` setting and `team.verdict` telemetry (feature 143):** `team.enforcement` (`block` or `advisory`, default `advisory`) decides whether dispatch admission skips a task the team admission controller refuses; in `advisory` the verdict is only recorded as a `team.verdict` telemetry line, and review verbs always record only. `doflow doctor`'s Agent Teams section now shows `enforcement` and `wired`, and no longer shows `activeClaimsCount`.
+
 ## [2.1.0] - 2026-11-07
 
 ### Added

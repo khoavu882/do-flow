@@ -82,8 +82,9 @@ function assertWrites(t: any, s: any, { status, telemetry }: any) {
   assert.equal(partitions.length, telemetry ? 1 : 0, telemetry ? 'one telemetry partition' : 'no telemetry partition');
   if (telemetry) {
     const text = s.after[partitions[0]];
-    assert.equal(text.trim().split('\n').length, 1);
-    assert.equal(JSON.parse(text).kind, 'review.run');
+    // 143: a check also records one team.verdict line beside its review.run line; this seam pins the review.run line.
+    const reviewRuns = text.trim().split('\n').map((line: any) => JSON.parse(line)).filter((line: any) => line.kind === 'review.run');
+    assert.equal(reviewRuns.length, 1);
     assert.equal(text.includes(CANARY), false, 'the telemetry line holds no record content');
   }
 }

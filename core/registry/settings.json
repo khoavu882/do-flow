@@ -268,7 +268,7 @@
       "shellRead": null,
       "needsConfigHome": false,
       "legacy": [],
-      "consumers": ["src/runtime/team/admission.ts"],
+      "consumers": ["src/runtime/team/admission.ts", "src/runtime/team/evaluate.ts"],
       "description": "Maximum number of concurrent mutating worker sessions across the active task graph; 1 by default, so writes run single-threaded and reads in parallel; the user may raise it."
     },
     "team.maxAttempts": {
@@ -290,8 +290,13 @@
       "shellRead": null,
       "needsConfigHome": false,
       "legacy": [],
-      "consumers": ["src/runtime/team/admission.ts"],
+      "consumers": ["src/runtime/team/admission.ts", "src/runtime/team/evaluate.ts"],
       "description": "Maximum attempt count permitted for any single plan task before escalating to operator intervention."
-    }
+    },
+    "team.enforcement": { "type": "enum", "values": ["block", "advisory"], "order": ["block", "advisory"], "default": "advisory",
+      "scope": "narrow-only", "combine": "override", "securityRelevant": false,
+      "env": null, "flag": null, "shellRead": null, "needsConfigHome": false, "legacy": [],
+      "consumers": ["src/runtime/team/evaluate.ts"],
+      "description": "Whether dispatch admission skips a task the team admission controller refuses (block) or only records the verdict (advisory); review verbs always record only; a project may only choose block." }
   }
 }

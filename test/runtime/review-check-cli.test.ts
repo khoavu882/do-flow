@@ -166,8 +166,11 @@ test('with telemetry on, one review.run line lands in the project runs store', (
   const dir = path.join(s.cwd, '.doflow', 'state', 'runs', 'telemetry');
   const files = fs.readdirSync(dir).filter((name: any) => name.endsWith('.jsonl'));
   assert.equal(files.length, 1);
-  const lines = fs.readFileSync(path.join(dir, files[0]), 'utf8').trim().split('\n').map((line: any) => JSON.parse(line));
-  assert.deepEqual(lines.map((line: any) => line.kind), ['review.run']);
+  const all = fs.readFileSync(path.join(dir, files[0]), 'utf8').trim().split('\n').map((line: any) => JSON.parse(line));
+  // 143: the check also records one team.verdict line (no author on this record); this test pins the review.run line.
+  const lines = all.filter((line: any) => line.kind === 'review.run');
+  assert.equal(lines.length, 1);
+  assert.deepEqual(all.map((line: any) => line.kind).sort(), ['review.run', 'team.verdict']);
   assert.equal(lines[0].errors, 0);
   // C-2: review runs no upkeep (no `.doflow/state/.gitignore`, `upkeep-due` or ledger line); the
   // whole scratch tree (HOME and the project) gains exactly the one telemetry partition.
@@ -190,8 +193,8 @@ test('C-6: a record with 200000 null seats is reported invalid, not crashed, wit
   assert.equal(JSON.parse(res.stdout).valid, false);
   const dir = path.join(s.cwd, '.doflow', 'state', 'runs', 'telemetry');
   const lines = fs.readdirSync(dir).flatMap((name: any) => fs.readFileSync(path.join(dir, name), 'utf8').trim().split('\n'));
-  assert.equal(lines.length, 1);
-  assert.equal(JSON.parse(lines[0]).kind, 'review.run');
+  const reviewRuns = lines.map((line: any) => JSON.parse(line)).filter((line: any) => line.kind === 'review.run');
+  assert.equal(reviewRuns.length, 1); // 143: the team.verdict line beside it is not counted here
   const failures = Object.keys(snapshot(s.root)).filter((rel) => rel.includes(`failures${path.sep}`));
   assert.deepEqual(failures, [], 'no failure capture was written');
 });

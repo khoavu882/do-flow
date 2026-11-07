@@ -58,6 +58,7 @@ const { readRuns, storeFileFor: runStoreFileFor } = require('../worker/run-store
 const {
   storeFileFor, readDispatch, mutateDispatch, setRunState, fallbackOf, inSessionOf, appendFallbackEvent, HELD_RUN_STATES, DispatchStoreError, DISPATCH_ID,
 } = require('./store.ts');
+const { teamGate } = require('../team/evaluate.ts');
 const { registerDriver, endDriver, admit, dispatchModelFor, MAIN_SESSION_MODES, BUDGET_REFUSALS } = require('./admission.ts');
 const integrate = require('./integrate.ts');
 const { classFor, endAttempt, releaseAttempt, usageFor, SIGNALS } = require('./attempt-end.ts');
@@ -1331,8 +1332,9 @@ async function admitAndLaunch(p: any) {
     newHolds.set(task, choice.hold);
     return { hold: choice.hold.reason };
   };
+  const team = teamGate({ projectRoot: p.root, env: p.env });
   const result = admit({
-    root: p.root, slug: p.slug, ctx: p.ctx(), driver: p.driver, by: p.by, modeFor, modelFor, env: p.env, now: p.clock, storeFile: p.file,
+    root: p.root, slug: p.slug, ctx: p.ctx(), driver: p.driver, by: p.by, modeFor, modelFor, team, env: p.env, now: p.clock, storeFile: p.file,
   });
   p.actions.push(...result.actions);
   const bases = new Map<string, string>((Array.isArray(f.exhausted) ? f.exhausted : []).map((h: string) => [h, basisFor(p, f, h)]));
