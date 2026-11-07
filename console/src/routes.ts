@@ -459,4 +459,4 @@ function consoleRoutes(runner: Runner, sessions: any = processSessions): readonl
   ]);
 }
 
-module.exports = { ROUTES, SESSION_LIMITS, TASK_CLASSES, buildRoutes, consoleRoutes, isApiPath, matchPath, jsonReply, errorReply, JSON_TYPE };
+module.exports = { ROUTES, SESSION_LIMITS, TASK_CLASSES, buildRoutes, consoleRoutes, isApiPath, matchPath, jsonReply, errorReply, JSON_TYPE, runs, tasks, runDetail, sessionsView };
