@@ -122,6 +122,19 @@
         "errors": { "name": "doflow.review.run.errors", "class": "T1", "type": "uint", "phase": "P7" }
       }
     },
+    "team.verdict": {
+      "store": "runs-telemetry",
+      "writers": ["src/runtime/trace/telemetry.ts"],
+      "fields": {
+        "site": { "name": "doflow.team.verdict.site", "class": "T2", "type": "enum:team_site", "phase": "P9" },
+        "rule": { "name": "doflow.team.verdict.rule", "class": "T2", "type": "enum:team_rule", "phase": "P9" },
+        "outcome": { "name": "doflow.team.verdict.outcome", "class": "T2", "type": "enum:team_outcome", "phase": "P9" },
+        "reason": { "name": "doflow.team.verdict.reason", "class": "T2", "type": "enum:team_reason|null", "phase": "P9" },
+        "mode": { "name": "doflow.team.verdict.mode", "class": "T2", "type": "enum:team_mode", "phase": "P9" },
+        "task": { "name": "doflow.team.verdict.task", "class": "T0", "type": "token|null", "phase": "P9" },
+        "count": { "name": "doflow.team.verdict.count", "class": "T1", "type": "uint|null", "phase": "P9" }
+      }
+    },
     "package.verb": {
       "store": "runs-telemetry",
       "writers": ["src/runtime/trace/telemetry.ts"],
@@ -140,7 +153,7 @@
     "orchestration.run.traceId": { "class": "T0", "type": "hex32" }
   },
   "vocabularies": {
-    "kind": ["hook", "verify.run", "verify.tier", "verify.check", "review.run", "package.verb"],
+    "kind": ["hook", "verify.run", "verify.tier", "verify.check", "review.run", "team.verdict", "package.verb"],
     "harness": ["claude", "codex", "opencode", "pi", "copilot", "kiro", "antigravity"],
     "event": ["PreToolUse", "tool_call", "UserPromptSubmit", "PostToolUse", "PostToolUseFailure"],
     "policy": ["user-prompt-submit", "post-shell-observe"],
@@ -160,6 +173,11 @@
     "package_action": ["enable", "disable", "trust", "exempt", "revoke", "verify", "remove", "new"],
     "package_result": ["ok", "refused", "usage"],
     "package_tier": ["inert", "instruction", "executable"],
+    "team_site": ["dispatch-admit", "review-start", "review-check"],
+    "team_rule": ["admission", "pre-check", "separation"],
+    "team_outcome": ["admitted", "refused", "not-evaluable", "error"],
+    "team_mode": ["advisory", "block"],
+    "team_reason": ["WRITE_SET_CONFLICT", "WRITER_CAP_EXCEEDED", "MAX_ATTEMPTS_EXCEEDED", "TASK_ALREADY_ACTIVE", "ERR_REVIEWER_SELF_REVIEW", "ERR_MECHANICAL_CHECKS_FAILED", "no-feature", "no-author", "no-record", "no-seat-agent", "eval-fault"],
     "tool": ["Bash"],
     "emit_reason": ["emit", "refused:mandatory-over-budget", "silent:already-bootstrapped", "silent:unchanged", "silent:no-home", "fault:deps", "fault:unit", "fault:slot", "fault:summary", "fault:grant", "fault:warning", "fault:render"]
   },

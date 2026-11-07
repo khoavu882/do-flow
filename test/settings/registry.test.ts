@@ -284,7 +284,7 @@ const V1 = {
     shellRead: null,
     needsConfigHome: false,
     legacy: [],
-    consumers: ['src/runtime/team/admission.ts'],
+    consumers: ['src/runtime/team/admission.ts', 'src/runtime/team/evaluate.ts'],
     description: 'Maximum number of concurrent mutating worker sessions across the active task graph; 1 by default, so writes run single-threaded and reads in parallel; the user may raise it.',
   },
   'team.maxAttempts': {
@@ -306,9 +306,14 @@ const V1 = {
     shellRead: null,
     needsConfigHome: false,
     legacy: [],
-    consumers: ['src/runtime/team/admission.ts'],
+    consumers: ['src/runtime/team/admission.ts', 'src/runtime/team/evaluate.ts'],
     description: 'Maximum attempt count permitted for any single plan task before escalating to operator intervention.',
   },
+  'team.enforcement': { type: 'enum', values: ['block', 'advisory'], order: ['block', 'advisory'], default: 'advisory',
+    scope: 'narrow-only', combine: 'override', securityRelevant: false,
+    env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
+    consumers: ['src/runtime/team/evaluate.ts'],
+    description: 'Whether dispatch admission skips a task the team admission controller refuses (block) or only records the verdict (advisory); review verbs always record only; a project may only choose block.' },
 };
 
 const clone = (value: any) => JSON.parse(JSON.stringify(value));
@@ -351,7 +356,7 @@ test("the shipped registry pins base keys plus primary, worker and package setti
   assert.equal(SHIPPED.version, 1);
   assert.deepEqual(Object.keys(SHIPPED.keys), Object.keys(V1));
   assert.deepEqual(SHIPPED.keys, V1);
-  assert.equal(Object.keys(SHIPPED.keys).length, 46);
+  assert.equal(Object.keys(SHIPPED.keys).length, 47);
 });
 
 test('prompt-nudge is not registered (D-2) and no key outside the pinned entries exists', () => {
