@@ -39,9 +39,17 @@ concurrency:
 
 jobs:
   console:
-    name: console (ubuntu, node 24.22.1)
-    runs-on: ubuntu-latest
+    name: console (${{ matrix.os }}, node 24.22.1)
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
+    # DEC-052 / NFR-011: the console tests run on Linux and macOS as a gate; the Windows leg is
+    # non-blocking, the same way and for the same reason as cross-os-tests.yml's test job
+    # (the dispatcher-spawn class is flaky on Windows runners, tracked on #11).
+    continue-on-error: ${{ matrix.os == 'windows-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - name: Checkout
         uses: actions/checkout@v7
