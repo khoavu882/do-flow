@@ -6,6 +6,9 @@
 import { h, mount, icon, announce, muteAnnouncements } from './dom.js';
 import { notice } from './notices.js';
 import { installShortcuts } from './keys.js';
+import { createPalette } from './palette.js';
+import { deriveSessions } from './derive/sessions.js';
+import { laneTitle } from './views/sessions.js';
 import { createPoller, BACKOFF_MS } from './poll.js';
 import { createLiveAdapter } from './live.js';
 import { createLiveStore } from './store.js';
@@ -108,8 +111,52 @@ const app = /** @type {any} */ ({
   wasFull: false, // #main last held a full page (focus moves to the heading when a view replaces it)
   liveStore: null, // the page's one live store (IC-017), made when the first live view starts
   inspector: null, // the shell's details region (IC-020), see shell.js
+  palette: null, // the command palette (IC-021), see palette.js
+  loaded: { runs: null, sessions: null, fleet: null }, // the latest Runs, Sessions and Fleet bodies: the palette's targets
 });
 let viewSeq = 0;
+
+/** The four screens, by their rail labels. */
+const SCREENS = Object.freeze([['Now', 'runs'], ['Sessions', 'sessions'], ['Workflows', 'workflows'], ['Fleet', 'fleet']]);
+
+/**
+ * What the command palette can reach (IC-021, DEC-011): the screens, then the runs, session lanes and Fleet projects of the
+ * latest bodies this page has loaded. Labels are the ones the views show; every hash comes from `hashFor`, so a target that
+ * cannot be linked is left out. Nothing is fetched.
+ */
+function paletteTargets() {
+  /** @type {Array<{ kind: string, label: string, hint: string, hash: string }>} */
+  const out = [];
+  const add = (/** @type {string} */ kind, /** @type {string} */ label, /** @type {string} */ hint, /** @type {any} */ route) => {
+    const hash = hashFor(route);
+    if (hash !== null) out.push({ kind, label, hint, hash });
+  };
+  for (const [label, id] of SCREENS) add('screen', label, 'Screen', { id, params: {} });
+  const { runs, sessions, fleet } = app.loaded;
+  for (const run of (runs && Array.isArray(runs.runs) ? runs.runs : [])) {
+    if (typeof run.featureSlug !== 'string') continue;
+    const workflow = run.workflowName || run.taskClass;
+    add('run', `${run.featureSlug} / ${run.taskId}`, workflow ? `Run · ${workflow}` : 'Run', { id: 'run', params: { slug: run.featureSlug, taskId: run.taskId } });
+  }
+  if (sessions) {
+    for (const row of deriveSessions(sessions, Date.now()).rows) {
+      const where = row.kind === 'unplaced' ? 'another directory' : row.label;
+      for (const lane of row.lanes.flatMap((/** @type {any} */ item) => [item, ...item.children])) {
+        add('session', laneTitle(lane), `Session · ${where}`, { id: 'sessions', params: {}, lane: lane.key });
+      }
+    }
+  }
+  for (const project of (fleet && Array.isArray(fleet.projects) ? fleet.projects : [])) {
+    add('project', String(project.label ?? project.projectKey), 'Fleet project', { id: 'fleet-project', params: { project: project.projectKey } });
+  }
+  return out;
+}
+
+/** Keeps the latest body of the views the palette reads. @param {string} id the view id @param {any} body */
+function rememberLoaded(id, body) {
+  if (id === 'runs' || id === 'sessions') app.loaded[id] = body;
+  else if (id === 'fleet' || id === 'fleet-project') app.loaded.fleet = body;
+}
 
 /** The page's one live store over one live adapter (IC-016, IC-017): every live view of this page shares it. */
 function pageStore() {
@@ -681,6 +728,7 @@ function onData(view, body, heartbeat) {
   view.hasData = true;
   view.data = body;
   view.dataText = text;
+  rememberLoaded(view.route.view.id, body);
   if (view.skeletonTimer) {
     globalThis.clearTimeout(view.skeletonTimer);
     view.skeletonTimer = null;
@@ -881,9 +929,15 @@ function boot() {
     if (app.els.pause) app.els.pause.addEventListener('click', () => togglePause());
     // The one shortcut registry (keys.js) binds the document once; each entry's action is a plain call into the shell.
     const go = (/** @type {string} */ hash) => () => { globalThis.location.hash = hash; };
+    // The palette and the help list are never open together: each opening closes the other (IC-021).
+    app.palette = createPalette({ doc: document, targets: paletteTargets, go: (hash) => { globalThis.location.hash = hash; } });
     app.shortcuts = installShortcuts({
       doc: document,
-      actions: { pause: () => { togglePause(); }, 'go.runs': go('#/'), 'go.workflows': go('#/workflows'), 'go.sessions': go('#/sessions'), 'go.fleet': go('#/fleet') },
+      actions: {
+        palette: () => { app.shortcuts.closeHelp(); app.palette.open(); },
+        help: () => { app.palette.close(); },
+        pause: () => { togglePause(); }, 'go.runs': go('#/'), 'go.workflows': go('#/workflows'), 'go.sessions': go('#/sessions'), 'go.fleet': go('#/fleet'),
+      },
     });
     const skip = document.querySelector('.skip');
     if (skip) {

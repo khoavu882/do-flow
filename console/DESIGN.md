@@ -171,7 +171,7 @@ Generated list of the top-level class blocks in `app.css` (elements are `block__
 `.fleet-tree`, `.fnode`, `.fpanel`, `.ftransport`, `.ftree`, `.full-state`, `.gate`, `.gate-card`
 `.gate-cards`, `.gattempt`, `.gattempts`, `.gcard`, `.gdetail`, `.glane`, `.graph`, `.grid`, `.grow`
 `.help`, `.hint`, `.icon`, `.inspector`, `.masked`, `.model-chip`, `.mono`, `.nav`, `.navrail`
-`.noscript`, `.num`, `.ov-check`, `.ov-cross`, `.ov-forced`, `.page`, `.pause`, `.pr`
+`.noscript`, `.num`, `.ov-check`, `.ov-cross`, `.ov-forced`, `.page`, `.palette`, `.pause`, `.pr`
 `.project-list`, `.project-row`, `.rail`, `.rail-detail`, `.rail-fallback`, `.rail-note`
 `.rail-scroll`, `.reltime`, `.replay`, `.replay-host`, `.run-head`, `.run-list`, `.run-rail`
 `.run-row`, `.run-section`, `.sbar`, `.segmented`, `.sessions`, `.sfilter`, `.sfoot`, `.shape`

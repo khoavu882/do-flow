@@ -292,6 +292,10 @@ test('keys: ids are unique, every entry has a label, chords have two keys, and t
   }
   const listed = helpRows().flatMap((group: any) => group.items.map((item: any) => item.id));
   assert.deepEqual([...listed].sort(), [...ids].sort());
+  // 149 IC-021, DEC-037: the palette is a global Ctrl or Cmd entry, and its help row prints both.
+  assert.deepEqual(SHORTCUTS.find((item: any) => item.id === 'palette'), { id: 'palette', scope: 'global', keys: ['k'], mod: true, label: 'Open the command palette' });
+  const row = helpRows().flatMap((group: any) => group.items).find((item: any) => item.id === 'palette');
+  assert.deepEqual(row.keys, ['Ctrl K', 'Cmd K']);
 });
 
 test('keys: isKey reads the table, so a view asks for "close" and not for Escape', () => {

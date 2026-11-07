@@ -2092,6 +2092,74 @@
   }
 }
 
+/* The command palette (149 IC-021): a modal combobox over what the page has loaded; the same layer as the shortcut help, and
+   the shell never shows the two together. */
+@layer components {
+  .palette {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-skip);
+    display: grid;
+    align-items: start;
+    justify-items: center;
+    padding: var(--space-7) var(--space-4) var(--space-4);
+    background: var(--scrim);
+  }
+  .palette[hidden] { display: none; }
+  .palette__panel {
+    box-sizing: border-box;
+    display: grid;
+    gap: var(--space-2);
+    width: min(100%, 640px);
+    max-height: 100%;
+    padding: var(--space-4);
+    background: var(--surface-3);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--elev-2);
+  }
+  .palette__title { margin: 0; font: var(--type-sm); font-weight: 600; color: var(--text-muted); }
+  .palette__input {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: var(--target);
+    padding: 0 var(--space-3);
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-md);
+    font: var(--type-md);
+  }
+  .palette__list {
+    max-height: 320px;
+    overflow: auto;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .palette__list[hidden], .palette__none[hidden] { display: none; }
+  .palette__option {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+    min-height: var(--target-min);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+  }
+  .palette__option[aria-selected="true"] { background: var(--accent-tint); color: var(--text); box-shadow: inset 2px 0 0 var(--accent); }
+  .palette__label { min-width: 0; overflow-wrap: anywhere; font: var(--type-sm); }
+  .palette__hint { flex: none; font: var(--type-xs); color: var(--text-muted); }
+  .palette__none { margin: 0; padding: var(--space-2) var(--space-3); font: var(--type-sm); color: var(--text-muted); }
+  .palette__note { margin: 0; font: var(--type-xs); color: var(--text-muted); }
+}
+
+@media (forced-colors: active) {
+  .palette__option[aria-selected="true"] { outline: 2px solid Highlight; outline-offset: -2px; }
+}
+
 /* ---- 149 D.1: the shell (IC-020, DEC-036): rail, canvas and inspector by band -------------------- */
 /* Below 768 the rail is the nav row under the header and the canvas is one column; from 768 the rail is a 56 px icon column;
    from 1280 it is 200 px with labels and, on an inspectable view, the docked inspector column is always present, so opening

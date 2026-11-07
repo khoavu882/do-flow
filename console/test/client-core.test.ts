@@ -3598,6 +3598,144 @@ test('133 shortcuts: with no main region the view heading takes the focus', asyn
   });
 });
 
+// ---- 149 D.4: the command palette (IC-021, DEC-011, DEC-037) ----------------------------------------------
+
+const paletteOf = (page: Page) => page.doc.getElementById('palette');
+const paletteInput = (page: Page) => paletteOf(page).querySelector('input');
+const paletteOptions = (page: Page) => paletteOf(page).querySelectorAll('li').map((li: El) => text(li.querySelector('.palette__label')));
+const paletteType = (page: Page, query: string) => { const input = paletteInput(page); input.value = query; input.fire('input'); };
+
+test('149 palette: Ctrl K and Cmd K open the combobox dialog (not with Alt); Escape closes it and returns focus', async () => {
+  await withFreshModules(async () => {
+    const page = await start({ fetch: standard });
+    page.pause.focus();
+    const open = keydownOn(page, 'k', { ctrlKey: true });
+    assert.equal(open.defaultPrevented, true);
+    const dialog = paletteOf(page);
+    assert.equal(dialog.getAttribute('hidden'), null);
+    assert.equal(dialog.getAttribute('role'), 'dialog');
+    assert.equal(dialog.getAttribute('aria-modal'), 'true');
+    assert.equal(page.doc.getElementById(dialog.getAttribute('aria-labelledby')).tagName, 'h2');
+    const input = paletteInput(page);
+    assert.ok(page.doc.activeElement === input, 'focus moves into the input');
+    assert.equal(input.getAttribute('role'), 'combobox');
+    assert.equal(input.getAttribute('aria-expanded'), 'true');
+    const list = page.doc.getElementById(input.getAttribute('aria-controls'));
+    assert.equal(list.getAttribute('role'), 'listbox');
+    assert.ok(list.querySelectorAll('li').every((li: El) => li.getAttribute('role') === 'option'));
+    assert.deepEqual(paletteOptions(page), ['Now', 'Sessions', 'Workflows', 'Fleet', 'feat-a / r1', 'feat-a / r2', 'feat-a / r3', 'feat-a / r4', 'feat-a / r5'], 'an empty query: the screens, then the runs');
+    assert.equal(input.getAttribute('aria-activedescendant'), 'palette-opt-0');
+    assert.equal(page.doc.getElementById('palette-opt-0').getAttribute('aria-selected'), 'true');
+    const tab = input.fire('keydown', { key: 'Tab' });
+    assert.equal(tab.defaultPrevented, true, 'Tab stays inside');
+    const esc = input.fire('keydown', { key: 'Escape' });
+    assert.equal(esc.defaultPrevented, true);
+    assert.notEqual(dialog.getAttribute('hidden'), null);
+    assert.ok(page.doc.activeElement === page.pause, 'focus returns to the opener');
+
+    keydownOn(page, 'K', { metaKey: true, shiftKey: true });
+    assert.equal(dialog.getAttribute('hidden'), null, 'Cmd K opens it too');
+    paletteInput(page).fire('keydown', { key: 'Escape' });
+    assert.ok(page.doc.activeElement === page.pause);
+    const alt = keydownOn(page, 'k', { ctrlKey: true, altKey: true });
+    assert.equal(alt.defaultPrevented, false);
+    assert.notEqual(dialog.getAttribute('hidden'), null, 'never with Alt');
+    keydownOn(page, 'k');
+    assert.notEqual(dialog.getAttribute('hidden'), null, 'a plain k is no shortcut');
+  });
+});
+
+test('149 palette: ignored while typing in a field and while the help is open; the two are never open together', async () => {
+  await withFreshModules(async () => {
+    const page = await start({ fetch: standard });
+    const field = page.doc.createElement('input');
+    const typed = keydownOn(page, 'k', { ctrlKey: true, target: field });
+    assert.equal(typed.defaultPrevented, false);
+    assert.equal(paletteOf(page), null, 'nothing was opened');
+    keydownOn(page, '?');
+    keydownOn(page, 'k', { ctrlKey: true });
+    assert.equal(paletteOf(page), null, 'the help list is modal');
+    keydownOn(page, 'Escape');
+    keydownOn(page, 'k', { metaKey: true });
+    assert.equal(paletteOf(page).getAttribute('hidden'), null);
+    keydownOn(page, '?', { target: page.doc.body });
+    assert.notEqual(paletteOf(page).getAttribute('hidden'), null, 'opening the help closes the palette');
+    assert.equal(page.doc.getElementById('help').getAttribute('hidden'), null);
+  });
+});
+
+test('149 palette: part of a slug then Enter opens the Run view with focus on its heading; Up and Down move; no fetch', async () => {
+  await withFreshModules(async () => {
+    const page = await start({ fetch: (target, init) => (target === '/api/runs/feat-a/r2' ? runReply() : standard(target, init)) });
+    const before = page.calls.length;
+    keydownOn(page, 'k', { ctrlKey: true });
+    paletteType(page, 'FEAT');
+    assert.deepEqual(paletteOptions(page), ['feat-a / r1', 'feat-a / r2', 'feat-a / r3', 'feat-a / r4', 'feat-a / r5'], 'case-insensitive substring');
+    const input = paletteInput(page);
+    input.fire('keydown', { key: 'ArrowDown' });
+    assert.equal(input.getAttribute('aria-activedescendant'), 'palette-opt-1');
+    assert.equal(page.doc.getElementById('palette-opt-1').getAttribute('aria-selected'), 'true');
+    input.fire('keydown', { key: 'ArrowUp' });
+    input.fire('keydown', { key: 'ArrowUp' });
+    assert.equal(input.getAttribute('aria-activedescendant'), 'palette-opt-4', 'Up from the first wraps to the last');
+    paletteType(page, 'zzz');
+    assert.deepEqual(paletteOptions(page), []);
+    assert.equal(input.getAttribute('aria-expanded'), 'false');
+    assert.equal(input.getAttribute('aria-activedescendant'), null);
+    paletteType(page, 'a / r2');
+    assert.deepEqual(paletteOptions(page), ['feat-a / r2']);
+    assert.equal(page.calls.length, before, 'the palette fetches nothing');
+    input.fire('keydown', { key: 'Enter' });
+    assert.equal(page.location.hash, '#/run/feat-a/r2');
+    assert.notEqual(paletteOf(page).getAttribute('hidden'), null);
+    page.win.dispatch('hashchange');
+    assert.equal(text(heading(page)), 'feat-a / r2');
+    assert.ok(page.doc.activeElement === heading(page), 'the route change moves focus to the view heading');
+  });
+});
+
+test('149 palette: matchTargets orders screens, runs, sessions, projects, matches the hint too and lists at most 50', async () => {
+  const { matchTargets, MAX_OPTIONS } = await import(url('palette.js'));
+  const t = (kind: string, label: string, hint = '') => ({ kind, label, hint, hash: '#/' });
+  const list = [t('project', 'Alpha project'), t('session', 'Worker', 'Session · main'), t('run', 'alpha / r1'), t('screen', 'Fleet'), t('screen', 'Now')];
+  assert.deepEqual(matchTargets(list, 'ALPHA').map((x: any) => x.label), ['alpha / r1', 'Alpha project']);
+  assert.deepEqual(matchTargets(list, 'main').map((x: any) => x.label), ['Worker'], 'the hint matches');
+  assert.deepEqual(matchTargets(list, '').map((x: any) => x.label), ['Fleet', 'Now', 'alpha / r1'], 'empty: the screens, then the runs');
+  const many = Array.from({ length: 60 }, (_, i) => t('run', `feat / r${i}`));
+  assert.equal(MAX_OPTIONS, 50);
+  assert.equal(matchTargets(many, 'feat').length, 50);
+});
+
+test('149 palette: targets are the loaded Sessions lanes and Fleet projects, as hashes from hashFor', async () => {
+  await withFreshModules(async () => {
+    const both = (target: string, init: any) => (target === '/api/sessions' ? reply(200, BUSY()) : fleetRoute()(target, init));
+    const page = await start({ hash: '#/sessions', fetch: both });
+    keydownOn(page, 'k', { ctrlKey: true, target: page.doc.body });
+    paletteType(page, 'project');
+    assert.deepEqual(paletteOptions(page), [], 'no Fleet body is loaded yet: nothing is fetched for it');
+    paletteType(page, 'session · feat-1');
+    assert.deepEqual(paletteOptions(page), ['DoFlow run local/main', 'DoFlow run run-two/lin2', 'Hook session'], 'the lanes of one checkout, by the titles the Sessions view shows; the checkout is the hint');
+    paletteType(page, 'hook session');
+    assert.deepEqual(paletteOptions(page), ['Hook session', 'Hook session']);
+    paletteInput(page).fire('keydown', { key: 'Enter' });
+    assert.match(page.location.hash, /^#\/sessions\/hook\/[0-9a-f]{16}$/);
+    assert.equal(mods.views.parseRoute(page.location.hash).id, 'sessions');
+    page.location.hash = '#/fleet';
+    page.win.dispatch('hashchange');
+    await advance(100);
+    const before = page.calls.length;
+    keydownOn(page, 'k', { ctrlKey: true, target: page.doc.body });
+    paletteType(page, 'fleet project');
+    assert.deepEqual(paletteOptions(page), ['example-project', 'other-project']);
+    paletteType(page, 'session');
+    assert.ok(paletteOptions(page).length > 0, 'the Sessions body loaded earlier is still a source');
+    paletteType(page, 'other');
+    paletteInput(page).fire('keydown', { key: 'Enter' });
+    assert.equal(page.location.hash, `#/fleet/${P2}`);
+    assert.equal(page.calls.length, before, 'the palette fetches nothing');
+  });
+});
+
 test('replay keeps its controls attached while scrubbing and starting playback', async () => {
   const page = installPage({ fetch: () => reply(204) });
   const { withReplay, releaseReplay } = await import(url('views/replay.js'));

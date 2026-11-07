@@ -449,4 +449,4 @@ function renderSessions(data, params, local) {
   return root;
 }
 
-export { renderSessions, rerouteSessions };
+export { renderSessions, rerouteSessions, laneTitle };
