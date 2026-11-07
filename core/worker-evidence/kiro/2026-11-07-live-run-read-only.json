@@ -2,10 +2,15 @@
   "binary": "kiro-cli",
   "checks": [],
   "cliVersion": "kiro-cli 3.1.0",
-  "establishes": [],
+  "establishes": [
+    "oneShot",
+    "structuredOutput",
+    "spawnDenial",
+    "readOnly"
+  ],
   "harness": "kiro",
   "kind": "live-run",
-  "recordedAt": "2026-11-07T07:15:16.085Z",
+  "recordedAt": "2026-11-07T10:39:40.265Z",
   "run": {
     "argvShape": [
       "chat",
@@ -23,28 +28,19 @@
     "isolation": null,
     "parser": "kiro-stream-json-v1",
     "readOnly": {
-      "changes": [
-        {
-          "change": "modified",
-          "path": ".kiro/agents/doflow-worker-ro.json"
-        },
-        {
-          "change": "added",
-          "path": ".kiro/agents/doflow-worker-ro.json.bak"
-        }
-      ],
+      "changes": [],
       "head": {
         "after": {
-          "object": "310af7a520b5f131871f49d2dce1f87edc4e941e",
+          "object": "8411453d9d6cc088458eb624126d354b390b83af",
           "ref": "refs/heads/exec"
         },
         "before": {
-          "object": "310af7a520b5f131871f49d2dce1f87edc4e941e",
+          "object": "8411453d9d6cc088458eb624126d354b390b83af",
           "ref": "refs/heads/exec"
         }
       },
       "refsChanged": false,
-      "status": "violated"
+      "status": "clean"
     },
     "report": {
       "deniedCount": 0,
@@ -52,12 +48,10 @@
       "status": "success",
       "usage": null
     },
-    "resultOffered": false,
-    "runId": "w-63ecda0017a0",
-    "stdoutBytes": 111870,
-    "withheld": [
-      "read-only-violation"
-    ]
+    "resultOffered": true,
+    "runId": "w-fa5cd9db34d5",
+    "stdoutBytes": 103007,
+    "withheld": []
   },
   "schema": "doflow-worker-evidence-v1"
 }

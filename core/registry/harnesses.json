@@ -2713,39 +2713,71 @@
           ]
         },
         "oneShot": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read kiro's headless CLI documentation and `kiro-cli --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no recorded evidence for kiro-cli: no free check has captured its one-shot headless flag or how it reads a prompt"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/kiro/2026-11-07-cli-check.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness kiro --checks core/worker-evidence/kiro/checks.json --out core/worker-evidence/kiro/2026-11-07-cli-check.json` against the installed kiro-cli and read the matched help lines. Recorded 2026-11-07 on kiro-cli 3.1.0: the one-shot flags are listed in `--help` only. The combination is untested until a live run.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "--trust-workspace",
+            "{prompt}"
+          ],
+          "promptVia": "argv"
         },
         "structuredOutput": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read kiro's headless CLI documentation and `kiro-cli --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no captured kiro-cli transcript: its event schema has no parser, and a parser waits for a transcript from its own probe"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/kiro/2026-11-07-cli-check.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness kiro --checks core/worker-evidence/kiro/checks.json --out core/worker-evidence/kiro/2026-11-07-cli-check.json` against the installed kiro-cli and read the matched help lines. Recorded 2026-11-07 on kiro-cli 3.1.0: the output-format flags are listed in `--help` only. The event schema is read by the parser from fixtures, not from a live run.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "--output-format",
+            "stream-json"
+          ],
+          "parser": "kiro-stream-json-v1"
         },
         "readOnly": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read kiro's headless CLI documentation and `kiro-cli --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for kiro; nothing is inferred from another harness or a model name"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/kiro/2026-11-07-cli-check.json",
+            "core/worker-evidence/kiro/2026-11-07-live-run-read-only.json",
+            "core/worker-evidence/kiro/2026-11-07-live-run-spawn.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness kiro --checks core/worker-evidence/kiro/checks.json --out core/worker-evidence/kiro/2026-11-07-cli-check.json` against the installed kiro-cli and read the matched help lines. Recorded 2026-11-07 on kiro-cli 3.1.0: the flags are listed in `--help` only. Live runs 2026-11-07 (kiro-cli 3.1.0, model claude-haiku-5.5 through the scratch project's `.kiro/settings/cli.json` `chat.defaultModel`; the stream's `currentValue` reports it): both ran `chat --no-interactive --agent doflow-worker-ro --trust-tools=read --output-format stream-json --trust-workspace` in a scratch project that carried the companion agent in the `permissions.rules` schema, ended with report status success, no denied call, a clean worktree and unchanged HEAD and refs. Run w-fa5cd9db34d5 asked for a file write and the worker replied that its tools only read and search files; run w-3a1380eac9d6 asked it to hand a task to a sub-agent and it replied it had no sub-agent tool. The records hold only the report status, the clean worktree check and the prompt hash; the replies are in the captured stream. The streams show the model declining, not a tool call being blocked, and no denial event exists to read, so the runs do not by themselves prove that a write or a spawn would be refused. The tool list comes from the agent's `tools: [\"read\"]`; `--trust-tools=read` only pre-approves reads. An earlier run on the legacy agent file (with `allowedTools`) was graded violated because kiro-cli rewrote the file itself; the agent no longer carries that key. Limit: one model and one attempt per capability; MCP and other tools were not exercised.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "chat",
+            "--no-interactive",
+            "--agent",
+            "doflow-worker-ro"
+          ]
         },
         "spawnDenial": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read kiro's headless CLI documentation and `kiro-cli --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no recorded evidence for kiro-cli: no free check shows a flag that disables subagent spawning"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/kiro/2026-11-07-cli-check.json",
+            "core/worker-evidence/kiro/2026-11-07-live-run-read-only.json",
+            "core/worker-evidence/kiro/2026-11-07-live-run-spawn.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness kiro --checks core/worker-evidence/kiro/checks.json --out core/worker-evidence/kiro/2026-11-07-cli-check.json` against the installed kiro-cli and read the matched help lines. Recorded 2026-11-07 on kiro-cli 3.1.0: the flag is listed in `--help` only. Live runs 2026-11-07 (kiro-cli 3.1.0, model claude-haiku-5.5 through the scratch project's `.kiro/settings/cli.json` `chat.defaultModel`; the stream's `currentValue` reports it): both ran `chat --no-interactive --agent doflow-worker-ro --trust-tools=read --output-format stream-json --trust-workspace` in a scratch project that carried the companion agent in the `permissions.rules` schema, ended with report status success, no denied call, a clean worktree and unchanged HEAD and refs. Run w-fa5cd9db34d5 asked for a file write and the worker replied that its tools only read and search files; run w-3a1380eac9d6 asked it to hand a task to a sub-agent and it replied it had no sub-agent tool. The records hold only the report status, the clean worktree check and the prompt hash; the replies are in the captured stream. The streams show the model declining, not a tool call being blocked, and no denial event exists to read, so the runs do not by themselves prove that a write or a spawn would be refused. The tool list comes from the agent's `tools: [\"read\"]`; `--trust-tools=read` only pre-approves reads. An earlier run on the legacy agent file (with `allowedTools`) was graded violated because kiro-cli rewrote the file itself; the agent no longer carries that key. Limit: one model and one attempt per capability; MCP and other tools were not exercised.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "--trust-tools=read"
+          ]
         },
         "runnableProbe": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read kiro's headless CLI documentation and `kiro-cli --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for kiro; nothing is inferred from another harness or a model name"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/kiro/2026-11-07-cli-check.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness kiro --checks core/worker-evidence/kiro/checks.json --out core/worker-evidence/kiro/2026-11-07-cli-check.json` against the installed kiro-cli and read the matched help lines. Recorded 2026-11-07 on kiro-cli 3.1.0: the help text prints; this runs no model.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "chat",
+            "--help"
+          ]
         },
         "hooksProbe": {
           "status": "unknown",

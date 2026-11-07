@@ -344,7 +344,7 @@ const ACCEPTED_KEYS: any = {
   claude: [],
   copilot: [],
   pi: [],
-  kiro: [],
+  kiro: ['oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
   antigravity: [],
 };
 
@@ -402,8 +402,8 @@ test('G41.4 control: an ACCEPTED_KEYS entry with no registry key, one for no har
   assert.ok(missing.every((f: any) => f.includes("harness 'opencode'") && f.includes('not in ACCEPTED_KEYS')));
 });
 
-test('G41.4 control: a supported key added to claude, kiro, pi or copilot without a map entry fails', () => {
-  for (const id of ['claude', 'kiro', 'pi', 'copilot']) {
+test('G41.4 control: a supported key added to claude, pi or copilot without a map entry fails', () => {
+  for (const id of ['claude', 'pi', 'copilot']) {
     const registry = structuredClone(shipped().registry);
     const harness = registry.harnesses.find((h: any) => h.id === id);
     assert.deepEqual(supportedKeys(harness), [], `${id}: control precondition`);
@@ -442,6 +442,9 @@ test('G41.5 control: codex is exempt, and a cited live-run record that fails rec
   const codex = registry.harnesses.find((h: any) => h.id === 'codex');
   codex.worker.readOnly.evidence = codex.worker.readOnly.evidence.filter((item: any) => !/-live-run-/.test(item));
   assert.deepEqual(liveRecordFindings(registry, REPO), [], 'codex needs no live-run citation');
+  // kiro's real live-run records live in the repository, not in the opencode scratch root; its entries are not under test here.
+  const kiro = registry.harnesses.find((h: any) => h.id === 'kiro');
+  for (const key of ['readOnly', 'spawnDenial']) kiro.worker[key].status = 'unknown';
   const { root, copy } = opencodeScratch(t);
   const opencode = registry.harnesses.find((h: any) => h.id === 'opencode');
   const failed = copy('2026-11-07-live-run-read-only.json', 'failed.json', (r: any) => { r.run.report.status = 'failure'; });
