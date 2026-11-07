@@ -159,13 +159,13 @@ test('the writer refuses malformed input', () => {
 
 test('masking: secret, email, IP and absolute paths in section json are masked; keys stay', () => {
   const home = process.env.HOME;
-  process.env.HOME = '/home/tester';
+  process.env.HOME = '/home/test';
   try {
     const secret = `ghp_${'A1b2C3d4E5f6G7h8I9j0'.repeat(2)}`;
     const planted = {
       'alice@example.com': `token in ${secret} here`,
       '10.1.2.3': ['mail bob@example.org now', 'host 192.168.10.20 up'],
-      '/Users/alice/notes.txt': { nested: { path: '/Users/alice/notes.txt', mine: '/home/tester/project/plan.md' } },
+      '/Users/example/notes.txt': { nested: { path: '/Users/example/notes.txt', mine: '/home/test/project/plan.md' } },
       count: 3,
       flag: true,
       none: null,
@@ -173,8 +173,8 @@ test('masking: secret, email, IP and absolute paths in section json are masked; 
     const writer = fixedWriter();
     const lines = writer.snapshot('now', { list: { exit: 0, json: planted } });
     const text = lines.join('');
-    for (const value of [secret, 'bob@example.org', '192.168.10.20', '"/Users/alice/notes.txt"', '/home/tester/']) {
-      if (value === '"/Users/alice/notes.txt"') {
+    for (const value of [secret, 'bob@example.org', '192.168.10.20', '"/Users/example/notes.txt"', '/home/test/']) {
+      if (value === '"/Users/example/notes.txt"') {
         // The key keeps the path; the value does not.
         assert.equal(text.split(value).length - 1, 1, 'the path survives only as a key');
       } else {
@@ -183,10 +183,10 @@ test('masking: secret, email, IP and absolute paths in section json are masked; 
     }
     const [env] = parse(lines);
     const json = env.data.sections.list.json;
-    assert.deepEqual(Object.keys(json), ['alice@example.com', '10.1.2.3', '/Users/alice/notes.txt', 'count', 'flag', 'none']);
+    assert.deepEqual(Object.keys(json), ['alice@example.com', '10.1.2.3', '/Users/example/notes.txt', 'count', 'flag', 'none']);
     assert.equal(json['alice@example.com'], 'token in <masked> here');
     assert.deepEqual(json['10.1.2.3'], ['mail <email> now', 'host <ip> up']);
-    assert.deepEqual(json['/Users/alice/notes.txt'], { nested: { path: '/Users/<masked>/notes.txt', mine: '~/project/plan.md' } });
+    assert.deepEqual(json['/Users/example/notes.txt'], { nested: { path: '/Users/<masked>/notes.txt', mine: '~/project/plan.md' } });
     assert.equal(json.count, 3);
     assert.equal(json.flag, true);
     assert.equal(json.none, null);
