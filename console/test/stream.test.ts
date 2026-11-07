@@ -721,19 +721,66 @@ test('GET /api/stream: a client disconnect stops the ticks (no verb runs afterwa
   assert.equal(runner.calls.length, calls, 'no verb runs after the client left');
 });
 
-test('route table: the only non-GET route is /api/session, the only stream route is /api/stream, both behind the session check', async (t) => {
+test('route table: the only non-GET route is /api/session, the stream routes are exactly /api/stream and /api/live, all behind the session check', async (t) => {
   const sessions = createSessions();
   const routes = consoleRoutes(scripted(), sessions);
   assert.deepEqual(routes.filter((route: any) => route.method !== 'GET').map((route: any) => route.path), ['/api/session']);
-  assert.deepEqual(routes.filter((route: any) => route.stream).map((route: any) => route.path), ['/api/stream']);
+  assert.deepEqual(routes.filter((route: any) => route.stream).map((route: any) => route.path), ['/api/stream', '/api/live']);
   assert.ok(routes.every((route: any) => route.stream === undefined || route.stream === true));
   const app = await createServer({ webRoot, routes });
   t.after(() => app.close());
-  for (const target of ['/api/stream?project=' + PROJECT, '/api/fleet', `/api/transcript?project=${PROJECT}&agent=${AGENT}`]) {
+  for (const target of ['/api/stream?project=' + PROJECT, '/api/live?ch=now', '/api/fleet', `/api/transcript?project=${PROJECT}&agent=${AGENT}`]) {
     const reply = await get(app, target, null);
     assert.equal(reply.status, 401, target);
     assert.deepEqual(JSON.parse(reply.body), errorBody('unauthenticated'), target);
   }
+});
+
+/** A live hub that serves nothing and counts subscribes: enough for /api/live to hold a slot open. */
+function quietHub() {
+  const hub = {
+    subscribes: 0,
+    epoch: '0a1b2c3d',
+    unsupported: false,
+    subscribe: () => { hub.subscribes += 1; return () => {}; },
+    current: () => ({ n: 0, state: null, error: null, gone: false }),
+    onUnsupported: () => {},
+  };
+  return hub;
+}
+
+test('one cap across both stream routes: a fifth stream mixing /api/stream and /api/live is 429 stream-limit JSON before any stream header; a freed slot opens', async (t) => {
+  const sessions = createSessions();
+  const hub = quietHub();
+  const app = await createServer({ webRoot, routes: consoleRoutes(scripted(), sessions, hub) });
+  t.after(() => app.close());
+  const cookie = `${cookieName(app.port)}=${sessions.exchange(sessions.mintLaunchCode())}`;
+  const first = await openStream(app, '/api/live?ch=now', cookie);
+  const others = [
+    await openStream(app, `/api/stream?project=${keyOf(1)}`, cookie),
+    await openStream(app, '/api/live?ch=now', cookie),
+    await openStream(app, `/api/stream?project=${keyOf(1)}`, cookie),
+  ];
+  t.after(() => { first.destroy(); for (const stream of others) stream.destroy(); });
+  assert.deepEqual([first.status, ...others.map((stream) => stream.status)], [200, 200, 200, 200]);
+  for (const target of ['/api/live?ch=now', `/api/stream?project=${keyOf(1)}`]) {
+    const fifth = await get(app, target, cookie);
+    assert.equal(fifth.status, 429, target);
+    assert.deepEqual(JSON.parse(fifth.body), errorBody('stream-limit'), target);
+    assert.match(String(fifth.headers['content-type']), /^application\/json/, target);
+    assert.equal(fifth.headers['cache-control'], 'no-store', target);
+  }
+  assert.equal(hub.subscribes, 2, 'a refused /api/live subscribes nothing');
+  first.destroy();
+  await first.closed;
+  let again: any = null;
+  for (let attempt = 0; attempt < 50 && again === null; attempt += 1) {
+    const stream = await openStream(app, `/api/stream?project=${keyOf(1)}`, cookie);
+    if (stream.status === 200) again = stream;
+    else await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.ok(again && again.status === 200, 'the slot of a closed /api/live connection opens an /api/stream');
+  again.destroy();
 });
 
 test('GET /api/fleet: per-project sections from tree and traffic, the root dropped, window 10 min, at most 12 projects with the rest counted', async (t) => {

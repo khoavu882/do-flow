@@ -2,9 +2,9 @@
 
 // The Console route table (IC-005). A route declares its method, so the server answers 405 for every
 // method no route declares for a path; the only non-GET route the contract allows is
-// `POST /api/session`, the launch-code exchange (092 IC-011), and the only stream route is
-// `GET /api/stream` (`stream: true`: its handler writes to `ctx.res` over time and returns null once it
-// has taken the response over; before that it may still return an error Reply). `buildRoutes` puts every
+// `POST /api/session`, the launch-code exchange (092 IC-011), and the stream routes are exactly
+// `GET /api/stream` and `GET /api/live` (`stream: true`: the handler writes to `ctx.res` over time and
+// returns null once it has taken the response over; before that it may still return an error Reply). `buildRoutes` puts every
 // other /api route behind the session check, so a route added to the table cannot skip it. Paths are literal segments, `:name` segments (one non-empty raw segment,
 // still percent-encoded: handlers validate it), or the whole-table static fallback `/*`, which never
 // matches under /api.
@@ -15,11 +15,20 @@ const { project } = require('./project.ts');
 const { handshake } = require('./handshake.ts');
 const { PARAM_PATTERN, fleetError } = require('./verb-runner.ts');
 const { createStreams, createStreamCap, parseLastEventId, MAX_STREAMS_PER_SESSION } = require('./stream.ts');
+const { createLiveStreams, lastEventVector, parseChannelList, parseVector } = require('./live-stream.ts');
 
 type Reply = { status: number, headers?: Record<string, string>, body?: string | Uint8Array };
 type RouteContext = { req: any, res: any, pathname: string, params: Record<string, string>, webRoot: string, port: number, secure?: boolean, session?: { scope: 'read' | 'phone' } };
 type Route = Readonly<{ method: 'GET' | 'POST', path: string, stream?: true, handler: (ctx: RouteContext) => Reply | null | Promise<Reply | null> }>;
 type StreamCap = { acquire(session: object): (() => void) | null, open(): number };
+/** The live hub of live.ts (one per Console, made in main.ts), as far as the route and live-stream.ts use it. */
+type LiveHub = {
+  readonly epoch: string,
+  subscribe(channel: string, listener: (frame: any) => void): () => void,
+  current(channel: string): { n: number, state: unknown, error: string | null, gone: boolean } | null,
+  readonly unsupported: boolean,
+  onUnsupported(listener: () => void): void,
+};
 
 const JSON_TYPE = 'application/json; charset=utf-8';
 const SESSION_PATH = '/api/session';
@@ -439,11 +448,40 @@ const streamRoute = (runner: Runner, cap: StreamCap): Route['handler'] => {
 };
 
 /**
+ * `GET /api/live` (IC-011). After the session check of buildRoutes: the query (`ch`, `since`; 400
+ * usage), the slot from the stream cap shared with `/api/stream` (429 stream-limit), availability (503
+ * live-unavailable with the slot released first: no hub, or a hub whose supervisor is unsupported),
+ * then live-stream.ts owns the response. No hub subscribe, so no events child, happens before that
+ * last step (AC-16). `since` wins over `Last-Event-ID`; a malformed `Last-Event-ID` resumes nothing.
+ */
+const liveRoute = (live: LiveHub | null, cap: StreamCap): Route['handler'] => {
+  const streams = live === null ? null : createLiveStreams(live);
+  return (ctx) => {
+    const query = queryOf(ctx.req, ['ch', 'since']);
+    const channels = query === null ? null : parseChannelList(query.get('ch'));
+    if (query === null || channels === null) return errorReply(400, 'usage');
+    const sinceText = query.get('since');
+    const since = sinceText === undefined ? null : parseVector(sinceText);
+    if (sinceText !== undefined && (since === null || [...since.positions.keys()].some((channel: string) => !channels.includes(channel)))) return errorReply(400, 'usage');
+    const release = cap.acquire(ctx.session as object);
+    if (release === null) return errorReply(429, 'stream-limit');
+    if (live === null || streams === null || live.unsupported) {
+      release();
+      return errorReply(503, 'live-unavailable');
+    }
+    const resume = since ?? lastEventVector(ctx.req.headers['last-event-id'], channels);
+    streams.serve(ctx.req, ctx.res, { channels, resume, release });
+    return null;
+  };
+};
+
+/**
  * The Console's table (IC-005) over `runner`: every /api route but the exchange is behind the session
  * check (buildRoutes), every one is GET, and each answers `{v:1, ...}` or IC-005's error body. The
- * stream routes share one stream cap (DEC-031), made here once per table.
+ * stream routes share one stream cap (DEC-031), made here once per table. `live` is the Console's live
+ * hub; without one (route tests over a scripted runner) `/api/live` answers 503 live-unavailable.
  */
-function consoleRoutes(runner: Runner, sessions: any = processSessions): readonly Route[] {
+function consoleRoutes(runner: Runner, sessions: any = processSessions, live: LiveHub | null = null): readonly Route[] {
   const streamCap = createStreamCap(MAX_STREAMS_PER_SESSION);
   return buildRoutes(sessions, [
     healthz,
@@ -455,6 +493,7 @@ function consoleRoutes(runner: Runner, sessions: any = processSessions): readonl
     { method: 'GET', path: '/api/fleet', handler: fleetRoute(runner) },
     { method: 'GET', path: '/api/transcript', handler: transcriptRoute(runner) },
     { method: 'GET', path: '/api/stream', stream: true, handler: streamRoute(runner, streamCap) },
+    { method: 'GET', path: '/api/live', stream: true, handler: liveRoute(live, streamCap) },
     staticFallback,
   ]);
 }
