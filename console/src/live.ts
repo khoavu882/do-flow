@@ -33,7 +33,9 @@
 // `current`, whose `state` is null while the hub owes the channel a snapshot (not composed yet, or
 // after a reset), `error` is the code of the channel's last error frame while it lasts, and `gone`
 // says the channel's own core channel was pruned (the hub sends nothing more on it). `n` is the
-// counter of the channel's last frame (0 before any). `envelopeText(epoch, frame)` is the IC-002
+// counter of the channel's last frame (0 before any); a channel dropped on its last unsubscribe and
+// created again continues from its last `n`, so within an epoch an `n` names one state of the channel
+// (IC-013 resume). `envelopeText(epoch, frame)` is the IC-002
 // envelope the frame cap is measured on.
 
 const crypto = require('node:crypto');
@@ -284,6 +286,11 @@ function createLiveHub(options: { runner: Runner; supervisor: Supervisor; clock?
   const epoch: string = crypto.randomBytes(4).toString('hex');
   const core = new Map<string, CoreEntry>();
   const channels = new Map<string, Browser>();
+  /**
+   * The last `n` of each channel the hub dropped, kept for the hub's lifetime so a channel created again
+   * continues from it. Ceiling accepted: one number per distinct channel name ever dropped in the epoch.
+   */
+  const lastN = new Map<string, number>();
   const unsupportedListeners: Array<() => void> = [];
   let needed = new Set<string>();
   let stopped = false;
@@ -563,6 +570,7 @@ function createLiveHub(options: { runner: Runner; supervisor: Supervisor; clock?
     if (ch.markTimer !== null) clock.clearTimeout(ch.markTimer);
     ch.markTimer = null;
     clearPending(ch);
+    lastN.set(ch.channel.name, ch.n);
     channels.delete(ch.channel.name);
     recomputeNeed();
   }
@@ -574,7 +582,7 @@ function createLiveHub(options: { runner: Runner; supervisor: Supervisor; clock?
     let ch = channels.get(name);
     if (ch === undefined) {
       ch = {
-        channel, subscribers: new Set(), n: 0, state: null, error: null, owesSnapshot: true, cappedText: null, gone: false,
+        channel, subscribers: new Set(), n: lastN.get(name) ?? 0, state: null, error: null, owesSnapshot: true, cappedText: null, gone: false,
         deps: new Set(initialDeps(channel)), markTimer: null, composing: false, again: false, interrupts: 0,
         pending: false, pendingTimer: null, pendingReported: false,
       };

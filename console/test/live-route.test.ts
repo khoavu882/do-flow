@@ -251,6 +251,62 @@ test('snapshot-on-subscribe: an error channel gets its error frame (even at an e
   assert.equal(dataOf(res)[1].id, `${EPOCH}/now=3,${TASKS}=2`);
 });
 
+test('snapshot-on-subscribe over the real hub: a channel dropped and created again keeps its n, so a position from before it was dropped gets a snapshot of the new state', async () => {
+  const RUN = 'w-0123456789ab';
+  const CH = `worker:${RUN}`;
+  const body = (state: string) => ({ disposition: 'status', runId: RUN, task: 'A.1', token: 1, harness: 'codex', state, reason: null, supervisorLost: false,
+    overdue: false, startedAt: '2026-10-26T09:00:00.000Z', endedAt: null, deadline: '2026-10-26T10:00:00.000Z', attemptActive: true });
+  let onFrame: (envelope: any) => void = () => {};
+  let seq = 0;
+  const supervisor = {
+    state: 'stopped',
+    need(set: Set<string>) { supervisor.state = set.size > 0 ? 'running' : 'stopped'; },
+    onFrame(listener: (envelope: any) => void) { onFrame = listener; },
+    onDown() {},
+    stop() {},
+  };
+  const push = (type: string, state: string) => {
+    seq += 1;
+    onFrame({ v: 1, ch: CH, id: `0badc0de-${seq}`, type, at: AT, data: { sections: { status: { exit: 0, json: body(state) } } } });
+  };
+  const clock = fakeClock();
+  const hub = createLiveHub({ runner: { run: async () => ({ ok: false, code: 'core-unreachable', exit: null }) }, supervisor, clock });
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  const compose = async () => {
+    for (let step = 0; step < 4; step += 1) {
+      clock.step(25);
+      await settle();
+      await settle();
+    }
+  };
+  try {
+    const first = openLive(hub, [CH]);
+    push('snapshot', 'running');
+    await compose();
+    push('patch', 'exited');
+    await compose();
+    assert.deepEqual(summary(first.res), [`snapshot@${hub.epoch}-1`, `patch@${hub.epoch}-2`]);
+    const held = dataOf(first.res).at(-1)!.id!;
+    first.res.destroy();
+    assert.equal(hub.current(CH), null, 'the last subscriber left: the hub dropped the channel');
+
+    // Another tab opens the channel again; the run moved on twice.
+    const other = openLive(hub, [CH]);
+    push('snapshot', 'timed-out');
+    await compose();
+    push('patch', 'cancelled');
+    await compose();
+    // The first tab reconnects with the vector it held.
+    const resumed = openLive(hub, [CH], parseVector(held));
+    assert.deepEqual(summary(resumed.res), [`snapshot@${hub.epoch}-4`]);
+    assert.equal(dataOf(resumed.res)[0].data.data.state.worker.body.state, 'cancelled');
+    other.res.destroy();
+    resumed.res.destroy();
+  } finally {
+    hub.stop();
+  }
+});
+
 test('id vector: a resumed position counts as held; every channel of the connection with a position, in connection order', () => {
   const hub = fakeHub();
   hub.states.set('now', { n: 5, state: { a: 1 }, error: null, gone: false });

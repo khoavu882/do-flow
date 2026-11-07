@@ -942,6 +942,36 @@ test('inspector as drawer and sheet: a modal dialog with the scrim; focus moves 
   }
 });
 
+test('inspector open while docked: narrowing into drawer or sheet moves focus into it, and closing returns it to the owner', () => {
+  for (const width of [1024, 360]) {
+    const page = installPage({ width: 1440, fetch: () => reply(204) });
+    const inspector = mods.shell.createInspector({ doc: page.doc, shell: page.shell, el: page.inspector, main: page.main, matchMedia: globalThis.matchMedia });
+    inspector.setInspectable(true);
+    const owner = page.doc.createElement('button');
+    page.main.append(owner);
+    owner.focus();
+    const link = mods.dom.h('a', { href: '#/fleet' }, 'Open');
+    inspector.open({ title: 'Step', body: link, owner });
+    assert.equal(page.doc.activeElement, owner, 'docked, focus stays on the owner');
+    const close = page.inspector.querySelector('.inspector__close');
+    page.media.resize(width);
+    assert.equal(page.inspector.getAttribute('aria-modal'), 'true', `${width}: a modal dialog`);
+    assert.equal(page.doc.activeElement, close, `${width}: focus moves into the inspector, to the close button`);
+    page.doc.activeElement = link;
+    page.media.resize(width === 1024 ? 360 : 1024);
+    assert.equal(page.doc.activeElement, link, `${width}: between drawer and sheet, focus already inside stays where it is`);
+    page.inspector.fire('keydown', { key: 'Escape' });
+    assert.equal(inspector.isOpen(), false);
+    assert.equal(page.doc.activeElement, owner, `${width}: focus returns to the control that opened it`);
+    inspector.open({ title: 'Step', body: 'x', owner });
+    page.media.resize(1440);
+    owner.focus();
+    page.media.resize(width);
+    assert.equal(page.doc.activeElement, close, `${width}: docked again and narrowed again, focus moves in again`);
+    uninstallPage();
+  }
+});
+
 test('stale: setStale marks #inspector beside #main, and a route change clears both', async () => {
   let down = false;
   const page = await start({ hash: '#/run/feat-a/run-1', width: 1440, fetch: (target, init) => (target === '/api/runs/feat-a/run-1' ? (down ? errorReply(502, 'core-error') : runReply()) : standard(target, init)) });

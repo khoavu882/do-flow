@@ -547,6 +547,23 @@ test('ids: an 8-hex epoch; n starts at 1 and rises by one per frame on each chan
   assert.equal(hub.current('now'), null);
 });
 
+test('ids: a channel dropped on its last unsubscribe and created again continues from its last n, so an id names one state in the epoch', async () => {
+  const { hub, advance, listen, supervisor } = setup(coreSections());
+  const ch = `worker:${RUN_ID}`;
+  const one = listen(ch);
+  await advance(100);
+  supervisor.push(ch, 'patch', { sections: { status: ok({ ...SAMPLES.worker(), state: 'exited' }) } });
+  await advance(100);
+  assert.deepEqual(one.frames.map((f) => `${f.type}@${f.n}`), ['snapshot@1', 'patch@2']);
+  one.unsubscribe();
+  assert.equal(hub.current(ch), null);
+  const two = listen(ch);
+  assert.deepEqual(hub.current(ch), { n: 2, state: null, error: null, gone: false }, 'created again, owing a snapshot, at the old n');
+  await advance(100);
+  assert.deepEqual(two.frames.map((f) => `${f.type}@${f.n}`), ['snapshot@3']);
+  assert.equal(two.frames[0].data.state.worker.body.state, 'running');
+});
+
 test('subscribers: the last unsubscribe drops the channel and shrinks the need set, to empty at the end', async () => {
   const sections = coreSections();
   const { hub, advance, supervisor } = setup(sections);

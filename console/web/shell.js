@@ -76,7 +76,15 @@ function createInspector(options) {
   }
 
   for (const list of lists) {
-    if (list && typeof list.addEventListener === 'function') list.addEventListener('change', () => { mode = readMode(); sync(); });
+    if (list && typeof list.addEventListener === 'function') list.addEventListener('change', onModeChange);
+  }
+
+  // Open across a change into drawer or sheet, it becomes a modal dialog: focus moves in, to the close button as on open,
+  // unless it is already inside. The owner kept from open is where close returns it.
+  function onModeChange() {
+    mode = readMode();
+    sync();
+    if (current !== null && mode !== 'dock' && !el.contains(doc.activeElement) && focusable(closeButton)) closeButton.focus();
   }
 
   /** @param {{ title?: any, body?: any, owner?: any, onClose?: any }} [spec] */
