@@ -15,6 +15,9 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+- **The Kiro read-only worker agent no longer triggers kiro-cli's agent-file upgrade (FU-mnfejq):** `core/harnesses/kiro/agents/doflow-worker-ro.json` carried the legacy `allowedTools` key, so kiro-cli 3.1.0 rewrote the file on its first run (it added `permissions.rules` and `kiroUpgrade` and left a `.bak`), and the worker's read-only check read that as a violation. The agent now declares `tools: ["read"]` and `permissions.rules` with `fs_read` allowed, and kiro-cli leaves it untouched (reproduced with a trivial prompt on kiro-cli 3.1.0 before and after). Three manual headless probes with the new file (a write, a sub-agent hand-off and a shell command, on kiro-cli 3.1.0) left the working tree clean; in each the model said it had no such tool, so this shows the tool list, not a blocked call. The kiro worker rows in `harnesses.json` stay `unknown` until a recorded `worker run` repeats this.
+
 ## [2.2.0] - 2026-11-07
 
 ### Added

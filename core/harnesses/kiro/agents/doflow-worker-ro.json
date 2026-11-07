@@ -4,7 +4,12 @@
   "tools": [
     "read"
   ],
-  "allowedTools": [
-    "fs_read"
-  ]
+  "permissions": {
+    "rules": [
+      {
+        "capability": "fs_read",
+        "effect": "allow"
+      }
+    ]
+  }
 }

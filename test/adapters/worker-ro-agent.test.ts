@@ -38,7 +38,11 @@ test('kiro projects doflow-worker-ro.json with read-only tools and no persona pr
   const agent = JSON.parse(fs.readFileSync(path.join(root, '.kiro', 'agents', 'doflow-worker-ro.json'), 'utf8'));
   assert.equal(agent.name, 'doflow-worker-ro');
   assert.deepEqual(agent.tools, ['read']);
-  assert.deepEqual(agent.allowedTools, ['fs_read']);
+  // kiro-cli 3.1.0 rewrites an agent file that still carries the legacy allowedTools key (it adds
+  // permissions.rules and kiroUpgrade and leaves a .bak), which a read-only check reads as a violation.
+  assert.equal(agent.allowedTools, undefined);
+  assert.equal(agent.kiroUpgrade, undefined);
+  assert.deepEqual(agent.permissions, { rules: [{ capability: 'fs_read', effect: 'allow' }] });
   assert.equal(typeof agent.description, 'string');
   assert.ok(agent.description.length > 0 && !agent.description.includes('\n'));
   assert.equal(agent.prompt, undefined);
@@ -54,7 +58,11 @@ test('kiro keeps the worker agent managed when hooks are off', () => {
   adapter.apply({ changes: planned.changes });
   const agent = JSON.parse(fs.readFileSync(path.join(root, '.kiro', 'agents', 'doflow-worker-ro.json'), 'utf8'));
   assert.deepEqual(agent.tools, ['read']);
-  assert.deepEqual(agent.allowedTools, ['fs_read']);
+  // kiro-cli 3.1.0 rewrites an agent file that still carries the legacy allowedTools key (it adds
+  // permissions.rules and kiroUpgrade and leaves a .bak), which a read-only check reads as a violation.
+  assert.equal(agent.allowedTools, undefined);
+  assert.equal(agent.kiroUpgrade, undefined);
+  assert.deepEqual(agent.permissions, { rules: [{ capability: 'fs_read', effect: 'allow' }] });
 });
 
 test('opencode projects doflow-worker-ro.md as a subagent with edit, bash, write and task denied', () => {
