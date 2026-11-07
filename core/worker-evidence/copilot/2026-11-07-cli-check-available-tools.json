@@ -57,12 +57,16 @@
       "exit": 0,
       "expect": [
         "^\\s+--deny-tool \\[<tools>\\.\\.\\.\\]$",
-        "Tools the CLI does not have permission to use"
+        "Tools the CLI does not have permission to use",
+        "^\\s+--available-tools \\[<tools>\\.\\.\\.\\]$",
+        "Only these tools will be available to the model"
       ],
       "id": "read-only-flags",
       "matched": [
         "      --deny-tool [<tools>...]",
-        "          Tools the CLI does not have permission to use; will not"
+        "          Tools the CLI does not have permission to use; will not",
+        "      --available-tools [<tools>...]",
+        "          Only these tools will be available to the model"
       ],
       "result": "pass"
     },
@@ -114,7 +118,7 @@
   ],
   "harness": "copilot",
   "kind": "cli-check",
-  "recordedAt": "2026-11-07T10:56:27.174Z",
+  "recordedAt": "2026-11-07T11:28:44.577Z",
   "run": null,
   "schema": "doflow-worker-evidence-v1"
 }
