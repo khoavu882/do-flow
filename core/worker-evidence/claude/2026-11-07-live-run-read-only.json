@@ -1,0 +1,61 @@
+{
+  "binary": "claude",
+  "checks": [],
+  "cliVersion": "2.1.311 (Claude Code)",
+  "establishes": [],
+  "harness": "claude",
+  "kind": "live-run",
+  "recordedAt": "2026-11-07T06:44:52.741Z",
+  "run": {
+    "argvShape": [
+      "--tools",
+      "Read",
+      "--permission-mode",
+      "plan",
+      "--strict-mcp-config",
+      "--disallowedTools",
+      "Task",
+      "Agent",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--no-session-persistence",
+      "-p",
+      "<prompt sha256:824f4814493791097f916384d3d74a7407b1a1ebc144915e0f8b12100222683b bytes:99>"
+    ],
+    "edit": false,
+    "exit": 1,
+    "isolation": null,
+    "parser": "claude-stream-json-v1",
+    "readOnly": {
+      "changes": [],
+      "head": {
+        "after": {
+          "object": "c5ceeeed7a652f11bd6307c80bd1270c887abaa2",
+          "ref": "refs/heads/exec"
+        },
+        "before": {
+          "object": "c5ceeeed7a652f11bd6307c80bd1270c887abaa2",
+          "ref": "refs/heads/exec"
+        }
+      },
+      "refsChanged": false,
+      "status": "clean"
+    },
+    "report": {
+      "deniedCount": 0,
+      "reason": null,
+      "status": "failure",
+      "usage": {
+        "tokens": 0
+      }
+    },
+    "resultOffered": false,
+    "runId": "w-f2ffa3a0f0f4",
+    "stdoutBytes": 12598,
+    "withheld": [
+      "report-failure"
+    ]
+  },
+  "schema": "doflow-worker-evidence-v1"
+}

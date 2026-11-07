@@ -1,6 +1,6 @@
 'use strict';
-// 142 B.9 (IC-008, IC-009; FR-004, NFR-001): the five recipes of claude, opencode, copilot, kiro and
-// pi, read from the real registry and put through the real launch assembly. No case starts a real
+// 142 B.9 (IC-008, IC-009; FR-004, NFR-001): the recipes of opencode, copilot, kiro and pi (claude's
+// stay `unknown` after its C.1 live run hit a usage limit), read from the real registry and put through the real launch assembly. No case starts a real
 // harness and no case makes a model call: `worker --action describe` runs in process on the real
 // descriptors with only `cli.binary` pointed at a fake CLI (test/helper/fake-harness-cli.ts) on a
 // scratch PATH.
@@ -17,16 +17,12 @@ const { probe, describe } = require('../../src/runtime/worker/readiness.ts');
 const POSIX_ONLY: any = { skip: process.platform === 'win32' && 'the fake CLI is linked by symlink and shebang on POSIX' };
 const REGISTRY = loadRegistry({ repoRoot: path.resolve(__dirname, '..', '..') });
 const WORKER: any = Object.fromEntries(REGISTRY.harnesses.map((h: any) => [h.id, h.worker]));
-const HARNESSES = ['claude', 'opencode', 'copilot', 'kiro', 'pi'];
+const HARNESSES = ['opencode', 'copilot', 'kiro', 'pi'];
 const PROMPT = 'summarise the module';
 
 // IC-009, written out by hand: readOnly, spawnDenial, structuredOutput, then oneShot, the prompt last
 // in each. Deliberately not derived from the registry, so a changed flag fails here.
 const IC009: any = {
-  claude: ['--tools', 'Read', '--permission-mode', 'plan', '--strict-mcp-config',
-    '--disallowedTools', 'Task', 'Agent',
-    '--output-format', 'stream-json', '--verbose',
-    '--no-session-persistence', '-p', '{prompt}'],
   opencode: ['run', '--agent', 'doflow-worker-ro',
     '--standalone', '--format', 'json',
     '{prompt}'],
@@ -103,11 +99,20 @@ test('opencode: the empty spawnDenial argv assembles to the IC-009 argv', () => 
   assert.deepEqual(argvShape(worker, PROMPT).slice(0, 6), argv.slice(0, 6));
 });
 
-test('describe: each of the five is eligible on fake facts and antigravity is not', POSIX_ONLY, async (t) => {
+test('claude: the five recipe entries are unknown again, so no recipe assembles (C.1 stop rule)', () => {
+  for (const key of ['oneShot', 'structuredOutput', 'readOnly', 'spawnDenial', 'runnableProbe']) {
+    assert.equal(WORKER.claude[key].status, 'unknown', key);
+    assert.deepEqual(WORKER.claude[key].evidence, [], key);
+    assert.equal(Object.hasOwn(WORKER.claude[key], 'argv'), false, key);
+  }
+  assert.equal(Object.hasOwn(WORKER.claude.structuredOutput, 'parser'), false);
+});
+
+test('describe: each of the four is eligible on fake facts; claude and antigravity are not', POSIX_ONLY, async (t) => {
   const dir = tempDir(t, 'doflow-recipes-');
   const root = path.join(dir, 'project');
   fs.mkdirSync(root);
-  const ids = [...HARNESSES, 'antigravity'];
+  const ids = [...HARNESSES, 'claude', 'antigravity'];
   // The real descriptors, with only the binary renamed to a fake CLI that exits 0 for version and help.
   const descriptors: any = {};
   for (const id of ids) {
@@ -129,8 +134,10 @@ test('describe: each of the five is eligible on fake facts and antigravity is no
     assert.deepEqual(answer.requirements.filter((r: any) => r.result !== 'met'), [], id);
     assert.equal(answer.eligible, true, id);
   }
-  const agy = describe({ descriptors, coverage: REGISTRY.coverage, harness: 'antigravity', env, cwd: root });
-  assert.equal(agy.eligible, false);
-  assert.ok(agy.requirements.some((r: any) => r.result !== 'met'));
+  for (const id of ['claude', 'antigravity']) {
+    const answer = describe({ descriptors, coverage: REGISTRY.coverage, harness: id, env, cwd: root });
+    assert.equal(answer.eligible, false, id);
+    assert.ok(answer.requirements.some((r: any) => r.result !== 'met'), id);
+  }
   assert.equal(fs.existsSync(path.join(dir, 'log.jsonl')), true, 'the fake CLI ran; no real binary did');
 });

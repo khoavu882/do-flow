@@ -47,7 +47,7 @@ test('the module exports its id and a factory', () => {
 
 test('fixture files carry a valid _fixture label, LF endings, no absolute path', () => {
   const names = fs.readdirSync(FIXTURES).filter((name: string) => name.endsWith('.jsonl'));
-  assert.deepEqual(names.sort(), ['denied.jsonl', 'failure.jsonl', 'spawn.jsonl', 'success.jsonl', 'truncated.jsonl', 'unknown-events.jsonl']);
+  assert.deepEqual(names.sort(), ['captured-usage-limit.jsonl', 'denied.jsonl', 'failure.jsonl', 'spawn.jsonl', 'success.jsonl', 'truncated.jsonl', 'unknown-events.jsonl']);
   const labels = new Set<string>();
   for (const name of names) {
     const raw = fs.readFileSync(path.join(FIXTURES, name), 'utf8');
@@ -59,10 +59,25 @@ test('fixture files carry a valid _fixture label, LF endings, no absolute path',
       labels.add(event._fixture);
     }
   }
-  // IC-014: synthetic files are accepted until the live-run record is cited; name them here.
-  if (![...labels].some((label) => label.startsWith('captured-'))) {
-    assert.deepEqual([...labels], ['synthetic'], 'no captured fixture yet; only synthetic files are accepted');
-  }
+  // IC-014: one captured file from the C.1 live run (claude 2.1.311), the rest synthetic.
+  assert.deepEqual([...labels].sort(), ['captured-2.1.311-trimmed', 'synthetic']);
+});
+
+test('captured fixture (claude 2.1.311, usage-limit run): the init event, then a result with is_error true', () => {
+  const events = fixture('captured-usage-limit').map((text) => JSON.parse(text));
+  const init = events.find((event) => event.subtype === 'init');
+  // RK5: the read-only recipe left the model only the Read tool; --strict-mcp-config left no MCP server.
+  assert.deepEqual(init.tools, ['Read']);
+  assert.deepEqual(init.mcp_servers, []);
+  assert.equal(init.permissionMode, 'plan');
+  // The real stream reports subtype "success" with is_error true: only is_error === false is a success.
+  const terminal = events.find((event) => event.type === 'result');
+  assert.deepEqual([terminal.subtype, terminal.is_error], ['success', true]);
+  const report = feed(fixture('captured-usage-limit')).end();
+  assert.deepEqual(report, {
+    parser: ID, status: 'failure', reason: null, summary: 'Usage limit reached (message text masked)',
+    denials: [], deniedCount: 0, usage: { tokens: 0 }, ignoredLines: 4,
+  });
 });
 
 test('success fixture: terminal success reports the result text and input+output tokens', () => {

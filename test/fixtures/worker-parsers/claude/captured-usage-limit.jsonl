@@ -1,0 +1,5 @@
+{"_fixture":"captured-2.1.311-trimmed","type":"system","subtype":"hook_started"}
+{"_fixture":"captured-2.1.311-trimmed","type":"system","subtype":"init","tools":["Read"],"mcp_servers":[],"model":"claude-haiku-5-5","permissionMode":"plan","claude_code_version":"2.1.311"}
+{"_fixture":"captured-2.1.311-trimmed","type":"rate_limit_event","rate_limit_info":{"status":"rejected","rateLimitType":"seven_day"}}
+{"_fixture":"captured-2.1.311-trimmed","type":"assistant","message":{"role":"assistant","model":"<synthetic>","stop_reason":"stop_sequence","usage":{"input_tokens":0,"output_tokens":0},"content":[{"type":"text","text":"Usage limit reached (message text masked)"}]},"parent_tool_use_id":null,"error":"rate_limit","api_error_status":429}
+{"_fixture":"captured-2.1.311-trimmed","type":"result","subtype":"success","is_error":true,"api_error_status":429,"terminal_reason":"api_error","num_turns":1,"result":"Usage limit reached (message text masked)","permission_denials":[],"subagent_stats":{"spawned":0},"usage":{"input_tokens":0,"output_tokens":0}}

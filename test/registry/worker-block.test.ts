@@ -25,17 +25,11 @@ const CODEX_EVIDENCE: any = {
   runnableProbe: [CODEX_RECORD],
 };
 const CODEX_SUPPORTED = ['oneShot', 'structuredOutput', 'readOnly', 'spawnDenial', 'runnableProbe'];
-// 142 B.7, B.8: claude, opencode, copilot, kiro and pi hold the same five entries on their 2026-11-07 free cli-check (IC-009).
+// 142 B.7, B.8: opencode, copilot, kiro and pi hold the same five entries on their 2026-11-07 free cli-check (IC-009).
+// claude is absent: its C.1 live run hit a usage limit (stop rule), so its five entries are `unknown` again.
 const FREE_CHECK_SUPPORTED = ['oneShot', 'structuredOutput', 'readOnly', 'spawnDenial', 'runnableProbe'];
-const FREE_CHECK_HARNESSES = ['claude', 'opencode', 'copilot', 'kiro', 'pi'];
+const FREE_CHECK_HARNESSES = ['opencode', 'copilot', 'kiro', 'pi'];
 const FREE_CHECK_RECIPES: any = {
-  claude: {
-    oneShot: { argv: ['--no-session-persistence', '-p', '{prompt}'], promptVia: 'argv' },
-    structuredOutput: { argv: ['--output-format', 'stream-json', '--verbose'], parser: 'claude-stream-json-v1' },
-    readOnly: { argv: ['--tools', 'Read', '--permission-mode', 'plan', '--strict-mcp-config'] },
-    spawnDenial: { argv: ['--disallowedTools', 'Task', 'Agent'] },
-    runnableProbe: { argv: ['--help'] },
-  },
   opencode: {
     oneShot: { argv: ['{prompt}'], promptVia: 'argv' },
     structuredOutput: { argv: ['--standalone', '--format', 'json'], parser: 'opencode-run-json-v1' },
@@ -173,7 +167,7 @@ test('worker: the six supported codex entries equal their committed status, evid
   }
 });
 
-test('worker: the five supported claude, opencode, copilot, kiro and pi entries equal their IC-009 recipe', () => {
+test('worker: the five supported opencode, copilot, kiro and pi entries equal their IC-009 recipe', () => {
   const registry = loadRegistry({ repoRoot: REPO });
   for (const id of FREE_CHECK_HARNESSES) {
     const worker = registry.harnesses.find((harness: any) => harness.id === id).worker;

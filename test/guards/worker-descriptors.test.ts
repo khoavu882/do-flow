@@ -241,9 +241,9 @@ test('G41.2 control: supported evidence with neither an existing path nor an htt
 });
 
 // Interim (142 B.8): D.1 replaces this with the final PARSER_BY_HARNESS and adds G41.5.
+// claude is absent: its C.1 live run hit a usage limit (stop rule), so its five entries are `unknown` again.
 const PARSER_BY_HARNESS: any = {
   codex: 'codex-exec-json-v1',
-  claude: 'claude-stream-json-v1',
   opencode: 'opencode-run-json-v1',
   copilot: 'copilot-json-v1',
   kiro: 'kiro-stream-json-v1',
@@ -275,7 +275,6 @@ test('G41.4: every supported worker entry cites a recorded evidence file that es
   const free = ['oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'];
   const acceptedKeys: any = {
     codex: ['isolatedEdit', 'model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
-    claude: free,
     opencode: free,
     copilot: free,
     kiro: free,

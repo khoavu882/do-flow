@@ -300,71 +300,39 @@
           ]
         },
         "oneShot": {
-          "status": "supported",
-          "evidence": [
-            "core/worker-evidence/claude/2026-11-07-cli-check.json"
-          ],
-          "verification": "Run `node bin/doflow.js worker --action evidence --harness claude --checks core/worker-evidence/claude/checks.json --out core/worker-evidence/claude/2026-11-07-cli-check.json` against the installed claude and read the matched help lines. Recorded 2026-11-07 on claude 2.1.311: the one-shot flags are listed in `--help`. The combination is untested until a live run.",
-          "verifiedOn": "2026-11-07",
-          "argv": [
-            "--no-session-persistence",
-            "-p",
-            "{prompt}"
-          ],
-          "promptVia": "argv"
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read claude's headless CLI documentation and `claude --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no recorded evidence for claude: no free check has captured its one-shot headless flag or how it reads a prompt"
         },
         "structuredOutput": {
-          "status": "supported",
-          "evidence": [
-            "core/worker-evidence/claude/2026-11-07-cli-check.json"
-          ],
-          "verification": "Run `node bin/doflow.js worker --action evidence --harness claude --checks core/worker-evidence/claude/checks.json --out core/worker-evidence/claude/2026-11-07-cli-check.json` against the installed claude and read the matched help lines. Recorded 2026-11-07 on claude 2.1.311: the output-format flags are listed in `--help`. The event schema is read by the parser from fixtures, not from a live run.",
-          "verifiedOn": "2026-11-07",
-          "argv": [
-            "--output-format",
-            "stream-json",
-            "--verbose"
-          ],
-          "parser": "claude-stream-json-v1"
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read claude's headless CLI documentation and `claude --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no captured claude transcript: its event schema has no parser, and a parser waits for a transcript from its own probe"
         },
         "readOnly": {
-          "status": "supported",
-          "evidence": [
-            "core/worker-evidence/claude/2026-11-07-cli-check.json"
-          ],
-          "verification": "Run `node bin/doflow.js worker --action evidence --harness claude --checks core/worker-evidence/claude/checks.json --out core/worker-evidence/claude/2026-11-07-cli-check.json` against the installed claude and read the matched help lines. Recorded 2026-11-07 on claude 2.1.311: the flags are listed in `--help`. Their read-only behaviour is untested until a live run.",
-          "verifiedOn": "2026-11-07",
-          "argv": [
-            "--tools",
-            "Read",
-            "--permission-mode",
-            "plan",
-            "--strict-mcp-config"
-          ]
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read claude's headless CLI documentation and `claude --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for claude; nothing is inferred from another harness or a model name"
         },
         "spawnDenial": {
-          "status": "supported",
-          "evidence": [
-            "core/worker-evidence/claude/2026-11-07-cli-check.json"
-          ],
-          "verification": "Run `node bin/doflow.js worker --action evidence --harness claude --checks core/worker-evidence/claude/checks.json --out core/worker-evidence/claude/2026-11-07-cli-check.json` against the installed claude and read the matched help lines. Recorded 2026-11-07 on claude 2.1.311: the flags are listed in `--help`. That they stop a spawn is untested until a live run.",
-          "verifiedOn": "2026-11-07",
-          "argv": [
-            "--disallowedTools",
-            "Task",
-            "Agent"
-          ]
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read claude's headless CLI documentation and `claude --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no recorded evidence for claude: no free check shows a flag that disables subagent spawning"
         },
         "runnableProbe": {
-          "status": "supported",
-          "evidence": [
-            "core/worker-evidence/claude/2026-11-07-cli-check.json"
-          ],
-          "verification": "Run `node bin/doflow.js worker --action evidence --harness claude --checks core/worker-evidence/claude/checks.json --out core/worker-evidence/claude/2026-11-07-cli-check.json` against the installed claude and read the matched help lines. Recorded 2026-11-07 on claude 2.1.311: the help text prints; this runs no model.",
-          "verifiedOn": "2026-11-07",
-          "argv": [
-            "--help"
-          ]
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read claude's headless CLI documentation and `claude --help`; record the flag and its source",
+          "verifiedOn": "2026-10-15",
+          "reason": "no in-repository evidence names this for claude; nothing is inferred from another harness or a model name"
         },
         "hooksProbe": {
           "status": "unknown",
