@@ -3680,3 +3680,363 @@ test('149 live runs: pause closes the stream and nothing is applied; resume reop
   assert.equal(apiCalls(page, '/api/runs').length, 2, 'and no GET timer after it');
   assert.deepEqual(pillOf(page)[0], 'done');
 });
+
+// ---- feature 149 C.4: the client acceptance scenarios (requirement.md :236-275) -----------------------------------------
+// Views off polling, Resume without loss, Old core and Hidden tab and pause run end to end over the page, a fresh web root
+// and FakeES. "Equal to a fresh GET": the live page is taken down and the Console boots again at the same mock time over the
+// same scripted fetch with no EventSource, so its #main is painted from the view's GET reply of that moment; the text and the
+// element tree of both #main must be equal. "Shown once": the re-mounts of `.view-body` are counted (app.js paint mounts it
+// once per changed paint key), so a change applied twice, or an older state replayed over a newer one, mounts again. The
+// Adapter seam case drives the view connector (VIEWS.run.connect, live-view.js) over store.js, once with a fake adapter and
+// once with live.js over FakeES, and compares what reaches the view.
+
+/** A frame at position `n` of the live epoch: a snapshot on subscribe is sent at the channel's current position (IC-013). */
+const frameAt = (n: number, ch: string, type: string, data: any) => ({ v: 1, ch, id: `${LIVE_EPOCH}-${n}`, type, at: new Date(Date.now()).toISOString(), data });
+const c4Patch = (n: number, ch: string, set: Record<string, any>) => frameAt(n, ch, 'patch', { set, unset: [] });
+const mainView = (page: Page) => ({ text: text(page.main), tags: tags(page.main) });
+const setHidden = (page: Page, hidden: boolean) => { page.doc.hidden = hidden; for (const fn of page.doc.listeners.get('visibilitychange') ?? []) fn({ type: 'visibilitychange' }); };
+type Route = (target: string, init: any) => Reply | Promise<Reply>;
+
+/** Counts the re-mounts of the view body from now on. */
+function bodyMounts(page: Page): { n: number } {
+  const host = page.main.querySelector('.view-body');
+  assert.ok(host, 'the view body is mounted');
+  const count = { n: 0 };
+  const replace = host.replaceChildren.bind(host);
+  host.replaceChildren = (...nodes: any[]) => { count.n += 1; replace(...nodes); };
+  return count;
+}
+
+/** What a fresh GET of the view shows now: the Console booted again at this mock time over `route`, without EventSource. */
+async function freshGetView(hash: string, route: Route, getPath: string) {
+  const at = Date.now();
+  uninstallPage();
+  mock.timers.reset();
+  mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: at });
+  FakeES.all = [];
+  const page = installPage({ hash, fetch: route, eventSource: undefined });
+  imports += 1;
+  await import(`${pathToFileURL(path.join(freshWeb(), 'app.js')).href}?run=${imports}`);
+  await settle();
+  assert.equal(apiCalls(page, getPath).length, 1, 'the reference is painted from one GET of the view route');
+  return mainView(page);
+}
+
+/** One change on the server at `at` ms after the stream is up: `make()` changes the server's body and returns the patch's `set`. */
+type Change = { at: number, make: () => Record<string, any> };
+
+/** Views off polling (FR-017, NFR-008): the view goes live, the changes are made over 60 s of fake time, and the verb calls are counted. */
+async function offPolling(hash: string, route: Route, getPath: string, channel: string, state: () => any, changes: Change[]) {
+  const page = await startLive(hash, liveRoute(route));
+  const booted = page.calls.length;
+  assert.equal(apiCalls(page, getPath).length, 1, 'the first paint is one GET of the view route');
+  await advance(100);
+  const es = liveES();
+  es.open();
+  let n = 1;
+  es.emit('message', frameAt(n, channel, 'snapshot', { state: state() }));
+  await settle();
+  const first = mainView(page);
+  let elapsed = 0;
+  for (const change of changes) {
+    await advance(change.at - elapsed);
+    elapsed = change.at;
+    n += 1;
+    es.emit('message', c4Patch(n, channel, change.make()));
+    await settle();
+  }
+  await advance(60_000 - elapsed);
+  assert.deepEqual(page.calls.slice(booted).map((c) => c.url), [], '60 s live: no GET of the view route, no heartbeat, no probe');
+  assert.equal(apiCalls(page, getPath).length, 1, 'only the first-paint GET');
+  assert.equal(FakeES.all.length, 1, 'one stream, never reopened');
+  assert.equal(es.closed, false);
+  assert.equal(pillOf(page)[0], 'done');
+  assert.match(pillOf(page)[1] as string, /^Live \u00b7 last change /);
+  const end = mainView(page);
+  assert.notDeepEqual(end, first, 'the patches reached the view');
+  assert.deepEqual(end, await freshGetView(hash, route, getPath), 'the view equals a fresh GET read at the end');
+}
+
+test('149 C.4 Views off polling: Now (Runs) live for 60 s makes only its first-paint GET and ends equal to a fresh GET', async () => {
+  let runs: any = RUNS;
+  await offPolling('#/', homeFetch(() => runs), '/api/runs', 'now', () => nowState(runs).state, [
+    { at: 10_000, make: () => { runs = { ...runs, runs: RUNS_TWO_WAIT.runs }; return { '/runs/body/runs': runs.runs }; } },
+    { at: 30_000, make: () => ({ '/sessions/body/limits/runsInspected': 3 }) }, // another member: not this view's GET
+    { at: 50_000, make: () => { runs = { ...runs, unreadableCount: 1 }; return { '/runs/body/unreadableCount': 1 }; } },
+  ]);
+});
+
+test('149 C.4 Views off polling: Run live for 60 s makes only its first-paint GET and ends equal to a fresh GET', async () => {
+  let server: any = null;
+  const current = () => (server ??= runBodyWith(frow('run-1', 2), [ev(60, 'start', null), ev(50, 'complete-stage', 'discovery', { outcome: 'passed' }), ev(40, 'decide-gate', 'gate-0', { decision: 'approve' })]));
+  await offPolling('#/run/feat-a/run-1', runRoute(current), '/api/runs/feat-a/run-1', RUN_CH, () => ({ run: { status: 200, body: current() } }), [
+    { at: 10_000, make: () => { server = { ...server, run: frow('run-1', 3) }; return { '/run/body/run': server.run }; } },
+    { at: 30_000, make: () => {
+      const events = [...server.timeline.events, ev(0, 'complete-stage', 'design', { outcome: 'passed' })];
+      server = { ...server, timeline: { ...server.timeline, events } };
+      return { '/run/body/timeline/events': events };
+    } },
+    { at: 50_000, make: () => { server = { ...server, timeline: { ...server.timeline, revision: 3 } }; return { '/run/body/timeline/revision': 3 }; } },
+  ]);
+});
+
+test('149 C.4 Views off polling: Tasks live for 60 s makes only its first-paint GET and ends equal to a fresh GET', async () => {
+  let server: any = null;
+  const current = () => (server ??= runBodyWith(frow('run-1', 3), [ev(60, 'start', null)], GRAPH_PLAN()));
+  await offPolling('#/run/feat-a/run-1/tasks', runRoute(current), '/api/runs/feat-a/run-1', RUN_CH, () => ({ run: { status: 200, body: current() } }), [
+    { at: 20_000, make: () => {
+      const rows = server.tasks.tasks.map((t: any) => (t.id === 'A.1' ? gstate('A.1', 'SUCCEEDED', 'completed', att(1, 'worker-a', 'finished', 50, { result: 'COMPLETED', endedAt: agoIso(0) })) : t));
+      server = { ...server, tasks: { ...server.tasks, tasks: rows } };
+      return { '/run/body/tasks/tasks': rows };
+    } },
+    { at: 40_000, make: () => { server = { ...server, run: { ...server.run, revision: 2 } }; return { '/run/body/run/revision': 2 }; } },
+  ]);
+});
+
+test('149 C.4 Views off polling: Sessions live for 60 s makes only its first-paint GET and ends equal to a fresh GET', async () => {
+  let server: any = null;
+  const current = () => (server ??= BUSY());
+  await offPolling('#/sessions', sessionsRoute(current), '/api/sessions', 'now', () => nowState(RUNS, current()).state, [
+    { at: 20_000, make: () => {
+      const slots = sOk({ v: 1, slots: [], unreadable: 0 });
+      server = { ...server, sections: { ...server.sections, slots } };
+      return { '/sessions/body/sections/slots': slots };
+    } },
+    { at: 40_000, make: () => ({ '/runs/body/unreadableCount': 4 }) }, // another member: not this view's GET
+  ]);
+});
+
+test('149 C.4 Resume without loss: a dropped Run view reopens with since, shows each of two steps once, and equals GET /api/runs/<slug>/<task>', async () => {
+  const GET = '/api/runs/feat-a/run-1';
+  let server: any = null;
+  const current = () => (server ??= runBodyWith(frow('run-1', 2), [ev(60, 'start', null), ev(50, 'complete-stage', 'discovery', { outcome: 'passed' }), ev(40, 'decide-gate', 'gate-0', { decision: 'approve' })]));
+  const route = runRoute(current);
+  const page = await startLive('#/run/feat-a/run-1', liveRoute(route, () => reply(500)));
+  await advance(100);
+  const es = liveES();
+  es.open();
+  es.emit('message', frameAt(1, RUN_CH, 'snapshot', { state: { run: { status: 200, body: current() } } }));
+  server = { ...server, timeline: { ...server.timeline, revision: 3 } };
+  es.emit('message', c4Patch(2, RUN_CH, { '/run/body/timeline/revision': 3 }));
+  await settle();
+  const items = () => page.main.querySelectorAll('.tl-item').map((li: El) => text(li.querySelector('.tl-item__words')));
+  const before = items();
+  assert.equal(before.length, 3, 'applied up to id 2: three events');
+  assert.equal(pillOf(page)[2], 'Live');
+  const mounts = bodyMounts(page);
+
+  es.fail(2); // the connection drops and the browser gives up (CLOSED); the probe answers 500, so the store reopens after 5 s
+  await settle();
+  assert.equal(apiCalls(page, '/api/live').length, 1, 'one probe');
+  assert.equal(text(page.region), 'Push unavailable; polling every 3 seconds.');
+  await advance(3500); // the polls at once and at 3 s read the state before the steps
+  assert.equal(apiCalls(page, GET).length, 3);
+  // The run takes two steps; the hub's patches for them go to the dropped source.
+  const step = (cursor: number, node: string) => {
+    server = { ...server, run: frow('run-1', cursor), timeline: { ...server.timeline, events: [...server.timeline.events, ev(0, 'complete-stage', node, { outcome: 'passed' })] } };
+    return { '/run/body/run': server.run, '/run/body/timeline/events': server.timeline.events };
+  };
+  const step1 = c4Patch(3, RUN_CH, step(3, 'design'));
+  const step2 = c4Patch(4, RUN_CH, step(4, 'planning'));
+  es.emit('message', step1);
+  es.emit('message', step2);
+  await settle();
+  assert.deepEqual(items(), before, 'nothing of the dropped source is applied');
+  assert.equal(mounts.n, 0);
+
+  await advance(1500); // 5 s after the drop
+  const again = liveES();
+  assert.notEqual(again, es, 'the store reopened');
+  assert.equal(again.url, `/api/live?ch=${encodeURIComponent(RUN_CH)}&since=${encodeURIComponent(`${LIVE_EPOCH}/${RUN_CH}=2`)}`, 'since names the last applied id');
+  again.open();
+  // The position differs: one snapshot at the current position, then the two step patches replayed (as a resend would).
+  again.emit('message', frameAt(4, RUN_CH, 'snapshot', { state: { run: { status: 200, body: server } } }));
+  again.emit('message', step1);
+  again.emit('message', step2);
+  await settle();
+  assert.equal(mounts.n, 1, 'the two steps arrive in one paint; the replayed patches change nothing');
+  const after = items();
+  assert.equal(after.length, 5);
+  assert.deepEqual(after.slice(2), before, 'the earlier events stay');
+  for (const [i, li] of page.main.querySelectorAll('.tl-item').entries()) {
+    assert.equal(li.getAttribute('data-changed'), i < 2 ? 'true' : null, `item ${i}: only the two steps are new`);
+  }
+  for (const word of after.slice(0, 2)) assert.equal(after.filter((w) => w === word).length, 1, `${word}: shown once`);
+  assert.notEqual(after[0], after[1]);
+  assert.equal(text(page.region), 'Push restored.');
+  await advance(9000);
+  assert.equal(apiCalls(page, GET).length, 3, 'no GET timer after the resume');
+  assert.equal(mounts.n, 1);
+  assert.deepEqual(mainView(page), await freshGetView('#/run/feat-a/run-1', route, GET), 'the view equals a fresh GET body');
+});
+
+test('149 C.4 Old core: /api/live answers 503 live-unavailable, so Now loads and updates by polling every 5 s and the pill reads Polling', async () => {
+  let runs: any = RUNS;
+  const page = await startLive('#/', liveRoute(homeFetch(() => runs), () => errorReply(503, 'live-unavailable')));
+  assert.deepEqual(tileCounts(page), ['1', '2', '2'], 'Now loads from its GET');
+  await advance(100);
+  const es = liveES();
+  assert.equal(es.url, '/api/live?ch=now');
+  es.fail(2); // the stream's reply is the 503: the browser gives up at once
+  await settle();
+  assert.equal(apiCalls(page, '/api/live').length, 1, 'one probe names the old core');
+  assert.equal(text(page.region), 'Push unavailable; polling every 5 seconds.');
+  await advance(900);
+  assert.deepEqual(pillOf(page), ['unknown', 'Polling \u00b7 Updated just now', 'Polling']);
+  runs = RUNS_TWO_WAIT;
+  await advance(4000); // 5 s after the first paint
+  assert.equal(apiCalls(page, '/api/runs').length, 2);
+  assert.deepEqual(tileCounts(page), ['2', '0', '1'], 'and updates by polling');
+  assert.deepEqual(pillOf(page), ['unknown', 'Polling \u00b7 Updated just now', 'Polling']);
+  await advance(25_100); // 30 s after `unsupported` the store tries the stream again
+  const again = liveES();
+  assert.notEqual(again, es);
+  again.fail(2);
+  await settle();
+  assert.equal(apiCalls(page, '/api/live').length, 2);
+  await advance(4900);
+  assert.equal(apiCalls(page, '/api/runs').length, 8, 'one read every 5 s throughout: 0, 5, ..., 35 s');
+  assert.equal(FakeES.all.length, 2);
+  assert.deepEqual(pillOf(page), ['unknown', 'Polling \u00b7 Updated just now', 'Polling']);
+});
+
+const AFTER_TWO = { ...RUNS, runs: [row('COMPLETED', 'r1'), row('AWAITING_GATE', 'r2'), row('RUNNING', 'r3'), row('COMPLETED', 'r4'), row('REJECTED', 'r5')] };
+const titlesOf = (page: Page) => [...rowsOf(page).map(linkText), ...cardsOf(page).map(cardId)];
+
+/** Hidden tab and pause (FR-019): Now is live, the person goes away for 60 s while two runs change, then comes back. */
+async function awayWhileTwoRunsChange(how: 'hidden' | 'paused') {
+  let runs: any = RUNS;
+  const route = homeFetch(() => runs);
+  const page = await startLive('#/', liveRoute(route));
+  await advance(100);
+  const es = liveES();
+  es.open();
+  es.emit('message', frameAt(1, 'now', 'snapshot', nowState(RUNS)));
+  await settle();
+  assert.deepEqual(tileCounts(page), ['1', '2', '2']);
+  const before = mainView(page);
+  const mounts = bodyMounts(page);
+  const calls = page.calls.length;
+  if (how === 'hidden') setHidden(page, true);
+  else page.pause.fire('click');
+  assert.equal(es.closed, true, 'the stream is closed while away');
+  if (how === 'paused') assert.equal(pillOf(page)[2], 'Paused');
+  await advance(20_000);
+  runs = { ...RUNS, runs: [AFTER_TWO.runs[0], ...RUNS.runs.slice(1)] };
+  es.emit('message', c4Patch(2, 'now', { '/runs/body/runs': runs.runs }));
+  await advance(20_000);
+  runs = AFTER_TWO;
+  es.emit('message', c4Patch(3, 'now', { '/runs/body/runs': runs.runs }));
+  await advance(20_000);
+  assert.deepEqual(mainView(page), before, 'nothing changes in the view while away');
+  assert.equal(mounts.n, 0);
+  assert.deepEqual(page.calls.slice(calls).map((c) => c.url), [], 'no GET and no probe while away');
+  assert.equal(FakeES.all.length, 1, 'nothing reopens while away');
+  if (how === 'hidden') setHidden(page, false);
+  else page.pause.fire('click');
+  const again = liveES();
+  assert.notEqual(again, es);
+  assert.equal(again.url, `/api/live?ch=now&since=${encodeURIComponent(`${LIVE_EPOCH}/now=1`)}`, 'the reopen names the last applied position');
+  await settle();
+  assert.equal(apiCalls(page, '/api/runs').length, 2, 'one GET on return');
+  again.open();
+  again.emit('message', frameAt(3, 'now', 'snapshot', nowState(runs))); // the position moved: one snapshot at the current one
+  await settle();
+  await advance(2000);
+  assert.deepEqual(tileCounts(page), ['1', '1', '3'], 'both changes show');
+  assert.equal(mounts.n, 1, 'the GET on return and the snapshot show them in one paint');
+  for (const title of ['feat-a / r1', 'feat-a / r2']) assert.equal(titlesOf(page).filter((t) => t === title).length, 1, `${title}: shown once`);
+  assert.deepEqual(cardsOf(page).map(cardId), ['feat-a / r2'], 'r2 now waits');
+  assert.equal(text(page.region), 'Reconnected. The view was refreshed in full.');
+  assert.equal(pillOf(page)[2], 'Live');
+  await advance(30_000);
+  assert.equal(apiCalls(page, '/api/runs').length, 2, 'no GET timer after the return');
+  assert.equal(mounts.n, 1);
+  assert.deepEqual(mainView(page), await freshGetView('#/', route, '/api/runs'), 'the view equals a fresh GET');
+}
+
+test('149 C.4 Hidden tab and pause: a tab hidden for 60 s closes the stream, applies nothing, and on return shows both changes once', async () => {
+  await awayWhileTwoRunsChange('hidden');
+});
+
+test('149 C.4 Hidden tab and pause: a 60 s pause closes the stream, applies nothing, and on resume shows both changes once', async () => {
+  await awayWhileTwoRunsChange('paused');
+});
+
+test('149 C.4 Adapter seam: a fake adapter (open, close, onFrame, onState) drives the Run view connector as live.js over EventSource does', async () => {
+  epoch += 10_000_000;
+  mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: epoch });
+  installPage({ fetch: standard }); // poll.js and notices.js read the page's document
+  const root = freshWeb();
+  const load = (name: string) => import(pathToFileURL(path.join(root, name)).href);
+  const views = await load('views.js');
+  const storeMod = await load('store.js');
+  const liveMod = await load('live.js');
+  const visible = { hidden: () => false, subscribe: () => () => {} };
+  const missing = { error: { code: 'run-not-found', verb: null, exit: null } };
+  const body7 = liveRunBody(7);
+  const frames = [
+    frameAt(1, RUN_CH, 'snapshot', { state: { run: { status: 200, body: body7 } } }),
+    frameAt(1, 'now', 'snapshot', nowState(RUNS)), // a channel the view does not follow
+    c4Patch(2, RUN_CH, { '/run/body/run/revision': 8 }),
+    c4Patch(2, RUN_CH, { '/run/body/run/revision': 99 }), // not after the applied position: dropped
+    c4Patch(3, RUN_CH, { '/run': { status: 404, body: missing } }),
+  ];
+
+  async function drive(viaEventSource: boolean) {
+    const seen: any[] = [];
+    const opened: any[] = [];
+    let frame: (envelope: any) => void = () => {};
+    let state: (event: any) => void = () => {};
+    const adapter = viaEventSource
+      ? liveMod.createLiveAdapter({ EventSource: FakeES, probe: async () => ({ status: 500, code: null }) })
+      : {
+        open: (channels: string[], since: string | null) => { opened.push({ channels, since }); },
+        close: () => { opened.push('close'); },
+        onFrame: (listener: (envelope: any) => void) => { frame = listener; },
+        onState: (listener: (event: any) => void) => { state = listener; },
+      };
+    FakeES.all = [];
+    const store = storeMod.createLiveStore({ adapter, visibility: visible });
+    const view = views.VIEWS.run.connect({}, { slug: 'feat-a', taskId: 'run-1' }, {
+      fetchJson: async () => { throw new Error('the run view does not wrap its member'); },
+      onData: (data: any) => { seen.push(['data', data]); },
+      onFailure: (error: any) => { seen.push(['failure', error]); },
+      store: () => store,
+      fetchOnce: () => new Promise(() => {}), // the first-paint GET never answers: only the live path reaches the view
+    });
+    view.start();
+    await advance(100);
+    if (viaEventSource) {
+      assert.equal(FakeES.all.length, 1);
+      const es = FakeES.all[0];
+      opened.push({ url: es.url });
+      es.open();
+      for (const envelope of frames) es.emit('message', envelope);
+    } else {
+      state({ state: 'connecting', code: null, at: Date.now() });
+      state({ state: 'open', code: null, at: Date.now() });
+      for (const envelope of frames) frame(structuredClone(envelope));
+    }
+    await settle();
+    seen.push(['mode', view.mode]);
+    const result = { seen, opened: [...opened] };
+    view.stop();
+    return result;
+  }
+
+  const fake = await drive(false);
+  const sse = await drive(true);
+  assert.deepEqual(fake.opened, [{ channels: [RUN_CH], since: null }], 'the store opens the fake adapter on the view channel');
+  assert.deepEqual(sse.opened, [{ url: `/api/live?ch=${encodeURIComponent(RUN_CH)}` }]);
+  assert.deepEqual(fake.seen, [
+    ['data', body7],
+    ['data', { ...body7, run: { ...body7.run, revision: 8 } }],
+    ['failure', { status: 404, code: 'run-not-found', network: false }],
+    ['mode', 'live'],
+  ]);
+  assert.deepEqual(sse.seen, fake.seen, 'the view gets exactly the updates it gets over SSE');
+  for (const name of ['store.js', 'live-view.js', 'views.js', 'app.js']) {
+    assert.ok(!fs.readFileSync(path.join(WEB_ROOT, name), 'utf8').includes('EventSource'), `${name} does not reference EventSource`);
+  }
+});
