@@ -91,6 +91,7 @@ function handleReviewCommand({
   git = defaultGit,
   loadSettings = (options: { projectRoot: string; env: Env }) => require('../settings/resolve.ts').loadSettings(options),
   writer,
+  teamWriter,
   resolve = resolveActiveFeature,
   out = (line: string) => console.log(line),
 }: any = {}): number | Promise<number> {
@@ -105,7 +106,7 @@ function handleReviewCommand({
     if (hasValue(preset) && !presetIdShape(preset)) {
       return usage('--preset must be a preset id (lower-case letters, digits and hyphens, or <package>.<preset> for a package preset)', json, out);
     }
-    return handleReviewStart({ slug: hasValue(slug) ? slug : null, base: hasValue(base) ? base : null, preset: hasValue(preset) ? preset : null, json, cwd, env, resolve, adviceClient, out });
+    return handleReviewStart({ slug: hasValue(slug) ? slug : null, base: hasValue(base) ? base : null, preset: hasValue(preset) ? preset : null, json, cwd, env, resolve, adviceClient, out, teamWriter });
   }
   if (Array.isArray(recordPath)) return usage('--path may be given only once', json, out);
   if (hasValue(base)) return usage('--base is valid only with --action start', json, out);
@@ -234,6 +235,8 @@ function handleReviewCommand({
   };
   if (counts && record) Object.assign(telemetryRecord, counts, { depth: record.depth ?? null, risk: record.risk ?? null, protocol: telemetryProtocol(record.protocol?.id), head: record.reviewedHead });
   try { telemetryWriter.write([telemetryRecord]); } catch { /* telemetry never changes the check result */ }
+  // 143 IC-002: the separation verdict, recorded to its own writer; observation only.
+  try { require('../team/evaluate.ts').observeCheck({ record, cwd, env, writer: teamWriter }); } catch { /* never changes the check result */ }
 
   return finishRuntime(valid ? 0 : 1);
 }

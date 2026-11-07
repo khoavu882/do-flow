@@ -1256,31 +1256,19 @@ async function handleDoctorCommand({ json = false, repoRoot, projectRoot = proce
     report.guidance = { state: 'unavailable', message: error?.message || String(error) };
   }
   try {
-    const { AdmissionController, AdmissionError, resolveTeamSettings } = require('./team/admission.ts');
-    const { validateTaskBrief, validateTaskHandBack, quarantineInput, formatTaskBriefPrompt, EnvelopeError } = require('./team/envelope.ts');
-    const { assertReviewerSeparation, assertMechanicalPreChecks, ReviewGuardError, NeverReviewOwnCodeError, MechanicalPreChecksIncompleteError } = require('./team/review-guard.ts');
-    const teamController = new AdmissionController({ projectRoot, fsImpl: rest.fsImpl });
-    const activeClaims = teamController.getActiveClaims();
+    const { teamGate } = require('./team/evaluate.ts');
+    // The envelope module stays reachable from here; its symbols are no longer a report field (IC-005).
+    require('./team/envelope.ts');
+    const gate = teamGate({ projectRoot, env: rest.env });
     report.team = {
       state: 'ready',
-      activeClaimsCount: activeClaims.length,
-      writerCap: teamController.writerCap,
-      maxAttempts: teamController.maxAttempts,
-      _symbols: [
-        AdmissionController,
-        AdmissionError,
-        resolveTeamSettings,
-        validateTaskBrief,
-        validateTaskHandBack,
-        quarantineInput,
-        formatTaskBriefPrompt,
-        EnvelopeError,
-        assertReviewerSeparation,
-        assertMechanicalPreChecks,
-        ReviewGuardError,
-        NeverReviewOwnCodeError,
-        MechanicalPreChecksIncompleteError,
-      ],
+      writerCap: gate.limits.writerCap,
+      maxAttempts: gate.limits.maxAttempts,
+      enforcement: gate.mode,
+      wired: {
+        dispatch: gate.mode === 'block' ? 'wired (blocking)' : 'wired (advisory)',
+        review: 'wired (advisory)',
+      },
     };
   } catch (error: any) {
     report.team = { state: 'unavailable', message: error?.message || String(error) };
@@ -1430,7 +1418,9 @@ async function handleDoctorCommand({ json = false, repoRoot, projectRoot = proce
     if (report.team.state === 'unavailable') {
       console.log(`  team: unavailable (${report.team.message})`);
     } else {
-      console.log(`  writer cap: ${report.team.writerCap}, max attempts: ${report.team.maxAttempts}, active claims: ${report.team.activeClaimsCount}`);
+      console.log(`  writer cap: ${report.team.writerCap}, max attempts: ${report.team.maxAttempts}, enforcement: ${report.team.enforcement}`);
+      console.log(`  dispatch admission: ${report.team.wired.dispatch}`);
+      console.log(`  review start and check: ${report.team.wired.review}`);
     }
   }
 
