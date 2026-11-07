@@ -218,7 +218,7 @@ test('IC-011: codex and the five harnesses with a recorded --model help line dec
       assert.ok(!Object.hasOwn(entry, 'argv'));
     }
   }
-  assert.equal(harnesses.find((h: any) => h.id === 'antigravity').worker.oneShot.status, 'unknown');
+  assert.equal(harnesses.find((h: any) => h.id === 'antigravity').worker.oneShot.status, 'supported');
 });
 
 test('IC-011: codex declares the free exec-model check', () => {

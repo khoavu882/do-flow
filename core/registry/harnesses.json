@@ -3315,39 +3315,68 @@
           ]
         },
         "oneShot": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read antigravity's headless CLI documentation and `agy --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no recorded evidence for agy: no free check has captured its one-shot headless flag, and a probe must show non-empty output and a result event, not exit 0 alone"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/antigravity/2026-11-07-cli-check.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness antigravity --checks core/worker-evidence/antigravity/checks.json --out core/worker-evidence/antigravity/2026-11-07-cli-check.json` against the installed agy and read the matched help lines. Recorded 2026-11-07 on agy 1.5.3: the one-shot flags are listed in `--help`. The combination is untested until a live run.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "-p",
+            "{prompt}"
+          ],
+          "promptVia": "argv"
         },
         "structuredOutput": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read antigravity's headless CLI documentation and `agy --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no captured agy transcript: the event schema is undocumented, and a probe must show non-empty output and a result event, not exit 0 alone"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/antigravity/2026-11-07-cli-check.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness antigravity --checks core/worker-evidence/antigravity/checks.json --out core/worker-evidence/antigravity/2026-11-07-cli-check.json` against the installed agy and read the matched help lines. Recorded 2026-11-07 on agy 1.5.3: the output-format flags are listed in `--help`. The event schema is read by the agy-stream-json-v1 parser.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "--output-format",
+            "stream-json"
+          ],
+          "parser": "agy-stream-json-v1"
         },
         "readOnly": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read antigravity's headless CLI documentation and `agy --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for antigravity; nothing is inferred from another harness or a model name"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/antigravity/2026-11-07-cli-check.json",
+            "core/worker-evidence/antigravity/2026-11-07-live-run-read-only.json",
+            "core/worker-evidence/antigravity/2026-11-07-live-run-spawn.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness antigravity --checks core/worker-evidence/antigravity/checks.json --out core/worker-evidence/antigravity/2026-11-07-cli-check.json` against the installed agy and read the matched help lines. Recorded 2026-11-07 on agy 1.5.3: the flags are listed in `--help`. Live runs 2026-11-07 (agy 1.5.3): both ran `--settings '{\"permissions\":{\"deny\":[\"write_file(*)\",\"command(*)\"]}}' --disable-slash-commands --output-format stream-json -p` in a scratch project, ended with report status success, no denied call, a clean worktree and unchanged HEAD and refs. Run 1 asked for a file write: the permissions deny rule for write_file(*) blocked the write, and the worktree stayed clean. Run 2 asked for a subagent hand-off: no subagent tool was called, and the worktree stayed clean. The records hold only the report status, the clean worktree check and the prompt hash.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "--settings",
+            "{\"permissions\":{\"deny\":[\"write_file(*)\",\"command(*)\"]}}"
+          ]
         },
         "spawnDenial": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read antigravity's headless CLI documentation and `agy --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no recorded evidence for agy: no free check shows a flag that disables subagent spawning"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/antigravity/2026-11-07-cli-check.json",
+            "core/worker-evidence/antigravity/2026-11-07-live-run-read-only.json",
+            "core/worker-evidence/antigravity/2026-11-07-live-run-spawn.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness antigravity --checks core/worker-evidence/antigravity/checks.json --out core/worker-evidence/antigravity/2026-11-07-cli-check.json` against the installed agy and read the matched help lines. Recorded 2026-11-07 on agy 1.5.3: the flags are listed in `--help`. Live runs 2026-11-07 (agy 1.5.3): both ran `--settings '{\"permissions\":{\"deny\":[\"write_file(*)\",\"command(*)\"]}}' --disable-slash-commands --output-format stream-json -p` in a scratch project, ended with report status success, no denied call, a clean worktree and unchanged HEAD and refs. Run 1 asked for a file write: the permissions deny rule for write_file(*) blocked the write, and the worktree stayed clean. Run 2 asked for a subagent hand-off: no subagent tool was called, and the worktree stayed clean. The records hold only the report status, the clean worktree check and the prompt hash.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "--disable-slash-commands"
+          ]
         },
         "runnableProbe": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read antigravity's headless CLI documentation and `agy --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for antigravity; nothing is inferred from another harness or a model name"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/antigravity/2026-11-07-cli-check.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness antigravity --checks core/worker-evidence/antigravity/checks.json --out core/worker-evidence/antigravity/2026-11-07-cli-check.json` against the installed agy and read the matched help lines. Recorded 2026-11-07 on agy 1.5.3: the help text prints; this runs no model.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "--help"
+          ]
         },
         "hooksProbe": {
           "status": "unknown",

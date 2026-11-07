@@ -19,13 +19,13 @@
     {
       "id": "read-only-flags",
       "argv": ["--help"],
-      "expect": ["^\\s+--sandbox\\s+Run in a sandbox with terminal restrictions enabled"],
+      "expect": ["^\\s+--settings\\s+Settings for this session only"],
       "establishes": ["readOnly"]
     },
     {
       "id": "spawn-denial-flags",
       "argv": ["--help"],
-      "expect": ["^\\s+--agent\\s+Agent for the current CLI session"],
+      "expect": ["^\\s+--disable-slash-commands\\s+Disable slash command and skill expansion in print mode"],
       "establishes": ["spawnDenial"]
     },
     {

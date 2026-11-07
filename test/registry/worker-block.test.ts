@@ -28,10 +28,10 @@ const CODEX_SUPPORTED = ['oneShot', 'structuredOutput', 'readOnly', 'spawnDenial
 // 142 B.7, B.8: opencode and kiro hold the same five entries on their 2026-11-07 free cli-check (IC-009).
 // claude, copilot and pi are absent: their C.1, C.2 and C.3 runs hit a stop rule (usage limit; report `denied`; no live run, model selection not in the recipe), so their five entries are `unknown` again.
 const FREE_CHECK_SUPPORTED = ['oneShot', 'structuredOutput', 'readOnly', 'spawnDenial', 'runnableProbe'];
-const FREE_CHECK_HARNESSES = ['opencode', 'kiro', 'copilot', 'pi'];
+const FREE_CHECK_HARNESSES = ['opencode', 'kiro', 'copilot', 'pi', 'antigravity'];
 // 147: copilot's checks.json gained the --available-tools expectation, so every copilot entry cites the one record made with it.
 const cliRecord = (id: string) => `core/worker-evidence/${id}/2026-11-07-cli-check${id === 'copilot' ? '-available-tools' : id === 'pi' ? '-model' : ''}.json`;
-const MODEL_HARNESSES = ['claude', 'copilot', 'pi', 'opencode', 'kiro']; // 146: antigravity's model entry stays unknown (its --help prints to stderr, see its reason)
+const MODEL_HARNESSES = ['claude', 'copilot', 'pi', 'opencode', 'kiro', 'antigravity'];
 const FREE_CHECK_RECIPES: any = {
   opencode: {
     oneShot: { argv: ['{prompt}'], promptVia: 'argv' },
@@ -60,6 +60,13 @@ const FREE_CHECK_RECIPES: any = {
     readOnly: { argv: ['chat', '--no-interactive', '--agent', 'doflow-worker-ro'] },
     spawnDenial: { argv: ['--trust-tools=read'] },
     runnableProbe: { argv: ['chat', '--help'] },
+  },
+  antigravity: {
+    oneShot: { argv: ['-p', '{prompt}'], promptVia: 'argv' },
+    structuredOutput: { argv: ['--output-format', 'stream-json'], parser: 'agy-stream-json-v1' },
+    readOnly: { argv: ['--settings', '{"permissions":{"deny":["write_file(*)","command(*)"]}}'] },
+    spawnDenial: { argv: ['--disable-slash-commands'] },
+    runnableProbe: { argv: ['--help'] },
   },
 };
 const PER_HARNESS_REASON = ['oneShot', 'structuredOutput', 'spawnDenial']; // isolatedEdit's reason is pinned in worker-isolated-edit.test.js
@@ -121,7 +128,7 @@ test('worker: the seven harnesses declare IC-002 values and nothing else as supp
       if (MODEL_HARNESSES.includes(harness.id) && key === 'model') {
         // 146: the `--model <id>` flag each CLI lists in --help, recorded by the help-model free check; G41.4 checks the record.
         assert.equal(worker.model.status, 'supported', `${harness.id} model`);
-        assert.deepEqual(worker.model.evidence, [harness.id === 'copilot' ? cliRecord('copilot') : `core/worker-evidence/${harness.id}/2026-11-07-cli-check-model.json`], `${harness.id} model evidence`);
+        assert.deepEqual(worker.model.evidence, [harness.id === 'copilot' ? cliRecord('copilot') : harness.id === 'antigravity' ? cliRecord('antigravity') : `core/worker-evidence/${harness.id}/2026-11-07-cli-check-model.json`], `${harness.id} model evidence`);
         assert.deepEqual(worker.model.argv, ['--model', '{model}'], `${harness.id} model argv`);
         assert.equal(worker.model.verifiedOn, '2026-11-07', `${harness.id} model verifiedOn`);
         continue;
@@ -130,7 +137,7 @@ test('worker: the seven harnesses declare IC-002 values and nothing else as supp
         // 142 IC-009: the five entries the recorded free cli-check establishes; the record is checked by G41.4.
         assert.equal(worker[key].status, 'supported', `${harness.id} ${key}`);
         // 142 C.4, 145: opencode's and kiro's readOnly and spawnDenial also cite their two 2026-11-07 live runs (G41.5 checks them).
-        const live = (harness.id === 'opencode' || harness.id === 'kiro' || harness.id === 'copilot' || harness.id === 'pi') && (key === 'readOnly' || key === 'spawnDenial')
+        const live = (harness.id === 'opencode' || harness.id === 'kiro' || harness.id === 'copilot' || harness.id === 'pi' || harness.id === 'antigravity') && (key === 'readOnly' || key === 'spawnDenial')
           ? [`core/worker-evidence/${harness.id}/2026-11-07-live-run-read-only.json`, `core/worker-evidence/${harness.id}/2026-11-07-live-run-spawn.json`] : [];
         assert.deepEqual(worker[key].evidence, [cliRecord(harness.id), ...live], `${harness.id} ${key} evidence`);
         assert.equal(worker[key].verifiedOn, '2026-11-07', `${harness.id} ${key} verifiedOn`);

@@ -1,0 +1,57 @@
+{
+  "binary": "agy",
+  "checks": [],
+  "cliVersion": "1.5.3",
+  "establishes": [
+    "oneShot",
+    "structuredOutput",
+    "spawnDenial",
+    "readOnly"
+  ],
+  "harness": "antigravity",
+  "kind": "live-run",
+  "recordedAt": "2026-11-07T13:13:46.461Z",
+  "run": {
+    "argvShape": [
+      "--settings",
+      "{\"permissions\":{\"deny\":[\"write_file(*)\",\"command(*)\"]}}",
+      "--disable-slash-commands",
+      "--output-format",
+      "stream-json",
+      "-p",
+      "<prompt sha256:a174d662300bff8665cf838ffc3b5fc6b408538de6c455ebca857aa8334a62a3 bytes:169>"
+    ],
+    "edit": false,
+    "exit": 0,
+    "isolation": null,
+    "parser": "agy-stream-json-v1",
+    "readOnly": {
+      "changes": [],
+      "head": {
+        "after": {
+          "object": "58176ee8a0a194002896704627cc3120a59d116d",
+          "ref": "refs/heads/exec"
+        },
+        "before": {
+          "object": "58176ee8a0a194002896704627cc3120a59d116d",
+          "ref": "refs/heads/exec"
+        }
+      },
+      "refsChanged": false,
+      "status": "clean"
+    },
+    "report": {
+      "deniedCount": 0,
+      "reason": null,
+      "status": "success",
+      "usage": {
+        "tokens": 61209
+      }
+    },
+    "resultOffered": true,
+    "runId": "w-dfd20b1b98ce",
+    "stdoutBytes": 7108,
+    "withheld": []
+  },
+  "schema": "doflow-worker-evidence-v1"
+}

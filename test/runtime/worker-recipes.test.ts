@@ -17,7 +17,7 @@ const { probe, describe } = require('../../src/runtime/worker/readiness.ts');
 const POSIX_ONLY: any = { skip: process.platform === 'win32' && 'the fake CLI is linked by symlink and shebang on POSIX' };
 const REGISTRY = loadRegistry({ repoRoot: path.resolve(__dirname, '..', '..') });
 const WORKER: any = Object.fromEntries(REGISTRY.harnesses.map((h: any) => [h.id, h.worker]));
-const HARNESSES = ['opencode', 'kiro', 'copilot', 'pi'];
+const HARNESSES = ['opencode', 'kiro', 'copilot', 'pi', 'antigravity'];
 const PROMPT = 'summarise the module';
 
 // IC-009, written out by hand: readOnly, spawnDenial, structuredOutput, then oneShot, the prompt last
@@ -38,6 +38,10 @@ const IC009: any = {
     '--excluded-tools', 'task',
     '--output-format', 'json',
     '--trust-folder', '--no-ask-user', '-p', '{prompt}'],
+  antigravity: ['--settings', '{"permissions":{"deny":["write_file(*)","command(*)"]}}',
+    '--disable-slash-commands',
+    '--output-format', 'stream-json',
+    '-p', '{prompt}'],
 };
 const withPrompt = (id: string, prompt: string) => IC009[id].map((el: string) => (el === '{prompt}' ? prompt : el));
 
@@ -108,11 +112,11 @@ test('claude: the five recipe entries are unknown again, so no recipe assembles 
   for (const id of ['claude']) assert.equal(Object.hasOwn(WORKER[id].structuredOutput, 'parser'), false, id);
 });
 
-test('describe: each of the four is eligible on fake facts; claude and antigravity are not', POSIX_ONLY, async (t) => {
+test('describe: each of the five is eligible on fake facts; claude is not', POSIX_ONLY, async (t) => {
   const dir = tempDir(t, 'doflow-recipes-');
   const root = path.join(dir, 'project');
   fs.mkdirSync(root);
-  const ids = [...HARNESSES, 'claude', 'antigravity'];
+  const ids = [...HARNESSES, 'claude'];
   // The real descriptors, with only the binary renamed to a fake CLI that exits 0 for version and help.
   const descriptors: any = {};
   for (const id of ids) {
@@ -134,7 +138,7 @@ test('describe: each of the four is eligible on fake facts; claude and antigravi
     assert.deepEqual(answer.requirements.filter((r: any) => r.result !== 'met'), [], id);
     assert.equal(answer.eligible, true, id);
   }
-  for (const id of ['claude', 'antigravity']) {
+  for (const id of ['claude']) {
     const answer = describe({ descriptors, coverage: REGISTRY.coverage, harness: id, env, cwd: root });
     assert.equal(answer.eligible, false, id);
     assert.ok(answer.requirements.some((r: any) => r.result !== 'met'), id);
