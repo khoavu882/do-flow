@@ -15,14 +15,6 @@
   <header class="site-header">
     <div class="site-header__inner">
       <a class="brand" href="#/"><span class="brand__name">DoFlow</span> <span class="brand__product">Console</span></a>
-      <nav class="nav" aria-label="Primary">
-        <ul>
-          <li><a class="nav__link" href="#/">Runs</a></li>
-          <li><a class="nav__link" href="#/workflows">Workflows</a></li>
-          <li><a class="nav__link" href="#/sessions">Sessions</a></li>
-          <li><a class="nav__link" href="#/fleet">Fleet</a></li>
-        </ul>
-      </nav>
       <p class="conn" id="conn" data-state="unknown"><span class="conn__long">Connecting</span><span class="conn__short">Connecting</span></p>
       <button type="button" class="btn btn--ghost pause" id="pause" aria-pressed="false" hidden><span class="pause__label">Pause updates</span></button>
       <p class="core-version" id="core-version"></p>
@@ -34,7 +26,25 @@
     </div>
   </header>
   <div class="banner-slot" id="banner-slot"></div>
-  <main id="main" class="page" tabindex="-1"></main>
+  <div class="shell" id="shell" data-inspectable="false">
+    <nav class="nav navrail" aria-label="Primary">
+      <ul>
+        <li><a class="nav__link navrail__link" href="#/"><span class="navrail__label">Now</span></a></li>
+        <li><a class="nav__link navrail__link" href="#/sessions"><span class="navrail__label">Sessions</span></a></li>
+        <li><a class="nav__link navrail__link" href="#/workflows"><span class="navrail__label">Workflows</span></a></li>
+        <li><a class="nav__link navrail__link" href="#/fleet"><span class="navrail__label">Fleet</span></a></li>
+      </ul>
+    </nav>
+    <main id="main" class="page" tabindex="-1"></main>
+    <aside id="inspector" class="inspector" aria-label="Details" hidden>
+      <div class="inspector__head">
+        <h2 class="inspector__title" id="inspector-title">Details</h2>
+        <button type="button" class="btn btn--ghost inspector__close"><span class="vh">Close details</span></button>
+      </div>
+      <p class="inspector__empty">Select an item to see its details here.</p>
+      <div class="inspector__body"></div>
+    </aside>
+  </div>
   <div class="vh" id="announcer" aria-live="polite" aria-atomic="true"></div>
   <noscript><p class="noscript">The DoFlow Console needs JavaScript. Run <code>doflow ui</code> in a browser with it turned on.</p></noscript>
 </body>

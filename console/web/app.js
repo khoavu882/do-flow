@@ -6,11 +6,17 @@
 import { h, mount, icon, announce, muteAnnouncements } from './dom.js';
 import { notice } from './notices.js';
 import { installShortcuts } from './keys.js';
+import { createPalette } from './palette.js';
+import { deriveSessions } from './derive/sessions.js';
+import { laneTitle } from './views/sessions.js';
 import { createPoller, BACKOFF_MS } from './poll.js';
+import { createLiveAdapter } from './live.js';
+import { createLiveStore } from './store.js';
 import {
   classify, clockTime, refreshReltimes, renderLoading, renderEmpty, renderError, renderFullPage, renderPill, createStaleBanner, errorTitle,
 } from './states.js';
-import { CORE_RANGE, parseRoute, titleFor, navFor } from './views.js';
+import { CORE_RANGE, parseRoute, hashFor, baseRoute, titleFor, navFor } from './views.js';
+import { createInspector, hidePanel } from './shell.js';
 
 // ---- 1. theme: the module's first statement, before the fragment is read or anything is fetched ----
 
@@ -32,9 +38,6 @@ function applyTheme(choice) {
   else root.dataset.theme = choice;
 }
 
-/** @param {any} fn */
-const raf = (fn) => (globalThis.requestAnimationFrame ? globalThis.requestAnimationFrame(fn) : globalThis.setTimeout(fn, 0));
-
 /** @param {any} choice @param {any} radios */
 function chooseTheme(choice, radios) {
   const root = document.documentElement;
@@ -46,7 +49,9 @@ function chooseTheme(choice, radios) {
     // No storage: the choice holds for this page load only.
   }
   syncRadios(radios, choice);
-  raf(() => raf(() => root.classList.remove('theme-switching')));
+  // Reading a layout value applies the new theme while transitions are off; the class goes on the next task, with no frame callback.
+  void root.offsetWidth;
+  globalThis.setTimeout(() => root.classList.remove('theme-switching'), 0);
 }
 
 /** @param {any} radios @param {any} choice */
@@ -103,8 +108,60 @@ const app = /** @type {any} */ ({
   shortcuts: null, // the keys.js handle
   hiddenAt: null, // when the tab was last hidden, or null
   wasFull: false, // #main last held a full page (focus moves to the heading when a view replaces it)
+  liveStore: null, // the page's one live store (IC-017), made when the first live view starts
+  inspector: null, // the shell's details region (IC-020), see shell.js
+  palette: null, // the command palette (IC-021), see palette.js
+  loaded: { runs: null, sessions: null, fleet: null }, // the latest Runs, Sessions and Fleet bodies: the palette's targets
 });
 let viewSeq = 0;
+
+/** The four screens, by their rail labels. */
+const SCREENS = Object.freeze([['Now', 'runs'], ['Sessions', 'sessions'], ['Workflows', 'workflows'], ['Fleet', 'fleet']]);
+
+/**
+ * What the command palette can reach (IC-021, DEC-011): the screens, then the runs, session lanes and Fleet projects of the
+ * latest bodies this page has loaded. Labels are the ones the views show; every hash comes from `hashFor`, so a target that
+ * cannot be linked is left out. Nothing is fetched.
+ */
+function paletteTargets() {
+  /** @type {Array<{ kind: string, label: string, hint: string, hash: string }>} */
+  const out = [];
+  const add = (/** @type {string} */ kind, /** @type {string} */ label, /** @type {string} */ hint, /** @type {any} */ route) => {
+    const hash = hashFor(route);
+    if (hash !== null) out.push({ kind, label, hint, hash });
+  };
+  for (const [label, id] of SCREENS) add('screen', label, 'Screen', { id, params: {} });
+  const { runs, sessions, fleet } = app.loaded;
+  for (const run of (runs && Array.isArray(runs.runs) ? runs.runs : [])) {
+    if (typeof run.featureSlug !== 'string') continue;
+    const workflow = run.workflowName || run.taskClass;
+    add('run', `${run.featureSlug} / ${run.taskId}`, workflow ? `Run · ${workflow}` : 'Run', { id: 'run', params: { slug: run.featureSlug, taskId: run.taskId } });
+  }
+  if (sessions) {
+    for (const row of deriveSessions(sessions, Date.now()).rows) {
+      const where = row.kind === 'unplaced' ? 'another directory' : row.label;
+      for (const lane of row.lanes.flatMap((/** @type {any} */ item) => [item, ...item.children])) {
+        add('session', laneTitle(lane), `Session · ${where}`, { id: 'sessions', params: {}, lane: lane.key });
+      }
+    }
+  }
+  for (const project of (fleet && Array.isArray(fleet.projects) ? fleet.projects : [])) {
+    add('project', String(project.label ?? project.projectKey), 'Fleet project', { id: 'fleet-project', params: { project: project.projectKey } });
+  }
+  return out;
+}
+
+/** Keeps the latest body of the views the palette reads. @param {string} id the view id @param {any} body */
+function rememberLoaded(id, body) {
+  if (id === 'runs' || id === 'sessions') app.loaded[id] = body;
+  else if (id === 'fleet' || id === 'fleet-project') app.loaded.fleet = body;
+}
+
+/** The page's one live store over one live adapter (IC-016, IC-017): every live view of this page shares it. */
+function pageStore() {
+  if (app.liveStore === null) app.liveStore = createLiveStore({ adapter: createLiveAdapter() });
+  return app.liveStore;
+}
 
 const MIN_SKELETON_MS = 300;
 /** A tab hidden longer than this refetches in full and says so once. */
@@ -296,14 +353,22 @@ function paint(view) {
   if (next.busy) main.setAttribute('aria-busy', 'true');
   else main.removeAttribute('aria-busy');
   if (view.painted !== next.key) {
-    const hadFocus = view.body.contains(document.activeElement);
-    const focusKey = focusKeyOf(document.activeElement);
+    // The view's panel sits in the inspector (D.2) and is rebuilt with the body, so focus inside it counts too.
+    const panel = app.els.inspector;
+    const before = document.activeElement;
+    const inPanel = Boolean(panel) && panel.contains(before);
+    const hadFocus = view.body.contains(before) || inPanel;
+    const focusKey = focusKeyOf(before);
     mount(view.body, next.nodes());
     view.painted = next.key;
-    if (hadFocus && !view.body.contains(document.activeElement)) {
-      // E.1 8.4: the element with the same data-focus-key takes the focus back; the heading is the fallback.
-      const again = focusKey === null ? null : view.body.querySelector(`[data-focus-key="${focusKey}"]`);
-      (again ?? view.h1).focus({ preventScroll: true });
+    const after = document.activeElement;
+    const kept = view.body.contains(after) || (inPanel && after === before && panel.contains(after));
+    if (hadFocus && !kept) {
+      // E.1 8.4: the element with the same data-focus-key takes the focus back; the heading is the fallback, or the
+      // inspector's own close control when the open dialog already holds the focus.
+      const again = focusKey === null ? null : view.body.querySelector(`[data-focus-key="${focusKey}"]`) ?? (inPanel ? panel.querySelector(`[data-focus-key="${focusKey}"]`) : null);
+      if (again) again.focus({ preventScroll: true });
+      else if (!(inPanel && panel.contains(after))) view.h1.focus({ preventScroll: true });
     }
   }
   if (view.hasData) updateMeta(view);
@@ -344,6 +409,9 @@ function pillFor(view, now) {
   if (poller.lastSuccessAt === null) return { state: 'unknown', long: 'Connecting', short: 'Connecting' };
   const age = Math.max(0, now - poller.lastSuccessAt);
   const text = age < 5000 ? 'just now' : `${age < 60000 ? `${Math.floor(age / 1000)} s` : `${Math.floor(age / 60000)} min`} ago`;
+  // A live view's connector (IC-018, DEC-033) names its mode; the Fleet stream and a plain poller have no `live` or `polling` mode.
+  if (poller.mode === 'live') return { state: 'done', long: `Live · last change ${text}`, short: 'Live' };
+  if (poller.mode === 'polling') return { state: 'unknown', long: `Polling · Updated ${text}`, short: 'Polling' };
   return { state: 'done', long: `Updated ${text}`, short: text };
 }
 
@@ -355,11 +423,13 @@ function setStale(on, view, now) {
     app.banner = createStaleBanner({ sinceMs: since, onTry: () => view.poller && view.poller.refreshNow() });
     app.els.bannerSlot.append(app.banner.node);
     main.dataset.stale = 'true';
+    if (app.els.inspector) app.els.inspector.dataset.stale = 'true';
     notice('stale', clockTime(since));
   } else if (!on && app.banner !== null) {
     app.banner.leave();
     app.banner = null;
     delete main.dataset.stale;
+    if (app.els.inspector) delete app.els.inspector.dataset.stale;
     if (!view.paused) notice('fresh');
   }
   if (on && app.banner) {
@@ -461,6 +531,9 @@ function teardownView() {
     app.banner = null;
   }
   delete mainEl().dataset.stale;
+  if (app.els.inspector) delete app.els.inspector.dataset.stale;
+  // The open details belong to the view that is going away: they close without calling back into it.
+  hidePanel(app.inspector, view.local);
 }
 
 /** @param {any} href */
@@ -493,14 +566,18 @@ function startView(route, { first = false, animate = false, focus = true } = {})
     holdUntil: null,
     holdTimer: null,
     announcedError: null,
-    local: {}, // the view's own memory (E.1): what its render, load and tick keep between polls
+    // The view's own memory (E.1): what its render, load and tick keep between polls; its panel opens in `inspector` (D.2);
+    // `route` is the current route with its selection (IC-019) and `link` writes a selection to the address.
+    local: { inspector: app.inspector, route, link: /** @type {any} */ (null) },
     root: null,
     painted: null,
     fullKey: null,
     animate: animate && !first,
   };
+  view.local.link = (/** @type {any} */ patch) => linkSelection(view, patch);
   app.view = view;
   globalThis.document.title = titleFor(route);
+  if (app.inspector) app.inspector.setInspectable(route.view.inspectable === true);
   const navHref = navFor(route);
   setNav(navHref === null ? null : navHref === 'workflows' ? '#/workflows' : navHref === 'sessions' ? '#/sessions' : navHref === 'fleet' ? '#/fleet' : '#/');
   paint(view);
@@ -509,6 +586,26 @@ function startView(route, { first = false, animate = false, focus = true } = {})
     focusHeading();
   }
   if (app.ready) beginView(view);
+}
+
+/**
+ * A view's selection becomes the address (IC-019, DEC-034): `patch` is `{ sel }`, `{ task }` or `{ lane }`, or null for none.
+ * The view has already shown it; this records the route and sets `location.hash` (a history entry), whose `hashchange`
+ * then names the route the view is on and does nothing. A selection that has no hash (a lane with an absent part) leaves
+ * the address at the base route and returns false.
+ * @param {any} view @param {any} patch
+ */
+function linkSelection(view, patch) {
+  if (view !== app.view) return false;
+  const base = baseRoute(view.route);
+  const target = patch === null ? base : { ...base, ...patch };
+  const linked = hashFor(target) !== null;
+  const next = linked ? target : base;
+  const hash = hashFor(next);
+  view.route = next;
+  view.local.route = next;
+  if (hash !== null && globalThis.location.hash !== hash) globalThis.location.hash = hash;
+  return linked;
 }
 
 /** @param {any} view */
@@ -554,32 +651,42 @@ function startPoller(view, path, intervalMs, heartbeat) {
   view.heartbeat = heartbeat;
   view.paused = false;
   const spec = view.route.view;
+  const fetchOnce = () => (!heartbeat && view.route.view.load ? view.route.view.load(view.local, apiGet) : apiGet(path));
+  const retry = (/** @type {any} */ error) => {
+    const info = classify(error, ctx());
+    if (info.scope === 'session' || info.scope === 'runtime') return false;
+    return heartbeat || view.hasData || info.auto;
+  };
+  // Activity-aware refresh (feature 133): a heartbeat and a view without the hooks stay at the base interval.
+  const isActive = () => heartbeat || !view.hasData || typeof spec.active !== 'function' || spec.active(view.data, nowMs());
+  const size = () => (heartbeat || !view.hasData || typeof spec.size !== 'function' ? 0 : spec.size(view.data));
   if (!heartbeat && typeof spec.connect === 'function') {
-    // A live view reads through a stream of its own (stream.js) that answers the poller interface, so the pill, the stale
-    // banner and "Try again" work unchanged.
+    // A live view reads through a stream of its own (stream.js for the Fleet, the page's live store for the others,
+    // live-view.js) that answers the poller interface, so the pill, the stale banner and "Try again" work unchanged. The
+    // poll hooks are what the connector's own fallback poller uses; the Fleet's connector ignores them.
     const stream = spec.connect(view.local, view.route.params, {
       fetchJson: apiGet,
       onData: (/** @type {any} */ body) => onData(view, body, false),
       onFailure: (/** @type {any} */ error) => onFail(view, error, false),
       onResync: () => { view.resync = true; },
+      store: pageStore,
+      fetchOnce,
+      retry,
+      isActive,
+      size,
     });
     view.poller = stream;
     stream.start();
     return;
   }
   const poller = createPoller({
-    fetchOnce: () => (!heartbeat && view.route.view.load ? view.route.view.load(view.local, apiGet) : apiGet(path)),
+    fetchOnce,
     intervalMs,
     onSuccess: (body) => onData(view, body, heartbeat),
     onFailure: (error) => onFail(view, error, heartbeat),
-    retry: (error) => {
-      const info = classify(error, ctx());
-      if (info.scope === 'session' || info.scope === 'runtime') return false;
-      return heartbeat || view.hasData || info.auto;
-    },
-    // Activity-aware refresh (feature 133): a heartbeat and a view without the hooks stay at the base interval.
-    isActive: () => heartbeat || !view.hasData || typeof spec.active !== 'function' || spec.active(view.data, nowMs()),
-    size: () => (heartbeat || !view.hasData || typeof spec.size !== 'function' ? 0 : spec.size(view.data)),
+    retry,
+    isActive,
+    size,
   });
   view.poller = poller;
   poller.start();
@@ -620,6 +727,7 @@ function onData(view, body, heartbeat) {
   view.hasData = true;
   view.data = body;
   view.dataText = text;
+  rememberLoaded(view.route.view.id, body);
   if (view.skeletonTimer) {
     globalThis.clearTimeout(view.skeletonTimer);
     view.skeletonTimer = null;
@@ -801,16 +909,34 @@ function boot() {
       bannerSlot: document.getElementById('banner-slot'),
       pause: document.getElementById('pause'),
       navLinks: Array.from(document.querySelectorAll('.nav__link')),
+      shell: document.getElementById('shell'),
+      inspector: document.getElementById('inspector'),
     };
     const brand = document.querySelector('.brand');
     if (brand && !brand.querySelector('.icon')) brand.prepend(icon('brand', 28));
+    /** @type {Record<string, string>} */
+    const railIcons = { '#/': 'rail-now', '#/sessions': 'rail-sessions', '#/workflows': 'rail-workflows', '#/fleet': 'rail-fleet' };
+    for (const link of app.els.navLinks) {
+      const name = railIcons[link.getAttribute('href')];
+      if (name && !link.querySelector('.icon')) link.prepend(icon(name, 16));
+    }
+    if (app.els.shell && app.els.inspector) {
+      const matchMedia = typeof globalThis.matchMedia === 'function' ? (/** @type {string} */ query) => globalThis.matchMedia(query) : undefined;
+      app.inspector = createInspector({ doc: document, shell: app.els.shell, el: app.els.inspector, main: app.els.main, matchMedia });
+    }
     setupThemeControl(document.querySelector('.theme'));
     if (app.els.pause) app.els.pause.addEventListener('click', () => togglePause());
     // The one shortcut registry (keys.js) binds the document once; each entry's action is a plain call into the shell.
     const go = (/** @type {string} */ hash) => () => { globalThis.location.hash = hash; };
+    // The palette and the help list are never open together: each opening closes the other (IC-021).
+    app.palette = createPalette({ doc: document, targets: paletteTargets, go: (hash) => { globalThis.location.hash = hash; } });
     app.shortcuts = installShortcuts({
       doc: document,
-      actions: { pause: () => { togglePause(); }, 'go.runs': go('#/'), 'go.workflows': go('#/workflows'), 'go.sessions': go('#/sessions'), 'go.fleet': go('#/fleet') },
+      actions: {
+        palette: () => { app.shortcuts.closeHelp(); app.palette.open(); },
+        help: () => { app.palette.close(); },
+        pause: () => { togglePause(); }, 'go.runs': go('#/'), 'go.workflows': go('#/workflows'), 'go.sessions': go('#/sessions'), 'go.fleet': go('#/fleet'),
+      },
     });
     const skip = document.querySelector('.skip');
     if (skip) {
@@ -824,13 +950,20 @@ function boot() {
       const route = parseRoute(globalThis.location.hash);
       const view = app.view;
       const spec = route.view;
-      if (view && !app.fatal && view.hasData && typeof spec.reroute === 'function' && view.route.view === spec && view.painted === loadedKey(view)
-        && /** @type {any} */ (view.route.params).project === /** @type {any} */ (route.params).project) {
-        // Between two routes of one live view (the selected agent changed): the body is kept, so the focus stays.
+      const own = view ? hashFor(view.route) : null;
+      // The address now names the route the view is on: a selection the view made itself (linkSelection).
+      if (view && !app.fatal && own !== null && own === hashFor(route)) return;
+      // A live view (Fleet) patches its mounted body, so it reroutes only once loaded; the Run, Tasks and Sessions views keep
+      // the selection in their memory, which their next render reads too.
+      const ready = spec.live !== true || (Boolean(view) && view.hasData && view.painted === loadedKey(view));
+      if (view && !app.fatal && ready && typeof spec.reroute === 'function' && view.route.view === spec
+        && hashFor(baseRoute(view.route)) === hashFor(baseRoute(route))) {
+        // Between two routes of one view and one base route (the selection changed): the body is kept, so the focus stays.
         view.route = route;
-        globalThis.document.title = titleFor(route, view.data);
+        view.local.route = route;
+        globalThis.document.title = titleFor(route, view.hasData ? view.data : null);
         spec.reroute(view.local, route.params, view.data);
-        updateMeta(view);
+        if (view.hasData) updateMeta(view);
         refreshStatus();
         return;
       }

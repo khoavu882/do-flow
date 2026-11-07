@@ -59,14 +59,55 @@ function resolveMainRoot(cwd: string = process.cwd()): string {
   return path.resolve(cwd);
 }
 
-function usageError(message: string, json: boolean = false): number {
-  if (json) {
-    console.log(JSON.stringify({ error: 'usage', detail: message }));
-  } else {
-    console.error(`doflow roadmap: error: ${message}`);
+/** One line an action prints, without its newline: to stdout (`out`) or stderr (`err`). */
+interface OutputLine {
+  stream: 'out' | 'err';
+  text: string;
+}
+
+/** An action's outcome as data: the exit code, the parsed stdout when it is one JSON value (else null), and the lines in print order. */
+interface RoadmapResult {
+  exit: number;
+  json: any;
+  lines: OutputLine[];
+}
+
+/** Collects printed lines; `done(exit)` turns them into a RoadmapResult. */
+function outputCollector() {
+  const lines: OutputLine[] = [];
+  return {
+    out: (text: string): void => { lines.push({ stream: 'out', text }); },
+    err: (text: string): void => { lines.push({ stream: 'err', text }); },
+    done: (exit: number): RoadmapResult => {
+      const stdout = lines.filter((line) => line.stream === 'out');
+      let json: any = null;
+      if (stdout.length === 1) {
+        try { json = JSON.parse(stdout[0].text); } catch { json = null; }
+      }
+      return { exit, json, lines };
+    },
+  };
+}
+
+/** Prints a result's lines in order and sets the process exit code when it is not 0; returns the exit code. */
+function printResult(result: RoadmapResult): number {
+  for (const line of result.lines) {
+    if (line.stream === 'out') console.log(line.text);
+    else console.error(line.text);
   }
-  process.exitCode = 2;
-  return 2;
+  if (result.exit !== 0) process.exitCode = result.exit;
+  return result.exit;
+}
+
+function usageResult(message: string, json: boolean = false): RoadmapResult {
+  const c = outputCollector();
+  if (json) c.out(JSON.stringify({ error: 'usage', detail: message }));
+  else c.err(`doflow roadmap: error: ${message}`);
+  return c.done(2);
+}
+
+function usageError(message: string, json: boolean = false): number {
+  return printResult(usageResult(message, json));
 }
 
 /**
@@ -97,6 +138,179 @@ function initPolicyCommand(options: RoadmapCommandOptions): number {
   return 0;
 }
 
+interface RoadmapInputs {
+  root: string;
+  roadmapFile: string;
+  seedRaw: string | null;
+  seedParseError: any;
+  rows: any[];
+  factsSnapshot: any;
+  statuses: Map<string, any>;
+  rowStatus: Record<string, string>;
+}
+
+/**
+ * The seed and git facts render and status share, or the failure to print: an unreadable or (outside
+ * render --check) invalid seed is a usage error, exit 2; unreadable git facts are exit 1.
+ */
+function roadmapInputs(options: RoadmapCommandOptions, action: string): { failed: RoadmapResult } | RoadmapInputs {
+  const { check: isCheck = false, json = false, cwd = process.cwd(), fsImpl = fs } = options;
+  const root = options.root || resolveMainRoot(cwd);
+  const seedFile = options.seedPath || path.join(root, 'agent-docs', 'roadmap', 'rows.json');
+  const roadmapFile = options.roadmapPath || path.join(root, 'agent-docs', 'roadmap', 'ROADMAP.md');
+
+  let seedRaw: string | null = null;
+  let parsedSeed: any = null;
+
+  try {
+    seedRaw = fsImpl.readFileSync(seedFile, 'utf8');
+  } catch (err: any) {
+    return { failed: usageResult(`failed to read seed file at ${seedFile}: ${err.message}`, json) };
+  }
+
+  let seedParseError: any = null;
+  try {
+    parsedSeed = parseSeed(seedRaw);
+  } catch (err: any) {
+    seedParseError = err;
+    // In render --check, a seed parse error (e.g. typed-status, duplicate-id, needs-unresolved)
+    // is recorded as a check finding rather than crashing usage.
+    if (!isCheck) {
+      return { failed: usageResult(`invalid seed: ${err.message}`, json) };
+    }
+  }
+
+  const rows = parsedSeed?.rows || [];
+  const factsSnapshot = options.gitFacts || gatherGitFacts({ root });
+
+  if (factsSnapshot.unreadable && factsSnapshot.unreadable.length > 0) {
+    const detail = factsSnapshot.unreadable.join(', ');
+    const c = outputCollector();
+    if (json) {
+      c.out(
+        JSON.stringify({
+          schema: 1,
+          action,
+          error: 'cannot-read-facts',
+          sources: factsSnapshot.unreadable,
+          message: `doflow roadmap: cannot read facts: ${detail}`,
+        })
+      );
+    } else {
+      c.err(`doflow roadmap: cannot read facts: ${detail}`);
+    }
+    return { failed: c.done(1) };
+  }
+
+  const { statuses, rowStatus } = deriveStatus(rows, factsSnapshot);
+  return { root, roadmapFile, seedRaw, seedParseError, rows, factsSnapshot, statuses, rowStatus };
+}
+
+/**
+ * `roadmap --action status [--row <id>] [--json]` as data (149 IC-004): the exit code, the parsed stdout when
+ * it is one JSON value (else null) and the lines in print order. The CLI handler prints exactly these lines; a
+ * missing seed stays the usage error, exit 2. Sets no process exit code and prints nothing itself.
+ */
+function roadmapStatusResult(options: RoadmapCommandOptions = {}): RoadmapResult {
+  const { json = false, row: filterRow, fsImpl = fs } = options;
+  const inputs = roadmapInputs(options, 'status');
+  if ('failed' in inputs) return inputs.failed;
+  const { root, rows, statuses, rowStatus } = inputs;
+  const c = outputCollector();
+
+  let openIntents: any[];
+  let operational: any;
+  try {
+    try { openIntents = readOpenIntents({ root, fsImpl }); }
+    catch (error: any) { throw new Unreadable(['merge-intents'], error.message); }
+    operational = operationalState(path.join(root, '.doflow', 'state', 'roadmap'), fsImpl);
+  } catch (error: any) {
+    const sources = error instanceof Unreadable ? error.sources : ['run-records'];
+    if (json) c.out(JSON.stringify({ schema: 1, action: 'status', error: 'cannot-read-facts', sources, message: error.message }));
+    else c.err(`doflow roadmap: cannot read ${sources.join(', ')}: ${error.message}`);
+    return c.done(1);
+  }
+  const holdsOf = (id: string | null) => operational.holds.filter((hold: any) => !id || hold.row === id);
+  const printOperational = (id: string | null) => {
+    for (const hold of holdsOf(id)) c.out(`  Run hold ${hold.row}: ${hold.state}${hold.kind ? ` (${hold.kind})` : ''}: ${hold.reason}`);
+    const lease = operational.lease;
+    c.out(lease ? `  Lease: pid ${lease.pid} on ${lease.host}${lease.runId ? ` for ${lease.runId}` : ''}` : '  Lease: none');
+  };
+  const displayStatus = (info: any) => openIntents.some((intent) => intent.row === info.rowId && intent.status === 'merged-unverified')
+    ? 'merged-unverified' : info.status;
+  const displayRows = Array.from(statuses.values() as Iterable<any>).map((info) => ({ ...info, status: displayStatus(info) }));
+  const displayRowStatus = { ...rowStatus };
+  for (const info of displayRows) displayRowStatus[info.rowId] = info.status;
+  if (filterRow) {
+    const singleStatus = statuses.get(filterRow);
+    if (!singleStatus) {
+      if (json) {
+        c.out(
+          JSON.stringify({
+            schema: 1,
+            action: 'status',
+            error: 'row-not-found',
+            row: filterRow,
+          })
+        );
+      } else {
+        c.err(`doflow roadmap: row '${filterRow}' not found`);
+      }
+      return c.done(1);
+    }
+
+    if (json) {
+      c.out(
+        JSON.stringify({
+          schema: 1,
+          action: 'status',
+          row: filterRow,
+          status: displayStatus(singleStatus),
+          info: singleStatus,
+          intent: openIntents.find((intent) => intent.row === filterRow) || null,
+          run: operational.run,
+          holds: holdsOf(filterRow),
+          lease: operational.lease,
+        })
+      );
+    } else {
+      c.out(
+        `Row ${filterRow}: ${displayStatus(singleStatus)} (evidence: ${
+          singleStatus.evidence ? singleStatus.evidence.shortSha : 'none'
+        })`
+      );
+      const intent = openIntents.find((entry) => entry.row === filterRow);
+      if (intent) c.out(`  Open merge intent: ${intent.phase}${intent.status ? ` (${intent.status})` : ''}`);
+      printOperational(filterRow);
+    }
+    return c.done(0);
+  }
+
+  if (json) {
+    c.out(
+      JSON.stringify({
+        schema: 1,
+        action: 'status',
+        rowStatus: displayRowStatus,
+        rows: displayRows,
+        openIntents,
+        run: operational.run,
+        holds: holdsOf(null),
+        lease: operational.lease,
+      })
+    );
+  } else {
+    c.out(`Roadmap status (${rows.length} rows):`);
+    for (const [id, info] of statuses.entries()) {
+      const ev = info.evidence ? `${info.evidence.shortSha} (${info.evidence.kind})` : '-';
+      c.out(`  ${id.padEnd(6)} ${displayStatus(info).padEnd(12)} evidence: ${ev}`);
+    }
+    for (const intent of openIntents) c.out(`  Open merge intent ${intent.row}: ${intent.phase}${intent.status ? ` (${intent.status})` : ''}`);
+    printOperational(null);
+  }
+  return c.done(0);
+}
+
 /**
  * Dispatches roadmap CLI actions: render [--check], status, next, audit and init-policy. `next` resolves to a
  * promise of the exit code (the merge step awaits its fast-forward child).
@@ -106,8 +320,6 @@ function handleRoadmapCommand(options: RoadmapCommandOptions = {}): any {
     action,
     check: isCheck = false,
     json = false,
-    row: filterRow,
-    cwd = process.cwd(),
     fsImpl = fs,
   } = options;
 
@@ -119,151 +331,11 @@ function handleRoadmapCommand(options: RoadmapCommandOptions = {}): any {
   if (!action || (action !== 'render' && action !== 'status')) {
     return usageError("--action must be 'render', 'status', 'next', 'audit' or 'init-policy'", json);
   }
+  if (action === 'status') return printResult(roadmapStatusResult(options));
 
-  const root = options.root || resolveMainRoot(cwd);
-  const seedFile = options.seedPath || path.join(root, 'agent-docs', 'roadmap', 'rows.json');
-  const roadmapFile = options.roadmapPath || path.join(root, 'agent-docs', 'roadmap', 'ROADMAP.md');
-
-  let seedRaw: string | null = null;
-  let parsedSeed: any = null;
-
-  try {
-    seedRaw = fsImpl.readFileSync(seedFile, 'utf8');
-  } catch (err: any) {
-    return usageError(`failed to read seed file at ${seedFile}: ${err.message}`, json);
-  }
-
-  let seedParseError: any = null;
-  try {
-    parsedSeed = parseSeed(seedRaw);
-  } catch (err: any) {
-    seedParseError = err;
-    // In render --check, a seed parse error (e.g. typed-status, duplicate-id, needs-unresolved)
-    // is recorded as a check finding rather than crashing usage.
-    if (!isCheck) {
-      return usageError(`invalid seed: ${err.message}`, json);
-    }
-  }
-
-  const rows = parsedSeed?.rows || [];
-  const factsSnapshot = options.gitFacts || gatherGitFacts({ root });
-
-  if (factsSnapshot.unreadable && factsSnapshot.unreadable.length > 0) {
-    const detail = factsSnapshot.unreadable.join(', ');
-    if (json) {
-      console.log(
-        JSON.stringify({
-          schema: 1,
-          action,
-          error: 'cannot-read-facts',
-          sources: factsSnapshot.unreadable,
-          message: `doflow roadmap: cannot read facts: ${detail}`,
-        })
-      );
-    } else {
-      console.error(`doflow roadmap: cannot read facts: ${detail}`);
-    }
-    process.exitCode = 1;
-    return 1;
-  }
-
-  const { statuses, rowStatus } = deriveStatus(rows, factsSnapshot);
-
-  if (action === 'status') {
-    let openIntents: any[];
-    let operational: any;
-    try {
-      try { openIntents = readOpenIntents({ root, fsImpl }); }
-      catch (error: any) { throw new Unreadable(['merge-intents'], error.message); }
-      operational = operationalState(path.join(root, '.doflow', 'state', 'roadmap'), fsImpl);
-    } catch (error: any) {
-      const sources = error instanceof Unreadable ? error.sources : ['run-records'];
-      if (json) console.log(JSON.stringify({ schema: 1, action, error: 'cannot-read-facts', sources, message: error.message }));
-      else console.error(`doflow roadmap: cannot read ${sources.join(', ')}: ${error.message}`);
-      process.exitCode = 1;
-      return 1;
-    }
-    const holdsOf = (id: string | null) => operational.holds.filter((hold: any) => !id || hold.row === id);
-    const printOperational = (id: string | null) => {
-      for (const hold of holdsOf(id)) console.log(`  Run hold ${hold.row}: ${hold.state}${hold.kind ? ` (${hold.kind})` : ''}: ${hold.reason}`);
-      const lease = operational.lease;
-      console.log(lease ? `  Lease: pid ${lease.pid} on ${lease.host}${lease.runId ? ` for ${lease.runId}` : ''}` : '  Lease: none');
-    };
-    const displayStatus = (info: any) => openIntents.some((intent) => intent.row === info.rowId && intent.status === 'merged-unverified')
-      ? 'merged-unverified' : info.status;
-    const displayRows = Array.from(statuses.values() as Iterable<any>).map((info) => ({ ...info, status: displayStatus(info) }));
-    const displayRowStatus = { ...rowStatus };
-    for (const info of displayRows) displayRowStatus[info.rowId] = info.status;
-    if (filterRow) {
-      const singleStatus = statuses.get(filterRow);
-      if (!singleStatus) {
-        if (json) {
-          console.log(
-            JSON.stringify({
-              schema: 1,
-              action: 'status',
-              error: 'row-not-found',
-              row: filterRow,
-            })
-          );
-        } else {
-          console.error(`doflow roadmap: row '${filterRow}' not found`);
-        }
-        process.exitCode = 1;
-        return 1;
-      }
-
-      if (json) {
-        console.log(
-          JSON.stringify({
-            schema: 1,
-            action: 'status',
-            row: filterRow,
-            status: displayStatus(singleStatus),
-            info: singleStatus,
-            intent: openIntents.find((intent) => intent.row === filterRow) || null,
-            run: operational.run,
-            holds: holdsOf(filterRow),
-            lease: operational.lease,
-          })
-        );
-      } else {
-        console.log(
-          `Row ${filterRow}: ${displayStatus(singleStatus)} (evidence: ${
-            singleStatus.evidence ? singleStatus.evidence.shortSha : 'none'
-          })`
-        );
-        const intent = openIntents.find((entry) => entry.row === filterRow);
-        if (intent) console.log(`  Open merge intent: ${intent.phase}${intent.status ? ` (${intent.status})` : ''}`);
-        printOperational(filterRow);
-      }
-      return 0;
-    }
-
-    if (json) {
-      console.log(
-        JSON.stringify({
-          schema: 1,
-          action: 'status',
-          rowStatus: displayRowStatus,
-          rows: displayRows,
-          openIntents,
-          run: operational.run,
-          holds: holdsOf(null),
-          lease: operational.lease,
-        })
-      );
-    } else {
-      console.log(`Roadmap status (${rows.length} rows):`);
-      for (const [id, info] of statuses.entries()) {
-        const ev = info.evidence ? `${info.evidence.shortSha} (${info.evidence.kind})` : '-';
-        console.log(`  ${id.padEnd(6)} ${displayStatus(info).padEnd(12)} evidence: ${ev}`);
-      }
-      for (const intent of openIntents) console.log(`  Open merge intent ${intent.row}: ${intent.phase}${intent.status ? ` (${intent.status})` : ''}`);
-      printOperational(null);
-    }
-    return 0;
-  }
+  const inputs = roadmapInputs(options, action);
+  if ('failed' in inputs) return printResult(inputs.failed);
+  const { root, roadmapFile, seedRaw, seedParseError, rows, factsSnapshot, statuses } = inputs;
 
   if (action === 'render') {
     if (isCheck) {
@@ -1721,6 +1793,7 @@ function auditCommand(options: any): number {
 
 module.exports = {
   handleRoadmapCommand,
+  roadmapStatusResult,
   next,
   // The lease primitive, exported for its interleaving test (C8).
   acquireLease,

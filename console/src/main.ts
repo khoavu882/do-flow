@@ -3,13 +3,18 @@
 // The `doflow-ui` process (IC-002). Boot order: parse flags (unknown or bad: exit 2) -> core version
 // handshake through the verb runner (outside `doflowCore`, or no version: exit 2 naming what was found
 // and what is needed) -> bind 127.0.0.1 (listen error: exit 1) -> mint the launch code -> print the one
-// stdout line. No browser is opened. SIGINT/SIGTERM stop the runner (its children are killed), close the
-// server and exit 0, within 2 s. Nothing else is written to stdout, and the code goes nowhere else.
+// stdout line. No browser is opened. One events supervisor and one live hub (feature 149, IC-009,
+// IC-010) are made beside the runner; the supervisor starts its child only while a `/api/live`
+// connection follows a channel (DEC-017). SIGINT/SIGTERM stop the hub (its supervisor ends the child)
+// and the runner (its children are killed), close the server (open streams are cut) and exit 0, within
+// 2 s. Nothing else is written to stdout, and the code goes nowhere else.
 
 const fs = require('node:fs');
 const path = require('node:path');
 const net = require('node:net');
 const { createVerbRunner } = require('./verb-runner.ts');
+const { createLiveChild } = require('./live-child.ts');
+const { createLiveHub } = require('./live.ts');
 const { handshake } = require('./handshake.ts');
 const { createServer, BIND_HOST, remoteAddressError } = require('./server.ts');
 const { consoleRoutes } = require('./routes.ts');
@@ -76,8 +81,10 @@ async function main(argv: readonly string[], io: Io = { env: process.env, cwd: p
     return 2;
   }
   const runner = createVerbRunner({ corePath: flags.core, projectRoot: flags.project, env: io.env });
+  const live = createLiveHub({ runner, supervisor: createLiveChild({ runner }) });
   const checked = await handshake(runner);
   if (!checked.ok || !checked.inRange) {
+    live.stop();
     runner.stop();
     const found = checked.ok ? checked.version : `no version (${checked.code})`;
     io.stderr.write(`doflow ui: core version out of range: found ${found} at ${flags.core}, needed ${doflowCore}\n`);
@@ -92,13 +99,14 @@ async function main(argv: readonly string[], io: Io = { env: process.env, cwd: p
     app = await createServer({
       webRoot: WEB_ROOT,
       port: flags.port,
-      routes: consoleRoutes(runner, sessions),
+      routes: consoleRoutes(runner, sessions, live),
       ...(flags.listenAddress ? {
         host: flags.listenAddress,
         tls: { certPath: flags.tlsCert!, keyPath: flags.tlsKey! },
       } : {}),
     });
   } catch (error: any) {
+    live.stop();
     runner.stop();
     const detail = error && typeof error.message === 'string' ? error.message : error && error.code ? error.code : 'error';
     io.stderr.write(`doflow ui: cannot listen on ${flags.listenAddress ?? BIND_HOST}:${flags.port} (${detail})\n`);
@@ -111,6 +119,7 @@ async function main(argv: readonly string[], io: Io = { env: process.env, cwd: p
     const shutdown = () => {
       if (stopping) return;
       stopping = true;
+      live.stop();
       runner.stop();
       let timer: any;
       const deadline = new Promise<void>((done) => { timer = setTimeout(done, SHUTDOWN_MS - 250); });

@@ -16,6 +16,7 @@ const { RUNS, OWNERS, SCRATCH_ROOT, startFixtureConsole, parseFlags } = require(
 const crypto = require('node:crypto');
 const os = require('node:os');
 const { pathToFileURL } = require('node:url');
+const { spawnSync } = require('node:child_process');
 
 const DAY = 24 * 60 * 60 * 1000;
 const URL_FORM = /^http:\/\/127\.0\.0\.1:\d+\/#c=[0-9a-f]{64}$/;
@@ -246,6 +247,22 @@ test('each tick takes the next step of the live run, then reports none left', { 
   const running = await state();
   assert.equal(running.state, 'RUNNING');
   assert.equal(running.current.id, 'implementation');
+  // DEC-048: 24 more ticks, each an annotation of implementation that adds one timeline entry (read from the core: the route caches 2 s).
+  const events = () => {
+    const result = spawnSync(process.execPath, [CORE_CLI, 'orchestrate', '--action', 'timeline', '--task-id', RUNS.tick.taskId, '--slug', RUNS.tick.slug, '--json'],
+      { cwd: full.project, env: { ...full.env, DOFLOW_UPKEEP: 'off' }, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    return JSON.parse(result.stdout).events;
+  };
+  let count = events().length;
+  for (let k = 1; k <= 24; k += 1) {
+    assert.match(full.tick(), new RegExp(`implementation annotated, tick ${k}$`));
+    const now = events();
+    assert.equal(now.length, count + 1, `tick ${k} adds one timeline entry`);
+    assert.equal(now[now.length - 1].action, 'annotate');
+    assert.equal(now[now.length - 1].node, 'implementation');
+    count = now.length;
+  }
   assert.equal(full.tick(), null);
 });
 

@@ -7,6 +7,10 @@
 // timeout, single-flight per argv, per-shape cache, 30 s backoff after an `[ERROR]` exit 1, 4 MiB
 // stdout cap. The child's stderr is read only for the `[ERROR]` marker: never returned or logged.
 //
+// Follow path (feature 149, IC-008): one long-lived `events --follow --control stdin --json` child at
+// a time, outside the pool, with the same launch options plus piped stdin, no timeout or output cap,
+// a 256 KiB line cap, and stderr read only for the `[ERROR]` and unknown-verb markers. stop() ends it.
+//
 // V8 Fleet shapes (IC-024): `tree`, `transcript` and `traffic` run in another project's root. The
 // runner keeps a `projectKey -> root` map filled from the raw output of its last `projects` read, so a
 // caller (and so the browser) holds only the key; an unknown key is `project-not-found` before any
@@ -89,6 +93,42 @@ const SHAPES: Readonly<Record<string, Shape>> = deepFreeze({
   traffic: { argv: ['transcript', '--action', 'stats', '--window', '10'], ttl: 5_000, scoped: true },
 });
 const SHAPE_IDS: readonly string[] = Object.freeze(Object.keys(SHAPES));
+
+/**
+ * IC-008: the one long-lived child, outside the pool (DEC-022). `--json` is appended. Sub and unsub
+ * reach it as IC-005 lines on stdin, and stdin EOF ends it (DEC-021).
+ */
+interface FollowShape {
+  readonly argv: readonly string[];
+}
+const FOLLOW_SHAPES: Readonly<Record<string, FollowShape>> = deepFreeze({
+  events: { argv: ['events', '--follow', '--control', 'stdin'] },
+});
+const FOLLOW_SHAPE_IDS: readonly string[] = Object.freeze(Object.keys(FOLLOW_SHAPES));
+/** A follow stdout line longer than this before its newline kills the child; the partial-line buffer never holds more. */
+const FOLLOW_LINE_CAP_BYTES = 262_144;
+/** The partial stderr line kept for the marker scan of a follow child. */
+const FOLLOW_STDERR_LINE_BYTES = 4_096;
+/** DEC-054: an old core's reply to `events --follow` names an unknown flag, command or verb on stderr. */
+const UNKNOWN_MARKER = /\bunknown (flag|command|verb)\b/;
+
+type FollowExit = {
+  code: number | null;
+  signal: string | null;
+  lines: number;
+  sawError: boolean;
+  sawUnknown: boolean;
+  reason: 'exit' | 'line-cap' | 'stopped' | 'spawn-failed';
+};
+interface FollowHandle {
+  /** One IC-005 line; false once stdin is closed or for a message that is not `{op: 'sub' | 'unsub', ch: <string>}`. */
+  send(message: { op: 'sub' | 'unsub'; ch: string }): boolean;
+  /** One complete stdout line, newline removed. */
+  onLine(listener: (line: string) => void): void;
+  readonly exited: Promise<FollowExit>;
+  /** stdin end, SIGTERM, SIGKILL after KILL_GRACE_MS (DEC-023). */
+  end(): void;
+}
 
 /** The core's ID_PATTERN without its length bound (IC-003): no leading `-`, `.`, no `/`. */
 const PARAM_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -401,20 +441,158 @@ function createVerbRunner(options: RunnerOptions) {
     return result;
   }
 
-  /** Shutdown: SIGKILL every running child and answer queued and later calls as core-unreachable. */
+  /** The follow child alive now, or null: at most one (DEC-022). */
+  let followLive: { stop(): void } | null = null;
+
+  function failedFollow(): FollowHandle {
+    const exited = Promise.resolve<FollowExit>({ code: null, signal: null, lines: 0, sawError: false, sawUnknown: false, reason: 'spawn-failed' });
+    return { send: () => false, onLine: () => {}, exited, end: () => {} };
+  }
+
+  /**
+   * IC-008: start the long-lived child of a FOLLOW_SHAPES entry, with the launch options of spawnCore
+   * and stdin piped. It takes no pool or reserved slot and has no timeout, output cap, cache, single
+   * flight or backoff entry. Null for an unknown shape, a stopped runner or a follow child still alive.
+   */
+  function follow(shapeId: string): FollowHandle | null {
+    if (typeof shapeId !== 'string' || !Object.hasOwn(FOLLOW_SHAPES, shapeId) || stopped || followLive !== null) return null;
+    let child: any;
+    try {
+      if (!fs.statSync(corePath).isFile()) return failedFollow();
+      child = spawnImpl(process.execPath, [corePath, ...FOLLOW_SHAPES[shapeId].argv, '--json'], {
+        cwd: projectRoot,
+        env: childEnv(env),
+        shell: false,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        windowsHide: true,
+      });
+    } catch {
+      return failedFollow();
+    }
+    const listeners: Array<(line: string) => void> = [];
+    let pending: Buffer[] = [];
+    let pendingBytes = 0;
+    let lines = 0;
+    let errorLine = '';
+    let sawError = false;
+    let sawUnknown = false;
+    let forced: 'line-cap' | 'stopped' | null = null;
+    let stdinOpen = true;
+    let ending = false;
+    let settled = false;
+    let killTimer: any = null;
+    let settle: (exit: FollowExit) => void = () => {};
+    const exited = new Promise<FollowExit>((resolve) => {
+      settle = resolve;
+    });
+    const live = { stop: () => force('stopped') };
+    followLive = live;
+
+    function finish(code: number | null, signal: string | null, reason: FollowExit['reason']) {
+      if (settled) return;
+      settled = true;
+      stdinOpen = false;
+      if (killTimer !== null) clock.clearTimeout(killTimer);
+      if (followLive === live) followLive = null;
+      settle({ code, signal, lines, sawError, sawUnknown, reason });
+    }
+    function closeStdin() {
+      if (!stdinOpen) return;
+      stdinOpen = false;
+      child.stdin.end();
+    }
+    function force(reason: 'line-cap' | 'stopped') {
+      if (settled || forced !== null) return;
+      forced = reason;
+      pending = [];
+      pendingBytes = 0;
+      closeStdin();
+      child.kill('SIGKILL');
+    }
+
+    // A dead child's stdin fails its writes with EPIPE; that is the child's exit, never a Console crash.
+    child.stdin.on('error', () => {
+      stdinOpen = false;
+    });
+    // Flowing mode, split on newlines. The partial line never holds more than FOLLOW_LINE_CAP_BYTES.
+    child.stdout.on('data', (chunk: Buffer) => {
+      let start = 0;
+      while (forced === null) {
+        const newline = chunk.indexOf(10, start);
+        const stop = newline === -1 ? chunk.length : newline;
+        if (pendingBytes + stop - start > FOLLOW_LINE_CAP_BYTES) return force('line-cap');
+        if (newline === -1) {
+          if (stop > start) {
+            pending.push(chunk.subarray(start));
+            pendingBytes += stop - start;
+          }
+          return;
+        }
+        const line = pending.length === 0 ? chunk.toString('utf8', start, newline) : Buffer.concat([...pending, chunk.subarray(start, newline)]).toString('utf8');
+        pending = [];
+        pendingBytes = 0;
+        lines += 1;
+        start = newline + 1;
+        for (const listener of listeners) listener(line);
+      }
+    });
+    // DEC-054: stderr is scanned line by line for the two markers only, keeping at most the current
+    // partial line (FOLLOW_STDERR_LINE_BYTES); its text is never returned, stored or logged.
+    const scan = (text: string) => {
+      if (text.includes(ERROR_MARKER)) sawError = true;
+      if (UNKNOWN_MARKER.test(text)) sawUnknown = true;
+    };
+    child.stderr.on('data', (chunk: Buffer) => {
+      if (sawError && sawUnknown) return;
+      const parts = (errorLine + chunk.toString('latin1')).split('\n');
+      errorLine = parts.pop() ?? '';
+      for (const part of parts) scan(part);
+      scan(errorLine);
+      if (errorLine.length > FOLLOW_STDERR_LINE_BYTES) errorLine = errorLine.slice(-FOLLOW_STDERR_LINE_BYTES);
+    });
+    child.on('error', () => {
+      // A child that never started may not emit 'close'; one that did start still will.
+      if (child.pid === undefined) finish(null, null, 'spawn-failed');
+    });
+    child.on('close', (code: number | null, signal: string | null) => finish(code, signal, forced ?? 'exit'));
+
+    return {
+      send(message) {
+        if (!stdinOpen || !child.stdin.writable) return false;
+        if (!message || (message.op !== 'sub' && message.op !== 'unsub') || typeof message.ch !== 'string') return false;
+        child.stdin.write(`${JSON.stringify({ op: message.op, ch: message.ch })}\n`);
+        return true;
+      },
+      onLine(listener) {
+        listeners.push(listener);
+      },
+      exited,
+      end() {
+        if (settled || ending || forced !== null) return;
+        ending = true;
+        closeStdin();
+        child.kill('SIGTERM');
+        killTimer = clock.setTimeout(() => child.kill('SIGKILL'), KILL_GRACE_MS);
+      },
+    };
+  }
+
+  /** Shutdown: SIGKILL every running child, the follow child too, and answer queued and later calls as core-unreachable. */
   function stop() {
     stopped = true;
     for (const child of running) child.markStopped();
     for (const waiter of queue.splice(0)) waiter.grant(null);
+    followLive?.stop();
   }
 
-  return { run, stop };
+  return { run, follow, stop };
 }
 
 /**
  * IC-005 / IC-024: the error codes of the Fleet shapes and their HTTP status. `project-not-found` is a
  * runner failure (no spawn); the others are the id of a core `error` on an exit 1 (`errorId`). `stream-limit`
- * belongs to the stream route (V.8) and is listed here so the status table is in one place.
+ * belongs to the stream route (V.8) and `live-unavailable` to `/api/live` (149 IC-011); both are listed here
+ * so the status table is in one place.
  */
 const FLEET_ERROR_STATUS: Readonly<Record<string, number>> = Object.freeze({
   'cannot-list-projects': 502,
@@ -422,6 +600,7 @@ const FLEET_ERROR_STATUS: Readonly<Record<string, number>> = Object.freeze({
   'agent-not-in-project': 404,
   'session-not-in-project': 404,
   'stream-limit': 429,
+  'live-unavailable': 503,
 });
 /** The error ids a core exit 1 may carry, by Fleet shape. */
 const FLEET_CORE_ERRORS: Readonly<Record<string, readonly string[]>> = Object.freeze({
@@ -440,6 +619,10 @@ function fleetError(shapeId: string, failure: { code: string; exit: number | nul
 module.exports = {
   BACKOFF_MS,
   FLEET_ERROR_STATUS,
+  FOLLOW_LINE_CAP_BYTES,
+  FOLLOW_SHAPES,
+  FOLLOW_SHAPE_IDS,
+  FOLLOW_STDERR_LINE_BYTES,
   IDENTITY_VARIABLES,
   KILL_GRACE_MS,
   OUTPUT_CAP_BYTES,

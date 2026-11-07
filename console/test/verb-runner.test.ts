@@ -22,8 +22,13 @@ const {
   POOL_SIZE,
   RESERVED_SLOTS,
   FLEET_ERROR_STATUS,
+  FOLLOW_SHAPES,
+  FOLLOW_SHAPE_IDS,
+  FOLLOW_LINE_CAP_BYTES,
+  FOLLOW_STDERR_LINE_BYTES,
   fleetError,
 } = require('../src/verb-runner.ts');
+const { EventEmitter } = require('node:events');
 
 const FAKE_CORE = path.join(__dirname, 'fixtures', 'fake-core.js');
 const KEY_A = 'aaaaaaaaaaaaaaaa';
@@ -721,7 +726,7 @@ test('the reserved slot is not taken by a shape other than transcript', async ()
 });
 
 test('IC-005 Fleet error codes: project-not-found from the runner, the others from a core exit 1 id', async () => {
-  assert.deepEqual({ ...FLEET_ERROR_STATUS }, { 'cannot-list-projects': 502, 'project-not-found': 404, 'agent-not-in-project': 404, 'session-not-in-project': 404, 'stream-limit': 429 });
+  assert.deepEqual({ ...FLEET_ERROR_STATUS }, { 'cannot-list-projects': 502, 'project-not-found': 404, 'agent-not-in-project': 404, 'session-not-in-project': 404, 'stream-limit': 429, 'live-unavailable': 503 });
   assert.ok(Object.isFrozen(FLEET_ERROR_STATUS));
   const f = fleetSetup('agent-missing');
   await f.runner.run('projects', {});
@@ -740,3 +745,344 @@ test('IC-005 Fleet error codes: project-not-found from the runner, the others fr
   assert.equal(fleetError('toString', { code: 'core-error', exit: 1, errorId: 'cannot-list-projects' }), null);
 });
 
+
+// ---- 149 B.1: the follow path (IC-008) ----
+//
+// Cases that need byte-exact chunking or a scripted exit use an in-process stand-in child; the others
+// run fake-core.js in mode `events` through a real spawn (FAKE_EVENTS_SCRIPT picks its behaviour).
+
+const FOLLOW_ARGV = ['events', '--follow', '--control', 'stdin', '--json'];
+
+/** A child_process stand-in: stdout and stderr emit what the case pushes, stdin records writes, kill records signals. */
+function fakeChild() {
+  const child: any = new EventEmitter();
+  child.pid = 4242;
+  child.signals = [] as string[];
+  child.kill = (signal: string) => {
+    child.signals.push(signal);
+    return true;
+  };
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = new EventEmitter();
+  child.stdin.writable = true;
+  child.stdin.written = [] as string[];
+  child.stdin.ended = false;
+  child.stdin.write = (text: string) => {
+    child.stdin.written.push(text);
+    return true;
+  };
+  child.stdin.end = () => {
+    child.stdin.ended = true;
+    child.stdin.writable = false;
+  };
+  child.out = (text: string | Buffer) => child.stdout.emit('data', Buffer.isBuffer(text) ? text : Buffer.from(text));
+  child.err = (text: string) => child.stderr.emit('data', Buffer.from(text));
+  child.close = (code: number | null, signal: string | null = null) => child.emit('close', code, signal);
+  return child;
+}
+
+/** A runner whose follow spawns get stand-in children; pooled spawns run the real fake core. */
+function followSetup(mode = 'echo', extraEnv: Record<string, string> = {}) {
+  const fakes: any[] = [];
+  const base = setup(mode, extraEnv, {
+    spawnImpl: (command: string, args: string[], spawnOptions: any) => {
+      base.spawnCalls.push({ command, args, options: spawnOptions });
+      if (args[1] === 'events') {
+        const child = fakeChild();
+        fakes.push(child);
+        return child;
+      }
+      const child = childProcess.spawn(command, args, spawnOptions);
+      base.children.push(child);
+      allChildren.push(child);
+      return child;
+    },
+  });
+  return { ...base, fakes };
+}
+
+/** The real fake core in mode `events`, every spawn recorded. */
+function eventsSetup(script: string, extraEnv: Record<string, string> = {}) {
+  return setup('events', { FAKE_EVENTS_SCRIPT: script, ...extraEnv });
+}
+
+test('the follow allow-list is exactly IC-008 events, frozen, and a shape added to either list is caught', async () => {
+  const exactFollow = (ids: readonly string[]) => assert.deepEqual([...ids], ['events']);
+  const exactShapes = (ids: readonly string[]) => assert.deepEqual([...ids], Object.keys(EXPECTED_SHAPES));
+  exactFollow(FOLLOW_SHAPE_IDS);
+  exactShapes(SHAPE_IDS);
+  assert.deepEqual(FOLLOW_SHAPES.events.argv, ['events', '--follow', '--control', 'stdin']);
+  assert.ok(Object.isFrozen(FOLLOW_SHAPES) && Object.isFrozen(FOLLOW_SHAPE_IDS) && Object.isFrozen(FOLLOW_SHAPES.events) && Object.isFrozen(FOLLOW_SHAPES.events.argv));
+  assert.throws(() => {
+    FOLLOW_SHAPES.tail = { argv: ['events', '--follow', '--channels', 'now'] };
+  }, TypeError);
+  assert.throws(() => {
+    FOLLOW_SHAPES.events.argv.push('--channels');
+  }, TypeError);
+  // Controls: the exact assertions fail on a list that gained a shape.
+  assert.throws(() => exactFollow([...FOLLOW_SHAPE_IDS, 'tail']), assert.AssertionError);
+  assert.throws(() => exactShapes([...SHAPE_IDS, 'events']), assert.AssertionError);
+  // The two lists do not overlap: a follow shape is not a pooled read, and a pooled shape cannot be followed.
+  assert.deepEqual(FOLLOW_SHAPE_IDS.filter((id: string) => SHAPE_IDS.includes(id)), []);
+  const { runner, spawnCalls } = followSetup();
+  assert.deepEqual(await runner.run('events', {}), { ok: false, code: 'usage', exit: null });
+  for (const id of ['list', 'transcript', 'nope', '__proto__', 'toString', '', 42 as any]) assert.equal(runner.follow(id), null, String(id));
+  assert.equal(spawnCalls.length, 0);
+});
+
+test('follow spawns process.execPath <core> events --follow --control stdin --json: env stripped, shell off, cwd the project, stdio piped', async () => {
+  const planted = { KEEP_ME: 'kept', DOFLOW_RUN_ID: 'run-1', DOFLOW_SESSION_ROLE: 'main', DOFLOW_SCOPE: 'global', DOFLOW_UPKEEP: 'on', DOFLOW_CONFIG_DIR: '/cfg' };
+  const { runner, project, spawnCalls, starts, startsReach } = eventsSetup('follow', planted);
+  const handle = runner.follow('events');
+  assert.ok(handle);
+  assert.equal(spawnCalls.length, 1);
+  const call = spawnCalls[0];
+  assert.equal(call.command, process.execPath);
+  assert.deepEqual(call.args, [FAKE_CORE, ...FOLLOW_ARGV]);
+  assert.deepEqual(call.options.stdio, ['pipe', 'pipe', 'pipe']);
+  assert.equal(call.options.shell, false);
+  assert.equal(call.options.cwd, project);
+  assert.equal(call.options.windowsHide, true);
+  await startsReach(1);
+  const start = starts()[0];
+  assert.deepEqual(start.argv, FOLLOW_ARGV);
+  assert.equal(start.cwd, project);
+  for (const name of ['DOFLOW_RUN_ID', 'DOFLOW_SESSION_ROLE', 'DOFLOW_SCOPE', ...IDENTITY_VARIABLES]) assert.equal(name in start.env, false, `${name} reached the follow child`);
+  assert.equal(start.env.DOFLOW_UPKEEP, 'off');
+  assert.equal(start.env.DOFLOW_CONFIG_DIR, '/cfg');
+  assert.equal(start.env.KEEP_ME, 'kept');
+  handle.end();
+  assert.deepEqual(await handle.exited, { code: 0, signal: null, lines: 0, sawError: false, sawUnknown: false, reason: 'exit' });
+});
+
+test('follow takes no pool slot and has no timeout or 4 MiB cap: two pooled calls run while it lives', async () => {
+  const { runner, clock, fakes, startsReach } = followSetup('delay', { FAKE_CORE_DELAY_MS: '400' });
+  const handle = runner.follow('events');
+  assert.ok(handle);
+  const lines: string[] = [];
+  handle.onLine((line: string) => lines.push(line));
+  let finished = 0;
+  const pooled = [runner.run('attempts', { slug: 'a' }), runner.run('attempts', { slug: 'b' })];
+  for (const call of pooled) call.then(() => (finished += 1));
+  await startsReach(2);
+  assert.equal(finished, 0, 'both pooled children started together while the follow child lives');
+  assert.ok((await Promise.all(pooled)).every((result: any) => result.ok));
+  // No 10 s timeout: the follow child is still unsignalled long after.
+  clock.advance(10 * 60_000);
+  assert.deepEqual(fakes[0].signals, []);
+  // No 4 MiB stdout cap: 17 lines of 256 KiB (4.25 MiB) all pass.
+  const line = 'x'.repeat(FOLLOW_LINE_CAP_BYTES);
+  for (let i = 0; i < 17; i++) fakes[0].out(`${line}\n`);
+  assert.equal(lines.length, 17);
+  assert.ok(lines.length * FOLLOW_LINE_CAP_BYTES > OUTPUT_CAP_BYTES);
+  assert.deepEqual(fakes[0].signals, []);
+  fakes[0].close(0);
+  assert.equal((await handle.exited).lines, 17);
+});
+
+test('one follow child at a time: a second follow while one lives is null, a new one may start after it exits, none after stop()', async () => {
+  const { runner, fakes, spawnCalls } = followSetup();
+  const first = runner.follow('events');
+  assert.ok(first);
+  assert.equal(runner.follow('events'), null);
+  assert.equal(spawnCalls.length, 1);
+  fakes[0].close(0);
+  assert.equal((await first.exited).reason, 'exit');
+  const second = runner.follow('events');
+  assert.ok(second, 'a new follow once the first has exited');
+  assert.equal(spawnCalls.length, 2);
+  runner.stop();
+  assert.deepEqual(fakes[1].signals, ['SIGKILL']);
+  assert.equal(fakes[1].stdin.ended, true);
+  fakes[1].close(null, 'SIGKILL');
+  assert.deepEqual(await second.exited, { code: null, signal: 'SIGKILL', lines: 0, sawError: false, sawUnknown: false, reason: 'stopped' });
+  assert.equal(runner.follow('events'), null, 'a stopped runner follows nothing');
+  assert.equal(spawnCalls.length, 2);
+});
+
+test('send writes one IC-005 line; onLine gets complete lines across chunks; lines counts them', async () => {
+  const { runner, fakes } = followSetup();
+  const handle = runner.follow('events');
+  const child = fakes[0];
+  assert.equal(handle.send({ op: 'sub', ch: 'tasks:feat-a' }), true);
+  assert.equal(handle.send({ op: 'unsub', ch: 'now', extra: 'dropped' } as any), true);
+  assert.equal(handle.send({ op: 'write', ch: 'now' } as any), false);
+  assert.equal(handle.send({ op: 'sub', ch: 7 } as any), false);
+  assert.deepEqual(child.stdin.written, ['{"op":"sub","ch":"tasks:feat-a"}\n', '{"op":"unsub","ch":"now"}\n']);
+  const seen: string[] = [];
+  const alsoSeen: string[] = [];
+  handle.onLine((line: string) => seen.push(line));
+  handle.onLine((line: string) => alsoSeen.push(line));
+  const euro = Buffer.from('€');
+  child.out('ab');
+  child.out('c\nde');
+  child.out(Buffer.concat([Buffer.from('f'), euro.subarray(0, 1)]));
+  child.out(Buffer.concat([euro.subarray(1), Buffer.from('\n\ntail-without-newline')]));
+  assert.deepEqual(seen, ['abc', 'def€', '']);
+  assert.deepEqual(alsoSeen, seen);
+  // EPIPE on a dead child's stdin is swallowed; send is false from then on.
+  child.stdin.emit('error', Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }));
+  assert.equal(handle.send({ op: 'sub', ch: 'now' }), false);
+  child.close(0);
+  const exit = await handle.exited;
+  assert.deepEqual(exit, { code: 0, signal: null, lines: 3, sawError: false, sawUnknown: false, reason: 'exit' });
+  assert.equal(seen.includes('tail-without-newline'), false, 'a partial line at exit is not a line');
+});
+
+test('end(): stdin end and SIGTERM, then SIGKILL after KILL_GRACE_MS; send is false after end', async () => {
+  const { runner, clock, fakes } = followSetup();
+  const handle = runner.follow('events');
+  const child = fakes[0];
+  handle.end();
+  assert.equal(child.stdin.ended, true);
+  assert.deepEqual(child.signals, ['SIGTERM']);
+  assert.equal(handle.send({ op: 'sub', ch: 'now' }), false);
+  handle.end();
+  assert.deepEqual(child.signals, ['SIGTERM'], 'a second end() does nothing');
+  clock.advance(KILL_GRACE_MS - 1);
+  assert.deepEqual(child.signals, ['SIGTERM']);
+  clock.advance(1);
+  assert.deepEqual(child.signals, ['SIGTERM', 'SIGKILL']);
+  child.close(null, 'SIGKILL');
+  assert.deepEqual(await handle.exited, { code: null, signal: 'SIGKILL', lines: 0, sawError: false, sawUnknown: false, reason: 'exit' });
+});
+
+test('a stdout line over 262144 bytes before its newline is SIGKILLed as line-cap; exactly the cap is a line', async () => {
+  assert.equal(FOLLOW_LINE_CAP_BYTES, 262_144);
+  const { runner, fakes } = followSetup();
+  const handle = runner.follow('events');
+  const child = fakes[0];
+  const seen: string[] = [];
+  handle.onLine((line: string) => seen.push(line));
+  child.out('a'.repeat(FOLLOW_LINE_CAP_BYTES - 10));
+  child.out(`${'a'.repeat(10)}\n`);
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].length, FOLLOW_LINE_CAP_BYTES);
+  assert.deepEqual(child.signals, []);
+  child.out('b'.repeat(FOLLOW_LINE_CAP_BYTES));
+  assert.deepEqual(child.signals, [], 'the partial line is at the cap, not over it');
+  child.out('b');
+  assert.deepEqual(child.signals, ['SIGKILL']);
+  assert.equal(child.stdin.ended, true);
+  child.out('\nlate line\n');
+  assert.equal(seen.length, 1, 'nothing is delivered after the cap');
+  runner.stop(); // stop() after the cap keeps the reason
+  child.close(null, 'SIGKILL');
+  assert.deepEqual(await handle.exited, { code: null, signal: 'SIGKILL', lines: 1, sawError: false, sawUnknown: false, reason: 'line-cap' });
+
+  // The real fake core: 262145 bytes with no newline, then it waits to be killed.
+  const real = eventsSetup('over-cap');
+  const overCap = real.runner.follow('events');
+  assert.deepEqual(await overCap.exited, { code: null, signal: 'SIGKILL', lines: 0, sawError: false, sawUnknown: false, reason: 'line-cap' });
+});
+
+test('stop() ends the follow child with the pooled children; exited is stopped', async () => {
+  const mixed = followSetup('sleep');
+  const handle = mixed.runner.follow('events');
+  const pooled = mixed.runner.run('list', {});
+  await mixed.startsReach(1);
+  mixed.runner.stop();
+  assert.deepEqual(mixed.fakes[0].signals, ['SIGKILL']);
+  assert.deepEqual(await pooled, { ok: false, code: 'core-unreachable', exit: null });
+  assert.equal(mixed.children[0].signalCode, 'SIGKILL');
+  mixed.fakes[0].close(null, 'SIGKILL');
+  assert.equal((await handle.exited).reason, 'stopped');
+
+  // The real fake core in control mode.
+  const { runner, startsReach, children } = eventsSetup('follow');
+  const real = runner.follow('events');
+  await startsReach(1);
+  runner.stop();
+  assert.deepEqual(await real.exited, { code: null, signal: 'SIGKILL', lines: 0, sawError: false, sawUnknown: false, reason: 'stopped' });
+  assert.equal(children[0].signalCode, 'SIGKILL');
+  assert.equal(runner.follow('events'), null);
+});
+
+test('stderr is scanned for [ERROR] and an unknown flag, command or verb only, in bounded lines, and never returned', async () => {
+  const { runner, fakes } = followSetup();
+  const split = runner.follow('events');
+  fakes[0].err('[ERR');
+  fakes[0].err('OR] events: boom\nunknown fl');
+  fakes[0].err("ag '--x'\n");
+  fakes[0].close(1);
+  const exit = await split.exited;
+  assert.deepEqual(exit, { code: 1, signal: null, lines: 0, sawError: true, sawUnknown: true, reason: 'exit' });
+  assert.equal(JSON.stringify(exit).includes('boom'), false);
+
+  // A stderr line far longer than the scan buffer still has its marker found; nothing else is matched.
+  const long = runner.follow('events');
+  fakes[1].err('x'.repeat(FOLLOW_STDERR_LINE_BYTES * 4));
+  fakes[1].err(`${'y'.repeat(100)} [ERROR] late marker\n`);
+  fakes[1].err('unknown option here; the unknown-flag word order is not this\n');
+  fakes[1].close(1);
+  assert.deepEqual(await long.exited, { code: 1, signal: null, lines: 0, sawError: true, sawUnknown: false, reason: 'exit' });
+});
+
+test('the real fake core: old-core replies set sawUnknown, an internal fault sets sawError, a clean run sets neither', async () => {
+  const cases: Array<[string, any]> = [
+    ['old-flag', { code: 1, signal: null, lines: 0, sawError: false, sawUnknown: true, reason: 'exit' }],
+    ['old-command', { code: 1, signal: null, lines: 0, sawError: false, sawUnknown: true, reason: 'exit' }],
+    ['old-verb', { code: 2, signal: null, lines: 0, sawError: false, sawUnknown: true, reason: 'exit' }],
+    ['fault', { code: 1, signal: null, lines: 0, sawError: true, sawUnknown: false, reason: 'exit' }],
+    ['usage', { code: 2, signal: null, lines: 0, sawError: false, sawUnknown: false, reason: 'exit' }],
+    ['frames', { code: 0, signal: null, lines: 2, sawError: false, sawUnknown: false, reason: 'exit' }],
+  ];
+  for (const [script, expected] of cases) {
+    const { runner } = eventsSetup(script);
+    const handle = runner.follow('events');
+    const exit = await handle.exited;
+    assert.deepEqual(exit, expected, script);
+    assert.equal(JSON.stringify(exit).includes('secret-stderr-text'), false);
+    assert.equal(handle.send({ op: 'sub', ch: 'now' }), false, `${script}: send after exit`);
+  }
+  const exitTwo = eventsSetup('frames', { FAKE_EVENTS_EXIT: '2', FAKE_EVENTS_COUNT: '1' });
+  assert.deepEqual(await exitTwo.runner.follow('events').exited, { code: 2, signal: null, lines: 1, sawError: false, sawUnknown: false, reason: 'exit' });
+});
+
+test('the real fake core in control mode: sub over stdin gets a scripted snapshot frame; stdin EOF ends it with 0', async () => {
+  const { runner } = eventsSetup('follow');
+  const handle = runner.follow('events');
+  const frames: any[] = [];
+  let resolveTwo: () => void = () => {};
+  const two = new Promise<void>((resolve) => {
+    resolveTwo = resolve;
+  });
+  handle.onLine((line: string) => {
+    frames.push(JSON.parse(line));
+    if (frames.length === 2) resolveTwo();
+  });
+  assert.equal(handle.send({ op: 'sub', ch: 'now' }), true);
+  assert.equal(handle.send({ op: 'sub', ch: 'tasks:feat-a' }), true);
+  await two;
+  assert.deepEqual(frames.map((frame) => [frame.v, frame.ch, frame.type]), [[1, 'now', 'snapshot'], [1, 'tasks:feat-a', 'snapshot']]);
+  for (const frame of frames) assert.match(frame.id, /^[0-9a-f]{8}-[1-9][0-9]{0,15}$/);
+  handle.end();
+  assert.deepEqual(await handle.exited, { code: 0, signal: null, lines: 2, sawError: false, sawUnknown: false, reason: 'exit' });
+});
+
+test('a missing core or a failed spawn is spawn-failed: exited resolves, send is false, and a later follow may start', async () => {
+  const missing = setup('events', {}, { corePath: path.join(os.tmpdir(), 'no-such-doflow', 'bin', 'doflow.js') });
+  const gone = missing.runner.follow('events');
+  assert.ok(gone);
+  assert.deepEqual(await gone.exited, { code: null, signal: null, lines: 0, sawError: false, sawUnknown: false, reason: 'spawn-failed' });
+  assert.equal(gone.send({ op: 'sub', ch: 'now' }), false);
+  gone.end();
+  assert.equal(missing.spawnCalls.length, 0);
+
+  const failing = setup('events', {}, {
+    spawnImpl: (_command: string, args: string[], options: any) => childProcess.spawn(path.join(os.tmpdir(), 'no-such-node-binary'), args, options),
+  });
+  const failed = failing.runner.follow('events');
+  assert.deepEqual(await failed.exited, { code: null, signal: null, lines: 0, sawError: false, sawUnknown: false, reason: 'spawn-failed' });
+  assert.equal(failed.send({ op: 'sub', ch: 'now' }), false);
+  assert.ok(failing.runner.follow('events'), 'spawn-failed leaves no live follow child');
+  failing.runner.stop();
+
+  const throwing = setup('events', {}, {
+    spawnImpl: () => {
+      throw new Error('spawn refused');
+    },
+  });
+  assert.equal((await throwing.runner.follow('events').exited).reason, 'spawn-failed');
+});

@@ -78,7 +78,7 @@ function parseArgs(argv: string[]): any {
     if (a.startsWith('-')) o.flagsGiven.push(a);
     // `--commit` is the roadmap verb's own flag: anywhere else it must reach the default branch and get
     // that verb's unknown-flag answer, as it did before it was added. '' matches no case.
-    switch (a === '--commit' && o.cmd !== 'roadmap' ? '' : a.startsWith('--action=') ? '--action' : a) {
+    switch (a === '--commit' && o.cmd !== 'roadmap' ? '' : a === '--follow' && o.cmd !== 'events' ? '' : a.startsWith('--action=') ? '--action' : a) {
       case '-h': case '--help': o.help = true; break;
       case '-v': o.version = true; break;
       case '--version':
@@ -119,6 +119,9 @@ function parseArgs(argv: string[]): any {
       case '--check': o.check = true; break;
       // roadmap --action init-policy: commit the policy onto local develop by plumbing instead of only writing it.
       case '--commit': o.commit = true; break;
+      // events: follow the channels until a signal or stdin EOF (149 IC-001). Like `--commit`, only the
+      // events verb knows it; anywhere else it reaches the default branch and that verb's unknown-flag answer.
+      case '--follow': o.follow = true; break;
       // package --action verify: rewrite an unreadable state.json (never widens, 122 IC-009).
       case '--repair': o.repair = true; break;
       // decision --action list: every decision by id, not just the live ones.
@@ -246,8 +249,8 @@ function parseArgs(argv: string[]): any {
         // its validation subtly wrong.
         const runtime = parseRuntimeFlag(a, argv, i, o);
         if (runtime !== null) { i = runtime; break; }
-        // slot, primary, fleet and transcript report an unknown flag as their own usage error (exit 2, 115 IC-008, 120 IC-008).
-        if (a.startsWith('-') && (o.cmd === 'slot' || o.cmd === 'primary' || o.cmd === 'fleet' || o.cmd === 'transcript')) (o.extraFlags = o.extraFlags || []).push(a);
+        // slot, primary, fleet, transcript and events report an unknown flag as their own usage error (exit 2, 115 IC-008, 120 IC-008, 149 IC-001).
+        if (a.startsWith('-') && (o.cmd === 'slot' || o.cmd === 'primary' || o.cmd === 'fleet' || o.cmd === 'transcript' || o.cmd === 'events')) (o.extraFlags = o.extraFlags || []).push(a);
         else if (a.startsWith('-') && o.cmd !== 'plan-check') argError(o, argv, unknownFlagMessage(a), unknownFlagExit(o.cmd));
         else if (!o.cmd) o.cmd = a;
         else o.positional.push(a);
@@ -451,6 +454,8 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--limit', 'limit'],                // transcript --action read: at most this many events, validated in the verb (093 IC-022) · followup --action list: the page size (137 IC-004)
   ['--view', 'view'],                  // followup --action list, lifecycle --action overview, classify: brief or full, validated in the verb (137 IC-001)
   ['--window', 'window'],              // transcript --action stats: minutes, 1 to 60, validated in the verb (093 IC-023)
+  ['--channels', 'channels'],          // events --follow: comma-separated channels, at most 64, validated in the verb (149 IC-001, IC-003)
+  ['--control', 'control'],            // events --follow: stdin, the only control source, validated in the verb (149 IC-001, IC-005)
   ['--port', 'port'],                  // ui: the Console's port, 0 to 65535, checked in commands/ui.ts (092 IC-008)
 ]);
 
@@ -619,6 +624,9 @@ Commands:
   transcript           Read an agent's recent events, or the project's traffic (read-only, run in a project).
                        transcript --action read --agent <key> [--cursor <c>] [--limit <n>] [--json]   masked events and DoFlow's record events (exit 0, 1 agent-not-in-project or session-not-in-project, 2 usage)
                        transcript --action stats [--window <minutes 1..60>] [--json]   events per minute, tool calls, tokens, who works with whom (exit 0, 2 usage)
+  events               Follow live sections of the read verbs as NDJSON envelopes on stdout (read-only, run in a project).
+                       events --follow --channels <channel>[,<channel>...] [--json]   now, run:<slug>:<task>, tasks:<slug>, worker:<runId>; until SIGINT or SIGTERM (exit 0, 1 internal fault, 2 usage)
+                       events --follow --control stdin [--json]   follows the channels that sub and unsub lines on stdin name, until stdin ends (exit 0, 1 internal fault, 2 usage or an invalid line)
   worktree             Remove a merged feature's worktree and branch, never by force (--action cleanup).
                        worktree --action cleanup --slug <row slug> [--json]   copies agent-docs/doflow/<slug> back to the main checkout first (exit 0 cleaned, 1 kept or lease-held with the reason, 2 usage)
   attendance           Say whether a person is watching a stage (read-only).

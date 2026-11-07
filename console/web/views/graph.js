@@ -1,11 +1,13 @@
 // The task graph view (E.3; design.md section 7 V4): an SVG-edged board of task cards in lanes by owner and columns by
-// dependency layer from 768 px, a lane list below it, and a side panel with the selected task's attempts. Elements are
+// dependency layer from 768 px, a lane list below it, and a panel with the selected task's attempts, shown in the shell's
+// inspector (149 D.2). Elements are
 // built with `h`, `icon` and `mount` only; every string from the API reaches the page as text, and the only style the
 // code writes is `setProperty('--g-...')` (IC-007). What must survive the body re-mount of a poll (the selected task,
 // the card that holds the tab stop, which control opened it) lives in `local.graph`.
 
 import { isKey } from '../keys.js';
 import { h, icon, mount, SVG_NS } from '../dom.js';
+import { showPanel, hidePanel } from '../shell.js';
 import { sinceStamp, formatDuration } from '../derive/rail.js';
 import { withReplay } from './replay.js';
 import {
@@ -101,6 +103,15 @@ function renderGraph(data, params, local) {
   return withReplay(data, local, (view) => renderGraphBody(view, params, local), { place: 'above', enabled: Boolean(data.tasks && data.tasks.graph) });
 }
 
+/** The task the route names, or null. @param {any} route */
+const routeTask = (route) => (route && typeof route.task === 'string' ? route.task : null);
+
+/** The route's selection changed without a re-mount (IC-019): the board opens the task it names. @param {any} local */
+function rerouteGraph(local) {
+  if (typeof local.reselect === 'function') local.reselect();
+  else if (local.graph) local.graph.selected = routeTask(local.route);
+}
+
 /**
  * The task graph body: summary, board, lane list and panel.
  * @param {any} data `{ run, timeline, tasks, workflow, tasksReason? }`
@@ -109,16 +120,23 @@ function renderGraph(data, params, local) {
  */
 function renderGraphBody(data, params, local) {
   const nowMs = Date.now();
-  const memory = local.graph ?? (local.graph = { selected: null, focus: null, trigger: 'card' });
+  // The selected task starts as the route names it (IC-019); later it changes with a selection or a reroute.
+  const memory = local.graph ?? (local.graph = { selected: routeTask(local.route), focus: null, trigger: 'card' });
   const body = data.tasks === undefined ? null : data.tasks;
+  // Without a board there is no panel: the inspector lets go of it, the selection waits for the board to come back.
+  const empty = (/** @type {string} */ title, /** @type {string} */ sentence) => {
+    local.reselect = null;
+    hidePanel(local.inspector, local);
+    return emptyGraph(params, title, sentence);
+  };
   if (body === null) {
     return data.tasksReason === 'legacy-plan'
-      ? emptyGraph(params, 'No task graph', 'This run’s plan is in an older format, so its task graph cannot be shown.')
-      : emptyGraph(params, 'No task graph', 'This run has no task plan, so there is no task graph to show.');
+      ? empty('No task graph', 'This run’s plan is in an older format, so its task graph cannot be shown.')
+      : empty('No task graph', 'This run has no task plan, so there is no task graph to show.');
   }
   const tasks = mergeTasks(body);
-  if (tasks === null) return emptyGraph(params, 'No task graph', 'The task plan could not be read just now. This view tries again on every update.');
-  if (tasks.length === 0) return emptyGraph(params, 'No tasks', 'The plan lists no tasks, so there is nothing to draw.');
+  if (tasks === null) return empty('No task graph', 'The task plan could not be read just now. This view tries again on every update.');
+  if (tasks.length === 0) return empty('No tasks', 'The plan lists no tasks, so there is nothing to draw.');
 
   const layout = layoutGraph(tasks, attemptsByTask(tasks));
   const placed = placeBoard(layout);
@@ -183,10 +201,9 @@ function renderGraphBody(data, params, local) {
     board.append(el);
   });
 
-  // ---- the panel beside the board, and the lane list (below 768 px) ----
+  // ---- the panel, shown in the shell's inspector (D.2), and the lane list (below 768 px) ----
   const panel = h('aside', { class: 'graph__panel', id: 'graph-panel', 'aria-labelledby': 'graph-panel-title', hidden: true });
   const rowEls = new Map();
-  const rowSlots = new Map();
   const lanesList = h('div', { class: 'graph__lanes' }, layout.lanes.map((lane) => {
     const cards = layout.cards.filter((card) => card.lane === lane.index).sort((a, b) => a.layer - b.layer || a.order - b.order);
     return h('section', { class: 'glane', 'aria-labelledby': `glane-${lane.index}` }, [
@@ -194,7 +211,7 @@ function renderGraphBody(data, params, local) {
       h('ol', { class: 'glane__list' }, cards.map((card) => {
         const task = taskOf.get(card.id);
         const face = stateFace(task.state);
-        const button = h('button', { type: 'button', class: 'grow__btn', 'aria-expanded': 'false', dataset: { row: card.id, focusKey: `row:${card.id}` } }, [
+        const button = h('button', { type: 'button', class: 'grow__btn', 'aria-expanded': 'false', 'aria-controls': 'graph-panel', dataset: { row: card.id, focusKey: `row:${card.id}` } }, [
           h('span', { class: 'grow__top' }, [
             h('span', { class: 'mono grow__id' }, card.id),
             h('span', { class: 'badge', dataset: { state: face.token } }, [icon(face.face, 12), face.word]),
@@ -203,10 +220,8 @@ function renderGraphBody(data, params, local) {
           h('span', { class: 'grow__line' }, `${card.deps.length === 0 ? 'Waits for nothing' : `Waits for ${card.deps.join(', ')}`} · ${budgetWords(task)}`),
         ]);
         button.addEventListener('click', () => { memory.trigger = 'row'; select(memory.selected === card.id ? null : card.id); });
-        const slot = h('div', { class: 'grow__panel', hidden: true });
         rowEls.set(card.id, button);
-        rowSlots.set(card.id, slot);
-        return h('li', { class: 'grow' }, [button, slot]);
+        return h('li', { class: 'grow' }, button);
       })),
     ]);
   }));
@@ -220,7 +235,7 @@ function renderGraphBody(data, params, local) {
   ]);
   const root = h('section', { class: 'graph', 'aria-label': 'Task graph', dataset: { open: 'false' } }, [
     top,
-    h('div', { class: 'graph__layout' }, [h('div', { class: 'graph__main' }, [h('div', { class: 'graph__scroll' }, board), lanesList]), panel]),
+    h('div', { class: 'graph__layout' }, [h('div', { class: 'graph__main' }, [h('div', { class: 'graph__scroll' }, board), lanesList])]),
   ]);
 
   /** The board panel's content: the title, the close control and the details. @param {string} id */
@@ -252,18 +267,23 @@ function renderGraphBody(data, params, local) {
     if (id === null) {
       panel.setAttribute('hidden', '');
       mount(panel, []);
+      hidePanel(local.inspector, local);
     } else {
       panel.removeAttribute('hidden');
       mount(panel, panelContent(id));
-    }
-    for (const [key, slot] of rowSlots) {
-      if (key === id) {
-        slot.removeAttribute('hidden');
-        mount(slot, detailBody(taskOf.get(key), layout.cards[/** @type {number} */ (at.get(key))], nowMs));
-      } else {
-        slot.setAttribute('hidden', '');
-        mount(slot, []);
-      }
+      showPanel(local.inspector, local, {
+        title: 'Task details',
+        body: panel,
+        owner: (memory.trigger === 'row' ? rowEls : cardEls).get(id),
+        // The inspector's own close, Escape or scrim: the focus goes back to the control that opened the task.
+        onClose: () => {
+          const trigger = (memory.trigger === 'row' ? rowEls : cardEls).get(id);
+          memory.selected = null;
+          apply();
+          if (trigger) trigger.focus({ preventScroll: true });
+          if (typeof local.link === 'function') local.link(null);
+        },
+      });
     }
   };
 
@@ -276,7 +296,16 @@ function renderGraphBody(data, params, local) {
       const target = (memory.trigger === 'row' ? rowEls : cardEls).get(previous);
       if (target) target.focus({ preventScroll: true });
     }
+    // The selection becomes the address (IC-019).
+    if (typeof local.link === 'function') local.link(id === null ? null : { task: id });
   }
+
+  // A reroute (IC-019) opens the task its route names, or closes the panel, on this mounted board.
+  local.reselect = () => {
+    const id = routeTask(local.route);
+    memory.selected = id !== null && at.has(id) ? id : null;
+    apply();
+  };
 
   board.addEventListener('keydown', (/** @type {any} */ event) => {
     const owner = event.target && typeof event.target.closest === 'function' ? event.target.closest('[data-card]') : null;
@@ -295,7 +324,7 @@ function renderGraphBody(data, params, local) {
     event.preventDefault();
     // The focus goes back to the opener only when it was inside the panel; on a card or a row it stays where it is.
     const target = event.target;
-    const inPanel = Boolean(target) && (panel.contains(target) || (typeof target.closest === 'function' && target.closest('.grow__panel') !== null));
+    const inPanel = Boolean(target) && panel.contains(target);
     select(null, inPanel);
   });
 
@@ -303,4 +332,4 @@ function renderGraphBody(data, params, local) {
   return root;
 }
 
-export { renderGraph };
+export { renderGraph, rerouteGraph };

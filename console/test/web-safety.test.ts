@@ -519,7 +519,7 @@ test('layout CD-B9: phone header keeps pause and theme reachable alongside navig
   assert.equal(effective(rules, '.nav ul', 'flex-wrap', 359), 'wrap', 'the list may wrap as a fallback below 360');
   assert.equal(effective(rules, '.nav ul', 'flex-wrap', 768), 'nowrap');
   const html = fs.readFileSync(path.join(WEB_ROOT, 'index.html'), 'utf8');
-  assert.deepEqual([...html.matchAll(/class="nav__link" href="([^"]+)">([^<]+)</g)].map((m) => m[2]), ['Runs', 'Workflows', 'Sessions', 'Fleet']);
+  assert.deepEqual([...html.matchAll(/class="nav__link navrail__link" href="([^"]+)"><span class="navrail__label">([^<]+)</g)].map((m) => m[2]), ['Now', 'Sessions', 'Workflows', 'Fleet']);
   assert.ok(!/<button[^>]*menu/i.test(html), 'no menu button');
 });
 
@@ -550,9 +550,14 @@ test('layout V.10: the project row, the Fleet grid and the sheet follow the band
   assert.equal(effective(rules, '.project-row', 'min-height', 1280), '64px');
   assert.equal(effective(rules, '.fleet-grid', 'grid-template-columns', 360), 'minmax(0, 1fr)');
   assert.equal(effective(rules, '.fleet-grid', 'grid-template-columns', 1280), 'repeat(12, minmax(0, 1fr))');
-  assert.equal(effective(rules, '.fleet-tree', 'grid-column', 1280), '1 / span 5');
-  assert.equal(effective(rules, '.fpanel', 'grid-column', 1280), '6 / span 7');
-  assert.equal(effective(rules, '.fleet-tree', 'grid-column', 1920), '1 / span 3');
-  assert.equal(effective(rules, '.fpanel', 'grid-column', 1920), '4 / span 6');
+  // 149 D.2: the transcript panel is in the shell's inspector, so the grid holds the tree, the traffic and "Working together".
+  assert.equal(effective(rules, '.fleet-tree', 'grid-column', 1280), '1 / span 7');
+  assert.equal(effective(rules, '.together', 'grid-column', 1280), '8 / span 5');
+  assert.equal(effective(rules, '.fleet-tree', 'grid-column', 1920), '1 / span 8');
+  assert.equal(effective(rules, '.together', 'grid-column', 1920), '9 / span 4');
+  for (const width of [360, 768, 1280, 1920]) {
+    assert.equal(effective(rules, '.fpanel', 'grid-column', width), undefined, `${width}: the panel has no place in the Fleet grid`);
+    assert.equal(effective(rules, '.fpanel', 'position', width), undefined, `${width}: the panel is not a sheet of its own`);
+  }
   assert.equal(effective(rules, '.traffic__switch', 'display', 1920), 'none');
 });

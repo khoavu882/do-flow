@@ -212,7 +212,10 @@ const skel = (cls = '') => h('div', { class: `skel ${cls}`.trim(), 'aria-hidden'
  * @param {any} options
  */
 function renderLoading({ noun, skeleton, showSkeleton }) {
-  return [h('p', { class: 'vh' }, `Loading ${noun}`), showSkeleton ? skeleton() : null];
+  const shown = showSkeleton ? skeleton() : null;
+  // A skeleton is the view's one loop only while it shows (IC-022): its blocks breathe under [data-loop="on"].
+  if (shown && typeof shown.setAttribute === 'function') shown.setAttribute('data-loop', 'on');
+  return [h('p', { class: 'vh' }, `Loading ${noun}`), shown];
 }
 
 /**

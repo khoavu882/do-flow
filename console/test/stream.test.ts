@@ -16,7 +16,7 @@ const fs = require('node:fs');
 const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
-const { createStreams, parseLastEventId, FLEET_MS, TRANSCRIPT_MS, KEEPALIVE_MS, MAX_STREAMS_PER_SESSION } = require('../src/stream.ts');
+const { createStreams, createStreamCap, parseLastEventId, FLEET_MS, TRANSCRIPT_MS, KEEPALIVE_MS, MAX_STREAMS_PER_SESSION } = require('../src/stream.ts');
 const { createServer } = require('../src/server.ts');
 const { consoleRoutes } = require('../src/routes.ts');
 const { createSessions, cookieName } = require('../src/session.ts');
@@ -285,20 +285,80 @@ test('Last-Event-ID: <revision>.<cursor> resumes the cursor and keeps the revisi
   }
 });
 
-test('limit: at most two streams per session, a release frees a slot, sessions are independent', () => {
+/** DEC-004: the cap is four, and a cap built from the value gives a session exactly four slots. */
+function assertCapOfFour(value: number) {
+  assert.equal(value, 4, 'MAX_STREAMS_PER_SESSION is 4');
+  const cap = createStreamCap(value);
+  const session = {};
+  for (let slot = 1; slot <= 4; slot += 1) assert.ok(cap.acquire(session), `slot ${slot} opens`);
+  assert.equal(cap.acquire(session), null, 'the fifth slot is refused');
+}
+
+test('limit: at most four streams per session, a release frees a slot, sessions are independent', () => {
+  assertCapOfFour(MAX_STREAMS_PER_SESSION);
+  for (const wrong of [3, 5]) assert.throws(() => assertCapOfFour(wrong), assert.AssertionError, `control: a cap of ${wrong} fails the check`);
   const streams = createStreams(fakeViews([good(fleetBody([]))]));
   const session = {};
   const first = streams.acquire(session);
-  const second = streams.acquire(session);
-  assert.ok(first && second);
-  assert.equal(MAX_STREAMS_PER_SESSION, 2);
+  const others = [streams.acquire(session), streams.acquire(session), streams.acquire(session)];
+  assert.ok(first && others.every(Boolean));
   assert.equal(streams.acquire(session), null);
   assert.ok(streams.acquire({}), 'another session is not limited by this one');
   first!();
   first!();
-  assert.equal(streams.openStreams(), 2, 'a release counts once');
+  assert.equal(streams.openStreams(), 4, 'a release counts once');
   assert.ok(streams.acquire(session));
   assert.equal(streams.acquire(session), null);
+});
+
+test('createStreamCap: counts per session up to max, the next is null', () => {
+  const cap = createStreamCap(2);
+  const session = {};
+  assert.equal(typeof cap.acquire(session), 'function');
+  assert.equal(typeof cap.acquire(session), 'function');
+  assert.equal(cap.acquire(session), null);
+  assert.equal(cap.acquire(session), null, 'a refusal takes no slot');
+  assert.equal(cap.open(), 2);
+});
+
+test('createStreamCap: sessions count independently', () => {
+  const cap = createStreamCap(1);
+  const one = {};
+  const two = {};
+  const held = cap.acquire(one);
+  assert.ok(held);
+  assert.equal(cap.acquire(one), null);
+  assert.ok(cap.acquire(two), 'a full session does not limit another');
+  assert.equal(cap.acquire(two), null);
+  held!();
+  assert.ok(cap.acquire(one), 'a release frees only its own session\'s slot');
+  assert.equal(cap.acquire(two), null);
+});
+
+test('createStreamCap: a release is idempotent, calling it twice frees one slot', () => {
+  const cap = createStreamCap(2);
+  const session = {};
+  const first = cap.acquire(session)!;
+  cap.acquire(session);
+  first();
+  first();
+  assert.equal(cap.open(), 1);
+  assert.ok(cap.acquire(session));
+  assert.equal(cap.acquire(session), null, 'the double release did not free a second slot');
+});
+
+test('createStreamCap: open() is the total of open slots over all sessions', () => {
+  const cap = createStreamCap(4);
+  assert.equal(cap.open(), 0);
+  const a = {};
+  const b = {};
+  const releases = [cap.acquire(a)!, cap.acquire(a)!, cap.acquire(a)!, cap.acquire(b)!];
+  cap.acquire(a);
+  assert.equal(cap.open(), 5);
+  cap.acquire(a);
+  assert.equal(cap.open(), 5, 'a refused acquire is not counted');
+  for (const release of releases) release();
+  assert.equal(cap.open(), 1);
 });
 
 test('a failed tick sends event: error {code, verb, exit} and keeps the stream open; a success resets the count', async () => {
@@ -582,19 +642,20 @@ test('GET /api/stream: headers, retry, then the snapshot (the /api/fleet body), 
   assert.ok(!stream.text().includes(MARKER));
 });
 
-test('GET /api/stream: a third stream of one session is 429 stream-limit JSON before any stream header; a closed one frees a slot', async (t) => {
+test('GET /api/stream: a fifth stream of one session is 429 stream-limit JSON before any stream header; a closed one frees a slot', async (t) => {
   const runner = scripted();
   const { app, cookie } = await harness(runner, t);
   const first = await openStream(app, `/api/stream?project=${keyOf(1)}&agent=${AGENT}`, cookie);
-  const second = await openStream(app, `/api/stream?project=${keyOf(1)}`, cookie);
-  t.after(() => { first.destroy(); second.destroy(); });
-  assert.deepEqual([first.status, second.status], [200, 200]);
-  const third = await get(app, `/api/stream?project=${keyOf(1)}`, cookie);
-  assert.equal(third.status, 429);
-  assert.deepEqual(JSON.parse(third.body), errorBody('stream-limit'));
-  assert.match(String(third.headers['content-type']), /^application\/json/);
-  assert.equal(third.headers['cache-control'], 'no-store');
-  assert.ok(!String(third.headers['content-type']).includes('event-stream'));
+  const others: Array<Awaited<ReturnType<typeof openStream>>> = [];
+  for (let n = 0; n < 3; n += 1) others.push(await openStream(app, `/api/stream?project=${keyOf(1)}`, cookie));
+  t.after(() => { first.destroy(); for (const stream of others) stream.destroy(); });
+  assert.deepEqual([first.status, ...others.map((stream) => stream.status)], [200, 200, 200, 200]);
+  const fifth = await get(app, `/api/stream?project=${keyOf(1)}`, cookie);
+  assert.equal(fifth.status, 429);
+  assert.deepEqual(JSON.parse(fifth.body), errorBody('stream-limit'));
+  assert.match(String(fifth.headers['content-type']), /^application\/json/);
+  assert.equal(fifth.headers['cache-control'], 'no-store');
+  assert.ok(!String(fifth.headers['content-type']).includes('event-stream'));
   first.destroy();
   await first.closed;
   let again: any = null;
@@ -660,19 +721,66 @@ test('GET /api/stream: a client disconnect stops the ticks (no verb runs afterwa
   assert.equal(runner.calls.length, calls, 'no verb runs after the client left');
 });
 
-test('route table: the only non-GET route is /api/session, the only stream route is /api/stream, both behind the session check', async (t) => {
+test('route table: the only non-GET route is /api/session, the stream routes are exactly /api/stream and /api/live, all behind the session check', async (t) => {
   const sessions = createSessions();
   const routes = consoleRoutes(scripted(), sessions);
   assert.deepEqual(routes.filter((route: any) => route.method !== 'GET').map((route: any) => route.path), ['/api/session']);
-  assert.deepEqual(routes.filter((route: any) => route.stream).map((route: any) => route.path), ['/api/stream']);
+  assert.deepEqual(routes.filter((route: any) => route.stream).map((route: any) => route.path), ['/api/stream', '/api/live']);
   assert.ok(routes.every((route: any) => route.stream === undefined || route.stream === true));
   const app = await createServer({ webRoot, routes });
   t.after(() => app.close());
-  for (const target of ['/api/stream?project=' + PROJECT, '/api/fleet', `/api/transcript?project=${PROJECT}&agent=${AGENT}`]) {
+  for (const target of ['/api/stream?project=' + PROJECT, '/api/live?ch=now', '/api/fleet', `/api/transcript?project=${PROJECT}&agent=${AGENT}`]) {
     const reply = await get(app, target, null);
     assert.equal(reply.status, 401, target);
     assert.deepEqual(JSON.parse(reply.body), errorBody('unauthenticated'), target);
   }
+});
+
+/** A live hub that serves nothing and counts subscribes: enough for /api/live to hold a slot open. */
+function quietHub() {
+  const hub = {
+    subscribes: 0,
+    epoch: '0a1b2c3d',
+    unsupported: false,
+    subscribe: () => { hub.subscribes += 1; return () => {}; },
+    current: () => ({ n: 0, state: null, error: null, gone: false }),
+    onUnsupported: () => {},
+  };
+  return hub;
+}
+
+test('one cap across both stream routes: a fifth stream mixing /api/stream and /api/live is 429 stream-limit JSON before any stream header; a freed slot opens', async (t) => {
+  const sessions = createSessions();
+  const hub = quietHub();
+  const app = await createServer({ webRoot, routes: consoleRoutes(scripted(), sessions, hub) });
+  t.after(() => app.close());
+  const cookie = `${cookieName(app.port)}=${sessions.exchange(sessions.mintLaunchCode())}`;
+  const first = await openStream(app, '/api/live?ch=now', cookie);
+  const others = [
+    await openStream(app, `/api/stream?project=${keyOf(1)}`, cookie),
+    await openStream(app, '/api/live?ch=now', cookie),
+    await openStream(app, `/api/stream?project=${keyOf(1)}`, cookie),
+  ];
+  t.after(() => { first.destroy(); for (const stream of others) stream.destroy(); });
+  assert.deepEqual([first.status, ...others.map((stream) => stream.status)], [200, 200, 200, 200]);
+  for (const target of ['/api/live?ch=now', `/api/stream?project=${keyOf(1)}`]) {
+    const fifth = await get(app, target, cookie);
+    assert.equal(fifth.status, 429, target);
+    assert.deepEqual(JSON.parse(fifth.body), errorBody('stream-limit'), target);
+    assert.match(String(fifth.headers['content-type']), /^application\/json/, target);
+    assert.equal(fifth.headers['cache-control'], 'no-store', target);
+  }
+  assert.equal(hub.subscribes, 2, 'a refused /api/live subscribes nothing');
+  first.destroy();
+  await first.closed;
+  let again: any = null;
+  for (let attempt = 0; attempt < 50 && again === null; attempt += 1) {
+    const stream = await openStream(app, `/api/stream?project=${keyOf(1)}`, cookie);
+    if (stream.status === 200) again = stream;
+    else await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.ok(again && again.status === 200, 'the slot of a closed /api/live connection opens an /api/stream');
+  again.destroy();
 });
 
 test('GET /api/fleet: per-project sections from tree and traffic, the root dropped, window 10 min, at most 12 projects with the rest counted', async (t) => {

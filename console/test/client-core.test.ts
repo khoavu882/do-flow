@@ -41,6 +41,7 @@ before(async () => {
     derive: await import(url('derive/rail.js')),
     home: await import(url('views/home.js')),
     railView: await import(url('views/rail.js')),
+    shell: await import(url('shell.js')),
   };
 });
 after(() => { fs.rmSync(copy, { recursive: true, force: true }); });
@@ -181,7 +182,7 @@ function tags(node: any): string[] {
   return node.children.flatMap((c: any) => (c instanceof El ? [c.tagName.toLowerCase(), ...tags(c)] : []));
 }
 
-const GLOBALS = ['document', 'location', 'history', 'localStorage', 'fetch', 'navigator', 'scrollTo', 'requestAnimationFrame', 'addEventListener', 'getSelection', 'Node', 'EventSource'];
+const GLOBALS = ['document', 'location', 'history', 'localStorage', 'fetch', 'navigator', 'scrollTo', 'requestAnimationFrame', 'addEventListener', 'getSelection', 'Node', 'EventSource', 'matchMedia'];
 let saved: Map<string, PropertyDescriptor | undefined> | null = null;
 
 function setGlobal(name: string, value: unknown) {
@@ -199,11 +200,11 @@ const RUNS = { v: 1, runs: [row('AWAITING_GATE', 'r1'), row('RUNNING', 'r2'), ro
 type Call = { url: string, method: string, body: any, theme: string | undefined, hash: string };
 type Page = {
   doc: any, win: any, calls: Call[], store: Map<string, string>, history: string[], scrolls: Array<[number, number]>, location: any,
-  region: El, main: El, conn: El, slot: El, nav: El[], radios: El[], skip: El, pause: El,
+  region: El, main: El, conn: El, slot: El, nav: El[], radios: El[], skip: El, pause: El, shell: El, inspector: El, media: any,
 };
 
 /** The page of index.html as the shell finds it, a fake window around it, and a scripted fetch. */
-function installPage(opts: { hash?: string, stored?: string | null, throwStorage?: boolean, eventSource?: unknown, fetch: (url: string, init: any) => Reply | Promise<Reply> | 'network' }): Page {
+function installPage(opts: { hash?: string, stored?: string | null, throwStorage?: boolean, eventSource?: unknown, width?: number, fetch: (url: string, init: any) => Reply | Promise<Reply> | 'network' }): Page {
   saved = new Map(GLOBALS.map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
   const doc: any = { activeElement: null, focusLog: [], hidden: false, title: '', listeners: new Map<string, Function[]>() };
   const el = (tag: string, attrs: Record<string, string> = {}, children: any[] = []) => {
@@ -214,21 +215,29 @@ function installPage(opts: { hash?: string, stored?: string | null, throwStorage
   };
   const html = el('html', { class: 'booting' });
   const body = el('body');
-  const link = (href: string, text: string) => el('a', { class: 'nav__link', href }, [text]);
+  const link = (href: string, text: string) => el('a', { class: 'nav__link navrail__link', href }, [el('span', { class: 'navrail__label' }, [text])]);
   const radio = (choice: string) => el('button', { type: 'button', role: 'radio', class: 'theme__opt', 'aria-checked': 'false', tabindex: '-1', 'data-theme-choice': choice }, [el('span', { class: 'theme__label' }, [choice])]);
   const skip = el('a', { class: 'skip', href: '#main' }, ['Skip to content']);
-  const nav = [link('#/', 'Runs'), link('#/workflows', 'Workflows'), link('#/sessions', 'Sessions'), link('#/fleet', 'Fleet')]; // E.7 and V.10: the fake page mirrors index.html's links
+  const nav = [link('#/', 'Now'), link('#/sessions', 'Sessions'), link('#/workflows', 'Workflows'), link('#/fleet', 'Fleet')]; // 149 D.1: the fake page mirrors index.html's rail
   const radios = ['light', 'dark', 'system'].map(radio);
   const conn = el('p', { class: 'conn', id: 'conn', 'data-state': 'unknown' }, [el('span', { class: 'conn__long' }, ['Connecting']), el('span', { class: 'conn__short' }, ['Connecting'])]);
   const pause = el('button', { type: 'button', class: 'btn btn--ghost pause', id: 'pause', 'aria-pressed': 'false', hidden: '' }, [el('span', { class: 'pause__label' }, ['Pause updates'])]);
   const region = el('div', { class: 'vh', id: 'announcer' });
   const main = el('main', { id: 'main', class: 'page', tabindex: '-1' });
   const slot = el('div', { id: 'banner-slot' });
+  const inspector = el('aside', { id: 'inspector', class: 'inspector', 'aria-label': 'Details', hidden: '' }, [
+    el('div', { class: 'inspector__head' }, [el('h2', { class: 'inspector__title', id: 'inspector-title' }, ['Details']),
+      el('button', { type: 'button', class: 'btn btn--ghost inspector__close' }, [el('span', { class: 'vh' }, ['Close details'])])]),
+    el('p', { class: 'inspector__empty' }, ['Select an item to see its details here.']),
+    el('div', { class: 'inspector__body' }),
+  ]);
+  const shell = el('div', { class: 'shell', id: 'shell', 'data-inspectable': 'false' }, [
+    el('nav', { class: 'nav navrail', 'aria-label': 'Primary' }, [el('ul', {}, nav.map((a) => el('li', {}, [a])))]), main, inspector]);
   body.append(skip,
     el('header', { class: 'site-header' }, [el('a', { class: 'brand', href: '#/' }, [el('span', { class: 'brand__name' }, ['DoFlow'])]),
-      el('nav', {}, [el('ul', {}, nav.map((a) => el('li', {}, [a])))]), conn, pause, el('p', { id: 'core-version' }),
+      conn, pause, el('p', { id: 'core-version' }),
       el('div', { class: 'theme' }, radios)]),
-    slot, main, region);
+    slot, shell, region);
   html.append(body);
   Object.assign(doc, {
     documentElement: html, body, activeElement: body,
@@ -249,7 +258,7 @@ function installPage(opts: { hash?: string, stored?: string | null, throwStorage
   const history: string[] = [];
   const calls: Call[] = [];
   const scrolls: Array<[number, number]> = [];
-  const page: any = { doc, calls, store, history, scrolls, location, region, main, conn, slot, nav, radios, skip, pause, reloads: 0 };
+  const page: any = { doc, calls, store, history, scrolls, location, region, main, conn, slot, nav, radios, skip, pause, shell, inspector, reloads: 0 };
   page.win = { dispatch: (type: string) => { for (const fn of winListeners.get(type) ?? []) fn({ type }); } };
 
   setGlobal('document', doc);
@@ -261,6 +270,17 @@ function installPage(opts: { hash?: string, stored?: string | null, throwStorage
   });
   setGlobal('navigator', { platform: 'Linux', clipboard: undefined });
   if ('eventSource' in opts) setGlobal('EventSource', opts.eventSource); // V.10: a fake stream, or none
+  if (opts.width !== undefined) {
+    // 149 D.1: a viewport width the shell reads through matchMedia; page.media.resize(w) fires each list's change.
+    const lists: any[] = [];
+    const min = (query: string) => Number(/min-width:\s*(\d+)px/.exec(query)?.[1] ?? 0);
+    page.media = { width: opts.width, resize(w: number) { page.media.width = w; for (const l of lists) for (const fn of l.fns) fn({ matches: l.matches }); } };
+    setGlobal('matchMedia', (query: string) => {
+      const list = { fns: [] as Function[], get matches() { return page.media.width >= min(query); }, addEventListener(_t: string, fn: Function) { list.fns.push(fn); } };
+      lists.push(list);
+      return list;
+    });
+  }
   setGlobal('scrollTo', (x: number, y: number) => scrolls.push([x, y]));
   setGlobal('requestAnimationFrame', (fn: () => void) => globalThis.setTimeout(fn, 0));
   setGlobal('addEventListener', (type: string, fn: Function) => winListeners.set(type, [...(winListeners.get(type) ?? []), fn]));
@@ -630,10 +650,23 @@ test('index.html provides the elements the shell needs', () => {
   const html = fs.readFileSync(path.join(WEB_ROOT, 'index.html'), 'utf8');
   for (const id of ['main', 'conn', 'core-version', 'banner-slot', 'announcer', 'pause']) assert.match(html, new RegExp(`id="${id}"`));
   assert.match(html, /aria-live="polite"/);
-  assert.deepEqual([...html.matchAll(/class="nav__link" href="([^"]+)"/g)].map((m) => m[1]), ['#/', '#/workflows', '#/sessions', '#/fleet']); // E.7 adds the Sessions link, V.10 the Fleet link
+  assert.deepEqual([...html.matchAll(/class="nav__link navrail__link" href="([^"]+)"><span class="navrail__label">([^<]+)</g)].map((m) => [m[1], m[2]]),
+    [['#/', 'Now'], ['#/sessions', 'Sessions'], ['#/workflows', 'Workflows'], ['#/fleet', 'Fleet']]); // 149 D.1 (IC-020, DEC-035): the rail reads Now
   assert.deepEqual([...html.matchAll(/data-theme-choice="([^"]+)"/g)].map((m) => m[1]), ['light', 'dark', 'system']);
   assert.match(html, /<html lang="en" class="booting">/);
   assert.match(html, /<main id="main" class="page" tabindex="-1">/);
+  // 149 D.1: the header keeps its controls, and after the banner slot the shell holds the rail, #main and the inspector, in that order.
+  const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'));
+  for (const id of ['conn', 'pause', 'core-version']) assert.match(header, new RegExp(`id="${id}"`));
+  assert.match(header, /class="brand"/);
+  assert.match(header, /class="theme" role="radiogroup"/);
+  assert.doesNotMatch(header, /<nav\b/, 'the navigation left the header for the rail');
+  const order = ['id="banner-slot"', '<div class="shell" id="shell" data-inspectable=', '<nav class="nav navrail" aria-label="Primary">', '<main id="main"',
+    '<aside id="inspector" class="inspector" aria-label="Details" hidden>', 'class="inspector__title"', 'class="btn btn--ghost inspector__close"', 'class="inspector__body"'];
+  const at = order.map((piece) => html.indexOf(piece));
+  assert.ok(at.every((index) => index > -1), `every shell piece is present: ${JSON.stringify(at)}`);
+  assert.deepEqual([...at].sort((a, b) => a - b), at, 'in document order');
+  assert.equal([...html.matchAll(/aria-label="Primary"/g)].length, 1, 'one primary navigation');
 });
 
 // ---- app.js: boot --------------------------------------------------------------------------------
@@ -655,7 +688,7 @@ test('boot: the stored theme is applied before anything is fetched, and the frag
   assert.equal(text(heading(page)), 'Runs');
   assert.equal(page.doc.activeElement, page.doc.body, 'first load does not move focus');
   assert.equal(page.doc.focusLog.length, 0);
-  assert.deepEqual(current(page), ['Runs']);
+  assert.deepEqual(current(page), ['Now']);
   assert.equal(text(page.doc.getElementById('core-version')), 'core 2.0.0-beta.7');
   assert.deepEqual(page.radios.map((r) => r.getAttribute('aria-checked')), ['false', 'true', 'false']);
   assert.deepEqual(page.radios.map((r) => r.getAttribute('tabindex')), ['-1', '0', '-1']);
@@ -717,7 +750,7 @@ test('router: a route change sets the title and the current link, and moves focu
   assert.equal(text(heading(page)), 'feat-a / run-1', 'the head is drawn synchronously');
   assert.equal(page.doc.activeElement, heading(page));
   assert.equal(page.doc.title, 'feat-a / run-1 \u00b7 DoFlow Console');
-  assert.deepEqual(current(page), ['Runs']);
+  assert.deepEqual(current(page), ['Now']);
   assert.deepEqual(page.scrolls.at(-1), [0, 0]);
   await settle();
   assert.equal(page.doc.activeElement, heading(page), 'a poll update does not move focus');
@@ -774,6 +807,184 @@ test('router: the skip link moves focus to the heading without changing the rout
 });
 
 // ---- app.js: the global states ---------------------------------------------------------------------
+
+// ---- 149 D.1: the shell's bands and the inspector API (IC-020, DEC-036) -----------------------------
+
+test('shell: data-inspectable per view, the rail icons, and the docked column with its empty note at 1280 px and wider', async () => {
+  assert.deepEqual(Object.fromEntries(Object.entries(mods.views.VIEWS).map(([id, view]: [string, any]) => [id, view.inspectable])),
+    { runs: false, run: true, tasks: true, sessions: true, workflows: false, fleet: false, 'fleet-project': true, 'not-found': false });
+  const page = await start({ hash: '', width: 1440, fetch: standard });
+  assert.deepEqual(page.nav.map((a) => a.querySelector('.icon') && a.querySelector('.icon').getAttribute('class')),
+    ['icon icon--16 icon--rail-now', 'icon icon--16 icon--rail-sessions', 'icon icon--16 icon--rail-workflows', 'icon icon--16 icon--rail-fleet']);
+  assert.equal(page.shell.dataset.inspectable, 'false');
+  assert.equal(page.inspector.dataset.mode, 'dock');
+  assert.equal(page.inspector.getAttribute('hidden'), '', 'no docked column on Runs');
+  for (const [hash, inspectable] of [['#/run/feat-a/run-1', 'true'], ['#/workflows', 'false'], ['#/sessions', 'true'], ['#/run/feat-a/run-1/tasks', 'true'], ['#/x', 'false']]) {
+    page.location.hash = hash;
+    page.win.dispatch('hashchange');
+    await settle();
+    assert.equal(page.shell.dataset.inspectable, inspectable, hash);
+    assert.equal(page.inspector.getAttribute('hidden') === null, inspectable === 'true', `${hash}: the docked column is present exactly on inspectable views`);
+    if (inspectable === 'true') {
+      assert.equal(page.inspector.querySelector('.inspector__empty').getAttribute('hidden'), null, `${hash}: the empty note while nothing is open`);
+      assert.equal(page.inspector.getAttribute('role'), null, 'docked, it is a complementary landmark, not a dialog');
+    }
+  }
+  page.location.hash = '#/run/feat-a/run-1/tasks';
+  page.win.dispatch('hashchange');
+  await settle();
+  assert.deepEqual(current(page), ['Now'], 'Tasks marks Now');
+  assert.equal(page.doc.querySelectorAll('.inspector__scrim').length, 1, 'one scrim');
+  assert.equal(page.doc.querySelector('.inspector__scrim').getAttribute('hidden'), '', 'no scrim when docked');
+});
+
+test('shell: the band follows the width: dock at 1280, drawer from 768 to 1279, sheet below 768, and a resize re-reads it', () => {
+  for (const [width, mode] of [[1920, 'dock'], [1280, 'dock'], [1279, 'drawer'], [768, 'drawer'], [767, 'sheet'], [360, 'sheet']] as Array<[number, string]>) {
+    const page = installPage({ width, fetch: () => reply(204) });
+    const inspector = mods.shell.createInspector({ doc: page.doc, shell: page.shell, el: page.inspector, main: page.main, matchMedia: globalThis.matchMedia });
+    assert.equal(inspector.mode(), mode, `${width} px`);
+    assert.equal(page.inspector.dataset.mode, mode);
+    uninstallPage();
+  }
+  const page = installPage({ width: 1440, fetch: () => reply(204) });
+  const inspector = mods.shell.createInspector({ doc: page.doc, shell: page.shell, el: page.inspector, main: page.main, matchMedia: globalThis.matchMedia });
+  inspector.setInspectable(true);
+  inspector.open({ title: 'Step', body: 'x' });
+  assert.equal(page.inspector.getAttribute('role'), null);
+  page.media.resize(1024);
+  assert.equal(inspector.mode(), 'drawer');
+  assert.equal(page.inspector.getAttribute('role'), 'dialog', 'open across the change, it becomes a dialog');
+  assert.equal(page.inspector.getAttribute('aria-modal'), 'true');
+  assert.equal(page.doc.querySelector('.inspector__scrim').getAttribute('hidden'), null);
+  page.media.resize(1280);
+  assert.equal(inspector.mode(), 'dock');
+  assert.equal(page.inspector.getAttribute('role'), null);
+  assert.equal(page.doc.querySelector('.inspector__scrim').getAttribute('hidden'), '');
+  const noMedia = mods.shell.createInspector({ doc: page.doc, shell: page.shell, el: page.inspector, main: page.main });
+  assert.equal(noMedia.mode(), 'dock', 'without matchMedia it docks');
+});
+
+test('inspector docked: open shows the title and body without taking focus; close empties it, keeps focus and calls onClose once', () => {
+  const page = installPage({ width: 1440, fetch: () => reply(204) });
+  const inspector = mods.shell.createInspector({ doc: page.doc, shell: page.shell, el: page.inspector, main: page.main, matchMedia: globalThis.matchMedia });
+  inspector.setInspectable(true);
+  const owner = page.doc.createElement('button');
+  page.main.append(owner);
+  owner.focus();
+  const closed: string[] = [];
+  const panel = mods.dom.h('p', { class: 'detail' }, 'Step detail');
+  inspector.open({ title: 'implementation', body: panel, owner, onClose: () => closed.push('a') });
+  assert.equal(inspector.isOpen(), true);
+  assert.equal(text(page.inspector.querySelector('.inspector__title')), 'implementation');
+  assert.equal(page.inspector.querySelector('.inspector__body').children[0], panel, 'the view passes the node it built');
+  assert.equal(page.inspector.querySelector('.inspector__empty').getAttribute('hidden'), '');
+  assert.equal(page.doc.activeElement, owner, 'docked, focus stays where it was');
+  inspector.open({ title: 'review', body: 'Other', onClose: () => closed.push('b') });
+  assert.deepEqual(closed, ['a'], 'replacing the content closes the previous owner');
+  assert.equal(text(page.inspector.querySelector('.inspector__body')), 'Other');
+  page.inspector.fire('keydown', { key: 'Escape' });
+  assert.equal(inspector.isOpen(), false, 'the close shortcut closes it');
+  assert.deepEqual(closed, ['a', 'b']);
+  assert.equal(text(page.inspector.querySelector('.inspector__title')), 'Details');
+  assert.equal(page.inspector.querySelector('.inspector__body').children.length, 0);
+  assert.equal(page.inspector.querySelector('.inspector__empty').getAttribute('hidden'), null, 'the empty note is back');
+  assert.equal(page.inspector.getAttribute('hidden'), null, 'the docked column stays, so the canvas does not reflow');
+  assert.equal(page.doc.activeElement, owner);
+  inspector.close();
+  assert.deepEqual(closed, ['a', 'b'], 'a second close is a no-op');
+});
+
+test('inspector as drawer and sheet: a modal dialog with the scrim; focus moves in, Tab stays inside, and closing returns it', () => {
+  for (const width of [1024, 360]) {
+    const page = installPage({ width, fetch: () => reply(204) });
+    const inspector = mods.shell.createInspector({ doc: page.doc, shell: page.shell, el: page.inspector, main: page.main, matchMedia: globalThis.matchMedia });
+    inspector.setInspectable(true);
+    const scrim = page.doc.querySelector('.inspector__scrim');
+    assert.equal(page.inspector.getAttribute('hidden'), '', `${width}: hidden while closed`);
+    assert.equal(scrim.getAttribute('hidden'), '');
+    const owner = page.doc.createElement('button');
+    page.main.append(owner);
+    owner.focus();
+    const link = mods.dom.h('a', { href: '#/fleet' }, 'Open');
+    inspector.open({ title: 'Lane', body: [mods.dom.h('p', {}, 'Lane detail'), link] });
+    const close = page.inspector.querySelector('.inspector__close');
+    assert.equal(page.inspector.getAttribute('hidden'), null);
+    assert.equal(page.inspector.getAttribute('role'), 'dialog');
+    assert.equal(page.inspector.getAttribute('aria-modal'), 'true');
+    assert.equal(page.inspector.getAttribute('aria-label'), 'Details');
+    assert.equal(scrim.getAttribute('hidden'), null);
+    assert.equal(page.doc.activeElement, close, `${width}: focus moves into the inspector`);
+    assert.ok(close.querySelector('.icon'), 'the close button has its icon');
+    page.doc.activeElement = link;
+    let event = page.inspector.fire('keydown', { key: 'Tab' });
+    assert.equal(page.doc.activeElement, close, 'Tab from the last item wraps to the first');
+    assert.equal(event.defaultPrevented, true);
+    event = page.inspector.fire('keydown', { key: 'Tab', shiftKey: true });
+    assert.equal(page.doc.activeElement, link, 'Shift+Tab from the first wraps to the last');
+    event = page.inspector.fire('keydown', { key: 'Tab', shiftKey: true });
+    assert.equal(event.defaultPrevented, false, 'inside the list, Tab moves as usual');
+    page.inspector.fire('keydown', { key: 'Escape' });
+    assert.equal(inspector.isOpen(), false);
+    assert.equal(page.inspector.getAttribute('hidden'), '');
+    assert.equal(page.inspector.getAttribute('role'), null);
+    assert.equal(scrim.getAttribute('hidden'), '');
+    assert.equal(page.doc.activeElement, owner, 'focus returns to the control that opened it');
+
+    inspector.open({ title: 'Lane', body: 'x', owner });
+    owner.remove();
+    scrim.fire('click');
+    assert.equal(inspector.isOpen(), false, 'a click on the scrim closes it');
+    assert.equal(page.doc.activeElement, page.main, 'the owner is gone: focus goes to #main');
+    inspector.open({ title: 'Lane', body: 'x' });
+    close.fire('click');
+    assert.equal(inspector.isOpen(), false, 'the close button closes it');
+    uninstallPage();
+  }
+});
+
+test('inspector open while docked: narrowing into drawer or sheet moves focus into it, and closing returns it to the owner', () => {
+  for (const width of [1024, 360]) {
+    const page = installPage({ width: 1440, fetch: () => reply(204) });
+    const inspector = mods.shell.createInspector({ doc: page.doc, shell: page.shell, el: page.inspector, main: page.main, matchMedia: globalThis.matchMedia });
+    inspector.setInspectable(true);
+    const owner = page.doc.createElement('button');
+    page.main.append(owner);
+    owner.focus();
+    const link = mods.dom.h('a', { href: '#/fleet' }, 'Open');
+    inspector.open({ title: 'Step', body: link, owner });
+    assert.equal(page.doc.activeElement, owner, 'docked, focus stays on the owner');
+    const close = page.inspector.querySelector('.inspector__close');
+    page.media.resize(width);
+    assert.equal(page.inspector.getAttribute('aria-modal'), 'true', `${width}: a modal dialog`);
+    assert.equal(page.doc.activeElement, close, `${width}: focus moves into the inspector, to the close button`);
+    page.doc.activeElement = link;
+    page.media.resize(width === 1024 ? 360 : 1024);
+    assert.equal(page.doc.activeElement, link, `${width}: between drawer and sheet, focus already inside stays where it is`);
+    page.inspector.fire('keydown', { key: 'Escape' });
+    assert.equal(inspector.isOpen(), false);
+    assert.equal(page.doc.activeElement, owner, `${width}: focus returns to the control that opened it`);
+    inspector.open({ title: 'Step', body: 'x', owner });
+    page.media.resize(1440);
+    owner.focus();
+    page.media.resize(width);
+    assert.equal(page.doc.activeElement, close, `${width}: docked again and narrowed again, focus moves in again`);
+    uninstallPage();
+  }
+});
+
+test('stale: setStale marks #inspector beside #main, and a route change clears both', async () => {
+  let down = false;
+  const page = await start({ hash: '#/run/feat-a/run-1', width: 1440, fetch: (target, init) => (target === '/api/runs/feat-a/run-1' ? (down ? errorReply(502, 'core-error') : runReply()) : standard(target, init)) });
+  down = true;
+  await advance(17000);
+  assert.equal(page.main.getAttribute('data-stale'), 'true');
+  assert.equal(page.inspector.getAttribute('data-stale'), 'true');
+  page.location.hash = '#/workflows';
+  page.win.dispatch('hashchange');
+  await settle();
+  assert.equal(page.main.getAttribute('data-stale'), null);
+  assert.equal(page.inspector.getAttribute('data-stale'), null);
+});
 
 test('loaded: the home summary counts the runs by state and flags what needs you', async () => {
   const page = await start({ hash: '', fetch: standard });
@@ -925,7 +1136,7 @@ test('stale: after 15 s of failures the data stays, a banner appears, times read
   assert.match(text(page.region), /^Data is out of date/, 'one message per 2 s: the second is held');
   await advance(2000);
   assert.equal(text(page.region), 'Up to date again.');
-  assert.equal(page.conn.getAttribute('data-state'), 'done');
+  assert.equal(page.conn.getAttribute('data-state'), 'unknown');
 });
 
 test('offline: with data on screen the pill reads Retrying, then Offline once stale, and the banner names the server', async () => {
@@ -951,6 +1162,7 @@ test('offline: with no data at all it is a full page that says the Console has s
 
 test('hidden tab: polling and the stale check pause, and nothing flashes stale on return', async () => {
   const page = await start({ hash: '', fetch: standard });
+  await advance(100); // C.3: the live connector settles into polling first (the fake page has no stream support)
   const before = apiCalls(page, '/api/runs').length;
   page.doc.hidden = true;
   for (const fn of page.doc.listeners.get('visibilitychange') ?? []) fn({ type: 'visibilitychange' });
@@ -1301,7 +1513,7 @@ test('E.1 rail: arrows, Home and End move the single tab stop without wrapping; 
   assert.deepEqual(stops(), ['0', '-1', '-1', '-1', '-1']);
   // Enter and Space reach a button as a click.
   buttons()[3].fire('click');
-  const detail = page.main.querySelector('.rail-detail');
+  const detail = page.inspector.querySelector('.rail-detail');
   assert.ok(detail);
   assert.equal(detail.getAttribute('role'), 'region');
   assert.equal(detail.getAttribute('aria-labelledby'), 'rail-detail-title');
@@ -1313,22 +1525,22 @@ test('E.1 rail: arrows, Home and End move the single tab stop without wrapping; 
   assert.equal(buttons()[3].getAttribute('data-selected'), 'true');
   assert.equal(buttons()[0].getAttribute('aria-expanded'), 'false');
   buttons()[4].fire('click');
-  assert.equal(text(page.main.querySelector('.rail-detail__title')), 'gate-a', 'a second node switches the detail');
-  const gateDetail = page.main.querySelector('.rail-detail');
+  assert.equal(text(page.inspector.querySelector('.rail-detail__title')), 'gate-a', 'a second node switches the detail');
+  const gateDetail = page.inspector.querySelector('.rail-detail');
   assert.deepEqual(gateDetail.querySelectorAll('dt').map(text), ['Kind', 'When asked', 'Asks', 'Recorded']);
   assert.equal(text(gateDetail.querySelectorAll('dd')[1]), 'Every run');
   buttons()[4].fire('click');
-  assert.equal(page.main.querySelector('.rail-detail'), null, 'the same node closes it');
+  assert.equal(page.inspector.querySelector('.rail-detail'), null, 'the same node closes it');
   buttons()[2].fire('click');
-  assert.ok(page.main.querySelector('.rail-detail'));
+  assert.ok(page.inspector.querySelector('.rail-detail'));
   key(buttons()[2], 'Escape');
-  assert.equal(page.main.querySelector('.rail-detail'), null);
+  assert.equal(page.inspector.querySelector('.rail-detail'), null);
   same(page.doc.activeElement, buttons()[2], 'focus stays on the node');
   buttons()[2].fire('click');
-  const close = page.main.querySelector('[data-focus-key="rail-detail-close"]');
+  const close = page.inspector.querySelector('[data-focus-key="rail-detail-close"]');
   assert.equal(text(close), 'Close details');
   close.fire('click');
-  assert.equal(page.main.querySelector('.rail-detail'), null);
+  assert.equal(page.inspector.querySelector('.rail-detail'), null);
   same(page.doc.activeElement, buttons()[2], 'the Close button returns focus to its node');
 });
 
@@ -1340,18 +1552,18 @@ test('E.1 rail: the open detail and the roving stop survive a poll, focus stays 
   const buttons = () => page.main.querySelectorAll('.rail__node');
   buttons()[1].focus();
   buttons()[1].fire('click');
-  assert.ok(page.main.querySelector('.rail-detail'));
+  assert.ok(page.inspector.querySelector('.rail-detail'));
   const old = buttons()[1];
   row0 = () => frow('run-1', 3);
   await advance(3_000);
   assert.ok(buttons()[1] !== old, 'the body was re-mounted');
-  assert.equal(text(page.main.querySelector('.rail-detail__title')), 'gate-0', 'the detail stays open');
+  assert.equal(text(page.inspector.querySelector('.rail-detail__title')), 'gate-0', 'the detail stays open');
   same(page.doc.activeElement, buttons()[1], 'focus is restored by node key');
   assert.deepEqual(buttons().map((b) => b.getAttribute('tabindex')), ['-1', '0', '-1', '-1', '-1'], 'the roving stop stays where the person put it');
   workflow = { ...WF_FEATURE, stages: WF_FEATURE.stages.slice(1) };
   row0 = () => frow('run-1', 3, { progress: { done: 3, total: 3 } });
   await advance(3_000);
-  assert.equal(page.main.querySelector('.rail-detail'), null, 'its node no longer exists: the detail closes');
+  assert.equal(page.inspector.querySelector('.rail-detail'), null, 'its node no longer exists: the detail closes');
 });
 
 test('E.1 rail: a degraded run shows its current node, an unknown track and the note; a missing workflow is the same with its own note', async () => {
@@ -1442,13 +1654,13 @@ test('E.1 F8a: Escape inside the detail closes it and puts focus on its node', a
   const page = await start({ hash: '#/run/feat-a/run-1', fetch: runRoute(() => runBody(frow('run-1', 2), WF_FEATURE, [ev(30, 'start', null)])) });
   const buttons = () => page.main.querySelectorAll('.rail__node');
   buttons()[3].fire('click');
-  const detail = page.main.querySelector('.rail-detail');
+  const detail = page.inspector.querySelector('.rail-detail');
   detail.fire('keydown', { key: 'Escape' });
-  assert.ok(page.main.querySelector('.rail-detail') === null, 'closed');
+  assert.ok(page.inspector.querySelector('.rail-detail') === null, 'closed');
   same(page.doc.activeElement, buttons()[3], 'focus is on the node');
   buttons()[3].fire('click');
-  page.main.querySelector('.rail-detail').fire('keydown', { key: 'a' });
-  assert.ok(page.main.querySelector('.rail-detail'), 'another key leaves it open');
+  page.inspector.querySelector('.rail-detail').fire('keydown', { key: 'a' });
+  assert.ok(page.inspector.querySelector('.rail-detail'), 'another key leaves it open');
 });
 
 test('E.1 F9: a degraded node is named by the run record, with the reason', async () => {
@@ -1939,7 +2151,7 @@ test('E.3 board: one card per task in a lane by owner, an edge per dependency, a
   assert.equal(board.style.getPropertyValue('--g-w') !== '', true);
   assert.equal(page.main.querySelectorAll('.glane').length, 4, 'the lane list has the same lanes');
   assert.equal(page.main.querySelector('.graph[data-open]').getAttribute('data-open'), 'false');
-  assert.equal(page.main.querySelector('.graph__panel').getAttribute('hidden'), '');
+  assert.equal(page.inspector.querySelector('.graph__panel'), null, 'no task is open, so the inspector holds no panel');
   assert.ok(!tags(page.main).includes('script'));
 });
 
@@ -1963,7 +2175,7 @@ test('E.3 keys and panel: arrows walk the lane and the lanes, a click opens the 
   assert.equal(a1.getAttribute('aria-expanded'), 'false');
   a1.fire('click');
   assert.equal(a1.getAttribute('aria-expanded'), 'true');
-  const panel = page.main.querySelector('.graph__panel');
+  const panel = page.inspector.querySelector('.graph__panel');
   assert.equal(panel.getAttribute('hidden'), null);
   assert.equal(page.main.querySelector('.graph').getAttribute('data-open'), 'true');
   assert.equal(text(panel.querySelector('.graph__paneltitle')), 'A.1');
@@ -1977,7 +2189,7 @@ test('E.3 keys and panel: arrows walk the lane and the lanes, a click opens the 
   assert.equal(panel.querySelectorAll('input, textarea, select').length, 0);
 
   // Escape inside the panel closes it and puts the focus back on the card.
-  page.main.querySelector('.graph').fire('keydown', { key: 'Escape', target: panel.querySelector('.graph__close') });
+  page.inspector.fire('keydown', { key: 'Escape', target: panel.querySelector('.graph__close') });
   assert.equal(panel.getAttribute('hidden'), '');
   assert.equal(a1.getAttribute('aria-expanded'), 'false');
   assert.ok(page.doc.activeElement === a1, 'the focus is back on the card');
@@ -2009,8 +2221,8 @@ test('E.3 a poll that changes the tasks keeps the selected task open and the tab
   await advance(3_000);
   assert.notEqual(page.main.querySelector('.graph'), view, 'a task change re-mounts it');
   assert.equal(gcardOf(page, 'B.1').getAttribute('aria-expanded'), 'true', 'B.1 is still open');
-  assert.equal(text(page.main.querySelector('.graph__paneltitle')), 'B.1');
-  assert.equal(text(page.main.querySelector('.graph__panel').querySelector('.badge')), 'Running');
+  assert.equal(text(page.inspector.querySelector('.graph__paneltitle')), 'B.1');
+  assert.equal(text(page.inspector.querySelector('.graph__panel').querySelector('.badge')), 'Running');
   assert.equal(page.doc.activeElement && page.doc.activeElement.getAttribute('data-card'), 'B.1', 'the focus came back to the card by its focus key');
   assert.ok(page.doc.activeElement === gcardOf(page, 'B.1'), 'and it is the new card');
   // A selected task that leaves the plan closes the panel.
@@ -2033,10 +2245,12 @@ test('E.3 lane list: each lane is a section with its tasks in layer order, depen
   assert.equal(row.getAttribute('aria-expanded'), 'false');
   row.fire('click');
   assert.equal(row.getAttribute('aria-expanded'), 'true');
-  const slot = row.parent.querySelector('.grow__panel');
+  const slot = page.inspector.querySelector('.graph__panel');
   assert.equal(slot.getAttribute('hidden'), null);
-  assert.match(text(slot.querySelector('.gattempt')), /^Attempt 1quality-guardian · sequentialfinished, completed\d\d:\d\d to \d\d:\d\d \(10 min\)$/);
-  assert.equal(page.main.querySelectorAll('.grow__panel').filter((s: El) => s.getAttribute('hidden') === null).length, 1);
+  // sinceStamp prefixes `D Mon ` when the instant is not on today's local date, so a run just after
+  // midnight shows the day on a start or end from the previous date (FU-8xhd5w).
+  assert.match(text(slot.querySelector('.gattempt')), /^Attempt 1quality-guardian · sequentialfinished, completed(?:\d{1,2} [A-Z][a-z]{2} )?\d\d:\d\d to (?:\d{1,2} [A-Z][a-z]{2} )?\d\d:\d\d \(10 min\)$/);
+  assert.equal(page.inspector.querySelectorAll('.graph__panel').filter((s: El) => s.getAttribute('hidden') === null).length, 1);
   row.fire('click');
   assert.equal(row.getAttribute('aria-expanded'), 'false');
   assert.equal(slot.getAttribute('hidden'), '');
@@ -2068,7 +2282,8 @@ test('E.3 hostile text: a task id, owner and attempt owner reach the page as tex
   gcardOf(page, 'A.1').fire('click');
   assert.ok(!tags(page.main).includes('img'));
   assert.equal(text(page.main.querySelector('.graph__lanename')), hostile);
-  assert.ok(text(page.main.querySelector('.gattempt__owner')).startsWith(hostile));
+  assert.ok(!tags(page.inspector).includes('img'));
+  assert.ok(text(page.inspector.querySelector('.gattempt__owner')).startsWith(hostile));
 });
 
 // ---- E.4: the replay bar on the run view and the task graph ---------------------------------------------------------
@@ -2155,9 +2370,9 @@ test('E.4 the graph: the bar sits above the board; scrubbing redraws the cards a
   assert.equal(stateOfCard('A.2'), 'done', 'A.2 finished at its second event');
   assert.equal(stateOfCard('A.1'), 'pending', 'A.1 had not started');
   gcardOf(page, 'A.2').fire('click');
-  assert.equal(text(page.main.querySelector('.graph__paneltitle')), 'A.2');
+  assert.equal(text(page.inspector.querySelector('.graph__paneltitle')), 'A.2');
   scrubTo(page, 3);
-  assert.equal(page.main.querySelector('.graph__paneltitle') && text(page.main.querySelector('.graph__paneltitle')), 'A.2', 'the open task stays open while scrubbing');
+  assert.equal(page.inspector.querySelector('.graph__paneltitle') && text(page.inspector.querySelector('.graph__paneltitle')), 'A.2', 'the open task stays open while scrubbing');
   assert.equal(stateOfCard('A.1'), 'running');
 
   page.main.querySelector('.replay__live').fire('click');
@@ -2300,11 +2515,10 @@ test('E.7 sessions: one tab stop; Right enters the lanes, Down and Up walk them,
   assert.equal(page.doc.activeElement.getAttribute('data-focus-key'), `row:${sk(2)}`);
 
   const lock = slaneOf(page, 'lock:build');
-  const panel = page.main.querySelector('.spanel');
-  assert.equal(panel.getAttribute('hidden'), '');
+  assert.equal(page.inspector.querySelector('.spanel'), null, 'no lane is open, so the inspector holds no panel');
   lock.fire('click');
   assert.equal(slaneOf(page, 'lock:build').getAttribute('aria-expanded'), 'true');
-  const open = page.main.querySelector('.spanel');
+  const open = page.inspector.querySelector('.spanel');
   assert.equal(open.getAttribute('hidden'), null);
   assert.equal(page.main.querySelector('.sessions').getAttribute('data-open'), 'true');
   assert.equal(text(open.querySelector('.spanel__title')), 'Lock build');
@@ -2313,8 +2527,8 @@ test('E.7 sessions: one tab stop; Right enters the lanes, Down and Up walk them,
   assert.equal(open.querySelectorAll('input, textarea, select').length, 0);
   assert.ok(page.doc.activeElement === slaneOf(page, 'lock:build'), 'the lane keeps the focus after it opens');
 
-  page.main.querySelector('.sessions').fire('keydown', { key: 'Escape', target: open.querySelector('.spanel__close') });
-  assert.equal(page.main.querySelector('.spanel').getAttribute('hidden'), '');
+  page.inspector.fire('keydown', { key: 'Escape', target: open.querySelector('.spanel__close') });
+  assert.equal(open.getAttribute('hidden'), '');
   assert.equal(slaneOf(page, 'lock:build').getAttribute('aria-expanded'), 'false');
   assert.equal(page.doc.activeElement.getAttribute('data-focus-key'), 'lane:lock:build', 'the focus is back on the lane');
 });
@@ -2430,7 +2644,8 @@ test('E.7 sessions hostile text: a branch, a model, an owner and a lock label re
   slaneOf(page, 'lock:build').fire('click');
   assert.ok(!tags(page.main).includes('img') && !tags(page.main).includes('script'));
   assert.equal(text(srowOf(page, hostile).querySelector('.srow__name')), hostile);
-  assert.ok(text(page.main.querySelector('.spanel')).includes(hostile));
+  assert.ok(!tags(page.inspector).includes('img') && !tags(page.inspector).includes('script'));
+  assert.ok(text(page.inspector.querySelector('.spanel')).includes(hostile));
 });
 
 test('E.7 sessions: the loading skeleton is three checkout rows of the loaded rows\' height', async () => {
@@ -2796,7 +3011,7 @@ test('V.10 fleet project: selecting an agent moves between routes without a re-m
   assert.equal(treeItem(page, A_SUB).getAttribute('aria-selected'), 'true');
   assert.equal(treeItem(page, A_MAIN).getAttribute('aria-selected'), 'false');
   assert.equal(page.doc.title, 'system-architect \u00b7 example-project \u00b7 Fleet \u00b7 DoFlow Console');
-  assert.equal(text(page.main.querySelector('.fpanel__title')), 'system-architect');
+  assert.equal(text(page.inspector.querySelector('.fpanel__title')), 'system-architect');
   assert.equal(page.main.querySelector('.fleet--project').dataset.selected, 'true');
   assert.deepEqual(current(page), ['Fleet']);
 });
@@ -2826,34 +3041,34 @@ test('V.10 stream panel: replies, tool calls with their result attached, usage a
     reply1(5, { kind: 'turn-end', text: null }),
   ]));
   await settle();
-  const rows = page.main.querySelectorAll('.ev');
+  const rows = page.inspector.querySelectorAll('.ev');
   assert.equal(rows.length, 4, 'a result is no row of its own');
   assert.deepEqual(rows.map((r: El) => r.dataset.kind), ['reply', 'tool-call', 'usage', 'turn-end']);
-  assert.deepEqual(page.main.querySelectorAll('.masked').map((m: El) => text(m)), ['masked', 'email', 'ip', 'masked']);
+  assert.deepEqual(page.inspector.querySelectorAll('.masked').map((m: El) => text(m)), ['masked', 'email', 'ip', 'masked']);
   assert.ok(!tags(page.main).includes('script'), 'a script-looking reply is text');
   assert.match(text(rows[0]), /<script>alert\(1\)<\/script>/);
   assert.match(text(rows[1].querySelector('.ev__status')), /^ok · 2\.3 KB · 1\.2 s$/);
   assert.equal(text(rows[2]).includes('Tokens: 1,204 in · 312 out · 18,000 cache read · 0 cache write'), true);
-  const list = page.main.querySelector('.stream');
+  const list = page.inspector.querySelector('.stream');
   assert.equal(list.getAttribute('aria-live'), null, 'streamed text is never announced');
   assert.equal(list.getAttribute('role'), null);
-  const foot = text(page.main.querySelector('.fpanel__foot'));
+  const foot = text(page.inspector.querySelector('.fpanel__foot'));
   assert.match(foot, /masked, best effort/);
   assert.match(foot, /Not shown: 14 other records \(prompts, thinking, attachments, system\)\. 0 unreadable\./);
-  assert.match(text(page.main.querySelector('.fpanel__masked')), /3 values masked/);
-  assert.doesNotMatch(text(page.main.querySelector('.fpanel')), BAD_WORDS);
+  assert.match(text(page.inspector.querySelector('.fpanel__masked')), /3 values masked/);
+  assert.doesNotMatch(text(page.inspector.querySelector('.fpanel')), BAD_WORDS);
 });
 
 test('V.10 stream panel: Follow scrolls to the end, scrolling up turns it off and shows the pill, the pill returns to the end; the filter hides rows', async () => {
   const { page, es } = await startPanel();
-  const scroll = page.main.querySelector('.fpanel__scroll');
+  const scroll = page.inspector.querySelector('.fpanel__scroll');
   scroll.scrollHeight = 1000;
   scroll.clientHeight = 400;
   scroll.scrollTop = 0;
   es.emit('transcript', tBody([reply1(1), reply1(2)]));
   await settle();
   assert.equal(scroll.scrollTop, 1000, 'follow on: the list is scrolled to its end');
-  const follow = page.main.querySelector('.fpanel__follow');
+  const follow = page.inspector.querySelector('.fpanel__follow');
   assert.equal(follow.getAttribute('aria-pressed'), 'true');
   scroll.scrollTop = 100;
   scroll.fire('scroll');
@@ -2861,7 +3076,7 @@ test('V.10 stream panel: Follow scrolls to the end, scrolling up turns it off an
   es.emit('transcript', tBody([reply1(3), reply1(4), reply1(5)]));
   await settle();
   assert.equal(scroll.scrollTop, 100, 'with Follow off the reading position does not move');
-  const pill = page.main.querySelector('.fpanel__new');
+  const pill = page.inspector.querySelector('.fpanel__new');
   assert.equal(pill.getAttribute('hidden'), null);
   assert.equal(text(pill), '3 new events');
   pill.fire('click');
@@ -2870,18 +3085,18 @@ test('V.10 stream panel: Follow scrolls to the end, scrolling up turns it off an
   assert.equal(pill.getAttribute('hidden'), '');
   es.emit('transcript', tBody([reply1(6, { kind: 'tool-call', text: null, args: 'x', tool: { name: 'Bash', callKey: 'k2', status: null, bytes: null, durationMs: null } })]));
   await settle();
-  const chip = (word: string) => page.main.querySelector('.fpanel__filter').querySelectorAll('.chip').find((c: El) => text(c) === word);
+  const chip = (word: string) => page.inspector.querySelector('.fpanel__filter').querySelectorAll('.chip').find((c: El) => text(c) === word);
   chip('Tools')!.fire('click');
-  const hiddenKinds = page.main.querySelectorAll('.ev').filter((r: El) => r.getAttribute('hidden') !== null).map((r: El) => r.dataset.kind);
+  const hiddenKinds = page.inspector.querySelectorAll('.ev').filter((r: El) => r.getAttribute('hidden') !== null).map((r: El) => r.dataset.kind);
   assert.equal(hiddenKinds.length, 5, 'the five replies are hidden under Tools');
   assert.equal(chip('Tools')!.getAttribute('aria-checked'), 'true');
   chip('All')!.fire('click');
-  assert.equal(page.main.querySelectorAll('.ev').filter((r: El) => r.getAttribute('hidden') !== null).length, 0, 'the filter hides rows, it never drops them');
+  assert.equal(page.inspector.querySelectorAll('.ev').filter((r: El) => r.getAttribute('hidden') !== null).length, 0, 'the filter hides rows, it never drops them');
 });
 
 test('V.10 stream panel: above 500 events the oldest are removed from the top, the note shows, and the reading position keeps its place', async () => {
   const { page, es } = await startPanel();
-  const scroll = page.main.querySelector('.fpanel__scroll');
+  const scroll = page.inspector.querySelector('.fpanel__scroll');
   scroll.scrollHeight = 5000;
   scroll.clientHeight = 400;
   scroll.scrollTop = 1000;
@@ -2890,10 +3105,10 @@ test('V.10 stream panel: above 500 events the oldest are removed from the top, t
     es.emit('transcript', tBody(Array.from({ length: 200 }, (_, i) => reply1(batch * 200 + i, { text: `r${batch * 200 + i}` }))));
   }
   await settle();
-  const rows = page.main.querySelectorAll('.ev');
+  const rows = page.inspector.querySelectorAll('.ev');
   assert.equal(rows.length, 500);
   assert.equal(text(rows[0].querySelector('.ev__text')), 'r100', 'the oldest hundred were removed');
-  assert.equal(text(page.main.querySelector('.ev--bound')), 'Earlier events are not kept in this view (500 shown).');
+  assert.equal(text(page.inspector.querySelector('.ev--bound')), 'Earlier events are not kept in this view (500 shown).');
   assert.equal(scroll.scrollTop, 1000, 'no height to subtract in a fake DOM, and the position is not moved to the end');
 });
 
@@ -2901,10 +3116,10 @@ test('V.10 stream panel: a reset starts the list over with a divider and an anno
   const { page, es } = await startPanel(`#/fleet/${P1}/${A_SUB}`, fleetRoute(), freshWeb());
   es.emit('transcript', tBody([reply1(1), reply1(2)]));
   await settle();
-  assert.equal(page.main.querySelectorAll('.ev').length, 2);
+  assert.equal(page.inspector.querySelectorAll('.ev').length, 2);
   es.emit('transcript', tBody([reply1(10, { text: 'after the rewrite' })], { reset: true }));
   await settle();
-  const rows = page.main.querySelectorAll('.ev');
+  const rows = page.inspector.querySelectorAll('.ev');
   assert.equal(rows.length, 2, 'the divider and the one new reply');
   assert.match(text(rows[0]), /The transcript was rewritten\. Showing its last 64 records\./);
   assert.match(text(page.region), /The transcript was rewritten; showing its last 64 records\./);
@@ -2921,29 +3136,29 @@ test('V.10 stream panel: a reset starts the list over with a divider and an anno
   again.open();
   again.emit('transcript', tBody([reply1(10, { text: 'after the rewrite' }), reply1(11, { text: 'new' })]));
   await settle();
-  assert.deepEqual(page.main.querySelectorAll('.ev__text').map((t: El) => text(t)), ['after the rewrite', 'new'], 'no duplicate event');
+  assert.deepEqual(page.inspector.querySelectorAll('.ev__text').map((t: El) => text(t)), ['after the rewrite', 'new'], 'no duplicate event');
 });
 
 test('V.10 stream panel states: no reader, not linked, not found, format drift, gone agent and a tick error keep their copy', async () => {
   const oc = await startPanel(`#/fleet/${P1}/${A_OC}`);
   oc.es.emit('transcript', tBody([reply1(1, { kind: 'record', text: null, record: { type: 'hook-record', task: null, result: null } })], { agent: A_OC, agentKey: A_OC, harness: 'opencode', reader: { id: null, status: 'events-only' }, transcript: { linked: false, reason: 'no-reader' } }));
   await settle();
-  assert.match(text(oc.page.main.querySelector('.fbanner')), /No transcript reader for opencode\. DoFlow’s own records for this agent are listed below\./);
-  assert.equal(text(oc.page.main.querySelector('.ev__record')).includes('hook record'), true, 'the panel is never blank');
-  assert.equal(text(oc.page.main.querySelector('.fpanel__title')), 'Subagent');
+  assert.match(text(oc.page.inspector.querySelector('.fbanner')), /No transcript reader for opencode\. DoFlow’s own records for this agent are listed below\./);
+  assert.equal(text(oc.page.inspector.querySelector('.ev__record')).includes('hook record'), true, 'the panel is never blank');
+  assert.equal(text(oc.page.inspector.querySelector('.fpanel__title')), 'Subagent');
   uninstallPage();
   mock.timers.reset();
 
   const orphan = await startPanel(`#/fleet/${P1}/${A_ORPHAN}`);
-  assert.match(text(orphan.page.main.querySelector('.fbanner')), /Transcript not found\./);
+  assert.match(text(orphan.page.inspector.querySelector('.fbanner')), /Transcript not found\./);
   orphan.es.emit('transcript', tBody([], { agent: A_ORPHAN, agentKey: A_ORPHAN, warnings: ['format-unrecognized'], transcript: { linked: true, reason: null } }));
   await settle();
-  assert.match(text(orphan.page.main.querySelector('.fpanel__notice')), /records this reader does not recognise\. Showing the ones it could read\./);
-  assert.match(text(orphan.page.main.querySelector('.fpanel__state')), /No reply or tool call is recorded for this agent yet\./);
+  assert.match(text(orphan.page.inspector.querySelector('.fpanel__notice')), /records this reader does not recognise\. Showing the ones it could read\./);
+  assert.match(text(orphan.page.inspector.querySelector('.fpanel__state')), /No reply or tool call is recorded for this agent yet\./);
   orphan.es.emit('error', { code: 'core-contract-mismatch', verb: 'transcript', exit: 1 });
   assert.match(transport(orphan.page), /core-contract-mismatch/);
   orphan.es.emit('error', { code: 'agent-not-in-project', verb: 'transcript', exit: 1 });
-  assert.match(text(orphan.page.main.querySelector('.fpanel__state')), /This agent is no longer in this project’s records\./);
+  assert.match(text(orphan.page.inspector.querySelector('.fpanel__state')), /This agent is no longer in this project’s records\./);
   assert.equal(orphan.es.closed, true, 'a gone agent ends the stream');
   uninstallPage();
   mock.timers.reset();
@@ -2953,7 +3168,8 @@ test('V.10 stream panel states: no reader, not linked, not found, format drift, 
   stream.open();
   stream.emit('snapshot', FLEET_TWO());
   await settle();
-  assert.match(text(none.main.querySelector('.fpanel__state')), /Select an agent in the tree to follow its replies and tool calls\./);
+  assert.equal(none.inspector.querySelector('.fpanel'), null, 'no agent is selected, so the inspector holds no transcript');
+  assert.equal(text(none.inspector.querySelector('.inspector__empty')), 'Select an item to see its details here.');
 });
 
 test('V.10 fleet project: a project the list no longer holds says so, with a way back', async () => {
@@ -3264,6 +3480,7 @@ test('133 reconnect: the first data after a long absence announces one summary, 
   await withFreshModules(async () => {
   let runs: any = RUNS;
   const page = await start({ fetch: (target, init) => (target === '/api/runs' ? reply(200, runs) : standard(target, init)) });
+  await advance(100); // C.3: the live connector settles into polling first (the fake page has no stream support)
   const hide = (value: boolean) => { page.doc.hidden = value; for (const fn of page.doc.listeners.get('visibilitychange') ?? []) fn({ type: 'visibilitychange' }); };
   hide(true);
   await advance(60_000);
@@ -3278,6 +3495,7 @@ test('133 reconnect: a short absence keeps the per-item announcements', async ()
   await withFreshModules(async () => {
   let runs: any = { ...RUNS, runs: [row('RUNNING', 'r2')] };
   const page = await start({ fetch: (target, init) => (target === '/api/runs' ? reply(200, runs) : standard(target, init)) });
+  await advance(100); // C.3: the live connector settles into polling first (the fake page has no stream support)
   const hide = (value: boolean) => { page.doc.hidden = value; for (const fn of page.doc.listeners.get('visibilitychange') ?? []) fn({ type: 'visibilitychange' }); };
   hide(true);
   await advance(5_000);
@@ -3412,6 +3630,144 @@ test('133 shortcuts: with no main region the view heading takes the focus', asyn
   });
 });
 
+// ---- 149 D.4: the command palette (IC-021, DEC-011, DEC-037) ----------------------------------------------
+
+const paletteOf = (page: Page) => page.doc.getElementById('palette');
+const paletteInput = (page: Page) => paletteOf(page).querySelector('input');
+const paletteOptions = (page: Page) => paletteOf(page).querySelectorAll('li').map((li: El) => text(li.querySelector('.palette__label')));
+const paletteType = (page: Page, query: string) => { const input = paletteInput(page); input.value = query; input.fire('input'); };
+
+test('149 palette: Ctrl K and Cmd K open the combobox dialog (not with Alt); Escape closes it and returns focus', async () => {
+  await withFreshModules(async () => {
+    const page = await start({ fetch: standard });
+    page.pause.focus();
+    const open = keydownOn(page, 'k', { ctrlKey: true });
+    assert.equal(open.defaultPrevented, true);
+    const dialog = paletteOf(page);
+    assert.equal(dialog.getAttribute('hidden'), null);
+    assert.equal(dialog.getAttribute('role'), 'dialog');
+    assert.equal(dialog.getAttribute('aria-modal'), 'true');
+    assert.equal(page.doc.getElementById(dialog.getAttribute('aria-labelledby')).tagName, 'h2');
+    const input = paletteInput(page);
+    assert.ok(page.doc.activeElement === input, 'focus moves into the input');
+    assert.equal(input.getAttribute('role'), 'combobox');
+    assert.equal(input.getAttribute('aria-expanded'), 'true');
+    const list = page.doc.getElementById(input.getAttribute('aria-controls'));
+    assert.equal(list.getAttribute('role'), 'listbox');
+    assert.ok(list.querySelectorAll('li').every((li: El) => li.getAttribute('role') === 'option'));
+    assert.deepEqual(paletteOptions(page), ['Now', 'Sessions', 'Workflows', 'Fleet', 'feat-a / r1', 'feat-a / r2', 'feat-a / r3', 'feat-a / r4', 'feat-a / r5'], 'an empty query: the screens, then the runs');
+    assert.equal(input.getAttribute('aria-activedescendant'), 'palette-opt-0');
+    assert.equal(page.doc.getElementById('palette-opt-0').getAttribute('aria-selected'), 'true');
+    const tab = input.fire('keydown', { key: 'Tab' });
+    assert.equal(tab.defaultPrevented, true, 'Tab stays inside');
+    const esc = input.fire('keydown', { key: 'Escape' });
+    assert.equal(esc.defaultPrevented, true);
+    assert.notEqual(dialog.getAttribute('hidden'), null);
+    assert.ok(page.doc.activeElement === page.pause, 'focus returns to the opener');
+
+    keydownOn(page, 'K', { metaKey: true, shiftKey: true });
+    assert.equal(dialog.getAttribute('hidden'), null, 'Cmd K opens it too');
+    paletteInput(page).fire('keydown', { key: 'Escape' });
+    assert.ok(page.doc.activeElement === page.pause);
+    const alt = keydownOn(page, 'k', { ctrlKey: true, altKey: true });
+    assert.equal(alt.defaultPrevented, false);
+    assert.notEqual(dialog.getAttribute('hidden'), null, 'never with Alt');
+    keydownOn(page, 'k');
+    assert.notEqual(dialog.getAttribute('hidden'), null, 'a plain k is no shortcut');
+  });
+});
+
+test('149 palette: ignored while typing in a field and while the help is open; the two are never open together', async () => {
+  await withFreshModules(async () => {
+    const page = await start({ fetch: standard });
+    const field = page.doc.createElement('input');
+    const typed = keydownOn(page, 'k', { ctrlKey: true, target: field });
+    assert.equal(typed.defaultPrevented, false);
+    assert.equal(paletteOf(page), null, 'nothing was opened');
+    keydownOn(page, '?');
+    keydownOn(page, 'k', { ctrlKey: true });
+    assert.equal(paletteOf(page), null, 'the help list is modal');
+    keydownOn(page, 'Escape');
+    keydownOn(page, 'k', { metaKey: true });
+    assert.equal(paletteOf(page).getAttribute('hidden'), null);
+    keydownOn(page, '?', { target: page.doc.body });
+    assert.notEqual(paletteOf(page).getAttribute('hidden'), null, 'opening the help closes the palette');
+    assert.equal(page.doc.getElementById('help').getAttribute('hidden'), null);
+  });
+});
+
+test('149 palette: part of a slug then Enter opens the Run view with focus on its heading; Up and Down move; no fetch', async () => {
+  await withFreshModules(async () => {
+    const page = await start({ fetch: (target, init) => (target === '/api/runs/feat-a/r2' ? runReply() : standard(target, init)) });
+    const before = page.calls.length;
+    keydownOn(page, 'k', { ctrlKey: true });
+    paletteType(page, 'FEAT');
+    assert.deepEqual(paletteOptions(page), ['feat-a / r1', 'feat-a / r2', 'feat-a / r3', 'feat-a / r4', 'feat-a / r5'], 'case-insensitive substring');
+    const input = paletteInput(page);
+    input.fire('keydown', { key: 'ArrowDown' });
+    assert.equal(input.getAttribute('aria-activedescendant'), 'palette-opt-1');
+    assert.equal(page.doc.getElementById('palette-opt-1').getAttribute('aria-selected'), 'true');
+    input.fire('keydown', { key: 'ArrowUp' });
+    input.fire('keydown', { key: 'ArrowUp' });
+    assert.equal(input.getAttribute('aria-activedescendant'), 'palette-opt-4', 'Up from the first wraps to the last');
+    paletteType(page, 'zzz');
+    assert.deepEqual(paletteOptions(page), []);
+    assert.equal(input.getAttribute('aria-expanded'), 'false');
+    assert.equal(input.getAttribute('aria-activedescendant'), null);
+    paletteType(page, 'a / r2');
+    assert.deepEqual(paletteOptions(page), ['feat-a / r2']);
+    assert.equal(page.calls.length, before, 'the palette fetches nothing');
+    input.fire('keydown', { key: 'Enter' });
+    assert.equal(page.location.hash, '#/run/feat-a/r2');
+    assert.notEqual(paletteOf(page).getAttribute('hidden'), null);
+    page.win.dispatch('hashchange');
+    assert.equal(text(heading(page)), 'feat-a / r2');
+    assert.ok(page.doc.activeElement === heading(page), 'the route change moves focus to the view heading');
+  });
+});
+
+test('149 palette: matchTargets orders screens, runs, sessions, projects, matches the hint too and lists at most 50', async () => {
+  const { matchTargets, MAX_OPTIONS } = await import(url('palette.js'));
+  const t = (kind: string, label: string, hint = '') => ({ kind, label, hint, hash: '#/' });
+  const list = [t('project', 'Alpha project'), t('session', 'Worker', 'Session · main'), t('run', 'alpha / r1'), t('screen', 'Fleet'), t('screen', 'Now')];
+  assert.deepEqual(matchTargets(list, 'ALPHA').map((x: any) => x.label), ['alpha / r1', 'Alpha project']);
+  assert.deepEqual(matchTargets(list, 'main').map((x: any) => x.label), ['Worker'], 'the hint matches');
+  assert.deepEqual(matchTargets(list, '').map((x: any) => x.label), ['Fleet', 'Now', 'alpha / r1'], 'empty: the screens, then the runs');
+  const many = Array.from({ length: 60 }, (_, i) => t('run', `feat / r${i}`));
+  assert.equal(MAX_OPTIONS, 50);
+  assert.equal(matchTargets(many, 'feat').length, 50);
+});
+
+test('149 palette: targets are the loaded Sessions lanes and Fleet projects, as hashes from hashFor', async () => {
+  await withFreshModules(async () => {
+    const both = (target: string, init: any) => (target === '/api/sessions' ? reply(200, BUSY()) : fleetRoute()(target, init));
+    const page = await start({ hash: '#/sessions', fetch: both });
+    keydownOn(page, 'k', { ctrlKey: true, target: page.doc.body });
+    paletteType(page, 'project');
+    assert.deepEqual(paletteOptions(page), [], 'no Fleet body is loaded yet: nothing is fetched for it');
+    paletteType(page, 'session · feat-1');
+    assert.deepEqual(paletteOptions(page), ['DoFlow run local/main', 'DoFlow run run-two/lin2', 'Hook session'], 'the lanes of one checkout, by the titles the Sessions view shows; the checkout is the hint');
+    paletteType(page, 'hook session');
+    assert.deepEqual(paletteOptions(page), ['Hook session', 'Hook session']);
+    paletteInput(page).fire('keydown', { key: 'Enter' });
+    assert.match(page.location.hash, /^#\/sessions\/hook\/[0-9a-f]{16}$/);
+    assert.equal(mods.views.parseRoute(page.location.hash).id, 'sessions');
+    page.location.hash = '#/fleet';
+    page.win.dispatch('hashchange');
+    await advance(100);
+    const before = page.calls.length;
+    keydownOn(page, 'k', { ctrlKey: true, target: page.doc.body });
+    paletteType(page, 'fleet project');
+    assert.deepEqual(paletteOptions(page), ['example-project', 'other-project']);
+    paletteType(page, 'session');
+    assert.ok(paletteOptions(page).length > 0, 'the Sessions body loaded earlier is still a source');
+    paletteType(page, 'other');
+    paletteInput(page).fire('keydown', { key: 'Enter' });
+    assert.equal(page.location.hash, `#/fleet/${P2}`);
+    assert.equal(page.calls.length, before, 'the palette fetches nothing');
+  });
+});
+
 test('replay keeps its controls attached while scrubbing and starting playback', async () => {
   const page = installPage({ fetch: () => reply(204) });
   const { withReplay, releaseReplay } = await import(url('views/replay.js'));
@@ -3435,4 +3791,954 @@ test('replay keeps its controls attached while scrubbing and starting playback',
   assert.equal(page.doc.activeElement, play);
   releaseReplay(local);
   host.replaceChildren = replace;
+});
+
+// ---- feature 149 C.3: the live views (IC-018) -----------------------------------------------------------------
+// Runs, Run, Tasks and Sessions read the page's one live store over a fake EventSource that emits unnamed `message` events
+// (IC-002 envelopes, IC-012 members). Each case boots a private copy of the web root, so the announcer starts clean.
+
+const LIVE_EPOCH = '0a1b2c3d';
+let liveSeq = 0;
+const liveFrame = (ch: string, type: string, data: any) => ({ v: 1, ch, id: `${LIVE_EPOCH}-${(liveSeq += 1)}`, type, at: new Date(Date.now()).toISOString(), data });
+const nowState = (runs: any, sessions: any = sessionsBody()) => ({ state: { runs: { status: 200, body: runs }, sessions: { status: 200, body: sessions } } });
+const RUN_CH = 'run:feat-a:run-1';
+const liveRunBody = (revision: number) => ({ v: 1, run: { ...row('RUNNING'), revision, updatedAt: new Date(Date.now()).toISOString() }, timeline: {}, tasks: null, workflow: {} });
+/** `base` for every GET; the live route (the adapter's probe after the browser gave up) answers `probe()`. */
+const liveRoute = (base: (target: string, init: any) => Reply | Promise<Reply>, probe: () => Reply = () => reply(500)) =>
+  (target: string, init: any) => (target.startsWith('/api/live') ? probe() : base(target, init));
+async function startLive(hash: string, route: (target: string, init: any) => Reply | Promise<Reply>, eventSource: unknown = FakeES): Promise<Page> {
+  FakeES.all = [];
+  liveSeq = 0;
+  return start({ hash, fetch: route, eventSource: eventSource === 'absent' ? undefined : eventSource }, freshWeb());
+}
+const liveES = () => FakeES.all.filter((e) => e.url.startsWith('/api/live') && !e.closed).at(-1)!;
+const pillOf = (page: Page) => [page.conn.getAttribute('data-state'), text(page.conn.querySelector('.conn__long')), text(page.conn.querySelector('.conn__short'))];
+const tileCounts = (page: Page) => page.main.querySelectorAll('.tile').map((t: El) => text(t.querySelector('.tile__count')));
+const RUNS_TWO_WAIT = { v: 1, runs: [row('AWAITING_GATE', 'r1'), row('AWAITING_GATE', 'r7'), row('COMPLETED', 'r4')], unreadableCount: 0 };
+
+test('149 live runs: the first paint is the GET, then frames update the view with no GET timer, and the pill reads Live', async () => {
+  const page = await startLive('#/', liveRoute(standard));
+  assert.deepEqual(tileCounts(page), ['1', '2', '2'], 'painted from the GET before any snapshot');
+  assert.equal(FakeES.all.length, 0, 'the store opens 50 ms after the first subscribe');
+  await advance(100);
+  const es = liveES();
+  assert.equal(es.url, '/api/live?ch=now');
+  es.open();
+  es.emit('message', liveFrame('now', 'snapshot', nowState(RUNS_TWO_WAIT)));
+  await settle();
+  assert.deepEqual(tileCounts(page), ['2', '0', '1']);
+  assert.deepEqual(pillOf(page), ['done', 'Live \u00b7 last change just now', 'Live']);
+  es.emit('message', liveFrame('now', 'patch', { set: { '/runs/body/runs': [row('RUNNING', 'r2')] }, unset: [] }));
+  await settle();
+  assert.deepEqual(tileCounts(page), ['0', '1', '0'], 'a patch of the member reaches the view');
+  await advance(61_000);
+  assert.equal(apiCalls(page, '/api/runs').length, 1, 'only the first paint: no GET timer while live');
+  assert.equal(apiCalls(page, '/api/info').length, 1, 'the boot read only: no heartbeat');
+  assert.equal(apiCalls(page, '/api/live').length, 0, 'no probe while the stream holds');
+  assert.equal(FakeES.all.length, 1, 'one stream');
+  assert.deepEqual(pillOf(page), ['done', 'Live \u00b7 last change 1 min ago', 'Live'], 'the age is the time since the newest frame');
+  assert.equal(page.slot.querySelectorAll('.banner').length, 0, 'an open stream is never stale');
+});
+
+test('149 live runs: a first-paint GET answer that arrives after the snapshot is ignored', async () => {
+  let release: (r: Reply) => void = () => {};
+  const page = await startLive('#/', liveRoute((target, init) => (target === '/api/runs' ? new Promise<Reply>((resolve) => { release = resolve; }) : standard(target, init))));
+  await advance(100);
+  const es = liveES();
+  es.open();
+  es.emit('message', liveFrame('now', 'snapshot', nowState(RUNS_TWO_WAIT)));
+  await settle();
+  assert.deepEqual(tileCounts(page), ['2', '0', '1'], 'the snapshot paints');
+  release(reply(200, RUNS));
+  await settle();
+  assert.deepEqual(tileCounts(page), ['2', '0', '1'], 'the late GET answer does not replace it');
+  assert.deepEqual(pillOf(page), ['done', 'Live \u00b7 last change just now', 'Live']);
+});
+
+test('149 live runs: a closed stream (probe 500) polls every 5 s and says so; the store\'s reopen and the next snapshot return to live', async () => {
+  const page = await startLive('#/', liveRoute(standard, () => reply(500)));
+  await advance(100);
+  const es = liveES();
+  es.open();
+  es.emit('message', liveFrame('now', 'snapshot', nowState(RUNS)));
+  await settle();
+  es.fail(2);
+  await settle();
+  assert.equal(apiCalls(page, '/api/live').length, 1, 'one probe after the browser gave up');
+  assert.equal(apiCalls(page, '/api/runs').length, 2, 'polling starts with a GET at once');
+  assert.equal(text(page.region), 'Push unavailable; polling every 5 seconds.');
+  assert.deepEqual(pillOf(page), ['unknown', 'Polling \u00b7 Updated just now', 'Polling']);
+  assert.deepEqual(tileCounts(page), ['1', '2', '2'], 'the polled body renders');
+  await advance(5000);
+  assert.equal(apiCalls(page, '/api/runs').length, 3, 'then every 5 s');
+  const again = liveES();
+  assert.notEqual(again, es, 'the store reopened after 5 s');
+  assert.equal(again.url, `/api/live?ch=now&since=${encodeURIComponent(`${LIVE_EPOCH}/now=1`)}`, 'from the kept position');
+  again.open();
+  await settle();
+  assert.equal(text(page.region), 'Push restored.', 'an open stream over a kept state is live again: the server sends nothing when nothing moved');
+  await advance(1000);
+  assert.deepEqual(pillOf(page), ['done', 'Live \u00b7 last change just now', 'Live'], 'the age is the newest fetch, a second ago');
+  again.emit('message', liveFrame('now', 'patch', { set: { '/runs/body/runs': RUNS_TWO_WAIT.runs }, unset: [] }));
+  await settle();
+  assert.deepEqual(tileCounts(page), ['2', '0', '1']);
+  const polled = apiCalls(page, '/api/runs').length;
+  await advance(20_000);
+  assert.equal(apiCalls(page, '/api/runs').length, polled, 'the poller stopped');
+});
+
+test('149 live run: a refused stream (429) polls every 3 s; the store reopens after 30 s and the next snapshot is live again', async () => {
+  const page = await startLive('#/run/feat-a/run-1', liveRoute((target, init) => (target === '/api/runs/feat-a/run-1' ? runReply() : standard(target, init)), () => errorReply(429, 'stream-limit')));
+  await advance(100);
+  const es = liveES();
+  assert.equal(es.url, `/api/live?ch=${encodeURIComponent(RUN_CH)}`);
+  es.fail(2);
+  await settle();
+  assert.equal(text(page.region), 'Push unavailable; polling every 3 seconds.');
+  assert.equal(apiCalls(page, '/api/runs/feat-a/run-1').length, 1, 'the first paint keeps its cadence: no extra GET when polling begins');
+  await advance(1000);
+  assert.deepEqual(pillOf(page), ['unknown', 'Polling \u00b7 Updated just now', 'Polling'], 'the shell\'s 1 s status tick names the mode');
+  await advance(2000);
+  assert.equal(apiCalls(page, '/api/runs/feat-a/run-1').length, 2, 'every 3 s');
+  assert.equal(FakeES.all.length, 1, 'no reopen before 30 s');
+  await advance(27_000);
+  const again = liveES();
+  assert.notEqual(again, es);
+  again.open();
+  again.emit('message', liveFrame(RUN_CH, 'snapshot', { state: { run: { status: 200, body: liveRunBody(7) } } }));
+  await settle();
+  assert.equal(text(page.region), 'Push restored.');
+  assert.match(text(page.main), /revision 7/);
+  assert.deepEqual(pillOf(page), ['done', 'Live \u00b7 last change just now', 'Live']);
+  const polled = apiCalls(page, '/api/runs/feat-a/run-1').length;
+  await advance(9000);
+  assert.equal(apiCalls(page, '/api/runs/feat-a/run-1').length, polled, 'no GET timer while live');
+  again.emit('message', liveFrame(RUN_CH, 'patch', { set: { '/run/body/run': { ...liveRunBody(8).run } }, unset: [] }));
+  await settle();
+  assert.match(text(page.main), /revision 8/, 'a patch reaches the run head');
+});
+
+test('149 live run: a member with an error status reaches the view as a failed GET does', async () => {
+  const page = await startLive('#/run/feat-a/nope', liveRoute((target, init) => (target === '/api/runs/feat-a/nope' ? new Promise<Reply>(() => {}) : standard(target, init))));
+  await advance(100);
+  const es = liveES();
+  es.open();
+  es.emit('message', liveFrame('run:feat-a:nope', 'snapshot', { state: { run: { status: 404, body: { error: { code: 'run-not-found', verb: null, exit: null } } } } }));
+  await settle();
+  assert.equal(text(page.main.querySelector('.state-panel__title')), 'This run is not in the record');
+  await advance(100);
+  assert.equal(es.closed, true, 'a final answer ends the view\'s subscription, so the store closes the stream');
+  await advance(20_000);
+  assert.equal(apiCalls(page, '/api/runs/feat-a/nope').length, 1, 'not retried');
+});
+
+test('149 live tasks: frames redraw the graph; an old core (503 live-unavailable) polls every 3 s and the view still renders', async () => {
+  const live = await startLive('#/run/feat-a/run-1/tasks', liveRoute(graphRoute(() => null)));
+  assert.match(text(live.main), /This run has no task plan/, 'the first paint');
+  await advance(100);
+  const es = liveES();
+  assert.equal(es.url, `/api/live?ch=${encodeURIComponent(RUN_CH)}`);
+  es.open();
+  es.emit('message', liveFrame(RUN_CH, 'snapshot', { state: { run: { status: 200, body: runBodyWith(frow('run-1', 3), [ev(60, 'start', null)], GRAPH_PLAN()) } } }));
+  await settle();
+  assert.ok(gcardOf(live, 'B.1'), 'the snapshot draws the graph');
+  assert.deepEqual(pillOf(live), ['done', 'Live \u00b7 last change just now', 'Live']);
+  await advance(9000);
+  assert.equal(apiCalls(live, '/api/runs/feat-a/run-1').length, 1, 'only the first paint');
+  uninstallPage();
+  mock.timers.reset();
+
+  const old = await startLive('#/run/feat-a/run-1/tasks', liveRoute(graphRoute(GRAPH_PLAN), () => errorReply(503, 'live-unavailable')));
+  await advance(100);
+  liveES().fail(2);
+  await settle();
+  assert.equal(text(old.region), 'Push unavailable; polling every 3 seconds.');
+  await advance(1000);
+  assert.deepEqual(pillOf(old), ['unknown', 'Polling \u00b7 Updated just now', 'Polling']);
+  assert.ok(gcardOf(old, 'B.1'), 'the polled body draws the same graph');
+  assert.equal(old.main.querySelector('.state-panel__title'), null, 'no error page: the Console keeps working');
+});
+
+test('149 live sessions: without EventSource it polls every 10 s from the start, as before, and says so', async () => {
+  const page = await startLive('#/sessions', liveRoute(sessionsRoute(() => sessionsBody())), 'absent');
+  assert.equal(apiCalls(page, '/api/sessions').length, 1);
+  await advance(100);
+  assert.equal(FakeES.all.length, 0, 'nothing is opened');
+  assert.equal(text(page.region), 'Push unavailable; polling every 10 seconds.');
+  await advance(1000);
+  assert.deepEqual(pillOf(page), ['unknown', 'Polling \u00b7 Updated just now', 'Polling']);
+  assert.equal(apiCalls(page, '/api/sessions').length, 1);
+  await advance(9000);
+  assert.equal(apiCalls(page, '/api/sessions').length, 2, 'the poll cadence of before');
+  assert.equal(apiCalls(page, '/api/live').length, 0, 'no probe either');
+});
+
+test('149 live sessions: a channel error polls every 10 s; the next snapshot on the same stream is live again', async () => {
+  const page = await startLive('#/sessions', liveRoute(sessionsRoute(() => sessionsBody())));
+  await advance(100);
+  const es = liveES();
+  es.open();
+  es.emit('message', liveFrame('now', 'snapshot', nowState(RUNS, BUSY())));
+  await settle();
+  assert.match(text(page.main), /build/, 'the member draws the slot');
+  assert.deepEqual(pillOf(page), ['done', 'Live \u00b7 last change just now', 'Live']);
+  await advance(6000);
+  es.emit('message', liveFrame('now', 'patch', { set: { '/runs/body/unreadableCount': 3 }, unset: [] }));
+  await settle();
+  await advance(1000);
+  assert.deepEqual(pillOf(page), ['done', 'Live \u00b7 last change 6 s ago', 'Live'], 'a patch of another member is no change of this view');
+  es.emit('message', liveFrame('now', 'error', { code: 'events-down' }));
+  await settle();
+  assert.equal(text(page.region), 'Push unavailable; polling every 10 seconds.');
+  assert.equal(apiCalls(page, '/api/sessions').length, 2, 'polling starts with a GET at once');
+  assert.deepEqual(pillOf(page), ['unknown', 'Polling \u00b7 Updated just now', 'Polling']);
+  await advance(10_000);
+  assert.equal(apiCalls(page, '/api/sessions').length, 3);
+  es.emit('message', liveFrame('now', 'snapshot', nowState(RUNS, BUSY())));
+  await settle();
+  assert.equal(text(page.region), 'Push restored.');
+  assert.deepEqual(pillOf(page), ['done', 'Live \u00b7 last change just now', 'Live']);
+  await advance(30_000);
+  assert.equal(apiCalls(page, '/api/sessions').length, 3, 'the poller stopped');
+});
+
+test('149 live runs: pause closes the stream and nothing is applied; resume reopens with since and reads once', async () => {
+  const page = await startLive('#/', liveRoute(standard));
+  await advance(100);
+  const es = liveES();
+  es.open();
+  es.emit('message', liveFrame('now', 'snapshot', nowState(RUNS_TWO_WAIT)));
+  es.emit('message', liveFrame('now', 'patch', { set: { '/runs/body/unreadableCount': 1 }, unset: [] }));
+  await settle();
+  page.pause.fire('click');
+  assert.equal(page.pause.getAttribute('aria-pressed'), 'true');
+  assert.equal(es.closed, true, 'the pause closes the stream');
+  es.emit('message', liveFrame('now', 'patch', { set: { '/runs/body/runs': [] }, unset: [] }));
+  await settle();
+  assert.deepEqual(tileCounts(page), ['2', '0', '1'], 'nothing is applied while paused');
+  assert.equal(pillOf(page)[2], 'Paused');
+  await advance(60_000);
+  assert.equal(FakeES.all.length, 1, 'nothing reopens while paused');
+  assert.equal(apiCalls(page, '/api/runs').length, 1);
+  page.pause.fire('click');
+  const again = liveES();
+  assert.notEqual(again, es);
+  assert.equal(again.url, `/api/live?ch=now&since=${encodeURIComponent(`${LIVE_EPOCH}/now=2`)}`);
+  await settle();
+  assert.equal(apiCalls(page, '/api/runs').length, 2, 'one read on resume, as a polled view refetches in full');
+  await advance(2000);
+  assert.equal(text(page.region), 'Reconnected. The view was refreshed in full.');
+  again.open();
+  await advance(30_000);
+  assert.equal(apiCalls(page, '/api/runs').length, 2, 'and no GET timer after it');
+  assert.deepEqual(pillOf(page)[0], 'done');
+});
+
+// ---- feature 149 C.4: the client acceptance scenarios (requirement.md :236-275) -----------------------------------------
+// Views off polling, Resume without loss, Old core and Hidden tab and pause run end to end over the page, a fresh web root
+// and FakeES. "Equal to a fresh GET": the live page is taken down and the Console boots again at the same mock time over the
+// same scripted fetch with no EventSource, so its #main is painted from the view's GET reply of that moment; the text and the
+// element tree of both #main must be equal. "Shown once": the re-mounts of `.view-body` are counted (app.js paint mounts it
+// once per changed paint key), so a change applied twice, or an older state replayed over a newer one, mounts again. The
+// Adapter seam case drives the view connector (VIEWS.run.connect, live-view.js) over store.js, once with a fake adapter and
+// once with live.js over FakeES, and compares what reaches the view.
+
+/** A frame at position `n` of the live epoch: a snapshot on subscribe is sent at the channel's current position (IC-013). */
+const frameAt = (n: number, ch: string, type: string, data: any) => ({ v: 1, ch, id: `${LIVE_EPOCH}-${n}`, type, at: new Date(Date.now()).toISOString(), data });
+const c4Patch = (n: number, ch: string, set: Record<string, any>) => frameAt(n, ch, 'patch', { set, unset: [] });
+const mainView = (page: Page) => ({ text: text(page.main), tags: tags(page.main) });
+const setHidden = (page: Page, hidden: boolean) => { page.doc.hidden = hidden; for (const fn of page.doc.listeners.get('visibilitychange') ?? []) fn({ type: 'visibilitychange' }); };
+type Route = (target: string, init: any) => Reply | Promise<Reply>;
+
+/** Counts the re-mounts of the view body from now on. */
+function bodyMounts(page: Page): { n: number } {
+  const host = page.main.querySelector('.view-body');
+  assert.ok(host, 'the view body is mounted');
+  const count = { n: 0 };
+  const replace = host.replaceChildren.bind(host);
+  host.replaceChildren = (...nodes: any[]) => { count.n += 1; replace(...nodes); };
+  return count;
+}
+
+/** What a fresh GET of the view shows now: the Console booted again at this mock time over `route`, without EventSource. */
+async function freshGetView(hash: string, route: Route, getPath: string) {
+  const at = Date.now();
+  uninstallPage();
+  mock.timers.reset();
+  mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: at });
+  FakeES.all = [];
+  const page = installPage({ hash, fetch: route, eventSource: undefined });
+  imports += 1;
+  await import(`${pathToFileURL(path.join(freshWeb(), 'app.js')).href}?run=${imports}`);
+  await settle();
+  assert.equal(apiCalls(page, getPath).length, 1, 'the reference is painted from one GET of the view route');
+  return mainView(page);
+}
+
+/** One change on the server at `at` ms after the stream is up: `make()` changes the server's body and returns the patch's `set`. */
+type Change = { at: number, make: () => Record<string, any> };
+
+/** Views off polling (FR-017, NFR-008): the view goes live, the changes are made over 60 s of fake time, and the verb calls are counted. */
+async function offPolling(hash: string, route: Route, getPath: string, channel: string, state: () => any, changes: Change[]) {
+  const page = await startLive(hash, liveRoute(route));
+  const booted = page.calls.length;
+  assert.equal(apiCalls(page, getPath).length, 1, 'the first paint is one GET of the view route');
+  await advance(100);
+  const es = liveES();
+  es.open();
+  let n = 1;
+  es.emit('message', frameAt(n, channel, 'snapshot', { state: state() }));
+  await settle();
+  const first = mainView(page);
+  let elapsed = 0;
+  for (const change of changes) {
+    await advance(change.at - elapsed);
+    elapsed = change.at;
+    n += 1;
+    es.emit('message', c4Patch(n, channel, change.make()));
+    await settle();
+  }
+  await advance(60_000 - elapsed);
+  assert.deepEqual(page.calls.slice(booted).map((c) => c.url), [], '60 s live: no GET of the view route, no heartbeat, no probe');
+  assert.equal(apiCalls(page, getPath).length, 1, 'only the first-paint GET');
+  assert.equal(FakeES.all.length, 1, 'one stream, never reopened');
+  assert.equal(es.closed, false);
+  assert.equal(pillOf(page)[0], 'done');
+  assert.match(pillOf(page)[1] as string, /^Live \u00b7 last change /);
+  const end = mainView(page);
+  assert.notDeepEqual(end, first, 'the patches reached the view');
+  assert.deepEqual(end, await freshGetView(hash, route, getPath), 'the view equals a fresh GET read at the end');
+}
+
+test('149 C.4 Views off polling: Now (Runs) live for 60 s makes only its first-paint GET and ends equal to a fresh GET', async () => {
+  let runs: any = RUNS;
+  await offPolling('#/', homeFetch(() => runs), '/api/runs', 'now', () => nowState(runs).state, [
+    { at: 10_000, make: () => { runs = { ...runs, runs: RUNS_TWO_WAIT.runs }; return { '/runs/body/runs': runs.runs }; } },
+    { at: 30_000, make: () => ({ '/sessions/body/limits/runsInspected': 3 }) }, // another member: not this view's GET
+    { at: 50_000, make: () => { runs = { ...runs, unreadableCount: 1 }; return { '/runs/body/unreadableCount': 1 }; } },
+  ]);
+});
+
+test('149 C.4 Views off polling: Run live for 60 s makes only its first-paint GET and ends equal to a fresh GET', async () => {
+  let server: any = null;
+  const current = () => (server ??= runBodyWith(frow('run-1', 2), [ev(60, 'start', null), ev(50, 'complete-stage', 'discovery', { outcome: 'passed' }), ev(40, 'decide-gate', 'gate-0', { decision: 'approve' })]));
+  await offPolling('#/run/feat-a/run-1', runRoute(current), '/api/runs/feat-a/run-1', RUN_CH, () => ({ run: { status: 200, body: current() } }), [
+    { at: 10_000, make: () => { server = { ...server, run: frow('run-1', 3) }; return { '/run/body/run': server.run }; } },
+    { at: 30_000, make: () => {
+      const events = [...server.timeline.events, ev(0, 'complete-stage', 'design', { outcome: 'passed' })];
+      server = { ...server, timeline: { ...server.timeline, events } };
+      return { '/run/body/timeline/events': events };
+    } },
+    { at: 50_000, make: () => { server = { ...server, timeline: { ...server.timeline, revision: 3 } }; return { '/run/body/timeline/revision': 3 }; } },
+  ]);
+});
+
+test('149 C.4 Views off polling: Tasks live for 60 s makes only its first-paint GET and ends equal to a fresh GET', async () => {
+  let server: any = null;
+  const current = () => (server ??= runBodyWith(frow('run-1', 3), [ev(60, 'start', null)], GRAPH_PLAN()));
+  await offPolling('#/run/feat-a/run-1/tasks', runRoute(current), '/api/runs/feat-a/run-1', RUN_CH, () => ({ run: { status: 200, body: current() } }), [
+    { at: 20_000, make: () => {
+      const rows = server.tasks.tasks.map((t: any) => (t.id === 'A.1' ? gstate('A.1', 'SUCCEEDED', 'completed', att(1, 'worker-a', 'finished', 50, { result: 'COMPLETED', endedAt: agoIso(0) })) : t));
+      server = { ...server, tasks: { ...server.tasks, tasks: rows } };
+      return { '/run/body/tasks/tasks': rows };
+    } },
+    { at: 40_000, make: () => { server = { ...server, run: { ...server.run, revision: 2 } }; return { '/run/body/run/revision': 2 }; } },
+  ]);
+});
+
+test('149 C.4 Views off polling: Sessions live for 60 s makes only its first-paint GET and ends equal to a fresh GET', async () => {
+  let server: any = null;
+  const current = () => (server ??= BUSY());
+  await offPolling('#/sessions', sessionsRoute(current), '/api/sessions', 'now', () => nowState(RUNS, current()).state, [
+    { at: 20_000, make: () => {
+      const slots = sOk({ v: 1, slots: [], unreadable: 0 });
+      server = { ...server, sections: { ...server.sections, slots } };
+      return { '/sessions/body/sections/slots': slots };
+    } },
+    { at: 40_000, make: () => ({ '/runs/body/unreadableCount': 4 }) }, // another member: not this view's GET
+  ]);
+});
+
+test('149 C.4 Resume without loss: a dropped Run view reopens with since, shows each of two steps once, and equals GET /api/runs/<slug>/<task>', async () => {
+  const GET = '/api/runs/feat-a/run-1';
+  let server: any = null;
+  const current = () => (server ??= runBodyWith(frow('run-1', 2), [ev(60, 'start', null), ev(50, 'complete-stage', 'discovery', { outcome: 'passed' }), ev(40, 'decide-gate', 'gate-0', { decision: 'approve' })]));
+  const route = runRoute(current);
+  const page = await startLive('#/run/feat-a/run-1', liveRoute(route, () => reply(500)));
+  await advance(100);
+  const es = liveES();
+  es.open();
+  es.emit('message', frameAt(1, RUN_CH, 'snapshot', { state: { run: { status: 200, body: current() } } }));
+  server = { ...server, timeline: { ...server.timeline, revision: 3 } };
+  es.emit('message', c4Patch(2, RUN_CH, { '/run/body/timeline/revision': 3 }));
+  await settle();
+  const items = () => page.main.querySelectorAll('.tl-item').map((li: El) => text(li.querySelector('.tl-item__words')));
+  const before = items();
+  assert.equal(before.length, 3, 'applied up to id 2: three events');
+  assert.equal(pillOf(page)[2], 'Live');
+  const mounts = bodyMounts(page);
+
+  es.fail(2); // the connection drops and the browser gives up (CLOSED); the probe answers 500, so the store reopens after 5 s
+  await settle();
+  assert.equal(apiCalls(page, '/api/live').length, 1, 'one probe');
+  assert.equal(text(page.region), 'Push unavailable; polling every 3 seconds.');
+  await advance(3500); // the polls at once and at 3 s read the state before the steps
+  assert.equal(apiCalls(page, GET).length, 3);
+  // The run takes two steps; the hub's patches for them go to the dropped source.
+  const step = (cursor: number, node: string) => {
+    server = { ...server, run: frow('run-1', cursor), timeline: { ...server.timeline, events: [...server.timeline.events, ev(0, 'complete-stage', node, { outcome: 'passed' })] } };
+    return { '/run/body/run': server.run, '/run/body/timeline/events': server.timeline.events };
+  };
+  const step1 = c4Patch(3, RUN_CH, step(3, 'design'));
+  const step2 = c4Patch(4, RUN_CH, step(4, 'planning'));
+  es.emit('message', step1);
+  es.emit('message', step2);
+  await settle();
+  assert.deepEqual(items(), before, 'nothing of the dropped source is applied');
+  assert.equal(mounts.n, 0);
+
+  await advance(1500); // 5 s after the drop
+  const again = liveES();
+  assert.notEqual(again, es, 'the store reopened');
+  assert.equal(again.url, `/api/live?ch=${encodeURIComponent(RUN_CH)}&since=${encodeURIComponent(`${LIVE_EPOCH}/${RUN_CH}=2`)}`, 'since names the last applied id');
+  again.open();
+  // The position differs: one snapshot at the current position, then the two step patches replayed (as a resend would).
+  again.emit('message', frameAt(4, RUN_CH, 'snapshot', { state: { run: { status: 200, body: server } } }));
+  again.emit('message', step1);
+  again.emit('message', step2);
+  await settle();
+  assert.equal(mounts.n, 1, 'the two steps arrive in one paint; the replayed patches change nothing');
+  const after = items();
+  assert.equal(after.length, 5);
+  assert.deepEqual(after.slice(2), before, 'the earlier events stay');
+  for (const [i, li] of page.main.querySelectorAll('.tl-item').entries()) {
+    assert.equal(li.getAttribute('data-changed'), i < 2 ? 'true' : null, `item ${i}: only the two steps are new`);
+  }
+  for (const word of after.slice(0, 2)) assert.equal(after.filter((w) => w === word).length, 1, `${word}: shown once`);
+  assert.notEqual(after[0], after[1]);
+  assert.equal(text(page.region), 'Push restored.');
+  await advance(9000);
+  assert.equal(apiCalls(page, GET).length, 3, 'no GET timer after the resume');
+  assert.equal(mounts.n, 1);
+  assert.deepEqual(mainView(page), await freshGetView('#/run/feat-a/run-1', route, GET), 'the view equals a fresh GET body');
+});
+
+test('149 C.4 Old core: /api/live answers 503 live-unavailable, so Now loads and updates by polling every 5 s and the pill reads Polling', async () => {
+  let runs: any = RUNS;
+  const page = await startLive('#/', liveRoute(homeFetch(() => runs), () => errorReply(503, 'live-unavailable')));
+  assert.deepEqual(tileCounts(page), ['1', '2', '2'], 'Now loads from its GET');
+  await advance(100);
+  const es = liveES();
+  assert.equal(es.url, '/api/live?ch=now');
+  es.fail(2); // the stream's reply is the 503: the browser gives up at once
+  await settle();
+  assert.equal(apiCalls(page, '/api/live').length, 1, 'one probe names the old core');
+  assert.equal(text(page.region), 'Push unavailable; polling every 5 seconds.');
+  await advance(900);
+  assert.deepEqual(pillOf(page), ['unknown', 'Polling \u00b7 Updated just now', 'Polling']);
+  runs = RUNS_TWO_WAIT;
+  await advance(4000); // 5 s after the first paint
+  assert.equal(apiCalls(page, '/api/runs').length, 2);
+  assert.deepEqual(tileCounts(page), ['2', '0', '1'], 'and updates by polling');
+  assert.deepEqual(pillOf(page), ['unknown', 'Polling \u00b7 Updated just now', 'Polling']);
+  await advance(25_100); // 30 s after `unsupported` the store tries the stream again
+  const again = liveES();
+  assert.notEqual(again, es);
+  again.fail(2);
+  await settle();
+  assert.equal(apiCalls(page, '/api/live').length, 2);
+  await advance(4900);
+  assert.equal(apiCalls(page, '/api/runs').length, 8, 'one read every 5 s throughout: 0, 5, ..., 35 s');
+  assert.equal(FakeES.all.length, 2);
+  assert.deepEqual(pillOf(page), ['unknown', 'Polling \u00b7 Updated just now', 'Polling']);
+});
+
+const AFTER_TWO = { ...RUNS, runs: [row('COMPLETED', 'r1'), row('AWAITING_GATE', 'r2'), row('RUNNING', 'r3'), row('COMPLETED', 'r4'), row('REJECTED', 'r5')] };
+const titlesOf = (page: Page) => [...rowsOf(page).map(linkText), ...cardsOf(page).map(cardId)];
+
+/** Hidden tab and pause (FR-019): Now is live, the person goes away for 60 s while two runs change, then comes back. */
+async function awayWhileTwoRunsChange(how: 'hidden' | 'paused') {
+  let runs: any = RUNS;
+  const route = homeFetch(() => runs);
+  const page = await startLive('#/', liveRoute(route));
+  await advance(100);
+  const es = liveES();
+  es.open();
+  es.emit('message', frameAt(1, 'now', 'snapshot', nowState(RUNS)));
+  await settle();
+  assert.deepEqual(tileCounts(page), ['1', '2', '2']);
+  const before = mainView(page);
+  const mounts = bodyMounts(page);
+  const calls = page.calls.length;
+  if (how === 'hidden') setHidden(page, true);
+  else page.pause.fire('click');
+  assert.equal(es.closed, true, 'the stream is closed while away');
+  if (how === 'paused') assert.equal(pillOf(page)[2], 'Paused');
+  await advance(20_000);
+  runs = { ...RUNS, runs: [AFTER_TWO.runs[0], ...RUNS.runs.slice(1)] };
+  es.emit('message', c4Patch(2, 'now', { '/runs/body/runs': runs.runs }));
+  await advance(20_000);
+  runs = AFTER_TWO;
+  es.emit('message', c4Patch(3, 'now', { '/runs/body/runs': runs.runs }));
+  await advance(20_000);
+  assert.deepEqual(mainView(page), before, 'nothing changes in the view while away');
+  assert.equal(mounts.n, 0);
+  assert.deepEqual(page.calls.slice(calls).map((c) => c.url), [], 'no GET and no probe while away');
+  assert.equal(FakeES.all.length, 1, 'nothing reopens while away');
+  if (how === 'hidden') setHidden(page, false);
+  else page.pause.fire('click');
+  const again = liveES();
+  assert.notEqual(again, es);
+  assert.equal(again.url, `/api/live?ch=now&since=${encodeURIComponent(`${LIVE_EPOCH}/now=1`)}`, 'the reopen names the last applied position');
+  await settle();
+  assert.equal(apiCalls(page, '/api/runs').length, 2, 'one GET on return');
+  again.open();
+  again.emit('message', frameAt(3, 'now', 'snapshot', nowState(runs))); // the position moved: one snapshot at the current one
+  await settle();
+  await advance(2000);
+  assert.deepEqual(tileCounts(page), ['1', '1', '3'], 'both changes show');
+  assert.equal(mounts.n, 1, 'the GET on return and the snapshot show them in one paint');
+  for (const title of ['feat-a / r1', 'feat-a / r2']) assert.equal(titlesOf(page).filter((t) => t === title).length, 1, `${title}: shown once`);
+  assert.deepEqual(cardsOf(page).map(cardId), ['feat-a / r2'], 'r2 now waits');
+  assert.equal(text(page.region), 'Reconnected. The view was refreshed in full.');
+  assert.equal(pillOf(page)[2], 'Live');
+  await advance(30_000);
+  assert.equal(apiCalls(page, '/api/runs').length, 2, 'no GET timer after the return');
+  assert.equal(mounts.n, 1);
+  assert.deepEqual(mainView(page), await freshGetView('#/', route, '/api/runs'), 'the view equals a fresh GET');
+}
+
+test('149 C.4 Hidden tab and pause: a tab hidden for 60 s closes the stream, applies nothing, and on return shows both changes once', async () => {
+  await awayWhileTwoRunsChange('hidden');
+});
+
+test('149 C.4 Hidden tab and pause: a 60 s pause closes the stream, applies nothing, and on resume shows both changes once', async () => {
+  await awayWhileTwoRunsChange('paused');
+});
+
+test('149 C.4 Adapter seam: a fake adapter (open, close, onFrame, onState) drives the Run view connector as live.js over EventSource does', async () => {
+  epoch += 10_000_000;
+  mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: epoch });
+  installPage({ fetch: standard }); // poll.js and notices.js read the page's document
+  const root = freshWeb();
+  const load = (name: string) => import(pathToFileURL(path.join(root, name)).href);
+  const views = await load('views.js');
+  const storeMod = await load('store.js');
+  const liveMod = await load('live.js');
+  const visible = { hidden: () => false, subscribe: () => () => {} };
+  const missing = { error: { code: 'run-not-found', verb: null, exit: null } };
+  const body7 = liveRunBody(7);
+  const frames = [
+    frameAt(1, RUN_CH, 'snapshot', { state: { run: { status: 200, body: body7 } } }),
+    frameAt(1, 'now', 'snapshot', nowState(RUNS)), // a channel the view does not follow
+    c4Patch(2, RUN_CH, { '/run/body/run/revision': 8 }),
+    c4Patch(2, RUN_CH, { '/run/body/run/revision': 99 }), // not after the applied position: dropped
+    c4Patch(3, RUN_CH, { '/run': { status: 404, body: missing } }),
+  ];
+
+  async function drive(viaEventSource: boolean) {
+    const seen: any[] = [];
+    const opened: any[] = [];
+    let frame: (envelope: any) => void = () => {};
+    let state: (event: any) => void = () => {};
+    const adapter = viaEventSource
+      ? liveMod.createLiveAdapter({ EventSource: FakeES, probe: async () => ({ status: 500, code: null }) })
+      : {
+        open: (channels: string[], since: string | null) => { opened.push({ channels, since }); },
+        close: () => { opened.push('close'); },
+        onFrame: (listener: (envelope: any) => void) => { frame = listener; },
+        onState: (listener: (event: any) => void) => { state = listener; },
+      };
+    FakeES.all = [];
+    const store = storeMod.createLiveStore({ adapter, visibility: visible });
+    const view = views.VIEWS.run.connect({}, { slug: 'feat-a', taskId: 'run-1' }, {
+      fetchJson: async () => { throw new Error('the run view does not wrap its member'); },
+      onData: (data: any) => { seen.push(['data', data]); },
+      onFailure: (error: any) => { seen.push(['failure', error]); },
+      store: () => store,
+      fetchOnce: () => new Promise(() => {}), // the first-paint GET never answers: only the live path reaches the view
+    });
+    view.start();
+    await advance(100);
+    if (viaEventSource) {
+      assert.equal(FakeES.all.length, 1);
+      const es = FakeES.all[0];
+      opened.push({ url: es.url });
+      es.open();
+      for (const envelope of frames) es.emit('message', envelope);
+    } else {
+      state({ state: 'connecting', code: null, at: Date.now() });
+      state({ state: 'open', code: null, at: Date.now() });
+      for (const envelope of frames) frame(structuredClone(envelope));
+    }
+    await settle();
+    seen.push(['mode', view.mode]);
+    const result = { seen, opened: [...opened] };
+    view.stop();
+    return result;
+  }
+
+  const fake = await drive(false);
+  const sse = await drive(true);
+  assert.deepEqual(fake.opened, [{ channels: [RUN_CH], since: null }], 'the store opens the fake adapter on the view channel');
+  assert.deepEqual(sse.opened, [{ url: `/api/live?ch=${encodeURIComponent(RUN_CH)}` }]);
+  assert.deepEqual(fake.seen, [
+    ['data', body7],
+    ['data', { ...body7, run: { ...body7.run, revision: 8 } }],
+    ['failure', { status: 404, code: 'run-not-found', network: false }],
+    ['mode', 'live'],
+  ]);
+  assert.deepEqual(sse.seen, fake.seen, 'the view gets exactly the updates it gets over SSE');
+  for (const name of ['store.js', 'live-view.js', 'views.js', 'app.js']) {
+    assert.ok(!fs.readFileSync(path.join(WEB_ROOT, name), 'utf8').includes('EventSource'), `${name} does not reference EventSource`);
+  }
+});
+
+// ---- 149 D.2: the inspector hosts the Run rail detail, the Tasks panel, the Sessions lane panel and the Fleet transcript ----
+
+const inspectorOpen = (page: Page) => page.inspector.querySelector('.inspector__empty').getAttribute('hidden') === '';
+const closeInspector = (page: Page) => page.inspector.querySelector('.inspector__close').fire('click');
+
+test('D.2 Run rail: a second node keeps the inspector open on the new node; the inspector close closes it and the focus goes back to the node', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '#/run/feat-a/run-1', fetch: runRoute(() => runBody(frow('run-1', 2), WF_FEATURE, [ev(30, 'start', null)])) });
+  const buttons = () => page.main.querySelectorAll('.rail__node');
+  assert.equal(inspectorOpen(page), false);
+  buttons()[3].fire('click');
+  assert.equal(inspectorOpen(page), true);
+  assert.equal(text(page.inspector.querySelector('.inspector__title')), 'Step details');
+  assert.equal(page.main.querySelector('.rail-detail'), null, 'the detail is not mounted inline');
+  buttons()[4].fire('click');
+  assert.equal(inspectorOpen(page), true, 'the second selection keeps it open');
+  assert.equal(page.inspector.querySelectorAll('.rail-detail').length, 1);
+  assert.equal(text(page.inspector.querySelector('.rail-detail__title')), 'gate-a');
+  assert.equal(buttons()[3].getAttribute('aria-expanded'), 'false');
+  assert.equal(buttons()[4].getAttribute('aria-expanded'), 'true');
+  closeInspector(page);
+  assert.equal(inspectorOpen(page), false);
+  assert.equal(page.inspector.querySelector('.rail-detail'), null);
+  assert.equal(buttons()[4].getAttribute('aria-expanded'), 'false');
+  assert.ok(page.doc.activeElement === buttons()[4], 'the focus is on the node that was open');
+  buttons()[4].fire('click');
+  assert.equal(inspectorOpen(page), true, 'it opens again');
+});
+
+test('D.2 Tasks: a second task keeps the inspector open on the new task; the inspector close closes it and the focus goes back to the card', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '#/run/feat-a/run-1/tasks', fetch: graphRoute(GRAPH_PLAN) });
+  gcardOf(page, 'A.1').fire('click');
+  assert.equal(inspectorOpen(page), true);
+  assert.equal(text(page.inspector.querySelector('.inspector__title')), 'Task details');
+  assert.equal(page.main.querySelector('.graph__panel'), null, 'the panel is not mounted inline');
+  gcardOf(page, 'B.1').fire('click');
+  assert.equal(inspectorOpen(page), true, 'the second selection keeps it open');
+  assert.equal(text(page.inspector.querySelector('.graph__paneltitle')), 'B.1');
+  assert.equal(gcardOf(page, 'A.1').getAttribute('aria-expanded'), 'false');
+  assert.equal(gcardOf(page, 'B.1').getAttribute('aria-expanded'), 'true');
+  closeInspector(page);
+  assert.equal(inspectorOpen(page), false);
+  assert.equal(gcardOf(page, 'B.1').getAttribute('aria-expanded'), 'false');
+  assert.equal(page.main.querySelector('.graph').getAttribute('data-open'), 'false');
+  assert.ok(page.doc.activeElement === gcardOf(page, 'B.1'), 'the focus is on the card');
+  // A row of the lane list opens the same panel in the inspector.
+  growOf(page, 'A.2').fire('click');
+  assert.equal(text(page.inspector.querySelector('.graph__paneltitle')), 'A.2');
+  growOf(page, 'A.2').fire('click');
+  assert.equal(inspectorOpen(page), false, 'the same row again closes it');
+});
+
+test('D.2 Sessions: a second lane keeps the inspector open on the new lane; the inspector close closes it and the focus goes back to the lane', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '#/sessions', fetch: sessionsRoute(BUSY) });
+  const keys: string[] = page.main.querySelectorAll('.slane').map((l: El) => String(l.getAttribute('data-lane-key')));
+  const [a, b] = keys;
+  assert.ok(a && b && a !== b, 'two lanes');
+  slaneOf(page, a).fire('click');
+  assert.equal(inspectorOpen(page), true);
+  assert.equal(text(page.inspector.querySelector('.inspector__title')), 'Lane details');
+  assert.equal(page.main.querySelector('.spanel'), null, 'the panel is not mounted inline');
+  const firstTitle = text(page.inspector.querySelector('.spanel__title'));
+  slaneOf(page, b).fire('click');
+  assert.equal(inspectorOpen(page), true, 'the second selection keeps it open');
+  assert.equal(page.inspector.querySelectorAll('.spanel').length, 1);
+  assert.notEqual(text(page.inspector.querySelector('.spanel__title')), firstTitle);
+  assert.equal(slaneOf(page, a).getAttribute('aria-expanded'), 'false');
+  assert.equal(slaneOf(page, b).getAttribute('aria-expanded'), 'true');
+  closeInspector(page);
+  assert.equal(inspectorOpen(page), false);
+  assert.equal(slaneOf(page, b).getAttribute('aria-expanded'), 'false');
+  assert.equal(page.main.querySelector('.sessions').getAttribute('data-open'), 'false');
+  assert.equal(page.doc.activeElement.getAttribute('data-focus-key'), `lane:${b}`);
+});
+
+test('D.2 Fleet: a second agent keeps the inspector open on its transcript; the inspector close goes back to the project route', async () => {
+  const page = await startFleet(`#/fleet/${P1}`);
+  const first = esOf(`project=${P1}`);
+  first.open();
+  first.emit('snapshot', FLEET_TWO());
+  await settle();
+  assert.equal(inspectorOpen(page), false);
+  page.location.hash = `#/fleet/${P1}/${A_SUB}`;
+  page.win.dispatch('hashchange');
+  await settle();
+  assert.equal(inspectorOpen(page), true);
+  assert.equal(text(page.inspector.querySelector('.inspector__title')), 'Agent transcript');
+  assert.equal(page.main.querySelector('.fpanel'), null, 'the transcript is not mounted inline');
+  const panel = page.inspector.querySelector('.fpanel');
+  assert.equal(text(panel.querySelector('.fpanel__title')), 'system-architect');
+  page.location.hash = `#/fleet/${P1}/${A_MAIN}`;
+  page.win.dispatch('hashchange');
+  await settle();
+  assert.equal(inspectorOpen(page), true, 'the second selection keeps it open');
+  assert.equal(page.inspector.querySelector('.fpanel'), panel, 'the same panel, retargeted');
+  assert.notEqual(text(panel.querySelector('.fpanel__title')), 'system-architect');
+  assert.equal(esOf(`agent=${A_MAIN}`).url, `/api/stream?project=${P1}&agent=${A_MAIN}`, 'the stream follows the new agent');
+  assert.equal(treeItem(page, A_MAIN).getAttribute('aria-selected'), 'true');
+  closeInspector(page);
+  assert.equal(page.location.hash, `#/fleet/${P1}`, 'closing goes back to the project');
+  page.win.dispatch('hashchange');
+  await settle();
+  assert.equal(inspectorOpen(page), false);
+  assert.equal(page.inspector.querySelector('.fpanel'), null);
+  assert.equal(treeItem(page, A_MAIN).getAttribute('aria-selected'), 'false');
+});
+
+// ---- 149 D.3: hash permalinks (IC-019, DEC-034) ----
+
+const callsSince = (page: Page, from: number, prefix: string) => page.calls.slice(from).filter((c) => c.url.startsWith(prefix)).length;
+
+test('D.3 grammar: parseRoute names the selection of Run, Tasks and Sessions; hashFor is its inverse; a lane with an absent part has no hash', () => {
+  const { parseRoute, hashFor, VIEWS } = mods.views;
+  const run = parseRoute('#/run/feat-a/run-1/stage/planning');
+  assert.equal(run.id, 'run');
+  assert.deepEqual(run.params, { slug: 'feat-a', taskId: 'run-1' });
+  assert.deepEqual(run.sel, { type: 'stage', id: 'planning' });
+  assert.deepEqual(parseRoute('#/run/feat-a/run-1/gate/gate-a').sel, { type: 'gate', id: 'gate-a' });
+  const tasks = parseRoute('#/run/feat-a/run-1/tasks/A.1');
+  assert.equal(tasks.id, 'tasks');
+  assert.equal(tasks.task, 'A.1');
+  assert.equal(tasks.view, VIEWS.tasks);
+  const lanes: Array<[string, string]> = [
+    [`#/sessions/hook/${sk(101)}`, `hook:${sk(101)}`],
+    [`#/sessions/launched/${sk(102)}`, `launched:${sk(102)}`],
+    ['#/sessions/lock/build', 'lock:build'],
+    ['#/sessions/worker/feat-a/A.1/3', 'worker:feat-a/A.1/3'],
+    [`#/sessions/run/${sk(1)}/run-two/lin2`, `run:${sk(1)}/run-two/lin2`],
+  ];
+  for (const [hash, lane] of lanes) {
+    const route = parseRoute(hash);
+    assert.equal(route.id, 'sessions', hash);
+    assert.equal(route.lane, lane, hash);
+    assert.equal(hashFor(route), hash, `${hash} round trips`);
+  }
+  // Fleet keeps its params; routes without a selection carry no selection field.
+  assert.deepEqual(parseRoute(`#/fleet/${sk(7)}/${sk(8)}`).params, { project: sk(7), agent: sk(8) });
+  assert.equal('sel' in parseRoute('#/run/feat-a/run-1'), false);
+  assert.equal('task' in parseRoute('#/run/feat-a/run-1/tasks'), false);
+  assert.equal('lane' in parseRoute('#/sessions'), false);
+  // The round trip: parseRoute(hashFor(r)) equals r for every route hashFor gives a hash for.
+  const hashes = ['#/', '#/workflows', '#/sessions', '#/fleet', `#/fleet/${sk(7)}`, `#/fleet/${sk(7)}/${sk(8)}`, '#/run/feat-a/run-1', '#/run/feat-a/run-1/tasks',
+    '#/run/feat-a/run-1/tasks/A.1', '#/run/feat-a/run-1/stage/design', '#/run/feat-a/run-1/gate/gate-0', ...lanes.map(([hash]) => hash)];
+  for (const hash of hashes) {
+    const route = parseRoute(hash);
+    assert.notEqual(route.id, 'not-found', hash);
+    assert.equal(hashFor(route), hash, hash);
+    assert.deepEqual(parseRoute(hashFor(route)), route, hash);
+  }
+  // DEC-034: a lane key with an absent part has no hash; nor has a key failing its pattern, nor Not found.
+  for (const lane of ['run:-/run-two/lin2', `run:${sk(1)}/-/lin2`, 'run:-/-/-', 'hook:-', 'worker:feat-a/A.1/0', 'lock:-x', 'other:x']) {
+    assert.equal(hashFor({ id: 'sessions', params: {}, view: VIEWS.sessions, lane }), null, lane);
+  }
+  assert.equal(hashFor({ id: 'run', params: { slug: 'feat-a', taskId: 'run-1' }, view: VIEWS.run, sel: { type: 'node', id: 'x' } }), null);
+  assert.equal(hashFor(parseRoute('#/nope')), null);
+  // A selection segment failing its pattern is Not found.
+  for (const bad of ['#/run/a/b/stage/-x', '#/run/a/b/gate', '#/run/a/b/stage/x/y', '#/run/a/b/tasks/.x', '#/run/a/b/tasks/A.1/x', '#/run/a/b/node/x',
+    '#/sessions/hook/XYZ', `#/sessions/hook/${sk(1)}/x`, '#/sessions/run/-/a/b', `#/sessions/run/${sk(1)}/-/b`, '#/sessions/worker/a/b/0', '#/sessions/worker/a/b',
+    '#/sessions/lock/', '#/sessions/other/x']) {
+    assert.equal(parseRoute(bad).id, 'not-found', bad);
+  }
+});
+
+test('D.3 a failing selection segment is Not found with no fetch', async () => {
+  const page = await start({ hash: '#/run/feat-a/run-1/stage/-x', fetch: runRoute(() => runBody(frow('run-1', 2), WF_FEATURE, [ev(30, 'start', null)])) });
+  assert.equal(text(heading(page)), 'Not found');
+  assert.equal(callsSince(page, 0, '/api/runs'), 0, 'no fetch for the run');
+  const before = page.calls.length;
+  page.location.hash = '#/sessions/run/-/run-two/lin2';
+  page.win.dispatch('hashchange');
+  await settle();
+  assert.equal(text(heading(page)), 'Not found');
+  assert.equal(callsSince(page, before, '/api/sessions'), 0, 'no fetch for the sessions');
+  assert.equal(inspectorOpen(page), false);
+});
+
+test('D.3 Run: selecting a node sets the hash; a hash change in the run reroutes without a re-mount; closing removes the segment', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '#/run/feat-a/run-1', fetch: runRoute(() => runBody(frow('run-1', 2), WF_FEATURE, [ev(30, 'start', null)])) });
+  const buttons = () => page.main.querySelectorAll('.rail__node');
+  const h1 = heading(page);
+  buttons()[4].fire('click');
+  assert.equal(page.location.hash, '#/run/feat-a/run-1/gate/gate-a');
+  assert.equal(inspectorOpen(page), true);
+  const before = page.calls.length;
+  page.win.dispatch('hashchange'); // the hash the view wrote: nothing to do
+  assert.equal(heading(page), h1, 'no re-mount');
+  assert.equal(inspectorOpen(page), true);
+  // Back, or a typed hash, to another node of the same run.
+  page.location.hash = '#/run/feat-a/run-1/gate/gate-0';
+  page.win.dispatch('hashchange');
+  await settle();
+  assert.equal(heading(page), h1, 'no re-mount');
+  assert.equal(callsSince(page, before, '/api/runs'), 0, 'no new fetch');
+  assert.equal(text(page.inspector.querySelector('.rail-detail__title')), 'gate-0');
+  assert.equal(buttons()[1].getAttribute('aria-expanded'), 'true');
+  assert.equal(buttons()[4].getAttribute('aria-expanded'), 'false');
+  page.location.hash = '#/run/feat-a/run-1/stage/design';
+  page.win.dispatch('hashchange');
+  assert.equal(buttons()[2].getAttribute('aria-expanded'), 'true');
+  // No selection in the route: the inspector is closed.
+  page.location.hash = '#/run/feat-a/run-1';
+  page.win.dispatch('hashchange');
+  assert.equal(heading(page), h1, 'no re-mount');
+  assert.equal(inspectorOpen(page), false);
+  assert.equal(buttons()[2].getAttribute('aria-expanded'), 'false');
+  // The inspector close removes the segment.
+  buttons()[3].fire('click');
+  assert.equal(page.location.hash, '#/run/feat-a/run-1/stage/planning');
+  closeInspector(page);
+  assert.equal(page.location.hash, '#/run/feat-a/run-1');
+  assert.equal(inspectorOpen(page), false);
+  // The same node again closes it and removes the segment too.
+  buttons()[3].fire('click');
+  buttons()[3].fire('click');
+  assert.equal(page.location.hash, '#/run/feat-a/run-1');
+  assert.equal(inspectorOpen(page), false);
+  // Another run is another base route: a re-mount.
+  page.location.hash = '#/run/feat-a/run-2/stage/design';
+  page.win.dispatch('hashchange');
+  assert.notEqual(heading(page), h1, 'another run re-mounts');
+  await settle();
+});
+
+test('D.3 reload restores the selection: a Run hash opens its node in the inspector, and a poll keeps it', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '#/run/feat-a/run-1/gate/gate-a', fetch: runRoute(() => runBody(frow('run-1', 2), WF_FEATURE, [ev(30, 'start', null)])) });
+  const buttons = () => page.main.querySelectorAll('.rail__node');
+  assert.equal(inspectorOpen(page), true);
+  assert.equal(text(page.inspector.querySelector('.rail-detail__title')), 'gate-a');
+  assert.equal(buttons()[4].getAttribute('aria-expanded'), 'true');
+  await advance(3_000);
+  assert.equal(inspectorOpen(page), true);
+  assert.equal(page.location.hash, '#/run/feat-a/run-1/gate/gate-a');
+});
+
+test('D.3 Tasks: selecting a task sets the hash; a hash change reroutes without a re-mount; reload restores it; closing removes the segment', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '#/run/feat-a/run-1/tasks/B.1', fetch: graphRoute(GRAPH_PLAN) });
+  assert.equal(inspectorOpen(page), true, 'reload restores the selection');
+  assert.equal(text(page.inspector.querySelector('.graph__paneltitle')), 'B.1');
+  assert.equal(gcardOf(page, 'B.1').getAttribute('aria-expanded'), 'true');
+  const graph = page.main.querySelector('.graph');
+  gcardOf(page, 'A.1').fire('click');
+  assert.equal(page.location.hash, '#/run/feat-a/run-1/tasks/A.1');
+  assert.equal(text(page.inspector.querySelector('.graph__paneltitle')), 'A.1');
+  const before = page.calls.length;
+  page.location.hash = '#/run/feat-a/run-1/tasks/A.2';
+  page.win.dispatch('hashchange');
+  await settle();
+  assert.equal(page.main.querySelector('.graph'), graph, 'no re-mount');
+  assert.equal(callsSince(page, before, '/api/runs'), 0, 'no new fetch');
+  assert.equal(text(page.inspector.querySelector('.graph__paneltitle')), 'A.2');
+  assert.equal(gcardOf(page, 'A.2').getAttribute('aria-expanded'), 'true');
+  assert.equal(gcardOf(page, 'A.1').getAttribute('aria-expanded'), 'false');
+  // A task the plan does not list opens nothing.
+  page.location.hash = '#/run/feat-a/run-1/tasks/Z.9';
+  page.win.dispatch('hashchange');
+  assert.equal(page.main.querySelector('.graph'), graph);
+  assert.equal(inspectorOpen(page), false);
+  page.location.hash = '#/run/feat-a/run-1/tasks/A.1';
+  page.win.dispatch('hashchange');
+  assert.equal(inspectorOpen(page), true);
+  closeInspector(page);
+  assert.equal(page.location.hash, '#/run/feat-a/run-1/tasks');
+  assert.equal(inspectorOpen(page), false);
+  assert.equal(page.main.querySelector('.graph'), graph);
+});
+
+test('D.3 Sessions: selecting a lane sets the hash, reload restores it, a hash change reroutes without a re-mount; a lane with an absent part is not linked', async () => {
+  mods.home.resetHome();
+  const body = () => {
+    const b = BUSY();
+    b.sections.tasks.data[0].active.push(sAttempt(2, 'A.5', { worktreeKey: null, run: null, lineage: null }));
+    return b;
+  };
+  const page = await start({ hash: '#/sessions/lock/build', fetch: sessionsRoute(body) });
+  assert.equal(inspectorOpen(page), true, 'reload restores the selection');
+  assert.equal(slaneOf(page, 'lock:build').getAttribute('aria-expanded'), 'true');
+  const root = page.main.querySelector('.sessions');
+  const hook = `hook:${sk(101)}`;
+  slaneOf(page, hook).fire('click');
+  assert.equal(page.location.hash, `#/sessions/hook/${sk(101)}`);
+  assert.equal(slaneOf(page, hook).getAttribute('aria-expanded'), 'true');
+  const before = page.calls.length;
+  page.location.hash = '#/sessions/lock/build';
+  page.win.dispatch('hashchange');
+  await settle();
+  assert.equal(page.main.querySelector('.sessions'), root, 'no re-mount');
+  assert.equal(callsSince(page, before, '/api/sessions'), 0, 'no new fetch');
+  assert.equal(slaneOf(page, 'lock:build').getAttribute('aria-expanded'), 'true');
+  assert.equal(slaneOf(page, hook).getAttribute('aria-expanded'), 'false');
+  // DEC-034: the lane opens, and the address stays at the base route.
+  const unplaced = 'run:-/-/-';
+  assert.ok(slaneOf(page, unplaced), 'the lane with absent parts is on the page');
+  slaneOf(page, unplaced).fire('click');
+  assert.equal(page.location.hash, '#/sessions');
+  assert.equal(inspectorOpen(page), true);
+  assert.equal(slaneOf(page, unplaced).getAttribute('aria-expanded'), 'true');
+  page.win.dispatch('hashchange'); // the hash the view wrote: the lane stays open
+  assert.equal(inspectorOpen(page), true);
+  closeInspector(page);
+  assert.equal(page.location.hash, '#/sessions');
+  assert.equal(inspectorOpen(page), false);
+  // Closing a linked lane removes its segment.
+  slaneOf(page, 'lock:build').fire('click');
+  assert.equal(page.location.hash, '#/sessions/lock/build');
+  closeInspector(page);
+  assert.equal(page.location.hash, '#/sessions');
+  assert.equal(page.main.querySelector('.sessions'), root);
+});
+
+// ---- 149 D.5: one loop per view (IC-022, DEC-038) ---------------------------------------------------------------------
+
+test('149 D.5 one loop per view: Run marks the running edge, else the awaiting gate; Now marks the first Needs you glyph; a skeleton only while it shows', async () => {
+  mods.home.resetHome();
+  let cursor = 3;
+  const events = () => [ev(60, 'start', null), ev(50, 'complete-stage', 'discovery', { outcome: 'passed' }), ev(40, 'decide-gate', 'gate-0', { decision: 'approve' }), ev(30, 'complete-stage', 'design', { outcome: 'passed' })];
+  const page = await start({ hash: '#/run/feat-a/run-1', fetch: runRoute(() => runBodyWith(frow('run-1', cursor), events())) });
+  const marked = () => [...page.main.querySelectorAll('[data-loop="on"]'), ...page.inspector.querySelectorAll('[data-loop="on"]')];
+  let loops = marked();
+  assert.equal(loops.length, 1, 'one marked element on the Run view');
+  assert.ok(loops[0].classList.contains('flow-edge'), 'the running connector');
+  assert.equal(loops[0].parent.getAttribute('data-state'), 'running');
+  assert.equal(page.main.querySelectorAll('.flow-edge').length, 1, 'only the running node has a flowing edge');
+  cursor = 4;
+  await advance(3_000);
+  loops = marked();
+  assert.equal(loops.length, 1, 'still one marked element');
+  assert.ok(loops[0].classList.contains('rail__glyph'), 'the awaiting gate glyph');
+  assert.equal(loops[0].parent.parent.getAttribute('data-type'), 'gate');
+  assert.equal(page.main.querySelector('.flow-edge'), null, 'no running node, no flowing edge');
+  uninstallPage();
+  mock.timers.reset();
+  mods.home.resetHome();
+
+  const home = await start({ hash: '', fetch: homeFetch(() => body([frow('w-new', 4, { updatedAt: agoIso(10 * MIN_MS) }), frow('w-old', 1, { updatedAt: agoIso(30 * MIN_MS) }), frow('r-1', 2)])) });
+  assert.equal(cardsOf(home).length, 2);
+  assert.equal(home.main.querySelectorAll('[data-loop="on"]').length, 1, 'one marked element on Now');
+  assert.equal(cardsOf(home)[0].querySelectorAll('[data-loop="on"]').length, 1, 'in the first Needs you card');
+  assert.equal(cardsOf(home)[0].querySelector('[data-loop="on"]').getAttribute('data-state'), 'awaiting');
+
+  const shown = mods.states.renderLoading({ noun: 'runs', skeleton: () => mods.dom.h('div', { class: 'skeleton' }), showSkeleton: true });
+  assert.equal(shown[1].getAttribute('data-loop'), 'on', 'a skeleton loops while it shows');
+  assert.equal(mods.states.renderLoading({ noun: 'runs', skeleton: () => mods.dom.h('div', { class: 'skeleton' }), showSkeleton: false })[1], null);
 });

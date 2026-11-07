@@ -41,7 +41,7 @@ function recordGlyph(record) {
 
 /**
  * The panel of one project fleet. `hooks`: `nodeOf(agentKey)` the tree node or null, `select(agentKey)` selects an agent,
- * `back()` leaves a gone agent, `close()` closes the 768 sheet.
+ * `back()` leaves a gone agent. The shell's inspector holds the panel and gives it its close control (149 D.2).
  * @param {any} hooks
  */
 function createPanel(hooks) {
@@ -80,9 +80,8 @@ function createPanel(hooks) {
   const filterGroup = h('div', { class: 'fpanel__filter', role: 'radiogroup', 'aria-label': 'Show' }, FILTERS.map(([id, word]) => h('button', {
     type: 'button', role: 'radio', class: 'chip', 'aria-checked': id === 'all' ? 'true' : 'false', tabindex: id === 'all' ? '0' : '-1', dataset: { filter: id, focusKey: `panel-filter-${id}` },
   }, word)));
-  const close = h('button', { type: 'button', class: 'btn btn--ghost fpanel__close', dataset: { focusKey: 'panel-close' } }, [icon('close', 16), h('span', { class: 'vh' }, 'Close transcript')]);
   const head = h('div', { class: 'fpanel__head' }, [
-    h('div', { class: 'fpanel__titleline' }, [title, tags, close]),
+    h('div', { class: 'fpanel__titleline' }, [title, tags]),
     meta,
     h('div', { class: 'fpanel__controls' }, [follow, filterGroup, maskedCount]),
   ]);
@@ -361,7 +360,6 @@ function createPanel(hooks) {
     else if (!near && state.follow) setFollow(false);
     updatePill();
   });
-  close.addEventListener('click', () => hooks.close());
   for (const radio of filterGroup.querySelectorAll('.chip')) {
     radio.addEventListener('click', () => {
       state.filter = radio.dataset.filter;
