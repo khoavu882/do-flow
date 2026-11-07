@@ -5,6 +5,30 @@
   "version": { "argv": ["--version"], "expect": "^\\d+\\.\\d+\\.\\d+" },
   "checks": [
     {
+      "id": "print-one-shot",
+      "argv": ["--help"],
+      "expect": ["^\\s+-p\\s+", "^\\s+--print\\s+Run a single prompt non-interactively"],
+      "establishes": ["runnableProbe", "oneShot"]
+    },
+    {
+      "id": "structured-output",
+      "argv": ["--help"],
+      "expect": ["^\\s+--output-format\\s+Output format for print mode \\(text, json, stream-json\\)"],
+      "establishes": ["structuredOutput"]
+    },
+    {
+      "id": "read-only-flags",
+      "argv": ["--help"],
+      "expect": ["^\\s+--sandbox\\s+Run in a sandbox with terminal restrictions enabled"],
+      "establishes": ["readOnly"]
+    },
+    {
+      "id": "spawn-denial-flags",
+      "argv": ["--help"],
+      "expect": ["^\\s+--agent\\s+Agent for the current CLI session"],
+      "establishes": ["spawnDenial"]
+    },
+    {
       "id": "help-model",
       "argv": ["--help"],
       "expect": ["^\\s+--model\\s"],

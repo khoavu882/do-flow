@@ -257,14 +257,16 @@ test('IC-011: antigravity free evidence establishes model only when its help lin
         return { status: 0, stdout: Buffer.from(argv[0] === '--version' ? '1.4.6\n' : help) };
       },
     });
-    assert.deepEqual(calls, [['--version'], ['--help']]);
+    assert.deepEqual(calls, [['--version'], ['--help'], ['--help'], ['--help'], ['--help'], ['--help']]);
     assert.deepEqual(result.establishes, expected, label);
     const record = JSON.parse(fs.readFileSync(out, 'utf8'));
     assert.equal(record.cliVersion, '1.4.6');
     assert.deepEqual(record.establishes, expected, label);
-    assert.equal(record.checks[0].id, 'help-model');
-    assert.equal(record.checks[0].result, label);
-    assert.deepEqual(record.checks[0].establishes, ['model']);
-    assert.deepEqual(record.checks[0].matched, label === 'pass' ? [(help as string).trimEnd()] : []);
+    const modelCheck = record.checks.find((c: any) => c.id === 'help-model');
+    assert.ok(modelCheck);
+    assert.equal(modelCheck.id, 'help-model');
+    assert.equal(modelCheck.result, label);
+    assert.deepEqual(modelCheck.establishes, ['model']);
+    assert.deepEqual(modelCheck.matched, label === 'pass' ? [(help as string).trimEnd()] : []);
   }
 });

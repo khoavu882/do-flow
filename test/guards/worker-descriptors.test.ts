@@ -335,6 +335,7 @@ const PARSER_BY_HARNESS: any = {
   copilot: 'copilot-json-v1',
   kiro: 'kiro-stream-json-v1',
   pi: 'pi-json-v1',
+  antigravity: 'agy-stream-json-v1',
 };
 
 const ACCEPTED_KEYS: any = {
@@ -347,9 +348,8 @@ const ACCEPTED_KEYS: any = {
   antigravity: [],
 };
 
-test('G41.3: PARSER_BY_HARNESS names every parser-bearing harness, none for antigravity, each id a key of PARSERS', () => {
-  assert.deepEqual(Object.keys(PARSER_BY_HARNESS).sort(), ['claude', 'codex', 'copilot', 'kiro', 'opencode', 'pi']);
-  assert.ok(!Object.hasOwn(PARSER_BY_HARNESS, 'antigravity'));
+test('G41.3: PARSER_BY_HARNESS names every parser-bearing harness, each id a key of PARSERS', () => {
+  assert.deepEqual(Object.keys(PARSER_BY_HARNESS).sort(), ['antigravity', 'claude', 'codex', 'copilot', 'kiro', 'opencode', 'pi']);
   for (const [id, parser] of Object.entries(PARSER_BY_HARNESS)) assert.ok(Object.hasOwn(PARSERS, parser as any), `${id}: ${parser}`);
 });
 
@@ -370,8 +370,10 @@ test('G41.3 control: a mapped id outside PARSERS, a wrong parser, a parser on a 
   byId('claude').worker.structuredOutput.parser = 'codex-exec-json-v1';
   assert.match(parserMapFindings(registry, PARSER_BY_HARNESS, PARSERS).join('\n'), /harness 'claude' declares a parser on a structuredOutput that is not supported/);
   delete byId('claude').worker.structuredOutput.parser;
-  Object.assign(byId('antigravity').worker.structuredOutput, { status: 'supported', parser: 'codex-exec-json-v1' });
-  assert.match(parserMapFindings(registry, PARSER_BY_HARNESS, PARSERS).join('\n'), /harness 'antigravity' has a supported structuredOutput but no entry in PARSER_BY_HARNESS/);
+  const { antigravity: _, ...withoutAgy } = PARSER_BY_HARNESS;
+  byId('antigravity').worker.structuredOutput.status = 'supported';
+  byId('antigravity').worker.structuredOutput.parser = 'agy-stream-json-v1';
+  assert.match(parserMapFindings(registry, withoutAgy, PARSERS).join('\n'), /harness 'antigravity' has a supported structuredOutput but no entry in PARSER_BY_HARNESS/);
 });
 
 test('G41.4: every supported worker entry cites a recorded evidence file that establishes it', () => {

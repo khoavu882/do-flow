@@ -83,6 +83,7 @@ agent-docs/
 bench/runs/
 bench/reports/
 .mcp.json
+.playwright-mcp/
 
 # MkDocs build output
 site/

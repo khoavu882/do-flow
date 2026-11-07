@@ -1,0 +1,5 @@
+{"event":"init","init":{"model":"gemini-3.8-flash","cwd":"/work/project","tools":["read_file"],"permission_mode":"always-proceed"},"_fixture":"synthetic"}
+{"event":"custom_telemetry","data":{"metric":123},"_fixture":"synthetic"}
+{"event":"step_update","step_update":{"step_index":0,"state":"DONE","step_type":"agent_response"},"_fixture":"synthetic"}
+{"event":"result","result":{"status":"SUCCESS","response":"Completed successfully.","usage":{"total_tokens":90}},"_fixture":"synthetic"}
+
