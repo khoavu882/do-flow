@@ -789,6 +789,28 @@ DoFlow writes `.doflow/state/.gitignore` (and `~/.doflow/state/.gitignore`) when
 
 When `doflow remove` removes the last harness of a scope it deletes that scope's control files: the ignore file (only when its bytes are DoFlow's), the throttle marker `upkeep-due`, the pass lock `upkeep.lock`, and the project's line in the user roots index. It prints `[INFO] Storage: removed <n> DoFlow control file(s)` when it removed any. The state itself and your `prune` and `prompt-nudge` files are left in place.
 
+## External worker support by harness
+
+`doflow worker --action run` starts a read-only external worker only on a harness that is eligible: every applicable requirement (installed, runnable, one-shot, structured output, read-only, spawn denial) must be `met` on recorded facts, and a requirement that is `unknown` is a gap (`doflow worker --action describe --harness <id> --json` lists the gaps). A requirement is `met` for a capability only when the registry (`core/registry/harnesses.json`) points at accepted evidence in `core/worker-evidence/<harness>/`, either a passing free check of the CLI or a live run whose report, read-only check and result were accepted.
+
+Output parsers exist for five schemas besides codex's: `claude-stream-json-v1`, `opencode-run-json-v1`, `copilot-json-v1`, `kiro-stream-json-v1` and `pi-json-v1`. A parser alone does not make a harness eligible. Only a harness with accepted live evidence can be run as a worker, and today that is codex and opencode. Dispatch policy, the fallback ladder order and every default are unchanged.
+
+| Harness | Worker support | What the committed record shows |
+|---|---|---|
+| codex | Supported, unchanged | Two live runs (read-only and edit) on 2026-10-18 and free checks through 2026-10-24, in `core/worker-evidence/codex/`. This work did not change the codex parser or recipe. |
+| opencode | Supported for `runnableProbe`, `oneShot`, `structuredOutput`, `readOnly` and `spawnDenial` | 2 live runs on 2026-11-07, opencode v2.2.5, on the free model `opencode/deepseek-v4.1-flash-free` (a `opencode/*-free` model, pinned through `OPENCODE_CONFIG_CONTENT`). Both ended `success` with a clean worktree and unchanged HEAD and refs. One asked for a file write and the worker replied it could not. The other asked for a hand-off to a sub-agent and the worker replied it had no such tool. Limits: one model, one prompt per run, and the spawn run showed an absent tool, not a refused spawn. Evidence: `core/worker-evidence/opencode/`. `isolatedEdit` and `model` stay `unknown`. |
+| claude | Unknown | 1 live run, 2026-11-07 (claude 2.1.311), ended with report status `failure` and exit 1. The captured stream holds a `rate_limit_event` of type `seven_day` with status `rejected`, so the account's weekly usage limit stopped the run. The parser is merged and tested on that capture, but no run reached a model answer. |
+| copilot | Unknown | 1 live run (a write attempt), 2026-11-07 (Copilot CLI 1.0.105), ended with report status `denied`: calls to `bash` and `apply_patch` were refused. The run is withheld (`report-denied`) by design, so its result is not offered, and a refused write is not proof that the worker is read-only or cannot spawn. The live capture showed that `tool.execution_complete` carries no tool name, so the parser now reads the name from the earlier `tool.execution_start` event. |
+| pi | Unknown | 0 live runs (skipped). A run would start on a model from the codex provider (inferred from pi's settings), whose account had hit its usage limit, and no recipe flag or setting inside the project pins another model; pinning one needs a change to the user's global pi configuration. The parser is merged and tested on synthetic fixtures only. |
+| kiro | Unknown | 1 live run, 2026-11-07 (kiro-cli 3.1.0), ended with report status `success`, but the read-only check was `violated`: after the run the worktree held a modified `.kiro/agents/doflow-worker-ro.json` and a new `.kiro/agents/doflow-worker-ro.json.bak`. The captured stream shows the worker calling the `Code Intelligence` and `Load skill: do` tools; which call touched the agent file is not established. The run is withheld (`read-only-violation`). The parser is merged. |
+| antigravity | Excluded | 0 live runs. `readOnly` and `spawnDenial` cannot be proved on agy 1.5.0 (follow-up FU-h1pcpq). It has no worker parser and no recipe change from this work; every worker capability stays `unknown`. |
+
+**Precondition for opencode.** The opencode recipe runs `run --agent doflow-worker-ro`, an agent that denies `edit`, `bash`, `write` and `task`. The agent ships with DoFlow (asset `opencode.worker-ro-agent`) and is written by `doflow install` for that harness. A project that has not run `doflow install` for opencode has no such agent, and the run fails with an unknown-agent error. That outcome is a report `failure` or a refusal, never a pass.
+
+**Known limit.** The claude, opencode, copilot, kiro and pi recipes pass the prompt as one argv element and add no `--` end-of-options separator. The launcher puts its launch-emission text before the brief, so in practice a prompt does not start with `-`. If a prompt did start with `-`, the CLI might read it as a flag; no test or live run checks that.
+
+Sources: `core/worker-evidence/*/`, `core/registry/harnesses.json`, `agent-docs/doflow/142-worker-parsers/` (requirement FR-011, specs IC-009 and IC-010, state.md).
+
 ## Prompt nudge
 
 A plain change request that names no `/do-*` skill can be suggested `/do`, once per session. The

@@ -78,6 +78,8 @@ DoFlow configuration layers resolve settings across registry defaults, environme
 
 `workers.models` maps worker ids to model names by tier (`light`, `standard`, `frontier`). Tiers not listed fall back to the harness default. Scope is `global-only` and the key is security-relevant (`writable: false` via `config set`).
 
+Listing a worker id in `workers.enabled` only allows it; it does not make the harness eligible for `doflow worker --action run`. Eligibility comes from the registry's capability records and the evidence under `core/worker-evidence/`. Today `codex` and `opencode` hold accepted live evidence; `claude`, `copilot`, `pi` and `kiro` have parsers but stay `unknown`, and `antigravity` is excluded. The opencode worker also needs the installed `doflow-worker-ro` agent (run `doflow install` for opencode). `workers.models` has no effect on opencode's worker model, whose `model` capability is `unknown`. See [Reference](reference.md#external-worker-support-by-harness).
+
 Before writing custom worker order and model bindings to `<config home>/settings.json`, validate the values using `config validate` with `--layer user`:
 ```bash
 doflow config validate workers.enabled '["worker-a","worker-b","primary"]' --layer user

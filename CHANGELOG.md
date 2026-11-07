@@ -15,6 +15,9 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+- **Worker output parsers and per-harness support table (feature 142):** `src/runtime/worker/parsers/` gains parsers for claude (`claude-stream-json-v1`), opencode (`opencode-run-json-v1`), copilot (`copilot-json-v1`), kiro (`kiro-stream-json-v1`) and pi (`pi-json-v1`), each with a recipe and a free flag check in `core/worker-evidence/<harness>/`, and a read-only `doflow-worker-ro` agent for opencode and kiro. After two live runs on 2026-11-07 (opencode v2.2.5, free model), opencode is supported for `runnableProbe`, `oneShot`, `structuredOutput`, `readOnly` and `spawnDenial`; the opencode worker needs that agent installed (`doflow install` for opencode). claude, copilot, pi and kiro stay `unknown` (claude stopped on a usage limit, copilot's write attempt ended `denied`, pi had no live run, kiro's read-only check was violated), and antigravity is excluded (FU-h1pcpq). Dispatch policy, ladder order and defaults are unchanged. See "External worker support by harness" in the reference.
+
 ## [2.1.0] - 2026-11-07
 
 ### Added
