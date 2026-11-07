@@ -227,6 +227,23 @@ const NOTES = Object.freeze({
   'workflow-unavailable': 'This run’s workflow could not be read, so only its current step is shown.',
 });
 
+/** The open node's id (`type:id`) the route names, or null. @param {any} route */
+const selectionOf = (route) => (route && route.sel ? `${route.sel.type}:${route.sel.id}` : null);
+
+/** The open node becomes the address (IC-019): `stage` and `gate` nodes are the selection, anything else is none. @param {any} local */
+function linkOpen(local) {
+  if (typeof local.link !== 'function') return;
+  const at = local.openId === null ? -1 : local.openId.indexOf(':');
+  const type = at < 0 ? null : local.openId.slice(0, at);
+  local.link(type === 'stage' || type === 'gate' ? { sel: { type, id: local.openId.slice(at + 1) } } : null);
+}
+
+/** The route's selection changed without a re-mount (IC-019): the rail opens what it names. @param {any} local */
+function rerouteRail(local) {
+  if (typeof local.reselect === 'function') local.reselect();
+  else local.openId = selectionOf(local.route);
+}
+
 /**
  * The run route's rail section: the full rail, the degraded note and the open node's detail. State that must
  * survive the body re-mount of a poll (open node, scroll position, change memory) lives in `local`.
@@ -236,6 +253,8 @@ const NOTES = Object.freeze({
  */
 function renderRunRail(data, params, local) {
   const nowMs = Date.now();
+  // The open node starts as the route names it (IC-019); later it changes with a selection or a reroute.
+  if (local.openId === undefined) local.openId = selectionOf(local.route);
   const row = data.run;
   const model = deriveRail(data.workflow, row, data.timeline, nowMs);
   announceChange(row, local);
@@ -299,6 +318,7 @@ function renderRunRail(data, params, local) {
         local.openId = null;
         paintMarks();
         focusNodeAt(index);
+        linkOpen(local);
       },
     });
   };
@@ -307,6 +327,7 @@ function renderRunRail(data, params, local) {
     local.openId = null;
     paintOpen();
     if (focusNode) focusNodeAt(nodes.findIndex((node) => `${node.type}:${node.id}` === id));
+    linkOpen(local);
   };
   const handlers = {
     rove,
@@ -315,6 +336,7 @@ function renderRunRail(data, params, local) {
       select(index, false);
       local.openId = local.openId === id ? null : id;
       paintOpen();
+      linkOpen(local);
     },
     key(/** @type {any} */ event, /** @type {number} */ index) {
       const last = nodes.length - 1;
@@ -386,6 +408,12 @@ function renderRunRail(data, params, local) {
     if (!nodes.some((node) => `${node.type}:${node.id}` === local.openId)) local.openId = null;
     paintOpen();
   }
+  // A reroute (IC-019) opens the node its route names, or closes the detail, in this mounted rail.
+  local.reselect = () => {
+    local.openId = selectionOf(local.route);
+    if (local.openId !== null && !nodes.some((node) => `${node.type}:${node.id}` === local.openId)) local.openId = null;
+    paintOpen();
+  };
   return section;
 }
 
@@ -470,4 +498,4 @@ function tickRunRail(_root, nowMs, local) {
   }
 }
 
-export { railCompact, railFallback, renderRunRail, railDetail, tickRunRail, releaseRail, toneOf, registryOf, ensureVisible, centerOn, NOTES };
+export { railCompact, railFallback, renderRunRail, rerouteRail, railDetail, tickRunRail, releaseRail, toneOf, registryOf, ensureVisible, centerOn, NOTES };

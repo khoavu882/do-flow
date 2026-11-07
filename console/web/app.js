@@ -12,7 +12,7 @@ import { createLiveStore } from './store.js';
 import {
   classify, clockTime, refreshReltimes, renderLoading, renderEmpty, renderError, renderFullPage, renderPill, createStaleBanner, errorTitle,
 } from './states.js';
-import { CORE_RANGE, parseRoute, titleFor, navFor } from './views.js';
+import { CORE_RANGE, parseRoute, hashFor, baseRoute, titleFor, navFor } from './views.js';
 import { createInspector, hidePanel } from './shell.js';
 
 // ---- 1. theme: the module's first statement, before the fragment is read or anything is fetched ----
@@ -520,13 +520,15 @@ function startView(route, { first = false, animate = false, focus = true } = {})
     holdUntil: null,
     holdTimer: null,
     announcedError: null,
-    // The view's own memory (E.1): what its render, load and tick keep between polls; its panel opens in `inspector` (D.2).
-    local: { inspector: app.inspector },
+    // The view's own memory (E.1): what its render, load and tick keep between polls; its panel opens in `inspector` (D.2);
+    // `route` is the current route with its selection (IC-019) and `link` writes a selection to the address.
+    local: { inspector: app.inspector, route, link: /** @type {any} */ (null) },
     root: null,
     painted: null,
     fullKey: null,
     animate: animate && !first,
   };
+  view.local.link = (/** @type {any} */ patch) => linkSelection(view, patch);
   app.view = view;
   globalThis.document.title = titleFor(route);
   if (app.inspector) app.inspector.setInspectable(route.view.inspectable === true);
@@ -538,6 +540,26 @@ function startView(route, { first = false, animate = false, focus = true } = {})
     focusHeading();
   }
   if (app.ready) beginView(view);
+}
+
+/**
+ * A view's selection becomes the address (IC-019, DEC-034): `patch` is `{ sel }`, `{ task }` or `{ lane }`, or null for none.
+ * The view has already shown it; this records the route and sets `location.hash` (a history entry), whose `hashchange`
+ * then names the route the view is on and does nothing. A selection that has no hash (a lane with an absent part) leaves
+ * the address at the base route and returns false.
+ * @param {any} view @param {any} patch
+ */
+function linkSelection(view, patch) {
+  if (view !== app.view) return false;
+  const base = baseRoute(view.route);
+  const target = patch === null ? base : { ...base, ...patch };
+  const linked = hashFor(target) !== null;
+  const next = linked ? target : base;
+  const hash = hashFor(next);
+  view.route = next;
+  view.local.route = next;
+  if (hash !== null && globalThis.location.hash !== hash) globalThis.location.hash = hash;
+  return linked;
 }
 
 /** @param {any} view */
@@ -875,13 +897,20 @@ function boot() {
       const route = parseRoute(globalThis.location.hash);
       const view = app.view;
       const spec = route.view;
-      if (view && !app.fatal && view.hasData && typeof spec.reroute === 'function' && view.route.view === spec && view.painted === loadedKey(view)
-        && /** @type {any} */ (view.route.params).project === /** @type {any} */ (route.params).project) {
-        // Between two routes of one live view (the selected agent changed): the body is kept, so the focus stays.
+      const own = view ? hashFor(view.route) : null;
+      // The address now names the route the view is on: a selection the view made itself (linkSelection).
+      if (view && !app.fatal && own !== null && own === hashFor(route)) return;
+      // A live view (Fleet) patches its mounted body, so it reroutes only once loaded; the Run, Tasks and Sessions views keep
+      // the selection in their memory, which their next render reads too.
+      const ready = spec.live !== true || (Boolean(view) && view.hasData && view.painted === loadedKey(view));
+      if (view && !app.fatal && ready && typeof spec.reroute === 'function' && view.route.view === spec
+        && hashFor(baseRoute(view.route)) === hashFor(baseRoute(route))) {
+        // Between two routes of one view and one base route (the selection changed): the body is kept, so the focus stays.
         view.route = route;
-        globalThis.document.title = titleFor(route, view.data);
+        view.local.route = route;
+        globalThis.document.title = titleFor(route, view.hasData ? view.data : null);
         spec.reroute(view.local, route.params, view.data);
-        updateMeta(view);
+        if (view.hasData) updateMeta(view);
         refreshStatus();
         return;
       }

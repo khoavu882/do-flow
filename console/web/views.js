@@ -6,9 +6,9 @@ import { h, icon } from './dom.js';
 import { skel, reltime } from './states.js';
 import { loadHome, homeOf, renderHome, skeletonHome, homeKey, tickHome } from './views/home.js';
 import { connectLive } from './live-view.js';
-import { renderRun, tickRun, releaseRun } from './views/run.js';
-import { renderGraph } from './views/graph.js';
-import { renderSessions } from './views/sessions.js';
+import { renderRun, tickRun, releaseRun, rerouteRun } from './views/run.js';
+import { renderGraph, rerouteGraph } from './views/graph.js';
+import { renderSessions, rerouteSessions } from './views/sessions.js';
 import { renderWorkflows } from './views/workflows.js';
 import { deriveSessions } from './derive/sessions.js';
 import { runStepCopy, runToken } from './derive/rail.js';
@@ -138,7 +138,8 @@ const sessionsKey = (data) => JSON.stringify([data, deriveSessions(data, Date.no
  * `update(local, data, params)` patches the mounted body, `reroute(local, params, data)` moves between routes of one view
  * without a re-mount (the selected agent changed), and `empty` may be a function of the data. The Runs, Run, Tasks and Sessions
  * views have `connect` too (IC-018, live-view.js: the live store, or their GET polled at their interval) but not `live: true`:
- * their body is re-mounted by `dataKey` as when polled.
+ * their body is re-mounted by `dataKey` as when polled. The Run, Tasks and Sessions views have `reroute` too (IC-019): it
+ * applies the selection of `local.route` to the mounted body, and their render reads it from there.
  */
 /** @type {Record<string, any>} */
 const VIEWS = Object.freeze({
@@ -187,6 +188,7 @@ const VIEWS = Object.freeze({
     headSkeleton: skeletonRunHead,
     tick: tickRun,
     teardown: releaseRun,
+    reroute: rerouteRun,
     render: renderRun,
     isEmpty: () => false,
     title: (/** @type {any} */ params) => slugTask(params),
@@ -207,6 +209,7 @@ const VIEWS = Object.freeze({
     skeleton: skeletonBlock,
     head: () => ({ text: 'Tasks', mono: false }),
     meta: (/** @type {any} */ params) => h('p', { class: 'view-head__meta mono' }, slugTask(params)),
+    reroute: rerouteGraph,
     render: renderGraph,
     isEmpty: () => false,
     title: (/** @type {any} */ params) => `Tasks · ${slugTask(params)}`,
@@ -225,6 +228,7 @@ const VIEWS = Object.freeze({
     skeleton: skeletonSessions,
     head: () => ({ text: 'Sessions', mono: false }),
     meta: () => h('p', { class: 'view-head__meta' }, 'Who is working where, what each holds, and where work collides.'),
+    reroute: rerouteSessions,
     render: renderSessions,
     isEmpty: () => false,
     title: () => 'Sessions',
@@ -313,9 +317,40 @@ const VIEWS = Object.freeze({
 /** Every shape id any view reads (the test checks this set against the verb allow-list). */
 const SHAPES_USED = Object.freeze([...new Set(Object.values(VIEWS).flatMap((view) => view.shapes))]);
 
+/** IC-019's worker token: a positive integer without a leading zero. */
+const TOKEN = /^[1-9][0-9]*$/;
+
 /**
- * A location hash to `{ id, params, view }`. An unknown route, or a parameter failing IC-003's pattern,
- * is `not-found`: no fetch is made for it.
+ * A Sessions lane in the hash (IC-019) to its key in the form derive/sessions.js builds, or null when a part fails its
+ * pattern. `parts` are the segments after `sessions`.
+ * @param {string[]} parts
+ */
+function laneOfParts(parts) {
+  const [kind, ...rest] = parts;
+  if ((kind === 'hook' || kind === 'launched') && rest.length === 1 && KEY16.test(rest[0])) return `${kind}:${rest[0]}`;
+  if (kind === 'lock' && rest.length === 1 && PARAM_PATTERN.test(rest[0])) return `lock:${rest[0]}`;
+  if (kind === 'worker' && rest.length === 3 && PARAM_PATTERN.test(rest[0]) && PARAM_PATTERN.test(rest[1]) && TOKEN.test(rest[2])) return `worker:${rest.join('/')}`;
+  if (kind === 'run' && rest.length === 3 && KEY16.test(rest[0]) && PARAM_PATTERN.test(rest[1]) && PARAM_PATTERN.test(rest[2])) return `run:${rest.join('/')}`;
+  return null;
+}
+
+/**
+ * The hash segments of a lane key, or null when the key cannot be linked: a part is absent (`-`, DEC-034) or fails its
+ * pattern. The inverse of `laneOfParts`.
+ * @param {any} key
+ */
+function laneSegments(key) {
+  const text = String(key ?? '');
+  const colon = text.indexOf(':');
+  if (colon < 0) return null;
+  const parts = [text.slice(0, colon), ...text.slice(colon + 1).split('/')];
+  return laneOfParts(parts) === text ? parts.join('/') : null;
+}
+
+/**
+ * A location hash to `{ id, params, view }`, and the selection it names (IC-019): `sel: { type, id }` on `run`, `task` on
+ * `tasks`, `lane` on `sessions` (Fleet's agent stays in `params`). An unknown route, or a segment failing its pattern, is
+ * `not-found`: no fetch is made for it.
  * @param {any} hash
  */
 function parseRoute(hash) {
@@ -327,17 +362,71 @@ function parseRoute(hash) {
   if (path === '/workflows') return { id: 'workflows', params: {}, view: VIEWS.workflows };
   if (path === '/sessions') return { id: 'sessions', params: {}, view: VIEWS.sessions };
   if (path === '/fleet') return { id: 'fleet', params: {}, view: VIEWS.fleet };
-  const parts = path.split('/'); // ['', 'run', slug, taskId, 'tasks'?]
+  const parts = path.split('/'); // ['', 'run', slug, taskId, ...selection]
   if (parts[1] === 'fleet') {
     // '', 'fleet', project, agent?: the keys of IC-019 and IC-020, nothing else (no path, label or session id is ever in a URL).
     if (parts.length < 3 || parts.length > 4 || !KEY16.test(parts[2]) || (parts.length === 4 && !KEY16.test(parts[3]))) return notFound;
     return { id: 'fleet-project', params: parts.length === 4 ? { project: parts[2], agent: parts[3] } : { project: parts[2] }, view: VIEWS['fleet-project'] };
   }
-  if (parts[1] !== 'run' || parts.length < 4 || parts.length > 5) return notFound;
+  if (parts[1] === 'sessions') {
+    const lane = laneOfParts(parts.slice(2));
+    return lane === null ? notFound : { id: 'sessions', params: {}, view: VIEWS.sessions, lane };
+  }
+  if (parts[1] !== 'run' || parts.length < 4 || parts.length > 6) return notFound;
   const [slug, taskId] = [parts[2], parts[3]];
   if (!PARAM_PATTERN.test(slug) || !PARAM_PATTERN.test(taskId)) return notFound;
-  if (parts.length === 4) return { id: 'run', params: { slug, taskId }, view: VIEWS.run };
-  return parts[4] === 'tasks' ? { id: 'tasks', params: { slug, taskId }, view: VIEWS.tasks } : notFound;
+  const params = { slug, taskId };
+  if (parts.length === 4) return { id: 'run', params, view: VIEWS.run };
+  if (parts[4] === 'tasks') {
+    if (parts.length === 5) return { id: 'tasks', params, view: VIEWS.tasks };
+    return PARAM_PATTERN.test(parts[5]) ? { id: 'tasks', params, view: VIEWS.tasks, task: parts[5] } : notFound;
+  }
+  if ((parts[4] === 'stage' || parts[4] === 'gate') && parts.length === 6 && PARAM_PATTERN.test(parts[5])) {
+    return { id: 'run', params, view: VIEWS.run, sel: { type: parts[4], id: parts[5] } };
+  }
+  return notFound;
+}
+
+/**
+ * The hash of a route, the inverse of `parseRoute` (IC-019): `parseRoute(hashFor(route))` equals `route` for every route it
+ * gives a hash for. Null for `not-found`, for a part failing its pattern, and for a lane that cannot be linked (DEC-034).
+ * @param {any} route
+ */
+function hashFor(route) {
+  const params = (route && route.params) || {};
+  const id = route ? route.id : null;
+  if (id === 'runs') return '#/';
+  if (id === 'workflows') return '#/workflows';
+  if (id === 'fleet') return '#/fleet';
+  if (id === 'fleet-project') {
+    if (!KEY16.test(params.project) || (params.agent !== undefined && !KEY16.test(params.agent))) return null;
+    return `#/fleet/${params.project}${params.agent === undefined ? '' : `/${params.agent}`}`;
+  }
+  if (id === 'sessions') {
+    if (route.lane === undefined) return '#/sessions';
+    const lane = laneSegments(route.lane);
+    return lane === null ? null : `#/sessions/${lane}`;
+  }
+  if (id !== 'run' && id !== 'tasks') return null;
+  if (!PARAM_PATTERN.test(params.slug) || !PARAM_PATTERN.test(params.taskId)) return null;
+  const base = `#/run/${params.slug}/${params.taskId}`;
+  if (id === 'tasks') {
+    if (route.task === undefined) return `${base}/tasks`;
+    return PARAM_PATTERN.test(route.task) ? `${base}/tasks/${route.task}` : null;
+  }
+  if (route.sel === undefined) return base;
+  const { type, id: selId } = route.sel;
+  return (type === 'stage' || type === 'gate') && PARAM_PATTERN.test(selId) ? `${base}/${type}/${selId}` : null;
+}
+
+/**
+ * The route without its selection (IC-019): the base a selection hash change stays inside. Fleet's base keeps the project.
+ * @param {any} route
+ */
+function baseRoute(route) {
+  const { sel, task, lane, ...rest } = route;
+  if (route.id !== 'fleet-project') return rest;
+  return { ...rest, params: { project: route.params.project } };
 }
 
 /**
@@ -362,4 +451,4 @@ function navFor(route) {
   return route.id === 'not-found' ? null : 'runs';
 }
 
-export { CORE_RANGE, PARAM_PATTERN, KEY16, VIEWS, SHAPES_USED, parseRoute, titleFor, navFor, badge, awaitingCount };
+export { CORE_RANGE, PARAM_PATTERN, KEY16, VIEWS, SHAPES_USED, parseRoute, hashFor, baseRoute, titleFor, navFor, badge, awaitingCount };

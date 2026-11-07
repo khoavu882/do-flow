@@ -139,6 +139,15 @@ function conflictBadge(conflict, words) {
   return h('span', { class: 'badge', dataset: { state: token } }, [icon(TOKEN_FACE[token], 12), words.label]);
 }
 
+/** The lane key the route names, or null. @param {any} route */
+const routeLane = (route) => (route && typeof route.lane === 'string' ? route.lane : null);
+
+/** The route's selection changed without a re-mount (IC-019): the rows open the lane it names. @param {any} local */
+function rerouteSessions(local) {
+  if (typeof local.reselect === 'function') local.reselect();
+  else if (local.sessions) local.sessions.selected = routeLane(local.route);
+}
+
 /**
  * The whole view. `data` is the `GET /api/sessions` body.
  * @param {any} data
@@ -147,7 +156,8 @@ function conflictBadge(conflict, words) {
  */
 function renderSessions(data, params, local) {
   const nowMs = Date.now();
-  const memory = local.sessions ?? (local.sessions = { filter: 'all', open: new Map(), selected: null, focusKey: null, seen: null, hadConflicts: new Set(), barOpen: !narrow() });
+  // The selected lane starts as the route names it (IC-019); later it changes with a selection or a reroute.
+  const memory = local.sessions ?? (local.sessions = { filter: 'all', open: new Map(), selected: routeLane(local.route), focusKey: null, seen: null, hadConflicts: new Set(), barOpen: !narrow() });
   const result = deriveSessions(data, nowMs);
 
   // The conflicts that are new since the previous read are announced once and flash once; the first read does neither.
@@ -346,6 +356,7 @@ function renderSessions(data, params, local) {
           memory.selected = null;
           draw();
           focusKey(`lane:${key}`);
+          if (typeof local.link === 'function') local.link(null);
         },
       });
     }
@@ -357,6 +368,8 @@ function renderSessions(data, params, local) {
     memory.selected = key;
     draw();
     if (refocus && previous !== null) focusKey(`lane:${previous}`);
+    // The selection becomes the address (IC-019); a lane with an absent part has no hash and stays selected here (DEC-034).
+    if (typeof local.link === 'function') local.link(key === null ? null : { lane: key });
   }
 
   rowsHost.addEventListener('keydown', (/** @type {any} */ event) => {
@@ -406,6 +419,7 @@ function renderSessions(data, params, local) {
 
   // ---- assemble ----
   if (result.empty) {
+    local.reselect = null;
     hidePanel(local.inspector, local);
     return h('section', { class: 'sessions sessions--empty', 'aria-label': 'Sessions' }, [
       ...notes,
@@ -422,6 +436,11 @@ function renderSessions(data, params, local) {
       footer,
     ]);
   }
+  // A reroute (IC-019) opens the lane its route names, or closes the panel, in these mounted rows.
+  local.reselect = () => {
+    memory.selected = routeLane(local.route);
+    draw();
+  };
   draw();
   drawChips();
   const top = [h('div', { class: 'sessions__top' }, [summary, chips, legend]), ...notes, absent, bar];
@@ -430,4 +449,4 @@ function renderSessions(data, params, local) {
   return root;
 }
 
-export { renderSessions };
+export { renderSessions, rerouteSessions };

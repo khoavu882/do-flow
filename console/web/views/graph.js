@@ -103,6 +103,15 @@ function renderGraph(data, params, local) {
   return withReplay(data, local, (view) => renderGraphBody(view, params, local), { place: 'above', enabled: Boolean(data.tasks && data.tasks.graph) });
 }
 
+/** The task the route names, or null. @param {any} route */
+const routeTask = (route) => (route && typeof route.task === 'string' ? route.task : null);
+
+/** The route's selection changed without a re-mount (IC-019): the board opens the task it names. @param {any} local */
+function rerouteGraph(local) {
+  if (typeof local.reselect === 'function') local.reselect();
+  else if (local.graph) local.graph.selected = routeTask(local.route);
+}
+
 /**
  * The task graph body: summary, board, lane list and panel.
  * @param {any} data `{ run, timeline, tasks, workflow, tasksReason? }`
@@ -111,10 +120,12 @@ function renderGraph(data, params, local) {
  */
 function renderGraphBody(data, params, local) {
   const nowMs = Date.now();
-  const memory = local.graph ?? (local.graph = { selected: null, focus: null, trigger: 'card' });
+  // The selected task starts as the route names it (IC-019); later it changes with a selection or a reroute.
+  const memory = local.graph ?? (local.graph = { selected: routeTask(local.route), focus: null, trigger: 'card' });
   const body = data.tasks === undefined ? null : data.tasks;
   // Without a board there is no panel: the inspector lets go of it, the selection waits for the board to come back.
   const empty = (/** @type {string} */ title, /** @type {string} */ sentence) => {
+    local.reselect = null;
     hidePanel(local.inspector, local);
     return emptyGraph(params, title, sentence);
   };
@@ -270,6 +281,7 @@ function renderGraphBody(data, params, local) {
           memory.selected = null;
           apply();
           if (trigger) trigger.focus({ preventScroll: true });
+          if (typeof local.link === 'function') local.link(null);
         },
       });
     }
@@ -284,7 +296,16 @@ function renderGraphBody(data, params, local) {
       const target = (memory.trigger === 'row' ? rowEls : cardEls).get(previous);
       if (target) target.focus({ preventScroll: true });
     }
+    // The selection becomes the address (IC-019).
+    if (typeof local.link === 'function') local.link(id === null ? null : { task: id });
   }
+
+  // A reroute (IC-019) opens the task its route names, or closes the panel, on this mounted board.
+  local.reselect = () => {
+    const id = routeTask(local.route);
+    memory.selected = id !== null && at.has(id) ? id : null;
+    apply();
+  };
 
   board.addEventListener('keydown', (/** @type {any} */ event) => {
     const owner = event.target && typeof event.target.closest === 'function' ? event.target.closest('[data-card]') : null;
@@ -311,4 +332,4 @@ function renderGraphBody(data, params, local) {
   return root;
 }
 
-export { renderGraph };
+export { renderGraph, rerouteGraph };

@@ -4332,3 +4332,208 @@ test('D.2 Fleet: a second agent keeps the inspector open on its transcript; the 
   assert.equal(page.inspector.querySelector('.fpanel'), null);
   assert.equal(treeItem(page, A_MAIN).getAttribute('aria-selected'), 'false');
 });
+
+// ---- 149 D.3: hash permalinks (IC-019, DEC-034) ----
+
+const callsSince = (page: Page, from: number, prefix: string) => page.calls.slice(from).filter((c) => c.url.startsWith(prefix)).length;
+
+test('D.3 grammar: parseRoute names the selection of Run, Tasks and Sessions; hashFor is its inverse; a lane with an absent part has no hash', () => {
+  const { parseRoute, hashFor, VIEWS } = mods.views;
+  const run = parseRoute('#/run/feat-a/run-1/stage/planning');
+  assert.equal(run.id, 'run');
+  assert.deepEqual(run.params, { slug: 'feat-a', taskId: 'run-1' });
+  assert.deepEqual(run.sel, { type: 'stage', id: 'planning' });
+  assert.deepEqual(parseRoute('#/run/feat-a/run-1/gate/gate-a').sel, { type: 'gate', id: 'gate-a' });
+  const tasks = parseRoute('#/run/feat-a/run-1/tasks/A.1');
+  assert.equal(tasks.id, 'tasks');
+  assert.equal(tasks.task, 'A.1');
+  assert.equal(tasks.view, VIEWS.tasks);
+  const lanes: Array<[string, string]> = [
+    [`#/sessions/hook/${sk(101)}`, `hook:${sk(101)}`],
+    [`#/sessions/launched/${sk(102)}`, `launched:${sk(102)}`],
+    ['#/sessions/lock/build', 'lock:build'],
+    ['#/sessions/worker/feat-a/A.1/3', 'worker:feat-a/A.1/3'],
+    [`#/sessions/run/${sk(1)}/run-two/lin2`, `run:${sk(1)}/run-two/lin2`],
+  ];
+  for (const [hash, lane] of lanes) {
+    const route = parseRoute(hash);
+    assert.equal(route.id, 'sessions', hash);
+    assert.equal(route.lane, lane, hash);
+    assert.equal(hashFor(route), hash, `${hash} round trips`);
+  }
+  // Fleet keeps its params; routes without a selection carry no selection field.
+  assert.deepEqual(parseRoute(`#/fleet/${sk(7)}/${sk(8)}`).params, { project: sk(7), agent: sk(8) });
+  assert.equal('sel' in parseRoute('#/run/feat-a/run-1'), false);
+  assert.equal('task' in parseRoute('#/run/feat-a/run-1/tasks'), false);
+  assert.equal('lane' in parseRoute('#/sessions'), false);
+  // The round trip: parseRoute(hashFor(r)) equals r for every route hashFor gives a hash for.
+  const hashes = ['#/', '#/workflows', '#/sessions', '#/fleet', `#/fleet/${sk(7)}`, `#/fleet/${sk(7)}/${sk(8)}`, '#/run/feat-a/run-1', '#/run/feat-a/run-1/tasks',
+    '#/run/feat-a/run-1/tasks/A.1', '#/run/feat-a/run-1/stage/design', '#/run/feat-a/run-1/gate/gate-0', ...lanes.map(([hash]) => hash)];
+  for (const hash of hashes) {
+    const route = parseRoute(hash);
+    assert.notEqual(route.id, 'not-found', hash);
+    assert.equal(hashFor(route), hash, hash);
+    assert.deepEqual(parseRoute(hashFor(route)), route, hash);
+  }
+  // DEC-034: a lane key with an absent part has no hash; nor has a key failing its pattern, nor Not found.
+  for (const lane of ['run:-/run-two/lin2', `run:${sk(1)}/-/lin2`, 'run:-/-/-', 'hook:-', 'worker:feat-a/A.1/0', 'lock:-x', 'other:x']) {
+    assert.equal(hashFor({ id: 'sessions', params: {}, view: VIEWS.sessions, lane }), null, lane);
+  }
+  assert.equal(hashFor({ id: 'run', params: { slug: 'feat-a', taskId: 'run-1' }, view: VIEWS.run, sel: { type: 'node', id: 'x' } }), null);
+  assert.equal(hashFor(parseRoute('#/nope')), null);
+  // A selection segment failing its pattern is Not found.
+  for (const bad of ['#/run/a/b/stage/-x', '#/run/a/b/gate', '#/run/a/b/stage/x/y', '#/run/a/b/tasks/.x', '#/run/a/b/tasks/A.1/x', '#/run/a/b/node/x',
+    '#/sessions/hook/XYZ', `#/sessions/hook/${sk(1)}/x`, '#/sessions/run/-/a/b', `#/sessions/run/${sk(1)}/-/b`, '#/sessions/worker/a/b/0', '#/sessions/worker/a/b',
+    '#/sessions/lock/', '#/sessions/other/x']) {
+    assert.equal(parseRoute(bad).id, 'not-found', bad);
+  }
+});
+
+test('D.3 a failing selection segment is Not found with no fetch', async () => {
+  const page = await start({ hash: '#/run/feat-a/run-1/stage/-x', fetch: runRoute(() => runBody(frow('run-1', 2), WF_FEATURE, [ev(30, 'start', null)])) });
+  assert.equal(text(heading(page)), 'Not found');
+  assert.equal(callsSince(page, 0, '/api/runs'), 0, 'no fetch for the run');
+  const before = page.calls.length;
+  page.location.hash = '#/sessions/run/-/run-two/lin2';
+  page.win.dispatch('hashchange');
+  await settle();
+  assert.equal(text(heading(page)), 'Not found');
+  assert.equal(callsSince(page, before, '/api/sessions'), 0, 'no fetch for the sessions');
+  assert.equal(inspectorOpen(page), false);
+});
+
+test('D.3 Run: selecting a node sets the hash; a hash change in the run reroutes without a re-mount; closing removes the segment', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '#/run/feat-a/run-1', fetch: runRoute(() => runBody(frow('run-1', 2), WF_FEATURE, [ev(30, 'start', null)])) });
+  const buttons = () => page.main.querySelectorAll('.rail__node');
+  const h1 = heading(page);
+  buttons()[4].fire('click');
+  assert.equal(page.location.hash, '#/run/feat-a/run-1/gate/gate-a');
+  assert.equal(inspectorOpen(page), true);
+  const before = page.calls.length;
+  page.win.dispatch('hashchange'); // the hash the view wrote: nothing to do
+  assert.equal(heading(page), h1, 'no re-mount');
+  assert.equal(inspectorOpen(page), true);
+  // Back, or a typed hash, to another node of the same run.
+  page.location.hash = '#/run/feat-a/run-1/gate/gate-0';
+  page.win.dispatch('hashchange');
+  await settle();
+  assert.equal(heading(page), h1, 'no re-mount');
+  assert.equal(callsSince(page, before, '/api/runs'), 0, 'no new fetch');
+  assert.equal(text(page.inspector.querySelector('.rail-detail__title')), 'gate-0');
+  assert.equal(buttons()[1].getAttribute('aria-expanded'), 'true');
+  assert.equal(buttons()[4].getAttribute('aria-expanded'), 'false');
+  page.location.hash = '#/run/feat-a/run-1/stage/design';
+  page.win.dispatch('hashchange');
+  assert.equal(buttons()[2].getAttribute('aria-expanded'), 'true');
+  // No selection in the route: the inspector is closed.
+  page.location.hash = '#/run/feat-a/run-1';
+  page.win.dispatch('hashchange');
+  assert.equal(heading(page), h1, 'no re-mount');
+  assert.equal(inspectorOpen(page), false);
+  assert.equal(buttons()[2].getAttribute('aria-expanded'), 'false');
+  // The inspector close removes the segment.
+  buttons()[3].fire('click');
+  assert.equal(page.location.hash, '#/run/feat-a/run-1/stage/planning');
+  closeInspector(page);
+  assert.equal(page.location.hash, '#/run/feat-a/run-1');
+  assert.equal(inspectorOpen(page), false);
+  // The same node again closes it and removes the segment too.
+  buttons()[3].fire('click');
+  buttons()[3].fire('click');
+  assert.equal(page.location.hash, '#/run/feat-a/run-1');
+  assert.equal(inspectorOpen(page), false);
+  // Another run is another base route: a re-mount.
+  page.location.hash = '#/run/feat-a/run-2/stage/design';
+  page.win.dispatch('hashchange');
+  assert.notEqual(heading(page), h1, 'another run re-mounts');
+  await settle();
+});
+
+test('D.3 reload restores the selection: a Run hash opens its node in the inspector, and a poll keeps it', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '#/run/feat-a/run-1/gate/gate-a', fetch: runRoute(() => runBody(frow('run-1', 2), WF_FEATURE, [ev(30, 'start', null)])) });
+  const buttons = () => page.main.querySelectorAll('.rail__node');
+  assert.equal(inspectorOpen(page), true);
+  assert.equal(text(page.inspector.querySelector('.rail-detail__title')), 'gate-a');
+  assert.equal(buttons()[4].getAttribute('aria-expanded'), 'true');
+  await advance(3_000);
+  assert.equal(inspectorOpen(page), true);
+  assert.equal(page.location.hash, '#/run/feat-a/run-1/gate/gate-a');
+});
+
+test('D.3 Tasks: selecting a task sets the hash; a hash change reroutes without a re-mount; reload restores it; closing removes the segment', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '#/run/feat-a/run-1/tasks/B.1', fetch: graphRoute(GRAPH_PLAN) });
+  assert.equal(inspectorOpen(page), true, 'reload restores the selection');
+  assert.equal(text(page.inspector.querySelector('.graph__paneltitle')), 'B.1');
+  assert.equal(gcardOf(page, 'B.1').getAttribute('aria-expanded'), 'true');
+  const graph = page.main.querySelector('.graph');
+  gcardOf(page, 'A.1').fire('click');
+  assert.equal(page.location.hash, '#/run/feat-a/run-1/tasks/A.1');
+  assert.equal(text(page.inspector.querySelector('.graph__paneltitle')), 'A.1');
+  const before = page.calls.length;
+  page.location.hash = '#/run/feat-a/run-1/tasks/A.2';
+  page.win.dispatch('hashchange');
+  await settle();
+  assert.equal(page.main.querySelector('.graph'), graph, 'no re-mount');
+  assert.equal(callsSince(page, before, '/api/runs'), 0, 'no new fetch');
+  assert.equal(text(page.inspector.querySelector('.graph__paneltitle')), 'A.2');
+  assert.equal(gcardOf(page, 'A.2').getAttribute('aria-expanded'), 'true');
+  assert.equal(gcardOf(page, 'A.1').getAttribute('aria-expanded'), 'false');
+  // A task the plan does not list opens nothing.
+  page.location.hash = '#/run/feat-a/run-1/tasks/Z.9';
+  page.win.dispatch('hashchange');
+  assert.equal(page.main.querySelector('.graph'), graph);
+  assert.equal(inspectorOpen(page), false);
+  page.location.hash = '#/run/feat-a/run-1/tasks/A.1';
+  page.win.dispatch('hashchange');
+  assert.equal(inspectorOpen(page), true);
+  closeInspector(page);
+  assert.equal(page.location.hash, '#/run/feat-a/run-1/tasks');
+  assert.equal(inspectorOpen(page), false);
+  assert.equal(page.main.querySelector('.graph'), graph);
+});
+
+test('D.3 Sessions: selecting a lane sets the hash, reload restores it, a hash change reroutes without a re-mount; a lane with an absent part is not linked', async () => {
+  mods.home.resetHome();
+  const body = () => {
+    const b = BUSY();
+    b.sections.tasks.data[0].active.push(sAttempt(2, 'A.5', { worktreeKey: null, run: null, lineage: null }));
+    return b;
+  };
+  const page = await start({ hash: '#/sessions/lock/build', fetch: sessionsRoute(body) });
+  assert.equal(inspectorOpen(page), true, 'reload restores the selection');
+  assert.equal(slaneOf(page, 'lock:build').getAttribute('aria-expanded'), 'true');
+  const root = page.main.querySelector('.sessions');
+  const hook = `hook:${sk(101)}`;
+  slaneOf(page, hook).fire('click');
+  assert.equal(page.location.hash, `#/sessions/hook/${sk(101)}`);
+  assert.equal(slaneOf(page, hook).getAttribute('aria-expanded'), 'true');
+  const before = page.calls.length;
+  page.location.hash = '#/sessions/lock/build';
+  page.win.dispatch('hashchange');
+  await settle();
+  assert.equal(page.main.querySelector('.sessions'), root, 'no re-mount');
+  assert.equal(callsSince(page, before, '/api/sessions'), 0, 'no new fetch');
+  assert.equal(slaneOf(page, 'lock:build').getAttribute('aria-expanded'), 'true');
+  assert.equal(slaneOf(page, hook).getAttribute('aria-expanded'), 'false');
+  // DEC-034: the lane opens, and the address stays at the base route.
+  const unplaced = 'run:-/-/-';
+  assert.ok(slaneOf(page, unplaced), 'the lane with absent parts is on the page');
+  slaneOf(page, unplaced).fire('click');
+  assert.equal(page.location.hash, '#/sessions');
+  assert.equal(inspectorOpen(page), true);
+  assert.equal(slaneOf(page, unplaced).getAttribute('aria-expanded'), 'true');
+  page.win.dispatch('hashchange'); // the hash the view wrote: the lane stays open
+  assert.equal(inspectorOpen(page), true);
+  closeInspector(page);
+  assert.equal(page.location.hash, '#/sessions');
+  assert.equal(inspectorOpen(page), false);
+  // Closing a linked lane removes its segment.
+  slaneOf(page, 'lock:build').fire('click');
+  assert.equal(page.location.hash, '#/sessions/lock/build');
+  closeInspector(page);
+  assert.equal(page.location.hash, '#/sessions');
+  assert.equal(page.main.querySelector('.sessions'), root);
+});
