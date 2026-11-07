@@ -74,6 +74,7 @@ const UNMEASURED: Readonly<Record<string, string>> = {
   decision: WRITES_STATE,
   dispatch: NEEDS_LIVE_RUN,
   enforcement: NEEDS_LIVE_RUN,
+  events: SERVER,
   evidence: WRITES_STATE,
   fleet: NEEDS_LIVE_RUN,
   install: INSTALLER,

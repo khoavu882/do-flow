@@ -40,8 +40,9 @@ const INVARIANT = [
   ...[1, 2, 3, 4, 5, 6, 7, 8].map((n) => `--space-${n}`),
   '--radius-sm', '--radius-md', '--radius-lg', '--radius-pill',
   '--motion-fast', '--motion-base', '--motion-slow', '--motion-flash', '--motion-pulse', '--motion-march', '--motion-shimmer',
+  '--motion-swap', '--motion-row', '--motion-gate',
   '--ease-standard', '--ease-exit', '--ease-settle',
-  '--content-max', '--prose-max', '--gutter', '--header-h', '--target', '--target-min', '--focus-width', '--focus-offset',
+  '--content-max', '--prose-max', '--gutter', '--header-h', '--navrail-w', '--navrail-w-icons', '--inspector-w', '--target', '--target-min', '--focus-width', '--focus-offset',
   '--z-banner', '--z-header', '--z-panel', '--z-skip',
 ];
 

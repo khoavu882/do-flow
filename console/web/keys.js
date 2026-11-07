@@ -1,5 +1,5 @@
 // The one keyboard-shortcut registry (feature 133, FR-6; design.md D7). Every key binding of the Console is named here: the global
-// ones (go to a view, pause, help), the view-scoped Escape that closes a panel (views ask `isKey(event, 'close')`), and the
+// ones (go to a view, pause, help, the command palette), the view-scoped Escape that closes a panel (views ask `isKey(event, 'close')`), and the
 // roving-tabindex arrow groups, which stay with their widgets and are listed so the `?` help shows them. The help overlay is built
 // from this table, so the list cannot differ from what is bound. Nothing here runs at import time.
 
@@ -7,11 +7,13 @@ import { h, icon } from './dom.js';
 
 /**
  * `keys` is the key (`event.key`) or, with `chord: true`, the sequence (the first key arms the chord, the second completes it).
+ * With `mod: true` the key is pressed with Ctrl or Cmd (either, on every platform; never with Alt) (149 IC-021, DEC-037).
  * `scope`: `global` (document-wide, ignored while typing), `view` (bound by the view that owns the widget), `widget` (an arrow group).
- * @type {ReadonlyArray<{ id: string, scope: 'global' | 'view' | 'widget', keys: string[], chord?: boolean, label: string, where?: string }>}
+ * @type {ReadonlyArray<{ id: string, scope: 'global' | 'view' | 'widget', keys: string[], chord?: boolean, mod?: boolean, label: string, where?: string }>}
  */
 const SHORTCUTS = Object.freeze([
   { id: 'help', scope: 'global', keys: ['?'], label: 'Show or hide this list' },
+  { id: 'palette', scope: 'global', keys: ['k'], mod: true, label: 'Open the command palette' },
   { id: 'pause', scope: 'global', keys: ['p'], label: 'Pause or resume updates for this view' },
   { id: 'go.runs', scope: 'global', keys: ['g', 'r'], chord: true, label: 'Go to Runs' },
   { id: 'go.workflows', scope: 'global', keys: ['g', 'w'], chord: true, label: 'Go to Workflows' },
@@ -30,7 +32,7 @@ const CHORD_MS = 1500;
  * @param {string} id
  */
 function isKey(event, id) {
-  const entry = SHORTCUTS.find((item) => item.id === id && !item.chord);
+  const entry = SHORTCUTS.find((item) => item.id === id && !item.chord && !item.mod);
   return entry !== undefined && entry.keys.includes(event.key);
 }
 
@@ -47,7 +49,9 @@ function helpRows() {
       id: item.id,
       label: item.label,
       where: item.where ?? '',
-      keys: item.chord ? [item.keys.join(' then ')] : item.keys.map(keyName),
+      keys: item.chord ? [item.keys.join(' then ')]
+        : item.mod ? ['Ctrl', 'Cmd'].flatMap((mod) => item.keys.map((key) => `${mod} ${keyName(key).toUpperCase()}`))
+          : item.keys.map(keyName),
     })),
   }));
 }
@@ -60,8 +64,8 @@ function isTyping(target) {
 }
 
 /**
- * Binds the global shortcuts to `doc`. `actions` maps an entry id to what it does; an id without an action is ignored. Returns
- * `{ openHelp, closeHelp, helpOpen, destroy }`.
+ * Binds the global shortcuts to `doc`. `actions` maps an entry id to what it does; an id without an action is ignored, except
+ * `help`, whose list keys.js opens itself (its action, if any, runs just before). Returns `{ openHelp, closeHelp, helpOpen, destroy }`.
  * @param {object} options
  * @param {any} options.doc the document
  * @param {Record<string, () => void>} options.actions
@@ -135,7 +139,20 @@ function installShortcuts(options) {
 
   /** @param {any} event */
   function onKeydown(event) {
-    if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (event.defaultPrevented) return;
+    // A `mod` entry (Ctrl or Cmd, never Alt) is read before the early return for held modifiers below: off while typing and
+    // while the help list is open, which is modal (149 IC-021, DEC-037).
+    if ((event.ctrlKey || event.metaKey) && !event.altKey) {
+      const key = String(event.key ?? '').toLowerCase();
+      const hit = SHORTCUTS.find((item) => item.mod === true && item.keys.includes(key));
+      if (hit && !helpOpen() && !isTyping(event.target) && actions[hit.id]) {
+        event.preventDefault();
+        disarm();
+        actions[hit.id]();
+        return;
+      }
+    }
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
     if (helpOpen()) {
       // The dialog is modal: Escape or ? close it, Tab stays on its one control, nothing else reaches the page.
       if (event.key === 'Escape' || event.key === '?') {
@@ -161,10 +178,12 @@ function installShortcuts(options) {
       armed = setTimer(() => { armed = null; }, CHORD_MS);
       return;
     }
-    const hit = SHORTCUTS.find((item) => item.scope === 'global' && !item.chord && item.keys[0] === event.key);
+    const hit = SHORTCUTS.find((item) => item.scope === 'global' && !item.chord && !item.mod && item.keys[0] === event.key);
     if (!hit) return;
     if (hit.id === 'help') {
       event.preventDefault();
+      // A `help` action runs before the list opens: the shell closes its palette there, so the two are never open together.
+      if (actions.help) actions.help();
       openHelp();
     } else if (actions[hit.id]) {
       event.preventDefault();

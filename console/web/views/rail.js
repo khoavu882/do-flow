@@ -4,6 +4,7 @@
 
 import { isKey } from '../keys.js';
 import { h, icon, mount, announce } from '../dom.js';
+import { showPanel, hidePanel } from '../shell.js';
 import { clockTime } from '../states.js';
 import {
   deriveRail, nodeName, stateWord, formatDuration, liveDuration, fallbackText, stepHead, stepNumber, degradedSentence, changedNodes, runToken, durationLine,
@@ -13,8 +14,6 @@ import {
 const CHANGED_MS = 5000;
 /** The edge a node keeps clear of when the scroller moves to show it: `--space-6`. */
 const EDGE_PAD = 32;
-
-const raf = (/** @type {() => void} */ fn) => (globalThis.requestAnimationFrame ? globalThis.requestAnimationFrame(fn) : globalThis.setTimeout(fn, 0));
 
 /**
  * Clears `data-changed` when the animation ends or one poll interval later, whichever is first.
@@ -44,13 +43,15 @@ const STAGE_FACE = { done: 'check', failed: 'failed', unknown: 'unknown', runnin
 /**
  * A still glyph strip, not interactive and hidden from assistive technology: the row description carries its meaning.
  * @param {{ nodes: any[] }} model
- * @param {{ changed?: Set<number>, large?: boolean }} [options] `large`: the variant of the gate cards (CD-B1)
+ * @param {{ changed?: Set<number>, large?: boolean, loop?: boolean }} [options] `large`: the variant of the gate cards (CD-B1);
+ *   `loop`: this strip's first awaiting gate is the view's one loop (IC-022)
  */
-function railCompact(model, { changed = new Set(), large = false } = {}) {
+function railCompact(model, { changed = new Set(), large = false, loop = false } = {}) {
+  const loopAt = loop ? model.nodes.findIndex((node) => node.type === 'gate' && node.state === 'awaiting') : -1;
   return h('ol', { class: large ? 'rail rail--compact rail--lg' : 'rail rail--compact', 'aria-hidden': 'true' }, model.nodes.map((node, index) => {
     const glyph = h('li', {
       class: 'rail__glyph',
-      dataset: { type: node.type, kind: node.kind, state: node.state, changed: changed.has(index) ? 'true' : null },
+      dataset: { type: node.type, kind: node.kind, state: node.state, changed: changed.has(index) ? 'true' : null, loop: index === loopAt ? 'on' : null },
     }, node.type === 'gate' ? icon(gateIcon(node, '12'), large ? 16 : 12) : null);
     if (changed.has(index)) expireChange(glyph);
     return glyph;
@@ -62,13 +63,15 @@ function railCompact(model, { changed = new Set(), large = false } = {}) {
  * @param {any} row
  * @param {string | null} reason `shape-mismatch`, `cursor-mismatch` or null (no workflow)
  * @param {number} nowMs
+ * @param {boolean} [loop] an awaiting gate glyph is the view's one loop (IC-022)
  */
-function railFallback(row, reason, nowMs) {
+function railFallback(row, reason, nowMs, loop = false) {
   const current = row.current && typeof row.current === 'object' ? row.current : null;
   const token = runToken(row, nowMs);
   const type = current ? current.type : 'stage';
   const state = !current ? 'done' : token === 'stale' ? 'stale' : row.state === 'AWAITING_GATE' ? 'awaiting' : row.state === 'REJECTED' ? 'rejected' : 'running';
-  const glyph = h('span', { class: 'rail__glyph', dataset: { type, state, kind: current ? current.kind : null } }, type === 'gate' ? icon(gateIcon(current, '12'), 12) : null);
+  const looping = loop && type === 'gate' && state === 'awaiting';
+  const glyph = h('span', { class: 'rail__glyph', dataset: { type, state, kind: current ? current.kind : null, loop: looping ? 'on' : null } }, type === 'gate' ? icon(gateIcon(current, '12'), 12) : null);
   return h('div', { class: 'rail-fallback' }, [glyph, h('span', { class: 'rail-fallback__text' }, fallbackText(row, reason))]);
 }
 
@@ -158,7 +161,8 @@ function railDetail(node, workflow, { onClose, onEscape = onClose }) {
  * @param {any} context
  */
 function railItem(node, index, context) {
-  const { count, nowMs, rovingIndex, openId, changed, keyOf, handlers } = context;
+  const { count, nowMs, rovingIndex, openId, changed, keyOf, handlers, loopIndex } = context;
+  const looping = index === loopIndex;
   const tone = toneOf(node);
   const open = openId === `${node.type}:${node.id}`;
   const stateLine = [stateWord(node)];
@@ -185,7 +189,7 @@ function railItem(node, index, context) {
     dataset: { focusKey: keyOf(index, node), selected: open ? 'true' : null },
     on: { click: () => handlers.toggle(index), keydown: (/** @type {any} */ event) => handlers.key(event, index), focus: () => handlers.rove(index) },
   }, [
-    h('span', { class: 'rail__glyph' }, node.type === 'gate' ? icon(gateIcon(node, '24'), 24) : icon(STAGE_FACE[tone] ?? 'pending', 12)),
+    h('span', { class: 'rail__glyph', dataset: { loop: looping && node.type === 'gate' ? 'on' : null } }, node.type === 'gate' ? icon(gateIcon(node, '24'), 24) : icon(STAGE_FACE[tone] ?? 'pending', 12)),
     node.type === 'gate'
       ? h('span', { class: 'rail__gate-label' }, [node.id, node.forced ? h('span', { class: 'rail__forced' }, 'forced') : null])
       : null,
@@ -198,7 +202,11 @@ function railItem(node, index, context) {
       type: node.type, kind: node.kind, state: node.state, tone, forced: node.forced ? 'true' : null,
       changed: changed.has(index) ? 'true' : null,
     },
-  }, button);
+  }, [
+    // The running connector is a real element so its dashes can flow by transform (IC-022); the first node has none.
+    node.state === 'running' && index > 0 ? h('span', { class: 'flow-edge', 'aria-hidden': 'true', dataset: { loop: looping ? 'on' : null } }) : null,
+    button,
+  ]);
   if (changed.has(index)) expireChange(item, context.changedMs);
   return { item, button, stateText, textBlock, durEl };
 }
@@ -226,6 +234,23 @@ const NOTES = Object.freeze({
   'workflow-unavailable': 'This run’s workflow could not be read, so only its current step is shown.',
 });
 
+/** The open node's id (`type:id`) the route names, or null. @param {any} route */
+const selectionOf = (route) => (route && route.sel ? `${route.sel.type}:${route.sel.id}` : null);
+
+/** The open node becomes the address (IC-019): `stage` and `gate` nodes are the selection, anything else is none. @param {any} local */
+function linkOpen(local) {
+  if (typeof local.link !== 'function') return;
+  const at = local.openId === null ? -1 : local.openId.indexOf(':');
+  const type = at < 0 ? null : local.openId.slice(0, at);
+  local.link(type === 'stage' || type === 'gate' ? { sel: { type, id: local.openId.slice(at + 1) } } : null);
+}
+
+/** The route's selection changed without a re-mount (IC-019): the rail opens what it names. @param {any} local */
+function rerouteRail(local) {
+  if (typeof local.reselect === 'function') local.reselect();
+  else local.openId = selectionOf(local.route);
+}
+
 /**
  * The run route's rail section: the full rail, the degraded note and the open node's detail. State that must
  * survive the body re-mount of a poll (open node, scroll position, change memory) lives in `local`.
@@ -235,6 +260,8 @@ const NOTES = Object.freeze({
  */
 function renderRunRail(data, params, local) {
   const nowMs = Date.now();
+  // The open node starts as the route names it (IC-019); later it changes with a selection or a reroute.
+  if (local.openId === undefined) local.openId = selectionOf(local.route);
   const row = data.run;
   const model = deriveRail(data.workflow, row, data.timeline, nowMs);
   announceChange(row, local);
@@ -253,7 +280,6 @@ function renderRunRail(data, params, local) {
   const keyOf = (/** @type {number} */ index, /** @type {any} */ node) => `node:${index}:${node.id}`;
 
   const section = h('section', { class: 'run-rail', 'aria-label': 'Stages' });
-  const detailSlot = h('div', { class: 'rail-detail-slot' });
   /** @type {any[]} */
   const built = [];
 
@@ -272,22 +298,43 @@ function renderRunRail(data, params, local) {
       ensureVisible(local.scroller, target.button);
     }
   };
-  const paintOpen = () => {
+  const paintMarks = () => {
     built.forEach((entry, index) => {
       const open = local.openId === `${nodes[index].type}:${nodes[index].id}`;
       entry.button.setAttribute('aria-expanded', open ? 'true' : 'false');
       if (open) entry.button.dataset.selected = 'true';
       else entry.button.removeAttribute('data-selected');
     });
-    const node = nodes.find((candidate) => `${candidate.type}:${candidate.id}` === local.openId);
-    mount(detailSlot, node ? railDetail(node, data.workflow, { onClose: () => close(true), onEscape: () => close(true) }) : null);
+  };
+  const focusNodeAt = (/** @type {number} */ index) => {
+    if (index >= 0 && built[index]) built[index].button.focus({ preventScroll: true });
+  };
+  // The open node's detail is shown in the shell's inspector (D.2); the inspector's own close, Escape and scrim close it too.
+  const paintOpen = () => {
+    paintMarks();
+    const index = nodes.findIndex((candidate) => `${candidate.type}:${candidate.id}` === local.openId);
+    if (index < 0) {
+      hidePanel(local.inspector, local);
+      return;
+    }
+    showPanel(local.inspector, local, {
+      title: 'Step details',
+      body: railDetail(nodes[index], data.workflow, { onClose: () => close(true), onEscape: () => close(true) }),
+      owner: built[index] ? built[index].button : null,
+      onClose: () => {
+        local.openId = null;
+        paintMarks();
+        focusNodeAt(index);
+        linkOpen(local);
+      },
+    });
   };
   const close = (/** @type {boolean} */ focusNode) => {
     const id = local.openId;
     local.openId = null;
     paintOpen();
-    const index = nodes.findIndex((node) => `${node.type}:${node.id}` === id);
-    if (focusNode && index >= 0 && built[index]) built[index].button.focus({ preventScroll: true });
+    if (focusNode) focusNodeAt(nodes.findIndex((node) => `${node.type}:${node.id}` === id));
+    linkOpen(local);
   };
   const handlers = {
     rove,
@@ -296,6 +343,7 @@ function renderRunRail(data, params, local) {
       select(index, false);
       local.openId = local.openId === id ? null : id;
       paintOpen();
+      linkOpen(local);
     },
     key(/** @type {any} */ event, /** @type {number} */ index) {
       const last = nodes.length - 1;
@@ -322,7 +370,10 @@ function renderRunRail(data, params, local) {
       return `${named} ${degradedSentence(model.degraded) ?? ''}`.trim();
     }
     : null;
-  const context = { count: nodes.length, nowMs, rovingIndex, openId: local.openId, changed, keyOf, handlers, changedMs: 3000, nameOf };
+  // The view's one loop (IC-022): the running edge into the current node, else the awaiting gate that is current.
+  const current = nodes[cursorIndex];
+  const loopIndex = current && ((current.state === 'running' && cursorIndex > 0) || (current.type === 'gate' && current.state === 'awaiting')) ? cursorIndex : -1;
+  const context = { count: nodes.length, nowMs, rovingIndex, openId: local.openId, changed, keyOf, handlers, changedMs: 3000, nameOf, loopIndex };
   const items = nodes.map((node, index) => {
     const entry = railItem(node, index, context);
     built.push(entry);
@@ -352,7 +403,8 @@ function renderRunRail(data, params, local) {
     local.resizeObserver = new globalThis.ResizeObserver(setFade);
     local.resizeObserver.observe(scroller);
   }
-  raf(() => {
+  // After the caller mounts the section, before the next paint; no frame callback (IC-022).
+  queueMicrotask(() => {
     if (Number.isFinite(local.scrollLeft)) scroller.scrollLeft = local.scrollLeft;
     else if (built[cursorIndex]) centerOn(scroller, built[cursorIndex].button);
     setFade();
@@ -362,11 +414,17 @@ function renderRunRail(data, params, local) {
     ? { entry: built[cursorIndex], node: nodes[cursorIndex], index: cursorIndex, count: nodes.length, nameOf }
     : null;
 
-  mount(section, [scroller, degraded ? h('p', { class: 'rail-note' }, [icon('info', 16), /** @type {any} */ (NOTES)[/** @type {string} */ (model.degraded)]]) : null, detailSlot]);
+  mount(section, [scroller, degraded ? h('p', { class: 'rail-note' }, [icon('info', 16), /** @type {any} */ (NOTES)[/** @type {string} */ (model.degraded)]]) : null]);
   if (local.openId !== null) {
-    if (nodes.some((node) => `${node.type}:${node.id}` === local.openId)) paintOpen();
-    else local.openId = null;
+    if (!nodes.some((node) => `${node.type}:${node.id}` === local.openId)) local.openId = null;
+    paintOpen();
   }
+  // A reroute (IC-019) opens the node its route names, or closes the detail, in this mounted rail.
+  local.reselect = () => {
+    local.openId = selectionOf(local.route);
+    if (local.openId !== null && !nodes.some((node) => `${node.type}:${node.id}` === local.openId)) local.openId = null;
+    paintOpen();
+  };
   return section;
 }
 
@@ -451,4 +509,4 @@ function tickRunRail(_root, nowMs, local) {
   }
 }
 
-export { railCompact, railFallback, renderRunRail, railDetail, tickRunRail, releaseRail, toneOf, registryOf, ensureVisible, centerOn, NOTES };
+export { railCompact, railFallback, renderRunRail, rerouteRail, railDetail, tickRunRail, releaseRail, toneOf, registryOf, ensureVisible, centerOn, NOTES };

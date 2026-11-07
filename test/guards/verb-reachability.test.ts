@@ -100,6 +100,7 @@ const ALLOWLIST: any = new Map([
   ['rules', 'read-only runtime-owned values printer (doflow rules); a person or orchestrator runs it so guidance can point at it instead of copying numbers, no skill calls it'],
   ['fleet', 'read-only project lister for the Console Fleet view (093 IC-019); a person or the Console runs it, so no skill calls it'],
   ['transcript', 'read-only agent transcript and traffic reader for the Console Fleet view (093 IC-022, IC-023); a person or the Console runs it, so no skill calls it'],
+  ['events', 'read-only live section follower for the Console live stream (149 IC-001, DEC-051); the Console or a person runs it, so no skill calls it'],
   ['package', 'read-only contribution point listing (122 IC-012 `points`); no skill calls the package verb yet'],
   ['models', 'CLI model catalogue sync and inspection verb; invoked via doflow models'],
   ['worktree', 'autonomy plan 7c: `worktree --action cleanup` is run by the orchestrator or a person from the main checkout after a merge, by design; no skill calls it and none will'],

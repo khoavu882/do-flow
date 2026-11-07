@@ -12,7 +12,7 @@ const NOTICES = Object.freeze({
   resumed: 'Updates resumed.',
   resynced: 'Reconnected. The view was refreshed in full.',
   'core-back': 'DoFlow is reachable again.',
-  'push-lost': 'Push unavailable; polling every 5 seconds.',
+  'push-lost': 'Push unavailable; polling every {0} seconds.',
   'push-back': 'Push restored.',
 });
 

@@ -10,7 +10,12 @@
 // V.7 adds the Fleet shapes (IC-024, IC-026): the runner and the projectors, with no route yet (V.8), run against the real
 // core over two projects; see the last test of this file for what its fixture is.
 //
-// Vacuity guard: the same boot and reads with DOFLOW_UPKEEP=off taken out of every core child's
+// Feature 149 B.6 (IC-007, IC-011, IC-012, IC-023; FR-015, NFR-007) adds GET /api/live to the first test: the
+// `now`, `run:`, `tasks:` and `worker:` channels from the real core's `events --follow`, with a worker run record
+// holding a planted secret, email, IP and absolute path; each channel's snapshot equals its GET replies, no
+// planted text reaches a frame, and every tree is unchanged after the connection closed and the Console shut down.
+//
+// Vacuity guard: the same boot and reads (the live route included) with DOFLOW_UPKEEP=off taken out of every core child's
 // environment must change a tree, or the fixture proves nothing and the test fails. The switch is
 // removed by a test-only preload (helpers/drop-upkeep-switch.ts) given on the Console's own node command
 // line; the shipped code has no way to turn it off, and no HTTP request can load a preload.
@@ -83,12 +88,17 @@ function request(port: number, method: string, target: string, headers: Record<s
   });
 }
 
-/** Exchanges the launch code, then reads every route the views use. Returns each reply by target. */
-async function readEverything(app: Booted): Promise<Map<string, Reply>> {
+/** Exchanges the launch code; returns the session cookie (`name=value`). */
+async function exchange(app: Booted): Promise<string> {
   const own = `http://127.0.0.1:${app.port}`;
-  const exchange = await request(app.port, 'POST', '/api/session', { Origin: own, 'Content-Type': 'application/json' }, JSON.stringify({ code: app.code }));
-  assert.equal(exchange.status, 204, `exchange: ${exchange.body}`);
-  const cookie = String(exchange.headers['set-cookie']).split(';')[0];
+  const reply = await request(app.port, 'POST', '/api/session', { Origin: own, 'Content-Type': 'application/json' }, JSON.stringify({ code: app.code }));
+  assert.equal(reply.status, 204, `exchange: ${reply.body}`);
+  return String(reply.headers['set-cookie']).split(';')[0];
+}
+
+/** Exchanges the launch code (unless a cookie is given), then reads every route the views use. Returns each reply by target. */
+async function readEverything(app: Booted, session?: string): Promise<Map<string, Reply>> {
+  const cookie = session ?? await exchange(app);
   const replies = new Map<string, Reply>();
   const get = async (target: string) => {
     const reply = await request(app.port, 'GET', target, { Cookie: cookie });
@@ -123,6 +133,74 @@ const body = (replies: Map<string, Reply>, target: string) => {
   assert.ok(reply, `${target} was read`);
   return JSON.parse(reply!.body);
 };
+
+// ---- Feature 149 B.6: GET /api/live against the real core (IC-007, IC-011, IC-012, IC-023 row for this file) ----
+
+type LiveRead = { status: number, headers: Record<string, any>, text: string, frames: any[] };
+
+/** The complete SSE messages of `text` that carry data, as their parsed envelopes. */
+function liveFrames(text: string): any[] {
+  return text.split('\n\n').slice(0, -1)
+    .map((block) => block.split('\n').find((line) => line.startsWith('data: ')))
+    .filter((line): line is string => line !== undefined)
+    .map((line) => JSON.parse(line.slice(6)));
+}
+
+const hasSnapshot = (frames: any[], channel: string) => frames.some((frame) => frame.ch === channel && frame.type === 'snapshot');
+
+/**
+ * Opens `GET /api/live` on `channels` with the session cookie, reads until every channel has had a
+ * snapshot (or `ms` passed), then closes the connection and resolves once its response closed.
+ */
+function readLive(port: number, cookie: string, channels: string[], ms = 30_000): Promise<LiveRead> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const req = http.request({ host: '127.0.0.1', port, method: 'GET', path: `/api/live?ch=${channels.join(',')}`, agent: false, headers: { Cookie: cookie } }, (res: any) => {
+      let text = '';
+      const timer = setTimeout(() => req.destroy(), ms);
+      res.setEncoding('utf8');
+      res.on('data', (chunk: string) => {
+        text += chunk;
+        const frames = liveFrames(text);
+        if (channels.every((channel) => hasSnapshot(frames, channel))) req.destroy();
+      });
+      res.on('error', () => {});
+      res.on('close', () => {
+        clearTimeout(timer);
+        settled = true;
+        resolve({ status: res.statusCode, headers: res.headers, text, frames: liveFrames(text) });
+      });
+    });
+    req.on('error', (error: any) => { if (!settled && error.code !== 'ECONNRESET') reject(error); });
+    req.end();
+  });
+}
+
+/** Planted in a worker run record that the `tasks:` and `worker:` channels read; the core masks the first three, the projector drops the rest. */
+const LIVE_PLANTED = Object.freeze({
+  secret: 'fx-Live-Secret-6b2e19',
+  email: 'live.person@example.invalid',
+  ip: '10.20.30.40',
+  path: '/srv/doflow-ui-fixture/live-plan-8e21.md',
+});
+const LIVE_RUN = 'w-0b6e1ce0a1b2';
+
+/**
+ * Test-local setup: a worker run of the active A.2 attempt (token 2) of the graph feature, written as
+ * the run store holds it (`.doflow/state/worker-runs/<slug>.json`), with the planted text in every
+ * free-text field the core's status view passes on (identity, process, report, output).
+ */
+function plantWorkerRun(f: { main: string }) {
+  const text = `password=${LIVE_PLANTED.secret} mail ${LIVE_PLANTED.email} host ${LIVE_PLANTED.ip} file ${LIVE_PLANTED.path} ${MARKER}`;
+  const at = new Date().toISOString();
+  const dir = path.join(f.main, '.doflow', 'state', 'worker-runs');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, `${SLUGS.graph}.json`), `${JSON.stringify({ slug: SLUGS.graph, runs: { [LIVE_RUN]: {
+    runId: LIVE_RUN, task: 'A.2', token: 2, harness: 'claude', identity: text, phase: 'ended', seq: 1, startedAt: at, deadline: at,
+    end: { state: 'exited', at }, process: { kind: 'exited', code: 0, note: text }, report: { status: 'success', summary: text },
+    output: { file: LIVE_PLANTED.path, note: text }, childOf: null, request: null,
+  } } }, null, 2)}\n`);
+}
 
 test('the Console reads every route from the real core, leaks no free text, and changes no DoFlow tree', { timeout: 120_000 }, async (t: any) => {
   const f = buildFixture((fn: () => void) => t.after(fn));
@@ -253,13 +331,69 @@ test('the Console reads every route from the real core, leaks no free text, and 
   const repairedText = JSON.stringify(repaired);
   assert.ok(!repairedText.includes(MARKER) && !repairedText.includes(f.dir), 'no marker or path in the repaired Sessions body');
 
+  // Feature 149 B.6: GET /api/live on the four channel kinds against the real core, with a worker run
+  // record holding a planted secret, email, IP and absolute path (test-local setup, before the snapshot).
+  plantWorkerRun(f);
+  // The leak check is live: the core's own worker status prints every planted value as written.
+  const rawWorker = direct('worker', '--action', 'status', '--slug', SLUGS.graph, '--worker-run', LIVE_RUN, '--json');
+  for (const value of [...Object.values(LIVE_PLANTED), MARKER]) assert.ok(rawWorker.includes(value), `the raw worker status carries ${value}`);
+  const runChannel = `run:${SLUGS.graph}:run-gate`;
+  const tasksChannel = `tasks:${SLUGS.graph}`;
+  const workerChannel = `worker:${LIVE_RUN}`;
+  const liveChannels = ['now', runChannel, tasksChannel, workerChannel];
+  const liveBefore = snapshotTrees(f.roots);
+  const viewed = await boot(args, f.env, f.main);
+  const liveCookie = await exchange(viewed);
+  const liveGets = await readEverything(viewed, liveCookie);
+  const stream = await readLive(viewed.port, liveCookie, liveChannels);
+  await shutdown(viewed);
+  assert.deepEqual(snapshotTrees(f.roots), liveBefore, 'the live route changed a DoFlow tree');
+
+  assert.equal(stream.status, 200, stream.text);
+  assert.equal(stream.headers['content-type'], 'text/event-stream; charset=utf-8');
+  assert.ok(stream.text.startsWith('retry: 2000\n\n'), 'retry: 2000 first');
+  const snapshotOf = (channel: string) => {
+    const frame = stream.frames.find((entry) => entry.ch === channel && entry.type === 'snapshot');
+    assert.ok(frame, `${channel}: a snapshot arrived; frames ${JSON.stringify(stream.frames.map((entry) => `${entry.ch}/${entry.type}`))}`);
+    assert.deepEqual(Object.keys(frame), ['v', 'ch', 'id', 'type', 'at', 'data'], channel);
+    assert.equal(frame.v, 1);
+    assert.match(frame.id, /^[0-9a-f]{8}-[1-9][0-9]*$/, channel);
+    assert.deepEqual(Object.keys(frame.data), ['state'], channel);
+    return frame.data.state;
+  };
+  // IC-012: each member is {status, body} equal to the matching GET reply read from the same Console.
+  const member = (reply: Reply) => ({ status: reply.status, body: JSON.parse(reply.body) });
+  const now = snapshotOf('now');
+  assert.deepEqual(Object.keys(now), ['runs', 'sessions']);
+  assert.deepEqual(now.runs, member(liveGets.get('/api/runs')!));
+  assert.deepEqual(now.sessions, member(liveGets.get('/api/sessions')!));
+  const runState = snapshotOf(runChannel);
+  assert.deepEqual(Object.keys(runState), ['run']);
+  const detail = member(liveGets.get(`/api/runs/${SLUGS.graph}/run-gate`)!);
+  assert.deepEqual(runState.run, detail);
+  const graph = snapshotOf(tasksChannel);
+  assert.deepEqual(graph, { tasks: { status: 200, body: { tasks: detail.body.tasks } } });
+  const worker = snapshotOf(workerChannel);
+  assert.deepEqual(Object.keys(worker), ['worker']);
+  assert.equal(worker.worker.status, 200);
+  assert.deepEqual([worker.worker.body.runId, worker.worker.body.task, worker.worker.body.token, worker.worker.body.state], [LIVE_RUN, 'A.2', 2, 'exited']);
+  // The planted worker run reached Sessions too, through the `tasks:` channel's worker section.
+  assert.equal(now.sessions.body.sections.workers.data[0].worker.runId, LIVE_RUN);
+  for (const value of [...Object.values(LIVE_PLANTED), MARKER, f.dir, viewed.code]) {
+    assert.ok(!stream.text.includes(value), `a live frame carries ${value}`);
+  }
+  assert.ok(!viewed.stderr().includes(LIVE_PLANTED.secret) && !viewed.stderr().includes(MARKER), 'no planted text on the Console stderr');
+
   // Vacuity guard: the same boot and reads with the switch removed from every core child must write.
   const controlBefore = snapshotTrees(f.roots);
   const control = await boot(args, f.env, f.main, true);
-  await readEverything(control);
+  const controlCookie = await exchange(control);
+  await readEverything(control, controlCookie);
+  const controlStream = await readLive(control.port, controlCookie, liveChannels);
   await shutdown(control);
   const controlAfter = snapshotTrees(f.roots);
   assert.ok(control.stderr().includes('drop-upkeep-switch: removed'), 'the control hook ran');
+  for (const channel of liveChannels) assert.ok(hasSnapshot(controlStream.frames, channel), `control: ${channel} got its snapshot`);
   const changed = TREE_IDS.filter((id: string) => !isDeepStrictEqual(controlBefore[id], controlAfter[id]));
   assert.ok(changed.length > 0, 'Fixture is vacuous: the reads without DOFLOW_UPKEEP=off changed none of the three trees');
 });

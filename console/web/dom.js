@@ -67,6 +67,11 @@ const ICONS = {
   masked: { paths: [['M2 8s2.2-4 6-4 6 4 6 4-2.2 4-6 4-6-4-6-4Z'], ['M3 13 13 3']] },
   'arrow-down': { paths: [['M8 3v10'], ['M4 9l4 4 4-4']] },
   'chevron-right': { paths: [['M6 4l4 4-4 4']] },
+  // The shell's navigation rail (149 D.1, IC-020): Now, Sessions, Workflows, Fleet.
+  'rail-now': { paths: [['M1.5 8h3l2-4.5 3 9 2-4.5h3']] },
+  'rail-sessions': { paths: [['M2.5 4.5h11M2.5 8h7M2.5 11.5h9']] },
+  'rail-workflows': { paths: [['M2.5 4a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0-3 0'], ['M10.5 12a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0-3 0'], ['M4 5.5V10a2 2 0 0 0 2 2h4.5']] },
+  'rail-fleet': { paths: [['M2.5 2.5h4v4h-4ZM9.5 2.5h4v4h-4ZM2.5 9.5h4v4h-4ZM9.5 9.5h4v4h-4Z']] },
   'empty-rail': {
     box: 24,
     paths: [

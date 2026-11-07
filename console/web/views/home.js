@@ -67,13 +67,45 @@ function needsWorkflows(/** @type {any} */ local, /** @type {any[]} */ runs) {
  * @param {(path: string) => Promise<any>} apiGet
  */
 async function loadHome(local, apiGet) {
-  if (!(local.workflows instanceof Map)) local.workflows = new Map();
-  const first = local.workflowsAt === undefined;
-  const pending = first ? fetchWorkflows(local, apiGet) : null;
+  const pending = firstWorkflows(local, apiGet);
   const body = await apiGet('/api/runs');
   if (pending) await pending;
   else if (needsWorkflows(local, body.runs)) void fetchWorkflows(local, apiGet);
+  return homeData(local, body);
+}
+
+/**
+ * The first workflows read of a view instance: started on the first call, null on later ones. Kept in `local.workflowsFirst`
+ * until it settles, so a live `runs` member that arrives meanwhile waits for it as the first load does.
+ * @param {any} local
+ * @param {(path: string) => Promise<any>} apiGet
+ * @returns {Promise<void> | null}
+ */
+function firstWorkflows(local, apiGet) {
+  if (!(local.workflows instanceof Map)) local.workflows = new Map();
+  if (local.workflowsAt !== undefined) return null;
+  const pending = fetchWorkflows(local, apiGet).finally(() => { local.workflowsFirst = null; });
+  local.workflowsFirst = pending;
+  return pending;
+}
+
+/** The home's data from an `/api/runs` body and the workflows kept in the view instance. @param {any} local @param {any} body */
+function homeData(local, body) {
   return { runs: body.runs, unreadableCount: body.unreadableCount, workflows: local.workflows };
+}
+
+/**
+ * The `/api/runs` wrapping of loadHome for a body that arrived another way (the live `runs` member, IC-012): the workflows are
+ * read as loadHome reads them, and while the first read is pending the data waits for it (a promise is returned).
+ * @param {any} local
+ * @param {any} body an `/api/runs` body
+ * @param {(path: string) => Promise<any>} apiGet
+ */
+function homeOf(local, body, apiGet) {
+  const pending = firstWorkflows(local, apiGet) ?? local.workflowsFirst ?? null;
+  if (pending) return pending.then(() => homeData(local, body));
+  if (needsWorkflows(local, body.runs)) void fetchWorkflows(local, apiGet);
+  return homeData(local, body);
 }
 
 /**
@@ -246,6 +278,9 @@ function gateCard(run, index, context) {
   described.set(description, { kind: 'card', run, options, waitDur, waitWord });
   description.textContent = describeGate(run, options);
   const glyph = `gate-${kind === 'clarification' ? 'clarification' : 'approval'}-12`;
+  // The view's one loop (IC-022): the gate glyph of the first Needs you card pulses; every other card shows the still glyph.
+  const loop = context.loop === true;
+  context.loop = false;
 
   return h('li', { class: 'gate-card', dataset: { kind: kind ?? '', openable: openable ? 'true' : 'false' } }, [
     h('div', { class: 'gate-card__head', 'aria-hidden': 'true' }, [
@@ -261,7 +296,7 @@ function gateCard(run, index, context) {
           openable ? titleParts(run) : h('span', { class: 'run-row__id' }, run.taskId),
           run.origin === 'other' ? tag('Other checkout') : null, openable ? null : tag('No feature folder'),
         ]),
-        model && drawn ? railCompact(model, { large: true, changed: changed.get(runKey(run)) ?? new Set() }) : railFallback(run, reason, now),
+        model && drawn ? railCompact(model, { large: true, loop, changed: changed.get(runKey(run)) ?? new Set() }) : railFallback(run, reason, now, loop),
         h('p', { class: 'gate-card__meta' }, done === null || total === null ? workflowName : `${workflowName} · step ${stepNumber(run)} of ${total}`),
       ]),
       openable
@@ -393,6 +428,7 @@ function renderHome(data, { badge, local }) {
   const context = { now, local, badge, rowIndex: 0, changed };
   const build = () => {
     context.rowIndex = 0;
+    context.loop = true;
     context.changed = changed;
     context.now = Date.now();
     mount(root, homeContent(data, context));
@@ -416,4 +452,4 @@ function skeletonHome() {
   ]);
 }
 
-export { loadHome, renderHome, skeletonHome, homeKey, tickHome, resetHome, FINISHED_CAP, WORKFLOWS_RETRY_MS };
+export { loadHome, homeOf, renderHome, skeletonHome, homeKey, tickHome, resetHome, FINISHED_CAP, WORKFLOWS_RETRY_MS };

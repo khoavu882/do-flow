@@ -102,13 +102,24 @@ async function harness(runner: any, t: any) {
 
 const errorBody = (code: string, verb: string | null = null, exit: number | null = null) => ({ error: { code, verb, exit } });
 
-test('route table: frozen, the only non-GET route is POST /api/session, the only stream route is GET /api/stream, and exactly the IC-005 read paths', () => {
+test('route table: frozen, the only non-GET route is POST /api/session, the stream routes are exactly GET /api/stream and GET /api/live, the IC-005 read paths plus /api/live, the phone allow-list the four routes', async () => {
   const routes = consoleRoutes(scripted(), createSessions());
   assert.ok(Object.isFrozen(routes) && routes.every((route: any) => Object.isFrozen(route)));
   assert.deepEqual(routes.filter((route: any) => route.method !== 'GET').map((route: any) => `${route.method} ${route.path}`), ['POST /api/session']);
-  assert.deepEqual(routes.filter((route: any) => route.stream).map((route: any) => `${route.method} ${route.path}`), ['GET /api/stream']);
+  assert.deepEqual(routes.filter((route: any) => route.stream).map((route: any) => `${route.method} ${route.path}`), ['GET /api/stream', 'GET /api/live']);
   assert.deepEqual(routes.filter((route: any) => route.method === 'GET').map((route: any) => route.path).sort(),
-    ['/*', '/api/fleet', '/api/info', '/api/runs', '/api/runs/:slug/:taskId', '/api/sessions', '/api/stream', '/api/transcript', '/api/workflows', '/healthz']);
+    ['/*', '/api/fleet', '/api/info', '/api/live', '/api/runs', '/api/runs/:slug/:taskId', '/api/sessions', '/api/stream', '/api/transcript', '/api/workflows', '/healthz']);
+  // PHONE_ROUTE_ALLOWLIST by behaviour (DEC-007): a phone session passes the session check on exactly the four routes.
+  const phone = createSessions({ scope: 'phone' });
+  const cookie = `${cookieName(4310)}=${phone.exchange(phone.mintLaunchCode())}`;
+  const phoneRoutes = consoleRoutes(scripted(), phone);
+  const reachable: string[] = [];
+  for (const route of phoneRoutes.filter((item: any) => item.method === 'GET' && item.path.startsWith('/api/'))) {
+    const reply = await route.handler({ req: { headers: { cookie }, url: route.path }, port: 4310, params: { slug: 'feat-a', taskId: 'run-1' }, pathname: route.path, webRoot: '/tmp', res: {} });
+    if (reply === null || reply.status !== 403) reachable.push(route.path);
+    else assert.deepEqual(JSON.parse(reply.body), errorBody('phone-scope'), route.path);
+  }
+  assert.deepEqual(reachable.sort(), ['/api/info', '/api/runs', '/api/runs/:slug/:taskId', '/api/workflows']);
 });
 
 test('session: every read route is 401 without the cookie and no verb runs', async (t) => {
@@ -146,7 +157,7 @@ test('phone session: only the four phone GET routes are allowed', async () => {
     assert.notEqual(reply.status, 403, `${path} is in phone scope`);
   }
 
-  for (const path of ['/api/sessions', '/api/fleet', '/api/transcript', '/api/stream']) {
+  for (const path of ['/api/sessions', '/api/fleet', '/api/transcript', '/api/stream', '/api/live']) {
     const route = routes.find((item: any) => item.method === 'GET' && item.path === path);
     assert.ok(route, path);
     const reply = await invoke(route);

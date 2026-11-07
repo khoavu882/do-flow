@@ -66,14 +66,14 @@ Remote access requires a certificate whose IP subject alternative name matches t
 
 | View | Route | Reads |
 |---|---|---|
-| Runs | `#/` | `GET /api/runs`: every run of this project as a stage rail, grouped Needs you, Running, Finished |
-| Run | `#/run/:slug/:taskId` | `GET /api/runs/:slug/:taskId`: rail, current activity, timeline (`orchestrate --action timeline`), replay |
-| Task graph | `#/run/:slug/:taskId/tasks` | the same route: task lanes and each task's attempts (`task-attempt --action inspect`, field `attempts`) |
+| Runs (rail: Now) | `#/` | `GET /api/live` channel `now`, member `runs`; polled: `GET /api/runs`. Every run of this project as a stage rail, grouped Needs you, Running, Finished |
+| Run | `#/run/:slug/:taskId`, `#/run/:slug/:taskId/stage/:id`, `#/run/:slug/:taskId/gate/:id` | `GET /api/live` channel `run:<slug>:<taskId>`, member `run`; polled: `GET /api/runs/:slug/:taskId`. Rail, current activity, timeline (`orchestrate --action timeline`), replay |
+| Task graph | `#/run/:slug/:taskId/tasks`, `#/run/:slug/:taskId/tasks/:task` | the same channel and route: task lanes and each task's attempts (`task-attempt --action inspect`, field `attempts`) |
 | Workflows | `#/workflows` | `GET /api/workflows`: one diagram per task class, built ahead of time |
-| Sessions | `#/sessions` | `GET /api/sessions` |
+| Sessions | `#/sessions`, `#/sessions/:lane` | `GET /api/live` channel `now`, member `sessions`; polled: `GET /api/sessions` |
 | Fleet | `#/fleet`, `#/fleet/:projectKey`, `#/fleet/:projectKey/:agentKey` | `GET /api/fleet`, `GET /api/transcript`, `GET /api/stream` |
 
-Other routes: `GET /api/info` (core version and capabilities) and `GET /healthz`. Runs, Workflows and Sessions show the project the Console was started in; only Fleet spans projects. Views poll while visible: Runs and Fleet every 5 s, Run and Task graph every 3 s, Sessions every 10 s, Workflows every 30 s.
+Other routes: `GET /api/info` (core version and capabilities) and `GET /healthz`. Runs, Workflows and Sessions show the project the Console was started in; only Fleet spans projects. A route with a selection (a stage, a gate, a task, or a Sessions lane such as `hook/<key>` or `worker/<slug>/<task>/<token>`) opens the view with that item selected; a segment that fails its pattern is the not-found view and makes no fetch. Runs, Run, Task graph and Sessions read the live stream (below) and fall back to polling their GET while it is down: Runs every 5 s, Run and Task graph every 3 s, Sessions every 10 s. Fleet polls every 5 s while its own stream is down. Workflows polls every 30 s.
 
 ## States
 
@@ -109,9 +109,20 @@ Fleet answers one question: across the DoFlow projects on this machine, which ag
 - **The stream (`#/fleet/:projectKey/:agentKey`).** The selected agent's replies, tool calls (name and masked arguments), tool results (status, size, time only), usage, dividers and DoFlow's own `record` events, newest last, with Follow and a kind filter. Reply text is capped at 4 KiB and tool arguments at 512 bytes. Thinking, prompts, attachments and tool-result text are never read. The panel's footer says the text is **masked, best effort** and counts the records it does not show. Masking covers secrets and home paths, best effort; other paths and ids an agent writes in its own text are shown as written.
 - **Words.** Never "active", "online", "idle" or "live" for an agent: "process seen", "recorded", "started", "last record". A process check exists only for worker runs.
 
-**Transport.** On a Fleet page the Console pushes over one `EventSource` (`GET /api/stream`): a snapshot, project updates every 5 s, transcript ticks every 1 s for the selected agent, and a 15 s keepalive. At most 2 streams per session; a third gets 429 `stream-limit`. After 3 stream errors in a row, on 429, or without `EventSource`, the page polls `/api/fleet` every 5 s and `/api/transcript` every 2 s instead, and retries the stream every 60 s; only the transport line changes.
+**Transport.** On a Fleet page the Console pushes over one `EventSource` (`GET /api/stream`): a snapshot, project updates every 5 s, transcript ticks every 1 s for the selected agent, and a 15 s keepalive. After 3 stream errors in a row, on 429, or without `EventSource`, the page polls `/api/fleet` every 5 s and `/api/transcript` every 2 s instead, and retries the stream every 60 s; only the transport line changes.
 
-**Known limits.**
+**Live transport.** Runs, Run, Task graph and Sessions share one `EventSource` per page on `GET /api/live?ch=<channel>[,<channel>...]`, 1 to 8 distinct channels: `now`, `run:<slug>:<taskId>`, `tasks:<slug>` and `worker:<runId>`. Each message is one envelope `{v: 1, ch, id, type, at, data}` (`snapshot`, `patch`, `reset`, `error` or `gone`). The SSE `id:` is the position on every channel of the connection (`<epoch>/<ch>=<n>,...`); the page sends it back as `since` when it reopens, and a channel that has not moved since then gets nothing. The server sends `retry: 2000` and a keepalive every 15 s. A bad `ch` or `since` is 400 `usage`.
+
+- **One events child.** Behind every live connection the Console runs one `doflow events --follow --control stdin` child. It is started when the first live channel is needed, gets a `sub` or `unsub` line on stdin as channels come and go, and is ended (stdin end, SIGTERM, SIGKILL after 1 s) when the last `/api/live` connection closes. If it exits for any other reason, every live channel gets `error` `events-down` and the child is restarted after 1 s, 2 s, 5 s, then every 30 s; the delay goes back to 1 s once a child has run for 60 s. A stdout line that is not an envelope ends the child and takes the same restart path.
+- **Same data as the GET.** Each channel's state is built from the child's sections by the same code that answers the GET routes, so a `snapshot` equals the GET reply for the same records.
+- **Bounds.** A channel whose queue would pass 524288 bytes is cleared, gets `error` `queue-full`, and then one fresh `snapshot`. A connection with more than 1048576 bytes queued, or with bytes pending and no `drain` for 60 s, is closed. A message over 262144 bytes is sent as `reset` `frame-cap`.
+- **Polling fallback.** When the stream is refused (429, or three reconnect errors in a row), unsupported (503, or no `EventSource` in the page) or closed, or a channel sends `error`, `reset` or `gone`, the view polls its own GET at the interval in Views. The header pill reads `Polling` instead of `Live`, and a notice says "Push unavailable; polling every N seconds."; when the stream is back it says "Push restored." and the GET timer stops. The page reopens the stream after 30 s when it was refused or unsupported, and after 5 s when it closed. A hidden tab or a pause closes the stream; it reopens with `since` when the tab is visible again. Live data is stale when data had arrived and the connection has not been open for 20 s.
+- **Old core.** A core inside the `doflowCore` range that has no `events` verb answers the child with an unknown flag, command or verb, exit 1 or 2, before any stdout line and with no `[ERROR]` line. The Console then treats live as unavailable for the rest of its run: the child is not restarted, open live connections get `error` `live-unavailable` and end, and `/api/live` answers 503 `live-unavailable`. The views keep polling, as they did before this feature.
+- **Not verified.** The browser review (360, 768, 1280 and 1920 px, both themes, reduced motion) is still to be done by a person. The live path has not been run on Windows, so its behaviour there is unknown.
+
+**Stream cap.** `/api/stream` and `/api/live` take their slot from one cap per session: at most 4 open streams in total (`MAX_STREAMS_PER_SESSION` in `console/src/stream.ts`). The fifth gets 429 `stream-limit` as JSON before any stream header, and a closed stream frees its slot. A remote phone session can open neither stream route (403 `phone-scope`).
+
+**Known limits of the Fleet stream.**
 
 - The stream needs a project. `GET /api/stream` takes a `project` key and answers 400 without one. `#/fleet` therefore reads `/api/fleet` once and opens the stream on the first listed project (and polls every 5 s while no project is listed).
 - A hidden tab closes the stream. When the tab is visible again the browser's `EventSource` cannot send `Last-Event-ID`, so the stream restarts from the transcript's last 64 records and the page drops events it already holds. Events older than those 64 are lost from the view after a long hide.

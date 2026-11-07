@@ -5,7 +5,7 @@
 
 import { h, icon, mount, announce } from '../dom.js';
 import { commandBlock, clockTime, reltime } from '../states.js';
-import { renderRunRail, tickRunRail, releaseRail, toneOf } from './rail.js';
+import { renderRunRail, rerouteRail, tickRunRail, releaseRail, toneOf } from './rail.js';
 import { runToken, formatDuration, liveDuration, clockHM, sinceStamp, stateWord } from '../derive/rail.js';
 import { deriveActivity, clauseWords, attemptChanges, finishedCounts } from '../derive/activity.js';
 import { deriveTimeline, axisDomain, tickMarks, mergeMarkers, position, rowCopy } from '../derive/timeline.js';
@@ -553,4 +553,9 @@ function tickRun(root, nowMs, local) {
   }
 }
 
-export { renderRun, tickRun, releaseRun };
+/** The run route's selection changed without a re-mount (IC-019): the rail opens the stage or gate it names. @param {any} local */
+function rerouteRun(local) {
+  rerouteRail(local);
+}
+
+export { renderRun, tickRun, releaseRun, rerouteRun };

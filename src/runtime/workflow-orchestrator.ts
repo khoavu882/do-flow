@@ -1165,17 +1165,15 @@ function timelineOf(run: any, taskId: string, featureSlug: any) {
   };
 }
 
-function listRuns({ json, stateRoot, ...flags }: any) {
-  const { finishRuntime, usageError } = require('./cli-result.ts');
-  // list takes no filter, so a `--slug` must not look like one.
-  const noEffect = noEffectFlag(flags);
-  if (noEffect) return usageError('orchestrate', `'${noEffect}' has no effect on action 'list'`, json);
-
-  const resolverFailure = () => {
-    if (json) console.log(JSON.stringify({ v: 1, error: 'cannot-list-checkouts' }, null, 2));
-    else console.error('[ERROR] orchestrate: cannot list checkouts');
-    return finishRuntime(1);
-  };
+/**
+ * The result of `orchestrate --action list --json` (IC-004 section `list`): `exit` and `json` are the
+ * exit code and the parsed stdout of that call, for the store at `stateRoot` (default: the cwd).
+ * `listRuns` prints this result, so the verb and an in-process producer cannot disagree.
+ * @param {{ stateRoot?: string }} [options]
+ * @returns {{ exit: number, json: any }}
+ */
+function listRunsResult({ stateRoot }: { stateRoot?: string } = {}): { exit: number; json: any } {
+  const resolverFailure = () => ({ exit: 1, json: { v: 1, error: 'cannot-list-checkouts' } });
   let resolved: any;
   try { resolved = orchestrationRuns({ stateRoot: stateRoot || process.cwd() }); } catch { return resolverFailure(); }
   if (!resolved.ok) return resolverFailure();
@@ -1265,14 +1263,121 @@ function listRuns({ json, stateRoot, ...flags }: any) {
   });
   unreadable.sort((a, b) => textCompare(a.origin, b.origin)
     || slugCompare(a.featureSlug, b.featureSlug) || textCompare(a.taskId, b.taskId));
+  return { exit: 0, json: { v: 1, runs, unreadable } };
+}
 
+function listRuns({ json, stateRoot, ...flags }: any) {
+  const { finishRuntime, usageError } = require('./cli-result.ts');
+  // list takes no filter, so a `--slug` must not look like one.
+  const noEffect = noEffectFlag(flags);
+  if (noEffect) return usageError('orchestrate', `'${noEffect}' has no effect on action 'list'`, json);
+
+  const result = listRunsResult({ stateRoot });
   if (json) {
-    console.log(JSON.stringify({ v: 1, runs, unreadable }, null, 2));
-  } else {
-    for (const row of runs) console.log(`${row.state} ${row.featureSlug || '-'} ${row.taskId} ${row.current ? row.current.id : '-'} rev ${row.revision}`);
-    if (unreadable.length > 0) console.log(`unreadable: ${unreadable.length}`);
+    console.log(JSON.stringify(result.json, null, 2));
+    return finishRuntime(result.exit);
   }
+  if (result.exit !== 0) {
+    console.error('[ERROR] orchestrate: cannot list checkouts');
+    return finishRuntime(result.exit);
+  }
+  for (const row of result.json.runs) console.log(`${row.state} ${row.featureSlug || '-'} ${row.taskId} ${row.current ? row.current.id : '-'} rev ${row.revision}`);
+  if (result.json.unreadable.length > 0) console.log(`unreadable: ${result.json.unreadable.length}`);
   return finishRuntime(0);
+}
+
+/** The message `orchestrate` prints, and exits 1 on, when the id names more than one run. */
+function ambiguousRunMessage(taskId: any, found: any) {
+  return found.byFeature
+    ? `[ERROR] orchestrate: run '${taskId}' exists under more than one feature (${found.candidates.join(', ')}); pass --slug <feature> to name the one you mean. Nothing was changed.`
+    : `[ERROR] orchestrate: run '${taskId}' exists in more than one other checkout (${found.candidates.join(', ')}); run the command from the checkout that holds the run you mean. Nothing was changed.`;
+}
+
+/**
+ * The roots, feature and orchestrator one `orchestrate` call works on, or `ambiguous` with the line
+ * to print when the id names more than one run. Shared by the CLI handler and the read results
+ * below, so `status` and `timeline` resolve a run the same way in both.
+ */
+function locateRun({ action, taskId, slug = null, recordSlug, repoRoot, stateRoot, sourceRoot, buildAdapters = null }: any) {
+  const root = repoRoot || REPO_ROOT;
+  // Same scope rule every other stateful command uses (evidenceRoot(o) in runtime-commands.js):
+  // a bare `stateRoot: stateRoot || process.cwd()` silently ignored `--global`, so `orchestrate`
+  // wrote its journal to $PWD while a `--global` `evidence`/`readiness` call on the same task read
+  // and wrote $HOME — two roots disagreeing about where one task's state lives.
+  const state = stateRoot || process.cwd();
+  // The checkout the verb runs in: its branch and feature folder name the feature; `state` (the main
+  // checkout for a linked worktree, 115 IC-004) holds the records.
+  const source = sourceRoot || state;
+  const safeId = ID_PATTERN.test(String(taskId ?? ''));
+  // The feature this task belongs to: recorded on a run this command starts, the namespace its run
+  // and readiness record live under (115 C-1), and matched against a run found in another checkout.
+  // The dispatcher passes the call's record slug, computed once for every store the call touches.
+  let featureSlug = recordSlug !== undefined ? recordSlug : safeId ? featureSlugFor({ projectRoot: source, taskId, slug }) : slug;
+  // A run started in another checkout of this repository for the same feature is read and updated
+  // where it is. `start` is always local: an unrelated run with the same id elsewhere neither
+  // refuses nor satisfies it.
+  let runRoot = state;
+  if (safeId && action !== 'start') {
+    // `status` (and `timeline`, which reads the same run) with no --slug opens the one run the list
+    // action shows for the id, whichever feature namespace holds it (FU-wrnnaq); more than one is
+    // refused until --slug names the feature.
+    const found = findRunFile({ stateRoot: state, taskId, slug: featureSlug, anyNamespace: (action === 'status' || action === 'timeline') && !slug });
+    if (found.status === 'ambiguous') return { ambiguous: ambiguousRunMessage(taskId, found) };
+    if (found.status === 'found') {
+      runRoot = found.root;
+      if (found.slug !== undefined) featureSlug = found.slug;
+    }
+  }
+  const orchestrator = new WorkflowOrchestrator({
+    repoRoot: root, projectRoot: runRoot, sourceRoot: source,
+    stateDir: runStoreDir(runRoot),
+    featureSlug, buildAdapters,
+  });
+  return { ambiguous: null, root, state, source, featureSlug, runRoot, orchestrator };
+}
+
+/** The body `status` or `timeline` prints for a located run; throws when there is no such run. */
+function readRunView(located: any, action: 'status' | 'timeline', taskId: any) {
+  if (action === 'status') return located.orchestrator.status(taskId);
+  const run = located.orchestrator.requireRun(taskId);
+  return timelineOf(run, taskId, runSlugOf(run, located.runRoot) || located.featureSlug);
+}
+
+/** The `{exit, json}` of `orchestrate --action <action> --task-id <taskId> --slug <slug> --json`. */
+function runReadResult(action: 'status' | 'timeline', { stateRoot, sourceRoot, taskId, slug }: any): { exit: number; json: any } {
+  if (typeof taskId !== 'string' || taskId === '' || typeof slug !== 'string' || slug === '') {
+    throw new TypeError(`${action}Result requires a taskId and a slug, as --task-id and --slug name them`);
+  }
+  const located = locateRun({ action, taskId, slug, recordSlug: slug, stateRoot, sourceRoot });
+  // An ambiguous id and a missing run print only to stderr, so stdout holds no JSON value.
+  if (located.ambiguous !== null) return { exit: 1, json: null };
+  try {
+    return { exit: 0, json: readRunView(located, action, taskId) };
+  } catch {
+    return { exit: 1, json: null };
+  }
+}
+
+/**
+ * The result of `orchestrate --action status --task-id <taskId> --slug <slug> --json` (IC-004 section
+ * `status`): `exit` is that call's exit code and `json` its parsed stdout, null on exit 1 (no such
+ * run, or an id naming more than one). The CLI handler reads the run through the same functions.
+ * @param {{ stateRoot?: string, sourceRoot?: string, taskId: string, slug: string }} options
+ * @returns {{ exit: number, json: any }}
+ */
+function statusResult(options: { stateRoot?: string; sourceRoot?: string; taskId: string; slug: string }): { exit: number; json: any } {
+  return runReadResult('status', options);
+}
+
+/**
+ * The result of `orchestrate --action timeline --task-id <taskId> --slug <slug> --json` (IC-004
+ * section `timeline`): `exit` is that call's exit code and `json` its parsed stdout, null on exit 1
+ * (no such run, or an id naming more than one). The CLI handler reads the run through the same functions.
+ * @param {{ stateRoot?: string, sourceRoot?: string, taskId: string, slug: string }} options
+ * @returns {{ exit: number, json: any }}
+ */
+function timelineResult(options: { stateRoot?: string; sourceRoot?: string; taskId: string; slug: string }): { exit: number; json: any } {
+  return runReadResult('timeline', options);
 }
 
 /** CLI handler for `doflow orchestrate`. The run journal lives in the CALLER's project state
@@ -1298,45 +1403,13 @@ function handleOrchestrateCommand({
   // `start` writes the run; --dry-run would otherwise be ignored and a real run started.
   if (action === 'start' && dryRun) return usageError('orchestrate', "'--dry-run' has no effect on action 'start'", json);
 
-  const root = repoRoot || REPO_ROOT;
-  // Same scope rule every other stateful command uses (evidenceRoot(o) in runtime-commands.js):
-  // a bare `stateRoot: stateRoot || process.cwd()` silently ignored `--global`, so `orchestrate`
-  // wrote its journal to $PWD while a `--global` `evidence`/`readiness` call on the same task read
-  // and wrote $HOME — two roots disagreeing about where one task's state lives.
-  const state = stateRoot || process.cwd();
-  // The checkout the verb runs in: its branch and feature folder name the feature; `state` (the main
-  // checkout for a linked worktree, 115 IC-004) holds the records.
-  const source = sourceRoot || state;
-  const safeId = ID_PATTERN.test(String(taskId ?? ''));
-  // The feature this task belongs to: recorded on a run this command starts, the namespace its run
-  // and readiness record live under (115 C-1), and matched against a run found in another checkout.
-  // The dispatcher passes the call's record slug, computed once for every store the call touches.
-  let featureSlug = recordSlug !== undefined ? recordSlug : safeId ? featureSlugFor({ projectRoot: source, taskId, slug }) : slug;
-  // A run started in another checkout of this repository for the same feature is read and updated
-  // where it is. `start` is always local: an unrelated run with the same id elsewhere neither
-  // refuses nor satisfies it.
-  let runRoot = state;
-  if (safeId && action !== 'start') {
-    // `status` (and `timeline`, which reads the same run) with no --slug opens the one run the list
-    // action shows for the id, whichever feature namespace holds it (FU-wrnnaq); more than one is
-    // refused until --slug names the feature.
-    const found = findRunFile({ stateRoot: state, taskId, slug: featureSlug, anyNamespace: (action === 'status' || action === 'timeline') && !slug });
-    if (found.status === 'ambiguous') {
-      console.error(found.byFeature
-        ? `[ERROR] orchestrate: run '${taskId}' exists under more than one feature (${found.candidates.join(', ')}); pass --slug <feature> to name the one you mean. Nothing was changed.`
-        : `[ERROR] orchestrate: run '${taskId}' exists in more than one other checkout (${found.candidates.join(', ')}); run the command from the checkout that holds the run you mean. Nothing was changed.`);
-      return finishRuntime(1);
-    }
-    if (found.status === 'found') {
-      runRoot = found.root;
-      if (found.slug !== undefined) featureSlug = found.slug;
-    }
+  const located = locateRun({ action, taskId, slug, recordSlug, repoRoot, stateRoot, sourceRoot, buildAdapters });
+  if (located.ambiguous !== null) {
+    console.error(located.ambiguous);
+    return finishRuntime(1);
   }
-  const orchestrator = new WorkflowOrchestrator({
-    repoRoot: root, projectRoot: runRoot, sourceRoot: source,
-    stateDir: runStoreDir(runRoot),
-    featureSlug, buildAdapters,
-  });
+  const { root, state, source, runRoot, orchestrator } = located;
+  const { featureSlug } = located;
   orchestrator.readinessEvaluate = (node: any, run: any) => {
     // This closure only ever runs for a stage that is actually gated (evaluateReadiness only calls
     // it for a mutating stage carrying a readiness template) — so a missing --task-class here is a
@@ -1440,11 +1513,10 @@ function handleOrchestrateCommand({
         break;
       case 'status':
         if (!taskId) return usageError('orchestrate', 'status requires --task-id', json);
-        snapshot = orchestrator.status(taskId);
+        snapshot = readRunView(located, 'status', taskId);
         break;
       case 'timeline': {
-        const run = orchestrator.requireRun(taskId);
-        const body = timelineOf(run, taskId, runSlugOf(run, runRoot) || featureSlug);
+        const body = readRunView(located, 'timeline', taskId);
         if (json) console.log(JSON.stringify(body, null, 2));
         else {
           console.log(`Timeline ${body.taskId} ${body.featureSlug || '-'} rev ${body.revision}`);
@@ -1497,4 +1569,7 @@ function handleOrchestrateCommand({
   }
 }
 
-module.exports = { WorkflowOrchestrator, loopWorkflow, RUN_STATES, GATE_DECISIONS, STAGE_OUTCOMES, handleOrchestrateCommand, recordStagePack };
+module.exports = {
+  WorkflowOrchestrator, loopWorkflow, RUN_STATES, GATE_DECISIONS, STAGE_OUTCOMES, handleOrchestrateCommand, recordStagePack,
+  snapshotRun, timelineOf, listRunsResult, statusResult, timelineResult,
+};
