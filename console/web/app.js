@@ -38,9 +38,6 @@ function applyTheme(choice) {
   else root.dataset.theme = choice;
 }
 
-/** @param {any} fn */
-const raf = (fn) => (globalThis.requestAnimationFrame ? globalThis.requestAnimationFrame(fn) : globalThis.setTimeout(fn, 0));
-
 /** @param {any} choice @param {any} radios */
 function chooseTheme(choice, radios) {
   const root = document.documentElement;
@@ -52,7 +49,9 @@ function chooseTheme(choice, radios) {
     // No storage: the choice holds for this page load only.
   }
   syncRadios(radios, choice);
-  raf(() => raf(() => root.classList.remove('theme-switching')));
+  // Reading a layout value applies the new theme while transitions are off; the class goes on the next task, with no frame callback.
+  void root.offsetWidth;
+  globalThis.setTimeout(() => root.classList.remove('theme-switching'), 0);
 }
 
 /** @param {any} radios @param {any} choice */

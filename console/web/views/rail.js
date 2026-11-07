@@ -15,8 +15,6 @@ const CHANGED_MS = 5000;
 /** The edge a node keeps clear of when the scroller moves to show it: `--space-6`. */
 const EDGE_PAD = 32;
 
-const raf = (/** @type {() => void} */ fn) => (globalThis.requestAnimationFrame ? globalThis.requestAnimationFrame(fn) : globalThis.setTimeout(fn, 0));
-
 /**
  * Clears `data-changed` when the animation ends or one poll interval later, whichever is first.
  * @param {any} el
@@ -45,13 +43,15 @@ const STAGE_FACE = { done: 'check', failed: 'failed', unknown: 'unknown', runnin
 /**
  * A still glyph strip, not interactive and hidden from assistive technology: the row description carries its meaning.
  * @param {{ nodes: any[] }} model
- * @param {{ changed?: Set<number>, large?: boolean }} [options] `large`: the variant of the gate cards (CD-B1)
+ * @param {{ changed?: Set<number>, large?: boolean, loop?: boolean }} [options] `large`: the variant of the gate cards (CD-B1);
+ *   `loop`: this strip's first awaiting gate is the view's one loop (IC-022)
  */
-function railCompact(model, { changed = new Set(), large = false } = {}) {
+function railCompact(model, { changed = new Set(), large = false, loop = false } = {}) {
+  const loopAt = loop ? model.nodes.findIndex((node) => node.type === 'gate' && node.state === 'awaiting') : -1;
   return h('ol', { class: large ? 'rail rail--compact rail--lg' : 'rail rail--compact', 'aria-hidden': 'true' }, model.nodes.map((node, index) => {
     const glyph = h('li', {
       class: 'rail__glyph',
-      dataset: { type: node.type, kind: node.kind, state: node.state, changed: changed.has(index) ? 'true' : null },
+      dataset: { type: node.type, kind: node.kind, state: node.state, changed: changed.has(index) ? 'true' : null, loop: index === loopAt ? 'on' : null },
     }, node.type === 'gate' ? icon(gateIcon(node, '12'), large ? 16 : 12) : null);
     if (changed.has(index)) expireChange(glyph);
     return glyph;
@@ -63,13 +63,15 @@ function railCompact(model, { changed = new Set(), large = false } = {}) {
  * @param {any} row
  * @param {string | null} reason `shape-mismatch`, `cursor-mismatch` or null (no workflow)
  * @param {number} nowMs
+ * @param {boolean} [loop] an awaiting gate glyph is the view's one loop (IC-022)
  */
-function railFallback(row, reason, nowMs) {
+function railFallback(row, reason, nowMs, loop = false) {
   const current = row.current && typeof row.current === 'object' ? row.current : null;
   const token = runToken(row, nowMs);
   const type = current ? current.type : 'stage';
   const state = !current ? 'done' : token === 'stale' ? 'stale' : row.state === 'AWAITING_GATE' ? 'awaiting' : row.state === 'REJECTED' ? 'rejected' : 'running';
-  const glyph = h('span', { class: 'rail__glyph', dataset: { type, state, kind: current ? current.kind : null } }, type === 'gate' ? icon(gateIcon(current, '12'), 12) : null);
+  const looping = loop && type === 'gate' && state === 'awaiting';
+  const glyph = h('span', { class: 'rail__glyph', dataset: { type, state, kind: current ? current.kind : null, loop: looping ? 'on' : null } }, type === 'gate' ? icon(gateIcon(current, '12'), 12) : null);
   return h('div', { class: 'rail-fallback' }, [glyph, h('span', { class: 'rail-fallback__text' }, fallbackText(row, reason))]);
 }
 
@@ -159,7 +161,8 @@ function railDetail(node, workflow, { onClose, onEscape = onClose }) {
  * @param {any} context
  */
 function railItem(node, index, context) {
-  const { count, nowMs, rovingIndex, openId, changed, keyOf, handlers } = context;
+  const { count, nowMs, rovingIndex, openId, changed, keyOf, handlers, loopIndex } = context;
+  const looping = index === loopIndex;
   const tone = toneOf(node);
   const open = openId === `${node.type}:${node.id}`;
   const stateLine = [stateWord(node)];
@@ -186,7 +189,7 @@ function railItem(node, index, context) {
     dataset: { focusKey: keyOf(index, node), selected: open ? 'true' : null },
     on: { click: () => handlers.toggle(index), keydown: (/** @type {any} */ event) => handlers.key(event, index), focus: () => handlers.rove(index) },
   }, [
-    h('span', { class: 'rail__glyph' }, node.type === 'gate' ? icon(gateIcon(node, '24'), 24) : icon(STAGE_FACE[tone] ?? 'pending', 12)),
+    h('span', { class: 'rail__glyph', dataset: { loop: looping && node.type === 'gate' ? 'on' : null } }, node.type === 'gate' ? icon(gateIcon(node, '24'), 24) : icon(STAGE_FACE[tone] ?? 'pending', 12)),
     node.type === 'gate'
       ? h('span', { class: 'rail__gate-label' }, [node.id, node.forced ? h('span', { class: 'rail__forced' }, 'forced') : null])
       : null,
@@ -199,7 +202,11 @@ function railItem(node, index, context) {
       type: node.type, kind: node.kind, state: node.state, tone, forced: node.forced ? 'true' : null,
       changed: changed.has(index) ? 'true' : null,
     },
-  }, button);
+  }, [
+    // The running connector is a real element so its dashes can flow by transform (IC-022); the first node has none.
+    node.state === 'running' && index > 0 ? h('span', { class: 'flow-edge', 'aria-hidden': 'true', dataset: { loop: looping ? 'on' : null } }) : null,
+    button,
+  ]);
   if (changed.has(index)) expireChange(item, context.changedMs);
   return { item, button, stateText, textBlock, durEl };
 }
@@ -363,7 +370,10 @@ function renderRunRail(data, params, local) {
       return `${named} ${degradedSentence(model.degraded) ?? ''}`.trim();
     }
     : null;
-  const context = { count: nodes.length, nowMs, rovingIndex, openId: local.openId, changed, keyOf, handlers, changedMs: 3000, nameOf };
+  // The view's one loop (IC-022): the running edge into the current node, else the awaiting gate that is current.
+  const current = nodes[cursorIndex];
+  const loopIndex = current && ((current.state === 'running' && cursorIndex > 0) || (current.type === 'gate' && current.state === 'awaiting')) ? cursorIndex : -1;
+  const context = { count: nodes.length, nowMs, rovingIndex, openId: local.openId, changed, keyOf, handlers, changedMs: 3000, nameOf, loopIndex };
   const items = nodes.map((node, index) => {
     const entry = railItem(node, index, context);
     built.push(entry);
@@ -393,7 +403,8 @@ function renderRunRail(data, params, local) {
     local.resizeObserver = new globalThis.ResizeObserver(setFade);
     local.resizeObserver.observe(scroller);
   }
-  raf(() => {
+  // After the caller mounts the section, before the next paint; no frame callback (IC-022).
+  queueMicrotask(() => {
     if (Number.isFinite(local.scrollLeft)) scroller.scrollLeft = local.scrollLeft;
     else if (built[cursorIndex]) centerOn(scroller, built[cursorIndex].button);
     setFade();

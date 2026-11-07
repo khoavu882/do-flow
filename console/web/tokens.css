@@ -57,6 +57,9 @@
   --motion-pulse: 1600ms;
   --motion-march: 1200ms;
   --motion-shimmer: 1400ms;
+  --motion-swap: 160ms;
+  --motion-row: 180ms;
+  --motion-gate: 240ms;
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --ease-exit: cubic-bezier(0.4, 0, 1, 1);
   --ease-settle: cubic-bezier(0.34, 1.4, 0.64, 1);
@@ -236,6 +239,9 @@
     --motion-pulse: 0ms;
     --motion-march: 0ms;
     --motion-shimmer: 0ms;
+    --motion-swap: 0ms;
+    --motion-row: 0ms;
+    --motion-gate: 0ms;
   }
 }
 

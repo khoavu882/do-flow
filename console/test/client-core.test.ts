@@ -4675,3 +4675,38 @@ test('D.3 Sessions: selecting a lane sets the hash, reload restores it, a hash c
   assert.equal(page.location.hash, '#/sessions');
   assert.equal(page.main.querySelector('.sessions'), root);
 });
+
+// ---- 149 D.5: one loop per view (IC-022, DEC-038) ---------------------------------------------------------------------
+
+test('149 D.5 one loop per view: Run marks the running edge, else the awaiting gate; Now marks the first Needs you glyph; a skeleton only while it shows', async () => {
+  mods.home.resetHome();
+  let cursor = 3;
+  const events = () => [ev(60, 'start', null), ev(50, 'complete-stage', 'discovery', { outcome: 'passed' }), ev(40, 'decide-gate', 'gate-0', { decision: 'approve' }), ev(30, 'complete-stage', 'design', { outcome: 'passed' })];
+  const page = await start({ hash: '#/run/feat-a/run-1', fetch: runRoute(() => runBodyWith(frow('run-1', cursor), events())) });
+  const marked = () => [...page.main.querySelectorAll('[data-loop="on"]'), ...page.inspector.querySelectorAll('[data-loop="on"]')];
+  let loops = marked();
+  assert.equal(loops.length, 1, 'one marked element on the Run view');
+  assert.ok(loops[0].classList.contains('flow-edge'), 'the running connector');
+  assert.equal(loops[0].parent.getAttribute('data-state'), 'running');
+  assert.equal(page.main.querySelectorAll('.flow-edge').length, 1, 'only the running node has a flowing edge');
+  cursor = 4;
+  await advance(3_000);
+  loops = marked();
+  assert.equal(loops.length, 1, 'still one marked element');
+  assert.ok(loops[0].classList.contains('rail__glyph'), 'the awaiting gate glyph');
+  assert.equal(loops[0].parent.parent.getAttribute('data-type'), 'gate');
+  assert.equal(page.main.querySelector('.flow-edge'), null, 'no running node, no flowing edge');
+  uninstallPage();
+  mock.timers.reset();
+  mods.home.resetHome();
+
+  const home = await start({ hash: '', fetch: homeFetch(() => body([frow('w-new', 4, { updatedAt: agoIso(10 * MIN_MS) }), frow('w-old', 1, { updatedAt: agoIso(30 * MIN_MS) }), frow('r-1', 2)])) });
+  assert.equal(cardsOf(home).length, 2);
+  assert.equal(home.main.querySelectorAll('[data-loop="on"]').length, 1, 'one marked element on Now');
+  assert.equal(cardsOf(home)[0].querySelectorAll('[data-loop="on"]').length, 1, 'in the first Needs you card');
+  assert.equal(cardsOf(home)[0].querySelector('[data-loop="on"]').getAttribute('data-state'), 'awaiting');
+
+  const shown = mods.states.renderLoading({ noun: 'runs', skeleton: () => mods.dom.h('div', { class: 'skeleton' }), showSkeleton: true });
+  assert.equal(shown[1].getAttribute('data-loop'), 'on', 'a skeleton loops while it shows');
+  assert.equal(mods.states.renderLoading({ noun: 'runs', skeleton: () => mods.dom.h('div', { class: 'skeleton' }), showSkeleton: false })[1], null);
+});

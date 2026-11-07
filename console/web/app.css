@@ -1541,30 +1541,39 @@
   #main[data-stale="true"] .reltime__rel { display: none; }
   #main[data-stale="true"] .reltime__abs { display: inline; }
 
-  /* Stale data must not look alive: every loop of a rail stops (important, so it wins over the motion layer). */
-  #main[data-stale="true"] .rail, #main[data-stale="true"] .rail *, #main[data-stale="true"] .rail *::before, #main[data-stale="true"] .rail *::after,
-  #main[data-stale="true"] .rail-fallback *, #main[data-stale="true"] .rail-fallback *::after { animation: none !important; }
+  /* Stale data must not look alive (149 IC-022): nothing in the canvas or the inspector moves, and every host shows its
+     still variant. Important, so it wins over the motion layer. */
+  #main[data-stale="true"], #main[data-stale="true"] *, #main[data-stale="true"] *::before, #main[data-stale="true"] *::after,
+  #inspector[data-stale="true"], #inspector[data-stale="true"] *, #inspector[data-stale="true"] *::before, #inspector[data-stale="true"] *::after { animation: none !important; }
 
-  /* Stale data must not look alive: the run view's flashes stop. */
-  #main[data-stale="true"] .activity, #main[data-stale="true"] .activity *, #main[data-stale="true"] .tl-list *, #main[data-stale="true"] .tl * { animation: none !important; }
+  /* Reduced motion: every animation of every host stops; the reduced-motion blocks of the motion layer draw the still variants. */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; }
+  }
 }
 
-/* ---- motion -------------------------------------------------------------------------------------- */
+/* ---- motion (149 IC-022, DEC-038) ---------------------------------------------------------------- */
+/* Keyframes animate transform, opacity and SVG stroke only. An infinite loop runs only under [data-loop="on"], which a view
+   sets on one element at most; every other host shows its still variant. Script never drives a frame. */
 @layer motion {
-  @keyframes shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+  @keyframes shimmer { from { opacity: 1; } to { opacity: 0.5; } }
   @keyframes view-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
   @keyframes banner-in { from { opacity: 0; } to { opacity: 1; } }
   @keyframes banner-out { from { opacity: 1; } to { opacity: 0; } }
+  @keyframes fade { from { opacity: 0.4; } to { opacity: 1; } }
+  @keyframes panel-in { from { opacity: 0; transform: var(--panel-from); } to { opacity: 1; transform: none; } }
+  @keyframes panel-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: var(--panel-from); } }
 
-  .skel {
-    background-image: linear-gradient(90deg, var(--skeleton) 0%, var(--skeleton-shine) 50%, var(--skeleton) 100%);
-    background-size: 200% 100%;
-    background-attachment: fixed;
-    animation: shimmer var(--motion-shimmer) linear infinite;
-  }
-  .view-enter { animation: view-in var(--motion-base) var(--ease-standard) both; }
+  /* A skeleton breathes only while it shows (states.js marks it); its still variant is the flat block. */
+  .skeleton[data-loop="on"] .skel { animation: shimmer var(--motion-shimmer) var(--ease-standard) infinite alternate; }
+  .view-enter { animation: view-in var(--motion-row) var(--ease-standard) both; }
   .banner { animation: banner-in var(--motion-fast) var(--ease-standard) both; }
   .banner--leaving { animation: banner-out var(--motion-fast) var(--ease-exit) both; }
+
+  /* The drawer and the sheet come in a short way over the canvas: transform and opacity only, so the canvas never reflows. */
+  .inspector[data-mode="drawer"] { --panel-from: translateX(var(--space-6)); }
+  .inspector[data-mode="sheet"] { --panel-from: translateY(var(--space-6)); }
+  .inspector[data-mode="drawer"]:not([hidden]), .inspector[data-mode="sheet"]:not([hidden]) { animation: panel-in var(--motion-swap) var(--ease-standard) both; }
 
   .conn { transition: background-color var(--motion-base) var(--ease-standard), color var(--motion-base) var(--ease-standard); }
   .nav__link, .btn, .theme__opt {
@@ -1574,24 +1583,19 @@
   /* Nothing animates on a theme change. */
   html.theme-switching * { transition: none !important; }
 
-  @media (prefers-reduced-motion: reduce) {
-    .view-enter, .skel, .banner, .banner--leaving { animation-name: none; }
-    .skel { background-image: none; }
-  }
-
-  /* ---- E.1 motion: a still replacement exists for every loop (reduced motion), nothing moves on first paint ---- */
+  /* ---- E.1 motion: a still variant exists for every loop, nothing moves on first paint ---- */
   @keyframes pulse { from { transform: scale(0.85); opacity: 0.6; } to { transform: scale(1.25); opacity: 0; } }
-  @keyframes march-y { from { background-position-y: 0; } to { background-position-y: 8px; } }
-  @keyframes march-x { from { background-position-x: 0; } to { background-position-x: 8px; } }
-  @keyframes flash { 0%, 100% { box-shadow: 0 0 0 0 var(--tint); } 50% { box-shadow: 0 0 0 6px var(--tint); } }
+  @keyframes flow { from { transform: none; } to { transform: translate(var(--flow-x), var(--flow-y)); } }
+  @keyframes tint-decay { from { opacity: 1; } to { opacity: 0; } }
   @keyframes settle { from { transform: scale(0.9); } to { transform: none; } }
+  @keyframes gate-open { from { transform: rotate(-90deg) scale(0.75); } to { transform: none; } }
   @keyframes draw { from { stroke-dashoffset: 20; } to { stroke-dashoffset: 0; } }
 
   .tile, .gate-card { transition: box-shadow var(--motion-fast) var(--ease-standard); }
   .run-row { transition: background-color var(--motion-fast) var(--ease-standard); }
 
-  /* The awaiting gate pulses: a ring around the glyph. */
-  .rail--compact .rail__glyph[data-type="gate"][data-state="awaiting"]::after, .rail-fallback .rail__glyph[data-type="gate"][data-state="awaiting"]::after {
+  /* The awaiting gate the view marks pulses: a ring around the glyph. Every other awaiting gate shows the still variant. */
+  .rail--compact .rail__glyph[data-type="gate"][data-state="awaiting"][data-loop="on"]::after, .rail-fallback .rail__glyph[data-type="gate"][data-state="awaiting"][data-loop="on"]::after {
     content: "";
     position: absolute;
     inset: -4px;
@@ -1600,7 +1604,7 @@
     animation: pulse var(--motion-pulse) var(--ease-standard) infinite;
   }
   .rail__item[data-state="awaiting"] .rail__glyph { position: relative; }
-  .rail__item[data-state="awaiting"] .rail__glyph::after {
+  .rail__item[data-state="awaiting"] .rail__glyph[data-loop="on"]::after {
     content: "";
     position: absolute;
     inset: -6px;
@@ -1608,20 +1612,12 @@
     border-radius: 50%;
     animation: pulse var(--motion-pulse) var(--ease-standard) infinite;
   }
+  /* The still variant of the full rail's awaiting gate: the 3 px focus outline. */
+  .rail__item[data-type="gate"][data-state="awaiting"] .rail__node:not(:has(> .rail__glyph[data-loop="on"])) { outline: 3px solid var(--focus); outline-offset: 2px; }
 
-  /* The active connector marches into the running stage. */
-  .rail--full .rail__item[data-state="running"]::before {
-    background-image: linear-gradient(180deg, var(--state-running-mark) 50%, transparent 0);
-    background-size: 2px 8px;
-    animation: march-y var(--motion-march) linear infinite;
-  }
-  @media (min-width: 768px) {
-    .rail--full .rail__item[data-state="running"]::before {
-      background-image: linear-gradient(90deg, var(--state-running-mark) 50%, transparent 0);
-      background-size: 8px 2px;
-      animation: march-x var(--motion-march) linear infinite;
-    }
-  }
+  /* The running connector the view marks flows into its stage: its dash strip moves inside the clipped edge (transform
+     only, so nothing reflows). The still variant is the same dashes, standing. */
+  .flow-edge[data-loop="on"]::before { animation: flow var(--motion-march) linear infinite; }
 
   /* The arrowhead of the still connector: drawn only under reduced motion (content is set there). */
   .rail--full .rail__item[data-state="running"]::after {
@@ -1637,35 +1633,49 @@
     .rail--full .rail__item[data-state="running"]::after { left: 18px; top: 12px; width: 6px; height: 8px; clip-path: polygon(0 0, 100% 50%, 0 100%); }
   }
 
-  /* A node that changed since the previous poll flashes once, in its own tint. */
-  .rail--compact .rail__glyph[data-changed="true"], .rail--full .rail__item[data-changed="true"] .rail__node { animation: flash var(--motion-flash) var(--ease-standard) both; }
+  /* Something that changed since the previous poll: its tint, a 6 px ring drawn by a pseudo-element, fades out once. */
+  .rail--full .rail__item[data-changed="true"] .rail__node::before,
+  .activity[data-changed="true"]::after, .attempt[data-changed="true"]::after, .tl-item[data-changed="true"]::after,
+  .srow[data-fresh="true"]::after, .srow[data-cleared="true"]::after, .fnode[data-fresh="true"] > .fnode__row::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: 0 0 0 6px var(--tint);
+    opacity: 0;
+    pointer-events: none;
+    animation: tint-decay var(--motion-flash) var(--ease-standard) both;
+  }
+  .activity[data-changed="true"], .attempt[data-changed="true"], .srow[data-fresh="true"], .srow[data-cleared="true"], .fnode[data-fresh="true"] > .fnode__row { position: relative; }
+
+  /* A node whose state changed: a stage glyph fades in, an awaiting gate settles, a decided gate turns open, a check draws. */
+  .rail--full .rail__item[data-changed="true"][data-type="stage"] .rail__glyph { animation: fade var(--motion-swap) var(--ease-standard) both; }
+  .rail--compact .rail__glyph[data-changed="true"][data-type="stage"]::after, .rail--compact .rail__glyph[data-changed="true"] > .icon { animation: fade var(--motion-swap) var(--ease-standard) both; }
   .rail--full .rail__item[data-changed="true"][data-state="done"] .icon--check path, .rail--full .rail__item[data-changed="true"][data-state="done"] .ov-check { stroke-dasharray: 20; animation: draw var(--motion-slow) var(--ease-standard) both; }
-  .rail--full .rail__item[data-changed="true"][data-state="awaiting"] .rail__glyph { animation: settle var(--motion-base) var(--ease-settle) both; }
-  .rail--full .rail__item[data-changed="true"][data-state="awaiting"] .rail__glyph::after { animation-delay: var(--motion-base); }
+  .rail--full .rail__item[data-changed="true"][data-state="awaiting"] .rail__glyph { animation: settle var(--motion-swap) var(--ease-settle) both; }
+  .rail--full .rail__item[data-changed="true"][data-state="awaiting"] .rail__glyph::after { animation-delay: var(--motion-swap); }
+  .rail--full .rail__item[data-type="gate"][data-changed="true"]:is([data-state="done"], [data-state="rejected"]) .rail__glyph { animation: gate-open var(--motion-gate) var(--ease-settle) both; }
 
   @media (prefers-reduced-motion: reduce) {
     .rail--compact .rail__glyph[data-type="gate"][data-state="awaiting"]::after, .rail-fallback .rail__glyph[data-type="gate"][data-state="awaiting"]::after { content: none; }
     .rail__item[data-state="awaiting"] .rail__glyph::after { content: none; }
-    .rail--full .rail__item[data-changed="true"] .rail__node, .rail--full .rail__item[data-changed="true"] .rail__glyph,
-    .rail--compact .rail__glyph[data-changed="true"] { animation-name: none; }
-    .rail--full .rail__item[data-changed="true"][data-state="done"] .icon--check path, .rail--full .rail__item[data-changed="true"][data-state="done"] .ov-check { animation-name: none; stroke-dasharray: none; }
-    /* A still outline replaces the flash for one poll interval (a bar in the node's own mark would vanish on a filled glyph). */
+    .rail--full .rail__item[data-changed="true"][data-state="done"] .icon--check path, .rail--full .rail__item[data-changed="true"][data-state="done"] .ov-check { stroke-dasharray: none; }
+    /* A still outline replaces the tint for one poll interval (a bar in the node's own mark would vanish on a filled glyph). */
     .rail--compact .rail__glyph[data-changed="true"] { outline: 2px solid var(--text); outline-offset: 2px; }
     .rail--full .rail__item[data-changed="true"] .rail__node { outline: 2px solid var(--text); outline-offset: 2px; }
-    /* The marching connector becomes a solid one with an arrowhead. */
-    .rail--full .rail__item[data-state="running"]::before { background-image: none; animation-name: none; }
+    /* The flowing connector stands still, with an arrowhead. */
     .rail--full .rail__item[data-state="running"]::after { content: ""; }
     .rail__item[data-type="gate"][data-state="awaiting"] .rail__node { outline: 3px solid var(--focus); outline-offset: 2px; }
   }
 
-  /* ---- E.2: a changed slot, attempt or list item flashes once in its own tint; nothing animates on first paint ---- */
-  .activity[data-changed="true"], .attempt[data-changed="true"], .tl-item[data-changed="true"] { --tint: var(--state-running-tint); animation: flash var(--motion-flash) var(--ease-standard) both; }
+  /* ---- E.2: a changed slot, attempt or list item fades its tint once; nothing animates on first paint ---- */
+  .activity[data-changed="true"], .attempt[data-changed="true"], .tl-item[data-changed="true"] { --tint: var(--state-running-tint); }
   .activity--gate[data-changed="true"] { --tint: var(--state-awaiting-tint); }
   .activity--done[data-changed="true"] { --tint: var(--state-done-tint); }
   .activity--rejected[data-changed="true"] { --tint: var(--state-rejected-tint); }
   .attempts__link, .timeline__view, .timeline__more { transition: color var(--motion-fast) var(--ease-standard), background-color var(--motion-fast) var(--ease-standard); }
   @media (prefers-reduced-motion: reduce) {
-    .activity[data-changed="true"], .attempt[data-changed="true"], .tl-item[data-changed="true"] { animation-name: none; outline: 2px solid var(--text); outline-offset: 2px; }
+    .activity[data-changed="true"], .attempt[data-changed="true"], .tl-item[data-changed="true"] { outline: 2px solid var(--text); outline-offset: 2px; }
   }
 }
 
@@ -1754,17 +1764,11 @@
   .replay .btn[disabled] { color: GrayText; border-color: GrayText; opacity: 1; }
 }
 
-/* ---- E.7 states: stale data must not look alive, so a new-conflict flash stops ---- */
-@layer states {
-  #main[data-stale="true"] .srow { animation: none !important; }
-}
-
-/* ---- E.7 motion: a new or cleared conflict flashes its row once; reduced motion keeps a 2 px bar for the poll instead ---- */
+/* ---- E.7 motion: a new or cleared conflict fades its row's tint once (tint-decay, above); reduced motion keeps a 2 px bar for the poll instead ---- */
 @layer motion {
-  .srow[data-fresh="true"] { --tint: var(--state-awaiting-mark); animation: flash var(--motion-flash) var(--ease-standard) both; }
-  .srow[data-cleared="true"] { --tint: var(--state-done-mark); animation: flash var(--motion-flash) var(--ease-standard) both; }
+  .srow[data-fresh="true"] { --tint: var(--state-awaiting-mark); }
+  .srow[data-cleared="true"] { --tint: var(--state-done-mark); }
   @media (prefers-reduced-motion: reduce) {
-    .srow[data-fresh="true"], .srow[data-cleared="true"] { animation-name: none; }
     .srow[data-fresh="true"] { box-shadow: inset 2px 0 0 var(--state-awaiting-mark); }
     .srow[data-cleared="true"] { box-shadow: inset 2px 0 0 var(--state-done-mark); }
   }
@@ -2024,19 +2028,13 @@
 
 @layer motion {
   @keyframes ev-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-  .fnode[data-fresh="true"] > .fnode__row { --tint: var(--accent-tint); animation: flash var(--motion-flash) var(--ease-standard) 1; }
+  .fnode[data-fresh="true"] > .fnode__row { --tint: var(--accent-tint); }
   .ev--enter { animation: ev-enter var(--motion-base) var(--ease-standard) both; }
   .fleet-transport { transition: opacity var(--motion-fast) var(--ease-standard); }
   @media (prefers-reduced-motion: reduce) {
-    .ev--enter { animation-name: none; }
-    .fnode[data-fresh="true"] > .fnode__row { animation-name: none; outline: 2px solid var(--text); outline-offset: -2px; }
+    .fnode[data-fresh="true"] > .fnode__row { outline: 2px solid var(--text); outline-offset: -2px; }
     .fleet-transport { transition: none; }
   }
-}
-
-@layer states {
-  /* Stale data must not look alive: nothing on Fleet moves. */
-  #main[data-stale="true"] .fleet, #main[data-stale="true"] .fleet * { animation: none !important; }
 }
 
 /* ---- forced colours: the Fleet view keeps its shapes in system colours ---- */
@@ -2290,4 +2288,41 @@
   @media (min-width: 768px) {
     .inspector__scrim { top: var(--header-h); }
   }
+}
+
+/* ---- 149 D.5: the running connector of the full rail is a real element (IC-022), so its dash strip can move by transform
+   inside a clipped edge. It takes the place and the size of the item's ::before connector. ---- */
+@layer components {
+  .rail--full .rail__item:has(> .flow-edge)::before { content: none; }
+  .flow-edge {
+    --flow-x: 0px;
+    --flow-y: 8px;
+    position: relative;
+    display: block;
+    flex: none;
+    width: 2px;
+    height: 12px;
+    margin-inline-start: 11px;
+    overflow: hidden;
+  }
+  .flow-edge::before {
+    content: "";
+    position: absolute;
+    inset: -8px 0 0;
+    background-image: linear-gradient(180deg, var(--state-running-mark) 50%, transparent 0);
+    background-size: 2px 8px;
+  }
+  @media (min-width: 768px) {
+    .flow-edge { --flow-x: 8px; --flow-y: 0px; flex: 1 0 24px; width: auto; height: 2px; margin: calc(var(--space-4) - 1px) 0 0; }
+    .rail--full:not(:has(> li:nth-child(6))) > .rail__item > .flow-edge { flex: 0 0 64px; }
+    .flow-edge::before {
+      inset: 0 0 0 -8px;
+      background-image: linear-gradient(90deg, var(--state-running-mark) 50%, transparent 0);
+      background-size: 8px 2px;
+    }
+  }
+}
+
+@media (forced-colors: active) {
+  .flow-edge::before { background: CanvasText; }
 }

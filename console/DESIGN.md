@@ -50,6 +50,9 @@ Read this before you change `console/web/`. It is the agent-readable design file
 --motion-pulse: 1600ms
 --motion-march: 1200ms
 --motion-shimmer: 1400ms
+--motion-swap: 160ms
+--motion-row: 180ms
+--motion-gate: 240ms
 --ease-standard: cubic-bezier(0.2, 0, 0, 1)
 --ease-exit: cubic-bezier(0.4, 0, 1, 1)
 --ease-settle: cubic-bezier(0.34, 1.4, 0.64, 1)
@@ -121,6 +124,9 @@ Read this before you change `console/web/`. It is the agent-readable design file
 @media (prefers-reduced-motion: reduce) --motion-pulse: 0ms
 @media (prefers-reduced-motion: reduce) --motion-march: 0ms
 @media (prefers-reduced-motion: reduce) --motion-shimmer: 0ms
+@media (prefers-reduced-motion: reduce) --motion-swap: 0ms
+@media (prefers-reduced-motion: reduce) --motion-row: 0ms
+@media (prefers-reduced-motion: reduce) --motion-gate: 0ms
 @media (min-width: 768px) --gutter: 24px
 @media (min-width: 768px) --header-h: 64px
 @media (min-width: 1280px) --gutter: 32px
@@ -150,11 +156,13 @@ How the names are used:
 
 ### Motion
 
-Durations are `--motion-fast` (hover, focus, small fades), `--motion-base` (state colour change, panel open, view enter), `--motion-slow` (layout release, the check draw), `--motion-flash` (one-shot highlight of a node that changed between polls), and the loops `--motion-pulse` (awaiting gate), `--motion-march` (active connector) and `--motion-shimmer` (skeleton, loading only). Easings: `--ease-standard` (enter and change), `--ease-exit` (leave), `--ease-settle` (a node arriving at `done` or `awaiting`, a small overshoot).
+Durations are `--motion-fast` (hover, focus, small fades), `--motion-base` (state colour change, panel open), `--motion-row` (a row opening its detail, view enter), `--motion-swap` (a node's state swap, the inspector drawer or sheet coming in), `--motion-gate` (a decided gate turning open), `--motion-slow` (layout release, the check draw), `--motion-flash` (the one-shot tint of something that changed between polls), and the loops `--motion-pulse` (awaiting gate), `--motion-march` (the running connector's flow) and `--motion-shimmer` (skeleton, loading only). Easings: `--ease-standard` (enter and change), `--ease-exit` (leave), `--ease-settle` (a node arriving at `done` or `awaiting`, a small overshoot).
 
+- Keyframes animate only `transform`, `opacity` and SVG stroke (`stroke-dashoffset`, `stroke-dasharray`, `stroke-opacity`); colour changes on hover and focus are transitions.
 - Nothing animates on first render. A theme change is instant.
-- Only nodes whose state changed since the last poll flash (`data-changed="true"`).
-- Under `prefers-reduced-motion: reduce` every duration token is `0ms`, and each looping rule also sets `animation-name: none` in its own reduced-motion block. Script-driven motion reads `matchMedia('(prefers-reduced-motion: reduce)')`. Each cue keeps a still replacement: the pulse becomes a focus-coloured outline plus the words "Waiting for you", the marching dashes a solid connector, the change flash an outline on the changed item plus the live-region announcement, the skeleton shimmer static `--skeleton` blocks.
+- Only what changed since the last poll is marked (`data-changed="true"`, `data-fresh="true"`); its tint, a ring drawn by a pseudo-element, fades out once (`tint-decay`).
+- A loop runs only on the one element a view marks `data-loop="on"`: on Run the running connector (`.flow-edge`), else the awaiting gate; on Now the gate glyph of the first Needs you card; a `.skeleton` while it shows. Every other host shows its still variant.
+- Under `prefers-reduced-motion: reduce`, and while `#main` or `#inspector` carries `data-stale="true"`, rules in the `states` layer stop every animation, and every duration token is `0ms` under reduced motion. No script drives a frame. Each cue keeps a still replacement: the pulse becomes a focus-coloured outline plus the words "Waiting for you", the flowing connector standing dashes with an arrowhead, the change tint an outline on the changed item plus the live-region announcement, the skeleton static `--skeleton` blocks.
 - Under `forced-colors: active` the shape carries the state (`currentColor` icons, outlines in system colours); the selected nav item and chip keep a 2 px border. Nothing relies on a background colour alone.
 
 ## Components
@@ -168,17 +176,17 @@ Generated list of the top-level class blocks in `app.css` (elements are `block__
 `.conn`, `.core-version`, `.countdown`, `.dash`, `.empty`, `.ev`, `.eyebrow`, `.f`, `.facts`
 `.fbanner`, `.filter-status`, `.fleet`, `.fleet-blind`, `.fleet-box`, `.fleet-crumb`
 `.fleet-footer`, `.fleet-grid`, `.fleet-head`, `.fleet-limits`, `.fleet-title`, `.fleet-transport`
-`.fleet-tree`, `.fnode`, `.fpanel`, `.ftransport`, `.ftree`, `.full-state`, `.gate`, `.gate-card`
-`.gate-cards`, `.gattempt`, `.gattempts`, `.gcard`, `.gdetail`, `.glane`, `.graph`, `.grid`, `.grow`
-`.help`, `.hint`, `.icon`, `.inspector`, `.masked`, `.model-chip`, `.mono`, `.nav`, `.navrail`
-`.noscript`, `.num`, `.ov-check`, `.ov-cross`, `.ov-forced`, `.page`, `.palette`, `.pause`, `.pr`
-`.project-list`, `.project-row`, `.rail`, `.rail-detail`, `.rail-fallback`, `.rail-note`
-`.rail-scroll`, `.reltime`, `.replay`, `.replay-host`, `.run-head`, `.run-list`, `.run-rail`
-`.run-row`, `.run-section`, `.sbar`, `.segmented`, `.sessions`, `.sfilter`, `.sfoot`, `.shape`
-`.shell`, `.shold`, `.site-header`, `.skel`, `.skeleton`, `.skip`, `.slane`, `.slane-children`
-`.snote`, `.spanel`, `.srow`, `.srows`, `.state-panel`, `.stream`, `.summary`, `.tag`, `.theme`
-`.tile`, `.timeline`, `.tl`, `.tl-item`, `.tl-list`, `.together`, `.traffic`, `.ttable`, `.vh`
-`.view-enter`, `.view-head`, `.view-note`, `.view-title`, `.wf`, `.wf-list`
+`.fleet-tree`, `.flow-edge`, `.fnode`, `.fpanel`, `.ftransport`, `.ftree`, `.full-state`, `.gate`
+`.gate-card`, `.gate-cards`, `.gattempt`, `.gattempts`, `.gcard`, `.gdetail`, `.glane`, `.graph`
+`.grid`, `.grow`, `.help`, `.hint`, `.icon`, `.inspector`, `.masked`, `.model-chip`, `.mono`, `.nav`
+`.navrail`, `.noscript`, `.num`, `.ov-check`, `.ov-cross`, `.ov-forced`, `.page`, `.palette`
+`.pause`, `.pr`, `.project-list`, `.project-row`, `.rail`, `.rail-detail`, `.rail-fallback`
+`.rail-note`, `.rail-scroll`, `.reltime`, `.replay`, `.replay-host`, `.run-head`, `.run-list`
+`.run-rail`, `.run-row`, `.run-section`, `.sbar`, `.segmented`, `.sessions`, `.sfilter`, `.sfoot`
+`.shape`, `.shell`, `.shold`, `.site-header`, `.skel`, `.skeleton`, `.skip`, `.slane`
+`.slane-children`, `.snote`, `.spanel`, `.srow`, `.srows`, `.state-panel`, `.stream`, `.summary`
+`.tag`, `.theme`, `.tile`, `.timeline`, `.tl`, `.tl-item`, `.tl-list`, `.together`, `.traffic`
+`.ttable`, `.vh`, `.view-enter`, `.view-head`, `.view-note`, `.view-title`, `.wf`, `.wf-list`
 <!-- /generated -->
 
 What an agent most often touches:

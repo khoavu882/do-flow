@@ -278,6 +278,9 @@ function gateCard(run, index, context) {
   described.set(description, { kind: 'card', run, options, waitDur, waitWord });
   description.textContent = describeGate(run, options);
   const glyph = `gate-${kind === 'clarification' ? 'clarification' : 'approval'}-12`;
+  // The view's one loop (IC-022): the gate glyph of the first Needs you card pulses; every other card shows the still glyph.
+  const loop = context.loop === true;
+  context.loop = false;
 
   return h('li', { class: 'gate-card', dataset: { kind: kind ?? '', openable: openable ? 'true' : 'false' } }, [
     h('div', { class: 'gate-card__head', 'aria-hidden': 'true' }, [
@@ -293,7 +296,7 @@ function gateCard(run, index, context) {
           openable ? titleParts(run) : h('span', { class: 'run-row__id' }, run.taskId),
           run.origin === 'other' ? tag('Other checkout') : null, openable ? null : tag('No feature folder'),
         ]),
-        model && drawn ? railCompact(model, { large: true, changed: changed.get(runKey(run)) ?? new Set() }) : railFallback(run, reason, now),
+        model && drawn ? railCompact(model, { large: true, loop, changed: changed.get(runKey(run)) ?? new Set() }) : railFallback(run, reason, now, loop),
         h('p', { class: 'gate-card__meta' }, done === null || total === null ? workflowName : `${workflowName} · step ${stepNumber(run)} of ${total}`),
       ]),
       openable
@@ -425,6 +428,7 @@ function renderHome(data, { badge, local }) {
   const context = { now, local, badge, rowIndex: 0, changed };
   const build = () => {
     context.rowIndex = 0;
+    context.loop = true;
     context.changed = changed;
     context.now = Date.now();
     mount(root, homeContent(data, context));
