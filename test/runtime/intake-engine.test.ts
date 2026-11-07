@@ -190,7 +190,8 @@ test('hidden files, links and subfolder contents are never moved', (t: any) => {
   assert.equal(fs.readFileSync(path.join(dir, 'outside-prd.md'), 'utf8'), 'outside');
 });
 
-test('a name the manifest cannot hold is skipped as unsupported-name; the rest moves and later calls still work', (t: any) => {
+// A file name holding a backslash cannot be created on win32 (the backslash is a separator there), so the fixture does not exist on that platform.
+test('a name the manifest cannot hold is skipped as unsupported-name; the rest moves and later calls still work', { skip: process.platform === 'win32' && 'a file name with a backslash cannot exist on win32' }, (t: any) => {
   const { ctx } = tree(t, { 'a\\b-prd.md': 'odd', 'ok-prd.md': 'fine' });
   const result = sort(ctx);
   assert.deepEqual(movesOf(result), ['ok-prd.md>raw-prd/ok-prd.md']);
@@ -494,7 +495,7 @@ test('undo walks only the latest sort run', (t: any) => {
 
 test('a destination hash that differs after the move marks the entry failed, moves the file back to its free origin and never moves it again', (t: any) => {
   const { ctx } = tree(t, { 'a-prd.md': 'one', 'b-prd.md': 'two' });
-  const fsImpl = { ...fs, linkSync(from: string, to: string) { fs.linkSync(from, to); if (to.endsWith('raw-prd/a-prd.md')) fs.appendFileSync(to, ' corrupted'); } };
+  const fsImpl = { ...fs, linkSync(from: string, to: string) { fs.linkSync(from, to); if (to.endsWith(path.join('raw-prd', 'a-prd.md'))) fs.appendFileSync(to, ' corrupted'); } };
   const result = sort(ctx, { fsImpl });
   assert.deepEqual(movesOf(result), ['b-prd.md>raw-prd/b-prd.md']);
   assert.equal(result.skipped.length, 1);
@@ -513,7 +514,7 @@ test('a destination hash that differs while the origin name is taken again leave
   const origin = path.join(ctx, 'a-prd.md');
   const fsImpl = {
     ...fs,
-    linkSync(from: string, to: string) { fs.linkSync(from, to); if (to.endsWith('raw-prd/a-prd.md')) fs.appendFileSync(to, ' corrupted'); },
+    linkSync(from: string, to: string) { fs.linkSync(from, to); if (to.endsWith(path.join('raw-prd', 'a-prd.md'))) fs.appendFileSync(to, ' corrupted'); },
     unlinkSync(file: string) { fs.unlinkSync(file); if (file === origin) fs.writeFileSync(origin, 'someone else'); },
   };
   const result = sort(ctx, { fsImpl });

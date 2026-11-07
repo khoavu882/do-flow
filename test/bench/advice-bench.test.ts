@@ -11,6 +11,8 @@ const { spawnFakeServer } = require('../helper/fake-decision-server.ts');
 const ROOT = path.resolve(__dirname, '../..');
 const scratch = createScratch('doflow-advice-bench-');
 const registry = require('../../core/registry/advice.json');
+// A call-built kind (rerank) has no advice corpus: the retrieval dev tasks score it (141 IC-003).
+const staticKinds = registry.kinds.filter((kind: any) => kind.criteriaFrom !== 'call');
 const source = (id: any) => require(`../../core/registry/${id}.json`);
 const { adviceCoverage } = require('../../bench/advice.ts');
 const fakeServers: any = [];
@@ -43,7 +45,7 @@ function configure(origin: any) {
 
 test('adviceCoverage covers every shipped kind and names a removed case by kind and missing item', () => {
   assert.deepEqual(adviceCoverage().gaps, []);
-  const corpus = Object.fromEntries(registry.kinds.map(({ id }: any) => [id, require(`../../bench/advice/${id}.json`)]));
+  const corpus = Object.fromEntries(staticKinds.map(({ id }: any) => [id, require(`../../bench/advice/${id}.json`)]));
   const result = adviceCoverage({ adviceRegistry: registry, corpus, sources: {
     workflows: source('workflows'), verification: source('verification'), mcp: source('mcp'),
   } });
@@ -58,7 +60,7 @@ test('adviceCoverage covers every shipped kind and names a removed case by kind 
 });
 
 test('adviceCoverage rejects each IC-016 structural violation and malformed corpus fails closed', () => {
-  const good = Object.fromEntries(registry.kinds.map(({ id }: any) => [id, structuredClone(require(`../../bench/advice/${id}.json`))]));
+  const good = Object.fromEntries(staticKinds.map(({ id }: any) => [id, structuredClone(require(`../../bench/advice/${id}.json`))]));
   const sources: any = { workflows: source('workflows'), verification: source('verification'), mcp: source('mcp') };
   const controls: any = [
     ['missing corpus file', (c: any) => { delete c.tier; }, /tier: missing corpus file/],
@@ -72,6 +74,13 @@ test('adviceCoverage rejects each IC-016 structural violation and malformed corp
     ['empty state', (c: any) => { c.tier.cases[0].state = '  '; }, /tier: .*state must be non-empty/],
     ['UTF-8 state limit', (c: any) => { c.tier.cases[0].state = 'é'.repeat(Math.floor(registry.limits.maxStateBytes / 2) + 1); }, /tier: .*state exceeds maxStateBytes/],
     ['expected option', (c: any) => { c.tier.cases[0].expected = 'invalid'; }, /tier: .*expected must be/],
+    ['schemaVersion', (c: any) => { c.tier.schemaVersion = 1; }, /tier: schemaVersion must be 2/],
+    ['corpusVersion', (c: any) => { c.tier.corpusVersion = 0; }, /tier: corpusVersion must be a positive integer/],
+    ['staticPick option', (c: any) => { c.tier.cases[0].staticPick = 'invalid'; }, /tier: .*staticPick must be one of/],
+    ['missing staticPick', (c: any) => { delete c.tier.cases[0].staticPick; }, /tier: .*staticPick must be one of/],
+    ['origin value', (c: any) => { c.tier.cases[0].origin = 'recorded'; }, /tier: .*origin must be synthetic or consented/],
+    ['missing origin', (c: any) => { delete c.tier.cases[0].origin; }, /tier: .*origin must be synthetic or consented/],
+    ['MCP staticPick', (c: any) => { c['mcp-need'].cases[0].staticPick = 'light'; }, /mcp-need: .*staticPick must be one of yes, no/],
     ['source note', (c: any) => { delete c.tier.cases[0].note; }, /tier: .*note must be non-empty/],
     ['MCP server per case', (c: any) => { c['mcp-need'].cases[0].server = 'missing-server'; }, /mcp-need: mcp-need-001 server .*not a valid/],
     ['MCP question materialization', (c: any, s: any) => { s.mcp.servers.find((server: any) => server.id === 'context7').trigger = ''; }, /mcp-need: mcp-need-001 MCP question could not be materialized/],
@@ -101,13 +110,37 @@ test('adviceCoverage rejects each IC-016 structural violation and malformed corp
   assert.match(output, /GAP: corpus: input must be an object/);
 });
 
+test('adviceCoverage treats a criteriaFrom call kind as covered by the retrieval dev tasks, not an advice corpus', () => {
+  const sources: any = { workflows: source('workflows'), verification: source('verification'), mcp: source('mcp') };
+  const corpus = Object.fromEntries(staticKinds.map(({ id }: any) => [id, require(`../../bench/advice/${id}.json`)]));
+  const withCall = structuredClone(registry);
+  withCall.kinds.push({ id: 'call-kind', type: 'choice', instructions: 'x', criteriaFrom: 'call', staticFrom: 'the first-stage order', askedBy: [] });
+  const result = adviceCoverage({ adviceRegistry: withCall, corpus, sources });
+  assert.ok(!result.gaps.some((item: any) => item.startsWith('call-kind:')), JSON.stringify(result.gaps));
+  assert.ok(result.rows.some((row: any) => row.kind === 'call-kind' && row.missing.length === 0));
+});
+
+test('claim-support corpus: 30+ balanced synthetic heldout cases in the state shape the claim hook builds', () => {
+  const corpus = require('../../bench/advice/claim-support.json');
+  const heldout = corpus.cases.filter((item: any) => item.split === 'heldout');
+  assert.ok(heldout.length >= 30, `heldout ${heldout.length}`);
+  for (const option of ['yes', 'no']) assert.ok(heldout.some((item: any) => item.expected === option), option);
+  const yes = heldout.filter((item: any) => item.expected === 'yes').length;
+  assert.ok(Math.abs(yes - (heldout.length - yes)) <= 2, `yes ${yes} of ${heldout.length}`);
+  for (const item of corpus.cases) {
+    assert.equal(item.origin, 'synthetic');
+    assert.match(item.note, /Invented/);
+    assert.match(item.state, /^claim: [^\n]+\npassage: [^\n]+$/, item.id);
+  }
+});
+
 test('advice-coverage prints one row per kind, succeeds for corpus and fails for a gap', () => {
   const good = run('advice-coverage');
   assert.equal(good.status, 0, good.stderr);
   assert.equal(good.stdout.trim().split('\n').length, registry.kinds.length);
   assert.ok(good.stdout.includes('tier'));
 
-  const broken = Object.fromEntries(registry.kinds.map(({ id }: any) => [id, require(`../../bench/advice/${id}.json`)]));
+  const broken = Object.fromEntries(staticKinds.map(({ id }: any) => [id, require(`../../bench/advice/${id}.json`)]));
   broken.tier = { ...broken.tier, cases: broken.tier.cases.filter((item: any) => item.expected !== 'frontier') };
   let output = '';
   const originalLog = console.log;
@@ -121,7 +154,7 @@ test('advice-coverage prints one row per kind, succeeds for corpus and fails for
   } finally { console.log = originalLog; }
   assert.match(output, /tier: GAP .*frontier/);
 
-  const unregistered = Object.fromEntries(registry.kinds.map(({ id }: any) => [id, require(`../../bench/advice/${id}.json`)]));
+  const unregistered = Object.fromEntries(staticKinds.map(({ id }: any) => [id, require(`../../bench/advice/${id}.json`)]));
   unregistered.orphan = { kind: 'orphan', cases: [] };
   output = '';
   console.log = (line) => { output += `${line}\n`; };

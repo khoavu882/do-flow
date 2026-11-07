@@ -15,6 +15,7 @@ const { tempDir } = require('../helper/tmp.ts');
 const { systemPath } = require('../helper/system-path.ts');
 const { encodeEnvelope } = require('../helper/hook-fixtures.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
+const { samePath } = require('../helper-platform.ts');
 const { handlePackageCommand } = require('../../src/runtime/packages/command.ts');
 const state = require('../../src/runtime/packages/state.ts');
 const { handleDoctorCommand } = require('../../src/runtime/health.ts');
@@ -196,5 +197,9 @@ test('SessionStart package verification is silent and skips a lock with no packa
   assert.equal(positive.stdout, '');
   assert.equal(positive.stderr, '');
   await waitForLine('package --action verify');
-  assert.ok(calls().some((line: any) => line === `package --action verify|${path.join(home, '.doflow')}`));
+  // The stub records bash's $PWD, which is /c/... under Git Bash on win32: compare the folder as a location.
+  assert.ok(calls().some((line: any) => {
+    const [args, cwd] = line.split('|');
+    return args === 'package --action verify' && cwd !== undefined && samePath(cwd, path.join(home, '.doflow'));
+  }));
 });

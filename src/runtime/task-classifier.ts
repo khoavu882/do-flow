@@ -15,8 +15,7 @@ const { resolveShadowConfig } = require('./advice/shadow-config.ts');
 const { materializeKind } = require('./advice/kinds.ts');
 const { appendOutcome, findPick } = require('./advice/record.ts');
 const { strengthWords } = require('./advice/strength.ts');
-const { loadStorageRegistry } = require('./storage/registry.ts');
-const { resolveRoots } = require('./storage/roots.ts');
+const { resolveAdviceRoots } = require('./advice/services.ts');
 
 
 /**
@@ -505,8 +504,7 @@ function handleClassifyCommand({ taskClass, rationale, proposedBy, callingSkill,
     } else {
       try {
         const advice = loadAdviceRegistry({ repoRoot: REPO_ROOT });
-        const storage = loadStorageRegistry({ repoRoot: REPO_ROOT });
-        const roots = resolveRoots({ registry: storage, projectRoot: path.resolve(projectRoot || process.cwd()), env });
+        const roots = resolveAdviceRoots({ projectRoot: projectRoot || process.cwd(), env });
         const source = (name: any) => JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core/registry', name), 'utf8'));
         const sources = { workflows: source('workflows.json') };
         const built = materializeKind('task-class', { adviceRegistry: advice.ok ? advice.registry : null, sources });

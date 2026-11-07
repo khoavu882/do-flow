@@ -2,8 +2,10 @@
 # pre-compact.sh — PreCompact hook
 #
 # Outputs plain stdout, not JSON. In Claude Code 2.1.304 and 2.1.308, this reached the
-# compaction summary model as custom instructions; vendor docs are silent on
-# PreCompact stdout (FU-w563w2).
+# compaction summary model as custom instructions. Re-observed live in 2.1.311 on 2026-11-05: the
+# hook arm's summary ended with the injected token and the control's did not (the hook's own stdin
+# carried custom_instructions null and trigger manual). Still undocumented upstream:
+# https://code.claude.com/docs/en/hooks lists no stdout effect for PreCompact (FU-w563w2).
 # Text comes from the shared compact-text.sh (IC-001/IC-002), capped at 490 bytes.
 # Must never exit non-zero or block.
 

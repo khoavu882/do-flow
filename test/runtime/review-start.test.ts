@@ -1137,6 +1137,23 @@ function kindsRepo(t: any, mode: any, { bench = false }: any = {}) {
   return r;
 }
 const adviceStore = (r: any) => fs.existsSync(path.join(r.cwd, '.doflow', 'state', 'advice'));
+/** The advice lines the verb wrote, parsed; the detached shadow call is awaited until a line lands (or a bound ends). */
+async function adviceLines(r: any): Promise<any[]> {
+  const dir = path.join(r.cwd, '.doflow', 'state', 'advice', 'picks');
+  const read = () => (fs.existsSync(dir) ? fs.readdirSync(dir).flatMap((f: string) => fs.readFileSync(path.join(dir, f), 'utf8').split('\n').filter(Boolean).map((l: string) => JSON.parse(l))) : []);
+  for (let i = 0; i < 50 && read().length === 0; i++) await new Promise((resolve) => setTimeout(resolve, 20));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  return read();
+}
+/** Everything under .doflow/state outside advice/ that the run did not already have (no review or telemetry file). */
+const stateEntries = (r: any) => {
+  const root = path.join(r.cwd, '.doflow', 'state');
+  return fs.existsSync(root) ? fs.readdirSync(root).sort() : [];
+};
+const fullAnswer = (pick: string) => ({
+  status: 'answered', provider: 'fake', model: 'clef-flash',
+  answers: [{ name: 'depth', type: 'choice', pick, probabilities: { single: 0.4, deep: 0.6 }, confidence: 0.6, strength: { word: 'lean', between: ['single', 'deep'] } }],
+});
 
 test('084 H2: advice.kinds.review-depth off makes no client call', async (t) => {
   const r = kindsRepo(t, 'off');
@@ -1147,16 +1164,24 @@ test('084 H2: advice.kinds.review-depth off makes no client call', async (t) => 
   assert.deepEqual(json.advice, { status: 'off', pick: null });
 });
 
-test('084 H2: advice.kinds.review-depth shadow keeps the decided depth and stays write-free', async (t) => {
+test('084 H2: advice.kinds.review-depth shadow writes exactly one advice line and no review or telemetry file', async (t) => {
   const r = kindsRepo(t, 'shadow');
-  const client = fakeClient(answered('deep'));
+  const before = stateEntries(r);
+  const client = fakeClient(fullAnswer('deep'));
   const { json } = await start(r, { adviceClient: client, base: r.base });
   assert.equal(json.depth, 'single');
   assert.equal(json.depthBasis.raisedBy, null);
   assert.deepEqual(json.advice, { status: 'shadow', pick: null, reason: null });
-  await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.equal(client.calls.length, 0, 'record: false could keep no answer, so no call is made');
-  assert.equal(adviceStore(r), false, 'record: false: no pick is stored');
+  const lines = await adviceLines(r);
+  assert.equal(lines.length, 1, 'one advice line');
+  assert.equal(lines[0].kind, 'review-depth');
+  assert.equal(lines[0].caller, 'review');
+  assert.equal(lines[0].mode, 'shadow');
+  assert.match(lines[0].stateDigest, /^sha256:[0-9a-f]{64}$/, 'the state is stored as a digest, not as text');
+  assert.equal(lines[0].state, undefined);
+  assert.equal(client.calls.length, 1);
+  assert.equal(client.calls[0].record, false, 'the dispatcher, not the client, records');
+  assert.deepEqual(stateEntries(r).filter((e: string) => !before.includes(e)), ['advice'], 'no review or telemetry file');
 });
 
 test('084 H2: advice.kinds.review-depth act without a passed bench bar keeps the decided depth and says why', async (t) => {
@@ -1168,9 +1193,10 @@ test('084 H2: advice.kinds.review-depth act without a passed bench bar keeps the
   assert.equal(json.advice.status, 'shadow');
   assert.equal(json.advice.pick, null);
   assert.match(json.advice.reason, /^BENCH_BAR_UNMET: /);
-  await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.equal(client.calls.length, 0, 'degraded to shadow with record: false, so no call is made');
-  assert.equal(adviceStore(r), false, 'record: false: no pick is stored');
+  const lines = await adviceLines(r);
+  assert.equal(client.calls.length, 1, 'degraded to shadow: the call is made and recorded');
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].mode, 'shadow');
   const text = await start(r, { adviceClient: fakeClient(answered('deep')), base: r.base, json: false });
   assert.ok(text.out.some((line: string) => /^advice: status=shadow reason=BENCH_BAR_UNMET: /.test(line)), text.out.join('\n'));
 });
@@ -1184,9 +1210,10 @@ test('084 D3: advice.kinds.review-depth act with a passing bench file in the pro
   assert.equal(json.advice.status, 'shadow');
   assert.equal(json.advice.pick, null);
   assert.match(json.advice.reason, /^BENCH_BAR_UNMET: /);
-  await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.equal(client.calls.length, 0);
-  assert.equal(adviceStore(r), false, 'record: false: no pick is stored');
+  const lines = await adviceLines(r);
+  assert.equal(client.calls.length, 1, 'degraded to shadow: the call is made and recorded');
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].mode, 'shadow');
 });
 
 test('085 H1: DOFLOW_ROLLOUT_PROFILE=baseline in the verb env turns a configured act off', async (t) => {
@@ -1252,6 +1279,7 @@ test('084 C-6: with advice.kinds unset and no profile chosen the legacy raise st
   const { json } = await start(r, { adviceClient: client, base: r.base });
   assert.equal(client.calls.length, 1);
   assert.equal(client.calls[0].record, false);
+  assert.equal(adviceStore(r), false, 'unset kind: nothing is written');
   assert.equal(json.depth, 'deep');
   assert.equal(json.depthBasis.raisedBy, 'advice');
   assert.deepEqual(json.advice, { status: 'answered', pick: 'deep' });

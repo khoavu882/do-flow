@@ -14,6 +14,7 @@ const REPO = path.resolve(__dirname, '../..');
 const HARNESSES = ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
 const BINARIES: any = { claude: 'claude', codex: 'codex', opencode: 'opencode', pi: 'pi', copilot: 'copilot', kiro: 'kiro-cli', antigravity: 'agy' };
 const CODEX_RECORD = 'core/worker-evidence/codex/2026-10-18-cli-check.json';
+const CODEX_PROBE = 'core/worker-evidence/codex/2026-11-05-sandbox-probe.json';
 const AT = /^harness 'claude' worker 'isolatedEdit': /;
 
 function supported(recipe: any) {
@@ -42,7 +43,7 @@ function assertRefused(result: any, pattern: any) {
 
 test('isolatedEdit: exported as an optional capability, WORKER_KEYS unchanged', () => {
   assert.deepEqual(WORKER_OPTIONAL_CAPABILITIES, {
-    isolatedEdit: { allowed: ['argv'], required: ['argv'] },
+    isolatedEdit: { allowed: ['argv', 'protectedPaths'], required: ['argv'] },
     model: { allowed: ['argv'], required: ['argv'] },
   });
   assert.ok(!WORKER_KEYS.includes('isolatedEdit'));
@@ -58,10 +59,11 @@ test('isolatedEdit: the real registry loads; codex is supported on its recorded 
     if (harness.id === 'codex') {
       assert.deepEqual(harness.worker.isolatedEdit, {
         status: 'supported',
-        evidence: [CODEX_RECORD, 'core/worker-evidence/codex/2026-10-18-live-run-edit.json'],
-        verification: `Run \`node bin/doflow.js worker --action evidence --harness codex --checks core/worker-evidence/codex/checks.json --out ${CODEX_RECORD}\` against the installed codex and read the matched help lines. Live run 2026-10-18 (codex-cli 0.163.0): run w-821933d703be under \`exec -s workspace-write\` in an isolated attempt ended with report status success, result offered, isolation status clean and unchanged caller and attempt refs.`,
+        evidence: [CODEX_RECORD, 'core/worker-evidence/codex/2026-10-18-live-run-edit.json', CODEX_PROBE],
+        verification: `Run \`node bin/doflow.js worker --action evidence --harness codex --checks core/worker-evidence/codex/checks.json --out ${CODEX_RECORD}\` against the installed codex and read the matched help lines. Live run 2026-10-18 (codex-cli 0.163.0): run w-821933d703be under \`exec -s workspace-write\` in an isolated attempt ended with report status success, result offered, isolation status clean and unchanged caller and attempt refs. protectedPaths: manual probe 2026-11-05 (codex-cli 0.164.0, macOS) under \`exec -s workspace-write\`, 9 paths tried: writes to .git, .agents, .codex and .aws in the workspace failed with \`operation not permitted\`; an ordinary directory, .foo, .ssh, .github and a nested sub/.git were writable. The list may be incomplete (see the record's caveats).`,
         verifiedOn: '2026-10-18',
         argv: ['exec', '-s', 'workspace-write'],
+        protectedPaths: ['.git', '.agents', '.codex', '.aws'],
       }, 'codex isolatedEdit');
       continue;
     }
@@ -116,4 +118,46 @@ test('isolatedEdit: every harness orchestration block still equals the copy take
     const { nest: _nest, ...atBe752d8 } = harness.orchestration;
     assert.deepEqual(atBe752d8, ORCHESTRATION_AT_BE752D8[harness.id], `${harness.id} orchestration`);
   }
+});
+
+// FU-kjcv6t: the optional `protectedPaths` list of a supported isolatedEdit entry.
+const withProtected = (protectedPaths: any) => (worker: any) => { worker.isolatedEdit = supported({ argv: ['--edit'], protectedPaths }); };
+
+test('FU-kjcv6t: protectedPaths on a supported entry loads, single and multi-segment', () => {
+  assert.deepEqual(workerErrors(mutated(withProtected(['.git', '.codex/hooks']))), []);
+});
+
+test('FU-kjcv6t: protectedPaths on a non-supported entry is refused', () => {
+  assertRefused(mutated((worker: any) => { worker.isolatedEdit.protectedPaths = ['.git']; }), /recipe field 'protectedPaths' is allowed only when status is supported/);
+});
+
+test('FU-kjcv6t: protectedPaths is refused outside isolatedEdit', () => {
+  const result = mutated((worker: any) => { worker.readOnly = { ...supported({ argv: ['--ro'] }), protectedPaths: ['.git'] }; });
+  assert.match(workerErrors(result).join('\n'), /worker 'readOnly': has unknown field 'protectedPaths'/);
+});
+
+test('FU-kjcv6t: protectedPaths holds only plain relative paths', () => {
+  const cases: Array<[any, RegExp]> = [
+    ['.git', /protectedPaths must be an array of 1 to 16 paths/],
+    [[], /protectedPaths must be an array of 1 to 16 paths/],
+    [[1], /entries must be strings of 1 to 100 characters/],
+    [[''], /entries must be strings of 1 to 100 characters/],
+    [['.git/*'], /must not contain a glob character/],
+    [['.g?t'], /must not contain a glob character/],
+    [['{a,b}'], /must not contain a glob character/],
+    [['../x'], /plain segments/],
+    [['a/../x'], /plain segments/],
+    [['./x'], /plain segments/],
+    [['a//b'], /plain segments/],
+    [['.git/'], /plain segments/],
+    [[' .git'], /plain segments/],
+    [['/etc'], /relative path with '\/' separators/],
+    [['C:/x'], /relative path with '\/' separators/],
+    [['a\\b'], /relative path with '\/' separators/],
+    [['.git\u0000'], /control or invisible/],
+    [['.g\u200bit'], /control or invisible/],
+    [['.git', '.GIT'], /duplicate entry/],
+    [Array.from({ length: 17 }, (_, i) => `d${i}`), /protectedPaths must be an array of 1 to 16 paths/],
+  ];
+  for (const [value, pattern] of cases) assertRefused(mutated(withProtected(value)), pattern);
 });

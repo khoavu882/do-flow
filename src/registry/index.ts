@@ -575,7 +575,7 @@ const WORKER_CAPABILITIES: Record<string, { allowed: string[], required: string[
 /** Capability entries a `worker` block may carry but need not (082 IC-013, DEC-020; 120 IC-011).
  * Absent reads as `unknown`; present, the entry takes every IC-001 capability-entry rule. */
 const WORKER_OPTIONAL_CAPABILITIES: Record<string, { allowed: string[], required: string[] }> = Object.freeze({
-  isolatedEdit: { allowed: ['argv'], required: ['argv'] },
+  isolatedEdit: { allowed: ['argv', 'protectedPaths'], required: ['argv'] },
   model: { allowed: ['argv'], required: ['argv'] },
 });
 const WORKER_BILLING = new Set(['free', 'metered', 'unknown']);
@@ -584,12 +584,42 @@ const WORKER_ALLOWED_KEYS = Object.freeze([...WORKER_KEYS, ...Object.keys(WORKER
 const WORKER_ENTRY_FIELDS = new Set(['status', 'evidence', 'verification', 'verifiedOn', 'reason']);
 // Soft hyphen, Mongolian vowel separator, zero-width and directional marks, word joiner and invisible operators, BOM.
 const INVISIBLE_CHARACTER = /[\u00ad\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff]/;
-const WORKER_RECIPE_FIELDS = new Set(['binary', 'versionArgv', 'argv', 'promptVia', 'parser', 'marker', 'quotaSignals']);
-const WORKER_QUOTA_SIGNALS_FIELDS = new Set(['signals', 'basis', 'evidence']);
+const WORKER_RECIPE_FIELDS = new Set(['binary', 'versionArgv', 'argv', 'promptVia', 'parser', 'marker', 'quotaSignals', 'protectedPaths']);
+const WORKER_QUOTA_SIGNALS_FIELDS = new Set(['signals', 'unverifiedSignals', 'basis', 'evidence']);
 const WORKER_FACTS = new Set(['hooksLoaded', 'identityForwarded', 'guidanceLoaded', 'login']);
 const WORKER_MODEL_CHECK_FIELDS = new Set(['id', 'argv', 'establishes', 'estimateTokens', 'timeoutSeconds']);
 const WORKER_ARGV_MAX = 32;
 const WORKER_ARG_MAX_CHARS = 200;
+
+const WORKER_PROTECTED_PATHS_MAX = 16;
+const WORKER_PROTECTED_PATH_MAX_CHARS = 100;
+
+/** FU-kjcv6t: `isolatedEdit.protectedPaths` is 1 to 16 distinct workspace-relative paths the sandbox
+ * refuses to write. Each is a plain path of segments joined by `/`: no leading `/`, no drive letter, no
+ * backslash, no `.` or `..` or empty segment, no glob character, no control or invisible character.
+ * Returns the first problem, or null. Distinctness ignores letter case, as the matcher does. */
+function workerProtectedPathsProblem(value: any): string | null {
+  if (!Array.isArray(value) || value.length < 1 || value.length > WORKER_PROTECTED_PATHS_MAX) {
+    return `protectedPaths must be an array of 1 to ${WORKER_PROTECTED_PATHS_MAX} paths`;
+  }
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (typeof item !== 'string' || item.length < 1 || item.length > WORKER_PROTECTED_PATH_MAX_CHARS) {
+      return `protectedPaths entries must be strings of 1 to ${WORKER_PROTECTED_PATH_MAX_CHARS} characters`;
+    }
+    if (/[\u0000-\u001f\u007f]/.test(item) || INVISIBLE_CHARACTER.test(item)) return 'protectedPaths entries must not contain control or invisible characters';
+    if (/[*?[\]{}]/.test(item)) return `protectedPaths entry '${item}' must not contain a glob character`;
+    if (item.includes('\\') || item.startsWith('/') || /^[A-Za-z]:/.test(item)) return `protectedPaths entry '${item}' must be a relative path with '/' separators`;
+    const segments = item.split('/');
+    if (segments.some((segment) => segment === '' || segment === '.' || segment === '..' || segment !== segment.trim())) {
+      return `protectedPaths entry '${item}' must have plain segments (no '.', '..', empty or padded segment)`;
+    }
+    const folded = item.toLowerCase();
+    if (seen.has(folded)) return `protectedPaths has a duplicate entry '${item}' (compared without letter case)`;
+    seen.add(folded);
+  }
+  return null;
+}
 
 /** A worker argv: an array of 0 to 32 strings, each at most 200 characters and free of NUL. */
 function workerArgvProblem(value: any): string | null {
@@ -676,6 +706,10 @@ function validateWorker(value: any, location: string, errors: string[]): void {
         }
       }
     }
+    if (Object.hasOwn(entry, 'protectedPaths')) {
+      const problem = workerProtectedPathsProblem(entry.protectedPaths);
+      if (problem) fail(key, problem);
+    }
     if (Object.hasOwn(entry, 'parser') && (typeof entry.parser !== 'string' || !entry.parser.trim())) fail(key, 'parser must be a parser id');
     if (key === 'structuredOutput' && Object.hasOwn(entry, 'quotaSignals')) {
       const quota = entry.quotaSignals;
@@ -683,22 +717,31 @@ function validateWorker(value: any, location: string, errors: string[]): void {
       else {
         for (const field of Object.keys(quota)) if (!WORKER_QUOTA_SIGNALS_FIELDS.has(field)) fail(key, `quotaSignals has unknown field '${field}'`);
         if (!Array.isArray(quota.signals) || quota.signals.length < 1 || quota.signals.length > 16) fail(key, 'quotaSignals.signals must contain 1 to 16 signals');
-        else {
-          const folded = new Set<string>();
-          for (const signal of quota.signals) {
+        const unverified = quota.unverifiedSignals;
+        if (Object.hasOwn(quota, 'unverifiedSignals')) {
+          // 106 FU-2hfj0d: one basis covers `signals`; a list the transcript does not support lives apart, matched as unverified.
+          if (quota.basis !== 'transcript') fail(key, "quotaSignals.unverifiedSignals requires basis 'transcript' (under 'unverified', put every signal in signals)");
+          if (!Array.isArray(unverified) || unverified.length < 1 || (Array.isArray(quota.signals) ? quota.signals.length : 0) + unverified.length > 16) {
+            fail(key, 'quotaSignals.unverifiedSignals must be a non-empty array, with signals at most 16 in all');
+          }
+        }
+        const folded = new Set<string>();
+        for (const [list, name] of [[quota.signals, 'signals'], [unverified, 'unverifiedSignals']] as const) {
+          if (!Array.isArray(list)) continue;
+          for (const signal of list) {
             if (typeof signal !== 'string' || signal !== signal.trim() || signal.length < 3 || signal.length > 64 || /[\u0000-\u001f\u007f]/.test(signal)) {
-              fail(key, 'quotaSignals.signals must be trimmed strings of 3 to 64 characters without control characters');
+              fail(key, `quotaSignals.${name} must be trimmed strings of 3 to 64 characters without control characters`);
               break;
             }
             // The matcher lowercases both sides, so a signal that differs only by case never adds a match; a
             // zero-width or format character makes one that reads like another yet matches nothing.
             if (INVISIBLE_CHARACTER.test(signal)) {
-              fail(key, 'quotaSignals.signals must not contain zero-width or invisible format characters');
+              fail(key, `quotaSignals.${name} must not contain zero-width or invisible format characters`);
               break;
             }
             const lowered = signal.toLowerCase();
             if (folded.has(lowered)) {
-              fail(key, `quotaSignals.signals has a duplicate signal '${signal}' (compared without letter case)`);
+              fail(key, `quotaSignals.${name} has a duplicate signal '${signal}' (compared without letter case)`);
               break;
             }
             folded.add(lowered);
@@ -948,7 +991,7 @@ function validateRegistry(
     validateAgentLimits(harness.agentLimits, at, errors);
     validateWorker(harness.worker, at, errors);
     const quota = harness.worker?.structuredOutput?.quotaSignals;
-    if (object(quota) && quota.basis === 'transcript' && Array.isArray(quota.evidence) && typeof repoRoot === 'string') {
+    if (sources === 'require' && object(quota) && quota.basis === 'transcript' && Array.isArray(quota.evidence) && typeof repoRoot === 'string') {
       for (const evidence of quota.evidence) {
         if (typeof evidence === 'string' && !fsImpl.existsSync(path.resolve(repoRoot, evidence))) {
           issue(errors, `${at} worker 'structuredOutput'`, `quotaSignals transcript evidence '${evidence}' does not exist`);

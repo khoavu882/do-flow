@@ -65,23 +65,27 @@ test('runtime-shaped copy: loads in default mode (skip) with validation.sources 
   assert.deepEqual(explicitSkip.errors, []);
 });
 
-test('runtime-shaped copy: fails in require mode with exactly the 25 missing-source lines', () => {
+test('runtime-shaped copy: fails in require mode with the 25 missing-source lines and the missing quota transcript', () => {
   const runtimeRoot = createRuntimeShapedTree();
   const registry = loadRegistry({ repoRoot: runtimeRoot });
 
   const requireResult = validateRegistry(registry, { repoRoot: runtimeRoot, sources: 'require' });
   assert.equal(requireResult.ok, false);
   assert.equal(requireResult.sources, 'require');
-  assert.equal(requireResult.errors.length, 25);
+  // FU-2hfj0d: the codex quota transcript is a repository file the runtime-shaped tree does not carry.
+  const transcriptErrors = requireResult.errors.filter((e: any) => /quotaSignals transcript evidence .* does not exist/.test(e));
+  assert.equal(transcriptErrors.length, 1);
+  const sourceErrors = requireResult.errors.filter((e: any) => !transcriptErrors.includes(e));
+  assert.equal(sourceErrors.length, 25);
 
-  for (const error of requireResult.errors) {
+  for (const error of sourceErrors) {
     assert.match(error, /source does not exist inside repository: /);
   }
 
-  const assetErrors = requireResult.errors.filter((e: any) => e.startsWith("asset '"));
+  const assetErrors = sourceErrors.filter((e: any) => e.startsWith("asset '"));
   assert.equal(assetErrors.length, 21);
 
-  const projectionErrors = requireResult.errors.filter((e: any) => e.startsWith("harness 'codex' nativeProjection"));
+  const projectionErrors = sourceErrors.filter((e: any) => e.startsWith("harness 'codex' nativeProjection"));
   assert.equal(projectionErrors.length, 4);
 
   assert.throws(
@@ -90,7 +94,7 @@ test('runtime-shaped copy: fails in require mode with exactly the 25 missing-sou
       assert.match(err.message, /^Invalid DoFlow registry:\n- /);
       assert.equal(err.validation.ok, false);
       assert.equal(err.validation.sources, 'require');
-      assert.equal(err.validation.errors.length, 25);
+      assert.equal(err.validation.errors.length, 26);
       return true;
     },
   );

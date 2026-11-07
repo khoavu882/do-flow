@@ -1,0 +1,385 @@
+{
+  "schemaVersion": 2,
+  "kind": "claim-support",
+  "corpusVersion": 1,
+  "cases": [
+    {
+      "id": "claim-support-001",
+      "split": "train",
+      "state": "claim: The sort helper keeps equal elements in their original order.\npassage: test_sort.py::test_stable_order PASSED: records with equal keys come out in input order for 1,000 random inputs.",
+      "staticPick": "yes",
+      "expected": "yes",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-002",
+      "split": "train",
+      "state": "claim: The login form blocks submission when the email field is empty.\npassage: Browser test 'empty email' PASSED: the submit button is disabled and no network request is sent.",
+      "staticPick": "yes",
+      "expected": "yes",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-003",
+      "split": "train",
+      "state": "claim: The logger writes timestamps in UTC.\npassage: Sample log lines carry the suffix 'Z' and the test sets the machine timezone to Asia/Tokyo; the logged hour equals the UTC hour in every sample.",
+      "staticPick": "yes",
+      "expected": "yes",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-004",
+      "split": "train",
+      "state": "claim: The report job finishes within one minute.\npassage: The report job writes a summary file and sends an email when it is done. The job is scheduled by the nightly scheduler.",
+      "staticPick": "yes",
+      "expected": "no",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-005",
+      "split": "train",
+      "state": "claim: The payment retry is idempotent.\npassage: Calling charge() twice with the same key created two ledger entries (ids 17 and 18) and the customer was charged twice.",
+      "staticPick": "no",
+      "expected": "no",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-006",
+      "split": "train",
+      "state": "claim: Task T-3 is done: the footer shows the build number.\npassage: Release notes for 3.1 mention a redesigned footer. The footer template was changed in commit 9ac2.",
+      "staticPick": "yes",
+      "expected": "no",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-007",
+      "split": "heldout",
+      "state": "claim: Root cause: the nightly export job times out because the report query scans the whole orders table.\npassage: EXPLAIN output for the export query shows a sequential scan over orders (4.1M rows) with no index condition; with an index on orders(created_at) the plan switches to an index range scan and the job finishes in 9 s instead of timing out at 300 s.",
+      "staticPick": "yes",
+      "expected": "yes",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-008",
+      "split": "heldout",
+      "state": "claim: Root cause: the nightly export job times out because the report query scans the whole orders table.\npassage: The export job runs at 01:00 and writes its output to the shared bucket. Timeouts were first reported by the finance team last Tuesday.",
+      "staticPick": "yes",
+      "expected": "no",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-009",
+      "split": "heldout",
+      "state": "claim: The flaky login test fails because it reads the session cookie before the redirect completes.\npassage: Trace of the failing run: assertion on document.cookie executes at t=112 ms; the redirect response with Set-Cookie arrives at t=187 ms. Adding a wait for the navigation event makes 50 of 50 reruns pass.",
+      "staticPick": "yes",
+      "expected": "yes",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-010",
+      "split": "heldout",
+      "state": "claim: The flaky login test fails because it reads the session cookie before the redirect completes.\npassage: The login test is part of the smoke suite and runs on every pull request. It has been marked flaky in the test dashboard since March.",
+      "staticPick": "yes",
+      "expected": "no",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-011",
+      "split": "heldout",
+      "state": "claim: Task T-14 is done: the CSV importer rejects rows with a negative quantity.\npassage: test_importer.py::test_negative_quantity_rejected PASSED; test_importer.py::test_zero_quantity_accepted PASSED. Importer log for the fixture file: 'row 7 rejected: quantity -3 < 0'.",
+      "staticPick": "yes",
+      "expected": "yes",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-012",
+      "split": "heldout",
+      "state": "claim: Task T-31 is done: the invoice export includes tax per line and the total.\npassage: test_export.py::test_total_column PASSED. No test or output in this run covers a per-line tax column.",
+      "staticPick": "yes",
+      "expected": "no",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-013",
+      "split": "heldout",
+      "state": "claim: The build is green on the release branch after the lockfile refresh.\npassage: CI run 2231 on branch release/4.2: lint passed, unit tests 812 passed 0 failed, packaging step passed. Commit under test is the lockfile refresh commit.",
+      "staticPick": "yes",
+      "expected": "yes",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-014",
+      "split": "heldout",
+      "state": "claim: The build is green on the release branch after the lockfile refresh.\npassage: CI run 2198 on branch develop: lint passed, unit tests 806 passed, packaging step passed. This run predates the lockfile refresh.",
+      "staticPick": "yes",
+      "expected": "no",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-015",
+      "split": "heldout",
+      "state": "claim: The memory growth is caused by the listener registry never removing closed connections.\npassage: Heap snapshot diff between minute 5 and minute 45 shows 31,000 additional ConnectionListener objects retained by ListenerRegistry.entries. After adding unregister() on close, the same 40-minute run shows a flat heap at about 210 MB.",
+      "staticPick": "yes",
+      "expected": "yes",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-016",
+      "split": "heldout",
+      "state": "claim: The memory growth is caused by the listener registry never removing closed connections.\npassage: Memory use of the service rose from 200 MB to 900 MB over six hours. The service holds the listener registry, a response cache and a metrics buffer.",
+      "staticPick": "yes",
+      "expected": "no",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-017",
+      "split": "heldout",
+      "state": "claim: The config loader now falls back to the default timeout when the value is missing.\npassage: test_config.py::test_missing_timeout_uses_default PASSED. The test builds a config without a timeout key and asserts that loader.timeout == 30, the documented default.",
+      "staticPick": "yes",
+      "expected": "yes",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-018",
+      "split": "heldout",
+      "state": "claim: The retry wrapper gives up after exactly three attempts.\npassage: The retry wrapper is configured through the RETRY_MAX setting, which is documented in the operations guide together with the backoff factor.",
+      "staticPick": "yes",
+      "expected": "no",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-019",
+      "split": "heldout",
+      "state": "claim: The date parser handles the ISO week format 2024-W05-3.\npassage: Unit test parse_week_date('2024-W05-3') returned 2024-01-31 and the test asserts exactly that value; the calendar for 2024 puts Wednesday of week 5 on 31 January.",
+      "staticPick": "yes",
+      "expected": "yes",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-020",
+      "split": "heldout",
+      "state": "claim: The upload endpoint rejects files larger than 10 MB with status 413.\npassage: The upload endpoint accepts PNG and PDF files and stores them under a generated name. A test posts a 2 MB PNG and receives 201.",
+      "staticPick": "yes",
+      "expected": "no",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-021",
+      "split": "heldout",
+      "state": "claim: The retry wrapper gives up after exactly three attempts.\npassage: test_retry.py::test_stops_after_three_attempts PASSED. The stub service was called 3 times and the wrapper raised RetryExhausted; a fourth call count is asserted to be zero.",
+      "staticPick": "yes",
+      "expected": "yes",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-022",
+      "split": "heldout",
+      "state": "claim: Task T-9 is done: the admin list can be sorted by last login.\npassage: Sorting by name and by creation date works: test_admin_list.py::test_sort_name PASSED and ::test_sort_created PASSED. The last-login column is shown but no sort test exists for it.",
+      "staticPick": "yes",
+      "expected": "no",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-023",
+      "split": "heldout",
+      "state": "claim: Task T-22 is done: the settings page saves the display name and shows a confirmation.\npassage: Browser test settings.spec: 'saves display name' PASSED and 'shows saved banner' PASSED. Screenshot step after save shows the banner text 'Saved'.",
+      "staticPick": "yes",
+      "expected": "yes",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-024",
+      "split": "heldout",
+      "state": "claim: The cache returns stale data because entries are keyed by user id without the locale.\npassage: The profile cache has a time to live of 15 minutes and is cleared when the service restarts. Operators reported outdated profile pages on Monday.",
+      "staticPick": "yes",
+      "expected": "no",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-025",
+      "split": "heldout",
+      "state": "claim: The deadlock occurs because the two workers take the table lock and the row lock in opposite order.\npassage: Database deadlock report: worker A holds the table lock and waits for row 88; worker B holds row 88 and waits for the table lock. Changing worker B to take the table lock first removed the deadlock across 200 stress iterations.",
+      "staticPick": "yes",
+      "expected": "yes",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-026",
+      "split": "heldout",
+      "state": "claim: The upload endpoint rejects files larger than 10 MB with status 413.\npassage: Integration test: POST of an 11 MB file returned HTTP 201 and the file was stored; the handler has no size check, only a content-type check.",
+      "staticPick": "no",
+      "expected": "no",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-027",
+      "split": "heldout",
+      "state": "claim: The cache returns stale data because entries are keyed by user id without the locale.\npassage: Reproduction: request for user 5 with locale fr populates key 'profile:5'; a later request for user 5 with locale en returns the French content from the same key. After adding the locale to the key the English request returns English content.",
+      "staticPick": "yes",
+      "expected": "yes",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-028",
+      "split": "heldout",
+      "state": "claim: The retry wrapper gives up after exactly three attempts.\npassage: test_retry.py::test_attempt_count FAILED: the stub service was called 5 times before RetryExhausted was raised; the default max_attempts in the wrapper is 5.",
+      "staticPick": "no",
+      "expected": "no",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-029",
+      "split": "heldout",
+      "state": "claim: The new linter rule flags unused imports in type-only files.\npassage: Rule test run: fixture types_only.ts containing 'import { Foo } from \"./foo\"' with no use produced one warning 'unused import Foo'. The expected-output file in the rule test lists the same warning.",
+      "staticPick": "yes",
+      "expected": "yes",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-030",
+      "split": "heldout",
+      "state": "claim: Task T-14 is done: the CSV importer rejects rows with a negative quantity.\npassage: test_importer.py::test_negative_quantity_rejected FAILED: expected row 7 to be rejected, but it was imported with quantity -3.",
+      "staticPick": "no",
+      "expected": "no",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-031",
+      "split": "heldout",
+      "state": "claim: The migration is reversible.\npassage: Migration 0043 defines both up() and down(). The rollback test applied 0043, rolled it back and compared the schema dump before and after; the two dumps were identical.",
+      "staticPick": "yes",
+      "expected": "yes",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-032",
+      "split": "heldout",
+      "state": "claim: The build is green on the release branch after the lockfile refresh.\npassage: CI run 2234 on branch release/4.2 at the lockfile refresh commit: lint passed, unit tests 809 passed 3 failed, packaging step skipped.",
+      "staticPick": "no",
+      "expected": "no",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-033",
+      "split": "heldout",
+      "state": "claim: The upload endpoint rejects files larger than 10 MB with status 413.\npassage: Integration test: POST of an 11 MB file returned HTTP 413 with body 'payload too large'; POST of a 9 MB file returned 201. The limit constant in the handler is 10 * 1024 * 1024.",
+      "staticPick": "yes",
+      "expected": "yes",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-034",
+      "split": "heldout",
+      "state": "claim: The memory growth is caused by the listener registry never removing closed connections.\npassage: Heap snapshot diff shows ListenerRegistry.entries holds 212 objects at minute 5 and 209 at minute 45. The growth is in the response cache: 48,000 additional CachedResponse objects.",
+      "staticPick": "no",
+      "expected": "no",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-035",
+      "split": "heldout",
+      "state": "claim: Startup is slow because the plugin scanner reads every file under node_modules.\npassage: Profile of a 6.4 s cold start: 4.9 s inside scanPlugins(), which opens 118,000 files under node_modules. Restricting the scan to the plugins directory cut the cold start to 1.6 s.",
+      "staticPick": "yes",
+      "expected": "yes",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-036",
+      "split": "heldout",
+      "state": "claim: The migration is reversible.\npassage: Migration 0043 drops the column legacy_notes from documents. Its down() method contains only a comment saying the data cannot be restored.",
+      "staticPick": "no",
+      "expected": "no",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-037",
+      "split": "heldout",
+      "state": "claim: The cron expression runs the cleanup at 02:30 on weekdays.\npassage: The scheduler entry reads '30 2 * * 1-5'. Field order is minute, hour, day of month, month, day of week, so this fires at 02:30 from Monday to Friday.",
+      "staticPick": "yes",
+      "expected": "yes",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-038",
+      "split": "heldout",
+      "state": "claim: Startup is slow because the plugin scanner reads every file under node_modules.\npassage: Profile of a 6.4 s cold start: 0.3 s inside scanPlugins(); 5.6 s is spent waiting for the license server handshake before the window opens.",
+      "staticPick": "no",
+      "expected": "no",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-039",
+      "split": "heldout",
+      "state": "claim: The webhook signature check uses a constant-time comparison.\npassage: verifySignature() calls crypto.timingSafeEqual(expected, received) after checking that both buffers have the same length, and no other comparison of the signature occurs in the module.",
+      "staticPick": "no",
+      "expected": "yes",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-040",
+      "split": "heldout",
+      "state": "claim: The cron expression runs the cleanup at 02:30 on weekdays.\npassage: The scheduler entry reads '30 2 * * 0,6'. Field order is minute, hour, day of month, month, day of week, so this fires at 02:30 on Sunday and Saturday only.",
+      "staticPick": "no",
+      "expected": "no",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-041",
+      "split": "heldout",
+      "state": "claim: The queue consumer acknowledges a message only after the handler returns.\npassage: In consumer.run the ack() call sits after await handler(message) inside the try block; the catch block calls nack(). A test that makes the handler throw confirms the message is nacked and never acked.",
+      "staticPick": "no",
+      "expected": "yes",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    },
+    {
+      "id": "claim-support-042",
+      "split": "heldout",
+      "state": "claim: The new linter rule flags unused imports in type-only files.\npassage: Rule test run: fixture types_only.ts containing an unused type import produced no warnings; the rule skips files whose imports all use the 'import type' form.",
+      "staticPick": "no",
+      "expected": "no",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: a made-up claim and passage in the shape a claim link sees; not taken from any ledger, record or project. Label by the authors."
+    }
+  ]
+}

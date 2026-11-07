@@ -1,0 +1,9 @@
+{"meta":true,"date":"2026-11-05","harness":"copilot","version":"GitHub Copilot CLI 1.0.104","behaviour":"identity","mode":"copilot -p headless","note":"names only, no values; env names were checked, values were not","source":"live probe, report probe-oc-copilot.json copilot.P2"}
+{"event":"sessionStart","payloadFields":["sessionId","timestamp","cwd","source","initialPrompt"]}
+{"event":"preToolUse","payloadFields":["sessionId","timestamp","cwd","toolName","toolArgs"]}
+{"event":"postToolUse","payloadFields":["sessionId","timestamp","cwd","toolName","toolArgs","toolResult"]}
+{"event":"agentStop","payloadFields":["sessionId","timestamp","cwd","transcriptPath","stopReason","stop_hook_active"]}
+{"event":"subagentStart","payloadFields":["sessionId","timestamp","cwd","transcriptPath","agentName","agentId","agentType","parentAgentId"]}
+{"event":"subagentStop","payloadFields":["sessionId","timestamp","cwd","transcriptPath","agentName","agentId","agentType","parentAgentId","response","stopReason"]}
+{"absentFromEveryHookPayload":["model"]}
+{"envForwarding":{"setOnLauncherProcess":["DOFLOW_RUN_ID","DOFLOW_LINEAGE"],"presentInHookProcess":["DOFLOW_RUN_ID","DOFLOW_LINEAGE"],"alsoPresent":["COPILOT_HOOK_DIR","COPILOT_PROJECT_DIR","COPILOT_CLI","COPILOT_CLI_BINARY_VERSION"],"notTested":["DOFLOW_LINEAGE_ID (the probe set and read DOFLOW_LINEAGE)","DOFLOW_SESSION_ROLE","DOFLOW_ATTEMPT","DOFLOW_TASK_ID","DOFLOW_WORKTREE"]}}

@@ -102,6 +102,15 @@
       "cpuCount": 14,
       "totalMemMB": 98304,
       "node": "v26.8.1"
+    },
+    {
+      "machineId": "b24edc2e6ce1",
+      "os": "darwin",
+      "arch": "arm64",
+      "cpuModel": "Apple M3 Max",
+      "cpuCount": 14,
+      "totalMemMB": 98304,
+      "node": "v26.12.1"
     }
   ],
   "surfaces": [
@@ -1267,6 +1276,7 @@
       ],
       "harness": "shared",
       "intentClass": "hook",
+      "stdinFixture": "bench/perf/fixtures/shared/compact-text.json",
       "enforced": false
     },
     {
@@ -1614,11 +1624,43 @@
     },
     {
       "surfaceId": "hook.shared.pre-implementation-gate",
-      "unmeasured": "measurement deferred to V.2"
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "b24edc2e6ce1",
+      "measuredOn": "2026-11-05",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 40.51,
+      "p95Ms": 45.59,
+      "maxMs": 47.43,
+      "madMs": 0.53,
+      "controlP50Ms": 23.92,
+      "redos": 0,
+      "headroomMs": 11.4,
+      "ceilingMs": 57,
+      "status": "proposed"
     },
     {
       "surfaceId": "hook.shared.session-context",
-      "unmeasured": "measurement deferred to V.2"
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "b24edc2e6ce1",
+      "measuredOn": "2026-11-05",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 72.71,
+      "p95Ms": 87.08,
+      "maxMs": 87.38,
+      "madMs": 2.21,
+      "controlP50Ms": 25.05,
+      "redos": 0,
+      "headroomMs": 21.77,
+      "ceilingMs": 100,
+      "status": "proposed"
     },
     {
       "surfaceId": "hook.shared.stop-check",
@@ -2901,7 +2943,23 @@
     },
     {
       "surfaceId": "hook.shared.compact-text",
-      "unmeasured": "116: sourced-only builder with no stdin fixture; not measured on 2026-10-20 because load average stayed 60-135 (FU-jeaba5 measures it on a quiet machine). The calling hooks hook.claude.pre-compact and hook.codex.pre-compact keep their measured rows"
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "b24edc2e6ce1",
+      "measuredOn": "2026-11-05",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 3.2,
+      "p95Ms": 3.66,
+      "maxMs": 3.71,
+      "madMs": 0.13,
+      "controlP50Ms": 24.2,
+      "redos": 0,
+      "headroomMs": 10,
+      "ceilingMs": 14,
+      "status": "proposed"
     },
     {
       "surfaceId": "hook.shared.identity",

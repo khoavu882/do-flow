@@ -2607,44 +2607,85 @@
       {
         "behaviour": "identity",
         "harness": "claude",
-        "status": "limitation",
-        "limitation": "launcher environment forwarding into hook processes is unverified until 081 (DEC-004)"
+        "status": "enforced",
+        "tests": [
+          "test/hooks/policy-envelope.test.ts",
+          "test/hooks/identity-bash.test.ts"
+        ],
+        "provenance": [
+          {
+            "kind": "live",
+            "locator": "test/fixtures/hooks/claude/live/probe-2026-11-05.jsonl",
+            "date": "2026-11-05"
+          }
+        ]
       },
       {
         "behaviour": "identity",
         "harness": "codex",
         "status": "limitation",
-        "limitation": "launcher environment forwarding into hook processes is unverified until 081 (DEC-004)"
+        "limitation": "arbitrary environment variables reached a Codex 0.164.0 hook process in a live probe (2026-11-05), but only under --dangerously-bypass-hook-trust and not with DoFlow's own DOFLOW_* names; forwarding through a trusted project hook is untested"
       },
       {
         "behaviour": "identity",
         "harness": "opencode",
         "status": "limitation",
-        "limitation": "no DoFlow hook bridge"
+        "limitation": "no DoFlow hook bridge for OpenCode: a live probe on 2.2.5 (2026-11-05) saw DOFLOW_RUN_ID, DOFLOW_LINEAGE_ID and DOFLOW_SESSION_ROLE reach a plugin, but nothing in DoFlow consumes them there, so the row is not enforced"
       },
       {
         "behaviour": "identity",
         "harness": "pi",
         "status": "limitation",
-        "limitation": "launcher environment forwarding into hook processes is unverified until 081 (DEC-004)"
+        "limitation": "DOFLOW_* env reached a Pi 1.4.0 extension loaded with -e in a live probe (2026-11-05); the probe hit a usage limit, saw no tool_call event, and project auto-discovery of the extension recorded nothing (cause untested), so enforcement through the installed extension is unverified"
       },
       {
         "behaviour": "identity",
         "harness": "copilot",
-        "status": "limitation",
-        "limitation": "launcher environment forwarding into hook processes is unverified until 081 (DEC-004)"
+        "status": "enforced",
+        "tests": [
+          "test/hooks/policy-envelope.test.ts",
+          "test/hooks/identity-bash.test.ts"
+        ],
+        "provenance": [
+          {
+            "kind": "live",
+            "locator": "test/fixtures/hooks/copilot/live/probe-2026-11-05.jsonl",
+            "date": "2026-11-05"
+          }
+        ]
       },
       {
         "behaviour": "identity",
         "harness": "kiro",
-        "status": "limitation",
-        "limitation": "launcher environment forwarding into hook processes is unverified until 081 (DEC-004)"
+        "status": "enforced",
+        "tests": [
+          "test/hooks/policy-envelope.test.ts",
+          "test/hooks/identity-bash.test.ts"
+        ],
+        "provenance": [
+          {
+            "kind": "live",
+            "locator": "test/fixtures/hooks/kiro/live/probe-2026-11-05.jsonl",
+            "date": "2026-11-05"
+          }
+        ]
       },
       {
         "behaviour": "identity",
         "harness": "antigravity",
-        "status": "limitation",
-        "limitation": "launcher environment forwarding into hook processes is unverified until 081 (DEC-004)"
+        "status": "enforced",
+        "tests": [
+          "test/hooks/bridge-parity-antigravity.test.ts",
+          "test/hooks/policy-envelope.test.ts",
+          "test/hooks/identity-bash.test.ts"
+        ],
+        "provenance": [
+          {
+            "kind": "live",
+            "locator": "test/fixtures/hooks/antigravity/live/probe-2026-11-05.jsonl",
+            "date": "2026-11-05"
+          }
+        ]
       },
       {
         "behaviour": "check-freshness",

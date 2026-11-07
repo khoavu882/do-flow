@@ -8,6 +8,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { bashPath } = require('../helper/bash-locator.ts');
 const { tempDir } = require('../helper/tmp.ts');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
@@ -57,7 +58,7 @@ for (const surface of sharedSurfaces) {
       git('add', '-A');
       git('commit', '-q', '-m', 'fixture');
     }
-    const res = spawnSync('bash', ['-x', path.join(REPO_ROOT, ...surface.argv[1].split('/'))], {
+    const res = spawnSync(bashPath(), ['-x', path.join(REPO_ROOT, ...surface.argv[1].split('/'))], {
       cwd: project && surface.setup.cwdProject ? project : REPO_ROOT,
       env: { ...process.env, HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'), DOFLOW_QUIET: '1' },
       input: fs.readFileSync(path.join(REPO_ROOT, surface.stdinFixture), 'utf8'),

@@ -8,6 +8,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { bashPath } = require('../helper/bash-locator.ts');
 const { after, test } = require('node:test');
 const { buildInstallMirror, createScratch, createScratchGitRepo } = require('../helper/hook-fixtures.ts');
 
@@ -94,7 +95,7 @@ function runFixture({ stem, fixturePath, fixture }: any, index: any) {
     CLAUDE_CONFIG_DIR: '', CLAUDE_PROJECT_DIR: '', ...(fixture.env || {}),
   };
   if (fixture.fault === 'jq-missing') { env.PATH = noJqPath(); delete env.DOFLOW_BRIDGE_TRACE; } // the trace itself needs jq
-  const result = spawnSync('bash', [door], { cwd: project, input: `${JSON.stringify(native)}\n`, env, encoding: 'utf8' });
+  const result = spawnSync(bashPath(), [door], { cwd: project, input: `${JSON.stringify(native)}\n`, env, encoding: 'utf8' });
   assert.equal(result.error, undefined, result.error?.message);
   const label = `Copilot ${path.relative(FIXTURES, fixturePath)}`;
   const stdout = result.stdout || '';
@@ -116,7 +117,7 @@ function runFixture({ stem, fixturePath, fixture }: any, index: any) {
   assert.equal(decision.event, fixture.event, `${label}: decision event`);
   assert.equal(decision.policy, policy, `${label}: decision policy`);
   for (const [key, value] of Object.entries(fixture.expect.decision)) assert.equal(decision[key], value, `${label}: decision.${key}`);
-  const normalised = spawnSync('bash', ['-c', `source "${path.join(mirror, '.github/hooks/doflow-lib.sh')}"; copilot_bridge_payload ${fixture.event}`], {
+  const normalised = spawnSync(bashPath(), ['-c', `source "${path.join(mirror, '.github/hooks/doflow-lib.sh')}"; copilot_bridge_payload ${fixture.event}`], {
     cwd: project, input: `${JSON.stringify(native)}\n`, env, encoding: 'utf8',
   });
   assert.equal(normalised.status, 0, `${label}: Copilot payload normaliser`);

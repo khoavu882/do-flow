@@ -123,10 +123,13 @@ cwd_hash() {
   else
     canonical=$(canonicalize_path "$1")
   fi
+  local digest
   if command -v sha256sum &>/dev/null; then
-    echo "$canonical" | sha256sum | cut -c1-16
+    digest=$(echo "$canonical" | sha256sum)
+    echo "${digest:0:16}"
   elif command -v shasum &>/dev/null; then
-    echo "$canonical" | shasum -a 256 | cut -c1-16
+    digest=$(echo "$canonical" | shasum -a 256)
+    echo "${digest:0:16}"
   else
     printf '%016x\n' "$(echo "$canonical" | cksum | cut -d' ' -f1)"
   fi
@@ -219,6 +222,20 @@ release_file_lock() {
 # `--version`; Windows' `timeout.exe` does not and errors out), otherwise
 # the next candidate is tried and, failing that, the command runs directly.
 #
+# The probe forks a `--version` run, so its result is kept in _DOFLOW_TIMEOUT_BIN (empty: none
+# trusted). A caller that runs several of these inside $(...) calls doflow_probe_timeout once at
+# top level first: a probe made inside a subshell does not reach the parent.
+doflow_probe_timeout() {
+  [[ -z "${_DOFLOW_TIMEOUT_PROBED:-}" ]] || return 0
+  _DOFLOW_TIMEOUT_BIN=""
+  if command -v timeout &>/dev/null && timeout --version >/dev/null 2>&1; then
+    _DOFLOW_TIMEOUT_BIN="timeout"
+  elif command -v gtimeout &>/dev/null && gtimeout --version >/dev/null 2>&1; then
+    _DOFLOW_TIMEOUT_BIN="gtimeout"
+  fi
+  _DOFLOW_TIMEOUT_PROBED=1
+}
+
 # Usage: run_with_timeout 5 -- git status
 run_with_timeout() {
   local seconds="$1"
@@ -226,12 +243,8 @@ run_with_timeout() {
   if [[ "${1:-}" == "--" ]]; then
     shift
   fi
-  local timeout_bin=""
-  if command -v timeout &>/dev/null && timeout --version >/dev/null 2>&1; then
-    timeout_bin="timeout"
-  elif command -v gtimeout &>/dev/null && gtimeout --version >/dev/null 2>&1; then
-    timeout_bin="gtimeout"
-  fi
+  doflow_probe_timeout
+  local timeout_bin="$_DOFLOW_TIMEOUT_BIN"
   if [[ -n "$timeout_bin" ]]; then
     "$timeout_bin" "$seconds" "$@"
   else

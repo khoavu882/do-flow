@@ -75,8 +75,12 @@ test('G-B2: inventory ratchets — registry files and adapters', () => {
   // harnesses.json: each row cites a vendor page and date, and one harness can carry two caps of different scope.
   // 23: `intake.json` (136 IC-005) is the additional-context sort taxonomy; like `transcripts.json` it has its own loader
   // (`src/runtime/intake/taxonomy.ts`) so a bad file turns intake off instead of failing installs.
-  assert.equal(registryEntries.length, 23,
-    `core/registry holds ${registryEntries.length} files; expected the ratcheted 23`);
+  // 24: `advice-verdicts.json` (141 IC-004) holds gate verdicts. Not folded into `advice.json`: that file is hand-edited
+  // pass bars and kind definitions, this one is written only by the bench runner (`advice-gate --write`) and holds
+  // measured aggregates. Mixing them would let a runner rewrite a maintainer's file, and a hand edit change a measured
+  // result. It has its own loader (`src/runtime/advice/bench-gate.ts`), so a bad file reads as no verdict.
+  assert.equal(registryEntries.length, 24,
+    `core/registry holds ${registryEntries.length} files; expected the ratcheted 24`);
 
   // Stage 3 makes adapters thinner but never fewer: one directory per harness, plus the shared
   // copy-tree engine and the contract validator live as siblings.

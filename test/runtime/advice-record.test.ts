@@ -211,3 +211,134 @@ test('084 C-7: dispatcher fields mode and elevated and a given pick id are kept;
   assert.deepEqual(lines[2], { schema: 1, type: 'miss', at: AT.toISOString(), kind: 'tier', caller: 'brief-tools', reason: 'timeout', model: null, durationMs: 0, mode: 'act' });
   assert.match(newPickId(Date.parse('2026-06-01T02:00:00.000Z')), /^adv-1780279200000-[0-9a-f]{6}$/);
 });
+
+// ── 141 IC-007: the extra payload ────────────────────────────────────────────────────────────────
+
+const GIVEN_ID = 'adv-1780279200000-abcdef';
+
+test('141 IC-007: an old-format pick line is byte-identical, with no extra, and when an extra is given to a kind that does not take it', (t) => {
+  const { roots } = fixture(t);
+  const digest = crypto.createHash('sha256').update('private decision state').digest('hex');
+  // The literal line a pick wrote before this feature: key order, null fields and all.
+  const expected = `{"schema":1,"type":"pick","pickId":"${GIVEN_ID}","at":"${AT.toISOString()}","kind":"tier","question":"tier","qtype":"choice",`
+    + '"options":["light","standard","frontier"],"instructions":null,"pick":"standard","strength":"clear","between":null,'
+    + '"probabilities":{"light":0.1,"standard":0.85,"frontier":0.05},"confidence":0.71,"static":"standard","provider":"ollama","model":"clef-flash",'
+    + `"stateDigest":"sha256:${digest}","stateBytes":${Buffer.byteLength('private decision state')},"caller":"advise","taskId":"task-17","durationMs":512,"mode":"shadow","elevated":false}\n`;
+  const plain = appendPick(pickInput(roots, { pickId: GIVEN_ID, mode: 'shadow', elevated: false }));
+  assert.equal(fs.readFileSync(plain.file, 'utf8'), expected);
+  fs.rmSync(plain.file);
+  const rerankExtra = { rerank: { arm: 'choice', n: 2, refs: ['a', 'b'], order: ['B', 'A'] }, claimSupport: { claimId: 'c', evidenceId: 'e', relation: 'supports', claimStatus: 'supported' }, other: 'x' };
+  const withExtra = appendPick(pickInput(roots, { pickId: GIVEN_ID, mode: 'shadow', elevated: false, extra: rerankExtra }));
+  assert.equal(fs.readFileSync(withExtra.file, 'utf8'), expected, 'a tier pick ignores rerank, claimSupport and unknown extra keys');
+  fs.rmSync(withExtra.file);
+  // An old-format miss line is unchanged too.
+  appendMiss({ roots, now: NOW, kind: 'tier', caller: 'brief-tools', reason: 'timeout', model: 'm', durationMs: 7, mode: 'shadow' });
+  assert.equal(fs.readFileSync(path.join(roots['project-state'], 'advice', 'picks', '2026-06-01.jsonl'), 'utf8'),
+    `{"schema":1,"type":"miss","at":"${AT.toISOString()}","kind":"tier","caller":"brief-tools","reason":"timeout","model":"m","durationMs":7,"mode":"shadow"}\n`);
+});
+
+function rerankInput(roots: any, arm: string, rerank: any, overrides: any = {}) {
+  const ladder = arm === 'ladder';
+  const criteria = ['sentinel zero', 'sentinel one', 'sentinel two', 'sentinel three', 'sentinel four'];
+  return pickInput(roots, {
+    kind: 'rerank', staticAnswer: 'A', state: 'query: sentinel query\ncandidate_text[A]: sentinel candidate', mode: 'shadow', elevated: false,
+    question: ladder ? { name: 'rerank-a', type: 'score', instructions: 'sentinel instructions', criteria } : { name: 'rerank', type: 'choice', instructions: 'sentinel instructions', options: { A: 'sentinel candidate a', B: 'sentinel candidate b' } },
+    answer: ladder
+      ? { name: 'rerank-a', type: 'score', pick: criteria[4], pickIndex: 4, score: 3.2, criteria, probabilities: { 0: 0, 1: 0, 2: 0, 3: 0.2, 4: 0.8 }, confidence: 0.8, strength: { word: 'clear', between: null } }
+      : { name: 'rerank', type: 'choice', pick: 'B', probabilities: { A: 0.3, B: 0.7 }, confidence: 0.7, strength: { word: 'leaning', between: null } },
+    extra: { rerank },
+    ...overrides,
+  });
+}
+
+const CHOICE_PAYLOAD = { arm: 'choice', n: 2, refs: ['docs/a.md', 'docs/b.md'], order: ['B', 'A'], truncated: 1, candidateBytes: 800, firstStageMs: 12, criteriaDigest: '3f9a1c0b27de', criteriaSource: 'registry' };
+const LADDER_PAYLOAD = { arm: 'ladder', n: 2, refs: ['docs/a.md', 'docs/b.md'], order: ['B', 'A'], truncated: 0, candidateBytes: 800, firstStageMs: null, criteriaDigest: '3f9a1c0b27de', expected: [1.23456, 3.2], confidence: [0.5, 0.8] };
+
+test('141 IC-007: a choice-arm rerank pick takes the rerank envelope and the allowlisted payload', (t) => {
+  const { roots } = fixture(t);
+  const written = appendPick(rerankInput(roots, 'choice', CHOICE_PAYLOAD));
+  const line = findPick({ pickId: written.pickId, roots, now: NOW }).pick;
+  assert.equal(line.question, 'rerank');
+  assert.equal(line.qtype, 'choice');
+  assert.deepEqual(line.options, ['A', 'B']);
+  assert.equal(line.instructions, null);
+  assert.equal(line.pick, 'B');
+  assert.equal(line.static, 'A');
+  assert.equal(line.strength, 'leaning');
+  assert.deepEqual(line.probabilities, { A: 0.3, B: 0.7 });
+  assert.equal(line.confidence, 0.7);
+  assert.deepEqual(line.rerank, {
+    arm: 'choice', n: 2, refs: ['docs/a.md', 'docs/b.md'], order: ['B', 'A'], truncated: 1, candidateBytes: 800, top1Changed: true,
+    firstStageMs: 12, criteriaDigest: '3f9a1c0b27de', criteriaSource: 'registry',
+  });
+});
+
+test('141 IC-007: a ladder-arm rerank pick stores 4-decimal numeric arrays and never the criteria, index or score', (t) => {
+  const { roots } = fixture(t);
+  const written = appendPick(rerankInput(roots, 'ladder', LADDER_PAYLOAD));
+  const raw = fs.readFileSync(written.file, 'utf8');
+  assert.equal(raw.includes('sentinel'), false, 'no criteria, instruction, query or candidate text on the line');
+  const line = JSON.parse(raw);
+  assert.equal(line.qtype, 'score');
+  assert.deepEqual(line.options, ['A', 'B']);
+  assert.equal(line.pick, 'B');
+  assert.deepEqual([line.strength, line.between, line.probabilities, line.confidence], [null, null, null, null]);
+  for (const key of ['criteria', 'pickIndex', 'score']) assert.equal(key in line, false, key);
+  assert.deepEqual(line.rerank.expected, [1.2346, 3.2]);
+  assert.deepEqual(line.rerank.confidence, [0.5, 0.8]);
+  assert.equal(line.rerank.firstStageMs, null);
+  assert.equal('criteriaSource' in line.rerank, false);
+  assert.equal(line.stateBytes, Buffer.byteLength('query: sentinel query\ncandidate_text[A]: sentinel candidate'));
+});
+
+test('141 IC-007: only allowlisted keys of the rerank object are written; text-bearing keys and bad values are dropped', (t) => {
+  const { roots } = fixture(t);
+  const written = appendPick(rerankInput(roots, 'choice', {
+    ...CHOICE_PAYLOAD, query: 'leak query', candidates: ['leak candidate'], criteria: ['leak criteria'], text: 'leak',
+    criteriaDigest: 'not-a-digest', criteriaSource: 'free text', top1Changed: false,
+  }));
+  const raw = fs.readFileSync(written.file, 'utf8');
+  assert.equal(raw.includes('leak'), false);
+  const { rerank } = JSON.parse(raw);
+  assert.deepEqual(Object.keys(rerank).sort(), ['arm', 'candidateBytes', 'criteriaDigest', 'firstStageMs', 'n', 'order', 'refs', 'top1Changed', 'truncated']);
+  assert.equal(rerank.criteriaDigest, null, 'a digest that is not 12 hex characters is not stored');
+  assert.equal(rerank.top1Changed, true, 'top1Changed is recomputed from the order, not trusted');
+});
+
+test('141 IC-007: a rerank pick with a missing or malformed payload is not written at all', (t) => {
+  const { roots } = fixture(t);
+  const bad: any[] = [
+    undefined, null, 'text', { ...CHOICE_PAYLOAD, arm: 'both' }, { ...CHOICE_PAYLOAD, n: 0 }, { ...CHOICE_PAYLOAD, n: 17 },
+    { ...CHOICE_PAYLOAD, refs: ['one'] }, { ...CHOICE_PAYLOAD, refs: ['a', 7] }, { ...CHOICE_PAYLOAD, order: ['A'] },
+    { ...CHOICE_PAYLOAD, order: ['A', 'A'] }, { ...CHOICE_PAYLOAD, order: ['A', 'C'] },
+  ];
+  for (const rerank of bad) assert.equal(appendPick(rerankInput(roots, 'ladder', rerank)), null, JSON.stringify(rerank));
+  assert.equal(appendPick(rerankInput(roots, 'ladder', LADDER_PAYLOAD, { extra: undefined })), null, 'no extra at all');
+  assert.deepEqual(readWindow({ roots, now: NOW }).records, []);
+});
+
+test('141 IC-007: ladder numbers must be one finite number per candidate, else they are stored as null', (t) => {
+  const { roots } = fixture(t);
+  const written = appendPick(rerankInput(roots, 'ladder', { ...LADDER_PAYLOAD, expected: [1, 'x'], confidence: [0.5] }));
+  const { rerank } = JSON.parse(fs.readFileSync(written.file, 'utf8'));
+  assert.deepEqual([rerank.expected, rerank.confidence], [null, null]);
+});
+
+test('141 IC-007: the claimSupport object is ids, words and counts only, and only for a claim-support pick', (t) => {
+  const { roots } = fixture(t);
+  const yesno = {
+    kind: 'claim-support', question: { name: 'claim-support', type: 'yesno', no: 'No', yes: 'Yes' }, staticAnswer: 'yes',
+    answer: { name: 'claim-support', type: 'yesno', pick: 'yes', strength: { word: 'clear', between: null }, probabilities: { no: 0.1, yes: 0.9 }, confidence: null },
+  };
+  const written = appendPick(pickInput(roots, {
+    ...yesno,
+    extra: { claimSupport: { claimId: 'CLM-1', evidenceId: 'EV-2', relation: 'supports', claimStatus: 'supported', claimBytes: 120, passageBytes: 1800, truncated: false, claim: 'leak claim', passage: 'leak passage' } },
+  }));
+  const raw = fs.readFileSync(written.file, 'utf8');
+  assert.equal(raw.includes('leak'), false);
+  assert.deepEqual(JSON.parse(raw).claimSupport, { claimId: 'CLM-1', evidenceId: 'EV-2', relation: 'supports', claimStatus: 'supported', claimBytes: 120, passageBytes: 1800, truncated: false });
+  const bad = appendPick(pickInput(roots, { ...yesno, extra: { claimSupport: { claimId: 'CLM-1', evidenceId: 'EV-2', relation: 'maybe', claimStatus: 'supported' } } }));
+  assert.equal('claimSupport' in JSON.parse(fs.readFileSync(bad.file, 'utf8').trim().split('\n').pop()), false, 'a bad relation drops the object, the plain pick stays');
+  const wrongKind = appendPick(pickInput(roots, { extra: { claimSupport: { claimId: 'CLM-1', evidenceId: 'EV-2', relation: 'supports', claimStatus: 'supported' } } }));
+  assert.equal('claimSupport' in JSON.parse(fs.readFileSync(wrongKind.file, 'utf8').trim().split('\n').pop()), false);
+});

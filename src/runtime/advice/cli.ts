@@ -16,6 +16,7 @@ const { createAdviceClient } = require('./client.ts');
 const { materializeKind, validateQuestionSet, validateStaticAnswer } = require('./kinds.ts');
 const { findPick, appendOutcome } = require('./record.ts');
 const { strengthWords } = require('./strength.ts');
+const { buildReport, renderText } = require('./report.ts');
 const { projectLayerSource } = require('../settings/project-layers.ts');
 
 function loadSources(repoRoot: any) {
@@ -307,15 +308,29 @@ function handleOutcome(options: any, runtime: any) {
   return finishRuntime(0);
 }
 
+function handleReport(options: any, runtime: any) {
+  const { json } = options;
+  const { adviceRegistry, adviceError, roots } = runtime;
+  if (adviceError || !adviceRegistry) return writeFailure(`advice registry cannot be read: ${adviceError || 'missing'}`, json);
+  const ids = (adviceRegistry.kinds || []).map((entry: any) => entry.id);
+  if (options.kind !== undefined && options.kind !== null && !ids.includes(options.kind) && options.kind !== 'adhoc') {
+    return usageError('advise', `unknown --kind '${options.kind}'; known kinds: ${ids.join(', ')}`, json);
+  }
+  const report = buildReport({ roots, kinds: ids, kind: options.kind ?? null, adviceRegistry, projectRoot: options.projectRoot ?? null, global: options.global === true });
+  console.log(json ? JSON.stringify(report, null, 2) : renderText(report));
+  return finishRuntime(0);
+}
+
 async function handleAdviseCommand(options: any = {}) {
   const action = options.actionGiven ? options.action : 'ask';
-  if (!['ask', 'outcome', 'configure'].includes(action)) return usageError('advise', `unknown action '${action}'`, options.json);
+  if (!['ask', 'outcome', 'configure', 'report'].includes(action)) return usageError('advise', `unknown action '${action}'`, options.json);
   try {
     const projectRoot = options.global ? null : path.resolve(options.projectRoot || process.cwd());
     const runtime = loadRuntime({ projectRoot, global: options.global });
     const shaped = { ...options, projectRoot };
     if (action === 'configure') return await handleConfigure(shaped, runtime);
     if (action === 'outcome') return handleOutcome(shaped, runtime);
+    if (action === 'report') return handleReport(shaped, runtime);
     emitDeprecatedNotes(runtime);
     return await handleAsk(shaped, runtime);
   } catch (error: any) {

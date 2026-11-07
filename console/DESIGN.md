@@ -9,7 +9,7 @@ Read this before you change `console/web/`. It is the agent-readable design file
 3. Motion explains change, never decorates. Only what changed moves. At most one looping animation per run (the current node and its connector). Everything has a still variant.
 4. Honest data: unknown, stale and unreached are shown as such, never as zero or "live".
 5. Quiet chrome, rich data: neutral surfaces and one accent (violet) that belongs to interaction (focus, selection, links), never to a run state. Status colours are reserved for status.
-6. Craft in the small things: everything on the 4 px grid, tabular figures for numbers, mono for ids and commands, tightened large type, and a designed worst state for every view.
+6. Craft in the small things: everything on the 4 px grid, tabular figures for numbers, mono for ids and commands, tightened large type, and a designed worst state for every view. A decorative eyebrow (a class whose name contains "eyebrow": `.eyebrow`, `.activity__eyebrow`, `.ev__eyebrow`) is sentence case with no tracking. Table heads, column heads and status labels keep capitals and `--tracking-caps`.
 7. Give each view a clear lead and supporting layers. A gate, selected project or current checkout gets the strongest cue; running work stays easy to scan; completed history, metadata and limits recede. Do not turn every group into an equal card.
 
 ## Tokens
@@ -66,50 +66,50 @@ Read this before you change `console/web/`. It is the agent-readable design file
 --z-panel: 20
 --z-skip: 30
 # themed: light | dark ([data-theme="dark"], also under prefers-color-scheme: dark unless data-theme is light)
---bg: #F6F7F9 | #0C1016
---surface: #FFFFFF | #141A22
---surface-2: #EEF1F5 | #1C242E
---surface-3: #FFFFFF | #212A36
---border: #C3CAD5 | #3A4452
---border-strong: #6E7887 | #7D8797
---text: #141A23 | #E7EBF1
---text-muted: #4A5463 | #A6B0BE
+--bg: #F5F3EF | #0D1013
+--surface: #FEFDFB | #15191C
+--surface-2: #ECE9E4 | #1E2226
+--surface-3: #FEFDFB | #262B2F
+--border: #CDCAC3 | #32363A
+--border-strong: #78746D | #7B8187
+--text: #17130F | #ECEFF2
+--text-muted: #514C46 | #A3A8AE
 --accent: #5B2FD0 | #B69CFF
 --accent-tint: #EFE9FD | #2A2148
---on-accent: #FFFFFF | #0C1016
+--on-accent: #FFFFFF | #0D1013
 --focus: #5B2FD0 | #B69CFF
---skeleton: #EEF1F5 | #1C242E
---skeleton-shine: #F8F9FB | #26303C
+--skeleton: #ECE9E4 | #1E2226
+--skeleton-shine: #F8F7F3 | #2C3136
 --scrim: rgb(20 26 35 / 0.40) | rgb(0 0 0 / 0.56)
---elev-1: 0 1px 2px rgb(16 24 40 / 0.06), 0 1px 3px rgb(16 24 40 / 0.08) | 0 1px 2px rgb(0 0 0 / 0.50), inset 0 1px 0 rgb(255 255 255 / 0.04)
+--elev-1: none | none
 --elev-2: 0 4px 12px rgb(16 24 40 / 0.12), 0 2px 4px rgb(16 24 40 / 0.06) | 0 8px 24px rgb(0 0 0 / 0.50), inset 0 1px 0 rgb(255 255 255 / 0.06)
---state-running-fg: #1E4FC2 | #8DB4FF
---state-running-tint: #E6EEFD | #14264A
---state-running-mark: #2F64E0 | #5B8DF5
---state-awaiting-fg: #8A3B07 | #F7C04A
---state-awaiting-tint: #FDF0D2 | #33260A
---state-awaiting-mark: #B45309 | #E0A526
---state-done-fg: #13622F | #6EDB94
---state-done-tint: #DDF5E4 | #0F2C1A
---state-done-mark: #1E7F43 | #3FBF6C
---state-rejected-fg: #3A4250 | #C8CED7
---state-rejected-tint: #E7EAEF | #262D37
---state-rejected-mark: #5A6474 | #8E98A6
---state-failed-fg: #A61B1B | #FF8A8A
---state-failed-tint: #FDE4E4 | #3A1515
---state-failed-mark: #D12C2C | #F05252
---state-skipped-fg: #4A5463 | #A6B0BE
---state-skipped-tint: #EEF1F5 | #1C242E
---state-skipped-mark: #6E7887 | #7D8797
---state-pending-fg: #4A5463 | #A6B0BE
---state-pending-tint: #FFFFFF | #141A22
---state-pending-mark: #7D8797 | #7D8797
---state-stale-fg: #5C4F3F | #D6C6B0
---state-stale-tint: #F2ECE4 | #2A241D
---state-stale-mark: #8A7660 | #A08C72
---state-unknown-fg: #4A5463 | #A6B0BE
---state-unknown-tint: #EEF1F5 | #1C242E
---state-unknown-mark: #7D8797 | #7D8797
+--state-running-fg: #005198 | #71BFFF
+--state-running-tint: #DDEDFF | #0E293D
+--state-running-mark: #0076D3 | #3496EF
+--state-awaiting-fg: #7B4300 | #F7B83D
+--state-awaiting-tint: #FEEDC9 | #332305
+--state-awaiting-mark: #B46E00 | #DFA11A
+--state-done-fg: #0B5D2A | #67D283
+--state-done-tint: #D9F3DD | #152619
+--state-done-mark: #258343 | #3BB360
+--state-rejected-fg: #45423C | #C3C8CC
+--state-rejected-tint: #E7E4DF | #23272B
+--state-rejected-mark: #6B6963 | #858A8F
+--state-failed-fg: #9E141E | #FF8880
+--state-failed-tint: #FFE4E1 | #391917
+--state-failed-mark: #D02C2A | #ED4A49
+--state-skipped-fg: #514C46 | #A3A8AE
+--state-skipped-tint: #ECE9E4 | #1E2226
+--state-skipped-mark: #78746D | #7B8187
+--state-pending-fg: #514C46 | #A3A8AE
+--state-pending-tint: #FEFDFB | #15191C
+--state-pending-mark: #7E7A72 | #7B8187
+--state-stale-fg: #55452F | #D0C2AF
+--state-stale-tint: #F1EAE0 | #26211A
+--state-stale-mark: #836E51 | #9D896E
+--state-unknown-fg: #514C46 | #A3A8AE
+--state-unknown-tint: #ECE9E4 | #1E2226
+--state-unknown-mark: #7E7A72 | #7B8187
 # overrides (:root inside the media query)
 @media (prefers-reduced-motion: reduce) --motion-fast: 0ms
 @media (prefers-reduced-motion: reduce) --motion-base: 0ms
@@ -127,13 +127,14 @@ Read this before you change `console/web/`. It is the agent-readable design file
 
 How the names are used:
 
+- Neutral ramp: the light theme is warm paper (`--bg`, `--surface`, `--surface-2` and the borders lean warm), the dark theme is graphite (a cool, slightly blue grey). Amber and blue are state colours only: amber is `awaiting` (`--state-awaiting-*`) and blue is `running` (`--state-running-*`). Violet (`--accent`) stays the interaction accent. The neutral, border and state hues are adapted by hand from the Console theme of Hallmark (`github.com/Nutlope/hallmark`, MIT License); values are converted to sRGB hex and adjusted for WCAG 2.2 AA, and no code or fonts are copied.
 - Surfaces: `--bg` (page), `--surface` (header, cards, rail, panels), `--surface-2` (inset, hover, pressed), `--surface-3` (raised layers: popover, side panel). `--border` is decorative only; `--border-strong` (3:1) bounds controls and cards.
 - Text: `--text`, `--text-muted` (secondary, timestamps, labels). `--accent` is for links, selected nav and chip text and the primary button fill; `--accent-tint` is a selected background; `--on-accent` is text on an `--accent` fill; `--focus` is the focus ring.
 - Run states: `--state-<state>-fg` (text and icons), `-tint` (badge, banner and card background), `-mark` (node fill, connector, non-text). The states are `running`, `awaiting`, `done`, `rejected`, `failed`, `skipped`, `pending`, `stale`, `unknown`. Blue is `running`, amber is `awaiting`, `stale` is a warm taupe on purpose (never an amber that imitates `awaiting`), violet is "you can act here".
 - Text on a state fill uses `-fg` on `-tint`; a full-rail stage pill is tint, 1.5 px `-mark` border and `-fg` text, because `-fg` on a `-mark` fill is not a proven pair.
 - Type: `--type-xs` to `--type-display` are `font` shorthands (`font: var(--type-md)`); mono text sets `font-family: var(--font-mono)` after it. `--type-display` appears at most once per view and is used at the `--type-xl` size below 768 px. Numbers use `font-variant-numeric: tabular-nums`.
-- Space is the 4 px scale `--space-1` to `--space-8`. Radius: `--radius-sm` tags, `--radius-md` cards, nodes and buttons, `--radius-lg` panels, the activity slot and banners, `--radius-pill` badges, chips and the segmented control.
-- Elevation: `--elev-1` cards, `--elev-2` popovers and the side panel; in dark the surface steps and a 1 px top highlight carry it.
+- Space is the 4 px scale `--space-1` to `--space-8`. Radius: `--radius-sm` tags, `--radius-md` cards, nodes and buttons, `--radius-lg` panels, the activity slot and banners. Chip radius: `--radius-sm` for the status chip `.badge` (with the `.conn` chip, `.model-chip` and `.srow__tag`); controls (`.chip`, `.achip`, the theme control) keep `--radius-pill`.
+- Elevation (hairline panels): `--elev-1` is `none` in both themes, so resting cards carry no shadow and are bounded by `--border` or `--border-strong` and the surface step. Hover and expanded states use an edge or an inset ring (`border-color: var(--border-strong)`, `inset 0 0 0 1px var(--border-strong)`, `inset 0 0 0 2px var(--accent)`), never an outer shadow. `--elev-2` is only for the skip link `.skip`, the side panels `.graph__panel` and `.spanel`, the tablet `.fpanel` sheet, and the popovers `.fpanel__new` and the help dialog `.help__panel`.
 - Layout: breakpoints sm < 768, md 768-1279, lg 1280-1919, xl 1920 and up. `--gutter`, `--header-h` and `--target` change per band (see the overrides above). `--target` is the minimum hit size (44 px below 1280, 32 px from 1280); nothing is smaller than `--target-min` (24 px). Content is capped at `--content-max`, prose at `--prose-max`. Layers: `--z-banner`, `--z-header`, `--z-panel`, `--z-skip`.
 - Focus: `outline: var(--focus-width) solid var(--focus)` with `outline-offset: var(--focus-offset)`, on `:focus-visible` only. Heading targets (`h1[tabindex="-1"]`) and `main` show no ring because they are not controls.
 
@@ -179,14 +180,14 @@ Generated list of the top-level class blocks in `app.css` (elements are `block__
 
 What an agent most often touches:
 
-- **Status badge** `.badge` with `data-state`: pill, `-tint` background, `-fg` text in `--type-xs`, a 12 px inline SVG shape (`aria-hidden="true"`) and the word. Never a dot alone. Outcome badges reuse states: passed is `done`, failed is `failed`, unverified is `unknown` with the word "unverified".
+- **Status badge** `.badge` with `data-state`: `--radius-sm` chip, `-tint` background, `-fg` text in `--type-xs`, a 12 px inline SVG shape (`aria-hidden="true"`) and the word. Never a dot alone. Outcome badges reuse states: passed is `done`, failed is `failed`, unverified is `unknown` with the word "unverified".
 - **Rail** `.rail`, `.rail--compact`, `.rail--full`, `.rail__item`, `.rail__node`, `.rail__glyph` with `data-type` (stage or gate) and `data-state`. Stages: filled for `running` and `done`, dashed outline for `skipped`, outline for `pending`, hatched for `unknown`. Gates are 24 px shapes on the connector: a diamond for approval, a hexagon for clarification. The nodes are buttons with a roving tabindex: one node has `tabindex="0"`, the rest `-1`. It scrolls inside itself, never the page.
-- **Activity slot** `.activity` (`.activity--gate`, `.activity--done`, `.activity--rejected`, `.activity--stale`): `--radius-lg`, `--elev-1`, a 4 px left bar in the current state's mark, labelled by its title with `aria-labelledby`. The decide command is a command block.
+- **Activity slot** `.activity` (`.activity--gate`, `.activity--done`, `.activity--rejected`, `.activity--stale`): `--radius-lg`, `--elev-1` (no shadow), a 4 px left bar in the current state's mark, labelled by its title with `aria-labelledby`. The decide command is a command block.
 - **Command block** `.cmd`, `.cmd__text`, `.cmd__copy`: mono `--type-sm` on `--surface-2`, a `--border-strong` edge, a trailing Copy button with an `aria-label`. The label reads "Copied" after a copy and the polite live region announces it; without clipboard access the text is selected.
 - **Button** `.btn` with `.btn--primary` (accent fill), `.btn--secondary` (`--surface`, strong border), `.btn--ghost`. Height is `--target`; pressed is `--surface-2`, or `filter: brightness(0.92)` for primary.
 - **Chip** `.chip`, `.achip`: a pill of `--target` height; filters use `aria-pressed`; selected is `--accent-tint` with `--accent` text plus a check icon (selection is never colour alone).
 - **Segmented control** `.segmented`, `.segmented__opt`, and the theme control `.theme`, `.theme__opt`: a `radiogroup` of `role="radio"` buttons with `aria-checked` and a roving tabindex; arrow keys move and select (wrapping), Home and End jump. The theme choice is stored in `localStorage` under `doflow-console-theme` inside try/catch, and the page works without storage.
-- **Connection pill** `.conn` with `data-state` of `unknown`, `done`, `stale` or `failed`: a shape and a word ("Updated 4 s ago", "Stale", "Offline", "Core unreachable"). It is in the header; `.conn__long` and `.conn__short` swap at 768 px.
+- **Connection chip** `.conn` with `data-state` of `unknown`, `done`, `stale` or `failed`: a shape and a word ("Updated 4 s ago", "Stale", "Offline", "Core unreachable"). It is in the header; `.conn__long` and `.conn__short` swap at 768 px.
 - **Banner** `.banner`, `.banner__text` in `.banner-slot`: state tint, a 4 px left bar, an icon, one sentence and one action. The stale banner has `data-kind="stale"`.
 - **Skeleton** `.skel`, `.skeleton`: `--skeleton` blocks with the final layout's dimensions, `aria-hidden="true"`, shown only after a delay. The shimmer runs only without reduced motion.
 - **Fleet tree** `.ftree`, `.fnode`: `role="tree"` with `role="treeitem"` nodes, a roving tabindex, `aria-selected`, `aria-expanded` when a node has children, and a full `aria-label` per node. **Task graph** `.graph`, `.gcard`, `.grow__btn`: cards and rows expose `aria-expanded` and open a side panel.

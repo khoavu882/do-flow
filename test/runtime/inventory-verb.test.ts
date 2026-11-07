@@ -264,7 +264,7 @@ function fixtureReport() {
   // judgement resolves to `diverged` against a live plan rather than a hand-set flag.
   const diverged: any = {
     assetId: 'skills.doflow',
-    ownershipIdentity: 'doflow:claude:copy-tree:skills.doflow:do/SKILL.md',
+    ownershipIdentity: `doflow:claude:copy-tree:skills.doflow:${path.join('do', 'SKILL.md')}`,
     target: path.join(project, '.claude', 'skills', 'do', 'SKILL.md'),
   };
 
@@ -452,11 +452,11 @@ function restrictionFixture() {
   const project = suiteTempDir('doflow-inventory-restrict-project-');
   const rows: any = [
     {
-      harness: 'claude', ownershipIdentity: 'doflow:claude:copy-tree:skills.doflow:do/SKILL.md',
+      harness: 'claude', ownershipIdentity: `doflow:claude:copy-tree:skills.doflow:${path.join('do', 'SKILL.md')}`,
       target: path.join(home, '.claude', 'skills', 'do', 'SKILL.md'),
     },
     {
-      harness: 'antigravity', ownershipIdentity: 'doflow:antigravity:copy-tree:skills.doflow:do/SKILL.md',
+      harness: 'antigravity', ownershipIdentity: `doflow:antigravity:copy-tree:skills.doflow:${path.join('do', 'SKILL.md')}`,
       target: path.join(home, '.gemini', 'config', 'skills', 'do', 'SKILL.md'),
     },
   ];
@@ -1028,8 +1028,8 @@ function staleRowFixture() {
   const project = suiteTempDir('doflow-inventory-stale-project-');
   const skills = path.join(home, '.claude', 'skills');
 
-  const stale: any = { relPath: 'do/SKILL.md', target: path.join(skills, 'do', 'SKILL.md') };
-  const drifted: any = { relPath: 'do-design/SKILL.md', target: path.join(skills, 'do-design', 'SKILL.md') };
+  const stale: any = { relPath: path.join('do', 'SKILL.md'), target: path.join(skills, 'do', 'SKILL.md') };
+  const drifted: any = { relPath: path.join('do-design', 'SKILL.md'), target: path.join(skills, 'do-design', 'SKILL.md') };
   for (const row of [stale, drifted]) {
     row.ownershipIdentity = `doflow:claude:copy-tree:skills.doflow:${row.relPath}`;
     fs.mkdirSync(path.dirname(row.target), { recursive: true });

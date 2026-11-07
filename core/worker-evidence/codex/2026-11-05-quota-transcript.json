@@ -1,0 +1,47 @@
+{
+  "binary": "codex",
+  "caveats": [
+    "Source is a Codex session rollout log (~/.codex/sessions/<date>/rollout-*.jsonl), not `codex exec --json` stdout. The rollout line is `{type: 'event_msg', payload: {type: 'task_complete', error: {message, codex_error_info}}}`.",
+    "The runtime parser codex-exec-json-v1 reads `{type: 'turn.failed', error: {message}}` and `{type: 'error', message}` from `exec --json` stdout (src/runtime/worker/parsers.ts). It does not read the rollout shape. No `exec --json` capture of this error exists, so that the same message text arrives on `exec --json` is an inference, not an observation.",
+    "Only the phrase `usage limit` appears in this transcript. `rate limit`, `quota exceeded`, `too many requests` and `resource_exhausted` are not supported by it and stay unverified.",
+    "The rollout was recorded by a codex-cli whose version was not stored in the line; cliVersion is the version installed when this record was made."
+  ],
+  "cliVersion": "codex-cli 0.164.0",
+  "establishes": [
+    "quotaSignals"
+  ],
+  "harness": "codex",
+  "kind": "quota-transcript",
+  "masking": "The one JSON line holding the error message was copied alone from the session log. timestamp, turn ids, ordinal and the numeric timing fields are replaced by fixed placeholders; the message text, event type names and key names are kept as recorded. No other line of the log was read into this file.",
+  "observedOn": "2026-11-04",
+  "recordedAt": "2026-11-05",
+  "schema": "doflow-worker-evidence-v1",
+  "signalsSupported": [
+    "usage limit"
+  ],
+  "source": {
+    "kind": "codex-session-rollout",
+    "notExecJson": true
+  },
+  "transcript": {
+    "event": {
+      "ordinal": 0,
+      "payload": {
+        "completed_at": 0,
+        "duration_ms": 0,
+        "error": {
+          "codex_error_info": "usage_limit_exceeded",
+          "message": "You’ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/settings/usage to purchase more credits or try again at 12:38 PM."
+        },
+        "last_agent_message": null,
+        "root_turn_id": "<turn-id>",
+        "started_at": 0,
+        "time_to_first_token_ms": 0,
+        "turn_id": "<turn-id>",
+        "type": "task_complete"
+      },
+      "timestamp": "<timestamp>",
+      "type": "event_msg"
+    }
+  }
+}

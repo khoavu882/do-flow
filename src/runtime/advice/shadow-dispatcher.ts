@@ -12,7 +12,7 @@ const { profileAdvisorCap, capMode } = require('./mode.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 
 /** The advice registry's kinds (core/registry/advice.json). */
-type AdviceKind = 'tier' | 'task-class' | 'verify-risk' | 'review-depth' | 'mcp-need' | 'followup-triage';
+type AdviceKind = 'tier' | 'task-class' | 'verify-risk' | 'review-depth' | 'mcp-need' | 'followup-triage' | 'rerank';
 type AdviceMode = 'off' | 'shadow' | 'act';
 type Env = Record<string, string | undefined>;
 type StoreRoots = Record<string, string | null>;
@@ -86,10 +86,18 @@ interface DecisionPointContext {
   env?: Env;
   /** The client question set (IC-001 of the advice client) and its registry; without them the advisor answers unavailable. */
   questionSet?: QuestionSet;
-  adviceRegistry?: { timeoutMs?: number; [field: string]: unknown };
+  adviceRegistry?: { timeoutMs?: number; kinds?: Array<{ id?: string; maxMode?: string; criteriaFrom?: string }>; [field: string]: unknown };
   staticAnswer?: string | null;
   /** false keeps the decision write-free: no pick or miss is recorded. */
   record?: boolean;
+  /** The budget of the advisor call in ms (141 IC-010); the registry's timeoutMs when absent. */
+  budgetMs?: number;
+  /**
+   * Builds the line's extra payload from the answered call, because it depends on the answer (141 IC-010). It receives
+   * the whole call, every answer included. `null` records the call as a `malformed-reply` miss; `pick` replaces the
+   * first answer's pick on the line.
+   */
+  describe?: (call: AdvisorCall) => { pick?: string; extra?: Record<string, unknown> } | null;
 }
 
 interface DecisionPointResolution {
@@ -110,14 +118,18 @@ interface AdvisorCall {
   status: 'answered' | 'miss' | 'off';
   pick: string | null;
   answer: (AdviceAnswer & { model: string | null }) | null;
+  /** Every answer of the reply, in question order; `answer` and `pick` are the first one's. */
+  answers: Array<AdviceAnswer & { model: string | null }>;
   reason: string | null;
   provider: string | null;
   model: string | null;
   durationMs: number;
 }
 
-/** The budget of one advisor call: the registry's timeoutMs (core/registry/advice.json), 0 (no call) when unknown. */
+/** The budget of one advisor call: the context's `budgetMs` when given, else the registry's timeoutMs (core/registry/advice.json), 0 (no call) when unknown. */
 function budgetMs(context: DecisionPointContext): number {
+  const given = context.budgetMs;
+  if (typeof given === 'number' && Number.isFinite(given) && given > 0) return given;
   const own = context.adviceRegistry?.timeoutMs;
   if (typeof own === 'number' && Number.isFinite(own) && own > 0) return own;
   try {
@@ -126,6 +138,22 @@ function budgetMs(context: DecisionPointContext): number {
     return typeof shipped === 'number' && Number.isFinite(shipped) && shipped > 0 ? shipped : 0;
   } catch {
     return 0;
+  }
+}
+
+const MODE_RANK: Record<string, number> = { off: 0, shadow: 1, act: 2 };
+
+/** The kind's registry entry: from the context's registry when it lists kinds, else the shipped one; null when unknown. */
+function registryKind(context: DecisionPointContext): { id?: string; maxMode?: string; criteriaFrom?: string } | null {
+  try {
+    let kinds = context.adviceRegistry?.kinds;
+    if (!Array.isArray(kinds)) {
+      const loaded = loadAdviceRegistry({ repoRoot: REPO_ROOT });
+      kinds = loaded.ok ? loaded.registry.kinds : [];
+    }
+    return (kinds ?? []).find((entry) => entry?.id === context.kind) ?? null;
+  } catch {
+    return null;
   }
 }
 
@@ -138,7 +166,7 @@ function budgetMs(context: DecisionPointContext): number {
 async function askAdvisor(context: DecisionPointContext, services: DispatcherServices, model: string | null, budget: number): Promise<AdvisorCall> {
   const startedAt = Date.now();
   const call = (status: AdvisorCall['status'], reason: string | null, res?: AdviceResult | null): AdvisorCall => ({
-    status, pick: null, answer: null, reason, provider: res?.provider ?? null, model: res?.model ?? model, durationMs: Date.now() - startedAt,
+    status, pick: null, answer: null, answers: [], reason, provider: res?.provider ?? null, model: res?.model ?? model, durationMs: Date.now() - startedAt,
   });
   let timer: ReturnType<typeof setTimeout> | undefined;
   const controller = new AbortController();
@@ -148,10 +176,13 @@ async function askAdvisor(context: DecisionPointContext, services: DispatcherSer
       roots: services.roots,
       fsImpl: services.fsImpl,
     });
+    const callBuilt = (context.questionSet?.questions?.length ?? 0) > 1 || registryKind(context)?.criteriaFrom === 'call';
     const options: AskOptions = {
       questionSet: context.questionSet,
       kind: context.kind,
-      staticAnswer: context.staticAnswer ?? context.staticPick,
+      // The client checks a static answer against the first question, which is wrong for a multi-question set (a label is
+      // not a level of a score question) and meaningless for a call-built kind; the dispatcher still records staticPick.
+      staticAnswer: callBuilt ? null : context.staticAnswer ?? context.staticPick,
       caller: context.caller,
       taskId: context.taskId ?? null,
       record: false,
@@ -170,7 +201,8 @@ async function askAdvisor(context: DecisionPointContext, services: DispatcherSer
     if (typeof first?.pick !== 'string' || !first.pick) return call('miss', 'malformed-reply', res);
     const asked = call('answered', null, res);
     // The answer carries the model that was asked, so a caller can report it.
-    return { ...asked, pick: first.pick, answer: { ...first, model: asked.model } };
+    const answers = (res.answers ?? []).map((answer) => ({ ...answer, model: asked.model }));
+    return { ...asked, pick: first.pick, answer: { ...first, model: asked.model }, answers };
   } catch {
     return call('miss', 'config-invalid');
   } finally {
@@ -194,11 +226,24 @@ function recordCall(context: DecisionPointContext, services: DispatcherServices,
   if (!roots) return;
   const common = { roots, fsImpl: services.fsImpl, kind: context.kind, caller: context.caller, model: asked.model, durationMs: asked.durationMs, mode };
   if (asked.status === 'answered') {
+    let answer = asked.answer;
+    let extra: Record<string, unknown> | undefined;
+    if (typeof context.describe === 'function') {
+      let described: ReturnType<NonNullable<DecisionPointContext['describe']>> = null;
+      try { described = context.describe(asked); } catch { described = null; }
+      if (!described || typeof described !== 'object') {
+        appendMiss({ ...common, reason: 'malformed-reply' });
+        return;
+      }
+      extra = described.extra;
+      if (answer && typeof described.pick === 'string' && described.pick) answer = { ...answer, pick: described.pick };
+    }
     appendPick({
       ...common,
       pickId,
       elevated,
-      answer: asked.answer,
+      answer,
+      extra,
       question: context.questionSet?.questions?.[0],
       staticAnswer: context.staticAnswer ?? context.staticPick,
       provider: asked.provider,
@@ -219,12 +264,22 @@ async function interceptDecisionPoint(context: DecisionPointContext, services: D
   });
 
   // A chosen rollout profile caps the configured mode (mode.ts; `staged` caps act to shadow, D2).
-  const mode: AdviceMode = capMode(profileAdvisorCap({ projectRoot: context.projectRoot, env: context.env, fsImpl: services.fsImpl }), config.mode);
+  let mode: AdviceMode = capMode(profileAdvisorCap({ projectRoot: context.projectRoot, env: context.env, fsImpl: services.fsImpl }), config.mode);
   const staticPick = context.staticPick;
   const unchanged = { kind: context.kind, effectiveDecision: staticPick, staticPick, advisorPick: null, elevated: false, agreed: null };
 
   // Off: no model call, no record.
   if (mode !== 'act' && mode !== 'shadow') return { ...unchanged, mode: 'off', pickId: null };
+
+  // A kind with a registry `maxMode` is held at it, whatever is configured (141 IC-010): act is lowered to shadow with a
+  // warning, so such a kind never reaches the bench-bar branch or the elevation invariant.
+  const maxMode = registryKind(context)?.maxMode;
+  const heldWarning = typeof maxMode === 'string' && Object.hasOwn(MODE_RANK, maxMode) && MODE_RANK[mode] > MODE_RANK[maxMode]
+    ? `ACT_NOT_SUPPORTED: kind '${context.kind}' is limited to ${maxMode}` : undefined;
+  if (heldWarning) {
+    mode = maxMode as AdviceMode;
+    if (mode === 'off') return { ...unchanged, mode: 'off', pickId: null, warning: heldWarning };
+  }
 
   // The one effective model: the bar is checked for it, the client is asked with it, and the record names it.
   const model = config.model;
@@ -241,7 +296,7 @@ async function interceptDecisionPoint(context: DecisionPointContext, services: D
     }
     return { ...unchanged, mode: 'shadow', pickId, ...(warning ? { warning } : {}) };
   };
-  if (mode === 'shadow') return shadow();
+  if (mode === 'shadow') return shadow(heldWarning);
 
   // Act: only past the bench bar for the model that will be asked; otherwise it degrades to shadow.
   let bar: BenchBarResult = { passed: false, reason: `no model is named for kind '${context.kind}'` };

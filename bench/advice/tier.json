@@ -1,33 +1,322 @@
 {
+  "schemaVersion": 2,
   "kind": "tier",
+  "corpusVersion": 1,
   "cases": [
     {
       "id": "tier-001",
       "split": "train",
       "state": "Rename a local variable in one Java file.",
+      "staticPick": "standard",
       "expected": "light",
+      "origin": "synthetic",
       "note": "requirement.md NFR-007 first probe (0.77); light label from MODEL_SELECTION.md ## Capability tiers, Work row light."
     },
     {
       "id": "tier-002",
       "split": "train",
       "state": "Rename a local variable in one Java file.",
+      "staticPick": "standard",
       "expected": "light",
+      "origin": "synthetic",
       "note": "requirement.md NFR-007 second probe (0.94) on the same state; light label from MODEL_SELECTION.md ## Capability tiers, Work row light."
     },
     {
       "id": "tier-003",
       "split": "heldout",
       "state": "Implement an integration spanning several runtime modules, with focused tests and established interfaces.",
+      "staticPick": "standard",
       "expected": "standard",
+      "origin": "synthetic",
       "note": "MODEL_SELECTION.md ## Capability tiers, Work row standard."
     },
     {
       "id": "tier-004",
       "split": "train",
       "state": "Choose an architecture for a new subsystem with interacting components and consequential security trade-offs.",
+      "staticPick": "standard",
       "expected": "frontier",
+      "origin": "synthetic",
       "note": "MODEL_SELECTION.md ## Capability tiers, Work row frontier."
+    },
+    {
+      "id": "tier-005",
+      "split": "heldout",
+      "state": "core-implementer\n- [ ] T.1 Change the default timeout constant from 30 to 45 in config.ts; the exact value is given in the spec.",
+      "staticPick": "standard",
+      "expected": "light",
+      "origin": "synthetic",
+      "note": "Invented wording; label per MODEL_SELECTION.md ## Capability tiers, Work row light."
+    },
+    {
+      "id": "tier-006",
+      "split": "heldout",
+      "state": "core-implementer\n- [ ] T.2 Add the missing export line for formatDate in utils/index.ts.",
+      "staticPick": "standard",
+      "expected": "light",
+      "origin": "synthetic",
+      "note": "Invented wording; label per MODEL_SELECTION.md ## Capability tiers, Work row light."
+    },
+    {
+      "id": "tier-007",
+      "split": "heldout",
+      "state": "quality-guardian\n- [ ] T.3 Copy the names of the failing tests from a log file into a plain list, verbatim.",
+      "staticPick": "standard",
+      "expected": "light",
+      "origin": "synthetic",
+      "note": "Invented wording; label per MODEL_SELECTION.md ## Capability tiers, Work row light."
+    },
+    {
+      "id": "tier-008",
+      "split": "heldout",
+      "state": "research-writer\n- [ ] T.4 Copy thirty version strings from the release table into a CSV file, with no rewording.",
+      "staticPick": "standard",
+      "expected": "light",
+      "origin": "synthetic",
+      "note": "Invented wording; label per MODEL_SELECTION.md ## Capability tiers, Work row light."
+    },
+    {
+      "id": "tier-009",
+      "split": "heldout",
+      "state": "spec-analyst\n- [ ] T.5 Sort the requirement ids in the index file alphabetically.",
+      "staticPick": "standard",
+      "expected": "light",
+      "origin": "synthetic",
+      "note": "Invented wording; label per MODEL_SELECTION.md ## Capability tiers, Work row light."
+    },
+    {
+      "id": "tier-010",
+      "split": "heldout",
+      "state": "core-implementer\n- [ ] T.6 Update the import path of one renamed file in a single test.",
+      "staticPick": "standard",
+      "expected": "light",
+      "origin": "synthetic",
+      "note": "Invented wording; label per MODEL_SELECTION.md ## Capability tiers, Work row light."
+    },
+    {
+      "id": "tier-011",
+      "split": "heldout",
+      "state": "delivery-lead\n- [ ] T.7 Tag each of forty issue titles as bug or feature using the given rule list.",
+      "staticPick": "frontier",
+      "expected": "light",
+      "origin": "synthetic",
+      "note": "Invented wording; label per MODEL_SELECTION.md ## Capability tiers, Work row light."
+    },
+    {
+      "id": "tier-012",
+      "split": "heldout",
+      "state": "core-implementer\n- [ ] T.8 Replace the word colour with color in the six strings listed in the spec.",
+      "staticPick": "standard",
+      "expected": "light",
+      "origin": "synthetic",
+      "note": "Invented wording; label per MODEL_SELECTION.md ## Capability tiers, Work row light."
+    },
+    {
+      "id": "tier-013",
+      "split": "heldout",
+      "state": "core-implementer\n- [ ] T.9 Add a validation step to the signup form handler and cover it with two tests.",
+      "staticPick": "standard",
+      "expected": "standard",
+      "origin": "synthetic",
+      "note": "Invented wording; label per MODEL_SELECTION.md ## Capability tiers, Work row standard."
+    },
+    {
+      "id": "tier-014",
+      "split": "heldout",
+      "state": "core-implementer\n- [ ] T.10 Implement a pagination helper for the list endpoint, following the existing cursor pattern.",
+      "staticPick": "standard",
+      "expected": "standard",
+      "origin": "synthetic",
+      "note": "Invented wording; label per MODEL_SELECTION.md ## Capability tiers, Work row standard."
+    },
+    {
+      "id": "tier-015",
+      "split": "heldout",
+      "state": "quality-guardian\n- [ ] T.11 Write unit tests for the retry wrapper, covering timeout and backoff cases.",
+      "staticPick": "standard",
+      "expected": "standard",
+      "origin": "synthetic",
+      "note": "Invented wording; label per MODEL_SELECTION.md ## Capability tiers, Work row standard."
+    },
+    {
+      "id": "tier-016",
+      "split": "heldout",
+      "state": "quality-guardian\n- [ ] T.12 Debug a flaky test that fails about once in ten runs; the failing step is already narrowed to one fixture.",
+      "staticPick": "standard",
+      "expected": "standard",
+      "origin": "synthetic",
+      "note": "Invented wording; label per MODEL_SELECTION.md ## Capability tiers, Work row standard."
+    },
+    {
+      "id": "tier-017",
+      "split": "heldout",
+      "state": "research-writer\n- [ ] T.13 Summarize how three popular libraries handle request cancellation, with a short comparison table.",
+      "staticPick": "standard",
+      "expected": "standard",
+      "origin": "synthetic",
+      "note": "Invented wording; label per MODEL_SELECTION.md ## Capability tiers, Work row standard."
+    },
+    {
+      "id": "tier-018",
+      "split": "heldout",
+      "state": "spec-analyst\n- [ ] T.14 Write acceptance criteria for the export feature from the agreed requirement notes.",
+      "staticPick": "standard",
+      "expected": "standard",
+      "origin": "synthetic",
+      "note": "Invented wording; label per MODEL_SELECTION.md ## Capability tiers, Work row standard."
+    },
+    {
+      "id": "tier-019",
+      "split": "heldout",
+      "state": "core-implementer\n- [ ] T.15 Connect the new notification module to the existing event bus and update the two affected handlers.",
+      "staticPick": "standard",
+      "expected": "standard",
+      "origin": "synthetic",
+      "note": "Invented wording; label per MODEL_SELECTION.md ## Capability tiers, Work row standard."
+    },
+    {
+      "id": "tier-020",
+      "split": "heldout",
+      "state": "research-writer\n- [ ] T.16 Gather the documented rate limits of the payment provider API and note where they differ by plan.",
+      "staticPick": "standard",
+      "expected": "standard",
+      "origin": "synthetic",
+      "note": "Invented wording; label per MODEL_SELECTION.md ## Capability tiers, Work row standard."
+    },
+    {
+      "id": "tier-021",
+      "split": "heldout",
+      "state": "core-implementer\n- [ ] T.17 Fix an off-by-one error in the date range filter; the failing case is reproduced in a test.",
+      "staticPick": "standard",
+      "expected": "standard",
+      "origin": "synthetic",
+      "note": "Invented wording; label per MODEL_SELECTION.md ## Capability tiers, Work row standard."
+    },
+    {
+      "id": "tier-022",
+      "split": "heldout",
+      "state": "delivery-lead\n- [ ] T.18 Collect the merged change titles since the last release into a draft changelog.",
+      "staticPick": "frontier",
+      "expected": "standard",
+      "origin": "synthetic",
+      "note": "Invented wording; label per MODEL_SELECTION.md ## Capability tiers, Work row standard."
+    },
+    {
+      "id": "tier-023",
+      "split": "heldout",
+      "state": "reviewer\n- [ ] T.19 Run the existing test suite and report which tests fail, without judging the cause.",
+      "staticPick": "frontier",
+      "expected": "standard",
+      "origin": "synthetic",
+      "note": "Invented wording; label per MODEL_SELECTION.md ## Capability tiers, Work row standard."
+    },
+    {
+      "id": "tier-024",
+      "split": "heldout",
+      "state": "system-architect\n- [ ] T.20 Choose between an event-driven and a request-driven design for the new sync subsystem, weighing consistency and failure handling.",
+      "staticPick": "frontier",
+      "expected": "frontier",
+      "origin": "synthetic",
+      "note": "Invented wording; label per MODEL_SELECTION.md ## Capability tiers, Work row frontier."
+    },
+    {
+      "id": "tier-025",
+      "split": "heldout",
+      "state": "system-architect\n- [ ] T.21 Design the permission model for shared workspaces, including how revocation propagates.",
+      "staticPick": "frontier",
+      "expected": "frontier",
+      "origin": "synthetic",
+      "note": "Invented wording; label per MODEL_SELECTION.md ## Capability tiers, Work row frontier."
+    },
+    {
+      "id": "tier-026",
+      "split": "heldout",
+      "state": "reviewer\n- [ ] T.22 Review a change to the payment refund path for correctness and security risks.",
+      "staticPick": "frontier",
+      "expected": "frontier",
+      "origin": "synthetic",
+      "note": "Invented wording; label per MODEL_SELECTION.md ## Capability tiers, Work row frontier."
+    },
+    {
+      "id": "tier-027",
+      "split": "heldout",
+      "state": "reviewer\n- [ ] T.23 Review a broad refactor that moves session handling into a new module.",
+      "staticPick": "frontier",
+      "expected": "frontier",
+      "origin": "synthetic",
+      "note": "Invented wording; label per MODEL_SELECTION.md ## Capability tiers, Work row frontier."
+    },
+    {
+      "id": "tier-028",
+      "split": "heldout",
+      "state": "delivery-lead\n- [ ] T.24 Decide whether to ship the release with one known data-loss edge case or delay it.",
+      "staticPick": "frontier",
+      "expected": "frontier",
+      "origin": "synthetic",
+      "note": "Invented wording; label per MODEL_SELECTION.md ## Capability tiers, Work row frontier."
+    },
+    {
+      "id": "tier-029",
+      "split": "heldout",
+      "state": "delivery-lead\n- [ ] T.25 Authorize the migration that rewrites the production order table.",
+      "staticPick": "frontier",
+      "expected": "frontier",
+      "origin": "synthetic",
+      "note": "Invented wording; label per MODEL_SELECTION.md ## Capability tiers, Work row frontier."
+    },
+    {
+      "id": "tier-030",
+      "split": "heldout",
+      "state": "system-architect\n- [ ] T.26 Decide how to split a monolithic service into modules without breaking its public interfaces.",
+      "staticPick": "frontier",
+      "expected": "frontier",
+      "origin": "synthetic",
+      "note": "Invented wording; label per MODEL_SELECTION.md ## Capability tiers, Work row frontier."
+    },
+    {
+      "id": "tier-031",
+      "split": "heldout",
+      "state": "core-implementer\n- [ ] T.27 Find the cause of a deadlock that appears only under production load across three services.",
+      "staticPick": "standard",
+      "expected": "frontier",
+      "origin": "synthetic",
+      "note": "Invented wording; label per MODEL_SELECTION.md ## Capability tiers, Work row frontier."
+    },
+    {
+      "id": "tier-032",
+      "split": "heldout",
+      "state": "core-implementer\n- [ ] T.28 Refactor the storage layer across about forty files to support a second backend.",
+      "staticPick": "standard",
+      "expected": "frontier",
+      "origin": "synthetic",
+      "note": "Invented wording; label per MODEL_SELECTION.md ## Capability tiers, Work row frontier."
+    },
+    {
+      "id": "tier-033",
+      "split": "heldout",
+      "state": "quality-guardian\n- [ ] T.29 Investigate an intermittent data corruption that no test reproduces and judge whether it is safe to release.",
+      "staticPick": "standard",
+      "expected": "frontier",
+      "origin": "synthetic",
+      "note": "Invented wording; label per MODEL_SELECTION.md ## Capability tiers, Work row frontier."
+    },
+    {
+      "id": "tier-034",
+      "split": "heldout",
+      "state": "spec-analyst\n- [ ] T.30 Resolve conflicting requirements between security and offline use, and recommend which one wins.",
+      "staticPick": "standard",
+      "expected": "frontier",
+      "origin": "synthetic",
+      "note": "Invented wording; label per MODEL_SELECTION.md ## Capability tiers, Work row frontier."
+    },
+    {
+      "id": "tier-035",
+      "split": "heldout",
+      "state": "research-writer\n- [ ] T.31 Evaluate whether the team should replace its auth provider, given lock-in and compliance trade-offs.",
+      "staticPick": "standard",
+      "expected": "frontier",
+      "origin": "synthetic",
+      "note": "Invented wording; label per MODEL_SELECTION.md ## Capability tiers, Work row frontier."
     }
   ]
 }

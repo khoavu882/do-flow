@@ -8,11 +8,11 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { tempDirOutsideProfile } = require('../helper/outside-profile.ts');
 const { systemPath } = require('../helper/system-path.ts');
+const { GIT_NULL_CONFIG } = require('../helper/git-null-config.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const { REACH_DISPATCHER_REL, REACH_RUNTIME_REL } = require('../../src/runtime/reach.ts');
 const { buildHealthReport } = require('../../src/runtime/health.ts');
@@ -86,7 +86,7 @@ function doctor(t: any, args: any) {
       USERPROFILE: t.home,
       XDG_CONFIG_HOME: path.join(t.dir, 'xdg'),
       PATH: systemPath(stubBin(t.dir), path.dirname(process.execPath)),
-      GIT_CONFIG_GLOBAL: os.devNull,
+      GIT_CONFIG_GLOBAL: GIT_NULL_CONFIG,
       ...(process.platform === 'win32' ? { SystemRoot: process.env.SystemRoot } : {}),
     },
   });
@@ -406,6 +406,7 @@ test('only servers with a steps entry are listed, and a registry entry with step
   fs.cpSync(path.join(REPO_ROOT, 'core', 'registry'), path.join(repo, 'core', 'registry'), { recursive: true });
   fs.symlinkSync(path.join(REPO_ROOT, 'core', 'shared'), path.join(repo, 'core', 'shared'));
   fs.symlinkSync(path.join(REPO_ROOT, 'core', 'harnesses'), path.join(repo, 'core', 'harnesses'));
+  fs.symlinkSync(path.join(REPO_ROOT, 'core', 'worker-evidence'), path.join(repo, 'core', 'worker-evidence'));
   for (const name of ['bin', 'src']) fs.symlinkSync(path.join(REPO_ROOT, name), path.join(repo, name));
   fs.copyFileSync(path.join(REPO_ROOT, 'package.json'), path.join(repo, 'package.json'));
   const file = path.join(repo, 'core', 'registry', 'mcp.json');

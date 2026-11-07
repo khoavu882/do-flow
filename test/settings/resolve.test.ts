@@ -579,17 +579,22 @@ test('an unparseable user file marks every key of that layer invalid and affects
   assert.equal(v.get('failure.capture').value, 'on', 'capture reads the file lexically: no match is no setting');
   const userErrors = v.errors.filter((e: any) => e.source === file);
   assert.deepEqual(userErrors.map((e: any) => e.key).sort(), [
+    'advice.criteria.rerank',
     'advice.enabled',
     'advice.endpoint',
+    'advice.kinds.claim-support',
     'advice.kinds.followup-triage',
     'advice.kinds.mcp-need',
+    'advice.kinds.rerank',
     'advice.kinds.review-depth',
     'advice.kinds.task-class',
     'advice.kinds.tier',
     'advice.kinds.verify-risk',
     'advice.model',
+    'advice.models.claim-support',
     'advice.models.followup-triage',
     'advice.models.mcp-need',
+    'advice.models.rerank',
     'advice.models.review-depth',
     'advice.models.task-class',
     'advice.models.tier',
@@ -927,7 +932,7 @@ test('FU-vva1x8: registryOn names no registry for the real fs and loads the ship
   const other = { ...fs, readFileSync: (file: any, ...rest: any[]) => { reads.push(String(file)); return (fs as any).readFileSync(file, ...rest); } };
   const { registry } = registryOn(other);
   assert.ok(registry.keys.has('storage.prune'));
-  assert.ok(reads.some((file) => file.endsWith(REGISTRY)), 'the registry was read through the given fs');
+  assert.ok(reads.some((file) => file.replaceAll('\\', '/').endsWith(REGISTRY)), 'the registry was read through the given fs');
   const broken = { ...fs, readFileSync: () => { throw new Error('unreadable'); }, existsSync: () => false };
   assert.throws(() => registryOn(broken));
 });

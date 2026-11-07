@@ -8,6 +8,7 @@ const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp.ts');
 const { bashPath } = require('../helper/bash-locator.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
+const { samePath } = require('../helper-platform.ts');
 
 const SOURCE_RUN = path.join(REPO_ROOT, 'core/shared/scripts/doflow/bin/doflow-run');
 const OUTPUT = '{"ok":true}\n';
@@ -63,7 +64,11 @@ test('FU-cwz2sr: only a checkout-pwd runtime strictly behind local develop warns
     git(root, 'checkout', '--detach', oldHead);
   });
   assert.equal((behind.result.stderr.match(/\n/g) || []).length, 1);
-  assert.match(behind.result.stderr, new RegExp(`selected runtime ${behind.runtime.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} at ${behind.head} is behind local develop`));
+  // The bash dispatcher spells the runtime path its own way (/c/... under Git Bash on win32), so the path is compared as a location.
+  const warning = /^doflow-run: warning: selected runtime (.+) at ([0-9a-f]{40}) is behind local develop$/m.exec(behind.result.stderr) as RegExpExecArray;
+  assert.ok(warning, behind.result.stderr);
+  assert.ok(samePath(warning[1], behind.runtime), `${warning[1]} is ${behind.runtime}`);
+  assert.equal(warning[2], behind.head);
 
   for (const name of ['equal', 'ahead', 'divergent', 'absent-develop']) {
     const sample = checkoutCase(t, name, (root) => {

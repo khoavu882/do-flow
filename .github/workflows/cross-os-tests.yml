@@ -8,6 +8,15 @@ on:
   push:
     branches: [main]
 
+  # On-demand run of chosen runners (e.g. only Windows) against any ref: gh workflow run cross-os-tests.yml --ref <branch> -f os_matrix='["windows-latest"]'
+  workflow_dispatch:
+    inputs:
+      os_matrix:
+        description: "JSON array of GitHub runners to run the suite on"
+        required: false
+        type: string
+        default: '["windows-latest"]'
+
   # Reused by release.yml so a v* tag is gated on exactly the suite that gates a PR.
   workflow_call:
     inputs:

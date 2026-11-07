@@ -799,14 +799,18 @@
           "parser": "codex-exec-json-v1",
           "quotaSignals": {
             "signals": [
+              "usage limit"
+            ],
+            "unverifiedSignals": [
               "rate limit",
-              "usage limit",
               "quota exceeded",
               "too many requests",
               "resource_exhausted"
             ],
-            "basis": "unverified",
-            "evidence": []
+            "basis": "transcript",
+            "evidence": [
+              "core/worker-evidence/codex/2026-11-05-quota-transcript.json"
+            ]
           }
         },
         "readOnly": {
@@ -897,14 +901,21 @@
           "status": "supported",
           "evidence": [
             "core/worker-evidence/codex/2026-10-18-cli-check.json",
-            "core/worker-evidence/codex/2026-10-18-live-run-edit.json"
+            "core/worker-evidence/codex/2026-10-18-live-run-edit.json",
+            "core/worker-evidence/codex/2026-11-05-sandbox-probe.json"
           ],
-          "verification": "Run `node bin/doflow.js worker --action evidence --harness codex --checks core/worker-evidence/codex/checks.json --out core/worker-evidence/codex/2026-10-18-cli-check.json` against the installed codex and read the matched help lines. Live run 2026-10-18 (codex-cli 0.163.0): run w-821933d703be under `exec -s workspace-write` in an isolated attempt ended with report status success, result offered, isolation status clean and unchanged caller and attempt refs.",
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness codex --checks core/worker-evidence/codex/checks.json --out core/worker-evidence/codex/2026-10-18-cli-check.json` against the installed codex and read the matched help lines. Live run 2026-10-18 (codex-cli 0.163.0): run w-821933d703be under `exec -s workspace-write` in an isolated attempt ended with report status success, result offered, isolation status clean and unchanged caller and attempt refs. protectedPaths: manual probe 2026-11-05 (codex-cli 0.164.0, macOS) under `exec -s workspace-write`, 9 paths tried: writes to .git, .agents, .codex and .aws in the workspace failed with `operation not permitted`; an ordinary directory, .foo, .ssh, .github and a nested sub/.git were writable. The list may be incomplete (see the record's caveats).",
           "verifiedOn": "2026-10-18",
           "argv": [
             "exec",
             "-s",
             "workspace-write"
+          ],
+          "protectedPaths": [
+            ".git",
+            ".agents",
+            ".codex",
+            ".aws"
           ]
         },
         "model": {
