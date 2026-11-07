@@ -340,3 +340,40 @@ test('stream: a browser reconnect that keeps the mode at push still reports the 
   FakeSource.all[0].emit('fleet', { projects: [], gone: [] });
   assert.deepEqual(events, ['snapshot', 'resync', 'snapshot', 'fleet'], 'a delta on the recovered stream is not a resync');
 });
+
+// ---- feature 149 IC-016, FR-016: one module opens the live stream ---------------------------------------
+
+/** The source with its `//` and block (JSDoc included) comments removed; string and template literals are kept as they are. */
+const withoutComments = (source: string) =>
+  source.replace(/('(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"|`(?:\\.|[^`\\])*`)|\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (match: string, literal: string | undefined) => literal ?? '');
+
+/** The files of `sources` (name, text) whose code, comments aside, names the identifier EventSource. */
+const eventSourceNamers = (sources: Array<[string, string]>) =>
+  sources.filter(([, text]) => /\bEventSource\b/.test(withoutComments(text))).map(([name]) => name).sort();
+
+test('live: only live.js and stream.js of the web modules name EventSource (Fleet keeps its own, DEC-005)', () => {
+  const sources: Array<[string, string]> = [];
+  const walk = (dir: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name.endsWith('.js')) sources.push([path.relative(WEB_ROOT, full).split(path.sep).join('/'), fs.readFileSync(full, 'utf8')]);
+    }
+  };
+  walk(WEB_ROOT);
+  assert.deepEqual(eventSourceNamers(sources), ['live.js', 'stream.js']);
+});
+
+test('control: a planted `new EventSource(` in another module is reported; a comment-only mention is not', () => {
+  const planted: Array<[string, string]> = [
+    ['live.js', 'const es = new EventSource(url);\n'],
+    ['store.js', "import { x } from './dom.js';\nconst es = new EventSource('/api/live?ch=now');\n"],
+    ['views/run.js', 'const Ctor = globalThis.EventSource;\n'],
+    ['derive/a.js', '// a new EventSource( here is only a remark\nconst a = 1;\n'],
+    ['derive/b.js', '/**\n * The browser\'s EventSource cannot send Last-Event-ID.\n */\nfunction f() {}\n'],
+    ['derive/c.js', 'const a = 1; /* EventSource */ const b = 2; // EventSource\n'],
+    ['derive/d.js', "const u = '//not a comment'; const es = new EventSource(u);\n"],
+  ];
+  assert.deepEqual(eventSourceNamers(planted), ['derive/d.js', 'live.js', 'store.js', 'views/run.js']);
+  assert.deepEqual(eventSourceNamers(planted.filter(([name]) => name.startsWith('derive/') && name !== 'derive/d.js')), [], 'comments do not count');
+});
