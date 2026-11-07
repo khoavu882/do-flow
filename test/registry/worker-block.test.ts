@@ -104,7 +104,10 @@ test('worker: the seven harnesses declare IC-002 values and nothing else as supp
       if (FREE_CHECK_HARNESSES.includes(harness.id) && FREE_CHECK_SUPPORTED.includes(key)) {
         // 142 IC-009: the five entries the recorded free cli-check establishes; the record is checked by G41.4.
         assert.equal(worker[key].status, 'supported', `${harness.id} ${key}`);
-        assert.deepEqual(worker[key].evidence, [`core/worker-evidence/${harness.id}/2026-11-07-cli-check.json`], `${harness.id} ${key} evidence`);
+        // 142 C.4: opencode's readOnly and spawnDenial also cite its two 2026-11-07 live runs (G41.5 checks them).
+        const live = harness.id === 'opencode' && (key === 'readOnly' || key === 'spawnDenial')
+          ? ['core/worker-evidence/opencode/2026-11-07-live-run-read-only.json', 'core/worker-evidence/opencode/2026-11-07-live-run-spawn.json'] : [];
+        assert.deepEqual(worker[key].evidence, [`core/worker-evidence/${harness.id}/2026-11-07-cli-check.json`, ...live], `${harness.id} ${key} evidence`);
         assert.equal(worker[key].verifiedOn, '2026-11-07', `${harness.id} ${key} verifiedOn`);
         continue;
       }

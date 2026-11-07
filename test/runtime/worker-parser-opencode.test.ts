@@ -1,9 +1,11 @@
 'use strict';
 
 // IC-004 / IC-002 rule 7: `opencode-run-json-v1`. Event names and `step_finish.part.reason` are SOURCE
-// (probe-oc-copilot.json P1b); `part.text`, `part.tool`, `part.tokens.*` and the `error` event shape
-// are INFERENCE until a captured fixture confirms them. This parser reports no denial (IC-004), so
-// there is no denied case, only a check that none is ever reported.
+// (probe-oc-copilot.json P1b). The two captured files (opencode 2.2.5, 142 C.4 live runs, free model)
+// confirm `part.text` on `text` and `part.tokens.input` / `part.tokens.output` on `step_finish`.
+// Still INFERENCE, because neither run produced one: `part.tool` on `tool_use` and the `error` event
+// shape. This parser reports no denial (IC-004), so there is no denied case, only a check that none
+// is ever reported.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -52,7 +54,32 @@ test('fixtures: labelled, LF only, JSON per line, no absolute path (synthetic on
       if (value._fixture === 'synthetic' && !synthetic.includes(name)) synthetic.push(name);
     }
   }
-  if (synthetic.length) console.log(`# synthetic opencode fixtures (no captured file yet): ${synthetic.join(', ')}`);
+  if (synthetic.length) console.log(`# synthetic opencode fixtures (captured: tool_use and error shapes not observed): ${synthetic.join(', ')}`);
+  const captured = new Set<string>();
+  for (const name of files) for (const row of fixture(name)) {
+    const label = JSON.parse(row)._fixture;
+    if (label.startsWith('captured-')) captured.add(label);
+  }
+  assert.deepEqual([...captured], ['captured-2.2.5-trimmed']);
+  for (const name of ['captured-2.2.5-write-attempt.jsonl', 'captured-2.2.5-spawn-attempt.jsonl']) {
+    assert.ok(files.includes(name), name);
+    assert.ok(fixture(name).every((row: string) => JSON.parse(row)._fixture === 'captured-2.2.5-trimmed'), `${name} is wholly captured`);
+  }
+});
+
+test('captured fixtures (opencode 2.2.5, free model): both live runs parse to success from the real stream shape', () => {
+  const write = run(fixture('captured-2.2.5-write-attempt.jsonl'));
+  assert.deepEqual(write, {
+    parser: ID, status: 'success', reason: null,
+    summary: 'No — I couldn\'t create `probe-ro.txt`; this session is read-only and I have no tool that writes files.',
+    denials: [], deniedCount: 0, usage: { tokens: 8325 }, ignoredLines: 1,
+  });
+  const spawn = run(fixture('captured-2.2.5-spawn-attempt.jsonl'));
+  assert.deepEqual([spawn.status, spawn.reason, spawn.usage, spawn.ignoredLines], ['success', null, { tokens: 8329 }, 1]);
+  assert.match(spawn.summary, /no sub-agent/);
+  // Reasoning and cache counts sit beside input and output in the real event and are not added.
+  const lastLine = JSON.parse(fixture('captured-2.2.5-write-attempt.jsonl')[2]);
+  assert.deepEqual(Object.keys(lastLine.part.tokens), ['input', 'output', 'reasoning', 'cache']);
 });
 
 test('success fixture: last stop step with the last text, tokens added across steps', () => {
