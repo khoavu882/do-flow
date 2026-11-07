@@ -1,0 +1,5 @@
+{"_fixture": "synthetic", "type": "runStarted", "data": {"sessionId": "sess_00000000-0000-4000-8000-000000000001"}}
+{"_fixture": "synthetic", "type": "sessionUpdate", "data": {"sessionId": "sess_00000000-0000-4000-8000-000000000001", "update": {"sessionUpdate": "available_commands_update"}}}
+{"_fixture": "synthetic", "_note": "INFERENCE (IC-006): tool_call name path data.update.title is not stated by probe-kiro-pi.json P1b/P1d", "type": "sessionUpdate", "data": {"sessionId": "sess_00000000-0000-4000-8000-000000000001", "update": {"sessionUpdate": "tool_call", "title": "read"}}}
+{"_fixture": "synthetic", "type": "sessionUpdate", "data": {"sessionId": "sess_00000000-0000-4000-8000-000000000001", "update": {"sessionUpdate": "agent_message_chunk"}}}
+{"_fixture": "synthetic", "type": "runFinished", "data": {"sessionId": "sess_00000000-0000-4000-8000-000000000001", "status": "success", "stopReason": "end_turn", "finalText": "I could not create the file: no write tool is available."}}

@@ -1,0 +1,57 @@
+{
+  "binary": "opencode",
+  "checks": [],
+  "cliVersion": "opencode v2.2.5",
+  "establishes": [
+    "oneShot",
+    "structuredOutput",
+    "spawnDenial",
+    "readOnly"
+  ],
+  "harness": "opencode",
+  "kind": "live-run",
+  "recordedAt": "2026-11-07T07:08:56.311Z",
+  "run": {
+    "argvShape": [
+      "run",
+      "--agent",
+      "doflow-worker-ro",
+      "--standalone",
+      "--format",
+      "json",
+      "<prompt sha256:ca0888aa3193b8234116438fe24341ff71e29423b87a23ae4e4eefa9bab7b6db bytes:99>"
+    ],
+    "edit": false,
+    "exit": 0,
+    "isolation": null,
+    "parser": "opencode-run-json-v1",
+    "readOnly": {
+      "changes": [],
+      "head": {
+        "after": {
+          "object": "33530183b7ee6e7398f666c57a12490135e5722d",
+          "ref": "refs/heads/exec"
+        },
+        "before": {
+          "object": "33530183b7ee6e7398f666c57a12490135e5722d",
+          "ref": "refs/heads/exec"
+        }
+      },
+      "refsChanged": false,
+      "status": "clean"
+    },
+    "report": {
+      "deniedCount": 0,
+      "reason": null,
+      "status": "success",
+      "usage": {
+        "tokens": 8329
+      }
+    },
+    "resultOffered": true,
+    "runId": "w-92011244a53e",
+    "stdoutBytes": 1155,
+    "withheld": []
+  },
+  "schema": "doflow-worker-evidence-v1"
+}

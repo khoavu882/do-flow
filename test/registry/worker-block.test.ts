@@ -25,6 +25,19 @@ const CODEX_EVIDENCE: any = {
   runnableProbe: [CODEX_RECORD],
 };
 const CODEX_SUPPORTED = ['oneShot', 'structuredOutput', 'readOnly', 'spawnDenial', 'runnableProbe'];
+// 142 B.7, B.8: opencode holds the same five entries on its 2026-11-07 free cli-check (IC-009).
+// claude, copilot, pi and kiro are absent: their C.1, C.2, C.3 and C.5 runs hit a stop rule (usage limit; report `denied`; no live run, model selection not in the recipe; non-clean read-only check), so their five entries are `unknown` again.
+const FREE_CHECK_SUPPORTED = ['oneShot', 'structuredOutput', 'readOnly', 'spawnDenial', 'runnableProbe'];
+const FREE_CHECK_HARNESSES = ['opencode'];
+const FREE_CHECK_RECIPES: any = {
+  opencode: {
+    oneShot: { argv: ['{prompt}'], promptVia: 'argv' },
+    structuredOutput: { argv: ['--standalone', '--format', 'json'], parser: 'opencode-run-json-v1' },
+    readOnly: { argv: ['run', '--agent', 'doflow-worker-ro'] },
+    spawnDenial: { argv: [] },
+    runnableProbe: { argv: ['run', '--help'] },
+  },
+};
 const PER_HARNESS_REASON = ['oneShot', 'structuredOutput', 'spawnDenial']; // isolatedEdit's reason is pinned in worker-isolated-edit.test.js
 const BINARIES: any = { claude: 'claude', codex: 'codex', opencode: 'opencode', pi: 'pi', copilot: 'copilot', kiro: 'kiro-cli', antigravity: 'agy' };
 
@@ -81,6 +94,16 @@ test('worker: the seven harnesses declare IC-002 values and nothing else as supp
         assert.equal(worker[key].verifiedOn, '2026-10-18', `codex ${key} verifiedOn`);
         continue;
       }
+      if (FREE_CHECK_HARNESSES.includes(harness.id) && FREE_CHECK_SUPPORTED.includes(key)) {
+        // 142 IC-009: the five entries the recorded free cli-check establishes; the record is checked by G41.4.
+        assert.equal(worker[key].status, 'supported', `${harness.id} ${key}`);
+        // 142 C.4: opencode's readOnly and spawnDenial also cite its two 2026-11-07 live runs (G41.5 checks them).
+        const live = harness.id === 'opencode' && (key === 'readOnly' || key === 'spawnDenial')
+          ? ['core/worker-evidence/opencode/2026-11-07-live-run-read-only.json', 'core/worker-evidence/opencode/2026-11-07-live-run-spawn.json'] : [];
+        assert.deepEqual(worker[key].evidence, [`core/worker-evidence/${harness.id}/2026-11-07-cli-check.json`, ...live], `${harness.id} ${key} evidence`);
+        assert.equal(worker[key].verifiedOn, '2026-11-07', `${harness.id} ${key} verifiedOn`);
+        continue;
+      }
       assert.equal(worker[key].status, 'unknown', `${harness.id} ${key}`);
       assert.deepEqual(worker[key].evidence, [], `${harness.id} ${key} evidence`);
       assert.equal(worker[key].verification, `Read ${harness.id}'s headless CLI documentation and \`${binary} --help\`; record the flag and its source`, `${harness.id} ${key}`);
@@ -126,6 +149,22 @@ test('worker: the six supported codex entries equal their committed status, evid
   }
 });
 
+test('worker: the five supported opencode entries equal their IC-009 recipe', () => {
+  const registry = loadRegistry({ repoRoot: REPO });
+  for (const id of FREE_CHECK_HARNESSES) {
+    const worker = registry.harnesses.find((harness: any) => harness.id === id).worker;
+    assert.deepEqual(Object.keys(FREE_CHECK_RECIPES[id]).sort(), [...FREE_CHECK_SUPPORTED].sort());
+    for (const [key, recipe] of Object.entries(FREE_CHECK_RECIPES[id])) {
+      const { argv, promptVia, parser } = worker[key];
+      assert.deepEqual({ argv, promptVia, parser }, { promptVia: undefined, parser: undefined, ...(recipe as any) }, `${id} ${key}`);
+    }
+    // nothing beyond the five: model and the unprobed capabilities stay unknown
+    for (const key of ['hooksProbe', 'guidanceProbe', 'loginProbe', 'persistentSession', 'resume', 'steering', 'isolatedEdit', 'model']) {
+      assert.equal(worker[key].status, 'unknown', `${id} ${key}`);
+    }
+  }
+});
+
 test('worker: every harness orchestration block equals the copy taken at be752d8', () => {
   const registry = loadRegistry({ repoRoot: REPO });
   // The copy is frozen history: it still holds the harnesses retired since be752d8 (row 127).
@@ -166,7 +205,7 @@ const cases = [
   ['a bad status', (w: any) => { w.readOnly.status = 'maybe'; }, /worker 'readOnly': status must be supported, unsupported, or unknown/],
   ['empty evidence on supported', (w: any) => { w.cli.evidence = []; }, /worker 'cli': evidence must not be empty when status is supported/],
   ['a missing reason on unknown', (w: any) => { delete w.hooksProbe.reason; }, /worker 'hooksProbe': requires a reason when status is unknown/],
-  ['a recipe field on unknown', (w: any) => { w.readOnly.argv = ['--read-only']; }, /worker 'readOnly': recipe field 'argv' is allowed only when status is supported/],
+  ['a recipe field on unknown', (w: any) => { w.hooksProbe.argv = ['--hooks']; }, /worker 'hooksProbe': recipe field 'argv' is allowed only when status is supported/],
   ['a missing required recipe field', (w: any) => { delete w.cli.binary; }, /worker 'cli': requires recipe field 'binary' when status is supported/],
   ['an argv of 33 elements', (w: any) => { w.readOnly = supported({ argv: Array(33).fill('-x') }); }, /worker 'readOnly': argv must have at most 32 elements/],
   ['a NUL in an argv element', (w: any) => { w.readOnly = supported({ argv: ['-x\0y'] }); }, /worker 'readOnly': argv elements must not contain NUL/],

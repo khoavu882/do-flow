@@ -1,0 +1,7 @@
+{"type":"session","version":3,"id":"00000000-0000-4000-8000-000000000001","_fixture":"synthetic"}
+{"type":"agent_start","_fixture":"synthetic"}
+{"type":"turn_start","_fixture":"synthetic"}
+{"type":"message_end","message":{"role":"assistant","content":[],"stopReason":"error","errorMessage":"403 oauth_not_allowed_for_organization"},"_fixture":"synthetic"}
+{"type":"turn_end","message":{"role":"assistant","content":[],"stopReason":"error","errorMessage":"403 oauth_not_allowed_for_organization"},"_fixture":"synthetic"}
+{"type":"agent_end","messages":[{"role":"user","content":[{"type":"text","text":"say done"}]},{"role":"assistant","content":[],"stopReason":"error","errorMessage":"403 oauth_not_allowed_for_organization"}],"_fixture":"synthetic"}
+{"type":"agent_settled","aborted":false,"_fixture":"synthetic"}

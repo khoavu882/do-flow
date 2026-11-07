@@ -1,0 +1,39 @@
+{"type":"session.info","data":{"infoType":"configuration","message":"Disabled tools: task"},"_fixture":"captured-1.0.105-trimmed"}
+{"type":"session.tools_updated","data":{"model":"gpt-6-luna"},"_fixture":"captured-1.0.105-trimmed"}
+{"type":"user.message","data":{"content":"<masked>","turnId":"0"},"_fixture":"captured-1.0.105-trimmed"}
+{"type":"assistant.turn_start","data":{"turnId":"0"},"_fixture":"captured-1.0.105-trimmed"}
+{"type":"model.call_start","data":{"turnId":"0","model":"gpt-6-luna"},"_fixture":"captured-1.0.105-trimmed"}
+{"type":"assistant.tool_call_delta","data":{"toolCallId":"call_1","toolName":"skill"},"_fixture":"captured-1.0.105-trimmed"}
+{"type":"assistant.message","data":{"messageId":"m0","model":"gpt-6-luna","content":"","toolRequests":[{"toolCallId":"call_1","name":"skill","type":"function"}],"turnId":"0"},"_fixture":"captured-1.0.105-trimmed"}
+{"type":"tool.execution_start","data":{"toolCallId":"call_1","toolName":"skill","arguments":{"skill":"do"},"turnId":"0","model":"gpt-6-luna"},"_fixture":"captured-1.0.105-trimmed"}
+{"type":"tool.execution_complete","data":{"toolCallId":"call_1","model":"gpt-6-luna","turnId":"0","success":true,"result":{"content":"<masked>"}},"_fixture":"captured-1.0.105-trimmed"}
+{"type":"assistant.turn_end","data":{"turnId":"0"},"_fixture":"captured-1.0.105-trimmed"}
+{"type":"assistant.turn_start","data":{"turnId":"1"},"_fixture":"captured-1.0.105-trimmed"}
+{"type":"model.call_start","data":{"turnId":"1","model":"gpt-6-luna"},"_fixture":"captured-1.0.105-trimmed"}
+{"type":"assistant.tool_call_delta","data":{"toolCallId":"call_2","toolName":"bash"},"_fixture":"captured-1.0.105-trimmed"}
+{"type":"assistant.message","data":{"messageId":"m1","model":"gpt-6-luna","content":"","toolRequests":[{"toolCallId":"call_2","name":"bash","type":"function"}],"turnId":"1"},"_fixture":"captured-1.0.105-trimmed"}
+{"type":"tool.execution_start","data":{"toolCallId":"call_2","toolName":"bash","arguments":{"command":"<masked>","description":"<masked>","initial_wait":10},"turnId":"1","model":"gpt-6-luna"},"_fixture":"captured-1.0.105-trimmed"}
+{"type":"tool.execution_complete","data":{"toolCallId":"call_2","model":"gpt-6-luna","turnId":"1","success":false,"error":{"message":"Permission denied because no interactive user response was available.","code":"denied"}},"_fixture":"captured-1.0.105-trimmed"}
+{"type":"assistant.turn_end","data":{"turnId":"1"},"_fixture":"captured-1.0.105-trimmed"}
+{"type":"assistant.turn_start","data":{"turnId":"2"},"_fixture":"captured-1.0.105-trimmed"}
+{"type":"model.call_start","data":{"turnId":"2","model":"gpt-6-luna"},"_fixture":"captured-1.0.105-trimmed"}
+{"type":"assistant.tool_call_delta","data":{"toolCallId":"call_3","toolName":"rg"},"_fixture":"captured-1.0.105-trimmed"}
+{"type":"assistant.message","data":{"messageId":"m2","model":"gpt-6-luna","content":"","toolRequests":[{"toolCallId":"call_3","name":"rg","type":"function"}],"turnId":"2"},"_fixture":"captured-1.0.105-trimmed"}
+{"type":"tool.execution_start","data":{"toolCallId":"call_3","toolName":"rg","arguments":{"pattern":"<masked>","output_mode":"files_with_matches"},"turnId":"2","model":"gpt-6-luna"},"_fixture":"captured-1.0.105-trimmed"}
+{"type":"tool.execution_complete","data":{"toolCallId":"call_3","model":"gpt-6-luna","turnId":"2","success":true,"result":{"content":"No matches found."}},"_fixture":"captured-1.0.105-trimmed"}
+{"type":"assistant.turn_end","data":{"turnId":"2"},"_fixture":"captured-1.0.105-trimmed"}
+{"type":"assistant.turn_start","data":{"turnId":"3"},"_fixture":"captured-1.0.105-trimmed"}
+{"type":"model.call_start","data":{"turnId":"3","model":"gpt-6-luna"},"_fixture":"captured-1.0.105-trimmed"}
+{"type":"assistant.tool_call_delta","data":{"toolCallId":"call_4","toolName":"apply_patch"},"_fixture":"captured-1.0.105-trimmed"}
+{"type":"assistant.message","data":{"messageId":"m3","model":"gpt-6-luna","content":"","toolRequests":[{"toolCallId":"call_4","name":"apply_patch","type":"custom"}],"turnId":"3"},"_fixture":"captured-1.0.105-trimmed"}
+{"type":"tool.execution_start","data":{"toolCallId":"call_4","toolName":"apply_patch","arguments":"<masked>","turnId":"3","model":"gpt-6-luna"},"_fixture":"captured-1.0.105-trimmed"}
+{"type":"tool.execution_complete","data":{"toolCallId":"call_4","model":"gpt-6-luna","turnId":"3","success":false,"error":{"message":"Permission to run this tool was denied due to the following rules: `write`","code":"denied"}},"_fixture":"captured-1.0.105-trimmed"}
+{"type":"assistant.turn_end","data":{"turnId":"3"},"_fixture":"captured-1.0.105-trimmed"}
+{"type":"assistant.turn_start","data":{"turnId":"4"},"_fixture":"captured-1.0.105-trimmed"}
+{"type":"model.call_start","data":{"turnId":"4","model":"gpt-6-luna"},"_fixture":"captured-1.0.105-trimmed"}
+{"type":"assistant.message_start","data":{"messageId":"m4","phase":"final_answer"},"_fixture":"captured-1.0.105-trimmed"}
+{"type":"assistant.message_delta","data":{"messageId":"m4","deltaContent":"<masked>"},"_fixture":"captured-1.0.105-trimmed"}
+{"type":"assistant.message","data":{"messageId":"m4","model":"gpt-6-luna","content":"Final reply text (masked)","toolRequests":[],"turnId":"4"},"_fixture":"captured-1.0.105-trimmed"}
+{"type":"assistant.turn_end","data":{"turnId":"4"},"_fixture":"captured-1.0.105-trimmed"}
+{"type":"assistant.idle","data":{},"_fixture":"captured-1.0.105-trimmed"}
+{"type":"result","sessionId":"s1","exitCode":0,"usage":{"premiumRequests":1,"totalApiDurationMs":16105,"sessionDurationMs":25430,"codeChanges":{"linesAdded":0,"linesRemoved":0,"filesModified":[]}},"_fixture":"captured-1.0.105-trimmed"}

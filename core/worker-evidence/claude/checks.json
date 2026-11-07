@@ -1,0 +1,32 @@
+{
+  "schema": "doflow-worker-checks-v1",
+  "harness": "claude",
+  "binary": "claude",
+  "version": { "argv": ["--version"], "expect": "^\\d+\\.\\d+\\.\\d+ \\(Claude Code\\)" },
+  "checks": [
+    {
+      "id": "print-one-shot",
+      "argv": ["--help"],
+      "expect": ["^Usage: claude \\[options\\]", "^\\s+-p, --print\\s", "^\\s+--no-session-persistence\\s"],
+      "establishes": ["runnableProbe", "oneShot"]
+    },
+    {
+      "id": "structured-output",
+      "argv": ["--help"],
+      "expect": ["^\\s+--output-format <format>", "or \"stream-json\" \\(realtime", "^\\s+--verbose\\s"],
+      "establishes": ["structuredOutput"]
+    },
+    {
+      "id": "read-only-flags",
+      "argv": ["--help"],
+      "expect": ["^\\s+--tools <tools\\.\\.\\.>", "^\\s+--permission-mode <mode>", "\"plan\"\\)", "^\\s+--strict-mcp-config\\s"],
+      "establishes": ["readOnly"]
+    },
+    {
+      "id": "spawn-denial-flags",
+      "argv": ["--help"],
+      "expect": ["^\\s+--disallowedTools, --disallowed-tools <tools\\.\\.\\.>$"],
+      "establishes": ["spawnDenial"]
+    }
+  ]
+}

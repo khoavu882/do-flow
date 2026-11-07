@@ -1,0 +1,32 @@
+{
+  "schema": "doflow-worker-checks-v1",
+  "harness": "kiro",
+  "binary": "kiro-cli",
+  "version": { "argv": ["--version"], "expect": "^kiro-cli \\d+\\.\\d+\\.\\d+" },
+  "checks": [
+    {
+      "id": "print-one-shot",
+      "argv": ["chat", "--help"],
+      "expect": ["^Usage: kiro-cli chat \\[OPTIONS\\] \\[INPUT\\]", "^\\s+--no-interactive$", "^\\s+--trust-workspace$"],
+      "establishes": ["runnableProbe", "oneShot"]
+    },
+    {
+      "id": "structured-output",
+      "argv": ["chat", "--help"],
+      "expect": ["^\\s+--output-format <OUTPUT_FORMAT>$", "^\\s+- stream-json:"],
+      "establishes": ["structuredOutput"]
+    },
+    {
+      "id": "read-only-flags",
+      "argv": ["chat", "--help"],
+      "expect": ["^\\s+--no-interactive$", "^\\s+--agent <AGENT>$"],
+      "establishes": ["readOnly"]
+    },
+    {
+      "id": "spawn-denial-flags",
+      "argv": ["chat", "--help"],
+      "expect": ["^\\s+--trust-tools <TOOL_NAMES>$"],
+      "establishes": ["spawnDenial"]
+    }
+  ]
+}

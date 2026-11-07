@@ -1336,39 +1336,68 @@
           ]
         },
         "oneShot": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read opencode's headless CLI documentation and `opencode --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no recorded evidence for opencode: no free check has captured its one-shot headless flag or how it reads a prompt"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/opencode/2026-11-07-cli-check.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness opencode --checks core/worker-evidence/opencode/checks.json --out core/worker-evidence/opencode/2026-11-07-cli-check.json` against the installed opencode and read the matched help lines. Recorded 2026-11-07 on opencode v2.2.5: the one-shot flags are listed in `--help`. The two 2026-11-07 live runs (see readOnly) ran the full recipe with the prompt as the last argv element and ended with report status success; they are cited under readOnly and spawnDenial, not here.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "{prompt}"
+          ],
+          "promptVia": "argv"
         },
         "structuredOutput": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read opencode's headless CLI documentation and `opencode --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no captured opencode transcript: its event schema has no parser, and a parser waits for a transcript from its own probe"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/opencode/2026-11-07-cli-check.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness opencode --checks core/worker-evidence/opencode/checks.json --out core/worker-evidence/opencode/2026-11-07-cli-check.json` against the installed opencode and read the matched help lines. Recorded 2026-11-07 on opencode v2.2.5: the output-format flags are listed in `--help`. The parser was checked against the stream of the two 2026-11-07 live runs (`test/fixtures/worker-parsers/opencode/captured-2.2.5-*.jsonl`): `text.part.text` and `step_finish.part.tokens.input` / `output` match. The `tool_use.part.tool` path and the `error` event shape were not produced by either run and remain inferred.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "--standalone",
+            "--format",
+            "json"
+          ],
+          "parser": "opencode-run-json-v1"
         },
         "readOnly": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read opencode's headless CLI documentation and `opencode --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for opencode; nothing is inferred from another harness or a model name"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/opencode/2026-11-07-cli-check.json",
+            "core/worker-evidence/opencode/2026-11-07-live-run-read-only.json",
+            "core/worker-evidence/opencode/2026-11-07-live-run-spawn.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness opencode --checks core/worker-evidence/opencode/checks.json --out core/worker-evidence/opencode/2026-11-07-cli-check.json` against the installed opencode and read the matched help lines. Recorded 2026-11-07 on opencode v2.2.5: the flags are listed in `--help`. Live runs 2026-11-07 (opencode v2.2.5, model pinned to `opencode/deepseek-v4.1-flash-free` through OPENCODE_CONFIG_CONTENT with the openai provider disabled; `opencode debug config` showed the pin, and the stream reports cost 0 but does not name the model): both ran `run --agent doflow-worker-ro --standalone --format json` in a scratch project that carried the companion agent, ended with report status success, the result offered, a clean worktree and unchanged HEAD and refs. Run w-8d482ad9ff76 asked for a file write; the worker replied it had no write tool, and no file appeared (the worktree check afterwards was clean). What the records hold is only the report status, the clean worktree check and the prompt hash; the reply is in the captured stream (`test/fixtures/worker-parsers/opencode/captured-2.2.5-write-attempt.jsonl`). The streams show the model declining, not a tool call being blocked, and the agent's own prompt also tells the model not to write, so the runs do not by themselves prove that a write would be refused. The mechanism is the shipped agent's deny permissions: `opencode debug agents` in a scratch HOME on 2026-11-07 (opencode v2.2.5) resolved `edit`, `shell` and `subagent` to deny for `doflow-worker-ro`. That output is not stored as a record, because a free check may only run `--version`, `--help` or `features list` and `debug agents` needs the agent file in the working directory. The permission `*` stays allow, so MCP and webfetch tools are not denied: read-only holds for file edits, shell and sub-agents only. `run` accepted `--agent doflow-worker-ro` for a subagent-mode agent. Limit: one model and one write attempt; the denied tool is removed from the toolset, so no denial event exists to read.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "run",
+            "--agent",
+            "doflow-worker-ro"
+          ]
         },
         "spawnDenial": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read opencode's headless CLI documentation and `opencode --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no recorded evidence for opencode: no free check shows a flag that disables subagent spawning"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/opencode/2026-11-07-cli-check.json",
+            "core/worker-evidence/opencode/2026-11-07-live-run-read-only.json",
+            "core/worker-evidence/opencode/2026-11-07-live-run-spawn.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness opencode --checks core/worker-evidence/opencode/checks.json --out core/worker-evidence/opencode/2026-11-07-cli-check.json` against the installed opencode and read the matched help lines. Recorded 2026-11-07 on opencode v2.2.5: the empty argv relies on the companion agent denying `task`. Live runs 2026-11-07 (opencode v2.2.5, model pinned to `opencode/deepseek-v4.1-flash-free` through OPENCODE_CONFIG_CONTENT with the openai provider disabled; `opencode debug config` showed the pin, and the stream reports cost 0 but does not name the model): both ran `run --agent doflow-worker-ro --standalone --format json` in a scratch project that carried the companion agent, ended with report status success, the result offered, a clean worktree and unchanged HEAD and refs. Run w-92011244a53e asked for a hand-off to a sub-agent; the worker replied it had no sub-agent tool, and the stream held no `task` or `subagent` tool_use (the worktree check afterwards was clean). What the records hold is only the report status, the clean worktree check and the prompt hash; the reply is in the captured stream (`test/fixtures/worker-parsers/opencode/captured-2.2.5-spawn-attempt.jsonl`). The stream shows the model declining (an absent tool, and its prompt says not to spawn), with no refused spawn. The mechanism is the shipped agent's deny permissions: `opencode debug agents` in a scratch HOME on 2026-11-07 (opencode v2.2.5) resolved `subagent`, `edit` and `shell` to deny for `doflow-worker-ro`; it is not stored as a record (see readOnly). The permission `*` stays allow, so MCP and webfetch tools are not denied. Limit: one model and one prompt; a model that tried a spawn by another route was not exercised.",
+          "verifiedOn": "2026-11-07",
+          "argv": []
         },
         "runnableProbe": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read opencode's headless CLI documentation and `opencode --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for opencode; nothing is inferred from another harness or a model name"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/opencode/2026-11-07-cli-check.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness opencode --checks core/worker-evidence/opencode/checks.json --out core/worker-evidence/opencode/2026-11-07-cli-check.json` against the installed opencode and read the matched help lines. Recorded 2026-11-07 on opencode v2.2.5: the help text prints; this runs no model.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "run",
+            "--help"
+          ]
         },
         "hooksProbe": {
           "status": "unknown",

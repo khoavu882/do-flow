@@ -1,0 +1,3 @@
+{"type":"system","subtype":"init","session_id":"s1","tools":["Read","Task"],"model":"m","_fixture":"synthetic"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"working"}]},"session_id":"s1","_fixture":"synthetic"}
+{"type":"user","message":{"role":"user","content":[]},"session_id":"s1","_fixture":"synthetic"}

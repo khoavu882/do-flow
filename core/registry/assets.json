@@ -571,6 +571,24 @@
       }
     },
     {
+      "id": "opencode.worker-ro-agent",
+      "kind": "agent",
+      "source": "core/harnesses/opencode/agents",
+      "appliesTo": [
+        "opencode"
+      ],
+      "projection": {
+        "opencode": {
+          "renderer": "opencode-agents",
+          "capability": "agents"
+        }
+      },
+      "ownership": "managed-tree",
+      "nativeDir": {
+        "opencode": "agents"
+      }
+    },
+    {
       "id": "kiro.hooks-scripts",
       "kind": "hooks",
       "source": "core/harnesses/kiro/hooks",

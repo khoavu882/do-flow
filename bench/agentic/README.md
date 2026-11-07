@@ -92,7 +92,7 @@ measured. There is no price sheet in the repository, so no currency cost is stat
 | Decision | Value |
 |---|---|
 | O-1 cap and staging | Stage R, then N, then D, each command under the `--cap` above. The cap is per command: a stage ends at most at its ceiling plus one run's overshoot per command (2 in R, 3 in N, 3 in D), bounded by `timeoutSeconds` except after a SIGKILL of the executor |
-| O-2 model | `model.label` in `config.json`: `codex:gpt-6-luna:medium`. The only harness with a verified headless read-only worker is the one the registry selects (`harness.select: worker.readOnly`) |
+| O-2 model | `model.label` in `config.json`: `codex:gpt-6-luna:medium`. `harness.select: worker.readOnly` lists the harnesses with a verified headless read-only worker (codex and opencode in the registry since 142), and `harness.pin: codex` picks codex, the harness the model label names. With the pin null and two qualifying harnesses, `execute` stops with `harness-ambiguous`. The pin is part of the capture digest, so an iteration captured before the pin was set no longer matches a new one |
 | O-5 credential copy | Only the harness auth file (`home.copy`) is copied into a mode-0700 temp home outside the repository, removed after each run. Residual: after a SIGKILL of the executor the copy stays until the user deletes the profile the next `execute` names (section 2) |
 
 ## 5. Isolation and tokens

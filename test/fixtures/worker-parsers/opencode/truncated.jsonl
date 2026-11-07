@@ -1,0 +1,3 @@
+{"_fixture":"synthetic","type":"step_start","part":{"type":"step-start"}}
+{"_fixture":"synthetic","type":"tool_use","part":{"tool":"read","state":{"status":"completed"}}}
+{"_fixture":"synthetic","type":"text","part":{"text":"Reading the files now."}}

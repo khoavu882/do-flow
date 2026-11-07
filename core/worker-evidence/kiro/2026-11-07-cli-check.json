@@ -1,0 +1,99 @@
+{
+  "binary": "kiro-cli",
+  "checks": [
+    {
+      "argv": [
+        "chat",
+        "--help"
+      ],
+      "establishes": [
+        "runnableProbe",
+        "oneShot"
+      ],
+      "exit": 0,
+      "expect": [
+        "^Usage: kiro-cli chat \\[OPTIONS\\] \\[INPUT\\]",
+        "^\\s+--no-interactive$",
+        "^\\s+--trust-workspace$"
+      ],
+      "id": "print-one-shot",
+      "matched": [
+        "Usage: kiro-cli chat [OPTIONS] [INPUT]",
+        "      --no-interactive",
+        "      --trust-workspace"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "chat",
+        "--help"
+      ],
+      "establishes": [
+        "structuredOutput"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--output-format <OUTPUT_FORMAT>$",
+        "^\\s+- stream-json:"
+      ],
+      "id": "structured-output",
+      "matched": [
+        "      --output-format <OUTPUT_FORMAT>",
+        "          - stream-json: The run's ACP events as JSON Lines on stdout, one self-describing event per"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "chat",
+        "--help"
+      ],
+      "establishes": [
+        "readOnly"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--no-interactive$",
+        "^\\s+--agent <AGENT>$"
+      ],
+      "id": "read-only-flags",
+      "matched": [
+        "      --agent <AGENT>",
+        "      --no-interactive"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "chat",
+        "--help"
+      ],
+      "establishes": [
+        "spawnDenial"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--trust-tools <TOOL_NAMES>$"
+      ],
+      "id": "spawn-denial-flags",
+      "matched": [
+        "      --trust-tools <TOOL_NAMES>"
+      ],
+      "result": "pass"
+    }
+  ],
+  "cliVersion": "kiro-cli 3.1.0",
+  "establishes": [
+    "oneShot",
+    "readOnly",
+    "runnableProbe",
+    "spawnDenial",
+    "structuredOutput"
+  ],
+  "harness": "kiro",
+  "kind": "cli-check",
+  "recordedAt": "2026-11-07T05:22:22.873Z",
+  "run": null,
+  "schema": "doflow-worker-evidence-v1"
+}

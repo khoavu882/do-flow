@@ -1,0 +1,32 @@
+{
+  "schema": "doflow-worker-checks-v1",
+  "harness": "opencode",
+  "binary": "opencode",
+  "version": { "argv": ["--version"], "expect": "^opencode v\\d+\\.\\d+\\.\\d+" },
+  "checks": [
+    {
+      "id": "print-one-shot",
+      "argv": ["run", "--help"],
+      "expect": ["^\\s+opencode run \\[flags\\] \\[<message\\.\\.\\.>\\]", "^\\s+message\\.\\.\\. string\\s+Message to send"],
+      "establishes": ["runnableProbe", "oneShot"]
+    },
+    {
+      "id": "structured-output",
+      "argv": ["run", "--help"],
+      "expect": ["^\\s+--format choice\\s+Output format \\(choices: default, json\\)", "^\\s+--standalone\\s+Run with a private server"],
+      "establishes": ["structuredOutput"]
+    },
+    {
+      "id": "read-only-flags",
+      "argv": ["run", "--help"],
+      "expect": ["^\\s+--agent string\\s+Agent to use"],
+      "establishes": ["readOnly"]
+    },
+    {
+      "id": "spawn-denial-flags",
+      "argv": ["run", "--help"],
+      "expect": ["^\\s+--agent string\\s+Agent to use"],
+      "establishes": ["spawnDenial"]
+    }
+  ]
+}
