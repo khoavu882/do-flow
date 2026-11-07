@@ -15,7 +15,7 @@ const { LLMS_CAP, checkAll, captureHelp, markerFindings, readNav } = require('..
 
 const REPO = path.resolve(__dirname, '../..');
 const COPY_PATHS: any = [
-  'docs', 'mkdocs.yml', 'core/registry', '.github/workflows', 'bin', 'src',
+  'docs', 'specs', 'mkdocs.yml', 'core/registry', '.github/workflows', 'bin', 'src',
   'core/shared/scripts', 'package.json',
 ];
 let COPY: any;
@@ -144,8 +144,12 @@ function checkCommandVerbs(root: any, help: any): any {
   const validDoflow: any = new Set(help.doflow.map((row: any) => row.verb));
   const validRun: any = new Set(help.doflowRun.map((row: any) => row.verb));
   const problems: any = [];
-  for (const page of readNav(root).map((entry: any) => entry.path)) {
-    const lines = read(root, `docs/${page}`).split(/\r?\n/);
+  const specsDir = path.join(root, 'specs');
+  const specs = fs.existsSync(specsDir) ? fs.readdirSync(specsDir).filter((name: any) => name.endsWith('.md')).sort().map((name: any) => `specs/${name}`) : [];
+  // The specs sit outside the published site but name the same commands, so they are read like nav pages.
+  const pages = [...readNav(root).map((entry: any) => ({ label: entry.path, file: `docs/${entry.path}` })), ...specs.map((spec: any) => ({ label: spec, file: spec }))];
+  for (const { label: page, file } of pages) {
+    const lines = read(root, file).split(/\r?\n/);
     // A fence opens with ``` or ~~~ and closes with the same marker (FU-5944my).
     let fence: any = null;
     lines.forEach((line: any, index: any) => {
@@ -284,7 +288,7 @@ test('G61.a generated blocks match their sources', (): any => {
     first.description += ' seeded drift';
     fs.writeFileSync(file, `${JSON.stringify(settings, null, 2)}\n`);
     const findings = checkAll(COPY);
-    assert.ok(findings.some((finding: any) => finding.page === 'settings.md' && finding.id === 'settings-keys' && finding.kind === 'stale'), JSON.stringify(findings));
+    assert.ok(findings.some((finding: any) => finding.page === 'reference.md' && finding.id === 'settings-keys' && finding.kind === 'stale'), JSON.stringify(findings));
   } finally {
     fs.writeFileSync(file, original);
   }
@@ -305,7 +309,7 @@ test('G61.b generated markers on every docs page are registered to that page, pa
     const findings = checkMarkers(COPY);
     assert.ok(findings.some((finding: any) => finding.page.includes('guide.md') && finding.id === 'nosuch'), JSON.stringify(findings));
   });
-  const settingsPair = read(COPY, 'docs/settings.md').match(/<!-- BEGIN GENERATED:settings-keys -->[\s\S]*?<!-- END GENERATED:settings-keys -->/)[0];
+  const settingsPair = read(COPY, 'docs/reference.md').match(/<!-- BEGIN GENERATED:settings-keys -->[\s\S]*?<!-- END GENERATED:settings-keys -->/)[0];
   withSeededFile(COPY, 'docs/guide.md', (original: any) => `${original}\n${settingsPair}\n`, () => {
     const findings = checkMarkers(COPY);
     assert.ok(findings.some((finding: any) => finding.page.includes('guide.md') && finding.id === 'settings-keys'), JSON.stringify(findings));
@@ -314,9 +318,9 @@ test('G61.b generated markers on every docs page are registered to that page, pa
     const findings = checkMarkers(COPY);
     assert.ok(findings.some((finding: any) => finding.page.includes('guide.md') && finding.id === 'task-classes'), JSON.stringify(findings));
   });
-  withSeededFile(COPY, 'docs/specs/operating-modes.md', (original: any) => `${original}\n${settingsPair}\n`, () => {
+  withSeededFile(COPY, 'docs/index.md', (original: any) => `${original}\n${settingsPair}\n`, () => {
     const findings = checkMarkers(COPY);
-    assert.ok(findings.some((finding: any) => finding.page.includes('specs/operating-modes.md') && finding.id === 'settings-keys'), JSON.stringify(findings));
+    assert.ok(findings.some((finding: any) => finding.page.includes('index.md') && finding.id === 'settings-keys'), JSON.stringify(findings));
   });
   withSeededFile(COPY, 'docs/guide.md', (original: any) => `${original}\n  <!-- BEGIN GENERATED:nosuch -->\n| stale | table |\n<!-- END GENERATED:nosuch --> \n`, () => {
     const findings = checkMarkers(COPY);
@@ -334,11 +338,18 @@ test('G61.c every docs page is in nav or a valid moved-page stub', (): any => {
   fs.writeFileSync(path.join(COPY, 'docs/orphan.md'), '# Orphan\n');
   assert.ok(checkNavAndStubs(COPY).some((problem: any) => problem.includes('docs/orphan.md')), checkNavAndStubs(COPY).join('\n'));
   fs.rmSync(path.join(COPY, 'docs/orphan.md'));
-  const file = path.join(COPY, 'docs/overview.md');
-  const original = fs.readFileSync(file, 'utf8');
-  write(COPY, 'docs/overview.md', `${original}\n\nAnother paragraph.\n`);
-  assert.ok(checkNavAndStubs(COPY).some((problem: any) => problem.includes('docs/overview.md')), checkNavAndStubs(COPY).join('\n'));
-  write(COPY, 'docs/overview.md', original);
+  // No stub ships today, so the stub rules are driven with a seeded one listed in not_in_nav.
+  const stub = '# Overview\n\nThis page moved to [Home](index.md).\n\n<meta http-equiv="refresh" content="0; url=../">\n';
+  withSeededFile(COPY, 'mkdocs.yml', (original: any) => `${original.replace(/\n*$/, '\n')}\nnot_in_nav: |\n  /overview.md\n`, () => {
+    try {
+      write(COPY, 'docs/overview.md', stub);
+      assert.deepEqual(checkNavAndStubs(COPY), [], 'a valid stub is accepted');
+      write(COPY, 'docs/overview.md', `${stub}\nAnother paragraph.\n`);
+      assert.ok(checkNavAndStubs(COPY).some((problem: any) => problem.includes('docs/overview.md')), checkNavAndStubs(COPY).join('\n'));
+    } finally {
+      fs.rmSync(path.join(COPY, 'docs/overview.md'), { force: true });
+    }
+  });
 });
 
 test('G61.d documented command verbs exist in CLI help', (): any => {

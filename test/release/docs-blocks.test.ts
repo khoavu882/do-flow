@@ -17,9 +17,9 @@ const REPO = path.resolve(__dirname, '../..');
 
 const NAV = [
   ['Home', [['Home', 'index.md']]],
-  ['Get started', [['Quickstart', 'quickstart.md'], ['Setup', 'setup.md']]],
-  ['Use DoFlow', [['Guide', 'guide.md'], ['How DoFlow works', 'how-doflow-work.md']]],
-  ['Reference', [['Commands and skills', 'reference.md'], ['Settings', 'settings.md']]],
+  ['Use DoFlow', [['Setup', 'setup.md'], ['Guide', 'guide.md'], ['How DoFlow works', 'how-doflow-work.md']]],
+  ['Reference', [['Reference', 'reference.md']]],
+  // The shipped nav has no nested section; this one keeps the parser's two-level case under test.
   ['Contributing', [['Specs', [['Operating modes', 'specs/operating-modes.md']]]]],
 ];
 
@@ -66,7 +66,7 @@ function fixture(t: any) {
     const file = path.join(root, 'docs', page);
     fs.mkdirSync(path.dirname(file), { recursive: true });
     const ids = blocksByPage.get(page) || [];
-    const heading = page === 'settings.md' ? '## Settings keys\n\n' : '';
+    const heading = page === 'reference.md' ? '## Settings keys\n\n' : '';
     fs.writeFileSync(file, `---\ndescription: About ${page}.\n---\n# ${page}\n\nIntro.\n\n${heading}${ids.map(markers).join('\n\nBetween blocks.\n\n')}\n\nOutro.\n`);
   }
   return root;
@@ -92,7 +92,7 @@ test('IC-001: --write on a fresh root leaves --check clean, and text outside spa
   assert.equal(cli(root, ['--check']).status, 0);
 });
 
-test('IC-002: a changed settings description makes settings.md settings-keys stale, and nothing else', (t) => {
+test('IC-002: a changed settings description makes reference.md settings-keys stale, and nothing else', (t) => {
   const root = fixture(t);
   writeAll(root);
   editFile(path.join(root, 'core/registry/settings.json'), (text: any) => {
@@ -100,10 +100,10 @@ test('IC-002: a changed settings description makes settings.md settings-keys sta
     raw.keys['storage.prune'].description = 'A changed description.';
     return JSON.stringify(raw, null, 2);
   });
-  assert.deepEqual(checkAll(root), [{ page: 'settings.md', id: 'settings-keys', kind: 'stale' }]);
+  assert.deepEqual(checkAll(root), [{ page: 'reference.md', id: 'settings-keys', kind: 'stale' }]);
   const run = cli(root, ['--check']);
   assert.equal(run.status, 1);
-  assert.match(run.stderr, /^docs-blocks: settings\.md: settings-keys: stale$/m);
+  assert.match(run.stderr, /^docs-blocks: reference\.md: settings-keys: stale$/m);
 });
 
 // BLOCKS puts one block on each page, so the several-blocks-per-page and nesting paths of the
@@ -160,23 +160,24 @@ test('IC-002: a hand-edited block is stale', (t) => {
 test('IC-002: an unpaired start, an unknown id and a doubled block are orphan; an absent block is missing', (t) => {
   const root = fixture(t);
   writeAll(root);
-  const settings = path.join(root, 'docs/settings.md');
+  const settings = path.join(root, 'docs/reference.md');
   const written = fs.readFileSync(settings, 'utf8');
 
+  // The page holds two blocks, so an unpaired settings-keys start also swallows the next block's span.
   fs.writeFileSync(settings, written.replace(/<!-- END GENERATED:settings-keys -->\n/, ''));
-  assert.deepEqual(checkAll(root), [{ page: 'settings.md', id: 'settings-keys', kind: 'orphan' }]);
+  assert.deepEqual(checkAll(root), [{ page: 'reference.md', id: 'settings-keys', kind: 'orphan' }, { page: 'reference.md', id: 'command-index', kind: 'orphan' }]);
 
   fs.writeFileSync(settings, `${written}\n<!-- BEGIN GENERATED:no-such-block -->\n<!-- END GENERATED:no-such-block -->\n`);
-  assert.deepEqual(checkAll(root), [{ page: 'settings.md', id: 'no-such-block', kind: 'orphan' }]);
+  assert.deepEqual(checkAll(root), [{ page: 'reference.md', id: 'no-such-block', kind: 'orphan' }]);
 
   fs.writeFileSync(settings, `${written}\n${markers('settings-keys')}\n`);
-  assert.deepEqual(checkAll(root), [{ page: 'settings.md', id: 'settings-keys', kind: 'orphan' }]);
+  assert.deepEqual(checkAll(root), [{ page: 'reference.md', id: 'settings-keys', kind: 'orphan' }]);
 
-  fs.writeFileSync(settings, '---\ndescription: About settings.md.\n---\n# Settings\n');
-  assert.deepEqual(checkAll(root), [{ page: 'settings.md', id: 'settings-keys', kind: 'missing' }]);
+  fs.writeFileSync(settings, '---\ndescription: About reference.md.\n---\n# Reference\n');
+  assert.deepEqual(checkAll(root), [{ page: 'reference.md', id: 'settings-keys', kind: 'missing' }, { page: 'reference.md', id: 'command-index', kind: 'missing' }]);
 
   fs.rmSync(settings);
-  assert.ok(checkAll(root).some((f: any) => f.page === 'settings.md' && f.id === 'settings-keys' && f.kind === 'missing'));
+  assert.ok(checkAll(root).some((f: any) => f.page === 'reference.md' && f.id === 'settings-keys' && f.kind === 'missing'));
 });
 
 test('IC-001: an unreadable registry or help source is source-unreadable, never an empty table', (t) => {
@@ -229,7 +230,7 @@ test('NFR-007: two --write runs under different TZ, LANG and COLUMNS give byte-i
   const b = fixture(t);
   assert.equal(cli(a, ['--write'], { TZ: 'Pacific/Honolulu', LANG: 'fr_FR.UTF-8', COLUMNS: '20', FORCE_COLOR: '1' }).status, 0);
   assert.equal(cli(b, ['--write'], { TZ: 'Asia/Tokyo', LANG: 'ja_JP.UTF-8', COLUMNS: '300' }).status, 0);
-  for (const page of ['how-doflow-work.md', 'settings.md', 'reference.md', 'llms.txt']) {
+  for (const page of ['how-doflow-work.md', 'reference.md', 'llms.txt']) {
     assert.equal(fs.readFileSync(path.join(a, 'docs', page), 'utf8'), fs.readFileSync(path.join(b, 'docs', page), 'utf8'), page);
   }
 });
@@ -315,7 +316,7 @@ test('FU-5944my: --check names shorter descriptions as the fix when llms.txt is 
   assert.match(capped.stderr, /run node src\/release\/docs-blocks\.ts --write, then review the diff/);
   assert.match(capped.stderr, /llms\.txt over 4096 bytes: if --write leaves it over, shorten the page descriptions/);
   fs.writeFileSync(llms, good);
-  editFile(path.join(root, 'docs/settings.md'), (body: any) => body.replace(/\| /, '| stale '));
+  editFile(path.join(root, 'docs/reference.md'), (body: any) => body.replace(/\| /, '| stale '));
   const stale = cli(root, ['--check']);
   assert.equal(stale.status, 1);
   assert.match(stale.stderr, /--write, then review the diff/);
@@ -382,18 +383,18 @@ test('C-7: an END marker inside a registry value is inert, and --write still con
   fs.writeFileSync(file, original);
   assert.equal(cli(root, ['--write']).status, 0, 'restoring the registry and writing again converges too');
   assert.deepEqual(checkAll(root), []);
-  assert.ok(!fs.readFileSync(path.join(root, 'docs/settings.md'), 'utf8').includes('x <!--'));
+  assert.ok(!fs.readFileSync(path.join(root, 'docs/reference.md'), 'utf8').includes('x <!--'));
 });
 
 test('C-7: markers are whole lines; a lone END, a nested span and a pair on the wrong page are orphans', () => {
   const pair = (id: any) => `<!-- BEGIN GENERATED:${id} -->\nx\n<!-- END GENERATED:${id} -->\n`;
-  assert.deepEqual(markerFindings('settings.md', pair('settings-keys')), []);
-  assert.deepEqual(markerFindings('settings.md', 'text <!-- END GENERATED:settings-keys --> text\n'), [], 'not a whole line: not a marker');
+  assert.deepEqual(markerFindings('reference.md', pair('settings-keys')), []);
+  assert.deepEqual(markerFindings('reference.md', 'text <!-- END GENERATED:settings-keys --> text\n'), [], 'not a whole line: not a marker');
   assert.deepEqual(markerFindings('guide.md', '<!-- END GENERATED:task-classes -->\n'), [{ page: 'guide.md', id: 'task-classes', kind: 'orphan' }]);
   assert.deepEqual(markerFindings('guide.md', pair('settings-keys')), [{ page: 'guide.md', id: 'settings-keys', kind: 'orphan' }]);
   const nested = `<!-- BEGIN GENERATED:settings-keys -->\n${pair('task-classes')}<!-- END GENERATED:settings-keys -->\n`;
-  assert.deepEqual(markerFindings('settings.md', nested), [{ page: 'settings.md', id: 'settings-keys', kind: 'orphan' }, { page: 'settings.md', id: 'task-classes', kind: 'orphan' }]);
-  assert.deepEqual(markerFindings('settings.md', '<!-- END GENERATED:settings-keys -->\n<!-- BEGIN GENERATED:settings-keys -->\n').length, 1, 'END before BEGIN');
+  assert.deepEqual(markerFindings('reference.md', nested), [{ page: 'reference.md', id: 'settings-keys', kind: 'orphan' }, { page: 'reference.md', id: 'task-classes', kind: 'orphan' }]);
+  assert.deepEqual(markerFindings('reference.md', '<!-- END GENERATED:settings-keys -->\n<!-- BEGIN GENERATED:settings-keys -->\n').length, 1, 'END before BEGIN');
 });
 
 test('C-8: a help line the parser cannot read fails capture with the line; a failed help run names its exit and stderr', (t) => {
@@ -481,6 +482,6 @@ test('N-2: the G44 checker formats every expected cell as the generator does (a 
 
 test('N-3: a marker with indentation, trailing white space or a CR is still recognised, and reported', () => {
   assert.deepEqual(markerFindings('guide.md', '  <!-- BEGIN GENERATED:nosuch -->\n| t |\n<!-- END GENERATED:nosuch -->\n'), [{ page: 'guide.md', id: 'nosuch', kind: 'orphan' }]);
-  assert.deepEqual(markerFindings('settings.md', '<!-- BEGIN GENERATED:settings-keys --> \nx\n<!-- END GENERATED:settings-keys -->\n'), [{ page: 'settings.md', id: 'settings-keys', kind: 'orphan' }]);
-  assert.deepEqual(markerFindings('settings.md', '<!-- BEGIN GENERATED:settings-keys -->\r\nx\r\n<!-- END GENERATED:settings-keys -->\r\n'), [{ page: 'settings.md', id: 'settings-keys', kind: 'orphan' }]);
+  assert.deepEqual(markerFindings('reference.md', '<!-- BEGIN GENERATED:settings-keys --> \nx\n<!-- END GENERATED:settings-keys -->\n'), [{ page: 'reference.md', id: 'settings-keys', kind: 'orphan' }]);
+  assert.deepEqual(markerFindings('reference.md', '<!-- BEGIN GENERATED:settings-keys -->\r\nx\r\n<!-- END GENERATED:settings-keys -->\r\n'), [{ page: 'reference.md', id: 'settings-keys', kind: 'orphan' }]);
 });

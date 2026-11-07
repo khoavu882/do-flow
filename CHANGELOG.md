@@ -15,6 +15,9 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+### Changed
+- **Documentation site cut from 13 pages to 5, organised by the problems DoFlow solves (feature 144):** Home (`index.md`), Setup (the old Quickstart folded into `setup.md#quick-start`), Guide, How DoFlow works and Reference (the old Settings page is now the `Settings keys` section of `reference.md`, and the `settings-keys` generated block moved with it). `overview.md`, `quickstart.md` and `settings.md` are gone, so their old site URLs no longer redirect. The four contract specs moved out of the site to `specs/`; the guards that read them (context modes, operating modes, candidate-evidence boundary, telemetry), the command-verb check and the hidden-Unicode scan follow them there. The nav has three categories instead of five.
+
 ## [2.2.0] - 2026-11-07
 
 ### Added

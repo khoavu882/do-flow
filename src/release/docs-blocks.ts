@@ -271,7 +271,7 @@ function renderIntakeCategories(root: string): string {
 
 const BLOCKS: readonly Block[] = Object.freeze([
   { id: 'task-classes', page: 'how-doflow-work.md', sources: ['core/registry/workflows.json', 'core/registry/readiness-templates.json'], render: renderTaskClasses },
-  { id: 'settings-keys', page: 'settings.md', sources: ['core/registry/settings.json'], render: renderSettingsKeys },
+  { id: 'settings-keys', page: 'reference.md', sources: ['core/registry/settings.json'], render: renderSettingsKeys },
   { id: 'command-index', page: 'reference.md', sources: [DOFLOW_BIN, DOFLOW_RUN_BIN], render: renderCommandIndex },
   { id: 'intake-categories', page: 'guide.md', sources: ['core/registry/intake.json'], render: renderIntakeCategories },
 ]);

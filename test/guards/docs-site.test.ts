@@ -4,7 +4,7 @@
 //
 // The site is built from mkdocs.yml and docs/. Four structural truths keep it from going stale:
 //   (a) every nav page exists and is listed in docs/llms.txt, and every llms.txt link is a nav page;
-//   (b) every Node range statement in docs/quickstart.md and docs/setup.md is the range package.json declares;
+//   (b) every Node range statement in docs/setup.md is the range package.json declares;
 //   (c) no page claims a Node floor of 18 or 20 except in a clause that itself says the floor was raised;
 //   (d) when a page holds a ```mermaid fence, mkdocs.yml (comments ignored) declares the mermaid custom
 //       fence and an extra_javascript script pins the mermaid library with an integrity hash,
@@ -116,7 +116,7 @@ function checkNodeFloor(root: any) {
   const problems: any = [];
   const declared = JSON.parse(read(root, 'package.json')).engines?.node;
   if (typeof declared !== 'string') return ['package.json declares no engines.node'];
-  for (const page of ['docs/quickstart.md', 'docs/setup.md']) {
+  for (const page of ['docs/setup.md']) {
     const matches = [...read(root, page).matchAll(RANGE_PATTERN)].map((m) => m[0]);
     if (matches.length === 0) problems.push(`${page} does not state a Node range like "${declared}"`);
     for (const found of matches) {
@@ -222,35 +222,35 @@ test('G49.a: every nav page exists and is listed in docs/llms.txt, and every llm
 
 test('G49.a negative control: an unlisted nav page, a stray link and a missing file are each reported', (t) => {
   const unlisted = copySite(t);
-  edit(unlisted, 'docs/llms.txt', (s: any) => s.replace(/^- \[Quickstart\].*\n/m, ''));
-  assert.ok(checkNavAndLlms(unlisted).some((p: any) => /not listed in llms\.txt: quickstart\.md/.test(p)));
+  edit(unlisted, 'docs/llms.txt', (s: any) => s.replace(/^- \[Setup\].*\n/m, ''));
+  assert.ok(checkNavAndLlms(unlisted).some((p: any) => /not listed in llms\.txt: setup\.md/.test(p)));
 
   const stray = copySite(t);
   edit(stray, 'docs/llms.txt', (s: any) => `${s}\n- [Ghost](${siteUrl(read(stray, 'mkdocs.yml'))}/ghost/): not a page.\n`);
   assert.ok(checkNavAndLlms(stray).some((p: any) => /not a nav page/.test(p)));
 
   const missing = copySite(t);
-  fs.rmSync(path.join(missing, 'docs', 'settings.md'));
-  assert.ok(checkNavAndLlms(missing).some((p: any) => /nav page missing on disk: docs\/settings\.md/.test(p)));
+  fs.rmSync(path.join(missing, 'docs', 'reference.md'));
+  assert.ok(checkNavAndLlms(missing).some((p: any) => /nav page missing on disk: docs\/reference\.md/.test(p)));
 
   const noFile = copySite(t);
   fs.rmSync(path.join(noFile, 'docs', 'llms.txt'));
   assert.ok(checkNavAndLlms(noFile).some((p: any) => /llms\.txt is missing/.test(p)));
 });
 
-test('G49.b: quickstart.md and setup.md state the Node range package.json declares', () => {
+test('G49.b: setup.md states the Node range package.json declares', () => {
   assert.deepEqual(checkNodeFloor(REPO), []);
 });
 
 test('G49.b negative control: a changed range, or a page with none, is reported', (t) => {
   const changed = copySite(t);
-  edit(changed, 'docs/quickstart.md', (s: any) => s.replace('>=24.22.1', '>=24.0.0'));
-  assert.ok(checkNodeFloor(changed).some((p: any) => /quickstart\.md states Node/.test(p)));
+  edit(changed, 'docs/setup.md', (s: any) => s.replace('>=24.22.1', '>=24.0.0'));
+  assert.ok(checkNodeFloor(changed).some((p: any) => /setup\.md states Node/.test(p)));
 
   const drifted = copySite(t);
   edit(drifted, 'package.json', (s: any) => s.replace('>=24.22.1', '>=24.23.0'));
   const problems = checkNodeFloor(drifted);
-  assert.ok(problems.some((p: any) => /quickstart\.md/.test(p)) && problems.some((p: any) => /setup\.md/.test(p)));
+  assert.ok(problems.some((p: any) => /setup\.md/.test(p)));
 
   const none = copySite(t);
   edit(none, 'docs/setup.md', (s: any) => s.split('>=24.22.1').join('24.22.1'));
@@ -260,9 +260,6 @@ test('G49.b negative control: a changed range, or a page with none, is reported'
   const second = copySite(t);
   edit(second, 'docs/setup.md', (s: any) => `${s}\nOlder note: Node ^22.6.0 \\|\\| >=24.0.0 is enough.\n`);
   assert.ok(checkNodeFloor(second).some((p: any) => /setup\.md states Node "\^22\.6\.0/.test(p)));
-  const secondQuickstart = copySite(t);
-  edit(secondQuickstart, 'docs/quickstart.md', (s: any) => `${s}\nAlso works on ^22.6.0 || >=24.0.0.\n`);
-  assert.ok(checkNodeFloor(secondQuickstart).some((p: any) => /quickstart\.md states Node "\^22\.6\.0/.test(p)));
 });
 
 test('G49.c: no page claims a Node 18, 20 or 22 floor', () => {
@@ -272,10 +269,10 @@ test('G49.c: no page claims a Node 18, 20 or 22 floor', () => {
 test('G49.c negative control: re-seeded 18, 20 and 22 floor claims are reported, a history clause is not', (t) => {
   const seeded = copySite(t);
   edit(seeded, 'docs/setup.md', (s: any) => `${s}\nDoFlow requires Node.js 18 or newer.\n`);
-  edit(seeded, 'docs/quickstart.md', (s: any) => `${s}\nSupported: node >=20.\n`);
+  edit(seeded, 'docs/how-doflow-work.md', (s: any) => `${s}\nSupported: node >=20.\n`);
   const problems = checkStaleNodeFloor(seeded);
   assert.ok(problems.some((p: any) => /^docs\/setup\.md:\d+ /.test(p)));
-  assert.ok(problems.some((p: any) => /^docs\/quickstart\.md:\d+ /.test(p)));
+  assert.ok(problems.some((p: any) => /^docs\/how-doflow-work\.md:\d+ /.test(p)));
 
   // Each form an earlier pattern let through.
   for (const claim of ['Install with node@20 or newer.', 'Needs Node 18.19 or later.', 'Node versions: 18 and 20.', 'Runs on Node 20.x.', 'Requires 18+.', 'Install with node@22 or newer.', 'Needs Node 22.18 or later.', 'Node 22+ is enough.']) {
@@ -290,11 +287,13 @@ test('G49.c negative control: re-seeded 18, 20 and 22 floor claims are reported,
   assert.ok(checkStaleNodeFloor(sameLine).some((p: any) => /^docs\/guide\.md:\d+ /.test(p)));
   const row = copySite(t);
   edit(row, 'docs/setup.md', (s: any) => s.replace('| Node.js 24.22.1+ |', '| Node.js 22+ |'));
-  assert.ok(checkStaleNodeFloor(row).some((p: any) => /^docs\/setup\.md:15 /.test(p)));
+  const rangeRow = read(REPO, 'docs/setup.md').split('\n').findIndex((line: any) => line.includes('| Node.js 24.22.1+ |')) + 1;
+  assert.ok(rangeRow > 0, 'docs/setup.md has the Node.js range row');
+  assert.ok(checkStaleNodeFloor(row).some((p: any) => p.startsWith(`docs/setup.md:${rangeRow} `)));
   assert.deepEqual(checkNodeFloor(row), [], 'the range cell is unchanged, so only this check can see the header');
 
   const history = copySite(t);
-  edit(history, 'docs/quickstart.md', (s: any) => `${s}\nNode 18 and 20 are no longer supported.\n`);
+  edit(history, 'docs/guide.md', (s: any) => `${s}\nNode 18 and 20 are no longer supported.\n`);
   assert.deepEqual(checkStaleNodeFloor(history), []);
 });
 

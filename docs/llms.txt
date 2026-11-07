@@ -4,26 +4,14 @@
 
 ## Home
 
-- [Home](https://khoavu882.github.io/do-flow/): What DoFlow is, what it installs, component and session models, workflow layers, and a documentation map.
-
-## Get started
-
-- [Quickstart](https://khoavu882.github.io/do-flow/quickstart/): The shortest path from a clean machine to a verified installation and a first workflow.
-- [Setup](https://khoavu882.github.io/do-flow/setup/): Prerequisites, install modes and scopes, updates, backup, rollback, MCP servers, and per-tool mapping.
+- [Home](https://khoavu882.github.io/do-flow/): The problems DoFlow solves for AI coding tools, what it does about each, and where to read more.
 
 ## Use DoFlow
 
-- [Guide](https://khoavu882.github.io/do-flow/guide/): Task-based workflows for features, bugs, quality, research, and documentation.
-- [How DoFlow works](https://khoavu882.github.io/do-flow/how-doflow-work/): The declared execution procedure, the nine task classes, gates, and readiness contracts.
+- [Setup](https://khoavu882.github.io/do-flow/setup/): Quick start, prerequisites, install scopes, updates, backup, rollback, MCP servers, and per-tool mapping.
+- [Guide](https://khoavu882.github.io/do-flow/guide/): Task recipes for features, bugs, code quality, research, docs, follow-ups, the roadmap and other tools.
+- [How DoFlow works](https://khoavu882.github.io/do-flow/how-doflow-work/): How DoFlow declares a run, from task classes and gates to readiness, evidence, verification and lifecycle.
 
 ## Reference
 
-- [Commands and skills](https://khoavu882.github.io/do-flow/reference/): Skills, runtime commands, specialist agents, and git lifecycle intents.
-- [Settings](https://khoavu882.github.io/do-flow/settings/): Settings keys, configuration scopes, defaults, and config home directory resolution.
-
-## Contributing
-
-- [Orchestrator context modes](https://khoavu882.github.io/do-flow/specs/orchestrator-context-modes/): The design contract for orchestrator context delivery modes.
-- [Operating modes](https://khoavu882.github.io/do-flow/specs/operating-modes/): Operating modes, task states, control boundaries, and transition rules between assisted and autonomous work.
-- [Candidate evidence boundary](https://khoavu882.github.io/do-flow/specs/candidate-evidence-boundary/): Contract separating retrieval candidates with ranks or scores from verified evidence bound to tasks.
-- [Telemetry contract](https://khoavu882.github.io/do-flow/specs/telemetry-contract/): Contract and schema for machine-local telemetry lines, event kinds, emission boundaries, and storage.
+- [Reference](https://khoavu882.github.io/do-flow/reference/): Lookup for skills, commands, settings keys, storage, hooks, worker support, agents and git intents.

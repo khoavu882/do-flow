@@ -891,7 +891,7 @@ class ContextPackCompiler {
  * @param {string} [options.slug] feature slug, when the task id is not the feature's own
  * @param {string|null} [options.explicitSlug] the `--slug` the caller typed, if any (default `slug`).
  *   Only this selects a run for the stage-pack link: a branch-derived `slug` still keys the delivery
- *   store, but the branch name alone never picks a run (docs/specs/orchestrator-context-modes.md).
+ *   store, but the branch name alone never picks a run (specs/orchestrator-context-modes.md).
  * @returns {number} exit code
  */
 function handleContextPackCommand({

@@ -110,7 +110,7 @@ const records = (files: Record<string, string>) => Object.values(files).join('\n
 type Kind = 'rerank' | 'claim-support';
 type World = ReturnType<typeof createSettingsEnv>;
 
-/** A scratch HOME/XDG/project with the user settings file written as docs/settings.md says. */
+/** A scratch HOME/XDG/project with the user settings file written as docs/reference.md (Settings keys) says. */
 function world(t: any, { kind, kindValue, endpoint }: { kind: Kind; kindValue?: string; endpoint: string }) {
   const f: World = createSettingsEnv(t, { prefix: 'doflow-advice-hooks-' });
   const settings: Record<string, unknown> = {

@@ -30,24 +30,11 @@ extra_javascript:
 
 nav:
   - Home: index.md
-  - Get started:
-      - Quickstart: quickstart.md
-      - Setup: setup.md
   - Use DoFlow:
+      - Setup: setup.md
       - Guide: guide.md
       - How DoFlow works: how-doflow-work.md
-  - Reference:
-      - Commands and skills: reference.md
-      - Settings: settings.md
-  - Contributing:
-      - Specs:
-          - Orchestrator context modes: specs/orchestrator-context-modes.md
-          - Operating modes: specs/operating-modes.md
-          - Candidate evidence boundary: specs/candidate-evidence-boundary.md
-          - Telemetry contract: specs/telemetry-contract.md
-
-not_in_nav: |
-  /overview.md
+  - Reference: reference.md
 
 validation:
   omitted_files: warn

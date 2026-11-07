@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "Telemetry contract v1: every key a DoFlow telemetry line may carry, its privacy class and type, and the closed vocabularies. Prose: docs/specs/telemetry-contract.md. Changes are additive; version stays 1.",
+  "description": "Telemetry contract v1: every key a DoFlow telemetry line may carry, its privacy class and type, and the closed vocabularies. Prose: specs/telemetry-contract.md. Changes are additive; version stays 1.",
   "keyPrefix": "doflow.",
   "classes": {
     "T0": "identifier",

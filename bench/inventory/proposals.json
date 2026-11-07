@@ -73,7 +73,7 @@
       "evidence": [
         "bench/perf/budgets.json",
         "core/registry/capabilities.json",
-        "docs/specs/operating-modes.md"
+        "specs/operating-modes.md"
       ],
       "rejectedAlternative": "Single unconfigurable retrieval pipeline for all harnesses and execution modes.",
       "status": "proposed"
