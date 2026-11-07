@@ -1,0 +1,3 @@
+{"_fixture":"synthetic","type":"step_start","part":{"type":"step-start"}}
+{"_fixture":"synthetic","type":"text","part":{"text":"Partial answer before the cut."}}
+{"_fixture":"synthetic","type":"step_finish","part":{"reason":"length","tokens":{"input":90,"output":10},"cost":0}}

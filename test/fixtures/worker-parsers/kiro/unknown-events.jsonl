@@ -1,0 +1,6 @@
+{"_fixture": "synthetic", "type": "runStarted", "data": {"sessionId": "sess_00000000-0000-4000-8000-000000000001"}}
+{"_fixture": "synthetic", "type": "futureEvent", "data": {"x": 1}}
+{"_fixture": "synthetic", "type": "sessionUpdate", "data": {"update": {"sessionUpdate": "config_option_update"}}}
+{"_fixture": "synthetic", "type": "sessionUpdate", "data": {"update": {"sessionUpdate": "session_info_update"}}}
+{"_fixture": "synthetic", "type": "sessionUpdate", "data": {"update": {"sessionUpdate": "tool_call_update", "title": "read"}}}
+{"_fixture": "synthetic", "type": "runFinished", "data": {"sessionId": "sess_00000000-0000-4000-8000-000000000001", "status": "success", "stopReason": "end_turn", "finalText": "done"}}

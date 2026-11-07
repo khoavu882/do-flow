@@ -1,0 +1,3 @@
+{"type":"system","subtype":"init","session_id":"s1","tools":["Read","Task"],"model":"m","_fixture":"synthetic"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"working"}]},"session_id":"s1","_fixture":"synthetic"}
+{"type":"result","subtype":"success","is_error":false,"result":"Writes were refused","num_turns":2,"usage":{"input_tokens":12,"cache_read_input_tokens":900,"output_tokens":30},"permission_denials":[{"tool_name":"Write","tool_use_id":"t3","tool_input":{"file_path":"slug.js","content":"x"}},{"tool_name":"Bash","tool_use_id":"t4","tool_input":{"command":"node -e 1"}}],"subagent_stats":{"spawned":0},"session_id":"s1","_fixture":"synthetic"}
