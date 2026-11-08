@@ -24,7 +24,9 @@
 //     turns it back to Live and stops the GET timer; push-lost and push-back are announced;
 //   - a child that keeps failing: no snapshot comes, so for 60 s (a browser reconnect included,
 //     whose stream re-sends the channel's error) the pill reads Polling at every 1 s tick and the
-//     view keeps updating by GET; push-back is never announced.
+//     view keeps updating by GET; push-back is never announced;
+//   - a frozen server (FU-mnes07): the adapter's `closed` `silent` after live data hands over to a poller whose GET never
+//     answers, and the view is stale once 20 s passed since the stream went quiet.
 
 const { test, mock } = require('node:test');
 const assert = require('node:assert/strict');
@@ -263,6 +265,7 @@ async function clientRig(t: any) {
   const store = storeMod.createLiveStore({ adapter, visibility: { hidden: () => false, subscribe: () => () => {} } });
 
   let server = runBody(1);
+  let hang = false;
   const gets: number[] = [];
   const seen: any[] = [];
   const failures: any[] = [];
@@ -272,7 +275,8 @@ async function clientRig(t: any) {
     onData: (data: any) => { view.hasData = true; seen.push(data); },
     onFailure: (error: any) => { failures.push(error); },
     store: () => store,
-    fetchOnce: () => { gets.push(Date.now()); return Promise.resolve(structuredClone(server)); },
+    // A frozen server (`hang`) never answers the GET.
+    fetchOnce: () => { gets.push(Date.now()); return hang ? new Promise(() => {}) : Promise.resolve(structuredClone(server)); },
   });
   stopView = () => view.poller.stop();
 
@@ -280,8 +284,9 @@ async function clientRig(t: any) {
     view, opened, gets, seen, failures, region,
     pill: () => { const p = pillFor(view, Date.now()); return [p.state, p.long, p.short]; },
     setServer: (revision: number) => { server = runBody(revision); },
+    freeze: () => { hang = true; },
     emit: (envelope: any) => frame(structuredClone(envelope)),
-    transport: (name: string) => state({ state: name, code: null, at: Date.now() }),
+    transport: (name: string, code: string | null = null, at: number = Date.now()) => state({ state: name, code, at }),
   };
 }
 
@@ -376,4 +381,27 @@ test('client, a child that keeps failing: no snapshot comes, so the pill reads P
   assert.equal(c.seen.at(-1).run.revision, revision, 'the view shows the latest polled run');
   assert.equal(c.region.textContent, 'Push unavailable; polling every 3 seconds.', 'push-back was never announced');
   assert.deepEqual(c.failures, []);
+});
+
+test('client, a frozen server (FU-mnes07): after live data, closed silent hands over to a poller whose GET never answers, and the view is stale once 20 s passed since the stream went quiet', async (t: any) => {
+  const c = await clientRig(t);
+  await goLive(c);
+  assert.equal(c.view.poller.isStale(), false);
+
+  c.freeze();
+  // The adapter reports `closed` `silent` with `at` the last time it heard anything (after the snapshot); 5 s ago here.
+  const quietAt = Date.now() - 5_000;
+  c.transport('closed', 'silent', quietAt);
+  await settle();
+  assert.equal(c.view.poller.mode, 'polling', 'polling took over');
+  const getsAtDown = c.gets.length;
+  assert.equal(getsAtDown, 2, 'the polling GET was made, and it hangs');
+  assert.equal(c.view.poller.isStale(), false, '5 s since the stream went quiet: not stale');
+  await advance(15_000);
+  assert.equal(Date.now() - quietAt, 20_000);
+  assert.equal(c.view.poller.isStale(), false, 'exactly 20 s: not yet');
+  await advance(1);
+  assert.equal(c.view.poller.isStale(), true, 'more than 20 s with no answer: stale');
+  assert.equal(c.gets.length, getsAtDown, 'the one polling GET is still pending');
+  assert.equal(c.view.poller.lastSuccessAt < quietAt, true, 'what the view shows is the snapshot from before the stream went quiet');
 });

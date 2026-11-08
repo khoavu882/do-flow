@@ -211,9 +211,10 @@ type Wire = { status: number | null, frameAt: number | null };
 
 /**
  * An EventSource constructor for live.js over node:http on the Console's origin. Unnamed messages reach `message` with
- * their data; `open` on a 200 head. It does not reconnect: on the end of the stream or a refused head it is CLOSED and
- * fires `error`, and the adapter's probe (below) reports the status this reader saw. `wire.frameAt` is the arrival time of
- * the message being dispatched, so a render the message causes can be told from one a GET causes.
+ * their data, a named event (the keepalive) its own listeners; `open` on a 200 head. It does not reconnect: on the end of
+ * the stream or a refused head it is CLOSED and fires `error`, and the adapter's probe (below) reports the status this
+ * reader saw. `wire.frameAt` is the arrival time of the message being dispatched, so a render the message causes can be
+ * told from one a GET causes.
  */
 function nodeEventSource(origin: Origin, wire: Wire) {
   return class NodeEventSource {
@@ -251,16 +252,21 @@ function nodeEventSource(origin: Origin, wire: Wire) {
     dispatch(block: string, at: number) {
       if (this.readyState !== 1) return;
       const data: string[] = [];
-      let named = false;
+      let name = 'message';
       for (const line of block.split('\n')) {
         if (line === '' || line.startsWith(':')) continue;
         const colon = line.indexOf(':');
         const field = colon < 0 ? line : line.slice(0, colon);
         const value = colon < 0 ? '' : line.slice(colon + 1).replace(/^ /, '');
         if (field === 'data') data.push(value);
-        else if (field === 'event' && value !== 'message') named = true;
+        else if (field === 'event' && value !== '') name = value;
       }
-      if (data.length === 0 || named) return;
+      if (data.length === 0) return;
+      // A named event (the live keepalive) goes to its own listeners, as a browser's EventSource sends it; it is no frame.
+      if (name !== 'message') {
+        this.emit(name, { type: name, data: data.join('\n') });
+        return;
+      }
       wire.frameAt = at;
       try {
         this.emit('message', { type: 'message', data: data.join('\n') });

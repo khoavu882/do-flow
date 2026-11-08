@@ -111,13 +111,12 @@ function laneFacts(lane, row, nowMs) {
   return facts;
 }
 
-/** The panel content: title, close, facts and the command that shows more, as text. @param {any} lane @param {any} row @param {number} nowMs @param {(() => void) | null} onClose @param {string | null} titleId */
-function panelContent(lane, row, nowMs, onClose, titleId) {
+/** The panel content: title, facts and the command that shows more, as text; the inspector holds the close control. @param {any} lane @param {any} row @param {number} nowMs @param {string | null} titleId */
+function panelContent(lane, row, nowMs, titleId) {
   const command = commandFor(lane);
   return [
     h('div', { class: 'spanel__head' }, [
       h('h2', { class: 'spanel__title', id: titleId }, laneTitle(lane)),
-      onClose ? h('button', { type: 'button', class: 'btn btn--ghost spanel__close', 'aria-label': `Close the details of ${laneTitle(lane)}`, dataset: { focusKey: 'panel-close' }, on: { click: onClose } }, icon('close', 16)) : null,
     ]),
     stateMark(lane.token, stateWord(lane)),
     h('dl', { class: 'spanel__facts' }, laneFacts(lane, row, nowMs).flatMap(([term, value]) => [h('dt', {}, term), h('dd', {}, value)])),
@@ -296,7 +295,12 @@ function renderSessions(data, params, local) {
             ...laneLines(lane, nowMs).filter(Boolean).map((line) => h('span', { class: 'slane__line' }, line)),
           ]),
         ]);
-        button.addEventListener('click', () => { memory.focusKey = key; select(memory.selected === lane.key ? null : lane.key); focusKey(key); });
+        button.addEventListener('click', () => {
+          memory.focusKey = key;
+          select(memory.selected === lane.key ? null : lane.key);
+          // As drawer or sheet the inspector is a modal dialog and took the focus to its close control: leave it there.
+          if (!(local.inspector && local.inspector.isOpen() && local.inspector.mode() !== 'dock')) focusKey(key);
+        });
         button.addEventListener('focus', () => { memory.focusKey = key; });
         return h('li', { class: 'slane-item' }, [button, lane.children.length > 0 ? h('ul', { class: 'slane-children' }, lane.children.map((/** @type {any} */ child) => laneItem(child, true))) : null]);
       };
@@ -347,9 +351,10 @@ function renderSessions(data, params, local) {
     } else {
       const key = found.lane.key;
       panel.removeAttribute('hidden');
-      mount(panel, panelContent(found.lane, found.row, nowMs, () => select(null, true), 'sessions-panel-title'));
+      mount(panel, panelContent(found.lane, found.row, nowMs, 'sessions-panel-title'));
       showPanel(local.inspector, local, {
         title: 'Lane details',
+        labelledBy: 'sessions-panel-title',
         body: panel,
         owner: rowsHost.querySelector(`[data-focus-key="lane:${key}"]`),
         onClose: () => {
@@ -400,9 +405,13 @@ function renderSessions(data, params, local) {
     if (!isKey(event, 'close') || memory.selected === null) return;
     event.preventDefault();
     const target = event.target;
-    // The focus goes back to the lane only when it was inside a panel; on a lane it stays where it is.
+    // The focus goes back to the lane only when it was inside a panel; on a lane it stays on that lane, which the re-mount
+    // of the rows replaces with a fresh node.
     const inPanel = Boolean(target) && typeof target.closest === 'function' && target.closest('.spanel') !== null;
+    const owner = !inPanel && target && typeof target.closest === 'function' ? target.closest('[data-focus-key]') : null;
+    const ownerKey = owner ? owner.getAttribute('data-focus-key') : null;
     select(null, inPanel);
+    if (!inPanel && ownerKey) focusKey(ownerKey);
   });
 
   // ---- the footer: what was checked, what cannot be seen ----

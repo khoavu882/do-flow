@@ -329,6 +329,8 @@ const text = (node: any) => node.textContent as string;
 const heading = (page: Page) => page.main.querySelector('h1');
 const current = (page: Page) => page.nav.filter((a) => a.getAttribute('aria-current') === 'page').map(text);
 const apiCalls = (page: Page, prefix: string) => page.calls.filter((c) => c.url.startsWith(prefix));
+/** The buttons in the inspector that close it, by their visible or accessible name (FU-a0n90q: the inspector's own only). */
+const closeControlsOf = (page: Page) => page.inspector.querySelectorAll('button').filter((b: El) => /close/i.test(`${b.getAttribute('aria-label') ?? ''} ${text(b)}`));
 const standard = (target: string, init: any): Reply => {
   if (target === '/api/session') return reply(204);
   if (target === '/api/info') return reply(200, INFO);
@@ -972,6 +974,25 @@ test('inspector open while docked: narrowing into drawer or sheet moves focus in
   }
 });
 
+test('inspector name (FU-h7e7dx): open names it by the title and the labelledBy heading in every mode; without labelledBy the title alone; close drops it', () => {
+  for (const width of [1440, 1024, 360]) {
+    const page = installPage({ width, fetch: () => reply(204) });
+    const inspector = mods.shell.createInspector({ doc: page.doc, shell: page.shell, el: page.inspector, main: page.main, matchMedia: globalThis.matchMedia });
+    inspector.setInspectable(true);
+    assert.equal(page.inspector.getAttribute('aria-labelledby'), null, `${width}: no name of its own while closed`);
+    inspector.open({ title: 'Step details', labelledBy: 'rail-detail-title', body: mods.dom.h('h3', { id: 'rail-detail-title' }, 'planning') });
+    assert.equal(page.inspector.getAttribute('aria-labelledby'), 'inspector-title rail-detail-title', `${width}: the title and the heading`);
+    const named = String(page.inspector.getAttribute('aria-labelledby')).split(' ').map((id: string) => text(page.doc.getElementById(id)));
+    assert.deepEqual(named, ['Step details', 'planning'], `${width}: both ids resolve inside the inspector`);
+    inspector.open({ title: 'Lane details', body: 'x' });
+    assert.equal(page.inspector.getAttribute('aria-labelledby'), 'inspector-title', `${width}: without labelledBy, the title alone`);
+    inspector.close();
+    assert.equal(page.inspector.getAttribute('aria-labelledby'), null, `${width}: close drops it`);
+    assert.equal(page.inspector.getAttribute('aria-label'), 'Details', `${width}: index.html's label is left as it is`);
+    uninstallPage();
+  }
+});
+
 test('stale: setStale marks #inspector beside #main, and a route change clears both', async () => {
   let down = false;
   const page = await start({ hash: '#/run/feat-a/run-1', width: 1440, fetch: (target, init) => (target === '/api/runs/feat-a/run-1' ? (down ? errorReply(502, 'core-error') : runReply()) : standard(target, init)) });
@@ -1537,11 +1558,16 @@ test('E.1 rail: arrows, Home and End move the single tab stop without wrapping; 
   assert.equal(page.inspector.querySelector('.rail-detail'), null);
   same(page.doc.activeElement, buttons()[2], 'focus stays on the node');
   buttons()[2].fire('click');
-  const close = page.inspector.querySelector('[data-focus-key="rail-detail-close"]');
-  assert.equal(text(close), 'Close details');
-  close.fire('click');
+  const closes = closeControlsOf(page);
+  assert.deepEqual(closes.map((b: El) => b.className), ['btn btn--ghost inspector__close'], 'one close control: the inspector\'s own');
+  // Escape inside the detail closes it and returns focus to its node.
+  page.inspector.querySelector('.rail-detail').fire('keydown', { key: 'Escape' });
   assert.equal(page.inspector.querySelector('.rail-detail'), null);
-  same(page.doc.activeElement, buttons()[2], 'the Close button returns focus to its node');
+  same(page.doc.activeElement, buttons()[2], 'Escape in the detail returns focus to its node');
+  buttons()[2].fire('click');
+  closes[0].fire('click');
+  assert.equal(page.inspector.querySelector('.rail-detail'), null);
+  same(page.doc.activeElement, buttons()[2], 'the inspector\'s close returns focus to its node');
 });
 
 test('E.1 rail: the open detail and the roving stop survive a poll, focus stays on the same node, and the detail closes when its node is gone', async () => {
@@ -2185,11 +2211,12 @@ test('E.3 keys and panel: arrows walk the lane and the lanes, a click opens the 
   assert.equal(panel.querySelectorAll('.gattempt').length, 1);
   assert.match(text(panel.querySelector('.gattempt')), /^Attempt 1worker-a · sequentialactivesince \d\d:\d\d$/);
   assert.equal(page.main.querySelectorAll('.graph__edge').filter((e: El) => e.getAttribute('data-active') === 'true').length, 1, 'the edge A.1>B.1 is marked');
-  assert.equal(panel.querySelector('.graph__close').getAttribute('aria-label'), 'Close the details of A.1');
+  assert.deepEqual(closeControlsOf(page).map((b: El) => b.className), ['btn btn--ghost inspector__close'], 'one close control: the inspector\'s own');
+  assert.equal(panel.querySelectorAll('button').length, 0, 'the panel holds no close control of its own');
   assert.equal(panel.querySelectorAll('input, textarea, select').length, 0);
 
   // Escape inside the panel closes it and puts the focus back on the card.
-  page.inspector.fire('keydown', { key: 'Escape', target: panel.querySelector('.graph__close') });
+  page.inspector.fire('keydown', { key: 'Escape', target: panel.querySelector('.graph__paneltitle') });
   assert.equal(panel.getAttribute('hidden'), '');
   assert.equal(a1.getAttribute('aria-expanded'), 'false');
   assert.ok(page.doc.activeElement === a1, 'the focus is back on the card');
@@ -2526,8 +2553,9 @@ test('E.7 sessions: one tab stop; Right enters the lanes, Down and Up walk them,
   assert.equal(text(open.querySelector('.cmd__text')), 'doflow slot --action peek --json', 'the command is text with a Copy button, never a button that runs it');
   assert.equal(open.querySelectorAll('input, textarea, select').length, 0);
   assert.ok(page.doc.activeElement === slaneOf(page, 'lock:build'), 'the lane keeps the focus after it opens');
+  assert.deepEqual(closeControlsOf(page).map((b: El) => b.className), ['btn btn--ghost inspector__close'], 'one close control: the inspector\'s own');
 
-  page.inspector.fire('keydown', { key: 'Escape', target: open.querySelector('.spanel__close') });
+  page.inspector.fire('keydown', { key: 'Escape', target: open.querySelector('.spanel__title') });
   assert.equal(open.getAttribute('hidden'), '');
   assert.equal(slaneOf(page, 'lock:build').getAttribute('aria-expanded'), 'false');
   assert.equal(page.doc.activeElement.getAttribute('data-focus-key'), 'lane:lock:build', 'the focus is back on the lane');
@@ -2767,19 +2795,32 @@ const TREE_NODES = () => [
 const TREE_EDGES = () => [{ from: A_MAIN, to: A_SUB, basis: 'harness-subagent-record' }, { from: A_MAIN, to: A_OC, basis: 'harness-subagent-record' }];
 const FLEET_TWO = () => fBody([fProject(P1, 'example-project', true, TREE_NODES(), TREE_EDGES()), fProject(P2, 'other-project', false, [fNode(fk(0xb1), { liveness: 'process-seen' })])]);
 
-/** A scripted EventSource: tests open it, emit named events and fail it. */
+/**
+ * A scripted EventSource: tests open it, emit named events and fail it. While open it hears the live server's `keepalive`
+ * every 15 s (console/src/live-stream.ts KEEPALIVE_MS), so a quiet open stream stays open past the adapter's silence
+ * timer; a case that wants the silence of a frozen server sets `keepalive = false`.
+ */
 class FakeES {
   static all: FakeES[] = [];
   url: string;
   readyState = 0;
   closed = false;
+  keepalive = true;
+  beat: any = null;
   listeners = new Map<string, Function[]>();
   constructor(url: string) { this.url = url; FakeES.all.push(this); }
   addEventListener(type: string, fn: Function) { this.listeners.set(type, [...(this.listeners.get(type) ?? []), fn]); }
-  close() { this.readyState = 2; this.closed = true; }
+  close() { this.readyState = 2; this.closed = true; this.stopBeat(); }
   emit(type: string, data?: unknown) { for (const fn of this.listeners.get(type) ?? []) fn({ type, data: data === undefined ? undefined : JSON.stringify(data), lastEventId: '' }); }
-  open() { this.readyState = 1; this.emit('open'); }
-  fail(state = 0) { this.readyState = state; this.emit('error'); }
+  open() {
+    this.readyState = 1;
+    this.stopBeat();
+    this.beat = setInterval(() => { if (this.keepalive && this.readyState === 1) this.emit('keepalive', {}); }, 15_000);
+    if (this.beat && typeof this.beat.unref === 'function') this.beat.unref();
+    this.emit('open');
+  }
+  fail(state = 0) { this.readyState = state; if (state === 2) this.stopBeat(); this.emit('error'); }
+  stopBeat() { if (this.beat !== null) clearInterval(this.beat); this.beat = null; }
 }
 const esOf = (match: string): FakeES => FakeES.all.filter((e) => e.url.includes(match) && !e.closed).at(-1)!;
 
@@ -4407,6 +4448,8 @@ test('D.2 Run rail: a second node keeps the inspector open on the new node; the 
   buttons()[3].fire('click');
   assert.equal(inspectorOpen(page), true);
   assert.equal(text(page.inspector.querySelector('.inspector__title')), 'Step details');
+  assert.equal(page.inspector.getAttribute('aria-labelledby'), 'inspector-title rail-detail-title', 'named by the title and the node heading');
+  assert.equal(text(page.inspector.querySelector('#rail-detail-title')), 'planning');
   assert.equal(page.main.querySelector('.rail-detail'), null, 'the detail is not mounted inline');
   buttons()[4].fire('click');
   assert.equal(inspectorOpen(page), true, 'the second selection keeps it open');
@@ -4417,6 +4460,7 @@ test('D.2 Run rail: a second node keeps the inspector open on the new node; the 
   closeInspector(page);
   assert.equal(inspectorOpen(page), false);
   assert.equal(page.inspector.querySelector('.rail-detail'), null);
+  assert.equal(page.inspector.getAttribute('aria-labelledby'), null, 'closed, the name is dropped');
   assert.equal(buttons()[4].getAttribute('aria-expanded'), 'false');
   assert.ok(page.doc.activeElement === buttons()[4], 'the focus is on the node that was open');
   buttons()[4].fire('click');
@@ -4429,6 +4473,8 @@ test('D.2 Tasks: a second task keeps the inspector open on the new task; the ins
   gcardOf(page, 'A.1').fire('click');
   assert.equal(inspectorOpen(page), true);
   assert.equal(text(page.inspector.querySelector('.inspector__title')), 'Task details');
+  assert.equal(page.inspector.getAttribute('aria-labelledby'), 'inspector-title graph-panel-title', 'named by the title and the task heading');
+  assert.equal(text(page.inspector.querySelector('#graph-panel-title')), 'A.1');
   assert.equal(page.main.querySelector('.graph__panel'), null, 'the panel is not mounted inline');
   gcardOf(page, 'B.1').fire('click');
   assert.equal(inspectorOpen(page), true, 'the second selection keeps it open');
@@ -4456,6 +4502,8 @@ test('D.2 Sessions: a second lane keeps the inspector open on the new lane; the 
   slaneOf(page, a).fire('click');
   assert.equal(inspectorOpen(page), true);
   assert.equal(text(page.inspector.querySelector('.inspector__title')), 'Lane details');
+  assert.equal(page.inspector.getAttribute('aria-labelledby'), 'inspector-title sessions-panel-title', 'named by the title and the lane heading');
+  assert.equal(text(page.inspector.querySelector('#sessions-panel-title')), text(page.inspector.querySelector('.spanel__title')));
   assert.equal(page.main.querySelector('.spanel'), null, 'the panel is not mounted inline');
   const firstTitle = text(page.inspector.querySelector('.spanel__title'));
   slaneOf(page, b).fire('click');
@@ -4486,6 +4534,7 @@ test('D.2 Fleet: a second agent keeps the inspector open on its transcript; the 
   assert.equal(page.main.querySelector('.fpanel'), null, 'the transcript is not mounted inline');
   const panel = page.inspector.querySelector('.fpanel');
   assert.equal(text(panel.querySelector('.fpanel__title')), 'system-architect');
+  assert.equal(page.inspector.getAttribute('aria-labelledby'), 'inspector-title fpanel-title', 'named by the title and the heading with the agent');
   page.location.hash = `#/fleet/${P1}/${A_MAIN}`;
   page.win.dispatch('hashchange');
   await settle();
@@ -4501,6 +4550,46 @@ test('D.2 Fleet: a second agent keeps the inspector open on its transcript; the 
   assert.equal(inspectorOpen(page), false);
   assert.equal(page.inspector.querySelector('.fpanel'), null);
   assert.equal(treeItem(page, A_MAIN).getAttribute('aria-selected'), 'false');
+});
+
+/** Opens the row of `label` when it is closed (the fake matchMedia reads every max-width query as a phone). */
+const openRow = (page: Page, label: string) => {
+  const head = srowOf(page, label).querySelector('.srow__head');
+  if (head.getAttribute('aria-expanded') !== 'true') head.fire('click');
+};
+
+test('D.2 Sessions focus (FU-n5a22a): as a drawer, a lane opens the inspector with the focus on its close control, and Escape there returns the focus to the lane', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '#/sessions', width: 1024, fetch: sessionsRoute(BUSY) });
+  assert.equal(page.inspector.dataset.mode, 'drawer');
+  openRow(page, 'feat-2');
+  const lane = slaneOf(page, 'lock:build');
+  lane.focus();
+  lane.fire('click'); // Enter on a button reaches it as a click
+  assert.equal(page.inspector.getAttribute('aria-modal'), 'true');
+  assert.ok(page.doc.activeElement === page.inspector.querySelector('.inspector__close'), 'the focus is on the inspector close, not pulled back to the lane');
+  assert.deepEqual(closeControlsOf(page).map((b: El) => b.className), ['btn btn--ghost inspector__close'], 'one close control: the inspector\'s own');
+  page.inspector.fire('keydown', { key: 'Escape', target: page.doc.activeElement });
+  assert.equal(inspectorOpen(page), false);
+  assert.equal(page.inspector.getAttribute('aria-modal'), null);
+  assert.ok(page.doc.activeElement === slaneOf(page, 'lock:build'), 'the focus is back on the lane, the node now on the page');
+});
+
+test('D.2 Sessions focus (FU-n5a22a): docked, Escape with the focus on a lane closes the panel and the focus stays on that lane', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '#/sessions', width: 1440, fetch: sessionsRoute(BUSY) });
+  assert.equal(page.inspector.dataset.mode, 'dock');
+  openRow(page, 'feat-2');
+  slaneOf(page, 'lock:build').fire('click');
+  assert.equal(inspectorOpen(page), true);
+  const lane = slaneOf(page, 'lock:build');
+  assert.ok(page.doc.activeElement === lane, 'docked, the lane keeps the focus after it opens');
+  page.main.querySelector('.sessions').fire('keydown', { key: 'Escape', target: lane });
+  assert.equal(inspectorOpen(page), false, 'Escape on the lane closes the panel');
+  const fresh = slaneOf(page, 'lock:build');
+  assert.ok(fresh !== lane, 'the rows were re-mounted');
+  assert.ok(page.doc.activeElement === fresh, 'the focus is on the same lane, by its focus key');
+  assert.equal(fresh.getAttribute('aria-expanded'), 'false');
 });
 
 // ---- 149 D.3: hash permalinks (IC-019, DEC-034) ----

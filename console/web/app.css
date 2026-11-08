@@ -1081,7 +1081,6 @@
   }
   .rail-detail__head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
   .rail-detail__title { margin: 0; font: var(--type-lg); font-family: var(--font-mono); }
-  .rail-detail__close { margin-inline-start: auto; min-width: var(--target); padding-inline: 0; }
   .rail-detail__body { display: grid; grid-template-columns: max-content 1fr; gap: var(--space-2) var(--space-4); margin-top: var(--space-3); font: var(--type-sm); }
   .rail-detail__body dt { color: var(--text-muted); }
   .rail-detail__body dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
@@ -1309,7 +1308,6 @@
   .graph__panel { min-width: 0; }
   .graph__panelhead { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-2); }
   .graph__paneltitle { min-width: 0; font: var(--type-lg); font-family: var(--font-mono); overflow-wrap: anywhere; }
-  .graph__close { flex: none; min-width: var(--target); padding-inline: 0; }
   .gdetail__why { display: flex; align-items: flex-start; gap: var(--space-2); margin-top: var(--space-3); font: var(--type-sm); color: var(--text); }
   .gdetail__why .icon { flex: none; margin-top: 2px; }
   .gdetail__facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--space-2) var(--space-4); margin-top: var(--space-3); font: var(--type-sm); }
@@ -1483,7 +1481,6 @@
   .spanel { min-width: 0; }
   .spanel__head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-2); }
   .spanel__title { min-width: 0; font: var(--type-lg); letter-spacing: var(--tracking-tight); overflow-wrap: anywhere; }
-  .spanel__close { flex: none; min-width: var(--target); padding-inline: 0; }
   .spanel__facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--space-2) var(--space-4); margin-top: var(--space-3); font: var(--type-sm); }
   .spanel__facts dt { color: var(--text-muted); }
   .spanel__facts dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }

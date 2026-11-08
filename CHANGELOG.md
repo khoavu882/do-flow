@@ -15,6 +15,9 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+- **Console live view, Sessions focus and inspector fixes from the browser review (feature 149):** `/api/live` now sends its 15 s keepalive as a named `keepalive` event (`data: {}`, no `id:`) instead of an SSE comment the page could not see, and the page closes a stream that has sent no message or keepalive for 30 s (`closed`, code `silent`), so a server frozen with the socket open turns the pill to Polling instead of staying Live; when the polled GET then never answers, the view is stale as soon as that silent stream closes, 30 s after the page last heard from the server (FU-mnes07). In Sessions, opening a lane as a drawer or sheet leaves the focus on the inspector's close button instead of pulling it back to the lane, and Escape on a lane closes the panel with the focus still on that lane (FU-n5a22a). While a panel is open the inspector is named by its title and the panel's heading (`aria-labelledby`) in every mode, instead of always "Details" (FU-h7e7dx). The Run, Tasks and Sessions panels lost their own close buttons, so the inspector's close button is the only one (FU-a0n90q). Fleet's `/api/stream` is unchanged.
+
 ## [2.4.0] - 2026-11-08
 
 ### Added

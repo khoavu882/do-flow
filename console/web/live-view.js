@@ -18,7 +18,8 @@
 //   with the interval in seconds; returning says `push-back`.
 // - `lastSuccessAt` is the time of the newest applied frame or successful fetch, never the time of reading (FR-018). Live
 //   stale rule: data has arrived and the connection has not been open for 20000 ms (a hidden tab or a pause does not count).
-//   Polling: poll.js's rule.
+//   Polling: poll.js's rule, except while the poller that took over from live data has had no success yet (its first GET
+//   hangs on a frozen server): then the live rule goes on, counted from when the connection stopped being open.
 // - Pause and resume reach the store (it closes the stream and reopens with `since`) and the poller. Back from a pause or a
 //   hidden tab while live, the view's GET is read once, as poll.js reads once on return, so the shell's full-refresh rule
 //   (`resync`) meets a full state even when the reopened stream has nothing to send.
@@ -111,6 +112,8 @@ function createLiveView(config, local, params, hooks) {
   let downSince = null;
   /** The channel holds a state the store keeps (a `state` came, and no `error`, `reset` or `gone` since). */
   let channelOk = false;
+  /** The poller now running has answered once (poll.js's stale rule needs a success first). */
+  let polledOk = false;
 
   /** @param {any} data */
   function apply(data) {
@@ -133,6 +136,7 @@ function createLiveView(config, local, params, hooks) {
   /** The poller over the view's GET: the first paint, and polling mode. */
   function startPoller() {
     if (poller !== null) poller.stop();
+    polledOk = false;
     const mine = createPoller({
       fetchOnce,
       intervalMs,
@@ -140,6 +144,7 @@ function createLiveView(config, local, params, hooks) {
         if (stopped || poller !== mine) return;
         fetchAt = now();
         hadData = true;
+        polledOk = true;
         apply(data);
       },
       onFailure: (error) => {
@@ -303,7 +308,11 @@ function createLiveView(config, local, params, hooks) {
     },
     isStale() {
       if (!running) return false;
-      if (mode !== 'live') return poller !== null ? poller.isStale() : false;
+      if (mode !== 'live') {
+        // Polling took over from data that had arrived and has not answered yet: the live rule still holds.
+        if (hadData && !polledOk) return !paused && downSince !== null && now() - downSince > LIVE_STALE_MS;
+        return poller !== null ? poller.isStale() : false;
+      }
       if (paused || !hadData || downSince === null) return false;
       return now() - downSince > LIVE_STALE_MS;
     },

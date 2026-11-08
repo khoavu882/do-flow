@@ -238,13 +238,12 @@ function renderGraphBody(data, params, local) {
     h('div', { class: 'graph__layout' }, [h('div', { class: 'graph__main' }, [h('div', { class: 'graph__scroll' }, board), lanesList])]),
   ]);
 
-  /** The board panel's content: the title, the close control and the details. @param {string} id */
+  /** The board panel's content: the title and the details; the inspector holds the close control. @param {string} id */
   const panelContent = (id) => {
     const card = layout.cards[/** @type {number} */ (at.get(id))];
     return [
       h('div', { class: 'graph__panelhead' }, [
         h('h2', { class: 'graph__paneltitle mono', id: 'graph-panel-title' }, id),
-        h('button', { type: 'button', class: 'btn btn--ghost graph__close', 'aria-label': `Close the details of ${id}`, dataset: { focusKey: 'panel-close' }, on: { click: () => { memory.trigger = 'card'; select(null, true); } } }, icon('close', 16)),
       ]),
       detailBody(taskOf.get(id), card, nowMs),
     ];
@@ -273,6 +272,7 @@ function renderGraphBody(data, params, local) {
       mount(panel, panelContent(id));
       showPanel(local.inspector, local, {
         title: 'Task details',
+        labelledBy: 'graph-panel-title',
         body: panel,
         owner: (memory.trigger === 'row' ? rowEls : cardEls).get(id),
         // The inspector's own close, Escape or scrim: the focus goes back to the control that opened the task.
