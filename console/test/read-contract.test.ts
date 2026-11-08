@@ -345,6 +345,11 @@ test('the Console reads every route from the real core, leaks no free text, and 
   const viewed = await boot(args, f.env, f.main);
   const liveCookie = await exchange(viewed);
   const liveGets = await readEverything(viewed, liveCookie);
+  // 150 IC-013: the `tasks:` channel's `workers` and the `worker:` channel's members read the worker-run routes.
+  const workerRunsTarget = `/api/worker-runs/${SLUGS.graph}`;
+  for (const target of [workerRunsTarget, `${workerRunsTarget}/${LIVE_RUN}/status`, `${workerRunsTarget}/${LIVE_RUN}/result`]) {
+    liveGets.set(target, await request(viewed.port, 'GET', target, { Cookie: liveCookie }));
+  }
   const stream = await readLive(viewed.port, liveCookie, liveChannels);
   await shutdown(viewed);
   assert.deepEqual(snapshotTrees(f.roots), liveBefore, 'the live route changed a DoFlow tree');
@@ -372,9 +377,11 @@ test('the Console reads every route from the real core, leaks no free text, and 
   const detail = member(liveGets.get(`/api/runs/${SLUGS.graph}/run-gate`)!);
   assert.deepEqual(runState.run, detail);
   const graph = snapshotOf(tasksChannel);
-  assert.deepEqual(graph, { tasks: { status: 200, body: { tasks: detail.body.tasks } } });
+  assert.deepEqual(graph, { tasks: { status: 200, body: { tasks: detail.body.tasks } }, workers: member(liveGets.get(workerRunsTarget)!) });
   const worker = snapshotOf(workerChannel);
-  assert.deepEqual(Object.keys(worker), ['worker']);
+  assert.deepEqual(Object.keys(worker), ['worker', 'result']);
+  assert.deepEqual(worker.worker, member(liveGets.get(`${workerRunsTarget}/${LIVE_RUN}/status`)!));
+  assert.deepEqual(worker.result, member(liveGets.get(`${workerRunsTarget}/${LIVE_RUN}/result`)!));
   assert.equal(worker.worker.status, 200);
   assert.deepEqual([worker.worker.body.runId, worker.worker.body.task, worker.worker.body.token, worker.worker.body.state], [LIVE_RUN, 'A.2', 2, 'exited']);
   // The planted worker run reached Sessions too, through the `tasks:` channel's worker section.

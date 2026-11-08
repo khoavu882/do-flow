@@ -172,7 +172,10 @@ test('grammar: ch is 1 to 8 distinct IC-003 channels; a vector is epoch/ch=n wit
   assert.deepEqual(parseChannelList(`now,${TASKS},run:feat-a:t1,worker:w-0123456789ab`), ['now', TASKS, 'run:feat-a:t1', 'worker:w-0123456789ab']);
   const eight = Array.from({ length: 8 }, (_, i) => `tasks:f${i}`);
   assert.deepEqual(parseChannelList(eight.join(',')), eight);
-  for (const bad of [undefined, '', 'now,', ',now', 'now,now', [...eight, 'now'].join(','), 'nope', 'worker:w-xyz', 'worker:w-0123456789ab:out', 'transcript:a', 'fleet:x', 'now ']) {
+  // 150 IC-006: the log channels are channels; `last` and every other stream are not.
+  assert.deepEqual(parseChannelList('worker:w-0123456789ab:out,worker:w-0123456789ab:err'), ['worker:w-0123456789ab:out', 'worker:w-0123456789ab:err']);
+  for (const bad of [undefined, '', 'now,', ',now', 'now,now', [...eight, 'now'].join(','), 'nope', 'worker:w-xyz', 'worker:w-0123456789ab:last', 'worker:w-0123456789ab:x',
+    'worker:w-0123456789ab:out:1', 'worker:w-xyz:out', 'transcript:a', 'fleet:x', 'now ']) {
     assert.equal(parseChannelList(bad), null, JSON.stringify(bad));
   }
   assert.deepEqual(parseVector(`${EPOCH}/now=3,${TASKS}=12`), { epoch: EPOCH, positions: new Map([['now', 3], [TASKS, 12]]) });
