@@ -46,7 +46,7 @@ test('exported constants match IC-002 and IC-007', () => {
   assert.deepEqual([...RESET_REASONS], ['frame-cap', 'replaced']);
   assert.equal(LINE_CAP_BYTES, 262144);
   assert.equal(CHANNEL_LIMIT, 64);
-  assert.deepEqual([...CHANNEL_KINDS], ['now', 'run', 'tasks', 'worker']);
+  assert.deepEqual([...CHANNEL_KINDS], ['now', 'run', 'tasks', 'worker', 'log']);
   assert.ok(Object.isFrozen(FRAME_TYPES) && Object.isFrozen(ERROR_CODES) && Object.isFrozen(RESET_REASONS));
 });
 
@@ -510,6 +510,22 @@ test('channels: the P1 grammar parses', () => {
   assert.deepEqual(parseChannel('worker:w-0123456789ab'), { ok: true, channel: { kind: 'worker', name: 'worker:w-0123456789ab', runId: 'w-0123456789ab' } });
 });
 
+test('channels: 150 IC-006 worker out and err parse as log channels; every other stream is malformed', () => {
+  assert.deepEqual(parseChannel('worker:w-0123456789ab:out'), { ok: true, channel: { kind: 'log', name: 'worker:w-0123456789ab:out', runId: 'w-0123456789ab', stream: 'out' } });
+  assert.deepEqual(parseChannel('worker:w-0123456789ab:err'), { ok: true, channel: { kind: 'log', name: 'worker:w-0123456789ab:err', runId: 'w-0123456789ab', stream: 'err' } });
+  for (const text of ['worker:w-0123456789ab:last', 'worker:w-0123456789ab:x', 'worker:w-0123456789ab:OUT', 'worker:w-0123456789ab:', 'worker:w-0123456789ab:out.log']) {
+    const result = parseChannel(text);
+    assert.deepEqual([result.ok, result.code], [false, 'malformed'], text);
+    assert.match(result.reason, /only out and err are worker output channels/, text);
+  }
+  // A bad run id is still the run id's reason, whatever the stream.
+  assert.doesNotMatch(parseChannel('worker:w-0123456789AB:out').reason, /only out and err/);
+  // The 64-channel bound counts log channels like any other.
+  const logs = Array.from({ length: 32 }, (_v, i) => `worker:w-${i.toString(16).padStart(12, '0')}:out,worker:w-${i.toString(16).padStart(12, '0')}:err`).join(',');
+  assert.equal(parseChannelList(logs).ok, true);
+  assert.equal(parseChannelList(`${logs},now`).code, 'too-many-channels');
+});
+
 test('channels: the id uses the core length bound of ID_PATTERN', () => {
   const longest = `a${'.'.repeat(54)}b`;
   assert.equal(longest.length, 56);
@@ -523,8 +539,8 @@ test('channels: the id uses the core length bound of ID_PATTERN', () => {
 
 test('channels: every refused kind and malformed form is refused with a reason', () => {
   const cases: Array<[string, string]> = [
-    ['worker:w-0123456789ab:out', 'refused-kind'],
-    ['worker:w-0123456789ab:err', 'refused-kind'],
+    ['worker:w-0123456789ab:last', 'malformed'],
+    ['worker:w-0123456789ab:x', 'malformed'],
     ['transcript:abc', 'refused-kind'],
     ['transcript', 'refused-kind'],
     ['followups', 'refused-kind'],
