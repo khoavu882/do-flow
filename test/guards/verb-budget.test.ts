@@ -117,6 +117,10 @@ const UNMEASURED: Readonly<Record<string, string>> = {
   validate: NEEDS_LIVE_RUN,
   verify: NEEDS_LIVE_RUN,
   worker: NEEDS_LIVE_RUN,
+  // 150 IC-005: the verb fixture holds no worker run, so these read verbs have nothing to measure.
+  'worker-log': NEEDS_LIVE_RUN,
+  'worker-result': NEEDS_LIVE_RUN,
+  'worker-runs': NEEDS_LIVE_RUN,
   worktree: WRITES_STATE,
 };
 
