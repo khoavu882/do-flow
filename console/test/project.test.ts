@@ -27,6 +27,10 @@ const KEY_MAIN = '0cc00ec6d2062bc0';
 const KEY_LINKED = '7654c73dc501aafe';
 const AGENT_A = 'a1b2c3d4e5f60718';
 const AGENT_B = '0f1e2d3c4b5a6978';
+const RUN_A = 'w-1a2b3c4d5e6f';
+const RUN_B = 'w-0f0e0d0c0b0a';
+/** The process numbers planted in the 150 samples (pid, pgid, survivors, zombies): none may reach a body. */
+const PLANTED_PIDS = ['987001', '987002', '987003', '987004', '987005', '987006'];
 
 /** IC-018 core outputs, as `primary --action observed`, `slot --action peek`, `worker --action status` and `roadmap --action status` print them. */
 const SAMPLES: Record<string, any> = {
@@ -58,10 +62,14 @@ const SAMPLES: Record<string, any> = {
     disposition: 'status', runId: 'w-0123456789ab', task: 'A.2', token: 2, harness: 'codex', identity: { runKey: `${KEY_MAIN}/${MARKER}/main` },
     state: 'running', reason: null, supervisorLost: false, overdue: true, cancel: { by: MARKER },
     startedAt: '2026-10-26T09:00:00.000Z', endedAt: null, deadline: '2026-10-26T10:00:00.000Z',
-    process: { pid: 4242, command: `codex exec ${MARKER}` }, report: { file: `/tmp/${MARKER}/report.md`, text: MARKER }, readOnly: false,
+    // 150 IC-011: the record's process and cleanup as the core writes them, with pids, a process start and other planted keys the projector never reads.
+    process: { kind: 'exited', code: 0, signal: null, at: '2026-10-26T09:20:00.000Z', groupAlive: true,
+      leftover: { status: 'survivors', reason: null, survivors: [987003], zombies: [987004] }, pid: 987001, pgid: 987002, start: `Mon ${MARKER}`, command: `codex exec ${MARKER}` },
+    report: { file: `/tmp/${MARKER}/report.md`, text: MARKER }, readOnly: false,
     edit: { worktree: `/tmp/${MARKER}` }, isolation: { root: `/tmp/${MARKER}` }, childOf: null, request: null,
     verified: null, attemptActive: true, resultOffered: false, withheld: { reason: MARKER },
-    cleanup: { kept: [`/tmp/${MARKER}`] }, supervisorCleanup: null, attemptCancel: null, output: { tail: MARKER }, launchObserved: null,
+    cleanup: { status: 'verified', reason: null, survivors: [987005], zombies: [987006], kept: [`/tmp/${MARKER}`] },
+    supervisorCleanup: null, attemptCancel: null, output: { tail: MARKER }, launchObserved: null,
   },
   roadmap: {
     schema: 1, action: 'status',
@@ -124,7 +132,35 @@ const SAMPLES: Record<string, any> = {
     ],
     notChecked: 0, root: `/work/${MARKER}`,
   },
+  // 150 IC-002 to IC-004, as the A.3 core prints them (src/runtime/worker/reads.ts), with planted pids, a prompt, paths and extra keys.
+  'worker-runs': {
+    v: 1, slug: '150-console-v2-chain', store: 'present',
+    runs: [
+      { runId: RUN_A, task: 'A.1', token: 1, harness: 'codex', childOf: null, phase: 'ended', endState: 'exited', createdAt: '2026-11-08T05:00:00.000Z',
+        startedAt: '2026-11-08T05:00:01.000Z', endedAt: '2026-11-08T05:03:00.000Z', edit: false,
+        prompt: `do the task ${MARKER}`, pid: 987001, pgid: 987002, execWorktree: `/tmp/${MARKER}/wt` },
+      { runId: RUN_B, task: 'A.1', token: 1, harness: 'my-fork', childOf: RUN_A, phase: 'running', endState: null, createdAt: null,
+        startedAt: null, endedAt: null, edit: true },
+    ],
+    limits: { shown: 2, notShown: 3 }, path: `/tmp/${MARKER}/worker-runs.json`,
+  },
+  'worker-result': {
+    v: 1, runId: RUN_A, task: 'A.1', token: 1, harness: 'codex', phase: 'ended', endState: 'exited', endedAt: '2026-11-08T05:03:00.000Z',
+    reportStatus: 'failure', readOnly: 'clean', isolation: null, resultOffered: false, withheld: ['report-quota'],
+    quota: { signal: `rate ${MARKER} <x>`, basis: 'transcript' },
+  },
+  'worker-log': {
+    v: 1, runId: RUN_A, stream: 'out', phase: 'running', log: 'open', ino: '8812345', size: 40000, from: 0, to: 32800,
+    pieces: [
+      { at: 0, text: 'compiling', file: `/tmp/${MARKER}/w.out.log` },
+      { at: 10, text: 'key ghp_abcdefghijklmnopqrstuvwxyz0123456789 in /Users/someone/code' },
+      { at: 100, text: 'a long line', cut: true },
+      { at: 32768, text: 'its tail' },
+    ],
+    eof: false, reset: false, capped: null, cursor: '8812345:32800:0:1762581600000', before: null, path: `/tmp/${MARKER}/w-1a2b3c4d5e6f.out.log`, pid: 987001,
+  },
 };
+SAMPLES['worker-run-status'] = SAMPLES['worker-status'];
 
 /** The SAMPLES body, else the fixture file. */
 const fixture = (name: string): any =>
@@ -162,7 +198,10 @@ const FIELD_SETS: Record<string, string[]> = {
     ...['sessionKey', 'worktreeKey', 'kind', 'harness', 'model', 'modelFirstSeenAt', 'startedAt', 'branchAtStart', 'lastHookRecordAt', 'launched',
       'launched.run', 'launched.lineage', 'launched.attempt'].map((k) => `.sessions[].${k}`)],
   slots: ['.v', '.slots', '.unreadable', ...['name', 'holder', 'waiters', 'holder.label', 'holder.since', 'holder.alive', 'holder.worktreeKey'].map((k) => `.slots[].${k}`)],
-  'worker-status': ['runId', 'task', 'token', 'harness', 'state', 'reason', 'startedAt', 'endedAt', 'overdue', 'supervisorLost', 'attemptActive'].map((k) => `.${k}`),
+  'worker-status': [...['runId', 'task', 'token', 'harness', 'state', 'reason', 'startedAt', 'endedAt', 'overdue', 'supervisorLost', 'attemptActive'].map((k) => `.${k}`),
+    // 150 IC-011: the widened fields.
+    ...['deadline', 'childOf', 'process', 'cleanup', 'cleanup.status', 'cleanup.reason'].map((k) => `.${k}`),
+    ...['kind', 'code', 'signal', 'at', 'reason', 'groupAlive', 'leftover', 'leftover.status', 'leftover.reason'].map((k) => `.process.${k}`)],
   roadmap: ['.run', '.lease', '.lease.runId', '.lease.acquiredAt', '.holds', ...['row', 'state', 'kind'].map((k) => `.holds[].${k}`)],
   // IC-019..IC-023, with `root` dropped from projects (IC-024).
   projects: ['.v', '.store', '.projects', '.truncated', '.excluded', ...['missing', 'temp', 'notDoflow', 'unreadable'].map((k) => `.excluded.${k}`),
@@ -180,10 +219,19 @@ const FIELD_SETS: Record<string, string[]> = {
       'tokens.output', 'tokens.cacheRead', 'tokens.cacheWrite', 'tokens.reasoning', 'lastRecordAt'].map((k) => `.agents[].${k}`),
     ...['model', 'agents', 'eventsPerMin', 'toolCalls', 'tokens', 'tokens.input', 'tokens.output', 'tokens.cacheRead', 'tokens.cacheWrite', 'tokens.reasoning'].map((k) => `.models[].${k}`),
     ...['a', 'b', 'basis', 'task', 'tasks', 'tasks[]'].map((k) => `.pairs[].${k}`)],
+  // 150 IC-011.
+  'worker-runs': ['.v', '.slug', '.source', '.store', '.runs', '.limits', '.limits.shown', '.limits.notShown', '.limits.ended',
+    ...['runId', 'task', 'token', 'harness', 'childOf', 'phase', 'endState', 'createdAt', 'startedAt', 'endedAt', 'edit'].map((k) => `.runs[].${k}`)],
+  'worker-result': ['.v', '.runId', '.task', '.token', '.harness', '.phase', '.endState', '.endedAt', '.reportStatus', '.readOnly', '.isolation',
+    '.resultOffered', '.withheld', '.withheld[]', '.quota', '.quota.signal', '.quota.basis'],
+  'worker-log': ['.v', '.runId', '.stream', '.phase', '.log', '.ino', '.size', '.from', '.to', '.pieces', '.pieces[].at', '.pieces[].text', '.pieces[].cut',
+    '.eof', '.reset', '.capped', '.cursor', '.before'],
 };
+FIELD_SETS['worker-run-status'] = FIELD_SETS['worker-status'];
 
 const contextFor = (shape: string) => (shape === 'status' ? { workflow: workflowBody() } : undefined);
-const MARKED_SHAPES = ['list', 'status', 'timeline', 'attempts', 'workflow', 'capabilities', 'observed', 'slots', 'worker-status', 'roadmap', 'projects', 'tree', 'transcript', 'traffic'];
+const MARKED_SHAPES = ['list', 'status', 'timeline', 'attempts', 'workflow', 'capabilities', 'observed', 'slots', 'worker-status', 'roadmap', 'projects', 'tree', 'transcript', 'traffic',
+  'worker-runs', 'worker-result', 'worker-log', 'worker-run-status'];
 
 /** The shapes whose projected fixture still holds the marker, for a given projector. */
 function leaks(projector: (shape: string, raw: unknown, context?: unknown) => any): string[] {
@@ -227,6 +275,10 @@ test('the planted markers are in every place the plan names, and none reaches a 
     ['tree', (f) => f.nodes[1].model], // a model over the label rule
     ['transcript', (f) => [f.path, f.events[0].thinking, f.events[2].output]],
     ['traffic', (f) => [f.root, f.agents[0].session, f.pairs[2].why]],
+    ['worker-status', (f) => [f.process.start, f.process.command]], // 150: a process start and command beside the pids
+    ['worker-runs', (f) => [f.path, f.runs[0].prompt, f.runs[0].execWorktree]],
+    ['worker-result', (f) => f.quota.signal], // a quota signal over the label rule
+    ['worker-log', (f) => [f.path, f.pieces[0].file]],
   ];
   for (const [shape, pick] of where) assert.ok(JSON.stringify(pick(fixture(shape))).includes(MARKER), `${shape} fixture lacks the marker`);
   assert.equal(fixture('attempts').graph.tasks[0].owner.length, 200);
@@ -382,6 +434,10 @@ test('worker-status: exactly the IC-018 d set; an unknown harness is (other); no
   assert.deepEqual(body, {
     runId: 'w-0123456789ab', task: 'A.2', token: 2, harness: 'codex', state: 'running', reason: null,
     startedAt: '2026-10-26T09:00:00.000Z', endedAt: null, overdue: true, supervisorLost: false, attemptActive: true,
+    // 150 IC-011: the widened fields.
+    deadline: '2026-10-26T10:00:00.000Z', childOf: null,
+    process: { kind: 'exited', code: 0, signal: null, at: '2026-10-26T09:20:00.000Z', reason: null, groupAlive: true, leftover: { status: 'survivors', reason: null } },
+    cleanup: { status: 'verified', reason: null },
   });
   const ended = { ...fixture('worker-status'), harness: 'some-new-harness', state: 'exited', endedAt: '2026-10-26T09:30:00.000Z', attemptActive: false };
   delete ended.overdue;
@@ -393,6 +449,106 @@ test('worker-status: exactly the IC-018 d set; an unknown harness is (other); no
   const lost = { ...fixture('worker-status'), state: 'unknown', reason: 'process-lost' };
   assert.equal(project('worker-status', lost).body.reason, 'process-lost');
   assert.deepEqual(project('worker-status', { disposition: 'status', run: null, task: 'A.2', token: 2 }), { ok: true, body: null });
+});
+
+// ---- 150 IC-011: the worker reads ----
+
+/** Every planted process number, prompt, path or marker that reaches a projected body. */
+const plantedIn = (body: unknown) => [...PLANTED_PIDS, MARKER, '/tmp/', 'do the task'].filter((planted) => JSON.stringify(body).includes(planted));
+
+test('worker-status (150): deadline, childOf, process and cleanup; no pid, pgid, start, survivors or zombies is read', () => {
+  // The fields it carried before keep their values (control).
+  const before = ['runId', 'task', 'token', 'harness', 'state', 'reason', 'startedAt', 'endedAt', 'overdue', 'supervisorLost', 'attemptActive'];
+  for (const shape of ['worker-status', 'worker-run-status']) {
+    const { body } = project(shape, fixture('worker-status'));
+    assert.deepEqual(plantedIn(body), [], shape);
+    const old = fixture('worker-status');
+    assert.deepEqual(Object.fromEntries(before.map((k) => [k, body[k]])), Object.fromEntries(before.map((k) => [k, old[k]])), shape);
+  }
+  // The never-read fields may hold anything: a mistyped pid, pgid, start, survivors or zombies is not a refusal.
+  const odd = fixture('worker-status');
+  Object.assign(odd.process, { pid: 'x', pgid: { n: 1 }, start: [] });
+  Object.assign(odd.process.leftover, { survivors: 'many', zombies: null });
+  Object.assign(odd.cleanup, { survivors: 7, zombies: 'none' });
+  assert.equal(project('worker-status', odd).ok, true);
+  // A not-started run: no code, signal, group reading or leftover in the record, each null.
+  const notStarted = { ...fixture('worker-status'), childOf: RUN_A, cleanup: null, process: { kind: 'not-started', reason: 'attempt-inactive', at: '2026-10-26T09:00:01.000Z' } };
+  const ns = project('worker-status', notStarted).body;
+  assert.equal(ns.childOf, RUN_A);
+  assert.equal(ns.cleanup, null);
+  assert.deepEqual(ns.process, { kind: 'not-started', code: null, signal: null, at: '2026-10-26T09:00:01.000Z', reason: 'attempt-inactive', groupAlive: null, leftover: null });
+  const killed = fixture('worker-status');
+  Object.assign(killed.process, { code: null, signal: 'SIGTERM', groupAlive: 'unknown' });
+  killed.cleanup = { status: 'unknown', reason: 'win32', survivors: [], zombies: [] };
+  const k = project('worker-status', killed).body;
+  assert.deepEqual([k.process.code, k.process.signal, k.process.groupAlive, k.cleanup], [null, 'SIGTERM', 'unknown', { status: 'unknown', reason: 'win32' }]);
+  // A body without the four keys (an IC-018 d body) reads them as null.
+  const { deadline: _d, childOf: _c, process: _p, cleanup: _x, ...older } = fixture('worker-status');
+  const o = project('worker-status', older).body;
+  assert.deepEqual([o.deadline, o.childOf, o.process, o.cleanup], [null, null, null, null]);
+});
+
+test('worker-runs: source and ended are the projector\'s; shown equals the runs listed; planted pids, prompt and paths dropped', () => {
+  const { body } = project('worker-runs', fixture('worker-runs'));
+  assert.deepEqual(body, {
+    v: 1, slug: '150-console-v2-chain', source: 'worker-runs', store: 'present',
+    runs: [
+      { runId: RUN_A, task: 'A.1', token: 1, harness: 'codex', childOf: null, phase: 'ended', endState: 'exited', createdAt: '2026-11-08T05:00:00.000Z',
+        startedAt: '2026-11-08T05:00:01.000Z', endedAt: '2026-11-08T05:03:00.000Z', edit: false },
+      { runId: RUN_B, task: 'A.1', token: 1, harness: OTHER_HARNESS, childOf: RUN_A, phase: 'running', endState: null, createdAt: null,
+        startedAt: null, endedAt: null, edit: true },
+    ],
+    limits: { shown: 2, notShown: 3, ended: 'listed' },
+  });
+  assert.deepEqual(plantedIn(body), []);
+  const absent = { v: 1, slug: 'feat-a', store: 'absent', runs: [], limits: { shown: 0, notShown: 0 } };
+  assert.deepEqual(project('worker-runs', absent).body, { ...absent, source: 'worker-runs', limits: { shown: 0, notShown: 0, ended: 'listed' } });
+});
+
+test('worker-result: exactly IC-003\'s keys; harness (other); every withheld code and closed isolation reason; quota labels', () => {
+  const { body } = project('worker-result', fixture('worker-result'));
+  assert.deepEqual(body, { ...fixture('worker-result'), quota: { signal: WITHHELD, basis: 'transcript' } });
+  assert.deepEqual(plantedIn(body), []);
+  const edit = { ...fixture('worker-result'), harness: 'some-new-harness', readOnly: null, isolation: { status: 'violated', reason: 'branch-moved' },
+    reportStatus: 'success', withheld: [...CLOSED_SETS.withheldCodes], quota: null };
+  const e = project('worker-result', edit).body;
+  assert.equal(e.harness, OTHER_HARNESS);
+  assert.deepEqual(e.withheld, [...CLOSED_SETS.withheldCodes]);
+  assert.equal(CLOSED_SETS.withheldCodes.length, 11);
+  assert.deepEqual(e.isolation, { status: 'violated', reason: 'branch-moved' });
+  for (const reason of CLOSED_SETS.isolationReasons) assert.equal(project('worker-result', { ...edit, isolation: { status: 'violated', reason } }).ok, true, reason);
+  assert.deepEqual(project('worker-result', { ...edit, isolation: { status: 'clean', reason: null } }).body.isolation, { status: 'clean', reason: null });
+  // A run that has not ended: every not-yet field null, the result withheld.
+  const early = { ...fixture('worker-result'), phase: 'running', endState: null, endedAt: null, reportStatus: null, readOnly: null, withheld: ['not-exited', 'read-only-unverifiable', 'report-unparsed'], quota: null };
+  assert.deepEqual(project('worker-result', early).body, early);
+  const offered = { ...fixture('worker-result'), reportStatus: 'success', resultOffered: true, withheld: [], quota: null };
+  assert.deepEqual(project('worker-result', offered).body, offered);
+});
+
+test('worker-log: pieces masked again piece by piece; cut kept; offsets bounded; planted path and pid dropped', () => {
+  const { body } = project('worker-log', fixture('worker-log'));
+  assert.deepEqual(body.pieces, [
+    { at: 0, text: 'compiling', cut: false },
+    { at: 10, text: 'key <masked> in /Users/<masked>/code', cut: false },
+    { at: 100, text: 'a long line', cut: true },
+    { at: 32768, text: 'its tail', cut: false },
+  ]);
+  const { pieces: _pieces, path: _path, pid: _pid, ...rest } = fixture('worker-log');
+  const { pieces: _projected, ...restBody } = body;
+  assert.deepEqual(restBody, rest);
+  assert.deepEqual(plantedIn(body), []);
+  // Already-masked text is unchanged.
+  const again = fixture('worker-log');
+  again.pieces[0].text = 'token=<masked> sent to <email>';
+  assert.equal(project('worker-log', again).body.pieces[0].text, 'token=<masked> sent to <email>');
+  // A waiting log: no file, no inode, no cursor; an empty page at the end.
+  const waiting = { v: 1, runId: RUN_A, stream: 'err', phase: 'starting', log: 'waiting', ino: null, size: 0, from: 0, to: 0, pieces: [], eof: true, reset: false, capped: null, cursor: null, before: null };
+  assert.deepEqual(project('worker-log', waiting).body, waiting);
+  // A final page of an ended run, read backward: `before` set, `capped` a boolean, `to === size`.
+  const final = { ...fixture('worker-log'), phase: 'ended', from: 100, to: 40000, pieces: [{ at: 100, text: 'x' }, { at: 32768, text: 'y' }], eof: true, capped: true,
+    before: '8812345:100:0:1762581600000' };
+  const f = project('worker-log', final).body;
+  assert.deepEqual([f.from, f.to, f.capped, f.before], [100, 40000, true, '8812345:100:0:1762581600000']);
 });
 
 test('roadmap: run, lease run id and time, holds; pid, host and reason dropped', () => {
@@ -510,6 +666,95 @@ const MUTATIONS: Record<string, Array<[string, (raw: any) => void]>> = {
     ['overdue a string', (r) => { r.overdue = 'yes'; }],
     ['startedAt not ISO', (r) => { r.startedAt = 'soon'; }],
     ['run present but not null', (r) => { r.run = { runId: 'w-0123456789ab' }; }],
+    // 150 IC-011: the widened fields.
+    ['deadline not ISO', (r) => { r.deadline = 'later'; }],
+    ['childOf not a run id', (r) => { r.childOf = 'A.1'; }],
+    ['process not an object', (r) => { r.process = 'exited'; }],
+    ['process kind unknown', (r) => { r.process.kind = 'running'; }],
+    ['process kind missing', (r) => { delete r.process.kind; }],
+    ['process code over 255', (r) => { r.process.code = 256; }],
+    ['process code negative', (r) => { r.process.code = -1; }],
+    ['process at missing', (r) => { delete r.process.at; }],
+    ['process signal a number', (r) => { r.process.signal = 15; }],
+    ['process reason free text', (r) => { r.process.reason = `because ${MARKER}`; }],
+    ['groupAlive a string', (r) => { r.process.groupAlive = 'yes'; }],
+    ['leftover status unknown', (r) => { r.process.leftover.status = 'gone'; }],
+    ['leftover reason missing', (r) => { delete r.process.leftover.reason; }],
+    ['cleanup status unknown', (r) => { r.cleanup.status = 'kept'; }],
+    ['cleanup status missing', (r) => { delete r.cleanup.status; }],
+  ],
+  'worker-runs': [
+    ['v is not 1', (r) => { r.v = 2; }],
+    ['slug a path', (r) => { r.slug = `../${MARKER}`; }],
+    ['store unknown', (r) => { r.store = 'torn'; }],
+    ['runs missing', (r) => { delete r.runs; }],
+    ['runId not a run id', (r) => { r.runs[0].runId = 'A.1'; }],
+    ['task missing', (r) => { delete r.runs[0].task; }],
+    ['token zero', (r) => { r.runs[0].token = 0; }],
+    ['harness a number', (r) => { r.runs[0].harness = 7; }],
+    ['childOf not a run id', (r) => { r.runs[1].childOf = 'parent'; }],
+    ['phase unknown', (r) => { r.runs[0].phase = 'done'; }],
+    ['endState unknown', (r) => { r.runs[0].endState = 'killed'; }],
+    ['createdAt not ISO', (r) => { r.runs[0].createdAt = 'yesterday'; }],
+    ['startedAt missing', (r) => { delete r.runs[0].startedAt; }],
+    ['endedAt not ISO', (r) => { r.runs[0].endedAt = 5; }],
+    ['edit a string', (r) => { r.runs[0].edit = 'no'; }],
+    ['limits missing', (r) => { delete r.limits; }],
+    ['shown is not runs.length', (r) => { r.limits.shown = 3; }],
+    ['notShown missing', (r) => { delete r.limits.notShown; }],
+    ['notShown negative', (r) => { r.limits.notShown = -1; }],
+  ],
+  'worker-result': [
+    ['an extra key', (r) => { r.summary = `done ${MARKER}`; }],
+    ['an extra key with a pid', (r) => { r.pid = 987001; }],
+    ['an extra key with a null', (r) => { r.prompt = null; }],
+    ['reportStatus missing', (r) => { delete r.reportStatus; }],
+    ['quota missing', (r) => { delete r.quota; }],
+    ['v is not 1', (r) => { r.v = 2; }],
+    ['runId not a run id', (r) => { r.runId = `/tmp/${MARKER}`; }],
+    ['token a string', (r) => { r.token = '1'; }],
+    ['harness a number', (r) => { r.harness = 1; }],
+    ['phase unknown', (r) => { r.phase = 'done'; }],
+    ['endState unknown', (r) => { r.endState = 'killed'; }],
+    ['endedAt not ISO', (r) => { r.endedAt = 'now'; }],
+    ['reportStatus unknown', (r) => { r.reportStatus = 'partial'; }],
+    ['readOnly unknown', (r) => { r.readOnly = 'dirty'; }],
+    ['isolation status unknown', (r) => { r.isolation = { status: 'dirty', reason: null }; }],
+    ['isolation reason unknown', (r) => { r.isolation = { status: 'violated', reason: `because ${MARKER}` }; }],
+    ['isolation not an object', (r) => { r.isolation = 'clean'; }],
+    ['withheld not an array', (r) => { r.withheld = 'report-quota'; }],
+    ['withheld code unknown', (r) => { r.withheld = ['report-quota', 'not-trusted']; }],
+    ['resultOffered with withheld codes', (r) => { r.resultOffered = true; }],
+    ['resultOffered false with none withheld', (r) => { r.withheld = []; }],
+    ['quota basis a number', (r) => { r.quota.basis = 1; }],
+    ['quota signal missing', (r) => { delete r.quota.signal; }],
+  ],
+  'worker-log': [
+    ['v is not 1', (r) => { r.v = 2; }],
+    ['runId not a run id', (r) => { r.runId = 'w-XYZ'; }],
+    ['stream last', (r) => { r.stream = 'last'; }],
+    ['phase unknown', (r) => { r.phase = 'done'; }],
+    ['log unknown', (r) => { r.log = 'closed'; }],
+    ['ino not digits', (r) => { r.ino = '88a'; }],
+    ['ino a number', (r) => { r.ino = 8812345; }],
+    ['size missing', (r) => { delete r.size; }],
+    ['from after to', (r) => { r.from = 32801; }],
+    ['to past size', (r) => { r.size = 32799; }],
+    ['from negative', (r) => { r.from = -1; }],
+    ['piece before from', (r) => { r.from = 5; }],
+    ['piece at to', (r) => { r.to = 32768; }],
+    ['piece offsets not rising', (r) => { r.pieces[2].at = 10; }],
+    ['piece offsets falling', (r) => { r.pieces[3].at = 50; }],
+    ['piece text missing', (r) => { delete r.pieces[1].text; }],
+    ['piece text a number', (r) => { r.pieces[1].text = 7; }],
+    ['piece cut a string', (r) => { r.pieces[2].cut = 'yes'; }],
+    ['pieces not an array', (r) => { r.pieces = 'compiling'; }],
+    ['eof missing', (r) => { delete r.eof; }],
+    ['reset a string', (r) => { r.reset = 'no'; }],
+    ['capped a string', (r) => { r.capped = 'no'; }],
+    ['cursor malformed', (r) => { r.cursor = '8812345:32800'; }],
+    ['cursor missing', (r) => { delete r.cursor; }],
+    ['before malformed', (r) => { r.before = 'start'; }],
   ],
   roadmap: [
     ['schema not 1', (r) => { r.schema = 2; }],
@@ -600,6 +845,7 @@ const MUTATIONS: Record<string, Array<[string, (raw: any) => void]>> = {
     ['notChecked missing', (r) => { delete r.notChecked; }],
   ],
 };
+MUTATIONS['worker-run-status'] = MUTATIONS['worker-status'];
 
 for (const [shape, cases] of Object.entries(MUTATIONS)) {
   test(`${shape}: a missing or mistyped field is core-contract-mismatch with no body`, () => {
@@ -658,6 +904,69 @@ test('closed sets match the core source', () => {
   const loop = read('roadmap/loop.ts');
   const operational = loop.slice(loop.indexOf('function operationalState'), loop.indexOf('function loadRunRecord'));
   assert.deepEqual(sorted(CLOSED_SETS.roadmapHoldStates), literals(operational, /state: '([a-z]+)'/g));
+});
+
+// 150 IC-011: the worker-read closed sets, each read from the file that owns it.
+test('150 worker closed sets match the core source', () => {
+  const read = (file: string) => fs.readFileSync(path.join(CORE_SRC, 'worker', file), 'utf8');
+  const sorted = (values: readonly string[]) => [...values].sort();
+  const quoted = (text: string) => [...new Set([...text.matchAll(/'([^']+)'/g)].map((m) => m[1]))].sort();
+  const between = (text: string, start: string, end: string) => {
+    const from = text.indexOf(start);
+    assert.ok(from !== -1, `${start} not found`);
+    const to = text.indexOf(end, from + start.length);
+    return text.slice(from, to === -1 ? undefined : to);
+  };
+  const union = (...sets: string[][]) => [...new Set(sets.flat())].sort();
+
+  // PHASES, src/runtime/worker/run-store.ts:27.
+  const phases = read('run-store.ts').match(/const PHASES = Object\.freeze\(\[([^\]]*)\]\)/);
+  assert.ok(phases);
+  assert.deepEqual(sorted(CLOSED_SETS.phases), quoted(phases[1]));
+
+  // End states: every `end = { state: '...'` the supervisor writes and both arms of cancel.ts's endState.
+  const supervisor = read('supervisor.ts');
+  const cancel = read('cancel.ts');
+  const cancelEnd = cancel.match(/const endState = [^;]*\? '([a-z-]+)' : '([a-z-]+)';/);
+  assert.ok(cancelEnd);
+  assert.deepEqual(sorted(CLOSED_SETS.endStates), union([...supervisor.matchAll(/end = \{ state: '([a-z-]+)'/g)].map((m) => m[1]), [cancelEnd[1], cancelEnd[2]]));
+
+  // The 11 withheld codes: every literal pushed by resultOfRun (src/runtime/worker/supervisor.ts:269), the `=== '...'` tests aside.
+  const resultOf = between(supervisor, 'function resultOfRun', 'function ');
+  const pushed = [...resultOf.matchAll(/withheld\.push\(([^;]*)\);/g)].flatMap((m) => quoted(m[1].replace(/=== '[^']*'/g, '')));
+  assert.equal(new Set(pushed).size, 11);
+  assert.equal(CLOSED_SETS.withheldCodes.length, 11);
+  assert.deepEqual(sorted(CLOSED_SETS.withheldCodes), union(pushed));
+
+  // Isolation reasons: the `[status, reason]` pairs of isolationOf.
+  const isolation = between(supervisor, 'function isolationOf', 'function ');
+  assert.deepEqual(sorted(CLOSED_SETS.isolationReasons), union([...isolation.matchAll(/\['[a-z]+', '([a-z-]+)'\]/g)].map((m) => m[1])));
+  // Process kinds: every `kind: '...'` the supervisor writes.
+  assert.deepEqual(sorted(CLOSED_SETS.processKinds), union([...supervisor.matchAll(/kind: '([a-z-]+)'/g)].map((m) => m[1])));
+
+  // Report statuses, src/runtime/worker/parsers/common.ts:16 (the Report type's status union).
+  const reportStatus = between(read('parsers/common.ts'), 'export type Report', '};').match(/status: ((?:'[a-z-]+'(?: \| )?)+);/);
+  assert.ok(reportStatus);
+  assert.deepEqual(sorted(CLOSED_SETS.reportStatuses), quoted(reportStatus?.[1] ?? ''));
+
+  // Check statuses, src/runtime/worker/worktree-check.ts:52 (the Comparison interface's status union).
+  const checkStatus = between(read('worktree-check.ts'), 'interface Comparison', '}').match(/status: ((?:'[a-z-]+'(?: \| )?)+);/);
+  assert.ok(checkStatus);
+  assert.deepEqual(sorted(CLOSED_SETS.checkStatuses), quoted(checkStatus?.[1] ?? ''));
+
+  // Leftover statuses: what escalate (process-tree.ts) returns, and the cleanup statuses cancel.ts writes and merges.
+  const escalate = between(read('process-tree.ts'), 'async function escalate', 'function spawnBounded');
+  const returned = [...escalate.matchAll(/status: (?:[^,'\n]*\? )?'([a-z]+)'(?: : '([a-z]+)')?/g)].flatMap((m) => [m[1], m[2]]).filter(Boolean);
+  const cleanups = [...cancel.matchAll(/status(?::| =) '([a-z]+)'/g)].map((m) => m[1]);
+  assert.deepEqual(sorted(CLOSED_SETS.leftoverStatuses), union(returned, cleanups));
+
+  // Log streams (LOG_STREAMS, log-read.ts) and log states (reads.ts's `log`, the `=== '...'` test aside).
+  const streams = read('log-read.ts').match(/const LOG_STREAMS = Object\.freeze\(\{([^}]*)\}\)/);
+  assert.ok(streams);
+  assert.deepEqual(sorted(CLOSED_SETS.logStreams), union([...streams[1].matchAll(/([a-z]+):/g)].map((m) => m[1])));
+  const log = read('reads.ts').match(/const log = ([^;]*);/);
+  assert.ok(log);
+  assert.deepEqual(sorted(CLOSED_SETS.logStates), quoted(log[1].replace(/=== '[^']*'/g, '')));
 });
 
 // ---- V.7: the Fleet projectors (IC-024) ----

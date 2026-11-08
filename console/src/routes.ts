@@ -9,6 +9,7 @@
 // still percent-encoded: handlers validate it), or the whole-table static fallback `/*`, which never
 // matches under /api.
 
+const crypto = require('node:crypto');
 const { readStatic } = require('./static.ts');
 const { processSessions, sessionCookie, readCookie, cookieName } = require('./session.ts');
 const { project } = require('./project.ts');
@@ -143,8 +144,9 @@ type Read = { ok: true, body: any, exit: number } | { ok: false, reply: Reply, c
 const TASK_CLASSES: readonly string[] = Object.freeze(['feature', 'bug', 'refactor', 'review', 'research', 'documentation',
   'dependency-change', 'operations', 'trivial-edit']);
 
-/** IC-005's status and code for a runner failure. */
-function failureStatus(failure: { code: string }): [number, string] {
+/** IC-005's status and code for a runner failure; 150 IC-010: an older core lacking the verb or flag is `501 core-lacks-verb`. */
+function failureStatus(failure: { code: string, reason?: string }): [number, string] {
+  if (failure.reason === 'old-core') return [501, 'core-lacks-verb'];
   if (failure.code === 'core-unreachable') return [503, 'core-unreachable'];
   if (failure.code === 'usage') return [400, 'usage'];
   return [502, 'core-error'];
@@ -154,14 +156,14 @@ function failureStatus(failure: { code: string }): [number, string] {
  * IC-005's status and error body for a runner failure; `exit` is the core's exit code when it ran.
  * The Fleet codes (IC-024) come first: `fleetError` maps them, anything else is `failureStatus`.
  */
-function failureInfo(shapeId: string, failure: { code: string, exit: number | null, errorId?: string }): { status: number, error: ErrorInfo } {
+function failureInfo(shapeId: string, failure: { code: string, exit: number | null, errorId?: string, reason?: string }): { status: number, error: ErrorInfo } {
   const fleet = fleetError(shapeId, failure);
   if (fleet) return { status: fleet.status, error: { code: fleet.code, verb: shapeId, exit: failure.exit } };
   const [status, code] = failureStatus(failure);
   return { status, error: { code, verb: shapeId, exit: status === 502 ? failure.exit : null } };
 }
 
-function failureReply(shapeId: string, failure: { code: string, exit: number | null, errorId?: string }): Reply {
+function failureReply(shapeId: string, failure: { code: string, exit: number | null, errorId?: string, reason?: string }): Reply {
   const { status, error } = failureInfo(shapeId, failure);
   return errorReply(status, error.code, error.verb, error.exit);
 }
@@ -426,6 +428,104 @@ const transcriptRoute = (runner: Runner): Route['handler'] => async (ctx) => {
   return page.ok ? jsonReply(200, page.body) : page.reply;
 };
 
+// ---- 150 IC-012: GET /api/worker-runs/:slug and the four per-run routes ----
+
+/** The core's RUN_ID (src/runtime/worker/run-store.ts); the verb runner checks it again. */
+const RUN_ID = /^w-[0-9a-f]{12}$/;
+const LOG_STREAM = /^(?:out|err)$/;
+/** IC-002's log cursor with the core's digit bounds (`CURSOR`, src/runtime/worker/reads.ts), so an overlong one is a 400 here, not the core's `usage` as a 502. */
+const LOG_CURSOR = /^[0-9]{1,20}:[0-9]{1,16}:[0-9]{1,16}:[0-9]{1,16}$/;
+/** The core's `isSafeSlug` (src/runtime/task-scope.ts): PARAM_PATTERN's shape and no `..`, so a slug the core refuses is a 400 here. */
+const isWorkerSlug = (slug: string) => PARAM_PATTERN.test(slug) && !slug.includes('..');
+
+/** A worker run's Fleet agent key: a copy of the core's `workerKey` (src/runtime/fleet/tree.ts), sha256('worker:' + runId), first 16 hex. */
+function workerAgentKey(runId: string): string {
+  return crypto.createHash('sha256').update(`worker:${runId}`).digest('hex').slice(0, 16);
+}
+
+/** One run of the fallback list, from the projected `worker-status`: what an older core cannot say (phase, creation, granter, edit) is null. */
+const fallbackRun = (status: any) => ({
+  runId: status.runId,
+  task: status.task,
+  token: status.token,
+  harness: status.harness,
+  childOf: null,
+  phase: null,
+  endState: ['exited', 'timed-out', 'cancelled'].includes(status.state) ? status.state : null,
+  createdAt: null,
+  startedAt: status.startedAt,
+  endedAt: status.endedAt,
+  edit: null,
+});
+
+/**
+ * IC-012: the worker runs of feature `slug`, from `worker-runs` (ended and child runs included). On a
+ * core without that verb (`core-lacks-verb`), the reads every supported core has: `tasks`, then one
+ * `worker-status` per active attempt, at most SESSION_LIMITS.workers, the rest counted in
+ * `limits.notShown`; ended attempts are not read (`ended: 'not-checked'`). An attempt with no worker
+ * run adds no run. Any failed read is its IC-005 error reply.
+ */
+async function workerRuns(runner: Runner, slug: string): Promise<Reply> {
+  if (!isWorkerSlug(slug)) return errorReply(400, 'usage');
+  const listed = await read(runner, 'worker-runs', { slug });
+  if (listed.ok) return jsonReply(200, listed.body);
+  if (listed.code !== 'core-lacks-verb') return listed.reply;
+  const graph = await tasks(runner, slug);
+  if (!graph.ok) return graph.reply;
+  const rows: any[] = graph.tasks === null ? [] : graph.tasks.tasks;
+  const active = rows.flatMap((task: any) => task.attempts.filter((a: any) => a.state === 'active').map((a: any) => ({ task: task.id, token: a.token })));
+  const checked = active.slice(0, SESSION_LIMITS.workers);
+  const reads = await Promise.all(checked.map((a) => read(runner, 'worker-status', { slug, task: a.task, token: String(a.token) })));
+  const failed = reads.find((entry) => !entry.ok);
+  if (failed && !failed.ok) return failed.reply;
+  const runs = reads.map((entry) => (entry as any).body).filter((status) => status !== null).map(fallbackRun);
+  return jsonReply(200, {
+    v: 1, slug, source: 'active-attempts', store: 'present', runs,
+    limits: { shown: runs.length, notShown: active.length - checked.length, ended: 'not-checked' },
+  });
+}
+
+type WorkerRead = 'result' | 'status' | 'log' | 'transcript';
+
+/**
+ * The four per-run routes. `slug`, `runId` and the query are checked before any verb runs (400
+ * usage); only the log route takes a query (`stream` required, at most one of `cursor` and `before`).
+ */
+const workerRunRoute = (runner: Runner, kind: WorkerRead): Route['handler'] => async (ctx) => {
+  const query = queryOf(ctx.req, kind === 'log' ? ['stream', 'cursor', 'before'] : []);
+  const { slug, runId } = ctx.params;
+  if (query === null || !isWorkerSlug(slug) || !RUN_ID.test(runId)) return errorReply(400, 'usage');
+  if (kind === 'result') {
+    const result = await read(runner, 'worker-result', { slug, runId });
+    return result.ok ? jsonReply(200, result.body) : result.reply;
+  }
+  if (kind === 'status') {
+    // The `worker` verb exits 1 only when it refuses, and `--action status` refuses only `unknown-run`
+    // (src/runtime/worker/command.ts); a `run: null` answer names no run either.
+    const status = await read(runner, 'worker-run-status', { slug, runId });
+    if (!status.ok) return status.code === 'core-error' && status.exit === 1 ? errorReply(404, 'unknown-run', 'worker-run-status', 1) : status.reply;
+    return status.body === null ? errorReply(404, 'unknown-run', 'worker-run-status', 0) : jsonReply(200, status.body);
+  }
+  if (kind === 'log') {
+    const stream = query.get('stream');
+    const cursor = query.get('cursor');
+    const before = query.get('before');
+    if (stream === undefined || !LOG_STREAM.test(stream) || (cursor !== undefined && before !== undefined)
+      || (cursor !== undefined && !LOG_CURSOR.test(cursor)) || (before !== undefined && !LOG_CURSOR.test(before))) return errorReply(400, 'usage');
+    const page = await read(runner, 'worker-log', { slug, runId, stream, ...(cursor === undefined ? {} : { cursor }), ...(before === undefined ? {} : { before }) });
+    return page.ok ? jsonReply(200, page.body) : page.reply;
+  }
+  // The transcript: once per request, in the current project, under the run's agent key; no channel exists for it.
+  const list = await read(runner, 'projects', {});
+  if (!list.ok) return list.reply;
+  const current = list.body.projects.find((entry: any) => entry.current === true);
+  if (!current) return errorReply(404, 'project-not-found', 'projects', null);
+  const page = await transcriptRead(runner, current.projectKey, workerAgentKey(runId), null);
+  return page.ok ? jsonReply(200, page.body) : page.reply;
+};
+
+const workerRunsRoute = (runner: Runner): Route['handler'] => (ctx) => (queryOf(ctx.req, []) === null ? errorReply(400, 'usage') : workerRuns(runner, ctx.params.slug));
+
 /**
  * The stream route kind: validated here, then handed to stream.ts, which owns the response from
  * `retry:` on. A stream takes its slot from `cap`, the Console's one stream cap (IC-014): at most four
@@ -492,10 +592,15 @@ function consoleRoutes(runner: Runner, sessions: any = processSessions, live: Li
     { method: 'GET', path: '/api/sessions', handler: () => sessionsView(runner) },
     { method: 'GET', path: '/api/fleet', handler: fleetRoute(runner) },
     { method: 'GET', path: '/api/transcript', handler: transcriptRoute(runner) },
+    { method: 'GET', path: '/api/worker-runs/:slug', handler: workerRunsRoute(runner) },
+    { method: 'GET', path: '/api/worker-runs/:slug/:runId/result', handler: workerRunRoute(runner, 'result') },
+    { method: 'GET', path: '/api/worker-runs/:slug/:runId/status', handler: workerRunRoute(runner, 'status') },
+    { method: 'GET', path: '/api/worker-runs/:slug/:runId/log', handler: workerRunRoute(runner, 'log') },
+    { method: 'GET', path: '/api/worker-runs/:slug/:runId/transcript', handler: workerRunRoute(runner, 'transcript') },
     { method: 'GET', path: '/api/stream', stream: true, handler: streamRoute(runner, streamCap) },
     { method: 'GET', path: '/api/live', stream: true, handler: liveRoute(live, streamCap) },
     staticFallback,
   ]);
 }
 
-module.exports = { ROUTES, SESSION_LIMITS, TASK_CLASSES, buildRoutes, consoleRoutes, isApiPath, matchPath, jsonReply, errorReply, JSON_TYPE, runs, tasks, runDetail, sessionsView };
+module.exports = { ROUTES, SESSION_LIMITS, TASK_CLASSES, buildRoutes, consoleRoutes, isApiPath, matchPath, jsonReply, errorReply, JSON_TYPE, runs, tasks, runDetail, sessionsView, workerRuns, workerAgentKey };

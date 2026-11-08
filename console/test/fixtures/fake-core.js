@@ -4,7 +4,8 @@
 // A fake core for console/test/verb-runner.test.ts. It appends one JSON line {argv, env, cwd} to
 // FAKE_CORE_LOG on every start (after any signal handler is installed, so a test that sees the line
 // can signal it), then behaves as FAKE_CORE_MODE says. Neither variable starts with DOFLOW_, so the
-// runner's environment stripping lets them through.
+// runner's environment stripping lets them through. Modes `worker-reads` and `old-core` (feature 150
+// IC-010) answer the four worker chain shapes; see workerReads and oldCore below.
 
 const fs = require('node:fs');
 
@@ -57,6 +58,12 @@ switch (mode) {
     break;
   case 'events':
     events(process.env.FAKE_EVENTS_SCRIPT || 'follow');
+    break;
+  case 'worker-reads':
+    workerReads(process.argv.slice(2));
+    break;
+  case 'old-core':
+    oldCore(process.argv.slice(2));
     break;
   default:
     process.stderr.write(`fake-core: unknown mode ${mode}\n`);
@@ -170,5 +177,123 @@ function events(script) {
     default:
       process.stderr.write(`fake-core: unknown events script ${script}\n`);
       process.exitCode = 9;
+  }
+}
+
+/** The value of `--<name>` in argv, or null. */
+function flagValue(argv, name) {
+  const at = argv.indexOf(name);
+  return at === -1 ? null : argv[at + 1];
+}
+
+/**
+ * Mode `worker-reads`: the four 150 IC-010 shapes over one ended feature with two runs, the top-level
+ * WORKER_RUN and its child CHILD_RUN. Bodies are compact JSON, as the core prints them:
+ *   worker-runs --slug <s>                 IC-004: both runs, `slug` echoed.
+ *   worker-result --worker-run <id>        IC-003: exactly the result keys.
+ *   worker --action status --worker-run    the core's status view, with `process` and `deadline`; its
+ *                                          `process` and the top level carry the planted PLANTED_PID
+ *                                          and PLANTED_PGID, which no Console body may show (FR-016).
+ *   worker-log --worker-run <id> --stream  IC-002: the out log is `compiling`, then one 32768-grid cut
+ *                                          line (a `cut: true` piece ending at 32768), then its end; the
+ *                                          err log is one line. No cursor is tail, `--cursor` forward,
+ *                                          `--before` backward; a cursor on another inode is a reset.
+ * A run id other than the two is `{"v":1,"ok":false,"error":"unknown-run"}` with exit 1 (status: `run: null`,
+ * exit 0, as the core answers). Any other argv echoes, as mode `echo`.
+ */
+function workerReads(argv) {
+  const WORKER_RUN = 'w-1a2b3c4d5e6f';
+  const CHILD_RUN = 'w-0f0e0d0c0b0a';
+  const PLANTED_PID = 424242;
+  const PLANTED_PGID = 424243;
+  const INO = '8812345';
+  const MS = 1762581600000;
+  const runs = {
+    [WORKER_RUN]: { runId: WORKER_RUN, task: 'A.1', token: 1, harness: 'codex', childOf: null, createdAt: '2026-11-08T05:00:00.000Z', startedAt: '2026-11-08T05:00:01.000Z', endedAt: '2026-11-08T05:03:00.000Z' },
+    [CHILD_RUN]: { runId: CHILD_RUN, task: 'A.1', token: 1, harness: 'claude', childOf: WORKER_RUN, createdAt: '2026-11-08T05:01:00.000Z', startedAt: '2026-11-08T05:01:01.000Z', endedAt: '2026-11-08T05:02:00.000Z' },
+  };
+  const print = (body, exit = 0) => {
+    process.stdout.write(JSON.stringify(body));
+    process.exitCode = exit;
+  };
+  const runId = flagValue(argv, '--worker-run');
+  const run = runId !== null && Object.hasOwn(runs, runId) ? runs[runId] : null;
+  const unknownRun = () => print({ v: 1, ok: false, error: 'unknown-run' }, 1);
+
+  if (argv[0] === 'worker-runs') {
+    return print({
+      v: 1,
+      slug: flagValue(argv, '--slug'),
+      store: 'present',
+      runs: Object.values(runs).map((r) => ({ runId: r.runId, task: r.task, token: r.token, harness: r.harness, childOf: r.childOf, phase: 'ended', endState: 'exited', createdAt: r.createdAt, startedAt: r.startedAt, endedAt: r.endedAt, edit: false })),
+      limits: { shown: 2, notShown: 0 },
+    });
+  }
+  if (argv[0] === 'worker-result') {
+    if (!run) return unknownRun();
+    return print({
+      v: 1, runId: run.runId, task: run.task, token: run.token, harness: run.harness, phase: 'ended', endState: 'exited', endedAt: run.endedAt,
+      reportStatus: 'success', readOnly: 'clean', isolation: null, resultOffered: true, withheld: [], quota: null,
+    });
+  }
+  if (argv[0] === 'worker' && argv[2] === 'status' && runId !== null) {
+    if (!run) return print({ disposition: 'status', run: null, task: null, token: null });
+    return print({
+      disposition: 'status', runId: run.runId, task: run.task, token: run.token, harness: run.harness, identity: null,
+      state: 'exited', reason: null, startedAt: run.startedAt, endedAt: run.endedAt, deadline: '2026-11-08T05:30:01.000Z',
+      process: { kind: 'exited', code: 0, signal: null, at: run.endedAt, pid: PLANTED_PID, pgid: PLANTED_PGID },
+      pid: PLANTED_PID, pgid: PLANTED_PGID,
+      report: { status: 'success' }, readOnly: { status: 'clean' }, edit: null, isolation: null, childOf: run.childOf, request: null,
+      verified: null, attemptActive: true, resultOffered: true, withheld: [],
+      cleanup: null, supervisorCleanup: null, attemptCancel: null, output: null, launchObserved: null,
+    });
+  }
+  if (argv[0] === 'worker-log') {
+    if (!run) return unknownRun();
+    const stream = flagValue(argv, '--stream');
+    const lines = stream === 'out'
+      ? [{ at: 0, text: 'compiling' }, { at: 10, text: 'a'.repeat(32_758), cut: true }, { at: 32_768, text: 'end of the long line' }]
+      : [{ at: 0, text: 'warning: retrying' }];
+    const end = (piece) => piece.at + Buffer.byteLength(piece.text) + (piece.cut ? 0 : 1);
+    const size = end(lines[lines.length - 1]);
+    const position = flagValue(argv, '--cursor') ?? flagValue(argv, '--before');
+    const [ino, offset] = position === null ? [INO, null] : position.split(':');
+    const reset = position !== null && ino !== INO;
+    const backward = !reset && flagValue(argv, '--before') !== null;
+    let pieces;
+    let from;
+    let to;
+    if (position === null || reset) {
+      [pieces, from, to] = [lines, 0, size];
+    } else if (backward) {
+      pieces = lines.filter((piece) => end(piece) <= Number(offset));
+      [from, to] = [0, pieces.length ? end(pieces[pieces.length - 1]) : 0];
+    } else {
+      pieces = lines.filter((piece) => piece.at >= Number(offset));
+      [from, to] = [Number(offset), pieces.length ? end(pieces[pieces.length - 1]) : Number(offset)];
+    }
+    return print({
+      v: 1, runId: run.runId, stream, phase: 'ended', log: 'open', ino: INO, size, from, to, pieces, eof: to === size, reset, capped: false,
+      cursor: `${INO}:${to}:0:${MS}`, before: from === 0 ? null : `${INO}:${from}:0:${MS}`,
+    });
+  }
+  return echo();
+}
+
+/**
+ * Mode `old-core`: a core older than 150. Each new verb (`worker-runs`, `worker-result`, `worker-log`) is
+ * `doflow: unknown command '<verb>'` on stderr with exit 1, as today's core answers an unknown verb;
+ * `worker --action status --worker-run` is `doflow: unknown flag '--worker-run'` with exit 2 (RK2). No
+ * stdout. Any other argv echoes, as mode `echo`.
+ */
+function oldCore(argv) {
+  if (['worker-runs', 'worker-result', 'worker-log'].includes(argv[0])) {
+    process.stderr.write(`doflow: unknown command '${argv[0]}'\n`);
+    process.exitCode = 1;
+  } else if (argv[0] === 'worker' && argv.includes('--worker-run')) {
+    process.stderr.write("doflow: unknown flag '--worker-run'\n");
+    process.exitCode = 2;
+  } else {
+    echo();
   }
 }

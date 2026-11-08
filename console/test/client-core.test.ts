@@ -16,6 +16,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { SHAPE_IDS } = require('../src/verb-runner.ts');
+const { project } = require('../src/project.ts');
 
 const WEB_ROOT = path.join(__dirname, '..', 'web');
 const MANIFEST = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
@@ -633,7 +634,19 @@ test('views: the router table maps hashes to views, and a bad parameter is not-f
   assert.equal(id('#/run/feat-a/run-1'), 'run');
   assert.deepEqual(parseRoute('#/run/feat-a/run-1').params, { slug: 'feat-a', taskId: 'run-1' });
   assert.equal(id('#/run/feat-a/run-1/tasks'), 'tasks');
+  // 150 C.5 (IC-015): the Session route with no node and with each node form; tabs only on a worker node.
+  for (const hash of ['#/session/feat-a/run-1', '#/session/feat-a/run-1/main', '#/session/feat-a/run-1/stage/design', '#/session/feat-a/run-1/gate/gate-0',
+    '#/session/feat-a/run-1/task/A.1', '#/session/feat-a/run-1/attempt/A.1/2', '#/session/feat-a/run-1/worker/w-0123456789ab',
+    ...['log', 'transcript', 'result', 'process'].map((tab) => `#/session/feat-a/run-1/worker/w-0123456789ab/${tab}`)]) {
+    assert.equal(id(hash), 'session', hash);
+    assert.deepEqual(parseRoute(hash).params, { slug: 'feat-a', taskId: 'run-1' }, hash);
+    assert.equal(parseRoute(hash).view, VIEWS.session, hash);
+  }
   for (const bad of ['#/nope', '#/run/-x/y', '#/run/x/.y', '#/run/a%2Fb/c', '#/run/a', '#/run/a/b/c/d', '#/run/a/b/files', '#/workflows/', '#main', '#c=1']) {
+    assert.equal(id(bad), 'not-found', bad);
+  }
+  // 150 C.5 (IC-015): the Session route's not-found cases.
+  for (const bad of ['#/session/a', '#/session/a/b/c', '#/session/a/b/worker/w-0123', '#/session/a/b/worker/w-0123456789ab/last', '#/session/a/b/attempt/A.1/0']) {
     assert.equal(id(bad), 'not-found', bad);
   }
   assert.equal(titleFor(parseRoute('#/')), 'Runs \u00b7 DoFlow Console');
@@ -645,7 +658,10 @@ test('views: the router table maps hashes to views, and a bad parameter is not-f
   assert.equal(navFor(parseRoute('#/run/s/t/tasks')), 'runs');
   assert.equal(navFor(parseRoute('#/workflows')), 'workflows');
   assert.equal(navFor(parseRoute('#/x')), null);
-  assert.deepEqual(Object.keys(VIEWS).sort(), ['fleet', 'fleet-project', 'not-found', 'run', 'runs', 'sessions', 'tasks', 'workflows']); // E.7 adds the sessions view, V.10 the two Fleet views
+  assert.equal(navFor(parseRoute('#/session/s/t')), 'runs', '150 C.5: the Session route marks Now');
+  assert.equal(navFor(parseRoute('#/session/s/t/worker/w-0123456789ab/log')), 'runs');
+  assert.equal(titleFor(parseRoute('#/session/s/t/main')), 'Chain \u00b7 s / t \u00b7 DoFlow Console');
+  assert.deepEqual(Object.keys(VIEWS).sort(), ['fleet', 'fleet-project', 'not-found', 'run', 'runs', 'session', 'sessions', 'tasks', 'workflows']); // E.7 adds the sessions view, V.10 the two Fleet views, 150 C.5 the session view
 });
 
 test('index.html provides the elements the shell needs', () => {
@@ -814,7 +830,7 @@ test('router: the skip link moves focus to the heading without changing the rout
 
 test('shell: data-inspectable per view, the rail icons, and the docked column with its empty note at 1280 px and wider', async () => {
   assert.deepEqual(Object.fromEntries(Object.entries(mods.views.VIEWS).map(([id, view]: [string, any]) => [id, view.inspectable])),
-    { runs: false, run: true, tasks: true, sessions: true, workflows: false, fleet: false, 'fleet-project': true, 'not-found': false });
+    { runs: false, run: true, tasks: true, session: true, sessions: true, workflows: false, fleet: false, 'fleet-project': true, 'not-found': false });
   const page = await start({ hash: '', width: 1440, fetch: standard });
   assert.deepEqual(page.nav.map((a) => a.querySelector('.icon') && a.querySelector('.icon').getAttribute('class')),
     ['icon icon--16 icon--rail-now', 'icon icon--16 icon--rail-sessions', 'icon icon--16 icon--rail-workflows', 'icon icon--16 icon--rail-fleet']);
@@ -3743,20 +3759,22 @@ test('149 palette: part of a slug then Enter opens the Run view with focus on it
     const before = page.calls.length;
     keydownOn(page, 'k', { ctrlKey: true });
     paletteType(page, 'FEAT');
-    assert.deepEqual(paletteOptions(page), ['feat-a / r1', 'feat-a / r2', 'feat-a / r3', 'feat-a / r4', 'feat-a / r5'], 'case-insensitive substring');
+    // 150 C.6 (IC-020): each run's `session` target (hint Chain) follows the run targets, as the session kind does.
+    const runs = ['feat-a / r1', 'feat-a / r2', 'feat-a / r3', 'feat-a / r4', 'feat-a / r5'];
+    assert.deepEqual(paletteOptions(page), [...runs, ...runs], 'case-insensitive substring');
     const input = paletteInput(page);
     input.fire('keydown', { key: 'ArrowDown' });
     assert.equal(input.getAttribute('aria-activedescendant'), 'palette-opt-1');
     assert.equal(page.doc.getElementById('palette-opt-1').getAttribute('aria-selected'), 'true');
     input.fire('keydown', { key: 'ArrowUp' });
     input.fire('keydown', { key: 'ArrowUp' });
-    assert.equal(input.getAttribute('aria-activedescendant'), 'palette-opt-4', 'Up from the first wraps to the last');
+    assert.equal(input.getAttribute('aria-activedescendant'), 'palette-opt-9', 'Up from the first wraps to the last');
     paletteType(page, 'zzz');
     assert.deepEqual(paletteOptions(page), []);
     assert.equal(input.getAttribute('aria-expanded'), 'false');
     assert.equal(input.getAttribute('aria-activedescendant'), null);
     paletteType(page, 'a / r2');
-    assert.deepEqual(paletteOptions(page), ['feat-a / r2']);
+    assert.deepEqual(paletteOptions(page), ['feat-a / r2', 'feat-a / r2'], 'the run target, then its Chain target (150 C.6)');
     assert.equal(page.calls.length, before, 'the palette fetches nothing');
     input.fire('keydown', { key: 'Enter' });
     assert.equal(page.location.hash, '#/run/feat-a/r2');
@@ -4596,6 +4614,11 @@ test('D.2 Sessions focus (FU-n5a22a): docked, Escape with the focus on a lane cl
 
 const callsSince = (page: Page, from: number, prefix: string) => page.calls.slice(from).filter((c) => c.url.startsWith(prefix)).length;
 
+/** 150 C.5 (IC-015): a Session hash with no node, with each node form, and a worker node with each tab. */
+const SESSION_RUN_ID = 'w-0123456789ab';
+const SESSION_HASHES = ['', '/main', '/stage/design', '/gate/gate-0', '/task/A.1', '/attempt/A.1/1', '/attempt/B.2/12', `/worker/${SESSION_RUN_ID}`,
+  ...['log', 'transcript', 'result', 'process'].map((tab) => `/worker/${SESSION_RUN_ID}/${tab}`)].map((node) => `#/session/feat-a/run-1${node}`);
+
 test('D.3 grammar: parseRoute names the selection of Run, Tasks and Sessions; hashFor is its inverse; a lane with an absent part has no hash', () => {
   const { parseRoute, hashFor, VIEWS } = mods.views;
   const run = parseRoute('#/run/feat-a/run-1/stage/planning');
@@ -4627,7 +4650,7 @@ test('D.3 grammar: parseRoute names the selection of Run, Tasks and Sessions; ha
   assert.equal('lane' in parseRoute('#/sessions'), false);
   // The round trip: parseRoute(hashFor(r)) equals r for every route hashFor gives a hash for.
   const hashes = ['#/', '#/workflows', '#/sessions', '#/fleet', `#/fleet/${sk(7)}`, `#/fleet/${sk(7)}/${sk(8)}`, '#/run/feat-a/run-1', '#/run/feat-a/run-1/tasks',
-    '#/run/feat-a/run-1/tasks/A.1', '#/run/feat-a/run-1/stage/design', '#/run/feat-a/run-1/gate/gate-0', ...lanes.map(([hash]) => hash)];
+    '#/run/feat-a/run-1/tasks/A.1', '#/run/feat-a/run-1/stage/design', '#/run/feat-a/run-1/gate/gate-0', ...lanes.map(([hash]) => hash), ...SESSION_HASHES];
   for (const hash of hashes) {
     const route = parseRoute(hash);
     assert.notEqual(route.id, 'not-found', hash);
@@ -4797,6 +4820,282 @@ test('D.3 Sessions: selecting a lane sets the hash, reload restores it, a hash c
   assert.equal(page.main.querySelector('.sessions'), root);
 });
 
+// ---- 150 C.5: the Session route and its permalinks (IC-015, IC-017) ---------------------------------------------------
+
+test('C.5 grammar: parseRoute names the Session node and tab; hashFor is its inverse; a failing segment or a stray tab has no route', () => {
+  const { parseRoute, hashFor, baseRoute, VIEWS } = mods.views;
+  const base = { id: 'session', params: { slug: 'feat-a', taskId: 'run-1' }, view: VIEWS.session };
+  const expected: Array<[string, any]> = [
+    ['', {}],
+    ['/main', { node: { kind: 'main' } }],
+    ['/stage/design', { node: { kind: 'stage', id: 'design' } }],
+    ['/gate/gate-0', { node: { kind: 'gate', id: 'gate-0' } }],
+    ['/task/A.1', { node: { kind: 'task', id: 'A.1' } }],
+    ['/attempt/A.1/1', { node: { kind: 'attempt', task: 'A.1', token: 1 } }],
+    ['/attempt/B.2/12', { node: { kind: 'attempt', task: 'B.2', token: 12 } }],
+    [`/worker/${SESSION_RUN_ID}`, { node: { kind: 'worker', runId: SESSION_RUN_ID } }],
+    ...['log', 'transcript', 'result', 'process'].map((tab): [string, any] => [`/worker/${SESSION_RUN_ID}/${tab}`, { node: { kind: 'worker', runId: SESSION_RUN_ID }, tab }]),
+  ];
+  assert.deepEqual(expected.map(([node]) => `#/session/feat-a/run-1${node}`), SESSION_HASHES);
+  for (const [node, selection] of expected) {
+    const hash = `#/session/feat-a/run-1${node}`;
+    const route = parseRoute(hash);
+    assert.deepEqual(route, { ...base, ...selection }, hash);
+    assert.equal(hashFor(route), hash, hash);
+    assert.deepEqual(parseRoute(hashFor(route)), route, hash);
+    assert.deepEqual(baseRoute(route), base, `${hash}: the base drops node and tab`);
+  }
+  assert.equal('node' in parseRoute('#/session/feat-a/run-1'), false);
+  assert.equal('tab' in parseRoute(`#/session/feat-a/run-1/worker/${SESSION_RUN_ID}`), false, 'a worker node without a tab carries none (Log)');
+  // Every segment is checked: ids by PARAM_PATTERN, tokens by TOKEN, run ids by RUN_ID, tabs by the four names.
+  for (const bad of ['#/session', '#/session/', '#/session/a/', '#/session/-a/b', '#/session/a/.b', '#/session/a/b/main/x', '#/session/a/b/stage', '#/session/a/b/stage/-x',
+    '#/session/a/b/gate/x/y', '#/session/a/b/task/.x', '#/session/a/b/attempt/A.1', '#/session/a/b/attempt/A.1/01', '#/session/a/b/attempt/-x/1', '#/session/a/b/attempt/A.1/1/x',
+    '#/session/a/b/attempt/A.1/99999999999999999999', '#/session/a/b/worker', `#/session/a/b/worker/${SESSION_RUN_ID.toUpperCase()}`, '#/session/a/b/worker/w-0123456789abc',
+    `#/session/a/b/worker/${SESSION_RUN_ID}/Log`, `#/session/a/b/worker/${SESSION_RUN_ID}/log/x`, '#/session/a/b/tab/log', '#/session/a/b/main/log', '#/session/a/b/lane/x']) {
+    assert.equal(parseRoute(bad).id, 'not-found', bad);
+  }
+  // hashFor gives no hash for a route parseRoute could not have made.
+  const worker = { kind: 'worker', runId: SESSION_RUN_ID };
+  for (const [label, extra] of [
+    ['a tab on a stage', { node: { kind: 'stage', id: 'design' }, tab: 'log' }], ['a tab without a node', { tab: 'log' }], ['an unknown tab', { node: worker, tab: 'last' }],
+    ['a short run id', { node: { kind: 'worker', runId: 'w-0123' } }], ['token 0', { node: { kind: 'attempt', task: 'A.1', token: 0 } }],
+    ['a token as text', { node: { kind: 'attempt', task: 'A.1', token: '1' } }], ['a fractional token', { node: { kind: 'attempt', task: 'A.1', token: 1.5 } }],
+    ['a bad id', { node: { kind: 'task', id: '-x' } }], ['an unknown kind', { node: { kind: 'lane', id: 'x' } }], ['a null node', { node: null }],
+  ] as Array<[string, any]>) {
+    assert.equal(hashFor({ ...base, ...extra }), null, label);
+  }
+  assert.equal(hashFor({ ...base, params: { slug: '-x', taskId: 'run-1' } }), null, 'a bad slug');
+});
+
+test('C.5 VIEWS.session: inspectable, IC-017 shapes equal to SESSION_SHAPES, the run path, and the view functions of session.js', async () => {
+  const session = await import(url('views/session.js'));
+  const view = mods.views.VIEWS.session;
+  assert.equal(view.id, 'session');
+  assert.equal(view.inspectable, true);
+  assert.deepEqual(view.shapes, [...session.SESSION_SHAPES]);
+  assert.notDeepEqual(view.shapes.slice(1), [...session.SESSION_SHAPES], 'control: a list missing a shape differs');
+  for (const shape of view.shapes) assert.ok(mods.views.SHAPES_USED.includes(shape), shape);
+  assert.equal(view.api({ slug: 'feat-a', taskId: 'run-1' }), '/api/runs/feat-a/run-1');
+  assert.equal(view.pollMs, session.SESSION_POLL_MS);
+  assert.equal(view.load, session.loadSession);
+  assert.equal(view.connect, session.connectSession);
+  assert.equal(view.render, session.renderSession);
+  assert.equal(view.reroute, session.rerouteSession);
+  assert.equal(view.tick, session.tickSession);
+  assert.equal(view.teardown, session.teardownSession);
+  // load reads `/api/worker-runs/<slug>` as well as the run.
+  const paths: string[] = [];
+  const data = await view.load({ route: { params: { slug: 'feat-a', taskId: 'run-1' } } }, async (target: string) => { paths.push(target); return { target }; });
+  assert.deepEqual(paths.sort(), ['/api/runs/feat-a/run-1', '/api/worker-runs/feat-a']);
+  assert.deepEqual(data, { run: { target: '/api/runs/feat-a/run-1' }, workers: { target: '/api/worker-runs/feat-a' }, workersError: null });
+});
+
+test('C.5 import cycle: session.js imported before views.js in a fresh module graph loads both, and reading a session.js const at views.js init would not', () => {
+  const { spawnSync } = require('node:child_process');
+  const probe = (root: string) => spawnSync(process.execPath, ['--input-type=module', '-e', [
+    `const session = await import(${JSON.stringify(pathToFileURL(path.join(root, 'views', 'session.js')).href)});`,
+    `const views = await import(${JSON.stringify(pathToFileURL(path.join(root, 'views.js')).href)});`,
+    'const same = JSON.stringify(views.VIEWS.session.shapes) === JSON.stringify(session.SESSION_SHAPES);',
+    "process.stdout.write(JSON.stringify({ same, keys: Object.keys(views.VIEWS).includes('session'), route: views.parseRoute('#/session/a/b/main').id }));",
+  ].join('\n')], { encoding: 'utf8' });
+  const result = probe(copy);
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), { same: true, keys: true, route: 'session' });
+  // Control: views.js reading SESSION_SHAPES while its table is built fails in that order (the temporal dead zone).
+  const broken = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-ui-cycle-'));
+  try {
+    fs.cpSync(copy, broken, { recursive: true });
+    const file = path.join(broken, 'views.js');
+    const source = fs.readFileSync(file, 'utf8');
+    const literal = /shapes: \['status', 'timeline', 'attempts', 'workflow', 'worker-runs',[^\]]*\],/.exec(source);
+    assert.ok(literal, 'the inline shapes list is in views.js');
+    if (literal === null) return;
+    fs.writeFileSync(file, source.replace(literal[0], 'shapes: SESSION_SHAPES,').replace('  sessionApi, loadSession,', '  SESSION_SHAPES, sessionApi, loadSession,'));
+    const failed = probe(broken);
+    assert.notEqual(failed.status, 0, 'control: the eager read fails');
+    assert.match(failed.stderr, /ReferenceError/);
+  } finally {
+    fs.rmSync(broken, { recursive: true, force: true });
+  }
+});
+
+const SESSION_RUN_B = 'w-00000000000b';
+const sessionWorkerRow = (runId: string) => ({
+  runId, task: 'A.1', token: 1, harness: 'codex', childOf: null, phase: 'running', endState: null, createdAt: agoIso(12 * MIN_MS), startedAt: agoIso(12 * MIN_MS), endedAt: null, edit: false,
+});
+function sessionWorkers() {
+  const runs = [sessionWorkerRow(SESSION_RUN_ID), sessionWorkerRow(SESSION_RUN_B)];
+  const projected = project('worker-runs', { v: 1, slug: 'feat-a', store: 'present', runs, limits: { shown: runs.length, notShown: 0 } });
+  assert.ok(projected.ok, 'the worker-runs projector accepts the fixture');
+  return projected.body;
+}
+const sessionLogPage = (runId: string, stream: string) => {
+  const pieces = [{ at: 0, text: `${stream} text` }];
+  const to = pieces[0].text.length + 1;
+  return { v: 1, runId, stream, phase: 'running', log: 'open', ino: '7', size: to, from: 0, to, pieces, eof: true, reset: false, capped: null, cursor: `7:${to}:0:0`, before: null };
+};
+const sessionTranscript = () => ({
+  v: 1, agentKey: '0123456789abcdef', harness: 'codex', reader: { id: 'codex', status: 'supported' }, transcript: { linked: true, reason: null },
+  events: [{ seq: 1, at: agoIso(11 * MIN_MS), kind: 'reply', agentKey: '0123456789abcdef', model: null, tool: null, text: 'working on it', args: null, cut: false, tokens: null, record: null }], cursor: null,
+});
+/** The run (a plan with an active attempt on A.1), its feature's two worker runs on that attempt, and their log and transcript. */
+const sessionRoute = () => (target: string, init: any): Reply => {
+  if (target === '/api/runs/feat-a/run-1') {
+    return reply(200, runBodyWith(frow('run-1', 3), [ev(60, 'start', null)], graphTasks([gtask('A.1'), gtask('B.1', ['A.1'])],
+      [gstate('A.1', 'RUNNING', 'active-attempt', att(1, 'worker-a', 'active', 12)), gstate('B.1', 'PLANNED', 'unmet-dependency')])));
+  }
+  if (target === '/api/worker-runs/feat-a') return reply(200, sessionWorkers());
+  for (const runId of [SESSION_RUN_ID, SESSION_RUN_B]) {
+    const at = `/api/worker-runs/feat-a/${runId}`;
+    if (target === `${at}/log?stream=out` || target === `${at}/log?stream=err`) return reply(200, sessionLogPage(runId, target.endsWith('out') ? 'out' : 'err'));
+    if (target === `${at}/transcript`) return reply(200, sessionTranscript());
+  }
+  return standard(target, init);
+};
+const chainItem = (page: Page, key: string): any => page.main.querySelectorAll('.chain__item').find((item: El) => item.getAttribute('data-key') === key);
+const chainSelected = (page: Page) => page.main.querySelectorAll('.chain__item').filter((item: El) => item.getAttribute('aria-selected') === 'true').map((item: El) => item.getAttribute('data-key'));
+/** A click on a tree item, as it bubbles to the tree's listener. */
+const clickChain = (page: Page, key: string) => page.main.querySelector('.chain').querySelector('ul').fire('click', { target: chainItem(page, key) });
+const workerTab = (page: Page, tab: string): any => page.inspector.querySelectorAll('.wtabs__tab').find((b: El) => b.getAttribute('data-tab') === tab);
+const selectedTab = (page: Page) => page.inspector.querySelectorAll('.wtabs__tab').filter((b: El) => b.getAttribute('aria-selected') === 'true').map((b: El) => b.getAttribute('data-tab'));
+const exactCalls = (page: Page, from: number, target: string) => page.calls.slice(from).filter((c) => c.url === target).length;
+
+test('C.5 a failing Session segment is Not found with no fetch, on load and on a hash change', async () => {
+  const bad = ['#/session/a', '#/session/a/b/c', '#/session/a/b/worker/w-0123', '#/session/a/b/worker/w-0123456789ab/last', '#/session/a/b/attempt/A.1/0'];
+  for (const hash of bad) {
+    const page = await start({ hash, fetch: sessionRoute() });
+    assert.equal(text(heading(page)), 'Not found', hash);
+    assert.equal(callsSince(page, 0, '/api/runs'), 0, `${hash}: no run fetch`);
+    assert.equal(callsSince(page, 0, '/api/worker-runs'), 0, `${hash}: no worker-runs fetch`);
+    assert.equal(inspectorOpen(page), false, hash);
+    uninstallPage();
+    mock.timers.reset();
+  }
+  const page = await start({ hash: '#/session/feat-a/run-1/main', fetch: sessionRoute() });
+  assert.equal(text(heading(page)), 'Chain');
+  for (const hash of bad.map((h) => h.replace('#/session/a', '#/session/feat-a').replace('/b', '/run-1'))) {
+    const before = page.calls.length;
+    page.location.hash = hash;
+    page.win.dispatch('hashchange');
+    await settle();
+    assert.equal(text(heading(page)), 'Not found', hash);
+    assert.equal(callsSince(page, before, '/api/runs'), 0, `${hash}: no run fetch`);
+    assert.equal(callsSince(page, before, '/api/worker-runs'), 0, `${hash}: no worker-runs fetch`);
+    assert.equal(inspectorOpen(page), false, hash);
+  }
+});
+
+test('C.5 reload restores node and tab: a worker run opens on its tab, and a worker node without a tab shows Log; Now is current', async () => {
+  const page = await start({ hash: `#/session/feat-a/run-1/worker/${SESSION_RUN_ID}/transcript`, fetch: sessionRoute() });
+  assert.equal(text(heading(page)), 'Chain');
+  assert.deepEqual(current(page), ['Now']);
+  assert.equal(page.shell.dataset.inspectable, 'true');
+  assert.equal(exactCalls(page, 0, '/api/runs/feat-a/run-1'), 1);
+  assert.equal(exactCalls(page, 0, '/api/worker-runs/feat-a'), 1, 'load reads the worker runs too');
+  assert.equal(inspectorOpen(page), true);
+  assert.deepEqual(chainSelected(page), [`worker:${SESSION_RUN_ID}`]);
+  assert.deepEqual(selectedTab(page), ['transcript']);
+  assert.equal(exactCalls(page, 0, `/api/worker-runs/feat-a/${SESSION_RUN_ID}/transcript`), 1);
+  await advance(3_000);
+  assert.equal(inspectorOpen(page), true, 'a poll keeps the selection');
+  assert.deepEqual(selectedTab(page), ['transcript']);
+  assert.equal(page.location.hash, `#/session/feat-a/run-1/worker/${SESSION_RUN_ID}/transcript`);
+  uninstallPage();
+  mock.timers.reset();
+
+  const log = await start({ hash: `#/session/feat-a/run-1/worker/${SESSION_RUN_B}`, fetch: sessionRoute() });
+  assert.equal(inspectorOpen(log), true);
+  assert.deepEqual(chainSelected(log), [`worker:${SESSION_RUN_B}`]);
+  assert.deepEqual(selectedTab(log), ['log'], 'no tab in the hash: Log');
+  assert.ok(exactCalls(log, 0, `/api/worker-runs/feat-a/${SESSION_RUN_B}/log?stream=out`) >= 1, 'the Log tab reads its stream');
+  assert.equal(log.location.hash, `#/session/feat-a/run-1/worker/${SESSION_RUN_B}`, 'showing Log writes no tab');
+  uninstallPage();
+  mock.timers.reset();
+
+  for (const [node, key] of [['/attempt/A.1/1', 'attempt:A.1/1'], ['/task/B.1', 'task:B.1'], ['/gate/gate-0', 'gate:gate-0'], ['/main', 'main']]) {
+    const other = await start({ hash: `#/session/feat-a/run-1${node}`, fetch: sessionRoute() });
+    assert.equal(inspectorOpen(other), true, node);
+    assert.deepEqual(chainSelected(other), [key], node);
+    uninstallPage();
+    mock.timers.reset();
+  }
+  const none = await start({ hash: '#/session/feat-a/run-1', fetch: sessionRoute() });
+  assert.equal(inspectorOpen(none), false, 'no node: the inspector is closed');
+  assert.deepEqual(chainSelected(none), []);
+});
+
+test('C.5 a node or tab change reroutes with no re-mount; the inspector is open exactly when the route carries a node; selections write the hash', async () => {
+  const page = await start({ hash: '#/session/feat-a/run-1', fetch: sessionRoute() });
+  const h1 = heading(page);
+  const outline = page.main.querySelector('.chain');
+  assert.ok(outline, 'the outline is on the page');
+  assert.equal(inspectorOpen(page), false);
+  const same = (label: string) => {
+    assert.equal(heading(page), h1, `${label}: no re-mount`);
+    assert.equal(page.main.querySelector('.chain'), outline, `${label}: the outline is kept`);
+  };
+  // A selection in the outline writes its node.
+  clickChain(page, 'task:A.1');
+  assert.equal(page.location.hash, '#/session/feat-a/run-1/task/A.1');
+  assert.equal(inspectorOpen(page), true);
+  page.win.dispatch('hashchange'); // the hash the view wrote: nothing to do
+  same('own hash');
+  assert.equal(inspectorOpen(page), true);
+  const before = page.calls.length;
+  // A typed or back-button node change.
+  page.location.hash = `#/session/feat-a/run-1/worker/${SESSION_RUN_ID}`;
+  page.win.dispatch('hashchange');
+  await settle();
+  same('to a worker');
+  assert.deepEqual(chainSelected(page), [`worker:${SESSION_RUN_ID}`]);
+  assert.deepEqual(selectedTab(page), ['log']);
+  assert.equal(inspectorOpen(page), true);
+  // A tab change in the hash.
+  page.location.hash = `#/session/feat-a/run-1/worker/${SESSION_RUN_ID}/transcript`;
+  page.win.dispatch('hashchange');
+  await settle();
+  same('to a tab');
+  assert.deepEqual(selectedTab(page), ['transcript']);
+  // Choosing a tab writes it into the hash.
+  workerTab(page, 'log').fire('click');
+  assert.equal(page.location.hash, `#/session/feat-a/run-1/worker/${SESSION_RUN_ID}/log`);
+  page.win.dispatch('hashchange');
+  same('own tab');
+  assert.deepEqual(selectedTab(page), ['log']);
+  // Another worker run from the outline opens on Log, with no tab in the hash.
+  workerTab(page, 'transcript').fire('click');
+  clickChain(page, `worker:${SESSION_RUN_B}`);
+  assert.equal(page.location.hash, `#/session/feat-a/run-1/worker/${SESSION_RUN_B}`);
+  assert.deepEqual(selectedTab(page), ['log']);
+  page.location.hash = '#/session/feat-a/run-1/main';
+  page.win.dispatch('hashchange');
+  await settle();
+  same('to main');
+  assert.deepEqual(chainSelected(page), ['main']);
+  assert.equal(inspectorOpen(page), true);
+  assert.equal(exactCalls(page, before, '/api/runs/feat-a/run-1'), 0, 'no new run fetch');
+  assert.equal(exactCalls(page, before, '/api/worker-runs/feat-a'), 0, 'no new worker-runs fetch');
+  // No node in the route: the inspector is closed.
+  page.location.hash = '#/session/feat-a/run-1';
+  page.win.dispatch('hashchange');
+  same('to no node');
+  assert.equal(inspectorOpen(page), false);
+  assert.deepEqual(chainSelected(page), []);
+  // The inspector's close removes the node.
+  clickChain(page, 'stage:design');
+  assert.equal(page.location.hash, '#/session/feat-a/run-1/stage/design');
+  assert.equal(inspectorOpen(page), true);
+  closeInspector(page);
+  assert.equal(page.location.hash, '#/session/feat-a/run-1');
+  assert.equal(inspectorOpen(page), false);
+  same('closed');
+  // Another run is another base route: a re-mount.
+  page.location.hash = '#/session/feat-a/run-2/main';
+  page.win.dispatch('hashchange');
+  assert.notEqual(heading(page), h1, 'another run re-mounts');
+  await settle();
+});
+
 // ---- 149 D.5: one loop per view (IC-022, DEC-038) ---------------------------------------------------------------------
 
 test('149 D.5 one loop per view: Run marks the running edge, else the awaiting gate; Now marks the first Needs you glyph; a skeleton only while it shows', async () => {
@@ -4830,4 +5129,112 @@ test('149 D.5 one loop per view: Run marks the running edge, else the awaiting g
   const shown = mods.states.renderLoading({ noun: 'runs', skeleton: () => mods.dom.h('div', { class: 'skeleton' }), showSkeleton: true });
   assert.equal(shown[1].getAttribute('data-loop'), 'on', 'a skeleton loops while it shows');
   assert.equal(mods.states.renderLoading({ noun: 'runs', skeleton: () => mods.dom.h('div', { class: 'skeleton' }), showSkeleton: false })[1], null);
+});
+
+// ---- 150 C.6: links into the Session screen (IC-020) ---------------------------------------------------------------
+
+/** Each link of `el` as `[href, text]`, in document order. */
+const linksOf = (el: El) => el.querySelectorAll('a').map((a: El) => [a.getAttribute('href'), text(a)]);
+
+test('150 C.6 Now: a run row and a gate card each add a Chain link to the Session screen after the link they had', async () => {
+  mods.home.resetHome();
+  const runs = () => [frow('w1', 4), frow('r1', 2), frow('flat-1', 0, { featureSlug: null })];
+  const page = await start({ hash: '', fetch: homeFetch(() => body(runs())) });
+  const { parseRoute } = mods.views;
+
+  const row = rowOf(page, 'feat-a / r1');
+  assert.deepEqual(linksOf(row), [['#/run/feat-a/r1', 'feat-a / r1'], ['#/session/feat-a/r1', 'Chain']], 'the run link first, unchanged, then Chain');
+  const rowChain = row.querySelectorAll('a')[1];
+  assert.equal(rowChain.getAttribute('aria-label'), 'Chain: feat-a / r1');
+  assert.equal(rowChain.dataset.focusKey, 'chain:feat-a/r1');
+  assert.equal(row.querySelector('.run-row__link').dataset.focusKey, 'run:feat-a/r1', 'the run link keeps its focus key');
+  assert.deepEqual(parseRoute(rowChain.getAttribute('href')).params, { slug: 'feat-a', taskId: 'r1' });
+  assert.equal(parseRoute(rowChain.getAttribute('href')).id, 'session');
+
+  const card = cardOf(page, 'feat-a / w1');
+  assert.deepEqual(linksOf(card), [['#/run/feat-a/w1', 'Open the run to decide →'], ['#/session/feat-a/w1', 'Chain']], 'the decide link first, unchanged, then Chain');
+  const cardLink = card.querySelector('.gate-card__link');
+  assert.equal(cardLink.getAttribute('aria-label'), 'Open the run to decide: feat-a / w1');
+  assert.equal(cardLink.dataset.focusKey, 'run:feat-a/w1');
+  const cardChain = card.querySelectorAll('a')[1];
+  assert.equal(cardChain.getAttribute('aria-label'), 'Chain: feat-a / w1');
+  assert.equal(cardChain.dataset.focusKey, 'chain:feat-a/w1');
+  assert.equal(cardId(card), 'feat-a / w1', 'the run id line is unchanged');
+
+  assert.equal(rowOf(page, 'flat-1').querySelector('a'), null, 'a run with no feature folder has no Chain link either');
+  assert.ok([rowChain, cardChain].every((a: El) => a.children.length === 1 && a.children[0] instanceof Txt), 'the link text is one text node');
+  assert.ok([rowChain, cardChain].every((a: El) => a.classList.contains('run-row__chain')), 'both carry the class that lifts them above the stretched run link');
+});
+
+test('150 C.6 CSS: the Now Chain link stacks above the stretched run link, and the run head Chain shares the step area', () => {
+  const css = fs.readFileSync(path.join(WEB_ROOT, 'app.css'), 'utf8');
+  const components = css.indexOf('@layer components {');
+  const states = css.indexOf('@layer states {');
+  const rule = (selector: string) => {
+    const at = css.indexOf(`  ${selector} {`);
+    assert.ok(at > components && at < states, `${selector} is in the components layer`);
+    return css.slice(at, css.indexOf('}', at));
+  };
+  for (const stretched of ['.run-row__link::after', '.gate-card__link::after']) assert.match(rule(stretched), /position: absolute; inset: 0;/);
+  const chain = rule('.run-row__chain');
+  assert.match(chain, /position: relative;/);
+  assert.match(chain, /z-index: 1;/);
+  assert.match(rule('.run-head__aside'), /grid-area: step;/);
+  assert.doesNotMatch(rule('.run-head__step'), /grid-area/, 'only the aside takes the step area');
+});
+
+test('150 C.6 Run head: a Chain link follows the step counter; the crumb keeps its one link to Runs', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '#/run/feat-a/run-1', fetch: runRoute(() => runBody(frow('run-1', 4), WF_FEATURE, [ev(5, 'start', null)])) });
+  const head = page.main.querySelector('.run-head');
+  assert.deepEqual(head.children.map((c: El) => c.className), ['run-head__crumb', 'run-head__title', 'run-head__metawrap', 'run-head__aside']);
+  const aside = head.querySelector('.run-head__aside');
+  assert.deepEqual(aside.children.map((c: El) => c.className), ['run-head__step', 'graph__back'], 'Chain sits beside the step counter, in its grid area (IC-020)');
+  assert.deepEqual(linksOf(head), [['#/', 'Runs'], ['#/session/feat-a/run-1', 'Chain']]);
+  assert.equal(text(page.main.querySelector('.run-head__step')), 'step 5 of 5', 'the step counter is unchanged');
+  assert.equal(mods.views.parseRoute(head.querySelectorAll('a')[1].getAttribute('href')).id, 'session');
+  uninstallPage();
+  mock.timers.reset();
+
+  mods.home.resetHome();
+  const waiting = await start({ hash: '#/run/feat-a/run-1', fetch: (target, init) => (target === '/api/runs/feat-a/run-1' ? new Promise<Reply>(() => {}) : standard(target, init)) });
+  assert.deepEqual(linksOf(waiting.main.querySelector('.run-head')), [['#/', 'Runs'], ['#/session/feat-a/run-1', 'Chain']], 'the link is there before the data, from the route params');
+});
+
+test('150 C.6 Tasks head: a Chain link follows Back to the run, on the board and on each no-graph note', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '#/run/feat-a/run-1/tasks', fetch: graphRoute(GRAPH_PLAN) });
+  const top = page.main.querySelector('.graph__top');
+  assert.deepEqual(linksOf(top), [['#/run/feat-a/run-1', '← Back to the run'], ['#/session/feat-a/run-1', 'Chain']]);
+  assert.deepEqual(top.children.slice(0, 3).map((c: El) => c.className), ['graph__back', 'graph__back', 'graph__summary']);
+  assert.equal(page.main.querySelector('.graph__back').getAttribute('href'), '#/run/feat-a/run-1', 'the first is still the way back');
+  uninstallPage();
+  mock.timers.reset();
+
+  mods.home.resetHome();
+  const empty = await start({ hash: '#/run/feat-a/run-1/tasks', fetch: graphRoute(() => null, () => ({ tasksReason: 'no-plan' })) });
+  const note = empty.main.querySelector('.graph--empty');
+  assert.deepEqual(linksOf(note), [['#/run/feat-a/run-1', '← Back to the run'], ['#/session/feat-a/run-1', 'Chain']]);
+  assert.equal(empty.main.querySelector('.graph__board'), null);
+});
+
+test('150 C.6 palette: one session target per run, labelled slug / taskId with the hint Chain, as a hash from hashFor', async () => {
+  await withFreshModules(async () => {
+    const page = await start({ fetch: (target, init) => standard(target, init) });
+    const before = page.calls.length;
+    keydownOn(page, 'k', { ctrlKey: true });
+    assert.deepEqual(paletteOptions(page), ['Now', 'Sessions', 'Workflows', 'Fleet', 'feat-a / r1', 'feat-a / r2', 'feat-a / r3', 'feat-a / r4', 'feat-a / r5'], 'an empty query is unchanged: the screens, then the runs');
+    paletteType(page, 'chain');
+    const options = paletteOf(page).querySelectorAll('li');
+    assert.deepEqual(options.map((li: El) => [text(li.querySelector('.palette__label')), text(li.querySelector('.palette__hint')), li.dataset.kind]),
+      ['r1', 'r2', 'r3', 'r4', 'r5'].map((id) => [`feat-a / ${id}`, 'Chain', 'session']));
+    paletteType(page, 'feat-a / r3');
+    assert.deepEqual(paletteOf(page).querySelectorAll('li').map((li: El) => [li.dataset.kind, text(li.querySelector('.palette__hint'))]), [['run', 'Run · feature'], ['session', 'Chain']], 'the run target keeps its kind and hint');
+    const input = paletteInput(page);
+    input.fire('keydown', { key: 'ArrowDown' });
+    input.fire('keydown', { key: 'Enter' });
+    assert.equal(page.location.hash, '#/session/feat-a/r3');
+    assert.equal(mods.views.parseRoute(page.location.hash).id, 'session');
+    assert.equal(page.calls.length, before, 'the palette fetches nothing');
+  });
 });

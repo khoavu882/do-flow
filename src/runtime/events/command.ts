@@ -14,6 +14,12 @@
 // `patch` of the changed sections or nothing (a `snapshot` when one is owed); a record event
 // prints `error`, `reset` or `gone`.
 //
+// Feature 150 A.6 (IC-006, IC-008): a log channel (`worker:<runId>:out` or `:err`, from
+// `--channels` or a `sub` line) is followed by its LogSubscription (logs.ts) instead of the section
+// catalogue: a recompute prints the subscription's `snapshot`, `append`, `reset`, `error` or `gone`
+// frames, and its re-mark asks are passed to the detector. A refused stream (`last` included) is a
+// usage error from the channel grammar, so nothing is made and no file is opened for it.
+//
 // - stdout carries envelopes only, one per line, in `--json` mode or not.
 // - A usage error (exit 2) is one `doflow events: ...` line on stderr, printed before any envelope
 //   except for an invalid control line, which can follow envelopes already printed.
@@ -33,6 +39,7 @@ const { parseChannel, parseChannelList, CHANNEL_LIMIT } = require('./channels.ts
 const { createEnvelopeWriter, maskSections } = require('./envelope.ts');
 const { createDetector } = require('./detector.ts');
 const { channelSpec } = require('./sections.ts');
+const { createLogSubscription } = require('./logs.ts');
 
 /** IC-005: the longest control line, in bytes, newline excluded. */
 const CONTROL_LINE_BYTES = 1024;
@@ -78,8 +85,9 @@ interface EventsOptions {
   watch?: any;
   signals?: SignalSource;
   epoch?: string;
-  /** Test seams: the catalogue entry of a channel and the detector factory. */
+  /** Test seams: the catalogue entry of a channel, the subscription of a log channel and the detector factory. */
   specFor?: (channel: any, ctx: { cwd: string; env: Env }) => any;
+  logFor?: (options: any) => any;
   detectorFactory?: (options: any) => any;
 }
 
@@ -167,6 +175,7 @@ function handleEventsCommand(options: EventsOptions = {}): Promise<number> {
 
   const ctx = { cwd: options.cwd ?? process.cwd(), env: options.env ?? process.env };
   const specFor = options.specFor ?? channelSpec;
+  const logFor = options.logFor ?? createLogSubscription;
   const detectorFactory = options.detectorFactory ?? createDetector;
   const signals: SignalSource = options.signals ?? process;
   const clock = options.clock;
@@ -220,9 +229,23 @@ function handleEventsCommand(options: EventsOptions = {}): Promise<number> {
       queue = queue.then(() => (stopped ? undefined : fn())).catch(fault);
     }
 
+    /** 150 IC-008: a log channel's recompute is its subscription's decision. */
+    function recomputeLog(ch: string, sub: any, request: any): void {
+      const step = sub.recompute(request.snapshot === true);
+      if (specs.get(ch) !== sub || stopped) return;
+      emit(step.lines);
+      if (step.gone) {
+        specs.delete(ch);
+        detector.unfollow(ch);
+        return;
+      }
+      if (typeof step.again === 'number' && typeof detector.mark === 'function') detector.mark(ch, step.again);
+    }
+
     async function recompute(ch: string, request: any): Promise<void> {
       const spec = specs.get(ch);
       if (!spec || stopped) return;
+      if (spec.log === true) { recomputeLog(ch, spec, request); return; }
       const snapshot = request.snapshot || writer.needsSnapshot(ch);
       let computed: { sections: Sections; removed?: string[] };
       let masked: Sections;
@@ -267,6 +290,8 @@ function handleEventsCommand(options: EventsOptions = {}): Promise<number> {
       if (event === 'store-unreadable' || event === 'unsupported-version') emit(writer.error(ch, event));
       else if (event === 'replaced') emit(writer.reset(ch, 'replaced'));
       else if (event === 'gone') {
+        const spec = specs.get(ch);
+        if (spec && spec.log === true) spec.end();
         specs.delete(ch); // the detector no longer follows it; a later `sub` follows it anew
         emit(writer.gone(ch));
       }
@@ -274,17 +299,27 @@ function handleEventsCommand(options: EventsOptions = {}): Promise<number> {
 
     /** Follows a channel, or follows it again: either way its next frame is a fresh snapshot. */
     async function followChannel(channel: any): Promise<void> {
-      const spec = specFor(channel, ctx);
+      const prior = specs.get(channel.name);
+      if (prior && prior.log === true) prior.end();
+      const spec = channel.kind === 'log' ? logSpec(channel) : specFor(channel, ctx);
       specs.set(channel.name, spec);
       last.delete(channel.name);
       failed.delete(channel.name);
       await detector.follow(channel.name, spec.sources());
     }
 
+    /** A log channel's subscription, marked so `recompute` tells it from a catalogue entry. */
+    function logSpec(channel: any): any {
+      const sub = logFor({ channel, ctx, writer, ...(options.fsImpl ? { fsImpl: options.fsImpl } : {}), ...(clock ? { now: () => clock.now() } : {}) });
+      return Object.assign(sub, { log: true });
+    }
+
     async function control(op: 'sub' | 'unsub', channel: any): Promise<void> {
       const ch = channel.name;
       if (op === 'unsub') {
         if (!specs.has(ch)) return;
+        const spec = specs.get(ch);
+        if (spec.log === true) spec.end();
         detector.unfollow(ch);
         specs.delete(ch);
         last.delete(ch);

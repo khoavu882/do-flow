@@ -44,6 +44,18 @@
 // Extension of IC-017 for the live connector (IC-018): `onTransport(listener)` returns an unsubscribe and calls
 // `listener({ state, code, at })` with every adapter state, plus the store's own `idle`, `hidden`, `paused` and the
 // `refused` `retry-limit` above, so the connector can choose live or polling.
+//
+// Log lanes (150 IC-006, IC-007, IC-014, IC-019): `worker:<runId>:out` and `:err`. Their frames carry the byte-cursor id
+// `<ino>:<offset>:<n>:<ms>` (and every other channel's frames `<epoch>-<n>`; a frame with the other form is ignored), never
+// change the epoch, and are `snapshot`, `append`, `reset`, `error` and `gone` (a `patch` is ignored). The store keeps no log
+// text: the client log store (log-store.js) merges it. A `snapshot` tells listeners `{ kind: 'state', state: <frame data>,
+// code: null, id }` and an `append`, applied in arrival order, `{ kind: 'append', state: <frame data>, code: null, id }`; an
+// `append` on any other channel is still ignored. A late subscriber gets the lane's error, if any, and nothing else. The
+// lane's `since` entry is `<ch>=<ino>:<to>`: `subscribe(channel, listener, { position })` may pass `position()`, read at
+// every open, which gives the subscriber's held `<ino>:<to>` or null (the lane is then left out, and gets a snapshot);
+// without it the position is the `<ino>:<offset>` of the lane's last `snapshot` or `append`, dropped by `reset`, `error`
+// and `gone`. Log positions count whatever the epoch, so a `since` of log lanes only, before any epoch was seen, carries
+// the epoch `00000000`.
 
 /** Wait after a change of the union before the connection is closed and reopened. */
 const UNION_DEBOUNCE_MS = 50;
@@ -61,6 +73,17 @@ const MAX_SINCE_CHARS = 2048;
 const MAX_POINTER_SEGMENTS = 4;
 
 const ID_PATTERN = /^([0-9a-f]{8})-([1-9][0-9]{0,15})$/;
+/** 150 IC-007: a log frame's id, `<ino>:<offset>:<n>:<ms>`. */
+const LOG_ID_PATTERN = /^([0-9]{1,20}):([0-9]{1,16}):[1-9][0-9]{0,15}:[0-9]{1,16}$/;
+/** 150 IC-014 `logpos`, the position a log lane resumes from. */
+const LOG_POSITION = /^[0-9]{1,20}:[0-9]{1,16}$/;
+/** 150 IC-006: the two worker output channels. */
+const LOG_CHANNEL = /^worker:w-[0-9a-f]{12}:(?:out|err)$/;
+/** The epoch of a `since` vector that holds log positions only (they count whatever the epoch, 150 IC-014). */
+const NO_EPOCH = '00000000';
+
+/** @param {unknown} name */
+const isLogChannel = (name) => typeof name === 'string' && LOG_CHANNEL.test(name);
 
 const defaultClock = {
   now: () => Date.now(),
@@ -76,8 +99,9 @@ const defaultVisibility = {
   },
 };
 
-/** @typedef {{ kind: 'state' | 'reset' | 'error' | 'gone', state: any, code: string | null }} LiveEvent */
+/** @typedef {{ kind: 'state' | 'append' | 'reset' | 'error' | 'gone', state: any, code: string | null, id?: string }} LiveEvent */
 /** @typedef {(event: LiveEvent) => void} LiveListener */
+/** @typedef {{ position?: () => string | null }} SubscribeOptions */
 /** @typedef {{ state: string, code: string | null, at: any }} TransportEvent */
 /**
  * @typedef {object} LiveAdapter
@@ -88,13 +112,15 @@ const defaultVisibility = {
  */
 /**
  * @typedef {object} Channel
- * @property {Set<{ listener: LiveListener }>} listeners
+ * @property {Set<{ listener: LiveListener, position: (() => string | null) | null }>} listeners
  * @property {any} state the applied state, null before a snapshot and after `reset` or `error`
  * @property {string | null} epoch
  * @property {bigint} n the applied position
  * @property {boolean} stale a patch could not apply: patches are ignored and the position is not sent until a snapshot
  * @property {string | null} errorCode
  * @property {boolean} overflow kept out of the union by the channel limit
+ * @property {boolean} log a log lane (150 IC-006)
+ * @property {string | null} logPos a log lane's `<ino>:<offset>` from its last snapshot or append
  */
 
 /** @param {any} value @returns {value is Record<string, any>} */
@@ -245,23 +271,39 @@ function createLiveStore(options) {
     return list;
   }
 
-  /** IC-013's vector for `list`, or null. @param {string[]} list */
+  /** A log lane's `<ino>:<to>`: the first subscriber position that gives one, else the lane's own. @param {Channel} entry */
+  function logPosition(entry) {
+    for (const token of entry.listeners) {
+      if (token.position === null) continue;
+      const value = token.position();
+      return typeof value === 'string' && LOG_POSITION.test(value) ? value : null;
+    }
+    return entry.logPos;
+  }
+
+  /** IC-013's vector for `list` (150 IC-014: log lanes at `<ino>:<to>`), or null. @param {string[]} list */
   function since(list) {
-    if (latestEpoch === null) return null;
-    const prefix = `${latestEpoch}/`;
     /** @type {string[]} */
     const entries = [];
-    let length = prefix.length;
+    let length = (latestEpoch ?? NO_EPOCH).length + 1;
     for (const name of list) {
       const entry = channels.get(name);
-      if (!entry || entry.state === null || entry.stale || entry.epoch !== latestEpoch) continue;
-      const text = `${name}=${entry.n}`;
+      if (!entry) continue;
+      let text;
+      if (entry.log) {
+        const pos = logPosition(entry);
+        if (pos === null) continue;
+        text = `${name}=${pos}`;
+      } else {
+        if (latestEpoch === null || entry.state === null || entry.stale || entry.epoch !== latestEpoch) continue;
+        text = `${name}=${entry.n}`;
+      }
       const added = text.length + (entries.length > 0 ? 1 : 0);
       if (length + added > MAX_SINCE_CHARS) break;
       entries.push(text);
       length += added;
     }
-    return entries.length === 0 ? null : prefix + entries.join(',');
+    return entries.length === 0 ? null : `${latestEpoch ?? NO_EPOCH}/${entries.join(',')}`;
   }
 
   function clearTimers() {
@@ -327,9 +369,56 @@ function createLiveStore(options) {
     }
   }
 
+  /** 150 IC-007: a log lane's frame; `pos` is the `<ino>:<offset>` of its id. @param {Channel} entry @param {any} envelope @param {string} pos */
+  function onLogFrame(entry, envelope, pos) {
+    const data = envelope.data;
+    const id = envelope.id;
+    switch (envelope.type) {
+      case 'snapshot':
+      case 'append': {
+        if (!isPlainObject(data)) return;
+        entry.logPos = pos;
+        entry.errorCode = null;
+        notify(entry, { kind: envelope.type === 'snapshot' ? 'state' : 'append', state: data, code: null, id });
+        return;
+      }
+      case 'reset': {
+        Object.assign(entry, { logPos: null, errorCode: null });
+        notify(entry, { kind: 'reset', state: null, code: isPlainObject(data) && typeof data.reason === 'string' ? data.reason : null });
+        return;
+      }
+      case 'error': {
+        const code = isPlainObject(data) && typeof data.code === 'string' ? data.code : 'unknown';
+        Object.assign(entry, { logPos: null, errorCode: code });
+        notify(entry, { kind: 'error', state: null, code });
+        return;
+      }
+      case 'gone': {
+        channels.delete(envelope.ch);
+        notify(entry, { kind: 'gone', state: null, code: null });
+        entry.listeners.clear();
+        union();
+        scheduleReopen();
+        return;
+      }
+      default:
+        // `patch` never reaches a log lane (150 IC-007).
+    }
+  }
+
   /** @param {any} envelope */
   function onFrame(envelope) {
     if (down || opened === null || !isPlainObject(envelope) || typeof envelope.ch !== 'string' || typeof envelope.id !== 'string') return;
+    if (isLogChannel(envelope.ch)) {
+      const logId = LOG_ID_PATTERN.exec(envelope.id);
+      if (logId === null) return;
+      lastFrameAt = clock.now();
+      retrying = 0;
+      const entry = channels.get(envelope.ch);
+      if (!entry || entry.overflow || !opened.includes(envelope.ch)) return;
+      onLogFrame(entry, envelope, `${logId[1]}:${logId[2]}`);
+      return;
+    }
     const id = ID_PATTERN.exec(envelope.id);
     if (id === null) return;
     lastFrameAt = clock.now();
@@ -386,7 +475,7 @@ function createLiveStore(options) {
         return;
       }
       default:
-        // `append` is reserved (IC-002): nothing to apply.
+        // `append` belongs to log lanes (150 IC-007, above); on any other channel there is nothing to apply.
     }
   }
 
@@ -417,20 +506,23 @@ function createLiveStore(options) {
 
   return {
     /**
-     * Follows `channel`; returns the unsubscribe.
+     * Follows `channel`; returns the unsubscribe. On a log lane `options.position` may give the subscriber's held
+     * `<ino>:<to>` for `since` (150 IC-019).
      * @param {string} channel
      * @param {LiveListener} listener
+     * @param {SubscribeOptions} [options]
      * @returns {() => void}
      */
-    subscribe(channel, listener) {
+    subscribe(channel, listener, options) {
       if (typeof channel !== 'string' || typeof listener !== 'function') throw new TypeError('subscribe(channel, listener)');
+      const position = options && typeof options.position === 'function' ? options.position : null;
       let entry = channels.get(channel);
       const fresh = entry === undefined;
       if (entry === undefined) {
-        entry = { listeners: new Set(), state: null, epoch: null, n: 0n, stale: false, errorCode: null, overflow: false };
+        entry = { listeners: new Set(), state: null, epoch: null, n: 0n, stale: false, errorCode: null, overflow: false, log: isLogChannel(channel), logPos: null };
         channels.set(channel, entry);
       }
-      const token = { listener };
+      const token = { listener, position };
       entry.listeners.add(token);
       if (fresh) {
         union();

@@ -108,7 +108,9 @@ test('route table: frozen, the only non-GET route is POST /api/session, the stre
   assert.deepEqual(routes.filter((route: any) => route.method !== 'GET').map((route: any) => `${route.method} ${route.path}`), ['POST /api/session']);
   assert.deepEqual(routes.filter((route: any) => route.stream).map((route: any) => `${route.method} ${route.path}`), ['GET /api/stream', 'GET /api/live']);
   assert.deepEqual(routes.filter((route: any) => route.method === 'GET').map((route: any) => route.path).sort(),
-    ['/*', '/api/fleet', '/api/info', '/api/live', '/api/runs', '/api/runs/:slug/:taskId', '/api/sessions', '/api/stream', '/api/transcript', '/api/workflows', '/healthz']);
+    ['/*', '/api/fleet', '/api/info', '/api/live', '/api/runs', '/api/runs/:slug/:taskId', '/api/sessions', '/api/stream', '/api/transcript',
+      '/api/worker-runs/:slug', '/api/worker-runs/:slug/:runId/log', '/api/worker-runs/:slug/:runId/result', '/api/worker-runs/:slug/:runId/status',
+      '/api/worker-runs/:slug/:runId/transcript', '/api/workflows', '/healthz']);
   // PHONE_ROUTE_ALLOWLIST by behaviour (DEC-007): a phone session passes the session check on exactly the four routes.
   const phone = createSessions({ scope: 'phone' });
   const cookie = `${cookieName(4310)}=${phone.exchange(phone.mintLaunchCode())}`;
@@ -157,7 +159,8 @@ test('phone session: only the four phone GET routes are allowed', async () => {
     assert.notEqual(reply.status, 403, `${path} is in phone scope`);
   }
 
-  for (const path of ['/api/sessions', '/api/fleet', '/api/transcript', '/api/stream', '/api/live']) {
+  for (const path of ['/api/sessions', '/api/fleet', '/api/transcript', '/api/stream', '/api/live', '/api/worker-runs/:slug', '/api/worker-runs/:slug/:runId/result',
+    '/api/worker-runs/:slug/:runId/status', '/api/worker-runs/:slug/:runId/log', '/api/worker-runs/:slug/:runId/transcript']) {
     const route = routes.find((item: any) => item.method === 'GET' && item.path === path);
     assert.ok(route, path);
     const reply = await invoke(route);

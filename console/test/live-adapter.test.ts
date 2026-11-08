@@ -67,6 +67,8 @@ function rig(answers: Answer[] = []) {
 const words = (states: any[]) => states.map((s) => (s.code === null ? s.state : `${s.state}:${s.code}`));
 
 const ENVELOPE = { v: 1, ch: 'run:feat-a:run-1', id: '3f9a0c12-17', type: 'patch', at: '2026-11-07T12:00:00.000Z', data: { set: { '/run/body/state': 'RUNNING' }, unset: [] } };
+/** 150 IC-007's example: an `append` on a log channel with its byte-cursor id. */
+const LOG_ENVELOPE = { v: 1, ch: 'worker:w-1a2b3c4d5e6f:out', id: '8812345:4096:3:1762581600000', type: 'append', at: '2026-11-08T05:00:00.000Z', data: { from: 3072, to: 4096, pieces: [{ at: 3072, text: 'tests passed' }], phase: 'running', end: null } };
 
 // ---- the URL ------------------------------------------------------------------------------------------
 
@@ -99,6 +101,30 @@ test('frames: a valid message is delivered as the parsed envelope, for every IC-
   assert.equal(r.frames.length, 7, '16 digits is the bound');
 });
 
+test('frames: a log channel envelope with an IC-007 log id is delivered, append included, for out and err (150 IC-006, IC-007)', () => {
+  const r = rig();
+  r.adapter.open(['worker:w-1a2b3c4d5e6f:out'], null);
+  const src = FakeSource.all[0];
+  src.message(LOG_ENVELOPE);
+  assert.deepEqual(r.frames, [LOG_ENVELOPE], 'an append on a log channel is accepted');
+  const types = ['snapshot', 'append', 'reset', 'error', 'gone'];
+  types.forEach((type, i) => src.message({ ...LOG_ENVELOPE, type, ch: `worker:w-1a2b3c4d5e6f:${i % 2 === 0 ? 'err' : 'out'}`, id: `0:0:${i + 1}:0`, data: {} }));
+  assert.deepEqual(r.frames.slice(1).map((f: any) => f.type), types);
+  src.message({ ...LOG_ENVELOPE, id: `${'9'.repeat(20)}:${'9'.repeat(16)}:${'9'.repeat(16)}:${'9'.repeat(16)}` });
+  assert.equal(r.frames.length, 7, '20 digits of inode and 16 of offset, counter and clock are the bounds');
+  assert.deepEqual([...live.LOG_FRAME_TYPES], types);
+  assert.equal(live.LOG_ID.test('8812345:4096:3:1762581600000'), true);
+  // The old refusals stay: the envelope of :108 (a log channel with an epoch id and a patch) and of :112 (an append on run:) are dropped.
+  src.message({ ...ENVELOPE, ch: 'worker:w-0123456789ab:out' });
+  src.message({ ...ENVELOPE, type: 'append' });
+  assert.equal(r.frames.length, 7);
+});
+
+test('isChannel: the two log channels are channels; every other worker stream is not (150 IC-006)', () => {
+  for (const ch of ['now', 'run:a:b', 'tasks:a', 'worker:w-0123456789ab', 'worker:w-0123456789ab:out', 'worker:w-0123456789ab:err']) assert.equal(live.isChannel(ch), true, ch);
+  for (const ch of ['worker:w-0123456789ab:last', 'worker:w-0123456789ab:x', 'worker:w-0123456789ab:', 'worker:w-0123456789ab:out:x', 'worker:w-0123456789AB:out', 'worker:x:out', 'worker:out', 'tasks:a:out']) assert.equal(live.isChannel(ch), false, ch);
+});
+
 test('frames: every message failing the envelope grammar is dropped', () => {
   const r = rig();
   r.adapter.open(['now'], null);
@@ -113,6 +139,17 @@ test('frames: every message failing the envelope grammar is dropped', () => {
     { ...ENVELOPE, at: 0 }, (({ at, ...rest }) => rest)(ENVELOPE),
     { ...ENVELOPE, data: [] }, { ...ENVELOPE, data: null }, { ...ENVELOPE, data: 'x' }, (({ data, ...rest }) => rest)(ENVELOPE),
     [ENVELOPE], 'null', '1', '"text"',
+    // 150 IC-006 and IC-007: the log kind is out and err only, with a log id; append is a log channel's frame only (D4).
+    { ...LOG_ENVELOPE, ch: 'worker:w-0123456789ab:last' }, { ...LOG_ENVELOPE, ch: 'worker:w-0123456789ab:x' }, { ...LOG_ENVELOPE, ch: 'worker:w-0123456789ab:' },
+    { ...LOG_ENVELOPE, ch: 'worker:w-0123456789AB:out' }, { ...LOG_ENVELOPE, ch: 'worker:w-0123456789ab:out:1' },
+    { ...LOG_ENVELOPE, ch: 'run:feat-a:run-1' }, { ...LOG_ENVELOPE, ch: 'now', id: 'abcdef01-1' }, { ...LOG_ENVELOPE, ch: 'tasks:feat-a', id: 'abcdef01-1' },
+    { ...LOG_ENVELOPE, id: '3f9a0c12-17' }, { ...ENVELOPE, id: LOG_ENVELOPE.id }, { ...ENVELOPE, type: 'snapshot', id: LOG_ENVELOPE.id },
+    { ...LOG_ENVELOPE, type: 'patch' }, { ...LOG_ENVELOPE, type: 'Append' },
+    { ...LOG_ENVELOPE, id: '8812345:4096:0:1762581600000' }, { ...LOG_ENVELOPE, id: '8812345:4096:03:1762581600000' },
+    { ...LOG_ENVELOPE, id: '8812345:4096:3' }, { ...LOG_ENVELOPE, id: '8812345:4096:3:1:2' }, { ...LOG_ENVELOPE, id: 'a812345:4096:3:1' },
+    { ...LOG_ENVELOPE, id: `${'1'.repeat(21)}:4096:3:1` }, { ...LOG_ENVELOPE, id: `1:${'1'.repeat(17)}:3:1` },
+    { ...LOG_ENVELOPE, id: '1:1:12345678901234567:1' }, { ...LOG_ENVELOPE, id: `1:1:1:${'1'.repeat(17)}` }, { ...LOG_ENVELOPE, id: ':1:1:1' },
+    { ...LOG_ENVELOPE, data: [] },
   ];
   for (const body of bad) src.message(body);
   src.message('{not json');

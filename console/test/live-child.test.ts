@@ -205,6 +205,21 @@ test('isCoreEnvelope accepts every frame type and refuses every other shape', ()
   assert.equal(isCoreEnvelope(JSON.parse('{"v":1,"ch":"now","id":"0fa4ec0d-1","type":"patch","at":"x","data":{},"__proto__":{}}')), false);
 });
 
+test('150 IC-007: a log channel\'s id is <ino>:<offset>:<n>:<ms>, and only a log channel\'s; other kinds keep <epoch>-<n>', () => {
+  const LOG_IDS = ['8812345:4096:3:1762581600000', '0:0:1:0', `${'9'.repeat(20)}:${'9'.repeat(16)}:${'9'.repeat(16)}:${'9'.repeat(16)}`];
+  for (const ch of ['worker:w-1a2b3c4d5e6f:out', 'worker:w-1a2b3c4d5e6f:err']) {
+    for (const id of LOG_IDS) for (const type of ['snapshot', 'append', 'reset', 'error', 'gone']) assert.equal(isCoreEnvelope(envelope({ ch, id, type })), true, `${ch} ${id} ${type}`);
+    for (const id of ['0fa4ec0d-1', '8812345:4096:0:1762581600000', '8812345:4096:3', '8812345:4096:03:1', `${'9'.repeat(21)}:0:1:0`, '0:0:1:0:0', 'a:0:1:0', '-1:0:1:0']) {
+      assert.equal(isCoreEnvelope(envelope({ ch, id })), false, `${ch} ${id}`);
+    }
+  }
+  // Every other kind, and a stream that is not a log channel, keeps the <epoch>-<n> id and refuses a log id.
+  for (const ch of ['now', 'run:feat-a:A.3', 'tasks:feat-a', 'worker:w-1a2b3c4d5e6f', 'worker:w-1a2b3c4d5e6f:last', 'worker:w-1A2B3C4D5E6F:out']) {
+    assert.equal(isCoreEnvelope(envelope({ ch, id: '0fa4ec0d-7' })), true, ch);
+    assert.equal(isCoreEnvelope(envelope({ ch, id: '8812345:4096:3:1762581600000' })), false, ch);
+  }
+});
+
 test('a line that is not an envelope ends the child; later lines are dropped and the exit takes the restart path', async () => {
   const { clock, runner, live, frames, downs } = setup();
   live.need(new Set(['now']));

@@ -78,6 +78,27 @@ const CLOSED_SETS = Object.freeze({
   recordTypes: Object.freeze(['worker-run-start', 'worker-run-end', 'attempt-claim', 'attempt-end', 'hook-record']),
   /** IC-023 pair bases */
   pairBases: Object.freeze(['same-model', 'same-task', 'overlap']),
+  /** 150 IC-011: src/runtime/worker/run-store.ts PHASES */
+  phases: Object.freeze(['starting', 'running', 'cancelling', 'ended']),
+  /** the `end.state` values supervisor.ts and cancel.ts write */
+  endStates: Object.freeze(['exited', 'timed-out', 'cancelled']),
+  /** src/runtime/worker/supervisor.ts resultOfRun withheld codes */
+  withheldCodes: Object.freeze(['not-exited', 'outside-write', 'branch-moved', 'isolation-unverifiable', 'read-only-violation', 'read-only-unverifiable',
+    'report-denied', 'report-quota', 'report-failure', 'report-unparsed', 'group-survived']),
+  /** src/runtime/worker/parsers/common.ts Report status */
+  reportStatuses: Object.freeze(['success', 'failure', 'denied', 'unparsed']),
+  /** src/runtime/worker/worktree-check.ts Comparison status: the read-only and isolation checks */
+  checkStatuses: Object.freeze(['clean', 'violated', 'unverifiable']),
+  /** src/runtime/worker/supervisor.ts isolationOf reasons */
+  isolationReasons: Object.freeze(['outside-write', 'branch-moved', 'isolation-unverifiable']),
+  /** src/runtime/worker/process-tree.ts escalate and cancel.ts cleanup statuses (`process.leftover`, `cleanup`) */
+  leftoverStatuses: Object.freeze(['verified', 'survivors', 'unknown']),
+  /** src/runtime/worker/supervisor.ts `process.kind` */
+  processKinds: Object.freeze(['exited', 'not-started']),
+  /** src/runtime/worker/log-read.ts LOG_STREAMS */
+  logStreams: Object.freeze(['out', 'err']),
+  /** src/runtime/worker/reads.ts IC-002 log states */
+  logStates: Object.freeze(['waiting', 'open', 'gone', 'none']),
 });
 
 /** IC-022: the byte caps of the two text fields, re-checked here after the second masking pass (IC-024). */
@@ -114,6 +135,10 @@ const harness: Check<string> = (value) => (typeof value !== 'string' ? fail() : 
 /** A non-negative finite number (a rate, or a sum the core rounded to two decimals). */
 const rate: Check<number> = (value) => (typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : fail());
 const cursor: Check<string> = (value) => (typeof value === 'string' && CURSOR.test(value) ? value : fail());
+/** 150: a worker run id (`RUN_ID`, src/runtime/worker/run-store.ts). */
+const RUN_ID = /^w-[0-9a-f]{12}$/;
+const runId: Check<string> = (value) => (typeof value === 'string' && RUN_ID.test(value) ? value : fail());
+const digits: Check<string> = (value) => (typeof value === 'string' && /^[0-9]+$/.test(value) ? value : fail());
 /**
  * IC-024: a *text* field. The cap is checked on the bytes received, the text is masked a second time
  * (mask-lite.ts), and the cap is checked again on the result: a field over its cap on either side is
@@ -358,9 +383,37 @@ function slots(value: unknown) {
   return { v: one(body.v), slots: each(slot)(body.slots), unreadable: count(body.unreadable) };
 }
 
+/** A process-group cleanup verdict (`process.leftover`, `cleanup`): status and reason; `survivors` and `zombies` (pids) are never read. */
+const leftover = (value: unknown) => {
+  const entry = record(value);
+  return { status: oneOf(CLOSED_SETS.leftoverStatuses)(entry.status), reason: orNull(id)(entry.reason) };
+};
+
 /**
- * IC-018 d: one worker run's state and the process check. Dropped: identity, process, report, output,
- * edit, isolation, cleanup, cancel, verified, withheld and the rest. The core's answer for an attempt
+ * 150 IC-011: the run record's `process`, field by field. The core writes `code`, `signal`,
+ * `groupAlive` and `leftover` for an exited run only and `reason` for a not-started one, so each
+ * absent one reads as null. `pid`, `pgid` and `start` are never read.
+ */
+const processState = (value: unknown) => {
+  const p = record(value);
+  const code = optional(count)(p.code);
+  if (code !== null && code > 255) fail();
+  return {
+    kind: oneOf(CLOSED_SETS.processKinds)(p.kind),
+    code,
+    signal: optional(label)(p.signal),
+    at: orNull(iso)(p.at),
+    reason: optional(id)(p.reason),
+    groupAlive: optional((v) => (v === true || v === false || v === 'unknown' ? v : fail()))(p.groupAlive),
+    leftover: optional(leftover)(p.leftover),
+  };
+};
+
+/**
+ * IC-018 d, widened by 150 IC-011 (FR-016): one worker run's state, the process check, the deadline,
+ * the granter, the process outcome and the cleanup verdict. Dropped: identity, report, output, edit,
+ * isolation, cancel, verified, withheld, every pid, pgid, process start, survivor and zombie, and the
+ * rest. The four 150 fields read absent as null, as `overdue` does. The core's answer for an attempt
  * with no worker run (`run: null`) projects to null.
  */
 function workerStatus(value: unknown) {
@@ -384,6 +437,119 @@ function workerStatus(value: unknown) {
     overdue: optional(bool)(body.overdue),
     supervisorLost: optional(bool)(body.supervisorLost),
     attemptActive: bool(body.attemptActive),
+    deadline: optional(iso)(body.deadline),
+    childOf: optional(runId)(body.childOf),
+    process: optional(processState)(body.process),
+    cleanup: optional(leftover)(body.cleanup),
+  };
+}
+
+// ---- 150 IC-011: the Session screen's worker reads ----
+
+/** IC-004: the bounded run list of one feature, ended and child runs included (`limits.ended: 'listed'`). */
+function workerRuns(value: unknown) {
+  const body = record(value);
+  const run = (item: unknown) => {
+    const r = record(item);
+    return {
+      runId: runId(r.runId),
+      task: id(r.task),
+      token: token(r.token),
+      harness: orNull(harness)(r.harness),
+      childOf: orNull(runId)(r.childOf),
+      phase: oneOf(CLOSED_SETS.phases)(r.phase),
+      endState: orNull(oneOf(CLOSED_SETS.endStates))(r.endState),
+      createdAt: orNull(iso)(r.createdAt),
+      startedAt: orNull(iso)(r.startedAt),
+      endedAt: orNull(iso)(r.endedAt),
+      edit: orNull(bool)(r.edit),
+    };
+  };
+  const runs = each(run)(body.runs);
+  const limits = record(body.limits);
+  const shown = count(limits.shown);
+  if (shown !== runs.length) fail();
+  return {
+    v: one(body.v),
+    slug: id(body.slug),
+    source: 'worker-runs',
+    store: oneOf(CLOSED_SETS.observedStores)(body.store),
+    runs,
+    limits: { shown, notShown: count(limits.notShown), ended: 'listed' },
+  };
+}
+
+/** IC-003's keys, exactly: a body with any other key is refused. */
+const RESULT_KEYS: ReadonlySet<string> = new Set(['v', 'runId', 'task', 'token', 'harness', 'phase', 'endState', 'endedAt', 'reportStatus', 'readOnly',
+  'isolation', 'resultOffered', 'withheld', 'quota']);
+
+/** IC-003: the result fields of one run. `resultOffered` must agree with `withheld` being empty, as `resultOfRun` builds them. */
+function workerResult(value: unknown) {
+  const body = record(value);
+  const keys = Object.keys(body);
+  if (keys.length !== RESULT_KEYS.size || !keys.every((key) => RESULT_KEYS.has(key))) fail();
+  const resultOffered = bool(body.resultOffered);
+  const withheld = each(oneOf(CLOSED_SETS.withheldCodes))(body.withheld);
+  if (resultOffered !== (withheld.length === 0)) fail();
+  return {
+    v: one(body.v),
+    runId: runId(body.runId),
+    task: id(body.task),
+    token: token(body.token),
+    harness: orNull(harness)(body.harness),
+    phase: oneOf(CLOSED_SETS.phases)(body.phase),
+    endState: orNull(oneOf(CLOSED_SETS.endStates))(body.endState),
+    endedAt: orNull(iso)(body.endedAt),
+    reportStatus: orNull(oneOf(CLOSED_SETS.reportStatuses))(body.reportStatus),
+    readOnly: orNull(oneOf(CLOSED_SETS.checkStatuses))(body.readOnly),
+    isolation: orNull((v) => {
+      const isolation = record(v);
+      return { status: oneOf(CLOSED_SETS.checkStatuses)(isolation.status), reason: orNull(oneOf(CLOSED_SETS.isolationReasons))(isolation.reason) };
+    })(body.isolation),
+    resultOffered,
+    withheld,
+    quota: orNull((v) => {
+      const quota = record(v);
+      return { signal: label(quota.signal), basis: label(quota.basis) };
+    })(body.quota),
+  };
+}
+
+/**
+ * IC-002: one page of a run's `out` or `err` log. `from <= to <= size`; piece offsets rise strictly
+ * inside `[from, to)`; each piece text is masked a second time (mask-lite.ts). A piece the core cut
+ * inside a line carries `cut: true`; an absent `cut` reads false.
+ */
+function workerLog(value: unknown) {
+  const body = record(value);
+  const size = count(body.size);
+  const from = count(body.from);
+  const to = count(body.to);
+  if (from > to || to > size) fail();
+  let last = -1;
+  const piece = (item: unknown) => {
+    const p = record(item);
+    const at = count(p.at);
+    if (at < from || at >= to || at <= last) fail();
+    last = at;
+    return { at, text: maskLite(text(p.text)), cut: p.cut === undefined ? false : bool(p.cut) };
+  };
+  return {
+    v: one(body.v),
+    runId: runId(body.runId),
+    stream: oneOf(CLOSED_SETS.logStreams)(body.stream),
+    phase: oneOf(CLOSED_SETS.phases)(body.phase),
+    log: oneOf(CLOSED_SETS.logStates)(body.log),
+    ino: orNull(digits)(body.ino),
+    size,
+    from,
+    to,
+    pieces: each(piece)(body.pieces),
+    eof: bool(body.eof),
+    reset: bool(body.reset),
+    capped: orNull(bool)(body.capped),
+    cursor: orNull(cursor)(body.cursor),
+    before: orNull(cursor)(body.before),
   };
 }
 
@@ -589,6 +755,7 @@ const PROJECTORS: Readonly<Record<string, (value: unknown, context?: any) => unk
   list, status, timeline, attempts, workflow, capabilities, version,
   observed, slots, 'worker-status': workerStatus, roadmap,
   projects, tree, transcript, traffic,
+  'worker-runs': workerRuns, 'worker-result': workerResult, 'worker-run-status': workerStatus, 'worker-log': workerLog,
 });
 const PROJECTOR_IDS: readonly string[] = Object.freeze(Object.keys(PROJECTORS));
 

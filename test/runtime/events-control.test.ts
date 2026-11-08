@@ -210,7 +210,7 @@ test('IC-005: every invalid control line writes one stderr line and exits 2', as
     ['a missing key', Buffer.from('{"op":"sub"}\n')],
     ['an unknown op', Buffer.from('{"op":"pub","ch":"now"}\n')],
     ['a refused channel', Buffer.from('{"op":"sub","ch":"transcript:x"}\n')],
-    ['a worker output channel', Buffer.from('{"op":"sub","ch":"worker:w-0123456789ab:out"}\n')],
+    ['a worker last-message stream', Buffer.from('{"op":"sub","ch":"worker:w-0123456789ab:last"}\n')],
     ['a malformed channel', Buffer.from('{"op":"sub","ch":"run:only-slug"}\n')],
     ['a line over 1024 bytes', Buffer.from(`{"op":"sub","ch":"now","pad":"${'x'.repeat(CONTROL_LINE_BYTES)}"}\n`)],
     ['an unterminated line over 1024 bytes', Buffer.from('y'.repeat(CONTROL_LINE_BYTES + 1))],

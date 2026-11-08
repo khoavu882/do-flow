@@ -10,6 +10,12 @@ import { renderRun, tickRun, releaseRun, rerouteRun } from './views/run.js';
 import { renderGraph, rerouteGraph } from './views/graph.js';
 import { renderSessions, rerouteSessions } from './views/sessions.js';
 import { renderWorkflows } from './views/workflows.js';
+// session.js reaches back here through worker-tabs.js (CORE_RANGE), so when it is imported first this module's body runs
+// before session.js's: at this module's evaluation only session.js's function declarations are read, and its `const`
+// exports (`sessionApi`, `skeletonSession`) only inside calls. client-core.test.ts imports session.js first in a fresh graph.
+import {
+  sessionApi, loadSession, connectSession, skeletonSession, renderSession, rerouteSession, tickSession, teardownSession,
+} from './views/session.js';
 import { deriveSessions } from './derive/sessions.js';
 import { runStepCopy, runToken } from './derive/rail.js';
 import { workflowsOf } from './derive/workflows.js';
@@ -29,6 +35,12 @@ const PARAM_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 /** The Fleet keys of IC-019 and IC-020: 16 lower-case hex. */
 const KEY16 = /^[0-9a-f]{16}$/;
+
+/** IC-015's run id of a worker node (RUN_ID, src/runtime/worker/run-store.ts:27). */
+const RUN_ID = /^w-[0-9a-f]{12}$/;
+
+/** IC-015's worker tabs, in the order the tab list shows them. */
+const SESSION_TABS = Object.freeze(['log', 'transcript', 'result', 'process']);
 
 const PRODUCT = 'DoFlow Console';
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -68,7 +80,10 @@ const graphSize = (data) => (data && data.graph && Array.isArray(data.graph.task
 
 const awaitingCount = (/** @type {any} */ data) => data.runs.filter((/** @type {any} */ run) => run.state === 'AWAITING_GATE').length;
 
-/** The run head (CD-B8): crumb to Runs, the title with a muted task id, the meta line and the step counter. @param {any} params */
+/**
+ * The run head (CD-B8): crumb to Runs, the title with a muted task id, the meta line, and the step counter with, beside it in
+ * the same grid area, the link to the run's Session screen (150 IC-020). @param {any} params
+ */
 function buildRunHead(params) {
   const crumb = h('nav', { class: 'run-head__crumb', 'aria-label': 'Breadcrumb' }, [
     h('a', { href: '#/' }, 'Runs'), h('span', { 'aria-hidden': 'true' }, ' / '), h('span', { class: 'mono' }, params.slug),
@@ -76,7 +91,10 @@ function buildRunHead(params) {
   const h1 = h('h1', { class: 'run-head__title', tabindex: '-1' }, [h('span', {}, params.slug), h('span', { class: 'run-head__task' }, ` / ${params.taskId}`)]);
   const meta = h('div', { class: 'run-head__metawrap' });
   const step = h('p', { class: 'run-head__step', hidden: true });
-  return { root: h('header', { class: 'view-head run-head' }, [crumb, h1, meta, step]), h1, meta, step };
+  const chainHref = hashFor({ id: 'session', params: { slug: params.slug, taskId: params.taskId } });
+  const chain = chainHref === null ? null : h('a', { class: 'graph__back', href: chainHref }, 'Chain');
+  const aside = h('div', { class: 'run-head__aside' }, [step, chain]);
+  return { root: h('header', { class: 'view-head run-head' }, [crumb, h1, meta, aside]), h1, meta, step };
 }
 
 /** The meta line of the run head: badge, workflow name, started, revision, updated; one element per item. @param {any} params @param {any} data @param {any} nowMs */
@@ -138,8 +156,8 @@ const sessionsKey = (data) => JSON.stringify([data, deriveSessions(data, Date.no
  * `update(local, data, params)` patches the mounted body, `reroute(local, params, data)` moves between routes of one view
  * without a re-mount (the selected agent changed), and `empty` may be a function of the data. The Runs, Run, Tasks and Sessions
  * views have `connect` too (IC-018, live-view.js: the live store, or their GET polled at their interval) but not `live: true`:
- * their body is re-mounted by `dataKey` as when polled. The Run, Tasks and Sessions views have `reroute` too (IC-019): it
- * applies the selection of `local.route` to the mounted body, and their render reads it from there.
+ * their body is re-mounted by `dataKey` as when polled. The Run, Tasks, Sessions and Session views have `reroute` too (IC-019,
+ * 150 IC-015): it applies the selection of `local.route` to the mounted body, and their render reads it from there.
  */
 /** @type {Record<string, any>} */
 const VIEWS = Object.freeze({
@@ -213,6 +231,29 @@ const VIEWS = Object.freeze({
     render: renderGraph,
     isEmpty: () => false,
     title: (/** @type {any} */ params) => `Tasks · ${slugTask(params)}`,
+  },
+  session: {
+    id: 'session',
+    inspectable: true,
+    noun: 'this run',
+    // IC-017: SESSION_SHAPES of views/session.js, written out because that const cannot be read while this table is built
+    // (the import cycle above); client-core.test.ts asserts the two lists are equal.
+    shapes: ['status', 'timeline', 'attempts', 'workflow', 'worker-runs', 'worker-status', 'worker-run-status', 'worker-result', 'worker-log', 'projects', 'transcript'],
+    api: (/** @type {any} */ params) => sessionApi(params),
+    // The run and `/api/worker-runs/<slug>` side by side, as `{ run, workers, workersError }`; polled at SESSION_POLL_MS (3000).
+    load: loadSession,
+    connect: connectSession,
+    pollMs: 3000,
+    wide: false,
+    skeleton: () => skeletonSession(),
+    head: () => ({ text: 'Chain', mono: false }),
+    meta: (/** @type {any} */ params) => h('p', { class: 'view-head__meta mono' }, slugTask(params)),
+    tick: tickSession,
+    teardown: teardownSession,
+    reroute: rerouteSession,
+    render: renderSession,
+    isEmpty: () => false,
+    title: (/** @type {any} */ params) => `Chain · ${slugTask(params)}`,
   },
   sessions: {
     id: 'sessions',
@@ -348,9 +389,55 @@ function laneSegments(key) {
 }
 
 /**
- * A location hash to `{ id, params, view }`, and the selection it names (IC-019): `sel: { type, id }` on `run`, `task` on
- * `tasks`, `lane` on `sessions` (Fleet's agent stays in `params`). An unknown route, or a segment failing its pattern, is
- * `not-found`: no fetch is made for it.
+ * The selection of a Session route (IC-015) from the segments after `session/<slug>/<taskId>`: `{}` for none, `{ node }` or
+ * `{ node, tab }`, or null when a segment fails its pattern. `tab` comes only with a worker node.
+ * @param {string[]} parts
+ */
+function sessionSelection(parts) {
+  if (parts.length === 0) return {};
+  const [kind, ...rest] = parts;
+  if (kind === 'main') return rest.length === 0 ? { node: { kind: 'main' } } : null;
+  if (kind === 'stage' || kind === 'gate' || kind === 'task') return rest.length === 1 && PARAM_PATTERN.test(rest[0]) ? { node: { kind, id: rest[0] } } : null;
+  if (kind === 'attempt') {
+    if (rest.length !== 2 || !PARAM_PATTERN.test(rest[0]) || !TOKEN.test(rest[1])) return null;
+    const token = Number(rest[1]);
+    // A token past 2^53 has no number that writes it back: no route names it.
+    return Number.isSafeInteger(token) ? { node: { kind: 'attempt', task: rest[0], token } } : null;
+  }
+  if (kind === 'worker' && (rest.length === 1 || rest.length === 2) && RUN_ID.test(rest[0])) {
+    const node = { kind: 'worker', runId: rest[0] };
+    if (rest.length === 1) return { node };
+    return SESSION_TABS.includes(rest[1]) ? { node, tab: rest[1] } : null;
+  }
+  return null;
+}
+
+/**
+ * The hash segments of a Session route's selection, the inverse of `sessionSelection`: '' for none, null when the node or tab
+ * fails its pattern or a tab comes without a worker node.
+ * @param {any} route
+ */
+function sessionSegments(route) {
+  const { node, tab } = route;
+  if (node === undefined) return tab === undefined ? '' : null;
+  if (node === null || typeof node !== 'object') return null;
+  if (tab !== undefined && (node.kind !== 'worker' || !SESSION_TABS.includes(tab))) return null;
+  switch (node.kind) {
+    case 'main': return '/main';
+    case 'stage': case 'gate': case 'task': return typeof node.id === 'string' && PARAM_PATTERN.test(node.id) ? `/${node.kind}/${node.id}` : null;
+    case 'attempt':
+      return typeof node.task === 'string' && PARAM_PATTERN.test(node.task) && Number.isSafeInteger(node.token) && TOKEN.test(String(node.token))
+        ? `/attempt/${node.task}/${node.token}` : null;
+    case 'worker':
+      return typeof node.runId === 'string' && RUN_ID.test(node.runId) ? `/worker/${node.runId}${tab === undefined ? '' : `/${tab}`}` : null;
+    default: return null;
+  }
+}
+
+/**
+ * A location hash to `{ id, params, view }`, and the selection it names (IC-019, 150 IC-015): `sel: { type, id }` on `run`,
+ * `task` on `tasks`, `lane` on `sessions`, `node` and `tab` on `session` (Fleet's agent stays in `params`). An unknown route,
+ * or a segment failing its pattern, is `not-found`: no fetch is made for it.
  * @param {any} hash
  */
 function parseRoute(hash) {
@@ -371,6 +458,12 @@ function parseRoute(hash) {
   if (parts[1] === 'sessions') {
     const lane = laneOfParts(parts.slice(2));
     return lane === null ? notFound : { id: 'sessions', params: {}, view: VIEWS.sessions, lane };
+  }
+  if (parts[1] === 'session') {
+    // '', 'session', slug, taskId, ...node (IC-015).
+    if (parts.length < 4 || !PARAM_PATTERN.test(parts[2]) || !PARAM_PATTERN.test(parts[3])) return notFound;
+    const selection = sessionSelection(parts.slice(4));
+    return selection === null ? notFound : { id: 'session', params: { slug: parts[2], taskId: parts[3] }, view: VIEWS.session, ...selection };
   }
   if (parts[1] !== 'run' || parts.length < 4 || parts.length > 6) return notFound;
   const [slug, taskId] = [parts[2], parts[3]];
@@ -407,8 +500,12 @@ function hashFor(route) {
     const lane = laneSegments(route.lane);
     return lane === null ? null : `#/sessions/${lane}`;
   }
-  if (id !== 'run' && id !== 'tasks') return null;
+  if (id !== 'run' && id !== 'tasks' && id !== 'session') return null;
   if (!PARAM_PATTERN.test(params.slug) || !PARAM_PATTERN.test(params.taskId)) return null;
+  if (id === 'session') {
+    const selection = sessionSegments(route);
+    return selection === null ? null : `#/session/${params.slug}/${params.taskId}${selection}`;
+  }
   const base = `#/run/${params.slug}/${params.taskId}`;
   if (id === 'tasks') {
     if (route.task === undefined) return `${base}/tasks`;
@@ -420,11 +517,12 @@ function hashFor(route) {
 }
 
 /**
- * The route without its selection (IC-019): the base a selection hash change stays inside. Fleet's base keeps the project.
+ * The route without its selection (IC-019, 150 IC-015): the base a selection hash change stays inside. Fleet's base keeps the
+ * project.
  * @param {any} route
  */
 function baseRoute(route) {
-  const { sel, task, lane, ...rest } = route;
+  const { sel, task, lane, node, tab, ...rest } = route;
   if (route.id !== 'fleet-project') return rest;
   return { ...rest, params: { project: route.params.project } };
 }
@@ -441,8 +539,9 @@ function titleFor(route, data = null) {
 }
 
 /**
- * Which rail link is current (IC-020, DEC-035): Now on `#/` and every `#/run/...` (the id stays `runs`; the Runs heading and
- * title keep Runs), Workflows on `#/workflows`, Sessions on `#/sessions`, Fleet on every `#/fleet...`, else none.
+ * Which rail link is current (IC-020, DEC-035; 150 IC-015): Now on `#/`, every `#/run/...` and every `#/session/...` (the
+ * id stays `runs`; the Runs heading and title keep Runs), Workflows on `#/workflows`, Sessions on `#/sessions`, Fleet on
+ * every `#/fleet...`, else none.
  * @param {any} route
  */
 function navFor(route) {

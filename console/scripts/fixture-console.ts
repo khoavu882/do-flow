@@ -6,7 +6,7 @@
 // on 127.0.0.1:0 against it, and prints the Console's one URL line on stdout. It is the only Console a
 // designer or a browser check may open. Everything else it says goes to stderr.
 //
-//   node console/scripts/fixture-console.ts --core <abs path to bin/doflow.js> [--empty] [--core-missing] [--keep] [--tick <seconds>] [--append <seconds>]
+//   node console/scripts/fixture-console.ts --core <abs path to bin/doflow.js> [--empty] [--core-missing] [--keep] [--tick <seconds>] [--append <seconds>] [--worker-log <seconds>]
 //
 //   --empty          a project with no runs (the empty views)
 //   --core-missing   the Console boots against a symlink to the core so its handshake passes, and the
@@ -22,6 +22,13 @@
 //                    completing implementation needs a readiness record, which a fixture does not make.
 //   --append <seconds> every <seconds> (and on a stdin line `append`), the appending writer adds a reply, a tool call and its
 //                    result to the Claude fixture transcript of the Fleet view; the Console shows them within a second.
+//   --worker-log <seconds> (feature 150, IC-021) adds the feature feat-chain: run `run-chain` through orchestrate
+//                    (discovery and design passed, gate-0 approved: RUNNING in planning), two plan tasks with three
+//                    subagent attempts (A.1 failed then claimed again, A.2 released), and the shared worker world of
+//                    test/helpers/worker-world.ts in its worker run store, R1 running on the active attempt with this
+//                    process's own pid and start as its supervisor. R1's out and err files do not exist yet. Every
+//                    <seconds> (and on a stdin line `log`) one line is appended to each file, then `log <n>` is printed
+//                    on stderr; after 24 appends R1 is moved to `ended` with its output pointers. Not with --empty.
 //
 // Ctrl-C (SIGINT) or SIGTERM stops the Console and removes the scratch directories (exact paths, all
 // under SCRATCH_ROOT) unless --keep.
@@ -40,12 +47,15 @@
 // Two journal edits no verb can make, both through the record's own fields in the run's journal file:
 // the stale run's startedAt, updatedAt and history times are moved back 48 h (the core stamps the
 // clock and takes none), and the shape-mismatch run's `program` loses its `verification` node (a run
-// started on an older workflow; the core only ever compiles the current one).
+// started on an older workflow; the core only ever compiles the current one). The same exception covers feat-chain's
+// worker run store (--worker-log): no verb starts a worker run without a harness binary, so worker-world.ts writes it
+// through the core's own insertRun and transition.
 
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
 const { buildFixture, SLUGS, CONSTITUTION_CHECK, PASSING_PLAN } = require('../test/helpers/core-fixture.ts');
+const { buildWorkerWorld } = require('../test/helpers/worker-world.ts');
 
 /**
  * Every directory this script makes is made directly under this root, and only those exact paths are
@@ -60,7 +70,7 @@ const URL_LINE = /^doflow ui: http:\/\/127\.0\.0\.1:(\d+)\/#c=([0-9a-f]{64})\n/;
 const BOOT_MS = 30_000;
 const STOP_MS = 5_000;
 const HOUR = 60 * 60 * 1000;
-const USAGE = 'usage: fixture-console.ts --core <absolute path to bin/doflow.js> [--empty] [--core-missing] [--keep] [--tick <seconds>] [--append <seconds>]';
+const USAGE = 'usage: fixture-console.ts --core <absolute path to bin/doflow.js> [--empty] [--core-missing] [--keep] [--tick <seconds>] [--append <seconds>] [--worker-log <seconds>]';
 const REPO = path.resolve(__dirname, '..', '..');
 /** The session ids of the V.2 transcript fixtures (test/fixtures/transcripts/v8): `<RAW>c001` is the Claude main session. */
 const RAW = 'fa000000-0000-4000-8000-00000000';
@@ -130,7 +140,21 @@ const MENDED_PLAN = ['# Plan', '', '**Task graph:** v1', '', '## Tasks', '', '##
 /** The second run of the overlap, and the launched unit that belongs to it (`L.<run>.<lineage>.<attempt>`). */
 const SECOND_RUN = Object.freeze({ run: 'run-two', lineage: 'lin2', attempt: '1' });
 
-type Options = { core: string, empty?: boolean, coreMissing?: boolean, keep?: boolean, log?: (line: string) => void };
+/** The run of --worker-log (IC-021): RUNNING in planning, its worker run store holding the shared worker world. */
+const CHAIN = Object.freeze({ slug: 'feat-chain', taskId: 'run-chain' });
+/** The appends of --worker-log before R1 ends: a latency measure gets at least 20 (requirement A8). */
+const LOG_APPENDS = 24;
+/** setInterval's longest delay; a longer one fires at once. */
+const MAX_TIMER_S = 2_147_483;
+const CHAIN_PLAN = [
+  '# Plan', '', '**Task graph:** v1', '', ...CONSTITUTION_CHECK, '## Tasks', '',
+  '### Phase A', '',
+  '- [ ] A.1 [P] first worker task; owner: core-implementer; files: src/chain1.js',
+  '- [ ] A.2 [P] second worker task; owner: quality-guardian; files: src/chain2.js',
+  '',
+].join('\n');
+
+type Options = { core: string, empty?: boolean, coreMissing?: boolean, keep?: boolean, chain?: boolean, log?: (line: string) => void };
 type Fixture = ReturnType<typeof buildFixture>;
 type Handle = {
   url: string, port: number, code: string, dir: string, project: string, env: Record<string, string>,
@@ -143,6 +167,12 @@ type Handle = {
   append(): string | null,
   /** The Claude fixture transcript the writer appends to. */
   transcript: string,
+  /** The --worker-log world (`chain: true`), or null: R1's run id and its out and err files. */
+  chain: { slug: string, taskId: string, runId: string, store: string, files: { out: string, err: string } } | null,
+  /** Appends one line to each of R1's out and err files; the append's number (1 to 24), or null when none is left or with no chain. */
+  logAppend(): number | null,
+  /** Moves R1 to `ended` with its output pointers; the ended record. */
+  logEnd(): any,
   stop(): Promise<void>,
 };
 
@@ -453,6 +483,42 @@ function addFleet(fixture: Fixture, core: string) {
   return { wrapper, transcript, append, env: { CLAUDE_CONFIG_DIR: '', CODEX_HOME: '', COPILOT_HOME: '', PI_CODING_AGENT_SESSION_DIR: '' } };
 }
 
+/**
+ * The --worker-log world (IC-021): feat-chain's run and attempts from the real verbs, then the shared worker world in its
+ * worker run store (worker-world.ts), with R1's out and err files absent. Returns the world.
+ */
+function addChain(fixture: Fixture, core: string) {
+  const { main } = fixture;
+  const call = coreCaller(core, main, fixture.env);
+  const dir = path.join(main, 'agent-docs', 'doflow', CHAIN.slug);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'requirement.md'), `# ${CHAIN.slug}\n`);
+  fs.writeFileSync(path.join(dir, 'plan.md'), CHAIN_PLAN);
+  const orchestrate = (...args: string[]) => call('orchestrate', ...args, '--task-id', CHAIN.taskId, '--slug', CHAIN.slug);
+  const expectState = (answer: any, state: string, label: string) => {
+    if (answer.state !== state) throw new Error(`fixture-console: ${CHAIN.taskId} ${label} is ${answer.state}, wanted ${state}`);
+  };
+  // Two stages passed and one gate: discovery, gate-0 approved, design; the run is RUNNING in planning.
+  orchestrate('--action', 'start', '--task-class', 'feature');
+  expectState(orchestrate('--action', 'complete-stage', '--stage', 'discovery', '--result', 'passed'), 'AWAITING_GATE', 'at gate-0');
+  expectState(orchestrate('--action', 'decide-gate', '--gate', 'gate-0', '--decision', 'approve'), 'RUNNING', 'after gate-0');
+  expectState(orchestrate('--action', 'complete-stage', '--stage', 'design', '--result', 'passed'), 'RUNNING', 'after design');
+
+  // Two tasks, three subagent attempts: A.1 failed then claimed again (active), A.2 released.
+  const attempt = (...args: string[]) => call('task-attempt', '--slug', CHAIN.slug, ...args);
+  const claim = (task: string, owner: string) => attempt('--action', 'claim', '--task', task, '--owner', owner, '--mode', 'subagent', '--epoch', '1').token;
+  attempt('--action', 'start', '--by', 'orchestrator');
+  const failed = claim('A.1', 'core-implementer');
+  attempt('--action', 'finish', '--task', 'A.1', '--token', String(failed), '--result', 'FAILED', '--reason', 'fixture');
+  const active = claim('A.1', 'core-implementer');
+  const released = claim('A.2', 'quality-guardian');
+  attempt('--action', 'release', '--task', 'A.2', '--token', String(released), '--reason', 'fixture');
+  return buildWorkerWorld({
+    projectRoot: main, slug: CHAIN.slug, runningLogs: 'absent',
+    attempts: [{ task: 'A.1', token: failed, state: 'finished' }, { task: 'A.1', token: active, state: 'active' }, { task: 'A.2', token: released, state: 'released' }],
+  });
+}
+
 /** Zero runs: both stores the helper wrote to (the main checkout and its linked worktree) are emptied. */
 function dropRuns(fixture: Fixture) {
   for (const root of [fixture.main, fixture.linked]) fs.rmSync(path.join(root, '.doflow', 'state', 'orchestration'), { recursive: true, force: true });
@@ -479,11 +545,17 @@ async function startFixtureConsole(options: Options): Promise<Handle> {
   }
   const scratch = [fixture.dir];
   let steps: Array<{ describe: string, args: string[], before?: () => void }> = [];
+  let world: ReturnType<typeof addChain> | null = null;
   try {
+    if (options.empty && options.chain) throw new Error('fixture-console: --worker-log needs runs; it cannot be combined with --empty');
     if (options.empty) dropRuns(fixture);
     else {
       steps = addRuns(fixture, options.core);
       fixture.runs.push(...Object.values(RUNS).map((run) => ({ taskId: run.taskId, slug: run.slug, state: '' })));
+      if (options.chain) {
+        world = addChain(fixture, options.core);
+        fixture.runs.push({ taskId: CHAIN.taskId, slug: CHAIN.slug, state: '' });
+      }
     }
     const fleet = addFleet(fixture, options.core);
 
@@ -517,6 +589,9 @@ async function startFixtureConsole(options: Options): Promise<Handle> {
     let next = 0;
     const call = coreCaller(options.core, fixture.main, fixture.env);
     let stopped = false;
+    let appended = 0;
+    const chainWorld = world;
+    const r1 = chainWorld === null ? null : chainWorld.runs.running as string;
     return {
       url: `http://127.0.0.1:${booted.port}/#c=${booted.code}`,
       port: booted.port,
@@ -528,6 +603,22 @@ async function startFixtureConsole(options: Options): Promise<Handle> {
       scratch,
       transcript: fleet.transcript,
       append: () => fleet.append(),
+      chain: chainWorld === null || r1 === null ? null : {
+        ...CHAIN, runId: r1, store: chainWorld.store, files: { out: chainWorld.logFile(r1, 'out'), err: chainWorld.logFile(r1, 'err') },
+      },
+      logAppend() {
+        if (chainWorld === null || r1 === null || appended >= LOG_APPENDS) return null;
+        appended += 1;
+        // The first line of each stream carries the world's planted text (secret, email, IP, absolute path).
+        const tail = appended === 1 ? ` ${chainWorld.planted.text}` : '';
+        chainWorld.appendLine(r1, 'out', `R1 out line ${appended}${tail}`);
+        chainWorld.appendLine(r1, 'err', `R1 err line ${appended}${tail}`);
+        return appended;
+      },
+      logEnd() {
+        if (chainWorld === null) throw new Error('fixture-console: no --worker-log world');
+        return chainWorld.endRunning();
+      },
       tick() {
         if (next >= steps.length) return null;
         const step = steps[next];
@@ -552,10 +643,10 @@ async function startFixtureConsole(options: Options): Promise<Handle> {
   }
 }
 
-type Flags = { core: string, empty: boolean, coreMissing: boolean, keep: boolean, tick: number | null, append: number | null };
+type Flags = { core: string, empty: boolean, coreMissing: boolean, keep: boolean, tick: number | null, append: number | null, workerLog: number | null };
 
 function parseFlags(argv: readonly string[]): Flags | { error: string } {
-  const flags: Flags = { core: '', empty: false, coreMissing: false, keep: false, tick: null, append: null };
+  const flags: Flags = { core: '', empty: false, coreMissing: false, keep: false, tick: null, append: null, workerLog: null };
   for (let index = 0; index < argv.length; index += 1) {
     const name = argv[index];
     if (name === '--empty') flags.empty = true;
@@ -568,11 +659,18 @@ function parseFlags(argv: readonly string[]): Flags | { error: string } {
       if (name === '--core') flags.core = value;
       else if (/^\d+(\.\d+)?$/.test(value) && Number(value) > 0) flags[name === '--tick' ? 'tick' : 'append'] = Number(value);
       else return { error: `${name} needs a positive number of seconds` };
+    } else if (name === '--worker-log') {
+      const value = argv[index + 1];
+      if (value === undefined) return { error: `${name} needs a value` };
+      index += 1;
+      if (/^\d+(\.\d+)?$/.test(value) && Number(value) > 0 && Number(value) <= MAX_TIMER_S) flags.workerLog = Number(value);
+      else return { error: `${name} needs a positive number of seconds, at most ${MAX_TIMER_S}` };
     } else return { error: `unknown argument ${JSON.stringify(name)}` };
   }
   if (flags.core === '') return { error: '--core is required' };
   if (!path.isAbsolute(flags.core)) return { error: '--core must be an absolute path' };
   if (!fs.existsSync(flags.core)) return { error: `--core does not exist: ${flags.core}` };
+  if (flags.workerLog !== null && flags.empty) return { error: '--worker-log cannot be combined with --empty' };
   return flags;
 }
 
@@ -585,7 +683,7 @@ async function main(argv: readonly string[]): Promise<number> {
   const log = (line: string) => process.stderr.write(`fixture-console: ${line}\n`);
   let app: Handle;
   try {
-    app = await startFixtureConsole({ ...flags, log });
+    app = await startFixtureConsole({ ...flags, chain: flags.workerLog !== null, log });
   } catch (error: any) {
     process.stderr.write(`${error && error.message ? error.message : error}\n`);
     return 1;
@@ -612,11 +710,39 @@ async function main(argv: readonly string[]): Promise<number> {
     }
   };
   const writer = flags.append === null ? null : setInterval(appendOnce, flags.append * 1000);
-  process.stdin.on('data', (chunk: string) => { for (const line of chunk.split('\n')) { if (line.trim() === 'tick') tick(); else if (line.trim() === 'append') appendOnce(); } });
+  if (app.chain !== null) log(`${app.chain.taskId}: R1 ${app.chain.runId}`);
+  // IC-021: `log <n>` goes out only after both appends returned; after the last one R1 is ended.
+  const logOnce = () => {
+    try {
+      const n = app.logAppend();
+      if (n === null) {
+        log('no log line left');
+        return false;
+      }
+      log(`log ${n}`);
+      if (n === LOG_APPENDS) {
+        app.logEnd();
+        log(`R1 ended after ${n} appends`);
+      }
+      return true;
+    } catch (error: any) {
+      log(`log failed: ${error && error.message ? error.message : error}`);
+      return false;
+    }
+  };
+  const logger = flags.workerLog === null ? null : setInterval(() => { if (!logOnce()) clearInterval(logger as any); }, flags.workerLog * 1000);
+  process.stdin.on('data', (chunk: string) => {
+    for (const line of chunk.split('\n')) {
+      if (line.trim() === 'tick') tick();
+      else if (line.trim() === 'append') appendOnce();
+      else if (line.trim() === 'log' && flags.workerLog !== null) logOnce();
+    }
+  });
   return new Promise<number>((resolve) => {
     const shutdown = () => {
       if (timer !== null) clearInterval(timer);
       if (writer !== null) clearInterval(writer);
+      if (logger !== null) clearInterval(logger);
       process.stdin.pause();
       app.stop().then(() => resolve(0), () => resolve(1));
     };
@@ -625,6 +751,6 @@ async function main(argv: readonly string[]): Promise<number> {
   });
 }
 
-module.exports = { RUNS, OWNERS, SCRATCH_ROOT, startFixtureConsole, parseFlags };
+module.exports = { RUNS, OWNERS, SCRATCH_ROOT, CHAIN, LOG_APPENDS, startFixtureConsole, parseFlags };
 
 if (require.main === module) main(process.argv.slice(2)).then((code) => process.exit(code));

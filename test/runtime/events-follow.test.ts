@@ -14,7 +14,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
 const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
-const { ENVELOPE_ID } = require('../../src/runtime/events/envelope.ts');
+const { ENVELOPE_ID, LOG_ID } = require('../../src/runtime/events/envelope.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const CLI = path.join(REPO, 'bin', 'doflow.js');
@@ -156,13 +156,58 @@ test('AC-10: a terminal follow prints a snapshot, then a patch with a greater id
 
 test('AC-13: a refused kind exits 2 before any envelope', (t) => {
   const root = tempDir(t, 'doflow-events-follow-refused-');
-  for (const channels of ['worker:w-0123456789ab:out', 'worker:w-0123456789ab:err', 'transcript:x', 'fleet:x', 'followups', 'advice', `now,fleet:x`]) {
+  for (const channels of ['transcript:x', 'fleet:x', 'followups', 'advice', `now,fleet:x`]) {
     const r = spawnSync(process.execPath, [CLI, 'events', '--follow', '--channels', channels, '--json'], {
       cwd: root, env: { ...process.env, DOFLOW_UPKEEP: 'off', DOFLOW_TELEMETRY: 'off' }, encoding: 'utf8',
     });
     assert.equal(r.status, 2, `${channels}: ${r.stderr}`);
     assert.equal(r.stdout, '', channels);
     assert.match(r.stderr, /^doflow events: .*refused/, channels);
+    assert.ok(!r.stderr.includes('[ERROR]'));
+  }
+  assert.deepEqual(fs.readdirSync(root), [], 'nothing was created');
+});
+
+test('150 IC-006, IC-007: a terminal follow of worker out and err prints log snapshots, then an append with a byte-cursor id', async (t) => {
+  const f = fixture(t);
+  const runId = 'w-0123456789ab';
+  const state = path.join(f.main, '.doflow', 'state');
+  fs.mkdirSync(path.join(state, 'worker-runs'), { recursive: true });
+  fs.writeFileSync(path.join(state, 'worker-runs', `${SLUG}.json`), JSON.stringify({
+    version: 1, revision: 1, slug: SLUG, runs: { [runId]: { runId, task: 'A.1', token: 1, phase: 'running', seq: 1 } },
+  }));
+  const out = path.join(state, 'worker-output', `${runId}.out.log`);
+  const s = follow(t, f, `worker:${runId}:out,worker:${runId}:err`);
+  let frames = await s.until('both log snapshots', (all: any[]) => all.length >= 2);
+  assert.deepEqual(frames.map((frame: any) => [frame.ch, frame.type, frame.data.log, frame.data.phase]), [
+    [`worker:${runId}:out`, 'snapshot', 'waiting', 'running'],
+    [`worker:${runId}:err`, 'snapshot', 'waiting', 'running'],
+  ]);
+  fs.mkdirSync(path.dirname(out), { recursive: true });
+  fs.writeFileSync(out, 'first\n');
+  frames = await s.until('the open snapshot', (all: any[]) => all.some((frame) => frame.data.log === 'open'));
+  fs.appendFileSync(out, 'second\n');
+  frames = await s.until('the append', (all: any[]) => all.some((frame) => frame.type === 'append'));
+  const append = frames.find((frame: any) => frame.type === 'append');
+  assert.deepEqual([append.ch, append.data.from, append.data.to, append.data.pieces], [`worker:${runId}:out`, 6, 13, [{ at: 6, text: 'second' }]]);
+  assert.match(append.id, LOG_ID);
+  assert.equal(append.id.split(':')[1], '13');
+  assert.equal(s.err, '');
+  if (WIN) return;
+  s.child.kill('SIGTERM');
+  const { code } = await s.exit();
+  assert.equal(code, 0, s.err);
+});
+
+test('150 IC-006: worker:<id>:last and any other stream exit 2 before any envelope', (t) => {
+  const root = tempDir(t, 'doflow-events-follow-last-');
+  for (const channels of ['worker:w-0123456789ab:last', 'worker:w-0123456789ab:x', 'worker:w-0123456789ab:out,worker:w-0123456789ab:last']) {
+    const r = spawnSync(process.execPath, [CLI, 'events', '--follow', '--channels', channels, '--json'], {
+      cwd: root, env: { ...process.env, DOFLOW_UPKEEP: 'off', DOFLOW_TELEMETRY: 'off' }, encoding: 'utf8',
+    });
+    assert.equal(r.status, 2, `${channels}: ${r.stderr}`);
+    assert.equal(r.stdout, '', channels);
+    assert.match(r.stderr, /^doflow events: .*only out and err are worker output channels/, channels);
     assert.ok(!r.stderr.includes('[ERROR]'));
   }
   assert.deepEqual(fs.readdirSync(root), [], 'nothing was created');

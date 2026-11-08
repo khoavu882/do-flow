@@ -22,6 +22,11 @@
 //   `src/runtime/task-state.ts:501-539`; worker runs: `seq` +1 per transition,
 //   `src/runtime/worker/run-store.ts:160`) are applied before every recompute of a channel that
 //   has a primary record, and its `seq` and `revision` are probed by every 1 s pass.
+// - Feature 150 A.6 (IC-008): a channel may declare a `tail`, one log file and an `active` test
+//   (the run's phase is not `ended`). While any channel declares one, a 250 ms log pass
+//   fingerprints each active tail and marks its channel when the fingerprint moved, so a growing
+//   log is read within a pass even when no watch event arrives. `mark(channel, afterMs?)` lets the
+//   caller ask for one more recompute, now (after the debounce) or later.
 //
 // Read-only: files are read with flag 'r'; this module creates, writes, renames and deletes nothing.
 
@@ -32,6 +37,8 @@ const path = require('node:path');
 const DEBOUNCE_MS = 25;
 /** Period of the fingerprint pass; the derived and full passes run on multiples of it. */
 const PASS_MS = 1000;
+/** 150 IC-008: period of the log pass over the tails of channels whose run has not ended. */
+const LOG_PASS_MS = 250;
 /** Every how many 1 s ticks the derived pass is due (5 s). */
 const DERIVED_TICKS = 5;
 /** Every how many 1 s ticks the full pass is due (30 s). */
@@ -56,13 +63,20 @@ interface DirectorySource { path: string; match?: RegExp }
  */
 interface PrimaryRecord { path: string; pick?: (doc: any) => any }
 
+/**
+ * 150 IC-008: a followed log file. `active()` says whether the log pass fingerprints it now (its
+ * run's phase is not `ended`); the file is otherwise covered by the 1 s pass through its directory.
+ */
+interface TailSource { path: string; active: () => boolean }
+
 /** What a channel declares (IC-004): directories (watched and fingerprinted), files (fingerprinted),
- * the names of its derived sections, and its primary record, if it has one. */
+ * the names of its derived sections, its primary record, if it has one, and its log file, if any. */
 interface ChannelSources {
   directories?: ReadonlyArray<string | DirectorySource>;
   files?: readonly string[];
   derived?: readonly string[];
   primary?: PrimaryRecord | null;
+  tail?: TailSource | null;
 }
 
 /**
@@ -97,6 +111,7 @@ interface DetectorOptions {
 interface Detector {
   follow(channel: string, sources: ChannelSources): Promise<void>;
   unfollow(channel: string): void;
+  mark(channel: string, afterMs?: number): void;
   followed(): string[];
   close(): void;
 }
@@ -110,6 +125,7 @@ interface Normalized {
   files: string[];
   derived: string[];
   primary: PrimaryRecord | null;
+  tail: TailSource | null;
 }
 
 interface ChannelState {
@@ -125,6 +141,10 @@ interface ChannelState {
   lastRevision: number | null;
   probeKey: string | undefined;
   missingSince: number | null;
+  /** The tail's fingerprint the last recompute took in (150 IC-008). */
+  tailKey: string | undefined;
+  /** A `mark(channel, afterMs)` timer, at most one. */
+  later: any;
 }
 
 interface SourceEntry { kind: 'dir' | 'file'; path: string; match: RegExp | null; channels: Set<string> }
@@ -169,7 +189,11 @@ function normalize(sources: ChannelSources): Normalized {
     if (typeof primary !== 'object' || !nonEmptyString(primary.path)) throw new TypeError('a primary record needs a non-empty path');
     if (primary.pick !== undefined && typeof primary.pick !== 'function') throw new TypeError('a primary record pick must be a function');
   }
-  return { directories, files, derived, primary };
+  const tail = sources.tail ?? null;
+  if (tail !== null) {
+    if (typeof tail !== 'object' || !nonEmptyString(tail.path) || typeof tail.active !== 'function') throw new TypeError('a tail needs a non-empty path and an active function');
+  }
+  return { directories, files, derived, primary, tail };
 }
 
 function dirKey(dirPath: string, match: RegExp | null): string {
@@ -198,7 +222,7 @@ function probeKeyOf(probe: Probe): string {
  * @param options.clock timers and `now` (default: the system clock).
  * @param options.fsImpl `statSync`, `readdirSync` and `readFileSync` (default: `node:fs`).
  * @param options.watch `fs.watch`-compatible function (default: `fs.watch`).
- * @returns {Detector} `follow`, `unfollow`, `followed` and `close`.
+ * @returns {Detector} `follow`, `unfollow`, `mark`, `followed` and `close`.
  */
 function createDetector(options: DetectorOptions): Detector {
   if (!options || typeof options.onRecompute !== 'function' || typeof options.onRecordEvent !== 'function') {
@@ -221,6 +245,7 @@ function createDetector(options: DetectorOptions): Detector {
   let tick = 0;
   let derivedDue = false;
   let fullDue = false;
+  let logTicker: any = null;
 
   const live = (state: ChannelState): boolean => !closed && channels.get(state.id) === state;
 
@@ -290,6 +315,7 @@ function createDetector(options: DetectorOptions): Detector {
       const entry = sources.get(key);
       if (entry) state.consumed.set(key, fingerprint(entry));
     }
+    if (state.sources.tail) state.tailKey = statKey(state.sources.tail.path);
   }
 
   function attach(dir: string, entry: WatchEntry): void {
@@ -338,6 +364,7 @@ function createDetector(options: DetectorOptions): Detector {
 
   function unregister(state: ChannelState): void {
     if (state.debounce !== null) { clock.clearTimeout(state.debounce); state.debounce = null; }
+    if (state.later !== null) { clock.clearTimeout(state.later); state.later = null; }
     for (const key of state.keys) {
       const entry = sources.get(key);
       if (!entry) continue;
@@ -361,6 +388,35 @@ function createDetector(options: DetectorOptions): Detector {
       state.debounce = null;
       void evaluate(state, { scope: 'all', snapshot: false });
     }, DEBOUNCE_MS);
+  }
+
+  /** 150 IC-008: the log pass. Each active tail whose fingerprint moved marks its channel. */
+  function onLogTick(): void {
+    if (closed) return;
+    for (const state of [...channels.values()]) {
+      const { tail } = state.sources;
+      if (!tail || !live(state)) continue;
+      let active: boolean;
+      try {
+        active = tail.active() === true;
+      } catch (error) {
+        fault(error);
+        continue;
+      }
+      if (!active) continue;
+      const key = statKey(tail.path);
+      if (key !== state.tailKey) {
+        state.tailKey = key;
+        mark(state);
+      }
+    }
+  }
+
+  /** Runs the log pass exactly while some followed channel declares a tail. */
+  function syncLogTicker(): void {
+    const wanted = !closed && [...channels.values()].some((state) => state.sources.tail !== null);
+    if (wanted && logTicker === null) logTicker = clock.setInterval(onLogTick, LOG_PASS_MS);
+    else if (!wanted && logTicker !== null) { clock.clearInterval(logTicker); logTicker = null; }
   }
 
   async function emitRecord(state: ChannelState, event: RecordEvent): Promise<void> {
@@ -462,6 +518,7 @@ function createDetector(options: DetectorOptions): Detector {
     if (!live(state)) return;
     unregister(state);
     channels.delete(state.id);
+    syncLogTicker();
     await options.onRecordEvent(state.id, 'gone');
   }
 
@@ -556,9 +613,12 @@ function createDetector(options: DetectorOptions): Detector {
         lastRevision: samePrimary ? prior!.lastRevision : null,
         probeKey: undefined,
         missingSince: null,
+        tailKey: undefined,
+        later: null,
       };
       channels.set(channel, state);
       register(state);
+      syncLogTicker();
       return evaluate(state, { scope: 'all', snapshot: true });
     },
     /** Stops following a channel; its sources are dropped when no other channel declares them. */
@@ -567,6 +627,22 @@ function createDetector(options: DetectorOptions): Detector {
       if (!state) return;
       unregister(state);
       channels.delete(channel);
+      syncLogTicker();
+    },
+    /**
+     * 150 IC-008: asks for one more recompute of a followed channel, under the record rules: after
+     * the debounce, or `afterMs` from now (one such timer per channel; a later ask while one is
+     * pending keeps the pending one). An unknown channel is ignored.
+     */
+    mark(channel: string, afterMs: number = 0): void {
+      const state = channels.get(channel);
+      if (!state || !live(state)) return;
+      if (!(afterMs > DEBOUNCE_MS)) { mark(state); return; }
+      if (state.later !== null) return;
+      state.later = clock.setTimeout(() => {
+        state.later = null;
+        mark(state);
+      }, afterMs - DEBOUNCE_MS);
     },
     /** The ids of the channels followed now, in follow order. */
     followed(): string[] {
@@ -577,10 +653,12 @@ function createDetector(options: DetectorOptions): Detector {
       if (closed) return;
       closed = true;
       clock.clearInterval(ticker);
+      if (logTicker !== null) { clock.clearInterval(logTicker); logTicker = null; }
       for (const handle of sleeps) clock.clearTimeout(handle);
       sleeps.clear();
       for (const state of channels.values()) {
         if (state.debounce !== null) { clock.clearTimeout(state.debounce); state.debounce = null; }
+        if (state.later !== null) { clock.clearTimeout(state.later); state.later = null; }
       }
       for (const entry of watchers.values()) {
         if (entry.handle) { try { entry.handle.close(); } catch { /* already closed */ } }
@@ -597,6 +675,7 @@ module.exports = {
   createDetector,
   DEBOUNCE_MS,
   PASS_MS,
+  LOG_PASS_MS,
   DERIVED_TICKS,
   FULL_TICKS,
   RETRY_MS,

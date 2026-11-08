@@ -5,7 +5,9 @@
 // argv, the core spawned as `process.execPath <core> ...argv --json` with `shell: false`, cwd the
 // project, and an environment with every DOFLOW_* and identity variable removed. Pool of 2, 10 s
 // timeout, single-flight per argv, per-shape cache, 30 s backoff after an `[ERROR]` exit 1, 4 MiB
-// stdout cap. The child's stderr is read only for the `[ERROR]` marker: never returned or logged.
+// stdout cap. The child's stderr is read only for the `[ERROR]` and unknown-verb markers: never
+// returned or logged. An exit 1 or 2 with empty stdout, no `[ERROR]` and the unknown-verb marker is an
+// older core lacking the verb (150 IC-010): `reason: 'old-core'`, never cached, no backoff.
 //
 // Follow path (feature 149, IC-008): one long-lived `events --follow --control stdin --json` child at
 // a time, outside the pool, with the same launch options plus piped stdin, no timeout or output cap,
@@ -71,6 +73,11 @@ const PROJECT: Param = { param: 'projectKey', pattern: 'key16' };
 const AGENT: Param = { param: 'agent', pattern: 'key16' };
 const CURSOR: Param = { param: 'cursor', pattern: 'cursor', flag: '--cursor', optional: true };
 const LIMIT: Param = { param: 'limit', pattern: 'limit' };
+// 150 IC-010: a worker run id, a log stream, an optional feature slug and a backward cursor.
+const RUN: Param = { param: 'runId', pattern: 'runId' };
+const STREAM: Param = { param: 'stream', pattern: 'stream' };
+const SLUG_OPT: Param = { param: 'slug', flag: '--slug', optional: true };
+const BEFORE: Param = { param: 'before', pattern: 'cursor', flag: '--before', optional: true };
 
 /** IC-003, the whole allow-list. `--json` is appended to every shape. */
 const SHAPES: Readonly<Record<string, Shape>> = deepFreeze({
@@ -91,6 +98,11 @@ const SHAPES: Readonly<Record<string, Shape>> = deepFreeze({
   tree: { argv: ['fleet', '--action', 'tree'], ttl: 5_000, scoped: true },
   transcript: { argv: ['transcript', '--action', 'read', '--agent', AGENT, CURSOR, '--limit', LIMIT], ttl: 0, scoped: true, reserved: true },
   traffic: { argv: ['transcript', '--action', 'stats', '--window', '10'], ttl: 5_000, scoped: true },
+  // 150 IC-010: the worker chain reads. `worker-run-status` names a run by id; `worker-log` is never cached and has no reserved slot.
+  'worker-runs': { argv: ['worker-runs', '--slug', SLUG], ttl: 2_000 },
+  'worker-result': { argv: ['worker-result', '--slug', SLUG, '--worker-run', RUN], ttl: 2_000 },
+  'worker-run-status': { argv: ['worker', '--action', 'status', '--slug', SLUG, '--worker-run', RUN], ttl: 2_000 },
+  'worker-log': { argv: ['worker-log', SLUG_OPT, '--worker-run', RUN, '--stream', STREAM, CURSOR, BEFORE], ttl: 0 },
 });
 const SHAPE_IDS: readonly string[] = Object.freeze(Object.keys(SHAPES));
 
@@ -109,8 +121,33 @@ const FOLLOW_SHAPE_IDS: readonly string[] = Object.freeze(Object.keys(FOLLOW_SHA
 const FOLLOW_LINE_CAP_BYTES = 262_144;
 /** The partial stderr line kept for the marker scan of a follow child. */
 const FOLLOW_STDERR_LINE_BYTES = 4_096;
-/** DEC-054: an old core's reply to `events --follow` names an unknown flag, command or verb on stderr. */
+/** DEC-054: an old core's reply to `events --follow`, or (150 IC-010) to a pooled verb it lacks, names an unknown flag, command or verb on stderr. */
 const UNKNOWN_MARKER = /\bunknown (flag|command|verb)\b/;
+
+/**
+ * DEC-054 / 150 IC-010: a child's stderr scanned line by line for the `[ERROR]` and unknown-verb
+ * markers only, keeping at most the current partial line (FOLLOW_STDERR_LINE_BYTES). Its text is
+ * never returned, stored or logged.
+ */
+function stderrScanner() {
+  let line = '';
+  const seen = { error: false, unknown: false };
+  const scan = (text: string) => {
+    if (text.includes(ERROR_MARKER)) seen.error = true;
+    if (UNKNOWN_MARKER.test(text)) seen.unknown = true;
+  };
+  return {
+    seen,
+    push(chunk: Buffer) {
+      if (seen.error && seen.unknown) return;
+      const parts = (line + chunk.toString('latin1')).split('\n');
+      line = parts.pop() ?? '';
+      for (const part of parts) scan(part);
+      scan(line);
+      if (line.length > FOLLOW_STDERR_LINE_BYTES) line = line.slice(-FOLLOW_STDERR_LINE_BYTES);
+    },
+  };
+}
 
 type FollowExit = {
   code: number | null;
@@ -132,12 +169,14 @@ interface FollowHandle {
 
 /** The core's ID_PATTERN without its length bound (IC-003): no leading `-`, `.`, no `/`. */
 const PARAM_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-/** IC-024: a project or agent key, a transcript cursor, and `--limit` (1..500, IC-022). */
+/** IC-024: a project or agent key, a transcript cursor, and `--limit` (1..500, IC-022); 150 IC-010: a worker run id (the core's RUN_ID) and a log stream. */
 const PATTERNS = Object.freeze({
   id: PARAM_PATTERN,
   key16: /^[0-9a-f]{16}$/,
   cursor: /^[0-9]+:[0-9]+:[0-9]+:[0-9]+$/,
   limit: /^[1-9][0-9]{0,2}$/,
+  runId: /^w-[0-9a-f]{12}$/,
+  stream: /^(?:out|err)$/,
 });
 const LIMIT_MAX = 500;
 const acceptable = (pattern: keyof typeof PATTERNS, value: string): boolean =>
@@ -275,8 +314,7 @@ function createVerbRunner(options: RunnerOptions) {
       let bytes = 0;
       let failure: string | null = null;
       let spawnFailed = false;
-      let errorTail = '';
-      let sawError = false;
+      const stderr = stderrScanner();
       let killTimer: any = null;
       const timer = clock.setTimeout(() => {
         failure ??= 'timeout';
@@ -295,13 +333,8 @@ function createVerbRunner(options: RunnerOptions) {
         }
         chunks.push(chunk);
       });
-      // Only the marker is looked for; a short tail covers a marker split across chunks.
-      child.stderr.on('data', (chunk: Buffer) => {
-        if (sawError) return;
-        const text = errorTail + chunk.toString('latin1');
-        sawError = text.includes(ERROR_MARKER);
-        errorTail = text.slice(-(ERROR_MARKER.length - 1));
-      });
+      // Only the two markers are looked for (stderrScanner).
+      child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
       child.on('error', () => {
         spawnFailed = true;
         // A child that never started may not emit 'close'; one that did start still will.
@@ -318,10 +351,14 @@ function createVerbRunner(options: RunnerOptions) {
         if (spawnFailed || failure === 'stopped') return resolve(unreachable());
         if (failure !== null) return resolve({ ok: false, code: 'core-error', exit: null, reason: failure });
         if (code !== 0) {
+          // 150 IC-010: an older core lacking the verb or flag. Never cached (not ok) and no backoff (no `[ERROR]`).
+          if ((code === 1 || code === 2) && bytes === 0 && !stderr.seen.error && stderr.seen.unknown) {
+            return resolve({ ok: false, code: 'core-error', exit: code, reason: 'old-core' });
+          }
           const result: Failure = { ok: false, code: 'core-error', exit: code };
           const errorId = errorIdOf(chunks);
           if (errorId !== null) result.errorId = errorId;
-          if (code === 1 && sawError) backoff.set(flightKey, { result: { ...result, reason: 'backoff' }, until: clock.now() + BACKOFF_MS });
+          if (code === 1 && stderr.seen.error) backoff.set(flightKey, { result: { ...result, reason: 'backoff' }, until: clock.now() + BACKOFF_MS });
           return resolve(result);
         }
         const stdout = Buffer.concat(chunks).toString('utf8');
@@ -473,9 +510,7 @@ function createVerbRunner(options: RunnerOptions) {
     let pending: Buffer[] = [];
     let pendingBytes = 0;
     let lines = 0;
-    let errorLine = '';
-    let sawError = false;
-    let sawUnknown = false;
+    const stderr = stderrScanner();
     let forced: 'line-cap' | 'stopped' | null = null;
     let stdinOpen = true;
     let ending = false;
@@ -494,7 +529,7 @@ function createVerbRunner(options: RunnerOptions) {
       stdinOpen = false;
       if (killTimer !== null) clock.clearTimeout(killTimer);
       if (followLive === live) followLive = null;
-      settle({ code, signal, lines, sawError, sawUnknown, reason });
+      settle({ code, signal, lines, sawError: stderr.seen.error, sawUnknown: stderr.seen.unknown, reason });
     }
     function closeStdin() {
       if (!stdinOpen) return;
@@ -536,20 +571,8 @@ function createVerbRunner(options: RunnerOptions) {
         for (const listener of listeners) listener(line);
       }
     });
-    // DEC-054: stderr is scanned line by line for the two markers only, keeping at most the current
-    // partial line (FOLLOW_STDERR_LINE_BYTES); its text is never returned, stored or logged.
-    const scan = (text: string) => {
-      if (text.includes(ERROR_MARKER)) sawError = true;
-      if (UNKNOWN_MARKER.test(text)) sawUnknown = true;
-    };
-    child.stderr.on('data', (chunk: Buffer) => {
-      if (sawError && sawUnknown) return;
-      const parts = (errorLine + chunk.toString('latin1')).split('\n');
-      errorLine = parts.pop() ?? '';
-      for (const part of parts) scan(part);
-      scan(errorLine);
-      if (errorLine.length > FOLLOW_STDERR_LINE_BYTES) errorLine = errorLine.slice(-FOLLOW_STDERR_LINE_BYTES);
-    });
+    // DEC-054: stderr is scanned for the two markers only (stderrScanner).
+    child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
     child.on('error', () => {
       // A child that never started may not emit 'close'; one that did start still will.
       if (child.pid === undefined) finish(null, null, 'spawn-failed');
@@ -601,11 +624,16 @@ const FLEET_ERROR_STATUS: Readonly<Record<string, number>> = Object.freeze({
   'session-not-in-project': 404,
   'stream-limit': 429,
   'live-unavailable': 503,
+  // 150 IC-010: `core-lacks-verb` is a runner failure with reason `old-core` (mapped by the routes); `unknown-run` a core exit 1 id.
+  'core-lacks-verb': 501,
+  'unknown-run': 404,
 });
 /** The error ids a core exit 1 may carry, by Fleet shape. */
 const FLEET_CORE_ERRORS: Readonly<Record<string, readonly string[]>> = Object.freeze({
   projects: Object.freeze(['cannot-list-projects']),
   transcript: Object.freeze(['agent-not-in-project', 'session-not-in-project']),
+  'worker-result': Object.freeze(['unknown-run']),
+  'worker-log': Object.freeze(['unknown-run']),
 });
 
 /** The IC-005 `{status, code}` of a failed Fleet read, or null when it is none of the Fleet codes (the caller then maps it as any runner failure). */
