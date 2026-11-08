@@ -80,7 +80,10 @@ const graphSize = (data) => (data && data.graph && Array.isArray(data.graph.task
 
 const awaitingCount = (/** @type {any} */ data) => data.runs.filter((/** @type {any} */ run) => run.state === 'AWAITING_GATE').length;
 
-/** The run head (CD-B8): crumb to Runs, the title with a muted task id, the meta line and the step counter. @param {any} params */
+/**
+ * The run head (CD-B8): crumb to Runs, the title with a muted task id, the meta line, and the step counter with, beside it in
+ * the same grid area, the link to the run's Session screen (150 IC-020). @param {any} params
+ */
 function buildRunHead(params) {
   const crumb = h('nav', { class: 'run-head__crumb', 'aria-label': 'Breadcrumb' }, [
     h('a', { href: '#/' }, 'Runs'), h('span', { 'aria-hidden': 'true' }, ' / '), h('span', { class: 'mono' }, params.slug),
@@ -88,7 +91,10 @@ function buildRunHead(params) {
   const h1 = h('h1', { class: 'run-head__title', tabindex: '-1' }, [h('span', {}, params.slug), h('span', { class: 'run-head__task' }, ` / ${params.taskId}`)]);
   const meta = h('div', { class: 'run-head__metawrap' });
   const step = h('p', { class: 'run-head__step', hidden: true });
-  return { root: h('header', { class: 'view-head run-head' }, [crumb, h1, meta, step]), h1, meta, step };
+  const chainHref = hashFor({ id: 'session', params: { slug: params.slug, taskId: params.taskId } });
+  const chain = chainHref === null ? null : h('a', { class: 'graph__back', href: chainHref }, 'Chain');
+  const aside = h('div', { class: 'run-head__aside' }, [step, chain]);
+  return { root: h('header', { class: 'view-head run-head' }, [crumb, h1, meta, aside]), h1, meta, step };
 }
 
 /** The meta line of the run head: badge, workflow name, started, revision, updated; one element per item. @param {any} params @param {any} data @param {any} nowMs */

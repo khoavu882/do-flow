@@ -119,7 +119,8 @@ let viewSeq = 0;
 const SCREENS = Object.freeze([['Now', 'runs'], ['Sessions', 'sessions'], ['Workflows', 'workflows'], ['Fleet', 'fleet']]);
 
 /**
- * What the command palette can reach (IC-021, DEC-011): the screens, then the runs, session lanes and Fleet projects of the
+ * What the command palette can reach (IC-021, DEC-011): the screens, then the runs (each with its Chain target, 150 IC-020),
+ * session lanes and Fleet projects of the
  * latest bodies this page has loaded. Labels are the ones the views show; every hash comes from `hashFor`, so a target that
  * cannot be linked is left out. Nothing is fetched.
  */
@@ -136,6 +137,8 @@ function paletteTargets() {
     if (typeof run.featureSlug !== 'string') continue;
     const workflow = run.workflowName || run.taskClass;
     add('run', `${run.featureSlug} / ${run.taskId}`, workflow ? `Run · ${workflow}` : 'Run', { id: 'run', params: { slug: run.featureSlug, taskId: run.taskId } });
+    // 150 IC-020: the run's Session screen, beside its run target.
+    add('session', `${run.featureSlug} / ${run.taskId}`, 'Chain', { id: 'session', params: { slug: run.featureSlug, taskId: run.taskId } });
   }
   if (sessions) {
     for (const row of deriveSessions(sessions, Date.now()).rows) {

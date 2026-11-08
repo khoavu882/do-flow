@@ -628,6 +628,8 @@
   .run-row__link { flex: 0 1 auto; max-width: 100%; }
   .run-row__task { font-weight: 400; color: var(--text-muted); }
   .run-row__link::after { content: ""; position: absolute; inset: 0; }
+  /* 150 IC-020: the Chain link of a run row or gate card sits above the stretched run link, so a click on it opens the chain. */
+  .run-row__chain { position: relative; z-index: 1; }
   .run-row__meta, .run-row__time {
     margin: 0;
     font: var(--type-sm);
@@ -865,7 +867,8 @@
   .run-head__metawrap { grid-area: meta; min-width: 0; }
   .run-head__meta { margin-top: 0; column-gap: var(--space-3); row-gap: var(--space-1); }
   .run-head__sep { display: none; color: var(--text-muted); }
-  .run-head__step { grid-area: step; align-self: end; margin: 0; font: var(--type-sm); color: var(--text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .run-head__aside { grid-area: step; align-self: end; display: flex; flex-wrap: wrap; align-items: center; column-gap: var(--space-3); }
+  .run-head__step { margin: 0; font: var(--type-sm); color: var(--text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
   .run-head__step-n { font: var(--type-lg); color: var(--text); }
   .rail--full .rail__item { position: relative; }
   .rail--full .rail__item + .rail__item::before {

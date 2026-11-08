@@ -3759,20 +3759,22 @@ test('149 palette: part of a slug then Enter opens the Run view with focus on it
     const before = page.calls.length;
     keydownOn(page, 'k', { ctrlKey: true });
     paletteType(page, 'FEAT');
-    assert.deepEqual(paletteOptions(page), ['feat-a / r1', 'feat-a / r2', 'feat-a / r3', 'feat-a / r4', 'feat-a / r5'], 'case-insensitive substring');
+    // 150 C.6 (IC-020): each run's `session` target (hint Chain) follows the run targets, as the session kind does.
+    const runs = ['feat-a / r1', 'feat-a / r2', 'feat-a / r3', 'feat-a / r4', 'feat-a / r5'];
+    assert.deepEqual(paletteOptions(page), [...runs, ...runs], 'case-insensitive substring');
     const input = paletteInput(page);
     input.fire('keydown', { key: 'ArrowDown' });
     assert.equal(input.getAttribute('aria-activedescendant'), 'palette-opt-1');
     assert.equal(page.doc.getElementById('palette-opt-1').getAttribute('aria-selected'), 'true');
     input.fire('keydown', { key: 'ArrowUp' });
     input.fire('keydown', { key: 'ArrowUp' });
-    assert.equal(input.getAttribute('aria-activedescendant'), 'palette-opt-4', 'Up from the first wraps to the last');
+    assert.equal(input.getAttribute('aria-activedescendant'), 'palette-opt-9', 'Up from the first wraps to the last');
     paletteType(page, 'zzz');
     assert.deepEqual(paletteOptions(page), []);
     assert.equal(input.getAttribute('aria-expanded'), 'false');
     assert.equal(input.getAttribute('aria-activedescendant'), null);
     paletteType(page, 'a / r2');
-    assert.deepEqual(paletteOptions(page), ['feat-a / r2']);
+    assert.deepEqual(paletteOptions(page), ['feat-a / r2', 'feat-a / r2'], 'the run target, then its Chain target (150 C.6)');
     assert.equal(page.calls.length, before, 'the palette fetches nothing');
     input.fire('keydown', { key: 'Enter' });
     assert.equal(page.location.hash, '#/run/feat-a/r2');
@@ -5127,4 +5129,112 @@ test('149 D.5 one loop per view: Run marks the running edge, else the awaiting g
   const shown = mods.states.renderLoading({ noun: 'runs', skeleton: () => mods.dom.h('div', { class: 'skeleton' }), showSkeleton: true });
   assert.equal(shown[1].getAttribute('data-loop'), 'on', 'a skeleton loops while it shows');
   assert.equal(mods.states.renderLoading({ noun: 'runs', skeleton: () => mods.dom.h('div', { class: 'skeleton' }), showSkeleton: false })[1], null);
+});
+
+// ---- 150 C.6: links into the Session screen (IC-020) ---------------------------------------------------------------
+
+/** Each link of `el` as `[href, text]`, in document order. */
+const linksOf = (el: El) => el.querySelectorAll('a').map((a: El) => [a.getAttribute('href'), text(a)]);
+
+test('150 C.6 Now: a run row and a gate card each add a Chain link to the Session screen after the link they had', async () => {
+  mods.home.resetHome();
+  const runs = () => [frow('w1', 4), frow('r1', 2), frow('flat-1', 0, { featureSlug: null })];
+  const page = await start({ hash: '', fetch: homeFetch(() => body(runs())) });
+  const { parseRoute } = mods.views;
+
+  const row = rowOf(page, 'feat-a / r1');
+  assert.deepEqual(linksOf(row), [['#/run/feat-a/r1', 'feat-a / r1'], ['#/session/feat-a/r1', 'Chain']], 'the run link first, unchanged, then Chain');
+  const rowChain = row.querySelectorAll('a')[1];
+  assert.equal(rowChain.getAttribute('aria-label'), 'Chain: feat-a / r1');
+  assert.equal(rowChain.dataset.focusKey, 'chain:feat-a/r1');
+  assert.equal(row.querySelector('.run-row__link').dataset.focusKey, 'run:feat-a/r1', 'the run link keeps its focus key');
+  assert.deepEqual(parseRoute(rowChain.getAttribute('href')).params, { slug: 'feat-a', taskId: 'r1' });
+  assert.equal(parseRoute(rowChain.getAttribute('href')).id, 'session');
+
+  const card = cardOf(page, 'feat-a / w1');
+  assert.deepEqual(linksOf(card), [['#/run/feat-a/w1', 'Open the run to decide →'], ['#/session/feat-a/w1', 'Chain']], 'the decide link first, unchanged, then Chain');
+  const cardLink = card.querySelector('.gate-card__link');
+  assert.equal(cardLink.getAttribute('aria-label'), 'Open the run to decide: feat-a / w1');
+  assert.equal(cardLink.dataset.focusKey, 'run:feat-a/w1');
+  const cardChain = card.querySelectorAll('a')[1];
+  assert.equal(cardChain.getAttribute('aria-label'), 'Chain: feat-a / w1');
+  assert.equal(cardChain.dataset.focusKey, 'chain:feat-a/w1');
+  assert.equal(cardId(card), 'feat-a / w1', 'the run id line is unchanged');
+
+  assert.equal(rowOf(page, 'flat-1').querySelector('a'), null, 'a run with no feature folder has no Chain link either');
+  assert.ok([rowChain, cardChain].every((a: El) => a.children.length === 1 && a.children[0] instanceof Txt), 'the link text is one text node');
+  assert.ok([rowChain, cardChain].every((a: El) => a.classList.contains('run-row__chain')), 'both carry the class that lifts them above the stretched run link');
+});
+
+test('150 C.6 CSS: the Now Chain link stacks above the stretched run link, and the run head Chain shares the step area', () => {
+  const css = fs.readFileSync(path.join(WEB_ROOT, 'app.css'), 'utf8');
+  const components = css.indexOf('@layer components {');
+  const states = css.indexOf('@layer states {');
+  const rule = (selector: string) => {
+    const at = css.indexOf(`  ${selector} {`);
+    assert.ok(at > components && at < states, `${selector} is in the components layer`);
+    return css.slice(at, css.indexOf('}', at));
+  };
+  for (const stretched of ['.run-row__link::after', '.gate-card__link::after']) assert.match(rule(stretched), /position: absolute; inset: 0;/);
+  const chain = rule('.run-row__chain');
+  assert.match(chain, /position: relative;/);
+  assert.match(chain, /z-index: 1;/);
+  assert.match(rule('.run-head__aside'), /grid-area: step;/);
+  assert.doesNotMatch(rule('.run-head__step'), /grid-area/, 'only the aside takes the step area');
+});
+
+test('150 C.6 Run head: a Chain link follows the step counter; the crumb keeps its one link to Runs', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '#/run/feat-a/run-1', fetch: runRoute(() => runBody(frow('run-1', 4), WF_FEATURE, [ev(5, 'start', null)])) });
+  const head = page.main.querySelector('.run-head');
+  assert.deepEqual(head.children.map((c: El) => c.className), ['run-head__crumb', 'run-head__title', 'run-head__metawrap', 'run-head__aside']);
+  const aside = head.querySelector('.run-head__aside');
+  assert.deepEqual(aside.children.map((c: El) => c.className), ['run-head__step', 'graph__back'], 'Chain sits beside the step counter, in its grid area (IC-020)');
+  assert.deepEqual(linksOf(head), [['#/', 'Runs'], ['#/session/feat-a/run-1', 'Chain']]);
+  assert.equal(text(page.main.querySelector('.run-head__step')), 'step 5 of 5', 'the step counter is unchanged');
+  assert.equal(mods.views.parseRoute(head.querySelectorAll('a')[1].getAttribute('href')).id, 'session');
+  uninstallPage();
+  mock.timers.reset();
+
+  mods.home.resetHome();
+  const waiting = await start({ hash: '#/run/feat-a/run-1', fetch: (target, init) => (target === '/api/runs/feat-a/run-1' ? new Promise<Reply>(() => {}) : standard(target, init)) });
+  assert.deepEqual(linksOf(waiting.main.querySelector('.run-head')), [['#/', 'Runs'], ['#/session/feat-a/run-1', 'Chain']], 'the link is there before the data, from the route params');
+});
+
+test('150 C.6 Tasks head: a Chain link follows Back to the run, on the board and on each no-graph note', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '#/run/feat-a/run-1/tasks', fetch: graphRoute(GRAPH_PLAN) });
+  const top = page.main.querySelector('.graph__top');
+  assert.deepEqual(linksOf(top), [['#/run/feat-a/run-1', '← Back to the run'], ['#/session/feat-a/run-1', 'Chain']]);
+  assert.deepEqual(top.children.slice(0, 3).map((c: El) => c.className), ['graph__back', 'graph__back', 'graph__summary']);
+  assert.equal(page.main.querySelector('.graph__back').getAttribute('href'), '#/run/feat-a/run-1', 'the first is still the way back');
+  uninstallPage();
+  mock.timers.reset();
+
+  mods.home.resetHome();
+  const empty = await start({ hash: '#/run/feat-a/run-1/tasks', fetch: graphRoute(() => null, () => ({ tasksReason: 'no-plan' })) });
+  const note = empty.main.querySelector('.graph--empty');
+  assert.deepEqual(linksOf(note), [['#/run/feat-a/run-1', '← Back to the run'], ['#/session/feat-a/run-1', 'Chain']]);
+  assert.equal(empty.main.querySelector('.graph__board'), null);
+});
+
+test('150 C.6 palette: one session target per run, labelled slug / taskId with the hint Chain, as a hash from hashFor', async () => {
+  await withFreshModules(async () => {
+    const page = await start({ fetch: (target, init) => standard(target, init) });
+    const before = page.calls.length;
+    keydownOn(page, 'k', { ctrlKey: true });
+    assert.deepEqual(paletteOptions(page), ['Now', 'Sessions', 'Workflows', 'Fleet', 'feat-a / r1', 'feat-a / r2', 'feat-a / r3', 'feat-a / r4', 'feat-a / r5'], 'an empty query is unchanged: the screens, then the runs');
+    paletteType(page, 'chain');
+    const options = paletteOf(page).querySelectorAll('li');
+    assert.deepEqual(options.map((li: El) => [text(li.querySelector('.palette__label')), text(li.querySelector('.palette__hint')), li.dataset.kind]),
+      ['r1', 'r2', 'r3', 'r4', 'r5'].map((id) => [`feat-a / ${id}`, 'Chain', 'session']));
+    paletteType(page, 'feat-a / r3');
+    assert.deepEqual(paletteOf(page).querySelectorAll('li').map((li: El) => [li.dataset.kind, text(li.querySelector('.palette__hint'))]), [['run', 'Run · feature'], ['session', 'Chain']], 'the run target keeps its kind and hint');
+    const input = paletteInput(page);
+    input.fire('keydown', { key: 'ArrowDown' });
+    input.fire('keydown', { key: 'Enter' });
+    assert.equal(page.location.hash, '#/session/feat-a/r3');
+    assert.equal(mods.views.parseRoute(page.location.hash).id, 'session');
+    assert.equal(page.calls.length, before, 'the palette fetches nothing');
+  });
 });

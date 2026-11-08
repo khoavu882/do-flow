@@ -9,6 +9,8 @@ import {
   awaitingGateOf, waitStamp, waitText, describeGate, tileFacts, stepPart, stepFraction, progressOf, stepNumber,
 } from '../derive/rail.js';
 import { railCompact, railFallback } from './rail.js';
+// views.js imports this module too; `hashFor` is a function declaration, read only when a row is built.
+import { hashFor } from '../views.js';
 
 /** How many finished runs the list shows before "Show all". */
 const FINISHED_CAP = 10;
@@ -204,6 +206,17 @@ function railOf(run, context) {
 }
 
 /**
+ * The Chain link of a row or card (150 IC-020): the run's Session screen, after the link that opens the run. Null when the
+ * route has no hash. `run-row__chain` lifts it above the stretched run link, so a click on it opens the chain.
+ * @param {string} slug @param {string} taskId @param {string} key the run key, for the focus key
+ */
+function chainLink(slug, taskId, key) {
+  const href = hashFor({ id: 'session', params: { slug, taskId } });
+  if (href === null) return null;
+  return h('a', { class: 'graph__back run-row__chain', href, 'aria-label': `Chain: ${slug} / ${taskId}`, dataset: { focusKey: `chain:${key}` } }, 'Chain');
+}
+
+/**
  * A run row of Running and Finished (E.1 6.4). The badge shows only exceptions (CD-B3).
  * @param {any} run
  * @param {number} index
@@ -237,7 +250,9 @@ function runRow(run, index, context) {
   const exception = run.state !== 'RUNNING' || token === 'stale';
 
   return h('li', { class: 'run-row', dataset: { state: token, openable: openable ? 'true' : 'false' } }, [
-    h('div', { class: 'run-row__title' }, [title, run.origin === 'other' ? tag('Other checkout') : null, openable ? null : tag('No feature folder')]),
+    h('div', { class: 'run-row__title' }, [
+      title, run.origin === 'other' ? tag('Other checkout') : null, openable ? chainLink(slug, run.taskId, key) : tag('No feature folder'),
+    ]),
     h('div', { class: 'run-row__rail' }, model && drawn ? railCompact(model, { changed: changed.get(key) ?? new Set() }) : railFallback(run, reason, now)),
     h('div', { class: 'run-row__step', 'aria-hidden': 'true' }, done === null || total === null ? null : [
       h('span', { class: 'run-row__step-n' }, String(stepNumber(run))), h('span', { class: 'run-row__step-of' }, ` / ${total}`),
@@ -305,6 +320,7 @@ function gateCard(run, index, context) {
           'aria-describedby': id, dataset: { focusKey: `run:${runKey(run)}` },
         }, ['Open the run to decide', h('span', { 'aria-hidden': 'true' }, ' →')])
         : h('p', { class: 'gate-card__note' }, 'Decide in a terminal. This run has no feature folder, so it cannot be opened here.'),
+      openable ? chainLink(slug, run.taskId, runKey(run)) : null,
       description,
     ]),
   ]);
