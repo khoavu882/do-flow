@@ -5,18 +5,20 @@
 // verbs and boots bin/doflow-ui.js on it. The code is exchanged and /api/runs and the run routes are read.
 // One run per run state, a stale run, a shape-mismatch run, a flat run, a 12-task plan over 3 owners with
 // finished, released and active attempts, several gate kinds; `--empty` and `--core-missing` modes; and
-// the live steps. The "running lane" case is the one that needs the fixture's active attempts.
+// the live steps. The "running lane" case is the one that needs the fixture's active attempts. The `--worker-log`
+// cases (feature 150 D.1, IC-021) run the script as a child and drive it with stdin `log` lines.
 
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { CORE_CLI } = require('./helpers/core-fixture.ts');
-const { RUNS, OWNERS, SCRATCH_ROOT, startFixtureConsole, parseFlags } = require('../scripts/fixture-console.ts');
+const { RUNS, OWNERS, SCRATCH_ROOT, CHAIN, LOG_APPENDS, startFixtureConsole, parseFlags } = require('../scripts/fixture-console.ts');
+const { readRuns } = require('../../src/runtime/worker/run-store.ts');
 const crypto = require('node:crypto');
 const os = require('node:os');
 const { pathToFileURL } = require('node:url');
-const { spawnSync } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 
 const DAY = 24 * 60 * 60 * 1000;
 const URL_FORM = /^http:\/\/127\.0\.0\.1:\d+\/#c=[0-9a-f]{64}$/;
@@ -226,10 +228,114 @@ test('every scratch directory is made under SCRATCH_ROOT and is gone after stop'
 });
 
 test('--core must be an absolute path to an existing file', () => {
-  assert.deepEqual(Object.keys(parseFlags(['--core', CORE_CLI, '--empty', '--core-missing', '--keep', '--tick', '2', '--append', '1'])).sort(), ['append', 'coreMissing', 'core', 'empty', 'keep', 'tick'].sort()); // V.10 adds --append
+  assert.deepEqual(Object.keys(parseFlags(['--core', CORE_CLI, '--empty', '--core-missing', '--keep', '--tick', '2', '--append', '1'])).sort(), ['append', 'coreMissing', 'core', 'empty', 'keep', 'tick', 'workerLog'].sort()); // V.10 adds --append, 150 D.1 --worker-log
   for (const argv of [[], ['--core', 'relative/doflow.js'], ['--core', path.join(path.dirname(CORE_CLI), 'no-such.js')], ['--core', CORE_CLI, '--bogus'], ['--core', CORE_CLI, '--tick', '0'], ['--core', CORE_CLI, '--append', '0']]) {
     assert.ok('error' in parseFlags(argv), `refused: ${argv.join(' ')}`);
   }
+});
+
+const FIXTURE_SCRIPT = path.join(__dirname, '..', 'scripts', 'fixture-console.ts');
+
+test('--worker-log takes a positive number of seconds; 0, a negative, a non-number, a missing value and --empty are usage errors', () => {
+  assert.equal((parseFlags(['--core', CORE_CLI, '--worker-log', '86400']) as any).workerLog, 86400);
+  assert.equal((parseFlags(['--core', CORE_CLI, '--worker-log', '0.5']) as any).workerLog, 0.5);
+  assert.equal((parseFlags(['--core', CORE_CLI]) as any).workerLog, null);
+  const bad = [['0'], ['-1'], ['abc'], ['1e3'], ['9999999'], [], ['--keep']].map((value) => ['--core', CORE_CLI, '--worker-log', ...value]);
+  for (const argv of [...bad, ['--core', CORE_CLI, '--empty', '--worker-log', '5']]) {
+    assert.ok('error' in parseFlags(argv), `refused: ${argv.join(' ')}`);
+    const run = spawnSync(process.execPath, [FIXTURE_SCRIPT, ...argv], { encoding: 'utf8', timeout: 30_000 });
+    assert.equal(run.status, 2, `${argv.join(' ')}: ${run.stderr}`);
+    assert.equal(run.stdout, '', 'no URL line on a usage error');
+    assert.match(run.stderr, /^fixture-console: --worker-log /);
+    assert.match(run.stderr, /\[--worker-log <seconds>\]/, 'the usage line names --worker-log');
+  }
+});
+
+test('--worker-log: feat-chain from real verbs, R1 alive with no log files, one line per stream per `log`, `log <n>` after the write, R1 ended after 24', { timeout: 240_000 }, async (t: any) => {
+  // A seconds value far beyond the test, so every append comes from a stdin `log` line.
+  const child = spawn(process.execPath, [FIXTURE_SCRIPT, '--core', CORE_CLI, '--worker-log', '86400'], { stdio: ['pipe', 'pipe', 'pipe'] });
+  const exited = new Promise<number | null>((resolve) => child.on('exit', (code: number | null) => resolve(code)));
+  t.after(async () => { if (child.exitCode === null && child.signalCode === null) { child.kill('SIGTERM'); await exited; } });
+  let out = '';
+  let pending = '';
+  const lines: string[] = [];
+  child.stdout.setEncoding('utf8');
+  child.stdout.on('data', (chunk: string) => { out += chunk; });
+  child.stderr.setEncoding('utf8');
+  child.stderr.on('data', (chunk: string) => {
+    pending += chunk;
+    const parts = pending.split('\n');
+    pending = parts.pop() as string;
+    lines.push(...parts);
+  });
+  const until = async (find: () => any, what: string, ms = 180_000) => {
+    const deadline = Date.now() + ms;
+    for (;;) {
+      const found = find();
+      if (found) return found;
+      if (child.exitCode !== null) throw new Error(`the fixture exited ${child.exitCode} waiting for ${what}: ${lines.join('\n')}`);
+      if (Date.now() > deadline) throw new Error(`no ${what} within ${ms} ms: ${lines.join('\n')}`);
+      await sleep(10);
+    }
+  };
+  const lineAt = (from: number, pattern: RegExp) => () => { for (let i = from; i < lines.length; i += 1) { const m = pattern.exec(lines[i]); if (m) return { index: i, m }; } return null; };
+
+  // The first stdout line stays the Console URL.
+  const urlLine = await until(() => /^doflow ui: (http:\/\/127\.0\.0\.1:(\d+)\/#c=([0-9a-f]{64}))\n/.exec(out), 'URL line');
+  assert.match(urlLine[1], URL_FORM);
+  const { m: where } = await until(lineAt(0, /^fixture-console: scratch directory (.+); project (.+)$/), 'project line');
+  const project = where[2];
+  const { m: named } = await until(lineAt(0, /^fixture-console: run-chain: R1 (w-[0-9a-f]{12})$/), 'R1 line');
+  const r1 = named[1];
+  const store = path.join(project, '.doflow', 'state', 'worker-runs', `${CHAIN.slug}.json`);
+  const file = (stream: string) => path.join(project, '.doflow', 'state', 'worker-output', `${r1}.${stream}.log`);
+
+  // The run, from real verbs: RUNNING in planning (discovery and design passed, gate-0 approved).
+  const api = await session({ port: Number(urlLine[2]), code: urlLine[3] });
+  const listed = row((await api.get('/api/runs')).json.runs, CHAIN.taskId);
+  assert.equal(listed.featureSlug, CHAIN.slug);
+  assert.equal(listed.state, 'RUNNING');
+  assert.equal(listed.current.id, 'planning');
+
+  // The world: every role of worker-world.ts, R1 running with this fixture process as its live supervisor, no log files yet.
+  const before = readRuns(store);
+  assert.equal(Object.keys(before).length, 12, 'the shared worker world');
+  assert.equal(before[r1].phase, 'running');
+  assert.equal(before[r1].childOf, null);
+  assert.equal(before[r1].supervisor.pid, child.pid, 'R1\'s supervisor is the fixture process');
+  assert.ok(Object.values(before).some((run: any) => run.childOf === r1), 'a child run of R1');
+  assert.ok(!fs.existsSync(file('out')) && !fs.existsSync(file('err')), 'R1\'s out and err files do not exist before the first tick');
+
+  const linesOf = (stream: string) => fs.readFileSync(file(stream), 'utf8').split('\n').slice(0, -1);
+  for (let n = 1; n <= LOG_APPENDS; n += 1) {
+    const from = lines.length;
+    child.stdin.write('log\n');
+    await until(lineAt(from, new RegExp(`^fixture-console: log ${n}$`)), `log ${n}`);
+    // Read when the line arrives: the write had returned before it was printed.
+    for (const stream of ['out', 'err']) {
+      const text = linesOf(stream);
+      assert.equal(text.length, n, `${stream} holds one line per tick at ${n}`);
+      assert.match(text[n - 1], new RegExp(`^R1 ${stream} line ${n}( |$)`));
+    }
+    if (n < LOG_APPENDS) assert.equal(readRuns(store)[r1].phase, 'running', `R1 still runs after ${n}`);
+  }
+  await until(lineAt(0, /^fixture-console: R1 ended after 24 appends$/), 'the end line');
+  const ended = readRuns(store)[r1];
+  assert.equal(ended.phase, 'ended');
+  assert.equal(ended.process.kind, 'exited');
+  for (const [key, stream] of [['stdout', 'out'], ['stderr', 'err']]) {
+    const size = fs.statSync(file(stream)).size;
+    assert.deepEqual(ended.output[key], { path: `worker-output/${r1}.${stream}.log`, bytes: size, written: size, truncated: false }, `the ${key} pointer`);
+  }
+  // Nothing past the 24th.
+  const from = lines.length;
+  child.stdin.write('log\n');
+  await until(lineAt(from, /^fixture-console: no log line left$/), 'the exhausted line');
+  assert.equal(linesOf('out').length, LOG_APPENDS);
+
+  child.kill('SIGTERM');
+  assert.equal(await exited, 0);
+  assert.ok(!fs.existsSync(project), 'the scratch project is removed on exit');
 });
 
 // Last: it changes the fixture.

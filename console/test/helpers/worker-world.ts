@@ -92,7 +92,7 @@ function applied(result: any, what: string): any {
 /**
  * Writes the world into `<projectRoot>/.doflow/state/worker-runs/<slug>.json` and its output files into
  * `<projectRoot>/.doflow/state/worker-output/`. Returns the run ids by role, the store and output paths,
- * the planted values, and `appendLine`.
+ * the planted values, `appendLine` and `endRunning`.
  */
 function buildWorkerWorld(options: WorldOptions) {
   const { projectRoot, slug, attempts, marker = '', runningLogs = 'present' } = options;
@@ -287,11 +287,25 @@ function buildWorkerWorld(options: WorldOptions) {
     return { file, from, to: fs.statSync(file).size };
   }
 
+  /**
+   * Ends the running run as the supervisor's step 6 ends a clean exit (`process.kind: 'exited'`, code 0), its output
+   * pointers read from its out and err files as they stand. Returns the ended record.
+   */
+  function endRunning(at: number = Date.now()): any {
+    const pointer = (stream: 'out' | 'err') => {
+      const file = logFile(runs.running, stream);
+      const written = fs.existsSync(file) ? fs.statSync(file).size : 0;
+      return { path: `worker-output/${runs.running}.${stream}.log`, bytes: written, written, truncated: false };
+    };
+    finish('running', runs.running, { code: 0, report: report('success'), output: { stdout: pointer('out'), stderr: pointer('err') }, endedAt: at });
+    return readRuns(store)[runs.running];
+  }
+
   return {
     slug, store, stateRoot, outputDir, runs: Object.freeze(runs), all: Object.freeze(ROLES.map((role) => runs[role])),
     unmatched: { task: unmatched.task, token: unmatched.token }, results,
     planted: Object.freeze({ ...PLANTED, text, prompt: PROMPT_MARKER, lastLog: LAST_LOG_MARKER, pids: PLANTED_PIDS, starts: Object.freeze([selfStart, DEAD_START].filter((start): start is string => typeof start === 'string')) }),
-    logFile, appendLine,
+    logFile, appendLine, endRunning,
   };
 }
 
