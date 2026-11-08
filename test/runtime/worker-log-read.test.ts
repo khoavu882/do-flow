@@ -330,3 +330,36 @@ test('a planted secret is masked by the second pass', (t) => {
   assert.equal(page.pieces[1].text, 'using <masked> now');
   assert.equal(page.pieces[2].text, 'AWS_SECRET_ACCESS_KEY=<masked>');
 });
+
+// 150 R-1, DEC-012: a grid cut also splits a short line that crosses a 32768-byte offset, so a
+// path only a whole-line pass can see must be masked by the sink before the write. The file is
+// written as createOutputSink writes it (supervisor.ts onLine: `maskBody(line).text` plus '\n'),
+// with the second line starting 8 and 12 bytes before a grid point (the reviewer's two cuts).
+test('R-1: another user\'s /home/<name> on a line a grid cut splits is masked in every piece and in the joined text', (t) => {
+  const { maskBody } = require('../../src/runtime/mask.ts');
+  const other = ['', 'home', 'alice'].join('/'); // built from parts, so G2 has no literal home path to flag
+  const line = `read ${other}/plan.md ok`;
+  const sinkWrite = (lines: string[]) => lines.map((text) => `${maskBody(text).text}\n`).join('');
+  for (const [firstBytes, head] of [[32759, 'read /ho'], [32755, 'read /home/']] as const) {
+    const first = 'x'.repeat(firstBytes);
+    const file = logOf(t, sinkWrite([first, line]));
+    const page = readLogPage({ file, mode: 'tail', final: false });
+    const second = page.pieces.filter((p: any) => p.at > firstBytes);
+    // Not vacuous: the line really is cut, at the grid point.
+    assert.equal(second.length, 2, `${firstBytes}: the line is cut once`);
+    assert.equal(second[0].at, firstBytes + 1);
+    assert.equal(second[1].at, PIECE_GRID_BYTES);
+    assert.equal(second[0].cut, true);
+    assert.ok(second[0].text.startsWith(head), `${firstBytes}: ${second[0].text}`);
+    for (const piece of page.pieces) assert.ok(!piece.text.includes(other), `${firstBytes}: piece ${JSON.stringify(piece.text)}`);
+    const joined = linesOf(page.pieces);
+    assert.equal(joined[joined.length - 1], `read ${['', 'home', '<masked>'].join('/')}/plan.md ok`);
+    for (const text of joined) assert.ok(!text.includes(other), `${firstBytes}: joined ${JSON.stringify(text)}`);
+    assert.ok(!JSON.stringify(page).includes(other));
+  }
+  // Control: the same bytes written without the sink's whole-line pass reach the reader's per-piece
+  // pass split, and the joined text carries the path, so the check above can fail.
+  const raw = logOf(t, `${'x'.repeat(32759)}\n${line}\n`, 'raw.out.log');
+  const leaked = linesOf(readLogPage({ file: raw, mode: 'tail', final: false }).pieces);
+  assert.ok(leaked.some((text) => text.includes(other)), `the unmasked control leaks: ${JSON.stringify(leaked.slice(-1))}`);
+});

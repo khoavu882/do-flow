@@ -6,7 +6,8 @@
 // pointers name that file, so a reader that took a path from the record would open it. `worker-log`
 // on out and err, `worker-result` and an `events --follow` of both log channels run through
 // bin/doflow.js under test/helper/fs-open-probe.ts, which records every path the process asks
-// fs.openSync, fs.open, fs.readFileSync, fs.createReadStream or fs.promises.open to open. One check,
+// fs.openSync, fs.open, fs.readFileSync, fs.readFile, fs.createReadStream, fs.copyFileSync,
+// fs.copyFile, fs.promises.open or fs.promises.readFile to open. One check,
 // lastLogFindings, fails on any recorded `.last.log` path and on the marker in any output; the
 // control runs planted readers that open the file under the same preload and requires that check
 // to fail, and the real runs must have recorded the out and err paths, so the probe is not vacuous.
@@ -201,6 +202,12 @@ test('IC-022 control: a planted reader that opens .last.log fails the same check
     `fs.readFileSync(require('node:url').pathToFileURL(${JSON.stringify(f.last)}));`,
     `fs.createReadStream(${JSON.stringify(f.last)}).on('open', function () { this.destroy(); });`,
     `fs.promises.open(${JSON.stringify(f.last)}, 'r').then((h) => h.close());`,
+    // R-2: the read and copy entry points the probe wraps since the review; each records the read on its own.
+    `fs.readFile(${JSON.stringify(f.last)}, (e) => { if (e) throw e; });`,
+    `fs.promises.readFile(${JSON.stringify(f.last)}).then(() => {});`,
+    `require('node:fs/promises').readFile(${JSON.stringify(f.last)}).then(() => {});`,
+    `fs.copyFileSync(${JSON.stringify(f.last)}, ${JSON.stringify(path.join(f.root, 'copy-sync.txt'))});`,
+    `fs.copyFile(${JSON.stringify(f.last)}, ${JSON.stringify(path.join(f.root, 'copy-async.txt'))}, (e) => { if (e) throw e; });`,
   ];
   for (const body of readers) {
     const probe = probeFile(f);

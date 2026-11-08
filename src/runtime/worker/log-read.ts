@@ -5,10 +5,14 @@
 // so the `worker-log` verb and the `worker:<runId>:out|err` channels carry the same pieces for the
 // same byte range.
 //
-// `logFile` is the only function that forms a `worker-output` path, and it forms only the two names
-// the sink writes (`createOutputSink`, supervisor.ts): `<runId>.out.log` and `<runId>.err.log`.
-// `<runId>.last.log` cannot be formed, and no path is taken from a run record. `readLogPage` opens
-// the file with flag 'r' and only reads: nothing is locked, created, written, renamed or deleted.
+// `logFile` is the only function on the read side (this module, `reads.ts`, `events/logs.ts`) that
+// forms a path to a file under `worker-output`, and it forms only the two names the sink writes
+// (`createOutputSink`, supervisor.ts): `<runId>.out.log` and `<runId>.err.log`. `<runId>.last.log`
+// cannot be formed here, and no path is taken from a run record. `events/logs.ts` also forms the
+// `worker-output` directory path as a watched source; the detector lists it and stats only the names
+// matching `^<runId>\.<stream>\.log$` (a stat, not an open). The supervisor, on the write side, forms
+// all three names. `readLogPage` opens the file with flag 'r' and only reads: nothing is locked,
+// created, written, renamed or deleted.
 //
 // Boundaries depend only on the file's bytes: 0, every offset after a '\n', the readable end, and
 // every multiple of PIECE_GRID_BYTES inside a line backed off to a character start. So a long line

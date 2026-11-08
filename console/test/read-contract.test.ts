@@ -469,8 +469,11 @@ test('the Console reads every route from the real core, leaks no free text, and 
   assert.ok(fs.readFileSync(path.join(world.outputDir, `${world.runs.lastLog}.last.log`), 'utf8').includes(planted.lastLog), 'the .last.log file carries its marker');
   const rawStatus = JSON.stringify(raw.get(`${world.runs.violated}/status`));
   for (const value of [planted.secret, planted.email, planted.ip, planted.path, String(planted.pids[2])]) assert.ok(rawStatus.includes(value), `the raw worker status carries ${value}`);
-  // The core masks the secret, email and IP in log text but leaves a /home path; the Console's second pass masks it.
-  assert.ok(JSON.stringify(raw.get(`${running}/log?stream=out`)).includes(planted.path), 'the raw worker-log page carries the planted path');
+  // The core masks the secret, email and IP in log text and, since DEC-012 (R-1), another user's /home
+  // path too (mask rule 17); the Console's second pass finds nothing left to mask in it.
+  const rawOut = JSON.stringify(raw.get(`${running}/log?stream=out`));
+  assert.ok(!rawOut.includes(planted.path), 'the raw worker-log page does not carry the planted /home path');
+  assert.ok(rawOut.includes('/home/<masked>/'), 'the core masked the planted /home path itself');
 
   // RK10: the Console's copy of the worker agent-key rule names the same node as the real core's Fleet tree, for every run.
   const fleet = await coreJson(f.main, off, ['fleet', '--action', 'tree']);
@@ -652,6 +655,12 @@ test('the Console reads every route from the real core, leaks no free text, and 
     assert.deepEqual(got.pieces, hubPieces(forward.pieces), `${stream}: the live pieces are the projected forward page`);
     assert.deepEqual(got.pieces.map((piece: any) => piece.text.split(' password=')[0]), batch1[stream].map((line) => line.split(' password=')[0]), `${stream}: every line, in order`);
     for (const piece of got.pieces) assert.ok(piece.text.includes('password=<masked>') && piece.text.includes('<email>') && piece.text.includes('<ip>') && piece.text.includes('/home/<masked>/'), `${stream}: masked ${piece.text}`);
+    // DEC-012 (R-1): the core's own forward page over the same bytes already holds every marker,
+    // the /home one included, so the live text is the core's text and maskLite added nothing.
+    const coreForward = await coreJson(f.main, off, ['worker-log', '--slug', SLUGS.graph, '--worker-run', running, '--stream', stream, '--cursor', at]);
+    assert.equal(coreForward.exit, 0, JSON.stringify(coreForward.json));
+    for (const piece of coreForward.json.pieces) assert.ok(piece.text.includes('/home/<masked>/') && !piece.text.includes(planted.path), `${stream}: the core masked ${piece.text}`);
+    assert.deepEqual(coreForward.json.pieces.map((piece: any) => piece.text), got.pieces.map((piece: any) => piece.text), `${stream}: the core's pieces are the live pieces`);
     await get(`${base}/${running}/log?stream=${stream}&before=${at}`);
     const backward = reply200(`${base}/${running}/log?stream=${stream}&before=${at}`);
     assert.deepEqual(hubPieces(backward.pieces), hubPieces(tail[stream].pieces), `${stream}: the backward page ends where the window began`);

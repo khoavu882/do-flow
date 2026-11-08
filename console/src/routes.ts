@@ -433,6 +433,10 @@ const transcriptRoute = (runner: Runner): Route['handler'] => async (ctx) => {
 /** The core's RUN_ID (src/runtime/worker/run-store.ts); the verb runner checks it again. */
 const RUN_ID = /^w-[0-9a-f]{12}$/;
 const LOG_STREAM = /^(?:out|err)$/;
+/** IC-002's log cursor with the core's digit bounds (`CURSOR`, src/runtime/worker/reads.ts), so an overlong one is a 400 here, not the core's `usage` as a 502. */
+const LOG_CURSOR = /^[0-9]{1,20}:[0-9]{1,16}:[0-9]{1,16}:[0-9]{1,16}$/;
+/** The core's `isSafeSlug` (src/runtime/task-scope.ts): PARAM_PATTERN's shape and no `..`, so a slug the core refuses is a 400 here. */
+const isWorkerSlug = (slug: string) => PARAM_PATTERN.test(slug) && !slug.includes('..');
 
 /** A worker run's Fleet agent key: a copy of the core's `workerKey` (src/runtime/fleet/tree.ts), sha256('worker:' + runId), first 16 hex. */
 function workerAgentKey(runId: string): string {
@@ -462,7 +466,7 @@ const fallbackRun = (status: any) => ({
  * run adds no run. Any failed read is its IC-005 error reply.
  */
 async function workerRuns(runner: Runner, slug: string): Promise<Reply> {
-  if (!PARAM_PATTERN.test(slug)) return errorReply(400, 'usage');
+  if (!isWorkerSlug(slug)) return errorReply(400, 'usage');
   const listed = await read(runner, 'worker-runs', { slug });
   if (listed.ok) return jsonReply(200, listed.body);
   if (listed.code !== 'core-lacks-verb') return listed.reply;
@@ -490,7 +494,7 @@ type WorkerRead = 'result' | 'status' | 'log' | 'transcript';
 const workerRunRoute = (runner: Runner, kind: WorkerRead): Route['handler'] => async (ctx) => {
   const query = queryOf(ctx.req, kind === 'log' ? ['stream', 'cursor', 'before'] : []);
   const { slug, runId } = ctx.params;
-  if (query === null || !PARAM_PATTERN.test(slug) || !RUN_ID.test(runId)) return errorReply(400, 'usage');
+  if (query === null || !isWorkerSlug(slug) || !RUN_ID.test(runId)) return errorReply(400, 'usage');
   if (kind === 'result') {
     const result = await read(runner, 'worker-result', { slug, runId });
     return result.ok ? jsonReply(200, result.body) : result.reply;
@@ -507,7 +511,7 @@ const workerRunRoute = (runner: Runner, kind: WorkerRead): Route['handler'] => a
     const cursor = query.get('cursor');
     const before = query.get('before');
     if (stream === undefined || !LOG_STREAM.test(stream) || (cursor !== undefined && before !== undefined)
-      || (cursor !== undefined && !CURSOR.test(cursor)) || (before !== undefined && !CURSOR.test(before))) return errorReply(400, 'usage');
+      || (cursor !== undefined && !LOG_CURSOR.test(cursor)) || (before !== undefined && !LOG_CURSOR.test(before))) return errorReply(400, 'usage');
     const page = await read(runner, 'worker-log', { slug, runId, stream, ...(cursor === undefined ? {} : { cursor }), ...(before === undefined ? {} : { before }) });
     return page.ok ? jsonReply(200, page.body) : page.reply;
   }

@@ -2,9 +2,11 @@
 
 // Feature 150 A.7 (IC-022, DEC-006, FR-012): a file-open probe, loaded with
 // `node --require test/helper/fs-open-probe.ts <script>`. When DOFLOW_OPEN_PROBE names a file, it
-// wraps fs.openSync, fs.open, fs.readFileSync, fs.createReadStream and fs.promises.open and appends
-// the absolute path of every open those calls are asked for to that file, one per line, before the
-// call runs (so an open that then fails is recorded too). The wrapped call gets the same `this` and
+// wraps fs.openSync, fs.open, fs.readFileSync, fs.readFile, fs.createReadStream, fs.copyFileSync,
+// fs.copyFile, fs.promises.open and fs.promises.readFile (`require('node:fs/promises')` is the same
+// object as fs.promises) and appends the absolute path of every open those calls are asked for (a
+// copy's source) to that file, one per line, before the call runs (so an open that then fails is
+// recorded too). The wrapped call gets the same `this` and
 // arguments and its result or throw is passed through untouched. A path given as a string, a Buffer
 // or a file: URL is recorded; a numeric fd is not a path and is skipped. The probe file is written
 // with the fs functions captured before wrapping, under a re-entry flag, so its own writes are never
@@ -33,8 +35,12 @@ function install(probeFile: string) {
     openSync: fs.openSync,
     open: fs.open,
     readFileSync: fs.readFileSync,
+    readFile: fs.readFile,
     createReadStream: fs.createReadStream,
+    copyFileSync: fs.copyFileSync,
+    copyFile: fs.copyFile,
     promisesOpen: fs.promises.open,
+    promisesReadFile: fs.promises.readFile,
     writeSync: fs.writeSync,
     closeSync: fs.closeSync,
   };
@@ -62,8 +68,12 @@ function install(probeFile: string) {
   fs.openSync = wrap(original.openSync);
   fs.open = wrap(original.open);
   fs.readFileSync = wrap(original.readFileSync);
+  fs.readFile = wrap(original.readFile);
   fs.createReadStream = wrap(original.createReadStream);
+  fs.copyFileSync = wrap(original.copyFileSync);
+  fs.copyFile = wrap(original.copyFile);
   fs.promises.open = wrap(original.promisesOpen);
+  fs.promises.readFile = wrap(original.promisesReadFile);
   // An ES module that imports node:fs by name sees the wrapped functions too.
   require('node:module').syncBuiltinESMExports();
 }

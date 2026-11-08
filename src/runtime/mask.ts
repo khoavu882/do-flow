@@ -81,9 +81,12 @@ const COMMAND_FLAG_VALUE = /"[^"\r\n]*"|'[^'\r\n]*'|[^\s"'|;&]+/y;
 // required") survives; a plain-letter value after a bare `password ` is a known gap, and so is a
 // password of one to three digits (`reset password 2 times` is prose).
 const PASSWORD_PHRASE = /(?<![A-Za-z0-9_.-])((?:password|passwd)[ \t]+)(?!<masked>|[=:])([^\s,;&"'`)\]}]+)/gi;
-// Another user's home directory (the running user's is rule 0). `Shared` is not a person and `runner`
-// is the CI runner account (`/Users/runner/work/...`), so neither is masked.
-const OTHER_USER_HOME = /(?<![A-Za-z0-9_.-])\/Users\/(?!(?:Shared|runner)(?![^/\s"'`<>:;,()[\]{}])|<)[^/\s"'`<>:;,()[\]{}]+/g;
+// Another user's home directory under `/Users` (macOS) or `/home` (Linux); the running user's is rule 0,
+// which runs first. The prefix is kept and the name masked. `runner` is the CI runner account under
+// both prefixes (`/Users/runner/work/...`, `/home/runner/work/...`) and `Shared` is not a person
+// (under `/Users` only), so neither is masked. The prefix must start a path (`/opt/home/x` is not one)
+// and be followed by `/` (`/homework/x` is not one).
+const OTHER_USER_HOME = /(?<![A-Za-z0-9_.-])\/(?:(Users)\/(?!(?:Shared|runner)(?![^/\s"'`<>:;,()[\]{}])|<)|(home)\/(?!runner(?![^/\s"'`<>:;,()[\]{}])|<))[^/\s"'`<>:;,()[\]{}]+/g;
 
 /**
  * Rules 14 and 15. Scans left to right and masks the value of every `-u`/`--user` of a curl command
@@ -263,8 +266,8 @@ function mask(text: any, profile: 'line' | 'body', options: any = {}): { text: s
     out = maskCommandFlags(out);
     // 16. `password hunter2`: the key word, a space and a value with a non-letter in it.
     out = out.replace(PASSWORD_PHRASE, (match: string, head: string, value: string) => (/[^A-Za-z]/.test(value) && !/^[0-9]{1,3}$/.test(value) ? `${head}${MASKED}` : match));
-    // 17. Another user's home directory: `/Users/<name>` becomes `/Users/<masked>`.
-    out = out.replace(OTHER_USER_HOME, `/Users/${MASKED}`);
+    // 17. Another user's home directory: `/Users/<name>` becomes `/Users/<masked>`, `/home/<name>` `/home/<masked>`.
+    out = out.replace(OTHER_USER_HOME, (_match: string, users: string | undefined, homeDir: string | undefined) => `/${users || homeDir}/${MASKED}`);
   }
 
   const masked = Math.max(0, [MASKED, EMAIL, IP].reduce((sum, token) => sum + count(out, token) - count(input, token), 0));

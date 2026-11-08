@@ -153,6 +153,34 @@ test('params and query: each bad slug, run id or query is 400 usage on its route
   assert.deepEqual(runner.calls, []);
 });
 
+test('R-4, R-5: a slug the core\'s isSafeSlug refuses and a cursor past the core\'s digit bounds are 400 usage before any verb runs', async (t) => {
+  const refused = (params: any): Answer => ({ ok: false, code: 'core-error', exit: 1, errorId: `seen-${params.slug}` });
+  const runner = recording(null, { 'worker-runs': refused, 'worker-log': refused });
+  const { json } = await harness(runner, t);
+  const routes = (slug: string) => [`/api/worker-runs/${slug}`, ...['result', 'status', 'log?stream=out', 'transcript'].map((tail) => `/api/worker-runs/${slug}/${RUN}/${tail}`)];
+  const targets: string[] = [];
+  // PARAM_PATTERN accepts each of these; the core's isSafeSlug (src/runtime/task-scope.ts) refuses any `..`.
+  for (const slug of ['a..b', 'a..', '1..2', 'x.y..z', 'a...b']) targets.push(...routes(slug));
+  // The core's CURSOR (src/runtime/worker/reads.ts): ino 1-20 digits, offset, seq and ms 1-16 each.
+  const over = [`${'1'.repeat(21)}:0:0:0`, `1:${'2'.repeat(17)}:0:0`, `1:2:${'3'.repeat(17)}:0`, `1:2:3:${'4'.repeat(17)}`];
+  for (const cursor of over) targets.push(`${BASE}/log?stream=out&cursor=${cursor}`, `${BASE}/log?stream=err&before=${cursor}`);
+  for (const target of targets) {
+    const reply = await json(target);
+    assert.deepEqual([reply.status, reply.body], [400, errorBody('usage')], target);
+  }
+  assert.deepEqual(runner.calls, []);
+  // Controls: a slug with single dots and a cursor at every digit bound still reach the verb.
+  const atBound = `${'9'.repeat(20)}:${'9'.repeat(16)}:${'9'.repeat(16)}:${'9'.repeat(16)}`;
+  for (const target of ['/api/worker-runs/a.b-c_d', `/api/worker-runs/a.b/${RUN}/log?stream=out&cursor=${atBound}`, `${BASE}/log?stream=err&before=${atBound}`]) {
+    assert.equal((await json(target)).status, 502, target);
+  }
+  assert.deepEqual(runner.calls, [
+    { shape: 'worker-runs', params: { slug: 'a.b-c_d' } },
+    { shape: 'worker-log', params: { slug: 'a.b', runId: RUN, stream: 'out', cursor: atBound } },
+    { shape: 'worker-log', params: { slug: SLUG, runId: RUN, stream: 'err', before: atBound } },
+  ]);
+});
+
 test('GET /api/worker-runs/:slug: the worker-runs list, ended and child runs included; worker-runs is the only verb', async (t) => {
   const runner = recording(fakeCore('worker-reads', t));
   const { json } = await harness(runner, t);
