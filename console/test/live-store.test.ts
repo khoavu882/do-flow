@@ -423,3 +423,90 @@ test('Adapter seam: a fake adapter sending the hub diff ends at the hub state (s
   adapter.state('open');
   assert.deepEqual(store.status(), { transport: 'open', lastFrameAt: 50 });
 });
+
+// ---- 150 IC-006, IC-007, IC-014, IC-019: the log lane ----------------------------------------------------
+
+const OUT = 'worker:w-1a2b3c4d5e6f:out';
+const ERR = 'worker:w-1a2b3c4d5e6f:err';
+const logSnap = (ch: string, id: string, data: any = {}) => env(ch, id, 'snapshot', { log: 'open', ino: id.split(':')[0], from: 0, to: Number(id.split(':')[1]), pieces: [], phase: 'running', end: null, ...data });
+const logAppend = (ch: string, id: string, from: number, pieces: any[] = []) => env(ch, id, 'append', { from, to: Number(id.split(':')[1]), pieces, phase: 'running', end: null });
+
+test('log lane: an append on a log channel is applied in order, with its id; an append on any other channel is still dropped', () => {
+  const { adapter, rec } = opened(['now', OUT]);
+  adapter.push(env('now', `${E}-1`, 'append', { from: 0, to: 1, pieces: [] }));
+  assert.equal(rec.now.events.length, 0, 'append is not a frame of now');
+  adapter.push(snapshot('now', `${E}-2`, { runs: 0 }));
+  adapter.push(env('now', `${E}-3`, 'append', { from: 0, to: 1, pieces: [] }));
+  assert.deepEqual(rec.now.events.map((e) => e.kind), ['state'], 'and it is dropped after a snapshot too');
+  const a1 = logAppend(OUT, '77:10:1:5', 0, [{ at: 0, text: 'one' }]);
+  const a2 = logAppend(OUT, '77:20:2:6', 10, [{ at: 10, text: 'two' }]);
+  adapter.push(a1);
+  adapter.push(a2);
+  assert.deepEqual(rec[OUT].events, [
+    { kind: 'append', state: a1.data, code: null, id: '77:10:1:5' },
+    { kind: 'append', state: a2.data, code: null, id: '77:20:2:6' },
+  ]);
+  const snap = logSnap(OUT, '77:30:3:7');
+  adapter.push(snap);
+  assert.deepEqual(rec[OUT].last(), { kind: 'state', state: snap.data, code: null, id: '77:30:3:7' });
+});
+
+test('log lane: the id checks follow the kind, a patch never applies, and log frames leave the epoch alone', () => {
+  const { clock, adapter, store, rec } = opened(['now', OUT]);
+  adapter.push(logAppend(OUT, `${E}-1`, 0));
+  adapter.push(logAppend(OUT, '77:10:0:5', 0));
+  adapter.push(logAppend(OUT, '77:10', 0));
+  adapter.push(snapshot('now', '77:10:1:5', { runs: 0 }));
+  assert.equal(store.status().lastFrameAt, null, 'a frame whose id is not of its channel\'s kind is not heard');
+  adapter.push(env(OUT, '77:10:1:5', 'patch', { set: {}, unset: [] }));
+  adapter.push(env(OUT, '77:10:2:5', 'append', []));
+  assert.equal(rec[OUT].events.length, 0);
+  assert.equal(rec.now.events.length, 0);
+  adapter.push(logAppend(OUT, '77:10:3:5', 0));
+  assert.equal(rec[OUT].events.length, 1);
+  store.subscribe('tasks:feat-a', () => {});
+  clock.advance(50);
+  assert.deepEqual(adapter.opens[1], { channels: ['now', OUT, 'tasks:feat-a'], since: `00000000/${OUT}=77:10` }, 'a log position is used whatever the epoch');
+});
+
+test('log lane: since carries each log lane\'s ino:to beside the n positions, from the position the subscriber gives or else the last frame', () => {
+  const ctx = setup();
+  let held: string | null = '8812345:4096';
+  const out = recorder();
+  ctx.store.subscribe('now', () => {});
+  ctx.store.subscribe(OUT, out.listener, { position: () => held });
+  ctx.store.subscribe(ERR, () => {});
+  ctx.clock.advance(50);
+  assert.deepEqual(ctx.adapter.opens[0], { channels: ['now', OUT, ERR], since: `00000000/${OUT}=8812345:4096` });
+  ctx.adapter.push(snapshot('now', `${E}-3`, { runs: 0 }));
+  ctx.adapter.push(logSnap(ERR, '5:40:1:1'));
+  held = '8812345:8192';
+  ctx.store.subscribe('tasks:feat-a', () => {});
+  ctx.clock.advance(50);
+  assert.deepEqual(ctx.adapter.opens[1].since, `${E}/now=3,${OUT}=8812345:8192,${ERR}=5:40`, 'the given position is read at each open');
+  // No position (nothing held, or following paused) and a malformed one leave the lane out, so it gets a snapshot.
+  for (const value of [null, '8812345', 'x:1', '1:2:3', 7]) {
+    held = value as any;
+    ctx.store.pause();
+    ctx.store.resume();
+    assert.equal(ctx.adapter.opens.at(-1).since, `${E}/now=3,${ERR}=5:40`, String(value));
+  }
+});
+
+test('log lane: reset, error and gone drop the lane\'s own position; reset tells its reason', () => {
+  const { clock, adapter, store, rec } = opened([OUT, ERR]);
+  adapter.push(logSnap(OUT, '9:10:1:1'));
+  adapter.push(logSnap(ERR, '9:20:1:1'));
+  adapter.push(env(OUT, '9:10:2:1', 'reset', { reason: 'replaced' }));
+  assert.deepEqual(rec[OUT].last(), { kind: 'reset', state: null, code: 'replaced' });
+  adapter.push(env(ERR, '9:20:2:1', 'error', { code: 'events-down' }));
+  assert.deepEqual(rec[ERR].last(), { kind: 'error', state: null, code: 'events-down' });
+  store.subscribe('now', () => {});
+  clock.advance(50);
+  assert.equal(adapter.opens[1].since, null);
+  adapter.push(logAppend(ERR, '9:30:3:1', 20));
+  adapter.push(env(ERR, '9:30:4:1', 'gone', {}));
+  assert.deepEqual(rec[ERR].last(), { kind: 'gone', state: null, code: null });
+  clock.advance(50);
+  assert.deepEqual(adapter.opens[2].channels, [OUT, 'now'], 'a gone log lane leaves the union');
+});
