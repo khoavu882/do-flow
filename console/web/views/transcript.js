@@ -39,6 +39,133 @@ function recordGlyph(record) {
   return h('span', { class: `ev__dot ${failed ? 'ev__dot--failed' : 'ev__dot--done'}`, 'aria-hidden': 'true' });
 }
 
+/** @param {string} kind @param {string} face @param {string} strong @param {string} rest */
+function banner(kind, face, strong, rest) {
+  return h('div', { class: 'fbanner', dataset: { kind } }, [icon(face, 16), h('p', {}, [h('strong', {}, strong), ` ${rest}`])]);
+}
+
+/**
+ * The banner for the core's transcript reason (`no-reader`, `not-linked`, `not-found`; IC-020 `transcript.reason`), or null.
+ * `eventsOnly`: the reader reads DoFlow's records only, which says the same as `no-reader`. Shared with the worker tabs (150 IC-018).
+ * @param {string | null} reason @param {string} name the harness name @param {boolean} [eventsOnly]
+ */
+function reasonBanner(reason, name, eventsOnly = false) {
+  if (reason === 'not-found') return banner('not-found', 'failed', 'Transcript not found.', 'The harness may have moved or deleted it. DoFlow’s own records are listed below.');
+  if (reason === 'not-linked') return banner('not-linked', 'info', 'Transcript not linked.', `DoFlow could not match this session to a ${name} transcript file. Its own records are listed below.`);
+  if (eventsOnly || reason === 'no-reader') return banner('no-reader', 'info', `No transcript reader for ${name}.`, 'DoFlow’s own records for this agent are listed below. Reply text and tool calls are not available for this harness yet.');
+  return null;
+}
+
+/** @param {any} event */
+function timeCell(event) {
+  const stamp = secondsStamp(event.at);
+  return stamp === null ? h('span', { class: 'ev__at' }, 'untimed') : h('time', { class: 'ev__at', datetime: event.at }, stamp);
+}
+
+/** The clamped text of a reply or of tool arguments with its "Show all" button. @param {any} event @param {string} field @param {string} tagName @param {number} lines @param {number} width @param {boolean} onCard */
+function clamped(event, field, tagName, lines, width, onCard) {
+  const text = String(event[field] ?? '');
+  const body = h(tagName, { class: tagName === 'pre' ? 'ev__args' : 'ev__text' }, maskedNodes(text, onCard));
+  const long = roughLines(text, width) > lines;
+  const nodes = [body];
+  if (long) {
+    body.classList.add('is-clamped');
+    const note = event.cut ? h('span', { class: 'ev__cut', hidden: true }, field === 'args' ? 'cut at 512 B by DoFlow' : 'cut at 4 KiB by DoFlow') : null;
+    const toggle = h('button', { type: 'button', class: 'btn btn--ghost ev__more', 'aria-expanded': 'false' }, 'Show all');
+    toggle.addEventListener('click', () => {
+      const open = toggle.getAttribute('aria-expanded') !== 'true';
+      toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      mount(toggle, open ? 'Show less' : 'Show all');
+      if (open) body.classList.remove('is-clamped');
+      else body.classList.add('is-clamped');
+      if (note) {
+        if (open) note.removeAttribute('hidden');
+        else note.setAttribute('hidden', '');
+      }
+    });
+    nodes.push(toggle, note);
+  } else if (event.cut) nodes.push(h('span', { class: 'ev__cut' }, field === 'args' ? 'cut at 512 B by DoFlow' : 'cut at 4 KiB by DoFlow'));
+  return nodes;
+}
+
+/** The result status of a tool card (or of an orphan result), as nodes. @param {any} result */
+function resultNodes(result) {
+  if (result === null) return h('span', { class: 'ev__noresult' }, 'no result recorded yet');
+  const tool = result.tool ?? {};
+  const bits = resultBits(tool);
+  const tail = bits.length ? ` · ${bits.join(' · ')}` : '';
+  if (tool.status === 'ok') return h('span', { class: 'ev__status ev__status--ok' }, [icon('check', 12), `ok${tail}`]);
+  if (tool.status === 'error') return h('span', { class: 'ev__status ev__status--error' }, [icon('failed', 12), `error${tail}`]);
+  return h('span', { class: 'ev__status' }, `result recorded${tail}`);
+}
+
+/**
+ * One event row of the list. `ctx`: `node` the agent shown (a reply names its model when it differs), `nodeOf(agentKey)` the
+ * tree node or null, `select(agentKey)` selects an agent. Shared with the worker tabs (150 IC-018).
+ * @param {any} event @param {{ node: any, nodeOf: (key: string) => any, select: (key: string) => void }} ctx
+ * @returns {{ li: any, group: string, callKey: string | null, name: string }}
+ */
+function buildEventRow(event, ctx) {
+  const group = GROUP[event.kind] ?? 'record';
+  const li = h('li', { class: 'ev', dataset: { kind: event.kind, group } });
+  let callKey = null;
+  let name = '';
+  if (group === 'divider') {
+    const words = event.kind === 'model-change' ? `Model changed to ${event.model ?? 'another model'}` : '';
+    let content;
+    if (event.kind === 'subagent-start') {
+      const label = event.text && String(event.text) !== '' ? String(event.text) : 'a subagent';
+      const target = event.agentKey && ctx.nodeOf(event.agentKey);
+      content = target ? ['Started subagent ', h('button', { type: 'button', class: 'btn btn--ghost ev__link', on: { click: () => ctx.select(event.agentKey) } }, label)] : `Started subagent ${label}`;
+    } else content = words === '' ? '' : words;
+    li.classList.add('ev--divider');
+    li.append(timeCell(event), h('div', { class: 'ev__divider' }, [h('span', { class: 'ev__rule' }), content === '' ? null : h('span', { class: 'ev__divtext' }, content), h('span', { class: 'ev__rule' })]));
+  } else if (event.kind === 'reply') {
+    li.append(timeCell(event), h('div', { class: 'ev__body' }, [
+      h('p', { class: 'ev__eyebrow' }, ['Reply', event.model && (!ctx.node || event.model !== ctx.node.model) ? h('span', { class: 'ev__model mono' }, event.model) : null]),
+      ...clamped(event, 'text', 'p', CLAMP_REPLY_LINES, 80, false),
+    ]));
+  } else if (event.kind === 'tool-call') {
+    callKey = event.tool ? event.tool.callKey : null;
+    name = event.tool ? event.tool.name : 'tool';
+    const status = h('span', { class: 'ev__result' }, resultNodes(null));
+    li.append(timeCell(event), h('div', { class: 'ev__body' }, h('div', { class: 'ev__tool' }, [
+      h('div', { class: 'ev__toolhead' }, [icon('tool', 16), h('span', { class: 'ev__toolname mono' }, name), status]),
+      event.args ? clamped(event, 'args', 'pre', CLAMP_ARGS_LINES, 60, true) : null,
+    ])));
+  } else if (event.kind === 'tool-result') {
+    const label = event.tool ? event.tool.name : 'a tool';
+    li.append(timeCell(event), h('div', { class: 'ev__body ev__orphan' }, [`Result of ${label} · `, resultNodes(event)]));
+  } else if (event.kind === 'usage') {
+    li.append(timeCell(event), h('p', { class: 'ev__usage' }, usageLine(event.tokens)));
+  } else {
+    // A `record` event: DoFlow's own record for this agent.
+    li.append(timeCell(event), h('p', { class: 'ev__record' }, [recordGlyph(event.record), recordWords(event.record)]));
+  }
+  return { li, group, callKey, name };
+}
+
+/**
+ * One page of events as a still list, tool results attached to their calls as the panel attaches them (150 IC-018).
+ * @param {any[]} events @param {{ node: any, nodeOf: (key: string) => any, select: (key: string) => void }} ctx
+ */
+function renderEventList(events, ctx) {
+  const list = h('ol', { class: 'stream' });
+  /** @type {Map<string, any>} */
+  const byCall = new Map();
+  for (const event of events) {
+    if (event.kind === 'tool-result' && event.tool && byCall.has(event.tool.callKey)) {
+      const slot = byCall.get(event.tool.callKey).querySelector('.ev__result');
+      if (slot) mount(slot, resultNodes(event));
+      continue;
+    }
+    const built = buildEventRow(event, ctx);
+    list.append(built.li);
+    if (built.callKey !== null) byCall.set(built.callKey, built.li);
+  }
+  return list;
+}
+
 /**
  * The panel of one project fleet. `hooks`: `nodeOf(agentKey)` the tree node or null, `select(agentKey)` selects an agent,
  * `back()` leaves a gone agent. The shell's inspector holds the panel and gives it its close control (149 D.2).
@@ -136,11 +263,6 @@ function createPanel(hooks) {
   /** The harness name and reader of the current node, for the banners. */
   const harnessName = () => (state.node && state.node.harness ? state.node.harness : 'this harness');
 
-  /** @param {string} kind @param {string} face @param {string} strong @param {string} rest */
-  function banner(kind, face, strong, rest) {
-    return h('div', { class: 'fbanner', dataset: { kind } }, [icon(face, 16), h('p', {}, [h('strong', {}, strong), ` ${rest}`])]);
-  }
-
   /** The banners above the events and the state of an empty body (7b.5 "Panel states"). */
   function renderStates() {
     const banners = [];
@@ -148,14 +270,12 @@ function createPanel(hooks) {
     const events = state.reader ? state.reader.status === 'events-only' : false;
     const name = harnessName();
     const gone = state.missing === 'agent-not-in-project' || state.missing === 'session-not-in-project';
-    if (gone) {
-      // The body says it: no banner.
-    } else if ((state.transcript && state.transcript.reason === 'not-found') || reason === 'not-found') {
-      banners.push(banner('not-found', 'failed', 'Transcript not found.', 'The harness may have moved or deleted it. DoFlow’s own records are listed below.'));
-    } else if ((state.transcript && state.transcript.reason === 'not-linked') || reason === 'not-linked') {
-      banners.push(banner('not-linked', 'info', 'Transcript not linked.', `DoFlow could not match this session to a ${name} transcript file. Its own records are listed below.`));
-    } else if (events || (state.transcript && state.transcript.reason === 'no-reader') || reason === 'no-reader') {
-      banners.push(banner('no-reader', 'info', `No transcript reader for ${name}.`, 'DoFlow’s own records for this agent are listed below. Reply text and tool calls are not available for this harness yet.'));
+    if (!gone) {
+      // The body says it when gone: no banner. Otherwise either source naming a reason picks it, not-found first.
+      const named = (/** @type {string} */ code) => (state.transcript && state.transcript.reason === code) || reason === code;
+      const which = named('not-found') ? 'not-found' : named('not-linked') ? 'not-linked' : named('no-reader') ? 'no-reader' : null;
+      const reasonRow = reasonBanner(which, name, events);
+      if (reasonRow) banners.push(reasonRow);
     }
     if (state.warnings.includes('format-unrecognized')) {
       banners.push(banner('format', 'stale', `This ${name} transcript has records this reader does not recognise.`, 'Showing the ones it could read.'));
@@ -213,88 +333,7 @@ function createPanel(hooks) {
   // ---- rows ----------------------------------------------------------------------------------------
 
   /** @param {any} event */
-  function timeCell(event) {
-    const stamp = secondsStamp(event.at);
-    return stamp === null ? h('span', { class: 'ev__at' }, 'untimed') : h('time', { class: 'ev__at', datetime: event.at }, stamp);
-  }
-
-  /** The clamped text of a reply or of tool arguments with its "Show all" button. @param {any} event @param {string} field @param {string} tagName @param {number} lines @param {number} width @param {boolean} onCard */
-  function clamped(event, field, tagName, lines, width, onCard) {
-    const text = String(event[field] ?? '');
-    const body = h(tagName, { class: tagName === 'pre' ? 'ev__args' : 'ev__text' }, maskedNodes(text, onCard));
-    const long = roughLines(text, width) > lines;
-    const nodes = [body];
-    if (long) {
-      body.classList.add('is-clamped');
-      const note = event.cut ? h('span', { class: 'ev__cut', hidden: true }, field === 'args' ? 'cut at 512 B by DoFlow' : 'cut at 4 KiB by DoFlow') : null;
-      const toggle = h('button', { type: 'button', class: 'btn btn--ghost ev__more', 'aria-expanded': 'false' }, 'Show all');
-      toggle.addEventListener('click', () => {
-        const open = toggle.getAttribute('aria-expanded') !== 'true';
-        toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
-        mount(toggle, open ? 'Show less' : 'Show all');
-        if (open) body.classList.remove('is-clamped');
-        else body.classList.add('is-clamped');
-        if (note) {
-          if (open) note.removeAttribute('hidden');
-          else note.setAttribute('hidden', '');
-        }
-      });
-      nodes.push(toggle, note);
-    } else if (event.cut) nodes.push(h('span', { class: 'ev__cut' }, field === 'args' ? 'cut at 512 B by DoFlow' : 'cut at 4 KiB by DoFlow'));
-    return nodes;
-  }
-
-  /** The result status of a tool card (or of an orphan result), as nodes. @param {any} result */
-  function resultNodes(result) {
-    if (result === null) return h('span', { class: 'ev__noresult' }, 'no result recorded yet');
-    const tool = result.tool ?? {};
-    const bits = resultBits(tool);
-    const tail = bits.length ? ` · ${bits.join(' · ')}` : '';
-    if (tool.status === 'ok') return h('span', { class: 'ev__status ev__status--ok' }, [icon('check', 12), `ok${tail}`]);
-    if (tool.status === 'error') return h('span', { class: 'ev__status ev__status--error' }, [icon('failed', 12), `error${tail}`]);
-    return h('span', { class: 'ev__status' }, `result recorded${tail}`);
-  }
-
-  /** @param {any} event @returns {{ li: any, group: string, callKey: string | null, name: string }} */
-  function buildRow(event) {
-    const group = GROUP[event.kind] ?? 'record';
-    const li = h('li', { class: 'ev', dataset: { kind: event.kind, group } });
-    let callKey = null;
-    let name = '';
-    if (group === 'divider') {
-      const words = event.kind === 'model-change' ? `Model changed to ${event.model ?? 'another model'}` : '';
-      let content;
-      if (event.kind === 'subagent-start') {
-        const label = event.text && String(event.text) !== '' ? String(event.text) : 'a subagent';
-        const target = event.agentKey && hooks.nodeOf(event.agentKey);
-        content = target ? ['Started subagent ', h('button', { type: 'button', class: 'btn btn--ghost ev__link', on: { click: () => hooks.select(event.agentKey) } }, label)] : `Started subagent ${label}`;
-      } else content = words === '' ? '' : words;
-      li.classList.add('ev--divider');
-      li.append(timeCell(event), h('div', { class: 'ev__divider' }, [h('span', { class: 'ev__rule' }), content === '' ? null : h('span', { class: 'ev__divtext' }, content), h('span', { class: 'ev__rule' })]));
-    } else if (event.kind === 'reply') {
-      li.append(timeCell(event), h('div', { class: 'ev__body' }, [
-        h('p', { class: 'ev__eyebrow' }, ['Reply', event.model && (!state.node || event.model !== state.node.model) ? h('span', { class: 'ev__model mono' }, event.model) : null]),
-        ...clamped(event, 'text', 'p', CLAMP_REPLY_LINES, 80, false),
-      ]));
-    } else if (event.kind === 'tool-call') {
-      callKey = event.tool ? event.tool.callKey : null;
-      name = event.tool ? event.tool.name : 'tool';
-      const status = h('span', { class: 'ev__result' }, resultNodes(null));
-      li.append(timeCell(event), h('div', { class: 'ev__body' }, h('div', { class: 'ev__tool' }, [
-        h('div', { class: 'ev__toolhead' }, [icon('tool', 16), h('span', { class: 'ev__toolname mono' }, name), status]),
-        event.args ? clamped(event, 'args', 'pre', CLAMP_ARGS_LINES, 60, true) : null,
-      ])));
-    } else if (event.kind === 'tool-result') {
-      const label = event.tool ? event.tool.name : 'a tool';
-      li.append(timeCell(event), h('div', { class: 'ev__body ev__orphan' }, [`Result of ${label} · `, resultNodes(event)]));
-    } else if (event.kind === 'usage') {
-      li.append(timeCell(event), h('p', { class: 'ev__usage' }, usageLine(event.tokens)));
-    } else {
-      // A `record` event: DoFlow's own record for this agent.
-      li.append(timeCell(event), h('p', { class: 'ev__record' }, [recordGlyph(event.record), recordWords(event.record)]));
-    }
-    return { li, group, callKey, name };
-  }
+  const buildRow = (event) => buildEventRow(event, { node: state.node, nodeOf: hooks.nodeOf, select: hooks.select });
 
   /** Adds the rows of one batch to the list, attaching tool results to the calls the panel already shows. @param {any[]} batch */
   function addRows(batch) {
@@ -493,4 +532,4 @@ function createPanel(hooks) {
   };
 }
 
-export { createPanel, maskedNodes, GROUP, SHOWS, CLAMP_REPLY_LINES, CLAMP_ARGS_LINES };
+export { createPanel, maskedNodes, reasonBanner, buildEventRow, renderEventList, GROUP, SHOWS, CLAMP_REPLY_LINES, CLAMP_ARGS_LINES };

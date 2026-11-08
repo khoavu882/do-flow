@@ -2023,6 +2023,33 @@
   }
 }
 
+/* The worker tabs of the Session screen (150 IC-018): the run's head, a tab list of four tabs, one panel; the Log tab holds
+   one region per stream, each a scrolling pre of text with its notes. */
+@layer components {
+  .wtabs { display: grid; gap: var(--space-3); min-width: 0; }
+  .wtabs > [role="tablist"] { display: flex; gap: var(--space-1); overflow-x: auto; border-bottom: 1px solid var(--border); }
+  .wtabs__tab {
+    min-height: var(--target); padding: 0 var(--space-3); margin-bottom: -1px; border: 0; border-bottom: 2px solid transparent;
+    background: none; color: var(--text-muted); font: var(--type-sm); white-space: nowrap; cursor: pointer;
+  }
+  .wtabs__tab:hover { color: var(--text); }
+  .wtabs__tab[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+  .wtabs__panel { display: grid; gap: var(--space-3); min-width: 0; }
+  .logpane { display: grid; gap: var(--space-2); min-width: 0; }
+  .logpane + .logpane { margin-top: var(--space-2); }
+  .logpane h3 { margin: 0; font: var(--type-xs); color: var(--text-muted); }
+  .logpane__text {
+    margin: 0; max-height: 60vh; overflow: auto; overscroll-behavior: contain; padding: var(--space-3); background: var(--surface-2); color: var(--text);
+    border: 1px solid var(--border); border-radius: var(--radius-md); font: var(--type-xs); font-family: var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+  .logpane__note { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: 0; font: var(--type-xs); color: var(--text-muted); }
+  .logpane__note .btn { min-height: var(--target-min); padding: 0 var(--space-2); font: var(--type-xs); }
+  @media (forced-colors: active) {
+    .wtabs__tab[aria-selected="true"] { border-bottom-color: Highlight; }
+    .logpane__text { border: 1px solid CanvasText; }
+  }
+}
+
 @layer motion {
   @keyframes ev-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
   .fnode[data-fresh="true"] > .fnode__row { --tint: var(--accent-tint); }
