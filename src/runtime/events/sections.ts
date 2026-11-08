@@ -11,8 +11,8 @@
 //
 //   now                  list, observed*, slots*, roadmap
 //   run:<slug>:<task>    status, timeline
-//   tasks:<slug>         attempts, worker:<task>:<token>* (one per active attempt, at most 16)
-//   worker:<runId>       status*
+//   tasks:<slug>         attempts, runs, worker:<task>:<token>* (one per active attempt, at most 16)
+//   worker:<runId>       status*, result
 //   (* derived from the clock or a process: recomputed by the detector's 5 s pass)
 //
 // Each channel also declares its sources and primary record (IC-004, IC-006) in the shape
@@ -30,6 +30,8 @@ const { peekSlots } = require('../slots.ts');
 const { inspect, storeFile: attemptsStoreFile, TaskAttemptError } = require('../task-attempts.ts');
 const { executeWorkerCommand } = require('../worker/command.ts');
 const { readRuns } = require('../worker/run-store.ts');
+// 150 IC-009. reads.ts requires this module back for `findWorkerRun`, lazily, so this side loads first in full.
+const { workerResultBody, workerRunsBody } = require('../worker/reads.ts');
 const { listCheckouts, mayBeLinked, clearCheckoutCache } = require('../checkouts.ts');
 const { taskStateRoot } = require('../state-root.ts');
 const { invalidSlugRefusal, isSafeSlug, clearTaskScopeCache } = require('../task-scope.ts');
@@ -93,12 +95,15 @@ const WORKER_SECTIONS = 'worker:*';
 /** A worker section name: `worker:<task>:<token>`. */
 const WORKER_SECTION = /^worker:[^:]+:[1-9][0-9]*$/;
 
-/** IC-004's fixed sections and derived flags per channel kind (`tasks:` adds its worker sections). */
+/**
+ * IC-004's fixed sections and derived flags per channel kind (`tasks:` adds its worker sections).
+ * 150 IC-009 adds `runs` on `tasks:` and `result` on `worker:`, neither derived from the clock or a process.
+ */
 const CATALOGUE: Readonly<Record<Channel['kind'], { sections: readonly string[]; derived: readonly string[] }>> = Object.freeze({
   now: Object.freeze({ sections: Object.freeze(['list', 'observed', 'slots', 'roadmap']), derived: Object.freeze(['observed', 'slots']) }),
   run: Object.freeze({ sections: Object.freeze(['status', 'timeline']), derived: Object.freeze([]) }),
-  tasks: Object.freeze({ sections: Object.freeze(['attempts']), derived: Object.freeze([WORKER_SECTIONS]) }),
-  worker: Object.freeze({ sections: Object.freeze(['status']), derived: Object.freeze(['status']) }),
+  tasks: Object.freeze({ sections: Object.freeze(['attempts', 'runs']), derived: Object.freeze([WORKER_SECTIONS]) }),
+  worker: Object.freeze({ sections: Object.freeze(['status', 'result']), derived: Object.freeze(['status']) }),
 });
 
 /** Record files of a store directory: no `<file>.lock` directory and no `<file>.<pid>.tmp`. */
@@ -231,6 +236,18 @@ async function workerSection(c: ResolvedContext, selector: Record<string, any>):
     action: 'status', ...selector, env: c.env, cwd: c.cwd, resolveSlug: (cwd: string) => featureSlugFor({ projectRoot: cwd }),
   });
   return result(exit, body);
+}
+
+/** 150 IC-009: `worker-runs --slug <slug> --json`, the body its handler prints (IC-004). */
+function runsSection(c: ResolvedContext, slug: string): SectionResult {
+  const refused = slugRefusal(slug);
+  if (refused) return refused;
+  return result(...pair(workerRunsBody({ slug, cwd: c.cwd, env: c.env })));
+}
+
+/** 150 IC-009: `worker-result --worker-run <runId> [--slug <slug of the store that holds it>] --json` (IC-003). */
+function resultSection(c: ResolvedContext, runId: string, found: { slug: string } | null): SectionResult {
+  return result(...pair(workerResultBody(found ? { slug: found.slug, workerRun: runId, cwd: c.cwd, env: c.env } : { workerRun: runId, cwd: c.cwd, env: c.env })));
 }
 
 function pair(answer: { exit: number; json: any }): [number, any] {
@@ -367,7 +384,7 @@ function wanted(kind: Channel['kind'], only: readonly string[] | undefined): Set
  *
  * - `derived`: the names to declare to the detector as derived. `tasks:` declares `WORKER_SECTIONS`
  *   (`worker:*`), which stands for every worker section, because their names change.
- * - `sectionNames()`: the channel's current sections; on `tasks:`, `attempts` and the worker
+ * - `sectionNames()`: the channel's current sections; on `tasks:`, `attempts`, `runs` and the worker
  *   sections the last computation returned.
  * - `isDerived(name)`: whether a section is derived from the clock or a process (IC-004 table).
  * - `sources()`: the declared sources and primary record, read now, as `detector.follow` takes them:
@@ -414,11 +431,13 @@ function channelSpec(channel: Channel | string, ctx: SectionContext): ChannelSpe
     if (ch.kind === 'worker') {
       const found = findWorkerRun(c, ch.runId);
       // No store holds the run: what `worker --action status --worker-run <id>` answers from the cwd's feature.
-      sections.status = await workerSection(c, found ? { slug: found.slug, workerRun: ch.runId } : { workerRun: ch.runId });
+      if (names.has('status')) sections.status = await workerSection(c, found ? { slug: found.slug, workerRun: ch.runId } : { workerRun: ch.runId });
+      if (names.has('result')) sections.result = resultSection(c, ch.runId, found);
       return { sections };
     }
     const attempts = attemptsSection(c, ch.slug);
     sections.attempts = attempts;
+    if (names.has('runs')) sections.runs = runsSection(c, ch.slug);
     if (!names.has(WORKER_SECTIONS)) return { sections };
     const current: string[] = [];
     for (const { task, token } of activeAttempts(attempts).slice(0, WORKER_SECTION_LIMIT)) {
@@ -434,7 +453,7 @@ function channelSpec(channel: Channel | string, ctx: SectionContext): ChannelSpe
   return {
     channel: ch,
     derived,
-    sectionNames: () => (ch.kind === 'tasks' ? ['attempts', ...workers] : [...CATALOGUE[ch.kind].sections]),
+    sectionNames: () => (ch.kind === 'tasks' ? ['attempts', 'runs', ...workers] : [...CATALOGUE[ch.kind].sections]),
     isDerived: (name: string) => derived.includes(name) || (ch.kind === 'tasks' && WORKER_SECTION.test(name)),
     sources(): FollowSources {
       freshProcessCaches();
@@ -448,4 +467,4 @@ function channelSpec(channel: Channel | string, ctx: SectionContext): ChannelSpe
   };
 }
 
-module.exports = { channelSpec, resolveContext, CATALOGUE, WORKER_SECTIONS, WORKER_SECTION_LIMIT };
+module.exports = { channelSpec, resolveContext, findWorkerRun, workerSources, CATALOGUE, WORKER_SECTIONS, WORKER_SECTION_LIMIT };

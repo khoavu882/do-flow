@@ -39,7 +39,6 @@ const VERB_FLAGS: Readonly<Record<string, ReadonlySet<string>>> = Object.freeze(
 
 /** IC-002: `<ino>:<offset>:<seq>:<ms>`, four decimal parts; seq and ms are accepted and ignored. */
 const CURSOR = /^([0-9]{1,20}):([0-9]{1,16}):[0-9]{1,16}:[0-9]{1,16}$/;
-const JSON_RECORD = /\.json$/;
 /** Longest part of untrusted text echoed back in a stderr line. */
 const ECHO_CHARS = 80;
 
@@ -117,25 +116,6 @@ function runIdProblem(workerRun: any): string | null {
   return typeof workerRun === 'string' && RUN_ID.test(workerRun) ? null : `--worker-run expects 'w-' plus 12 lowercase hex characters, got '${shown(workerRun)}'`;
 }
 
-/**
- * The worker-runs file that holds `runId`, read-only, or null. A file that cannot be read is
- * skipped. Copied from `findWorkerRun` (src/runtime/events/sections.ts) until that one is exported.
- */
-function findWorkerRun(c: { lifecycleRoot: string }, runId: string): { slug: string; file: string } | null {
-  const dir = path.join(c.lifecycleRoot, '.doflow', 'state', 'worker-runs');
-  let names: string[];
-  try { names = fs.readdirSync(dir).filter((name: string) => JSON_RECORD.test(name)).sort(); } catch { return null; }
-  for (const name of names) {
-    const slug = name.slice(0, -'.json'.length);
-    if (!isSafeSlug(slug)) continue;
-    const file = path.join(dir, name);
-    try {
-      if (Object.prototype.hasOwnProperty.call(readRuns(file), runId)) return { slug, file };
-    } catch { /* torn or newer store: not this channel's to report */ }
-  }
-  return null;
-}
-
 /** The store's runs, or the `store-unreadable` answer; any other fault is thrown. */
 function runsOf(file: string): { runs: Record<string, any> } | { answer: Answer } {
   try {
@@ -153,6 +133,9 @@ function lookupRun(slug: any, runId: string, cwd: string): { run: any; file: str
   if (given(slug)) {
     file = storeFileFor(root, String(slug));
   } else {
+    // Required here, not at the top: sections.ts requires this module for its `runs` and `result`
+    // sections, so a top-level require either way would hand one side a partial module.
+    const { findWorkerRun } = require('../events/sections.ts');
     const found = findWorkerRun({ lifecycleRoot: root }, runId);
     if (!found) return { answer: failure(1, 'unknown-run', `no worker run store holds run ${runId}`) };
     file = found.file;
