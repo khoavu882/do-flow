@@ -197,7 +197,7 @@ function plantWorkerRun(f: { main: string }) {
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, `${SLUGS.graph}.json`), `${JSON.stringify({ slug: SLUGS.graph, runs: { [LIVE_RUN]: {
     runId: LIVE_RUN, task: 'A.2', token: 2, harness: 'claude', identity: text, phase: 'ended', seq: 1, startedAt: at, deadline: at,
-    end: { state: 'exited', at }, process: { kind: 'exited', code: 0, note: text }, report: { status: 'success', summary: text },
+    end: { state: 'exited', at }, process: { kind: 'exited', code: 0, signal: null, at, note: text }, report: { status: 'success', summary: text },
     output: { file: LIVE_PLANTED.path, note: text }, childOf: null, request: null,
   } } }, null, 2)}\n`);
 }
