@@ -27,10 +27,12 @@ const focusable = (node) => Boolean(node && typeof node.focus === 'function');
 
 /**
  * Wires the inspector of index.html. Returns `{ open, close, isOpen, mode, setInspectable }`:
- *   open({ title, body, owner, onClose }) shows `body` (a node, text or an array of them, as `mount` takes) under the heading
- *     `title`. `owner` is the control that opened it, where focus returns on close (default: the element focused at open).
+ *   open({ title, body, owner, onClose, labelledBy }) shows `body` (a node, text or an array of them, as `mount` takes) under
+ *     the heading `title`. `owner` is the control that opened it, where focus returns on close (default: the element focused
+ *     at open). While open, `aria-labelledby` names the title and, when given, `labelledBy` (the id of a heading in `body`).
  *     Opening again replaces the content and calls the previous `onClose`. As drawer or sheet, focus moves to the close button.
- *   close() empties it and calls `onClose`; as drawer or sheet, focus returns to the owner, or to #main when the owner is gone.
+ *   close() empties it, drops `aria-labelledby` and calls `onClose`; as drawer or sheet, focus returns to the owner, or to
+ *     #main when the owner is gone.
  *   setInspectable(on) marks the shell for the current view: the docked column is present exactly on inspectable views.
  * @param {object} options
  * @param {any} options.doc the document
@@ -87,7 +89,7 @@ function createInspector(options) {
     if (current !== null && mode !== 'dock' && !el.contains(doc.activeElement) && focusable(closeButton)) closeButton.focus();
   }
 
-  /** @param {{ title?: any, body?: any, owner?: any, onClose?: any }} [spec] */
+  /** @param {{ title?: any, body?: any, owner?: any, onClose?: any, labelledBy?: string }} [spec] */
   function open(spec = {}) {
     const previous = current;
     const opener = focusable(spec.owner) ? spec.owner : previous ? previous.opener : doc.activeElement;
@@ -97,6 +99,10 @@ function createInspector(options) {
     current = { onClose: spec.onClose ?? null, opener };
     if (title) title.textContent = String(spec.title ?? DEFAULT_TITLE);
     if (body) mount(body, spec.body ?? []);
+    // The name is the inspector's title and, when the view names one, the heading of its content (in every mode).
+    const names = [title ? title.getAttribute('id') : null, typeof spec.labelledBy === 'string' && spec.labelledBy !== '' ? spec.labelledBy : null].filter(Boolean);
+    if (names.length > 0) el.setAttribute('aria-labelledby', names.join(' '));
+    else el.removeAttribute('aria-labelledby');
     sync();
     if (mode !== 'dock' && focusable(closeButton)) closeButton.focus();
   }
@@ -108,6 +114,7 @@ function createInspector(options) {
     current = null;
     if (title) title.textContent = DEFAULT_TITLE;
     if (body) mount(body, []);
+    el.removeAttribute('aria-labelledby');
     sync();
     if (modal) {
       const back = focusable(opener) && opener !== doc.body && doc.body.contains(opener) && !el.contains(opener) ? opener : main;
@@ -158,7 +165,7 @@ function createInspector(options) {
  * poll, so a view re-shows its open panel on every re-mount. `spec.onClose` runs only when the inspector closes this showing
  * (its close control, Escape or the scrim), never when a later showing replaces it or `hidePanel` takes it away.
  * Without an inspector (a page without the shell) nothing is shown.
- * @param {any} inspector @param {any} local @param {{ title?: any, body?: any, owner?: any, onClose?: () => void }} spec
+ * @param {any} inspector @param {any} local @param {{ title?: any, body?: any, owner?: any, onClose?: () => void, labelledBy?: string }} spec
  */
 function showPanel(inspector, local, spec) {
   if (!inspector) return;

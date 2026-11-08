@@ -124,10 +124,12 @@ test('frames: every message failing the envelope grammar is dropped', () => {
   assert.equal(r.frames.length, 1, 'the source keeps going after a dropped message');
 });
 
-test('frames: named events are not listened to (DEC-028)', () => {
+test('frames: frames come only as unnamed messages; the one named event listened to is keepalive, which is no frame (DEC-028)', () => {
   const r = rig();
   r.adapter.open(['now'], null);
-  assert.deepEqual([...FakeSource.all[0].listeners.keys()].sort(), ['error', 'message', 'open']);
+  assert.deepEqual([...FakeSource.all[0].listeners.keys()].sort(), ['error', 'keepalive', 'message', 'open']);
+  FakeSource.all[0].fire('keepalive', { data: JSON.stringify(ENVELOPE) });
+  assert.deepEqual(r.frames, [], 'a keepalive is never delivered as a frame');
 });
 
 // ---- states -------------------------------------------------------------------------------------------
@@ -171,6 +173,7 @@ function fakeTimers(start = 1000) {
     now: () => time,
     setTimeout: (fn: () => void, ms: number) => { seq += 1; timers.set(seq, { at: time + ms, fn }); return seq; },
     clearTimeout: (handle: number) => { timers.delete(handle); },
+    pending: () => timers.size,
     advance(ms: number) {
       const end = time + ms;
       for (;;) {
@@ -322,6 +325,142 @@ test('states: with no EventSource constructor open is unsupported no-eventsource
     assert.deepEqual(states, [{ state: 'unsupported', code: live.NO_EVENTSOURCE, at: 42 }]);
     assert.equal(live.NO_EVENTSOURCE, 'no-eventsource');
     assert.deepEqual(probes, []);
+  }
+});
+
+// ---- silence (FU-mnes07): a frozen server keeps the socket open and sends nothing ----------------------
+
+function silentRig() {
+  FakeSource.all = [];
+  const clock = fakeTimers();
+  const probes: string[] = [];
+  const adapter = live.createLiveAdapter({ EventSource: FakeSource, probe: async (url: string) => { probes.push(url); return { status: 500, code: null }; }, clock });
+  const states: any[] = [];
+  const frames: any[] = [];
+  adapter.onState((s: any) => states.push(s));
+  adapter.onFrame((f: any) => frames.push(f));
+  return { adapter, clock, probes, states, frames };
+}
+
+test('silence: SILENT_MS with no open, message or keepalive closes the source and reports closed silent at the last heard time, with no probe', async () => {
+  assert.equal(live.SILENT_MS, 30000);
+  const r = silentRig();
+  r.adapter.open(['now'], null);
+  const src = FakeSource.all[0];
+  r.clock.advance(500);
+  src.readyState = 1;
+  src.fire('open');
+  const heardAt = r.clock.now();
+  r.clock.advance(live.SILENT_MS - 1);
+  assert.deepEqual(words(r.states), ['connecting', 'open']);
+  assert.equal(src.closed, false, 'one ms before SILENT_MS the source stays');
+  r.clock.advance(1);
+  assert.equal(src.closed, true, 'the silent source is closed');
+  assert.deepEqual(r.states.at(-1), { state: 'closed', code: 'silent', at: heardAt });
+  await flush();
+  assert.deepEqual(r.probes, [], 'no probe on the silence path');
+  assert.equal(r.clock.pending(), 0, 'no timer left');
+  // Nothing of the closed source counts later, and nothing reopens here.
+  src.fire('open');
+  src.fire('keepalive', { data: '{}' });
+  src.message(ENVELOPE);
+  src.fail(2);
+  r.clock.advance(live.SILENT_MS * 2);
+  await flush();
+  assert.equal(r.states.length, 3);
+  assert.deepEqual(r.frames, []);
+  assert.deepEqual(r.probes, []);
+  assert.equal(FakeSource.all.length, 1);
+});
+
+test('silence: every message (valid or not) and every keepalive re-arms the timer; the state is silent from the last one', () => {
+  const r = silentRig();
+  r.adapter.open(['now'], null);
+  const src = FakeSource.all[0];
+  src.readyState = 1;
+  src.fire('open');
+  r.clock.advance(20_000);
+  src.message(ENVELOPE);
+  r.clock.advance(20_000);
+  src.message('{not json');
+  r.clock.advance(20_000);
+  src.fire('keepalive', { data: '{}' });
+  const lastHeard = r.clock.now();
+  assert.equal(r.clock.pending(), 1, 'one silence timer per open source');
+  r.clock.advance(live.SILENT_MS - 1);
+  assert.equal(src.closed, false, '60 s in, heard 30 s ago less 1 ms: still open');
+  assert.equal(r.frames.length, 1, 'the valid message was delivered');
+  r.clock.advance(1);
+  assert.equal(src.closed, true);
+  assert.deepEqual(words(r.states), ['connecting', 'open', 'closed:silent']);
+  assert.equal(r.states.at(-1).at, lastHeard);
+});
+
+test('silence: close() and a later open() leave no timer of the old source, and close() reports nothing', () => {
+  const r = silentRig();
+  r.adapter.open(['now'], null);
+  assert.equal(r.clock.pending(), 1);
+  r.adapter.open(['tasks:feat-a'], null);
+  assert.equal(r.clock.pending(), 1, 'the reopen replaced the timer');
+  r.adapter.close();
+  assert.equal(r.clock.pending(), 0, 'close() leaves no timer');
+  r.clock.advance(live.SILENT_MS * 2);
+  assert.deepEqual(words(r.states), ['connecting', 'connecting'], 'no state after close');
+});
+
+test('silence: when the browser gives up the probe path runs as before and the silence timer is gone', async () => {
+  const r = silentRig();
+  r.adapter.open(['now'], null);
+  const src = FakeSource.all[0];
+  src.fail(2);
+  await flush();
+  assert.equal(r.clock.pending(), 0);
+  assert.deepEqual(words(r.states), ['connecting', 'closed']);
+  r.clock.advance(live.SILENT_MS * 2);
+  assert.deepEqual(words(r.states), ['connecting', 'closed'], 'one closed, from the probe');
+  assert.equal(r.probes.length, 1);
+});
+
+test('silence: errors while the browser reconnects do not re-arm the timer; the source goes silent 30 s after it last heard something', () => {
+  const r = silentRig();
+  r.adapter.open(['now'], null);
+  const src = FakeSource.all[0];
+  src.readyState = 1;
+  src.fire('open');
+  const heardAt = r.clock.now();
+  r.clock.advance(10_000);
+  src.fail(0);
+  r.clock.advance(10_000);
+  src.fail(0);
+  r.clock.advance(10_000);
+  assert.deepEqual(words(r.states), ['connecting', 'open', 'retrying', 'retrying', 'closed:silent']);
+  assert.equal(r.states.at(-1).at, heardAt);
+  assert.equal(src.closed, true);
+});
+
+test('silence: without clock timers the timer is the global one, unref\'d so it never holds the process', () => {
+  const realSet = globalThis.setTimeout;
+  const realClear = globalThis.clearTimeout;
+  const made: any[] = [];
+  const cleared: any[] = [];
+  (globalThis as any).setTimeout = (fn: () => void, ms: number) => {
+    const handle = { fn, ms, unrefd: false, unref() { this.unrefd = true; return this; } };
+    made.push(handle);
+    return handle;
+  };
+  (globalThis as any).clearTimeout = (handle: any) => { cleared.push(handle); };
+  try {
+    FakeSource.all = [];
+    const adapter = live.createLiveAdapter({ EventSource: FakeSource, probe: async () => ({ status: 500, code: null }), clock: { now: () => 5 } });
+    adapter.open(['now'], null);
+    assert.equal(made.length, 1);
+    assert.equal(made[0].ms, live.SILENT_MS);
+    assert.equal(made[0].unrefd, true);
+    adapter.close();
+    assert.deepEqual(cleared, [made[0]]);
+  } finally {
+    globalThis.setTimeout = realSet;
+    globalThis.clearTimeout = realClear;
   }
 });
 

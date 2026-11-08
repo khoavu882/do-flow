@@ -151,7 +151,7 @@ function messages(chunks: string[]): Message[] {
     return message;
   });
 }
-const dataOf = (res: any) => messages(res.chunks).filter((message) => message.data !== undefined);
+const dataOf = (res: any) => messages(res.chunks).filter((message) => message.data !== undefined && message.event === undefined);
 const summary = (res: any) => dataOf(res).map((message) => `${message.data.type}@${message.data.id}`);
 
 function openLive(hub: any, channels: string[], resume: any = null) {
@@ -202,17 +202,21 @@ test('opening: the /api/stream headers, setNoDelay, retry: 2000 first; every mes
   assert.deepEqual(sent.map((message) => message.id), [`${EPOCH}/now=1`, `${EPOCH}/now=1,${TASKS}=1`, `${EPOCH}/now=2,${TASKS}=1`]);
   assert.ok(messages(res.chunks).every((message) => message.event === undefined), 'no event: field');
   assert.deepEqual(sent[2].data, { v: 1, ch: 'now', id: `${EPOCH}-2`, type: 'patch', at: AT, data: { set: { '/runs/body/v': 2 }, unset: [] } });
-  assert.ok(res.chunks.slice(1).every((chunk: string) => /^(id: [^\n]+\ndata: [^\n]+\n\n|: keepalive\n\n)$/.test(chunk)), 'whole messages, one per write');
+  assert.ok(res.chunks.slice(1).every((chunk: string) => /^(id: [^\n]+\ndata: [^\n]+\n\n|event: keepalive\ndata: \{\}\n\n)$/.test(chunk)), 'whole messages, one per write');
 });
 
-test('keepalive: a comment every 15000 ms with no id, from the injected clock', () => {
+test('keepalive: a named keepalive event with data {} every 15000 ms, no id, from the injected clock', () => {
   const { res, clock } = openLive(fakeHub(), ['now']);
-  const keepalives = () => messages(res.chunks).filter((message) => message.comment === 'keepalive');
+  const keepalives = () => messages(res.chunks).filter((message) => message.event === 'keepalive');
   clock.step(KEEPALIVE_MS - 1);
   assert.equal(keepalives().length, 0);
   clock.step(1);
   assert.equal(keepalives().length, 1);
   assert.equal(keepalives()[0].id, undefined);
+  assert.deepEqual(keepalives()[0].data, {}, 'a data line, so EventSource dispatches it');
+  assert.equal(res.chunks.at(-1), 'event: keepalive\ndata: {}\n\n');
+  assert.equal(messages(res.chunks).some((message) => message.comment !== undefined), false, 'no SSE comment');
+  assert.deepEqual(dataOf(res), [], 'the keepalive is no frame');
   clock.step(KEEPALIVE_MS);
   assert.equal(keepalives().length, 2);
 });

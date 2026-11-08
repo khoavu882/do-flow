@@ -3,9 +3,10 @@
 // The `/api/live` stream (feature 149, IC-011, IC-013, IC-014; DEC-027, DEC-028, DEC-030, DEC-041,
 // DEC-044, DEC-046, DEC-055). routes.ts validates the query, takes the stream slot and checks
 // availability; `serve` then owns the response: the `/api/stream` headers, `setNoDelay`, `retry: 2000`,
-// a `: keepalive` comment every 15000 ms, and one unnamed SSE message per browser frame,
-// `id: <epoch>/<ch>=<n>,...` (the position the client holds on every channel of the connection after
-// that message) and `data: <IC-002 envelope>`.
+// a named `keepalive` event (`event: keepalive`, `data: {}`, no `id:`) every 15000 ms, which the page
+// sees and watches for silence (an SSE comment would be invisible to it, and an event with empty data
+// is dropped), and one unnamed SSE message per browser frame, `id: <epoch>/<ch>=<n>,...` (the position
+// the client holds on every channel of the connection after that message) and `data: <IC-002 envelope>`.
 //
 // Subscribe (IC-013): after `hub.subscribe`, a channel that is gone gets `gone`, one in error its
 // `error` frame, one with a state a `snapshot` at the hub's position unless the client's position (from
@@ -325,7 +326,7 @@ function createLiveStreams(hub: Hub, clock: Clock = realClock) {
     function armKeepalive(): void {
       keepaliveTimer = clock.setTimeout(() => {
         keepaliveTimer = null;
-        if (closed || !write(': keepalive\n\n')) return;
+        if (closed || !write('event: keepalive\ndata: {}\n\n')) return;
         armKeepalive();
         pump();
       }, KEEPALIVE_MS);
