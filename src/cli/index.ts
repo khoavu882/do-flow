@@ -627,7 +627,7 @@ Commands:
                        transcript --action read --agent <key> [--cursor <c>] [--limit <n>] [--json]   masked events and DoFlow's record events (exit 0, 1 agent-not-in-project or session-not-in-project, 2 usage)
                        transcript --action stats [--window <minutes 1..60>] [--json]   events per minute, tool calls, tokens, who works with whom (exit 0, 2 usage)
   events               Follow live sections of the read verbs as NDJSON envelopes on stdout (read-only, run in a project).
-                       events --follow --channels <channel>[,<channel>...] [--json]   now, run:<slug>:<task>, tasks:<slug>, worker:<runId>; until SIGINT or SIGTERM (exit 0, 1 internal fault, 2 usage)
+                       events --follow --channels <channel>[,<channel>...] [--json]   now, run:<slug>:<task>, tasks:<slug>, worker:<runId>, worker:<runId>:out|err; until SIGINT or SIGTERM (exit 0, 1 internal fault, 2 usage)
                        events --follow --control stdin [--json]   follows the channels that sub and unsub lines on stdin name, until stdin ends (exit 0, 1 internal fault, 2 usage or an invalid line)
   worker-log           Print one masked page of a worker run's out or err log by byte cursor (read-only, run in a project).
                        worker-log --worker-run <runId> --stream out|err [--slug <slug>] [--cursor <c> | --before <c>] [--json]   log open, waiting, gone or none (exit 0, 1 unknown-run or log-unreadable, 2 usage or store-unreadable)
