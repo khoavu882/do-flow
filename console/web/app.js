@@ -589,7 +589,8 @@ function startView(route, { first = false, animate = false, focus = true } = {})
 }
 
 /**
- * A view's selection becomes the address (IC-019, DEC-034): `patch` is `{ sel }`, `{ task }` or `{ lane }`, or null for none.
+ * A view's selection becomes the address (IC-019, DEC-034; 150 IC-015): `patch` is `{ sel }`, `{ task }`, `{ lane }`,
+ * `{ node }` or `{ node, tab }`, or null for none.
  * The view has already shown it; this records the route and sets `location.hash` (a history entry), whose `hashchange`
  * then names the route the view is on and does nothing. A selection that has no hash (a lane with an absent part) leaves
  * the address at the base route and returns false.
@@ -953,12 +954,13 @@ function boot() {
       const own = view ? hashFor(view.route) : null;
       // The address now names the route the view is on: a selection the view made itself (linkSelection).
       if (view && !app.fatal && own !== null && own === hashFor(route)) return;
-      // A live view (Fleet) patches its mounted body, so it reroutes only once loaded; the Run, Tasks and Sessions views keep
-      // the selection in their memory, which their next render reads too.
+      // A live view (Fleet) patches its mounted body, so it reroutes only once loaded; the Run, Tasks, Sessions and Session
+      // views keep the selection in their memory, which their next render reads too.
       const ready = spec.live !== true || (Boolean(view) && view.hasData && view.painted === loadedKey(view));
       if (view && !app.fatal && ready && typeof spec.reroute === 'function' && view.route.view === spec
         && hashFor(baseRoute(view.route)) === hashFor(baseRoute(route))) {
-        // Between two routes of one view and one base route (the selection changed): the body is kept, so the focus stays.
+        // Between two routes of one view and one base route (the selection changed: a Session node or worker tab too): the
+        // body is kept, so the focus stays.
         view.route = route;
         view.local.route = route;
         globalThis.document.title = titleFor(route, view.hasData ? view.data : null);
