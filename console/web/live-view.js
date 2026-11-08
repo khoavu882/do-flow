@@ -23,6 +23,14 @@
 // - Pause and resume reach the store (it closes the stream and reopens with `since`) and the poller. Back from a pause or a
 //   hidden tab while live, the view's GET is read once, as poll.js reads once on return, so the shell's full-refresh rule
 //   (`resync`) meets a full state even when the reopened stream has nothing to send.
+// - Parts (150 IC-017): a view that reads more than one channel names `parts`, `[{ channel, member, as }]`, instead of
+//   `channel` and `member`. Each part is subscribed; the view's data is `{ [as]: body, ... }` once every part's channel holds a
+//   state with its member, and live mode starts then (before that the first-paint GET is what paints). The first part is the
+//   view's own: a status other than 200 goes to `onFailure` as above. A later part with a status other than 200 is delivered
+//   as `[as]: null` with `[as + 'Error']: { status, code, network: false }` (null when it is 200), so a view keeps working
+//   with that part missing; its GET read must answer the same shape. A part whose channel ends (`error`, `reset`, `gone`, or
+//   a state without its member) puts the view in polling, as one channel does; the view is live again once every part holds
+//   a state. Copy-on-write: a state in which no part's member changed delivers nothing.
 
 import { createPoller } from './poll.js';
 import { notice } from './notices.js';
@@ -36,9 +44,17 @@ const DOWN_STATES = Object.freeze(['refused', 'unsupported', 'closed']);
 const AWAY_STATES = Object.freeze(['idle', 'hidden', 'paused']);
 
 /**
+ * @typedef {object} LivePart
+ * @property {(params: any) => string} channel an IC-003 channel the view reads
+ * @property {string} member the member of that channel's state the view takes
+ * @property {string} as the key of the view's data the member body goes to
+ */
+
+/**
  * @typedef {object} LiveViewConfig
- * @property {(params: any) => string} channel the IC-003 channel the view reads
- * @property {string} member the member of the channel state that equals the view's GET reply (IC-012)
+ * @property {(params: any) => string} [channel] the IC-003 channel the view reads (without `parts`)
+ * @property {string} [member] the member of the channel state that equals the view's GET reply (IC-012; without `parts`)
+ * @property {LivePart[]} [parts] the channels of a view that reads several (150 IC-017); the first is the view's own
  * @property {number} intervalMs the poll interval while polling
  * @property {(local: any, body: any, fetchJson: (path: string) => Promise<any>) => any} [wrap] turns a member body into the
  *   view's data as its GET read does; may return a promise
@@ -76,9 +92,12 @@ function connectLive(config) {
  * @param {ConnectHooks} hooks
  */
 function createLiveView(config, local, params, hooks) {
-  const { member, intervalMs, wrap } = config;
+  const { intervalMs, wrap } = config;
   const { fetchJson, onData, onFailure, fetchOnce } = hooks;
-  const channel = config.channel(params);
+  /** The parts read: one for a single-channel view, whose member body is the data as it is (`as` null). */
+  const parts = Array.isArray(config.parts)
+    ? config.parts.map((part) => ({ channel: part.channel(params), member: part.member, as: part.as }))
+    : [{ channel: /** @type {(params: any) => string} */ (config.channel)(params), member: /** @type {string} */ (config.member), as: null }];
   const now = () => Date.now();
 
   let running = false;
@@ -90,8 +109,8 @@ function createLiveView(config, local, params, hooks) {
   let store = null;
   /** @type {ReturnType<typeof createPoller> | null} */
   let poller = null;
-  /** @type {(() => void) | null} */
-  let unsubscribe = null;
+  /** @type {Array<() => void>} */
+  let unsubscribes = [];
   /** @type {(() => void) | null} */
   let unTransport = null;
   let transport = 'idle';
@@ -103,15 +122,18 @@ function createLiveView(config, local, params, hooks) {
   /** @type {any} */
   let liveFailure = null;
   let liveMisses = 0;
-  /** @type {any} the member object delivered last */
-  let lastMember;
+  /** @type {any[]} each part's member object delivered last */
+  let lastMembers = [];
+  /** @type {any[]} each part's member object held now */
+  const held = parts.map(() => undefined);
   /** Bumped by every delivery: a slower answer (an async wrap, a live GET) of an earlier moment is dropped. */
   let deliverSeq = 0;
   let refetching = false;
   /** @type {number | null} when the connection last stopped being open while it was expected to be */
   let downSince = null;
-  /** The channel holds a state the store keeps (a `state` came, and no `error`, `reset` or `gone` since). */
-  let channelOk = false;
+  /** Per part: the channel holds a state the store keeps (a `state` came, and no `error`, `reset` or `gone` since). */
+  const channelOk = parts.map(() => false);
+  const allOk = () => channelOk.every(Boolean);
   /** The poller now running has answered once (poll.js's stale rule needs a success first). */
   let polledOk = false;
 
@@ -175,7 +197,7 @@ function createLiveView(config, local, params, hooks) {
     mode = 'polling';
     liveFailure = null;
     liveMisses = 0;
-    lastMember = undefined;
+    lastMembers = [];
     if (poller === null) startPoller();
     notice('push-lost', String(intervalMs / 1000));
   }
@@ -209,35 +231,61 @@ function createLiveView(config, local, params, hooks) {
     return true;
   }
 
-  /** @param {{ kind: string, state: any, code: string | null }} event */
-  function onLive(event) {
+  /** A member's failure as a failed GET's. @param {any} entry */
+  function failureOf(entry) {
+    const body = entry.body;
+    const code = body && body.error && typeof body.error.code === 'string' ? body.error.code : null;
+    return { status: entry.status, code, network: false };
+  }
+
+  /** The view's data from the held members: the member body itself, or the parts' bodies by `as`. */
+  function compose() {
+    if (parts[0].as === null) return held[0].body;
+    /** @type {Record<string, any>} */
+    const data = {};
+    parts.forEach((part, i) => {
+      const entry = held[i];
+      const as = String(part.as);
+      if (i === 0) data[as] = entry.body;
+      else {
+        data[as] = entry.status === 200 ? entry.body : null;
+        data[`${as}Error`] = entry.status === 200 ? null : failureOf(entry);
+      }
+    });
+    return data;
+  }
+
+  /** @param {number} at the part @param {{ kind: string, state: any, code: string | null }} event */
+  function onLive(at, event) {
     if (stopped || !event) return;
     if (event.kind !== 'state') {
-      channelOk = false;
+      channelOk[at] = false;
       enterPolling();
       return;
     }
-    const entry = event.state && typeof event.state === 'object' ? event.state[member] : undefined;
+    const entry = event.state && typeof event.state === 'object' ? event.state[parts[at].member] : undefined;
     if (!entry || typeof entry !== 'object' || typeof entry.status !== 'number') {
-      channelOk = false;
+      channelOk[at] = false;
       enterPolling();
       return;
     }
-    channelOk = true;
+    channelOk[at] = true;
+    held[at] = entry;
+    // Several parts: the view is live once every part's channel holds a state; until then the GET paints.
+    if (!allOk()) return;
     goLive();
-    if (entry === lastMember) return;
-    lastMember = entry;
-    if (entry.status === 200) {
+    if (held.every((member, i) => member === lastMembers[i])) return;
+    lastMembers = held.slice();
+    const own = held[0];
+    if (own.status === 200) {
       liveFailure = null;
       liveMisses = 0;
       frameAt = now();
       hadData = true;
-      deliver(entry.body);
+      deliver(compose());
       return;
     }
-    const body = entry.body;
-    const code = body && body.error && typeof body.error.code === 'string' ? body.error.code : null;
-    liveFailure = { status: entry.status, code, network: false };
+    liveFailure = failureOf(own);
     liveMisses += 1;
     deliverSeq += 1;
     onFailure(liveFailure);
@@ -256,7 +304,7 @@ function createLiveView(config, local, params, hooks) {
     }
     // A reopen with `since` after `closed` or a refusal sends nothing when the channel did not move (IC-013): an open stream
     // over a channel whose state is intact is the recovery, so the view is live again without waiting for a change.
-    if (event.state === 'open' && mode === 'polling' && channelOk) {
+    if (event.state === 'open' && mode === 'polling' && allOk()) {
       goLive();
       return;
     }
@@ -268,10 +316,11 @@ function createLiveView(config, local, params, hooks) {
       if (running || stopped) return;
       running = true;
       store = hooks.store();
-      const valid = isChannel(channel);
+      const valid = parts.every((part) => isChannel(part.channel));
       transport = store.status().transport;
       unTransport = store.onTransport(onTransport);
-      if (valid) unsubscribe = store.subscribe(channel, onLive); // a channel holding a state answers at once
+      // A channel holding a state answers at once.
+      if (valid) unsubscribes = parts.map((part, at) => store.subscribe(part.channel, (/** @type {any} */ event) => onLive(at, event)));
       if (mode === 'connecting') startPoller(); // the first paint
       if (!valid || DOWN_STATES.includes(transport)) enterPolling();
     },
@@ -281,9 +330,9 @@ function createLiveView(config, local, params, hooks) {
       running = false;
       if (poller !== null) poller.stop();
       poller = null;
-      if (unsubscribe) unsubscribe();
+      for (const off of unsubscribes) off();
       if (unTransport) unTransport();
-      unsubscribe = null;
+      unsubscribes = [];
       unTransport = null;
       // The store is the page's: a pause of this view ends with it.
       if (paused && store) store.resume();

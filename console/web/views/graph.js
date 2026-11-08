@@ -332,4 +332,4 @@ function renderGraphBody(data, params, local) {
   return root;
 }
 
-export { renderGraph, rerouteGraph };
+export { renderGraph, rerouteGraph, detailBody };

@@ -2050,6 +2050,29 @@
   }
 }
 
+/* The Session screen's outline (150 IC-017): a tree of the run's chain, one row per node with its chip, live count and
+   marker; nested groups indent under a rule, the selected row is tinted. */
+@layer components {
+  .chain { display: grid; gap: var(--space-3); min-width: 0; }
+  .chain > p { margin: 0; font: var(--type-sm); color: var(--text-muted); }
+  .chain [role="tree"], .chain [role="group"] { list-style: none; margin: 0; padding: 0; }
+  .chain [role="group"] { margin-inline-start: var(--space-3); padding-inline-start: var(--space-2); border-inline-start: 1px solid var(--border); }
+  .chain__item { outline: none; }
+  .chain__item > div {
+    display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-height: var(--target); padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-md); cursor: pointer; overflow-wrap: anywhere;
+  }
+  .chain__item > div:hover { background: var(--surface-2); color: var(--text); }
+  .chain__item:focus-visible > div { outline: var(--focus-width) solid var(--focus); outline-offset: calc(-1 * var(--focus-width)); }
+  .chain__item[aria-selected="true"] > div { background: var(--accent-tint); color: var(--text); }
+  .chain__chip { flex: none; }
+  .chain__live { font: var(--type-xs); color: var(--text-muted); }
+  .chain__marker { font: var(--type-xs); color: var(--text-muted); font-style: italic; }
+  @media (forced-colors: active) {
+    .chain__item[aria-selected="true"] > div { outline: 2px solid Highlight; }
+  }
+}
+
 @layer motion {
   @keyframes ev-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
   .fnode[data-fresh="true"] > .fnode__row { --tint: var(--accent-tint); }
