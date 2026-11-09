@@ -5,7 +5,9 @@
 // FAKE_CORE_LOG on every start (after any signal handler is installed, so a test that sees the line
 // can signal it), then behaves as FAKE_CORE_MODE says. Neither variable starts with DOFLOW_, so the
 // runner's environment stripping lets them through. Modes `worker-reads` and `old-core` (feature 150
-// IC-010) answer the four worker chain shapes; see workerReads and oldCore below.
+// IC-010) answer the four worker chain shapes; see workerReads and oldCore below. Modes `manage`, `data-exit1`,
+// `exit1-text`, `slow-doctor`, `usage-json` and `old-manage` (feature 151 IC-005) answer the ten management shapes;
+// see manage below.
 
 const fs = require('node:fs');
 
@@ -64,6 +66,14 @@ switch (mode) {
     break;
   case 'old-core':
     oldCore(process.argv.slice(2));
+    break;
+  case 'manage':
+  case 'data-exit1':
+  case 'exit1-text':
+  case 'slow-doctor':
+  case 'usage-json':
+  case 'old-manage':
+    manage(mode, process.argv.slice(2));
     break;
   default:
     process.stderr.write(`fake-core: unknown mode ${mode}\n`);
@@ -296,4 +306,73 @@ function oldCore(argv) {
   } else {
     echo();
   }
+}
+
+/** The IC-005 shape id an argv is, or null: the ten 151 argv shapes by the prefix the Console runs, `followup-record` before `followups`. */
+function manageShapeOf(argv) {
+  const shapes = [
+    ['config-list', ['config', 'list']],
+    ['config-schema', ['config', 'schema']],
+    ['advise-report', ['advise', '--action', 'report']],
+    ['advice-picks', ['advice-picks']],
+    ['followup-record', ['followup', '--action', 'list', '--view', 'full']],
+    ['followups', ['followup', '--action', 'list', '--state']],
+    ['lifecycle-overview', ['lifecycle', '--action', 'overview']],
+    ['doctor', ['doctor']],
+    ['storage-report', ['storage', '--action', 'report']],
+    ['worker-matrix', ['worker-matrix']],
+  ];
+  const found = shapes.find(([, prefix]) => prefix.every((part, i) => argv[i] === part));
+  return found ? found[0] : null;
+}
+
+/**
+ * The 151 IC-005 modes over the ten management argv shapes. Each answers `{v: 1, verb: <shape id>, argv}`;
+ * `--version` prints `9.9.9-fake`; any other argv echoes, as mode `echo`.
+ *   manage       exit 0.
+ *   data-exit1   exit 1 with the JSON body and `[ERROR] secret-stderr-text` on stderr (a `config list` fail-safe
+ *                key, a `doctor` with findings: data, DEC-024). Any other argv too, so a case can compare.
+ *   exit1-text   exit 1 with `not json` on stdout and `[ERROR] secret-stderr-text` on stderr, for every argv.
+ *   slow-doctor  `doctor` answers after FAKE_CORE_DELAY_MS (default 300) of real time; the others as manage.
+ *   usage-json   `{"v":1,"ok":false,"error":"usage"}` with exit 2 for every argv (DEC-041).
+ *   old-manage   the two older-core answers of D6: `advise --action report` is the JSON usage body with exit 2
+ *                (cores v2.0.0-beta.7 to v2.3.0), `advice-picks` and `worker-matrix` are
+ *                `doflow: unknown command '<verb>'` on stderr with exit 1 and no stdout; the others as manage.
+ */
+function manage(mode, argv) {
+  if (argv[0] === '--version') return process.stdout.write('9.9.9-fake\n');
+  const shape = manageShapeOf(argv);
+  const body = () => process.stdout.write(JSON.stringify({ v: 1, verb: shape, argv }));
+  const fail = (exit) => {
+    process.stderr.write('[ERROR] secret-stderr-text\n');
+    process.exitCode = exit;
+  };
+  switch (mode) {
+    case 'data-exit1':
+      process.stdout.write(JSON.stringify(shape === null ? { argv } : { v: 1, verb: shape, argv }));
+      return fail(1);
+    case 'exit1-text':
+      process.stdout.write('not json\n');
+      return fail(1);
+    case 'usage-json':
+      process.stdout.write('{"v":1,"ok":false,"error":"usage"}');
+      process.exitCode = 2;
+      return;
+    case 'old-manage':
+      if (shape === 'advise-report') {
+        process.stdout.write('{"v":1,"ok":false,"error":"usage"}');
+        process.exitCode = 2;
+        return;
+      }
+      if (shape === 'advice-picks' || shape === 'worker-matrix') {
+        process.stderr.write(`doflow: unknown command '${argv[0]}'\n`);
+        process.exitCode = 1;
+        return;
+      }
+      break;
+    case 'slow-doctor':
+      if (shape === 'doctor') return setTimeout(body, Number(process.env.FAKE_CORE_DELAY_MS || 300));
+      break;
+  }
+  return shape === null ? echo() : body();
 }

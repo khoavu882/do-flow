@@ -18,6 +18,11 @@
 // caller (and so the browser) holds only the key; an unknown key is `project-not-found` before any
 // spawn. The single-flight, cache and backoff key is `(projectKey, argv)`. `transcript` is never cached
 // and may use a third slot that no other shape can take.
+//
+// 151 IC-005: ten management shapes. A shape's `exitsAsData` exit with one JSON object on stdout is data
+// (cached, no backoff); on a `usageIsOldCore` shape an exit 2 with the JSON `usage` id is an older core;
+// `run(id, params, {fresh: true})` on a shape with `refreshFloorMs` reads past the cache; every result
+// carries `at`, the runner clock's ms when the child closed.
 
 const childProcess = require('node:child_process');
 const fs = require('node:fs');
@@ -39,10 +44,25 @@ interface Shape {
   readonly byCoreVersion?: true;
   /** `version`: the core prints a plain line, not JSON. */
   readonly text?: true;
+  /** Exit codes whose stdout, when it parses as one JSON object, is data (151 DEC-024). */
+  readonly exitsAsData?: readonly number[];
+  /** An exit 2 whose JSON `error` id is `usage` is an older core (151 DEC-041). Only on shapes whose every parameter the route checks to the core's own rule. */
+  readonly usageIsOldCore?: true;
+  /** Minimum ms between the end of one spawn and the start of a `fresh` one (151 DEC-029). A shape without it refuses `fresh`. */
+  readonly refreshFloorMs?: number;
 }
 /** `errorId`: the core's own JSON `error` id from a failed call's stdout (see errorIdOf); nothing else of that stdout. */
 type Failure = { ok: false; code: 'usage' | 'core-error' | 'core-unreachable' | 'project-not-found'; exit: number | null; reason?: string; errorId?: string };
-type Result = { ok: true; json: any; exit: number } | Failure;
+type Bare = { ok: true; json: any; exit: number } | Failure;
+/** 151 IC-005: how a `fresh` call was answered. */
+type Fresh = 'joined' | 'too-soon' | 'ran';
+/**
+ * 151 IC-005: every result carries `at`, the runner clock's ms when the child closed (a refusal: when it was
+ * refused; a cache hit or a held backoff: the time stored with it). `at` is a non-enumerable own property, so
+ * the result's enumerable fields, and what compares or serialises them, are those of before; a spread drops it.
+ * `fresh` is set on the answer to a `fresh` call only.
+ */
+type Result = Bare & { readonly at: number; readonly fresh?: Fresh };
 interface Clock {
   now(): number;
   setTimeout(fn: () => void, ms: number): any;
@@ -78,6 +98,11 @@ const RUN: Param = { param: 'runId', pattern: 'runId' };
 const STREAM: Param = { param: 'stream', pattern: 'stream' };
 const SLUG_OPT: Param = { param: 'slug', flag: '--slug', optional: true };
 const BEFORE: Param = { param: 'before', pattern: 'cursor', flag: '--before', optional: true };
+// 151 IC-005: an advice kind, a follow-up state, a follow-up list cursor and a follow-up id.
+const ADVICE_KIND: Param = { param: 'kind', pattern: 'adviceKind', flag: '--kind', optional: true };
+const FU_STATE: Param = { param: 'state', pattern: 'fuState' };
+const FU_CURSOR: Param = { param: 'cursor', pattern: 'fuCursor', flag: '--cursor', optional: true };
+const FU_ID: Param = { param: 'id', pattern: 'fuId' };
 
 /** IC-003, the whole allow-list. `--json` is appended to every shape. */
 const SHAPES: Readonly<Record<string, Shape>> = deepFreeze({
@@ -103,6 +128,17 @@ const SHAPES: Readonly<Record<string, Shape>> = deepFreeze({
   'worker-result': { argv: ['worker-result', '--slug', SLUG, '--worker-run', RUN], ttl: 2_000 },
   'worker-run-status': { argv: ['worker', '--action', 'status', '--slug', SLUG, '--worker-run', RUN], ttl: 2_000 },
   'worker-log': { argv: ['worker-log', SLUG_OPT, '--worker-run', RUN, '--stream', STREAM, CURSOR, BEFORE], ttl: 0 },
+  // 151 IC-005: the management reads. `config-schema` and `worker-matrix` read only files that ship with the core.
+  'config-list': { argv: ['config', 'list'], ttl: 5_000, exitsAsData: [1] },
+  'config-schema': { argv: ['config', 'schema'], ttl: Infinity, byCoreVersion: true, usageIsOldCore: true },
+  'advise-report': { argv: ['advise', '--action', 'report'], ttl: 5_000, usageIsOldCore: true },
+  'advice-picks': { argv: ['advice-picks', ADVICE_KIND], ttl: 5_000 },
+  followups: { argv: ['followup', '--action', 'list', '--state', FU_STATE, FU_CURSOR, '--limit', '25'], ttl: 5_000, usageIsOldCore: true },
+  'followup-record': { argv: ['followup', '--action', 'list', '--view', 'full', '--ids', FU_ID], ttl: 5_000, usageIsOldCore: true },
+  'lifecycle-overview': { argv: ['lifecycle', '--action', 'overview'], ttl: 5_000, usageIsOldCore: true },
+  doctor: { argv: ['doctor'], ttl: 60_000, exitsAsData: [1], refreshFloorMs: 5_000 },
+  'storage-report': { argv: ['storage', '--action', 'report'], ttl: 30_000, usageIsOldCore: true },
+  'worker-matrix': { argv: ['worker-matrix'], ttl: Infinity, byCoreVersion: true },
 });
 const SHAPE_IDS: readonly string[] = Object.freeze(Object.keys(SHAPES));
 
@@ -169,7 +205,7 @@ interface FollowHandle {
 
 /** The core's ID_PATTERN without its length bound (IC-003): no leading `-`, `.`, no `/`. */
 const PARAM_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-/** IC-024: a project or agent key, a transcript cursor, and `--limit` (1..500, IC-022); 150 IC-010: a worker run id (the core's RUN_ID) and a log stream. */
+/** IC-024: a project or agent key, a transcript cursor, and `--limit` (1..500, IC-022); 150 IC-010: a worker run id (the core's RUN_ID) and a log stream; 151 IC-005: an advice kind, a follow-up state, list cursor and id. */
 const PATTERNS = Object.freeze({
   id: PARAM_PATTERN,
   key16: /^[0-9a-f]{16}$/,
@@ -177,6 +213,14 @@ const PATTERNS = Object.freeze({
   limit: /^[1-9][0-9]{0,2}$/,
   runId: /^w-[0-9a-f]{12}$/,
   stream: /^(?:out|err)$/,
+  /** The form of a kind id; the core checks it against its registry (IC-001), so an unknown kind is the core's usage. */
+  adviceKind: /^[a-z][a-z0-9-]{0,31}$/,
+  /** STATES, src/runtime/lifecycle/followup.ts:33, plus `all`. */
+  fuState: /^(?:open|taken|done|dismissed|all)$/,
+  /** CURSOR, src/runtime/verb-view.ts:114. */
+  fuCursor: /^[0-9]{1,15}:[0-9]{8}T[0-9]{9}Z-[0-9a-hjkmnp-tv-z]{6}$/,
+  /** FU_ID, src/runtime/lifecycle/followup.ts:36. */
+  fuId: /^FU-[0-9a-hjkmnp-tv-z]{6}$/,
 });
 const LIMIT_MAX = 500;
 const acceptable = (pattern: keyof typeof PATTERNS, value: string): boolean =>
@@ -207,6 +251,10 @@ const ERROR_MARKER = '[ERROR]';
 
 const usage = (): Failure => ({ ok: false, code: 'usage', exit: null });
 const unreachable = (): Failure => ({ ok: false, code: 'core-unreachable', exit: null });
+/** 151 IC-005: `result` with its non-enumerable `at` (see Result). */
+const stamp = (result: Bare & { fresh?: Fresh }, at: number): Result => Object.defineProperty(result, 'at', { value: at, enumerable: false }) as Result;
+/** A copy of a stored result labelled with how a `fresh` call was answered, keeping its `at`. */
+const labelled = (result: Result, fresh: Fresh): Result => stamp({ ...result, fresh }, result.at);
 
 /**
  * The argv of a shape with its parameters filled, and the project key of a scoped shape, or null when
@@ -258,19 +306,24 @@ function childEnv(parent: Record<string, string | undefined>): Record<string, st
   return env;
 }
 
-/**
- * The `error` field of a failed call's stdout when that stdout is one JSON object and the field is an
- * id matching PARAM_PATTERN (`plan-unreadable`, `cannot-list-checkouts`, ...), else null. Messages,
- * problems and every other field are never read, so no path or free text leaves the child.
- */
-function errorIdOf(chunks: Buffer[]): string | null {
+/** Stdout when it parses as one JSON object (not an array, not null), else null. */
+function jsonObjectOf(chunks: Buffer[]): Record<string, any> | null {
   let value: any;
   try {
     value = JSON.parse(Buffer.concat(chunks).toString('utf8'));
   } catch {
     return null;
   }
-  const id = value && typeof value === 'object' && !Array.isArray(value) ? value.error : undefined;
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+}
+
+/**
+ * The `error` field of a failed call's stdout when that stdout is one JSON object and the field is an
+ * id matching PARAM_PATTERN (`plan-unreadable`, `cannot-list-checkouts`, ...), else null. Messages,
+ * problems and every other field are never read, so no path or free text leaves the child.
+ */
+function errorIdOf(chunks: Buffer[]): string | null {
+  const id = jsonObjectOf(chunks)?.error;
   return typeof id === 'string' && PARAM_PATTERN.test(id) ? id : null;
 }
 
@@ -283,7 +336,7 @@ const realClock: Clock = {
 function createVerbRunner(options: RunnerOptions) {
   const { corePath, projectRoot, env = process.env, clock = realClock, spawnImpl = childProcess.spawn } = options;
   const cache = new Map<string, { result: Result; expires: number }>();
-  const backoff = new Map<string, { result: Failure; until: number }>();
+  const backoff = new Map<string, { result: Result; until: number }>();
   const inFlight = new Map<string, Promise<Result>>();
   const queue: Array<{ reserved: boolean; grant: (slot: 'pool' | 'reserved' | null) => void }> = [];
   const running = new Set<any>();
@@ -295,7 +348,8 @@ function createVerbRunner(options: RunnerOptions) {
 
   /** One spawn of the core. Resolves when the child has closed; never rejects. */
   function spawnCore(shape: Shape, argv: string[], cwd: string, flightKey: string): Promise<Result> {
-    return new Promise((resolve) => {
+    return new Promise((resolveResult) => {
+      const resolve = (result: Bare) => resolveResult(stamp(result, clock.now()));
       let child: any;
       try {
         if (!fs.statSync(corePath).isFile()) return resolve(unreachable());
@@ -351,6 +405,16 @@ function createVerbRunner(options: RunnerOptions) {
         if (spawnFailed || failure === 'stopped') return resolve(unreachable());
         if (failure !== null) return resolve({ ok: false, code: 'core-error', exit: null, reason: failure });
         if (code !== 0) {
+          // 151 DEC-024: a declared data exit with output is data when it is one JSON object, cached like an
+          // exit 0; anything else is not-json. Neither backs off, whatever stderr held.
+          if (code !== null && bytes > 0 && shape.exitsAsData?.includes(code)) {
+            const json = jsonObjectOf(chunks);
+            return resolve(json === null ? { ok: false, code: 'core-error', exit: code, reason: 'not-json' } : { ok: true, json, exit: code });
+          }
+          // 151 DEC-041: a core that answers a fully checked shape with its JSON `usage` id lacks the verb or flag. Never cached, no backoff.
+          if (shape.usageIsOldCore && code === 2 && errorIdOf(chunks) === 'usage') {
+            return resolve({ ok: false, code: 'core-error', exit: 2, reason: 'old-core' });
+          }
           // 150 IC-010: an older core lacking the verb or flag. Never cached (not ok) and no backoff (no `[ERROR]`).
           if ((code === 1 || code === 2) && bytes === 0 && !stderr.seen.error && stderr.seen.unknown) {
             return resolve({ ok: false, code: 'core-error', exit: code, reason: 'old-core' });
@@ -358,7 +422,7 @@ function createVerbRunner(options: RunnerOptions) {
           const result: Failure = { ok: false, code: 'core-error', exit: code };
           const errorId = errorIdOf(chunks);
           if (errorId !== null) result.errorId = errorId;
-          if (code === 1 && stderr.seen.error) backoff.set(flightKey, { result: { ...result, reason: 'backoff' }, until: clock.now() + BACKOFF_MS });
+          if (code === 1 && stderr.seen.error) backoff.set(flightKey, { result: stamp({ ...result, reason: 'backoff' }, clock.now()), until: clock.now() + BACKOFF_MS });
           return resolve(result);
         }
         const stdout = Buffer.concat(chunks).toString('utf8');
@@ -418,7 +482,7 @@ function createVerbRunner(options: RunnerOptions) {
 
   async function spawnPooled(shape: Shape, argv: string[], cwd: string, flightKey: string): Promise<Result> {
     const slot = await acquire(shape.reserved === true);
-    if (slot === null) return unreachable();
+    if (slot === null) return stamp(unreachable(), clock.now());
     try {
       return await spawnCore(shape, argv, cwd, flightKey);
     } finally {
@@ -437,16 +501,24 @@ function createVerbRunner(options: RunnerOptions) {
     }
   }
 
-  async function run(shapeId: string, params?: Record<string, unknown> | null): Promise<Result> {
+  /**
+   * One allow-listed read. `options.fresh` (151 IC-005, DEC-029), only on a shape with `refreshFloorMs`: join a
+   * spawn in flight for the argv (`fresh: 'joined'`), else return the cached entry whose spawn ended under the
+   * floor ago (`too-soon`), else spawn past the cache (`ran`), stored as any call's result.
+   */
+  async function run(shapeId: string, params?: Record<string, unknown> | null, options?: { fresh?: true } | null): Promise<Result> {
     const built = buildArgv(shapeId, params);
-    if (built === null) return usage();
-    if (stopped) return unreachable();
+    const freshOption = options?.fresh;
+    if (built === null || (freshOption !== undefined && freshOption !== true)) return stamp(usage(), clock.now());
     const shape = SHAPES[shapeId];
+    const fresh = freshOption === true;
+    if (fresh && shape.refreshFloorMs === undefined) return stamp(usage(), clock.now());
+    if (stopped) return stamp(unreachable(), clock.now());
     const { argv, projectKey } = built;
     let cwd = projectRoot;
     if (projectKey !== null) {
       const root = roots.get(projectKey);
-      if (root === undefined) return { ok: false, code: 'project-not-found', exit: null };
+      if (root === undefined) return stamp({ ok: false, code: 'project-not-found', exit: null }, clock.now());
       cwd = root;
     }
     // IC-024: the key of the cache, the single flight and the backoff is (projectKey, argv).
@@ -459,7 +531,13 @@ function createVerbRunner(options: RunnerOptions) {
     }
     const now = clock.now();
     const cached = cacheKey === null ? undefined : cache.get(cacheKey);
-    if (cached && now < cached.expires) return cached.result;
+    if (fresh) {
+      const running = inFlight.get(argvKey);
+      if (running) return labelled(await running, 'joined');
+      if (cached && now - cached.result.at < shape.refreshFloorMs!) return labelled(cached.result, 'too-soon');
+    } else if (cached && now < cached.expires) {
+      return cached.result;
+    }
     const held = backoff.get(argvKey);
     if (held && now < held.until) return held.result;
 
@@ -475,7 +553,7 @@ function createVerbRunner(options: RunnerOptions) {
     }
     const result = await flight;
     if (result.ok && cacheKey !== null && shape.ttl > 0) cache.set(cacheKey, { result, expires: clock.now() + shape.ttl });
-    return result;
+    return fresh ? labelled(result, 'ran') : result;
   }
 
   /** The follow child alive now, or null: at most one (DEC-022). */
@@ -627,6 +705,8 @@ const FLEET_ERROR_STATUS: Readonly<Record<string, number>> = Object.freeze({
   // 150 IC-010: `core-lacks-verb` is a runner failure with reason `old-core` (mapped by the routes); `unknown-run` a core exit 1 id.
   'core-lacks-verb': 501,
   'unknown-run': 404,
+  // 151 IC-013: `/api/followups/:id` answers it when the record read holds no follow-up (no core exit id).
+  'followup-not-found': 404,
 });
 /** The error ids a core exit 1 may carry, by Fleet shape. */
 const FLEET_CORE_ERRORS: Readonly<Record<string, readonly string[]>> = Object.freeze({
@@ -656,6 +736,7 @@ module.exports = {
   OUTPUT_CAP_BYTES,
   PARAM_PATTERN,
   PASS_THROUGH,
+  PATTERNS,
   POOL_SIZE,
   RESERVED_SLOTS,
   SHAPES,
