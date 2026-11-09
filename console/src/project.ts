@@ -117,6 +117,19 @@ const FILE_CODES: readonly string[] = Object.freeze(['unparseable', 'schema', 't
 const SCOPES: readonly string[] = Object.freeze(['global-only', 'narrow-only', 'project-overridable']);
 /** src/runtime/advice/report.ts:50 to :54, the modes tally */
 const ADVICE_MODES: readonly string[] = Object.freeze(['shadow', 'act', 'unrecorded']);
+// 151 IC-009 to IC-011: the closed sets of the follow-up, health and worker reads.
+/** src/runtime/lifecycle/followup.ts:33 `STATES` */
+const FOLLOWUP_STATES: readonly string[] = Object.freeze(['open', 'taken', 'done', 'dismissed']);
+/** RK2: the union of `SOURCE_KINDS` (src/runtime/lifecycle/followup.ts:34), the `stage` kind buildItems accepts (:165) and the `report` kind reportSource writes (:243). */
+const SOURCE_KINDS: readonly string[] = Object.freeze(['stage', 'run', 'release', 'manual', 'report']);
+/** src/runtime/lifecycle/status.ts:289 `releaseMode` */
+const RELEASE_MODES: readonly string[] = Object.freeze(['tagged', 'untagged', 'unknown']);
+/** src/runtime/lifecycle/status.ts:257 `BUCKET` values */
+const FEATURE_BUCKETS: readonly string[] = Object.freeze(['finished', 'awaitingRelease', 'inProgress', 'unknown']);
+/** src/runtime/worker/matrix.ts `STATUSES` */
+const MATRIX_STATUSES: readonly string[] = Object.freeze(['supported', 'unknown', 'unsupported']);
+/** src/runtime/worker/matrix.ts `GROUPS` */
+const MATRIX_GROUPS: readonly string[] = Object.freeze(['worker', 'orchestration']);
 
 /** IC-022: the byte caps of the two text fields, re-checked here after the second masking pass (IC-024). */
 const TEXT_CAP_BYTES = 4096;
@@ -1196,12 +1209,398 @@ function advicePicks(value: unknown) {
 /** `version` is the trimmed `--version` line, not JSON. */
 const version = (value: unknown) => (isSemVer(value) ? value : fail());
 
+// ---- 151 IC-009 to IC-011: the Follow-ups, Health and Workers reads ----
+
+/** 151 IC-005 `fuId` (FU_ID, src/runtime/lifecycle/followup.ts:36) and `fuCursor` (CURSOR, src/runtime/verb-view.ts:114). */
+const FU_ID = /^FU-[0-9a-hjkmnp-tv-z]{6}$/;
+const FU_CURSOR = /^[0-9]{1,15}:[0-9]{8}T[0-9]{9}Z-[0-9a-hjkmnp-tv-z]{6}$/;
+const fuId: Check<string> = (value) => (typeof value === 'string' && FU_ID.test(value) ? value : fail());
+const fuCursor: Check<string> = (value) => (typeof value === 'string' && FU_CURSOR.test(value) ? value : fail());
+/** IC-009 bounds: rows per follow-up list, history entries per record, intents and goals, nudges per goal, slugs per unbounded bucket. */
+const FOLLOWUP_ROWS = 50;
+const HISTORY_SHOWN = 50;
+const OVERVIEW_SHOWN = 20;
+const NUDGES_SHOWN = 10;
+const BUCKET_SHOWN = 50;
+/** IC-010 bounds: findings and warnings each, stores. */
+const DOCTOR_ROWS = 100;
+const STORES_SHOWN = 64;
+/** IC-010 (DEC-036): a doctor status word; any other value reads as one fixed text. */
+const DOCTOR_WORD = /^[A-Z][A-Z_]{1,23}$/;
+const OTHER_WORD = '(other)';
+const word: Check<string> = (value) => (typeof value !== 'string' ? fail() : DOCTOR_WORD.test(value) ? value : OTHER_WORD);
+/** IC-011 `cellName` */
+const CELL_NAME = /^[a-z][A-Za-z0-9]{0,31}$/;
+const cellName: Check<string> = (value) => (typeof value === 'string' && CELL_NAME.test(value) ? value : fail());
+
+/** The first `limit` entries of a list, each checked, and how many the list holds past them (never read). */
+const firstOf = <T>(limit: number, check: Check<T>) => (value: unknown): { rows: T[]; notShown: number } => {
+  if (!Array.isArray(value)) return fail();
+  return { rows: value.slice(0, limit).map((item) => check(item)), notShown: Math.max(0, value.length - limit) };
+};
+/** The length of a list whose entries are not read. */
+const lengthOf: Check<number> = (value) => (Array.isArray(value) ? value.length : fail());
+
+/**
+ * IC-009 `followups` (input `followup --action list --state <s> [--cursor <c>] --limit 25 --json`, the brief view,
+ * src/runtime/lifecycle/cli.ts:189 to :200). A page past 50 items cannot be cut without the next cursor skipping the
+ * cut items, so it is refused; conflicts and unreadable files keep their full count beside at most 50 rows (DEC-006).
+ * `next` and `view` are never read.
+ */
+function followups(value: unknown, context?: Context) {
+  const anchors = anchorsIn(context);
+  const body = record(value);
+  if (!Array.isArray(body.items) || body.items.length > FOLLOWUP_ROWS) fail();
+  const item = (entry: unknown) => {
+    const i = record(entry);
+    return { id: fuId(i.id), statement: boundedText(1024, anchors)(i.statement), state: oneOf(FOLLOWUP_STATES)(i.state) };
+  };
+  const items = each(item)(body.items);
+  const shown = count(body.shown);
+  if (shown !== items.length) fail();
+  const conflict = (entry: unknown) => {
+    const c = record(entry);
+    return { event: id(c.event), type: id(c.type), code: id(c.code), reason: boundedText(256, anchors)(c.reason) };
+  };
+  const reasons = record(body.unreadableReasons);
+  const unreadableRow = (entry: unknown) => {
+    const file = id(entry);
+    return { file, reason: Object.hasOwn(reasons, file) ? orNull(boundedText(256, anchors))(reasons[file]) : null };
+  };
+  const conflicts = firstOf(FOLLOWUP_ROWS, conflict)(body.conflicts);
+  const unreadable = firstOf(FOLLOWUP_ROWS, unreadableRow)(body.unreadable);
+  return {
+    v: 1,
+    state: oneOf([...FOLLOWUP_STATES, 'all'])(body.state),
+    count: count(body.count),
+    shown,
+    nextCursor: orNull(fuCursor)(body.nextCursor),
+    items,
+    conflicts: { n: conflicts.rows.length + conflicts.notShown, rows: conflicts.rows },
+    unreadable: { n: unreadable.rows.length + unreadable.notShown, rows: unreadable.rows },
+  };
+}
+
+/**
+ * IC-009 `followup-record` (input the full view with `--ids <one id>`, the fold's record, src/runtime/lifecycle/fold.ts:66
+ * to :80). `history` is the newest 50 in the core's order (oldest first) with no event id; `intent` is placed. No item is
+ * `followup: null` (the route's 404). `bodyRef`, `bodyBytes`, `derived`, `promoted`, a source's other fields and `next`
+ * are never read.
+ */
+function followupRecord(value: unknown, context?: Context) {
+  const anchors = anchorsIn(context);
+  const body = record(value);
+  const items = Array.isArray(body.items) ? body.items : fail();
+  if (items.length > 1) fail();
+  if (items.length === 0) return { v: 1, followup: null };
+  const f = record(items[0]);
+  const source = record(f.source);
+  const history = Array.isArray(f.history) ? f.history : fail();
+  const kept = history.slice(-HISTORY_SHOWN);
+  const entry = (item: unknown) => {
+    const h = record(item);
+    return { type: id(h.type), at: iso(h.at), by: label(h.by) };
+  };
+  return {
+    v: 1,
+    followup: {
+      id: fuId(f.id),
+      statement: boundedText(1024, anchors)(f.statement),
+      // A `manual` source has neither field and a `run` source no feature (src/runtime/lifecycle/followup.ts:122 to :143).
+      source: { kind: oneOf(SOURCE_KINDS)(source.kind), feature: optional(id)(source.feature), stage: optional(id)(source.stage) },
+      state: oneOf(FOLLOWUP_STATES)(f.state),
+      takenBy: orNull(id)(f.takenBy),
+      intent: orNull(whereOf(anchors))(f.intent),
+      fix: orNull(boundedText(1024, anchors))(f.fix),
+      added: orNull(date)(f.added),
+      excerpt: orNull(boundedText(2048, anchors))(f.excerpt),
+      body: orNull(oneOf(['on-this-machine', 'not-on-this-machine']))(f.body),
+      history: kept.map(entry),
+      historyNotShown: history.length - kept.length,
+    },
+  };
+}
+
+/**
+ * IC-009 `lifecycle-overview` (input `buildOverview`, src/runtime/lifecycle/overview.ts:200 to :254, the full view).
+ * `next`, `failures`, `pending`, `reason`, `followups.items`, `unreadableReasons` and every conflict's text are never
+ * read. A bucket is `{count, shown}`: the core's `featuresShown` for `finished` and `awaitingRelease`, else the first 50.
+ */
+function lifecycleOverview(value: unknown, context?: Context) {
+  const anchors = anchorsIn(context);
+  const body = record(value);
+  const bucketOf = (list: unknown) => (Array.isArray(list) ? { count: list.length, shown: list.slice(0, BUCKET_SHOWN).map((slug) => id(slug)) } : fail());
+  const buckets = (item: unknown) => {
+    const b = record(item);
+    return Object.fromEntries(FEATURE_BUCKETS.map((name) => [name, bucketOf(b[name])]));
+  };
+  const shownBucket = (item: unknown) => {
+    const s = record(item);
+    return { count: count(s.count), shown: each(id)(s.shown) };
+  };
+  const intent = (item: unknown) => {
+    const i = record(item);
+    return { where: whereOf(anchors)(i.path), items: each(fuId)(i.items) };
+  };
+  const goal = (item: unknown) => {
+    const g = record(item);
+    const items = record(g.items);
+    const nudges = Array.isArray(g.nudges) ? g.nudges.slice(0, NUDGES_SHOWN).map((n) => boundedText(256, anchors)(n)) : fail();
+    return {
+      goal: id(g.goal),
+      outcome: boundedText(512, anchors)(g.outcome),
+      items: { met: count(items.met), total: count(items.total) },
+      proposeDone: bool(g.proposeDone),
+      features: buckets(g.features),
+      nudges,
+      // The core adds `conflicts` to a goal only when it has some (overview.ts:133).
+      conflicts: g.conflicts === undefined ? 0 : lengthOf(g.conflicts),
+    };
+  };
+  const features = record(body.features);
+  const featuresShown = record(body.featuresShown);
+  const intents = firstOf(OVERVIEW_SHOWN, intent)(body.intents);
+  const goals = firstOf(OVERVIEW_SHOWN, goal)(body.goals);
+  return {
+    v: 1,
+    mode: oneOf(['discovery', 'maintain'])(body.mode),
+    releaseMode: oneOf(RELEASE_MODES)(body.releaseMode),
+    integrationRef: orNull(label)(body.integrationRef),
+    gitError: orNull(boundedText(256, anchors))(body.gitError),
+    followupsOpen: count(record(body.followups).open),
+    intents: intents.rows,
+    intentsNotShown: intents.notShown,
+    goals: goals.rows,
+    goalsNotShown: goals.notShown,
+    features: {
+      finished: shownBucket(featuresShown.finished),
+      awaitingRelease: shownBucket(featuresShown.awaitingRelease),
+      inProgress: bucketOf(features.inProgress),
+      unknown: bucketOf(features.unknown),
+    },
+    conflicts: lengthOf(body.conflicts),
+    unreadable: lengthOf(body.unreadable),
+    // The core prints both only when the integration branch is behind (overview.ts:247).
+    integrationBehind: optional(count)(body.integrationBehind),
+    note: optional(boundedText(256, anchors))(body.note),
+  };
+}
+
+/**
+ * IC-010 `doctor` (input `doctor --json`, exit 0 or 1, src/runtime/health.ts:965 to :993 and the async provider pass).
+ * Built from the listed sections only: `identity`, `project`, `mcp`, `packages`, `transcripts`, `upkeepSwitch`,
+ * `decisionModel`, `advice`, `settings`, `rolloutProfile`, `guidance`, `team`, `agentToolScope` and `primary` are never
+ * read, nor `reach`, `probeCommand`, `binary`, a provider's `freshness`, or a capability's providers and description.
+ */
+function doctor(value: unknown, context?: Context) {
+  const anchors = anchorsIn(context);
+  const body = record(value);
+  const summary = record(body.summary);
+  const entry = (item: unknown) => {
+    const e = record(item);
+    return { kind: id(e.kind), subject: boundedText(256, anchors)(e.subject), detail: boundedText(1024, anchors)(e.detail) };
+  };
+  const harnessRow = (item: unknown) => {
+    const h = record(item);
+    return { id: harness(h.id), displayName: label(h.displayName), status: word(h.status) };
+  };
+  const tool = (item: unknown) => {
+    const t = record(item);
+    return { id: id(t.id), displayName: label(t.displayName), status: word(t.status), detail: boundedText(256, anchors)(t.detail) };
+  };
+  const capability = (item: unknown) => {
+    const c = record(item);
+    return { capability: id(c.capability), status: word(c.status), activeProvider: orNull(id)(c.activeProvider) };
+  };
+  // A provider with no binary has `present: null` (health.ts:364); one the async pass added has neither `present` nor `version` (:322 to :332, :1179).
+  const provider = (item: unknown) => {
+    const p = record(item);
+    return {
+      id: id(p.id),
+      status: word(p.status),
+      present: optional(bool)(p.present),
+      answered: bool(p.answered),
+      durationMs: orNull(count)(p.durationMs),
+      version: optional(boundedText(128, anchors))(p.version),
+    };
+  };
+  // `probeFreshness` (health.ts:194) prints the dates and `behindMs` only in the states that have them.
+  const freshness = (item: unknown) => {
+    const f = record(item);
+    return {
+      providerId: id(f.providerId),
+      label: boundedText(64, anchors)(f.label),
+      state: word(f.state),
+      indexedAt: optional(iso)(f.indexedAt),
+      newestSourceAt: optional(iso)(f.newestSourceAt),
+      behindMs: optional(count)(f.behindMs),
+      reason: optional(boundedText(512, anchors))(f.reason),
+    };
+  };
+  const workerRow = (item: unknown) => {
+    const r = record(item);
+    const enabled = record(r.enabled);
+    return {
+      harness: harness(r.harness),
+      enabled: { state: id(enabled.state), position: orNull(count)(enabled.position), layer: orNull(oneOf(LAYERS))(record(enabled.origin).layer) },
+      eligible: bool(r.eligible),
+      firstGap: orNull((v) => {
+        const g = record(v);
+        return { requirement: id(g.requirement), result: id(g.result), reason: optional(id)(g.reason) };
+      })(r.firstGap),
+    };
+  };
+  const poolRow = (item: unknown) => {
+    const h = record(item);
+    const billing = record(h.effectiveBilling);
+    return {
+      harness: harness(h.harness),
+      installed: bool(h.installed),
+      loginState: id(h.loginState),
+      detectedMode: id(h.detectedMode),
+      effectiveBilling: { value: id(billing.value), source: id(billing.source), asserted: optional(date)(billing.asserted) },
+    };
+  };
+  const findings = firstOf(DOCTOR_ROWS, entry)(body.findings);
+  const warnings = firstOf(DOCTOR_ROWS, entry)(body.warnings);
+  const workers = record(body.workers);
+  const pool = record(body.workerPool);
+  return {
+    v: 1,
+    exit: context?.exit === 1 ? 1 : 0,
+    summary: {
+      probed: count(summary.probed),
+      healthy: count(summary.healthy),
+      unhealthy: count(summary.unhealthy),
+      absent: count(summary.absent),
+      unverified: count(summary.unverified),
+    },
+    findings: findings.rows,
+    findingsNotShown: findings.notShown,
+    warnings: warnings.rows,
+    warningsNotShown: warnings.notShown,
+    harnesses: each(harnessRow)(body.harnesses),
+    externalTools: each(tool)(body.externalTools),
+    capabilities: each(capability)(body.capabilities),
+    providers: each(provider)(body.providers),
+    freshness: each(freshness)(body.freshness),
+    workers: { state: id(workers.state), rows: each(workerRow)(workers.rows) },
+    workerPool: { state: id(pool.state), syncedAt: orNull(iso)(pool.syncedAt), harnesses: each(poolRow)(pool.harnesses) },
+  };
+}
+
+/** A list's length, or null when the core did not print it. */
+const tallyOf = (value: unknown): number | null => (value === undefined ? null : lengthOf(value));
+
+/**
+ * IC-010 `storage-report` (input `storage --action report --json`, src/runtime/storage/cli.ts:54 to :59 and
+ * engine.ts:151). The core starts every row at 0 (engine.ts:151), so a printed 0 is a count only when the store was
+ * read: a skipped store, a store whose own read failed (`failed` names the store) and every store of a stopped
+ * (`partial`) pass read null for `entries`, `bytes`, `wouldPrune` and `protected`, as does a figure the core does not
+ * print (FR-022). `root`, `location`, the `selected` and `failed` entries, `removed`, `mode` and `decidedBy` are never output.
+ */
+function storageReport(value: unknown, context?: Context) {
+  const anchors = anchorsIn(context);
+  const body = record(value);
+  const partial = bool(body.partial);
+  const setting = record(body.setting);
+  const store = (item: unknown) => {
+    const s = record(item);
+    const storeId = id(s.id);
+    if (typeof s.location !== 'string') fail();
+    const skipped = optional(id)(s.skipped);
+    const failed = tallyOf(s.failed);
+    const ownFailure = Array.isArray(s.failed) && s.failed.some((f) => record(f).name === storeId);
+    const figures = {
+      entries: optional(count)(s.entries),
+      bytes: optional(count)(s.bytes),
+      wouldPrune: tallyOf(s.selected),
+      protected: optional(count)(s.protected),
+    };
+    const counted = skipped === null && !ownFailure && !partial;
+    return {
+      id: storeId,
+      where: placePath(s.location, anchors),
+      bound: boundedText(256, anchors)(s.bound),
+      setting: id(s.setting),
+      ...(counted ? figures : { entries: null, bytes: null, wouldPrune: null, protected: null }),
+      failed,
+      skipped,
+    };
+  };
+  const stores = firstOf(STORES_SHOWN, store)(body.stores);
+  return {
+    v: 1,
+    partial,
+    durationMs: rate(body.durationMs),
+    setting: { project: id(setting.project), user: id(setting.user) },
+    stores: stores.rows,
+    storesNotShown: stores.notShown,
+  };
+}
+
+/**
+ * IC-011 `worker-matrix` (input IC-003). Every cell each group lists must be present for each harness, else the whole
+ * body is refused. A harness id outside `CLOSED_SETS.harnessIds` is kept as its id, so a harness the registry gains
+ * appears with no Console change (FR-018). Evidence stays text: no URL in it is parsed or checked (DEC-014).
+ * `registryVersion`, a harness's other fields and a cell's other fields are never read.
+ */
+function workerMatrix(value: unknown, context?: Context) {
+  const anchors = anchorsIn(context);
+  const body = record(value);
+  one(body.v);
+  const listed = record(body.groups);
+  const groups: Record<string, string[]> = Object.fromEntries(MATRIX_GROUPS.map((group) => [group, each(cellName)(listed[group])]));
+  const cell = (item: unknown) => {
+    const c = record(item);
+    return {
+      status: oneOf(MATRIX_STATUSES)(c.status),
+      declared: bool(c.declared),
+      evidence: each(boundedText(1024, anchors))(c.evidence),
+      verification: orNull(boundedText(4096, anchors))(c.verification),
+      verifiedOn: orNull(date)(c.verifiedOn),
+      reason: orNull(boundedText(1024, anchors))(c.reason),
+      fallback: orNull(id)(c.fallback),
+      cut: bool(c.cut),
+    };
+  };
+  const harnessEntry = (item: unknown) => {
+    const h = record(item);
+    const cells = record(h.cells);
+    return {
+      id: id(h.id),
+      billing: orNull(id)(h.billing),
+      profile: orNull(id)(h.profile),
+      cells: Object.fromEntries(MATRIX_GROUPS.map((group) => {
+        const given = record(cells[group]);
+        return [group, Object.fromEntries(groups[group].map((name) => [name, Object.hasOwn(given, name) ? cell(given[name]) : fail()]))];
+      })),
+    };
+  };
+  const harnesses = each(harnessEntry)(body.harnesses);
+  const counts = record(body.counts);
+  const limits = record(body.limits);
+  const shown = count(limits.shown);
+  if (shown !== harnesses.length) fail();
+  return {
+    v: 1,
+    groups,
+    harnesses,
+    counts: Object.fromEntries(MATRIX_GROUPS.map((group) => {
+      const tally = record(counts[group]);
+      return [group, Object.fromEntries(MATRIX_STATUSES.map((status) => [status, count(tally[status])]))];
+    })),
+    limits: { shown, notShown: count(limits.notShown), cellsNotShown: count(limits.cellsNotShown), cut: count(limits.cut) },
+  };
+}
+
 const PROJECTORS: Readonly<Record<string, (value: unknown, context?: any) => unknown>> = Object.freeze({
   list, status, timeline, attempts, workflow, capabilities, version,
   observed, slots, 'worker-status': workerStatus, roadmap,
   projects, tree, transcript, traffic,
   'worker-runs': workerRuns, 'worker-result': workerResult, 'worker-run-status': workerStatus, 'worker-log': workerLog,
   'config-list': configList, 'config-schema': configSchema, 'advise-report': adviseReport, 'advice-picks': advicePicks,
+  followups, 'followup-record': followupRecord, 'lifecycle-overview': lifecycleOverview, doctor, 'storage-report': storageReport, 'worker-matrix': workerMatrix,
 });
 const PROJECTOR_IDS: readonly string[] = Object.freeze(Object.keys(PROJECTORS));
 
@@ -1221,4 +1620,5 @@ function project(shapeId: string, value: unknown, context?: Context): Projected 
   }
 }
 
-module.exports = { ADVICE_MODES, CANDIDATE_STATUSES, CLOSED_SETS, FILE_CODES, LAYERS, OTHER_HARNESS, PROJECTOR_IDS, SCOPES, VIA, WITHHELD, project };
+module.exports = { ADVICE_MODES, CANDIDATE_STATUSES, CLOSED_SETS, FEATURE_BUCKETS, FILE_CODES, FOLLOWUP_STATES, LAYERS, MATRIX_GROUPS, MATRIX_STATUSES, OTHER_HARNESS,
+  PROJECTOR_IDS, RELEASE_MODES, SCOPES, SOURCE_KINDS, VIA, WITHHELD, project };
