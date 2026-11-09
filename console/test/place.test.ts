@@ -97,14 +97,14 @@ test('placeText replaces a project root outside the home folder, which maskLite 
 });
 
 test('a `\\` separator is read as `/` on every platform', () => {
-  const win = anchorsOf({ projectRoot: 'C:\\w\\app', home: 'C:\\Users\\kai' });
+  const win = anchorsOf({ projectRoot: 'C:\\w\\app', home: 'C:\\Users\\name' });
   assert.deepEqual(placePath('C:\\w\\app\\.doflow\\settings.json', win), { anchor: 'project', rel: '.doflow/settings.json' });
   assert.deepEqual(placePath('C:/w/app/.doflow/settings.json', win), { anchor: 'project', rel: '.doflow/settings.json' });
-  assert.deepEqual(placePath('C:\\Users\\kai\\AppData\\x.json', win), { anchor: 'home', rel: 'AppData/x.json' });
+  assert.deepEqual(placePath('C:\\Users\\name\\AppData\\x.json', win), { anchor: 'home', rel: 'AppData/x.json' });
   assert.deepEqual(placePath('core\\registry\\settings.json', win), { anchor: 'registry', rel: 'settings.json' });
   assert.deepEqual(placePath('D:\\elsewhere\\deep\\file.json', win), { anchor: 'other', rel: 'file.json' });
   // Text in either separator form loses the anchor value.
-  const out = placeText('at C:\\w\\app\\a.json and C:/w/app/b.json and C:/Users/kai/c', win);
+  const out = placeText('at C:\\w\\app\\a.json and C:/w/app/b.json and C:/Users/name/c', win);
   assert.equal(out, 'at <project>\\a.json and <project>/b.json and ~/c');
 });
 
@@ -130,7 +130,7 @@ test('registry, a safe relative path, and anything else as other with its last s
   assert.deepEqual(placePath('core/registry/', plain), { anchor: 'registry', rel: '' });
   assert.deepEqual(placePath('.doflow/settings.json', plain), { anchor: 'project', rel: '.doflow/settings.json' });
   assert.deepEqual(placePath('/etc/doflow/settings.json', plain), { anchor: 'other', rel: 'settings.json' });
-  assert.deepEqual(placePath('/Users/jane/private/plan.md', plain), { anchor: 'other', rel: 'plan.md' });
+  assert.deepEqual(placePath('/Users/example/private/plan.md', plain), { anchor: 'other', rel: 'plan.md' });
   assert.deepEqual(placePath('../outside/x.json', plain), { anchor: 'other', rel: 'x.json' });
   assert.deepEqual(placePath('~/x/y.json', plain), { anchor: 'other', rel: 'y.json' });
   assert.deepEqual(placePath('/opt/has space/bad name', plain), { anchor: 'other', rel: WITHHELD });
@@ -140,10 +140,10 @@ test('registry, a safe relative path, and anything else as other with its last s
 
 test('placeText places anchors, then maskLite masks a planted secret, email, IP and /home/<name> path', () => {
   const GH = 'ghp_abcdefghijklmnopqrstuvwxyz0123456789';
-  const text = `in ${PROJECT}/x.ts token ${GH} from jane.doe@example.invalid at 10.20.30.40 see /home/bob/notes.md`;
+  const text = `in ${PROJECT}/x.ts token ${GH} from jane.doe@example.invalid at 10.20.30.40 see /home/example/notes.md`;
   const out = placeText(text, plain);
   assert.equal(out, `in <project>/x.ts token ${MASKED} from ${EMAIL} at ${IP} see /home/${MASKED}/notes.md`);
-  for (const planted of [GH, 'jane.doe@example.invalid', '10.20.30.40', '/home/bob', ...valuesOf(plain)]) {
+  for (const planted of [GH, 'jane.doe@example.invalid', '10.20.30.40', '/home/example', ...valuesOf(plain)]) {
     assert.ok(!out.includes(planted), planted);
   }
   // Placing first and masking the whole result agrees with maskLite run over the placed text.
@@ -151,9 +151,9 @@ test('placeText places anchors, then maskLite masks a planted secret, email, IP 
 });
 
 test('boundedText withholds a result over its cap whole: no prefix of a planted value crosses the cut', () => {
-  const planted = '/home/bobsecret/notes.md';
+  const planted = '/home/example/notes.md';
   const cap = 64;
-  const filler = 'w'.repeat(1) + ' x'.repeat(26); // 53 bytes, so the planted value spans bytes 53 to 77
+  const filler = 'w'.repeat(1) + ' x'.repeat(26); // 53 bytes, so the planted value spans bytes 53 to 75
   const over = `${filler}${planted}`;
   assert.ok(Buffer.byteLength(filler) < cap && Buffer.byteLength(over) > cap, 'control: the planted value crosses the cap');
   const out = boundedText(cap, plain)(over);
