@@ -447,6 +447,8 @@ Workflow and evidence:
   worker-log       read a worker run's masked log (read-only)
   worker-result    read a worker run's result (read-only)
   worker-runs      list a feature's worker runs (read-only)
+  advice-picks     list advice picks per day and the newest picks (read-only)
+  worker-matrix    print the harness worker and orchestration matrix (read-only)
   package          list the contribution points a package may fill, check a package directory, list/show packages (read-only), add/update a local package (a plan, then --plan applies it), or enable/disable/trust/exempt/revoke/verify/remove one
   slot             named machine-wide queue: run a command as its one holder, list or release
   models           synchronize, list, or inspect observed models across workers (--action sync|list|describe)
@@ -577,7 +579,7 @@ shell_helper_for() {
 is_node_verb() {
   case "$1" in
     classify|workflow|route|evidence|claim|readiness|context-pack|context-emit|context-grant|retrieval-plan|outcome|scaffold|decision|intake|followup|lifecycle|goal|failure|verify|recover|leak-scan|\
-trace|stats|indicators|discover|inventory|capabilities|enforcement|doctor|config|orchestrate|research-request|task-attempt|worker|dispatch|retrieve|model-role|storage|brief-tools|advise|roadmap|plan-check|review|protocol|rules|primary|fleet|transcript|events|worker-log|worker-result|worker-runs|package|slot|models|worktree|attendance) return 0 ;;
+trace|stats|indicators|discover|inventory|capabilities|enforcement|doctor|config|orchestrate|research-request|task-attempt|worker|dispatch|retrieve|model-role|storage|brief-tools|advise|roadmap|plan-check|review|protocol|rules|primary|fleet|transcript|events|worker-log|worker-result|worker-runs|advice-picks|worker-matrix|package|slot|models|worktree|attendance) return 0 ;;
     *) return 1 ;;
   esac
 }

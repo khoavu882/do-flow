@@ -104,6 +104,8 @@ const ALLOWLIST: any = new Map([
   ['worker-log', 'read-only worker read for the Console Session screen (150 IC-002, IC-003, IC-004); the Console or a person runs it, so no skill calls it'],
   ['worker-result', 'read-only worker read for the Console Session screen (150 IC-002, IC-003, IC-004); the Console or a person runs it, so no skill calls it'],
   ['worker-runs', 'read-only worker read for the Console Session screen (150 IC-002, IC-003, IC-004); the Console or a person runs it, so no skill calls it'],
+  ['advice-picks', 'read-only read for the Console management screens (151 IC-001, IC-003); the Console or a person runs it, so no skill calls it'],
+  ['worker-matrix', 'read-only read for the Console management screens (151 IC-001, IC-003); the Console or a person runs it, so no skill calls it'],
   ['package', 'read-only contribution point listing (122 IC-012 `points`); no skill calls the package verb yet'],
   ['models', 'CLI model catalogue sync and inspection verb; invoked via doflow models'],
   ['worktree', 'autonomy plan 7c: `worktree --action cleanup` is run by the orchestrator or a person from the main checkout after a merge, by design; no skill calls it and none will'],
