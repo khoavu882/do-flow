@@ -1073,3 +1073,617 @@ test('handshake range check agrees with the core semver helper', () => {
   assert.throws(() => satisfiesRange('2.0.0', '^2.0.0'), /range/);
   assert.throws(() => satisfiesRange('2.0.0', '>=2.0.0'), /range/);
 });
+
+// ---- 151 B.3: the config-list, config-schema, advise-report and advice-picks projectors (IC-007, IC-008, IC-006) ----
+
+const { LAYERS, CANDIDATE_STATUSES, VIA, FILE_CODES, SCOPES, ADVICE_MODES } = require('../src/project.ts');
+const { anchorsOf, placeText, TOO_LONG } = require('../src/place.ts');
+
+const P_SECRET = 'ghp_abcdefghijklmnopqrstuvwxyz0123456789';
+const P_EMAIL = 'fx-person@example.invalid';
+const P_IP = '203.0.113.77';
+const P_URL_PASS = 'hunter2pass';
+const P_URL = `https://bob:${P_URL_PASS}@example.invalid/x`;
+const P_HOME = '/Users/fxperson';
+const P_OTHER_HOME = '/Users/otherperson';
+/** A project root, its layers and a config home outside any home folder: maskLite's home rule cannot see them. */
+const P_ROOT = '/srv/zz-proj-root';
+const P_LAYERS = '/srv/zz-main/.doflow';
+const P_CFG = '/opt/zz-cfghome/doflow';
+/** No projected body may hold any of these. */
+const PLANTED = [P_SECRET, P_EMAIL, P_IP, P_URL_PASS, 'bob:', 'fxperson', 'otherperson', 'zz-proj-root', 'zz-main', 'zz-cfghome', MARKER];
+const PLANTED_TEXT = `k ${P_SECRET} m ${P_EMAIL} i ${P_IP} u ${P_URL} h ${P_HOME}/code o ${P_OTHER_HOME}/x r ${P_ROOT}/a l ${P_LAYERS}/s c ${P_CFG}/y`;
+const PLACED_TEXT = 'k <masked> m <email> i <ip> u https://<masked>@example.invalid/x h ~/code o /Users/<masked>/x r <project>/a l <project layers>/s c <config home>/y';
+/** For the 128-byte field: placed, it fits. */
+const PLANTED_SHORT = `${P_SECRET} ${P_EMAIL} ${P_ROOT}/a`;
+/**
+ * For the reads whose body names no layers or config home (config-schema, advise-report): only the
+ * server's anchors apply there (IC-006), so the planted text names the project root and homes only.
+ */
+const PLANTED_BASE = `k ${P_SECRET} m ${P_EMAIL} i ${P_IP} u ${P_URL} h ${P_HOME}/code o ${P_OTHER_HOME}/x r ${P_ROOT}/a`;
+const PLACED_BASE = 'k <masked> m <email> i <ip> u https://<masked>@example.invalid/x h ~/code o /Users/<masked>/x r <project>/a';
+/** The server's base anchors (IC-006): the runner's project root and the home folder. The body adds the config home and the layers. */
+const ANCHORS = anchorsOf({ projectRoot: P_ROOT, home: P_HOME });
+const CTX = { anchors: ANCHORS, exit: 0 };
+/** A text over its cap starts with this; no part of it may reach a body (D12). */
+const LONG_HEAD = 'Q7long-head-planted';
+const overCap = (cap: number) => `${LONG_HEAD} ${'x'.repeat(cap)}`;
+
+const absent = (body: unknown) => PLANTED.filter((value) => JSON.stringify(body).includes(value));
+
+function meta151(over: Record<string, unknown> = {}) {
+  return { type: 'enum', values: ['off', 'on'], order: ['off', 'on'], default: 'on', scope: 'project-overridable', combine: 'override', securityRelevant: false,
+    env: { name: 'DOFLOW_PRUNE', parse: 'off-words', direction: 'narrow' }, flag: `--${MARKER}`, shellRead: MARKER, views: ['project', 'global'], needsConfigHome: false, description: PLANTED_TEXT, ...over };
+}
+function candidate151(over: Record<string, unknown> = {}) {
+  return { layer: 'user', source: `${P_CFG}/settings.json`, legacy: false, checkout: null, display: PLANTED_TEXT, value: `${MARKER} ${P_SECRET}`, status: 'overridden',
+    reason: PLANTED_TEXT, code: 'retired', ...over };
+}
+function resolution151(key: string, view: string, over: Record<string, unknown> = {}) {
+  return { key, view, value: 'on', state: 'ok', explicit: true,
+    origin: { layer: 'project', source: `${P_LAYERS}/settings.json`, legacy: false, checkout: 'main', via: null },
+    candidates: [candidate151({ layer: 'project', source: `${P_LAYERS}/settings.json`, status: 'decided', reason: null, code: null, display: '"on"' }), candidate151()],
+    meta: meta151(), ...over };
+}
+
+/** `config list --json` as src/runtime/settings/cli.ts:209 prints it, every text and path field planted. */
+function configListBody(): any {
+  return {
+    schema: 1, scope: 'project',
+    configHome: { dir: P_CFG, ignored: [`${P_HOME}/${MARKER}`] },
+    project: { root: P_ROOT, layersFrom: P_LAYERS, checkout: 'main' },
+    files: [
+      { layer: 'user', path: `${P_CFG}/settings.json`, kind: 'settings', legacyKind: null, checkout: null, status: 'ok', code: null, offset: null },
+      { layer: 'project', path: `${P_LAYERS}/settings.json`, kind: 'settings', legacyKind: null, checkout: 'main', status: 'invalid', code: 'unparseable', offset: 12 },
+      { layer: 'local', path: `${P_ROOT}/.doflow/settings.local.json`, kind: 'settings', legacyKind: null, checkout: 'own', status: 'absent', code: null, offset: null },
+      { layer: 'user', path: `${P_HOME}/legacy/${P_SECRET}`, kind: 'legacy', legacyKind: 'decision-model', checkout: null, status: 'absent', code: null, offset: null },
+      { layer: 'user', path: `${P_OTHER_HOME}/x/${P_EMAIL}`, kind: 'legacy', legacyKind: 'sentinel', checkout: null, status: 'invalid', code: 'not-file', offset: null },
+      { layer: 'project', path: P_URL, kind: 'legacy', legacyKind: 'line-onoff', checkout: null, status: 'absent', code: null, offset: null },
+    ],
+    keys: {
+      'advice.enabled': resolution151('advice.enabled', 'project', {
+        value: false, origin: { layer: 'default', source: null, legacy: false, checkout: null, via: 'fail-safe' }, candidates: [],
+        meta: meta151({ type: 'boolean', values: null, order: [false, true], default: false, scope: 'narrow-only', securityRelevant: true, env: null }) }),
+      'advice.endpoint': resolution151('advice.endpoint', 'project', { value: PLANTED_TEXT, meta: meta151({ type: 'url', values: null, default: P_URL, env: null }) }),
+      'storage.prune': {
+        project: resolution151('storage.prune', 'project'),
+        global: resolution151('storage.prune', 'global', {
+          origin: { layer: 'user', source: `${P_IP}/prune`, legacy: true, checkout: null, via: null },
+          candidates: [candidate151({ layer: 'user', source: `${P_CFG}/prune`, legacy: true, status: 'decided', reason: null, code: null, display: 'on' })] }),
+      },
+      'workers.models': resolution151('workers.models', 'project', {
+        value: { claude: ['light', 'standard'], [P_EMAIL]: 'x' }, meta: meta151({ type: 'worker-list', values: null, default: [] }) }),
+    },
+    errors: [
+      { key: 'advice.endpoint', layer: 'project', source: `${P_LAYERS}/settings.json`, legacy: false, code: 'unparseable', reason: PLANTED_TEXT, offset: 12 },
+      { key: null, layer: 'local', source: `${P_ROOT}/${P_IP}/s.json`, legacy: false, code: 'cross-key', reason: PLANTED_TEXT, offset: null },
+    ],
+    notes: [
+      { code: 'unknown-key', key: 'not.a-setting', source: `${P_CFG}/settings.json`, text: `"not.a-setting" is not a DoFlow setting (ignored) ${PLANTED_TEXT}` },
+      { code: 'unknown-key', key: P_EMAIL, source: `${P_ROOT}/${P_EMAIL}.json`, text: PLANTED_TEXT },
+      { code: 'scope', field: 'advice.enabled', source: `${P_LAYERS}/decision-model.json`, text: PLANTED_TEXT },
+      { code: 'scope', field: 'enabled', source: `${P_LAYERS}/decision-model.json`, text: PLANTED_TEXT },
+    ],
+  };
+}
+
+/** `config schema --json` as src/runtime/settings/config-write.ts:198 builds it, with presets, writable and locked planted. */
+function configSchemaBody(): any {
+  const key = (k: string, over: Record<string, unknown>) => ({ key: k, type: 'integer', values: null, order: null, tiers: null, min: null, max: null, maxItems: null, maxLength: null,
+    default: 2, scope: 'project-overridable', combine: 'override', description: PLANTED_BASE, securityRelevant: false, writable: true, locked: false, ...over });
+  return {
+    schema: 1,
+    keys: [
+      key('review.rounds', { min: 1, max: 3 }),
+      key('workers.models', { type: 'worker-list', tiers: ['light', 'standard', 'frontier'], maxItems: 4, default: [], securityRelevant: true, writable: false }),
+      key('advice.endpoint', { type: 'url', maxLength: 2048, min: -1.5, default: P_URL }),
+    ],
+    invariants: [
+      { id: 'INV-1', key: 'invariant.INV-1', locked: true, writable: false, statement: PLANTED_BASE, enforcedBy: PLANTED_SHORT, authorKinds: [MARKER] },
+      { id: 'INV-2', key: 'invariant.INV-2', locked: true, writable: false, statement: 'Seats are read-only', enforcedBy: 'review --action check' },
+    ],
+    presets: [{ id: 'deep', kind: 'review', depth: 'deep', seats: 3, rounds: 2, summary: `3 seats ${MARKER}` }],
+  };
+}
+
+const pctl = (n: number, p50: number | null, p90: number | null, p95: number | null) => ({ n, p50, p90, p95 });
+/** `advise --action report --json` as src/runtime/advice/report.ts:210 builds it. */
+function adviseReportBody(): any {
+  const empty = { n: { picks: 0, misses: 0 }, missesByReason: {}, agreeStatic: null, agreeOutcome: null, elevated: null, modes: null, durationMs: null, missDurationMs: null };
+  const arm = { picks: 1, top1Changed: { n: 1, changed: 0 }, meanRankDisplacement: { n: 1, mean: 0.5 } };
+  return {
+    schema: 1, scope: `this project only ${MARKER}`,
+    window: { from: '2026-08-11', to: '2026-11-09', maxAgeDays: 90 },
+    unreadable: 2,
+    kinds: {
+      tier: { n: { picks: 8, misses: 4 }, missesByReason: { timeout: 1, [P_EMAIL]: 1, 'bad reason': 1, [P_SECRET]: 1 }, agreeStatic: { n: 8, agree: 7 }, agreeOutcome: { n: 2, agree: 1 },
+        elevated: 0, modes: { shadow: 6, act: 1, unrecorded: 1 }, durationMs: pctl(8, 3239, 4764, 4764), missDurationMs: pctl(0, null, null, null) },
+      'task-class': empty,
+      adhoc: { ...empty, missesByReason: { 'provider-error': 2 } },
+    },
+    rerank: {
+      n: { picks: 1, misses: 0 }, withoutPayload: 0, missesByReason: {}, top1Changed: { n: 1, changed: 0 }, meanRankDisplacement: { n: 1, mean: 0.5 },
+      firstStageMs: { n: 1, p50: 12, p95: 12 }, arms: { choice: arm, ladder: { ...arm, picks: 0, meanRankDisplacement: null } },
+      criteria: { source: 'registry', digest: '9939ded87e67', warning: PLANTED_BASE, recorded: { n: 1, bySource: { registry: 1, settings: 0, unrecorded: 0 }, digests: { abcdefabcdef: 1, [MARKER]: 1 } } },
+      wouldDrop: { picks: 0, candidates: 0, illustrative: true, thresholds: [{ field: 'confidenceBelow', value: 0.5, wouldDrop: 0, ofCandidates: 0, top1WouldDrop: 0, ofPicks: 0 }] },
+    },
+    claimSupport: {
+      n: { picks: 2, misses: 1 }, withoutPayload: 1, missesByReason: { [`${MARKER} x`]: 1 },
+      byRelation: { supports: { n: 1, modelYes: 1, agree: 1 }, contradicts: { n: 0, modelYes: 0, agree: 0 } }, durationMs: { n: 2, p50: 10, p95: 20 },
+    },
+    verdicts: [
+      { kind: 'tier', model: 'qwen3:8b', arm: null, result: 'pass', stale: true, reason: PLANTED_BASE },
+      { kind: 'rerank', model: `${P_HOME}/model`, arm: 'ladder', result: null, stale: false, reason: null },
+    ],
+  };
+}
+
+/** Every UTC date from `from` to `to`, oldest first. */
+function dates(from: string, to: string): string[] {
+  const out: string[] = [];
+  for (let at = Date.parse(`${from}T00:00:00Z`); at <= Date.parse(`${to}T00:00:00Z`); at += 86_400_000) out.push(new Date(at).toISOString().slice(0, 10));
+  return out;
+}
+
+/** `doflow advice-picks --json` (IC-001), records planted with the fields the verb never prints. */
+function advicePicksBody(): any {
+  const days = dates('2026-08-11', '2026-11-09').map((day) => ({ day, coverage: 'read', unreadableLines: 0, picks: {} as Record<string, number> }));
+  days[90].picks = { tier: 2, adhoc: 1 };
+  days[89] = { ...days[89], coverage: 'unknown', unreadableLines: 3 };
+  return {
+    v: 1, window: { from: '2026-08-11', to: '2026-11-09', maxAgeDays: 90 }, kind: null,
+    kinds: ['tier', 'task-class', 'adhoc'], stores: { 'project-state': 'read', 'user-state': 'absent' },
+    days,
+    picks: [
+      { pickId: 'adv-1794210024568-a934bb', kind: 'tier', at: '2026-11-09T07:40:28.685Z', mode: 'shadow', pick: 'standard', static: 'standard', agree: true,
+        outcome: { actual: 'frontier', at: '2026-11-09T08:00:00.000Z', agree: false, source: MARKER }, question: `${MARKER} ${P_SECRET}`, instructions: MARKER, probabilities: { a: 1 } },
+      { pickId: null, kind: 'adhoc', at: '2026-11-09T07:00:00.000Z', mode: 'unrecorded', pick: '(withheld)', static: null, agree: null, outcome: null, options: [MARKER] },
+      { pickId: 'adv-1794208991309-929547', kind: 'tier', at: '2026-11-09T06:00:00.000Z', mode: 'act', pick: 'light', static: '(withheld)', agree: null, outcome: null },
+    ],
+    limits: { shown: 3, notShown: 4, skipped: 1 },
+  };
+}
+
+test('151: the six management closed sets match their core sources', () => {
+  const read = (file: string) => fs.readFileSync(path.join(CORE_SRC, file), 'utf8');
+  /** The quoted members of `type <name> = ...;`, in source order (`null` is not quoted). */
+  const typeUnion = (text: string, name: string) => {
+    const match = text.match(new RegExp(`^type ${name} = ([^;]*);`, 'm'));
+    if (!match) throw new assert.AssertionError({ message: `type ${name} not found` });
+    return [...match[1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
+  };
+  const resolve = read('settings/resolve.ts');
+  assert.deepEqual([...LAYERS], typeUnion(resolve, 'Layer'));
+  assert.deepEqual([...CANDIDATE_STATUSES], typeUnion(resolve, 'Status'));
+  assert.deepEqual([...VIA], typeUnion(resolve, 'Via'));
+  assert.deepEqual([...FILE_CODES], typeUnion(read('settings/files.ts'), 'LayerCode'));
+  const registry = JSON.parse(fs.readFileSync(path.join(CORE_SRC, '..', '..', 'core', 'registry', 'settings.json'), 'utf8'));
+  assert.deepEqual([...SCOPES].sort(), [...new Set(Object.values(registry.keys).map((spec: any) => spec.scope))].sort());
+  // ADVICE_MODES: the modes tally of kindFigures (src/runtime/advice/report.ts:50 to :54).
+  const modes = read('advice/report.ts').match(/const modes = \{([^}]*)\};/);
+  assert.ok(modes);
+  assert.deepEqual([...ADVICE_MODES], [...modes[1].matchAll(/([a-z]+): 0/g)].map((m) => m[1]));
+  for (const set of [LAYERS, CANDIDATE_STATUSES, VIA, FILE_CODES, SCOPES, ADVICE_MODES]) assert.ok(Object.isFrozen(set));
+});
+
+test('151 config-list: the IC-007 fields only; every text and path planted, none in the body; anchors absent', () => {
+  const result = project('config-list', configListBody(), CTX);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  const body = result.body;
+  assert.deepEqual(absent(body), [], 'no planted value');
+  assert.deepEqual(Object.keys(body), ['v', 'failSafe', 'scope', 'checkout', 'files', 'keys', 'errors', 'notes']);
+  assert.equal(body.v, 1);
+  assert.equal(body.failSafe, false);
+  assert.equal(body.scope, 'project');
+  assert.equal(body.checkout, 'main');
+  // The three anchor fields are never output, under any name.
+  const paths = keyPaths(body);
+  for (const name of ['root', 'layersFrom', 'configHome', 'dir', 'ignored', 'path', 'source']) assert.ok(!paths.some((p) => p.split(/[.[\]]+/).includes(name)), name);
+
+  assert.deepEqual(body.files.map((f: any) => f.where), [
+    { anchor: 'config-home', rel: 'settings.json' },
+    { anchor: 'project-layers', rel: 'settings.json' },
+    { anchor: 'project', rel: '.doflow/settings.local.json' },
+    { anchor: 'home', rel: WITHHELD },
+    { anchor: 'other', rel: WITHHELD },
+    { anchor: 'other', rel: 'x' },
+  ]);
+  assert.deepEqual(Object.keys(body.files[1]), ['layer', 'kind', 'legacyKind', 'checkout', 'status', 'code', 'offset', 'where']);
+  assert.deepEqual({ ...body.files[1], where: null }, { layer: 'project', kind: 'settings', legacyKind: null, checkout: 'main', status: 'invalid', code: 'unparseable', offset: 12, where: null });
+
+  // Registry order; one view per key, two for the dual storage.prune.
+  assert.deepEqual(body.keys.map((k: any) => [k.key, k.views.map((v: any) => v.view)]),
+    [['advice.enabled', ['project']], ['advice.endpoint', ['project']], ['storage.prune', ['project', 'global']], ['workers.models', ['project']]]);
+  const prune = body.keys[2];
+  assert.deepEqual(Object.keys(prune), ['key', 'views', 'meta']);
+  assert.deepEqual(Object.keys(prune.views[0]), ['view', 'value', 'state', 'explicit', 'origin', 'candidates']);
+  assert.deepEqual(prune.views[0].origin, { layer: 'project', where: { anchor: 'project-layers', rel: 'settings.json' }, legacy: false, checkout: 'main', via: null });
+  // A relative source the mask would change is not a project path: only its last segment is kept.
+  assert.deepEqual(prune.views[1].origin, { layer: 'user', where: { anchor: 'other', rel: 'prune' }, legacy: true, checkout: null, via: null });
+  assert.deepEqual(prune.views[1].candidates, [{ layer: 'user', where: { anchor: 'config-home', rel: 'prune' }, legacy: true, checkout: null, display: 'on', status: 'decided', reason: null, code: null }]);
+  const overridden = prune.views[0].candidates[1];
+  assert.deepEqual(Object.keys(overridden), ['layer', 'where', 'legacy', 'checkout', 'display', 'status', 'reason', 'code']);
+  assert.equal(overridden.display, PLACED_TEXT);
+  assert.equal(overridden.reason, PLACED_TEXT);
+  assert.deepEqual(Object.keys(prune.meta), ['type', 'values', 'default', 'scope', 'securityRelevant', 'env', 'description']);
+  assert.deepEqual(prune.meta, { type: 'enum', values: ['off', 'on'], default: 'on', scope: 'project-overridable', securityRelevant: false, env: 'DOFLOW_PRUNE', description: PLACED_TEXT });
+
+  const enabled = body.keys[0];
+  assert.deepEqual(enabled.views[0].origin, { layer: 'default', where: null, legacy: false, checkout: null, via: 'fail-safe' });
+  assert.deepEqual(enabled.meta, { type: 'boolean', values: null, default: false, scope: 'narrow-only', securityRelevant: true, env: null, description: PLACED_TEXT });
+  assert.equal(body.keys[1].views[0].value, PLACED_TEXT);
+  assert.equal(body.keys[1].meta.default, 'https://<masked>@example.invalid/x');
+  // An object value whose key is not a JSON key name is withheld whole.
+  assert.equal(body.keys[3].views[0].value, WITHHELD);
+
+  assert.deepEqual(body.errors, [
+    { key: 'advice.endpoint', layer: 'project', where: { anchor: 'project-layers', rel: 'settings.json' }, code: 'unparseable', reason: PLACED_TEXT },
+    { key: null, layer: 'local', where: { anchor: 'project', rel: WITHHELD }, code: 'cross-key', reason: PLACED_TEXT },
+  ]);
+  assert.deepEqual(body.notes, [
+    { code: 'unknown-key', key: 'not.a-setting', where: { anchor: 'config-home', rel: 'settings.json' }, text: `"not.a-setting" is not a DoFlow setting (ignored) ${PLACED_TEXT}` },
+    { code: 'unknown-key', key: null, where: { anchor: 'project', rel: WITHHELD }, text: PLACED_TEXT },
+    { code: 'scope', key: 'advice.enabled', where: { anchor: 'project-layers', rel: 'decision-model.json' }, text: PLACED_TEXT },
+    { code: 'scope', key: null, where: { anchor: 'project-layers', rel: 'decision-model.json' }, text: PLACED_TEXT },
+  ]);
+
+  // A note may name no file (SettingsNote.source is string | null, src/runtime/settings/resolve.ts:74).
+  const sourceless = configListBody();
+  sourceless.notes[0].source = null;
+  assert.equal(project('config-list', sourceless, CTX).body.notes[0].where, null);
+
+  // Control: the anchors the body adds are what keep the layers and the config home out of free text.
+  const baseOnly = placeText(PLANTED_TEXT, ANCHORS);
+  assert.ok(baseOnly.includes('zz-main') && baseOnly.includes('zz-cfghome'), 'the server anchors alone do not cover the body\'s own folders');
+});
+
+test('151 config-list: failSafe is context.exit === 1, and the body is data either way', () => {
+  assert.equal(project('config-list', configListBody(), { anchors: ANCHORS, exit: 1 }).body.failSafe, true);
+  assert.equal(project('config-list', configListBody(), { anchors: ANCHORS, exit: 0 }).body.failSafe, false);
+  assert.equal(project('config-list', configListBody(), { anchors: ANCHORS }).body.failSafe, false);
+  assert.throws(() => project('config-list', configListBody(), { exit: 0 }), /anchors/, 'a caller that passes no anchors is a defect, never a body with raw paths');
+});
+
+test('151 config-list: a global (-g) load with no project root, layers or config home', () => {
+  const raw = configListBody();
+  raw.scope = 'global';
+  raw.configHome = { dir: null, ignored: [] };
+  raw.project = { root: null, layersFrom: null, checkout: null };
+  raw.keys = { 'storage.prune': resolution151('storage.prune', 'global') };
+  const body = project('config-list', raw, CTX).body;
+  assert.equal(body.scope, 'global');
+  assert.equal(body.checkout, null);
+  assert.deepEqual(body.keys[0].views.map((v: any) => v.view), ['global']);
+  // With no layers or config home in the body there is no anchor for them: free text naming them keeps them
+  // (only the project root and home anchors apply), and every path field keeps its last segment only.
+  assert.deepEqual(absent(body).filter((v) => v !== 'zz-main' && v !== 'zz-cfghome'), []);
+  assert.ok(!JSON.stringify(body.files).includes('zz-'), 'no folder of a path field');
+});
+
+test('151 config-list: settingKey accepts every key of core/registry/settings.json', () => {
+  const registry = JSON.parse(fs.readFileSync(path.join(CORE_SRC, '..', '..', 'core', 'registry', 'settings.json'), 'utf8'));
+  const names = Object.keys(registry.keys);
+  assert.equal(names.length, 47);
+  const raw = configListBody();
+  raw.keys = Object.fromEntries(names.map((name) => [name, resolution151(name, 'project')]));
+  const result = project('config-list', raw, CTX);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual(result.body.keys.map((k: any) => k.key), names);
+  for (const bad of ['Advice.enabled', 'advice', 'advice..x', `a.${'b'.repeat(95)}`, 'a.b.c.d.e.f.g.h.i', 'a_b.c']) {
+    const r = configListBody();
+    r.keys = { [bad]: resolution151(bad, 'project') };
+    assert.deepEqual(project('config-list', r, CTX), MISMATCH, bad);
+  }
+});
+
+test('151 config-list: jsonValue keeps values within its bounds and reads (withheld) past each one', () => {
+  const valueOf = (value: unknown) => {
+    const raw = configListBody();
+    raw.keys = { 'workers.models': resolution151('workers.models', 'project', { value }) };
+    const result = project('config-list', raw, CTX);
+    assert.equal(result.ok, true, JSON.stringify(result));
+    return result.body.keys[0].views[0].value;
+  };
+  const list = (n: number) => Array.from({ length: n }, (_, i) => i);
+  const object = (n: number) => Object.fromEntries(list(n).map((i) => [`k${i}`, i]));
+  assert.deepEqual(valueOf(null), null);
+  assert.deepEqual(valueOf(true), true);
+  assert.deepEqual(valueOf(-2.5), -2.5);
+  assert.deepEqual(valueOf(list(64)), list(64));
+  assert.deepEqual(valueOf(list(65)), WITHHELD, 'an array of 65 items');
+  assert.deepEqual(valueOf(object(64)), object(64));
+  assert.deepEqual(valueOf(object(65)), WITHHELD, 'an object of 65 keys');
+  assert.deepEqual(valueOf({ 'a b': 1 }), WITHHELD, 'a key outside the JSON key pattern');
+  assert.deepEqual(valueOf({ [`k${'x'.repeat(64)}`]: 1 }), WITHHELD, 'a key of 65 characters');
+  assert.deepEqual(valueOf({ 'claude:model.v2-x': ['light'] }), { 'claude:model.v2-x': ['light'] });
+  assert.deepEqual(valueOf([[[[1]]]]), [[[[1]]]], 'nested 4 deep');
+  assert.deepEqual(valueOf([[[[[1]]]]]), [[[[WITHHELD]]]], 'nested 5 deep: the fifth level is withheld in its place');
+  assert.deepEqual(valueOf({ a: { b: { c: { d: 1 } } } }), { a: { b: { c: { d: 1 } } } }, 'objects nested 4 deep');
+  assert.deepEqual(valueOf({ a: { b: { c: { d: { e: 1 } } } } }), { a: { b: { c: { d: WITHHELD } } } }, 'objects nested 5 deep');
+  assert.deepEqual(valueOf('a'.repeat(2048)), 'a'.repeat(2048));
+  assert.deepEqual(valueOf(overCap(2048)), TOO_LONG, 'a string over 2048 bytes is withheld whole');
+  assert.deepEqual(valueOf([PLANTED_TEXT]), [PLACED_TEXT]);
+  assert.deepEqual(valueOf({ key: P_URL }), { key: 'https://<masked>@example.invalid/x' });
+  // A value the core never prints (no value) is a missing field.
+  const raw = configListBody();
+  delete raw.keys['advice.endpoint'].value;
+  assert.deepEqual(project('config-list', raw, CTX), MISMATCH);
+});
+
+test('151: a text over its cap is withheld whole, with no prefix of it in the body (D12)', () => {
+  const cases: Array<[string, string, number, (raw: any, text: string) => void, (body: any) => unknown]> = [
+    ['config-list', 'display', 256, (r, t) => { r.keys['storage.prune'].project.candidates[1].display = t; }, (b) => b.keys[2].views[0].candidates[1].display],
+    ['config-list', 'candidate reason', 512, (r, t) => { r.keys['storage.prune'].project.candidates[1].reason = t; }, (b) => b.keys[2].views[0].candidates[1].reason],
+    ['config-list', 'description', 1024, (r, t) => { r.keys['storage.prune'].project.meta.description = t; }, (b) => b.keys[2].meta.description],
+    ['config-list', 'error reason', 512, (r, t) => { r.errors[0].reason = t; }, (b) => b.errors[0].reason],
+    ['config-list', 'note text', 512, (r, t) => { r.notes[0].text = t; }, (b) => b.notes[0].text],
+    ['config-schema', 'statement', 512, (r, t) => { r.invariants[0].statement = t; }, (b) => b.invariants[0].statement],
+    ['config-schema', 'enforcedBy', 128, (r, t) => { r.invariants[0].enforcedBy = t; }, (b) => b.invariants[0].enforcedBy],
+    ['advise-report', 'criteria warning', 512, (r, t) => { r.rerank.criteria.warning = t; }, (b) => b.rerank.criteria.warning],
+    ['advise-report', 'verdict reason', 256, (r, t) => { r.verdicts[0].reason = t; }, (b) => b.verdicts[0].reason],
+  ];
+  const bodies: Record<string, () => any> = { 'config-list': configListBody, 'config-schema': configSchemaBody, 'advise-report': adviseReportBody };
+  for (const [shape, field, cap, plant, read] of cases) {
+    const at = bodies[shape]();
+    plant(at, 'y'.repeat(cap));
+    assert.equal(read(project(shape, at, CTX).body), 'y'.repeat(cap), `${field} at its cap`);
+    const over = bodies[shape]();
+    plant(over, overCap(cap));
+    const body = project(shape, over, CTX).body;
+    assert.equal(read(body), TOO_LONG, `${field} over its cap`);
+    assert.ok(!JSON.stringify(body).includes(LONG_HEAD.slice(0, 6)), `${field}: no prefix of the planted value`);
+    // Placement counts: a text that fits only before its anchors are replaced is judged on the placed result.
+    const placed = bodies[shape]();
+    plant(placed, `${P_ROOT}/${'z'.repeat(cap - '<project>/'.length)}`);
+    assert.equal(read(project(shape, placed, CTX).body), `<project>/${'z'.repeat(cap - '<project>/'.length)}`, `${field} placed at its cap`);
+  }
+});
+
+test('151 config-schema: ranges and invariants only; presets, writable and locked dropped', () => {
+  const result = project('config-schema', configSchemaBody(), CTX);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual(result.body, {
+    v: 1,
+    ranges: [
+      { key: 'review.rounds', min: 1, max: 3, maxItems: null, maxLength: null, tiers: null },
+      { key: 'workers.models', min: null, max: null, maxItems: 4, maxLength: null, tiers: ['light', 'standard', 'frontier'] },
+      { key: 'advice.endpoint', min: -1.5, max: null, maxItems: null, maxLength: 2048, tiers: null },
+    ],
+    invariants: [
+      { id: 'INV-1', statement: PLACED_BASE, enforcedBy: '<masked> <email> <project>/a' },
+      { id: 'INV-2', statement: 'Seats are read-only', enforcedBy: 'review --action check' },
+    ],
+  });
+  const text = JSON.stringify(result.body);
+  for (const dropped of ['presets', 'writable', 'locked', 'summary', 'authorKinds', 'description', 'default', 'scope']) assert.ok(!text.includes(`"${dropped}"`), dropped);
+  assert.deepEqual(absent(result.body), []);
+});
+
+test('151 advise-report: IC-008 fields; non-id reasons folded to (other); recorded.digests dropped; planted texts absent', () => {
+  const result = project('advise-report', adviseReportBody(), CTX);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  const body = result.body;
+  assert.deepEqual(absent(body), []);
+  assert.deepEqual(Object.keys(body), ['v', 'schema', 'window', 'unreadable', 'kinds', 'rerank', 'claimSupport', 'verdicts']);
+  assert.deepEqual([body.v, body.schema, body.window, body.unreadable], [1, 1, { from: '2026-08-11', to: '2026-11-09', maxAgeDays: 90 }, 2]);
+  assert.deepEqual(body.kinds.map((k: any) => k.kind), ['tier', 'task-class', 'adhoc']);
+  assert.deepEqual(body.kinds[0], {
+    kind: 'tier', n: { picks: 8, misses: 4 }, missesByReason: [{ reason: 'timeout', n: 1 }, { reason: '(other)', n: 3 }],
+    agreeStatic: { n: 8, agree: 7 }, agreeOutcome: { n: 2, agree: 1 }, elevated: 0, modes: { shadow: 6, act: 1, unrecorded: 1 },
+    durationMs: pctl(8, 3239, 4764, 4764), missDurationMs: pctl(0, null, null, null),
+  });
+  assert.deepEqual(body.kinds[1], { kind: 'task-class', n: { picks: 0, misses: 0 }, missesByReason: [], agreeStatic: null, agreeOutcome: null, elevated: null, modes: null, durationMs: null, missDurationMs: null });
+  assert.deepEqual(body.kinds[2].missesByReason, [{ reason: 'provider-error', n: 2 }]);
+  assert.deepEqual(body.rerank.criteria, { source: 'registry', digest: '9939ded87e67', warning: PLACED_BASE, recorded: { n: 1, bySource: { registry: 1, settings: 0, unrecorded: 0 } } });
+  assert.deepEqual(body.rerank.firstStageMs, { n: 1, p50: 12, p95: 12 });
+  assert.deepEqual(body.rerank.arms.ladder, { picks: 0, top1Changed: { n: 1, changed: 0 }, meanRankDisplacement: null });
+  assert.deepEqual(body.rerank.wouldDrop, { picks: 0, candidates: 0, thresholds: [{ field: 'confidenceBelow', value: 0.5, wouldDrop: 0, ofCandidates: 0, top1WouldDrop: 0, ofPicks: 0 }] });
+  assert.deepEqual(body.claimSupport, {
+    n: { picks: 2, misses: 1 }, withoutPayload: 1, missesByReason: [{ reason: '(other)', n: 1 }],
+    byRelation: { supports: { n: 1, modelYes: 1, agree: 1 }, contradicts: { n: 0, modelYes: 0, agree: 0 } }, durationMs: { n: 2, p50: 10, p95: 20 },
+  });
+  assert.deepEqual(body.verdicts, [
+    { kind: 'tier', model: 'qwen3:8b', arm: null, result: 'pass', stale: true, reason: PLACED_BASE },
+    { kind: 'rerank', model: WITHHELD, arm: 'ladder', result: null, stale: false, reason: null },
+  ]);
+  const text = JSON.stringify(body);
+  for (const dropped of ['digests', 'abcdefabcdef', 'illustrative', 'scope']) assert.ok(!text.includes(dropped), dropped);
+  // A report without the rerank and claim-support blocks (neither kind shown) reads them as null.
+  const narrow = adviseReportBody();
+  delete narrow.rerank;
+  delete narrow.claimSupport;
+  const n = project('advise-report', narrow, CTX).body;
+  assert.equal(n.rerank, null);
+  assert.equal(n.claimSupport, null);
+});
+
+test('151 advice-picks: every IC-001 field checked; planted record fields absent', () => {
+  const result = project('advice-picks', advicePicksBody(), CTX);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  const body = result.body;
+  assert.deepEqual(absent(body), []);
+  assert.deepEqual(Object.keys(body), ['v', 'window', 'kind', 'kinds', 'stores', 'days', 'picks', 'limits']);
+  assert.equal(body.days.length, 91);
+  assert.deepEqual(body.days[89], { day: '2026-11-08', coverage: 'unknown', unreadableLines: 3, picks: {} });
+  assert.deepEqual(body.days[90], { day: '2026-11-09', coverage: 'read', unreadableLines: 0, picks: { tier: 2, adhoc: 1 } });
+  assert.deepEqual(body.picks[0], { pickId: 'adv-1794210024568-a934bb', kind: 'tier', at: '2026-11-09T07:40:28.685Z', mode: 'shadow', pick: 'standard', static: 'standard', agree: true,
+    outcome: { actual: 'frontier', at: '2026-11-09T08:00:00.000Z', agree: false } });
+  assert.deepEqual(body.picks[1], { pickId: null, kind: 'adhoc', at: '2026-11-09T07:00:00.000Z', mode: 'unrecorded', pick: WITHHELD, static: null, agree: null, outcome: null });
+  assert.deepEqual(body.limits, { shown: 3, notShown: 4, skipped: 1 });
+  for (const dropped of ['question', 'instructions', 'probabilities', 'options', 'source']) assert.ok(!JSON.stringify(body).includes(`"${dropped}"`), dropped);
+  const one = advicePicksBody();
+  one.kind = 'tier';
+  one.kinds = ['tier'];
+  assert.equal(project('advice-picks', one, CTX).body.kind, 'tier');
+  // A value of the ANSWER form that the second mask pass would change (a token) is withheld in its place, as a label is.
+  const token = advicePicksBody();
+  token.picks[0].static = P_SECRET;
+  token.picks[0].outcome.actual = P_SECRET;
+  const masked = project('advice-picks', token, CTX).body;
+  assert.equal(masked.picks[0].static, WITHHELD);
+  assert.equal(masked.picks[0].outcome.actual, WITHHELD);
+  assert.deepEqual(absent(masked), []);
+  // A one-day window is exactly one day.
+  const short = advicePicksBody();
+  short.window = { from: '2026-11-09', to: '2026-11-09', maxAgeDays: 0 };
+  short.days = [short.days[90]];
+  assert.equal(project('advice-picks', short, CTX).ok, true);
+});
+
+const MUTATIONS_151: Record<string, [() => any, Array<[string, (raw: any) => void]>]> = {
+  'config-list': [configListBody, [
+    ['schema not 1', (r) => { r.schema = 2; }],
+    ['scope unknown', (r) => { r.scope = 'local'; }],
+    ['configHome missing', (r) => { delete r.configHome; }],
+    ['configHome.dir a number', (r) => { r.configHome.dir = 1; }],
+    ['project missing', (r) => { delete r.project; }],
+    ['project.root missing', (r) => { delete r.project.root; }],
+    ['project.layersFrom a number', (r) => { r.project.layersFrom = 7; }],
+    ['checkout not an id', (r) => { r.project.checkout = 'a b'; }],
+    ['files missing', (r) => { delete r.files; }],
+    ['file layer unknown', (r) => { r.files[0].layer = 'system'; }],
+    ['file kind unknown', (r) => { r.files[0].kind = 'other'; }],
+    ['file status unknown', (r) => { r.files[0].status = 'broken'; }],
+    ['file code unknown', (r) => { r.files[1].code = 'bad'; }],
+    ['file offset negative', (r) => { r.files[1].offset = -1; }],
+    ['file path missing', (r) => { delete r.files[0].path; }],
+    ['file path empty', (r) => { r.files[0].path = ''; }],
+    ['keys missing', (r) => { delete r.keys; }],
+    ['keys an array', (r) => { r.keys = []; }],
+    ['view key differs', (r) => { r.keys['advice.enabled'].key = 'advice.endpoint'; }],
+    ['view unknown', (r) => { r.keys['advice.enabled'].view = 'local'; }],
+    ['dual project view says global', (r) => { r.keys['storage.prune'].project.view = 'global'; }],
+    ['dual global view missing', (r) => { r.keys['storage.prune'] = { project: r.keys['storage.prune'].project }; }],
+    ['state unknown', (r) => { r.keys['advice.enabled'].state = 'stale'; }],
+    ['explicit a string', (r) => { r.keys['advice.enabled'].explicit = 'yes'; }],
+    ['origin missing', (r) => { delete r.keys['advice.enabled'].origin; }],
+    ['origin layer unknown', (r) => { r.keys['advice.enabled'].origin.layer = 'cli'; }],
+    ['origin via unknown', (r) => { r.keys['advice.enabled'].origin.via = 'guess'; }],
+    ['origin source a number', (r) => { r.keys['advice.enabled'].origin.source = 1; }],
+    ['origin legacy missing', (r) => { delete r.keys['advice.enabled'].origin.legacy; }],
+    ['candidates missing', (r) => { delete r.keys['advice.endpoint'].candidates; }],
+    ['candidate status unknown', (r) => { r.keys['advice.endpoint'].candidates[0].status = 'won'; }],
+    ['candidate source missing', (r) => { delete r.keys['advice.endpoint'].candidates[0].source; }],
+    ['candidate display a number', (r) => { r.keys['advice.endpoint'].candidates[0].display = 1; }],
+    ['candidate reason a number', (r) => { r.keys['advice.endpoint'].candidates[1].reason = 5; }],
+    ['candidate code not an id', (r) => { r.keys['advice.endpoint'].candidates[1].code = `x ${MARKER}`; }],
+    ['meta missing', (r) => { delete r.keys['advice.enabled'].meta; }],
+    ['meta scope unknown', (r) => { r.keys['advice.enabled'].meta.scope = 'project-only'; }],
+    ['meta securityRelevant a string', (r) => { r.keys['advice.enabled'].meta.securityRelevant = 'true'; }],
+    ['meta env not a DOFLOW_ name', (r) => { r.keys['advice.enabled'].meta.env = { name: 'HOME', parse: 'verbatim', direction: 'any' }; }],
+    ['meta env a bare name, not {name, parse, direction}', (r) => { r.keys['advice.enabled'].meta.env = 'DOFLOW_ADVICE_ENABLED'; }],
+    ['meta env name missing', (r) => { r.keys['advice.enabled'].meta.env = { parse: 'verbatim', direction: 'any' }; }],
+    ['meta values a container', (r) => { r.keys['storage.prune'].project.meta.values = [['off']]; }],
+    ['meta description missing', (r) => { delete r.keys['advice.enabled'].meta.description; }],
+    ['meta type not an id', (r) => { r.keys['advice.enabled'].meta.type = 'a b'; }],
+    ['errors missing', (r) => { delete r.errors; }],
+    ['error key not a setting key', (r) => { r.errors[0].key = 'Bad Key'; }],
+    ['error layer unknown', (r) => { r.errors[0].layer = 'cli'; }],
+    ['error reason missing', (r) => { delete r.errors[0].reason; }],
+    ['error code missing', (r) => { delete r.errors[0].code; }],
+    ['notes missing', (r) => { delete r.notes; }],
+    ['note text a number', (r) => { r.notes[0].text = 1; }],
+    ['note key a number', (r) => { r.notes[0].key = 1; }],
+    ['note with neither key nor field', (r) => { delete r.notes[2].field; }],
+    ['note source missing', (r) => { delete r.notes[0].source; }],
+    ['note source a number', (r) => { r.notes[0].source = 3; }],
+    ['note source empty', (r) => { r.notes[0].source = ''; }],
+  ]],
+  'config-schema': [configSchemaBody, [
+    ['schema missing', (r) => { delete r.schema; }],
+    ['keys missing', (r) => { delete r.keys; }],
+    ['range key not a setting key', (r) => { r.keys[0].key = 'Rounds'; }],
+    ['min a string', (r) => { r.keys[0].min = '1'; }],
+    ['max missing', (r) => { delete r.keys[0].max; }],
+    ['maxItems negative', (r) => { r.keys[1].maxItems = -1; }],
+    ['maxLength fractional', (r) => { r.keys[2].maxLength = 1.5; }],
+    ['tiers not ids', (r) => { r.keys[1].tiers = ['a b']; }],
+    ['invariants missing', (r) => { delete r.invariants; }],
+    ['invariant id missing', (r) => { delete r.invariants[0].id; }],
+    ['statement a number', (r) => { r.invariants[0].statement = 1; }],
+    ['enforcedBy missing', (r) => { delete r.invariants[1].enforcedBy; }],
+  ]],
+  'advise-report': [adviseReportBody, [
+    ['schema not 1', (r) => { r.schema = 2; }],
+    ['window missing', (r) => { delete r.window; }],
+    ['window.from not a date', (r) => { r.window.from = '2026-8-11'; }],
+    ['window.to an impossible date', (r) => { r.window.to = '2026-02-30'; }],
+    ['maxAgeDays a string', (r) => { r.window.maxAgeDays = '90'; }],
+    ['unreadable negative', (r) => { r.unreadable = -1; }],
+    ['kinds an array', (r) => { r.kinds = []; }],
+    ['kind name not an advice kind', (r) => { r.kinds.Tier = r.kinds.tier; }],
+    ['n.misses missing', (r) => { delete r.kinds.tier.n.misses; }],
+    ['missesByReason count a string', (r) => { r.kinds.tier.missesByReason.timeout = '1'; }],
+    ['agreeStatic.agree missing', (r) => { delete r.kinds.tier.agreeStatic.agree; }],
+    ['modes.act missing', (r) => { delete r.kinds.tier.modes.act; }],
+    ['durationMs.p90 missing on a kind', (r) => { delete r.kinds.tier.durationMs.p90; }],
+    ['durationMs.p50 negative', (r) => { r.kinds.tier.durationMs.p50 = -1; }],
+    ['elevated a string', (r) => { r.kinds.tier.elevated = '0'; }],
+    ['rerank not an object', (r) => { r.rerank = 'none'; }],
+    ['rerank arms.choice missing', (r) => { delete r.rerank.arms.choice; }],
+    ['rerank criteria source unknown', (r) => { r.rerank.criteria.source = 'env'; }],
+    ['rerank criteria digest not 12 hex', (r) => { r.rerank.criteria.digest = 'XYZ'; }],
+    ['rerank recorded.bySource missing', (r) => { delete r.rerank.criteria.recorded.bySource; }],
+    ['rerank threshold field unknown', (r) => { r.rerank.wouldDrop.thresholds[0].field = 'scoreBelow'; }],
+    ['rerank meanRankDisplacement.mean a string', (r) => { r.rerank.meanRankDisplacement.mean = '0.5'; }],
+    ['claimSupport byRelation.contradicts missing', (r) => { delete r.claimSupport.byRelation.contradicts; }],
+    ['claimSupport durationMs missing', (r) => { delete r.claimSupport.durationMs; }],
+    ['verdicts missing', (r) => { delete r.verdicts; }],
+    ['verdict stale missing', (r) => { delete r.verdicts[0].stale; }],
+    ['verdict kind not an advice kind', (r) => { r.verdicts[0].kind = 'Tier'; }],
+    ['verdict reason a number', (r) => { r.verdicts[0].reason = 3; }],
+  ]],
+  'advice-picks': [advicePicksBody, [
+    ['v is not 1', (r) => { r.v = 2; }],
+    ['window missing', (r) => { delete r.window; }],
+    ['kind not an advice kind', (r) => { r.kind = 'Tier'; }],
+    ['kinds not advice kinds', (r) => { r.kinds = ['tier', 'Bad']; }],
+    ['stores value unknown', (r) => { r.stores['user-state'] = 'maybe'; }],
+    ['stores missing', (r) => { delete r.stores; }],
+    ['days missing', (r) => { delete r.days; }],
+    ['days one short at the end', (r) => { r.days.pop(); }],
+    ['days one short at the start', (r) => { r.days.shift(); }],
+    ['days one too many', (r) => { r.days.push({ day: '2026-11-10', coverage: 'read', unreadableLines: 0, picks: {} }); }],
+    ['days out of order', (r) => { [r.days[3], r.days[4]] = [r.days[4], r.days[3]]; }],
+    ['days with a repeat', (r) => { r.days[5] = { ...r.days[4] }; }],
+    ['days empty', (r) => { r.days = []; }],
+    ['window from after to', (r) => { r.window.from = '2026-11-10'; }],
+    ['day coverage unknown', (r) => { r.days[0].coverage = 'partial'; }],
+    ['day unreadableLines negative', (r) => { r.days[0].unreadableLines = -1; }],
+    ['day picks kind not an advice kind', (r) => { r.days[90].picks = { Tier: 1 }; }],
+    ['day picks count a string', (r) => { r.days[90].picks = { tier: '2' }; }],
+    ['picks missing', (r) => { delete r.picks; }],
+    ['pickId malformed', (r) => { r.picks[0].pickId = 'adv-1'; }],
+    ['pick kind missing', (r) => { delete r.picks[0].kind; }],
+    ['pick at not ISO', (r) => { r.picks[0].at = 'today'; }],
+    ['mode outside ADVICE_MODES', (r) => { r.picks[0].mode = 'live'; }],
+    ['mode missing', (r) => { delete r.picks[0].mode; }],
+    ['pick a planted text', (r) => { r.picks[0].pick = `${P_EMAIL} ${MARKER}`; }],
+    ['pick missing', (r) => { delete r.picks[0].pick; }],
+    ['static not a string or null', (r) => { r.picks[0].static = 7; }],
+    ['agree a string', (r) => { r.picks[0].agree = 'yes'; }],
+    ['outcome.actual a planted text', (r) => { r.picks[0].outcome.actual = `${P_HOME}/x`; }],
+    ['outcome.at missing', (r) => { delete r.picks[0].outcome.at; }],
+    ['outcome.agree a string', (r) => { r.picks[0].outcome.agree = 'no'; }],
+    ['limits missing', (r) => { delete r.limits; }],
+    ['shown is not picks.length', (r) => { r.limits.shown = 2; }],
+    ['notShown negative', (r) => { r.limits.notShown = -1; }],
+    ['skipped missing', (r) => { delete r.limits.skipped; }],
+  ]],
+};
+
+for (const [shape, [build, cases]] of Object.entries(MUTATIONS_151)) {
+  test(`151 ${shape}: a missing or mistyped required field is core-contract-mismatch with no body`, () => {
+    assert.equal(project(shape, build(), CTX).ok, true, 'the unmutated body projects');
+    for (const [name, mutate] of cases) {
+      const raw = build();
+      mutate(raw);
+      assert.deepEqual(project(shape, raw, CTX), MISMATCH, name);
+    }
+    for (const raw of [null, [], 'text', 1]) assert.deepEqual(project(shape, raw, CTX), MISMATCH);
+  });
+}
+
+test('151: a pass-through projector would leak every planted value (control)', () => {
+  for (const build of [configListBody, configSchemaBody, adviseReportBody, advicePicksBody]) assert.ok(absent(build()).length > 0);
+});

@@ -11,6 +11,9 @@
 
 const { isSemVer } = require('./handshake.ts');
 const { maskLite } = require('./mask-lite.ts');
+// One contract-mismatch class for every projector: place.ts's `boundedText` throws it on a non-string,
+// and `project()` maps it to `core-contract-mismatch` (151 IC-006).
+const { Mismatch, anchorsOf, boundedText, placePath } = require('./place.ts');
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const LABEL = /^[A-Za-z0-9 ._:/@-]{1,64}$/;
@@ -101,6 +104,20 @@ const CLOSED_SETS = Object.freeze({
   logStates: Object.freeze(['waiting', 'open', 'gone', 'none']),
 });
 
+// 151 IC-007, IC-008: the closed sets of the management reads, each a copy project.test.ts checks against its source.
+/** src/runtime/settings/resolve.ts:54 `Layer` */
+const LAYERS: readonly string[] = Object.freeze(['env', 'local', 'project', 'user', 'default']);
+/** src/runtime/settings/resolve.ts:57 `Status` */
+const CANDIDATE_STATUSES: readonly string[] = Object.freeze(['decided', 'overridden', 'shadowed', 'redundant', 'ignored-scope', 'not-narrower', 'no-effect', 'invalid']);
+/** src/runtime/settings/resolve.ts:58 `Via`, null aside */
+const VIA: readonly string[] = Object.freeze(['fail-safe', 'cross-key', 'no-config-home']);
+/** src/runtime/settings/files.ts:26 `LayerCode` */
+const FILE_CODES: readonly string[] = Object.freeze(['unparseable', 'schema', 'too-large', 'not-file', 'unreadable']);
+/** the `scope` values of core/registry/settings.json keys */
+const SCOPES: readonly string[] = Object.freeze(['global-only', 'narrow-only', 'project-overridable']);
+/** src/runtime/advice/report.ts:50 to :54, the modes tally */
+const ADVICE_MODES: readonly string[] = Object.freeze(['shadow', 'act', 'unrecorded']);
+
 /** IC-022: the byte caps of the two text fields, re-checked here after the second masking pass (IC-024). */
 const TEXT_CAP_BYTES = 4096;
 const ARGS_CAP_BYTES = 512;
@@ -110,7 +127,6 @@ const CURSOR = /^[0-9]+:[0-9]+:[0-9]+:[0-9]+$/;
 type Check<T> = (value: unknown) => T;
 type Projected = { ok: true; body: any } | { ok: false; code: 'core-contract-mismatch' };
 
-class Mismatch extends Error {}
 const fail = (): never => {
   throw new Mismatch();
 };
@@ -748,6 +764,435 @@ function traffic(value: unknown) {
   };
 }
 
+// ---- 151 IC-007, IC-008: the Settings and Advice reads ----
+
+type Anchors = { project: string[]; projectLayers: string[]; configHome: string[]; home: string[] };
+type Context = { workflow?: unknown; exit?: number | null; anchors?: Anchors };
+const ANCHOR_GROUPS = ['project', 'projectLayers', 'configHome', 'home'] as const;
+
+/** The server's anchors (place.ts `anchorsOf`). A projector that places paths or text cannot run without them: a defect in the caller, so it throws. */
+function anchorsIn(context: Context | undefined): Anchors {
+  const anchors: any = context?.anchors;
+  const valid = anchors !== null && typeof anchors === 'object'
+    && ANCHOR_GROUPS.every((group) => Array.isArray(anchors[group]) && anchors[group].every((value: unknown) => typeof value === 'string'));
+  if (!valid) throw new TypeError('this projector needs context.anchors (place.ts anchorsOf)');
+  return anchors;
+}
+
+const mergeAnchors = (a: Anchors, b: Anchors): Anchors => ({
+  project: [...new Set([...a.project, ...b.project])],
+  projectLayers: [...new Set([...a.projectLayers, ...b.projectLayers])],
+  configHome: [...new Set([...a.configHome, ...b.configHome])],
+  home: [...new Set([...a.home, ...b.home])],
+});
+
+/** IC-007: a settings key, at most 96 characters (all 47 registry keys match). A key the mask would change is not one. */
+const SETTING_KEY = /^[a-z][A-Za-z0-9]*(?:[.-][A-Za-z0-9]+){1,7}$/;
+const isSettingKey = (value: unknown): value is string => typeof value === 'string' && value.length <= 96 && SETTING_KEY.test(value) && maskLite(value) === value;
+const settingKey: Check<string> = (value) => (isSettingKey(value) ? value : fail());
+/** 151 IC-005 `adviceKind` */
+const ADVICE_KIND = /^[a-z][a-z0-9-]{0,31}$/;
+const adviceKind: Check<string> = (value) => (typeof value === 'string' && ADVICE_KIND.test(value) ? value : fail());
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+const DAY_MS = 86_400_000;
+const dayMs = (value: string): number => Date.parse(`${value}T00:00:00Z`);
+/** A calendar date: the pattern, and the same date back from the clock (no 2026-02-30). */
+const date: Check<string> = (value) => {
+  if (typeof value !== 'string' || !DATE.test(value)) return fail();
+  const at = dayMs(value);
+  return !Number.isNaN(at) && new Date(at).toISOString().slice(0, 10) === value ? value : fail();
+};
+const num: Check<number> = (value) => (typeof value === 'number' && Number.isFinite(value) ? value : fail());
+const ENV_NAME = /^DOFLOW_[A-Z0-9_]{1,64}$/;
+/** IC-007 `env`: the variable name. The core prints `meta.env` as `null` or `{name, parse, direction}` (src/runtime/settings/registry.ts:327); only `name` is read. */
+const envName: Check<string> = (value) => {
+  const name = record(value).name;
+  return typeof name === 'string' && ENV_NAME.test(name) ? name : fail();
+};
+/** IC-001 `ANSWER`, or the verb's own withheld word. An answer the second mask pass would change is withheld, as `label` is. */
+const ANSWER = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
+const answer: Check<string> = (value) => {
+  if (typeof value !== 'string' || !(value === WITHHELD || ANSWER.test(value))) return fail();
+  return maskLite(value) === value ? value : WITHHELD;
+};
+/** `PICK_ID`, src/runtime/advice/record.ts:115 */
+const PICK_ID = /^adv-[0-9]{13}-[0-9a-f]{6}$/;
+const pickId: Check<string> = (value) => (typeof value === 'string' && PICK_ID.test(value) ? value : fail());
+const hex12: Check<string> = (value) => (typeof value === 'string' && HEAD12.test(value) ? value : fail());
+/** IC-008: a miss reason that is not an id is counted in this one row. */
+const OTHER_REASON = '(other)';
+
+/** A path field: a non-empty string, placed (IC-006). */
+const whereOf = (anchors: Anchors): Check<unknown> => (value) => (typeof value === 'string' && value !== '' ? placePath(value, anchors) : fail());
+
+/** IC-007 `jsonValue` bounds. */
+const JSON_TEXT_BYTES = 2048;
+const JSON_ITEMS = 64;
+const JSON_DEPTH = 4;
+const JSON_KEY = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
+
+/**
+ * IC-007 `jsonValue`: null, a boolean, a finite number, a string through `boundedText(2048)`, an array of
+ * at most 64 values or an object of at most 64 keys matching `JSON_KEY`, nested at most 4 deep. A value
+ * past a bound is `(withheld)` in its place; a missing value (undefined) is a contract mismatch.
+ */
+function jsonValue(anchors: Anchors): Check<unknown> {
+  const text = boundedText(JSON_TEXT_BYTES, anchors);
+  const walk = (value: unknown, depth: number): unknown => {
+    if (value === null || typeof value === 'boolean') return value;
+    if (typeof value === 'number') return Number.isFinite(value) ? value : WITHHELD;
+    if (typeof value === 'string') return text(value);
+    if (typeof value !== 'object') return fail();
+    if (depth > JSON_DEPTH) return WITHHELD;
+    if (Array.isArray(value)) return value.length > JSON_ITEMS ? WITHHELD : value.map((item) => walk(item, depth + 1));
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (entries.length > JSON_ITEMS || !entries.every(([key]) => JSON_KEY.test(key) && maskLite(key) === key)) return WITHHELD;
+    return Object.fromEntries(entries.map(([key, item]) => [key, walk(item, depth + 1)]));
+  };
+  return (value) => walk(value, 1);
+}
+
+/**
+ * IC-007 `config-list` (input `config list --json`, src/runtime/settings/cli.ts:209 to :250). The body's
+ * `configHome.dir`, `project.root` and `project.layersFrom` are read only to add anchors and are never
+ * output; `failSafe` is the runner's data exit 1 (IC-005).
+ */
+function configList(value: unknown, context?: Context) {
+  const body = record(value);
+  one(body.schema);
+  const home = record(body.configHome);
+  const where = record(body.project);
+  const own = anchorsOf({
+    projectRoot: orNull(text)(where.root) ?? '',
+    home: '',
+    configHome: orNull(text)(home.dir),
+    layersFrom: orNull(text)(where.layersFrom),
+  });
+  const anchors = mergeAnchors(anchorsIn(context), own);
+  const place = whereOf(anchors);
+  const json = jsonValue(anchors);
+  const layer = oneOf(LAYERS);
+  const scalar: Check<unknown> = (item) => (item !== null && typeof item === 'object' ? fail() : json(item));
+
+  const file = (item: unknown) => {
+    const f = record(item);
+    return {
+      layer: layer(f.layer),
+      kind: oneOf(['settings', 'legacy'])(f.kind),
+      legacyKind: orNull(id)(f.legacyKind),
+      checkout: orNull(id)(f.checkout),
+      status: oneOf(['absent', 'ok', 'invalid'])(f.status),
+      code: orNull(oneOf(FILE_CODES))(f.code),
+      offset: orNull(count)(f.offset),
+      where: place(f.path),
+    };
+  };
+  const candidate = (item: unknown) => {
+    const c = record(item);
+    return {
+      layer: layer(c.layer),
+      where: place(c.source),
+      legacy: bool(c.legacy),
+      checkout: orNull(id)(c.checkout),
+      display: orNull(boundedText(256, anchors))(c.display),
+      status: oneOf(CANDIDATE_STATUSES)(c.status),
+      reason: orNull(boundedText(512, anchors))(c.reason),
+      code: orNull(id)(c.code),
+    };
+  };
+  const metaOf = (item: unknown) => {
+    const m = record(item);
+    return {
+      type: id(m.type),
+      values: orNull(each(scalar))(m.values),
+      default: json(m.default),
+      scope: oneOf(SCOPES)(m.scope),
+      securityRelevant: bool(m.securityRelevant),
+      env: orNull(envName)(m.env),
+      description: boundedText(1024, anchors)(m.description),
+    };
+  };
+  /** One resolution of `key`; a dual key's two must be the view they are filed under. */
+  const viewOf = (key: string, expected: string | null) => (item: unknown) => {
+    const r = record(item);
+    if (r.key !== key) fail();
+    const view = oneOf(['project', 'global'])(r.view);
+    if (expected !== null && view !== expected) fail();
+    const origin = record(r.origin);
+    return {
+      view,
+      value: json(r.value),
+      state: oneOf(['ok', 'invalid'])(r.state),
+      explicit: bool(r.explicit),
+      origin: {
+        layer: layer(origin.layer),
+        where: orNull(place)(origin.source),
+        legacy: bool(origin.legacy),
+        checkout: orNull(id)(origin.checkout),
+        via: orNull(oneOf(VIA))(origin.via),
+      },
+      candidates: each(candidate)(r.candidates),
+    };
+  };
+  // Registry order is the core's key order. A dual key (`storage.prune` today) is `{project, global}` with no `key`, as safeReport reads it (cli.ts:37).
+  const keys = Object.entries(record(body.keys)).map(([key, raw]) => {
+    settingKey(key);
+    const entry = record(raw);
+    const dual = !Object.hasOwn(entry, 'key') && Object.hasOwn(entry, 'project') && Object.hasOwn(entry, 'global');
+    const views = dual ? [viewOf(key, 'project')(entry.project), viewOf(key, 'global')(entry.global)] : [viewOf(key, null)(entry)];
+    return { key, views, meta: metaOf(record(dual ? entry.project : entry).meta) };
+  });
+  const error = (item: unknown) => {
+    const e = record(item);
+    return {
+      key: orNull(settingKey)(e.key),
+      layer: orNull(layer)(e.layer),
+      where: place(e.source),
+      code: id(e.code),
+      reason: boundedText(512, anchors)(e.reason),
+    };
+  };
+  /** A note's `key` (a legacy note's `field`) names the file's own key, which need not be a setting: it is kept only when it is one. */
+  const noteKey = (n: Record<string, unknown>): string | null => {
+    const raw = Object.hasOwn(n, 'key') ? n.key : Object.hasOwn(n, 'field') ? n.field : fail();
+    if (raw === null) return null;
+    return typeof raw === 'string' ? (isSettingKey(raw) ? raw : null) : fail();
+  };
+  /** A note's `source` may be null (`SettingsNote`, src/runtime/settings/resolve.ts:74); a file's, a candidate's and an error's may not (:62, :69, :73). */
+  const note = (item: unknown) => {
+    const n = record(item);
+    return { code: id(n.code), key: noteKey(n), where: orNull(place)(n.source), text: boundedText(512, anchors)(n.text) };
+  };
+  return {
+    v: 1,
+    failSafe: context?.exit === 1,
+    scope: oneOf(['project', 'global'])(body.scope),
+    checkout: orNull(id)(where.checkout),
+    files: each(file)(body.files),
+    keys,
+    errors: each(error)(body.errors),
+    notes: each(note)(body.notes),
+  };
+}
+
+/** IC-007 `config-schema` (input src/runtime/settings/config-write.ts:198 to :221): ranges and invariants only; presets, writable and locked are never read. */
+function configSchema(value: unknown, context?: Context) {
+  const anchors = anchorsIn(context);
+  const body = record(value);
+  one(body.schema);
+  const range = (item: unknown) => {
+    const k = record(item);
+    return {
+      key: settingKey(k.key),
+      min: orNull(num)(k.min),
+      max: orNull(num)(k.max),
+      maxItems: orNull(count)(k.maxItems),
+      maxLength: orNull(count)(k.maxLength),
+      tiers: orNull(each(id))(k.tiers),
+    };
+  };
+  const invariant = (item: unknown) => {
+    const i = record(item);
+    return { id: id(i.id), statement: boundedText(512, anchors)(i.statement), enforcedBy: boundedText(128, anchors)(i.enforcedBy) };
+  };
+  return { v: 1, ranges: each(range)(body.keys), invariants: each(invariant)(body.invariants) };
+}
+
+const windowOf = (value: unknown) => {
+  const w = record(value);
+  return { from: date(w.from), to: date(w.to), maxAgeDays: count(w.maxAgeDays) };
+};
+
+/** IC-008: each reason that is an id (and that the mask leaves as it is) as its own row, in the core's order; every other one counted in one `(other)` row. */
+const missesByReason = (value: unknown) => {
+  const rows: Array<{ reason: string; n: number }> = [];
+  let other: number | null = null;
+  for (const [reason, n] of Object.entries(record(value))) {
+    const tally = count(n);
+    if (ID.test(reason) && maskLite(reason) === reason) rows.push({ reason, n: tally });
+    else other = (other ?? 0) + tally;
+  }
+  if (other !== null) rows.push({ reason: OTHER_REASON, n: other });
+  return rows;
+};
+
+const pickCounts = (value: unknown) => {
+  const n = record(value);
+  return { picks: count(n.picks), misses: count(n.misses) };
+};
+const agreement = (value: unknown) => {
+  const a = record(value);
+  return { n: count(a.n), agree: count(a.agree) };
+};
+const changed = (value: unknown) => {
+  const c = record(value);
+  return { n: count(c.n), changed: count(c.changed) };
+};
+const displacement = (value: unknown) => {
+  const d = record(value);
+  return { n: count(d.n), mean: rate(d.mean) };
+};
+/** `{n, p50, p90, p95}`; the rerank and claim-support blocks print no `p90`, so there it is kept only when present. */
+const percentiles = (p90Optional: boolean) => (value: unknown) => {
+  const p = record(value);
+  const n = count(p.n);
+  const p50 = orNull(rate)(p.p50);
+  const p95 = orNull(rate)(p.p95);
+  return p90Optional && !Object.hasOwn(p, 'p90') ? { n, p50, p95 } : { n, p50, p90: orNull(rate)(p.p90), p95 };
+};
+
+/** IC-008 `advise-report` (input `buildReport`, src/runtime/advice/report.ts:210 to :259). `scope`, `illustrative` and `recorded.digests` are never read. */
+function adviseReport(value: unknown, context?: Context) {
+  const anchors = anchorsIn(context);
+  const body = record(value);
+  const kindRow = ([kind, item]: [string, unknown]) => {
+    const k = record(item);
+    return {
+      kind: adviceKind(kind),
+      n: pickCounts(k.n),
+      missesByReason: missesByReason(k.missesByReason),
+      agreeStatic: orNull(agreement)(k.agreeStatic),
+      agreeOutcome: orNull(agreement)(k.agreeOutcome),
+      elevated: orNull(count)(k.elevated),
+      modes: orNull((v) => {
+        const m = record(v);
+        return { shadow: count(m.shadow), act: count(m.act), unrecorded: count(m.unrecorded) };
+      })(k.modes),
+      durationMs: orNull(percentiles(false))(k.durationMs),
+      missDurationMs: orNull(percentiles(false))(k.missDurationMs),
+    };
+  };
+  const arm = (item: unknown) => {
+    const a = record(item);
+    return { picks: count(a.picks), top1Changed: changed(a.top1Changed), meanRankDisplacement: orNull(displacement)(a.meanRankDisplacement) };
+  };
+  const threshold = (item: unknown) => {
+    const t = record(item);
+    return {
+      field: oneOf(['confidenceBelow', 'expectedBelow'])(t.field),
+      value: rate(t.value),
+      wouldDrop: count(t.wouldDrop),
+      ofCandidates: count(t.ofCandidates),
+      top1WouldDrop: count(t.top1WouldDrop),
+      ofPicks: count(t.ofPicks),
+    };
+  };
+  const rerank = (item: unknown) => {
+    const r = record(item);
+    const arms = record(r.arms);
+    const criteria = record(r.criteria);
+    const recorded = record(criteria.recorded);
+    const bySource = record(recorded.bySource);
+    const wouldDrop = record(r.wouldDrop);
+    return {
+      n: pickCounts(r.n),
+      withoutPayload: count(r.withoutPayload),
+      missesByReason: missesByReason(r.missesByReason),
+      top1Changed: changed(r.top1Changed),
+      meanRankDisplacement: orNull(displacement)(r.meanRankDisplacement),
+      firstStageMs: percentiles(true)(r.firstStageMs),
+      arms: { choice: arm(arms.choice), ladder: arm(arms.ladder) },
+      criteria: {
+        source: orNull(oneOf(['registry', 'settings']))(criteria.source),
+        digest: orNull(hex12)(criteria.digest),
+        warning: orNull(boundedText(512, anchors))(criteria.warning),
+        recorded: { n: count(recorded.n), bySource: { registry: count(bySource.registry), settings: count(bySource.settings), unrecorded: count(bySource.unrecorded) } },
+      },
+      wouldDrop: { picks: count(wouldDrop.picks), candidates: count(wouldDrop.candidates), thresholds: each(threshold)(wouldDrop.thresholds) },
+    };
+  };
+  const relation = (item: unknown) => {
+    const r = record(item);
+    return { n: count(r.n), modelYes: count(r.modelYes), agree: count(r.agree) };
+  };
+  const claimSupport = (item: unknown) => {
+    const c = record(item);
+    const byRelation = record(c.byRelation);
+    return {
+      n: pickCounts(c.n),
+      withoutPayload: count(c.withoutPayload),
+      missesByReason: missesByReason(c.missesByReason),
+      byRelation: { supports: relation(byRelation.supports), contradicts: relation(byRelation.contradicts) },
+      durationMs: percentiles(true)(c.durationMs),
+    };
+  };
+  const verdict = (item: unknown) => {
+    const v = record(item);
+    return {
+      kind: adviceKind(v.kind),
+      model: label(v.model),
+      arm: orNull(id)(v.arm),
+      result: orNull(id)(v.result),
+      stale: bool(v.stale),
+      reason: orNull(boundedText(256, anchors))(v.reason),
+    };
+  };
+  return {
+    v: 1,
+    schema: one(body.schema),
+    window: windowOf(body.window),
+    unreadable: count(body.unreadable),
+    kinds: Object.entries(record(body.kinds)).map(kindRow),
+    // The core prints these two blocks only when their kind is shown (report.ts:254, :255).
+    rerank: optional(rerank)(body.rerank),
+    claimSupport: optional(claimSupport)(body.claimSupport),
+    verdicts: each(verdict)(body.verdicts),
+  };
+}
+
+/** IC-008 `advice-picks` (input IC-001): every field checked; `days` exactly the dates from `window.from` to `window.to`; `limits.shown` the picks listed. */
+function advicePicks(value: unknown) {
+  const body = record(value);
+  const span = windowOf(body.window);
+  const day = (item: unknown) => {
+    const d = record(item);
+    return {
+      day: date(d.day),
+      coverage: oneOf(['read', 'unknown'])(d.coverage),
+      unreadableLines: count(d.unreadableLines),
+      picks: Object.fromEntries(Object.entries(record(d.picks)).map(([kind, n]) => [adviceKind(kind), count(n)])),
+    };
+  };
+  const days = each(day)(body.days);
+  const start = dayMs(span.from);
+  days.forEach((d, index) => {
+    if (d.day !== new Date(start + index * DAY_MS).toISOString().slice(0, 10)) fail();
+  });
+  if (days.length === 0 || days[days.length - 1].day !== span.to) fail();
+  const outcome = (item: unknown) => {
+    const o = record(item);
+    return { actual: answer(o.actual), at: iso(o.at), agree: orNull(bool)(o.agree) };
+  };
+  const pick = (item: unknown) => {
+    const p = record(item);
+    return {
+      pickId: orNull(pickId)(p.pickId),
+      kind: adviceKind(p.kind),
+      at: iso(p.at),
+      mode: oneOf(ADVICE_MODES)(p.mode),
+      pick: answer(p.pick),
+      static: orNull(answer)(p.static),
+      agree: orNull(bool)(p.agree),
+      outcome: orNull(outcome)(p.outcome),
+    };
+  };
+  const picks = each(pick)(body.picks);
+  const limits = record(body.limits);
+  const shown = count(limits.shown);
+  if (shown !== picks.length) fail();
+  const stores = Object.fromEntries(Object.entries(record(body.stores)).map(([store, state]) => [id(store), oneOf(['read', 'absent', 'unreadable'])(state)]));
+  return {
+    v: one(body.v),
+    window: span,
+    kind: orNull(adviceKind)(body.kind),
+    kinds: each(adviceKind)(body.kinds),
+    stores,
+    days,
+    picks,
+    limits: { shown, notShown: count(limits.notShown), skipped: count(limits.skipped) },
+  };
+}
+
 /** `version` is the trimmed `--version` line, not JSON. */
 const version = (value: unknown) => (isSemVer(value) ? value : fail());
 
@@ -756,15 +1201,17 @@ const PROJECTORS: Readonly<Record<string, (value: unknown, context?: any) => unk
   observed, slots, 'worker-status': workerStatus, roadmap,
   projects, tree, transcript, traffic,
   'worker-runs': workerRuns, 'worker-result': workerResult, 'worker-run-status': workerStatus, 'worker-log': workerLog,
+  'config-list': configList, 'config-schema': configSchema, 'advise-report': adviseReport, 'advice-picks': advicePicks,
 });
 const PROJECTOR_IDS: readonly string[] = Object.freeze(Object.keys(PROJECTORS));
 
 /**
  * The projected body of a core output, or `core-contract-mismatch`. `status` takes
- * `{ workflow }`, the projected `workflow` body of the run's class. An unknown shape id is a defect
- * in the caller and throws.
+ * `{ workflow }`, the projected `workflow` body of the run's class. The 151 projectors take
+ * `anchors` (place.ts `anchorsOf`) and `config-list` takes the runner's `exit` (IC-005). An unknown
+ * shape id, or a placing projector called without anchors, is a defect in the caller and throws.
  */
-function project(shapeId: string, value: unknown, context?: { workflow?: unknown }): Projected {
+function project(shapeId: string, value: unknown, context?: Context): Projected {
   if (!Object.hasOwn(PROJECTORS, shapeId)) throw new TypeError(`no projector for shape '${shapeId}'`);
   try {
     return { ok: true, body: PROJECTORS[shapeId](value, context) };
@@ -774,4 +1221,4 @@ function project(shapeId: string, value: unknown, context?: { workflow?: unknown
   }
 }
 
-module.exports = { CLOSED_SETS, OTHER_HARNESS, PROJECTOR_IDS, WITHHELD, project };
+module.exports = { ADVICE_MODES, CANDIDATE_STATUSES, CLOSED_SETS, FILE_CODES, LAYERS, OTHER_HARNESS, PROJECTOR_IDS, SCOPES, VIA, WITHHELD, project };
