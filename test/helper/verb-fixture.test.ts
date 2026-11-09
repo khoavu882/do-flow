@@ -22,8 +22,8 @@ test('followupStatement is 172 characters with a numbered prefix', () => {
   assert.ok(followupStatement(7).startsWith('Fixture follow-up 007: x'));
 });
 
-test('IC-009 rows are the 29 table rows', () => {
-  assert.equal(IC009_ROWS.length, 29);
+test('IC-009 rows are the 31 table rows', () => {
+  assert.equal(IC009_ROWS.length, 31);
 });
 
 test('normalize maps the fixture root, HOME and repo root, given and real path', () => {
