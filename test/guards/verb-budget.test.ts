@@ -49,7 +49,7 @@ const CEILINGS: readonly (readonly [string, number, number])[] = [
   ['git-state --json', 0, 320], // 276 B
   ['inventory --json', 0, 1088], // 1,002 B
   ['attendance --task-id x --json', 0, 64], // 55 B
-  ['help', 0, 6144], // 5,807 B (text; the verb has no JSON form)
+  ['help', 0, 6656], // 6,282 B (text; the verb has no JSON form; 151: the advice-picks and worker-matrix usage lines)
   ['prereqs --json', 0, 128], // 113 B
   ['models --action list --json', 0, 64], // 19 B
   ['protocol --action list --json', 0, 2688], // 2,522 B
