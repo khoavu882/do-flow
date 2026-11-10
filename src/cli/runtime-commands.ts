@@ -289,6 +289,11 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
   // (FR-013, IC-009). A well-formed slug that names no feature is the verbs' own business.
   const refusal = invalidSlugRefusal(o.slug);
   if (refusal) {
+    if (o.cmd === 'worker' || o.cmd === 'worker-log' || o.cmd === 'worker-result' || o.cmd === 'worker-runs') {
+      if (o.json) console.log(JSON.stringify({ v: 1, ok: false, error: 'usage' }, null, 2));
+      else console.error(`doflow ${o.cmd}: '${o.slug}' is not a valid feature slug`);
+      return finishRuntime(2);
+    }
     if (o.json) console.log(JSON.stringify(refusal, null, 2));
     else console.error(`doflow ${o.cmd}: ${refusal.error}: ${refusal.message}`);
     return finishRuntime(2);

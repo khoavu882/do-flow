@@ -2536,6 +2536,7 @@ test('E.7 sessions: the Sessions nav link is current on #/sessions and only ther
   assert.deepEqual(current(page), ['Sessions']);
   page.location.hash = '#/workflows';
   page.win.dispatch('hashchange');
+  await settle();
   assert.deepEqual(current(page), ['Workflows']);
 });
 
@@ -4890,7 +4891,7 @@ test('C.5 VIEWS.session: inspectable, IC-017 shapes equal to SESSION_SHAPES, the
   assert.deepEqual(data, { run: { target: '/api/runs/feat-a/run-1' }, workers: { target: '/api/worker-runs/feat-a' }, workersError: null });
 });
 
-test('C.5 import cycle: session.js imported before views.js in a fresh module graph loads both, and reading a session.js const at views.js init would not', () => {
+test('C.5 leaf module: session.js imported before views.js in a fresh module graph loads both without circular TDZ', () => {
   const { spawnSync } = require('node:child_process');
   const probe = (root: string) => spawnSync(process.execPath, ['--input-type=module', '-e', [
     `const session = await import(${JSON.stringify(pathToFileURL(path.join(root, 'views', 'session.js')).href)});`,
@@ -4901,21 +4902,20 @@ test('C.5 import cycle: session.js imported before views.js in a fresh module gr
   const result = probe(copy);
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(JSON.parse(result.stdout), { same: true, keys: true, route: 'session' });
-  // Control: views.js reading SESSION_SHAPES while its table is built fails in that order (the temporal dead zone).
-  const broken = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-ui-cycle-'));
+  // With leaf routes.js, views.js eagerly reading SESSION_SHAPES also succeeds (no circular TDZ).
+  const verified = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-ui-cycle-'));
   try {
-    fs.cpSync(copy, broken, { recursive: true });
-    const file = path.join(broken, 'views.js');
+    fs.cpSync(copy, verified, { recursive: true });
+    const file = path.join(verified, 'views.js');
     const source = fs.readFileSync(file, 'utf8');
     const literal = /shapes: \['status', 'timeline', 'attempts', 'workflow', 'worker-runs',[^\]]*\],/.exec(source);
     assert.ok(literal, 'the inline shapes list is in views.js');
     if (literal === null) return;
     fs.writeFileSync(file, source.replace(literal[0], 'shapes: SESSION_SHAPES,').replace('  sessionApi, loadSession,', '  SESSION_SHAPES, sessionApi, loadSession,'));
-    const failed = probe(broken);
-    assert.notEqual(failed.status, 0, 'control: the eager read fails');
-    assert.match(failed.stderr, /ReferenceError/);
+    const eager = probe(verified);
+    assert.equal(eager.status, 0, eager.stderr);
   } finally {
-    fs.rmSync(broken, { recursive: true, force: true });
+    fs.rmSync(verified, { recursive: true, force: true });
   }
 });
 

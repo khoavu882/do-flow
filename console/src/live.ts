@@ -216,15 +216,35 @@ const INO = /^[0-9]{1,20}$/;
 /** IC-001 pieces of a core log frame covering [from, to), offsets rising, each text masked again by `maskLite` (FR-018); null when malformed. */
 function logPieces(value: unknown, from: number, to: number): LogPiece[] | null {
   if (!Array.isArray(value)) return null;
-  const pieces: LogPiece[] = [];
+  const rawPieces: LogPiece[] = [];
   let last = -1;
   for (const piece of value) {
     if (!isPlainObject(piece) || !isCount(piece.at) || typeof piece.text !== 'string' || (Object.hasOwn(piece, 'cut') && piece.cut !== true)) return null;
     if (piece.at <= last || piece.at < from || piece.at >= to) return null;
     last = piece.at;
-    pieces.push(piece.cut === true ? { at: piece.at, text: maskLite(piece.text), cut: true } : { at: piece.at, text: maskLite(piece.text) });
+    rawPieces.push(piece.cut === true ? { at: piece.at, text: piece.text, cut: true } : { at: piece.at, text: piece.text });
   }
-  return pieces;
+  let i = 0;
+  while (i < rawPieces.length) {
+    let j = i;
+    while (j < rawPieces.length && rawPieces[j].cut === true) j++;
+    const end = Math.min(rawPieces.length, j + 1);
+    const run = rawPieces.slice(i, end);
+    if (run.length === 1) {
+      run[0].text = maskLite(run[0].text);
+    } else {
+      const joined = run.map((p) => p.text).join('');
+      const masked = maskLite(joined);
+      let pos = 0;
+      for (let k = 0; k < run.length; k++) {
+        const next = k === run.length - 1 ? masked.length : pos + run[k].text.length;
+        run[k].text = masked.slice(pos, next);
+        pos = next;
+      }
+    }
+    i = end;
+  }
+  return rawPieces;
 }
 
 /** IC-007 `phase` and `end`: null or a string, null or `{capped: null | boolean}`. */

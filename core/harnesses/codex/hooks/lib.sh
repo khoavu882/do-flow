@@ -108,15 +108,24 @@ _with_file_lock_break_if_stale() {
   local mtime
   mtime=$(stat -f %m "$lockfile" 2>/dev/null || stat -c %Y "$lockfile" 2>/dev/null || echo "")
   if [ -n "$mtime" ]; then
+    local age=$(($(date +%s) - mtime))
+    if [ -z "$owner_pid" ] && [ "$age" -ge 1 ]; then
+      owner_dead=1
+    fi
     local max_age=$((timeout_seconds * 5))
     [ "$max_age" -lt 30 ] && max_age=30
-    if [ $(($(date +%s) - mtime)) -gt "$max_age" ]; then
+    if [ "$age" -gt "$max_age" ]; then
       too_old=1
     fi
+  elif [ -z "$owner_pid" ]; then
+    owner_dead=1
   fi
 
   if [ "$owner_dead" -eq 1 ] || [ "$too_old" -eq 1 ]; then
-    rm -rf "$lockfile" 2>/dev/null || true
+    local stale_lock="${lockfile}.stale.$$"
+    if mv "$lockfile" "$stale_lock" 2>/dev/null; then
+      rm -rf "$stale_lock" 2>/dev/null || true
+    fi
   fi
 }
 

@@ -41,6 +41,8 @@ function install(probeFile: string) {
     copyFile: fs.copyFile,
     promisesOpen: fs.promises.open,
     promisesReadFile: fs.promises.readFile,
+    promisesCopyFile: fs.promises.copyFile,
+    openAsBlob: fs.openAsBlob,
     writeSync: fs.writeSync,
     closeSync: fs.closeSync,
   };
@@ -74,6 +76,8 @@ function install(probeFile: string) {
   fs.copyFile = wrap(original.copyFile);
   fs.promises.open = wrap(original.promisesOpen);
   fs.promises.readFile = wrap(original.promisesReadFile);
+  if (typeof (fs.promises as any).copyFile === 'function') fs.promises.copyFile = wrap(original.promisesCopyFile);
+  if (typeof (fs as any).openAsBlob === 'function') (fs as any).openAsBlob = wrap(original.openAsBlob);
   // An ES module that imports node:fs by name sees the wrapped functions too.
   require('node:module').syncBuiltinESMExports();
 }

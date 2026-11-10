@@ -9,8 +9,8 @@ import {
   awaitingGateOf, waitStamp, waitText, describeGate, tileFacts, stepPart, stepFraction, progressOf, stepNumber,
 } from '../derive/rail.js';
 import { railCompact, railFallback } from './rail.js';
-// views.js imports this module too; `hashFor` is a function declaration, read only when a row is built.
-import { hashFor } from '../views.js';
+// Leaf module routes.js provides hashFor without circular dependency.
+import { hashFor } from '../routes.js';
 
 /** How many finished runs the list shows before "Show all". */
 const FINISHED_CAP = 10;

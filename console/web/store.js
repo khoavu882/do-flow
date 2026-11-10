@@ -484,7 +484,9 @@ function createLiveStore(options) {
     if (down || opened === null || !event || typeof event.state !== 'string') return;
     const { state } = event;
     emitTransport(state, typeof event.code === 'string' ? event.code : null, event.at ?? clock.now());
-    if (state === 'retrying') {
+    if (state === 'open') {
+      retrying = 0;
+    } else if (state === 'retrying') {
       retrying += 1;
       if (retrying >= RETRYING_LIMIT) {
         closeAdapter();

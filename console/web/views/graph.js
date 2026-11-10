@@ -9,8 +9,8 @@ import { isKey } from '../keys.js';
 import { h, icon, mount, SVG_NS } from '../dom.js';
 import { showPanel, hidePanel } from '../shell.js';
 import { sinceStamp, formatDuration } from '../derive/rail.js';
-// views.js imports this module too; `hashFor` is a function declaration, read only when the view is built.
-import { hashFor } from '../views.js';
+// Leaf module routes.js provides hashFor without circular dependency.
+import { hashFor } from '../routes.js';
 import { withReplay } from './replay.js';
 import {
   GEOMETRY, mergeTasks, attemptsByTask, layoutGraph, placeBoard, edgePath, moveFocus, stateFace, STATE_FACE, reasonWords, unresolvedWords, attemptList,

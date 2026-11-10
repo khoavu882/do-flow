@@ -59,6 +59,21 @@ and isolated:
 Global settings
 Section titled “Global settings”
 Global settings apply across all workspaces:
+Interface layout
+(
+v2.30.0+
+, personal Google Accounts): Switch between
+the
+Knowledge Work
+and
+Software Engineering
+interface layouts
+under
+General
+>
+Interface
+Layout
+.
 Account settings
 : Manage authentication sessions and toggle telemetry
 (enable or disable sharing interaction logs to improve models).
@@ -188,6 +203,185 @@ Shortcuts
 : View and customize keyboard shortcut configurations.
 Feedback
 : Access the feedback form to send reports directly to the team.
+Interface layout
+Section titled “Interface layout”
+When signed in with a personal Google Account,
+Settings
+>
+General
+>
+Interface Layout
+(
+v2.30.0+
+) lets you choose between two interface
+configurations for the Antigravity App:
+Knowledge Work
+:
+Simplified interface for research, writing, and everyday
+tasks.
+Keeps focus on conversation, documents, artifacts, and folder outputs
+while hiding Git, terminal, and code-diff controls.
+Software Engineering
+:
+Full interface for coding, developer tools, and
+managing agents.
+Exposes Git worktrees and branch controls, inline diffs and
+change review, integrated terminals, subagent cards, and full customization
+lists.
+During
+first-launch setup
+with a personal Google
+Account, Antigravity picks an initial layout based on the role you select
+(
+Knowledge Work
+for
+Knowledge Work
+,
+Science
+,
+Design
+, and
+Other
+;
+Software Engineering
+for
+Software Engineering
+and
+Data &#x26; Analytics
+), or
+starts in
+Software Engineering
+if you click
+Skip
+. Business and
+Gemini Enterprise
+accounts always use the
+Software
+Engineering
+layout, and
+Interface Layout
+is not shown in settings.
+Switching layouts updates open and new conversations immediately without
+restarting the app. Both layouts run the exact same agent and support the same
+models
+,
+permission presets
+,
+skills
+,
+rules
+,
+MCP servers
+, and
+plugins
+—switching only changes which controls are shown in the
+interface:
+Area
+Software Engineering
+Knowledge Work
+Projects and folders
+Prompts for
+Local
+or
+New worktree
+mode on Git repos; shows Git branch pickers, GitHub controls, and
+Open in IDE
+; forks can target a new worktree.
+Runs directly in your project’s folders without worktree or Git branch prompts; hides GitHub and
+Open in IDE
+controls; forks stay in the current folder (
+Fork conversation in this folder
+).
+Conversation and approvals
+Keeps expandable
+Worked for
+tool groups, inline code diffs, line counts, and subagent cards in the thread; permission prompts include raw command-rule editors.
+Shows a live progress line while the agent works that clears once the response finishes, keeping focus on replies and artifacts; permission prompts present plain-language summaries.
+Side panel and Overview panel
+Overview
+includes
+Review
+,
+Files
+,
+Terminal
+, and
+Extensions
+rows, a
+Customize Sections
+menu, and sections for
+Subagents
+,
+Background Tasks
+,
+Goals
+,
+Documents
+,
+Artifacts
+,
+Links
+,
+Modified Files
+, and
+Uploads
+.
+Overview
+stays hidden until the conversation produces output, omits
+Review
+,
+Terminal
+, and
+Customize Sections
+, labels the
+Files
+sidebar tree
+Folders
+, and focuses on
+Documents
+,
+Artifacts
+,
+Links
+,
+Uploads
+, and
+Background Tasks
+.
+Customizations (
+Installed
+tab)
+Lists installed
+Plugins
+,
+Skills &#x26; Rules
+,
+Custom Agents
+, and
+MCP Servers
+.
+Lists installed
+Plugins
+only (installed skills, rules, custom agents, and MCP tools remain active in the background).
+Settings
+Displays developer subsections (
+Terminal
+,
+Workspaces
+, and
+Labs
+) and detailed permission rules directly.
+Tucks advanced permission rules and developer subsections behind
+Advanced Settings
+in
+Settings
+>
+General
+and project settings, and hides the
+Appearance
+>
+Conversation Steps
+toggle and code syntax preview.
 Data collection settings
 Section titled “Data collection settings”
 The
@@ -492,157 +686,4 @@ reference
 .
 Safety and permissions
 Section titled “Safety and permissions”
-Manage how the agent interacts with your system and codebase:
-Agent Mode (
-agentMode
-)
-: Controls the session execution mode for file
-edits, command evaluation, and planning (can also be set per session with
---mode
-or cycled with
-Shift
-+
-Tab
-; refer to
-Choose an execution mode
-):
-auto
-: Automatically approves
-workspace file edits, runs terminal commands inside the
-terminal sandbox
-by default, and automatically evaluates
-commands that need to run outside the sandbox so safe, reversible commands
-run without prompting while risky or irreversible commands pause for
-approval (shown as
-auto
-in the bottom-right status bar and
-Auto mode: edits &#x26; safe commands auto-approved (shift+tab to cycle)
-in the
-prompt input box).
-default
-(the default; select
-default
-in
-/config
-, or leave
-agentMode
-unset or
-""
-): Prompts for interactive diff
-review before modifying or creating files, and follows
-toolPermission
-for commands.
-accept-edits
-: Automatically approves workspace file edits and creations while continuing to follow
-toolPermission
-for commands.
-plan
-: Prepends
-/plan
-so the agent analyzes the codebase and outlines a
-plan before making edits.
-Tool Permission (
-toolPermission
-)
-: Controls when the agent asks for your
-approval before it uses a tool outside
-auto
-mode (and for
-strict
-and
-always-proceed
-overrides). Deny rules
-in your
-permissions
-block an action in every mode:
-request-review
-(default
-toolPermission
-value): Prompts for your approval before running write,
-bash, web, or MCP tools, unless an allow rule covers the action.
-proceed-in-sandbox
-: Runs terminal commands without prompting when Sandbox
-Mode is on and the command runs inside the terminal sandbox; otherwise
-prompts for review.
-strict
-: Prompts before every tool action, including file reads, even when
-an allow rule matches (overrides
-auto
-mode).
-always-proceed
-: Runs terminal commands, web requests, and MCP tools
-without prompting, except actions that match an ask or deny rule (highest
-risk, use with caution; overrides
-auto
-mode).
-Artifact Review (
-artifactReviewPolicy
-)
-: Controls whether the agent stops
-for your review when it asks for feedback on an artifact, such as an
-implementation plan, before it continues. It doesn’t affect file edits, which
-Agent Mode controls:
-asks-for-review
-(default;
-asks for review
-in
-/config
-): The agent
-always waits for your review.
-agent-decides
-(
-agent decides
-): Currently works the same as
-asks-for-review
-.
-always-proceed
-(
-always proceeds
-): The agent continues without waiting
-for your review.
-Sandbox Mode (
-enableTerminalSandbox
-)
-: When enabled (
-on
-), restricts
-all agent-initiated terminal commands to a secure OS container. When
-auto
-mode is active, the terminal sandbox is enabled automatically and
-only commands that need to run outside the sandbox are evaluated for automatic
-approval.
-Non-Workspace Access (
-allowNonWorkspaceAccess
-)
-: When enabled (
-on
-),
-lets the agent read and edit files outside your workspace folders, subject to
-your Tool Permission, Agent Mode, and permission rules. Set to
-off
-by
-default for safety.
-Note
-auto
-mode is available in
-v1.3.5+
-on
-macOS and Linux
-and
-v1.4.4+
-on
-Windows
-, except for business and enterprise accounts. If
-agentMode
-is set
-to
-auto
-where
-auto
-isn’t available, the CLI starts in
-default
-mode.
-Starting in
-v1.4.4
-, if the sandbox isn’t available on your machine (for
 [snapshot truncated]

@@ -669,19 +669,15 @@ or skill-script prompts, to fail closed automatically.
 Set
 approvals_reviewer = "auto_review"
 to route eligible interactive approval
-requests through automatic review. This changes the reviewer, not the sandbox
-boundary.
-Use
-[auto_review].policy
-for local reviewer policy instructions. Managed
-guardian_policy_config
-takes precedence.
+requests through Auto-review. To add rules or replace the reviewer policy, see
+Auto-review configuration
+.
 approval_policy =
 "on-request"
 # Other options: never or { granular = { ... } }
 approvals_reviewer =
 "user"
-# Or "auto_review" for automatic review
+# Or "auto_review" for Auto-review
 sandbox_mode =
 "workspace-write"
 allow_login_shell =
@@ -698,4 +694,11 @@ false
 [
 sandbox_workspace_write
 ]
+exclude_tmpdir_env_var =
+false
+# Allow $TMPDIR
+exclude_slash_tmp =
+false
+# Allow /tmp
+writable_roots = [
 [snapshot truncated]

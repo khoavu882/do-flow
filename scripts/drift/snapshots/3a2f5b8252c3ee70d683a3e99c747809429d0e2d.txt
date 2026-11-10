@@ -628,6 +628,9 @@ string
 The name or identifier of the model handling the invocation (for example,
 gemini-3.6-flash-medium
 ).
+lastUserInput
+string
+The most recent user prompt in the conversation.
 SessionStart
 Section titled “SessionStart”
 Fires once when a new conversation session starts, before the first model invocation.
@@ -647,6 +650,8 @@ transcriptPath
 artifactDirectoryPath
 ,
 modelName
+, and
+lastUserInput
 .
 Output fields (stdout)
 :
@@ -732,6 +737,8 @@ transcriptPath
 artifactDirectoryPath
 ,
 modelName
+, and
+lastUserInput
 .
 Output fields (stdout)
 :
@@ -874,6 +881,8 @@ transcriptPath
 artifactDirectoryPath
 ,
 modelName
+, and
+lastUserInput
 .
 Output fields (stdout)
 : Returns an empty JSON object
@@ -961,6 +970,8 @@ transcriptPath
 artifactDirectoryPath
 ,
 modelName
+, and
+lastUserInput
 .
 Output fields (stdout)
 :
@@ -971,6 +982,18 @@ injectSteps
 array of objects
 Optional.
 List of steps to inject into the conversation trajectory before the model is called.
+terminationBehavior
+string
+Optional.
+Controls the execution flow before calling the model:
+-
+"terminate"
+: Stops execution immediately before calling the model (pair with an injected
+errorMessage
+to display a block message).
+-
+""
+(or omitted): Proceeds to the model call (default).
 Each object in the
 injectSteps
 array can have one of the following fields:
@@ -982,8 +1005,14 @@ userMessage
 (string): A message from you.
 ephemeralMessage
 (string): A transient system message.
-toolCall
-(object): A tool call to execute.
+errorMessage
+(object): Displays an error message without sending it to the model (for example,
+{"userMessage": "Prompt blocked by policy."}
+). Marks the turn as errored with a non-zero exit code in non-interactive
+-p
+mode, and does not stop execution on its own unless paired with
+"terminationBehavior": "terminate"
+.
 Example
 :
 Input (stdin)
@@ -1007,49 +1036,4 @@ Input (stdin)
 ],
 "transcriptPath"
 :
-"~/.gemini/antigravity/brain/ec33ebf9-0cba-4100-8142-c61503f6c587/.system_generated/logs/transcript.jsonl"
-,
-"artifactDirectoryPath"
-:
-"~/.gemini/antigravity/brain/ec33ebf9-0cba-4100-8142-c61503f6c587"
-,
-"modelName"
-:
-"gemini-3.6-flash-medium"
-}
-Output (stdout)
-:
-{
-"injectSteps"
-: [{
-"ephemeralMessage"
-:
-"Remember to lint"
-}]
-}
-PostInvocation
-Section titled “PostInvocation”
-Fires immediately after each model invocation completes.
-Input fields (stdin)
-: Same as
-PreInvocation
-input fields (
-invocationNum
-and
-initialNumSteps
-).
-Output fields (stdout)
-:
-Field
-Type
-Description
-injectSteps
-array of objects
-Optional.
-List of steps to inject after the invocation completes (same schema as
-PreInvocation
-inject steps).
-terminationBehavior
-string
-Optional.
 [snapshot truncated]
