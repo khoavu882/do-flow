@@ -249,8 +249,8 @@ function parseArgs(argv: string[]): any {
         // its validation subtly wrong.
         const runtime = parseRuntimeFlag(a, argv, i, o);
         if (runtime !== null) { i = runtime; break; }
-        // slot, primary, fleet, transcript, events and the three worker reads report an unknown flag as their own usage error (exit 2, 115 IC-008, 120 IC-008, 149 IC-001, 150 IC-005).
-        if (a.startsWith('-') && (o.cmd === 'slot' || o.cmd === 'primary' || o.cmd === 'fleet' || o.cmd === 'transcript' || o.cmd === 'events' || o.cmd === 'worker-log' || o.cmd === 'worker-result' || o.cmd === 'worker-runs')) (o.extraFlags = o.extraFlags || []).push(a);
+        // slot, primary, fleet, transcript, events, the three worker reads, advice-picks and worker-matrix report an unknown flag as their own usage error (exit 2, 115 IC-008, 120 IC-008, 149 IC-001, 150 IC-005, 151 IC-004).
+        if (a.startsWith('-') && (o.cmd === 'slot' || o.cmd === 'primary' || o.cmd === 'fleet' || o.cmd === 'transcript' || o.cmd === 'events' || o.cmd === 'worker-log' || o.cmd === 'worker-result' || o.cmd === 'worker-runs' || o.cmd === 'advice-picks' || o.cmd === 'worker-matrix')) (o.extraFlags = o.extraFlags || []).push(a);
         else if (a.startsWith('-') && o.cmd !== 'plan-check') argError(o, argv, unknownFlagMessage(a), unknownFlagExit(o.cmd));
         else if (!o.cmd) o.cmd = a;
         else o.positional.push(a);
@@ -325,7 +325,7 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--role', 'role'],                  // claim --action add: the claim's relationship to the task, e.g. root-cause
   ['--replaced-by', 'replacedBy'],     // claim --action supersede: the claim replacing this one ·
                                         // evidence --action supersede: the evidence replacing this one
-  ['--kind', 'kind'],                  // evidence --action add: one of VALID_EVIDENCE_KINDS · advise --action ask
+  ['--kind', 'kind'],                  // evidence --action add: one of VALID_EVIDENCE_KINDS · advise --action ask · advice-picks: a registry kind id or adhoc
   ['--server', 'server'],              // advise: MCP server for the mcp-need kind
   ['--state-file', 'stateFile'],       // advise: request state from a UTF-8 file
   ['--questions-file', 'questionsFile'], // advise: ad hoc question set JSON
@@ -635,6 +635,10 @@ Commands:
                        worker-result --worker-run <runId> [--slug <slug>] [--json]   (exit 0, 1 unknown-run, 2 usage or store-unreadable)
   worker-runs          List one feature's worker runs, ended and child runs included, newest 100 (read-only, run in a project).
                        worker-runs [--slug <slug>] [--json]   the feature of the current branch without --slug (exit 0, 2 usage or store-unreadable)
+  advice-picks         List advice picks per UTC day over the last 90 days with each day's coverage, and the newest 50 picks (read-only, run in a project).
+                       advice-picks [--kind <id>] [--json]   days read or unknown, picks with closed fields, limits shown, notShown, skipped (exit 0, 2 usage or registry-invalid)
+  worker-matrix        Print every harness's worker and orchestration cells from the install's registry, evidence masked and capped (read-only).
+                       worker-matrix [--json]   cells supported, unknown or unsupported, declared or not, cut when capped; counts and limits (exit 0, 2 usage or registry-invalid)
   worktree             Remove a merged feature's worktree and branch, never by force (--action cleanup).
                        worktree --action cleanup --slug <row slug> [--json]   copies agent-docs/doflow/<slug> back to the main checkout first (exit 0 cleaned, 1 kept or lease-held with the reason, 2 usage)
   attendance           Say whether a person is watching a stage (read-only).

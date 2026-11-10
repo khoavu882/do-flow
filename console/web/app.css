@@ -2376,3 +2376,47 @@
 @media (forced-colors: active) {
   .flow-edge::before { background: CanvasText; }
 }
+
+@layer components {
+  /* Management tables remain individually scrollable and keyboard reachable in narrow canvases. */
+  .mtable, .matrix, .daytable {
+    display: block;
+    max-width: 100%;
+    overflow: auto;
+    border-collapse: collapse;
+    margin-block: var(--space-3) var(--space-5);
+    font: var(--type-sm);
+    font-variant-numeric: tabular-nums;
+  }
+  .mtable caption, .matrix caption, .daytable caption {
+    padding-block: var(--space-2);
+    text-align: left;
+    font: var(--type-sm);
+    color: var(--text-muted);
+  }
+  .mtable th, .mtable td, .matrix th, .matrix td, .daytable th, .daytable td {
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+    vertical-align: top;
+    overflow-wrap: anywhere;
+  }
+  .mtable thead th, .matrix thead th, .daytable thead th {
+    background: var(--surface-2);
+    color: var(--text);
+    font: var(--type-xs);
+  }
+  .mtable a, .matrix a { color: var(--accent); }
+  .mtable .tag { margin-inline-start: var(--space-2); gap: var(--space-1); }
+  .matrix td[role="gridcell"] { cursor: pointer; min-width: 7rem; }
+  .matrix td[aria-selected="true"] { outline: var(--focus-width) solid var(--focus); outline-offset: calc(-1 * var(--focus-width)); }
+  .matrix td:focus-visible { outline-offset: calc(-1 * var(--focus-width)); }
+  .figure { font-variant-numeric: tabular-nums; }
+  .figure[data-figure="unknown"] { color: var(--text-muted); }
+  .sgroup { margin-block: var(--space-5); min-width: 0; }
+  .sgroup h2 { font: var(--type-lg); }
+  .candidates { display: grid; gap: var(--space-2); padding-inline-start: var(--space-5); }
+  .doctor-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin-block: var(--space-4); }
+  .doctor-head h2 { margin: 0; }
+  .navrail__group { border-top: 1px solid var(--border); }
+}

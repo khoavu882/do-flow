@@ -25,6 +25,15 @@
 // must afterwards hold exactly their old bytes followed by the appended ones (same inode, only their mtime and
 // digest moved), and every other entry must be unchanged.
 //
+// Feature 151 B.6 (IC-005, IC-012, IC-013, IC-014, IC-023, IC-024; FR-004, FR-008, FR-010 to FR-012, FR-020, FR-027,
+// FR-028, NFR-001, NFR-002) adds the management test: the shared management world (helpers/manage-world.ts, with the
+// advice world of helpers/advice-world.ts) on a fresh fixture, the ten new shapes on the allow-list each running the
+// verb it names, the core's own answers read from those shapes' argv, then one boot reading the seven routes, a key,
+// a pick, a store and a cell selection's data, `/api/advice?kind=task-class`, `/api/doctor?refresh=1`, the second
+// follow-ups page by cursor, the `taken` filter and one follow-up record. Each body is its projector over the core's
+// answer, holds no planted value, anchor value, `--take` text or fixture path, and every tree (the settings layer
+// files, the advice store and `<HOME>/.claude` included) is unchanged byte for byte; that test has its own vacuity control.
+//
 // Vacuity guard: the same boot and reads (the live route included) with DOFLOW_UPKEEP=off taken out of every core child's
 // environment must change a tree, or the fixture proves nothing and the test fails. The switch is
 // removed by a test-only preload (helpers/drop-upkeep-switch.ts) given on the Console's own node command
@@ -41,8 +50,10 @@ const { spawn, spawnSync } = require('node:child_process');
 const { isDeepStrictEqual } = require('node:util');
 const { CORE_CLI, FLEET_FORBIDDEN, MARKER, SLUGS, TREE_IDS, buildFixture, buildFleetWorld, snapshotTrees } = require('./helpers/core-fixture.ts');
 const { buildWorkerWorld } = require('./helpers/worker-world.ts');
+const { buildManageWorld, FEATURES: MANAGE_FEATURES, GOAL: MANAGE_GOAL, OPEN_FOLLOWUPS } = require('./helpers/manage-world.ts');
+const { anchorsOf } = require('../src/place.ts');
 const { SHAPES, SHAPE_IDS, createVerbRunner, fleetError } = require('../src/verb-runner.ts');
-const { CLOSED_SETS, project } = require('../src/project.ts');
+const { CLOSED_SETS, MATRIX_STATUSES, project } = require('../src/project.ts');
 const { workerAgentKey } = require('../src/routes.ts');
 const crypto = require('node:crypto');
 
@@ -838,6 +849,270 @@ test('Fleet shapes against the real core over two projects: nothing written, no 
   assert.equal(upkeep.status, 0, upkeep.stderr);
   const changed = Object.keys(before).filter((id) => !isDeepStrictEqual(before[id], snapshotTrees(w.roots)[id]));
   assert.ok(changed.length > 0, 'Fixture is vacuous: a verb with upkeep on changed no tree');
+});
+
+// ---- Feature 151 B.6: the management world and its seven routes against the real core (IC-023, IC-024) ----
+
+/** 151 IC-005: the ten management shapes, each with the verb it names. */
+const MANAGE_SHAPES: ReadonlyArray<readonly [string, readonly string[]]> = Object.freeze([
+  ['config-list', ['config', 'list']],
+  ['config-schema', ['config', 'schema']],
+  ['advise-report', ['advise', '--action', 'report']],
+  ['advice-picks', ['advice-picks']],
+  ['followups', ['followup', '--action', 'list']],
+  ['followup-record', ['followup', '--action', 'list']],
+  ['lifecycle-overview', ['lifecycle', '--action', 'overview']],
+  ['doctor', ['doctor']],
+  ['storage-report', ['storage', '--action', 'report']],
+  ['worker-matrix', ['worker-matrix']],
+] as const);
+const ISO_AT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+/** A shape's argv with `params` filled as the runner fills it (verb-runner.ts buildArgv), without the `--json` coreJson appends. */
+function shapeArgv(shapeId: string, params: Record<string, string> = {}): string[] {
+  const argv: string[] = [];
+  for (const part of SHAPES[shapeId].argv) {
+    if (typeof part === 'string') {
+      argv.push(part);
+      continue;
+    }
+    const value = params[part.param];
+    if (value === undefined) {
+      assert.ok(part.optional, `${shapeId}: ${part.param} is required`);
+      continue;
+    }
+    if (part.flag) argv.push(part.flag);
+    argv.push(value);
+  }
+  return argv;
+}
+
+/** IC-012's rule for the `settings` section of `/api/advice` and `/api/workers`: the kept keys, every file, the errors and notes naming no key or a kept one. */
+function keptSettings(body: any, prefixes: readonly string[]) {
+  const kept = (key: string) => prefixes.some((prefix) => key.startsWith(prefix));
+  const named = (row: any) => row.key === null || kept(row.key);
+  return { ...body, keys: body.keys.filter((row: any) => kept(row.key)), errors: body.errors.filter(named), notes: body.notes.filter(named) };
+}
+
+test('151: the management routes read the manage world from the real core, leak no planted value, anchor or path, and change no DoFlow tree', { timeout: 300_000 }, async (t: any) => {
+  const f = buildFixture((fn: () => void) => t.after(fn));
+  const world = buildManageWorld({ fixture: f, core: CORE_CLI });
+  // Every DoFlow tree, plus the project's settings layer folder and the Claude settings folder doctor reads.
+  const roots: Record<string, string> = { ...f.roots, ...world.roots };
+  const off = { ...f.env, DOFLOW_UPKEEP: 'off' };
+  const args = ['--core', CORE_CLI, '--project', f.main, '--port', '0'];
+
+  // 151 IC-005: the ten new shapes are on the allow-list, each running the verb it names.
+  assert.equal(MANAGE_SHAPES.length, 10);
+  for (const [shape, verb] of MANAGE_SHAPES) {
+    assert.ok(SHAPE_IDS.includes(shape), `${shape} is in SHAPE_IDS`);
+    assert.deepEqual(SHAPES[shape].argv.slice(0, verb.length), verb, `${shape} runs ${verb.join(' ')}`);
+  }
+
+  // The core's own answers over the world, read from each shape's own argv with the switch on, before the snapshot.
+  const raw = async (shape: string, params: Record<string, string> = {}, exits: readonly number[] = [0]) => {
+    const read = await coreJson(f.main, off, shapeArgv(shape, params));
+    assert.ok(exits.includes(read.exit as number), `doflow ${shapeArgv(shape, params).join(' ')} exited ${read.exit}: ${JSON.stringify(read.json).slice(0, 400)}`);
+    return read;
+  };
+  const rawList = await raw('config-list', {}, [1]);
+  const rawSchema = await raw('config-schema');
+  const rawReport = await raw('advise-report');
+  const rawPicks = await raw('advice-picks');
+  const rawClassPicks = await raw('advice-picks', { kind: 'task-class' });
+  const rawPage1 = await raw('followups', { state: 'open' });
+  assert.equal(typeof rawPage1.json.nextCursor, 'string', 'the first page has a next cursor');
+  const rawPage2 = await raw('followups', { state: 'open', cursor: rawPage1.json.nextCursor });
+  const rawTaken = await raw('followups', { state: 'taken' });
+  const rawRecord = await raw('followup-record', { id: world.followups.taken });
+  const rawOverview = await raw('lifecycle-overview');
+  const rawMatrix = await raw('worker-matrix');
+  const rawStorage = await raw('storage-report');
+  const rawDoctor = await raw('doctor', {}, [0, 1]);
+
+  // The leak checks are live: the core's answers and the stores carry what no body may. The core masks a follow-up
+  // statement on write, so the follow-up records carry the project path (and the core's own `<masked>`), not the
+  // secret, email or IP; the email reaches the raw `config list` through the unknown key's name and note.
+  const text = (read: { json: any }) => JSON.stringify(read.json);
+  assert.ok(text(rawList).includes(world.planted.email), 'the raw config list carries the planted email');
+  assert.ok(text(rawList).includes(world.files.local) && text(rawList).includes(world.files.user), 'the raw config list carries the layer file paths');
+  for (const read of [rawPage1, rawRecord]) assert.ok(text(read).includes(world.planted.projectPath) && text(read).includes('password=<masked>'), 'the raw follow-ups carry the project path');
+  const pickRecords = world.advice.files.map((file: string) => fs.readFileSync(file, 'utf8')).join('');
+  for (const value of [world.planted.advice.secret, world.planted.advice.marker]) assert.ok(pickRecords.includes(value), `the pick records carry ${value}`);
+  assert.ok(!text(rawPicks).includes(world.planted.advice.marker), 'the core keeps the adhoc question text out of advice-picks');
+  assert.ok(text(rawDoctor).includes(world.doctor.subject) && world.doctor.subject.startsWith(world.home), 'the raw doctor warning names the fixture home path');
+  assert.ok(text(rawOverview).includes('--take'), 'the raw overview carries a --take line');
+  assert.ok(text(rawStorage).includes(f.main), 'the raw storage report carries the project path');
+
+  const anchors = anchorsOf({ projectRoot: f.main, home: world.home });
+  const projected = (shape: string, read: { exit: number | null, json: any }) => {
+    const result = project(shape, read.json, { exit: read.exit, anchors });
+    assert.equal(result.ok, true, `${shape} projects: ${JSON.stringify(result)}`);
+    return result.body;
+  };
+
+  // One boot reads every management route; the snapshot is taken after the world and the raw reads.
+  const before = snapshotTrees(roots);
+  const app = await boot(args, f.env, f.main);
+  const cookie = await exchange(app);
+  const replies = new Map<string, Reply>();
+  const get = async (target: string) => {
+    const reply = await request(app.port, 'GET', target, { Cookie: cookie });
+    replies.set(target, reply);
+    assert.equal(reply.status, 200, `${target}: ${reply.body}`);
+    return JSON.parse(reply.body);
+  };
+  const settings = await get('/api/settings');
+  const advice = await get('/api/advice');
+  const classAdvice = await get('/api/advice?kind=task-class');
+  const workers = await get('/api/workers');
+  const page1 = await get('/api/followups');
+  const cursor = page1.sections.list.data?.nextCursor;
+  assert.equal(typeof cursor, 'string', 'the first Console page has a next cursor');
+  const page2 = await get(`/api/followups?cursor=${cursor}`);
+  const taken = await get('/api/followups?state=taken');
+  const record = await get(`/api/followups/${world.followups.taken}`);
+  const doctor = await get('/api/doctor');
+  // A fresh read past the 5 s floor (IC-005) runs doctor again.
+  await new Promise((resolve) => setTimeout(resolve, Math.max(0, Date.parse(doctor.at) + 5_200 - Date.now())));
+  const refreshed = await get('/api/doctor?refresh=1');
+  const storage = await get('/api/storage');
+  await shutdown(app);
+  assert.deepEqual(snapshotTrees(roots), before, 'reading the management routes changed a DoFlow tree, a settings layer file or the advice store');
+
+  // No planted value, anchor value, `--take` text or fixture path in any body or header; the API headers.
+  const unprivate = (dir: string) => (dir.startsWith('/private/') ? dir.slice('/private'.length) : dir);
+  const anchorValues = Object.values(anchorsOf({ projectRoot: f.main, home: world.home, configHome: world.configHome, layersFrom: world.roots['project-layers'] })).flat() as string[];
+  const forbidden = [
+    world.planted.secret, world.planted.email, world.planted.ip, world.planted.marker, world.planted.homePath, world.planted.projectPath,
+    world.planted.advice.secret, world.planted.advice.marker, MARKER, f.dir, unprivate(f.dir), ...anchorValues, ...anchorValues.map(unprivate), '--take', app.code,
+  ];
+  assert.ok(anchorValues.length >= 4, 'every anchor kind has a value');
+  for (const [target, reply] of replies) {
+    for (const value of forbidden) {
+      assert.ok(!reply.body.includes(value), `${target}: the body carries ${value}`);
+      assert.ok(!JSON.stringify(reply.headers).includes(value), `${target}: a header carries ${value}`);
+    }
+    assert.equal(reply.headers['cache-control'], 'no-store', target);
+    assert.equal(reply.headers['content-type'], 'application/json; charset=utf-8', target);
+  }
+  for (const value of [world.planted.secret, world.planted.email, world.planted.advice.secret, world.planted.advice.marker]) assert.ok(!app.stderr().includes(value), `the Console stderr carries ${value}`);
+
+  // IC-012 to IC-014: each body is its projector over the core verb's own answer.
+  const section = (body: any, name: string) => {
+    const entry = body.sections[name];
+    assert.equal(entry.ok, true, `${name}: ${JSON.stringify(entry)}`);
+    assert.match(entry.at, ISO_AT, name);
+    return entry.data;
+  };
+  const effective = projected('config-list', rawList);
+  assert.deepEqual(Object.keys(settings.sections), ['effective', 'schema']);
+  assert.deepEqual(section(settings, 'effective'), effective);
+  assert.deepEqual(section(settings, 'schema'), projected('config-schema', rawSchema));
+  assert.deepEqual([advice.kind, classAdvice.kind], [null, 'task-class']);
+  for (const body of [advice, classAdvice]) {
+    assert.deepEqual(section(body, 'settings'), keptSettings(effective, ['advice.']));
+    assert.deepEqual(section(body, 'report'), projected('advise-report', rawReport));
+  }
+  const picks = section(advice, 'picks');
+  assert.deepEqual(picks, projected('advice-picks', rawPicks));
+  const classPicks = section(classAdvice, 'picks');
+  assert.deepEqual(classPicks, projected('advice-picks', rawClassPicks));
+  assert.deepEqual(section(workers, 'matrix'), projected('worker-matrix', rawMatrix));
+  assert.deepEqual(section(workers, 'settings'), keptSettings(effective, ['workers.', 'dispatch.', 'team.']));
+  assert.deepEqual([page1.state, page1.cursor, page2.state, page2.cursor, taken.state, taken.cursor], ['open', null, 'open', cursor, 'taken', null]);
+  assert.deepEqual(section(page1, 'list'), projected('followups', rawPage1));
+  assert.deepEqual(section(page2, 'list'), projected('followups', rawPage2));
+  assert.deepEqual(section(taken, 'list'), projected('followups', rawTaken));
+  const overview = projected('lifecycle-overview', rawOverview);
+  for (const body of [page1, page2, taken]) assert.deepEqual(section(body, 'overview'), overview);
+  assert.deepEqual(record, { v: 1, followup: projected('followup-record', rawRecord).followup });
+  const rawDoctorBody = projected('doctor', rawDoctor);
+  for (const body of [doctor, refreshed]) {
+    assert.deepEqual(Object.keys(body), ['v', 'at', 'refresh', 'doctor']);
+    assert.match(body.at, ISO_AT);
+    assert.equal(body.doctor.exit, rawDoctor.exit, 'doctor exit as data');
+    assert.deepEqual(body.doctor.warnings, rawDoctorBody.warnings);
+    assert.deepEqual(body.doctor.findings.map((row: any) => row.kind), rawDoctorBody.findings.map((row: any) => row.kind));
+  }
+  assert.deepEqual([doctor.refresh, refreshed.refresh], [null, 'ran'], 'the first read ran on a cache miss, the refresh past the floor ran again');
+  assert.ok(Date.parse(refreshed.at) > Date.parse(doctor.at), 'the refreshed run is newer');
+  assert.deepEqual(Object.keys(storage), ['v', 'at', 'storage']);
+  assert.deepEqual({ ...storage.storage, durationMs: 0 }, { ...projected('storage-report', rawStorage), durationMs: 0 });
+
+  // FR-004, FR-008, FR-010: the 47 registry keys once each in registry order; the fail-safe exit as data; the layer
+  // files, the unparseable local file and the unknown key's note. A key selection's data: `advice.enabled`.
+  const registryKeys = Object.keys(require('../../core/registry/settings.json').keys);
+  assert.equal(registryKeys.length, 47);
+  assert.deepEqual(effective.keys.map((row: any) => row.key), registryKeys);
+  assert.equal(effective.failSafe, true);
+  const fileOf = (layer: string, kind = 'settings') => effective.files.find((file: any) => file.layer === layer && file.kind === kind);
+  assert.deepEqual([fileOf('user').status, fileOf('user').where], ['ok', { anchor: 'config-home', rel: 'settings.json' }]);
+  assert.deepEqual([fileOf('project').status, fileOf('project').where], ['ok', { anchor: 'project-layers', rel: 'settings.json' }]);
+  assert.deepEqual([fileOf('local').status, fileOf('local').code, fileOf('local').where], ['invalid', 'unparseable', { anchor: 'project-layers', rel: 'settings.local.json' }]);
+  const unknown = effective.notes.filter((note: any) => note.code === 'unknown-key');
+  assert.equal(unknown.length, 1);
+  assert.ok(unknown[0].text.includes('<email>') && unknown[0].text.endsWith('is not a DoFlow setting (ignored)'), unknown[0].text);
+  const enabled = effective.keys.find((row: any) => row.key === 'advice.enabled');
+  assert.equal(enabled.meta.securityRelevant, true);
+  assert.deepEqual(enabled.views.map((view: any) => [view.view, view.origin.layer, view.origin.via, view.origin.where]),
+    [['project', 'local', 'fail-safe', { anchor: 'project-layers', rel: 'settings.local.json' }]]);
+  assert.deepEqual(enabled.views[0].candidates.map((c: any) => [c.layer, c.status, c.where]),
+    [['user', 'overridden', { anchor: 'config-home', rel: 'settings.json' }], ['local', 'invalid', { anchor: 'project-layers', rel: 'settings.local.json' }]]);
+  assert.ok(effective.errors.some((error: any) => error.key === 'advice.enabled' && error.layer === 'local' && error.code === 'unparseable'));
+  // FR-020: the worker settings the user and project layers set.
+  const enabledWorkers = section(workers, 'settings').keys.find((row: any) => row.key === 'workers.enabled');
+  assert.deepEqual(enabledWorkers.views[0].candidates.map((c: any) => c.layer).sort(), ['local', 'project', 'user']);
+
+  // A pick selection's data: the task-class pick with its outcome; every world pick shown once; the kind filter.
+  const worldPicks = [...world.advice.picks.taskClass, ...world.advice.picks.tier, world.advice.picks.adhoc];
+  assert.deepEqual(picks.picks.map((p: any) => p.pickId).sort(), [...worldPicks].sort());
+  assert.deepEqual(picks.limits, { shown: worldPicks.length, notShown: 0, skipped: 0 });
+  const withOutcome = picks.picks.find((p: any) => p.pickId === world.advice.outcome.pickId);
+  assert.deepEqual([withOutcome.kind, withOutcome.mode, withOutcome.pick, withOutcome.static, withOutcome.agree, withOutcome.outcome?.actual, withOutcome.outcome?.agree],
+    ['task-class', 'unrecorded', 'bug', 'bug', true, world.advice.outcome.actual, false]);
+  for (const id of world.advice.picks.tier) assert.equal(picks.picks.find((p: any) => p.pickId === id).outcome, null, `${id}: no outcome`);
+  const adhoc = picks.picks.find((p: any) => p.pickId === world.advice.picks.adhoc);
+  assert.deepEqual([adhoc.kind, adhoc.pick, adhoc.static, adhoc.agree], ['adhoc', 'keep', null, null]);
+  assert.deepEqual(classPicks.picks.map((p: any) => p.pickId).sort(), [...world.advice.picks.taskClass].sort());
+  assert.deepEqual([...new Set(classPicks.picks.map((p: any) => p.mode))].sort(), ['shadow', 'unrecorded']);
+  assert.equal(classPicks.days.filter((day: any) => day.picks['task-class'] > 0).length, 3, 'task-class picks on three days');
+
+  // A store selection's data: the project advice store holds the world's partitions. A cell selection's data.
+  const adviceStore = storage.storage.stores.find((store: any) => store.id === 'advice-picks-project');
+  assert.deepEqual([adviceStore.where, adviceStore.entries], [{ anchor: 'project', rel: '.doflow/state/advice/picks' }, world.advice.files.length]);
+  const claude = section(workers, 'matrix').harnesses.find((harness: any) => harness.id === 'claude');
+  assert.equal(claude.cells.worker.cli.declared, true);
+  assert.ok(MATRIX_STATUSES.includes(claude.cells.worker.cli.status), claude.cells.worker.cli.status);
+
+  // FR-011, FR-012: the pages, the taken filter, the record, the goal and the release buckets.
+  const list1 = section(page1, 'list');
+  const list2 = section(page2, 'list');
+  assert.deepEqual([list1.count, list1.shown, list2.count, list2.shown], [OPEN_FOLLOWUPS, 25, OPEN_FOLLOWUPS, 25]);
+  const pageIds = [...list1.items, ...list2.items].map((item: any) => item.id);
+  assert.equal(new Set(pageIds).size, 50, 'the second page repeats no item of the first');
+  assert.ok(pageIds.every((id: string) => world.followups.open.includes(id)), 'both pages hold open items only');
+  assert.ok(list1.items.every((item: any) => item.statement.includes('<project>/docs/manage-world-notes.md') && item.statement.includes('password=<masked>')));
+  assert.deepEqual(section(taken, 'list').items.map((item: any) => [item.id, item.state]), [[world.followups.taken, 'taken']]);
+  assert.deepEqual([record.followup.id, record.followup.state, record.followup.takenBy], [world.followups.taken, 'taken', MANAGE_FEATURES.awaitingRelease]);
+  assert.deepEqual(overview.goals.map((goal: any) => [goal.goal, goal.proposeDone, goal.items]), [[MANAGE_GOAL, true, { met: 2, total: 2 }]]);
+  assert.deepEqual([overview.releaseMode, overview.features.finished.shown, overview.features.awaitingRelease.shown, overview.followupsOpen],
+    ['tagged', [MANAGE_FEATURES.finished], [MANAGE_FEATURES.awaitingRelease], OPEN_FOLLOWUPS]);
+
+  // The doctor warning of D8 reaches the body placed under the home anchor.
+  const warning = doctor.doctor.warnings.find((row: any) => row.kind === world.doctor.kind);
+  assert.equal(warning.subject, '~/.claude/settings.json: permissions.allow');
+
+  // Vacuity guard: the same boot and reads with the switch removed from every core child must write.
+  const controlBefore = snapshotTrees(roots);
+  const control = await boot(args, f.env, f.main, true);
+  const controlCookie = await exchange(control);
+  for (const target of replies.keys()) await request(control.port, 'GET', target, { Cookie: controlCookie });
+  await shutdown(control);
+  const controlAfter = snapshotTrees(roots);
+  assert.ok(control.stderr().includes('drop-upkeep-switch: removed'), 'the control hook ran');
+  const changed = Object.keys(roots).filter((id) => !isDeepStrictEqual(controlBefore[id], controlAfter[id]));
+  assert.ok(changed.length > 0, 'Fixture is vacuous: the management reads without DOFLOW_UPKEEP=off changed no tree');
 });
 
 /** A stand-in core that prints only a version line, for the boot cases that need no real core. */

@@ -399,6 +399,7 @@ const outline = (view: any) => view.items().map((li: El) => [li.dataset.key, li.
 // ---- the tree -----------------------------------------------------------------------------------
 
 test('outline markup: ul[role=tree] "Run chain" of li[role=treeitem] with aria-level, aria-expanded on parents only, one tab stop, text nodes only', () => {
+  mock.timers.enable({ apis: ['Date'], now: T0 + 30 * MIN });
   const view = mountView(ready());
   const tree = view.tree();
   assert.equal(tree.tagName, 'ul');

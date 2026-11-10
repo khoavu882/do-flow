@@ -519,7 +519,7 @@ test('layout CD-B9: phone header keeps pause and theme reachable alongside navig
   assert.equal(effective(rules, '.nav ul', 'flex-wrap', 359), 'wrap', 'the list may wrap as a fallback below 360');
   assert.equal(effective(rules, '.nav ul', 'flex-wrap', 768), 'nowrap');
   const html = fs.readFileSync(path.join(WEB_ROOT, 'index.html'), 'utf8');
-  assert.deepEqual([...html.matchAll(/class="nav__link navrail__link" href="([^"]+)"><span class="navrail__label">([^<]+)</g)].map((m) => m[2]), ['Now', 'Sessions', 'Workflows', 'Fleet']);
+  assert.deepEqual([...html.matchAll(/class="nav__link navrail__link" href="([^"]+)"><span class="navrail__label">([^<]+)</g)].map((m) => m[2]), ['Now', 'Sessions', 'Workflows', 'Fleet', 'Workers', 'Advice', 'Follow-ups', 'Settings', 'Health']);
   assert.ok(!/<button[^>]*menu/i.test(html), 'no menu button');
 });
 

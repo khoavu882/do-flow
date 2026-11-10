@@ -212,41 +212,62 @@ function cutoffDate(now: any, maxAgeDays: number = RETAINED_DAYS): string | null
   return cutoff.toISOString().slice(0, 10);
 }
 
-function partitionFiles(root: string | undefined, cutoff: string, fsImpl: any): any[] {
-  if (!root) return [];
+type StoreState = 'read' | 'absent' | 'unreadable';
+type Partition = { store: string; day: string; read: boolean; unreadableLines: number };
+
+/** The store's listing outcome (151 IC-002): `read` with the window's partition files, `absent`, or `unreadable`. */
+function partitionFiles(root: string | undefined, cutoff: string, fsImpl: any): { state: StoreState; files: string[] } {
+  if (!root) return { state: 'absent', files: [] };
   const directory = path.join(root, 'advice', 'picks');
   try {
-    return fsImpl.readdirSync(directory)
+    const files = fsImpl.readdirSync(directory)
       .filter((name: string) => PARTITION_NAME.test(name) && name.slice(0, 10) >= cutoff)
       .sort()
       .map((name: string) => path.join(directory, name));
+    return { state: 'read', files };
   } catch (error: any) {
-    if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return [];
-    return [{ unreadable: true, file: directory }];
+    if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return { state: 'absent', files: [] };
+    return { state: 'unreadable', files: [] };
   }
 }
 
-function readWindow({ roots, now = () => new Date(), maxAgeDays = RETAINED_DAYS, fsImpl = fs }: any = {}): { records: any[]; unreadable: number } {
+/**
+ * The records of the retained window, with what was read to find them (151 IC-002, additive): `stores` per record
+ * store, and one `partitions` entry per partition file inside the cutoff. `unreadable` keeps its meaning: one per
+ * store that could not be listed, per partition that could not be read and per line that is not a JSON object.
+ */
+function readWindow({ roots, now = () => new Date(), maxAgeDays = RETAINED_DAYS, fsImpl = fs }: any = {}): {
+  records: any[]; unreadable: number; stores: Record<'project-state' | 'user-state', StoreState>; partitions: Partition[];
+} {
+  const stores: Record<'project-state' | 'user-state', StoreState> = { 'project-state': 'unreadable', 'user-state': 'unreadable' };
+  const partitions: Partition[] = [];
   const cutoff = cutoffDate(now, maxAgeDays);
-  if (!cutoff) return { records: [], unreadable: 0 };
+  // With no cutoff nothing is listed, so no store claims to be read.
+  if (!cutoff) return { records: [], unreadable: 0, stores, partitions };
   const records: any[] = [];
   let unreadable = 0;
-  for (const store of ['project-state', 'user-state']) {
-    for (const item of partitionFiles(roots?.[store], cutoff, fsImpl)) {
-      if (typeof item !== 'string') { unreadable += 1; continue; }
+  for (const store of ['project-state', 'user-state'] as const) {
+    const listing = partitionFiles(roots?.[store], cutoff, fsImpl);
+    stores[store] = listing.state;
+    if (listing.state === 'unreadable') unreadable += 1;
+    for (const file of listing.files) {
+      const day = path.basename(file).slice(0, 10);
+      const partition: Partition = { store, day, read: false, unreadableLines: 0 };
+      partitions.push(partition);
       let contents: string;
-      try { contents = fsImpl.readFileSync(item, 'utf8'); } catch { unreadable += 1; continue; }
+      try { contents = fsImpl.readFileSync(file, 'utf8'); } catch { unreadable += 1; continue; }
+      partition.read = true;
       for (const line of contents.split(/\r?\n/)) {
         if (!line.trim()) continue;
         try {
           const record = JSON.parse(line);
           if (!record || typeof record !== 'object' || Array.isArray(record)) throw new Error('record must be an object');
-          records.push({ record, file: item, store });
-        } catch { unreadable += 1; }
+          records.push({ record, file, store, day });
+        } catch { unreadable += 1; partition.unreadableLines += 1; }
       }
     }
   }
-  return { records, unreadable };
+  return { records, unreadable, stores, partitions };
 }
 
 function findPick({ pickId, roots, now = () => new Date(), fsImpl = fs }: any = {}): any {

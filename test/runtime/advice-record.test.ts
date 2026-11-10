@@ -342,3 +342,154 @@ test('141 IC-007: the claimSupport object is ids, words and counts only, and onl
   const wrongKind = appendPick(pickInput(roots, { extra: { claimSupport: { claimId: 'CLM-1', evidenceId: 'EV-2', relation: 'supports', claimStatus: 'supported' } } }));
   assert.equal('claimSupport' in JSON.parse(fs.readFileSync(wrongKind.file, 'utf8').trim().split('\n').pop()), false);
 });
+
+// ── 151 IC-002: readWindow reports each partition and store it read ───────────────────────────────
+
+function picksDir(root: string): string {
+  return path.join(root, 'advice', 'picks');
+}
+
+function writePartition(root: string, date: string, text: string): string {
+  const file = path.join(picksDir(root), `${date}.jsonl`);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, text);
+  return file;
+}
+
+/** Every entry under `dir`: relative path, kind, size, mtime and the exact bytes of each file. */
+function treeSnapshot(dir: string): any[] {
+  const entries: any[] = [];
+  const walk = (current: string) => {
+    for (const name of fs.readdirSync(current).sort()) {
+      const full = path.join(current, name);
+      const stat = fs.lstatSync(full);
+      const rel = path.relative(dir, full);
+      if (stat.isDirectory()) { entries.push({ rel, kind: 'dir', mtimeMs: stat.mtimeMs }); walk(full); }
+      else entries.push({ rel, kind: 'file', size: stat.size, mtimeMs: stat.mtimeMs, bytes: fs.readFileSync(full).toString('base64') });
+    }
+  };
+  walk(dir);
+  return entries;
+}
+
+test('151 IC-002: a listed store is read, a missing directory or an unresolved root is absent', (t) => {
+  const { roots } = fixture(t);
+  writePartition(roots['project-state'], '2026-06-01', `${JSON.stringify({ schema: 1, type: 'miss', reason: 'timeout' })}\n`);
+  const result = readWindow({ roots, now: NOW });
+  assert.deepEqual(result.stores, { 'project-state': 'read', 'user-state': 'absent' });
+  assert.deepEqual(result.partitions, [{ store: 'project-state', day: '2026-06-01', read: true, unreadableLines: 0 }]);
+  assert.equal(result.unreadable, 0);
+  assert.equal(result.records.length, 1);
+
+  fs.mkdirSync(picksDir(roots['user-state']), { recursive: true });
+  assert.deepEqual(readWindow({ roots, now: NOW }).stores, { 'project-state': 'read', 'user-state': 'read' }, 'an empty listed directory is read');
+
+  const projectOnly = readWindow({ roots: { 'project-state': roots['project-state'] }, now: NOW });
+  assert.deepEqual(projectOnly.stores, { 'project-state': 'read', 'user-state': 'absent' });
+  const none = readWindow({ roots: undefined, now: NOW });
+  assert.deepEqual(none, { records: [], unreadable: 0, stores: { 'project-state': 'absent', 'user-state': 'absent' }, partitions: [] });
+  assert.deepEqual(readWindow({ roots, now: () => new Date('not a date') }),
+    { records: [], unreadable: 0, stores: { 'project-state': 'unreadable', 'user-state': 'unreadable' }, partitions: [] },
+    'with no cutoff nothing is listed, so no store claims to be read');
+});
+
+test('151 IC-002: a file where the picks directory or its parent should be makes the store absent, not unreadable', (t) => {
+  const { roots } = fixture(t);
+  fs.mkdirSync(path.join(roots['project-state'], 'advice'), { recursive: true });
+  fs.writeFileSync(picksDir(roots['project-state']), 'not a directory');
+  fs.mkdirSync(roots['user-state'], { recursive: true });
+  fs.writeFileSync(path.join(roots['user-state'], 'advice'), 'not a directory');
+  const result = readWindow({ roots, now: NOW });
+  assert.deepEqual(result.stores, { 'project-state': 'absent', 'user-state': 'absent' });
+  assert.deepEqual(result.partitions, []);
+  assert.equal(result.unreadable, 0);
+  assert.deepEqual(result.records, []);
+});
+
+test('151 IC-002: a directory that cannot be listed is unreadable, adds 1 to unreadable and leaves the other store read', (t) => {
+  const { roots } = fixture(t);
+  writePartition(roots['project-state'], '2026-06-01', `${JSON.stringify({ schema: 1, type: 'miss', reason: 'hidden' })}\n`);
+  writePartition(roots['user-state'], '2026-05-31', `${JSON.stringify({ schema: 1, type: 'miss', reason: 'seen' })}\n`);
+  const blocked = picksDir(roots['project-state']);
+  const fsImpl = Object.create(fs);
+  fsImpl.readdirSync = (directory: string, ...rest: any[]) => {
+    if (directory === blocked) throw Object.assign(new Error('permission denied'), { code: 'EACCES' });
+    return fs.readdirSync(directory, ...rest);
+  };
+  const result = readWindow({ roots, now: NOW, fsImpl });
+  assert.deepEqual(result.stores, { 'project-state': 'unreadable', 'user-state': 'read' });
+  assert.deepEqual(result.partitions, [{ store: 'user-state', day: '2026-05-31', read: true, unreadableLines: 0 }]);
+  assert.equal(result.unreadable, 1);
+  assert.deepEqual(result.records.map((entry: any) => entry.record.reason), ['seen']);
+});
+
+test('151 IC-002: a partition file that cannot be read is read: false and adds 1 to unreadable', (t) => {
+  const { roots } = fixture(t);
+  writePartition(roots['project-state'], '2026-05-31', `${JSON.stringify({ schema: 1, type: 'miss', reason: 'ok' })}\n`);
+  fs.mkdirSync(path.join(picksDir(roots['project-state']), '2026-06-01.jsonl'), { recursive: true });
+  const result = readWindow({ roots, now: NOW });
+  assert.deepEqual(result.stores, { 'project-state': 'read', 'user-state': 'absent' });
+  assert.deepEqual(result.partitions, [
+    { store: 'project-state', day: '2026-05-31', read: true, unreadableLines: 0 },
+    { store: 'project-state', day: '2026-06-01', read: false, unreadableLines: 0 },
+  ]);
+  assert.equal(result.unreadable, 1);
+  assert.equal(result.records.length, 1);
+});
+
+test('151 IC-002: a line that does not parse as an object counts in unreadable and in its partition', (t) => {
+  const { roots } = fixture(t);
+  const good = JSON.stringify({ schema: 1, type: 'miss', reason: 'ok' });
+  writePartition(roots['project-state'], '2026-05-30', `${good}\n{not json}\n[1,2]\n\n"text"\n`);
+  writePartition(roots['project-state'], '2026-05-31', `${good}\n`);
+  writePartition(roots['user-state'], '2026-06-01', `null\n${good}\r\n`);
+  const result = readWindow({ roots, now: NOW });
+  assert.deepEqual(result.partitions, [
+    { store: 'project-state', day: '2026-05-30', read: true, unreadableLines: 3 },
+    { store: 'project-state', day: '2026-05-31', read: true, unreadableLines: 0 },
+    { store: 'user-state', day: '2026-06-01', read: true, unreadableLines: 1 },
+  ]);
+  assert.equal(result.unreadable, 4);
+  assert.equal(result.records.length, 3);
+});
+
+test('151 IC-002: every record carries the YYYY-MM-DD of its partition', (t) => {
+  const { roots } = fixture(t);
+  const line = (reason: string) => `${JSON.stringify({ schema: 1, type: 'miss', reason })}\n`;
+  writePartition(roots['project-state'], '2026-05-30', line('a') + line('b'));
+  writePartition(roots['project-state'], '2026-06-01', line('c'));
+  writePartition(roots['user-state'], '2026-05-31', line('d'));
+  const result = readWindow({ roots, now: NOW });
+  assert.deepEqual(result.records.map((entry: any) => [entry.store, entry.day, entry.record.reason]), [
+    ['project-state', '2026-05-30', 'a'], ['project-state', '2026-05-30', 'b'],
+    ['project-state', '2026-06-01', 'c'], ['user-state', '2026-05-31', 'd'],
+  ]);
+  for (const entry of result.records) assert.equal(entry.day, path.basename(entry.file).slice(0, 10));
+});
+
+test('151 IC-002: a partition before the cutoff, or a file that is not a partition, is left out of partitions', (t) => {
+  const { roots } = fixture(t);
+  const line = `${JSON.stringify({ schema: 1, type: 'miss', reason: 'r' })}\n`;
+  // NOW is 2026-06-01T02:00Z, so the 90-day cutoff is 2026-03-03.
+  writePartition(roots['project-state'], '2026-03-02', `${line}{not json}\n`);
+  writePartition(roots['project-state'], '2026-03-03', line);
+  fs.writeFileSync(path.join(picksDir(roots['project-state']), 'notes.txt'), '{not json}\n');
+  const result = readWindow({ roots, now: NOW });
+  assert.deepEqual(result.partitions, [{ store: 'project-state', day: '2026-03-03', read: true, unreadableLines: 0 }]);
+  assert.equal(result.unreadable, 0);
+  assert.deepEqual(result.records.map((entry: any) => entry.day), ['2026-03-03']);
+  assert.deepEqual(readWindow({ roots, now: NOW, maxAgeDays: 1 }).partitions, []);
+});
+
+test('151 IC-002: readWindow leaves both store trees byte for byte unchanged', (t) => {
+  const { roots } = fixture(t);
+  writePartition(roots['project-state'], '2026-05-31', `${JSON.stringify({ schema: 1, type: 'pick', pickId: GIVEN_ID, kind: 'tier' })}\n{not json}\n`);
+  fs.mkdirSync(path.join(picksDir(roots['project-state']), '2026-06-01.jsonl'), { recursive: true });
+  writePartition(roots['user-state'], '2026-01-01', '{"schema":1,"type":"miss"}\n');
+  const trees = [path.dirname(roots['project-doflow']), path.dirname(roots['user-doflow'])];
+  const before = trees.map(treeSnapshot);
+  assert.ok(before[0].some((entry: any) => entry.rel.endsWith('2026-05-31.jsonl') && entry.size > 0), 'the snapshot sees the partition it guards');
+  const result = readWindow({ roots, now: NOW });
+  assert.equal(result.partitions.length, 2);
+  assert.deepEqual(trees.map(treeSnapshot), before);
+});

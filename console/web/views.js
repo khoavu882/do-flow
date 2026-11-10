@@ -16,6 +16,11 @@ import { renderWorkflows } from './views/workflows.js';
 import {
   sessionApi, loadSession, connectSession, skeletonSession, renderSession, rerouteSession, tickSession, teardownSession,
 } from './views/session.js';
+import { renderSettings, rerouteSettings, settingsTitle } from './views/settings.js';
+import { renderAdvice, rerouteAdvice, adviceTitle } from './views/advice.js';
+import { loadFollowups, renderFollowups, rerouteFollowups, followupsTitle } from './views/followups.js';
+import { renderHealth, rerouteHealth, healthTitle } from './views/health.js';
+import { renderWorkers, rerouteWorkers, workersTitle } from './views/workers.js';
 import { deriveSessions } from './derive/sessions.js';
 import { runStepCopy, runToken } from './derive/rail.js';
 import { workflowsOf } from './derive/workflows.js';
@@ -338,6 +343,11 @@ const VIEWS = Object.freeze({
     isEmpty: () => false,
     title: projectTitle,
   },
+  settings: { id: 'settings', inspectable: true, noun: 'settings', shapes: ['config-list', 'config-schema'], api: () => '/api/settings', pollMs: 30000, wide: true, skeleton: skeletonBlock, head: () => ({ text: 'Settings', mono: false }), meta: () => null, render: renderSettings, reroute: rerouteSettings, isEmpty: (/** @type {any} */ data) => data?.sections?.effective?.ok === true && data.sections.effective.data.keys.length === 0, empty: { title: 'No settings listed', sentence: 'The DoFlow core listed no settings.' }, title: settingsTitle },
+  advice: { id: 'advice', inspectable: true, noun: 'advice', shapes: ['config-list', 'advise-report', 'advice-picks'], api: (/** @type {any} */ params) => params.kind ? `/api/advice?kind=${params.kind}` : '/api/advice', pollMs: 30000, wide: true, skeleton: skeletonBlock, head: () => ({ text: 'Advice and shadow', mono: false }), meta: () => null, render: renderAdvice, reroute: rerouteAdvice, isEmpty: () => false, title: adviceTitle },
+  followups: { id: 'followups', inspectable: true, noun: 'follow-ups', shapes: ['followups', 'followup-record', 'lifecycle-overview'], api: () => null, load: loadFollowups, pollMs: 30000, wide: true, skeleton: skeletonBlock, head: () => ({ text: 'Follow-ups', mono: false }), meta: () => null, render: renderFollowups, reroute: rerouteFollowups, isEmpty: () => false, title: followupsTitle },
+  health: { id: 'health', inspectable: true, noun: 'health', shapes: ['doctor', 'storage-report'], api: () => '/api/storage', pollMs: 60000, wide: true, skeleton: skeletonBlock, head: () => ({ text: 'Health', mono: false }), meta: () => null, render: renderHealth, reroute: rerouteHealth, isEmpty: () => false, title: healthTitle },
+  workers: { id: 'workers', inspectable: true, noun: 'workers', shapes: ['worker-matrix', 'config-list', 'doctor'], api: () => '/api/workers', pollMs: 30000, wide: true, skeleton: skeletonBlock, head: () => ({ text: 'Workers', mono: false }), meta: () => null, render: renderWorkers, reroute: rerouteWorkers, isEmpty: () => false, title: workersTitle },
   'not-found': {
     id: 'not-found',
     inspectable: false,
@@ -450,6 +460,21 @@ function parseRoute(hash) {
   if (path === '/sessions') return { id: 'sessions', params: {}, view: VIEWS.sessions };
   if (path === '/fleet') return { id: 'fleet', params: {}, view: VIEWS.fleet };
   const parts = path.split('/'); // ['', 'run', slug, taskId, ...selection]
+  const manage = parts[1];
+  const base = (/** @type {string} */ id, /** @type {any} */ extra = {}) => ({ id, params: {}, view: VIEWS[id], ...extra });
+  const setting = (/** @type {any} */ value) => typeof value === 'string' && value.length <= 96 && /^[a-z][A-Za-z0-9]*(?:[.-][A-Za-z0-9]+){1,7}$/.test(value);
+  const kind = (/** @type {any} */ value) => typeof value === 'string' && /^[a-z][a-z0-9-]{0,31}$/.test(value);
+  const pick = (/** @type {any} */ value) => typeof value === 'string' && /^adv-[0-9]{13}-[0-9a-f]{6}$/.test(value);
+  if (manage === 'settings') return parts.length === 2 ? base(manage) : parts.length === 3 && setting(parts[2]) ? base(manage, { key: parts[2] }) : notFound;
+  if (manage === 'followups') return parts.length === 2 ? base(manage) : parts.length === 3 && /^FU-[0-9a-hjkmnp-tv-z]{6}$/.test(parts[2]) ? base(manage, { item: parts[2] }) : notFound;
+  if (manage === 'health') return parts.length === 2 ? base(manage) : parts.length === 4 && parts[2] === 'store' && PARAM_PATTERN.test(parts[3]) ? base(manage, { store: parts[3] }) : notFound;
+  if (manage === 'workers') return parts.length === 2 ? base(manage) : parts.length === 5 && PARAM_PATTERN.test(parts[2]) && ['worker', 'orchestration'].includes(parts[3]) && /^[a-z][A-Za-z0-9]{0,31}$/.test(parts[4]) ? base(manage, { cell: { harness: parts[2], group: parts[3], cell: parts[4] } }) : notFound;
+  if (manage === 'advice') {
+    let i = 2; const params = /** @type {any} */ ({}); const extra = /** @type {any} */ ({});
+    if (parts[i] === 'kind' && kind(parts[i + 1])) { params.kind = parts[i + 1]; i += 2; }
+    if (parts[i] === 'pick' && pick(parts[i + 1])) { extra.pick = parts[i + 1]; i += 2; }
+    return i === parts.length ? { id: manage, params, view: VIEWS.advice, ...extra } : notFound;
+  }
   if (parts[1] === 'fleet') {
     // '', 'fleet', project, agent?: the keys of IC-019 and IC-020, nothing else (no path, label or session id is ever in a URL).
     if (parts.length < 3 || parts.length > 4 || !KEY16.test(parts[2]) || (parts.length === 4 && !KEY16.test(parts[3]))) return notFound;
@@ -490,6 +515,20 @@ function hashFor(route) {
   const id = route ? route.id : null;
   if (id === 'runs') return '#/';
   if (id === 'workflows') return '#/workflows';
+  if (['settings', 'advice', 'followups', 'health', 'workers'].includes(id)) {
+    let hash = `#/${id}`;
+    if (id === 'settings' && route.key !== undefined && typeof route.key !== 'string') return null;
+    if (id === 'followups' && route.item !== undefined && typeof route.item !== 'string') return null;
+    if (id === 'health' && route.store !== undefined && typeof route.store !== 'string') return null;
+    if (id === 'workers' && route.cell !== undefined && (!route.cell || typeof route.cell.harness !== 'string' || typeof route.cell.group !== 'string' || typeof route.cell.cell !== 'string')) return null;
+    if (id === 'advice' && ((params.kind !== undefined && typeof params.kind !== 'string') || (route.pick !== undefined && typeof route.pick !== 'string'))) return null;
+    if (id === 'settings' && route.key !== undefined) hash += `/${route.key}`;
+    if (id === 'followups' && route.item !== undefined) hash += `/${route.item}`;
+    if (id === 'health' && route.store !== undefined) hash += `/store/${route.store}`;
+    if (id === 'workers' && route.cell !== undefined) hash += `/${route.cell?.harness}/${route.cell?.group}/${route.cell?.cell}`;
+    if (id === 'advice') { if (params.kind !== undefined) hash += `/kind/${params.kind}`; if (route.pick !== undefined) hash += `/pick/${route.pick}`; }
+    return parseRoute(hash).id === id ? hash : null;
+  }
   if (id === 'fleet') return '#/fleet';
   if (id === 'fleet-project') {
     if (!KEY16.test(params.project) || (params.agent !== undefined && !KEY16.test(params.agent))) return null;
@@ -522,7 +561,7 @@ function hashFor(route) {
  * @param {any} route
  */
 function baseRoute(route) {
-  const { sel, task, lane, node, tab, ...rest } = route;
+  const { sel, task, lane, node, tab, key, pick, item, store, cell, ...rest } = route;
   if (route.id !== 'fleet-project') return rest;
   return { ...rest, params: { project: route.params.project } };
 }
@@ -545,7 +584,7 @@ function titleFor(route, data = null) {
  * @param {any} route
  */
 function navFor(route) {
-  if (route.id === 'workflows' || route.id === 'sessions') return route.id;
+  if (['workflows', 'sessions', 'settings', 'advice', 'followups', 'health', 'workers'].includes(route.id)) return route.id;
   if (route.id === 'fleet' || route.id === 'fleet-project') return 'fleet';
   return route.id === 'not-found' ? null : 'runs';
 }

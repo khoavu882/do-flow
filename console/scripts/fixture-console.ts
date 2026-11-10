@@ -6,9 +6,10 @@
 // on 127.0.0.1:0 against it, and prints the Console's one URL line on stdout. It is the only Console a
 // designer or a browser check may open. Everything else it says goes to stderr.
 //
-//   node console/scripts/fixture-console.ts --core <abs path to bin/doflow.js> [--empty] [--core-missing] [--keep] [--tick <seconds>] [--append <seconds>] [--worker-log <seconds>]
+//   node console/scripts/fixture-console.ts --core <abs path to bin/doflow.js> [--empty] [--manage] [--core-missing] [--keep] [--tick <seconds>] [--append <seconds>] [--worker-log <seconds>]
 //
 //   --empty          a project with no runs (the empty views)
+//   --manage         add the management settings, follow-ups, goals, advice and doctor fixture world
 //   --core-missing   the Console boots against a symlink to the core so its handshake passes, and the
 //                    link is removed once the URL line is out: every later call is core-unreachable
 //                    (503), the state the no-runtime view needs. The version and capabilities caches
@@ -56,6 +57,7 @@ const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
 const { buildFixture, SLUGS, CONSTITUTION_CHECK, PASSING_PLAN } = require('../test/helpers/core-fixture.ts');
 const { buildWorkerWorld } = require('../test/helpers/worker-world.ts');
+const { buildManageWorld } = require('../test/helpers/manage-world.ts');
 
 /**
  * Every directory this script makes is made directly under this root, and only those exact paths are
@@ -70,7 +72,7 @@ const URL_LINE = /^doflow ui: http:\/\/127\.0\.0\.1:(\d+)\/#c=([0-9a-f]{64})\n/;
 const BOOT_MS = 30_000;
 const STOP_MS = 5_000;
 const HOUR = 60 * 60 * 1000;
-const USAGE = 'usage: fixture-console.ts --core <absolute path to bin/doflow.js> [--empty] [--core-missing] [--keep] [--tick <seconds>] [--append <seconds>] [--worker-log <seconds>]';
+const USAGE = 'usage: fixture-console.ts --core <absolute path to bin/doflow.js> [--empty] [--manage] [--core-missing] [--keep] [--tick <seconds>] [--append <seconds>] [--worker-log <seconds>]';
 const REPO = path.resolve(__dirname, '..', '..');
 /** The session ids of the V.2 transcript fixtures (test/fixtures/transcripts/v8): `<RAW>c001` is the Claude main session. */
 const RAW = 'fa000000-0000-4000-8000-00000000';
@@ -154,7 +156,7 @@ const CHAIN_PLAN = [
   '',
 ].join('\n');
 
-type Options = { core: string, empty?: boolean, coreMissing?: boolean, keep?: boolean, chain?: boolean, log?: (line: string) => void };
+type Options = { core: string, empty?: boolean, manage?: boolean, coreMissing?: boolean, keep?: boolean, chain?: boolean, log?: (line: string) => void };
 type Fixture = ReturnType<typeof buildFixture>;
 type Handle = {
   url: string, port: number, code: string, dir: string, project: string, env: Record<string, string>,
@@ -547,6 +549,7 @@ async function startFixtureConsole(options: Options): Promise<Handle> {
   let steps: Array<{ describe: string, args: string[], before?: () => void }> = [];
   let world: ReturnType<typeof addChain> | null = null;
   try {
+    if (options.empty && options.manage) throw new Error('fixture-console: --manage cannot be combined with --empty');
     if (options.empty && options.chain) throw new Error('fixture-console: --worker-log needs runs; it cannot be combined with --empty');
     if (options.empty) dropRuns(fixture);
     else {
@@ -558,6 +561,8 @@ async function startFixtureConsole(options: Options): Promise<Handle> {
       }
     }
     const fleet = addFleet(fixture, options.core);
+    // This helper asserts the world's core-level premises before the Console can publish its URL.
+    if (options.manage) buildManageWorld({ fixture, core: options.core });
 
     // A symlink to the core, removed after boot: the handshake passes, the runner's file check then fails.
     let linkDir: string | null = null;
@@ -643,13 +648,14 @@ async function startFixtureConsole(options: Options): Promise<Handle> {
   }
 }
 
-type Flags = { core: string, empty: boolean, coreMissing: boolean, keep: boolean, tick: number | null, append: number | null, workerLog: number | null };
+type Flags = { core: string, empty: boolean, manage: boolean, coreMissing: boolean, keep: boolean, tick: number | null, append: number | null, workerLog: number | null };
 
 function parseFlags(argv: readonly string[]): Flags | { error: string } {
-  const flags: Flags = { core: '', empty: false, coreMissing: false, keep: false, tick: null, append: null, workerLog: null };
+  const flags: Flags = { core: '', empty: false, manage: false, coreMissing: false, keep: false, tick: null, append: null, workerLog: null };
   for (let index = 0; index < argv.length; index += 1) {
     const name = argv[index];
     if (name === '--empty') flags.empty = true;
+    else if (name === '--manage') flags.manage = true;
     else if (name === '--core-missing') flags.coreMissing = true;
     else if (name === '--keep') flags.keep = true;
     else if (name === '--core' || name === '--tick' || name === '--append') {
@@ -670,6 +676,7 @@ function parseFlags(argv: readonly string[]): Flags | { error: string } {
   if (flags.core === '') return { error: '--core is required' };
   if (!path.isAbsolute(flags.core)) return { error: '--core must be an absolute path' };
   if (!fs.existsSync(flags.core)) return { error: `--core does not exist: ${flags.core}` };
+  if (flags.manage && flags.empty) return { error: '--manage cannot be combined with --empty' };
   if (flags.workerLog !== null && flags.empty) return { error: '--worker-log cannot be combined with --empty' };
   return flags;
 }

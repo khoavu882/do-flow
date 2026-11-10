@@ -116,7 +116,7 @@ const app = /** @type {any} */ ({
 let viewSeq = 0;
 
 /** The four screens, by their rail labels. */
-const SCREENS = Object.freeze([['Now', 'runs'], ['Sessions', 'sessions'], ['Workflows', 'workflows'], ['Fleet', 'fleet']]);
+const SCREENS = Object.freeze([['Now', 'runs'], ['Sessions', 'sessions'], ['Workflows', 'workflows'], ['Fleet', 'fleet'], ['Workers', 'workers'], ['Advice', 'advice'], ['Follow-ups', 'followups'], ['Settings', 'settings'], ['Health', 'health']]);
 
 /**
  * What the command palette can reach (IC-021, DEC-011): the screens, then the runs (each with its Chain target, 150 IC-020),
@@ -571,7 +571,7 @@ function startView(route, { first = false, animate = false, focus = true } = {})
     announcedError: null,
     // The view's own memory (E.1): what its render, load and tick keep between polls; its panel opens in `inspector` (D.2);
     // `route` is the current route with its selection (IC-019) and `link` writes a selection to the address.
-    local: { inspector: app.inspector, route, link: /** @type {any} */ (null) },
+    local: { inspector: app.inspector, route, link: /** @type {any} */ (null), apiGet, retry: () => view.poller && /** @type {any} */ (view.poller).refreshNow() },
     root: null,
     painted: null,
     fullKey: null,
@@ -582,7 +582,7 @@ function startView(route, { first = false, animate = false, focus = true } = {})
   globalThis.document.title = titleFor(route);
   if (app.inspector) app.inspector.setInspectable(route.view.inspectable === true);
   const navHref = navFor(route);
-  setNav(navHref === null ? null : navHref === 'workflows' ? '#/workflows' : navHref === 'sessions' ? '#/sessions' : navHref === 'fleet' ? '#/fleet' : '#/');
+  setNav(navHref === null ? null : navHref === 'runs' ? '#/' : `#/${navHref}`);
   paint(view);
   if (!first && focus) {
     globalThis.scrollTo(0, 0);
@@ -626,7 +626,7 @@ function beginView(view) {
     return;
   }
   const path = spec.api(view.route.params);
-  if (path === null) {
+  if (path === null && typeof spec.load !== 'function') {
     view.hasData = true;
     view.data = {};
     paint(view);
@@ -919,7 +919,7 @@ function boot() {
     const brand = document.querySelector('.brand');
     if (brand && !brand.querySelector('.icon')) brand.prepend(icon('brand', 28));
     /** @type {Record<string, string>} */
-    const railIcons = { '#/': 'rail-now', '#/sessions': 'rail-sessions', '#/workflows': 'rail-workflows', '#/fleet': 'rail-fleet' };
+    const railIcons = { '#/': 'rail-now', '#/sessions': 'rail-sessions', '#/workflows': 'rail-workflows', '#/fleet': 'rail-fleet', '#/workers': 'rail-workers', '#/advice': 'rail-advice', '#/followups': 'rail-followups', '#/settings': 'rail-settings', '#/health': 'rail-health' };
     for (const link of app.els.navLinks) {
       const name = railIcons[link.getAttribute('href')];
       if (name && !link.querySelector('.icon')) link.prepend(icon(name, 16));
