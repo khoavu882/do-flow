@@ -84,7 +84,7 @@ function renderSettings(body, _params, local) {
   const effective = body?.sections?.effective;
   const schema = body?.sections?.schema;
   const owners = new Map();
-  const onRetry = () => { if (typeof local.refresh === 'function') local.refresh(); };
+  const onRetry = () => { if (typeof local.retry === 'function') local.retry(); else if (typeof local.refresh === 'function') local.refresh(); };
   const effectiveNode = renderSection(effective, { noun: 'settings', render: effectiveDetails, onRetry });
   const schemaNode = renderSection(schema, { noun: 'the settings schema', render: schemaDetails, onRetry });
   const rows = effective?.ok ? groups(effective.data, owners) : null;

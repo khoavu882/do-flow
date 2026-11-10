@@ -155,8 +155,8 @@ function fakeInspector() {
 
 function localFor(route: any = { id: 'settings', params: {} }) {
   const links: any[] = [];
-  const refreshes: number[] = [];
-  return { inspector: fakeInspector(), route, links, refreshes, link: (patch: any) => { links.push(patch); }, refresh: () => { refreshes.push(1); } };
+  const retries: number[] = [];
+  return { inspector: fakeInspector(), route, links, retries, link: (patch: any) => { links.push(patch); }, retry: () => { retries.push(1); } };
 }
 
 const bodyOf = (eff: any = { ok: true, data: effective, at: AT }, sch: any = { ok: true, data: schema, at: AT }) => ({ v: 1, sections: { effective: eff, schema: sch } });
@@ -527,8 +527,19 @@ test('an effective section that failed: an inline error with Retry, which asks t
   const retry = errors[0].querySelectorAll('button').find((b: any) => textOf(b) === 'Retry');
   if (!retry) throw new Error('Retry button is missing');
   retry.fire('click');
-  assert.deepEqual(local.refreshes, [1]);
+  assert.deepEqual(local.retries, [1]);
   assert.equal(textOf(root).indexOf(ENV_SENTENCE), 0, 'the environment sentence still leads');
+});
+
+test('a schema section that failed retries through the shell callback while effective settings render', () => {
+  const { root, local } = render(bodyOf(undefined, { ok: false, code: 'core-error' }));
+  assert.equal(root.querySelectorAll('section.sgroup').length, 5);
+  const errors = byData(root, 'state', 'error');
+  assert.equal(errors.length, 1);
+  const retry = errors[0].querySelectorAll('button').find((b: any) => textOf(b) === 'Retry');
+  if (!retry) throw new Error('Retry button is missing');
+  retry.fire('click');
+  assert.deepEqual(local.retries, [1]);
 });
 
 test('an effective body with no keys shows the empty copy: the core listed no settings', () => {

@@ -506,3 +506,18 @@ for (const [hash, target, selection] of [
     const close = page.inspector.querySelector('.inspector__close'); close.focus(); assert.equal(page.doc.activeElement, close);
   });
 }
+
+test('Settings section Retry through the shell makes a fresh settings request', async () => {
+  let reads = 0;
+  const page = await start({ hash: '#/settings', fetch: (target, init) => {
+    if (target !== '/api/settings') return manageFetch(target, init);
+    reads += 1;
+    return reply(200, { v: 1, sections: { effective: { ok: false, code: 'core-error' }, schema: missing } });
+  } });
+  assert.equal(reads, 1);
+  const retry = page.main.querySelectorAll('button').find((button: El) => text(button) === 'Retry');
+  if (!retry) throw new Error('Settings Retry button was not rendered');
+  retry.fire('click');
+  await settle();
+  assert.equal(reads, 2, 'Retry asks the shell poller to read /api/settings again');
+});
