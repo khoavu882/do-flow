@@ -1,55 +1,3 @@
-Permissions - Features - Docs - Kiro
-Loading image...
-Product
-About Kiro
-Agents
-IDE
-CLI
-Web
-Mobile
-Crew
-Pricing
-Downloads
-For
-Enterprise
-Startups
-Students
-Community
-Overview
-Ambassadors
-Case studies
-Discord
-Events
-Powers
-Shop
-Showcase
-Resources
-Docs
-Blog
-Changelog
-FAQs
-Videos
-Report a bug
-Suggest an idea
-Billing support
-Social
-English
-Site Terms
-License
-Responsible AI Policy
-Legal
-Privacy Policy
-Cookie Preferences
-English
-Agents
-Apps
-Enterprise
-Pricing
-Docs
-Community
-Resources
-SIGN IN
-DOWNLOADS
 Get Started
 Installation
 Authentication
@@ -105,6 +53,7 @@ Crew
 Quick start
 Installation
 Running 24/7
+Bots
 Chat
 Agent Capabilities
 Features
@@ -151,12 +100,14 @@ Connecting your identity provider
 Deployment options
 Subscribe your team
 Manage subscriptions
+Credit pooling
 Governance
 Monitor and track
 Settings
 Managed updates
 TLS inspection compatibility
 Billing
+Support
 IAM
 Supported regions
 AWS GovCloud (US)
@@ -184,8 +135,6 @@ Permissions
 Copy page
 View as Markdown
 Permissions
-Copy page
-View as Markdown
 Kiro uses a capability-based permissions system that gives you fine-grained, declarative control over what the agent can do. You define rules per capability with match patterns and explicit effects, replacing older binary trust models.
 Capability
 IDE
@@ -861,4 +810,17 @@ rules for anything the pipeline must never touch.
 Warning
 Headless execution raises the stakes: when no interactive client is available, every
 ask
+is treated as a deny, because the runtime has no interactive channel to deliver the prompt. A headless session can only perform operations that are explicitly allowed, so the presets it requests, plus any configured
+allow
+rules, define its entire grant surface.
+Trust invariants
+Presets extend what a session is allowed to do, but they cannot override higher-precedence rules. The deny-overrides algorithm described in the Scopes section above still applies in full:
+Kiro-scope hard denies (writes to
+~/.kiro/settings/
+,
+.kiro/settings/
+,
+~/.kiro/workspace-roots/
+,
+.kiroignore
 [snapshot truncated]

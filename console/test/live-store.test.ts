@@ -372,14 +372,24 @@ test('three retrying states without a frame close the adapter as a refusal; a fr
   adapter.state('retrying');
   assert.equal(adapter.closes, 0);
   adapter.state('retrying');
+  adapter.state('retrying');
   assert.equal(adapter.closes, 1);
-  assert.deepEqual(transport.map((e) => e.state), ['retrying', 'retrying', 'retrying', 'open', 'retrying', 'retrying', 'refused']);
+  assert.deepEqual(transport.map((e) => e.state), ['retrying', 'retrying', 'retrying', 'open', 'retrying', 'retrying', 'retrying', 'refused']);
   assert.deepEqual(transport[transport.length - 1], { state: 'refused', code: 'retry-limit', at: 50 });
   assert.deepEqual(store.status(), { transport: 'refused', lastFrameAt: 50 });
   clock.advance(29999);
   assert.equal(adapter.opens.length, 1);
   clock.advance(1);
   assert.deepEqual(adapter.opens[1], { channels: ['now'], since: `${E}/now=1` });
+});
+
+test('FU-314stt: quiet reconnects (open without frame) reset retrying; three open/retrying cycles do not refuse', () => {
+  const { adapter } = opened(['now']);
+  for (let i = 0; i < 3; i++) {
+    adapter.state('retrying');
+    adapter.state('open');
+  }
+  assert.equal(adapter.closes, 0);
 });
 
 test('a patch never changes a state object a listener already holds', () => {

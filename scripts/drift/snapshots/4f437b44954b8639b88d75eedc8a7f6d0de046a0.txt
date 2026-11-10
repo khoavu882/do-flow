@@ -6,6 +6,7 @@ Configuration
 Hook locations
 Matcher patterns
 Match MCP tools
+Match Monitor commands
 Hook handler fields
 Common fields
 How if patterns match Bash commands
@@ -33,6 +34,7 @@ Exit code 2 behavior per event
 HTTP response handling
 JSON output
 Emit terminal notifications
+Get terminal notifications inside tmux or GNU screen
 Add context for Claude
 Decision control
 Hook events
@@ -70,6 +72,7 @@ PermissionRequest input
 PermissionRequest decision control
 Permission update entries
 PostToolUse
+PostToolUse after an interrupt
 PostToolUse input
 PostToolUse decision control
 Annotate a result for the auto mode classifier
@@ -120,6 +123,7 @@ WorktreeRemove
 WorktreeRemove input
 PreCompact
 PreCompact input
+PreCompact output
 PostCompact
 PostCompact input
 PreModelSwitch
@@ -312,7 +316,9 @@ macOS/Linux
 Windows (PowerShell)
 The
 matcher
-narrows to Bash tool calls and the
+narrows to Bash tool calls and
+Monitor commands
+, and the
 if
 condition narrows further to Bash subcommands matching
 rm *
@@ -410,7 +416,7 @@ covers the
 PowerShell tool
 as well as Bash. A single
 if
-rule matches only one tool’s calls, so each tool gets its own handler: the first narrows to Bash subcommands matching
+rule names one tool, so each tool gets its own handler: the first narrows to Bash subcommands matching
 rm *
 , the second to PowerShell commands matching
 Remove-Item *
@@ -646,7 +652,7 @@ or
 Stop
 Add a
 matcher group
-to filter when it fires, like “only for the Bash tool”
+to filter when it fires, like “for the Bash tool”
 Define one or more
 hook handlers
 to run when matched
@@ -759,8 +765,4 @@ allowManagedHooksOnly
 .
 Hook entries merge across settings levels rather than replacing each other: user, project, and local settings add their own hooks without removing managed ones, and the
 disableAllHooks
-setting can’t disable managed hooks from outside managed settings.
-The
-HTTP hook allowlists
-apply to hooks from every source, including managed policy settings:
 [snapshot truncated]

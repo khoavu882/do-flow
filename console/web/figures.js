@@ -7,12 +7,11 @@
 // One way to show a part of a sectioned route (IC-012: `{ok: true, data, at}` or `{ok: false, code}`): ready with its age,
 // not in this core, or an inline error with Retry. Every string reaches the page as a text node (NFR-005).
 //
-// CORE_RANGE is read from views.js only inside a call: views.js imports the screens that import this module, so in the
-// page's order (views.js first) this module's body runs before views.js's.
+// Leaf module routes.js provides CORE_RANGE without circular dependency.
 
 import { h, icon } from './dom.js';
 import { ERROR_COPY, errorTitle, errorSentence, inline, button, reltime } from './states.js';
-import { CORE_RANGE } from './views.js';
+import { CORE_RANGE } from './routes.js';
 
 const UNKNOWN = 'unknown';
 const NO_DATA = 'no data (n=0)';

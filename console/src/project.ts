@@ -556,13 +556,37 @@ function workerLog(value: unknown) {
   const to = count(body.to);
   if (from > to || to > size) fail();
   let last = -1;
-  const piece = (item: unknown) => {
-    const p = record(item);
-    const at = count(p.at);
-    if (at < from || at >= to || at <= last) fail();
-    last = at;
-    return { at, text: maskLite(text(p.text)), cut: p.cut === undefined ? false : bool(p.cut) };
-  };
+  const rawPieces: Array<{ at: number; text: string; cut: boolean }> = [];
+  if (Array.isArray(body.pieces)) {
+    for (const item of body.pieces) {
+      const p = record(item);
+      const at = count(p.at);
+      if (at < from || at >= to || at <= last) fail();
+      last = at;
+      rawPieces.push({ at, text: text(p.text), cut: p.cut === undefined ? false : bool(p.cut) });
+    }
+  } else fail();
+  let i = 0;
+  while (i < rawPieces.length) {
+    let j = i;
+    while (j < rawPieces.length && rawPieces[j].cut === true) j++;
+    const end = Math.min(rawPieces.length, j + 1);
+    const run = rawPieces.slice(i, end);
+    if (run.length === 1) {
+      run[0].text = maskLite(run[0].text);
+    } else {
+      const joined = run.map((p) => p.text).join('');
+      const masked = maskLite(joined);
+      let pos = 0;
+      for (let k = 0; k < run.length; k++) {
+        const next = k === run.length - 1 ? masked.length : pos + run[k].text.length;
+        run[k].text = masked.slice(pos, next);
+        pos = next;
+      }
+    }
+    i = end;
+  }
+  const pieces = rawPieces.map((p) => ({ at: p.at, text: p.text, cut: p.cut }));
   return {
     v: one(body.v),
     runId: runId(body.runId),
@@ -573,7 +597,7 @@ function workerLog(value: unknown) {
     size,
     from,
     to,
-    pieces: each(piece)(body.pieces),
+    pieces,
     eof: bool(body.eof),
     reset: bool(body.reset),
     capped: orNull(bool)(body.capped),

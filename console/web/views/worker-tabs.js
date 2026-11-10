@@ -33,7 +33,7 @@ import { classify, renderError, renderLoading, ERROR_COPY, clockTime, skel, butt
 import { createLogStream } from '../log-store.js';
 import { workerChip } from '../derive/chain.js';
 import { reasonBanner, renderEventList } from './transcript.js';
-import { CORE_RANGE } from '../views.js';
+import { CORE_RANGE } from '../routes.js';
 
 /** The tabs in IC-018's order (requirement A2). */
 const TABS = Object.freeze([['log', 'Log'], ['transcript', 'Transcript'], ['result', 'Result'], ['process', 'Process']]);
@@ -386,7 +386,7 @@ function mountWorkerTabs(container, options) {
     const held = transcripts.get(run.runId);
     if (held.loading) return show('loading', loading('the transcript'));
     if (!held.ok) {
-      if (held.error.status === 404 && held.error.code === 'agent-not-in-project') return show('empty', h('p', {}, 'The core did not include this worker run in its read.'));
+      if (held.error.status === 404 && (held.error.code === 'agent-not-in-project' || held.error.code === 'project-not-found')) return show('empty', h('p', {}, 'The core did not include this worker run in its read.'));
       if (held.error.status === 501) return show('not-in-core', h('p', {}, OLDER_CORE.transcript));
       return show('error', errorBox(held.error, 'the transcript', () => {
         readTranscript();
@@ -406,9 +406,9 @@ function mountWorkerTabs(container, options) {
 
   // Result and Process: the member, or one GET the first time the tab is shown for the run
 
-  /** @param {'worker' | 'result'} name */
-  function ensureMember(name) {
-    if (members[name] !== null) return;
+  /** @param {'worker' | 'result'} name @param {boolean} [force] */
+  function ensureMember(name, force = false) {
+    if (!force && members[name] !== null) return;
     const held = { loading: true };
     const mine = members;
     mine[name] = held;
@@ -477,7 +477,7 @@ function mountWorkerTabs(container, options) {
     const proc = isObject(body.process) ? body.process : null;
     const ended = ['exited', 'timed-out', 'cancelled'].includes(body.state) || run.phase === 'ended';
     let liveness = null;
-    if (platform === 'win32' || body.reason === 'liveness-unknown') liveness = 'unknown';
+    if (platform === 'win32' || proc?.leftover?.reason === 'win32' || body.reason === 'liveness-unknown') liveness = 'unknown';
     else if (body.state === 'running' || body.state === 'starting') liveness = 'process seen';
     else if (body.reason === 'supervisor-lost' || body.reason === 'process-lost') liveness = 'process not seen';
     let exit = ended ? 'not recorded' : NOT_YET;
@@ -494,7 +494,7 @@ function mountWorkerTabs(container, options) {
       h('p', {}, h('strong', {}, STATE_WORDS[body.state] ?? body.state)),
       typeof body.reason === 'string' && REASON_SENTENCES[body.reason] ? h('p', {}, REASON_SENTENCES[body.reason]) : null,
       body.supervisorLost === true ? h('p', {}, SUPERVISOR_LOST) : null,
-      platform === 'win32' ? h('p', {}, WIN32_SENTENCE) : null,
+      platform === 'win32' || proc?.leftover?.reason === 'win32' ? h('p', {}, WIN32_SENTENCE) : null,
       h('dl', { class: 'facts' }, [
         liveness !== null ? fact('Liveness', liveness) : null,
         fact('Started', timeOr(body.startedAt, NOT_YET)),
@@ -568,6 +568,7 @@ function mountWorkerTabs(container, options) {
       if (destroyed || !isObject(patch)) return;
       if (isObject(patch.run) && RUN_ID.test(patch.run.runId)) {
         const other = patch.run.runId !== run.runId;
+        const phaseChanged = patch.run.phase !== run.phase || patch.run.endState !== run.endState;
         run = patch.run;
         if (other) {
           closeLog();
@@ -575,6 +576,11 @@ function mountWorkerTabs(container, options) {
         }
         renderHead();
         if (other) renderPanel();
+        else if (selected === 'result' && (phaseChanged || !members.result?.body?.endedAt)) {
+          ensureMember('result', true);
+        } else if (selected === 'process' && (phaseChanged || !['exited', 'timed-out', 'cancelled'].includes(members.worker?.body?.state))) {
+          ensureMember('worker', true);
+        }
       }
       if (Object.hasOwn(patch, 'worker')) {
         const held = memberOf(patch.worker);

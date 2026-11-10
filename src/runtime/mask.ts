@@ -86,7 +86,7 @@ const PASSWORD_PHRASE = /(?<![A-Za-z0-9_.-])((?:password|passwd)[ \t]+)(?!<maske
 // both prefixes (`/Users/runner/work/...`, `/home/runner/work/...`) and `Shared` is not a person
 // (under `/Users` only), so neither is masked. The prefix must start a path (`/opt/home/x` is not one)
 // and be followed by `/` (`/homework/x` is not one).
-const OTHER_USER_HOME = /(?<![A-Za-z0-9_.-])\/(?:(Users)\/(?!(?:Shared|runner)(?![^/\s"'`<>:;,()[\]{}])|<)|(home)\/(?!runner(?![^/\s"'`<>:;,()[\]{}])|<))[^/\s"'`<>:;,()[\]{}]+/g;
+const OTHER_USER_HOME = /(?:(?<=-[IL])|(?<=\x1b\[[0-9;]*m)|(?<![A-Za-z0-9_.-]))\/(?:(Users)\/+(?:\.\/)?(?!(?:Shared|runner)(?![^/\s"'`<>:;,()[\]{}])|<)|((?:var\/)?home)\/+(?:\.\/)?(?!runner(?![^/\s"'`<>:;,()[\]{}])|<))[^/\s"'`<>:;,()[\]{}]+/g;
 
 /**
  * Rules 14 and 15. Scans left to right and masks the value of every `-u`/`--user` of a curl command

@@ -247,7 +247,11 @@ version
 settings.json
 remain strict: any item-level validation error rejects the whole
 hooks
-field. Other configuration files always load independently.
+field. Other configuration files always load independently. The CLI prints
+! Invalid hook configuration in FILE: REASON
+for each skipped file or entry when repository hooks load at startup or after
+/cd
+into a repository.
 Command hooks
 Command hooks run shell scripts or executables and are supported on all hook types.
 Note
@@ -502,9 +506,14 @@ calls) will therefore concatenate into invalid JSON and be ignored—emit exactl
 Sandboxed sessions
 Note
 Copilot CLI only.
-When the session sandbox is enabled, command hooks from the repository, your user settings, and plugins run inside it, with the same access as the agent&#x27;s shell commands. A hook can also read the directory it was loaded from, so a plugin can run the scripts it ships, and a plugin hook can write to its data directory (
+When the session sandbox is enabled, command hooks from the repository, your user settings, and plugins run inside it, under the same sandbox policy rules as the agent&#x27;s shell commands. A hook can also read the directory it was loaded from, so a plugin can run the scripts it ships, and a plugin hook can write to its data directory (
 $COPILOT_PLUGIN_DATA
 ).
+When
+Allow dev tool access
+is enabled, additional access depends on tools identified in the hook command and your project files. See
+Understanding filesystem policies for local sandboxing in GitHub Copilot CLI
+. Copilot CLI does not inspect script files or expand a hook&#x27;s access after it starts. A tool called from a script or through another command may therefore lack access to its configuration or cache, even if running the tool directly works.
 A hook&#x27;s
 cwd
 and
@@ -517,10 +526,8 @@ or
 PATH
 set in the hook&#x27;s
 env
-grant nothing. When a hook fails in the sandbox, Copilot shows a warning once per hook and session. To give a hook more access, add the required paths to
-sandbox.userPolicy
-in your settings. See
-GitHub Copilot CLI configuration directory
+grant nothing. When a hook fails in the sandbox, Copilot shows a warning once per hook and session. For help identifying and granting missing access, see
+Using hooks with GitHub Copilot CLI
 .
 Policy hooks always run on the host, outside the sandbox, even when the session sandbox is enabled. A policy hook should not run scripts from the workspace.
 HTTP hooks
@@ -698,25 +705,4 @@ Text to submit—can be a natural language message or a slash command.
 Hook events
 The table below lists every supported event. The
 Cloud agent
-column shows whether the event fires under cloud agent and notes any behavior differences.
-Event
-Fires when
-Output processed
-Cloud agent
-agentStop
-The main agent finishes a turn.
-Yes — can block and force continuation.
-Fires.
-decision: "block"
-forces another turn, which still counts against the job&#x27;s timeout.
-errorOccurred
-An error occurs during execution.
-No
-Fires.
-notification
-Fires asynchronously when the CLI emits a system notification (shell completion, agent completion or idle, permission prompts, elicitation dialogs). Fire-and-forget: never blocks the session. Supports a
-matcher
-regex pattern (the value of the
-matcher
-field) on
 [snapshot truncated]

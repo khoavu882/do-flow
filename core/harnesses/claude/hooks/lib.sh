@@ -167,9 +167,18 @@ with_file_lock() {
     # Someone else holds the lock (or a stale one was left behind) — check
     # whether the recorded holder is still alive before waiting on it.
     holder_pid=$(cat "$pidfile" 2>/dev/null || echo "")
+    local reclaim=0
     if [[ -n "$holder_pid" ]] && ! kill -0 "$holder_pid" 2>/dev/null; then
-      rm -rf "$lockdir" 2>/dev/null || true
-      continue
+      reclaim=1
+    elif [[ -z "$holder_pid" && $waited -ge 1 ]]; then
+      reclaim=1
+    fi
+    if [[ $reclaim -eq 1 ]]; then
+      local stale_dir="${lockdir}.stale.$$"
+      if mv "$lockdir" "$stale_dir" 2>/dev/null; then
+        rm -rf "$stale_dir" 2>/dev/null || true
+        continue
+      fi
     fi
     if (( waited >= timeout_seconds )); then
       return 1
