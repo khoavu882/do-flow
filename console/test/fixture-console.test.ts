@@ -228,7 +228,7 @@ test('every scratch directory is made under SCRATCH_ROOT and is gone after stop'
 });
 
 test('--core must be an absolute path to an existing file', () => {
-  assert.deepEqual(Object.keys(parseFlags(['--core', CORE_CLI, '--empty', '--core-missing', '--keep', '--tick', '2', '--append', '1'])).sort(), ['append', 'coreMissing', 'core', 'empty', 'keep', 'tick', 'workerLog'].sort()); // V.10 adds --append, 150 D.1 --worker-log
+  assert.deepEqual(Object.keys(parseFlags(['--core', CORE_CLI, '--empty', '--core-missing', '--keep', '--tick', '2', '--append', '1'])).sort(), ['append', 'coreMissing', 'core', 'empty', 'keep', 'manage', 'tick', 'workerLog'].sort()); // V.10 adds --append, 150 D.1 --worker-log
   for (const argv of [[], ['--core', 'relative/doflow.js'], ['--core', path.join(path.dirname(CORE_CLI), 'no-such.js')], ['--core', CORE_CLI, '--bogus'], ['--core', CORE_CLI, '--tick', '0'], ['--core', CORE_CLI, '--append', '0']]) {
     assert.ok('error' in parseFlags(argv), `refused: ${argv.join(' ')}`);
   }
@@ -409,4 +409,31 @@ test('the Fleet fixture (V.10): two projects, the harness homes, nodes with thei
   assert.ok(replies.some((t: string) => t.includes('FIXTURE-APPEND-1')), `the appended reply is read from the old cursor: ${JSON.stringify(replies)}`);
   assert.ok(second.json.events.some((e: any) => e.kind === 'tool-call'));
   assert.ok(!JSON.stringify(second.json).includes('FIXTURE-APPEND-RESULT'), 'tool-result text never arrives');
+});
+
+
+test('--manage adds the management world and refuses --empty', { timeout: 240_000 }, async () => {
+  assert.equal((parseFlags(['--core', CORE_CLI, '--manage']) as any).manage, true);
+  const refused = spawnSync(process.execPath, [FIXTURE_SCRIPT, '--core', CORE_CLI, '--manage', '--empty'], { encoding: 'utf8', timeout: 30_000 });
+  assert.equal(refused.status, 2);
+  assert.equal(refused.stdout, '');
+  assert.match(refused.stderr, /--manage cannot be combined with --empty/);
+  assert.match(refused.stderr, /\[--manage\]/);
+  const app = await startFixtureConsole({ core: CORE_CLI, manage: true });
+  try {
+    const api = await session(app);
+    const settings = await api.get('/api/settings');
+    assert.equal(settings.status, 200);
+    assert.equal(settings.json.sections.effective.ok, true);
+    const effective = settings.json.sections.effective.data;
+    assert.equal(effective.keys.length, 47);
+    assert.equal(effective.keys.find((row: any) => row.key === 'advice.enabled').views[0].origin.via, 'fail-safe');
+    assert.ok(effective.files.some((file: any) => file.layer === 'local' && file.code === 'unparseable'));
+    const followups = await api.get('/api/followups?state=open');
+    assert.equal(followups.status, 200);
+    assert.equal(followups.json.sections.list.data.count, 60);
+    const advice = await api.get('/api/advice');
+    assert.equal(advice.status, 200);
+    assert.ok(advice.json.sections.picks.data.days.filter((day: any) => (day.picks['task-class'] ?? 0) > 0).length >= 3);
+  } finally { await app.stop(); }
 });

@@ -219,7 +219,7 @@ function installPage(opts: { hash?: string, stored?: string | null, throwStorage
   const link = (href: string, text: string) => el('a', { class: 'nav__link navrail__link', href }, [el('span', { class: 'navrail__label' }, [text])]);
   const radio = (choice: string) => el('button', { type: 'button', role: 'radio', class: 'theme__opt', 'aria-checked': 'false', tabindex: '-1', 'data-theme-choice': choice }, [el('span', { class: 'theme__label' }, [choice])]);
   const skip = el('a', { class: 'skip', href: '#main' }, ['Skip to content']);
-  const nav = [link('#/', 'Now'), link('#/sessions', 'Sessions'), link('#/workflows', 'Workflows'), link('#/fleet', 'Fleet')]; // 149 D.1: the fake page mirrors index.html's rail
+  const nav = [link('#/', 'Now'), link('#/sessions', 'Sessions'), link('#/workflows', 'Workflows'), link('#/fleet', 'Fleet'), link('#/workers', 'Workers'), link('#/advice', 'Advice'), link('#/followups', 'Follow-ups'), link('#/settings', 'Settings'), link('#/health', 'Health')]; // 149 D.1: the fake page mirrors index.html's rail
   const radios = ['light', 'dark', 'system'].map(radio);
   const conn = el('p', { class: 'conn', id: 'conn', 'data-state': 'unknown' }, [el('span', { class: 'conn__long' }, ['Connecting']), el('span', { class: 'conn__short' }, ['Connecting'])]);
   const pause = el('button', { type: 'button', class: 'btn btn--ghost pause', id: 'pause', 'aria-pressed': 'false', hidden: '' }, [el('span', { class: 'pause__label' }, ['Pause updates'])]);
@@ -661,7 +661,7 @@ test('views: the router table maps hashes to views, and a bad parameter is not-f
   assert.equal(navFor(parseRoute('#/session/s/t')), 'runs', '150 C.5: the Session route marks Now');
   assert.equal(navFor(parseRoute('#/session/s/t/worker/w-0123456789ab/log')), 'runs');
   assert.equal(titleFor(parseRoute('#/session/s/t/main')), 'Chain \u00b7 s / t \u00b7 DoFlow Console');
-  assert.deepEqual(Object.keys(VIEWS).sort(), ['fleet', 'fleet-project', 'not-found', 'run', 'runs', 'session', 'sessions', 'tasks', 'workflows']); // E.7 adds the sessions view, V.10 the two Fleet views, 150 C.5 the session view
+  assert.deepEqual(Object.keys(VIEWS).sort(), ['advice', 'fleet', 'fleet-project', 'followups', 'health', 'not-found', 'run', 'runs', 'session', 'sessions', 'settings', 'tasks', 'workers', 'workflows']); // E.7 adds the sessions view, V.10 the two Fleet views, 150 C.5 the session view
 });
 
 test('index.html provides the elements the shell needs', () => {
@@ -669,7 +669,7 @@ test('index.html provides the elements the shell needs', () => {
   for (const id of ['main', 'conn', 'core-version', 'banner-slot', 'announcer', 'pause']) assert.match(html, new RegExp(`id="${id}"`));
   assert.match(html, /aria-live="polite"/);
   assert.deepEqual([...html.matchAll(/class="nav__link navrail__link" href="([^"]+)"><span class="navrail__label">([^<]+)</g)].map((m) => [m[1], m[2]]),
-    [['#/', 'Now'], ['#/sessions', 'Sessions'], ['#/workflows', 'Workflows'], ['#/fleet', 'Fleet']]); // 149 D.1 (IC-020, DEC-035): the rail reads Now
+    [['#/', 'Now'], ['#/sessions', 'Sessions'], ['#/workflows', 'Workflows'], ['#/fleet', 'Fleet'], ['#/workers', 'Workers'], ['#/advice', 'Advice'], ['#/followups', 'Follow-ups'], ['#/settings', 'Settings'], ['#/health', 'Health']]); // 149 D.1 (IC-020, DEC-035): the rail reads Now
   assert.deepEqual([...html.matchAll(/data-theme-choice="([^"]+)"/g)].map((m) => m[1]), ['light', 'dark', 'system']);
   assert.match(html, /<html lang="en" class="booting">/);
   assert.match(html, /<main id="main" class="page" tabindex="-1">/);
@@ -830,10 +830,10 @@ test('router: the skip link moves focus to the heading without changing the rout
 
 test('shell: data-inspectable per view, the rail icons, and the docked column with its empty note at 1280 px and wider', async () => {
   assert.deepEqual(Object.fromEntries(Object.entries(mods.views.VIEWS).map(([id, view]: [string, any]) => [id, view.inspectable])),
-    { runs: false, run: true, tasks: true, session: true, sessions: true, workflows: false, fleet: false, 'fleet-project': true, 'not-found': false });
+    { runs: false, run: true, tasks: true, session: true, sessions: true, workflows: false, fleet: false, 'fleet-project': true, settings: true, advice: true, followups: true, health: true, workers: true, 'not-found': false });
   const page = await start({ hash: '', width: 1440, fetch: standard });
   assert.deepEqual(page.nav.map((a) => a.querySelector('.icon') && a.querySelector('.icon').getAttribute('class')),
-    ['icon icon--16 icon--rail-now', 'icon icon--16 icon--rail-sessions', 'icon icon--16 icon--rail-workflows', 'icon icon--16 icon--rail-fleet']);
+    ['icon icon--16 icon--rail-now', 'icon icon--16 icon--rail-sessions', 'icon icon--16 icon--rail-workflows', 'icon icon--16 icon--rail-fleet', 'icon icon--16 icon--rail-workers', 'icon icon--16 icon--rail-advice', 'icon icon--16 icon--rail-followups', 'icon icon--16 icon--rail-settings', 'icon icon--16 icon--rail-health']);
   assert.equal(page.shell.dataset.inspectable, 'false');
   assert.equal(page.inspector.dataset.mode, 'dock');
   assert.equal(page.inspector.getAttribute('hidden'), '', 'no docked column on Runs');
@@ -3712,7 +3712,7 @@ test('149 palette: Ctrl K and Cmd K open the combobox dialog (not with Alt); Esc
     const list = page.doc.getElementById(input.getAttribute('aria-controls'));
     assert.equal(list.getAttribute('role'), 'listbox');
     assert.ok(list.querySelectorAll('li').every((li: El) => li.getAttribute('role') === 'option'));
-    assert.deepEqual(paletteOptions(page), ['Now', 'Sessions', 'Workflows', 'Fleet', 'feat-a / r1', 'feat-a / r2', 'feat-a / r3', 'feat-a / r4', 'feat-a / r5'], 'an empty query: the screens, then the runs');
+    assert.deepEqual(paletteOptions(page), ['Now', 'Sessions', 'Workflows', 'Fleet', 'Workers', 'Advice', 'Follow-ups', 'Settings', 'Health', 'feat-a / r1', 'feat-a / r2', 'feat-a / r3', 'feat-a / r4', 'feat-a / r5'], 'an empty query: the screens, then the runs');
     assert.equal(input.getAttribute('aria-activedescendant'), 'palette-opt-0');
     assert.equal(page.doc.getElementById('palette-opt-0').getAttribute('aria-selected'), 'true');
     const tab = input.fire('keydown', { key: 'Tab' });
@@ -5223,7 +5223,7 @@ test('150 C.6 palette: one session target per run, labelled slug / taskId with t
     const page = await start({ fetch: (target, init) => standard(target, init) });
     const before = page.calls.length;
     keydownOn(page, 'k', { ctrlKey: true });
-    assert.deepEqual(paletteOptions(page), ['Now', 'Sessions', 'Workflows', 'Fleet', 'feat-a / r1', 'feat-a / r2', 'feat-a / r3', 'feat-a / r4', 'feat-a / r5'], 'an empty query is unchanged: the screens, then the runs');
+    assert.deepEqual(paletteOptions(page), ['Now', 'Sessions', 'Workflows', 'Fleet', 'Workers', 'Advice', 'Follow-ups', 'Settings', 'Health', 'feat-a / r1', 'feat-a / r2', 'feat-a / r3', 'feat-a / r4', 'feat-a / r5'], 'an empty query is unchanged: the screens, then the runs');
     paletteType(page, 'chain');
     const options = paletteOf(page).querySelectorAll('li');
     assert.deepEqual(options.map((li: El) => [text(li.querySelector('.palette__label')), text(li.querySelector('.palette__hint')), li.dataset.kind]),
