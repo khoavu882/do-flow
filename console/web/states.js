@@ -84,6 +84,8 @@ function classify(error, ctx = {}) {
   }
   if (status === 502 && code === 'core-contract-mismatch') return { scope: 'inline', key: 'contract-mismatch', auto: true, status, code };
   if (status === 502 && code === 'cannot-list-checkouts') return { scope: 'inline', key: 'cannot-list', auto: true, status, code };
+  // 151 IC-016: an older core without the verb or flag. Not retried: the same core gives the same answer.
+  if (status === 501 && code === 'core-lacks-verb') return { scope: 'inline', key: 'core-lacks-verb', auto: false, status, code };
   if (status === 404 && code === 'run-not-found') return { scope: 'inline', key: 'run-not-found', auto: false, status, code };
   if (status === 404) return { scope: 'inline', key: 'not-found', auto: false, status, code };
   if (status === 400 || status === 415 || status === 421 || status === 405) return { scope: 'inline', key: 'refused', auto: false, status, code };
@@ -110,6 +112,8 @@ const ERROR_COPY = Object.freeze({
     hint: (/** @type {string} */ range) => ['', 'doflow --version', ` shows the version. The Console needs ${range}.`],
   },
   'cannot-list': { title: () => 'Could not list this project’s checkouts', sentence: 'Git did not answer for this project.', hint: () => ['', 'git worktree list', ' shows them.'] },
+  // 151 IC-016: the sentence takes the view noun, as the section state of figures.js says it.
+  'core-lacks-verb': { title: () => 'Not provided by this DoFlow core', sentence: (/** @type {string} */ noun) => `This DoFlow core does not provide ${noun}.` },
   'phone-scope': { title: () => 'This view is unavailable on a phone session', sentence: 'Phone sessions can view runs and workflows. Open the Console locally to use this view.', link: 'Back to Runs' },
   'run-not-found': { title: () => 'This run is not in the record', sentence: 'It may have been removed, or its checkout deleted.', link: 'Back to Runs' },
   'not-found': { title: () => 'This page does not exist', sentence: 'The address does not match any Console view.', link: 'Back to Runs' },
@@ -243,6 +247,16 @@ function errorTitle(info, noun) {
 }
 
 /**
+ * The sentence of an inline error; `core-lacks-verb`'s takes the view noun.
+ * @param {any} info
+ * @param {any} noun
+ */
+function errorSentence(info, noun) {
+  const sentence = ERROR_COPY[info.key].sentence;
+  return typeof sentence === 'function' ? sentence(noun) : sentence;
+}
+
+/**
  * Inline error (6.3). `noun`: the view noun; `range`: the core range (CORE_RANGE); `onRetry` for auto-retry rows, `onReload`. The countdown
  * element is `.countdown` (the shell's 1 s timer writes it from the poller).
  * @param {any} options
@@ -260,7 +274,7 @@ function renderError({ info, noun, range, onRetry, onReload }) {
   const chip = info.code ? `${info.code} · ${info.status}` : String(info.status);
   return h('section', { class: 'state-panel', dataset: { kind: 'error' } }, [
     h('div', { class: 'state-panel__head' }, [icon('failed', 20), h('h2', { class: 'state-panel__title' }, title)]),
-    h('p', { class: 'state-panel__sentence' }, inline(copy.sentence)),
+    h('p', { class: 'state-panel__sentence' }, inline(errorSentence(info, noun))),
     hint ? h('p', { class: 'hint' }, [hint[0], h('code', { class: 'mono' }, hint[1]), hint[2]]) : null,
     actions.length ? h('div', { class: 'state-panel__actions' }, actions) : null,
     h('p', { class: 'code-chip' }, chip),
@@ -371,7 +385,7 @@ function createStaleBanner({ sinceMs, onTry }) {
 
 export {
   ageText, ageUnits, clockTime, reltime, refreshReltimes,
-  classify, errorTitle, ERROR_COPY, RUNTIME_COPY, STALE_CAUSE,
-  commandBlock, button, skel,
+  classify, errorTitle, errorSentence, ERROR_COPY, RUNTIME_COPY, STALE_CAUSE,
+  inline, commandBlock, button, skel,
   renderLoading, renderEmpty, renderError, renderFullPage, renderPill, createStaleBanner,
 };

@@ -4,10 +4,14 @@
 //   A. live-stream.ts over a fake hub, a fake request, a fake response whose `writableLength` and
 //      `drain` a case controls, and a fake clock: the opening, keepalive, the id vector,
 //      snapshot-on-subscribe, the per-channel queues and their shed, the connection cap, the stall,
-//      the frame cap, close, and an unsupported hub.
+//      the frame cap, close, and an unsupported hub; then 150 IC-014's log lanes: the `ino:offset`
+//      vector grammar, resume inside, at the end of and outside the hub's window, resume across a
+//      Console restart, a shed log lane, a split window, five channels of one Session page, and a
+//      resume over the real hub.
 //   B. The route over a real server on 127.0.0.1:0: every refusal as JSON with the security headers
 //      and no stream header, with no verb run, no follow and no hub subscribe; Host and Origin; the
-//      stream headers; `since` over `Last-Event-ID`; the slot; the real hub's supervisor set.
+//      stream headers; `since` over `Last-Event-ID`; the slot; the real hub's supervisor set; log
+//      positions in `since`.
 
 const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -20,7 +24,7 @@ const {
   createLiveStreams, parseChannelList, parseVector, lastEventVector,
   KEEPALIVE_MS, STALL_MS, CHANNEL_QUEUE_BYTES, CONNECTION_BYTES, FRAME_CAP, RETRY_MS,
 } = require('../src/live-stream.ts');
-const { createLiveHub } = require('../src/live.ts');
+const { createLiveHub, HUB_WINDOW_BYTES, LIVE_FRAME_BUDGET } = require('../src/live.ts');
 const { createServer } = require('../src/server.ts');
 const { consoleRoutes } = require('../src/routes.ts');
 const { createSessions, cookieName } = require('../src/session.ts');
@@ -39,7 +43,8 @@ type Current = { n: number, state: any, error: string | null, gone: boolean };
 function fakeHub(epoch = EPOCH) {
   const listeners = new Map<string, Set<(frame: any) => void>>();
   const unsupportedListeners: Array<() => void> = [];
-  const states = new Map<string, Current>();
+  const states = new Map<string, any>();
+  const logPos = new Map<string, string>();
   const hub = {
     epoch,
     unsupported: false,
@@ -55,9 +60,39 @@ function fakeHub(epoch = EPOCH) {
         listeners.get(ch)!.delete(listener);
       };
     },
-    current: (ch: string): Current => states.get(ch) ?? { n: 0, state: null, error: null, gone: false },
+    current: (ch: string): any => states.get(ch) ?? (/:(out|err)$/.test(ch) ? { n: 0, window: null, error: null, gone: false } : { n: 0, state: null, error: null, gone: false }),
     onUnsupported(listener: () => void) {
       unsupportedListeners.push(listener);
+    },
+    /**
+     * One frame on log channel `ch` as live.ts's log lane makes it: `snapshot` replaces the window,
+     * `append` adds to it (trimmed from the front to HUB_WINDOW_BYTES), `reset` and `gone` clear it,
+     * `error` holds; the id is IC-007's `<ino>:<to>:<n>:<ms>` with the lane's last inode and `to`.
+     */
+    emitLog(ch: string, type: string, data: any) {
+      const c: any = { ...hub.current(ch) };
+      c.n += 1;
+      const last = logPos.get(ch) ?? '0:0';
+      let pos = last;
+      if (type === 'snapshot') {
+        c.window = { ...data, pieces: data.pieces.map((piece: any) => ({ ...piece })) };
+        c.error = null;
+        pos = `${data.ino ?? '0'}:${data.to}`;
+      }
+      if (type === 'append') {
+        const w = c.window;
+        c.window = { ...w, to: data.to, phase: data.phase, end: data.end, pieces: [...w.pieces, ...data.pieces.map((piece: any) => ({ ...piece }))] };
+        while (c.window.pieces.length > 0 && c.window.to - c.window.pieces[0].at > HUB_WINDOW_BYTES) c.window.pieces.shift();
+        c.window.from = c.window.pieces.length > 0 ? c.window.pieces[0].at : c.window.to;
+        c.error = null;
+        pos = `${w.ino ?? '0'}:${data.to}`;
+      }
+      if (type === 'error') c.error = data.code;
+      if (type === 'reset') Object.assign(c, { window: null, error: null });
+      if (type === 'gone') Object.assign(c, { window: null, gone: true });
+      logPos.set(ch, pos);
+      states.set(ch, c);
+      for (const listener of [...(listeners.get(ch) ?? [])]) listener({ ch, n: c.n, type, at: AT, data, id: `${pos}:${c.n}:${Date.parse(AT)}` });
     },
     /** One frame on `ch`; a patch takes the state it leaves (`state`). */
     emit(ch: string, type: string, data: any, state?: any) {
@@ -151,15 +186,16 @@ function messages(chunks: string[]): Message[] {
     return message;
   });
 }
-const dataOf = (res: any) => messages(res.chunks).filter((message) => message.data !== undefined);
+const dataOf = (res: any) => messages(res.chunks).filter((message) => message.data !== undefined && message.event === undefined);
 const summary = (res: any) => dataOf(res).map((message) => `${message.data.type}@${message.data.id}`);
 
-function openLive(hub: any, channels: string[], resume: any = null) {
+function openLive(hub: any, channels: string[], resume: any = null, prepare: (res: any) => void = () => {}) {
   const clock = fakeClock();
   const streams = createLiveStreams(hub, clock);
   let released = 0;
   const req = fakeRequest();
   const res = fakeResponse();
+  prepare(res);
   streams.serve(req, res, { channels, resume, release: () => { released += 1; } });
   return { clock, streams, req, res, released: () => released };
 }
@@ -172,7 +208,10 @@ test('grammar: ch is 1 to 8 distinct IC-003 channels; a vector is epoch/ch=n wit
   assert.deepEqual(parseChannelList(`now,${TASKS},run:feat-a:t1,worker:w-0123456789ab`), ['now', TASKS, 'run:feat-a:t1', 'worker:w-0123456789ab']);
   const eight = Array.from({ length: 8 }, (_, i) => `tasks:f${i}`);
   assert.deepEqual(parseChannelList(eight.join(',')), eight);
-  for (const bad of [undefined, '', 'now,', ',now', 'now,now', [...eight, 'now'].join(','), 'nope', 'worker:w-xyz', 'worker:w-0123456789ab:out', 'transcript:a', 'fleet:x', 'now ']) {
+  // 150 IC-006: the log channels are channels; `last` and every other stream are not.
+  assert.deepEqual(parseChannelList('worker:w-0123456789ab:out,worker:w-0123456789ab:err'), ['worker:w-0123456789ab:out', 'worker:w-0123456789ab:err']);
+  for (const bad of [undefined, '', 'now,', ',now', 'now,now', [...eight, 'now'].join(','), 'nope', 'worker:w-xyz', 'worker:w-0123456789ab:last', 'worker:w-0123456789ab:x',
+    'worker:w-0123456789ab:out:1', 'worker:w-xyz:out', 'transcript:a', 'fleet:x', 'now ']) {
     assert.equal(parseChannelList(bad), null, JSON.stringify(bad));
   }
   assert.deepEqual(parseVector(`${EPOCH}/now=3,${TASKS}=12`), { epoch: EPOCH, positions: new Map([['now', 3], [TASKS, 12]]) });
@@ -202,17 +241,21 @@ test('opening: the /api/stream headers, setNoDelay, retry: 2000 first; every mes
   assert.deepEqual(sent.map((message) => message.id), [`${EPOCH}/now=1`, `${EPOCH}/now=1,${TASKS}=1`, `${EPOCH}/now=2,${TASKS}=1`]);
   assert.ok(messages(res.chunks).every((message) => message.event === undefined), 'no event: field');
   assert.deepEqual(sent[2].data, { v: 1, ch: 'now', id: `${EPOCH}-2`, type: 'patch', at: AT, data: { set: { '/runs/body/v': 2 }, unset: [] } });
-  assert.ok(res.chunks.slice(1).every((chunk: string) => /^(id: [^\n]+\ndata: [^\n]+\n\n|: keepalive\n\n)$/.test(chunk)), 'whole messages, one per write');
+  assert.ok(res.chunks.slice(1).every((chunk: string) => /^(id: [^\n]+\ndata: [^\n]+\n\n|event: keepalive\ndata: \{\}\n\n)$/.test(chunk)), 'whole messages, one per write');
 });
 
-test('keepalive: a comment every 15000 ms with no id, from the injected clock', () => {
+test('keepalive: a named keepalive event with data {} every 15000 ms, no id, from the injected clock', () => {
   const { res, clock } = openLive(fakeHub(), ['now']);
-  const keepalives = () => messages(res.chunks).filter((message) => message.comment === 'keepalive');
+  const keepalives = () => messages(res.chunks).filter((message) => message.event === 'keepalive');
   clock.step(KEEPALIVE_MS - 1);
   assert.equal(keepalives().length, 0);
   clock.step(1);
   assert.equal(keepalives().length, 1);
   assert.equal(keepalives()[0].id, undefined);
+  assert.deepEqual(keepalives()[0].data, {}, 'a data line, so EventSource dispatches it');
+  assert.equal(res.chunks.at(-1), 'event: keepalive\ndata: {}\n\n');
+  assert.equal(messages(res.chunks).some((message) => message.comment !== undefined), false, 'no SSE comment');
+  assert.deepEqual(dataOf(res), [], 'the keepalive is no frame');
   clock.step(KEEPALIVE_MS);
   assert.equal(keepalives().length, 2);
 });
@@ -484,6 +527,257 @@ test('unsupported while open: the hub\'s error live-unavailable frames are writt
   assert.equal(stalled.released(), 1);
 });
 
+// ---- A. 150 IC-014: log lanes ----
+
+const RUN = 'w-0123456789ab';
+const OUT = `worker:${RUN}:out`;
+const ERR = `worker:${RUN}:err`;
+const INO = '8812345';
+const MS = Date.parse(AT);
+const LOG_ID = /^[0-9]{1,20}:[0-9]{1,16}:[1-9][0-9]{0,15}:[0-9]{1,16}$/;
+
+/** `count` pieces of `size`-byte lines from `from`, as the core reader cuts them (a piece is its line without the newline). */
+function lines(from: number, count: number, size: number, label = 'line') {
+  return Array.from({ length: count }, (_, i) => ({ at: from + i * size, text: `${label} ${from + i * size} `.padEnd(size - 1, '.') }));
+}
+const openWindow = (from: number, to: number, pieces: any[]) => ({ log: 'open', ino: INO, from, to, pieces, phase: 'running', end: null });
+const WAITING = Object.freeze({ log: 'waiting', ino: null, from: 0, to: 0, pieces: [], phase: 'running', end: null });
+const append = (from: number, to: number, pieces: any[]) => ({ from, to, pieces, phase: 'running', end: null });
+/** A fake hub whose OUT lane holds `window` (three 10-byte lines at [0, 30) by default), its last frame at n 4. */
+function logHub(window: any = openWindow(0, 30, lines(0, 3, 10))) {
+  const hub = fakeHub();
+  hub.states.set(OUT, { n: 4, window, error: null, gone: false });
+  return hub;
+}
+const logResume = (offset: number, ino = INO, epoch = EPOCH) => ({ epoch, positions: new Map([[OUT, { ino, offset }]]) });
+const ats = (list: Message[]) => list.flatMap((message) => message.data.data.pieces.map((piece: any) => piece.at));
+
+test('log vector grammar: a log channel takes ino:offset and every other channel n; a log channel with n, or another with ino:offset, is malformed', () => {
+  assert.deepEqual(parseVector(`${EPOCH}/${OUT}=8812345:4096`), { epoch: EPOCH, positions: new Map([[OUT, { ino: INO, offset: 4096 }]]) });
+  assert.deepEqual(parseVector(`${EPOCH}/now=3,${OUT}=0:0,${ERR}=${'9'.repeat(20)}:9007199254740991`),
+    { epoch: EPOCH, positions: new Map<string, any>([['now', 3], [OUT, { ino: '0', offset: 0 }], [ERR, { ino: '9'.repeat(20), offset: 9007199254740991 }]]) });
+  const eight = [OUT, ERR, ...Array.from({ length: 6 }, (_, i) => `tasks:f${i}`)];
+  assert.equal(parseVector(`${EPOCH}/${eight.map((ch) => `${ch}=${ch.startsWith('worker') ? '1:2' : '1'}`).join(',')}`)!.positions.size, 8);
+  for (const bad of [`${EPOCH}/${OUT}=3`, `${EPOCH}/now=1:0`, `${EPOCH}/${TASKS}=8812345:0`, `${EPOCH}/worker:${RUN}=1:0`, `${EPOCH}/run:feat-a:t1=1:0`,
+    `${EPOCH}/${OUT}=`, `${EPOCH}/${OUT}=1:`, `${EPOCH}/${OUT}=:1`, `${EPOCH}/${OUT}=1:2:3`, `${EPOCH}/${OUT}=a:1`, `${EPOCH}/${OUT}=1:-1`, `${EPOCH}/${OUT}=1:1.5`,
+    `${EPOCH}/${OUT}=${'1'.repeat(21)}:0`, `${EPOCH}/${OUT}=1:${'1'.repeat(17)}`, `${EPOCH}/${OUT}=1:9999999999999999`, `${EPOCH}/${OUT}=1:0,${OUT}=1:4`,
+    `${EPOCH}/worker:${RUN}:last=1:0`, `${EPOCH}/${OUT}=1:0 `, `${EPOCH}/${OUT}= 1:0`, `${EPOCH}/${[...eight, 'now'].map((ch) => `${ch}=1:2`).join(',')}`]) {
+    assert.equal(parseVector(bad), null, bad);
+  }
+  assert.deepEqual(lastEventVector(`ffffffff/${OUT}=${INO}:30,${ERR}=0:0`, [OUT]), { epoch: 'ffffffff', positions: new Map([[OUT, { ino: INO, offset: 30 }]]) });
+});
+
+test('log resume inside the window: a position at a piece boundary in [from, to) gets one append from there, and no text is repeated or lost', () => {
+  for (const offset of [0, 10, 20]) {
+    const hub = logHub();
+    const { res } = openLive(hub, [OUT], logResume(offset));
+    const sent = dataOf(res);
+    assert.deepEqual(sent.map((message) => message.data), [{
+      v: 1, ch: OUT, id: `${INO}:30:4:${MS}`, type: 'append', at: AT,
+      data: { from: offset, to: 30, pieces: lines(0, 3, 10).filter((piece) => piece.at >= offset), phase: 'running', end: null },
+    }], `offset ${offset}`);
+    assert.equal(sent[0].id, `${EPOCH}/${OUT}=${INO}:30`, `offset ${offset}`);
+    hub.emitLog(OUT, 'append', append(30, 40, lines(30, 1, 10)));
+    const all = dataOf(res);
+    assert.deepEqual(all.map((message) => [message.data.type, message.data.data.from, message.data.data.to]), [['append', offset, 30], ['append', 30, 40]], `offset ${offset}`);
+    assert.match(all[1].data.id, LOG_ID);
+    assert.equal(all[1].id, `${EPOCH}/${OUT}=${INO}:40`);
+    // The client held [.., offset): every byte after it arrives exactly once.
+    assert.deepEqual(ats(all), [0, 10, 20, 30].filter((at) => at >= offset), `offset ${offset}`);
+  }
+});
+
+test('log resume at the window\'s end: nothing is sent, and the position counts as held in the id vector', () => {
+  const hub = logHub();
+  const { res } = openLive(hub, [TASKS, OUT], logResume(30));
+  assert.deepEqual(dataOf(res), []);
+  hub.emit(TASKS, 'snapshot', { state: { b: 1 } });
+  assert.equal(dataOf(res)[0].id, `${EPOCH}/${TASKS}=1,${OUT}=${INO}:30`);
+  hub.emitLog(OUT, 'append', append(30, 40, lines(30, 1, 10)));
+  const last = dataOf(res).at(-1)!;
+  assert.deepEqual([last.data.type, last.data.data.from, last.data.data.to, last.id], ['append', 30, 40, `${EPOCH}/${TASKS}=1,${OUT}=${INO}:40`]);
+  assert.deepEqual(ats(dataOf(res).slice(1)), [30], 'no text repeated');
+});
+
+test('log resume outside the window: past its end, inside a piece, before its start, another inode, or no position gets one snapshot of the window', () => {
+  const window = openWindow(10, 40, lines(10, 3, 10));
+  const cases: Array<[string, any]> = [
+    ['past the end', logResume(50)],
+    ['inside a piece', logResume(15)],
+    ['before the window', logResume(0)],
+    ['another inode', logResume(20, '8812346')],
+    ['no position', null],
+    ['a vector without the channel', { epoch: EPOCH, positions: new Map([['now', 3]]) }],
+  ];
+  for (const [label, resume] of cases) {
+    const hub = logHub(window);
+    const { res } = openLive(hub, [OUT], resume);
+    assert.deepEqual(summary(res), [`snapshot@${INO}:40:4:${MS}`], label);
+    assert.deepEqual(dataOf(res)[0].data.data, window, label);
+    assert.equal(dataOf(res)[0].id, `${EPOCH}/${OUT}=${INO}:40`, label);
+  }
+  // A window with no file yet has no inode, so no position names it: its snapshot is sent.
+  const hub = logHub(WAITING);
+  const { res } = openLive(hub, [OUT], logResume(0, '0'));
+  assert.deepEqual(summary(res), [`snapshot@0:0:4:${MS}`]);
+  assert.deepEqual(dataOf(res)[0].data.data, WAITING);
+});
+
+test('log subscribe: a lane with no window yet gets nothing (the hub\'s next frame is its snapshot); one in error its error, a gone one gone, with IC-007 ids', () => {
+  const GONE = 'worker:w-ba9876543210:out';
+  const hub = fakeHub();
+  hub.states.set(OUT, { n: 0, window: null, error: null, gone: false });
+  hub.states.set(ERR, { n: 3, window: openWindow(0, 30, lines(0, 3, 10)), error: 'events-down', gone: false });
+  hub.states.set(GONE, { n: 6, window: null, error: null, gone: true });
+  const resume = { epoch: EPOCH, positions: new Map([[ERR, { ino: INO, offset: 30 }], [GONE, { ino: '77', offset: 12 }]]) };
+  const { res } = openLive(hub, [OUT, ERR, GONE], resume);
+  assert.deepEqual(summary(res), [`error@${INO}:30:3:${MS}`, `gone@77:12:6:${MS}`], 'even at the window end; gone with no window carries the held position');
+  assert.deepEqual(dataOf(res).map((message) => message.data.data), [{ code: 'events-down' }, {}]);
+  assert.equal(dataOf(res)[1].id, `${EPOCH}/${ERR}=${INO}:30,${GONE}=77:12`);
+  hub.emitLog(OUT, 'snapshot', openWindow(0, 10, lines(0, 1, 10)));
+  assert.equal(summary(res).at(-1), `snapshot@${INO}:10:1:${MS}`);
+  assert.equal(dataOf(res).at(-1)!.id, `${EPOCH}/${OUT}=${INO}:10,${ERR}=${INO}:30,${GONE}=77:12`);
+});
+
+test('log resume across a Console restart: a log position from another epoch is used, an n position from it is not', () => {
+  const hub = logHub();
+  hub.states.set('now', { n: 5, state: { a: 1 }, error: null, gone: false });
+  const { res } = openLive(hub, ['now', OUT], parseVector(`ffffffff/now=5,${OUT}=${INO}:20`));
+  assert.deepEqual(summary(res), [`snapshot@${EPOCH}-5`, `append@${INO}:30:4:${MS}`]);
+  assert.deepEqual(ats(dataOf(res).slice(1)), [20]);
+  assert.deepEqual(dataOf(res).map((message) => message.id), [`${EPOCH}/now=5,${OUT}=${INO}:20`, `${EPOCH}/now=5,${OUT}=${INO}:30`], 'the log position is held from the start');
+
+  const quiet = openLive(logHub(), [OUT], parseVector(`ffffffff/${OUT}=${INO}:30`));
+  assert.deepEqual(dataOf(quiet.res), [], 'at the window end in another epoch: nothing');
+});
+
+test('queues: a log lane past 524288 bytes gets one error queue-full at its last position written, takes nothing until drained, then the window\'s snapshot', () => {
+  const hub = fakeHub();
+  const { res, released } = openLive(hub, [OUT, TASKS]);
+  hub.emitLog(OUT, 'snapshot', openWindow(0, 30, lines(0, 3, 10)));
+  res.hold = true;
+  res.writableLength = 70_000;
+  for (let k = 0; k < 6; k += 1) {
+    const from = 30 + k * 100_000;
+    hub.emitLog(OUT, 'append', append(from, from + 100_000, lines(from, 1, 100_000, 'big')));
+  }
+  hub.emit(TASKS, 'snapshot', { state: { b: 1 } });
+  assert.deepEqual(summary(res), [`snapshot@${INO}:30:1:${MS}`]);
+  res.flush(true);
+  const after = dataOf(res).slice(1);
+  assert.deepEqual(after.map((message) => [message.data.ch, message.data.type, message.data.id, message.data.data, message.id]).sort(), [
+    [OUT, 'error', `${INO}:30:7:${MS}`, { code: 'queue-full' }, `${EPOCH}/${OUT}=${INO}:30,${TASKS}=1`],
+    [TASKS, 'snapshot', `${EPOCH}-1`, { state: { b: 1 } }, `${EPOCH}/${OUT}=${INO}:30,${TASKS}=1`],
+  ].sort(), 'the queue cleared to one error at the last position written; the other channel goes on');
+  hub.emitLog(OUT, 'append', append(600_030, 600_040, lines(600_030, 1, 10)));
+  assert.equal(summary(res).length, 3, 'a lagging lane takes no frame and, with bytes still pending, sends no snapshot yet');
+  res.flush();
+  const last = dataOf(res).at(-1)!;
+  const window = hub.current(OUT).window;
+  assert.ok(window.to - window.from <= HUB_WINDOW_BYTES);
+  assert.deepEqual([last.data.ch, last.data.type, last.data.id, last.data.data], [OUT, 'snapshot', `${INO}:600040:8:${MS}`, window]);
+  assert.equal(last.id, `${EPOCH}/${OUT}=${INO}:600040,${TASKS}=1`);
+  hub.emitLog(OUT, 'append', append(600_040, 600_050, lines(600_040, 1, 10)));
+  assert.deepEqual([dataOf(res).at(-1)!.data.type, dataOf(res).at(-1)!.data.data.from], ['append', 600_040], 'after the snapshot the lane is live again');
+  assert.equal(released(), 0);
+  assert.equal(res.destroyed, false);
+});
+
+test('a log window over LIVE_FRAME_BUDGET is sent as consecutive frames split at piece boundaries, each within the budget, every piece once', () => {
+  // 31 pieces of 4096 control bytes: each is six bytes of JSON, so the window is about 760 KB of envelope.
+  const pieces = Array.from({ length: 31 }, (_, i) => ({ at: i * 4097, text: '\u0001'.repeat(4096) }));
+  const window = openWindow(0, 31 * 4097, pieces);
+  const cases: Array<[string, any, number]> = [['snapshot', null, 0], ['append', logResume(4097), 4097]];
+  for (const [first, resume, from] of cases) {
+    const { res } = openLive(logHub(window), [OUT], resume);
+    const sent = dataOf(res);
+    assert.ok(sent.length > 1, first);
+    assert.deepEqual(sent.map((message) => message.data.type), [first, ...Array(sent.length - 1).fill('append')], first);
+    for (const message of sent) {
+      assert.ok(Buffer.byteLength(JSON.stringify(message.data), 'utf8') <= LIVE_FRAME_BUDGET, first);
+      assert.equal(message.data.id, `${INO}:${message.data.data.to}:4:${MS}`, first);
+      assert.equal(message.id, `${EPOCH}/${OUT}=${INO}:${message.data.data.to}`, first);
+    }
+    assert.equal(sent[0].data.data.from, from, first);
+    for (let k = 1; k < sent.length; k += 1) assert.equal(sent[k].data.data.from, sent[k - 1].data.data.to, first);
+    assert.equal(sent.at(-1)!.data.data.to, window.to, first);
+    assert.deepEqual(sent.flatMap((message) => message.data.data.pieces), pieces.filter((piece) => piece.at >= from), first);
+  }
+
+  // The window's own frames pass the lane's queue: shed part-way, the lane queues none of the rest and resyncs with the whole window.
+  const wide = Array.from({ length: 32 }, (_, i) => ({ at: i * 4096, text: '\u0001'.repeat(4096) }));
+  const full = openWindow(0, HUB_WINDOW_BYTES, wide);
+  const { res } = openLive(logHub(full), [OUT], null, (r) => { r.hold = true; r.writableLength = 70_000; });
+  assert.deepEqual(dataOf(res), []);
+  res.flush();
+  const sent = dataOf(res);
+  assert.deepEqual([sent[0].data.type, sent[0].data.data], ['error', { code: 'queue-full' }]);
+  assert.deepEqual(sent.slice(1).map((message) => message.data.type), ['snapshot', ...Array(sent.length - 2).fill('append')], 'no frame of the shed window after the error');
+  assert.deepEqual(sent.slice(1).flatMap((message) => message.data.data.pieces), wide);
+});
+
+test('five channels of one Session page on one connection: run, tasks, worker, out and err, each frame once, every position in the id', () => {
+  const RUN_CH = 'run:feat-a:t1';
+  const WORKER = `worker:${RUN}`;
+  const five = [RUN_CH, TASKS, WORKER, OUT, ERR];
+  assert.deepEqual(parseChannelList(five.join(',')), five);
+  const hub = fakeHub();
+  const { res } = openLive(hub, five);
+  assert.deepEqual(hub.subscribes, five);
+  hub.emit(RUN_CH, 'snapshot', { state: { detail: 1 } });
+  hub.emit(TASKS, 'snapshot', { state: { tasks: 1 } });
+  hub.emit(WORKER, 'snapshot', { state: { worker: 1 } });
+  hub.emitLog(OUT, 'snapshot', openWindow(0, 30, lines(0, 3, 10)));
+  hub.emitLog(ERR, 'snapshot', WAITING);
+  hub.emitLog(OUT, 'append', append(30, 40, lines(30, 1, 10)));
+  hub.emit(WORKER, 'patch', { set: { '/worker': 2 }, unset: [] }, { worker: 2 });
+  assert.deepEqual(dataOf(res).map((message) => `${message.data.ch} ${message.data.type}`),
+    [`${RUN_CH} snapshot`, `${TASKS} snapshot`, `${WORKER} snapshot`, `${OUT} snapshot`, `${ERR} snapshot`, `${OUT} append`, `${WORKER} patch`]);
+  const held = dataOf(res).at(-1)!.id!;
+  assert.equal(held, `${EPOCH}/${RUN_CH}=1,${TASKS}=1,${WORKER}=2,${OUT}=${INO}:40,${ERR}=0:0`);
+  assert.ok(held.length <= 2048);
+  // The page reconnects with the id it held: each lane at the hub's position gets nothing, but the err
+  // lane, whose window has no inode yet, gets its snapshot.
+  const again = openLive(hub, five, lastEventVector(held, five));
+  assert.deepEqual(dataOf(again.res).map((message) => `${message.data.ch} ${message.data.type}`), [`${ERR} snapshot`]);
+});
+
+test('log resume over the real hub: the id of the first message resumes with the rest of the window as one append; at its end, nothing', async () => {
+  let onFrame: (envelope: any) => void = () => {};
+  const supervisor = {
+    state: 'stopped',
+    need(set: Set<string>) { supervisor.state = set.size > 0 ? 'running' : 'stopped'; },
+    onFrame(listener: (envelope: any) => void) { onFrame = listener; },
+    onDown() {},
+    stop() {},
+  };
+  const runner = { run: async (shape: string) => (shape === 'worker-log' ? { ok: true, json: { v: 1 }, exit: 0 } : { ok: false, code: 'core-unreachable', exit: null }) };
+  const hub = createLiveHub({ runner, supervisor, clock: fakeClock() });
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  try {
+    // One tab keeps the hub's lane, and so its window, while the other reconnects.
+    const keeper = openLive(hub, [OUT]);
+    const first = openLive(hub, [OUT]);
+    await settle();
+    await settle();
+    onFrame({ v: 1, ch: OUT, id: `${INO}:20:1:1`, type: 'snapshot', at: AT, data: openWindow(0, 20, lines(0, 2, 10)) });
+    onFrame({ v: 1, ch: OUT, id: `${INO}:30:2:2`, type: 'append', at: AT, data: append(20, 30, lines(20, 1, 10)) });
+    const sent = dataOf(first.res);
+    assert.deepEqual(sent.map((message) => message.data.type), ['snapshot', 'append']);
+    for (const message of sent) assert.match(message.data.id, LOG_ID);
+    assert.deepEqual(sent.map((message) => message.id), [`${hub.epoch}/${OUT}=${INO}:20`, `${hub.epoch}/${OUT}=${INO}:30`]);
+    first.res.destroy();
+    const resumed = openLive(hub, [OUT], parseVector(sent[0].id));
+    assert.deepEqual(dataOf(resumed.res).map((message) => [message.data.type, message.data.data.from, message.data.data.to]), [['append', 20, 30]]);
+    assert.deepEqual(dataOf(resumed.res)[0].data.data.pieces, sent[1].data.data.pieces, 'the same masked text as the hub sent');
+    const atEnd = openLive(hub, [OUT], parseVector(sent[1].id));
+    assert.deepEqual(dataOf(atEnd.res), []);
+    for (const each of [keeper, resumed, atEnd]) each.res.destroy();
+  } finally {
+    hub.stop();
+  }
+});
+
 // ---- B. The route over a real server ----
 
 const webRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-ui-live-'));
@@ -724,4 +1018,37 @@ test('GET /api/live: server close ends an open live stream within 2 s and releas
   await stream.closed;
   assert.ok(Date.now() - start < 2000, `closed in ${Date.now() - start} ms`);
   await until(() => hub.unsubscribes.length === 1, 'unsubscribed');
+});
+
+test('GET /api/live with log positions: a log channel with n or another channel with ino:offset is 400 usage; log positions resume from since or Last-Event-ID in any epoch', async (t) => {
+  const hub = logHub();
+  const { port, runner, cookie } = await harness(t, hub);
+  for (const query of [`?ch=${OUT}&since=${EPOCH}/${OUT}=3`, `?ch=now&since=${EPOCH}/now=1:0`, `?ch=${OUT}&since=${EPOCH}/${OUT}=1:`, `?ch=${OUT}&since=${EPOCH}/${OUT}=a:1`,
+    `?ch=${OUT}&since=${EPOCH}/${ERR}=1:0`, `?ch=${OUT}&since=${EPOCH}/${OUT}=1:0,${OUT}=1:0`, `?ch=${OUT},${TASKS}&since=${EPOCH}/${TASKS}=1:0`]) {
+    assertRefusal(await get(port, `/api/live${query}`, { Cookie: cookie }), 400, 'usage', query);
+  }
+  assert.deepEqual([hub.subscribes.length, runner.calls, runner.follows], [0, 0, 0]);
+
+  const viaSince = await openStream(port, `/api/live?ch=${OUT}&since=ffffffff/${OUT}=${INO}:30`, { Cookie: cookie });
+  t.after(() => viaSince.destroy());
+  assert.equal(viaSince.status, 200);
+  await until(() => hub.subscribes.length === 1, 'subscribed');
+  hub.emitLog(OUT, 'append', append(30, 40, lines(30, 1, 10)));
+  await until(() => viaSince.text().includes('data: '), 'the append');
+  assert.deepEqual(messages([viaSince.text()]).filter((message) => message.data !== undefined).map((message) => [message.data.type, message.data.data.from, message.id]),
+    [['append', 30, `${EPOCH}/${OUT}=${INO}:40`]], 'at the window end in another epoch: no snapshot first');
+
+  const viaHeader = await openStream(port, `/api/live?ch=${OUT}`, { Cookie: cookie, 'Last-Event-ID': `ffffffff/${OUT}=${INO}:20` });
+  t.after(() => viaHeader.destroy());
+  await until(() => viaHeader.text().includes('data: '), 'the resume');
+  assert.deepEqual(messages([viaHeader.text()]).filter((message) => message.data !== undefined).map((message) => [message.data.type, message.data.data.from, message.data.data.to]),
+    [['append', 20, 40]]);
+
+  // Five channels of one Session page take one stream slot.
+  const five = ['run:feat-a:t1', TASKS, `worker:${RUN}`, OUT, ERR];
+  const page = await openStream(port, `/api/live?ch=${five.join(',')}`, { Cookie: cookie });
+  t.after(() => page.destroy());
+  assert.equal(page.status, 200);
+  await until(() => hub.subscribes.length === 7, 'five subscribes');
+  assert.deepEqual(hub.subscribes.slice(2), five);
 });

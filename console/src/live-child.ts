@@ -53,12 +53,20 @@ const STEP_RESET_MS = 60_000;
 
 const ENVELOPE_KEYS: readonly string[] = Object.freeze(['at', 'ch', 'data', 'id', 'type', 'v']);
 const ENVELOPE_ID = /^[0-9a-f]{8}-[1-9][0-9]{0,15}$/;
+/** 150 IC-007: a log frame's id, `<ino>:<offset>:<n>:<ms>` (src/runtime/events/envelope.ts LOG_ID). */
+const LOG_ID = /^[0-9]{1,20}:[0-9]{1,16}:[1-9][0-9]{0,15}:[0-9]{1,16}$/;
+/** 150 IC-006: a log channel, `worker:<runId>:out` or `:err`. */
+const LOG_CHANNEL = /^worker:w-[0-9a-f]{12}:(?:out|err)$/;
 const FRAME_TYPES: readonly string[] = Object.freeze(['snapshot', 'patch', 'append', 'reset', 'error', 'gone']);
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype;
 
-/** IC-002: exactly the six fields, `v` 1, a non-empty `ch`, an `<epoch>-<n>` id, a known type, a string `at` and an object `data`. */
+/**
+ * IC-002: exactly the six fields, `v` 1, a non-empty `ch`, an `<epoch>-<n>` id (an IC-007
+ * `<ino>:<offset>:<n>:<ms>` id on a log channel, and only there), a known type, a string `at` and an
+ * object `data`.
+ */
 function isCoreEnvelope(value: unknown): value is CoreEnvelope {
   if (!isPlainObject(value)) return false;
   const keys = Object.keys(value).sort();
@@ -68,7 +76,7 @@ function isCoreEnvelope(value: unknown): value is CoreEnvelope {
     typeof value.ch === 'string' &&
     value.ch !== '' &&
     typeof value.id === 'string' &&
-    ENVELOPE_ID.test(value.id) &&
+    (LOG_CHANNEL.test(value.ch) ? LOG_ID : ENVELOPE_ID).test(value.id) &&
     typeof value.type === 'string' &&
     FRAME_TYPES.includes(value.type) &&
     typeof value.at === 'string' &&

@@ -2,13 +2,16 @@
 
 // Feature 149 A.3 (IC-003, DEC-006, DEC-042): the channel grammar of `doflow events --follow`.
 //
-//   channel = "now" / "run:" id ":" id / "tasks:" id / "worker:" runid
+//   channel = "now" / "run:" id ":" id / "tasks:" id / "worker:" runid [ ":" stream ]
 //   id      = the Console's PARAM_PATTERN ^[A-Za-z0-9][A-Za-z0-9._-]*$ with the core's length bound
 //   runid   = "w-" 12 lowercase hex (src/runtime/worker/run-store.ts RUN_ID)
+//   stream  = "out" / "err"
 //
-// Every other form is refused, the P2 kinds by name (worker output, transcripts, follow-ups,
-// advice, Fleet) so the usage error can say why. Pure: no I/O, no state. A refusal is a returned
-// value; the events command turns it into its usage error.
+// Feature 150 A.6 (IC-006): `worker:<runId>:out` and `:err` are the log channels (kind `log`);
+// any other stream, `last` included, is malformed, so no path to `<runId>.last.log` is ever named.
+// Every other form is refused, the kinds kept out by name (transcripts, follow-ups, advice, Fleet)
+// so the usage error can say why. Pure: no I/O, no state. A refusal is a returned value; the
+// events command turns it into its usage error.
 
 const { ID_PATTERN } = require('../context/identity.ts');
 const { RUN_ID } = require('../worker/run-store.ts');
@@ -16,14 +19,15 @@ const { RUN_ID } = require('../worker/run-store.ts');
 /** DEC-042: the most channels one events process follows. */
 const CHANNEL_LIMIT = 64;
 
-/** The channel kinds IC-003 accepts. */
-const CHANNEL_KINDS: readonly string[] = Object.freeze(['now', 'run', 'tasks', 'worker']);
+/** The channel kinds IC-003 and 150 IC-006 accept. */
+const CHANNEL_KINDS: readonly string[] = Object.freeze(['now', 'run', 'tasks', 'worker', 'log']);
 
 type Channel =
   | { kind: 'now'; name: 'now' }
   | { kind: 'run'; name: string; slug: string; taskId: string }
   | { kind: 'tasks'; name: string; slug: string }
-  | { kind: 'worker'; name: string; runId: string };
+  | { kind: 'worker'; name: string; runId: string }
+  | { kind: 'log'; name: string; runId: string; stream: 'out' | 'err' };
 
 type RefusalCode = 'malformed' | 'refused-kind' | 'unknown-kind' | 'duplicate' | 'too-many-channels';
 
@@ -87,15 +91,17 @@ function parseChannel(text: unknown): ChannelResult {
   }
   if (kind === 'worker') {
     if (parts.length === 2 && RUN_ID.test(parts[1])) return { ok: true, channel: { kind: 'worker', name: text, runId: parts[1] } };
-    if (parts.length === 3 && (parts[2] === 'out' || parts[2] === 'err')) {
-      return refuse('refused-kind', `${quoted(text)} is refused: worker output is not a channel in this version`);
+    if (parts.length === 3 && RUN_ID.test(parts[1])) {
+      const stream = parts[2];
+      if (stream === 'out' || stream === 'err') return { ok: true, channel: { kind: 'log', name: text, runId: parts[1], stream } };
+      return refuse('malformed', `${quoted(text)} is not a channel: only out and err are worker output channels`);
     }
     return refuse('malformed', `${quoted(text)} is not a channel: use worker:<runId> with a run id of 'w-' and 12 lowercase hex`);
   }
   if (Object.prototype.hasOwnProperty.call(REFUSED_KINDS, kind)) {
     return refuse('refused-kind', `${quoted(text)} is refused: ${REFUSED_KINDS[kind]} are not a channel in this version`);
   }
-  return refuse('unknown-kind', `${quoted(text)} is not a channel: use now, run:<slug>:<taskId>, tasks:<slug> or worker:<runId>`);
+  return refuse('unknown-kind', `${quoted(text)} is not a channel: use now, run:<slug>:<taskId>, tasks:<slug>, worker:<runId> or worker:<runId>:out|err`);
 }
 
 /**

@@ -183,7 +183,7 @@ writes for you.
 Share settings with your team
 Commit
 .claude/settings.json
-so everyone who clones the repository gets the same permissions, hooks, and plugins. Each teammate can still override it for themselves in their own
+so everyone who clones the repository gets the same permissions, hooks, and plugin settings. Each teammate can still override it for themselves in their own
 .claude/settings.local.json
 , so personal exceptions don’t need a commit. For a complete team file, see
 a team’s shared settings

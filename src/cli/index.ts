@@ -249,8 +249,8 @@ function parseArgs(argv: string[]): any {
         // its validation subtly wrong.
         const runtime = parseRuntimeFlag(a, argv, i, o);
         if (runtime !== null) { i = runtime; break; }
-        // slot, primary, fleet, transcript and events report an unknown flag as their own usage error (exit 2, 115 IC-008, 120 IC-008, 149 IC-001).
-        if (a.startsWith('-') && (o.cmd === 'slot' || o.cmd === 'primary' || o.cmd === 'fleet' || o.cmd === 'transcript' || o.cmd === 'events')) (o.extraFlags = o.extraFlags || []).push(a);
+        // slot, primary, fleet, transcript, events, the three worker reads, advice-picks, worker-matrix and sessions-history report an unknown flag as their own usage error (exit 2, 115 IC-008, 120 IC-008, 149 IC-001, 150 IC-005, 151 IC-004, 152 IC-001).
+        if (a.startsWith('-') && (o.cmd === 'slot' || o.cmd === 'primary' || o.cmd === 'fleet' || o.cmd === 'transcript' || o.cmd === 'events' || o.cmd === 'worker-log' || o.cmd === 'worker-result' || o.cmd === 'worker-runs' || o.cmd === 'advice-picks' || o.cmd === 'worker-matrix' || o.cmd === 'sessions-history')) (o.extraFlags = o.extraFlags || []).push(a);
         else if (a.startsWith('-') && o.cmd !== 'plan-check') argError(o, argv, unknownFlagMessage(a), unknownFlagExit(o.cmd));
         else if (!o.cmd) o.cmd = a;
         else o.positional.push(a);
@@ -325,7 +325,7 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--role', 'role'],                  // claim --action add: the claim's relationship to the task, e.g. root-cause
   ['--replaced-by', 'replacedBy'],     // claim --action supersede: the claim replacing this one ·
                                         // evidence --action supersede: the evidence replacing this one
-  ['--kind', 'kind'],                  // evidence --action add: one of VALID_EVIDENCE_KINDS · advise --action ask
+  ['--kind', 'kind'],                  // evidence --action add: one of VALID_EVIDENCE_KINDS · advise --action ask · advice-picks: a registry kind id or adhoc
   ['--server', 'server'],              // advise: MCP server for the mcp-need kind
   ['--state-file', 'stateFile'],       // advise: request state from a UTF-8 file
   ['--questions-file', 'questionsFile'], // advise: ad hoc question set JSON
@@ -420,7 +420,8 @@ const RUNTIME_STRING_FLAGS = new Map([
   // `--need`, `--harness`, `--budget-tokens`, `--task`, `--token`, `--by` and `--reason` are shared.
   ['--prompt-file', 'promptFile'],     // worker run: the brief the worker receives
   ['--timeout-seconds', 'timeoutSeconds'], // worker run: 1 to 14400
-  ['--worker-run', 'workerRun'],       // worker status|cancel: a w-<12 hex> run id
+  ['--worker-run', 'workerRun'],       // worker status|cancel, worker-log, worker-result: a w-<12 hex> run id
+  ['--stream', 'stream'],              // worker-log: out or err, validated in the verb (150 IC-002)
   ['--checks', 'checks'],              // worker evidence: checks file
   ['--out', 'out'],                    // worker evidence: output record path
   ['--model-check', 'modelCheck'],     // worker probe: a declared model-check id
@@ -450,7 +451,8 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--dir', 'dir'],                   // package --action new: authored package target directory
   ['--name', 'name'],                  // slot: the slot's name, 1 to 64 characters of a-z, 0-9 and - (115 IC-008)
   ['--label', 'label'],                // slot --action run: the holder's label, at most 80 characters (115 IC-008)
-  ['--cursor', 'cursor'],              // transcript --action read: the cursor an earlier read returned (093 IC-022) · followup --action list: the nextCursor of an earlier page (137 IC-004)
+  ['--cursor', 'cursor'],              // transcript --action read: the cursor an earlier read returned (093 IC-022) · followup --action list: the nextCursor of an earlier page (137 IC-004) · worker-log: read forward from it (150 IC-002)
+  ['--before', 'before'],              // worker-log: read backward to this cursor, validated in the verb (150 IC-002)
   ['--limit', 'limit'],                // transcript --action read: at most this many events, validated in the verb (093 IC-022) · followup --action list: the page size (137 IC-004)
   ['--view', 'view'],                  // followup --action list, lifecycle --action overview, classify: brief or full, validated in the verb (137 IC-001)
   ['--window', 'window'],              // transcript --action stats: minutes, 1 to 60, validated in the verb (093 IC-023)
@@ -625,8 +627,20 @@ Commands:
                        transcript --action read --agent <key> [--cursor <c>] [--limit <n>] [--json]   masked events and DoFlow's record events (exit 0, 1 agent-not-in-project or session-not-in-project, 2 usage)
                        transcript --action stats [--window <minutes 1..60>] [--json]   events per minute, tool calls, tokens, who works with whom (exit 0, 2 usage)
   events               Follow live sections of the read verbs as NDJSON envelopes on stdout (read-only, run in a project).
-                       events --follow --channels <channel>[,<channel>...] [--json]   now, run:<slug>:<task>, tasks:<slug>, worker:<runId>; until SIGINT or SIGTERM (exit 0, 1 internal fault, 2 usage)
+                       events --follow --channels <channel>[,<channel>...] [--json]   now, run:<slug>:<task>, tasks:<slug>, worker:<runId>, worker:<runId>:out|err; until SIGINT or SIGTERM (exit 0, 1 internal fault, 2 usage)
                        events --follow --control stdin [--json]   follows the channels that sub and unsub lines on stdin name, until stdin ends (exit 0, 1 internal fault, 2 usage or an invalid line)
+  worker-log           Print one masked page of a worker run's out or err log by byte cursor (read-only, run in a project).
+                       worker-log --worker-run <runId> --stream out|err [--slug <slug>] [--cursor <c> | --before <c>] [--json]   log open, waiting, gone or none (exit 0, 1 unknown-run or log-unreadable, 2 usage or store-unreadable)
+  worker-result        Print the result fields of one worker run: phase, end, report status, checks, offered result (read-only, run in a project).
+                       worker-result --worker-run <runId> [--slug <slug>] [--json]   (exit 0, 1 unknown-run, 2 usage or store-unreadable)
+  worker-runs          List one feature's worker runs, ended and child runs included, newest 100 (read-only, run in a project).
+                       worker-runs [--slug <slug>] [--json]   the feature of the current branch without --slug (exit 0, 2 usage or store-unreadable)
+  advice-picks         List advice picks per UTC day over the last 90 days with each day's coverage, and the newest 50 picks (read-only, run in a project).
+                       advice-picks [--kind <id>] [--json]   days read or unknown, picks with closed fields, limits shown, notShown, skipped (exit 0, 2 usage or registry-invalid)
+  worker-matrix        Print every harness's worker and orchestration cells from the install's registry, evidence masked and capped (read-only).
+                       worker-matrix [--json]   cells supported, unknown or unsupported, declared or not, cut when capped; counts and limits (exit 0, 2 usage or registry-invalid)
+  sessions-history     List finished workflow sessions within retention window (read-only).
+                       sessions-history [--days <n>] [--limit <n>] [--json]   (exit 0, 2 usage)
   worktree             Remove a merged feature's worktree and branch, never by force (--action cleanup).
                        worktree --action cleanup --slug <row slug> [--json]   copies agent-docs/doflow/<slug> back to the main checkout first (exit 0 cleaned, 1 kept or lease-held with the reason, 2 usage)
   attendance           Say whether a person is watching a stage (read-only).

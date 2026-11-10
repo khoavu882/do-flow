@@ -9,6 +9,8 @@ import { isKey } from '../keys.js';
 import { h, icon, mount, SVG_NS } from '../dom.js';
 import { showPanel, hidePanel } from '../shell.js';
 import { sinceStamp, formatDuration } from '../derive/rail.js';
+// Leaf module routes.js provides hashFor without circular dependency.
+import { hashFor } from '../routes.js';
 import { withReplay } from './replay.js';
 import {
   GEOMETRY, mergeTasks, attemptsByTask, layoutGraph, placeBoard, edgePath, moveFocus, stateFace, STATE_FACE, reasonWords, unresolvedWords, attemptList,
@@ -29,12 +31,19 @@ function svgEl(name, attrs) {
 /** @param {any} params */
 const runHref = (params) => `#/run/${params.slug}/${params.taskId}`;
 
+/** The link to the run's Session screen beside the way back (150 IC-020), or null when the route has no hash. @param {any} params */
+function chainLink(params) {
+  const href = hashFor({ id: 'session', params: { slug: params.slug, taskId: params.taskId } });
+  return href === null ? null : h('a', { class: 'graph__back', href }, 'Chain');
+}
+
 /** A short note in place of the board: why there is nothing to draw. @param {any} params @param {string} title @param {string} sentence */
 function emptyGraph(params, title, sentence) {
   return h('section', { class: 'graph graph--empty', 'aria-labelledby': 'graph-empty-title' }, [
     h('h2', { class: 'graph__emptytitle', id: 'graph-empty-title' }, title),
     h('p', { class: 'graph__emptytext' }, sentence),
     h('a', { class: 'graph__back', href: runHref(params) }, [h('span', { 'aria-hidden': 'true' }, '← '), 'Back to the run']),
+    chainLink(params),
   ]);
 }
 
@@ -228,6 +237,7 @@ function renderGraphBody(data, params, local) {
 
   const top = h('div', { class: 'graph__top' }, [
     h('a', { class: 'graph__back', href: runHref(params) }, [h('span', { 'aria-hidden': 'true' }, '← '), 'Back to the run']),
+    chainLink(params),
     h('p', { class: 'graph__summary' }, summaryWords(tasks, layout)),
     layout.unresolved.length > 0
       ? h('p', { class: 'graph__unresolved' }, [icon('info', 16), `${plural(layout.unresolved.length, 'task has', 'tasks have')} no place in the layers because of a dependency cycle or a dependency outside the plan. ${layout.unresolved.length === 1 ? 'It is' : 'They are'} in the last column.`])
@@ -238,13 +248,12 @@ function renderGraphBody(data, params, local) {
     h('div', { class: 'graph__layout' }, [h('div', { class: 'graph__main' }, [h('div', { class: 'graph__scroll' }, board), lanesList])]),
   ]);
 
-  /** The board panel's content: the title, the close control and the details. @param {string} id */
+  /** The board panel's content: the title and the details; the inspector holds the close control. @param {string} id */
   const panelContent = (id) => {
     const card = layout.cards[/** @type {number} */ (at.get(id))];
     return [
       h('div', { class: 'graph__panelhead' }, [
         h('h2', { class: 'graph__paneltitle mono', id: 'graph-panel-title' }, id),
-        h('button', { type: 'button', class: 'btn btn--ghost graph__close', 'aria-label': `Close the details of ${id}`, dataset: { focusKey: 'panel-close' }, on: { click: () => { memory.trigger = 'card'; select(null, true); } } }, icon('close', 16)),
       ]),
       detailBody(taskOf.get(id), card, nowMs),
     ];
@@ -273,6 +282,7 @@ function renderGraphBody(data, params, local) {
       mount(panel, panelContent(id));
       showPanel(local.inspector, local, {
         title: 'Task details',
+        labelledBy: 'graph-panel-title',
         body: panel,
         owner: (memory.trigger === 'row' ? rowEls : cardEls).get(id),
         // The inspector's own close, Escape or scrim: the focus goes back to the control that opened the task.
@@ -332,4 +342,4 @@ function renderGraphBody(data, params, local) {
   return root;
 }
 
-export { renderGraph, rerouteGraph };
+export { renderGraph, rerouteGraph, detailBody };

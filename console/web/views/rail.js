@@ -129,16 +129,14 @@ function detailRows(node, entry) {
 }
 
 /**
- * The detail region of one node (E.1 section 9.4).
+ * The detail region of one node (E.1 section 9.4). The inspector holds the close control; Escape inside the region calls
+ * `onEscape`.
  * @param {any} node
  * @param {any} workflow
- * @param {{ onClose: () => void, onEscape?: () => void }} options
+ * @param {{ onEscape: () => void }} options
  */
-function railDetail(node, workflow, { onClose, onEscape = onClose }) {
+function railDetail(node, workflow, { onEscape }) {
   const tone = toneOf(node);
-  const close = h('button', { type: 'button', class: 'btn btn--ghost rail-detail__close', dataset: { focusKey: 'rail-detail-close' }, on: { click: onClose } }, [
-    icon('close', 16), h('span', { class: 'vh' }, 'Close details'),
-  ]);
   const keydown = (/** @type {any} */ event) => {
     if (!isKey(event, 'close')) return;
     event.preventDefault();
@@ -148,7 +146,6 @@ function railDetail(node, workflow, { onClose, onEscape = onClose }) {
     h('div', { class: 'rail-detail__head' }, [
       h('h3', { class: 'rail-detail__title', id: 'rail-detail-title' }, node.id),
       h('span', { class: 'badge', dataset: { state: tone } }, [icon(node.type === 'gate' ? gateIcon(node, '12') : STAGE_FACE[tone] ?? 'pending', 12), stateWord(node)]),
-      close,
     ]),
     h('dl', { class: 'rail-detail__body' }, detailRows(node, registryOf(workflow, node)).flatMap(([term, value]) => [h('dt', {}, term), h('dd', {}, value)])),
   ]);
@@ -319,7 +316,8 @@ function renderRunRail(data, params, local) {
     }
     showPanel(local.inspector, local, {
       title: 'Step details',
-      body: railDetail(nodes[index], data.workflow, { onClose: () => close(true), onEscape: () => close(true) }),
+      labelledBy: 'rail-detail-title',
+      body: railDetail(nodes[index], data.workflow, { onEscape: () => close(true) }),
       owner: built[index] ? built[index].button : null,
       onClose: () => {
         local.openId = null;

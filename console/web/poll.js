@@ -12,6 +12,8 @@ const STALE_MISSES = 3;
 const STALE_AGE_MS = 15000;
 /** The refresh interval is this many times longer while nothing is running. */
 const IDLE_FACTOR = 10;
+/** Default timeout before a hung fetchOnce is rejected to unfreeze polling. */
+const DEFAULT_TIMEOUT_MS = 15000;
 
 const defaultClock = {
   now: () => Date.now(),
@@ -38,6 +40,7 @@ const defaultVisibility = {
  * @param {{ hidden(): boolean, subscribe(listener: () => void): () => void }} [options.visibility]
  * @param {() => boolean} [options.isActive] false while nothing is running: the refresh interval is x10 (default: always active)
  * @param {() => number} [options.size] graph size in nodes: the refresh interval is at least size/1000 s (default 0)
+ * @param {number} [options.timeoutMs]
  */
 function createPoller(options) {
   const { fetchOnce, intervalMs, onSuccess = () => {}, onFailure = () => {}, retry = () => true } = options;
@@ -45,6 +48,7 @@ function createPoller(options) {
   const visibility = options.visibility ?? defaultVisibility;
   const isActive = options.isActive ?? (() => true);
   const size = options.size ?? (() => 0);
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   let running = false;
   let paused = false;
@@ -99,15 +103,26 @@ function createPoller(options) {
     if (!running || inFlight) return;
     inFlight = true;
     const mine = generation;
+    /** @type {any} */
+    let timeoutTimer = null;
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutTimer = clock.setTimeout(() => reject(new Error('fetch timeout')), timeoutMs);
+    });
     let attempt;
     try {
-      attempt = Promise.resolve(fetchOnce());
+      attempt = Promise.race([Promise.resolve(fetchOnce()), timeoutPromise]);
     } catch (error) {
       attempt = Promise.reject(error);
     }
     attempt.then(
-      (data) => settle(mine, true, data),
-      (error) => settle(mine, false, error),
+      (data) => {
+        if (timeoutTimer !== null) clock.clearTimeout(timeoutTimer);
+        settle(mine, true, data);
+      },
+      (error) => {
+        if (timeoutTimer !== null) clock.clearTimeout(timeoutTimer);
+        settle(mine, false, error);
+      },
     );
   }
 
@@ -221,4 +236,4 @@ function createPoller(options) {
   };
 }
 
-export { BACKOFF_MS, STALE_MISSES, STALE_AGE_MS, IDLE_FACTOR, createPoller };
+export { BACKOFF_MS, STALE_MISSES, STALE_AGE_MS, IDLE_FACTOR, DEFAULT_TIMEOUT_MS, createPoller };

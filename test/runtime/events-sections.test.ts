@@ -7,7 +7,8 @@
 // --json` run in the same directory with the same environment: the documented failures included
 // (a missing run, status exit 1; a missing plan, inspect exit 2; no seed, roadmap exit 2). Releasing an
 // attempt lists its worker section in `removed`. The declared sources and derived list of each channel
-// are checked, and computing writes nothing.
+// are checked, and computing writes nothing. 150 IC-009: `tasks:` `runs` and `worker:` `result` equal
+// the `worker-runs` and `worker-result` handlers' `--json` output and their body functions.
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -16,7 +17,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
-const { channelSpec, resolveContext, WORKER_SECTIONS, WORKER_SECTION_LIMIT } = require('../../src/runtime/events/sections.ts');
+const { channelSpec, resolveContext, findWorkerRun, workerSources, CATALOGUE, WORKER_SECTIONS, WORKER_SECTION_LIMIT } = require('../../src/runtime/events/sections.ts');
+const { workerResultBody, workerRunsBody, handleWorkerResultCommand, handleWorkerRunsCommand } = require('../../src/runtime/worker/reads.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const CLI = path.join(REPO, 'bin', 'doflow.js');
@@ -134,6 +136,23 @@ function same(own: any, theirs: any, label: string) {
 
 const dirsOf = (sources: any) => sources.directories.map((d: any) => d.path);
 
+/**
+ * 150 IC-009: a `worker-runs` or `worker-result` CLI handler run in-process with `--json`, its stdout
+ * captured: the exit code and the parsed line, as `cli` returns them. `process.exitCode` is restored.
+ */
+function handlerJson(handler: any, options: any) {
+  let text = '';
+  const stdout = { write(s: string) { text += s; } };
+  const stderr = { write() {} };
+  const saved = process.exitCode;
+  let exit: number;
+  try { exit = handler({ json: true, ...options, stdout, stderr }); } finally { process.exitCode = saved; }
+  return { exit, json: JSON.parse(text) };
+}
+
+/** A body function's `{exit, json}` as its handler prints it: `json` through one JSON round trip. */
+const printed = (body: any) => ({ exit: body.exit, json: JSON.parse(JSON.stringify(body.json)) });
+
 test('IC-004: every section of every channel kind equals its verb with --json over one fixture', async (t) => {
   const f = fixture(t);
   plant(f);
@@ -214,11 +233,17 @@ test('IC-004: every section of every channel kind equals its verb with --json ov
     const first = await spec.compute();
     const w1 = `worker:A.1:${f.tokenA1}`;
     const w2 = `worker:A.2:${f.tokenA2}`;
-    assert.deepEqual(Object.keys(first.sections), ['attempts', w1, w2], 'task order then attempt order');
+    assert.deepEqual(Object.keys(first.sections), ['attempts', 'runs', w1, w2], 'task order then attempt order');
     assert.equal(first.removed, undefined);
-    assert.deepEqual(spec.sectionNames(), ['attempts', w1, w2]);
+    assert.deepEqual(spec.sectionNames(), ['attempts', 'runs', w1, w2]);
     assert.ok(spec.isDerived(w1) && !spec.isDerived('attempts'));
+    assert.equal(spec.isDerived('runs'), false, 'runs is not derived from the clock or a process');
     same(first.sections.attempts, cli(f, ['task-attempt', '--action', 'inspect', '--slug', SLUG]), 'attempts');
+    same(first.sections.runs, handlerJson(handleWorkerRunsCommand, { slug: SLUG, cwd: f.main, env: f.env }), 'runs = worker-runs handler');
+    same(first.sections.runs, printed(workerRunsBody({ slug: SLUG, cwd: f.main, env: f.env })), 'runs = workerRunsBody');
+    assert.equal(first.sections.runs.exit, 0);
+    assert.deepEqual(first.sections.runs.json.runs.map((r: any) => r.runId), [RUN_ID]);
+    assert.deepEqual(first.sections.runs.json.limits, { shown: 1, notShown: 0 });
     same(first.sections[w1], cli(f, ['worker', '--action', 'status', '--slug', SLUG, '--task', 'A.1', '--token', String(f.tokenA1)]), w1);
     same(first.sections[w2], cli(f, ['worker', '--action', 'status', '--slug', SLUG, '--task', 'A.2', '--token', String(f.tokenA2)]), w2);
     assert.equal(first.sections[w1].json.runId, RUN_ID);
@@ -241,26 +266,39 @@ test('IC-004: every section of every channel kind equals its verb with --json ov
     same(derivedPass.sections[w2], cli(f, ['worker', '--action', 'status', '--slug', SLUG, '--task', 'A.2', '--token', String(f.tokenA2)]), `${w2} after release`);
     assert.equal((await spec.compute()).removed, undefined, 'removed is reported once');
     assert.deepEqual(Object.keys((await spec.compute(['attempts'])).sections), ['attempts']);
+    assert.deepEqual(Object.keys((await spec.compute(['runs'])).sections), ['attempts', 'runs'], 'attempts is always read with the asked sections');
   });
 
   await t.test('tasks:<slug> with no plan is inspect exit 2 plan-unreadable', async () => {
     const spec = channelSpec('tasks:feat-none', ctx);
     const { sections, removed } = await spec.compute();
-    assert.deepEqual(Object.keys(sections), ['attempts']);
+    assert.deepEqual(Object.keys(sections), ['attempts', 'runs']);
     assert.equal(removed, undefined);
     same(sections.attempts, cli(f, ['task-attempt', '--action', 'inspect', '--slug', 'feat-none']), 'attempts without a plan');
     assert.equal(sections.attempts.exit, 2);
     assert.equal(sections.attempts.json.error, 'plan-unreadable');
+    same(sections.runs, handlerJson(handleWorkerRunsCommand, { slug: 'feat-none', cwd: f.main, env: f.env }), 'runs of a feature with no store');
+    assert.equal(sections.runs.exit, 0);
+    assert.equal(sections.runs.json.store, 'absent');
   });
 
-  await t.test('worker:<runId>: status of the run, and of a run no store holds', async () => {
+  await t.test('worker:<runId>: status and result of the run, and of a run no store holds', async () => {
     const spec = channelSpec(`worker:${RUN_ID}`, ctx);
-    assert.deepEqual(spec.sectionNames(), ['status']);
+    assert.deepEqual(spec.sectionNames(), ['status', 'result']);
     assert.deepEqual([...spec.derived], ['status']);
+    assert.equal(spec.isDerived('result'), false, 'result is not derived from the clock or a process');
     const { sections } = await spec.compute();
+    assert.deepEqual(Object.keys(sections), ['status', 'result']);
     same(sections.status, cli(f, ['worker', '--action', 'status', '--slug', SLUG, '--worker-run', RUN_ID]), 'worker status');
     same(sections.status, cli(f, ['worker', '--action', 'status', '--slug', SLUG, '--task', 'A.1', '--token', String(f.tokenA1)]), 'worker status by task and token');
     assert.equal(sections.status.json.runId, RUN_ID);
+    same(sections.result, handlerJson(handleWorkerResultCommand, { workerRun: RUN_ID, slug: SLUG, cwd: f.main, env: f.env }), 'result = worker-result handler');
+    same(sections.result, printed(workerResultBody({ workerRun: RUN_ID, slug: SLUG, cwd: f.main, env: f.env })), 'result = workerResultBody');
+    assert.equal(sections.result.exit, 0);
+    assert.equal(sections.result.json.runId, RUN_ID);
+    assert.equal(sections.result.json.endState, 'exited');
+    assert.deepEqual(Object.keys((await spec.compute(spec.derived)).sections), ['status'], 'a derived pass leaves result alone');
+    assert.deepEqual(Object.keys((await spec.compute(['result'])).sections), ['result']);
     const sources = spec.sources();
     assert.equal(sources.primary.path, f.workerRuns);
     const doc = JSON.parse(fs.readFileSync(f.workerRuns, 'utf8'));
@@ -273,6 +311,18 @@ test('IC-004: every section of every channel kind equals its verb with --json ov
     const answer = await missing.compute();
     same(answer.sections.status, cli(f, ['worker', '--action', 'status', '--worker-run', MISSING_RUN_ID]), 'unknown worker run');
     assert.notEqual(answer.sections.status.exit, 0);
+    same(answer.sections.result, handlerJson(handleWorkerResultCommand, { workerRun: MISSING_RUN_ID, cwd: f.main, env: f.env }), 'result of an unknown worker run');
+    assert.deepEqual(answer.sections.result, { exit: 1, json: { v: 1, ok: false, error: 'unknown-run' } });
     assert.equal(missing.sources().primary, null, 'no primary record while no store holds the run');
+  });
+
+  await t.test('findWorkerRun and workerSources are exported as the worker channel uses them', () => {
+    const c = resolveContext(ctx);
+    assert.deepEqual(findWorkerRun(c, RUN_ID), { slug: SLUG, file: f.workerRuns });
+    assert.equal(findWorkerRun(c, MISSING_RUN_ID), null);
+    const sources = workerSources(c, RUN_ID);
+    assert.equal(sources.primary.path, f.workerRuns);
+    assert.deepEqual(dirsOf(sources), dirsOf(channelSpec(`worker:${RUN_ID}`, ctx).sources()));
+    assert.deepEqual(sources.derived, [...CATALOGUE.worker.derived]);
   });
 });

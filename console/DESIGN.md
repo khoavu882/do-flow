@@ -191,36 +191,40 @@ The primitives, all in the `motion` layer of `app.css`. The still variant is wha
 | 768 to 1279 | a sticky column `--navrail-w-icons` wide, icons only | the rest of the width | drawer: fixed at the right below the header, `--inspector-w` wide but leaving at least `--space-7` of canvas |
 | 1280 and up | a sticky column `--navrail-w` wide, icons and labels | the middle column | dock: a sticky third column `--inspector-w` wide |
 
-- **Rail** `.navrail`, `.navrail__link`, `.navrail__label`. Four links in this order: Now (`#/`), Sessions, Workflows, Fleet. Each link is also a `.nav__link`, so the current one carries `aria-current="page"` and the selected nav style. Now is current on `#/` and on every `#/run/...` page, Fleet on every `#/fleet...` page. In the icon band the label is visually hidden and stays the link's accessible name; each link is a `--target` square with `--radius-md`. The rail is `--surface` with a `--border` edge toward the canvas (its bottom edge below 768); from 768 it stays in place under the header and scrolls inside itself.
-- **Canvas** `#main` (`.page`) holds the view and keeps `min-width: 0`, so wide content scrolls inside it. Opening or closing the inspector never changes its width. From 1280 the docked column is present on every inspectable view whether or not a panel is open, and the drawer and the sheet overlay the canvas. The inspectable views are Run, Tasks, Sessions and a Fleet project (`data-inspectable="true"` on `.shell`); Now, Workflows, Fleet and the not-found page use the full width.
-- **Inspector** `.inspector`, `.inspector__head`, `.inspector__title`, `.inspector__body`, `.inspector__empty`, `.inspector__scrim`. `createInspector` in `web/shell.js` sets `data-mode` to `dock`, `drawer` or `sheet` from the viewport width and re-applies it when the width crosses 768 or 1280, keeping the open content. Views put a panel in with `showPanel` and take it out with `hidePanel`; the rail detail, the task panel, the lane panel and the Fleet agent panel all render here and carry no card of their own.
-  - `dock`: a complementary landmark labelled "Details". It never takes or traps focus. While nothing is open it shows the `.inspector__empty` note.
+- **Rail** `.navrail`, `.navrail__link`, `.navrail__label`. Now (`#/`), Sessions, Workflows and Fleet are followed by the Manage group: Workers, Advice, Follow-ups, Settings and Health. Each link is also a `.nav__link`, so the current one carries `aria-current="page"` and the selected nav style. Now is current on `#/` and on every `#/run/...` page, Fleet on every `#/fleet...` page. In the icon band the label is visually hidden and stays the link's accessible name; each link is a `--target` square with `--radius-md`. The rail is `--surface` with a `--border` edge toward the canvas (its bottom edge below 768); from 768 it stays in place under the header and scrolls inside itself.
+- **Canvas** `#main` (`.page`) holds the view and keeps `min-width: 0`, so wide content scrolls inside it. Opening or closing the inspector never changes its width. From 1280 the docked column is present on every inspectable view whether or not a panel is open, and the drawer and the sheet overlay the canvas. The inspectable views are Run, Tasks, Sessions, a Fleet project and the five management screens (`data-inspectable="true"` on `.shell`); Now, Workflows, Fleet and the not-found page use the full width.
+- **Inspector** `.inspector`, `.inspector__head`, `.inspector__title`, `.inspector__body`, `.inspector__empty`, `.inspector__scrim`. `createInspector` in `web/shell.js` sets `data-mode` to `dock`, `drawer` or `sheet` from the viewport width and re-applies it when the width crosses 768 or 1280, keeping the open content. Views put a panel in with `showPanel` and take it out with `hidePanel`; the rail detail, the task panel, the lane panel and the Fleet agent panel all render here and carry no card of their own, nor a close control: the inspector's close button is the only one. While a panel is open, `aria-labelledby` names the inspector by `.inspector__title` and the panel's own heading (`labelledBy` of `showPanel`: `rail-detail-title`, `graph-panel-title`, `sessions-panel-title`, `fpanel-title`), in every mode; closing drops it, so the name is the "Details" of `index.html` again.
+  - `dock`: a complementary landmark. It never takes or traps focus. While nothing is open it is labelled "Details" and shows the `.inspector__empty` note.
   - `drawer` and `sheet`: hidden until something opens. While open the inspector is a modal dialog (`role="dialog"`, `aria-modal="true"`) at `--z-panel` with `--elev-2`, over a `.inspector__scrim` in `--scrim`. Focus moves to the close button and Tab stays inside. Escape (the `close` entry of `web/keys.js`), the close button or a click on the scrim closes it. Focus then returns to the control that opened it, or to `#main` when a poll has rebuilt that control.
-- **Palette** `.palette`, `.palette__panel`, `.palette__title`, `.palette__input`, `.palette__list`, `.palette__option`, `.palette__label`, `.palette__hint`, `.palette__none`, `.palette__note`. Ctrl K or Cmd K (the `palette` entry of `web/keys.js`) opens it, and `web/palette.js` builds it on the first open. It is a modal dialog on the `--z-skip` layer: a `--scrim` backdrop and a `--surface-3` panel at most 640 px wide with `--radius-lg` and `--elev-2`. The input is a combobox over a listbox (`aria-activedescendant`); Up and Down move and wrap, Enter goes, Escape closes, Tab stays on the input, and focus returns to the opener or to `#main`. It lists only what the page has already loaded and never fetches: the four screens, then runs, session lanes and Fleet projects, matched as a case-insensitive substring of label or hint, at most 50 options. An empty query lists the screens and the runs. The active option is `--accent-tint` with a 2 px `--accent` bar at its start (a `Highlight` outline under forced colours). A choice only sets `location.hash`. The palette and the shortcut list `.help` are never open together.
+- **Palette** `.palette`, `.palette__panel`, `.palette__title`, `.palette__input`, `.palette__list`, `.palette__option`, `.palette__label`, `.palette__hint`, `.palette__none`, `.palette__note`. Ctrl K or Cmd K (the `palette` entry of `web/keys.js`) opens it, and `web/palette.js` builds it on the first open. It is a modal dialog on the `--z-skip` layer: a `--scrim` backdrop and a `--surface-3` panel at most 640 px wide with `--radius-lg` and `--elev-2`. The input is a combobox over a listbox (`aria-activedescendant`); Up and Down move and wrap, Enter goes, Escape closes, Tab stays on the input, and focus returns to the opener or to `#main`. It lists only what the page has already loaded and never fetches: the nine screens, then runs, session lanes and Fleet projects, matched as a case-insensitive substring of label or hint, at most 50 options. An empty query lists the screens and the runs. The active option is `--accent-tint` with a 2 px `--accent` bar at its start (a `Highlight` outline under forced colours). A choice only sets `location.hash`. The palette and the shortcut list `.help` are never open together.
 - **Permalinks:** a selection is part of the hash, so a reload or a shared link opens the same panel: `#/run/<slug>/<task>/stage/<id>`, `#/run/<slug>/<task>/gate/<id>`, `#/run/<slug>/<task>/tasks/<id>`, `#/sessions/` followed by the lane key, and `#/fleet/<project>/<agent>`.
 
 ## Components
+
+Management screens use `.mtable` for data, `.matrix` for the keyboard grid, `.figure` for values, `.daytable` for day counts, `.sgroup` for settings, `.candidates` for layer details and `.doctor-head` for doctor freshness and refresh. Tables scroll and accept keyboard focus; status words use `.badge` and security markers use `.tag`.
 
 Generated list of the top-level class blocks in `app.css` (elements are `block__element`, variants `block--variant`; state lives in `data-*` and `aria-*` attributes, not in extra classes):
 
 <!-- generated:components -->
 <!-- Generated by console/scripts/build-design-md.ts from the CSS. Change the CSS, then run it with --write. -->
 `.achip`, `.activity`, `.attempt`, `.attempts`, `.badge`, `.banner`, `.banner-slot`, `.banner-wrap`
-`.bar`, `.brand`, `.brand-gate`, `.brand-line`, `.brand-node`, `.btn`, `.chip`, `.cmd`, `.code-chip`
-`.conn`, `.core-version`, `.countdown`, `.dash`, `.empty`, `.ev`, `.eyebrow`, `.f`, `.facts`
-`.fbanner`, `.filter-status`, `.fleet`, `.fleet-blind`, `.fleet-box`, `.fleet-crumb`
-`.fleet-footer`, `.fleet-grid`, `.fleet-head`, `.fleet-limits`, `.fleet-title`, `.fleet-transport`
-`.fleet-tree`, `.flow-edge`, `.fnode`, `.fpanel`, `.ftransport`, `.ftree`, `.full-state`, `.gate`
-`.gate-card`, `.gate-cards`, `.gattempt`, `.gattempts`, `.gcard`, `.gdetail`, `.glane`, `.graph`
-`.grid`, `.grow`, `.help`, `.hint`, `.icon`, `.inspector`, `.masked`, `.model-chip`, `.mono`, `.nav`
-`.navrail`, `.noscript`, `.num`, `.ov-check`, `.ov-cross`, `.ov-forced`, `.page`, `.palette`
+`.bar`, `.brand`, `.brand-gate`, `.brand-line`, `.brand-node`, `.btn`, `.candidates`, `.chain`
+`.chip`, `.cmd`, `.code-chip`, `.conn`, `.core-version`, `.countdown`, `.dash`, `.daytable`
+`.doctor-head`, `.empty`, `.ev`, `.eyebrow`, `.f`, `.facts`, `.fbanner`, `.figure`, `.filter-status`
+`.fleet`, `.fleet-blind`, `.fleet-box`, `.fleet-crumb`, `.fleet-footer`, `.fleet-grid`
+`.fleet-head`, `.fleet-limits`, `.fleet-title`, `.fleet-transport`, `.fleet-tree`, `.flow-edge`
+`.fnode`, `.fpanel`, `.ftransport`, `.ftree`, `.full-state`, `.gate`, `.gate-card`, `.gate-cards`
+`.gattempt`, `.gattempts`, `.gcard`, `.gdetail`, `.glane`, `.graph`, `.grid`, `.grow`, `.help`
+`.hint`, `.icon`, `.inspector`, `.logpane`, `.masked`, `.matrix`, `.model-chip`, `.mono`, `.mtable`
+`.nav`, `.navrail`, `.noscript`, `.num`, `.ov-check`, `.ov-cross`, `.ov-forced`, `.page`, `.palette`
 `.pause`, `.pr`, `.project-list`, `.project-row`, `.rail`, `.rail-detail`, `.rail-fallback`
 `.rail-note`, `.rail-scroll`, `.reltime`, `.replay`, `.replay-host`, `.run-head`, `.run-list`
 `.run-rail`, `.run-row`, `.run-section`, `.sbar`, `.segmented`, `.sessions`, `.sfilter`, `.sfoot`
-`.shape`, `.shell`, `.shold`, `.site-header`, `.skel`, `.skeleton`, `.skip`, `.slane`
+`.sgroup`, `.shape`, `.shell`, `.shold`, `.site-header`, `.skel`, `.skeleton`, `.skip`, `.slane`
 `.slane-children`, `.snote`, `.spanel`, `.srow`, `.srows`, `.state-panel`, `.stream`, `.summary`
 `.tag`, `.theme`, `.tile`, `.timeline`, `.tl`, `.tl-item`, `.tl-list`, `.together`, `.traffic`
 `.ttable`, `.vh`, `.view-enter`, `.view-head`, `.view-note`, `.view-title`, `.wf`, `.wf-list`
+`.wtabs`
 <!-- /generated -->
 
 What an agent most often touches:

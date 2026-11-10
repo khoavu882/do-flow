@@ -890,6 +890,8 @@ function showSelection(local) {
   }
   showPanel(local.inspector, local, {
     title: 'Agent transcript',
+    // The panel's heading holds the selected agent's name (transcript.js renderHead).
+    labelledBy: 'fpanel-title',
     body: local.panel.el,
     owner: local.nodes.get(key) ?? null,
     onClose: () => {

@@ -44,7 +44,7 @@ const KEY_VALUE_BODY = new RegExp(`(${KEY_NAME}["']?[ \\t]*[=:][ \\t]*)("[^"\\r\
 const AUTH_HEADER = /((?:Proxy-)?Authorization:)[ \t]*([^\r\n]*)/gi;
 const SECRET_FLAG = /(--(?:password|passwd|token|secret|api-key|client-secret)(?:=|[ \t]+))("[^"\r\n]*"|'[^'\r\n]*'|[^\s"']+)/gi;
 const PASSWORD_PHRASE = /(?<![A-Za-z0-9_.-])((?:password|passwd)[ \t]+)(?!<masked>|[=:])([^\s,;&"'`)\]}]+)/gi;
-const HOME_DIRECTORY = /(?<![A-Za-z0-9_.-])\/(Users|home)\/(?!<)[^/\s"'`<>:;,()[\]{}]+/g;
+const HOME_DIRECTORY = /(?:(?<=-[IL])|(?<=\x1b\[[0-9;]*m)|(?<![A-Za-z0-9_.-]))\/(Users|(?:var\/)?home)\/+(?:\.\/)?(?!<)[^/\s"'`<>:;,()[\]{}]+/g;
 
 const TS_TYPE_NAMES: ReadonlySet<string> = new Set(['string', 'number', 'boolean', 'any', 'unknown', 'void', 'never', 'null', 'undefined', 'symbol', 'bigint']);
 

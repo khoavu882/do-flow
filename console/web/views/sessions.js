@@ -9,6 +9,7 @@ import { isKey } from '../keys.js';
 import { showPanel, hidePanel } from '../shell.js';
 import { h, icon, mount, announce } from '../dom.js';
 import { clockTime, reltime, commandBlock } from '../states.js';
+import { formatDuration, formatTokens } from '../derive/compare.js';
 import {
   deriveSessions, conflictWords, noteWords, limitWords, laneName, rowName, filterRows, newConflicts, moveFocus, commandFor,
 } from '../derive/sessions.js';
@@ -111,13 +112,12 @@ function laneFacts(lane, row, nowMs) {
   return facts;
 }
 
-/** The panel content: title, close, facts and the command that shows more, as text. @param {any} lane @param {any} row @param {number} nowMs @param {(() => void) | null} onClose @param {string | null} titleId */
-function panelContent(lane, row, nowMs, onClose, titleId) {
+/** The panel content: title, facts and the command that shows more, as text; the inspector holds the close control. @param {any} lane @param {any} row @param {number} nowMs @param {string | null} titleId */
+function panelContent(lane, row, nowMs, titleId) {
   const command = commandFor(lane);
   return [
     h('div', { class: 'spanel__head' }, [
       h('h2', { class: 'spanel__title', id: titleId }, laneTitle(lane)),
-      onClose ? h('button', { type: 'button', class: 'btn btn--ghost spanel__close', 'aria-label': `Close the details of ${laneTitle(lane)}`, dataset: { focusKey: 'panel-close' }, on: { click: onClose } }, icon('close', 16)) : null,
     ]),
     stateMark(lane.token, stateWord(lane)),
     h('dl', { class: 'spanel__facts' }, laneFacts(lane, row, nowMs).flatMap(([term, value]) => [h('dt', {}, term), h('dd', {}, value)])),
@@ -144,8 +144,142 @@ const routeLane = (route) => (route && typeof route.lane === 'string' ? route.la
 
 /** The route's selection changed without a re-mount (IC-019): the rows open the lane it names. @param {any} local */
 function rerouteSessions(local) {
+  if (local && local.route) {
+    const mode = (local.route.mode === 'history' || local.route.params?.mode === 'history') ? 'history' : 'live';
+    if (local.sessions && local.sessions.mode !== mode) {
+      local.sessions.mode = mode;
+      if (typeof local.render === 'function') local.render();
+      return;
+    }
+  }
   if (typeof local.reselect === 'function') local.reselect();
   else if (local.sessions) local.sessions.selected = routeLane(local.route);
+}
+
+function renderHistoryTab(/** @type {any} */ local) {
+  const container = h('div', { class: 'sessions-history-container' });
+
+  function renderTable(/** @type {any} */ history) {
+    const sessions = Array.isArray(history?.sessions) ? history.sessions : [];
+    if (sessions.length === 0) {
+      mount(container, [
+        h('div', { class: 'empty' }, [
+          icon('empty-rail', 64),
+          h('h2', { class: 'empty__title' }, 'No finished sessions recorded yet'),
+          h('p', { class: 'empty__sentence' }, 'Completed workflow runs will appear here within the 30-day retention window.'),
+        ]),
+      ]);
+      return;
+    }
+
+    let selectedForCompare = local.compareRun || null;
+
+    function draw() {
+      const rows = sessions.map((/** @type {any} */ s) => {
+        const isSelectedA = selectedForCompare && selectedForCompare.slug === s.slug && selectedForCompare.taskId === s.taskId;
+
+        const compareBtn = h('button', {
+          type: 'button',
+          class: `button button--small ${isSelectedA ? 'button--selected' : ''}`,
+          on: {
+            click: () => {
+              if (!selectedForCompare) {
+                selectedForCompare = { slug: s.slug, taskId: s.taskId };
+                local.compareRun = selectedForCompare;
+                draw();
+              } else if (isSelectedA) {
+                selectedForCompare = null;
+                local.compareRun = null;
+                draw();
+              } else {
+                const slugA = selectedForCompare.slug;
+                const taskIdA = selectedForCompare.taskId;
+                selectedForCompare = null;
+                local.compareRun = null;
+                globalThis.location.hash = `#/compare/${slugA}/${taskIdA}/${s.slug}/${s.taskId}`;
+              }
+            },
+          },
+        }, isSelectedA ? 'Selected (Cancel)' : (selectedForCompare ? 'Compare with selected' : 'Compare'));
+
+        return h('tr', { class: 'history-row' }, [
+          h('td', { class: 'history-cell' }, [
+            h('strong', {}, s.slug),
+            h('div', { class: 'history-sub' }, `${s.workflowName || s.taskClass} · ${s.taskId}`),
+          ]),
+          h('td', { class: 'history-duration mono' }, formatDuration(s.durationMs)),
+          h('td', { class: 'history-time' }, s.endedAt ? reltime(s.endedAt, Date.now()) : (s.startedAt ? reltime(s.startedAt, Date.now()) : '—')),
+          h('td', { class: 'history-state' }, [
+            h('span', { class: 'badge', dataset: { state: s.state } }, s.state),
+          ]),
+          h('td', { class: 'history-workers' }, `${s.workers?.attempts || 0} att, ${s.workers?.retries || 0} ret`),
+          h('td', { class: 'history-tokens mono' }, formatTokens(s.cost?.tokens?.total)),
+          h('td', { class: 'history-actions' }, [compareBtn]),
+        ]);
+      });
+
+      const tbl = h('table', { class: 'mtable sessions-history-table', tabindex: '0' }, [
+        h('caption', {}, `Finished Sessions (${sessions.length} recorded within ${history.window?.maxAgeDays || 30} days)`),
+        h('thead', {}, [
+          h('tr', {}, [
+            h('th', { scope: 'col' }, 'Session / Feature'),
+            h('th', { scope: 'col' }, 'Duration'),
+            h('th', { scope: 'col' }, 'Finished'),
+            h('th', { scope: 'col' }, 'State'),
+            h('th', { scope: 'col' }, 'Workers'),
+            h('th', { scope: 'col' }, 'Tokens'),
+            h('th', { scope: 'col' }, 'Action'),
+          ]),
+        ]),
+        h('tbody', {}, rows),
+      ]);
+
+      const banner = selectedForCompare
+        ? h('div', { class: 'compare-banner info-bar' }, [
+          h('span', {}, `Baseline selected: ${selectedForCompare.slug} (${selectedForCompare.taskId}). Click "Compare with selected" on any run below to launch comparison.`),
+          h('button', {
+            type: 'button',
+            class: 'button button--small',
+            on: { click: () => { selectedForCompare = null; local.compareRun = null; draw(); } },
+          }, 'Clear selection'),
+        ])
+        : null;
+
+      mount(container, [
+        banner,
+        tbl,
+      ].filter(Boolean));
+    }
+
+    draw();
+  }
+
+  if (local.historyData) {
+    renderTable(local.historyData);
+  } else {
+    mount(container, [h('p', { class: 'sessions-history__loading' }, 'Loading finished sessions history...')]);
+    if (typeof globalThis.fetch === 'function') {
+      globalThis.fetch('/api/sessions-history', { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+        .then((res) => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return res.json();
+        })
+        .then((json) => {
+          local.historyData = json;
+          renderTable(json);
+        })
+        .catch((err) => {
+          mount(container, [
+            h('div', { class: 'error-inline' }, [
+              icon('failed', 24),
+              h('p', {}, `Failed to load sessions history: ${err?.message || 'network error'}`),
+            ]),
+          ]);
+        });
+    }
+  }
+
+  return container;
 }
 
 /**
@@ -155,9 +289,30 @@ function rerouteSessions(local) {
  * @param {any} local the view instance's own memory
  */
 function renderSessions(data, params, local) {
+  const mode = (local?.route?.mode === 'history' || local?.route?.params?.mode === 'history') ? 'history' : 'live';
+  const tabLive = h('a', {
+    class: `sessions-tab ${mode === 'live' ? 'sessions-tab--active' : ''}`,
+    href: '#/sessions',
+    'aria-current': mode === 'live' ? 'page' : 'false',
+  }, 'Live Sessions');
+  const tabHistory = h('a', {
+    class: `sessions-tab ${mode === 'history' ? 'sessions-tab--active' : ''}`,
+    href: '#/sessions/history',
+    'aria-current': mode === 'history' ? 'page' : 'false',
+  }, 'History');
+  const tabNav = h('nav', { class: 'sessions-tabs-nav', 'aria-label': 'Sessions View' }, [tabLive, tabHistory]);
+
+  if (mode === 'history') {
+    return h('section', { class: 'sessions sessions--history', 'aria-label': 'Sessions History' }, [
+      tabNav,
+      renderHistoryTab(local),
+    ]);
+  }
+
   const nowMs = Date.now();
   // The selected lane starts as the route names it (IC-019); later it changes with a selection or a reroute.
-  const memory = local.sessions ?? (local.sessions = { filter: 'all', open: new Map(), selected: routeLane(local.route), focusKey: null, seen: null, hadConflicts: new Set(), barOpen: !narrow() });
+  const memory = local.sessions ?? (local.sessions = { mode: 'live', filter: 'all', open: new Map(), selected: routeLane(local.route), focusKey: null, seen: null, hadConflicts: new Set(), barOpen: !narrow() });
+  memory.mode = 'live';
   const result = deriveSessions(data, nowMs);
 
   // The conflicts that are new since the previous read are announced once and flash once; the first read does neither.
@@ -296,7 +451,12 @@ function renderSessions(data, params, local) {
             ...laneLines(lane, nowMs).filter(Boolean).map((line) => h('span', { class: 'slane__line' }, line)),
           ]),
         ]);
-        button.addEventListener('click', () => { memory.focusKey = key; select(memory.selected === lane.key ? null : lane.key); focusKey(key); });
+        button.addEventListener('click', () => {
+          memory.focusKey = key;
+          select(memory.selected === lane.key ? null : lane.key);
+          // As drawer or sheet the inspector is a modal dialog and took the focus to its close control: leave it there.
+          if (!(local.inspector && local.inspector.isOpen() && local.inspector.mode() !== 'dock')) focusKey(key);
+        });
         button.addEventListener('focus', () => { memory.focusKey = key; });
         return h('li', { class: 'slane-item' }, [button, lane.children.length > 0 ? h('ul', { class: 'slane-children' }, lane.children.map((/** @type {any} */ child) => laneItem(child, true))) : null]);
       };
@@ -347,9 +507,10 @@ function renderSessions(data, params, local) {
     } else {
       const key = found.lane.key;
       panel.removeAttribute('hidden');
-      mount(panel, panelContent(found.lane, found.row, nowMs, () => select(null, true), 'sessions-panel-title'));
+      mount(panel, panelContent(found.lane, found.row, nowMs, 'sessions-panel-title'));
       showPanel(local.inspector, local, {
         title: 'Lane details',
+        labelledBy: 'sessions-panel-title',
         body: panel,
         owner: rowsHost.querySelector(`[data-focus-key="lane:${key}"]`),
         onClose: () => {
@@ -400,9 +561,13 @@ function renderSessions(data, params, local) {
     if (!isKey(event, 'close') || memory.selected === null) return;
     event.preventDefault();
     const target = event.target;
-    // The focus goes back to the lane only when it was inside a panel; on a lane it stays where it is.
+    // The focus goes back to the lane only when it was inside a panel; on a lane it stays on that lane, which the re-mount
+    // of the rows replaces with a fresh node.
     const inPanel = Boolean(target) && typeof target.closest === 'function' && target.closest('.spanel') !== null;
+    const owner = !inPanel && target && typeof target.closest === 'function' ? target.closest('[data-focus-key]') : null;
+    const ownerKey = owner ? owner.getAttribute('data-focus-key') : null;
     select(null, inPanel);
+    if (!inPanel && ownerKey) focusKey(ownerKey);
   });
 
   // ---- the footer: what was checked, what cannot be seen ----
@@ -422,6 +587,7 @@ function renderSessions(data, params, local) {
     local.reselect = null;
     hidePanel(local.inspector, local);
     return h('section', { class: 'sessions sessions--empty', 'aria-label': 'Sessions' }, [
+      tabNav,
       ...notes,
       absent,
       h('div', { class: 'empty' }, [
@@ -443,7 +609,7 @@ function renderSessions(data, params, local) {
   };
   draw();
   drawChips();
-  const top = [h('div', { class: 'sessions__top' }, [summary, chips, legend]), ...notes, absent, bar];
+  const top = [tabNav, h('div', { class: 'sessions__top' }, [summary, chips, legend]), ...notes, absent, bar];
   const layout = h('div', { class: 'sessions__layout' }, [rowsHost]);
   mount(root, [...top, layout, footer]);
   return root;

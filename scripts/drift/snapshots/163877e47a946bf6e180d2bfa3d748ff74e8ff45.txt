@@ -1,13 +1,11 @@
 Config
-Using the OpenCode JSON config.
-You can configure OpenCode using a JSON config file.
-Format
-OpenCode supports both
-JSON
-and
-JSONC
-(JSON with Comments) formats.
+Create
 opencode.jsonc
+in your project to configure OpenCode. Add the schema for editor validation, then set only the options you need.
+opencode.jsonc
+Copy
+Copied
+Failed
 {
 "$schema"
 :
@@ -17,852 +15,451 @@ opencode.jsonc
 :
 "anthropic/claude-sonnet-5-5"
 ,
-"autoupdate"
+}
+You can also ask OpenCode to update this file for you.
+Format
+OpenCode supports JSON and JSONC. Use JSONC when you want comments or trailing commas.
+opencode.jsonc
+Copy
+Copied
+Failed
+{
+"$schema"
 :
-true
+"https://opencode.ai/config.json"
 ,
-"server"
-: {
-"port"
+// Use this model by default.
+"model"
 :
-4096
+"anthropic/claude-sonnet-5-5"
 ,
-},
 }
 Locations
-You can place your config in a couple of different locations and they have a
-different order of precedence.
-Note
-Configuration files are
-merged together
-, not replaced.
-Configuration files are merged together, not replaced. Settings from the following config locations are combined. Later configs override earlier ones only for conflicting keys. Non-conflicting settings from all configs are preserved.
-For example, if your global config sets
-autoupdate: true
-and your project config sets
-model: "anthropic/claude-sonnet-5-5"
-, the final configuration will include both settings.
-Precedence order
-Config sources are loaded in this order (later sources override earlier ones):
-Remote config
-(from
-.well-known/opencode
-) - organizational defaults
-Global config
-(
-~/.config/opencode/opencode.json
-) - user preferences
-Custom config
-(
-OPENCODE_CONFIG
-env var) - custom overrides
-Project config
-(
-opencode.json
-in project) - project-specific settings
-.opencode
-directories
-- agents, commands, plugins
-Inline config
-(
-OPENCODE_CONFIG_CONTENT
-env var) - runtime overrides
-Managed config files
-(
-/Library/Application Support/opencode/
-on macOS) - admin-controlled
-macOS managed preferences
-(
-.mobileconfig
-via MDM) - highest priority, not user-overridable
-This means project configs can override global defaults, and global configs can override remote organizational defaults. Managed settings override everything.
-Note
-The
-.opencode
-and
-~/.config/opencode
-directories use
-plural names
-for subdirectories:
+Put managed, machine-wide settings in the system configuration directory:
+Platform
+Directory
+macOS
+/Library/Application Support/opencode
+Linux
+/etc/opencode
+Windows
+%ProgramData%\opencode
+The system directory works like the global directory. Besides
+opencode.json(c)
+, it loads
 agents/
 ,
 commands/
 ,
-modes/
-,
-plugins/
-,
 skills/
-,
-tools/
 , and
-themes/
-. Singular names (e.g.,
-agent/
-) are also supported for backwards compatibility.
-Remote
-Organizations can provide default configuration via the
-.well-known/opencode
-endpoint. This is fetched automatically when you authenticate with a provider that supports it.
-Remote config is loaded first, serving as the base layer. All other config sources (global, project) can override these defaults.
-For example, if your organization provides MCP servers that are disabled by default:
-Remote config from .well-known/opencode
-{
-"mcp"
-: {
-"jira"
-: {
-"type"
-:
-"remote"
-,
-"url"
-:
-"https://jira.example.com/mcp"
-,
-"enabled"
-:
-false
-}
-}
-}
-You can enable specific servers in your local config:
-opencode.json
-{
-"mcp"
-: {
-"jira"
-: {
-"type"
-:
-"remote"
-,
-"url"
-:
-"https://jira.example.com/mcp"
-,
-"enabled"
-:
-true
-}
-}
-}
-Global
-Place your global OpenCode config in
-~/.config/opencode/opencode.json
-. Use global config for user-wide server/runtime preferences like providers, models, and permissions.
-For TUI-specific settings, use
-~/.config/opencode/tui.json
-.
-Global config overrides remote organizational defaults.
-Per project
-Add
-opencode.json
-in your project root. Project config has the highest precedence among standard config files - it overrides both global and remote configs.
-For project-specific TUI settings, add
-tui.json
-alongside it.
-Tip
-Place project specific config in the root of your project.
-When OpenCode starts up, it first looks for a config file in the current directory, then traverses up to the nearest Git directory.
-This is also safe to be checked into Git and uses the same schema as the global one.
-Custom path
-Specify a custom config file path using the
-OPENCODE_CONFIG
-environment variable.
-Terminal window
-export
-OPENCODE_CONFIG
-=
-/path/to/my/custom-config.json
-opencode
-run
-"Hello world"
-Custom config is loaded between global and project configs in the precedence order.
-Custom directory
-Specify a custom config directory using the
-OPENCODE_CONFIG_DIR
-environment variable. This directory will be searched for agents, commands,
-modes, and plugins just like the standard
-.opencode
-directory, and should
-follow the same structure.
-Terminal window
-export
-OPENCODE_CONFIG_DIR
-=
-/path/to/my/config-directory
-opencode
-run
-"Hello world"
-The custom directory is loaded after the global config and
-.opencode
-directories, so it
-can override
-their settings.
-Managed settings
-Organizations can enforce configuration that users cannot override. Managed settings are loaded at the highest priority tier.
-File-based
-Drop an
-opencode.json
-or
-opencode.jsonc
-file in the system managed config directory:
-Platform
-Path
-macOS
-/Library/Application Support/opencode/
-Linux
+plugins/
+for every user on the machine:
+Files
 /etc/opencode/
-Windows
-%ProgramData%\opencode
-These directories require admin/root access to write, so users cannot modify them.
-macOS managed preferences
-On macOS, OpenCode reads managed preferences from the
-ai.opencode.managed
-preference domain. Deploy a
-.mobileconfig
-via MDM (Jamf, Kandji, FleetDM) and the settings are enforced automatically.
-OpenCode checks these paths:
-/Library/Managed Preferences/&#x3C;user>/ai.opencode.managed.plist
-/Library/Managed Preferences/ai.opencode.managed.plist
-The plist keys map directly to
+├──
 opencode.json
-fields. MDM metadata keys (
-PayloadUUID
-,
-PayloadType
-, etc.) are stripped automatically.
-Creating a
-.mobileconfig
-Use the
+├──
+agents/review.md
+├──
+commands/release.md
+└──
+skills/deploy/SKILL.md
+On macOS, OpenCode also reads managed preferences that MDM tools deploy for the
 ai.opencode.managed
-PayloadType. The OpenCode config keys go directly in the payload dict:
-&#x3C;?
-xml
-version
-=
-"1.0"
-encoding
-=
-"UTF-8"
-?>
-&#x3C;!
-DOCTYPE
-plist
-PUBLIC "-//Apple//DTD PLIST 1.0//EN"
-"http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-&#x3C;
-plist
-version
-=
-"1.0"
->
-&#x3C;
-dict
->
-&#x3C;
-key
->PayloadContent&#x3C;/
-key
->
-&#x3C;
-array
->
-&#x3C;
-dict
->
-&#x3C;
-key
->PayloadType&#x3C;/
-key
->
-&#x3C;
-string
->ai.opencode.managed&#x3C;/
-string
->
-&#x3C;
-key
->PayloadIdentifier&#x3C;/
-key
->
-&#x3C;
-string
->com.example.opencode.config&#x3C;/
-string
->
-&#x3C;
-key
->PayloadUUID&#x3C;/
-key
->
-&#x3C;
-string
->GENERATE-YOUR-OWN-UUID&#x3C;/
-string
->
-&#x3C;
-key
->PayloadVersion&#x3C;/
-key
->
-&#x3C;
-integer
->1&#x3C;/
-integer
->
-&#x3C;
-key
->server&#x3C;/
-key
->
-&#x3C;
-dict
->
-&#x3C;
-key
->hostname&#x3C;/
-key
->
-&#x3C;
-string
->127.0.0.1&#x3C;/
-string
->
-&#x3C;/
-dict
->
-&#x3C;
-key
->permission&#x3C;/
-key
->
-&#x3C;
-dict
->
-&#x3C;
-key
->*&#x3C;/
-key
->
-&#x3C;
-string
->ask&#x3C;/
-string
->
-&#x3C;
-key
->bash&#x3C;/
-key
->
-&#x3C;
-dict
->
-&#x3C;
-key
->*&#x3C;/
-key
->
-&#x3C;
-string
->ask&#x3C;/
-string
->
-&#x3C;
-key
->rm -rf *&#x3C;/
-key
->
-&#x3C;
-string
->deny&#x3C;/
-string
->
-&#x3C;/
-dict
->
-&#x3C;/
-dict
->
-&#x3C;/
-dict
->
-&#x3C;/
-array
->
-&#x3C;
-key
->PayloadType&#x3C;/
-key
->
-&#x3C;
-string
->Configuration&#x3C;/
-string
->
-&#x3C;
-key
->PayloadIdentifier&#x3C;/
-key
->
-&#x3C;
-string
->com.example.opencode&#x3C;/
-string
->
-&#x3C;
-key
->PayloadUUID&#x3C;/
-key
->
-&#x3C;
-string
->GENERATE-YOUR-OWN-UUID&#x3C;/
-string
->
-&#x3C;
-key
->PayloadVersion&#x3C;/
-key
->
-&#x3C;
-integer
->1&#x3C;/
-integer
->
-&#x3C;/
-dict
->
-&#x3C;/
-plist
->
-
-
-
-
-PayloadContent
-
-
-
-PayloadType
-
-ai.opencode.managed
-
-PayloadIdentifier
-
-com.example.opencode.config
-
-PayloadUUID
-
-GENERATE-YOUR-OWN-UUID
-
-PayloadVersion
-
-1
-
-server
-
-
-hostname
-
-127.0.0.1
-
-
-permission
-
-
-*
-
-ask
-
-bash
-
-
-*
-
-ask
-
-rm -rf *
-
-deny
-
-
-
-
-
-PayloadType
-
-Configuration
-
-PayloadIdentifier
-
-com.example.opencode
-
-PayloadUUID
-
-GENERATE-YOUR-OWN-UUID
-
-PayloadVersion
-
-1
-
-
-">
-Generate unique UUIDs with
-uuidgen
-. Customize the settings to match your organization’s requirements.
-Deploying via MDM
-Jamf Pro:
-Computers > Configuration Profiles > Upload > scope to target devices or smart groups
-FleetDM:
-Add the
-.mobileconfig
-to your gitops repo under
-mdm.macos_settings.custom_settings
-and run
-fleetctl apply
-Verifying on a device
-Double-click the
-.mobileconfig
-to install locally for testing (shows in System Settings > Privacy &#x26; Security > Profiles), then run:
-Terminal window
-opencode
-debug
-config
-All managed preference keys appear in the resolved config and cannot be overridden by user or project configuration.
+domain. A user-specific profile replaces the
+machine-wide one:
+/ai.opencode.managed.plist
+/Library/Managed Preferences/ai.opencode.managed.plist" aria-label="Copy code">
+Copy
+Copied
+Failed
+/Library/Managed Preferences/<user>/ai.opencode.managed.plist
+/Library/Managed Preferences/ai.opencode.managed.plist
+Managed settings have the highest precedence, so users and projects cannot
+override the values they set, and managed preferences override the system
+directory. Settings alone cannot stop users from adding providers, MCP servers,
+agents, or plugins; use
+policies
+in managed
+configuration to enforce restrictions.
+Put user settings for every project in the global configuration:
+Copy
+Copied
+Failed
+~/.config/opencode/opencode.json(c)
+Put project settings in either of these files:
+Copy
+Copied
+Failed
+/home/<name>/projects/my-app/opencode.json(c)
+/home/<name>/projects/my-app/.opencode/opencode.json(c)
+OpenCode searches from the current directory to the filesystem root. It first
+merges direct
+opencode.json(c)
+files from the farthest directory to the
+closest, then merges files inside
+.opencode
+directories in the same order.
+This means every discovered
+.opencode
+config overrides every direct config.
+Use one form throughout a directory tree unless you need that behavior.
+For example, start OpenCode from
+/home/<name>/projects/acme/packages/web
+:
+Files
+/etc/opencode/opencode.json
+~/.config/opencode/opencode.json
+/home/<name>/projects/acme/
+├──
+opencode.json
+└──
+packages/
+└──
+web/
+├──
+opencode.json
+└──
+src/
+OpenCode applies these files from lowest to highest precedence:
+~/.config/opencode/opencode.json
+/home/<name>/projects/acme/opencode.json
+/home/<name>/projects/acme/packages/web/opencode.json
+/etc/opencode/opencode.json
+The package config overrides matching settings from the repository config,
+which overrides the global config. The system config overrides all of them.
+Settings that do not conflict are preserved.
+Policies
+from global and project files evaluate in the reverse order, and system
+policies outrank all of them.
 Schema
-The server/runtime config schema is defined in
+The complete OpenCode configuration schema is available at
 opencode.ai/config.json
 .
-TUI config uses
-opencode.ai/tui.json
-.
-Your editor should be able to validate and autocomplete based on the schema.
-TUI
-Use a dedicated
-tui.json
-(or
-tui.jsonc
-) file for TUI-specific settings.
-tui.json
-{
-"$schema"
-:
-"https://opencode.ai/tui.json"
-,
-"scroll_speed"
-:
-3
-,
-"scroll_acceleration"
-: {
-"enabled"
-:
-true
-},
-"diff_style"
-:
-"auto"
-,
-"cursor"
-: {
-"style"
-:
-"block"
-,
-"blinking"
-:
-true
-},
-"mouse"
-:
-true
-,
-"attention"
-: {
-"enabled"
-:
-true
-,
-"notifications"
-:
-true
-,
-"sound"
-:
-true
-,
-"volume"
-:
-0.4
-}
-}
-Use
-OPENCODE_TUI_CONFIG
-to point to a custom TUI config file.
-When
-cursor.style
-is
-"default"
-, the terminal default cursor is restored, so
-cursor.blinking
-has no effect.
-Set
-attention.enabled
-to turn on TUI desktop notifications and sounds. See
-TUI attention
-.
-Legacy
-theme
-,
-keybinds
-, and
-tui
-keys in
+Add the
+$schema
+field to your configuration file to enable validation and
+autocomplete in editors that support JSON Schema:
 opencode.json
-are deprecated and automatically migrated when possible.
-Server
-You can configure server settings for the
-opencode serve
-and
-opencode web
-commands through the
-server
-option.
-opencode.json
+Copy
+Copied
+Failed
 {
 "$schema"
 :
 "https://opencode.ai/config.json"
-,
-"server"
-: {
-"port"
-:
-4096
-,
-"hostname"
-:
-"0.0.0.0"
-,
-"mdns"
-:
-true
-,
-"mdnsDomain"
-:
-"myproject.local"
-,
-"cors"
-: [
-"http://localhost:5173"
-]
 }
-}
-Available options:
-port
-- Port to listen on.
-hostname
-- Hostname to listen on. When
-mdns
-is enabled and no hostname is set, defaults to
-0.0.0.0
-.
-mdns
-- Enable mDNS service discovery. This allows other devices on the network to discover your OpenCode server.
-mdnsDomain
-- Custom domain name for mDNS service. Defaults to
-opencode.local
-. Useful for running multiple instances on the same network.
-cors
-- Additional origins to allow for CORS when using the HTTP server from a browser-based client. Values must be full origins (scheme + host + optional port), eg
-https://app.example.com
-.
-Learn more about the server here
-.
+Use the schema as the source of truth for available fields, accepted values,
+and nested configuration shapes.
 Shell
-You can configure the shell used for the interactive terminal using the
-shell
-option. Compatible shells are also used for agent tool calls.
-opencode.json
+Set the shell used by the terminal and shell tools.
+JSONC
+Copy
+Copied
+Failed
 {
-"$schema"
-:
-"https://opencode.ai/config.json"
-,
 "shell"
 :
-"pwsh"
+"/bin/zsh"
+,
 }
-If not specified, OpenCode will automatically discover and use a sensible default based on your operating system (e.g.
-pwsh
-or
-cmd.exe
-on Windows,
-/bin/zsh
-or
-/bin/bash
-on macOS/Linux). You can provide an absolute path or a short name.
-Tools
-You can manage the tools an LLM can use through the
-tools
-option.
-opencode.json
+Model
+Set the default model in
+provider/model
+format. The root default currently
+does not retain a
+#variant
+; agent and command model references can select one.
+JSONC
+Copy
+Copied
+Failed
 {
-"$schema"
-:
-"https://opencode.ai/config.json"
-,
-"tools"
-: {
-"write"
-:
-false
-,
-"bash"
-:
-false
-}
-}
-Learn more about tools here
-.
-Models
-You can configure the providers and models you want to use in your OpenCode config through the
-provider
-,
-model
-and
-small_model
-options.
-opencode.json
-{
-"$schema"
-:
-"https://opencode.ai/config.json"
-,
-"provider"
-: {},
 "model"
 :
 "anthropic/claude-sonnet-5-5"
 ,
-"small_model"
-:
-"anthropic/claude-haiku-5-5"
 }
-The
-small_model
-option configures a separate model for lightweight tasks like title generation. By default, OpenCode tries to use a cheaper model if one is available from your provider, otherwise it falls back to your main model.
-Provider options can include
-timeout
-,
-headerTimeout
-,
-chunkTimeout
-, and
-setCacheKey
-:
-opencode.json
+See the
+models guide
+for model selection and local models.
+Agent
+Choose the primary agent used when a session does not select one explicitly.
+JSONC
+Copy
+Copied
+Failed
 {
-"$schema"
+"default_agent"
 :
-"https://opencode.ai/config.json"
+"build"
 ,
-"provider"
-: {
-"anthropic"
-: {
-"options"
-: {
-"timeout"
-:
-600000
-,
-"chunkTimeout"
-:
-30000
-,
-"setCacheKey"
-:
-true
 }
-}
-}
-}
-timeout
-- Overall request timeout in milliseconds (disabled by default).
-headerTimeout
-- Timeout in milliseconds to wait for response headers (default: 300000, or 5 minutes). This timer stops once headers arrive and does not limit the streamed response body. Set to
-false
-to disable.
-chunkTimeout
-- Timeout in milliseconds between streamed response chunks (default: 300000, or 5 minutes). If no chunk arrives in time, the request is aborted. Set to
-false
-to disable.
-setCacheKey
-- Ensure a cache key is always set for designated provider.
-You can also configure
-local models
+See the
+agents guide
+for built-in and custom
+agents.
+Updates
+Control update checks from the global config. Set
+update
+to
+"disable"
+to
+skip them,
+"notify"
+to show available updates before installing them, or
+"auto"
+to install updates automatically. When omitted,
+update
+defaults to
+"notify"
 .
-Learn more
-.
-Policies
-The
-experimental.policies
-feature requires OpenCode 2 and isn’t enforced in OpenCode 1. In OpenCode 1, use
-disabled_providers
-or
-enabled_providers
-to control provider availability.
-The following example applies to OpenCode 2 only:
-opencode.json
+Automatic installation does not restart a running server. Restart it manually to activate the installed update.
+Project-level values are ignored.
+JSONC
+Copy
+Copied
+Failed
 {
-"$schema"
+"update"
 :
-"https://opencode.ai/config.json"
+"notify"
 ,
-"experimental"
-: {
-"policies"
-: [
+}
+Username
+Set a username. OpenCode accepts this field but does not display it in
+conversations.
+JSONC
+Copy
+Copied
+Failed
 {
+"username"
+:
+"alice"
+,
+}
+Permissions
+Define ordered rules that allow, deny, or ask before an agent uses a tool on a
+matching resource.
+JSONC
+Copy
+Copied
+Failed
+{
+"permissions"
+:
+[
+{
+"action"
+:
+"shell"
+,
+"resource"
+:
+"git push *"
+,
 "effect"
 :
-"deny"
+"ask"
 ,
+}
+,
+]
+,
+}
+See the
+permissions guide
+for rule matching and available actions.
+Policies
+Allow or deny use of a provider, hard-deny a permission check, or block an MCP
+server, skill, or plugin, with ordered statements that broader configuration can
+override.
+JSONC
+Copy
+Copied
+Failed
+{
+"policies"
+:
+[
+{
 "action"
 :
 "provider.use"
 ,
 "resource"
 :
-"openai"
-}
-]
-}
-}
-Learn more about policies here
-.
-Image attachments
-OpenCode normalizes image attachments before sending them to the model. By default, images are resized when they exceed
-2000x2000
-pixels or
-5242880
-base64 bytes.
-Configure image attachment limits with the
-attachment.image
-option:
-opencode.json
-{
-"$schema"
-:
-"https://opencode.ai/config.json"
+"*"
 ,
-"attachment"
-: {
+"effect"
+:
+"deny"
+}
+,
+{
+"action"
+:
+"provider.use"
+,
+"resource"
+:
+"anthropic"
+,
+"effect"
+:
+"allow"
+}
+,
+{
+"action"
+:
+"tool.use"
+,
+"resource"
+:
+"shell:git push *"
+,
+"effect"
+:
+"deny"
+}
+,
+]
+,
+}
+See the
+policies guide
+for matching, precedence across configuration
+files, and Console-managed policy.
+Agents
+Override built-in agents or define specialized agents with their own model,
+instructions, mode, and permissions.
+JSONC
+Copy
+Copied
+Failed
+{
+"agents"
+:
+{
+"reviewer"
+:
+{
+"description"
+:
+"Review changes without editing files"
+,
+"mode"
+:
+"subagent"
+,
+"system"
+:
+"Focus on correctness, security, and missing tests."
+,
+"permissions"
+:
+[{
+"action"
+:
+"edit"
+,
+"resource"
+:
+"*"
+,
+"effect"
+:
+"deny"
+}]
+,
+}
+,
+}
+,
+}
+See the
+agents guide
+for all agent options and file-based agents.
+Snapshots
+Enable or disable filesystem snapshots used by undo and revert behavior.
+JSONC
+Copy
+Copied
+Failed
+{
+"snapshots"
+:
+false
+,
+}
+See the
+snapshots guide
+for undo and redo behavior.
+Watcher
+Ignore files and directories that should not trigger filesystem updates.
+JSONC
+Copy
+Copied
+Failed
+{
+"watcher"
+:
+{
+"ignore"
+:
+[
+"dist/**"
+,
+"coverage/**"
+]
+,
+}
+,
+}
+Formatter
+Format files after the
+write
+,
+edit
+, or
+patch
+tools change them. Set
+formatter
+to
+true
+to enable available built-in formatters.
+JSONC
+Copy
+Copied
+Failed
+{
+"formatter"
+:
+true
+,
+}
+See the
+formatters guide
+for built-ins and custom formatters.
+Media
+Control how oversized images loaded by the
+read
+tool are resized or rejected
+before they are sent to a model.
+JSONC
+Copy
+Copied
+Failed
+{
+"media"
+:
+{
 "image"
-: {
+:
+{
 "auto_resize"
 :
 true
@@ -878,208 +475,737 @@ true
 "max_base64_bytes"
 :
 5242880
-}
-}
-}
-auto_resize
-- Resize images that exceed the configured limits before provider requests. Set to
-false
-to reject oversized images instead.
-max_width
-- Maximum image width in pixels before resizing or rejection.
-max_height
-- Maximum image height in pixels before resizing or rejection.
-max_base64_bytes
-- Maximum encoded image payload size. This is the base64 payload size, not the original file size.
-If an image still cannot fit after resizing, OpenCode omits oversized tool-result images or fails oversized user-provided images with an image size error.
-Provider-Specific Options
-Some providers support additional configuration options beyond the generic
-timeout
-and
-apiKey
-settings.
-Amazon Bedrock
-Amazon Bedrock supports AWS-specific configuration:
-opencode.json
-{
-"$schema"
-:
-"https://opencode.ai/config.json"
 ,
+}
+,
+}
+,
+}
+See the
+attachments guide
+for image processing and limits.
+Output
+Set the maximum number of lines and bytes retained from a tool result.
+JSONC
+Copy
+Copied
+Failed
+{
+"tool_output"
+:
+{
+"max_lines"
+:
+2000
+,
+"max_bytes"
+:
+51200
+,
+}
+,
+}
+Search
+Choose how OpenCode searches the web. Use
+"random"
+to select an available
+provider automatically.
+JSONC
+Copy
+Copied
+Failed
+{
+"websearch"
+:
+{
 "provider"
-: {
-"amazon-bedrock"
-: {
-"options"
-: {
-"region"
 :
-"us-east-1"
+"random"
 ,
-"profile"
-:
-"my-aws-profile"
+}
 ,
-"endpoint"
-:
-"https://bedrock-runtime.us-east-1.vpce-xxxxx.amazonaws.com"
 }
-}
-}
-}
-region
-- AWS region for Bedrock (defaults to
-AWS_REGION
-env var or
-us-east-1
-)
-profile
-- AWS named profile from
-~/.aws/credentials
-(defaults to
-AWS_PROFILE
-env var)
-endpoint
-- Custom endpoint URL for VPC endpoints. This is an alias for the generic
-baseURL
-option using AWS-specific terminology. If both are specified,
-endpoint
-takes precedence.
-Note
-Bearer tokens (
-AWS_BEARER_TOKEN_BEDROCK
-or
-/connect
-) take precedence over profile-based authentication. See
-authentication precedence
-for details.
-Learn more about Amazon Bedrock configuration
-.
-Themes
-Set your UI theme in
-tui.json
-.
-tui.json
+See the
+web search guide
+for providers, credentials, selection,
+rate limits, and disabling search.
+MCP
+Configure local and remote Model Context Protocol servers. Global
+mcp.timeout
+values apply to servers defined in configuration files; each
+server’s
+timeout
+overrides them.
+JSONC
+Copy
+Copied
+Failed
 {
-"$schema"
+"mcp"
 :
-"https://opencode.ai/tui.json"
-,
-"theme"
-:
-"tokyonight"
-}
-Learn more here
-.
-Agents
-You can configure specialized agents for specific tasks through the
-agent
-option.
-opencode.jsonc
 {
-"$schema"
+"servers"
 :
-"https://opencode.ai/config.json"
+{
+"playwright"
+:
+{
+"type"
+:
+"local"
 ,
-"agent"
-: {
-"code-reviewer"
-: {
+"command"
+:
+[
+"bunx"
+,
+"@playwright/mcp"
+]
+,
+}
+,
+}
+,
+}
+,
+}
+See the
+MCP guide
+for remote servers, OAuth, environment variables, and timeouts.
+Compaction
+Control automatic context compaction and how much recent context it preserves.
+JSONC
+Copy
+Copied
+Failed
+{
+"compaction"
+:
+{
+"auto"
+:
+true
+,
+"keep"
+:
+{
+"tokens"
+:
+15000
+,
+}
+,
+"buffer"
+:
+"15%"
+,
+}
+,
+}
+buffer
+is the share of the model’s context window kept free before automatic compaction starts.
+Local summaries remain the default. Opt into native provider compaction for both
+automatic and manual requests with a provider or model policy:
+JSONC
+Copy
+Copied
+Failed
+{
+"providers"
+:
+{
+"openai"
+:
+{
+"settings"
+:
+{
+"compaction"
+:
+{
+"type"
+:
+"native"
+} }
+,
+"models"
+:
+{
+"gpt-6.1-sol"
+:
+{
+"settings"
+:
+{
+"compaction"
+:
+{
+"type"
+:
+"summary"
+} } }
+,
+}
+,
+}
+,
+}
+,
+}
+A model setting overrides the provider setting. Automatic compaction uses the
+selected model’s usable input budget. Provider checkpoints keep recent user messages within the same
+compaction.keep.tokens
+budget that local summaries use for their retained tail.
+Top-level
+compaction.auto: false
+disables new automatic compaction without
+discarding installed checkpoints. See the
+compaction guide
+for
+budgeting and overflow recovery.
+Warming
+Keep recently active model sessions warm with periodic transient requests.
+Warming is disabled by default; set it to
+true
+to warm just before each
+model’s cache expires, for up to 30 minutes.
+JSONC
+Copy
+Copied
+Failed
+{
+"warming"
+:
+{
+"prompt"
+:
+"Do not perform any work. Reply with exactly: OK"
+,
+"interval"
+:
+"auto"
+,
+"duration"
+:
+"30 minutes"
+,
+}
+,
+}
+A provider’s or model’s
+settings.cache.warming
+overrides it, and
+settings.cache.ttl
+sets how long the provider keeps the cache. See the
+warming guide
+for request behavior, customization, and cost
+considerations, and
+cache lifetime
+for
+cache.ttl
+.
+Skills
+Add directories or URLs that OpenCode should search for agent skills.
+JSONC
+Copy
+Copied
+Failed
+{
+"skills"
+:
+[
+"./team-skills"
+,
+"https://example.com/.well-known/skills/"
+]
+,
+}
+See the
+skills guide
+for skill structure and automatic discovery under
+.opencode/skills/
+.
+Commands
+Define reusable slash commands as named prompt templates.
+JSONC
+Copy
+Copied
+Failed
+{
+"commands"
+:
+{
+"review"
+:
+{
 "description"
 :
-"Reviews code for best practices and potential issues"
+"Review the current changes"
+,
+"template"
+:
+"Review the current diff for correctness and missing tests."
+,
+}
+,
+}
+,
+}
+See the
+commands guide
+for arguments, models, agents, and file-based commands.
+Instructions
+Declare additional instruction files, globs, or HTTP(S) URLs. OpenCode loads
+them alongside discovered
+AGENTS.md
+files.
+JSONC
+Copy
+Copied
+Failed
+{
+"instructions"
+:
+[
+"CONTRIBUTING.md"
+,
+"docs/guidelines/*.md"
+]
+,
+}
+See the
+instructions guide
+for project instructions and
+AGENTS.md
+.
+References
+Make local directories or Git repositories available as named supporting
+context.
+JSONC
+Copy
+Copied
+Failed
+{
+"references"
+:
+{
+"docs"
+:
+{
+"path"
+:
+"../product-docs"
+,
+"description"
+:
+"Product behavior and terminology"
+,
+}
+,
+"effect"
+:
+{
+"repository"
+:
+"Effect-TS/effect"
+,
+"branch"
+:
+"main"
+,
+}
+,
+}
+,
+}
+See the
+references guide
+for shorthand, visibility, and path resolution.
+Worktrees
+Set the parent directory for new local worktrees. OpenCode appends the requested or generated worktree name.
+JSONC
+Copy
+Copied
+Failed
+{
+"worktree"
+:
+{
+"directory"
+:
+"../worktrees"
+,
+}
+,
+}
+Relative paths resolve against the project’s saved canonical checkout. This applies to global and project
+configuration alike; absolute paths are used as-is, and
+~/
+resolves
+against the user’s home directory.
+For example, this global configuration places new worktrees under each project’s own
+.lane/trees/
+directory:
+JSONC
+Copy
+Copied
+Failed
+{
+"worktree"
+:
+{
+"directory"
+:
+".lane/trees"
+,
+}
+,
+}
+Without this setting, creation uses the server’s data directory under
+worktree/<first-six-project-ID-characters>
+.
+Worktree creation and refresh load configuration from the project’s saved canonical checkout, including when other
+clones share its project ID. Changing it does not move existing worktrees.
+Git is the built-in default. A
+plugin
+that registers a strategy automatically becomes the
+default in that plugin runtime. Project operations use the canonical checkout’s runtime. Strategy-specific options
+belong to that plugin, not the
+worktree
+config object.
+Plugins
+Load plugins from packages or local plugin directories. Use the object form when a plugin
+accepts options.
+JSONC
+Copy
+Copied
+Failed
+{
+"plugins"
+:
+[
+"opencode-example-plugin"
+,
+{
+"package"
+:
+"./plugins/local"
+,
+"options"
+:
+{
+"enabled"
+:
+true
+,
+}
+,
+}
+,
+]
+,
+}
+See the
+plugins guide
+for plugin loading and configuration.
+Providers
+Configure providers and add or override their models, request settings,
+headers, and model variants.
+JSONC
+Copy
+Copied
+Failed
+{
+"providers"
+:
+{
+"openai"
+:
+{
+"models"
+:
+{
+"gpt-6.1-sol-custom"
+:
+{
+"modelID"
+:
+"gpt-6.1-sol"
+,
+"name"
+:
+"GPT-6.1 Sol Custom"
+,
+"limit"
+:
+{
+"context"
+:
+200000
+,
+"output"
+:
+32000
+,
+}
+,
+}
+,
+}
+,
+}
+,
+}
+,
+}
+Provider
+settings.transport: "websocket"
+selects its session WebSocket.
+See the
+providers guide
+for credentials, custom endpoints, provider packages, the WebSocket transport, and model configuration.
+Variables
+You can use variable substitution in your config files to reference environment variables and file contents. Place references inside JSON strings.
+Env vars
+Use
+{env:VARIABLE_NAME}
+to substitute environment variables:
+opencode.jsonc
+Copy
+Copied
+Failed
+{
+"$schema"
+:
+"https://opencode.ai/config.json"
 ,
 "model"
 :
-"anthropic/claude-sonnet-5-5"
+"{env:OPENCODE_MODEL}"
 ,
-"prompt"
+"providers"
 :
-"You are a code reviewer. Focus on security, performance, and maintainability."
-,
-"tools"
-: {
-// Disable file modification tools for review-only agent
-"write"
+{
+"anthropic"
 :
-false
-,
-"edit"
+{
+"settings"
 :
-false
+{
+"apiKey"
+:
+"{env:ANTHROPIC_API_KEY}"
 ,
-},
-},
-},
 }
-You can also define agents using markdown files in
-~/.config/opencode/agents/
-or
-.opencode/agents/
-.
-Learn more here
-.
-Default agent
-You can set the default agent using the
-default_agent
-option. This determines which agent is used when none is explicitly specified.
-opencode.json
+,
+}
+,
+}
+,
+}
+If the environment variable is not set, it will be replaced with an empty string.
+Files
+Use
+{file:path/to/file}
+to substitute the contents of a file:
+opencode.jsonc
+Copy
+Copied
+Failed
 {
 "$schema"
 :
 "https://opencode.ai/config.json"
 ,
-"default_agent"
+"providers"
 :
-"plan"
+{
+"openai"
+:
+{
+"settings"
+:
+{
+"apiKey"
+:
+"{file:~/.secrets/openai-key}"
+,
 }
-The default agent must be a primary agent (not a subagent). This can be a built-in agent like
-"build"
-or
-"plan"
-, or a
-custom agent
-you’ve defined. If the specified agent doesn’t exist or is a subagent, OpenCode will fall back to
-"build"
-with a warning.
-This setting applies across all interfaces: TUI, CLI (
-opencode run
-), desktop app, and GitHub Action.
-Subagent depth
-You can control how deeply subagents can invoke other subagents using the
-subagent_depth
-option.
-opencode.json
+,
+}
+,
+}
+,
+}
+File paths can be:
+Relative to the config file directory
+Absolute, or starting with
+~/
+for your home directory
+If the file does not exist, it will be replaced with an empty string.
+These are useful for:
+Keeping sensitive data like API keys in separate files.
+Sharing common configuration snippets across multiple config files.
+Experimental
+Warning
+Experimental settings may change, break, or be removed in any release without notice. Don’t rely on them for stable
+workflows.
+All experimental settings live under the
+experimental
+key:
+opencode.jsonc
+Copy
+Copied
+Failed
 {
 "$schema"
 :
 "https://opencode.ai/config.json"
+,
+"experimental"
+:
+{
+"todo"
+:
+true
 ,
 "subagent_depth"
 :
 2
-}
-The default is
-1
-, which allows primary agents to launch subagents but prevents those subagents from launching additional subagents. Set it to
-2
-to allow one additional level of nested subagents, or
-0
-to prevent all subagent launches.
-Commands
-You can configure custom commands for repetitive tasks through the
-command
-option.
-opencode.jsonc
-{
-"$schema"
-:
-"https://opencode.ai/config.json"
 ,
-"command"
-: {
-"test"
-: {
-"template"
+"background_compaction"
 :
-[snapshot truncated]
+true
+,
+"image_generate"
+:
+{
+"model"
+:
+"openai/gpt-image-2"
+}
+,
+"location_idle_timeout"
+:
+"4 hours"
+,
+}
+,
+}
+Todos
+Set
+todo
+to
+true
+to give agents a
+todowrite
+tool for tracking multi-step work. Defaults to
+false
+.
+Subagent depth
+subagent_depth
+sets how deeply subagents can start their own subagents. Defaults to
+1
+, so a subagent cannot
+start another subagent.
+Background compaction
+Set
+background_compaction
+to
+true
+to write the compaction summary in the background before it is needed, so
+automatic compaction doesn’t pause the session. Defaults to
+false
+. See
+Compaction
+for how it works.
+JSONC
+Copy
+Copied
+Failed
+{
+"experimental"
+:
+{
+"background_compaction"
+:
+true
+,
+}
+,
+}
+Image generation
+image_generate
+sets the default model for the
+experimental_image_generate
+tool, as
+providerID/modelID
+, optionally with
+#variant
+. When that model isn’t available or can’t handle a request, OpenCode
+picks another image model automatically.
+JSONC
+Copy
+Copied
+Failed
+{
+"experimental"
+:
+{
+"image_generate"
+:
+{
+"model"
+:
+"openai/gpt-image-2"
+,
+}
+,
+}
+,
+}
+Location idle timeout
+location_idle_timeout
+controls how long a project location can go without session activity before OpenCode unloads
+its services. It takes a duration such as
+"2 hours"
+and defaults to
+"60 minutes"
+. Running sessions and background
+jobs keep a location loaded. Set it to
+false
+to never unload idle locations. Project config can override the global
+value.
+JSONC
+Copy
+Copied
+Failed
+{
+"experimental"
+:
+{
+"location_idle_timeout"
+:
+false
+,
+}
+,
+}
+Deprecated policies
+experimental.policies
+is deprecated. Use top-level
+policies
+instead. The old key still works and
+merges into
+policies
+.
+Previous
+Intro
+Next
+Migrate from V1
+Edit this page on GitHub
+(opens in a new tab)
+Copy as Markdown
+Copied
+Failed
+Copy page as Markdown

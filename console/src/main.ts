@@ -10,6 +10,7 @@
 // 2 s. Nothing else is written to stdout, and the code goes nowhere else.
 
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const net = require('node:net');
 const { createVerbRunner } = require('./verb-runner.ts');
@@ -99,7 +100,8 @@ async function main(argv: readonly string[], io: Io = { env: process.env, cwd: p
     app = await createServer({
       webRoot: WEB_ROOT,
       port: flags.port,
-      routes: consoleRoutes(runner, sessions, live),
+      // 151 IC-006: paths and text are placed under the runner's project root and the home folder.
+      routes: consoleRoutes(runner, sessions, live, { projectRoot: flags.project, home: os.homedir() }),
       ...(flags.listenAddress ? {
         host: flags.listenAddress,
         tls: { certPath: flags.tlsCert!, keyPath: flags.tlsKey! },

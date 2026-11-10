@@ -26,6 +26,7 @@ const {
   FOLLOW_SHAPE_IDS,
   FOLLOW_LINE_CAP_BYTES,
   FOLLOW_STDERR_LINE_BYTES,
+  PATTERNS,
   fleetError,
 } = require('../src/verb-runner.ts');
 const { EventEmitter } = require('node:events');
@@ -34,6 +35,11 @@ const FAKE_CORE = path.join(__dirname, 'fixtures', 'fake-core.js');
 const KEY_A = 'aaaaaaaaaaaaaaaa';
 const KEY_B = 'bbbbbbbbbbbbbbbb';
 const AGENT = '0123456789abcdef';
+/** The fake core's top-level worker run in mode `worker-reads` (fixtures/fake-core.js). */
+const RUN_ID = 'w-1a2b3c4d5e6f';
+/** 151 IC-005: a follow-up id (the core's FU_ID) and a follow-up list cursor (the core's CURSOR, src/runtime/verb-view.ts). */
+const FU_ID_A = 'FU-0a1b2c';
+const FU_CURSOR_A = '1762581600000:20261108T050000000Z-0a1b2c';
 const IDENTITY_SOURCE = path.join(__dirname, '..', '..', 'src', 'runtime', 'context', 'identity.ts');
 
 function fakeClock() {
@@ -146,6 +152,23 @@ const EXPECTED_SHAPES = {
   tree: { argv: ['fleet', '--action', 'tree', '--json'], params: { projectKey: KEY_A }, scoped: true },
   transcript: { argv: ['transcript', '--action', 'read', '--agent', AGENT, '--limit', '200', '--json'], params: { projectKey: KEY_A, agent: AGENT, limit: '200' }, scoped: true },
   traffic: { argv: ['transcript', '--action', 'stats', '--window', '10', '--json'], params: { projectKey: KEY_A }, scoped: true },
+  // 150 IC-010: the worker chain reads. `worker-log`'s optional `--slug`, `--cursor` and `--before` are in the case below.
+  'worker-runs': { argv: ['worker-runs', '--slug', 's.1', '--json'], params: { slug: 's.1' } },
+  'worker-result': { argv: ['worker-result', '--slug', 's.1', '--worker-run', RUN_ID, '--json'], params: { slug: 's.1', runId: RUN_ID } },
+  'worker-run-status': { argv: ['worker', '--action', 'status', '--slug', 's.1', '--worker-run', RUN_ID, '--json'], params: { slug: 's.1', runId: RUN_ID } },
+  'worker-log': { argv: ['worker-log', '--worker-run', RUN_ID, '--stream', 'out', '--json'], params: { runId: RUN_ID, stream: 'out' } },
+  // 151 IC-005: the management reads. `advice-picks`' optional `--kind` and `followups`' optional `--cursor` are in the case below.
+  'config-list': { argv: ['config', 'list', '--json'], params: {} },
+  'config-schema': { argv: ['config', 'schema', '--json'], params: {} },
+  'advise-report': { argv: ['advise', '--action', 'report', '--json'], params: {} },
+  'advice-picks': { argv: ['advice-picks', '--json'], params: {} },
+  followups: { argv: ['followup', '--action', 'list', '--state', 'open', '--limit', '25', '--json'], params: { state: 'open' } },
+  'followup-record': { argv: ['followup', '--action', 'list', '--view', 'full', '--ids', FU_ID_A, '--json'], params: { id: FU_ID_A } },
+  'lifecycle-overview': { argv: ['lifecycle', '--action', 'overview', '--json'], params: {} },
+  doctor: { argv: ['doctor', '--json'], params: {} },
+  'storage-report': { argv: ['storage', '--action', 'report', '--json'], params: {} },
+  'worker-matrix': { argv: ['worker-matrix', '--json'], params: {} },
+  'sessions-history': { argv: ['sessions-history', '--json'], params: {} },
 };
 
 test('the allow-list is the frozen IC-003 table and nothing else', () => {
@@ -168,9 +191,9 @@ test('each IC-003 shape spawns process.execPath <core> <argv> --json, shell off,
     const { runner, project, starts, spawnCalls } = setup('echo');
     const result = await runner.run(id, expected.params);
     assert.equal(result.ok, true, `${id}: ${JSON.stringify(result)}`);
-    // workflow first asks the version, its cache key (IC-003).
-    assert.equal(spawnCalls.length, id === 'workflow' ? 2 : 1);
-    if (id === 'workflow') assert.deepEqual(spawnCalls[0].args, [FAKE_CORE, ...EXPECTED_SHAPES.version.argv]);
+    // workflow (and 151's config-schema and worker-matrix) first asks the version, its cache key (IC-003).
+    assert.equal(spawnCalls.length, SHAPES[id].byCoreVersion ? 2 : 1);
+    if (SHAPES[id].byCoreVersion) assert.deepEqual(spawnCalls[0].args, [FAKE_CORE, ...EXPECTED_SHAPES.version.argv]);
     const call = spawnCalls[spawnCalls.length - 1];
     assert.equal(call.command, process.execPath);
     assert.deepEqual(call.args, [FAKE_CORE, ...expected.argv]);
@@ -192,7 +215,8 @@ test('write verbs, flags, unknown shapes and bad parameters are refused as usage
     ['start', {}],
     ['complete-stage', {}],
     ['indicators', {}],
-    ['doctor', {}],
+    // 151 IC-005: `doctor` is a shape now; no parameter reaches it.
+    ['doctor', { fix: 'yes' }],
     ['--forced', {}],
     ['-g', {}],
     ['__proto__', {}],
@@ -268,8 +292,9 @@ test('no shape is a write or signal action of the Sessions verbs: slot list and 
   for (const refused of ['slot list', 'slot release', 'slot run', 'worker cancel', 'worker run', 'worker evidence']) {
     assert.ok(!actions.includes(refused), `${refused} is on the allow-list`);
   }
+  // 150 IC-010: `worker-run-status` is the same `worker status` read by run id; the list gains it on purpose.
   assert.deepEqual(actions.filter((action: string) => /^(slot|worker|roadmap|primary) /.test(action)).sort(),
-    ['primary observed', 'roadmap status', 'slot peek', 'worker status']);
+    ['primary observed', 'roadmap status', 'slot peek', 'worker status', 'worker status']);
 });
 
 test('the child environment has no DOFLOW_* but the four pass-throughs and DOFLOW_UPKEEP=off, and no identity variable', async () => {
@@ -726,7 +751,7 @@ test('the reserved slot is not taken by a shape other than transcript', async ()
 });
 
 test('IC-005 Fleet error codes: project-not-found from the runner, the others from a core exit 1 id', async () => {
-  assert.deepEqual({ ...FLEET_ERROR_STATUS }, { 'cannot-list-projects': 502, 'project-not-found': 404, 'agent-not-in-project': 404, 'session-not-in-project': 404, 'stream-limit': 429, 'live-unavailable': 503 });
+  assert.deepEqual({ ...FLEET_ERROR_STATUS }, { 'cannot-list-projects': 502, 'project-not-found': 404, 'agent-not-in-project': 404, 'session-not-in-project': 404, 'stream-limit': 429, 'live-unavailable': 503, 'core-lacks-verb': 501, 'unknown-run': 404, 'followup-not-found': 404 });
   assert.ok(Object.isFrozen(FLEET_ERROR_STATUS));
   const f = fleetSetup('agent-missing');
   await f.runner.run('projects', {});
@@ -1085,4 +1110,676 @@ test('a missing core or a failed spawn is spawn-failed: exited resolves, send is
     },
   });
   assert.equal((await throwing.runner.follow('events').exited).reason, 'spawn-failed');
+});
+
+// ---- 150 B.1: the worker chain shapes and the old-core marker on the pooled path (IC-010) ----
+
+const CHILD_RUN_ID = 'w-0f0e0d0c0b0a';
+const LOG_CURSOR = '8812345:4096:0:1762581600000';
+
+test('worker-log argv with and without its optional --slug, --cursor and --before, in the IC-010 order', async () => {
+  const cases: Array<[any, string[]]> = [
+    [{ runId: RUN_ID, stream: 'err' }, ['worker-log', '--worker-run', RUN_ID, '--stream', 'err', '--json']],
+    [{ runId: RUN_ID, stream: 'out', slug: 'feat-a' }, ['worker-log', '--slug', 'feat-a', '--worker-run', RUN_ID, '--stream', 'out', '--json']],
+    [{ runId: RUN_ID, stream: 'out', cursor: LOG_CURSOR }, ['worker-log', '--worker-run', RUN_ID, '--stream', 'out', '--cursor', LOG_CURSOR, '--json']],
+    [{ runId: RUN_ID, stream: 'err', before: LOG_CURSOR }, ['worker-log', '--worker-run', RUN_ID, '--stream', 'err', '--before', LOG_CURSOR, '--json']],
+    [{ stream: 'out', before: LOG_CURSOR, slug: 'feat-a', runId: RUN_ID }, ['worker-log', '--slug', 'feat-a', '--worker-run', RUN_ID, '--stream', 'out', '--before', LOG_CURSOR, '--json']],
+  ];
+  const { runner, starts, spawnCalls, project } = setup('echo');
+  for (const [params, argv] of cases) {
+    const result = await runner.run('worker-log', params);
+    assert.deepEqual(result, { ok: true, json: { argv }, exit: 0 }, JSON.stringify(params));
+    assert.deepEqual(spawnCalls.at(-1).args, [FAKE_CORE, ...argv]);
+    assert.equal(spawnCalls.at(-1).options.shell, false);
+    assert.equal(starts().at(-1).cwd, project);
+  }
+  assert.equal(starts().length, cases.length);
+});
+
+test('a bad run id, stream, slug or cursor on the worker shapes is refused as usage before any spawn', async () => {
+  const { runner, starts, spawnCalls } = setup('echo');
+  const refused: Array<[string, any]> = [
+    ['worker-result', { slug: 's', runId: 'w-1A2B3C4D5E6F' }],
+    ['worker-result', { slug: 's', runId: 'w-1a2b3c4d5e6' }],
+    ['worker-result', { slug: 's', runId: 'w-1a2b3c4d5e6f0' }],
+    ['worker-result', { slug: 's', runId: '1a2b3c4d5e6f' }],
+    ['worker-result', { slug: 's', runId: 'x-1a2b3c4d5e6f' }],
+    ['worker-result', { slug: 's', runId: `${RUN_ID}\n` }],
+    ['worker-result', { slug: 's', runId: '--worker-run' }],
+    ['worker-result', { slug: 's', runId: 1 }],
+    ['worker-result', { runId: RUN_ID }],
+    ['worker-result', { slug: '-g', runId: RUN_ID }],
+    ['worker-result', { slug: 's', runId: RUN_ID, stream: 'out' }],
+    ['worker-run-status', { slug: 's' }],
+    ['worker-run-status', { slug: 's', runId: 'w-zzzzzzzzzzzz' }],
+    ['worker-run-status', { slug: 's', runId: RUN_ID, task: 'A.1', token: '1' }],
+    ['worker-run-status', { slug: 's', runId: RUN_ID, action: 'cancel' }],
+    ['worker-runs', {}],
+    ['worker-runs', { slug: '../x' }],
+    ['worker-runs', { slug: 's', runId: RUN_ID }],
+    ['worker-log', { runId: RUN_ID }],
+    ['worker-log', { stream: 'out' }],
+    ['worker-log', { runId: RUN_ID, stream: 'last' }],
+    ['worker-log', { runId: RUN_ID, stream: 'OUT' }],
+    ['worker-log', { runId: RUN_ID, stream: 'out ' }],
+    ['worker-log', { runId: RUN_ID, stream: 'outerr' }],
+    ['worker-log', { runId: RUN_ID, stream: 'out\n' }],
+    ['worker-log', { runId: RUN_ID, stream: '' }],
+    ['worker-log', { runId: RUN_ID, stream: 'out', cursor: '1:2:3' }],
+    ['worker-log', { runId: RUN_ID, stream: 'out', before: '1:2:3:x' }],
+    ['worker-log', { runId: RUN_ID, stream: 'out', before: '' }],
+    ['worker-log', { runId: RUN_ID, stream: 'out', slug: '.hidden' }],
+    ['worker-log', { runId: RUN_ID, stream: 'out', limit: '10' }],
+    ['worker-log', { runId: 'W-1a2b3c4d5e6f', stream: 'out' }],
+  ];
+  for (const [shape, params] of refused) {
+    assert.deepEqual(await runner.run(shape, params), { ok: false, code: 'usage', exit: null }, `${shape} ${JSON.stringify(params)}`);
+  }
+  assert.equal(spawnCalls.length, 0);
+  assert.equal(starts().length, 0);
+  // Control: the same shapes with good parameters do spawn.
+  assert.equal((await runner.run('worker-log', { runId: RUN_ID, stream: 'err' })).ok, true);
+  assert.equal(spawnCalls.length, 1);
+});
+
+test('worker-log is never cached; worker-runs, worker-result and worker-run-status are cached for 2 s', async () => {
+  const log = setup('echo');
+  for (let i = 0; i < 3; i++) assert.equal((await log.runner.run('worker-log', { runId: RUN_ID, stream: 'out' })).ok, true);
+  assert.equal(log.starts().length, 3, 'worker-log spawned every time');
+  assert.equal(SHAPES['worker-log'].ttl, 0);
+  assert.equal(SHAPES['worker-log'].reserved, undefined, 'worker-log takes no reserved slot');
+
+  const cases: Array<[string, any]> = [
+    ['worker-runs', { slug: 's' }],
+    ['worker-result', { slug: 's', runId: RUN_ID }],
+    ['worker-run-status', { slug: 's', runId: RUN_ID }],
+  ];
+  for (const [shape, params] of cases) {
+    const { runner, clock, starts } = setup('echo');
+    await runner.run(shape, params);
+    clock.advance(1_999);
+    await runner.run(shape, params);
+    assert.equal(starts().length, 1, `${shape} cached under 2 s`);
+    clock.advance(1);
+    await runner.run(shape, params);
+    assert.equal(starts().length, 2, `${shape} re-spawned at 2 s`);
+  }
+});
+
+test('worker-log waits for the pool and never takes the reserved slot', async () => {
+  const { runner, starts, startsReach, maxLive } = setup('delay', { FAKE_CORE_DELAY_MS: '250' });
+  const calls = [runner.run('attempts', { slug: 'a' }), runner.run('attempts', { slug: 'b' }), runner.run('worker-log', { runId: RUN_ID, stream: 'out' })];
+  await startsReach(2);
+  await realDelay(100);
+  assert.equal(starts().length, 2, 'worker-log waits while the pool is full');
+  assert.ok((await Promise.all(calls)).every((result: any) => result.ok));
+  assert.equal(starts().length, 3);
+  assert.equal(maxLive(), POOL_SIZE);
+});
+
+test('the real fake core in mode worker-reads: the four bodies, and unknown-run maps to 404 on worker-result and worker-log', async () => {
+  const { runner } = setup('worker-reads');
+  const runs = await runner.run('worker-runs', { slug: 'feat-a' });
+  assert.equal(runs.ok, true);
+  assert.equal(runs.json.slug, 'feat-a');
+  assert.deepEqual(runs.json.runs.map((r: any) => [r.runId, r.childOf]), [[RUN_ID, null], [CHILD_RUN_ID, RUN_ID]]);
+  assert.deepEqual(Object.keys(runs.json.runs[0]), ['runId', 'task', 'token', 'harness', 'childOf', 'phase', 'endState', 'createdAt', 'startedAt', 'endedAt', 'edit']);
+
+  const result = await runner.run('worker-result', { slug: 'feat-a', runId: RUN_ID });
+  assert.deepEqual(Object.keys(result.json), ['v', 'runId', 'task', 'token', 'harness', 'phase', 'endState', 'endedAt', 'reportStatus', 'readOnly', 'isolation', 'resultOffered', 'withheld', 'quota']);
+
+  const status = await runner.run('worker-run-status', { slug: 'feat-a', runId: RUN_ID });
+  assert.equal(status.json.disposition, 'status');
+  assert.equal(typeof status.json.deadline, 'string');
+  assert.equal(status.json.process.kind, 'exited');
+  assert.equal(typeof status.json.process.pid, 'number', 'the planted pid is in the raw body for the projector cases');
+  assert.equal(typeof status.json.pgid, 'number');
+
+  const tail = await runner.run('worker-log', { runId: RUN_ID, stream: 'out' });
+  assert.equal(tail.ok, true);
+  assert.deepEqual(tail.json.pieces.filter((p: any) => p.cut).map((p: any) => p.at + Buffer.byteLength(p.text)), [32_768], 'one piece cut at the grid');
+  assert.deepEqual([tail.json.from, tail.json.to, tail.json.size, tail.json.eof, tail.json.before], [0, tail.json.size, tail.json.size, true, null]);
+  const forward = await runner.run('worker-log', { runId: RUN_ID, stream: 'out', cursor: tail.json.cursor });
+  assert.deepEqual([forward.json.from, forward.json.to, forward.json.pieces], [tail.json.size, tail.json.size, []]);
+  const backward = await runner.run('worker-log', { runId: RUN_ID, stream: 'out', before: `8812345:32768:0:1` });
+  assert.deepEqual(backward.json.pieces.map((p: any) => p.at), [0, 10]);
+  const reset = await runner.run('worker-log', { runId: RUN_ID, stream: 'err', cursor: '1:5:0:1' });
+  assert.equal(reset.json.reset, true);
+
+  for (const shape of ['worker-result', 'worker-log']) {
+    const missing = await runner.run(shape, { slug: 'feat-a', runId: 'w-ffffffffffff', ...(shape === 'worker-log' ? { stream: 'out' } : {}) });
+    assert.deepEqual(missing, { ok: false, code: 'core-error', exit: 1, errorId: 'unknown-run' }, shape);
+    assert.deepEqual(fleetError(shape, missing), { status: 404, code: 'unknown-run' }, shape);
+  }
+});
+
+test('the IC-010 status codes: core-lacks-verb 501, unknown-run 404 on worker-result and worker-log only', () => {
+  assert.equal(FLEET_ERROR_STATUS['core-lacks-verb'], 501);
+  assert.equal(FLEET_ERROR_STATUS['unknown-run'], 404);
+  const unknownRun = { code: 'core-error', exit: 1, errorId: 'unknown-run' };
+  assert.deepEqual(fleetError('worker-result', unknownRun), { status: 404, code: 'unknown-run' });
+  assert.deepEqual(fleetError('worker-log', unknownRun), { status: 404, code: 'unknown-run' });
+  // Controls: another shape, another exit, another id, and the old-core failure (the routes map it, IC-010).
+  assert.equal(fleetError('worker-runs', unknownRun), null);
+  assert.equal(fleetError('worker-run-status', unknownRun), null);
+  assert.equal(fleetError('transcript', unknownRun), null);
+  assert.equal(fleetError('worker-log', { ...unknownRun, exit: 2 }), null);
+  assert.equal(fleetError('worker-log', { code: 'core-error', exit: 1, errorId: 'log-unreadable' }), null);
+  assert.equal(fleetError('worker-log', { code: 'core-error', exit: 2, errorId: 'store-unreadable' }), null);
+  assert.equal(fleetError('worker-result', { code: 'core-error', exit: 1, reason: 'old-core' } as any), null);
+});
+
+test('an older core: each new shape is old-core on the pooled path, never cached and never backed off', async () => {
+  const { runner, starts } = setup('old-core');
+  const cases: Array<[string, any, number]> = [
+    ['worker-runs', { slug: 's' }, 1],
+    ['worker-result', { slug: 's', runId: RUN_ID }, 1],
+    ['worker-log', { runId: RUN_ID, stream: 'out' }, 1],
+    ['worker-run-status', { slug: 's', runId: RUN_ID }, 2], // RK2: an unknown-flag line, exit 2
+  ];
+  for (const [shape, params, exit] of cases) {
+    for (let i = 0; i < 2; i++) {
+      assert.deepEqual(await runner.run(shape, params), { ok: false, code: 'core-error', exit, reason: 'old-core' }, `${shape} call ${i + 1}`);
+    }
+  }
+  assert.equal(starts().length, 2 * cases.length, 'every call spawned: no cache, no backoff');
+  // Control: the old core still answers the shapes it has.
+  assert.equal((await runner.run('worker-status', { slug: 's', task: 'A.1', token: '1' })).ok, true);
+});
+
+test('the old-core result needs exit 1 or 2, empty stdout, the unknown marker and no [ERROR]; stderr is never returned', async () => {
+  /** A runner whose pooled spawns are stand-in children that write `stdout`, then `stderr` in chunks, then exit. */
+  const scripted = (stdout: string, stderr: string[], exit: number) => {
+    let spawns = 0;
+    const base = setup('echo', {}, {
+      spawnImpl: () => {
+        spawns += 1;
+        const child = fakeChild();
+        setImmediate(() => {
+          if (stdout) child.out(stdout);
+          for (const chunk of stderr) child.err(chunk);
+          child.close(exit);
+        });
+        return child;
+      },
+    });
+    return { ...base, spawns: () => spawns };
+  };
+  const oldCore = { ok: false, code: 'core-error', reason: 'old-core' };
+  const cases: Array<[string, string, string[], number, any]> = [
+    ['unknown command, exit 1', '', ["doflow: unknown command 'worker-log' secret-stderr-text\n"], 1, { ...oldCore, exit: 1 }],
+    ['unknown flag, exit 2', '', ["doflow: unknown flag '--worker-run'\n"], 2, { ...oldCore, exit: 2 }],
+    ['unknown verb, no newline', '', ["unknown verb 'worker-log'"], 2, { ...oldCore, exit: 2 }],
+    ['marker split across chunks', '', ['doflow: unkn', "own comm", "and 'worker-runs'\n"], 1, { ...oldCore, exit: 1 }],
+    ['[ERROR] present', '', ["[ERROR] boom secret-stderr-text\ndoflow: unknown command 'x'\n"], 1, { ok: false, code: 'core-error', exit: 1 }],
+    ['exit 3', '', ["doflow: unknown command 'x'\n"], 3, { ok: false, code: 'core-error', exit: 3 }],
+    ['stdout not empty', '{"v":1,"ok":false,"error":"usage"}', ["doflow worker-log: unknown flag '--x'\n"], 2, { ok: false, code: 'core-error', exit: 2, errorId: 'usage' }],
+    ['no marker', '', ['doflow worker-log: --stream must be out or err\n'], 2, { ok: false, code: 'core-error', exit: 2 }],
+    ['unknown option is not the marker', '', ['unknown option here\n'], 1, { ok: false, code: 'core-error', exit: 1 }],
+  ];
+  for (const [name, stdout, stderr, exit, expected] of cases) {
+    const s = scripted(stdout, stderr, exit);
+    const first = await s.runner.run('worker-log', { runId: RUN_ID, stream: 'out' });
+    assert.deepEqual(first, expected, name);
+    assert.equal(JSON.stringify(first).includes('secret-stderr-text'), false, `${name}: stderr text returned`);
+    await s.runner.run('worker-log', { runId: RUN_ID, stream: 'out' });
+    // Only the [ERROR] exit 1 backs off: its second call does not spawn.
+    assert.equal(s.spawns(), name === '[ERROR] present' ? 1 : 2, `${name}: spawns`);
+  }
+});
+
+// ---- 151 B.2: the management shapes, data exits, usage as an older core, fresh reads and the result time (IC-005) ----
+
+/** The ten shapes of IC-005 with every field but argv, exactly as the contract writes them. */
+const MANAGE_FIELDS: Record<string, any> = {
+  'config-list': { ttl: 5_000, exitsAsData: [1] },
+  'config-schema': { ttl: Infinity, byCoreVersion: true, usageIsOldCore: true },
+  'advise-report': { ttl: 5_000, usageIsOldCore: true },
+  'advice-picks': { ttl: 5_000 },
+  followups: { ttl: 5_000, usageIsOldCore: true },
+  'followup-record': { ttl: 5_000, usageIsOldCore: true },
+  'lifecycle-overview': { ttl: 5_000, usageIsOldCore: true },
+  doctor: { ttl: 60_000, exitsAsData: [1], refreshFloorMs: 5_000 },
+  'storage-report': { ttl: 30_000, usageIsOldCore: true },
+  'worker-matrix': { ttl: Infinity, byCoreVersion: true },
+};
+const MANAGE_IDS = Object.keys(MANAGE_FIELDS);
+const paramsOf = (id: string) => (EXPECTED_SHAPES as Record<string, any>)[id].params;
+const USAGE_BODY = '{"v":1,"ok":false,"error":"usage"}';
+
+/**
+ * A runner whose pooled spawns are stand-in children: `answer(argv)` gives the stdout, the stderr chunks and the
+ * exit code. `--version` answers `9.9.9-fake` (the cache key of the byCoreVersion shapes).
+ */
+function standIn(answer: (argv: string[]) => { stdout?: string; stderr?: string[]; exit: number }) {
+  const argvs: string[][] = [];
+  const base = setup('echo', {}, {
+    spawnImpl: (_command: string, args: string[]) => {
+      const argv = args.slice(1);
+      argvs.push(argv);
+      const child = fakeChild();
+      const { stdout = '', stderr = [], exit } = argv[0] === '--version' ? { stdout: '9.9.9-fake\n', exit: 0 } : answer(argv);
+      setImmediate(() => {
+        if (stdout) child.out(stdout);
+        for (const chunk of stderr) child.err(chunk);
+        child.close(exit);
+      });
+      return child;
+    },
+  });
+  /** Spawns other than `--version`. */
+  const spawns = () => argvs.filter((argv) => argv[0] !== '--version').length;
+  return { ...base, argvs, spawns };
+}
+
+/** Starts of the fake core other than `--version`. */
+const verbStarts = (starts: () => any[]) => starts().filter((start: any) => start.argv[0] !== '--version').length;
+
+test('the ten IC-005 shapes carry their ttl, byCoreVersion, exitsAsData, usageIsOldCore and refreshFloorMs exactly; no older shape has the new fields', () => {
+  for (const id of MANAGE_IDS) {
+    const { argv, ...fields } = SHAPES[id];
+    assert.deepEqual(fields, MANAGE_FIELDS[id], id);
+    assert.ok(argv.length > 0);
+    if (SHAPES[id].exitsAsData) assert.ok(Object.isFrozen(SHAPES[id].exitsAsData), `${id} exitsAsData is frozen`);
+  }
+  for (const id of SHAPE_IDS.filter((shape: string) => !MANAGE_IDS.includes(shape))) {
+    for (const field of ['exitsAsData', 'usageIsOldCore', 'refreshFloorMs']) assert.equal(field in SHAPES[id], false, `${id} has ${field}`);
+  }
+  // Only doctor has a floor; only config-list and doctor have data exits.
+  assert.deepEqual(SHAPE_IDS.filter((id: string) => SHAPES[id].refreshFloorMs !== undefined), ['doctor']);
+  assert.deepEqual(SHAPE_IDS.filter((id: string) => SHAPES[id].exitsAsData !== undefined), ['config-list', 'doctor']);
+  assert.throws(() => {
+    SHAPES.doctor.exitsAsData.push(2);
+  }, TypeError);
+});
+
+test('argv of the IC-005 shapes with and without their optional --kind and --cursor', async () => {
+  const cases: Array<[string, any, string[]]> = [
+    ['advice-picks', {}, ['advice-picks', '--json']],
+    ['advice-picks', { kind: 'task-class' }, ['advice-picks', '--kind', 'task-class', '--json']],
+    ['advice-picks', { kind: 'adhoc' }, ['advice-picks', '--kind', 'adhoc', '--json']],
+    ['followups', { state: 'all' }, ['followup', '--action', 'list', '--state', 'all', '--limit', '25', '--json']],
+    ['followups', { state: 'done', cursor: FU_CURSOR_A }, ['followup', '--action', 'list', '--state', 'done', '--cursor', FU_CURSOR_A, '--limit', '25', '--json']],
+    ['followups', { cursor: FU_CURSOR_A, state: 'dismissed' }, ['followup', '--action', 'list', '--state', 'dismissed', '--cursor', FU_CURSOR_A, '--limit', '25', '--json']],
+    ['followup-record', { id: 'FU-zzzzzz' }, ['followup', '--action', 'list', '--view', 'full', '--ids', 'FU-zzzzzz', '--json']],
+  ];
+  const { runner, starts, spawnCalls, project } = setup('echo');
+  for (const [shape, params, argv] of cases) {
+    const result = await runner.run(shape, params);
+    assert.deepEqual(result, { ok: true, json: { argv }, exit: 0 }, `${shape} ${JSON.stringify(params)}`);
+    assert.deepEqual(spawnCalls.at(-1).args, [FAKE_CORE, ...argv]);
+    assert.equal(spawnCalls.at(-1).options.shell, false);
+    assert.equal(starts().at(-1).cwd, project);
+  }
+  assert.equal(starts().length, cases.length);
+});
+
+test('the fake core in mode manage answers each of the ten argv shapes as that shape', async () => {
+  const { runner } = setup('manage');
+  for (const id of MANAGE_IDS) {
+    const result = await runner.run(id, paramsOf(id));
+    assert.equal(result.ok, true, id);
+    assert.equal(result.exit, 0, id);
+    assert.equal(result.json.verb, id, id);
+    assert.deepEqual(result.json.argv, (EXPECTED_SHAPES as Record<string, any>)[id].argv, id);
+  }
+});
+
+test('a bad parameter on the IC-005 shapes, and a fresh option that is not true, are refused as usage before any spawn', async () => {
+  const { runner, starts, spawnCalls } = setup('echo');
+  const refused: Array<[string, any, any?]> = [
+    ['config-list', { kind: 'tier' }],
+    ['config-schema', { key: 'advice.enabled' }],
+    ['advise-report', { kind: 'tier' }],
+    ['advice-picks', { kind: 'Tier' }],
+    ['advice-picks', { kind: '-tier' }],
+    ['advice-picks', { kind: '1tier' }],
+    ['advice-picks', { kind: 'tier_x' }],
+    ['advice-picks', { kind: '' }],
+    ['advice-picks', { kind: 'tier\n' }],
+    ['advice-picks', { kind: `t${'a'.repeat(32)}` }],
+    ['advice-picks', { kind: '--json' }],
+    ['advice-picks', { kind: 7 }],
+    ['advice-picks', { kind: 'tier', limit: '10' }],
+    ['followups', {}],
+    ['followups', { cursor: FU_CURSOR_A }],
+    ['followups', { state: 'closed' }],
+    ['followups', { state: 'OPEN' }],
+    ['followups', { state: 'open --limit 500' }],
+    ['followups', { state: 'open', cursor: '12:34:5:6789' }],
+    ['followups', { state: 'open', cursor: '' }],
+    ['followups', { state: 'open', limit: '50' }],
+    ['followups', { state: 'open', view: 'full' }],
+    ['followup-record', {}],
+    ['followup-record', { id: 'FU-0A1B2C' }],
+    ['followup-record', { id: 'FU-0a1b2i' }],
+    ['followup-record', { id: 'FU-0a1b2c,FU-0a1b2d' }],
+    ['followup-record', { id: FU_ID_A, state: 'open' }],
+    ['lifecycle-overview', { action: 'next' }],
+    ['doctor', { fix: '1' }],
+    ['storage-report', { action: 'prune' }],
+    ['worker-matrix', { harness: 'claude' }],
+    ['doctor', {}, { fresh: false }],
+    ['doctor', {}, { fresh: 'yes' }],
+    ['doctor', {}, { fresh: 1 }],
+  ];
+  for (const [shape, params, options] of refused) {
+    assert.deepEqual(await runner.run(shape, params, options), { ok: false, code: 'usage', exit: null }, `${shape} ${JSON.stringify(params)} ${JSON.stringify(options)}`);
+  }
+  assert.equal(spawnCalls.length, 0);
+  assert.equal(starts().length, 0);
+  // Control: the same shapes with good parameters do spawn.
+  assert.equal((await runner.run('followups', { state: 'open', cursor: FU_CURSOR_A })).ok, true);
+  assert.equal((await runner.run('doctor', {}, { fresh: true })).ok, true);
+  assert.equal(spawnCalls.length, 2);
+});
+
+test('cache lifetimes of the IC-005 shapes: 5 s, 30 s storage-report, 60 s doctor, process lifetime for config-schema and worker-matrix', async () => {
+  for (const id of MANAGE_IDS) {
+    const { ttl } = MANAGE_FIELDS[id];
+    const { runner, clock, starts } = setup('echo');
+    await runner.run(id, paramsOf(id));
+    if (ttl === Infinity) {
+      clock.advance(10 * 24 * 3600 * 1000);
+      await runner.run(id, paramsOf(id));
+      assert.equal(verbStarts(starts), 1, `${id} lives for the process`);
+      continue;
+    }
+    clock.advance(ttl - 1);
+    await runner.run(id, paramsOf(id));
+    assert.equal(starts().length, 1, `${id} cached under ${ttl} ms`);
+    clock.advance(1);
+    await runner.run(id, paramsOf(id));
+    assert.equal(starts().length, 2, `${id} re-spawned at ${ttl} ms`);
+  }
+});
+
+test('exit 1 JSON on a data-exit shape is data, cached under its ttl, never backed off, even with [ERROR] on stderr', async () => {
+  for (const id of ['config-list', 'doctor']) {
+    const { runner, clock, starts } = setup('data-exit1');
+    const argv = (EXPECTED_SHAPES as Record<string, any>)[id].argv;
+    const first = await runner.run(id, {});
+    assert.deepEqual(first, { ok: true, json: { v: 1, verb: id, argv }, exit: 1 }, id);
+    assert.equal(JSON.stringify(first).includes('secret-stderr-text'), false);
+    clock.advance(MANAGE_FIELDS[id].ttl - 1);
+    assert.equal(await runner.run(id, {}), first, `${id}: the cached result`);
+    assert.equal(starts().length, 1, `${id}: cached under its ttl`);
+    clock.advance(1);
+    assert.deepEqual(await runner.run(id, {}), first);
+    assert.equal(starts().length, 2, `${id}: re-spawned at its ttl, no backoff held it`);
+  }
+  // config-list's 5 s ttl ends inside the 30 s backoff window, so a backoff would have shown above. Control: the
+  // same answer on a shape without data exits is a failure and is backed off.
+  const { runner, starts } = setup('data-exit1');
+  assert.deepEqual(await runner.run('list', {}), { ok: false, code: 'core-error', exit: 1 });
+  assert.deepEqual(await runner.run('list', {}), { ok: false, code: 'core-error', exit: 1, reason: 'backoff' });
+  assert.equal(starts().length, 1);
+});
+
+test('exit 1 non-JSON on a data-exit shape is not-json with no backoff and no cache, whatever stderr held', async () => {
+  for (const id of ['config-list', 'doctor']) {
+    const { runner, starts } = setup('exit1-text');
+    for (let i = 0; i < 2; i++) assert.deepEqual(await runner.run(id, {}), { ok: false, code: 'core-error', exit: 1, reason: 'not-json' }, `${id} call ${i + 1}`);
+    assert.equal(starts().length, 2, `${id}: every call spawned`);
+  }
+  // Anything but one JSON object is not-json: an array, null, a string, two objects, blank output.
+  for (const stdout of ['[1]', 'null', '"text"', '7', '{"a":1} {"b":2}', ' \n', '{"a":']) {
+    const s = standIn(() => ({ stdout, stderr: ['[ERROR] boom\n'], exit: 1 }));
+    assert.deepEqual(await s.runner.run('config-list', {}), { ok: false, code: 'core-error', exit: 1, reason: 'not-json' }, JSON.stringify(stdout));
+    await s.runner.run('config-list', {});
+    assert.equal(s.spawns(), 2, `${JSON.stringify(stdout)}: no backoff`);
+  }
+  // Control: the same mode on a shape without data exits is today's [ERROR] exit 1, backed off.
+  const { runner, starts } = setup('exit1-text');
+  assert.deepEqual(await runner.run('list', {}), { ok: false, code: 'core-error', exit: 1 });
+  assert.deepEqual(await runner.run('list', {}), { ok: false, code: 'core-error', exit: 1, reason: 'backoff' });
+  assert.equal(starts().length, 1);
+});
+
+test('other exits on a data-exit shape keep today\'s rules: exit 3, exit 2 with an id, exit 1 with empty stdout', async () => {
+  const cases: Array<[string, { stdout?: string; stderr?: string[]; exit: number }, any, number]> = [
+    ['exit 3 with JSON', { stdout: '{"v":1}', stderr: ['[ERROR] boom\n'], exit: 3 }, { ok: false, code: 'core-error', exit: 3 }, 2],
+    ['exit 2 usage id', { stdout: USAGE_BODY, exit: 2 }, { ok: false, code: 'core-error', exit: 2, errorId: 'usage' }, 2],
+    ['exit 1 empty with [ERROR]', { stderr: ['[ERROR] boom\n'], exit: 1 }, { ok: false, code: 'core-error', exit: 1 }, 1],
+    ['exit 1 empty, unknown command', { stderr: ["doflow: unknown command 'config'\n"], exit: 1 }, { ok: false, code: 'core-error', exit: 1, reason: 'old-core' }, 2],
+    ['exit 0 with JSON', { stdout: '[1,2]', exit: 0 }, { ok: true, json: [1, 2], exit: 0 }, 1],
+  ];
+  for (const id of ['config-list', 'doctor']) {
+    for (const [name, answer, expected, spawns] of cases) {
+      const s = standIn(() => answer);
+      assert.deepEqual(await s.runner.run(id, {}), expected, `${id}: ${name}`);
+      await s.runner.run(id, {});
+      // Only the [ERROR] exit 1 backs off and only the exit 0 is cached: their second call does not spawn.
+      assert.equal(s.spawns(), spawns, `${id}: ${name}: spawns`);
+    }
+  }
+});
+
+test('a JSON usage answer on exit 2 is old-core on the usageIsOldCore shapes only, never cached or backed off; advice-picks keeps its usage id', async () => {
+  const { runner, starts } = setup('usage-json');
+  const ids = [...MANAGE_IDS, 'list', 'workflow', 'worker-runs'];
+  for (const id of ids) {
+    const params = paramsOf(id);
+    const expected = SHAPES[id].usageIsOldCore
+      ? { ok: false, code: 'core-error', exit: 2, reason: 'old-core' }
+      : { ok: false, code: 'core-error', exit: 2, errorId: 'usage' };
+    for (let i = 0; i < 2; i++) assert.deepEqual(await runner.run(id, params), expected, `${id} call ${i + 1}`);
+  }
+  assert.equal(verbStarts(starts), 2 * ids.length, 'every call spawned: no cache, no backoff');
+  assert.deepEqual(MANAGE_IDS.filter((id) => SHAPES[id].usageIsOldCore), ['config-schema', 'advise-report', 'followups', 'followup-record', 'lifecycle-overview', 'storage-report']);
+  // advice-picks refuses a kind its registry lacks with this same body; that is the core's usage, not an older core.
+  assert.deepEqual(await runner.run('advice-picks', { kind: 'no-such-kind' }), { ok: false, code: 'core-error', exit: 2, errorId: 'usage' });
+
+  // Controls on a usageIsOldCore shape: another id, another exit, or a body that is not one object is not old-core.
+  const controls: Array<[string, { stdout?: string; stderr?: string[]; exit: number }, any]> = [
+    ['registry-invalid', { stdout: '{"v":1,"ok":false,"error":"registry-invalid"}', exit: 2 }, { ok: false, code: 'core-error', exit: 2, errorId: 'registry-invalid' }],
+    ['exit 1 usage', { stdout: USAGE_BODY, exit: 1 }, { ok: false, code: 'core-error', exit: 1, errorId: 'usage' }],
+    ['array', { stdout: '[{"error":"usage"}]', exit: 2 }, { ok: false, code: 'core-error', exit: 2 }],
+    ['[ERROR] too', { stdout: USAGE_BODY, stderr: ['[ERROR] boom\n'], exit: 2 }, { ok: false, code: 'core-error', exit: 2, reason: 'old-core' }],
+  ];
+  for (const [name, answer, expected] of controls) {
+    const s = standIn(() => answer);
+    assert.deepEqual(await s.runner.run('advise-report', {}), expected, name);
+  }
+});
+
+test('the older cores of D6: advise --action report answers a JSON usage body, advice-picks and worker-matrix an unknown command', async () => {
+  const { runner, starts } = setup('old-manage');
+  const oldCore = (exit: number) => ({ ok: false, code: 'core-error', exit, reason: 'old-core' });
+  for (let i = 0; i < 2; i++) {
+    assert.deepEqual(await runner.run('advise-report', {}), oldCore(2));
+    assert.deepEqual(await runner.run('advice-picks', {}), oldCore(1));
+    assert.deepEqual(await runner.run('advice-picks', { kind: 'tier' }), oldCore(1));
+    assert.deepEqual(await runner.run('worker-matrix', {}), oldCore(1));
+  }
+  assert.equal(verbStarts(starts), 8, 'never cached, never backed off');
+  // Control: the older core still answers the reads it has.
+  for (const id of ['config-list', 'followups', 'doctor']) assert.equal((await runner.run(id, paramsOf(id))).ok, true, id);
+});
+
+test('fresh doctor reads under a fake clock: ran past the cache, too-soon under the 5 s floor, ran again at the floor', async () => {
+  const { runner, clock, starts } = setup('manage');
+  const plain = await runner.run('doctor', {});
+  assert.equal(plain.ok, true);
+  assert.equal(plain.at, 0);
+  assert.equal('fresh' in plain, false);
+
+  const soon = await runner.run('doctor', {}, { fresh: true });
+  assert.deepEqual(soon, { ...plain, fresh: 'too-soon' });
+  assert.equal(soon.at, 0, 'too-soon keeps the cached run time');
+  clock.advance(4_999);
+  assert.equal((await runner.run('doctor', {}, { fresh: true })).fresh, 'too-soon');
+  assert.equal(starts().length, 1, 'too-soon spawns nothing');
+
+  clock.advance(1);
+  const ran = await runner.run('doctor', {}, { fresh: true });
+  assert.deepEqual(ran, { ...plain, fresh: 'ran' });
+  assert.equal(ran.at, 5_000);
+  assert.equal(starts().length, 2, 'at the floor the fresh call spawns, inside the 60 s ttl');
+  // The fresh run is stored as any call: a plain call is served from it.
+  const served = await runner.run('doctor', {});
+  assert.equal(served.at, 5_000);
+  assert.equal('fresh' in served, false);
+  assert.equal(starts().length, 2);
+  clock.advance(60_000);
+  assert.equal((await runner.run('doctor', {})).at, 65_000);
+  assert.equal(starts().length, 3);
+
+  // An empty cache: the first fresh call runs.
+  const empty = setup('manage');
+  assert.equal((await empty.runner.run('doctor', {}, { fresh: true })).fresh, 'ran');
+  assert.equal(empty.starts().length, 1);
+});
+
+test('a fresh call joins a doctor run in flight, and a second fresh call joins the first', async () => {
+  const { runner, starts, startsReach } = setup('slow-doctor', { FAKE_CORE_DELAY_MS: '300' });
+  const plain = runner.run('doctor', {});
+  await startsReach(1);
+  const joined = runner.run('doctor', {}, { fresh: true });
+  const [a, b] = await Promise.all([plain, joined]);
+  assert.equal(a.ok, true);
+  assert.equal('fresh' in a, false);
+  assert.deepEqual(b, { ...a, fresh: 'joined' });
+  assert.equal(b.at, a.at);
+  assert.equal(starts().length, 1);
+
+  const other = setup('slow-doctor', { FAKE_CORE_DELAY_MS: '300' });
+  const first = other.runner.run('doctor', {}, { fresh: true });
+  await other.startsReach(1);
+  const second = other.runner.run('doctor', {}, { fresh: true });
+  assert.deepEqual([(await first).fresh, (await second).fresh], ['ran', 'joined']);
+  assert.equal(other.starts().length, 1);
+});
+
+test('fresh is usage on every shape without a floor, before any spawn or project lookup', async () => {
+  const { runner, spawnCalls } = setup('echo');
+  for (const id of SHAPE_IDS.filter((shape: string) => shape !== 'doctor')) {
+    assert.deepEqual(await runner.run(id, paramsOf(id), { fresh: true }), { ok: false, code: 'usage', exit: null }, id);
+  }
+  assert.equal(spawnCalls.length, 0);
+  // Control: without the option they run.
+  assert.equal((await runner.run('config-list', {})).ok, true);
+  assert.equal(spawnCalls.length, 1);
+});
+
+test('every result carries at, the runner clock when the child closed; a cache hit keeps the stored at', async () => {
+  const { runner, clock, starts } = setup('echo');
+  clock.advance(100);
+  const first = await runner.run('config-list', {});
+  assert.equal(first.at, 100);
+  // `at` is not an own enumerable field, so result shapes compared or spread elsewhere are unchanged.
+  assert.deepEqual(Object.keys(first), ['ok', 'json', 'exit']);
+  clock.advance(4_999);
+  const hit = await runner.run('config-list', {});
+  assert.equal(hit, first);
+  assert.equal(hit.at, 100, 'the cache hit keeps the time of its run');
+  assert.equal(starts().length, 1);
+  clock.advance(1);
+  assert.equal((await runner.run('config-list', {})).at, 5_100);
+
+  // Failures carry it too: the time the child closed, a held backoff the time of the run that set it, and a refusal its own time.
+  const sleeping = setup('sleep');
+  const pending = sleeping.runner.run('list', {});
+  await sleeping.startsReach(1);
+  sleeping.clock.advance(10_000);
+  assert.equal((await pending).at, 10_000, 'the timeout closed the child at 10 s');
+  const failing = setup('error');
+  failing.clock.advance(7);
+  assert.equal((await failing.runner.run('list', {})).at, 7);
+  failing.clock.advance(20);
+  const held = await failing.runner.run('list', {});
+  assert.equal(held.reason, 'backoff');
+  assert.equal(held.at, 7);
+  failing.clock.advance(3);
+  assert.equal((await failing.runner.run('nope', {})).at, 30);
+});
+
+test('followup-not-found is 404 in the status table', () => {
+  assert.equal(FLEET_ERROR_STATUS['followup-not-found'], 404);
+  // The routes map a null record to it (IC-013); it is no core exit 1 id of any shape.
+  assert.equal(fleetError('followup-record', { code: 'core-error', exit: 1, errorId: 'followup-not-found' }), null);
+});
+
+// ---- D13: each pattern that gates a follow-up call against the core's own check, over one vector ----
+
+const { decodeCursor } = require('../../src/runtime/verb-view.ts');
+const { STATES: FOLLOWUP_STATES } = require('../../src/runtime/lifecycle/followup.ts');
+const FOLLOWUP_SOURCE = path.join(__dirname, '..', '..', 'src', 'runtime', 'lifecycle', 'followup.ts');
+
+/** The core's FU_ID, rebuilt from its source line (it is not exported). */
+function coreFuId(): RegExp {
+  const line = fs.readFileSync(FOLLOWUP_SOURCE, 'utf8').split('\n').find((text: string) => text.startsWith('const FU_ID = /'));
+  const match = line === undefined ? null : /^const FU_ID = \/(.+)\/([a-z]*);$/.exec(line);
+  if (match === null) throw new Error(`followup.ts has no FU_ID line of the form const FU_ID = /.../; (found ${JSON.stringify(line)})`);
+  return new RegExp(match[1], match[2]);
+}
+
+/** A runner over stand-in children that answer `{"v":1}`: a value the gate accepts spawns, a refused one does not. */
+function gate() {
+  const s = standIn(() => ({ stdout: '{"v":1}', exit: 0 }));
+  return async (shape: string, params: any): Promise<boolean> => {
+    const before = s.spawns();
+    const result = await s.runner.run(shape, params);
+    const spawned = s.spawns() > before;
+    assert.equal(result.code === 'usage', !spawned, `${shape} ${JSON.stringify(params)}: usage exactly when nothing spawned`);
+    return spawned;
+  };
+}
+
+/** Each value gets the same answer from the Console pattern, the runner's gate and the core's check; the vector holds both answers. */
+async function parity(name: string, values: string[], core: (value: string) => boolean, pattern: RegExp, call: (value: string) => [string, any]) {
+  const run = gate();
+  const answers = new Set<boolean>();
+  for (const value of values) {
+    const expected = core(value);
+    answers.add(expected);
+    assert.equal(pattern.test(value), expected, `${name} pattern on ${JSON.stringify(value)}`);
+    const [shape, params] = call(value);
+    assert.equal(await run(shape, params), expected, `${name} gate on ${JSON.stringify(value)}`);
+  }
+  assert.deepEqual([...answers].sort(), [false, true], `${name}: the vector holds accepted and refused values`);
+}
+
+test('D13 fuCursor: the Console pattern and decodeCursor (src/runtime/verb-view.ts) agree on every value', async () => {
+  const event = '20261108T050000000Z-0a1b2c';
+  const values = [
+    `0:${event}`, `1762581600000:${event}`, `999999999999999:${event}`, '1:00000000T000000000Z-000000', '42:99999999T999999999Z-hjkmnp',
+    '42:20261108T050000000Z-qrstvw', '42:20261108T050000000Z-xyz9ab',
+    '', '1762581600000', `1000000000000000:${event}`, `:${event}`, `-1:${event}`, `1.5:${event}`, `1 :${event}`, `1:${event}\n`, ` 1:${event}`,
+    '1:2026110T050000000Z-0a1b2c', '1:20261108T05000000Z-0a1b2c', '1:20261108t050000000Z-0a1b2c', '1:20261108T050000000z-0a1b2c',
+    '1:20261108T050000000Z-0a1b2', '1:20261108T050000000Z-0a1b2cd', '1:20261108T050000000Z-0A1B2C', '1:20261108T050000000Z_0a1b2c',
+    '1:20261108T050000000Z-0a1b2i', '1:20261108T050000000Z-0a1b2l', '1:20261108T050000000Z-0a1b2o', '1:20261108T050000000Z-0a1b2u',
+    '12:34:5:6789', `1:${event}:2`,
+  ];
+  await parity('fuCursor', values, (value) => decodeCursor(value) !== null, PATTERNS.fuCursor, (value) => ['followups', { state: 'open', cursor: value }]);
+});
+
+test('D13 fuState: the Console pattern and the core\'s STATES plus all (src/runtime/lifecycle/followup.ts) agree on every value', async () => {
+  assert.deepEqual([...FOLLOWUP_STATES], ['open', 'taken', 'done', 'dismissed'], 'the core list this vector was written against');
+  const values = [...FOLLOWUP_STATES, 'all', 'ALL', 'Open', 'closed', '', 'open ', 'open\n', ' all', 'al', 'opens', 'open,done', 'open|done', '__proto__', 'constructor', 'toString'];
+  await parity('fuState', values, (value) => value === 'all' || FOLLOWUP_STATES.includes(value), PATTERNS.fuState, (value) => ['followups', { state: value }]);
+});
+
+test('D13 fuId: the Console pattern and the core\'s FU_ID line (src/runtime/lifecycle/followup.ts) agree on every value', async () => {
+  const core = coreFuId();
+  const values = [
+    FU_ID_A, 'FU-zzzzzz', 'FU-000000', 'FU-hjkmnp', 'FU-qrstvw', 'FU-xy9abc',
+    'FU-0a1b2i', 'FU-0a1b2l', 'FU-0a1b2o', 'FU-0a1b2u', 'fu-0a1b2c', 'FU-0A1B2C', 'Fu-0a1b2c', 'FU-0a1b2', 'FU-0a1b2cd', `${FU_ID_A}\n`,
+    ` ${FU_ID_A}`, 'FU0a1b2c', 'FU_0a1b2c', 'FU-', '', '--ids', `${FU_ID_A},FU-0a1b2d`,
+  ];
+  await parity('fuId', values, (value) => core.test(value), PATTERNS.fuId, (value) => ['followup-record', { id: value }]);
+});
+
+test('adviceKind accepts every advice registry kind and adhoc; a pattern-valid kind the core lacks is the core\'s usage to answer', async () => {
+  const registry = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'core', 'registry', 'advice.json'), 'utf8'));
+  const kinds = [...registry.kinds.map((kind: any) => kind.id), 'adhoc'];
+  assert.ok(kinds.length > 1 && kinds.every((kind: unknown) => typeof kind === 'string'));
+  const run = gate();
+  for (const kind of kinds) {
+    assert.ok(PATTERNS.adviceKind.test(kind), kind);
+    assert.equal(await run('advice-picks', { kind }), true, kind);
+  }
+  // One direction only, on purpose: the Console checks the form and the core checks the registry (IC-012).
+  assert.equal(await run('advice-picks', { kind: 'no-such-kind' }), true);
+  for (const kind of ['Tier', '-tier', '1tier', 'tier_x', '', 'tier\n', `t${'a'.repeat(32)}`]) assert.equal(await run('advice-picks', { kind }), false, JSON.stringify(kind));
 });

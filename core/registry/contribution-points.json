@@ -30,6 +30,6 @@
       "referencedBy": [], "slice": "136", "template": "package-templates/intake-category" }
   ],
   "bundled": [
-    { "id": "doflow", "dir": "core/registry/packages/doflow", "contentDigest": "bf0fee28a87ad1122edad37dd0cf7c3cb0c45163cb416669633e7fc52576fe38" }
+    { "id": "doflow", "dir": "core/registry/packages/doflow", "contentDigest": "da001c06367a2aec28840a2e6d5355a7ee8f7d8a7638d09ddae3bac7d3f0fa64" }
   ]
 }

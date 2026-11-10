@@ -286,8 +286,39 @@ test('FU-ht8b3r: the home directory of the running user is still abbreviated bef
   assert.equal(maskBody(`${U}/me/x ${U}/bob/x`, { home: `${U}/me` }).text, `~/x ${U}/<masked>/x`);
 });
 
+// Built from parts, like U, so G2 has no literal home path to flag.
+const H = ['', 'home'].join('/');
+
+test('150 DEC-012 (R-1): the body profile masks another user\'s /home/<name> and keeps the /home prefix', () => {
+  assert.equal(maskBody(`read ${H}/alice/x ok`, opts).text, `read ${H}/<masked>/x ok`);
+  assert.equal(maskBody(`${H}/alice`, opts).text, `${H}/<masked>`);
+  assert.equal(maskBody(`"${H}/bob/a" and ${H}/carol/b`, opts).text, `"${H}/<masked>/a" and ${H}/<masked>/b`);
+  assert.equal(maskBody(`opened ${U}/bob/x and ${H}/bob/y`, opts).text, `opened ${U}/<masked>/x and ${H}/<masked>/y`, 'each prefix is kept');
+  const once = maskBody(`${H}/alice/x`, opts);
+  assert.equal(once.masked, 1);
+  assert.equal(maskBody(once.text, opts).text, once.text, 'idempotent');
+  assert.equal(maskBody(once.text, opts).masked, 0);
+  assert.equal(maskLine(`read ${H}/alice/x`, opts).text, `read ${H}/alice/x`, 'body-only, like the /Users form');
+});
+
+test('150 DEC-012 (R-1): /home/runner is not masked, /home/Shared is, and the prefix needs a path boundary', () => {
+  for (const same of [
+    `cd ${H}/runner/work/x`, `${H}/runner`, `cd ${U}/runner/work/x`, `${U}/Shared/y`,
+    `${H}work/x`, `/opt${H}/x`, `/opt${H}/alice/x`, `a${H}/alice/x`, `${H}`, `${H}/<masked>/x`,
+  ]) assert.equal(maskBody(same, opts).text, same, same);
+  assert.equal(maskBody(`${H}/runner2/x`, opts).text, `${H}/<masked>/x`);
+  assert.equal(maskBody(`${H}/Shared/x`, opts).text, `${H}/<masked>/x`, 'Shared is exempt under /Users only');
+});
+
+test('150 DEC-012 (R-1): the running user\'s /home/<me> still becomes ~ before the other-user rule', () => {
+  const me = { home: `${H}/me` };
+  assert.equal(maskBody(`${H}/me/x ${H}/alice/x ${H}/meow/x`, me).text, `~/x ${H}/<masked>/x ${H}/<masked>/x`);
+  assert.equal(maskBody(`${H}/me`, me).text, '~');
+  assert.equal(maskBody(`${U}/bob/x`, me).text, `${U}/<masked>/x`, 'the /Users form is unchanged');
+});
+
 test('FU-ht8b3r: repeated command words in one long line stay linear in the body profile', () => {
-  for (const unit of ['curl ', 'mysql ', 'mysql -p x ', 'password ', `${U}/a `]) {
+  for (const unit of ['curl ', 'mysql ', 'mysql -p x ', 'password ', `${U}/a `, `${H}/a `]) {
     const started = Date.now();
     maskBody(unit.repeat(100000), opts);
     assert.ok(Date.now() - started < 2000, `${JSON.stringify(unit)} took ${Date.now() - started} ms`);

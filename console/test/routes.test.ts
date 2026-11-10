@@ -108,24 +108,33 @@ test('route table: frozen, the only non-GET route is POST /api/session, the stre
   assert.deepEqual(routes.filter((route: any) => route.method !== 'GET').map((route: any) => `${route.method} ${route.path}`), ['POST /api/session']);
   assert.deepEqual(routes.filter((route: any) => route.stream).map((route: any) => `${route.method} ${route.path}`), ['GET /api/stream', 'GET /api/live']);
   assert.deepEqual(routes.filter((route: any) => route.method === 'GET').map((route: any) => route.path).sort(),
-    ['/*', '/api/fleet', '/api/info', '/api/live', '/api/runs', '/api/runs/:slug/:taskId', '/api/sessions', '/api/stream', '/api/transcript', '/api/workflows', '/healthz']);
+    ['/*', '/api/advice', '/api/doctor', '/api/fleet', '/api/followups', '/api/followups/:id', '/api/info', '/api/live', '/api/runs', '/api/runs/:slug/:taskId',
+      '/api/sessions', '/api/sessions-history', '/api/settings', '/api/storage', '/api/stream', '/api/transcript',
+      '/api/worker-runs/:slug', '/api/worker-runs/:slug/:runId/log', '/api/worker-runs/:slug/:runId/result', '/api/worker-runs/:slug/:runId/status',
+      '/api/worker-runs/:slug/:runId/transcript', '/api/workers', '/api/workflows', '/healthz']);
   // PHONE_ROUTE_ALLOWLIST by behaviour (DEC-007): a phone session passes the session check on exactly the four routes.
   const phone = createSessions({ scope: 'phone' });
   const cookie = `${cookieName(4310)}=${phone.exchange(phone.mintLaunchCode())}`;
   const phoneRoutes = consoleRoutes(scripted(), phone);
   const reachable: string[] = [];
+  const refused: string[] = [];
   for (const route of phoneRoutes.filter((item: any) => item.method === 'GET' && item.path.startsWith('/api/'))) {
     const reply = await route.handler({ req: { headers: { cookie }, url: route.path }, port: 4310, params: { slug: 'feat-a', taskId: 'run-1' }, pathname: route.path, webRoot: '/tmp', res: {} });
     if (reply === null || reply.status !== 403) reachable.push(route.path);
-    else assert.deepEqual(JSON.parse(reply.body), errorBody('phone-scope'), route.path);
+    else {
+      assert.deepEqual(JSON.parse(reply.body), errorBody('phone-scope'), route.path);
+      refused.push(route.path);
+    }
   }
   assert.deepEqual(reachable.sort(), ['/api/info', '/api/runs', '/api/runs/:slug/:taskId', '/api/workflows']);
+  // 151 IC-012 to IC-014, 152 IC-006: the management routes and sessions-history are among the refused.
+  for (const path of ['/api/settings', '/api/advice', '/api/workers', '/api/followups', '/api/followups/:id', '/api/doctor', '/api/storage', '/api/sessions-history']) assert.ok(refused.includes(path), path);
 });
 
 test('session: every read route is 401 without the cookie and no verb runs', async (t) => {
   const runner = scripted();
   const { get } = await harness(runner, t);
-  for (const target of ['/api/info', '/api/runs', '/api/runs/s1/t1', '/api/workflows', '/api/sessions', '/api/fleet', '/api/stream?project=0cc00ec6d2062bc0',
+  for (const target of ['/api/info', '/api/runs', '/api/runs/s1/t1', '/api/workflows', '/api/sessions', '/api/sessions-history', '/api/fleet', '/api/stream?project=0cc00ec6d2062bc0',
     '/api/transcript?project=0cc00ec6d2062bc0&agent=0cc00ec6d2062bc0']) {
     const reply = await get(target, false);
     assert.equal(reply.status, 401, target);
@@ -157,7 +166,8 @@ test('phone session: only the four phone GET routes are allowed', async () => {
     assert.notEqual(reply.status, 403, `${path} is in phone scope`);
   }
 
-  for (const path of ['/api/sessions', '/api/fleet', '/api/transcript', '/api/stream', '/api/live']) {
+  for (const path of ['/api/sessions', '/api/fleet', '/api/transcript', '/api/stream', '/api/live', '/api/worker-runs/:slug', '/api/worker-runs/:slug/:runId/result',
+    '/api/worker-runs/:slug/:runId/status', '/api/worker-runs/:slug/:runId/log', '/api/worker-runs/:slug/:runId/transcript']) {
     const route = routes.find((item: any) => item.method === 'GET' && item.path === path);
     assert.ok(route, path);
     const reply = await invoke(route);
@@ -459,4 +469,70 @@ test('GET /api/sessions: at most 20 inspects and 16 worker-status calls, the res
   assert.equal(runner.calls.filter((call) => call.shape === 'worker-status').length, 16);
   assert.equal(sections.workers.data.length, 16);
   assert.deepEqual(sections.workers.data.map((w: any) => w.slug), Array.from({ length: 16 }, (_, i) => `f${i}`));
+});
+
+test('GET /api/sessions-history: returns 200 with projected body, supports query params and enforces validation', async (t) => {
+  const sampleHistoryBody = {
+    v: 1,
+    window: { from: '2026-10-11T12:00:00.000Z', to: '2026-11-10T12:00:00.000Z', maxAgeDays: 30 },
+    sessions: [
+      {
+        slug: 'test-slug',
+        taskId: 'test-task',
+        taskClass: 'feature',
+        workflowName: 'Feature Delivery',
+        harness: 'codex',
+        state: 'COMPLETED',
+        startedAt: '2026-11-09T08:00:00.000Z',
+        endedAt: '2026-11-09T10:00:00.000Z',
+        durationMs: 7200000,
+        stages: [
+          { id: 'discovery', name: 'Discovery', skill: 'do-brainstorm', status: 'completed', outcome: 'completed', durationMs: 1200000 },
+        ],
+        workers: { count: 2, attempts: 2, retries: 0, quotaStops: 0 },
+        cost: {
+          tokens: { input: null, output: null, total: null },
+          models: ['codex-5'],
+          telemetry: 'unknown',
+        },
+        expired: false,
+        project: { anchor: '<project>', rel: '' },
+      },
+    ],
+    limits: { shown: 1, notShown: 0, pruned: 0 },
+  };
+
+  const runner = scripted({
+    'sessions-history': (p: any) => ok(sampleHistoryBody),
+  });
+
+  const { json } = await harness(runner, t);
+
+  // Default call
+  const reply = await json('/api/sessions-history');
+  assert.equal(reply.status, 200);
+  assert.equal(reply.body.v, 1);
+  assert.equal(reply.body.sessions.length, 1);
+  assert.equal(reply.body.sessions[0].slug, 'test-slug');
+  assert.equal(reply.body.sessions[0].cost.telemetry, 'unknown');
+  assert.equal(reply.body.sessions[0].cost.tokens.total, null);
+
+  // Call with valid query params
+  const replyQuery = await json('/api/sessions-history?days=14&limit=50');
+  assert.equal(replyQuery.status, 200);
+  const lastCall = runner.calls[runner.calls.length - 1];
+  assert.equal(lastCall.shape, 'sessions-history');
+  assert.deepEqual(lastCall.params, { days: '14', limit: '50' });
+
+  // Invalid query: unknown parameter
+  const replyBadQuery = await json('/api/sessions-history?unknown=1');
+  assert.equal(replyBadQuery.status, 400);
+
+  // Invalid days (over 90)
+  const replyOverDays = await json('/api/sessions-history?days=999');
+  assert.equal(replyOverDays.status, 400);
+
+  // Invalid limit (over 500)
+  const replyOverLimit = await json('/api/sessions-history?limit=600');
+  assert.equal(replyOverLimit.status, 400);
 });

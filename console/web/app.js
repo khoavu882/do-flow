@@ -116,10 +116,11 @@ const app = /** @type {any} */ ({
 let viewSeq = 0;
 
 /** The four screens, by their rail labels. */
-const SCREENS = Object.freeze([['Now', 'runs'], ['Sessions', 'sessions'], ['Workflows', 'workflows'], ['Fleet', 'fleet']]);
+const SCREENS = Object.freeze([['Now', 'runs'], ['Sessions', 'sessions'], ['Workflows', 'workflows'], ['Fleet', 'fleet'], ['Workers', 'workers'], ['Advice', 'advice'], ['Follow-ups', 'followups'], ['Settings', 'settings'], ['Health', 'health']]);
 
 /**
- * What the command palette can reach (IC-021, DEC-011): the screens, then the runs, session lanes and Fleet projects of the
+ * What the command palette can reach (IC-021, DEC-011): the screens, then the runs (each with its Chain target, 150 IC-020),
+ * session lanes and Fleet projects of the
  * latest bodies this page has loaded. Labels are the ones the views show; every hash comes from `hashFor`, so a target that
  * cannot be linked is left out. Nothing is fetched.
  */
@@ -131,11 +132,15 @@ function paletteTargets() {
     if (hash !== null) out.push({ kind, label, hint, hash });
   };
   for (const [label, id] of SCREENS) add('screen', label, 'Screen', { id, params: {} });
+  add('action', 'Compare workflow runs', 'Compare', { id: 'compare', params: {} });
+  add('action', 'Sessions history', 'Sessions', { id: 'sessions', params: { mode: 'history' }, mode: 'history' });
   const { runs, sessions, fleet } = app.loaded;
   for (const run of (runs && Array.isArray(runs.runs) ? runs.runs : [])) {
     if (typeof run.featureSlug !== 'string') continue;
     const workflow = run.workflowName || run.taskClass;
     add('run', `${run.featureSlug} / ${run.taskId}`, workflow ? `Run · ${workflow}` : 'Run', { id: 'run', params: { slug: run.featureSlug, taskId: run.taskId } });
+    // 150 IC-020: the run's Session screen, beside its run target.
+    add('session', `${run.featureSlug} / ${run.taskId}`, 'Chain', { id: 'session', params: { slug: run.featureSlug, taskId: run.taskId } });
   }
   if (sessions) {
     for (const row of deriveSessions(sessions, Date.now()).rows) {
@@ -568,7 +573,7 @@ function startView(route, { first = false, animate = false, focus = true } = {})
     announcedError: null,
     // The view's own memory (E.1): what its render, load and tick keep between polls; its panel opens in `inspector` (D.2);
     // `route` is the current route with its selection (IC-019) and `link` writes a selection to the address.
-    local: { inspector: app.inspector, route, link: /** @type {any} */ (null) },
+    local: { inspector: app.inspector, route, link: /** @type {any} */ (null), apiGet, retry: () => view.poller && /** @type {any} */ (view.poller).refreshNow() },
     root: null,
     painted: null,
     fullKey: null,
@@ -579,7 +584,7 @@ function startView(route, { first = false, animate = false, focus = true } = {})
   globalThis.document.title = titleFor(route);
   if (app.inspector) app.inspector.setInspectable(route.view.inspectable === true);
   const navHref = navFor(route);
-  setNav(navHref === null ? null : navHref === 'workflows' ? '#/workflows' : navHref === 'sessions' ? '#/sessions' : navHref === 'fleet' ? '#/fleet' : '#/');
+  setNav(navHref === null ? null : navHref === 'runs' ? '#/' : `#/${navHref}`);
   paint(view);
   if (!first && focus) {
     globalThis.scrollTo(0, 0);
@@ -589,7 +594,8 @@ function startView(route, { first = false, animate = false, focus = true } = {})
 }
 
 /**
- * A view's selection becomes the address (IC-019, DEC-034): `patch` is `{ sel }`, `{ task }` or `{ lane }`, or null for none.
+ * A view's selection becomes the address (IC-019, DEC-034; 150 IC-015): `patch` is `{ sel }`, `{ task }`, `{ lane }`,
+ * `{ node }` or `{ node, tab }`, or null for none.
  * The view has already shown it; this records the route and sets `location.hash` (a history entry), whose `hashchange`
  * then names the route the view is on and does nothing. A selection that has no hash (a lane with an absent part) leaves
  * the address at the base route and returns false.
@@ -622,7 +628,7 @@ function beginView(view) {
     return;
   }
   const path = spec.api(view.route.params);
-  if (path === null) {
+  if (path === null && typeof spec.load !== 'function') {
     view.hasData = true;
     view.data = {};
     paint(view);
@@ -915,7 +921,7 @@ function boot() {
     const brand = document.querySelector('.brand');
     if (brand && !brand.querySelector('.icon')) brand.prepend(icon('brand', 28));
     /** @type {Record<string, string>} */
-    const railIcons = { '#/': 'rail-now', '#/sessions': 'rail-sessions', '#/workflows': 'rail-workflows', '#/fleet': 'rail-fleet' };
+    const railIcons = { '#/': 'rail-now', '#/sessions': 'rail-sessions', '#/workflows': 'rail-workflows', '#/fleet': 'rail-fleet', '#/workers': 'rail-workers', '#/advice': 'rail-advice', '#/followups': 'rail-followups', '#/settings': 'rail-settings', '#/health': 'rail-health' };
     for (const link of app.els.navLinks) {
       const name = railIcons[link.getAttribute('href')];
       if (name && !link.querySelector('.icon')) link.prepend(icon(name, 16));
@@ -953,12 +959,13 @@ function boot() {
       const own = view ? hashFor(view.route) : null;
       // The address now names the route the view is on: a selection the view made itself (linkSelection).
       if (view && !app.fatal && own !== null && own === hashFor(route)) return;
-      // A live view (Fleet) patches its mounted body, so it reroutes only once loaded; the Run, Tasks and Sessions views keep
-      // the selection in their memory, which their next render reads too.
+      // A live view (Fleet) patches its mounted body, so it reroutes only once loaded; the Run, Tasks, Sessions and Session
+      // views keep the selection in their memory, which their next render reads too.
       const ready = spec.live !== true || (Boolean(view) && view.hasData && view.painted === loadedKey(view));
       if (view && !app.fatal && ready && typeof spec.reroute === 'function' && view.route.view === spec
         && hashFor(baseRoute(view.route)) === hashFor(baseRoute(route))) {
-        // Between two routes of one view and one base route (the selection changed): the body is kept, so the focus stays.
+        // Between two routes of one view and one base route (the selection changed: a Session node or worker tab too): the
+        // body is kept, so the focus stays.
         view.route = route;
         view.local.route = route;
         globalThis.document.title = titleFor(route, view.hasData ? view.data : null);

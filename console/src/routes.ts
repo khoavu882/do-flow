@@ -9,11 +9,14 @@
 // still percent-encoded: handlers validate it), or the whole-table static fallback `/*`, which never
 // matches under /api.
 
+const crypto = require('node:crypto');
+const os = require('node:os');
 const { readStatic } = require('./static.ts');
 const { processSessions, sessionCookie, readCookie, cookieName } = require('./session.ts');
 const { project } = require('./project.ts');
+const { anchorsOf } = require('./place.ts');
 const { handshake } = require('./handshake.ts');
-const { PARAM_PATTERN, fleetError } = require('./verb-runner.ts');
+const { PARAM_PATTERN, PATTERNS, fleetError } = require('./verb-runner.ts');
 const { createStreams, createStreamCap, parseLastEventId, MAX_STREAMS_PER_SESSION } = require('./stream.ts');
 const { createLiveStreams, lastEventVector, parseChannelList, parseVector } = require('./live-stream.ts');
 
@@ -131,7 +134,7 @@ const ROUTES: readonly Route[] = buildRoutes(processSessions, [healthz, staticFa
 
 // ---- IC-005 read routes over the verb runner (A.6) and the projectors (A.7) ----
 
-type Runner = { run(shapeId: string, params?: Record<string, string>): Promise<any> };
+type Runner = { run(shapeId: string, params?: Record<string, string>, options?: { fresh: true }): Promise<any> };
 type ErrorInfo = { code: string, verb: string | null, exit: number | null };
 type Read = { ok: true, body: any, exit: number } | { ok: false, reply: Reply, code: string, exit: number | null, errorId?: string, error: ErrorInfo };
 
@@ -143,8 +146,9 @@ type Read = { ok: true, body: any, exit: number } | { ok: false, reply: Reply, c
 const TASK_CLASSES: readonly string[] = Object.freeze(['feature', 'bug', 'refactor', 'review', 'research', 'documentation',
   'dependency-change', 'operations', 'trivial-edit']);
 
-/** IC-005's status and code for a runner failure. */
-function failureStatus(failure: { code: string }): [number, string] {
+/** IC-005's status and code for a runner failure; 150 IC-010: an older core lacking the verb or flag is `501 core-lacks-verb`. */
+function failureStatus(failure: { code: string, reason?: string }): [number, string] {
+  if (failure.reason === 'old-core') return [501, 'core-lacks-verb'];
   if (failure.code === 'core-unreachable') return [503, 'core-unreachable'];
   if (failure.code === 'usage') return [400, 'usage'];
   return [502, 'core-error'];
@@ -154,14 +158,14 @@ function failureStatus(failure: { code: string }): [number, string] {
  * IC-005's status and error body for a runner failure; `exit` is the core's exit code when it ran.
  * The Fleet codes (IC-024) come first: `fleetError` maps them, anything else is `failureStatus`.
  */
-function failureInfo(shapeId: string, failure: { code: string, exit: number | null, errorId?: string }): { status: number, error: ErrorInfo } {
+function failureInfo(shapeId: string, failure: { code: string, exit: number | null, errorId?: string, reason?: string }): { status: number, error: ErrorInfo } {
   const fleet = fleetError(shapeId, failure);
   if (fleet) return { status: fleet.status, error: { code: fleet.code, verb: shapeId, exit: failure.exit } };
   const [status, code] = failureStatus(failure);
   return { status, error: { code, verb: shapeId, exit: status === 502 ? failure.exit : null } };
 }
 
-function failureReply(shapeId: string, failure: { code: string, exit: number | null, errorId?: string }): Reply {
+function failureReply(shapeId: string, failure: { code: string, exit: number | null, errorId?: string, reason?: string }): Reply {
   const { status, error } = failureInfo(shapeId, failure);
   return errorReply(status, error.code, error.verb, error.exit);
 }
@@ -426,6 +430,104 @@ const transcriptRoute = (runner: Runner): Route['handler'] => async (ctx) => {
   return page.ok ? jsonReply(200, page.body) : page.reply;
 };
 
+// ---- 150 IC-012: GET /api/worker-runs/:slug and the four per-run routes ----
+
+/** The core's RUN_ID (src/runtime/worker/run-store.ts); the verb runner checks it again. */
+const RUN_ID = /^w-[0-9a-f]{12}$/;
+const LOG_STREAM = /^(?:out|err)$/;
+/** IC-002's log cursor with the core's digit bounds (`CURSOR`, src/runtime/worker/reads.ts), so an overlong one is a 400 here, not the core's `usage` as a 502. */
+const LOG_CURSOR = /^[0-9]{1,20}:[0-9]{1,16}:[0-9]{1,16}:[0-9]{1,16}$/;
+/** The core's `isSafeSlug` (src/runtime/task-scope.ts): PARAM_PATTERN's shape and no `..`, so a slug the core refuses is a 400 here. */
+const isWorkerSlug = (slug: string) => PARAM_PATTERN.test(slug) && !slug.includes('..');
+
+/** A worker run's Fleet agent key: a copy of the core's `workerKey` (src/runtime/fleet/tree.ts), sha256('worker:' + runId), first 16 hex. */
+function workerAgentKey(runId: string): string {
+  return crypto.createHash('sha256').update(`worker:${runId}`).digest('hex').slice(0, 16);
+}
+
+/** One run of the fallback list, from the projected `worker-status`: what an older core cannot say (phase, creation, granter, edit) is null. */
+const fallbackRun = (status: any) => ({
+  runId: status.runId,
+  task: status.task,
+  token: status.token,
+  harness: status.harness,
+  childOf: null,
+  phase: null,
+  endState: ['exited', 'timed-out', 'cancelled'].includes(status.state) ? status.state : null,
+  createdAt: null,
+  startedAt: status.startedAt,
+  endedAt: status.endedAt,
+  edit: null,
+});
+
+/**
+ * IC-012: the worker runs of feature `slug`, from `worker-runs` (ended and child runs included). On a
+ * core without that verb (`core-lacks-verb`), the reads every supported core has: `tasks`, then one
+ * `worker-status` per active attempt, at most SESSION_LIMITS.workers, the rest counted in
+ * `limits.notShown`; ended attempts are not read (`ended: 'not-checked'`). An attempt with no worker
+ * run adds no run. Any failed read is its IC-005 error reply.
+ */
+async function workerRuns(runner: Runner, slug: string): Promise<Reply> {
+  if (!isWorkerSlug(slug)) return errorReply(400, 'usage');
+  const listed = await read(runner, 'worker-runs', { slug });
+  if (listed.ok) return jsonReply(200, listed.body);
+  if (listed.code !== 'core-lacks-verb') return listed.reply;
+  const graph = await tasks(runner, slug);
+  if (!graph.ok) return graph.reply;
+  const rows: any[] = graph.tasks === null ? [] : graph.tasks.tasks;
+  const active = rows.flatMap((task: any) => task.attempts.filter((a: any) => a.state === 'active').map((a: any) => ({ task: task.id, token: a.token })));
+  const checked = active.slice(0, SESSION_LIMITS.workers);
+  const reads = await Promise.all(checked.map((a) => read(runner, 'worker-status', { slug, task: a.task, token: String(a.token) })));
+  const failed = reads.find((entry) => !entry.ok);
+  if (failed && !failed.ok) return failed.reply;
+  const runs = reads.map((entry) => (entry as any).body).filter((status) => status !== null).map(fallbackRun);
+  return jsonReply(200, {
+    v: 1, slug, source: 'active-attempts', store: 'present', runs,
+    limits: { shown: runs.length, notShown: active.length - checked.length, ended: 'not-checked' },
+  });
+}
+
+type WorkerRead = 'result' | 'status' | 'log' | 'transcript';
+
+/**
+ * The four per-run routes. `slug`, `runId` and the query are checked before any verb runs (400
+ * usage); only the log route takes a query (`stream` required, at most one of `cursor` and `before`).
+ */
+const workerRunRoute = (runner: Runner, kind: WorkerRead): Route['handler'] => async (ctx) => {
+  const query = queryOf(ctx.req, kind === 'log' ? ['stream', 'cursor', 'before'] : []);
+  const { slug, runId } = ctx.params;
+  if (query === null || !isWorkerSlug(slug) || !RUN_ID.test(runId)) return errorReply(400, 'usage');
+  if (kind === 'result') {
+    const result = await read(runner, 'worker-result', { slug, runId });
+    return result.ok ? jsonReply(200, result.body) : result.reply;
+  }
+  if (kind === 'status') {
+    // The `worker` verb exits 1 only when it refuses, and `--action status` refuses only `unknown-run`
+    // (src/runtime/worker/command.ts); a `run: null` answer names no run either.
+    const status = await read(runner, 'worker-run-status', { slug, runId });
+    if (!status.ok) return status.code === 'core-error' && status.exit === 1 ? errorReply(404, 'unknown-run', 'worker-run-status', 1) : status.reply;
+    return status.body === null ? errorReply(404, 'unknown-run', 'worker-run-status', 0) : jsonReply(200, status.body);
+  }
+  if (kind === 'log') {
+    const stream = query.get('stream');
+    const cursor = query.get('cursor');
+    const before = query.get('before');
+    if (stream === undefined || !LOG_STREAM.test(stream) || (cursor !== undefined && before !== undefined)
+      || (cursor !== undefined && !LOG_CURSOR.test(cursor)) || (before !== undefined && !LOG_CURSOR.test(before))) return errorReply(400, 'usage');
+    const page = await read(runner, 'worker-log', { slug, runId, stream, ...(cursor === undefined ? {} : { cursor }), ...(before === undefined ? {} : { before }) });
+    return page.ok ? jsonReply(200, page.body) : page.reply;
+  }
+  // The transcript: once per request, in the current project, under the run's agent key; no channel exists for it.
+  const list = await read(runner, 'projects', {});
+  if (!list.ok) return list.reply;
+  const current = list.body.projects.find((entry: any) => entry.current === true);
+  if (!current) return errorReply(404, 'project-not-found', 'projects', null);
+  const page = await transcriptRead(runner, current.projectKey, workerAgentKey(runId), null);
+  return page.ok ? jsonReply(200, page.body) : page.reply;
+};
+
+const workerRunsRoute = (runner: Runner): Route['handler'] => (ctx) => (queryOf(ctx.req, []) === null ? errorReply(400, 'usage') : workerRuns(runner, ctx.params.slug));
+
 /**
  * The stream route kind: validated here, then handed to stream.ts, which owns the response from
  * `retry:` on. A stream takes its slot from `cap`, the Console's one stream cap (IC-014): at most four
@@ -475,14 +577,159 @@ const liveRoute = (live: LiveHub | null, cap: StreamCap): Route['handler'] => {
   };
 };
 
+// ---- 151 IC-012 to IC-014: the management routes ----
+
+type Anchors = { project: string[], projectLayers: string[], configHome: string[], home: string[] };
+/** Where the Console runs: the runner's project root and the home folder, the base anchors of place.ts (IC-006). */
+type Place = { projectRoot: string, home: string };
+/** One management read: the projected body with the ISO time its run ended (IC-005 `at`) and how a fresh call was answered, or the failure. */
+type ManageRead = { ok: true, body: any, at: string, fresh: string | null }
+  | { ok: false, reply: Reply, code: string, exit: number | null, errorId?: string };
+/** IC-012: a section is its data and the time of the run it came from, or the IC-005 code of the failed read. */
+type ManageSection = { ok: true, data: any, at: string } | { ok: false, code: string };
+
+/** IC-012: the settings keys `/api/advice` and `/api/workers` keep. */
+const ADVICE_KEY_PREFIXES: readonly string[] = Object.freeze(['advice.']);
+const WORKER_KEY_PREFIXES: readonly string[] = Object.freeze(['workers.', 'dispatch.', 'team.']);
+
+/**
+ * One allow-listed management read, projected with the runner's exit (`config-list`'s fail-safe, `doctor`'s
+ * findings: IC-005 data exits) and the server's anchors (IC-006). A projector refusal is `core-contract-mismatch`.
+ */
+async function manageRead(runner: Runner, anchors: Anchors, shapeId: string, params: Record<string, string>, options?: { fresh: true }): Promise<ManageRead> {
+  const result = await runner.run(shapeId, params, options);
+  if (!result.ok) {
+    const { error } = failureInfo(shapeId, result);
+    return { ok: false, reply: failureReply(shapeId, result), code: error.code, exit: result.exit, errorId: result.errorId };
+  }
+  const projected = project(shapeId, result.json, { exit: result.exit, anchors });
+  if (!projected.ok) return { ok: false, reply: errorReply(502, 'core-contract-mismatch', shapeId, result.exit), code: 'core-contract-mismatch', exit: result.exit };
+  // `at` is a non-enumerable property of every runner result (IC-005), read directly.
+  return { ok: true, body: projected.body, at: new Date(result.at || Date.now()).toISOString(), fresh: result.fresh ?? null };
+}
+
+const manageSection = (read: ManageRead): ManageSection => (read.ok ? { ok: true, data: read.body, at: read.at } : { ok: false, code: read.code });
+
+/** IC-012: a `picks` read the core refuses with its JSON `usage` id (a kind its registry does not hold) is section `usage` (D13), not core-error. */
+const picksSection = (read: ManageRead): ManageSection =>
+  (!read.ok && read.code === 'core-error' && read.exit === 2 && read.errorId === 'usage' ? { ok: false, code: 'usage' } : manageSection(read));
+
+/**
+ * The `config-list` section kept to the keys under `prefixes`, with every file, and the errors and notes that
+ * name no key or a kept key (IC-012). A failed section stays as it is.
+ */
+function settingsSubset(section: ManageSection, prefixes: readonly string[]): ManageSection {
+  if (!section.ok) return section;
+  const kept = (key: string) => prefixes.some((prefix) => key.startsWith(prefix));
+  const named = (row: { key: string | null }) => row.key === null || kept(row.key);
+  const body = section.data;
+  return {
+    ok: true,
+    data: { ...body, keys: body.keys.filter((row: any) => kept(row.key)), errors: body.errors.filter(named), notes: body.notes.filter(named) },
+    at: section.at,
+  };
+}
+
+/** IC-012 `GET /api/settings`: `effective` from `config-list` and `schema` from `config-schema`, read together. No query. */
+const settingsRoute = (runner: Runner, anchors: Anchors): Route['handler'] => async (ctx) => {
+  if (queryOf(ctx.req, []) === null) return errorReply(400, 'usage');
+  const [effective, schema] = await Promise.all([manageRead(runner, anchors, 'config-list', {}), manageRead(runner, anchors, 'config-schema', {})]);
+  return jsonReply(200, { v: 1, sections: { effective: manageSection(effective), schema: manageSection(schema) } });
+};
+
+/** IC-012 `GET /api/advice[?kind=<adviceKind>]`: the advice settings, the report and the picks (of `kind` when given). */
+const adviceRoute = (runner: Runner, anchors: Anchors): Route['handler'] => async (ctx) => {
+  const query = queryOf(ctx.req, ['kind']);
+  const kind = query?.get('kind');
+  if (query === null || (kind !== undefined && !PATTERNS.adviceKind.test(kind))) return errorReply(400, 'usage');
+  const [settings, report, picks] = await Promise.all([
+    manageRead(runner, anchors, 'config-list', {}),
+    manageRead(runner, anchors, 'advise-report', {}),
+    manageRead(runner, anchors, 'advice-picks', kind === undefined ? {} : { kind }),
+  ]);
+  return jsonReply(200, {
+    v: 1,
+    kind: kind ?? null,
+    sections: { settings: settingsSubset(manageSection(settings), ADVICE_KEY_PREFIXES), report: manageSection(report), picks: picksSection(picks) },
+  });
+};
+
+/** IC-012 `GET /api/workers`: the matrix and the worker settings. Never doctor, so a poll of it never runs doctor (FR-024). */
+const workersRoute = (runner: Runner, anchors: Anchors): Route['handler'] => async (ctx) => {
+  if (queryOf(ctx.req, []) === null) return errorReply(400, 'usage');
+  const [matrix, settings] = await Promise.all([manageRead(runner, anchors, 'worker-matrix', {}), manageRead(runner, anchors, 'config-list', {})]);
+  return jsonReply(200, { v: 1, sections: { matrix: manageSection(matrix), settings: settingsSubset(manageSection(settings), WORKER_KEY_PREFIXES) } });
+};
+
+/** IC-013 `GET /api/followups[?state=...][&cursor=<fuCursor>]`: one page of 25 and the lifecycle overview; `state` defaults to `open`. */
+const followupsRoute = (runner: Runner, anchors: Anchors): Route['handler'] => async (ctx) => {
+  const query = queryOf(ctx.req, ['state', 'cursor']);
+  const state = query?.get('state') ?? 'open';
+  const cursor = query?.get('cursor');
+  if (query === null || !PATTERNS.fuState.test(state) || (cursor !== undefined && !PATTERNS.fuCursor.test(cursor))) return errorReply(400, 'usage');
+  const [list, overview] = await Promise.all([
+    manageRead(runner, anchors, 'followups', cursor === undefined ? { state } : { state, cursor }),
+    manageRead(runner, anchors, 'lifecycle-overview', {}),
+  ]);
+  return jsonReply(200, { v: 1, state, cursor: cursor ?? null, sections: { list: manageSection(list), overview: manageSection(overview) } });
+};
+
+/** IC-013 `GET /api/followups/:id`: the record, `404 followup-not-found` when the read holds none, else the IC-005 error reply. */
+const followupRoute = (runner: Runner, anchors: Anchors): Route['handler'] => async (ctx) => {
+  const { id } = ctx.params;
+  if (queryOf(ctx.req, []) === null || !PATTERNS.fuId.test(id)) return errorReply(400, 'usage');
+  const record = await manageRead(runner, anchors, 'followup-record', { id });
+  if (!record.ok) return record.reply;
+  return record.body.followup === null ? errorReply(404, 'followup-not-found', 'followup-record', 0) : jsonReply(200, { v: 1, followup: record.body.followup });
+};
+
+/**
+ * IC-014 `GET /api/doctor[?refresh=1]`: the only route that runs `doctor`. Without `refresh` a run younger than the
+ * shape's ttl is served from the cache; with it the runner's fresh rules apply (joined, too-soon, ran).
+ */
+const doctorRoute = (runner: Runner, anchors: Anchors): Route['handler'] => async (ctx) => {
+  const query = queryOf(ctx.req, ['refresh']);
+  const refresh = query?.get('refresh');
+  if (query === null || (refresh !== undefined && refresh !== '1')) return errorReply(400, 'usage');
+  const doctor = await manageRead(runner, anchors, 'doctor', {}, refresh === undefined ? undefined : { fresh: true });
+  return doctor.ok ? jsonReply(200, { v: 1, at: doctor.at, refresh: doctor.fresh, doctor: doctor.body }) : doctor.reply;
+};
+
+/** IC-014 `GET /api/storage`: the storage report. No query. */
+const storageRoute = (runner: Runner, anchors: Anchors): Route['handler'] => async (ctx) => {
+  if (queryOf(ctx.req, []) === null) return errorReply(400, 'usage');
+  const storage = await manageRead(runner, anchors, 'storage-report', {});
+  return storage.ok ? jsonReply(200, { v: 1, at: storage.at, storage: storage.body }) : storage.reply;
+};
+
+/** 152 IC-006 `GET /api/sessions-history[?days=<n>][&limit=<n>]`: finished workflow sessions. */
+const sessionsHistoryRoute = (runner: Runner, anchors: Anchors): Route['handler'] => async (ctx) => {
+  const query = queryOf(ctx.req, ['days', 'limit']);
+  if (query === null) return errorReply(400, 'usage');
+  const days = query.get('days');
+  const limit = query.get('limit');
+  if (days !== undefined && (!PATTERNS.days.test(days) || Number(days) > 90)) return errorReply(400, 'usage');
+  if (limit !== undefined && (!PATTERNS.limit.test(limit) || Number(limit) > 500)) return errorReply(400, 'usage');
+
+  const params: Record<string, string> = {};
+  if (days !== undefined) params.days = days;
+  if (limit !== undefined) params.limit = limit;
+
+  const history = await manageRead(runner, anchors, 'sessions-history', params);
+  return history.ok ? jsonReply(200, history.body) : history.reply;
+};
+
 /**
  * The Console's table (IC-005) over `runner`: every /api route but the exchange is behind the session
  * check (buildRoutes), every one is GET, and each answers `{v:1, ...}` or IC-005's error body. The
  * stream routes share one stream cap (DEC-031), made here once per table. `live` is the Console's live
  * hub; without one (route tests over a scripted runner) `/api/live` answers 503 live-unavailable.
+ * `place` gives the anchors the management routes place paths and text under (151 IC-006).
  */
-function consoleRoutes(runner: Runner, sessions: any = processSessions, live: LiveHub | null = null): readonly Route[] {
+function consoleRoutes(runner: Runner, sessions: any = processSessions, live: LiveHub | null = null,
+  place: Place = { projectRoot: process.cwd(), home: os.homedir() }): readonly Route[] {
   const streamCap = createStreamCap(MAX_STREAMS_PER_SESSION);
+  const anchors: Anchors = anchorsOf({ projectRoot: place.projectRoot, home: place.home });
   return buildRoutes(sessions, [
     healthz,
     { method: 'GET', path: '/api/info', handler: () => info(runner) },
@@ -492,10 +739,23 @@ function consoleRoutes(runner: Runner, sessions: any = processSessions, live: Li
     { method: 'GET', path: '/api/sessions', handler: () => sessionsView(runner) },
     { method: 'GET', path: '/api/fleet', handler: fleetRoute(runner) },
     { method: 'GET', path: '/api/transcript', handler: transcriptRoute(runner) },
+    { method: 'GET', path: '/api/worker-runs/:slug', handler: workerRunsRoute(runner) },
+    { method: 'GET', path: '/api/worker-runs/:slug/:runId/result', handler: workerRunRoute(runner, 'result') },
+    { method: 'GET', path: '/api/worker-runs/:slug/:runId/status', handler: workerRunRoute(runner, 'status') },
+    { method: 'GET', path: '/api/worker-runs/:slug/:runId/log', handler: workerRunRoute(runner, 'log') },
+    { method: 'GET', path: '/api/worker-runs/:slug/:runId/transcript', handler: workerRunRoute(runner, 'transcript') },
+    { method: 'GET', path: '/api/settings', handler: settingsRoute(runner, anchors) },
+    { method: 'GET', path: '/api/advice', handler: adviceRoute(runner, anchors) },
+    { method: 'GET', path: '/api/workers', handler: workersRoute(runner, anchors) },
+    { method: 'GET', path: '/api/followups', handler: followupsRoute(runner, anchors) },
+    { method: 'GET', path: '/api/followups/:id', handler: followupRoute(runner, anchors) },
+    { method: 'GET', path: '/api/doctor', handler: doctorRoute(runner, anchors) },
+    { method: 'GET', path: '/api/storage', handler: storageRoute(runner, anchors) },
+    { method: 'GET', path: '/api/sessions-history', handler: sessionsHistoryRoute(runner, anchors) },
     { method: 'GET', path: '/api/stream', stream: true, handler: streamRoute(runner, streamCap) },
     { method: 'GET', path: '/api/live', stream: true, handler: liveRoute(live, streamCap) },
     staticFallback,
   ]);
 }
 
-module.exports = { ROUTES, SESSION_LIMITS, TASK_CLASSES, buildRoutes, consoleRoutes, isApiPath, matchPath, jsonReply, errorReply, JSON_TYPE, runs, tasks, runDetail, sessionsView };
+module.exports = { ROUTES, SESSION_LIMITS, TASK_CLASSES, buildRoutes, consoleRoutes, isApiPath, matchPath, jsonReply, errorReply, JSON_TYPE, runs, tasks, runDetail, sessionsView, workerRuns, workerAgentKey };

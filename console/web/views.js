@@ -10,6 +10,18 @@ import { renderRun, tickRun, releaseRun, rerouteRun } from './views/run.js';
 import { renderGraph, rerouteGraph } from './views/graph.js';
 import { renderSessions, rerouteSessions } from './views/sessions.js';
 import { renderWorkflows } from './views/workflows.js';
+// session.js reaches back here through worker-tabs.js (CORE_RANGE), so when it is imported first this module's body runs
+// before session.js's: at this module's evaluation only session.js's function declarations are read, and its `const`
+// exports (`sessionApi`, `skeletonSession`) only inside calls. client-core.test.ts imports session.js first in a fresh graph.
+import {
+  sessionApi, loadSession, connectSession, skeletonSession, renderSession, rerouteSession, tickSession, teardownSession,
+} from './views/session.js';
+import { renderSettings, rerouteSettings, settingsTitle } from './views/settings.js';
+import { renderAdvice, rerouteAdvice, adviceTitle } from './views/advice.js';
+import { loadFollowups, renderFollowups, rerouteFollowups, followupsTitle } from './views/followups.js';
+import { renderHealth, rerouteHealth, healthTitle } from './views/health.js';
+import { renderWorkers, rerouteWorkers, workersTitle } from './views/workers.js';
+import { renderCompare, skeletonCompare, compareTitle, rerouteCompare } from './views/compare.js';
 import { deriveSessions } from './derive/sessions.js';
 import { runStepCopy, runToken } from './derive/rail.js';
 import { workflowsOf } from './derive/workflows.js';
@@ -17,18 +29,15 @@ import {
   connectFleet, tickFleet, teardownFleet, renderFleetList, updateFleetList, listMeta, listEmpty, buildProjectHead, renderProject, updateProject,
   rerouteProject, projectMeta, projectTitle, skeletonFleetList, skeletonFleetProject,
 } from './views/fleet.js';
+import {
+  PARAM_PATTERN, KEY16, RUN_ID, SESSION_TABS, TOKEN, laneOfParts, laneSegments, sessionSelection, sessionSegments, hashFor, baseRoute,
+} from './routes.js';
 
 /**
  * The core range this Console needs. IC-005 sends no range, so this is a client literal; client-core.test.ts
  * asserts it equals console/package.json `doflowCore`.
  */
 const CORE_RANGE = '>=2.0.0-beta.7 <3.0.0';
-
-/** IC-003's parameter pattern: a route parameter failing it is not-found before any fetch. */
-const PARAM_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-
-/** The Fleet keys of IC-019 and IC-020: 16 lower-case hex. */
-const KEY16 = /^[0-9a-f]{16}$/;
 
 const PRODUCT = 'DoFlow Console';
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -68,7 +77,10 @@ const graphSize = (data) => (data && data.graph && Array.isArray(data.graph.task
 
 const awaitingCount = (/** @type {any} */ data) => data.runs.filter((/** @type {any} */ run) => run.state === 'AWAITING_GATE').length;
 
-/** The run head (CD-B8): crumb to Runs, the title with a muted task id, the meta line and the step counter. @param {any} params */
+/**
+ * The run head (CD-B8): crumb to Runs, the title with a muted task id, the meta line, and the step counter with, beside it in
+ * the same grid area, the link to the run's Session screen (150 IC-020). @param {any} params
+ */
 function buildRunHead(params) {
   const crumb = h('nav', { class: 'run-head__crumb', 'aria-label': 'Breadcrumb' }, [
     h('a', { href: '#/' }, 'Runs'), h('span', { 'aria-hidden': 'true' }, ' / '), h('span', { class: 'mono' }, params.slug),
@@ -76,7 +88,10 @@ function buildRunHead(params) {
   const h1 = h('h1', { class: 'run-head__title', tabindex: '-1' }, [h('span', {}, params.slug), h('span', { class: 'run-head__task' }, ` / ${params.taskId}`)]);
   const meta = h('div', { class: 'run-head__metawrap' });
   const step = h('p', { class: 'run-head__step', hidden: true });
-  return { root: h('header', { class: 'view-head run-head' }, [crumb, h1, meta, step]), h1, meta, step };
+  const chainHref = hashFor({ id: 'session', params: { slug: params.slug, taskId: params.taskId } });
+  const chain = chainHref === null ? null : h('a', { class: 'graph__back', href: chainHref }, 'Chain');
+  const aside = h('div', { class: 'run-head__aside' }, [step, chain]);
+  return { root: h('header', { class: 'view-head run-head' }, [crumb, h1, meta, aside]), h1, meta, step };
 }
 
 /** The meta line of the run head: badge, workflow name, started, revision, updated; one element per item. @param {any} params @param {any} data @param {any} nowMs */
@@ -138,8 +153,8 @@ const sessionsKey = (data) => JSON.stringify([data, deriveSessions(data, Date.no
  * `update(local, data, params)` patches the mounted body, `reroute(local, params, data)` moves between routes of one view
  * without a re-mount (the selected agent changed), and `empty` may be a function of the data. The Runs, Run, Tasks and Sessions
  * views have `connect` too (IC-018, live-view.js: the live store, or their GET polled at their interval) but not `live: true`:
- * their body is re-mounted by `dataKey` as when polled. The Run, Tasks and Sessions views have `reroute` too (IC-019): it
- * applies the selection of `local.route` to the mounted body, and their render reads it from there.
+ * their body is re-mounted by `dataKey` as when polled. The Run, Tasks, Sessions and Session views have `reroute` too (IC-019,
+ * 150 IC-015): it applies the selection of `local.route` to the mounted body, and their render reads it from there.
  */
 /** @type {Record<string, any>} */
 const VIEWS = Object.freeze({
@@ -213,6 +228,29 @@ const VIEWS = Object.freeze({
     render: renderGraph,
     isEmpty: () => false,
     title: (/** @type {any} */ params) => `Tasks · ${slugTask(params)}`,
+  },
+  session: {
+    id: 'session',
+    inspectable: true,
+    noun: 'this run',
+    // IC-017: SESSION_SHAPES of views/session.js, written out because that const cannot be read while this table is built
+    // (the import cycle above); client-core.test.ts asserts the two lists are equal.
+    shapes: ['status', 'timeline', 'attempts', 'workflow', 'worker-runs', 'worker-status', 'worker-run-status', 'worker-result', 'worker-log', 'projects', 'transcript'],
+    api: (/** @type {any} */ params) => sessionApi(params),
+    // The run and `/api/worker-runs/<slug>` side by side, as `{ run, workers, workersError }`; polled at SESSION_POLL_MS (3000).
+    load: loadSession,
+    connect: connectSession,
+    pollMs: 3000,
+    wide: false,
+    skeleton: () => skeletonSession(),
+    head: () => ({ text: 'Chain', mono: false }),
+    meta: (/** @type {any} */ params) => h('p', { class: 'view-head__meta mono' }, slugTask(params)),
+    tick: tickSession,
+    teardown: teardownSession,
+    reroute: rerouteSession,
+    render: renderSession,
+    isEmpty: () => false,
+    title: (/** @type {any} */ params) => `Chain · ${slugTask(params)}`,
   },
   sessions: {
     id: 'sessions',
@@ -297,6 +335,31 @@ const VIEWS = Object.freeze({
     isEmpty: () => false,
     title: projectTitle,
   },
+  settings: { id: 'settings', inspectable: true, noun: 'settings', shapes: ['config-list', 'config-schema'], api: () => '/api/settings', pollMs: 30000, wide: true, skeleton: skeletonBlock, head: () => ({ text: 'Settings', mono: false }), meta: () => null, render: renderSettings, reroute: rerouteSettings, isEmpty: (/** @type {any} */ data) => data?.sections?.effective?.ok === true && data.sections.effective.data.keys.length === 0, empty: { title: 'No settings listed', sentence: 'The DoFlow core listed no settings.' }, title: settingsTitle },
+  advice: { id: 'advice', inspectable: true, noun: 'advice', shapes: ['config-list', 'advise-report', 'advice-picks'], api: (/** @type {any} */ params) => params.kind ? `/api/advice?kind=${params.kind}` : '/api/advice', pollMs: 30000, wide: true, skeleton: skeletonBlock, head: () => ({ text: 'Advice and shadow', mono: false }), meta: () => null, render: renderAdvice, reroute: rerouteAdvice, isEmpty: () => false, title: adviceTitle },
+  followups: { id: 'followups', inspectable: true, noun: 'follow-ups', shapes: ['followups', 'followup-record', 'lifecycle-overview'], api: () => null, load: loadFollowups, pollMs: 30000, wide: true, skeleton: skeletonBlock, head: () => ({ text: 'Follow-ups', mono: false }), meta: () => null, render: renderFollowups, reroute: rerouteFollowups, isEmpty: () => false, title: followupsTitle },
+  health: { id: 'health', inspectable: true, noun: 'health', shapes: ['doctor', 'storage-report'], api: () => '/api/storage', pollMs: 60000, wide: true, skeleton: skeletonBlock, head: () => ({ text: 'Health', mono: false }), meta: () => null, render: renderHealth, reroute: rerouteHealth, isEmpty: () => false, title: healthTitle },
+  workers: { id: 'workers', inspectable: true, noun: 'workers', shapes: ['worker-matrix', 'config-list', 'doctor'], api: () => '/api/workers', pollMs: 30000, wide: true, skeleton: skeletonBlock, head: () => ({ text: 'Workers', mono: false }), meta: () => null, render: renderWorkers, reroute: rerouteWorkers, isEmpty: () => false, title: workersTitle },
+  compare: {
+    id: 'compare',
+    inspectable: false,
+    noun: 'compare',
+    shapes: ['sessions-history'],
+    api: () => '/api/sessions-history',
+    pollMs: 10000,
+    wide: true,
+    skeleton: skeletonCompare,
+    head: () => ({ text: 'Compare', mono: false }),
+    meta: () => h('p', { class: 'view-head__meta' }, 'Side-by-side run comparison, stage alignment, duration deltas and token cost.'),
+    render: (/** @type {any} */ data, /** @type {any} */ params, /** @type {any} */ local) => {
+      local.data = data;
+      local.route = { params };
+      return renderCompare(local);
+    },
+    reroute: rerouteCompare,
+    isEmpty: () => false,
+    title: (/** @type {any} */ params) => compareTitle(params),
+  },
   'not-found': {
     id: 'not-found',
     inspectable: false,
@@ -317,40 +380,10 @@ const VIEWS = Object.freeze({
 /** Every shape id any view reads (the test checks this set against the verb allow-list). */
 const SHAPES_USED = Object.freeze([...new Set(Object.values(VIEWS).flatMap((view) => view.shapes))]);
 
-/** IC-019's worker token: a positive integer without a leading zero. */
-const TOKEN = /^[1-9][0-9]*$/;
-
 /**
- * A Sessions lane in the hash (IC-019) to its key in the form derive/sessions.js builds, or null when a part fails its
- * pattern. `parts` are the segments after `sessions`.
- * @param {string[]} parts
- */
-function laneOfParts(parts) {
-  const [kind, ...rest] = parts;
-  if ((kind === 'hook' || kind === 'launched') && rest.length === 1 && KEY16.test(rest[0])) return `${kind}:${rest[0]}`;
-  if (kind === 'lock' && rest.length === 1 && PARAM_PATTERN.test(rest[0])) return `lock:${rest[0]}`;
-  if (kind === 'worker' && rest.length === 3 && PARAM_PATTERN.test(rest[0]) && PARAM_PATTERN.test(rest[1]) && TOKEN.test(rest[2])) return `worker:${rest.join('/')}`;
-  if (kind === 'run' && rest.length === 3 && KEY16.test(rest[0]) && PARAM_PATTERN.test(rest[1]) && PARAM_PATTERN.test(rest[2])) return `run:${rest.join('/')}`;
-  return null;
-}
-
-/**
- * The hash segments of a lane key, or null when the key cannot be linked: a part is absent (`-`, DEC-034) or fails its
- * pattern. The inverse of `laneOfParts`.
- * @param {any} key
- */
-function laneSegments(key) {
-  const text = String(key ?? '');
-  const colon = text.indexOf(':');
-  if (colon < 0) return null;
-  const parts = [text.slice(0, colon), ...text.slice(colon + 1).split('/')];
-  return laneOfParts(parts) === text ? parts.join('/') : null;
-}
-
-/**
- * A location hash to `{ id, params, view }`, and the selection it names (IC-019): `sel: { type, id }` on `run`, `task` on
- * `tasks`, `lane` on `sessions` (Fleet's agent stays in `params`). An unknown route, or a segment failing its pattern, is
- * `not-found`: no fetch is made for it.
+ * A location hash to `{ id, params, view }`, and the selection it names (IC-019, 150 IC-015): `sel: { type, id }` on `run`,
+ * `task` on `tasks`, `lane` on `sessions`, `node` and `tab` on `session` (Fleet's agent stays in `params`). An unknown route,
+ * or a segment failing its pattern, is `not-found`: no fetch is made for it.
  * @param {any} hash
  */
 function parseRoute(hash) {
@@ -361,16 +394,48 @@ function parseRoute(hash) {
   if (path === '/') return { id: 'runs', params: {}, view: VIEWS.runs };
   if (path === '/workflows') return { id: 'workflows', params: {}, view: VIEWS.workflows };
   if (path === '/sessions') return { id: 'sessions', params: {}, view: VIEWS.sessions };
+  if (path === '/compare') return { id: 'compare', params: {}, view: VIEWS.compare };
   if (path === '/fleet') return { id: 'fleet', params: {}, view: VIEWS.fleet };
   const parts = path.split('/'); // ['', 'run', slug, taskId, ...selection]
+  const manage = parts[1];
+  const base = (/** @type {string} */ id, /** @type {any} */ extra = {}) => ({ id, params: {}, view: VIEWS[id], ...extra });
+  const setting = (/** @type {any} */ value) => typeof value === 'string' && value.length <= 96 && /^[a-z][A-Za-z0-9]*(?:[.-][A-Za-z0-9]+){1,7}$/.test(value);
+  const kind = (/** @type {any} */ value) => typeof value === 'string' && /^[a-z][a-z0-9-]{0,31}$/.test(value);
+  const pick = (/** @type {any} */ value) => typeof value === 'string' && /^adv-[0-9]{13}-[0-9a-f]{6}$/.test(value);
+  if (manage === 'settings') return parts.length === 2 ? base(manage) : parts.length === 3 && setting(parts[2]) ? base(manage, { key: parts[2] }) : notFound;
+  if (manage === 'followups') return parts.length === 2 ? base(manage) : parts.length === 3 && /^FU-[0-9a-hjkmnp-tv-z]{6}$/.test(parts[2]) ? base(manage, { item: parts[2] }) : notFound;
+  if (manage === 'health') return parts.length === 2 ? base(manage) : parts.length === 4 && parts[2] === 'store' && PARAM_PATTERN.test(parts[3]) ? base(manage, { store: parts[3] }) : notFound;
+  if (manage === 'workers') return parts.length === 2 ? base(manage) : parts.length === 5 && PARAM_PATTERN.test(parts[2]) && ['worker', 'orchestration'].includes(parts[3]) && /^[a-z][A-Za-z0-9]{0,31}$/.test(parts[4]) ? base(manage, { cell: { harness: parts[2], group: parts[3], cell: parts[4] } }) : notFound;
+  if (manage === 'compare') {
+    if (parts.length === 2) return base(manage);
+    if (parts.length === 6 && PARAM_PATTERN.test(parts[2]) && PARAM_PATTERN.test(parts[3]) && PARAM_PATTERN.test(parts[4]) && PARAM_PATTERN.test(parts[5])) {
+      return { id: 'compare', params: { slugA: parts[2], taskIdA: parts[3], slugB: parts[4], taskIdB: parts[5] }, view: VIEWS.compare };
+    }
+    return notFound;
+  }
+  if (manage === 'advice') {
+    let i = 2; const params = /** @type {any} */ ({}); const extra = /** @type {any} */ ({});
+    if (parts[i] === 'kind' && kind(parts[i + 1])) { params.kind = parts[i + 1]; i += 2; }
+    if (parts[i] === 'pick' && pick(parts[i + 1])) { extra.pick = parts[i + 1]; i += 2; }
+    return i === parts.length ? { id: manage, params, view: VIEWS.advice, ...extra } : notFound;
+  }
   if (parts[1] === 'fleet') {
     // '', 'fleet', project, agent?: the keys of IC-019 and IC-020, nothing else (no path, label or session id is ever in a URL).
     if (parts.length < 3 || parts.length > 4 || !KEY16.test(parts[2]) || (parts.length === 4 && !KEY16.test(parts[3]))) return notFound;
     return { id: 'fleet-project', params: parts.length === 4 ? { project: parts[2], agent: parts[3] } : { project: parts[2] }, view: VIEWS['fleet-project'] };
   }
   if (parts[1] === 'sessions') {
+    if (parts.length === 3 && parts[2] === 'history') {
+      return { id: 'sessions', params: { mode: 'history' }, view: VIEWS.sessions, mode: 'history' };
+    }
     const lane = laneOfParts(parts.slice(2));
     return lane === null ? notFound : { id: 'sessions', params: {}, view: VIEWS.sessions, lane };
+  }
+  if (parts[1] === 'session') {
+    // '', 'session', slug, taskId, ...node (IC-015).
+    if (parts.length < 4 || !PARAM_PATTERN.test(parts[2]) || !PARAM_PATTERN.test(parts[3])) return notFound;
+    const selection = sessionSelection(parts.slice(4));
+    return selection === null ? notFound : { id: 'session', params: { slug: parts[2], taskId: parts[3] }, view: VIEWS.session, ...selection };
   }
   if (parts[1] !== 'run' || parts.length < 4 || parts.length > 6) return notFound;
   const [slug, taskId] = [parts[2], parts[3]];
@@ -392,43 +457,6 @@ function parseRoute(hash) {
  * gives a hash for. Null for `not-found`, for a part failing its pattern, and for a lane that cannot be linked (DEC-034).
  * @param {any} route
  */
-function hashFor(route) {
-  const params = (route && route.params) || {};
-  const id = route ? route.id : null;
-  if (id === 'runs') return '#/';
-  if (id === 'workflows') return '#/workflows';
-  if (id === 'fleet') return '#/fleet';
-  if (id === 'fleet-project') {
-    if (!KEY16.test(params.project) || (params.agent !== undefined && !KEY16.test(params.agent))) return null;
-    return `#/fleet/${params.project}${params.agent === undefined ? '' : `/${params.agent}`}`;
-  }
-  if (id === 'sessions') {
-    if (route.lane === undefined) return '#/sessions';
-    const lane = laneSegments(route.lane);
-    return lane === null ? null : `#/sessions/${lane}`;
-  }
-  if (id !== 'run' && id !== 'tasks') return null;
-  if (!PARAM_PATTERN.test(params.slug) || !PARAM_PATTERN.test(params.taskId)) return null;
-  const base = `#/run/${params.slug}/${params.taskId}`;
-  if (id === 'tasks') {
-    if (route.task === undefined) return `${base}/tasks`;
-    return PARAM_PATTERN.test(route.task) ? `${base}/tasks/${route.task}` : null;
-  }
-  if (route.sel === undefined) return base;
-  const { type, id: selId } = route.sel;
-  return (type === 'stage' || type === 'gate') && PARAM_PATTERN.test(selId) ? `${base}/${type}/${selId}` : null;
-}
-
-/**
- * The route without its selection (IC-019): the base a selection hash change stays inside. Fleet's base keeps the project.
- * @param {any} route
- */
-function baseRoute(route) {
-  const { sel, task, lane, ...rest } = route;
-  if (route.id !== 'fleet-project') return rest;
-  return { ...rest, params: { project: route.params.project } };
-}
-
 /**
  * `document.title` for a route (data is the last loaded body, or null).
  * @param {any} route
@@ -441,12 +469,14 @@ function titleFor(route, data = null) {
 }
 
 /**
- * Which rail link is current (IC-020, DEC-035): Now on `#/` and every `#/run/...` (the id stays `runs`; the Runs heading and
- * title keep Runs), Workflows on `#/workflows`, Sessions on `#/sessions`, Fleet on every `#/fleet...`, else none.
+ * Which rail link is current (IC-020, DEC-035; 150 IC-015): Now on `#/`, every `#/run/...` and every `#/session/...` (the
+ * id stays `runs`; the Runs heading and title keep Runs), Workflows on `#/workflows`, Sessions on `#/sessions`, Fleet on
+ * every `#/fleet...`, else none.
  * @param {any} route
  */
 function navFor(route) {
-  if (route.id === 'workflows' || route.id === 'sessions') return route.id;
+  if (['workflows', 'sessions', 'settings', 'advice', 'followups', 'health', 'workers'].includes(route.id)) return route.id;
+  if (route.id === 'compare') return 'sessions';
   if (route.id === 'fleet' || route.id === 'fleet-project') return 'fleet';
   return route.id === 'not-found' ? null : 'runs';
 }

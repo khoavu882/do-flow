@@ -5,7 +5,6 @@ Copy markdown
 In this article
 Connecting services
 Adding an MCP server
-Using agent finder
 Managing MCP servers
 Using MCP servers
 Further reading
@@ -48,7 +47,7 @@ copilot mcp add
 subcommand
 Editing the configuration file
 Adding per-repository MCP servers
-Searching and installing from the registry (experimental)
+Searching and installing from the registry
 For installation instructions, available tools, and URLs for specific MCP servers, see the
 GitHub MCP Registry
 .
@@ -66,16 +65,12 @@ Server Name
 Next to
 Server Type
 , select a type by pressing the corresponding number. The following types are available:
-Local
-or
 STDIO
 : starts a local process and communicates over standard input/output (
 stdin
 /
 stdout
-). Both options work the same way.
-STDIO
-is the standard MCP protocol type name, so choose this if you want your configuration to be compatible with VS Code, the Copilot cloud agent, and other MCP clients.
+). This is the standard MCP protocol type name, so it&#x27;s compatible with VS Code, the Copilot cloud agent, and other MCP clients.
 HTTP
 or
 SSE
@@ -86,8 +81,6 @@ SSE
 uses the legacy HTTP with Server-Sent Events transport, which is deprecated in the MCP specification but still supported for backwards compatibility.
 The remaining fields depend on the server type you selected:
 If you chose
-Local
-or
 STDIO
 :
 Next to
@@ -397,14 +390,6 @@ to a format the CLI accepts, see
 GitHub Copilot CLI command reference
 .
 Searching and installing from the registry
-Note
-The
-/mcp search
-command is currently an experimental feature. To use it, start Copilot CLI with the
-‑‑experimental
-command line option, or enter
-/experimental on
-during a session.
 You can discover and install MCP servers directly from the
 GitHub MCP Registry
 using the
@@ -428,16 +413,6 @@ S
 to save. The server is added to your
 mcp-config.json
 and started immediately.
-Using agent finder
-Agent finder searches a catalog of capabilities, including MCP servers, tools, agents, and skills. To make it available in the CLI:
-Download the
-agent finder skill
-.
-Add the skill to your
-~/.copilot/skills
-directory. For skill directory structure and installation guidance, see
-Adding agent skills for GitHub Copilot CLI
-.
 Managing MCP servers
 You can manage your configured MCP servers using the
 /mcp
