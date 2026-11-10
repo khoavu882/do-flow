@@ -9,8 +9,8 @@ import { isKey } from './keys.js';
 /** At most this many options are listed. */
 const MAX_OPTIONS = 50;
 
-/** The order of the kinds in the list: screens first, then runs, sessions and projects. */
-const KIND_ORDER = Object.freeze(['screen', 'run', 'session', 'project']);
+/** The order of the kinds in the list: screens first, then actions, runs, sessions and projects. */
+const KIND_ORDER = Object.freeze(['screen', 'action', 'run', 'session', 'project']);
 
 /**
  * The options for `query`: a case-insensitive substring match over `label` and `hint`, in kind order and, within a kind, in

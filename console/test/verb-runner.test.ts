@@ -168,6 +168,7 @@ const EXPECTED_SHAPES = {
   doctor: { argv: ['doctor', '--json'], params: {} },
   'storage-report': { argv: ['storage', '--action', 'report', '--json'], params: {} },
   'worker-matrix': { argv: ['worker-matrix', '--json'], params: {} },
+  'sessions-history': { argv: ['sessions-history', '--json'], params: {} },
 };
 
 test('the allow-list is the frozen IC-003 table and nothing else', () => {

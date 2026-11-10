@@ -103,6 +103,9 @@ const ADVICE_KIND: Param = { param: 'kind', pattern: 'adviceKind', flag: '--kind
 const FU_STATE: Param = { param: 'state', pattern: 'fuState' };
 const FU_CURSOR: Param = { param: 'cursor', pattern: 'fuCursor', flag: '--cursor', optional: true };
 const FU_ID: Param = { param: 'id', pattern: 'fuId' };
+// 152 IC-004: sessions-history window and limit
+const DAYS_OPT: Param = { param: 'days', pattern: 'days', flag: '--days', optional: true };
+const LIMIT_OPT: Param = { param: 'limit', pattern: 'limit', flag: '--limit', optional: true };
 
 /** IC-003, the whole allow-list. `--json` is appended to every shape. */
 const SHAPES: Readonly<Record<string, Shape>> = deepFreeze({
@@ -139,6 +142,7 @@ const SHAPES: Readonly<Record<string, Shape>> = deepFreeze({
   doctor: { argv: ['doctor'], ttl: 60_000, exitsAsData: [1], refreshFloorMs: 5_000 },
   'storage-report': { argv: ['storage', '--action', 'report'], ttl: 30_000, usageIsOldCore: true },
   'worker-matrix': { argv: ['worker-matrix'], ttl: Infinity, byCoreVersion: true },
+  'sessions-history': { argv: ['sessions-history', DAYS_OPT, LIMIT_OPT], ttl: 5_000 },
 });
 const SHAPE_IDS: readonly string[] = Object.freeze(Object.keys(SHAPES));
 
@@ -221,10 +225,13 @@ const PATTERNS = Object.freeze({
   fuCursor: /^[0-9]{1,15}:[0-9]{8}T[0-9]{9}Z-[0-9a-hjkmnp-tv-z]{6}$/,
   /** FU_ID, src/runtime/lifecycle/followup.ts:36. */
   fuId: /^FU-[0-9a-hjkmnp-tv-z]{6}$/,
+  /** 152 IC-004: days retention parameter (1..90) */
+  days: /^[1-9][0-9]{0,2}$/,
 });
 const LIMIT_MAX = 500;
+const DAYS_MAX = 90;
 const acceptable = (pattern: keyof typeof PATTERNS, value: string): boolean =>
-  PATTERNS[pattern].test(value) && (pattern !== 'limit' || Number(value) <= LIMIT_MAX);
+  PATTERNS[pattern].test(value) && (pattern !== 'limit' || Number(value) <= LIMIT_MAX) && (pattern !== 'days' || Number(value) <= DAYS_MAX);
 
 /**
  * Every variable src/runtime/context/identity.ts reads. All are DOFLOW_* today, so the prefix rule

@@ -605,7 +605,7 @@ async function manageRead(runner: Runner, anchors: Anchors, shapeId: string, par
   const projected = project(shapeId, result.json, { exit: result.exit, anchors });
   if (!projected.ok) return { ok: false, reply: errorReply(502, 'core-contract-mismatch', shapeId, result.exit), code: 'core-contract-mismatch', exit: result.exit };
   // `at` is a non-enumerable property of every runner result (IC-005), read directly.
-  return { ok: true, body: projected.body, at: new Date(result.at).toISOString(), fresh: result.fresh ?? null };
+  return { ok: true, body: projected.body, at: new Date(result.at || Date.now()).toISOString(), fresh: result.fresh ?? null };
 }
 
 const manageSection = (read: ManageRead): ManageSection => (read.ok ? { ok: true, data: read.body, at: read.at } : { ok: false, code: read.code });
@@ -702,6 +702,23 @@ const storageRoute = (runner: Runner, anchors: Anchors): Route['handler'] => asy
   return storage.ok ? jsonReply(200, { v: 1, at: storage.at, storage: storage.body }) : storage.reply;
 };
 
+/** 152 IC-006 `GET /api/sessions-history[?days=<n>][&limit=<n>]`: finished workflow sessions. */
+const sessionsHistoryRoute = (runner: Runner, anchors: Anchors): Route['handler'] => async (ctx) => {
+  const query = queryOf(ctx.req, ['days', 'limit']);
+  if (query === null) return errorReply(400, 'usage');
+  const days = query.get('days');
+  const limit = query.get('limit');
+  if (days !== undefined && (!PATTERNS.days.test(days) || Number(days) > 90)) return errorReply(400, 'usage');
+  if (limit !== undefined && (!PATTERNS.limit.test(limit) || Number(limit) > 500)) return errorReply(400, 'usage');
+
+  const params: Record<string, string> = {};
+  if (days !== undefined) params.days = days;
+  if (limit !== undefined) params.limit = limit;
+
+  const history = await manageRead(runner, anchors, 'sessions-history', params);
+  return history.ok ? jsonReply(200, history.body) : history.reply;
+};
+
 /**
  * The Console's table (IC-005) over `runner`: every /api route but the exchange is behind the session
  * check (buildRoutes), every one is GET, and each answers `{v:1, ...}` or IC-005's error body. The
@@ -734,6 +751,7 @@ function consoleRoutes(runner: Runner, sessions: any = processSessions, live: Li
     { method: 'GET', path: '/api/followups/:id', handler: followupRoute(runner, anchors) },
     { method: 'GET', path: '/api/doctor', handler: doctorRoute(runner, anchors) },
     { method: 'GET', path: '/api/storage', handler: storageRoute(runner, anchors) },
+    { method: 'GET', path: '/api/sessions-history', handler: sessionsHistoryRoute(runner, anchors) },
     { method: 'GET', path: '/api/stream', stream: true, handler: streamRoute(runner, streamCap) },
     { method: 'GET', path: '/api/live', stream: true, handler: liveRoute(live, streamCap) },
     staticFallback,

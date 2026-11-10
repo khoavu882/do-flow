@@ -661,7 +661,7 @@ test('views: the router table maps hashes to views, and a bad parameter is not-f
   assert.equal(navFor(parseRoute('#/session/s/t')), 'runs', '150 C.5: the Session route marks Now');
   assert.equal(navFor(parseRoute('#/session/s/t/worker/w-0123456789ab/log')), 'runs');
   assert.equal(titleFor(parseRoute('#/session/s/t/main')), 'Chain \u00b7 s / t \u00b7 DoFlow Console');
-  assert.deepEqual(Object.keys(VIEWS).sort(), ['advice', 'fleet', 'fleet-project', 'followups', 'health', 'not-found', 'run', 'runs', 'session', 'sessions', 'settings', 'tasks', 'workers', 'workflows']); // E.7 adds the sessions view, V.10 the two Fleet views, 150 C.5 the session view
+  assert.deepEqual(Object.keys(VIEWS).sort(), ['advice', 'compare', 'fleet', 'fleet-project', 'followups', 'health', 'not-found', 'run', 'runs', 'session', 'sessions', 'settings', 'tasks', 'workers', 'workflows']); // E.7 adds the sessions view, V.10 the two Fleet views, 150 C.5 the session view, 152 C.2 compare view
 });
 
 test('index.html provides the elements the shell needs', () => {
@@ -830,7 +830,7 @@ test('router: the skip link moves focus to the heading without changing the rout
 
 test('shell: data-inspectable per view, the rail icons, and the docked column with its empty note at 1280 px and wider', async () => {
   assert.deepEqual(Object.fromEntries(Object.entries(mods.views.VIEWS).map(([id, view]: [string, any]) => [id, view.inspectable])),
-    { runs: false, run: true, tasks: true, session: true, sessions: true, workflows: false, fleet: false, 'fleet-project': true, settings: true, advice: true, followups: true, health: true, workers: true, 'not-found': false });
+    { runs: false, run: true, tasks: true, session: true, sessions: true, workflows: false, fleet: false, 'fleet-project': true, settings: true, advice: true, followups: true, health: true, workers: true, compare: false, 'not-found': false });
   const page = await start({ hash: '', width: 1440, fetch: standard });
   assert.deepEqual(page.nav.map((a) => a.querySelector('.icon') && a.querySelector('.icon').getAttribute('class')),
     ['icon icon--16 icon--rail-now', 'icon icon--16 icon--rail-sessions', 'icon icon--16 icon--rail-workflows', 'icon icon--16 icon--rail-fleet', 'icon icon--16 icon--rail-workers', 'icon icon--16 icon--rail-advice', 'icon icon--16 icon--rail-followups', 'icon icon--16 icon--rail-settings', 'icon icon--16 icon--rail-health']);

@@ -132,6 +132,8 @@ function paletteTargets() {
     if (hash !== null) out.push({ kind, label, hint, hash });
   };
   for (const [label, id] of SCREENS) add('screen', label, 'Screen', { id, params: {} });
+  add('action', 'Compare workflow runs', 'Compare', { id: 'compare', params: {} });
+  add('action', 'Sessions history', 'Sessions', { id: 'sessions', params: { mode: 'history' }, mode: 'history' });
   const { runs, sessions, fleet } = app.loaded;
   for (const run of (runs && Array.isArray(runs.runs) ? runs.runs : [])) {
     if (typeof run.featureSlug !== 'string') continue;

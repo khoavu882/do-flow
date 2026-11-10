@@ -21,6 +21,7 @@ import { renderAdvice, rerouteAdvice, adviceTitle } from './views/advice.js';
 import { loadFollowups, renderFollowups, rerouteFollowups, followupsTitle } from './views/followups.js';
 import { renderHealth, rerouteHealth, healthTitle } from './views/health.js';
 import { renderWorkers, rerouteWorkers, workersTitle } from './views/workers.js';
+import { renderCompare, skeletonCompare, compareTitle, rerouteCompare } from './views/compare.js';
 import { deriveSessions } from './derive/sessions.js';
 import { runStepCopy, runToken } from './derive/rail.js';
 import { workflowsOf } from './derive/workflows.js';
@@ -348,6 +349,26 @@ const VIEWS = Object.freeze({
   followups: { id: 'followups', inspectable: true, noun: 'follow-ups', shapes: ['followups', 'followup-record', 'lifecycle-overview'], api: () => null, load: loadFollowups, pollMs: 30000, wide: true, skeleton: skeletonBlock, head: () => ({ text: 'Follow-ups', mono: false }), meta: () => null, render: renderFollowups, reroute: rerouteFollowups, isEmpty: () => false, title: followupsTitle },
   health: { id: 'health', inspectable: true, noun: 'health', shapes: ['doctor', 'storage-report'], api: () => '/api/storage', pollMs: 60000, wide: true, skeleton: skeletonBlock, head: () => ({ text: 'Health', mono: false }), meta: () => null, render: renderHealth, reroute: rerouteHealth, isEmpty: () => false, title: healthTitle },
   workers: { id: 'workers', inspectable: true, noun: 'workers', shapes: ['worker-matrix', 'config-list', 'doctor'], api: () => '/api/workers', pollMs: 30000, wide: true, skeleton: skeletonBlock, head: () => ({ text: 'Workers', mono: false }), meta: () => null, render: renderWorkers, reroute: rerouteWorkers, isEmpty: () => false, title: workersTitle },
+  compare: {
+    id: 'compare',
+    inspectable: false,
+    noun: 'compare',
+    shapes: ['sessions-history'],
+    api: () => '/api/sessions-history',
+    pollMs: 10000,
+    wide: true,
+    skeleton: skeletonCompare,
+    head: () => ({ text: 'Compare', mono: false }),
+    meta: () => h('p', { class: 'view-head__meta' }, 'Side-by-side run comparison, stage alignment, duration deltas and token cost.'),
+    render: (/** @type {any} */ data, /** @type {any} */ params, /** @type {any} */ local) => {
+      local.data = data;
+      local.route = { params };
+      return renderCompare(local);
+    },
+    reroute: rerouteCompare,
+    isEmpty: () => false,
+    title: (/** @type {any} */ params) => compareTitle(params),
+  },
   'not-found': {
     id: 'not-found',
     inspectable: false,
@@ -458,6 +479,7 @@ function parseRoute(hash) {
   if (path === '/') return { id: 'runs', params: {}, view: VIEWS.runs };
   if (path === '/workflows') return { id: 'workflows', params: {}, view: VIEWS.workflows };
   if (path === '/sessions') return { id: 'sessions', params: {}, view: VIEWS.sessions };
+  if (path === '/compare') return { id: 'compare', params: {}, view: VIEWS.compare };
   if (path === '/fleet') return { id: 'fleet', params: {}, view: VIEWS.fleet };
   const parts = path.split('/'); // ['', 'run', slug, taskId, ...selection]
   const manage = parts[1];
@@ -469,6 +491,13 @@ function parseRoute(hash) {
   if (manage === 'followups') return parts.length === 2 ? base(manage) : parts.length === 3 && /^FU-[0-9a-hjkmnp-tv-z]{6}$/.test(parts[2]) ? base(manage, { item: parts[2] }) : notFound;
   if (manage === 'health') return parts.length === 2 ? base(manage) : parts.length === 4 && parts[2] === 'store' && PARAM_PATTERN.test(parts[3]) ? base(manage, { store: parts[3] }) : notFound;
   if (manage === 'workers') return parts.length === 2 ? base(manage) : parts.length === 5 && PARAM_PATTERN.test(parts[2]) && ['worker', 'orchestration'].includes(parts[3]) && /^[a-z][A-Za-z0-9]{0,31}$/.test(parts[4]) ? base(manage, { cell: { harness: parts[2], group: parts[3], cell: parts[4] } }) : notFound;
+  if (manage === 'compare') {
+    if (parts.length === 2) return base(manage);
+    if (parts.length === 6 && PARAM_PATTERN.test(parts[2]) && PARAM_PATTERN.test(parts[3]) && PARAM_PATTERN.test(parts[4]) && PARAM_PATTERN.test(parts[5])) {
+      return { id: 'compare', params: { slugA: parts[2], taskIdA: parts[3], slugB: parts[4], taskIdB: parts[5] }, view: VIEWS.compare };
+    }
+    return notFound;
+  }
   if (manage === 'advice') {
     let i = 2; const params = /** @type {any} */ ({}); const extra = /** @type {any} */ ({});
     if (parts[i] === 'kind' && kind(parts[i + 1])) { params.kind = parts[i + 1]; i += 2; }
@@ -481,6 +510,9 @@ function parseRoute(hash) {
     return { id: 'fleet-project', params: parts.length === 4 ? { project: parts[2], agent: parts[3] } : { project: parts[2] }, view: VIEWS['fleet-project'] };
   }
   if (parts[1] === 'sessions') {
+    if (parts.length === 3 && parts[2] === 'history') {
+      return { id: 'sessions', params: { mode: 'history' }, view: VIEWS.sessions, mode: 'history' };
+    }
     const lane = laneOfParts(parts.slice(2));
     return lane === null ? notFound : { id: 'sessions', params: {}, view: VIEWS.sessions, lane };
   }
@@ -515,6 +547,13 @@ function hashFor(route) {
   const id = route ? route.id : null;
   if (id === 'runs') return '#/';
   if (id === 'workflows') return '#/workflows';
+  if (id === 'compare') {
+    if (params.slugA && params.taskIdA && params.slugB && params.taskIdB) {
+      if (!PARAM_PATTERN.test(params.slugA) || !PARAM_PATTERN.test(params.taskIdA) || !PARAM_PATTERN.test(params.slugB) || !PARAM_PATTERN.test(params.taskIdB)) return null;
+      return `#/compare/${params.slugA}/${params.taskIdA}/${params.slugB}/${params.taskIdB}`;
+    }
+    return '#/compare';
+  }
   if (['settings', 'advice', 'followups', 'health', 'workers'].includes(id)) {
     let hash = `#/${id}`;
     if (id === 'settings' && route.key !== undefined && typeof route.key !== 'string') return null;
@@ -535,6 +574,7 @@ function hashFor(route) {
     return `#/fleet/${params.project}${params.agent === undefined ? '' : `/${params.agent}`}`;
   }
   if (id === 'sessions') {
+    if (route.mode === 'history' || route.params?.mode === 'history') return '#/sessions/history';
     if (route.lane === undefined) return '#/sessions';
     const lane = laneSegments(route.lane);
     return lane === null ? null : `#/sessions/${lane}`;
@@ -585,6 +625,7 @@ function titleFor(route, data = null) {
  */
 function navFor(route) {
   if (['workflows', 'sessions', 'settings', 'advice', 'followups', 'health', 'workers'].includes(route.id)) return route.id;
+  if (route.id === 'compare') return 'sessions';
   if (route.id === 'fleet' || route.id === 'fleet-project') return 'fleet';
   return route.id === 'not-found' ? null : 'runs';
 }
