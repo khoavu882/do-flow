@@ -72,7 +72,7 @@ const URL_LINE = /^doflow ui: http:\/\/127\.0\.0\.1:(\d+)\/#c=([0-9a-f]{64})\n/;
 const BOOT_MS = 30_000;
 const STOP_MS = 5_000;
 const HOUR = 60 * 60 * 1000;
-const USAGE = 'usage: fixture-console.ts --core <absolute path to bin/doflow.js> [--empty] [--manage] [--core-missing] [--keep] [--tick <seconds>] [--append <seconds>] [--worker-log <seconds>]';
+const USAGE = 'usage: fixture-console.ts --core <absolute path to bin/doflow.js> [--empty] [--manage] [--history] [--core-missing] [--keep] [--tick <seconds>] [--append <seconds>] [--worker-log <seconds>]';
 const REPO = path.resolve(__dirname, '..', '..');
 /** The session ids of the V.2 transcript fixtures (test/fixtures/transcripts/v8): `<RAW>c001` is the Claude main session. */
 const RAW = 'fa000000-0000-4000-8000-00000000';
@@ -156,7 +156,7 @@ const CHAIN_PLAN = [
   '',
 ].join('\n');
 
-type Options = { core: string, empty?: boolean, manage?: boolean, coreMissing?: boolean, keep?: boolean, chain?: boolean, log?: (line: string) => void };
+type Options = { core: string, empty?: boolean, manage?: boolean, history?: boolean, coreMissing?: boolean, keep?: boolean, chain?: boolean, log?: (line: string) => void };
 type Fixture = ReturnType<typeof buildFixture>;
 type Handle = {
   url: string, port: number, code: string, dir: string, project: string, env: Record<string, string>,
@@ -527,6 +527,132 @@ function dropRuns(fixture: Fixture) {
   fixture.runs.length = 0;
 }
 
+// 152 IC-010: add finished workflow sessions for --history mode across multiple task classes
+function addHistoryRuns(fixture: Fixture) {
+  const { main } = fixture;
+  const orchDir = path.join(main, '.doflow', 'state', 'orchestration');
+  const workerDir = path.join(main, '.doflow', 'state', 'worker-runs');
+  fs.mkdirSync(orchDir, { recursive: true });
+  fs.mkdirSync(workerDir, { recursive: true });
+
+  const now = Date.now();
+  const time = (offsetMs: number) => new Date(now - offsetMs).toISOString();
+
+  // 1. Feature delivery: completed 2 days ago
+  const featSlug = 'feat-history-auth';
+  const featTaskId = 'run-hist-feat';
+  const featStarted = time(2 * 86400000 + 3600000);
+  const featEnded = time(2 * 86400000);
+  fs.writeFileSync(path.join(orchDir, `${featTaskId}.json`), JSON.stringify({
+    version: 1,
+    taskId: featTaskId,
+    slug: featSlug,
+    taskClass: 'feature',
+    workflowName: 'Feature Delivery',
+    state: 'COMPLETED',
+    startedAt: featStarted,
+    updatedAt: featEnded,
+    program: [
+      { type: 'stage', id: 'discovery', name: 'Discovery', skill: 'do-brainstorm', status: 'completed', outcome: 'completed' },
+      { type: 'stage', id: 'design', name: 'Design', skill: 'do-design', status: 'completed', outcome: 'completed' },
+      { type: 'stage', id: 'planning', name: 'Planning', skill: 'do-plan', status: 'completed', outcome: 'completed' },
+      { type: 'stage', id: 'implementation', name: 'Implementation', skill: 'do-implement', status: 'completed', outcome: 'completed' },
+      { type: 'stage', id: 'review', name: 'Review', skill: 'do-code-review', status: 'completed', outcome: 'completed' },
+    ],
+    history: [
+      { at: featStarted, action: 'start' },
+      { at: time(2 * 86400000 + 3000000), action: 'complete-stage', node: 'discovery', outcome: 'completed' },
+      { at: time(2 * 86400000 + 2000000), action: 'complete-stage', node: 'design', outcome: 'completed' },
+      { at: time(2 * 86400000 + 1200000), action: 'complete-stage', node: 'planning', outcome: 'completed' },
+      { at: time(2 * 86400000 + 300000), action: 'complete-stage', node: 'implementation', outcome: 'completed' },
+      { at: featEnded, action: 'complete-stage', node: 'review', outcome: 'completed' },
+      { at: featEnded, action: 'complete-run' },
+    ],
+  }));
+
+  fs.writeFileSync(path.join(workerDir, `${featSlug}.json`), JSON.stringify({
+    version: 1,
+    slug: featSlug,
+    runs: {
+      'w-000000000001': {
+        runId: 'w-000000000001',
+        task: 'A.1',
+        token: 1,
+        seq: 1,
+        harness: 'codex',
+        phase: 'ended',
+        report: {
+          status: 'success',
+          model: 'codex-5',
+          tokens: { input: 8500, output: 1200, total: 9700 },
+        },
+      },
+    },
+  }));
+
+  // 2. Bug fix: completed 1 day ago
+  const bugSlug = 'bug-history-cache';
+  const bugTaskId = 'run-hist-bug';
+  const bugStarted = time(86400000 + 1800000);
+  const bugEnded = time(86400000);
+  fs.writeFileSync(path.join(orchDir, `${bugTaskId}.json`), JSON.stringify({
+    version: 1,
+    taskId: bugTaskId,
+    slug: bugSlug,
+    taskClass: 'bug',
+    workflowName: 'Bug Fix',
+    state: 'COMPLETED',
+    startedAt: bugStarted,
+    updatedAt: bugEnded,
+    program: [
+      { type: 'stage', id: 'investigation', name: 'Investigation', skill: 'do-diagnose', status: 'completed', outcome: 'completed' },
+      { type: 'stage', id: 'implementation', name: 'Implementation', skill: 'do-implement', status: 'completed', outcome: 'completed' },
+      { type: 'stage', id: 'verification', name: 'Verification', skill: 'do-test', status: 'completed', outcome: 'completed' },
+    ],
+    history: [
+      { at: bugStarted, action: 'start' },
+      { at: time(86400000 + 1200000), action: 'complete-stage', node: 'investigation', outcome: 'completed' },
+      { at: time(86400000 + 300000), action: 'complete-stage', node: 'implementation', outcome: 'completed' },
+      { at: bugEnded, action: 'complete-stage', node: 'verification', outcome: 'completed' },
+      { at: bugEnded, action: 'complete-run' },
+    ],
+  }));
+
+  // 3. Refactor: completed 12 hours ago
+  const refactorSlug = 'refactor-history-db';
+  const refactorTaskId = 'run-hist-refactor';
+  const refactorStarted = time(12 * 3600000 + 2400000);
+  const refactorEnded = time(12 * 3600000);
+  fs.writeFileSync(path.join(orchDir, `${refactorTaskId}.json`), JSON.stringify({
+    version: 1,
+    taskId: refactorTaskId,
+    slug: refactorSlug,
+    taskClass: 'refactor',
+    workflowName: 'Refactoring',
+    state: 'COMPLETED',
+    startedAt: refactorStarted,
+    updatedAt: refactorEnded,
+    program: [
+      { type: 'stage', id: 'design', name: 'Design', skill: 'do-design', status: 'completed', outcome: 'completed' },
+      { type: 'stage', id: 'implementation', name: 'Implementation', skill: 'do-implement', status: 'completed', outcome: 'completed' },
+      { type: 'stage', id: 'verification', name: 'Verification', skill: 'do-test', status: 'completed', outcome: 'completed' },
+    ],
+    history: [
+      { at: refactorStarted, action: 'start' },
+      { at: time(12 * 3600000 + 1500000), action: 'complete-stage', node: 'design', outcome: 'completed' },
+      { at: time(12 * 3600000 + 500000), action: 'complete-stage', node: 'implementation', outcome: 'completed' },
+      { at: refactorEnded, action: 'complete-stage', node: 'verification', outcome: 'completed' },
+      { at: refactorEnded, action: 'complete-run' },
+    ],
+  }));
+
+  fixture.runs.push(
+    { taskId: featTaskId, slug: featSlug, state: 'COMPLETED' },
+    { taskId: bugTaskId, slug: bugSlug, state: 'COMPLETED' },
+    { taskId: refactorTaskId, slug: refactorSlug, state: 'COMPLETED' },
+  );
+}
+
 /** Builds the fixture and starts the Console on it; resolves once the URL line is out. */
 async function startFixtureConsole(options: Options): Promise<Handle> {
   const log = options.log ?? (() => {});
@@ -551,6 +677,7 @@ async function startFixtureConsole(options: Options): Promise<Handle> {
   try {
     if (options.empty && options.manage) throw new Error('fixture-console: --manage cannot be combined with --empty');
     if (options.empty && options.chain) throw new Error('fixture-console: --worker-log needs runs; it cannot be combined with --empty');
+    if (options.empty && options.history) throw new Error('fixture-console: --history cannot be combined with --empty');
     if (options.empty) dropRuns(fixture);
     else {
       steps = addRuns(fixture, options.core);
@@ -558,6 +685,9 @@ async function startFixtureConsole(options: Options): Promise<Handle> {
       if (options.chain) {
         world = addChain(fixture, options.core);
         fixture.runs.push({ taskId: CHAIN.taskId, slug: CHAIN.slug, state: '' });
+      }
+      if (options.history) {
+        addHistoryRuns(fixture);
       }
     }
     const fleet = addFleet(fixture, options.core);
@@ -648,14 +778,15 @@ async function startFixtureConsole(options: Options): Promise<Handle> {
   }
 }
 
-type Flags = { core: string, empty: boolean, manage: boolean, coreMissing: boolean, keep: boolean, tick: number | null, append: number | null, workerLog: number | null };
+type Flags = { core: string, empty: boolean, manage: boolean, history: boolean, coreMissing: boolean, keep: boolean, tick: number | null, append: number | null, workerLog: number | null };
 
 function parseFlags(argv: readonly string[]): Flags | { error: string } {
-  const flags: Flags = { core: '', empty: false, manage: false, coreMissing: false, keep: false, tick: null, append: null, workerLog: null };
+  const flags: Flags = { core: '', empty: false, manage: false, history: false, coreMissing: false, keep: false, tick: null, append: null, workerLog: null };
   for (let index = 0; index < argv.length; index += 1) {
     const name = argv[index];
     if (name === '--empty') flags.empty = true;
     else if (name === '--manage') flags.manage = true;
+    else if (name === '--history') flags.history = true;
     else if (name === '--core-missing') flags.coreMissing = true;
     else if (name === '--keep') flags.keep = true;
     else if (name === '--core' || name === '--tick' || name === '--append') {
@@ -677,6 +808,7 @@ function parseFlags(argv: readonly string[]): Flags | { error: string } {
   if (!path.isAbsolute(flags.core)) return { error: '--core must be an absolute path' };
   if (!fs.existsSync(flags.core)) return { error: `--core does not exist: ${flags.core}` };
   if (flags.manage && flags.empty) return { error: '--manage cannot be combined with --empty' };
+  if (flags.history && flags.empty) return { error: '--history cannot be combined with --empty' };
   if (flags.workerLog !== null && flags.empty) return { error: '--worker-log cannot be combined with --empty' };
   return flags;
 }

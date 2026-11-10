@@ -82,10 +82,11 @@ const { handleAttendanceCommand } = require('../runtime/roadmap/attendance.ts');
 // `worker-runs` only lists the worker runs of one feature's run store (150 IC-004); it writes nothing.
 // `advice-picks` only reads the advice record partitions of the last 90 days and prints the picks per day (151 IC-001); it writes nothing.
 // `worker-matrix` only prints the install's harness registry as a worker and orchestration matrix (151 IC-003); it writes nothing.
+// `sessions-history` only aggregates finished workflow sessions within retention window (152 IC-001); it writes nothing.
 // `attendance` is read-only; `worktree --action cleanup` removes a merged feature's worktree under the roadmap lease and writes no DoFlow state, so neither runs upkeep.
 // `package` stays here (122 IC-012): `new` writes only the target folder; `add --plan`, `update --plan` and `remove` write the store and lock and run upkeep (see `runsUpkeep`).
 // `slot` is not here: `run`, `list` and `release` write the slot files and run upkeep; only `slot --action peek` is read-only and skips it (093 IC-018 b, see `runsUpkeep`).
-const NO_UPKEEP = new Set(['storage', 'config', 'plan-check', 'review', 'protocol', 'rules', 'primary', 'package', 'models', 'fleet', 'transcript', 'events', 'worker-log', 'worker-result', 'worker-runs', 'advice-picks', 'worker-matrix', 'worktree', 'attendance']);
+const NO_UPKEEP = new Set(['storage', 'config', 'plan-check', 'review', 'protocol', 'rules', 'primary', 'package', 'models', 'fleet', 'transcript', 'events', 'worker-log', 'worker-result', 'worker-runs', 'advice-picks', 'worker-matrix', 'sessions-history', 'worktree', 'attendance']);
 const runsUpkeep = (o: any): boolean => (!NO_UPKEEP.has(o.cmd) && !(o.cmd === 'slot' && o.actionGiven && o.action === 'peek'))
   || (o.cmd === 'package' && ((typeof o.planId === 'string' && (o.action === 'add' || o.action === 'update')) || o.action === 'remove'));
 // Required on first use, so a CLI whose failure modules cannot be loaded still runs every other verb.
@@ -111,6 +112,7 @@ function handleWorkerRunsCommand(options: any): any { return require('../runtime
 // The two management read verbs (151 A.5) load only when one runs; each returns its exit code.
 function handleAdvicePicksCommand(options: any): any { return require('../runtime/advice/picks.ts').handleAdvicePicksCommand(options); }
 function handleWorkerMatrixCommand(options: any): any { return require('../runtime/worker/matrix.ts').handleWorkerMatrixCommand(options); }
+function handleSessionsHistoryCommand(options: any): any { return require('../runtime/history/sessions.ts').handleSessionsHistoryCommand(options); }
 const { handleInventoryCommand } = require('../runtime/inventory/index.ts');
 const { finishRuntime, usageError } = require('../runtime/cli-result.ts');
 const { setRecordSlug, callerFeatureSlug, invalidSlugRefusal, slugNamesNoFeature } = require('../runtime/task-scope.ts');
@@ -466,6 +468,7 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     case 'worker-runs': return handleWorkerRunsCommand({ slug: o.slug, json: o.json, flags: o.flagsGiven, positional: o.positional, env: process.env, cwd: process.cwd(), resolveSlug: (cwd: string) => featureSlugFor({ projectRoot: cwd }) });
     case 'advice-picks': return handleAdvicePicksCommand({ kind: o.kind, json: o.json, flags: o.flagsGiven, positional: o.positional, env: process.env, cwd: process.cwd() });
     case 'worker-matrix': return handleWorkerMatrixCommand({ json: o.json, flags: o.flagsGiven, positional: o.positional, env: process.env, cwd: process.cwd() });
+    case 'sessions-history': return handleSessionsHistoryCommand({ days: o.days, limit: o.limit, projectRoot: o.projectRoot, json: o.json, flags: o.flagsGiven, positional: o.positional, env: process.env, cwd: process.cwd() });
     case 'models': return handleModelsCommand({ action: o.actionGiven ? o.action : (o.positional?.[0] || 'list'), positional: o.positional, harness: o.harness, model: o.model, json: o.json, projectRoot: evidenceRoot(o) });
     case 'worktree': return handleWorktreeCommand({ action: o.actionGiven ? o.action : undefined, slug: o.slug, json: o.json, flags: o.flagsGiven, env: process.env, cwd: process.cwd() });
     case 'attendance': return handleAttendanceCommand({ taskId: o.taskId, run: o.run, json: o.json, flags: o.flagsGiven, env: process.env, cwd: process.cwd() });

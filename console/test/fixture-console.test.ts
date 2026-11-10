@@ -228,7 +228,7 @@ test('every scratch directory is made under SCRATCH_ROOT and is gone after stop'
 });
 
 test('--core must be an absolute path to an existing file', () => {
-  assert.deepEqual(Object.keys(parseFlags(['--core', CORE_CLI, '--empty', '--core-missing', '--keep', '--tick', '2', '--append', '1'])).sort(), ['append', 'coreMissing', 'core', 'empty', 'keep', 'manage', 'tick', 'workerLog'].sort()); // V.10 adds --append, 150 D.1 --worker-log
+  assert.deepEqual(Object.keys(parseFlags(['--core', CORE_CLI, '--empty', '--core-missing', '--keep', '--tick', '2', '--append', '1'])).sort(), ['append', 'coreMissing', 'core', 'empty', 'history', 'keep', 'manage', 'tick', 'workerLog'].sort()); // V.10 adds --append, 150 D.1 --worker-log, 152 D.1 --history
   for (const argv of [[], ['--core', 'relative/doflow.js'], ['--core', path.join(path.dirname(CORE_CLI), 'no-such.js')], ['--core', CORE_CLI, '--bogus'], ['--core', CORE_CLI, '--tick', '0'], ['--core', CORE_CLI, '--append', '0']]) {
     assert.ok('error' in parseFlags(argv), `refused: ${argv.join(' ')}`);
   }
@@ -435,5 +435,23 @@ test('--manage adds the management world and refuses --empty', { timeout: 240_00
     const advice = await api.get('/api/advice');
     assert.equal(advice.status, 200);
     assert.ok(advice.json.sections.picks.data.days.filter((day: any) => (day.picks['task-class'] ?? 0) > 0).length >= 3);
+  } finally { await app.stop(); }
+});
+
+test('--history adds completed history runs and refuses --empty', { timeout: 240_000 }, async () => {
+  assert.equal((parseFlags(['--core', CORE_CLI, '--history']) as any).history, true);
+  const refused = spawnSync(process.execPath, [FIXTURE_SCRIPT, '--core', CORE_CLI, '--history', '--empty'], { encoding: 'utf8', timeout: 30_000 });
+  assert.equal(refused.status, 2);
+  assert.equal(refused.stdout, '');
+  assert.match(refused.stderr, /--history cannot be combined with --empty/);
+  assert.match(refused.stderr, /\[--history\]/);
+  const app = await startFixtureConsole({ core: CORE_CLI, history: true });
+  try {
+    const api = await session(app);
+    const hist = await api.get('/api/sessions-history');
+    assert.equal(hist.status, 200);
+    assert.equal(hist.json.v, 1);
+    assert.ok(Array.isArray(hist.json.sessions));
+    assert.ok(hist.json.sessions.length >= 3);
   } finally { await app.stop(); }
 });

@@ -249,8 +249,8 @@ function parseArgs(argv: string[]): any {
         // its validation subtly wrong.
         const runtime = parseRuntimeFlag(a, argv, i, o);
         if (runtime !== null) { i = runtime; break; }
-        // slot, primary, fleet, transcript, events, the three worker reads, advice-picks and worker-matrix report an unknown flag as their own usage error (exit 2, 115 IC-008, 120 IC-008, 149 IC-001, 150 IC-005, 151 IC-004).
-        if (a.startsWith('-') && (o.cmd === 'slot' || o.cmd === 'primary' || o.cmd === 'fleet' || o.cmd === 'transcript' || o.cmd === 'events' || o.cmd === 'worker-log' || o.cmd === 'worker-result' || o.cmd === 'worker-runs' || o.cmd === 'advice-picks' || o.cmd === 'worker-matrix')) (o.extraFlags = o.extraFlags || []).push(a);
+        // slot, primary, fleet, transcript, events, the three worker reads, advice-picks, worker-matrix and sessions-history report an unknown flag as their own usage error (exit 2, 115 IC-008, 120 IC-008, 149 IC-001, 150 IC-005, 151 IC-004, 152 IC-001).
+        if (a.startsWith('-') && (o.cmd === 'slot' || o.cmd === 'primary' || o.cmd === 'fleet' || o.cmd === 'transcript' || o.cmd === 'events' || o.cmd === 'worker-log' || o.cmd === 'worker-result' || o.cmd === 'worker-runs' || o.cmd === 'advice-picks' || o.cmd === 'worker-matrix' || o.cmd === 'sessions-history')) (o.extraFlags = o.extraFlags || []).push(a);
         else if (a.startsWith('-') && o.cmd !== 'plan-check') argError(o, argv, unknownFlagMessage(a), unknownFlagExit(o.cmd));
         else if (!o.cmd) o.cmd = a;
         else o.positional.push(a);
@@ -639,6 +639,8 @@ Commands:
                        advice-picks [--kind <id>] [--json]   days read or unknown, picks with closed fields, limits shown, notShown, skipped (exit 0, 2 usage or registry-invalid)
   worker-matrix        Print every harness's worker and orchestration cells from the install's registry, evidence masked and capped (read-only).
                        worker-matrix [--json]   cells supported, unknown or unsupported, declared or not, cut when capped; counts and limits (exit 0, 2 usage or registry-invalid)
+  sessions-history     List finished workflow sessions within retention window (read-only).
+                       sessions-history [--days <n>] [--limit <n>] [--json]   (exit 0, 2 usage)
   worktree             Remove a merged feature's worktree and branch, never by force (--action cleanup).
                        worktree --action cleanup --slug <row slug> [--json]   copies agent-docs/doflow/<slug> back to the main checkout first (exit 0 cleaned, 1 kept or lease-held with the reason, 2 usage)
   attendance           Say whether a person is watching a stage (read-only).

@@ -1594,6 +1594,95 @@ function workerMatrix(value: unknown, context?: Context) {
   };
 }
 
+// 152 IC-005: projectSessionsHistory
+function projectSessionsHistory(value: unknown, context?: Context) {
+  const anchors = anchorsIn(context);
+  const body = record(value);
+  if (body.v !== 1) fail();
+
+  const win = record(body.window);
+  const windowOut = {
+    from: iso(win.from),
+    to: iso(win.to),
+    maxAgeDays: count(win.maxAgeDays),
+  };
+
+  const stageEntry = (s: unknown) => {
+    const st = record(s);
+    return {
+      id: id(st.id),
+      name: boundedText(128, anchors)(st.name),
+      skill: orNull(id)(st.skill),
+      status: id(st.status),
+      outcome: id(st.outcome),
+      durationMs: orNull(count)(st.durationMs),
+    };
+  };
+
+  const sessionEntry = (s: unknown) => {
+    const rec = record(s);
+    const workers = record(rec.workers);
+    const cost = record(rec.cost);
+    const tokens = record(cost.tokens);
+    const proj = rec.project;
+
+    let placedProj: { anchor: string; rel: string };
+    if (proj && typeof proj === 'object' && typeof (proj as any).anchor === 'string' && typeof (proj as any).rel === 'string') {
+      placedProj = {
+        anchor: boundedText(64, anchors)((proj as any).anchor),
+        rel: boundedText(512, anchors)((proj as any).rel),
+      };
+    } else if (typeof proj === 'string' && proj !== '') {
+      placedProj = placePath(proj, anchors);
+    } else {
+      placedProj = { anchor: '<project>', rel: '' };
+    }
+
+    return {
+      slug: id(rec.slug),
+      taskId: id(rec.taskId),
+      taskClass: id(rec.taskClass),
+      workflowName: boundedText(128, anchors)(rec.workflowName),
+      harness: orNull(harness)(rec.harness),
+      state: id(rec.state),
+      startedAt: orNull(iso)(rec.startedAt),
+      endedAt: orNull(iso)(rec.endedAt),
+      durationMs: orNull(count)(rec.durationMs),
+      stages: each(stageEntry)(rec.stages),
+      workers: {
+        count: count(workers.count),
+        attempts: count(workers.attempts),
+        retries: count(workers.retries),
+        quotaStops: count(workers.quotaStops),
+      },
+      cost: {
+        tokens: {
+          input: orNull(count)(tokens.input),
+          output: orNull(count)(tokens.output),
+          total: orNull(count)(tokens.total),
+        },
+        models: each(label)(cost.models),
+        telemetry: id(cost.telemetry),
+      },
+      expired: bool(rec.expired),
+      project: placedProj,
+    };
+  };
+
+  const sessions = each(sessionEntry)(body.sessions);
+  const limits = record(body.limits);
+  return {
+    v: 1,
+    window: windowOut,
+    sessions,
+    limits: {
+      shown: count(limits.shown),
+      notShown: count(limits.notShown),
+      pruned: count(limits.pruned),
+    },
+  };
+}
+
 const PROJECTORS: Readonly<Record<string, (value: unknown, context?: any) => unknown>> = Object.freeze({
   list, status, timeline, attempts, workflow, capabilities, version,
   observed, slots, 'worker-status': workerStatus, roadmap,
@@ -1601,6 +1690,7 @@ const PROJECTORS: Readonly<Record<string, (value: unknown, context?: any) => unk
   'worker-runs': workerRuns, 'worker-result': workerResult, 'worker-run-status': workerStatus, 'worker-log': workerLog,
   'config-list': configList, 'config-schema': configSchema, 'advise-report': adviseReport, 'advice-picks': advicePicks,
   followups, 'followup-record': followupRecord, 'lifecycle-overview': lifecycleOverview, doctor, 'storage-report': storageReport, 'worker-matrix': workerMatrix,
+  'sessions-history': projectSessionsHistory,
 });
 const PROJECTOR_IDS: readonly string[] = Object.freeze(Object.keys(PROJECTORS));
 
@@ -1621,4 +1711,4 @@ function project(shapeId: string, value: unknown, context?: Context): Projected 
 }
 
 module.exports = { ADVICE_MODES, CANDIDATE_STATUSES, CLOSED_SETS, FEATURE_BUCKETS, FILE_CODES, FOLLOWUP_STATES, LAYERS, MATRIX_GROUPS, MATRIX_STATUSES, OTHER_HARNESS,
-  PROJECTOR_IDS, RELEASE_MODES, SCOPES, SOURCE_KINDS, VIA, WITHHELD, project };
+  PROJECTOR_IDS, RELEASE_MODES, SCOPES, SOURCE_KINDS, VIA, WITHHELD, project, projectSessionsHistory };

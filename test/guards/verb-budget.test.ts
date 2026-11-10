@@ -105,6 +105,7 @@ const UNMEASURED: Readonly<Record<string, string>> = {
   route: NEEDS_LIVE_RUN,
   scaffold: WRITES_STATE,
   'self-update': INSTALLER,
+  'sessions-history': LEDGER_DEPENDENT,
   slot: WRITES_STATE,
   stats: LEDGER_DEPENDENT,
   status: INSTALLER,
