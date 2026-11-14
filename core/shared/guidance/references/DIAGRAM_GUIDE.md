@@ -2,11 +2,11 @@
 
 `ARTIFACT_FORMAT.md` §4 says which artifact carries which diagram slot. This file says what belongs
 inside one. Read on demand by `do-brainstorm`, `do-design` and `do-plan` at the point each fills a
-slot, and never loaded into a session by default.
+slot, and never loaded by default.
 
 **Scope.** These rules govern every Mermaid diagram in a feature directory, including ones in
-`as-is/`, `target/` or any other subdirectory a feature grows; the slot registry in §4 of
-`ARTIFACT_FORMAT.md` lists only the slots a template scaffolds.
+`as-is/`, `target/` or any other subdirectory; the slot registry in `ARTIFACT_FORMAT.md` §4
+lists only the slots a template scaffolds.
 
 ## 1. Permitted types
 
@@ -18,20 +18,19 @@ slot, and never loaded into a session by default.
 | `stateDiagram-v2` | States, transitions and the guards between them |
 
 **The admission rule.** A type joins this list when it renders in GitHub, the VS Code Markdown
-preview and Obsidian with no plugin installed by the reader, and its grammar is not marked
-experimental by Mermaid. Both halves matter: a type that renders today but whose grammar is still
-moving will silently change shape under artifacts already written against it.
+preview and Obsidian with no reader-installed plugin, and its grammar is not marked
+experimental by Mermaid. Both halves matter: a grammar still moving will silently change shape under
+artifacts already written.
 
 **C4 is a zoom model here, not a diagram type.** `C4Context`, `C4Container`, `C4Component` and
 `C4Dynamic` fail the rule's second half: Mermaid's C4 documentation calls the diagram experimental,
-and its labels and layout are placed by hand, one `UpdateRelStyle` call per relationship. Render
+and its labels and layout are hand-placed, one `UpdateRelStyle` call per relationship. Render
 every C4 level with `flowchart` plus `subgraph`, which gives explicit direction and puts each label
 on its arrow.
 
 **Everything else is excluded too**, including types that render widely (`journey`, `timeline`,
 `quadrantChart`, `gitGraph`, `mindmap`) and every `-beta` grammar. Each added type is another set of
-conventions to carry and another surface that drifts between renderers; four cover what the chain
-needs.
+conventions that drift between renderers; four cover what the chain needs.
 
 ## 2. Choosing between them
 
@@ -50,7 +49,7 @@ wants two of these at once, it is two diagrams.
 
 ## 3. Complexity budget
 
-Each type is bounded on what actually makes that type illegible, not on one number applied to all.
+Each type is bounded on what makes it illegible, not by one number.
 
 | Type | Element ceiling | Link ceiling |
 |---|---|---|
@@ -62,8 +61,8 @@ Each type is bounded on what actually makes that type illegible, not on one numb
 `subgraph` containers are grouping and do not count toward the node ceiling.
 
 **Why only `flowchart` carries a link ceiling.** A `sequenceDiagram` lays out in columns, so nothing
-tangles however many messages it carries. A `flowchart` is routed by the layout engine, and past a
-certain density its edges overlap or cross boxes that are not their endpoints.
+tangles. A `flowchart` is routed by the layout engine, and past a certain density its edges
+overlap or cross unrelated boxes.
 
 **Where the numbers come from.** 56 Mermaid diagrams in a completed feature. Flowchart node counts
 were bimodal (eleven at six or fewer, four at seventeen or more, none from twelve to sixteen), so
@@ -110,7 +109,7 @@ reach out of a nested one, the boundary is usually in the wrong place: move it, 
 out of band, and nothing else.
 
 **Skipping a slot is `N/A: [why]`**, defined once in `ARTIFACT_FORMAT.md` §4. A slot left silently
-empty cannot be told apart from an oversight.
+empty reads as an oversight.
 
 ## 6. Authored sources
 
@@ -120,8 +119,12 @@ Some features author diagrams in PlantUML under `design/c4/` and commit the rend
 is a change the next render discards.
 
 **The generated view drops seven things** — element type, technology, description, sprite, tag, link
-and the legend — keeping nodes, edges, labels and boundaries. Need any of the seven, open the image;
-that is why the generated block names its source.
+and the legend — keeping nodes, edges, labels and boundaries. Need any of the seven, open the image:
+the generated block names its source.
+
+**Which tool**: Mermaid for working diagrams in an artifact; PlantUML for lanes and full C4 with
+technology; draw.io only for a presentation copy that `render-drawio` writes into
+`design/presentation/`, never the source of truth.
 
 **A flow gets one lane per actor**, ordered by who acts first, with the failure branch reaching its
 own terminal. One file per flow, `flow-<name>.puml`, matching its `#### Flow: <name>` heading. Skip

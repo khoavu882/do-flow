@@ -38,6 +38,10 @@ const ALLOWLIST: any = new Map([
     'user-invoked by design, like render-diagrams: writes a feature\'s documents as one HTML page on demand and is never a chain stage, so no skill invokes it',
   ],
   [
+    'render-drawio',
+    'user-invoked by design, like render-page: writes a presentation copy of a feature\'s C4 sources on demand and is never a chain stage, so no skill invokes it',
+  ],
+  [
     'review-package',
     'shell helper invoked by subagent/review orchestration scripts, not called directly as a top-level skill command',
   ],
