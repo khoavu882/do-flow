@@ -27,6 +27,10 @@ function project() {
   return { scratch, root: fs.realpathSync(root) };
 }
 
+// claude named as a target or acted on. The output also prints checkout and scratch paths, which may
+// themselves contain the word (a clone under `claude-projects/`), so a bare /claude/ is not the test.
+const CLAUDE_TARGET = /(^|\s)claude(:| +->)|targets\s*:[^\n]*\bclaude\b/m;
+
 function run({ scratch, root }: any, args: string[]) {
   const env = scratch.env({ GIT_CONFIG_GLOBAL: '/dev/null' });
   if (IS_WIN) env.USERPROFILE = scratch.home;
@@ -58,7 +62,7 @@ test('update and reconcile without -t leave a codex-only project codex-only', ()
 
   const reconcile = run(p, ['reconcile', '-f']);
   assert.strictEqual(reconcile.status, 0, reconcile.out);
-  assert.doesNotMatch(reconcile.out, /claude/, reconcile.out);
+  assert.doesNotMatch(reconcile.out, CLAUDE_TARGET, reconcile.out);
   assert.ok(!fs.existsSync(path.join(p.root, '.claude')), 'reconcile must not install claude');
   assert.deepStrictEqual(manifestTools(p.root), ['codex']);
 });
@@ -70,7 +74,7 @@ test('update without -t refreshes every installed harness of a two-harness proje
   const dry = run(p, ['update', '--dry-run']);
   assert.strictEqual(dry.status, 0, dry.out);
   assert.match(dry.out, /targets\s*: codex, pi/, dry.out);
-  assert.doesNotMatch(dry.out, /claude/, dry.out);
+  assert.doesNotMatch(dry.out, CLAUDE_TARGET, dry.out);
 
   const update = run(p, ['update', '-f']);
   assert.strictEqual(update.status, 0, update.out);
