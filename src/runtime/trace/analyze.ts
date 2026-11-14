@@ -17,6 +17,7 @@
 
 const nodeFs = require('node:fs');
 const path = require('node:path');
+const { sortKeysDeep: sorted } = require('../canonical-json.ts');
 const { sha16 } = require('../scaffold/fingerprint.ts');
 const { projectSpans } = require('./spans.ts');
 const { percentile } = require('./views.ts');
@@ -45,13 +46,6 @@ const cmp = (a: any, b: any): number => (a < b ? -1 : a > b ? 1 : 0);
 const startMs = (s: any): number => (s.start === null ? Infinity : Date.parse(s.start));
 const byStart = (a: any, b: any): number => startMs(a) - startMs(b) || cmp(a.spanId, b.spanId);
 const sum = (list: number[]): number => list.reduce((n, v) => n + v, 0);
-
-/** Object keys sorted at every level (the spans view rule). */
-function sorted(value: any): any {
-  if (Array.isArray(value)) return value.map(sorted);
-  if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map((k) => [k, sorted(value[k])]));
-  return value;
-}
 
 // ── thresholds (IC-003) ─────────────────────────────────────────────────────────────────────────
 

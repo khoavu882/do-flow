@@ -3,23 +3,15 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const { canonicalJson } = require('../canonical-json.ts');
 const { loadRegistry } = require('../../registry/index.ts');
 const { validateWorker } = require('../../registry/index.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { PARSERS } = require('./parsers.ts');
 
-/** Stable JSON: object keys sorted at every depth. */
-function stable(value: any): string {
-  if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`;
-  if (value && typeof value === 'object') {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stable(value[key])}`).join(',')}}`;
-  }
-  return JSON.stringify(value);
-}
-
 /** IC-007: digest a worker descriptor using readiness's stable JSON representation. */
 function descriptorDigest(worker: any): string {
-  return `sha256:${crypto.createHash('sha256').update(stable(worker)).digest('hex')}`;
+  return `sha256:${crypto.createHash('sha256').update(canonicalJson(worker)).digest('hex')}`;
 }
 
 /** IC-019: built-in worker entries in registry order, followed by active package workers in qualified id order. */

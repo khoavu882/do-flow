@@ -15,6 +15,7 @@
 const { cwdHash, resolveIdentity, ID_PATTERN } = require('./context/identity.ts');
 const { findWorkTreeTop } = require('./source-version.ts');
 const crypto = require('node:crypto');
+const { canonicalJson: canonicalJsonOf } = require('./canonical-json.ts');
 const { taskAttemptLimit, graphDigest, graphTuples, deriveTasks, isGraphPlan, overlaps } = require('./task-graph.ts');
 const { measureSources, compareSources } = require('./task-sources.ts');
 
@@ -528,14 +529,8 @@ function buildResumeReport(store: any, { key, graph, hashes = null, probes, stal
   };
 }
 
-/** JSON with object keys sorted at every level. */
-function canonicalJson(value: any): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-  if (value && typeof value === 'object') {
-    return `{${Object.keys(value).sort().map((k) => `${JSON.stringify(k)}:${canonicalJson(value[k])}`).join(',')}}`;
-  }
-  return JSON.stringify(value === undefined ? null : value);
-}
+/** JSON with object keys sorted at every level; an `undefined` is written as `null`. */
+const canonicalJson = (value: any): string => canonicalJsonOf(value, { undefinedAsNull: true });
 
 /** IC-015: `sha256:` over the report's canonical JSON with every `ageSeconds` removed, so an
  * acknowledgement a few seconds later still matches. */

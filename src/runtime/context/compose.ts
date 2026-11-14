@@ -3,6 +3,7 @@
 // TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 
 const crypto = require('node:crypto');
+const { canonicalJson } = require('../canonical-json.ts');
 
 /**
  * IC-006 Pack item model and classification table.
@@ -36,20 +37,6 @@ const ITEM_CAP_LIMITS: Record<string, number> = Object.freeze({
   'researchRequests (others)': 20,
   structuralContext: 5,
 });
-
-/**
- * Produces canonical JSON with sorted object keys.
- */
-function canonicalJson(val: any): string {
-  if (val === null || typeof val !== 'object') {
-    return JSON.stringify(val);
-  }
-  if (Array.isArray(val)) {
-    return '[' + val.map(canonicalJson).join(',') + ']';
-  }
-  const keys = Object.keys(val).sort();
-  return '{' + keys.map((k) => JSON.stringify(k) + ':' + canonicalJson(val[k])).join(',') + '}';
-}
 
 /**
  * Computes sha256 digest of canonical JSON.

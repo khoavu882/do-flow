@@ -33,7 +33,8 @@ function combinations(inputs: readonly string[]): string[][] {
   return out;
 }
 
-/** JSON with object keys sorted at every depth, so the digest does not depend on key order. */
+/** JSON with object keys sorted at every depth, so the digest does not depend on key order.
+ * Not `canonical-json.ts`: this file runs as a standalone generator and its test copies a fixed list of files. */
 function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
   if (value && typeof value === 'object') {

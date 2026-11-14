@@ -23,6 +23,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { maskLine } = require('../mask.ts');
+const { canonicalJson } = require('../canonical-json.ts');
 
 const ENVELOPE_DIR = 'dispatch-envelopes';
 const BOUNDS: Record<string, number> = { handoff: 16384, result: 32768 };
@@ -44,15 +45,8 @@ const FIXED_CONSTRAINTS = [
   'spawn children only through dispatch --action spawn within grant',
 ];
 
-/** IC-012: JSON with object keys sorted at every level and no whitespace; 080's `canonicalJson`
- * (`task-run.ts`, not exported), copied. */
-function canonical(value: any): string {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
-  if (value && typeof value === 'object') {
-    return `{${Object.keys(value).sort().map((k) => `${JSON.stringify(k)}:${canonical(value[k])}`).join(',')}}`;
-  }
-  return JSON.stringify(value === undefined ? null : value);
-}
+/** IC-012: JSON with object keys sorted at every level and no whitespace; an `undefined` is written as `null`. */
+const canonical = (value: any): string => canonicalJson(value, { undefinedAsNull: true });
 
 /** DEC-059: a `files:` entry compared after trimming and dropping a leading `./` (copy of
  * `task-graph.ts`'s module-private `normalizeFile`). */

@@ -11,6 +11,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { judge } = require('./gate-score.ts');
+const { canonicalJson } = require('../canonical-json.ts');
 
 const ADVICE_FILE = 'core/registry/advice.json';
 const VERDICTS_FILE = 'core/registry/advice-verdicts.json';
@@ -25,15 +26,6 @@ interface BenchBarResult {
 
 function isObject(value: any): boolean {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
-/** JSON with object keys sorted at every depth and no whitespace. */
-function canonicalJson(value: any): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-  if (isObject(value)) {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`;
-  }
-  return JSON.stringify(value);
 }
 
 /** `sha256:<hex>` of the canonical JSON of the registry `gate` block without `illustrative` (IC-004). */
