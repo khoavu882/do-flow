@@ -12,6 +12,9 @@ const {
   acquireRunLock, RunLockTimeoutError, RunLockLostError, runLockPath, formatRunLockMessage,
 } = require('../../src/state/run-lock.ts');
 const { tempDir } = require('../helper/tmp.ts');
+const { procStart } = require('../../src/runtime/worker/process-tree.ts');
+const { startTimeIsStable } = require('../../src/state/run-lock.ts');
+const NO_STABLE_START = !startTimeIsStable() && 'process start times are compared on darwin only';
 
 const MODULE = path.resolve(__dirname, '../../src/state/run-lock.ts');
 const PKG_VERSION = require('../../package.json').version;
@@ -76,6 +79,7 @@ test('acquire writes the owner record to run.lock and leaves no temp file', (t) 
     assert.match(owner.token, /^[0-9a-f]{32}$/);
     assert.equal(owner.token, hold.token);
     assert.equal(owner.pid, process.pid);
+    assert.equal(owner.processStart, startTimeIsStable() ? procStart(process.pid) : null);
     assert.equal(owner.hostname, os.hostname());
     assert.equal(owner.command, 'install');
     assert.equal(owner.scope, 'project');
@@ -135,6 +139,44 @@ test('a lock whose process is not running is cleared with that reason', (t) => {
   } finally {
     hold.release();
   }
+});
+
+test('a lock whose pid is alive but started at another time (a reused pid) is cleared as not running', { skip: NO_STABLE_START }, (t) => {
+  const root = scopeRoot(t);
+  const child = liveChild();
+  plant(root, record({ pid: child.pid, processStart: 'Mon Jan  1 00:00:00 2001' }));
+  const hold = acquireRunLock(target(root), { log: () => {} });
+  try {
+    assert.equal(hold.cleared[0].pid, child.pid);
+    assert.equal(hold.cleared[0].reason, 'not-running');
+  } finally {
+    hold.release();
+  }
+});
+
+test('on a platform whose start time is not stable a recorded start is ignored and the pid-only rule holds', { skip: !NO_STABLE_START && 'darwin compares start times' }, (t) => {
+  const root = scopeRoot(t);
+  const child = liveChild();
+  plant(root, record({ pid: child.pid, processStart: 'Mon Jan  1 00:00:00 2001' }));
+  assert.throws(() => acquireRunLock(target(root), { waitMs: 300, pollMs: 50, log: () => {} }), (err: any) => err instanceof RunLockTimeoutError);
+});
+
+test('a lock whose live pid started at the recorded time is still waited for', { skip: NO_STABLE_START }, (t) => {
+  const root = scopeRoot(t);
+  const child = liveChild();
+  const file = plant(root, record({ pid: child.pid, processStart: procStart(child.pid) }));
+  assert.throws(() => acquireRunLock(target(root), { waitMs: 300, pollMs: 50, log: () => {} }), (err: any) => err instanceof RunLockTimeoutError);
+  assert.equal(fs.existsSync(file), true);
+});
+
+test('a lock whose live pid has a start time that cannot be read keeps the pid-only rule', { skip: NO_STABLE_START }, (t) => {
+  const root = scopeRoot(t);
+  const child = liveChild();
+  plant(root, record({ pid: child.pid, processStart: 'Mon Jan  1 00:00:00 2001' }));
+  assert.throws(
+    () => acquireRunLock(target(root), { waitMs: 300, pollMs: 50, log: () => {}, procStart: () => null }),
+    (err: any) => err instanceof RunLockTimeoutError,
+  );
 });
 
 test("a lock with this process's pid and another token was left by an earlier process and is cleared", (t) => {

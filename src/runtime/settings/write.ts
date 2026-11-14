@@ -5,7 +5,9 @@
 /** Atomic writer for one user or project settings layer (086 IC-011). */
 
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 const { randomBytes } = require('node:crypto');
 const { isDeepStrictEqual } = require('node:util');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
@@ -100,32 +102,125 @@ function replaceBackup(file: string, fsImpl: any): any {
 
 /** How long a writer waits for another writer's lock. */
 const LOCK_WAIT_MS = 2000;
+/** A settings write holds its lock for milliseconds: a lock older than this is taken as abandoned, whatever its owner. */
+const LOCK_STALE_MS = 600_000;
+/** A moved-aside file this old was left by a reclaimer that died between its rename and its delete. */
+const ASIDE_STALE_MS = 60_000;
+/** The longest a write waits for `ps`; a start time not read in this time is recorded as unknown. */
+const START_READ_MS = 300;
 const PAUSE = new Int32Array(new SharedArrayBuffer(4));
+/** The ids of the locks this process holds now. A lock with this host and pid whose id is not here is left from an earlier hold of this pid. */
+const heldIds = new Set<string>();
+
+/** A process start time read within START_READ_MS, or null (unknown) where start times are not comparable or `ps` is slow. */
+function readStart(pid: number): string | null {
+  const { startTimeIsStable } = require('../../state/run-lock.ts');
+  if (!startTimeIsStable()) return null;
+  const { procStart, psEnv } = require('../worker/process-tree.ts');
+  return procStart(pid, {
+    run: (args: string[]) => {
+      try {
+        return execFileSync('/bin/ps', args, { encoding: 'utf8', env: psEnv(), timeout: START_READ_MS, stdio: ['ignore', 'pipe', 'ignore'] });
+      } catch (error: any) {
+        return typeof error?.status === 'number' && !error.signal ? String(error.stdout || '') : null;
+      }
+    },
+  });
+}
 
 /**
- * Take `<file>.lock` (created exclusively, holding a token) so one read-merge-rename of a layer runs at a
- * time across processes. A held lock is waited on for LOCK_WAIT_MS, then refused with code `locked`, naming
- * the lock and its age. A lock is never removed automatically, whatever its age: a writer stalled in its
- * critical section would otherwise lose its write silently, and a lock left by a crashed writer is one
- * file the person removes.
+ * True when the lock may be removed. A lock older than LOCK_STALE_MS is, whatever its owner. A younger one
+ * only when it was written on this host and its owner is gone (this process's own pid with an id it does not hold counts as gone): `kill(pid, 0)` answers ESRCH, or the pid
+ * answers but its start time is not the recorded one (a reused pid; comparable on darwin only). Anything
+ * else (EPERM, `ps` unreadable, no start recorded, another host, no readable owner) is "cannot tell" and
+ * is left to the age rule.
+ */
+function lockIsStale(lock: string, text: string, fsImpl: any): boolean {
+  try { if (Date.now() - fsImpl.statSync(lock).mtimeMs > LOCK_STALE_MS) return true; } catch { return false; }
+  let owner: any = null;
+  try { owner = JSON.parse(text); } catch { /* the old format, or empty: no owner */ }
+  if (!Number.isInteger(owner?.pid) || owner.pid <= 0 || owner.host !== os.hostname()) return false;
+  // This pid, this host, an id this process does not hold: left by a release that missed it (see `releaseLock`).
+  if (owner.pid === process.pid && typeof owner.id === 'string') return !heldIds.has(owner.id);
+  try { process.kill(owner.pid, 0); } catch (error: any) { return error?.code === 'ESRCH'; }
+  if (typeof owner.start !== 'string') return false;
+  const now = readStart(owner.pid);
+  return now !== null && now !== owner.start;
+}
+
+/**
+ * Remove a lock judged stale, the way `claimInstance` in src/state/run-lock.ts clears one (the pattern is
+ * copied, not shared: that one is claim-keyed and carries the run lock's owner record). The lock is renamed
+ * to a unique name (atomic, so one process wins), the moved file is read again, and only when it holds the
+ * bytes judged stale is it deleted. Otherwise it was another writer's fresh lock taken since the judgment:
+ * it is linked back and left held (`releaseLock` looks for it again if its owner finished in that window). Ceiling: for the instant between the rename and the link-back the name
+ * is free, and a third writer taking it then leaves two writers in the critical section.
+ * @returns true when this call removed the stale lock
+ */
+function reclaimStaleLock(lock: string, fsImpl: any): boolean {
+  let text: string;
+  try { text = fsImpl.readFileSync(lock, 'utf8'); } catch { return false; }
+  if (!lockIsStale(lock, text, fsImpl)) return false;
+  const aside = `${lock}.${process.pid}.${randomBytes(4).toString('hex')}.gone`;
+  try { fsImpl.renameSync(lock, aside); } catch { return false; }
+  let moved: string | null = null;
+  try { moved = fsImpl.readFileSync(aside, 'utf8'); } catch { /* swept by another writer: nothing to put back */ }
+  // No bytes (a writer between open and write) is never the same lock as another with no bytes: it is confirmed by its age.
+  let same = moved === text;
+  if (same && text === '') { try { same = Date.now() - fsImpl.statSync(aside).mtimeMs > LOCK_STALE_MS; } catch { same = false; } }
+  if (moved !== null && !same) {
+    try { fsImpl.linkSync(aside, lock); } catch { /* another writer took the name */ }
+  }
+  try { fsImpl.rmSync(aside, { force: true }); } catch { /* the sweep removes it later */ }
+  return same;
+}
+
+/** Remove moved-aside files a reclaimer that died left beside the lock, by age. */
+function sweepAsides(lock: string, fsImpl: any): void {
+  try {
+    const prefix = `${path.basename(lock)}.`;
+    for (const name of fsImpl.readdirSync(path.dirname(lock))) {
+      if (!name.startsWith(prefix) || !name.endsWith('.gone')) continue;
+      const file = path.join(path.dirname(lock), name);
+      try { if (Date.now() - fsImpl.statSync(file).mtimeMs > ASIDE_STALE_MS) fsImpl.rmSync(file, { force: true }); } catch { /* gone already */ }
+    }
+  } catch { /* a directory that cannot be listed has nothing to sweep */ }
+}
+
+/**
+ * Take `<file>.lock` (created exclusively, holding its owner's pid, host, start time where comparable, and a
+ * token) so one read-merge-rename of a layer runs at a time across processes. A held lock is waited on for
+ * LOCK_WAIT_MS, then refused with code `locked`, naming the lock and its age. A stale lock (`lockIsStale`)
+ * is reclaimed (`reclaimStaleLock`) on the first contention and again at the deadline; a young lock whose
+ * owner cannot be shown dead is never removed, so a writer stalled in its critical section keeps its lock.
  */
 function acquireLock(file: string, fsImpl: any): any {
   const lock = `${file}.lock`;
-  const token = `${process.pid} ${randomBytes(8).toString('hex')}\n`;
+  const start = readStart(process.pid);
+  const id = randomBytes(8).toString('hex');
+  const token = `${JSON.stringify({ pid: process.pid, host: os.hostname(), start, id })}\n`;
   const deadline = Date.now() + LOCK_WAIT_MS;
+  let judged = false;
   for (;;) {
     try {
       fsImpl.writeFileSync(lock, token, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
-      return { ok: true, lock, token };
+      heldIds.add(id);
+      return { ok: true, lock, token, id };
     } catch (error: any) {
       if (error?.code !== 'EEXIST') return invalid(file, `could not be locked: ${error?.message || 'lock not created'}`, 'locked');
+    }
+    const lastLook = Date.now() >= deadline;
+    if (!judged || lastLook) {
+      if (!judged) sweepAsides(lock, fsImpl);
+      judged = true;
+      if (reclaimStaleLock(lock, fsImpl)) continue;
     }
     let age: number;
     try { age = Math.round((Date.now() - fsImpl.statSync(lock).mtimeMs) / 1000); } catch (error: any) {
       if (error?.code === 'ENOENT') continue;
       age = NaN;
     }
-    if (Date.now() >= deadline) {
+    if (lastLook) {
       const aged = Number.isFinite(age) ? `${Math.max(age, 0)} s old` : 'age unknown';
       return invalid(file, `is held by the lock ${lock} (${aged}); nothing was written; if no writer is running, remove that lock file and run it again`, 'locked');
     }
@@ -133,10 +228,23 @@ function acquireLock(file: string, fsImpl: any): any {
   }
 }
 
-function releaseLock({ lock, token }: any, fsImpl: any): void {
+/**
+ * Remove this writer's lock. A reclaimer may have moved it aside to judge it (`reclaimStaleLock`) just
+ * as this writer finishes, so the lock is looked for again, a few times over about 20 ms, and removed when
+ * it comes back. If the reclaimer stalls longer than that and links it back later, the lock stays until
+ * this process exits (its pid is then dead) or a writer of this same pid finds an id it no longer holds
+ * (`lockIsStale`); a write in another process waits for that or for the ten-minute age rule.
+ */
+function releaseLock({ lock, token, id }: any, fsImpl: any): void {
   try {
-    if (fsImpl.readFileSync(lock, 'utf8') === token) fsImpl.rmSync(lock, { force: true });
-  } catch { /* already gone; keep the primary result */ }
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      let text: string | null = null;
+      try { text = fsImpl.readFileSync(lock, 'utf8'); } catch { /* absent, or moved aside: look again */ }
+      if (text === token) { fsImpl.rmSync(lock, { force: true }); return; }
+      if (text !== null) return; // another writer's lock stands there: this one is gone
+      Atomics.wait(PAUSE, 0, 0, 2.5);
+    }
+  } catch { /* already gone; keep the primary result */ } finally { heldIds.delete(id); }
 }
 
 /**

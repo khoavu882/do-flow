@@ -19,6 +19,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { procStart: defaultProcStart } = require('../runtime/worker/process-tree.ts');
 
 const RECORD_VERSION = 1;
 const LOCK_FILE = 'run.lock';
@@ -146,11 +147,29 @@ function instanceKey(record: any, stat: any): string {
   return record ? record.token : `u-${stat.dev}-${stat.ino}-${Math.floor(stat.mtimeMs)}`;
 }
 
+/**
+ * Whether a process start time can be compared across time. `ps` derives it from the boot time and the
+ * wall clock on Linux, so a stepped clock moves it and a live holder would look like a reused pid; on
+ * darwin the kernel records it. Only there is it recorded and compared.
+ */
+function startTimeIsStable(): boolean { return process.platform === 'darwin'; }
+
+/**
+ * A live pid is the recorded holder only when its process start time is the recorded one: a pid reused
+ * by another process is not. A record without `processStart` (written before it was recorded, or on a
+ * platform where start times are not stable), or a start that cannot be read now, keeps the pid-only rule.
+ */
+function pidReused(record: any, procStart: any): boolean {
+  if (!startTimeIsStable() || typeof record.processStart !== 'string') return false;
+  const now = procStart(record.pid);
+  return typeof now === 'string' && now !== record.processStart;
+}
+
 /** @returns {null|'not-running'|'expired'} */
-function staleReason(found: any, { token, hostname, isAlive, now, staleMs }: any): 'not-running' | 'expired' | null {
+function staleReason(found: any, { token, hostname, isAlive, procStart, now, staleMs }: any): 'not-running' | 'expired' | null {
   const { record, stat } = found;
   if (record && record.token === token) return null;
-  if (record && record.hostname === hostname && (record.pid === process.pid || !isAlive(record.pid))) return 'not-running';
+  if (record && record.hostname === hostname && (record.pid === process.pid || !isAlive(record.pid) || pidReused(record, procStart))) return 'not-running';
   if (now() - stat.mtimeMs > staleMs) return 'expired';
   return null;
 }
@@ -269,7 +288,7 @@ function removeCreatedDirs(fsImpl: any, stateDir: string, firstCreated: any): vo
  */
 function acquireRunLock({ scopeRoot, scope, command }: { scopeRoot: string, scope: 'global' | 'project', command: string }, {
   waitMs = 60_000, pollMs = 250, staleMs = 600_000, claimStaleMs = 30_000,
-  now = Date.now, isAlive = defaultIsAlive, hostname = os.hostname(),
+  now = Date.now, isAlive = defaultIsAlive, procStart = defaultProcStart, hostname = os.hostname(),
   log = (line: string) => process.stderr.write(`${line}\n`), fsImpl = fs, sleep = atomicsSleep,
 }: any = {}): any {
   const root = path.resolve(scopeRoot);
@@ -287,7 +306,7 @@ function acquireRunLock({ scopeRoot, scope, command }: { scopeRoot: string, scop
 
   const tempPath = path.join(stateDir, `.${LOCK_FILE}.${token}.tmp`);
   const record = {
-    version: RECORD_VERSION, token, pid: process.pid, hostname, command, scope, scopeRoot: root,
+    version: RECORD_VERSION, token, pid: process.pid, processStart: startTimeIsStable() ? procStart(process.pid) : null, hostname, command, scope, scopeRoot: root,
     startedAt: new Date(now()).toISOString(), doflowVersion: DOFLOW_VERSION,
   };
   // A first-ever run that gives up removes the state directory it created. Doing so between this
@@ -311,7 +330,7 @@ function acquireRunLock({ scopeRoot, scope, command }: { scopeRoot: string, scop
     return error;
   };
 
-  const judge = { token, hostname, isAlive, now, staleMs, claimStaleMs };
+  const judge = { token, hostname, isAlive, procStart, now, staleMs, claimStaleMs };
   sweepOrphanTemps(fsImpl, stateDir, judge);
   const start = now();
   const cleared: any[] = [];
@@ -404,5 +423,5 @@ function holdHandle({ fsImpl, root, stateDir, lockPath, token, hostname, firstCr
 }
 
 module.exports = {
-  acquireRunLock, RunLockTimeoutError, RunLockError, RunLockLostError, runLockPath, formatRunLockMessage, defaultIsAlive,
+  acquireRunLock, RunLockTimeoutError, RunLockError, RunLockLostError, runLockPath, formatRunLockMessage, defaultIsAlive, startTimeIsStable,
 };

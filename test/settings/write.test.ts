@@ -6,6 +6,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { createSettingsEnv, userDecision, REPO }: any = require('../helper/settings-fixtures.ts');
+const os = require('node:os');
+const { spawn, spawnSync } = require('node:child_process');
 const { writeLayer }: any = require('../../src/runtime/settings/write.ts');
 const { loadSettings }: any = require('../../src/runtime/settings/resolve.ts');
 
@@ -283,3 +285,179 @@ test('FU-84052t: refuses to write into a .doflow symlinked outside the project r
   assert.equal(fs.existsSync(path.join(outside, 'settings.json')), false);
 });
 
+
+// The layer lock: a stale lock is reclaimed, a live or unreadable owner's is not (src/runtime/settings/write.ts).
+const HERE = os.hostname();
+const DARWIN = process.platform === 'darwin';
+function lockedLayer(t: any, content: string, ageSeconds = 0) {
+  const f = createSettingsEnv(t);
+  const file = f.userFile('settings.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const lock = `${file}.lock`;
+  fs.writeFileSync(lock, content);
+  if (ageSeconds) { const at = (Date.now() / 1000) - ageSeconds; fs.utimesSync(lock, at, at); }
+  return { file, lock };
+}
+const owner = (fields: any) => `${JSON.stringify({ host: HERE, start: null, id: 'x', ...fields })}\n`;
+const deadPid = () => spawnSync(process.execPath, ['-e', '']).pid;
+/** A live process other than this one: this pid with an id this process does not hold counts as a leftover of an earlier hold. */
+function livePid(t: any) {
+  const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], { stdio: 'ignore' });
+  t.after(() => child.kill('SIGKILL'));
+  return child.pid;
+}
+const writeKey = (file: string, extra: any = {}) => writeLayer({ file, set: { 'storage.prune': 'off' }, ...extra });
+
+test('a lock whose owner process is dead (ESRCH, this host) is reclaimed and the write goes through', (t: any) => {
+  const { file, lock } = lockedLayer(t, owner({ pid: deadPid() }));
+  const result = writeKey(file);
+  assert.equal(result.ok, true, result.detail);
+  assert.equal(fs.existsSync(lock), false);
+  assert.deepEqual(fs.readdirSync(path.dirname(file)), ['settings.json']);
+});
+
+test('a lock held by a live owner is refused as locked and left in place', (t: any) => {
+  const { file, lock } = lockedLayer(t, owner({ pid: livePid(t) }));
+  const result = writeKey(file);
+  assert.equal(result.code, 'locked');
+  assert.equal(fs.existsSync(lock), true);
+});
+
+test('a lock from another host is never judged by its pid, even a dead one, while young', (t: any) => {
+  const { file, lock } = lockedLayer(t, owner({ pid: deadPid(), host: 'some-other-host' }));
+  assert.equal(writeKey(file).code, 'locked');
+  assert.equal(fs.existsSync(lock), true);
+});
+
+test('a lock whose owner cannot be told apart (no recorded start, a pid we may not signal) is refused while young', (t: any) => {
+  const { file, lock } = lockedLayer(t, owner({ pid: 1 }));
+  assert.equal(writeKey(file).code, 'locked');
+  assert.equal(fs.existsSync(lock), true);
+});
+
+test('a lock older than ten minutes is reclaimed whatever its owner: live, other host, old format or empty', (t: any) => {
+  for (const content of [owner({ pid: process.pid }), owner({ pid: 1, host: 'some-other-host' }), `${process.pid} deadbeefdeadbeef\n`, '']) {
+    const { file } = lockedLayer(t, content, 3600);
+    assert.equal(writeKey(file).ok, true, `content ${JSON.stringify(content)}`);
+  }
+});
+
+test('an old-format or empty lock is refused while young', (t: any) => {
+  for (const content of [`${process.pid} deadbeefdeadbeef\n`, '']) {
+    const { file } = lockedLayer(t, content, 60);
+    assert.equal(writeKey(file).code, 'locked');
+  }
+});
+
+test('a live pid whose start time is not the recorded one (a reused pid) is reclaimed on darwin, and kept on a platform whose start time is not stable', (t: any) => {
+  const { file } = lockedLayer(t, owner({ pid: livePid(t), start: 'Mon Jan  1 00:00:00 2001' }));
+  const result = writeKey(file);
+  if (DARWIN) assert.equal(result.ok, true, result.detail);
+  else assert.equal(result.code, 'locked');
+});
+
+/**
+ * Forced interleave, no timing: the reclaimer has judged a stale lock and is about to remove it; at that
+ * exact call another writer replaces it with its own live lock. The reclaimer must leave that lock held.
+ * `hook` runs once, before the first removal of the lock (`rmSync` of it, or `renameSync` of it aside).
+ */
+function reclaimerStalledBeforeRemoval(file: string, lock: string, hook: () => void) {
+  let fired = false;
+  const fire = (target: any) => { if (!fired && target === lock) { fired = true; hook(); } };
+  const fsImpl = new Proxy(fs, { get(target: any, key: any) {
+    if (key === 'rmSync') return (p: any, ...rest: any[]) => { fire(p); return target.rmSync(p, ...rest); };
+    if (key === 'renameSync') return (from: any, to: any) => { fire(from); return target.renameSync(from, to); };
+    const value = target[key];
+    return typeof value === 'function' ? value.bind(target) : value;
+  } });
+  return { result: writeKey(file, { fsImpl }), fired: () => fired };
+}
+
+test('a reclaimer that stalls after judging a lock stale does not remove the lock another writer took meanwhile', (t: any) => {
+  const { file, lock } = lockedLayer(t, owner({ pid: deadPid() }));
+  const fresh = owner({ pid: livePid(t), id: 'writer-b' });
+  const { result, fired } = reclaimerStalledBeforeRemoval(file, lock, () => {
+    fs.rmSync(lock); // writer B reclaims the stale lock and takes its own
+    fs.writeFileSync(lock, fresh, { flag: 'wx' });
+  });
+  assert.equal(fired(), true, 'the interleave happened');
+  assert.equal(result.code, 'locked', 'the stalled reclaimer waited for writer B instead of taking the lock');
+  assert.equal(fs.readFileSync(lock, 'utf8'), fresh, "writer B's lock is intact");
+  assert.equal(fs.existsSync(file), false, 'the stalled reclaimer wrote nothing');
+  assert.deepEqual(fs.readdirSync(path.dirname(file)), ['settings.json.lock'], 'no moved-aside file is left');
+});
+
+test('a moved-aside file left by a reclaimer that died is swept by age, a young one is kept', (t: any) => {
+  const { file, lock } = lockedLayer(t, owner({ pid: deadPid() }));
+  const old = `${lock}.4242.deadbeef.gone`, young = `${lock}.4243.deadbeef.gone`;
+  fs.writeFileSync(old, 'x'); fs.writeFileSync(young, 'x');
+  const at = (Date.now() / 1000) - 3600;
+  fs.utimesSync(old, at, at);
+  assert.equal(writeKey(file).ok, true);
+  assert.equal(fs.existsSync(old), false);
+  assert.equal(fs.existsSync(young), true);
+});
+
+test('a lock with this pid and an id this process does not hold (left by a release that missed it) is reclaimed at once', (t: any) => {
+  const { file, lock } = lockedLayer(t, owner({ pid: process.pid, id: 'left-by-an-earlier-hold' }));
+  const result = writeKey(file);
+  assert.equal(result.ok, true, result.detail);
+  assert.equal(fs.existsSync(lock), false);
+});
+
+test('a lock this process holds now is not taken for a leftover by a second writer in the same process', (t: any) => {
+  const f = createSettingsEnv(t);
+  const file = f.userFile('settings.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  let inner: any = null;
+  const fsImpl = new Proxy(fs, { get(target: any, key: any) {
+    if (key === 'renameSync') return (from: any, to: any) => {
+      if (!inner) inner = writeKey(file); // a second writer while the first is in its critical section
+      return target.renameSync(from, to);
+    };
+    const value = target[key];
+    return typeof value === 'function' ? value.bind(target) : value;
+  } });
+  const outer = writeKey(file, { fsImpl });
+  assert.equal(outer.ok, true, outer.detail);
+  assert.equal(inner.code, 'locked', 'the held lock was waited for, not reclaimed');
+});
+
+test('a writer whose lock a reclaimer moved aside while it finished removes it when the reclaimer links it back', (t: any) => {
+  const f = createSettingsEnv(t);
+  const file = f.userFile('settings.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const lock = `${file}.lock`, aside = `${lock}.4242.deadbeef.gone`;
+  let reads = 0;
+  // Reclaimer A, in the writer's release: first it has the lock moved aside, then (during the writer's retry) links it back.
+  const fsImpl = new Proxy(fs, { get(target: any, key: any) {
+    if (key === 'readFileSync') return (p: any, ...rest: any[]) => {
+      if (p === lock) {
+        reads += 1;
+        if (reads === 1) target.renameSync(lock, aside);
+        if (reads === 2) target.linkSync(aside, lock);
+      }
+      return target.readFileSync(p, ...rest);
+    };
+    const value = target[key];
+    return typeof value === 'function' ? value.bind(target) : value;
+  } });
+  const result = writeKey(file, { fsImpl });
+  assert.equal(result.ok, true, result.detail);
+  assert.equal(reads, 2, 'the release looked again once, and found the lock');
+  if (fs.existsSync(aside)) fs.rmSync(aside);
+  assert.equal(fs.existsSync(lock), false, 'no lock is left with nobody holding it');
+  assert.equal(writeKey(file).ok, true, 'the next write is not refused');
+});
+
+test('a lock with no bytes is not the same lock as another with no bytes: a fresh empty one a reclaimer meets is left held', (t: any) => {
+  const { file, lock } = lockedLayer(t, '', 3600);
+  const { result, fired } = reclaimerStalledBeforeRemoval(file, lock, () => {
+    fs.rmSync(lock); // another writer reclaims it and has opened its own lock but not written it yet
+    fs.writeFileSync(lock, '', { flag: 'wx' });
+  });
+  assert.equal(fired(), true);
+  assert.equal(result.code, 'locked');
+  assert.equal(fs.existsSync(lock), true, 'the fresh empty lock is still there');
+  assert.deepEqual(fs.readdirSync(path.dirname(file)), ['settings.json.lock']);
+});
