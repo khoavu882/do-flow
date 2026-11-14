@@ -7,7 +7,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../helper/tmp.ts');
-const { TRANSFORMS, readOnlyApply, agentLimitKeys } = require('../../src/adapters/copy-tree.ts');
+const { TRANSFORMS, readOnlyApply, agentLimitKeys, multiLineValueKeys } = require('../../src/adapters/copy-tree.ts');
 const codexAgents = require('../../src/adapters/codex/agents.ts');
 const { loadRegistry, selectAssets, harnessFor } = require('../../src/registry/index.ts');
 const { projectAdapterInput } = require('../../src/adapters/index.ts');
@@ -91,11 +91,64 @@ for (const id of ['claude', 'copilot', 'antigravity']) {
   });
 }
 
-test('antigravity: the limit is unenforced, so the output is the spec minus access and tool-scope and nothing added', () => {
+test('antigravity: the limit is unenforced, so the output is the spec minus access, tool-scope and effort and nothing added', () => {
   assert.equal(readOnlyApply('antigravity'), null);
   for (const spec of specs) {
-    assert.equal(render('antigravity', spec), spec.text.replace(/^access:.*\n/m, '').replace(/^tool-scope:.*\n/m, ''), spec.name);
+    const out = render('antigravity', spec);
+    assert.equal(out, spec.text.replace(/^access:.*\n/m, '').replace(/^tool-scope:.*\n/m, '').replace(/^effort:.*\n/m, ''), spec.name);
+    assert.match(out, /^model: inherit$/m, `${spec.name}: Antigravity documents model: inherit`);
   }
+});
+
+test('copilot: output carries no effort and no model: inherit, and only keys the contract lists', () => {
+  const fields = registry.contracts.find((entry: any) => entry.harness === 'copilot').agentFields;
+  for (const spec of specs) {
+    const keys = keyLines(render('copilot', spec)).map((line: any) => line.slice(0, line.indexOf(':')));
+    assert.ok(!keys.includes('effort'), `${spec.name}: no effort`);
+    assert.ok(!keys.includes('model'), `${spec.name}: model: inherit dropped`);
+    assert.ok(keys.every((key: any) => fields.includes(key)), `${spec.name}: ${keys.join(',')} all in agentFields`);
+  }
+});
+
+test('claude: the real specs come out byte-identical to the spec minus access and tool-scope, apart from the limit keys it adds', () => {
+  for (const spec of specs) {
+    const added = Object.keys(agentLimitKeys('claude', { readOnly: spec.access === 'read-only', scope: spec.scope }) || {});
+    const out = render('claude', spec).split('\n').filter((line: any) => !added.some((key: any) => line.startsWith(`${key}:`))).join('\n');
+    assert.equal(out, spec.text.replace(/^access:.*\n/m, '').replace(/^tool-scope:.*\n/m, ''), spec.name);
+  }
+});
+
+test('claude: a key outside its agentFields is dropped whole, one inside it is kept', () => {
+  const text = '---\nname: x\ndescription: "d"\neffort: high\nmetrics:\n  a: 1\nmaxTurns: 3\naccess: write\ntool-scope: read\n---\nbody\n';
+  const out = TRANSFORMS['claude-agents']('x.md', Buffer.from(text)).toString('utf8');
+  assert.ok(!/metrics|a: 1/.test(out), 'metrics and its block are gone');
+  assert.match(out, /^effort: high$/m);
+  assert.match(out, /^maxTurns: 3$/m);
+});
+
+test('a value the line-based filter cannot follow leaves the spec unchanged', () => {
+  const unfollowable = ['description: "first line\nsecond: continued"', 'description: >\n  folded', 'description: |\n  literal', "description: 'first\nsecond: continued'"];
+  for (const id of ['claude', 'copilot', 'antigravity']) {
+    for (const value of unfollowable) {
+      const text = `---\nname: x\n${value}\neffort: high\naccess: write\n---\nbody\n`;
+      assert.equal(TRANSFORMS[sharedAgents.projection[id].transform]('x.md', Buffer.from(text)).toString('utf8'), text, `${id}: ${value.split('\n')[0]}`);
+    }
+  }
+});
+
+test('every agent spec keeps each frontmatter value on one line or as an indented list', () => {
+  for (const spec of specs) {
+    const keys = multiLineValueKeys(frontmatter(spec.text).split('\n'));
+    assert.deepEqual(keys, [], `${spec.name}: '${keys.join("', '")}' spans lines; keep each value on one line or as an indented list, the agent projection filters by line`);
+  }
+});
+
+test('a key outside agentFields is dropped whole, continuation lines included; a codex copy keeps it', () => {
+  const text = '---\nname: x\ndescription: "d"\nmodel: inherit\neffort: high\nmetrics:\n  a: 1\n  b: 2\naccess: write\ntool-scope: read\n---\nbody\n';
+  const out = (id: any) => TRANSFORMS[sharedAgents.projection[id].transform]('x.md', Buffer.from(text)).toString('utf8');
+  assert.equal(out('antigravity'), '---\nname: x\ndescription: "d"\nmodel: inherit\n---\nbody\n');
+  assert.ok(!/metrics|a: 1|effort/.test(out('copilot')));
+  assert.equal(out('codex'), '---\nname: x\ndescription: "d"\nmodel: inherit\neffort: high\nmetrics:\n  a: 1\n  b: 2\n---\nbody\n');
 });
 
 test('opencode: the permission block is the read-only and tool-scope denies, the rest byte-identical to the pre-118 renderer', () => {
@@ -129,6 +182,15 @@ test('codex: every TOML carries sandbox_mode = "read-only" exactly when its spec
     const spec = specs.find((item: any) => item.name === agent.name);
     assert.equal(agent.sandbox_mode, spec.access === 'read-only' ? 'read-only' : undefined, agent.name);
     assert.ok(!/^access\b/m.test(agent.source), `${agent.name}: no access key`);
+  }
+});
+
+test('codex: every TOML description equals its spec description, so one agent reads the same in every tool', () => {
+  const agents = codexAgents.discoverCodexAgents(CODEX_TOMLS);
+  for (const spec of specs) {
+    const specDescription = spec.text.match(/^description:\s*"(.*)"\s*$/m)?.[1];
+    assert.ok(specDescription, `${spec.name}: spec has a description`);
+    assert.equal(agents.find((agent: any) => agent.name === spec.name).description, specDescription, `${spec.name}: TOML description differs from the spec`);
   }
 });
 
