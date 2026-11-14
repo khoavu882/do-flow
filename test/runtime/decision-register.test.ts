@@ -8,7 +8,7 @@ const { execFileSync } = require('node:child_process');
 const { tempDir, suiteTempDir } = require('../helper/tmp.ts');
 const {
   runDecision, addDecisions, initRegister, listDecisions, readRegister, renderLiveView, renderArchive,
-  registerFile, handleDecisionCommand, STATEMENT_MAX,
+  registerFile, handleDecisionCommand, humanLines, STATEMENT_MAX,
 } = require('../../src/runtime/decision-register.ts');
 
 const SLUG = '001-demo';
@@ -401,6 +401,7 @@ test('list --by keeps the decisions whose decider is named, in the result object
   const by = (value: any) => runDecision({ action: 'list', projectRoot: r.root, flags: { by: value } });
   assert.deepEqual(by('agent').result.decisions.map((d: any) => d.topic), ['b-agent']);
   assert.deepEqual(by('autopilot').result.decisions.map((d: any) => d.topic), ['c-gate']);
+  assert.deepEqual(by('user').result.decisions.map((d: any) => d.topic), ['a-user']);
   assert.deepEqual(by('agent,autopilot').result.decisions.map((d: any) => d.topic), ['b-agent', 'c-gate']);
   assert.equal(runDecision({ action: 'list', projectRoot: r.root }).result.decisions.length, 3);
 });
@@ -428,6 +429,30 @@ test('a default adopted unattended needs an undo line; the refusal says what to 
   assert.deepEqual(snapshot(r.featureDir), before);
   // Only that exact combination is bound: a person's answer, or an agent default with another rationale, needs none.
   assert.equal(add(r, [item({ topic: 'one', channel: 'question', rationale: 'unattended:x' }), item({ topic: 'two', channel: 'default', rationale: 'simplest' })]).exitCode, 0);
+});
+
+test('the undo requirement holds for spelling, spacing, case, zero-width prefixes and the resolution channel', () => {
+  const r = initialised();
+  const before = snapshot(r.featureDir);
+  const rationales = ['Unattended:x', 'UNATTENDED: x', 'unattended : x', '  unattended:x', '\u200bunattended:x', 'un\u200battended:x', '\ufeffUnattended :x'];
+  for (const channel of ['default', 'resolution']) {
+    for (const rationale of rationales) {
+      const run = add(r, [item({ channel, rationale })]);
+      assert.equal(run.exitCode, 2, `${channel} ${JSON.stringify(rationale)}`);
+      assert.match(run.usage, /needs 'undo'/);
+    }
+  }
+  assert.deepEqual(snapshot(r.featureDir), before);
+  // An unrelated word that only contains the text, or a person's channel, still needs none.
+  assert.equal(add(r, [item({ topic: 'one', channel: 'default', rationale: 'not unattended: x' }), item({ topic: 'two', channel: 'gate', rationale: 'Unattended:x' })]).exitCode, 0);
+});
+
+test('list text output shows the undo line under a decision that has one, and only then', () => {
+  const r = initialised();
+  add(r, [item({ topic: 'with', channel: 'default', rationale: 'unattended:x', undo: 'Supersede it.' }), item({ topic: 'without' })]);
+  const lines = humanLines(runDecision({ action: 'list', projectRoot: r.root }).result);
+  assert.equal(lines.filter((l: string) => /^ +undo: /.test(l)).length, 1);
+  assert.equal(lines[lines.findIndex((l: string) => l.includes('  with  ')) + 1], '    undo: Supersede it.');
 });
 
 test('undo is stored in the register and shown in the archive beside the rationale', () => {

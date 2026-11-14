@@ -38,7 +38,9 @@ const CHANNEL_RESERVED = `channel-reserved: ${RESERVED_CHANNEL} is set only by o
 const isReservedChannel = (channel: any): boolean => typeof channel === 'string' && channel.trim() === RESERVED_CHANNEL;
 const ITEM_KEYS = ['topic', 'statement', 'channel', 'stage', 'rationale', 'supersedes', 'refs', 'source', 'undo'];
 /** An unattended run adopts a default for the person to review later, so it must say how to reverse it. */
-const UNATTENDED_RE = /^unattended:/;
+/** Matched after Unicode format characters (zero-width and the like) are removed, in any case and spacing. */
+const UNATTENDED_RE = /^\s*unattended\s*:/i;
+const FORMAT_CHARS = /\p{Cf}/gu;
 const DECIDERS = ['user', 'agent', 'autopilot'];
 const REQUIRED_KEYS = ['topic', 'statement', 'channel', 'stage', 'rationale'];
 
@@ -238,8 +240,8 @@ function normalizeItem(raw: any, label: string): any {
     undo = raw.undo.trim();
     if (undo.length > STATEMENT_MAX) throw new DecisionUsageError(`${label}: undo is ${undo.length} characters; the limit is ${STATEMENT_MAX}`);
   }
-  if (channel === 'default' && UNATTENDED_RE.test(rationale) && !undo) {
-    throw new DecisionUsageError(`${label}: a default adopted unattended (rationale starts with 'unattended:') needs 'undo': one line saying how a person reverses it`);
+  if ((channel === 'default' || channel === 'resolution') && UNATTENDED_RE.test(rationale.replace(FORMAT_CHARS, '')) && !undo) {
+    throw new DecisionUsageError(`${label}: a default or resolution adopted unattended (rationale starts with 'unattended:') needs 'undo': one line saying how a person reverses it`);
   }
   return { topic, statement, channel, stage, rationale, supersedes, refs, source, ...(undo ? { undo } : {}) };
 }
@@ -485,7 +487,10 @@ function humanLines(result: any): string[] {
   for (const s of (result.superseded || []) as any[]) lines.push(`superseded ${s.id} by ${s.by}`);
   if (result.action === 'list' && !result.finding) {
     if (result.decisions.length === 0) lines.push('No decisions.');
-    for (const d of result.decisions as any[]) lines.push(`${d.id}  ${d.topic}  ${d.statement}  [${d.decidedBy}, ${d.stage}${d.status === 'live' ? '' : `, superseded by ${d.supersededBy}`}]`);
+    for (const d of result.decisions as any[]) {
+      lines.push(`${d.id}  ${d.topic}  ${d.statement}  [${d.decidedBy}, ${d.stage}${d.status === 'live' ? '' : `, superseded by ${d.supersededBy}`}]`);
+      if (d.undo) lines.push(`    undo: ${d.undo}`);
+    }
   }
   if (result.action === 'compact') {
     if (result.status === 'unchanged') lines.push('nothing to compact');
@@ -508,6 +513,7 @@ function handleDecisionCommand({ action = 'list', projectRoot, slug = null, flag
 
 module.exports = {
   handleDecisionCommand,
+  humanLines,
   runDecision,
   initRegister,
   addDecisions,
