@@ -438,7 +438,7 @@ Workflow and evidence:
   lifecycle        overview, init, status, release or merged: follow-ups and feature tracking for the project
   goal             add, check, link, list or close a goal and its checklist
   failure          list, settle or switch off the failures DoFlow captured on this machine
-  roadmap          session-driven autopilot runner: render or status the roadmap table
+  roadmap          autopilot runner: render, status, next, audit, report, init-policy, seed, promote
   plan-check       check a plan's task lines the way the task-attempt ledger reads them
   review           validate a feature's review/findings.json, print counts and advisories (review-package assembles the payload)
   protocol         print the review and debate protocol presets, or the one a run would use (read-only)
@@ -454,7 +454,7 @@ Workflow and evidence:
   worker-matrix    print the harness worker and orchestration matrix (read-only)
   sessions-history   list finished workflow sessions within retention window (read-only)
   package          list the contribution points a package may fill, check a package directory, list/show packages (read-only), add/update a local package (a plan, then --plan applies it), or enable/disable/trust/exempt/revoke/verify/remove one
-  slot             named machine-wide queue: run a command as its one holder, list or release
+  slot             named machine-wide queue: run a command as its one holder, list, peek or release
   models           synchronize, list, or inspect observed models across workers (--action sync|list|describe)
   worktree         remove a merged feature's worktree and branch, never by force (--action cleanup --slug <slug>)
   attendance       say whether a person is watching a stage (read-only; --task-id <slug> [--run <id>])

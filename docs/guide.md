@@ -300,6 +300,18 @@ mkdocs build --strict
 
 For this repository, keep one canonical home for each topic: installation in [Setup](setup.md), workflows here, the mechanism in [How DoFlow works](how-doflow-work.md), complete lookup material in [Reference](reference.md), and system concepts in [Home](index.md#the-component-model).
 
+## Share, present and close a feature
+
+A few verbs turn a feature's records into something to hand to a person. Each has its row in [Reference](reference.md).
+
+```bash
+doflow-run render-page                    # the feature's documents as one HTML page
+doflow-run render-drawio                  # an editable draw.io draft of the C4 diagrams
+doflow-run review-pack --task-id <slug>   # what an unattended run decided, for one review at the end
+doflow roadmap --action report            # one table for a roadmap run
+doflow orchestrate --action close --task-id <id> --note "<why>"   # end a run whose work ended outside the record
+```
+
 ## Keep track of what is left
 
 A feature rarely finishes everything it found. The lifecycle loop ([how it works](how-doflow-work.md#after-the-chain-the-lifecycle-loop)) gives deferred work one place to live, so the next feature can start from it instead of from someone's memory.

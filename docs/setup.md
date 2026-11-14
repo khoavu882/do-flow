@@ -146,6 +146,8 @@ its official page gives none. The optional ones:
 | [Python 3](https://www.python.org/downloads/) | The `do-code-review` analyzers | None: the official pages give no command |
 | [agent-browser](https://github.com/vercel-labs/agent-browser/blob/main/README.md) | Checking a web user interface from the shell | `npm install -g agent-browser` (managed), then `agent-browser install` for the browser download, which is confirmed on its own; alternative: `brew install agent-browser` (macOS). On Linux the official page also asks for `agent-browser install --with-deps`, which installs system libraries with sudo: DoFlow lists it as a manual step and never runs it |
 
+No DoFlow skill calls `agent-browser` by itself yet: it is listed so an agent or a person checking a web page from the shell can install it the same way as the rest.
+
 The required tools above also have routes: `jq` and Git through `brew install` on macOS or
 `sudo apt-get install` on Linux (run by you; DoFlow shows it and does not run it).
 
