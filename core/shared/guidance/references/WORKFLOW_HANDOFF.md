@@ -15,7 +15,7 @@ can predate the register) and, when it reports `has_decisions: true`:
    supersedes. Each item needs `topic` (kebab-case), `statement` (one line), `channel`
    (`question|gate|prompt|default|resolution`), `stage` (the ownership-table stage name) and
    `rationale`; `supersedes`, `refs` and `source` are optional. Skip the call when there are none.
-   On exit 1 `topic-conflict`, drop a reword of the named live decision, else add its `supersedes`,
+   On exit 1 `topic-conflict`, drop a reword of the named live decision, else add `supersedes` for it,
    and retry; on `register-locked`, retry once; on exit 2, fix the named item and retry. Hand off with the stage's decisions registered, or say which are not.
 3. Write each returned `DEC-###` into the lines of this stage's own artifacts that apply it
    (ARTIFACT_FORMAT.md §12). A stage that owns no artifact puts the FR/IC ids each
@@ -26,7 +26,7 @@ can predate the register) and, when it reports `has_decisions: true`:
    list); report findings in other artifacts, unedited.
 5. Record the handoff below. It compacts History itself and reports `compaction`; its `--task-id`
    must be the feature slug, not a plan task id, or compaction is skipped. A do-execute-plan
-   checkpoint (`annotate`) does not compact; the next handoff does.
+   checkpoint (`annotate`) does not compact; the next completed handoff does.
 
 | Stage | Owns |
 |---|---|
@@ -51,8 +51,8 @@ Per stage run `"$DOFLOW" attendance --task-id "<feature_slug>"`. Unless it print
    class, several slugs, a `--from` clash or readiness `ASK_USER` halts.
 3. **Adopt the recommended option** where one exists, even if it changes a contract or behaviour
    beyond the request, in the decision batch: `channel` `default`, `rationale` `unattended:<source>`,
-   `undo` (one line: how a person reverses it), `stage` the nearest accepted ownership-table name.
-4. **Halt, never hand off,** only when no option can be recommended, a permission is denied, or the
+   `undo` (one line: how to reverse it), `stage` the nearest accepted ownership-table name.
+4. **Also halt, never hand off,** when no option can be recommended, a permission is denied, or the
    step would send content off this machine, start a paid run as the person or delete what the run
    did not create: `"$DOFLOW" followup --action add --stage <stage as in 3> --statement "<why it
    blocks>"`, report and stop; the row is held.
@@ -82,7 +82,7 @@ of a repeated skill.
 | `deferred` | A prior gate, unfinished mutating stage or rejected run prevented the handoff | Report `reason`; leave the transition to its owner |
 
 The runtime imports earlier non-mutating stages as `imported` + `unverified`, skips optional
-stages, and stops at every gate and unfinished mutating stage, never approving one. A mutating
+stages, and stops at every gate and unfinished mutating stage, never approving a gate. A mutating
 candidate needs the same live readiness evaluation as `complete-stage`.
 
 Use `--result passed|failed|unverified` to record the stage's outcome. Omission records `unverified`.
