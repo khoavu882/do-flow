@@ -83,6 +83,10 @@ fi
 repo_root=$(printf '%s' "$resolved_json" | jq -r '.repo_root // empty')
 feature_slug=$(printf '%s' "$resolved_json" | jq -r '.feature_slug // empty')
 feature_dir=$(printf '%s' "$resolved_json" | jq -r '.feature_dir // empty')
+# The feature folder sits in the checkout that holds agent-docs: in a linked worktree that is the
+# main checkout, not repo_root. Same reading as render-audit.sh and render-page.sh.
+feature_root=$(printf '%s' "$resolved_json" | jq -r '.feature_root // empty')
+[ -n "$feature_root" ] || feature_root="$repo_root"
 [ -n "$feature_slug" ] || note "no-active-feature"
 [ -n "$feature_dir" ] || note "resolver-missing-feature-dir"
 
@@ -99,7 +103,7 @@ command -v mmdc >/dev/null 2>&1 || note "mermaid renderer not found. Install wit
 # wrong rendered unthemed images and reported ok:true with failures:0 and nothing on stderr.
 [ -f "$THEME" ] || note "theme asset missing at $THEME. The render would not apply the DoFlow diagram theme, so it was not attempted. Reinstall the scripts tree: npx @khoavu882/doflow install"
 
-out_dir="$repo_root/$feature_dir/design/diagrams"
+out_dir="$feature_root/$feature_dir/design/diagrams"
 
 # Collect the artifacts to scan. A named --artifact wins; otherwise every markdown file in the
 # feature dir, in a stable order so block indices are reproducible across runs.
@@ -110,7 +114,7 @@ if [ -n "$artifact_override" ]; then
   [ -f "$candidate" ] || { printf 'render-diagrams: no such artifact: %s\n' "$artifact_override" >&2; exit 2; }
   artifacts+=("$candidate")
 else
-  while IFS= read -r f; do artifacts+=("$f"); done < <(find "$repo_root/$feature_dir" -type f -name '*.md' -not -path '*/diagrams/*' | sort)
+  while IFS= read -r f; do artifacts+=("$f"); done < <(find "$feature_root/$feature_dir" -type f -name '*.md' -not -path '*/diagrams/*' | sort)
 fi
 [ "${#artifacts[@]}" -gt 0 ] || note "no markdown artifacts found under $feature_dir"
 
