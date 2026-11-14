@@ -1,8 +1,10 @@
 'use strict';
 
-// Several projects run DoFlow verbs at the same moment on one machine and one HOME. Every record each
-// verb wrote must land in its own project (and only there), every state file must still parse, and no
-// temporary or lock file may be left. Projects: two with the same folder name under different parents,
+// A cross-project isolation check, not a regression test for any one lock fix (the lock fixes have their own
+// forced-interleave tests beside their code). Several projects run DoFlow verbs at the same moment on one
+// machine and one HOME. Every record each verb wrote must land in its own project (and only there), every
+// state file must still parse, and no temporary or lock file may be left. The projects also run
+// `config set --layer user` together, which puts the shared user settings lock on the path: the final file must hold every key. Projects: two with the same folder name under different parents,
 // one reached through a symlink, and one main checkout with a linked worktree. HOME and
 // XDG_CONFIG_HOME are scratch, so nothing here touches a real home.
 const { test, before } = require('node:test');
@@ -100,7 +102,10 @@ function walk(dir: string, found: any[] = []): any[] {
   return found;
 }
 
-test('verbs run in parallel across projects each keep exactly their own records, with every file whole and nothing left behind', { timeout: 120_000 }, async () => {
+// One user-layer setting per project, each set to a non-default value.
+const USER_SETTINGS: any = { p1: ['storage.prune', 'off'], p2: ['failure.capture', 'off'], p3: ['dispatch.fallback', 'off'], p4: ['review.rounds', 2] };
+
+test('isolation: verbs run in parallel across projects each keep exactly their own records, the shared user settings keep every key, and nothing is left behind', { timeout: 120_000 }, async () => {
   // Round r runs every verb of every project at once; a project's cwds alternate so the symlink and the linked worktree are used.
   const jobs: any[] = [];
   for (let round = 0; round < ROUNDS; round += 1) {
@@ -110,6 +115,9 @@ test('verbs run in parallel across projects each keep exactly their own records,
         jobs.push({ proj, verb, marker, cwd: info.cwds[(round + w) % info.cwds.length], args: VERBS[verb](marker) });
       });
     }
+  }
+  for (const [proj, info] of Object.entries<any>(projects)) {
+    jobs.push({ proj, verb: 'config', marker: null, cwd: info.cwds[0], args: ['config', 'set', USER_SETTINGS[proj][0], JSON.stringify(USER_SETTINGS[proj][1]), '--layer', 'user', '--json'] });
   }
   const results = await runPool(jobs);
   for (const r of results) assert.equal(r.code, 0, `${r.proj}/${r.verb} exited ${r.code}: ${r.output}`);
@@ -132,7 +140,7 @@ test('verbs run in parallel across projects each keep exactly their own records,
   }
   assert.deepEqual(broken, [], 'every state file parses');
   assert.deepEqual(left, [], 'no temporary, lock or claim file is left');
-  for (const r of results) {
+  for (const r of results.filter((job) => job.marker)) {
     assert.deepEqual([...(seen[r.marker] || [])], [r.proj], `${r.marker} is in its own project and nowhere else`);
   }
   // Per project and verb the number of records found equals the number written.
@@ -143,4 +151,7 @@ test('verbs run in parallel across projects each keep exactly their own records,
       assert.equal(found, written, `${proj}/${verb}: ${written} written, ${found} found`);
     }
   }
+  const userFile = path.join(env.XDG_CONFIG_HOME, 'doflow', 'settings.json');
+  const user = JSON.parse(fs.readFileSync(userFile, 'utf8'));
+  for (const [key, value] of Object.values<any>(USER_SETTINGS)) assert.equal(user[key], value, `${key} is in the shared user settings`);
 });
