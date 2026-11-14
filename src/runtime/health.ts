@@ -1257,8 +1257,6 @@ async function handleDoctorCommand({ json = false, repoRoot, projectRoot = proce
   }
   try {
     const { teamGate } = require('./team/evaluate.ts');
-    // The envelope module stays reachable from here; its symbols are no longer a report field (IC-005).
-    require('./team/envelope.ts');
     const gate = teamGate({ projectRoot, env: rest.env });
     report.team = {
       state: 'ready',

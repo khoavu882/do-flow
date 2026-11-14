@@ -24,7 +24,7 @@ const { isRunNamespaceDir, isSupersededFlatRun } = require('../storage/work-stat
  * run key; each segment carries its slug, the file stem (110). The 080 record itself has no
  * completion marker, so a segment also closes, inclusive, at the latest end among the activities it
  * owns that started inside it, once every one of them has ended: an orchestration run ends at its
- * last entry after `complete-run` or a `reject` gate decision; a dispatch run at `completedAt` when
+ * last entry after `complete-run`, `close-run` or a `reject` gate decision; a dispatch run at `completedAt` when
  * `completed`, `endedAt` when `cancelled` (`blocked`, `resume-required` and `cancelling` can still
  * move on). A dispatch run owns the segments of its `run.slug`; an orchestration run those of its
  * `traceId`, else of its `featureSlug`; a record with neither, or a slug that owns no segment of the
@@ -367,7 +367,7 @@ function buildSpans({ stateDir, run = null, fsImpl = nodeFs }: any): any {
     const runKey = runKeyOf(value.runKey);
     const history: any[] = Array.isArray(value.history) ? value.history : [];
     let stageStart = iso(value.startedAt) ?? iso(history[0]?.at);
-    const ended = history.some((e) => e && (e.action === 'complete-run' || (e.action === 'decide-gate' && e.detail === 'reject')));
+    const ended = history.some((e) => e && (e.action === 'complete-run' || e.action === 'close-run' || (e.action === 'decide-gate' && e.detail === 'reject')));
     const stamps = history.map((e) => (e && typeof e === 'object' ? iso(e.at) : null)).filter((a): a is string => a !== null);
     const last = stamps.sort((a, b) => (msOf(a) as number) - (msOf(b) as number)).pop() ?? null;
     if (runKey) {

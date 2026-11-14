@@ -22,7 +22,7 @@ const fs = require('node:fs');
 const { tempDir } = require('../helper/tmp.ts');
 const { startWorkers } = require('../helper/race-barrier.ts');
 const {
-  storeFileFor, newRunId, insertRun, transition, readRuns, RUN_ID,
+  storeFileFor, newRunId, insertRun, transition, readRuns, RunStoreError, RUN_ID,
 } = require('../../src/runtime/worker/run-store.ts');
 
 const SLUG = '081-run-store';
@@ -90,6 +90,21 @@ test('a refused transition leaves the file bytes unchanged', (t) => {
   assert.deepEqual(unknown, { applied: false, reason: 'unknown-run', runId: 'w-000000000000' });
   assert.equal(called, false);
   assert.deepEqual(fs.readFileSync(file), before);
+});
+
+test('a transition that moves the phase back is a usage error and leaves the file unchanged', (t) => {
+  const file = storeIn(t);
+  const run = record();
+  insertRun(file, run);
+  assert.equal(transition(file, run.runId, ['starting'], (r: any) => { r.phase = 'ended'; r.end = { state: 'exited', at: 'x' }; }).applied, true);
+  const before = fs.readFileSync(file);
+  assert.throws(
+    () => transition(file, run.runId, ['ended'], (r: any) => { r.phase = 'running'; }),
+    (error: any) => error instanceof RunStoreError && /moved phase back from 'ended' to 'running'/.test(error.message),
+  );
+  assert.deepEqual(fs.readFileSync(file), before);
+  // Control: staying in the same phase is still applied.
+  assert.equal(transition(file, run.runId, ['ended'], (r: any) => { r.note = 'kept'; }).applied, true);
 });
 
 test('seq increments by one per applied transition and not on a refusal', (t) => {

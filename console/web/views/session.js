@@ -51,7 +51,7 @@ const PANEL_TITLE = 'chain-panel-title';
 
 /** The 12 px face of each chip token. */
 /** @type {Readonly<Record<string, string>>} */
-const TOKEN_FACE = Object.freeze({ running: 'running', done: 'check', failed: 'failed', unknown: 'unknown', rejected: 'rejected', skipped: 'skipped', pending: 'pending', awaiting: 'awaiting', stale: 'stale' });
+const TOKEN_FACE = Object.freeze({ running: 'running', done: 'check', failed: 'failed', unknown: 'unknown', rejected: 'rejected', skipped: 'skipped', pending: 'pending', awaiting: 'awaiting', stale: 'stale', closed: 'skipped' });
 /** The word before a node's label in its accessible name. */
 /** @type {Readonly<Record<string, string>>} */
 const KIND_WORDS = Object.freeze({ main: 'Run', stage: 'Stage', gate: 'Gate', task: 'Task', worker: 'Worker run' });

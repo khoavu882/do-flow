@@ -69,7 +69,7 @@ function railFallback(row, reason, nowMs, loop = false) {
   const current = row.current && typeof row.current === 'object' ? row.current : null;
   const token = runToken(row, nowMs);
   const type = current ? current.type : 'stage';
-  const state = !current ? 'done' : token === 'stale' ? 'stale' : row.state === 'AWAITING_GATE' ? 'awaiting' : row.state === 'REJECTED' ? 'rejected' : 'running';
+  const state = !current ? 'done' : token === 'stale' ? 'stale' : row.state === 'AWAITING_GATE' ? 'awaiting' : row.state === 'REJECTED' ? 'rejected' : row.state === 'CLOSED' ? 'not-reached' : 'running';
   const looping = loop && type === 'gate' && state === 'awaiting';
   const glyph = h('span', { class: 'rail__glyph', dataset: { type, state, kind: current ? current.kind : null, loop: looping ? 'on' : null } }, type === 'gate' ? icon(gateIcon(current, '12'), 12) : null);
   return h('div', { class: 'rail-fallback' }, [glyph, h('span', { class: 'rail-fallback__text' }, fallbackText(row, reason))]);
@@ -218,7 +218,7 @@ function degradedNode(row, nowMs) {
   const current = row.current && typeof row.current === 'object' ? row.current : null;
   if (!current) return null;
   const token = runToken(row, nowMs);
-  const state = token === 'stale' ? 'stale' : row.state === 'AWAITING_GATE' ? 'awaiting' : row.state === 'REJECTED' ? 'rejected' : 'running';
+  const state = token === 'stale' ? 'stale' : row.state === 'AWAITING_GATE' ? 'awaiting' : row.state === 'REJECTED' ? 'rejected' : row.state === 'CLOSED' ? 'not-reached' : 'running';
   return {
     type: current.type === 'gate' ? 'gate' : 'stage', id: current.id, kind: current.kind, optional: false, state,
     outcome: null, synthetic: false, decision: null, forced: false, at: null, durationMs: null, since: null,
@@ -483,6 +483,7 @@ function announceChange(row, local) {
   if (!prev) return;
   if (now.state === 'COMPLETED' && prev.state !== 'COMPLETED') announce('Run completed.');
   else if (now.state === 'REJECTED' && prev.state !== 'REJECTED') announce(`Run rejected at ${current ? current.id : 'a gate'}.`);
+  else if (now.state === 'CLOSED' && prev.state !== 'CLOSED') announce(`Run closed at ${current ? current.id : 'its last step'}.`);
   else if (current && now.key !== prev.key) announce(current.type === 'gate' ? `${current.id} is waiting for you.` : `${current.id} running.`);
 }
 

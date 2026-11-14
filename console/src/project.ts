@@ -28,13 +28,13 @@ const OTHER_HARNESS = '(other)';
 
 const CLOSED_SETS = Object.freeze({
   /** src/runtime/workflow-orchestrator.ts RUN_STATES */
-  runStates: Object.freeze(['RUNNING', 'AWAITING_GATE', 'COMPLETED', 'REJECTED']),
+  runStates: Object.freeze(['RUNNING', 'AWAITING_GATE', 'COMPLETED', 'REJECTED', 'CLOSED']),
   /** src/runtime/workflow-orchestrator.ts compileProgram node types */
   nodeTypes: Object.freeze(['stage', 'gate']),
   /** src/runtime/implementation-gate.ts run entry origins */
   origins: Object.freeze(['current', 'other']),
   /** IC-012 */
-  timelineActions: Object.freeze(['start', 'complete-stage', 'skip-stage', 'skip-gate', 'decide-gate', 'annotate', 'complete-run']),
+  timelineActions: Object.freeze(['start', 'complete-stage', 'skip-stage', 'skip-gate', 'decide-gate', 'annotate', 'complete-run', 'close-run']),
   /** src/runtime/workflow-orchestrator.ts STAGE_OUTCOMES */
   stageOutcomes: Object.freeze(['passed', 'failed', 'unverified']),
   /** src/runtime/workflow-orchestrator.ts GATE_DECISIONS */

@@ -8,10 +8,7 @@
 - Complex routing decisions with multiple valid approaches
 
 ## Behavioral Changes
-- **Smart Tool Selection**: Choose most powerful tool for each task type
-- **Resource Awareness**: Adapt approach based on system constraints
 - **Parallel Thinking**: Identify independent operations for concurrent execution
-- **Efficiency Focus**: Optimize tool usage for speed and effectiveness
 - **Explicit Model Selection**: Apply `references/MODEL_SELECTION.md` to every agent dispatch;
   pass `model:` explicitly whenever the host supports per-call model selection.
 
@@ -54,5 +51,4 @@ source itself or reports the concrete access gap.
 Each trigger applies only to work with disjoint write sets; tasks that share files or depend on each other run sequentially.
 - **>3 files**: Auto-suggest parallel processing
 - **Independent operations**: Batch Read calls, parallel edits
-- **Multi-directory scope**: Enable delegation mode
-- **Performance requests**: Parallelize the disjoint parts
+- **Independent packages**: Delegate per `references/ORCHESTRATION.md` § Role and handoff

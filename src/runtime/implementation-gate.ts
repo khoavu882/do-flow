@@ -541,7 +541,7 @@ function verifyReadinessCheck({ stateRoot, taskId, slug = null, now = new Date()
   // Reads only through the run store's safe reader; a run file that must not be read is refused by name.
   const run = readRunRecord(fs, found.file, runStoreDir(found.root));
   if (!run) return { applies: false, reason: 'no-run' };
-  if (run.state === 'COMPLETED' || run.state === 'REJECTED') return { applies: false, reason: 'run-finished' };
+  if (run.state === 'COMPLETED' || run.state === 'REJECTED' || run.state === 'CLOSED') return { applies: false, reason: 'run-finished' };
   const stageNodes = (run.program || []).filter((n: any) => n.type === 'stage');
   const stage = gatedStage(stageNodes);
   if (!stage) return { applies: false, reason: 'no-gated-stage' };

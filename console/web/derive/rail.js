@@ -2,7 +2,9 @@
 // workflow, a run row and its timeline. No DOM and no fetch, so console/test/derive-rail.test.ts runs it in Node.
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const RUN_STATES = Object.freeze(['RUNNING', 'AWAITING_GATE', 'COMPLETED', 'REJECTED']);
+const RUN_STATES = Object.freeze(['RUNNING', 'AWAITING_GATE', 'COMPLETED', 'REJECTED', 'CLOSED']);
+/** A run that ended before its last step: rejected at a gate, or closed by a person wherever it stood. @param {any} state */
+const stopped = (state) => state === 'REJECTED' || state === 'CLOSED';
 /** The timeline actions that give a node its own event (IC-012). */
 const NODE_ACTIONS = Object.freeze({ stage: ['complete-stage', 'skip-stage'], gate: ['decide-gate', 'skip-gate'] });
 
@@ -60,7 +62,7 @@ function findCursor(nodes, row) {
 
 /**
  * Whether the cursor can be where the run state puts it (IC-008 defines RUNNING on a stage and AWAITING_GATE or
- * REJECTED on a gate; any other pair reads as "not found").
+ * REJECTED on a gate; a CLOSED run stands on either; any other pair reads as "not found").
  * @param {any[]} nodes
  * @param {number} cursor
  * @param {string} state
@@ -69,6 +71,7 @@ function cursorFitsState(nodes, cursor, state) {
   if (state === 'COMPLETED') return cursor === nodes.length;
   const node = nodes[cursor];
   if (!node) return false;
+  if (state === 'CLOSED') return true;
   return state === 'RUNNING' ? node.type === 'stage' : node.type === 'gate';
 }
 
@@ -99,8 +102,8 @@ function deriveRail(workflow, row, timeline = null, nowMs = Date.now()) {
     /** @type {string} */
     let nodeState = 'pending';
     if (index < cursor) nodeState = 'done';
-    else if (index === cursor) nodeState = state === 'RUNNING' ? (token === 'stale' ? 'stale' : 'running') : state === 'AWAITING_GATE' ? 'awaiting' : state === 'REJECTED' ? 'rejected' : 'pending';
-    else if (state === 'REJECTED') nodeState = 'not-reached';
+    else if (index === cursor) nodeState = state === 'RUNNING' ? (token === 'stale' ? 'stale' : 'running') : state === 'AWAITING_GATE' ? 'awaiting' : state === 'REJECTED' ? 'rejected' : state === 'CLOSED' ? 'not-reached' : 'pending';
+    else if (stopped(state)) nodeState = 'not-reached';
     return { ...node, state: nodeState, outcome: null, synthetic: false, decision: null, forced: false, at: null, durationMs: null, since: null };
   });
 
@@ -192,7 +195,7 @@ function stepText(row) {
   if (done === null || total === null) return 'Progress unknown';
   const id = isObject(row.current) && typeof row.current.id === 'string' ? row.current.id : null;
   if (row.state === 'COMPLETED') return `${total} of ${total} steps`;
-  if (row.state === 'REJECTED') return id ? `Stopped at ${id}` : `Step ${done + 1} of ${total}`;
+  if (stopped(row.state)) return id ? `Stopped at ${id}` : `Step ${done + 1} of ${total}`;
   return id ? `Step ${done + 1} of ${total} · ${id}` : `Step ${done + 1} of ${total}`;
 }
 
@@ -289,11 +292,11 @@ function runKey(run) {
   return `${run.featureSlug ?? '-'}/${run.taskId}`;
 }
 
-/** The section a run belongs to, or null for a state outside the four. @param {any} run */
+/** The section a run belongs to, or null for a state outside the five. @param {any} run */
 function sectionOf(run) {
   if (run.state === 'AWAITING_GATE') return 'needs';
   if (run.state === 'RUNNING') return 'running';
-  return run.state === 'COMPLETED' || run.state === 'REJECTED' ? 'finished' : null;
+  return run.state === 'COMPLETED' || stopped(run.state) ? 'finished' : null;
 }
 
 /**
@@ -322,7 +325,7 @@ function groupRuns(runs) {
 }
 
 /** @type {Record<string, string>} */
-const RUN_WORDS = { RUNNING: 'Running', AWAITING_GATE: 'Waiting for you', COMPLETED: 'Completed', REJECTED: 'Rejected' };
+const RUN_WORDS = { RUNNING: 'Running', AWAITING_GATE: 'Waiting for you', COMPLETED: 'Completed', REJECTED: 'Rejected', CLOSED: 'Closed' };
 
 /**
  * The badge word of a run: "Stale" for a RUNNING run silent over a day.
@@ -354,7 +357,7 @@ function stepSentence(row) {
   if (done === null || total === null) return 'Progress unknown';
   const current = isObject(row.current) ? row.current : null;
   if (row.state === 'COMPLETED') return `${total} of ${total} steps`;
-  if (row.state === 'REJECTED') return current && current.id ? `Stopped at ${current.id}` : `Step ${done + 1} of ${total}`;
+  if (stopped(row.state)) return current && current.id ? `Stopped at ${current.id}` : `Step ${done + 1} of ${total}`;
   if (!current || !current.id) return `Step ${done + 1} of ${total}`;
   return `Step ${done + 1} of ${total}, ${current.type} ${current.id}${current.type === 'gate' && current.kind ? `, ${current.kind}` : ''}`;
 }
@@ -524,10 +527,12 @@ function tileFacts(runs, nowMs, { stale = false } = {}) {
       ? { long: 'all updating', short: 'all updating', prefix: '' }
       : { long: silent === null ? `${staleRuns.length} stale` : `${staleRuns.length} stale, no update ${stale ? `since ${sinceStamp(silent, nowMs)}` : `for ${formatDuration(nowMs - silent)}`}`, short: `${staleRuns.length} stale`, prefix: '' };
   const completed = groups.finished.filter((run) => run.state === 'COMPLETED').length;
-  const rejected = groups.finished.length - completed;
+  const closed = groups.finished.filter((run) => run.state === 'CLOSED').length;
+  const rejected = groups.finished.length - completed - closed;
+  // "closed" is named only when there is one: most projects never close a run, and the tile is narrow.
   facts.finished = groups.finished.length === 0
     ? { long: 'none yet', short: 'none yet', prefix: '' }
-    : { long: `${completed} completed, ${rejected} rejected`, short: rejected > 0 ? `${rejected} rejected` : `${completed} completed`, prefix: '' };
+    : { long: `${completed} completed, ${rejected} rejected${closed > 0 ? `, ${closed} closed` : ''}`, short: rejected > 0 ? `${rejected} rejected` : `${completed} completed`, prefix: '' };
   return facts;
 }
 
@@ -540,7 +545,7 @@ function tileFacts(runs, nowMs, { stale = false } = {}) {
 function stepPart(row) {
   const id = isObject(row.current) && typeof row.current.id === 'string' ? row.current.id : null;
   if (row.state === 'COMPLETED') return { lead: 'all steps done', id: null };
-  if (row.state === 'REJECTED') return id ? { lead: 'stopped at ', id } : { lead: '', id: null };
+  if (stopped(row.state)) return id ? { lead: 'stopped at ', id } : { lead: '', id: null };
   return { lead: '', id };
 }
 
@@ -561,7 +566,7 @@ function runStepCopy(row) {
   const step = stepNumber(row);
   if (step === null || total === null) return null;
   if (row.state === 'COMPLETED') return { lead: `all ${total} steps done`, n: null, tail: '' };
-  return { lead: row.state === 'REJECTED' ? 'stopped at step ' : 'step ', n: step, tail: ` of ${total}` };
+  return { lead: stopped(row.state) ? 'stopped at step ' : 'step ', n: step, tail: ` of ${total}` };
 }
 
 /**

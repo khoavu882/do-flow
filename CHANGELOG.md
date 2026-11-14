@@ -15,6 +15,21 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+- **`doflow orchestrate --action close --task-id <id> --note <why>` and the run state `CLOSED`:** a workflow run whose work ended outside the record (merged by hand, superseded, dropped) could only stay `RUNNING` or `AWAITING_GATE` for ever; this repository's own store held 21 such runs out of 67. `close` ends one. It needs a reason, keeps it in the run's journal as a `close-run` entry, changes no stage or gate status, clears the feature pointer, and refuses a run that is already `COMPLETED`, `REJECTED` or `CLOSED`. A closed run refuses further stages and gate decisions; `catch-up` answers `run-closed`; the implementation gate and the roadmap loop treat it as finished; `timeline` shows `close-run`. `status` on a rejected or closed run now prints `Stopped at <node>` instead of `Next: <node>`.
+- **Console:** a closed run is listed under Finished with a `Closed` badge, its rail shows the steps from the close on as not reached, the run page says when it was closed, and the Finished tile counts closed runs when there are any. A stale run's page names the `close` command. A run named after its feature shows the name once in the run list instead of twice.
+
+### Changed
+- **Orchestration guidance (`references/ORCHESTRATION.md`):** the role rule no longer tells the main session to delegate all discovery, research and edits. It now delegates for what delegation buys (parallel work on disjoint write sets, a reader not anchored on the session's view, a review of its own change) and otherwise works in the session. A new Finishing section says to finish the asked work, work through ordinary obstacles, report deliberate blockers and close with a self-contained report. The file's size is unchanged (context rails untouched). `MODE_Orchestration.md` drops three generic bullets and its "enable delegation mode" trigger.
+- **`do` skill:** the dispatch step says "the request's first word" instead of `$1`, a placeholder only one of the eight harnesses substitutes.
+
+### Removed
+- **`src/runtime/team/envelope.ts` (FU-qfxtv8):** the task brief and hand-back validators, `quarantineInput` and `formatTaskBriefPrompt` had no caller outside their own tests; `doctor` loaded the module only to keep it reachable. The module is removed and its two live types (`AgentRole`, `TaskOutcome`) live in `team/admission.ts`. No command, setting or output changes.
+
+### Fixed
+- **Worker run store (FU-ps5755, first half):** `transition()` now refuses to move a run's phase backwards (`starting`, `running`, `cancelling`, `ended` in order), so an ended run cannot be reopened by a caller's mistake.
+- **Team pre-check verdict at `doflow review start` (FU-mg747c):** the advisory `team.verdict` line with rule `pre-check` was `refused` on every start, because it required a `.doflow/state/team/pre-checks/<task>.json` record that no command writes. The verdict now uses the verify-record reasons the start already computed, together with the readiness record, so it is `admitted` when the task is READY and the verification precondition holds, and `refused` with the count of unmet items otherwise. The file is no longer read. `review start`'s own exit code and output are unchanged.
+
 ## [2.5.0] - 2026-11-10
 
 ### Added

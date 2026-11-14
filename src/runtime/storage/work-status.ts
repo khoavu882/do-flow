@@ -7,7 +7,7 @@ const path = require('node:path');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { loadStorageRegistry } = require('./registry.ts');
 
-const RUN_STATES = new Set(['RUNNING', 'AWAITING_GATE', 'COMPLETED', 'REJECTED']);
+const RUN_STATES = new Set(['RUNNING', 'AWAITING_GATE', 'COMPLETED', 'REJECTED', 'CLOSED']);
 const RUN_OPEN_STATES = Object.freeze(['RUNNING', 'AWAITING_GATE']);
 const UNCHECKED = /^\s*- \[ \] /m;
 const UNCHECKED_TASK = /^\s*- \[ \] (\S+)/gm;

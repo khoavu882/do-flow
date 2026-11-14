@@ -159,6 +159,34 @@ test('IC-012: skip-stage, a backfilled stage, a rejection and complete-run carry
   ]);
 });
 
+test('close through the verb: the run reads CLOSED, the timeline shows close-run without the reason, and the verb needs --note', (t) => {
+  const root = project(t);
+  ok(root, ['--action', 'start', '--task-id', 'c1', '--task-class', 'bug']);
+  const refused = runCli(root, ['orchestrate', '--action', 'close', '--task-id', 'c1', '--json']);
+  assert.equal(refused.status, 2, refused.stdout + refused.stderr);
+  assert.match(refused.stdout + refused.stderr, /close requires --task-id and --note/);
+
+  // A close cannot be undone: a flag it would ignore is refused before anything is written.
+  for (const extra of [['--dry-run'], ['--task-class', 'feature'], ['--stage', 'reproduction']]) {
+    const ignored = runCli(root, ['orchestrate', '--action', 'close', '--task-id', 'c1', '--note', 'x', ...extra, '--json']);
+    assert.equal(ignored.status, 2, extra.join(' '));
+    assert.match(ignored.stdout + ignored.stderr, new RegExp(`'${extra[0]}' has no effect on action 'close'`));
+  }
+  assert.equal(ok(root, ['--action', 'status', '--task-id', 'c1']).state, 'RUNNING');
+
+  assert.equal(ok(root, ['--action', 'close', '--task-id', 'c1', '--note', `shipped by hand ${MARKER}`]).state, 'CLOSED');
+  assert.equal(ok(root, ['--action', 'status', '--task-id', 'c1']).state, 'CLOSED');
+  const body = timeline(root, ['--task-id', 'c1']);
+  assert.deepEqual(shapeOf(body.events).slice(-1), [event('close-run', { node: 'reproduction' })]);
+  assert.ok(!JSON.stringify(body).includes(MARKER), 'the reason stays in the journal, not in the timeline');
+  const listed = ok(root, ['--action', 'list']).runs.find((run: any) => run.taskId === 'c1');
+  assert.equal(listed.state, 'CLOSED');
+
+  const again = runCli(root, ['orchestrate', '--action', 'close', '--task-id', 'c1', '--note', 'twice', '--json']);
+  assert.notEqual(again.status, 0);
+  assert.match(again.stdout + again.stderr, /already CLOSED/);
+});
+
 test('IC-012: journal entries keep only closed values; other actions are counted, never shown', (t) => {
   const root = project(t);
   const file = path.join(root, STORE, 'j1.json');
@@ -227,7 +255,7 @@ test('IC-012: no note, detail text, decider, consultation or trace id reaches ei
   assert.equal(lines[0], `Timeline m1 feat-m rev ${JSON.parse(json.stdout).revision}`);
   assert.equal(lines.length, 1 + JSON.parse(json.stdout).events.length);
   for (const line of lines.slice(1)) {
-    assert.match(line, /^\S+ (start|complete-stage|skip-stage|skip-gate|decide-gate|annotate|complete-run) \S+ \S+( forced)?( synthetic)?$/);
+    assert.match(line, /^\S+ (start|complete-stage|skip-stage|skip-gate|decide-gate|annotate|complete-run|close-run) \S+ \S+( forced)?( synthetic)?$/);
   }
   assert.match(lines[3], /^\S+ decide-gate gate-0 approve$/);
 });
