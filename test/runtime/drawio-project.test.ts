@@ -467,6 +467,7 @@ const pathProblems = (xml: string): string[] => {
   const around = (id: string) => { const out = new Set<string>(); for (let p = byId.get(parentOf(byId.get(id))); p && isShape(p); p = byId.get(parentOf(p))) out.add(p.id); return out; };
   const leaves = cells.filter((c) => isShape(c) && !/style="swimlane/.test(c.head));
   const problems: string[] = [];
+  const runs: any[] = [];
   for (const c of cells) {
     if (!/ edge="1"/.test(c.head) || !c.points) continue;
     const style = / style="([^"]*)"/.exec(c.head)?.[1] as string;
@@ -478,10 +479,19 @@ const pathProblems = (xml: string): string[] => {
     const path = [{ x: from.x + from.w * pin('exitX'), y: from.y + from.h * pin('exitY') },
       ...[...c.points.matchAll(/<mxPoint x="(-?[\d.]+)" y="(-?[\d.]+)"\/>/g)].map((m) => ({ x: Number(m[1]) + origin.x, y: Number(m[2]) + origin.y })),
       { x: to.x + to.w * pin('entryX'), y: to.y + to.h * pin('entryY') }];
+    const ends = [/ source="([^"]+)"/.exec(c.head)?.[1], / target="([^"]+)"/.exec(c.head)?.[1]];
     for (let k = 1; k < path.length; k++) {
       const [p, q] = [path[k - 1], path[k]];
       if (p.x !== q.x && p.y !== q.y) problems.push(`${c.id}: ${JSON.stringify([p, q])} is neither level nor upright`);
       for (const leaf of leaves) if (runHits(p, q, pageBox(leaf))) problems.push(`${c.id} runs through ${leaf.id}: ${JSON.stringify([p, q])}`);
+      // Two relations that share no end must not lie on one line for any length: it reads as a junction.
+      const level = p.y === q.y;
+      const run = { id: c.id, ends, level, at: level ? p.y : p.x, lo: Math.min(level ? p.x : p.y, level ? q.x : q.y), hi: Math.max(level ? p.x : p.y, level ? q.x : q.y) };
+      for (const other of runs) {
+        if (other.id === run.id || other.level !== run.level || other.at !== run.at || other.ends.some((e: any) => ends.includes(e))) continue;
+        if (Math.min(other.hi, run.hi) - Math.max(other.lo, run.lo) > 0) problems.push(`${c.id} and ${other.id} share a run at ${level ? 'y' : 'x'}=${run.at}`);
+      }
+      runs.push(run);
     }
   }
   return problems;
@@ -511,6 +521,17 @@ test('a relation between elements of different containers has its whole path wri
   assert.deepEqual(pathProblems(nested), []);
   assert.ok(pointsOf(nested, 'rel-1-a-c').length >= 3);
   assert.deepEqual(pathProblems(project(puml(MIXED.join('\n'))).xml), []);
+});
+
+test('paths that leave one container, or cross the space between two, do not share a line', () => {
+  const box = (name: string, kids: string[]) => [`System_Boundary(${name}, "${name}") {`, ...kids.map((k) => `  Container(${k}, "${k}")`), '}'];
+  // Four paths turn out of S1 over its columns; the fourth must not take the first one's lane and band.
+  const turning = [...box('s1', ['x', 'a', 'b', 'c', 'd', 'y1', 'y2', 'y3', 'y4']), ...box('s2', ['p', 'q', 'r', 's']),
+    ...['a', 'b', 'c', 'd'].flatMap((k, n) => [`Rel(x, ${k}, "")`, `Rel(${k}, y${n + 1}, "")`, `Rel(${k}, ${'pqrs'[n]}, "")`])];
+  assert.deepEqual(pathProblems(project(puml(turning.join('\n'))).xml), []);
+  // One path leaves straight out at the height another comes straight in at.
+  const facing = [...box('s1', ['a', 'b', 'c']), ...box('s2', ['p', 'q', 'r']), 'Rel(a, b, "")', 'Rel(b, c, "")', 'Rel(p, q, "")', 'Rel(q, r, "")', 'Rel(a, p, "")', 'Rel(c, r, "")', 'Rel(b, q, "")'];
+  assert.deepEqual(pathProblems(project(puml(facing.join('\n'))).xml), []);
 });
 
 test('a direction hint on a relation is read as a plain relation and does not move a shape', () => {

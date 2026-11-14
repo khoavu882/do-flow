@@ -51,7 +51,10 @@ const MAX_ROUTE_SLOTS = 2000;
 // Lanes for the upright part of a routed relation, inside the gap between two columns.
 const LANE_EDGE = 18;
 const LANE_STEP = 12;
-const LANES = 8;
+/** Lanes beside a column and bands above a grid row for the paths turning out of one container, and how far apart bands sit. */
+const EXIT_LANES = 7;
+const GRID_BANDS = 5;
+const BAND_STEP = 6;
 
 // C0 controls other than tab, LF and CR are not legal in XML 1.0, even as a character reference.
 const xmlAttr = (s: string): string => s.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/\n/g, '&#10;');
@@ -142,6 +145,24 @@ function project(text: string, opts: { sourcePath?: string; name?: string; icons
   const parentOf = new Map<string, string | null>();
   const elements = new Map<string, any>(parsed.elements.map((e: any) => [e.alias, e]));
 
+  // How many relation ends may turn out of each container: every end below it of a relation that goes
+  // beyond it. The space under a container's title is as tall as the bands those turns need.
+  const holderOf = new Map<string, string | null>();
+  const walk = (item: any, parent: string | null): void => {
+    if (item.element) { holderOf.set(item.element, parent); return; }
+    holderOf.set(item.boundary.alias, parent);
+    for (const child of item.boundary.items) walk(child, item.boundary.alias);
+  };
+  for (const item of parsed.roots) walk(item, null);
+  const above = (alias: string): string[] => { const out: string[] = []; for (let p = holderOf.get(alias) ?? null; p; p = holderOf.get(p) ?? null) out.push(p); return out; };
+  const exits = new Map<string, number>();
+  for (const e of parsed.edges) {
+    if (!holderOf.has(e.from) || !holderOf.has(e.to)) continue;
+    const [a, b] = [above(e.from), above(e.to)];
+    for (const [mine, other] of [[a, b], [b, a]]) for (const c of mine) { if (other.includes(c)) break; exits.set(c, (exits.get(c) ?? 0) + 1); }
+  }
+  const topOf = (alias: string): number => Math.max(PAD, BAND_STEP * ((exits.get(alias) ?? 0) + 1));
+
   // Each shape's layout record, by alias; `place` on it says where its container put it (a column or a grid row).
   const nodeOf = new Map<string, any>();
   const layoutNode = (item: any, parent: string | null): any => {
@@ -177,10 +198,11 @@ function project(text: string, opts: { sourcePath?: string; name?: string; icons
     boundaryIds.set(b.alias, `bd-${b.alias}`);
     parentOf.set(b.alias, parent);
     const kids = b.items.map((child: any) => layoutNode(child, b.alias));
-    const grid = pack(kids, PAD, HEADER + PAD);
+    const top = topOf(b.alias);
+    const grid = pack(kids, PAD, HEADER + top);
     return nodeOf.set(b.alias, {
-      id: `bd-${b.alias}`, alias: b.alias, aliases: [b.alias, ...kids.flatMap((k: any) => k.aliases)], boundary: true, label: htmlText(b.label), kids, grid,
-      w: Math.max(MIN_BOUNDARY_W, grid.w + 2 * PAD), h: HEADER + PAD + grid.h + PAD,
+      id: `bd-${b.alias}`, alias: b.alias, aliases: [b.alias, ...kids.flatMap((k: any) => k.aliases)], boundary: true, label: htmlText(b.label), kids, grid, top,
+      w: Math.max(MIN_BOUNDARY_W, grid.w + 2 * PAD), h: HEADER + top + grid.h + PAD,
     }).get(b.alias);
   };
 
@@ -270,13 +292,28 @@ function project(text: string, opts: { sourcePath?: string; name?: string; icons
     const shapesH = (c: number): number => columns[c].reduce((sum, i) => sum + nodes[i].h, 0) + GAP * (columns[c].length - 1);
     const heightOf = (c: number): number => shapesH(c) + slots[c] * (GAP + SLOT_H);
     const h = Math.max(...columns.map((_, c) => heightOf(c)));
+    // Which gaps each relation turns in: the one it enters each passed column from, then the one before its
+    // target. A gap is as wide as the lanes its relations need, so no two of them share a lane.
+    const gapOf = (c: number, back: boolean): number => (back ? c + 1 : c);
+    const turnsIn = passes.map((p) => {
+      const e = parsed.edges[p.l.e];
+      const cb = colOf.get(p.l.b) as number;
+      const direct = nodes[p.l.a].alias === e.from && nodes[p.l.b].alias === e.to;
+      const neighbours = Math.abs((colOf.get(p.l.a) as number) - cb) === 1;
+      const last = p.through.length || (neighbours && !direct) ? [gapOf(cb, p.back)] : [];
+      return { direct, neighbours, gaps: [...p.through.map((t) => gapOf(t.c, p.back)), ...last] };
+    });
+    const gapW: number[] = columns.map(() => RANK_GAP);
+    const wanted: number[] = columns.map(() => 0);
+    for (const t of turnsIn) for (const g of t.gaps) wanted[g] += 1;
+    wanted.forEach((n, g) => { gapW[g] = Math.max(RANK_GAP, Math.ceil((2 * LANE_EDGE + n * LANE_STEP) / LANE_STEP) * LANE_STEP); });
     const colX: number[] = []; const colW: number[] = []; const colTop: number[] = [];
     let x = 0; let w = 0;
     columns.forEach((col, c) => {
       colX[c] = x; colW[c] = Math.max(...col.map((i) => nodes[i].w)); colTop[c] = Math.round((h - heightOf(c)) / 2);
       let y = colTop[c];
       for (const i of col) { at[i] = { x, y }; nodes[i].place = { col: [x, x + colW[c]] }; y += nodes[i].h + GAP; }
-      w = x + colW[c]; x = w + RANK_GAP;
+      w = x + colW[c]; x = w + (gapW[c + 1] ?? 0);
     });
     // A routed relation turns only in the space between columns, never at a shape's own edge: one point
     // per column passed, in the gap it enters that column from, at the height of its slot there, then one
@@ -284,25 +321,23 @@ function project(text: string, opts: { sourcePath?: string; name?: string; icons
     // Each relation that turns in a gap takes the next lane there, so two of them do not share a line.
     const lanes: number[] = columns.map(() => 0);
     const gapBefore = (c: number, back: boolean): number => {
-      const gap = back ? c + 1 : c;
-      return ox + colX[gap] - RANK_GAP + LANE_EDGE + (lanes[gap]++ % LANES) * LANE_STEP;
+      const gap = gapOf(c, back);
+      return ox + colX[gap] - gapW[gap] + LANE_EDGE + lanes[gap]++ * LANE_STEP;
     };
-    for (const p of passes) {
+    passes.forEach((p, n) => {
       const points: Array<{ x: number; y?: number }> = [];
       let y = 0;
       for (const t of p.through) {
         y = oy + colTop[t.c] + shapesH(t.c) + GAP + t.slot * (GAP + SLOT_H) + SLOT_H / 2;
         points.push({ x: gapBefore(t.c, p.back), y });
       }
-      const e = parsed.edges[p.l.e];
-      const direct = nodes[p.l.a].alias === e.from && nodes[p.l.b].alias === e.to;
-      const neighbours = Math.abs((colOf.get(p.l.a) as number) - (colOf.get(p.l.b) as number)) === 1;
+      const { direct, neighbours } = turnsIn[n];
       if (points.length) points.push({ x: gapBefore(colOf.get(p.l.b) as number, p.back), y });
       // An end inside a child container has its own way out to draw, so it needs a lane here too.
       else if (neighbours && !direct) points.push({ x: gapBefore(colOf.get(p.l.b) as number, p.back) });
       // Left to the router and pinned only when its way is clear: two children in neighbouring columns.
       routes.set(p.l.e, { points, back: p.back, direct: direct && neighbours });
-    }
+    });
     const rest = all.filter((i) => !linked.has(i));
     if (!rest.length) return { at, w, h };
     const g = grid(rest, h + GAP);
@@ -321,7 +356,7 @@ function project(text: string, opts: { sourcePath?: string; name?: string; icons
     if (node.boundary) {
       lines.push(`        <mxCell id="${xmlAttr(node.id)}" value="${xmlAttr(node.label)}" style="swimlane;startSize=30;html=1;" vertex="1" parent="${xmlAttr(parent)}">`,
         `          <mxGeometry x="${x}" y="${y}" width="${node.w}" height="${node.h}" as="geometry"/>`, '        </mxCell>');
-      node.kids.forEach((kid: any, i: number) => cell(kid, PAD + node.grid.at[i].x, HEADER + PAD + node.grid.at[i].y, node.id, px + x, py + y));
+      node.kids.forEach((kid: any, i: number) => cell(kid, PAD + node.grid.at[i].x, HEADER + node.top + node.grid.at[i].y, node.id, px + x, py + y));
     } else {
       lines.push(`        <mxCell id="${xmlAttr(node.id)}" value="${xmlAttr(node.label)}" style="${xmlAttr(node.style)}" vertex="1" parent="${xmlAttr(parent)}">`,
         `          <mxGeometry x="${x + node.gx}" y="${y}" width="${node.gw}" height="${node.gh}" as="geometry"/>`, '        </mxCell>');
@@ -342,31 +377,59 @@ function project(text: string, opts: { sourcePath?: string; name?: string; icons
   // share, in page coordinates: beside the shape into the clear space next to it, up to the clear band
   // above its column or grid row, along the band to the container's side; then the same one level up.
   // Returns the corners after the shape's own side, and the height the path is at when it gets out.
-  const turns = new Map<string, number>();
-  const leave = (alias: string, stop: string | null, dir: number, fy: number): { corners: Array<{ x: number; y: number }>; y: number } => {
+  const kidsOf = new Map<string, string[]>();
+  for (const [alias, holder] of parentOf) if (holder) kidsOf.set(holder, [...(kidsOf.get(holder) ?? []), alias]);
+  // The upright lanes (`x`) and level bands (`y`) already used by a written path, per container, in page
+  // coordinates. A new path takes the first of its candidates no earlier path is on; when all are used
+  // it shares one, which is the limit of a draft that keeps every container the size its shapes need.
+  const claimed = new Map<string, { x: number[]; y: number[] }>();
+  const claimsOf = (holder: string) => { if (!claimed.has(holder)) claimed.set(holder, { x: [], y: [] }); return claimed.get(holder) as { x: number[]; y: number[] }; };
+  const free = (used: number[], candidates: number[]): number => candidates.find((v) => !used.some((u) => Math.abs(u - v) < 4)) ?? candidates[used.length % candidates.length];
+  const steps = (from: number, step: number, count: number): number[] => Array.from({ length: count }, (_, k) => from + step * (k + 1));
+  type End = { corners: Array<{ x: number; y: number }>; y: number; claims: Array<{ holder: string; axis: 'x' | 'y'; at: number }> };
+  const leave = (alias: string, stop: string | null, dir: number, fy: number): End => {
     const corners: Array<{ x: number; y: number }> = [];
+    const claims: End['claims'] = [];
     const first = box.get(alias) as any;
     let y = first.y + first.h * fy;
     for (let inner = alias, outer = parentOf.get(inner) ?? null; outer && outer !== stop; inner = outer, outer = parentOf.get(inner) ?? null) {
       const o = box.get(outer) as any; const b = box.get(inner) as any; const place = nodeOf.get(inner).place;
       // Nothing stands between this shape and the side it leaves by: the path runs straight out, with no climb.
-      const blocked = [...parentOf].some(([other, holder]) => {
-        if (holder !== outer || other === inner) return false;
+      const blocked = (kidsOf.get(outer) as string[]).some((other) => {
+        if (other === inner) return false;
         const s = box.get(other) as any;
         return (dir > 0 ? s.x >= b.x + b.w : s.x + s.w <= b.x) && y > s.y - 8 && y < s.y + s.h + 8;
       });
       if (!blocked) { corners.push({ x: dir > 0 ? o.x + o.w : o.x, y }); continue; }
-      // A few paths may leave by the same space; each is set a little apart from the last.
-      const k = turns.get(outer) ?? 0; turns.set(outer, k + 1);
-      const gx = o.x + PAD; const gy = o.y + HEADER + PAD;
-      const lane = place.col
-        ? gx + (dir > 0 ? place.col[1] + 8 + (k % 3) * 3 : place.col[0] - 8 - (k % 3) * 3)
-        : (dir > 0 ? b.x + b.w + GAP / 2 : b.x - GAP / 2) + ((k % 3) - 1) * 4;
-      const band = gy + (place.col || place.row === 0 ? -PAD / 2 : place.row - GAP / 2) + ((k % 3) - 1) * 4;
+      const used = claimsOf(outer);
+      const top = topOf(outer); const gx = o.x + PAD; const gy = o.y + HEADER + top;
+      // Beside a column the lanes sit between the lanes kept for relations that pass over a column; beside
+      // a shape of the grid they are counted from the shape, and the shape on the other side counts from its own.
+      const lane = free(used.x, place.col
+        ? steps(gx + (dir > 0 ? place.col[1] : place.col[0]), dir * LANE_STEP, EXIT_LANES)
+        : steps(dir > 0 ? b.x + b.w : b.x, dir * 8, 4));
+      const band = free(used.y, place.col || place.row === 0 ? steps(gy - top, BAND_STEP, Math.floor(top / BAND_STEP) - 1) : steps(gy + place.row - GAP + BAND_STEP, BAND_STEP, GRID_BANDS));
+      claims.push({ holder: outer, axis: 'x', at: lane }, { holder: outer, axis: 'y', at: band });
       corners.push({ x: lane, y }, { x: lane, y: band }, { x: dir > 0 ? o.x + o.w : o.x, y: band });
       y = band;
     }
-    return { corners, y };
+    return { corners, y, claims };
+  };
+  // One end of a written path. An end that leaves a container tries the next height on its shape while the
+  // height it would come out at is already used in the container both ends share: a path that leaves
+  // straight out and one that comes straight in at the same height would otherwise draw as one line.
+  const endOf = (alias: string, stop: string | null, dir: number, back: boolean) => {
+    const used = claimsOf(stop ?? '').y;
+    let got = { ...leave(alias, stop, dir, back ? 0.75 : 0.5), fy: back ? 0.75 : 0.5 };
+    if (got.corners.length) {
+      for (const fy of back ? [0.875, 0.625] : [0.375, 0.625, 0.25]) {
+        if (!used.some((y) => Math.abs(y - got.y) < 6)) break;
+        got = { ...leave(alias, stop, dir, fy), fy };
+      }
+      used.push(got.y);
+    }
+    for (const c of got.claims) claimsOf(c.holder)[c.axis].push(c.at);
+    return got;
   };
   parsed.edges.forEach((e: any, i: number) => {
     for (const end of [e.from, e.to]) {
@@ -387,9 +450,8 @@ function project(text: string, opts: { sourcePath?: string; name?: string; icons
       // takes a point as a hint and turns at the shape's own edge, through whatever is stacked there.
       const origin = common ? box.get(common) as any : { x: 0, y: 0 };
       const dir = route.back ? -1 : 1;
-      const fy = route.back ? 0.75 : 0.5;
-      const out = leave(e.from, common ?? null, dir, fy);
-      const into = leave(e.to, common ?? null, -dir, fy);
+      const out = endOf(e.from, common ?? null, dir, route.back);
+      const into = endOf(e.to, common ?? null, -dir, route.back);
       const corners = out.corners.map((c) => ({ x: c.x - origin.x, y: c.y - origin.y }));
       let y = out.y - origin.y;
       for (const p of route.points) {
@@ -398,7 +460,7 @@ function project(text: string, opts: { sourcePath?: string; name?: string; icons
       }
       corners.push({ x: route.points[route.points.length - 1].x, y: into.y - origin.y }, ...into.corners.reverse().map((c) => ({ x: c.x - origin.x, y: c.y - origin.y })));
       const path = corners.filter((c, k) => k === 0 || c.x !== corners[k - 1].x || c.y !== corners[k - 1].y);
-      style = `edgeStyle=none;rounded=0;${arrows}exitX=${route.back ? 0 : 1};exitY=${fy};entryX=${route.back ? 1 : 0};entryY=${fy};`;
+      style = `edgeStyle=none;rounded=0;${arrows}exitX=${route.back ? 0 : 1};exitY=${out.fy};entryX=${route.back ? 1 : 0};entryY=${into.fy};`;
       geometry = `<mxGeometry relative="1" as="geometry"><Array as="points">${path.map((c) => `<mxPoint x="${c.x}" y="${c.y}"/>`).join('')}</Array></mxGeometry>`;
     }
     const id = `rel-${i + 1}-${e.from}-${e.to}`;
