@@ -310,3 +310,241 @@ test('an output folder that is a symlink out of the checkout is refused and noth
   await assert.rejects(async () => renderLevels({ srcDir: src, outDir: path.join(parent, 'deeper'), iconsDir: path.join(f.root, 'icons'), roots: [f.root], base: f.root }), Refused);
   assert.deepEqual(fs.readdirSync(target), []);
 });
+
+/** The x and y of one cell's geometry. */
+const placeOf = (xml: string, id: string) => {
+  const m = new RegExp(`<mxCell id="${id}"[^>]*>\\n\\s+<mxGeometry x="(-?\\d+)" y="(-?\\d+)"`).exec(xml);
+  if (!m) throw new assert.AssertionError({ message: `no geometry for ${id}` });
+  return { x: Number(m[1]), y: Number(m[2]) };
+};
+
+test('siblings joined by relations sit in one column per rank, each relation running to a later column', () => {
+  const { xml } = project(puml([
+    'Container(api, "API")',
+    'ContainerDb(db, "DB")',
+    'Container(bus, "Bus")',
+    'Container(cache, "Cache")',
+    'Container(worker, "Worker")',
+    'Rel(api, db, "writes")',
+    'Rel(api, bus, "publishes")',
+    'Rel(api, cache, "reads")',
+    'Rel(bus, worker, "feeds")',
+  ].join('\n')));
+  const at = Object.fromEntries(['api', 'db', 'bus', 'cache', 'worker'].map((a) => [a, placeOf(xml, `el-${a}`)]));
+  assert.ok(at.db.x === at.bus.x && at.bus.x === at.cache.x, 'the three targets of api share a column');
+  assert.ok(at.api.x + 200 < at.db.x, 'that column is to the right of api, with room for a label');
+  assert.ok(at.worker.x > at.bus.x + 200, 'a second hop is one column further');
+  assert.ok(at.db.y < at.bus.y && at.bus.y < at.cache.y, 'a column keeps source order, top to bottom');
+  // Left to right: out by the right side, in by the left.
+  assert.match(attr(cellOf(xml, 'rel-3-api-cache'), 'style') as string, /exitX=1;exitY=0\.5;entryX=0;entryY=0\.5;$/);
+  assert.match(attr(cellOf(xml, 'rel-1-api-db'), 'style') as string, /labelBackgroundColor=default;/);
+});
+
+test('a relation against the column order leaves by the left, lower than one running with it; one to a container holding its source is not pinned', () => {
+  const { xml } = project(puml([
+    'System_Boundary(sys, "Sys") {',
+    '  Container(a, "A")',
+    '  Container(b, "B")',
+    '}',
+    'Rel(a, b, "calls")',
+    'Rel(b, a, "answers")',
+    'Rel(a, sys, "reports")',
+  ].join('\n')));
+  assert.ok(placeOf(xml, 'el-a').x < placeOf(xml, 'el-b').x);
+  assert.match(attr(cellOf(xml, 'rel-2-b-a'), 'style') as string, /exitX=0;exitY=0\.75;entryX=1;entryY=0\.75;$/);
+  assert.match(attr(cellOf(xml, 'rel-1-a-b'), 'style') as string, /exitX=1;exitY=0\.5;entryX=0;entryY=0\.5;$/);
+  assert.doesNotMatch(attr(cellOf(xml, 'rel-3-a-sys'), 'style') as string, /exitX/);
+});
+
+test('relations that form a cycle still place every sibling once, each at its own spot', () => {
+  const { xml } = project(puml([
+    'Container(a, "A")', 'Container(b, "B")', 'Container(c, "C")',
+    'Rel(a, b, "1")', 'Rel(b, c, "2")', 'Rel(c, a, "3")',
+  ].join('\n')));
+  const spots = ['a', 'b', 'c'].map((id) => { const p = placeOf(xml, `el-${id}`); return `${p.x},${p.y}`; });
+  assert.equal(new Set(spots).size, 3, spots.join(' '));
+});
+
+test('more siblings in one rank than a column holds wrap into a further column', () => {
+  const targets = ['t1', 't2', 't3', 't4', 't5'];
+  const { xml } = project(puml(['Container(s, "S")', ...targets.map((t) => `Container(${t}, "${t}")`), ...targets.map((t) => `Rel(s, ${t}, "to")`)].join('\n')));
+  assert.equal(placeOf(xml, 'el-t1').x, placeOf(xml, 'el-t4').x);
+  assert.ok(placeOf(xml, 'el-t5').x > placeOf(xml, 'el-t4').x);
+});
+
+/** The route points of one relation, and every shape's rectangle, in the coordinates of the relation's parent. */
+const pointsOf = (xml: string, id: string) => {
+  const m = new RegExp(`<mxCell id="${id}"[^>]*>\\n\\s+<mxGeometry relative="1" as="geometry">(.*?)</mxGeometry>`).exec(xml);
+  return m ? [...m[1].matchAll(/<mxPoint x="(-?[\d.]+)" y="(-?[\d.]+)"\/>/g)].map((p) => ({ x: Number(p[1]), y: Number(p[2]) })) : [];
+};
+const rectOf = (xml: string, id: string) => {
+  const m = new RegExp(`<mxCell id="${id}"[^>]*>\\n\\s+<mxGeometry x="(-?\\d+)" y="(-?\\d+)" width="(\\d+)" height="(\\d+)"`).exec(xml);
+  if (!m) throw new assert.AssertionError({ message: `no geometry for ${id}` });
+  return { x: Number(m[1]), y: Number(m[2]), w: Number(m[3]), h: Number(m[4]) };
+};
+/** Whether the straight run between two points passes through the inside of a rectangle. Runs are level or upright. */
+const runHits = (a: any, b: any, r: any) => Math.max(a.x, b.x) > r.x && Math.min(a.x, b.x) < r.x + r.w && Math.max(a.y, b.y) > r.y && Math.min(a.y, b.y) < r.y + r.h;
+/** Every run of a routed relation, from the side it leaves to the side it enters, as its pinned style says. */
+const runsOf = (xml: string, id: string, from: string, to: string) => {
+  const style = attr(cellOf(xml, id), 'style') as string;
+  const pin = (name: string) => Number(new RegExp(`${name}=([\\d.]+);`).exec(style)?.[1]);
+  const f = rectOf(xml, `el-${from}`); const t = rectOf(xml, `el-${to}`);
+  const path = [{ x: f.x + f.w * pin('exitX'), y: f.y + f.h * pin('exitY') }, ...pointsOf(xml, id), { x: t.x + t.w * pin('entryX'), y: t.y + t.h * pin('entryY') }];
+  return path.slice(1).map((p, k) => [path[k], p]);
+};
+const MIXED = [
+  'Person(pp, "User")', 'Container(a, "A")', 'Container(x, "X")', 'Container(y, "Y")', 'Container(b, "B")', 'Container(c, "C")',
+  'Rel(pp, a, "1")', 'Rel(a, b, "2")', 'Rel(x, b, "3")', 'Rel(y, b, "4")', 'Rel(b, c, "5")', 'Rel(pp, c, "6")', 'Rel(c, pp, "7")', 'Rel(a, c, "8")',
+];
+
+test('a relation that passes over a column has its whole path given, level or upright, through no shape', () => {
+  const cases: Array<[string[], string[], Array<[string, string, string]>]> = [
+    [['Container(a, "A")', 'Container(b, "B")', 'Container(c, "C")', 'Rel(a, b, "1")', 'Rel(b, c, "2")', 'Rel(a, c, "skips b")', 'Rel(c, a, "back over b")'],
+      ['a', 'b', 'c'], [['rel-3-a-c', 'a', 'c'], ['rel-4-c-a', 'c', 'a']]],
+    // A person is narrower than its column, with shapes stacked under it: the upright part must not run down through them.
+    [MIXED, ['pp', 'a', 'x', 'y', 'b', 'c'], [['rel-3-x-b', 'x', 'b'], ['rel-4-y-b', 'y', 'b'], ['rel-6-pp-c', 'pp', 'c'], ['rel-7-c-pp', 'c', 'pp'], ['rel-8-a-c', 'a', 'c']]],
+  ];
+  for (const [body, shapes, routed] of cases) {
+    const { xml } = project(puml(body.join('\n')));
+    for (const [id, from, to] of routed) {
+      assert.match(attr(cellOf(xml, id), 'style') as string, /^edgeStyle=none;rounded=0;/, `${id} is not left to a router`);
+      const runs = runsOf(xml, id, from, to);
+      assert.ok(runs.length >= 3, `${id} has corners`);
+      for (const [p, q] of runs) {
+        assert.ok(p.x === q.x || p.y === q.y, `${id}: the run ${JSON.stringify([p, q])} is level or upright`);
+        for (const shape of shapes) assert.ok(!runHits(p, q, rectOf(xml, `el-${shape}`)), `${id} runs through ${shape}: ${JSON.stringify([p, q])}`);
+      }
+    }
+  }
+});
+
+test('two routed relations do not share an upright line or a slot; a neighbouring relation is left to the router', () => {
+  const { xml } = project(puml(MIXED.join('\n')));
+  const uprights = ['rel-3-x-b', 'rel-4-y-b', 'rel-6-pp-c', 'rel-7-c-pp', 'rel-8-a-c'].flatMap((id) => [...new Set(pointsOf(xml, id).map((p) => p.x))].map((x) => `${x}`));
+  assert.equal(new Set(uprights).size, uprights.length, uprights.join(' '));
+  assert.deepEqual(pointsOf(xml, 'rel-1-pp-a'), []);
+  assert.match(attr(cellOf(xml, 'rel-1-pp-a'), 'style') as string, /^edgeStyle=orthogonalEdgeStyle;.*exitX=1;exitY=0\.5;entryX=0;entryY=0\.5;$/);
+});
+
+test('past the slot budget a relation over a column is neither routed nor pinned', () => {
+  const n = 70;
+  const { xml } = project(puml([
+    ...Array.from({ length: n }, (_, i) => `Container(e${i}, "E${i}")`),
+    ...Array.from({ length: n - 1 }, (_, i) => `Rel(e${i}, e${i + 1}, "next")`),
+    ...Array.from({ length: n - 2 }, (_, i) => `Rel(e0, e${i + 2}, "far")`),
+  ].join('\n')));
+  const last = cellOf(xml, `rel-${(n - 1) + (n - 2)}-e0-e${n - 1}`);
+  assert.doesNotMatch(attr(last, 'style') as string, /exitX|entryX/);
+  assert.match(attr(cellOf(xml, `rel-${n}-e0-e2`), 'style') as string, /^edgeStyle=none;/, 'the first far relation is still routed');
+});
+
+test('siblings no relation touches stay out of the columns, in a grid below them', () => {
+  const { xml } = project(puml([
+    'Container(a, "A")', ...['x1', 'x2', 'x3', 'x4'].map((x) => `Container(${x}, "${x}")`), 'Container(b, "B")',
+    'Rel(a, b, "calls")',
+  ].join('\n')));
+  const a = rectOf(xml, 'el-a'); const b = rectOf(xml, 'el-b');
+  assert.equal(a.y, b.y);
+  for (const x of ['x1', 'x2', 'x3', 'x4']) assert.ok(rectOf(xml, `el-${x}`).y >= a.y + a.h, `${x} is below the related pair`);
+});
+
+/**
+ * Every problem in a drawn diagram's written-out paths: a run that is neither level nor upright, or one
+ * that passes through a shape that is not a container around one of its ends. Page coordinates throughout.
+ */
+const pathProblems = (xml: string): string[] => {
+  const cells = [...xml.matchAll(/<mxCell id="([^"]+)"([^>]*)>\n\s+<mxGeometry([^>]*?)(?:\/>|>(.*?)<\/mxGeometry>)/g)]
+    .map((m) => ({ id: m[1], head: m[2], geo: m[3], points: m[4] || '' }));
+  const byId = new Map(cells.map((c) => [c.id, c]));
+  const num = (text: string, name: string) => Number(new RegExp(` ${name}="(-?[\\d.]+)"`).exec(text)?.[1] ?? 0);
+  const parentOf = (c: any) => / parent="([^"]+)"/.exec(c.head)?.[1] as string;
+  const isShape = (c: any) => / vertex="1"/.test(c.head);
+  const pageBox = (c: any) => {
+    let x = num(c.geo, 'x'); let y = num(c.geo, 'y');
+    for (let p = byId.get(parentOf(c)); p && isShape(p); p = byId.get(parentOf(p))) { x += num(p.geo, 'x'); y += num(p.geo, 'y'); }
+    return { x, y, w: num(c.geo, 'width'), h: num(c.geo, 'height') };
+  };
+  const around = (id: string) => { const out = new Set<string>(); for (let p = byId.get(parentOf(byId.get(id))); p && isShape(p); p = byId.get(parentOf(p))) out.add(p.id); return out; };
+  const leaves = cells.filter((c) => isShape(c) && !/style="swimlane/.test(c.head));
+  const problems: string[] = [];
+  const runs: any[] = [];
+  for (const c of cells) {
+    if (!/ edge="1"/.test(c.head) || !c.points) continue;
+    const style = / style="([^"]*)"/.exec(c.head)?.[1] as string;
+    const pin = (name: string) => Number(new RegExp(`${name}=([\\d.]+);`).exec(style)?.[1]);
+    const holder = byId.get(parentOf(c));
+    const origin = holder && isShape(holder) ? pageBox(holder) : { x: 0, y: 0 };
+    const from = pageBox(byId.get(/ source="([^"]+)"/.exec(c.head)?.[1] as string));
+    const to = pageBox(byId.get(/ target="([^"]+)"/.exec(c.head)?.[1] as string));
+    const path = [{ x: from.x + from.w * pin('exitX'), y: from.y + from.h * pin('exitY') },
+      ...[...c.points.matchAll(/<mxPoint x="(-?[\d.]+)" y="(-?[\d.]+)"\/>/g)].map((m) => ({ x: Number(m[1]) + origin.x, y: Number(m[2]) + origin.y })),
+      { x: to.x + to.w * pin('entryX'), y: to.y + to.h * pin('entryY') }];
+    const ends = [/ source="([^"]+)"/.exec(c.head)?.[1], / target="([^"]+)"/.exec(c.head)?.[1]];
+    for (let k = 1; k < path.length; k++) {
+      const [p, q] = [path[k - 1], path[k]];
+      if (p.x !== q.x && p.y !== q.y) problems.push(`${c.id}: ${JSON.stringify([p, q])} is neither level nor upright`);
+      for (const leaf of leaves) if (runHits(p, q, pageBox(leaf))) problems.push(`${c.id} runs through ${leaf.id}: ${JSON.stringify([p, q])}`);
+      // Two relations that share no end must not lie on one line for any length: it reads as a junction.
+      const level = p.y === q.y;
+      const run = { id: c.id, ends, level, at: level ? p.y : p.x, lo: Math.min(level ? p.x : p.y, level ? q.x : q.y), hi: Math.max(level ? p.x : p.y, level ? q.x : q.y) };
+      for (const other of runs) {
+        if (other.id === run.id || other.level !== run.level || other.at !== run.at || other.ends.some((e: any) => ends.includes(e))) continue;
+        if (Math.min(other.hi, run.hi) - Math.max(other.lo, run.lo) > 0) problems.push(`${c.id} and ${other.id} share a run at ${level ? 'y' : 'x'}=${run.at}`);
+      }
+      runs.push(run);
+    }
+  }
+  return problems;
+};
+const CROSS = [
+  'Person(u, "Shopper")',
+  'System_Boundary(shop, "Shop") {', '  Container(web, "Web")', '  Container(api, "API")', '  ContainerDb(db, "DB")',
+  '  Container_Boundary(jobs, "Jobs") {', '    Container(mailer, "Mailer")', '    Container(report, "Reports")', '  }', '}',
+  'System_Boundary(pay, "Payments") {', '  Container(gw, "Gateway")', '  Container(ledger, "Ledger")', '}',
+  'System_Ext(mail, "Mail provider")',
+  'Rel(u, web, "Browses")', 'Rel(web, api, "Calls")', 'Rel(api, db, "Writes")', 'Rel(api, gw, "Charges")', 'Rel(gw, ledger, "Books")',
+  'Rel(api, mailer, "Queues")', 'Rel(mailer, mail, "Sends")', 'Rel(ledger, report, "Feeds")', 'Rel(u, api, "Mobile")',
+];
+
+test('a relation between elements of different containers has its whole path written, out of and into each container, through no shape', () => {
+  const { xml } = project(puml(CROSS.join('\n')));
+  assert.deepEqual(pathProblems(xml), []);
+  // Out of Shop to Payments, into a container nested two deep, and back from one system into another's inner container.
+  for (const id of ['rel-1-u-web', 'rel-4-api-gw', 'rel-6-api-mailer', 'rel-7-mailer-mail', 'rel-8-ledger-report', 'rel-9-u-api']) {
+    assert.match(attr(cellOf(xml, id), 'style') as string, /^edgeStyle=none;rounded=0;/, `${id} has a written path`);
+    assert.ok(pointsOf(xml, id).length >= 2, `${id} has corners`);
+  }
+  // Two children of one container in neighbouring columns stay with the router.
+  assert.match(attr(cellOf(xml, 'rel-2-web-api'), 'style') as string, /^edgeStyle=orthogonalEdgeStyle;/);
+  // The reviewed case: the path from a to c must not run through a's neighbour b.
+  const nested = project(puml(['System_Boundary(s1, "S1") {', '  Container(a, "A")', '  Container(b, "B")', '}', 'System_Boundary(s2, "S2") {', '  Container(c, "C")', '}', 'Rel(a, c, "calls")'].join('\n'))).xml;
+  assert.deepEqual(pathProblems(nested), []);
+  assert.ok(pointsOf(nested, 'rel-1-a-c').length >= 3);
+  assert.deepEqual(pathProblems(project(puml(MIXED.join('\n'))).xml), []);
+});
+
+test('paths that leave one container, or cross the space between two, do not share a line', () => {
+  const box = (name: string, kids: string[]) => [`System_Boundary(${name}, "${name}") {`, ...kids.map((k) => `  Container(${k}, "${k}")`), '}'];
+  // Four paths turn out of S1 over its columns; the fourth must not take the first one's lane and band.
+  const turning = [...box('s1', ['x', 'a', 'b', 'c', 'd', 'y1', 'y2', 'y3', 'y4']), ...box('s2', ['p', 'q', 'r', 's']),
+    ...['a', 'b', 'c', 'd'].flatMap((k, n) => [`Rel(x, ${k}, "")`, `Rel(${k}, y${n + 1}, "")`, `Rel(${k}, ${'pqrs'[n]}, "")`])];
+  assert.deepEqual(pathProblems(project(puml(turning.join('\n'))).xml), []);
+  // One path leaves straight out at the height another comes straight in at.
+  const facing = [...box('s1', ['a', 'b', 'c']), ...box('s2', ['p', 'q', 'r']), 'Rel(a, b, "")', 'Rel(b, c, "")', 'Rel(p, q, "")', 'Rel(q, r, "")', 'Rel(a, p, "")', 'Rel(c, r, "")', 'Rel(b, q, "")'];
+  assert.deepEqual(pathProblems(project(puml(facing.join('\n'))).xml), []);
+});
+
+test('a direction hint on a relation is read as a plain relation and does not move a shape', () => {
+  const body = (rel: string) => ['Container(a, "A")', 'Container(b, "B")', `${rel}(a, b, "calls")`].join('\n');
+  const plain = project(puml(body('Rel'))).xml;
+  for (const hint of ['Rel_U', 'Rel_D', 'Rel_L', 'Rel_R']) assert.equal(project(puml(body(hint))).xml, plain, hint);
+});
+
+test('a chain longer than the call stack is deep is laid out, and the same source gives the same bytes', () => {
+  const n = 9000;
+  const body = [...Array.from({ length: n }, (_, i) => `Container(n${i}, "N${i}")`), ...Array.from({ length: n - 1 }, (_, i) => `Rel(n${i}, n${i + 1}, "next")`)].join('\n');
+  const first = project(puml(body)).xml;
+  assert.ok(rectOf(first, `el-n${n - 1}`).x > rectOf(first, `el-n${n - 2}`).x);
+  const ranked = puml(['Container(a, "A")', 'Container(b, "B")', 'Container(c, "C")', 'Container(d, "D")', 'Rel(a, b, "1")', 'Rel(b, c, "2")', 'Rel(a, c, "3")', 'Rel(c, a, "4")'].join('\n'));
+  assert.equal(project(ranked).xml, project(ranked).xml);
+});
