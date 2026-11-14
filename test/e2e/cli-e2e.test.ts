@@ -219,7 +219,7 @@ test('tools continues independently when one confirmed lifecycle command fails',
     rtk: 'case "$1" in --version|gain) exit 0;; *) exit 1;; esac',
     graphify: 'test "$1" = "--version"',
     uv: 'if test "$1" = "--version"; then exit 0; fi\nif test "$1" = "tool" && test "$2" = "uninstall"; then exit 0; fi\nexit 1',
-    cargo: 'exit 7',
+    cargo: 'if test "$1" = "--version"; then exit 0; fi\nexit 7',
   });
   const r = await runInteractive(['tools', '--tool', 'rtk,graphify', '--action', 'uninstall'], {
     env: toolEnv(bin), replies: ['y', 'y'],
