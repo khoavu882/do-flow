@@ -3,7 +3,7 @@
 // Feature 103 — fail-closed regressions for the admission controller (IC-002) and the mechanical
 // pre-check guard (IC-003): a claim for a task already running is refused instead of replacing the
 // running claim, a release from another run leaves the claim alone, and review is refused unless
-// readiness and pre-check evidence both exist and say PASS (FR-005).
+// readiness evidence says READY and the caller supplied an empty list of unmet verify reasons (FR-005).
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
@@ -85,7 +85,7 @@ describe('IC-002: a running claim is never replaced or released by another run',
 describe('IC-003: mechanical pre-checks fail closed without PASS evidence', () => {
   const TASK = 'Task.7';
 
-  function project({ readiness, readinessText, preCheck, preCheckText }: any = {}) {
+  function project({ readiness, readinessText }: any = {}) {
     const root = suiteTempDir('doflow-team-failclosed-');
     if (readiness) {
       writeReadinessRecord({
@@ -98,84 +98,75 @@ describe('IC-003: mechanical pre-checks fail closed without PASS evidence', () =
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(path.join(dir, `${TASK}.json`), readinessText);
     }
-    const text = preCheckText !== undefined ? preCheckText : preCheck !== undefined ? JSON.stringify(preCheck) : undefined;
-    if (text !== undefined) {
-      const dir = path.join(root, '.doflow', 'state', 'team', 'pre-checks');
-      fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(path.join(dir, `${TASK}.json`), text);
-    }
     return root;
   }
 
   const READY = { state: 'READY' };
-  const PASS = { passed: true, failures: [] };
+  const VERIFIED = { verifyReasons: [] };
 
-  function refused(root: string, pattern: RegExp) {
-    assert.throws(() => assertMechanicalPreChecks(TASK, root), (err: any) => {
+  function refused(root: string, pattern: RegExp, options: any = VERIFIED) {
+    assert.throws(() => assertMechanicalPreChecks(TASK, root, options), (err: any) => {
       assert.equal(err.code, 'ERR_MECHANICAL_CHECKS_FAILED');
       assert.match(err.failures.join('; '), pattern);
       return true;
     });
   }
 
-  test('control: a READY record written by writeReadinessRecord and a passing pre-check pass', () => {
-    const res = assertMechanicalPreChecks(TASK, project({ readiness: READY, preCheck: PASS }));
+  test('control: a READY record written by writeReadinessRecord and no unmet verify reason pass', () => {
+    const res = assertMechanicalPreChecks(TASK, project({ readiness: READY }), VERIFIED);
     assert.deepEqual(res, { passed: true, failures: [] });
   });
 
   test('a missing readiness record is refused', () => {
-    refused(project({ preCheck: PASS }), /readiness evidence is missing/);
+    refused(project(), /readiness evidence is missing/);
   });
 
   test('an unparsable readiness record is refused', () => {
-    refused(project({ readinessText: '{not json', preCheck: PASS }), /readiness evidence is unreadable/);
+    refused(project({ readinessText: '{not json' }), /readiness evidence is unreadable/);
   });
 
   test('a readiness record with no state is refused', () => {
-    refused(project({ readinessText: JSON.stringify({ version: 1, taskId: TASK }), preCheck: PASS }), /readiness state is 'undefined'/);
+    refused(project({ readinessText: JSON.stringify({ version: 1, taskId: TASK }) }), /readiness state is 'undefined'/);
   });
 
   const RECORD = { version: 1, taskId: TASK, taskClass: 'feature', state: 'READY', evaluatedAt: '2026-01-01T00:00:00.000Z' };
 
   test('FU-avgfwf: a record the edit gate cannot read is refused, and PASSED is not READY', () => {
-    refused(project({ readinessText: JSON.stringify({ ...RECORD, state: 'PASSED' }), preCheck: PASS }), /readiness state is 'PASSED'/);
-    refused(project({ readinessText: JSON.stringify({ ...RECORD, version: 99 }), preCheck: PASS }), /readiness evidence is unusable \(version 99/);
-    refused(project({ readinessText: JSON.stringify({ ...RECORD, evaluatedAt: '2999-01-01T00:00:00.000Z' }), preCheck: PASS }), /readiness evidence is unusable \(evaluated at 2999/);
+    refused(project({ readinessText: JSON.stringify({ ...RECORD, state: 'PASSED' }) }), /readiness state is 'PASSED'/);
+    refused(project({ readinessText: JSON.stringify({ ...RECORD, version: 99 }) }), /readiness evidence is unusable \(version 99/);
+    refused(project({ readinessText: JSON.stringify({ ...RECORD, evaluatedAt: '2999-01-01T00:00:00.000Z' }) }), /readiness evidence is unusable \(evaluated at 2999/);
     const { evaluatedAt: _omitted, ...noTime } = RECORD;
-    refused(project({ readinessText: JSON.stringify(noTime), preCheck: PASS }), /readiness evidence is unusable \(no evaluatedAt\)/);
-    assert.deepEqual(assertMechanicalPreChecks(TASK, project({ readinessText: JSON.stringify(RECORD), preCheck: PASS })), { passed: true, failures: [] });
+    refused(project({ readinessText: JSON.stringify(noTime) }), /readiness evidence is unusable \(no evaluatedAt\)/);
+    assert.deepEqual(assertMechanicalPreChecks(TASK, project({ readinessText: JSON.stringify(RECORD) }), VERIFIED), { passed: true, failures: [] });
   });
 
   test('a READY record that still lists unmet requirements is refused', () => {
-    refused(project({ readinessText: JSON.stringify({ version: 1, taskId: TASK, state: 'READY', unmet: ['R1'] }), preCheck: PASS }),
+    refused(project({ readinessText: JSON.stringify({ version: 1, taskId: TASK, state: 'READY', unmet: ['R1'] }) }),
       /still has unmet requirements/);
   });
 
-  test('a missing pre-check record is refused', () => {
-    refused(project({ readiness: READY }), /Pre-check evidence is missing/);
+  test('verify reasons that were not supplied are refused', () => {
+    refused(project({ readiness: READY }), /Verification evidence was not supplied/, null);
+    refused(project({ readiness: READY }), /Verification evidence was not supplied/, {});
   });
 
-  test('an unparsable pre-check record is refused', () => {
-    refused(project({ readiness: READY, preCheckText: '{not json' }), /Pre-check evidence could not be read/);
+  test('verify reasons that are not a list of strings are refused', () => {
+    refused(project({ readiness: READY }), /Verification evidence was not supplied/, { verifyReasons: 'verify-missing' });
+    refused(project({ readiness: READY }), /Verification evidence was not supplied/, { verifyReasons: [null] });
   });
 
-  test('a pre-check record without a boolean passed and a failures list is refused', () => {
-    refused(project({ readiness: READY, preCheck: {} }), /Pre-check evidence is malformed/);
-    refused(project({ readiness: READY, preCheck: { passed: 'yes', failures: [] } }), /Pre-check evidence is malformed/);
-    refused(project({ readiness: READY, preCheck: [] }), /Pre-check evidence is malformed/);
+  test('each unmet verify reason is refused by name', () => {
+    const root = project({ readiness: READY });
+    refused(root, /Verification precondition unmet: tree-dirty/, { verifyReasons: ['tree-dirty', 'verify-missing'] });
+    refused(root, /Verification precondition unmet: verify-missing/, { verifyReasons: ['tree-dirty', 'verify-missing'] });
   });
 
-  test('a pre-check marked passed that lists failures is refused', () => {
-    refused(project({ readiness: READY, preCheck: { passed: true, failures: ['lint'] } }), /reports failures while marked passed/);
-  });
-
-  test('control: a NEEDS_EVIDENCE record and a failing pre-check are refused with their details', () => {
+  test('control: a NEEDS_EVIDENCE record and an unmet verify reason are refused with their details', () => {
     const root = project({
       readiness: { state: 'NEEDS_EVIDENCE', requirements: [{ id: 'R1', required: true, satisfied: false }] },
-      preCheck: { passed: false, failures: ['build failed'] },
     });
-    refused(root, /readiness state is 'NEEDS_EVIDENCE' \(R1\)/);
-    refused(root, /build failed/);
+    refused(root, /readiness state is 'NEEDS_EVIDENCE' \(R1\)/, { verifyReasons: ['tree-dirty'] });
+    refused(root, /unmet: tree-dirty/, { verifyReasons: ['tree-dirty'] });
   });
 });
 
@@ -183,15 +174,12 @@ describe('IC-003: the readiness record is looked up under the feature slug', () 
   test('a record written under a feature namespace is found only when the slug is passed', () => {
     const root = suiteTempDir('doflow-team-slug-');
     const slug = '103-agent-teams';
-    const dir = path.join(root, '.doflow', 'state', 'team', 'pre-checks');
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'Task.9.json'), JSON.stringify({ passed: true, failures: [] }));
     writeReadinessRecord({
       stateRoot: root, taskId: 'Task.9', slug, mode: 'workflow', inputs: {},
       report: { taskClass: 'feature', templateName: 'feature', requirements: [], state: 'READY' },
     });
     assert.ok(fs.existsSync(path.join(root, '.doflow', 'state', 'readiness', slug, 'Task.9.json')), 'setup: the record is namespaced');
-    assert.throws(() => assertMechanicalPreChecks('Task.9', root), (err: any) => err.code === 'ERR_MECHANICAL_CHECKS_FAILED');
-    assert.deepEqual(assertMechanicalPreChecks('Task.9', root, { slug }), { passed: true, failures: [] });
+    assert.throws(() => assertMechanicalPreChecks('Task.9', root, { verifyReasons: [] }), (err: any) => err.code === 'ERR_MECHANICAL_CHECKS_FAILED');
+    assert.deepEqual(assertMechanicalPreChecks('Task.9', root, { slug, verifyReasons: [] }), { passed: true, failures: [] });
   });
 });

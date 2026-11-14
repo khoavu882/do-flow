@@ -492,25 +492,36 @@ describe('IC-002: observeStart verdicts', () => {
     assert.equal(got.reason, 'ERR_MECHANICAL_CHECKS_FAILED');
     assert.equal(got.mode, 'advisory');
     assert.equal(got.task, TASK);
-    assert.equal(got.count, 2, 'readiness evidence and pre-check evidence are both missing');
+    assert.equal(got.count, 2, 'readiness evidence is missing and no verify reasons were supplied');
   });
 
-  test('a READY record and passing pre-check evidence: admitted', (t: any) => {
+  test('a READY record and no unmet verify reason: admitted', (t: any) => {
     const f = fixture(t);
     writeReadinessRecord({
       stateRoot: f.project, taskId: TASK, mode: 'workflow', inputs: {},
       report: { taskClass: 'feature', templateName: 'feature', requirements: [], state: 'READY' },
     });
-    const dir = path.join(f.project, '.doflow', 'state', 'team', 'pre-checks');
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, `${TASK}.json`), JSON.stringify({ passed: true, failures: [] }));
     const cap = capture();
-    observeStart({ slug: TASK, cwd: f.project, env: f.env(), writer: cap.writer });
+    observeStart({ slug: TASK, cwd: f.project, env: f.env(), writer: cap.writer, verifyReasons: [] });
     const got = cap.last();
     assert.equal(got.outcome, 'admitted');
     assert.equal(got.reason, null);
     assert.equal(got.task, TASK);
     assert.equal(got.count, null);
+  });
+
+  test('a READY record and unmet verify reasons: refused with their count', (t: any) => {
+    const f = fixture(t);
+    writeReadinessRecord({
+      stateRoot: f.project, taskId: TASK, mode: 'workflow', inputs: {},
+      report: { taskClass: 'feature', templateName: 'feature', requirements: [], state: 'READY' },
+    });
+    const cap = capture();
+    observeStart({ slug: TASK, cwd: f.project, env: f.env(), writer: cap.writer, verifyReasons: ['tree-dirty', 'verify-missing'] });
+    const got = cap.last();
+    assert.equal(got.outcome, 'refused');
+    assert.equal(got.reason, 'ERR_MECHANICAL_CHECKS_FAILED');
+    assert.equal(got.count, 2);
   });
 
   test('a fault that is not a pre-check refusal is error / eval-fault', () => {

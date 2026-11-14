@@ -324,17 +324,14 @@ describe('IC-003: Reviewer Independence Guard', () => {
 
   test('assertMechanicalPreChecks reports passed when pre-checks succeed', () => {
     // FR-005: review needs evidence that the checks completed with PASS, so the success case holds a
-    // READY readiness record and a passing pre-check record rather than relying on their absence.
+    // READY readiness record and the caller's empty list of unmet verify reasons.
     const { writeReadinessRecord } = require('../../src/runtime/readiness-record.ts');
     const root = suiteTempDir('doflow-team-prechecks-');
     writeReadinessRecord({
       stateRoot: root, taskId: 'Task.1', mode: 'workflow', inputs: {},
       report: { state: 'READY', taskClass: 'feature', templateName: 'feature', requirements: [] },
     });
-    const preChecks = path.join(root, '.doflow', 'state', 'team', 'pre-checks');
-    fs.mkdirSync(preChecks, { recursive: true });
-    fs.writeFileSync(path.join(preChecks, 'Task.1.json'), JSON.stringify({ passed: true, failures: [] }));
-    const res = assertMechanicalPreChecks('Task.1', root);
+    const res = assertMechanicalPreChecks('Task.1', root, { verifyReasons: [] });
     assert.equal(res.passed, true);
     assert.equal(res.failures.length, 0);
   });

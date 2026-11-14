@@ -15,6 +15,9 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+- **Team pre-check verdict at `doflow review start` (FU-mg747c):** the advisory `team.verdict` line with rule `pre-check` was `refused` on every start, because it required a `.doflow/state/team/pre-checks/<task>.json` record that no command writes. The verdict now uses the verify-record reasons the start already computed, together with the readiness record, so it is `admitted` when the task is READY and the verification precondition holds, and `refused` with the count of unmet items otherwise. The file is no longer read. `review start`'s own exit code and output are unchanged.
+
 ## [2.5.0] - 2026-11-10
 
 ### Added
