@@ -375,6 +375,27 @@ test('a shell, env or an interpreter with inline code is run only as <program> -
   assert.equal(out.results[0].followUps[0].status, 'refused');
 });
 
+test('a status command is the tool\'s program and one flag or subcommand, the same program throughout', async () => {
+  const run = async (commands: string[][]) => {
+    const ran: any[] = [];
+    const plan = await planToolLifecycle({ registry: { externalTools: [{ id: 'x', officialEvidence: ['https://example.test/x'], status: { commands } }] }, platform: 'darwin', execFileSyncImpl: fakeExec(new Map(), ran) });
+    return { ran, state: plan.tools[0].state };
+  };
+  for (const commands of [
+    [['osascript', '-e', 'do shell script "id" with administrator privileges']], [['npm', 'exec', '--yes', '--', 'cowsay', 'hi']], [['nice', 'node', '-e', 'x']],
+    [['x']], [['x', '--version', 'y']], [['x', 'a b']], [['node', '--eval', 'x']], [['node', '-p', 'x']], [['perl', '-E', 'x']],
+  ]) {
+    const { ran, state } = await run(commands);
+    assert.deepEqual(ran, [], `${commands[0].join(' ')} never reaches the runner`);
+    assert.equal(state, 'inspection-failed');
+  }
+  // Two status commands that name different programs: the first is the tool's, the second is never run.
+  const mixed = await run([['x', '--version'], ['osascript', '--version']]);
+  assert.deepEqual(mixed.ran, [['x', '--version']]);
+  assert.equal(mixed.state, 'unknown');
+  for (const commands of [[['rtk', '--version'], ['rtk', 'gain']], [['plantuml', '-version']]]) assert.equal((await run(commands)).ran.length, commands.length);
+});
+
 test('update and uninstall say which installer is missing instead of failing with ENOENT', async () => {
   const rtk = registry.externalTools.find((tool: any) => tool.id === 'rtk');
   for (const action of ['uninstall']) {

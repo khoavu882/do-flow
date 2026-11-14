@@ -6,7 +6,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { validatePathsSection } = require('../helper/harness-paths.ts');
-const { PRIVILEGE_WORDS, KNOWN_INSTALLERS, programName, ownProgram, allowedPrograms, refusalReason } = require('../install/tool-lifecycle.ts');
+const { PRIVILEGE_WORDS, KNOWN_INSTALLERS, programName, ownProgram, allowedPrograms, refusalReason, statusRefusal } = require('../install/tool-lifecycle.ts');
 const { BUILTIN_WORKER_ID_RE, RESERVED_WORKER_IDS } = require('./worker-ids.ts');
 
 const REGISTRY_FILES = Object.freeze({
@@ -304,7 +304,8 @@ function validateExternalTool(value: any, location: string, errors: string[]): v
     const own = allowedPrograms(value);
     value.status.commands.forEach((command: any, index: number) => {
       validateCommand(command, `${location}.status.commands[${index}]`, errors);
-      rejectPrivilegeWord(command, `${location}.status.commands[${index}]`, errors, own);
+      const reason = Array.isArray(command) && command.length ? statusRefusal(command, own) : null;
+      if (reason) issue(errors, `${location}.status.commands[${index}]`, reason);
     });
   }
   for (const action of EXTERNAL_TOOL_ACTIONS) {
