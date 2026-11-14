@@ -270,10 +270,41 @@ test('IC-019: project uninstall that cannot take the index lock says so once and
   fs.mkdirSync(lock);
   const said = capture(() => upkeep().storageForgetScope({ scope: 'project', scopeRoot: f.projectRoot, env: f.env }));
   assert.equal(said.err.length, 1);
-  assert.ok(said.err[0].includes(fs.realpathSync(f.projectRoot)) && /next upkeep pass/.test(said.err[0]), said.err[0]);
+  assert.ok(said.err[0].includes(fs.realpathSync(f.projectRoot)) && /was held for 2 s/.test(said.err[0]) && /stays in the upkeep index until/.test(said.err[0]) && !/next upkeep pass removes/.test(said.err[0]), said.err[0]);
   assert.equal(fs.readFileSync(index, 'utf8'), `${fs.realpathSync(f.projectRoot)}\n`, 'the index was left alone');
   capture(() => upkeep().storageForgetScope({ scope: 'global', scopeRoot: f.env.HOME, env: f.env }));
   assert.equal(fs.existsSync(lock), false);
+});
+
+test('IC-019: project uninstall reports a lock that could not be created for what it is, not as busy', t => {
+  const f = fixture(t, ['project-state', 'user-state']);
+  const index = path.join(f.roots['user-state'], 'upkeep-roots');
+  fs.writeFileSync(index, `${fs.realpathSync(f.projectRoot)}\n`);
+  const fsImpl = spyFs({ mkdirSync(p: any, ...rest: any[]) {
+    if (String(p).endsWith('upkeep-roots.lock')) throw Object.assign(new Error('denied'), { code: 'EACCES' });
+    return fs.mkdirSync(p, ...rest);
+  } });
+  const said = capture(() => upkeep().storageForgetScope({ scope: 'project', scopeRoot: f.projectRoot, env: f.env, fsImpl }));
+  assert.equal(said.err.length, 1);
+  assert.ok(/EACCES/.test(said.err[0]) && !/was held/.test(said.err[0]), said.err[0]);
+});
+
+test('IC-019: global uninstall removes the moved-aside lock names it owns and prints each path', t => {
+  const f = fixture(t, ['project-state', 'user-state', 'config-home']);
+  const aside = [
+    path.join(f.roots['user-state'], 'upkeep-roots.lock.4242.deadbeef.gone'),
+    path.join(f.roots['user-state'], 'upkeep.lock.4242.deadbeef.gone'),
+  ];
+  const file = path.join(f.roots['config-home'], 'settings.json.lock.4242.deadbeef.gone');
+  const keep = path.join(f.roots['config-home'], 'settings.json.lock.4242.notmine.gone');
+  aside.forEach((dir) => fs.mkdirSync(dir));
+  fs.writeFileSync(file, 'x'); fs.writeFileSync(keep, 'x');
+  const said = capture(() => upkeep().storageForgetScope({ scope: 'global', scopeRoot: f.env.HOME, env: f.env }));
+  for (const gone of [...aside, file]) {
+    assert.equal(fs.existsSync(gone), false, gone);
+    assert.ok(said.out.some((line: any) => line.includes(gone)), `${gone} is printed`);
+  }
+  assert.equal(fs.existsSync(keep), true, 'a name that is not one of ours is left');
 });
 
 test('IC-017/IC-019: a project first seen before user state existed is indexed by its next pass and cleaned by global uninstall (G.1)', t => {

@@ -51,9 +51,12 @@ function ignoreBytes() { return `${registry.settings.ignoreFile.lines.join('\n')
  * Remove a lock directory judged stale (its mtime older than the pass-lock stale age at `now`) without
  * ever removing one a faster process has taken since. The directory is renamed to a unique name (atomic,
  * so one process wins), its mtime is read again, and only a still-stale one is deleted; a fresh one is
- * renamed back and left held. Ceiling: for the instant between the rename and the rename back the name is
- * free, and a third process taking it then shares the lock with the one that was moved. Moved-aside
- * directories a process that died left are removed by age here too.
+ * renamed back and left held. Moved-aside directories a process that died left are removed by age here too.
+ * Ceilings, none of which loses data: (1) the name is free between the rename and the rename back, so a
+ * third process taking it then shares the lock with the one that was moved, and two holders can overlap;
+ * (2) a holder that releases inside that window finds nothing to remove, and the rename back then leaves a
+ * fresh lock nobody holds for the stale period, during which index writes and passes wait or skip;
+ * (3) on a network home the age is the server's clock against this machine's.
  * @returns true when this call removed a stale lock
  */
 function removeStaleLock(lock: any, now: any, fsImpl: any): boolean {
@@ -87,17 +90,17 @@ const PAUSE = new Int32Array(new SharedArrayBuffer(4));
  * from other processes: each runs inside this directory lock (`upkeep-roots.lock` under user state), so an
  * append can never fall between the rewrite's read and its rename. A lock older than the pass-lock stale
  * age is removed as left by a crashed holder (`removeStaleLock`). When it is not obtained within INDEX_LOCK_WAIT_MS
- * `fn` is skipped, `false` is returned, and the caller moves on: the index is best effort, a skipped rewrite happens at the next pass,
+ * `fn` is skipped, the reason is returned, and the caller moves on: the index is best effort, a skipped rewrite happens at the next pass,
  * and a project that missed its append is added by its own pass (`registerProject`).
  */
-function withIndexLock(userState: any, fsImpl: any, fn: any): boolean {
+function withIndexLock(userState: any, fsImpl: any, fn: any): true | string {
   const lock = path.join(userState, 'upkeep-roots.lock');
   const deadline = Date.now() + INDEX_LOCK_WAIT_MS;
   for (;;) {
     try { fsImpl.mkdirSync(lock); break; } catch (error: any) {
-      if (error.code !== 'EEXIST') return false;
+      if (error.code !== 'EEXIST') return `the lock ${lock} could not be created (${error.code || error.message})`;
       if (removeStaleLock(lock, Date.now(), fsImpl)) continue;
-      if (Date.now() >= deadline) return false;
+      if (Date.now() >= deadline) return `the lock ${lock} was held for ${INDEX_LOCK_WAIT_MS / 1000} s`;
       Atomics.wait(PAUSE, 0, 0, 10);
     }
   }
@@ -138,8 +141,8 @@ function indexedRoots(file: any, fsImpl: any) {
   if (!info || info.isSymbolicLink() || !info.isFile()) return null;
   return fsImpl.readFileSync(file, 'utf8').split('\n').filter((root: any) => path.isAbsolute(root));
 }
-/** @returns false when the index lock was not obtained in time and nothing was rewritten */
-function rewriteRoots(roots: any, fsImpl: any, forget: any = null): boolean {
+/** @returns true, or what stopped the rewrite when the index lock was not obtained and nothing was rewritten */
+function rewriteRoots(roots: any, fsImpl: any, forget: any = null): true | string {
   const file = path.join(roots['user-state'], 'upkeep-roots');
   if (!usableRoot(roots['user-state'], fsImpl)) return true;
   return withIndexLock(roots['user-state'], fsImpl, () => {
@@ -263,6 +266,21 @@ function storageForgetScope({ scope, scopeRoot, env = process.env, fsImpl = fs }
     if (exact && fsImpl.readFileSync(file, 'utf8') !== ignoreBytes()) return;
     fsImpl.unlinkSync(file); removed++;
   });
+  // Moved-aside names a reclaimer that died left beside the locks (settings layer, upkeep lock, index lock).
+  const MOVED_ASIDE = /^(upkeep\.lock|upkeep-roots\.lock|settings\.json\.lock)\.\d+\.[0-9a-f]{8}\.gone$/;
+  const removeMovedAside = (root: any) => {
+    let names: any = [];
+    try { names = fsImpl.readdirSync(root); } catch { return; }
+    for (const name of names.filter((entry: any) => MOVED_ASIDE.test(entry))) {
+      const file = path.join(root, name);
+      attempt(file, () => {
+        const info = stat(file, fsImpl);
+        if (!info || info.isSymbolicLink()) return;
+        if (info.isDirectory()) fsImpl.rmdirSync(file); else if (info.isFile()) fsImpl.unlinkSync(file); else return;
+        console.log(`[INFO] Storage: removed ${file}`);
+      });
+    }
+  };
   const removeControls = (root: any, ignore = true) => {
     if (!usableRoot(root, fsImpl)) return;
     if (ignore) removeFile(path.join(root, '.gitignore'), true);
@@ -286,7 +304,8 @@ function storageForgetScope({ scope, scopeRoot, env = process.env, fsImpl = fs }
       attempt(index, () => {
         let realRoot;
         try { realRoot = fsImpl.realpathSync(scopeRoot); } catch { realRoot = path.resolve(scopeRoot); }
-        if (!rewriteRoots(roots, fsImpl, realRoot)) failures.push(`${realRoot}: the roots index was busy and still lists this project; the next upkeep pass removes it`);
+        const rewritten = rewriteRoots(roots, fsImpl, realRoot);
+        if (rewritten !== true) failures.push(`${realRoot}: the roots index was not updated (${rewritten}); the project stays in the upkeep index until an upkeep pass finds its .doflow/state/.gitignore gone`);
       });
     } else {
       attempt(index, () => {
@@ -297,8 +316,8 @@ function storageForgetScope({ scope, scopeRoot, env = process.env, fsImpl = fs }
           });
         }
       });
-      attempt(roots['user-state'], () => removeControls(roots['user-state']));
-      attempt(roots['config-home'], () => removeControls(roots['config-home'], false));
+      attempt(roots['user-state'], () => { removeControls(roots['user-state']); if (usableRoot(roots['user-state'], fsImpl)) removeMovedAside(roots['user-state']); });
+      attempt(roots['config-home'], () => { removeControls(roots['config-home'], false); if (usableRoot(roots['config-home'], fsImpl)) removeMovedAside(roots['config-home']); });
       if (usableRoot(roots['user-state'], fsImpl)) removeFile(index);
     }
     if (failures.length) for (const failure of failures) console.error(`[WARN] Storage: ${failure}`);
