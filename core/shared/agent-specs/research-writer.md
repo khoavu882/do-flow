@@ -1,6 +1,6 @@
 ---
 name: research-writer
-description: "Specialist research and technical writing agent for deep web investigation, evidence synthesis, API documentation, and architecture indexes"
+description: "Research and technical writer. Use when a task produces documentation, an API reference or a cited research report rather than code."
 model: inherit
 effort: high
 access: write

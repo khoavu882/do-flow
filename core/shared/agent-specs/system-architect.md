@@ -1,6 +1,6 @@
 ---
 name: system-architect
-description: "Specialist architect agent for end-to-end system design, API contracts, schema modeling, backend, frontend, and infrastructure architecture"
+description: "System architect across backend, frontend and infrastructure. Use when a task decides a system's shape, an API contract or a data model."
 model: inherit
 effort: high
 access: write
