@@ -138,7 +138,10 @@ test('doflow models --action list reflects enablement from models.enabled', asyn
       env,
     });
     assert.equal(code, 0);
-    const rows = JSON.parse(logged);
+    // `list --json` is `{ primary, bindings, harnesses, models }`; the observed-model rows are `.models`.
+    const parsed = JSON.parse(logged);
+    assert.ok(Array.isArray(parsed.harnesses));
+    const rows = parsed.models;
     assert.equal(rows.length, 2);
     const m1 = rows.find((r: any) => r.model === 'claude-3-7-sonnet');
     const m2 = rows.find((r: any) => r.model === 'claude-3-5-haiku');

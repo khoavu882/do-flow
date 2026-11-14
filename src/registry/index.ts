@@ -708,7 +708,7 @@ const WORKER_OPTIONAL_CAPABILITIES: Record<string, { allowed: string[], required
 });
 const WORKER_BILLING = new Set(['free', 'metered', 'unknown']);
 const WORKER_KEYS = Object.freeze(['profile', 'billing', ...Object.keys(WORKER_CAPABILITIES), 'modelChecks']);
-const WORKER_ALLOWED_KEYS = Object.freeze([...WORKER_KEYS, ...Object.keys(WORKER_OPTIONAL_CAPABILITIES), 'family']);
+const WORKER_ALLOWED_KEYS = Object.freeze([...WORKER_KEYS, ...Object.keys(WORKER_OPTIONAL_CAPABILITIES), 'family', 'modelList']);
 const WORKER_ENTRY_FIELDS = new Set(['status', 'evidence', 'verification', 'verifiedOn', 'reason']);
 // Soft hyphen, Mongolian vowel separator, zero-width and directional marks, word joiner and invisible operators, BOM.
 const INVISIBLE_CHARACTER = /[\u00ad\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff]/;
@@ -749,6 +749,37 @@ function workerProtectedPathsProblem(value: any): string | null {
   return null;
 }
 
+/** `worker.modelList`: how DoFlow asks a harness's own CLI for the model ids it offers, or why it cannot.
+ * `supported` carries `argv` (the arguments after the worker's binary) and `parse`, one of the closed set
+ * in src/runtime/models/parsers.ts (`lines`, `tsv-first-column`, `table-column:<name>`); that the set
+ * holds every `parse` here is checked by test/runtime/models/list-models.test.ts, so the registry does
+ * not require a runtime module. `none-recorded` carries the reason no listing command is recorded. */
+const MODEL_LIST_PARSE = /^(?:lines|tsv-first-column|table-column:[a-z][a-z0-9-]*)$/;
+function validateModelList(entry: any, fail: (key: string, message: string) => void): void {
+  if (!object(entry)) { fail('modelList', 'must be an object'); return; }
+  const status = entry.status;
+  if (status !== 'supported' && status !== 'none-recorded') { fail('modelList', 'status must be supported or none-recorded'); return; }
+  const allowed = status === 'supported' ? ['status', 'argv', 'parse', 'evidence', 'verifiedOn'] : ['status', 'reason'];
+  for (const field of Object.keys(entry)) if (!allowed.includes(field)) fail('modelList', `has unknown field '${field}' for status ${status}`);
+  if (status === 'none-recorded') {
+    if (typeof entry.reason !== 'string' || !entry.reason.trim()) fail('modelList', 'none-recorded requires a reason');
+    return;
+  }
+  const problem = workerArgvProblem(entry.argv);
+  if (problem) fail('modelList', problem);
+  else if (entry.argv.length === 0) fail('modelList', 'argv must not be empty');
+  else if (entry.argv.some((item: string) => item.includes('{'))) fail('modelList', 'argv must not contain a placeholder');
+  if (typeof entry.parse !== 'string' || !MODEL_LIST_PARSE.test(entry.parse)) {
+    fail('modelList', 'parse must be lines, tsv-first-column or table-column:<name>');
+  }
+  if (Object.hasOwn(entry, 'evidence') && (!Array.isArray(entry.evidence) || entry.evidence.some((item: any) => typeof item !== 'string'))) {
+    fail('modelList', 'evidence must be an array of strings');
+  }
+  if (Object.hasOwn(entry, 'verifiedOn') && (typeof entry.verifiedOn !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(entry.verifiedOn))) {
+    fail('modelList', 'verifiedOn must be an ISO date (YYYY-MM-DD)');
+  }
+}
+
 /** A worker argv: an array of 0 to 32 strings, each at most 200 characters and free of NUL. */
 function workerArgvProblem(value: any): string | null {
   if (!Array.isArray(value) || value.some((item: any) => typeof item !== 'string')) return 'argv must be an array of strings';
@@ -778,6 +809,7 @@ function validateWorker(value: any, location: string, errors: string[]): void {
   if (Object.hasOwn(value, 'family') && (typeof value.family !== 'string' || !value.family.trim())) {
     fail('family', 'must be a non-empty string');
   }
+  if (Object.hasOwn(value, 'modelList')) validateModelList(value.modelList, fail);
 
   for (const [key, rule] of [...Object.entries(WORKER_CAPABILITIES), ...Object.entries(WORKER_OPTIONAL_CAPABILITIES)]) {
     if (!Object.hasOwn(value, key)) continue;

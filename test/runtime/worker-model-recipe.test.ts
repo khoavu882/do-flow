@@ -182,7 +182,7 @@ test('IC-011: an unknown model entry may not carry argv', () => {
   }, 'model', "recipe field 'argv' is allowed only when status is supported");
 });
 
-test('IC-011: codex and the five harnesses with a recorded --model help line declare it supported; antigravity stays unknown without argv', () => {
+test('IC-011: codex and the six harnesses with a recorded --model help line declare it supported', () => {
   const harnesses = loadRegistry({ repoRoot: REPO }).harnesses;
   assert.equal(harnesses.length, 7);
   for (const harness of harnesses) {
@@ -194,6 +194,12 @@ test('IC-011: codex and the five harnesses with a recorded --model help line dec
       assert.equal(entry.status, 'supported', harness.id);
       assert.deepEqual(entry.argv, ['-m', '{model}']);
       assert.deepEqual(entry.evidence, ['core/worker-evidence/codex/2026-10-24-cli-check.json']);
+    } else if (harness.id === 'antigravity') {
+      // agy prints --help on stderr; the evidence check reads stdout and stderr, and its 2026-11-07 record passes help-model.
+      assert.equal(entry.status, 'supported', harness.id);
+      assert.deepEqual(entry.argv, ['--model', '{model}']);
+      assert.deepEqual(entry.evidence, ['core/worker-evidence/antigravity/2026-11-07-cli-check.json']);
+      assert.equal(entry.verifiedOn, '2026-11-07');
     } else if (['claude', 'copilot', 'pi', 'opencode', 'kiro'].includes(harness.id)) {
       // 146: the `--model <id>` flag each CLI lists in --help, recorded by the help-model free check.
       assert.equal(entry.status, 'supported', harness.id);
@@ -202,20 +208,7 @@ test('IC-011: codex and the five harnesses with a recorded --model help line dec
       assert.deepEqual(entry.evidence, [harness.id === 'copilot' ? 'core/worker-evidence/copilot/2026-11-07-cli-check-available-tools.json' : `core/worker-evidence/${harness.id}/2026-11-07-cli-check-model.json`]);
       assert.equal(entry.verifiedOn, '2026-11-07');
     } else {
-      const binary = harness.worker.cli.binary;
-      assert.equal(entry.verifiedOn, DATE);
-      assert.deepEqual(entry, {
-        status: 'unknown',
-        evidence: [],
-        verification: harness.id === 'antigravity'
-          ? 'Run `agy --help` and read the `--model` line; record it with `node bin/doflow.js worker --action evidence --harness antigravity --checks core/worker-evidence/antigravity/checks.json --out <new cli-check path>` (check help-model)'
-          : `Read ${harness.id}'s headless CLI documentation and \`${binary} --help\`; record the flag that selects the model and its source`,
-        verifiedOn: DATE,
-        reason: harness.id === 'antigravity'
-          ? 'declared: agy --help lists --model on stderr, but the free check help-model reads stdout only and fails; supported only after a recorded cli-check passes'
-          : `no recorded evidence for ${binary}: no free check shows a flag that selects the model`,
-      });
-      assert.ok(!Object.hasOwn(entry, 'argv'));
+      assert.fail(`unexpected harness ${harness.id}`);
     }
   }
   assert.equal(harnesses.find((h: any) => h.id === 'antigravity').worker.oneShot.status, 'unknown');

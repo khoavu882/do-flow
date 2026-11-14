@@ -17,6 +17,15 @@ export interface OfferedModel {
   family?: string;
 }
 
+/** How the harness's own model list was last read: `listed`, `none-recorded` (the registry records no
+ * listing command, so `offeredModels` is empty by design), or `failed` (not logged in, offline, timed out;
+ * `stale` is true when `offeredModels` is then the previous list kept). */
+export interface ModelListState {
+  status: 'listed' | 'none-recorded' | 'failed';
+  reason?: string;
+  stale?: boolean;
+}
+
 export interface HarnessQuota {
   status: 'ok' | 'exceeded' | 'unknown';
   message?: string;
@@ -32,6 +41,7 @@ export interface SyncHarnessResult {
   detectedMode: DetectedMode;
   derivedBilling: DerivedBilling;
   offeredModels: Array<OfferedModel>;
+  modelList?: ModelListState;
   quota?: HarnessQuota;
   lastSyncedAt: string;
 }
@@ -140,9 +150,43 @@ function writeCatalogue(
   fsImpl.renameSync(tmpPath, targetPath);
 }
 
+/** Adapts a callback-style `execFile` (the probes' injection point) to the promise form `listHarnessModels` runs. */
+function listExecFrom(runner: any): any {
+  return (file: string, args: string[], opts: any) => new Promise((resolve, reject) => {
+    const done = (err: any, stdout: any) => (err ? reject(err) : resolve(String(stdout ?? '')));
+    const proc = runner(file, args, { timeout: opts?.timeout }, done);
+    if (proc && typeof proc.then === 'function') proc.then((res: any) => resolve(String(res?.stdout ?? '')), reject);
+  });
+}
+
+/** The registry worker block for `harnessId`, from an injected registry or the shipped one. */
+function workerDescriptor(harnessId: string, registry?: any): any {
+  const { loadRegistry } = require('../../registry/index.ts');
+  const { REPO_ROOT } = require('../../helper/repo-root.ts');
+  const reg = registry || loadRegistry({ repoRoot: REPO_ROOT });
+  return (reg.harnesses || []).find((entry: any) => entry.id === harnessId)?.worker ?? null;
+}
+
+type SyncOptions = {
+  timeoutMs?: number; execFileImpl?: any; listExecImpl?: any; env?: any; fsImpl?: any; homeDir?: string;
+  projectRoot?: string; registry?: any; previous?: ObservedHarness | null;
+};
+
+/** Fills `offeredModels` from the harness's own listing command. A failed listing keeps the previous list, marked stale. */
+async function withListing(result: SyncHarnessResult, options: SyncOptions): Promise<SyncHarnessResult> {
+  const { listHarnessModels } = require('./list-models.ts');
+  const execImpl = options.listExecImpl ?? (options.execFileImpl ? listExecFrom(options.execFileImpl) : undefined);
+  const listing = await listHarnessModels({ descriptor: workerDescriptor(result.harnessId, options.registry), execImpl });
+  if (listing.status === 'listed') return { ...result, offeredModels: listing.models, modelList: { status: 'listed' } };
+  if (listing.status === 'none-recorded') return { ...result, offeredModels: [], modelList: { status: 'none-recorded', reason: listing.reason } };
+  // A list from before this field existed came from the removed hard-coded table, so it is not kept.
+  const kept = options.previous?.modelList && options.previous.modelList.status !== 'none-recorded' ? (options.previous.offeredModels ?? []) : [];
+  return { ...result, offeredModels: kept, modelList: { status: 'failed', reason: listing.reason, ...(kept.length ? { stale: true } : {}) } };
+}
+
 async function syncHarness(
   harnessId: string,
-  options: { timeoutMs?: number; execFileImpl?: any; env?: any; fsImpl?: any; homeDir?: string; projectRoot?: string } = {}
+  options: SyncOptions = {}
 ): Promise<SyncHarnessResult> {
   const probe = PROBES[harnessId];
   if (!probe) {
@@ -160,15 +204,16 @@ async function syncHarness(
     };
   }
 
-  return await probe(options);
+  return await withListing(await probe(options), options);
 }
 
 async function syncAllHarnesses(
-  options: { projectRoot?: string; timeoutMs?: number; execFileImpl?: any; env?: any; fsImpl?: any; homeDir?: string } = {}
+  options: SyncOptions = {}
 ): Promise<ObservedCatalogue> {
   const results: Record<string, SyncHarnessResult> = {};
+  const before = readCatalogue(options.projectRoot, options);
   for (const id of HARNESS_IDS) {
-    results[id] = await syncHarness(id, options);
+    results[id] = await syncHarness(id, { ...options, previous: before?.harnesses?.[id] ?? null });
   }
 
   const catalogue: ObservedCatalogue = {
@@ -188,4 +233,5 @@ module.exports = {
   writeCatalogue,
   syncHarness,
   syncAllHarnesses,
+  workerDescriptor,
 };

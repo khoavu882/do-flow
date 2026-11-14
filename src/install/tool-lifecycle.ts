@@ -445,6 +445,7 @@ function executeToolLifecycle({ plan, execFileSyncImpl = execFileSync, displayCo
 module.exports = {
   SUPPORTED_PLATFORMS,
   INSPECTION_TIMEOUT_MS,
+  probeExec,
   PRIVILEGE_WORDS,
   KNOWN_INSTALLERS,
   programName,

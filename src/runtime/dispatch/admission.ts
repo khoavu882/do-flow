@@ -34,7 +34,7 @@ const { statusView } = require('../worker/command.ts');
 const { storeFileFor, readDispatch, mutateDispatch, newDispatchId, setRunState, DispatchStoreError } = require('./store.ts');
 const { managerFor, createAttemptWorktree } = require('./integrate.ts');
 const { copyGrant } = require('./grants.ts');
-const { resolveBinding } = require('../worker/models.ts');
+const { resolveTaskModel } = require('../worker/models.ts');
 
 /** DEC-002: concurrency bounds and default. */
 const CONCURRENCY_MIN = 1;
@@ -145,7 +145,7 @@ function modelOf(answer: any, task: string): any {
   const model = answer.model;
   const primary = answer.primary;
   if (!object(answer) || !object(model) || !['light', 'standard', 'frontier'].includes(model.tier)
-    || !nullableString(model.requested) || !['binding', 'harness-default'].includes(model.source)
+    || !nullableString(model.requested) || !['binding', 'main-session', 'frontier-binding', 'harness-default'].includes(model.source)
     || (primary !== null && (!object(primary)
       || Object.keys(primary).sort().join(',') !== 'harness,model,state'
       || !nullableString(primary.harness) || !nullableString(primary.model)
@@ -159,12 +159,12 @@ function modelOf(answer: any, task: string): any {
 }
 
 /** IC-013 / IC-010: resolve record metadata without choosing launch argv or reading settings. */
-function dispatchModelFor({ mode, harness, tier, bindings, primary }: any): any {
+function dispatchModelFor({ mode, harness, tier, owner = null, resolvedTier = { tier, source: 'task' }, bindings, primary }: any): any {
   const worker = mode === 'subagent' ? harness : mode === 'sequential' ? primary?.harness : null;
-  const binding = worker ? resolveBinding({ worker, tier, bindings, descriptor: null }) : null;
-  const bound = binding?.source === 'binding';
+  const binding = worker ? resolveTaskModel({ worker, owner, resolvedTier, bindings, descriptor: null, primary }) : null;
+  const bound = binding !== null && binding.model !== null && binding.source !== 'harness-default' && binding.source !== 'invalid';
   return {
-    model: { tier, requested: bound ? binding.model : null, source: bound ? 'binding' : 'harness-default' },
+    model: { tier, requested: bound ? binding.model : null, source: bound ? binding.source : 'harness-default' },
     primary: mode === 'sequential' && primary
       ? { harness: primary.harness, model: primary.model, state: primary.state }
       : null,

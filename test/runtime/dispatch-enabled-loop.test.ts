@@ -222,15 +222,16 @@ test('IC-010: exhausted set ladders propose or step to sequential under the exis
 });
 
 /** IC-010: a started sandbox run whose stored fallback remains independent of live settings. */
-async function project(t: any, { fallback = fb({ mode: 'auto', ladder: ['claude', 'antigravity'], inSession: true }) } = {}) {
+async function project(t: any, { fallback = fb({ mode: 'auto', ladder: ['claude', 'antigravity'], inSession: true }), plan = 'budget', modelFlag = false }: any = {}) {
   const exitCode = process.exitCode;
   t.after(() => { process.exitCode = exitCode; });
   const sb = makeDispatchSandbox(t, {
-    plan: 'budget', slug: SLUG, scenario: SCENARIO, identity: { DOFLOW_ATTEMPT: undefined },
+    plan, slug: SLUG, scenario: SCENARIO, identity: { DOFLOW_ATTEMPT: undefined },
   });
   const { root } = sb;
   const env = { ...sb.env };
   const descriptors = structuredClone(sb.descriptors);
+  if (modelFlag) for (const d of Object.values<any>(descriptors)) d.model = { status: 'supported', argv: ['--model', '{model}'], evidence: ['x'], verification: 'x', verifiedOn: '2026-11-15' };
   descriptors.antigravity.isolatedEdit = {
     ...structuredClone(descriptors.claude.isolatedEdit), argv: [EDIT_ARGV.antigravity],
   };
@@ -283,6 +284,25 @@ test('IC-013 loop: an unbound worker records the owner tier and harness default'
   assert.equal(d.mode, 'subagent');
   assert.deepEqual(d.model, { tier, requested: null, source: 'harness-default', served: null });
   assert.equal(Object.hasOwn(d, 'primary'), false);
+});
+
+test('orchestrator slot loop: owner delivery-lead records the orchestrator model (the frontier binding, then a bound orchestrator)', POSIX, async (t) => {
+  const plan = fs.readFileSync(path.join(__dirname, '..', 'fixtures', 'dispatch', 'plans', 'budget.md'), 'utf8').replace('owner: core-implementer', 'owner: delivery-lead');
+  const write = (p: any, models: any) => {
+    const settings = path.join(p.sb.home, '.config', 'doflow', 'settings.json');
+    fs.mkdirSync(path.dirname(settings), { recursive: true });
+    fs.writeFileSync(settings, `${JSON.stringify({ schema: 1, 'workers.models': models })}\n`);
+  };
+  // No orchestrator binding and no main session on claude: the bound frontier model.
+  const viaFrontier = await project(t, { plan, modelFlag: true });
+  write(viaFrontier, { claude: { frontier: 'front-1' } });
+  await viaFrontier.step();
+  assert.deepEqual(dispatches(viaFrontier)[0].model, { tier: 'frontier', requested: 'front-1', source: 'frontier-binding', served: null });
+  // A bound orchestrator wins over the frontier binding.
+  const viaBinding = await project(t, { plan, modelFlag: true });
+  write(viaBinding, { claude: { frontier: 'front-1', orchestrator: 'orch-1' } });
+  await viaBinding.step();
+  assert.deepEqual(dispatches(viaBinding)[0].model, { tier: 'frontier', requested: 'orch-1', source: 'binding', served: null });
 });
 
 test('IC-013 / IC-010 loop: a sequential admission records the primary binding and snapshot', POSIX, async (t) => {

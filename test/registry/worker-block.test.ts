@@ -31,7 +31,7 @@ const FREE_CHECK_SUPPORTED = ['oneShot', 'structuredOutput', 'readOnly', 'spawnD
 const FREE_CHECK_HARNESSES = ['opencode', 'kiro', 'copilot', 'pi'];
 // 147: copilot's checks.json gained the --available-tools expectation, so every copilot entry cites the one record made with it.
 const cliRecord = (id: string) => `core/worker-evidence/${id}/2026-11-07-cli-check${id === 'copilot' ? '-available-tools' : id === 'pi' ? '-model' : ''}.json`;
-const MODEL_HARNESSES = ['claude', 'copilot', 'pi', 'opencode', 'kiro']; // 146: antigravity's model entry stays unknown (its --help prints to stderr, see its reason)
+const MODEL_HARNESSES = ['claude', 'copilot', 'pi', 'opencode', 'kiro', 'antigravity']; // 146; antigravity cites its 2026-11-07 cli-check, whose help-model check reads stderr (agy prints --help there)
 const FREE_CHECK_RECIPES: any = {
   opencode: {
     oneShot: { argv: ['{prompt}'], promptVia: 'argv' },
@@ -94,7 +94,8 @@ test('worker: the shipped registry carries the block on all seven harnesses and 
   assert.equal(registry.validation.ok, true, registry.validation.errors.join('\n'));
   assert.deepEqual(registry.harnesses.map((harness: any) => harness.id), HARNESSES);
   const modelChecksAt = WORKER_KEYS.indexOf('modelChecks');
-  const expectedKeys = [...WORKER_KEYS.slice(0, modelChecksAt), ...Object.keys(WORKER_OPTIONAL_CAPABILITIES), ...WORKER_KEYS.slice(modelChecksAt)];
+  // `modelList` (how the harness's own CLI lists its models) sits between the optional capabilities and modelChecks.
+  const expectedKeys = [...WORKER_KEYS.slice(0, modelChecksAt), ...Object.keys(WORKER_OPTIONAL_CAPABILITIES), 'modelList', ...WORKER_KEYS.slice(modelChecksAt)];
   for (const harness of registry.harnesses) assert.deepEqual(Object.keys(harness.worker), expectedKeys, `${harness.id} worker keys`);
 });
 
@@ -121,7 +122,7 @@ test('worker: the seven harnesses declare IC-002 values and nothing else as supp
       if (MODEL_HARNESSES.includes(harness.id) && key === 'model') {
         // 146: the `--model <id>` flag each CLI lists in --help, recorded by the help-model free check; G41.4 checks the record.
         assert.equal(worker.model.status, 'supported', `${harness.id} model`);
-        assert.deepEqual(worker.model.evidence, [harness.id === 'copilot' ? cliRecord('copilot') : `core/worker-evidence/${harness.id}/2026-11-07-cli-check-model.json`], `${harness.id} model evidence`);
+        assert.deepEqual(worker.model.evidence, [harness.id === 'copilot' || harness.id === 'antigravity' ? cliRecord(harness.id) : `core/worker-evidence/${harness.id}/2026-11-07-cli-check-model.json`], `${harness.id} model evidence`);
         assert.deepEqual(worker.model.argv, ['--model', '{model}'], `${harness.id} model argv`);
         assert.equal(worker.model.verifiedOn, '2026-11-07', `${harness.id} model verifiedOn`);
         continue;
@@ -249,6 +250,13 @@ const cases = [
   ['{prompt} in structuredOutput argv', (w: any) => { w.structuredOutput = supported({ argv: ['{prompt}'], parser: 'doflow-jsonl-v1' }); }, /worker 'structuredOutput': argv must not contain '\{prompt\}' outside oneShot\.argv/],
   ['{prompt} in cli versionArgv', (w: any) => { w.cli.versionArgv = ['{prompt}']; }, /worker 'cli': versionArgv must not contain '\{prompt\}' outside oneShot\.argv/],
   ['{prompt} in a model check argv', (w: any) => { w.modelChecks = [{ id: 'x', argv: ['{prompt}'], establishes: ['login'], estimateTokens: 1, timeoutSeconds: 1 }]; }, /worker 'modelChecks\[0\]': argv must not contain '\{prompt\}' outside oneShot\.argv/],
+  ['a modelList with a status outside the two', (w: any) => { w.modelList = { status: 'unknown' }; }, /worker 'modelList': status must be supported or none-recorded/],
+  ['a none-recorded modelList without a reason', (w: any) => { w.modelList = { status: 'none-recorded' }; }, /worker 'modelList': none-recorded requires a reason/],
+  ['a none-recorded modelList with an argv', (w: any) => { w.modelList = { status: 'none-recorded', reason: 'x', argv: ['models'] }; }, /worker 'modelList': has unknown field 'argv' for status none-recorded/],
+  ['a supported modelList with a parser outside the closed set', (w: any) => { w.modelList = { status: 'supported', argv: ['models'], parse: 'json' }; }, /worker 'modelList': parse must be lines, tsv-first-column or table-column:<name>/],
+  ['a supported modelList with an empty argv', (w: any) => { w.modelList = { status: 'supported', argv: [], parse: 'lines' }; }, /worker 'modelList': argv must not be empty/],
+  ['a supported modelList with a placeholder', (w: any) => { w.modelList = { status: 'supported', argv: ['models', '{model}'], parse: 'lines' }; }, /worker 'modelList': argv must not contain a placeholder/],
+  ['a modelList that is not an object', (w: any) => { w.modelList = 'lines'; }, /worker 'modelList': must be an object/],
   ['an unknown profile', (w: any) => { w.profile = 'headless-ish'; }, /worker 'profile': must be a lifecycle coverage profile or null/],
   ['a bad model-check id', (w: any) => { w.modelChecks = [{ id: 'Bad_Id', argv: [], establishes: ['login'], estimateTokens: 1, timeoutSeconds: 1 }]; }, /worker 'modelChecks\[0\]': id must be a lowercase identifier/],
   ['a duplicate model-check id', (w: any) => {

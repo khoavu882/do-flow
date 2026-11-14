@@ -51,7 +51,7 @@ const readiness = require('../worker/readiness.ts');
 const { executeWorkerCommand, settledStatus } = require('../worker/command.ts');
 const { cancelRun } = require('../worker/cancel.ts');
 const { activeWorkers, workerGate, inSessionGate } = require('../worker/active.ts');
-const { resolveTier, readBindings, resolveBinding, bindingGap } = require('../worker/models.ts');
+const { resolveTier, readBindings, resolveTaskModel, usesOrchestratorModel, bindingGap } = require('../worker/models.ts');
 const { resultOfRun } = require('../worker/supervisor.ts');
 const { protectedPathGap } = require('../worker/protected-paths.ts');
 const { readRuns, storeFileFor: runStoreFileFor } = require('../worker/run-store.ts');
@@ -297,12 +297,12 @@ function selectMode({ policy = 'auto', held = false, lastFailureClass = null, ca
   // IC-012: the cached readiness is shared; bindings gate a fresh array for this task's tier.
   if (rest.bindings !== undefined) {
     const reg = rest.registry || loadRegistry({ repoRoot: REPO_ROOT });
-    const resolvedTier = resolveTier({ dispatchTiers: reg.dispatchTiers, owner, tier, missing: [] }).tier;
+    const resolvedTier = resolveTier({ dispatchTiers: reg.dispatchTiers, owner, tier, missing: [] });
     const entries = readiness.workerDescriptors({ descriptors: rest.descriptors, registry: reg });
     candidates = candidates.map((c: any) => {
       if (!c.eligible) return c;
       const descriptor = entries.find((entry: any) => entry.harness === c.harness)?.worker;
-      const gap = bindingGap(resolveBinding({ worker: c.harness, tier: resolvedTier, bindings: rest.bindings, descriptor }));
+      const gap = bindingGap(resolveTaskModel({ worker: c.harness, owner, resolvedTier, bindings: rest.bindings, descriptor }));
       return gap ? { ...c, eligible: false, gaps: [...c.gaps, gap] } : c;
     });
   }
@@ -1152,15 +1152,21 @@ async function launch(p: any, admitted: any, plan: any, view: any) {
     }
     // IC-012: settings may have changed since selection; refuse before writing the handoff.
     const reg = p.reg();
-    const tier = resolveTier({
+    const owner = p.ownerOf ? p.ownerOf(d.task) : null;
+    const resolvedTier = resolveTier({
       dispatchTiers: reg.dispatchTiers,
-      owner: p.ownerOf ? p.ownerOf(d.task) : null,
+      owner,
       tier: p.tierOf ? p.tierOf(d.task) : null,
       missing: [],
-    }).tier;
+    });
     const descriptor = readiness.workerDescriptors({ descriptors: p.descriptors, registry: reg })
       .find((entry: any) => entry.harness === d.harness)?.worker;
-    const resolved = resolveBinding({ worker: d.harness, tier, bindings: p.bindingsNow(), descriptor });
+    // The orchestrator's owner takes the orchestrator rule, which may read the main session's model.
+    let primary: any = null;
+    if (usesOrchestratorModel(owner, resolvedTier)) {
+      try { primary = require('../context/primary.ts').resolvePrimary({ env: p.env, projectRoot: p.cwd, registry: reg }); } catch { primary = null; }
+    }
+    const resolved = resolveTaskModel({ worker: d.harness, owner, resolvedTier, bindings: p.bindingsNow(), descriptor, primary });
     const gap = bindingGap(resolved);
     if (gap) {
       p.act('launch', d, 'refused', gap.reason, 0);
@@ -1291,13 +1297,14 @@ async function admitAndLaunch(p: any) {
   let primaryResolved = false;
   // IC-013 / IC-010: reuse this pass's bindings and resolve primary only for sequential choices.
   const modelFor = (task: string, { mode, harness }: any) => {
-    const tier = resolveTier({
+    const owner = p.ownerOf ? p.ownerOf(task) : null;
+    const resolvedTier = resolveTier({
       dispatchTiers: p.reg().dispatchTiers,
-      owner: p.ownerOf ? p.ownerOf(task) : null,
+      owner,
       tier: p.tierOf ? p.tierOf(task) : null,
       missing: [],
-    }).tier;
-    if (mode === 'sequential' && !primaryResolved) {
+    });
+    if ((mode === 'sequential' || usesOrchestratorModel(owner, resolvedTier)) && !primaryResolved) {
       primaryResolved = true;
       try {
         const { resolvePrimary } = require('../context/primary.ts');
@@ -1306,7 +1313,7 @@ async function admitAndLaunch(p: any) {
         primary = { harness: null, model: null, state: 'unknown' };
       }
     }
-    return dispatchModelFor({ mode, harness, tier, bindings, primary });
+    return dispatchModelFor({ mode, harness, tier: resolvedTier.tier, owner, resolvedTier, bindings, primary });
   };
   const modeFor = (task: string, { store: s }: any) => {
     if (Object.hasOwn(heldBefore, task)) return { hold: heldBefore[task].reason };

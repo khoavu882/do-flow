@@ -129,9 +129,13 @@ test('--json: schema 1 with review, gates, tiers and settings sections', (t) => 
   const models = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'models.json'), 'utf8'));
   assert.deepEqual(report.tiers.byOwner, models.dispatchTiers.byOwner);
   assert.equal(report.tiers.source, 'core/registry/models.json');
-  const workers = Object.keys(report.tiers.models);
-  assert.ok(workers.length > 0);
-  for (const tier of models.dispatchTiers.tiers) assert.equal(report.tiers.models[workers[0]][tier], 'unset');
+  // Every installed harness (a scratch PATH may hold none: `harnesses` is then empty) with the three tiers and the orchestrator, null = harness default.
+  assert.ok(Array.isArray(report.tiers.models.harnesses));
+  for (const row of report.tiers.models.harnesses) {
+    for (const tier of models.dispatchTiers.tiers) assert.equal(row[tier], null);
+    assert.ok(['binding', 'main-session', 'frontier-binding', 'harness-default'].includes(row.orchestratorSource));
+  }
+  assert.ok('primary' in report.tiers.models && 'bindings' in report.tiers.models);
   assert.deepEqual(Object.keys(report.settings), ['review.preset', 'review.rounds', 'review.sameFamily', 'autopilot.enabled']);
   assert.deepEqual(report.settings['autopilot.enabled'], { value: 'off', layer: 'default', source: 'core/registry/settings.json' });
   assert.equal(report.settings['review.rounds'].value, null);
@@ -139,13 +143,17 @@ test('--json: schema 1 with review, gates, tiers and settings sections', (t) => 
 
 test('a worker model set in the user settings shows against its worker and tier', (t) => {
   const s = scratch(t);
-  const first = Object.keys(s.json().tiers.models)[0];
+  const first = 'codex';
   fs.mkdirSync(path.join(s.root, 'home', '.config', 'doflow'), { recursive: true });
   fs.writeFileSync(path.join(s.root, 'home', '.config', 'doflow', 'settings.json'),
     JSON.stringify({ schema: 1, 'workers.models': { [first]: { frontier: 'some-model' } } }));
   const report = s.json();
-  assert.equal(report.tiers.models[first].frontier, 'some-model');
-  assert.equal(report.tiers.models[first].standard, 'unset');
+  const row = report.tiers.models.harnesses.find((h: any) => h.harness === first);
+  assert.equal(row.frontier, 'some-model');
+  assert.equal(row.standard, null);
+  // No orchestrator binding and no main session: the bound frontier model is the orchestrator's.
+  assert.equal(row.orchestrator, 'some-model');
+  assert.equal(row.orchestratorSource, 'frontier-binding');
 });
 
 test('--task-class narrows review and gates to that class; an unknown class is usage (exit 2)', (t) => {
