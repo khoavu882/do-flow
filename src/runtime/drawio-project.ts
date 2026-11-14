@@ -42,6 +42,9 @@ const PAD = 30;
 const HEADER = 30;
 const ORIGIN = 40;
 const MIN_BOUNDARY_W = 240;
+// Siblings joined by relations are laid out in columns by rank; the wider gap leaves room for a label.
+const RANK_GAP = 120;
+const MAX_PER_COLUMN = 4;
 
 // C0 controls other than tab, LF and CR are not legal in XML 1.0, even as a character reference.
 const xmlAttr = (s: string): string => s.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/\n/g, '&#10;');
@@ -159,7 +162,7 @@ function project(text: string, opts: { sourcePath?: string; name?: string; icons
       else style = `rounded=1;whiteSpace=wrap;html=1;${own}`;
       elementIds.set(el.alias, `el-${el.alias}`);
       parentOf.set(el.alias, parent);
-      return { id: `el-${el.alias}`, label, style, w: SLOT_W, h: slotH, gx: (SLOT_W - gw) / 2, gw, gh };
+      return { id: `el-${el.alias}`, alias: el.alias, aliases: [el.alias], label, style, w: SLOT_W, h: slotH, gx: (SLOT_W - gw) / 2, gw, gh };
     }
     const b = item.boundary;
     boundaryIds.set(b.alias, `bd-${b.alias}`);
@@ -167,33 +170,82 @@ function project(text: string, opts: { sourcePath?: string; name?: string; icons
     const kids = b.items.map((child: any) => layoutNode(child, b.alias));
     const grid = pack(kids);
     return {
-      id: `bd-${b.alias}`, boundary: true, label: htmlText(b.label), kids, grid,
+      id: `bd-${b.alias}`, alias: b.alias, aliases: [b.alias, ...kids.flatMap((k: any) => k.aliases)], boundary: true, label: htmlText(b.label), kids, grid,
       w: Math.max(MIN_BOUNDARY_W, grid.w + 2 * PAD), h: HEADER + PAD + grid.h + PAD,
     };
   };
 
+  // Siblings no relation joins keep the source-order grid. Joined siblings go in one column per rank,
+  // a rank being the longest chain of relations that leads to the sibling, so a relation runs from a
+  // column to a later one instead of across whatever the grid put between its ends.
   const pack = (nodes: any[]): { at: Array<{ x: number; y: number }>; w: number; h: number } => {
-    const cols = Math.max(1, Math.min(4, Math.ceil(Math.sqrt(nodes.length))));
-    const at: Array<{ x: number; y: number }> = [];
-    let x = 0; let y = 0; let rowH = 0; let w = 0;
-    nodes.forEach((n: any, i: number) => {
-      if (i > 0 && i % cols === 0) { x = 0; y += rowH + GAP; rowH = 0; }
-      at.push({ x, y });
-      x += n.w; w = Math.max(w, x); x += GAP;
-      rowH = Math.max(rowH, n.h);
-    });
-    return { at, w, h: y + rowH };
+    const owner = new Map<string, number>();
+    nodes.forEach((n: any, i: number) => n.aliases.forEach((a: string) => owner.set(a, i)));
+    const succs: number[][] = nodes.map(() => []);
+    let joined = false;
+    for (const e of parsed.edges) {
+      const a = owner.get(e.from); const b = owner.get(e.to);
+      if (a === undefined || b === undefined || a === b) continue;
+      succs[a].push(b); joined = true;
+    }
+    const at: Array<{ x: number; y: number }> = nodes.map(() => ({ x: 0, y: 0 }));
+    if (!joined) {
+      const cols = Math.max(1, Math.min(4, Math.ceil(Math.sqrt(nodes.length))));
+      let x = 0; let y = 0; let rowH = 0; let w = 0;
+      nodes.forEach((n: any, i: number) => {
+        if (i > 0 && i % cols === 0) { x = 0; y += rowH + GAP; rowH = 0; }
+        at[i] = { x, y };
+        x += n.w; w = Math.max(w, x); x += GAP;
+        rowH = Math.max(rowH, n.h);
+      });
+      return { at, w, h: y + rowH };
+    }
+    // Walking the relations from each sibling in source order, one that leads back to a sibling still
+    // being walked closes a cycle and takes no part in ranking, so the sibling written first stays first.
+    const preds: number[][] = nodes.map(() => []);
+    const seen: number[] = nodes.map(() => 0);
+    const walk = (i: number): void => {
+      seen[i] = 1;
+      for (const s of succs[i]) {
+        if (seen[s] === 1) continue;
+        preds[s].push(i);
+        if (seen[s] === 0) walk(s);
+      }
+      seen[i] = 2;
+    };
+    nodes.forEach((_: any, i: number) => { if (seen[i] === 0) walk(i); });
+    const rank: number[] = nodes.map(() => -1);
+    const rankOf = (i: number): number => (rank[i] >= 0 ? rank[i] : (rank[i] = preds[i].reduce((r, p) => Math.max(r, rankOf(p) + 1), 0)));
+    nodes.forEach((_: any, i: number) => rankOf(i));
+    const columns: number[][] = [];
+    for (let r = 0; r <= Math.max(...rank); r++) {
+      const members = rank.map((v, i) => (v === r ? i : -1)).filter((i) => i >= 0);
+      for (let k = 0; k < members.length; k += MAX_PER_COLUMN) columns.push(members.slice(k, k + MAX_PER_COLUMN));
+    }
+    const heightOf = (col: number[]): number => col.reduce((sum, i) => sum + nodes[i].h, 0) + GAP * (col.length - 1);
+    const h = Math.max(...columns.map(heightOf));
+    let x = 0; let w = 0;
+    for (const col of columns) {
+      let y = Math.round((h - heightOf(col)) / 2);
+      for (const i of col) { at[i] = { x, y }; y += nodes[i].h + GAP; }
+      w = x + Math.max(...col.map((i) => nodes[i].w));
+      x = w + RANK_GAP;
+    }
+    return { at, w, h };
   };
 
   const roots = parsed.roots.map((item: any) => layoutNode(item, null));
   const top = pack(roots);
 
   const lines: string[] = [];
-  const cell = (node: any, x: number, y: number, parent: string) => {
+  // Page coordinates of every shape, to choose the side a relation leaves and enters by.
+  const box = new Map<string, { x: number; y: number; w: number; h: number }>();
+  const cell = (node: any, x: number, y: number, parent: string, px = 0, py = 0) => {
+    box.set(node.alias, node.boundary ? { x: px + x, y: py + y, w: node.w, h: node.h } : { x: px + x + node.gx, y: py + y, w: node.gw, h: node.gh });
     if (node.boundary) {
       lines.push(`        <mxCell id="${xmlAttr(node.id)}" value="${xmlAttr(node.label)}" style="swimlane;startSize=30;html=1;" vertex="1" parent="${xmlAttr(parent)}">`,
         `          <mxGeometry x="${x}" y="${y}" width="${node.w}" height="${node.h}" as="geometry"/>`, '        </mxCell>');
-      node.kids.forEach((kid: any, i: number) => cell(kid, PAD + node.grid.at[i].x, HEADER + PAD + node.grid.at[i].y, node.id));
+      node.kids.forEach((kid: any, i: number) => cell(kid, PAD + node.grid.at[i].x, HEADER + PAD + node.grid.at[i].y, node.id, px + x, py + y));
     } else {
       lines.push(`        <mxCell id="${xmlAttr(node.id)}" value="${xmlAttr(node.label)}" style="${xmlAttr(node.style)}" vertex="1" parent="${xmlAttr(parent)}">`,
         `          <mxGeometry x="${x + node.gx}" y="${y}" width="${node.gw}" height="${node.gh}" as="geometry"/>`, '        </mxCell>');
@@ -206,6 +258,17 @@ function project(text: string, opts: { sourcePath?: string; name?: string; icons
     for (let p = parentOf.get(alias) ?? null; p; p = parentOf.get(p) ?? null) out.push(p);
     return out;
   };
+  // Side by side: leave by the facing side. Stacked: leave by top or bottom. One inside the other, or
+  // overlapping both ways: no pin, the router chooses.
+  const sides = (from: string, to: string): string => {
+    const a = box.get(from); const b = box.get(to);
+    if (!a || !b) return '';
+    if (a.x + a.w <= b.x) return 'exitX=1;exitY=0.5;entryX=0;entryY=0.5;';
+    if (b.x + b.w <= a.x) return 'exitX=0;exitY=0.5;entryX=1;entryY=0.5;';
+    if (a.y + a.h <= b.y) return 'exitX=0.5;exitY=1;entryX=0.5;entryY=0;';
+    if (b.y + b.h <= a.y) return 'exitX=0.5;exitY=0;entryX=0.5;entryY=1;';
+    return '';
+  };
   parsed.edges.forEach((e: any, i: number) => {
     for (const end of [e.from, e.to]) {
       if (!elementIds.has(end) && !boundaryIds.has(end)) {
@@ -216,7 +279,7 @@ function project(text: string, opts: { sourcePath?: string; name?: string; icons
     const label = [f.label ? htmlText(f.label) : '', f.techn ? htmlText(`[${f.techn}]`) : ''].filter(Boolean).join('<br>');
     const toChain = new Set(chain(e.to));
     const common = chain(e.from).find((a: string) => toChain.has(a));
-    const style = `edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;${e.bi ? 'startArrow=block;' : ''}`;
+    const style = `edgeStyle=orthogonalEdgeStyle;html=1;labelBackgroundColor=default;endArrow=block;${e.bi ? 'startArrow=block;' : ''}${sides(e.from, e.to)}`;
     const id = `rel-${i + 1}-${e.from}-${e.to}`;
     lines.push(`        <mxCell id="${xmlAttr(id)}" value="${xmlAttr(label)}" style="${style}" edge="1" parent="${common ? `bd-${xmlAttr(common)}` : '1'}" source="${xmlAttr(elementIds.get(e.from) ?? boundaryIds.get(e.from) as string)}" target="${xmlAttr(elementIds.get(e.to) ?? boundaryIds.get(e.to) as string)}">`,
       '          <mxGeometry relative="1" as="geometry"/>', '        </mxCell>');

@@ -310,3 +310,63 @@ test('an output folder that is a symlink out of the checkout is refused and noth
   await assert.rejects(async () => renderLevels({ srcDir: src, outDir: path.join(parent, 'deeper'), iconsDir: path.join(f.root, 'icons'), roots: [f.root], base: f.root }), Refused);
   assert.deepEqual(fs.readdirSync(target), []);
 });
+
+/** The x and y of one cell's geometry. */
+const placeOf = (xml: string, id: string) => {
+  const m = new RegExp(`<mxCell id="${id}"[^>]*>\\n\\s+<mxGeometry x="(-?\\d+)" y="(-?\\d+)"`).exec(xml);
+  if (!m) throw new assert.AssertionError({ message: `no geometry for ${id}` });
+  return { x: Number(m[1]), y: Number(m[2]) };
+};
+
+test('siblings joined by relations sit in one column per rank, so no relation crosses a sibling', () => {
+  const { xml } = project(puml([
+    'Container(api, "API")',
+    'ContainerDb(db, "DB")',
+    'Container(bus, "Bus")',
+    'Container(cache, "Cache")',
+    'Container(worker, "Worker")',
+    'Rel(api, db, "writes")',
+    'Rel(api, bus, "publishes")',
+    'Rel(api, cache, "reads")',
+    'Rel(bus, worker, "feeds")',
+  ].join('\n')));
+  const at = Object.fromEntries(['api', 'db', 'bus', 'cache', 'worker'].map((a) => [a, placeOf(xml, `el-${a}`)]));
+  assert.ok(at.db.x === at.bus.x && at.bus.x === at.cache.x, 'the three targets of api share a column');
+  assert.ok(at.api.x + 200 < at.db.x, 'that column is to the right of api, with room for a label');
+  assert.ok(at.worker.x > at.bus.x + 200, 'a second hop is one column further');
+  assert.ok(at.db.y < at.bus.y && at.bus.y < at.cache.y, 'a column keeps source order, top to bottom');
+  // Left to right: out by the right side, in by the left.
+  assert.match(attr(cellOf(xml, 'rel-3-api-cache'), 'style') as string, /exitX=1;exitY=0\.5;entryX=0;entryY=0\.5;$/);
+  assert.match(attr(cellOf(xml, 'rel-1-api-db'), 'style') as string, /labelBackgroundColor=default;/);
+});
+
+test('a relation against the column order leaves by the left; one to a container holding its source is not pinned', () => {
+  const { xml } = project(puml([
+    'System_Boundary(sys, "Sys") {',
+    '  Container(a, "A")',
+    '  Container(b, "B")',
+    '}',
+    'Rel(a, b, "calls")',
+    'Rel(b, a, "answers")',
+    'Rel(a, sys, "reports")',
+  ].join('\n')));
+  assert.ok(placeOf(xml, 'el-a').x < placeOf(xml, 'el-b').x);
+  assert.match(attr(cellOf(xml, 'rel-2-b-a'), 'style') as string, /exitX=0;exitY=0\.5;entryX=1;entryY=0\.5;$/);
+  assert.doesNotMatch(attr(cellOf(xml, 'rel-3-a-sys'), 'style') as string, /exitX/);
+});
+
+test('relations that form a cycle still place every sibling once, each at its own spot', () => {
+  const { xml } = project(puml([
+    'Container(a, "A")', 'Container(b, "B")', 'Container(c, "C")',
+    'Rel(a, b, "1")', 'Rel(b, c, "2")', 'Rel(c, a, "3")',
+  ].join('\n')));
+  const spots = ['a', 'b', 'c'].map((id) => { const p = placeOf(xml, `el-${id}`); return `${p.x},${p.y}`; });
+  assert.equal(new Set(spots).size, 3, spots.join(' '));
+});
+
+test('more siblings in one rank than a column holds wrap into a further column', () => {
+  const targets = ['t1', 't2', 't3', 't4', 't5'];
+  const { xml } = project(puml(['Container(s, "S")', ...targets.map((t) => `Container(${t}, "${t}")`), ...targets.map((t) => `Rel(s, ${t}, "to")`)].join('\n')));
+  assert.equal(placeOf(xml, 'el-t1').x, placeOf(xml, 'el-t4').x);
+  assert.ok(placeOf(xml, 'el-t5').x > placeOf(xml, 'el-t4').x);
+});
