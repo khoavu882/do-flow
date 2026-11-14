@@ -341,15 +341,30 @@ function yamlLines(key: string, value: any, indent: string = ''): string[] {
   return [`${indent}${name}: ${value}`];
 }
 
+/** The top-level keys of agent-spec frontmatter lines whose value spans lines in a form the line-based filter in
+ * `applyAgentLimits` cannot follow: a quoted value not closed on its own line, or a block scalar (`|`, `>`). */
+function multiLineValueKeys(lines: string[]): string[] {
+  return lines.flatMap((line: string) => {
+    const m = line.match(/^([A-Za-z][A-Za-z0-9_-]*):\s*(.*?)\s*$/);
+    if (!m) return [];
+    const value = m[2];
+    const open = /^[|>][+-]?\d*$/.test(value)
+      || (value.startsWith('"') && !/^"(?:[^"\\]|\\.)*"\s*(#.*)?$/.test(value))
+      || (value.startsWith("'") && !/^'(?:[^']|'')*'\s*(#.*)?$/.test(value));
+    return open ? [m[1]] : [];
+  });
+}
+
 /** Rewrite a shared agent spec's frontmatter for one harness: `access` and `tool-scope` are never projected under
  * those names; the spec gains the harness's keys for its tool scope and, when `read-only`, its `apply` keys. Where the
  * harness's contract lists `agentFields`, any other top-level key is dropped with its continuation lines, and Copilot
  * also drops `model: inherit` (a provider-qualified id is the only value it documents). Body and every kept key pass
- * through byte for byte; a file without frontmatter is returned unchanged. */
+ * through byte for byte; a file without frontmatter, or with a value `multiLineValueKeys` reports, is returned unchanged. */
 function applyAgentLimits(text: string, harnessId: string): string {
   const match = text.match(/^---\r?\n([\s\S]*?\r?\n)---(?=\r?\n|$)/);
   if (!match) return text;
   const lines = match[1].split(/(?<=\n)/);
+  if (multiLineValueKeys(lines.map((line: string) => line.replace(/\r?\n$/, ''))).length) return text;
   const readOnly = lines.some((line: string) => /^access:\s*read-only\s*$/.test(line));
   const scopeLine = lines.find((line: string) => /^tool-scope:/.test(line));
   const apply = agentLimitKeys(harnessId, { readOnly, scope: scopeCategories(scopeLine?.replace(/^tool-scope:/, '')) });
@@ -879,4 +894,4 @@ function ledgerFileResources(resources: any, harness: string, assetId: string): 
     .map((resource: any) => ({ relPath: resource.identity, fingerprint: resource.fingerprint, target: resource.target }));
 }
 
-module.exports = { readOnlyApply, toolScopeApply, approvedMcpServers, agentLimitKeys, kiroHook, kiroHookCommand, kiroPreToolUseHooks, walkRelFiles, discoverTree, sameFileIndex, planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, resolveLayout, LAYOUTS, resolveSelect, SELECTORS, resolveTransform, TRANSFORMS, portableSkillFrontmatter, fingerprint, pruneEmptyAncestors, readJson, sourceDirFor };
+module.exports = { multiLineValueKeys, readOnlyApply, toolScopeApply, approvedMcpServers, agentLimitKeys, kiroHook, kiroHookCommand, kiroPreToolUseHooks, walkRelFiles, discoverTree, sameFileIndex, planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, resolveLayout, LAYOUTS, resolveSelect, SELECTORS, resolveTransform, TRANSFORMS, portableSkillFrontmatter, fingerprint, pruneEmptyAncestors, readJson, sourceDirFor };

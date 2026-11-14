@@ -7,7 +7,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../helper/tmp.ts');
-const { TRANSFORMS, readOnlyApply, agentLimitKeys } = require('../../src/adapters/copy-tree.ts');
+const { TRANSFORMS, readOnlyApply, agentLimitKeys, multiLineValueKeys } = require('../../src/adapters/copy-tree.ts');
 const codexAgents = require('../../src/adapters/codex/agents.ts');
 const { loadRegistry, selectAssets, harnessFor } = require('../../src/registry/index.ts');
 const { projectAdapterInput } = require('../../src/adapters/index.ts');
@@ -110,13 +110,36 @@ test('copilot: output carries no effort and no model: inherit, and only keys the
   }
 });
 
-test('claude: output is the spec minus access and tool-scope plus the limit keys, effort and model kept', () => {
+test('claude: the real specs come out byte-identical to the spec minus access and tool-scope, apart from the limit keys it adds', () => {
   for (const spec of specs) {
-    const out = render('claude', spec);
-    assert.match(out, /^effort: \w+$/m, `${spec.name}: effort kept`);
-    assert.match(out, /^model: inherit$/m, `${spec.name}: model kept`);
-    const bare = (text: any) => frontmatter(text).split('\n').filter((line: any) => !/^(access|tool-scope|tools|permissionMode|disallowedTools):/.test(line)).join('\n');
-    assert.equal(bare(out), bare(spec.text).replace(/\n$/, ''), `${spec.name}: spec keys unchanged`);
+    const added = Object.keys(agentLimitKeys('claude', { readOnly: spec.access === 'read-only', scope: spec.scope }) || {});
+    const out = render('claude', spec).split('\n').filter((line: any) => !added.some((key: any) => line.startsWith(`${key}:`))).join('\n');
+    assert.equal(out, spec.text.replace(/^access:.*\n/m, '').replace(/^tool-scope:.*\n/m, ''), spec.name);
+  }
+});
+
+test('claude: a key outside its agentFields is dropped whole, one inside it is kept', () => {
+  const text = '---\nname: x\ndescription: "d"\neffort: high\nmetrics:\n  a: 1\nmaxTurns: 3\naccess: write\ntool-scope: read\n---\nbody\n';
+  const out = TRANSFORMS['claude-agents']('x.md', Buffer.from(text)).toString('utf8');
+  assert.ok(!/metrics|a: 1/.test(out), 'metrics and its block are gone');
+  assert.match(out, /^effort: high$/m);
+  assert.match(out, /^maxTurns: 3$/m);
+});
+
+test('a value the line-based filter cannot follow leaves the spec unchanged', () => {
+  const unfollowable = ['description: "first line\nsecond: continued"', 'description: >\n  folded', 'description: |\n  literal', "description: 'first\nsecond: continued'"];
+  for (const id of ['claude', 'copilot', 'antigravity']) {
+    for (const value of unfollowable) {
+      const text = `---\nname: x\n${value}\neffort: high\naccess: write\n---\nbody\n`;
+      assert.equal(TRANSFORMS[sharedAgents.projection[id].transform]('x.md', Buffer.from(text)).toString('utf8'), text, `${id}: ${value.split('\n')[0]}`);
+    }
+  }
+});
+
+test('every agent spec keeps each frontmatter value on one line or as an indented list', () => {
+  for (const spec of specs) {
+    const keys = multiLineValueKeys(frontmatter(spec.text).split('\n'));
+    assert.deepEqual(keys, [], `${spec.name}: '${keys.join("', '")}' spans lines; keep each value on one line or as an indented list, the agent projection filters by line`);
   }
 });
 
