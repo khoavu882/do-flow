@@ -526,6 +526,8 @@
   .tile__check { display: inline-flex; flex: none; color: var(--accent); }
   .tile[aria-pressed="true"] .tile__count .tile__check .icon { color: var(--accent); }
   .tile__count { display: flex; align-items: center; gap: var(--space-2); }
+  /* The silent runs, beside the live count: a quiet chip in the stale colours, not a fourth tile. */
+  .tile__stale { font: var(--type-sm); letter-spacing: normal; padding: 2px var(--space-2); border-radius: var(--radius-sm); background: var(--state-stale-tint); color: var(--state-stale-fg); white-space: nowrap; }
   @media (min-width: 768px) {
     .tile[data-state="awaiting"] { min-height: 172px; padding-inline-start: var(--space-6); }
     .tile[data-state="awaiting"] .tile__count { font: var(--type-display); }

@@ -402,12 +402,15 @@ function updatedText(run, nowMs, { stale = false, clock = (ms) => new Date(ms).t
 }
 
 /**
- * The count of runs per tile and the sentence for each filter.
+ * The count of runs per tile. `running` counts only live runs; a RUNNING run silent for over a day is counted in `stale`
+ * instead (it stays in the Running section's list, labelled Stale).
  * @param {any[]} runs
+ * @param {number} nowMs
  */
-function countRuns(runs) {
+function countRuns(runs, nowMs) {
   const groups = groupRuns(runs);
-  return { needs: groups.needs.length, running: groups.running.length, finished: groups.finished.length };
+  const stale = groups.running.filter((run) => runToken(run, nowMs) === 'stale').length;
+  return { needs: groups.needs.length, running: groups.running.length - stale, stale, finished: groups.finished.length };
 }
 
 // ---- gate cards, tile facts, step parts, duration lines (E.1 sections 6.2, 6.4, 6.4a, 9.0, 9.2) ----------------
@@ -525,7 +528,11 @@ function tileFacts(runs, nowMs, { stale = false } = {}) {
     ? { long: 'nothing running', short: 'nothing running', prefix: '' }
     : staleRuns.length === 0
       ? { long: 'all updating', short: 'all updating', prefix: '' }
-      : { long: silent === null ? `${staleRuns.length} stale` : `${staleRuns.length} stale, no update ${stale ? `since ${sinceStamp(silent, nowMs)}` : `for ${formatDuration(nowMs - silent)}`}`, short: `${staleRuns.length} stale`, prefix: '' };
+      : silent === null
+        ? { long: 'update time unknown', short: 'update time unknown', prefix: '' }
+        : stale
+          ? { long: `no update since ${sinceStamp(silent, nowMs)}`, short: sinceStamp(silent, nowMs), prefix: 'no update since ' }
+          : { long: `no update for ${formatDuration(nowMs - silent)}`, short: /** @type {string} */ (formatDuration(nowMs - silent)), prefix: 'no update for ' };
   const completed = groups.finished.filter((run) => run.state === 'COMPLETED').length;
   const closed = groups.finished.filter((run) => run.state === 'CLOSED').length;
   const rejected = groups.finished.length - completed - closed;
