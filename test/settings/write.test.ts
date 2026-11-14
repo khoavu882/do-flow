@@ -6,7 +6,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { createSettingsEnv, userDecision, REPO }: any = require('../helper/settings-fixtures.ts');
+const { spawn, spawnSync } = require('node:child_process');
 const { writeLayer }: any = require('../../src/runtime/settings/write.ts');
+const { procStart }: any = require('../../src/runtime/worker/process-tree.ts');
 const { loadSettings }: any = require('../../src/runtime/settings/resolve.ts');
 
 function sha256(file: any) {
@@ -283,3 +285,67 @@ test('FU-84052t: refuses to write into a .doflow symlinked outside the project r
   assert.equal(fs.existsSync(path.join(outside, 'settings.json')), false);
 });
 
+
+// The layer lock: a stale lock is reclaimed, a live owner's is not (src/runtime/settings/write.ts).
+function lockedLayer(t: any, content: string, ageSeconds = 0) {
+  const f = createSettingsEnv(t);
+  const file = f.userFile('settings.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const lock = `${file}.lock`;
+  fs.writeFileSync(lock, content);
+  if (ageSeconds) { const at = (Date.now() / 1000) - ageSeconds; fs.utimesSync(lock, at, at); }
+  return { file, lock };
+}
+const deadPid = () => spawnSync(process.execPath, ['-e', '']).pid;
+
+test('a lock whose owner process is dead is reclaimed and the write goes through', (t: any) => {
+  const { file, lock } = lockedLayer(t, `${JSON.stringify({ pid: deadPid(), start: 'Mon Jan  1 00:00:00 2001', id: 'x' })}\n`);
+  const result = writeLayer({ file, set: { 'storage.prune': 'off' } });
+  assert.equal(result.ok, true, result.detail);
+  assert.equal(fs.existsSync(lock), false);
+  assert.deepEqual(fs.readdirSync(path.dirname(file)), ['settings.json']);
+});
+
+test('a lock whose pid is alive but started at another time (a reused pid) is reclaimed', (t: any) => {
+  const { file } = lockedLayer(t, `${JSON.stringify({ pid: process.pid, start: 'Mon Jan  1 00:00:00 2001', id: 'x' })}\n`);
+  const result = writeLayer({ file, set: { 'storage.prune': 'off' } });
+  assert.equal(result.ok, true, result.detail);
+});
+
+test('a lock held by a live owner is still refused as locked, and left in place', (t: any) => {
+  const { file, lock } = lockedLayer(t, `${JSON.stringify({ pid: process.pid, start: procStart(process.pid), id: 'x' })}\n`, 3600);
+  const result = writeLayer({ file, set: { 'storage.prune': 'off' } });
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'locked');
+  assert.equal(fs.existsSync(lock), true);
+});
+
+test('a lock in the old format (no readable owner) is refused while young and reclaimed once older than ten minutes', (t: any) => {
+  const young = lockedLayer(t, `${process.pid} deadbeefdeadbeef\n`, 3600 / 60);
+  const refused = writeLayer({ file: young.file, set: { 'storage.prune': 'off' } });
+  assert.equal(refused.code, 'locked');
+  const old = lockedLayer(t, `${process.pid} deadbeefdeadbeef\n`, 3600);
+  assert.equal(writeLayer({ file: old.file, set: { 'storage.prune': 'off' } }).ok, true);
+  const empty = lockedLayer(t, '', 3600);
+  assert.equal(writeLayer({ file: empty.file, set: { 'storage.prune': 'off' } }).ok, true);
+});
+
+test('two processes reclaiming one stale lock at once both write, neither loses its key, and no lock or claim is left', async (t: any) => {
+  const f = createSettingsEnv(t);
+  const file = f.userFile('settings.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(`${file}.lock`, `${JSON.stringify({ pid: deadPid(), start: null, id: 'x' })}\n`);
+  const module = path.join(REPO, 'src/runtime/settings/write.ts');
+  const run = (set: any) => new Promise((resolve) => {
+    const script = `const { writeLayer } = require(${JSON.stringify(module)});
+const r = writeLayer({ file: ${JSON.stringify(file)}, set: ${JSON.stringify(set)} });
+process.exit(r.ok ? 0 : 1);`;
+    spawn(process.execPath, ['-e', script], { stdio: 'inherit' }).on('exit', resolve);
+  });
+  const codes = await Promise.all([run({ 'storage.prune': 'off' }), run({ 'failure.capture': 'off' })]);
+  assert.deepEqual(codes, [0, 0]);
+  assert.deepEqual(fs.readdirSync(path.dirname(file)), ['settings.json']);
+  const written = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.equal(written['storage.prune'], 'off');
+  assert.equal(written['failure.capture'], 'off');
+});

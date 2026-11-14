@@ -6,7 +6,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { randomBytes } = require('node:crypto');
+const { createHash, randomBytes } = require('node:crypto');
 const { isDeepStrictEqual } = require('node:util');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { loadSettingsRegistry } = require('./registry.ts');
@@ -100,19 +100,66 @@ function replaceBackup(file: string, fsImpl: any): any {
 
 /** How long a writer waits for another writer's lock. */
 const LOCK_WAIT_MS = 2000;
+/** A lock naming no owner (the old format, or empty) is taken as abandoned only after this long. */
+const OWNERLESS_LOCK_STALE_MS = 600_000;
+/** A reclaim claim is held for one read and one remove; one older than this was left by a crashed reclaimer. */
+const CLAIM_STALE_MS = 5000;
 const PAUSE = new Int32Array(new SharedArrayBuffer(4));
 
 /**
- * Take `<file>.lock` (created exclusively, holding a token) so one read-merge-rename of a layer runs at a
- * time across processes. A held lock is waited on for LOCK_WAIT_MS, then refused with code `locked`, naming
- * the lock and its age. A lock is never removed automatically, whatever its age: a writer stalled in its
- * critical section would otherwise lose its write silently, and a lock left by a crashed writer is one
- * file the person removes.
+ * True when the lock's owner is gone: its recorded pid is dead, or is now another process (the start
+ * time differs). An owner whose liveness cannot be told (alive but no start recorded, `ps` failed)
+ * counts as alive. A lock with no readable owner is stale only once it is older than OWNERLESS_LOCK_STALE_MS.
+ */
+function lockIsStale(lock: string, text: string, fsImpl: any): boolean {
+  let owner: any = null;
+  try { owner = JSON.parse(text); } catch { /* the old format, or empty: no owner */ }
+  if (Number.isInteger(owner?.pid) && owner.pid > 0) {
+    return require('../worker/process-tree.ts').alive({ pid: owner.pid, start: owner.start }) === false;
+  }
+  try { return Date.now() - fsImpl.statSync(lock).mtimeMs > OWNERLESS_LOCK_STALE_MS; } catch { return false; }
+}
+
+/**
+ * Remove a stale lock under a claim named for the lock's bytes (created with `wx`), and only after
+ * reading it again under the claim and finding the same bytes still stale. Two reclaimers of one lock
+ * therefore remove it once, and a reclaimer never removes the fresh lock another one has since taken.
+ * Ceiling: a claim older than CLAIM_STALE_MS is taken as left by a crashed reclaimer and deleted.
+ * @returns true when this call removed the lock
+ */
+function reclaimStaleLock(lock: string, fsImpl: any): boolean {
+  let text: string;
+  try { text = fsImpl.readFileSync(lock, 'utf8'); } catch { return false; }
+  if (!lockIsStale(lock, text, fsImpl)) return false;
+  const claim = `${lock}.claim.${createHash('sha1').update(text).digest('hex').slice(0, 16)}`;
+  try { fsImpl.writeFileSync(claim, '', { flag: 'wx', mode: 0o600 }); } catch (error: any) {
+    if (error?.code === 'EEXIST') {
+      try { if (Date.now() - fsImpl.statSync(claim).mtimeMs > CLAIM_STALE_MS) fsImpl.rmSync(claim, { force: true }); } catch { /* another reclaimer finished it */ }
+    }
+    return false;
+  }
+  try {
+    if (fsImpl.readFileSync(lock, 'utf8') !== text || !lockIsStale(lock, text, fsImpl)) return false;
+    fsImpl.rmSync(lock, { force: true });
+    return true;
+  } catch { return false; } finally {
+    try { fsImpl.rmSync(claim, { force: true }); } catch { /* the stale-claim rule removes it later */ }
+  }
+}
+
+/**
+ * Take `<file>.lock` (created exclusively, holding its owner's pid, process start time and a token) so one
+ * read-merge-rename of a layer runs at a time across processes. A held lock is waited on for LOCK_WAIT_MS,
+ * then refused with code `locked`, naming the lock and its age. A lock whose owner has died, or whose pid
+ * now belongs to another process, is reclaimed (`reclaimStaleLock`) on the first contention and again at the
+ * deadline; a lock held by a live owner is never removed, whatever its age, so a writer stalled in its
+ * critical section never loses its write.
  */
 function acquireLock(file: string, fsImpl: any): any {
   const lock = `${file}.lock`;
-  const token = `${process.pid} ${randomBytes(8).toString('hex')}\n`;
+  const token = `${JSON.stringify({ pid: process.pid, start: require('../worker/process-tree.ts').procStart(process.pid), id: randomBytes(8).toString('hex') })}\n`;
   const deadline = Date.now() + LOCK_WAIT_MS;
+  let judged = false;
   for (;;) {
     try {
       fsImpl.writeFileSync(lock, token, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
@@ -120,12 +167,17 @@ function acquireLock(file: string, fsImpl: any): any {
     } catch (error: any) {
       if (error?.code !== 'EEXIST') return invalid(file, `could not be locked: ${error?.message || 'lock not created'}`, 'locked');
     }
+    const lastLook = Date.now() >= deadline;
+    if (!judged || lastLook) {
+      judged = true;
+      if (reclaimStaleLock(lock, fsImpl)) continue;
+    }
     let age: number;
     try { age = Math.round((Date.now() - fsImpl.statSync(lock).mtimeMs) / 1000); } catch (error: any) {
       if (error?.code === 'ENOENT') continue;
       age = NaN;
     }
-    if (Date.now() >= deadline) {
+    if (lastLook) {
       const aged = Number.isFinite(age) ? `${Math.max(age, 0)} s old` : 'age unknown';
       return invalid(file, `is held by the lock ${lock} (${aged}); nothing was written; if no writer is running, remove that lock file and run it again`, 'locked');
     }
