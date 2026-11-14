@@ -23,14 +23,29 @@
         ]
       },
       "install": {
-        "command": [
-          "cargo",
-          "install",
-          "--git",
-          "https://github.com/rtk-ai/rtk",
-          "--branch",
-          "master",
-          "rtk"
+        "routes": [
+          {
+            "installer": "brew",
+            "command": [
+              "brew",
+              "install",
+              "rtk-ai/tap/rtk"
+            ],
+            "evidence": "https://www.rtk-ai.app/docs/getting-started/installation/"
+          },
+          {
+            "installer": "cargo",
+            "command": [
+              "cargo",
+              "install",
+              "--git",
+              "https://github.com/rtk-ai/rtk",
+              "--branch",
+              "master",
+              "rtk"
+            ],
+            "evidence": "https://www.rtk-ai.app/docs/getting-started/installation/"
+          }
         ]
       },
       "uninstall": {
@@ -63,11 +78,26 @@
         ]
       },
       "install": {
-        "command": [
-          "uv",
-          "tool",
-          "install",
-          "graphifyy"
+        "routes": [
+          {
+            "installer": "uv",
+            "command": [
+              "uv",
+              "tool",
+              "install",
+              "graphifyy"
+            ],
+            "evidence": "https://github.com/Graphify-Labs/graphify/blob/v8/README.md"
+          },
+          {
+            "installer": "pipx",
+            "command": [
+              "pipx",
+              "install",
+              "graphifyy"
+            ],
+            "evidence": "https://github.com/Graphify-Labs/graphify/blob/v8/README.md"
+          }
         ]
       },
       "update": {
@@ -172,7 +202,8 @@
       "unlocks": "Renders the C4 .puml sources to images (doflow-run render-puml); without it only the .puml source exists.",
       "officialEvidence": [
         "https://plantuml.com/starting",
-        "https://github.com/plantuml-stdlib/C4-PlantUML/blob/master/README.md"
+        "https://github.com/plantuml-stdlib/C4-PlantUML/blob/master/README.md",
+        "https://formulae.brew.sh/formula/plantuml"
       ],
       "status": {
         "commands": [
@@ -194,6 +225,308 @@
           "brew",
           "uninstall",
           "plantuml"
+        ]
+      }
+    },
+    {
+      "id": "jq",
+      "displayName": "jq",
+      "role": "required",
+      "unlocks": "The DoFlow shell scripts and hook payload parsing.",
+      "officialEvidence": [
+        "https://jqlang.org/download/"
+      ],
+      "status": {
+        "commands": [
+          [
+            "jq",
+            "--version"
+          ]
+        ]
+      },
+      "install": {
+        "routes": [
+          {
+            "installer": "brew",
+            "command": [
+              "brew",
+              "install",
+              "jq"
+            ],
+            "platforms": [
+              "darwin"
+            ],
+            "evidence": "https://jqlang.org/download/"
+          },
+          {
+            "installer": "apt-get",
+            "command": [
+              "sudo",
+              "apt-get",
+              "install",
+              "jq"
+            ],
+            "platforms": [
+              "linux"
+            ],
+            "privileged": true,
+            "evidence": "https://jqlang.org/download/"
+          }
+        ]
+      }
+    },
+    {
+      "id": "git",
+      "displayName": "Git",
+      "role": "required",
+      "unlocks": "Cloning, self-update, the git context hooks and the history.search capability.",
+      "officialEvidence": [
+        "https://git-scm.com/install/mac",
+        "https://git-scm.com/install/linux"
+      ],
+      "status": {
+        "commands": [
+          [
+            "git",
+            "--version"
+          ]
+        ]
+      },
+      "install": {
+        "routes": [
+          {
+            "installer": "brew",
+            "command": [
+              "brew",
+              "install",
+              "git"
+            ],
+            "platforms": [
+              "darwin"
+            ],
+            "evidence": "https://git-scm.com/install/mac"
+          },
+          {
+            "installer": "apt-get",
+            "command": [
+              "apt-get",
+              "install",
+              "git"
+            ],
+            "platforms": [
+              "linux"
+            ],
+            "privileged": true,
+            "evidence": "https://git-scm.com/install/linux"
+          }
+        ]
+      }
+    },
+    {
+      "id": "bash",
+      "displayName": "Bash",
+      "role": "required",
+      "unlocks": "The hook scripts on every harness that supports hooks.",
+      "officialEvidence": [
+        "https://www.gnu.org/software/bash/"
+      ],
+      "status": {
+        "commands": [
+          [
+            "bash",
+            "--version"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "ripgrep",
+      "displayName": "ripgrep",
+      "role": "optional",
+      "unlocks": "The code.exact-search capability (native.rg); without it DoFlow falls back to grep.",
+      "officialEvidence": [
+        "https://github.com/BurntSushi/ripgrep/blob/master/README.md"
+      ],
+      "status": {
+        "commands": [
+          [
+            "rg",
+            "--version"
+          ]
+        ]
+      },
+      "install": {
+        "routes": [
+          {
+            "installer": "brew",
+            "command": [
+              "brew",
+              "install",
+              "ripgrep"
+            ],
+            "evidence": "https://github.com/BurntSushi/ripgrep/blob/master/README.md"
+          },
+          {
+            "installer": "cargo",
+            "command": [
+              "cargo",
+              "install",
+              "ripgrep"
+            ],
+            "evidence": "https://github.com/BurntSushi/ripgrep/blob/master/README.md"
+          },
+          {
+            "installer": "apt-get",
+            "command": [
+              "sudo",
+              "apt-get",
+              "install",
+              "ripgrep"
+            ],
+            "platforms": [
+              "linux"
+            ],
+            "privileged": true,
+            "evidence": "https://github.com/BurntSushi/ripgrep/blob/master/README.md"
+          }
+        ]
+      }
+    },
+    {
+      "id": "drawio",
+      "displayName": "draw.io Desktop",
+      "role": "optional",
+      "unlocks": "The image export step of doflow-run render-drawio; without it only the editable .drawio file is written.",
+      "officialEvidence": [
+        "https://formulae.brew.sh/cask/drawio",
+        "https://github.com/jgraph/drawio-desktop/blob/dev/README.md"
+      ],
+      "status": {
+        "commands": [
+          [
+            "drawio",
+            "--version"
+          ]
+        ]
+      },
+      "install": {
+        "routes": [
+          {
+            "installer": "brew",
+            "command": [
+              "brew",
+              "install",
+              "--cask",
+              "drawio"
+            ],
+            "platforms": [
+              "darwin"
+            ],
+            "evidence": "https://formulae.brew.sh/cask/drawio"
+          }
+        ]
+      }
+    },
+    {
+      "id": "python3",
+      "displayName": "Python 3",
+      "role": "optional",
+      "unlocks": "The do-code-review analyzers (code_quality_checker.py and doc_quality_checker.py).",
+      "officialEvidence": [
+        "https://www.python.org/downloads/",
+        "https://docs.python.org/3/using/index.html"
+      ],
+      "status": {
+        "commands": [
+          [
+            "python3",
+            "--version"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "agent-browser",
+      "displayName": "agent-browser",
+      "role": "optional",
+      "unlocks": "Checks a web user interface from the shell: opens a page, reads it as text, acts on elements and takes screenshots.",
+      "officialEvidence": [
+        "https://github.com/vercel-labs/agent-browser/blob/main/README.md",
+        "https://agent-browser.dev/installation"
+      ],
+      "status": {
+        "commands": [
+          [
+            "agent-browser",
+            "--version"
+          ]
+        ]
+      },
+      "install": {
+        "routes": [
+          {
+            "installer": "npm",
+            "command": [
+              "npm",
+              "install",
+              "-g",
+              "agent-browser"
+            ],
+            "platforms": [
+              "darwin"
+            ],
+            "after": [
+              [
+                "agent-browser",
+                "install"
+              ]
+            ],
+            "evidence": "https://github.com/vercel-labs/agent-browser/blob/main/README.md"
+          },
+          {
+            "installer": "npm",
+            "command": [
+              "npm",
+              "install",
+              "-g",
+              "agent-browser"
+            ],
+            "platforms": [
+              "linux"
+            ],
+            "after": [
+              [
+                "agent-browser",
+                "install",
+                "--with-deps"
+              ]
+            ],
+            "evidence": "https://github.com/vercel-labs/agent-browser/blob/main/README.md"
+          },
+          {
+            "installer": "brew",
+            "command": [
+              "brew",
+              "install",
+              "agent-browser"
+            ],
+            "platforms": [
+              "darwin"
+            ],
+            "after": [
+              [
+                "agent-browser",
+                "install"
+              ]
+            ],
+            "evidence": "https://github.com/vercel-labs/agent-browser/blob/main/README.md"
+          }
+        ]
+      },
+      "update": {
+        "command": [
+          "agent-browser",
+          "upgrade"
         ]
       }
     }

@@ -23,7 +23,7 @@ test('loads and validates the complete multi-harness registry', () => {
   assert.equal(registry.validation.ok, true);
   assert.deepEqual(registry.harnesses.find((harness: any) => harness.id === 'codex').nativeProjection.config.resources,
     [{ kind: 'configuration-entry', identity: 'features.hooks', value: true }]);
-  assert.deepEqual(registry.externalTools.map((tool: any) => tool.id), ['rtk', 'graphify', 'semble', 'mermaid-cli', 'plantuml']);
+  assert.deepEqual(registry.externalTools.map((tool: any) => tool.id), ['rtk', 'graphify', 'semble', 'mermaid-cli', 'plantuml', 'jq', 'git', 'bash', 'ripgrep', 'drawio', 'python3', 'agent-browser']);
 });
 
 test('registry copy-tree select names stay in sync with the adapter selector table', () => {
@@ -70,10 +70,13 @@ test('loads evidence-backed external tool definitions with argument-vector comma
   const semble = externalTools.find((tool: any) => tool.id === 'semble');
 
   assert.deepEqual(rtk.status.commands, [['rtk', '--version'], ['rtk', 'gain']]);
-  assert.deepEqual(rtk.install.command, ['cargo', 'install', '--git', 'https://github.com/rtk-ai/rtk', '--branch', 'master', 'rtk']);
+  assert.deepEqual(rtk.install.routes.map((route: any) => route.command), [
+    ['brew', 'install', 'rtk-ai/tap/rtk'],
+    ['cargo', 'install', '--git', 'https://github.com/rtk-ai/rtk', '--branch', 'master', 'rtk'],
+  ]);
   assert.equal(rtk.update, undefined, 'RTK has no verified update command');
   assert.deepEqual(graphify.prerequisites, ['uv']);
-  assert.deepEqual(graphify.install.command, ['uv', 'tool', 'install', 'graphifyy']);
+  assert.deepEqual(graphify.install.routes.map((route: any) => route.command), [['uv', 'tool', 'install', 'graphifyy'], ['pipx', 'install', 'graphifyy']]);
   assert.deepEqual(graphify.update.command, ['uv', 'tool', 'upgrade', 'graphifyy']);
   assert.deepEqual(graphify.uninstall.command, ['uv', 'tool', 'uninstall', 'graphifyy']);
   assert.deepEqual(semble.prerequisites, ['uv']);
@@ -99,6 +102,22 @@ test('rejects malformed external tool provenance, identifiers, and command array
   assert.match(result.errors.join('\n'), /id must be one of: rtk, graphify/);
   assert.match(result.errors.join('\n'), /HTTPS officialEvidence URLs/);
   assert.match(result.errors.join('\n'), /command must be a non-empty array of non-empty strings/);
+});
+
+test('required and optional tools, and the install routes that carry a second step or need administrator rights', () => {
+  const { externalTools } = loadRegistry({ repoRoot: REPO });
+  const byId = (id: string) => externalTools.find((tool: any) => tool.id === id);
+  assert.deepEqual(externalTools.filter((tool: any) => tool.role === 'required').map((tool: any) => tool.id), ['jq', 'git', 'bash']);
+  assert.equal(byId('bash').install, undefined, 'bash has no install command on its official page');
+  assert.equal(byId('python3').install, undefined, 'python3 has no install command on its official pages');
+  const browser = byId('agent-browser');
+  assert.deepEqual(browser.install.routes.map((route: any) => [route.installer, route.platforms, route.after]), [
+    ['npm', ['darwin'], [['agent-browser', 'install']]],
+    ['npm', ['linux'], [['agent-browser', 'install', '--with-deps']]],
+    ['brew', ['darwin'], [['agent-browser', 'install']]],
+  ]);
+  assert.deepEqual(byId('drawio').install.routes.map((route: any) => route.command), [['brew', 'install', '--cask', 'drawio']]);
+  assert.deepEqual(externalTools.flatMap((tool: any) => (tool.install?.routes || []).filter((route: any) => route.privileged).map((route: any) => `${tool.id}:${route.command[0]}`)), ['jq:sudo', 'git:apt-get', 'ripgrep:sudo']);
 });
 
 test('every external tool declares a role and an unlocks line', () => {
