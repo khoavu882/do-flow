@@ -18,7 +18,7 @@ Universal command dispatcher, task decomposer, capability router, and developmen
 
 1. **Session & Command Dispatch**:
    - If invoked with no arguments or `--help`, announce DoFlow session status and display the core command reference.
-   - If `$1` matches a `/do-*` skill in the Core Command Reference table below, forward to that skill directly.
+   - If the request's first word names a `/do-*` skill in the Core Command Reference table below, forward to that skill directly.
    - Otherwise, resolve the runtime seam **once** and reuse `$DOFLOW` for every later call here:
 
 ```bash
@@ -34,7 +34,7 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
 "$DOFLOW" paths --json
 ```
 
-   - `/do maintain` (`$1` is `maintain`): note the start time `T`, run
+   - `/do maintain`: note the start time `T`, run
      `doflow-run lifecycle --action overview --maintain --since T --view brief --json` (`doflow-run` is the
      `$DOFLOW` resolved above), and settle each pending item with the question tool through the
      `doflow-run followup`, `doflow-run goal` or `doflow-run failure` command its `next` lines give.
