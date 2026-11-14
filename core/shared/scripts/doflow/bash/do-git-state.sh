@@ -13,13 +13,15 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 0
 fi
 
-script_dir="$(cd "$(dirname "$0")" && pwd)"
-resolved="$(bash "$script_dir/do-paths.sh" --json 2>/dev/null)"
-repo_root="$(printf '%s' "$resolved" | jq -r '.repo_root // empty')"
-# The resolver refuses a branch whose derived slug is unsafe and then prints no repo_root. This
-# helper does not need a feature, only the repository, so it asks git rather than reporting a
-# repository that exists as "not-a-git-repo".
-[ -z "$repo_root" ] && repo_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+# Inside a repository git names the root, which is the same root the path resolver reports. The
+# resolver costs about 200 ms (it also resolves the feature), so it is asked only outside a
+# repository, where it decides what the root is.
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [ -z "$repo_root" ]; then
+  script_dir="$(cd "$(dirname "$0")" && pwd)"
+  resolved="$(bash "$script_dir/do-paths.sh" --json 2>/dev/null)"
+  repo_root="$(printf '%s' "$resolved" | jq -r '.repo_root // empty')"
+fi
 
 trunk_names="main develop"
 feature_prefixes="feat feature"

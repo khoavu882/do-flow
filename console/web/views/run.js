@@ -542,12 +542,12 @@ function tickRun(root, nowMs, local) {
     if (moved(at)) {
       state.pinnedAt = at;
       placeAt(chart.live.nowLine, at);
-      if (chart.live.nowLabel) {
-        placeAt(chart.live.nowLabel, at);
-        chart.live.nowLabel.textContent = `now ${clockHM(nowMs)}`;
-      }
+      if (chart.live.nowLabel) placeAt(chart.live.nowLabel, at);
       for (const bar of chart.live.bars) placeSpan(bar.el, null, at);
     }
+    // The minute can turn before the line has moved a pixel: the label's text follows the clock, not the line.
+    const label = `now ${clockHM(nowMs)}`;
+    if (chart.live.nowLabel && chart.live.nowLabel.textContent !== label) chart.live.nowLabel.textContent = label;
   } else if (stale && chart.live.nowLabel) {
     const label = `data as of ${clockTime(memory.lastGood)}`;
     if (chart.live.nowLabel.textContent !== label) chart.live.nowLabel.textContent = label;

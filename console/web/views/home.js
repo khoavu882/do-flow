@@ -118,8 +118,12 @@ function homeOf(local, body, apiGet) {
 function homeKey(data) {
   const now = Date.now();
   const classes = data.workflows instanceof Map ? [...data.workflows.keys()].sort() : [];
-  const stale = data.runs.filter((/** @type {any} */ run) => runToken(run, now) === 'stale').map(runKey);
-  return `${JSON.stringify({ runs: data.runs, unreadableCount: data.unreadableCount })}|${classes.join(',')}|${stale.join(',')}`;
+  return `${JSON.stringify({ runs: data.runs, unreadableCount: data.unreadableCount })}|${classes.join(',')}|${staleKeys(data.runs, now)}`;
+}
+
+/** Which runs are stale at `now`, as one string to compare. @param {any[]} runs @param {number} now */
+function staleKeys(runs, now) {
+  return runs.filter((run) => runToken(run, now) === 'stale').map(runKey).join(',');
 }
 
 // ---- change memory and announcements (E.1 sections 8.1, 8.2) -------------------------------------------------
@@ -335,6 +339,9 @@ function gateCard(run, index, context) {
  * @param {any} [local]
  */
 function tickHome(root, nowMs, local) {
+  if (local && Array.isArray(local.homeRuns) && typeof local.homeRebuild === 'function' && staleKeys(local.homeRuns, nowMs) !== local.homeStale) {
+    local.homeRebuild(nowMs);
+  }
   const stale = Boolean(root.dataset) && root.dataset.stale === 'true';
   for (const el of [...root.querySelectorAll('.run-row__desc'), ...root.querySelectorAll('.gate-card__desc')]) {
     const source = described.get(el);
@@ -453,13 +460,22 @@ function renderHome(data, { badge, local }) {
   let changed = ingest({ ...data, workflows: local.workflows }, local, now);
   /** @type {any} */
   const context = { now, local, badge, rowIndex: 0, changed };
-  const build = () => {
+  const build = (at = Date.now()) => {
     context.rowIndex = 0;
     context.loop = true;
     context.changed = changed;
-    context.now = Date.now();
+    context.now = at;
     mount(root, homeContent(data, context));
+    local.homeStale = staleKeys(data.runs, at);
     changed = new Map(); // a rebuild for a filter must not replay the change marks
+  };
+  // A run can turn stale by age alone while no poll lands: the tick asks for a rebuild then, keeping focus.
+  local.homeRebuild = (/** @type {number} */ at) => {
+    const active = root.ownerDocument && root.ownerDocument.activeElement;
+    const focusKey = active && root.contains(active) && active.dataset ? active.dataset.focusKey : null;
+    build(at);
+    const target = focusKey ? root.querySelector(`[data-focus-key="${focusKey}"]`) : null;
+    if (target) target.focus({ preventScroll: true });
   };
   context.rerender = (/** @type {string} */ focusKey) => {
     build();

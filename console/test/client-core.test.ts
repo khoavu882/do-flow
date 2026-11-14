@@ -1317,6 +1317,21 @@ test('E.1 home: 3 live and 2 stale runs: Running counts 3, a Stale count of 2 si
   assert.equal(running.querySelectorAll('.badge').map(text).filter((word) => word === 'Stale').length, 2);
 });
 
+test('E.1 home: a run that turns stale by age while no poll lands moves to the Stale count on the next tick', async () => {
+  mods.home.resetHome();
+  let down = false;
+  // Built on the first read, under the mocked clock, and served unchanged after it.
+  let snapshot: any = null;
+  const runs = () => (snapshot ??= body([...liveRuns(), frow('edge', 2, { updatedAt: agoIso(DAY_MS - 30_000) })]));
+  const page = await start({ hash: '', fetch: (target: string, init: any) => (target === '/api/runs' && down ? 'network' : homeFetch(runs)(target, init)) });
+  const tile = () => page.main.querySelectorAll('.tile')[1];
+  assert.equal(tile().querySelector('.tile__stale'), null);
+  down = true;
+  await advance(60_000);
+  assert.equal(text(tile().querySelector('.tile__stale')), '1 stale');
+  assert.equal(text(tile().querySelector('.tile__count')), '3 live runs, 1 stale');
+});
+
 test('E.1 home: 3 live and no stale runs: Running counts 3 and no Stale count shows', async () => {
   const { count, chip, sub } = await runningTile(liveRuns);
   assert.equal(count, '3');
@@ -4253,6 +4268,23 @@ test('149 C.4 Views off polling: Sessions live for 60 s makes only its first-pai
     } },
     { at: 40_000, make: () => ({ '/runs/body/unreadableCount': 4 }) }, // another member: not this view's GET
   ]);
+});
+
+test('Run live: the now label follows the clock when the line has not moved a pixel', async () => {
+  // A run that began days ago: one minute is far less than a pixel of its axis.
+  const body = runBodyWith(frow('run-1', 2), [ev(6000, 'start', null), ev(5000, 'complete-stage', 'discovery', { outcome: 'passed' })]);
+  const page = await startLive('#/run/feat-a/run-1', liveRoute(runRoute(() => body), () => reply(500)));
+  await advance(100);
+  const es = liveES();
+  es.open();
+  es.emit('message', frameAt(1, RUN_CH, 'snapshot', { state: { run: { status: 200, body } } }));
+  await settle();
+  const label = () => text(page.main.querySelector('.tl__nowlabel'));
+  const before = label();
+  assert.match(before, /^now \d\d:\d\d$/);
+  await advance(60_000);
+  assert.match(label(), /^now \d\d:\d\d$/);
+  assert.notEqual(label(), before, 'a minute later the label names the new minute');
 });
 
 test('149 C.4 Resume without loss: a dropped Run view reopens with since, shows each of two steps once, and equals GET /api/runs/<slug>/<task>', async () => {
