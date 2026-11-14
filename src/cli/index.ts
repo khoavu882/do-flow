@@ -876,6 +876,21 @@ External tools:
 // so a record can only ever carry a name from DoFlow's own tables and never an argument value.
 const COMMAND_NAMES = new Set([...Object.keys(COMMANDS), ...[...HELP.matchAll(/^  ([a-z][a-z-]*) {2,}\S/gm)].map((m) => m[1])]);
 
+/**
+ * Help for one runtime verb, cut from its own entry in HELP (the verb line plus its indented continuation lines), so
+ * there is one verb list and one place its purpose is written. `undefined` for an installer command or a word that has
+ * no entry, which then gets the installer help as before (FU-rmpegn).
+ */
+function verbHelp(name: any): string | undefined {
+  if (typeof name !== 'string' || COMMANDS[name]) return undefined;
+  const lines: string[] = HELP.split('\n');
+  const start = lines.findIndex((l) => l.startsWith(`  ${name} `) && /^ {2}[a-z][a-z-]* {2,}\S/.test(l));
+  if (start < 0) return undefined;
+  let end = start + 1;
+  while (end < lines.length && lines[end].startsWith(' '.repeat(10))) end++;
+  return `doflow ${name}\n\n${lines.slice(start, end).join('\n')}\n\nThe flags are in the entry above and under Options in \`doflow --help\`; the verb tables are in docs/reference.md.`;
+}
+
 /** `name` when it is one of DoFlow's own command names, else `unknown`. */
 function commandName(name: any): string { return typeof name === 'string' && COMMAND_NAMES.has(name) ? name : 'unknown'; }
 
@@ -887,7 +902,7 @@ function commandName(name: any): string { return typeof name === 'string' && COM
 async function main(argv: string[]): Promise<any> {
   const o = parseArgs(argv);
   if (o.version) { console.log(pkg.version); return; }
-  if (o.help || !o.cmd) { console.log(HELP); return; }
+  if (o.help || !o.cmd) { console.log((o.help && verbHelp(o.cmd)) || HELP); return; }
   assertNoBackupRequiresForce(o);
   if (o.cmd === 'classify' && o.request !== undefined && o.requestFile !== undefined) {
     return usageError('classify', '--request and --request-file are mutually exclusive; provide only one.', o.json);
