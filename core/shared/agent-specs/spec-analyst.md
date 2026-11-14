@@ -1,6 +1,6 @@
 ---
 name: spec-analyst
-description: "Specialist agent for requirements discovery, user story breakdown, epic decomposition, acceptance criteria definition, and development estimation"
+description: "Requirements analyst. Use when a request needs its requirements, acceptance criteria or estimate settled before design."
 model: inherit
 effort: medium
 access: write

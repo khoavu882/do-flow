@@ -1,6 +1,6 @@
 ---
 name: quality-guardian
-description: "Specialist quality and security engineer for automated testing, security vulnerability auditing, static code review, and root-cause analysis"
+description: "Quality and security engineer. Use when a task writes or runs tests, audits security or finds the root cause of a failure."
 model: inherit
 effort: medium
 access: write
