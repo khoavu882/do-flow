@@ -21,6 +21,9 @@ function sha256(text: string): string {
   return crypto.createHash('sha256').update(text, 'utf8').digest('hex');
 }
 
+/** First 16 hex characters of the sha256: a short stable id, not a security digest. */
+const sha16 = (text: unknown): string => sha256(String(text)).slice(0, 16);
+
 /**
  * Wraps a body in its provenance header and fingerprint.
  *
@@ -51,6 +54,7 @@ module.exports = {
   FINGERPRINT_MARKER,
   FINGERPRINT_RE,
   sha256,
+  sha16,
   compose,
   inspectExisting,
 };

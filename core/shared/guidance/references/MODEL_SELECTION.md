@@ -7,7 +7,7 @@ unavailable, set the model in the agent definition. An unset tier is a defect.
 ## Capability tiers
 
 Tiers describe capability; model names vary by harness. Map each to the harness's supported
-identifier at dispatch; never hardcode a vendor model name here.
+identifier at dispatch; never hardcode a vendor model name here, and never invent or probe one.
 
 | Tier | Work |
 |---|---|
@@ -15,9 +15,12 @@ identifier at dispatch; never hardcode a vendor model name here.
 | `standard` | Normal coding, debugging, writing, analysis, routine research, and evidence gathering. |
 | `frontier` | Architecture, hard debugging, broad refactors, consequential decisions, and every review. |
 
-Use the harness's supported model identifier; never invent or probe one. Consequential decisions
-gate money paths, releases or tests, rewrite history, set design, or authorize unchecked action.
-Gather evidence at `standard`; judge it at `frontier`. Split mixed-tier work or use the higher tier.
+Consequential decisions gate money paths, releases or tests, rewrite history, set design, or
+authorize unchecked action. Gather evidence at `standard`; judge it at `frontier`. Split mixed-tier
+work or use the higher tier.
+
+Effort is a separate dial, not a tier column: an agent spec's `effort:` is the default where the
+harness reads it, and dropped elsewhere.
 
 ## Choosing a tier for implementation
 
@@ -63,8 +66,6 @@ broad refactors, consequential decisions, and reviews. Name the tier/model per d
 ## Escalation inside a fix loop
 
 After a stuck implementer, raise the tier at least once and use a fresh context.
-
-Consult the harness's capability notes before assuming its per-dispatch model selection behavior.
 
 ## Enforceability: a rendered request, not an observed model
 

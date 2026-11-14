@@ -61,7 +61,6 @@ const ACTIONS = Object.freeze(['discover', 'probe', 'describe', 'select', 'run',
 const EXIT_ZERO = Object.freeze(['discovered', 'probed', 'described', 'selected', 'started', 'cancelled', 'status', 'recorded']);
 const ERROR_CODES = Object.freeze(['usage', 'store-unreadable', 'registry-invalid']);
 const TASK_ID = /^[A-Za-z]+\.\d+$/;
-const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._ -]*$/;
 const DIGITS = /^[0-9]+$/;
 /** 078 `ATTEMPT_PATTERN`'s ceiling (IC-011 step 6). */
 const TOKEN_MAX = 9999;
@@ -633,7 +632,7 @@ async function executeWorkerCommand({
       default: {
         const feature = featureOf(slug, resolveSlug, cwd);
         const selector = runSelector(workerRun, task, token, 'cancel');
-        if (!given(by) || !SAFE_NAME.test(String(by))) throw usage('--by is required: the name of the agent or person cancelling the run');
+        if (!given(by) || !attempts.SAFE_NAME.test(String(by))) throw usage('--by is required: the name of the agent or person cancelling the run');
         if (typeof reason !== 'string' || !reason.trim()) throw usage('--reason is required: why the run is being cancelled');
         const file = storeFileFor(root, feature);
         const run = findRun(file, selector);

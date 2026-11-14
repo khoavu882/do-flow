@@ -35,6 +35,7 @@ const {
   resolveScopeBound, resolveIntegrationBase, resolveExplicitBaseline, parseDeclaredScope, scopeReasonText, boundSourcesText,
 } = require('./scope-bound.ts');
 const nodeCrypto = require('node:crypto');
+const { sha16 } = require('../scaffold/fingerprint.ts');
 const { readReadinessRecord, RECORD_VERSION } = require('../readiness-record.ts');
 const { verifyReadinessCheck, featureSlugFor } = require('../implementation-gate.ts');
 const { assertSafeTaskId } = require('../evidence-ledger.ts');
@@ -59,7 +60,6 @@ const {
   levelOf,
 } = require('./registry.ts');
 
-const sha16 = (text: string): string => nodeCrypto.createHash('sha256').update(String(text), 'utf8').digest('hex').slice(0, 16);
 
 /**
  * Saves a failed-first state file atomically via temp file + rename with mode 0600.

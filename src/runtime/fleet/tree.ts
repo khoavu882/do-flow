@@ -14,7 +14,7 @@
  * @returns {{ok: false, error: string} | {ok: true, body: Object, internal: Map<string, Object>}}
  */
 
-const crypto = require('node:crypto');
+const { sha16 } = require('../scaffold/fingerprint.ts');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -39,7 +39,6 @@ const NEEDLE_BYTES = 2 * 1024 * 1024;
 const SESSION_DIR = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const RUN_KEY = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
 
-const sha16 = (text: string): string => crypto.createHash('sha256').update(text).digest('hex').slice(0, 16);
 const READERS: Record<string, () => any> = {
   'claude-jsonl': () => require('../transcripts/readers/claude-jsonl.ts'),
   'codex-rollout': () => require('../transcripts/readers/codex-rollout.ts'),

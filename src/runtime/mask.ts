@@ -337,4 +337,13 @@ function printSafe(value: any, options: { keepLineBreaks?: boolean } = {}): any 
   return value;
 }
 
-module.exports = { mask, maskLine, maskBody, normalise, normaliseMessage, printSafe, MASKED };
+/** Longest part of untrusted text echoed back in a stderr line. */
+const ECHO_CHARS = 80;
+
+/** One line of untrusted text made safe to print: no control characters, bounded. */
+function shown(text: unknown): string {
+  const safe = String(printSafe(String(text))).replace(/[\r\n]+/g, ' ');
+  return safe.length > ECHO_CHARS ? `${safe.slice(0, ECHO_CHARS)}...` : safe;
+}
+
+module.exports = { mask, maskLine, maskBody, normalise, normaliseMessage, printSafe, shown, MASKED };

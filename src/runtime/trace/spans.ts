@@ -4,7 +4,7 @@
 
 const nodeFs = require('node:fs');
 const path = require('node:path');
-const crypto = require('node:crypto');
+const { sha16 } = require('../scaffold/fingerprint.ts');
 const { resolveRunsLocation, normalizeRunRecord } = require('./ledger.ts');
 const { SAFE_TOKEN } = require('./telemetry.ts');
 const { finish } = require('./render.ts');
@@ -87,7 +87,6 @@ function telemetryKinds(): any {
   return registryCache;
 }
 
-const sha16 = (text: string): string => crypto.createHash('sha256').update(text).digest('hex').slice(0, 16);
 const str = (v: any): string | null => (typeof v === 'string' && v !== '' ? v : null);
 const safe = (v: any): any => (v === null || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v))
   || (typeof v === 'string' && SAFE_TOKEN.test(v)) ? v : undefined);

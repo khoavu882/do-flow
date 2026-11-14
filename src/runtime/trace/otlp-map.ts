@@ -2,7 +2,7 @@
 
 // TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 
-const crypto = require('node:crypto');
+const { sha16 } = require('../scaffold/fingerprint.ts');
 const nodeFs = require('node:fs');
 const path = require('node:path');
 const { SAFE_TOKEN } = require('./telemetry.ts');
@@ -234,7 +234,6 @@ function resolveAttributes(span: any, spanSpec: any, registry: any, lists: Recor
   return attrs;
 }
 
-const sha16 = (text: string): string => crypto.createHash('sha256').update(text).digest('hex').slice(0, 16);
 const byStartThenId = (x: any, y: any): number => {
   const a = BigInt(x.body.startTimeUnixNano);
   const b = BigInt(y.body.startTimeUnixNano);

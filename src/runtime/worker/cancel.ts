@@ -22,8 +22,6 @@ const processTree = require('./process-tree.ts');
 const { runKeyFor, identityRefusal } = require('../task-run.ts');
 const attempts = require('../task-attempts.ts');
 
-/** 080's `SAFE_NAME`, which `--by` must match. */
-const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._ -]*$/;
 /** A `cancelling` run whose request is younger than this belongs to the canceller that holds it. */
 const CANCEL_TAKEOVER_MS = 30000;
 /** How long a cancel of a launching run waits for its supervisor: its own escalation of a
@@ -155,7 +153,7 @@ async function cancelRun({
   file, runId, by, reason, source = 'user', env = process.env, cwd = process.cwd(), platform = process.platform,
   now = () => new Date(), cancelImpl = attempts.cancel, escalate = processTree.escalate, sleep = defaultSleep,
 }: any) {
-  if (!by || !SAFE_NAME.test(String(by))) throw new RunStoreError('usage', '--by is required: the name of the agent or person cancelling the run');
+  if (!by || !attempts.SAFE_NAME.test(String(by))) throw new RunStoreError('usage', '--by is required: the name of the agent or person cancelling the run');
   const why = typeof reason === 'string' ? reason.trim() : '';
   if (!why) throw new RunStoreError('usage', '--reason is required: why the run is being cancelled');
   if (!SOURCES.includes(source)) throw new RunStoreError('usage', `source '${source}' is not one of ${SOURCES.join(', ')}`);

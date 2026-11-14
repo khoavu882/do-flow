@@ -17,7 +17,7 @@
 
 const nodeFs = require('node:fs');
 const path = require('node:path');
-const crypto = require('node:crypto');
+const { sha16 } = require('../scaffold/fingerprint.ts');
 const { projectSpans } = require('./spans.ts');
 const { percentile } = require('./views.ts');
 const { finish } = require('./render.ts');
@@ -41,7 +41,6 @@ const LONG_RUN = /[A-Za-z0-9+/=_-]{32,}/;
 /** An evidence id as EvidenceLedger#generateId mints it; anything else is not cited. */
 const EVIDENCE_ID = /^ev_[a-z0-9]+_[0-9a-f]{8}_[a-z0-9]+$/;
 
-const sha16 = (text: string): string => crypto.createHash('sha256').update(text).digest('hex').slice(0, 16);
 const cmp = (a: any, b: any): number => (a < b ? -1 : a > b ? 1 : 0);
 const startMs = (s: any): number => (s.start === null ? Infinity : Date.parse(s.start));
 const byStart = (a: any, b: any): number => startMs(a) - startMs(b) || cmp(a.spanId, b.spanId);

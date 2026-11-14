@@ -69,6 +69,10 @@ fi
 repo_root=$(printf '%s' "$resolved_json" | jq -r '.repo_root // empty')
 feature_slug=$(printf '%s' "$resolved_json" | jq -r '.feature_slug // empty')
 feature_dir=$(printf '%s' "$resolved_json" | jq -r '.feature_dir // empty')
+# The feature folder sits in the checkout that holds agent-docs: in a linked worktree that is the
+# main checkout, not repo_root. Same reading as render-audit.sh and render-page.sh.
+feature_root=$(printf '%s' "$resolved_json" | jq -r '.feature_root // empty')
+[ -n "$feature_root" ] || feature_root="$repo_root"
 
 # The projector lives in the JS runtime, not beside the helpers: G12 keeps this repo to one runtime
 # implementation, and Python in core/ is how a shadow tree grew the first time, one individually
@@ -79,7 +83,7 @@ design_rel=$(printf '%s' "$resolved_json" | jq -r '.design // empty')
 [ -n "$feature_slug" ] || note "no-active-feature"
 [ -n "$feature_dir" ] || note "resolver-missing-feature-dir"
 
-src_dir="$repo_root/$feature_dir/design/c4"
+src_dir="$feature_root/$feature_dir/design/c4"
 # Authoring C4 in PlantUML is opt-in. No directory is the ordinary case, not a failure.
 [ -d "$src_dir" ] || note "no design/c4/ directory in $feature_dir — authoring C4 in PlantUML is opt-in, so there is nothing to render"
 
@@ -115,9 +119,9 @@ if [ "$check_only" = true ]; then
   # block is written by a separate branch that an absent marker pair can skip. They drift apart, and
   # a check that reads one of them reports the other as current without ever having looked at it.
   block_src="$(block_source_for "${sources[@]}")"
-  if [ -n "$block_src" ] && [ -n "$design_rel" ] && [ -f "$repo_root/$design_rel" ]; then
+  if [ -n "$block_src" ] && [ -n "$design_rel" ] && [ -f "$feature_root/$design_rel" ]; then
     want="$(short_hash "$block_src")"
-    have="$(sed -n 's/.*source-hash: \([0-9a-f]*\).*/\1/p' "$repo_root/$design_rel" | head -1)"
+    have="$(sed -n 's/.*source-hash: \([0-9a-f]*\).*/\1/p' "$feature_root/$design_rel" | head -1)"
     [ "$want" = "$have" ] || stale+=("$(basename "$block_src") -> inline block in $design_rel")
   fi
   if [ "$emit_json" = true ]; then
@@ -174,8 +178,8 @@ done
 # absent is REPORTED and left untouched rather than repaired by guess, and the rewrite goes through
 # a temp file moved into place -- the same pattern render-audit.sh uses, for the same reason.
 block_written=false
-if [ -n "$projected" ] && [ -n "$design_rel" ] && [ -f "$repo_root/$design_rel" ]; then
-  target="$repo_root/$design_rel"
+if [ -n "$projected" ] && [ -n "$design_rel" ] && [ -f "$feature_root/$design_rel" ]; then
+  target="$feature_root/$design_rel"
   if grep -q '<!-- generated from' "$target" && grep -q '<!-- end generated -->' "$target"; then
     tmp="$(mktemp "${target}.XXXXXX")" || note "mktemp-failed"
     trap 'rm -f "$tmp"' EXIT

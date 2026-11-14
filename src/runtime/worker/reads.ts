@@ -23,7 +23,7 @@ const { LOG_STREAMS, logFile, readLogPage } = require('./log-read.ts');
 const { resultOfRun } = require('./supervisor.ts');
 const { maskJson } = require('../events/envelope.ts');
 const { isSafeSlug } = require('../task-scope.ts');
-const { printSafe } = require('../mask.ts');
+const { shown } = require('../mask.ts');
 const { finishRuntime } = require('../cli-result.ts');
 const { projectRoot: lifecycleProjectRoot } = require('../lifecycle/root.ts');
 
@@ -39,8 +39,6 @@ const VERB_FLAGS: Readonly<Record<string, ReadonlySet<string>>> = Object.freeze(
 
 /** IC-002: `<ino>:<offset>:<seq>:<ms>`, four decimal parts; seq and ms are accepted and ignored. */
 const CURSOR = /^([0-9]{1,20}):([0-9]{1,16}):[0-9]{1,16}:[0-9]{1,16}$/;
-/** Longest part of untrusted text echoed back in a stderr line. */
-const ECHO_CHARS = 80;
 
 type Env = Record<string, string | undefined>;
 type Verb = 'worker-log' | 'worker-result' | 'worker-runs';
@@ -82,12 +80,6 @@ const given = (value: any) => value !== undefined && value !== null && value !==
 const failure = (exit: number, error: string, message: string): Answer => ({ exit, json: { v: 1, ok: false, error }, message });
 const usage = (message: string): Answer => failure(2, 'usage', message);
 const ok = (json: any): Answer => ({ exit: 0, json: maskJson(json), message: null });
-
-/** One line of untrusted text made safe to print: no control characters, bounded. */
-function shown(text: unknown): string {
-  const safe = String(printSafe(String(text))).replace(/[\r\n]+/g, ' ');
-  return safe.length > ECHO_CHARS ? `${safe.slice(0, ECHO_CHARS)}...` : safe;
-}
 
 /** The first problem with the flags and positionals as typed, or null. */
 function flagProblem(verb: Verb, flags: readonly string[], positional: readonly string[]): string | null {
