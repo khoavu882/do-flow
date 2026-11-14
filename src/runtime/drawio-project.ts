@@ -12,9 +12,10 @@
  * Parsing is `c4-project.ts`'s own, so the two projectors refuse the same sources: an unrecognized
  * macro stops the projection naming macro, file and line, rather than dropping an element.
  *
- * The layout is a fixed grid, with no layout library: the same source and the same icons always give
- * byte-identical output, and every id derives from an element alias. The grid is a starting point,
- * not a drawing: a person moves things.
+ * The layout is computed here, with no layout library: related elements in ranked columns with routed
+ * relation paths, unrelated ones in a grid. The same source and the same icons always give
+ * byte-identical output, and every id derives from an element alias. It is a starting point, not a
+ * drawing: a person moves things.
  *
  * Icons: DoFlow ships none and downloads none (logos are trademarks with mixed licences). They are
  * looked up by file name in a folder the caller names. A style value cannot hold `;`, so an icon is

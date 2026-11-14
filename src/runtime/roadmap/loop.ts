@@ -312,7 +312,7 @@ function roadmapStatusResult(options: RoadmapCommandOptions = {}): RoadmapResult
 }
 
 /**
- * Dispatches roadmap CLI actions: render [--check], status, next, audit and init-policy. `next` resolves to a
+ * Dispatches roadmap CLI actions: render [--check], status, next, audit, report and init-policy. `next` resolves to a
  * promise of the exit code (the merge step awaits its fast-forward child).
  */
 function handleRoadmapCommand(options: RoadmapCommandOptions = {}): any {
