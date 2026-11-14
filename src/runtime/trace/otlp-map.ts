@@ -5,23 +5,12 @@
 const { sha16 } = require('../scaffold/fingerprint.ts');
 const nodeFs = require('node:fs');
 const path = require('node:path');
+const { sortKeysDeep: sorted } = require('../canonical-json.ts');
 const { SAFE_TOKEN } = require('./telemetry.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 
 const cmp = (a: any, b: any): number => (a < b ? -1 : a > b ? 1 : 0);
 
-/** Object keys sorted at every level, so the JSON form is byte-identical for the same inputs. */
-function sorted(value: any): any {
-  if (Array.isArray(value)) return value.map(sorted);
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.keys(value)
-        .sort(cmp)
-        .map((k) => [k, sorted(value[k])])
-    );
-  }
-  return value;
-}
 
 let cachedPkgVersion: string = '';
 function packageVersion(): string {

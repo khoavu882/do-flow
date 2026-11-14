@@ -17,6 +17,7 @@
 
 const nodeFs = require('node:fs');
 const path = require('node:path');
+const { writeFileAtomic } = require('./write-file-atomic.ts');
 const { acquireLock } = require('./task-state.ts');
 const { resolveActiveFeature } = require('./feature-resolve.ts');
 const { compactHistory } = require('./history-compactor.ts');
@@ -85,26 +86,14 @@ function readRegister(featureDir: string, fsImpl: any = nodeFs): any {
   return data;
 }
 
-function writeAtomic(fsImpl: any, file: string, content: string): void {
-  fsImpl.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.tmp`;
-  try {
-    fsImpl.writeFileSync(tmp, content, 'utf8');
-    fsImpl.renameSync(tmp, file);
-  } catch (error: any) {
-    try { fsImpl.rmSync(tmp, { force: true }); } catch { /* nothing to clean */ }
-    throw error;
-  }
-}
-
 /** Writes only when the content differs, so re-rendering an unchanged view is a no-op. */
 function writeIfChanged(fsImpl: any, file: string, content: string): void {
   if (fsImpl.existsSync(file) && fsImpl.readFileSync(file, 'utf8') === content) return;
-  writeAtomic(fsImpl, file, content);
+  writeFileAtomic(file, content, { fsImpl });
 }
 
 function writeRegister(fsImpl: any, featureDir: string, register: any): void {
-  writeAtomic(fsImpl, registerFile(featureDir), `${JSON.stringify(register, null, 2)}\n`);
+  writeFileAtomic(registerFile(featureDir), `${JSON.stringify(register, null, 2)}\n`, { fsImpl });
 }
 
 function renderViews(fsImpl: any, featureDir: string, register: any): void {

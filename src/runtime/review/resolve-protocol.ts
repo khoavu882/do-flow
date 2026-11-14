@@ -6,6 +6,7 @@
 // settings among them as a plain `settingsView` ({ '<key>': { value, layer } }, an absent key = default).
 
 const nodeCrypto = require('node:crypto');
+const { canonicalJson } = require('../canonical-json.ts');
 const { presetIds, coreTiers } = require('./protocols.ts');
 const { dominates } = require('./dominance.ts');
 
@@ -259,15 +260,6 @@ function resolveProtocol({ kind, taskClass, risk, paths, runPreset, advicePick, 
     enforcement: enforcementRows(seats, agentAccess, readOnlyLimits),
   });
   return { ok: true, protocol };
-}
-
-/** `value` as JSON with object keys sorted at every depth (arrays keep their order). */
-function canonicalJson(value: any): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-  if (value !== null && typeof value === 'object') {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`;
-  }
-  return JSON.stringify(value);
 }
 
 /** 119 Q-A2 / IC-002: the sha256 hex of the resolved protocol's canonical JSON; a findings record's `protocol.digest`. */

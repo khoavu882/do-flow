@@ -24,7 +24,7 @@ const REGISTRY_FILE = 'core/registry/storage.json';
 const DOCS_FILE = 'docs/reference.md';
 const DOCS_HEADER = '| Store | Location | Bound |';
 const SCAN_DIRS: any = ['src', 'bin', 'core/shared/scripts', 'core/harnesses'];
-const JS_WRITE_CALL = /\b(writeFileSync|writeFile|appendFileSync|appendFile|createWriteStream|mkdirSync|mkdir|renameSync|copyFileSync|cpSync|symlinkSync|linkSync|mkdtempSync)\s*\(/;
+const JS_WRITE_CALL = /\b(writeFileSync|writeFile|appendFileSync|appendFile|createWriteStream|mkdirSync|mkdir|renameSync|copyFileSync|cpSync|symlinkSync|linkSync|mkdtempSync|writeFileAtomic)\s*\(/;
 const BASH_WRITE_COMMAND = /(?:^|[\s;&|(){`])(mkdir|touch|mktemp|mv|cp|tee)(?=[\s;&|)}`]|$)/;
 const BASH_REDIRECTION = /(?:^|[\s;&|(){`])(\d*)(>>?)(?!&)\s*([^\s;&|<>()]+)/g;
 const FORBIDDEN_MODULES: any = ['http', 'https', 'net', 'dns', 'child_process'];

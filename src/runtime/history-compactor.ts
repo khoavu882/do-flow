@@ -19,6 +19,7 @@
 
 const nodeFs = require('node:fs');
 const path = require('node:path');
+const { writeFileAtomic } = require('./write-file-atomic.ts');
 
 const HISTORY_HEADING = /^## ([0-9]+)\. History\s*$/;
 const ANY_H2 = /^## /;
@@ -94,22 +95,16 @@ function classify(bodyLines: string[], kinds: string[], canonicalPointer: string
 }
 
 function writeAtomic(fsImpl: any, file: string, content: string, unchangedSince?: string): void {
-  fsImpl.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.tmp`;
-  try {
-    fsImpl.writeFileSync(tmp, content, 'utf8');
-    // The text `content` was built from is compared with the file just before the rename, so an edit
-    // made since it was read is kept instead of replaced (FU-1jbmm3). This narrows the window to the
-    // gap between this read and the rename; it cannot close it, which would take a lock on the
-    // artifact itself that its editors would also have to take.
-    if (unchangedSince !== undefined && fsImpl.readFileSync(file, 'utf8') !== unchangedSince) {
+  // The text `content` was built from is compared with the file just before the rename, so an edit
+  // made since it was read is kept instead of replaced (FU-1jbmm3). This narrows the window to the
+  // gap between this read and the rename; it cannot close it, which would take a lock on the
+  // artifact itself that its editors would also have to take.
+  const beforeRename = unchangedSince === undefined ? undefined : () => {
+    if (fsImpl.readFileSync(file, 'utf8') !== unchangedSince) {
       throw new Error(`${path.basename(file)} changed while it was being compacted`);
     }
-    fsImpl.renameSync(tmp, file);
-  } catch (error: any) {
-    try { fsImpl.rmSync(tmp, { force: true }); } catch { /* nothing to clean */ }
-    throw error;
-  }
+  };
+  writeFileAtomic(file, content, { fsImpl, beforeRename });
 }
 
 function toPosix(p: string): string {

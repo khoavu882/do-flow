@@ -152,6 +152,7 @@ function matchedLines(outputLines: string[], patterns: RegExp[]): string[] {
   return matches;
 }
 
+// Not sortKeysDeep: only plain objects are sorted, so a Date or a class instance in a record is left for JSON.stringify.
 function sorted(value: any): any {
   if (Array.isArray(value)) return value.map(sorted);
   if (value && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {

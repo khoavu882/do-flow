@@ -2,24 +2,13 @@
 
 // TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 
+const { sortKeysDeep: sorted } = require('../canonical-json.ts');
+
 const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
 const msOf = (v: string | null): number | null =>
   (typeof v === 'string' && ISO_UTC.test(v) && Number.isFinite(Date.parse(v)) ? Date.parse(v) : null);
 
 const THIRTY_MINUTES_MS = 30 * 60 * 1000;
-
-/** Sort object keys at every level to ensure deterministic JSON representation. */
-function sorted(value: any): any {
-  if (Array.isArray(value)) return value.map(sorted);
-  if (value && typeof value === 'object') {
-    const out: any = {};
-    for (const k of Object.keys(value).sort()) {
-      out[k] = sorted(value[k]);
-    }
-    return out;
-  }
-  return value;
-}
 
 /** Union of overlapping half-open intervals [start, end]. Counted once in the union. */
 function unionIntervals(intervals: Array<[number, number]>): number {

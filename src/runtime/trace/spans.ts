@@ -4,6 +4,7 @@
 
 const nodeFs = require('node:fs');
 const path = require('node:path');
+const { sortKeysDeep: sorted } = require('../canonical-json.ts');
 const { sha16 } = require('../scaffold/fingerprint.ts');
 const { resolveRunsLocation, normalizeRunRecord } = require('./ledger.ts');
 const { SAFE_TOKEN } = require('./telemetry.ts');
@@ -704,13 +705,6 @@ function link(list: any[], root: any): void {
 function projectSpans({ projectRoot, run = null, global = false, env = process.env, fsImpl = nodeFs, homeDir }: any = {}): any {
   const location = resolveRunsLocation({ start: projectRoot, global, env, fsImpl, ...(homeDir ? { homeDir } : {}) });
   return buildSpans({ stateDir: path.dirname(location.dir), run, fsImpl });
-}
-
-/** Object keys sorted at every level, so the JSON form is the same bytes for the same stores. */
-function sorted(value: any): any {
-  if (Array.isArray(value)) return value.map(sorted);
-  if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map((k) => [k, sorted(value[k])]));
-  return value;
 }
 
 /**

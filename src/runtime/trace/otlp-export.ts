@@ -13,26 +13,13 @@
 const nodeFs = require('node:fs');
 const { TextEncoder, TextDecoder } = require('node:util');
 const path = require('node:path');
+const { sortKeysDeep: sorted } = require('../canonical-json.ts');
 const { projectSpans } = require('./spans.ts');
 const otlpMap = require('./otlp-map.ts');
 const { finish } = require('./render.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 
 const RUN_ARG = /^[A-Za-z0-9][A-Za-z0-9._:-]*(?:\/[A-Za-z0-9._:-]+){0,2}$/;
-const cmp = (a: any, b: any): number => (a < b ? -1 : a > b ? 1 : 0);
-
-/** Object keys sorted at every level, ensuring deterministic JSON output. */
-function sorted(value: any): any {
-  if (Array.isArray(value)) return value.map(sorted);
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.keys(value)
-        .sort(cmp)
-        .map((k) => [k, sorted(value[k])])
-    );
-  }
-  return value;
-}
 
 /**
  * Resolves OTLP environment variables per IC-006:

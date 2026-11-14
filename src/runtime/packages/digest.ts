@@ -10,6 +10,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { sortKeysDeep } = require('../canonical-json.ts');
 
 const SEGMENT = /^[A-Za-z0-9_][A-Za-z0-9._-]*$/;
 const SEGMENT_GRAMMAR = '^[A-Za-z0-9_][A-Za-z0-9._-]*$ (no leading dot)';
@@ -21,14 +22,7 @@ const sha256 = (data: any): string => crypto.createHash('sha256').update(data).d
 type TreeFile = { rel: string; abs: string; size: number; exec: boolean };
 
 /** Key-sorted JSON, the canonical form of `fingerprint` in `src/state/index.ts`. */
-function canonicalJson(value: any): string {
-  const stable = (v: any): any => {
-    if (Array.isArray(v)) return v.map(stable);
-    if (!v || typeof v !== 'object') return v;
-    return Object.fromEntries(Object.keys(v).sort().map((key) => [key, stable(v[key])]));
-  };
-  return JSON.stringify(stable(value));
-}
+const canonicalJson = (value: any): string => JSON.stringify(sortKeysDeep(value));
 
 function compareBytes(a: string, b: string): number {
   const x = Buffer.from(a);

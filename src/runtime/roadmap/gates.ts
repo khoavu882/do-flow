@@ -2,6 +2,7 @@
 
 // IC-004 / IC-006: byte-bound policy and pure, ordered gate evaluation. No filesystem or git I/O.
 const { createHash } = require('node:crypto');
+const { canonicalJson: canonical } = require('../canonical-json.ts');
 const PREDICATES = new Set(['markers-zero:requirement', 'markers-zero:design', 'markers-zero:plan',
   'protected-paths', 'plan-verification-absent', 'plan-parses', 'needs-merged', 'requires-reachable', 'plan-within-write-set',
   'verify-pass-on-head', 'findings-valid', 'no-dropped-findings', 'dispositions-backed', 'blockers-zero']);
@@ -16,12 +17,6 @@ const reviewPreset = (fact: any): string => (typeof fact?.preset === 'string' ? 
 
 function covers(parent: string, child: string): boolean {
   return parent === child || (parent.endsWith('/') && child.startsWith(parent));
-}
-
-function canonical(value: any): string {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
-  if (object(value)) return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}`;
-  return JSON.stringify(value);
 }
 
 function policyValid(policy: any): boolean {
