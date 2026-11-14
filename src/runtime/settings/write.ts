@@ -109,6 +109,8 @@ const ASIDE_STALE_MS = 60_000;
 /** The longest a write waits for `ps`; a start time not read in this time is recorded as unknown. */
 const START_READ_MS = 300;
 const PAUSE = new Int32Array(new SharedArrayBuffer(4));
+/** The ids of the locks this process holds now. A lock with this host and pid whose id is not here is left from an earlier hold of this pid. */
+const heldIds = new Set<string>();
 
 /** A process start time read within START_READ_MS, or null (unknown) where start times are not comparable or `ps` is slow. */
 function readStart(pid: number): string | null {
@@ -128,7 +130,7 @@ function readStart(pid: number): string | null {
 
 /**
  * True when the lock may be removed. A lock older than LOCK_STALE_MS is, whatever its owner. A younger one
- * only when it was written on this host and its owner is gone: `kill(pid, 0)` answers ESRCH, or the pid
+ * only when it was written on this host and its owner is gone (this process's own pid with an id it does not hold counts as gone): `kill(pid, 0)` answers ESRCH, or the pid
  * answers but its start time is not the recorded one (a reused pid; comparable on darwin only). Anything
  * else (EPERM, `ps` unreadable, no start recorded, another host, no readable owner) is "cannot tell" and
  * is left to the age rule.
@@ -138,6 +140,8 @@ function lockIsStale(lock: string, text: string, fsImpl: any): boolean {
   let owner: any = null;
   try { owner = JSON.parse(text); } catch { /* the old format, or empty: no owner */ }
   if (!Number.isInteger(owner?.pid) || owner.pid <= 0 || owner.host !== os.hostname()) return false;
+  // This pid, this host, an id this process does not hold: left by a release that missed it (see `releaseLock`).
+  if (owner.pid === process.pid && typeof owner.id === 'string') return !heldIds.has(owner.id);
   try { process.kill(owner.pid, 0); } catch (error: any) { return error?.code === 'ESRCH'; }
   if (typeof owner.start !== 'string') return false;
   const now = readStart(owner.pid);
@@ -149,7 +153,7 @@ function lockIsStale(lock: string, text: string, fsImpl: any): boolean {
  * copied, not shared: that one is claim-keyed and carries the run lock's owner record). The lock is renamed
  * to a unique name (atomic, so one process wins), the moved file is read again, and only when it holds the
  * bytes judged stale is it deleted. Otherwise it was another writer's fresh lock taken since the judgment:
- * it is linked back and left held. Ceiling: for the instant between the rename and the link-back the name
+ * it is linked back and left held (`releaseLock` looks for it again if its owner finished in that window). Ceiling: for the instant between the rename and the link-back the name
  * is free, and a third writer taking it then leaves two writers in the critical section.
  * @returns true when this call removed the stale lock
  */
@@ -161,11 +165,14 @@ function reclaimStaleLock(lock: string, fsImpl: any): boolean {
   try { fsImpl.renameSync(lock, aside); } catch { return false; }
   let moved: string | null = null;
   try { moved = fsImpl.readFileSync(aside, 'utf8'); } catch { /* swept by another writer: nothing to put back */ }
-  if (moved !== null && moved !== text) {
+  // No bytes (a writer between open and write) is never the same lock as another with no bytes: it is confirmed by its age.
+  let same = moved === text;
+  if (same && text === '') { try { same = Date.now() - fsImpl.statSync(aside).mtimeMs > LOCK_STALE_MS; } catch { same = false; } }
+  if (moved !== null && !same) {
     try { fsImpl.linkSync(aside, lock); } catch { /* another writer took the name */ }
   }
   try { fsImpl.rmSync(aside, { force: true }); } catch { /* the sweep removes it later */ }
-  return moved === text;
+  return same;
 }
 
 /** Remove moved-aside files a reclaimer that died left beside the lock, by age. */
@@ -190,13 +197,15 @@ function sweepAsides(lock: string, fsImpl: any): void {
 function acquireLock(file: string, fsImpl: any): any {
   const lock = `${file}.lock`;
   const start = readStart(process.pid);
-  const token = `${JSON.stringify({ pid: process.pid, host: os.hostname(), start, id: randomBytes(8).toString('hex') })}\n`;
+  const id = randomBytes(8).toString('hex');
+  const token = `${JSON.stringify({ pid: process.pid, host: os.hostname(), start, id })}\n`;
   const deadline = Date.now() + LOCK_WAIT_MS;
   let judged = false;
   for (;;) {
     try {
       fsImpl.writeFileSync(lock, token, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
-      return { ok: true, lock, token };
+      heldIds.add(id);
+      return { ok: true, lock, token, id };
     } catch (error: any) {
       if (error?.code !== 'EEXIST') return invalid(file, `could not be locked: ${error?.message || 'lock not created'}`, 'locked');
     }
@@ -219,10 +228,23 @@ function acquireLock(file: string, fsImpl: any): any {
   }
 }
 
-function releaseLock({ lock, token }: any, fsImpl: any): void {
+/**
+ * Remove this writer's lock. A reclaimer may have moved it aside to judge it (`reclaimStaleLock`) just
+ * as this writer finishes, so the lock is looked for again, a few times over about 20 ms, and removed when
+ * it comes back. If the reclaimer stalls longer than that and links it back later, the lock stays until
+ * this process exits (its pid is then dead) or a writer of this same pid finds an id it no longer holds
+ * (`lockIsStale`); a write in another process waits for that or for the ten-minute age rule.
+ */
+function releaseLock({ lock, token, id }: any, fsImpl: any): void {
   try {
-    if (fsImpl.readFileSync(lock, 'utf8') === token) fsImpl.rmSync(lock, { force: true });
-  } catch { /* already gone; keep the primary result */ }
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      let text: string | null = null;
+      try { text = fsImpl.readFileSync(lock, 'utf8'); } catch { /* absent, or moved aside: look again */ }
+      if (text === token) { fsImpl.rmSync(lock, { force: true }); return; }
+      if (text !== null) return; // another writer's lock stands there: this one is gone
+      Atomics.wait(PAUSE, 0, 0, 2.5);
+    }
+  } catch { /* already gone; keep the primary result */ } finally { heldIds.delete(id); }
 }
 
 /**
