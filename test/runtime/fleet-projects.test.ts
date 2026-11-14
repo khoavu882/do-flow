@@ -79,7 +79,7 @@ function fixture(t: any) {
   const f: any = {
     root, home: path.join(root, 'home'), config: path.join(root, 'config'),
     main: path.join(root, 'proj'), linked: path.join(root, 'proj-linked'), plain: path.join(root, 'plain'),
-    zone: path.join(root, 'tmpzone'), gone: path.join(root, 'gone'),
+    zone: path.join(root, 'scratch.noindex'), gone: path.join(root, 'gone'),
   };
   fs.mkdirSync(path.join(f.home, '.doflow', 'state'), { recursive: true });
   fs.mkdirSync(path.join(f.config, 'doflow'), { recursive: true });
@@ -101,7 +101,7 @@ function fixture(t: any) {
   return f;
 }
 
-const opts = (f: any, extra: any = {}) => ({ env: env(f), cwd: f.main, tempRoots: [f.zone], ...extra });
+const opts = (f: any, extra: any = {}) => ({ env: env(f), cwd: f.main, tempRoots: [], scratchName: 'scratch.noindex', ...extra });
 
 test('projects: field set, grouping by common git dir, filters and counts (IC-019)', (t) => {
   const f = fixture(t);
@@ -115,7 +115,7 @@ test('projects: field set, grouping by common git dir, filters and counts (IC-01
   assert.equal(body.truncated, false);
   assert.equal(body.projects.length, 1, 'main and linked worktree are one project');
   const [p] = body.projects;
-  assert.deepEqual(Object.keys(p).sort(), ['checkouts', 'current', 'label', 'lastRecordAt', 'projectKey', 'root', 'sources'].sort());
+  assert.deepEqual(Object.keys(p).sort(), ['checkouts', 'current', 'label', 'lastRecordAt', 'projectKey', 'root', 'sources', 'temp'].sort());
   assert.equal(p.projectKey, cwdHash(f.main));
   assert.match(p.projectKey, /^[0-9a-f]{16}$/);
   assert.equal(p.root, f.main);
@@ -146,6 +146,19 @@ test('projects: current is false from another directory and sorts first when tru
   const here = listProjects(opts(f, { cwd: f.main })).body;
   assert.deepEqual(here.projects.map((p: any) => [p.label, p.current]), [['proj', true], ['other', false]]);
   assert.equal(here.projects[1].lastRecordAt, '2026-09-01T00:00:00.000Z');
+});
+
+test('FU-w9j11f 9: a project under a temp folder is listed and marked temp; only test scratch is hidden', (t) => {
+  const f = fixture(t);
+  clearCheckoutCache();
+  const marked = listProjects(opts(f, { tempRoots: [f.root] })).body;
+  assert.deepEqual(marked.projects.map((p: any) => [p.label, p.temp]), [['proj', true]], 'listed, marked temp');
+  assert.equal(marked.excluded.temp, 1, 'the scratch folder is still hidden and counted');
+  clearCheckoutCache();
+  const plain = listProjects(opts(f, { tempRoots: [path.join(f.root, 'elsewhere')] })).body;
+  assert.deepEqual(plain.projects.map((p: any) => [p.label, p.temp]), [['proj', false]]);
+  // The shipped marker is the folder every test temp folder lives in (test/helper/tmp.ts).
+  assert.match(fs.readFileSync(path.join(__dirname, '..', 'helper', 'tmp.ts'), 'utf8'), /ROOT_NAME = 'doflow-test\.noindex'/);
 });
 
 test('projects: a label that fails the label rule is (withheld) (IC-019)', (t) => {
