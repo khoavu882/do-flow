@@ -298,6 +298,7 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--supersedes', 'supersedes'],      // comma-separated DEC-### ids this decision replaces
   ['--refs', 'refs'],                  // comma-separated ids the decision touches, e.g. FR-001,IC-002
   ['--source', 'source'],              // where the decision was stated, e.g. design/design-02-question.md#question-1
+  ['--undo', 'undo'],                  // decision --action add: one line on how a person reverses it (required for an unattended default)
   ['--index', 'index'],                // package add: local pinned package index
   // followup and lifecycle (feature 046). `--statement`, `--stage`, `--slug`, `--batch`, `--reason`,
   // `--channel`, `--state`, `--source`, `--intent`, `--task-class` and `--task-id` above are shared.
@@ -598,13 +599,14 @@ Commands:
                        config unset <key> --layer user|project|local [--json]   remove the key from that layer's file
   scaffold             Emit the reviewable code scaffold the active feature's artifacts imply
   decision             Register, list or compact the active feature's decisions (--action init|add|list|compact)
+  review-pack          Write the feature's review pack from its records: review-pack --task-id <slug> [--json]
   intake               Sort, preview, undo, list or file prompt text for the active feature's additional-context folder (--action sort|preview|undo|list|file-prompt)
   followup             Record, list, take, settle, promote or report what a feature left unfinished (--action add|list|take|settle|promote|report; list: [--view brief|full] [--cursor <c>] [--limit <n>] [--ids <FU-id,...>])
   lifecycle            Open follow-ups, feature tracking, releases and status for the project (--action overview|init|release|status|merged; overview: [--view brief|full])
   goal                 Add, check, link, list or close a goal and its checklist (--action add|item|check|link|list|done)
   failure              List, settle or switch off the failures DoFlow captured on this machine (--action list|settle|capture)
                        (a value beginning with '-' must be written --flag=value)
-  roadmap              Session-driven autopilot runner (--action render|status|next|audit|init-policy [--check] [--row <id>] [--run <id>]).
+  roadmap              Session-driven autopilot runner (--action render|status|next|audit|report|init-policy [--check] [--row <id>] [--run <id>]).
                        roadmap --action init-policy [--commit] writes the gate policy for review, or with --commit commits it onto local develop when develop is not checked out in a worktree (otherwise it prints the commands to run there; never pushes);
                        roadmap seed --action check|apply|amend --draft <path> [--json] validates and writes new rows;
                        rows written while autopilot is on land proposed; roadmap promote <id...> [--json] (person: asks y/N on the terminal) makes them ready
@@ -742,6 +744,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
                                             disposition in the JSON; 2 usage or an unreadable store or plan)
       --rationale, --proposed-by, --calling-skill    classify
       --request <text>, --request-file <file>  classify (mutually exclusive; optional second opinion)
+      --undo <text>, --by <user|agent|autopilot[,..]>  decision (add: how to reverse an unattended default; list: filter by decider)
       --view brief|full                     followup --action list (default brief), lifecycle --action overview, classify (default full); brief drops detail, full is the whole answer
       --cursor <c>, --limit <n>             followup --action list (the cursor is opaque: pass back a page's nextCursor); also transcript --action read
       --intent, --query, --check, --harness  route

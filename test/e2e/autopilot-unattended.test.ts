@@ -143,7 +143,8 @@ const readinessRecord = (row: any) => write(path.join(root, '.doflow', 'state', 
 
 const addDecision = (row: any, channel: string, topic: string) => {
   const result = cli(worktreeOf(row), ['decision', '--action', 'add', '--slug', row.slug, '--channel', channel, '--stage', 'review', '--topic', topic,
-    '--statement', `Accept the ${topic} finding as it stands`, '--rationale', channel === 'default' ? 'unattended:envelope' : 'a person decided']);
+    '--statement', `Accept the ${topic} finding as it stands`, '--rationale', channel === 'default' ? 'unattended:envelope' : 'a person decided',
+    ...(channel === 'default' ? ['--undo', `Reopen the ${topic} finding and have a person decide it`] : [])]);
   assert.equal(result.status, 0, `decision add: ${result.stdout}\n${result.stderr}`);
 };
 

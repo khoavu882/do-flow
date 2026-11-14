@@ -1732,6 +1732,10 @@
       "reason": "agent-docs deliverable (agent-docs/intent/*.md)"
     },
     {
+      "file": "src/runtime/review-pack.ts",
+      "reason": "agent-docs deliverables written by exclusive temp file and rename: <feature>/review-pack.md, and agent-docs/roadmap/roadmap-report.md, one file beside ROADMAP.md that each report overwrites, so it never grows"
+    },
+    {
       "file": "src/runtime/roadmap/rows.ts",
       "reason": "agent-docs deliverable (roadmap/ROADMAP.md, derived table written only when its bytes change)"
     },

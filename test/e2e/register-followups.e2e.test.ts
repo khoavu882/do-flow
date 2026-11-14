@@ -276,7 +276,7 @@ describe('Scenario: Review fix records its decisions (FR-005, FR-010, FR-011, IC
     const shipped = (rel: any) => squash(read(path.join(REPO, 'core', 'shared', rel)));
     const handoff = shipped('guidance/references/WORKFLOW_HANDOFF.md');
     assert.ok(handoff.includes('Drop an item that only rewords a live decision'), 'reworded duplicate is dropped');
-    assert.ok(handoff.includes('it is neither registered nor used to supersede'));
+    assert.ok(handoff.includes('it neither registers nor supersedes'));
     assert.ok(handoff.includes('an `unknown` one takes the right identifier from the live list'));
     assert.ok(handoff.includes('Hand off with the stage\'s decisions registered, or say which are not.'), 'positive wording');
     assert.ok(!handoff.includes('Never hand off'), 'the negative wording is gone');
