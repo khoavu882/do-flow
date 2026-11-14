@@ -23,6 +23,7 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { CapabilityRouter } = require('./capability-router.ts');
 const { loadRegistry, agentToolScopeView } = require('../registry/index.ts');
+const { chooseInstallRoute, describeInstall, plainCommand } = require('../install/tool-lifecycle.ts');
 const { evaluateReach } = require('./reach.ts');
 const { mcpReach } = require('./mcp-reach.ts');
 const { OUTCOME_LABELS } = require('./mcp-consultations.ts');
@@ -710,6 +711,21 @@ function packagesView({ projectRoot, fsImpl, env, homeDir, tmpDir }: any) {
   }
 }
 
+/** The absent tools, required first, each with the one command to install it; one line when none is absent. */
+function printExternalTools(tools: any[]): void {
+  const absent = ['required', 'optional'].flatMap((role) => tools.filter((tool) => tool.status === ABSENT && tool.role === role));
+  if (!absent.length) { console.log('  Every registered tool is on PATH.'); return; }
+  const width = Math.max(...absent.map((tool) => tool.id.length));
+  for (const tool of absent) {
+    const install = tool.install;
+    const how = !install ? 'no install route is known for this platform'
+      : !install.command ? install.reason
+        : `${[install.command, ...install.after].map((command: string[]) => plainCommand(command)).join(', then ')}${install.privileged ? ' (needs administrator rights)' : ''}`;
+    console.log(`  ${tool.id.padEnd(width)}  ${tool.role.padEnd(9)} ${how}`);
+  }
+  console.log('  Run `doflow tools` for what each one unlocks.');
+}
+
 function printPackagesSection(packages: any) {
   console.log('\n[Packages] — person grants and DoFlow state; not blocking');
   if (packages.note) { console.log(`  ${packages.note}`); return; }
@@ -902,17 +918,20 @@ function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, exec
   });
 
   // External tools are the same binaries the providers use, so their status comes from the probe
-  // that already ran rather than from a second, weaker presence check.
+  // that already ran rather than from a second, weaker presence check. The binary is the one the
+  // tool's first status command runs, which is not always the tool's id (mermaid-cli runs `mmdc`).
+  // An absent tool carries the install command chosen for this machine, or why there is none.
   const externalTools = registry.externalTools.map((tool: any) => {
-    const probe: any = Object.values(probes).find((candidate) => candidate.binary === tool.id);
-    if (probe) return { id: tool.id, displayName: tool.displayName, status: probe.status, detail: probe.detail };
-    const present = activeRouter.isBinaryAvailable(tool.id);
-    return {
-      id: tool.id,
-      displayName: tool.displayName,
-      status: present ? UNVERIFIED : ABSENT,
-      detail: present ? 'on PATH, but no capability provider declares a probe for it' : `binary '${tool.id}' is not on PATH`,
-    };
+    const binary = tool.status.commands[0][0];
+    const probe: any = Object.values(probes).find((candidate) => candidate.binary === binary);
+    const base = { id: tool.id, displayName: tool.displayName, role: tool.role, unlocks: tool.unlocks };
+    const present = activeRouter.isBinaryAvailable(binary);
+    const status = probe ? probe.status : (present ? UNVERIFIED : ABSENT);
+    const detail = probe ? probe.detail : (present ? 'on PATH, but no capability provider declares a probe for it' : `binary '${binary}' is not on PATH`);
+    const install = status === ABSENT
+      ? describeInstall(chooseInstallRoute(tool, { isInstalled: (name: string) => activeRouter.isBinaryAvailable(name) }))
+      : null;
+    return { ...base, status, detail, install };
   });
 
   const freshness = Object.values(probes).map((probe) => probe.freshness).filter(Boolean);
@@ -1330,6 +1349,9 @@ async function handleDoctorCommand({ json = false, repoRoot, projectRoot = proce
   }));
   if (reachLines.length) for (const line of reachLines) console.log(line);
   else console.log('  No harness has DoFlow ledger rows in this project or in the home directory.');
+
+  console.log('\n[External Tools]');
+  printExternalTools(report.externalTools);
 
   console.log('\n[Capability Providers]');
   for (const probe of report.providers) {

@@ -86,6 +86,14 @@ function chooseInstallRoute(tool: any, { platform = process.platform, isInstalle
   return { reason: `missing installer: needs ${needs} on PATH; see ${docs}`, docs };
 }
 
+/** `chooseInstallRoute`'s answer as plain data: the command chosen, or why there is none and where to read. */
+function describeInstall(chosen: any): any {
+  if (!chosen) return null;
+  const { route, reason, docs } = chosen;
+  if (!route) return { command: null, reason, docs };
+  return { command: route.command, after: route.after, privileged: route.privileged, runnable: !route.privileged, evidence: route.evidence };
+}
+
 function actionEligibility(tool: any, state: string, action: string, prerequisites: any[], chosen: any = null): any {
   if (action === 'status') return { applicable: false, reason: 'status inspection only' };
   if (action === 'install') {
@@ -207,6 +215,7 @@ module.exports = {
   plainCommand,
   installRoutes,
   chooseInstallRoute,
+  describeInstall,
   normalizeToolState,
   inspectTool,
   inspectPrerequisites,

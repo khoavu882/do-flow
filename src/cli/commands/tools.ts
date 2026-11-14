@@ -5,7 +5,7 @@
 // TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 const { confirm, promptLine } = require('../../helper/prompt.ts');
 const { loadRegistry } = require('../../registry/index.ts');
-const { commandText, plainCommand, planToolLifecycle, executeToolLifecycle } = require('../../install/tool-lifecycle.ts');
+const { commandText, plainCommand, describeInstall, planToolLifecycle, executeToolLifecycle } = require('../../install/tool-lifecycle.ts');
 const { REPO_ROOT } = require('../shared.ts');
 
 function selectExternalTools(registry: any, o: any): any[] {
@@ -25,14 +25,6 @@ function selectExternalTools(registry: any, o: any): any[] {
   return registry.externalTools.filter((tool: any) => wanted.has(tool.id));
 }
 
-/** What an absent tool needs: the install command chosen for this machine, or why there is none and where to read. */
-function installView(item: any): any {
-  if (!item.install) return null;
-  const { route, reason, docs } = item.install;
-  if (!route) return { command: null, reason, docs };
-  return { command: route.command, after: route.after, privileged: route.privileged, runnable: !route.privileged, evidence: route.evidence };
-}
-
 function toolJsonResults(plan: any, execution: any = null): any[] {
   const executed = new Map((execution?.results || []).map((result: any) => [result.tool, result]));
   return plan.tools.map((item: any) => ({
@@ -41,7 +33,7 @@ function toolJsonResults(plan: any, execution: any = null): any[] {
     role: item.tool.role,
     unlocks: item.tool.unlocks,
     state: item.state,
-    install: installView(item),
+    install: describeInstall(item.install),
     inspections: item.inspections,
     prerequisites: item.prerequisites.map((prerequisite: any) => ({ name: prerequisite.name, available: prerequisite.available })),
     action: item.action,
@@ -65,7 +57,7 @@ function printToolList(plan: any): void {
       const pad = ' '.repeat(11);
       console.log(`  ${label.padEnd(8)} ${item.tool.id.padEnd(width)}  ${item.tool.unlocks}`);
       if (!plan.supported) console.log(`${pad}${' '.repeat(width + 2)}${item.action.reason}`);
-      const install = installView(item);
+      const install = describeInstall(item.install);
       if (!install) continue;
       const indent = `${pad}${' '.repeat(width + 2)}`;
       if (!install.command) {
