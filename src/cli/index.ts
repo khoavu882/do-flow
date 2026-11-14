@@ -555,7 +555,7 @@ Commands:
   remove [path]        Remove only lifecycle-owned native resources
   list-backups         List available backups
   self-update          git pull + reinstall
-  tools                Inspect or manage registered external tools
+  tools                List external tools and whether each is present; install, update or uninstall one
   ui [<project>]       Run the DoFlow Console, a separately installed package (--port N; exit 2 when it is not installed)
   capabilities         Show registered abstract capabilities and resolved providers
   enforcement          Report lifecycle policy enforcement coverage (--harness, --policy)
@@ -869,7 +869,8 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --json           Machine-readable output (status)
 
 External tools:
-      --tool <list>    Comma-separated: rtk,graphify (required outside an interactive terminal)
+      --tool <list>    Comma-separated tool ids (status lists all when omitted; the other actions need it
+                       outside an interactive terminal)
       --action <name>  status (default), install, update, or uninstall
                        --force is intentionally unavailable: every mutation is separately confirmed
   -h, --help           Show help
@@ -949,7 +950,7 @@ async function main(argv: string[]): Promise<any> {
     // Only the commands that actually mutate native resources can leave a partial application.
     // Printing this after a rejected `readiness --task-id` or any other read-only query told the
     // user to go inspect recovery records for a run that never wrote anything.
-    if (['install', 'update', 'remove', 'rollback', 'self-update', 'tools'].includes(o.cmd)) {
+    if (['install', 'update', 'remove', 'rollback', 'self-update'].includes(o.cmd)) {
       console.error('[ERROR] Some native resources may be partially applied — check .doflow/state/recovery/ (or ~/.doflow/state/recovery/ for -g) for the latest record before retrying.');
     }
     process.exit(1);

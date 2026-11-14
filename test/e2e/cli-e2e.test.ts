@@ -38,14 +38,111 @@ test('tools status selects both registered tools and returns one JSON result per
   assert.deepStrictEqual(result.results.map((item: any) => item.result.status), ['skipped', 'skipped']);
 });
 
-test('tools rejects --force and requires --tool outside an interactive terminal', () => {
+test('tools rejects --force and requires --tool for a mutation outside an interactive terminal', () => {
   const forced = run(['tools', '--tool', 'rtk', '--force']);
   assert.strictEqual(forced.status, 1);
   assert.match(forced.stderr, /--force is not supported/);
 
-  const omitted = run(['tools']);
+  for (const action of ['install', 'update', 'uninstall']) {
+    const mutation = run(['tools', '--action', action]);
+    assert.strictEqual(mutation.status, 1, action);
+    assert.match(mutation.stderr, /--tool is required when stdin is not an interactive terminal/);
+  }
+  const omitted = run(['tools', '--action', 'install']);
   assert.strictEqual(omitted.status, 1);
   assert.match(omitted.stderr, /--tool is required when stdin is not an interactive terminal/);
+});
+
+// A PATH that holds only `node` and the named fakes, so no tool on the developer's machine counts as present.
+function isolatedTools(t: any, files: any) {
+  const bin = fakeBin(t, files);
+  fs.symlinkSync(process.execPath, path.join(bin, 'node'));
+  return { PATH: bin };
+}
+const present = 'test "$1" = "--version"';
+
+test('tools with no --tool lists every tool without a terminal, required first, and exits 0', (t) => {
+  if (!skipToolsOnWin(t)) return;
+  const r = run(['tools'], { env: isolatedTools(t, { jq: present, brew: present, npm: present, 'apt-get': present }) });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.doesNotMatch(r.stdout + r.stderr, /\[ERROR\]/);
+  assert.ok(r.stdout.indexOf('Required tools') < r.stdout.indexOf('Optional tools'));
+  assert.match(r.stdout, /^ {2}present {2}jq {13}The DoFlow shell scripts/m);
+  for (const id of ['jq', 'git', 'bash', 'rtk', 'graphify', 'semble', 'mermaid-cli', 'plantuml', 'ripgrep', 'drawio', 'python3', 'agent-browser']) {
+    assert.match(r.stdout, new RegExp(`^ {2}(present|absent) {2,3}${id} `, 'm'), id);
+  }
+  // Same listing for the explicit read-only action, with or without --dry-run.
+  assert.strictEqual(run(['tools', '--action', 'status'], { env: isolatedTools(t, {}) }).status, 0);
+  assert.strictEqual(run(['tools', '--action', 'status', '--dry-run'], { env: isolatedTools(t, {}) }).status, 0);
+});
+
+test('an absent required tool is listed with the install command for this machine and the doflow form', (t) => {
+  if (!skipToolsOnWin(t)) return;
+  const env = isolatedTools(t, { brew: present, 'apt-get': present });
+  const r = run(['tools', '--tool', 'jq'], { env });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const darwin = process.platform === 'darwin';
+  assert.match(r.stdout, /^ {2}absent {3}jq {2}The DoFlow shell scripts/m);
+  assert.match(r.stdout, darwin ? /install: brew install jq$/m : /install: sudo apt-get install jq \(needs administrator rights; DoFlow does not run it\)$/m);
+  // jq on Linux is a route DoFlow will not run itself, so no `doflow tools ... install` form is offered there.
+  assert.strictEqual(/or run: {2}doflow tools --tool jq --action install/.test(r.stdout), darwin);
+  const json = JSON.parse(run(['tools', '--tool', 'jq', '--json'], { env }).stdout);
+  assert.strictEqual(json.results[0].role, 'required');
+  assert.strictEqual(json.results[0].install.runnable, darwin);
+});
+
+test('an absent optional tool is information, not an error', (t) => {
+  if (!skipToolsOnWin(t)) return;
+  const r = run(['tools', '--tool', 'agent-browser'], { env: isolatedTools(t, { npm: present, brew: present }) });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.strictEqual(r.stderr, '');
+  assert.match(r.stdout, /^Optional tools\n {2}absent {3}agent-browser {2}Checks a web user interface/m);
+  assert.match(r.stdout, /install: npm install -g agent-browser, then agent-browser install\n.*or run: {2}doflow tools --tool agent-browser --action install/);
+});
+
+test('a tool whose only route needs a missing installer says so and names the documentation URL', (t) => {
+  if (!skipToolsOnWin(t)) return;
+  const env = isolatedTools(t, {});
+  const r = run(['tools', '--tool', 'plantuml'], { env });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.match(r.stdout, /install: missing installer: needs brew on PATH; see https:\/\/plantuml\.com\/starting/);
+  assert.doesNotMatch(r.stdout, /or run:/);
+  const json = JSON.parse(run(['tools', '--tool', 'plantuml', '--json'], { env }).stdout);
+  assert.deepStrictEqual(json.results[0].install, { command: null, reason: 'missing installer: needs brew on PATH; see https://plantuml.com/starting', docs: 'https://plantuml.com/starting' });
+});
+
+test('tools --json carries the same data as the list', (t) => {
+  if (!skipToolsOnWin(t)) return;
+  const r = run(['tools', '--json'], { env: isolatedTools(t, { brew: present, npm: present, cargo: present, uv: present, pipx: present }) });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const json = JSON.parse(r.stdout);
+  assert.deepStrictEqual([json.action, json.dryRun], ['status', false]);
+  assert.strictEqual(json.results.length, 12);
+  for (const item of json.results) {
+    assert.deepStrictEqual(Object.keys(item).slice(0, 6), ['tool', 'displayName', 'role', 'unlocks', 'state', 'install']);
+    assert.strictEqual(item.state, 'absent');
+    assert.ok(['required', 'optional'].includes(item.role));
+  }
+  const rtk = json.results.find((item: any) => item.tool === 'rtk');
+  assert.deepStrictEqual(rtk.install, { command: ['brew', 'install', 'rtk-ai/tap/rtk'], after: [], privileged: false, runnable: true, evidence: 'https://www.rtk-ai.app/docs/getting-started/installation/' });
+  const bash = json.results.find((item: any) => item.tool === 'bash');
+  assert.match(bash.install.reason, /^no verified install command is registered for (darwin|linux); see https:\/\/www\.gnu\.org\/software\/bash\/$/);
+});
+
+test('a usage error of tools no longer claims native resources were partially applied', (t) => {
+  if (!skipToolsOnWin(t)) return;
+  const unknown = run(['tools', '--tool', 'nope'], { env: isolatedTools(t, {}) });
+  assert.strictEqual(unknown.status, 1);
+  assert.match(unknown.stderr, /unknown tool id\(s\): nope; expected: rtk, graphify/);
+  const noTerminal = run(['tools', '--action', 'install'], { env: isolatedTools(t, {}) });
+  assert.strictEqual(noTerminal.status, 1);
+  for (const r of [unknown, noTerminal]) assert.doesNotMatch(r.stderr, /partially applied/);
+});
+
+test('tools help names no stale tool list', () => {
+  const r = run(['--help']);
+  assert.match(r.stdout, /--tool <list> {4}Comma-separated tool ids \(status lists all when omitted/);
+  assert.doesNotMatch(r.stdout, /Comma-separated: rtk,graphify/);
 });
 
 test('tools --dry-run inspects and plans mutations without executing them', (t) => {
@@ -64,6 +161,23 @@ test('tools --dry-run inspects and plans mutations without executing them', (t) 
     ['cargo', 'install', '--git', 'https://github.com/rtk-ai/rtk', '--branch', 'master', 'rtk'],
     ['uv', 'tool', 'install', 'graphifyy'],
   ]);
+});
+
+test('an install with a second step shows it in the plan and asks to confirm it separately', async (t) => {
+  if (!skipToolsOnWin(t)) return;
+  const env = isolatedTools(t, { npm: 'exit 0', brew: 'exit 1' });
+  const dry = run(['tools', '--tool', 'agent-browser', '--action', 'install', '--dry-run'], { env });
+  assert.strictEqual(dry.status, 0, dry.stderr);
+  assert.match(dry.stdout, /\[DRY\] {2}agent-browser: "npm" "install" "-g" "agent-browser"\n\[DRY\] {2}agent-browser: then "agent-browser" "install"/);
+
+  // The browser download is a second question. Declined, the install stands and the run still exits 0.
+  const declined = await runInteractive(['tools', '--tool', 'agent-browser', '--action', 'install'], { env, replies: ['y', 'n'] });
+  assert.strictEqual(declined.status, 0, declined.stderr);
+  assert.match(declined.stdout, /agent-browser: succeeded\nagent-browser: then "agent-browser" "install": declined/);
+  // The step fails here because no agent-browser binary exists on the isolated PATH; that is a failed run.
+  const failed = await runInteractive(['tools', '--tool', 'agent-browser', '--action', 'install'], { env, replies: ['y', 'y'] });
+  assert.strictEqual(failed.status, 1, failed.stderr);
+  assert.match(failed.stdout, /agent-browser: then "agent-browser" "install": failed/);
 });
 
 test('tools reports a declined lifecycle action without executing it', (t) => {

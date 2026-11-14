@@ -126,7 +126,7 @@ When `doflow-run` selects a CLI from the caller's checkout, it warns on stderr i
 | `remove` | Remove only lifecycle-owned native resources |
 | `list-backups` | List available backups |
 | `self-update` | git pull + reinstall |
-| `tools` | Inspect or manage registered external tools |
+| `tools` | List external tools and whether each is present; install, update or uninstall one |
 | `ui` | Run the DoFlow Console, a separately installed package \(--port N; exit 2 when it is not installed\) |
 | `capabilities` | Show registered abstract capabilities and resolved providers |
 | `enforcement` | Report lifecycle policy enforcement coverage \(--harness, --policy\) |
