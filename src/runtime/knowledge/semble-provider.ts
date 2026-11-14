@@ -288,19 +288,22 @@ function reclaimStaleLock(lock: string, judged: Buffer): boolean {
 const PAUSE = new Int32Array(new SharedArrayBuffer(4));
 /**
  * Removes this holder's lock. A reclaimer that judged an earlier lock stale may have this one moved aside just
- * as the holder finishes (`reclaimStaleLock`), so an absent lock is looked for again, 8 times over about 20 ms,
- * and removed when it comes back with this holder's token; another holder's lock at the path is left alone.
- * Ceiling: a reclaimer stalled longer than that links the lock back later, and the lock (this process's pid,
- * so "cannot tell") then waits for the 10 minute age rule.
+ * as the holder finishes (`reclaimStaleLock`), so a look that finds no lock, or one with no readable owner (a
+ * link-back caught mid-read), is repeated, 8 looks over about 20 ms; "absent" and "whose" come from one read.
+ * A lock with another holder's token is left alone. This holder's own lock is removed by the reclaim side's
+ * rule (`reclaimStaleLock`: move aside, read again, delete only the bytes read here, link back any other), so a
+ * lock another process made in the window between the read and the removal is not deleted.
+ * Ceiling: a reclaimer stalled longer than the looks links the lock back later, and the lock (this process's pid,
+ * so "cannot tell") then waits for the 10 minute age rule; between the rename and the link-back of a mistaken
+ * move the lock's name is free (see `reclaimStaleLock`).
  */
 function releaseSemanticLock(lock: string, token: string, fd: number): void {
   try { fs.closeSync(fd); } catch {}
   for (let attempt = 0; attempt < 8; attempt += 1) {
-    const owner = readLockOwner(lock);
-    let present = true;
-    try { fs.lstatSync(lock); } catch (error: any) { present = error.code !== 'ENOENT'; }
-    if (owner && owner.token === token) { try { fs.unlinkSync(lock); } catch (error: any) { if (error.code !== 'ENOENT') throw error; } return; }
-    if (present) return;
+    let bytes: Buffer | null = null; let owner: any = null;
+    try { bytes = regularBytes(lock, 4096); owner = parseLockOwner(bytes!); } catch { /* absent or unreadable: look again */ }
+    if (owner && owner.token === token) { reclaimStaleLock(lock, bytes!); return; }
+    if (owner) return;
     Atomics.wait(PAUSE, 0, 0, 2.5);
   }
 }

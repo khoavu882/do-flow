@@ -376,6 +376,38 @@ test('FU-w9j11f R7: a holder that releases while a reclaimer has its lock moved 
   other();
 });
 
+test('FU-w9j11f W1/W2: a link-back between two looks of a release, and a new lock made between its read and its removal', async t => {
+  const root = fs.realpathSync(tempDir(t, 'doflow-semantic-lock-'));
+  const state = path.join(root, '.doflow', 'index', 'code', 'semble', 'x');
+  const paths: any = { root, state, lock: path.join(state, 'operation.lock') };
+  // W1: the reclaimer links the lock back right after the release's first look found it absent. The release
+  // decides on one read, so it does not take the lock for another holder's and return: it looks again and removes it.
+  const releaseH = await acquireSemanticLock(paths);
+  const aside = `${paths.lock}.r2.gone`;
+  fs.renameSync(paths.lock, aside);
+  const lstat = fs.lstatSync; let looks = 0;
+  (fs as any).lstatSync = (file: any, ...rest: any[]) => {
+    if (file === paths.lock && looks++ === 0) { try { return lstat(file, ...rest); } finally { fs.linkSync(aside, paths.lock); fs.unlinkSync(aside); } }
+    return (lstat as any)(file, ...rest);
+  };
+  try { releaseH(); } finally { (fs as any).lstatSync = lstat; }
+  assert.equal(fs.existsSync(paths.lock), false, 'the lock linked back between two looks is removed');
+  assert.deepEqual(fs.readdirSync(state), []);
+  // W2: after the release read its own token, a reclaimer moved the lock aside and T made a new lock; the
+  // release must leave T's lock, and T keeps it once the reclaimer gives its aside file up.
+  const release2 = await acquireSemanticLock(paths);
+  const aside2 = `${paths.lock}.r3.gone`; const tToken = crypto.randomUUID();
+  const rename = fs.renameSync; let moved = false;
+  (fs as any).renameSync = (from: any, to: any) => {
+    if (!moved && from === paths.lock) { moved = true; rename(paths.lock, aside2); fs.writeFileSync(paths.lock, `${JSON.stringify({ pid: 99999, hostname: os.hostname(), token: tToken })}\n`); }
+    return rename(from, to);
+  };
+  try { release2(); } finally { (fs as any).renameSync = rename; }
+  assert.equal(JSON.parse(fs.readFileSync(paths.lock, 'utf8')).token, tToken, 'T\'s lock survives H\'s release');
+  fs.unlinkSync(aside2);
+  assert.deepEqual(fs.readdirSync(state), ['operation.lock'], 'the release left no moved-aside file');
+});
+
 test('H8: a query after a crashed operation reclaims its stale lock instead of failing on contention', async t => {
   const f = fixture(t); assert.equal((await runSembleLifecycle({ ...f.options, action: 'build' })).ok, true);
   const paths = semanticStatePaths(f.inventory);
