@@ -4,7 +4,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir, suiteTempDir } = require('../helper/tmp.ts');
-const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator.ts');
+const { WorkflowOrchestrator, NODE_STATUSES, isNodeDone, nodeStatus } = require('../../src/runtime/workflow-orchestrator.ts');
 const { WorkflowEngine } = require('../../src/runtime/workflow-engine.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');
@@ -597,4 +597,19 @@ test('a standalone handoff says why nothing was recorded', (t) => {
   const result = owned(t).handoff({ taskId: 't.solo', callingSkill: 'do-implement', note: 'n' });
   assert.equal(result.disposition, 'standalone');
   assert.equal(result.reason, 'no run exists for this task and no --task-class was given, so nothing was recorded and no readiness was required');
+});
+
+// FU-ps5755: program[].status is a closed set with one "done" predicate, so a new status is declared once.
+test('isNodeDone is true for completed, skipped and approved only', () => {
+  assert.deepEqual(NODE_STATUSES, ['pending', 'completed', 'skipped', 'approved', 'rejected']);
+  const done = NODE_STATUSES.filter((status: string) => isNodeDone({ status }));
+  assert.deepEqual(done, ['completed', 'skipped', 'approved']);
+  assert.equal(isNodeDone({ status: 'COMPLETED' }), false);
+  assert.equal(isNodeDone(undefined), false);
+});
+
+test('nodeStatus returns a known status and refuses any other on write', () => {
+  for (const status of NODE_STATUSES) assert.equal(nodeStatus(status), status);
+  assert.throws(() => nodeStatus('complete'), /Unknown node status 'complete'/);
+  assert.throws(() => nodeStatus(undefined), /Unknown node status 'undefined'/);
 });
