@@ -104,8 +104,7 @@ Branch on `outcome`, not the exit code.
      lists (schema: the guidance tree's `references/EVIDENCE_LEDGER.md`). `scope_clear` and
      `verification_plan` come from the two stated inputs; `--scope` as a path list is also what
      `verify` bounds the change by. A refusal names the command to run again.
-   - Do not recall the contract from memory — the templates are versioned and the command reads
-     them. This skill's own `references/readiness_gate.md` carries the per-class requirements, what each state
+   - This skill's own `references/readiness_gate.md` carries the per-class requirements, what each state
      means, and exactly which input produces it. Read it before acting on a verdict, and never
      write `READY` yourself: the gate did not say it.
 

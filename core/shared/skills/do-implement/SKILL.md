@@ -147,9 +147,6 @@ Once per stage, after `feature_slug` resolves, run `"$DOFLOW" attendance --task-
    - Make the complete change end-to-end. Never leave placeholder stubs (e.g. `// TODO: implement`),
      unimplemented mock functions, or `throw new Error('Not implemented')` placeholders in the
      produced change. Every changed component must be fully wired and functional.
-   - Before the first source edit, a run for this task needs step 2's recorded readiness to be
-     `READY`: the edit hook only advises, and the runtime refuses step 7's handoff after the edits are
-     made. A standalone `NEEDS_EVIDENCE` does not pass it.
    - Keep it scoped to what was asked — no bonus refactors, no speculative abstractions (the same
      scope-discipline rule the chain's own artifacts would otherwise remind you of; here, hold
      yourself to it directly).

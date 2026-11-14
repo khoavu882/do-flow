@@ -75,7 +75,7 @@ package under one the runtime accepted for a different kind of task.
      `references/ORCHESTRATION.md` and `references/MODEL_SELECTION.md`.
 
 3. **Capability & Tool Selection**:
-   - Before routing, run `"$DOFLOW" discover --json` to check recorded runs. Exit 1 signals a finding, not an error. When metadata cannot settle the analysis, surface `UNKNOWN` as undetermined, never clear. Show findings to the user; take no automatic action. Never render findings as a number, percentage or confidence.
+   - Before routing, run `"$DOFLOW" discover --json` to check recorded runs. Exit 1 signals a finding, not an error. When metadata cannot settle the analysis, surface `UNKNOWN` as undetermined, never clear. Show findings to the user; take no automatic action.
    - Routing an information need to a tool is unconditional, not a mode this skill can be asked
      for: whenever a search, graph, or testing need arises, query the Capability Router — run `"$DOFLOW" capabilities` (add `--json` to parse, `--check` for a deep
      smoke check), or `"$DOFLOW" route --intent <intent> --json` to resolve one need end to end. It
