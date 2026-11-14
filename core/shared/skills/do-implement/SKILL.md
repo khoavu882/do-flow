@@ -12,7 +12,7 @@ A standalone extension skill, not a numbered phase of the DoFlow chain (`do-brai
 context is fed to it — a plain-language description, `/do-code-review`'s findings, or a pointer to
 an existing `requirement.md` / `design.md` / `plan.md` — without requiring any of those artifacts
 to exist first. `/do-execute-plan` is the chain's own implementation phase, built for orchestrating
-a full `plan.md` task checklist through specialist subagents with prerequisite gates; reach for
+a full `plan.md` task checklist behind prerequisite gates; reach for
 this skill instead when there is no task checklist to orchestrate — a one-off fix, a described
 feature, or a batch of review comments to work through right now.
 
@@ -211,7 +211,7 @@ work in any repo, whether or not it uses the DoFlow chain at all; record the sta
 advance past the mutating stage only this skill may complete.
 
 **Will Not:** Require or generate `requirement.md` / `design.md` / `plan.md`; orchestrate a
-multi-task checklist through specialist subagents — that is `/do-execute-plan`'s job once a real
+multi-task checklist — that is `/do-execute-plan`'s job once a real
 plan exists; silently override the repository's own `pre-implement-gate` hook. That hook triggers
 on any `Edit`/`Write` call, not on which skill made it — a branch mid-chain with a started feature
 but no `design.md` still gets the same advisory here as it would anywhere else, and that is by

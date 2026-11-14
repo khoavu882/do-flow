@@ -1,13 +1,13 @@
 ---
 name: do-execute-plan
-description: "Run plan.md's task checklist through subagents. Use when requirement.md, design.md and plan.md exist and the next step is building the plan's tasks, or when the user says 'execute the plan', 'run the plan', 'start building' or 'implement phase N'. Skip it while plan.md is missing (/do-plan comes first) and for one-off fixes, which go to /do-implement."
+description: "Run plan.md's task checklist, in session or through subagents. Use when requirement.md, design.md and plan.md exist and the next step is building the plan's tasks, or when the user says 'execute the plan', 'run the plan', 'start building' or 'implement phase N'. Skip it while plan.md is missing (/do-plan comes first) and for one-off fixes, which go to /do-implement."
 argument-hint: "[--scope next|phase:N|all|resume] [--review] [--scaffold]"
 effort: high
 ---
 
 # do-execute-plan
 
-Phase 4 of the DoFlow chain. Executes the task checklist in `plan.md` using specialist subagent archetypes with readiness validation and progressive disclosure.
+Phase 4 of the DoFlow chain. Executes the task checklist in `plan.md`, in this session or through subagents, behind a readiness gate.
 
 ## Invocation
 ```text
@@ -17,8 +17,8 @@ Phase 4 of the DoFlow chain. Executes the task checklist in `plan.md` using spec
 ## Behavioral Flow
 
 1. **Resolve State & Prerequisite Gate**:
-   - Every DoFlow runtime call in this skill — `paths`, `prereqs`, `parallel-check`, `task-brief` —
-     goes through the runtime seam. Resolve it **once** here and reuse `$DOFLOW` for all four:
+   - Every DoFlow runtime call in this skill goes through the runtime seam. Resolve it **once**
+     here and reuse `$DOFLOW`:
 
 ```bash
 # Resolve the DoFlow runtime: nearest project install wins, then the global one.
@@ -145,8 +145,10 @@ Branch on `outcome`, not the exit code.
      An empty pack does not withhold dispatch; what the brief must then say: `references/parallel_dispatch.md`.
    - Claim each task before dispatch and finish it with evidence: `references/task_attempts.md`
      (the evidence item schema: the guidance tree's `references/EVIDENCE_LEDGER.md`).
-   - Dispatch each task to its plan `owner` (an agent spec); a lone small task may run in
-     session, claimed and evidenced alike.
+   - Who executes: this session, acting as the task's plan `owner`, unless a subagent buys what
+     ORCHESTRATION.md names and the host has them. Claimed and evidenced alike.
+   - A task that fails verification twice for one cause is a plan problem: stop patching, re-read
+     it against `design.md`, then amend the plan or report.
    - Name a model tier on every dispatch — an omitted tier inherits the session's model. Pass the
      tier from task-brief's `record.tier` as the dispatch model; for review passes and the limit
      where a harness honors only `model: inherit`, see `references/MODEL_SELECTION.md`.
@@ -170,8 +172,8 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
      contradiction becomes `conflicted`, which is what makes step 4 report `BLOCKED`.
 
 8. **Update `state.md`**:
-   - One checkpoint per phase (or per task, on a `--scope next` run), immediately after step 7's
-     evidence/claim batch for that phase — same boundary, not a separate pass to remember later.
+   - One checkpoint per phase (or per task, on a `--scope next` run), right after step 7's batch
+     for that phase. Compare what was built with the phase's goal in `plan.md`; report a drift.
    - No `<feature_dir>/state.md` yet: create it from the template. The template is
      `templates/doflow/state-template.md` in the install step 1 resolved: take `constitution_base`
      from that JSON and swap its trailing `guidance/references/CONSTITUTION_BASE.md` for that path.
@@ -184,8 +186,8 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
 
 9. **Phase Quality Review** (`--review`, opt-in):
    - Off by default. With `--review`, review each phase on completion for spec compliance before
-     advancing. Without it no per-phase review runs: the completion summary says "per-phase review:
-     not requested"; review at `/do-code-review` after the test stage (or the caller's final review).
+     advancing. Without it the completion summary says "per-phase review: not requested"; review
+     comes at `/do-code-review` after the test stage (or the caller's final review).
 
 10. **Record the Handoff**:
     - Before recording it, follow the decision step in the guidance tree's
@@ -210,7 +212,7 @@ For an external fact gap or request, follow the Gap or request protocol in `../d
 ## Boundaries
 **Will:** Propose a task class and have the runtime validate it, put the approval gate standing
 before this stage to the user — but only when the run still reports it open — and record their
-answer, execute planned tasks with subagents, consult the readiness contract per task, batch each
+answer, execute planned tasks in session or with subagents, consult the readiness contract per task, batch each
 phase's evidence and claims, ensure write-set isolation, and record the stage handoff through
 `orchestrate`/`render-audit` — as a completion when every plan task is checked, as a checkpoint
 annotation when this run finished only part of the plan.

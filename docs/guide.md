@@ -145,7 +145,7 @@ Use diagnosis to establish the root cause or audit scope, then improve only the 
 /do-code-review
 ```
 
-For parallel task orchestration, `do-execute-plan` automatically isolates write-sets across specialist subagents.
+For parallel task orchestration, `do-execute-plan` computes which task groups have disjoint write sets before any run side by side; it works the tasks in the session, or through subagents where the tool has them and they pay for themselves.
 
 ## Inspect and tune the runtime
 

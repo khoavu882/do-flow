@@ -205,7 +205,7 @@ chain *and* the run reports such a gate open.
 `/do-implement`'s job once a review has run. It does not answer the final gate on the user's behalf,
 approve it mechanically from its own verdict, ask for a gate the workflow does not declare, resolve a
 gate anchored before its own stage, or start a workflow run for a standalone review. It also does not orchestrate a multi-task checklist
-through specialist subagents (`/do-execute-plan`'s job) or replace human judgment on a Block verdict.
+(`/do-execute-plan`'s job) or replace human judgment on a Block verdict.
 
 ## Running the review in a subagent
 
