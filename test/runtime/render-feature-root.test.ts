@@ -31,6 +31,10 @@ function fixture() {
   fs.writeFileSync(path.join(feature, 'design', 'c4', 'context.puml'), '@startuml\n@enduml\n');
   const worktree = path.join(main, 'wt');
   git(main, 'worktree', 'add', '-q', worktree, '-b', 'feat/001-x');
+  // render-puml.sh takes its projector from repo_root, else from the installed runtime under HOME.
+  // A stub in the worktree keeps the run the same on a machine with no install.
+  fs.mkdirSync(path.join(worktree, 'src', 'runtime'), { recursive: true });
+  fs.writeFileSync(path.join(worktree, 'src', 'runtime', 'c4-project.ts'), '');
   return { main, worktree, feature };
 }
 
