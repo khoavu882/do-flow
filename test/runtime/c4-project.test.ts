@@ -409,3 +409,17 @@ test('035-R16: a separator hides a construct, a word makes it prose', () => {
   assert.equal(separator.code, 1, 'a construct behind a separator must not vanish');
   assert.match(separator.stderr, /would be dropped/);
 });
+
+test('a backslash-n inside a label is a line break, and a backslash before any other character is kept', () => {
+  const out = project(['Container(a, "Order\\nAPI", "Node.js")', 'Container(b, "C:\\temp \\"x\\" \\\\ y")', 'Rel(a, b, "reads\\nwrites")'].join('\n'));
+  assert.equal(out.code, 0, out.stderr);
+  assert.ok(out.stdout.includes('a["Order<br/>API"]'), out.stdout);
+  assert.ok(out.stdout.includes('b["C:\\temp &quot;x&quot; \\ y"]'), out.stdout);
+  assert.ok(out.stdout.includes('|"reads<br/>writes"|'), out.stdout);
+});
+
+test('the draw.io projection writes the same line break as a <br> in the label', () => {
+  const { project: toDrawio } = require('../../src/runtime/drawio-project.ts');
+  const { xml } = toDrawio('@startuml\n!include <C4/C4_Container>\nContainer(a, "Order\\nAPI")\n@enduml\n');
+  assert.match(xml, /Order&lt;br&gt;API/);
+});

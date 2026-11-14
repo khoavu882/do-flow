@@ -280,7 +280,8 @@ function listHtml(lines: string[], start: number, ctx: any, depth: number): { ht
       if (line.trim() === '') {
         let j = i + 1;
         while (j < lines.length && lines[j].trim() === '') j++;
-        if (j < lines.length && indentOf(lines[j]) > base) { body.push(''); i++; continue; }
+        // The whole run of blank lines is taken in one step: looking ahead again from each of them is quadratic.
+        if (j < lines.length && indentOf(lines[j]) > base) { for (; i < j; i++) body.push(''); continue; }
         break;
       }
       if (indentOf(line) > base) { body.push(line); i++; continue; }
@@ -288,8 +289,7 @@ function listHtml(lines: string[], start: number, ctx: any, depth: number): { ht
       body.push(line); i++;
     }
     const rest = body.slice(1);
-    const depths = rest.filter((l) => l.trim() !== '').map(indentOf);
-    const cut = depths.length ? Math.min(...depths) : 0;
+    const cut = rest.reduce((least, l) => (l.trim() === '' ? least : Math.min(least, indentOf(l))), Infinity);
     let first = body[0];
     let box = '';
     const task = /^\[([ xX])\]\s+(.*)$/.exec(first);

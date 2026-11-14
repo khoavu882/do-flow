@@ -1317,6 +1317,21 @@ test('E.1 home: 3 live and 2 stale runs: Running counts 3, a Stale count of 2 si
   assert.equal(running.querySelectorAll('.badge').map(text).filter((word) => word === 'Stale').length, 2);
 });
 
+test('E.1 home: a run that turns stale by age while no poll lands moves to the Stale count on the next tick', async () => {
+  mods.home.resetHome();
+  let down = false;
+  // Built on the first read, under the mocked clock, and served unchanged after it.
+  let snapshot: any = null;
+  const runs = () => (snapshot ??= body([...liveRuns(), frow('edge', 2, { updatedAt: agoIso(DAY_MS - 30_000) })]));
+  const page = await start({ hash: '', fetch: (target: string, init: any) => (target === '/api/runs' && down ? 'network' : homeFetch(runs)(target, init)) });
+  const tile = () => page.main.querySelectorAll('.tile')[1];
+  assert.equal(tile().querySelector('.tile__stale'), null);
+  down = true;
+  await advance(60_000);
+  assert.equal(text(tile().querySelector('.tile__stale')), '1 stale');
+  assert.equal(text(tile().querySelector('.tile__count')), '3 live runs, 1 stale');
+});
+
 test('E.1 home: 3 live and no stale runs: Running counts 3 and no Stale count shows', async () => {
   const { count, chip, sub } = await runningTile(liveRuns);
   assert.equal(count, '3');

@@ -45,7 +45,7 @@ const MIN_BOUNDARY_W = 240;
 
 // C0 controls other than tab, LF and CR are not legal in XML 1.0, even as a character reference.
 const xmlAttr = (s: string): string => s.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/\n/g, '&#10;');
-const htmlText = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const htmlText = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
 const normalise = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]/g, '');
 
 /** Positional arguments after the alias and label, named in macro order; `$name=value` overrides by name. */

@@ -77,8 +77,10 @@ class Refused extends Error {}
  * relationship shares ($from, $to, $label, $techn, ...) -- so an omitted middle argument has to stay
  * omitted in place rather than closing the gap.
  *
- * A backslash escapes the next character inside a quoted argument, so a label may contain the quote
- * character itself. What survives is escaped for the target grammar by `escapeLabel` at emit time.
+ * Inside a quoted argument a backslash before a quote or another backslash gives that character, so a
+ * label may contain the quote character itself; `\n` is PlantUML's line break and becomes one; before
+ * anything else the backslash is kept, as in `C:\temp`. What survives is escaped for the target grammar
+ * by `escapeLabel` at emit time.
  *
  * Returns the arguments AND how many characters the call occupied, so the caller can resume scanning
  * after the closing paren rather than assuming the macro owned the rest of its line.
@@ -93,8 +95,11 @@ function splitArgs(text: string): { args: string[]; consumed: number; closed: bo
   for (let i = 0; i < text.length; i += 1) {
     const ch = text[i];
     if (quote) {
-      if (ch === '\\' && i + 1 < text.length) { buf += text[i + 1]; i += 1; }
-      else if (ch === quote) quote = null;
+      if (ch === '\\' && i + 1 < text.length) {
+        const next = text[i + 1];
+        buf += next === 'n' ? '\n' : next === '"' || next === '\\' ? next : ch + next;
+        i += 1;
+      } else if (ch === quote) quote = null;
       else buf += ch;
     } else if (ch === '"') quote = ch;
     else if (ch === '(') { depth += 1; buf += ch; }
@@ -162,7 +167,7 @@ function stripComments(raw: string, state: { inBlock: boolean; openedAt: number 
 /** Mermaid delimits a node label with double quotes; an unescaped one inside ends it early and the
  *  rest of the fence stops parsing. `&quot;` is the entity Mermaid documents for this. */
 function escapeLabel(text: any): string {
-  return String(text).replace(/"/g, '&quot;');
+  return String(text).replace(/"/g, '&quot;').replace(/\n/g, '<br/>');
 }
 
 /**
