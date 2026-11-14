@@ -23,7 +23,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const { parse, Refused } = require('./c4-project.ts');
 const { sha16 } = require('./scaffold/fingerprint.ts');
 
@@ -43,7 +43,8 @@ const HEADER = 30;
 const ORIGIN = 40;
 const MIN_BOUNDARY_W = 240;
 
-const xmlAttr = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/\n/g, '&#10;');
+// C0 controls other than tab, LF and CR are not legal in XML 1.0, even as a character reference.
+const xmlAttr = (s: string): string => s.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/\n/g, '&#10;');
 const htmlText = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const normalise = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]/g, '');
 
@@ -238,17 +239,58 @@ function project(text: string, opts: { sourcePath?: string; name?: string; icons
   return { xml, counts: { elements: parsed.elements.length, boundaries: boundaryIds.size, edges: parsed.edges.length }, icons };
 }
 
-/** A viewable copy next to the `.drawio`, when a draw.io binary is installed. Never fails the render. */
-function exportSvg(input: string, output: string, timeoutSec: number): { status: string; command: string; reason?: string } {
+/** End the child and everything it started: a draw.io launcher is a shell script that starts Electron. */
+function killTree(pid: number): void {
+  if (process.platform === 'win32') { spawnSync('taskkill', ['/pid', String(pid), '/T', '/F']); return; }
+  try { process.kill(-pid, 'SIGKILL'); } catch { /* already gone */ }
+}
+
+/**
+ * A viewable copy next to the `.drawio`, when a draw.io binary is installed. Never fails the render.
+ * The child leads its own process group so a timeout can end the whole tree, and any earlier output
+ * is removed first so a binary that exits 0 without writing is reported as failed, not exported.
+ */
+function exportSvg(input: string, output: string, timeoutSec: number): Promise<{ status: string; command: string; reason?: string }> {
   const bin = process.env.DOFLOW_DRAWIO || 'drawio';
   const args = ['-x', '-f', 'svg', '-e', '--embed-svg-images', '-o', output, input];
   const command = `${bin} ${args.join(' ')}`;
-  const r = spawnSync(bin, args, { encoding: 'utf8', timeout: timeoutSec * 1000, killSignal: 'SIGKILL' });
-  if (r.error && r.error.code === 'ENOENT') return { status: 'skipped', command, reason: `${bin} is not on PATH` };
-  if (r.error && r.error.code === 'ETIMEDOUT') return { status: 'failed', command, reason: `timed out after ${timeoutSec}s` };
-  if (r.error) return { status: 'failed', command, reason: r.error.message };
-  if (r.status !== 0 || !fs.existsSync(output)) return { status: 'failed', command, reason: `exit ${r.status}: ${String(r.stderr || '').trim().split('\n')[0]}` };
-  return { status: 'exported', command };
+  fs.rmSync(output, { force: true });
+  return new Promise((resolve) => {
+    let child: any;
+    try { child = spawn(bin, args, { detached: process.platform !== 'win32', stdio: ['ignore', 'ignore', 'pipe'] }); }
+    catch (err: any) { resolve({ status: 'failed', command, reason: err.message }); return; }
+    let stderr = '';
+    child.stderr.on('data', (d: any) => { if (stderr.length < 4096) stderr += d; });
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; killTree(child.pid); }, timeoutSec * 1000);
+    child.on('error', (err: any) => {
+      clearTimeout(timer);
+      resolve(err.code === 'ENOENT' ? { status: 'skipped', command, reason: `${bin} is not on PATH` } : { status: 'failed', command, reason: err.message });
+    });
+    child.on('exit', (code: number | null, signal: string | null) => {
+      clearTimeout(timer);
+      if (timedOut) { resolve({ status: 'failed', command, reason: `timed out after ${timeoutSec}s` }); return; }
+      if (code !== 0) { resolve({ status: 'failed', command, reason: `exit ${code ?? signal}: ${stderr.trim().split('\n')[0]}` }); return; }
+      resolve(fs.existsSync(output) ? { status: 'exported', command } : { status: 'failed', command, reason: 'exited 0 but wrote no file' });
+    });
+  });
+}
+
+/** Nothing is written through a symlink, and nothing outside the checkout: the folder is resolved from its deepest existing part. */
+function assertOutputFolder(dir: string, roots: string[]): void {
+  let at = path.resolve(dir);
+  while (!fs.existsSync(at) && path.dirname(at) !== at) at = path.dirname(at);
+  const real = fs.realpathSync(at);
+  const realRoots = roots.map((r: string) => { try { return fs.realpathSync(r); } catch { return path.resolve(r); } });
+  if (!realRoots.some((r: string) => inside(r, real))) throw new Refused(`output folder ${dir} resolves outside the checkout`);
+}
+
+/** Write through a temp file moved into place; the name is created exclusively, so a planted link there is not followed. */
+function writeAtomic(target: string, text: string): void {
+  const tmp = `${target}.${process.pid}.tmp`;
+  fs.rmSync(tmp, { force: true });
+  fs.writeFileSync(tmp, text, { flag: 'wx' });
+  try { fs.renameSync(tmp, target); } catch (err) { fs.rmSync(tmp, { force: true }); throw err; }
 }
 
 /**
@@ -257,9 +299,10 @@ function exportSvg(input: string, output: string, timeoutSec: number): { status:
  * sidecar rather than a line in the file because draw.io rewrites the whole file on save and keeps
  * nothing it does not know. No sidecar, or a file that no longer matches it, reads as hand-edited.
  */
-function renderLevels(o: { srcDir: string; outDir: string; level?: string; iconsDir: string; roots: string[]; base: string; force?: boolean; timeoutSec?: number }): any {
+async function renderLevels(o: { srcDir: string; outDir: string; level?: string; iconsDir: string; roots: string[]; base: string; force?: boolean; timeoutSec?: number }): Promise<any> {
   const rel = (p: string) => path.relative(o.base, p).split(path.sep).join('/');
   const resolver = makeIconResolver(o.iconsDir, o.roots);
+  assertOutputFolder(o.outDir, o.roots);
   const stems = fs.readdirSync(o.srcDir).filter((f: string) => f.endsWith('.puml')).map((f: string) => f.slice(0, -5)).sort();
   const wanted = o.level ? stems.filter((s: string) => s === o.level) : stems;
   if (o.level && !wanted.length) throw new TypeError(`no ${o.level}.puml in ${rel(o.srcDir)} (found: ${stems.join(', ') || 'none'})`);
@@ -279,6 +322,8 @@ function renderLevels(o: { srcDir: string; outDir: string; level?: string; icons
     }
     Object.assign(level, { counts: made.counts, icons: made.icons });
     if (!made.counts.elements) { Object.assign(level, { status: 'skipped', message: 'no C4 elements in this source' }); continue; }
+    const linked = [out, sidecar, `${out}.svg`].find((f: string) => { try { return fs.lstatSync(f).isSymbolicLink(); } catch { return false; } });
+    if (linked) { Object.assign(level, { status: 'refused-symlink', message: `${rel(linked)} is a symbolic link; nothing was written through it` }); continue; }
     const existing = fs.existsSync(out) ? fs.readFileSync(out, 'utf8') : null;
     const recorded = fs.existsSync(sidecar) ? fs.readFileSync(sidecar, 'utf8').trim() : '';
     if (existing !== null && existing !== made.xml && !o.force && sha16(existing) !== recorded) {
@@ -286,16 +331,12 @@ function renderLevels(o: { srcDir: string; outDir: string; level?: string; icons
       continue;
     }
     fs.mkdirSync(o.outDir, { recursive: true });
-    if (existing !== made.xml) {
-      const tmp = `${out}.${process.pid}.tmp`;
-      fs.writeFileSync(tmp, made.xml);
-      fs.renameSync(tmp, out);
-    }
-    fs.writeFileSync(sidecar, `${sha16(made.xml)}\n`);
+    if (existing !== made.xml) writeAtomic(out, made.xml);
+    writeAtomic(sidecar, `${sha16(made.xml)}\n`);
     level.status = existing === made.xml ? 'unchanged' : 'written';
-    level.export = { file: rel(`${out}.svg`), ...exportSvg(out, `${out}.svg`, o.timeoutSec || 60) };
+    level.export = { file: rel(`${out}.svg`), ...await exportSvg(out, `${out}.svg`, o.timeoutSec || 60) };
   }
-  const failed = levels.filter((l: any) => l.status === 'refused-source' || l.status === 'refused-overwrite');
+  const failed = levels.filter((l: any) => /^refused-/.test(l.status));
   return { ok: failed.length === 0, written: levels.some((l: any) => l.status === 'written' || l.status === 'unchanged'), dir: rel(o.outDir), iconsDir: rel(o.iconsDir), levels };
 }
 
@@ -314,13 +355,11 @@ if (require.main === module) {
   if (!args['src-dir'] || !args['out-dir'] || !args.icons || !args.base || !args.root.length) { process.stderr.write(usage); process.exit(2); }
   const timeoutSec = args.timeout === undefined ? 60 : Number(args.timeout);
   if (!(timeoutSec > 0)) { process.stderr.write(`drawio-project: --timeout must be a positive number of seconds, got: ${args.timeout}\n`); process.exit(2); }
-  let result: any;
-  try {
-    result = renderLevels({ srcDir: args['src-dir'], outDir: args['out-dir'], level: args.level, iconsDir: args.icons, roots: args.root, base: args.base, force: args.force, timeoutSec });
-  } catch (err: any) {
+  renderLevels({ srcDir: args['src-dir'], outDir: args['out-dir'], level: args.level, iconsDir: args.icons, roots: args.root, base: args.base, force: args.force, timeoutSec }).then((result: any) => {
+    process.stdout.write(`${JSON.stringify(result)}\n`);
+    process.exit(result.ok ? 0 : 1);
+  }, (err: any) => {
     process.stderr.write(`drawio-project: ${err.message}\n`);
     process.exit(err instanceof Refused ? 1 : err instanceof TypeError ? 2 : 1);
-  }
-  process.stdout.write(`${JSON.stringify(result)}\n`);
-  process.exit(result.ok ? 0 : 1);
+  });
 }

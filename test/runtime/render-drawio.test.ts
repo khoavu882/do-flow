@@ -28,7 +28,7 @@ const CONTEXT = '@startuml\n!include <C4/C4_Context>\nPerson(u, "User")\nSystem(
  * puts the feature folder in the main checkout and runs from a linked worktree, as in
  * render-feature-root.test.ts. The projector modules are copied in: the verb takes them from repo_root.
  */
-function fixture(linked = false) {
+function fixture(linked = false, worktreeOutside = false) {
   const main = suiteTempDir('doflow-render-drawio-');
   const git = (cwd: string, ...args: string[]) => {
     const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.test', ...args], { cwd, encoding: 'utf8' });
@@ -46,7 +46,7 @@ function fixture(linked = false) {
   fs.writeFileSync(path.join(feature, 'design', 'c4', 'container.puml'), CONTAINER);
   let cwd = main;
   if (linked) {
-    cwd = path.join(main, 'wt');
+    cwd = worktreeOutside ? path.join(suiteTempDir('doflow-render-drawio-wt-'), 'wt') : path.join(main, 'wt');
     git(main, 'worktree', 'add', '-q', cwd, '-b', 'feat/001-x');
   } else git(main, 'checkout', '-q', '-b', 'feat/001-x');
   for (const rel of ['c4-project.ts', 'drawio-project.ts', path.join('scaffold', 'fingerprint.ts')]) {
@@ -127,16 +127,39 @@ test('a binary that fails is reported, keeps the .drawio, and does not fail the 
   assert.ok(fs.existsSync(path.join(f.out, 'context.drawio')));
 });
 
-test('a binary that outlives --timeout is killed and reported', { skip: NO_JQ || NO_SH_STUB }, () => {
+test('a binary that outlives --timeout is killed with everything it started, and reported', { skip: NO_JQ || NO_SH_STUB }, async () => {
   const f = fixture();
   const dir = suiteTempDir('doflow-render-drawio-slow-');
-  fs.writeFileSync(path.join(dir, 'drawio'), '#!/bin/sh\nsleep 20\n');
+  const pidFile = path.join(dir, 'grandchild.pid');
+  // The launcher starts a long-running child of its own and waits, as draw.io's launcher does with Electron.
+  fs.writeFileSync(path.join(dir, 'drawio'), `#!/bin/sh\nsleep 30 &\necho $! > "${pidFile}"\nwait\n`);
   fs.chmodSync(path.join(dir, 'drawio'), 0o755);
   const started = Date.now();
   const r = run(f.cwd, ['--level=context', '--timeout=1'], {}, { dir });
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(JSON.parse(r.stdout).levels[0].export.reason, /timed out after 1s/);
   assert.ok(Date.now() - started < 15000, 'the child was killed, not waited for');
+  const pid = Number(fs.readFileSync(pidFile, 'utf8'));
+  const alive = () => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  for (let i = 0; i < 50 && alive(); i += 1) await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(alive(), false, 'the grandchild is gone too');
+});
+
+test('a binary that exits 0 without writing the svg is failed, and an earlier svg is not left to pass for it', { skip: NO_JQ || NO_SH_STUB }, () => {
+  const f = fixture();
+  assert.equal(run(f.cwd, ['--level=context'], {}, stubBin()).status, 0);
+  const svg = path.join(f.out, 'context.drawio.svg');
+  assert.ok(fs.existsSync(svg), 'the first run exported');
+  const dir = suiteTempDir('doflow-render-drawio-silent-');
+  fs.writeFileSync(path.join(dir, 'drawio'), '#!/bin/sh\nexit 0\n');
+  fs.chmodSync(path.join(dir, 'drawio'), 0o755);
+  const r = run(f.cwd, ['--level=context'], {}, { dir });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  const level = JSON.parse(r.stdout).levels[0];
+  assert.equal(level.status, 'unchanged');
+  assert.equal(level.export.status, 'failed');
+  assert.match(level.export.reason, /wrote no file/);
+  assert.equal(fs.existsSync(svg), false, 'the stale export is gone');
 });
 
 test('a re-run regenerates an untouched file; a hand-edited one is left alone without --force', { skip: NO_JQ }, () => {
@@ -233,4 +256,27 @@ test('from a linked worktree the files land in the main checkout, which holds th
   assert.ok(fs.existsSync(path.join(f.out, 'container.drawio')), 'written beside the feature in the main checkout');
   assert.equal(fs.existsSync(path.join(f.cwd, 'agent-docs')), false, 'nothing is written into the worktree');
   assert.equal(JSON.parse(r.stdout).levels.length, 2);
+});
+
+test('from a linked worktree outside the main checkout, --icons may name a folder in the worktree', { skip: NO_JQ }, () => {
+  const f = fixture(true, true);
+  const mine = path.join(f.cwd, 'my-icons');
+  fs.mkdirSync(mine);
+  fs.writeFileSync(path.join(mine, 'go.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>');
+  const r = run(f.cwd, ['--level=container', `--icons=${mine}`], ABSENT);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.deepEqual(JSON.parse(r.stdout).levels[0].icons.used, [{ element: 'api', file: 'go.svg' }]);
+  assert.ok(fs.existsSync(path.join(f.out, 'container.drawio')), 'still written beside the feature in the main checkout');
+});
+
+test('a symlinked .drawio.sha is refused by the verb with exit 1 and the file it points at is untouched', { skip: NO_JQ }, () => {
+  const f = fixture();
+  const victim = path.join(suiteTempDir('doflow-render-drawio-victim-'), 'victim.txt');
+  fs.writeFileSync(victim, 'keep me');
+  fs.mkdirSync(f.out, { recursive: true });
+  try { fs.symlinkSync(victim, path.join(f.out, 'context.drawio.sha')); } catch { return; }
+  const r = run(f.cwd, ['--level=context'], ABSENT);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.equal(JSON.parse(r.stdout).levels[0].status, 'refused-symlink');
+  assert.equal(fs.readFileSync(victim, 'utf8'), 'keep me');
 });

@@ -214,24 +214,99 @@ test('an icons folder that resolves outside the checkout is refused, and so is a
   assert.deepEqual(r.icons.skipped, [{ element: 'q', file: 'kafka.svg', why: 'outside the checkout' }]);
 });
 
-test('renderLevels refuses an outside icons folder before it writes anything', () => {
+test('renderLevels refuses an outside icons folder before it writes anything', async () => {
   const root = scratch();
   const outside = scratch();
   const src = path.join(root, 'c4');
   fs.mkdirSync(src);
   fs.writeFileSync(path.join(src, 'context.puml'), puml('Person(u, "U")'));
-  assert.throws(() => renderLevels({ srcDir: src, outDir: path.join(root, 'out'), iconsDir: outside, roots: [root], base: root }), Refused);
+  await assert.rejects(async () => renderLevels({ srcDir: src, outDir: path.join(root, 'out'), iconsDir: outside, roots: [root], base: root }), Refused);
   assert.equal(fs.existsSync(path.join(root, 'out')), false);
 });
 
-test('renderLevels skips a source with no C4 elements instead of writing an empty file', () => {
+test('renderLevels skips a source with no C4 elements instead of writing an empty file', async () => {
   const root = scratch();
   const src = path.join(root, 'c4');
   fs.mkdirSync(src);
   fs.writeFileSync(path.join(src, 'flow-x.puml'), '@startuml\nA -> B: hi\n@enduml\n');
   const out = path.join(root, 'out');
-  const r = renderLevels({ srcDir: src, outDir: out, iconsDir: path.join(root, 'icons'), roots: [root], base: root });
+  const r = await renderLevels({ srcDir: src, outDir: out, iconsDir: path.join(root, 'icons'), roots: [root], base: root });
   assert.equal(r.levels[0].status, 'skipped');
   assert.equal(r.ok, true);
   assert.equal(fs.existsSync(out), false);
+});
+
+test('a label with control characters XML forbids still gives a well-formed attribute', () => {
+  const { xml } = project(puml('Container(a, "A\u000bB\u0001C", "T\u0008", "d\u001fe")'));
+  assert.ok(!/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(xml), 'no forbidden control character in the file');
+  assert.equal(attr(cellOf(xml, 'el-a'), 'value'), '&lt;b&gt;ABC&lt;/b&gt;&lt;br&gt;[T]&lt;br&gt;de');
+});
+
+test('a boundary alias reused by a member is refused instead of looping', () => {
+  assert.throws(() => project(puml('System_Boundary(a, "Outer") {\nContainer(a, "Inner")\n}\nRel(a, a, "x")'), { sourcePath: 'x.puml' }),
+    (e: any) => e instanceof Refused && /x\.puml:4: alias 'a' is already defined/.test(e.message));
+});
+
+test('an svg icon wins over a png of the same name', () => {
+  const root = scratch();
+  const icons = path.join(root, 'icons');
+  fs.mkdirSync(icons);
+  fs.writeFileSync(path.join(icons, 'kafka.png'), PNG);
+  fs.writeFileSync(path.join(icons, 'kafka.svg'), SVG);
+  const r = project(puml('ContainerQueue(q, "Events", "Kafka")'), { icons: makeIconResolver(icons, [root]) });
+  assert.deepEqual(r.icons.used, [{ element: 'q', file: 'kafka.svg' }]);
+});
+
+test('an icon name that is a folder is skipped as not a file', () => {
+  const root = scratch();
+  const icons = path.join(root, 'icons');
+  fs.mkdirSync(path.join(icons, 'kafka.svg'), { recursive: true });
+  const r = project(puml('ContainerQueue(q, "Events", "Kafka")'), { icons: makeIconResolver(icons, [root]) });
+  assert.deepEqual(r.icons.skipped, [{ element: 'q', file: 'kafka.svg', why: 'not a file' }]);
+  assert.deepEqual(r.icons.used, []);
+});
+
+// Output paths: a link planted in design/presentation must not carry a write out of the checkout.
+function outputFixture() {
+  const root = scratch();
+  const outside = scratch();
+  const victim = path.join(outside, 'victim.txt');
+  fs.writeFileSync(victim, 'keep me');
+  const src = path.join(root, 'c4');
+  fs.mkdirSync(src);
+  fs.writeFileSync(path.join(src, 'context.puml'), puml('Person(u, "U")'));
+  const out = path.join(root, 'presentation');
+  const render = () => renderLevels({ srcDir: src, outDir: out, iconsDir: path.join(root, 'icons'), roots: [root], base: root, timeoutSec: 5 });
+  return { root, outside, victim, out, render };
+}
+const linkOrSkip = (target: string, at: string): boolean => { try { fs.symlinkSync(target, at); return true; } catch { return false; } };
+
+for (const [name, file] of [['sidecar', 'context.drawio.sha'], ['.drawio', 'context.drawio'], ['exported svg', 'context.drawio.svg']]) {
+  test(`a symlinked ${name} is refused, naming it, and the file it points at is not written`, async () => {
+    const f = outputFixture();
+    fs.mkdirSync(f.out);
+    if (!linkOrSkip(f.victim, path.join(f.out, file))) return;
+    const r = await f.render();
+    assert.equal(r.ok, false);
+    assert.equal(r.levels[0].status, 'refused-symlink');
+    assert.ok(r.levels[0].message.includes(file), r.levels[0].message);
+    assert.equal(fs.readFileSync(f.victim, 'utf8'), 'keep me');
+    assert.deepEqual(fs.readdirSync(f.out), [file], 'nothing else was written either');
+  });
+}
+
+test('an output folder that is a symlink out of the checkout is refused and nothing lands outside', async () => {
+  const f = outputFixture();
+  const target = path.join(f.outside, 'dest');
+  fs.mkdirSync(target);
+  if (!linkOrSkip(target, f.out)) return;
+  await assert.rejects(f.render(), (e: any) => e instanceof Refused && /outside the checkout/.test(e.message));
+  assert.deepEqual(fs.readdirSync(target), []);
+  // A folder that does not exist yet is judged by its nearest existing parent, which here is a link out.
+  fs.rmSync(f.out);
+  const parent = path.join(f.root, 'linked-parent');
+  fs.symlinkSync(target, parent);
+  const src = path.join(f.root, 'c4');
+  await assert.rejects(async () => renderLevels({ srcDir: src, outDir: path.join(parent, 'deeper'), iconsDir: path.join(f.root, 'icons'), roots: [f.root], base: f.root }), Refused);
+  assert.deepEqual(fs.readdirSync(target), []);
 });

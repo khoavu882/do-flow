@@ -232,6 +232,24 @@ test('035-R5: a label carrying the quote character survives into valid Mermaid',
   assert.equal((fence.match(/"/g) || []).length % 2, 0, 'every quote in the fence is balanced');
 });
 
+test('an alias is one namespace across elements and boundaries: either order, and two boundaries, refuse', () => {
+  // A boundary named like one of its own members looped the draw.io projector until `Invalid array length`,
+  // and two boundaries with one alias gave two cells with one id.
+  // The source has two header lines, so body line N is file line N + 2.
+  const cases: Array<[string[], number]> = [
+    [['System_Boundary(a, "Outer") {', 'Container(a, "Inner")', '}'], 4],
+    [['Container(a, "First")', 'System_Boundary(a, "Second") {', '}'], 4],
+    [['System_Boundary(a, "One") {', '}', 'System_Boundary(a, "Two") {', '}'], 5],
+  ];
+  for (const [lines, line] of cases) {
+    const body = lines.join('\n');
+    const r = project(body);
+    assert.equal(r.code, 1, `refuses:\n${body}`);
+    assert.match(r.stderr, /alias 'a' is already defined/);
+    assert.match(r.stderr, new RegExp(`:${line}:`), 'and names the line of the second use');
+  }
+});
+
 test('035-R6: a redefined alias refuses rather than silently keeping the last definition', () => {
   // Map.set made the second declaration win and the first vanish, which is a dropped element by
   // another route. The projector states that it refuses rather than degrades; this is that.
