@@ -143,10 +143,13 @@ test('a status check that never answers is reported as a timeout after about 5 s
   const text = run(['tools', '--tool', 'jq'], { env });
   assert.strictEqual(text.status, 0, text.stderr);
   assert.match(text.stdout, /^ {2}timeout {2}jq /m);
-  assert.match(text.stdout, /a status check gave no answer within 5 s/);
+  assert.match(text.stdout, /its status check did not answer within 5 s \(a slow first start can do this\); run jq --version yourself, then run `doflow tools` again/);
   const json = run(['tools', '--tool', 'jq', '--json'], { env });
   assert.strictEqual(json.status, 0, json.stderr);
-  assert.strictEqual(JSON.parse(json.stdout).results[0].state, 'inspection-timeout');
+  const [timedOut] = JSON.parse(json.stdout).results;
+  assert.strictEqual(timedOut.state, 'inspection-timeout');
+  assert.deepStrictEqual([timedOut.timeout.seconds, timedOut.timeout.statusCommand], [5, ['jq', '--version']]);
+  assert.match(timedOut.timeout.message, /did not answer within 5 s.*run jq --version yourself/);
   assert.ok(Date.now() - started < 25000, 'each inspection is cut off at its own limit');
 });
 

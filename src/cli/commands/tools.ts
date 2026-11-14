@@ -25,6 +25,14 @@ function selectExternalTools(registry: any, o: any): any[] {
   return registry.externalTools.filter((tool: any) => wanted.has(tool.id));
 }
 
+/** What happened and what to do when a status check gave no answer in time (a slow first start looks the same as a hang). */
+function timeoutNote(item: any): any {
+  if (item.state !== 'inspection-timeout') return null;
+  const statusCommand = (item.inspections.find((inspection: any) => inspection.result === 'timeout') ?? item.inspections[0]).command;
+  const seconds = INSPECTION_TIMEOUT_MS / 1000;
+  return { seconds, statusCommand, message: `its status check did not answer within ${seconds} s (a slow first start can do this); run ${plainCommand(statusCommand)} yourself, then run \`doflow tools\` again` };
+}
+
 function toolJsonResults(plan: any, execution: any = null): any[] {
   const executed = new Map((execution?.results || []).map((result: any) => [result.tool, result]));
   return plan.tools.map((item: any) => ({
@@ -34,6 +42,7 @@ function toolJsonResults(plan: any, execution: any = null): any[] {
     unlocks: item.tool.unlocks,
     state: item.state,
     install: describeInstall(item.install),
+    ...(timeoutNote(item) ? { timeout: timeoutNote(item) } : {}),
     inspections: item.inspections,
     prerequisites: item.prerequisites.map((prerequisite: any) => ({ name: prerequisite.name, available: prerequisite.available })),
     action: item.action,
@@ -58,7 +67,8 @@ function printToolList(plan: any): void {
       console.log(`  ${label.padEnd(8)} ${item.tool.id.padEnd(width)}  ${item.tool.unlocks}`);
       if (!plan.supported) console.log(`${pad}${' '.repeat(width + 2)}${item.action.reason}`);
       const indent = `${pad}${' '.repeat(width + 2)}`;
-      if (item.state === 'inspection-timeout') console.log(`${indent}a status check gave no answer within ${INSPECTION_TIMEOUT_MS / 1000} s`);
+      const timedOut = timeoutNote(item);
+      if (timedOut) console.log(`${indent}${timedOut.message}`);
       const install = describeInstall(item.install);
       if (!install) continue;
       const steps = (command: string[], after: string[][] = []) => [command, ...after].map((part: string[]) => plainCommand(part)).join(', then ');

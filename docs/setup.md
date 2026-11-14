@@ -123,7 +123,7 @@ installer (`brew`, `npm`, `cargo`, `uv`) is not on `PATH`, the list says so and 
 alternatives are shown with the page they came from and never run by DoFlow. A route that needs administrator
 rights (`sudo apt-get ...`) is shown but never run. The same holds for a step after an install: one that
 needs `sudo` is a manual step, listed as "run it yourself" with the reason, and never run. A status check
-that gives no answer in 5 s is listed as `timeout`; the list still prints and the exit code is 0. Where no official page gives a command for your platform, the list says
+that gives no answer in 5 s is listed as `timeout` with the tool's own status command to run (a slow first start can look like this); the list still prints and the exit code is 0. `update` and `uninstall` are refused for a tool in that state: run the list again, which asks once more, and that is the remedy. A process the check started is ended when the limit passes. Where no official page gives a command for your platform, the list says
 so and names the page to read. DoFlow runs routes on macOS and Linux only.
 
 `install`, `update` and `uninstall` need `--tool` outside an interactive terminal. They display and
