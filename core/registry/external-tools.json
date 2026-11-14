@@ -4,6 +4,8 @@
     {
       "id": "rtk",
       "displayName": "RTK (Rust Token Killer)",
+      "role": "optional",
+      "unlocks": "Provides the command.compress capability: compresses command output so an agent reads fewer tokens.",
       "officialEvidence": [
         "https://github.com/rtk-ai/rtk/blob/develop/INSTALL.md",
         "https://www.rtk-ai.app/docs/getting-started/installation/"
@@ -42,6 +44,8 @@
     {
       "id": "graphify",
       "displayName": "Graphify",
+      "role": "optional",
+      "unlocks": "Provides the code.relationships and code.impact-analysis capabilities: call graphs and the blast radius of a change.",
       "officialEvidence": [
         "https://github.com/Graphify-Labs/graphify/blob/v8/README.md",
         "https://docs.astral.sh/uv/guides/tools/",
@@ -86,6 +90,8 @@
     {
       "id": "semble",
       "displayName": "Semble",
+      "role": "optional",
+      "unlocks": "Provides the code.semantic-search capability: finds code by meaning instead of by exact text.",
       "officialEvidence": [
         "https://github.com/MinishLab/semble"
       ],
@@ -128,6 +134,8 @@
     {
       "id": "mermaid-cli",
       "displayName": "Mermaid CLI",
+      "role": "optional",
+      "unlocks": "Renders Mermaid diagrams to images (doflow-run render-diagrams); without it the diagram source is kept as text.",
       "officialEvidence": [
         "https://github.com/mermaid-js/mermaid-cli/blob/master/README.md",
         "https://github.com/mermaid-js/mermaid/blob/develop/docs/config/usage.md"
@@ -160,6 +168,8 @@
     {
       "id": "plantuml",
       "displayName": "PlantUML",
+      "role": "optional",
+      "unlocks": "Renders the C4 .puml sources to images (doflow-run render-puml); without it only the .puml source exists.",
       "officialEvidence": [
         "https://plantuml.com/starting",
         "https://github.com/plantuml-stdlib/C4-PlantUML/blob/master/README.md"

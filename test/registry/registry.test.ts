@@ -101,6 +101,34 @@ test('rejects malformed external tool provenance, identifiers, and command array
   assert.match(result.errors.join('\n'), /command must be a non-empty array of non-empty strings/);
 });
 
+test('every external tool declares a role and an unlocks line', () => {
+  const { externalTools } = loadRegistry({ repoRoot: REPO });
+  for (const tool of externalTools) {
+    assert.ok(['required', 'optional'].includes(tool.role), `${tool.id} role`);
+    assert.ok(typeof tool.unlocks === 'string' && tool.unlocks.trim(), `${tool.id} unlocks`);
+  }
+});
+
+test('external tool install accepts one command or evidence-backed routes, and rejects the rest', () => {
+  const registry = loadRegistry({ repoRoot: REPO });
+  const errorsFor = (change: (tool: any) => void) => {
+    const copy = structuredClone(registry);
+    change(copy.externalTools[0]);
+    return validateRegistry(copy, { repoRoot: REPO }).errors.join('\n');
+  };
+  const evidence = registry.externalTools[0].officialEvidence[0];
+  const route = { installer: 'brew', command: ['brew', 'install', 'x'], evidence };
+  assert.equal(errorsFor((tool) => { tool.install = { routes: [route, { ...route, installer: 'npm', platforms: ['linux'], after: [['x', 'install']] }] }; }), '');
+  assert.match(errorsFor((tool) => { delete tool.role; }), /role must be one of: required, optional/);
+  assert.match(errorsFor((tool) => { tool.unlocks = ' '; }), /requires unlocks/);
+  assert.match(errorsFor((tool) => { tool.install = { command: ['a'], routes: [route] }; }), /exactly one of 'command' or 'routes'/);
+  assert.match(errorsFor((tool) => { tool.install = { routes: [] }; }), /routes must be a non-empty array/);
+  assert.match(errorsFor((tool) => { tool.install = { routes: [{ ...route, evidence: 'https://elsewhere.example' }] }; }), /evidence must be one of the tool officialEvidence URLs/);
+  assert.match(errorsFor((tool) => { tool.install = { routes: [{ ...route, installer: '' }] }; }), /requires installer/);
+  assert.match(errorsFor((tool) => { tool.install = { routes: [{ ...route, platforms: ['win32'] }] }; }), /platforms must be a non-empty array of: darwin, linux/);
+  assert.match(errorsFor((tool) => { tool.install = { routes: [{ ...route, after: ['x install'] }] }; }), /after\[0\]: command must be a non-empty array/);
+});
+
 test('selects only renderable harness assets and filters by capability', () => {
   const registry = loadRegistry({ repoRoot: REPO });
   const codex = selectAssets(registry, { harness: 'codex' });

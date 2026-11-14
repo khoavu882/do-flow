@@ -3,13 +3,13 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  normalizeToolState, planToolLifecycle, executeToolLifecycle,
+  normalizeToolState, planToolLifecycle, executeToolLifecycle, chooseInstallRoute, plainCommand,
 } = require('../../src/install/tool-lifecycle.ts') as any;
 
 const registry = {
   externalTools: [
-    { id: 'rtk', status: { commands: [['rtk', '--version'], ['rtk', 'gain']] }, install: { command: ['cargo', 'install', 'rtk'] }, uninstall: { command: ['cargo', 'uninstall', 'rtk'] } },
-    { id: 'graphify', prerequisites: ['uv'], status: { commands: [['graphify', '--version']] }, install: { command: ['uv', 'tool', 'install', 'graphifyy'] }, update: { command: ['uv', 'tool', 'upgrade', 'graphifyy'] }, uninstall: { command: ['uv', 'tool', 'uninstall', 'graphifyy'] } },
+    { id: 'rtk', officialEvidence: ['https://example.test/rtk'], status: { commands: [['rtk', '--version'], ['rtk', 'gain']] }, install: { command: ['cargo', 'install', 'rtk'] }, uninstall: { command: ['cargo', 'uninstall', 'rtk'] } },
+    { id: 'graphify', officialEvidence: ['https://example.test/graphify'], prerequisites: ['uv'], status: { commands: [['graphify', '--version']] }, install: { command: ['uv', 'tool', 'install', 'graphifyy'] }, update: { command: ['uv', 'tool', 'upgrade', 'graphifyy'] }, uninstall: { command: ['uv', 'tool', 'uninstall', 'graphifyy'] } },
   ],
 };
 
@@ -44,7 +44,7 @@ test('missing uv blocks Graphify mutation without attempting to install a prereq
     ['rtk --version', absent('rtk')], ['rtk gain', absent('rtk')], ['graphify --version', absent('graphify')], ['uv --version', absent('uv')],
   ]), calls) });
   const graphify = plan.tools[1];
-  assert.match(graphify.action.reason, /missing prerequisite: uv/);
+  assert.match(graphify.action.reason, /missing installer: needs uv on PATH; see https:\/\/example.test\/graphify/);
   assert.ok(!calls.some((vector) => vector.join(' ') === 'uv tool install graphifyy'));
 });
 
@@ -87,4 +87,85 @@ test('RTK update is skipped because no verified update command is registered', (
   ])) });
   assert.equal(plan.tools[0].action.applicable, false);
   assert.match(plan.tools[0].action.reason, /no verified update command/);
+});
+
+// A tool with several routes and a step after the install, in the shape agent-browser has.
+const browser = {
+  id: 'browser', officialEvidence: ['https://example.test/browser', 'https://example.test/browser-brew'], status: { commands: [['browser', '--version']] },
+  install: {
+    routes: [
+      { installer: 'brew', command: ['brew', 'install', 'browser'], platforms: ['darwin'], after: [['browser', 'install']], evidence: 'https://example.test/browser-brew' },
+      { installer: 'npm', command: ['npm', 'install', '-g', 'browser'], after: [['browser', 'install']], evidence: 'https://example.test/browser' },
+      { installer: 'apt-get', command: ['sudo', 'apt-get', 'install', 'browser'], platforms: ['linux'], privileged: true, evidence: 'https://example.test/browser' },
+    ],
+  },
+};
+const onPath = (...names: string[]) => (name: string) => names.includes(name);
+
+test('the first route whose installer is on PATH wins; a route for another platform is skipped', () => {
+  assert.deepEqual(chooseInstallRoute(browser, { platform: 'darwin', isInstalled: onPath('brew', 'npm') }).route.command, ['brew', 'install', 'browser']);
+  assert.deepEqual(chooseInstallRoute(browser, { platform: 'darwin', isInstalled: onPath('npm') }).route.command, ['npm', 'install', '-g', 'browser']);
+  assert.deepEqual(chooseInstallRoute(browser, { platform: 'linux', isInstalled: onPath('brew', 'npm') }).route.command, ['npm', 'install', '-g', 'browser']);
+});
+
+test('a tool whose every route needs a missing installer says so and names the documentation URL', () => {
+  const chosen = chooseInstallRoute(browser, { platform: 'darwin', isInstalled: onPath() });
+  assert.equal(chosen.route, undefined);
+  assert.equal(chosen.reason, 'missing installer: needs brew, npm on PATH; see https://example.test/browser');
+});
+
+test('a tool with no install route for this platform names the documentation URL instead of a command', () => {
+  const noInstall = { id: 'bash', officialEvidence: ['https://example.test/bash'], status: { commands: [['bash', '--version']] } };
+  assert.equal(chooseInstallRoute(noInstall, { platform: 'linux', isInstalled: onPath('brew') }).reason, 'no verified install command is registered for linux; see https://example.test/bash');
+  const darwinOnly = { ...noInstall, install: { routes: [{ installer: 'brew', command: ['brew', 'install', 'x'], platforms: ['darwin'], evidence: 'https://example.test/bash' }] } };
+  assert.match(chooseInstallRoute(darwinOnly, { platform: 'linux', isInstalled: onPath('brew') }).reason, /no verified install command is registered for linux/);
+});
+
+test('a privileged route is offered as a command but never planned for execution', () => {
+  const plan = planToolLifecycle({ registry: { externalTools: [browser] }, action: 'install', platform: 'linux', execFileSyncImpl: fakeExec(new Map([
+    ['browser --version', absent('browser')], ['brew --version', absent('brew')], ['npm --version', absent('npm')], ['apt-get --version', 'apt 1'],
+  ])) });
+  assert.equal(plan.tools[0].install.route.privileged, true);
+  assert.equal(plan.tools[0].action.applicable, false);
+  assert.match(plan.tools[0].action.reason, /needs administrator rights.*run it yourself: sudo apt-get install browser/);
+});
+
+test('a present tool probes no installer; an absent one probes each installer once', () => {
+  const calls: any[] = [];
+  const present = planToolLifecycle({ registry: { externalTools: [browser] }, platform: 'darwin', execFileSyncImpl: fakeExec(new Map([['browser --version', 'b 1']]), calls) });
+  assert.equal(present.tools[0].install, null);
+  assert.deepEqual(calls, [['browser', '--version']]);
+  const absentCalls: any[] = [];
+  planToolLifecycle({ registry: { externalTools: [browser, { ...browser, id: 'browser2' }] }, platform: 'darwin', execFileSyncImpl: fakeExec(new Map([
+    ['browser --version', absent('browser')], ['brew --version', absent('brew')], ['npm --version', 'npm 1'],
+  ]), absentCalls) });
+  assert.equal(absentCalls.filter((vector) => vector[0] === 'npm').length, 1);
+});
+
+test('the step after an install is shown and confirmed on its own, and only after the install succeeded', () => {
+  const plan = planToolLifecycle({ registry: { externalTools: [browser] }, action: 'install', platform: 'darwin', execFileSyncImpl: fakeExec(new Map([
+    ['browser --version', absent('browser')], ['brew --version', 'brew 1'],
+  ])) });
+  assert.deepEqual(plan.tools[0].action.followUps, [['browser', 'install']]);
+  const asked: any[] = [];
+  const executed: any[] = [];
+  const done = executeToolLifecycle({ plan, displayCommand() {}, confirmCommand: (command: any) => { asked.push(command); return true; }, execFileSyncImpl: fakeExec(new Map(), executed) });
+  assert.deepEqual(asked, [['brew', 'install', 'browser'], ['browser', 'install']]);
+  assert.deepEqual(executed, asked);
+  assert.deepEqual(done.results[0].followUps.map((step: any) => step.status), ['succeeded']);
+
+  const declined = executeToolLifecycle({ plan, displayCommand() {}, confirmCommand: (command: any) => command[0] === 'brew', execFileSyncImpl: fakeExec(new Map()) });
+  assert.equal(declined.results[0].status, 'succeeded');
+  assert.deepEqual(declined.results[0].followUps.map((step: any) => step.status), ['declined']);
+
+  const failedInstall: any[] = [];
+  const failed = executeToolLifecycle({ plan, displayCommand() {}, confirmCommand: () => true, execFileSyncImpl: fakeExec(new Map<string, any>([['brew install browser', new Error('brew failed')]]), failedInstall) });
+  assert.equal(failed.results[0].status, 'failed');
+  assert.equal(failed.results[0].followUps, undefined);
+  assert.deepEqual(failedInstall, [['brew', 'install', 'browser']]);
+});
+
+test('plainCommand quotes only the parts that need it', () => {
+  assert.equal(plainCommand(['brew', 'install', '--cask', 'drawio']), 'brew install --cask drawio');
+  assert.equal(plainCommand(['sh', '-c', 'a b']), 'sh -c "a b"');
 });

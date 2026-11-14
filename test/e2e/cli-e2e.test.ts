@@ -52,6 +52,7 @@ test('tools --dry-run inspects and plans mutations without executing them', (t) 
   if (!skipToolsOnWin(t)) return;
   const bin = fakeBin(t, {
     uv: 'test "$1" = "--version"',
+    cargo: 'test "$1" = "--version"',
   });
   const r = run(['tools', '--tool', 'rtk,graphify', '--action', 'install', '--dry-run', '--json'], { env: toolEnv(bin) });
   assert.strictEqual(r.status, 0, r.stderr);
@@ -66,7 +67,7 @@ test('tools --dry-run inspects and plans mutations without executing them', (t) 
 
 test('tools reports a declined lifecycle action without executing it', (t) => {
   if (!skipToolsOnWin(t)) return;
-  const bin = fakeBin(t, {});
+  const bin = fakeBin(t, { cargo: 'test "$1" = "--version"' });
   const r = run(['tools', '--tool', 'rtk', '--action', 'install'], { env: toolEnv(bin), input: 'n\n' });
   assert.strictEqual(r.status, 0, r.stderr);
   assert.match(r.stderr, /RTK \(Rust Token Killer\): "cargo" "install"/);

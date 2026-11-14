@@ -39,7 +39,9 @@ const ORCHESTRATION_FALLBACK = new Set(['sequential', 'manual']);
 const POLICY_TIERS = new Set(['core', 'enhanced']);
 const SCOPES = new Set(['project', 'user']);
 const MCP_TRANSPORTS = new Set(['stdio', 'http', 'sse']);
-const EXTERNAL_TOOL_IDS = new Set(['rtk', 'graphify', 'semble', 'mermaid-cli', 'plantuml']);
+const EXTERNAL_TOOL_IDS = new Set(['rtk', 'graphify', 'semble', 'mermaid-cli', 'plantuml', 'jq', 'git', 'bash', 'ripgrep', 'drawio', 'python3', 'agent-browser']);
+const EXTERNAL_TOOL_ROLES = new Set(['required', 'optional']);
+const EXTERNAL_TOOL_PLATFORMS = new Set(['darwin', 'linux']);
 const EXTERNAL_TOOL_ACTIONS = new Set(['install', 'update', 'uninstall']);
 const MODEL_KINDS = new Set(['hosted', 'local']);
 const MODEL_SLOT_IDS = new Set(['dense', 'rerank']);
@@ -272,7 +274,7 @@ function validateCommand(command: any, location: string, errors: string[]): void
 
 function validateExternalTool(value: any, location: string, errors: string[]): void {
   if (!object(value)) { issue(errors, location, 'must be an object'); return; }
-  const allowed = new Set(['id', 'displayName', 'officialEvidence', 'status', 'install', 'update', 'uninstall', 'prerequisites']);
+  const allowed = new Set(['id', 'displayName', 'role', 'unlocks', 'officialEvidence', 'status', 'install', 'update', 'uninstall', 'prerequisites']);
   for (const key of Object.keys(value)) {
     if (!allowed.has(key)) issue(errors, location, `unsupported field '${key}'`);
   }
@@ -280,6 +282,8 @@ function validateExternalTool(value: any, location: string, errors: string[]): v
     issue(errors, location, `id must be one of: ${[...EXTERNAL_TOOL_IDS].join(', ')}`);
   }
   if (typeof value.displayName !== 'string' || !value.displayName.trim()) issue(errors, location, 'requires displayName');
+  if (!EXTERNAL_TOOL_ROLES.has(value.role)) issue(errors, location, `role must be one of: ${[...EXTERNAL_TOOL_ROLES].join(', ')}`);
+  if (typeof value.unlocks !== 'string' || !value.unlocks.trim()) issue(errors, location, 'requires unlocks (one line: what in DoFlow needs this tool)');
   if (!Array.isArray(value.officialEvidence) || value.officialEvidence.length === 0
     || value.officialEvidence.some((url: any) => typeof url !== 'string' || !/^https:\/\//.test(url))) {
     issue(errors, location, 'must include one or more HTTPS officialEvidence URLs');
@@ -300,12 +304,48 @@ function validateExternalTool(value: any, location: string, errors: string[]): v
   }
   for (const action of EXTERNAL_TOOL_ACTIONS) {
     if (value[action] === undefined) continue;
+    if (action === 'install') { validateInstall(value.install, `${location}.install`, value, errors); continue; }
     if (!object(value[action])) { issue(errors, `${location}.${action}`, 'must be a command contract object'); continue; }
     for (const key of Object.keys(value[action])) {
       if (key !== 'command') issue(errors, `${location}.${action}`, `unsupported field '${key}'`);
     }
     validateCommand(value[action].command, `${location}.${action}.command`, errors);
   }
+}
+
+/** `install` is either one `command`, or `routes`: several ways to install, each naming the installer
+ * it needs, so `doflow tools` can pick the first whose installer is on this machine. Every route
+ * cites a page already listed in the tool's officialEvidence; `after` holds the steps that must run
+ * once the install command has finished (agent-browser downloads its browser that way). */
+function validateInstall(install: any, location: string, tool: any, errors: string[]): void {
+  if (!object(install)) { issue(errors, location, 'must be a command contract object'); return; }
+  const keys = Object.keys(install);
+  if (keys.length !== 1 || (keys[0] !== 'command' && keys[0] !== 'routes')) {
+    issue(errors, location, "must hold exactly one of 'command' or 'routes'");
+    return;
+  }
+  if (keys[0] === 'command') { validateCommand(install.command, `${location}.command`, errors); return; }
+  if (!Array.isArray(install.routes) || install.routes.length === 0) { issue(errors, location, 'routes must be a non-empty array'); return; }
+  const evidence = Array.isArray(tool.officialEvidence) ? tool.officialEvidence : [];
+  install.routes.forEach((route: any, index: number) => {
+    const at = `${location}.routes[${index}]`;
+    if (!object(route)) { issue(errors, at, 'must be an object'); return; }
+    for (const key of Object.keys(route)) {
+      if (!['installer', 'command', 'platforms', 'privileged', 'after', 'evidence'].includes(key)) issue(errors, at, `unsupported field '${key}'`);
+    }
+    if (typeof route.installer !== 'string' || !route.installer.trim()) issue(errors, at, 'requires installer (the binary this route needs on PATH)');
+    validateCommand(route.command, `${at}.command`, errors);
+    if (typeof route.evidence !== 'string' || !evidence.includes(route.evidence)) issue(errors, at, 'evidence must be one of the tool officialEvidence URLs');
+    if (route.platforms !== undefined && (!Array.isArray(route.platforms) || route.platforms.length === 0
+      || route.platforms.some((platform: any) => !EXTERNAL_TOOL_PLATFORMS.has(platform)))) {
+      issue(errors, at, `platforms must be a non-empty array of: ${[...EXTERNAL_TOOL_PLATFORMS].join(', ')}`);
+    }
+    if (route.privileged !== undefined && typeof route.privileged !== 'boolean') issue(errors, at, 'privileged must be boolean');
+    if (route.after !== undefined) {
+      if (!Array.isArray(route.after) || route.after.length === 0) issue(errors, at, 'after must be a non-empty array of command arrays');
+      else route.after.forEach((command: any, step: number) => validateCommand(command, `${at}.after[${step}]`, errors));
+    }
+  });
 }
 
 /** Validates core/registry/models.json — the provider × role matrix the orchestrator's model

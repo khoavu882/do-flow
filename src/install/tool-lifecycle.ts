@@ -21,6 +21,11 @@ function commandText(command: string[]): string {
   return command.map((part) => JSON.stringify(part)).join(' ');
 }
 
+/** A command as a person would type it: parts with spaces or shell characters are quoted, the rest are not. */
+function plainCommand(command: string[]): string {
+  return command.map((part) => (/^[A-Za-z0-9_@%+=:,./-]+$/.test(part) ? part : JSON.stringify(part))).join(' ');
+}
+
 function failureKind(error: any): 'absent' | 'failed' {
   return error?.code === 'ENOENT' ? 'absent' : 'failed';
 }
@@ -57,8 +62,41 @@ function inspectPrerequisites(tool: any, { execFileSyncImpl = execFileSync }: { 
   });
 }
 
-function actionEligibility(tool: any, state: string, action: string, prerequisites: any[]): any {
+/** Every way the registry knows to install a tool: its `routes`, or its single `command` as one route. */
+function installRoutes(tool: any): any[] {
+  if (!tool.install) return [];
+  if (tool.install.routes) return tool.install.routes;
+  return [{ installer: tool.install.command[0], command: tool.install.command, evidence: tool.officialEvidence[0] }];
+}
+
+/**
+ * The first install route that fits this machine: its platform matches and its installer is on PATH.
+ * `isInstalled(name)` answers whether an installer is present. Without a route the result says why
+ * and names the documentation page, so a person can still install the tool by hand.
+ */
+function chooseInstallRoute(tool: any, { platform = process.platform, isInstalled }: { platform?: string; isInstalled: (name: string) => boolean }): any {
+  const docs = tool.officialEvidence[0];
+  const routes = installRoutes(tool).filter((route) => !route.platforms || route.platforms.includes(platform));
+  if (!routes.length) return { reason: `no verified install command is registered for ${platform}; see ${docs}`, docs };
+  const route = routes.find((candidate) => isInstalled(candidate.installer));
+  if (route) {
+    return { route: { installer: route.installer, command: [...route.command], after: (route.after || []).map((step: string[]) => [...step]), privileged: route.privileged === true, evidence: route.evidence } };
+  }
+  const needs = [...new Set(routes.map((candidate) => candidate.installer))].join(', ');
+  return { reason: `missing installer: needs ${needs} on PATH; see ${docs}`, docs };
+}
+
+function actionEligibility(tool: any, state: string, action: string, prerequisites: any[], chosen: any = null): any {
   if (action === 'status') return { applicable: false, reason: 'status inspection only' };
+  if (action === 'install') {
+    if (state === 'unknown' || state === 'inspection-failed') return { applicable: false, reason: `tool state is ${state}` };
+    if (state !== 'absent') return { applicable: false, reason: 'tool is already installed' };
+    if (!chosen.route) return { applicable: false, reason: chosen.reason };
+    if (chosen.route.privileged) {
+      return { applicable: false, reason: `needs administrator rights, so DoFlow does not run it; run it yourself: ${plainCommand(chosen.route.command)}` };
+    }
+    return { applicable: true, command: chosen.route.command, followUps: chosen.route.after, status: 'not-attempted' };
+  }
   const contract = tool[action];
   if (!contract) return { applicable: false, reason: `no verified ${action} command is registered` };
   const missing = prerequisites.filter((prerequisite) => !prerequisite.available);
@@ -66,7 +104,6 @@ function actionEligibility(tool: any, state: string, action: string, prerequisit
   if (state === 'unknown' || state === 'inspection-failed') {
     return { applicable: false, reason: `tool state is ${state}` };
   }
-  if (action === 'install' && state !== 'absent') return { applicable: false, reason: 'tool is already installed' };
   if ((action === 'update' || action === 'uninstall') && state !== 'installed') {
     return { applicable: false, reason: 'tool is not installed' };
   }
@@ -84,6 +121,18 @@ function planToolLifecycle({ registry, action = 'status', platform = process.pla
     throw new Error(`Unsupported external-tool action '${action}'`);
   }
   const supported = isSupportedPlatform(platform);
+  // One plan asks each distinct command once: two tools needing `uv` share one `uv --version`.
+  const answers = new Map<string, { value?: any; error?: any }>();
+  const execOnce: ExecFileSyncImpl = (file, args, opts) => {
+    const key = JSON.stringify([file, ...args]);
+    if (!answers.has(key)) {
+      try { answers.set(key, { value: execFileSyncImpl(file, args, opts) }); } catch (error) { answers.set(key, { error }); }
+    }
+    const answer = answers.get(key) as { value?: any; error?: any };
+    if ('error' in answer) throw answer.error;
+    return answer.value;
+  };
+  const isInstalled = (name: string): boolean => runInspection([name, '--version'], execOnce).result === 'succeeded';
   const tools = (registry?.externalTools || []).map((tool: any) => {
     if (!supported) {
       return {
@@ -91,9 +140,11 @@ function planToolLifecycle({ registry, action = 'status', platform = process.pla
         action: { applicable: false, reason: `unsupported platform: ${platform}` },
       };
     }
-    const { state, inspections } = inspectTool(tool, { execFileSyncImpl });
-    const prerequisites = inspectPrerequisites(tool, { execFileSyncImpl });
-    return { tool, state, inspections, prerequisites, action: actionEligibility(tool, state, action, prerequisites) };
+    const { state, inspections } = inspectTool(tool, { execFileSyncImpl: execOnce });
+    const prerequisites = inspectPrerequisites(tool, { execFileSyncImpl: execOnce });
+    // Installers are probed only for a tool that is absent: a present tool needs no install route.
+    const install = state === 'absent' ? chooseInstallRoute(tool, { platform, isInstalled }) : null;
+    return { tool, state, inspections, prerequisites, install, action: actionEligibility(tool, state, action, prerequisites, install) };
   });
   return { action, platform, supported, tools };
 }
@@ -118,18 +169,28 @@ function executeToolLifecycle({ plan, execFileSyncImpl = execFileSync, displayCo
       results.push({ tool: item.tool.id, status: 'skipped', reason: action.reason });
       continue;
     }
-    const command = action.command;
-    displayCommand([...command], item.tool, plan.action);
-    if (!confirmCommand([...command], item.tool, plan.action)) {
-      results.push({ tool: item.tool.id, status: 'declined', command: [...command] });
-      continue;
+    const run = (command: string[]): any => {
+      displayCommand([...command], item.tool, plan.action);
+      if (!confirmCommand([...command], item.tool, plan.action)) return { status: 'declined', command: [...command] };
+      try {
+        const output = execFileSyncImpl(command[0], command.slice(1), { encoding: 'utf8', stdio: 'pipe' });
+        return { status: 'succeeded', command: [...command], output: output == null ? '' : String(output) };
+      } catch (error: any) {
+        return { status: 'failed', command: [...command], error: error?.message || String(error) };
+      }
+    };
+    const result: any = { tool: item.tool.id, ...run(action.command) };
+    // A step that follows the install (a browser download, say) is shown and confirmed on its own,
+    // and only after the install command itself succeeded; the first one that does not succeed ends the chain.
+    if (result.status === 'succeeded' && action.followUps?.length) {
+      result.followUps = [];
+      for (const step of action.followUps) {
+        const outcome = run(step);
+        result.followUps.push(outcome);
+        if (outcome.status !== 'succeeded') break;
+      }
     }
-    try {
-      const output = execFileSyncImpl(command[0], command.slice(1), { encoding: 'utf8', stdio: 'pipe' });
-      results.push({ tool: item.tool.id, status: 'succeeded', command: [...command], output: output == null ? '' : String(output) });
-    } catch (error: any) {
-      results.push({ tool: item.tool.id, status: 'failed', command: [...command], error: error?.message || String(error) });
-    }
+    results.push(result);
   }
   return { action: plan.action, notAttempted, results };
 }
@@ -143,6 +204,9 @@ module.exports = {
   SUPPORTED_PLATFORMS,
   isSupportedPlatform,
   commandText,
+  plainCommand,
+  installRoutes,
+  chooseInstallRoute,
   normalizeToolState,
   inspectTool,
   inspectPrerequisites,
