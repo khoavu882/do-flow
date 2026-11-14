@@ -162,6 +162,15 @@ test('codex: every TOML carries sandbox_mode = "read-only" exactly when its spec
   }
 });
 
+test('codex: every TOML description equals its spec description, so one agent reads the same in every tool', () => {
+  const agents = codexAgents.discoverCodexAgents(CODEX_TOMLS);
+  for (const spec of specs) {
+    const specDescription = spec.text.match(/^description:\s*"(.*)"\s*$/m)?.[1];
+    assert.ok(specDescription, `${spec.name}: spec has a description`);
+    assert.equal(agents.find((agent: any) => agent.name === spec.name).description, specDescription, `${spec.name}: TOML description differs from the spec`);
+  }
+});
+
 test('codex: the Markdown agent copies in ~/.codex/agents carry no access key, through plan, apply and verify', () => {
   const projectRoot = suiteTempDir('doflow-agent-limits-codex-');
   const assets = selectAssets(registry, { harness: 'codex' });
