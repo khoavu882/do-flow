@@ -6,10 +6,14 @@ Nothing here replaces a numbered section of either template.
 
 How to use it:
 
-- In `requirement.md`, add the rows under "Requirement" below to §4 Non-Functional Requirements and
-  §6 Acceptance Criteria, with the template's own ID scheme.
+- In `requirement.md`, each item under "Requirement" below becomes one `NFR-###` row in
+  §4 Non-Functional Requirements, with at least one acceptance criterion in §6 that tests it. The
+  Kind column takes the closest of the template's values; the row's label names the concern
+  (accessibility, cost, privacy, compatibility, freshness).
 - In `design.md`, add each part under "Design" below as a `###` subsection at the end of
   §5 Components & Boundaries, with the heading given here.
+- A part that says it belongs in `specs.md` or `data-model.md` goes there, as
+  `references/ARTIFACT_FORMAT.md` places it; `design.md` keeps the pointer those sections already have.
 - A part that does not apply is not written. A part that applies but has nothing to decide is one
   line: `N/A: [why]`.
 
@@ -23,6 +27,7 @@ Use when a person sees or operates a screen, page, component or terminal view.
 - Accessibility bar, named: the standard and level (for example WCAG 2.2 AA), keyboard-only use, and screen-reader use.
 - Sizes and inputs supported: viewport widths, touch, pointer, keyboard.
 - Languages, text direction, and what happens to long or missing text.
+- Browsers or platforms supported, and how fast the interface must respond to an action.
 
 **Design**
 
@@ -43,10 +48,13 @@ Use when a person sees or operates a screen, page, component or terminal view.
 - Names and roles for every control that has no visible text; how a status change is announced.
 - Contrast, text size and target size against the named standard; behaviour with reduced motion.
 
-### Visual system
+### Components reused
 
-- Existing components and tokens reused, by name. A new component or token is listed with the reason an existing one does not fit.
+- Existing components reused, by name. A new component is listed with the reason an existing one does not fit.
 - Breakpoints and what changes at each.
+- Events recorded for analytics, each with what it tells and what data it carries.
+
+Design tokens, component states and layout cues are not written here: they go in `data-model.md` §1.
 
 ## Language model
 
@@ -58,6 +66,8 @@ Use when the feature calls a language model, or its output depends on a prompt, 
 - Limits per request and per day: latency, cost, and what the person sees when a limit is reached.
 - What data may be sent to the model provider and what may not.
 - What the feature does when the model is wrong, refuses or is unavailable.
+- Whether prompts and outputs are stored, for how long, and who may read them.
+- Which outputs a person must review before they take effect.
 
 **Design**
 
@@ -73,6 +83,7 @@ Use when the feature calls a language model, or its output depends on a prompt, 
 - What enters the context for each step, in order, with a size budget; what is dropped first when it does not fit.
 - Output format and how it is checked before use (schema, parser, allowed values).
 - Retrieval, tools or memory the step uses, and what each may read or change.
+- How a prompt and its model are versioned, so an eval result names the pair it measured.
 
 ### Evals
 
@@ -146,11 +157,9 @@ Use when the feature's users are other programs or developers.
 
 **Design**
 
-### Public surface
-
-| Name | Kind | Stability | Since |
-|---|---|---|---|
-| [symbol, command or flag] | function / type / command / flag / file format | stable / experimental | [version] |
+Each public symbol, command, flag and file format is an `IC-###` entry in `specs.md` §1, not a
+part of `design.md`; give each entry its stability (stable or experimental) and the version it
+appeared in.
 
 ### Compatibility
 

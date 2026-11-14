@@ -45,6 +45,9 @@ const MIN_BOUNDARY_W = 240;
 // Siblings joined by relations are laid out in columns by rank; the wider gap leaves room for a label.
 const RANK_GAP = 120;
 const MAX_PER_COLUMN = 4;
+// A relation that passes over a column gets an empty slot in it to run through.
+const SLOT_H = 20;
+const MAX_ROUTE_SLOTS = 2000;
 
 // C0 controls other than tab, LF and CR are not legal in XML 1.0, even as a character reference.
 const xmlAttr = (s: string): string => s.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/\n/g, '&#10;');
@@ -168,84 +171,133 @@ function project(text: string, opts: { sourcePath?: string; name?: string; icons
     boundaryIds.set(b.alias, `bd-${b.alias}`);
     parentOf.set(b.alias, parent);
     const kids = b.items.map((child: any) => layoutNode(child, b.alias));
-    const grid = pack(kids);
+    const grid = pack(kids, PAD, HEADER + PAD);
     return {
       id: `bd-${b.alias}`, alias: b.alias, aliases: [b.alias, ...kids.flatMap((k: any) => k.aliases)], boundary: true, label: htmlText(b.label), kids, grid,
       w: Math.max(MIN_BOUNDARY_W, grid.w + 2 * PAD), h: HEADER + PAD + grid.h + PAD,
     };
   };
 
-  // Siblings no relation joins keep the source-order grid. Joined siblings go in one column per rank,
-  // a rank being the longest chain of relations that leads to the sibling, so a relation runs from a
-  // column to a later one instead of across whatever the grid put between its ends.
-  const pack = (nodes: any[]): { at: Array<{ x: number; y: number }>; w: number; h: number } => {
+  // How each relation is drawn, by its index: the points it passes, in its container's coordinates,
+  // and whether both ends are children of that container (only then are its sides pinned).
+  const routes = new Map<number, { points: Array<{ x: number; y: number }>; direct: boolean; back: boolean }>();
+  let slotsLeft = MAX_ROUTE_SLOTS;
+
+  // Children no relation joins keep the source-order grid. Joined children go in one column per rank,
+  // a rank being the longest chain of relations that leads to the child, so a relation runs from a
+  // column to a later one. A relation that passes over a column gets an empty slot in it and is routed
+  // through that slot; the space between columns holds no shape, so it meets none on the way.
+  // `ox`,`oy` is where this container puts its grid, for the route points.
+  const pack = (nodes: any[], ox: number, oy: number): { at: Array<{ x: number; y: number }>; w: number; h: number } => {
     const owner = new Map<string, number>();
     nodes.forEach((n: any, i: number) => n.aliases.forEach((a: string) => owner.set(a, i)));
     const succs: number[][] = nodes.map(() => []);
-    let joined = false;
-    for (const e of parsed.edges) {
+    const links: Array<{ e: number; a: number; b: number }> = [];
+    const linked = new Set<number>();
+    parsed.edges.forEach((e: any, k: number) => {
       const a = owner.get(e.from); const b = owner.get(e.to);
-      if (a === undefined || b === undefined || a === b) continue;
-      succs[a].push(b); joined = true;
-    }
+      if (a === undefined || b === undefined || a === b) return;
+      succs[a].push(b); links.push({ e: k, a, b }); linked.add(a); linked.add(b);
+    });
     const at: Array<{ x: number; y: number }> = nodes.map(() => ({ x: 0, y: 0 }));
-    if (!joined) {
-      const cols = Math.max(1, Math.min(4, Math.ceil(Math.sqrt(nodes.length))));
-      let x = 0; let y = 0; let rowH = 0; let w = 0;
-      nodes.forEach((n: any, i: number) => {
-        if (i > 0 && i % cols === 0) { x = 0; y += rowH + GAP; rowH = 0; }
+    const grid = (members: number[], y0: number): { w: number; bottom: number } => {
+      const cols = Math.max(1, Math.min(4, Math.ceil(Math.sqrt(members.length))));
+      let x = 0; let y = y0; let rowH = 0; let w = 0;
+      members.forEach((i: number, k: number) => {
+        if (k > 0 && k % cols === 0) { x = 0; y += rowH + GAP; rowH = 0; }
         at[i] = { x, y };
-        x += n.w; w = Math.max(w, x); x += GAP;
-        rowH = Math.max(rowH, n.h);
+        x += nodes[i].w; w = Math.max(w, x); x += GAP;
+        rowH = Math.max(rowH, nodes[i].h);
       });
-      return { at, w, h: y + rowH };
-    }
-    // Walking the relations from each sibling in source order, one that leads back to a sibling still
-    // being walked closes a cycle and takes no part in ranking, so the sibling written first stays first.
-    const preds: number[][] = nodes.map(() => []);
-    const seen: number[] = nodes.map(() => 0);
-    const walk = (i: number): void => {
-      seen[i] = 1;
-      for (const s of succs[i]) {
-        if (seen[s] === 1) continue;
-        preds[s].push(i);
-        if (seen[s] === 0) walk(s);
-      }
-      seen[i] = 2;
+      return { w, bottom: y + rowH };
     };
-    nodes.forEach((_: any, i: number) => { if (seen[i] === 0) walk(i); });
-    const rank: number[] = nodes.map(() => -1);
-    const rankOf = (i: number): number => (rank[i] >= 0 ? rank[i] : (rank[i] = preds[i].reduce((r, p) => Math.max(r, rankOf(p) + 1), 0)));
-    nodes.forEach((_: any, i: number) => rankOf(i));
+    const all = nodes.map((_: any, i: number) => i);
+    if (!links.length) { const g = grid(all, 0); return { at, w: g.w, h: g.bottom }; }
+
+    // Walking the relations from each child in source order, one that leads back to a child still
+    // being walked closes a cycle and takes no part in ranking, so the child written first stays first.
+    // The walk keeps its own stack: a chain may be longer than the call stack is deep.
+    const kept: number[][] = nodes.map(() => []);
+    const seen: number[] = nodes.map(() => 0);
+    const done: number[] = [];
+    for (const root of all) {
+      if (seen[root] !== 0) continue;
+      seen[root] = 1;
+      const stack: Array<[number, number]> = [[root, 0]];
+      while (stack.length) {
+        const frame = stack[stack.length - 1];
+        const i = frame[0];
+        if (frame[1] < succs[i].length) {
+          const s = succs[i][frame[1]++];
+          if (seen[s] === 1) continue;
+          kept[i].push(s);
+          if (seen[s] === 0) { seen[s] = 1; stack.push([s, 0]); }
+        } else { seen[i] = 2; done.push(i); stack.pop(); }
+      }
+    }
+    const rank: number[] = nodes.map(() => 0);
+    for (let k = done.length - 1; k >= 0; k--) for (const s of kept[done[k]]) rank[s] = Math.max(rank[s], rank[done[k]] + 1);
+
+    const byRank: number[][] = [];
+    for (const i of all) if (linked.has(i)) (byRank[rank[i]] ??= []).push(i);
     const columns: number[][] = [];
-    for (let r = 0; r <= Math.max(...rank); r++) {
-      const members = rank.map((v, i) => (v === r ? i : -1)).filter((i) => i >= 0);
-      for (let k = 0; k < members.length; k += MAX_PER_COLUMN) columns.push(members.slice(k, k + MAX_PER_COLUMN));
+    const colOf = new Map<number, number>();
+    for (const members of byRank) {
+      for (let k = 0; members && k < members.length; k += MAX_PER_COLUMN) {
+        const col = members.slice(k, k + MAX_PER_COLUMN);
+        col.forEach((i: number) => colOf.set(i, columns.length));
+        columns.push(col);
+      }
     }
-    const heightOf = (col: number[]): number => col.reduce((sum, i) => sum + nodes[i].h, 0) + GAP * (col.length - 1);
-    const h = Math.max(...columns.map(heightOf));
+    // A slot per column a relation passes over, while the budget lasts; past it a relation is left to the router.
+    const slots: number[] = columns.map(() => 0);
+    const passes = links.map((l) => {
+      const ca = colOf.get(l.a) as number; const cb = colOf.get(l.b) as number;
+      const over = Math.abs(ca - cb) - 1;
+      const through: Array<{ c: number; slot: number }> = [];
+      if (over > 0 && over <= slotsLeft) {
+        slotsLeft -= over;
+        for (let c = ca + Math.sign(cb - ca); c !== cb; c += Math.sign(cb - ca)) through.push({ c, slot: slots[c]++ });
+      }
+      return { l, back: ca > cb, through };
+    });
+    const shapesH = (c: number): number => columns[c].reduce((sum, i) => sum + nodes[i].h, 0) + GAP * (columns[c].length - 1);
+    const heightOf = (c: number): number => shapesH(c) + slots[c] * (GAP + SLOT_H);
+    const h = Math.max(...columns.map((_, c) => heightOf(c)));
+    const colX: number[] = []; const colW: number[] = []; const colTop: number[] = [];
     let x = 0; let w = 0;
-    for (const col of columns) {
-      let y = Math.round((h - heightOf(col)) / 2);
+    columns.forEach((col, c) => {
+      colX[c] = x; colW[c] = Math.max(...col.map((i) => nodes[i].w)); colTop[c] = Math.round((h - heightOf(c)) / 2);
+      let y = colTop[c];
       for (const i of col) { at[i] = { x, y }; y += nodes[i].h + GAP; }
-      w = x + Math.max(...col.map((i) => nodes[i].w));
-      x = w + RANK_GAP;
+      w = x + colW[c]; x = w + RANK_GAP;
+    });
+    for (const p of passes) {
+      const points: Array<{ x: number; y: number }> = [];
+      for (const t of p.through) {
+        const y = oy + colTop[t.c] + shapesH(t.c) + GAP + t.slot * (GAP + SLOT_H) + SLOT_H / 2;
+        const near = ox + colX[t.c]; const far = near + colW[t.c];
+        points.push({ x: p.back ? far : near, y }, { x: p.back ? near : far, y });
+      }
+      const e = parsed.edges[p.l.e];
+      routes.set(p.l.e, { points, back: p.back, direct: nodes[p.l.a].alias === e.from && nodes[p.l.b].alias === e.to });
     }
-    return { at, w, h };
+    const rest = all.filter((i) => !linked.has(i));
+    if (!rest.length) return { at, w, h };
+    const g = grid(rest, h + GAP);
+    return { at, w: Math.max(w, g.w), h: g.bottom };
   };
 
+
   const roots = parsed.roots.map((item: any) => layoutNode(item, null));
-  const top = pack(roots);
+  const top = pack(roots, ORIGIN, ORIGIN);
 
   const lines: string[] = [];
-  // Page coordinates of every shape, to choose the side a relation leaves and enters by.
-  const box = new Map<string, { x: number; y: number; w: number; h: number }>();
-  const cell = (node: any, x: number, y: number, parent: string, px = 0, py = 0) => {
-    box.set(node.alias, node.boundary ? { x: px + x, y: py + y, w: node.w, h: node.h } : { x: px + x + node.gx, y: py + y, w: node.gw, h: node.gh });
+  const cell = (node: any, x: number, y: number, parent: string) => {
     if (node.boundary) {
       lines.push(`        <mxCell id="${xmlAttr(node.id)}" value="${xmlAttr(node.label)}" style="swimlane;startSize=30;html=1;" vertex="1" parent="${xmlAttr(parent)}">`,
         `          <mxGeometry x="${x}" y="${y}" width="${node.w}" height="${node.h}" as="geometry"/>`, '        </mxCell>');
-      node.kids.forEach((kid: any, i: number) => cell(kid, PAD + node.grid.at[i].x, HEADER + PAD + node.grid.at[i].y, node.id, px + x, py + y));
+      node.kids.forEach((kid: any, i: number) => cell(kid, PAD + node.grid.at[i].x, HEADER + PAD + node.grid.at[i].y, node.id));
     } else {
       lines.push(`        <mxCell id="${xmlAttr(node.id)}" value="${xmlAttr(node.label)}" style="${xmlAttr(node.style)}" vertex="1" parent="${xmlAttr(parent)}">`,
         `          <mxGeometry x="${x + node.gx}" y="${y}" width="${node.gw}" height="${node.gh}" as="geometry"/>`, '        </mxCell>');
@@ -258,17 +310,10 @@ function project(text: string, opts: { sourcePath?: string; name?: string; icons
     for (let p = parentOf.get(alias) ?? null; p; p = parentOf.get(p) ?? null) out.push(p);
     return out;
   };
-  // Side by side: leave by the facing side. Stacked: leave by top or bottom. One inside the other, or
-  // overlapping both ways: no pin, the router chooses.
-  const sides = (from: string, to: string): string => {
-    const a = box.get(from); const b = box.get(to);
-    if (!a || !b) return '';
-    if (a.x + a.w <= b.x) return 'exitX=1;exitY=0.5;entryX=0;entryY=0.5;';
-    if (b.x + b.w <= a.x) return 'exitX=0;exitY=0.5;entryX=1;entryY=0.5;';
-    if (a.y + a.h <= b.y) return 'exitX=0.5;exitY=1;entryX=0.5;entryY=0;';
-    if (b.y + b.h <= a.y) return 'exitX=0.5;exitY=0;entryX=0.5;entryY=1;';
-    return '';
-  };
+  // Pinned sides, for a relation between two children of one container. One that runs against the
+  // column order leaves and enters lower on the side, clear of a relation running the other way.
+  const FORWARD = 'exitX=1;exitY=0.5;entryX=0;entryY=0.5;';
+  const BACK = 'exitX=0;exitY=0.75;entryX=1;entryY=0.75;';
   parsed.edges.forEach((e: any, i: number) => {
     for (const end of [e.from, e.to]) {
       if (!elementIds.has(end) && !boundaryIds.has(end)) {
@@ -279,10 +324,14 @@ function project(text: string, opts: { sourcePath?: string; name?: string; icons
     const label = [f.label ? htmlText(f.label) : '', f.techn ? htmlText(`[${f.techn}]`) : ''].filter(Boolean).join('<br>');
     const toChain = new Set(chain(e.to));
     const common = chain(e.from).find((a: string) => toChain.has(a));
-    const style = `edgeStyle=orthogonalEdgeStyle;html=1;labelBackgroundColor=default;endArrow=block;${e.bi ? 'startArrow=block;' : ''}${sides(e.from, e.to)}`;
+    const route = routes.get(i);
+    const style = `edgeStyle=orthogonalEdgeStyle;html=1;labelBackgroundColor=default;endArrow=block;${e.bi ? 'startArrow=block;' : ''}${route?.direct ? (route.back ? BACK : FORWARD) : ''}`;
+    const geometry = route?.points.length
+      ? `<mxGeometry relative="1" as="geometry"><Array as="points">${route.points.map((p) => `<mxPoint x="${p.x}" y="${p.y}"/>`).join('')}</Array></mxGeometry>`
+      : '<mxGeometry relative="1" as="geometry"/>';
     const id = `rel-${i + 1}-${e.from}-${e.to}`;
     lines.push(`        <mxCell id="${xmlAttr(id)}" value="${xmlAttr(label)}" style="${style}" edge="1" parent="${common ? `bd-${xmlAttr(common)}` : '1'}" source="${xmlAttr(elementIds.get(e.from) ?? boundaryIds.get(e.from) as string)}" target="${xmlAttr(elementIds.get(e.to) ?? boundaryIds.get(e.to) as string)}">`,
-      '          <mxGeometry relative="1" as="geometry"/>', '        </mxCell>');
+      `          ${geometry}`, '        </mxCell>');
   });
 
   const xml = [

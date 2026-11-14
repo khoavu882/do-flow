@@ -77,7 +77,7 @@ flowchart LR
 
 <!-- A feature with a user interface, a language model, a data pipeline, infrastructure work or a
      public library/CLI surface takes its extra rows for this section and for Acceptance Criteria
-     from `discipline-sections.md` (beside this template). -->
+     from `templates/doflow/discipline-sections.md` (in the DoFlow folder this template was copied from). -->
 
 ## 5. Out of Scope
 

@@ -238,8 +238,8 @@ stateDiagram-v2
   - **Contracts:** [the FR-### and IC-### identifiers it serves].
 
 <!-- A feature with a user interface, a language model, a data pipeline, infrastructure work or a
-     public library/CLI surface adds the matching parts of `discipline-sections.md` (beside this
-     template) here as `###` subsections. A plain service adds none. -->
+     public library/CLI surface adds the matching parts of `templates/doflow/discipline-sections.md` (in the
+     DoFlow folder this template was copied from) here as `###` subsections. A plain service adds none. -->
 
 ## 6. API / Interface Contracts
 

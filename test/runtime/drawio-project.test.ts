@@ -318,7 +318,7 @@ const placeOf = (xml: string, id: string) => {
   return { x: Number(m[1]), y: Number(m[2]) };
 };
 
-test('siblings joined by relations sit in one column per rank, so no relation crosses a sibling', () => {
+test('siblings joined by relations sit in one column per rank, each relation running to a later column', () => {
   const { xml } = project(puml([
     'Container(api, "API")',
     'ContainerDb(db, "DB")',
@@ -340,7 +340,7 @@ test('siblings joined by relations sit in one column per rank, so no relation cr
   assert.match(attr(cellOf(xml, 'rel-1-api-db'), 'style') as string, /labelBackgroundColor=default;/);
 });
 
-test('a relation against the column order leaves by the left; one to a container holding its source is not pinned', () => {
+test('a relation against the column order leaves by the left, lower than one running with it; one to a container holding its source is not pinned', () => {
   const { xml } = project(puml([
     'System_Boundary(sys, "Sys") {',
     '  Container(a, "A")',
@@ -351,7 +351,8 @@ test('a relation against the column order leaves by the left; one to a container
     'Rel(a, sys, "reports")',
   ].join('\n')));
   assert.ok(placeOf(xml, 'el-a').x < placeOf(xml, 'el-b').x);
-  assert.match(attr(cellOf(xml, 'rel-2-b-a'), 'style') as string, /exitX=0;exitY=0\.5;entryX=1;entryY=0\.5;$/);
+  assert.match(attr(cellOf(xml, 'rel-2-b-a'), 'style') as string, /exitX=0;exitY=0\.75;entryX=1;entryY=0\.75;$/);
+  assert.match(attr(cellOf(xml, 'rel-1-a-b'), 'style') as string, /exitX=1;exitY=0\.5;entryX=0;entryY=0\.5;$/);
   assert.doesNotMatch(attr(cellOf(xml, 'rel-3-a-sys'), 'style') as string, /exitX/);
 });
 
@@ -369,4 +370,66 @@ test('more siblings in one rank than a column holds wrap into a further column',
   const { xml } = project(puml(['Container(s, "S")', ...targets.map((t) => `Container(${t}, "${t}")`), ...targets.map((t) => `Rel(s, ${t}, "to")`)].join('\n')));
   assert.equal(placeOf(xml, 'el-t1').x, placeOf(xml, 'el-t4').x);
   assert.ok(placeOf(xml, 'el-t5').x > placeOf(xml, 'el-t4').x);
+});
+
+/** The route points of one relation, and every shape's rectangle, in the coordinates of the relation's parent. */
+const pointsOf = (xml: string, id: string) => {
+  const m = new RegExp(`<mxCell id="${id}"[^>]*>\\n\\s+<mxGeometry relative="1" as="geometry">(.*?)</mxGeometry>`).exec(xml);
+  return m ? [...m[1].matchAll(/<mxPoint x="(-?[\d.]+)" y="(-?[\d.]+)"\/>/g)].map((p) => ({ x: Number(p[1]), y: Number(p[2]) })) : [];
+};
+const rectOf = (xml: string, id: string) => {
+  const m = new RegExp(`<mxCell id="${id}"[^>]*>\\n\\s+<mxGeometry x="(-?\\d+)" y="(-?\\d+)" width="(\\d+)" height="(\\d+)"`).exec(xml);
+  if (!m) throw new assert.AssertionError({ message: `no geometry for ${id}` });
+  return { x: Number(m[1]), y: Number(m[2]), w: Number(m[3]), h: Number(m[4]) };
+};
+/** Whether the horizontal run between two points at one height passes through a rectangle. */
+const runHits = (a: any, b: any, r: any) => a.y === b.y && a.y > r.y && a.y < r.y + r.h && Math.max(a.x, b.x) > r.x && Math.min(a.x, b.x) < r.x + r.w;
+
+test('a relation that passes over a column is routed through an empty slot in it, in both directions', () => {
+  const { xml } = project(puml([
+    'Container(a, "A")', 'Container(b, "B")', 'Container(c, "C")',
+    'Rel(a, b, "1")', 'Rel(b, c, "2")', 'Rel(a, c, "skips b")', 'Rel(c, a, "back over b")',
+  ].join('\n')));
+  const b = rectOf(xml, 'el-b');
+  const a = rectOf(xml, 'el-a'); const c = rectOf(xml, 'el-c');
+  for (const [id, from, to] of [['rel-3-a-c', a, c], ['rel-4-c-a', c, a]] as any[]) {
+    const pts = pointsOf(xml, id);
+    assert.equal(pts.length, 2, `${id} has an entry and an exit point for the column it passes`);
+    assert.ok(!runHits(pts[0], pts[1], b), `${id} does not run through b`);
+    assert.ok(pts[0].y >= b.y + b.h, `${id} passes below b`);
+    // Entered from the side it comes from, so the line does not double back over the column.
+    assert.equal(Math.sign(pts[1].x - pts[0].x), Math.sign(to.x - from.x), id);
+    assert.equal(Math.min(pts[0].x, pts[1].x), b.x); assert.equal(Math.max(pts[0].x, pts[1].x), b.x + b.w);
+  }
+  assert.notEqual(pointsOf(xml, 'rel-3-a-c')[0].y, pointsOf(xml, 'rel-4-c-a')[0].y, 'each relation has its own slot');
+  assert.deepEqual(pointsOf(xml, 'rel-1-a-b'), [], 'a relation between neighbouring columns needs no point');
+});
+
+test('siblings no relation touches stay out of the columns, in a grid below them', () => {
+  const { xml } = project(puml([
+    'Container(a, "A")', ...['x1', 'x2', 'x3', 'x4'].map((x) => `Container(${x}, "${x}")`), 'Container(b, "B")',
+    'Rel(a, b, "calls")',
+  ].join('\n')));
+  const a = rectOf(xml, 'el-a'); const b = rectOf(xml, 'el-b');
+  assert.equal(a.y, b.y);
+  for (const x of ['x1', 'x2', 'x3', 'x4']) assert.ok(rectOf(xml, `el-${x}`).y >= a.y + a.h, `${x} is below the related pair`);
+});
+
+test('a relation that leaves its container is not pinned', () => {
+  const { xml } = project(puml([
+    'System_Boundary(s1, "S1") {', '  Container(a, "A")', '  Container(b, "B")', '}',
+    'System_Boundary(s2, "S2") {', '  Container(c, "C")', '}',
+    'Rel(a, c, "calls")',
+  ].join('\n')));
+  assert.doesNotMatch(attr(cellOf(xml, 'rel-1-a-c'), 'style') as string, /exitX|entryX/);
+  assert.ok(rectOf(xml, 'bd-s1').x + rectOf(xml, 'bd-s1').w < rectOf(xml, 'bd-s2').x, 'the containers themselves are ranked');
+});
+
+test('a chain longer than the call stack is deep is laid out, and the same source gives the same bytes', () => {
+  const n = 9000;
+  const body = [...Array.from({ length: n }, (_, i) => `Container(n${i}, "N${i}")`), ...Array.from({ length: n - 1 }, (_, i) => `Rel(n${i}, n${i + 1}, "next")`)].join('\n');
+  const first = project(puml(body)).xml;
+  assert.ok(rectOf(first, `el-n${n - 1}`).x > rectOf(first, `el-n${n - 2}`).x);
+  const ranked = puml(['Container(a, "A")', 'Container(b, "B")', 'Container(c, "C")', 'Container(d, "D")', 'Rel(a, b, "1")', 'Rel(b, c, "2")', 'Rel(a, c, "3")', 'Rel(c, a, "4")'].join('\n'));
+  assert.equal(project(ranked).xml, project(ranked).xml);
 });
