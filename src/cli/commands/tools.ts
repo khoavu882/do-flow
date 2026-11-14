@@ -86,14 +86,14 @@ function printToolList(plan: any): void {
   }
 }
 
-function cmdTools(o: any): void {
+async function cmdTools(o: any): Promise<void> {
   if (o.force) throw new Error("doflow tools: --force is not supported; each lifecycle command requires its own confirmation");
   if (!['status', 'install', 'update', 'uninstall'].includes(o.action)) {
     throw new Error(`doflow tools: unsupported action '${o.action}'; expected: status, install, update, uninstall`);
   }
   const registry = loadRegistry({ repoRoot: REPO_ROOT });
   const tools = selectExternalTools(registry, o);
-  const plan = planToolLifecycle({ registry: { ...registry, externalTools: tools }, action: o.action });
+  const plan = await planToolLifecycle({ registry: { ...registry, externalTools: tools }, action: o.action });
 
   if (o.action === 'status') {
     if (o.json) console.log(JSON.stringify({ action: o.action, dryRun: Boolean(o.dryRun), results: toolJsonResults(plan) }, null, 2));

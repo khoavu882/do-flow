@@ -7,34 +7,77 @@
 // TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): authored as `.ts`, run directly by Node
 // native type-stripping — no build step, no runtime dependency. Body stays CommonJS so a `.js`
 // caller's `require('../install/tool-lifecycle.ts')` keeps working while the tree is still `.js`.
-const { execFileSync, spawnSync } = require('node:child_process');
+const { execFileSync, spawn, spawnSync } = require('node:child_process');
 
 const SUPPORTED_PLATFORMS = new Set(['darwin', 'linux']);
 // A status command or an installer probe that has not answered by then leaves the tool's state at
 // `inspection-timeout`; a hung binary must not hold up the whole list. Install commands have no limit.
 const INSPECTION_TIMEOUT_MS = 5000;
 
-// A command that hands another command to a more privileged user, and a wrapper that hides what runs
-// (`env sudo ...`, `sh -c "..."`). The registry holds argv arrays, so neither belongs in a command
-// DoFlow runs; the registry validator rejects both and `executeToolLifecycle` refuses them again.
+// What DoFlow runs is an allow-list, because a list of forbidden first words is never complete (`nice sudo x`,
+// `npx sudo x`, `busybox sh -c ...`). A command DoFlow runs must start with the tool's own program or with its
+// route's installer, the installer must be one of the names below, and no word of it may name a privilege word.
+// The registry validator checks this and `executeToolLifecycle` checks it again just before it runs anything.
+// Content that is only shown (`manual`, a `privileged` route, the alternatives) is free.
 const PRIVILEGE_WORDS = new Set(['sudo', 'doas', 'su', 'pkexec', 'run0']);
-const WRAPPER_WORDS = new Set(['env', 'sh', 'bash', 'zsh', 'dash', 'ksh', 'fish', 'cmd', 'powershell', 'pwsh']);
+/** The package managers a route may name as its installer, with why each is not itself a registered tool. */
+const KNOWN_INSTALLERS: Record<string, string> = {
+  brew: 'Homebrew, the package manager the macOS routes use; its own install page is the documentation',
+  npm: 'ships with Node, which DoFlow itself runs on; the routes that install a Node tool use it',
+  cargo: 'the Rust toolchain, the managed route for rtk',
+  uv: 'Astral uv, the managed route for graphify and semble',
+  pipx: 'the alternative Python installer for graphify and semble',
+  'apt-get': 'the Debian and Ubuntu package manager; its routes are privileged and shown only',
+};
 
 /** The program a command runs, as a name: the last path segment (either separator), without a `.exe`/`.cmd`/`.bat` ending, in lower case. */
 function programName(word: any): string {
   return String(word ?? '').split(/[\\/]/).pop()!.replace(/\.(exe|cmd|bat)$/i, '').toLowerCase();
 }
 
-/** Why DoFlow will not run this command, or null when it may. A status check may be `<shell> --version` (the bash tool's own
- * check): it runs nothing but the program asked, so a wrapper word is allowed there and only there. */
-function refusalReason(command: string[], { statusCheck = false }: { statusCheck?: boolean } = {}): string | null {
-  const name = programName(command?.[0]);
-  if (PRIVILEGE_WORDS.has(name)) return `a command starting with '${command[0]}' needs administrator rights, so DoFlow does not run it`;
-  if (WRAPPER_WORDS.has(name) && !(statusCheck && command.length === 2 && command[1] === '--version')) return `a command starting with '${command[0]}' hides what it runs, so DoFlow does not run it`;
+/** The first word of a command that names a privilege word (by name or by path), or null. */
+function privilegeWord(command: any): string | null {
+  for (const word of Array.isArray(command) ? command : []) if (PRIVILEGE_WORDS.has(programName(word))) return word;
   return null;
 }
 
-type ExecFileSyncImpl = (file: string, args: string[], opts: any) => any;
+/** The tool's own program: what its first status command runs. */
+function ownProgram(tool: any): string | undefined {
+  return tool?.status?.commands?.[0]?.[0];
+}
+
+/** The programs a command of this tool may start with: its own, and the route's installer when that is a known one. */
+function allowedPrograms(tool: any, installer?: string): Set<string> {
+  const allowed = new Set<string>();
+  const own = ownProgram(tool);
+  if (typeof own === 'string') allowed.add(own);
+  if (typeof installer === 'string' && Object.hasOwn(KNOWN_INSTALLERS, installer)) allowed.add(installer);
+  return allowed;
+}
+
+const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish', 'tcsh', 'csh', 'busybox', 'cmd', 'powershell', 'pwsh']);
+const INTERPRETERS = /^(python[\d.]*|node|perl|ruby)$/;
+
+/** A command that can run text it was handed: a shell, `env`, or an interpreter given inline code (`-c`, `-e` as a later word).
+ * Such a command is only run as `<program> --version`, which runs nothing else. */
+function runsGivenText(command: any): boolean {
+  if (!Array.isArray(command) || !command.length) return false;
+  const name = programName(command[0]);
+  if (SHELLS.has(name) || name === 'env') return true;
+  return INTERPRETERS.test(name) && command.slice(1).some((word) => word === '-c' || word === '-e');
+}
+
+/** Why DoFlow will not run this command, or null when it may. `allowed` is the set of programs it may start with. */
+function refusalReason(command: string[], allowed: Set<string> | null = null): string | null {
+  const word = privilegeWord(command);
+  if (word !== null) return `a command naming '${word}' needs administrator rights, so DoFlow does not run it`;
+  if (runsGivenText(command) && !(command.length === 2 && command[1] === '--version')) return `a command starting with '${command[0]}' can run text it is given, so DoFlow runs it only as '${command[0]} --version'`;
+  if (allowed && !allowed.has(command?.[0])) return `a command starting with '${command?.[0]}' is neither the tool's own program nor its installer (${[...allowed].join(', ') || 'none'}), so DoFlow does not run it`;
+  return null;
+}
+
+// An implementation may answer at once or later; the default one answers later.
+type ExecImpl = (file: string, args: string[], opts: any) => any;
 
 function isSupportedPlatform(platform: string = process.platform): boolean {
   return SUPPORTED_PLATFORMS.has(platform);
@@ -49,31 +92,101 @@ function plainCommand(command: string[]): string {
   return command.map((part) => (/^[A-Za-z0-9_@%+=:,./-]+$/.test(part) ? part : JSON.stringify(part))).join(' ');
 }
 
-/** End a probe's whole process tree. `spawnSync`'s timeout signals only the direct child, so a wrapper script that
- * started `sleep` would leave it running. On POSIX the probe is its own process group and the group is killed;
- * on Windows `taskkill /T /F` ends the tree (written from its documentation, not run on this machine). */
-function killTree(pid: number | undefined): void {
-  if (!pid) return;
-  try {
-    if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' });
-    else process.kill(-pid, 'SIGKILL');
-  } catch { /* the group is already gone */ }
+/** Every process below `rootPid`, deepest first, from the process table. */
+function descendantsOf(rootPid: number): number[] {
+  const table = spawnSync('ps', ['-A', '-o', 'pid=,ppid='], { encoding: 'utf8' });
+  if (table.error || table.status !== 0) return [];
+  const children = new Map<number, number[]>();
+  for (const line of String(table.stdout).split('\n')) {
+    const [pid, parent] = line.trim().split(/\s+/).map(Number);
+    if (Number.isInteger(pid) && Number.isInteger(parent)) children.set(parent, [...(children.get(parent) ?? []), pid]);
+  }
+  const found: { pid: number; depth: number }[] = [];
+  const walk = (pid: number, depth: number) => { for (const child of children.get(pid) ?? []) { found.push({ pid: child, depth }); walk(child, depth + 1); } };
+  walk(rootPid, 1);
+  return found.sort((a, b) => b.depth - a.depth).map((entry) => entry.pid);
 }
 
-/** `execFileSync` for a status check or installer probe: the same contract (stdout, or a thrown error whose `code` is
- * ENOENT or ETIMEDOUT), but past the timeout nothing the probe started is left running. */
-function probeExec(file: string, args: string[], opts: any): any {
-  const result = spawnSync(file, args, { encoding: 'utf8', stdio: 'pipe', timeout: opts.timeout, killSignal: 'SIGKILL', detached: process.platform !== 'win32' });
-  if (result.error) {
-    if ((result.error as any).code === 'ETIMEDOUT') killTree(result.pid);
-    throw result.error;
+/** End a probe and everything it started. POSIX: list the process table, kill the descendants leaves first (a parent
+ * killed first would hide its children from the next listing), list again for one that forked meanwhile, then kill the
+ * probe's process group (it leads its own) for anything that left the parent chain, and the probe. Windows:
+ * `taskkill /T /F /PID` while the probe is still alive, so the tree is still linked (from its documentation; not run
+ * on this machine). */
+function killTree(pid: number | undefined): void {
+  if (!pid) return;
+  if (process.platform === 'win32') { spawnSync('taskkill', ['/T', '/F', '/PID', String(pid)], { stdio: 'ignore' }); return; }
+  for (let pass = 0; pass < 3; pass += 1) {
+    const victims = descendantsOf(pid);
+    if (!victims.length) break;
+    for (const victim of victims) { try { process.kill(victim, 'SIGKILL'); } catch { /* already gone */ } }
   }
-  if (result.status !== 0) {
-    const error: any = new Error(`Command failed: ${file} ${args.join(' ')}${result.stderr ? `\n${result.stderr}` : ''}`);
-    error.status = result.status;
-    throw error;
-  }
-  return result.stdout;
+  try { process.kill(-pid, 'SIGKILL'); } catch { /* the group is already gone */ }
+  try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
+}
+
+// A probe runs in its own process group (so the group can be ended whole), which a terminal's Ctrl-C does not signal. So
+// while probes are alive DoFlow itself ends them on SIGINT, on SIGTERM and on any exit, then lets the signal take its course.
+const liveProbes = new Set<any>();
+function endLiveProbes(): void {
+  for (const child of liveProbes) killTree(child.pid);
+  liveProbes.clear();
+}
+function onSignal(signal: string): void {
+  endLiveProbes();
+  stopWatching();
+  process.kill(process.pid, signal);
+}
+const onSigint = () => onSignal('SIGINT');
+const onSigterm = () => onSignal('SIGTERM');
+function stopWatching(): void {
+  process.removeListener('SIGINT', onSigint);
+  process.removeListener('SIGTERM', onSigterm);
+  process.removeListener('exit', endLiveProbes);
+}
+function watchProbe(child: any): void {
+  if (!liveProbes.size) { process.once('SIGINT', onSigint); process.once('SIGTERM', onSigterm); process.once('exit', endLiveProbes); }
+  liveProbes.add(child);
+}
+function unwatchProbe(child: any): void {
+  liveProbes.delete(child);
+  if (!liveProbes.size) stopWatching();
+}
+
+/** The default probe: runs the program without a shell, answers with its stdout, or rejects with an error whose `code` is
+ * ENOENT (not found) or ETIMEDOUT (no answer in `opts.timeout` ms; its whole process tree is ended by then). */
+function probeExec(file: string, args: string[], opts: any): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let timer: any;
+    const out: Buffer[] = [];
+    const err: Buffer[] = [];
+    const child = spawn(file, args, { stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32' });
+    const finish = (settle: (value: any) => void, value: any) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      unwatchProbe(child);
+      settle(value);
+    };
+    watchProbe(child);
+    if (opts?.timeout) {
+      timer = setTimeout(() => {
+        killTree(child.pid);
+        const error: any = new Error(`${file} gave no answer within ${opts.timeout} ms`);
+        error.code = 'ETIMEDOUT';
+        finish(reject, error);
+      }, opts.timeout);
+    }
+    child.stdout.on('data', (chunk: Buffer) => out.push(chunk));
+    child.stderr.on('data', (chunk: Buffer) => err.push(chunk));
+    child.on('error', (error: any) => finish(reject, error));
+    child.on('close', (code: number | null) => {
+      if (code === 0) { finish(resolve, Buffer.concat(out).toString('utf8')); return; }
+      const error: any = new Error(`Command failed: ${file} ${args.join(' ')}${err.length ? `\n${Buffer.concat(err).toString('utf8')}` : ''}`);
+      error.status = code;
+      finish(reject, error);
+    });
+  });
 }
 
 function failureKind(error: any): 'absent' | 'timeout' | 'failed' {
@@ -81,11 +194,12 @@ function failureKind(error: any): 'absent' | 'timeout' | 'failed' {
   return error?.code === 'ETIMEDOUT' ? 'timeout' : 'failed';
 }
 
-function runInspection(command: string[], execFileSyncImpl: ExecFileSyncImpl, timeoutMs: number = INSPECTION_TIMEOUT_MS): any {
-  const refusal = refusalReason(command, { statusCheck: true });
+/** One status check or probe. `allowed` limits what it may start with (a status check starts with the tool's own program). */
+async function runInspection(command: string[], execImpl: ExecImpl, timeoutMs: number = INSPECTION_TIMEOUT_MS, allowed: Set<string> | null = null): Promise<any> {
+  const refusal = refusalReason(command, allowed);
   if (refusal) return { command: [...command], result: 'failed', error: refusal };
   try {
-    const output = execFileSyncImpl(command[0], command.slice(1), { encoding: 'utf8', stdio: 'pipe', timeout: timeoutMs });
+    const output = await execImpl(command[0], command.slice(1), { encoding: 'utf8', stdio: 'pipe', timeout: timeoutMs });
     return { command: [...command], result: 'succeeded', output: output == null ? '' : String(output) };
   } catch (error: any) {
     return {
@@ -104,16 +218,17 @@ function normalizeToolState(inspections: any[]): string {
   return 'inspection-failed';
 }
 
-function inspectTool(tool: any, { execFileSyncImpl = probeExec, timeoutMs = INSPECTION_TIMEOUT_MS }: { execFileSyncImpl?: ExecFileSyncImpl; timeoutMs?: number } = {}): any {
-  const inspections = tool.status.commands.map((command: string[]) => runInspection(command, execFileSyncImpl, timeoutMs));
+async function inspectTool(tool: any, { execImpl = probeExec, timeoutMs = INSPECTION_TIMEOUT_MS }: { execImpl?: ExecImpl; timeoutMs?: number } = {}): Promise<any> {
+  const allowed = allowedPrograms(tool);
+  const inspections = await Promise.all(tool.status.commands.map((command: string[]) => runInspection(command, execImpl, timeoutMs, allowed)));
   return { state: normalizeToolState(inspections), inspections };
 }
 
-function inspectPrerequisites(tool: any, { execFileSyncImpl = probeExec, timeoutMs = INSPECTION_TIMEOUT_MS }: { execFileSyncImpl?: ExecFileSyncImpl; timeoutMs?: number } = {}): any[] {
-  return (tool.prerequisites || []).map((name: string) => {
-    const inspection = runInspection([name, '--version'], execFileSyncImpl, timeoutMs);
+async function inspectPrerequisites(tool: any, { execImpl = probeExec, timeoutMs = INSPECTION_TIMEOUT_MS }: { execImpl?: ExecImpl; timeoutMs?: number } = {}): Promise<any[]> {
+  return Promise.all((tool.prerequisites || []).map(async (name: string) => {
+    const inspection = await runInspection([name, '--version'], execImpl, timeoutMs);
     return { name, available: inspection.result === 'succeeded', inspection };
-  });
+  }));
 }
 
 /** Every way the registry knows to install a tool: its `routes`, or its single `command` as one route. */
@@ -164,10 +279,15 @@ function describeInstall(chosen: any): any {
   return { command: route.command, after: route.after, manual: route.manual, privileged: route.privileged, runnable: !route.privileged, evidence: route.evidence, ...alternatives };
 }
 
+/** What update or uninstall runs for this tool: the managed route's own command when it has one, else the tool's. */
+function lifecycleContract(tool: any, action: string, platform: string): any {
+  return action === 'install' ? tool.install : (routesFor(tool, platform)[0]?.[action] ?? tool[action]);
+}
+
 function actionEligibility(tool: any, state: string, action: string, prerequisites: any[], chosen: any = null, platform: string = process.platform, isInstalled: (name: string) => boolean = () => true): any {
   if (action === 'status') return { applicable: false, reason: 'status inspection only' };
   // update and uninstall handle what the managed route installed, and a route may carry its own pair.
-  const contract = action === 'install' ? tool.install : (routesFor(tool, platform)[0]?.[action] ?? tool[action]);
+  const contract = lifecycleContract(tool, action, platform);
   if (!contract) {
     return { applicable: false, reason: action === 'install' && chosen ? chosen.reason : `no verified ${action} command is registered` };
   }
@@ -189,7 +309,7 @@ function actionEligibility(tool: any, state: string, action: string, prerequisit
   // The command runs the installer that put the tool there (or the tool's own binary, a self-update); with that
   // installer gone it would fail with ENOENT, so say what install says: which installer is missing and where to read.
   const program = contract.command[0];
-  if (program !== tool.status?.commands?.[0]?.[0] && !isInstalled(program)) {
+  if (program !== ownProgram(tool) && !isInstalled(program)) {
     return { applicable: false, reason: `missing installer: needs ${program} on PATH; see ${tool.officialEvidence[0]}` };
   }
   // The plan records a command before execution begins; callers can show this preview without
@@ -198,40 +318,62 @@ function actionEligibility(tool: any, state: string, action: string, prerequisit
 }
 
 /**
- * Inspect all status command vectors, then create a non-mutating action plan.
- * The registry can be the loaded registry or an { externalTools } fixture.
+ * Inspect all status command vectors, then create a non-mutating action plan. Every probe of one plan runs
+ * side by side; the answer keeps the registry's order. The registry can be the loaded registry or an
+ * { externalTools } fixture. An `execFileSyncImpl` may answer at once or return a promise.
  */
-function planToolLifecycle({ registry, action = 'status', platform = process.platform, execFileSyncImpl = probeExec, timeoutMs = INSPECTION_TIMEOUT_MS }: { registry?: any; action?: string; platform?: string; execFileSyncImpl?: ExecFileSyncImpl; timeoutMs?: number } = {}): any {
+async function planToolLifecycle({ registry, action = 'status', platform = process.platform, execFileSyncImpl = probeExec, timeoutMs = INSPECTION_TIMEOUT_MS }: { registry?: any; action?: string; platform?: string; execFileSyncImpl?: ExecImpl; timeoutMs?: number } = {}): Promise<any> {
   if (!['install', 'update', 'uninstall', 'status'].includes(action)) {
     throw new Error(`Unsupported external-tool action '${action}'`);
   }
   const supported = isSupportedPlatform(platform);
   // One plan asks each distinct command once: two tools needing `uv` share one `uv --version`.
-  const answers = new Map<string, { value?: any; error?: any }>();
-  const execOnce: ExecFileSyncImpl = (file, args, opts) => {
+  const answers = new Map<string, Promise<{ value?: any; error?: any }>>();
+  const execOnce: ExecImpl = async (file, args, opts) => {
     const key = JSON.stringify([file, ...args]);
     if (!answers.has(key)) {
-      try { answers.set(key, { value: execFileSyncImpl(file, args, opts) }); } catch (error) { answers.set(key, { error }); }
+      answers.set(key, Promise.resolve().then(() => execFileSyncImpl(file, args, opts)).then((value) => ({ value }), (error) => ({ error })));
     }
-    const answer = answers.get(key) as { value?: any; error?: any };
+    const answer = await (answers.get(key) as Promise<{ value?: any; error?: any }>);
     if ('error' in answer) throw answer.error;
     return answer.value;
   };
-  const isInstalled = (name: string): boolean => runInspection([name, '--version'], execOnce, timeoutMs).result === 'succeeded';
-  const tools = (registry?.externalTools || []).map((tool: any) => {
+  const tools = registry?.externalTools || [];
+  // Round one: every tool's status commands and prerequisites at once.
+  const inspected = await Promise.all(tools.map(async (tool: any) => {
+    if (!supported) return { tool, state: 'unknown', inspections: [], prerequisites: [] };
+    const [{ state, inspections }, prerequisites] = await Promise.all([
+      inspectTool(tool, { execImpl: execOnce, timeoutMs }),
+      inspectPrerequisites(tool, { execImpl: execOnce, timeoutMs }),
+    ]);
+    return { tool, state, inspections, prerequisites };
+  }));
+  // Round two: the installers those answers make relevant. An absent tool needs its managed route's installer; an
+  // installed one needs the installer its update or uninstall command runs, unless that is the tool's own program.
+  const wanted = new Set<string>();
+  for (const { tool, state } of inspected) {
+    if (!supported) break;
+    if (state === 'absent') { const installer = routesFor(tool, platform)[0]?.installer; if (installer) wanted.add(installer); }
+    if (state === 'installed' && (action === 'update' || action === 'uninstall')) {
+      const program = lifecycleContract(tool, action, platform)?.command?.[0];
+      if (program && program !== ownProgram(tool)) wanted.add(program);
+    }
+  }
+  const present = new Set<string>();
+  await Promise.all([...wanted].map(async (name) => { if ((await runInspection([name, '--version'], execOnce, timeoutMs)).result === 'succeeded') present.add(name); }));
+  const isInstalled = (name: string): boolean => present.has(name);
+  const results = inspected.map(({ tool, state, inspections, prerequisites }: any) => {
     if (!supported) {
       return {
-        tool, state: 'unknown', inspections: [], prerequisites: [],
+        tool, state, inspections, prerequisites,
         action: { applicable: false, reason: `unsupported platform: ${platform}` },
       };
     }
-    const { state, inspections } = inspectTool(tool, { execFileSyncImpl: execOnce, timeoutMs });
-    const prerequisites = inspectPrerequisites(tool, { execFileSyncImpl: execOnce, timeoutMs });
     // Installers are probed only for a tool that is absent: a present tool needs no install route.
     const install = state === 'absent' ? chooseInstallRoute(tool, { platform, isInstalled }) : null;
     return { tool, state, inspections, prerequisites, install, action: actionEligibility(tool, state, action, prerequisites, install, platform, isInstalled) };
   });
-  return { action, platform, supported, tools };
+  return { action, platform, supported, tools: results };
 }
 
 function defaultDisplay(command: string[]): void { console.error(`[INFO]  ${commandText(command)}`); }
@@ -240,7 +382,7 @@ function defaultDisplay(command: string[]): void { console.error(`[INFO]  ${comm
  * Display and separately confirm every planned mutation.  A failed command never prevents later
  * commands from being independently offered and executed.
  */
-function executeToolLifecycle({ plan, execFileSyncImpl = execFileSync, displayCommand = defaultDisplay, confirmCommand }: { plan?: any; execFileSyncImpl?: ExecFileSyncImpl; displayCommand?: (command: string[], tool?: any, action?: string) => void; confirmCommand?: (command: string[], tool?: any, action?: string) => boolean } = {}): any {
+function executeToolLifecycle({ plan, execFileSyncImpl = execFileSync, displayCommand = defaultDisplay, confirmCommand }: { plan?: any; execFileSyncImpl?: ExecImpl; displayCommand?: (command: string[], tool?: any, action?: string) => void; confirmCommand?: (command: string[], tool?: any, action?: string) => boolean } = {}): any {
   if (!plan) throw new Error('executeToolLifecycle requires a plan');
   if (typeof confirmCommand !== 'function') throw new Error('executeToolLifecycle requires confirmCommand');
 
@@ -256,7 +398,7 @@ function executeToolLifecycle({ plan, execFileSyncImpl = execFileSync, displayCo
     }
     const run = (command: string[]): any => {
       // The registry validator rejects these too; this stays as the last line before the runner, for a registry it never saw.
-      const refusal = refusalReason(command);
+      const refusal = refusalReason(command, allowedPrograms(item.tool, routesFor(item.tool, plan.platform)[0]?.installer));
       if (refusal) return { status: 'refused', command: [...command], reason: refusal };
       displayCommand([...command], item.tool, plan.action);
       if (!confirmCommand([...command], item.tool, plan.action)) return { status: 'declined', command: [...command] };
@@ -293,8 +435,11 @@ module.exports = {
   SUPPORTED_PLATFORMS,
   INSPECTION_TIMEOUT_MS,
   PRIVILEGE_WORDS,
-  WRAPPER_WORDS,
+  KNOWN_INSTALLERS,
   programName,
+  privilegeWord,
+  ownProgram,
+  allowedPrograms,
   refusalReason,
   isSupportedPlatform,
   commandText,

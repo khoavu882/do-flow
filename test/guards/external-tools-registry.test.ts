@@ -25,6 +25,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { REPO } = require('./_shared.ts');
 const { loadRegistry } = require('../../src/registry/index.ts');
+const { KNOWN_INSTALLERS } = require('../../src/install/tool-lifecycle.ts');
 
 // Probed with `command -v` and deliberately not registered: DoFlow degrades without them or they ship with the OS.
 const PROBED_NOT_REGISTERED: Record<string, string> = {
@@ -53,14 +54,11 @@ const SHELL_WORDS = new Set(['command', 'test', 'cat', 'printf', 'echo', 'read',
 
 // Programs the registry or the MCP registry runs or names that are installed by the platform or are the means
 // of installing, not tools DoFlow offers to install.
+// The package managers a route may name are the validator's own list (KNOWN_INSTALLERS in src/install/tool-lifecycle.ts), read here so
+// there is one list; npx is how the MCP servers launch, and sudo starts a privileged route that DoFlow only shows.
 const INSTALLER_NOT_REGISTERED: Record<string, string> = {
-  brew: 'Homebrew, the package manager the macOS routes use; its own install page is the documentation',
-  npm: 'ships with Node, which DoFlow itself runs on; the routes that install a Node tool use it',
+  ...KNOWN_INSTALLERS,
   npx: 'ships with npm; the MCP servers in mcp.json are launched with it',
-  cargo: 'the Rust toolchain, the managed route for rtk',
-  uv: 'Astral uv, the managed route for graphify and semble',
-  pipx: 'the alternative Python installer for graphify and semble',
-  'apt-get': 'the Debian and Ubuntu package manager; its routes are privileged and shown only',
   sudo: 'a privileged route starts with it; DoFlow never runs such a step, it is shown to the person',
   ...Object.fromEntries(HARNESS_CLIS.map((binary) => [binary, HARNESS_CLI_REASON])),
 };

@@ -6,7 +6,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { validatePathsSection } = require('../helper/harness-paths.ts');
-const { PRIVILEGE_WORDS, programName, refusalReason } = require('../install/tool-lifecycle.ts');
+const { PRIVILEGE_WORDS, KNOWN_INSTALLERS, programName, ownProgram, allowedPrograms, refusalReason } = require('../install/tool-lifecycle.ts');
 const { BUILTIN_WORKER_ID_RE, RESERVED_WORKER_IDS } = require('./worker-ids.ts');
 
 const REGISTRY_FILES = Object.freeze({
@@ -301,9 +301,10 @@ function validateExternalTool(value: any, location: string, errors: string[]): v
     for (const key of Object.keys(value.status)) {
       if (!allowedStatus.has(key)) issue(errors, `${location}.status`, `unsupported field '${key}'`);
     }
+    const own = allowedPrograms(value);
     value.status.commands.forEach((command: any, index: number) => {
       validateCommand(command, `${location}.status.commands[${index}]`, errors);
-      rejectPrivilegeWord(command, `${location}.status.commands[${index}]`, errors, true);
+      rejectPrivilegeWord(command, `${location}.status.commands[${index}]`, errors, own);
     });
   }
   for (const action of EXTERNAL_TOOL_ACTIONS) {
@@ -314,16 +315,27 @@ function validateExternalTool(value: any, location: string, errors: string[]): v
       if (key !== 'command') issue(errors, `${location}.${action}`, `unsupported field '${key}'`);
     }
     validateCommand(value[action].command, `${location}.${action}.command`, errors);
-    rejectPrivilegeWord(value[action].command, `${location}.${action}.command`, errors);
+    rejectPrivilegeWord(value[action].command, `${location}.${action}.command`, errors, toolPrograms(value));
   }
   checkManagedRoutesAgree(value, location, errors);
 }
 
-/** A command DoFlow runs (status, install, after, update, uninstall) may not start with a privilege word (sudo, doas, su,
- * pkexec, run0, by name or by path) or with `env` or a shell: a wrapper hides what runs (a status check `<shell> --version` is the one exception). A `manual` step is never run, so it is not checked. */
-function rejectPrivilegeWord(command: any, location: string, errors: string[], statusCheck = false): void {
-  const reason = Array.isArray(command) && command.length ? refusalReason(command, { statusCheck }) : null;
+/** A command DoFlow runs (status, install, after, update, uninstall) must start with the tool's own program or with its route's
+ * installer, and no word of it may be sudo, doas, su, pkexec or run0, by name or by path. That is an allow-list, so a wrapper
+ * (`nice sudo x`, `env`, `sh -c`) fails without being named. A `manual` step, a `privileged` route and the alternatives are
+ * never run, so they are not checked here. `allowed` is the set of programs the command may start with. */
+function rejectPrivilegeWord(command: any, location: string, errors: string[], allowed: Set<string>): void {
+  const reason = Array.isArray(command) && command.length ? refusalReason(command, allowed) : null;
   if (reason) issue(errors, location, `${reason}; a step that needs it belongs in a route's manual list`);
+}
+
+/** The programs a tool-level update or uninstall may start with: the tool's own, or any known installer a route of the tool names. */
+function toolPrograms(tool: any): Set<string> {
+  const allowed = allowedPrograms(tool);
+  const install = tool.install;
+  const routes = Array.isArray(install?.routes) ? install.routes : (install && Array.isArray(install.command) ? [{ installer: install.command[0] }] : []);
+  for (const route of routes) if (object(route) && typeof route.installer === 'string' && Object.hasOwn(KNOWN_INSTALLERS, route.installer)) allowed.add(route.installer);
+  return allowed;
 }
 
 /** The managed route of a platform is the first route that fits it: the only one `doflow tools` runs, and so the
@@ -359,7 +371,9 @@ function validateInstall(install: any, location: string, tool: any, errors: stri
   }
   if (keys[0] === 'command') {
     validateCommand(install.command, `${location}.command`, errors);
-    rejectPrivilegeWord(install.command, `${location}.command`, errors);
+    const program = Array.isArray(install.command) ? install.command[0] : undefined;
+    if (program !== undefined && !Object.hasOwn(KNOWN_INSTALLERS, program) && program !== ownProgram(tool)) issue(errors, `${location}.command`, `'${program}' is not a known installer (${Object.keys(KNOWN_INSTALLERS).join(', ')})`);
+    rejectPrivilegeWord(install.command, `${location}.command`, errors, allowedPrograms(tool, program));
     return;
   }
   if (!Array.isArray(install.routes) || install.routes.length === 0) { issue(errors, location, 'routes must be a non-empty array'); return; }
@@ -376,8 +390,13 @@ function validateInstall(install: any, location: string, tool: any, errors: stri
     const privilegedStart = PRIVILEGE_WORDS.has(programName(first));
     if (privilegedStart && route.privileged !== true) issue(errors, at, `a command starting with '${first}' requires privileged: true`);
     if (route.privileged === true && !privilegedStart) issue(errors, at, `privileged: true requires a command starting with one of: ${[...PRIVILEGE_WORDS].join(', ')}`);
-    // A route that is run may not start with a wrapper either; a privileged one is shown only and may hold anything.
-    if (route.privileged !== true && !privilegedStart) rejectPrivilegeWord(route.command, `${at}.command`, errors);
+    // The installer is a known package manager. A route that is run starts with it and names no privilege word; a
+    // privileged one is shown only and may hold anything after its own first word.
+    if (typeof route.installer === 'string' && route.installer.trim() && !Object.hasOwn(KNOWN_INSTALLERS, route.installer)) {
+      issue(errors, at, `installer '${route.installer}' is not a known installer (${Object.keys(KNOWN_INSTALLERS).join(', ')})`);
+    }
+    const routePrograms = allowedPrograms(tool, route.installer);
+    if (route.privileged !== true && !privilegedStart) rejectPrivilegeWord(route.command, `${at}.command`, errors, routePrograms);
     // The installer is the program the route needs on PATH: the command's first word, or the word after sudo.
     const program = route.privileged === true ? route.command?.[1] : first;
     if (typeof route.installer === 'string' && program !== undefined && route.installer !== program) {
@@ -394,7 +413,7 @@ function validateInstall(install: any, location: string, tool: any, errors: stri
       else {
         route.after.forEach((command: any, step: number) => {
           validateCommand(command, `${at}.after[${step}]`, errors);
-          rejectPrivilegeWord(command, `${at}.after[${step}]`, errors);
+          rejectPrivilegeWord(command, `${at}.after[${step}]`, errors, routePrograms);
         });
       }
     }
@@ -412,7 +431,7 @@ function validateInstall(install: any, location: string, tool: any, errors: stri
       if (route[action] === undefined) continue;
       if (!object(route[action]) || Object.keys(route[action]).some((key) => key !== 'command')) { issue(errors, `${at}.${action}`, 'must be a command contract object'); continue; }
       validateCommand(route[action].command, `${at}.${action}.command`, errors);
-      rejectPrivilegeWord(route[action].command, `${at}.${action}.command`, errors);
+      rejectPrivilegeWord(route[action].command, `${at}.${action}.command`, errors, routePrograms);
     }
   });
 }
