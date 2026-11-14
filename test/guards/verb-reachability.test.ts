@@ -34,6 +34,10 @@ const ALLOWLIST: any = new Map([
     'user-invoked by design (034 FR-011): renders a chain artifact\'s mermaid blocks to images on demand and must never run as part of a chain stage, so no skill can invoke it without breaking that requirement',
   ],
   [
+    'render-page',
+    'user-invoked by design, like render-diagrams: writes a feature\'s documents as one HTML page on demand and is never a chain stage, so no skill invokes it',
+  ],
+  [
     'review-package',
     'shell helper invoked by subagent/review orchestration scripts, not called directly as a top-level skill command',
   ],

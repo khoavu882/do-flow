@@ -178,6 +178,7 @@ const CALLERS: any = [
   ['render-audit.sh', []],
   ['render-puml.sh', []],
   ['render-diagrams.sh', []],
+  ['render-page.sh', []],
   ['do-task-brief.sh', ['--task=A.1']],
   ['do-parallel-check.sh', ['--phase=A']],
   ['do-exec-paths.sh', ['--task=A.1']],

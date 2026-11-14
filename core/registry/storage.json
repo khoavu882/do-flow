@@ -1624,6 +1624,14 @@
       "reason": "OS temp scratch with trap rm -rf at :117"
     },
     {
+      "file": "core/shared/scripts/doflow/bash/render-page.sh",
+      "reason": "OS temp file for the projector's stderr, removed by trap; the page itself is written by src/runtime/page-project.ts"
+    },
+    {
+      "file": "src/runtime/page-project.ts",
+      "reason": "agent-docs deliverable (<feature>/page.html, or the file --out names, written by tmp and rename); OS temp scratch for the renderer, removed by dispose()"
+    },
+    {
       "file": "core/shared/scripts/doflow/bash/render-puml.sh",
       "reason": "agent-docs deliverable (.sha beside .puml; design.md block rewrite; trap :174)"
     },
