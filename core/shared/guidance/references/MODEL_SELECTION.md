@@ -20,7 +20,7 @@ authorize unchecked action. Gather evidence at `standard`; judge it at `frontier
 work or use the higher tier.
 
 Effort is a separate dial, not a tier column: an agent spec's `effort:` is the default where the
-harness reads it, and dropped elsewhere.
+harness reads it (Claude Code), and ignored or dropped elsewhere.
 
 ## Choosing a tier for implementation
 
@@ -30,13 +30,13 @@ harness reads it, and dropped elsewhere.
 | Several files or integration with existing patterns | `standard` |
 | Design decision or subsystem investigation | `frontier` |
 
-`standard` is the floor for prose-led implementation; use `light` only for verbatim or single-file
+`standard` is the floor for prose-led implementation; use `light` only for verbatim or 1–2-file
 mechanical work. Fewer turns can cost less than a cheaper model that needs repeated correction.
 
 ## Reviews
 
 Reviews are read-only `frontier` work by an agent and model different from the author. Report if that
-tier is unavailable. Review once per phase or fix batch; re-review after fixes is automatic, per
+tier is unavailable. Review at most once per phase or fix batch; re-review after fixes is automatic, per
 `doflow review --action start`.
 
 ## Archetype dispatch tiers

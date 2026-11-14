@@ -1295,6 +1295,41 @@ test('E.1 home: Needs you first and oldest first, then Running and Finished newe
   assert.equal(page.doc.title, '(2) Runs · DoFlow Console');
 });
 
+// The Running tile counts live runs only; silent runs (over a day) show as a Stale count beside it, and stay in the list.
+const DAY_MS = 24 * 3_600_000;
+const liveRuns = () => [frow('l1', 2, { updatedAt: agoIso(MIN_MS) }), frow('l2', 2, { updatedAt: agoIso(5 * MIN_MS) }), frow('l3', 2, { updatedAt: agoIso(9 * MIN_MS) })];
+const staleRuns = () => [frow('s1', 2, { updatedAt: agoIso(DAY_MS + 3_600_000) }), frow('s2', 2, { updatedAt: agoIso(2 * DAY_MS) })];
+async function runningTile(runs: () => any[]) {
+  mods.home.resetHome();
+  const page = await start({ hash: '', fetch: homeFetch(() => body(runs())) });
+  const tile = page.main.querySelectorAll('.tile')[1];
+  return { page, tile, count: text(tile.querySelector('.tile__count')), chip: tile.querySelector('.tile__stale'), sub: text(tile.querySelector('.tile__sub-long')) };
+}
+
+test('E.1 home: 3 live and 2 stale runs: Running counts 3, a Stale count of 2 sits beside it, and the stale rows stay listed with their badge', async () => {
+  const { page, tile, count, chip, sub } = await runningTile(() => [...liveRuns(), ...staleRuns()]);
+  assert.equal(text(tile.querySelector('.tile__label')), 'Running');
+  assert.equal(count, '3 live runs, 2 stale', 'read in order: the live count with its noun, then the chip');
+  assert.equal(text(chip), '2 stale');
+  assert.equal(sub, 'no update for 2 d');
+  const running = page.main.querySelectorAll('.run-section')[1];
+  assert.equal(running.querySelectorAll('.run-row').length, 5, 'stale runs stay in the list');
+  assert.equal(running.querySelectorAll('.badge').map(text).filter((word) => word === 'Stale').length, 2);
+});
+
+test('E.1 home: 3 live and no stale runs: Running counts 3 and no Stale count shows', async () => {
+  const { count, chip, sub } = await runningTile(liveRuns);
+  assert.equal(count, '3');
+  assert.equal(chip, null);
+  assert.equal(sub, 'all updating');
+});
+
+test('E.1 home: only stale runs: Running counts 0 and the Stale count carries them', async () => {
+  const { count, chip } = await runningTile(staleRuns);
+  assert.equal(count, '0 live runs, 2 stale');
+  assert.equal(text(chip), '2 stale');
+});
+
 test('E.1 home: each row draws a compact rail of its class, hidden from assistive technology, with the description read on focus', async () => {
   mods.home.resetHome();
   const runs = () => [frow('w1', 4), frow('d1', 1, { state: 'RUNNING', taskClass: 'documentation', workflowName: 'Documentation', progress: { done: 1, total: 3 }, current: { type: 'stage', id: 'verification', kind: 'verification' } })];
@@ -1814,7 +1849,8 @@ test('CD-B4 tiles: one fact each, a long and a short form, in the accessible nam
   assert.deepEqual(sub(tiles[0]), ['longest wait 2 h 14 min', 'longest wait 2 h 14 min']);
   assert.equal(text(tiles[0].querySelector('.tile__sub-short').children[0]), 'longest wait ');
   assert.equal(tiles[0].querySelector('.tile__sub-short').children[0].classList.contains('vh'), true);
-  assert.deepEqual(sub(tiles[1]), ['1 stale, no update for 2 d 2 h', '1 stale']);
+  assert.deepEqual(sub(tiles[1]), ['no update for 2 d 2 h', 'no update for 2 d 2 h']);
+  assert.equal(text(tiles[1].querySelector('.tile__count')), '1 live run, 1 stale', 'one live run, one stale beside it');
   assert.deepEqual(sub(tiles[2]), ['2 completed, 1 rejected', '1 rejected']);
   tiles[0].fire('click');
   const pressed = page.main.querySelector('.tile');

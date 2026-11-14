@@ -360,7 +360,7 @@ test('groupRuns: Needs you oldest first, Running and Finished newest first, null
   assert.deepEqual(groups.needs.map((r: any) => r.taskId), ['a-wait', 'b-wait', 'n-wait']);
   assert.deepEqual(groups.running.map((r: any) => r.taskId), ['r2', 'r1', 'r-null']);
   assert.deepEqual(groups.finished.map((r: any) => r.taskId), ['done-new', 'tie-a', 'tie-b']);
-  assert.deepEqual(rail.countRuns(runs), { needs: 3, running: 3, finished: 3 });
+  assert.deepEqual(rail.countRuns(runs, NOW), { needs: 3, running: 3, stale: 0, finished: 3 });
   assert.equal(rail.runKey(run('t', 'RUNNING', null, { featureSlug: null })), '-/t');
   assert.equal(rail.runKey(run('t', 'RUNNING', null)), 'f/t');
 });
@@ -426,7 +426,8 @@ test('CD-B4 tileFacts: one fact per tile, long and short forms, and the empty ca
   ];
   const facts = rail.tileFacts(runs, NOW);
   assert.deepEqual(facts.needs, { long: 'longest wait 2 h 14 min', short: '2 h 14 min', prefix: 'longest wait ' });
-  assert.deepEqual(facts.running, { long: '2 stale, no update for 2 d 2 h', short: '2 stale', prefix: '' });
+  assert.deepEqual(facts.running, { long: 'no update for 2 d 2 h', short: '2 d 2 h', prefix: 'no update for ' });
+  assert.deepEqual(rail.countRuns(runs, NOW), { needs: 3, running: 1, stale: 2, finished: 3 }, 'the Running count leaves the silent runs out');
   assert.deepEqual(facts.finished, { long: '2 completed, 1 rejected', short: '1 rejected', prefix: '' });
   const calm = rail.tileFacts([run('r', 'RUNNING', ago(MIN)), run('f', 'COMPLETED', ago(MIN))], NOW);
   assert.equal(calm.needs.long, 'nothing waiting');
@@ -498,8 +499,9 @@ test('R3-7 on stale data the durations measured to now stop: "since HH:MM" in th
   const facts = rail.tileFacts([run('w', 'AWAITING_GATE', new Date(at).toISOString()), run('r', 'RUNNING', new Date(old).toISOString()), run('ok', 'RUNNING', new Date(NOW - MIN).toISOString())], NOW, stale);
   assert.deepEqual(facts.needs, { long: `waiting since ${hm(at)}`, short: hm(at), prefix: 'waiting since ' });
   const d = new Date(old);
-  assert.equal(facts.running.long, `1 stale, no update since ${d.getDate()} ${MONTHS[d.getMonth()]} ${hmOnly(old)}`);
-  assert.equal(facts.running.short, '1 stale');
+  assert.equal(facts.running.long, `no update since ${d.getDate()} ${MONTHS[d.getMonth()]} ${hmOnly(old)}`);
+  assert.equal(facts.running.short, `${d.getDate()} ${MONTHS[d.getMonth()]} ${hmOnly(old)}`);
+  assert.equal(facts.running.prefix, 'no update since ');
   assert.equal(rail.tileFacts([run('w', 'AWAITING_GATE', new Date(at).toISOString())], NOW).needs.long, 'longest wait 2 h 14 min', 'fresh data is unchanged');
   assert.equal(rail.waitStamp(wait, NOW, true), hm(at));
   assert.equal(rail.waitStamp({ ...wait, updatedAt: null }, NOW, true), null);
@@ -539,7 +541,7 @@ test('a CLOSED run: a finished run that stopped where it stood, on a stage or a 
 
   const ago = (ms: number) => new Date(NOW - ms).toISOString();
   const runs = [run('r', 'RUNNING', ago(MIN)), run('c1', 'CLOSED', ago(MIN)), run('c2', 'CLOSED', ago(HOUR)), run('d', 'COMPLETED', ago(MIN)), run('x', 'REJECTED', ago(MIN))];
-  assert.deepEqual(rail.countRuns(runs), { needs: 0, running: 1, finished: 4 });
+  assert.deepEqual(rail.countRuns(runs, NOW), { needs: 0, running: 1, stale: 0, finished: 4 });
   assert.equal(rail.tileFacts(runs, NOW).finished.long, '1 completed, 1 rejected, 2 closed');
   // No closed run: the tile reads as it did before the state existed.
   assert.equal(rail.tileFacts(runs.filter((r) => r.state !== 'CLOSED'), NOW).finished.long, '1 completed, 1 rejected');

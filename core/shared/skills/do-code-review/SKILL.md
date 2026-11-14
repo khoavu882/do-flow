@@ -185,8 +185,7 @@ DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
      ```bash
      "$DOFLOW" render-audit --slug="<feature_slug>" --json
      ```
-   - This step gains the review no authority either, exactly as step 2's own note says: the gate
-     records the user's answer, it does not produce one. If any call here fails for a reason outside
+   - If any call here fails for a reason outside
      this flow's control (an unwritable local state directory, say), report the failure plainly and
      continue — a missing `audit.md` entry changes nothing about the verdict already reported.
 
@@ -211,8 +210,7 @@ through specialist subagents (`/do-execute-plan`'s job) or replace human judgmen
 ## Running the review in a subagent
 
 A review over a large change can be dispatched whole to the `reviewer` agent, which
-returns its report to the calling session. Use it when the analysis would otherwise consume context the caller still needs for
-the work itself.
+returns its report to the calling session. Use it when this session wrote the change, or needs its context for the work itself.
 
 This changes **where** the review runs and nothing else: the dispatched review loads the same rules
 files by the same dispatch tables, states the same Review Contract, and returns the same verdict

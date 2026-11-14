@@ -147,9 +147,9 @@ not declare is not run here, however familiar it is from the `feature` chain.
    ```
 
 8. **Never skip a gate on an ambiguous answer** — an unanswered or unclear response to the
-   question tool means stop and ask again, per RULE_04 in `rules/RULES.md`. When the
-   terminal stage completes, state `workflow.handoff` as the next step rather than continuing into
-   it.
+   question tool means stop and ask again, per RULE_04 in `rules/RULES.md`. Finish per the
+   guidance tree's `references/ORCHESTRATION.md` § Finishing. When the terminal stage completes,
+   state `workflow.handoff` as the next step rather than continuing into it.
 
 ## Conditional research within a feature
 
@@ -176,7 +176,6 @@ Before a feature stage relies on an external fact that local or user evidence ca
 - Modify any stage skill, or invoke `do-constitution` — it is standalone and in no class.
 - Add a hook-level enforcement gate for commit/merge — `gate-b` is conversational only. A
   hook-level version would be a separate, future proposal.
-- Silently proceed past a gate on an ambiguous or missing answer.
 - Record a pause or a deferral as a gate decision — `Let me review the artifacts first` and "let me
   address the findings first" are neither `approve` nor `reject`, and forcing them into one writes a
   decision the user did not make.

@@ -5,7 +5,8 @@ Use `references/MODEL_SELECTION.md`; follow `PRINCIPLES.md` and `rules/RULES.md`
 ## Role and handoff
 
 Decide, verify, keep records. Delegate for what it buys: parallel work on disjoint write sets,
-a reader not anchored on your view, a review of your own change. Otherwise work in the session; a
+a reader not anchored on your view, a review of your own change, a long task kept out of your
+context. Otherwise work in the session; a
 subagent costs a context load and a lossy summary each way. Check author and trailers after agent
 commits.
 

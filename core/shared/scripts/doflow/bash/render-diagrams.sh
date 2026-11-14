@@ -111,6 +111,7 @@ artifacts=()
 if [ -n "$artifact_override" ]; then
   candidate="$artifact_override"
   [ -f "$candidate" ] || candidate="$repo_root/$artifact_override"
+  [ -f "$candidate" ] || candidate="$feature_root/$artifact_override"
   [ -f "$candidate" ] || { printf 'render-diagrams: no such artifact: %s\n' "$artifact_override" >&2; exit 2; }
   artifacts+=("$candidate")
 else

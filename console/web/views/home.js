@@ -388,8 +388,11 @@ function section(id, runs, context) {
   ]);
 }
 
-/** @param {string} id @param {number} count @param {{ long: string, short: string, prefix: string }} fact @param {any} context */
-function tile(id, count, fact, context) {
+/**
+ * One summary tile. `staleCount` (the Running tile only) shows beside the count when above zero: silent runs are not "running".
+ * @param {string} id @param {number} count @param {{ long: string, short: string, prefix: string }} fact @param {any} context @param {number} [staleCount]
+ */
+function tile(id, count, fact, context, staleCount = 0) {
   const spec = SECTIONS[id];
   const pressed = page.filter === id;
   return h('button', {
@@ -400,8 +403,14 @@ function tile(id, count, fact, context) {
     on: { click: () => { page.filter = pressed ? null : id; context.rerender(`tile:${id}`); } },
   }, [
     h('span', { class: 'tile__label' }, [icon(spec.face, 12), spec.label]),
-    h('span', { class: 'tile__count' }, [String(count), pressed ? h('span', { class: 'tile__check' }, icon('check', 16)) : null]),
-    h('span', { class: 'vh' }, count === 1 ? ' run' : ' runs'),
+    h('span', { class: 'tile__count' }, [
+      String(count),
+      pressed ? h('span', { class: 'tile__check' }, icon('check', 16)) : null,
+      // Read aloud as "3 live runs, 2 stale": the noun comes before the chip, and says the count is the live ones.
+      staleCount > 0 ? h('span', { class: 'vh' }, count === 1 ? ' live run, ' : ' live runs, ') : null,
+      staleCount > 0 ? h('span', { class: 'tile__stale', dataset: { state: 'stale' } }, `${staleCount} stale`) : null,
+    ]),
+    staleCount > 0 ? null : h('span', { class: 'vh' }, count === 1 ? ' run' : ' runs'),
     h('span', { class: 'tile__sub' }, [
       h('span', { class: 'tile__sub-long' }, fact.long),
       h('span', { class: 'tile__sub-short' }, [h('span', { class: 'vh tile__sub-prefix' }, fact.prefix), h('span', { class: 'tile__sub-text' }, fact.short)]),
@@ -412,12 +421,12 @@ function tile(id, count, fact, context) {
 /** @param {any} data @param {any} context */
 function homeContent(data, context) {
   const groups = groupRuns(data.runs);
-  const counts = countRuns(data.runs);
+  const counts = countRuns(data.runs, context.now);
   const facts = tileFacts(data.runs, context.now);
   const filter = page.filter;
   const unreadable = data.unreadableCount;
   return [
-    h('div', { class: 'summary', role: 'group', 'aria-label': 'Filter runs by state' }, SECTION_ORDER.map((id) => tile(id, counts[/** @type {'needs'} */ (id)], facts[id], context))),
+    h('div', { class: 'summary', role: 'group', 'aria-label': 'Filter runs by state' }, SECTION_ORDER.map((id) => tile(id, counts[/** @type {'needs'} */ (id)], facts[id], context, id === 'running' ? counts.stale : 0))),
     filter
       ? h('div', { class: 'filter-status' }, [
         h('span', {}, SECTIONS[filter].sentence),

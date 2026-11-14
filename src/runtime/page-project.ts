@@ -24,6 +24,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { shown } = require('./mask.ts');
 
 /** The documents a page carries, in reading order: [key in `paths --json`, label on the page]. */
 const DOCUMENTS: ReadonlyArray<readonly [string, string]> = [
@@ -126,20 +127,89 @@ function resolveHref(url: string, ctx: any): string | null {
   return fragment ? `${rel}#${fragment}` : rel;
 }
 
-/** Inline markdown in one run of text: code spans, links, bold, italic, strike and `<br>`. */
+/** Image types the page embeds, by extension. A `.drawio.svg` is an SVG and needs no entry of its own. */
+const IMAGE_TYPES: Record<string, string> = {
+  '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp',
+};
+/** Largest image file the page embeds; a larger one is named as left out. */
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+/** Most image bytes one page carries, counted once per reference since each reference repeats the data. */
+const MAX_PAGE_IMAGE_BYTES = 20 * 1024 * 1024;
+
+/** What one page's images need to remember; the two limits can be set per page, for a test. */
+function newImageState(limits: { maxImageBytes?: number; maxPageBytes?: number } = {}) {
+  return {
+    embedded: 0, skipped: [] as string[], bytes: 0, cache: new Map<string, { type: string; size: number; data: string }>(),
+    maxImageBytes: limits.maxImageBytes ?? MAX_IMAGE_BYTES, maxPageBytes: limits.maxPageBytes ?? MAX_PAGE_IMAGE_BYTES,
+  };
+}
+
+/**
+ * An image a document shows, embedded so the page stays one file. Only a file of a known image type
+ * inside the feature's checkout is read (links followed first, so a link out of the checkout is
+ * refused, and the type is the real file's, not the link's); a web address becomes a link, since
+ * loading it would make the page call out when opened. It is always an `<img>`: a browser runs no
+ * script from an SVG shown that way.
+ */
+function imageHtml(alt: string, url: string, ctx: any): string {
+  const label = escapeHtml(alt);
+  const images = ctx.images || newImageState();
+  const left = (why: string) => {
+    // The address is document text and reaches a terminal in the note, so it is printed safe.
+    images.skipped.push(`${shown(url)}: ${why}`);
+    return `<span class="image-missing">${label || escapeHtml(url)} (image not shown: ${escapeHtml(why)})</span>`;
+  };
+  if (/[\u0000-\u0020\u007f\\]/.test(url)) return left('unsafe path');
+  if (/^https?:/i.test(url)) return `<a href="${escapeHtml(url)}">${label || escapeHtml(url)}</a>`;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(url) || url.startsWith('//')) return left('not a local file');
+  if (!ctx.dir || !ctx.root) return left('no folder to read from');
+  const file = url.replace(/[?#].*$/, '');
+  if (!IMAGE_TYPES[path.extname(file).toLowerCase()]) return left('not an image type the page embeds');
+  try {
+    const real = fs.realpathSync(path.resolve(ctx.dir, file));
+    // A link named `a.svg` may point at any file: the type is the file read, not the name asked for.
+    const type = IMAGE_TYPES[path.extname(real).toLowerCase()];
+    if (!type) return left('not an image type the page embeds');
+    const inside = path.relative(fs.realpathSync(ctx.root), real);
+    if (inside === '..' || inside.startsWith(`..${path.sep}`) || path.isAbsolute(inside)) return left('outside the checkout');
+    let entry = images.cache.get(real);
+    if (!entry) {
+      const stat = fs.statSync(real);
+      if (!stat.isFile()) return left('not a file');
+      if (stat.size > images.maxImageBytes) return left(`larger than ${+(images.maxImageBytes / 1024 / 1024).toFixed(2)} MB`);
+      entry = { type, size: stat.size, data: fs.readFileSync(real).toString('base64') };
+      images.cache.set(real, entry);
+    }
+    if (images.bytes + entry.size > images.maxPageBytes) return left('page image budget reached');
+    images.bytes += entry.size;
+    images.embedded++;
+    return `<img class="image" alt="${label}" src="data:${entry.type};base64,${entry.data}">`;
+  } catch {
+    return left('file not found');
+  }
+}
+
+/** Inline markdown in one run of text: code spans, images, links, bold, italic, strike and `<br>`. */
 function inline(text: string, ctx: any): string {
   // A code span and a link's tags are set aside as numbered marks while the rest is formatted, so bold
   // may wrap a code span and no later pattern can rewrite what is inside a tag.
   const held: string[] = [];
-  const hold = (html: string) => `\u0000${held.push(html) - 1}\u0000`;
+  // What each mark reads as without markup: a code span's text, nothing for a tag. An image's alt wants it.
+  const plain: string[] = [];
+  const hold = (html: string, text = '') => { plain.push(text); return `\u0000${held.push(html) - 1}\u0000`; };
   const spans = text.replace(/\u0000/g, '')
-    .replace(/(`+)([\s\S]*?[^`])\1(?!`)/g, (_all: string, _ticks: string, body: string) => hold(`<code>${escapeHtml(body.trim())}</code>`));
+    .replace(/(`+)([\s\S]*?[^`])\1(?!`)/g, (_all: string, _ticks: string, body: string) => hold(`<code>${escapeHtml(body.trim())}</code>`, body.trim()));
   let html = escapeHtml(spans);
   html = html.replace(/&lt;br\s*\/?&gt;/gi, '<br>');
+  // The URL was escaped with the rest of the text; undo that to judge it, and escape it again to write it.
+  const unescaped = (url: string) => url.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+  html = html.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (_all: string, alt: string, url: string) => {
+    // An address written as a code span is text, not an image to read: kept as written, marks restored.
+    if (url.includes('\u0000')) return hold(_all.replace(/\u0000(\d+)\u0000/g, (_m: string, n: string) => held[Number(n)]));
+    return hold(imageHtml(unescaped(alt).replace(/\u0000(\d+)\u0000/g, (_m: string, n: string) => plain[Number(n)]), unescaped(url), ctx));
+  });
   html = html.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_all: string, label: string, url: string) => {
-    // The URL was escaped with the rest of the text; undo that to judge it, and escape it again to write it.
-    const raw = url.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
-    const href = resolveHref(raw, ctx);
+    const href = resolveHref(unescaped(url), ctx);
     return href === null ? label : `${hold(`<a href="${escapeHtml(href)}">`)}${label}${hold('</a>')}`;
   });
   html = html.replace(/\*\*([^\s*](?:[\s\S]*?[^\s*])??)\*\*/g, '<strong>$1</strong>');
@@ -195,7 +265,7 @@ function diagramHtml(source: string, ctx: any): string {
   return `<figure class="diagram diagram--source"><figcaption>Diagram source, not rendered</figcaption>${text}</figure>`;
 }
 
-function listHtml(lines: string[], start: number, ctx: any): { html: string; next: number } {
+function listHtml(lines: string[], start: number, ctx: any, depth: number): { html: string; next: number } {
   const base = indentOf(lines[start]);
   const ordered = /^\s*\d/.test(lines[start]);
   const items: string[] = [];
@@ -227,7 +297,7 @@ function listHtml(lines: string[], start: number, ctx: any): { html: string; nex
       box = `<input type="checkbox" disabled${task[1] === ' ' ? '' : ' checked'}> `;
       first = task[2];
     }
-    const blocks = blocksHtml([first, ...rest.map((l) => l.slice(Math.min(cut, indentOf(l))))], ctx);
+    const blocks = blocksHtml([first, ...rest.map((l) => l.slice(Math.min(cut, indentOf(l))))], ctx, depth + 1);
     // A one-paragraph item reads as a line, not as a paragraph inside a bullet.
     if (blocks.length > 0 && blocks[0].startsWith('<p>')) blocks[0] = blocks[0].slice(3, -4);
     items.push(`<li${task ? ' class="task"' : ''}>${box}${blocks.join('\n')}</li>`);
@@ -237,8 +307,16 @@ function listHtml(lines: string[], start: number, ctx: any): { html: string; nex
   return { html: `<${tag}${first > 1 ? ` start="${first}"` : ''}>\n${items.join('\n')}\n</${tag}>`, next: i };
 }
 
-/** The HTML blocks of a run of markdown lines. */
-function blocksHtml(lines: string[], ctx: any): string[] {
+/** Quote and list levels converted as nested blocks; real documents stay in single digits. */
+const MAX_BLOCK_DEPTH = 64;
+
+/**
+ * The HTML blocks of a run of markdown lines. Each quote or list level recurses with `depth + 1`; past
+ * MAX_BLOCK_DEPTH the remaining lines are one escaped preformatted block, so a hostile document cannot
+ * overflow the stack (FU-wdq963).
+ */
+function blocksHtml(lines: string[], ctx: any, depth = 0): string[] {
+  if (depth > MAX_BLOCK_DEPTH) return [`<pre><code>${escapeHtml(lines.join('\n'))}</code></pre>`];
   const out: string[] = [];
   let i = 0;
   while (i < lines.length) {
@@ -278,7 +356,7 @@ function blocksHtml(lines: string[], ctx: any): string[] {
     if (QUOTE.test(line)) {
       const body: string[] = [];
       while (i < lines.length && QUOTE.test(lines[i])) { body.push(lines[i].replace(QUOTE, '')); i++; }
-      out.push(`<blockquote>\n${blocksHtml(body, ctx).join('\n')}\n</blockquote>`);
+      out.push(`<blockquote>\n${blocksHtml(body, ctx, depth + 1).join('\n')}\n</blockquote>`);
       continue;
     }
 
@@ -295,7 +373,7 @@ function blocksHtml(lines: string[], ctx: any): string[] {
     }
 
     if (LIST_ITEM.test(line)) {
-      const list = listHtml(lines, i, ctx);
+      const list = listHtml(lines, i, ctx, depth);
       out.push(list.html);
       i = list.next;
       continue;
@@ -361,6 +439,8 @@ th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-ali
 th{background:var(--code);font-weight:600}
 .diagram{margin:0 0 18px;padding:16px;background:var(--figure);border:1px solid var(--line);border-radius:8px;text-align:center;overflow-x:auto}
 .diagram img{max-width:100%;height:auto}
+img.image{display:block;max-width:100%;height:auto;margin:0 auto 18px}
+.image-missing{color:var(--muted);font-style:italic}
 .diagram pre{text-align:left;margin:0}
 .diagram pre.mermaid{background:none;color:#22252e}
 .diagram details{margin-top:10px;text-align:left;font-size:13px;color:#5d6577}
@@ -441,6 +521,7 @@ function buildPage({ paths, root, out, mode = 'auto', theme = null, now = new Da
   }
   const renderer = resolved === 'inline' && !render ? mmdcRenderer(themeFile) : null;
   const diagrams = { mode: resolved, blocks: 0, rendered: 0, failures: 0 };
+  const images = newImageState();
   const docs = new Map(found.map((doc) => [path.resolve(root, doc.rel), doc.key]));
   const featureDir = typeof paths.feature_dir === 'string' ? paths.feature_dir : '';
   const target = path.resolve(out || path.join(root, featureDir, 'page.html'));
@@ -454,7 +535,7 @@ function buildPage({ paths, root, out, mode = 'auto', theme = null, now = new Da
       const text = fs.readFileSync(path.join(root, doc.rel), 'utf8');
       const { html, sections } = documentHtml(text, {
         key: doc.key, label: doc.label, mode: resolved, diagrams, render: render || renderer?.render,
-        docs, dir: path.dirname(path.resolve(root, doc.rel)), outDir: path.dirname(target),
+        docs, dir: path.dirname(path.resolve(root, doc.rel)), outDir: path.dirname(target), root, images,
       });
       const shown = featureDir && doc.rel.startsWith(`${featureDir}/`) ? doc.rel.slice(featureDir.length + 1) : doc.rel;
       sectionsHtml += `<section class="doc" id="doc-${keyId(doc.key)}">\n`
@@ -488,7 +569,8 @@ function buildPage({ paths, root, out, mode = 'auto', theme = null, now = new Da
   fs.writeFileSync(tmp, page);
   try { fs.renameSync(tmp, target); }
   catch (err) { fs.rmSync(tmp, { force: true }); throw err; }
-  return { ok: diagrams.failures === 0, written: true, file: target, documents, diagrams, ...(notes.length ? { note: notes.join('; ') } : {}) };
+  if (images.skipped.length) notes.push(`${images.skipped.length} image(s) not shown: ${images.skipped.join(', ')}`);
+  return { ok: diagrams.failures === 0, written: true, file: target, documents, diagrams, images: { embedded: images.embedded, skipped: images.skipped.length }, ...(notes.length ? { note: notes.join('; ') } : {}) };
 }
 
 module.exports = { buildPage, documentHtml, inline, stripComments, splitRow, slugify, DOCUMENTS, MODES, MERMAID_SCRIPT, MERMAID_INTEGRITY };
