@@ -411,7 +411,7 @@ function findNamespacedRun({ stateRoot, taskId, exec }: any) {
   const settle = (entries: Array<{ file: string; namespace: string|null }>, root: string, origin: 'current'|'other') => (
     entries.length === 1
       ? { status: 'found', file: entries[0].file, root, origin, candidates: [], ...(entries[0].namespace !== null ? { slug: entries[0].namespace } : {}) }
-      : { ...missing, status: 'ambiguous', byFeature: true, candidates: entries.map((entry) => entry.file) });
+      : { ...missing, status: 'ambiguous', byFeature: true, candidates: entries.map((entry) => entry.file), slugs: entries.map((entry) => entry.namespace) });
   const here = inRoot(stateRoot);
   if (here.length > 0) return settle(here, stateRoot, 'current');
   const checkouts = listCheckouts({ cwd: stateRoot, ...(exec ? { exec } : {}) });

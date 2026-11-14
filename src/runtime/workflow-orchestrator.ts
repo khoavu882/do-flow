@@ -1323,7 +1323,7 @@ function listRuns({ json, stateRoot, ...flags }: any) {
 /** The message `orchestrate` prints, and exits 1 on, when the id names more than one run. */
 function ambiguousRunMessage(taskId: any, found: any) {
   return found.byFeature
-    ? `[ERROR] orchestrate: run '${taskId}' exists under more than one feature (${found.candidates.join(', ')}); pass --slug <feature> to name the one you mean. Nothing was changed.`
+    ? `[ERROR] orchestrate: run '${taskId}' exists under more than one feature (${found.candidates.join(', ')}); pass --slug <feature> to name the one you mean${(found.slugs || []).filter(Boolean).length ? ` (${found.slugs.filter(Boolean).map((name: string) => `--slug ${name}`).join(' or ')})` : ''}. Nothing was changed.`
     : `[ERROR] orchestrate: run '${taskId}' exists in more than one other checkout (${found.candidates.join(', ')}); run the command from the checkout that holds the run you mean. Nothing was changed.`;
 }
 
@@ -1352,10 +1352,12 @@ function locateRun({ action, taskId, slug = null, recordSlug, repoRoot, stateRoo
   // refuses nor satisfies it.
   let runRoot = state;
   if (safeId && action !== 'start') {
-    // `status` (and `timeline`, which reads the same run) with no --slug opens the one run the list
-    // action shows for the id, whichever feature namespace holds it (FU-wrnnaq); more than one is
-    // refused until --slug names the feature.
-    const found = findRunFile({ stateRoot: state, taskId, slug: featureSlug, anyNamespace: (action === 'status' || action === 'timeline') && !slug });
+    // `status`, `timeline`, `annotate` and `close` with no --slug open the one run the list action
+    // shows for the id, whichever feature namespace holds it (FU-wrnnaq): a run whose task id differs
+    // from its folder is found by the id `list` prints. More than one is refused, listing each --slug.
+    // The verbs that move a run forward (complete-stage, decide-gate, ...) still act on this
+    // checkout's feature only, so they never take another feature's run for this branch's task.
+    const found = findRunFile({ stateRoot: state, taskId, slug: featureSlug, anyNamespace: ['status', 'timeline', 'annotate', 'close'].includes(action) && !slug });
     if (found.status === 'ambiguous') return { ambiguous: ambiguousRunMessage(taskId, found) };
     if (found.status === 'found') {
       runRoot = found.root;
