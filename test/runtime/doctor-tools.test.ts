@@ -26,19 +26,19 @@ async function doctorText(t: any, present: string[]) {
 }
 const section = (text: string) => text.split('\n[External Tools]\n')[1].split('\n\n')[0];
 
-test('doctor report: an absent tool carries its role, what it unlocks and the install command for this machine', (t) => {
+test('doctor report: an absent tool carries its role and the install command for this machine, a present one carries no install key', (t) => {
   const dir = tempDir(t, 'doflow-doctor-tools-');
-  const report = buildHealthReport({ repoRoot: REPO_ROOT, projectRoot: dir, router: routerWith(['brew', 'npm']), execFileImpl: stub });
+  const report = buildHealthReport({ repoRoot: REPO_ROOT, projectRoot: dir, router: routerWith(['cargo', 'npm']), execFileImpl: stub });
   const byId = (id: string) => report.externalTools.find((tool: any) => tool.id === id);
   assert.equal(byId('jq').role, 'required');
   assert.equal(byId('jq').status, 'ABSENT');
   assert.equal(byId('jq').unlocks, undefined, 'what a tool unlocks is `doflow tools`, not the doctor report');
-  assert.deepEqual(byId('rtk').install.command, ['brew', 'install', 'rtk-ai/tap/rtk']);
+  assert.deepEqual(byId('rtk').install.command, ['cargo', 'install', '--git', 'https://github.com/rtk-ai/rtk', '--branch', 'master', 'rtk']);
   // mermaid-cli is judged by its binary, mmdc, not by its id.
   assert.equal(routerWith(['mmdc']).isBinaryAvailable('mermaid-cli'), false);
   const withMmdc = buildHealthReport({ repoRoot: REPO_ROOT, projectRoot: dir, router: routerWith(['mmdc']), execFileImpl: stub });
   assert.notEqual(withMmdc.externalTools.find((tool: any) => tool.id === 'mermaid-cli').status, 'ABSENT');
-  assert.equal(withMmdc.externalTools.find((tool: any) => tool.id === 'mermaid-cli').install, null);
+  assert.equal('install' in withMmdc.externalTools.find((tool: any) => tool.id === 'mermaid-cli'), false);
   assert.equal(report.findings.some((finding: any) => /tool/.test(finding.kind)), false, 'an absent tool is information, not a finding');
 });
 

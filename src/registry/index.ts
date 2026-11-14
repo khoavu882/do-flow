@@ -42,6 +42,9 @@ const MCP_TRANSPORTS = new Set(['stdio', 'http', 'sse']);
 const EXTERNAL_TOOL_IDS = new Set(['rtk', 'graphify', 'semble', 'mermaid-cli', 'plantuml', 'jq', 'git', 'bash', 'ripgrep', 'drawio', 'python3', 'agent-browser']);
 const EXTERNAL_TOOL_ROLES = new Set(['required', 'optional']);
 const EXTERNAL_TOOL_PLATFORMS = new Set(['darwin', 'linux']);
+// Words that hand a command to a more privileged user. DoFlow never runs a command that starts with
+// one: such a route is `privileged` and only shown, and no `after`, `update` or `uninstall` step starts with one.
+const PRIVILEGE_WORDS = new Set(['sudo', 'doas', 'su']);
 const EXTERNAL_TOOL_ACTIONS = new Set(['install', 'update', 'uninstall']);
 const MODEL_KINDS = new Set(['hosted', 'local']);
 const MODEL_SLOT_IDS = new Set(['dense', 'rerank']);
@@ -310,6 +313,34 @@ function validateExternalTool(value: any, location: string, errors: string[]): v
       if (key !== 'command') issue(errors, `${location}.${action}`, `unsupported field '${key}'`);
     }
     validateCommand(value[action].command, `${location}.${action}.command`, errors);
+    rejectPrivilegeWord(value[action].command, `${location}.${action}.command`, errors);
+  }
+  checkManagedRoutesAgree(value, location, errors);
+}
+
+function rejectPrivilegeWord(command: any, location: string, errors: string[]): void {
+  if (Array.isArray(command) && PRIVILEGE_WORDS.has(command[0])) {
+    issue(errors, location, `a command DoFlow runs may not start with '${command[0]}'; a step that needs it belongs in a route's manual list`);
+  }
+}
+
+/** The managed route of a platform is the first route that fits it: the only one `doflow tools` runs, and so the
+ * only way a tool gets installed that `update` and `uninstall` must also handle. Their commands therefore run the
+ * route's own installer, or the tool's own binary (a self-update such as `agent-browser upgrade`). */
+function checkManagedRoutesAgree(tool: any, location: string, errors: string[]): void {
+  const routes = tool.install?.routes;
+  if (!Array.isArray(routes) || !Array.isArray(tool.status?.commands) || !Array.isArray(tool.status.commands[0])) return;
+  const own = tool.status.commands[0][0];
+  for (const platform of EXTERNAL_TOOL_PLATFORMS) {
+    const managed = routes.find((route: any) => object(route) && (!route.platforms || (Array.isArray(route.platforms) && route.platforms.includes(platform))));
+    if (!managed) continue;
+    for (const action of ['update', 'uninstall']) {
+      const contract = managed[action] ?? tool[action];
+      const first = object(contract) && Array.isArray(contract.command) ? contract.command[0] : undefined;
+      if (first !== undefined && first !== managed.installer && first !== own) {
+        issue(errors, location, `${action} runs '${first}' but the managed install route on ${platform} uses '${managed.installer}'; the routes after the first are alternatives DoFlow never runs, so update and uninstall must handle what the first one installs`);
+      }
+    }
   }
 }
 
@@ -324,17 +355,29 @@ function validateInstall(install: any, location: string, tool: any, errors: stri
     issue(errors, location, "must hold exactly one of 'command' or 'routes'");
     return;
   }
-  if (keys[0] === 'command') { validateCommand(install.command, `${location}.command`, errors); return; }
+  if (keys[0] === 'command') {
+    validateCommand(install.command, `${location}.command`, errors);
+    rejectPrivilegeWord(install.command, `${location}.command`, errors);
+    return;
+  }
   if (!Array.isArray(install.routes) || install.routes.length === 0) { issue(errors, location, 'routes must be a non-empty array'); return; }
   const evidence = Array.isArray(tool.officialEvidence) ? tool.officialEvidence : [];
   install.routes.forEach((route: any, index: number) => {
     const at = `${location}.routes[${index}]`;
     if (!object(route)) { issue(errors, at, 'must be an object'); return; }
     for (const key of Object.keys(route)) {
-      if (!['installer', 'command', 'platforms', 'privileged', 'after', 'evidence'].includes(key)) issue(errors, at, `unsupported field '${key}'`);
+      if (!['installer', 'command', 'platforms', 'privileged', 'after', 'manual', 'update', 'uninstall', 'evidence'].includes(key)) issue(errors, at, `unsupported field '${key}'`);
     }
     if (typeof route.installer !== 'string' || !route.installer.trim()) issue(errors, at, 'requires installer (the binary this route needs on PATH)');
     validateCommand(route.command, `${at}.command`, errors);
+    const first = Array.isArray(route.command) ? route.command[0] : undefined;
+    if (PRIVILEGE_WORDS.has(first) && route.privileged !== true) issue(errors, at, `a command starting with '${first}' requires privileged: true`);
+    if (route.privileged === true && !PRIVILEGE_WORDS.has(first)) issue(errors, at, `privileged: true requires a command starting with one of: ${[...PRIVILEGE_WORDS].join(', ')}`);
+    // The installer is the program the route needs on PATH: the command's first word, or the word after sudo.
+    const program = route.privileged === true ? route.command?.[1] : first;
+    if (typeof route.installer === 'string' && program !== undefined && route.installer !== program) {
+      issue(errors, at, `installer '${route.installer}' must equal the program the command runs ('${program}')`);
+    }
     if (typeof route.evidence !== 'string' || !evidence.includes(route.evidence)) issue(errors, at, 'evidence must be one of the tool officialEvidence URLs');
     if (route.platforms !== undefined && (!Array.isArray(route.platforms) || route.platforms.length === 0
       || route.platforms.some((platform: any) => !EXTERNAL_TOOL_PLATFORMS.has(platform)))) {
@@ -343,7 +386,28 @@ function validateInstall(install: any, location: string, tool: any, errors: stri
     if (route.privileged !== undefined && typeof route.privileged !== 'boolean') issue(errors, at, 'privileged must be boolean');
     if (route.after !== undefined) {
       if (!Array.isArray(route.after) || route.after.length === 0) issue(errors, at, 'after must be a non-empty array of command arrays');
-      else route.after.forEach((command: any, step: number) => validateCommand(command, `${at}.after[${step}]`, errors));
+      else {
+        route.after.forEach((command: any, step: number) => {
+          validateCommand(command, `${at}.after[${step}]`, errors);
+          rejectPrivilegeWord(command, `${at}.after[${step}]`, errors);
+        });
+      }
+    }
+    if (route.manual !== undefined) {
+      if (!Array.isArray(route.manual) || route.manual.length === 0) issue(errors, at, 'manual must be a non-empty array of { command, reason }');
+      else {
+        route.manual.forEach((step: any, index: number) => {
+          if (!object(step) || Object.keys(step).some((key) => key !== 'command' && key !== 'reason')) { issue(errors, `${at}.manual[${index}]`, 'must be { command, reason }'); return; }
+          validateCommand(step.command, `${at}.manual[${index}].command`, errors);
+          if (typeof step.reason !== 'string' || !step.reason.trim()) issue(errors, `${at}.manual[${index}]`, 'requires a reason');
+        });
+      }
+    }
+    for (const action of ['update', 'uninstall']) {
+      if (route[action] === undefined) continue;
+      if (!object(route[action]) || Object.keys(route[action]).some((key) => key !== 'command')) { issue(errors, `${at}.${action}`, 'must be a command contract object'); continue; }
+      validateCommand(route[action].command, `${at}.${action}.command`, errors);
+      rejectPrivilegeWord(route[action].command, `${at}.${action}.command`, errors);
     }
   });
 }

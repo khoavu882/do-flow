@@ -71,8 +71,8 @@ test('loads evidence-backed external tool definitions with argument-vector comma
 
   assert.deepEqual(rtk.status.commands, [['rtk', '--version'], ['rtk', 'gain']]);
   assert.deepEqual(rtk.install.routes.map((route: any) => route.command), [
-    ['brew', 'install', 'rtk-ai/tap/rtk'],
     ['cargo', 'install', '--git', 'https://github.com/rtk-ai/rtk', '--branch', 'master', 'rtk'],
+    ['brew', 'install', 'rtk-ai/tap/rtk'],
   ]);
   assert.equal(rtk.update, undefined, 'RTK has no verified update command');
   assert.deepEqual(graphify.prerequisites, ['uv']);
@@ -113,11 +113,13 @@ test('required and optional tools, and the install routes that carry a second st
   const browser = byId('agent-browser');
   assert.deepEqual(browser.install.routes.map((route: any) => [route.installer, route.platforms, route.after]), [
     ['npm', ['darwin'], [['agent-browser', 'install']]],
-    ['npm', ['linux'], [['agent-browser', 'install', '--with-deps']]],
+    ['npm', ['linux'], [['agent-browser', 'install']]],
     ['brew', ['darwin'], [['agent-browser', 'install']]],
   ]);
+  assert.deepEqual(browser.install.routes[1].manual.map((step: any) => step.command), [['agent-browser', 'install', '--with-deps']]);
+  assert.ok(browser.officialEvidence.includes('https://github.com/vercel-labs/agent-browser/blob/main/cli/src/main.rs'), '--version is stated in the source file only');
   assert.deepEqual(byId('drawio').install.routes.map((route: any) => route.command), [['brew', 'install', '--cask', 'drawio']]);
-  assert.deepEqual(externalTools.flatMap((tool: any) => (tool.install?.routes || []).filter((route: any) => route.privileged).map((route: any) => `${tool.id}:${route.command[0]}`)), ['jq:sudo', 'git:apt-get', 'ripgrep:sudo']);
+  assert.deepEqual(externalTools.flatMap((tool: any) => (tool.install?.routes || []).filter((route: any) => route.privileged).map((route: any) => `${tool.id}:${route.command[0]}`)), ['jq:sudo', 'git:sudo', 'ripgrep:sudo']);
 });
 
 test('every external tool declares a role and an unlocks line', () => {
@@ -132,12 +134,12 @@ test('external tool install accepts one command or evidence-backed routes, and r
   const registry = loadRegistry({ repoRoot: REPO });
   const errorsFor = (change: (tool: any) => void) => {
     const copy = structuredClone(registry);
-    change(copy.externalTools[0]);
+    change(copy.externalTools.find((tool: any) => tool.id === 'bash'));
     return validateRegistry(copy, { repoRoot: REPO }).errors.join('\n');
   };
-  const evidence = registry.externalTools[0].officialEvidence[0];
+  const evidence = registry.externalTools.find((tool: any) => tool.id === 'bash').officialEvidence[0];
   const route = { installer: 'brew', command: ['brew', 'install', 'x'], evidence };
-  assert.equal(errorsFor((tool) => { tool.install = { routes: [route, { ...route, installer: 'npm', platforms: ['linux'], after: [['x', 'install']] }] }; }), '');
+  assert.equal(errorsFor((tool) => { tool.install = { routes: [route, { ...route, installer: 'npm', command: ['npm', 'install', 'x'], platforms: ['linux'], after: [['x', 'install']] }] }; }), '');
   assert.match(errorsFor((tool) => { delete tool.role; }), /role must be one of: required, optional/);
   assert.match(errorsFor((tool) => { tool.unlocks = ' '; }), /requires unlocks/);
   assert.match(errorsFor((tool) => { tool.install = { command: ['a'], routes: [route] }; }), /exactly one of 'command' or 'routes'/);
@@ -146,6 +148,79 @@ test('external tool install accepts one command or evidence-backed routes, and r
   assert.match(errorsFor((tool) => { tool.install = { routes: [{ ...route, installer: '' }] }; }), /requires installer/);
   assert.match(errorsFor((tool) => { tool.install = { routes: [{ ...route, platforms: ['win32'] }] }; }), /platforms must be a non-empty array of: darwin, linux/);
   assert.match(errorsFor((tool) => { tool.install = { routes: [{ ...route, after: ['x install'] }] }; }), /after\[0\]: command must be a non-empty array/);
+});
+
+test('the validator enforces that DoFlow never runs a command that needs administrator rights', () => {
+  const registry = loadRegistry({ repoRoot: REPO });
+  const errorsFor = (change: (tool: any) => void) => {
+    const copy = structuredClone(registry);
+    change(copy.externalTools.find((tool: any) => tool.id === 'bash'));
+    return validateRegistry(copy, { repoRoot: REPO }).errors.join('\n');
+  };
+  const evidence = registry.externalTools.find((tool: any) => tool.id === 'bash').officialEvidence[0];
+  const sudoRoute = { installer: 'apt-get', command: ['sudo', 'apt-get', 'install', 'x'], privileged: true, evidence };
+  assert.equal(errorsFor((tool) => { tool.install = { routes: [sudoRoute] }; }), '');
+  for (const word of ['sudo', 'doas', 'su']) {
+    assert.match(errorsFor((tool) => { tool.install = { routes: [{ installer: 'apt-get', command: [word, 'apt-get', 'install', 'x'], evidence }] }; }), new RegExp(`starting with '${word}' requires privileged: true`));
+    assert.match(errorsFor((tool) => { tool.install = { routes: [{ ...sudoRoute, command: [word, 'apt-get', 'install', 'x'], after: [[word, 'x']] }] }; }), new RegExp(`after\\[0\\].*may not start with '${word}'`));
+  }
+  assert.match(errorsFor((tool) => { tool.install = { routes: [{ ...sudoRoute, command: ['apt-get', 'install', 'x'] }] }; }), /privileged: true requires a command starting with one of: sudo, doas, su/);
+  assert.match(errorsFor((tool) => { tool.install = { routes: [{ ...sudoRoute, installer: 'sudo' }] }; }), /installer 'sudo' must equal the program the command runs \('apt-get'\)/);
+  assert.match(errorsFor((tool) => { tool.install = { routes: [{ installer: 'npm', command: ['brew', 'install', 'x'], evidence }] }; }), /installer 'npm' must equal the program the command runs \('brew'\)/);
+  assert.match(errorsFor((tool) => { tool.install = { command: ['sudo', 'x'] }; }), /install\.command: a command DoFlow runs may not start with 'sudo'/);
+  assert.match(errorsFor((tool) => { tool.update = { command: ['sudo', 'x'] }; }), /update\.command: a command DoFlow runs may not start with 'sudo'/);
+  // A step that needs sudo is allowed where DoFlow only shows it.
+  assert.equal(errorsFor((tool) => { tool.install = { routes: [{ ...route(evidence), manual: [{ command: ['sudo', 'x'], reason: 'needs root' }] }] }; }), '');
+  assert.match(errorsFor((tool) => { tool.install = { routes: [{ ...route(evidence), manual: [{ command: ['x'] }] }] }; }), /requires a reason/);
+  assert.match(errorsFor((tool) => { tool.install = { routes: [{ ...route(evidence), manual: [] }] }; }), /manual must be a non-empty array/);
+});
+
+function route(evidence: string) { return { installer: 'brew', command: ['brew', 'install', 'x'], evidence }; }
+
+test('update and uninstall must handle what the managed install route installs', () => {
+  const registry = loadRegistry({ repoRoot: REPO });
+  const errorsFor = (change: (tool: any) => void) => {
+    const copy = structuredClone(registry);
+    change(copy.externalTools.find((tool: any) => tool.id === 'bash'));
+    return validateRegistry(copy, { repoRoot: REPO }).errors.join('\n');
+  };
+  const evidence = registry.externalTools.find((tool: any) => tool.id === 'bash').officialEvidence[0];
+  const own = 'bash';
+  const npm = { installer: 'npm', command: ['npm', 'install', '-g', 'x'], evidence };
+  // Same installer, or the tool's own binary (a self-update), agrees.
+  assert.equal(errorsFor((tool) => { tool.install = { routes: [npm] }; tool.update = { command: ['npm', 'update', '-g', 'x'] }; tool.uninstall = { command: [own, 'remove'] }; }), '');
+  // The first route of a platform is the managed one: update through another installer is a mismatch.
+  assert.match(errorsFor((tool) => { tool.install = { routes: [route(evidence), npm] }; tool.update = { command: ['npm', 'update', '-g', 'x'] }; }), /update runs 'npm' but the managed install route on darwin uses 'brew'/);
+  assert.match(errorsFor((tool) => { tool.install = { routes: [route(evidence), npm] }; tool.uninstall = { command: ['npm', 'uninstall', '-g', 'x'] }; }), /uninstall runs 'npm' but the managed install route on linux uses 'brew'/);
+  // The check is per platform: brew is managed on darwin only, so a brew uninstall is a mismatch on linux alone.
+  const perPlatform = errorsFor((tool) => { tool.install = { routes: [{ ...route(evidence), platforms: ['darwin'] }, npm] }; tool.uninstall = { command: ['brew', 'uninstall', 'x'] }; });
+  assert.match(perPlatform, /uninstall runs 'brew' but the managed install route on linux uses 'npm'/);
+  assert.doesNotMatch(perPlatform, /on darwin/);
+  // A route may carry the pair that fits its platform.
+  assert.equal(errorsFor((tool) => { tool.install = { routes: [{ ...route(evidence), platforms: ['darwin'], uninstall: { command: ['brew', 'uninstall', 'x'] } }, { ...npm, uninstall: { command: ['npm', 'uninstall', '-g', 'x'] } }] }; }), '');
+});
+
+test('every shipped install route keeps DoFlow from running anything that needs administrator rights', () => {
+  const { externalTools } = loadRegistry({ repoRoot: REPO });
+  const PRIVILEGE = ['sudo', 'doas', 'su'];
+  let routes = 0;
+  for (const tool of externalTools) {
+    const list = tool.install?.routes || (tool.install ? [{ installer: tool.install.command[0], command: tool.install.command }] : []);
+    for (const route of list) {
+      routes += 1;
+      const at = `${tool.id}: ${route.command.join(' ')}`;
+      const wrapped = PRIVILEGE.includes(route.command[0]);
+      assert.equal(route.privileged === true, wrapped, `${at}: privileged exactly when the command starts with a privilege word`);
+      assert.equal(route.installer, wrapped ? route.command[1] : route.command[0], `${at}: installer is the program the command runs`);
+      for (const step of route.after || []) assert.ok(!PRIVILEGE.includes(step[0]), `${at}: after step '${step.join(' ')}' must be manual`);
+    }
+    for (const action of ['update', 'uninstall']) {
+      for (const contract of [tool[action], ...(tool.install?.routes || []).map((candidate: any) => candidate[action])].filter(Boolean)) {
+        assert.ok(!PRIVILEGE.includes(contract.command[0]), `${tool.id}: ${action} must not start with a privilege word`);
+      }
+    }
+  }
+  assert.ok(routes >= 12, 'the walk reached the shipped routes');
 });
 
 test('selects only renderable harness assets and filters by capability', () => {

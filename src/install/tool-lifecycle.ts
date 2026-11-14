@@ -10,6 +10,9 @@
 const { execFileSync } = require('node:child_process');
 
 const SUPPORTED_PLATFORMS = new Set(['darwin', 'linux']);
+// A status command or an installer probe that has not answered by then leaves the tool's state at
+// `inspection-timeout`; a hung binary must not hold up the whole list. Install commands have no limit.
+const INSPECTION_TIMEOUT_MS = 5000;
 
 type ExecFileSyncImpl = (file: string, args: string[], opts: any) => any;
 
@@ -26,13 +29,14 @@ function plainCommand(command: string[]): string {
   return command.map((part) => (/^[A-Za-z0-9_@%+=:,./-]+$/.test(part) ? part : JSON.stringify(part))).join(' ');
 }
 
-function failureKind(error: any): 'absent' | 'failed' {
-  return error?.code === 'ENOENT' ? 'absent' : 'failed';
+function failureKind(error: any): 'absent' | 'timeout' | 'failed' {
+  if (error?.code === 'ENOENT') return 'absent';
+  return error?.code === 'ETIMEDOUT' ? 'timeout' : 'failed';
 }
 
-function runInspection(command: string[], execFileSyncImpl: ExecFileSyncImpl): any {
+function runInspection(command: string[], execFileSyncImpl: ExecFileSyncImpl, timeoutMs: number = INSPECTION_TIMEOUT_MS): any {
   try {
-    const output = execFileSyncImpl(command[0], command.slice(1), { encoding: 'utf8', stdio: 'pipe' });
+    const output = execFileSyncImpl(command[0], command.slice(1), { encoding: 'utf8', stdio: 'pipe', timeout: timeoutMs });
     return { command: [...command], result: 'succeeded', output: output == null ? '' : String(output) };
   } catch (error: any) {
     return {
@@ -45,19 +49,20 @@ function runInspection(command: string[], execFileSyncImpl: ExecFileSyncImpl): a
 /** Reduce every status command result to a safe tool state. */
 function normalizeToolState(inspections: any[]): string {
   if (inspections.every((inspection) => inspection.result === 'succeeded')) return 'installed';
+  if (inspections.some((inspection) => inspection.result === 'timeout')) return 'inspection-timeout';
   if (inspections.every((inspection) => inspection.result === 'absent')) return 'absent';
   if (inspections.some((inspection) => inspection.result === 'succeeded')) return 'unknown';
   return 'inspection-failed';
 }
 
-function inspectTool(tool: any, { execFileSyncImpl = execFileSync }: { execFileSyncImpl?: ExecFileSyncImpl } = {}): any {
-  const inspections = tool.status.commands.map((command: string[]) => runInspection(command, execFileSyncImpl));
+function inspectTool(tool: any, { execFileSyncImpl = execFileSync, timeoutMs = INSPECTION_TIMEOUT_MS }: { execFileSyncImpl?: ExecFileSyncImpl; timeoutMs?: number } = {}): any {
+  const inspections = tool.status.commands.map((command: string[]) => runInspection(command, execFileSyncImpl, timeoutMs));
   return { state: normalizeToolState(inspections), inspections };
 }
 
-function inspectPrerequisites(tool: any, { execFileSyncImpl = execFileSync }: { execFileSyncImpl?: ExecFileSyncImpl } = {}): any[] {
+function inspectPrerequisites(tool: any, { execFileSyncImpl = execFileSync, timeoutMs = INSPECTION_TIMEOUT_MS }: { execFileSyncImpl?: ExecFileSyncImpl; timeoutMs?: number } = {}): any[] {
   return (tool.prerequisites || []).map((name: string) => {
-    const inspection = runInspection([name, '--version'], execFileSyncImpl);
+    const inspection = runInspection([name, '--version'], execFileSyncImpl, timeoutMs);
     return { name, available: inspection.result === 'succeeded', inspection };
   });
 }
@@ -69,52 +74,69 @@ function installRoutes(tool: any): any[] {
   return [{ installer: tool.install.command[0], command: tool.install.command, evidence: tool.officialEvidence[0] }];
 }
 
+/** A route as plain data for the plan and the report. */
+function routeView(route: any): any {
+  return {
+    installer: route.installer,
+    command: [...route.command],
+    after: (route.after || []).map((step: string[]) => [...step]),
+    manual: (route.manual || []).map((step: any) => ({ command: [...step.command], reason: step.reason })),
+    privileged: route.privileged === true,
+    evidence: route.evidence,
+  };
+}
+
+/** The routes that fit a platform, in registry order. The first is the managed one. */
+function routesFor(tool: any, platform: string): any[] {
+  return installRoutes(tool).filter((route) => !route.platforms || route.platforms.includes(platform));
+}
+
 /**
- * The first install route that fits this machine: its platform matches and its installer is on PATH.
- * `isInstalled(name)` answers whether an installer is present. Without a route the result says why
- * and names the documentation page, so a person can still install the tool by hand.
+ * The managed install route for this machine: the first route of its platform. It is the only route
+ * DoFlow runs, because it is the one `update` and `uninstall` are registered to handle; every other
+ * route of the platform comes back as an `alternative` to show, never to run. `isInstalled(name)` answers
+ * whether an installer is present. Without a usable route the result says why and names the page.
  */
 function chooseInstallRoute(tool: any, { platform = process.platform, isInstalled }: { platform?: string; isInstalled: (name: string) => boolean }): any {
   const docs = tool.officialEvidence[0];
-  const routes = installRoutes(tool).filter((route) => !route.platforms || route.platforms.includes(platform));
-  if (!routes.length) return { reason: `no verified install command is registered for ${platform}; see ${docs}`, docs };
-  const route = routes.find((candidate) => isInstalled(candidate.installer));
-  if (route) {
-    return { route: { installer: route.installer, command: [...route.command], after: (route.after || []).map((step: string[]) => [...step]), privileged: route.privileged === true, evidence: route.evidence } };
-  }
-  const needs = [...new Set(routes.map((candidate) => candidate.installer))].join(', ');
-  return { reason: `missing installer: needs ${needs} on PATH; see ${docs}`, docs };
+  const [managed, ...others] = routesFor(tool, platform);
+  if (!managed) return { reason: `no verified install command is registered for ${platform}; see ${docs}`, docs };
+  const alternatives = others.map(routeView);
+  if (isInstalled(managed.installer)) return { route: routeView(managed), alternatives };
+  return { reason: `missing installer: needs ${managed.installer} on PATH; see ${docs}`, docs, alternatives };
 }
 
 /** `chooseInstallRoute`'s answer as plain data: the command chosen, or why there is none and where to read. */
 function describeInstall(chosen: any): any {
   if (!chosen) return null;
   const { route, reason, docs } = chosen;
-  if (!route) return { command: null, reason, docs };
-  return { command: route.command, after: route.after, privileged: route.privileged, runnable: !route.privileged, evidence: route.evidence };
+  const alternatives = chosen.alternatives?.length ? { alternatives: chosen.alternatives } : {};
+  if (!route) return { command: null, reason, docs, ...alternatives };
+  return { command: route.command, after: route.after, manual: route.manual, privileged: route.privileged, runnable: !route.privileged, evidence: route.evidence, ...alternatives };
 }
 
-function actionEligibility(tool: any, state: string, action: string, prerequisites: any[], chosen: any = null): any {
+function actionEligibility(tool: any, state: string, action: string, prerequisites: any[], chosen: any = null, platform: string = process.platform): any {
   if (action === 'status') return { applicable: false, reason: 'status inspection only' };
+  // update and uninstall handle what the managed route installed, and a route may carry its own pair.
+  const contract = action === 'install' ? tool.install : (routesFor(tool, platform)[0]?.[action] ?? tool[action]);
+  if (!contract) {
+    return { applicable: false, reason: action === 'install' && chosen ? chosen.reason : `no verified ${action} command is registered` };
+  }
+  const missing = prerequisites.filter((prerequisite) => !prerequisite.available);
+  if (missing.length) return { applicable: false, reason: `missing prerequisite: ${missing.map((item) => item.name).join(', ')}` };
+  if (state === 'unknown' || state === 'inspection-failed' || state === 'inspection-timeout') {
+    return { applicable: false, reason: `tool state is ${state}` };
+  }
   if (action === 'install') {
-    if (state === 'unknown' || state === 'inspection-failed') return { applicable: false, reason: `tool state is ${state}` };
     if (state !== 'absent') return { applicable: false, reason: 'tool is already installed' };
     if (!chosen.route) return { applicable: false, reason: chosen.reason };
     if (chosen.route.privileged) {
       return { applicable: false, reason: `needs administrator rights, so DoFlow does not run it; run it yourself: ${plainCommand(chosen.route.command)}` };
     }
-    return { applicable: true, command: chosen.route.command, followUps: chosen.route.after, status: 'not-attempted' };
+    // Only the managed route is ever planned. Its steps that need administrator rights are `manual`: listed, never run.
+    return { applicable: true, command: chosen.route.command, followUps: chosen.route.after, manual: chosen.route.manual, status: 'not-attempted' };
   }
-  const contract = tool[action];
-  if (!contract) return { applicable: false, reason: `no verified ${action} command is registered` };
-  const missing = prerequisites.filter((prerequisite) => !prerequisite.available);
-  if (missing.length) return { applicable: false, reason: `missing prerequisite: ${missing.map((item) => item.name).join(', ')}` };
-  if (state === 'unknown' || state === 'inspection-failed') {
-    return { applicable: false, reason: `tool state is ${state}` };
-  }
-  if ((action === 'update' || action === 'uninstall') && state !== 'installed') {
-    return { applicable: false, reason: 'tool is not installed' };
-  }
+  if (state !== 'installed') return { applicable: false, reason: 'tool is not installed' };
   // The plan records a command before execution begins; callers can show this preview without
   // implying that it has run. executeToolLifecycle replaces this with a terminal result.
   return { applicable: true, command: [...contract.command], status: 'not-attempted' };
@@ -124,7 +146,7 @@ function actionEligibility(tool: any, state: string, action: string, prerequisit
  * Inspect all status command vectors, then create a non-mutating action plan.
  * The registry can be the loaded registry or an { externalTools } fixture.
  */
-function planToolLifecycle({ registry, action = 'status', platform = process.platform, execFileSyncImpl = execFileSync }: { registry?: any; action?: string; platform?: string; execFileSyncImpl?: ExecFileSyncImpl } = {}): any {
+function planToolLifecycle({ registry, action = 'status', platform = process.platform, execFileSyncImpl = execFileSync, timeoutMs = INSPECTION_TIMEOUT_MS }: { registry?: any; action?: string; platform?: string; execFileSyncImpl?: ExecFileSyncImpl; timeoutMs?: number } = {}): any {
   if (!['install', 'update', 'uninstall', 'status'].includes(action)) {
     throw new Error(`Unsupported external-tool action '${action}'`);
   }
@@ -140,7 +162,7 @@ function planToolLifecycle({ registry, action = 'status', platform = process.pla
     if ('error' in answer) throw answer.error;
     return answer.value;
   };
-  const isInstalled = (name: string): boolean => runInspection([name, '--version'], execOnce).result === 'succeeded';
+  const isInstalled = (name: string): boolean => runInspection([name, '--version'], execOnce, timeoutMs).result === 'succeeded';
   const tools = (registry?.externalTools || []).map((tool: any) => {
     if (!supported) {
       return {
@@ -148,11 +170,11 @@ function planToolLifecycle({ registry, action = 'status', platform = process.pla
         action: { applicable: false, reason: `unsupported platform: ${platform}` },
       };
     }
-    const { state, inspections } = inspectTool(tool, { execFileSyncImpl: execOnce });
-    const prerequisites = inspectPrerequisites(tool, { execFileSyncImpl: execOnce });
+    const { state, inspections } = inspectTool(tool, { execFileSyncImpl: execOnce, timeoutMs });
+    const prerequisites = inspectPrerequisites(tool, { execFileSyncImpl: execOnce, timeoutMs });
     // Installers are probed only for a tool that is absent: a present tool needs no install route.
     const install = state === 'absent' ? chooseInstallRoute(tool, { platform, isInstalled }) : null;
-    return { tool, state, inspections, prerequisites, install, action: actionEligibility(tool, state, action, prerequisites, install) };
+    return { tool, state, inspections, prerequisites, install, action: actionEligibility(tool, state, action, prerequisites, install, platform) };
   });
   return { action, platform, supported, tools };
 }
@@ -190,6 +212,7 @@ function executeToolLifecycle({ plan, execFileSyncImpl = execFileSync, displayCo
     const result: any = { tool: item.tool.id, ...run(action.command) };
     // A step that follows the install (a browser download, say) is shown and confirmed on its own,
     // and only after the install command itself succeeded; the first one that does not succeed ends the chain.
+    if (result.status === 'succeeded' && action.manual?.length) result.manual = action.manual;
     if (result.status === 'succeeded' && action.followUps?.length) {
       result.followUps = [];
       for (const step of action.followUps) {
@@ -210,6 +233,7 @@ function executeToolLifecycle({ plan, execFileSyncImpl = execFileSync, displayCo
 // the safety property rather than an omission to fill.
 module.exports = {
   SUPPORTED_PLATFORMS,
+  INSPECTION_TIMEOUT_MS,
   isSupportedPlatform,
   commandText,
   plainCommand,

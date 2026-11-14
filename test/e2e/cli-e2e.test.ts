@@ -98,6 +98,10 @@ test('an absent optional tool is information, not an error', (t) => {
   assert.strictEqual(r.stderr, '');
   assert.match(r.stdout, /^Optional tools\n {2}absent {3}agent-browser {2}Checks a web user interface/m);
   assert.match(r.stdout, /install: npm install -g agent-browser, then agent-browser install\n.*or run: {2}doflow tools --tool agent-browser --action install/);
+  // brew is an alternative: shown with its evidence, with the line that DoFlow manages only the first route.
+  assert.match(r.stdout, /also: brew install agent-browser, then agent-browser install \(https:\/\/github\.com\/vercel-labs\/agent-browser\/blob\/main\/README\.md\)\n.*DoFlow updates and removes only what it installed through its first route, and runs no other\./);
+  const darwin = process.platform === 'darwin';
+  assert.strictEqual(/run it yourself: agent-browser install --with-deps \(.*sudo/.test(r.stdout), !darwin, 'the sudo step is shown, as the user\'s own step, only where the platform needs it');
 });
 
 test('a tool whose only route needs a missing installer says so and names the documentation URL', (t) => {
@@ -124,9 +128,26 @@ test('tools --json carries the same data as the list', (t) => {
     assert.ok(['required', 'optional'].includes(item.role));
   }
   const rtk = json.results.find((item: any) => item.tool === 'rtk');
-  assert.deepStrictEqual(rtk.install, { command: ['brew', 'install', 'rtk-ai/tap/rtk'], after: [], privileged: false, runnable: true, evidence: 'https://www.rtk-ai.app/docs/getting-started/installation/' });
+  // The first route is the managed one: cargo, so DoFlow can later update and remove it with cargo. brew is an alternative.
+  assert.deepStrictEqual(rtk.install.command.slice(0, 2), ['cargo', 'install']);
+  assert.deepStrictEqual([rtk.install.privileged, rtk.install.runnable, rtk.install.manual], [false, true, []]);
+  assert.deepStrictEqual(rtk.install.alternatives.map((route: any) => route.command), [['brew', 'install', 'rtk-ai/tap/rtk']]);
   const bash = json.results.find((item: any) => item.tool === 'bash');
   assert.match(bash.install.reason, /^no verified install command is registered for (darwin|linux); see https:\/\/www\.gnu\.org\/software\/bash\/$/);
+});
+
+test('a status check that never answers is reported as a timeout after about 5 s; the list still prints and exits 0', (t) => {
+  if (!skipToolsOnWin(t)) return;
+  const env = isolatedTools(t, { jq: 'exec node -e "setTimeout(() => {}, 30000)"' });
+  const started = Date.now();
+  const text = run(['tools', '--tool', 'jq'], { env });
+  assert.strictEqual(text.status, 0, text.stderr);
+  assert.match(text.stdout, /^ {2}timeout {2}jq /m);
+  assert.match(text.stdout, /a status check gave no answer within 5 s/);
+  const json = run(['tools', '--tool', 'jq', '--json'], { env });
+  assert.strictEqual(json.status, 0, json.stderr);
+  assert.strictEqual(JSON.parse(json.stdout).results[0].state, 'inspection-timeout');
+  assert.ok(Date.now() - started < 25000, 'each inspection is cut off at its own limit');
 });
 
 test('a usage error of tools no longer claims native resources were partially applied', (t) => {

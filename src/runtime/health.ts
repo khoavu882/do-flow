@@ -720,7 +720,7 @@ function printExternalTools(tools: any[]): void {
     const install = tool.install;
     const how = !install ? 'no install route is known for this platform'
       : !install.command ? install.reason
-        : `${[install.command, ...install.after].map((command: string[]) => plainCommand(command)).join(', then ')}${install.privileged ? ' (needs administrator rights)' : ''}`;
+        : `${[install.command, ...install.after].map((command: string[]) => plainCommand(command)).join(', then ')}${install.privileged ? ' (needs administrator rights)' : ''}${(install.manual ?? []).map((step: any) => `; run it yourself: ${plainCommand(step.command)} (${step.reason})`).join('')}`;
     console.log(`  ${tool.id.padEnd(width)}  ${tool.role.padEnd(9)} ${how}`);
   }
   console.log('  Run `doflow tools` for what each one unlocks.');
@@ -933,9 +933,10 @@ function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, exec
       ? describeInstall(chooseInstallRoute(tool, { isInstalled: (name: string) => activeRouter.isBinaryAvailable(name) }))
       : null;
     const install = chosen && (chosen.command
-      ? { command: chosen.command, after: chosen.after, privileged: chosen.privileged }
+      ? { command: chosen.command, after: chosen.after, ...(chosen.manual?.length ? { manual: chosen.manual } : {}), privileged: chosen.privileged }
       : { command: null, reason: chosen.reason });
-    return { ...base, status, detail, install };
+    // A present tool has no install to give, so the key is left out rather than sent as null.
+    return install ? { ...base, status, detail, install } : { ...base, status, detail };
   });
 
   const freshness = Object.values(probes).map((probe) => probe.freshness).filter(Boolean);

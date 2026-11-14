@@ -25,15 +25,6 @@
       "install": {
         "routes": [
           {
-            "installer": "brew",
-            "command": [
-              "brew",
-              "install",
-              "rtk-ai/tap/rtk"
-            ],
-            "evidence": "https://www.rtk-ai.app/docs/getting-started/installation/"
-          },
-          {
             "installer": "cargo",
             "command": [
               "cargo",
@@ -43,6 +34,15 @@
               "--branch",
               "master",
               "rtk"
+            ],
+            "evidence": "https://www.rtk-ai.app/docs/getting-started/installation/"
+          },
+          {
+            "installer": "brew",
+            "command": [
+              "brew",
+              "install",
+              "rtk-ai/tap/rtk"
             ],
             "evidence": "https://www.rtk-ai.app/docs/getting-started/installation/"
           }
@@ -309,6 +309,7 @@
           {
             "installer": "apt-get",
             "command": [
+              "sudo",
               "apt-get",
               "install",
               "git"
@@ -452,7 +453,8 @@
       "unlocks": "Checks a web user interface from the shell: opens a page, reads it as text, acts on elements and takes screenshots.",
       "officialEvidence": [
         "https://github.com/vercel-labs/agent-browser/blob/main/README.md",
-        "https://agent-browser.dev/installation"
+        "https://agent-browser.dev/installation",
+        "https://github.com/vercel-labs/agent-browser/blob/main/cli/src/main.rs"
       ],
       "status": {
         "commands": [
@@ -497,11 +499,20 @@
             "after": [
               [
                 "agent-browser",
-                "install",
-                "--with-deps"
+                "install"
               ]
             ],
-            "evidence": "https://github.com/vercel-labs/agent-browser/blob/main/README.md"
+            "evidence": "https://github.com/vercel-labs/agent-browser/blob/main/README.md",
+            "manual": [
+              {
+                "command": [
+                  "agent-browser",
+                  "install",
+                  "--with-deps"
+                ],
+                "reason": "installs the browser's system libraries with sudo; the official install page says Linux needs them"
+              }
+            ]
           },
           {
             "installer": "brew",

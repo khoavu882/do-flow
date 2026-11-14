@@ -5,7 +5,7 @@
 // TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 const { confirm, promptLine } = require('../../helper/prompt.ts');
 const { loadRegistry } = require('../../registry/index.ts');
-const { commandText, plainCommand, describeInstall, planToolLifecycle, executeToolLifecycle } = require('../../install/tool-lifecycle.ts');
+const { INSPECTION_TIMEOUT_MS, commandText, plainCommand, describeInstall, planToolLifecycle, executeToolLifecycle } = require('../../install/tool-lifecycle.ts');
 const { REPO_ROOT } = require('../shared.ts');
 
 function selectExternalTools(registry: any, o: any): any[] {
@@ -43,7 +43,7 @@ function toolJsonResults(plan: any, execution: any = null): any[] {
   }));
 }
 
-const STATE_LABEL: Record<string, string> = { installed: 'present', absent: 'absent' };
+const STATE_LABEL: Record<string, string> = { installed: 'present', absent: 'absent', 'inspection-timeout': 'timeout' };
 
 /** Every planned tool, required first, then optional: present or absent, what it unlocks, and for an absent one how to get it. */
 function printToolList(plan: any): void {
@@ -57,16 +57,21 @@ function printToolList(plan: any): void {
       const pad = ' '.repeat(11);
       console.log(`  ${label.padEnd(8)} ${item.tool.id.padEnd(width)}  ${item.tool.unlocks}`);
       if (!plan.supported) console.log(`${pad}${' '.repeat(width + 2)}${item.action.reason}`);
+      const indent = `${pad}${' '.repeat(width + 2)}`;
+      if (item.state === 'inspection-timeout') console.log(`${indent}a status check gave no answer within ${INSPECTION_TIMEOUT_MS / 1000} s`);
       const install = describeInstall(item.install);
       if (!install) continue;
-      const indent = `${pad}${' '.repeat(width + 2)}`;
-      if (!install.command) {
-        console.log(`${indent}install: ${install.reason}`);
-        continue;
+      const steps = (command: string[], after: string[][] = []) => [command, ...after].map((part: string[]) => plainCommand(part)).join(', then ');
+      if (!install.command) console.log(`${indent}install: ${install.reason}`);
+      else {
+        console.log(`${indent}install: ${steps(install.command, install.after)}${install.privileged ? ' (needs administrator rights; DoFlow does not run it)' : ''}`);
+        if (install.runnable) console.log(`${indent}or run:  doflow tools --tool ${item.tool.id} --action install`);
+        for (const step of install.manual) console.log(`${indent}run it yourself: ${plainCommand(step.command)} (${step.reason})`);
       }
-      const steps = [install.command, ...install.after].map((command: string[]) => plainCommand(command)).join(', then ');
-      console.log(`${indent}install: ${steps}${install.privileged ? ' (needs administrator rights; DoFlow does not run it)' : ''}`);
-      if (install.runnable) console.log(`${indent}or run:  doflow tools --tool ${item.tool.id} --action install`);
+      for (const route of install.alternatives || []) {
+        console.log(`${indent}also: ${steps(route.command, route.after)}${route.privileged ? ' (needs administrator rights)' : ''} (${route.evidence})`);
+      }
+      if (install.alternatives?.length) console.log(`${indent}DoFlow updates and removes only what it installed through its first route, and runs no other.`);
     }
   }
 }
@@ -93,6 +98,7 @@ function cmdTools(o: any): void {
         if (item.action.applicable) {
           console.log(`[DRY]  ${item.tool.id}: ${commandText(item.action.command)}`);
           for (const step of item.action.followUps || []) console.log(`[DRY]  ${item.tool.id}: then ${commandText(step)}`);
+          for (const step of item.action.manual || []) console.log(`[DRY]  ${item.tool.id}: run it yourself ${commandText(step.command)} (${step.reason}); DoFlow does not run it`);
         } else console.log(`[DRY]  ${item.tool.id}: skipped (${item.action.reason})`);
       }
       console.log('[DRY] Dry run complete — no lifecycle commands executed');
@@ -118,6 +124,7 @@ function cmdTools(o: any): void {
   for (const result of execution.results) {
     console.log(`${result.tool}: ${result.status}${result.reason ? ` (${result.reason})` : ''}`);
     for (const step of result.followUps || []) console.log(`${result.tool}: then ${commandText(step.command)}: ${step.status}`);
+    for (const step of result.manual || []) console.log(`${result.tool}: run it yourself: ${plainCommand(step.command)} (${step.reason})`);
   }
   if (hasFailures) process.exitCode = 1;
 }

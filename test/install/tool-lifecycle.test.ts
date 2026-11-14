@@ -2,8 +2,11 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const {
-  normalizeToolState, planToolLifecycle, executeToolLifecycle, chooseInstallRoute, plainCommand,
+  normalizeToolState, planToolLifecycle, executeToolLifecycle, chooseInstallRoute, describeInstall, plainCommand,
 } = require('../../src/install/tool-lifecycle.ts') as any;
 
 const registry = {
@@ -44,7 +47,8 @@ test('missing uv blocks Graphify mutation without attempting to install a prereq
     ['rtk --version', absent('rtk')], ['rtk gain', absent('rtk')], ['graphify --version', absent('graphify')], ['uv --version', absent('uv')],
   ]), calls) });
   const graphify = plan.tools[1];
-  assert.match(graphify.action.reason, /missing installer: needs uv on PATH; see https:\/\/example.test\/graphify/);
+  assert.equal(graphify.action.reason, 'missing prerequisite: uv', 'the prerequisite check still runs before an install');
+  assert.match(graphify.install.reason, /missing installer: needs uv on PATH; see https:\/\/example.test\/graphify/);
   assert.ok(!calls.some((vector) => vector.join(' ') === 'uv tool install graphifyy'));
 });
 
@@ -89,29 +93,54 @@ test('RTK update is skipped because no verified update command is registered', (
   assert.match(plan.tools[0].action.reason, /no verified update command/);
 });
 
-// A tool with several routes and a step after the install, in the shape agent-browser has.
+// A tool with several routes, a step after the install and a step DoFlow must never run, in the shape agent-browser has.
 const browser = {
   id: 'browser', officialEvidence: ['https://example.test/browser', 'https://example.test/browser-brew'], status: { commands: [['browser', '--version']] },
   install: {
     routes: [
       { installer: 'brew', command: ['brew', 'install', 'browser'], platforms: ['darwin'], after: [['browser', 'install']], evidence: 'https://example.test/browser-brew' },
-      { installer: 'npm', command: ['npm', 'install', '-g', 'browser'], after: [['browser', 'install']], evidence: 'https://example.test/browser' },
-      { installer: 'apt-get', command: ['sudo', 'apt-get', 'install', 'browser'], platforms: ['linux'], privileged: true, evidence: 'https://example.test/browser' },
+      { installer: 'npm', command: ['npm', 'install', '-g', 'browser'], after: [['browser', 'install']], manual: [{ command: ['browser', 'install', '--with-deps'], reason: 'installs system libraries with sudo' }], evidence: 'https://example.test/browser' },
+      { installer: 'cargo', command: ['cargo', 'install', 'browser'], evidence: 'https://example.test/browser' },
     ],
   },
 };
+// A tool whose managed route on Linux needs administrator rights.
+const system = {
+  id: 'system', officialEvidence: ['https://example.test/system'], status: { commands: [['system', '--version']] },
+  install: { routes: [{ installer: 'apt-get', command: ['sudo', 'apt-get', 'install', 'system'], platforms: ['linux'], privileged: true, evidence: 'https://example.test/system' }] },
+};
 const onPath = (...names: string[]) => (name: string) => names.includes(name);
-
-test('the first route whose installer is on PATH wins; a route for another platform is skipped', () => {
-  assert.deepEqual(chooseInstallRoute(browser, { platform: 'darwin', isInstalled: onPath('brew', 'npm') }).route.command, ['brew', 'install', 'browser']);
-  assert.deepEqual(chooseInstallRoute(browser, { platform: 'darwin', isInstalled: onPath('npm') }).route.command, ['npm', 'install', '-g', 'browser']);
-  assert.deepEqual(chooseInstallRoute(browser, { platform: 'linux', isInstalled: onPath('brew', 'npm') }).route.command, ['npm', 'install', '-g', 'browser']);
+const planWith = (tool: any, present: string[], platform: string, action = 'install', calls: any[] = []) => planToolLifecycle({
+  registry: { externalTools: [tool] }, action, platform,
+  execFileSyncImpl: fakeExec(new Map([[`${tool.id} --version`, absent(tool.id)], ...['brew', 'npm', 'cargo', 'apt-get'].map((name) => [`${name} --version`, present.includes(name) ? `${name} 1` : absent(name)] as [string, any])]), calls),
 });
 
-test('a tool whose every route needs a missing installer says so and names the documentation URL', () => {
-  const chosen = chooseInstallRoute(browser, { platform: 'darwin', isInstalled: onPath() });
+test('the first route of the platform is the managed one; the others are alternatives', () => {
+  const darwin = chooseInstallRoute(browser, { platform: 'darwin', isInstalled: onPath('brew', 'npm', 'cargo') });
+  assert.deepEqual(darwin.route.command, ['brew', 'install', 'browser']);
+  assert.deepEqual(darwin.alternatives.map((route: any) => route.command[0]), ['npm', 'cargo']);
+  const linux = chooseInstallRoute(browser, { platform: 'linux', isInstalled: onPath('brew', 'npm') });
+  assert.deepEqual(linux.route.command, ['npm', 'install', '-g', 'browser'], 'a route for another platform is not considered');
+  assert.deepEqual(linux.alternatives.map((route: any) => route.command[0]), ['cargo']);
+});
+
+test('when the managed installer is missing, the answer names it, shows the alternatives and offers none to run', () => {
+  const chosen = chooseInstallRoute(browser, { platform: 'darwin', isInstalled: onPath('npm', 'cargo') });
   assert.equal(chosen.route, undefined);
-  assert.equal(chosen.reason, 'missing installer: needs brew, npm on PATH; see https://example.test/browser');
+  assert.equal(chosen.reason, 'missing installer: needs brew on PATH; see https://example.test/browser');
+  assert.deepEqual(chosen.alternatives.map((route: any) => route.command[0]), ['npm', 'cargo']);
+  assert.equal(describeInstall(chosen).command, null);
+  assert.equal(describeInstall(chosen).alternatives.length, 2);
+});
+
+test('an alternative route is never executed, even when its installer is present and everything is confirmed', () => {
+  const calls: any[] = [];
+  const plan = planWith(browser, ['npm', 'cargo'], 'darwin', 'install', calls);
+  assert.equal(plan.tools[0].action.applicable, false);
+  const executed: any[] = [];
+  const result = executeToolLifecycle({ plan, displayCommand() {}, confirmCommand: () => true, execFileSyncImpl: fakeExec(new Map(), executed) });
+  assert.deepEqual(result.results.map((item: any) => item.status), ['skipped']);
+  assert.deepEqual(executed, [], 'nothing ran: neither npm install nor cargo install');
 });
 
 test('a tool with no install route for this platform names the documentation URL instead of a command', () => {
@@ -121,13 +150,31 @@ test('a tool with no install route for this platform names the documentation URL
   assert.match(chooseInstallRoute(darwinOnly, { platform: 'linux', isInstalled: onPath('brew') }).reason, /no verified install command is registered for linux/);
 });
 
-test('a privileged route is offered as a command but never planned for execution', () => {
-  const plan = planToolLifecycle({ registry: { externalTools: [browser] }, action: 'install', platform: 'linux', execFileSyncImpl: fakeExec(new Map([
-    ['browser --version', absent('browser')], ['brew --version', absent('brew')], ['npm --version', absent('npm')], ['apt-get --version', 'apt 1'],
-  ])) });
+test('a privileged managed route is offered as a command but never planned for execution', () => {
+  const plan = planWith(system, ['apt-get'], 'linux');
   assert.equal(plan.tools[0].install.route.privileged, true);
   assert.equal(plan.tools[0].action.applicable, false);
-  assert.match(plan.tools[0].action.reason, /needs administrator rights.*run it yourself: sudo apt-get install browser/);
+  assert.match(plan.tools[0].action.reason, /needs administrator rights.*run it yourself: sudo apt-get install system/);
+});
+
+test('a manual step travels with the plan and the result, and is never run', () => {
+  const plan = planWith(browser, ['npm'], 'linux');
+  assert.deepEqual(plan.tools[0].action.manual, [{ command: ['browser', 'install', '--with-deps'], reason: 'installs system libraries with sudo' }]);
+  const executed: any[] = [];
+  const done = executeToolLifecycle({ plan, displayCommand() {}, confirmCommand: () => true, execFileSyncImpl: fakeExec(new Map(), executed) });
+  assert.deepEqual(executed, [['npm', 'install', '-g', 'browser'], ['browser', 'install']]);
+  assert.deepEqual(done.results[0].manual.map((step: any) => step.command), [['browser', 'install', '--with-deps']]);
+});
+
+test('update and uninstall run the managed route\'s own pair when it has one, else the tool\'s', () => {
+  const tool = {
+    ...browser, update: { command: ['browser', 'upgrade'] }, uninstall: { command: ['cargo', 'uninstall', 'browser'] },
+    install: { routes: [{ ...browser.install.routes[0], uninstall: { command: ['brew', 'uninstall', 'browser'] } }, browser.install.routes[1]] },
+  };
+  const installed = (platform: string, action: string) => planToolLifecycle({ registry: { externalTools: [tool] }, action, platform, execFileSyncImpl: fakeExec(new Map([['browser --version', 'b 1']])) }).tools[0].action;
+  assert.deepEqual(installed('darwin', 'uninstall').command, ['brew', 'uninstall', 'browser']);
+  assert.deepEqual(installed('linux', 'uninstall').command, ['cargo', 'uninstall', 'browser']);
+  assert.deepEqual(installed('darwin', 'update').command, ['browser', 'upgrade']);
 });
 
 test('a present tool probes no installer; an absent one probes each installer once', () => {
@@ -137,15 +184,13 @@ test('a present tool probes no installer; an absent one probes each installer on
   assert.deepEqual(calls, [['browser', '--version']]);
   const absentCalls: any[] = [];
   planToolLifecycle({ registry: { externalTools: [browser, { ...browser, id: 'browser2' }] }, platform: 'darwin', execFileSyncImpl: fakeExec(new Map([
-    ['browser --version', absent('browser')], ['brew --version', absent('brew')], ['npm --version', 'npm 1'],
+    ['browser --version', absent('browser')], ['browser2 --version', absent('browser2')], ['brew --version', 'brew 1'],
   ]), absentCalls) });
-  assert.equal(absentCalls.filter((vector) => vector[0] === 'npm').length, 1);
+  assert.equal(absentCalls.filter((vector) => vector[0] === 'brew').length, 1);
 });
 
 test('the step after an install is shown and confirmed on its own, and only after the install succeeded', () => {
-  const plan = planToolLifecycle({ registry: { externalTools: [browser] }, action: 'install', platform: 'darwin', execFileSyncImpl: fakeExec(new Map([
-    ['browser --version', absent('browser')], ['brew --version', 'brew 1'],
-  ])) });
+  const plan = planWith(browser, ['brew'], 'darwin');
   assert.deepEqual(plan.tools[0].action.followUps, [['browser', 'install']]);
   const asked: any[] = [];
   const executed: any[] = [];
@@ -163,6 +208,33 @@ test('the step after an install is shown and confirmed on its own, and only afte
   assert.equal(failed.results[0].status, 'failed');
   assert.equal(failed.results[0].followUps, undefined);
   assert.deepEqual(failedInstall, [['brew', 'install', 'browser']]);
+});
+
+test('a status command that does not answer in time gives the state inspection-timeout and does not stop the list', (t: any) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-slow-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const slow = path.join(dir, 'slow');
+  fs.writeFileSync(slow, '#!/bin/sh\nexec sleep 30\n', { mode: 0o755 });
+  const tools = [
+    { id: 'slow', officialEvidence: ['https://example.test/slow'], status: { commands: [[slow, '--version']] }, install: { command: ['brew', 'install', 'slow'] } },
+    { id: 'gone', officialEvidence: ['https://example.test/gone'], status: { commands: [[path.join(dir, 'missing'), '--version']] } },
+  ];
+  const started = Date.now();
+  const plan = planToolLifecycle({ registry: { externalTools: tools }, platform: 'linux', timeoutMs: 300 });
+  assert.ok(Date.now() - started < 5000, 'the slow binary was cut off, not waited for');
+  assert.deepEqual(plan.tools.map((item: any) => item.state), ['inspection-timeout', 'absent']);
+  assert.equal(normalizeToolState([{ result: 'succeeded' }, { result: 'timeout' }]), 'inspection-timeout');
+  const install = planToolLifecycle({ registry: { externalTools: [tools[0]] }, action: 'install', platform: 'linux', timeoutMs: 300 }).tools[0].action;
+  assert.equal(install.reason, 'tool state is inspection-timeout');
+});
+
+test('an installer probe that does not answer in time counts as not installed', (t: any) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-slow-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(dir, 'slowbrew'), '#!/bin/sh\nexec sleep 30\n', { mode: 0o755 });
+  const tool = { id: 'x', officialEvidence: ['https://example.test/x'], status: { commands: [[path.join(dir, 'nothing'), '--version']] }, install: { routes: [{ installer: path.join(dir, 'slowbrew'), command: [path.join(dir, 'slowbrew'), 'install', 'x'], evidence: 'https://example.test/x' }] } };
+  const plan = planToolLifecycle({ registry: { externalTools: [tool] }, action: 'install', platform: 'linux', timeoutMs: 300 });
+  assert.match(plan.tools[0].install.reason, /^missing installer/);
 });
 
 test('plainCommand quotes only the parts that need it', () => {
