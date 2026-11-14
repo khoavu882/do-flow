@@ -112,7 +112,7 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
 | `/do-brainstorm` | Interactive requirements discovery (`requirement.md`) | Phase 1 (WHY/WHAT) |
 | `/do-design` | Architecture, APIs, and component interfaces (`design.md`) | Phase 2 (HOW System) |
 | `/do-plan` | Implementation plan & task checklist (`plan.md`) | Phase 3 (HOW Tasks) |
-| `/do-execute-plan` | Execute tasks via specialist subagents with prerequisite gates | Phase 4 (BUILD) |
+| `/do-execute-plan` | Execute plan tasks, in session or via subagents, behind prerequisite gates | Phase 4 (BUILD) |
 | `/do-test` | Run builds, test suites, and coverage verification | Phase 5 (VERIFY) |
 | `/do-code-review` | Automated code quality, SOLID, and PR review | Phase 6 (AUDIT) |
 | `/do-git` | Git branch, commit, and PR lifecycle management | Lifecycle |

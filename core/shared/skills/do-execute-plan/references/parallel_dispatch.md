@@ -1,6 +1,6 @@
 # Parallel Subagent Orchestration Reference
 
-Protocol for safe concurrent task execution by specialist subagents.
+Protocol for running task groups side by side through subagents, on a host that has them.
 
 **Write-set isolation is decided by the `parallel-check` verb, not by judgement.** The commands
 below compute the grouping and the overlap set deterministically from `plan.md`. Read their output;
