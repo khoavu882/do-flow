@@ -32,7 +32,7 @@ test('doctor report: an absent tool carries its role, what it unlocks and the in
   const byId = (id: string) => report.externalTools.find((tool: any) => tool.id === id);
   assert.equal(byId('jq').role, 'required');
   assert.equal(byId('jq').status, 'ABSENT');
-  assert.ok(byId('jq').unlocks.length > 0);
+  assert.equal(byId('jq').unlocks, undefined, 'what a tool unlocks is `doflow tools`, not the doctor report');
   assert.deepEqual(byId('rtk').install.command, ['brew', 'install', 'rtk-ai/tap/rtk']);
   // mermaid-cli is judged by its binary, mmdc, not by its id.
   assert.equal(routerWith(['mmdc']).isBinaryAvailable('mermaid-cli'), false);

@@ -924,13 +924,17 @@ function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, exec
   const externalTools = registry.externalTools.map((tool: any) => {
     const binary = tool.status.commands[0][0];
     const probe: any = Object.values(probes).find((candidate) => candidate.binary === binary);
-    const base = { id: tool.id, displayName: tool.displayName, role: tool.role, unlocks: tool.unlocks };
+    const base = { id: tool.id, displayName: tool.displayName, role: tool.role };
     const present = activeRouter.isBinaryAvailable(binary);
     const status = probe ? probe.status : (present ? UNVERIFIED : ABSENT);
     const detail = probe ? probe.detail : (present ? 'on PATH, but no capability provider declares a probe for it' : `binary '${binary}' is not on PATH`);
-    const install = status === ABSENT
+    // What `doflow tools` shows beyond this (what the tool unlocks, the evidence page) stays out of the report to keep it short.
+    const chosen = status === ABSENT
       ? describeInstall(chooseInstallRoute(tool, { isInstalled: (name: string) => activeRouter.isBinaryAvailable(name) }))
       : null;
+    const install = chosen && (chosen.command
+      ? { command: chosen.command, after: chosen.after, privileged: chosen.privileged }
+      : { command: null, reason: chosen.reason });
     return { ...base, status, detail, install };
   });
 
