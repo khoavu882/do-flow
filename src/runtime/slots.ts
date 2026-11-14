@@ -292,7 +292,7 @@ function acquireSlotLock(fsImpl: any, file: string, deps: any): any {
     // The hold is kept (an older runtime's pending move is not covered by the move-aside check, which only
     // a current runtime makes); it is bounded by quietMs and said once, so a silent 10 s is not a hang.
     if (quietMs > 0 && typeof deps.stderr === 'function') {
-      deps.stderr(`doflow slot: lock '${lockDir}' was left by a process that is gone, or is empty or older than ${LOCK_STALE_MS / 1000} s with an owner that cannot be told; `
+      deps.stderr(`doflow slot: lock '${lockDir}' was left by a process that is gone, or is empty or has an owner that cannot be told and is older than ${LOCK_STALE_MS / 1000} s; `
         + `waiting ${quietMs / 1000} s before using it, so that an older DoFlow version that also judged it stale cannot take it from this run.`);
     }
     if (quiet(fsImpl, lockDir, release, quietMs)) return release;

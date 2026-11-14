@@ -233,7 +233,7 @@ test('FU-w9j11f 8: the quiet hold after a reclaim says on stderr what it waits f
     if (quietMs > 0) {
       assert.ok(Date.now() - started >= quietMs, 'the hold was skipped');
       assert.equal(lines.length, 1);
-      assert.ok(lines[0].startsWith('doflow slot: lock ') && lines[0].includes(lockDir) && /gone, or is empty or older than 10 s/.test(lines[0]) && /waiting 0\.06 s before using it/.test(lines[0]), lines[0]);
+      assert.ok(lines[0].startsWith('doflow slot: lock ') && lines[0].includes(lockDir) && /gone, or is empty or has an owner that cannot be told and is older than 10 s/.test(lines[0]) && /waiting 0\.06 s before using it/.test(lines[0]), lines[0]);
     } else assert.deepEqual(lines, []);
     release();
   }
