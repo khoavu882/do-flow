@@ -15,6 +15,10 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+### Changed
+- **Orchestration guidance (`references/ORCHESTRATION.md`):** the role rule no longer tells the main session to delegate all discovery, research and edits. It now delegates for what delegation buys (parallel work on disjoint write sets, a reader not anchored on the session's view, a review of its own change) and otherwise works in the session. A new Finishing section says to finish the asked work, work through ordinary obstacles, report deliberate blockers and close with a self-contained report. The file's size is unchanged (context rails untouched). `MODE_Orchestration.md` drops three generic bullets and its "enable delegation mode" trigger.
+- **`do` skill:** the dispatch step says "the request's first word" instead of `$1`, a placeholder only one of the eight harnesses substitutes.
+
 ## [2.5.0] - 2026-11-10
 
 ### Added

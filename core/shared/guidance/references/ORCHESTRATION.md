@@ -4,24 +4,29 @@ Use `references/MODEL_SELECTION.md`; follow `PRINCIPLES.md` and `rules/RULES.md`
 
 ## Role and handoff
 
-Decide, brief, verify, and keep records. Delegate discovery, research, and source/build edits; own
-briefs, workflow calls, state, and between-task checks. Edit only own bookkeeping; return verification
-defects to an agent. Verify material claims and check author and trailers after agent commits.
+Decide, verify, keep records. Delegate for what it buys: parallel work on disjoint write sets,
+a reader not anchored on your view, a review of your own change. Otherwise work in the session; a
+subagent costs a context load and a lossy summary each way. Check author and trailers after agent
+commits.
+
+## Finishing
+
+Finish what was asked. Work through an ordinary obstacle (error, timeout); report a
+deliberate blocker (denied permission, gate) and continue what does not depend on it. Close with a
+self-contained report: result, verified, not verified, what awaits the user.
 
 ## Brief and tools
 
 Brief with **Goal**, **Context** (`path:line`), **Write set**, **Rules**, **Acceptance and
-verification**, **Report format**, and a model/tier. Put long briefs in scratch files. Keep settled
-scope in the dispatch; mid-run messages may be ignored, so verify the hand-back. Resume finished
-agents, and use a fresh agent when scope grows.
+verification**, **Report format**, and a model/tier. Put long briefs in files. Keep settled scope
+in the dispatch; a mid-run message may be ignored, so verify the hand-back. Use a fresh agent when
+scope grows.
 
-The orchestrator chooses tools from each task's evidence needs and names local, web, and MCP tools
-and their read/write scope in the brief. For current facts, specifications, or external patterns, use
-web search/fetch or relevant documentation/retrieval MCPs; prefer primary sources, fetch support,
-and return citations or locators. Routine read-only research needs no user choice. Shared archetypes
-omit tool allowlists, so agents may use the session tool pool within host permissions and sandboxes.
-Check a host exposes needed tools; otherwise gather the source in the orchestrator or report the gap.
-Keep repository search distinct from external research.
+Choose tools from each task's evidence needs and name local, web, and MCP tools and their
+read/write scope in the brief. For current facts or external patterns, use web
+search/fetch or documentation/retrieval MCPs; prefer primary sources and return citations or
+locators. Routine read-only research needs no user choice. Check a host exposes needed tools;
+otherwise gather the source yourself or report the gap.
 
 ## Running work
 
