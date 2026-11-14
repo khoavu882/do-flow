@@ -41,6 +41,8 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
 ```
 `feature_slug` `null` with a non-empty `candidate_slugs` is an unresolved choice, not "no active feature": ask one option per entry, re-resolve with `"$DOFLOW" paths --json --slug="<chosen>"`, and use that slug for the rest of this flow. `/do-flow` passing `--slug` already resolves it — no prompt then.
 
+Once per flow, after `feature_slug` resolves, run `"$DOFLOW" attendance --task-id "<feature_slug>"`; `unattended` → `references/WORKFLOW_HANDOFF.md` § Unattended stage.
+
 2. **Propose one class** — read the request and name exactly one class id, using the cues and the
    confusable pairs in this skill's own `references/task_classes.md`. State the class and the
    signal it rests on in one line. If two classes fit equally, do **not** take the longer one: show
@@ -148,7 +150,7 @@ not declare is not run here, however familiar it is from the `feature` chain.
 
 8. **Never skip a gate on an ambiguous answer** — an unanswered or unclear response to the
    question tool means stop and ask again, per RULE_04 in `rules/RULES.md`. Finish per the
-   guidance tree's `references/ORCHESTRATION.md` § Finishing. When the terminal stage completes,
+   guidance tree's `references/ORCHESTRATION.md` § Finishing, then run `"$DOFLOW" review-pack --task-id "<feature_slug>"` and tell the user its path, the one place to review what was decided. When the terminal stage completes,
    state `workflow.handoff` as the next step rather than continuing into it.
 
 ## Conditional research within a feature
