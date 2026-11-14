@@ -1632,6 +1632,14 @@
       "reason": "agent-docs deliverable (<feature>/page.html, or the file --out names, written by tmp and rename); OS temp scratch for the renderer, removed by dispose()"
     },
     {
+      "file": "src/runtime/drawio-project.ts",
+      "reason": "agent-docs deliverable (<feature>/design/presentation/<level>.drawio and its .sha sidecar, written by tmp and rename; the .drawio.svg is written by the draw.io binary it runs)"
+    },
+    {
+      "file": "core/shared/scripts/doflow/bash/render-drawio.sh",
+      "reason": "OS temp file for the projector's stderr, removed by trap; the files themselves are written by src/runtime/drawio-project.ts"
+    },
+    {
       "file": "core/shared/scripts/doflow/bash/render-puml.sh",
       "reason": "agent-docs deliverable (.sha beside .puml; design.md block rewrite; trap :174)"
     },

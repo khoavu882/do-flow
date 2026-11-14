@@ -177,6 +177,7 @@ const CALLERS: any = [
   ['do-prereqs.sh', ['--require-plan']],
   ['render-audit.sh', []],
   ['render-puml.sh', []],
+  ['render-drawio.sh', []],
   ['render-diagrams.sh', []],
   ['render-page.sh', []],
   ['do-task-brief.sh', ['--task=A.1']],
