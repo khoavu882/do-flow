@@ -197,6 +197,12 @@ test('the validator enforces that DoFlow never runs a command that needs adminis
   for (const command of [['bash', '--version', '-c', 'x'], ['bash', '-c', 'x', '--version'], ['sh', '-c', 'sudo x'], ['/bin/sh', '-c', 'x'], ['env', 'sudo', 'x'], ['env', 'true'], ['python3', '-c', 'import os'], ['node', '-e', 'x'], ['perl', '-e', 'x'], ['busybox', 'sh'], ['bash', 'script.sh']]) {
     assert.match(errorsFor((tool) => { tool.status = { commands: [command] }; }), /can run text it is given|needs administrator rights/, `${command.join(' ')} is accepted`);
   }
+  // A status command runs on every list with no confirmation: the tool's program and one flag or subcommand, the same program throughout.
+  for (const command of [['osascript', '-e', 'do shell script "id" with administrator privileges'], ['npm', 'exec', '--yes', '--', 'cowsay', 'hi'], ['nice', 'node', '-e', 'x'], ['jq'], ['jq', '--version', 'x'], ['jq', 'a b'], ['jq', '1'], ['node', '--eval', 'x'], ['node', '-p', 'x'], ['node', '--print', 'x'], ['perl', '-E', 'x']]) {
+    assert.notEqual(errorsFor((tool) => { tool.status = { commands: [command] }; }), '', `status ${command.join(' ')} is accepted`);
+  }
+  assert.match(errorsFor((tool) => { tool.status = { commands: [['jq', '--version'], ['osascript', '--version']] }; }), /status\.commands\[1\]: a command starting with 'osascript' is neither the tool's own program/);
+  for (const command of [['rtk', 'gain'], ['plantuml', '-version'], ['jq', '--version']]) assert.equal(errorsFor((tool) => { tool.status = { commands: [command] }; }), '', command.join(' '));
   assert.match(errorsFor((tool) => { tool.install = afterStep(['bash', '-c', 'x']); }), /after\[0\]: a command starting with 'bash' can run text it is given/);
   assert.equal(errorsFor((tool) => { tool.status = { commands: [['bash', '--version']] }; tool.install = afterStep(['bash', '--version']); }), '');
   // A step that needs sudo is allowed where DoFlow only shows it, and a privileged shown-only route may hold anything.

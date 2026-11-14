@@ -64,7 +64,7 @@ function runsGivenText(command: any): boolean {
   if (!Array.isArray(command) || !command.length) return false;
   const name = programName(command[0]);
   if (SHELLS.has(name) || name === 'env') return true;
-  return INTERPRETERS.test(name) && command.slice(1).some((word) => word === '-c' || word === '-e');
+  return INTERPRETERS.test(name) && command.slice(1).some((word) => ['-c', '-e', '-p', '-E', '--eval', '--print'].includes(word));
 }
 
 /** Why DoFlow will not run this command, or null when it may. `allowed` is the set of programs it may start with. */
@@ -73,6 +73,17 @@ function refusalReason(command: string[], allowed: Set<string> | null = null): s
   if (word !== null) return `a command naming '${word}' needs administrator rights, so DoFlow does not run it`;
   if (runsGivenText(command) && !(command.length === 2 && command[1] === '--version')) return `a command starting with '${command[0]}' can run text it is given, so DoFlow runs it only as '${command[0]} --version'`;
   if (allowed && !allowed.has(command?.[0])) return `a command starting with '${command?.[0]}' is neither the tool's own program nor its installer (${[...allowed].join(', ') || 'none'}), so DoFlow does not run it`;
+  return null;
+}
+
+/** A status command is the tool's program and one argument, a flag or a plain subcommand (`--version`, `-version`, `gain`):
+ * it runs on every list with no confirmation, so it carries no further words. Returns why not, or null. */
+function statusRefusal(command: string[], allowed: Set<string>): string | null {
+  const reason = refusalReason(command, allowed);
+  if (reason) return reason;
+  if (!Array.isArray(command) || command.length !== 2 || !/^-{0,2}[A-Za-z][A-Za-z-]*$/.test(String(command[1]))) {
+    return `a status command is the tool's program and one flag or subcommand (for example --version), so DoFlow does not run '${Array.isArray(command) ? command.join(' ') : command}'`;
+  }
   return null;
 }
 
@@ -195,8 +206,8 @@ function failureKind(error: any): 'absent' | 'timeout' | 'failed' {
 }
 
 /** One status check or probe. `allowed` limits what it may start with (a status check starts with the tool's own program). */
-async function runInspection(command: string[], execImpl: ExecImpl, timeoutMs: number = INSPECTION_TIMEOUT_MS, allowed: Set<string> | null = null): Promise<any> {
-  const refusal = refusalReason(command, allowed);
+async function runInspection(command: string[], execImpl: ExecImpl, timeoutMs: number = INSPECTION_TIMEOUT_MS, allowed: Set<string> | null = null, status = false): Promise<any> {
+  const refusal = status && allowed ? statusRefusal(command, allowed) : refusalReason(command, allowed);
   if (refusal) return { command: [...command], result: 'failed', error: refusal };
   try {
     const output = await execImpl(command[0], command.slice(1), { encoding: 'utf8', stdio: 'pipe', timeout: timeoutMs });
@@ -220,7 +231,7 @@ function normalizeToolState(inspections: any[]): string {
 
 async function inspectTool(tool: any, { execImpl = probeExec, timeoutMs = INSPECTION_TIMEOUT_MS }: { execImpl?: ExecImpl; timeoutMs?: number } = {}): Promise<any> {
   const allowed = allowedPrograms(tool);
-  const inspections = await Promise.all(tool.status.commands.map((command: string[]) => runInspection(command, execImpl, timeoutMs, allowed)));
+  const inspections = await Promise.all(tool.status.commands.map((command: string[]) => runInspection(command, execImpl, timeoutMs, allowed, true)));
   return { state: normalizeToolState(inspections), inspections };
 }
 
@@ -441,6 +452,7 @@ module.exports = {
   ownProgram,
   allowedPrograms,
   refusalReason,
+  statusRefusal,
   isSupportedPlatform,
   commandText,
   plainCommand,
