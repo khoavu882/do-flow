@@ -48,6 +48,10 @@ const MAX_PER_COLUMN = 4;
 // A relation that passes over a column gets an empty slot in it to run through.
 const SLOT_H = 20;
 const MAX_ROUTE_SLOTS = 2000;
+// Lanes for the upright part of a routed relation, inside the gap between two columns.
+const LANE_EDGE = 18;
+const LANE_STEP = 12;
+const LANES = 8;
 
 // C0 controls other than tab, LF and CR are not legal in XML 1.0, even as a character reference.
 const xmlAttr = (s: string): string => s.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/\n/g, '&#10;');
@@ -272,15 +276,27 @@ function project(text: string, opts: { sourcePath?: string; name?: string; icons
       for (const i of col) { at[i] = { x, y }; y += nodes[i].h + GAP; }
       w = x + colW[c]; x = w + RANK_GAP;
     });
+    // A routed relation turns only in the space between columns, never at a shape's own edge: one point
+    // per column passed, in the gap it enters that column from, at the height of its slot there, then one
+    // in the gap before its target. The corners between them are added when the relation is written.
+    // Each relation that turns in a gap takes the next lane there, so two of them do not share a line.
+    const lanes: number[] = columns.map(() => 0);
+    const gapBefore = (c: number, back: boolean): number => {
+      const gap = back ? c + 1 : c;
+      return ox + colX[gap] - RANK_GAP + LANE_EDGE + (lanes[gap]++ % LANES) * LANE_STEP;
+    };
     for (const p of passes) {
       const points: Array<{ x: number; y: number }> = [];
+      let y = 0;
       for (const t of p.through) {
-        const y = oy + colTop[t.c] + shapesH(t.c) + GAP + t.slot * (GAP + SLOT_H) + SLOT_H / 2;
-        const near = ox + colX[t.c]; const far = near + colW[t.c];
-        points.push({ x: p.back ? far : near, y }, { x: p.back ? near : far, y });
+        y = oy + colTop[t.c] + shapesH(t.c) + GAP + t.slot * (GAP + SLOT_H) + SLOT_H / 2;
+        points.push({ x: gapBefore(t.c, p.back), y });
       }
+      if (points.length) points.push({ x: gapBefore(colOf.get(p.l.b) as number, p.back), y });
       const e = parsed.edges[p.l.e];
-      routes.set(p.l.e, { points, back: p.back, direct: nodes[p.l.a].alias === e.from && nodes[p.l.b].alias === e.to });
+      // Pinned only when its way is clear: neighbouring columns, or a slot in every column between.
+      const clear = Math.abs((colOf.get(p.l.a) as number) - (colOf.get(p.l.b) as number)) === 1 || points.length > 0;
+      routes.set(p.l.e, { points, back: p.back, direct: clear && nodes[p.l.a].alias === e.from && nodes[p.l.b].alias === e.to });
     }
     const rest = all.filter((i) => !linked.has(i));
     if (!rest.length) return { at, w, h };
@@ -293,11 +309,14 @@ function project(text: string, opts: { sourcePath?: string; name?: string; icons
   const top = pack(roots, ORIGIN, ORIGIN);
 
   const lines: string[] = [];
-  const cell = (node: any, x: number, y: number, parent: string) => {
+  // Page coordinates of every shape, for the ends of a routed relation.
+  const box = new Map<string, { x: number; y: number; w: number; h: number }>();
+  const cell = (node: any, x: number, y: number, parent: string, px = 0, py = 0) => {
+    box.set(node.alias, node.boundary ? { x: px + x, y: py + y, w: node.w, h: node.h } : { x: px + x + node.gx, y: py + y, w: node.gw, h: node.gh });
     if (node.boundary) {
       lines.push(`        <mxCell id="${xmlAttr(node.id)}" value="${xmlAttr(node.label)}" style="swimlane;startSize=30;html=1;" vertex="1" parent="${xmlAttr(parent)}">`,
         `          <mxGeometry x="${x}" y="${y}" width="${node.w}" height="${node.h}" as="geometry"/>`, '        </mxCell>');
-      node.kids.forEach((kid: any, i: number) => cell(kid, PAD + node.grid.at[i].x, HEADER + PAD + node.grid.at[i].y, node.id));
+      node.kids.forEach((kid: any, i: number) => cell(kid, PAD + node.grid.at[i].x, HEADER + PAD + node.grid.at[i].y, node.id, px + x, py + y));
     } else {
       lines.push(`        <mxCell id="${xmlAttr(node.id)}" value="${xmlAttr(node.label)}" style="${xmlAttr(node.style)}" vertex="1" parent="${xmlAttr(parent)}">`,
         `          <mxGeometry x="${x + node.gx}" y="${y}" width="${node.gw}" height="${node.gh}" as="geometry"/>`, '        </mxCell>');
@@ -325,10 +344,23 @@ function project(text: string, opts: { sourcePath?: string; name?: string; icons
     const toChain = new Set(chain(e.to));
     const common = chain(e.from).find((a: string) => toChain.has(a));
     const route = routes.get(i);
-    const style = `edgeStyle=orthogonalEdgeStyle;html=1;labelBackgroundColor=default;endArrow=block;${e.bi ? 'startArrow=block;' : ''}${route?.direct ? (route.back ? BACK : FORWARD) : ''}`;
-    const geometry = route?.points.length
-      ? `<mxGeometry relative="1" as="geometry"><Array as="points">${route.points.map((p) => `<mxPoint x="${p.x}" y="${p.y}"/>`).join('')}</Array></mxGeometry>`
-      : '<mxGeometry relative="1" as="geometry"/>';
+    const arrows = `html=1;labelBackgroundColor=default;endArrow=block;${e.bi ? 'startArrow=block;' : ''}`;
+    let style = `edgeStyle=orthogonalEdgeStyle;${arrows}${route?.direct ? (route.back ? BACK : FORWARD) : ''}`;
+    let geometry = '<mxGeometry relative="1" as="geometry"/>';
+    if (route?.points.length) {
+      // The whole path is given, corner by corner, and no router is asked: draw.io's orthogonal router
+      // takes a point as a hint and turns at the shape's own edge, through whatever is stacked there.
+      const origin = common ? box.get(common) as any : { x: 0, y: 0 };
+      const from = box.get(e.from) as any; const to = box.get(e.to) as any;
+      const fy = route.back ? 0.75 : 0.5;
+      const corners: Array<{ x: number; y: number }> = [];
+      let y = from.y - origin.y + from.h * fy;
+      for (const p of route.points) { corners.push({ x: p.x, y }, { x: p.x, y: p.y }); y = p.y; }
+      corners.push({ x: route.points[route.points.length - 1].x, y: to.y - origin.y + to.h * fy });
+      const path = corners.filter((c, k) => k === 0 || c.x !== corners[k - 1].x || c.y !== corners[k - 1].y);
+      style = `edgeStyle=none;rounded=0;${arrows}exitX=${route.back ? 0 : 1};exitY=${fy};entryX=${route.back ? 1 : 0};entryY=${fy};`;
+      geometry = `<mxGeometry relative="1" as="geometry"><Array as="points">${path.map((c) => `<mxPoint x="${c.x}" y="${c.y}"/>`).join('')}</Array></mxGeometry>`;
+    }
     const id = `rel-${i + 1}-${e.from}-${e.to}`;
     lines.push(`        <mxCell id="${xmlAttr(id)}" value="${xmlAttr(label)}" style="${style}" edge="1" parent="${common ? `bd-${xmlAttr(common)}` : '1'}" source="${xmlAttr(elementIds.get(e.from) ?? boundaryIds.get(e.from) as string)}" target="${xmlAttr(elementIds.get(e.to) ?? boundaryIds.get(e.to) as string)}">`,
       `          ${geometry}`, '        </mxCell>');

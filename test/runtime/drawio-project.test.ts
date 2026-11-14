@@ -382,27 +382,60 @@ const rectOf = (xml: string, id: string) => {
   if (!m) throw new assert.AssertionError({ message: `no geometry for ${id}` });
   return { x: Number(m[1]), y: Number(m[2]), w: Number(m[3]), h: Number(m[4]) };
 };
-/** Whether the horizontal run between two points at one height passes through a rectangle. */
-const runHits = (a: any, b: any, r: any) => a.y === b.y && a.y > r.y && a.y < r.y + r.h && Math.max(a.x, b.x) > r.x && Math.min(a.x, b.x) < r.x + r.w;
+/** Whether the straight run between two points passes through the inside of a rectangle. Runs are level or upright. */
+const runHits = (a: any, b: any, r: any) => Math.max(a.x, b.x) > r.x && Math.min(a.x, b.x) < r.x + r.w && Math.max(a.y, b.y) > r.y && Math.min(a.y, b.y) < r.y + r.h;
+/** Every run of a routed relation, from the side it leaves to the side it enters, as its pinned style says. */
+const runsOf = (xml: string, id: string, from: string, to: string) => {
+  const style = attr(cellOf(xml, id), 'style') as string;
+  const pin = (name: string) => Number(new RegExp(`${name}=([\\d.]+);`).exec(style)?.[1]);
+  const f = rectOf(xml, `el-${from}`); const t = rectOf(xml, `el-${to}`);
+  const path = [{ x: f.x + f.w * pin('exitX'), y: f.y + f.h * pin('exitY') }, ...pointsOf(xml, id), { x: t.x + t.w * pin('entryX'), y: t.y + t.h * pin('entryY') }];
+  return path.slice(1).map((p, k) => [path[k], p]);
+};
+const MIXED = [
+  'Person(pp, "User")', 'Container(a, "A")', 'Container(x, "X")', 'Container(y, "Y")', 'Container(b, "B")', 'Container(c, "C")',
+  'Rel(pp, a, "1")', 'Rel(a, b, "2")', 'Rel(x, b, "3")', 'Rel(y, b, "4")', 'Rel(b, c, "5")', 'Rel(pp, c, "6")', 'Rel(c, pp, "7")', 'Rel(a, c, "8")',
+];
 
-test('a relation that passes over a column is routed through an empty slot in it, in both directions', () => {
-  const { xml } = project(puml([
-    'Container(a, "A")', 'Container(b, "B")', 'Container(c, "C")',
-    'Rel(a, b, "1")', 'Rel(b, c, "2")', 'Rel(a, c, "skips b")', 'Rel(c, a, "back over b")',
-  ].join('\n')));
-  const b = rectOf(xml, 'el-b');
-  const a = rectOf(xml, 'el-a'); const c = rectOf(xml, 'el-c');
-  for (const [id, from, to] of [['rel-3-a-c', a, c], ['rel-4-c-a', c, a]] as any[]) {
-    const pts = pointsOf(xml, id);
-    assert.equal(pts.length, 2, `${id} has an entry and an exit point for the column it passes`);
-    assert.ok(!runHits(pts[0], pts[1], b), `${id} does not run through b`);
-    assert.ok(pts[0].y >= b.y + b.h, `${id} passes below b`);
-    // Entered from the side it comes from, so the line does not double back over the column.
-    assert.equal(Math.sign(pts[1].x - pts[0].x), Math.sign(to.x - from.x), id);
-    assert.equal(Math.min(pts[0].x, pts[1].x), b.x); assert.equal(Math.max(pts[0].x, pts[1].x), b.x + b.w);
+test('a relation that passes over a column has its whole path given, level or upright, through no shape', () => {
+  const cases: Array<[string[], string[], Array<[string, string, string]>]> = [
+    [['Container(a, "A")', 'Container(b, "B")', 'Container(c, "C")', 'Rel(a, b, "1")', 'Rel(b, c, "2")', 'Rel(a, c, "skips b")', 'Rel(c, a, "back over b")'],
+      ['a', 'b', 'c'], [['rel-3-a-c', 'a', 'c'], ['rel-4-c-a', 'c', 'a']]],
+    // A person is narrower than its column, with shapes stacked under it: the upright part must not run down through them.
+    [MIXED, ['pp', 'a', 'x', 'y', 'b', 'c'], [['rel-3-x-b', 'x', 'b'], ['rel-4-y-b', 'y', 'b'], ['rel-6-pp-c', 'pp', 'c'], ['rel-7-c-pp', 'c', 'pp'], ['rel-8-a-c', 'a', 'c']]],
+  ];
+  for (const [body, shapes, routed] of cases) {
+    const { xml } = project(puml(body.join('\n')));
+    for (const [id, from, to] of routed) {
+      assert.match(attr(cellOf(xml, id), 'style') as string, /^edgeStyle=none;rounded=0;/, `${id} is not left to a router`);
+      const runs = runsOf(xml, id, from, to);
+      assert.ok(runs.length >= 3, `${id} has corners`);
+      for (const [p, q] of runs) {
+        assert.ok(p.x === q.x || p.y === q.y, `${id}: the run ${JSON.stringify([p, q])} is level or upright`);
+        for (const shape of shapes) assert.ok(!runHits(p, q, rectOf(xml, `el-${shape}`)), `${id} runs through ${shape}: ${JSON.stringify([p, q])}`);
+      }
+    }
   }
-  assert.notEqual(pointsOf(xml, 'rel-3-a-c')[0].y, pointsOf(xml, 'rel-4-c-a')[0].y, 'each relation has its own slot');
-  assert.deepEqual(pointsOf(xml, 'rel-1-a-b'), [], 'a relation between neighbouring columns needs no point');
+});
+
+test('two routed relations do not share an upright line or a slot; a neighbouring relation is left to the router', () => {
+  const { xml } = project(puml(MIXED.join('\n')));
+  const uprights = ['rel-3-x-b', 'rel-4-y-b', 'rel-6-pp-c', 'rel-7-c-pp', 'rel-8-a-c'].flatMap((id) => [...new Set(pointsOf(xml, id).map((p) => p.x))].map((x) => `${x}`));
+  assert.equal(new Set(uprights).size, uprights.length, uprights.join(' '));
+  assert.deepEqual(pointsOf(xml, 'rel-1-pp-a'), []);
+  assert.match(attr(cellOf(xml, 'rel-1-pp-a'), 'style') as string, /^edgeStyle=orthogonalEdgeStyle;.*exitX=1;exitY=0\.5;entryX=0;entryY=0\.5;$/);
+});
+
+test('past the slot budget a relation over a column is neither routed nor pinned', () => {
+  const n = 70;
+  const { xml } = project(puml([
+    ...Array.from({ length: n }, (_, i) => `Container(e${i}, "E${i}")`),
+    ...Array.from({ length: n - 1 }, (_, i) => `Rel(e${i}, e${i + 1}, "next")`),
+    ...Array.from({ length: n - 2 }, (_, i) => `Rel(e0, e${i + 2}, "far")`),
+  ].join('\n')));
+  const last = cellOf(xml, `rel-${(n - 1) + (n - 2)}-e0-e${n - 1}`);
+  assert.doesNotMatch(attr(last, 'style') as string, /exitX|entryX/);
+  assert.match(attr(cellOf(xml, `rel-${n}-e0-e2`), 'style') as string, /^edgeStyle=none;/, 'the first far relation is still routed');
 });
 
 test('siblings no relation touches stay out of the columns, in a grid below them', () => {

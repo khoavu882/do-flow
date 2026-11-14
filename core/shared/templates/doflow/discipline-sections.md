@@ -23,7 +23,7 @@ Use when a person sees or operates a screen, page, component or terminal view.
 
 **Requirement**
 
-- Every state a person can meet has an acceptance criterion: empty, loading, error, partial data and success.
+- Every state a person can meet is handled: empty, loading, error, partial data and success.
 - Accessibility bar, named: the standard and level (for example WCAG 2.2 AA), keyboard-only use, and screen-reader use.
 - Sizes and inputs supported: viewport widths, touch, pointer, keyboard.
 - Languages, text direction, and what happens to long or missing text.
@@ -33,7 +33,7 @@ Use when a person sees or operates a screen, page, component or terminal view.
 
 ### Screens and states
 
-| Screen or component | State | What the person sees | What they can do next |
+| Screen | State | What the person sees | What they can do next |
 |---|---|---|---|
 | [name] | empty / loading / error / partial / success | [content, in the product's own words] | [action] |
 
@@ -51,10 +51,10 @@ Use when a person sees or operates a screen, page, component or terminal view.
 ### Components reused
 
 - Existing components reused, by name. A new component is listed with the reason an existing one does not fit.
-- Breakpoints and what changes at each.
 - Events recorded for analytics, each with what it tells and what data it carries.
 
-Design tokens, component states and layout cues are not written here: they go in `data-model.md` §1.
+Design tokens, the visual states of a single component, breakpoints and other layout cues are not
+written here: they go in `data-model.md` §1. The table above is about whole screens as a person meets them.
 
 ## Language model
 
@@ -62,7 +62,7 @@ Use when the feature calls a language model, or its output depends on a prompt, 
 
 **Requirement**
 
-- The quality bar is an acceptance criterion with a measure: which cases, which score or pass rate, judged how.
+- The quality bar, with a measure: which cases, which score or pass rate, judged how.
 - Limits per request and per day: latency, cost, and what the person sees when a limit is reached.
 - What data may be sent to the model provider and what may not.
 - What the feature does when the model is wrong, refuses or is unavailable.
