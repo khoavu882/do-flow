@@ -142,6 +142,8 @@ function project(text: string, opts: { sourcePath?: string; name?: string; icons
   const parentOf = new Map<string, string | null>();
   const elements = new Map<string, any>(parsed.elements.map((e: any) => [e.alias, e]));
 
+  // Each shape's layout record, by alias; `place` on it says where its container put it (a column or a grid row).
+  const nodeOf = new Map<string, any>();
   const layoutNode = (item: any, parent: string | null): any => {
     if (item.element) {
       const el = elements.get(item.element);
@@ -169,22 +171,22 @@ function project(text: string, opts: { sourcePath?: string; name?: string; icons
       else style = `rounded=1;whiteSpace=wrap;html=1;${own}`;
       elementIds.set(el.alias, `el-${el.alias}`);
       parentOf.set(el.alias, parent);
-      return { id: `el-${el.alias}`, alias: el.alias, aliases: [el.alias], label, style, w: SLOT_W, h: slotH, gx: (SLOT_W - gw) / 2, gw, gh };
+      return nodeOf.set(el.alias, { id: `el-${el.alias}`, alias: el.alias, aliases: [el.alias], label, style, w: SLOT_W, h: slotH, gx: (SLOT_W - gw) / 2, gw, gh }).get(el.alias);
     }
     const b = item.boundary;
     boundaryIds.set(b.alias, `bd-${b.alias}`);
     parentOf.set(b.alias, parent);
     const kids = b.items.map((child: any) => layoutNode(child, b.alias));
     const grid = pack(kids, PAD, HEADER + PAD);
-    return {
+    return nodeOf.set(b.alias, {
       id: `bd-${b.alias}`, alias: b.alias, aliases: [b.alias, ...kids.flatMap((k: any) => k.aliases)], boundary: true, label: htmlText(b.label), kids, grid,
       w: Math.max(MIN_BOUNDARY_W, grid.w + 2 * PAD), h: HEADER + PAD + grid.h + PAD,
-    };
+    }).get(b.alias);
   };
 
   // How each relation is drawn, by its index: the points it passes, in its container's coordinates,
   // and whether both ends are children of that container (only then are its sides pinned).
-  const routes = new Map<number, { points: Array<{ x: number; y: number }>; direct: boolean; back: boolean }>();
+  const routes = new Map<number, { points: Array<{ x: number; y?: number }>; direct: boolean; back: boolean }>();
   let slotsLeft = MAX_ROUTE_SLOTS;
 
   // Children no relation joins keep the source-order grid. Joined children go in one column per rank,
@@ -209,7 +211,7 @@ function project(text: string, opts: { sourcePath?: string; name?: string; icons
       let x = 0; let y = y0; let rowH = 0; let w = 0;
       members.forEach((i: number, k: number) => {
         if (k > 0 && k % cols === 0) { x = 0; y += rowH + GAP; rowH = 0; }
-        at[i] = { x, y };
+        at[i] = { x, y }; nodes[i].place = { row: y };
         x += nodes[i].w; w = Math.max(w, x); x += GAP;
         rowH = Math.max(rowH, nodes[i].h);
       });
@@ -273,7 +275,7 @@ function project(text: string, opts: { sourcePath?: string; name?: string; icons
     columns.forEach((col, c) => {
       colX[c] = x; colW[c] = Math.max(...col.map((i) => nodes[i].w)); colTop[c] = Math.round((h - heightOf(c)) / 2);
       let y = colTop[c];
-      for (const i of col) { at[i] = { x, y }; y += nodes[i].h + GAP; }
+      for (const i of col) { at[i] = { x, y }; nodes[i].place = { col: [x, x + colW[c]] }; y += nodes[i].h + GAP; }
       w = x + colW[c]; x = w + RANK_GAP;
     });
     // A routed relation turns only in the space between columns, never at a shape's own edge: one point
@@ -286,17 +288,20 @@ function project(text: string, opts: { sourcePath?: string; name?: string; icons
       return ox + colX[gap] - RANK_GAP + LANE_EDGE + (lanes[gap]++ % LANES) * LANE_STEP;
     };
     for (const p of passes) {
-      const points: Array<{ x: number; y: number }> = [];
+      const points: Array<{ x: number; y?: number }> = [];
       let y = 0;
       for (const t of p.through) {
         y = oy + colTop[t.c] + shapesH(t.c) + GAP + t.slot * (GAP + SLOT_H) + SLOT_H / 2;
         points.push({ x: gapBefore(t.c, p.back), y });
       }
-      if (points.length) points.push({ x: gapBefore(colOf.get(p.l.b) as number, p.back), y });
       const e = parsed.edges[p.l.e];
-      // Pinned only when its way is clear: neighbouring columns, or a slot in every column between.
-      const clear = Math.abs((colOf.get(p.l.a) as number) - (colOf.get(p.l.b) as number)) === 1 || points.length > 0;
-      routes.set(p.l.e, { points, back: p.back, direct: clear && nodes[p.l.a].alias === e.from && nodes[p.l.b].alias === e.to });
+      const direct = nodes[p.l.a].alias === e.from && nodes[p.l.b].alias === e.to;
+      const neighbours = Math.abs((colOf.get(p.l.a) as number) - (colOf.get(p.l.b) as number)) === 1;
+      if (points.length) points.push({ x: gapBefore(colOf.get(p.l.b) as number, p.back), y });
+      // An end inside a child container has its own way out to draw, so it needs a lane here too.
+      else if (neighbours && !direct) points.push({ x: gapBefore(colOf.get(p.l.b) as number, p.back) });
+      // Left to the router and pinned only when its way is clear: two children in neighbouring columns.
+      routes.set(p.l.e, { points, back: p.back, direct: direct && neighbours });
     }
     const rest = all.filter((i) => !linked.has(i));
     if (!rest.length) return { at, w, h };
@@ -333,6 +338,36 @@ function project(text: string, opts: { sourcePath?: string; name?: string; icons
   // column order leaves and enters lower on the side, clear of a relation running the other way.
   const FORWARD = 'exitX=1;exitY=0.5;entryX=0;entryY=0.5;';
   const BACK = 'exitX=0;exitY=0.75;entryX=1;entryY=0.75;';
+  // The way from one end of a relation out of every container around it, up to the one both ends
+  // share, in page coordinates: beside the shape into the clear space next to it, up to the clear band
+  // above its column or grid row, along the band to the container's side; then the same one level up.
+  // Returns the corners after the shape's own side, and the height the path is at when it gets out.
+  const turns = new Map<string, number>();
+  const leave = (alias: string, stop: string | null, dir: number, fy: number): { corners: Array<{ x: number; y: number }>; y: number } => {
+    const corners: Array<{ x: number; y: number }> = [];
+    const first = box.get(alias) as any;
+    let y = first.y + first.h * fy;
+    for (let inner = alias, outer = parentOf.get(inner) ?? null; outer && outer !== stop; inner = outer, outer = parentOf.get(inner) ?? null) {
+      const o = box.get(outer) as any; const b = box.get(inner) as any; const place = nodeOf.get(inner).place;
+      // Nothing stands between this shape and the side it leaves by: the path runs straight out, with no climb.
+      const blocked = [...parentOf].some(([other, holder]) => {
+        if (holder !== outer || other === inner) return false;
+        const s = box.get(other) as any;
+        return (dir > 0 ? s.x >= b.x + b.w : s.x + s.w <= b.x) && y > s.y - 8 && y < s.y + s.h + 8;
+      });
+      if (!blocked) { corners.push({ x: dir > 0 ? o.x + o.w : o.x, y }); continue; }
+      // A few paths may leave by the same space; each is set a little apart from the last.
+      const k = turns.get(outer) ?? 0; turns.set(outer, k + 1);
+      const gx = o.x + PAD; const gy = o.y + HEADER + PAD;
+      const lane = place.col
+        ? gx + (dir > 0 ? place.col[1] + 8 + (k % 3) * 3 : place.col[0] - 8 - (k % 3) * 3)
+        : (dir > 0 ? b.x + b.w + GAP / 2 : b.x - GAP / 2) + ((k % 3) - 1) * 4;
+      const band = gy + (place.col || place.row === 0 ? -PAD / 2 : place.row - GAP / 2) + ((k % 3) - 1) * 4;
+      corners.push({ x: lane, y }, { x: lane, y: band }, { x: dir > 0 ? o.x + o.w : o.x, y: band });
+      y = band;
+    }
+    return { corners, y };
+  };
   parsed.edges.forEach((e: any, i: number) => {
     for (const end of [e.from, e.to]) {
       if (!elementIds.has(end) && !boundaryIds.has(end)) {
@@ -351,12 +386,17 @@ function project(text: string, opts: { sourcePath?: string; name?: string; icons
       // The whole path is given, corner by corner, and no router is asked: draw.io's orthogonal router
       // takes a point as a hint and turns at the shape's own edge, through whatever is stacked there.
       const origin = common ? box.get(common) as any : { x: 0, y: 0 };
-      const from = box.get(e.from) as any; const to = box.get(e.to) as any;
+      const dir = route.back ? -1 : 1;
       const fy = route.back ? 0.75 : 0.5;
-      const corners: Array<{ x: number; y: number }> = [];
-      let y = from.y - origin.y + from.h * fy;
-      for (const p of route.points) { corners.push({ x: p.x, y }, { x: p.x, y: p.y }); y = p.y; }
-      corners.push({ x: route.points[route.points.length - 1].x, y: to.y - origin.y + to.h * fy });
+      const out = leave(e.from, common ?? null, dir, fy);
+      const into = leave(e.to, common ?? null, -dir, fy);
+      const corners = out.corners.map((c) => ({ x: c.x - origin.x, y: c.y - origin.y }));
+      let y = out.y - origin.y;
+      for (const p of route.points) {
+        corners.push({ x: p.x, y });
+        if (p.y !== undefined) { corners.push({ x: p.x, y: p.y }); y = p.y; }
+      }
+      corners.push({ x: route.points[route.points.length - 1].x, y: into.y - origin.y }, ...into.corners.reverse().map((c) => ({ x: c.x - origin.x, y: c.y - origin.y })));
       const path = corners.filter((c, k) => k === 0 || c.x !== corners[k - 1].x || c.y !== corners[k - 1].y);
       style = `edgeStyle=none;rounded=0;${arrows}exitX=${route.back ? 0 : 1};exitY=${fy};entryX=${route.back ? 1 : 0};entryY=${fy};`;
       geometry = `<mxGeometry relative="1" as="geometry"><Array as="points">${path.map((c) => `<mxPoint x="${c.x}" y="${c.y}"/>`).join('')}</Array></mxGeometry>`;
