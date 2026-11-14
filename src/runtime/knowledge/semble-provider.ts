@@ -285,6 +285,25 @@ function reclaimStaleLock(lock: string, judged: Buffer): boolean {
   try { fs.unlinkSync(aside); } catch {}
   return same;
 }
+const PAUSE = new Int32Array(new SharedArrayBuffer(4));
+/**
+ * Removes this holder's lock. A reclaimer that judged an earlier lock stale may have this one moved aside just
+ * as the holder finishes (`reclaimStaleLock`), so an absent lock is looked for again, 8 times over about 20 ms,
+ * and removed when it comes back with this holder's token; another holder's lock at the path is left alone.
+ * Ceiling: a reclaimer stalled longer than that links the lock back later, and the lock (this process's pid,
+ * so "cannot tell") then waits for the 10 minute age rule.
+ */
+function releaseSemanticLock(lock: string, token: string, fd: number): void {
+  try { fs.closeSync(fd); } catch {}
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const owner = readLockOwner(lock);
+    let present = true;
+    try { fs.lstatSync(lock); } catch (error: any) { present = error.code !== 'ENOENT'; }
+    if (owner && owner.token === token) { try { fs.unlinkSync(lock); } catch (error: any) { if (error.code !== 'ENOENT') throw error; } return; }
+    if (present) return;
+    Atomics.wait(PAUSE, 0, 0, 2.5);
+  }
+}
 async function acquireSemanticLock(paths: any, { isAlive = pidAlive, hostname = os.hostname(), waitMs = 100, now = Date.now }: any = {}): Promise<any> {
   safeDirectories(paths.root, paths.state, true);
   const token = crypto.randomUUID();
@@ -292,7 +311,7 @@ async function acquireSemanticLock(paths: any, { isAlive = pidAlive, hostname = 
   while (true) {
     try {
       const fd = fs.openSync(paths.lock, 'wx', 0o600); fs.writeFileSync(fd, `${JSON.stringify({ pid: process.pid, hostname, token })}\n`);
-      return () => { fs.closeSync(fd); if (readLockOwner(paths.lock)?.token === token) fs.unlinkSync(paths.lock); };
+      return () => releaseSemanticLock(paths.lock, token, fd);
     } catch (error: any) { if (error.code !== 'EEXIST') throw error; }
     const owner = readLockOwner(paths.lock);
     const judged = staleLockBytes(paths.lock, { isAlive, hostname, now });
@@ -396,5 +415,5 @@ async function runSembleQuery(options: any): Promise<any> {
     ...(typeof error.cause === 'string' ? { cause: error.cause } : {}), candidates: [] }; }
   finally { try { if (temp) fs.rmSync(temp, { recursive: true, force: true }); } catch {} try { if (release) release(); } catch {} }
 }
-module.exports = { SEMBLE_VERSION, SEMBLE_LIMITS, runSembleQuery, resolveSembleInterpreter, checkSembleVersion, semanticStatePaths, digest, fault, inside, safeDirectories,
+module.exports = { releaseSemanticLock, SEMBLE_VERSION, SEMBLE_LIMITS, runSembleQuery, resolveSembleInterpreter, checkSembleVersion, semanticStatePaths, digest, fault, inside, safeDirectories,
   regularBytes, scanTree, inspectModel, inspectBm25, validateInventory, readSource, checkSources, inspectArtifacts, acquireSemanticLock, reclaimStaleLock, staleLockBytes, pidAlive, SEMANTIC_LOCK_STALE_MS, recordLockChild, cleanupTemporary, executeBridge, readCompleted, modelLinkRoots };

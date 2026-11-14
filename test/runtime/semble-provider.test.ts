@@ -343,6 +343,39 @@ test('FU-w9j11f 6: a lock whose owner cannot be told is reclaimed by age only; E
   assert.deepEqual(fs.readdirSync(state), []);
 });
 
+test('FU-w9j11f R7: a holder that releases while a reclaimer has its lock moved aside leaves no lock behind', async t => {
+  const root = fs.realpathSync(tempDir(t, 'doflow-semantic-lock-'));
+  const state = path.join(root, '.doflow', 'index', 'code', 'semble', 'x');
+  const paths: any = { root, state, lock: path.join(state, 'operation.lock') };
+  const { staleLockBytes, pidAlive } = require('../../src/runtime/knowledge/semble-provider.ts');
+  // R2 judges the dead owner's lock B1 stale; R1 reclaims it and holds (H).
+  plantLock(paths, { pid: deadPid(), hostname: os.hostname(), token: crypto.randomUUID() });
+  const judged = staleLockBytes(paths.lock, { isAlive: pidAlive, hostname: os.hostname(), now: Date.now });
+  assert.ok(judged);
+  const releaseH = await acquireSemanticLock(paths);
+  // R2 moves H's lock aside (reclaimStaleLock's rename). H releases in that window; the pause inside release is where
+  // R2 goes on: it reads the moved file, finds other bytes than it judged, and links the lock back.
+  const aside = `${paths.lock}.r2.gone`;
+  fs.renameSync(paths.lock, aside);
+  const wait = Atomics.wait; let pauses = 0;
+  (Atomics as any).wait = (...args: any[]) => {
+    pauses += 1;
+    if (pauses === 1) { fs.linkSync(aside, paths.lock); fs.unlinkSync(aside); }
+    return (wait as any)(...args);
+  };
+  try { releaseH(); } finally { (Atomics as any).wait = wait; }
+  assert.ok(pauses >= 1, 'the release looked again for the moved lock');
+  assert.equal(fs.existsSync(paths.lock), false, 'the lock R2 linked back is H\'s own and is removed');
+  assert.deepEqual(fs.readdirSync(state), []);
+  // Another holder's lock at the path is never removed by this release.
+  const other = await acquireSemanticLock(paths);
+  const mine = { pid: process.pid, hostname: os.hostname(), token: crypto.randomUUID() };
+  const { releaseSemanticLock } = require('../../src/runtime/knowledge/semble-provider.ts');
+  releaseSemanticLock(paths.lock, mine.token, fs.openSync(path.join(root, 'x'), 'w'));
+  assert.equal(fs.existsSync(paths.lock), true, 'a lock with another token stays');
+  other();
+});
+
 test('H8: a query after a crashed operation reclaims its stale lock instead of failing on contention', async t => {
   const f = fixture(t); assert.equal((await runSembleLifecycle({ ...f.options, action: 'build' })).ok, true);
   const paths = semanticStatePaths(f.inventory);
