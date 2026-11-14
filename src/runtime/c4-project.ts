@@ -205,7 +205,10 @@ function acceptElement(ctx: any, name: string, args: string[], lineno: number): 
       + 'keeping the last definition, which would drop an element the source declares.');
   }
   ctx.nodes.set(args[0], args[1]);
-  if (ctx.stack.length) ctx.stack[ctx.stack.length - 1].members.push(args[0]);
+  // The full macro and its arguments are kept for the draw.io projector; the Mermaid one reads only `nodes`.
+  const parent = ctx.stack.length ? ctx.stack[ctx.stack.length - 1] : null;
+  ctx.elements.push({ alias: args[0], macro: name, args });
+  if (parent) { parent.members.push(args[0]); parent.items.push({ element: args[0] }); } else ctx.roots.push({ element: args[0] });
 }
 
 // A boundary opened inside another is that one's CHILD, not a second root. Pushing every boundary
@@ -214,8 +217,15 @@ function acceptElement(ctx: any, name: string, args: string[], lineno: number): 
 function acceptBoundary(ctx: any, name: string, args: string[], lineno: number): void {
   if (args.length < 2) refuse(ctx, lineno, `${name} needs an alias and a label`);
   requireAlias(ctx, args[0], lineno, 'boundary alias');
-  const b = { alias: args[0], label: args[1], members: [], children: [] };
-  if (ctx.stack.length) ctx.stack[ctx.stack.length - 1].children.push(b); else ctx.boundaries.push(b);
+  const b = { alias: args[0], label: args[1], macro: name, args, members: [], children: [], items: [] };
+  if (ctx.stack.length) {
+    const outer = ctx.stack[ctx.stack.length - 1];
+    outer.children.push(b);
+    outer.items.push({ boundary: b });
+  } else {
+    ctx.boundaries.push(b);
+    ctx.roots.push({ boundary: b });
+  }
   ctx.stack.push(b);
 }
 
@@ -223,7 +233,7 @@ function acceptRelation(ctx: any, name: string, args: string[], lineno: number):
   if (args.length < 2) refuse(ctx, lineno, `${name} needs a source and a target`);
   requireAlias(ctx, args[0], lineno, 'relation source');
   requireAlias(ctx, args[1], lineno, 'relation target');
-  ctx.edges.push({ from: args[0], to: args[1], label: args[2] || '', bi: name.startsWith('BiRel') });
+  ctx.edges.push({ from: args[0], to: args[1], label: args[2] || '', bi: name.startsWith('BiRel'), macro: name, args, lineno });
 }
 
 function accept(ctx: any, name: string, args: string[], lineno: number): void {
@@ -302,8 +312,8 @@ function scanLine(ctx: any, line: string, lineno: number): void {
   }
 }
 
-function parse(text: string, sourcePath: string): { nodes: Map<string, string>; edges: any[]; boundaries: any[] } {
-  const ctx = { sourcePath, nodes: new Map(), edges: [], boundaries: [], stack: [] };
+function parse(text: string, sourcePath: string): { nodes: Map<string, string>; edges: any[]; boundaries: any[]; elements: any[]; roots: any[] } {
+  const ctx: any = { sourcePath, nodes: new Map(), edges: [], boundaries: [], stack: [], elements: [], roots: [] };
   const state = { inBlock: false, openedAt: 0 };
   for (const entry of toLogicalLines(text, state)) scanLine(ctx, entry.raw.trim(), entry.lineno);
   // An unclosed block comment used to swallow every later declaration and still exit 0 -- the same
@@ -312,7 +322,7 @@ function parse(text: string, sourcePath: string): { nodes: Map<string, string>; 
     refuse(ctx, state.openedAt, 'block comment opened here is never closed, so everything after it '
       + "would be dropped from the projection. Close it with '/ or delete it.");
   }
-  return { nodes: ctx.nodes, edges: ctx.edges, boundaries: ctx.boundaries };
+  return { nodes: ctx.nodes, edges: ctx.edges, boundaries: ctx.boundaries, elements: ctx.elements, roots: ctx.roots };
 }
 
 function emit({ nodes, edges, boundaries }: { nodes: Map<string, string>; edges: any[]; boundaries: any[] }, sourceRel: string, digest: string): string {
