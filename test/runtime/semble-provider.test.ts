@@ -299,6 +299,50 @@ test('H8: a semantic lock whose owner is dead on this host is reclaimed; live, o
   await assert.rejects(acquireSemanticLock(paths, { isAlive: () => true }), /lock-contention/, 'liveness, not age, decides');
 });
 
+test('FU-w9j11f 6: a lock whose owner cannot be told is reclaimed by age only; EPERM is not dead; a replaced lock is never removed', async t => {
+  const { reclaimStaleLock, staleLockBytes, pidAlive, SEMANTIC_LOCK_STALE_MS } = require('../../src/runtime/knowledge/semble-provider.ts');
+  const root = fs.realpathSync(tempDir(t, 'doflow-semantic-lock-'));
+  const state = path.join(root, '.doflow', 'index', 'code', 'semble', 'x');
+  const paths: any = { root, state, lock: path.join(state, 'operation.lock') };
+  const old = (SEMANTIC_LOCK_STALE_MS + 60_000) / 1000;
+  const age = (seconds: number) => { const at = Date.now() / 1000 - seconds; fs.utimesSync(paths.lock, at, at); };
+  const cannotTell: any = {
+    'another host': { pid: deadPid(), hostname: 'elsewhere.invalid', token: crypto.randomUUID() },
+    'this process': { pid: process.pid, hostname: os.hostname(), token: crypto.randomUUID() },
+    'a live owner': { pid: process.ppid, hostname: os.hostname(), token: crypto.randomUUID() },
+    'an unreadable record': `${deadPid()}\n`,
+  };
+  for (const [label, held] of Object.entries(cannotTell)) {
+    plantLock(paths, held);
+    assert.equal(staleLockBytes(paths.lock, { isAlive: pidAlive, hostname: os.hostname(), now: Date.now }), null, `${label}: a young lock stays`);
+    age(old);
+    const release = await acquireSemanticLock(paths);
+    assert.equal(JSON.parse(fs.readFileSync(paths.lock, 'utf8')).pid, process.pid, `${label}: an old lock is reclaimed`);
+    assert.deepEqual(fs.readdirSync(state), ['operation.lock'], `${label}: nothing is left beside the lock`);
+    release();
+  }
+  // Dead means ESRCH only: EPERM (a process of another user) is alive, so its lock waits for the age rule.
+  const kill = process.kill;
+  try {
+    (process as any).kill = () => { throw Object.assign(new Error('x'), { code: 'EPERM' }); };
+    assert.equal(pidAlive(4242), true);
+    (process as any).kill = () => { throw Object.assign(new Error('x'), { code: 'ESRCH' }); };
+    assert.equal(pidAlive(4242), false);
+  } finally { (process as any).kill = kill; }
+  // Move-aside: a lock another holder made after the judgement is put back, not deleted.
+  const stale: any = { pid: deadPid(), hostname: os.hostname(), token: crypto.randomUUID() };
+  plantLock(paths, stale);
+  const judged = staleLockBytes(paths.lock, { isAlive: pidAlive, hostname: os.hostname(), now: Date.now });
+  assert.ok(judged, 'the dead owner is judged stale');
+  const fresh = { pid: process.pid, hostname: os.hostname(), token: crypto.randomUUID() };
+  plantLock(paths, fresh);
+  assert.equal(reclaimStaleLock(paths.lock, judged), false);
+  assert.equal(JSON.parse(fs.readFileSync(paths.lock, 'utf8')).token, fresh.token, 'the newer lock stays');
+  assert.deepEqual(fs.readdirSync(state), ['operation.lock']);
+  assert.equal(reclaimStaleLock(paths.lock, fs.readFileSync(paths.lock)), true, 'the bytes judged are deleted');
+  assert.deepEqual(fs.readdirSync(state), []);
+});
+
 test('H8: a query after a crashed operation reclaims its stale lock instead of failing on contention', async t => {
   const f = fixture(t); assert.equal((await runSembleLifecycle({ ...f.options, action: 'build' })).ok, true);
   const paths = semanticStatePaths(f.inventory);
