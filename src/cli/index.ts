@@ -599,13 +599,14 @@ Commands:
                        config unset <key> --layer user|project|local [--json]   remove the key from that layer's file
   scaffold             Emit the reviewable code scaffold the active feature's artifacts imply
   decision             Register, list or compact the active feature's decisions (--action init|add|list|compact)
+  review-pack          Write the feature's review pack from its records: review-pack --task-id <slug> [--json]
   intake               Sort, preview, undo, list or file prompt text for the active feature's additional-context folder (--action sort|preview|undo|list|file-prompt)
   followup             Record, list, take, settle, promote or report what a feature left unfinished (--action add|list|take|settle|promote|report; list: [--view brief|full] [--cursor <c>] [--limit <n>] [--ids <FU-id,...>])
   lifecycle            Open follow-ups, feature tracking, releases and status for the project (--action overview|init|release|status|merged; overview: [--view brief|full])
   goal                 Add, check, link, list or close a goal and its checklist (--action add|item|check|link|list|done)
   failure              List, settle or switch off the failures DoFlow captured on this machine (--action list|settle|capture)
                        (a value beginning with '-' must be written --flag=value)
-  roadmap              Session-driven autopilot runner (--action render|status|next|audit|init-policy [--check] [--row <id>] [--run <id>]).
+  roadmap              Session-driven autopilot runner (--action render|status|next|audit|report|init-policy [--check] [--row <id>] [--run <id>]).
                        roadmap --action init-policy [--commit] writes the gate policy for review, or with --commit commits it onto local develop when develop is not checked out in a worktree (otherwise it prints the commands to run there; never pushes);
                        roadmap seed --action check|apply|amend --draft <path> [--json] validates and writes new rows;
                        rows written while autopilot is on land proposed; roadmap promote <id...> [--json] (person: asks y/N on the terminal) makes them ready

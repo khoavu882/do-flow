@@ -92,6 +92,8 @@ const runsUpkeep = (o: any): boolean => (!NO_UPKEEP.has(o.cmd) && !(o.cmd === 's
 // Required on first use, so a CLI whose failure modules cannot be loaded still runs every other verb.
 function handleFailureCommand(options: any): any { return require('../runtime/failure/cli.ts').handleFailureCommand(options); }
 // The seed validator loads only for `roadmap seed`, and only this file may require it (G54).
+// `review-pack` and `roadmap --action report` read records from across the runtime, so they load only for those calls (G54).
+function handleReviewPackCommand(options: any): any { return require('../runtime/review-pack.ts').handleReviewPackCommand(options); }
 function handleSeedCommand(options: any): any { return require('../runtime/roadmap/seed.ts').handleSeedCommand(options); }
 // maint-thin: `roadmap promote <id...>` lives in seed.ts too, so it stays out of every autopilot module (G54).
 function handlePromoteCommand(options: any): any { return require('../runtime/roadmap/seed.ts').handlePromoteCommand(options); }
@@ -155,6 +157,7 @@ function traceViewRoot(o: any): string {
 function handleRoadmapVerbCommand(o: any): number {
   const action = o.actionGiven ? o.action : undefined;
   if (o.positional[0] === 'seed') return finishRuntime(handleSeedCommand({ action, draft: o.draft, json: o.json, cwd: process.cwd(), root: resolveMainRoot(evidenceRoot(o)) }));
+  if (action === 'report') return require('../runtime/review-pack.ts').handleRoadmapReportCommand({ runId: o.run, cwd: evidenceRoot(o), json: o.json });
   if (o.positional[0] === 'promote') return finishRuntime(handlePromoteCommand({ ids: o.positional.slice(1), json: o.json, root: resolveMainRoot(process.cwd()) }));
   // `init-policy --commit` commits the policy onto develop; it lives outside the loop's tree (G53, G54). Any other action with --commit is the loop's exit 2.
   if (o.commit && action === 'init-policy') return require('../runtime/policy-init.ts').commitPolicyCommand({ json: o.json, root: resolveMainRoot(evidenceRoot(o)), repoRoot: REPO_ROOT });
@@ -410,6 +413,7 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     case 'scaffold': return handleScaffoldCommand({ json: o.json, projectRoot: evidenceRoot(o), slug: o.slug });
     // The feature is resolved from the working directory (or --slug) by the same resolver
     // `scaffold` uses; the flags are the caller's own statements, validated by the register module.
+    case 'review-pack': return handleReviewPackCommand({ taskId: o.taskId, cwd: evidenceRoot(o), json: o.json });
     case 'decision': return handleDecisionCommand({ action: o.action, projectRoot: evidenceRoot(o), slug: o.slug, json: o.json, flags: { topic: o.topic, statement: o.statement, channel: o.channel, stage: o.stage, rationale: o.rationale, supersedes: o.supersedes, refs: o.refs, source: o.source, undo: o.undo, batch: o.batchPath, all: o.all, by: o.by } });
     // 136: the feature is resolved the way `decision` resolves it; the engine moves files only inside its additional-context folder.
     case 'intake': return handleIntakeCommand({ action: o.action, projectRoot: evidenceRoot(o), slug: o.slug, json: o.json, flags: { runId: o.runId, stdin: o.stdin, file: o.file, stage: o.stage } });

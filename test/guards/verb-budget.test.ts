@@ -101,6 +101,7 @@ const UNMEASURED: Readonly<Record<string, string>> = {
   retrieve: NEEDS_LIVE_RUN,
   review: NEEDS_LIVE_RUN,
   'review-package': NEEDS_LIVE_RUN,
+  'review-pack': WRITES_STATE,
   roadmap: WRITES_STATE,
   rollback: INSTALLER,
   route: NEEDS_LIVE_RUN,
