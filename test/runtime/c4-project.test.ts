@@ -417,6 +417,10 @@ test('a backslash-n inside a label is a line break, and a backslash before any o
   // A kept backslash is written as Mermaid's entity: Mermaid itself reads a written backslash-n as a break.
   assert.ok(out.stdout.includes('b["C:#92;temp &quot;x&quot; #92; y"]'), out.stdout);
   assert.ok(out.stdout.includes('c["C:#92;new"]'), out.stdout);
+  // A label that already reads like an entity stays what the author wrote, and differs from a real backslash.
+  const hash = project(['Container(a, "Ticket #123; next")', 'Container(b, "C:#92;temp")'].join('\n'));
+  assert.ok(hash.stdout.includes('a["Ticket #35;123; next"]'), hash.stdout);
+  assert.ok(hash.stdout.includes('b["C:#35;92;temp"]'), hash.stdout);
   assert.ok(out.stdout.includes('|"reads<br/>writes"|'), out.stdout);
 });
 
