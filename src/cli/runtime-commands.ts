@@ -157,7 +157,10 @@ function traceViewRoot(o: any): string {
 function handleRoadmapVerbCommand(o: any): number {
   const action = o.actionGiven ? o.action : undefined;
   if (o.positional[0] === 'seed') return finishRuntime(handleSeedCommand({ action, draft: o.draft, json: o.json, cwd: process.cwd(), root: resolveMainRoot(evidenceRoot(o)) }));
-  if (action === 'report') return require('../runtime/review-pack.ts').handleRoadmapReportCommand({ runId: o.run, cwd: evidenceRoot(o), json: o.json });
+  if (action === 'report') {
+    if (o.positional.length > 0) return usageError('roadmap', "--action report takes no positional argument", o.json);
+    return require('../runtime/review-pack.ts').handleRoadmapReportCommand({ runId: o.run, cwd: evidenceRoot(o), json: o.json });
+  }
   if (o.positional[0] === 'promote') return finishRuntime(handlePromoteCommand({ ids: o.positional.slice(1), json: o.json, root: resolveMainRoot(process.cwd()) }));
   // `init-policy --commit` commits the policy onto develop; it lives outside the loop's tree (G53, G54). Any other action with --commit is the loop's exit 2.
   if (o.commit && action === 'init-policy') return require('../runtime/policy-init.ts').commitPolicyCommand({ json: o.json, root: resolveMainRoot(evidenceRoot(o)), repoRoot: REPO_ROOT });

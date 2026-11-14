@@ -1725,7 +1725,7 @@
     },
     {
       "file": "src/runtime/review-pack.ts",
-      "reason": "agent-docs deliverable (<feature>/review-pack.md by temp and rename); the roadmap run report <run>.report.md beside its run record under .doflow/state/roadmap/runs, one small file a person reads and deletes"
+      "reason": "agent-docs deliverables written by exclusive temp file and rename: <feature>/review-pack.md, and agent-docs/roadmap/roadmap-report.md, one file beside ROADMAP.md that each report overwrites, so it never grows"
     },
     {
       "file": "src/runtime/roadmap/rows.ts",

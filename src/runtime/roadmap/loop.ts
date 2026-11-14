@@ -329,7 +329,7 @@ function handleRoadmapCommand(options: RoadmapCommandOptions = {}): any {
   if (action === 'audit') return auditCommand(options);
   if (action === 'init-policy') return initPolicyCommand(options);
   if (!action || (action !== 'render' && action !== 'status')) {
-    return usageError("--action must be 'render', 'status', 'next', 'audit' or 'init-policy'", json);
+    return usageError("--action must be 'render', 'status', 'next', 'audit', 'init-policy' or 'report'", json);
   }
   if (action === 'status') return printResult(roadmapStatusResult(options));
 
@@ -1798,6 +1798,8 @@ module.exports = {
   // The lease primitive, exported for its interleaving test (C8).
   acquireLease,
   releaseLease, resolveMainRoot, noPsAlive,
+  // The run id pattern and the one run-record reader, shared with the review pack's roadmap report.
+  RUN_ID, readRunFile,
   // The orchestrator the loop builds for a row, exported for its wiring test (FU-e4yr45).
   orchestrationFor,
 };
