@@ -9,13 +9,14 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { bashPath } = require('../helper/bash-locator.ts');
 const { suiteTempDir } = require('../helper/tmp.ts');
-const { buildPage, documentHtml, inline, stripComments, splitRow, MERMAID_MODULE } = require('../../src/runtime/page-project.ts');
+const { buildPage, documentHtml, inline, stripComments, splitRow, MERMAID_SCRIPT, MERMAID_INTEGRITY } = require('../../src/runtime/page-project.ts');
 
 const SCRIPT = path.join(__dirname, '..', '..', 'core', 'shared', 'scripts', 'doflow', 'bash', 'render-page.sh');
 const NO_JQ = spawnSync('jq', ['--version'], { encoding: 'utf8' }).status !== 0 && 'jq is not on PATH';
 
 const ctx = (extra: any = {}) => ({
-  key: 'design', label: 'Design', mode: 'source', byBasename: new Map([['design.md', 'design'], ['data-model.md', 'data_model']]),
+  key: 'design', label: 'Design', mode: 'source', dir: '/r/f/design', outDir: '/r/f',
+  docs: new Map([['/r/f/design/design.md', 'design'], ['/r/f/design/data-model.md', 'data_model'], ['/r/f/plan.md', 'plan']]),
   diagrams: { mode: 'source', blocks: 0, rendered: 0, failures: 0 }, ...extra,
 });
 const html = (text: string, extra: any = {}) => documentHtml(text, ctx(extra)).html;
@@ -36,7 +37,16 @@ test('a link keeps a web address, points a document link at its section and refu
   assert.equal(inline('[a](./data-model.md#3-lifecycles)', c), '<a href="#data-model-3-lifecycles">a</a>');
   assert.equal(inline('[a](data-model.md)', c), '<a href="#doc-data-model">a</a>');
   assert.equal(inline('[a](#2-system-overview-c4)', c), '<a href="#design-2-system-overview-c4">a</a>');
-  assert.equal(inline('[a](../exec/A.1-brief.md)', c), '<a href="../exec/A.1-brief.md">a</a>');
+  // A relative link is read from the document's folder and written from the page's.
+  assert.equal(inline('[a](../exec/A.1-brief.md#x)', c), '<a href="exec/A.1-brief.md#x">a</a>');
+  assert.equal(inline('[a](../plan.md)', c), '<a href="#doc-plan">a</a>');
+  // Same file name in another feature is another file, not this page's plan.
+  assert.equal(inline('[a](../../other/plan.md)', c), '<a href="../other/plan.md">a</a>');
+  // Browsers drop a leading control character before reading the scheme.
+  assert.equal(inline('[a](\x01javascript:alert%281%29)', c), 'a');
+  assert.equal(inline('[a](\x1fjavascript:x)', c), 'a');
+  assert.equal(inline('[a](\\\\host\\share)', c), 'a');
+  assert.equal(inline('[a](https://example.test/?q=&lt;b&gt;)', c), '<a href="https://example.test/?q=&amp;lt;b&amp;gt;">a</a>');
   assert.equal(inline('[a](x" onclick="y)', c), '[a](x&quot; onclick=&quot;y)');
 });
 
@@ -46,12 +56,20 @@ test('inline marks: bold, italic, strike, code and the line break the templates 
   assert.equal(inline('a `x * y` b * c', c), 'a <code>x * y</code> b * c');
   assert.equal(inline('one<br/>two<br>three', c), 'one<br>two<br>three');
   assert.equal(inline('snake_case_name and 2 * 3 * 4', c), 'snake_case_name and 2 * 3 * 4');
+  assert.equal(inline('**the `close` verb** ends it', c), '<strong>the <code>close</code> verb</strong> ends it');
+  assert.equal(inline('**0** means none, **1** means some', c), '<strong>0</strong> means none, <strong>1</strong> means some');
+  // No later pattern rewrites what is inside a tag.
+  assert.equal(inline('[a](https://example.test/~~y) ~~b~~', c), '<a href="https://example.test/~~y">a</a> <del>b</del>');
 });
 
 test('an HTML comment is dropped, a comment inside a fenced block is kept', () => {
   const text = 'a\n<!-- one\n     two -->\nb <!-- c --> d\n```html\n<!-- kept -->\n```\n';
   assert.equal(stripComments(text), 'a\nb  d\n```html\n<!-- kept -->\n```\n');
   assert.match(html(text), /&lt;!-- kept --&gt;/);
+  // A marker inside a code span is text, closed or not.
+  const spans = '| a |\n|---|\n| `<!-- BEGIN -->` |\n| `<!--` |\n| last |\n';
+  assert.equal(stripComments(spans), spans);
+  assert.match(html(spans), /<td><code>&lt;!--<\/code><\/td><\/tr>\n<tr><td>last<\/td>/);
 });
 
 test('a table row splits on a pipe, but not inside a code span or after a backslash', () => {
@@ -69,6 +87,7 @@ test('lists nest by indent, keep a task box, and a one-paragraph item is not wra
   assert.match(out, /<li class="task"><input type="checkbox" disabled checked> A\.1 done<\/li>/);
   assert.match(out, /<li class="task"><input type="checkbox" disabled> A\.2 open\n<ul>\n<li>child one\ncontinued<\/li>\n<li>child two<\/li>\n<\/ul><\/li>/);
   assert.match(out, /<ol>\n<li>first<\/li>\n<li>second<\/li>\n<\/ol>/);
+  assert.match(html('3. third\n4. fourth\n'), /<ol start="3">/);
 });
 
 test('headings get an id per document, a repeated heading a numbered one, and level 2 feeds the contents', () => {
@@ -84,6 +103,11 @@ test('a blockquote, a rule, a plain fenced block and a hard line break', () => {
   assert.match(out, /<blockquote>\n<p><strong>Note\.<\/strong> quoted\nmore<\/p>\n<\/blockquote>/);
   assert.match(out, /<hr>/);
   assert.match(out, /<pre><code>echo &quot;&lt;x&gt;&quot;<\/code><\/pre>/);
+  // An info string with more than a word still opens a block, and the text after it stays prose.
+  assert.match(html('```ts title="x.ts"\nlet a;\n```\n\nprose\n```c++\nint b;\n```\n'),
+    /<pre><code>let a;<\/code><\/pre>\n<p>prose<\/p>\n<pre><code>int b;<\/code><\/pre>/);
+  // A line with a pipe above a rule is a paragraph and a rule, not an empty table.
+  assert.match(html('a | b\n---\n'), /<p>a \| b<\/p>\n<hr>/);
   assert.match(out, /<p><strong>A:<\/strong> one<br>\n<strong>B:<\/strong> two<\/p>/);
 });
 
@@ -133,10 +157,15 @@ test('buildPage in cdn mode loads the pinned Mermaid build, and only when the pa
   const withDiagram = feature({ 'design/design.md': `# Design\n\n${DIAGRAM}` });
   const page = fs.readFileSync(buildPage({ paths: withDiagram.paths, root: withDiagram.root, mode: 'cdn', now: NOW }).file, 'utf8');
   assert.match(page, /<pre class="mermaid">flowchart LR/);
-  assert.equal(page.split('<script').length - 1, 1);
-  assert.ok(page.includes(`import mermaid from '${MERMAID_MODULE}'`));
+  assert.equal(page.split('<script').length - 1, 2);
+  assert.ok(page.includes(`<script src="${MERMAID_SCRIPT}" integrity="${MERMAID_INTEGRITY}" crossorigin="anonymous"></script>`));
   assert.match(page, /"securityLevel":"strict"/);
-  assert.match(MERMAID_MODULE, /^https:\/\/cdn\.jsdelivr\.net\/npm\/mermaid@\d+\.\d+\.\d+\//);
+  // One pinned file with its hash, at or past the release that closed GHSA-8gwm-58g9-j8pw (11.10.0).
+  const pinned = /^https:\/\/cdn\.jsdelivr\.net\/npm\/mermaid@(\d+)\.(\d+)\.\d+\/dist\/mermaid\.min\.js$/.exec(MERMAID_SCRIPT);
+  assert.ok(pinned, MERMAID_SCRIPT);
+  const [major, minor] = [Number(pinned?.[1]), Number(pinned?.[2])];
+  assert.ok(major > 11 || (major === 11 && minor >= 10), MERMAID_SCRIPT);
+  assert.match(MERMAID_INTEGRITY, /^sha384-[A-Za-z0-9+/]{64}$/);
 
   const without = feature({ 'plan.md': '# Plan\n' });
   const plain = fs.readFileSync(buildPage({ paths: without.paths, root: without.root, mode: 'cdn', now: NOW }).file, 'utf8');
@@ -156,6 +185,18 @@ test('buildPage in inline mode embeds each rendered diagram, and a block the ren
   assert.match(page, /1 of 2 diagrams rendered/);
 });
 
+test('buildPage without the renderer shows source and says how to get diagrams, for auto and for inline alike', () => {
+  const { root, paths } = feature({ 'design/design.md': `# Design\n\n${DIAGRAM}` });
+  for (const mode of ['auto', 'inline']) {
+    const result = buildPage({ paths, root, mode, probe: () => false, now: NOW });
+    assert.equal(result.ok, true, mode);
+    assert.deepEqual(result.diagrams, { mode: 'source', blocks: 1, rendered: 0, failures: 0 }, mode);
+    assert.match(result.note, /renderer was not found.*--diagrams=cdn/, mode);
+  }
+  const themed = buildPage({ paths, root, mode: 'cdn', theme: path.join(root, 'no-theme.json'), now: NOW });
+  assert.match(themed.note, /diagram theme was not found/);
+});
+
 test('buildPage writes nothing for a feature with no document, honours --out, and refuses a bad argument', () => {
   const empty = feature({});
   assert.deepEqual(buildPage({ paths: empty.paths, root: empty.root, mode: 'source' }),
@@ -166,6 +207,10 @@ test('buildPage writes nothing for a feature with no document, honours --out, an
   assert.ok(fs.existsSync(out));
   assert.throws(() => buildPage({ paths, root, mode: 'png' }), TypeError);
   assert.throws(() => buildPage({ paths: null, root }), TypeError);
+  // A target that cannot be replaced leaves no temporary file behind.
+  const dirTarget = path.join(root, 'out', 'nested');
+  assert.throws(() => buildPage({ paths, root, out: dirTarget, mode: 'source' }));
+  assert.deepEqual(fs.readdirSync(path.join(root, 'out')).filter((f: string) => f.includes('.tmp')), []);
 });
 
 function repo() {

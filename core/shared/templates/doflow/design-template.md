@@ -106,7 +106,7 @@ flowchart LR
     subgraph boundary["[system name]"]
         APP["[container name]<br/>[runtime or tech stack]"]
         WORKER["[second process, e.g. a worker or a CLI]<br/>[runtime]"]
-        DB[("[data store or file, by its real name]<br/>[what it holds]")]
+        DB[("[data store or file]<br/>[what it holds]")]
     end
     EXT["[external system]"]
 
@@ -132,7 +132,7 @@ flowchart TB
         C_B["[component] (changed)<br/>[responsibility]"]
         C_C["[component it calls, unchanged]"]
     end
-    STORE[("[data store or file, by its real name]")]
+    STORE[("[data store or file]")]
 
     C_A -->|"[call: what is passed]"| C_B
     C_B -->|"[call: what is passed]"| C_C

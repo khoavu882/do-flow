@@ -103,8 +103,8 @@ a branch.
 **Keep edges inside their boundary.** An edge that crosses a `subgraph` boundary is the one the
 layout engine routes across others, leaving overlapped arrows and stranded labels. The node ceiling
 does not catch it: six nodes with two crossing edges tangle where nine fanning into one sink stay
-clean. When a node inside a `subgraph` must reach one outside it, the boundary is usually in the
-wrong place: move it, or lift the shared node out.
+clean. Prefer edges within a boundary, or between two boundaries at the same level; when a node must
+reach out of a nested one, the boundary is usually in the wrong place: move it, or lift the node out.
 
 **Secondary and asynchronous relations use `-.->`.** The dashed arrow means optional, deferred or
 out of band, and nothing else.
@@ -152,17 +152,15 @@ write the sentence and mark the slot `N/A: [why]`.
 |---|---|
 | Scope boundary | Each in-scope item with the outcome it produces, and each excluded item a reader would otherwise assume is in |
 | C4 Level 1 | Each actor that starts a journey as its own box; each external system, tool or file store the feature reads or writes; this system as one box. An edge label says what crosses, in the direction it moves |
-| C4 Level 2 | Each process, deployable unit and data store the feature spans, files on disk included; the technology or runtime on a node's second line; the call form and the payload on an edge; a `subgraph` at each process or trust boundary |
+| C4 Level 2 | Each process, deployable unit and data store the feature spans, files on disk included; the technology or runtime on a node's second line; the call form and the payload on an edge; a `subgraph` at each trust boundary |
 | C4 Level 3 | The components of Components & Boundaries by name, a new or changed one marked in its label (`(new)`, `(changed)`), and the store each reads or writes |
 | Concepts | Each noun the journeys use, with the cardinality or the rule on each relationship |
 | Journey | The trigger, each decision, and for each decision the failure outcome as the actor sees it; the record the journey leaves behind. With three or more participants, a `sequenceDiagram` with the failure in an `alt` |
 | State | Each state the record can hold, terminal ones included, and on each transition the event and its guard |
-| Task dependency | Each task id, the phase boundaries, and the edges that force the order |
+| Task dependency | The phase boundaries, the edges that force the order, and the `[P]` mark on a task that may run in parallel |
 | ER view | Keys, the cardinality on each relation, and each field a contract or a rule names |
 
-**Name the real thing at C4 Level 2, C4 Level 3 and in the data model.** A node label there carries
-the name a reader can search for (the file, the verb, the table, the service), not its category:
-`CFG[("settings.json<br/>project layer")]`, not `FILES["Settings files"]`. Concepts and Journeys keep
-plain nouns, as their sections say.
+**Name the real thing in `data-model.md`.** A label there carries the name a reader can search for
+(the file, the table, the field), not its category. `design.md` keeps plain nouns through Journeys.
 
 When this floor and a ceiling collide, split as §4 says.

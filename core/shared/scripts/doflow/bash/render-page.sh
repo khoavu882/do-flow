@@ -10,14 +10,16 @@ case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; th
 # Diagrams (--diagrams):
 #   auto    inline when the mermaid renderer (mmdc) is on PATH, source otherwise. The default.
 #   inline  each mermaid block rendered with assets/mermaid-theme.json and embedded in the page.
-#   cdn     the page loads Mermaid from jsDelivr when it is opened. It needs the network then, so it
-#           is only ever chosen by the caller.
+#           Without the renderer this is source, with a note, as for auto.
+#   cdn     the page loads Mermaid from jsDelivr when it is opened, one file checked against a pinned
+#           hash. It needs the network then and runs Mermaid over document text, so it is only ever
+#           chosen by the caller.
 #   source  each block shown as text.
 #
-# Fail-open, matching render-diagrams.sh: no active feature, no resolver and no document are each
-# reported via a note and exit 0. This verb sits outside the chain (user-invoked only, never a
-# stage). Exit 1 is reserved for a renderer that ran and failed on a block; the page is still
-# written, with that block as source.
+# Fail-open, matching render-diagrams.sh: no active feature, no resolver, no document and no renderer
+# are each reported via a note and exit 0. This verb sits outside the chain (user-invoked only, never a
+# stage). Exit 1 is a renderer that ran and failed on a block (the page is still written, with that
+# block as source), or the projector itself failing (nothing written; under --json an error object).
 #
 # Usage: render-page.sh [--slug=<slug>] [--out=<file>] [--diagrams=auto|inline|cdn|source] [--json]
 #   No --slug → resolve the active feature via do-paths.sh, exactly like render-audit.sh.
@@ -110,7 +112,9 @@ rc=0; result=$(node "${node_args[@]}" 2>"$proj_err") || rc=$?
 # Exit 1 with a result is a page written with a block the renderer failed on; anything else without
 # a result is the projector itself failing, which is reported as it is.
 if [ -z "$result" ] || ! printf '%s' "$result" | jq -e . >/dev/null 2>&1; then
-  printf 'render-page: the page projector failed: %s\n' "$(tr '\n' ' ' < "$proj_err")" >&2
+  message="the page projector failed: $(tr '\n' ' ' < "$proj_err")"
+  if [ "$emit_json" = true ]; then jq -n --arg m "$message" '{ok:false, written:false, error:"projector-failed", message:$m, documents:[]}'
+  else printf 'render-page: %s\n' "$message" >&2; fi
   exit 1
 fi
 

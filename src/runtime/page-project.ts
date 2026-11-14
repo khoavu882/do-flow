@@ -14,9 +14,10 @@
  *   inline: each fenced mermaid block is rendered by `mmdc` with the shipped theme and embedded as
  *           an image, so the page needs nothing else to display.
  *   cdn:    the block's text stays on the page and Mermaid is loaded from jsDelivr when the page is
- *           opened. The page then needs the network, which is why it is never chosen for the caller.
+ *           opened, as one file checked against a pinned hash. The page then needs the network and
+ *           runs Mermaid over document text, which is why it is never chosen for the caller.
  *   source: the block is shown as text.
- * `auto` is `inline` when `mmdc` is on PATH and `source` otherwise.
+ * `auto` is `inline` when `mmdc` is on PATH and `source` otherwise; `inline` without `mmdc` is `source`.
  */
 
 const fs = require('node:fs');
@@ -37,11 +38,17 @@ const DOCUMENTS: ReadonlyArray<readonly [string, string]> = [
 ];
 
 const MODES = ['auto', 'inline', 'cdn', 'source'];
-/** The Mermaid build a `cdn` page loads. Pinned, so a page does not change under its reader. */
-const MERMAID_MODULE = 'https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs';
+/**
+ * The Mermaid build a `cdn` page loads: one file, pinned with its hash, so the page cannot change under
+ * its reader. Releases from 11.1.0 up to 11.10.0 let diagram text run script (GHSA-8gwm-58g9-j8pw); when
+ * this moves, move it forward and recompute the hash from the file jsDelivr serves.
+ */
+const MERMAID_SCRIPT = 'https://cdn.jsdelivr.net/npm/mermaid@11.17.2/dist/mermaid.min.js';
+const MERMAID_INTEGRITY = 'sha384-EOXBFmc3gx5mb+vn0vPvvGqACToJD24hhacX5Yx+8NUUQrHIle/Qi5Bg9o3zKwW2';
 const RENDER_TIMEOUT_MS = 60000;
 
-const FENCE = /^\s*(`{3,}|~{3,})\s*([\w-]*)\s*$/;
+// The info string's first word is the language; anything after it (a title, attributes) is ignored.
+const FENCE = /^\s*(`{3,}|~{3,})\s*([^\s`]*)[^`]*$/;
 const HEADING = /^(#{1,6})\s+(.*?)\s*#*\s*$/;
 const RULE = /^\s*([-*_])(\s*\1){2,}\s*$/;
 const QUOTE = /^\s*>\s?/;
@@ -60,7 +67,7 @@ function slugify(text: string): string {
 const keyId = (key: string) => key.replace(/_/g, '-');
 const indentOf = (line: string) => line.length - line.trimStart().length;
 
-/** A document's text with HTML comments removed, except inside a fenced block. */
+/** A document's text with HTML comments removed, except inside a fenced block or a code span. */
 function stripComments(text: string): string {
   const out: string[] = [];
   let fence: string | null = null;
@@ -82,6 +89,10 @@ function stripComments(text: string): string {
       } else {
         const start = rest.indexOf('<!--');
         if (start === -1) { kept += rest; break; }
+        // An odd number of backticks before it on the line: the marker is text inside a code span.
+        if (((kept + rest.slice(0, start)).match(/`/g) || []).length % 2 === 1) {
+          kept += rest.slice(0, start + 4); rest = rest.slice(start + 4); continue;
+        }
         kept += rest.slice(0, start); rest = rest.slice(start + 4); inComment = true; touched = true;
       }
     }
@@ -95,46 +106,46 @@ function stripComments(text: string): string {
 /**
  * The href a link may carry, or null when the page shows the link as plain text. A link to another
  * document on the page, or to a heading, points at that section; a web or mail address is kept; any
- * other scheme is refused.
+ * other scheme is refused; a relative path is rewritten from the document's folder to the page's.
  */
 function resolveHref(url: string, ctx: any): string | null {
+  // Browsers drop control characters before they read a scheme, so `\x01javascript:` is a script link.
+  // None of these belongs in a link a document wrote, and a backslash path is a network share on Windows.
+  if (/[\u0000-\u0020\u007f\\]/.test(url)) return null;
   if (url.startsWith('#')) return `#${keyId(ctx.key)}-${url.slice(1)}`;
   if (/^(https?:|mailto:)/i.test(url)) return url;
   if (/^[a-z][a-z0-9+.-]*:/i.test(url) || url.startsWith('//')) return null;
-  const [file, fragment] = url.split('#');
-  const base = path.basename(file);
-  const target = ctx.byBasename.get(base);
+  if (!ctx.docs || !ctx.dir || !ctx.outDir) return url;
+  const hash = url.indexOf('#');
+  const file = hash === -1 ? url : url.slice(0, hash);
+  const fragment = hash === -1 ? '' : url.slice(hash + 1);
+  const abs = path.resolve(ctx.dir, file);
+  const target = ctx.docs.get(abs);
   if (target) return fragment ? `#${keyId(target)}-${fragment}` : `#doc-${keyId(target)}`;
-  return url;
+  const rel = path.relative(ctx.outDir, abs).split(path.sep).join('/');
+  return fragment ? `${rel}#${fragment}` : rel;
 }
 
 /** Inline markdown in one run of text: code spans, links, bold, italic, strike and `<br>`. */
 function inline(text: string, ctx: any): string {
-  const parts: string[] = [];
-  let last = 0;
-  const code = /(`+)([\s\S]*?[^`])\1(?!`)/g;
-  let m: RegExpExecArray | null;
-  const plain = (chunk: string) => {
-    let html = escapeHtml(chunk);
-    html = html.replace(/&lt;br\s*\/?&gt;/gi, '<br>');
-    html = html.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_all: string, label: string, url: string) => {
-      // The URL was escaped with the rest of the chunk; undo that to judge it, and escape it again to write it.
-      const raw = url.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"');
-      const href = resolveHref(raw, ctx);
-      return href === null ? label : `<a href="${escapeHtml(href)}">${label}</a>`;
-    });
-    html = html.replace(/\*\*([^\s*](?:[\s\S]*?[^\s*])?)\*\*/g, '<strong>$1</strong>');
-    html = html.replace(/(^|[^*\w])\*([^\s*](?:[^*]*?[^\s*])?)\*(?![*\w])/g, '$1<em>$2</em>');
-    html = html.replace(/~~([^~]+)~~/g, '<del>$1</del>');
-    return html;
-  };
-  while ((m = code.exec(text)) !== null) {
-    parts.push(plain(text.slice(last, m.index)));
-    parts.push(`<code>${escapeHtml(m[2].trim())}</code>`);
-    last = m.index + m[0].length;
-  }
-  parts.push(plain(text.slice(last)));
-  return parts.join('');
+  // A code span and a link's tags are set aside as numbered marks while the rest is formatted, so bold
+  // may wrap a code span and no later pattern can rewrite what is inside a tag.
+  const held: string[] = [];
+  const hold = (html: string) => `\u0000${held.push(html) - 1}\u0000`;
+  const spans = text.replace(/\u0000/g, '')
+    .replace(/(`+)([\s\S]*?[^`])\1(?!`)/g, (_all: string, _ticks: string, body: string) => hold(`<code>${escapeHtml(body.trim())}</code>`));
+  let html = escapeHtml(spans);
+  html = html.replace(/&lt;br\s*\/?&gt;/gi, '<br>');
+  html = html.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_all: string, label: string, url: string) => {
+    // The URL was escaped with the rest of the text; undo that to judge it, and escape it again to write it.
+    const raw = url.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+    const href = resolveHref(raw, ctx);
+    return href === null ? label : `${hold(`<a href="${escapeHtml(href)}">`)}${label}${hold('</a>')}`;
+  });
+  html = html.replace(/\*\*([^\s*](?:[\s\S]*?[^\s*])??)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/(^|[^*\w])\*([^\s*](?:[^*]*?[^\s*])??)\*(?![*\w])/g, '$1<em>$2</em>');
+  html = html.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+  return html.replace(/\u0000(\d+)\u0000/g, (_all: string, n: string) => held[Number(n)]);
 }
 
 /** A table row's cells. A pipe inside a code span, or escaped as `\|`, does not split. */
@@ -155,7 +166,8 @@ function splitRow(line: string): string[] {
 }
 
 const isTableStart = (lines: string[], i: number) =>
-  lines[i].includes('|') && i + 1 < lines.length && lines[i + 1].includes('-') && TABLE_DIVIDER.test(lines[i + 1]);
+  lines[i].includes('|') && i + 1 < lines.length && lines[i + 1].includes('-') && TABLE_DIVIDER.test(lines[i + 1])
+  && splitRow(lines[i]).length === splitRow(lines[i + 1]).length;
 
 function startsBlock(lines: string[], i: number): boolean {
   const line = lines[i];
@@ -221,7 +233,8 @@ function listHtml(lines: string[], start: number, ctx: any): { html: string; nex
     items.push(`<li${task ? ' class="task"' : ''}>${box}${blocks.join('\n')}</li>`);
   }
   const tag = ordered ? 'ol' : 'ul';
-  return { html: `<${tag}>\n${items.join('\n')}\n</${tag}>`, next: i };
+  const first = ordered ? parseInt(lines[start].trim(), 10) : 1;
+  return { html: `<${tag}${first > 1 ? ` start="${first}"` : ''}>\n${items.join('\n')}\n</${tag}>`, next: i };
 }
 
 /** The HTML blocks of a run of markdown lines. */
@@ -367,7 +380,7 @@ function mmdcRenderer(theme: string | null): { render: (source: string) => strin
       const output = path.join(dir, `${n}.svg`);
       fs.writeFileSync(input, `${source}\n`);
       const args = ['-i', input, '-o', output, '-b', 'transparent', ...(theme ? ['-c', theme] : [])];
-      const run = spawnSync('mmdc', args, { encoding: 'utf8', timeout: RENDER_TIMEOUT_MS, shell: process.platform === 'win32' });
+      const run = mmdc(args, RENDER_TIMEOUT_MS);
       if (run.status !== 0 || !fs.existsSync(output)) return null;
       return fs.readFileSync(output, 'utf8');
     },
@@ -375,10 +388,14 @@ function mmdcRenderer(theme: string | null): { render: (source: string) => strin
   };
 }
 
-function hasMmdc(): boolean {
-  const probe = spawnSync('mmdc', ['--version'], { encoding: 'utf8', timeout: 20000, shell: process.platform === 'win32' });
-  return probe.status === 0;
+/** Run `mmdc`. On Windows it is a `.cmd` shim, which needs the shell, and the shell needs paths with a space quoted. */
+function mmdc(args: string[], timeout: number): any {
+  if (process.platform !== 'win32') return spawnSync('mmdc', args, { encoding: 'utf8', timeout });
+  const line = ['mmdc', ...args.map((arg) => (/\s/.test(arg) ? `"${arg}"` : arg))].join(' ');
+  return spawnSync(line, { encoding: 'utf8', timeout, shell: true });
 }
+
+const hasMmdc = () => mmdc(['--version'], 20000).status === 0;
 
 /** The script a `cdn` page carries: Mermaid from the pinned build, styled by the shipped theme. */
 function mermaidScript(theme: string | null): string {
@@ -387,9 +404,8 @@ function mermaidScript(theme: string | null): string {
     try { config = JSON.parse(fs.readFileSync(theme, 'utf8')); } catch { config = {}; }
   }
   const settings = JSON.stringify({ ...config, startOnLoad: true, securityLevel: 'strict' }).replace(/</g, '\\u003c');
-  // The statement is assembled from parts so that G50's scan of this file's own imports does not read it as one.
-  const load = ['import mermaid', `'${MERMAID_MODULE}'`].join(' from ');
-  return `<script type="module">${load};mermaid.initialize(${settings});</script>`;
+  return `<script src="${MERMAID_SCRIPT}" integrity="${MERMAID_INTEGRITY}" crossorigin="anonymous"></script>\n`
+    + `<script>mermaid.initialize(${settings});</script>`;
 }
 
 /**
@@ -398,7 +414,7 @@ function mermaidScript(theme: string | null): string {
  * `paths` is the object `doflow-run paths --json` printed. Document locations in it are relative to
  * `root`. Returns what was written and what was not; it throws only on a bad argument.
  */
-function buildPage({ paths, root, out, mode = 'auto', theme = null, now = new Date(), render = null }: any = {}): any {
+function buildPage({ paths, root, out, mode = 'auto', theme = null, now = new Date(), render = null, probe = hasMmdc }: any = {}): any {
   if (!paths || typeof paths !== 'object') throw new TypeError('buildPage: paths must be the object `paths --json` printed');
   if (!root || typeof root !== 'string') throw new TypeError('buildPage: root must be a directory path');
   if (!MODES.includes(mode)) throw new TypeError(`buildPage: mode must be one of ${MODES.join(', ')}`);
@@ -410,18 +426,24 @@ function buildPage({ paths, root, out, mode = 'auto', theme = null, now = new Da
 
   const themeFile = theme && fs.existsSync(theme) ? theme : null;
   let resolved = mode;
-  let note: string | undefined;
-  if (mode === 'auto') {
-    resolved = render || hasMmdc() ? 'inline' : 'source';
+  const notes: string[] = [];
+  // An absent renderer is an absent optional capability, not a failed render: the page falls back to
+  // source and says so, whether the caller asked for `auto` or for `inline`.
+  if (mode === 'auto' || mode === 'inline') {
+    resolved = render || probe() ? 'inline' : 'source';
     if (resolved === 'source') {
-      note = 'diagrams are shown as source: the mermaid renderer was not found. Install it with '
-        + '`npm install -g @mermaid-js/mermaid-cli`, or pass --diagrams=cdn for a page that loads Mermaid from jsDelivr when opened';
+      notes.push('diagrams are shown as source: the mermaid renderer was not found. Install it with '
+        + '`npm install -g @mermaid-js/mermaid-cli`, or pass --diagrams=cdn for a page that loads Mermaid from jsDelivr when opened');
     }
+  }
+  if (theme && !themeFile && resolved !== 'source') {
+    notes.push(`the DoFlow diagram theme was not found at ${theme}, so diagrams use Mermaid's default colours. Reinstall the scripts tree: npx @khoavu882/doflow install`);
   }
   const renderer = resolved === 'inline' && !render ? mmdcRenderer(themeFile) : null;
   const diagrams = { mode: resolved, blocks: 0, rendered: 0, failures: 0 };
-  const byBasename = new Map(found.map((doc) => [path.basename(doc.rel), doc.key]));
+  const docs = new Map(found.map((doc) => [path.resolve(root, doc.rel), doc.key]));
   const featureDir = typeof paths.feature_dir === 'string' ? paths.feature_dir : '';
+  const target = path.resolve(out || path.join(root, featureDir, 'page.html'));
 
   let sectionsHtml = '';
   let contents = '';
@@ -431,7 +453,8 @@ function buildPage({ paths, root, out, mode = 'auto', theme = null, now = new Da
       const before = diagrams.blocks;
       const text = fs.readFileSync(path.join(root, doc.rel), 'utf8');
       const { html, sections } = documentHtml(text, {
-        key: doc.key, label: doc.label, mode: resolved, diagrams, byBasename, render: render || renderer?.render,
+        key: doc.key, label: doc.label, mode: resolved, diagrams, render: render || renderer?.render,
+        docs, dir: path.dirname(path.resolve(root, doc.rel)), outDir: path.dirname(target),
       });
       const shown = featureDir && doc.rel.startsWith(`${featureDir}/`) ? doc.rel.slice(featureDir.length + 1) : doc.rel;
       sectionsHtml += `<section class="doc" id="doc-${keyId(doc.key)}">\n`
@@ -460,15 +483,15 @@ function buildPage({ paths, root, out, mode = 'auto', theme = null, now = new Da
     + (resolved === 'cdn' && diagrams.blocks > 0 ? `${mermaidScript(themeFile)}\n` : '')
     + '</body>\n</html>\n';
 
-  const target = path.resolve(out || path.join(root, featureDir, 'page.html'));
   fs.mkdirSync(path.dirname(target), { recursive: true });
   const tmp = `${target}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, page);
-  fs.renameSync(tmp, target);
-  return { ok: diagrams.failures === 0, written: true, file: target, documents, diagrams, ...(note ? { note } : {}) };
+  try { fs.renameSync(tmp, target); }
+  catch (err) { fs.rmSync(tmp, { force: true }); throw err; }
+  return { ok: diagrams.failures === 0, written: true, file: target, documents, diagrams, ...(notes.length ? { note: notes.join('; ') } : {}) };
 }
 
-module.exports = { buildPage, documentHtml, inline, stripComments, splitRow, slugify, DOCUMENTS, MODES, MERMAID_MODULE };
+module.exports = { buildPage, documentHtml, inline, stripComments, splitRow, slugify, DOCUMENTS, MODES, MERMAID_SCRIPT, MERMAID_INTEGRITY };
 
 if (require.main === module) {
   const args: any = {};
@@ -480,8 +503,8 @@ if (require.main === module) {
   try {
     result = buildPage({ paths, root: args['--root'], out: args['--out'], mode: args['--diagrams'] || 'auto', theme: args['--theme'] || null });
   } catch (err: any) {
-    if (err instanceof TypeError) { process.stderr.write(`page-project: ${err.message}\n`); process.exit(2); }
-    throw err;
+    process.stderr.write(`page-project: ${err.message}\n`);
+    process.exit(err instanceof TypeError ? 2 : 1);
   }
   process.stdout.write(`${JSON.stringify(result)}\n`);
   process.exit(result.ok ? 0 : 1);
