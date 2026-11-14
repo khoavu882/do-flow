@@ -178,20 +178,32 @@ test('IC-017: a project registered while the user pass is between reading and re
   fs.writeFileSync(index, `${gone}\n`);
   const other = path.join(f.dir, 'other');
   fs.mkdirSync(path.join(other, '.doflow/state'), { recursive: true });
-  const script = `require(${JSON.stringify(path.join(REPO, 'src/runtime/storage/upkeep.ts'))}).upkeepAfterVerb({ projectRoot: ${JSON.stringify(other)}, now: ${NOW} });`;
+  const signal = path.join(f.dir, 'child-is-at-the-index-lock');
+  // The child reports through its fs the first time it finds the index lock taken, that is, once it is at the append.
+  const script = `const fs = require('node:fs');
+let told = false;
+const fsImpl = new Proxy(fs, { get(target, key) {
+  if (key === 'mkdirSync') return (p, ...rest) => { try { return target.mkdirSync(p, ...rest); } catch (error) { if (!told && String(p).endsWith('upkeep-roots.lock') && error.code === 'EEXIST') { told = true; target.writeFileSync(${JSON.stringify(signal)}, '1'); } throw error; } };
+  const value = target[key];
+  return typeof value === 'function' ? value.bind(target) : value;
+} });
+require(${JSON.stringify(path.join(REPO, 'src/runtime/storage/upkeep.ts'))}).upkeepAfterVerb({ projectRoot: ${JSON.stringify(other)}, now: ${NOW}, fsImpl });`;
   let child: any;
   const fsImpl = spyFs({
     renameSync(from: any, to: any) {
       if (to === index && !child) {
-        // The pass has read the index: let another process start registering, and hold the replace back until it is waiting.
+        // The pass has read the index. Start the registering process and hold the replace back until it reports
+        // it is at the append (never on a clock); without the lock it never reports, so the wait is capped.
         child = spawn(process.execPath, ['-e', script], { env: f.env, stdio: 'ignore' });
-        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500);
+        const until = Date.now() + 5000;
+        while (!fs.existsSync(signal) && Date.now() < until) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
       }
       return fs.renameSync(from, to);
     },
   });
   upkeep().upkeepAfterVerb({ ...f, fsImpl });
   assert.ok(child, 'the index was replaced');
+  assert.equal(fs.existsSync(signal), true, 'the registering process was held at the index lock while the pass replaced the index');
   assert.equal(await new Promise(resolve => child.on('exit', resolve)), 0);
   const lines = fs.readFileSync(index, 'utf8').split('\n').filter(Boolean);
   assert.ok(lines.includes(fs.realpathSync(other)), 'the concurrent registration survived the replace');
@@ -200,15 +212,67 @@ test('IC-017: a project registered while the user pass is between reading and re
   assert.equal(fs.existsSync(path.join(f.roots['user-state'], 'upkeep-roots.lock')), false, 'the index lock is released');
 });
 
-test('IC-017: an index lock older than the pass-lock stale age is removed and the append goes through', t => {
-  const f = fixture(t, ['project-state', 'user-state']);
-  const lock = path.join(f.roots['user-state'], 'upkeep-roots.lock');
-  const index = path.join(f.roots['user-state'], 'upkeep-roots');
+/** A stale lock directory whose first removal (rmdir of it, or a rename of it aside) finds another process's fresh lock in its place. */
+function staleLockTakenOverAtRemoval(lock: any) {
   fs.mkdirSync(lock);
   const old = new Date(Date.now() - (registry.settings.passLockStaleSeconds + 10) * 1000);
   fs.utimesSync(lock, old, old);
+  let fired = false;
+  const swap = () => { if (fired) return; fired = true; fs.rmdirSync(lock); fs.mkdirSync(lock); };
+  const fsImpl = spyFs({
+    rmdirSync(p: any) { if (p === lock) swap(); return fs.rmdirSync(p); },
+    renameSync(from: any, to: any) { if (from === lock) swap(); return fs.renameSync(from, to); },
+  });
+  return { fsImpl, fired: () => fired };
+}
+
+test('IC-017: the roots-index lock another process took while this one was removing a stale one is not removed', t => {
+  const f = fixture(t, ['project-state', 'user-state', 'config-home']);
+  put(f.roots['config-home'], 'prune', 'off\n');
+  const lock = path.join(f.roots['user-state'], 'upkeep-roots.lock');
+  const { fsImpl, fired } = staleLockTakenOverAtRemoval(lock);
+  upkeep().upkeepAfterVerb({ ...f, now: Date.now(), fsImpl });
+  assert.equal(fired(), true);
+  assert.equal(fs.statSync(lock).isDirectory(), true, 'the fresh lock is still held');
+  assert.ok(Date.now() - fs.statSync(lock).mtimeMs < 60_000, 'it is the fresh one');
+  assert.equal(fs.existsSync(path.join(f.roots['user-state'], 'upkeep-roots')), false, 'no append ran inside a lock it did not hold');
+  assert.deepEqual(fs.readdirSync(f.roots['user-state']).filter((name: any) => name.endsWith('.gone')), []);
+});
+
+test('IC-015: the pass lock another process took while this one was removing a stale one is not removed', t => {
+  const f = fixture(t, ['project-state']);
+  const lock = path.join(f.roots['project-state'], 'upkeep.lock');
+  const { fsImpl, fired } = staleLockTakenOverAtRemoval(lock);
+  upkeep().upkeepAfterVerb({ ...f, now: Date.now(), fsImpl });
+  assert.equal(fired(), true);
+  assert.equal(fs.statSync(lock).isDirectory(), true, 'the fresh lock is still held');
+  assert.ok(Date.now() - fs.statSync(lock).mtimeMs < 60_000, 'it is the fresh one');
+  assert.deepEqual(fs.readdirSync(f.roots['project-state']).filter((name: any) => name.endsWith('.gone')), []);
+});
+
+test('IC-017: a stale index lock is removed, and a moved-aside directory a dead process left is swept by age', t => {
+  const f = fixture(t, ['project-state', 'user-state']);
+  const lock = path.join(f.roots['user-state'], 'upkeep-roots.lock');
+  const left = `${lock}.4242.deadbeef.gone`;
+  const old = new Date(Date.now() - (registry.settings.passLockStaleSeconds + 10) * 1000);
+  for (const dir of [lock, left]) { fs.mkdirSync(dir); fs.utimesSync(dir, old, old); }
   upkeep().upkeepAfterVerb({ ...f, now: Date.now() });
-  assert.equal(fs.readFileSync(index, 'utf8'), `${fs.realpathSync(f.projectRoot)}\n`);
+  assert.equal(fs.readFileSync(path.join(f.roots['user-state'], 'upkeep-roots'), 'utf8'), `${fs.realpathSync(f.projectRoot)}\n`);
+  assert.equal(fs.existsSync(lock), false);
+  assert.equal(fs.existsSync(left), false);
+});
+
+test('IC-019: project uninstall that cannot take the index lock says so once and names the project; global uninstall removes a left-over index lock', t => {
+  const f = fixture(t, ['project-state', 'user-state']);
+  const index = path.join(f.roots['user-state'], 'upkeep-roots');
+  const lock = path.join(f.roots['user-state'], 'upkeep-roots.lock');
+  fs.writeFileSync(index, `${fs.realpathSync(f.projectRoot)}\n`);
+  fs.mkdirSync(lock);
+  const said = capture(() => upkeep().storageForgetScope({ scope: 'project', scopeRoot: f.projectRoot, env: f.env }));
+  assert.equal(said.err.length, 1);
+  assert.ok(said.err[0].includes(fs.realpathSync(f.projectRoot)) && /next upkeep pass/.test(said.err[0]), said.err[0]);
+  assert.equal(fs.readFileSync(index, 'utf8'), `${fs.realpathSync(f.projectRoot)}\n`, 'the index was left alone');
+  capture(() => upkeep().storageForgetScope({ scope: 'global', scopeRoot: f.env.HOME, env: f.env }));
   assert.equal(fs.existsSync(lock), false);
 });
 

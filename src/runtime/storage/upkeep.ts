@@ -47,32 +47,61 @@ function atomicWrite(file: any, text: any, fsImpl: any, { preserveExisting = fal
   }
 }
 function ignoreBytes() { return `${registry.settings.ignoreFile.lines.join('\n')}\n`; }
+/**
+ * Remove a lock directory judged stale (its mtime older than the pass-lock stale age at `now`) without
+ * ever removing one a faster process has taken since. The directory is renamed to a unique name (atomic,
+ * so one process wins), its mtime is read again, and only a still-stale one is deleted; a fresh one is
+ * renamed back and left held. Ceiling: for the instant between the rename and the rename back the name is
+ * free, and a third process taking it then shares the lock with the one that was moved. Moved-aside
+ * directories a process that died left are removed by age here too.
+ * @returns true when this call removed a stale lock
+ */
+function removeStaleLock(lock: any, now: any, fsImpl: any): boolean {
+  const staleMs = registry.settings.passLockStaleSeconds * 1000;
+  const info = stat(lock, fsImpl);
+  if (!info?.isDirectory() || info.isSymbolicLink() || now - info.mtimeMs <= staleMs) return false;
+  const dir = path.dirname(lock), prefix = `${path.basename(lock)}.`;
+  try {
+    for (const name of fsImpl.readdirSync(dir)) {
+      if (!name.startsWith(prefix) || !name.endsWith('.gone')) continue;
+      const left = stat(path.join(dir, name), fsImpl);
+      if (left?.isDirectory() && !left.isSymbolicLink() && now - left.mtimeMs > staleMs) fsImpl.rmdirSync(path.join(dir, name));
+    }
+  } catch { /* best effort: a left-over is removed by a later call */ }
+  const aside = `${lock}.${process.pid}.${randomBytes(4).toString('hex')}.gone`;
+  try { fsImpl.renameSync(lock, aside); } catch { return false; }
+  const moved = stat(aside, fsImpl);
+  if (moved && now - moved.mtimeMs > staleMs) {
+    try { fsImpl.rmdirSync(aside); return true; } catch { return false; }
+  }
+  try {
+    if (!stat(lock, fsImpl)) fsImpl.renameSync(aside, lock);
+    else fsImpl.rmdirSync(aside);
+  } catch { /* nothing more to do */ }
+  return false;
+}
 const INDEX_LOCK_WAIT_MS = 2000;
 const PAUSE = new Int32Array(new SharedArrayBuffer(4));
 /**
  * The roots index is rewritten by `rewriteRoots` and appended to by `ensureIgnore` and `registerProject`
  * from other processes: each runs inside this directory lock (`upkeep-roots.lock` under user state), so an
  * append can never fall between the rewrite's read and its rename. A lock older than the pass-lock stale
- * age is removed as left by a crashed holder. When it is not obtained within INDEX_LOCK_WAIT_MS `fn` is
- * skipped and the caller moves on: the index is best effort, a skipped rewrite happens at the next pass,
+ * age is removed as left by a crashed holder (`removeStaleLock`). When it is not obtained within INDEX_LOCK_WAIT_MS
+ * `fn` is skipped, `false` is returned, and the caller moves on: the index is best effort, a skipped rewrite happens at the next pass,
  * and a project that missed its append is added by its own pass (`registerProject`).
  */
-function withIndexLock(userState: any, fsImpl: any, fn: any) {
+function withIndexLock(userState: any, fsImpl: any, fn: any): boolean {
   const lock = path.join(userState, 'upkeep-roots.lock');
   const deadline = Date.now() + INDEX_LOCK_WAIT_MS;
   for (;;) {
     try { fsImpl.mkdirSync(lock); break; } catch (error: any) {
-      if (error.code !== 'EEXIST') return;
-      const info = stat(lock, fsImpl);
-      if (info?.isDirectory() && !info.isSymbolicLink() && Date.now() - info.mtimeMs > registry.settings.passLockStaleSeconds * 1000) {
-        try { fsImpl.rmdirSync(lock); } catch { /* another process removed it */ }
-        continue;
-      }
-      if (Date.now() >= deadline) return;
+      if (error.code !== 'EEXIST') return false;
+      if (removeStaleLock(lock, Date.now(), fsImpl)) continue;
+      if (Date.now() >= deadline) return false;
       Atomics.wait(PAUSE, 0, 0, 10);
     }
   }
-  try { return fn(); } finally { try { fsImpl.rmdirSync(lock); } catch { /* best effort */ } }
+  try { fn(); return true; } finally { try { fsImpl.rmdirSync(lock); } catch { /* best effort */ } }
 }
 function ensureIgnore({ roots, rootId, projectRoot, fsImpl }: any) {
   const root = roots[rootId];
@@ -109,10 +138,11 @@ function indexedRoots(file: any, fsImpl: any) {
   if (!info || info.isSymbolicLink() || !info.isFile()) return null;
   return fsImpl.readFileSync(file, 'utf8').split('\n').filter((root: any) => path.isAbsolute(root));
 }
-function rewriteRoots(roots: any, fsImpl: any, forget: any = null) {
+/** @returns false when the index lock was not obtained in time and nothing was rewritten */
+function rewriteRoots(roots: any, fsImpl: any, forget: any = null): boolean {
   const file = path.join(roots['user-state'], 'upkeep-roots');
-  if (!usableRoot(roots['user-state'], fsImpl)) return;
-  withIndexLock(roots['user-state'], fsImpl, () => {
+  if (!usableRoot(roots['user-state'], fsImpl)) return true;
+  return withIndexLock(roots['user-state'], fsImpl, () => {
     const lines = indexedRoots(file, fsImpl);
     if (!lines) return;
     const kept = forget === null
@@ -132,10 +162,7 @@ function takeLock(root: any, now: any, fsImpl: any) {
   try { fsImpl.mkdirSync(lock); return true; }
   catch (error: any) {
     if (error.code !== 'EEXIST') throw error;
-    const info = stat(lock, fsImpl);
-    if (info?.isDirectory() && !info.isSymbolicLink() && now - info.mtimeMs > registry.settings.passLockStaleSeconds * 1000) {
-      fsImpl.rmdirSync(lock);
-    }
+    removeStaleLock(lock, now, fsImpl);
     return false;
   }
 }
@@ -240,12 +267,14 @@ function storageForgetScope({ scope, scopeRoot, env = process.env, fsImpl = fs }
     if (!usableRoot(root, fsImpl)) return;
     if (ignore) removeFile(path.join(root, '.gitignore'), true);
     removeFile(path.join(root, 'upkeep-due'));
-    const lock = path.join(root, 'upkeep.lock');
-    attempt(lock, () => {
-      const info = stat(lock, fsImpl);
-      if (!info?.isDirectory() || info.isSymbolicLink()) return;
-      fsImpl.rmdirSync(lock); removed++;
-    });
+    for (const name of ['upkeep.lock', 'upkeep-roots.lock']) {
+      const lock = path.join(root, name);
+      attempt(lock, () => {
+        const info = stat(lock, fsImpl);
+        if (!info?.isDirectory() || info.isSymbolicLink()) return;
+        fsImpl.rmdirSync(lock); removed++;
+      });
+    }
   };
   try {
     if (!registry || !['project', 'global'].includes(scope)) return;
@@ -257,7 +286,7 @@ function storageForgetScope({ scope, scopeRoot, env = process.env, fsImpl = fs }
       attempt(index, () => {
         let realRoot;
         try { realRoot = fsImpl.realpathSync(scopeRoot); } catch { realRoot = path.resolve(scopeRoot); }
-        rewriteRoots(roots, fsImpl, realRoot);
+        if (!rewriteRoots(roots, fsImpl, realRoot)) failures.push(`${realRoot}: the roots index was busy and still lists this project; the next upkeep pass removes it`);
       });
     } else {
       attempt(index, () => {
