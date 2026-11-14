@@ -43,6 +43,7 @@ const USAGE_BASES = Object.freeze(['measured', 'estimated']);
 const RUN_CONTROLS = Object.freeze(['running', 'paused', 'cancelled']);
 const ACTIONS = Object.freeze(['claim', 'finish', 'release', 'status', 'start', 'pause', 'cancel', 'resume', 'inspect', 'reopen', 'report-usage']);
 const TASK_ID = /^[A-Za-z]+\.\d+$/;
+/** Who may be named as an owner or `--by`: the shared shape check for an agent or person's name. */
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._ -]*$/;
 
 /** A failure that is the caller's or the environment's, not a finding: exit 2. */
@@ -931,5 +932,5 @@ function handleTaskAttemptCommand({
 module.exports = {
   handleTaskAttemptCommand, checkCompletion, claim, finish, release, status, start, pause, cancel, reopen, resume, inspect, reportUsage,
   loadPlan, taskLineHash,
-  storeFile, TaskAttemptError, MODES, RESULTS, ACTIONS, USAGE_BASES, RUN_CONTROLS, activeAttempt,
+  storeFile, SAFE_NAME, TaskAttemptError, MODES, RESULTS, ACTIONS, USAGE_BASES, RUN_CONTROLS, activeAttempt,
 };

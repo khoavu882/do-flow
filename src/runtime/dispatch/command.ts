@@ -66,7 +66,6 @@ const EXIT_ZERO = Object.freeze([
 ]);
 const ERROR_CODES = Object.freeze(['usage', 'store-unreadable', 'plan-unreadable', 'plan-malformed', 'registry-invalid']);
 const MODES = Object.freeze(['auto', 'sequential', 'manual']);
-const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._ -]*$/;
 const TASK_ID = /^[A-Za-z]+\.\d+$/;
 const ACK = /^sha256:[0-9a-f]{64}$/;
 const DIGITS = /^[0-9]+$/;
@@ -135,7 +134,7 @@ function digits(value: any, flag: string, min: number, max = Number.MAX_SAFE_INT
 }
 
 function requireBy(by: any, action: string): string {
-  if (!given(by) || !SAFE_NAME.test(String(by))) throw usage(`--by is required for --action ${action}: the name of the agent or person acting`);
+  if (!given(by) || !attempts.SAFE_NAME.test(String(by))) throw usage(`--by is required for --action ${action}: the name of the agent or person acting`);
   return String(by);
 }
 

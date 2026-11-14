@@ -40,8 +40,6 @@ const integrate = require('./integrate.ts');
 const { endVerification } = require('./verify-run.ts');
 const { checkCaller, measurement, exitedCleanup, LOOP_BY, ATTEMPT_SECONDS_DEFAULT } = require('./loop.ts');
 
-/** 080's `SAFE_NAME`, which `--by` must match. */
-const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._ -]*$/;
 const ACK = /^sha256:[0-9a-f]{64}$/;
 const RUN_ENDED = Object.freeze(['completed', 'cancelled']);
 const LIVE_WORKER_STATES = Object.freeze(['starting', 'running']);
@@ -60,7 +58,7 @@ function refused(reason: string, extra: any = {}) {
 const iso = (at: Date) => at.toISOString();
 
 function requireBy(by: any): string {
-  if (typeof by !== 'string' || !SAFE_NAME.test(by)) throw usage('--by is required: the name of the agent or person using the control');
+  if (typeof by !== 'string' || !attempts.SAFE_NAME.test(by)) throw usage('--by is required: the name of the agent or person using the control');
   return by;
 }
 

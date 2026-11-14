@@ -34,7 +34,7 @@
 // Every I/O seam is injectable for tests, defaulting to the process's own.
 
 const { finishRuntime } = require('../cli-result.ts');
-const { printSafe } = require('../mask.ts');
+const { shown } = require('../mask.ts');
 const { parseChannel, parseChannelList, CHANNEL_LIMIT } = require('./channels.ts');
 const { createEnvelopeWriter, maskSections } = require('./envelope.ts');
 const { createDetector } = require('./detector.ts');
@@ -49,8 +49,6 @@ const FLAGS: ReadonlySet<string> = new Set(['--follow', '--channels', '--control
 /** The flags among them that take a value (`--flag value` or `--flag=value`). */
 const VALUE_FLAGS: ReadonlySet<string> = new Set(['--channels', '--control']);
 
-/** Longest part of untrusted text echoed back in a stderr line. */
-const ECHO_CHARS = 80;
 
 type Env = Record<string, string | undefined>;
 type SectionResult = { exit: number; json: unknown };
@@ -89,12 +87,6 @@ interface EventsOptions {
   specFor?: (channel: any, ctx: { cwd: string; env: Env }) => any;
   logFor?: (options: any) => any;
   detectorFactory?: (options: any) => any;
-}
-
-/** One line of untrusted text made safe to print: no control characters, bounded. */
-function shown(text: unknown): string {
-  const safe = String(printSafe(String(text))).replace(/[\r\n]+/g, ' ');
-  return safe.length > ECHO_CHARS ? `${safe.slice(0, ECHO_CHARS)}...` : safe;
 }
 
 /** The first problem with the flags and positionals as typed, or null. */

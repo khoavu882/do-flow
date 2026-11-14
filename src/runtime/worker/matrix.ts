@@ -20,7 +20,7 @@
 
 const { loadRegistry } = require('../../registry/index.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
-const { maskBody, printSafe } = require('../mask.ts');
+const { maskBody, shown } = require('../mask.ts');
 const { finishRuntime } = require('../cli-result.ts');
 
 /** IC-003: the most cell names one group lists; the rest are counted in `limits.cellsNotShown`. */
@@ -42,8 +42,6 @@ const FLAGS = new Set(['--json']);
 const ID = /^[a-z][a-z0-9-]{0,31}$/;
 const WORD = /^[a-z][a-z-]{0,31}$/;
 const DAY = /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/;
-/** Longest part of untrusted text echoed back in a stderr line. */
-const ECHO_CHARS = 80;
 
 type Group = typeof GROUPS[number];
 type Env = Record<string, string | undefined>;
@@ -69,12 +67,6 @@ const registryInvalid = () => failure('registry-invalid', 'the harness registry 
 const plainObject = (value: any) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const isCell = (value: any) => plainObject(value) && typeof value.status === 'string';
 const matching = (value: any, pattern: RegExp): string | null => (typeof value === 'string' && pattern.test(value) ? value : null);
-
-/** One line of untrusted text made safe to print: no control characters, bounded. */
-function shown(text: unknown): string {
-  const safe = String(printSafe(String(text))).replace(/[\r\n]+/g, ' ');
-  return safe.length > ECHO_CHARS ? `${safe.slice(0, ECHO_CHARS)}...` : safe;
-}
 
 /** The first problem with the flags and positionals as typed, or null. */
 function flagProblem(flags: readonly string[], positional: readonly string[]): string | null {

@@ -25,7 +25,7 @@ const { loadAdviceRegistry } = require('./registry.ts');
 const { loadStorageRegistry } = require('../storage/registry.ts');
 const { resolveRoots } = require('../storage/roots.ts');
 const { readWindow } = require('./record.ts');
-const { maskBody, printSafe } = require('../mask.ts');
+const { maskBody, shown } = require('../mask.ts');
 const { maskJson } = require('../events/envelope.ts');
 const { finishRuntime } = require('../cli-result.ts');
 
@@ -46,8 +46,6 @@ const TYPES = new Set(['pick', 'miss', 'outcome']);
 const STORES = Object.freeze(['project-state', 'user-state'] as const);
 const FLAGS = new Set(['--kind', '--json']);
 const DAY_MS = 24 * 60 * 60 * 1000;
-/** Longest part of untrusted text echoed back in a stderr line. */
-const ECHO_CHARS = 80;
 
 type Env = Record<string, string | undefined>;
 interface Writable { write(text: string): any }
@@ -75,12 +73,6 @@ const failure = (error: string, message: string): Answer => ({ exit: 2, json: { 
 const usage = (message: string) => failure('usage', message);
 const given = (value: unknown) => value !== undefined && value !== null;
 const isTime = (value: unknown): value is string => typeof value === 'string' && ISO_TIME.test(value) && !Number.isNaN(Date.parse(value));
-
-/** One line of untrusted text made safe to print: no control characters, bounded. */
-function shown(text: unknown): string {
-  const safe = String(printSafe(String(text))).replace(/[\r\n]+/g, ' ');
-  return safe.length > ECHO_CHARS ? `${safe.slice(0, ECHO_CHARS)}...` : safe;
-}
 
 /** The first problem with the flags, positionals and `--kind` value as given, or null. */
 function flagProblem(flags: readonly string[], positional: readonly string[], kind: unknown): string | null {
