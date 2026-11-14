@@ -157,7 +157,8 @@ function reclaimStaleLock(lock: string, fsImpl: any): boolean {
  */
 function acquireLock(file: string, fsImpl: any): any {
   const lock = `${file}.lock`;
-  const token = `${JSON.stringify({ pid: process.pid, start: require('../worker/process-tree.ts').procStart(process.pid), id: randomBytes(8).toString('hex') })}\n`;
+  const start = require('../worker/process-tree.ts').procStart(process.pid);
+  const token = `${JSON.stringify({ pid: process.pid, start, id: randomBytes(8).toString('hex') })}\n`;
   const deadline = Date.now() + LOCK_WAIT_MS;
   let judged = false;
   for (;;) {
