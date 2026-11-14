@@ -140,10 +140,9 @@ function validateContract(value: any, location: string, errors: string[], harnes
   if (!CONTRACT_COMPLETENESS.has(value.completeness)) {
     issue(errors, location, 'completeness must be verified or lower-bound');
   }
-  // agentFields is optional: shared agent specs are byte-identical across harnesses, so a per-harness
-  // field list is necessarily a subset of the union and cannot change any guard outcome. Declaring one
-  // anyway would restate an unverified claim as fact — the exact shape of inert declaration these
-  // guards exist to remove. skillFields is per-harness since row 131: a projected SKILL.md keeps only
+  // agentFields is optional: a harness that lists it gets only those top-level keys in its projected
+  // agent file (src/adapters/copy-tree.ts, applyAgentLimits); one that does not (Codex) gets the spec
+  // as written. skillFields is per-harness since row 131: a projected SKILL.md keeps only
   // the spec keys and its harness's skillFields at the top level, so a list needs its vendor page and
   // the date it was read. hookEvents is required because those genuinely differ per harness and G5 reads them.
   if (value.skillFields !== undefined) {

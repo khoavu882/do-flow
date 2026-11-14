@@ -127,12 +127,12 @@ const TRANSFORMS: Record<string, (sourceRel: string, content: any) => any> = {
     void sourceRel;
     return Buffer.from(applyAgentLimits(content.toString('utf8'), 'codex'));
   },
-  /** Shared agent spec -> the same file without `access`, plus Copilot's read-only limit keys (118 IC-005) */
+  /** Shared agent spec -> the same file limited to Copilot's agentFields (no `access`, `effort` or `model: inherit`), plus its read-only limit keys (118 IC-005) */
   'copilot-agents': (sourceRel: string, content: any) => {
     void sourceRel;
     return Buffer.from(applyAgentLimits(content.toString('utf8'), 'copilot'));
   },
-  /** Shared agent spec -> the same file without `access`; Antigravity's limit is `unenforced`, so no keys are added */
+  /** Shared agent spec -> the same file without `access`, limited to Antigravity's agentFields; its limit is `unenforced`, so no keys are added */
   'antigravity-agents': (sourceRel: string, content: any) => {
     void sourceRel;
     return Buffer.from(applyAgentLimits(content.toString('utf8'), 'antigravity'));
@@ -342,8 +342,10 @@ function yamlLines(key: string, value: any, indent: string = ''): string[] {
 }
 
 /** Rewrite a shared agent spec's frontmatter for one harness: `access` and `tool-scope` are never projected under
- * those names; the spec gains the harness's keys for its tool scope and, when `read-only`, its `apply` keys. Body and every other
- * key pass through byte for byte; a file without frontmatter is returned unchanged. */
+ * those names; the spec gains the harness's keys for its tool scope and, when `read-only`, its `apply` keys. Where the
+ * harness's contract lists `agentFields`, any other top-level key is dropped with its continuation lines, and Copilot
+ * also drops `model: inherit` (a provider-qualified id is the only value it documents). Body and every kept key pass
+ * through byte for byte; a file without frontmatter is returned unchanged. */
 function applyAgentLimits(text: string, harnessId: string): string {
   const match = text.match(/^---\r?\n([\s\S]*?\r?\n)---(?=\r?\n|$)/);
   if (!match) return text;
@@ -352,7 +354,15 @@ function applyAgentLimits(text: string, harnessId: string): string {
   const scopeLine = lines.find((line: string) => /^tool-scope:/.test(line));
   const apply = agentLimitKeys(harnessId, { readOnly, scope: scopeCategories(scopeLine?.replace(/^tool-scope:/, '')) });
   const added = apply ? Object.entries(apply).flatMap(([key, value]) => yamlLines(key, value)).map((line: string) => `${line}\n`) : [];
-  const kept = lines.filter((line: string) => !/^(access|tool-scope):/.test(line));
+  const allowed: string[] | undefined = SKILL_CONTRACTS.contracts.find((entry: any) => entry.harness === harnessId)?.agentFields;
+  let keep = true;
+  const kept = lines.filter((line: string) => {
+    const key = line.match(/^([A-Za-z][A-Za-z0-9_-]*):/)?.[1];
+    if (key === undefined) return keep;
+    keep = !/^(access|tool-scope)$/.test(key) && (!allowed || allowed.includes(key))
+      && !(harnessId === 'copilot' && /^model:\s*inherit\s*$/.test(line));
+    return keep;
+  });
   return `${text.slice(0, text.indexOf('\n') + 1)}${kept.join('')}${added.join('')}${text.slice(match[0].length - 3)}`;
 }
 

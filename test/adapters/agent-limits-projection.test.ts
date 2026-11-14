@@ -91,11 +91,41 @@ for (const id of ['claude', 'copilot', 'antigravity']) {
   });
 }
 
-test('antigravity: the limit is unenforced, so the output is the spec minus access and tool-scope and nothing added', () => {
+test('antigravity: the limit is unenforced, so the output is the spec minus access, tool-scope and effort and nothing added', () => {
   assert.equal(readOnlyApply('antigravity'), null);
   for (const spec of specs) {
-    assert.equal(render('antigravity', spec), spec.text.replace(/^access:.*\n/m, '').replace(/^tool-scope:.*\n/m, ''), spec.name);
+    const out = render('antigravity', spec);
+    assert.equal(out, spec.text.replace(/^access:.*\n/m, '').replace(/^tool-scope:.*\n/m, '').replace(/^effort:.*\n/m, ''), spec.name);
+    assert.match(out, /^model: inherit$/m, `${spec.name}: Antigravity documents model: inherit`);
   }
+});
+
+test('copilot: output carries no effort and no model: inherit, and only keys the contract lists', () => {
+  const fields = registry.contracts.find((entry: any) => entry.harness === 'copilot').agentFields;
+  for (const spec of specs) {
+    const keys = keyLines(render('copilot', spec)).map((line: any) => line.slice(0, line.indexOf(':')));
+    assert.ok(!keys.includes('effort'), `${spec.name}: no effort`);
+    assert.ok(!keys.includes('model'), `${spec.name}: model: inherit dropped`);
+    assert.ok(keys.every((key: any) => fields.includes(key)), `${spec.name}: ${keys.join(',')} all in agentFields`);
+  }
+});
+
+test('claude: output is the spec minus access and tool-scope plus the limit keys, effort and model kept', () => {
+  for (const spec of specs) {
+    const out = render('claude', spec);
+    assert.match(out, /^effort: \w+$/m, `${spec.name}: effort kept`);
+    assert.match(out, /^model: inherit$/m, `${spec.name}: model kept`);
+    const bare = (text: any) => frontmatter(text).split('\n').filter((line: any) => !/^(access|tool-scope|tools|permissionMode|disallowedTools):/.test(line)).join('\n');
+    assert.equal(bare(out), bare(spec.text).replace(/\n$/, ''), `${spec.name}: spec keys unchanged`);
+  }
+});
+
+test('a key outside agentFields is dropped whole, continuation lines included; a codex copy keeps it', () => {
+  const text = '---\nname: x\ndescription: "d"\nmodel: inherit\neffort: high\nmetrics:\n  a: 1\n  b: 2\naccess: write\ntool-scope: read\n---\nbody\n';
+  const out = (id: any) => TRANSFORMS[sharedAgents.projection[id].transform]('x.md', Buffer.from(text)).toString('utf8');
+  assert.equal(out('antigravity'), '---\nname: x\ndescription: "d"\nmodel: inherit\n---\nbody\n');
+  assert.ok(!/metrics|a: 1|effort/.test(out('copilot')));
+  assert.equal(out('codex'), '---\nname: x\ndescription: "d"\nmodel: inherit\neffort: high\nmetrics:\n  a: 1\n  b: 2\n---\nbody\n');
 });
 
 test('opencode: the permission block is the read-only and tool-scope denies, the rest byte-identical to the pre-118 renderer', () => {
