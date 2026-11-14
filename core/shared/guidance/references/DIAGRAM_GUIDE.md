@@ -5,9 +5,8 @@ inside one. Read on demand by `do-brainstorm`, `do-design` and `do-plan` at the 
 slot, and never loaded into a session by default.
 
 **Scope.** These rules govern every Mermaid diagram in a feature directory, including ones in
-`as-is/`, `target/` or any other subdirectory a feature grows. The slot registry in §4 of
-`ARTIFACT_FORMAT.md` lists only the slots a template scaffolds, because those are the ones a stage
-is accountable for; the conventions here are wider than that list.
+`as-is/`, `target/` or any other subdirectory a feature grows; the slot registry in §4 of
+`ARTIFACT_FORMAT.md` lists only the slots a template scaffolds.
 
 ## 1. Permitted types
 
@@ -24,18 +23,15 @@ experimental by Mermaid. Both halves matter: a type that renders today but whose
 moving will silently change shape under artifacts already written against it.
 
 **C4 is a zoom model here, not a diagram type.** `C4Context`, `C4Container`, `C4Component` and
-`C4Dynamic` are excluded by the admission rule's second half — Mermaid's own C4 syntax documentation
-states the C4 diagram is experimental and that its syntax and properties can change in future
-releases. The practical cost is visible in Mermaid's own examples: relationship labels are placed by
-hand with one `UpdateRelStyle($offsetX, $offsetY)` call per relationship, and layout is nudged
-through `UpdateLayoutConfig` rather than a direction keyword. Render every C4 level with `flowchart`
-plus `subgraph` instead, which gives explicit direction and puts each label on its arrow without
-per-edge tuning.
+`C4Dynamic` fail the rule's second half: Mermaid's C4 documentation calls the diagram experimental,
+and its labels and layout are placed by hand, one `UpdateRelStyle` call per relationship. Render
+every C4 level with `flowchart` plus `subgraph`, which gives explicit direction and puts each label
+on its arrow.
 
-**Everything else is excluded too**, including types that do render widely — `journey`, `timeline`,
-`quadrantChart`, `gitGraph`, `mindmap` — and every `-beta` grammar. Not because any one of them is
-bad, but because each added type is another set of conventions to carry and another surface that can
-drift between renderers. Four types cover what the chain actually needs.
+**Everything else is excluded too**, including types that render widely (`journey`, `timeline`,
+`quadrantChart`, `gitGraph`, `mindmap`) and every `-beta` grammar. Each added type is another set of
+conventions to carry and another surface that drifts between renderers; four cover what the chain
+needs.
 
 ## 2. Choosing between them
 
@@ -63,74 +59,58 @@ Each type is bounded on what actually makes that type illegible, not on one numb
 | `erDiagram` | 8 entities | none |
 | `stateDiagram-v2` | 10 states | none |
 
-`subgraph` containers do not count toward the node ceiling; they are grouping, not content.
+`subgraph` containers are grouping and do not count toward the node ceiling.
 
-**Why only `flowchart` carries a link ceiling.** A `sequenceDiagram` lays out columnwise — lifelines
-vertical, messages horizontal — so no routing decision is ever made and nothing can tangle however
-many messages it carries. A `flowchart` is routed by the layout engine, and above a certain density
-that engine produces edges that overlap each other or cross boxes that are not their endpoints. The
-edge ceiling exists for that failure and belongs only to the type that has it. The same reasoning
-applies to `erDiagram` relations and `stateDiagram-v2` transitions: a reader tracks entities and
-states, and the links follow from them.
+**Why only `flowchart` carries a link ceiling.** A `sequenceDiagram` lays out in columns, so nothing
+tangles however many messages it carries. A `flowchart` is routed by the layout engine, and past a
+certain density its edges overlap or cross boxes that are not their endpoints.
 
-**Where the numbers come from.** Measured against 56 Mermaid diagrams in a completed feature, not
-chosen for roundness. Flowchart node counts were bimodal — eleven diagrams at six or fewer, four at
-seventeen or more, nothing between twelve and sixteen — so the ceiling sits in that empty band and
-flags only the four that should have been split. Sequence lifelines ran three to thirteen, with
-twenty-three of twenty-six at eight or fewer. Entity and state counts never exceeded six and seven,
-so those ceilings are stated intent rather than a tested constraint. Re-measure against your own
-corpus before moving a ceiling, and move it with the count rather than by preference.
+**Where the numbers come from.** 56 Mermaid diagrams in a completed feature. Flowchart node counts
+were bimodal (eleven at six or fewer, four at seventeen or more, none from twelve to sixteen), so
+the ceiling sits in that empty band. Twenty-three of twenty-six sequence diagrams had eight
+lifelines or fewer. Entity and state counts never passed six and seven, so those two ceilings are
+intent, not a tested bound. Re-measure before moving one.
 
 ## 4. When a diagram is over budget
 
-Split it into an overview and a detail diagram. The overview keeps the boxes a reader needs to
-orient, and one of them expands into the detail diagram beneath it.
+Split it into an overview and a detail diagram: the overview keeps the boxes a reader needs to
+orient, and one of them expands into the detail beneath it. Do not shrink labels, drop arrow labels
+or accept the crowding: a diagram past the ceiling is two ideas sharing a frame.
 
-Do not shrink labels, do not drop the arrow labels, and do not accept the crowding because the
-content "really is that big". Content that big is the signal, not the exception: a diagram past the
-ceiling is two ideas sharing a frame, and the split is what separates them.
-
-The one legitimate alternative is deletion. Two nodes that always travel together are one node, and
-a relationship obvious from the layout does not need its own line.
+The one alternative is deletion. Two nodes that always travel together are one node, and a
+relationship obvious from the layout needs no line.
 
 ## 5. Conventions
 
-**Direction is declared, never left to default.** Write `flowchart TB` or `flowchart LR`. Pick `LR`
-for anything that reads as a progression (scope, phases, dependency order) and `TB` for anything
-that reads as containment or hierarchy.
+**Direction is declared.** Write `flowchart TB` or `flowchart LR`: `LR` for a progression (scope,
+phases, dependency order), `TB` for containment or hierarchy.
 
 **Labels go on the arrow, not in the node.** `A -->|"reads"| B`, not a node named "reads from B".
-Keep an arrow label to a short verb phrase: if it needs a clause, the relationship is doing too much
-and wants two arrows or a different type. Quote every label, so a comma or a parenthesis inside it
-cannot end the label early.
+An arrow label is a short verb phrase; one that needs a clause wants two arrows or another type.
+Quote every label, so a comma or a parenthesis inside it cannot end it early.
 
 **Node ids are short and stable; the text lives in the brackets.** `SVC["Payment service"]`, not
-`PaymentService["Payment service"]`. An id is an anchor a later edit reuses; the label is prose that
-changes freely.
+`PaymentService["Payment service"]`. A later edit reuses the id; the label changes freely.
 
 **`subgraph` marks a boundary, and its label is quoted**: `subgraph boundary["Payment platform"]`.
-Use it for a trust boundary, a deployable unit, a C4 level or a scope partition. Do not use it to
-group things that merely look similar.
+Use it for a trust boundary, a deployable unit, a C4 level or a scope partition, not to group things
+that look similar.
 
-**In a `sequenceDiagram`, prefer `rect` over `par` to mark a region.** `par` renders as a split
-block that reads as "these happen simultaneously", which is a claim most groupings do not want to
-make and cannot support. `rect` groups without asserting concurrency. Reserve `par` for genuine
-parallelism, and use `alt` for a branch.
+**In a `sequenceDiagram`, prefer `rect` over `par` to mark a region.** `par` reads as "these happen
+at once", which most groupings cannot support. Reserve `par` for real parallelism and use `alt` for
+a branch.
 
 **Keep edges inside their boundary.** An edge that crosses a `subgraph` boundary is the one the
-layout engine routes across other edges, and it is what produces overlapping arrows and labels
-stranded mid-canvas. This is not a density problem and the node ceiling does not catch it: a
-six-node diagram with two boundary-crossing edges tangles where a nine-node diagram whose edges all
-fan into one sink stays clean. Prefer edges within a boundary, or between two boundaries at the same
-level. When a node inside a `subgraph` must reach one outside it, the boundary is usually drawn in
-the wrong place — move it, or lift the shared node out.
+layout engine routes across others, leaving overlapped arrows and stranded labels. The node ceiling
+does not catch it: six nodes with two crossing edges tangle where nine fanning into one sink stay
+clean. When a node inside a `subgraph` must reach one outside it, the boundary is usually in the
+wrong place: move it, or lift the shared node out.
 
-**Secondary and asynchronous relations use `-.->`.** Reserve the dashed arrow for what it says:
-optional, deferred, or out of band. A dashed arrow used for variety costs the reader the one signal
-it carries.
+**Secondary and asynchronous relations use `-.->`.** The dashed arrow means optional, deferred or
+out of band, and nothing else.
 
-**Skipping a slot is `N/A: [why]`.** That escape is a format rule and is defined once, in
-`ARTIFACT_FORMAT.md` §4. A slot left silently empty cannot be told apart from an oversight.
+**Skipping a slot is `N/A: [why]`**, defined once in `ARTIFACT_FORMAT.md` §4. A slot left silently
+empty cannot be told apart from an oversight.
 
 ## 6. Authored sources
 
@@ -151,11 +131,38 @@ with `N/A: [why]` for a single-actor flow.
 
 | Pattern | Why it fails |
 |---|---|
-| A node per step of a process that has no branches | A numbered list says it in fewer words and reads faster |
+| A node per step of a process that has no branches | A numbered list says it in fewer words |
 | Every node the same shape and weight | Shape is the only hierarchy a diagram has; spending none of it flattens everything |
 | An arrow with no label | The reader can see two things are connected and has to guess how |
 | A label long enough to wrap | A wrapped label pushes its own arrow around and reads as a sentence, not an annotation |
-| Restating a table that sits directly above it | Two representations of one fact drift apart, and the reader has to work out which is current |
-| One diagram carrying both the overview and the detail | Past the ceiling this is the shape the split rule exists to break up |
+| Restating a table that sits directly above it | Two representations of one fact drift apart |
 | Colour or `classDef` styling as the only way to read it | Styling varies by renderer and theme; anything load-bearing belongs in the structure or the labels |
-| A diagram nobody would miss | If removing it costs the reader nothing, it was decoration |
+
+## 8. What each slot has to show
+
+The ceilings in §3 stop a diagram carrying too much. This is the other bound: a diagram that carries
+less than the sentence beside it. Of 130 flowcharts in sixteen completed features, about one in six
+had three edges or fewer.
+
+**The test.** A diagram stays when it shows at least one thing the prose or table next to it does
+not: a boundary, a branch, a direction of flow, or an order. Three boxes in a row are a sentence;
+write the sentence and mark the slot `N/A: [why]`.
+
+| Slot | Has to show |
+|---|---|
+| Scope boundary | Each in-scope item with the outcome it produces, and each excluded item a reader would otherwise assume is in |
+| C4 Level 1 | Each actor that starts a journey as its own box; each external system, tool or file store the feature reads or writes; this system as one box. An edge label says what crosses, in the direction it moves |
+| C4 Level 2 | Each process, deployable unit and data store the feature spans, files on disk included; the technology or runtime on a node's second line; the call form and the payload on an edge; a `subgraph` at each process or trust boundary |
+| C4 Level 3 | The components of Components & Boundaries by name, a new or changed one marked in its label (`(new)`, `(changed)`), and the store each reads or writes |
+| Concepts | Each noun the journeys use, with the cardinality or the rule on each relationship |
+| Journey | The trigger, each decision, and for each decision the failure outcome as the actor sees it; the record the journey leaves behind. With three or more participants, a `sequenceDiagram` with the failure in an `alt` |
+| State | Each state the record can hold, terminal ones included, and on each transition the event and its guard |
+| Task dependency | Each task id, the phase boundaries, and the edges that force the order |
+| ER view | Keys, the cardinality on each relation, and each field a contract or a rule names |
+
+**Name the real thing at C4 Level 2, C4 Level 3 and in the data model.** A node label there carries
+the name a reader can search for (the file, the verb, the table, the service), not its category:
+`CFG[("settings.json<br/>project layer")]`, not `FILES["Settings files"]`. Concepts and Journeys keep
+plain nouns, as their sections say.
+
+When this floor and a ceiling collide, split as §4 says.

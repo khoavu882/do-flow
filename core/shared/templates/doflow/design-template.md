@@ -50,6 +50,9 @@
      EVERY edge carries a label saying what flows over it (a request, a record, money, a file),
      never a bare arrow.
 
+     `references/DIAGRAM_GUIDE.md` §8 lists what each level has to show. A level that comes out as
+     three boxes in a row is a sentence: write the sentence and "N/A: [why]".
+
      Skip a level with "N/A: [why]". For a trivial single-file change with no new external
      interaction, write "N/A: [why]" for the whole section. -->
 
@@ -73,16 +76,21 @@ system — internal components belong at C4 Level 2 or C4 Level 3, not here.]
 ```mermaid
 flowchart TB
     subgraph actors["Actors"]
-        USER["[actor/user]<br/>(who initiates this)"]
+        USER["[actor who starts a journey]"]
+        OPS["[second actor, e.g. an operator or a scheduler]"]
     end
     subgraph system["[this system]"]
         SVC["[one-line responsibility]"]
     end
-    EXT["[external system]<br/>(what it provides or consumes)"]
+    subgraph outside["Outside this system"]
+        EXT["[external system]<br/>(what it provides or consumes)"]
+        STORE[("[file or data store this feature reads or writes]")]
+    end
 
-    USER -->|"[interaction, e.g. Uses]"| SVC
-    SVC -->|"[interaction, e.g. Calls]"| EXT
-    SVC -.->|"[secondary/async relation]"| EXT
+    USER -->|"[what they send, e.g. a payment request]"| SVC
+    OPS -->|"[what they send]"| SVC
+    SVC -->|"[what crosses, e.g. a charge request]"| EXT
+    SVC -.->|"[deferred or out of band, e.g. a nightly export]"| STORE
 ```
 
 ### C4 Level 2: Container
@@ -96,14 +104,16 @@ independently deployable unit — internals of a single container belong at C4 L
 flowchart LR
     USER["[actor/user]"]
     subgraph boundary["[system name]"]
-        APP["[container name]<br/>[tech stack]"]
-        DB[("[data store]<br/>[what it holds]")]
+        APP["[container name]<br/>[runtime or tech stack]"]
+        WORKER["[second process, e.g. a worker or a CLI]<br/>[runtime]"]
+        DB[("[data store or file, by its real name]<br/>[what it holds]")]
     end
     EXT["[external system]"]
 
-    USER -->|"[protocol, e.g. HTTPS/JSON]"| APP
-    APP -->|"[reads/writes]"| DB
-    APP -->|"[interaction]"| EXT
+    USER -->|"[call form and payload, e.g. HTTPS/JSON order]"| APP
+    APP -->|"[call form and payload, e.g. queue message: job id]"| WORKER
+    APP -->|"[reads/writes: which records]"| DB
+    WORKER -->|"[call form and payload]"| EXT
 ```
 <!-- end generated -->
 
@@ -118,13 +128,15 @@ flowchart LR
 ```mermaid
 flowchart TB
     subgraph container["[container name]"]
-        C_A["[component]<br/>[responsibility]"]
-        C_B["[component]<br/>[responsibility]"]
+        C_A["[component, named as in Components & Boundaries] (new)<br/>[responsibility]"]
+        C_B["[component] (changed)<br/>[responsibility]"]
+        C_C["[component it calls, unchanged]"]
     end
-    STORE[("[data store]")]
+    STORE[("[data store or file, by its real name]")]
 
-    C_A -->|"[call]"| C_B
-    C_B -->|"[persists]"| STORE
+    C_A -->|"[call: what is passed]"| C_B
+    C_B -->|"[call: what is passed]"| C_C
+    C_B -->|"[persists: which record]"| STORE
 ```
 
 [One closing sentence: what this feature decides versus where the data or money moves.]
@@ -154,8 +166,9 @@ flowchart LR
 ## 4. Journeys
 
 <!-- One `### Journey N — <name>` per user or system journey, in the order a reader meets them. Each
-     carries one picture (a `flowchart` or a `sequenceDiagram`), a `stateDiagram-v2` for EVERY
-     stateful thing the journey creates, and a small rules table. Write in plain nouns: no component
+     carries one picture (a `flowchart`, or a `sequenceDiagram` with the failure in an `alt` when
+     three or more participants act), a `stateDiagram-v2` for EVERY stateful thing the journey
+     creates, and a small rules table. Each decision shows its failure outcome as the actor sees it. Write in plain nouns: no component
      IDs, no code names. Leave out internal calls that no actor sees. Write "N/A: [why]" for the
      whole section when the design has no user or system journey (a pure library or refactor). -->
 
@@ -166,16 +179,18 @@ flowchart LR
 ```mermaid
 flowchart LR
     START["[trigger]"] -->|"[what flows]"| CHECK{"[decision]"}
-    CHECK -->|"[pass: what flows]"| DONE["[outcome]"]
-    CHECK -->|"[fail: what flows]"| STOP["[alternate outcome]"]
+    CHECK -->|"[pass: what flows]"| DONE["[outcome, and the record it leaves]"]
+    CHECK -->|"[fail: the reason]"| STOP["[failure outcome: what the actor sees]"]
 ```
 
 ```mermaid
 stateDiagram-v2
     [*] --> Created
-    Created --> Active: [guarded transition]
-    Active --> Ended: [guarded transition]
+    Created --> Active: [event] / [guard]
+    Created --> Rejected: [event] / [guard]
+    Active --> Ended: [event] / [guard]
     Ended --> [*]
+    Rejected --> [*]
 ```
 
 | Rule | Why it holds |

@@ -140,7 +140,7 @@ A feature with a decision register compacts History mechanically; see §12.
 
 > **Slot registry.** This section says which artifact carries which diagram slot. What belongs
 > *inside* a slot — the permitted Mermaid types, the per-type complexity budget, the label,
-> direction and `subgraph` conventions, the over-budget split rule, and the anti-patterns — is
+> direction and `subgraph` conventions, the over-budget split rule, the anti-patterns, and what each slot has to show — is
 > governed by `DIAGRAM_GUIDE.md`, which the authoring skills load on demand.
 
 | Artifact | Section | Slot |
@@ -173,14 +173,12 @@ heading, written `### C4 Level 1: System Context`, `### C4 Level 2: Container` a
 | C4 Level 2 | Independently deployable units and how they talk | yes |
 | C4 Level 3 | Internals of one container | only when the feature touches 3+ components in a single container |
 
-**No level label may match `^C[0-9]+$`.** That pattern is what a `design.md` component ID looks
-like, so a bare `C3` in the same document is ambiguous between the third zoom level and the third
-component. Spelling the level `C4 Level 3` keeps the C4 vocabulary explicit for a reviewer who
-cites levels by number while leaving the component IDs unambiguous.
+**No level label may match `^C[0-9]+$`.** That is the shape of a `design.md` component ID, so a bare
+`C3` would be ambiguous between the third zoom level and the third component.
 
 Skip a level with `N/A: [why]`; for C4 Level 3 that is normally
-`N/A: covered by Components & Boundaries`. `DIAGRAM_GUIDE.md` §1 carries the reasoning that
-excludes the `C4Context` / `C4Container` diagram types in favour of `flowchart`.
+`N/A: covered by Components & Boundaries`. `DIAGRAM_GUIDE.md` §1 says why the `C4Context` /
+`C4Container` diagram types are excluded, and §8 what each level has to show.
 
 ### Task dependency graph — `plan.md` §8
 
