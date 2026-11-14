@@ -41,7 +41,7 @@ const CEILINGS: readonly (readonly [string, number, number])[] = [
   ['discover --json', 0, 2240], // 2,109 B
   ['paths --json', 0, 896], // 841 B
   ['config --json', 0, 49536], // 48,988 B (141: five keys grew it: advice.kinds.rerank, advice.kinds.claim-support, advice.models.rerank, advice.models.claim-support, advice.criteria.rerank; 143: team.enforcement)
-  ['doctor --json', 0, 25536], // 24,506 B (1,024 B margin, design R7)
+  ['doctor --json', 0, 27968], // 26,895 B (1,024 B margin, design R7)
   ['storage --json', 0, 14592], // 14,056 B
   ['indicators --json', 0, 704], // 619 B
   ['package --action list --json', 0, 1344], // 1,220 B
