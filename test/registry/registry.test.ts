@@ -162,14 +162,27 @@ test('the validator enforces that DoFlow never runs a command that needs adminis
   assert.equal(errorsFor((tool) => { tool.install = { routes: [sudoRoute] }; }), '');
   for (const word of ['sudo', 'doas', 'su']) {
     assert.match(errorsFor((tool) => { tool.install = { routes: [{ installer: 'apt-get', command: [word, 'apt-get', 'install', 'x'], evidence }] }; }), new RegExp(`starting with '${word}' requires privileged: true`));
-    assert.match(errorsFor((tool) => { tool.install = { routes: [{ ...sudoRoute, command: [word, 'apt-get', 'install', 'x'], after: [[word, 'x']] }] }; }), new RegExp(`after\\[0\\].*may not start with '${word}'`));
+    assert.match(errorsFor((tool) => { tool.install = { routes: [{ ...sudoRoute, command: [word, 'apt-get', 'install', 'x'], after: [[word, 'x']] }] }; }), new RegExp(`after\\[0\\].*starting with '${word}' needs administrator rights`));
   }
-  assert.match(errorsFor((tool) => { tool.install = { routes: [{ ...sudoRoute, command: ['apt-get', 'install', 'x'] }] }; }), /privileged: true requires a command starting with one of: sudo, doas, su/);
+  assert.match(errorsFor((tool) => { tool.install = { routes: [{ ...sudoRoute, command: ['apt-get', 'install', 'x'] }] }; }), /privileged: true requires a command starting with one of: sudo, doas, su, pkexec, run0/);
   assert.match(errorsFor((tool) => { tool.install = { routes: [{ ...sudoRoute, installer: 'sudo' }] }; }), /installer 'sudo' must equal the program the command runs \('apt-get'\)/);
   assert.match(errorsFor((tool) => { tool.install = { routes: [{ installer: 'npm', command: ['brew', 'install', 'x'], evidence }] }; }), /installer 'npm' must equal the program the command runs \('brew'\)/);
-  assert.match(errorsFor((tool) => { tool.install = { command: ['sudo', 'x'] }; }), /install\.command: a command DoFlow runs may not start with 'sudo'/);
-  assert.match(errorsFor((tool) => { tool.update = { command: ['sudo', 'x'] }; }), /update\.command: a command DoFlow runs may not start with 'sudo'/);
-  // A step that needs sudo is allowed where DoFlow only shows it.
+  assert.match(errorsFor((tool) => { tool.install = { command: ['sudo', 'x'] }; }), /install\.command: a command starting with 'sudo' needs administrator rights/);
+  assert.match(errorsFor((tool) => { tool.update = { command: ['sudo', 'x'] }; }), /update\.command: a command starting with 'sudo' needs administrator rights/);
+  // The reviewer's crafted registries: a path, another privilege word, `env` and a shell all hide the same step.
+  const crafted: [string, (tool: any) => void, RegExp][] = [
+    ['absolute path', (tool) => { tool.install = { routes: [{ installer: 'apt-get', command: ['/usr/bin/sudo', 'apt-get', 'install', 'x'], evidence }] }; }, /starting with '\/usr\/bin\/sudo' requires privileged: true/],
+    ['absolute path in an after step', (tool) => { tool.install = { routes: [{ ...route(evidence), after: [['/usr/bin/sudo', 'true']] }] }; }, /after\[0\]: a command starting with '\/usr\/bin\/sudo' needs administrator rights/],
+    ['pkexec', (tool) => { tool.install = { routes: [{ installer: 'apt-get', command: ['pkexec', 'apt-get', 'install', 'x'], evidence }] }; }, /starting with 'pkexec' requires privileged: true/],
+    ['run0 in update', (tool) => { tool.update = { command: ['run0', 'x'] }; }, /update\.command: a command starting with 'run0' needs administrator rights/],
+    ['env sudo', (tool) => { tool.install = { routes: [{ installer: 'env', command: ['env', 'sudo', 'apt-get', 'install', 'x'], evidence }] }; }, /command: a command starting with 'env' hides what it runs/],
+    ['sh -c', (tool) => { tool.install = { routes: [{ installer: 'sh', command: ['sh', '-c', 'sudo apt-get install x'], evidence }] }; }, /command: a command starting with 'sh' hides what it runs/],
+    ['a shell as an after step', (tool) => { tool.install = { routes: [{ ...route(evidence), after: [['/bin/bash', '-c', 'x']] }] }; }, /after\[0\]: a command starting with '\/bin\/bash' hides what it runs/],
+    ['a wrapper as a status check with arguments', (tool) => { tool.status = { commands: [['env', 'sudo', 'x']] }; }, /status\.commands\[0\]: a command starting with 'env' hides what it runs/],
+  ];
+  for (const [name, change, expected] of crafted) assert.match(errorsFor(change), expected, name);
+  // A step that needs sudo is allowed where DoFlow only shows it, and a privileged shown-only route may hold anything.
+  assert.equal(errorsFor((tool) => { tool.install = { routes: [{ installer: 'env', command: ['sudo', 'env', 'x'], privileged: true, evidence }] }; }), '');
   assert.equal(errorsFor((tool) => { tool.install = { routes: [{ ...route(evidence), manual: [{ command: ['sudo', 'x'], reason: 'needs root' }] }] }; }), '');
   assert.match(errorsFor((tool) => { tool.install = { routes: [{ ...route(evidence), manual: [{ command: ['x'] }] }] }; }), /requires a reason/);
   assert.match(errorsFor((tool) => { tool.install = { routes: [{ ...route(evidence), manual: [] }] }; }), /manual must be a non-empty array/);
@@ -181,11 +194,11 @@ test('update and uninstall must handle what the managed install route installs',
   const registry = loadRegistry({ repoRoot: REPO });
   const errorsFor = (change: (tool: any) => void) => {
     const copy = structuredClone(registry);
-    change(copy.externalTools.find((tool: any) => tool.id === 'bash'));
+    change(copy.externalTools.find((tool: any) => tool.id === 'jq'));
     return validateRegistry(copy, { repoRoot: REPO }).errors.join('\n');
   };
-  const evidence = registry.externalTools.find((tool: any) => tool.id === 'bash').officialEvidence[0];
-  const own = 'bash';
+  const evidence = registry.externalTools.find((tool: any) => tool.id === 'jq').officialEvidence[0];
+  const own = 'jq';
   const npm = { installer: 'npm', command: ['npm', 'install', '-g', 'x'], evidence };
   // Same installer, or the tool's own binary (a self-update), agrees.
   assert.equal(errorsFor((tool) => { tool.install = { routes: [npm] }; tool.update = { command: ['npm', 'update', '-g', 'x'] }; tool.uninstall = { command: [own, 'remove'] }; }), '');

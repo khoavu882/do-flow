@@ -6,6 +6,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { validatePathsSection } = require('../helper/harness-paths.ts');
+const { PRIVILEGE_WORDS, programName, refusalReason } = require('../install/tool-lifecycle.ts');
 const { BUILTIN_WORKER_ID_RE, RESERVED_WORKER_IDS } = require('./worker-ids.ts');
 
 const REGISTRY_FILES = Object.freeze({
@@ -42,9 +43,6 @@ const MCP_TRANSPORTS = new Set(['stdio', 'http', 'sse']);
 const EXTERNAL_TOOL_IDS = new Set(['rtk', 'graphify', 'semble', 'mermaid-cli', 'plantuml', 'jq', 'git', 'bash', 'ripgrep', 'drawio', 'python3', 'agent-browser']);
 const EXTERNAL_TOOL_ROLES = new Set(['required', 'optional']);
 const EXTERNAL_TOOL_PLATFORMS = new Set(['darwin', 'linux']);
-// Words that hand a command to a more privileged user. DoFlow never runs a command that starts with
-// one: such a route is `privileged` and only shown, and no `after`, `update` or `uninstall` step starts with one.
-const PRIVILEGE_WORDS = new Set(['sudo', 'doas', 'su']);
 const EXTERNAL_TOOL_ACTIONS = new Set(['install', 'update', 'uninstall']);
 const MODEL_KINDS = new Set(['hosted', 'local']);
 const MODEL_SLOT_IDS = new Set(['dense', 'rerank']);
@@ -303,7 +301,10 @@ function validateExternalTool(value: any, location: string, errors: string[]): v
     for (const key of Object.keys(value.status)) {
       if (!allowedStatus.has(key)) issue(errors, `${location}.status`, `unsupported field '${key}'`);
     }
-    value.status.commands.forEach((command: any, index: number) => validateCommand(command, `${location}.status.commands[${index}]`, errors));
+    value.status.commands.forEach((command: any, index: number) => {
+      validateCommand(command, `${location}.status.commands[${index}]`, errors);
+      rejectPrivilegeWord(command, `${location}.status.commands[${index}]`, errors, true);
+    });
   }
   for (const action of EXTERNAL_TOOL_ACTIONS) {
     if (value[action] === undefined) continue;
@@ -318,10 +319,11 @@ function validateExternalTool(value: any, location: string, errors: string[]): v
   checkManagedRoutesAgree(value, location, errors);
 }
 
-function rejectPrivilegeWord(command: any, location: string, errors: string[]): void {
-  if (Array.isArray(command) && PRIVILEGE_WORDS.has(command[0])) {
-    issue(errors, location, `a command DoFlow runs may not start with '${command[0]}'; a step that needs it belongs in a route's manual list`);
-  }
+/** A command DoFlow runs (status, install, after, update, uninstall) may not start with a privilege word (sudo, doas, su,
+ * pkexec, run0, by name or by path) or with `env` or a shell: a wrapper hides what runs (a status check `<shell> --version` is the one exception). A `manual` step is never run, so it is not checked. */
+function rejectPrivilegeWord(command: any, location: string, errors: string[], statusCheck = false): void {
+  const reason = Array.isArray(command) && command.length ? refusalReason(command, { statusCheck }) : null;
+  if (reason) issue(errors, location, `${reason}; a step that needs it belongs in a route's manual list`);
 }
 
 /** The managed route of a platform is the first route that fits it: the only one `doflow tools` runs, and so the
@@ -371,8 +373,11 @@ function validateInstall(install: any, location: string, tool: any, errors: stri
     if (typeof route.installer !== 'string' || !route.installer.trim()) issue(errors, at, 'requires installer (the binary this route needs on PATH)');
     validateCommand(route.command, `${at}.command`, errors);
     const first = Array.isArray(route.command) ? route.command[0] : undefined;
-    if (PRIVILEGE_WORDS.has(first) && route.privileged !== true) issue(errors, at, `a command starting with '${first}' requires privileged: true`);
-    if (route.privileged === true && !PRIVILEGE_WORDS.has(first)) issue(errors, at, `privileged: true requires a command starting with one of: ${[...PRIVILEGE_WORDS].join(', ')}`);
+    const privilegedStart = PRIVILEGE_WORDS.has(programName(first));
+    if (privilegedStart && route.privileged !== true) issue(errors, at, `a command starting with '${first}' requires privileged: true`);
+    if (route.privileged === true && !privilegedStart) issue(errors, at, `privileged: true requires a command starting with one of: ${[...PRIVILEGE_WORDS].join(', ')}`);
+    // A route that is run may not start with a wrapper either; a privileged one is shown only and may hold anything.
+    if (route.privileged !== true && !privilegedStart) rejectPrivilegeWord(route.command, `${at}.command`, errors);
     // The installer is the program the route needs on PATH: the command's first word, or the word after sudo.
     const program = route.privileged === true ? route.command?.[1] : first;
     if (typeof route.installer === 'string' && program !== undefined && route.installer !== program) {

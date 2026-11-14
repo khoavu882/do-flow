@@ -235,6 +235,39 @@ test('an installer probe that does not answer in time counts as not installed', 
   assert.match(plan.tools[0].install.reason, /^missing installer/);
 });
 
+// The registry validator rejects these; the lifecycle must refuse them on its own, for a registry it never saw.
+test('the lifecycle refuses a privilege word or a wrapper before its runner, with no validator in front of it', () => {
+  const crafted = (id: string, install: any, extra: any = {}) => ({ id, officialEvidence: ['https://example.test/x'], status: { commands: [[`tool-${id}`, '--version']] }, install, ...extra });
+  const route = (command: string[], after?: string[][]) => ({ routes: [{ installer: 'brew', command, ...(after ? { after } : {}), evidence: 'https://example.test/x' }] });
+  const cases: [string, any, string[][]][] = [
+    ['abs-sudo', crafted('abs-sudo', route(['/usr/bin/sudo', 'apt-get', 'install', 'x'])), []],
+    ['pkexec', crafted('pkexec', route(['pkexec', 'x'])), []],
+    ['run0', crafted('run0', route(['run0', 'x'])), []],
+    ['env-sudo', crafted('env-sudo', route(['env', 'sudo', 'x'])), []],
+    ['sh-c', crafted('sh-c', route(['sh', '-c', 'sudo x'])), []],
+    ['win-cmd', crafted('win-cmd', route(['C:\\Windows\\System32\\cmd.exe', '/c', 'x'])), []],
+    ['after-sudo', crafted('after-sudo', route(['brew', 'install', 'x'], [['/usr/bin/sudo', 'true']])), [['brew', 'install', 'x']]],
+  ];
+  for (const [id, tool, expectedRuns] of cases) {
+    const plan = planToolLifecycle({ registry: { externalTools: [tool] }, action: 'install', platform: 'darwin', execFileSyncImpl: fakeExec(new Map([[`tool-${id} --version`, absent(id)], ['brew --version', 'brew 1']])) });
+    const ran: any[] = [];
+    const out = executeToolLifecycle({ plan, displayCommand() {}, confirmCommand: () => true, execFileSyncImpl: fakeExec(new Map(), ran) });
+    assert.deepEqual(ran, expectedRuns, `${id}: the runner saw only what is allowed`);
+    const refused = out.results[0].followUps?.[0] ?? out.results[0];
+    assert.equal(refused.status, 'refused', id);
+    assert.match(refused.reason, /does not run it/, id);
+  }
+  // update and uninstall go through the same door.
+  const tool = { ...crafted('upd', route(['brew', 'install', 'x'])), update: { command: ['sh', '-c', 'x'] }, uninstall: { command: ['doas', 'x'] } };
+  for (const action of ['update', 'uninstall']) {
+    const plan = planToolLifecycle({ registry: { externalTools: [tool] }, action, platform: 'darwin', execFileSyncImpl: fakeExec(new Map([['tool-upd --version', 'upd 1']])) });
+    const ran: any[] = [];
+    const out = executeToolLifecycle({ plan, displayCommand() {}, confirmCommand: () => true, execFileSyncImpl: fakeExec(new Map(), ran) });
+    assert.deepEqual(ran, [], action);
+    assert.equal(out.results[0].status, 'refused', action);
+  }
+});
+
 test('plainCommand quotes only the parts that need it', () => {
   assert.equal(plainCommand(['brew', 'install', '--cask', 'drawio']), 'brew install --cask drawio');
   assert.equal(plainCommand(['sh', '-c', 'a b']), 'sh -c "a b"');

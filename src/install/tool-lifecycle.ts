@@ -14,6 +14,26 @@ const SUPPORTED_PLATFORMS = new Set(['darwin', 'linux']);
 // `inspection-timeout`; a hung binary must not hold up the whole list. Install commands have no limit.
 const INSPECTION_TIMEOUT_MS = 5000;
 
+// A command that hands another command to a more privileged user, and a wrapper that hides what runs
+// (`env sudo ...`, `sh -c "..."`). The registry holds argv arrays, so neither belongs in a command
+// DoFlow runs; the registry validator rejects both and `executeToolLifecycle` refuses them again.
+const PRIVILEGE_WORDS = new Set(['sudo', 'doas', 'su', 'pkexec', 'run0']);
+const WRAPPER_WORDS = new Set(['env', 'sh', 'bash', 'zsh', 'dash', 'ksh', 'fish', 'cmd', 'powershell', 'pwsh']);
+
+/** The program a command runs, as a name: the last path segment (either separator), without a `.exe`/`.cmd`/`.bat` ending, in lower case. */
+function programName(word: any): string {
+  return String(word ?? '').split(/[\\/]/).pop()!.replace(/\.(exe|cmd|bat)$/i, '').toLowerCase();
+}
+
+/** Why DoFlow will not run this command, or null when it may. A status check may be `<shell> --version` (the bash tool's own
+ * check): it runs nothing but the program asked, so a wrapper word is allowed there and only there. */
+function refusalReason(command: string[], { statusCheck = false }: { statusCheck?: boolean } = {}): string | null {
+  const name = programName(command?.[0]);
+  if (PRIVILEGE_WORDS.has(name)) return `a command starting with '${command[0]}' needs administrator rights, so DoFlow does not run it`;
+  if (WRAPPER_WORDS.has(name) && !(statusCheck && command.length === 2 && command[1] === '--version')) return `a command starting with '${command[0]}' hides what it runs, so DoFlow does not run it`;
+  return null;
+}
+
 type ExecFileSyncImpl = (file: string, args: string[], opts: any) => any;
 
 function isSupportedPlatform(platform: string = process.platform): boolean {
@@ -35,6 +55,8 @@ function failureKind(error: any): 'absent' | 'timeout' | 'failed' {
 }
 
 function runInspection(command: string[], execFileSyncImpl: ExecFileSyncImpl, timeoutMs: number = INSPECTION_TIMEOUT_MS): any {
+  const refusal = refusalReason(command, { statusCheck: true });
+  if (refusal) return { command: [...command], result: 'failed', error: refusal };
   try {
     const output = execFileSyncImpl(command[0], command.slice(1), { encoding: 'utf8', stdio: 'pipe', timeout: timeoutMs });
     return { command: [...command], result: 'succeeded', output: output == null ? '' : String(output) };
@@ -200,6 +222,9 @@ function executeToolLifecycle({ plan, execFileSyncImpl = execFileSync, displayCo
       continue;
     }
     const run = (command: string[]): any => {
+      // The registry validator rejects these too; this stays as the last line before the runner, for a registry it never saw.
+      const refusal = refusalReason(command);
+      if (refusal) return { status: 'refused', command: [...command], reason: refusal };
       displayCommand([...command], item.tool, plan.action);
       if (!confirmCommand([...command], item.tool, plan.action)) return { status: 'declined', command: [...command] };
       try {
@@ -234,6 +259,10 @@ function executeToolLifecycle({ plan, execFileSyncImpl = execFileSync, displayCo
 module.exports = {
   SUPPORTED_PLATFORMS,
   INSPECTION_TIMEOUT_MS,
+  PRIVILEGE_WORDS,
+  WRAPPER_WORDS,
+  programName,
+  refusalReason,
   isSupportedPlatform,
   commandText,
   plainCommand,

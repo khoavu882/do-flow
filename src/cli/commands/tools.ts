@@ -114,8 +114,8 @@ function cmdTools(o: any): void {
   });
   // Keep processing independent tools so the user receives every outcome, but make a confirmed
   // command failure visible to scripts and CI through the process result as well as the report.
-  const hasFailures = execution.results.some((result: any) => result.status === 'failed'
-    || (result.followUps || []).some((step: any) => step.status === 'failed'));
+  const hasFailures = execution.results.some((result: any) => ['failed', 'refused'].includes(result.status)
+    || (result.followUps || []).some((step: any) => ['failed', 'refused'].includes(step.status)));
   if (o.json) {
     console.log(JSON.stringify({ action: o.action, dryRun: false, results: toolJsonResults(plan, execution) }, null, 2));
     if (hasFailures) process.exitCode = 1;
@@ -123,7 +123,7 @@ function cmdTools(o: any): void {
   }
   for (const result of execution.results) {
     console.log(`${result.tool}: ${result.status}${result.reason ? ` (${result.reason})` : ''}`);
-    for (const step of result.followUps || []) console.log(`${result.tool}: then ${commandText(step.command)}: ${step.status}`);
+    for (const step of result.followUps || []) console.log(`${result.tool}: then ${commandText(step.command)}: ${step.status}${step.reason ? ` (${step.reason})` : ''}`);
     for (const step of result.manual || []) console.log(`${result.tool}: run it yourself: ${plainCommand(step.command)} (${step.reason})`);
   }
   if (hasFailures) process.exitCode = 1;
