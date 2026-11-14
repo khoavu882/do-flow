@@ -554,14 +554,20 @@ function scripted(overrides: Record<string, (params: any) => Answer> = {}) {
 }
 
 type Reply = { status: number, headers: Record<string, string | string[] | undefined>, body: string };
-function get(app: any, target: string, cookie: string | null, headers: Record<string, string> = {}): Promise<Reply> {
+// A plain GET is bounded: a route that wrongly opened a stream never ends its response, and without the bound the
+// test would wait for the runner's own timeout (none on a runner without one). It fails with an assertion instead.
+function get(app: any, target: string, cookie: string | null, headers: Record<string, string> = {}, boundMs = 3000): Promise<Reply> {
   return new Promise((resolve, reject) => {
     const req = http.request({ host: '127.0.0.1', port: app.port, path: target, agent: false, headers: { ...(cookie ? { Cookie: cookie } : {}), ...headers } }, (res: any) => {
       const chunks: any[] = [];
       res.on('data', (chunk: any) => chunks.push(chunk));
-      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks).toString('utf8') }));
+      res.on('end', () => { clearTimeout(timer); resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks).toString('utf8') }); });
     });
-    req.on('error', reject);
+    const timer = setTimeout(() => {
+      req.destroy();
+      reject(new assert.AssertionError({ message: `${target}: no complete response within ${boundMs} ms (an open stream never ends; was one opened where a plain answer was expected?)` }));
+    }, boundMs);
+    req.on('error', (error: any) => { clearTimeout(timer); reject(error); });
     req.end();
   });
 }
@@ -580,6 +586,12 @@ function openStream(app: any, target: string, cookie: string | null, headers: Re
     req.on('error', (error: any) => { if (error.code !== 'ECONNRESET') reject(error); });
     req.end();
   });
+}
+/** Settles with `promise`, or fails with an assertion after `ms`: a wait that cannot hang on a runner without a test timeout. */
+function within<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: any;
+  const late = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new assert.AssertionError({ message: `${label}: not done within ${ms} ms` })), ms); });
+  return Promise.race([promise, late]).finally(() => clearTimeout(timer));
 }
 async function until(check: () => boolean, label: string, ms = 2000) {
   const start = Date.now();
@@ -698,10 +710,12 @@ test('GET /api/stream: server close ends an open stream within 2 s; a client dis
   const token = sessions.exchange(sessions.mintLaunchCode());
   const cookie = `${cookieName(app.port)}=${token}`;
   const stream = await openStream(app, `/api/stream?project=${keyOf(1)}&agent=${AGENT}`, cookie);
+  // If the close fails to end the stream, the server stays up: tear it down so the file can still exit.
+  t.after(() => { stream.destroy(); if (app.server.listening) { app.server.closeAllConnections(); app.server.close(); } });
   await until(() => stream.text().includes('event: snapshot'), 'the snapshot');
   const start = Date.now();
-  await app.close();
-  const elapsed = await stream.closed;
+  await within(app.close(), 2000, 'the server close with a stream open (the open connection was not ended)');
+  const elapsed = await within(stream.closed, 2500, 'the open stream ends after the server close');
   assert.ok(Date.now() - start < 2000 && elapsed < 2500, `closed in ${Date.now() - start} ms`);
   const calls = runner.calls.length;
   await new Promise((resolve) => setTimeout(resolve, 1200));
