@@ -68,17 +68,19 @@ including project-scoped installation and rollback, is in [Setup](docs/setup.md)
 
 ## External tools
 
-DoFlow can inspect or manage the supported RTK and Graphify command-line tools on macOS and Linux:
+DoFlow lists every command-line tool it uses, says what each one unlocks, and helps install the
+ones that are missing (tools are checked on macOS and Linux):
 
 ```bash
+doflow tools                                   # required and optional tools, present or absent
 doflow tools --tool rtk,graphify --action status
 doflow tools --tool graphify --action install --dry-run --json
 ```
 
-`install`, `update`, and `uninstall` display and require confirmation for every command; `--force`
-is intentionally rejected. Graphify uses `uv` and DoFlow explains a missing `uv` prerequisite
-without installing it. RTK update is reported as skipped because no verified upstream update command
-is registered.
+`install`, `update` and `uninstall` show every command and ask before running it; `--force` is
+rejected. DoFlow runs one route per tool and platform, never a command that needs administrator
+rights (it shows that command for you to run), and explains a missing prerequisite without
+installing it. The tools, their routes and the rules: [Setup](docs/setup.md).
 
 ## A typical feature flow
 

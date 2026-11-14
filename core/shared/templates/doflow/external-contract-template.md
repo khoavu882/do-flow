@@ -6,7 +6,7 @@
 > the compliance check with an explicit warning, not a silent skip. `## Webhook` is optional; omit
 > the whole section if this dependency never pushes data back. Grammar inside every section is
 > identical to the generic-pseudocode fallback notation in
-> `skills/do-execute-plan/scaffold.md` — one notation for both, nothing new to learn.
+> `skills/do-execute-plan/references/scaffold.md` — one notation for both, nothing new to learn.
 >
 > The generated frame lands in `agent-docs/doflow/<slug>/scaffold/contracts/<service>/`, alongside
 > the rest of that run's scaffold rather than in a `contracts/` directory of its own.
