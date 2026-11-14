@@ -3,7 +3,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
+const { tempDir } = require('../helper/tmp.ts');
 const path = require('node:path');
 const {
   normalizeToolState, planToolLifecycle, executeToolLifecycle, chooseInstallRoute, describeInstall, plainCommand,
@@ -211,8 +211,7 @@ test('the step after an install is shown and confirmed on its own, and only afte
 });
 
 test('a status command that does not answer in time gives the state inspection-timeout and does not stop the list', (t: any) => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-slow-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const dir = tempDir(t, 'doflow-slow-');
   const slow = path.join(dir, 'slow');
   fs.writeFileSync(slow, '#!/bin/sh\nexec sleep 30\n', { mode: 0o755 });
   const tools = [
@@ -229,8 +228,7 @@ test('a status command that does not answer in time gives the state inspection-t
 });
 
 test('an installer probe that does not answer in time counts as not installed', (t: any) => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-slow-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const dir = tempDir(t, 'doflow-slow-');
   fs.writeFileSync(path.join(dir, 'slowbrew'), '#!/bin/sh\nexec sleep 30\n', { mode: 0o755 });
   const tool = { id: 'x', officialEvidence: ['https://example.test/x'], status: { commands: [[path.join(dir, 'nothing'), '--version']] }, install: { routes: [{ installer: path.join(dir, 'slowbrew'), command: [path.join(dir, 'slowbrew'), 'install', 'x'], evidence: 'https://example.test/x' }] } };
   const plan = planToolLifecycle({ registry: { externalTools: [tool] }, action: 'install', platform: 'linux', timeoutMs: 300 });
