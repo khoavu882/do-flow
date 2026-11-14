@@ -296,3 +296,36 @@ test('ordinary nesting is unchanged by the depth limit', () => {
   assert.match(out, /<blockquote>\n<p>a<\/p>\n<blockquote>\n<p>b<\/p>\n<\/blockquote>\n<\/blockquote>/);
   assert.match(out, /<li>x\n<ul>\n<li>y\n<ul>\n<li>z<\/li>/);
 });
+
+test('an image in a document is embedded; one outside the checkout, of another type or missing is named and left out', () => {
+  const root = suiteTempDir('doflow-page-image-');
+  const outside = suiteTempDir('doflow-page-image-outside-');
+  const dir = path.join(root, 'agent-docs', 'doflow', '001-x', 'design');
+  fs.mkdirSync(path.join(dir, 'presentation'), { recursive: true });
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script><rect width="1" height="1"/></svg>';
+  fs.writeFileSync(path.join(dir, 'presentation', 'overview.drawio.svg'), svg);
+  fs.writeFileSync(path.join(outside, 'secret.svg'), svg);
+  fs.symlinkSync(path.join(outside, 'secret.svg'), path.join(dir, 'presentation', 'link.svg'));
+  fs.writeFileSync(path.join(dir, 'notes.txt'), 'x');
+  fs.writeFileSync(path.join(dir, 'design.md'), [
+    '# d', '',
+    '![Overview "a" <b>](presentation/overview.drawio.svg)', '',
+    '![out](presentation/link.svg) ![up](../../../../../secret.svg) ![txt](notes.txt) ![gone](none.png)', '',
+    '![web](https://example.test/a.png) ![js](javascript:alert(1))', '',
+    '`![code](presentation/overview.drawio.svg)`', '',
+  ].join('\n'));
+  const result = buildPage({ paths: { feature_dir: 'agent-docs/doflow/001-x', design: 'agent-docs/doflow/001-x/design/design.md' }, root, mode: 'source' });
+  assert.equal(result.written, true, JSON.stringify(result));
+  assert.deepEqual(result.images, { embedded: 1, skipped: 5 });
+  assert.match(result.note, /5 image\(s\) not shown/);
+  const html = fs.readFileSync(result.file, 'utf8');
+  const data = Buffer.from(svg).toString('base64');
+  assert.ok(html.includes(`<img class="image" alt="Overview &quot;a&quot; &lt;b&gt;" src="data:image/svg+xml;base64,${data}">`), 'embedded as a data URI with an escaped alt');
+  assert.equal(html.split('data:image/svg+xml;base64,').length - 1, 1, 'only the one image inside the checkout is embedded');
+  assert.ok(!html.includes('<script>alert(1)</script>'), 'the SVG text never enters the page as markup');
+  assert.ok(html.includes('<a href="https://example.test/a.png">web</a>'), 'a web image becomes a link, not a request');
+  assert.ok(!/src="https?:/.test(html.replace(/<script src="https:[^"]*mermaid[^"]*"/, '')), 'the page loads no remote image');
+  assert.ok(!html.includes('href="javascript:'), 'a script address is never written as a link');
+  assert.ok(html.includes('<code>![code](presentation/overview.drawio.svg)</code>'), 'an image inside a code span stays text');
+});
+

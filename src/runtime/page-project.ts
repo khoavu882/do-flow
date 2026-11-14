@@ -126,7 +126,46 @@ function resolveHref(url: string, ctx: any): string | null {
   return fragment ? `${rel}#${fragment}` : rel;
 }
 
-/** Inline markdown in one run of text: code spans, links, bold, italic, strike and `<br>`. */
+/** Image types the page embeds, by extension. A `.drawio.svg` is an SVG and needs no entry of its own. */
+const IMAGE_TYPES: Record<string, string> = {
+  '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp',
+};
+/** Largest image file the page embeds; a larger one is named as left out. */
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+/**
+ * An image a document shows, embedded so the page stays one file. Only a file of a known image type
+ * inside the feature's checkout is read (links followed first, so a link out of the checkout is
+ * refused); a web address becomes a link, since loading it would make the page call out when opened.
+ * It is always an `<img>`: a browser runs no script from an SVG shown that way.
+ */
+function imageHtml(alt: string, url: string, ctx: any): string {
+  const label = escapeHtml(alt);
+  const left = (why: string) => {
+    if (ctx.images) ctx.images.skipped.push(`${url}: ${why}`);
+    return `<span class="image-missing">${label || escapeHtml(url)} (image not shown: ${escapeHtml(why)})</span>`;
+  };
+  if (/[\u0000-\u0020\u007f\\]/.test(url)) return left('unsafe path');
+  if (/^https?:/i.test(url)) return `<a href="${escapeHtml(url)}">${label || escapeHtml(url)}</a>`;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(url) || url.startsWith('//')) return left('not a local file');
+  if (!ctx.dir || !ctx.root) return left('no folder to read from');
+  const type = IMAGE_TYPES[path.extname(url.replace(/[?#].*$/, '')).toLowerCase()];
+  if (!type) return left('not an image type the page embeds');
+  try {
+    const real = fs.realpathSync(path.resolve(ctx.dir, url.replace(/[?#].*$/, '')));
+    const inside = path.relative(fs.realpathSync(ctx.root), real);
+    if (inside.startsWith('..') || path.isAbsolute(inside)) return left('outside the checkout');
+    const stat = fs.statSync(real);
+    if (!stat.isFile()) return left('not a file');
+    if (stat.size > MAX_IMAGE_BYTES) return left(`larger than ${MAX_IMAGE_BYTES / 1024 / 1024} MB`);
+    if (ctx.images) ctx.images.embedded++;
+    return `<img class="image" alt="${label}" src="data:${type};base64,${fs.readFileSync(real).toString('base64')}">`;
+  } catch {
+    return left('file not found');
+  }
+}
+
+/** Inline markdown in one run of text: code spans, images, links, bold, italic, strike and `<br>`. */
 function inline(text: string, ctx: any): string {
   // A code span and a link's tags are set aside as numbered marks while the rest is formatted, so bold
   // may wrap a code span and no later pattern can rewrite what is inside a tag.
@@ -136,10 +175,11 @@ function inline(text: string, ctx: any): string {
     .replace(/(`+)([\s\S]*?[^`])\1(?!`)/g, (_all: string, _ticks: string, body: string) => hold(`<code>${escapeHtml(body.trim())}</code>`));
   let html = escapeHtml(spans);
   html = html.replace(/&lt;br\s*\/?&gt;/gi, '<br>');
+  // The URL was escaped with the rest of the text; undo that to judge it, and escape it again to write it.
+  const unescaped = (url: string) => url.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+  html = html.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (_all: string, alt: string, url: string) => hold(imageHtml(unescaped(alt), unescaped(url), ctx)));
   html = html.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_all: string, label: string, url: string) => {
-    // The URL was escaped with the rest of the text; undo that to judge it, and escape it again to write it.
-    const raw = url.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
-    const href = resolveHref(raw, ctx);
+    const href = resolveHref(unescaped(url), ctx);
     return href === null ? label : `${hold(`<a href="${escapeHtml(href)}">`)}${label}${hold('</a>')}`;
   });
   html = html.replace(/\*\*([^\s*](?:[\s\S]*?[^\s*])??)\*\*/g, '<strong>$1</strong>');
@@ -369,6 +409,8 @@ th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-ali
 th{background:var(--code);font-weight:600}
 .diagram{margin:0 0 18px;padding:16px;background:var(--figure);border:1px solid var(--line);border-radius:8px;text-align:center;overflow-x:auto}
 .diagram img{max-width:100%;height:auto}
+img.image{display:block;max-width:100%;height:auto;margin:0 auto 18px}
+.image-missing{color:var(--muted);font-style:italic}
 .diagram pre{text-align:left;margin:0}
 .diagram pre.mermaid{background:none;color:#22252e}
 .diagram details{margin-top:10px;text-align:left;font-size:13px;color:#5d6577}
@@ -449,6 +491,7 @@ function buildPage({ paths, root, out, mode = 'auto', theme = null, now = new Da
   }
   const renderer = resolved === 'inline' && !render ? mmdcRenderer(themeFile) : null;
   const diagrams = { mode: resolved, blocks: 0, rendered: 0, failures: 0 };
+  const images = { embedded: 0, skipped: [] as string[] };
   const docs = new Map(found.map((doc) => [path.resolve(root, doc.rel), doc.key]));
   const featureDir = typeof paths.feature_dir === 'string' ? paths.feature_dir : '';
   const target = path.resolve(out || path.join(root, featureDir, 'page.html'));
@@ -462,7 +505,7 @@ function buildPage({ paths, root, out, mode = 'auto', theme = null, now = new Da
       const text = fs.readFileSync(path.join(root, doc.rel), 'utf8');
       const { html, sections } = documentHtml(text, {
         key: doc.key, label: doc.label, mode: resolved, diagrams, render: render || renderer?.render,
-        docs, dir: path.dirname(path.resolve(root, doc.rel)), outDir: path.dirname(target),
+        docs, dir: path.dirname(path.resolve(root, doc.rel)), outDir: path.dirname(target), root, images,
       });
       const shown = featureDir && doc.rel.startsWith(`${featureDir}/`) ? doc.rel.slice(featureDir.length + 1) : doc.rel;
       sectionsHtml += `<section class="doc" id="doc-${keyId(doc.key)}">\n`
@@ -496,7 +539,8 @@ function buildPage({ paths, root, out, mode = 'auto', theme = null, now = new Da
   fs.writeFileSync(tmp, page);
   try { fs.renameSync(tmp, target); }
   catch (err) { fs.rmSync(tmp, { force: true }); throw err; }
-  return { ok: diagrams.failures === 0, written: true, file: target, documents, diagrams, ...(notes.length ? { note: notes.join('; ') } : {}) };
+  if (images.skipped.length) notes.push(`${images.skipped.length} image(s) not shown: ${images.skipped.join(', ')}`);
+  return { ok: diagrams.failures === 0, written: true, file: target, documents, diagrams, images: { embedded: images.embedded, skipped: images.skipped.length }, ...(notes.length ? { note: notes.join('; ') } : {}) };
 }
 
 module.exports = { buildPage, documentHtml, inline, stripComments, splitRow, slugify, DOCUMENTS, MODES, MERMAID_SCRIPT, MERMAID_INTEGRITY };
