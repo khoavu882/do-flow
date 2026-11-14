@@ -164,7 +164,7 @@ function describeInstall(chosen: any): any {
   return { command: route.command, after: route.after, manual: route.manual, privileged: route.privileged, runnable: !route.privileged, evidence: route.evidence, ...alternatives };
 }
 
-function actionEligibility(tool: any, state: string, action: string, prerequisites: any[], chosen: any = null, platform: string = process.platform): any {
+function actionEligibility(tool: any, state: string, action: string, prerequisites: any[], chosen: any = null, platform: string = process.platform, isInstalled: (name: string) => boolean = () => true): any {
   if (action === 'status') return { applicable: false, reason: 'status inspection only' };
   // update and uninstall handle what the managed route installed, and a route may carry its own pair.
   const contract = action === 'install' ? tool.install : (routesFor(tool, platform)[0]?.[action] ?? tool[action]);
@@ -186,6 +186,12 @@ function actionEligibility(tool: any, state: string, action: string, prerequisit
     return { applicable: true, command: chosen.route.command, followUps: chosen.route.after, manual: chosen.route.manual, status: 'not-attempted' };
   }
   if (state !== 'installed') return { applicable: false, reason: 'tool is not installed' };
+  // The command runs the installer that put the tool there (or the tool's own binary, a self-update); with that
+  // installer gone it would fail with ENOENT, so say what install says: which installer is missing and where to read.
+  const program = contract.command[0];
+  if (program !== tool.status?.commands?.[0]?.[0] && !isInstalled(program)) {
+    return { applicable: false, reason: `missing installer: needs ${program} on PATH; see ${tool.officialEvidence[0]}` };
+  }
   // The plan records a command before execution begins; callers can show this preview without
   // implying that it has run. executeToolLifecycle replaces this with a terminal result.
   return { applicable: true, command: [...contract.command], status: 'not-attempted' };
@@ -223,7 +229,7 @@ function planToolLifecycle({ registry, action = 'status', platform = process.pla
     const prerequisites = inspectPrerequisites(tool, { execFileSyncImpl: execOnce, timeoutMs });
     // Installers are probed only for a tool that is absent: a present tool needs no install route.
     const install = state === 'absent' ? chooseInstallRoute(tool, { platform, isInstalled }) : null;
-    return { tool, state, inspections, prerequisites, install, action: actionEligibility(tool, state, action, prerequisites, install, platform) };
+    return { tool, state, inspections, prerequisites, install, action: actionEligibility(tool, state, action, prerequisites, install, platform, isInstalled) };
   });
   return { action, platform, supported, tools };
 }

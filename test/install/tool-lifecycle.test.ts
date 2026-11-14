@@ -275,13 +275,32 @@ test('the lifecycle refuses a privilege word or a wrapper before its runner, wit
   }
   // update and uninstall go through the same door.
   const tool = { ...crafted('upd', route(['brew', 'install', 'x'])), update: { command: ['sh', '-c', 'x'] }, uninstall: { command: ['doas', 'x'] } };
-  for (const action of ['update', 'uninstall']) {
+  // `sh --version` answers, so the plan offers the update and the lifecycle refuses it; `doas` is never probed as an installer, so the plan skips it.
+  for (const [action, status] of [['update', 'refused'], ['uninstall', 'skipped']]) {
     const plan = planToolLifecycle({ registry: { externalTools: [tool] }, action, platform: 'darwin', execFileSyncImpl: fakeExec(new Map([['tool-upd --version', 'upd 1']])) });
     const ran: any[] = [];
     const out = executeToolLifecycle({ plan, displayCommand() {}, confirmCommand: () => true, execFileSyncImpl: fakeExec(new Map(), ran) });
     assert.deepEqual(ran, [], action);
-    assert.equal(out.results[0].status, 'refused', action);
+    assert.equal(out.results[0].status, status, action);
   }
+});
+
+test('update and uninstall say which installer is missing instead of failing with ENOENT', () => {
+  const rtk = registry.externalTools.find((tool: any) => tool.id === 'rtk');
+  for (const action of ['uninstall']) {
+    const calls: any[] = [];
+    const plan = planToolLifecycle({ registry: { externalTools: [rtk] }, action, platform: 'linux', execFileSyncImpl: fakeExec(new Map([['rtk --version', 'rtk 1'], ['rtk gain', 'gain'], ['cargo --version', absent('cargo')]]), calls) });
+    assert.equal(plan.tools[0].action.applicable, false);
+    assert.equal(plan.tools[0].action.reason, 'missing installer: needs cargo on PATH; see https://example.test/rtk');
+    const ran: any[] = [];
+    const out = executeToolLifecycle({ plan, displayCommand() {}, confirmCommand: () => true, execFileSyncImpl: fakeExec(new Map(), ran) });
+    assert.deepEqual(ran, [], 'cargo is never run');
+    assert.equal(out.results[0].status, 'skipped');
+  }
+  // A self-update through the tool's own binary needs no other installer.
+  const own = { ...browser, update: { command: ['browser', 'upgrade'] } };
+  const plan = planToolLifecycle({ registry: { externalTools: [own] }, action: 'update', platform: 'darwin', execFileSyncImpl: fakeExec(new Map([['browser --version', 'b 1']])) });
+  assert.deepEqual(plan.tools[0].action.command, ['browser', 'upgrade']);
 });
 
 test('plainCommand quotes only the parts that need it', () => {
