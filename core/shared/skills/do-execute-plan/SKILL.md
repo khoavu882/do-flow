@@ -147,8 +147,8 @@ Branch on `outcome`, not the exit code.
      (the evidence item schema: the guidance tree's `references/EVIDENCE_LEDGER.md`).
    - Who executes: this session, acting as the task's plan `owner`, unless a subagent buys what
      ORCHESTRATION.md names and the host has them. Claimed and evidenced alike.
-   - A task that fails verification twice for one cause is a plan problem: stop patching, re-read
-     it against `design.md`, then amend the plan or report.
+   - A fix that fails again for the cause it fixed, or a retry the runtime refuses, is a plan
+     problem: stop patching, re-read the task against `design.md`, then amend the plan or report.
    - Name a model tier on every dispatch — an omitted tier inherits the session's model. Pass the
      tier from task-brief's `record.tier` as the dispatch model; for review passes and the limit
      where a harness honors only `model: inherit`, see `references/MODEL_SELECTION.md`.
@@ -173,14 +173,12 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
 
 8. **Update `state.md`**:
    - One checkpoint per phase (or per task, on a `--scope next` run), right after step 7's batch
-     for that phase. Compare what was built with the phase's goal in `plan.md`; report a drift.
+     for that phase. Compare what was built with the phase's `Delivers` in `plan.md`; report a drift.
    - No `<feature_dir>/state.md` yet: create it from the template. The template is
      `templates/doflow/state-template.md` in the install step 1 resolved: take `constitution_base`
      from that JSON and swap its trailing `guidance/references/CONSTITUTION_BASE.md` for that path.
-     Fill `[PLAN_PATH]` from that same resolution's `plan` field, verbatim (repo-root-relative,
-     exactly as the resolver returns it) — `state.md` and `plan.md` both sit at the feature dir's
-     own root under both layouts, the same single shared location, and the resolver's own field is
-     what confirms it rather than a hand-computed guess.
+     Fill `[PLAN_PATH]` from that same resolution's `plan` field, verbatim (repo-root-relative);
+     never compute it by hand.
    - Every checkpoint updates the Task Ledger and rewrites the status sections in place, per
      `references/state_checkpoint.md`; a write failure there is reported, never a task failure.
 
@@ -194,10 +192,9 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
       `references/WORKFLOW_HANDOFF.md`.
     - Once per invocation, at the last `state.md` checkpoint, on step 3's `caughtUpTo` (`references/handoff_record.md`).
     - **First: is this run a completion or a checkpoint?** Count `plan.md`'s still-unchecked task
-      lines with `grep -cE '^- \[ \] [A-Z]+\.[0-9]+'`. The task-id prefix is load-bearing: a bare
-      `^- \[ \]` also matches the plan's own `- [ ] All tasks checked` completion-criteria line, so
-      it reports a remaining task on a finished plan and records a checkpoint where a completion
-      was owed. Any genuinely remaining task makes this handoff a checkpoint (`annotate`, never
+      lines with `grep -cE '^- \[ \] [A-Z]+\.[0-9]+'` (keep the task-id prefix: a bare `^- \[ \]`
+      also counts the plan's own `- [ ] All tasks checked` line). Any remaining task makes this
+      handoff a checkpoint (`annotate`, never
       `complete-stage`); zero remaining is the completion flow. Both branches, their exact
       commands, the readiness record the handoff reads, and how to report the
       resulting `disposition`: this skill's own `references/handoff_record.md`. Read it before

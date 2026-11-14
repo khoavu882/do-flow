@@ -1,4 +1,4 @@
-# Parallel Subagent Orchestration Reference
+# Parallel Dispatch Reference
 
 Protocol for running task groups side by side through subagents, on a host that has them.
 
@@ -70,6 +70,8 @@ an ungrouped task are the same dispatch.
 Report paths come from the brief path the same call returned — the workspace is the directory
 holding it, and each task's report is `<workspace>/task-<ID>-report.md`. Each task writes its own
 report before the next one starts.
+A task worked in session reads the same brief as its contract and writes no report file: its
+record is the attempt's evidence.
 Branch on each hand-back's status: `needs-context` resend with the missing context; `blocked` stop and surface it; `done-with-concerns` verify the concerns before accepting; `done` accept.
 
 Both verbs reject path traversal in group and task ids with exit 2. On any non-zero exit, stop and
@@ -78,7 +80,9 @@ surface the error — do not proceed with a partial grouping.
 ## 4. Phase-level quality review
 
 Only when `--review` was given: once every group in a phase reports complete, run an integrated
-phase quality review before advancing. Without it, a group's completion goes straight to the
+phase quality review before advancing. The reviewer is never the author: on a host with no
+subagent or second model, say "per-phase review: not available on this host" and leave it to
+`/do-code-review`. Without it, a group's completion goes straight to the
 evidence and `state.md` steps. A finding that does not clear on the first fix goes to
 `"$DOFLOW" recover --error "<what failed>" --failed-check "<check id>" --iteration <n> --json`.
 Exit 0 means a bounded retry is available (`canRetry: true`); exit 1 means the loop must stop —
