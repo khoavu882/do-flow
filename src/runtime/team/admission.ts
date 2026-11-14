@@ -2,7 +2,17 @@
 
 const path = require('node:path');
 const fs = require('node:fs');
-import type { AgentRole, TaskOutcome } from './envelope.ts';
+/** The agent archetypes of `core/shared/agent-specs/`. */
+export type AgentRole =
+  | 'spec-analyst'
+  | 'system-architect'
+  | 'delivery-lead'
+  | 'core-implementer'
+  | 'quality-guardian'
+  | 'reviewer'
+  | 'research-writer';
+
+export type TaskOutcome = 'COMPLETED' | 'BLOCKED' | 'ABANDONED' | 'FAILED';
 
 export interface ActiveClaim {
   taskId: string;

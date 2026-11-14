@@ -1,7 +1,7 @@
 'use strict';
 
 const fs = require('node:fs');
-import type { AgentRole } from './envelope.ts';
+import type { AgentRole } from './admission.ts';
 
 export interface ReviewAssignmentContext {
   taskId: string;

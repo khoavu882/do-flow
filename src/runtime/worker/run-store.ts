@@ -157,6 +157,10 @@ function transition(file: string, runId: string, allowedPhases: string[], apply:
     const returned = apply(draft);
     const next = returned && typeof returned === 'object' ? returned : draft;
     if (!PHASES.includes(next.phase)) throw new RunStoreError('usage', `transition set phase '${next.phase}', not one of ${PHASES.join(', ')}`);
+    // PHASES is in lifecycle order: a run moves forward or stays, so an ended run is never reopened.
+    if (PHASES.indexOf(next.phase) < PHASES.indexOf(current.phase)) {
+      throw new RunStoreError('usage', `transition moved phase back from '${current.phase}' to '${next.phase}'`);
+    }
     const run = { ...next, runId: current.runId, task: current.task, token: current.token, seq: current.seq + 1 };
     store.runs[runId] = run;
     return { write: true, result: { applied: true, run: structuredClone(run) } };
