@@ -4,8 +4,9 @@
  * `fleet --action projects` (093 IC-019): the projects this machine knows, from two read-only
  * stores: the user-state `upkeep-roots` index and the `cwd` of each hook project directory
  * (`<config home>/doflow/session-env/projects/<hash>/meta.json`). A candidate is kept when it is an
- * existing directory (not a symlink) whose git work-tree top holds `.doflow/` and is not under a
- * temp folder; candidates that share a git common dir are one project. `root` (the main checkout)
+ * existing directory (not a symlink) whose git work-tree top holds `.doflow/` and is not test scratch
+ * (a path under a folder named `doflow-test.noindex`, the one root every test temp folder lives in); a
+ * project under the OS temp folder that is not test scratch is listed with `temp: true`; candidates that share a git common dir are one project. `root` (the main checkout)
  * is for the Console server only. Nothing is written: no lock, no mkdir, no upkeep.
  * @returns {{ok: false, error: 'cannot-list-projects'} | {ok: true, body: Object}}
  */
@@ -25,6 +26,7 @@ const PROBE_LIMIT = 500; // git probes per call: each is one process, and the Co
 const META_MAX_BYTES = 64 * 1024;
 const LABEL = /^[A-Za-z0-9 ._:/@-]{1,64}$/;
 const FIXED_TEMP_ROOTS = ['/private/tmp', '/private/var/folders'];
+const SCRATCH_NAME = 'doflow-test.noindex'; // test/helper/tmp.ts ROOT_NAME
 
 type Env = Record<string, string | undefined>;
 
@@ -50,8 +52,8 @@ function lstatOrNull(p: string, fsImpl: any): any {
 }
 
 function listProjects({
-  env = process.env, cwd = process.cwd(), exec = spawnSync, fsImpl = fs, tempRoots,
-}: { env?: Env; cwd?: string; exec?: any; fsImpl?: any; tempRoots?: string[] } = {}): any {
+  env = process.env, cwd = process.cwd(), exec = spawnSync, fsImpl = fs, tempRoots, scratchName = SCRATCH_NAME,
+}: { env?: Env; cwd?: string; exec?: any; fsImpl?: any; tempRoots?: string[]; scratchName?: string } = {}): any {
   const excluded = { missing: 0, temp: 0, notDoflow: 0, unreadable: 0 };
   const body: any = { v: 1, store: 'absent', projects: [], excluded, truncated: false };
 
@@ -110,6 +112,8 @@ function listProjects({
 
   const temp = [...(tempRoots ?? [realOrNull(os.tmpdir(), fsImpl) ?? os.tmpdir(), ...FIXED_TEMP_ROOTS])];
   const isTemp = (p: string) => temp.some((root) => under(p, root));
+  // Hidden: only what a test made. A project a person keeps under /private/tmp is shown and marked.
+  const isScratch = (p: string) => p.split(path.sep).includes(scratchName);
 
   /** `git rev-parse` for one directory: its work-tree top and common git dir, or itself when outside git. */
   const probe = (dir: string): { top: string; common: string } | 'git-missing' => {
@@ -134,14 +138,14 @@ function listProjects({
     if (!info || info.isSymbolicLink() || !info.isDirectory()) { excluded.missing += 1; continue; }
     const real = realOrNull(dir, fsImpl);
     if (real === null) { excluded.missing += 1; continue; }
-    if (isTemp(real)) { excluded.temp += 1; continue; }
+    if (isScratch(real)) { excluded.temp += 1; continue; }
     if (probes >= PROBE_LIMIT) { body.truncated = true; continue; }
     probes += 1;
     const found = probe(dir);
     if (found === 'git-missing') return { ok: false, error: 'cannot-list-projects' };
     const doflow = lstatOrNull(path.join(found.top, '.doflow'), fsImpl);
     if (!doflow || !doflow.isDirectory()) { excluded.notDoflow += 1; continue; }
-    if (isTemp(found.top)) { excluded.temp += 1; continue; }
+    if (isScratch(found.top)) { excluded.temp += 1; continue; }
     const due = lstatOrNull(path.join(found.top, '.doflow', 'state', 'upkeep-due'), fsImpl);
     const g = groups.get(found.common) ?? { common: found.common, tops: new Set<string>(), sources: new Set<string>(), lastMs: -Infinity };
     g.tops.add(found.top);
@@ -163,6 +167,7 @@ function listProjects({
       projectKey: cwdHash(main),
       root: main,
       label: label(path.basename(main)),
+      temp: isTemp(main),
       current: here !== null && g.common === here.common,
       checkouts: Math.max(count, 1),
       sources: ['upkeep-roots', 'hook-dirs'].filter((s) => g.sources.has(s)),

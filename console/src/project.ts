@@ -636,6 +636,8 @@ function projects(value: unknown) {
       projectKey: key16(p.projectKey),
       label: label(p.label),
       current: bool(p.current),
+      // `temp` (the main checkout is under a temp folder): a core older than the field omits it, which reads false.
+      temp: p.temp === undefined ? false : bool(p.temp),
       checkouts: count(p.checkouts),
       sources: each(oneOf(CLOSED_SETS.projectSources))(p.sources),
       lastRecordAt: orNull(iso)(p.lastRecordAt),

@@ -222,6 +222,7 @@ test('a project description reads counts, models, traffic and the last record', 
   assert.equal(fleet.projectDescription(project, NOW), `example. This project. 2 checkouts. 1 main session, 1 subagent; 1 process seen. Models: m-a, m-b. 12.4 events per minute over the last 10 minutes. Last record ${hhmm(iso(2))}.`);
   const bare = { ...project, current: false, checkouts: 1, lastRecordAt: null, tree: { ok: false, code: 'core-error' }, traffic: { ok: true, data: { agents: [] } } };
   assert.equal(fleet.projectDescription(bare, NOW), 'example. 1 checkout. No linked transcript. No record time.');
+  assert.equal(fleet.projectDescription({ ...bare, temp: true }, NOW), 'example. In a temp folder. 1 checkout. No linked transcript. No record time.');
 });
 
 // ---- the fleet body merge ---------------------------------------------------------------------------

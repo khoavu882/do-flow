@@ -35,7 +35,7 @@ function treeLines(body: any): string[] {
   ];
 }
 
-function handleFleetCommand({ action, json = false, flags = [], env = process.env, cwd = process.cwd(), exec, tempRoots, alive, out = (line: string) => console.log(line) }: any = {}): number {
+function handleFleetCommand({ action, json = false, flags = [], env = process.env, cwd = process.cwd(), exec, tempRoots, scratchName, alive, out = (line: string) => console.log(line) }: any = {}): number {
   const usage = (message: string): number => {
     out(json ? JSON.stringify({ ok: false, error: 'usage', message }) : `doflow fleet: ${message}`);
     return finishRuntime(2);
@@ -58,7 +58,7 @@ function handleFleetCommand({ action, json = false, flags = [], env = process.en
       return finishRuntime(0);
     }
     const { listProjects } = require('./projects.ts');
-    const listed = listProjects({ env, cwd, ...(exec ? { exec } : {}), ...(tempRoots ? { tempRoots } : {}) });
+    const listed = listProjects({ env, cwd, ...(exec ? { exec } : {}), ...(tempRoots ? { tempRoots } : {}), ...(scratchName ? { scratchName } : {}) });
     if (!listed.ok) {
       if (json) out(JSON.stringify({ v: 1, error: listed.error }));
       else console.error('[ERROR] fleet: cannot list projects');

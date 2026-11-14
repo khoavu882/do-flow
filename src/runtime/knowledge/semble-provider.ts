@@ -7,7 +7,6 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const zlib = require('node:zlib');
 const { spawn, spawnSync } = require('node:child_process');
-const { defaultIsAlive } = require('../../state/run-lock.ts');
 const SEMBLE_VERSION = '0.7.0';
 const SEMBLE_LIMITS = Object.freeze({ files: 2000, fileBytes: 1048576, sourceBytes: 67108864,
   chunks: 50000, artifactBytes: 268435456, modelBytes: 536870912, outputBytes: 2097152,
@@ -230,21 +229,26 @@ function inspectArtifacts(index: string, inventory: any, paths: any, model: any,
   for (const [file, entry] of admitted as any) if (digest(regularBytes(path.join(paths.mirror, file), limits.fileBytes)) !== entry.fileHash) throw fault('mirror-hash-mismatch', 'STALE');
   return { chunks: chunks.length, artifactBytes: tree.bytes, artifactIdentity: digest(JSON.stringify(tree.files.map((f: any) => [f.path, digest(regularBytes(path.join(index, f.path), limits.artifactBytes))]))) };
 }
-// The semantic lock records {pid, hostname, token}. A lock whose owner pid is dead on this host (run-lock.ts's liveness
-// rule: process.kill(pid, 0)) is reclaimed under a claim file named for its token, created `wx`: the claim winner re-reads
-// the lock and removes it only while it still carries the judged token, so a live or newer lock is never removed. A lock
-// from another host, from this process, or without a readable record is never reclaimed.
-// The Python bridge child is what writes the cache, so executeBridge records its pid in the lock as `childPid`; a lock
-// is stale only when the owner and that child are both gone. Ceiling: a Node process killed between spawn and the
-// record leaves a lock without `childPid` (the child is then unprotected for that instant).
-// Ceiling: a reclaimer killed between creating and removing its claim leaves `operation.lock.claim.<token>`, and that
-// lock then waits for a manual removal, which the contention cause names.
+// The semantic lock records {pid, hostname, token}. One rule judges its owner: the owner is dead only when the lock
+// was written on this host and `process.kill(pid, 0)` answers ESRCH for the owner and for the Python bridge child
+// recorded as `childPid` (a Node process killed between spawn and that record leaves a lock without `childPid`, so the
+// child is unprotected for that instant). EPERM, another host, this process's own pid and an unreadable record mean
+// "cannot tell", and such a lock is reclaimed only by age: SEMANTIC_LOCK_STALE_MS is far past the longest operation
+// (`lifecycleMs`), so a lock that old is no running operation, whatever its record says (a reused pid included).
+// A lock judged stale is removed by move-aside: renamed to a name only this call makes, read again, and deleted only
+// when it holds the bytes judged; any other bytes are another holder's lock, which is linked back and left held.
+// Ceiling: between the rename and the link-back the lock's name is free, and a third process taking it then runs beside
+// that holder; a reclaimer killed between the rename and the delete leaves `operation.lock.<id>.gone`, which blocks nothing.
 const LOCK_TOKEN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-function readLockOwner(lock: string): any {
+const SEMANTIC_LOCK_STALE_MS = 600_000;
+function parseLockOwner(bytes: Buffer): any {
   try {
-    const owner = JSON.parse(regularBytes(lock, 4096).toString('utf8'));
+    const owner = JSON.parse(bytes.toString('utf8'));
     return owner && Number.isInteger(owner.pid) && typeof owner.hostname === 'string' && LOCK_TOKEN.test(owner.token) ? owner : null;
   } catch { return null; }
+}
+function readLockOwner(lock: string): any {
+  try { return parseLockOwner(regularBytes(lock, 4096)); } catch { return null; }
 }
 function recordLockChild(lock: string, childPid: number): void {
   const owner = readLockOwner(lock); if (!owner || owner.pid !== process.pid || !Number.isInteger(childPid)) return;
@@ -252,30 +256,70 @@ function recordLockChild(lock: string, childPid: number): void {
   try { fs.writeFileSync(next, `${JSON.stringify({ ...owner, childPid })}\n`, { flag: 'w', mode: 0o600 }); fs.renameSync(next, lock); }
   catch { try { fs.unlinkSync(next); } catch {} }
 }
-function reclaimStaleLock(lock: string, owner: any, hostname: string): boolean {
-  const claim = `${lock}.claim.${owner.token}`;
-  try { fs.writeFileSync(claim, `${JSON.stringify({ pid: process.pid, hostname })}\n`, { flag: 'wx', mode: 0o600 }); }
-  catch (error: any) { if (error.code === 'EEXIST') return false; throw error; }
-  try {
-    if (readLockOwner(lock)?.token !== owner.token) return false;
-    fs.unlinkSync(lock); return true;
-  } finally { try { fs.unlinkSync(claim); } catch {} }
+/** Dead only on ESRCH; EPERM and every other answer is a live process. */
+function pidAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try { process.kill(pid, 0); return true; } catch (error: any) { return error.code !== 'ESRCH'; }
 }
-async function acquireSemanticLock(paths: any, { isAlive = defaultIsAlive, hostname = os.hostname(), waitMs = 100 }: any = {}): Promise<any> {
+/** The bytes of the lock when it may be removed (see the rule above), else null. */
+function staleLockBytes(lock: string, { isAlive, hostname, now }: { isAlive: (pid: number) => boolean; hostname: string; now: () => number }): Buffer | null {
+  let bytes: Buffer; let aged: boolean;
+  try {
+    const stat = fs.lstatSync(lock);
+    if (!stat.isFile()) return null;
+    bytes = fs.readFileSync(lock); aged = now() - stat.mtimeMs > SEMANTIC_LOCK_STALE_MS;
+  } catch { return null; }
+  if (aged) return bytes;
+  const owner = parseLockOwner(bytes);
+  const dead = owner && owner.hostname === hostname && owner.pid !== process.pid && !isAlive(owner.pid)
+    && !(Number.isInteger(owner.childPid) && isAlive(owner.childPid));
+  return dead ? bytes : null;
+}
+function reclaimStaleLock(lock: string, judged: Buffer): boolean {
+  const aside = `${lock}.${crypto.randomUUID()}.gone`;
+  try { fs.renameSync(lock, aside); } catch { return false; }
+  let moved: Buffer | null = null;
+  try { moved = fs.readFileSync(aside); } catch { /* swept: nothing to put back */ }
+  const same = moved !== null && moved.equals(judged);
+  if (moved !== null && !same) { try { fs.linkSync(aside, lock); } catch { /* another holder took the name */ } }
+  try { fs.unlinkSync(aside); } catch {}
+  return same;
+}
+const PAUSE = new Int32Array(new SharedArrayBuffer(4));
+/**
+ * Removes this holder's lock. A reclaimer that judged an earlier lock stale may have this one moved aside just
+ * as the holder finishes (`reclaimStaleLock`), so an absent lock is looked for again, 8 times over about 20 ms,
+ * and removed when it comes back with this holder's token; another holder's lock at the path is left alone.
+ * Ceiling: a reclaimer stalled longer than that links the lock back later, and the lock (this process's pid,
+ * so "cannot tell") then waits for the 10 minute age rule.
+ */
+function releaseSemanticLock(lock: string, token: string, fd: number): void {
+  try { fs.closeSync(fd); } catch {}
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const owner = readLockOwner(lock);
+    let present = true;
+    try { fs.lstatSync(lock); } catch (error: any) { present = error.code !== 'ENOENT'; }
+    if (owner && owner.token === token) { try { fs.unlinkSync(lock); } catch (error: any) { if (error.code !== 'ENOENT') throw error; } return; }
+    if (present) return;
+    Atomics.wait(PAUSE, 0, 0, 2.5);
+  }
+}
+async function acquireSemanticLock(paths: any, { isAlive = pidAlive, hostname = os.hostname(), waitMs = 100, now = Date.now }: any = {}): Promise<any> {
   safeDirectories(paths.root, paths.state, true);
   const token = crypto.randomUUID();
   const deadline = Date.now() + waitMs;
   while (true) {
     try {
       const fd = fs.openSync(paths.lock, 'wx', 0o600); fs.writeFileSync(fd, `${JSON.stringify({ pid: process.pid, hostname, token })}\n`);
-      return () => { fs.closeSync(fd); if (readLockOwner(paths.lock)?.token === token) fs.unlinkSync(paths.lock); };
+      return () => releaseSemanticLock(paths.lock, token, fd);
     } catch (error: any) { if (error.code !== 'EEXIST') throw error; }
     const owner = readLockOwner(paths.lock);
-    if (owner && owner.hostname === hostname && owner.pid !== process.pid && !isAlive(owner.pid) && !(Number.isInteger(owner.childPid) && isAlive(owner.childPid)) && reclaimStaleLock(paths.lock, owner, hostname)) continue;
+    const judged = staleLockBytes(paths.lock, { isAlive, hostname, now });
+    if (judged && reclaimStaleLock(paths.lock, judged)) continue;
     if (Date.now() >= deadline) {
       throw fault('lock-contention', 'UNKNOWN', `another semantic index operation holds ${paths.lock}${owner ? ` (pid ${owner.pid} on ${owner.hostname})` : ''}; `
-        + 'run the command again when it finishes. A lock whose process has exited on this host is reclaimed automatically; '
-        + `otherwise remove ${paths.lock} (and any ${path.basename(paths.lock)}.claim.* beside it) only after confirming no semantic build, refresh or query is running.`);
+        + 'run the command again when it finishes. A lock whose process has exited on this host, or that is over 10 minutes old, is reclaimed automatically; '
+        + `otherwise remove ${paths.lock} only after confirming no semantic build, refresh or query is running.`);
     }
     await new Promise(resolve => setTimeout(resolve, 10));
   }
@@ -371,5 +415,5 @@ async function runSembleQuery(options: any): Promise<any> {
     ...(typeof error.cause === 'string' ? { cause: error.cause } : {}), candidates: [] }; }
   finally { try { if (temp) fs.rmSync(temp, { recursive: true, force: true }); } catch {} try { if (release) release(); } catch {} }
 }
-module.exports = { SEMBLE_VERSION, SEMBLE_LIMITS, runSembleQuery, resolveSembleInterpreter, checkSembleVersion, semanticStatePaths, digest, fault, inside, safeDirectories,
-  regularBytes, scanTree, inspectModel, inspectBm25, validateInventory, readSource, checkSources, inspectArtifacts, acquireSemanticLock, recordLockChild, cleanupTemporary, executeBridge, readCompleted, modelLinkRoots };
+module.exports = { releaseSemanticLock, SEMBLE_VERSION, SEMBLE_LIMITS, runSembleQuery, resolveSembleInterpreter, checkSembleVersion, semanticStatePaths, digest, fault, inside, safeDirectories,
+  regularBytes, scanTree, inspectModel, inspectBm25, validateInventory, readSource, checkSources, inspectArtifacts, acquireSemanticLock, reclaimStaleLock, staleLockBytes, pidAlive, SEMANTIC_LOCK_STALE_MS, recordLockChild, cleanupTemporary, executeBridge, readCompleted, modelLinkRoots };

@@ -267,8 +267,11 @@ function patchProjectRow(li, project, now, maxRate) {
   const part = projectRowParts(project, now, maxRate);
   setText(li.querySelector('.pr__link'), project.label);
   const tag = li.querySelector('.pr__tag');
-  if (project.current && tag.children.length === 0) mount(tag, h('span', { class: 'tag tag--accent' }, 'this project'));
-  else if (!project.current && tag.children.length > 0) mount(tag, []);
+  const marks = [project.current ? 'this project' : null, project.temp ? 'temp' : null].filter(Boolean).join('|');
+  if (tag.dataset.marks !== marks) {
+    tag.dataset.marks = marks;
+    mount(tag, [project.current ? h('span', { class: 'tag tag--accent' }, 'this project') : null, project.temp ? h('span', { class: 'tag' }, 'temp') : null]);
+  }
   setText(li.querySelector('.pr__co'), plural(project.checkouts, 'checkout'));
 
   const counts = li.querySelector('.pr__counts');
@@ -302,7 +305,7 @@ function limitLines(data) {
   const e = data.excluded ?? {};
   const lines = [
     `${e.missing ?? 0} ${(e.missing ?? 0) === 1 ? 'root no longer exists' : 'roots no longer exist'}`,
-    `${e.temp ?? 0} under a temporary directory`,
+    `${e.temp ?? 0} in a test scratch folder`,
     `${e.notDoflow ?? 0} without DoFlow state`,
     `${e.unreadable ?? 0} unreadable`,
   ];
@@ -926,8 +929,11 @@ function updateProject(local, data, params) {
   setText(crumb, project.label);
   const tag = document.querySelector('.fleet-title__tag');
   if (tag) {
-    if (project.current && tag.children.length === 0) mount(tag, h('span', { class: 'tag tag--accent' }, 'this project'));
-    else if (!project.current && tag.children.length > 0) mount(tag, []);
+    const marks = [project.current ? 'this project' : null, project.temp ? 'temp' : null].filter(Boolean).join('|');
+    if (tag.dataset.marks !== marks) {
+      tag.dataset.marks = marks;
+      mount(tag, [project.current ? h('span', { class: 'tag tag--accent' }, 'this project') : null, project.temp ? h('span', { class: 'tag' }, 'temp') : null]);
+    }
   }
 
   const tree = treeOf(project.tree);

@@ -383,7 +383,7 @@ async function fleetRead(runner: Runner): Promise<Read> {
       read(runner, 'tree', { projectKey: entry.projectKey }),
       read(runner, 'traffic', { projectKey: entry.projectKey }),
     ]);
-    return { projectKey: entry.projectKey, label: entry.label, current: entry.current, checkouts: entry.checkouts, lastRecordAt: entry.lastRecordAt, tree: sectionOf(tree), traffic: sectionOf(traffic) };
+    return { projectKey: entry.projectKey, label: entry.label, current: entry.current, temp: entry.temp, checkouts: entry.checkouts, lastRecordAt: entry.lastRecordAt, tree: sectionOf(tree), traffic: sectionOf(traffic) };
   }));
   return {
     ok: true,

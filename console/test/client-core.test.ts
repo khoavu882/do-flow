@@ -2861,7 +2861,7 @@ const TREE_NODES = () => [
   fNode(A_ORPHAN, { kind: 'doflow-run', harness: null, model: null, modelBasis: null, startedAt: AT(40), transcript: { reader: null, linked: false, reason: 'not-found' } }),
 ];
 const TREE_EDGES = () => [{ from: A_MAIN, to: A_SUB, basis: 'harness-subagent-record' }, { from: A_MAIN, to: A_OC, basis: 'harness-subagent-record' }];
-const FLEET_TWO = () => fBody([fProject(P1, 'example-project', true, TREE_NODES(), TREE_EDGES()), fProject(P2, 'other-project', false, [fNode(fk(0xb1), { liveness: 'process-seen' })])]);
+const FLEET_TWO = () => fBody([fProject(P1, 'example-project', true, TREE_NODES(), TREE_EDGES()), { ...fProject(P2, 'other-project', false, [fNode(fk(0xb1), { liveness: 'process-seen' })]), temp: true }]);
 
 /**
  * A scripted EventSource: tests open it, emit named events and fail it. While open it hears the live server's `keepalive`
@@ -2958,6 +2958,8 @@ test('V.10 fleet list: the stream opens on a listed project, the rows show recor
   const first = page.main.querySelectorAll('.project-row')[0];
   assert.equal(text(first.querySelector('.tag--accent')), 'this project');
   assert.equal(first.querySelector('.pr__link').getAttribute('href'), `#/fleet/${P1}`);
+  assert.deepEqual(first.querySelectorAll('.tag').map((t: El) => text(t)), ['this project'], 'a project outside a temp folder carries no temp mark (FU-w9j11f R6)');
+  assert.deepEqual(page.main.querySelectorAll('.project-row')[1].querySelectorAll('.tag').map((t: El) => text(t)), ['temp'], 'a project under a temp folder carries one');
   assert.match(text(first), /1 checkout/);
   assert.match(text(first), /1 main session · 3 subagents/);
   assert.match(text(first), /model-a/);
@@ -2966,7 +2968,7 @@ test('V.10 fleet list: the stream opens on a listed project, the rows show recor
   const limits = text(page.main.querySelector('.fleet-limits'));
   assert.match(limits, /Not listed/);
   assert.match(limits, /1 root no longer exists/);
-  assert.match(limits, /2 under a temporary directory/);
+  assert.match(limits, /2 in a test scratch folder/);
   assert.match(limits, /3 without DoFlow state/);
   assert.match(text(page.main.querySelector('.fleet-blind')), /What this view cannot see/);
   assert.match(text(page.main.querySelector('.fleet-blind')), /no transcript reader for it|DoFlow has no transcript reader for it/);

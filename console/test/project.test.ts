@@ -84,8 +84,8 @@ const SAMPLES: Record<string, any> = {
   projects: {
     v: 1, store: 'present',
     projects: [
-      { projectKey: KEY_MAIN, root: `/work/${MARKER}/main`, label: 'main', current: true, checkouts: 2, sources: ['upkeep-roots', 'hook-dirs'], lastRecordAt: '2026-10-26T09:45:48.000Z' },
-      { projectKey: KEY_LINKED, root: `/work/${MARKER}/other`, label: `odd ${MARKER} <b>`, current: false, checkouts: 1, sources: ['hook-dirs'], lastRecordAt: null },
+      { projectKey: KEY_MAIN, root: `/work/${MARKER}/main`, label: 'main', current: true, temp: false, checkouts: 2, sources: ['upkeep-roots', 'hook-dirs'], lastRecordAt: '2026-10-26T09:45:48.000Z' },
+      { projectKey: KEY_LINKED, root: `/work/${MARKER}/other`, label: `odd ${MARKER} <b>`, current: false, temp: true, checkouts: 1, sources: ['hook-dirs'], lastRecordAt: null },
     ],
     excluded: { missing: 1, temp: 2, notDoflow: 3, unreadable: 0 }, truncated: false,
   },
@@ -205,7 +205,7 @@ const FIELD_SETS: Record<string, string[]> = {
   roadmap: ['.run', '.lease', '.lease.runId', '.lease.acquiredAt', '.holds', ...['row', 'state', 'kind'].map((k) => `.holds[].${k}`)],
   // IC-019..IC-023, with `root` dropped from projects (IC-024).
   projects: ['.v', '.store', '.projects', '.truncated', '.excluded', ...['missing', 'temp', 'notDoflow', 'unreadable'].map((k) => `.excluded.${k}`),
-    ...['projectKey', 'label', 'current', 'checkouts', 'sources', 'sources[]', 'lastRecordAt'].map((k) => `.projects[].${k}`)],
+    ...['projectKey', 'label', 'current', 'temp', 'checkouts', 'sources', 'sources[]', 'lastRecordAt'].map((k) => `.projects[].${k}`)],
   tree: ['.v', '.projectKey', '.nodes', '.edges', '.limits', '.limits.nodes', '.limits.notChecked', '.unreadable',
     ...['agentKey', 'kind', 'harness', 'model', 'modelBasis', 'label', 'depth', 'worktreeKey', 'startedAt', 'lastRecordAt', 'liveness', 'ended', 'ended.at', 'ended.result',
       'transcript', 'transcript.reader', 'transcript.linked', 'transcript.reason'].map((k) => `.nodes[].${k}`),
@@ -784,6 +784,7 @@ const MUTATIONS: Record<string, Array<[string, (raw: any) => void]>> = {
     ['projectKey not 16 hex', (r) => { r.projects[0].projectKey = 'ABCDEF0123456789'; }],
     ['checkouts negative', (r) => { r.projects[0].checkouts = -1; }],
     ['current a string', (r) => { r.projects[0].current = 'yes'; }],
+    ['temp a string', (r) => { r.projects[0].temp = 'yes'; }],
     ['sources unknown', (r) => { r.projects[0].sources = ['elsewhere']; }],
     ['lastRecordAt not ISO', (r) => { r.projects[0].lastRecordAt = 'recently'; }],
     ['excluded missing', (r) => { delete r.excluded; }],
@@ -970,6 +971,13 @@ test('150 worker closed sets match the core source', () => {
 });
 
 // ---- V.7: the Fleet projectors (IC-024) ----
+
+test('projects: temp is carried through per project, and a core that omits it reads false (FU-w9j11f R6)', () => {
+  assert.deepEqual(project('projects', fixture('projects')).body.projects.map((p: any) => p.temp), [false, true]);
+  const older = fixture('projects');
+  for (const entry of older.projects) delete entry.temp;
+  assert.deepEqual(project('projects', older).body.projects.map((p: any) => p.temp), [false, false]);
+});
 
 test('projects: no root and no path in the body; the project key and label are all that identify a project', () => {
   const result = project('projects', fixture('projects'));

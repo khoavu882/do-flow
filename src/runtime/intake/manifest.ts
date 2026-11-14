@@ -131,10 +131,13 @@ function withManifestLock<T>(contextDir: string, fn: (assertHeld: () => void) =>
   }
 }
 
-/** `run-<UTC yyyymmddThhmmssZ>-<4 hex>`. */
+/**
+ * `run-<UTC yyyymmddThhmmssZ>-<12 hex>` (48 random bits; ids made before this carry 4 hex, 16 bits, and every
+ * reader takes any string id, so both forms stay valid). Many projects sort in the same second on one machine.
+ */
 function newRunId(now: Date): string {
   const stamp = now.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
-  return `run-${stamp}-${nodeCrypto.randomBytes(2).toString('hex')}`;
+  return `run-${stamp}-${nodeCrypto.randomBytes(6).toString('hex')}`;
 }
 
 module.exports = { readManifest, writeManifest, withManifestLock, newRunId, manifestFile, isConfinedPath, assertIntakeDir, IntakeUsageError, MANIFEST_SCHEMA, INTAKE_DIR };

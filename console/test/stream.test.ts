@@ -523,7 +523,7 @@ after(() => fs.rmSync(webRoot, { recursive: true, force: true }));
 const keyOf = (n: number) => n.toString(16).padStart(16, '0');
 const rawProjects = (count: number) => ({
   v: 1, store: 'present',
-  projects: Array.from({ length: count }, (_, i) => ({ projectKey: keyOf(i + 1), root: `/work/${MARKER}/${i}`, label: `proj${i + 1}`, current: i === 0, checkouts: 1, sources: ['upkeep-roots'], lastRecordAt: null })),
+  projects: Array.from({ length: count }, (_, i) => ({ projectKey: keyOf(i + 1), root: `/work/${MARKER}/${i}`, label: `proj${i + 1}`, current: i === 0, temp: i === 1, checkouts: 1, sources: ['upkeep-roots'], lastRecordAt: null })),
   excluded: { missing: 1, temp: 2, notDoflow: 3, unreadable: 0 }, truncated: false,
 });
 const rawTree = (key: string) => ({ v: 1, projectKey: key, nodes: [], edges: [], limits: { nodes: 256, notChecked: 0 }, unreadable: 0 });
@@ -807,8 +807,9 @@ test('GET /api/fleet: per-project sections from tree and traffic, the root dropp
   assert.equal(body.projects.length, 12);
   assert.deepEqual(body.limits, { projectsShown: 12, projectsNotShown: 3, truncated: false });
   assert.deepEqual(body.excluded, { missing: 1, temp: 2, notDoflow: 3, unreadable: 0 });
-  assert.deepEqual(Object.keys(body.projects[0]), ['projectKey', 'label', 'current', 'checkouts', 'lastRecordAt', 'tree', 'traffic']);
+  assert.deepEqual(Object.keys(body.projects[0]), ['projectKey', 'label', 'current', 'temp', 'checkouts', 'lastRecordAt', 'tree', 'traffic']);
   assert.equal(body.projects[0].current, true);
+  assert.deepEqual(body.projects.slice(0, 3).map((p: any) => p.temp), [false, true, false], 'temp reaches the Fleet body');
   assert.equal(body.projects[0].tree.ok, true);
   assert.equal(body.projects[0].tree.data.projectKey, keyOf(1));
   assert.equal(body.projects[0].traffic.data.windowMin, 10);

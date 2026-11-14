@@ -87,6 +87,18 @@ test('age uses newest direct child and work removes stale temp plus empty namesp
   const outcome=f.pass(['task-research']).stores[0];
   assert.ok(outcome.removed>=2); assert.equal(fs.existsSync(ns),false);
 });
+test('FU-w9j11f 11a: a prune run by one project removes another project\'s hook entry only after 90 days without a write in it', t => {
+  const f=fixture(t), dir=path.join(f.roots['config-home'],'session-env/projects');
+  const [mine,active,dormant,justUnder]=['1111111111111111','2222222222222222','3333333333333333','4444444444444444'];
+  put(path.join(dir,mine),'meta.json','{}',1);
+  put(path.join(dir,active),'meta.json','{}',2);        // another project, a session ended two days ago
+  put(path.join(dir,justUnder),'meta.json','{}',89);
+  put(path.join(dir,dormant),'meta.json','{}',91);
+  // The folders themselves are old: only the newest direct child counts, as for sessions.
+  for(const d of [mine,active,justUnder,dormant]) fs.utimesSync(path.join(dir,d),new Date(NOW-200*DAY),new Date(NOW-200*DAY));
+  assert.equal(f.pass(['project-dirs']).stores[0].removed,1);
+  assert.deepEqual(fs.readdirSync(dir).sort(),[mine,active,justUnder]);
+});
 test('registry order, result shape, and existing/control stores are not selected', t => {
   const f=fixture(t); const result=f.pass();
   assert.deepEqual(result.stores.map((s: any) => s.id), ['verification-runs','verification-v0','verification-reuse','task-delivery','worker-runs','worker-probes','worker-output','dispatch','roadmap','dispatch-envelopes','runs-telemetry','slots-user','summary-scopes','summary-grants','model-observations','worker-model-observations','packages-plans','packages-staging','packages-fetched','packages-fetch-staging','verification-logs','task-evidence','task-readiness','task-research','task-outcome','task-retrieval','task-attempts','task-orchestration','runs-project','runs-user','advice-picks-project','advice-picks-user','lifecycle-events','report-bodies','session-dirs','project-dirs','recovery-user','recovery-project']);

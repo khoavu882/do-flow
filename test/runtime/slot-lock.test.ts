@@ -221,6 +221,24 @@ test('an older runtime\'s lock whose owner is dead is reclaimed in place, and he
   assert.equal(fs.existsSync(lockDir), false);
 });
 
+test('FU-w9j11f 8: the quiet hold after a reclaim says on stderr what it waits for, once; no hold, no line', () => {
+  for (const quietMs of [60, 0]) {
+    const { file, lockDir } = lockFile();
+    fs.mkdirSync(lockDir);
+    fs.mkdirSync(path.join(lockDir, `owner-${DEAD}-x-0123456789ab`));
+    age(lockDir, 60);
+    const lines: string[] = [];
+    const started = Date.now();
+    const release = acquireSlotLock(fs, file, fakeDeps({ quietMs, stderr: (line: string) => lines.push(line) }));
+    if (quietMs > 0) {
+      assert.ok(Date.now() - started >= quietMs, 'the hold was skipped');
+      assert.equal(lines.length, 1);
+      assert.ok(lines[0].startsWith('doflow slot: lock ') && lines[0].includes(lockDir) && /gone, or is empty or older than 10 s/.test(lines[0]) && /waiting 0\.06 s before using it/.test(lines[0]), lines[0]);
+    } else assert.deepEqual(lines, []);
+    release();
+  }
+});
+
 test('an entry names its owner\'s pid and start, so a reused pid is judged dead without waiting out the 10 s age', PS_IDENTITY, () => {
   const { file, lockDir } = lockFile();
   // quietMs 0: the judgement is under test; the quiet hold after every reclaim is tested above.
