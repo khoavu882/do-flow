@@ -7,7 +7,7 @@
 // TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): authored as `.ts`, run directly by Node
 // native type-stripping — no build step, no runtime dependency. Body stays CommonJS so a `.js`
 // caller's `require('../install/tool-lifecycle.ts')` keeps working while the tree is still `.js`.
-const { execFileSync } = require('node:child_process');
+const { execFileSync, spawnSync } = require('node:child_process');
 
 const SUPPORTED_PLATFORMS = new Set(['darwin', 'linux']);
 // A status command or an installer probe that has not answered by then leaves the tool's state at
@@ -49,6 +49,33 @@ function plainCommand(command: string[]): string {
   return command.map((part) => (/^[A-Za-z0-9_@%+=:,./-]+$/.test(part) ? part : JSON.stringify(part))).join(' ');
 }
 
+/** End a probe's whole process tree. `spawnSync`'s timeout signals only the direct child, so a wrapper script that
+ * started `sleep` would leave it running. On POSIX the probe is its own process group and the group is killed;
+ * on Windows `taskkill /T /F` ends the tree (written from its documentation, not run on this machine). */
+function killTree(pid: number | undefined): void {
+  if (!pid) return;
+  try {
+    if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' });
+    else process.kill(-pid, 'SIGKILL');
+  } catch { /* the group is already gone */ }
+}
+
+/** `execFileSync` for a status check or installer probe: the same contract (stdout, or a thrown error whose `code` is
+ * ENOENT or ETIMEDOUT), but past the timeout nothing the probe started is left running. */
+function probeExec(file: string, args: string[], opts: any): any {
+  const result = spawnSync(file, args, { encoding: 'utf8', stdio: 'pipe', timeout: opts.timeout, killSignal: 'SIGKILL', detached: process.platform !== 'win32' });
+  if (result.error) {
+    if ((result.error as any).code === 'ETIMEDOUT') killTree(result.pid);
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    const error: any = new Error(`Command failed: ${file} ${args.join(' ')}${result.stderr ? `\n${result.stderr}` : ''}`);
+    error.status = result.status;
+    throw error;
+  }
+  return result.stdout;
+}
+
 function failureKind(error: any): 'absent' | 'timeout' | 'failed' {
   if (error?.code === 'ENOENT') return 'absent';
   return error?.code === 'ETIMEDOUT' ? 'timeout' : 'failed';
@@ -77,12 +104,12 @@ function normalizeToolState(inspections: any[]): string {
   return 'inspection-failed';
 }
 
-function inspectTool(tool: any, { execFileSyncImpl = execFileSync, timeoutMs = INSPECTION_TIMEOUT_MS }: { execFileSyncImpl?: ExecFileSyncImpl; timeoutMs?: number } = {}): any {
+function inspectTool(tool: any, { execFileSyncImpl = probeExec, timeoutMs = INSPECTION_TIMEOUT_MS }: { execFileSyncImpl?: ExecFileSyncImpl; timeoutMs?: number } = {}): any {
   const inspections = tool.status.commands.map((command: string[]) => runInspection(command, execFileSyncImpl, timeoutMs));
   return { state: normalizeToolState(inspections), inspections };
 }
 
-function inspectPrerequisites(tool: any, { execFileSyncImpl = execFileSync, timeoutMs = INSPECTION_TIMEOUT_MS }: { execFileSyncImpl?: ExecFileSyncImpl; timeoutMs?: number } = {}): any[] {
+function inspectPrerequisites(tool: any, { execFileSyncImpl = probeExec, timeoutMs = INSPECTION_TIMEOUT_MS }: { execFileSyncImpl?: ExecFileSyncImpl; timeoutMs?: number } = {}): any[] {
   return (tool.prerequisites || []).map((name: string) => {
     const inspection = runInspection([name, '--version'], execFileSyncImpl, timeoutMs);
     return { name, available: inspection.result === 'succeeded', inspection };
@@ -168,7 +195,7 @@ function actionEligibility(tool: any, state: string, action: string, prerequisit
  * Inspect all status command vectors, then create a non-mutating action plan.
  * The registry can be the loaded registry or an { externalTools } fixture.
  */
-function planToolLifecycle({ registry, action = 'status', platform = process.platform, execFileSyncImpl = execFileSync, timeoutMs = INSPECTION_TIMEOUT_MS }: { registry?: any; action?: string; platform?: string; execFileSyncImpl?: ExecFileSyncImpl; timeoutMs?: number } = {}): any {
+function planToolLifecycle({ registry, action = 'status', platform = process.platform, execFileSyncImpl = probeExec, timeoutMs = INSPECTION_TIMEOUT_MS }: { registry?: any; action?: string; platform?: string; execFileSyncImpl?: ExecFileSyncImpl; timeoutMs?: number } = {}): any {
   if (!['install', 'update', 'uninstall', 'status'].includes(action)) {
     throw new Error(`Unsupported external-tool action '${action}'`);
   }

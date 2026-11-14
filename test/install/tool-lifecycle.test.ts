@@ -227,6 +227,22 @@ test('a status command that does not answer in time gives the state inspection-t
   assert.equal(install.reason, 'tool state is inspection-timeout');
 });
 
+test('after a timeout nothing the probe started is left running', { skip: process.platform === 'win32' && 'the fake wrapper is a POSIX shell script; the Windows path (taskkill /T /F) cannot run here' }, async (t: any) => {
+  const dir = tempDir(t, 'doflow-slow-');
+  const pidFile = path.join(dir, 'child.pid');
+  const wrapper = path.join(dir, 'wrapper');
+  // No `exec`: the shell stays the direct child and `sleep` is its child, which the timeout alone would not reach.
+  fs.writeFileSync(wrapper, `#!/bin/sh\nsleep 30 &\necho $! > '${pidFile}'\nwait\n`, { mode: 0o755 });
+  const tool = { id: 'wrapped', officialEvidence: ['https://example.test/w'], status: { commands: [[wrapper, '--version']] } };
+  const plan = planToolLifecycle({ registry: { externalTools: [tool] }, platform: 'linux', timeoutMs: 500 });
+  assert.equal(plan.tools[0].state, 'inspection-timeout');
+  const pid = Number(fs.readFileSync(pidFile, 'utf8'));
+  assert.ok(pid > 1, 'the wrapper started its child');
+  const alive = () => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  for (let i = 0; i < 40 && alive(); i += 1) await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(alive(), false, 'the sleep the wrapper started is gone');
+});
+
 test('an installer probe that does not answer in time counts as not installed', (t: any) => {
   const dir = tempDir(t, 'doflow-slow-');
   fs.writeFileSync(path.join(dir, 'slowbrew'), '#!/bin/sh\nexec sleep 30\n', { mode: 0o755 });
