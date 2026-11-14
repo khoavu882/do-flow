@@ -39,21 +39,23 @@ acking; `started` returns `epoch: 1`:
 **Read state** with `--action status` (or `inspect` for graph, budgets and run totals) and branch on
 each task's `derived`: `done` skip; `ready` claim (`reason` `reopened` or `plan-changed-after-done`:
 the done attempt no longer counts, redo it); `running` inspect `active` (owner, start), release if
-that worker is gone; `failed` claim again while `budget.used < budget.limit`, else replan;
+that worker is gone; `failed` claim again while `budget.used < budget.limit` and the cause is new,
+else replan (SKILL.md step 6);
 `cancelled` clears only on resume; `blocked` report it; `pending` a dependency or earlier phase is
 open (`unmet`, `held`). A task in `unclaimedChecked` is ticked with no COMPLETED attempt: claim and
 verify it, or untick it.
 
-**Claim before dispatch**, from the main session; a worker never claims. `--owner` is the task's
-declared role; `--mode` (`subagent`, `sequential`, `manual`) must be the executor that will run. A
+**Claim before the work starts**, from the main session; a worker never claims. `--owner` is the
+task's declared role; `--mode` must be the executor that will run: `subagent` a dispatched agent,
+`sequential` this session working the tasks in turn, `manual` a person. A
 graph plan passes `--epoch`, a worker run `--exec-worktree <path>` (never the main session's), and a
 run with a token limit `--reserve-tokens <n>` on every claim:
 
 ```bash
-"$DOFLOW" task-attempt --action claim --slug "<slug>" --task "<task id>" --owner "<declared role>" --mode subagent --epoch <n> [--exec-worktree <path>] [--reserve-tokens <n>] --json
+"$DOFLOW" task-attempt --action claim --slug "<slug>" --task "<task id>" --owner "<declared role>" --mode <subagent|sequential|manual> --epoch <n> [--exec-worktree <path>] [--reserve-tokens <n>] --json
 ```
 
-`claimed` returns the `token`; the worker finishes with it. A refusal means do not dispatch:
+`claimed` returns the `token`; whoever runs the task finishes with it. A refusal means do not start:
 `active-attempt`, `already-done`, `unmet-phase`, `unmet-dependency`, `dependency-held` (`unmet`,
 `held` list them), `unknown-task`, `resume-required` (resume first), `run-paused`, `run-cancelled`,
 `owner-mismatch` (`declared` names the role; `--owner-override "<reason>"` only when deliberate),
@@ -61,7 +63,7 @@ run with a token limit `--reserve-tokens <n>` on every claim:
 `aggregate-unaccounted` (on each ended attempt left unreported, `--action report-usage --task <id>
 --token <n> --tokens <n> --tokens-basis …`) or `aggregate-exhausted`.
 
-**After the agent returns**, verify in the parent run, record evidence after the claim (`--kind
+**After the task ran**, in session or in an agent, verify in the parent run, record evidence after the claim (`--kind
 test-result --observed-command "<cmd>" --observed-exit <n>`; item schema: SKILL.md step 6),
 and finish with the returned evidence id:
 

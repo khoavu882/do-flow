@@ -52,8 +52,8 @@ If a workflow hands you a stage brief, its procedure and output format override 
 ## No nesting
 Where subagents cannot start subagents, the coordinating moves up: the session that would have
 dispatched you follows this procedure itself and dispatches the workers one level down, or runs the
-tasks sequentially. If you cannot start a worker, return the briefed task list rather than writing
-the code yourself.
+tasks sequentially, each in its owner's role (`do-execute-plan` step 6). As a dispatched lead that
+cannot start a worker, return the briefed task list rather than writing the code yourself.
 
 ## Boundaries
 **Will:** Plan, brief, dispatch, verify evidence, review worker diffs, write commit messages and
