@@ -298,6 +298,7 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--supersedes', 'supersedes'],      // comma-separated DEC-### ids this decision replaces
   ['--refs', 'refs'],                  // comma-separated ids the decision touches, e.g. FR-001,IC-002
   ['--source', 'source'],              // where the decision was stated, e.g. design/design-02-question.md#question-1
+  ['--undo', 'undo'],                  // decision --action add: one line on how a person reverses it (required for an unattended default)
   ['--index', 'index'],                // package add: local pinned package index
   // followup and lifecycle (feature 046). `--statement`, `--stage`, `--slug`, `--batch`, `--reason`,
   // `--channel`, `--state`, `--source`, `--intent`, `--task-class` and `--task-id` above are shared.
@@ -742,6 +743,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
                                             disposition in the JSON; 2 usage or an unreadable store or plan)
       --rationale, --proposed-by, --calling-skill    classify
       --request <text>, --request-file <file>  classify (mutually exclusive; optional second opinion)
+      --undo <text>, --by <user|agent|autopilot[,..]>  decision (add: how to reverse an unattended default; list: filter by decider)
       --view brief|full                     followup --action list (default brief), lifecycle --action overview, classify (default full); brief drops detail, full is the whole answer
       --cursor <c>, --limit <n>             followup --action list (the cursor is opaque: pass back a page's nextCursor); also transcript --action read
       --intent, --query, --check, --harness  route

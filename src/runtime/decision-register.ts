@@ -36,7 +36,10 @@ const CHANNEL_DECIDED_BY: Record<string, string> = { question: 'user', gate: 'us
 const RESERVED_CHANNEL = 'policy';
 const CHANNEL_RESERVED = `channel-reserved: ${RESERVED_CHANNEL} is set only by orchestrate decide-gate --policy`;
 const isReservedChannel = (channel: any): boolean => typeof channel === 'string' && channel.trim() === RESERVED_CHANNEL;
-const ITEM_KEYS = ['topic', 'statement', 'channel', 'stage', 'rationale', 'supersedes', 'refs', 'source'];
+const ITEM_KEYS = ['topic', 'statement', 'channel', 'stage', 'rationale', 'supersedes', 'refs', 'source', 'undo'];
+/** An unattended run adopts a default for the person to review later, so it must say how to reverse it. */
+const UNATTENDED_RE = /^unattended:/;
+const DECIDERS = ['user', 'agent', 'autopilot'];
 const REQUIRED_KEYS = ['topic', 'statement', 'channel', 'stage', 'rationale'];
 
 /** Line breaks Markdown renderers and editors treat as a break, not just \r and \n. */
@@ -166,6 +169,7 @@ function renderArchive(register: any): string {
     if (d.refs.length) out.push(`- **Refs:** ${d.refs.join(', ')}`);
     if (d.source) out.push(`- **Source:** ${plain(d.source)}`);
     out.push(...rationaleLines(d.rationale));
+    if (d.undo) out.push(`- **Undo:** ${plain(d.undo)}`);
   }
   return `${out.join('\n')}\n`;
 }
@@ -227,7 +231,17 @@ function normalizeItem(raw: any, label: string): any {
     if (typeof raw.source !== 'string' || LINE_BREAK.test(raw.source)) throw new DecisionUsageError(`${label}: source must be a one-line string`);
     source = raw.source.trim();
   }
-  return { topic, statement, channel, stage, rationale: raw.rationale.trim(), supersedes, refs, source };
+  const rationale = raw.rationale.trim();
+  let undo = '';
+  if (raw.undo !== undefined && raw.undo !== null) {
+    if (typeof raw.undo !== 'string' || LINE_BREAK.test(raw.undo)) throw new DecisionUsageError(`${label}: undo must be a one-line string`);
+    undo = raw.undo.trim();
+    if (undo.length > STATEMENT_MAX) throw new DecisionUsageError(`${label}: undo is ${undo.length} characters; the limit is ${STATEMENT_MAX}`);
+  }
+  if (channel === 'default' && UNATTENDED_RE.test(rationale) && !undo) {
+    throw new DecisionUsageError(`${label}: a default adopted unattended (rationale starts with 'unattended:') needs 'undo': one line saying how a person reverses it`);
+  }
+  return { topic, statement, channel, stage, rationale, supersedes, refs, source, ...(undo ? { undo } : {}) };
 }
 
 /** Normalizes the batch (`--batch` contents) or the single item, refusing everything on one fault. */
@@ -327,6 +341,7 @@ function addDecisions({ featureDir, slug, items, now = new Date(), fsImpl = node
         refs: item.refs,
         source: item.source,
         rationale: item.rationale,
+        ...(item.undo ? { undo: item.undo } : {}),
       });
       added.push({ id, topic: item.topic });
     }
@@ -341,11 +356,12 @@ function addDecisions({ featureDir, slug, items, now = new Date(), fsImpl = node
 }
 
 /** IC-004. */
-function listDecisions({ featureDir, slug, all = false, fsImpl = nodeFs }: any): any {
+function listDecisions({ featureDir, slug, all = false, by = null, fsImpl = nodeFs }: any): any {
   const base = summary({ action: 'list', slug, featureDir });
   const register = readRegister(featureDir, fsImpl);
   if (!register) return { ...base, finding: 'no-register', message: `${featureDir} has no decisions/register.json` };
-  const decisions = all ? [...register.decisions].sort(byId) : liveOf(register).sort(byTopic);
+  let decisions = all ? [...register.decisions].sort(byId) : liveOf(register).sort(byTopic);
+  if (by) decisions = decisions.filter((d: any) => by.includes(d.decidedBy));
   return { ...base, decisions };
 }
 
@@ -379,6 +395,15 @@ function compactDecisions({ featureDir, slug, repoRoot, paths, now = new Date(),
 
 const VALID_ACTIONS = ['init', 'add', 'list', 'compact'];
 
+/** `--by user,agent` → ['user', 'agent']; undefined → no filter. */
+function parseBy(value: any): string[] | null {
+  if (value === undefined || value === null) return null;
+  const list = toList(value, 'by', '--by');
+  const bad = list.filter((v: string) => !DECIDERS.includes(v));
+  if (!list.length || bad.length) throw new DecisionUsageError(`--by ${bad.length ? `'${bad.join(',')}'` : 'is empty'}: valid values are ${DECIDERS.join(', ')}`);
+  return list;
+}
+
 function readBatchFile(batchPath: string, fsImpl: any): any {
   let text: string;
   try {
@@ -403,7 +428,7 @@ function readBatchFile(batchPath: string, fsImpl: any): any {
  * @param {string} options.projectRoot directory the feature is resolved from
  * @param {string|null} [options.slug] explicit feature override
  * @param {Object} [options.flags] add: topic, statement, channel, stage, rationale, supersedes,
- *   refs, source, batch (path); list: all
+ *   refs, source, undo, batch (path); list: all, by (user|agent|autopilot, comma-separated)
  * @returns {{exitCode:number, result?:Object, usage?:string}}
  */
 function runDecision({ action = 'list', projectRoot, slug = null, flags = {}, now = new Date(), fsImpl = nodeFs }: any): { exitCode: number; result?: any; usage?: string } {
@@ -419,7 +444,7 @@ function runDecision({ action = 'list', projectRoot, slug = null, flags = {}, no
     if (act === 'init') {
       result = initRegister({ ...resolved, fsImpl });
     } else if (act === 'list') {
-      result = listDecisions({ ...resolved, all: Boolean(flags.all), fsImpl });
+      result = listDecisions({ ...resolved, all: Boolean(flags.all), by: parseBy(flags.by), fsImpl });
     } else if (act === 'compact') {
       result = compactDecisions({ ...resolved, repoRoot: feature.featureRoot, paths: feature.paths, now, fsImpl });
     } else {
