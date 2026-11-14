@@ -24,6 +24,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { shown } = require('./mask.ts');
 
 /** The documents a page carries, in reading order: [key in `paths --json`, label on the page]. */
 const DOCUMENTS: ReadonlyArray<readonly [string, string]> = [
@@ -132,34 +133,57 @@ const IMAGE_TYPES: Record<string, string> = {
 };
 /** Largest image file the page embeds; a larger one is named as left out. */
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+/** Most image bytes one page carries, counted once per reference since each reference repeats the data. */
+const MAX_PAGE_IMAGE_BYTES = 20 * 1024 * 1024;
+
+/** What one page's images need to remember; the two limits can be set per page, for a test. */
+function newImageState(limits: { maxImageBytes?: number; maxPageBytes?: number } = {}) {
+  return {
+    embedded: 0, skipped: [] as string[], bytes: 0, cache: new Map<string, { type: string; size: number; data: string }>(),
+    maxImageBytes: limits.maxImageBytes ?? MAX_IMAGE_BYTES, maxPageBytes: limits.maxPageBytes ?? MAX_PAGE_IMAGE_BYTES,
+  };
+}
 
 /**
  * An image a document shows, embedded so the page stays one file. Only a file of a known image type
  * inside the feature's checkout is read (links followed first, so a link out of the checkout is
- * refused); a web address becomes a link, since loading it would make the page call out when opened.
- * It is always an `<img>`: a browser runs no script from an SVG shown that way.
+ * refused, and the type is the real file's, not the link's); a web address becomes a link, since
+ * loading it would make the page call out when opened. It is always an `<img>`: a browser runs no
+ * script from an SVG shown that way.
  */
 function imageHtml(alt: string, url: string, ctx: any): string {
   const label = escapeHtml(alt);
+  const images = ctx.images || newImageState();
   const left = (why: string) => {
-    if (ctx.images) ctx.images.skipped.push(`${url}: ${why}`);
+    // The address is document text and reaches a terminal in the note, so it is printed safe.
+    images.skipped.push(`${shown(url)}: ${why}`);
     return `<span class="image-missing">${label || escapeHtml(url)} (image not shown: ${escapeHtml(why)})</span>`;
   };
   if (/[\u0000-\u0020\u007f\\]/.test(url)) return left('unsafe path');
   if (/^https?:/i.test(url)) return `<a href="${escapeHtml(url)}">${label || escapeHtml(url)}</a>`;
   if (/^[a-z][a-z0-9+.-]*:/i.test(url) || url.startsWith('//')) return left('not a local file');
   if (!ctx.dir || !ctx.root) return left('no folder to read from');
-  const type = IMAGE_TYPES[path.extname(url.replace(/[?#].*$/, '')).toLowerCase()];
-  if (!type) return left('not an image type the page embeds');
+  const file = url.replace(/[?#].*$/, '');
+  if (!IMAGE_TYPES[path.extname(file).toLowerCase()]) return left('not an image type the page embeds');
   try {
-    const real = fs.realpathSync(path.resolve(ctx.dir, url.replace(/[?#].*$/, '')));
+    const real = fs.realpathSync(path.resolve(ctx.dir, file));
+    // A link named `a.svg` may point at any file: the type is the file read, not the name asked for.
+    const type = IMAGE_TYPES[path.extname(real).toLowerCase()];
+    if (!type) return left('not an image type the page embeds');
     const inside = path.relative(fs.realpathSync(ctx.root), real);
-    if (inside.startsWith('..') || path.isAbsolute(inside)) return left('outside the checkout');
-    const stat = fs.statSync(real);
-    if (!stat.isFile()) return left('not a file');
-    if (stat.size > MAX_IMAGE_BYTES) return left(`larger than ${MAX_IMAGE_BYTES / 1024 / 1024} MB`);
-    if (ctx.images) ctx.images.embedded++;
-    return `<img class="image" alt="${label}" src="data:${type};base64,${fs.readFileSync(real).toString('base64')}">`;
+    if (inside === '..' || inside.startsWith(`..${path.sep}`) || path.isAbsolute(inside)) return left('outside the checkout');
+    let entry = images.cache.get(real);
+    if (!entry) {
+      const stat = fs.statSync(real);
+      if (!stat.isFile()) return left('not a file');
+      if (stat.size > images.maxImageBytes) return left(`larger than ${+(images.maxImageBytes / 1024 / 1024).toFixed(2)} MB`);
+      entry = { type, size: stat.size, data: fs.readFileSync(real).toString('base64') };
+      images.cache.set(real, entry);
+    }
+    if (images.bytes + entry.size > images.maxPageBytes) return left('page image budget reached');
+    images.bytes += entry.size;
+    images.embedded++;
+    return `<img class="image" alt="${label}" src="data:${entry.type};base64,${entry.data}">`;
   } catch {
     return left('file not found');
   }
@@ -170,14 +194,20 @@ function inline(text: string, ctx: any): string {
   // A code span and a link's tags are set aside as numbered marks while the rest is formatted, so bold
   // may wrap a code span and no later pattern can rewrite what is inside a tag.
   const held: string[] = [];
-  const hold = (html: string) => `\u0000${held.push(html) - 1}\u0000`;
+  // What each mark reads as without markup: a code span's text, nothing for a tag. An image's alt wants it.
+  const plain: string[] = [];
+  const hold = (html: string, text = '') => { plain.push(text); return `\u0000${held.push(html) - 1}\u0000`; };
   const spans = text.replace(/\u0000/g, '')
-    .replace(/(`+)([\s\S]*?[^`])\1(?!`)/g, (_all: string, _ticks: string, body: string) => hold(`<code>${escapeHtml(body.trim())}</code>`));
+    .replace(/(`+)([\s\S]*?[^`])\1(?!`)/g, (_all: string, _ticks: string, body: string) => hold(`<code>${escapeHtml(body.trim())}</code>`, body.trim()));
   let html = escapeHtml(spans);
   html = html.replace(/&lt;br\s*\/?&gt;/gi, '<br>');
   // The URL was escaped with the rest of the text; undo that to judge it, and escape it again to write it.
   const unescaped = (url: string) => url.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
-  html = html.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (_all: string, alt: string, url: string) => hold(imageHtml(unescaped(alt), unescaped(url), ctx)));
+  html = html.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (_all: string, alt: string, url: string) => {
+    // An address written as a code span is text, not an image to read: kept as written, marks restored.
+    if (url.includes('\u0000')) return hold(_all.replace(/\u0000(\d+)\u0000/g, (_m: string, n: string) => held[Number(n)]));
+    return hold(imageHtml(unescaped(alt).replace(/\u0000(\d+)\u0000/g, (_m: string, n: string) => plain[Number(n)]), unescaped(url), ctx));
+  });
   html = html.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_all: string, label: string, url: string) => {
     const href = resolveHref(unescaped(url), ctx);
     return href === null ? label : `${hold(`<a href="${escapeHtml(href)}">`)}${label}${hold('</a>')}`;
@@ -491,7 +521,7 @@ function buildPage({ paths, root, out, mode = 'auto', theme = null, now = new Da
   }
   const renderer = resolved === 'inline' && !render ? mmdcRenderer(themeFile) : null;
   const diagrams = { mode: resolved, blocks: 0, rendered: 0, failures: 0 };
-  const images = { embedded: 0, skipped: [] as string[] };
+  const images = newImageState();
   const docs = new Map(found.map((doc) => [path.resolve(root, doc.rel), doc.key]));
   const featureDir = typeof paths.feature_dir === 'string' ? paths.feature_dir : '';
   const target = path.resolve(out || path.join(root, featureDir, 'page.html'));

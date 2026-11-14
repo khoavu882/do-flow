@@ -227,6 +227,7 @@ function repo() {
   // The verb looks for the projector in the repository it runs in before the installed runtime.
   fs.mkdirSync(path.join(root, 'src', 'runtime'), { recursive: true });
   fs.copyFileSync(path.join(__dirname, '..', '..', 'src', 'runtime', 'page-project.ts'), path.join(root, 'src', 'runtime', 'page-project.ts'));
+  fs.copyFileSync(path.join(__dirname, '..', '..', 'src', 'runtime', 'mask.ts'), path.join(root, 'src', 'runtime', 'mask.ts'));
   return { root, dir };
 }
 
@@ -329,3 +330,112 @@ test('an image in a document is embedded; one outside the checkout, of another t
   assert.ok(html.includes('<code>![code](presentation/overview.drawio.svg)</code>'), 'an image inside a code span stays text');
 });
 
+
+// A fixture checkout with a design folder; `root` may be reached through a symlinked directory.
+function imageFixture(prefix: string) {
+  const root = suiteTempDir(prefix);
+  const dir = path.join(root, 'design');
+  fs.mkdirSync(dir, { recursive: true });
+  return { root, dir };
+}
+const imageCtx = (root: string, dir: string, limits: any = {}) =>
+  ctx({ root, dir, images: { embedded: 0, skipped: [] as string[], bytes: 0, cache: new Map(), maxImageBytes: 5 * 1024 * 1024, maxPageBytes: 20 * 1024 * 1024, ...limits } });
+
+test('a link named like an image is read for what it points at: a non-image file in the checkout is refused, a real image link is embedded', () => {
+  const { root, dir } = imageFixture('doflow-page-imglink-');
+  fs.writeFileSync(path.join(root, '.env'), 'TOKEN=hunter2-secret');
+  fs.mkdirSync(path.join(dir, 'p'));
+  fs.symlinkSync('../../.env', path.join(dir, 'p', 'env.svg'));
+  fs.writeFileSync(path.join(dir, 'real.svg'), '<svg/>');
+  fs.symlinkSync('real.svg', path.join(dir, 'a.svg'));
+  const c = imageCtx(root, dir);
+  const out = inline('![e](p/env.svg) ![a](a.svg)', c);
+  assert.ok(!out.includes(Buffer.from('TOKEN=hunter2-secret').toString('base64')), 'the file behind the link never enters the page');
+  assert.equal(c.images.embedded, 1);
+  assert.match(c.images.skipped[0], /env\.svg: not an image type/);
+  assert.ok(out.includes(Buffer.from('<svg/>').toString('base64')), 'a link to a real image still embeds');
+});
+
+test('a folder with an image name, an oversize image and an unsafe path are each left out with their reason', () => {
+  const { root, dir } = imageFixture('doflow-page-imgrefuse-');
+  fs.mkdirSync(path.join(dir, 'd.svg'));
+  fs.writeFileSync(path.join(dir, 'big.png'), Buffer.alloc(20));
+  fs.writeFileSync(path.join(dir, 'a\\b.svg'), '<svg/>');
+  fs.writeFileSync(path.join(dir, 'c\x01.svg'), '<svg/>');
+  const c = imageCtx(root, dir, { maxImageBytes: 10 });
+  const out = inline('![d](d.svg) ![b](big.png) ![s](a\\b.svg) ![c](c\x01.svg)', c);
+  assert.ok(!out.includes('<img'), out);
+  assert.deepEqual(c.images.skipped.map((s: string) => s.split(': ').pop()), ['not a file', 'larger than 0 MB', 'unsafe path', 'unsafe path']);
+});
+
+test('an image is found when the checkout root is reached through a symlinked folder', () => {
+  const { root, dir } = imageFixture('doflow-page-imgroot-');
+  fs.writeFileSync(path.join(dir, 'i.svg'), '<svg/>');
+  const via = path.join(suiteTempDir('doflow-page-imgvia-'), 'checkout');
+  fs.symlinkSync(root, via);
+  const c = imageCtx(via, path.join(via, 'design'));
+  assert.match(inline('![i](i.svg)', c), /<img class="image"/);
+  assert.equal(c.images.embedded, 1);
+});
+
+test('a file name that starts with two dots is inside the checkout, not above it', () => {
+  const { root, dir } = imageFixture('doflow-page-imgdots-');
+  fs.writeFileSync(path.join(root, '..foo.svg'), '<svg/>');
+  const c = imageCtx(root, root);
+  assert.match(inline('![f](..foo.svg)', c), /<img class="image"/);
+  const above = path.join(suiteTempDir('doflow-page-imgabove-'), 'x.svg');
+  fs.writeFileSync(above, '<svg/>');
+  assert.match(inline(`![u](${path.relative(dir, above)})`, imageCtx(root, dir)), /outside the checkout/);
+  assert.equal(c.images.embedded, 1);
+});
+
+test('control characters in an image address never reach the note or the skipped list', () => {
+  const { root } = imageFixture('doflow-page-imgctl-');
+  fs.writeFileSync(path.join(root, 'design.md'), '# d\n\n![x](a\x1b]0;X\x07.svg) ![y](b\x9b31m.svg)\n');
+  const result = buildPage({ paths: { design: 'design.md' }, root, mode: 'source' });
+  assert.equal(result.images.skipped, 2);
+  assert.ok(!/[\u0000-\u001f\u007f-\u009f]/.test(result.note), JSON.stringify(result.note));
+  assert.match(result.note, /2 image\(s\) not shown/);
+});
+
+test('one image shown many times is read once; the page stops at its image budget instead of failing', () => {
+  const { root, dir } = imageFixture('doflow-page-imgbudget-');
+  fs.writeFileSync(path.join(dir, 'a.png'), Buffer.alloc(100, 1));
+  const reads: string[] = [];
+  const read = fs.readFileSync;
+  fs.readFileSync = ((p: any, ...rest: any[]) => { if (String(p).endsWith('a.png')) reads.push(p); return read(p, ...rest); }) as any;
+  try {
+    const c = imageCtx(root, dir, { maxPageBytes: 250 });
+    const out = inline('![1](a.png) ![2](a.png) ![3](a.png) ![4](a.png)', c);
+    assert.equal(out.split('<img').length - 1, 2);
+    assert.equal(c.images.embedded, 2);
+    assert.equal(c.images.skipped.length, 2);
+    assert.match(c.images.skipped[0], /a\.png: page image budget reached/);
+    assert.equal(reads.length, 1, 'the file is read once, whatever the number of references');
+  } finally { fs.readFileSync = read; }
+});
+
+test('a page with more image data than the page budget is still written, with the rest named as left out', () => {
+  const { root } = imageFixture('doflow-page-imgwhole-');
+  fs.writeFileSync(path.join(root, 'one.png'), Buffer.alloc(1024 * 1024, 7));
+  fs.writeFileSync(path.join(root, 'design.md'), `# d\n\n${Array.from({ length: 30 }, (_v, i) => `![i${i}](one.png)`).join(' ')}\n`);
+  const started = Date.now();
+  const result = buildPage({ paths: { design: 'design.md' }, root, mode: 'source' });
+  assert.equal(result.written, true);
+  assert.deepEqual(result.images, { embedded: 20, skipped: 10 });
+  assert.match(result.note, /10 image\(s\) not shown/);
+  assert.ok(Date.now() - started < 2000);
+});
+
+test('an image alt keeps the text of a code span, and an address written as a code span is not an image', () => {
+  const { root, dir } = imageFixture('doflow-page-imgalt-');
+  fs.writeFileSync(path.join(dir, 'i.svg'), '<svg/>');
+  const c = imageCtx(root, dir);
+  const out = inline('![the `build` step](i.svg)', c);
+  assert.match(out, /<img class="image" alt="the build step" src=/);
+  assert.ok(!out.includes('\u0000'));
+  const code = inline('![alt](`i.svg`) ![b](i.svg)', c);
+  assert.ok(!code.includes('\u0000'));
+  assert.equal(code.split('<img').length - 1, 1, 'only the plain address is an image');
+  assert.ok(code.includes('![alt](<code>i.svg</code>)'), code);
+});
