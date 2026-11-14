@@ -5,7 +5,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp.ts');
 const registry = require('../../core/registry/storage.json');
 const engine = require('../../src/runtime/storage/engine.ts');
@@ -169,6 +169,47 @@ test('IC-017: one append per newly created project ignore; user pass rewrites du
   upkeep().upkeepAfterVerb({ ...f, fsImpl });
   assert.equal(fs.readFileSync(index, 'utf8'), `${f.projectRoot}\n`);
   assert.ok(renames.some(([from, to]: any) => to === index && from !== index));
+});
+
+test('IC-017: a project registered while the user pass is between reading and replacing the roots index is not lost', async t => {
+  const f = fixture(t, ['project-state', 'user-state', 'config-home']);
+  const index = path.join(f.roots['user-state'], 'upkeep-roots');
+  const gone = path.join(f.dir, 'gone');
+  fs.writeFileSync(index, `${gone}\n`);
+  const other = path.join(f.dir, 'other');
+  fs.mkdirSync(path.join(other, '.doflow/state'), { recursive: true });
+  const script = `require(${JSON.stringify(path.join(REPO, 'src/runtime/storage/upkeep.ts'))}).upkeepAfterVerb({ projectRoot: ${JSON.stringify(other)}, now: ${NOW} });`;
+  let child: any;
+  const fsImpl = spyFs({
+    renameSync(from: any, to: any) {
+      if (to === index && !child) {
+        // The pass has read the index: let another process start registering, and hold the replace back until it is waiting.
+        child = spawn(process.execPath, ['-e', script], { env: f.env, stdio: 'ignore' });
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500);
+      }
+      return fs.renameSync(from, to);
+    },
+  });
+  upkeep().upkeepAfterVerb({ ...f, fsImpl });
+  assert.ok(child, 'the index was replaced');
+  assert.equal(await new Promise(resolve => child.on('exit', resolve)), 0);
+  const lines = fs.readFileSync(index, 'utf8').split('\n').filter(Boolean);
+  assert.ok(lines.includes(fs.realpathSync(other)), 'the concurrent registration survived the replace');
+  assert.ok(lines.includes(fs.realpathSync(f.projectRoot)));
+  assert.ok(!lines.includes(gone), 'the gone root was dropped');
+  assert.equal(fs.existsSync(path.join(f.roots['user-state'], 'upkeep-roots.lock')), false, 'the index lock is released');
+});
+
+test('IC-017: an index lock older than the pass-lock stale age is removed and the append goes through', t => {
+  const f = fixture(t, ['project-state', 'user-state']);
+  const lock = path.join(f.roots['user-state'], 'upkeep-roots.lock');
+  const index = path.join(f.roots['user-state'], 'upkeep-roots');
+  fs.mkdirSync(lock);
+  const old = new Date(Date.now() - (registry.settings.passLockStaleSeconds + 10) * 1000);
+  fs.utimesSync(lock, old, old);
+  upkeep().upkeepAfterVerb({ ...f, now: Date.now() });
+  assert.equal(fs.readFileSync(index, 'utf8'), `${fs.realpathSync(f.projectRoot)}\n`);
+  assert.equal(fs.existsSync(lock), false);
 });
 
 test('IC-017/IC-019: a project first seen before user state existed is indexed by its next pass and cleaned by global uninstall (G.1)', t => {

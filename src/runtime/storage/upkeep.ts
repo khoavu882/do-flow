@@ -47,6 +47,33 @@ function atomicWrite(file: any, text: any, fsImpl: any, { preserveExisting = fal
   }
 }
 function ignoreBytes() { return `${registry.settings.ignoreFile.lines.join('\n')}\n`; }
+const INDEX_LOCK_WAIT_MS = 2000;
+const PAUSE = new Int32Array(new SharedArrayBuffer(4));
+/**
+ * The roots index is rewritten by `rewriteRoots` and appended to by `ensureIgnore` and `registerProject`
+ * from other processes: each runs inside this directory lock (`upkeep-roots.lock` under user state), so an
+ * append can never fall between the rewrite's read and its rename. A lock older than the pass-lock stale
+ * age is removed as left by a crashed holder. When it is not obtained within INDEX_LOCK_WAIT_MS `fn` is
+ * skipped and the caller moves on: the index is best effort, a skipped rewrite happens at the next pass,
+ * and a project that missed its append is added by its own pass (`registerProject`).
+ */
+function withIndexLock(userState: any, fsImpl: any, fn: any) {
+  const lock = path.join(userState, 'upkeep-roots.lock');
+  const deadline = Date.now() + INDEX_LOCK_WAIT_MS;
+  for (;;) {
+    try { fsImpl.mkdirSync(lock); break; } catch (error: any) {
+      if (error.code !== 'EEXIST') return;
+      const info = stat(lock, fsImpl);
+      if (info?.isDirectory() && !info.isSymbolicLink() && Date.now() - info.mtimeMs > registry.settings.passLockStaleSeconds * 1000) {
+        try { fsImpl.rmdirSync(lock); } catch { /* another process removed it */ }
+        continue;
+      }
+      if (Date.now() >= deadline) return;
+      Atomics.wait(PAUSE, 0, 0, 10);
+    }
+  }
+  try { return fn(); } finally { try { fsImpl.rmdirSync(lock); } catch { /* best effort */ } }
+}
 function ensureIgnore({ roots, rootId, projectRoot, fsImpl }: any) {
   const root = roots[rootId];
   if (!usableRoot(root, fsImpl)) return;
@@ -56,7 +83,7 @@ function ensureIgnore({ roots, rootId, projectRoot, fsImpl }: any) {
   if (rootId === 'project-state' && usableRoot(roots['user-state'], fsImpl)) {
     const index = path.join(roots['user-state'], 'upkeep-roots');
     if (stat(index, fsImpl)?.isSymbolicLink()) return;
-    fsImpl.appendFileSync(index, `${fsImpl.realpathSync(projectRoot)}\n`, 'utf8');
+    withIndexLock(roots['user-state'], fsImpl, () => fsImpl.appendFileSync(index, `${fsImpl.realpathSync(projectRoot)}\n`, 'utf8'));
   }
 }
 /**
@@ -72,8 +99,10 @@ function registerProject(roots: any, fsImpl: any) {
   const info = stat(index, fsImpl);
   if (info && (info.isSymbolicLink() || !info.isFile())) return;
   const project = fsImpl.realpathSync(path.dirname(path.dirname(projectState)));
-  if ((indexedRoots(index, fsImpl) || []).includes(project)) return;
-  fsImpl.appendFileSync(index, `${project}\n`, 'utf8');
+  withIndexLock(userState, fsImpl, () => {
+    if ((indexedRoots(index, fsImpl) || []).includes(project)) return;
+    fsImpl.appendFileSync(index, `${project}\n`, 'utf8');
+  });
 }
 function indexedRoots(file: any, fsImpl: any) {
   const info = stat(file, fsImpl);
@@ -83,12 +112,14 @@ function indexedRoots(file: any, fsImpl: any) {
 function rewriteRoots(roots: any, fsImpl: any, forget: any = null) {
   const file = path.join(roots['user-state'], 'upkeep-roots');
   if (!usableRoot(roots['user-state'], fsImpl)) return;
-  const lines = indexedRoots(file, fsImpl);
-  if (!lines) return;
-  const kept = forget === null
-    ? [...new Set(lines)].filter(root => stat(path.join(root, '.doflow/state/.gitignore'), fsImpl))
-    : lines.filter((root: any) => root !== forget);
-  atomicWrite(file, kept.length ? `${kept.join('\n')}\n` : '', fsImpl);
+  withIndexLock(roots['user-state'], fsImpl, () => {
+    const lines = indexedRoots(file, fsImpl);
+    if (!lines) return;
+    const kept = forget === null
+      ? [...new Set(lines)].filter(root => stat(path.join(root, '.doflow/state/.gitignore'), fsImpl))
+      : lines.filter((root: any) => root !== forget);
+    atomicWrite(file, kept.length ? `${kept.join('\n')}\n` : '', fsImpl);
+  });
 }
 function due(root: any, now: any, fsImpl: any) {
   try {
