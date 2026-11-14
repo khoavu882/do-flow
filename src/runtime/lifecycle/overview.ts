@@ -24,6 +24,26 @@ function failureStoreOrNull() {
   try { return require('../failure/store.ts'); } catch { return null; }
 }
 
+/** A run with no recorded step for this long is listed by the maintain view: a week, so a run in daily use is never named. */
+const STALE_RUN_MS = 7 * 24 * 60 * 60 * 1000;
+const STALE_RUNS_SHOWN = 10;
+
+/**
+ * The workflow runs of this checkout that are still open and have recorded nothing for STALE_RUN_MS, oldest first,
+ * or null when there is none or the runs cannot be listed. Read-only: closing one is the `orchestrate` verb's step.
+ */
+function staleRuns(root: any, now: Date) {
+  let listed;
+  try { listed = require('../workflow-orchestrator.ts').listRunsResult({ stateRoot: root }); } catch { return null; }
+  if (!listed || listed.exit !== 0 || !Array.isArray(listed.json.runs)) return null;
+  const rows = listed.json.runs
+    .filter((run: any) => (run.state === 'RUNNING' || run.state === 'AWAITING_GATE') && run.origin === 'current')
+    .map((run: any) => ({ taskId: run.taskId, slug: run.featureSlug ?? null, state: run.state, node: run.current ? run.current.id : null, updatedAt: run.updatedAt ?? null }))
+    .filter((run: any) => { const at = Date.parse(run.updatedAt); return Number.isFinite(at) && now.getTime() - at > STALE_RUN_MS; })
+    .sort((a: any, b: any) => Date.parse(a.updatedAt) - Date.parse(b.updatedAt));
+  return rows.length ? { count: rows.length, shown: rows.slice(0, STALE_RUNS_SHOWN) } : null;
+}
+
 const DISCOVERY_SHOWN = 15;
 const MAINTAIN_SHOWN = 50;
 /** Slugs shown per finished or awaiting-release bucket: those lists only grow, and the overview runs on every brainstorm. */
@@ -134,7 +154,7 @@ function goalView(goal: any, features: any, statuses: any, conflicts: any = []) 
   };
 }
 
-function nextLines({ shown, open, items, intents, goals, maintain, pendingItems, failures }: any) {
+function nextLines({ shown, open, items, intents, goals, maintain, pendingItems, failures, stale }: any) {
   const next = [];
   if (shown < open) next.push(`Page through all ${open} open follow-ups: ${commandLine('followup', 'list', {})}`);
   if (items.length) next.push(`Take items into the new feature when its folder exists: doflow-run lifecycle --action init --slug <slug> --take ${items[0].id}`);
@@ -156,6 +176,10 @@ function nextLines({ shown, open, items, intents, goals, maintain, pendingItems,
   }
   if (failures && failures.length) {
     next.push('Settle a failure entry: doflow-run failure --action settle --fp <fp> --as noise|fixed|imported --reason "<why>"');
+  }
+  if (stale) {
+    const run = stale.shown[0];
+    next.push(`Close a run whose work ended outside the record (ask the user first): doflow-run orchestrate --action close --task-id ${run.taskId}${run.slug ? ` --slug ${run.slug}` : ''} --note "<why>"`);
   }
   if (maintain) {
     for (const goal of goals.filter((g: any) => g.proposeDone)) {
@@ -249,7 +273,10 @@ function buildOverview({ root, maintain = false, since, now = new Date(), fsImpl
   if (derived.reason) result.reason = derived.reason;
   if (derived.integrationBehind > 0) Object.assign(result, { integrationBehind: derived.integrationBehind, note: behindNote(derived.integrationRef, derived.integrationBehind) });
   if (maintain) result.pending = open.filter(pendingOf).length;
-  result.next = nextLines({ shown: items.length, open: open.length, items, intents, goals, maintain, pendingItems: items.filter((i) => i.pending), failures: result.failures });
+  // Stale runs are named, never counted as pending: a run the user keeps must not hold the maintain loop open.
+  const stale = maintain ? staleRuns(root, now) : null;
+  if (stale) result.staleRuns = stale;
+  result.next = nextLines({ shown: items.length, open: open.length, items, intents, goals, maintain, pendingItems: items.filter((i) => i.pending), failures: result.failures, stale });
   return result;
 }
 

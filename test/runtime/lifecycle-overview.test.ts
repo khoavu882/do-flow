@@ -54,6 +54,35 @@ test('maintain: more than 50 open items still finish, because pending items come
   assert.equal(third.next.some((line: any) => /--as kept/.test(line)), false, 'nothing pending, no settle line');
 });
 
+test('maintain names open runs silent for over a week, with the close command; they are never pending and discovery omits them', () => {
+  const repo = makeRepo(scratch, 'overview-stale-runs');
+  repo.dir = fs.realpathSync(repo.dir);
+  const root = repo.dir;
+  const orchestrate = (...args: any[]) => {
+    const out = spawnSync(process.execPath, [path.join(__dirname, '..', '..', 'bin', 'doflow.js'), 'orchestrate', ...args], {
+      cwd: root, encoding: 'utf8', env: { ...process.env, DOFLOW_TELEMETRY: 'off', DOFLOW_UPKEEP: 'off' },
+    });
+    assert.equal(out.status, 0, `${args.join(' ')}: ${out.stdout}${out.stderr}`);
+  };
+  orchestrate('--action', 'start', '--task-id', 'left-open', '--task-class', 'bug');
+  orchestrate('--action', 'start', '--task-id', 'ended', '--task-class', 'bug');
+  orchestrate('--action', 'close', '--task-id', 'ended', '--note', 'dropped');
+
+  const DAY = 24 * 60 * 60 * 1000;
+  // The runs were written at the real clock: a day later nothing is stale, eight days later the open one is.
+  const soon = buildOverview({ root, maintain: true, now: new Date(Date.now() + DAY) });
+  assert.equal(soon.staleRuns, undefined, 'a run a day old is in use, not stale');
+  assert.equal(soon.next.some((line: any) => /--action close/.test(line)), false);
+
+  const later = buildOverview({ root, maintain: true, now: new Date(Date.now() + 8 * DAY) });
+  assert.equal(later.staleRuns.count, 1, 'the closed run is not listed');
+  assert.deepEqual(later.staleRuns.shown.map((run: any) => [run.taskId, run.state, run.node]), [['left-open', 'RUNNING', 'reproduction']]);
+  assert.equal(later.pending, 0, 'a stale run does not hold the maintain loop open');
+  assert.ok(later.next.some((line: any) => /orchestrate --action close --task-id left-open --note "<why>"/.test(line)), later.next.join('\n'));
+
+  assert.equal(buildOverview({ root, now: new Date(Date.now() + 8 * DAY) }).staleRuns, undefined, 'the discovery view does not carry them');
+});
+
 test('discovery order is unchanged: the oldest first, whatever was settled', () => {
   const repo = makeRepo(scratch, 'overview-discovery');
   repo.dir = fs.realpathSync(repo.dir);

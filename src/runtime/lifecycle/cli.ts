@@ -44,7 +44,7 @@ const OVERVIEW_BRIEF = Object.freeze({
     '$.followups.items[].id', '$.followups.items[].statement', '$.followups.items[].source', '$.followups.items[].pending',
     '$.intents', '$.goals[].goal', '$.goals[].outcome', '$.goals[].items', '$.goals[].proposeDone', '$.goals[].nudges',
     '$.goals[].conflicts', '$.conflicts', '$.unreadable', '$.unreadableReasons', '$.failures', '$.reason', '$.note',
-    '$.integrationBehind', '$.pending', '$.omitted', '$.next',
+    '$.integrationBehind', '$.pending', '$.staleRuns', '$.omitted', '$.next',
   ]),
 });
 /** A brief list answers one page of this many items unless `--limit` says otherwise. */
@@ -86,6 +86,10 @@ function overviewLines(r: any) {
   if (Array.isArray(r.failures)) {
     lines.push(`failures: ${r.failures.length} new or regressed`);
     for (const f of r.failures) lines.push(`  ${f.fp}  ${f.status}  x${f.count}  ${f.command} ${f.kind}${f.message ? `: ${f.message}` : ''}  (last seen ${f.lastSeen}, ${f.lastVersion})`);
+  }
+  if (r.staleRuns) {
+    lines.push(`stale runs: ${r.staleRuns.count} open with no recorded step for over a week${r.staleRuns.count > r.staleRuns.shown.length ? `, ${r.staleRuns.shown.length} shown` : ''}`);
+    for (const run of r.staleRuns.shown) lines.push(`  ${run.slug || '-'} ${run.taskId}  ${run.state} at ${run.node || '-'}  (last update ${run.updatedAt})`);
   }
   for (const g of r.goals) lines.push(`goal ${g.goal}: ${g.items.met}/${g.items.total} items met${g.proposeDone ? ' (propose done)' : ''}`, ...g.nudges.map((n: any) => `  ${n}`), ...(g.conflicts || []).map((c: any) => `  conflict: ${c.reason}${c.text ? ` (dropped text: ${JSON.stringify(c.text)})` : ''}`));
   const f = r.features;

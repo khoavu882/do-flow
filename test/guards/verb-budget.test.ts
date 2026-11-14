@@ -217,9 +217,10 @@ const CLASSIFIER = path.join(REPO, 'src', 'runtime', 'task-classifier.ts');
 /**
  * Keep paths that hold a value only when the repository is in a state the fixture does not make: `reason` is set
  * when the lifecycle derivation refuses, `integrationBehind` and `note` when the integration branch is behind
- * (src/runtime/lifecycle/overview.ts:219-220), and a goal's `conflicts` when its events collided. They are still checked as leaves wherever a brief answer carries them.
+ * (src/runtime/lifecycle/overview.ts:219-220), a goal's `conflicts` when its events collided, and `staleRuns` when the
+ * maintain view finds an open run silent for over a week (test/runtime/lifecycle-overview.test.ts covers its shape). They are still checked as leaves wherever a brief answer carries them.
  */
-const OVERVIEW_CONDITIONAL = ['$.reason', '$.note', '$.integrationBehind', '$.goals[].conflicts', '$.omitted'];
+const OVERVIEW_CONDITIONAL = ['$.reason', '$.note', '$.integrationBehind', '$.goals[].conflicts', '$.omitted', '$.staleRuns'];
 
 const SPECS: any[] = [
   { name: 'followup list', file: FOLLOWUP_CLI, constant: 'FOLLOWUP_LIST_BRIEF', brief: 'followup --action list --json', full: 'followup --action list --view full --json', offsets: { items: 0 } },

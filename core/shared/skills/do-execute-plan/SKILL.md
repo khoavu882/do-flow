@@ -122,8 +122,7 @@ Branch on `outcome`, not the exit code.
      complete is worse than none.
 
 6. **Task Selection & Parallel Dispatch**:
-   - Read the guidance tree's `references/ORCHESTRATION.md` before dispatching agents;
-     it governs briefs, tools, running work, verification, and questions.
+   - Read the guidance tree's `references/ORCHESTRATION.md` before dispatching agents.
    - `--scope` selects what this run executes, and takes exactly one value: `next` (the next
      pending task, the default), `phase:N` (one phase), `all` (every pending task), or `resume`
      (pick up where an interrupted run stopped). Where an interrupted run stopped is read from the
@@ -147,7 +146,8 @@ Branch on `outcome`, not the exit code.
      An empty pack does not withhold dispatch; what the brief must then say: `references/parallel_dispatch.md`.
    - Claim each task before dispatch and finish it with evidence: `references/task_attempts.md`
      (the evidence item schema: the guidance tree's `references/EVIDENCE_LEDGER.md`).
-   - Dispatch each task to its plan `owner` (an agent spec).
+   - Dispatch each task to its plan `owner` (an agent spec); a lone small task may run in
+     session, claimed and evidenced alike.
    - Name a model tier on every dispatch — an omitted tier inherits the session's model. Pass the
      tier from task-brief's `record.tier` as the dispatch model; for review passes and the limit
      where a harness honors only `model: inherit`, see `references/MODEL_SELECTION.md`.
