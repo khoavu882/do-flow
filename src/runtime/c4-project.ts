@@ -167,8 +167,9 @@ function stripComments(raw: string, state: { inBlock: boolean; openedAt: number 
 /** Mermaid delimits a node label with double quotes; an unescaped one inside ends it early and the
  *  rest of the fence stops parsing. `&quot;` is the entity Mermaid documents for this. */
 function escapeLabel(text: any): string {
-  // Mermaid reads a written backslash-n as a line break: a kept backslash goes out as its entity.
-  return String(text).replace(/\\/g, '#92;').replace(/"/g, '&quot;').replace(/\n/g, '<br/>');
+  // Mermaid reads a written backslash-n as a line break and `#<digits>;` as an entity: a kept
+  // backslash and a written `#` each go out as their own entity, `#` first.
+  return String(text).replace(/#/g, '#35;').replace(/\\/g, '#92;').replace(/"/g, '&quot;').replace(/\n/g, '<br/>');
 }
 
 /**
