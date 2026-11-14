@@ -214,6 +214,33 @@ test('the validator enforces that DoFlow never runs a command that needs adminis
 
 function route(evidence: string) { return { installer: 'brew', command: ['brew', 'install', 'x'], evidence }; }
 
+test('an interpreter given code, or a program that runs something else, is refused in every inline form, as a status command and as an action', () => {
+  const registry = loadRegistry({ repoRoot: REPO });
+  const errorsFor = (program: string, change: (tool: any) => void) => {
+    const copy = structuredClone(registry);
+    const tool = copy.externalTools.find((entry: any) => entry.id === 'bash');
+    tool.status = { commands: [[program, '--version']] };
+    change(tool);
+    return validateRegistry(copy, { repoRoot: REPO }).errors.join('\n');
+  };
+  const inline: string[][] = [['python3', '-Ic', 'print(1)'], ['perl', '-le', 'print 1'], ['node', '--eval=1'], ['node', '--print=1'], ['python3', '-', 'x'], ['ruby', '-ne', 'x'], ['node', '-pe', 'x'], ['python3', '-cprint(1)']];
+  for (const command of inline) {
+    assert.equal(errorsFor(command[0], () => {}), '', `${command[0]} --version stays accepted`);
+    assert.match(errorsFor(command[0], (tool) => { tool.status = { commands: [command] }; }), /can run text it is given/, `status ${command.join(' ')} is accepted`);
+    assert.match(errorsFor(command[0], (tool) => { tool.update = { command }; }), /can run text it is given/, `update ${command.join(' ')} is accepted`);
+  }
+  // A status command that hands an interpreter, shell or wrapper a bare word runs a file or another program on every list.
+  for (const command of [['python3', 'setup'], ['node', 'index'], ['nice', 'sh'], ['sh', 'x'], ['env', 'x'], ['npx', 'x'], ['deno', 'x'], ['osascript', 'x'], ['xargs', 'x'], ['exec', 'x'], ['time', 'x']]) {
+    assert.match(errorsFor(command[0], (tool) => { tool.status = { commands: [command] }; }), /can run text it is given/, `status ${command.join(' ')} is accepted`);
+  }
+  // Those programs are version-only as an action too; a package installer on the list (npm, uv) is not one of them.
+  for (const program of ['npx', 'bunx', 'pnpm', 'yarn', 'deno', 'php', 'lua', 'osascript', 'nice', 'nohup', 'xargs', 'time', 'command', 'exec']) {
+    assert.equal(errorsFor(program, () => {}), '', `${program} --version stays accepted`);
+    assert.match(errorsFor(program, (tool) => { tool.update = { command: [program, 'x'] }; }), /can run text it is given/, `update ${program} x is accepted`);
+  }
+  assert.equal(errorsFor('python3', (tool) => { tool.update = { command: ['python3', '-m', 'pip', 'install', 'x'] }; }), '', 'an interpreter with a module and no inline code is still an action command');
+});
+
 test('update and uninstall must handle what the managed install route installs', () => {
   const registry = loadRegistry({ repoRoot: REPO });
   const errorsFor = (change: (tool: any) => void) => {

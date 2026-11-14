@@ -55,31 +55,46 @@ function allowedPrograms(tool: any, installer?: string): Set<string> {
   return allowed;
 }
 
-const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish', 'tcsh', 'csh', 'busybox', 'cmd', 'powershell', 'pwsh']);
+// Programs that run whatever else they are handed: a shell, `env`, a package runner, a wrapper. Run only as `<program> --version`.
+// None of these is a KNOWN_INSTALLERS name (npm, uv and the rest stay usable as installers), so a route's installer is never caught here.
+const RUNS_OTHER = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish', 'tcsh', 'csh', 'busybox', 'cmd', 'powershell', 'pwsh', 'env',
+  'npx', 'bunx', 'pnpm', 'yarn', 'deno', 'php', 'lua', 'osascript', 'nice', 'nohup', 'xargs', 'time', 'command', 'exec']);
 const INTERPRETERS = /^(python[\d.]*|node|perl|ruby)$/;
 
-/** A command that can run text it was handed: a shell, `env`, or an interpreter given inline code (`-c`, `-e` as a later word).
- * Such a command is only run as `<program> --version`, which runs nothing else. */
-function runsGivenText(command: any): boolean {
+/** An interpreter argument that hands it code: a long `--eval`/`--print` (also `--eval=...`), a lone `-` (code from stdin), or a
+ * short flag or cluster naming `c`, `e`, `p` or `E` (`-c`, `-Ic`, `-le`, `-pe`, `-cprint(1)`). Over-refuses a short word that
+ * merely contains one of those letters (`-Wignore`); that is the safe side for a command that runs without asking. */
+function givesCode(word: any): boolean {
+  const text = String(word);
+  if (text === '-') return true;
+  if (text.startsWith('--')) return ['--eval', '--print'].includes(text.split('=')[0]);
+  return text.startsWith('-') && /[cepE]/.test(text.slice(1));
+}
+
+/** A command that can run text it was handed: a shell, `env`, a package runner or wrapper, or an interpreter given code inline.
+ * Such a command is only run as `<program> --version`, which runs nothing else. A status command runs on every list with no
+ * confirmation, so for it an interpreter is `--version`-only too (`python3 setup` would run the file `setup`). */
+function runsGivenText(command: any, status = false): boolean {
   if (!Array.isArray(command) || !command.length) return false;
   const name = programName(command[0]);
-  if (SHELLS.has(name) || name === 'env') return true;
-  return INTERPRETERS.test(name) && command.slice(1).some((word) => ['-c', '-e', '-p', '-E', '--eval', '--print'].includes(word));
+  if (RUNS_OTHER.has(name)) return true;
+  if (!INTERPRETERS.test(name)) return false;
+  return status ? command.length > 1 : command.slice(1).some(givesCode);
 }
 
 /** Why DoFlow will not run this command, or null when it may. `allowed` is the set of programs it may start with. */
-function refusalReason(command: string[], allowed: Set<string> | null = null): string | null {
+function refusalReason(command: string[], allowed: Set<string> | null = null, status = false): string | null {
   const word = privilegeWord(command);
   if (word !== null) return `a command naming '${word}' needs administrator rights, so DoFlow does not run it`;
-  if (runsGivenText(command) && !(command.length === 2 && command[1] === '--version')) return `a command starting with '${command[0]}' can run text it is given, so DoFlow runs it only as '${command[0]} --version'`;
   if (allowed && !allowed.has(command?.[0])) return `a command starting with '${command?.[0]}' is neither the tool's own program nor its installer (${[...allowed].join(', ') || 'none'}), so DoFlow does not run it`;
+  if (runsGivenText(command, status) && !(command.length === 2 && command[1] === '--version')) return `a command starting with '${command[0]}' can run text it is given, so DoFlow runs it only as '${command[0]} --version'`;
   return null;
 }
 
 /** A status command is the tool's program and one argument, a flag or a plain subcommand (`--version`, `-version`, `gain`):
  * it runs on every list with no confirmation, so it carries no further words. Returns why not, or null. */
 function statusRefusal(command: string[], allowed: Set<string>): string | null {
-  const reason = refusalReason(command, allowed);
+  const reason = refusalReason(command, allowed, true);
   if (reason) return reason;
   if (!Array.isArray(command) || command.length !== 2 || !/^-{0,2}[A-Za-z][A-Za-z-]*$/.test(String(command[1]))) {
     return `a status command is the tool's program and one flag or subcommand (for example --version), so DoFlow does not run '${Array.isArray(command) ? command.join(' ') : command}'`;

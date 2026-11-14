@@ -375,6 +375,28 @@ test('a shell, env or an interpreter with inline code is run only as <program> -
   assert.equal(out.results[0].followUps[0].status, 'refused');
 });
 
+test('an interpreter given code in any inline form, or a bare word as a status, never reaches the runner', async () => {
+  const run = async (commands: string[][]) => {
+    const ran: any[] = [];
+    const plan = await planToolLifecycle({ registry: { externalTools: [{ id: 'x', officialEvidence: ['https://example.test/x'], status: { commands } }] }, platform: 'darwin', execFileSyncImpl: fakeExec(new Map(), ran) });
+    return { ran, state: plan.tools[0].state };
+  };
+  for (const command of [['python3', '-Ic', 'print(1)'], ['perl', '-le', 'print 1'], ['node', '--eval=1'], ['node', '--print=1'], ['python3', '-', 'x'], ['python3', 'setup'], ['node', 'index'], ['nice', 'sh'], ['npx', 'x'], ['deno', 'x']]) {
+    const { ran, state } = await run([command]);
+    assert.deepEqual(ran, [], `${command.join(' ')} never reaches the runner`);
+    assert.equal(state, 'inspection-failed');
+  }
+  // The same forms as an update, run just before anything starts.
+  for (const command of [['python3', '-Ic', 'print(1)'], ['perl', '-le', 'print 1'], ['node', '--eval=1'], ['node', '--print=1'], ['python3', '-', 'x'], ['nice', 'sh']]) {
+    const tool = { id: 'x', officialEvidence: ['https://example.test/x'], status: { commands: [[command[0], '--version']] }, update: { command } };
+    const plan = await planToolLifecycle({ registry: { externalTools: [tool] }, action: 'update', platform: 'darwin', execFileSyncImpl: fakeExec(new Map([[`${command[0]} --version`, 'v 1']])) });
+    const ran: any[] = [];
+    const out = executeToolLifecycle({ plan, displayCommand() {}, confirmCommand: () => true, execFileSyncImpl: fakeExec(new Map(), ran) });
+    assert.deepEqual(ran, [], `${command.join(' ')} is not run as an update`);
+    assert.notEqual(out.results[0].status, 'succeeded');
+  }
+});
+
 test('a status command is the tool\'s program and one flag or subcommand, the same program throughout', async () => {
   const run = async (commands: string[][]) => {
     const ran: any[] = [];
