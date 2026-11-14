@@ -406,9 +406,11 @@ function tile(id, count, fact, context, staleCount = 0) {
     h('span', { class: 'tile__count' }, [
       String(count),
       pressed ? h('span', { class: 'tile__check' }, icon('check', 16)) : null,
+      // Read aloud as "3 live runs, 2 stale": the noun comes before the chip, and says the count is the live ones.
+      staleCount > 0 ? h('span', { class: 'vh' }, count === 1 ? ' live run, ' : ' live runs, ') : null,
       staleCount > 0 ? h('span', { class: 'tile__stale', dataset: { state: 'stale' } }, `${staleCount} stale`) : null,
     ]),
-    h('span', { class: 'vh' }, count === 1 ? ' run' : ' runs'),
+    staleCount > 0 ? null : h('span', { class: 'vh' }, count === 1 ? ' run' : ' runs'),
     h('span', { class: 'tile__sub' }, [
       h('span', { class: 'tile__sub-long' }, fact.long),
       h('span', { class: 'tile__sub-short' }, [h('span', { class: 'vh tile__sub-prefix' }, fact.prefix), h('span', { class: 'tile__sub-text' }, fact.short)]),

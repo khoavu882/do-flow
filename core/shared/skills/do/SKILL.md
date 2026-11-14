@@ -127,4 +127,4 @@ package and have the runtime validate it, select optimal retrieval tools, genera
 estimates, and batch the scoping evidence and claims.
 **Will Not:** Directly perform code edits or modify source files (delegates to specialist skills);
 route a package under a class the runtime rejected or replaced with `feature`;
-call `readiness` for a stage that declares no template; or express evidence, an estimate or readiness as a number, a percentage or a confidence.
+call `readiness` for a stage that declares no template; or express evidence, a finding, an estimate or readiness as a number, a percentage or a confidence.

@@ -888,7 +888,7 @@ function verbHelp(name: any): string | undefined {
   if (start < 0) return undefined;
   let end = start + 1;
   while (end < lines.length && lines[end].startsWith(' '.repeat(10))) end++;
-  return `doflow ${name}\n\n${lines.slice(start, end).join('\n')}\n\nThe flags are in the entry above and under Options in \`doflow --help\`; the verb tables are in docs/reference.md.`;
+  return `doflow ${name}\n\n${lines.slice(start, end).join('\n')}\n\nThe flags are in the entry above and under Options in \`doflow --help\`.`;
 }
 
 /** `name` when it is one of DoFlow's own command names, else `unknown`. */

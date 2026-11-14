@@ -1309,7 +1309,7 @@ async function runningTile(runs: () => any[]) {
 test('E.1 home: 3 live and 2 stale runs: Running counts 3, a Stale count of 2 sits beside it, and the stale rows stay listed with their badge', async () => {
   const { page, tile, count, chip, sub } = await runningTile(() => [...liveRuns(), ...staleRuns()]);
   assert.equal(text(tile.querySelector('.tile__label')), 'Running');
-  assert.equal(count, '32 stale', 'the count is the 3 live runs, then the chip');
+  assert.equal(count, '3 live runs, 2 stale', 'read in order: the live count with its noun, then the chip');
   assert.equal(text(chip), '2 stale');
   assert.equal(sub, 'no update for 2 d');
   const running = page.main.querySelectorAll('.run-section')[1];
@@ -1326,7 +1326,7 @@ test('E.1 home: 3 live and no stale runs: Running counts 3 and no Stale count sh
 
 test('E.1 home: only stale runs: Running counts 0 and the Stale count carries them', async () => {
   const { count, chip } = await runningTile(staleRuns);
-  assert.equal(count, '02 stale');
+  assert.equal(count, '0 live runs, 2 stale');
   assert.equal(text(chip), '2 stale');
 });
 
@@ -1850,7 +1850,7 @@ test('CD-B4 tiles: one fact each, a long and a short form, in the accessible nam
   assert.equal(text(tiles[0].querySelector('.tile__sub-short').children[0]), 'longest wait ');
   assert.equal(tiles[0].querySelector('.tile__sub-short').children[0].classList.contains('vh'), true);
   assert.deepEqual(sub(tiles[1]), ['no update for 2 d 2 h', 'no update for 2 d 2 h']);
-  assert.equal(text(tiles[1].querySelector('.tile__count')), '11 stale', 'one live run, one stale beside it');
+  assert.equal(text(tiles[1].querySelector('.tile__count')), '1 live run, 1 stale', 'one live run, one stale beside it');
   assert.deepEqual(sub(tiles[2]), ['2 completed, 1 rejected', '1 rejected']);
   tiles[0].fire('click');
   const pressed = page.main.querySelector('.tile');

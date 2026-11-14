@@ -24,7 +24,7 @@ for (const flag of ['--help', '-h']) {
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /^doflow followup\n/);
     assert.match(result.stdout, /Record, list, take, settle, promote or report what a feature left unfinished/);
-    assert.match(result.stdout, /docs\/reference\.md/);
+    assert.match(result.stdout, /under Options in `doflow --help`/);
     assert.doesNotMatch(result.stdout, /config installer|Usage: doflow <command>/);
   });
 }
