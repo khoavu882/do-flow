@@ -11,6 +11,8 @@ const { spawnSync } = require('node:child_process');
 const { suiteTempDir } = require('../helper/tmp.ts');
 
 const BASH_DIR = path.join(__dirname, '..', '..', 'core', 'shared', 'scripts', 'doflow', 'bash');
+const OPEN = '<!-- generated from context.puml source-hash: 000000000000 -->';
+const CLOSE = '<!-- end generated -->';
 const NO_JQ = spawnSync('jq', ['--version'], { encoding: 'utf8' }).status !== 0 && 'jq is not on PATH';
 
 function fixture() {
@@ -27,14 +29,15 @@ function fixture() {
   fs.mkdirSync(path.join(feature, 'design', 'c4'), { recursive: true });
   fs.mkdirSync(path.join(feature, 'intention'));
   fs.writeFileSync(path.join(feature, 'intention', 'requirement.md'), '# r\n');
-  fs.writeFileSync(path.join(feature, 'design', 'design.md'), '# d\n\n```mermaid\nflowchart LR\n  a --> b\n```\n');
+  fs.writeFileSync(path.join(feature, 'design', 'design.md'), `# d\n\n\`\`\`mermaid\nflowchart LR\n  a --> b\n\`\`\`\n\n${OPEN}\nold\n${CLOSE}\n`);
   fs.writeFileSync(path.join(feature, 'design', 'c4', 'context.puml'), '@startuml\n@enduml\n');
   const worktree = path.join(main, 'wt');
   git(main, 'worktree', 'add', '-q', worktree, '-b', 'feat/001-x');
   // render-puml.sh takes its projector from repo_root, else from the installed runtime under HOME.
   // A stub in the worktree keeps the run the same on a machine with no install.
   fs.mkdirSync(path.join(worktree, 'src', 'runtime'), { recursive: true });
-  fs.writeFileSync(path.join(worktree, 'src', 'runtime', 'c4-project.ts'), '');
+  fs.writeFileSync(path.join(worktree, 'src', 'runtime', 'c4-project.ts'),
+    `process.stdout.write(${JSON.stringify(`${OPEN}\nNEW BLOCK\n${CLOSE}`)});\n`);
   return { main, worktree, feature };
 }
 
@@ -49,7 +52,7 @@ function stubDir() {
   return dir;
 }
 
-const run = (script: string, cwd: string) => spawnSync(bashPath(), [path.join(BASH_DIR, script), '--json'], {
+const run = (script: string, cwd: string, ...args: string[]) => spawnSync(bashPath(), [path.join(BASH_DIR, script), '--json', ...args], {
   cwd,
   encoding: 'utf8',
   env: { ...process.env, PATH: `${stubDir()}${path.delimiter}${process.env.PATH}` },
@@ -66,9 +69,17 @@ test('render-diagrams renders the main checkout\'s feature folder from a linked 
   assert.equal(fs.existsSync(path.join(worktree, 'agent-docs')), false, 'nothing is written into the worktree');
 });
 
-test('render-puml finds design/c4 in the main checkout from a linked worktree', { skip: NO_JQ }, () => {
+test('render-diagrams --artifact takes a path relative to the checkout that holds the feature', { skip: NO_JQ }, () => {
   const { worktree } = fixture();
+  const r = run('render-diagrams.sh', worktree, '--artifact=agent-docs/doflow/001-x/design/design.md');
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.equal(JSON.parse(r.stdout).rendered.length, 1, r.stdout);
+});
+
+test('render-puml finds design/c4 in the main checkout from a linked worktree', { skip: NO_JQ }, () => {
+  const { worktree, feature } = fixture();
   const r = run('render-puml.sh', worktree);
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.doesNotMatch(r.stdout + r.stderr, /no design\/c4\/ directory/);
+  assert.match(fs.readFileSync(path.join(feature, 'design', 'design.md'), 'utf8'), /NEW BLOCK/, 'the generated block in the main checkout is rewritten');
 });

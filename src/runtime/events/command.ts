@@ -49,7 +49,6 @@ const FLAGS: ReadonlySet<string> = new Set(['--follow', '--channels', '--control
 /** The flags among them that take a value (`--flag value` or `--flag=value`). */
 const VALUE_FLAGS: ReadonlySet<string> = new Set(['--channels', '--control']);
 
-
 type Env = Record<string, string | undefined>;
 type SectionResult = { exit: number; json: unknown };
 type Sections = Record<string, SectionResult>;
