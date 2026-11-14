@@ -1558,10 +1558,10 @@ function handleOrchestrateCommand({
         return usageError('orchestrate', `unknown action '${action}'; valid: start | status | list | timeline | handoff | catch-up | complete-stage | skip-stage | decide-gate | annotate | close`, json);
     }
     // Row 135: the feature pointer follows a `feature` run: set when it starts (`start`, or the `catch-up` that
-    // starts it), dropped once it completes or is closed.
+    // starts it), dropped once it completes, is rejected or is closed (FU-j1p9x6).
     if ((action === 'start' || absentBefore) && snapshot.taskClass === 'feature' && snapshot.state !== 'COMPLETED') {
       require('./feature-pointer.ts').recordFeature({ storeRoot: state, cwd: source, slug: featureSlug, taskId });
-    } else if (action !== 'status' && snapshot.taskClass === 'feature' && (snapshot.state === 'COMPLETED' || snapshot.state === 'CLOSED')) {
+    } else if (action !== 'status' && snapshot.taskClass === 'feature' && TERMINAL_STATES.includes(snapshot.state)) {
       require('./feature-pointer.ts').clearCheckout({ storeRoot: state, cwd: source, slug: featureSlug });
     }
     // Only a handoff that recorded work compacts; `deferred` and `standalone` recorded nothing.

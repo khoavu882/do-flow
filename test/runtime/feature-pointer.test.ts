@@ -123,6 +123,29 @@ test('finish: a feature run that becomes COMPLETED clears its own entry only', (
   assert.deepEqual(fs.readdirSync(path.dirname(file(repo))), [path.basename(other)]);
 });
 
+test('finish: a feature run that is closed, or rejected at a gate, clears its entry as a completed one does', () => {
+  const closed = newRepo();
+  start(closed, A);
+  assert.ok(fs.existsSync(file(closed)), 'recorded first');
+  const close = run(closed.dir, ['orchestrate', '--action', 'close', '--task-id', A, '--note', 'dropped', '--json']);
+  assert.equal(close.status, 0, close.stderr);
+  assert.equal(close.json.state, 'CLOSED');
+  assert.equal(fs.existsSync(file(closed)), false);
+
+  const rejected = newRepo();
+  start(rejected, A);
+  const runFile = path.join(rejected.dir, '.doflow', 'state', 'orchestration', `${A}.json`);
+  const journal = JSON.parse(fs.readFileSync(runFile, 'utf8'));
+  journal.program = [{ type: 'gate', id: 'gate-x', status: 'pending' }];
+  journal.cursor = 0;
+  journal.state = 'AWAITING_GATE';
+  fs.writeFileSync(runFile, JSON.stringify(journal));
+  const reject = run(rejected.dir, ['orchestrate', '--action', 'decide-gate', '--task-id', A, '--gate', 'gate-x', '--decision', 'reject', '--note', 'wrong problem', '--json']);
+  assert.equal(reject.status, 0, reject.stdout + reject.stderr);
+  assert.equal(reject.json.state, 'REJECTED');
+  assert.equal(fs.existsSync(file(rejected)), false);
+});
+
 test('mismatch: a pointer recorded on another branch is reported with both sides, slug null, exit 1', () => {
   const repo = newRepo();
   init(repo, A);
