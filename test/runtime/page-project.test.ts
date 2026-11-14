@@ -440,7 +440,8 @@ test('an image alt keeps the text of a code span, and an address written as a co
   assert.ok(code.includes('![alt](<code>i.svg</code>)'), code);
 });
 
-test('a long run of blank lines inside a list item is read once, not once per blank line', () => {
+// The old reader gave the same page after about a minute: the time limit is what fails on it.
+test('a long run of blank lines inside a list item is read once, not once per blank line', { timeout: 10000 }, () => {
   const page = html(['- first', ...Array(200000).fill(''), '  still the first item', '- second'].join('\n'));
   assert.match(page, /<li>[\s\S]*first[\s\S]*still the first item[\s\S]*<\/li>\s*<li>second<\/li>/);
 });

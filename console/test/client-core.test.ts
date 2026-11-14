@@ -4270,6 +4270,23 @@ test('149 C.4 Views off polling: Sessions live for 60 s makes only its first-pai
   ]);
 });
 
+test('Run live: the now label follows the clock when the line has not moved a pixel', async () => {
+  // A run that began days ago: one minute is far less than a pixel of its axis.
+  const body = runBodyWith(frow('run-1', 2), [ev(6000, 'start', null), ev(5000, 'complete-stage', 'discovery', { outcome: 'passed' })]);
+  const page = await startLive('#/run/feat-a/run-1', liveRoute(runRoute(() => body), () => reply(500)));
+  await advance(100);
+  const es = liveES();
+  es.open();
+  es.emit('message', frameAt(1, RUN_CH, 'snapshot', { state: { run: { status: 200, body } } }));
+  await settle();
+  const label = () => text(page.main.querySelector('.tl__nowlabel'));
+  const before = label();
+  assert.match(before, /^now \d\d:\d\d$/);
+  await advance(60_000);
+  assert.match(label(), /^now \d\d:\d\d$/);
+  assert.notEqual(label(), before, 'a minute later the label names the new minute');
+});
+
 test('149 C.4 Resume without loss: a dropped Run view reopens with since, shows each of two steps once, and equals GET /api/runs/<slug>/<task>', async () => {
   const GET = '/api/runs/feat-a/run-1';
   let server: any = null;

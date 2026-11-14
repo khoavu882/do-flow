@@ -411,10 +411,12 @@ test('035-R16: a separator hides a construct, a word makes it prose', () => {
 });
 
 test('a backslash-n inside a label is a line break, and a backslash before any other character is kept', () => {
-  const out = project(['Container(a, "Order\\nAPI", "Node.js")', 'Container(b, "C:\\temp \\"x\\" \\\\ y")', 'Rel(a, b, "reads\\nwrites")'].join('\n'));
+  const out = project(['Container(a, "Order\\nAPI", "Node.js")', 'Container(b, "C:\\temp \\"x\\" \\\\ y")', 'Container(c, "C:\\\\new")', 'Rel(a, b, "reads\\nwrites")'].join('\n'));
   assert.equal(out.code, 0, out.stderr);
   assert.ok(out.stdout.includes('a["Order<br/>API"]'), out.stdout);
-  assert.ok(out.stdout.includes('b["C:\\temp &quot;x&quot; \\ y"]'), out.stdout);
+  // A kept backslash is written as Mermaid's entity: Mermaid itself reads a written backslash-n as a break.
+  assert.ok(out.stdout.includes('b["C:#92;temp &quot;x&quot; #92; y"]'), out.stdout);
+  assert.ok(out.stdout.includes('c["C:#92;new"]'), out.stdout);
   assert.ok(out.stdout.includes('|"reads<br/>writes"|'), out.stdout);
 });
 
