@@ -117,9 +117,13 @@ without a terminal; `--json` gives the same data. `doflow doctor` has an Externa
 ones, each with its role and one command, or one line when none is absent. The registry is
 `core/registry/external-tools.json`, and every command in it cites the official page it came from.
 
-Where several install routes exist, DoFlow picks the first one whose installer (`brew`, `npm`,
-`cargo`, `uv`, `pipx`) is on `PATH`. A route that needs administrator rights (`sudo apt-get ...`) is
-shown but never run by DoFlow. Where no official page gives a command for your platform, the list says
+Where several install routes exist, the first one for your platform is the managed route: it is the
+only route DoFlow runs, and DoFlow updates and removes only what it installed through it. If its
+installer (`brew`, `npm`, `cargo`, `uv`) is not on `PATH`, the list says so and shows the other routes. Those
+alternatives are shown with the page they came from and never run by DoFlow. A route that needs administrator
+rights (`sudo apt-get ...`) is shown but never run. The same holds for a step after an install: one that
+needs `sudo` is a manual step, listed as "run it yourself" with the reason, and never run. A status check
+that gives no answer in 5 s is listed as `timeout`; the list still prints and the exit code is 0. Where no official page gives a command for your platform, the list says
 so and names the page to read. DoFlow runs routes on macOS and Linux only.
 
 `install`, `update` and `uninstall` need `--tool` outside an interactive terminal. They display and
@@ -132,18 +136,18 @@ its official page gives none. The optional ones:
 | Tool | Used for | Install routes DoFlow knows |
 |---|---|---|
 | [`uv`](https://docs.astral.sh/uv/) | Prerequisite for Graphify and Semble | **None.** DoFlow explains a missing `uv` and stops; it will not install a package manager for you |
-| [RTK](https://www.rtk-ai.app/docs/getting-started/installation/) | Compressing high-output CLI commands (`command.compress`) | `brew install rtk-ai/tap/rtk`, or `cargo install --git https://github.com/rtk-ai/rtk --branch master rtk` |
-| [Graphify](https://github.com/Graphify-Labs/graphify/blob/v8/README.md) | Code relationships and blast-radius analysis (`code.relationships`, `code.impact-analysis`) | `uv tool install graphifyy`, or `pipx install graphifyy` |
+| [RTK](https://www.rtk-ai.app/docs/getting-started/installation/) | Compressing high-output CLI commands (`command.compress`) | `cargo install --git https://github.com/rtk-ai/rtk --branch master rtk` (managed); alternative: `brew install rtk-ai/tap/rtk` |
+| [Graphify](https://github.com/Graphify-Labs/graphify/blob/v8/README.md) | Code relationships and blast-radius analysis (`code.relationships`, `code.impact-analysis`) | `uv tool install graphifyy` (managed, so DoFlow updates and removes it with `uv`); alternative: `pipx install graphifyy`, which DoFlow does not run |
 | [Semble](https://github.com/MinishLab/semble) | Semantic code search (`code.semantic-search`) | `uv tool install semble` |
 | [Mermaid CLI](https://github.com/mermaid-js/mermaid-cli/blob/master/README.md) (`mmdc`) | Rendering Mermaid diagrams to images (`doflow-run render-diagrams`) | `npm install -g @mermaid-js/mermaid-cli` |
 | [PlantUML](https://plantuml.com/starting) | Rendering C4 `.puml` sources (`doflow-run render-puml`) | `brew install plantuml` (Homebrew's [formula page](https://formulae.brew.sh/formula/plantuml); plantuml.com gives none) |
 | [ripgrep](https://github.com/BurntSushi/ripgrep/blob/master/README.md) (`rg`) | Exact code search (`code.exact-search`); DoFlow falls back to `grep` | `brew install ripgrep`, `cargo install ripgrep`, or `sudo apt-get install ripgrep` (Linux, run by you) |
 | [draw.io Desktop](https://formulae.brew.sh/cask/drawio) (`drawio`) | The image export step of `doflow-run render-drawio`; without it only the `.drawio` file is written | macOS: `brew install --cask drawio`. No official command for Linux |
 | [Python 3](https://www.python.org/downloads/) | The `do-code-review` analyzers | None: the official pages give no command |
-| [agent-browser](https://github.com/vercel-labs/agent-browser/blob/main/README.md) | Checking a web user interface from the shell | `npm install -g agent-browser` or (macOS) `brew install agent-browser`, then `agent-browser install` (Linux: `agent-browser install --with-deps`); the browser download is confirmed on its own |
+| [agent-browser](https://github.com/vercel-labs/agent-browser/blob/main/README.md) | Checking a web user interface from the shell | `npm install -g agent-browser` (managed), then `agent-browser install` for the browser download, which is confirmed on its own; alternative: `brew install agent-browser` (macOS). On Linux the official page also asks for `agent-browser install --with-deps`, which installs system libraries with sudo: DoFlow lists it as a manual step and never runs it |
 
 The required tools above also have routes: `jq` and Git through `brew install` on macOS or
-`apt-get` on Linux (run by you).
+`sudo apt-get install` on Linux (run by you; DoFlow shows it and does not run it).
 
 `doflow tools --tool rtk --action update` always reports **skipped**: no upstream update command has
 been verified, and DoFlow will not guess one. Reinstall instead. `agent-browser` updates with
