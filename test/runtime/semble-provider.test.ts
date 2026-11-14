@@ -296,7 +296,7 @@ test('H8: a semantic lock whose owner is dead on this host is reclaimed; live, o
     assert.equal(fs.readFileSync(paths.lock, 'utf8'), before, `${label}: the lock is left as it was`);
   }
   plantLock(paths, stale);
-  await assert.rejects(acquireSemanticLock(paths, { isAlive: () => true }), /lock-contention/, 'liveness, not age, decides');
+  await assert.rejects(acquireSemanticLock(paths, { isAlive: () => true }), /lock-contention/, 'for a young lock, liveness decides: a live owner keeps it (an old lock is reclaimed whatever its owner, tested below)');
 });
 
 test('FU-w9j11f 6: a lock whose owner cannot be told is reclaimed by age only; EPERM is not dead; a replaced lock is never removed', async t => {
