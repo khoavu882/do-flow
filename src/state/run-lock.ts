@@ -148,12 +148,19 @@ function instanceKey(record: any, stat: any): string {
 }
 
 /**
+ * Whether a process start time can be compared across time. `ps` derives it from the boot time and the
+ * wall clock on Linux, so a stepped clock moves it and a live holder would look like a reused pid; on
+ * darwin the kernel records it. Only there is it recorded and compared.
+ */
+function startTimeIsStable(): boolean { return process.platform === 'darwin'; }
+
+/**
  * A live pid is the recorded holder only when its process start time is the recorded one: a pid reused
- * by another process is not. A record without `processStart` (written before it was recorded), or a start
- * that cannot be read now, keeps the pid-only rule.
+ * by another process is not. A record without `processStart` (written before it was recorded, or on a
+ * platform where start times are not stable), or a start that cannot be read now, keeps the pid-only rule.
  */
 function pidReused(record: any, procStart: any): boolean {
-  if (typeof record.processStart !== 'string') return false;
+  if (!startTimeIsStable() || typeof record.processStart !== 'string') return false;
   const now = procStart(record.pid);
   return typeof now === 'string' && now !== record.processStart;
 }
@@ -299,7 +306,7 @@ function acquireRunLock({ scopeRoot, scope, command }: { scopeRoot: string, scop
 
   const tempPath = path.join(stateDir, `.${LOCK_FILE}.${token}.tmp`);
   const record = {
-    version: RECORD_VERSION, token, pid: process.pid, processStart: procStart(process.pid), hostname, command, scope, scopeRoot: root,
+    version: RECORD_VERSION, token, pid: process.pid, processStart: startTimeIsStable() ? procStart(process.pid) : null, hostname, command, scope, scopeRoot: root,
     startedAt: new Date(now()).toISOString(), doflowVersion: DOFLOW_VERSION,
   };
   // A first-ever run that gives up removes the state directory it created. Doing so between this
@@ -416,5 +423,5 @@ function holdHandle({ fsImpl, root, stateDir, lockPath, token, hostname, firstCr
 }
 
 module.exports = {
-  acquireRunLock, RunLockTimeoutError, RunLockError, RunLockLostError, runLockPath, formatRunLockMessage, defaultIsAlive,
+  acquireRunLock, RunLockTimeoutError, RunLockError, RunLockLostError, runLockPath, formatRunLockMessage, defaultIsAlive, startTimeIsStable,
 };
