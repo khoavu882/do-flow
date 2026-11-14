@@ -347,6 +347,7 @@ function projectDescription(project, nowMs) {
   const traffic = project.traffic && project.traffic.ok ? project.traffic.data : null;
   const parts = [`${project.label}.`];
   if (project.current) parts.push('This project.');
+  if (project.temp) parts.push('In a temp folder.');
   parts.push(`${project.checkouts} ${project.checkouts === 1 ? 'checkout' : 'checkouts'}.`);
   if (tree) {
     const c = agentCounts(tree);
