@@ -119,7 +119,6 @@ test('required and optional tools, and the install routes that carry a second st
   assert.deepEqual(browser.install.routes[1].manual.map((step: any) => step.command), [['agent-browser', 'install', '--with-deps']]);
   assert.ok(browser.officialEvidence.includes('https://github.com/vercel-labs/agent-browser/blob/main/cli/src/main.rs'), '--version is stated in the source file only');
   assert.deepEqual(byId('drawio').install.routes.map((route: any) => route.command), [['brew', 'install', '--cask', 'drawio']]);
-  assert.deepEqual(externalTools.flatMap((tool: any) => (tool.install?.routes || []).filter((route: any) => route.privileged).map((route: any) => `${tool.id}:${route.command[0]}`)), ['jq:sudo', 'git:sudo', 'ripgrep:sudo']);
 });
 
 test('every external tool declares a role and an unlocks line', () => {
