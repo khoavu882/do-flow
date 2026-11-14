@@ -121,7 +121,7 @@ test('FR-003: two changed test files and one source file select those tests plus
   });
   const targeted = tier('targeted-tests');
   assert.equal(targeted.resolution, 'RESOLVED');
-  assert.equal(targeted.checks[0].command, 'node --test test/a.test.js test/c.test.mjs test/guards/');
+  assert.equal(targeted.checks[0].command, "node --test test/a.test.js test/c.test.mjs 'test/guards/**/*.test.{js,mjs,cjs,ts}'");
   assert.equal(targeted.checks[0].targetScoped, true);
   assert.equal(targeted.checks[0].derivation, 'declared');
   // 2 changed files + the 2 guard files; 5 test files exist under test/.
@@ -135,7 +135,7 @@ test('FR-003: a changed `.test.ts` file is selected and counted among the test f
     exec: fakeExec().exec,
   });
   const targeted = tier('targeted-tests');
-  assert.equal(targeted.checks[0].command, 'node --test test/d.test.ts test/guards/');
+  assert.equal(targeted.checks[0].command, "node --test test/d.test.ts 'test/guards/**/*.test.{js,mjs,cjs,ts}'");
   // 1 changed .ts file + the 2 guard files; 6 test files exist under test/ (the .ts one is counted).
   assert.deepEqual(targeted.selection, { basis: 'changed-test-files', selectedCount: 3, totalCount: 6, fallback: null });
 });
@@ -146,14 +146,14 @@ test('FR-003: a deleted test file and a non-test file under the test directory a
     changedFiles: ['test/gone.test.js', 'test/helper/util.js', 'test/b.test.js'],
     exec: fakeExec().exec,
   });
-  assert.equal(tier('targeted-tests').checks[0].command, 'node --test test/b.test.js test/guards/');
+  assert.equal(tier('targeted-tests').checks[0].command, "node --test test/b.test.js 'test/guards/**/*.test.{js,mjs,cjs,ts}'");
 });
 
 test('FR-003: a changed guard test is covered by the guard directory, not listed twice', () => {
   const root = project({ files: NODE_FILES });
   const { tier }: any = compile(root, { changedFiles: ['test/guards/g1.test.js'], exec: fakeExec().exec });
   const targeted = tier('targeted-tests');
-  assert.equal(targeted.checks[0].command, 'node --test test/guards/');
+  assert.equal(targeted.checks[0].command, "node --test 'test/guards/**/*.test.{js,mjs,cjs,ts}'");
   assert.equal(targeted.selection.selectedCount, 2);
 });
 
@@ -197,7 +197,7 @@ test('FR-004: unavailable change detection runs the broad command and records `c
 test('FR-003: with no caller list the selection reads the same git observation the change-scope tier uses', () => {
   const root = project({ files: NODE_FILES });
   const { tier }: any = compile(root, { exec: fakeExec({ gitStatus: ' M test/b.test.js\0 M src/lib.js\0' }).exec });
-  assert.equal(tier('targeted-tests').checks[0].command, 'node --test test/b.test.js test/guards/');
+  assert.equal(tier('targeted-tests').checks[0].command, "node --test test/b.test.js 'test/guards/**/*.test.{js,mjs,cjs,ts}'");
 });
 
 test('an explicit target pattern wins over the selector and is recorded as such', () => {
@@ -278,7 +278,7 @@ test('FR-004: the report carries the targeted tier selection', () => {
   const entry = report.tiers.find((t: any) => t.id === 'targeted-tests');
   assert.equal(entry.status, 'PASS');
   assert.deepEqual(entry.selection, { basis: 'changed-test-files', selectedCount: 4, totalCount: 5, fallback: null });
-  assert.deepEqual(calls, ['node --test test/a.test.js test/b.test.js test/guards/']);
+  assert.deepEqual(calls, ["node --test test/a.test.js test/b.test.js 'test/guards/**/*.test.{js,mjs,cjs,ts}'"]);
 });
 
 test('FR-005: a passing targeted run does not mark the broad tier passed at LOW', () => {
@@ -300,7 +300,7 @@ test('FR-005: at MEDIUM a passing scoped targeted run does not hide a failing br
   assert.equal(report.tiers.find((t: any) => t.id === 'targeted-tests').status, 'PASS');
   assert.equal(report.tiers.find((t: any) => t.id === 'broad-tests').status, 'FAIL');
   assert.equal(report.status, 'FAIL');
-  assert.deepEqual(calls, ['node --test test/a.test.js test/guards/', 'npm test']);
+  assert.deepEqual(calls, ["node --test test/a.test.js 'test/guards/**/*.test.{js,mjs,cjs,ts}'", 'npm test']);
 });
 
 test('NFR-001: the risk levels and their required tier sets are unchanged', () => {
@@ -337,7 +337,7 @@ test('review 1: an untracked directory of tests and a non-ASCII test name are bo
   const command = contract.tiers.find((t: any) => t.id === 'targeted-tests').checks[0].command;
   // test-selection.ts quotes a path with double quotes on win32 and single quotes elsewhere
   const q = process.platform === 'win32' ? '"' : "'";
-  assert.equal(command, `node --test test/newdir/new.test.js ${q}test/t\u00e9st.test.js${q} test/guards/`);
+  assert.equal(command, `node --test test/newdir/new.test.js ${q}test/t\u00e9st.test.js${q} ${q}test/guards/**/*.test.{js,mjs,cjs,ts}${q}`);
 });
 
 test('review 2: a declared `node --test` script carrying a flag is not given the targeted form', () => {
@@ -386,7 +386,20 @@ test('090 IC-003: formatSelectedTestPattern replaces files under guardDir with s
     guardDir: 'test/guards',
     platform: 'linux',
   });
-  assert.equal(pattern, "'test/a test.js' test/b.test.js test/guards/");
+  assert.equal(pattern, "'test/a test.js' test/b.test.js 'test/guards/**/*.test.{js,mjs,cjs,ts}'");
+});
+
+test('the guard token runs the guard files on this Node, where a directory argument may not', () => {
+  const { formatSelectedTestPattern } = require('../../src/runtime/verification/test-selection.ts');
+  const passing = "require('node:test')('ok', () => {});\n";
+  const root = project({ files: { 'test/guards/g1.test.js': passing, 'test/guards/deep/g2.test.ts': passing, 'test/guards/notes.txt': 'x' } });
+  const pattern = formatSelectedTestPattern({ selectedTests: [], guardDir: 'test/guards' });
+  // A runner started inside a test run reports to its parent and prints nothing unless this is unset.
+  const env: any = { ...process.env }; delete env.NODE_TEST_CONTEXT;
+  const run = spawnSync(`"${process.execPath}" --test --test-reporter=tap ${pattern}`, { cwd: root, shell: true, encoding: 'utf8', env });
+  assert.equal(run.status, 0, run.stdout + run.stderr);
+  assert.match(run.stdout, /^# pass 2$/m);
+  assert.match(run.stdout, /^# fail 0$/m);
 });
 
 test('090 IC-003: v0Active wires selectImpactedTests into targeted-tests for source changes and falls back on unknown files', () => {
@@ -412,7 +425,7 @@ test('090 IC-003: v0Active wires selectImpactedTests into targeted-tests for sou
   const targetedV0 = contractV0.tiers.find((t: any) => t.id === 'targeted-tests');
   assert.equal(targetedV0.resolution, 'RESOLVED');
   assert.equal(targetedV0.selection.basis, 'impacted-tests');
-  assert.equal(targetedV0.checks[0].command, "node --test test/a.test.js test/guards/");
+  assert.equal(targetedV0.checks[0].command, "node --test test/a.test.js 'test/guards/**/*.test.{js,mjs,cjs,ts}'");
 
   // 2. When v0 is active and an unknown file changes, fallback to broad command with unknown-files
   const contractUnknown = engineV0.compileContract({

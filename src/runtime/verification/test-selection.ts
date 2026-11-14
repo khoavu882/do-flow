@@ -21,6 +21,13 @@ const nodeFs = require('node:fs');
 const GUARD_DIR = 'test/guards';
 
 const NODE_TEST_FILE = /\.test\.(?:js|mjs|cjs|ts)$/;
+
+/**
+ * The runner argument that selects every test file under the guard directory. It is a glob with the
+ * extensions of NODE_TEST_FILE, not the directory: Node 24 reads a directory argument as one module
+ * path and fails; only later release lines search it.
+ */
+const guardPattern = (guardDir: string) => `${guardDir}/**/*.test.{js,mjs,cjs,ts}`;
 const PYTEST_FILE = /(?:^|\/)(?:test_[^/]*|[^/]*_test)\.py$/;
 
 const SKIPPED_DIRS = new Set(['node_modules', '.git', '.venv', 'venv', '__pycache__']);
@@ -169,7 +176,7 @@ function selectChangedTests({ found, observation, root, fsImpl = nodeFs, platfor
     .sort();
   if (changed.length === 0) return fallback('no-changed-tests');
 
-  // A changed guard file is already covered by running the guard directory itself.
+  // A changed guard file is already covered by the glob over the guard directory.
   const files = changed.filter((file: string) => !underGuard(file));
   const guardFiles = guardDir ? [...total].filter(underGuard).length : 0;
   // `cmd.exe` expands `%` and `!` even inside quotes, so such a path cannot be passed safely there.
@@ -177,7 +184,7 @@ function selectChangedTests({ found, observation, root, fsImpl = nodeFs, platfor
   // A relative path starting with `-` would be read as a runner option, so it gets a directory prefix.
   const asArgument = (file: string) => (file.startsWith('-') ? `./${file}` : file);
   const words = [...files.map((file: string) => quotePath(asArgument(file), platform))];
-  if (guardDir) words.push(quotePath(`${guardDir}/`, platform));
+  if (guardDir) words.push(quotePath(guardPattern(guardDir), platform));
   return {
     pattern: words.join(' '),
     selection: {
@@ -192,7 +199,7 @@ function selectChangedTests({ found, observation, root, fsImpl = nodeFs, platfor
 /**
  * Formats a sorted list of selected test files into a shell-quoted command argument pattern (IC-003).
  * When guardDir is present and files under guardDir are included in selectedTests, they are replaced
- * by a single quoted `${guardDir}/` token.
+ * by one quoted glob over the guard directory (`guardPattern`).
  *
  * @param {Object} input
  * @param {Array<string>} input.selectedTests repo-relative test paths
@@ -217,7 +224,7 @@ function formatSelectedTestPattern({
   const words = nonGuard.map((file: string) => quotePath(asArgument(file), platform));
   const hasGuard = Boolean(guardDir && (selectedTests.some(underGuard) || selectedTests.length === 0));
   if (hasGuard) {
-    words.push(quotePath(`${guardDir}/`, platform));
+    words.push(quotePath(guardPattern(guardDir as string), platform));
   }
   return words.join(' ');
 }
