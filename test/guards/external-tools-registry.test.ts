@@ -9,6 +9,10 @@
 // `.sh` files plus the extensionless `doflow-run`), and every binary a render-*.sh script runs
 // in an `if <binary> ...` step, plus the draw.io binary the projector render-drawio.sh calls.
 //
+// The registry itself is read the same way: every installer, prerequisite and first command word in
+// external-tools.json (install, after, manual, update, uninstall, status), and the command of every
+// server in mcp.json, must be a registered tool or a name in INSTALLER_NOT_REGISTERED with its reason.
+//
 // A failing guard means the registry or the allow-list is stale: add the tool to the registry, or the
 // binary to the allow-list with its reason. Do not delete the scan.
 const { test } = require('node:test');
@@ -39,6 +43,19 @@ const RUN_NOT_REGISTERED: Record<string, string> = {
 };
 // Words that open an `if` condition in shell without being a program to install.
 const SHELL_WORDS = new Set(['command', 'test', 'cat', 'printf', 'echo', 'read', 'type']);
+
+// Programs the registry or the MCP registry runs or names that are installed by the platform or are the means
+// of installing, not tools DoFlow offers to install.
+const INSTALLER_NOT_REGISTERED: Record<string, string> = {
+  brew: 'Homebrew, the package manager the macOS routes use; its own install page is the documentation',
+  npm: 'ships with Node, which DoFlow itself runs on; the routes that install a Node tool use it',
+  npx: 'ships with npm; the MCP servers in mcp.json are launched with it',
+  cargo: 'the Rust toolchain, the managed route for rtk',
+  uv: 'Astral uv, the managed route for graphify and semble',
+  pipx: 'the alternative Python installer for graphify and semble',
+  'apt-get': 'the Debian and Ubuntu package manager; its routes are privileged and shown only',
+  sudo: 'a privileged route starts with it; DoFlow never runs such a step, it is shown to the person',
+};
 
 function shippedScripts(): string[] {
   const found: string[] = [];
@@ -81,6 +98,28 @@ function renderRunBinaries(): Map<string, string> {
   return out;
 }
 
+/** Every program the external-tools registry names, with where it was named: installer, prerequisite or first command word. */
+function registryWords(): Map<string, string> {
+  const { externalTools, mcp } = loadRegistry({ repoRoot: REPO });
+  const out = new Map<string, string>();
+  const note = (word: any, where: string) => { if (typeof word === 'string' && !out.has(word)) out.set(word, where); };
+  const command = (value: any, where: string) => { if (Array.isArray(value?.command ?? value)) note((value.command ?? value)[0], where); };
+  for (const tool of externalTools) {
+    for (const status of tool.status.commands) command(status, `${tool.id} status`);
+    for (const prerequisite of tool.prerequisites ?? []) note(prerequisite, `${tool.id} prerequisite`);
+    for (const key of ['update', 'uninstall']) if (tool[key]) command(tool[key], `${tool.id} ${key}`);
+    for (const route of tool.install ? (tool.install.routes ?? [tool.install]) : []) {
+      note(route.installer, `${tool.id} installer`);
+      command(route.command, `${tool.id} install`);
+      for (const step of route.after ?? []) command(step, `${tool.id} after`);
+      for (const step of route.manual ?? []) command(step, `${tool.id} manual`);
+      for (const key of ['update', 'uninstall']) if (route[key]) command(route[key], `${tool.id} ${key}`);
+    }
+  }
+  for (const server of mcp) note(server.command, `mcp server ${server.id}`);
+  return out;
+}
+
 const registered = () => new Set<string>(loadRegistry({ repoRoot: REPO }).externalTools.map((tool: any) => tool.status.commands[0][0]));
 
 test('the scan sees what it is meant to see, so an empty result cannot pass', () => {
@@ -111,4 +150,15 @@ test('the allow-list holds no entry the scripts stopped using, and none the regi
   assert.deepEqual(Object.keys(PROBED_NOT_REGISTERED).filter((binary) => !probed.has(binary)), [], 'allow-listed but no longer probed');
   assert.deepEqual(Object.keys(RUN_NOT_REGISTERED).filter((binary) => !run.has(binary)), [], 'allow-listed but no longer run by a render script');
   assert.deepEqual([...Object.keys(PROBED_NOT_REGISTERED), ...Object.keys(RUN_NOT_REGISTERED)].filter((binary) => known.has(binary)), [], 'allow-listed but now registered');
+});
+
+test('every installer, prerequisite, command word and MCP server command in the registries is registered or allow-listed with its reason', () => {
+  const known = registered();
+  const words = registryWords();
+  assert.ok(words.size > 8 && words.has('npx'), 'the registry read found too little, so an empty result cannot pass');
+  const unknown = [...words].filter(([word]) => !known.has(word) && !(word in INSTALLER_NOT_REGISTERED)).map(([word, where]) => `${word} (${where})`);
+  assert.deepEqual(unknown, [], 'register these in core/registry/external-tools.json, or allow-list them in INSTALLER_NOT_REGISTERED with a reason');
+  const named = new Set(words.keys());
+  assert.deepEqual(Object.keys(INSTALLER_NOT_REGISTERED).filter((word) => !named.has(word)), [], 'allow-listed but no longer named by a registry');
+  assert.deepEqual(Object.keys(INSTALLER_NOT_REGISTERED).filter((word) => known.has(word)), [], 'allow-listed but now registered');
 });
