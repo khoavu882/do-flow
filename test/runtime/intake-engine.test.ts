@@ -9,7 +9,7 @@ const nodeCrypto = require('node:crypto');
 const { tempDir } = require('../helper/tmp.ts');
 const { loadTaxonomy } = require('../../src/runtime/intake/taxonomy.ts');
 const { previewSort, sortFolder, undoRun, listFolder, filePrompt } = require('../../src/runtime/intake/engine.ts');
-const { readManifest, manifestFile, withManifestLock, IntakeUsageError } = require('../../src/runtime/intake/manifest.ts');
+const { readManifest, manifestFile, withManifestLock, newRunId, IntakeUsageError } = require('../../src/runtime/intake/manifest.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const taxonomy = (): any => loadTaxonomy({ repoRoot: REPO, contributions: false }).taxonomy;
@@ -79,7 +79,7 @@ test('loose files land in their category folders and the manifest holds one done
   assert.equal(manifest.runs.length, 1);
   const run = manifest.runs[0];
   assert.equal(run.id, result.runId);
-  assert.match(run.id, /^run-\d{8}T\d{6}Z-[0-9a-f]{4}$/);
+  assert.match(run.id, /^run-\d{8}T\d{6}Z-[0-9a-f]{12}$/);
   assert.equal(run.action, 'sort');
   assert.ok(run.finishedAt);
   assert.equal(run.moves.length, 6);
@@ -822,6 +822,26 @@ test('planned entries from a dead run are reconciled by the next sort (done when
   assert.match(dead.moves[1].reason, /origin still holds a file/);
   assert.match(dead.moves[2].reason, /neither the origin nor the destination/);
   assert.ok(dead.finishedAt, 'the settled run is finished');
+});
+
+test('FU-w9j11f 10: 10,000 run ids made in one second are distinct, and readers take the new form and the old', (t: any) => {
+  const at = new Date('2026-11-15T10:00:00.000Z');
+  const ids = new Set<string>();
+  for (let i = 0; i < 10_000; i += 1) ids.add(newRunId(at));
+  assert.equal(ids.size, 10_000);
+  for (const id of ids) assert.match(id, /^run-20261115T100000Z-[0-9a-f]{12}$/);
+  // A manifest holding an old 4-hex id and a new 12-hex id reads, and undo names either.
+  const { ctx } = tree(t, { 'raw-prd/a.md': 'a', 'raw-prd/b.md': 'b' });
+  fs.mkdirSync(path.join(ctx, '.intake'));
+  const [fresh] = ids;
+  const run = (id: string, file: string): any => ({
+    id, action: 'sort', startedAt: '2026-11-15T10:00:00.000Z', finishedAt: '2026-11-15T10:00:01.000Z', source: null, stage: null, createdDirs: [],
+    moves: [{ from: file, to: `raw-prd/${file}`, sha256: sha(file === 'a.md' ? 'a' : 'b'), bytes: 1, at: 'x', state: 'done', reason: null }],
+  });
+  fs.writeFileSync(manifestFile(ctx), JSON.stringify({ schema: 1, runs: [run('run-20261101T000000Z-aaaa', 'a.md'), run(fresh, 'b.md')] }));
+  assert.deepEqual(readManifest(ctx).runs.map((r: any) => r.id), ['run-20261101T000000Z-aaaa', fresh]);
+  assert.equal(undoRun({ contextDir: ctx, runId: fresh, now: LATER() }).runId, fresh);
+  assert.equal(undoRun({ contextDir: ctx, runId: 'run-20261101T000000Z-aaaa', now: LATER() }).runId, 'run-20261101T000000Z-aaaa');
 });
 
 test('a sort with nothing to move still settles planned entries', (t: any) => {
