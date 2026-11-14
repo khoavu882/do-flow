@@ -68,8 +68,8 @@ follows is the call that positions the run and every branch off its response.
   ```bash
   "$DOFLOW" orchestrate --action annotate --task-id "<slug>" --node "<stage id>" --note "<what changed on this re-run>" --json
   ```
-- **`reason` is `run-completed` or `run-rejected`** — the run is finished and takes no further
-  stage. Report it and stop.
+- **`reason` starts with `run-`** (completed, rejected, closed) — the run is finished. Report it
+  and stop.
 - Positioning the run is advisory to the trail, not to the work: if the `catch-up` call itself
   fails for a reason outside this flow's control (an unwritable local state directory, say),
   report the failure plainly and continue — the hard prerequisite gate step 1 already enforced is

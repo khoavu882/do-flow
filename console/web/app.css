@@ -353,6 +353,7 @@
   .badge[data-state="done"] { background: var(--state-done-tint); color: var(--state-done-fg); }
   .badge[data-state="rejected"] { background: var(--state-rejected-tint); color: var(--state-rejected-fg); }
   .badge[data-state="stale"] { background: var(--state-stale-tint); color: var(--state-stale-fg); }
+  .badge[data-state="closed"] { background: transparent; color: var(--text-muted); box-shadow: inset 0 0 0 1px var(--border); }
 
   /* Summary tile */
   .tile {
@@ -1105,6 +1106,8 @@
   .activity--stale { border-color: var(--state-stale-mark); border-inline-start-color: var(--state-stale-mark); }
   .activity--rejected { border-color: var(--state-rejected-mark); border-inline-start-color: var(--state-rejected-mark); }
   .activity--done { border-inline-start-color: var(--state-done-mark); }
+  .activity--closed { border-inline-start-color: var(--border-strong); }
+  .activity--closed .activity__eyebrow { color: var(--text-muted); }
   .activity--gate { border-color: var(--state-awaiting-mark); border-inline-start-color: var(--state-awaiting-mark); }
   .activity__grid { display: grid; gap: var(--space-4); }
   .activity__eyebrow { font: var(--type-xs); color: var(--state-running-fg); }
@@ -1149,9 +1152,9 @@
   .activity__note { font: var(--type-sm); }
   .activity__tasks { font: var(--type-sm); }
   .activity__tasks .attempts__link { margin-top: 0; min-height: 0; }
-  .activity--done .activity__title, .activity--rejected .activity__title { margin-top: var(--space-2); }
-  .activity--done .activity__summary, .activity--rejected .activity__summary, .activity__counts { margin-top: var(--space-2); font: var(--type-md); color: var(--text); }
-  .activity--done .activity__name, .activity--rejected .activity__name { margin-top: var(--space-1); font: var(--type-md); }
+  .activity--done .activity__title, .activity--rejected .activity__title, .activity--closed .activity__title { margin-top: var(--space-2); }
+  .activity--done .activity__summary, .activity--rejected .activity__summary, .activity--closed .activity__summary, .activity__counts { margin-top: var(--space-2); font: var(--type-md); color: var(--text); }
+  .activity--done .activity__name, .activity--rejected .activity__name, .activity--closed .activity__name { margin-top: var(--space-1); font: var(--type-md); }
   @media (min-width: 480px) {
     .activity__facts { grid-template-columns: max-content minmax(0, 1fr); column-gap: var(--space-4); row-gap: var(--space-2); }
     .activity__facts dt { margin-top: 0; }

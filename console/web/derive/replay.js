@@ -75,7 +75,7 @@ function eventLabel(event) {
 
 /**
  * The run cursor after the run events in `included` (sorted order): the cursor only moves forward, so an event that sorts
- * late for want of a time cannot move the run back. A rejected gate stops the run there.
+ * late for want of a time cannot move the run back. A rejected gate stops the run there; a closed run stops where it stood.
  * @param {any[]} included
  * @param {any[]} program
  */
@@ -83,6 +83,7 @@ function foldRun(included, program) {
   let cursor = 0;
   let rejected = -1;
   let completed = false;
+  let closed = false;
   const past = (/** @type {'stage' | 'gate'} */ type, /** @type {string | null} */ id) => {
     const at = id === null ? -1 : program.findIndex((node) => node.type === type && node.id === id);
     cursor = Math.max(cursor, at >= 0 ? at + 1 : cursor + 1);
@@ -95,9 +96,11 @@ function foldRun(included, program) {
       if (event.raw && event.raw.decision === 'reject') rejected = program.findIndex((node) => node.type === 'gate' && node.id === event.node);
       else past('gate', event.node);
     } else if (action === 'complete-run') completed = true;
+    else if (action === 'close-run') closed = true;
   }
   if (rejected >= 0) return { state: 'REJECTED', cursor: rejected };
   if (completed || cursor >= program.length) return { state: 'COMPLETED', cursor: program.length };
+  if (closed) return { state: 'CLOSED', cursor };
   return { state: program[cursor].type === 'gate' ? 'AWAITING_GATE' : 'RUNNING', cursor };
 }
 

@@ -1457,7 +1457,7 @@ async function stepRow(ctx: any, row: any, worktrees: Map<string, string>): Prom
     if (slot.held?.kind === 'stage' || slot.held?.kind === 'dispatch') delete slot.held;
     delete slot.perform;
   }
-  if (run.state === 'REJECTED') return { skip: 'run-rejected' };
+  if (run.state === 'REJECTED' || run.state === 'CLOSED') return { skip: `run-${run.state.toLowerCase()}` };
   if (run.state === 'AWAITING_GATE' && node?.type === 'gate') return gateStep(ctx, row, orch, node.id, worktree);
   if (run.state === 'COMPLETED') return mergeStep(ctx, row, { run, worktree });
   if (run.state === 'RUNNING' && node?.type === 'stage') {

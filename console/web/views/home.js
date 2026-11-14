@@ -188,6 +188,8 @@ const described = new WeakMap();
 
 /** The slug and the muted task id of a run, as the title of a row or a card. @param {any} run */
 function titleParts(run) {
+  // A run named after its feature (most are) shows the name once; the link's title still carries both.
+  if (run.taskId === run.featureSlug) return [h('span', { class: 'run-row__slug' }, run.featureSlug)];
   return [h('span', { class: 'run-row__slug' }, run.featureSlug), h('span', { class: 'run-row__task' }, ` / ${run.taskId}`)];
 }
 
@@ -245,7 +247,7 @@ function runRow(run, index, context) {
   description.textContent = describeRun(run, { ...options, timeText: updatedText(run, now, { clock: clockTime }) });
   const { done, total } = progressOf(run);
   // R3-8: a Finished row's badge shares the phone line, so the fraction (which the rail already shows) is left out.
-  const fraction = run.state === 'COMPLETED' || run.state === 'REJECTED' ? null : stepFraction(run);
+  const fraction = run.state === 'COMPLETED' || run.state === 'REJECTED' || run.state === 'CLOSED' ? null : stepFraction(run);
   const part = stepPart(run);
   const exception = run.state !== 'RUNNING' || token === 'stale';
 

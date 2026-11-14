@@ -38,7 +38,10 @@ const {
 /** Appended to the note of an implementation stage completed with no task-attempt ledger (FR-006). */
 const NO_LEDGER_NOTE = 'No task-attempt ledger exists for this feature, so its tasks were not verified; outcome recorded as unverified.';
 
-const RUN_STATES = Object.freeze(['RUNNING', 'AWAITING_GATE', 'COMPLETED', 'REJECTED']);
+const RUN_STATES = Object.freeze(['RUNNING', 'AWAITING_GATE', 'COMPLETED', 'REJECTED', 'CLOSED']);
+/** A run in one of these takes no further stage, gate or close. CLOSED is the one a person sets: the
+ * work ended somewhere the record did not follow (shipped by hand, superseded, dropped). */
+const TERMINAL_STATES = Object.freeze(['COMPLETED', 'REJECTED', 'CLOSED']);
 
 /**
  * Every write to `run.state` passes through here, so RUN_STATES is the closed set it is declared to
@@ -762,8 +765,8 @@ class WorkflowOrchestrator {
     // `run-completed` for a re-invocation naming an already-recorded terminal stage, and six chain
     // skills branch on that exact distinction in opposite directions (annotate vs. stop-and-report),
     // so the trail silently stopped recording the re-run.
-    if (run.state === 'REJECTED') {
-      return { ...this.snapshot(run), caughtUpTo: null, reason: 'run-rejected' };
+    if (run.state === 'REJECTED' || run.state === 'CLOSED') {
+      return { ...this.snapshot(run), caughtUpTo: null, reason: `run-${run.state.toLowerCase()}` };
     }
     // ALL candidates already done means this caller's own handoff already happened — detect it
     // before the walk below can complete anything past it as a side effect. A caller with more than
@@ -774,7 +777,7 @@ class WorkflowOrchestrator {
       return { ...this.snapshot(run), caughtUpTo: null, reason: `already-completed:${candidateNodes.map((n: any) => n.id).join(',')}` };
     }
     for (;;) {
-      if (run.state === 'COMPLETED' || run.state === 'REJECTED') {
+      if (TERMINAL_STATES.includes(run.state)) {
         return { ...this.snapshot(run), caughtUpTo: null, reason: `run-${run.state.toLowerCase()}` };
       }
       const node = this.currentNode(run);
@@ -948,6 +951,21 @@ class WorkflowOrchestrator {
     return this.snapshot(run);
   }
 
+  /**
+   * End a run whose work ended outside the record. The reason is required and kept in the journal;
+   * no node changes status, so the record still shows how far the run really got. A finished run is
+   * refused: closing is not a way to rewrite an outcome.
+   */
+  close({ taskId, note, now }: any = {}) {
+    if (!note || !String(note).trim()) throw new Error('close requires a --note reason');
+    const run = this.requireRun(taskId);
+    if (TERMINAL_STATES.includes(run.state)) throw new Error(`Run '${run.taskId}' is already ${run.state}`);
+    run.history.push({ at: iso(now), action: 'close-run', node: this.currentNode(run)?.id ?? null, note: String(note).trim() });
+    run.state = runState('CLOSED');
+    this.writeRun(run, now);
+    return this.snapshot(run);
+  }
+
   /** After any advance: walk past finished nodes, land on the next pending action point, and set
    * the run state from what is found there. Cursor always sits ON the node awaiting action. */
   settleCursor(run: any) {
@@ -1024,13 +1042,13 @@ class WorkflowOrchestrator {
       : { state: 'RUNNING', cursor: 0, program: compileProgram(this.engine.resolveWorkflow(taskClass)) };
     const candidates = new Set(candidateStageIds);
     const stop = (reason: any, node: any = null) => ({ reason, stageId: reason === 'reached-candidate' ? node.id : null, node });
-    if (run.state === 'REJECTED') return stop('run-rejected');
+    if (run.state === 'REJECTED' || run.state === 'CLOSED') return stop(`run-${run.state.toLowerCase()}`);
     const candidateNodes = run.program.filter((n: any) => candidates.has(n.id));
     if (candidateNodes.length > 0 && candidateNodes.every((n: any) => n.status === 'completed' || n.status === 'approved' || n.status === 'skipped')) {
       return stop(`already-completed:${candidateNodes.map((n: any) => n.id).join(',')}`);
     }
     for (;;) {
-      if (run.state === 'COMPLETED' || run.state === 'REJECTED') return stop(`run-${run.state.toLowerCase()}`);
+      if (TERMINAL_STATES.includes(run.state)) return stop(`run-${run.state.toLowerCase()}`);
       const node = this.currentNode(run);
       if (!node) return stop('run-completed');
       if (node.type !== 'stage') return stop(`awaiting-gate:${node.id}`, node);
@@ -1126,7 +1144,7 @@ const journalTime = (value: any) => typeof value === 'string'
   && /^\d{4}-\d{2}-\d{2}T/.test(value) && !Number.isNaN(Date.parse(value)) ? value : null;
 
 /** The journal actions a timeline shows (093 IC-012); any other is counted in `otherEvents`. */
-const TIMELINE_ACTIONS = new Set(['start', 'complete-stage', 'skip-stage', 'skip-gate', 'decide-gate', 'annotate', 'complete-run']);
+const TIMELINE_ACTIONS = new Set(['start', 'complete-stage', 'skip-stage', 'skip-gate', 'decide-gate', 'annotate', 'complete-run', 'close-run']);
 const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
 
 /**
@@ -1507,6 +1525,10 @@ function handleOrchestrateCommand({
         if (!taskId || !gate || (policy === undefined && !decision)) return usageError('orchestrate', 'decide-gate requires --task-id, --gate and --decision approve|reject or --policy <gateId>', json);
         snapshot = orchestrator.decideGate({ taskId, gateId: gate, decision, policy, note, forced });
         break;
+      case 'close':
+        if (!taskId || !note) return usageError('orchestrate', 'close requires --task-id and --note (why the run ended outside the record)', json);
+        snapshot = orchestrator.close({ taskId, note });
+        break;
       case 'annotate':
         if (!taskId || !node || !note) return usageError('orchestrate', 'annotate requires --task-id, --node and --note', json);
         snapshot = orchestrator.annotate({ taskId, node, note, forced });
@@ -1528,13 +1550,13 @@ function handleOrchestrateCommand({
         return finishRuntime(0);
       }
       default:
-        return usageError('orchestrate', `unknown action '${action}'; valid: start | status | list | timeline | handoff | catch-up | complete-stage | skip-stage | decide-gate | annotate`, json);
+        return usageError('orchestrate', `unknown action '${action}'; valid: start | status | list | timeline | handoff | catch-up | complete-stage | skip-stage | decide-gate | annotate | close`, json);
     }
     // Row 135: the feature pointer follows a `feature` run: set when it starts (`start`, or the `catch-up` that
-    // starts it), dropped once it completes.
+    // starts it), dropped once it completes or is closed.
     if ((action === 'start' || absentBefore) && snapshot.taskClass === 'feature' && snapshot.state !== 'COMPLETED') {
       require('./feature-pointer.ts').recordFeature({ storeRoot: state, cwd: source, slug: featureSlug, taskId });
-    } else if (action !== 'status' && snapshot.taskClass === 'feature' && snapshot.state === 'COMPLETED') {
+    } else if (action !== 'status' && snapshot.taskClass === 'feature' && (snapshot.state === 'COMPLETED' || snapshot.state === 'CLOSED')) {
       require('./feature-pointer.ts').clearCheckout({ storeRoot: state, cwd: source, slug: featureSlug });
     }
     // Only a handoff that recorded work compacts; `deferred` and `standalone` recorded nothing.
@@ -1553,7 +1575,9 @@ function handleOrchestrateCommand({
       : `${gate} ${snapshot.taskId} denied by policy: ${snapshot.reasons.join(', ')}`);
     if (snapshot.annotations?.hint) console.log(`  ${snapshot.annotations.hint}`);
     if (snapshot.progress) console.log(`Progress: ${snapshot.progress.done}/${snapshot.progress.total}`);
-    if (snapshot.current) {
+    if (snapshot.current && (snapshot.state === 'REJECTED' || snapshot.state === 'CLOSED')) {
+      console.log(`Stopped at ${snapshot.current.type} '${snapshot.current.id}'`);
+    } else if (snapshot.current) {
       console.log(snapshot.awaitingGate
         ? `Awaiting gate ${snapshot.awaitingGate.gateId}${snapshot.awaitingGate.prompt ? `: ${snapshot.awaitingGate.prompt}` : ''}`
         : `Next: ${snapshot.current.type} '${snapshot.current.id}'${snapshot.current.mutatesSource ? ' (mutates source)' : ''}`);

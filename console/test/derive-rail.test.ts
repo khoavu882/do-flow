@@ -519,3 +519,28 @@ test('R4-3 sinceStamp: HH:MM today, "D Mon HH:MM" on any other local day, and th
   assert.equal(rail.tileFacts([run('w', 'AWAITING_GATE', new Date(at(25, 20, 1)).toISOString())], now, { stale: true }).needs.long, 'waiting since 25 Oct 20:01');
   assert.match(rail.describeGate(wait, { gate: { id: 'g', name: null, kind: null, prompt: null }, named: false, workflowName: 'X', nowMs: now, stale: true }), /Waiting for you since 25 Oct 20:01\./);
 });
+
+test('a CLOSED run: a finished run that stopped where it stood, on a stage or a gate, with nothing after it reached', () => {
+  // Closed on a stage: the steps before it keep what the record says, the step it stood on and the rest read not-reached.
+  const onStage = rail.deriveRail(WORKFLOW, row('CLOSED', stage('extra'), 2), null, NOW);
+  assert.equal(onStage.degraded, null, 'a closed run may stand on a stage');
+  assert.deepEqual(states(onStage).slice(2), ['not-reached', 'not-reached', 'not-reached']);
+  const onGate = rail.deriveRail(WORKFLOW, row('CLOSED', gate('gate-p'), 1), null, NOW);
+  assert.equal(onGate.degraded, null, 'and on a gate');
+  assert.deepEqual(states(onGate).slice(1), ['not-reached', 'not-reached', 'not-reached', 'not-reached']);
+  // A closed run that was silent for weeks is closed, never stale: only a RUNNING run can be stale.
+  const old = row('CLOSED', stage('extra'), 2, { updatedAt: '2026-09-01T00:00:00.000Z' });
+  assert.equal(rail.runToken(old, NOW), 'CLOSED');
+  assert.equal(rail.runWord(old, NOW), 'Closed');
+
+  assert.equal(rail.stepText(row('CLOSED', stage('extra'), 2)), 'Stopped at extra');
+  assert.deepEqual(rail.stepPart(row('CLOSED', stage('extra'), 2)), { lead: 'stopped at ', id: 'extra' });
+  assert.deepEqual(rail.runStepCopy(row('CLOSED', stage('extra'), 2)), { lead: 'stopped at step ', n: 3, tail: ' of 5' });
+
+  const ago = (ms: number) => new Date(NOW - ms).toISOString();
+  const runs = [run('r', 'RUNNING', ago(MIN)), run('c1', 'CLOSED', ago(MIN)), run('c2', 'CLOSED', ago(HOUR)), run('d', 'COMPLETED', ago(MIN)), run('x', 'REJECTED', ago(MIN))];
+  assert.deepEqual(rail.countRuns(runs), { needs: 0, running: 1, finished: 4 });
+  assert.equal(rail.tileFacts(runs, NOW).finished.long, '1 completed, 1 rejected, 2 closed');
+  // No closed run: the tile reads as it did before the state existed.
+  assert.equal(rail.tileFacts(runs.filter((r) => r.state !== 'CLOSED'), NOW).finished.long, '1 completed, 1 rejected');
+});

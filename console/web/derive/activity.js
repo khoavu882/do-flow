@@ -30,6 +30,7 @@ function eventWords(event) {
     case 'decide-gate': return `${node ?? 'A gate'} ${event.decision === 'reject' ? 'rejected' : 'approved'}${event.decision !== 'reject' && event.forced === true ? ', forced' : ''}${mark}`;
     case 'annotate': return `${node === null ? 'Note added' : `Note added on ${node}`}${mark}`;
     case 'complete-run': return `Run completed${mark}`;
+    case 'close-run': return `Run closed${node === null ? '' : ` at ${node}`}${mark}`;
     default: return `${String(event.action)}${mark}`;
   }
 }
@@ -43,6 +44,7 @@ function clauseWords(event) {
   if (event.action === 'start') return 'the run started';
   if (event.action === 'annotate') return node === null ? 'a note was added' : `a note was added on ${node}`;
   if (event.action === 'complete-run') return 'the run completed';
+  if (event.action === 'close-run') return 'the run was closed';
   const words = eventWords(event);
   const passive = /^(\S+) (skipped|approved|rejected)(.*)$/.exec(words);
   if (passive) return `${passive[1]} was ${passive[2]}${passive[3]}`;
@@ -114,7 +116,7 @@ function nodeOf(row, workflow, current) {
 /**
  * IC-009. `since` is the time of the last progress event; `waitedMs` is `nowMs - since` (never below zero) and null
  * without one. `lastEvent` is the literal last event, a note included. A finished run's `waitedMs` is how long the run
- * took (COMPLETED) or how long the rejecting gate waited (REJECTED).
+ * took (COMPLETED), how long the rejecting gate waited (REJECTED), or how long a closed run had stood still (CLOSED).
  * @param {any} row the run route's `run`
  * @param {any} workflow the registry workflow body
  * @param {any} timeline the timeline body, or null when it could not be read

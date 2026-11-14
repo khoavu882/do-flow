@@ -25,7 +25,7 @@ const keyOf = Object.freeze({
 });
 
 /** @type {Readonly<Record<string, string>>} */
-const RUN_TOKEN = Object.freeze({ RUNNING: 'running', stale: 'stale', AWAITING_GATE: 'awaiting', COMPLETED: 'done', REJECTED: 'rejected' });
+const RUN_TOKEN = Object.freeze({ RUNNING: 'running', stale: 'stale', AWAITING_GATE: 'awaiting', COMPLETED: 'done', REJECTED: 'rejected', CLOSED: 'closed' });
 
 /** The look of a stage or gate: the Run rail's tone (`toneOf`, console/web/views/rail.js), here without the DOM module. @param {any} node */
 function railTone(node) {

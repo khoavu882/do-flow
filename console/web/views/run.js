@@ -118,6 +118,8 @@ function stageSlot(model, ctx) {
     h('dl', { class: 'activity__facts' }, facts.flatMap(([term, value]) => [h('dt', {}, term), h('dd', {}, value)])),
     staleRun && model.since !== null
       ? h('p', { class: 'activity__stale' }, [icon('stale', 16), `No event since ${stampOf(model.since, ctx.nowMs)}. The run may have stopped without recording it.`]) : null,
+    // The Console decides nothing; it names the one command that ends a run whose work finished somewhere else.
+    staleRun ? h('p', { class: 'activity__note' }, ['If its work ended elsewhere, close it in a terminal: ', h('code', { class: 'mono' }, `doflow orchestrate --action close --task-id ${ctx.row.taskId}${typeof ctx.row.featureSlug === 'string' ? ` --slug ${ctx.row.featureSlug}` : ''} --note "<why>"`)]) : null,
     missing ? null : h('p', { class: 'activity__foot' }, 'Skill and agent are what the workflow declares for this stage.'),
   ]);
   return { el: h('section', { class: `activity activity--stage${staleRun ? ' activity--stale' : ''}`, 'aria-labelledby': 'activity-title', dataset: { changed: ctx.flash ? 'true' : null } }, [h('div', { class: 'activity__grid' }, [main, attemptsAside(model, ctx)])]) };
@@ -203,6 +205,7 @@ function gateSlot(model, ctx) {
 /** @param {any} model @param {any} ctx */
 function finishedSlot(model, ctx) {
   const done = ctx.row.state === 'COMPLETED';
+  const closed = ctx.row.state === 'CLOSED';
   const facts = model.lastEvent ? [h('dt', {}, 'Last event'), h('dd', {}, lastEventLine(model, ctx))] : !model.timelineAvailable ? [h('dt', {}, 'Last event'), h('dd', {}, 'not available')] : [];
   let summary;
   if (done) {
@@ -210,6 +213,10 @@ function finishedSlot(model, ctx) {
     const from = stampOf(ctx.startIso, ctx.nowMs);
     const to = stampOf(model.since, ctx.nowMs);
     summary = took === null || from === null || to === null ? 'Finished; the end time is not recorded.' : `Took ${took}, from ${from} to ${to}.`;
+  } else if (closed) {
+    const at = stampOf(model.since, ctx.nowMs);
+    const stood = formatDuration(model.waitedMs);
+    summary = `${at === null ? 'The time of the close is not recorded.' : `Closed at ${at}${stood === null ? '' : `, ${stood} after its last recorded step`}.`} The steps from here on were not recorded.`;
   } else {
     const at = stampOf(model.since, ctx.nowMs);
     const waited = formatDuration(model.waitedMs);
@@ -218,9 +225,9 @@ function finishedSlot(model, ctx) {
   const counts = done && ctx.rail && ctx.rail.degraded === null ? finishedCounts(ctx.rail.nodes) : null;
   const node = model.node;
   return {
-    el: h('section', { class: `activity activity--${done ? 'done' : 'rejected'}`, 'aria-labelledby': 'activity-title', dataset: { changed: ctx.flash ? 'true' : null } }, [
-      h('h2', { class: 'activity__eyebrow', id: 'activity-title' }, done ? 'Completed' : 'Rejected'),
-      done ? h('p', { class: 'activity__title' }, 'Run completed') : h('p', { class: 'activity__title' }, ['Rejected at ', h('span', { class: 'mono' }, node ? node.id : 'a gate')]),
+    el: h('section', { class: `activity activity--${done ? 'done' : closed ? 'closed' : 'rejected'}`, 'aria-labelledby': 'activity-title', dataset: { changed: ctx.flash ? 'true' : null } }, [
+      h('h2', { class: 'activity__eyebrow', id: 'activity-title' }, done ? 'Completed' : closed ? 'Closed' : 'Rejected'),
+      done ? h('p', { class: 'activity__title' }, 'Run completed') : h('p', { class: 'activity__title' }, [closed ? 'Closed at ' : 'Rejected at ', h('span', { class: 'mono' }, node ? node.id : closed ? 'its last step' : 'a gate')]),
       !done && node && !node.missing && node.name ? h('p', { class: 'activity__name' }, node.name) : null,
       h('p', { class: 'activity__summary' }, summary),
       counts ? h('p', { class: 'activity__counts' }, counts) : null,

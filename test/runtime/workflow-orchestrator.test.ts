@@ -325,6 +325,41 @@ test('catch-up reports run-rejected on a rejected run rather than throwing', () 
   assert.equal(rejected.caughtUpTo, null);
 });
 
+test('close ends a run that stopped outside the record: CLOSED, reason kept, nodes untouched', () => {
+  const orch = fresh();
+  orch.start({ taskId: 't.close', taskClass: 'feature' });
+  orch.completeStage({ taskId: 't.close', stageId: 'discovery' });
+  // The run is paused on gate-0: an abandoned run is as often AWAITING_GATE as RUNNING.
+  const closed = orch.close({ taskId: 't.close', note: '  merged by hand in 1f1bb66c  ' });
+  assert.equal(closed.state, 'CLOSED');
+  const run = orch.readRun('t.close');
+  assert.deepEqual(run.history.at(-1).action, 'close-run');
+  assert.equal(run.history.at(-1).node, 'gate-0');
+  assert.equal(run.history.at(-1).note, 'merged by hand in 1f1bb66c');
+  // Closing claims nothing about the work: the gate stays pending and the stages after it too.
+  assert.equal(run.program.find((n: any) => n.id === 'gate-0').status, 'pending');
+  assert.equal(run.program.find((n: any) => n.id === 'design').status, 'pending');
+
+  // A closed run takes no stage, no gate and no second close, and catch-up names the state.
+  assert.throws(() => orch.completeStage({ taskId: 't.close', stageId: 'design' }), /is CLOSED, not RUNNING/);
+  assert.throws(() => orch.decideGate({ taskId: 't.close', gateId: 'gate-0', decision: 'approve' }), /not awaiting a gate/);
+  assert.throws(() => orch.close({ taskId: 't.close', note: 'again' }), /already CLOSED/);
+  const caught = orch.catchUp({ taskId: 't.close', taskClass: 'feature', candidateStageIds: ['design'] });
+  assert.equal(caught.reason, 'run-closed');
+  assert.equal(caught.caughtUpTo, null);
+});
+
+test('close needs a reason and refuses a run that already finished', () => {
+  const orch = fresh();
+  orch.start({ taskId: 't.close-why', taskClass: 'feature' });
+  assert.throws(() => orch.close({ taskId: 't.close-why', note: '   ' }), /requires a --note reason/);
+  assert.equal(orch.readRun('t.close-why').state, 'RUNNING');
+  orch.completeStage({ taskId: 't.close-why', stageId: 'discovery' });
+  orch.decideGate({ taskId: 't.close-why', gateId: 'gate-0', decision: 'reject', note: 'wrong problem' });
+  assert.throws(() => orch.close({ taskId: 't.close-why', note: 'tidy' }), /already REJECTED/);
+  assert.throws(() => orch.close({ taskId: 't.absent', note: 'x' }), /No workflow run/);
+});
+
 test('H-A regression: catch-up on a COMPLETED run naming an already-recorded candidate returns already-completed:<id>, not run-completed', () => {
   const orch = fresh();
   orch.start({ taskId: 't.cu-completed', taskClass: 'bug' });

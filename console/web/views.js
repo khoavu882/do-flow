@@ -51,6 +51,7 @@ const BADGES = Object.freeze({
   AWAITING_GATE: { token: 'awaiting', face: 'awaiting', word: 'Waiting for you' },
   COMPLETED: { token: 'done', face: 'check', word: 'Completed' },
   REJECTED: { token: 'rejected', face: 'rejected', word: 'Rejected' },
+  CLOSED: { token: 'closed', face: 'skipped', word: 'Closed' },
   stale: { token: 'stale', face: 'stale', word: 'Stale' },
 });
 
@@ -85,7 +86,7 @@ function buildRunHead(params) {
   const crumb = h('nav', { class: 'run-head__crumb', 'aria-label': 'Breadcrumb' }, [
     h('a', { href: '#/' }, 'Runs'), h('span', { 'aria-hidden': 'true' }, ' / '), h('span', { class: 'mono' }, params.slug),
   ]);
-  const h1 = h('h1', { class: 'run-head__title', tabindex: '-1' }, [h('span', {}, params.slug), h('span', { class: 'run-head__task' }, ` / ${params.taskId}`)]);
+  const h1 = h('h1', { class: 'run-head__title', tabindex: '-1' }, [h('span', {}, params.slug), params.taskId === params.slug ? null : h('span', { class: 'run-head__task' }, ` / ${params.taskId}`)]);
   const meta = h('div', { class: 'run-head__metawrap' });
   const step = h('p', { class: 'run-head__step', hidden: true });
   const chainHref = hashFor({ id: 'session', params: { slug: params.slug, taskId: params.taskId } });
