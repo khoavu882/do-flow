@@ -1492,6 +1492,11 @@ function handleOrchestrateCommand({
     if (result !== undefined && action !== 'complete-stage' && action !== 'handoff') {
       return usageError('orchestrate', `'--result' has no effect on action '${action}' — only complete-stage and handoff record a stage outcome`, json);
     }
+    // A close cannot be undone, so a flag it would ignore (`--dry-run` above all) is refused, not dropped.
+    if (action === 'close') {
+      const noEffect = noEffectFlag({ taskId, taskClass, gate, decision, policy, forced, note, reason, stage, node, verificationPlan, scope, invariants, result, mcpOutcome, callingSkill, slug, dryRun }, ['--task-id', '--slug', '--note']);
+      if (noEffect) return usageError('orchestrate', `'${noEffect}' has no effect on action 'close'`, json);
+    }
     // And for --mcp-outcome: an outcome that nothing records must not look recorded.
     if (mcpOutcome !== undefined && action !== 'handoff') {
       return usageError('orchestrate', `'--mcp-outcome' has no effect on action '${action}' — only handoff records MCP outcomes`, json);

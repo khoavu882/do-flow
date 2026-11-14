@@ -180,8 +180,8 @@ function scanSessionsHistory(options: ScanOptions = {}): SessionsHistoryBody {
 
     const history: any[] = Array.isArray(record.history) ? record.history : [];
     const startedAt = record.startedAt || history[0]?.at || null;
-    const endedAt = (state === 'COMPLETED' || state === 'FAILED')
-      ? (history.findLast((h: any) => h?.action === 'complete-run' || h?.action === 'complete-stage' || h?.action === 'decide-gate')?.at || record.updatedAt || null)
+    const endedAt = (state === 'COMPLETED' || state === 'FAILED' || state === 'CLOSED')
+      ? (history.findLast((h: any) => h?.action === 'complete-run' || h?.action === 'close-run' || h?.action === 'complete-stage' || h?.action === 'decide-gate')?.at || record.updatedAt || null)
       : null;
 
     const startedMs = startedAt ? new Date(startedAt).getTime() : NaN;

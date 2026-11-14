@@ -166,6 +166,14 @@ test('close through the verb: the run reads CLOSED, the timeline shows close-run
   assert.equal(refused.status, 2, refused.stdout + refused.stderr);
   assert.match(refused.stdout + refused.stderr, /close requires --task-id and --note/);
 
+  // A close cannot be undone: a flag it would ignore is refused before anything is written.
+  for (const extra of [['--dry-run'], ['--task-class', 'feature'], ['--stage', 'reproduction']]) {
+    const ignored = runCli(root, ['orchestrate', '--action', 'close', '--task-id', 'c1', '--note', 'x', ...extra, '--json']);
+    assert.equal(ignored.status, 2, extra.join(' '));
+    assert.match(ignored.stdout + ignored.stderr, new RegExp(`'${extra[0]}' has no effect on action 'close'`));
+  }
+  assert.equal(ok(root, ['--action', 'status', '--task-id', 'c1']).state, 'RUNNING');
+
   assert.equal(ok(root, ['--action', 'close', '--task-id', 'c1', '--note', `shipped by hand ${MARKER}`]).state, 'CLOSED');
   assert.equal(ok(root, ['--action', 'status', '--task-id', 'c1']).state, 'CLOSED');
   const body = timeline(root, ['--task-id', 'c1']);

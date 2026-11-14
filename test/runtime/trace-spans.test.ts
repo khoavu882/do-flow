@@ -487,6 +487,7 @@ function orchD(taskId: any, end: any = null) {
     { at: ms('12:05:00.000'), action: 'complete-stage', node: 'design', outcome: 'verified' },
   ];
   if (end === 'complete') history.push({ at: ms('12:10:00.000'), action: 'complete-stage', node: 'plan', outcome: 'verified' }, { at: ms('12:10:00.000'), action: 'complete-run' });
+  if (end === 'close') history.push({ at: ms('12:10:00.000'), action: 'close-run', node: 'plan', note: 'shipped by hand' });
   if (end === 'reject') history.push({ at: ms('12:10:00.000'), action: 'decide-gate', node: 'gate-a', detail: 'reject', note: null, forced: false });
   return { version: 1, revision: 2, taskId, taskClass: 'feature', runKey: KEY_D, startedAt: ms('12:00:01.000'), history };
 }
@@ -543,6 +544,12 @@ test('FU-c2ddw2: a run namespaced under its feature slug closes the trace and ca
 
 test('D.1-fix: a rejected gate ends the orchestration run and closes the trace too', (t) => {
   const v: any = seedD(t, { orchestration: { 'F-6': orchD('F-6', 'reject') }, telemetry: [hookD(ms('12:13:00.000'))] });
+  assert.equal(traceOf(v, ID4).window.to, ms('12:10:00.000'));
+  assert.deepEqual(where(v, `${TELEMETRY}:1`), ['gap:unmatched']);
+});
+
+test('a closed run ends the orchestration run and closes the trace, as a rejected one does', (t) => {
+  const v: any = seedD(t, { orchestration: { 'F-7': orchD('F-7', 'close') }, telemetry: [hookD(ms('12:13:00.000'))] });
   assert.equal(traceOf(v, ID4).window.to, ms('12:10:00.000'));
   assert.deepEqual(where(v, `${TELEMETRY}:1`), ['gap:unmatched']);
 });
