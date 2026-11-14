@@ -138,7 +138,7 @@ test('external tool install accepts one command or evidence-backed routes, and r
   };
   const evidence = registry.externalTools.find((tool: any) => tool.id === 'bash').officialEvidence[0];
   const route = { installer: 'brew', command: ['brew', 'install', 'x'], evidence };
-  assert.equal(errorsFor((tool) => { tool.install = { routes: [route, { ...route, installer: 'npm', command: ['npm', 'install', 'x'], platforms: ['linux'], after: [['bash', 'install']] }] }; }), '');
+  assert.equal(errorsFor((tool) => { tool.install = { routes: [route, { ...route, installer: 'npm', command: ['npm', 'install', 'x'], platforms: ['linux'], after: [['bash', '--version']] }] }; }), '');
   assert.match(errorsFor((tool) => { delete tool.role; }), /role must be one of: required, optional/);
   assert.match(errorsFor((tool) => { tool.unlocks = ' '; }), /requires unlocks/);
   assert.match(errorsFor((tool) => { tool.install = { command: ['a'], routes: [route] }; }), /exactly one of 'command' or 'routes'/);
@@ -190,8 +190,15 @@ test('the validator enforces that DoFlow never runs a command that needs adminis
   assert.match(errorsFor((tool) => { tool.install = installs.afterNice; }), /after\[0\]: a command naming 'sudo' needs administrator rights/);
   assert.match(errorsFor((tool) => { tool.install = afterStep(['nice', 'true']); }), /after\[0\]: a command starting with 'nice' is neither the tool's own program nor its installer \(bash, brew\)/);
   assert.match(errorsFor((tool) => { tool.update = { command: ['run0', 'x'] }; }), /update\.command: a command naming 'run0' needs administrator rights/);
-  // The tool's own program is allowed as a status check and an after step: the bash tool's status is `bash --version`.
-  assert.equal(errorsFor((tool) => { tool.status = { commands: [['bash', '--version']] }; tool.install = afterStep(['bash', 'setup']); }), '');
+  // A shell, `env` or an interpreter given inline code is run only as `<program> --version`, which runs nothing else.
+  for (const command of [['bash', '--version'], ['sh', '--version'], ['env', '--version'], ['python3', '--version'], ['node', '--version']]) {
+    assert.equal(errorsFor((tool) => { tool.status = { commands: [command] }; }), '', `${command.join(' ')} is a harmless version check`);
+  }
+  for (const command of [['bash', '--version', '-c', 'x'], ['bash', '-c', 'x', '--version'], ['sh', '-c', 'sudo x'], ['/bin/sh', '-c', 'x'], ['env', 'sudo', 'x'], ['env', 'true'], ['python3', '-c', 'import os'], ['node', '-e', 'x'], ['perl', '-e', 'x'], ['busybox', 'sh'], ['bash', 'script.sh']]) {
+    assert.match(errorsFor((tool) => { tool.status = { commands: [command] }; }), /can run text it is given|needs administrator rights/, `${command.join(' ')} is accepted`);
+  }
+  assert.match(errorsFor((tool) => { tool.install = afterStep(['bash', '-c', 'x']); }), /after\[0\]: a command starting with 'bash' can run text it is given/);
+  assert.equal(errorsFor((tool) => { tool.status = { commands: [['bash', '--version']] }; tool.install = afterStep(['bash', '--version']); }), '');
   // A step that needs sudo is allowed where DoFlow only shows it, and a privileged shown-only route may hold anything.
   assert.equal(errorsFor((tool) => { tool.install = { routes: [{ installer: 'apt-get', command: ['sudo', 'apt-get', 'env', 'x'], privileged: true, evidence }] }; }), '');
   assert.equal(errorsFor((tool) => { tool.install = { routes: [{ ...route(evidence), manual: [{ command: ['sudo', 'x'], reason: 'needs root' }] }] }; }), '');

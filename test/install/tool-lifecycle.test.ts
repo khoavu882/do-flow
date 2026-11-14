@@ -302,7 +302,7 @@ test('the lifecycle refuses a privilege word or a wrapper before its runner, wit
     assert.deepEqual(ran, expectedRuns, `${id}: the runner saw only what is allowed`);
     const refused = out.results[0].followUps?.[0] ?? out.results[0];
     assert.equal(refused.status, 'refused', id);
-    assert.match(refused.reason, /does not run it/, id);
+    assert.match(refused.reason, /does not run|runs it only as/, id);
   }
   // update and uninstall go through the same door.
   const tool = { ...crafted('upd', route(['brew', 'install', 'x'])), update: { command: ['sh', '-c', 'x'] }, uninstall: { command: ['doas', 'x'] } };
@@ -346,6 +346,33 @@ test('the lifecycle runs only the tool\'s own program or a known installer, what
   const plan = await planToolLifecycle({ registry: { externalTools: [{ ...crafted(['brew', 'install', 'x']), status: { commands: [['tool-x', '--version'], ['nice', 'sudo', 'x']] } }] }, platform: 'darwin', execFileSyncImpl: fakeExec(new Map(), ran) });
   assert.deepEqual(ran.map((call) => call[0]), ['tool-x'], 'only the own program was asked');
   assert.equal(plan.tools[0].state, 'unknown');
+});
+
+test('a shell, env or an interpreter with inline code is run only as <program> --version', async () => {
+  const withStatus = (command: string[]) => ({ id: 'x', officialEvidence: ['https://example.test/x'], status: { commands: [command] } });
+  const asked = async (command: string[]) => {
+    const ran: any[] = [];
+    const plan = await planToolLifecycle({ registry: { externalTools: [withStatus(command)] }, platform: 'darwin', execFileSyncImpl: fakeExec(new Map(), ran) });
+    return { ran, state: plan.tools[0].state };
+  };
+  for (const command of [['bash', '--version'], ['sh', '--version'], ['env', '--version'], ['python3', '--version']]) {
+    const { ran, state } = await asked(command);
+    assert.deepEqual(ran, [command], `${command.join(' ')} runs as a version check`);
+    assert.equal(state, 'installed');
+  }
+  for (const command of [['bash', '--version', '-c', 'x'], ['bash', '-c', 'x', '--version'], ['sh', '-c', 'sudo x'], ['env', 'sudo', 'x'], ['env', 'true'], ['python3', '-c', 'import os'], ['node', '-e', 'x'], ['perl', '-e', 'x'], ['/bin/zsh', '-c', 'x']]) {
+    const { ran, state } = await asked(command);
+    assert.deepEqual(ran, [], `${command.join(' ')} never reaches the runner`);
+    assert.equal(state, 'inspection-failed');
+  }
+  // The same rule holds for a command that is run: an install route, an after step, an update.
+  const route = { installer: 'brew', command: ['brew', 'install', 'x'], after: [['bash', '-c', 'x']], evidence: 'https://example.test/x' };
+  const tool = { ...withStatus(['tool-x', '--version']), install: { routes: [route] }, update: { command: ['bash', '-c', 'x'] } };
+  const plan = await planToolLifecycle({ registry: { externalTools: [tool] }, action: 'install', platform: 'darwin', execFileSyncImpl: (file: string) => { if (file === 'tool-x') throw absent(file); return 'ok'; } });
+  const ran: any[] = [];
+  const out = executeToolLifecycle({ plan, displayCommand() {}, confirmCommand: () => true, execFileSyncImpl: fakeExec(new Map(), ran) });
+  assert.deepEqual(ran, [['brew', 'install', 'x']]);
+  assert.equal(out.results[0].followUps[0].status, 'refused');
 });
 
 test('update and uninstall say which installer is missing instead of failing with ENOENT', async () => {

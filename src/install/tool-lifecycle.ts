@@ -55,10 +55,23 @@ function allowedPrograms(tool: any, installer?: string): Set<string> {
   return allowed;
 }
 
+const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish', 'tcsh', 'csh', 'busybox', 'cmd', 'powershell', 'pwsh']);
+const INTERPRETERS = /^(python[\d.]*|node|perl|ruby)$/;
+
+/** A command that can run text it was handed: a shell, `env`, or an interpreter given inline code (`-c`, `-e` as a later word).
+ * Such a command is only run as `<program> --version`, which runs nothing else. */
+function runsGivenText(command: any): boolean {
+  if (!Array.isArray(command) || !command.length) return false;
+  const name = programName(command[0]);
+  if (SHELLS.has(name) || name === 'env') return true;
+  return INTERPRETERS.test(name) && command.slice(1).some((word) => word === '-c' || word === '-e');
+}
+
 /** Why DoFlow will not run this command, or null when it may. `allowed` is the set of programs it may start with. */
 function refusalReason(command: string[], allowed: Set<string> | null = null): string | null {
   const word = privilegeWord(command);
   if (word !== null) return `a command naming '${word}' needs administrator rights, so DoFlow does not run it`;
+  if (runsGivenText(command) && !(command.length === 2 && command[1] === '--version')) return `a command starting with '${command[0]}' can run text it is given, so DoFlow runs it only as '${command[0]} --version'`;
   if (allowed && !allowed.has(command?.[0])) return `a command starting with '${command?.[0]}' is neither the tool's own program nor its installer (${[...allowed].join(', ') || 'none'}), so DoFlow does not run it`;
   return null;
 }
