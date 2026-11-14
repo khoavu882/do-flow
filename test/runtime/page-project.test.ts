@@ -273,3 +273,26 @@ test('render-page refuses an unrecognized argument and a bad --diagrams value wi
   assert.equal(mode.status, 2);
   assert.match(mode.stderr, /--diagrams must be auto, inline, cdn or source, got: png/);
 });
+
+// FU-wdq963: block conversion recurses once per quote or list level, so thousands of levels overflowed the stack.
+// Past the depth limit the rest of the text is one escaped preformatted block, and the page still builds.
+for (const [name, text] of [
+  ['blockquote', `${'>'.repeat(5000)} deep <b>end</b>`],
+  ['list', `${'- '.repeat(5000)}deep <b>end</b>`],
+  ['indented list', `${Array.from({ length: 1000 }, (_v, k) => `${' '.repeat(k * 2)}- level ${k}`).join('\n')}\n`],
+] as Array<[string, string]>) {
+  test(`${name} nested thousands of levels deep still converts, the remainder as escaped text`, () => {
+    const out = html(`# T\n\n${text}\n\nAfter.\n`);
+    assert.match(out, /<pre><code>/);
+    assert.match(out, /<p>After\.<\/p>/);
+    assert.ok(!/<b>/.test(out), 'the remainder is escaped, not markup');
+    if (name !== 'indented list') assert.match(out, /deep &lt;b&gt;end&lt;\/b&gt;/);
+  });
+}
+
+test('ordinary nesting is unchanged by the depth limit', () => {
+  const out = html('> a\n> > b\n\n- x\n  - y\n    - z\n');
+  assert.ok(!/<pre>/.test(out), out);
+  assert.match(out, /<blockquote>\n<p>a<\/p>\n<blockquote>\n<p>b<\/p>\n<\/blockquote>\n<\/blockquote>/);
+  assert.match(out, /<li>x\n<ul>\n<li>y\n<ul>\n<li>z<\/li>/);
+});

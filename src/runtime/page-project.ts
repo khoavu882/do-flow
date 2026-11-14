@@ -195,7 +195,7 @@ function diagramHtml(source: string, ctx: any): string {
   return `<figure class="diagram diagram--source"><figcaption>Diagram source, not rendered</figcaption>${text}</figure>`;
 }
 
-function listHtml(lines: string[], start: number, ctx: any): { html: string; next: number } {
+function listHtml(lines: string[], start: number, ctx: any, depth: number): { html: string; next: number } {
   const base = indentOf(lines[start]);
   const ordered = /^\s*\d/.test(lines[start]);
   const items: string[] = [];
@@ -227,7 +227,7 @@ function listHtml(lines: string[], start: number, ctx: any): { html: string; nex
       box = `<input type="checkbox" disabled${task[1] === ' ' ? '' : ' checked'}> `;
       first = task[2];
     }
-    const blocks = blocksHtml([first, ...rest.map((l) => l.slice(Math.min(cut, indentOf(l))))], ctx);
+    const blocks = blocksHtml([first, ...rest.map((l) => l.slice(Math.min(cut, indentOf(l))))], ctx, depth + 1);
     // A one-paragraph item reads as a line, not as a paragraph inside a bullet.
     if (blocks.length > 0 && blocks[0].startsWith('<p>')) blocks[0] = blocks[0].slice(3, -4);
     items.push(`<li${task ? ' class="task"' : ''}>${box}${blocks.join('\n')}</li>`);
@@ -237,8 +237,16 @@ function listHtml(lines: string[], start: number, ctx: any): { html: string; nex
   return { html: `<${tag}${first > 1 ? ` start="${first}"` : ''}>\n${items.join('\n')}\n</${tag}>`, next: i };
 }
 
-/** The HTML blocks of a run of markdown lines. */
-function blocksHtml(lines: string[], ctx: any): string[] {
+/** Quote and list levels converted as nested blocks; real documents stay in single digits. */
+const MAX_BLOCK_DEPTH = 64;
+
+/**
+ * The HTML blocks of a run of markdown lines. Each quote or list level recurses with `depth + 1`; past
+ * MAX_BLOCK_DEPTH the remaining lines are one escaped preformatted block, so a hostile document cannot
+ * overflow the stack (FU-wdq963).
+ */
+function blocksHtml(lines: string[], ctx: any, depth = 0): string[] {
+  if (depth > MAX_BLOCK_DEPTH) return [`<pre><code>${escapeHtml(lines.join('\n'))}</code></pre>`];
   const out: string[] = [];
   let i = 0;
   while (i < lines.length) {
@@ -278,7 +286,7 @@ function blocksHtml(lines: string[], ctx: any): string[] {
     if (QUOTE.test(line)) {
       const body: string[] = [];
       while (i < lines.length && QUOTE.test(lines[i])) { body.push(lines[i].replace(QUOTE, '')); i++; }
-      out.push(`<blockquote>\n${blocksHtml(body, ctx).join('\n')}\n</blockquote>`);
+      out.push(`<blockquote>\n${blocksHtml(body, ctx, depth + 1).join('\n')}\n</blockquote>`);
       continue;
     }
 
@@ -295,7 +303,7 @@ function blocksHtml(lines: string[], ctx: any): string[] {
     }
 
     if (LIST_ITEM.test(line)) {
-      const list = listHtml(lines, i, ctx);
+      const list = listHtml(lines, i, ctx, depth);
       out.push(list.html);
       i = list.next;
       continue;

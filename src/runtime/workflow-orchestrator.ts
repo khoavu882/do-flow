@@ -43,6 +43,22 @@ const RUN_STATES = Object.freeze(['RUNNING', 'AWAITING_GATE', 'COMPLETED', 'REJE
  * work ended somewhere the record did not follow (shipped by hand, superseded, dropped). */
 const TERMINAL_STATES = Object.freeze(['COMPLETED', 'REJECTED', 'CLOSED']);
 
+/** The statuses a program node may hold. `rejected` is a gate's refusal and ends the run. */
+const NODE_STATUSES = Object.freeze(['pending', 'completed', 'skipped', 'approved', 'rejected']);
+
+/** True once the program has walked past the node: completed, skipped or approved. The one copy of that predicate. */
+function isNodeDone(node: any): boolean {
+  return node?.status === 'completed' || node?.status === 'skipped' || node?.status === 'approved';
+}
+
+/** Every write to a node's `status` passes through here, as `runState` does for the run: an unknown status is refused. */
+function nodeStatus(status: any) {
+  if (!NODE_STATUSES.includes(status)) {
+    throw new Error(`Unknown node status '${status}' (expected one of: ${NODE_STATUSES.join(', ')})`);
+  }
+  return status;
+}
+
 /**
  * Every write to `run.state` passes through here, so RUN_STATES is the closed set it is declared to
  * be rather than a comment that happens to list four strings.
@@ -67,7 +83,7 @@ function runState(state: any) {
 /** The stable status shape shared by the status action and the read-only list action. */
 function snapshotRun(run: any) {
   const current = run.cursor < run.program.length ? run.program[run.cursor] : null;
-  const done = run.program.filter((n: any) => n.status === 'completed' || n.status === 'skipped' || n.status === 'approved').length;
+  const done = run.program.filter(isNodeDone).length;
   return {
     taskId: run.taskId,
     taskClass: run.taskClass,
@@ -182,7 +198,7 @@ function compileProgram(workflow: any) {
       mutatesSource: Boolean(stage.mutatesSource),
       readinessTemplate: stage.readinessTemplate ?? null,
       optional: Boolean(stage.optional),
-      status: 'pending',
+      status: nodeStatus('pending'),
     });
     for (let i = gates.length - 1; i >= 0; i -= 1) {
       const gate = gates[i];
@@ -190,7 +206,7 @@ function compileProgram(workflow: any) {
       nodes.push({
         type: 'gate', id: gate.id, name: gate.name ?? gate.id,
         kind: gate.kind ?? 'approval', trigger: gate.trigger ?? null,
-        prompt: gate.prompt ?? null, status: 'pending',
+        prompt: gate.prompt ?? null, status: nodeStatus('pending'),
       });
       gates.splice(i, 1);
     }
@@ -650,7 +666,7 @@ class WorkflowOrchestrator {
     // No ledger for the feature: the stage is recorded, but nothing verified its tasks, and the
     // record says so whatever outcome the caller supplied (FR-006).
     const unledgered = attempts?.state === 'none';
-    node.status = 'completed';
+    node.status = nodeStatus('completed');
     node.executionStatus = backfilled ? 'imported' : 'completed';
     node.outcome = backfilled || unledgered ? 'unverified' : (outcome ?? 'unverified');
     run.history.push({
@@ -676,7 +692,7 @@ class WorkflowOrchestrator {
     const run = this.requireRun(taskId);
     const node = this.expectOpenStage(run, stageId);
     if (!node.optional) throw new Error(`Stage '${node.id}' is required and cannot be skipped`);
-    node.status = 'skipped';
+    node.status = nodeStatus('skipped');
     run.history.push({ at: iso(now), action: 'skip-stage', node: node.id, note: reason ?? null, backfilled: Boolean(backfilled) });
     let lookahead = run.cursor + 1;
     while (lookahead < run.program.length) {
@@ -684,7 +700,7 @@ class WorkflowOrchestrator {
       // A gate sits immediately after its anchor in the program, so any pending gate directly
       // following the skipped stage is anchored to it and can never fire.
       if (nextNode.type !== 'gate' || nextNode.status !== 'pending') break;
-      nextNode.status = 'skipped';
+      nextNode.status = nodeStatus('skipped');
       run.history.push({ at: iso(now), action: 'skip-gate', node: nextNode.id, note: 'anchor stage skipped', backfilled: Boolean(backfilled) });
       lookahead += 1;
     }
@@ -773,7 +789,7 @@ class WorkflowOrchestrator {
     // one candidate (do-test owns two occurrences in `bug`/`refactor`) is not done until every
     // occurrence is: one completed and one still pending must still walk forward to the pending one.
     const candidateNodes = run.program.filter((n: any) => candidates.has(n.id));
-    if (candidateNodes.length > 0 && candidateNodes.every((n: any) => n.status === 'completed' || n.status === 'approved' || n.status === 'skipped')) {
+    if (candidateNodes.length > 0 && candidateNodes.every(isNodeDone)) {
       return { ...this.snapshot(run), caughtUpTo: null, reason: `already-completed:${candidateNodes.map((n: any) => n.id).join(',')}` };
     }
     for (;;) {
@@ -832,7 +848,7 @@ class WorkflowOrchestrator {
     if (!node || node.type !== 'gate') throw new Error('Run state says AWAITING_GATE but no gate is at the cursor');
     if (node.id !== gateId) throw new Error(`Expected gate '${node.id}' next, got '${gateId}'`);
     if (policy !== undefined) return this.decideGateByPolicy(run, node, policy, now, bindHead);
-    node.status = decision === 'approve' ? 'approved' : 'rejected';
+    node.status = nodeStatus(decision === 'approve' ? 'approved' : 'rejected');
     node.decision = decision;
     run.history.push({ at: iso(now), action: 'decide-gate', node: node.id, detail: decision, note: note ?? null, forced: Boolean(forced) });
     if (decision === 'reject') {
@@ -908,7 +924,7 @@ class WorkflowOrchestrator {
     if (evaluation.decision === 'deny') return { ...this.snapshot(run), ...evaluation, policy };
 
     const audit = `approved by policy ${policyId}@${loaded.digest} (${evaluation.inputs.length} inputs)`;
-    node.status = 'approved';
+    node.status = nodeStatus('approved');
     node.decision = 'approve';
     // `policy.digest` and every fact's {locator, sha256} let a later reader re-derive this decision.
     // C15: the roadmap loop names the feature head it read before deciding (bindHead). The entry keeps
@@ -972,7 +988,7 @@ class WorkflowOrchestrator {
     for (;;) {
       if (run.cursor >= run.program.length) { run.state = runState('COMPLETED'); return; }
       const node = run.program[run.cursor];
-      if (node.status === 'completed' || node.status === 'skipped' || node.status === 'approved') { run.cursor += 1; continue; }
+      if (isNodeDone(node)) { run.cursor += 1; continue; }
       if (node.type === 'gate' && node.status === 'pending') { run.state = runState('AWAITING_GATE'); return; }
       run.state = runState('RUNNING');
       return;
@@ -1044,7 +1060,7 @@ class WorkflowOrchestrator {
     const stop = (reason: any, node: any = null) => ({ reason, stageId: reason === 'reached-candidate' ? node.id : null, node });
     if (run.state === 'REJECTED' || run.state === 'CLOSED') return stop(`run-${run.state.toLowerCase()}`);
     const candidateNodes = run.program.filter((n: any) => candidates.has(n.id));
-    if (candidateNodes.length > 0 && candidateNodes.every((n: any) => n.status === 'completed' || n.status === 'approved' || n.status === 'skipped')) {
+    if (candidateNodes.length > 0 && candidateNodes.every(isNodeDone)) {
       return stop(`already-completed:${candidateNodes.map((n: any) => n.id).join(',')}`);
     }
     for (;;) {
@@ -1054,12 +1070,12 @@ class WorkflowOrchestrator {
       if (node.type !== 'stage') return stop(`awaiting-gate:${node.id}`, node);
       if (candidates.has(node.id)) return stop('reached-candidate', node);
       if (node.mutatesSource) return stop(`blocked-on-mutating-stage:${node.id}`, node);
-      node.status = node.optional ? 'skipped' : 'completed';
+      node.status = nodeStatus(node.optional ? 'skipped' : 'completed');
       if (node.optional) {
         for (let next = run.cursor + 1; next < run.program.length; next += 1) {
           const gate = run.program[next];
           if (gate.type !== 'gate' || gate.status !== 'pending') break;
-          gate.status = 'skipped';
+          gate.status = nodeStatus('skipped');
         }
       }
       run.cursor += 1;
@@ -1599,6 +1615,6 @@ function handleOrchestrateCommand({
 }
 
 module.exports = {
-  WorkflowOrchestrator, loopWorkflow, RUN_STATES, GATE_DECISIONS, STAGE_OUTCOMES, handleOrchestrateCommand, recordStagePack,
+  WorkflowOrchestrator, loopWorkflow, RUN_STATES, NODE_STATUSES, isNodeDone, nodeStatus, GATE_DECISIONS, STAGE_OUTCOMES, handleOrchestrateCommand, recordStagePack,
   snapshotRun, timelineOf, listRunsResult, statusResult, timelineResult,
 };
