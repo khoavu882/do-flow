@@ -399,6 +399,7 @@ Artifact and repository state:
   validate         artifact index/detail consistency check
   render-audit     regenerate audit.md from the orchestration journal
   render-diagrams  render a chain artifact's mermaid blocks to image files
+  render-page      write a feature's documents as one self-contained HTML page
   render-puml      render authored PlantUML sources and project them inline
   git-state        branch class and derived branch names
   prereqs          stage prerequisite checks
@@ -563,6 +564,7 @@ shell_helper_for() {
     validate)       printf 'validate-artifacts.sh' ;;
     render-audit)   printf 'render-audit.sh' ;;
     render-diagrams) printf 'render-diagrams.sh' ;;
+    render-page)    printf 'render-page.sh' ;;
     render-puml)    printf 'render-puml.sh' ;;
     git-state)      printf 'do-git-state.sh' ;;
     prereqs)        printf 'do-prereqs.sh' ;;

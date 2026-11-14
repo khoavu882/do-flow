@@ -94,6 +94,7 @@ const UNMEASURED: Readonly<Record<string, string>> = {
   remove: INSTALLER,
   'render-audit': NEEDS_LIVE_RUN,
   'render-diagrams': NEEDS_LIVE_RUN,
+  'render-page': NEEDS_LIVE_RUN,
   'render-puml': NEEDS_LIVE_RUN,
   'research-request': WRITES_STATE,
   'retrieval-plan': NEEDS_LIVE_RUN,
