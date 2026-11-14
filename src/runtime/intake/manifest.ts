@@ -11,6 +11,7 @@
 const nodeFs = require('node:fs');
 const path = require('node:path');
 const nodeCrypto = require('node:crypto');
+const { writeFileAtomic } = require('../write-file-atomic.ts');
 const { acquireLock } = require('../task-state.ts');
 
 const MANIFEST_SCHEMA = 1;
@@ -93,17 +94,7 @@ function readManifest(contextDir: string, fsImpl: any = nodeFs): any {
  * reclaimed writes nothing (the way `updateTaskState` does).
  */
 function writeManifest(contextDir: string, manifest: any, fsImpl: any = nodeFs, assertHeld: () => void = () => {}): void {
-  const file = manifestFile(contextDir);
-  fsImpl.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.tmp`;
-  try {
-    fsImpl.writeFileSync(tmp, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
-    assertHeld();
-    fsImpl.renameSync(tmp, file);
-  } catch (error: any) {
-    try { fsImpl.rmSync(tmp, { force: true }); } catch { /* nothing to clean */ }
-    throw error;
-  }
+  writeFileAtomic(manifestFile(contextDir), `${JSON.stringify(manifest, null, 2)}\n`, { fsImpl, beforeRename: assertHeld });
 }
 
 /**

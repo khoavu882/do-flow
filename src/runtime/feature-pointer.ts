@@ -18,6 +18,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { writeFileAtomic } = require('./write-file-atomic.ts');
 const { execFileSync } = require('node:child_process');
 const { resolveActiveFeature } = require('./feature-resolve.ts');
 
@@ -64,14 +65,7 @@ function readEntry(file: string): { status: 'none' | 'ok' | 'unreadable'; data?:
 }
 
 function writeEntry(file: string, entry: PointerEntry): void {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const temp = `${file}.${process.pid}.tmp`;
-  try {
-    fs.writeFileSync(temp, `${JSON.stringify(entry, null, 2)}\n`);
-    fs.renameSync(temp, file);
-  } finally {
-    try { fs.unlinkSync(temp); } catch { /* renamed away, or never written */ }
-  }
+  writeFileAtomic(file, `${JSON.stringify(entry, null, 2)}\n`);
 }
 
 function removeEntry(file: string): void {

@@ -1716,6 +1716,10 @@
       "reason": "agent-docs deliverable (decisions register of a feature)"
     },
     {
+      "file": "src/runtime/write-file-atomic.ts",
+      "reason": "shared temp-file-then-rename writer; each caller is declared for what it writes"
+    },
+    {
       "file": "src/runtime/history-compactor.ts",
       "reason": "agent-docs deliverable (decisions/history archive and artifact stub)"
     },
