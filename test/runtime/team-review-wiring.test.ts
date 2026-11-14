@@ -292,7 +292,6 @@ function startRepo(t: any, { evidence = false, pass = true, run = true, taskClas
       stateRoot: f.project, taskId: START_SLUG, mode: 'workflow', inputs: {},
       report: { taskClass: 'feature', templateName: 'feature', requirements: [], state: 'READY' },
     });
-    put(`.doflow/state/team/pre-checks/${START_SLUG}.json`, JSON.stringify({ passed: true, failures: [] }));
   }
   return f;
 }
@@ -334,13 +333,13 @@ function assertStartUnchanged(v: any) {
 }
 
 describe('review start: the pre-check verdict', () => {
-  test('final emit, no pre-check evidence: refused / ERR_MECHANICAL_CHECKS_FAILED with both failures counted', async (t: any) => {
+  test('final emit, no readiness record: refused / ERR_MECHANICAL_CHECKS_FAILED counting that one failure', async (t: any) => {
     const f = startRepo(t);
     const v = await startVariants(f);
     assert.equal(v.baseline.exitCode, 0, v.baseline.out.join('\n'));
     assert.equal(JSON.parse(v.baseline.out.join('\n')).ok, true);
     assertStartUnchanged(v);
-    const expected = { site: 'review-start', rule: 'pre-check', outcome: 'refused', reason: 'ERR_MECHANICAL_CHECKS_FAILED', mode: 'advisory', task: START_SLUG, count: 2 };
+    const expected = { site: 'review-start', rule: 'pre-check', outcome: 'refused', reason: 'ERR_MECHANICAL_CHECKS_FAILED', mode: 'advisory', task: START_SLUG, count: 1 };
     assert.equal(v.teamRecords.length, 1);
     const { kind, ...verdict } = v.teamRecords[0];
     assert.deepEqual(verdict, expected);
@@ -372,14 +371,14 @@ describe('review start: the pre-check verdict', () => {
     });
   });
 
-  test('failed-precondition emit, evidence present: exit 1 as before, one admitted verdict', async (t: any) => {
+  test('failed-precondition emit, READY record: exit 1 as before, one refused verdict naming the one unmet verify reason', async (t: any) => {
     const f = startRepo(t, { pass: false, evidence: true });
     const v = await startVariants(f);
     assert.equal(v.baseline.exitCode, 1);
     assertStartUnchanged(v);
     assert.equal(v.teamRecords.length, 1);
     assertTeamLine(v.realLines[0], f.project, {
-      site: 'review-start', rule: 'pre-check', outcome: 'admitted', reason: null, mode: 'advisory', task: START_SLUG, count: null,
+      site: 'review-start', rule: 'pre-check', outcome: 'refused', reason: 'ERR_MECHANICAL_CHECKS_FAILED', mode: 'advisory', task: START_SLUG, count: 1,
     });
   });
 

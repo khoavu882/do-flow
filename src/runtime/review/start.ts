@@ -364,9 +364,9 @@ function emit(out: (line: string) => void, json: boolean, result: any, nextComma
 }
 
 /** 143 IC-002: record the pre-check verdict of an applicable start; observation only, never throws into the verb. */
-function observeApplicableStart(slug: string | null, cwd: string, env: Env, writer: unknown): void {
+function observeApplicableStart(slug: string | null, cwd: string, env: Env, writer: unknown, verifyReasons: readonly string[]): void {
   try {
-    require('../team/evaluate.ts').observeStart({ slug, cwd, env, writer });
+    require('../team/evaluate.ts').observeStart({ slug, cwd, env, writer, verifyReasons });
   } catch { /* a recording fault never changes the start */ }
 }
 
@@ -450,7 +450,7 @@ async function handleReviewStart({ slug, base, preset, json = false, cwd, env, r
       if (result.reasons.length) {
         result.ok = false;
         nextCommand = `doflow verify --action report --task-id ${verifyId}${typeof base === 'string' ? ` --baseline-ref ${base}` : ''}`;
-        observeApplicableStart(resolvedSlug, cwd, env, teamWriter);
+        observeApplicableStart(resolvedSlug, cwd, env, teamWriter, result.reasons);
         emit(out, json, result, nextCommand);
         return finishRuntime(1);
       }
@@ -538,7 +538,7 @@ async function handleReviewStart({ slug, base, preset, json = false, cwd, env, r
     result.protocolDigest = protocolDigest(protocol);
     result.depthBasis = { scope, files: paths ? paths.length : null, base: paths ? baseSha : null, floor, raisedBy };
     result.advice = advice;
-    if (result.applicable) observeApplicableStart(resolvedSlug, cwd, env, teamWriter);
+    if (result.applicable) observeApplicableStart(resolvedSlug, cwd, env, teamWriter, result.reasons);
     emit(out, json, result, null);
     return finishRuntime(0);
   } catch (error: any) {

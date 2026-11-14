@@ -196,15 +196,18 @@ function record(verdicts: TeamVerdict[], options: RecordOptions = {}): void {
   }
 }
 
-/** IC-002: the pre-check verdict of a `review start`, recorded to `writer` (or a writer at `cwd`). Never throws. */
-function observeStart({ slug, cwd, env, writer }: { slug: string | null; cwd: string; env?: Env; writer?: RecordOptions['writer'] }): void {
+/**
+ * IC-002: the pre-check verdict of a `review start`, recorded to `writer` (or a writer at `cwd`).
+ * `verifyReasons` is the start's own precondition result. Never throws.
+ */
+function observeStart({ slug, cwd, env, writer, verifyReasons }: { slug: string | null; cwd: string; env?: Env; writer?: RecordOptions['writer']; verifyReasons?: readonly string[] }): void {
   let outcome: TeamVerdict;
   try {
     if (typeof slug !== 'string' || !slug) {
       outcome = verdict('review-start', 'pre-check', 'not-evaluable', 'no-feature', 'advisory', null);
     } else {
       try {
-        assertMechanicalPreChecks(slug, cwd);
+        assertMechanicalPreChecks(slug, cwd, { verifyReasons });
         outcome = verdict('review-start', 'pre-check', 'admitted', null, 'advisory', slug);
       } catch (error) {
         outcome = error instanceof MechanicalPreChecksIncompleteError
