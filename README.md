@@ -69,7 +69,7 @@ including project-scoped installation and rollback, is in [Setup](docs/setup.md)
 ## External tools
 
 DoFlow lists every command-line tool it uses, says what each one unlocks, and helps install the
-ones that are missing:
+ones that are missing (tools are checked on macOS and Linux):
 
 ```bash
 doflow tools                                   # required and optional tools, present or absent
