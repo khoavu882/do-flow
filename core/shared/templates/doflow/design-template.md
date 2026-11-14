@@ -237,6 +237,10 @@ stateDiagram-v2
   - **Does not own:** [what a reader could expect it to hold but another component does].
   - **Contracts:** [the FR-### and IC-### identifiers it serves].
 
+<!-- A feature with a user interface, a language model, a data pipeline, infrastructure work or a
+     public library/CLI surface adds the matching parts of `discipline-sections.md` (beside this
+     template) here as `###` subsections. A plain service adds none. -->
+
 ## 6. API / Interface Contracts
 
 <!-- Endpoints, CLI verb signatures, and repository/service interfaces that anchor implementation
