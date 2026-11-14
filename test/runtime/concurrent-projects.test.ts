@@ -90,6 +90,11 @@ async function runPool(jobs: any[]): Promise<any[]> {
   return results;
 }
 
+/** A temporary, lock, claim or moved-aside name no finished run leaves behind. */
+function isLeftover(name: string): boolean {
+  return /(\.tmp|\.lock)$|\.lock\.d$|\.claim\.|\.gone$|\.tmp-/.test(name);
+}
+
 function walk(dir: string, found: any[] = []): any[] {
   let entries: any[];
   try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return found; }
@@ -128,7 +133,7 @@ test('isolation: verbs run in parallel across projects each keep exactly their o
   const scanRoots = [...Object.entries<any>(projects).flatMap(([proj, info]) => info.roots.map((root: string) => [proj, root])), ['shared', env.HOME], ['shared', env.XDG_CONFIG_HOME]];
   for (const [owner, root] of scanRoots) {
     for (const { file, directory } of walk(root)) {
-      if (/(\.tmp|\.lock)$|\.lock\.d$|\.claim\./.test(path.basename(file)) || /\.tmp-/.test(path.basename(file))) left.push(file);
+      if (isLeftover(path.basename(file))) left.push(file);
       if (directory) continue;
       const text = fs.readFileSync(file, 'utf8');
       try {
@@ -139,7 +144,7 @@ test('isolation: verbs run in parallel across projects each keep exactly their o
     }
   }
   assert.deepEqual(broken, [], 'every state file parses');
-  assert.deepEqual(left, [], 'no temporary, lock or claim file is left');
+  assert.deepEqual(left, [], 'no temporary, lock, claim or moved-aside file is left');
   for (const r of results.filter((job) => job.marker)) {
     assert.deepEqual([...(seen[r.marker] || [])], [r.proj], `${r.marker} is in its own project and nowhere else`);
   }
@@ -154,4 +159,9 @@ test('isolation: verbs run in parallel across projects each keep exactly their o
   const userFile = path.join(env.XDG_CONFIG_HOME, 'doflow', 'settings.json');
   const user = JSON.parse(fs.readFileSync(userFile, 'utf8'));
   for (const [key, value] of Object.values<any>(USER_SETTINGS)) assert.equal(user[key], value, `${key} is in the shared user settings`);
+});
+
+test('the leftover check flags every name a lock reclaim can leave', () => {
+  for (const name of ['settings.json.lock', 'settings.json.lock.4242.deadbeef.gone', 'upkeep-roots.lock.4242.deadbeef.gone', 'x.tmp', 'run.lock.claim.abc']) assert.equal(isLeftover(name), true, name);
+  for (const name of ['settings.json', 'upkeep-roots', 'sessions.log']) assert.equal(isLeftover(name), false, name);
 });
