@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const { tempDir } = require('../helper/tmp.ts');
 const path = require('node:path');
+const { spawn } = require('node:child_process');
 const {
   normalizeToolState, planToolLifecycle, executeToolLifecycle, chooseInstallRoute, describeInstall, plainCommand,
 } = require('../../src/install/tool-lifecycle.ts') as any;
@@ -27,23 +28,23 @@ function fakeExec(outcomes: any, calls: any[] = []) {
   };
 }
 
-test('normalizes status outcomes without shortcutting any status command', () => {
+test('normalizes status outcomes without shortcutting any status command', async () => {
   assert.equal(normalizeToolState([{ result: 'absent' }]), 'absent');
   assert.equal(normalizeToolState([{ result: 'succeeded' }]), 'installed');
   assert.equal(normalizeToolState([{ result: 'succeeded' }, { result: 'absent' }]), 'unknown');
   assert.equal(normalizeToolState([{ result: 'failed' }]), 'inspection-failed');
 
   const calls: any[] = [];
-  const plan = planToolLifecycle({ registry, action: 'status', platform: 'linux', execFileSyncImpl: fakeExec(new Map([
+  const plan = await planToolLifecycle({ registry, action: 'status', platform: 'linux', execFileSyncImpl: fakeExec(new Map([
     ['rtk --version', 'rtk 1'], ['rtk gain', absent('rtk gain')], ['graphify --version', absent('graphify')], ['uv --version', 'uv 1'],
   ]), calls) });
   assert.equal(plan.tools[0].state, 'unknown');
   assert.deepEqual(calls, [['rtk', '--version'], ['rtk', 'gain'], ['graphify', '--version'], ['uv', '--version']]);
 });
 
-test('missing uv blocks Graphify mutation without attempting to install a prerequisite', () => {
+test('missing uv blocks Graphify mutation without attempting to install a prerequisite', async () => {
   const calls: any[] = [];
-  const plan = planToolLifecycle({ registry, action: 'install', platform: 'linux', execFileSyncImpl: fakeExec(new Map([
+  const plan = await planToolLifecycle({ registry, action: 'install', platform: 'linux', execFileSyncImpl: fakeExec(new Map([
     ['rtk --version', absent('rtk')], ['rtk gain', absent('rtk')], ['graphify --version', absent('graphify')], ['uv --version', absent('uv')],
   ]), calls) });
   const graphify = plan.tools[1];
@@ -52,8 +53,8 @@ test('missing uv blocks Graphify mutation without attempting to install a prereq
   assert.ok(!calls.some((vector) => vector.join(' ') === 'uv tool install graphifyy'));
 });
 
-test('each executable command is displayed and confirmed separately; declined commands are not executed', () => {
-  const plan = planToolLifecycle({ registry, action: 'install', platform: 'linux', execFileSyncImpl: fakeExec(new Map([
+test('each executable command is displayed and confirmed separately; declined commands are not executed', async () => {
+  const plan = await planToolLifecycle({ registry, action: 'install', platform: 'linux', execFileSyncImpl: fakeExec(new Map([
     ['rtk --version', absent('rtk')], ['rtk gain', absent('rtk')], ['graphify --version', absent('graphify')], ['uv --version', 'uv 1'],
   ])) });
   const shown: any = [];
@@ -65,8 +66,8 @@ test('each executable command is displayed and confirmed separately; declined co
   assert.deepEqual(executed, [['uv', 'tool', 'install', 'graphifyy']]);
 });
 
-test('a failed command does not prevent independently confirmed commands from running', () => {
-  const plan = planToolLifecycle({ registry, action: 'uninstall', platform: 'linux', execFileSyncImpl: fakeExec(new Map([
+test('a failed command does not prevent independently confirmed commands from running', async () => {
+  const plan = await planToolLifecycle({ registry, action: 'uninstall', platform: 'linux', execFileSyncImpl: fakeExec(new Map([
     ['rtk --version', 'rtk 1'], ['rtk gain', 'gain'], ['graphify --version', 'graphify 1'], ['uv --version', 'uv 1'],
   ])) });
   const result = executeToolLifecycle({ plan, displayCommand() {}, confirmCommand: () => true, execFileSyncImpl: fakeExec(new Map<string, any>([
@@ -75,9 +76,9 @@ test('a failed command does not prevent independently confirmed commands from ru
   assert.deepEqual(result.results.map((item: any) => item.status), ['failed', 'succeeded']);
 });
 
-test('unsupported platforms run no inspection or action commands', () => {
+test('unsupported platforms run no inspection or action commands', async () => {
   let calls = 0;
-  const plan = planToolLifecycle({ registry, action: 'install', platform: 'win32', execFileSyncImpl: () => { calls += 1; } });
+  const plan = await planToolLifecycle({ registry, action: 'install', platform: 'win32', execFileSyncImpl: () => { calls += 1; } });
   assert.equal(plan.supported, false);
   assert.equal(calls, 0);
   const result = executeToolLifecycle({ plan, displayCommand() { calls += 1; }, confirmCommand: () => true, execFileSyncImpl: () => { calls += 1; } });
@@ -85,8 +86,8 @@ test('unsupported platforms run no inspection or action commands', () => {
   assert.equal(calls, 0);
 });
 
-test('RTK update is skipped because no verified update command is registered', () => {
-  const plan = planToolLifecycle({ registry, action: 'update', platform: 'darwin', execFileSyncImpl: fakeExec(new Map([
+test('RTK update is skipped because no verified update command is registered', async () => {
+  const plan = await planToolLifecycle({ registry, action: 'update', platform: 'darwin', execFileSyncImpl: fakeExec(new Map([
     ['rtk --version', 'rtk 1'], ['rtk gain', 'gain'], ['graphify --version', 'graphify 1'], ['uv --version', 'uv 1'],
   ])) });
   assert.equal(plan.tools[0].action.applicable, false);
@@ -115,7 +116,7 @@ const planWith = (tool: any, present: string[], platform: string, action = 'inst
   execFileSyncImpl: fakeExec(new Map([[`${tool.id} --version`, absent(tool.id)], ...['brew', 'npm', 'cargo', 'apt-get'].map((name) => [`${name} --version`, present.includes(name) ? `${name} 1` : absent(name)] as [string, any])]), calls),
 });
 
-test('the first route of the platform is the managed one; the others are alternatives', () => {
+test('the first route of the platform is the managed one; the others are alternatives', async () => {
   const darwin = chooseInstallRoute(browser, { platform: 'darwin', isInstalled: onPath('brew', 'npm', 'cargo') });
   assert.deepEqual(darwin.route.command, ['brew', 'install', 'browser']);
   assert.deepEqual(darwin.alternatives.map((route: any) => route.command[0]), ['npm', 'cargo']);
@@ -124,7 +125,7 @@ test('the first route of the platform is the managed one; the others are alterna
   assert.deepEqual(linux.alternatives.map((route: any) => route.command[0]), ['cargo']);
 });
 
-test('when the managed installer is missing, the answer names it, shows the alternatives and offers none to run', () => {
+test('when the managed installer is missing, the answer names it, shows the alternatives and offers none to run', async () => {
   const chosen = chooseInstallRoute(browser, { platform: 'darwin', isInstalled: onPath('npm', 'cargo') });
   assert.equal(chosen.route, undefined);
   assert.equal(chosen.reason, 'missing installer: needs brew on PATH; see https://example.test/browser');
@@ -133,9 +134,9 @@ test('when the managed installer is missing, the answer names it, shows the alte
   assert.equal(describeInstall(chosen).alternatives.length, 2);
 });
 
-test('an alternative route is never executed, even when its installer is present and everything is confirmed', () => {
+test('an alternative route is never executed, even when its installer is present and everything is confirmed', async () => {
   const calls: any[] = [];
-  const plan = planWith(browser, ['npm', 'cargo'], 'darwin', 'install', calls);
+  const plan = await planWith(browser, ['npm', 'cargo'], 'darwin', 'install', calls);
   assert.equal(plan.tools[0].action.applicable, false);
   const executed: any[] = [];
   const result = executeToolLifecycle({ plan, displayCommand() {}, confirmCommand: () => true, execFileSyncImpl: fakeExec(new Map(), executed) });
@@ -143,22 +144,22 @@ test('an alternative route is never executed, even when its installer is present
   assert.deepEqual(executed, [], 'nothing ran: neither npm install nor cargo install');
 });
 
-test('a tool with no install route for this platform names the documentation URL instead of a command', () => {
+test('a tool with no install route for this platform names the documentation URL instead of a command', async () => {
   const noInstall = { id: 'bash', officialEvidence: ['https://example.test/bash'], status: { commands: [['bash', '--version']] } };
   assert.equal(chooseInstallRoute(noInstall, { platform: 'linux', isInstalled: onPath('brew') }).reason, 'no verified install command is registered for linux; see https://example.test/bash');
   const darwinOnly = { ...noInstall, install: { routes: [{ installer: 'brew', command: ['brew', 'install', 'x'], platforms: ['darwin'], evidence: 'https://example.test/bash' }] } };
   assert.match(chooseInstallRoute(darwinOnly, { platform: 'linux', isInstalled: onPath('brew') }).reason, /no verified install command is registered for linux/);
 });
 
-test('a privileged managed route is offered as a command but never planned for execution', () => {
-  const plan = planWith(system, ['apt-get'], 'linux');
+test('a privileged managed route is offered as a command but never planned for execution', async () => {
+  const plan = await planWith(system, ['apt-get'], 'linux');
   assert.equal(plan.tools[0].install.route.privileged, true);
   assert.equal(plan.tools[0].action.applicable, false);
   assert.match(plan.tools[0].action.reason, /needs administrator rights.*run it yourself: sudo apt-get install system/);
 });
 
-test('a manual step travels with the plan and the result, and is never run', () => {
-  const plan = planWith(browser, ['npm'], 'linux');
+test('a manual step travels with the plan and the result, and is never run', async () => {
+  const plan = await planWith(browser, ['npm'], 'linux');
   assert.deepEqual(plan.tools[0].action.manual, [{ command: ['browser', 'install', '--with-deps'], reason: 'installs system libraries with sudo' }]);
   const executed: any[] = [];
   const done = executeToolLifecycle({ plan, displayCommand() {}, confirmCommand: () => true, execFileSyncImpl: fakeExec(new Map(), executed) });
@@ -166,31 +167,31 @@ test('a manual step travels with the plan and the result, and is never run', () 
   assert.deepEqual(done.results[0].manual.map((step: any) => step.command), [['browser', 'install', '--with-deps']]);
 });
 
-test('update and uninstall run the managed route\'s own pair when it has one, else the tool\'s', () => {
+test('update and uninstall run the managed route\'s own pair when it has one, else the tool\'s', async () => {
   const tool = {
     ...browser, update: { command: ['browser', 'upgrade'] }, uninstall: { command: ['cargo', 'uninstall', 'browser'] },
     install: { routes: [{ ...browser.install.routes[0], uninstall: { command: ['brew', 'uninstall', 'browser'] } }, browser.install.routes[1]] },
   };
-  const installed = (platform: string, action: string) => planToolLifecycle({ registry: { externalTools: [tool] }, action, platform, execFileSyncImpl: fakeExec(new Map([['browser --version', 'b 1']])) }).tools[0].action;
-  assert.deepEqual(installed('darwin', 'uninstall').command, ['brew', 'uninstall', 'browser']);
-  assert.deepEqual(installed('linux', 'uninstall').command, ['cargo', 'uninstall', 'browser']);
-  assert.deepEqual(installed('darwin', 'update').command, ['browser', 'upgrade']);
+  const installed = async (platform: string, action: string) => (await planToolLifecycle({ registry: { externalTools: [tool] }, action, platform, execFileSyncImpl: fakeExec(new Map([['browser --version', 'b 1']])) })).tools[0].action;
+  assert.deepEqual((await installed('darwin', 'uninstall')).command, ['brew', 'uninstall', 'browser']);
+  assert.deepEqual((await installed('linux', 'uninstall')).command, ['cargo', 'uninstall', 'browser']);
+  assert.deepEqual((await installed('darwin', 'update')).command, ['browser', 'upgrade']);
 });
 
-test('a present tool probes no installer; an absent one probes each installer once', () => {
+test('a present tool probes no installer; an absent one probes each installer once', async () => {
   const calls: any[] = [];
-  const present = planToolLifecycle({ registry: { externalTools: [browser] }, platform: 'darwin', execFileSyncImpl: fakeExec(new Map([['browser --version', 'b 1']]), calls) });
+  const present = await planToolLifecycle({ registry: { externalTools: [browser] }, platform: 'darwin', execFileSyncImpl: fakeExec(new Map([['browser --version', 'b 1']]), calls) });
   assert.equal(present.tools[0].install, null);
   assert.deepEqual(calls, [['browser', '--version']]);
   const absentCalls: any[] = [];
-  planToolLifecycle({ registry: { externalTools: [browser, { ...browser, id: 'browser2' }] }, platform: 'darwin', execFileSyncImpl: fakeExec(new Map([
+  await planToolLifecycle({ registry: { externalTools: [browser, { ...browser, id: 'browser2' }] }, platform: 'darwin', execFileSyncImpl: fakeExec(new Map([
     ['browser --version', absent('browser')], ['browser2 --version', absent('browser2')], ['brew --version', 'brew 1'],
   ]), absentCalls) });
   assert.equal(absentCalls.filter((vector) => vector[0] === 'brew').length, 1);
 });
 
-test('the step after an install is shown and confirmed on its own, and only after the install succeeded', () => {
-  const plan = planWith(browser, ['brew'], 'darwin');
+test('the step after an install is shown and confirmed on its own, and only after the install succeeded', async () => {
+  const plan = await planWith(browser, ['brew'], 'darwin');
   assert.deepEqual(plan.tools[0].action.followUps, [['browser', 'install']]);
   const asked: any[] = [];
   const executed: any[] = [];
@@ -210,7 +211,7 @@ test('the step after an install is shown and confirmed on its own, and only afte
   assert.deepEqual(failedInstall, [['brew', 'install', 'browser']]);
 });
 
-test('a status command that does not answer in time gives the state inspection-timeout and does not stop the list', (t: any) => {
+test('a status command that does not answer in time gives the state inspection-timeout and does not stop the list', async (t: any) => {
   const dir = tempDir(t, 'doflow-slow-');
   const slow = path.join(dir, 'slow');
   fs.writeFileSync(slow, '#!/bin/sh\nexec sleep 30\n', { mode: 0o755 });
@@ -219,11 +220,11 @@ test('a status command that does not answer in time gives the state inspection-t
     { id: 'gone', officialEvidence: ['https://example.test/gone'], status: { commands: [[path.join(dir, 'missing'), '--version']] } },
   ];
   const started = Date.now();
-  const plan = planToolLifecycle({ registry: { externalTools: tools }, platform: 'linux', timeoutMs: 300 });
+  const plan = await planToolLifecycle({ registry: { externalTools: tools }, platform: 'linux', timeoutMs: 300 });
   assert.ok(Date.now() - started < 5000, 'the slow binary was cut off, not waited for');
   assert.deepEqual(plan.tools.map((item: any) => item.state), ['inspection-timeout', 'absent']);
   assert.equal(normalizeToolState([{ result: 'succeeded' }, { result: 'timeout' }]), 'inspection-timeout');
-  const install = planToolLifecycle({ registry: { externalTools: [tools[0]] }, action: 'install', platform: 'linux', timeoutMs: 300 }).tools[0].action;
+  const install = (await planToolLifecycle({ registry: { externalTools: [tools[0]] }, action: 'install', platform: 'linux', timeoutMs: 300 })).tools[0].action;
   assert.equal(install.reason, 'tool state is inspection-timeout');
 });
 
@@ -234,7 +235,7 @@ test('after a timeout nothing the probe started is left running', { skip: proces
   // No `exec`: the shell stays the direct child and `sleep` is its child, which the timeout alone would not reach.
   fs.writeFileSync(wrapper, `#!/bin/sh\nsleep 30 &\necho $! > '${pidFile}'\nwait\n`, { mode: 0o755 });
   const tool = { id: 'wrapped', officialEvidence: ['https://example.test/w'], status: { commands: [[wrapper, '--version']] } };
-  const plan = planToolLifecycle({ registry: { externalTools: [tool] }, platform: 'linux', timeoutMs: 500 });
+  const plan = await planToolLifecycle({ registry: { externalTools: [tool] }, platform: 'linux', timeoutMs: 500 });
   assert.equal(plan.tools[0].state, 'inspection-timeout');
   const pid = Number(fs.readFileSync(pidFile, 'utf8'));
   assert.ok(pid > 1, 'the wrapper started its child');
@@ -243,16 +244,46 @@ test('after a timeout nothing the probe started is left running', { skip: proces
   assert.equal(alive(), false, 'the sleep the wrapper started is gone');
 });
 
-test('an installer probe that does not answer in time counts as not installed', (t: any) => {
+// A terminal Ctrl-C signals the foreground process group. The wrapper's own `sleep &` ignores SIGINT (a POSIX shell does that for
+// a background job), so the probe's children are ended by DoFlow, which must also hold for a SIGTERM that reaches node alone.
+for (const [name, signal, toGroup] of [['SIGINT to the foreground group', 'SIGINT', true], ['SIGTERM to node alone', 'SIGTERM', false]] as [string, string, boolean][]) {
+  test(`nothing a probe started survives ${name}`, { skip: process.platform === 'win32' && 'POSIX signals and a POSIX shell wrapper' }, async (t: any) => {
+    const dir = tempDir(t, 'doflow-sig-');
+    const pidFile = path.join(dir, 'child.pid');
+    const wrapper = path.join(dir, 'wrapper');
+    fs.writeFileSync(wrapper, `#!/bin/sh\nsleep 30 &\necho $! > '${pidFile}'\nwait\n`, { mode: 0o755 });
+    const lifecycle = path.join(__dirname, '..', '..', 'src', 'install', 'tool-lifecycle.ts');
+    const inner = `require(${JSON.stringify(lifecycle)}).planToolLifecycle({ registry: { externalTools: [{ id: 'h', officialEvidence: ['https://x.test'], status: { commands: [[${JSON.stringify(wrapper)}, '--version']] } }] }, platform: 'linux', timeoutMs: 20000 });`;
+    // Its own group, as a terminal job has: the group is what Ctrl-C signals.
+    const node = spawn(process.execPath, ['-e', inner], { detached: true, stdio: 'ignore' });
+    const exited = new Promise((resolve) => node.on('exit', (code: any, sig: any) => resolve({ code, sig })));
+    for (let i = 0; i < 100 && !fs.existsSync(pidFile); i += 1) await new Promise((resolve) => setTimeout(resolve, 50));
+    const pid = Number(fs.readFileSync(pidFile, 'utf8'));
+    assert.ok(pid > 1, 'the wrapper started its child');
+    const alive = () => { try { process.kill(pid, 0); return true; } catch { return false; } };
+    assert.equal(alive(), true, 'the child is running before the signal');
+    try {
+      process.kill(toGroup ? -node.pid : node.pid, signal);
+      await exited;
+      for (let i = 0; i < 60 && alive(); i += 1) await new Promise((resolve) => setTimeout(resolve, 50));
+      assert.equal(alive(), false, 'the sleep the wrapper started is gone');
+    } finally {
+      if (alive()) process.kill(pid, 'SIGKILL');
+      try { process.kill(node.pid, 'SIGKILL'); } catch { /* already gone */ }
+    }
+  });
+}
+
+test('an installer probe that does not answer in time counts as not installed', async (t: any) => {
   const dir = tempDir(t, 'doflow-slow-');
   fs.writeFileSync(path.join(dir, 'slowbrew'), '#!/bin/sh\nexec sleep 30\n', { mode: 0o755 });
   const tool = { id: 'x', officialEvidence: ['https://example.test/x'], status: { commands: [[path.join(dir, 'nothing'), '--version']] }, install: { routes: [{ installer: path.join(dir, 'slowbrew'), command: [path.join(dir, 'slowbrew'), 'install', 'x'], evidence: 'https://example.test/x' }] } };
-  const plan = planToolLifecycle({ registry: { externalTools: [tool] }, action: 'install', platform: 'linux', timeoutMs: 300 });
+  const plan = await planToolLifecycle({ registry: { externalTools: [tool] }, action: 'install', platform: 'linux', timeoutMs: 300 });
   assert.match(plan.tools[0].install.reason, /^missing installer/);
 });
 
 // The registry validator rejects these; the lifecycle must refuse them on its own, for a registry it never saw.
-test('the lifecycle refuses a privilege word or a wrapper before its runner, with no validator in front of it', () => {
+test('the lifecycle refuses a privilege word or a wrapper before its runner, with no validator in front of it', async () => {
   const crafted = (id: string, install: any, extra: any = {}) => ({ id, officialEvidence: ['https://example.test/x'], status: { commands: [[`tool-${id}`, '--version']] }, install, ...extra });
   const route = (command: string[], after?: string[][]) => ({ routes: [{ installer: 'brew', command, ...(after ? { after } : {}), evidence: 'https://example.test/x' }] });
   const cases: [string, any, string[][]][] = [
@@ -265,7 +296,7 @@ test('the lifecycle refuses a privilege word or a wrapper before its runner, wit
     ['after-sudo', crafted('after-sudo', route(['brew', 'install', 'x'], [['/usr/bin/sudo', 'true']])), [['brew', 'install', 'x']]],
   ];
   for (const [id, tool, expectedRuns] of cases) {
-    const plan = planToolLifecycle({ registry: { externalTools: [tool] }, action: 'install', platform: 'darwin', execFileSyncImpl: fakeExec(new Map([[`tool-${id} --version`, absent(id)], ['brew --version', 'brew 1']])) });
+    const plan = await planToolLifecycle({ registry: { externalTools: [tool] }, action: 'install', platform: 'darwin', execFileSyncImpl: fakeExec(new Map([[`tool-${id} --version`, absent(id)], ['brew --version', 'brew 1']])) });
     const ran: any[] = [];
     const out = executeToolLifecycle({ plan, displayCommand() {}, confirmCommand: () => true, execFileSyncImpl: fakeExec(new Map(), ran) });
     assert.deepEqual(ran, expectedRuns, `${id}: the runner saw only what is allowed`);
@@ -277,7 +308,7 @@ test('the lifecycle refuses a privilege word or a wrapper before its runner, wit
   const tool = { ...crafted('upd', route(['brew', 'install', 'x'])), update: { command: ['sh', '-c', 'x'] }, uninstall: { command: ['doas', 'x'] } };
   // `sh --version` answers, so the plan offers the update and the lifecycle refuses it; `doas` is never probed as an installer, so the plan skips it.
   for (const [action, status] of [['update', 'refused'], ['uninstall', 'skipped']]) {
-    const plan = planToolLifecycle({ registry: { externalTools: [tool] }, action, platform: 'darwin', execFileSyncImpl: fakeExec(new Map([['tool-upd --version', 'upd 1']])) });
+    const plan = await planToolLifecycle({ registry: { externalTools: [tool] }, action, platform: 'darwin', execFileSyncImpl: fakeExec(new Map([['tool-upd --version', 'upd 1']])) });
     const ran: any[] = [];
     const out = executeToolLifecycle({ plan, displayCommand() {}, confirmCommand: () => true, execFileSyncImpl: fakeExec(new Map(), ran) });
     assert.deepEqual(ran, [], action);
@@ -285,11 +316,43 @@ test('the lifecycle refuses a privilege word or a wrapper before its runner, wit
   }
 });
 
-test('update and uninstall say which installer is missing instead of failing with ENOENT', () => {
+// The reviewer's third reproducer: wrappers, interpreters and privilege words in every position. The lifecycle is given a
+// registry no validator has seen and a runner that records its calls; the runner must not see any of these.
+test('the lifecycle runs only the tool\'s own program or a known installer, whatever the registry says', async () => {
+  const crafted = (command: string[], extra: any = {}) => ({ id: 'x', officialEvidence: ['https://example.test/x'], status: { commands: [['tool-x', '--version']] }, install: { routes: [{ installer: command[0], command, evidence: 'https://example.test/x', ...extra }] } });
+  const withAfter = (step: string[]) => ({ ...crafted(['brew', 'install', 'x']), install: { routes: [{ installer: 'brew', command: ['brew', 'install', 'x'], after: [step], evidence: 'https://example.test/x' }] } });
+  const cases: [string, any, string[][]][] = [
+    ['abs sudo', crafted(['/usr/bin/sudo', 'apt-get', 'install', 'x']), []], ['pkexec', crafted(['pkexec', 'x']), []], ['SUDO', crafted(['SUDO', 'x']), []],
+    ['env sudo', crafted(['env', 'sudo', 'x']), []], ['sh -c', crafted(['sh', '-c', 'sudo x']), []], ['nice', crafted(['nice', 'sudo', 'x']), []],
+    ['nohup', crafted(['nohup', 'sudo', 'x']), []], ['timeout', crafted(['timeout', '5', 'sudo', 'x']), []], ['xargs', crafted(['xargs', 'sudo']), []],
+    ['time', crafted(['time', 'sudo', 'x']), []], ['command', crafted(['command', 'sudo', 'x']), []], ['npx sudo', crafted(['npx', 'sudo', 'x']), []],
+    ['npm exec', crafted(['npm', 'exec', '--', 'sudo', 'x']), []], ['stdbuf', crafted(['stdbuf', '-o0', 'sudo', 'x']), []], ['setsid', crafted(['setsid', 'sudo', 'x']), []],
+    ['busybox sh', crafted(['busybox', 'sh', '-c', 'x']), []], ['tcsh', crafted(['tcsh', '-c', 'x']), []], ['python3 -c', crafted(['python3', '-c', 'x']), []],
+    ['node -e', crafted(['node', '-e', 'x']), []], ['brew naming sudo', crafted(['brew', 'install', '--', 'sudo']), []],
+    ['after nice', withAfter(['nice', 'sudo', 'true']), [['brew', 'install', 'x']]], ['after abs sudo', withAfter(['/usr/bin/sudo', 'true']), [['brew', 'install', 'x']]],
+    ['after unknown program', withAfter(['curl', 'x']), [['brew', 'install', 'x']]],
+  ];
+  for (const [name, tool, expectedRuns] of cases) {
+    const plan = await planToolLifecycle({ registry: { externalTools: [tool] }, action: 'install', platform: 'darwin', execFileSyncImpl: (file: string, args: string[]) => { if (file === 'tool-x') throw absent(file); return 'ok'; } });
+    const ran: any[] = [];
+    const out = executeToolLifecycle({ plan, displayCommand() {}, confirmCommand: () => true, execFileSyncImpl: fakeExec(new Map(), ran) });
+    assert.deepEqual(ran, expectedRuns, `${name}: the runner saw only what is allowed`);
+    const refused = out.results[0].followUps?.[0] ?? out.results[0];
+    assert.ok(['refused', 'skipped'].includes(refused.status), `${name}: ${refused.status}`);
+    if (!expectedRuns.length) assert.notEqual(out.results[0].status, 'succeeded', name);
+  }
+  // A status command that is not the tool's own program, or names sudo, is never run: nothing answers, so the tool is not installed.
+  const ran: any[] = [];
+  const plan = await planToolLifecycle({ registry: { externalTools: [{ ...crafted(['brew', 'install', 'x']), status: { commands: [['tool-x', '--version'], ['nice', 'sudo', 'x']] } }] }, platform: 'darwin', execFileSyncImpl: fakeExec(new Map(), ran) });
+  assert.deepEqual(ran.map((call) => call[0]), ['tool-x'], 'only the own program was asked');
+  assert.equal(plan.tools[0].state, 'unknown');
+});
+
+test('update and uninstall say which installer is missing instead of failing with ENOENT', async () => {
   const rtk = registry.externalTools.find((tool: any) => tool.id === 'rtk');
   for (const action of ['uninstall']) {
     const calls: any[] = [];
-    const plan = planToolLifecycle({ registry: { externalTools: [rtk] }, action, platform: 'linux', execFileSyncImpl: fakeExec(new Map([['rtk --version', 'rtk 1'], ['rtk gain', 'gain'], ['cargo --version', absent('cargo')]]), calls) });
+    const plan = await planToolLifecycle({ registry: { externalTools: [rtk] }, action, platform: 'linux', execFileSyncImpl: fakeExec(new Map([['rtk --version', 'rtk 1'], ['rtk gain', 'gain'], ['cargo --version', absent('cargo')]]), calls) });
     assert.equal(plan.tools[0].action.applicable, false);
     assert.equal(plan.tools[0].action.reason, 'missing installer: needs cargo on PATH; see https://example.test/rtk');
     const ran: any[] = [];
@@ -299,11 +362,11 @@ test('update and uninstall say which installer is missing instead of failing wit
   }
   // A self-update through the tool's own binary needs no other installer.
   const own = { ...browser, update: { command: ['browser', 'upgrade'] } };
-  const plan = planToolLifecycle({ registry: { externalTools: [own] }, action: 'update', platform: 'darwin', execFileSyncImpl: fakeExec(new Map([['browser --version', 'b 1']])) });
+  const plan = await planToolLifecycle({ registry: { externalTools: [own] }, action: 'update', platform: 'darwin', execFileSyncImpl: fakeExec(new Map([['browser --version', 'b 1']])) });
   assert.deepEqual(plan.tools[0].action.command, ['browser', 'upgrade']);
 });
 
-test('plainCommand quotes only the parts that need it', () => {
+test('plainCommand quotes only the parts that need it', async () => {
   assert.equal(plainCommand(['brew', 'install', '--cask', 'drawio']), 'brew install --cask drawio');
   assert.equal(plainCommand(['sh', '-c', 'a b']), 'sh -c "a b"');
 });

@@ -934,7 +934,7 @@ async function main(argv: string[]): Promise<any> {
   }
   try {
     const handler = COMMANDS[o.cmd];
-    if (handler) return handler(o);
+    if (handler) return await handler(o);
     return await dispatchRuntimeCommand(o);
   } catch (error: any) {
     // A repeated `remove` with nothing left is a finished job, not a failure (FU-0wgcyt).
