@@ -888,7 +888,24 @@ function verbHelp(name: any): string | undefined {
   if (start < 0) return undefined;
   let end = start + 1;
   while (end < lines.length && lines[end].startsWith(' '.repeat(10))) end++;
-  return `doflow ${name}\n\n${lines.slice(start, end).join('\n')}\n\nThe flags are in the entry above and under Options in \`doflow --help\`.`;
+  const out = [`doflow ${name}`, '', ...lines.slice(start, end)];
+  const actions = lines.find((l) => l.startsWith(' '.repeat(10)) && l.trimStart().startsWith(`${name}: `) && l.includes('|'));
+  if (actions) out.push('', `  ${actions.trim()}`);
+  // The flag table under "Runtime verb arguments": an entry is its flag lines, then lines indented past them.
+  const named = new RegExp(`(?<![a-z-])${name}(?![a-z-])`);
+  const flags: string[] = [];
+  const from = lines.findIndex((l) => l.startsWith('Runtime verb arguments'));
+  for (let i = from + 1; from >= 0 && i < lines.length && lines[i] !== ''; ) {
+    let j = i + 1;
+    while (j < lines.length && lines[j] !== '' && (lines[j - 1].trimEnd().endsWith(',') || !/^ {6}--/.test(lines[j]))) j++;
+    const entry = lines.slice(i, j);
+    const said = entry.map((l) => l.replace(/^ {6}(--\S+(,? --?\S+| <\S+>| \| --\S+)*,?)/, '')).join(' ');
+    if (/^ {6}--/.test(lines[i]) && !(actions && lines[i].startsWith('      --action ')) && named.test(said)) flags.push(...entry);
+    i = j;
+  }
+  if (flags.length) out.push('', ...flags);
+  out.push('', 'Every verb and flag: `doflow --help`.');
+  return out.join('\n');
 }
 
 /** `name` when it is one of DoFlow's own command names, else `unknown`. */

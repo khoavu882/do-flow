@@ -34,7 +34,7 @@ All notable changes to DoFlow are documented here. Format follows
 - **`src/runtime/team/envelope.ts` (FU-qfxtv8):** the task brief and hand-back validators, `quarantineInput` and `formatTaskBriefPrompt` had no caller outside their own tests; `doctor` loaded the module only to keep it reachable. The module is removed and its two live types (`AgentRole`, `TaskOutcome`) live in `team/admission.ts`. No command, setting or output changes.
 
 ### Fixed
-- **`doflow <verb> --help`:** a runtime verb's help flag prints that verb's own entry and where its flags are documented. Before, it printed the installer's global help. Shell-only helper verbs (`paths`, `render-*`, and the like) have no entry and still get the global help.
+- **`doflow <verb> --help`:** a runtime verb's help flag prints that verb's own entry, its `--action` values and the flag entries that name it. Before, it printed the installer's global help. Shell-only helper verbs (`paths`, `render-*`, and the like) have no entry and still get the global help.
 - **Console home:** the Running tile counts only runs that are still updating. Runs silent for over a day are shown as a stale count beside it and keep their Stale badge in the list.
 - **`render-page`:** block nesting deeper than 64 levels is written as plain preformatted text. Before, thousands of nested quote or list levels overflowed the stack and the page was not written.
 - **`render-diagrams --artifact`** resolves a repository-relative path under the checkout that holds the feature folder, so it works from a linked worktree.

@@ -24,7 +24,10 @@ for (const flag of ['--help', '-h']) {
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /^doflow followup\n/);
     assert.match(result.stdout, /Record, list, take, settle, promote or report what a feature left unfinished/);
-    assert.match(result.stdout, /under Options in `doflow --help`/);
+    assert.match(result.stdout, /^ {2}followup: add\|list\|take\|settle\|promote\|report$/m, 'its actions');
+    assert.match(result.stdout, /--release, --source, --channel\s+followup \(/, 'its flags');
+    assert.doesNotMatch(result.stdout, /task-attempt: claim/, 'no other verb\'s actions');
+    assert.match(result.stdout, /Every verb and flag: `doflow --help`\.\n$/);
     assert.doesNotMatch(result.stdout, /config installer|Usage: doflow <command>/);
   });
 }
