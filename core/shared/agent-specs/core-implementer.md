@@ -1,6 +1,6 @@
 ---
 name: core-implementer
-description: "Specialist code engineer for full-stack implementation, precision refactoring, performance optimization, and algorithmic design"
+description: "Code engineer for implementation, refactoring and performance work. Use when a task writes or changes product code."
 model: inherit
 effort: high
 access: write

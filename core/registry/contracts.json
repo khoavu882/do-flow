@@ -102,7 +102,7 @@
     {
       "harness": "codex",
       "completeness": "lower-bound",
-      "note": "skillFields lists the SKILL.md keys Codex documents; the projected SKILL.md keeps only those and the Agent Skills spec keys at the top level (row 131). agentFields is deliberately absent: shared agent specs are byte-identical across harnesses, so a per-harness list could only restate a subset of claude's and would change no guard outcome \u2014 an inert declaration of exactly the kind these guards exist to remove. hookEvents IS per-harness and lists the events DoFlow actually wires; widen it only with an added evidence URL.",
+      "note": "skillFields lists the SKILL.md keys Codex documents; the projected SKILL.md keeps only those and the Agent Skills spec keys at the top level (row 131). agentFields is absent because Codex agents are the hand-written TOMLs under core/harnesses/codex/agents; the Markdown copy of a spec is byte-identical to the spec minus its DoFlow-internal keys. hookEvents IS per-harness and lists the events DoFlow actually wires; widen it only with an added evidence URL.",
       "skillFields": ["name", "description"],
       "skillFieldsSource": "https://learn.chatgpt.com/docs/build-skills",
       "skillFieldsVerifiedOn": "2026-10-27",
@@ -162,6 +162,9 @@
       "skillFieldsSource": "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-skills",
       "skillFieldsVerifiedOn": "2026-10-27",
       "unknownSkillFields": "not-documented",
+      "agentFields": ["name", "description", "target", "tools", "model", "disable-model-invocation", "user-invocable", "mcp-servers", "metadata"],
+      "agentFieldsSource": "https://docs.github.com/en/copilot/reference/custom-agents-configuration",
+      "agentFieldsVerifiedOn": "2026-11-14",
       "hookEvents": [
         "SessionStart",
         "PreToolUse",
@@ -203,6 +206,9 @@
       "skillFieldsSource": "https://www.antigravity.google/docs/skills",
       "skillFieldsVerifiedOn": "2026-10-27",
       "unknownSkillFields": "not-documented",
+      "agentFields": ["name", "description", "tools", "model", "mainAgent", "subagent", "commandExecutionPolicy", "mcpServers", "skills", "plugins"],
+      "agentFieldsSource": "https://antigravity.google/docs/subagents",
+      "agentFieldsVerifiedOn": "2026-11-14",
       "hookEvents": [
         "PreToolUse",
         "Stop"

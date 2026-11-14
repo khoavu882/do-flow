@@ -24,7 +24,10 @@ for (const flag of ['--help', '-h']) {
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /^doflow followup\n/);
     assert.match(result.stdout, /Record, list, take, settle, promote or report what a feature left unfinished/);
-    assert.match(result.stdout, /under Options in `doflow --help`/);
+    assert.match(result.stdout, /^ {2}followup: add\|list\|take\|settle\|promote\|report$/m, 'its actions');
+    assert.match(result.stdout, /--release, --source, --channel\s+followup \(/, 'its flags');
+    assert.doesNotMatch(result.stdout, /task-attempt: claim/, 'no other verb\'s actions');
+    assert.match(result.stdout, /Every verb and flag: `doflow --help`\.\n$/);
     assert.doesNotMatch(result.stdout, /config installer|Usage: doflow <command>/);
   });
 }
@@ -49,4 +52,22 @@ test('an unknown word with --help is not claimed as a verb', () => {
   assert.equal(result.status, 0, result.stderr);
   assert.doesNotMatch(result.stdout, /^doflow frobnicate/m);
   assert.match(result.stdout, /doflow — DoFlow config installer/);
+});
+
+test('a verb sharing an --action line with another verb gets its own actions only', () => {
+  const verify = run('verify', '--help');
+  assert.match(verify.stdout, /^ {2}verify: report\|contract$/m);
+  assert.doesNotMatch(verify.stdout, /retrieval-plan: declare/);
+  const claim = run('claim', '--help');
+  assert.match(claim.stdout, /^ {2}claim: list\|add\|link\|retract\|supersede$/m);
+  assert.doesNotMatch(claim.stdout, /package: points|task-attempt/, 'claim is also an action of task-attempt, whose flags are not claim\'s');
+  assert.match(claim.stdout, /--evidence-id, --relation\s+claim/);
+});
+
+test('a name that is not a verb name prints the installer help and does not throw', () => {
+  for (const name of ['classify             Validate a proposed task class and return its workflow (--task-class', 'goal ', 'a(b']) {
+    const result = run(name, '--help');
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /Usage: doflow <command>/);
+  }
 });

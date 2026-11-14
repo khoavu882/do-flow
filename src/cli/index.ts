@@ -885,13 +885,34 @@ const COMMAND_NAMES = new Set([...Object.keys(COMMANDS), ...[...HELP.matchAll(/^
  * no entry, which then gets the installer help as before (FU-rmpegn).
  */
 function verbHelp(name: any): string | undefined {
-  if (typeof name !== 'string' || COMMANDS[name]) return undefined;
+  if (typeof name !== 'string' || !/^[a-z][a-z-]*$/.test(name) || COMMANDS[name]) return undefined;
   const lines: string[] = HELP.split('\n');
   const start = lines.findIndex((l) => l.startsWith(`  ${name} `) && /^ {2}[a-z][a-z-]* {2,}\S/.test(l));
   if (start < 0) return undefined;
   let end = start + 1;
   while (end < lines.length && lines[end].startsWith(' '.repeat(10))) end++;
-  return `doflow ${name}\n\n${lines.slice(start, end).join('\n')}\n\nThe flags are in the entry above and under Options in \`doflow --help\`.`;
+  const out = [`doflow ${name}`, '', ...lines.slice(start, end)];
+  // The flag table under "Runtime verb arguments": an entry is its flag lines, then lines indented past them.
+  const entries: string[][] = [];
+  const from = lines.findIndex((l) => l.startsWith('Runtime verb arguments'));
+  for (let i = from + 1; from >= 0 && i < lines.length && lines[i] !== ''; ) {
+    let j = i + 1;
+    while (j < lines.length && lines[j] !== '' && (lines[j - 1].trimEnd().endsWith(',') || !/^ {6}--/.test(lines[j]))) j++;
+    if (/^ {6}--/.test(lines[i])) entries.push(lines.slice(i, j));
+    i = j;
+  }
+  const said = (entry: string[]): string => entry.map((l) => l.replace(/^ {6}(--\S+(,? --?\S+| <\S+>| \| --\S+)*,?)/, '')).join('\n');
+  // --action is one entry for every verb, `verb: a|b` segments parted by `·` and line ends: print this verb's segment only.
+  const isAction = (entry: string[]): boolean => entry[0].startsWith('      --action ');
+  const actions = entries.filter(isAction).flatMap((entry) => said(entry).split(/\n|·/)).map((part) => part.trim()).find((part) => part.startsWith(`${name}: `));
+  if (actions) out.push('', `  ${actions}`);
+  const named = new RegExp(`(?<![a-z-])${name}(?![a-z-])`);
+  // A verb is named outside the parentheses; inside them are its actions and values, which can spell another verb.
+  const outside = (text: string): string => { let depth = 0; let kept = ''; for (const ch of text) { if (ch === '(') depth++; else if (ch === ')') depth = Math.max(0, depth - 1); else if (!depth) kept += ch; } return kept; };
+  const flags = entries.filter((entry) => !isAction(entry) && named.test(outside(said(entry)))).flat();
+  if (flags.length) out.push('', ...flags);
+  out.push('', 'Every verb and flag: `doflow --help`.');
+  return out.join('\n');
 }
 
 /** `name` when it is one of DoFlow's own command names, else `unknown`. */
