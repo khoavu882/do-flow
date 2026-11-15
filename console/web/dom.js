@@ -67,7 +67,7 @@ const ICONS = {
   masked: { paths: [['M2 8s2.2-4 6-4 6 4 6 4-2.2 4-6 4-6-4-6-4Z'], ['M3 13 13 3']] },
   'arrow-down': { paths: [['M8 3v10'], ['M4 9l4 4 4-4']] },
   'chevron-right': { paths: [['M6 4l4 4-4 4']] },
-  // The shell's navigation rail (149 D.1, IC-020): Now, Sessions, Workflows, Layers.
+  // The shell's navigation (tab bar below 768 px, rail from 768): Now, Sessions, Layers, More, and the Manage group.
   'rail-now': { paths: [['M1.5 8h3l2-4.5 3 9 2-4.5h3']] },
   'rail-sessions': { paths: [['M2.5 4.5h11M2.5 8h7M2.5 11.5h9']] },
   'rail-workflows': { paths: [['M2.5 4a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0-3 0'], ['M10.5 12a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0-3 0'], ['M4 5.5V10a2 2 0 0 0 2 2h4.5']] },
@@ -75,7 +75,8 @@ const ICONS = {
   'rail-advice': { paths: [['M8 2a5 5 0 0 0-3 9v2h6v-2a5 5 0 0 0-3-9Z'], ['M6 14h4']] },
   'rail-followups': { paths: [['M3 3h10v10H3Z'], ['M5 6l1 1 2-2M8 10h3']] },
   'rail-settings': { paths: [['M2 4h12M2 8h12M2 12h12'], ['M5 2v4M11 6v4M6 10v4']] },
-  'rail-health': { paths: [['M2 8h3l2-4 2 8 2-4h3']] },
+  'rail-health': { paths: [['M8 2 13 4v4c0 3-2.1 5-5 6-2.9-1-5-3-5-6V4Z'], ['M5.75 8 7.5 9.75 10.5 6.5']] },
+  'rail-more': { paths: [['M2.25 8a1.25 1.25 0 1 0 2.5 0a1.25 1.25 0 1 0-2.5 0', 'f'], ['M6.75 8a1.25 1.25 0 1 0 2.5 0a1.25 1.25 0 1 0-2.5 0', 'f'], ['M11.25 8a1.25 1.25 0 1 0 2.5 0a1.25 1.25 0 1 0-2.5 0', 'f']] },
   'rail-layers': { paths: [['M2.5 2.5h4v4h-4ZM9.5 2.5h4v4h-4ZM2.5 9.5h4v4h-4ZM9.5 9.5h4v4h-4Z']] },
   'empty-rail': {
     box: 24,

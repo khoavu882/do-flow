@@ -1,16 +1,54 @@
 # DoFlow Console design
 
-Read this before you change `console/web/`. It is the agent-readable design file of the Console: a read-only local web UI (plain ES modules, no build step, no runtime dependency, CSP `default-src 'self'`). The shipped truth is `console/web/tokens.css` (tokens, both themes) and `console/web/app.css` (components). The two generated blocks below are rewritten from those files by `node console/scripts/build-design-md.ts --write`, and `console/test/design-md.test.ts` fails when they drift. Everything outside the generated blocks is hand-written; a token or class named in it must exist in the CSS (the test checks it).
+Read this before you change `console/web/`. It is the design of record of the Console: a local web UI that is becoming the remote control of DoFlow, read on a phone first and on a desktop second (plain ES modules, no build step, no runtime dependency, CSP `default-src 'self'`). The shipped truth is `console/web/tokens.css` (tokens, both themes) and `console/web/app.css` (components). The two generated blocks below are rewritten from those files by `node console/scripts/build-design-md.ts --write`, and `console/test/design-md.test.ts` fails when they drift. Everything outside the generated blocks is hand-written; a token or class named in it must exist in the CSS (the test checks it).
 
 ## Principles
 
 1. What needs the person comes first: a waiting gate is the loudest thing on a screen, and no other state looks like it. Everything else is calm.
 2. State is never colour alone: every status has a tint, a shape and a word.
-3. Motion explains change, never decorates. Only what changed moves. At most one looping animation per run (the current node and its connector). Everything has a still variant.
+3. Motion explains change, never decorates. Only what changed moves, and work in progress shows as the dot flow: one dot going out along a connector and coming back. A view has at most one pulse. Everything has a still variant.
 4. Honest data: unknown, stale and unreached are shown as such, never as zero or "live".
 5. Quiet chrome, rich data: neutral surfaces and one accent (violet) that belongs to interaction (focus, selection, links), never to a run state. Status colours are reserved for status.
 6. Craft in the small things: everything on the 4 px grid, tabular figures for numbers, mono for ids and commands, tightened large type, and a designed worst state for every view. A decorative eyebrow (a class whose name contains "eyebrow": `.eyebrow`, `.activity__eyebrow`, `.ev__eyebrow`) is sentence case with no tracking. Table heads, column heads and status labels keep capitals and `--tracking-caps`.
 7. Give each view a clear lead and supporting layers. A gate, selected project or current checkout gets the strongest cue; running work stays easy to scan; completed history, metadata and limits recede. Do not turn every group into an equal card.
+
+## Information architecture
+
+Before: nine links of equal weight (Now, Sessions, Workflows, Layers, Workers, Advice, Follow-ups, Settings, Health) in a row under the header on a phone, the theme control in the header at every width, and a waiting gate visible only on Now (this project) or Layers.
+
+After: three places a person watches, and everything else one step away.
+
+| Place | Hash | Answers |
+|---|---|---|
+| Now | `#/`, `#/run/...`, `#/session/...` | the runs of this project: what needs you, what runs, what finished; a run and its chain |
+| Sessions | `#/sessions...`, `#/compare` | who works in which checkout, and where work collides |
+| Layers | `#/layers...` | every project on the machine live: gates, agents, briefs, logs and transcripts |
+| More | `#/more` | the Manage pages (Follow-ups, Workflows, Workers, Advice, Settings, Health), session history, compare, the theme, the core version |
+
+Every hash that worked before still works; `#/more` is the only new one. What waits for you is said on every page by the attention strip (see Shell).
+
+### Decisions
+
+Each line is a choice and the reading it rejected.
+
+- **Four tabs on a phone, not nine links.** Rejected: a hamburger sheet (hides where you are and costs two taps for everything) and a scrolling row of nine (no item is findable by position).
+- **More is a page, not a menu.** It has a hash, a back step and a focus order like any view. Rejected: a popover over the tab bar, which needs a focus trap and loses its place on reload.
+- **Workers moved to Manage.** The page is a capability matrix of the harnesses, not the workers at work; those are on Layers. Rejected: keeping it as a fourth primary tab.
+- **Labels kept: Now, Sessions, Layers; the Now page keeps the title Runs.** Rejected: renaming to Home or Machine, which breaks the words the docs, the palette and people already use.
+- **Waiting is machine-wide and always in view:** a strip under the app bar plus a count on the Layers link, from the `machine` channel of the one stream every page already holds. Rejected: a count read once per page (goes stale without saying so) and a strip that polls (a second source of truth).
+- **The palette and the token names stay.** Values moved (motion, the app bar and tab bar sizes, safe areas). Rejected: a new palette, which would discard the 270 proven contrast pairs for no gain in legibility.
+- **The bottom tab bar, not a top one,** so the thumb reaches it; the app bar keeps only the brand, the connection chip and pause. The theme control moves to More below 768.
+- **The chain is a stepper, not an indented outline:** a state dot on one line per step, the state in words under the name. Rejected: pill badges beside each name, which wrapped unevenly and hid the order.
+- **The compact rail is one line:** a reached connector takes its node's colour, a not-reached one is dotted. Rejected: no connector to a not-reached node, which made a closed run read as loose pieces.
+- **The dot flow replaces the marching dashes,** and runs on every connector the data says is running (the pulse stays one per view). Rejected: dashes that only slide one way (they read as decoration, not as work going out and coming back).
+- **Connecting and paused are neutral panels.** Rejected: the failure tint for a stream that has not failed.
+- **Gate cards are compact on a phone** (smaller head and padding; a task id equal to its slug is said once). Rejected: the desktop card at full height, which showed two gates per screen.
+
+### Slots for work not built yet
+
+- **Row 162, actions (decide a gate, close a run, cancel a worker).** The buttons belong where the thing is already shown: in a `.gate-card` in place of the `.gate-card__note` or beside the `.gate-card__link`, in the `.activity` slot of a run in place of the decide command block, and in a worker tab's head. One primary action per card, `.btn--primary`, full width below 768 so the thumb reaches it. The confirmation is the `.inspector` pattern: a sheet from the bottom below 768, a centred dialog above, focus trapped, Escape and the scrim cancel. The attention strip's link then goes to the thing to decide.
+- **Row 165, start a session.** The entry is the reserved item `.navrail__slot` (`data-slot="start-session"`, hidden until built) between Sessions and Layers: the centre of the tab bar on a phone, a button in the rail above. The flow (project, harness, model, first prompt) is a full view at its own hash, one question per screen on a phone, not a dialog: it has to survive a reload and the back step.
+
 
 ## Tokens
 
@@ -47,21 +85,22 @@ Read this before you change `console/web/`. It is the agent-readable design file
 --motion-base: 200ms
 --motion-slow: 480ms
 --motion-flash: 600ms
---motion-pulse: 1600ms
---motion-march: 1200ms
+--motion-pulse: 2400ms
+--motion-march: 1100ms
 --motion-shimmer: 1400ms
 --motion-swap: 160ms
 --motion-row: 180ms
 --motion-gate: 240ms
 --ease-standard: cubic-bezier(0.2, 0, 0, 1)
 --ease-exit: cubic-bezier(0.4, 0, 1, 1)
---ease-settle: cubic-bezier(0.34, 1.4, 0.64, 1)
+--ease-settle: cubic-bezier(0.22, 1, 0.36, 1)
 --content-max: 1440px
 --prose-max: 72ch
 --gutter: 16px
---header-h: 56px
+--header-h: 48px
+--tabbar-h: 56px
 --navrail-w: 200px
---navrail-w-icons: 56px
+--navrail-w-icons: 72px
 --inspector-w: 400px
 --target: 44px
 --target-min: 24px
@@ -71,6 +110,12 @@ Read this before you change `console/web/`. It is the agent-readable design file
 --z-header: 10
 --z-panel: 20
 --z-skip: 30
+--safe-top: env(safe-area-inset-top, 0px)
+--safe-right: env(safe-area-inset-right, 0px)
+--safe-bottom: env(safe-area-inset-bottom, 0px)
+--safe-left: env(safe-area-inset-left, 0px)
+--chrome-top: calc(var(--header-h) + var(--safe-top))
+--chrome-bottom: calc(var(--tabbar-h) + var(--safe-bottom))
 # themed: light | dark ([data-theme="dark"], also under prefers-color-scheme: dark unless data-theme is light)
 --bg: #F5F3EF | #0D1013
 --surface: #FEFDFB | #15191C
@@ -128,7 +173,8 @@ Read this before you change `console/web/`. It is the agent-readable design file
 @media (prefers-reduced-motion: reduce) --motion-row: 0ms
 @media (prefers-reduced-motion: reduce) --motion-gate: 0ms
 @media (min-width: 768px) --gutter: 24px
-@media (min-width: 768px) --header-h: 64px
+@media (min-width: 768px) --header-h: 56px
+@media (min-width: 768px) --tabbar-h: 0px
 @media (min-width: 1280px) --gutter: 32px
 @media (min-width: 1280px) --target: 32px
 ```
@@ -156,45 +202,48 @@ How the names are used:
 
 ### Motion
 
-Durations are `--motion-fast` (hover, focus, small fades), `--motion-base` (state colour change, panel open), `--motion-row` (a row opening its detail, view enter), `--motion-swap` (a node's state swap, the inspector drawer or sheet coming in), `--motion-gate` (a decided gate turning open), `--motion-slow` (layout release, the check draw), `--motion-flash` (the one-shot tint of something that changed between polls), and the loops `--motion-pulse` (awaiting gate), `--motion-march` (the running connector's flow) and `--motion-shimmer` (skeleton, loading only). Easings: `--ease-standard` (enter and change), `--ease-exit` (leave), `--ease-settle` (a node arriving at `done` or `awaiting`, a small overshoot).
+Durations are `--motion-fast` (hover, focus, small fades), `--motion-base` (state colour change), `--motion-row` (a row opening its detail, view enter), `--motion-swap` (a node's state swap, the drawer coming in), `--motion-gate` (a decided gate turning open, the sheet rising), `--motion-slow` (layout release, the check draw), `--motion-flash` (the one-shot tint of something that changed), and the loops `--motion-pulse` (awaiting gate), `--motion-march` (one leg of the dot flow) and `--motion-shimmer` (skeleton, loading only). Easings: `--ease-standard` (enter and move), `--ease-exit` (leave), `--ease-settle` (arrive and stop, with no overshoot).
 
 The primitives, all in the `motion` layer of `app.css`. The still variant is what the host shows under reduced motion, while stale, and when it is not the view's one loop:
 
 | Keyframes (what moves) | Host | Duration | Loops | Still variant |
 |---|---|---|---|---|
-| `view-in` (opacity, transform) | `.view-enter` | `--motion-row` | no | the view appears at once |
+| `view-in` (opacity) | `.view-enter` | `--motion-row` | no | the view appears at once |
 | `banner-in`, `banner-out` (opacity) | `.banner`, `.banner--leaving` | `--motion-fast` | no | the banner appears and leaves at once |
-| `panel-in` (opacity, transform) | `.inspector` as drawer (from the right) or sheet (from below) | `--motion-swap` | no | the panel appears at once; `panel-out` is declared but has no host, so closing is instant |
+| `panel-in` (opacity, transform) | `.inspector` as drawer (from the right, `--motion-swap`) or sheet (rising from below, `--motion-gate` with `--ease-settle`) | see host | no | the panel appears at once; `panel-out` is declared but has no host, so closing is instant |
 | `tint-decay` (opacity) | a 6 px ring in the item's tint on `data-changed="true"` (`.activity`, `.attempt`, `.tl-item`, full-rail nodes) or `data-fresh="true"` (`.srow`, `.gate-card` on Layers) | `--motion-flash` | no | a 2 px outline on the changed item (a 2 px inset bar on `.srow`) plus the live-region announcement |
 | `fade` (opacity) | a stage `.rail__glyph` whose state changed | `--motion-swap` | no | the new glyph at once |
-| `settle` (transform) | a full-rail glyph arriving at `awaiting`, with `--ease-settle` | `--motion-swap` | no | the new glyph at once |
-| `gate-open` (transform) | a full-rail gate decided (`done` or `rejected`), with `--ease-settle` | `--motion-gate` | no | the decided glyph at once |
+| `settle` (transform, opacity) | a full-rail glyph arriving at `awaiting`, with `--ease-settle` | `--motion-swap` | no | the new glyph at once |
+| `gate-open` (transform, opacity) | a full-rail gate decided (`done` or `rejected`), with `--ease-settle` | `--motion-gate` | no | the decided glyph at once |
 | `draw` (`stroke-dashoffset`) | the check of a full-rail node arriving at `done` | `--motion-slow` | no | the whole check |
-| `pulse` (transform, opacity) | a ring on the awaiting gate `.rail__glyph` marked `data-loop="on"` | `--motion-pulse` | yes | no ring; on the full rail a 3 px `--focus` outline on the `.rail__node`, and the words "Waiting for you" |
-| `flow` (transform) | the dash strip inside the running `.flow-edge` marked `data-loop="on"` | `--motion-march` | yes | the same dashes standing, plus an arrowhead into the running node |
+| `pulse` (transform, opacity) | a ring on the awaiting gate `.rail__glyph` or `.gate-card__glyph` marked `data-loop="on"`: it opens, fades and rests before the next | `--motion-pulse` | yes | no ring; on the full rail a 3 px `--focus` outline on the `.rail__node`, and the words "Waiting for you" |
+| `flow` (transform) | the dot flow: one dot on the connector into a running node, out and back (`alternate`, ease-in-out). Hosts: `.flow-edge` (full rail), `.flow-dot` (compact rail), `.chain__flow` (chain), each marked `data-loop="on"` | `--motion-march` per leg | yes | the dot at rest at the start of its track, plus an arrowhead into the running node on the full rail |
 | `shimmer` (opacity) | the `.skel` blocks of a `.skeleton` marked `data-loop="on"` | `--motion-shimmer` | yes | flat `--skeleton` blocks |
 
 - Keyframes animate only `transform`, `opacity` and SVG stroke (`stroke-dashoffset`, `stroke-dasharray`, `stroke-opacity`); colour changes on hover and focus are transitions.
 - Nothing animates on first render. A theme change is instant.
 - Only what changed since the last poll is marked (`data-changed="true"`, `data-fresh="true"`); its tint, a ring drawn by a pseudo-element, fades out once (`tint-decay`).
-- Loop budget: an infinite animation runs only under `[data-loop="on"]`, and a view marks at most one element. Run marks the running connector (`.flow-edge`) when the current node is running, else the current awaiting gate. Now marks the gate glyph of the first Needs you card. Tasks and Sessions mark none; Layers marks the glyph of the first awaiting gate card, and only one per page. A `.skeleton` is marked only while it shows. Every other host shows its still variant.
-- Under `prefers-reduced-motion: reduce`, and while `#main` or `#inspector` carries `data-stale="true"`, rules in the `states` layer stop every animation, and every duration token is `0ms` under reduced motion. No script drives a frame. Each cue keeps a still replacement: the pulse becomes a focus-coloured outline plus the words "Waiting for you", the flowing connector standing dashes with an arrowhead, the change tint an outline on the changed item plus the live-region announcement, the skeleton static `--skeleton` blocks.
+- Loop budget: an infinite animation runs only under `[data-loop="on"]`. A view marks at most one pulse: Run the current awaiting gate, Now the gate glyph of the first Needs you card, Layers the glyph of the first awaiting gate card. The dot flow is marked on every connector into a node the data says is running, and nowhere else: it is the picture of work in progress, so it never runs for a stage that is pending, done or not observed. A `.skeleton` is marked only while it shows. Every other host shows its still variant.
+- Under `prefers-reduced-motion: reduce`, and while `#main` or `#inspector` carries `data-stale="true"`, rules in the `states` layer stop every animation, and every duration token is `0ms` under reduced motion. No script drives a frame. Each cue keeps a still replacement: the pulse becomes a focus-coloured outline plus the words "Waiting for you", the dot flow a resting dot (with an arrowhead on the full rail), the change tint an outline on the changed item plus the live-region announcement, the skeleton static `--skeleton` blocks.
 - Under `forced-colors: active` the shape carries the state (`currentColor` icons, outlines in system colours); the selected nav item and chip keep a 2 px border. Nothing relies on a background colour alone.
 
 ## Shell
 
-`index.html` holds one `.shell` (`#shell`) after the header and the banner slot. It is a grid of three regions: the rail `.navrail`, the canvas `#main` (`.page`) and the inspector `#inspector` (`.inspector`). The grid lives in the `layout` layer and changes only with the band and with `data-inspectable` on `.shell`, which `web/app.js` sets from the route.
+`index.html` holds the app bar `.site-header`, the banner slot and one `.shell` (`#shell`): a grid of the navigation `.navrail`, the attention strip `.attention`, the canvas `#main` (`.page`) and the inspector `#inspector` (`.inspector`). The grid lives in the `layout` layer and changes only with the band and with `data-inspectable` on `.shell`, which `web/app.js` sets from the route. The chrome honours the safe areas of a phone shell: `--safe-top`, `--safe-right`, `--safe-bottom` and `--safe-left` are the `env(safe-area-inset-*)` values, `--chrome-top` is the app bar plus the top inset and `--chrome-bottom` the tab bar plus the bottom inset; `.page` pads by them, so nothing sits under a notch or a home indicator.
 
-| Band | Rail | Canvas | Inspector |
+| Band | Navigation | Canvas | Inspector |
 |---|---|---|---|
-| below 768 | a row of text links under the header | one column | sheet: fixed at the bottom, full width, at most the viewport height minus `--header-h`, top corners `--radius-lg` |
-| 768 to 1279 | a sticky column `--navrail-w-icons` wide, icons only | the rest of the width | drawer: fixed at the right below the header, `--inspector-w` wide but leaving at least `--space-7` of canvas |
-| 1280 and up | a sticky column `--navrail-w` wide, icons and labels | the middle column | dock: a sticky third column `--inspector-w` wide |
+| below 768 | a tab bar fixed at the bottom, `--tabbar-h` high plus `--safe-bottom`: Now, Sessions, Layers, More, each an icon over its label | one column | sheet: fixed at the bottom, full width, at most the viewport height minus `--chrome-top`, top corners `--radius-lg` |
+| 768 to 1279 | a sticky column `--navrail-w-icons` wide, icon over label; the Manage group under a rule; More is hidden | the rest of the width | drawer: fixed at the right below the app bar, `--inspector-w` wide but leaving at least `--space-7` of canvas |
+| 1280 and up | a sticky column `--navrail-w` wide, icon beside label, the group titled by `.navrail__heading` | the middle column | dock: a sticky third column `--inspector-w` wide |
 
-- **Rail** `.navrail`, `.navrail__link`, `.navrail__label`. Now (`#/`), Sessions, Workflows and Layers are followed by the Manage group: Workers, Advice, Follow-ups, Settings and Health. Each link is also a `.nav__link`, so the current one carries `aria-current="page"` and the selected nav style. Now is current on `#/` and on every `#/run/...` page, Layers on every `#/layers...` page. In the icon band the label is visually hidden and stays the link's accessible name; each link is a `--target` square with `--radius-md`. The rail is `--surface` with a `--border` edge toward the canvas (its bottom edge below 768); from 768 it stays in place under the header and scrolls inside itself.
-- **Canvas** `#main` (`.page`) holds the view and keeps `min-width: 0`, so wide content scrolls inside it. Opening or closing the inspector never changes its width. From 1280 the docked column is present on every inspectable view whether or not a panel is open, and the drawer and the sheet overlay the canvas. The inspectable views are Run, Tasks, Sessions, a Layers project and the five management screens (`data-inspectable="true"` on `.shell`); Now, Workflows, the Layers machine page and the not-found page use the full width.
-- **Inspector** `.inspector`, `.inspector__head`, `.inspector__title`, `.inspector__body`, `.inspector__empty`, `.inspector__scrim`. `createInspector` in `web/shell.js` sets `data-mode` to `dock`, `drawer` or `sheet` from the viewport width and re-applies it when the width crosses 768 or 1280, keeping the open content. Views put a panel in with `showPanel` and take it out with `hidePanel`; the rail detail, the task panel, the lane panel and the Layers agent and file panels all render here and carry no card of their own, nor a close control: the inspector's close button is the only one. While a panel is open, `aria-labelledby` names the inspector by `.inspector__title` and the panel's own heading (`labelledBy` of `showPanel`: `rail-detail-title`, `graph-panel-title`, `sessions-panel-title`, `fpanel-title`), in every mode; closing drops it, so the name is the "Details" of `index.html` again.
-  - `dock`: a complementary landmark. It never takes or traps focus. While nothing is open it is labelled "Details" and shows the `.inspector__empty` note.
+- **Navigation** `.navrail`, `.navrail__link`, `.navrail__group`, `.navrail__more`, `.navrail__badge`, `.navrail__slot`. Now (`#/`), Sessions and Layers come first, then More (`.navrail__more`, shown below 768 only), then the Manage group `.navrail__group`: Follow-ups, Workflows, Workers, Advice, Settings and Health (hidden below 768, where More lists them). The current link carries `aria-current="page"`; on a Manage page the More link also carries `aria-current="true"`, so the tab bar always shows where you are. Now is current on every `#/run/...` and `#/session/...` page, Layers on every `#/layers...` page. A label is always visible: no icon stands alone. Every link is at least `--target` high. The bar is `--surface` with a `--border` edge toward the canvas.
+- **App bar** `.site-header`: one quiet row `--header-h` high: the brand, the connection chip `.conn`, the `.pause` control (an icon below 1280, with its words as its name) and, from 768, the theme control `.theme` as three bare icons (the chosen one on `--surface-2`); the core version shows from 1440. Rejected: a labelled, bordered theme pill, which was the heaviest thing in the bar for the least used control.
+- **Attention strip** `.attention`, `.attention__count`, `.attention__where`, `.attention__link`: one line under the app bar on every page but the Layers machine page (which leads with the same gates). In the `awaiting` tint it reads "3 gates waiting for you · in 2 projects" with a Review link: straight to the run when the one gate is in this project, else to Layers. `data-state="unknown"` reads "Waiting gates not observed" and why (the stream is down, refused or unsupported, the core is older, the activity is unreadable). It never reads "nothing waiting" from a stream that is not being followed; a held record says "as of" its time. With nothing waiting it is absent. The same count is the `.navrail__badge` on the Layers link, with the full words for a screen reader. `web/derive/attention.js` is the pure model.
+- **More** `.more`, `.more__section`, `.more__title`, `.more__list`, `.more__item`, `.more__label`, `.more__hint`, `.more__facts` (`web/views/more.js`): each destination is one row at least `--target` high, an icon, its name and one line on what it answers; then the theme control and the core version.
+- **Canvas** `#main` (`.page`) holds the view and keeps `min-width: 0`, so wide content scrolls inside it. From 1280 an open panel docks beside the canvas and the canvas narrows for it; below that the drawer and the sheet overlay the canvas. The inspectable views are Run, Tasks, Sessions, a Layers project and the five management screens (`data-inspectable="true"` on `.shell`); Now, Workflows, the Layers machine page and the not-found page use the full width.
+- **Inspector** `.inspector`, `.inspector__head`, `.inspector__title`, `.inspector__body`, `.inspector__scrim`. `createInspector` in `web/shell.js` sets `data-mode` to `dock`, `drawer` or `sheet` from the viewport width and re-applies it when the width crosses 768 or 1280, keeping the open content. Views put a panel in with `showPanel` and take it out with `hidePanel`; the rail detail, the task panel, the lane panel and the Layers agent and file panels all render here and carry no card of their own, nor a close control: the inspector's close button is the only one. While a panel is open, `aria-labelledby` names the inspector by `.inspector__title` and the panel's own heading (`labelledBy` of `showPanel`: `rail-detail-title`, `graph-panel-title`, `sessions-panel-title`, `fpanel-title`), in every mode; closing drops it, so the name is the "Details" of `index.html` again.
+  - `dock`: a complementary landmark that never takes or traps focus. The column exists only while a panel is open (`data-panel="open"` on `.shell`): an empty column never takes width from the canvas, so a wide screen gives its width to the data. Rejected: a column that is always present with a "select an item" note, which kept the canvas from reflowing but left a third of a wide screen empty.
   - `drawer` and `sheet`: hidden until something opens. While open the inspector is a modal dialog (`role="dialog"`, `aria-modal="true"`) at `--z-panel` with `--elev-2`, over a `.inspector__scrim` in `--scrim`. Focus moves to the close button and Tab stays inside. Escape (the `close` entry of `web/keys.js`), the close button or a click on the scrim closes it. Focus then returns to the control that opened it, or to `#main` when a poll has rebuilt that control.
 - **Palette** `.palette`, `.palette__panel`, `.palette__title`, `.palette__input`, `.palette__list`, `.palette__option`, `.palette__label`, `.palette__hint`, `.palette__none`, `.palette__note`. Ctrl K or Cmd K (the `palette` entry of `web/keys.js`) opens it, and `web/palette.js` builds it on the first open. It is a modal dialog on the `--z-skip` layer: a `--scrim` backdrop and a `--surface-3` panel at most 640 px wide with `--radius-lg` and `--elev-2`. The input is a combobox over a listbox (`aria-activedescendant`); Up and Down move and wrap, Enter goes, Escape closes, Tab stays on the input, and focus returns to the opener or to `#main`. It lists only what the page has already loaded and never fetches: the nine screens, then runs, session lanes and Layers projects, matched as a case-insensitive substring of label or hint, at most 50 options. An empty query lists the screens and the runs. The active option is `--accent-tint` with a 2 px `--accent` bar at its start (a `Highlight` outline under forced colours). A choice only sets `location.hash`. The palette and the shortcut list `.help` are never open together.
 - **Permalinks:** a selection is part of the hash, so a reload or a shared link opens the same panel: `#/run/<slug>/<task>/stage/<id>`, `#/run/<slug>/<task>/gate/<id>`, `#/run/<slug>/<task>/tasks/<id>`, `#/sessions/` followed by the lane key, `#/layers/<project>`, `#/layers/<project>/agent/<agentKey>` and `#/layers/<project>/file/<fileKey>`.
@@ -207,30 +256,32 @@ Generated list of the top-level class blocks in `app.css` (elements are `block__
 
 <!-- generated:components -->
 <!-- Generated by console/scripts/build-design-md.ts from the CSS. Change the CSS, then run it with --write. -->
-`.activity`, `.attempt`, `.attempts`, `.badge`, `.banner`, `.banner-slot`, `.banner-wrap`, `.brand`
-`.brand-gate`, `.brand-line`, `.brand-node`, `.btn`, `.candidates`, `.chain`, `.chip`, `.cmd`
-`.code-chip`, `.conn`, `.core-version`, `.countdown`, `.dash`, `.daytable`, `.doctor-head`, `.empty`
-`.ev`, `.eyebrow`, `.f`, `.facts`, `.fbanner`, `.figure`, `.filter-status`, `.flow-edge`, `.fpanel`
-`.full-state`, `.gate`, `.gate-card`, `.gate-cards`, `.gate-chip`, `.gattempt`, `.gattempts`
-`.gcard`, `.gdetail`, `.glane`, `.graph`, `.grid`, `.grow`, `.help`, `.hint`, `.icon`, `.inspector`
-`.lane`, `.layers`, `.layers-banner`, `.layers-crumb`, `.layers-foot`, `.layers-head`
-`.layers-inspect`, `.layers-lanes`, `.layers-link`, `.layers-none`, `.layers-note`
-`.layers-section`, `.layers-sections`, `.layers-stream`, `.layers-title`, `.layers-unreadable`
-`.logpane`, `.lrow`, `.masked`, `.matrix`, `.model-chip`, `.mono`, `.mtable`, `.nav`, `.navrail`
-`.noscript`, `.num`, `.ov-check`, `.ov-cross`, `.ov-forced`, `.page`, `.pair`, `.palette`, `.pause`
-`.project-list`, `.rail`, `.rail-detail`, `.rail-fallback`, `.rail-note`, `.rail-scroll`, `.reltime`
-`.replay`, `.replay-host`, `.run-head`, `.run-list`, `.run-rail`, `.run-row`, `.run-section`
-`.sbar`, `.segmented`, `.sessions`, `.sfilter`, `.sfoot`, `.sgroup`, `.shape`, `.shell`, `.shold`
-`.site-header`, `.skel`, `.skeleton`, `.skip`, `.slane`, `.slane-children`, `.snote`, `.spanel`
-`.srow`, `.srows`, `.state-panel`, `.stream`, `.summary`, `.tag`, `.theme`, `.tile`, `.timeline`
-`.tl`, `.tl-item`, `.tl-list`, `.ttable`, `.vh`, `.view-enter`, `.view-head`, `.view-note`
-`.view-title`, `.wf`, `.wf-list`, `.wtabs`
+`.activity`, `.attempt`, `.attempts`, `.attention`, `.badge`, `.banner`, `.banner-slot`
+`.banner-wrap`, `.brand`, `.brand-gate`, `.brand-line`, `.brand-node`, `.btn`, `.candidates`
+`.chain`, `.chip`, `.cmd`, `.code-chip`, `.conn`, `.core-version`, `.countdown`, `.dash`
+`.daytable`, `.doctor-head`, `.empty`, `.ev`, `.eyebrow`, `.f`, `.facts`, `.fbanner`, `.figure`
+`.filter-status`, `.flow-dot`, `.flow-edge`, `.fpanel`, `.full-state`, `.gate`, `.gate-card`
+`.gate-cards`, `.gate-chip`, `.gattempt`, `.gattempts`, `.gcard`, `.gdetail`, `.glane`, `.graph`
+`.grid`, `.grow`, `.help`, `.hint`, `.icon`, `.inspector`, `.lane`, `.layers`, `.layers-banner`
+`.layers-crumb`, `.layers-foot`, `.layers-head`, `.layers-inspect`, `.layers-lanes`, `.layers-link`
+`.layers-none`, `.layers-note`, `.layers-section`, `.layers-sections`, `.layers-stream`
+`.layers-title`, `.layers-unreadable`, `.logpane`, `.lrow`, `.masked`, `.matrix`, `.model-chip`
+`.mono`, `.more`, `.mtable`, `.navrail`, `.noscript`, `.num`, `.ov-check`, `.ov-cross`, `.ov-forced`
+`.page`, `.pair`, `.palette`, `.pause`, `.project-list`, `.rail`, `.rail-detail`, `.rail-fallback`
+`.rail-note`, `.rail-scroll`, `.reltime`, `.replay`, `.replay-host`, `.run-head`, `.run-list`
+`.run-rail`, `.run-row`, `.run-section`, `.sbar`, `.segmented`, `.sessions`, `.sfilter`, `.sfoot`
+`.sgroup`, `.shape`, `.shell`, `.shold`, `.site-header`, `.skel`, `.skeleton`, `.skip`, `.slane`
+`.slane-children`, `.snote`, `.spanel`, `.srow`, `.srows`, `.state-panel`, `.stream`, `.summary`
+`.tag`, `.theme`, `.tile`, `.timeline`, `.tl`, `.tl-item`, `.tl-list`, `.ttable`, `.vh`
+`.view-enter`, `.view-head`, `.view-note`, `.view-title`, `.wf`, `.wf-list`, `.wtabs`
 <!-- /generated -->
 
 What an agent most often touches:
 
 - **Status badge** `.badge` with `data-state`: `--radius-sm` chip, `-tint` background, `-fg` text in `--type-xs`, a 12 px inline SVG shape (`aria-hidden="true"`) and the word. Never a dot alone. Outcome badges reuse states: passed is `done`, failed is `failed`, unverified is `unknown` with the word "unverified".
-- **Rail** `.rail`, `.rail--compact`, `.rail--full`, `.rail__item`, `.rail__node`, `.rail__glyph` with `data-type` (stage or gate) and `data-state`. Stages: filled for `running` and `done`, dashed outline for `skipped`, outline for `pending`, hatched for `unknown`. Gates are 24 px shapes on the connector: a diamond for approval, a hexagon for clarification. The nodes are buttons with a roving tabindex: one node has `tabindex="0"`, the rest `-1`. It scrolls inside itself, never the page.
+- **Rail** `.rail`, `.rail--compact`, `.rail--full`, `.rail__item`, `.rail__node`, `.rail__glyph` with `data-type` (stage or gate) and `data-state`. Stages: filled for `running` and `done`, dashed outline for `skipped`, outline for `pending`, hatched for `unknown`. Gates are 24 px shapes on the connector: a diamond for approval, a hexagon for clarification. The nodes are buttons with a roving tabindex: one node has `tabindex="0"`, the rest `-1`. It scrolls inside itself, never the page. On the compact rail a connector into a reached node takes that node's mark, one into a `not-reached` node is dotted, and the connector into a running stage carries the `.flow-dot`.
+- **Chain** `.chain`, `.chain__item`, `.chain__row`, `.chain__node`, `.chain__body`, `.chain__label`, `.chain__facts`, `.chain__chip`, `.chain__live`, `.chain__marker`, `.chain__twist`, `.chain__flow` (the Session view, `#/session/...`): a stepper in one `--surface` panel, still a `tree` of `treeitem` rows with a roving tabindex. Each step is a 24 px state dot `.chain__node` (`data-state`; filled with its tint when reached, hollow and dashed when not) on one vertical line, the name, and under it the state in words in the state's `-fg`, the live count and the marker. Children step in by `--space-4`; a parent shows a `.chain__twist` chevron that turns when open; the selected row is `--accent-tint` with an accent bar. The line into a step the data says is running carries the `.chain__flow` dot.
+- **Gate card** `.gate-card`: the `awaiting` tint head (glyph, kind, how long), the gate's name, the run it belongs to, then the one way on: the link to the run, or the note that it is decided in a terminal. Compact below 768 (head `--target` high, `--space-3` padding), roomier above. Row 162's action buttons go here.
 - **Activity slot** `.activity` (`.activity--gate`, `.activity--done`, `.activity--rejected`, `.activity--stale`): `--radius-lg`, `--elev-1` (no shadow), a 4 px left bar in the current state's mark, labelled by its title with `aria-labelledby`. The decide command is a command block.
 - **Command block** `.cmd`, `.cmd__text`, `.cmd__copy`: mono `--type-sm` on `--surface-2`, a `--border-strong` edge, a trailing Copy button with an `aria-label`. The label reads "Copied" after a copy and the polite live region announces it; without clipboard access the text is selected.
 - **Button** `.btn` with `.btn--primary` (accent fill), `.btn--secondary` (`--surface`, strong border), `.btn--ghost`. Height is `--target`; pressed is `--surface-2`, or `filter: brightness(0.92)` for primary.
@@ -242,7 +293,7 @@ What an agent most often touches:
 - **Layers** `.layers`, `.lrow`, `.lane`, `.project-list`, `.layers-banner`: plain lists of links, no tree widget; an agent, run or project row is one anchor that fills the row, and the link of the selected row carries `aria-current="true"`. **Task graph** `.graph`, `.gcard`, `.grow__btn`: cards and rows expose `aria-expanded` and open the task panel in the `.inspector`.
 - **Model chip** `.model-chip`: mono `--type-xs` on `--surface-2`, a model id and never a state. **Masked chip** `.masked`: the masked icon plus the word "masked", "email" or "ip".
 - **Replay** `.replay`: a range input with an `aria-label`, play, previous, next, and speed buttons that use `aria-pressed`.
-- **Navigation and landmarks:** `.skip` (skip link, visible on focus), `.nav__link` (the current route has `aria-current="page"`), `.vh` (visually hidden, still read by assistive technology), and a polite live region `#announcer` for changes. View titles are `h1` with `tabindex="-1"` so a route change can move focus to them.
+- **Navigation and landmarks:** `.skip` (skip link, visible on focus), `.navrail__link` (the current route has `aria-current="page"`), `.vh` (visually hidden, still read by assistive technology), and a polite live region `#announcer` for changes. View titles are `h1` with `tabindex="-1"` so a route change can move focus to them.
 - **Layers stream states** (`#/layers...`, no GET and no polling; the page draws only from `/api/live` frames): the banner under the head is one glyph, one word and one tint. `connecting` is the neutral wait; `following` is the quiet default and shows no banner; `stream down` (the browser's own reconnect is running) and `refused` (the device is no longer allowed; reconnecting stops) and `unsupported` (this browser has no EventSource) are the failure tints; `core-lacks-channel` names a core too old for the channel. A section that failed to read says `unreadable` with its code, and a harness source nobody records says `not observed` with the reason; neither is ever drawn as quiet or idle, and an agent is never called live, active, online or idle.
 
 ## States
@@ -253,12 +304,22 @@ Every view has these edges designed; a view is not finished until its worst stat
 |---|---|
 | Loading | `.skeleton` / `.skel` of the final layout, only after a delay; `#main` carries `aria-busy="true"` while it loads |
 | Empty | `.empty`: a still line drawing (`aria-hidden`), a title, one sentence, a command block and an optional link; at most 480 px wide |
+| Not observed | the `unknown` tint and the words "not observed" with the reason; on the `.attention` strip for the gates, on a Layers source for an agent. Never "idle", never zero |
+| Connecting, paused stream | `.state-panel` with `data-kind="stream-connecting"` or `"stream-paused"`: the same panel in `--surface-2` with a `--border-strong` bar, because nothing has failed |
 | Error | `.state-panel` with `data-kind="error"`: an icon, a title, one sentence naming what failed and what to do, then retry actions; the code is small, after the sentence |
 | Stale | `.banner` `data-kind="stale"` and `.conn` `data-state="stale"`; times switch from relative ("3 min ago", `.reltime__rel`) to absolute ("at 14:02:10", `.reltime__abs`) on `#main[data-stale]`, so stale data never reads "ago" |
 | No runtime or session | `.full-state` (a full page) with a countdown and a "Check now" button |
 | Unknown, unreached | the `unknown` / `pending` marks: hatched or empty outline plus the word, never zero |
 | Paused | `.pause` pressed, `.conn` `data-state="paused"`; nothing is fetched until resume, which refetches the full state and says one "Reconnected" summary instead of each change |
 | Changed since last poll | `data-changed="true"` flashes once in the item's own tint; first paint is still |
+
+## Phone and accessibility
+
+- Touch: every control is at least `--target` (44 px below 1280) and nothing depends on hover; hover only adds a tint to what is already a visible link or button. The primary places are in thumb reach in the tab bar; a page's own actions sit in its content, not in the app bar.
+- Reading a stream, a log or a transcript on a phone: it opens in the `.inspector` sheet over the page (the list stays where it was), mono text wraps instead of scrolling sideways, new records arrive at the end, and masked text stays the `.masked` chip. Tables scroll inside their own frame; the page never scrolls sideways.
+- Focus order is the DOM order: skip link, app bar, navigation, attention strip, canvas, inspector. A route change moves focus to the view's `h1`. Keyboard on a desktop: the palette (Ctrl K or Cmd K), the `?` list, arrows in the rail, the chain and the radio groups.
+- Contrast is AA in both themes (`tokens.test.ts` proves each pair); state is a shape and a word as well as a tint; `forced-colors` keeps borders and system colours; reduced motion and a stale page stop every animation and show the still variants.
+
 
 ## Do
 
@@ -276,6 +337,6 @@ Every view has these edges designed; a view is not finished until its worst stat
 - Don't add a runtime dependency, a font file, a CDN, an inline script or inline style, or a build step. System font stacks only.
 - Don't use colour alone for meaning, a dot alone for a state, or the accent (violet) for a run state.
 - Don't write "live", "active", "online" or "idle" for an agent or a stale view, and don't show unknown, stale or unreached data as zero.
-- Don't animate on first render or on a theme change, and don't add a second looping animation to a run.
+- Don't animate on first render or on a theme change, don't add a second pulse to a view, and don't run the dot flow on anything the data does not say is running.
 - Don't make a hit target smaller than `--target-min`, or hide a focus ring on a control.
 - Don't edit the generated blocks by hand, and don't weaken `tokens.test.ts` or `design-md.test.ts` to pass: fix the stale side.

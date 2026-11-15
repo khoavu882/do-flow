@@ -215,10 +215,10 @@ function installPage(opts: { hash?: string, stored?: string | null, throwStorage
   };
   const html = el('html', { class: 'booting' });
   const body = el('body');
-  const link = (href: string, text: string) => el('a', { class: 'nav__link navrail__link', href }, [el('span', { class: 'navrail__label' }, [text])]);
+  const link = (href: string, text: string) => el('a', { class: 'navrail__link', href }, [el('span', { class: 'navrail__label' }, [text])]);
   const radio = (choice: string) => el('button', { type: 'button', role: 'radio', class: 'theme__opt', 'aria-checked': 'false', tabindex: '-1', 'data-theme-choice': choice }, [el('span', { class: 'theme__label' }, [choice])]);
   const skip = el('a', { class: 'skip', href: '#main' }, ['Skip to content']);
-  const nav = [link('#/', 'Now'), link('#/sessions', 'Sessions'), link('#/workflows', 'Workflows'), link('#/layers', 'Layers'), link('#/workers', 'Workers'), link('#/advice', 'Advice'), link('#/followups', 'Follow-ups'), link('#/settings', 'Settings'), link('#/health', 'Health')]; // 149 D.1: the fake page mirrors index.html's rail
+  const nav = [link('#/', 'Now'), link('#/sessions', 'Sessions'), link('#/layers', 'Layers'), link('#/more', 'More'), link('#/followups', 'Follow-ups'), link('#/workflows', 'Workflows'), link('#/workers', 'Workers'), link('#/advice', 'Advice'), link('#/settings', 'Settings'), link('#/health', 'Health')]; // 149 D.1: the fake page mirrors index.html's rail
   const radios = ['light', 'dark', 'system'].map(radio);
   const conn = el('p', { class: 'conn', id: 'conn', 'data-state': 'unknown' }, [el('span', { class: 'conn__long' }, ['Connecting']), el('span', { class: 'conn__short' }, ['Connecting'])]);
   const pause = el('button', { type: 'button', class: 'btn btn--ghost pause', id: 'pause', 'aria-pressed': 'false', hidden: '' }, [el('span', { class: 'pause__label' }, ['Pause updates'])]);
@@ -228,11 +228,10 @@ function installPage(opts: { hash?: string, stored?: string | null, throwStorage
   const inspector = el('aside', { id: 'inspector', class: 'inspector', 'aria-label': 'Details', hidden: '' }, [
     el('div', { class: 'inspector__head' }, [el('h2', { class: 'inspector__title', id: 'inspector-title' }, ['Details']),
       el('button', { type: 'button', class: 'btn btn--ghost inspector__close' }, [el('span', { class: 'vh' }, ['Close details'])])]),
-    el('p', { class: 'inspector__empty' }, ['Select an item to see its details here.']),
     el('div', { class: 'inspector__body' }),
   ]);
   const shell = el('div', { class: 'shell', id: 'shell', 'data-inspectable': 'false' }, [
-    el('nav', { class: 'nav navrail', 'aria-label': 'Primary' }, [el('ul', {}, nav.map((a) => el('li', {}, [a])))]), main, inspector]);
+    el('nav', { class: 'navrail', 'aria-label': 'Primary' }, [el('ul', {}, nav.map((a) => el('li', {}, [a])))]), el('p', { class: 'attention', id: 'attention', hidden: '' }), main, inspector]);
   body.append(skip,
     el('header', { class: 'site-header' }, [el('a', { class: 'brand', href: '#/' }, [el('span', { class: 'brand__name' }, ['DoFlow'])]),
       conn, pause, el('p', { id: 'core-version' }),
@@ -665,15 +664,19 @@ test('views: the router table maps hashes to views, and a bad parameter is not-f
   assert.equal(navFor(parseRoute('#/session/s/t')), 'runs', '150 C.5: the Session route marks Now');
   assert.equal(navFor(parseRoute('#/session/s/t/worker/w-0123456789ab/log')), 'runs');
   assert.equal(titleFor(parseRoute('#/session/s/t/main')), 'Chain \u00b7 s / t \u00b7 DoFlow Console');
-  assert.deepEqual(Object.keys(VIEWS).sort(), ['advice', 'compare', 'followups', 'health', 'layers', 'layers-project', 'not-found', 'run', 'runs', 'session', 'sessions', 'settings', 'tasks', 'workers', 'workflows']); // E.7 adds the sessions view, 161 the two Layers views (the Fleet views are gone), 150 C.5 the session view, 152 C.2 compare view
+  assert.deepEqual(Object.keys(VIEWS).sort(), ['advice', 'compare', 'followups', 'health', 'layers', 'layers-project', 'more', 'not-found', 'run', 'runs', 'session', 'sessions', 'settings', 'tasks', 'workers', 'workflows']); // E.7 adds the sessions view, 161 the two Layers views (the Fleet views are gone), 150 C.5 the session view, 152 C.2 compare view
 });
 
 test('index.html provides the elements the shell needs', () => {
   const html = fs.readFileSync(path.join(WEB_ROOT, 'index.html'), 'utf8');
   for (const id of ['main', 'conn', 'core-version', 'banner-slot', 'announcer', 'pause']) assert.match(html, new RegExp(`id="${id}"`));
   assert.match(html, /aria-live="polite"/);
-  assert.deepEqual([...html.matchAll(/class="nav__link navrail__link" href="([^"]+)"><span class="navrail__label">([^<]+)</g)].map((m) => [m[1], m[2]]),
-    [['#/', 'Now'], ['#/sessions', 'Sessions'], ['#/workflows', 'Workflows'], ['#/layers', 'Layers'], ['#/workers', 'Workers'], ['#/advice', 'Advice'], ['#/followups', 'Follow-ups'], ['#/settings', 'Settings'], ['#/health', 'Health']]); // 149 D.1 (IC-020, DEC-035): the rail reads Now
+  assert.deepEqual([...html.matchAll(/class="navrail__link" href="([^"]+)"><span class="navrail__label">([^<]+)</g)].map((m) => [m[1], m[2]]),
+    [['#/', 'Now'], ['#/sessions', 'Sessions'], ['#/layers', 'Layers'], ['#/more', 'More'], ['#/followups', 'Follow-ups'], ['#/workflows', 'Workflows'], ['#/workers', 'Workers'], ['#/advice', 'Advice'], ['#/settings', 'Settings'], ['#/health', 'Health']]); // the tab bar's four, then the Manage group
+  assert.match(html, /<li class="navrail__more"><a class="navrail__link" href="#\/more">/, 'More is marked: it shows below 768 px only');
+  assert.match(html, /<li class="navrail__slot" data-slot="start-session" hidden><\/li>/, 'the labelled, empty slot of the start-a-session entry (row 165)');
+  assert.match(html, /<p class="attention" id="attention" hidden><\/p>/, 'the attention strip starts hidden and empty');
+  assert.match(html, /viewport-fit=cover/, 'the page may draw under the safe areas, which the tokens then pad');
   assert.deepEqual([...html.matchAll(/data-theme-choice="([^"]+)"/g)].map((m) => m[1]), ['light', 'dark', 'system']);
   assert.match(html, /<html lang="en" class="booting">/);
   assert.match(html, /<main id="main" class="page" tabindex="-1">/);
@@ -683,7 +686,7 @@ test('index.html provides the elements the shell needs', () => {
   assert.match(header, /class="brand"/);
   assert.match(header, /class="theme" role="radiogroup"/);
   assert.doesNotMatch(header, /<nav\b/, 'the navigation left the header for the rail');
-  const order = ['id="banner-slot"', '<div class="shell" id="shell" data-inspectable=', '<nav class="nav navrail" aria-label="Primary">', '<main id="main"',
+  const order = ['id="banner-slot"', '<div class="shell" id="shell" data-inspectable=', '<nav class="navrail" aria-label="Primary">', '<main id="main"',
     '<aside id="inspector" class="inspector" aria-label="Details" hidden>', 'class="inspector__title"', 'class="btn btn--ghost inspector__close"', 'class="inspector__body"'];
   const at = order.map((piece) => html.indexOf(piece));
   assert.ok(at.every((index) => index > -1), `every shell piece is present: ${JSON.stringify(at)}`);
@@ -952,10 +955,10 @@ test('router: the skip link moves focus to the heading without changing the rout
 
 test('shell: data-inspectable per view, the rail icons, and the docked column with its empty note at 1280 px and wider', async () => {
   assert.deepEqual(Object.fromEntries(Object.entries(mods.views.VIEWS).map(([id, view]: [string, any]) => [id, view.inspectable])),
-    { runs: false, run: true, tasks: true, session: true, sessions: true, workflows: false, layers: false, 'layers-project': true, settings: true, advice: true, followups: true, health: true, workers: true, compare: false, 'not-found': false });
+    { runs: false, run: true, tasks: true, session: true, sessions: true, workflows: false, layers: false, 'layers-project': true, settings: true, advice: true, followups: true, health: true, workers: true, compare: false, more: false, 'not-found': false });
   const page = await start({ hash: '', width: 1440, fetch: standard });
   assert.deepEqual(page.nav.map((a) => a.querySelector('.icon') && a.querySelector('.icon').getAttribute('class')),
-    ['icon icon--16 icon--rail-now', 'icon icon--16 icon--rail-sessions', 'icon icon--16 icon--rail-workflows', 'icon icon--16 icon--rail-layers', 'icon icon--16 icon--rail-workers', 'icon icon--16 icon--rail-advice', 'icon icon--16 icon--rail-followups', 'icon icon--16 icon--rail-settings', 'icon icon--16 icon--rail-health']);
+    ['now', 'sessions', 'layers', 'more', 'followups', 'workflows', 'workers', 'advice', 'settings', 'health'].map((name) => `icon icon--20 icon--rail-${name}`));
   assert.equal(page.shell.dataset.inspectable, 'false');
   assert.equal(page.inspector.dataset.mode, 'dock');
   assert.equal(page.inspector.getAttribute('hidden'), '', 'no docked column on Runs');
@@ -964,11 +967,9 @@ test('shell: data-inspectable per view, the rail icons, and the docked column wi
     page.win.dispatch('hashchange');
     await settle();
     assert.equal(page.shell.dataset.inspectable, inspectable, hash);
-    assert.equal(page.inspector.getAttribute('hidden') === null, inspectable === 'true', `${hash}: the docked column is present exactly on inspectable views`);
-    if (inspectable === 'true') {
-      assert.equal(page.inspector.querySelector('.inspector__empty').getAttribute('hidden'), null, `${hash}: the empty note while nothing is open`);
-      assert.equal(page.inspector.getAttribute('role'), null, 'docked, it is a complementary landmark, not a dialog');
-    }
+    assert.equal(page.inspector.getAttribute('hidden'), '', `${hash}: no docked column while nothing is open, so an empty column takes no width`);
+    assert.equal(page.shell.dataset.panel, 'closed', hash);
+    if (inspectable === 'true') assert.equal(page.inspector.getAttribute('role'), null, 'docked, it is a complementary landmark, not a dialog');
   }
   page.location.hash = '#/run/feat-a/run-1/tasks';
   page.win.dispatch('hashchange');
@@ -1017,7 +1018,8 @@ test('inspector docked: open shows the title and body without taking focus; clos
   assert.equal(inspector.isOpen(), true);
   assert.equal(text(page.inspector.querySelector('.inspector__title')), 'implementation');
   assert.equal(page.inspector.querySelector('.inspector__body').children[0], panel, 'the view passes the node it built');
-  assert.equal(page.inspector.querySelector('.inspector__empty').getAttribute('hidden'), '');
+  assert.equal(page.inspector.getAttribute('hidden'), null, 'the docked column appears with its content');
+  assert.equal(page.shell.dataset.panel, 'open');
   assert.equal(page.doc.activeElement, owner, 'docked, focus stays where it was');
   inspector.open({ title: 'review', body: 'Other', onClose: () => closed.push('b') });
   assert.deepEqual(closed, ['a'], 'replacing the content closes the previous owner');
@@ -1027,8 +1029,8 @@ test('inspector docked: open shows the title and body without taking focus; clos
   assert.deepEqual(closed, ['a', 'b']);
   assert.equal(text(page.inspector.querySelector('.inspector__title')), 'Details');
   assert.equal(page.inspector.querySelector('.inspector__body').children.length, 0);
-  assert.equal(page.inspector.querySelector('.inspector__empty').getAttribute('hidden'), null, 'the empty note is back');
-  assert.equal(page.inspector.getAttribute('hidden'), null, 'the docked column stays, so the canvas does not reflow');
+  assert.equal(page.inspector.getAttribute('hidden'), '', 'the docked column leaves with its content');
+  assert.equal(page.shell.dataset.panel, 'closed');
   assert.equal(page.doc.activeElement, owner);
   inspector.close();
   assert.deepEqual(closed, ['a', 'b'], 'a second close is a no-op');
@@ -1578,7 +1580,7 @@ test('E.1 home: an empty section says so; the Finished list is capped at 10 and 
   mods.home.resetHome();
   const finished = () => Array.from({ length: 12 }, (_, i) => frow(`f${String(i).padStart(2, '0')}`, 5, { updatedAt: agoIso((i + 1) * MIN_MS) }));
   const page = await start({ hash: '', fetch: homeFetch(() => body(finished())) });
-  assert.deepEqual(page.main.querySelectorAll('.run-section__empty').map(text), ['Nothing is waiting for you.', 'Nothing is running right now.']);
+  assert.deepEqual(page.main.querySelectorAll('.run-section__empty').map(text), ['Nothing is waiting for you in this project.', 'Nothing is running in this project right now.']);
   assert.equal(page.main.querySelectorAll('.run-row').length, 10);
   const more = page.main.querySelector('.run-section__more');
   assert.equal(text(more), 'Show all 12 finished runs');
@@ -3589,7 +3591,7 @@ test('149 palette: Ctrl K and Cmd K open the combobox dialog (not with Alt); Esc
     const list = page.doc.getElementById(input.getAttribute('aria-controls'));
     assert.equal(list.getAttribute('role'), 'listbox');
     assert.ok(list.querySelectorAll('li').every((li: El) => li.getAttribute('role') === 'option'));
-    assert.deepEqual(paletteOptions(page), ['Now', 'Sessions', 'Workflows', 'Layers', 'Workers', 'Advice', 'Follow-ups', 'Settings', 'Health', 'feat-a / r1', 'feat-a / r2', 'feat-a / r3', 'feat-a / r4', 'feat-a / r5'], 'an empty query: the screens, then the runs');
+    assert.deepEqual(paletteOptions(page), ['Now', 'Sessions', 'Layers', 'Follow-ups', 'Workflows', 'Workers', 'Advice', 'Settings', 'Health', 'More', 'feat-a / r1', 'feat-a / r2', 'feat-a / r3', 'feat-a / r4', 'feat-a / r5'], 'an empty query: the screens, then the runs');
     assert.equal(input.getAttribute('aria-activedescendant'), 'palette-opt-0');
     assert.equal(page.doc.getElementById('palette-opt-0').getAttribute('aria-selected'), 'true');
     const tab = input.fire('keydown', { key: 'Tab' });
@@ -3764,7 +3766,7 @@ test('149 live runs: the first paint is the GET, then frames update the view wit
   assert.equal(FakeES.all.length, 0, 'the store opens 50 ms after the first subscribe');
   await advance(100);
   const es = liveES();
-  assert.equal(es.url, '/api/live?ch=now');
+  assert.equal(es.url, '/api/live?ch=now%2Cmachine');
   es.open();
   es.emit('message', liveFrame('now', 'snapshot', nowState(RUNS_TWO_WAIT)));
   await settle();
@@ -3815,7 +3817,7 @@ test('149 live runs: a closed stream (probe 500) polls every 5 s and says so; th
   assert.equal(apiCalls(page, '/api/runs').length, 3, 'then every 5 s');
   const again = liveES();
   assert.notEqual(again, es, 'the store reopened after 5 s');
-  assert.equal(again.url, `/api/live?ch=now&since=${encodeURIComponent(`${LIVE_EPOCH}/now=1`)}`, 'from the kept position');
+  assert.equal(again.url, `/api/live?ch=now%2Cmachine&since=${encodeURIComponent(`${LIVE_EPOCH}/now=1`)}`, 'from the kept position');
   again.open();
   await settle();
   assert.equal(text(page.region), 'Push restored.', 'an open stream over a kept state is live again: the server sends nothing when nothing moved');
@@ -3833,7 +3835,7 @@ test('149 live run: a refused stream (429) polls every 3 s; the store reopens af
   const page = await startLive('#/run/feat-a/run-1', liveRoute((target, init) => (target === '/api/runs/feat-a/run-1' ? runReply() : standard(target, init)), () => errorReply(429, 'stream-limit')));
   await advance(100);
   const es = liveES();
-  assert.equal(es.url, `/api/live?ch=${encodeURIComponent(RUN_CH)}`);
+  assert.equal(es.url, `/api/live?ch=${encodeURIComponent(`${RUN_CH},machine`)}`);
   es.fail(2);
   await settle();
   assert.equal(text(page.region), 'Push unavailable; polling every 3 seconds.');
@@ -3879,7 +3881,7 @@ test('149 live tasks: frames redraw the graph; an old core (503 live-unavailable
   assert.match(text(live.main), /This run has no task plan/, 'the first paint');
   await advance(100);
   const es = liveES();
-  assert.equal(es.url, `/api/live?ch=${encodeURIComponent(RUN_CH)}`);
+  assert.equal(es.url, `/api/live?ch=${encodeURIComponent(`${RUN_CH},machine`)}`);
   es.open();
   es.emit('message', liveFrame(RUN_CH, 'snapshot', { state: { run: { status: 200, body: runBodyWith(frow('run-1', 3), [ev(60, 'start', null)], GRAPH_PLAN()) } } }));
   await settle();
@@ -3965,7 +3967,7 @@ test('149 live runs: pause closes the stream and nothing is applied; resume reop
   page.pause.fire('click');
   const again = liveES();
   assert.notEqual(again, es);
-  assert.equal(again.url, `/api/live?ch=now&since=${encodeURIComponent(`${LIVE_EPOCH}/now=2`)}`);
+  assert.equal(again.url, `/api/live?ch=now%2Cmachine&since=${encodeURIComponent(`${LIVE_EPOCH}/now=2`)}`);
   await settle();
   assert.equal(apiCalls(page, '/api/runs').length, 2, 'one read on resume, as a polled view refetches in full');
   await advance(2000);
@@ -4159,7 +4161,7 @@ test('149 C.4 Resume without loss: a dropped Run view reopens with since, shows 
   await advance(1500); // 5 s after the drop
   const again = liveES();
   assert.notEqual(again, es, 'the store reopened');
-  assert.equal(again.url, `/api/live?ch=${encodeURIComponent(RUN_CH)}&since=${encodeURIComponent(`${LIVE_EPOCH}/${RUN_CH}=2`)}`, 'since names the last applied id');
+  assert.equal(again.url, `/api/live?ch=${encodeURIComponent(`${RUN_CH},machine`)}&since=${encodeURIComponent(`${LIVE_EPOCH}/${RUN_CH}=2`)}`, 'since names the last applied id');
   again.open();
   // The position differs: one snapshot at the current position, then the two step patches replayed (as a resend would).
   again.emit('message', frameAt(4, RUN_CH, 'snapshot', { state: { run: { status: 200, body: server } } }));
@@ -4188,7 +4190,7 @@ test('149 C.4 Old core: /api/live answers 503 live-unavailable, so Now loads and
   assert.deepEqual(tileCounts(page), ['1', '2', '2'], 'Now loads from its GET');
   await advance(100);
   const es = liveES();
-  assert.equal(es.url, '/api/live?ch=now');
+  assert.equal(es.url, '/api/live?ch=now%2Cmachine');
   es.fail(2); // the stream's reply is the 503: the browser gives up at once
   await settle();
   assert.equal(apiCalls(page, '/api/live').length, 1, 'one probe names the old core');
@@ -4248,7 +4250,7 @@ async function awayWhileTwoRunsChange(how: 'hidden' | 'paused') {
   else page.pause.fire('click');
   const again = liveES();
   assert.notEqual(again, es);
-  assert.equal(again.url, `/api/live?ch=now&since=${encodeURIComponent(`${LIVE_EPOCH}/now=1`)}`, 'the reopen names the last applied position');
+  assert.equal(again.url, `/api/live?ch=now%2Cmachine&since=${encodeURIComponent(`${LIVE_EPOCH}/now=1`)}`, 'the reopen names the last applied position');
   await settle();
   assert.equal(apiCalls(page, '/api/runs').length, 2, 'one GET on return');
   again.open();
@@ -4355,7 +4357,7 @@ test('149 C.4 Adapter seam: a fake adapter (open, close, onFrame, onState) drive
 
 // ---- 149 D.2: the inspector hosts the Run rail detail, the Tasks panel, the Sessions lane panel and the Layers transcript ----
 
-const inspectorOpen = (page: Page) => page.inspector.querySelector('.inspector__empty').getAttribute('hidden') === '';
+const inspectorOpen = (page: Page) => page.shell.dataset.panel === 'open';
 const closeInspector = (page: Page) => page.inspector.querySelector('.inspector__close').fire('click');
 
 test('D.2 Run rail: a second node keeps the inspector open on the new node; the inspector close closes it and the focus goes back to the node', async () => {
@@ -4989,9 +4991,16 @@ test('149 D.5 one loop per view: Run marks the running edge, else the awaiting g
 
   const home = await start({ hash: '', fetch: homeFetch(() => body([frow('w-new', 4, { updatedAt: agoIso(10 * MIN_MS) }), frow('w-old', 1, { updatedAt: agoIso(30 * MIN_MS) }), frow('r-1', 2)])) });
   assert.equal(cardsOf(home).length, 2);
-  assert.equal(home.main.querySelectorAll('[data-loop="on"]').length, 1, 'one marked element on Now');
+  const pulses = home.main.querySelectorAll('[data-loop="on"]').filter((node: El) => !node.classList.contains('flow-dot'));
+  assert.equal(pulses.length, 1, 'one pulse on Now');
   assert.equal(cardsOf(home)[0].querySelectorAll('[data-loop="on"]').length, 1, 'in the first Needs you card');
   assert.equal(cardsOf(home)[0].querySelector('[data-loop="on"]').getAttribute('data-state'), 'awaiting');
+  // The dot flow: the connector into a stage the data says is running carries the dot, and no other glyph does.
+  const dots = home.main.querySelectorAll('.flow-dot');
+  assert.equal(dots.length, 1, 'one running run, one dot');
+  assert.equal(dots[0].getAttribute('data-loop'), 'on');
+  assert.deepEqual([dots[0].parent.getAttribute('data-type'), dots[0].parent.getAttribute('data-state')], ['stage', 'running']);
+  assert.ok(rowOf(home, 'feat-a / r-1').querySelector('.flow-dot'), 'in the running row');
 
   const shown = mods.states.renderLoading({ noun: 'runs', skeleton: () => mods.dom.h('div', { class: 'skeleton' }), showSkeleton: true });
   assert.equal(shown[1].getAttribute('data-loop'), 'on', 'a skeleton loops while it shows');
@@ -5090,7 +5099,7 @@ test('150 C.6 palette: one session target per run, labelled slug / taskId with t
     const page = await start({ fetch: (target, init) => standard(target, init) });
     const before = page.calls.length;
     keydownOn(page, 'k', { ctrlKey: true });
-    assert.deepEqual(paletteOptions(page), ['Now', 'Sessions', 'Workflows', 'Layers', 'Workers', 'Advice', 'Follow-ups', 'Settings', 'Health', 'feat-a / r1', 'feat-a / r2', 'feat-a / r3', 'feat-a / r4', 'feat-a / r5'], 'an empty query is unchanged: the screens, then the runs');
+    assert.deepEqual(paletteOptions(page), ['Now', 'Sessions', 'Layers', 'Follow-ups', 'Workflows', 'Workers', 'Advice', 'Settings', 'Health', 'More', 'feat-a / r1', 'feat-a / r2', 'feat-a / r3', 'feat-a / r4', 'feat-a / r5'], 'an empty query is unchanged: the screens, then the runs');
     paletteType(page, 'chain');
     const options = paletteOf(page).querySelectorAll('li');
     assert.deepEqual(options.map((li: El) => [text(li.querySelector('.palette__label')), text(li.querySelector('.palette__hint')), li.dataset.kind]),
@@ -5104,4 +5113,79 @@ test('150 C.6 palette: one session target per run, labelled slug / taskId with t
     assert.equal(mods.views.parseRoute(page.location.hash).id, 'session');
     assert.equal(page.calls.length, before, 'the palette fetches nothing');
   });
+});
+
+// ---- the redesigned shell: the attention strip, the count on the Layers link, the More page ----
+
+const goTo = (page: Page, hash: string) => { page.location.hash = hash; page.win.dispatch('hashchange'); };
+const hiddenEl = (node: El) => node.getAttribute('hidden') !== null;
+const strip = (page: Page) => page.doc.getElementById('attention');
+const navLink = (page: Page, href: string) => page.doc.querySelectorAll('.navrail__link').find((a: El) => a.getAttribute('href') === href);
+
+test('shell attention: gates waiting anywhere on the machine show on every page but Layers, with a count on the Layers link', async () => {
+  const page = await startLayers('#/');
+  assert.equal(hiddenEl(strip(page)), true, 'nothing is said before the first record');
+  const es = await openedLayers(page, [gateOf('T-1', 'g-a', 'Approve the plan')]);
+  assert.ok(channelsOf(es).includes('machine'), 'every page follows the machine channel');
+  assert.equal(hiddenEl(strip(page)), false);
+  assert.equal(strip(page).getAttribute('data-state'), 'awaiting');
+  assert.equal(text(strip(page).querySelector('.attention__count')), '1 gate waiting for you');
+  assert.equal(strip(page).querySelector('.attention__link').getAttribute('href'), '#/run/feat-a/T-1', 'one gate in this project: straight to its run');
+  assert.equal(text(navLink(page, '#/layers').querySelector('.navrail__badge')), '1 1 gate waiting for you');
+
+  const two = machineBody([gateOf('T-2', 'g-b', null, 1), gateOf('T-1', 'g-a', 'Approve the plan')]);
+  es.emit('message', liveFrame('machine', 'patch', { set: { '/machine/body/sections/activity': two.sections.activity } }));
+  await settle();
+  assert.equal(text(strip(page).querySelector('.attention__count')), '2 gates waiting for you');
+  assert.equal(strip(page).querySelector('.attention__link').getAttribute('href'), '#/layers');
+
+  goTo(page, '#/layers');
+  await settle();
+  assert.equal(hiddenEl(strip(page)), true, 'the Layers page leads with the same gates');
+  assert.equal(text(navLink(page, '#/layers').querySelector('.navrail__badge')).startsWith('2'), true, 'the count stays on the link');
+
+  const none = machineBody([]);
+  es.emit('message', liveFrame('machine', 'patch', { set: { '/machine/body/sections/activity': none.sections.activity } }));
+  goTo(page, '#/more');
+  await settle();
+  assert.equal(hiddenEl(strip(page)), true, 'a readable record with no gate says nothing');
+  assert.equal(navLink(page, '#/layers').querySelector('.navrail__badge'), null);
+});
+
+test('shell attention: without a stream the strip says the gates are not observed and why, never that nothing waits', async () => {
+  const page = await startLayers('#/', 'absent');
+  await advance(100);
+  await settle();
+  assert.equal(hiddenEl(strip(page)), false);
+  assert.equal(strip(page).getAttribute('data-state'), 'unknown');
+  assert.equal(text(strip(page).querySelector('.attention__count')), 'Waiting gates not observed');
+  assert.match(text(strip(page).querySelector('.attention__where')), /^this browser cannot follow a stream/);
+  assert.equal(navLink(page, '#/layers').querySelector('.navrail__badge'), null);
+  assert.doesNotMatch(text(strip(page)), /nothing|idle/i);
+});
+
+test('the More page lists the Manage destinations and the records without a tab, holds the theme control and marks its own tab for a Manage page', async () => {
+  const page = await start({ hash: '#/more', fetch: standard });
+  await settle();
+  assert.equal(text(page.main.querySelector('h1')), 'More');
+  assert.deepEqual(page.main.querySelectorAll('.more__item').map((a: El) => [a.getAttribute('href'), text(a.querySelector('.more__label'))]), [
+    ['#/followups', 'Follow-ups'], ['#/workflows', 'Workflows'], ['#/workers', 'Workers'], ['#/advice', 'Advice'], ['#/settings', 'Settings'], ['#/health', 'Health'],
+    ['#/sessions/history', 'Session history'], ['#/compare', 'Compare runs'],
+  ]);
+  assert.ok(page.main.querySelectorAll('.more__hint').every((hint: El) => text(hint).length > 0), 'every destination says what it answers');
+  assert.equal(navLink(page, '#/more').getAttribute('aria-current'), 'page');
+
+  const radios = page.main.querySelectorAll('[data-theme-choice]');
+  assert.deepEqual(radios.map((r: El) => r.getAttribute('data-theme-choice')), ['light', 'dark', 'system']);
+  radios[1].fire('click');
+  assert.equal(page.doc.documentElement.getAttribute('data-theme'), 'dark');
+  assert.deepEqual(page.doc.querySelectorAll('[data-theme-choice="dark"]').map((r: El) => r.getAttribute('aria-checked')), ['true', 'true'], 'the app bar control follows the page control');
+
+  goTo(page, '#/settings');
+  await settle();
+  assert.equal(navLink(page, '#/settings').getAttribute('aria-current'), 'page');
+  assert.equal(navLink(page, '#/more').getAttribute('aria-current'), 'true', 'on a phone More is the tab a Manage page sits under');
+  goTo(page, '#/sessions');
+  await settle();
+  assert.equal(navLink(page, '#/more').getAttribute('aria-current'), null);
 });

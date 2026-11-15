@@ -1,9 +1,10 @@
 // The shell's inspector (feature 149, IC-020, DEC-036): one details region whose mode follows the viewport width.
-//   dock    1280 px and wider: a column of the shell grid, present on every inspectable view (the empty note while nothing
-//           is open), a complementary landmark that never takes or traps focus;
+//   dock    1280 px and wider: a column of the shell grid that exists only while something is open on an inspectable view,
+//           so an empty column never takes width from the canvas; a complementary landmark that never takes or traps focus;
 //   drawer  768 to 1279 px: fixed at the right over the canvas, with the scrim; a modal dialog while open;
 //   sheet   below 768 px: fixed at the bottom over the canvas, with the scrim; a modal dialog while open.
-// The canvas never reflows: the docked column exists whether or not anything is open, and the drawer and sheet overlay it.
+// The shell carries data-panel="open" while a panel is open: the grid adds the docked column from it. The drawer and the
+// sheet overlay the canvas.
 // Escape is keys.js's `close` entry, asked through `isKey`; the listener sits on the inspector, never on the document
 // (only keys.js binds the document). Nothing here runs at import time.
 
@@ -45,7 +46,6 @@ function createInspector(options) {
   const { doc, shell, el, main } = options;
   const title = el.querySelector('.inspector__title');
   const body = el.querySelector('.inspector__body');
-  const empty = el.querySelector('.inspector__empty');
   const closeButton = el.querySelector('.inspector__close');
   if (closeButton) {
     if (!closeButton.querySelector('.icon')) closeButton.prepend(icon('close', 16));
@@ -64,9 +64,9 @@ function createInspector(options) {
     const open = current !== null;
     const modal = open && mode !== 'dock';
     el.dataset.mode = mode;
-    // Docked, the column follows the view, open or not; as drawer or sheet it shows only while open.
-    setHidden(el, mode === 'dock' ? shell.dataset.inspectable !== 'true' : !open);
-    setHidden(empty, open);
+    // It shows only while something is open; docked, also only on an inspectable view.
+    shell.dataset.panel = open ? 'open' : 'closed';
+    setHidden(el, !open || (mode === 'dock' && shell.dataset.inspectable !== 'true'));
     setHidden(scrim, !modal);
     if (modal) {
       el.setAttribute('role', 'dialog');

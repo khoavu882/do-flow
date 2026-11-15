@@ -16,82 +16,14 @@ import {
   classify, clockTime, refreshReltimes, renderLoading, renderEmpty, renderError, renderFullPage, renderPill, createStaleBanner, errorTitle, pairFailure,
 } from './states.js';
 import { parsePairFragment, createPairPage } from './views/pair.js';
-import { CORE_RANGE, parseRoute, hashFor, baseRoute, titleFor, navFor } from './views.js';
+import { CORE_RANGE, MANAGE_VIEWS, parseRoute, hashFor, baseRoute, titleFor, navFor } from './views.js';
 import { createInspector, hidePanel } from './shell.js';
+import { readTheme, applyTheme, setupThemeControl } from './theme.js';
+import { attentionModel, attentionWords } from './derive/attention.js';
 
 // ---- 1. theme: the module's first statement, before the fragment is read or anything is fetched ----
 
 applyTheme(readTheme());
-
-function readTheme() {
-  try {
-    const stored = globalThis.localStorage.getItem('doflow-console-theme');
-    return stored === 'light' || stored === 'dark' ? stored : 'system';
-  } catch {
-    return 'system';
-  }
-}
-
-/** @param {any} choice */
-function applyTheme(choice) {
-  const root = document.documentElement;
-  if (choice === 'system') delete root.dataset.theme;
-  else root.dataset.theme = choice;
-}
-
-/** @param {any} choice @param {any} radios */
-function chooseTheme(choice, radios) {
-  const root = document.documentElement;
-  root.classList.add('theme-switching');
-  applyTheme(choice);
-  try {
-    globalThis.localStorage.setItem('doflow-console-theme', choice);
-  } catch {
-    // No storage: the choice holds for this page load only.
-  }
-  syncRadios(radios, choice);
-  // Reading a layout value applies the new theme while transitions are off; the class goes on the next task, with no frame callback.
-  void root.offsetWidth;
-  globalThis.setTimeout(() => root.classList.remove('theme-switching'), 0);
-}
-
-/** @param {any} radios @param {any} choice */
-function syncRadios(radios, choice) {
-  for (const radio of radios) {
-    const on = radio.dataset.themeChoice === choice;
-    radio.setAttribute('aria-checked', on ? 'true' : 'false');
-    radio.setAttribute('tabindex', on ? '0' : '-1');
-  }
-}
-
-/**
- * APG radio group: arrows move and select (wrapping), Home and End jump; Space and Enter click natively.
- * @param {any} group
- */
-function setupThemeControl(group) {
-  const radios = Array.from(group.querySelectorAll('[data-theme-choice]'));
-  /** @type {Record<string, string>} */
-  const icons = { light: 'sun', dark: 'moon', system: 'monitor' };
-  for (const radio of radios) {
-    if (!radio.querySelector('.icon')) radio.prepend(icon(icons[radio.dataset.themeChoice], 16));
-    radio.addEventListener('click', () => chooseTheme(radio.dataset.themeChoice, radios));
-    radio.addEventListener('keydown', (/** @type {any} */ event) => {
-      const at = radios.indexOf(radio);
-      /** @type {Record<string, number>} */
-      const steps = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 };
-      const move = steps[event.key];
-      let to = null;
-      if (move !== undefined) to = (at + move + radios.length) % radios.length;
-      else if (event.key === 'Home') to = 0;
-      else if (event.key === 'End') to = radios.length - 1;
-      if (to === null) return;
-      event.preventDefault();
-      radios[to].focus();
-      chooseTheme(radios[to].dataset.themeChoice, radios);
-    });
-  }
-  syncRadios(radios, readTheme());
-}
 
 // ---- 2. the page, its state and the same-origin API ----
 
@@ -113,12 +45,13 @@ const app = /** @type {any} */ ({
   liveStore: null, // the page's one live store (IC-017), made when the first live view starts
   inspector: null, // the shell's details region (IC-020), see shell.js
   palette: null, // the command palette (IC-021), see palette.js
+  attention: null, // what the page holds of the `machine` channel for the attention strip, once it follows it
   loaded: { runs: null, sessions: null, layers: null }, // the latest Runs and Sessions bodies and Layers data: the palette's targets
 });
 let viewSeq = 0;
 
-/** The four screens, by their rail labels. */
-const SCREENS = Object.freeze([['Now', 'runs'], ['Sessions', 'sessions'], ['Workflows', 'workflows'], ['Layers', 'layers'], ['Workers', 'workers'], ['Advice', 'advice'], ['Follow-ups', 'followups'], ['Settings', 'settings'], ['Health', 'health']]);
+/** The screens, by their navigation labels and in the navigation's order. */
+const SCREENS = Object.freeze([['Now', 'runs'], ['Sessions', 'sessions'], ['Layers', 'layers'], ['Follow-ups', 'followups'], ['Workflows', 'workflows'], ['Workers', 'workers'], ['Advice', 'advice'], ['Settings', 'settings'], ['Health', 'health'], ['More', 'more']]);
 
 /**
  * What the command palette can reach (IC-021, DEC-011): the screens, then the runs (each with its Chain target, 150 IC-020),
@@ -546,6 +479,7 @@ function refreshStatus() {
   const stale = Boolean(view && view.poller && !app.fatal && view.poller.isStale());
   if (view) setStale(stale, view, now);
   syncPauseControl(view);
+  paintAttention();
   if (view) updateCountdowns(view, now);
   refreshReltimes(mainEl(), now);
   const spec = view && view.route.view;
@@ -581,12 +515,87 @@ function teardownView() {
   hidePanel(app.inspector, view.local);
 }
 
-/** @param {any} href */
-function setNav(href) {
+/**
+ * Marks the current navigation link. A Manage view is reached through More on a phone (its own link shows from 768 px), so
+ * the More link is then current too, as `true`: the current item of the set, not the page itself.
+ * @param {any} href @param {boolean} [manage]
+ */
+function setNav(href, manage = false) {
   for (const link of app.els.navLinks) {
-    if (link.getAttribute('href') === href) link.setAttribute('aria-current', 'page');
+    const own = link.getAttribute('href');
+    if (own === href) link.setAttribute('aria-current', 'page');
+    else if (manage && own === '#/more') link.setAttribute('aria-current', 'true');
     else link.removeAttribute('aria-current');
   }
+}
+
+// ---- 5a. the attention strip: what waits for the person on this machine, on every view ----
+
+/**
+ * Follows the `machine` channel of the page's live store once the session works, for as long as the page lives. The store
+ * shares its one connection with the views, so this adds a channel, never a stream; it makes no GET and runs no poll.
+ */
+function startAttention() {
+  if (app.attention !== null || !app.els || !app.els.attention) return;
+  const store = pageStore();
+  const held = { body: /** @type {any} */ (null), error: /** @type {string | null} */ (null), transport: { state: store.status().transport, code: /** @type {string | null} */ (null) }, frameAt: /** @type {number | null} */ (null), key: '' };
+  app.attention = held;
+  store.onTransport((/** @type {any} */ event) => {
+    held.transport = { state: event.state, code: typeof event.code === 'string' ? event.code : null };
+    paintAttention();
+  });
+  store.subscribe('machine', (/** @type {any} */ event) => {
+    if (!event) return;
+    if (event.kind === 'state') {
+      const member = event.state && typeof event.state === 'object' ? event.state.machine : undefined;
+      if (member && member.status === 200 && member.body && typeof member.body === 'object') {
+        held.body = member.body;
+        held.error = null;
+        held.frameAt = nowMs();
+      } else {
+        held.error = member && member.body && member.body.error && typeof member.body.error.code === 'string' ? member.body.error.code : 'no-member';
+      }
+    } else if (event.kind === 'error') held.error = event.code ?? 'unknown';
+    else if (event.kind === 'gone') held.error = 'gone';
+    else return; // a `reset` keeps what is held; the snapshot that follows replaces it
+    paintAttention();
+  });
+  paintAttention();
+}
+
+/**
+ * Draws the strip and the count on the Layers link from what is held. The strip is hidden while there is nothing to say, on
+ * the Layers machine page (it leads with the same gates) and under a full page.
+ */
+function paintAttention() {
+  const held = app.attention;
+  const strip = app.els && app.els.attention;
+  if (!held || !strip) return;
+  const model = attentionModel({ body: held.body, transport: held.transport, error: held.error });
+  const words = attentionWords(model, held.frameAt === null ? null : clockTime(held.frameAt));
+  const onLayers = Boolean(app.view) && app.view.route.id === 'layers';
+  const show = words !== null && !onLayers && !app.fatal;
+  const key = JSON.stringify([words, show]);
+  if (held.key === key) return;
+  held.key = key;
+  if (show) {
+    strip.dataset.state = words.state;
+    mount(strip, [
+      icon(words.state === 'awaiting' ? 'awaiting' : 'unknown', 16),
+      h('span', { class: 'attention__count' }, words.count),
+      words.where === '' ? null : h('span', { class: 'attention__where' }, words.where),
+      h('a', { class: 'attention__link', href: words.link.href }, words.link.text),
+    ]);
+    strip.removeAttribute('hidden');
+  } else {
+    mount(strip, []);
+    strip.setAttribute('hidden', '');
+  }
+  const link = app.els.navLinks.find((/** @type {any} */ item) => item.getAttribute('href') === '#/layers');
+  if (!link) return;
+  const old = link.querySelector('.navrail__badge');
+  if (old) old.remove();
+  if (words !== null && words.badge !== null) link.append(h('span', { class: 'navrail__badge' }, [words.badge, h('span', { class: 'vh' }, ` ${words.count}`)]));
 }
 
 /**
@@ -613,7 +622,7 @@ function startView(route, { first = false, animate = false, focus = true } = {})
     announcedError: null,
     // The view's own memory (E.1): what its render, load and tick keep between polls; its panel opens in `inspector` (D.2);
     // `route` is the current route with its selection (IC-019) and `link` writes a selection to the address.
-    local: { inspector: app.inspector, route, link: /** @type {any} */ (null), apiGet, retry: () => view.poller && /** @type {any} */ (view.poller).refreshNow() },
+    local: { inspector: app.inspector, route, link: /** @type {any} */ (null), apiGet, info: () => app.info, retry: () => view.poller && /** @type {any} */ (view.poller).refreshNow() },
     root: null,
     painted: null,
     fullKey: null,
@@ -624,7 +633,8 @@ function startView(route, { first = false, animate = false, focus = true } = {})
   globalThis.document.title = titleFor(route);
   if (app.inspector) app.inspector.setInspectable(route.view.inspectable === true);
   const navHref = navFor(route);
-  setNav(navHref === null ? null : navHref === 'runs' ? '#/' : `#/${navHref}`);
+  setNav(navHref === null ? null : navHref === 'runs' ? '#/' : `#/${navHref}`, MANAGE_VIEWS.includes(route.id));
+  paintAttention();
   paint(view);
   if (!first && focus) {
     globalThis.scrollTo(0, 0);
@@ -743,6 +753,7 @@ function onData(view, body, heartbeat) {
   if (view !== app.view) return;
   app.sessionWorked = true;
   view.fail = null;
+  startAttention();
   if (heartbeat) {
     if (body && body.core) {
       app.info = body;
@@ -1008,17 +1019,18 @@ function boot() {
       coreVersion: document.getElementById('core-version'),
       bannerSlot: document.getElementById('banner-slot'),
       pause: document.getElementById('pause'),
-      navLinks: Array.from(document.querySelectorAll('.nav__link')),
+      navLinks: Array.from(document.querySelectorAll('.navrail__link')),
       shell: document.getElementById('shell'),
+      attention: document.getElementById('attention'),
       inspector: document.getElementById('inspector'),
     };
     const brand = document.querySelector('.brand');
     if (brand && !brand.querySelector('.icon')) brand.prepend(icon('brand', 28));
     /** @type {Record<string, string>} */
-    const railIcons = { '#/': 'rail-now', '#/sessions': 'rail-sessions', '#/workflows': 'rail-workflows', '#/layers': 'rail-layers', '#/workers': 'rail-workers', '#/advice': 'rail-advice', '#/followups': 'rail-followups', '#/settings': 'rail-settings', '#/health': 'rail-health' };
+    const railIcons = { '#/': 'rail-now', '#/sessions': 'rail-sessions', '#/workflows': 'rail-workflows', '#/layers': 'rail-layers', '#/workers': 'rail-workers', '#/advice': 'rail-advice', '#/followups': 'rail-followups', '#/settings': 'rail-settings', '#/health': 'rail-health', '#/more': 'rail-more' };
     for (const link of app.els.navLinks) {
       const name = railIcons[link.getAttribute('href')];
-      if (name && !link.querySelector('.icon')) link.prepend(icon(name, 16));
+      if (name && !link.querySelector('.icon')) link.prepend(icon(name, 20));
     }
     if (app.els.shell && app.els.inspector) {
       const matchMedia = typeof globalThis.matchMedia === 'function' ? (/** @type {string} */ query) => globalThis.matchMedia(query) : undefined;

@@ -214,10 +214,10 @@ function installPage(opts: { hash?: string, stored?: string | null, throwStorage
   };
   const html = el('html', { class: 'booting' });
   const body = el('body');
-  const link = (href: string, text: string) => el('a', { class: 'nav__link navrail__link', href }, [el('span', { class: 'navrail__label' }, [text])]);
+  const link = (href: string, text: string) => el('a', { class: 'navrail__link', href }, [el('span', { class: 'navrail__label' }, [text])]);
   const radio = (choice: string) => el('button', { type: 'button', role: 'radio', class: 'theme__opt', 'aria-checked': 'false', tabindex: '-1', 'data-theme-choice': choice }, [el('span', { class: 'theme__label' }, [choice])]);
   const skip = el('a', { class: 'skip', href: '#main' }, ['Skip to content']);
-  const nav = [link('#/', 'Now'), link('#/sessions', 'Sessions'), link('#/workflows', 'Workflows'), link('#/layers', 'Layers'), link('#/workers', 'Workers'), link('#/advice', 'Advice'), link('#/followups', 'Follow-ups'), link('#/settings', 'Settings'), link('#/health', 'Health')]; // 149 D.1: the fake page mirrors index.html's rail
+  const nav = [link('#/', 'Now'), link('#/sessions', 'Sessions'), link('#/layers', 'Layers'), link('#/more', 'More'), link('#/followups', 'Follow-ups'), link('#/workflows', 'Workflows'), link('#/workers', 'Workers'), link('#/advice', 'Advice'), link('#/settings', 'Settings'), link('#/health', 'Health')]; // 149 D.1: the fake page mirrors index.html's rail
   const radios = ['light', 'dark', 'system'].map(radio);
   const conn = el('p', { class: 'conn', id: 'conn', 'data-state': 'unknown' }, [el('span', { class: 'conn__long' }, ['Connecting']), el('span', { class: 'conn__short' }, ['Connecting'])]);
   const pause = el('button', { type: 'button', class: 'btn btn--ghost pause', id: 'pause', 'aria-pressed': 'false', hidden: '' }, [el('span', { class: 'pause__label' }, ['Pause updates'])]);
@@ -227,11 +227,10 @@ function installPage(opts: { hash?: string, stored?: string | null, throwStorage
   const inspector = el('aside', { id: 'inspector', class: 'inspector', 'aria-label': 'Details', hidden: '' }, [
     el('div', { class: 'inspector__head' }, [el('h2', { class: 'inspector__title', id: 'inspector-title' }, ['Details']),
       el('button', { type: 'button', class: 'btn btn--ghost inspector__close' }, [el('span', { class: 'vh' }, ['Close details'])])]),
-    el('p', { class: 'inspector__empty' }, ['Select an item to see its details here.']),
     el('div', { class: 'inspector__body' }),
   ]);
   const shell = el('div', { class: 'shell', id: 'shell', 'data-inspectable': 'false' }, [
-    el('nav', { class: 'nav navrail', 'aria-label': 'Primary' }, [el('ul', {}, nav.map((a) => el('li', {}, [a])))]), main, inspector]);
+    el('nav', { class: 'navrail', 'aria-label': 'Primary' }, [el('ul', {}, nav.map((a) => el('li', {}, [a])))]), main, inspector]);
   body.append(skip,
     el('header', { class: 'site-header' }, [el('a', { class: 'brand', href: '#/' }, [el('span', { class: 'brand__name' }, ['DoFlow'])]),
       conn, pause, el('p', { id: 'core-version' }),

@@ -432,6 +432,12 @@ test('outline markup: ul[role=tree] "Run chain" of li[role=treeitem] with aria-l
   assert.ok(view.item('main').querySelector('.chain__marker'));
   assert.equal(text(view.item('task:A.2').querySelector('.chain__live')), '1 live');
   assert.ok(view.item('task:A.2').querySelector('.chain__chip'));
+  // The stepper: every step has its state dot; the dot flow runs only into a step the data says is running, never the root.
+  assert.ok(items.every((li: El) => li.querySelector('.chain__node') !== null));
+  const flowing = items.filter((li: El) => li.children.some((c: any) => c instanceof El && c.classList.contains('chain__flow')));
+  assert.ok(flowing.length > 0 && !flowing.includes(view.item('main')));
+  assert.ok(flowing.every((li: El) => li.querySelector('.chain__chip').dataset.state === 'running'));
+  assert.ok(flowing.every((li: El) => li.children[0].dataset.loop === 'on' && li.children[0].getAttribute('aria-hidden') === 'true'));
   // Text nodes only, and the tree is the only element with a key listener.
   for (const node of nodesOf(view.root)) {
     if (node instanceof El) assert.equal((node.listeners.get('keydown') ?? []).length, node === tree ? 1 : 0, `${node.tagName} ${node.dataset.key ?? ''}`);
