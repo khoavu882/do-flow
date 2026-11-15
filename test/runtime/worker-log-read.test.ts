@@ -388,7 +388,7 @@ test('161 review B: a secret crossing a grid cut inside one long line is masked 
     for (const piece of page.pieces) {
       for (const frag of [...fragments(value), ...fragments(run)]) assert.ok(!piece.text.includes(frag), `${mode}: piece at ${piece.at} holds ${frag}: ${JSON.stringify(piece.text.slice(-40))}`);
     }
-    const joined = linesOf(page.pieces).find((text: string) => text.startsWith('word'));
+    const joined = linesOf(page.pieces).find((text: string) => text.startsWith('word')) ?? '';
     assert.ok(joined.includes('password=<masked>'), `${mode}: the joined line masks the value`);
     assert.ok(!joined.includes(run) && joined.includes('<masked>'), `${mode}: the joined line masks the run`);
     assert.equal(joined, require('../../src/runtime/mask.ts').maskBody(line).text, `${mode}: the joined line is the line masked whole`);
