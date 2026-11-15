@@ -95,8 +95,11 @@ Residual risks, stated so they are not a surprise:
 
 ## Views
 
+The Console is laid out for a phone first. Below 768 px the navigation is a tab bar at the bottom (Now, Sessions, Layers, More) that keeps clear of the device's safe areas; from 768 px it is a rail at the left with the Manage pages listed under those three. Gates waiting for you anywhere on the machine show on every page: one strip under the app bar and a count on the Layers link, read from the `machine` channel of the page's one stream. When that stream is not being followed the strip says the gates are not observed and why; it never says that nothing is waiting. A detail panel is a sheet from the bottom on a phone, a drawer from 768 px and a docked column from 1280 px, and the column exists only while a panel is open. Work in progress is drawn as a dot that runs along the connector into the running step and back. `console/DESIGN.md` is the design of record, with each choice and what it rejected.
+
 | View | Route | Reads |
 |---|---|---|
+| More | `#/more` | nothing: links to the Manage pages, session history and compare, the theme control, and the core version the shell already read from `/api/info` |
 | Runs (rail: Now) | `#/` | `GET /api/live` channel `now`, member `runs`; polled: `GET /api/runs`. Every run of this project as a stage rail, grouped Needs you, Running, Finished |
 | Run | `#/run/:slug/:taskId`, `#/run/:slug/:taskId/stage/:id`, `#/run/:slug/:taskId/gate/:id` | `GET /api/live` channel `run:<slug>:<taskId>`, member `run`; polled: `GET /api/runs/:slug/:taskId`. Rail, current activity, timeline (`orchestrate --action timeline`), replay |
 | Task graph | `#/run/:slug/:taskId/tasks`, `#/run/:slug/:taskId/tasks/:task` | the same channel and route: task lanes and each task's attempts (`task-attempt --action inspect`, field `attempts`) |
@@ -195,7 +198,7 @@ Every agent, whatever its harness, shows DoFlow's own `record` events, so no pan
 
 ## Design system
 
-Colour, type, space, radius and motion are tokens in `web/tokens.css`; views use no raw value. The design system is written down in the 093 feature records (`agent-docs/doflow/093-console-web-ui/design/design-system.md`, in the DoFlow development checkout), and `test/tokens.test.ts` recomputes the WCAG 2.2 contrast of every foreground and background pair it lists, in both themes. A change to a token starts there.
+Colour, type, space, radius and motion are tokens in `web/tokens.css`; views use no raw value. `console/DESIGN.md` is the design of record for the layout, the navigation, the states and the motion. The design system is written down in the 093 feature records (`agent-docs/doflow/093-console-web-ui/design/design-system.md`, in the DoFlow development checkout), and `test/tokens.test.ts` recomputes the WCAG 2.2 contrast of every foreground and background pair it lists, in both themes. A change to a token starts there.
 
 ## Regenerating the diagrams
 
