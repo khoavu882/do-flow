@@ -33,13 +33,15 @@ function project(t: any) {
   return root;
 }
 
-/** The CLI with a scratch HOME and XDG_CONFIG_HOME, never the real ones. */
-function runCli(cwd: any, args: any) {
+/** The CLI with a scratch HOME and XDG_CONFIG_HOME, never the real ones, as a main session unless `extraEnv` says otherwise. */
+function runCli(cwd: any, args: any, extraEnv: Record<string, string> = {}) {
   const home = path.join(cwd, '.test-home');
   const config = path.join(cwd, '.test-config');
   fs.mkdirSync(home, { recursive: true });
   fs.mkdirSync(config, { recursive: true });
   const env: any = { ...process.env, DOFLOW_TELEMETRY: 'off', DOFLOW_UPKEEP: 'off', HOME: home, XDG_CONFIG_HOME: config };
+  delete env.DOFLOW_SESSION_ROLE;
+  Object.assign(env, extraEnv);
   const result = spawnSync(process.execPath, [DOFLOW, 'orchestrate', ...args], { cwd, env, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 });
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
@@ -354,4 +356,26 @@ test('a note that starts with - reaches the journal verbatim', (t) => {
   ok(root, ['--action', 'start', '--task-id', 'n2', '--task-class', 'bug', '--slug', 'feat-a']);
   ok(root, ['--action', 'close', '--task-id', 'n2', '--slug', 'feat-a', '--note', '-dropped for good', '--via', 'console']);
   assert.equal(readRun(root, 'feat-a', 'n2').history.at(-1).note, '-dropped for good');
+});
+
+test('162 review 5: --via from a worker session is refused (exit 1, error worker-session as JSON) on decide-gate and close, and writes nothing; without --via the worker session is as before', (t) => {
+  const root = project(t);
+  const awaiting = gateRun(root);
+  const before = fs.readFileSync(runFile(root, 'feat-a', 't1'));
+  for (const role of ['worker', 'subagent']) {
+    for (const args of [decideArgs(['--via', DEVICE, '--expect-revision', String(awaiting.revision)]), ['--action', 'close', '--task-id', 't1', '--slug', 'feat-a', '--note', 'n', '--via', 'console']]) {
+      const result = runCli(root, [...args, '--json'], { DOFLOW_SESSION_ROLE: role });
+      assert.equal(result.status, 1, `${role} ${args.join(' ')}: ${result.stdout}${result.stderr}`);
+      const body = JSON.parse(result.stdout);
+      assert.deepEqual([body.v, body.ok, body.error, body.current], [1, false, 'worker-session', null]);
+      assert.match(result.stderr, /--via/);
+      const text = runCli(root, args, { DOFLOW_SESSION_ROLE: role });
+      assert.equal(text.status, 1);
+      assert.equal(text.stdout, '');
+    }
+  }
+  assert.deepEqual(fs.readFileSync(runFile(root, 'feat-a', 't1')), before, 'nothing was written');
+  // A main session (the role unset or main) still relays.
+  ok(root, decideArgs(['--via', DEVICE]));
+  assert.equal(readRun(root, 'feat-a', 't1').history.filter((e: any) => e.action === 'decide-gate').at(-1).by, DEVICE);
 });

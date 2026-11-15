@@ -29,6 +29,7 @@ const { resolveRoots, resolveStorePath } = require('./storage/roots.ts');
 const { checkCompletion: checkTaskAttemptCompletion, storeFile: taskAttemptStoreFile } = require('./task-attempts.ts');
 const { runKeyFor, refuseSolo } = require('./task-run.ts');
 const { RELAY_LABEL } = require('./relay-label.ts');
+const { inWorkerSession } = require('./context/identity.ts');
 const { projectRoot: lifecycleProjectRoot } = require('./lifecycle/root.ts');
 const { appendOutcome, findPick, readWindow } = require('./advice/record.ts');
 const {
@@ -1487,6 +1488,7 @@ function timelineResult(options: { stateRoot?: string; sourceRoot?: string; task
 function handleOrchestrateCommand({
   action = 'status', taskId, taskClass, stage, gate, node, decision, policy, note, reason, forced = false, via, expectRevision,
   verificationPlan, scope, invariants, result, mcpOutcome, callingSkill, json = false, repoRoot, stateRoot, sourceRoot, slug = null, recordSlug, buildAdapters = null, dryRun = false,
+  env = process.env,
 }: any = {}) {
   const { finishRuntime, usageError } = require('./cli-result.ts');
 
@@ -1500,6 +1502,13 @@ function handleOrchestrateCommand({
   }
   if (via !== undefined && !RELAY_LABEL.test(String(via))) {
     return usageError('orchestrate', `'--via' takes console or device.d-<12 hex>, got '${via}'`, json);
+  }
+  // 162 review 5: the label is an assertion by whoever runs the command; an agent in a worker session (the guard
+  // `worker --operator` and `models --action bind` use) cannot label its own decision as the Console's or a device's.
+  if (via !== undefined && inWorkerSession(env)) {
+    console.error("[ERROR] orchestrate: '--via' relays a person's decision from the Console or a paired device and is refused in a worker session; decide without it");
+    if (json) console.log(JSON.stringify({ v: 1, ok: false, error: 'worker-session', current: null }));
+    return finishRuntime(1);
   }
   // Under --json, a refused decide-gate or close is data too: the code and the run as it now stands.
   const refusalJson = json && (action === 'decide-gate' || action === 'close');
