@@ -121,7 +121,7 @@ test('a revoke written by instance B is refused by instance A on its next verify
   assert.equal('device' in a.verify(digestOf(token)), true);
   assert.equal('device' in b.verify(digestOf(token)), true);
   assert.equal(await b.revoke(device.id), 'revoked');
-  assert.deepEqual(a.verify(digestOf(token)), { refused: 'device-revoked' });
+  assert.deepEqual(a.verify(digestOf(token)), { refused: 'device-revoked', id: device.id });
   assert.equal(await a.revoke(device.id), 'already');
   assert.equal(await a.revoke('d-000000000000'), 'unknown');
   assert.deepEqual(a.verify(digestOf('dfd1_unknown')), { refused: 'device-unpaired' });
@@ -143,11 +143,11 @@ test('a device idle for more than 30 days is expired; list says so', async () =>
   const dir = scratch();
   const c = clock();
   const store = open(dir, c);
-  const { token } = await pair(store);
+  const { token, device } = await pair(store);
   c.advance(IDLE_MS);
   assert.equal('device' in store.verify(digestOf(token)), true, 'exactly 30 days is not yet idle');
   c.advance(1);
-  assert.deepEqual(store.verify(digestOf(token)), { refused: 'device-expired' });
+  assert.deepEqual(store.verify(digestOf(token)), { refused: 'device-expired', id: device.id });
   assert.equal(store.list()[0].state, 'expired');
 });
 

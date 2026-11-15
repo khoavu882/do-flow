@@ -1,10 +1,11 @@
 'use strict';
 
-// The Console HTTP boundary (design C2; IC-005, IC-006; 092 IC-010). Per request, in this order:
-// Host allow-list (else 421, empty body) -> Origin for /api/* (absent or own origin; else 403) ->
+// The Console HTTP boundary (design C2; IC-005, IC-006; 092 IC-010; 160 IC-005). Per request, in this order:
+// Host allow-list (else 421, empty body) -> in LAN mode, classify the client (browser or native) and refuse
+// an Authorization header on a browser request -> Origin for /api/* (absent or own origin; else 403) ->
 // route by path and declared method (no route for the path: GET 404, any other method 405) ->
-// for a non-GET route: an own Origin, `Sec-Fetch-Site: same-origin` when sent, and
-// `Content-Type: application/json` exactly (else 403 / 415) -> the handler. Every response, including
+// for a non-GET route: an own Origin, `Sec-Fetch-Site: same-origin` when sent (a native LAN client sends
+// neither), and `Content-Type: application/json` exactly (else 403 / 415) -> the handler. Every response, including
 // Node's own 400 for a malformed request, carries the header set of headers.ts. A stream route's
 // handler gets `res` and returns null once it owns the response (stream.ts writes the same header set
 // itself); a Reply it returns instead is sent as usual.
@@ -18,11 +19,18 @@ const http = require('node:http');
 const https = require('node:https');
 const { securityHeaders } = require('./headers.ts');
 const { ROUTES, isApiPath, matchPath, errorReply } = require('./routes.ts');
+const { readCookie, DEVICE_COOKIE } = require('./session.ts');
 
 const BIND_HOST = '127.0.0.1';
 
 type Reply = { status: number, headers?: Record<string, string>, body?: string | Uint8Array };
-type ServerOptions = { webRoot?: string, routes?: readonly any[], host?: string, port?: number, tls?: { certPath: string, keyPath: string } };
+type ServerOptions = {
+  webRoot?: string, routes?: readonly any[], host?: string, port?: number, tls?: { certPath: string, keyPath: string },
+  /** `loopback` (the default): plain http on 127.0.0.1. `lan`: https on `host`, paired devices only (160 IC-005). */
+  mode?: 'loopback' | 'lan',
+  /** LAN mode only: the problem with `host`, or null. Defaults to `remoteAddressError`; tests inject `() => null` to bind loopback. */
+  addressCheck?: (address: string) => string | null,
+};
 type ConsoleServer = { server: any, port: number, origin: string, close(): Promise<void> };
 
 const STATUS_TEXT: Record<number, string> = { 400: 'Bad Request' };
@@ -84,17 +92,20 @@ function allowedAuthorities(host: string, port: number, remote: boolean): { host
   return { hosts, origins };
 }
 
-// Loopback remains the default. Remote binds require an assigned private interface and explicit TLS;
-// host and origin checks below remain exact in either mode (092 IC-010).
+// Loopback remains the default. LAN mode requires an address the check accepts (an assigned private one) and
+// explicit TLS; host and origin checks below remain exact in either mode (092 IC-010). The mode is asked for,
+// never inferred from the host.
 async function createServer(options: ServerOptions = {}): Promise<ConsoleServer> {
   const host = options.host ?? BIND_HOST;
-  const remote = host !== BIND_HOST;
-  if (remote) {
-    const problem = remoteAddressError(host);
+  const lan = options.mode === 'lan';
+  if (lan) {
+    const problem = (options.addressCheck ?? remoteAddressError)(host);
     if (problem) throw new Error(`doflow ui refused remote bind: ${problem}`);
     if (!options.tls || !path.isAbsolute(options.tls.certPath) || !path.isAbsolute(options.tls.keyPath)) {
       throw new Error('doflow ui remote bind requires absolute TLS certificate and key paths');
     }
+  } else if (host !== BIND_HOST) {
+    throw new Error(`doflow ui loopback mode binds only ${BIND_HOST}`);
   } else if (options.tls) {
     throw new Error('doflow ui TLS options require an explicit private listen address');
   }
@@ -118,6 +129,14 @@ async function createServer(options: ServerOptions = {}): Promise<ConsoleServer>
     const hostHeader = req.headers.host;
     if (typeof hostHeader !== 'string' || !allowedHosts.has(hostHeader.toLowerCase())) return { status: 421 };
     const origin = req.headers.origin;
+    // LAN mode: a request that carries an Origin, a Sec-Fetch-Site or the device cookie is a browser and is
+    // read by cookie only; any other is a native client and is read by Bearer only (device-auth.ts).
+    let clientClass: 'browser' | 'native' | undefined;
+    if (lan) {
+      const browser = origin !== undefined || req.headers['sec-fetch-site'] !== undefined || readCookie(req.headers.cookie, DEVICE_COOKIE) !== null;
+      clientClass = browser ? 'browser' : 'native';
+      if (api && browser && req.headers.authorization !== undefined) return errorReply(403, 'forbidden-origin');
+    }
     if (api && origin !== undefined && !allowedOrigins.has(origin)) return errorReply(403, 'forbidden-origin');
 
     const matches = routes
@@ -130,12 +149,14 @@ async function createServer(options: ServerOptions = {}): Promise<ConsoleServer>
       return { status: 405, headers: { Allow: declared.length ? declared.join(', ') : 'GET' } };
     }
     if (req.method !== 'GET') {
-      if (origin === undefined || !allowedOrigins.has(origin)) return errorReply(403, 'forbidden-origin');
-      const fetchSite = req.headers['sec-fetch-site'];
-      if (fetchSite !== undefined && fetchSite !== 'same-origin') return errorReply(403, 'forbidden-origin');
+      if (clientClass !== 'native') {
+        if (origin === undefined || !allowedOrigins.has(origin)) return errorReply(403, 'forbidden-origin');
+        const fetchSite = req.headers['sec-fetch-site'];
+        if (fetchSite !== undefined && fetchSite !== 'same-origin') return errorReply(403, 'forbidden-origin');
+      }
       if (req.headers['content-type'] !== 'application/json') return errorReply(415, 'unsupported-media');
     }
-    return hit.route.handler({ req, res, pathname, params: hit.params, webRoot, port: boundPort, secure: remote });
+    return hit.route.handler({ req, res, pathname, params: hit.params, webRoot, port: boundPort, ...(clientClass === undefined ? {} : { clientClass }) });
   }
 
   function send(res: any, api: boolean, reply: Reply): void {
@@ -166,7 +187,7 @@ async function createServer(options: ServerOptions = {}): Promise<ConsoleServer>
       });
   };
   let server: any;
-  if (remote && options.tls) {
+  if (lan && options.tls) {
     let cert: Buffer;
     let key: Buffer;
     try {
@@ -207,8 +228,8 @@ async function createServer(options: ServerOptions = {}): Promise<ConsoleServer>
   });
   boundPort = server.address().port;
   const hostForUrl = urlHost(host);
-  const protocol = remote ? 'https' : 'http';
-  ({ hosts: allowedHosts, origins: allowedOrigins } = allowedAuthorities(hostForUrl, boundPort, remote));
+  const protocol = lan ? 'https' : 'http';
+  ({ hosts: allowedHosts, origins: allowedOrigins } = allowedAuthorities(hostForUrl, boundPort, lan));
 
   return {
     server,

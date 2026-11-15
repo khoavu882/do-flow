@@ -334,14 +334,14 @@ function createLanStore(options: Options) {
       });
     },
 
-    /** The device holding the token whose SHA-256 is `tokenSha256`, or the refusal code. Reads only. */
-    verify(tokenSha256: string): { device: DeviceView } | { refused: 'device-unpaired' | 'device-revoked' | 'device-expired' | 'store-unreadable' } {
+    /** The device holding the token whose SHA-256 is `tokenSha256`, or the refusal code (with the device's `id` when it is known). Reads only. */
+    verify(tokenSha256: string): { device: DeviceView } | { refused: 'device-revoked' | 'device-expired', id: string } | { refused: 'device-unpaired' | 'store-unreadable' } {
       const read = current();
       if ('error' in read) return { refused: 'store-unreadable' };
       const found = isHex64(tokenSha256) ? read.data.devices.find((d) => d.tokenSha256 === tokenSha256) : undefined;
       if (!found) return { refused: 'device-unpaired' };
-      if (found.revokedAt !== null) return { refused: 'device-revoked' };
-      if (now() - ms(found.lastSeenAt) > IDLE_MS) return { refused: 'device-expired' };
+      if (found.revokedAt !== null) return { refused: 'device-revoked', id: found.id };
+      if (now() - ms(found.lastSeenAt) > IDLE_MS) return { refused: 'device-expired', id: found.id };
       return { device: view(found) };
     },
 

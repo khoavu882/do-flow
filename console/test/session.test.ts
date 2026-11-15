@@ -11,7 +11,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const net = require('node:net');
-const { createSessions, cookieName, sessionCookie, LAUNCH_CODE_TTL_MS, PHONE_SESSION_TTL_MS } = require('../src/session.ts');
+const { createSessions, cookieName, sessionCookie, LAUNCH_CODE_TTL_MS } = require('../src/session.ts');
+const session = require('../src/session.ts');
 const { ROUTES, buildRoutes, jsonReply } = require('../src/routes.ts');
 const { createServer } = require('../src/server.ts');
 
@@ -160,16 +161,17 @@ test('session: the token is 256-bit hex, scope read, and an unknown or malformed
   }
 });
 
-test('phone session: scope is narrow and its server-side lifetime is 72 hours', () => {
+test('the loopback session has one scope and no lifetime but the process; there is no phone session left (160 P-2)', () => {
   const c = clock();
-  const store = createSessions({ now: c.now, scope: 'phone' });
+  const store = createSessions({ now: c.now });
   const token = store.exchange(store.mintLaunchCode());
-  assert.deepEqual(store.verify(token), { scope: 'phone' });
-  c.advance(PHONE_SESSION_TTL_MS - 1);
-  assert.deepEqual(store.verify(token), { scope: 'phone' });
-  c.advance(1);
-  assert.equal(store.verify(token), null);
-  assert.equal(sessionCookie(4310, 'token', true), 'doflow_ui_4310=token; HttpOnly; SameSite=Strict; Path=/; Secure');
+  c.advance(10 * 365 * 24 * 60 * 60 * 1000);
+  assert.deepEqual(store.verify(token), { scope: 'read' });
+  assert.equal(sessionCookie(4310, 'token'), 'doflow_ui_4310=token; HttpOnly; SameSite=Strict; Path=/');
+  assert.equal(Object.hasOwn(session, 'PHONE_SESSION_TTL_MS'), false);
+  // A scope option is no longer read: every session is the read scope.
+  const other = createSessions({ now: c.now, scope: 'phone' } as any);
+  assert.deepEqual(other.verify(other.exchange(other.mintLaunchCode())), { scope: 'read' });
 });
 
 test('exchange: POST /api/session sets doflow_ui_<port> HttpOnly, SameSite=Strict, Path=/ with no lifetime, and the cookie opens /api/*', async () => {

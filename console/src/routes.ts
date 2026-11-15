@@ -2,10 +2,12 @@
 
 // The Console route table (IC-005). A route declares its method, so the server answers 405 for every
 // method no route declares for a path; the only non-GET route the contract allows is
-// `POST /api/session`, the launch-code exchange (092 IC-011), and the stream routes are exactly
+// `POST /api/session`, the launch-code exchange (092 IC-011), in loopback mode and `POST /api/pair`
+// (device-auth.ts, 160 IC-006) in LAN mode, and the stream routes are exactly
 // `GET /api/stream` and `GET /api/live` (`stream: true`: the handler writes to `ctx.res` over time and
 // returns null once it has taken the response over; before that it may still return an error Reply). `buildRoutes` puts every
-// other /api route behind the session check, so a route added to the table cannot skip it. Paths are literal segments, `:name` segments (one non-empty raw segment,
+// other /api route behind the session check (loopback) or the paired-device check and the scope list of
+// scopes.ts (LAN), so a route added to the table cannot skip it. Paths are literal segments, `:name` segments (one non-empty raw segment,
 // still percent-encoded: handlers validate it), or the whole-table static fallback `/*`, which never
 // matches under /api.
 
@@ -13,6 +15,7 @@ const crypto = require('node:crypto');
 const os = require('node:os');
 const { readStatic } = require('./static.ts');
 const { processSessions, sessionCookie, readCookie, cookieName } = require('./session.ts');
+const { deviceMayUse } = require('./scopes.ts');
 const { project } = require('./project.ts');
 const { anchorsOf } = require('./place.ts');
 const { handshake } = require('./handshake.ts');
@@ -21,7 +24,10 @@ const { createStreams, createStreamCap, parseLastEventId, MAX_STREAMS_PER_SESSIO
 const { createLiveStreams, lastEventVector, parseChannelList, parseVector } = require('./live-stream.ts');
 
 type Reply = { status: number, headers?: Record<string, string>, body?: string | Uint8Array };
-type RouteContext = { req: any, res: any, pathname: string, params: Record<string, string>, webRoot: string, port: number, secure?: boolean, session?: { scope: 'read' | 'phone' } };
+type Session = { scope: 'read' } | { scope: 'view' | 'control', deviceId: string };
+// `clientClass` is set in LAN mode only: a request with an Origin, a Sec-Fetch-Site or a device cookie is a
+// browser, any other a native client (160 IC-005).
+type RouteContext = { req: any, res: any, pathname: string, params: Record<string, string>, webRoot: string, port: number, clientClass?: 'browser' | 'native', session?: Session };
 type Route = Readonly<{ method: 'GET' | 'POST', path: string, stream?: true, handler: (ctx: RouteContext) => Reply | null | Promise<Reply | null> }>;
 type StreamCap = { acquire(session: object): (() => void) | null, open(): number };
 /** The live hub of live.ts (one per Console, made in main.ts), as far as the route and live-stream.ts use it. */
@@ -103,27 +109,38 @@ function sessionRoute(sessions: any): Route {
       if (body === null || typeof body !== 'object' || Array.isArray(body) || typeof body.code !== 'string') return errorReply(400, 'usage');
       const token = sessions.exchange(body.code);
       if (token === null) return errorReply(401, 'unauthenticated');
-      return { status: 204, headers: { 'Set-Cookie': sessionCookie(ctx.port, token, ctx.secure === true) } };
+      return { status: 204, headers: { 'Set-Cookie': sessionCookie(ctx.port, token) } };
     },
   };
 }
-
-const PHONE_ROUTE_ALLOWLIST = new Set(['/api/info', '/api/runs', '/api/runs/:slug/:taskId', '/api/workflows']);
 
 function requireSession(sessions: any, route: Route): Route['handler'] {
   return (ctx) => {
     const session = sessions.verify(readCookie(ctx.req.headers.cookie, cookieName(ctx.port)));
     if (!session) return errorReply(401, 'unauthenticated');
-    if (session.scope === 'phone' && (route.method !== 'GET' || !PHONE_ROUTE_ALLOWLIST.has(route.path))) return errorReply(403, 'phone-scope');
     return route.handler({ ...ctx, session });
   };
 }
 
-// The frozen route table over `sessions`: the exchange route plus `table`, with every /api route of
-// `table` wrapped in the session check.
-function buildRoutes(sessions: any, table: readonly Route[]): readonly Route[] {
-  const guarded = table.map((route) => (isApiPath(route.path) ? { ...route, handler: requireSession(sessions, route) } : route));
-  return Object.freeze([sessionRoute(sessions), ...guarded].map((route) => Object.freeze({ ...route })));
+// LAN mode: the credential is checked by the device auth (device-auth.ts), then the device's scope must
+// list the route (scopes.ts); a refreshed cookie rides on the reply of a browser whose last-seen was written.
+function requireDevice(auth: any, route: Route): Route['handler'] {
+  return async (ctx) => {
+    const checked = await auth.authenticate(ctx);
+    if ('reply' in checked) return checked.reply;
+    if (!deviceMayUse(checked.session.scope, route.method, route.path)) return errorReply(403, 'phone-scope');
+    const reply = await route.handler({ ...ctx, session: checked.session });
+    return reply !== null && checked.refresh ? { ...reply, headers: { ...reply.headers, 'Set-Cookie': checked.refresh } } : reply;
+  };
+}
+
+// The frozen route table over `access`: the loopback sessions (the exchange route plus `table`, every /api
+// route wrapped in the session check) or, when `access.mode` is 'lan', the device auth (the pairing route
+// plus `table`, every /api route wrapped in the device check; no launch-code exchange exists).
+function buildRoutes(access: any, table: readonly Route[]): readonly Route[] {
+  const lan = access.mode === 'lan';
+  const guarded = table.map((route) => (isApiPath(route.path) ? { ...route, handler: lan ? requireDevice(access, route) : requireSession(access, route) } : route));
+  return Object.freeze([lan ? access.pairRoute() : sessionRoute(access), ...guarded].map((route) => Object.freeze({ ...route })));
 }
 
 const healthz: Route = { method: 'GET', path: '/healthz', handler: () => jsonReply(200, { status: 'ok' }) };
@@ -726,11 +743,11 @@ const sessionsHistoryRoute = (runner: Runner, anchors: Anchors): Route['handler'
  * hub; without one (route tests over a scripted runner) `/api/live` answers 503 live-unavailable.
  * `place` gives the anchors the management routes place paths and text under (151 IC-006).
  */
-function consoleRoutes(runner: Runner, sessions: any = processSessions, live: LiveHub | null = null,
+function consoleRoutes(runner: Runner, access: any = processSessions, live: LiveHub | null = null,
   place: Place = { projectRoot: process.cwd(), home: os.homedir() }): readonly Route[] {
   const streamCap = createStreamCap(MAX_STREAMS_PER_SESSION);
   const anchors: Anchors = anchorsOf({ projectRoot: place.projectRoot, home: place.home });
-  return buildRoutes(sessions, [
+  return buildRoutes(access, [
     healthz,
     { method: 'GET', path: '/api/info', handler: () => info(runner) },
     { method: 'GET', path: '/api/runs', handler: () => runs(runner) },
@@ -758,4 +775,4 @@ function consoleRoutes(runner: Runner, sessions: any = processSessions, live: Li
   ]);
 }
 
-module.exports = { ROUTES, SESSION_LIMITS, TASK_CLASSES, buildRoutes, consoleRoutes, isApiPath, matchPath, jsonReply, errorReply, JSON_TYPE, runs, tasks, runDetail, sessionsView, workerRuns, workerAgentKey };
+module.exports = { ROUTES, SESSION_LIMITS, TASK_CLASSES, buildRoutes, consoleRoutes, isApiPath, matchPath, jsonReply, errorReply, readBody, healthz, staticFallback, JSON_TYPE, runs, tasks, runDetail, sessionsView, workerRuns, workerAgentKey };

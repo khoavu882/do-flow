@@ -152,14 +152,22 @@ test('bind: listens on the literal 127.0.0.1, on an OS-picked port by default', 
   assert.ok(port > 0);
 });
 
-test('bind: remote hosts are refused before anything listens unless they qualify for explicit TLS mode', async () => {
+test('bind: loopback mode refuses every host but 127.0.0.1 and any TLS option, and LAN mode refuses a wildcard, a public or an unassigned address, before anything listens', async () => {
   const original = http.createServer;
   let created = 0;
   http.createServer = (...args: any[]) => { created += 1; return original(...args); };
   try {
     for (const host of ['0.0.0.0', '::', '::1', 'localhost', '127.0.0.2', '192.168.1.10', '', ' 127.0.0.1']) {
-      await assert.rejects(createServer({ webRoot, host }), /refused remote bind|requires absolute TLS/i, `host ${JSON.stringify(host)}`);
+      await assert.rejects(createServer({ webRoot, host }), /loopback mode binds only 127\.0\.0\.1/, `loopback host ${JSON.stringify(host)}`);
     }
+    await assert.rejects(createServer({ webRoot, tls: { certPath: '/abs/c.pem', keyPath: '/abs/k.pem' } }), /TLS options require an explicit private listen address/);
+    for (const host of ['0.0.0.0', '::', '127.0.0.1', '8.8.8.8', '100.64.0.1', 'localhost', '']) {
+      await assert.rejects(createServer({ webRoot, mode: 'lan', host, tls: { certPath: '/abs/c.pem', keyPath: '/abs/k.pem' } }), /refused remote bind/, `lan host ${JSON.stringify(host)}`);
+    }
+    // A private address this machine does not hold is refused too.
+    await assert.rejects(createServer({ webRoot, mode: 'lan', host: '10.254.254.1', tls: { certPath: '/abs/c.pem', keyPath: '/abs/k.pem' } }), /refused remote bind/);
+    await assert.rejects(createServer({ webRoot, mode: 'lan', host: '10.254.254.1', addressCheck: () => null, tls: { certPath: 'rel.pem', keyPath: '/abs/k.pem' } }), /requires absolute TLS certificate and key paths/);
+    await assert.rejects(createServer({ webRoot, mode: 'lan', host: '10.254.254.1', addressCheck: () => null }), /requires absolute TLS certificate and key paths/);
   } finally {
     http.createServer = original;
   }

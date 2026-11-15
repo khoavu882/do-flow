@@ -1,18 +1,18 @@
 'use strict';
 
-// Launch code and session (design C3; FR-003; 092 IC-011). One 256-bit code per store, valid for
-// 5 min and exchanged once for a 256-bit session token; tokens live in this process's memory only and
-// die with it (no re-mint, no persistence). Codes and tokens are compared as SHA-256 digests, so every
+// Launch code and session (design C3; FR-003; 092 IC-011): the loopback credential. One 256-bit code per
+// store, valid for 5 min and exchanged once for a 256-bit session token; tokens live in this process's
+// memory only and die with it (no re-mint, no persistence). LAN mode has none of this: it admits paired
+// devices only (device-auth.ts, 160 IC-005). Codes and tokens are compared as SHA-256 digests, so every
 // guess, of any length, takes the same single `timingSafeEqual` over two 32-byte buffers. Nothing here
 // logs: the code's one appearance is the stdout line C.1 prints from `mintLaunchCode()` (IC-002).
 
 const crypto = require('node:crypto');
 
 const LAUNCH_CODE_TTL_MS = 5 * 60 * 1000;
-const PHONE_SESSION_TTL_MS = 72 * 60 * 60 * 1000;
 const SECRET_BYTES = 32;
 
-type Session = Readonly<{ scope: 'read' | 'phone' }>;
+type Session = Readonly<{ scope: 'read' }>;
 type Sessions = {
   mintLaunchCode(): string,
   exchange(code: string): string | null,
@@ -21,16 +21,14 @@ type Sessions = {
 
 const digest = (value: string) => crypto.createHash('sha256').update(value, 'utf8').digest();
 
-function createSessions(options: { now?: () => number, ttlMs?: number, scope?: Session['scope'], sessionTtlMs?: number } = {}): Sessions {
+function createSessions(options: { now?: () => number, ttlMs?: number } = {}): Sessions {
   const now = options.now ?? Date.now;
   // ttlMs intentionally remains the one-use launch-code TTL.
   const ttlMs = options.ttlMs ?? LAUNCH_CODE_TTL_MS;
-  const scope = options.scope ?? 'read';
-  const sessionTtlMs = options.sessionTtlMs ?? (scope === 'phone' ? PHONE_SESSION_TTL_MS : undefined);
   let minted = false;
   let code: { hash: any, expiresAt: number } | null = null;
   // Keyed by the token's SHA-256 hex, so the token itself is never held.
-  const sessions = new Map<string, { session: Session, expiresAt?: number }>();
+  const sessions = new Map<string, Session>();
 
   return {
     mintLaunchCode() {
@@ -49,23 +47,12 @@ function createSessions(options: { now?: () => number, ttlMs?: number, scope?: S
       code = null; // a matched code is spent whether or not it was still live
       if (!live) return null;
       const token = crypto.randomBytes(SECRET_BYTES).toString('hex');
-      const session: Session = Object.freeze({ scope });
-      sessions.set(digest(token).toString('hex'), {
-        session,
-        ...(sessionTtlMs === undefined ? {} : { expiresAt: now() + sessionTtlMs }),
-      });
+      sessions.set(digest(token).toString('hex'), Object.freeze({ scope: 'read' }));
       return token;
     },
     verify(token: unknown) {
       if (typeof token !== 'string' || token === '') return null;
-      const key = digest(token).toString('hex');
-      const entry = sessions.get(key);
-      if (!entry) return null;
-      if (entry.expiresAt !== undefined && now() >= entry.expiresAt) {
-        sessions.delete(key);
-        return null;
-      }
-      return entry.session;
+      return sessions.get(digest(token).toString('hex')) ?? null;
     },
   };
 }
@@ -77,7 +64,10 @@ const mintLaunchCode = () => processSessions.mintLaunchCode();
 const cookieName = (port: number) => `doflow_ui_${port}`;
 
 // No Max-Age or Expires: a browser-session cookie whose server-side session dies with the process.
-const sessionCookie = (port: number, token: string, secure = false) => `${cookieName(port)}=${token}; HttpOnly; SameSite=Strict; Path=/${secure ? '; Secure' : ''}`;
+const sessionCookie = (port: number, token: string) => `${cookieName(port)}=${token}; HttpOnly; SameSite=Strict; Path=/`;
+
+// The paired device's credential in LAN mode (device-auth.ts): not port-keyed, so it survives a port change.
+const DEVICE_COOKIE = 'doflow_device';
 
 // The value of cookie `name` in a Cookie header, or null.
 function readCookie(header: unknown, name: string): string | null {
@@ -89,4 +79,4 @@ function readCookie(header: unknown, name: string): string | null {
   return null;
 }
 
-module.exports = { createSessions, processSessions, mintLaunchCode, cookieName, sessionCookie, readCookie, LAUNCH_CODE_TTL_MS, PHONE_SESSION_TTL_MS };
+module.exports = { createSessions, processSessions, mintLaunchCode, cookieName, sessionCookie, readCookie, DEVICE_COOKIE, LAUNCH_CODE_TTL_MS };
