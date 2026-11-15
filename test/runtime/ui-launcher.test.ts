@@ -2,7 +2,7 @@
 
 // `doflow ui` launcher (092 IC-008, 093 G.1). The launcher finds the Console package by file
 // existence — the core's sibling `../doflow-ui`, then a walk up from the project for
-// `node_modules/@khoavu882/doflow-ui` — and runs its bin with `--core <this core>/bin/doflow.js`,
+// `node_modules/@khoavu882/doflow-ui`, then a development checkout's `<core>/console` — and runs its bin with `--core <this core>/bin/doflow.js`,
 // forwarding the exit code. Absent, it prints the install hint and exits 2, touching nothing.
 //
 // Most cases run the handler in a child Node process with a fake core root, so the sibling lookup
@@ -142,6 +142,39 @@ test('ui-launcher: walks up from the project; without a project or --port, neith
   assert.equal(fs.realpathSync(seen.cwd), fs.realpathSync(nested), 'the Console runs in the caller\'s directory');
 });
 
+test('ui-launcher: a development checkout\'s own console/ is found when nothing is installed', (t) => {
+  const { core, project } = layout(t);
+  const bin = fakePackage(path.join(core, 'console'));
+  const r = runHandler([project], core);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stderr, `doflow ui: using ${bin}\n`);
+});
+
+test('ui-launcher: a console/ whose package name is not @khoavu882/doflow-ui, or whose package.json is unreadable, is not the Console', (t) => {
+  const { core, project } = layout(t);
+  const dir = path.join(core, 'console');
+  fakePackage(dir);
+  fs.writeFileSync(path.join(dir, 'package.json'), '{"name":"somebody-else"}\n');
+  const other = runHandler([project], core);
+  assert.equal(other.status, 2, other.stderr);
+  assert.equal(other.stderr, `${HINT}\n`);
+  fs.writeFileSync(path.join(dir, 'package.json'), '{not json');
+  const broken = runHandler([project], core);
+  assert.equal(broken.status, 2, broken.stderr);
+  assert.equal(broken.stderr, `${HINT}\n`);
+});
+
+test('ui-launcher: an installed sibling and a project copy both win over the checkout console/', (t) => {
+  const { root, scope, core, project } = layout(t);
+  fakePackage(path.join(core, 'console'));
+  const projectCopy = fakePackage(path.join(root, 'work', SCOPE, 'doflow-ui'));
+  const viaProject = runHandler([project], core);
+  assert.equal(viaProject.stderr, `doflow ui: using ${projectCopy}\n`);
+  const sibling = fakePackage(path.join(scope, 'doflow-ui'));
+  const viaSibling = runHandler([project], core);
+  assert.equal(viaSibling.stderr, `doflow ui: using ${sibling}\n`);
+});
+
 test('ui-launcher: a package.json without its bin is not an install', (t) => {
   const { scope, core, project } = layout(t);
   fs.mkdirSync(path.join(scope, 'doflow-ui'));
@@ -258,15 +291,22 @@ test('ui-launcher: SIGINT to the launcher reaches the Console as SIGTERM and its
 // Through the real entry point. The sibling of this checkout must be absent for the hint case.
 const REPO_SIBLING = path.join(REPO, '..', 'doflow-ui', 'package.json');
 const siblingSkip = fs.existsSync(REPO_SIBLING) && `a doflow-ui package sits next to this checkout (${REPO_SIBLING})`;
+// In a development checkout the core's own console/ is the last candidate, so "absent" cannot happen there.
+const checkoutSkip = siblingSkip || (fs.existsSync(path.join(REPO, 'console', 'package.json')) && 'this checkout holds its own console/ (the last lookup step)');
 
-test('ui-launcher: `doflow ui` through bin/doflow.js — absent prints the hint, present runs with --port', { skip: siblingSkip }, (t) => {
+test('ui-launcher: `doflow ui` through bin/doflow.js — absent prints the hint', { skip: checkoutSkip }, (t) => {
   const root = tempDir(t, 'doflow-ui-cli-');
   const project = path.join(root, 'app');
   fs.mkdirSync(project);
   const absent = spawnSync(process.execPath, [DOFLOW, 'ui', project, '--port', '0'], { encoding: 'utf8', timeout: 20000 });
   assert.equal(absent.status, 2, absent.stderr);
   assert.equal(absent.stderr, `${HINT}\n`);
+});
 
+test('ui-launcher: `doflow ui` through bin/doflow.js — present runs with --port', { skip: siblingSkip }, (t) => {
+  const root = tempDir(t, 'doflow-ui-cli-');
+  const project = path.join(root, 'app');
+  fs.mkdirSync(project);
   const bin = fakePackage(path.join(root, SCOPE, 'doflow-ui'));
   const present = spawnSync(process.execPath, [DOFLOW, 'ui', project, '--port=0'], { encoding: 'utf8', timeout: 20000, env: { ...process.env, T_EXIT: '4' } });
   assert.equal(present.status, 4, present.stderr);

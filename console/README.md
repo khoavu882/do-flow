@@ -26,7 +26,7 @@ doflow ui --lan                    # reachable from a phone on the same network,
 doflow ui --action devices         # list the paired phones
 ```
 
-`doflow ui [<project>] [flags]` is the core's launcher (`docs/reference.md`, row `doflow ui`). It finds this package next to the installed core, or in `node_modules/@khoavu882/doflow-ui` above the project, and starts it. The package's own binary takes the same options plus the core path:
+`doflow ui [<project>] [flags]` is the core's launcher (`docs/reference.md`, row `doflow ui`). It finds this package next to the installed core, or in `node_modules/@khoavu882/doflow-ui` above the project, or, last, as `console/` in the checkout the core runs from (so `doflow ui` works in a development checkout), and starts it. The package's own binary takes the same options plus the core path:
 
 ```bash
 node console/bin/doflow-ui.js --core /Users/example/doflow/bin/doflow.js [--project /Users/example/project] [--port 4310] [--lan [--listen-address <private local IP>]]
