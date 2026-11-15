@@ -20,7 +20,8 @@
 //                                    address), one of SUMMARY_CODES' refusals and `rate-limited` (key = the
 //                                    actor), or a refusal before an actor exists, `forbidden-origin` and
 //                                    `unsupported-media` (actor kind `none`, key `none`: one line per reason, whoever
-//                                    sent it); the minute's bucket is written as one `summary` line with `count`
+//                                    sent it, in a reserved bucket the 512-bucket cap never takes or renames); the
+//                                    buckets of past minutes leave before a new one is chosen; the minute's bucket is written as one `summary` line with `count`
 //                                    once the minute has passed (on a later `summary` or `flush`); `base`
 //                                    ({ actor, address, action }) is taken from the bucket's first call. So a flood
 //                                    of refusals adds at most one line per code and key a minute (162 review 1).
@@ -67,6 +68,8 @@ const LOCK_FILE = 'actions.lock';
 const PHASES = ['begin', 'end', 'summary'] as const;
 /** What a `summary` line counts: a 401, a 429 of the limits, and every refusal before the core (162 review 1), those before an actor exists included. */
 const SUMMARY_CODES = ['unauthenticated', 'rate-limited', 'phone-scope', 'action-transport', 'usage', 'request-reused', 'action-busy', 'forbidden-origin', 'unsupported-media'] as const;
+/** The refusals before an actor exists: one reserved bucket each a minute, key and actor fixed, outside MAX_BUCKETS (162 review A-2). */
+const PRE_ACTOR_CODES: readonly string[] = ['forbidden-origin', 'unsupported-media'];
 const KINDS = ['local', 'device', 'unknown', 'none'] as const;
 const SCOPES = ['local', 'view', 'control'] as const;
 const TRANSPORTS = ['loopback', 'native', 'browser'] as const;
@@ -296,13 +299,24 @@ function createActionLog(options: Options) {
 
   function summary(code: SummaryCode, key: string, base: Fields = {}): Promise<void> {
     if (!(SUMMARY_CODES as readonly string[]).includes(code)) throw new ActionLogError('invalid-field', `a summary code is one of ${SUMMARY_CODES.join(', ')}`);
+    // The buckets of minutes that have passed leave first, so they never fill the cap for this minute (162 review A-2).
+    const written = flush(false);
     const minute = minuteOf(now());
-    let id = `${code}\n${minute}\n${String(key)}`;
-    if (!buckets.has(id) && buckets.size >= MAX_BUCKETS) id = `${code}\n${minute}\n*overflow*`;
-    const bucket = buckets.get(id) ?? { code, minute, count: 0, fields: id.endsWith('*overflow*') ? {} : base };
+    const reserved = PRE_ACTOR_CODES.includes(code);
+    let id = `${code}\n${minute}\n${reserved ? 'none' : String(key)}`;
+    if (!reserved && !buckets.has(id) && buckets.size - reservedCount() >= MAX_BUCKETS) id = `${code}\n${minute}\n*overflow*`;
+    const fields = reserved ? { actor: { kind: 'none' } } : id.endsWith('*overflow*') ? {} : base;
+    const bucket = buckets.get(id) ?? { code, minute, count: 0, fields };
     bucket.count += 1;
     buckets.set(id, bucket);
-    return flush(false);
+    return written;
+  }
+
+  /** The reserved pre-actor buckets held now: they never count against MAX_BUCKETS. */
+  function reservedCount(): number {
+    let count = 0;
+    for (const bucket of buckets.values()) if (PRE_ACTOR_CODES.includes(bucket.code)) count += 1;
+    return count;
   }
 
   return {

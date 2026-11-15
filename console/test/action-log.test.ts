@@ -226,6 +226,31 @@ test('summary buckets are bounded: keys past the cap count under one overflow bu
   assert.equal(lines.reduce((sum: number, l: any) => sum + l.count, 0), 600);
 });
 
+test('162 review A-2: the two refusals before an actor exist keep their own bucket past the cap, and expired buckets leave before a new one is chosen', async () => {
+  const root = scratch();
+  const file = path.join(root, 'console', 'actions.ndjson');
+  const c = clock(Date.UTC(2026, 10, 15, 10, 0, 5));
+  const log = open(root, { now: c.now });
+  for (let i = 0; i < 512; i += 1) await log.summary('unauthenticated', `10.1.${Math.floor(i / 250)}.${i % 250}`, { address: `10.1.${Math.floor(i / 250)}.${i % 250}` });
+  // The cap is full in this minute: the pre-actor reasons still count under their own bucket, actor none.
+  await log.summary('forbidden-origin', 'none', { actor: { kind: 'none' } });
+  await log.summary('unsupported-media', 'none', { actor: { kind: 'none' } });
+  // The next minute, before any flush: the 514 expired buckets are written first, then the new one is chosen.
+  c.advance(60_000);
+  await log.summary('forbidden-origin', 'none', { actor: { kind: 'none' } });
+  await log.summary('forbidden-origin', 'none', { actor: { kind: 'none' } });
+  await log.flush(true);
+  const lines = linesOf(file);
+  const early = (code: string) => lines.filter((l: any) => l.code === code).map((l: any) => [l.at, l.count, l.actor.kind]);
+  assert.deepEqual(early('forbidden-origin'), [['2026-11-15T10:00:00.000Z', 1, 'none'], ['2026-11-15T10:01:00.000Z', 2, 'none']]);
+  assert.deepEqual(early('unsupported-media'), [['2026-11-15T10:00:00.000Z', 1, 'none']]);
+  assert.equal(lines.filter((l: any) => l.code === 'unauthenticated').length, 512);
+  // A caller cannot widen or rename a reserved bucket: any key or base counts on the one actor-none line.
+  await log.summary('unsupported-media', '10.0.0.9', { address: '10.0.0.9', actor: { kind: 'local' } });
+  await log.flush(true);
+  assert.deepEqual(linesOf(file).slice(-1).map((l: any) => [l.code, l.count, l.actor.kind, l.address]), [['unsupported-media', 1, 'none', null]]);
+});
+
 test('two child processes appending 200 lines each leave 400 whole JSON lines', async (t: any) => {
   const root = scratch();
   const folder = path.join(root, 'console');
