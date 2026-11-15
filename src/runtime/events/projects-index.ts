@@ -124,9 +124,13 @@ function createProjectsIndex(options: IndexOptions = {}): ProjectsIndex {
     return parts.join('|');
   }
 
-  /** The exec of a refresh: every call goes to `exec`; a checkout list that succeeded is kept for `replay`. */
+  /**
+   * The exec of a refresh: every call goes to `exec` with GIT_OPTIONAL_LOCKS=0 (the commands are
+   * `rev-parse` and `worktree list`, which refresh no index, and with optional locks off none may);
+   * a checkout list that succeeded is kept for `replay`.
+   */
   function recording(cmd: string, args: readonly string[], opts?: any): any {
-    const res = exec(cmd, args, opts);
+    const res = exec(cmd, args, { ...opts, env: { ...(opts && opts.env ? opts.env : process.env), GIT_OPTIONAL_LOCKS: '0' } });
     const dir = worktreeListDir(args);
     if (dir !== null && res && !res.error && res.status === 0) porcelain.set(dir, String(res.stdout ?? ''));
     return res;

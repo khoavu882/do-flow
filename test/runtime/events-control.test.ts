@@ -474,7 +474,11 @@ test('161 T5 IC-001: every new kind has a producer: machine snapshots, and layer
 // added for a new kind cannot start writing without this test saying so.
 test('161 AC-7: the events modules call no file-writing API and take no lock', () => {
   const dir = path.join(REPO, 'src', 'runtime', 'events');
-  const forbidden = /\b(writeFileSync|writeFile|appendFileSync|appendFile|mkdirSync|mkdir|renameSync|rename|unlinkSync|unlink|rmSync|rmdirSync|copyFileSync|truncateSync|createWriteStream|utimesSync|chmodSync|symlinkSync|withLock|acquireLock|lockfile|updateTaskState)\b|openSync\([^)]*['"][wa+]/;
+  // A write-capable open flag is a string with w, a or + (r+ included) or any numeric write, append, create or truncate bit.
+  const forbidden = /\b(writeFileSync|writeFile|appendFileSync|appendFile|mkdirSync|mkdir|renameSync|rename|unlinkSync|unlink|rmSync|rmdirSync|copyFileSync|truncateSync|createWriteStream|utimesSync|chmodSync|symlinkSync|withLock|acquireLock|lockfile|updateTaskState|O_WRONLY|O_RDWR|O_APPEND|O_CREAT|O_TRUNC)\b|\bopen(?:Sync)?\([^)]*['"][rs]*[wa+]/;
+  // The guard itself: each mutation is caught, and the read-only open the lanes use is not.
+  for (const bad of ["fs.openSync(file, fs.constants.O_WRONLY)", "fsImpl.openSync(f, O_RDWR)", "fs.openSync(file, 'r+')", "fs.open(file, 'a', cb)", "fsImpl.openSync(file, 'w')"]) assert.ok(forbidden.test(bad), bad);
+  for (const good of ["fsImpl.openSync(file, 'r')", "fsImpl.openSync(file, fs.constants.O_RDONLY | NOFOLLOW)"]) assert.ok(!forbidden.test(good), good);
   const offenders: string[] = [];
   for (const name of fs.readdirSync(dir).filter((file: string) => file.endsWith('.ts'))) {
     fs.readFileSync(path.join(dir, name), 'utf8').split('\n').forEach((text: string, i: number) => {

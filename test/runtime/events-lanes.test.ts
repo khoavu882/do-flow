@@ -4,7 +4,7 @@
 // lanes of `doflow events --follow`, and `events --kinds`. Scratch HOME and config home, scratch git
 // projects, hand-written Claude transcripts; the in-process cases inject the clock and the watch, so the
 // 250 ms log pass, the debounce and the 30 s pass run on a fake clock. The one process case runs the
-// events verb under test/helper/fs-open-probe.ts and compares the scratch tree before and after.
+// events verb under an fs and child-process probe of its own and compares the scratch tree before and after.
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -23,7 +23,6 @@ const { LOG_PASS_MS, DEBOUNCE_MS, FULL_TICKS, PASS_MS } = require('../../src/run
 
 const REPO = path.resolve(__dirname, '..', '..');
 const CLI = path.join(REPO, 'bin', 'doflow.js');
-const PROBE = path.join(REPO, 'test', 'helper', 'fs-open-probe.ts');
 const WIN = process.platform === 'win32';
 const SCRATCH = 'scratch.noindex'; // not in any fixture path, so the scratch projects are listed
 const GH = 'ghp_abcdefghijklmnopqrstuvwxyz0123456789';
@@ -487,14 +486,73 @@ function treeOf(root: string): Record<string, string> {
   return out;
 }
 
-test('161 T5 AC-7: following machine, layers, file and transcript opens no lock file and changes nothing under the scratch tree', { skip: WIN }, async (t) => {
+/**
+ * 161 AC-7: a probe the driver installs before it loads the verb. Every fs call that opens, creates, writes,
+ * moves, links or deletes is recorded as `<op>\t<flags>\t<path>` (flags as given: a string, a number or `-`), and
+ * every child process as `exec\t<GIT_OPTIONAL_LOCKS>\t<command and arguments>`. Its own writes use the functions
+ * captured before wrapping.
+ */
+const OPEN_PROBE = `
+const fs = require('node:fs');
+const cp = require('node:child_process');
+const nodePath = require('node:path');
+const out = process.env.AC7_PROBE;
+const raw = { openSync: fs.openSync, writeSync: fs.writeSync, closeSync: fs.closeSync };
+let busy = false;
+const note = (line) => {
+  if (busy) return;
+  busy = true;
+  try { const fd = raw.openSync.call(fs, out, 'a'); try { raw.writeSync.call(fs, fd, line.replace(/[\\r\\n]/g, ' ') + '\\n'); } finally { raw.closeSync.call(fs, fd); } } catch {} finally { busy = false; }
+};
+const where = (p) => (typeof p === 'string' ? nodePath.resolve(p) : Buffer.isBuffer(p) ? nodePath.resolve(p.toString('utf8')) : p && p.href ? String(p.href) : '#fd');
+const flagOf = (f) => (f === undefined || f === null ? '-' : typeof f === 'object' ? flagOf(f.flags ?? f.flag) : String(f));
+const wrap = (obj, name, flagsAt) => {
+  const fn = obj[name];
+  if (typeof fn !== 'function') return;
+  obj[name] = function (...args) { note(name + '\\t' + (flagsAt === null ? 'write' : flagOf(args[flagsAt])) + '\\t' + where(args[0])); return fn.apply(this, args); };
+};
+for (const name of ['openSync', 'open']) wrap(fs, name, 1);
+wrap(fs.promises, 'open', 1);
+for (const name of ['readFileSync', 'readFile', 'createReadStream']) wrap(fs, name, 1);
+wrap(fs.promises, 'readFile', 1);
+for (const name of ['writeFileSync', 'writeFile', 'appendFileSync', 'appendFile', 'createWriteStream', 'mkdirSync', 'mkdir', 'mkdtempSync', 'renameSync', 'rename',
+  'unlinkSync', 'unlink', 'rmSync', 'rm', 'rmdirSync', 'rmdir', 'copyFileSync', 'copyFile', 'cpSync', 'cp', 'truncateSync', 'truncate', 'symlinkSync', 'symlink',
+  'linkSync', 'link', 'utimesSync', 'utimes', 'chmodSync', 'chmod', 'chownSync', 'chown']) wrap(fs, name, null);
+for (const name of ['writeFile', 'appendFile', 'mkdir', 'mkdtemp', 'rename', 'unlink', 'rm', 'rmdir', 'copyFile', 'cp', 'truncate', 'symlink', 'link', 'utimes', 'chmod', 'chown']) wrap(fs.promises, name, null);
+for (const name of ['spawnSync', 'spawn', 'execFileSync', 'execFile', 'execSync', 'exec']) {
+  const fn = cp[name];
+  cp[name] = function (cmd, args, opts) {
+    const o = Array.isArray(args) ? opts : args;
+    const envOf = (o && o.env) || process.env;
+    note('exec\\t' + (envOf.GIT_OPTIONAL_LOCKS ?? '-') + '\\t' + [cmd, ...(Array.isArray(args) ? args : [])].join(' '));
+    return fn.apply(this, arguments);
+  };
+}
+require('node:module').syncBuiltinESMExports();
+`;
+
+/** An open flag that can write: a string flag with `w`, `a` or `+`, or a number with a write, append, create or truncate bit. */
+function writes(flags: string): boolean {
+  if (flags === 'write') return true;
+  if (flags === '-') return false;
+  if (/^\d+$/.test(flags)) {
+    const c = fs.constants;
+    return (Number(flags) & (c.O_WRONLY | c.O_RDWR | c.O_APPEND | c.O_CREAT | c.O_TRUNC)) !== 0;
+  }
+  return /[wa+]/.test(flags);
+}
+
+test('161 T5 AC-7: following machine, layers, file and transcript makes no write-capable open, no lock and no git write, and changes nothing under the scratch tree', { skip: WIN }, async (t) => {
   const { f, a, pk, file, ch } = agentWorld(t);
   const rel = REL;
   write(path.join(a, ...rel.split('/')), '# Task 3\n');
   const driver = path.join(f.root, 'driver.js');
   const probe = path.join(f.root, 'opens.txt');
+  const control = path.join(f.root, 'control.txt');
   fs.writeFileSync(probe, '');
-  fs.writeFileSync(driver, `
+  fs.writeFileSync(driver, `${OPEN_PROBE}
+// The negative control: one write-capable open with a numeric flag, before the verb loads, which the test must see flagged.
+fs.closeSync(fs.openSync(${JSON.stringify(control)}, fs.constants.O_WRONLY | fs.constants.O_CREAT));
 const { handleEventsCommand } = require(${JSON.stringify(path.join(REPO, 'src', 'runtime', 'events', 'command.ts'))});
 const { createProjectsIndex } = require(${JSON.stringify(path.join(REPO, 'src', 'runtime', 'events', 'projects-index.ts'))});
 handleEventsCommand({ follow: true, control: 'stdin', json: true, flags: ['--follow', '--control', '--json'], positional: [], cwd: process.cwd(), env: process.env,
@@ -502,7 +560,7 @@ handleEventsCommand({ follow: true, control: 'stdin', json: true, flags: ['--fol
 `);
   const before = treeOf(f.root);
   const channels = ['machine', `layers:${pk}`, `file:${pk}:${fileKeyOf(a, rel)}`, ch];
-  const child = spawn(process.execPath, ['--require', PROBE, driver], { cwd: a, env: { ...process.env, ...f.env, DOFLOW_OPEN_PROBE: probe }, stdio: ['pipe', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, [driver], { cwd: a, env: { ...process.env, ...f.env, AC7_PROBE: probe }, stdio: ['pipe', 'pipe', 'pipe'] });
   t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); });
   let out = '';
   let err = '';
@@ -520,14 +578,24 @@ handleEventsCommand({ follow: true, control: 'stdin', json: true, flags: ['--fol
   assert.equal(await exited, 0, err);
   assert.equal(err, '');
 
-  const opened: string[] = fs.readFileSync(probe, 'utf8').split('\n').filter(Boolean);
+  const rows = fs.readFileSync(probe, 'utf8').split('\n').filter(Boolean).map((line: string) => line.split('\t'));
+  const opens = rows.filter((r: string[]) => r[0] !== 'exec');
+  const execs = rows.filter((r: string[]) => r[0] === 'exec');
+  const opened = opens.map((r: string[]) => r[2]);
   assert.ok(opened.some((p) => p === file), 'the probe saw the transcript read');
   assert.ok(opened.some((p) => p === path.join(a, ...rel.split('/'))), 'and the brief read');
-  // The probe records a path, not an open mode: the assertions are the path set and the unchanged tree.
+  // The control open went red in the probe: a numeric write flag is seen as a write.
+  assert.deepEqual(opens.filter((r: string[]) => r[2] === control).map((r: string[]) => writes(r[1])), [true], 'the probe flags the control open as write-capable');
+  assert.deepEqual(opens.filter((r: string[]) => r[2] !== control && writes(r[1])).map((r: string[]) => r.join(' ')), [], 'no other call opens for writing or writes');
   assert.deepEqual(opened.filter((p) => /(^|[\\/])[^\\/]*\.lock$|[\\/]locks?[\\/]|\.lock[\\/]/i.test(p)), [], 'no lock file or lock directory is opened');
   const stray = opened.filter((p) => p.startsWith(f.config) && !p.startsWith(f.store));
   assert.deepEqual(stray, [], 'nothing under the config home but the hook session store');
+  // Every git process the verb starts is read-only and runs with optional locks off, so none refreshes the index.
+  const gits = execs.filter((r: string[]) => /^git( |$)/.test(r[2]));
+  assert.ok(gits.length > 0, 'the project index ran git');
+  assert.deepEqual(gits.filter((r: string[]) => r[1] !== '0').map((r: string[]) => r[2]), [], 'every git call has GIT_OPTIONAL_LOCKS=0');
+  assert.deepEqual(gits.filter((r: string[]) => !/ (worktree list --porcelain|rev-parse |log -1 )/.test(r[2])).map((r: string[]) => r[2]), [], 'only worktree list, rev-parse and log');
   const after = treeOf(f.root);
-  const changed = Object.keys({ ...before, ...after }).filter((k) => before[k] !== after[k] && !k.startsWith('opens.txt') && k !== 'opens.txt' && !/^proj-a\/\.git(\/|$)/.test(k));
-  assert.deepEqual(changed.filter((k) => k !== path.relative(f.root, file) && k !== path.relative(f.root, path.dirname(file)) && k !== 'driver.js'), [], 'only the transcript this test appended to changed');
+  const changed = Object.keys({ ...before, ...after }).filter((k) => before[k] !== after[k] && k !== 'opens.txt' && k !== 'control.txt');
+  assert.deepEqual(changed.filter((k) => k !== path.relative(f.root, file) && k !== path.relative(f.root, path.dirname(file)) && k !== 'driver.js'), [], 'only the transcript this test appended to changed, .git included');
 });
