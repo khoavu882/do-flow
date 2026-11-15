@@ -122,11 +122,24 @@ test('session: the five routes are 401 without the cookie, and no verb runs', as
   assert.deepEqual(runner.calls, []);
 });
 
-test('device scope: the five routes are 403 phone-scope (the device list is the four reads), and no verb runs', async (t) => {
-  const runner = recording(null);
-  const { json } = await deviceClient(t, (auth: any) => consoleRoutes(runner, auth), webRoot);
-  for (const target of TARGETS) assert.deepEqual(await json(target), { status: 403, body: errorBody('phone-scope'), text: JSON.stringify(errorBody('phone-scope')) }, target);
-  assert.deepEqual(runner.calls, []);
+test('device scope: a paired view or control device reaches the five worker-run routes and each runs its verb; a management route stays 403 phone-scope and runs none', async (t) => {
+  for (const scope of ['view', 'control'] as const) {
+    const runner = recording(fakeCore('worker-reads', t));
+    const { json } = await deviceClient(t, (auth: any) => consoleRoutes(runner, auth), webRoot, scope);
+    for (const target of TARGETS) {
+      const reply = await json(target);
+      assert.ok(![401, 403].includes(reply.status), `${scope} ${target}: ${reply.status} ${reply.text}`);
+      assert.notEqual(reply.body.error?.code, 'phone-scope', `${scope} ${target}`);
+    }
+    assert.deepEqual(runner.calls.map((call) => call.shape), ['worker-runs', 'worker-result', 'worker-run-status', 'worker-log', 'projects'], scope);
+    assert.deepEqual(runner.calls[0], { shape: 'worker-runs', params: { slug: SLUG } }, scope);
+    assert.ok(runner.calls.some((call) => call.shape === 'worker-log' && call.params.runId === RUN && call.params.stream === 'out'), `${scope} log verb`);
+    const refusedRunner = recording(null);
+    const refusedClient = await deviceClient(t, (auth: any) => consoleRoutes(refusedRunner, auth), webRoot, scope);
+    const refused = await refusedClient.json('/api/settings');
+    assert.deepEqual([refused.status, refused.body], [403, errorBody('phone-scope')], scope);
+    assert.deepEqual(refusedRunner.calls, [], scope);
+  }
 });
 
 test('params and query: each bad slug, run id or query is 400 usage on its routes before any verb runs', async (t) => {
