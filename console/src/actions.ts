@@ -471,8 +471,9 @@ function createActions({ runner, log, now = Date.now, warn = () => {} }: Options
   function replyOf(spec: ActionSpec, body: Body, actor: Actor, done: Answer, replayed: boolean): Reply {
     if (done.status === 200) return jsonReply(200, { v: 1, action: spec.id, requestId: body.requestId, outcome: 'applied', replayed, by: actor.relay, result: done.result });
     const reply = errorReply(done.status, done.code as string, done.verb, done.exit);
-    if (done.current === undefined) return reply;
-    return jsonReply(done.status, { ...JSON.parse(String(reply.body)), current: done.current });
+    if (done.current === undefined && !replayed) return reply;
+    // 162 review 11: a replayed error says so, with the first reply's status and `current`.
+    return jsonReply(done.status, { ...JSON.parse(String(reply.body)), ...(done.current === undefined ? {} : { current: done.current }), ...(replayed ? { replayed: true } : {}) });
   }
 
   /** begin, act (one projects refresh for an unknown key), end. */

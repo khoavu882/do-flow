@@ -645,3 +645,17 @@ test('162 review 2: GET /api/actions says allowed false, reason action-log-unwri
   assert.deepEqual(reasons(await broken.get('/api/actions')), IDS.map((id) => [id, true, null]));
   assert.equal(runner.acts.length, 0);
 });
+
+test('162 review 11: a repeated requestId whose first reply was an error replays it with replayed true, the original status and current, and runs the core once', async (t) => {
+  const current = { ...SNAPSHOT, revision: 9 };
+  const runner = fakeRunner(() => ({ ok: true, exit: 1, json: { v: 1, ok: false, error: 'stale-revision', current } }));
+  const w = await loopback(t, runner);
+  const body = BODIES['decide-gate']();
+  const first = await w.post('decide-gate', body);
+  const again = await w.post('decide-gate', body);
+  assert.equal(runner.acts.length, 1);
+  assert.deepEqual([first.status, again.status], [409, 409]);
+  assert.equal(Object.hasOwn(json(first), 'replayed'), false, 'a first error reply is IC-005\'s, as before');
+  assert.deepEqual(json(again), { ...json(first), replayed: true });
+  assert.deepEqual(json(again).current, { state: 'RUNNING', revision: 9, awaitingGate: null });
+});
