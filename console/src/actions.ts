@@ -43,7 +43,7 @@
 const crypto = require('node:crypto');
 const { errorReply, jsonReply, readBody } = require('./routes.ts');
 const { ACTION_IDS, deviceMayAct } = require('./scopes.ts');
-const { PATTERNS } = require('./verb-runner.ts');
+const { ID_MAX, PATTERNS } = require('./verb-runner.ts');
 const { project: projectBody } = require('./project.ts');
 
 type Reply = { status: number, headers?: Record<string, string>, body?: string | Uint8Array };
@@ -101,13 +101,15 @@ function normalizeText(raw: string): string | null {
 
 const codePoints = (text: string) => [...text].length;
 const isId = (value: unknown): value is string => typeof value === 'string' && PATTERNS.id.test(value) && !value.includes('..');
+/** 162 review 9: an id a body may name, at most ID_MAX characters, the bound the action log records in full. */
+const isTarget = (value: unknown): value is string => isId(value) && value.length <= ID_MAX;
 const object = (value: unknown): value is Record<string, any> => value !== null && typeof value === 'object' && !Array.isArray(value);
 
 /** One field's value as the row takes it, or undefined when the rule refuses it. */
 function field(rule: FieldRule, value: unknown): unknown {
   switch (rule.kind) {
-    case 'id': return isId(value) ? value : undefined;
-    case 'slugOpt': return value === null || isId(value) ? value : undefined;
+    case 'id': return isTarget(value) ? value : undefined;
+    case 'slugOpt': return value === null || isTarget(value) ? value : undefined;
     case 'runId': return typeof value === 'string' && PATTERNS.runId.test(value) ? value : undefined;
     case 'decision': return typeof value === 'string' && PATTERNS.decision.test(value) ? value : undefined;
     case 'revision': return object(value) && Object.keys(value).join() === 'revision' && Number.isSafeInteger(value.revision)

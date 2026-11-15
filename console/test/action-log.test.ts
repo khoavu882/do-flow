@@ -244,3 +244,20 @@ test('openActionLog follows the core config-home rule and returns null without a
   assert.equal(linesOf(path.join(root, 'home', '.config', 'doflow', 'console', 'actions.ndjson'))[0].id, 'viahome');
   assert.equal(openActionLog({ HOME: 'relative' }), null);
 });
+
+test('162 review 9: every target id the action routes accept (up to ID_MAX characters) is recorded, and a line with every field at its bound fits 2 KiB', async () => {
+  const { ID_MAX } = require('../src/verb-runner.ts');
+  assert.equal(ID_MAX, 128);
+  const root = scratch();
+  const log = open(root);
+  const at = (c: string) => `a${c.repeat(ID_MAX - 1)}`;
+  const target = { slug: at('s'), taskId: at('t'), gateId: at('g'), runId: 'w-0123456789ab' };
+  const t80 = 'x'.repeat(80);
+  await log.begin({ id: t80, actor: { kind: 'device', deviceId: t80, scope: 'control', transport: 'native' }, address: 'f'.repeat(45), action: t80, project: t80,
+    target, expect: { revision: Number.MAX_SAFE_INTEGER }, input: { decision: t80, textChars: Number.MAX_SAFE_INTEGER }, outcome: 'replayed', code: t80,
+    current: { state: t80, revision: Number.MAX_SAFE_INTEGER }, exit: Number.MAX_SAFE_INTEGER, ms: Number.MAX_SAFE_INTEGER });
+  const [line] = linesOf(path.join(root, 'console', 'actions.ndjson'));
+  assert.deepEqual(line.target, target);
+  await log.begin({ target: { slug: `${at('s')}s` } });
+  assert.equal(linesOf(path.join(root, 'console', 'actions.ndjson'))[1].target.slug, null, 'past the bound the routes refuse it; the log never carries it');
+});

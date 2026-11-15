@@ -254,6 +254,11 @@ interface FollowHandle {
 
 /** The core's ID_PATTERN without its length bound (IC-003): no leading `-`, `.`, no `/`. */
 const PARAM_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+/**
+ * 162 review 9: the longest slug, task id or gate id an action accepts (actions.ts) and the action log records
+ * (action-log.ts): one bound, so every accepted target is on its lines. The core's own rule has no length bound.
+ */
+const ID_MAX = 128;
 /** IC-024: a project or agent key, a transcript cursor, and `--limit` (1..500, IC-022); 150 IC-010: a worker run id (the core's RUN_ID) and a log stream; 151 IC-005: an advice kind, a follow-up state, list cursor and id. */
 const PATTERNS = Object.freeze({
   id: PARAM_PATTERN,
@@ -847,6 +852,7 @@ module.exports = {
   PARAM_PATTERN,
   PASS_THROUGH,
   PATTERNS,
+  ID_MAX,
   POOL_SIZE,
   RESERVED_SLOTS,
   SHAPES,

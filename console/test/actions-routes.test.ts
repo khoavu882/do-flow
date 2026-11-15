@@ -668,3 +668,18 @@ test('162 review 10: the projects refresh before a 404 reads past the runner\'s 
   assert.equal((await w.post('decide-gate', BODIES['decide-gate']())).status, 200);
   assert.deepEqual([late.reads, late.readOptions], [['projects'], [{ fresh: true }]]);
 });
+
+test('162 review 9: a slug, task id and gate id of ID_MAX characters are accepted and recorded on the begin line; one more is 400 usage', async (t) => {
+  const clock = manual();
+  const runner = fakeRunner();
+  const w = await loopback(t, runner, { now: clock.now });
+  const long = (c: string, n = 128) => `a${c.repeat(n - 1)}`;
+  assert.equal((await w.post('decide-gate', BODIES['decide-gate']({ slug: long('s'), taskId: long('t'), gateId: long('g') }))).status, 200);
+  const begin = w.lines().find((line) => line.phase === 'begin');
+  assert.deepEqual([begin.target.slug, begin.target.taskId, begin.target.gateId], [long('s'), long('t'), long('g')]);
+  for (const over of [{ slug: long('s', 129) }, { taskId: long('t', 129) }, { gateId: long('g', 129) }]) {
+    clock.t += 3 * MINUTE;
+    assert.equal((await w.post('decide-gate', BODIES['decide-gate'](over))).status, 400, JSON.stringify(Object.keys(over)));
+  }
+  assert.equal(runner.acts.length, 1);
+});

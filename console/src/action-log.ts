@@ -31,7 +31,9 @@
 // `fields` (all optional): id, actor { kind, deviceId, scope, transport }, address, action, project,
 // target { slug, taskId, gateId, runId }, expect { revision }, input { decision, textChars }, outcome, code,
 // current { state, revision }, exit, ms. An enum field with a value outside its set is a programming error and
-// rejects with reason `invalid-field`.
+// rejects with reason `invalid-field`. A target's slug, task id and gate id are kept up to ID_MAX characters, the
+// bound the action routes accept (verb-runner.ts), so every accepted target is recorded (162 review 9); other
+// tokens up to 80. A line with every field at its bound is under LINE_MAX_BYTES.
 //
 // The file is opened `O_WRONLY|O_APPEND|O_CREAT|O_NOFOLLOW` (plus `O_NONBLOCK`, so a FIFO planted under the
 // name fails instead of blocking), mode 0600, and must be a regular file; the folder is this user's and is set
@@ -47,6 +49,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { consoleDir } = require('./lan-cli.ts');
+const { ID_MAX, PATTERNS } = require('./verb-runner.ts');
 
 const ACTION_LOG_BYTES = 1048576;
 const LINE_MAX_BYTES = 2048;
@@ -97,6 +100,8 @@ class ActionLogError extends Error {
 const TOKEN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/;
 const ADDRESS = /^[0-9A-Fa-f:.]{2,45}$/;
 const token = (value: unknown): string | null => (typeof value === 'string' && TOKEN.test(value) ? value : null);
+/** A target id, by the action routes' own rule and bound. */
+const targetId = (value: unknown): string | null => (typeof value === 'string' && value.length <= ID_MAX && PATTERNS.id.test(value) ? value : null);
 const address = (value: unknown): string | null => (typeof value === 'string' && ADDRESS.test(value) ? value : null);
 const integer = (value: unknown): number | null => (Number.isSafeInteger(value) ? (value as number) : null);
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -136,7 +141,7 @@ function buildLine(phase: Phase, fields: Fields, at: number, pid: number, count:
     address: address(f.address),
     action: token(f.action),
     project: token(f.project),
-    target: { slug: token(target.slug), taskId: token(target.taskId), gateId: token(target.gateId), runId: token(target.runId) },
+    target: { slug: targetId(target.slug), taskId: targetId(target.taskId), gateId: targetId(target.gateId), runId: token(target.runId) },
     expect: { revision: integer(expect.revision) },
     input: { decision: token(input.decision), textChars: integer(input.textChars) },
     outcome: member('outcome', f.outcome, OUTCOMES),
