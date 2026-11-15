@@ -1642,6 +1642,27 @@
         "file": "console/src/lan-cert.ts",
         "pattern": "MAX_CERT_FILES = {value}"
       }
+    },
+    {
+      "id": "console-action-log",
+      "root": "config-home",
+      "path": "console",
+      "entry": "file",
+      "match": "^actions(?:\\.1)?\\.ndjson$|^actions\\.lock$",
+      "rule": "existing",
+      "bound": {
+        "value": 1048576,
+        "text": "two NDJSON generations of the Console's action attempts, each at most 1 MiB: actions.ndjson is renamed over actions.1.ndjson when it reaches 1 MiB; a line is at most 2 KiB and holds no free text; actions.lock exists only during a rotation"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "console/src/action-log.ts"
+      ],
+      "source": {
+        "file": "console/src/action-log.ts",
+        "pattern": "ACTION_LOG_BYTES = {value}"
+      }
     }
   ],
   "externalWriters": [
