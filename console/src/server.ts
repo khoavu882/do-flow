@@ -30,6 +30,8 @@ type ServerOptions = {
   mode?: 'loopback' | 'lan',
   /** LAN mode only: the problem with `host`, or null. Defaults to `remoteAddressError`; tests inject `() => null` to bind loopback. */
   addressCheck?: (address: string) => string | null,
+  /** LAN mode only: the device check (device-auth.ts `authenticate`), run before a path that matches no /api route is answered, so an unpaired caller learns nothing about which paths exist. */
+  authenticate?: (ctx: any) => Promise<{ session: any } | { reply: Reply }>,
 };
 type ConsoleServer = { server: any, port: number, origin: string, close(): Promise<void> };
 
@@ -136,6 +138,9 @@ async function createServer(options: ServerOptions = {}): Promise<ConsoleServer>
       const browser = origin !== undefined || req.headers['sec-fetch-site'] !== undefined || readCookie(req.headers.cookie, DEVICE_COOKIE) !== null;
       clientClass = browser ? 'browser' : 'native';
       if (api && browser && req.headers.authorization !== undefined) return errorReply(403, 'forbidden-origin');
+      // A cross-site, same-site or other-mode request is refused for every method; a missing header (not a browser) passes.
+      const site = req.headers['sec-fetch-site'];
+      if (api && site !== undefined && site !== 'same-origin' && site !== 'none') return errorReply(403, 'forbidden-origin');
     }
     if (api && origin !== undefined && !allowedOrigins.has(origin)) return errorReply(403, 'forbidden-origin');
 
@@ -143,6 +148,15 @@ async function createServer(options: ServerOptions = {}): Promise<ConsoleServer>
       .map((route: any) => ({ route, params: matchPath(route.path, pathname) }))
       .filter((match: any) => match.params !== null);
     const hit = matches.find((match: any) => match.route.method === req.method);
+    if (lan && api && !(hit && isApiPath(hit.route.path))) {
+      // No /api route answers this: an unpaired caller gets the one 401 whatever the path; a paired one a true 404 or 405.
+      if (options.authenticate) {
+        const checked = await options.authenticate({ req, res, pathname, params: {}, webRoot, port: boundPort, clientClass });
+        if ('reply' in checked) return checked.reply;
+      }
+      const declared = [...new Set(matches.filter((match: any) => isApiPath(match.route.path)).map((match: any) => match.route.method))];
+      return declared.length ? { status: 405, headers: { Allow: declared.join(', ') } } : errorReply(404, 'not-found');
+    }
     if (!hit) {
       if (req.method === 'GET') return errorReply(404, 'not-found');
       const declared = [...new Set(matches.map((match: any) => match.route.method))];

@@ -9,7 +9,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { ensureCertificate, fingerprintOf, MAX_CERT_FILES } = require('../src/lan-cert.ts');
+const { ensureCertificate, fingerprintOf, certWatch, MAX_CERT_FILES } = require('../src/lan-cert.ts');
 
 const DAY = 24 * 60 * 60 * 1000;
 const NOW = Date.UTC(2026, 10, 15, 10, 0, 0);
@@ -130,4 +130,52 @@ test('the key is 0600 and the tls directory 0700', { skip: process.platform === 
   assert.equal(mode(keyPath), 0o600);
   assert.equal(mode(certPath), 0o600);
   assert.equal(mode(path.join(dir, 'tls')), 0o700);
+});
+
+test('modes under umask 0: the key and certificate are 0600 and the tls directory 0700', { skip: process.platform === 'win32' && 'POSIX modes' }, () => {
+  const before = process.umask(0);
+  try {
+    const dir = scratch();
+    const { keyPath, certPath } = ensureCertificate(dir, '192.168.1.23', NOW);
+    assert.equal(mode(keyPath), 0o600);
+    assert.equal(mode(certPath), 0o600);
+    assert.equal(mode(path.join(dir, 'tls')), 0o700);
+    assert.deepEqual(fs.readdirSync(path.join(dir, 'tls')).filter((name: string) => name.endsWith('.tmp')), []);
+  } finally {
+    process.umask(before);
+  }
+});
+
+test('certWatch: ok until 30 days before the end, one warning inside the window, expired (and said once) past the end date', () => {
+  const dir = scratch();
+  const { certPath, validTo } = ensureCertificate(dir, '192.168.1.23', NOW);
+  let t = NOW;
+  const lines: string[] = [];
+  const watch = certWatch({ certPath, now: () => t, log: (line: string) => lines.push(line) });
+  assert.equal(watch.validTo, validTo);
+  assert.equal(watch.check(), 'ok');
+  assert.deepEqual(lines, []);
+  t = validTo - 30 * DAY + 1;
+  assert.equal(watch.check(), 'expiring');
+  assert.equal(watch.check(), 'expiring');
+  assert.equal(lines.length, 1, 'one warning, not one per check');
+  assert.match(lines[0], /^certificate ends on \d{4}-\d\d-\d\d: restart doflow ui --lan before then/);
+  t = validTo;
+  assert.equal(watch.check(), 'expiring', 'on the end date itself it still serves');
+  t = validTo + 1;
+  assert.equal(watch.check(), 'expired');
+  assert.equal(watch.check(), 'expired');
+  assert.equal(lines.length, 2);
+  assert.match(lines[1], /^certificate expired on \d{4}-\d\d-\d\d: no LAN request is served; restart doflow ui --lan to issue a new one/);
+  // Restarting issues a fresh certificate and a watch over it is ok again.
+  const renewed = ensureCertificate(dir, '192.168.1.23', t);
+  assert.equal(renewed.issued, true);
+  assert.equal(certWatch({ certPath: renewed.certPath, now: () => t }).check(), 'ok');
+});
+
+test('certWatch refuses a file that is not a certificate', () => {
+  const dir = scratch();
+  const bad = path.join(dir, 'bad.pem');
+  fs.writeFileSync(bad, 'not a certificate');
+  assert.throws(() => certWatch({ certPath: bad }));
 });

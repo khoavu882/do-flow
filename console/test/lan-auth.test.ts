@@ -10,7 +10,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { buildRoutes, jsonReply, healthz, staticFallback } = require('../src/routes.ts');
+const { buildRoutes, consoleRoutes, isApiPath, jsonReply, healthz, staticFallback } = require('../src/routes.ts');
 const { DEVICE_ROUTES, PAIRING_ROUTES, PUBLIC_PATHS, deviceMayUse } = require('../src/scopes.ts');
 const { IDLE_MS } = require('../src/lan-store.ts');
 const { lanWorld, lanServer } = require('./helpers/lan-world.ts');
@@ -25,7 +25,7 @@ const json = (reply: { body: string }) => JSON.parse(reply.body);
 // One probe per route path of the Console's table that a device is or is not meant to reach; a handler
 // that runs answers 200 and names the session it was given.
 const FOUR = ['/api/info', '/api/runs', '/api/runs/:slug/:taskId', '/api/workflows'];
-const OTHERS = ['/api/sessions', '/api/fleet', '/api/transcript', '/api/stream', '/api/live', '/api/settings', '/api/worker-runs/:slug', '/api/doctor'];
+const OTHERS = ['/api/sessions', '/api/fleet', '/api/transcript', '/api/stream', '/api/live', '/api/settings', '/api/worker-runs/:slug', '/api/doctor', '/api/added-later'];
 const probe = (routePath: string) => ({ method: 'GET', path: routePath, handler: (ctx: any) => jsonReply(200, { ran: routePath, session: ctx.session }) });
 const concrete = (routePath: string) => routePath.replace(':slug', 'feat-a').replace(':taskId', 'run-1').replace(':runId', 'r1');
 const allProbes = () => [healthz, ...[...FOUR, ...OTHERS].map(probe), staticFallback];
@@ -75,8 +75,12 @@ test('a native client is read by Bearer only: its cookie is not a credential, a 
   const device = await world.pair();
   // No Origin, no Sec-Fetch-Site and a cookie that is not ours: a native client with no Bearer.
   assert.deepEqual(json(await request('GET', '/api/info', { headers: { Cookie: 'other=1' } })), errorBody('device-unpaired'));
-  for (const bad of [device.token, `bearer ${device.token}`, `Bearer ${device.token.slice(1)}`, `Bearer  ${device.token}`, 'Bearer']) {
+  for (const bad of [device.token, `Bearer ${device.token.slice(1)}`, `Bearer  ${device.token}`, 'Bearer']) {
     assert.deepEqual(json(await request('GET', '/api/info', { headers: { Authorization: bad } })), errorBody('device-unpaired'), bad);
+  }
+  // The scheme name is case-insensitive (RFC 9110); the token is not.
+  for (const scheme of ['bearer', 'BEARER', 'BeArEr']) {
+    assert.equal((await request('GET', '/api/info', { headers: { Authorization: `${scheme} ${device.token}` } })).status, 200, scheme);
   }
 });
 
@@ -180,6 +184,99 @@ test('a device passes exactly the four read routes and gets 403 phone-scope on e
   }
 });
 
+test('the REAL route table: every /api route that is not in the device list is refused for a device, whichever scope; a route added later is refused by default', async (t) => {
+  const world = lanWorld(t);
+  const reached: string[] = [];
+  // A runner that records any call: a refused route must never reach it.
+  const runner: any = new Proxy({}, { get: (_target, name) => (..._args: unknown[]) => { reached.push(String(name)); throw new Error(`runner.${String(name)} was called`); } });
+  const table = consoleRoutes(runner, world.auth, null, { projectRoot: os.tmpdir(), home: os.tmpdir() });
+  const server = await lanServer(t, world, table, webRoot);
+  const apiRoutes = table.filter((route: any) => isApiPath(route.path) && route.path !== '/api/pair');
+  assert.ok(apiRoutes.length >= 15, `the table has ${apiRoutes.length} /api routes`);
+  assert.deepEqual(apiRoutes.filter((route: any) => route.method !== 'GET'), [], 'every /api route but the pairing exchange is a GET');
+  const allowed = apiRoutes.filter((route: any) => deviceMayUse('view', route.method, route.path)).map((route: any) => route.path).sort();
+  assert.deepEqual(allowed, [...FOUR].sort(), 'the device list names routes the table really has, and nothing else');
+  for (const scope of ['view', 'control'] as const) {
+    const device = await world.pair(scope);
+    for (const route of apiRoutes) {
+      if (deviceMayUse(scope, route.method, route.path)) continue;
+      const reply = await server.request('GET', concrete(route.path).replace(/:[A-Za-z]+/g, 'x1'), { headers: { Authorization: device.bearer } });
+      assert.equal(reply.status, 403, `${scope} ${route.path}`);
+      assert.deepEqual(json(reply), errorBody('phone-scope'), `${scope} ${route.path}`);
+    }
+  }
+  assert.deepEqual(reached, [], 'no refused route ran a verb');
+  // A route nobody listed in scopes.ts: the probe table adds one.
+  const later = await start(t);
+  const device = await later.world.pair('control');
+  const reply = await later.request('GET', '/api/added-later', { headers: { Authorization: device.bearer } });
+  assert.deepEqual(json(reply), errorBody('phone-scope'));
+});
+
+test('an unpaired caller gets the one 401 device-unpaired on every /api path, existing or not, and every method; a paired one gets a true 404 or 405', async (t) => {
+  const { request, world, origin } = await start(t);
+  const post = { 'Content-Type': 'application/json' };
+  const asks: Array<[string, string, Record<string, string>]> = [
+    ['GET', '/api/info', {}], ['GET', '/api/sessions', {}], ['GET', '/api/nope', {}], ['GET', '/api/nope/deeper/still', {}],
+    ['POST', '/api/session', post], ['POST', '/api/info', post], ['PUT', '/api/runs', post], ['DELETE', '/api/pair', {}], ['GET', '/api/pair', {}],
+    ['GET', '/api/nope', { Origin: origin }], ['POST', '/api/nope', { ...post, Origin: origin }],
+  ];
+  const seen = new Set<string>();
+  for (const [method, target, headers] of asks) {
+    const reply = await request(method, target, { headers, ...(method === 'POST' || method === 'PUT' ? { body: '{}' } : {}) });
+    assert.equal(reply.status, 401, `${method} ${target}`);
+    assert.equal(reply.headers.allow, undefined, `${method} ${target}`);
+    seen.add(reply.body);
+  }
+  assert.deepEqual([...seen], [JSON.stringify(errorBody('device-unpaired'))], 'one body for all of them');
+  const { bearer } = await world.pair('view');
+  const authed = { Authorization: bearer };
+  const missing = await request('GET', '/api/nope', { headers: authed });
+  assert.equal(missing.status, 404);
+  const exchange = await request('POST', '/api/session', { headers: { ...post, ...authed }, body: '{"code":"x"}' });
+  assert.equal(exchange.status, 404, 'there is no launch-code exchange in LAN mode');
+  assert.equal(exchange.headers.allow, undefined, 'and no Allow header claims one');
+  const wrongMethod = await request('PUT', '/api/runs', { headers: { ...post, ...authed }, body: '{}' });
+  assert.equal(wrongMethod.status, 405);
+  assert.equal(wrongMethod.headers.allow, 'GET');
+});
+
+test('in LAN mode an /api request whose Sec-Fetch-Site is anything but same-origin or none is 403, for every method and credential', async (t) => {
+  const { request, world, origin } = await start(t);
+  const device = await world.pair('view');
+  for (const site of ['cross-site', 'same-site', 'Cross-Site', '', 'same-origin, cross-site']) {
+    for (const headers of [{ Cookie: device.cookie, Origin: origin }, { Cookie: device.cookie }, {}, { Authorization: device.bearer }]) {
+      const reply = await request('GET', '/api/info', { headers: { ...headers, 'Sec-Fetch-Site': site } });
+      assert.equal(reply.status, 403, `${JSON.stringify(site)} ${Object.keys(headers)}`);
+    }
+    assert.equal((await request('POST', '/api/info', { headers: { 'Content-Type': 'application/json', 'Sec-Fetch-Site': site }, body: '{}' })).status, 403, site);
+  }
+  for (const site of ['same-origin', 'none']) {
+    assert.equal((await request('GET', '/api/info', { headers: { Cookie: device.cookie, 'Sec-Fetch-Site': site } })).status, 200, site);
+  }
+  assert.equal((await request('GET', '/api/info', { headers: { Cookie: device.cookie } })).status, 200, 'no header at all: not a browser that sends one');
+  assert.equal((await request('GET', '/', { headers: { 'Sec-Fetch-Site': 'cross-site' } })).status, 200, 'the static bundle is not an API request');
+});
+
+test('past the certificate end date every device request and the pairing exchange are 503 cert-expired; the ask is made on each request', async (t) => {
+  let state: 'ok' | 'expiring' | 'expired' = 'ok';
+  const world = lanWorld(t, undefined, { certState: () => state });
+  const server = await lanServer(t, world, buildRoutes(world.auth, allProbes()), webRoot);
+  const device = await world.pair('view');
+  const { code } = await world.store.mintCode('view');
+  assert.equal((await server.request('GET', '/api/info', { headers: { Authorization: device.bearer } })).status, 200);
+  state = 'expiring';
+  assert.equal((await server.request('GET', '/api/info', { headers: { Authorization: device.bearer } })).status, 200, 'a warning only');
+  state = 'expired';
+  const refused = await server.request('GET', '/api/info', { headers: { Authorization: device.bearer } });
+  assert.equal(refused.status, 503);
+  assert.deepEqual(json(refused), errorBody('cert-expired'));
+  const pairing = await server.request('POST', '/api/pair', { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ v: 1, code, name: 'x' }) });
+  assert.equal(pairing.status, 503);
+  assert.deepEqual(json(pairing), errorBody('cert-expired'));
+  assert.equal(world.store.list().length, 1, 'the code was not spent');
+});
+
 test('the scope list is frozen, names the four reads for both scopes, and refuses an unknown scope or a write', () => {
   assert.ok(Object.isFrozen(DEVICE_ROUTES) && Object.isFrozen(DEVICE_ROUTES.view) && Object.isFrozen(DEVICE_ROUTES.control));
   assert.deepEqual([...DEVICE_ROUTES.view].sort(), FOUR.map((p) => `GET ${p}`).sort());
@@ -198,9 +295,9 @@ test('the static bundle and /healthz stay public; there is no launch-code exchan
   assert.equal((await request('GET', '/')).status, 200);
   assert.equal((await request('GET', '/index.html')).status, 200);
   assert.equal((await request('GET', '/healthz')).status, 200);
-  assert.equal((await request('GET', '/api/nothing', { headers: { Authorization: 'Bearer x' } })).status, 404, 'an unknown /api path is 404, not a credential question');
+  assert.equal((await request('GET', '/api/nothing', { headers: { Authorization: 'Bearer x' } })).status, 401, 'an unknown /api path is the unpaired 401, not a 404');
   const exchange = await request('POST', '/api/session', { headers: { 'Content-Type': 'application/json' }, body: '{"code":"x"}' });
-  assert.equal(exchange.status, 405);
+  assert.equal(exchange.status, 401);
 });
 
 test('a refreshed cookie rides on a browser reply when last-seen is written (an hour on); a native reply gets none', async (t) => {
