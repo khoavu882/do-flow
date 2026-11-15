@@ -603,7 +603,8 @@ function paintAttention() {
   if (!link) return;
   const old = link.querySelector('.navrail__badge');
   if (old) old.remove();
-  if (words !== null && words.badge !== null) link.append(h('span', { class: 'navrail__badge' }, [words.badge, h('span', { class: 'vh' }, ` ${words.count}`)]));
+  // The digit is for the eye; the link's name says the count once, in the strip's words (162 review B-8).
+  if (words !== null && words.badge !== null) link.append(h('span', { class: 'navrail__badge' }, [h('span', { 'aria-hidden': 'true' }, words.badge), h('span', { class: 'vh' }, ` ${words.count}`)]));
 }
 
 /**

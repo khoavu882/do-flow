@@ -5376,6 +5376,30 @@ test('shell attention: gates waiting anywhere on the machine show on every page 
   assert.equal(navLink(page, '#/layers').querySelector('.navrail__badge'), null);
 });
 
+test('162 review B-2: a record held after the stream dropped is never absent: zero gates read not observed since its time, and why', async () => {
+  const page = await startLayers('#/');
+  const es = await openedLayers(page, []);
+  assert.equal(hiddenEl(strip(page)), true, 'a followed record with no gate says nothing');
+  es.fail(0);
+  await settle();
+  assert.equal(hiddenEl(strip(page)), false, 'the held record is not read as clear');
+  assert.equal(strip(page).getAttribute('data-state'), 'unknown');
+  assert.match(text(strip(page).querySelector('.attention__count')), /^Waiting gates not observed since \d{2}:\d{2}/);
+  assert.match(text(strip(page).querySelector('.attention__where')), /^the stream from the Console is down/);
+  assert.doesNotMatch(text(strip(page)), /nothing|idle/i);
+});
+
+test('162 review B-8: the badge digit is hidden from a screen reader; the Layers link names the count once', async () => {
+  const page = await startLayers('#/');
+  await openedLayers(page, [gateOf('T-1', 'g-a', 'Approve the plan')]);
+  const badge = navLink(page, '#/layers').querySelector('.navrail__badge');
+  const digit = badge.querySelectorAll('span').find((node: El) => node.getAttribute('aria-hidden') === 'true');
+  assert.ok(digit, 'the digit is aria-hidden');
+  assert.equal(text(digit), '1');
+  const spoken = badge.querySelectorAll('span').filter((node: El) => node.getAttribute('aria-hidden') !== 'true');
+  assert.deepEqual(spoken.map((node: El) => text(node).trim()), ['1 gate waiting for you'], 'the count is said once, in words');
+});
+
 test('shell attention: without a stream the strip says the gates are not observed and why, never that nothing waits', async () => {
   const page = await startLayers('#/', 'absent');
   await advance(100);
