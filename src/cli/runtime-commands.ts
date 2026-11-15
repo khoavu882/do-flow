@@ -41,6 +41,8 @@ const { handleWorkflowCommand } = require('../runtime/workflow-engine.ts');
 const { handleOrchestrateCommand } = require('../runtime/workflow-orchestrator.ts');
 const { handleResearchRequestCommand } = require('../runtime/research-request.ts');
 const { handleTaskAttemptCommand } = require('../runtime/task-attempts.ts');
+// Loaded on use: the models verb reads settings, which `install` must not load.
+const handleModelsCommand = (options: any) => require('../runtime/models/command.ts').handleModelsCommand(options);
 const { handleWorkerCommand } = require('../runtime/worker/command.ts');
 const { handleDispatchCommand } = require('../runtime/dispatch/command.ts');
 const { handleRetrieveCommand } = require('../runtime/knowledge/retrieval.ts');
@@ -480,8 +482,7 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     case 'advice-picks': return handleAdvicePicksCommand({ kind: o.kind, json: o.json, flags: o.flagsGiven, positional: o.positional, env: process.env, cwd: process.cwd() });
     case 'worker-matrix': return handleWorkerMatrixCommand({ json: o.json, flags: o.flagsGiven, positional: o.positional, env: process.env, cwd: process.cwd() });
     case 'sessions-history': return handleSessionsHistoryCommand({ days: o.days, limit: o.limit, projectRoot: o.projectRoot, json: o.json, flags: o.flagsGiven, positional: o.positional, env: process.env, cwd: process.cwd() });
-    // Loaded on use: the models verb reads settings, which the install path does not.
-    case 'models': return require('../runtime/models/command.ts').handleModelsCommand({ action: o.actionGiven ? o.action : (o.positional?.[0] || 'list'), positional: o.positional, harness: o.harness, model: o.model, tier: o.tier, allowUnlisted: o.allowUnlisted === true, json: o.json, projectRoot: evidenceRoot(o) });
+    case 'models': return handleModelsCommand({ action: o.actionGiven ? o.action : (o.positional?.[0] || 'list'), positional: o.positional, harness: o.harness, model: o.model, tier: o.tier, allowUnlisted: o.allowUnlisted === true, json: o.json, projectRoot: evidenceRoot(o) });
     case 'worktree': return handleWorktreeCommand({ action: o.actionGiven ? o.action : undefined, slug: o.slug, json: o.json, flags: o.flagsGiven, env: process.env, cwd: process.cwd() });
     case 'attendance': return handleAttendanceCommand({ taskId: o.taskId, run: o.run, json: o.json, flags: o.flagsGiven, env: process.env, cwd: process.cwd() });
     default: console.error(`doflow: unknown command '${o.cmd}'`); process.exit(1);
