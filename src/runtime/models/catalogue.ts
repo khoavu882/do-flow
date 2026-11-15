@@ -82,6 +82,21 @@ function resolveProjectRoot(projectRoot?: string, fsImpl: any = fs): string | nu
   return null;
 }
 
+/**
+ * An entry with no `modelList` was written before the harness's own list was read: its `offeredModels` came from a
+ * table that no longer exists. Read it as "no list" so nothing suggests, checks against or shows those names.
+ */
+function withoutRemovedLists(parsed: any): any {
+  if (!parsed || typeof parsed !== 'object' || !parsed.harnesses || typeof parsed.harnesses !== 'object') return parsed;
+  for (const entry of Object.values<any>(parsed.harnesses)) {
+    if (entry && typeof entry === 'object' && !(entry.modelList && typeof entry.modelList === 'object')) {
+      entry.offeredModels = [];
+      entry.modelList = { status: 'none-recorded', reason: 'this catalogue entry predates reading the harness\'s own model list; run `doflow models --action sync`' };
+    }
+  }
+  return parsed;
+}
+
 function readCatalogue(
   projectRoot?: string,
   options: { fsImpl?: any; homeDir?: string; env?: any } = {}
@@ -94,7 +109,7 @@ function readCatalogue(
     if (fsImpl.existsSync(projPath)) {
       try {
         const raw = fsImpl.readFileSync(projPath, 'utf8');
-        return JSON.parse(raw);
+        return withoutRemovedLists(JSON.parse(raw));
       } catch (err: any) {
         if (err instanceof SyntaxError) {
           const corrupt = `${projPath}.corrupt-${Date.now()}`;
@@ -115,7 +130,7 @@ function readCatalogue(
   if (fsImpl.existsSync(userPath)) {
     try {
       const raw = fsImpl.readFileSync(userPath, 'utf8');
-      return JSON.parse(raw);
+      return withoutRemovedLists(JSON.parse(raw));
     } catch (err: any) {
       if (err instanceof SyntaxError) {
         const corrupt = `${userPath}.corrupt-${Date.now()}`;

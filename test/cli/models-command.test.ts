@@ -104,6 +104,7 @@ test('doflow models --action list reflects enablement from models.enabled', asyn
           { id: 'claude-3-7-sonnet', displayName: 'Claude 3.7 Sonnet', family: 'anthropic' },
           { id: 'claude-3-5-haiku', displayName: 'Claude 3.5 Haiku', family: 'anthropic' },
         ],
+        modelList: { status: 'listed' },
         lastSyncedAt: new Date().toISOString(),
       },
     },
@@ -171,6 +172,7 @@ test('doflow models --action describe shows metadata and offering harnesses', as
         offeredModels: [
           { id: 'claude-3-7-sonnet', displayName: 'Claude 3.7 Sonnet', family: 'anthropic' },
         ],
+        modelList: { status: 'listed' },
         lastSyncedAt: new Date().toISOString(),
       },
     },
@@ -285,6 +287,7 @@ test('workerPoolDoctorView and handleDoctorCommand report worker pool diagnostic
         offeredModels: [
           { id: 'o3-mini', displayName: 'o3-mini', family: 'openai' },
         ],
+        modelList: { status: 'listed' },
         lastSyncedAt: new Date().toISOString(),
       },
     },

@@ -70,6 +70,31 @@ test('bind and unbind refuse from a worker session: exit 1, nothing written, a p
   assert.equal((await bind({ ...s, env: { ...s.env, DOFLOW_SESSION_ROLE: 'main' } }, { harness: 'codex', tier: 'frontier', model: 'gpt-6.1-sol' })).code, 0);
 });
 
+test('a catalogue entry written before model lists existed reads as no list: the typed id is accepted, unchecked, and the old names are never shown', async (t: any) => {
+  const s = setup(t);
+  const file = path.join(s.project, '.doflow', 'state', 'models', 'catalogue.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const old = { harnessId: 'codex', binary: 'codex', installed: true, version: '1', loginState: 'logged-in', reloginHint: null, detectedMode: 'subscription', derivedBilling: 'free', offeredModels: [{ id: 'removed-table-model-a' }, { id: 'removed-table-model-b' }], lastSyncedAt: new Date().toISOString() };
+  fs.writeFileSync(file, JSON.stringify({ version: 1, syncedAt: new Date().toISOString(), harnesses: { codex: old } }));
+  // A typed id outside the old table is not refused against it, and the old names are not offered as "closest".
+  const typed = await bind(s, { harness: 'codex', tier: 'frontier', model: 'removed-table-model-c', json: true });
+  assert.equal(typed.code, 0, typed.err);
+  assert.equal(JSON.parse(typed.out).checked, 'unchecked');
+  const plain = await bind(s, { harness: 'codex', tier: 'light', model: 'anything' });
+  assert.match(plain.out, /not checked/);
+  assert.doesNotMatch(plain.out + plain.err, /removed-table-model/);
+  // list shows no observed model rows from the old entry.
+  const listed = await run({ action: 'list', projectRoot: s.project, env: s.env, json: true });
+  assert.deepEqual(JSON.parse(listed.out).models, []);
+  assert.doesNotMatch(listed.out, /removed-table-model-[ab]/);
+  const text = await run({ action: 'list', projectRoot: s.project, env: s.env });
+  assert.doesNotMatch(text.out, /removed-table-model-[ab]/);
+  // describe does not find an old name.
+  const described = await run({ action: 'describe', projectRoot: s.project, env: s.env, harness: undefined, model: 'removed-table-model-a', json: true });
+  assert.equal(described.code, 1);
+  assert.equal(JSON.parse(described.out).error, 'not-found');
+});
+
 test('a harness with no model list accepts the typed id and says it was not checked', async (t: any) => {
   const s = setup(t);
   const res = await bind(s, { harness: 'codex', tier: 'standard', model: 'my-model' });
