@@ -125,7 +125,7 @@ Three actions, each a `POST` with a JSON body of at most 4 KiB to `POST /api/act
 | 501 | `core-lacks-action` | the core in use does not have the flag (an old core); remembered until the Console restarts, and `GET /api/actions` reports it |
 | 502, 503, 504 | `core-error`, `core-contract-mismatch`, `core-unreachable`, `action-log-unwritable`, `action-timeout` | the core failed or answered in a shape the Console does not read; it could not be started; the action log could not be written (nothing ran); no exit in 30 s (the child is stopped and the outcome is unknown) |
 
-A stale refusal applies nothing and carries the run's state as the core read it, so the dialog shows what changed and offers to review again; it does not retry.
+A stale refusal applies nothing and carries the run's state as it stands after the refusal (the core reads the run again), so the dialog shows what changed and offers to review again; it does not retry.
 
 **Limits.** Per actor (the session or device): 6 attempts a minute and 30 an hour. Per Console: 20 a minute. A refusal before the core (403, 400 `usage`, 409 `request-reused`) counts against the actor's own two windows but not the Console's, so a device that floods refusals meets 429 `action-rate-limited` and never blocks another device. One action runs at a time and at most 4 wait, in order; a fifth gets 429 `action-busy` with `Retry-After: 2`. The limits, the idempotency memo and the core-lacks set live in memory and die with the process; two Consoles on one machine queue separately, and the core's lock and revision check order them.
 

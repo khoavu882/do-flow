@@ -379,3 +379,11 @@ test('162 review 5: --via from a worker session is refused (exit 1, error worker
   ok(root, decideArgs(['--via', DEVICE]));
   assert.equal(readRun(root, 'feat-a', 't1').history.filter((e: any) => e.action === 'decide-gate').at(-1).by, DEVICE);
 });
+
+test('162 review 4: the reference says a refusal\'s current is the run as it stands after the refusal (the handler reads the run again), not as the call read it', () => {
+  const reference = fs.readFileSync(path.join(REPO, 'docs', 'reference.md'), 'utf8');
+  const handler = fs.readFileSync(path.join(REPO, 'src', 'runtime', 'workflow-orchestrator.ts'), 'utf8');
+  assert.match(handler, /const fresh = orchestrator\.readRun\(taskId\);\s*current = fresh \? snapshotRun\(fresh\) : null;/, 'the refusal reads the run again');
+  assert.equal(reference.includes("the run's snapshot as the call read it"), false);
+  assert.ok(reference.includes("`current` the run's snapshot as it stands after the refusal"));
+});
