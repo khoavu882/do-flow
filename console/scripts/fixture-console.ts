@@ -48,7 +48,7 @@
 // whose liveness is unknown and one held from a second project; a commit in the linked worktree newer than every
 // record there (outside DoFlow); and a second project whose sessions must never reach the Console.
 //
-// The Fleet view (V.10) has its own world, written into the same scratch HOME: a second DoFlow project (`beta`) next to the
+// The Layers view (V.10, was Fleet) has its own world, written into the same scratch HOME: a second DoFlow project (`beta`) next to the
 // Console's own, the synthetic transcript homes of V.2 (test/fixtures/transcripts/v8, one per harness, aimed at the Console's
 // project), hook sessions for four harnesses (claude with two subagents, codex, antigravity, opencode) and a one-file wrapper
 // around --core that lists the fixture projects (they sit under a temporary directory, which the real `fleet` verb hides).
@@ -177,7 +177,7 @@ type Handle = {
   scratch: string[],
   /** Takes the next step of the live run; the step's description, or null when none is left. */
   tick(): string | null,
-  /** The appending writer: adds a reply, a tool call and its result to the Claude fixture transcript; what it wrote, or null with no Fleet world. */
+  /** The appending writer: adds a reply, a tool call and its result to the Claude fixture transcript; what it wrote, or null with no Layers world. */
   append(): string | null,
   /** The Claude fixture transcript the writer appends to. */
   transcript: string,
@@ -441,7 +441,7 @@ function hookSession(store: string, harness: string, rawId: string, cwd: string)
 }
 
 /**
- * The Fleet world (V.10; IC-026): a second DoFlow project, one synthetic transcript home per harness aimed at the Console's
+ * The Layers world (V.10; IC-026; `addFleet` is its old name): a second DoFlow project, one synthetic transcript home per harness aimed at the Console's
  * project, hook sessions for four harnesses, and a wrapper core that lists the fixture projects. Only fixture files are read.
  */
 function addFleet(fixture: Fixture, core: string) {

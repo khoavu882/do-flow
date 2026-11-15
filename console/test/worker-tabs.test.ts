@@ -794,7 +794,7 @@ test('Transcript tab: exactly one GET per run, the first time it is shown, and n
   }
 });
 
-test('Transcript tab: events as the Fleet panel shows them, with the masked sentence', async () => {
+test('Transcript tab: events as the transcript panel shows them, with the masked sentence', async () => {
   const events = [
     { seq: 1, at: '2026-11-08T05:00:02.000Z', kind: 'reply', agentKey: '0123456789abcdef', model: 'gpt-5', tool: null, text: 'I will read <b>it</b>', args: null, cut: false, tokens: null, record: null },
     { seq: 2, at: '2026-11-08T05:00:03.000Z', kind: 'tool-call', agentKey: '0123456789abcdef', model: null, tool: { name: 'shell', callKey: 'aaaaaaaaaaaaaaaa', status: null, bytes: null, durationMs: null }, text: null, args: 'ls', cut: false, tokens: null, record: null },

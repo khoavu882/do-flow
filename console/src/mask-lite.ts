@@ -1,6 +1,6 @@
 'use strict';
 
-// Second-pass masking for the Fleet text fields (feature 093, IC-024; NFR-003). Defence in depth
+// Second-pass masking for the transcript text fields (feature 093, IC-024; NFR-003; the Layers view since 161). Defence in depth
 // only: the core masks every `text` and `args` with `maskBody` (src/runtime/mask.ts) before it prints
 // them, and the Console runs this copy of the body profile's key rules over what it received before
 // the body leaves the server. The Console has no runtime dependency on core code, so the rules are

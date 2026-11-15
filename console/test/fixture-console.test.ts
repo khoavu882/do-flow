@@ -205,7 +205,7 @@ test('the Sessions fixture: two checkouts, hook records from the real scripts, a
   assert.equal(codex.harness, 'codex');
   assert.equal(codex.startedAt, null, 'an observation with no session directory');
   assert.ok(sessions.some((entry: any) => entry.kind === 'launched' && entry.launched.run === 'run-two' && entry.launched.lineage === 'lin2'));
-  // Two Sessions hook sessions, and the four of the Fleet world (V.10: claude, codex, antigravity, opencode); the second projects' sessions are not listed.
+  // Two Sessions hook sessions, and the four of the Layers world (V.10: claude, codex, antigravity, opencode); the second projects' sessions are not listed.
   assert.equal(sessions.filter((entry: any) => entry.kind === 'hook').length, 6, 'the other projects\' sessions are not listed');
   const text = JSON.stringify(reply.json);
   assert.ok(!text.includes(key('fixture-session-other-RAWID-3')) && !text.includes('RAWID'), 'no key of another project, no raw session id');

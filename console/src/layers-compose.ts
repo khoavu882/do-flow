@@ -4,7 +4,7 @@
 // `machine` and `layers:<pk>`, built from the sections of the core channel of the same name. Each section
 // is projected by a closed-field projector: only the fields IC-002 and IC-003 name leave, every string
 // leaf passes `maskLite`, a free text is kept only within its cap, and a name that could be a place or a
-// secret is withheld as project.ts's `label` does. The sections IC-003 shares with the V8 Fleet reads
+// secret is withheld as project.ts's `label` does. The sections IC-003 shares with the core's `fleet` and `transcript --action stats` reads
 // (`tree`, `traffic`, the `projects` body and the `orchestrate --action list` rows) go through the
 // projectors of project.ts. `runs` rows gain `runKey` (key-shaped or null, plan DEC-010) and `skill`: the
 // row's current stage joined to its skill through the runner's cached `workflow` shape (null when the
