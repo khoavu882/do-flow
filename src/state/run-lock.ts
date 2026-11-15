@@ -13,6 +13,19 @@
 // and only after re-reading run.lock under that claim and finding the same instance. One instance
 // is therefore removed at most once, and never by a run that inspected a different one.
 //
+// POSIX has no compare-and-delete, so a file is removed by `removeIfAccepted`: moved to a unique
+// name (rename is atomic, so one process wins), read again there, and deleted only when those
+// bytes are the ones judged or are the remover's own. Anything else is linked back (never renamed
+// over), and a failed link-back means another run is acting: the remover leaves the moved file for
+// the sweep, backs off, and judges again from the start. It never deletes a file it cannot prove
+// is its own or is the one it judged. Ceiling: for the instant between a wrongly moved file's
+// rename and its link-back the name is free, so a third run can take it; the displaced run finds
+// out at its next `checkpoint` (RunLockLostError) or when its claim no longer holds its record.
+// Other accepted ceilings: the two-holders trace through an orphan claim needs four runs and two
+// sub-millisecond windows; the sweep deletes a moved-aside file older than staleMs even if its
+// remover is merely stalled; a live claimant with a matching start time that is suspended costs the
+// runs behind it their waitMs.
+//
 // Supported on a local POSIX filesystem on one host. The CLI is synchronous, so waiting blocks
 // with Atomics.wait rather than a timer.
 const crypto = require('node:crypto');
@@ -25,6 +38,11 @@ const RECORD_VERSION = 1;
 const LOCK_FILE = 'run.lock';
 const CLAIM_PREFIX = `${LOCK_FILE}.claim.`;
 const TEMP_NAME = /^\.run\.lock\.([0-9a-f]{32})\.tmp$/;
+const CLAIM_NAME = /^run\.lock\.claim\.([^.]+)$/;
+/** `run.lock.claim.aside.<pid>.<random>.<epoch ms>`: a file moved aside by `removeIfAccepted`, the epoch being when. Named under the claim prefix so the storage registry's run-lock pattern covers it. */
+/** The aside shape of v2.5.0, `run.lock.claim.<key>.<token>.gone`: no epoch in the name, so the file's mtime is its age. */
+const LEGACY_ASIDE_NAME = /^run\.lock\.claim\.[^.]+\.[0-9a-f]{32}\.gone$/;
+const ASIDE_NAME = /^run\.lock\.claim\.aside\.\d+\.[0-9a-f]+\.(\d+)$/;
 
 function loadVersion(): string {
   try { return require('../../package.json').version; } catch { return '0.0.0-installed'; }
@@ -133,14 +151,18 @@ function readLockFile(fsImpl: any, lockPath: string): { record: any, stat: any, 
     return { record: null, stat, key: instanceKey(null, stat) };
   }
   try {
-    const stat = fsImpl.fstatSync(fd);
-    let record = null;
-    try { record = JSON.parse(fsImpl.readFileSync(fd, 'utf8')); } catch { /* unidentified */ }
-    if (!isIdentified(record)) record = null;
-    return { record, stat, key: instanceKey(record, stat) };
+    return readLockFd(fsImpl, fd);
   } finally {
     fsImpl.closeSync(fd);
   }
+}
+
+function readLockFd(fsImpl: any, fd: any): { record: any, stat: any, key: string } {
+  const stat = fsImpl.fstatSync(fd);
+  let record = null;
+  try { record = JSON.parse(fsImpl.readFileSync(fd, 'utf8')); } catch { /* unidentified */ }
+  if (!isIdentified(record)) record = null;
+  return { record, stat, key: instanceKey(record, stat) };
 }
 
 function instanceKey(record: any, stat: any): string {
@@ -178,23 +200,80 @@ function unlinkQuietly(fsImpl: any, file: string): void {
   try { fsImpl.unlinkSync(file); } catch { /* already gone, or the stale rule clears it later */ }
 }
 
-function readRaw(fsImpl: any, file: string): string | null {
-  try { return fsImpl.readFileSync(file, 'utf8'); } catch { return null; }
+/**
+ * Removes `file` only when `accept` approves the moved file. The file is renamed to a unique name, so
+ * what `accept` sees is exactly what was removed from the path, whatever was there when the caller
+ * last looked. Approved: deleted. Not approved: linked back to `file` (link fails when the name was
+ * taken meanwhile, so nothing is overwritten) and the moved name dropped; if the link-back fails the
+ * moved file is another run's and is left for `sweepLeftovers`.
+ * @returns {'removed'|'kept'|'displaced'|'gone'} gone: nothing to move; displaced: the name was taken
+ *   while the file was aside, so the caller must back off and judge again
+ */
+function removeIfAccepted(fsImpl: any, file: string, now: () => number, accept: (aside: string) => boolean): 'removed' | 'kept' | 'displaced' | 'gone' {
+  const aside = path.join(path.dirname(file), `${CLAIM_PREFIX}aside.${process.pid}.${crypto.randomBytes(4).toString('hex')}.${Math.floor(now())}`);
+  try { fsImpl.renameSync(file, aside); } catch { return 'gone'; }
+  let approved = false;
+  try { approved = accept(aside); } catch { /* unreadable: not provably the judged file */ }
+  if (approved) {
+    unlinkQuietly(fsImpl, aside);
+    return 'removed';
+  }
+  try { fsImpl.linkSync(aside, file); } catch { return 'displaced'; }
+  unlinkQuietly(fsImpl, aside);
+  return 'kept';
 }
 
-/** A claim left by a run that died while clearing: its process is gone, or it is older than claimStaleMs. */
-function isOrphanClaim(fsImpl: any, claimPath: string, { hostname, isAlive, now, claimStaleMs }: any): boolean {
-  let stat;
-  try { stat = fsImpl.statSync(claimPath); } catch { return false; }
-  if (now() - stat.mtimeMs > claimStaleMs) return true;
-  let claim = null;
-  try { claim = JSON.parse(fsImpl.readFileSync(claimPath, 'utf8')); } catch { return false; }
-  return Boolean(claim) && claim.hostname === hostname && (claim.pid === process.pid || !isAlive(claim.pid));
+/** A claim as one consistent read: bytes and age come from the same open file. */
+function readClaimFile(fsImpl: any, file: string): { raw: string, claim: any, mtimeMs: number } | null {
+  let fd: any;
+  try { fd = fsImpl.openSync(file, 'r'); } catch { return null; }
+  try {
+    const mtimeMs = fsImpl.fstatSync(fd).mtimeMs;
+    const raw = fsImpl.readFileSync(fd, 'utf8');
+    let claim = null;
+    try { claim = JSON.parse(raw); } catch { /* unidentified */ }
+    return { raw, claim: isIdentified(claim) ? claim : null, mtimeMs };
+  } catch {
+    return null;
+  } finally {
+    try { fsImpl.closeSync(fd); } catch { /* closed */ }
+  }
+}
+
+/**
+ * A claim left by a run that died while clearing. On this host a dead claimant (or this process's own
+ * pid, which a live claim of this process never has) makes it orphan at once. A live claimant whose
+ * recorded start time is stable on this platform and equals the pid's now keeps its claim at any age: a
+ * claimant stalled past claimStaleMs (a suspended laptop, SIGSTOP) is waited for, up to the others'
+ * waitMs. A different start time is a reused pid: orphan at once. Every other live pid (no recorded start,
+ * start times not stable here, or the start unreadable) cannot be told from a reused one, so the claim is
+ * orphan once older than staleMs, the bound the lock itself uses. A claim from another host, or one with
+ * no readable owner, is orphan after claimStaleMs.
+ */
+function isOrphanClaim(read: { claim: any, mtimeMs: number }, { hostname, isAlive, procStart, now, staleMs, claimStaleMs, startTimeStable }: any): boolean {
+  const { claim } = read;
+  if (!claim || claim.hostname !== hostname) return now() - read.mtimeMs > claimStaleMs;
+  if (claim.pid === process.pid || !isAlive(claim.pid)) return true;
+  if (startTimeStable() && typeof claim.processStart === 'string') {
+    const current = procStart(claim.pid);
+    if (typeof current === 'string') return current !== claim.processStart;
+  }
+  return now() - read.mtimeMs > staleMs;
+}
+
+/** Whether the moved-aside file is the claim that was judged orphan, byte for byte (and, with no owner to name it, old enough). */
+function isJudgedClaim(fsImpl: any, judged: { raw: string, claim: any }, { now, claimStaleMs }: any): (aside: string) => boolean {
+  return (aside: string) => {
+    const moved = readClaimFile(fsImpl, aside);
+    if (!moved || moved.raw !== judged.raw) return false;
+    // No owner in the bytes: two such claims are equal, so the one moved must itself be old.
+    return judged.claim !== null || now() - moved.mtimeMs > claimStaleMs;
+  };
 }
 
 /** Creates the claim for one lock instance. @returns {boolean} true when this run now holds it */
-function createClaim(fsImpl: any, claimPath: string, { token, hostname, target }: any): boolean {
-  const body = `${JSON.stringify({ version: RECORD_VERSION, token, pid: process.pid, hostname, at: new Date().toISOString(), target })}\n`;
+function createClaim(fsImpl: any, claimPath: string, { token, hostname, target, processStart }: any): boolean {
+  const body = `${JSON.stringify({ version: RECORD_VERSION, token, pid: process.pid, processStart: processStart ?? null, hostname, at: new Date().toISOString(), target })}\n`;
   try {
     fsImpl.writeFileSync(claimPath, body, { flag: 'wx' });
     return true;
@@ -204,32 +283,36 @@ function createClaim(fsImpl: any, claimPath: string, { token, hostname, target }
   }
 }
 
+/** Whether the file at the claim path is still the claim this run created. */
+function ownsClaim(fsImpl: any, claimPath: string, token: string): boolean {
+  return readClaimFile(fsImpl, claimPath)?.claim?.token === token;
+}
+
+/** Drops this run's claim, and only a file holding this run's token: a claim another run holds there is left alone. */
+function releaseClaim(fsImpl: any, claimPath: string, token: string, now: () => number): void {
+  if (!ownsClaim(fsImpl, claimPath, token)) return;
+  removeIfAccepted(fsImpl, claimPath, now, (aside) => readClaimFile(fsImpl, aside)?.claim?.token === token);
+}
+
 /**
  * Takes a claim for instance `key`, removing an orphan claim first. A live claimant's claim means
- * another run is clearing this instance. The orphan is moved aside before it is deleted, and put
- * back when what was moved is not what was judged, so a fresh claim is never deleted by mistake.
+ * another run is clearing this instance. The orphan is removed only if the bytes moved aside are the
+ * ones judged (`removeIfAccepted`); a claim another run created meanwhile is put back or left, never
+ * deleted, and this run then backs off (false) and judges again on its next poll.
  * @returns {boolean}
  */
 function claimInstance(fsImpl: any, stateDir: string, key: string, options: any): boolean {
   const claimPath = path.join(stateDir, `${CLAIM_PREFIX}${key}`);
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    if (createClaim(fsImpl, claimPath, { token: options.token, hostname: options.hostname, target: key })) return true;
-    const judged = readRaw(fsImpl, claimPath);
-    if (judged === null || !isOrphanClaim(fsImpl, claimPath, options)) return false;
-    const aside = `${claimPath}.${options.token}.gone`;
-    try { fsImpl.renameSync(claimPath, aside); } catch { return false; }
-    if (readRaw(fsImpl, aside) !== judged) {
-      try { fsImpl.linkSync(aside, claimPath); } catch { /* another claim took the path; leave it */ }
-      unlinkQuietly(fsImpl, aside);
-      return false;
-    }
-    unlinkQuietly(fsImpl, aside);
-  }
-  return false;
+  if (createClaim(fsImpl, claimPath, { token: options.token, hostname: options.hostname, target: key, processStart: options.processStart })) return true;
+  const judged = readClaimFile(fsImpl, claimPath);
+  if (!judged || !isOrphanClaim(judged, options)) return false;
+  if (removeIfAccepted(fsImpl, claimPath, options.now, isJudgedClaim(fsImpl, judged, options)) !== 'removed') return false;
+  return createClaim(fsImpl, claimPath, { token: options.token, hostname: options.hostname, target: key, processStart: options.processStart });
 }
 
 /**
- * Removes the stale instance `found` under its claim.
+ * Removes the stale instance `found` under its claim. The lock is moved aside and judged again there,
+ * so what is deleted is the instance judged stale, however long this run was stalled since reading it.
  * @returns {'cleared'|'aborted'}
  */
 function takeOver(fsImpl: any, stateDir: string, lockPath: string, found: any, options: any): 'cleared' | 'aborted' {
@@ -241,29 +324,57 @@ function takeOver(fsImpl: any, stateDir: string, lockPath: string, found: any, o
     // Judged again under the claim: a holder whose checkpoint renewed the lock since the first
     // judgment is no longer stale, and its lock stays.
     if (!staleReason(current, options)) return 'aborted';
-    try { fsImpl.unlinkSync(lockPath); } catch (err: any) {
-      if (err.code !== 'ENOENT') return 'aborted';
-    }
-    return 'cleared';
+    if (!ownsClaim(fsImpl, claimPath, options.token)) return 'aborted';
+    const removed = removeIfAccepted(fsImpl, lockPath, options.now, (aside) => {
+      const moved = readLockFile(fsImpl, aside);
+      return moved !== null && moved.key === found.key && staleReason(moved, options) !== null;
+    });
+    return removed === 'removed' ? 'cleared' : 'aborted';
   } catch {
     return 'aborted';
   } finally {
-    unlinkQuietly(fsImpl, claimPath);
+    releaseClaim(fsImpl, claimPath, options.token, options.now);
   }
 }
 
-/** Removes owner temp files left by runs that died while they waited, judged by the stale rule as
- * a lock would be: interrupting a waiting run is the one exit that never reaches its own cleanup. */
-function sweepOrphanTemps(fsImpl: any, stateDir: string, judge: any): void {
+/**
+ * Removes what runs that died left in the state directory, each by the same rule as a lock:
+ * owner temp files judged by the stale rule (interrupting a waiting run is the one exit that never
+ * reaches its own cleanup); claims whose lock instance is gone, when their claimant is (`isOrphanClaim`);
+ * and moved-aside files older than staleMs (a remover that died between its rename and its delete).
+ * A claim on the lock that stands now is not swept here: `claimInstance` handles it.
+ */
+function sweepLeftovers(fsImpl: any, stateDir: string, lockPath: string, judge: any): void {
   let names;
   try { names = fsImpl.readdirSync(stateDir); } catch { return; }
+  let lockKey: string | null | undefined;
   for (const name of names) {
-    const match = TEMP_NAME.exec(name);
-    if (!match || match[1] === judge.token) continue;
     const file = path.join(stateDir, name);
-    let found = null;
-    try { found = readLockFile(fsImpl, file); } catch { /* unreadable: left for a later sweep */ }
-    if (found && staleReason(found, judge)) unlinkQuietly(fsImpl, file);
+    const temp = TEMP_NAME.exec(name);
+    if (temp) {
+      if (temp[1] === judge.token) continue;
+      let found = null;
+      try { found = readLockFile(fsImpl, file); } catch { /* unreadable: left for a later sweep */ }
+      if (found && staleReason(found, judge)) unlinkQuietly(fsImpl, file);
+      continue;
+    }
+    const aside = ASIDE_NAME.exec(name);
+    if (aside) {
+      if (judge.now() - Number(aside[1]) > judge.staleMs) unlinkQuietly(fsImpl, file);
+      continue;
+    }
+    if (LEGACY_ASIDE_NAME.test(name)) {
+      try { if (judge.now() - fsImpl.statSync(file).mtimeMs > judge.staleMs) unlinkQuietly(fsImpl, file); } catch { /* gone already */ }
+      continue;
+    }
+    const claim = CLAIM_NAME.exec(name);
+    if (!claim) continue;
+    if (lockKey === undefined) {
+      try { lockKey = readLockFile(fsImpl, lockPath)?.key ?? null; } catch { lockKey = null; }
+    }
+    if (claim[1] === lockKey) continue;
+    const judged = readClaimFile(fsImpl, file);
+    if (judged && isOrphanClaim(judged, judge)) removeIfAccepted(fsImpl, file, judge.now, isJudgedClaim(fsImpl, judged, judge));
   }
 }
 
@@ -287,7 +398,7 @@ function removeCreatedDirs(fsImpl: any, stateDir: string, firstCreated: any): vo
  * @throws {RunLockTimeoutError|RunLockError}
  */
 function acquireRunLock({ scopeRoot, scope, command }: { scopeRoot: string, scope: 'global' | 'project', command: string }, {
-  waitMs = 60_000, pollMs = 250, staleMs = 600_000, claimStaleMs = 30_000,
+  waitMs = 60_000, pollMs = 250, staleMs = 600_000, claimStaleMs = 30_000, startTimeStable = startTimeIsStable,
   now = Date.now, isAlive = defaultIsAlive, procStart = defaultProcStart, hostname = os.hostname(),
   log = (line: string) => process.stderr.write(`${line}\n`), fsImpl = fs, sleep = atomicsSleep,
 }: any = {}): any {
@@ -330,8 +441,8 @@ function acquireRunLock({ scopeRoot, scope, command }: { scopeRoot: string, scop
     return error;
   };
 
-  const judge = { token, hostname, isAlive, procStart, now, staleMs, claimStaleMs };
-  sweepOrphanTemps(fsImpl, stateDir, judge);
+  const judge = { token, hostname, isAlive, procStart, startTimeStable, processStart: record.processStart, now, staleMs, claimStaleMs };
+  sweepLeftovers(fsImpl, stateDir, lockPath, judge);
   const start = now();
   const cleared: any[] = [];
   let lastHolder: any = null;
@@ -360,29 +471,34 @@ function acquireRunLock({ scopeRoot, scope, command }: { scopeRoot: string, scop
       continue;
     }
     unlinkQuietly(fsImpl, tempPath);
-    return holdHandle({ fsImpl, root, stateDir, lockPath, token, hostname, firstCreated, where, now, waitedMs: now() - start, cleared });
+    return holdHandle({ fsImpl, root, stateDir, lockPath, token, hostname, processStart: record.processStart, firstCreated, where, now, waitedMs: now() - start, cleared });
   }
   throw giveUp(new RunLockTimeoutError({ ...where, holder: lastHolder, waitedMs: now() - start }));
 }
 
-function holdHandle({ fsImpl, root, stateDir, lockPath, token, hostname, firstCreated, where, now, waitedMs, cleared }: any): any {
+function holdHandle({ fsImpl, root, stateDir, lockPath, token, hostname, processStart, firstCreated, where, now, waitedMs, cleared }: any): any {
   const entry: { count: number, handle: any } = { count: 1, handle: null };
   let released = false;
+  const claimPath = path.join(stateDir, `${CLAIM_PREFIX}${token}`);
+  const claim = () => createClaim(fsImpl, claimPath, { token, hostname, target: token, processStart });
 
   const releaseNow = () => {
     if (released) return;
     released = true;
     held.delete(root);
     process.removeListener('exit', releaseNow);
-    const claimPath = path.join(stateDir, `${CLAIM_PREFIX}${token}`);
     let claimed = false;
-    try { claimed = createClaim(fsImpl, claimPath, { token, hostname, target: token }); } catch { /* swallowed: the stale rule clears it */ }
+    try { claimed = claim(); } catch { /* swallowed: the stale rule clears it */ }
     if (claimed) {
       try {
         const found = readLockFile(fsImpl, lockPath);
-        if (found && found.key === token) fsImpl.unlinkSync(lockPath);
+        // Moved aside and read again: a holder stalled here until its lock was cleared and another
+        // run took run.lock finds that run's record, and puts it back.
+        if (found && found.key === token && ownsClaim(fsImpl, claimPath, token)) {
+          removeIfAccepted(fsImpl, lockPath, now, (aside) => readLockFile(fsImpl, aside)?.key === token);
+        }
       } catch { /* swallowed */ }
-      unlinkQuietly(fsImpl, claimPath);
+      releaseClaim(fsImpl, claimPath, token, now);
     }
     removeCreatedDirs(fsImpl, stateDir, firstCreated);
   };
@@ -394,20 +510,18 @@ function holdHandle({ fsImpl, root, stateDir, lockPath, token, hostname, firstCr
     waitedMs,
     cleared,
     // Under the same claim a takeover of this lock takes, so a renewal and a removal never
-    // interleave: a claim already there means another run is removing this lock.
+    // interleave: a claim already there means another run is removing this lock. The renewal goes
+    // through the file that was read, so a lock replaced after the read is never renewed.
     checkpoint() {
-      const claimPath = path.join(stateDir, `${CLAIM_PREFIX}${token}`);
       let claimed = false;
-      try { claimed = createClaim(fsImpl, claimPath, { token, hostname, target: token }); } catch { /* no state directory: the lock is gone */ }
+      try { claimed = claim(); } catch { /* no state directory: the lock is gone */ }
       if (!claimed) throw new RunLockLostError(where);
       try {
-        let found = null;
-        try { found = readLockFile(fsImpl, lockPath); } catch { /* unreadable counts as lost */ }
-        if (!found || found.key !== token) throw new RunLockLostError(where);
-        const seconds = now() / 1000;
-        try { fsImpl.utimesSync(lockPath, seconds, seconds); } catch { /* renewal is best effort */ }
+        let owned = false;
+        try { owned = renewOwnLock(fsImpl, lockPath, token, now() / 1000); } catch { /* unreadable counts as lost */ }
+        if (!owned) throw new RunLockLostError(where);
       } finally {
-        unlinkQuietly(fsImpl, claimPath);
+        releaseClaim(fsImpl, claimPath, token, now);
       }
     },
     release() {
@@ -420,6 +534,18 @@ function holdHandle({ fsImpl, root, stateDir, lockPath, token, hostname, firstCr
   held.set(root, entry);
   process.on('exit', releaseNow);
   return entry.handle;
+}
+
+/** Sets the mtime of run.lock when it holds `token`, through the descriptor the record was read from. @returns {boolean} false when it does not */
+function renewOwnLock(fsImpl: any, lockPath: string, token: string, seconds: number): boolean {
+  const fd = fsImpl.openSync(lockPath, 'r');
+  try {
+    if (readLockFd(fsImpl, fd).key !== token) return false;
+    try { fsImpl.futimesSync(fd, seconds, seconds); } catch { /* renewal is best effort */ }
+    return true;
+  } finally {
+    fsImpl.closeSync(fd);
+  }
 }
 
 module.exports = {

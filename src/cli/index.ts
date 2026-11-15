@@ -137,6 +137,8 @@ function parseArgs(argv: string[]): any {
       case '--stdin': o.stdin = true; break;
       // advise --action configure: these are deliberately presence-only switches.
       case '--off': o.off = true; break;
+      // models --action bind: bind a model the harness's own list does not show.
+      case '--allow-unlisted': o.allowUnlisted = true; break;
       case '--project': o.project = true; break;
       // evidence --action retire: retire every item the ledger classes stale.
       case '--stale': o.stale = true; break;
@@ -386,7 +388,7 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--model', 'model'],                // advise --action configure: installed decision-capable model
   ['--endpoint', 'endpoint'],          // advise --action configure: loopback Ollama endpoint
   ['--owner', 'owner'],                // brief-tools: the agent type the brief is for
-  ['--tier', 'tier'],                  // brief-tools: the task line's tier (light | standard | frontier)
+  ['--tier', 'tier'],                  // brief-tools: the task line's tier (light | standard | frontier) · models bind|unbind: the tier slot, or orchestrator
   ['--harness', 'harness'],            // brief-tools: the harness the brief is for
   ['--policy', 'policy'],              // enforcement: lifecycle policy id
   ['--profile', 'profile'],             // enforcement profile; retrieve --scope code: lexical-only|hybrid
@@ -669,7 +671,7 @@ Commands:
   slot                 Named machine-wide queue, one holder at a time (--action run|list|peek|release).
                        slot --action run --name <name> [--label <text>] [--timeout <s>] [--no-wait] -- <command> [args...]
                        slot --action release --name <name> --by <who> --reason <text>
-  models               Synchronize, list, or inspect observed models across workers (--action sync|list|describe)
+  models               Synchronize, list, or inspect observed models across workers (--action sync|list|describe|bind|unbind)
   leak-scan            Report DoFlow-internal identifiers in shipped files (--path, repeatable)
 
 Scope (mutually exclusive — global wins if both given):
@@ -722,7 +724,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
                        orchestrate: start|status|list|timeline|catch-up|handoff|complete-stage|skip-stage|decide-gate|annotate|close
                        slot: run|list|peek|release
                        worktree: cleanup
-                       models: sync|list|describe
+                       models: sync|list|describe|bind|unbind
                        review: check|start
                        protocol: list|resolve
                        primary: resolve|observed
@@ -798,6 +800,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --kind [--json]                    advise --action report (read-only counts and latency from this project's records)
       --model, --endpoint, --project,
       --off                              advise --action configure
+      --harness, --tier, --model, --allow-unlisted   models --action bind (unbind: --harness, --tier)
       --path, --exclude (repeatable)        leak-scan
       --slug | --path                       review --action check (at most one; with neither, the active feature)
       --path <dir>                          package --action check (exactly one package directory)

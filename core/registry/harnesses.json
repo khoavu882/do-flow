@@ -395,6 +395,10 @@
               "{model}"
             ]
           },
+        "modelList": {
+          "status": "none-recorded",
+          "reason": "`claude --help` lists no command that prints the available models; type the id"
+        },
         "modelChecks": []
       },
       "contextProfile": {
@@ -935,6 +939,10 @@
             "{model}"
           ]
         },
+        "modelList": {
+          "status": "none-recorded",
+          "reason": "`codex --help` lists no command that prints the available models; type the id"
+        },
         "modelChecks": []
       },
       "contextProfile": {
@@ -1465,6 +1473,17 @@
               "{model}"
             ]
           },
+        "modelList": {
+          "status": "supported",
+          "argv": [
+            "models"
+          ],
+          "parse": "lines",
+          "verifiedOn": "2026-11-15",
+          "evidence": [
+            "Ran `opencode models` on 2026-11-15: one `<provider>/<id>` per line"
+          ]
+        },
         "modelChecks": []
       },
       "contextProfile": {
@@ -1935,6 +1954,17 @@
               "{model}"
             ]
           },
+        "modelList": {
+          "status": "supported",
+          "argv": [
+            "--list-models"
+          ],
+          "parse": "table-column:model",
+          "verifiedOn": "2026-11-15",
+          "evidence": [
+            "Ran `pi --list-models` on 2026-11-15: a header row `provider model context max-out thinking images`, then one row per model"
+          ]
+        },
         "modelChecks": []
       },
       "contextProfile": {
@@ -2478,6 +2508,10 @@
               "{model}"
             ]
           },
+        "modelList": {
+          "status": "none-recorded",
+          "reason": "`copilot --help` lists no command that prints the available models; type the id"
+        },
         "modelChecks": []
       },
       "contextProfile": {
@@ -2934,6 +2968,10 @@
               "{model}"
             ]
           },
+        "modelList": {
+          "status": "none-recorded",
+          "reason": "`kiro-cli chat --help` lists `--list-models`, but running it on 2026-11-15 opened a login portal and gave no list within 20 s; its output shape is not verified"
+        },
         "modelChecks": []
       },
       "contextProfile": {
@@ -3399,11 +3437,27 @@
           "reason": "no recorded evidence for agy: no free check shows a flag that confines edits to the working directory"
         },
         "model": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Run `agy --help` and read the `--model` line; record it with `node bin/doflow.js worker --action evidence --harness antigravity --checks core/worker-evidence/antigravity/checks.json --out <new cli-check path>` (check help-model)",
-          "verifiedOn": "2026-10-24",
-          "reason": "declared: agy --help lists --model on stderr, but the free check help-model reads stdout only and fails; supported only after a recorded cli-check passes"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/antigravity/2026-11-07-cli-check.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness antigravity --checks core/worker-evidence/antigravity/checks.json --out <new cli-check path>` against the installed agy and read the matched `--model` line (check help-model; the check reads stdout and stderr, and agy prints --help on stderr). Recorded 2026-11-07 on agy 1.5.3: the flag is listed in `agy --help`. That the CLI accepts a given model id is not checked; the id is passed through.",
+          "verifiedOn": "2026-11-07",
+          "argv": [
+            "--model",
+            "{model}"
+          ]
+        },
+        "modelList": {
+          "status": "supported",
+          "argv": [
+            "models"
+          ],
+          "parse": "tsv-first-column",
+          "verifiedOn": "2026-11-15",
+          "evidence": [
+            "Ran `agy models` on 2026-11-15: a `Fetching available models...` line on stderr, then `<id>\\t<display name>` per line on stdout"
+          ]
         },
         "modelChecks": []
       },

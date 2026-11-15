@@ -55,6 +55,7 @@ test('Slice A: writeCatalogue writes atomically and readCatalogue reads from pro
           detectedMode: 'subscription',
           derivedBilling: 'free',
           offeredModels: [{ id: 'claude-3-7-sonnet', displayName: 'Claude 3.7 Sonnet', family: 'claude' }],
+          modelList: { status: 'listed' },
           lastSyncedAt: '2026-10-25T12:00:00.000Z',
         },
       },

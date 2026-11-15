@@ -1610,7 +1610,7 @@
       "rule": "existing",
       "bound": {
         "value": 64,
-        "text": "one JSON file of the Console's paired devices (at most 64), pending pairing codes (at most 16) and LAN Console entries, written whole through a temp file and a rename while lan.json.lock is held; a device idle for 30 days is dropped on the next write, a revoked one 30 days after its revocation, a Console entry 90 days after it started; a stale lock is moved aside before it is removed"
+        "text": "one JSON file of the Console's paired devices (at most 64), pending pairing codes (at most 16) and LAN Console entries, written whole through a temp file and a rename while lan.json.lock is held; a device idle for 30 days reads as expired and is dropped on the next write 30 days after that, a revoked one 30 days after its revocation, a Console entry 90 days after it started; a stale lock is moved aside before it is removed"
       },
       "protect": null,
       "moments": [],

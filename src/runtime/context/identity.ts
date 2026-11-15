@@ -92,6 +92,14 @@ function readRole(raw: string | undefined): { role: Role; unknown: boolean } {
   return { role: 'worker', unknown: true };
 }
 
+/**
+ * True when DOFLOW_SESSION_ROLE is set and is not `main`: a worker (or unrecognised) session. Verbs that change the
+ * user's own settings refuse there. Defence in depth, not a boundary: a process can unset the variable.
+ */
+function inWorkerSession(env: Env): boolean {
+  return (env.DOFLOW_SESSION_ROLE || '') !== '' && readRole(env.DOFLOW_SESSION_ROLE).role !== 'main';
+}
+
 /** DOFLOW_WORKTREE canonicalised when it names an absolute existing directory; else the payload cwd as given (cwdHash canonicalises for the store key). */
 function readWorktree(raw: string | undefined, cwd: string): string {
   if (raw && raw.startsWith('/')) {
@@ -222,6 +230,7 @@ module.exports = {
   UNKNOWN_ROLE_LINE,
   cwdHash,
   identityFields,
+  inWorkerSession,
   resolveIdentity,
   stateDir,
 };

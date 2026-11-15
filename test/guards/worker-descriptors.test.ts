@@ -10,7 +10,7 @@
 //         https:// URL
 //   G41.3 every declared `structuredOutput.parser` is a key of PARSERS (checked here, beside the
 //         parser table, because validateWorker deliberately does not require a runtime module)
-//   G41.4 every `supported` worker entry other than cli/profile/modelChecks cites a recorded
+//   G41.4 every `supported` worker entry other than cli/profile/modelChecks/modelList cites a recorded
 //         evidence file under core/worker-evidence/<harness>/ that establishes that capability
 //         (109 IC-009, DEC-003) and whose content holds up: a cli-check record has checks, every one
 //         equal (id, argv, expect, establishes) to core/worker-evidence/<harness>/checks.json, and the
@@ -67,7 +67,7 @@ function supportedEvidenceFindings(registry: any, repoRoot: any) {
   const findings: any = [];
   for (const harness of registry.harnesses) {
     for (const [key, entry] of Object.entries(harness.worker || {})) {
-      if (entry === null || typeof entry !== 'object' || Array.isArray(entry) || entry.status !== 'supported') continue;
+      if (key === 'modelList' || entry === null || typeof entry !== 'object' || Array.isArray(entry) || entry.status !== 'supported') continue;
       const evidence = Array.isArray(entry.evidence) ? entry.evidence : [];
       if (!evidence.some((item: any) => typeof item === 'string' && evidenceNamesSource(item, repoRoot))) {
         findings.push(`harness '${harness.id}' worker '${key}': supported entry has no evidence naming an existing repository path or an https:// URL`);
@@ -91,7 +91,9 @@ function parserFindings(registry: any, parsers: any) {
 }
 
 const EVIDENCE_SCHEMA = 'doflow-worker-evidence-v1';
-const NOT_CAPABILITIES: any = new Set(['cli', 'profile', 'modelChecks']);
+// `modelList` is how the harness's own CLI lists its models, not a worker capability: its shape is the registry
+// validator's and its parsers are test/runtime/models/list-models.test.ts's, and its evidence is the dated listing run in its own text.
+const NOT_CAPABILITIES: any = new Set(['cli', 'profile', 'modelChecks', 'modelList']);
 
 /** The checks file a record is bound to: core/worker-evidence/<harness>/checks.json. */
 function checksFile(harnessId: any, repoRoot: any) {
@@ -345,7 +347,7 @@ const ACCEPTED_KEYS: any = {
   copilot: ['model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
   pi: ['model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
   kiro: ['model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
-  antigravity: [],
+  antigravity: ['model'],
 };
 
 test('G41.3: PARSER_BY_HARNESS names every parser-bearing harness, each id a key of PARSERS', () => {

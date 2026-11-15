@@ -187,6 +187,20 @@ test('IC-012: per-task bindings skip unevidenced rungs and retain exact gaps', (
   assert.deepEqual(reordered.selection.candidates[0].gaps, [GAP_FLAG]);
 });
 
+test('the ladder gate reads the same main-session model as the launch for the orchestrator owner', () => {
+  const candidates = [cand('claude'), cand('antigravity')];
+  const bindings = set({ claude: { frontier: 'f1' } });
+  const descriptors = { claude: DESCRIPTORS.claude, antigravity: SUP }; // claude has no evidenced model flag
+  const owner = 'delivery-lead';
+  // The main session is on claude: the orchestrator is its model, not the frontier binding the unevidenced flag would refuse.
+  const session = { harness: 'claude', model: 'sess-1', state: 'confirmed' };
+  assert.equal(select(candidates, { owner, bindings, descriptors, primary: session }).harness, 'claude');
+  // With no main-session model the frontier binding applies, and claude is skipped for its flag.
+  const without = select(candidates, { owner, bindings, descriptors, primary: null });
+  assert.equal(without.harness, 'antigravity');
+  assert.deepEqual(without.selection.candidates[0].gaps, [GAP_FLAG]);
+});
+
 test('IC-012 negative control: absent workers.models preserves every selection', (t) => {
   const f = createSettingsEnv(t);
   const bindings = readBindings({ env: f.env({ PATH: '' }), projectRoot: f.project });

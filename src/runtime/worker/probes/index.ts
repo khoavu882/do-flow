@@ -7,7 +7,7 @@ const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const execFileAsync = promisify(execFile);
 
-import type { SyncHarnessResult, LoginState, DetectedMode, DerivedBilling, OfferedModel } from '../../models/catalogue.ts';
+import type { SyncHarnessResult, LoginState, DetectedMode, DerivedBilling } from '../../models/catalogue.ts';
 
 export interface ProbeOptions {
   timeoutMs?: number;
@@ -40,37 +40,6 @@ const HARNESS_BINARIES: Record<string, string> = {
   copilot: 'copilot',
   kiro: 'kiro-cli',
   antigravity: 'agy',
-};
-
-const DEFAULT_MODELS: Record<string, OfferedModel[]> = {
-  claude: [
-    { id: 'claude-3-7-sonnet', displayName: 'Claude 3.7 Sonnet', family: 'claude' },
-    { id: 'claude-3-5-sonnet', displayName: 'Claude 3.5 Sonnet', family: 'claude' },
-    { id: 'claude-3-5-haiku', displayName: 'Claude 3.5 Haiku', family: 'claude' },
-  ],
-  codex: [
-    { id: 'o3-mini', displayName: 'o3-mini', family: 'openai' },
-    { id: 'o1', displayName: 'o1', family: 'openai' },
-    { id: 'gpt-4o', displayName: 'GPT-4o', family: 'openai' },
-  ],
-  opencode: [
-    { id: 'claude-3-7-sonnet', displayName: 'Claude 3.7 Sonnet', family: 'claude' },
-    { id: 'gpt-4o', displayName: 'GPT-4o', family: 'openai' },
-  ],
-  pi: [
-    { id: 'claude-3-7-sonnet', displayName: 'Claude 3.7 Sonnet', family: 'claude' },
-  ],
-  copilot: [
-    { id: 'claude-3.5-sonnet', displayName: 'Claude 3.5 Sonnet', family: 'claude' },
-    { id: 'gpt-4o', displayName: 'GPT-4o', family: 'openai' },
-  ],
-  kiro: [
-    { id: 'claude-3-7-sonnet', displayName: 'Claude 3.7 Sonnet', family: 'claude' },
-  ],
-  antigravity: [
-    { id: 'gemini-2.5-pro', displayName: 'Gemini 2.5 Pro', family: 'gemini' },
-    { id: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash', family: 'gemini' },
-  ],
 };
 
 async function executeCommand(
@@ -154,7 +123,7 @@ const probeClaude: HarnessProbeRunner = async (options: ProbeOptions = {}) => {
       reloginHint,
       detectedMode: 'unverified',
       derivedBilling: 'unknown',
-      offeredModels: DEFAULT_MODELS.claude,
+      offeredModels: [],
       lastSyncedAt: new Date().toISOString(),
     };
   }
@@ -172,7 +141,7 @@ const probeClaude: HarnessProbeRunner = async (options: ProbeOptions = {}) => {
       reloginHint: null,
       detectedMode: 'api-key',
       derivedBilling: 'metered',
-      offeredModels: DEFAULT_MODELS.claude,
+      offeredModels: [],
       lastSyncedAt: new Date().toISOString(),
     };
   }
@@ -200,7 +169,7 @@ const probeClaude: HarnessProbeRunner = async (options: ProbeOptions = {}) => {
       reloginHint: null,
       detectedMode: 'subscription',
       derivedBilling: 'free',
-      offeredModels: DEFAULT_MODELS.claude,
+      offeredModels: [],
       lastSyncedAt: new Date().toISOString(),
     };
   }
@@ -214,7 +183,7 @@ const probeClaude: HarnessProbeRunner = async (options: ProbeOptions = {}) => {
     reloginHint,
     detectedMode: 'unverified',
     derivedBilling: 'unknown',
-    offeredModels: DEFAULT_MODELS.claude,
+    offeredModels: [],
     lastSyncedAt: new Date().toISOString(),
   };
 };
@@ -237,7 +206,7 @@ const probeCodex: HarnessProbeRunner = async (options: ProbeOptions = {}) => {
       reloginHint,
       detectedMode: 'unverified',
       derivedBilling: 'unknown',
-      offeredModels: DEFAULT_MODELS.codex,
+      offeredModels: [],
       lastSyncedAt: new Date().toISOString(),
     };
   }
@@ -256,7 +225,7 @@ const probeCodex: HarnessProbeRunner = async (options: ProbeOptions = {}) => {
       reloginHint,
       detectedMode: 'unverified',
       derivedBilling: 'unknown',
-      offeredModels: DEFAULT_MODELS.codex,
+      offeredModels: [],
       lastSyncedAt: new Date().toISOString(),
     };
   }
@@ -294,7 +263,7 @@ const probeCodex: HarnessProbeRunner = async (options: ProbeOptions = {}) => {
     reloginHint: null,
     detectedMode,
     derivedBilling,
-    offeredModels: DEFAULT_MODELS.codex,
+    offeredModels: [],
     lastSyncedAt: new Date().toISOString(),
   };
 };
@@ -314,7 +283,7 @@ const probeOpencode: HarnessProbeRunner = async (options: ProbeOptions = {}) => 
       reloginHint,
       detectedMode: 'unverified',
       derivedBilling: 'unknown',
-      offeredModels: DEFAULT_MODELS.opencode,
+      offeredModels: [],
       lastSyncedAt: new Date().toISOString(),
     };
   }
@@ -333,7 +302,7 @@ const probeOpencode: HarnessProbeRunner = async (options: ProbeOptions = {}) => 
       reloginHint,
       detectedMode: 'unverified',
       derivedBilling: 'unknown',
-      offeredModels: DEFAULT_MODELS.opencode,
+      offeredModels: [],
       lastSyncedAt: new Date().toISOString(),
     };
   }
@@ -355,7 +324,7 @@ const probeOpencode: HarnessProbeRunner = async (options: ProbeOptions = {}) => 
         reloginHint: null,
         detectedMode: isOauth ? 'subscription' : 'api-key',
         derivedBilling: isOauth ? 'free' : 'metered',
-        offeredModels: DEFAULT_MODELS.opencode,
+        offeredModels: [],
         lastSyncedAt: new Date().toISOString(),
       };
     }
@@ -372,7 +341,7 @@ const probeOpencode: HarnessProbeRunner = async (options: ProbeOptions = {}) => 
     reloginHint,
     detectedMode: 'unverified',
     derivedBilling: 'unknown',
-    offeredModels: DEFAULT_MODELS.opencode,
+    offeredModels: [],
     lastSyncedAt: new Date().toISOString(),
   };
 };
@@ -395,7 +364,7 @@ const probePi: HarnessProbeRunner = async (options: ProbeOptions = {}) => {
       reloginHint,
       detectedMode: 'unverified',
       derivedBilling: 'unknown',
-      offeredModels: DEFAULT_MODELS.pi,
+      offeredModels: [],
       lastSyncedAt: new Date().toISOString(),
     };
   }
@@ -405,19 +374,12 @@ const probePi: HarnessProbeRunner = async (options: ProbeOptions = {}) => {
 
   const piModelsJson = path.join(home, '.pi', 'agent', 'models.json');
   let hasKey = Boolean(env.ANTHROPIC_API_KEY || env.OPENAI_API_KEY);
-  let customModels: OfferedModel[] = DEFAULT_MODELS.pi;
 
   try {
     if (fsImpl.existsSync(piModelsJson)) {
       const data = JSON.parse(fsImpl.readFileSync(piModelsJson, 'utf8'));
       if (data && typeof data === 'object') {
         hasKey = true;
-        if (Array.isArray(data.models)) {
-          customModels = data.models.map((m: any) => ({
-            id: typeof m === 'string' ? m : m.id,
-            displayName: typeof m === 'object' ? m.name || m.displayName : undefined,
-          }));
-        }
       }
     }
   } catch {
@@ -434,7 +396,7 @@ const probePi: HarnessProbeRunner = async (options: ProbeOptions = {}) => {
       reloginHint: null,
       detectedMode: 'api-key',
       derivedBilling: 'metered',
-      offeredModels: customModels,
+      offeredModels: [],
       lastSyncedAt: new Date().toISOString(),
     };
   }
@@ -448,7 +410,7 @@ const probePi: HarnessProbeRunner = async (options: ProbeOptions = {}) => {
     reloginHint,
     detectedMode: 'unverified',
     derivedBilling: 'unknown',
-    offeredModels: customModels,
+    offeredModels: [],
     lastSyncedAt: new Date().toISOString(),
   };
 };
@@ -469,7 +431,7 @@ const probeCopilot: HarnessProbeRunner = async (options: ProbeOptions = {}) => {
       reloginHint,
       detectedMode: 'unverified',
       derivedBilling: 'unknown',
-      offeredModels: DEFAULT_MODELS.copilot,
+      offeredModels: [],
       lastSyncedAt: new Date().toISOString(),
     };
   }
@@ -496,7 +458,7 @@ const probeCopilot: HarnessProbeRunner = async (options: ProbeOptions = {}) => {
       reloginHint: null,
       detectedMode: 'subscription',
       derivedBilling: 'free',
-      offeredModels: DEFAULT_MODELS.copilot,
+      offeredModels: [],
       lastSyncedAt: new Date().toISOString(),
     };
   }
@@ -510,7 +472,7 @@ const probeCopilot: HarnessProbeRunner = async (options: ProbeOptions = {}) => {
     reloginHint,
     detectedMode: 'unverified',
     derivedBilling: 'unknown',
-    offeredModels: DEFAULT_MODELS.copilot,
+    offeredModels: [],
     lastSyncedAt: new Date().toISOString(),
   };
 };
@@ -533,7 +495,7 @@ const probeKiro: HarnessProbeRunner = async (options: ProbeOptions = {}) => {
       reloginHint,
       detectedMode: 'unverified',
       derivedBilling: 'unknown',
-      offeredModels: DEFAULT_MODELS.kiro,
+      offeredModels: [],
       lastSyncedAt: new Date().toISOString(),
     };
   }
@@ -551,7 +513,7 @@ const probeKiro: HarnessProbeRunner = async (options: ProbeOptions = {}) => {
       reloginHint: null,
       detectedMode: 'api-key',
       derivedBilling: 'metered',
-      offeredModels: DEFAULT_MODELS.kiro,
+      offeredModels: [],
       lastSyncedAt: new Date().toISOString(),
     };
   }
@@ -577,7 +539,7 @@ const probeKiro: HarnessProbeRunner = async (options: ProbeOptions = {}) => {
       reloginHint: null,
       detectedMode: 'subscription',
       derivedBilling: 'free',
-      offeredModels: DEFAULT_MODELS.kiro,
+      offeredModels: [],
       lastSyncedAt: new Date().toISOString(),
     };
   }
@@ -591,7 +553,7 @@ const probeKiro: HarnessProbeRunner = async (options: ProbeOptions = {}) => {
     reloginHint,
     detectedMode: 'unverified',
     derivedBilling: 'unknown',
-    offeredModels: DEFAULT_MODELS.kiro,
+    offeredModels: [],
     lastSyncedAt: new Date().toISOString(),
   };
 };
@@ -614,7 +576,7 @@ const probeAntigravity: HarnessProbeRunner = async (options: ProbeOptions = {}) 
       reloginHint,
       detectedMode: 'unverified',
       derivedBilling: 'unknown',
-      offeredModels: DEFAULT_MODELS.antigravity,
+      offeredModels: [],
       lastSyncedAt: new Date().toISOString(),
     };
   }
@@ -632,7 +594,7 @@ const probeAntigravity: HarnessProbeRunner = async (options: ProbeOptions = {}) 
       reloginHint: null,
       detectedMode: 'api-key',
       derivedBilling: 'metered',
-      offeredModels: DEFAULT_MODELS.antigravity,
+      offeredModels: [],
       lastSyncedAt: new Date().toISOString(),
     };
   }
@@ -658,7 +620,7 @@ const probeAntigravity: HarnessProbeRunner = async (options: ProbeOptions = {}) 
       reloginHint: null,
       detectedMode: 'subscription',
       derivedBilling: 'free',
-      offeredModels: DEFAULT_MODELS.antigravity,
+      offeredModels: [],
       lastSyncedAt: new Date().toISOString(),
     };
   }
@@ -672,7 +634,7 @@ const probeAntigravity: HarnessProbeRunner = async (options: ProbeOptions = {}) 
     reloginHint,
     detectedMode: 'unverified',
     derivedBilling: 'unknown',
-    offeredModels: DEFAULT_MODELS.antigravity,
+    offeredModels: [],
     lastSyncedAt: new Date().toISOString(),
   };
 };
@@ -693,7 +655,6 @@ module.exports = {
   DEFAULT_PROBE_TIMEOUT_MS,
   RELOGIN_HINTS,
   HARNESS_BINARIES,
-  DEFAULT_MODELS,
   probeClaude,
   probeCodex,
   probeOpencode,

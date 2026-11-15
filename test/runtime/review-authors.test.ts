@@ -11,6 +11,8 @@ const path = require('node:path');
 const { tempDir } = require('../helper/tmp.ts');
 const { storeFileFor } = require('../../src/runtime/dispatch/store.ts');
 const { authoringIdentities } = require('../../src/runtime/review/identity.ts');
+const { loadRegistry } = require('../../src/registry/index.ts');
+const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 
 test('authoringIdentities: empty when no record and no dispatch store exists', (t) => {
   const dir = tempDir(t, 'doflow-authors-empty-');
@@ -144,13 +146,19 @@ test('authoringIdentities: extracts subagent dispatches that reached submit', (t
 
   fs.writeFileSync(storeFile, JSON.stringify(storeData, null, 2), 'utf8');
 
-  const rows = authoringIdentities({ slug: 'feat-subagent', cwd: dir });
+  // Every shipped worker records a supported model flag, so the 'claim' case injects a registry whose antigravity entry is unknown.
+  const registry = structuredClone(loadRegistry({ repoRoot: REPO_ROOT }));
+  registry.harnesses.find((h: any) => h.id === 'antigravity').worker.model = { status: 'unknown', evidence: [], verification: 'x', verifiedOn: '2026-11-15', reason: 'x' };
+  const rows = authoringIdentities({ slug: 'feat-subagent', cwd: dir, registry });
   assert.deepEqual(rows, [
     { kind: 'subagent', harness: 'codex', model: 'o3-mini-2025-01-31', channel: 'observed' },
     { kind: 'subagent', harness: 'codex', model: 'o3-mini', channel: 'observed' },
     { kind: 'subagent', harness: 'antigravity', model: 'claude-3-5-sonnet-20241022', channel: 'observed' },
     { kind: 'subagent', harness: 'antigravity', model: 'claude-3-5-sonnet', channel: 'claim' },
   ]);
+  // With the shipped registry antigravity's model flag is supported, so its requested model is observed too.
+  const shipped = authoringIdentities({ slug: 'feat-subagent', cwd: dir });
+  assert.deepEqual(shipped.find((row: any) => row.model === 'claude-3-5-sonnet'), { kind: 'subagent', harness: 'antigravity', model: 'claude-3-5-sonnet', channel: 'observed' });
 });
 
 test('authoringIdentities: extracts sequential dispatches that reached submit', (t) => {

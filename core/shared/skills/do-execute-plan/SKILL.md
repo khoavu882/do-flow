@@ -150,8 +150,9 @@ Branch on `outcome`, not the exit code.
    - A fix that fails again for the cause it fixed, or a retry the runtime refuses, is a plan
      problem: stop patching, re-read the task against `design.md`, then amend the plan or report.
    - Name a model tier on every dispatch — an omitted tier inherits the session's model. Pass the
-     tier from task-brief's `record.tier` as the dispatch model; for review passes and the limit
-     where a harness honors only `model: inherit`, see `references/MODEL_SELECTION.md`.
+     model id task-brief's `Model:` line names, else translate `record.tier` (never invent one).
+     For review passes and the limit where a harness honors only
+     `model: inherit`, see `references/MODEL_SELECTION.md`.
 
 7. **Batch the Phase's Evidence**:
    - One pass at each phase boundary, never one call per fact. Use the plan task id — the same id
