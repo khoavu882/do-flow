@@ -28,6 +28,7 @@ const { loadStorageRegistry } = require('./storage/registry.ts');
 const { resolveRoots, resolveStorePath } = require('./storage/roots.ts');
 const { checkCompletion: checkTaskAttemptCompletion, storeFile: taskAttemptStoreFile } = require('./task-attempts.ts');
 const { runKeyFor, refuseSolo } = require('./task-run.ts');
+const { RELAY_LABEL } = require('./relay-label.ts');
 const { projectRoot: lifecycleProjectRoot } = require('./lifecycle/root.ts');
 const { appendOutcome, findPick, readWindow } = require('./advice/record.ts');
 const {
@@ -116,15 +117,13 @@ class RunRefusal extends Error {
   }
 }
 
-/** The relay label `--via` takes: the Console on this machine, or a paired device (IC-004). It cannot say `autopilot`, `manual` or `person`. */
-const VIA_LABEL = /^(?:console|device\.d-[0-9a-f]{12})$/;
 /** What a timeline shows as `by` on a decide-gate entry, and on a close-run entry. */
 const DECIDE_BY = /^(?:autopilot|manual|console|device\.d-[0-9a-f]{12})$/;
 const CLOSE_BY = /^(?:manual|console|device\.d-[0-9a-f]{12})$/;
 
 /** `--via`, checked where it is used as well as where the CLI reads it, so no caller records a label outside the grammar. */
 function assertVia(via: any) {
-  if (via !== undefined && !VIA_LABEL.test(String(via))) throw new Error(`--via takes console or device.d-<12 hex>, got '${via}'`);
+  if (via !== undefined && !RELAY_LABEL.test(String(via))) throw new Error(`--via takes console or device.d-<12 hex>, got '${via}'`);
 }
 
 /** `--expect-revision`: the run's revision as this call read it must be the one the caller saw. */
@@ -1499,7 +1498,7 @@ function handleOrchestrateCommand({
       return usageError('orchestrate', `'${flag}' has no effect on action '${action}' — only decide-gate (without --policy) and close read it`, json);
     }
   }
-  if (via !== undefined && !VIA_LABEL.test(String(via))) {
+  if (via !== undefined && !RELAY_LABEL.test(String(via))) {
     return usageError('orchestrate', `'--via' takes console or device.d-<12 hex>, got '${via}'`, json);
   }
   // Under --json, a refused decide-gate or close is data too: the code and the run as it now stands.

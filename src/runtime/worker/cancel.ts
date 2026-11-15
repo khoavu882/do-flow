@@ -27,6 +27,7 @@ const processTree = require('./process-tree.ts');
 const { runKeyFor, identityRefusal } = require('../task-run.ts');
 const { inWorkerSession } = require('../context/identity.ts');
 const attempts = require('../task-attempts.ts');
+const { RELAY_LABEL } = require('../relay-label.ts');
 
 /** A `cancelling` run whose request is younger than this belongs to the canceller that holds it. */
 const CANCEL_TAKEOVER_MS = 30000;
@@ -34,8 +35,6 @@ const CANCEL_TAKEOVER_MS = 30000;
  * SIGTERM-ignoring worker, both waits and both `ps` bounds (IC-021 step 3, DEC-040, DEC-064). */
 const LAUNCH_WAIT_MS = processTree.KILL_GRACE_MS + processTree.KILL_FINAL_MS + 2 * processTree.PS_TIMEOUT_MS;
 const SOURCES = Object.freeze(['user', 'timeout', 'operator']);
-/** 162 DEC-007: the relay labels an operator cancel records as `by`. */
-const RELAY_LABEL = /^(?:console|device\.d-[0-9a-f]{12})$/;
 
 /** Thrown inside a locked transition to abandon it with a refusal and no write. */
 class Refused extends Error {
