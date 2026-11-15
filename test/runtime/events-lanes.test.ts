@@ -717,7 +717,7 @@ handleEventsCommand({ follow: true, control: 'stdin', json: true, flags: ['--fol
   const rows = fs.readFileSync(probe, 'utf8').split('\n').filter(Boolean).map((line: string) => line.split('\t'));
   const opens = rows.filter((r: string[]) => r[0] !== 'exec');
   const execs = rows.filter((r: string[]) => r[0] === 'exec');
-  const opened = opens.map((r: string[]) => r[2]);
+  const opened: string[] = opens.map((r: string[]) => r[2]);
   assert.ok(opened.some((p) => p === file), 'the probe saw the transcript read');
   assert.ok(opened.some((p) => p === path.join(a, ...rel.split('/'))), 'and the brief read');
   // The control open went red in the probe: a numeric write flag is seen as a write.
