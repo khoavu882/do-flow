@@ -31,6 +31,16 @@ test('sync fills offeredModels from the listing command and marks the list as li
   assert.ok(calls.some((c) => c.join(' ') === 'opencode models'));
 });
 
+test('sync keeps only usable ids and records how many were left out and whether the list was cut', async () => {
+  const home = suiteTempDir('doflow-test-sync-home-');
+  const dropped = await syncHarness('opencode', { execFileImpl: runner('--foo\nok/model\n-x\n'), homeDir: home, env: {} });
+  assert.deepEqual(dropped.offeredModels, [{ id: 'ok/model' }]);
+  assert.deepEqual(dropped.modelList, { status: 'listed', dropped: 2 });
+  const many = await syncHarness('opencode', { execFileImpl: runner(Array.from({ length: 1200 }, (_, i) => `p/m${i}`).join('\n')), homeDir: home, env: {} });
+  assert.equal(many.offeredModels.length, 500);
+  assert.deepEqual(many.modelList, { status: 'listed', capped: true });
+});
+
 test('a harness with no listing command gets an empty list and a field saying why', async () => {
   const home = suiteTempDir('doflow-test-sync-home-');
   const calls: string[][] = [];

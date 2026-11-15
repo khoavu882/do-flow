@@ -7,6 +7,7 @@ const { HARNESS_IDS } = require('../worker/probes/index.ts');
 const { validateValue } = require('../settings/files.ts');
 const { tierView, shown, slotsOf } = require('./tier-view.ts');
 const { changeBinding, closestIds } = require('./bind.ts');
+const { LIST_MAX_MODELS } = require('./list-models.ts');
 const { inWorkerSession } = require('../context/identity.ts');
 const { loadRegistry } = require('../../registry/index.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
@@ -23,7 +24,8 @@ const SOURCE_NOTE: Record<string, string> = {
 function listNote(h: any): string {
   if (h.modelList?.status === 'failed') return ` [model list not refreshed: ${h.modelList.reason}${h.modelList.stale ? '; the last list is kept and stale' : ''}]`;
   if (h.modelList?.status === 'none-recorded') return ' [no model listing command is recorded; type the id when binding]';
-  return '';
+  const cut = [h.modelList?.dropped ? `${h.modelList.dropped} ids that are not usable model ids left out` : '', h.modelList?.capped ? `the list was cut at its first ${LIST_MAX_MODELS} ids` : ''].filter(Boolean);
+  return cut.length ? ` [${cut.join('; ')}]` : '';
 }
 
 /** A numbered pick from the harness's own list, on a terminal. Returns the id, or null when nothing valid was chosen. */

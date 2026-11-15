@@ -6,13 +6,17 @@
 // (probeExec in src/install/tool-lifecycle.ts, the tool-status probe).
 
 const { parserFor } = require('./parsers.ts');
+const { validateValue } = require('../settings/files.ts');
 import type { ListedModel } from './parsers.ts';
 
 /** A listing may call the network (agy fetches its list), so it gets longer than a status probe. */
 const LIST_TIMEOUT_MS = 20000;
+/** The listing is another program's output: read at most this much of it (the process is ended past it), keep at most this many ids. */
+const LIST_MAX_BYTES = 256 * 1024;
+const LIST_MAX_MODELS = 500;
 
 export type ModelListing =
-  | { status: 'listed'; models: ListedModel[] }
+  | { status: 'listed'; models: ListedModel[]; dropped: number; capped: boolean }
   | { status: 'none-recorded'; models: ListedModel[]; reason: string }
   | { status: 'failed'; models: ListedModel[]; reason: string };
 
@@ -30,16 +34,22 @@ async function listHarnessModels({ descriptor, execImpl, timeoutMs = LIST_TIMEOU
   const run = execImpl || require('../../install/tool-lifecycle.ts').probeExec;
   let stdout: string;
   try {
-    stdout = await run(binary, recipe.argv, { encoding: 'utf8', stdio: 'pipe', timeout: timeoutMs });
+    stdout = String(await run(binary, recipe.argv, { encoding: 'utf8', stdio: 'pipe', timeout: timeoutMs, maxBuffer: LIST_MAX_BYTES }) ?? '');
   } catch (error: any) {
     const why = error?.code === 'ENOENT' ? `${binary} is not installed`
+      : error?.code === 'EMAXBUFFER' ? `more than ${LIST_MAX_BYTES / 1024} KiB of output; the command was stopped`
       : error?.code === 'ETIMEDOUT' ? `no answer within ${timeoutMs / 1000} s (a login prompt or a slow start can do this)`
         : `the command failed (${String(error?.message || error).split('\n')[0]})`;
     return { status: 'failed', models: [], reason: `${binary} ${recipe.argv.join(' ')}: ${why}` };
   }
-  const models = parse(String(stdout ?? ''));
-  if (models.length === 0) return { status: 'failed', models: [], reason: `${binary} ${recipe.argv.join(' ')} printed no model ids that the ${recipe.parse} parser reads` };
-  return { status: 'listed', models };
+  if (Buffer.byteLength(stdout, 'utf8') > LIST_MAX_BYTES) return { status: 'failed', models: [], reason: `${binary} ${recipe.argv.join(' ')}: more than ${LIST_MAX_BYTES / 1024} KiB of output` };
+  // The ids go into settings and a launch argv, so an id the settings check would refuse (a leading dash, a control
+  // character, whitespace, over 120 characters) is dropped here, and the count is shown.
+  const parsed: ListedModel[] = parse(stdout);
+  const usable = parsed.filter((model) => !/\s/.test(model.id) && !validateValue({ type: 'model-id' }, model.id));
+  const models = usable.slice(0, LIST_MAX_MODELS);
+  if (models.length === 0) return { status: 'failed', models: [], reason: `${binary} ${recipe.argv.join(' ')} printed no model ids that the ${recipe.parse} parser reads${parsed.length ? ` (${parsed.length} rejected as not model ids)` : ''}` };
+  return { status: 'listed', models, dropped: parsed.length - usable.length, capped: usable.length > LIST_MAX_MODELS };
 }
 
-module.exports = { LIST_TIMEOUT_MS, listHarnessModels };
+module.exports = { LIST_MAX_BYTES, LIST_MAX_MODELS, LIST_TIMEOUT_MS, listHarnessModels };

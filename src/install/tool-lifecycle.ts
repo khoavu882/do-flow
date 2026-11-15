@@ -164,7 +164,8 @@ function unwatchProbe(child: any): void {
 }
 
 /** The default probe: runs the program without a shell, answers with its stdout, or rejects with an error whose `code` is
- * ENOENT (not found) or ETIMEDOUT (no answer in `opts.timeout` ms; its whole process tree is ended by then). */
+ * ENOENT (not found), ETIMEDOUT (no answer in `opts.timeout` ms; its whole process tree is ended by then) or EMAXBUFFER
+ * (more than `opts.maxBuffer` bytes of stdout; the tree is ended and nothing is kept). */
 function probeExec(file: string, args: string[], opts: any): Promise<string> {
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -188,8 +189,19 @@ function probeExec(file: string, args: string[], opts: any): Promise<string> {
         finish(reject, error);
       }, opts.timeout);
     }
-    child.stdout.on('data', (chunk: Buffer) => out.push(chunk));
-    child.stderr.on('data', (chunk: Buffer) => err.push(chunk));
+    let seen = 0;
+    child.stdout.on('data', (chunk: Buffer) => {
+      seen += chunk.length;
+      if (opts?.maxBuffer && seen > opts.maxBuffer) {
+        killTree(child.pid);
+        const error: any = new Error(`${file} wrote more than ${opts.maxBuffer} bytes`);
+        error.code = 'EMAXBUFFER';
+        finish(reject, error);
+        return;
+      }
+      out.push(chunk);
+    });
+    child.stderr.on('data', (chunk: Buffer) => { if (!opts?.maxBuffer || Buffer.concat(err).length < opts.maxBuffer) err.push(chunk); });
     child.on('error', (error: any) => finish(reject, error));
     child.on('close', (code: number | null) => {
       if (code === 0) { finish(resolve, Buffer.concat(out).toString('utf8')); return; }

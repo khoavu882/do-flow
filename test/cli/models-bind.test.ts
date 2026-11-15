@@ -56,6 +56,26 @@ test('bind writes the user-layer workers.models through the settings writer, one
   assert.ok(fs.existsSync(`${s.settingsFile}.config.bak`), 'the replaced bytes are kept');
 });
 
+test('the refusal says when the list it checked against is the last one, kept stale after a failed refresh', async (t: any) => {
+  const s = setup(t);
+  s.catalogue('opencode', ['anthropic/claude-opus', 'openai/gpt-y'], { modelList: { status: 'failed', reason: 'offline', stale: true } });
+  const refused = await bind(s, { harness: 'opencode', tier: 'frontier', model: 'anthropic/claude-opuss' });
+  assert.equal(refused.code, 1);
+  assert.match(refused.err, /is not in opencode's model list \(the last list; it could not be refreshed\); closest: /);
+  const fresh = setup(t);
+  fresh.catalogue('opencode', ['anthropic/claude-opus']);
+  assert.doesNotMatch((await bind(fresh, { harness: 'opencode', tier: 'frontier', model: 'nope' })).err, /last list/);
+});
+
+test('the sync line says how many ids were left out and when the list was cut', async (t: any) => {
+  const s = setup(t);
+  const execFileImpl = (_bin: string, args: string[], _opts: any, cb: any) => (args[0] === 'models'
+    ? cb(null, `--foo\n${Array.from({ length: 600 }, (_, i) => `p/m${i}`).join('\n')}\n`, '') : cb(null, '1.0.0', ''));
+  const res = await run({ action: 'sync', harness: 'opencode', projectRoot: s.project, env: s.env, syncOptions: { execFileImpl, homeDir: s.root } });
+  assert.equal(res.code, 0, res.err);
+  assert.match(res.out, /models: 500 \[1 ids that are not usable model ids left out; the list was cut at its first 500 ids\]/);
+});
+
 test('bind and unbind refuse from a worker session: exit 1, nothing written, a person runs it from their own terminal', async (t: any) => {
   const s = setup(t);
   for (const role of ['worker', 'Worker', 'surprise']) {

@@ -24,6 +24,10 @@ export interface ModelListState {
   status: 'listed' | 'none-recorded' | 'failed';
   reason?: string;
   stale?: boolean;
+  /** Ids in the harness's output that were not usable model ids and were left out. */
+  dropped?: number;
+  /** True when the list was cut at the most ids the catalogue keeps. */
+  capped?: boolean;
 }
 
 export interface HarnessQuota {
@@ -192,7 +196,7 @@ async function withListing(result: SyncHarnessResult, options: SyncOptions): Pro
   const { listHarnessModels } = require('./list-models.ts');
   const execImpl = options.listExecImpl ?? (options.execFileImpl ? listExecFrom(options.execFileImpl) : undefined);
   const listing = await listHarnessModels({ descriptor: workerDescriptor(result.harnessId, options.registry), execImpl });
-  if (listing.status === 'listed') return { ...result, offeredModels: listing.models, modelList: { status: 'listed' } };
+  if (listing.status === 'listed') return { ...result, offeredModels: listing.models, modelList: { status: 'listed', ...(listing.dropped ? { dropped: listing.dropped } : {}), ...(listing.capped ? { capped: true } : {}) } };
   if (listing.status === 'none-recorded') return { ...result, offeredModels: [], modelList: { status: 'none-recorded', reason: listing.reason } };
   // A list from before this field existed came from the removed hard-coded table, so it is not kept.
   const kept = options.previous?.modelList && options.previous.modelList.status !== 'none-recorded' ? (options.previous.offeredModels ?? []) : [];

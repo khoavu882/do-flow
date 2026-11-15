@@ -6,6 +6,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
+const fs = require('node:fs');
+const { tempDir } = require('../../helper/tmp.ts');
 const { parseLines, parseTsvFirstColumn, parseTableColumn, parserFor } = require('../../../src/runtime/models/parsers.ts');
 const { listHarnessModels } = require('../../../src/runtime/models/list-models.ts');
 const { loadRegistry } = require('../../../src/registry/index.ts');
@@ -93,4 +95,75 @@ test('a failed listing is a result with a reason, never a throw', async () => {
   assert.equal(empty.status, 'failed');
   assert.match(empty.reason, /printed no model ids/);
   assert.deepEqual(empty.models, []);
+});
+
+// ---- the listing is another program's output: nothing in it is trusted ----------------------------------------
+
+const ESC = '\u001b';
+
+test('parsers drop every escape form and control character: OSC title, OSC 8 hyperlink, CSI, 8-bit forms, CR', () => {
+  const hostile = [
+    `${ESC}]0;pwned title\u0007good/one`,
+    `${ESC}]8;;https://evil.example${ESC}\\good/two${ESC}]8;;${ESC}\\`,
+    `\u009b31mgood/three\u009b0m`,
+    `${ESC}[2Jgood/four`,
+    `${ESC}]0;never closed good/hidden`,
+    'good/five\rrewritten/six',
+    'bell\u0007id/seven',
+  ].join('\n');
+  assert.deepEqual(parseLines(hostile).map((m: any) => m.id), ['good/one', 'good/two', 'good/three', 'good/four', 'good/five', 'rewritten/six', 'bellid/seven']);
+  const named = parseTsvFirstColumn(`m1\t${ESC}]0;x\u0007Nice${ESC}[31m Name\u009b0m\r\u0085\u2028\u202e!\nm2\t${'n'.repeat(500)}`);
+  assert.deepEqual(named[0], { id: 'm1', displayName: 'Nice Name' });
+  assert.equal(named[1].displayName.length, 120);
+  // Nothing printable is left holding a control character.
+  for (const m of [...parseLines(hostile), ...named]) assert.doesNotMatch(`${m.id}${m.displayName ?? ''}`, /[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202e]/);
+});
+
+test('lines does not take a log line as an id', () => {
+  assert.deepEqual(parseLines('WARN: update available\nINFO starting up\nreal/model\n'), [{ id: 'real/model' }]);
+});
+
+test('listHarnessModels keeps only ids the settings model-id check accepts and counts what it dropped', async () => {
+  const out = await listHarnessModels({ descriptor: descriptorOf('opencode'), execImpl: async () => '--foo\n-rf\nok/model\n.hidden\n/abs\n' + 'x'.repeat(121) + '\nsecond/model\n' });
+  assert.equal(out.status, 'listed');
+  assert.deepEqual(out.models.map((m: any) => m.id), ['ok/model', 'second/model']);
+  assert.equal(out.dropped, 5);
+  assert.equal(out.capped, false);
+  const none = await listHarnessModels({ descriptor: descriptorOf('opencode'), execImpl: async () => '--foo\n--bar\n' });
+  assert.equal(none.status, 'failed');
+  assert.match(none.reason, /2 rejected as not model ids/);
+});
+
+test('listHarnessModels refuses a 1 MiB answer and keeps at most 500 of 10,000 ids, saying so', async () => {
+  const big = await listHarnessModels({ descriptor: descriptorOf('opencode'), execImpl: async () => `ok/model\n${'a'.repeat(1024 * 1024)}\n` });
+  assert.equal(big.status, 'failed');
+  assert.match(big.reason, /256 KiB/);
+  const many = await listHarnessModels({ descriptor: descriptorOf('opencode'), execImpl: async () => Array.from({ length: 10000 }, (_, i) => `p/m${i}`).join('\n') });
+  assert.equal(many.status, 'listed');
+  assert.equal(many.models.length, 500);
+  assert.equal(many.models[0].id, 'p/m0');
+  assert.equal(many.capped, true);
+});
+
+// The real exec helper, with a scratch script standing in for the harness CLI: no real CLI runs.
+const POSIX = { skip: process.platform === 'win32' ? 'POSIX shell scripts' : false };
+function scriptDescriptor(t: any, body: string) {
+  const dir = tempDir(t, 'doflow-list-script-');
+  const file = path.join(dir, 'fake-cli');
+  fs.writeFileSync(file, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+  return { cli: { binary: file }, modelList: { status: 'supported', argv: [], parse: 'lines' } };
+}
+
+test('a listing that does not answer is ended at the timeout through the real exec helper', POSIX, async (t: any) => {
+  const started = Date.now();
+  const out = await listHarnessModels({ descriptor: scriptDescriptor(t, 'exec sleep 30'), timeoutMs: 300 });
+  assert.equal(out.status, 'failed');
+  assert.match(out.reason, /no answer within 0\.3 s/);
+  assert.ok(Date.now() - started < 10000);
+});
+
+test('a listing that never stops writing is stopped at the output cap through the real exec helper', POSIX, async (t: any) => {
+  const out = await listHarnessModels({ descriptor: scriptDescriptor(t, 'exec yes p/model'), timeoutMs: 15000 });
+  assert.equal(out.status, 'failed');
+  assert.match(out.reason, /more than 256 KiB of output/);
 });
