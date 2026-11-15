@@ -123,7 +123,7 @@ test('every emitted type carries its IC-002 data shape', () => {
   // `append` is the log frame (IC-007): the writer has `append` and `logSnapshot`, and `append` stays in the type grammar.
   assert.ok(FRAME_TYPES.includes('append'));
   assert.equal(typeof (writer as any).append, 'function');
-  assert.deepEqual(Object.keys(writer).sort(), ['append', 'epoch', 'error', 'gone', 'logSnapshot', 'needsSnapshot', 'patch', 'reset', 'snapshot']);
+  assert.deepEqual(Object.keys(writer).sort(), ['append', 'epoch', 'error', 'gone', 'logSnapshot', 'needsSnapshot', 'patch', 'reset', 'snapshot', 'transcriptAppend', 'transcriptSnapshot']);
 });
 
 test('order: a channel owes a snapshot first and after reset, error or gone', () => {

@@ -637,6 +637,7 @@ Commands:
   events               Follow live sections of the read verbs as NDJSON envelopes on stdout (read-only, run in a project).
                        events --follow --channels <channel>[,<channel>...] [--json]   now, run:<slug>:<task>, tasks:<slug>, worker:<runId>, worker:<runId>:out|err; until SIGINT or SIGTERM (exit 0, 1 internal fault, 2 usage)
                        events --follow --control stdin [--json]   follows the channels that sub and unsub lines on stdin name, until stdin ends (exit 0, 1 internal fault, 2 usage or an invalid line)
+                       events --kinds [--json]   lists the channel kinds this core follows as {v:1, kinds} and follows nothing (exit 0, 2 usage)
   worker-log           Print one masked page of a worker run's out or err log by byte cursor (read-only, run in a project).
                        worker-log --worker-run <runId> --stream out|err [--slug <slug>] [--cursor <c> | --before <c>] [--json]   log open, waiting, gone or none (exit 0, 1 unknown-run or log-unreadable, 2 usage or store-unreadable)
   worker-result        Print the result fields of one worker run: phase, end, report status, checks, offered result (read-only, run in a project).

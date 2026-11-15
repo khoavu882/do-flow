@@ -445,19 +445,25 @@ test('161 IC-001: the ninth project gets error too-many-projects on that channel
   assert.equal(await h.done, 0);
 });
 
-test('161 IC-001: a kind whose producer is not built gets a per-channel error frame, is not followed and the exit stays 0', async (t) => {
-  const h = run(t, { options: { specFor: undefined } });
+test('161 T5 IC-001: every new kind has a producer: machine snapshots, and layers, file and transcript of a project the index does not know are gone, none producer-failed', async (t) => {
+  const index = {
+    ensure() {}, lookup: () => null, entries: () => [], sources: () => [], sessionsDir: () => null, generation: () => 1, now: () => Date.now(),
+    replay: () => ({ status: 1, stdout: '', stderr: '' }),
+    body: () => ({ ok: true, body: { v: 1, store: 'absent', projects: [], excluded: { missing: 0, temp: 0, notDoflow: 0, unreadable: 0 }, truncated: false } }),
+  };
+  const h = run(t, { options: { specFor: undefined, projectsIndex: index } });
+  h.stdin.json('sub', 'machine');
   h.stdin.json('sub', `layers:${pk(1)}`);
   h.stdin.json('sub', `file:${pk(1)}:${pk(2)}`);
   h.stdin.json('sub', `transcript:${pk(1)}:${pk(2)}`);
   await settle();
-  assert.deepEqual(h.stdout.frames().map((f: any) => [f.ch, f.type, f.data.code]), [
-    [`layers:${pk(1)}`, 'error', 'producer-failed'],
-    [`file:${pk(1)}:${pk(2)}`, 'error', 'producer-failed'],
-    [`transcript:${pk(1)}:${pk(2)}`, 'error', 'producer-failed'],
+  assert.deepEqual(h.stdout.frames().map((f: any) => [f.ch, f.type]), [
+    ['machine', 'snapshot'],
+    [`layers:${pk(1)}`, 'gone'],
+    [`file:${pk(1)}:${pk(2)}`, 'gone'],
+    [`transcript:${pk(1)}:${pk(2)}`, 'gone'],
   ]);
-  await h.clock.advance(60000);
-  assert.equal(h.stdout.frames().length, 3, 'nothing is followed, so nothing more is printed');
+  assert.ok(!h.stdout.text.includes('producer-failed'));
   h.stdin.emit('end');
   assert.equal(await h.done, 0);
   assert.equal(h.stderr.text, '');
