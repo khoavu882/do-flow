@@ -17,6 +17,13 @@
 // Boundaries depend only on the file's bytes: 0, every offset after a '\n', the readable end, and
 // every multiple of PIECE_GRID_BYTES inside a line backed off to a character start. So a long line
 // is cut at the same offsets by every read and pieces from different reads align.
+//
+// 161 review B: a piece that starts or ends at a cut inside a line is masked together with up to
+// CUT_CONTEXT_BYTES of that line on each side, and its text is its own part of that masked text. So a
+// secret crossing a cut is masked whole when it lies within 4 KiB of the cut on both sides; a rule
+// that needs more context (an `Authorization:` value running on past that, a PEM block in one line)
+// is masked per window. A piece's text only ever comes out of masked text, never raw. The extra bytes
+// are read for masking only: `to - from` and the frame budget are unchanged.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -33,6 +40,13 @@ const PIECE_GRID_BYTES = 32768;
 const FRAME_JSON_BUDGET = 204800;
 /** The most UTF-8 continuation bytes one character holds; a grid cut backs off at most this far. */
 const MAX_CONTINUATION = 3;
+/** The bytes of its own line a cut piece is masked with on each side of the cut (161 review B). */
+const CUT_CONTEXT_BYTES = 4096;
+/** The failed searches one alignment may spend before the rest of the piece lands at the end (cost bound, safe either way). */
+const ALIGN_TRIES = 256;
+const ANCHOR_CHARS = 16;
+/** The markers maskBody writes; the search for where text resumes starts after one. */
+const MARKERS = ['<masked>', '<email>', '<ip>'];
 /** The chunk the backward scan for the last '\n' reads at a time. */
 const SCAN_BYTES = 65536;
 const MODES = Object.freeze(['tail', 'forward', 'backward']);
@@ -85,8 +99,8 @@ function lastNewlineEnd(fsImpl: any, fd: number, size: number): number {
  * three bytes past `hi`.
  */
 function windowFor(fsImpl: any, fd: number, lo: number, hi: number, E: number) {
-  const base = Math.max(0, lo - MAX_CONTINUATION - 1);
-  const buf = readRange(fsImpl, fd, base, Math.min(E, hi + MAX_CONTINUATION + 1));
+  const base = Math.max(0, lo - CUT_CONTEXT_BYTES - MAX_CONTINUATION - 1);
+  const buf = readRange(fsImpl, fd, base, Math.min(E, hi + CUT_CONTEXT_BYTES + MAX_CONTINUATION + 1));
   const at = (i: number) => buf[i - base];
   return { base, buf, at };
 }
@@ -109,11 +123,59 @@ function boundaries(lo: number, hi: number, E: number, at: (i: number) => number
   return [...out].sort((a, b) => a - b);
 }
 
+/**
+ * Where each of the ascending char offsets `points` of `s` lands in `m`, the masked `s`. Masking only
+ * replaces stretches, so equal characters are walked together and, at a difference, the walk resumes
+ * where the next ANCHOR_CHARS of `m` occur again in `s`. A point inside a replaced stretch lands after
+ * its replacement. Any monotone answer is safe, as the caller only slices `m`.
+ */
+function alignPoints(s: string, m: string, points: number[]): number[] {
+  const out: number[] = [];
+  let i = 0;
+  let j = 0;
+  let tries = 0;
+  while (out.length < points.length) {
+    if (points[out.length] <= i) { out.push(j); continue; }
+    if (j < m.length && s[i] === m[j]) { i += 1; j += 1; continue; }
+    let resumed = false;
+    const marker = MARKERS.find((token) => m.startsWith(token, j));
+    for (let k = marker ? j + marker.length : j + 1; k <= m.length && tries < ALIGN_TRIES; k += 1) {
+      const anchor = m.slice(k, k + ANCHOR_CHARS);
+      const at = anchor === '' ? s.length : s.indexOf(anchor, i);
+      if (at !== -1) { i = at; j = k; resumed = true; break; }
+      tries += 1;
+    }
+    if (!resumed) { i = s.length; j = m.length; }
+  }
+  return out;
+}
+
+/** 161 review B: the masked text of `[a, b)`, a part of a line, masked with up to CUT_CONTEXT_BYTES of that line on each side. */
+function maskedInLine(buf: Buffer, base: number, a: number, b: number): string {
+  const limit = base + buf.length;
+  let start = Math.max(base, a - CUT_CONTEXT_BYTES);
+  for (let i = a - 1; i >= start; i -= 1) if (buf[i - base] === NL) { start = i + 1; break; }
+  while (start < a && (buf[start - base] & 0xc0) === 0x80) start += 1;
+  let end = Math.min(limit, b + CUT_CONTEXT_BYTES);
+  for (let i = b; i < end; i += 1) if (buf[i - base] === NL) { end = i; break; }
+  while (end > b && end < limit && (buf[end - base] & 0xc0) === 0x80) end -= 1;
+  const own = buf.toString('utf8', a - base, b - base);
+  const s = buf.toString('utf8', start - base, end - base);
+  const m = maskBody(s).text;
+  if (m === s) return own;
+  const ia = buf.toString('utf8', start - base, a - base).length;
+  const [ja, jb] = alignPoints(s, m, [ia, ia + own.length]);
+  return m.slice(ja, jb);
+}
+
 /** The masked piece of bytes `[a, b)`, and the bytes its JSON takes. */
 function pieceOf(buf: Buffer, base: number, a: number, b: number, E: number): { piece: Piece; json: number } {
   const raw = buf.subarray(a - base, b - base);
   const newline = raw.length > 0 && raw[raw.length - 1] === NL;
-  const text = maskBody((newline ? raw.subarray(0, raw.length - 1) : raw).toString('utf8')).text;
+  const end = newline ? b - 1 : b;
+  const cutBefore = a > base && buf[a - 1 - base] !== NL; // starts inside a line
+  const cutAfter = !newline && b !== E; // ends inside a line
+  const text = cutBefore || cutAfter ? maskedInLine(buf, base, a, end) : maskBody(raw.subarray(0, end - a).toString('utf8')).text;
   const piece: Piece = !newline && b !== E ? { at: a, text, cut: true } : { at: a, text };
   return { piece, json: Buffer.byteLength(JSON.stringify(piece), 'utf8') };
 }

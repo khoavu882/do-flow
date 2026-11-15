@@ -357,9 +357,40 @@ test('R-1: another user\'s /home/<name> on a line a grid cut splits is masked in
     for (const text of joined) assert.ok(!text.includes(other), `${firstBytes}: joined ${JSON.stringify(text)}`);
     assert.ok(!JSON.stringify(page).includes(other));
   }
-  // Control: the same bytes written without the sink's whole-line pass reach the reader's per-piece
-  // pass split, and the joined text carries the path, so the check above can fail.
+  // 161 review B: the same bytes written without the sink's whole-line pass are masked by the reader
+  // too, since a piece at a cut is masked with its line's bytes on the other side of the cut (before
+  // that change this control leaked the path).
   const raw = logOf(t, `${'x'.repeat(32759)}\n${line}\n`, 'raw.out.log');
-  const leaked = linesOf(readLogPage({ file: raw, mode: 'tail', final: false }).pieces);
-  assert.ok(leaked.some((text) => text.includes(other)), `the unmasked control leaks: ${JSON.stringify(leaked.slice(-1))}`);
+  const rawPage = readLogPage({ file: raw, mode: 'tail', final: false });
+  assert.equal(rawPage.pieces.filter((p: any) => p.at > 32759).length, 2, 'the raw line is cut too');
+  const joinedRaw = linesOf(rawPage.pieces);
+  assert.ok(!JSON.stringify(rawPage).includes(other), `the raw control is masked: ${JSON.stringify(joinedRaw.slice(-1))}`);
+});
+
+// 161 review B: a line longer than the grid is cut at multiples of 32768 bytes; a secret that crosses a
+// cut must still be masked, in every piece and in the joined line, by every mode that reads it.
+test('161 review B: a secret crossing a grid cut inside one long line is masked in every piece', (t) => {
+  const fill = (n: number) => 'word '.repeat(Math.ceil(n / 5)).slice(0, n);
+  const value = 'hunter2secretvalue';
+  const run = 'Q7'.repeat(20); // a 40-character run: each half alone is under the 32-character rule
+  const shift = 'first\n'.length;
+  const head = `${fill(PIECE_GRID_BYTES - 12 - shift)}password=`; // the value starts 3 bytes before the first cut
+  const mid = ` ${fill(2 * PIECE_GRID_BYTES - 20 - shift - head.length - value.length - 1)}`;
+  const line = `${head}${value}${mid}${run} ${fill(8000)}`;
+  assert.equal(shift + line.indexOf(value), PIECE_GRID_BYTES - 3);
+  assert.equal(shift + line.indexOf(run), 2 * PIECE_GRID_BYTES - 20);
+  const file = logOf(t, `first\n${line}\nlast\n`);
+  const fragments = (secret: string) => Array.from({ length: secret.length - 5 }, (_, i) => secret.slice(i, i + 6));
+  for (const mode of ['tail', 'forward'] as const) {
+    const page = readLogPage({ file, mode, final: false, ...(mode === 'forward' ? { offset: 0, ino: String(fs.statSync(file, { bigint: true }).ino) } : {}) });
+    const starts = page.pieces.map((p: any) => p.at);
+    assert.ok(starts.includes(PIECE_GRID_BYTES) && starts.includes(2 * PIECE_GRID_BYTES), `${mode}: the line is cut at both grid points (${starts})`);
+    for (const piece of page.pieces) {
+      for (const frag of [...fragments(value), ...fragments(run)]) assert.ok(!piece.text.includes(frag), `${mode}: piece at ${piece.at} holds ${frag}: ${JSON.stringify(piece.text.slice(-40))}`);
+    }
+    const joined = linesOf(page.pieces).find((text: string) => text.startsWith('word'));
+    assert.ok(joined.includes('password=<masked>'), `${mode}: the joined line masks the value`);
+    assert.ok(!joined.includes(run) && joined.includes('<masked>'), `${mode}: the joined line masks the run`);
+    assert.equal(joined, require('../../src/runtime/mask.ts').maskBody(line).text, `${mode}: the joined line is the line masked whole`);
+  }
 });
