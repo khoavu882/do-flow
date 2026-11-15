@@ -12,6 +12,11 @@
 // for it on the user and timeout paths alike: `attemptCancel: { disposition: 'skipped', reason:
 // 'child-run' }`, and ending a child never cancels its granter's attempt.
 //
+// 162 IC-005 (D7, DEC-007): `source: 'operator'` is a person at the machine, or a paired control
+// device through the Console, stopping any worker of the project. It is refused (`operator-in-run`)
+// unless the caller is outside every run and every worker session, records a relay label as `by`,
+// and skips only the two `foreign-run` checks; every other refusal and step 4 are unchanged.
+//
 // This module makes no fs write call: every write goes through the run store's `transition`, and
 // the 080 ledger is written only by 080's own `cancel` (G26 (b), IC-027).
 
@@ -20,6 +25,7 @@ const path = require('node:path');
 const { readRuns, transition, RunStoreError } = require('./run-store.ts');
 const processTree = require('./process-tree.ts');
 const { runKeyFor, identityRefusal } = require('../task-run.ts');
+const { inWorkerSession } = require('../context/identity.ts');
 const attempts = require('../task-attempts.ts');
 
 /** A `cancelling` run whose request is younger than this belongs to the canceller that holds it. */
@@ -27,7 +33,9 @@ const CANCEL_TAKEOVER_MS = 30000;
 /** How long a cancel of a launching run waits for its supervisor: its own escalation of a
  * SIGTERM-ignoring worker, both waits and both `ps` bounds (IC-021 step 3, DEC-040, DEC-064). */
 const LAUNCH_WAIT_MS = processTree.KILL_GRACE_MS + processTree.KILL_FINAL_MS + 2 * processTree.PS_TIMEOUT_MS;
-const SOURCES = Object.freeze(['user', 'timeout']);
+const SOURCES = Object.freeze(['user', 'timeout', 'operator']);
+/** 162 DEC-007: the relay labels an operator cancel records as `by`. */
+const RELAY_LABEL = /^(?:console|device\.d-[0-9a-f]{12})$/;
 
 /** Thrown inside a locked transition to abandon it with a refusal and no write. */
 class Refused extends Error {
@@ -128,6 +136,14 @@ async function endTree({ file, runId, run, platform, sleep, clock, escalate }: a
 /** 082 IC-015: what step 4 records for a child run, which has no 080 attempt of its own. */
 const CHILD_SKIP = Object.freeze({ disposition: 'skipped', reason: 'child-run' });
 
+/** IC-021 step 1's identity refusal for `key`. An operator cancel (162 DEC-007) also needs a caller
+ * outside every worker session and every run: role `main`, lineage kind `default-main`. */
+function callerRefusal(key: any, env: any, source: string) {
+  const { role, lineageKind } = key.identity;
+  if (source === 'operator' && (inWorkerSession(env) || role !== 'main' || lineageKind !== 'default-main')) return { reason: 'operator-in-run' };
+  return identityRefusal(key.identity);
+}
+
 /** IC-021 step 4: 080's cancel, its refusal recorded and its throw stored (DEC-046). */
 function attemptCancelStep({ file, run, by, reason, env, cwd, clock, cancelImpl }: any) {
   const { root, slug, ledger } = ledgerFor(file);
@@ -157,15 +173,17 @@ async function cancelRun({
   const why = typeof reason === 'string' ? reason.trim() : '';
   if (!why) throw new RunStoreError('usage', '--reason is required: why the run is being cancelled');
   if (!SOURCES.includes(source)) throw new RunStoreError('usage', `source '${source}' is not one of ${SOURCES.join(', ')}`);
+  const operator = source === 'operator';
+  if (operator && !RELAY_LABEL.test(String(by))) throw new RunStoreError('usage', `an operator cancel records a relay label, console or device.d-<12 hex>, got '${by}'`);
   const clock = typeof now === 'function' ? now : () => now;
 
   // Step 1: the calling process's own identity, before anything is read for writing.
   const key = runKeyFor(env, cwd);
-  const who = identityRefusal(key.identity);
+  const who = callerRefusal(key, env, source);
   if (who) return refused(who.reason, runId, { runKey: key.runKey });
   const seen = readRuns(file)[runId];
   if (!seen) return refused('unknown-run', runId);
-  if (seen.caller?.runKey !== key.runKey) return refused('foreign-run', runId, { runKey: seen.caller?.runKey ?? null });
+  if (!operator && seen.caller?.runKey !== key.runKey) return refused('foreign-run', runId, { runKey: seen.caller?.runKey ?? null });
   if (seen.phase === 'ended') return refused('run-ended', runId, { endState: seen.end?.state ?? null });
   const early = inProgress(seen, clock());
   if (early) return early;
@@ -175,7 +193,7 @@ async function cancelRun({
   let marked: any;
   try {
     marked = transition(file, runId, ['starting', 'running', 'cancelling'], (run: any) => {
-      if (run.caller?.runKey !== key.runKey) throw new Refused(refused('foreign-run', runId, { runKey: run.caller?.runKey ?? null }));
+      if (!operator && run.caller?.runKey !== key.runKey) throw new Refused(refused('foreign-run', runId, { runKey: run.caller?.runKey ?? null }));
       const busy = inProgress(run, requestedAt);
       if (busy) throw new Refused(busy);
       run.phase = 'cancelling';
@@ -217,4 +235,4 @@ async function cancelRun({
   };
 }
 
-module.exports = { cancelRun, mergeCleanup, CANCEL_TAKEOVER_MS, LAUNCH_WAIT_MS };
+module.exports = { cancelRun, callerRefusal, mergeCleanup, RELAY_LABEL, CANCEL_TAKEOVER_MS, LAUNCH_WAIT_MS };

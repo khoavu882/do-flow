@@ -325,3 +325,87 @@ test('a 080 refusal is recorded, not raised, and attemptCancelled is false', asy
   assert.equal(answer.attemptCancelled, false);
   assert.equal(p.run(runId).phase, 'ended');
 });
+
+// ── 162 IC-005, DEC-007: the operator cancel ───────────────────────────────────────────────────
+
+/** A person's own terminal: no run, no lineage, no attempt, role main (`lineageKind: 'default-main'`). */
+function deskEnv(worktree: any, extra: any = {}) {
+  return { HOME: worktree, DOFLOW_SESSION_ROLE: 'main', DOFLOW_WORKTREE: worktree, ...extra };
+}
+const DEVICE = 'device.d-0a1b2c3d4e5f';
+
+test("an operator cancel from default-main ends another lineage's run cancelled; without the operator path it is foreign-run", async (t) => {
+  const p = project(t);
+  const s = spies();
+  const desk = deskEnv(p.dir);
+  assert.equal(runKeyFor(desk, p.dir).identity.lineageKind, 'default-main');
+  const other = runKeyFor(identityEnv(p.dir, { run: 'r9', lineage: 'l7' }), p.dir);
+  const runId = p.seed({ phase: 'starting', caller: { cwd: p.dir, runKey: other.runKey, run: 'r9', lineage: 'l7', attempt: '2', role: 'main', lineageKind: 'launched' } });
+  const storeBefore = fs.readFileSync(p.store);
+
+  const plain = await p.cancel(runId, { env: desk, escalate: s.escalate, cancelImpl: s.cancelImpl });
+  assert.deepEqual([plain.disposition, plain.reason], ['refused', 'foreign-run']);
+  assert.deepEqual(fs.readFileSync(p.store), storeBefore, 'a plain cancel of a foreign run writes nothing');
+
+  const answer = await p.cancel(runId, { env: desk, by: DEVICE, source: 'operator', escalate: s.escalate, cancelImpl: s.cancelImpl });
+  assert.equal(answer.disposition, 'cancelled', JSON.stringify(answer));
+  assert.equal(answer.endState, 'cancelled');
+  const run = p.run(runId);
+  assert.equal(run.phase, 'ended');
+  assert.equal(run.end.state, 'cancelled');
+  assert.deepEqual([run.cancel.by, run.cancel.source, run.cancel.reason], [DEVICE, 'operator', 'stop now']);
+  assert.equal(s.calls.cancel, 1, 'step 4 runs for the operator');
+});
+
+test('an operator cancel inside a run or a worker session is operator-in-run, with nothing written or signalled', async (t) => {
+  const p = project(t);
+  const s = spies();
+  const foreign = p.seed({ caller: { runKey: 'deadbeef/r9/main' } });
+  const own = p.seed({ task: 'A.2' });
+  const ledgerBefore = fs.readFileSync(p.ledger);
+  const storeBefore = fs.readFileSync(p.store);
+  const launched = deskEnv(p.dir, { DOFLOW_RUN_ID: 'r1', DOFLOW_LINEAGE_ID: 'l1', DOFLOW_ATTEMPT: '3' });
+  assert.equal(runKeyFor(launched, p.dir).identity.lineageKind, 'launched');
+  const cases: any = [
+    [foreign, launched, 'a launched lineage'],
+    [foreign, { HOME: p.dir, DOFLOW_WORKTREE: p.dir, DOFLOW_SESSION_ROLE: 'worker' }, 'only DOFLOW_SESSION_ROLE=worker'],
+    [foreign, deskEnv(p.dir, { DOFLOW_SESSION_ROLE: 'reviewer' }), 'an unrecognised role'],
+    [own, p.env, "the run's own caller, which is inside run r1"],
+    ['w-000000000000', launched, 'an unknown run, refused on identity first'],
+  ];
+  for (const [runId, env, label] of cases) {
+    const answer = await p.cancel(runId, { env, by: DEVICE, source: 'operator', escalate: s.escalate, cancelImpl: s.cancelImpl });
+    assert.deepEqual([answer.disposition, answer.reason], ['refused', 'operator-in-run'], label);
+  }
+  assert.deepEqual(s.calls, { escalate: 0, cancel: 0 });
+  assert.deepEqual(fs.readFileSync(p.store), storeBefore, 'the run store is unchanged');
+  assert.deepEqual(fs.readFileSync(p.ledger), ledgerBefore, 'the ledger is unchanged');
+  await assert.rejects(p.cancel(foreign, { env: deskEnv(p.dir), by: 'main', source: 'operator' }), { code: 'usage' }, 'an operator cancel records only a relay label');
+});
+
+test('an operator cancel keeps unknown-run, run-ended with endState and cancel-in-progress', async (t) => {
+  const p = project(t);
+  const s = spies();
+  const desk = deskEnv(p.dir);
+  const op = (runId: any, extra: any = {}) => p.cancel(runId, { env: desk, by: 'console', source: 'operator', escalate: s.escalate, cancelImpl: s.cancelImpl, ...extra });
+  assert.deepEqual(await op('w-000000000000'), { disposition: 'refused', reason: 'unknown-run', runId: 'w-000000000000' });
+  const ended = p.seed({ phase: 'ended', end: { state: 'exited', at: new Date().toISOString() } });
+  assert.deepEqual(await op(ended), { disposition: 'refused', reason: 'run-ended', runId: ended, endState: 'exited' });
+  const requestedAt = new Date().toISOString();
+  const busy = p.seed({ task: 'A.2', phase: 'cancelling', cancel: { requestedAt, by: 'other', reason: 'x', source: 'user' } });
+  assert.deepEqual(await op(busy), { disposition: 'refused', reason: 'cancel-in-progress', runId: busy, requestedAt });
+  assert.deepEqual(s.calls, { escalate: 0, cancel: 0 });
+  assert.equal(p.run(busy).cancel.by, 'other');
+});
+
+test("an operator cancel's step-4 080 refusal is recorded in attemptCancel and the attempt stays with its owner", async (t) => {
+  const p = project(t);
+  const runId = p.seed({ phase: 'starting' });
+  const answer = await p.cancel(runId, { env: deskEnv(p.dir), by: DEVICE, source: 'operator', escalate: spies().escalate });
+  assert.equal(answer.disposition, 'cancelled', JSON.stringify(answer));
+  assert.deepEqual(answer.attemptCancel, { disposition: 'refused', reason: 'foreign-run' });
+  assert.equal(answer.attemptCancelled, false);
+  assert.deepEqual(p.run(runId).attemptCancel, { disposition: 'refused', reason: 'foreign-run' });
+  assert.equal(p.run(runId).end.state, 'cancelled');
+  assert.equal(p.attempt().state, 'active');
+});
