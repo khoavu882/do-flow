@@ -129,6 +129,10 @@ function createLiveView(config, local, params, hooks) {
   /** Bumped by every delivery: a slower answer (an async wrap, a live GET) of an earlier moment is dropped. */
   let deliverSeq = 0;
   let refetching = false;
+  /** Bumped by every GET while live: the answer of one an action replaced is dropped unpainted (162 review B-7). */
+  let refetchGen = 0;
+  /** Who waits for the GET after an action: told true once it is painted, false when it failed or the view stopped. @type {Array<(ok: boolean) => void>} */
+  let afterAction = [];
   /** @type {number | null} when the connection last stopped being open while it was expected to be */
   let downSince = null;
   /** Per part: the channel holds a state the store keeps (a `state` came, and no `error`, `reset` or `gone` since). */
@@ -202,10 +206,23 @@ function createLiveView(config, local, params, hooks) {
     notice('push-lost', String(intervalMs / 1000));
   }
 
-  /** One read of the view's GET while live (back from a pause or a hidden tab, or "Try again"). */
-  function refetch() {
-    if (refetching || stopped) return false;
+  /** @param {boolean} ok */
+  function answerAfterAction(ok) {
+    const waiting = afterAction;
+    afterAction = [];
+    for (const done of waiting) done(ok);
+  }
+
+  /**
+   * One read of the view's GET while live (back from a pause or a hidden tab, or "Try again"). With `replace` (an action was
+   * applied) a GET already in flight began before the action: its answer is dropped unpainted and this one starts at once.
+   * @param {boolean} [replace]
+   */
+  function refetch(replace = false) {
+    if ((refetching && !replace) || stopped) return false;
     refetching = true;
+    refetchGen += 1;
+    const gen = refetchGen;
     const seq = deliverSeq;
     let attempt;
     try {
@@ -215,17 +232,25 @@ function createLiveView(config, local, params, hooks) {
     }
     attempt.then(
       (data) => {
+        if (gen !== refetchGen) return;
         refetching = false;
-        if (stopped || mode !== 'live' || seq !== deliverSeq) return;
+        if (stopped || mode !== 'live' || seq !== deliverSeq) {
+          // A frame delivered meanwhile is newer than this answer, and is what the page shows.
+          answerAfterAction(!stopped);
+          return;
+        }
         fetchAt = now();
         hadData = true;
         liveFailure = null;
         liveMisses = 0;
         apply(data);
+        answerAfterAction(true);
       },
       (error) => {
+        if (gen !== refetchGen) return;
         refetching = false;
         if (!stopped && mode === 'live' && seq === deliverSeq) onFailure(error);
+        answerAfterAction(false);
       },
     );
     return true;
@@ -330,6 +355,7 @@ function createLiveView(config, local, params, hooks) {
       running = false;
       if (poller !== null) poller.stop();
       poller = null;
+      answerAfterAction(false);
       for (const off of unsubscribes) off();
       if (unTransport) unTransport();
       unsubscribes = [];
@@ -355,11 +381,18 @@ function createLiveView(config, local, params, hooks) {
       if (mode === 'live') return refetch();
       return poller !== null ? poller.refreshNow() : false;
     },
-    /** 162: an action was applied; the poller's refresh while polling, one GET while live. */
-    refreshAfterAction() {
+    /**
+     * 162: an action was applied; the poller's refresh while polling, one GET while live that replaces one in flight. `done(ok)` is
+     * told once the answer is painted (true) or not (false); never when this returns false.
+     * @param {(ok: boolean) => void} [done]
+     */
+    refreshAfterAction(done) {
       if (!running) return false;
-      if (mode === 'live') return refetch();
-      return poller !== null ? poller.refreshAfterAction() : false;
+      if (mode === 'live') {
+        if (typeof done === 'function') afterAction.push(done);
+        return refetch(true);
+      }
+      return poller !== null ? poller.refreshAfterAction(done) : false;
     },
     isStale() {
       if (!running) return false;

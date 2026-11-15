@@ -5,25 +5,42 @@
 // retry by the transport or a second device cannot apply the action twice (the Console and the core refuse it as stale).
 //
 // A modal dialog (`role="dialog" aria-modal="true"`), a sheet below 768 px and a centred panel above (app.css `.confirm`). Focus
-// starts on Cancel, Escape closes, Tab and Shift+Tab wrap (the pattern of shell.js). The states: ready, sending, applied, stale (the
-// current state in words, "Nothing was applied.", "Review again"), refused (the code in words) and unknown (a 504, or no answer: the
-// outcome cannot be told, and the page shows the run as it is now). Every string is a text node.
+// starts on Cancel, Escape closes, Tab and Shift+Tab wrap (the pattern of shell.js); a route change closes it (app.js), and while it is
+// open the global shortcuts do nothing (keys.js `blocked`). On close focus goes back to the opener while it is on the page, else to
+// `#main`, then the `h1` (keys.js's fallback). The states: ready, sending, applied, stale (the current state in words, "Nothing was
+// applied.", "Review again"), refused (the code in words) and unknown (a 504, or no answer: the outcome cannot be told, and the page
+// shows the run as it is now). An applied, unknown or stale outcome makes the page refetch at once (`onRefetch`); "Review again" waits
+// for that answer and builds from the refreshed row, never from the revision this dialog was opened with. Every string is a text node.
 
 import { h, mount } from '../dom.js';
 import { isKey } from '../keys.js';
 import { postAction, loadActions, actionPower, onActions } from '../actions.js';
-import { textState, refusalWords, staleWords, appliedWords, notAllowedWords, UNKNOWN_WORDS } from '../derive/actions.js';
+import { textState, refusalWords, staleWords, appliedWords, notAllowedWords, UNKNOWN_WORDS, REREAD_WORDS } from '../derive/actions.js';
 
 let opened = 0;
 /** @type {{ close: () => void } | null} */
 let active = null;
-/** @type {(() => void) | null} */
-let appliedListener = null;
+/** @type {(() => Promise<boolean> | boolean | void) | null} */
+let refetchListener = null;
 
-/** 162: who is told when an action was applied: the page's one listener (the last set), which refetches what it shows. @param {() => void} listener @returns {() => void} the call that stops telling it */
-function onApplied(listener) {
-  appliedListener = listener;
-  return () => { if (appliedListener === listener) appliedListener = null; };
+/**
+ * 162: who refetches what the page shows after an action that may have changed it: applied, unknown (504, no answer) or stale (162
+ * review B-6). The page's one listener (the last set); it answers whether the page has the refreshed data (a promise, once it does).
+ * @param {() => Promise<boolean> | boolean | void} listener @returns {() => void} the call that stops telling it
+ */
+function onRefetch(listener) {
+  refetchListener = listener;
+  return () => { if (refetchListener === listener) refetchListener = null; };
+}
+
+/** Tells the page to refetch; resolves true once it holds the refreshed data, false when it could not. */
+function askRefetch() {
+  if (refetchListener === null) return Promise.resolve(false);
+  try {
+    return Promise.resolve(refetchListener()).then((answer) => answer === true, () => false);
+  } catch {
+    return Promise.resolve(false);
+  }
 }
 
 /**
@@ -61,6 +78,9 @@ function openConfirm(spec, options = {}) {
   let state = 'ready';
   let closed = false;
   let typed = '';
+  /** The page's refetch after an outcome that may have changed the row; "Review again" waits for it. @type {Promise<boolean>} */
+  let refreshed = Promise.resolve(false);
+  let reviewing = false;
 
   const title = h('h2', { class: 'confirm__title', id: `${id}-title` }, spec.title);
   const effect = h('p', { class: 'confirm__effect', id: `${id}-effect` }, spec.effect);
@@ -99,6 +119,7 @@ function openConfirm(spec, options = {}) {
     setAttr(verb, 'disabled', state !== 'ready' || !text.ok);
     setAttr(cancel, 'disabled', state === 'sending');
     setAttr(review, 'hidden', state !== 'stale');
+    setAttr(review, 'disabled', reviewing);
     cancel.textContent = settled ? 'Close' : 'Cancel';
   }
 
@@ -107,19 +128,25 @@ function openConfirm(spec, options = {}) {
     mount(result, lines.map((line) => h('p', { class: 'confirm__line' }, line)));
   }
 
+  /** @type {string[]} */
+  let staleLines = [];
+
   /** @param {any} reply the transport's reply, or null when it failed */
   function settle(reply) {
     const code = reply && reply.body && reply.body.error && typeof reply.body.error.code === 'string' ? reply.body.error.code : null;
     if (reply === null || reply.status === 504 || code === 'action-timeout') {
       state = 'unknown';
       say([UNKNOWN_WORDS]);
+      refreshed = askRefetch();
     } else if (reply.status === 200 && code === null) {
       state = 'applied';
       say([appliedWords(spec.actionId, spec.decision)]);
-      if (appliedListener !== null) appliedListener();
+      refreshed = askRefetch();
     } else if (reply.status === 409 && code === 'stale') {
       state = 'stale';
-      say(staleWords(spec.actionId, reply.body.current));
+      staleLines = staleWords(spec.actionId, reply.body.current);
+      say(staleLines);
+      refreshed = askRefetch();
     } else {
       state = 'refused';
       const wait = reply.status === 429 && reply.headers && /^[0-9]{1,4}$/.test(String(reply.headers['retry-after'] ?? '')) ? [`Try again in ${reply.headers['retry-after']} s.`] : [];
@@ -154,14 +181,30 @@ function openConfirm(spec, options = {}) {
     closed = true;
     if (active === handle) active = null;
     root.remove();
-    if (opener && opener !== doc.body && typeof opener.focus === 'function') opener.focus();
+    // The opener while it is on the page; else, as keys.js's help list does, `#main` and then the view heading (162 review B-5).
+    const back = opener && opener !== doc.body && typeof opener.focus === 'function' && doc.body.contains(opener) ? opener : doc.getElementById('main') ?? doc.querySelector('h1');
+    if (back && typeof back.focus === 'function') back.focus();
     if (typeof options.onClose === 'function') options.onClose(state);
   }
 
-  /** The row changed under the dialog: close it and, when the view can rebuild the spec from the page's current row, open that. */
-  function reviewAgain() {
-    close();
+  /**
+   * The row changed under the dialog: once the page's refetch has answered, close it and open the spec the view builds from its
+   * refreshed row. A row that still holds the revision this dialog was opened with is not built from: the dialog stays and says so.
+   */
+  async function reviewAgain() {
+    if (state !== 'stale' || reviewing) return;
+    reviewing = true;
+    paint();
+    await refreshed;
+    reviewing = false;
+    if (closed) return;
     const next = typeof spec.reopen === 'function' ? spec.reopen() : null;
+    if (next && expect !== null && next.expect && next.expect.revision === expect.revision) {
+      say([...staleLines, REREAD_WORDS]);
+      paint();
+      return;
+    }
+    close();
     if (next) openConfirm(next, options);
   }
 
@@ -271,4 +314,4 @@ function notAllowedLine(ids) {
   return null;
 }
 
-export { newRequestId, onApplied, openConfirm, closeConfirm, isConfirmOpen, actionArea, releaseActionAreas, actionButton, notAllowedLine };
+export { newRequestId, onRefetch, openConfirm, closeConfirm, isConfirmOpen, actionArea, releaseActionAreas, actionButton, notAllowedLine };

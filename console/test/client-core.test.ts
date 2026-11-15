@@ -43,6 +43,7 @@ before(async () => {
     shell: await import(url('shell.js')),
     actions: await import(url('actions.js')),
     confirm: await import(url('views/confirm.js')),
+    liveView: await import(url('live-view.js')),
   };
 });
 after(() => { fs.rmSync(copy, { recursive: true, force: true }); });
@@ -575,6 +576,64 @@ test('poller: refreshAfterAction fetches at once, and the answer of a fetch alre
   assert.equal(releases.length, 3, 'idle: it fetches at once');
   instance.stop();
   assert.equal(instance.refreshAfterAction(), false);
+});
+
+test('162 review B-6: poller refreshAfterAction(done) answers true once the post-action data is painted, false when that fetch fails', async () => {
+  const clock = fakeClock();
+  const releases: Array<{ resolve: (value: any) => void, reject: (error: any) => void }> = [];
+  const order: string[] = [];
+  const instance = mods.poll.createPoller({
+    clock, visibility: { hidden: () => false, subscribe: () => () => {} }, intervalMs: 5000,
+    fetchOnce: () => new Promise((resolve, reject) => { releases.push({ resolve, reject }); }), onSuccess: (data: any) => order.push(`painted ${data}`),
+  });
+  instance.start();
+  assert.equal(instance.refreshAfterAction((ok: boolean) => order.push(`done ${ok}`)), true);
+  releases[0].resolve('before');
+  await clock.advance(1);
+  assert.deepEqual(order, [], 'the dropped answer neither paints nor answers');
+  releases[1].resolve('after');
+  await clock.advance(1);
+  assert.deepEqual(order, ['painted after', 'done true']);
+  order.length = 0;
+  instance.refreshAfterAction((ok: boolean) => order.push(`done ${ok}`));
+  releases[2].reject(new Error('down'));
+  await clock.advance(1);
+  assert.deepEqual(order, ['done false']);
+  instance.refreshAfterAction((ok: boolean) => order.push(`stopped ${ok}`));
+  instance.stop();
+  assert.deepEqual(order, ['done false', 'stopped false'], 'a stop answers a waiting caller');
+});
+
+test('162 review B-7: live refreshAfterAction drops a GET already in flight unpainted and starts a new one, as the poller does', async () => {
+  const releases: Array<(value: any) => void> = [];
+  const painted: any[] = [];
+  const store = {
+    status: () => ({ transport: 'open' }),
+    onTransport: () => () => {},
+    subscribe: (_ch: string, fn: (event: any) => void) => { fn({ kind: 'state', state: { runs: { status: 200, body: 'live' } } }); return () => {}; },
+    pause() {}, resume() {},
+  };
+  const view = mods.liveView.connectLive({ channel: () => 'now', member: 'runs', intervalMs: 5000 })({}, {}, {
+    fetchJson: async () => null, onData: (data: any) => painted.push(data), onFailure: () => {}, store: () => store,
+    fetchOnce: () => new Promise((resolve) => { releases.push(resolve); }),
+  });
+  view.start();
+  assert.equal(view.mode, 'live');
+  assert.deepEqual(painted, ['live']);
+  assert.equal(view.refreshNow(), true, 'a GET while live is in flight');
+  assert.equal(releases.length, 1);
+  const answers: boolean[] = [];
+  assert.equal(view.refreshAfterAction((ok: boolean) => answers.push(ok)), true);
+  assert.equal(releases.length, 2, 'the action starts a new GET at once');
+  releases[0]('before the action');
+  for (let i = 0; i < 10; i += 1) await Promise.resolve();
+  assert.deepEqual(painted, ['live'], 'the GET that began before the action is dropped unpainted');
+  assert.deepEqual(answers, []);
+  releases[1]('after the action');
+  for (let i = 0; i < 10; i += 1) await Promise.resolve();
+  assert.deepEqual(painted, ['live', 'after the action']);
+  assert.deepEqual(answers, [true]);
+  view.stop();
 });
 
 test('poller: refreshNow restarts the backoff; retry=false ends polling; stop ignores a late result', async () => {
@@ -2270,6 +2329,48 @@ test('162 run page, the local actor: Approve and Reject replace the command bloc
     assert.equal(posts[0].url, '/api/actions/decide-gate');
     assert.deepEqual({ ...posts[0].body, requestId: undefined }, { v: 1, projectKey: PK162, slug: 'feat-a', taskId: 'run-1', gateId: 'gate-a', decision: 'approve', note: null, expect: { revision: 6 }, requestId: undefined });
     assert.equal(text(dialog.querySelector('.confirm__result')), 'Approved. The page shows the run\u2019s new state.');
+  });
+});
+
+test('162 review B-4: the dialog closes on a route change, and while it is open the global shortcuts do nothing; palette and help cannot open over it', async () => {
+  mods.home.resetHome();
+  await withActions(async () => {
+    const route = (target: string, init: any) => (target === '/api/actions' ? actionsReply(true, null, { kind: 'local', transport: 'loopback' })
+      : runRoute(() => runBodyWith(frow('run-1', 4, { revision: 6 }), gateEvents162()))(target, init));
+    const page = await start({ hash: '#/run/feat-a/run-1', fetch: route });
+    const openDialog = () => {
+      page.main.querySelector('.activity--gate').querySelectorAll('.btn--act')[0].fire('click');
+      const dialog = page.doc.body.querySelector('.confirm');
+      assert.ok(dialog, 'the dialog is open');
+      return dialog;
+    };
+    const dialog = openDialog();
+    const cancel = dialog.querySelector('.confirm__cancel');
+    for (const [key, extra] of [['?', {}], ['k', { ctrlKey: true }], ['k', { metaKey: true }], ['p', {}], ['g', {}], ['r', {}], ['g', {}], ['w', {}]] as const) {
+      const event = keydownOn(page, key, extra);
+      assert.equal(event.defaultPrevented, false, `${key} is not taken`);
+    }
+    assert.equal(page.doc.getElementById('help'), null, 'the help list did not open');
+    assert.equal(paletteOf(page), null, 'the palette did not open');
+    assert.equal(page.pause.getAttribute('aria-pressed'), 'false', 'p did not pause');
+    assert.equal(page.location.hash, '#/run/feat-a/run-1', 'no chord navigated');
+    assert.equal(page.doc.body.querySelector('.confirm'), dialog, 'the dialog is still open');
+    assert.equal(page.doc.activeElement, cancel);
+
+    goTo(page, '#/');
+    await settle();
+    assert.equal(page.doc.body.querySelector('.confirm'), null, 'a route change closes it');
+    keydownOn(page, '?');
+    assert.notEqual(page.doc.getElementById('help'), null, 'with it closed the shortcuts work again');
+    keydownOn(page, 'Escape');
+
+    // Back (a hashchange to the run again, then away) closes a dialog opened there too.
+    goTo(page, '#/run/feat-a/run-1');
+    await settle();
+    openDialog();
+    goTo(page, '#/');
+    await settle();
+    assert.equal(page.doc.body.querySelector('.confirm'), null);
   });
 });
 

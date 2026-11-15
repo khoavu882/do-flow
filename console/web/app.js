@@ -18,7 +18,7 @@ import {
 import { parsePairFragment, createPairPage } from './views/pair.js';
 import { CORE_RANGE, MANAGE_VIEWS, parseRoute, hashFor, baseRoute, titleFor, navFor } from './views.js';
 import { createInspector, hidePanel } from './shell.js';
-import { onApplied } from './views/confirm.js';
+import { onRefetch, closeConfirm, isConfirmOpen } from './views/confirm.js';
 import { readTheme, applyTheme, setupThemeControl } from './theme.js';
 import { attentionModel, attentionWords, currentProject } from './derive/attention.js';
 
@@ -1046,8 +1046,12 @@ function boot() {
       app.inspector = createInspector({ doc: document, shell: app.els.shell, el: app.els.inspector, main: app.els.main, matchMedia });
     }
     setupThemeControl(document.querySelector('.theme'));
-    // 162: an applied action makes what the view shows old; its poller refetches (the server has dropped its cache of the run).
-    onApplied(() => { if (app.view && app.view.poller && typeof app.view.poller.refreshAfterAction === 'function') app.view.poller.refreshAfterAction(); });
+    // 162: an applied action, an unknown outcome or a stale refusal makes what the view shows old; its poller refetches at once (the
+    // server has dropped its cache of the run). The answer says when the view holds the refreshed data, for "Review again".
+    onRefetch(() => new Promise((resolve) => {
+      const poller = app.view && app.view.poller;
+      if (!poller || typeof poller.refreshAfterAction !== 'function' || !poller.refreshAfterAction(resolve)) resolve(false);
+    }));
     if (app.els.pause) app.els.pause.addEventListener('click', () => togglePause());
     // The one shortcut registry (keys.js) binds the document once; each entry's action is a plain call into the shell.
     const go = (/** @type {string} */ hash) => () => { globalThis.location.hash = hash; };
@@ -1055,6 +1059,8 @@ function boot() {
     app.palette = createPalette({ doc: document, targets: paletteTargets, go: (hash) => { globalThis.location.hash = hash; } });
     app.shortcuts = installShortcuts({
       doc: document,
+      // The action confirmation is modal: no shortcut runs under it, and the palette and help cannot open over it (162 review B-4).
+      blocked: isConfirmOpen,
       actions: {
         palette: () => { app.shortcuts.closeHelp(); app.palette.open(); },
         help: () => { app.palette.close(); },
@@ -1070,6 +1076,8 @@ function boot() {
     }
     renderPill(app.els.conn, { state: 'unknown', long: 'Connecting', short: 'Connecting' });
     globalThis.addEventListener('hashchange', () => {
+      // A route change (a link, Back) closes the action confirmation first: it belongs to the page it was opened on (162 review B-4).
+      closeConfirm();
       const route = parseRoute(globalThis.location.hash);
       const view = app.view;
       const spec = route.view;
