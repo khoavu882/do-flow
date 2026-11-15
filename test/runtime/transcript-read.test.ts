@@ -438,3 +438,47 @@ test('161 IC-011: resolveAgent refuses what readAgent refuses', (t) => {
   clearCheckoutCache();
   assert.deepEqual(resolveAgent({ env: env(f), cwd: f.main, agent: AK('claude', `${ID}c0f2`), alive: unknown, ...(TRANSCRIPT_PLATFORM ? { platform: TRANSCRIPT_PLATFORM } : {}) }), { ok: false, error: 'session-not-in-project' });
 });
+
+test('161 review 1: a transcript is read only as the regular file below its harness transcript directory, never through a link', { skip: WIN }, (t) => {
+  const f = world(t);
+  scenario(f);
+  const opts = { env: env(f), cwd: f.main, alive: unknown };
+  const root = path.join(f.home, ...LOCATION_ROOTS.claude);
+  const dir = path.join(root, '-work-fixture-project');
+  const name = `${ID}c001.jsonl`;
+  // The outside copy holds the same records with a planted marker in the main reply and in a sub-agent reply.
+  const outside = path.join(f.root, 'outside');
+  fs.cpSync(dir, outside, { recursive: true });
+  fs.writeFileSync(path.join(outside, name), fs.readFileSync(path.join(outside, name), 'utf8').replace(' and mail ', ' OUTSIDE-MAIN and mail '));
+  const sub = path.join(outside, `${ID}c001`, 'subagents', 'agent-afx1.jsonl');
+  fs.writeFileSync(sub, fs.readFileSync(sub, 'utf8').split('FIXTURE-REPLY-OK csub1').join('OUTSIDE-SUB csub1'));
+  const clean = (body: any, why: string) => assert.ok(!/OUTSIDE-/.test(JSON.stringify(body)), `${why}: ${JSON.stringify(body).slice(0, 300)}`);
+
+  // 1. The file swapped for a link after the agent was resolved (a lane resolves once and reads many times).
+  clearCheckoutCache();
+  const found = resolveAgent({ ...opts, agent: AK('claude', `${ID}c001`) });
+  assert.equal(found.ok, true);
+  fs.rmSync(path.join(dir, name));
+  fs.symlinkSync(path.join(outside, name), path.join(dir, name));
+  const swapped = readResolved(found.resolved).body;
+  clean(swapped, 'a file swapped for a link');
+  assert.deepEqual(swapped.transcript, { linked: false, reason: 'not-found' });
+
+  // 2. A sub-agent directory swapped for a link: the sub-agent is never read through it.
+  fs.rmSync(path.join(dir, name));
+  fs.copyFileSync(path.join(V8_ROOT, 'claude', '-work-fixture-project', name), path.join(dir, name));
+  retarget(dir, '/work/fixture-project', fs.realpathSync(f.main));
+  fs.rmSync(path.join(dir, `${ID}c001`, 'subagents'), { recursive: true });
+  fs.symlinkSync(path.dirname(sub), path.join(dir, `${ID}c001`, 'subagents'));
+  clearCheckoutCache();
+  const subBody = read(f, AK('claude', `${ID}c001`, 'afx1'));
+  clean(subBody, 'a sub-agent directory swapped for a link');
+
+  // 3. The session directory swapped for a link: the main transcript is not read through it.
+  fs.renameSync(dir, path.join(f.root, 'moved')); // out of the root, so no other directory matches the glob
+  fs.symlinkSync(outside, dir);
+  clearCheckoutCache();
+  const linked = ok(f, AK('claude', `${ID}c001`));
+  clean(linked, 'a session directory swapped for a link');
+  assert.deepEqual(linked.transcript, { linked: false, reason: 'not-found' });
+});

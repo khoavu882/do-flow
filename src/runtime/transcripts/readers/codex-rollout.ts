@@ -55,8 +55,8 @@ const SPEC = {
 };
 
 /** Header facts from `session_meta`; `sessionId` and `cwd` are for core only. A sub-agent's `source` names its parent thread. */
-function header({ file }: { file: string }): any {
-  const meta = headRecords(file).find((r: any) => r.type === 'session_meta');
+function header({ file, root }: { file: string; root?: string }): any {
+  const meta = headRecords(file, 8, 64 * 1024, root).find((r: any) => r.type === 'session_meta');
   const p = (meta && meta.payload) || {};
   const spawn = (p.source && p.source.SubAgent && p.source.SubAgent.ThreadSpawn) || null;
   return {

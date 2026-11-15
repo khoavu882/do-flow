@@ -88,7 +88,13 @@ function resolveAgent({
   let mod: any = null;
   if (node.transcript.linked && internal.file) {
     mod = READERS[registry[node.harness].reader]();
-    const header = mod.header({ file: internal.file, companion: internal.companion });
+    // 161 review 1: a file that is gone or refused (a link) by now has no header to check; the read below is then not-found.
+    let header: any = {};
+    try {
+      header = mod.header({ file: internal.file, companion: internal.companion, root: internal.root });
+    } catch (error: any) {
+      if (!error || (error.code !== 'ENOENT' && error.code !== 'ENOTDIR' && error.code !== 'EACCES')) throw error;
+    }
     if (!inCheckouts(header.cwd, checkoutRoots({ cwd, exec, fsImpl }), fsImpl)) return { ok: false, error: 'session-not-in-project' };
   }
   return { ok: true, resolved: { node, internal, registry, reader, mod } };
@@ -102,7 +108,7 @@ function readResolved(resolved: any, cursor?: any, limit?: any): any {
 
   if (mod) {
     try {
-      result = mod.read({ file: internal.file, companion: internal.companion, mode: 'text', cursor, limit, agentKey: node.agentKey });
+      result = mod.read({ file: internal.file, companion: internal.companion, root: internal.root, mode: 'text', cursor, limit, agentKey: node.agentKey });
     } catch (error: any) {
       if (!error || (error.code !== 'ENOENT' && error.code !== 'ENOTDIR' && error.code !== 'EACCES')) throw error;
       transcript = { linked: false, reason: 'not-found' }; // the file went away between the tree and the read

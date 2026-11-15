@@ -48,7 +48,7 @@ const SPEC = {
   },
   /** Per-turn usage from the companion `.json`, after the JSONL events. */
   extra(ctx: any, win: any, opts: any, room: number): { events: any[]; atMs: number; more: boolean } {
-    const j = readJsonFile(opts.companion ?? opts.file.replace(/\.jsonl$/, '.json'));
+    const j = readJsonFile(opts.companion ?? opts.file.replace(/\.jsonl$/, '.json'), opts.root);
     const turns = ((j && Array.isArray(j.user_turn_metadatas)) ? j.user_turn_metadatas : [])
       .filter((t: any) => t && typeof t === 'object')
       .map((t: any) => ({ t, ms: toMs(t.end_timestamp) }));
@@ -64,8 +64,8 @@ const SPEC = {
 };
 
 /** Header facts from the companion `.json`; `sessionId`, `cwd` and `parentSessionId` are for core only. */
-function header({ file, companion }: { file: string; companion?: string }): any {
-  const j = readJsonFile(companion ?? file.replace(/\.jsonl$/, '.json')) || {};
+function header({ file, companion, root }: { file: string; companion?: string; root?: string }): any {
+  const j = readJsonFile(companion ?? file.replace(/\.jsonl$/, '.json'), root) || {};
   const model = j.rts_model_state && j.rts_model_state.model_info && j.rts_model_state.model_info.model_id;
   return {
     sessionId: typeof j.session_id === 'string' ? j.session_id : null, agentId: null, cwd: typeof j.cwd === 'string' ? j.cwd : null,

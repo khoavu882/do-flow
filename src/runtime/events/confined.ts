@@ -10,10 +10,19 @@
 //   3. `fstat` the descriptor: its dev and inode must be the ones step 1 saw, so a directory swapped
 //      for a link between the check and the open is refused too
 //
+//   4. `lstat` every directory again after the open: each must still be the directory step 1 saw (same
+//      dev and inode), so a directory swapped for a link between step 1 and the open is refused too
+//
 // A refusal is the error code `EREFUSED` (`why`: `outside-root`, `not-a-directory`,
 // `not-a-regular-file`, `swapped`); a missing component is the `lstat`'s own ENOENT or ENOTDIR.
-// The root itself (a checkout, the lifecycle root, the state home) is trusted as given. Read-only:
-// nothing is created, written or locked.
+// The root itself (a checkout, the lifecycle root, the state home, a harness's transcript directory) and
+// every directory above it are trusted as given, so a symlinked root such as `~/.claude` still works.
+// Read-only: nothing is created, written or locked.
+//
+// Ceilings: a hard link below the root to a file outside it is a regular file with its own name and is read
+// (no check can tell it from the file); a directory swapped for a link and swapped back inside the window
+// of steps 1 to 4 is not seen; on Windows there is no O_NOFOLLOW and no meaningful inode, so only the
+// `lstat` checks hold there.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -36,9 +45,12 @@ function openConfined(root: string, file: string, fsImpl: any = fs): number {
   const rel = path.relative(root, file);
   if (rel === '' || rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) throw refused('outside-root');
   let dir = root;
+  const dirs: Array<[string, any]> = [];
   for (const part of rel.split(path.sep).slice(0, -1)) {
     dir = path.join(dir, part);
-    if (!fsImpl.lstatSync(dir).isDirectory()) throw refused('not-a-directory');
+    const st = fsImpl.lstatSync(dir, { bigint: true });
+    if (!st.isDirectory()) throw refused('not-a-directory');
+    dirs.push([dir, st]);
   }
   const seen = fsImpl.lstatSync(file, { bigint: true });
   if (!seen.isFile()) throw refused('not-a-regular-file');
@@ -52,6 +64,10 @@ function openConfined(root: string, file: string, fsImpl: any = fs): number {
   try {
     const opened = fsImpl.fstatSync(fd, { bigint: true });
     if (!opened.isFile() || opened.dev !== seen.dev || opened.ino !== seen.ino) throw refused('swapped');
+    for (const [d, st] of dirs) {
+      const again = fsImpl.lstatSync(d, { bigint: true });
+      if (!again.isDirectory() || again.dev !== st.dev || again.ino !== st.ino) throw refused('swapped');
+    }
   } catch (error) {
     fsImpl.closeSync(fd);
     throw error;

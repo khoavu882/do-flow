@@ -60,9 +60,9 @@ const SPEC = {
 };
 
 /** Header facts of a main or sub-agent file; `sessionId` and `cwd` are for core only, never printed. */
-function header({ file, metaFile }: { file: string; metaFile?: string }): any {
-  const first = headRecords(file).find((r: any) => typeof r.sessionId === 'string') || {};
-  const meta = readJsonFile(metaFile ?? file.replace(/\.jsonl$/, '.meta.json')) || {};
+function header({ file, metaFile, root }: { file: string; metaFile?: string; root?: string }): any {
+  const first = headRecords(file, 8, 64 * 1024, root).find((r: any) => typeof r.sessionId === 'string') || {};
+  const meta = readJsonFile(metaFile ?? file.replace(/\.jsonl$/, '.meta.json'), root) || {};
   return {
     sessionId: first.sessionId ?? null, agentId: typeof first.agentId === 'string' ? first.agentId : null,
     cwd: typeof first.cwd === 'string' ? first.cwd : null, parentSessionId: null,

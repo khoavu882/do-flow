@@ -385,7 +385,9 @@ test('readers open files read-only, write nothing, and leave every fixture home 
     (fs as any).openSync = origOpen;
   }
   assert.deepEqual(writes, []);
-  assert.ok(flags.length > 20 && flags.every((f) => f === 'r'), `open flags: ${[...new Set(flags)]}`);
+  // 161 review 1: opens go through the confined open, read-only with O_NOFOLLOW where the platform has it.
+  const READ_ONLY = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0);
+  assert.ok(flags.length > 20 && flags.every((f) => f === READ_ONLY), `open flags: ${[...new Set(flags)]}`);
   assert.deepEqual(snapshot(V8_ROOT), before);
   assert.deepEqual(fs.readdirSync(V8_ROOT, { recursive: true }).sort(), listing);
 });

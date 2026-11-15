@@ -27,6 +27,7 @@ const { readRuns } = require('../worker/run-store.ts');
 const processTree = require('../worker/process-tree.ts');
 const { loadTranscriptRegistry } = require('../transcripts/registry.ts');
 const { readJsonFile, label } = require('../transcripts/cursor.ts');
+const { confinedReader } = require('../events/confined.ts');
 const { isSafeSlug } = require('../task-scope.ts');
 
 const MAX_SESSIONS = 64;
@@ -90,9 +91,9 @@ function locations(entry: any, env: any, home: string, platform: string): Array<
 }
 
 /** Does `file` hold `needle` in its first 2 MiB? Only the yes or no leaves this function. */
-function fileHas(file: string, needle: string, fsImpl: any): boolean {
+function fileHas(file: string, needle: string, fsImpl: any, root?: string): boolean {
   try {
-    const fd = fsImpl.openSync(file, 'r');
+    const fd = confinedReader(root ?? path.dirname(file), fsImpl).openSync(file); // 161 review 1
     try {
       const buf = Buffer.alloc(Math.min(NEEDLE_BYTES, fsImpl.fstatSync(fd).size));
       fsImpl.readSync(fd, buf, 0, buf.length, 0);
@@ -120,6 +121,18 @@ function buildTree({
   const counts = { unreadable: 0, notChecked: 0 };
   let checks = 0;
 
+  /**
+   * 161 review 1: the registry location `file` was found under, the root every read of it is confined below
+   * (src/runtime/events/confined.ts): no link is followed beneath it. Undefined (the file's own directory) when none holds it.
+   */
+  const rootOf = (harness: string | null, file: string): string | undefined => {
+    const entry = harness ? registry[harness] : null;
+    if (!entry) return undefined;
+    return locations(entry, env, homeDir, platform).map(([dir]) => dir).find((dir) => {
+      const rel = path.relative(dir, file);
+      return rel !== '' && rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel);
+    });
+  };
   /** The node for `agentKey`, created once: a second source with the same key adds what the first lacked. */
   const node = (agentKey: string, fields: any, intern?: any): any => {
     let n = nodes.get(agentKey);
@@ -135,7 +148,7 @@ function buildTree({
     } else {
       for (const [key, value] of Object.entries(fields)) if (n[key] === null) n[key] = value;
     }
-    Object.assign(internal.get(agentKey), intern ?? {});
+    Object.assign(internal.get(agentKey), intern ?? {}, intern && intern.file ? { root: rootOf(intern.harness, intern.file) } : {});
     return n;
   };
   /** One of DoFlow's own records of an agent (`records`) or a task it is working on (`holds`), kept for V.6. */
@@ -154,7 +167,7 @@ function buildTree({
   };
   const lastAt = (harness: string, file: string, companion?: string): string | null => {
     try {
-      const out = READERS[registry[harness].reader]().read({ file, companion, mode: 'metadata', maxBytes: 32768, limit: 64 });
+      const out = READERS[registry[harness].reader]().read({ file, companion, root: rootOf(harness, file), mode: 'metadata', maxBytes: 32768, limit: 64 });
       return [...out.events].reverse().find((e: any) => e.at)?.at ?? null;
     } catch { return null; }
   };
@@ -183,7 +196,7 @@ function buildTree({
       : [...files].sort().reverse();
     const out: any[] = [];
     for (const file of [...new Set(newest)].slice(0, SCAN_FILES)) {
-      try { out.push({ file, header: READERS[entry.reader]().header({ file }) }); } catch { counts.unreadable += 1; }
+      try { out.push({ file, header: READERS[entry.reader]().header({ file, root: rootOf(harness, file) }) }); } catch { counts.unreadable += 1; }
     }
     scanned.set(harness, out);
     return out;
@@ -238,15 +251,15 @@ function buildTree({
         try { names = fsImpl.readdirSync(dir).filter((x: string) => /^agent-.+\.jsonl$/.test(x)).sort().slice(0, SUBAGENT_FILES); } catch { /* none */ }
         const subs = names.map((name) => {
           const sub = path.join(dir, name);
-          const meta = readJsonFile(sub.replace(/\.jsonl$/, '.meta.json')) || {};
-          return { sub, header: reader.header({ file: sub }), toolUseId: typeof meta.toolUseId === 'string' ? meta.toolUseId : null };
+          const meta = readJsonFile(sub.replace(/\.jsonl$/, '.meta.json'), rootOf(harness, sub)) || {};
+          return { sub, header: reader.header({ file: sub, root: rootOf(harness, sub) }), toolUseId: typeof meta.toolUseId === 'string' ? meta.toolUseId : null };
         });
         const made = new Map<number, any[]>();
         for (const s of subs.sort((a, b) => (a.header.depth ?? 1) - (b.header.depth ?? 1))) {
           const depth = s.header.depth ?? 1;
           // A depth-1 agent was spawned by the main session; deeper ones by the file that holds their tool_use id.
           const candidates = depth <= 1 ? [{ file, node: n }] : made.get(depth - 1) ?? [];
-          const parent = depth <= 1 ? candidates[0] : candidates.find((c) => s.toolUseId !== null && fileHas(c.file, s.toolUseId, fsImpl));
+          const parent = depth <= 1 ? candidates[0] : candidates.find((c) => s.toolUseId !== null && fileHas(c.file, s.toolUseId, fsImpl, rootOf(harness, c.file)));
           const agentId = s.header.agentId ?? path.basename(s.sub, '.jsonl').replace(/^agent-/, '');
           const agentKey = sha16(`claude:${rawId}:${agentId}`);
           const made1 = node(agentKey, {
@@ -258,7 +271,7 @@ function buildTree({
           made.set(depth, [...(made.get(depth) ?? []), { file: s.sub, node: made1 }]);
         }
       } else if (harness === 'copilot') {
-        for (const c of reader.header({ file }).children) child(n, harness, `${rawId}:${c.agentId}`, { ...c, model: null, sessionId: rawId }, null);
+        for (const c of reader.header({ file, root: rootOf(harness, file) }).children) child(n, harness, `${rawId}:${c.agentId}`, { ...c, model: null, sessionId: rawId }, null);
       } else if (harness === 'codex' || harness === 'pi' || harness === 'kiro') {
         // Children name their parent session id in their own header: follow the chain through the bounded scan.
         const parents = new Map<string, any>([[rawId, n]]);
