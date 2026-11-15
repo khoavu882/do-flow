@@ -121,13 +121,13 @@ test('resolveTaskModel gives delivery-lead the orchestrator model and every othe
 test('dispatchModelFor records the orchestrator source in the dispatch snapshot', () => {
   const bindings = set({ claude: { frontier: 'front-1' } });
   const primary = { harness: 'claude', model: 'session-1', state: 'confirmed' };
-  const lead = dispatchModelFor({ mode: 'subagent', harness: 'claude', tier: 'frontier', owner: 'delivery-lead', resolvedTier: { tier: 'frontier', source: 'owner' }, bindings, primary });
+  const lead = dispatchModelFor({ mode: 'subagent', harness: 'claude', tier: 'frontier', owner: 'delivery-lead', resolvedTier: { tier: 'frontier', source: 'owner' }, bindings, primary, descriptor });
   assert.deepEqual(lead.model, { tier: 'frontier', requested: 'session-1', source: 'main-session' });
-  const noSession = dispatchModelFor({ mode: 'subagent', harness: 'claude', tier: 'frontier', owner: 'delivery-lead', resolvedTier: { tier: 'frontier', source: 'owner' }, bindings, primary: null });
+  const noSession = dispatchModelFor({ mode: 'subagent', harness: 'claude', tier: 'frontier', owner: 'delivery-lead', resolvedTier: { tier: 'frontier', source: 'owner' }, bindings, primary: null, descriptor });
   assert.deepEqual(noSession.model, { tier: 'frontier', requested: 'front-1', source: 'frontier-binding' });
-  const bound = dispatchModelFor({ mode: 'subagent', harness: 'claude', tier: 'frontier', owner: 'delivery-lead', resolvedTier: { tier: 'frontier', source: 'owner' }, bindings: set({ claude: { orchestrator: 'o-1' } }), primary });
+  const bound = dispatchModelFor({ mode: 'subagent', harness: 'claude', tier: 'frontier', owner: 'delivery-lead', resolvedTier: { tier: 'frontier', source: 'owner' }, bindings: set({ claude: { orchestrator: 'o-1' } }), primary, descriptor });
   assert.deepEqual(bound.model, { tier: 'frontier', requested: 'o-1', source: 'binding' });
-  const tierOnly = dispatchModelFor({ mode: 'subagent', harness: 'claude', tier: 'frontier', bindings, primary });
+  const tierOnly = dispatchModelFor({ mode: 'subagent', harness: 'claude', tier: 'frontier', bindings, primary, descriptor });
   assert.deepEqual(tierOnly.model, { tier: 'frontier', requested: 'front-1', source: 'binding' });
 });
 

@@ -158,11 +158,16 @@ function modelOf(answer: any, task: string): any {
   };
 }
 
-/** IC-013 / IC-010: resolve record metadata without choosing launch argv or reading settings. */
-function dispatchModelFor({ mode, harness, tier, owner = null, resolvedTier = { tier, source: 'task' }, bindings, primary }: any): any {
+/**
+ * IC-013 / IC-010: resolve record metadata without choosing launch argv or reading settings. A launched worker (`subagent`)
+ * is recorded with the model the launch passes: when its harness has no evidenced model flag the launch passes none, so no
+ * model is recorded as requested.
+ */
+function dispatchModelFor({ mode, harness, tier, owner = null, resolvedTier = { tier, source: 'task' }, bindings, primary, descriptor = null }: any): any {
   const worker = mode === 'subagent' ? harness : mode === 'sequential' ? primary?.harness : null;
-  const binding = worker ? resolveTaskModel({ worker, owner, resolvedTier, bindings, descriptor: null, primary }) : null;
-  const bound = binding !== null && binding.model !== null && binding.source !== 'harness-default' && binding.source !== 'invalid';
+  const binding = worker ? resolveTaskModel({ worker, owner, resolvedTier, bindings, descriptor, primary }) : null;
+  const passed = binding !== null && (mode !== 'subagent' || binding.flag === 'supported');
+  const bound = passed && binding.model !== null && binding.source !== 'harness-default' && binding.source !== 'invalid';
   return {
     model: { tier, requested: bound ? binding.model : null, source: bound ? binding.source : 'harness-default' },
     primary: mode === 'sequential' && primary

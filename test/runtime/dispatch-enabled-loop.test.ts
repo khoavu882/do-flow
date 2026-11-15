@@ -305,6 +305,21 @@ test('orchestrator slot loop: owner delivery-lead records the orchestrator model
   assert.deepEqual(dispatches(viaBinding)[0].model, { tier: 'frontier', requested: 'orch-1', source: 'binding', served: null });
 });
 
+test('orchestrator slot loop: selection, launch and record agree on the main-session model; no flag evidenced means none is recorded', POSIX, async (t) => {
+  const plan = fs.readFileSync(path.join(__dirname, '..', 'fixtures', 'dispatch', 'plans', 'budget.md'), 'utf8').replace('owner: core-implementer', 'owner: delivery-lead');
+  const p = await project(t, { plan }); // no model flag is evidenced on any worker
+  const user = path.join(p.sb.home, '.config', 'doflow', 'settings.json');
+  fs.mkdirSync(path.dirname(user), { recursive: true });
+  fs.writeFileSync(user, `${JSON.stringify({ schema: 1, 'workers.models': { claude: { frontier: 'front-1' } }, 'primary.harness': 'claude', 'primary.model': 'sess-1' })}\n`);
+  await p.run();
+  const [d] = dispatches(p);
+  // The gate saw the main session (not the frontier binding the missing flag would refuse), so claude was chosen.
+  assert.equal(d.harness, 'claude');
+  assert.deepEqual(d.model, { tier: 'frontier', requested: null, source: 'harness-default', served: null });
+  const argv = fs.readFileSync(p.sb.log, 'utf8').trim().split('\n').filter(Boolean).map((line: any) => JSON.parse(line).argv).flat();
+  assert.equal(argv.includes('sess-1') || argv.includes('front-1'), false, 'the launch passed no model');
+});
+
 test('orchestrator slot loop: a project primary.model never reaches the launch argv; only the resolved orchestrator id does', POSIX, async (t) => {
   const plan = fs.readFileSync(path.join(__dirname, '..', 'fixtures', 'dispatch', 'plans', 'budget.md'), 'utf8').replace('owner: core-implementer', 'owner: delivery-lead');
   const launched = async (userSettings: any, projectSettings: any) => {

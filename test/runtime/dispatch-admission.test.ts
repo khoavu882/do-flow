@@ -136,22 +136,31 @@ test('IC-013: malformed model answers refuse before admission and holds never ca
   assert.deepEqual(fs.readFileSync(p.file), before);
 });
 
-test('IC-013: dispatchModelFor records binding intent independently of model flag support', () => {
+test('IC-013: dispatchModelFor records the model the launch passes: none when the harness has no evidenced model flag', () => {
   const tier = 'standard';
   const primary = { harness: 'claude', model: null, state: 'unconfirmed', ignored: true };
   const bindings = { state: 'set', map: { claude: { standard: 'm-1' } } };
-  const resolve = (extra: any) => dispatchModelFor({ mode: 'subagent', harness: 'claude', tier, bindings, primary, ...extra });
+  const flag = { model: { status: 'supported', argv: ['--model', '{model}'] } };
+  const resolve = (extra: any) => dispatchModelFor({ mode: 'subagent', harness: 'claude', tier, bindings, primary, descriptor: flag, ...extra });
   const fallback = { tier, requested: null, source: 'harness-default' };
   const bound = { tier, requested: 'm-1', source: 'binding' };
   assert.deepEqual(resolve({ bindings: { state: 'unset', map: null } }), { model: fallback, primary: null });
   assert.deepEqual(resolve({}), { model: bound, primary: null });
-  assert.deepEqual(resolve({ mode: 'sequential', harness: null }), {
+  // A sequential choice runs in the main session: nothing is launched, so the binding is the intent recorded.
+  assert.deepEqual(resolve({ mode: 'sequential', harness: null, descriptor: null }), {
     model: bound, primary: { harness: 'claude', model: null, state: 'unconfirmed' },
   });
   const unknown = { harness: null, model: null, state: 'unknown' };
   assert.deepEqual(resolve({ mode: 'sequential', primary: unknown }), { model: fallback, primary: unknown });
   assert.deepEqual(resolve({ bindings: { state: 'invalid', map: null } }), { model: fallback, primary: null });
   assert.deepEqual(resolve({ mode: 'manual' }), { model: fallback, primary: null });
+  // A launched worker whose harness has no evidenced model flag gets no flag, so no model is recorded as requested.
+  for (const descriptor of [null, {}, { model: { status: 'unknown' } }]) assert.deepEqual(resolve({ descriptor }), { model: fallback, primary: null });
+  // The orchestrator slot on the main session's own model, with no flag evidenced, records none either.
+  const mainSession = { harness: 'claude', model: 'sess-1', state: 'confirmed' };
+  const orchestrator = { owner: 'delivery-lead', resolvedTier: { tier: 'frontier', source: 'owner' }, tier: 'frontier', bindings: { state: 'unset', map: null }, primary: mainSession };
+  assert.deepEqual(resolve({ ...orchestrator, descriptor: flag }), { model: { tier: 'frontier', requested: 'sess-1', source: 'main-session' }, primary: null });
+  assert.deepEqual(resolve({ ...orchestrator, descriptor: {} }), { model: { tier: 'frontier', requested: null, source: 'harness-default' }, primary: null });
 });
 
 test('IC-013 / IC-010: accessors read legacy records without rewriting them', POSIX, (t) => {
