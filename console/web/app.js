@@ -1015,7 +1015,7 @@ function boot() {
     const brand = document.querySelector('.brand');
     if (brand && !brand.querySelector('.icon')) brand.prepend(icon('brand', 28));
     /** @type {Record<string, string>} */
-    const railIcons = { '#/': 'rail-now', '#/sessions': 'rail-sessions', '#/workflows': 'rail-workflows', '#/layers': 'rail-fleet', '#/workers': 'rail-workers', '#/advice': 'rail-advice', '#/followups': 'rail-followups', '#/settings': 'rail-settings', '#/health': 'rail-health' };
+    const railIcons = { '#/': 'rail-now', '#/sessions': 'rail-sessions', '#/workflows': 'rail-workflows', '#/layers': 'rail-layers', '#/workers': 'rail-workers', '#/advice': 'rail-advice', '#/followups': 'rail-followups', '#/settings': 'rail-settings', '#/health': 'rail-health' };
     for (const link of app.els.navLinks) {
       const name = railIcons[link.getAttribute('href')];
       if (name && !link.querySelector('.icon')) link.prepend(icon(name, 16));

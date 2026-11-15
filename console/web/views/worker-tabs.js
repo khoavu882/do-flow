@@ -1,7 +1,7 @@
 // The worker tabs of the Session screen (feature 150, IC-018; FR-006, FR-008, FR-015, FR-016, FR-017, FR-019). One selected
 // worker run shows its head facts, then one tab list of Log, Transcript, Result and Process and one tab panel. Every string
 // from the Console reaches the page as a text node (149 NFR-004): log text is appended to a `pre` as text nodes and is never a
-// live region, so streamed text is never announced (the Fleet panel's rule, transcript.js). The tab list owns its arrow keys
+// live region, so streamed text is never announced (the transcript panel's rule, transcript.js). The tab list owns its arrow keys
 // (Left, Right, Home and End move and select, automatic activation); no document listener and no shortcut entry is added
 // (NFR-006). Nothing runs on a timer here: the log streams poll only through log-store.js, and the transcript is read once.
 //
@@ -41,7 +41,7 @@ const TAB_IDS = Object.freeze(TABS.map(([id]) => id));
 const RUN_ID = /^w-[0-9a-f]{12}$/;
 const STREAMS = Object.freeze([['out', 'stdout'], ['err', 'stderr']]);
 
-/** The Fleet panel's sentence (console/web/views/transcript.js), said by the Log and Transcript tabs. */
+/** The transcript panel's sentence (console/web/views/transcript.js), said by the Log and Transcript tabs. */
 const MASKED_SENTENCE = 'Text is masked, best effort: DoFlow’s redactor can miss a secret that has no known shape.';
 
 /** IC-018's per-stream notes, keyed by log-store.js `notices`. */

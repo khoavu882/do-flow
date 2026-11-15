@@ -1,5 +1,5 @@
 // The live transport adapter (feature 149, IC-016; FR-016). The only web module that opens the live stream `/api/live`
-// (161: the Fleet's own stream is gone, the Layers view reads this one). `open(channels, since)` opens one EventSource on the
+// (161: there is no other stream; the Layers view reads this one). `open(channels, since)` opens one EventSource on the
 // relative URL, every unnamed `message` is parsed and checked against the envelope grammar (IC-002, IC-003, IC-012; for the log
 // channels `worker:<runId>:out` and `:err` and 161's `file:<pk>:<fk>`, 150 IC-006 and IC-007: the `<ino>:<offset>:<n>:<ms>` id
 // and the `append` type, on log channels only; 161 IC-005's `transcript:<pk>:<ak>` takes the `append` type with a plain id) and

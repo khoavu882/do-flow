@@ -955,7 +955,7 @@ test('shell: data-inspectable per view, the rail icons, and the docked column wi
     { runs: false, run: true, tasks: true, session: true, sessions: true, workflows: false, layers: false, 'layers-project': true, settings: true, advice: true, followups: true, health: true, workers: true, compare: false, 'not-found': false });
   const page = await start({ hash: '', width: 1440, fetch: standard });
   assert.deepEqual(page.nav.map((a) => a.querySelector('.icon') && a.querySelector('.icon').getAttribute('class')),
-    ['icon icon--16 icon--rail-now', 'icon icon--16 icon--rail-sessions', 'icon icon--16 icon--rail-workflows', 'icon icon--16 icon--rail-fleet', 'icon icon--16 icon--rail-workers', 'icon icon--16 icon--rail-advice', 'icon icon--16 icon--rail-followups', 'icon icon--16 icon--rail-settings', 'icon icon--16 icon--rail-health']);
+    ['icon icon--16 icon--rail-now', 'icon icon--16 icon--rail-sessions', 'icon icon--16 icon--rail-workflows', 'icon icon--16 icon--rail-layers', 'icon icon--16 icon--rail-workers', 'icon icon--16 icon--rail-advice', 'icon icon--16 icon--rail-followups', 'icon icon--16 icon--rail-settings', 'icon icon--16 icon--rail-health']);
   assert.equal(page.shell.dataset.inspectable, 'false');
   assert.equal(page.inspector.dataset.mode, 'dock');
   assert.equal(page.inspector.getAttribute('hidden'), '', 'no docked column on Runs');
