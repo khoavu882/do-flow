@@ -10,7 +10,7 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { CORE_CLI } = require('./helpers/core-fixture.ts');
-const { P50_BAR_MS, MAX_BAR_MS, DEFAULT_SAMPLES, WORST_CASE_NOTE, summarize, verdict, parseFlags } = require('../scripts/measure-layers.ts');
+const { P50_BAR_MS, MAX_BAR_MS, DEFAULT_SAMPLES, summarize, verdict, parseFlags } = require('../scripts/measure-layers.ts');
 
 const SCRIPT = path.join(__dirname, '..', 'scripts', 'measure-layers.ts');
 const fill = (n: number, ms: number) => Array.from({ length: n }, () => ms);
@@ -36,14 +36,6 @@ test('verdict: exit 0 only when, for both kinds, p50 < 300 ms and max < 1000 ms'
   const bad = verdict({ audit: fill(24, 400), brief: fill(24, 50) });
   assert.equal(bad.ok, false);
   assert.deepEqual([bad.audit.ok, bad.brief.ok], [false, true], 'each kind is judged on its own');
-});
-
-test('the stated worst case: the 1 s backstop when a watch event is lost, about 1.2 s, accepted and not hidden (DEC-007)', () => {
-  assert.match(WORST_CASE_NOTE, /watch event is lost/);
-  assert.match(WORST_CASE_NOTE, /1\.2 s/);
-  assert.match(WORST_CASE_NOTE, /300 ms/);
-  assert.match(WORST_CASE_NOTE, /1 s/);
-  assert.match(WORST_CASE_NOTE, /DEC-007/);
 });
 
 test('parseFlags: --samples 1 to 100 (default 24) and an absolute, existing --core', () => {
@@ -92,7 +84,15 @@ test('the script exits 0 and prints p50, p95 and max for audit and brief over it
     assert.equal(part.ok, part.p50 < 300 && part.max < 1000);
   }
   assert.deepEqual(out.bar, { p50Ms: 300, maxMs: 1000 });
-  assert.equal(out.worstCaseNote, WORST_CASE_NOTE);
+  // DEC-007: the figures and the two targets are printed with the worst case stated, not hidden. The note is read from the
+  // script's output, so dropping it from the output path (not only from the constant) fails here.
+  assert.equal(typeof out.worstCaseNote, 'string', 'the output states the worst case');
+  assert.match(out.worstCaseNote, /watch event is lost/);
+  assert.match(out.worstCaseNote, /1\.2 s/);
+  assert.match(out.worstCaseNote, /300 ms/);
+  assert.match(out.worstCaseNote, /1 s/);
+  assert.match(out.worstCaseNote, /DEC-007/);
+  assert.ok(Number.isFinite(out.audit.p50) && Number.isFinite(out.brief.max), 'the note stands in the same output as the measured figures');
   assert.equal(out.percentileMethod, 'nearest rank');
   assert.ok(Array.isArray(out.coreKinds) && ['machine', 'layers', 'file'].every((kind) => out.coreKinds.includes(kind)), `the core lists the Layers channel kinds: ${JSON.stringify(out.coreKinds)}`);
   assert.equal(out.fixtureExit, 0, 'the fixture Console stopped cleanly on SIGTERM');
