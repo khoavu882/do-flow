@@ -239,7 +239,11 @@ function leaks(projector: (shape: string, raw: unknown, context?: unknown) => an
 }
 
 test('one projector per allow-listed shape, and nothing else', () => {
-  assert.deepEqual([...PROJECTOR_IDS].sort(), [...SHAPE_IDS].sort());
+  // 161: `events-kinds` is read raw by the hub (`coreKindsOf`, no projection); `tree` and `traffic` are no runner shapes
+  // any more, but the hub projects the core's `layers` sections of those names with them.
+  const RAW_SHAPES = ['events-kinds'];
+  const SECTION_ONLY = ['tree', 'traffic'];
+  assert.deepEqual([...PROJECTOR_IDS].sort(), [...SHAPE_IDS.filter((id: string) => !RAW_SHAPES.includes(id)), ...SECTION_ONLY].sort());
   assert.throws(() => project('indicators', {}), /no projector/);
 });
 
