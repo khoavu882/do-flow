@@ -1322,9 +1322,10 @@ function listRuns({ json, stateRoot, ...flags }: any) {
 
 /** The message `orchestrate` prints, and exits 1 on, when the id names more than one run. */
 function ambiguousRunMessage(taskId: any, found: any) {
-  return found.byFeature
-    ? `[ERROR] orchestrate: run '${taskId}' exists under more than one feature (${found.candidates.join(', ')}); pass --slug <feature> to name the one you mean${(found.slugs || []).filter(Boolean).length ? ` (${found.slugs.filter(Boolean).map((name: string) => `--slug ${name}`).join(' or ')})` : ''}. Nothing was changed.`
-    : `[ERROR] orchestrate: run '${taskId}' exists in more than one other checkout (${found.candidates.join(', ')}); run the command from the checkout that holds the run you mean. Nothing was changed.`;
+  if (!found.byFeature) return `[ERROR] orchestrate: run '${taskId}' exists in more than one other checkout (${found.candidates.join(', ')}); run the command from the checkout that holds the run you mean. Nothing was changed.`;
+  const named = [...new Set<string>((found.slugs || []).filter(Boolean))];
+  const unnamed = (found.slugs || []).filter((name: any) => !name).length;
+  return `[ERROR] orchestrate: run '${taskId}' exists under more than one feature (${found.candidates.join(', ')}); pass --slug <feature> to name the one you mean${named.length ? ` (${named.map((name) => `--slug ${name}`).join(' or ')})` : ''}${unnamed ? `; ${unnamed} flat run${unnamed > 1 ? 's' : ''} record${unnamed > 1 ? '' : 's'} no feature, so no --slug names ${unnamed > 1 ? 'them' : 'it'}` : ''}. Nothing was changed.`;
 }
 
 /**
@@ -1355,10 +1356,16 @@ function locateRun({ action, taskId, slug = null, recordSlug, repoRoot, stateRoo
     // `status`, `timeline`, `annotate` and `close` with no --slug open the one run the list action
     // shows for the id, whichever feature namespace holds it (FU-wrnnaq): a run whose task id differs
     // from its folder is found by the id `list` prints. More than one is refused, listing each --slug.
-    // The verbs that move a run forward (complete-stage, decide-gate, ...) still act on this
-    // checkout's feature only, so they never take another feature's run for this branch's task.
-    const found = findRunFile({ stateRoot: state, taskId, slug: featureSlug, anyNamespace: ['status', 'timeline', 'annotate', 'close'].includes(action) && !slug });
+    // `annotate` and `close` count this store's flat run among them (acrossFlat), and refuse a run of
+    // another feature than the one this checkout resolves: CLOSED is terminal, so they never end a
+    // feature's run by accident. The verbs that move a run forward (complete-stage, decide-gate, ...)
+    // still act on this checkout's feature only.
+    const changes = (action === 'annotate' || action === 'close') && !slug;
+    const found = findRunFile({ stateRoot: state, taskId, slug: featureSlug, anyNamespace: (action === 'status' || action === 'timeline') && !slug, acrossFlat: changes });
     if (found.status === 'ambiguous') return { ambiguous: ambiguousRunMessage(taskId, found) };
+    if (changes && found.status === 'found' && found.feature !== undefined && featureSlug && found.feature !== featureSlug) {
+      return { ambiguous: `[ERROR] orchestrate: run '${taskId}' belongs to feature '${found.feature}', not this checkout's feature '${featureSlug}'; pass --slug ${found.feature} to act on it. Nothing was changed.` };
+    }
     if (found.status === 'found') {
       runRoot = found.root;
       if (found.slug !== undefined) featureSlug = found.slug;
@@ -1586,10 +1593,15 @@ function handleOrchestrateCommand({
     if (action === 'handoff' && (snapshot.disposition === 'completed' || snapshot.disposition === 'annotated')) {
       snapshot = { ...snapshot, compaction: compactAfterHandoff({ taskId, projectRoot: source }) };
     }
+    // `close` and `annotate` may open a run of another feature than the branch's (FU-wrnnaq): say whose it was.
+    const changedFeature = action === 'close' || action === 'annotate'
+      ? (runSlugOf(orchestrator.readRun(taskId), runRoot) || slug || null) : undefined;
+    if (changedFeature !== undefined) snapshot = { ...snapshot, featureSlug: changedFeature };
     if (json) { console.log(JSON.stringify(snapshot, null, 2)); return finishRuntime(0); }
     console.log(`Workflow ${snapshot.taskId} [${snapshot.taskClass}] — ${snapshot.state}`);
     // `status` with no --slug opens the one run of the id under any feature (FU-wrnnaq): say whose it is.
     if (action === 'status' && featureSlug) console.log(`Feature: ${featureSlug}`);
+    if (changedFeature !== undefined) console.log(`Feature: ${changedFeature ?? '-'}`);
     if (snapshot.disposition === 'standalone') console.log(`Handoff: standalone (${snapshot.reason})`);
     else if (snapshot.disposition) console.log(`Handoff: ${snapshot.disposition}`);
     if (snapshot.compaction) console.log(`Compaction: ${snapshot.compaction.status}${snapshot.compaction.reason ? ` — ${snapshot.compaction.reason}` : ''}`);

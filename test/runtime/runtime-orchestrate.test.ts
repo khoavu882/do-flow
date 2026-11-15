@@ -728,6 +728,71 @@ test('close by a task id that two features hold is refused, naming each --slug, 
   assert.deepEqual(fs.readFileSync(path.join(storeOf(cwd), 'aaa', '093-web.json')), before[0], 'the other feature\'s run is untouched');
 });
 
+test('close and annotate from a checkout on feature foo refuse feature bar\'s run and name the --slug; with --slug they act and name the feature', (t) => {
+  const cwd = project(t);
+  execFileSync('git', ['-C', cwd, 'branch', '-M', 'main'], { stdio: 'ignore' });
+  const w1 = `${cwd}-foo`;
+  t.after(() => fs.rmSync(w1, { recursive: true, force: true }));
+  execFileSync('git', ['-C', cwd, 'worktree', 'add', '-q', '-b', 'foo', w1], { stdio: 'ignore' });
+  json(cwd, ['orchestrate', '--action', 'start', '--task-id', '002-y', '--task-class', 'bug', '--slug', 'bar']);
+  const file = path.join(storeOf(cwd), 'bar', '002-y.json');
+  const before = fs.readFileSync(file);
+  for (const action of ['close', 'annotate']) {
+    const res = run(w1, ['orchestrate', '--action', action, '--task-id', '002-y', '--note', 'n', '--node', 'reproduction']);
+    assert.equal(res.status, 1, `${action}: ${res.stdout}`);
+    assert.match(res.stderr, /belongs to feature 'bar', not this checkout's feature 'foo'; pass --slug bar/, res.stderr);
+    assert.deepEqual(fs.readFileSync(file), before, `${action} changed nothing`);
+  }
+  // From a checkout that resolves no feature, the one run is acted on, and the answer names its feature.
+  const text = run(cwd, ['orchestrate', '--action', 'annotate', '--task-id', '002-y', '--note', 'n', '--node', 'reproduction']);
+  assert.equal(text.status, 0, text.stderr);
+  assert.match(text.stdout, /^Feature: bar$/m);
+  // With --slug it acts from the other feature's checkout, and --json carries the feature.
+  const closed = json(w1, ['orchestrate', '--action', 'close', '--task-id', '002-y', '--slug', 'bar', '--note', 'n']);
+  assert.equal(closed.status, 0, closed.stderr);
+  assert.equal(closed.data.state, 'CLOSED');
+  assert.equal(closed.data.featureSlug, 'bar');
+});
+
+test('a flat run and a namespaced run of one id are both candidates for close and annotate without --slug', (t) => {
+  const cwd = project(t);
+  execFileSync('git', ['-C', cwd, 'branch', '-M', 'main'], { stdio: 'ignore' });
+  for (const slug of ['001-x', 'bar']) json(cwd, ['orchestrate', '--action', 'start', '--task-id', '001-x', '--task-class', 'bug', '--slug', slug]);
+  const flat = path.join(storeOf(cwd), '001-x.json');
+  const namespaced = path.join(storeOf(cwd), 'bar', '001-x.json');
+  assert.ok(fs.existsSync(flat) && fs.existsSync(namespaced));
+  const before = [fs.readFileSync(flat), fs.readFileSync(namespaced)];
+  for (const action of ['close', 'annotate']) {
+    const res = run(cwd, ['orchestrate', '--action', action, '--task-id', '001-x', '--note', 'n', '--node', 'reproduction']);
+    assert.equal(res.status, 1, `${action}: ${res.stdout}`);
+    assert.match(res.stderr, /--slug bar or --slug 001-x/, res.stderr);
+  }
+  assert.deepEqual([fs.readFileSync(flat), fs.readFileSync(namespaced)], before, 'nothing was changed');
+  // The flat run is addressed by the feature it records; the namespaced one by its own.
+  assert.equal(json(cwd, ['orchestrate', '--action', 'close', '--task-id', '001-x', '--slug', '001-x', '--note', 'n']).status, 0);
+  assert.equal(JSON.parse(fs.readFileSync(flat, 'utf8')).state, 'CLOSED');
+  assert.deepEqual(fs.readFileSync(namespaced), before[1], 'the namespaced run is untouched');
+  // A lone flat run is still closed by its id.
+  fs.rmSync(path.join(storeOf(cwd), 'bar'), { recursive: true });
+  json(cwd, ['orchestrate', '--action', 'start', '--task-id', '003-z', '--task-class', 'bug']);
+  const lone = json(cwd, ['orchestrate', '--action', 'close', '--task-id', '003-z', '--note', 'n']);
+  assert.equal(lone.status, 0, lone.stderr);
+});
+
+test('a flat run that records no feature beside a namespaced one: close refuses and says no --slug names the flat run', (t) => {
+  const cwd = project(t);
+  execFileSync('git', ['-C', cwd, 'branch', '-M', 'main'], { stdio: 'ignore' });
+  json(cwd, ['orchestrate', '--action', 'start', '--task-id', 'N.2', '--task-class', 'bug', '--slug', 'tmp']);
+  const record = JSON.parse(fs.readFileSync(path.join(storeOf(cwd), 'tmp', 'N.2.json'), 'utf8'));
+  delete record.featureSlug; delete record.slug;
+  fs.rmSync(path.join(storeOf(cwd), 'tmp'), { recursive: true });
+  json(cwd, ['orchestrate', '--action', 'start', '--task-id', 'N.2', '--task-class', 'bug', '--slug', 'bar']);
+  fs.writeFileSync(path.join(storeOf(cwd), 'N.2.json'), JSON.stringify(record));
+  const res = run(cwd, ['orchestrate', '--action', 'close', '--task-id', 'N.2', '--note', 'n']);
+  assert.equal(res.status, 1, res.stdout);
+  assert.match(res.stderr, /\(--slug bar\); 1 flat run records no feature, so no --slug names it/, res.stderr);
+});
+
 test('FU-mtjqt9 C-13: status on a corrupt run journal reveals none of its bytes', (t) => {
   const cwd = project(t);
   fs.mkdirSync(storeOf(cwd), { recursive: true });
