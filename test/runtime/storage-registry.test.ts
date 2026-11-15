@@ -120,6 +120,8 @@ test('IC-002: every shipped declaration has its approved id, root, path, rule, a
     ['feature-pointer', 'project-state', 'feature', 'existing', { text: 'one file per checkout naming its feature, rewritten in place by the runtime and removed when the feature finishes' }],
     ['project-models-catalogue', 'project-state', 'models/catalogue.json', 'existing', { text: 'one file, overwritten' }],
     ['user-models-catalogue', 'config-home', 'state/models-observed.json', 'existing', { text: 'one file, overwritten' }],
+    ["console-device-store", "config-home", "console", "existing", {"value": 64, "text": "one JSON file of the Console's paired devices (at most 64), pending pairing codes (at most 16) and LAN Console entries, written whole through a temp file and a rename while lan.json.lock is held; a device idle for 30 days reads as expired and is dropped on the next write 30 days after that, a revoked one 30 days after its revocation, a Console entry 90 days after it started; a stale lock is moved aside before it is removed"}],
+    ["console-tls", "config-home", "console/tls", "existing", {"value": 4, "text": "one private key (mode 0600) kept until it is missing or unreadable, and at most 4 certificate files, one per LAN address; a certificate is issued again when fewer than 30 days remain and the oldest file is deleted when a fifth is issued"}],
   ].map(([id, root, storePath, rule, bound]) => ({ id, root, path: storePath, rule, bound }));
   assert.deepEqual(actual, expected);
   const reuse = stores.find((s: any) => s.id === 'verification-reuse');
