@@ -57,6 +57,10 @@ function deadPid() {
 
 function liveChild() {
   const child = spawn(process.execPath, ['-e', 'setTimeout(()=>{}, 30000)'], { stdio: 'ignore' });
+  // A failed spawn (EAGAIN, EMFILE under load) emits 'error' with no pid: fail the case that asked for it, with the reason.
+  let spawnError: any = null;
+  child.on('error', (error: any) => { spawnError = error; });
+  if (typeof child.pid !== 'number') throw new Error(`could not start a child process: ${spawnError?.message ?? 'no pid'}`);
   children.push(child);
   return child;
 }
