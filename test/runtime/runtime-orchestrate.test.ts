@@ -486,7 +486,7 @@ test('a run with the same id for another feature in another worktree neither blo
   assert.equal(seen.status, 0, seen.stderr);
   assert.equal(seen.data.taskId, 'A.1');
   assert.deepEqual(fs.readFileSync(theirsFile), theirs, 'status changed nothing');
-  const missing = run(cwd, ['orchestrate', '--action', 'annotate', '--task-id', 'A.1', '--node', 'reproduction', '--note', 'n']);
+  const missing = run(cwd, ['orchestrate', '--action', 'complete-stage', '--task-id', 'A.1', '--stage', 'reproduction']);
   assert.equal(missing.status, 1, 'the other feature\'s run is not this checkout\'s task');
   assert.match(missing.stderr, /No workflow run for task 'A\.1'/);
 
@@ -547,8 +547,8 @@ test('FU-bp9dbs: status without --slug opens the one no-feature flat run another
   assert.equal(opened.data.taskId, 'N.1');
   assert.equal(opened.data.current.id, 'reproduction');
   assert.equal(json(cwd, ['orchestrate', '--action', 'timeline', '--task-id', 'N.1']).status, 0);
-  // A write action still finds no run without --slug.
-  assert.equal(run(cwd, ['orchestrate', '--action', 'annotate', '--task-id', 'N.1', '--node', 'reproduction', '--note', 'n']).status, 1);
+  // A verb that moves a run forward still finds no run without --slug.
+  assert.equal(run(cwd, ['orchestrate', '--action', 'complete-stage', '--task-id', 'N.1', '--stage', 'reproduction']).status, 1);
 
   // Two worktrees holding it is ambiguous, naming both; nothing is changed.
   leave(w2);
@@ -682,14 +682,115 @@ test('FU-wrnnaq: status without --slug refuses when two features hold the id, na
   assert.equal(json(cwd, ['orchestrate', '--action', 'status', '--task-id', 'T.5', '--slug', 'bbb']).status, 0);
 });
 
-test('FU-wrnnaq: only status looks across namespaces; a write action without --slug still finds no run', (t) => {
+test('FU-wrnnaq: status, timeline, annotate and close look across namespaces; a verb that moves a run without --slug still finds no run', (t) => {
   const cwd = project(t);
   execFileSync('git', ['-C', cwd, 'branch', '-M', 'main'], { stdio: 'ignore' });
   json(cwd, ['orchestrate', '--action', 'start', '--task-id', 'T.5', '--task-class', 'bug', '--slug', 'aaa']);
   const before = fs.readFileSync(path.join(storeOf(cwd), 'aaa', 'T.5.json'));
-  const res = run(cwd, ['orchestrate', '--action', 'annotate', '--task-id', 'T.5', '--node', 'reproduction', '--note', 'n']);
-  assert.equal(res.status, 1);
-  assert.deepEqual(fs.readFileSync(path.join(storeOf(cwd), 'aaa', 'T.5.json')), before);
+  for (const extra of [['complete-stage', '--stage', 'reproduction'], ['decide-gate', '--gate', 'g', '--decision', 'approve']]) {
+    const res = run(cwd, ['orchestrate', '--action', extra[0], '--task-id', 'T.5', ...extra.slice(1)]);
+    assert.equal(res.status, 1, extra[0]);
+    assert.match(res.stderr, /No workflow run for task 'T\.5'/);
+    assert.deepEqual(fs.readFileSync(path.join(storeOf(cwd), 'aaa', 'T.5.json')), before, `${extra[0]} changed nothing`);
+  }
+});
+
+test('close and annotate find the run list shows by its task id when the id differs from its folder', (t) => {
+  const cwd = project(t);
+  execFileSync('git', ['-C', cwd, 'branch', '-M', 'main'], { stdio: 'ignore' });
+  json(cwd, ['orchestrate', '--action', 'start', '--task-id', '000-maint-a', '--task-class', 'bug', '--slug', 'maint-a']);
+  const listed = json(cwd, ['orchestrate', '--action', 'list']);
+  assert.deepEqual(listed.data.runs.map((r: any) => [r.featureSlug, r.taskId]), [['maint-a', '000-maint-a']]);
+  const note = json(cwd, ['orchestrate', '--action', 'annotate', '--task-id', '000-maint-a', '--node', 'reproduction', '--note', 'n']);
+  assert.equal(note.status, 0, note.stderr);
+  const closed = json(cwd, ['orchestrate', '--action', 'close', '--task-id', '000-maint-a', '--note', 'done elsewhere']);
+  assert.equal(closed.status, 0, closed.stderr);
+  assert.equal(closed.data.state, 'CLOSED');
+  const record = JSON.parse(fs.readFileSync(path.join(storeOf(cwd), 'maint-a', '000-maint-a.json'), 'utf8'));
+  assert.equal(record.state, 'CLOSED');
+  assert.ok(!fs.existsSync(path.join(storeOf(cwd), '000-maint-a.json')), 'no flat copy is written');
+  assert.equal(json(cwd, ['orchestrate', '--action', 'list']).data.runs[0].state, 'CLOSED');
+});
+
+test('close by a task id that two features hold is refused, naming each --slug, and changes nothing', (t) => {
+  const cwd = project(t);
+  execFileSync('git', ['-C', cwd, 'branch', '-M', 'main'], { stdio: 'ignore' });
+  for (const slug of ['aaa', 'bbb']) json(cwd, ['orchestrate', '--action', 'start', '--task-id', '093-web', '--task-class', 'bug', '--slug', slug]);
+  const before = ['aaa', 'bbb'].map((slug) => fs.readFileSync(path.join(storeOf(cwd), slug, '093-web.json')));
+  for (const action of ['close', 'annotate']) {
+    const res = run(cwd, ['orchestrate', '--action', action, '--task-id', '093-web', '--note', 'n', '--node', 'reproduction']);
+    assert.equal(res.status, 1, action);
+    assert.match(res.stderr, /--slug aaa or --slug bbb/, res.stderr);
+  }
+  assert.deepEqual(['aaa', 'bbb'].map((slug) => fs.readFileSync(path.join(storeOf(cwd), slug, '093-web.json'))), before);
+  const named = json(cwd, ['orchestrate', '--action', 'close', '--task-id', '093-web', '--slug', 'bbb', '--note', 'n']);
+  assert.equal(named.status, 0, named.stderr);
+  assert.deepEqual(fs.readFileSync(path.join(storeOf(cwd), 'aaa', '093-web.json')), before[0], 'the other feature\'s run is untouched');
+});
+
+test('close and annotate from a checkout on feature foo refuse feature bar\'s run and name the --slug; with --slug they act and name the feature', (t) => {
+  const cwd = project(t);
+  execFileSync('git', ['-C', cwd, 'branch', '-M', 'main'], { stdio: 'ignore' });
+  const w1 = `${cwd}-foo`;
+  t.after(() => fs.rmSync(w1, { recursive: true, force: true }));
+  execFileSync('git', ['-C', cwd, 'worktree', 'add', '-q', '-b', 'foo', w1], { stdio: 'ignore' });
+  json(cwd, ['orchestrate', '--action', 'start', '--task-id', '002-y', '--task-class', 'bug', '--slug', 'bar']);
+  const file = path.join(storeOf(cwd), 'bar', '002-y.json');
+  const before = fs.readFileSync(file);
+  for (const action of ['close', 'annotate']) {
+    const res = run(w1, ['orchestrate', '--action', action, '--task-id', '002-y', '--note', 'n', '--node', 'reproduction']);
+    assert.equal(res.status, 1, `${action}: ${res.stdout}`);
+    assert.match(res.stderr, /belongs to feature 'bar', not this checkout's feature 'foo'; pass --slug bar/, res.stderr);
+    assert.deepEqual(fs.readFileSync(file), before, `${action} changed nothing`);
+  }
+  // From a checkout that resolves no feature, the one run is acted on, and the answer names its feature.
+  const text = run(cwd, ['orchestrate', '--action', 'annotate', '--task-id', '002-y', '--note', 'n', '--node', 'reproduction']);
+  assert.equal(text.status, 0, text.stderr);
+  assert.match(text.stdout, /^Feature: bar$/m);
+  // With --slug it acts from the other feature's checkout, and --json carries the feature.
+  const closed = json(w1, ['orchestrate', '--action', 'close', '--task-id', '002-y', '--slug', 'bar', '--note', 'n']);
+  assert.equal(closed.status, 0, closed.stderr);
+  assert.equal(closed.data.state, 'CLOSED');
+  assert.equal(closed.data.featureSlug, 'bar');
+});
+
+test('a flat run and a namespaced run of one id are both candidates for close and annotate without --slug', (t) => {
+  const cwd = project(t);
+  execFileSync('git', ['-C', cwd, 'branch', '-M', 'main'], { stdio: 'ignore' });
+  for (const slug of ['001-x', 'bar']) json(cwd, ['orchestrate', '--action', 'start', '--task-id', '001-x', '--task-class', 'bug', '--slug', slug]);
+  const flat = path.join(storeOf(cwd), '001-x.json');
+  const namespaced = path.join(storeOf(cwd), 'bar', '001-x.json');
+  assert.ok(fs.existsSync(flat) && fs.existsSync(namespaced));
+  const before = [fs.readFileSync(flat), fs.readFileSync(namespaced)];
+  for (const action of ['close', 'annotate']) {
+    const res = run(cwd, ['orchestrate', '--action', action, '--task-id', '001-x', '--note', 'n', '--node', 'reproduction']);
+    assert.equal(res.status, 1, `${action}: ${res.stdout}`);
+    assert.match(res.stderr, /--slug bar or --slug 001-x/, res.stderr);
+  }
+  assert.deepEqual([fs.readFileSync(flat), fs.readFileSync(namespaced)], before, 'nothing was changed');
+  // The flat run is addressed by the feature it records; the namespaced one by its own.
+  assert.equal(json(cwd, ['orchestrate', '--action', 'close', '--task-id', '001-x', '--slug', '001-x', '--note', 'n']).status, 0);
+  assert.equal(JSON.parse(fs.readFileSync(flat, 'utf8')).state, 'CLOSED');
+  assert.deepEqual(fs.readFileSync(namespaced), before[1], 'the namespaced run is untouched');
+  // A lone flat run is still closed by its id.
+  fs.rmSync(path.join(storeOf(cwd), 'bar'), { recursive: true });
+  json(cwd, ['orchestrate', '--action', 'start', '--task-id', '003-z', '--task-class', 'bug']);
+  const lone = json(cwd, ['orchestrate', '--action', 'close', '--task-id', '003-z', '--note', 'n']);
+  assert.equal(lone.status, 0, lone.stderr);
+});
+
+test('a flat run that records no feature beside a namespaced one: close refuses and says no --slug names the flat run', (t) => {
+  const cwd = project(t);
+  execFileSync('git', ['-C', cwd, 'branch', '-M', 'main'], { stdio: 'ignore' });
+  json(cwd, ['orchestrate', '--action', 'start', '--task-id', 'N.2', '--task-class', 'bug', '--slug', 'tmp']);
+  const record = JSON.parse(fs.readFileSync(path.join(storeOf(cwd), 'tmp', 'N.2.json'), 'utf8'));
+  delete record.featureSlug; delete record.slug;
+  fs.rmSync(path.join(storeOf(cwd), 'tmp'), { recursive: true });
+  json(cwd, ['orchestrate', '--action', 'start', '--task-id', 'N.2', '--task-class', 'bug', '--slug', 'bar']);
+  fs.writeFileSync(path.join(storeOf(cwd), 'N.2.json'), JSON.stringify(record));
+  const res = run(cwd, ['orchestrate', '--action', 'close', '--task-id', 'N.2', '--note', 'n']);
+  assert.equal(res.status, 1, res.stdout);
+  assert.match(res.stderr, /\(--slug bar\); 1 flat run records no feature, so no --slug names it/, res.stderr);
 });
 
 test('FU-mtjqt9 C-13: status on a corrupt run journal reveals none of its bytes', (t) => {

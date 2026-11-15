@@ -383,7 +383,15 @@ function selectRunEntries(entries: any[]): any[] {
  * @returns {{status: 'found'|'missing'|'ambiguous', file: string|null, root: string|null,
  *   origin: 'current'|'other'|null, candidates: Array<string>}}
  */
-function findRunFile({ stateRoot, taskId, slug, exec, anyNamespace = false }: any) {
+function findRunFile({ stateRoot, taskId, slug, exec, anyNamespace = false, acrossFlat = false }: any) {
+  if (acrossFlat) {
+    // `close` and `annotate` with no --slug act on one run only when the id names exactly one: the checkout's own
+    // feature wins when it holds the id; otherwise a flat run of this store counts beside every namespaced one.
+    const own = findRunFileFor({ stateRoot, taskId, slug, exec });
+    if (slug && own.status !== 'missing') return own;
+    const all = findNamespacedRun({ stateRoot, taskId, exec, withFlat: true });
+    return all.status === 'missing' ? own : all;
+  }
   const found = findRunFileFor({ stateRoot, taskId, slug, exec });
   return anyNamespace && found.status === 'missing' ? findNamespacedRun({ stateRoot, taskId, exec }) : found;
 }
@@ -397,22 +405,42 @@ function findRunFile({ stateRoot, taskId, slug, exec, anyNamespace = false }: an
  * @returns {{status: 'found'|'missing'|'ambiguous', file: string|null, root: string|null,
  *   origin: 'current'|'other'|null, candidates: Array<string>, slug?: string, byFeature?: true}}
  */
-function findNamespacedRun({ stateRoot, taskId, exec }: any) {
+function findNamespacedRun({ stateRoot, taskId, exec, withFlat = false }: any) {
   const name = `${taskId}.json`;
   const missing = { status: 'missing', file: null, root: null, origin: null, candidates: [] };
-  const inRoot = (root: string) => runFilesAt(root).filter((entry) => entry.namespace !== null && path.basename(entry.file) === name);
+  type Entry = { file: string; namespace: string|null; feature?: string };
+  const inRoot = (root: string): Entry[] => runFilesAt(root).filter((entry) => entry.namespace !== null && path.basename(entry.file) === name)
+    .map((entry) => ({ ...entry, feature: entry.namespace as string }));
+  // The feature a flat run records, read through the same safe read as every other run (a link, FIFO or device
+  // is never opened); undefined when it records none or cannot be read.
+  const recordedFeature = (root: string, file: string): { readable: boolean; feature?: string } => {
+    try {
+      const record = JSON.parse(readRunText(fs, file, runStoreDir(root)) as string);
+      const named = [record?.featureSlug, record?.slug].find((value) => typeof value === 'string' && value !== '');
+      return { readable: Boolean(record) && typeof record === 'object', ...(named !== undefined ? { feature: named } : {}) };
+    } catch { return { readable: false }; }
+  };
   // A flat run in another checkout that names no feature is any feature's, so `list` shows it and
-  // `status` opens it; read through the same safe read as every other run (a link, FIFO or device
-  // is never opened, and is not a match).
-  const flatInRoot = (root: string) => runFilesAt(root).filter((entry) => {
+  // `status` opens it.
+  const flatInRoot = (root: string): Entry[] => runFilesAt(root).filter((entry) => {
     if (entry.namespace !== null || path.basename(entry.file) !== name) return false;
-    try { return namesNoFeature(JSON.parse(readRunText(fs, entry.file, runStoreDir(root)) as string)); } catch { return false; }
+    const record = recordedFeature(root, entry.file);
+    return record.readable && record.feature === undefined;
   });
-  const settle = (entries: Array<{ file: string; namespace: string|null }>, root: string, origin: 'current'|'other') => (
+  // This store's flat run counts as a candidate for `close` and `annotate`, unless a namespaced copy of the
+  // feature it records shadows it (as `list` does).
+  const flatHere = (): Entry[] => {
+    const namespaced = inRoot(stateRoot);
+    return runFilesAt(stateRoot).filter((entry) => entry.namespace === null && path.basename(entry.file) === name)
+      .map((entry) => ({ ...entry, ...recordedFeature(stateRoot, entry.file) }))
+      .filter((entry) => !namespaced.some((copy) => copy.namespace === entry.feature))
+      .map(({ file, namespace, feature }) => ({ file, namespace, ...(feature !== undefined ? { feature } : {}) }));
+  };
+  const settle = (entries: Entry[], root: string, origin: 'current'|'other') => (
     entries.length === 1
-      ? { status: 'found', file: entries[0].file, root, origin, candidates: [], ...(entries[0].namespace !== null ? { slug: entries[0].namespace } : {}) }
-      : { ...missing, status: 'ambiguous', byFeature: true, candidates: entries.map((entry) => entry.file) });
-  const here = inRoot(stateRoot);
+      ? { status: 'found', file: entries[0].file, root, origin, candidates: [], ...(entries[0].namespace !== null ? { slug: entries[0].namespace } : {}), ...(entries[0].feature !== undefined ? { feature: entries[0].feature } : {}) }
+      : { ...missing, status: 'ambiguous', byFeature: true, candidates: entries.map((entry) => entry.file), slugs: entries.map((entry) => entry.feature ?? null) });
+  const here = [...inRoot(stateRoot), ...(withFlat ? flatHere() : [])];
   if (here.length > 0) return settle(here, stateRoot, 'current');
   const checkouts = listCheckouts({ cwd: stateRoot, ...(exec ? { exec } : {}) });
   if (!checkouts.ok || checkouts.sandbox) return missing;

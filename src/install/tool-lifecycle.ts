@@ -55,25 +55,53 @@ function allowedPrograms(tool: any, installer?: string): Set<string> {
   return allowed;
 }
 
-const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish', 'tcsh', 'csh', 'busybox', 'cmd', 'powershell', 'pwsh']);
-const INTERPRETERS = /^(python[\d.]*|node|perl|ruby)$/;
+// Programs that run whatever else they are handed: a shell, `env`, a package runner, a wrapper, an interpreter. Run only as
+// `<program> --version`, as an action and as a status command alike. None of these is a KNOWN_INSTALLERS name, so a route's
+// installer is never caught here; an installer is limited to the subcommands listed in INSTALLER_SUBCOMMANDS instead.
+const RUNS_OTHER = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish', 'tcsh', 'csh', 'busybox', 'cmd', 'powershell', 'pwsh', 'env',
+  'npx', 'bunx', 'pnpm', 'yarn', 'deno', 'php', 'lua', 'osascript', 'nice', 'nohup', 'xargs', 'time', 'command', 'exec', 'timeout', 'arch', 'xcrun']);
+// An interpreter by name family, with a version or a suffix (`python3.13t`, `pypy3`, `nodejs`, `ruby3.2`, `perl5.34`, `bun`, `gawk`).
+// The list is not exhaustive; the allow-list above it (the tool's own program or its installer) is what bounds a command.
+const INTERPRETERS = /^(python[\d.]*[a-z]*|pypy[\d.]*[a-z]*|node(js)?|ruby[\d.]*|perl[\d.]*|bun|g?awk|mawk|nawk)$/;
 
-/** A command that can run text it was handed: a shell, `env`, or an interpreter given inline code (`-c`, `-e` as a later word).
- * Such a command is only run as `<program> --version`, which runs nothing else. */
+/** The subcommands DoFlow runs for each known installer, as the words after the program. Anything else is refused, which is
+ * every subcommand that runs a program or code it is given (`npm exec`/`x`/`run`/`run-script`/`start`/`test`/`init`/`explore`,
+ * `brew ruby`/`sh`/`irb`, `uv run`/`tool run`/`x`, `pipx run`/`runpip`, `cargo run`, an external `cargo <x>` or `brew <x>`). */
+const INSTALLER_SUBCOMMANDS: Record<string, string[][]> = {
+  brew: ['install', 'uninstall', 'remove', 'upgrade', 'reinstall', 'update', 'tap', 'untap', 'list', 'info'].map((word) => [word]),
+  npm: ['install', 'i', 'add', 'uninstall', 'remove', 'rm', 'un', 'update', 'up', 'list', 'ls', 'view'].map((word) => [word]),
+  cargo: ['install', 'uninstall'].map((word) => [word]),
+  uv: [['tool', 'install'], ['tool', 'upgrade'], ['tool', 'uninstall'], ['tool', 'list'], ['pip', 'install'], ['pip', 'uninstall']],
+  pipx: ['install', 'uninstall', 'upgrade', 'reinstall', 'list'].map((word) => [word]),
+  'apt-get': ['install', 'remove', 'purge', 'update', 'upgrade'].map((word) => [word]),
+};
+
+/** A command that can run text it was handed: a shell, `env`, a package runner or wrapper, or an interpreter. Such a command is
+ * only run as `<program> --version`, which runs nothing else (`python3 setup` would run the file `setup`; `node --import=data:...`,
+ * `python3 -m timeit '<code>'` and `timeout 5 sh -c ...` run code with no `-c`). */
 function runsGivenText(command: any): boolean {
   if (!Array.isArray(command) || !command.length) return false;
   const name = programName(command[0]);
-  if (SHELLS.has(name) || name === 'env') return true;
-  return INTERPRETERS.test(name) && command.slice(1).some((word) => ['-c', '-e', '-p', '-E', '--eval', '--print'].includes(word));
+  return RUNS_OTHER.has(name) || INTERPRETERS.test(name);
+}
+
+/** Why a known installer's command is not one of its listed subcommands, or null (not an installer, or listed). */
+function installerRefusal(command: any): string | null {
+  if (!Array.isArray(command) || !command.length) return null;
+  const name = programName(command[0]);
+  if (!Object.hasOwn(INSTALLER_SUBCOMMANDS, name) || (command.length === 2 && command[1] === '--version')) return null;
+  const words = command.slice(1);
+  if (INSTALLER_SUBCOMMANDS[name].some((prefix) => prefix.every((word, index) => words[index] === word))) return null;
+  return `a command starting with '${command[0]}' can run a program or code it is given unless it is one of its listed subcommands (${INSTALLER_SUBCOMMANDS[name].map((prefix) => prefix.join(' ')).join(', ')}) as its first words, so DoFlow does not run it`;
 }
 
 /** Why DoFlow will not run this command, or null when it may. `allowed` is the set of programs it may start with. */
 function refusalReason(command: string[], allowed: Set<string> | null = null): string | null {
   const word = privilegeWord(command);
   if (word !== null) return `a command naming '${word}' needs administrator rights, so DoFlow does not run it`;
-  if (runsGivenText(command) && !(command.length === 2 && command[1] === '--version')) return `a command starting with '${command[0]}' can run text it is given, so DoFlow runs it only as '${command[0]} --version'`;
   if (allowed && !allowed.has(command?.[0])) return `a command starting with '${command?.[0]}' is neither the tool's own program nor its installer (${[...allowed].join(', ') || 'none'}), so DoFlow does not run it`;
-  return null;
+  if (runsGivenText(command) && !(command.length === 2 && command[1] === '--version')) return `a command starting with '${command[0]}' can run text it is given, so DoFlow runs it only as '${command[0]} --version'`;
+  return installerRefusal(command);
 }
 
 /** A status command is the tool's program and one argument, a flag or a plain subcommand (`--version`, `-version`, `gain`):
