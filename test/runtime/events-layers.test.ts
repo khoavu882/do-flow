@@ -251,16 +251,16 @@ test('161 IC-003: reviews give each feature absent, unreadable, invalid or ok wi
   assert.equal(byFeature['161-ok'].counts.task, '161-ok', 'the countFindings body as it is');
 });
 
-test('161 IC-003, DEC-006: gates carry by autopilot, person or null from the timeline, and an awaiting gate with by null', async (t) => {
+test('161 IC-003, DEC-006: gates carry by autopilot, manual or null from the timeline, and an awaiting gate with by null', async (t) => {
   const f = fixture(t);
   const a = project(f, 'proj-g');
   const gate = (id: string) => ({ type: 'gate', id, kind: 'approval', name: `Approve ${id}`, prompt: 'PRIVATE-PROMPT-161', status: 'done' });
   journal(a, 'feat-g', 't1', {
     runKey: `${cwdHash(a)}/t1/l1`, updatedAt: '2026-11-15T03:00:00.000Z',
-    program: [gate('g-auto'), gate('g-person'), gate('g-none')],
+    program: [gate('g-auto'), gate('g-manual'), gate('g-none')],
     history: [
       { at: '2026-11-15T01:00:00.000Z', action: 'decide-gate', node: 'g-auto', detail: 'approve', by: 'autopilot' },
-      { at: '2026-11-15T02:00:00.000Z', action: 'decide-gate', node: 'g-person', detail: 'reject', by: 'person', note: 'PRIVATE-NOTE' },
+      { at: '2026-11-15T02:00:00.000Z', action: 'decide-gate', node: 'g-manual', detail: 'reject', by: 'manual', note: 'PRIVATE-NOTE' },
       { at: '2026-11-15T03:00:00.000Z', action: 'decide-gate', node: 'g-none', detail: 'approve' },
     ],
   });
@@ -274,7 +274,7 @@ test('161 IC-003, DEC-006: gates carry by autopilot, person or null from the tim
   assert.deepEqual(sections.gates.json.map((g: any) => [g.taskId, g.gateId, g.state, g.by, g.runKey]), [
     ['t2', 'g-wait', 'awaiting', null, null],
     ['t1', 'g-none', 'approved', null, `${cwdHash(a)}/t1/l1`],
-    ['t1', 'g-person', 'rejected', 'person', `${cwdHash(a)}/t1/l1`],
+    ['t1', 'g-manual', 'rejected', 'manual', `${cwdHash(a)}/t1/l1`],
     ['t1', 'g-auto', 'approved', 'autopilot', `${cwdHash(a)}/t1/l1`],
   ]);
   assert.deepEqual(sections.gates.json[1].name, 'Approve g-none');

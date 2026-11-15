@@ -34,7 +34,7 @@ const REVIEW_STATES: readonly string[] = Object.freeze(['absent', 'unreadable', 
 /** src/runtime/review/findings.ts `countFindings`, its number fields (`task` is the feature, already a field of the row). */
 const REVIEW_COUNTS: readonly string[] = Object.freeze(['seats', 'seat_findings', 'converged', 'blocker', 'should_fix', 'note', 'open', 'fixed', 'refuted',
   'user_accepted', 'pre_existing', 'escaped', 'confirmed', 'plausible', 'unverified_blockers', 'bug_classes']);
-const DECIDERS: readonly string[] = Object.freeze(['autopilot', 'person']);
+const DECIDERS: readonly string[] = Object.freeze(['autopilot', 'manual']);
 const STORES: readonly string[] = Object.freeze(['absent', 'present']);
 /** IC-003 and IC-002 bounds; a section past one breaks the contract. */
 const BOUNDS = Object.freeze({ checkouts: 64, gates: 64, artifacts: 64, reviews: 16, sessions: 16, audit: 8, denials: 3, coverage: 32, activity: 16, activityGates: 8, harnesses: 32, unreadable: 32 });
