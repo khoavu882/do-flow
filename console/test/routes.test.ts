@@ -3,7 +3,8 @@
 // IC-005 read routes over a scripted runner (feature 093, C.1). The runner answers from the real core
 // outputs under fixtures/core/ (which carry the planted marker in every free-text field), so each case
 // checks what the route does with a runner result: body shape, error code mapping, the session check,
-// the parameter pattern, and that the only non-GET route is POST /api/session. The real core is
+// the parameter pattern, and that the only non-GET routes are POST /api/session and the three action routes
+// (162; their behaviour is actions-routes.test.ts). The real core is
 // exercised end to end by read-contract.test.ts.
 
 const { test, after } = require('node:test');
@@ -105,22 +106,24 @@ const errorBody = (code: string, verb: string | null = null, exit: number | null
 /** 161: the fixtures, and core-unreachable for every shape they lack (a device now reaches the worker-run reads). */
 const reachRunner = () => scripted(new Proxy({}, { get: (_target, shape) => (Object.hasOwn(DEFAULTS, shape) ? undefined : () => ({ ok: false, code: 'core-unreachable', exit: null })) }));
 
-test('route table: frozen, the only non-GET route is POST /api/session, the one stream route is GET /api/live (161: no Fleet routes), the IC-005 read paths plus /api/live, the device list the device reads', async (t) => {
+const ACTION_WRITES = ['POST /api/actions/decide-gate', 'POST /api/actions/close-run', 'POST /api/actions/cancel-worker'];
+
+test('route table: frozen, the only non-GET routes are POST /api/session and the three action routes, the one stream route is GET /api/live (161: no Fleet routes), the IC-005 read paths plus /api/live and /api/actions, the device list the device reads', async (t) => {
   const routes = consoleRoutes(scripted(), createSessions());
   assert.ok(Object.isFrozen(routes) && routes.every((route: any) => Object.isFrozen(route)));
-  assert.deepEqual(routes.filter((route: any) => route.method !== 'GET').map((route: any) => `${route.method} ${route.path}`), ['POST /api/session']);
+  assert.deepEqual(routes.filter((route: any) => route.method !== 'GET').map((route: any) => `${route.method} ${route.path}`), ['POST /api/session', ...ACTION_WRITES]);
   assert.deepEqual(routes.filter((route: any) => route.stream).map((route: any) => `${route.method} ${route.path}`), ['GET /api/live']);
   assert.deepEqual(routes.filter((route: any) => route.method === 'GET').map((route: any) => route.path).sort(),
-    ['/*', '/api/advice', '/api/doctor', '/api/followups', '/api/followups/:id', '/api/info', '/api/live', '/api/runs', '/api/runs/:slug/:taskId',
+    ['/*', '/api/actions', '/api/advice', '/api/doctor', '/api/followups', '/api/followups/:id', '/api/info', '/api/live', '/api/runs', '/api/runs/:slug/:taskId',
       '/api/sessions', '/api/sessions-history', '/api/settings', '/api/storage',
       '/api/worker-runs/:slug', '/api/worker-runs/:slug/:runId/log', '/api/worker-runs/:slug/:runId/result', '/api/worker-runs/:slug/:runId/status',
       '/api/worker-runs/:slug/:runId/transcript', '/api/workers', '/api/workflows', '/healthz']);
   // The device list (scopes.ts, 160 IC-007, 161 IC-009) by behaviour: a paired device passes the device check on exactly the device reads,
-  // and the LAN table has POST /api/pair as its only non-GET route and no launch-code exchange.
+  // and the LAN table has POST /api/pair and the three action routes as its only non-GET routes and no launch-code exchange.
   const world = lanWorld(t);
   const { cookie } = await world.pair('view');
   const lanRoutes = consoleRoutes(reachRunner(), world.auth);
-  assert.deepEqual(lanRoutes.filter((route: any) => route.method !== 'GET').map((route: any) => `${route.method} ${route.path}`), ['POST /api/pair']);
+  assert.deepEqual(lanRoutes.filter((route: any) => route.method !== 'GET').map((route: any) => `${route.method} ${route.path}`), ['POST /api/pair', ...ACTION_WRITES]);
   const reachable: string[] = [];
   const refused: string[] = [];
   for (const route of lanRoutes.filter((item: any) => item.method === 'GET' && item.path.startsWith('/api/'))) {
@@ -131,7 +134,7 @@ test('route table: frozen, the only non-GET route is POST /api/session, the one 
       refused.push(route.path);
     }
   }
-  assert.deepEqual(reachable.sort(), ['/api/info', '/api/live', '/api/runs', '/api/runs/:slug/:taskId', '/api/sessions', '/api/worker-runs/:slug', '/api/worker-runs/:slug/:runId/log',
+  assert.deepEqual(reachable.sort(), ['/api/actions', '/api/info', '/api/live', '/api/runs', '/api/runs/:slug/:taskId', '/api/sessions', '/api/worker-runs/:slug', '/api/worker-runs/:slug/:runId/log',
     '/api/worker-runs/:slug/:runId/result', '/api/worker-runs/:slug/:runId/status', '/api/worker-runs/:slug/:runId/transcript', '/api/workflows']);
   // 151 IC-012 to IC-014, 152 IC-006: the management routes and sessions-history are among the refused.
   for (const path of ['/api/settings', '/api/advice', '/api/workers', '/api/followups', '/api/followups/:id', '/api/doctor', '/api/storage', '/api/sessions-history']) assert.ok(refused.includes(path), path);

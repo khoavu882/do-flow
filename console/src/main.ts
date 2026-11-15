@@ -9,9 +9,12 @@
 // register the console entry, mint a boot code, print the pairing block once on stdout. No browser is opened.
 // One events supervisor and one live hub (feature 149, IC-009, IC-010) are made beside the runner; the
 // supervisor starts its child only while a `/api/live` connection follows a channel (DEC-017).
-// SIGINT/SIGTERM stop the hub (its supervisor ends the child) and the runner (its children are killed), mark
-// the console entry stopped, close the server (open streams are cut) and exit 0, within 2 s. Loopback mode
-// creates nothing under the config home.
+// The action routes (feature 162, actions.ts) log every attempt to the machine-wide action log
+// (`<config home>/doflow/console/actions.ndjson`, action-log.ts), in both modes; with no config home every action
+// is refused 503 action-log-unwritable. SIGINT/SIGTERM stop the hub (its supervisor ends the child) and the runner
+// (its children are killed), write the action log's pending aggregated lines, mark the console entry stopped, close
+// the server (open streams are cut) and exit 0, within 2 s. Loopback mode creates nothing under the config home
+// until an action is attempted.
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -25,6 +28,8 @@ const { createServer, BIND_HOST, remoteAddressError } = require('./server.ts');
 const { consoleRoutes } = require('./routes.ts');
 const { processSessions } = require('./session.ts');
 const { createDeviceAuth } = require('./device-auth.ts');
+const { createActions } = require('./actions.ts');
+const { openActionLog } = require('./action-log.ts');
 const { chooseLanAddress } = require('./lan-address.ts');
 const { ensureCertificate, fingerprintOf, certWatch } = require('./lan-cert.ts');
 const { payloadBlock, colonPairs } = require('./pair-payload.ts');
@@ -129,7 +134,7 @@ const detailOf = (error: any) => (error && typeof error.message === 'string' ? e
 type Lan = { app: any, block: string, stop: () => Promise<void> } | { exit: number, message: string };
 
 /** LAN boot after the handshake (design §8): config home, store, address, certificate, listen, entry, boot code. */
-async function startLan(flags: Flags, io: Io, serving: { runner: any, live: any }): Promise<Lan> {
+async function startLan(flags: Flags, io: Io, serving: { runner: any, live: any, actions: any }): Promise<Lan> {
   const say = (line: string) => io.stderr.write(`doflow ui: ${line}\n`);
   const opened = openStore(io.env);
   if ('error' in opened) return { exit: 1, message: opened.error };
@@ -179,7 +184,7 @@ async function startLan(flags: Flags, io: Io, serving: { runner: any, live: any 
     return { exit: 1, message: `certificate ${certPath} cannot be read (${detailOf(error)})` };
   }
   const auth = createDeviceAuth({ store, log: say, certState: () => watch.check() });
-  const routes = consoleRoutes(serving.runner, auth, serving.live, { projectRoot: flags.project, home: os.homedir() });
+  const routes = consoleRoutes(serving.runner, auth, serving.live, { projectRoot: flags.project, home: os.homedir() }, serving.actions);
   const remembered = store.rememberedPort(flags.project);
   const ports: number[] = flags.portGiven ? [flags.port] : [...new Set<number>([...(remembered === null ? [] : [remembered]), ...LAN_PORTS])];
   let app: any = null;
@@ -251,9 +256,11 @@ async function main(argv: readonly string[], io: Io = { env: process.env, cwd: p
   let app: any;
   let announce: string;
   let afterStop: () => Promise<void> = async () => {};
+  const actions = createActions({ runner, log: openActionLog(io.env), warn: (line: string) => io.stderr.write(`doflow ui: ${line}\n`) });
   if (flags.lan) {
-    const started = await startLan(flags, io, { runner, live });
+    const started = await startLan(flags, io, { runner, live, actions });
     if ('exit' in started) {
+      await actions.stop();
       live.stop();
       runner.stop();
       io.stderr.write(`doflow ui: ${started.message}\n`);
@@ -266,9 +273,10 @@ async function main(argv: readonly string[], io: Io = { env: process.env, cwd: p
         webRoot: WEB_ROOT,
         port: flags.port,
         // 151 IC-006: paths and text are placed under the runner's project root and the home folder.
-        routes: consoleRoutes(runner, processSessions, live, { projectRoot: flags.project, home: os.homedir() }),
+        routes: consoleRoutes(runner, processSessions, live, { projectRoot: flags.project, home: os.homedir() }, actions),
       });
     } catch (error: any) {
+      await actions.stop();
       live.stop();
       runner.stop();
       io.stderr.write(`doflow ui: cannot listen on ${BIND_HOST}:${flags.port} (${detailOf(error)})\n`);
@@ -287,7 +295,7 @@ async function main(argv: readonly string[], io: Io = { env: process.env, cwd: p
       runner.stop();
       let timer: any;
       const deadline = new Promise<void>((done) => { timer = setTimeout(done, SHUTDOWN_MS - 250); });
-      Promise.race([Promise.all([app.close(), afterStop()]), deadline]).then(() => {
+      Promise.race([Promise.all([app.close(), afterStop(), actions.stop()]), deadline]).then(() => {
         clearTimeout(timer);
         resolve(0);
       });

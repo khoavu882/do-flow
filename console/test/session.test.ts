@@ -99,7 +99,7 @@ test('launch code: single use; the second exchange of the same code is refused',
   assert.match(token, HEX64);
   assert.notEqual(token, code);
   assert.equal(store.exchange(code), null, 'reuse');
-  assert.deepEqual(store.verify(token), { scope: 'read' }, 'the first session survives the refused reuse');
+  assert.deepEqual(store.verify(token), { scope: 'local' }, 'the first session survives the refused reuse');
 });
 
 test('launch code: valid for 5 min on the injected clock, refused from 5 min on', () => {
@@ -155,7 +155,7 @@ test('launch code: right, wrong, wrong-length, consumed and unminted codes all t
 test('session: the token is 256-bit hex, scope read, and an unknown or malformed token is refused', () => {
   const store = createSessions({ now: clock().now });
   const token = store.exchange(store.mintLaunchCode());
-  assert.deepEqual(store.verify(token), { scope: 'read' });
+  assert.deepEqual(store.verify(token), { scope: 'local' });
   for (const bad of [null, undefined, '', token.slice(1), token.toUpperCase(), crypto.randomBytes(32).toString('hex')]) {
     assert.equal(store.verify(bad), null, String(bad));
   }
@@ -166,12 +166,12 @@ test('the loopback session has one scope and no lifetime but the process; there 
   const store = createSessions({ now: c.now });
   const token = store.exchange(store.mintLaunchCode());
   c.advance(10 * 365 * 24 * 60 * 60 * 1000);
-  assert.deepEqual(store.verify(token), { scope: 'read' });
+  assert.deepEqual(store.verify(token), { scope: 'local' });
   assert.equal(sessionCookie(4310, 'token'), 'doflow_ui_4310=token; HttpOnly; SameSite=Strict; Path=/');
   assert.equal(Object.hasOwn(session, 'PHONE_SESSION_TTL_MS'), false);
   // A scope option is no longer read: every session is the read scope.
   const other = createSessions({ now: c.now, scope: 'phone' } as any);
-  assert.deepEqual(other.verify(other.exchange(other.mintLaunchCode())), { scope: 'read' });
+  assert.deepEqual(other.verify(other.exchange(other.mintLaunchCode())), { scope: 'local' });
 });
 
 test('exchange: POST /api/session sets doflow_ui_<port> HttpOnly, SameSite=Strict, Path=/ with no lifetime, and the cookie opens /api/*', async () => {
@@ -188,7 +188,7 @@ test('exchange: POST /api/session sets doflow_ui_<port> HttpOnly, SameSite=Stric
 
     const ok = await h.probeWith(`other=1; ${h.name}=${token}; doflow_ui_1=x`);
     assert.equal(ok.status, 200);
-    assert.deepEqual(h.seen, [{ scope: 'read' }]);
+    assert.deepEqual(h.seen, [{ scope: 'local' }]);
 
     assertError(await h.exchange(JSON.stringify({ code })), 401, 'unauthenticated');
   } finally {
