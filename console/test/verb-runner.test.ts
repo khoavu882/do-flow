@@ -143,6 +143,7 @@ const EXPECTED_SHAPES = {
   workflow: { argv: ['workflow', '--task-class', 'feature', '--json'], params: { taskClass: 'feature' } },
   capabilities: { argv: ['capabilities', '--json'], params: {} },
   version: { argv: ['--version', '--json'], params: {} },
+  'events-kinds': { argv: ['events', '--kinds', '--json'], params: {} },
   observed: { argv: ['primary', '--action', 'observed', '--json'], params: {} },
   slots: { argv: ['slot', '--action', 'peek', '--json'], params: {} },
   'worker-status': { argv: ['worker', '--action', 'status', '--slug', 's.1', '--task', 'A.2', '--token', '2', '--json'], params: { slug: 's.1', task: 'A.2', token: '2' } },

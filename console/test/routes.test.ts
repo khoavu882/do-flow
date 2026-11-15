@@ -102,22 +102,24 @@ async function harness(runner: any, t: any) {
 }
 
 const errorBody = (code: string, verb: string | null = null, exit: number | null = null) => ({ error: { code, verb, exit } });
+/** 161: the fixtures, and core-unreachable for every shape they lack (a device now reaches the worker-run reads). */
+const reachRunner = () => scripted(new Proxy({}, { get: (_target, shape) => (Object.hasOwn(DEFAULTS, shape) ? undefined : () => ({ ok: false, code: 'core-unreachable', exit: null })) }));
 
-test('route table: frozen, the only non-GET route is POST /api/session, the stream routes are exactly GET /api/stream and GET /api/live, the IC-005 read paths plus /api/live, the device list the four routes', async (t) => {
+test('route table: frozen, the only non-GET route is POST /api/session, the one stream route is GET /api/live (161: no Fleet routes), the IC-005 read paths plus /api/live, the device list the device reads', async (t) => {
   const routes = consoleRoutes(scripted(), createSessions());
   assert.ok(Object.isFrozen(routes) && routes.every((route: any) => Object.isFrozen(route)));
   assert.deepEqual(routes.filter((route: any) => route.method !== 'GET').map((route: any) => `${route.method} ${route.path}`), ['POST /api/session']);
-  assert.deepEqual(routes.filter((route: any) => route.stream).map((route: any) => `${route.method} ${route.path}`), ['GET /api/stream', 'GET /api/live']);
+  assert.deepEqual(routes.filter((route: any) => route.stream).map((route: any) => `${route.method} ${route.path}`), ['GET /api/live']);
   assert.deepEqual(routes.filter((route: any) => route.method === 'GET').map((route: any) => route.path).sort(),
-    ['/*', '/api/advice', '/api/doctor', '/api/fleet', '/api/followups', '/api/followups/:id', '/api/info', '/api/live', '/api/runs', '/api/runs/:slug/:taskId',
-      '/api/sessions', '/api/sessions-history', '/api/settings', '/api/storage', '/api/stream', '/api/transcript',
+    ['/*', '/api/advice', '/api/doctor', '/api/followups', '/api/followups/:id', '/api/info', '/api/live', '/api/runs', '/api/runs/:slug/:taskId',
+      '/api/sessions', '/api/sessions-history', '/api/settings', '/api/storage',
       '/api/worker-runs/:slug', '/api/worker-runs/:slug/:runId/log', '/api/worker-runs/:slug/:runId/result', '/api/worker-runs/:slug/:runId/status',
       '/api/worker-runs/:slug/:runId/transcript', '/api/workers', '/api/workflows', '/healthz']);
-  // The device list (scopes.ts, 160 IC-007) by behaviour: a paired device passes the device check on exactly the four routes,
+  // The device list (scopes.ts, 160 IC-007, 161 IC-009) by behaviour: a paired device passes the device check on exactly the device reads,
   // and the LAN table has POST /api/pair as its only non-GET route and no launch-code exchange.
   const world = lanWorld(t);
   const { cookie } = await world.pair('view');
-  const lanRoutes = consoleRoutes(scripted(), world.auth);
+  const lanRoutes = consoleRoutes(reachRunner(), world.auth);
   assert.deepEqual(lanRoutes.filter((route: any) => route.method !== 'GET').map((route: any) => `${route.method} ${route.path}`), ['POST /api/pair']);
   const reachable: string[] = [];
   const refused: string[] = [];
@@ -129,7 +131,8 @@ test('route table: frozen, the only non-GET route is POST /api/session, the stre
       refused.push(route.path);
     }
   }
-  assert.deepEqual(reachable.sort(), ['/api/info', '/api/runs', '/api/runs/:slug/:taskId', '/api/workflows']);
+  assert.deepEqual(reachable.sort(), ['/api/info', '/api/live', '/api/runs', '/api/runs/:slug/:taskId', '/api/sessions', '/api/worker-runs/:slug', '/api/worker-runs/:slug/:runId/log',
+    '/api/worker-runs/:slug/:runId/result', '/api/worker-runs/:slug/:runId/status', '/api/worker-runs/:slug/:runId/transcript', '/api/workflows']);
   // 151 IC-012 to IC-014, 152 IC-006: the management routes and sessions-history are among the refused.
   for (const path of ['/api/settings', '/api/advice', '/api/workers', '/api/followups', '/api/followups/:id', '/api/doctor', '/api/storage', '/api/sessions-history']) assert.ok(refused.includes(path), path);
 });
@@ -137,8 +140,8 @@ test('route table: frozen, the only non-GET route is POST /api/session, the stre
 test('session: every read route is 401 without the cookie and no verb runs', async (t) => {
   const runner = scripted();
   const { get } = await harness(runner, t);
-  for (const target of ['/api/info', '/api/runs', '/api/runs/s1/t1', '/api/workflows', '/api/sessions', '/api/sessions-history', '/api/fleet', '/api/stream?project=0cc00ec6d2062bc0',
-    '/api/transcript?project=0cc00ec6d2062bc0&agent=0cc00ec6d2062bc0']) {
+  for (const target of ['/api/info', '/api/runs', '/api/runs/s1/t1', '/api/workflows', '/api/sessions', '/api/sessions-history', '/api/live?ch=now',
+    '/api/worker-runs/s1', '/api/worker-runs/s1/w-0123456789ab/transcript']) {
     const reply = await get(target, false);
     assert.equal(reply.status, 401, target);
     assert.deepEqual(JSON.parse(reply.body), errorBody('unauthenticated'), target);
@@ -146,8 +149,8 @@ test('session: every read route is 401 without the cookie and no verb runs', asy
   assert.deepEqual(runner.calls, []);
 });
 
-test('device session: only the four device GET routes are allowed, for view and for control', async (t) => {
-  const runner = scripted();
+test('device session: only the device GET routes are allowed (160 four, 161 live, sessions and worker-run reads), for view and for control', async (t) => {
+  const runner = reachRunner();
   const world = lanWorld(t);
   const routes = consoleRoutes(runner, world.auth);
   for (const scope of ['view', 'control'] as const) {
@@ -160,6 +163,13 @@ test('device session: only the four device GET routes are allowed, for view and 
       ['/api/runs', {}],
       ['/api/runs/:slug/:taskId', { slug: 'feat-a', taskId: 'run-1' }],
       ['/api/workflows', {}],
+      ['/api/live', {}],
+      ['/api/sessions', {}],
+      ['/api/worker-runs/:slug', { slug: 'feat-a' }],
+      ['/api/worker-runs/:slug/:runId/result', { slug: 'feat-a', runId: 'w-0123456789ab' }],
+      ['/api/worker-runs/:slug/:runId/status', { slug: 'feat-a', runId: 'w-0123456789ab' }],
+      ['/api/worker-runs/:slug/:runId/log', { slug: 'feat-a', runId: 'w-0123456789ab' }],
+      ['/api/worker-runs/:slug/:runId/transcript', { slug: 'feat-a', runId: 'w-0123456789ab' }],
     ] as const;
     for (const [path, params] of allowed) {
       const route = routes.find((item: any) => item.method === 'GET' && item.path === path);
@@ -167,8 +177,7 @@ test('device session: only the four device GET routes are allowed, for view and 
       const reply = await invoke(route, params as Record<string, string>);
       assert.notEqual(reply.status, 403, `${path} is on the device list (${scope})`);
     }
-    for (const path of ['/api/sessions', '/api/fleet', '/api/transcript', '/api/stream', '/api/live', '/api/worker-runs/:slug', '/api/worker-runs/:slug/:runId/result',
-      '/api/worker-runs/:slug/:runId/status', '/api/worker-runs/:slug/:runId/log', '/api/worker-runs/:slug/:runId/transcript']) {
+    for (const path of ['/api/settings', '/api/advice', '/api/workers', '/api/followups', '/api/followups/:id', '/api/doctor', '/api/storage', '/api/sessions-history']) {
       const route = routes.find((item: any) => item.method === 'GET' && item.path === path);
       assert.ok(route, path);
       const reply = await invoke(route);
@@ -288,12 +297,14 @@ test('GET /api/runs/:slug/:taskId: a timeline that cannot be read gives timeline
   assert.deepEqual(await gone.json('/api/runs/s1/t1'), { status: 404, body: errorBody('run-not-found', 'timeline', 1) });
 });
 
-test('params: a Fleet project, agent or cursor failing the IC-024 pattern is 400 usage before any verb runs', async (t) => {
+test('161: the Fleet routes are gone: GET /api/stream, /api/fleet and /api/transcript are 404 with a session, with no redirect and no verb run', async (t) => {
   const runner = scripted();
-  const { json } = await harness(runner, t);
-  for (const target of ['/api/transcript?project=x&agent=0cc00ec6d2062bc0', '/api/transcript?project=0cc00ec6d2062bc0', '/api/transcript?project=0cc00ec6d2062bc0&agent=0cc00ec6d2062bc0&cursor=1:2',
-    '/api/stream', '/api/stream?project=0CC00EC6D2062BC0', '/api/stream?project=0cc00ec6d2062bc0&agent=../x']) {
-    assert.deepEqual(await json(target), { status: 400, body: errorBody('usage') }, target);
+  const { get } = await harness(runner, t);
+  for (const target of ['/api/stream', '/api/stream?project=0cc00ec6d2062bc0', '/api/fleet', '/api/transcript', '/api/transcript?project=0cc00ec6d2062bc0&agent=0cc00ec6d2062bc0']) {
+    const reply = await get(target);
+    assert.equal(reply.status, 404, target);
+    assert.equal(reply.headers.location, undefined, `${target}: no redirect`);
+    assert.ok(!reply.body.includes('retry:'), `${target}: no stream`);
   }
   assert.deepEqual(runner.calls, []);
 });

@@ -2,7 +2,7 @@
 
 // The `/api/live` stream (feature 149, IC-011, IC-013, IC-014; DEC-027, DEC-028, DEC-030, DEC-041,
 // DEC-044, DEC-046, DEC-055). routes.ts validates the query, takes the stream slot and checks
-// availability; `serve` then owns the response: the `/api/stream` headers, `setNoDelay`, `retry: 2000`,
+// availability; `serve` then owns the response: the event-stream headers, `setNoDelay`, `retry: 2000`,
 // a named `keepalive` event (`event: keepalive`, `data: {}`, no `id:`) every 15000 ms, which the page
 // sees and watches for silence (an SSE comment would be invisible to it, and an event with empty data
 // is dropped), and one unnamed SSE message per browser frame, `id: <epoch>/<ch>=<pos>,...` (the position
@@ -37,6 +37,14 @@
 // `queue-full` resyncs with that snapshot. Frames this module makes for a log lane carry IC-007 ids
 // with the hub's `n` and this clock; a window frame over LIVE_FRAME_BUDGET is split at piece boundaries
 // into consecutive `append` frames, as the hub splits its own.
+//
+// Feature 161 (IC-007, IC-009): `file:<pk>:<fk>` is a log lane as above; on resume a position with
+// another inode than the window's is `reset` `replaced`, then the snapshot. `transcript:<pk>:<ak>` has a
+// plain `<n>` position in the hub epoch: on subscribe its own n gets nothing, an n inside the hub's
+// window one `append` of the newer events, anything else a `snapshot` of the window. A `machine` or
+// `layers` channel resumed from an n the hub still holds the patches after (`hub.since`) gets those
+// patches instead of a snapshot. `params.recheck`, when given (a paired device), runs before every
+// keepalive; a refusal, or a recheck that fails, ends the response.
 //
 // This module does not require routes.ts (live.ts reads routes.ts lazily; routes.ts requires this one).
 
@@ -78,11 +86,15 @@ type LogPiece = { at: number; text: string; cut?: true; withheld?: true };
 type LogWindow = { log: string; ino: string | null; from: number; to: number; pieces: LogPiece[]; phase: string | null; end: unknown };
 type Current = { n: number; state: unknown; error: string | null; gone: boolean };
 type LogCurrent = { n: number; window: LogWindow | null; error: string | null; gone: boolean };
+type TranscriptWindow = { head: Record<string, unknown>; events: Array<Record<string, unknown> & { n: number }>; base: number };
+type TranscriptCurrent = { n: number; transcript: TranscriptWindow | null; error: string | null; gone: boolean };
 /** The live hub of live.ts, as far as a connection uses it. */
 interface Hub {
   readonly epoch: string;
   subscribe(channel: string, listener: (frame: Frame) => void): () => void;
-  current(channel: string): Current | LogCurrent | null;
+  current(channel: string): Current | LogCurrent | TranscriptCurrent | null;
+  /** 161: the held frames of a machine or layers channel after `n`, or null. */
+  since?(channel: string, n: number): Frame[] | null;
   readonly unsupported: boolean;
   onUnsupported(listener: () => void): void;
 }
@@ -92,8 +104,9 @@ type LogPos = { ino: string; offset: number };
 type Vector = { epoch: string; positions: Map<string, number | LogPos> };
 /** `pos` is the position the message leaves the channel at in the id vector: `<n>`, or `<ino>:<to>` on a log lane. */
 type Item = { n: number; pos: string; envelope: string; bytes: number };
-type Lane = { name: string; log: boolean; queue: Item[]; bytes: number; mode: 'live' | 'lagging' | 'capped'; unsubscribe: (() => void) | null };
-type ServeParams = { channels: readonly string[]; resume: Vector | null; release: () => void };
+type Lane = { name: string; log: boolean; transcript: boolean; queue: Item[]; bytes: number; mode: 'live' | 'lagging' | 'capped'; unsubscribe: (() => void) | null };
+/** `recheck` (161 IC-009): the device check again; false, or a rejection, ends the response. */
+type ServeParams = { channels: readonly string[]; resume: Vector | null; release: () => void; recheck?: (() => Promise<boolean>) | null };
 
 const realClock: Clock = {
   now: () => Date.now(),
@@ -110,6 +123,8 @@ function parseChannelList(text: unknown): string[] | null {
 }
 
 const isLogChannel = (channel: string): boolean => parseChannel(channel)?.kind === 'log';
+const isTranscriptChannel = (channel: string): boolean => parseChannel(channel)?.kind === 'transcript';
+const isFileChannel = (channel: string): boolean => channel.startsWith('file:') && isLogChannel(channel);
 
 /** 150 IC-014 `logpos`, or null. */
 function parseLogPos(text: string): LogPos | null {
@@ -184,7 +199,7 @@ function createLiveStreams(hub: Hub, clock: Clock = realClock) {
         }
       }
     }
-    const lanes: Lane[] = params.channels.map((name) => ({ name, log: isLogChannel(name), queue: [], bytes: 0, mode: 'live', unsubscribe: null }));
+    const lanes: Lane[] = params.channels.map((name) => ({ name, log: isLogChannel(name), transcript: isTranscriptChannel(name), queue: [], bytes: 0, mode: 'live', unsubscribe: null }));
 
     const writable = (): number => (typeof res.writableLength === 'number' ? res.writableLength : 0);
     const queued = (): number => lanes.reduce((sum, lane) => sum + lane.bytes, 0);
@@ -281,6 +296,10 @@ function createLiveStreams(hub: Hub, clock: Clock = realClock) {
       }
       if (c.gone) return frameOf(lane.name, c.n, 'gone', {});
       if (c.error !== null) return frameOf(lane.name, c.n, 'error', { code: c.error });
+      if (lane.transcript) {
+        const w = (c as TranscriptCurrent).transcript ?? null;
+        return w === null ? null : frameOf(lane.name, c.n, 'snapshot', { ...w.head, events: w.events });
+      }
       const state = (c as Current).state;
       if (state === null || state === undefined) return null;
       return frameOf(lane.name, c.n, 'snapshot', { state });
@@ -459,6 +478,30 @@ function createLiveStreams(hub: Hub, clock: Clock = realClock) {
           if (held.offset === w.to) return;
           if (held.offset >= w.from && held.offset < w.to && w.pieces.some((piece) => piece.at === held.offset)) return sendWindow(lane, c.n, w, held.offset);
         }
+        // 161 IC-007: a file lane whose file is another inode than the one the client holds says so first.
+        if (held !== undefined && w.ino !== null && held.ino !== w.ino && isFileChannel(lane.name)) {
+          enqueue(lane, logFrameOf(lane.name, c.n, 'reset', { reason: 'replaced' }, `${held.ino}:${held.offset}`));
+          if (closed || lane.mode !== 'live') return;
+        }
+      }
+      resync(lane);
+    }
+
+    /** 161 IC-007: a transcript lane's own n gets nothing; an n inside the hub's window one append of the newer events; else the snapshot. */
+    function subscribeTranscript(lane: Lane, c: TranscriptCurrent): void {
+      const w = c.transcript ?? null;
+      const at = positions.get(lane.name);
+      if (!c.gone && c.error === null) {
+        if (w === null) return;
+        if (at !== undefined) {
+          const held = Number(at);
+          if (held === c.n) return;
+          if (held >= w.base && held < c.n) {
+            const head = w.head;
+            const events = w.events.filter((event) => event.n > held);
+            return enqueue(lane, frameOf(lane.name, c.n, 'append', { events, cursor: head.cursor, eof: head.eof, masked: head.masked, warnings: head.warnings }));
+          }
+        }
       }
       resync(lane);
     }
@@ -478,12 +521,34 @@ function createLiveStreams(hub: Hub, clock: Clock = realClock) {
       },
     };
 
+    /** 161 IC-009: a refused recheck ends the response; the EventSource reconnects and is refused. */
+    function end(): void {
+      if (closed) return;
+      try {
+        res.end();
+      } catch {}
+      close();
+    }
+
+    function beat(): void {
+      if (closed || !write('event: keepalive\ndata: {}\n\n')) return;
+      armKeepalive();
+      pump();
+    }
+
     function armKeepalive(): void {
       keepaliveTimer = clock.setTimeout(() => {
         keepaliveTimer = null;
-        if (closed || !write('event: keepalive\ndata: {}\n\n')) return;
-        armKeepalive();
-        pump();
+        if (closed) return;
+        const recheck = params.recheck ?? null;
+        if (recheck === null) return beat();
+        let check: Promise<boolean>;
+        try {
+          check = Promise.resolve(recheck());
+        } catch {
+          check = Promise.resolve(false);
+        }
+        check.then((ok) => (ok === true ? beat() : end()), () => end());
       }, KEEPALIVE_MS);
     }
 
@@ -511,7 +576,18 @@ function createLiveStreams(hub: Hub, clock: Clock = realClock) {
         subscribeLog(lane, c as LogCurrent);
         continue;
       }
+      if (lane.transcript) {
+        subscribeTranscript(lane, c as TranscriptCurrent);
+        continue;
+      }
       if (!c.gone && c.error === null && ((c as Current).state === null || positions.get(lane.name) === String(c.n))) continue;
+      // 161 IC-007: a machine or layers channel resumed from an n whose patches the hub still holds gets them, not a snapshot.
+      const at = positions.get(lane.name);
+      const held = at !== undefined && !c.gone && c.error === null && typeof hub.since === 'function' ? hub.since(lane.name, Number(at)) : null;
+      if (held !== null && held.length > 0 && held.every((frame) => frame.type === 'patch' && fits(frame))) {
+        for (const frame of held) enqueue(lane, frame);
+        continue;
+      }
       resync(lane);
     }
   }

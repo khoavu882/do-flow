@@ -487,3 +487,27 @@ test('real spawn: an [ERROR] fault before any frame is down and restarts', async
   live.stop();
   runner.stop();
 });
+
+test('161 IC-001: file and transcript lanes carry the log id; machine and layers keep <epoch>-<n>', () => {
+  const PK = 'a1b2c3d4e5f60718';
+  for (const ch of [`file:${PK}:f1f2f3f4f5f6f7f8`, `transcript:${PK}:aa11bb22cc33dd55`]) {
+    assert.equal(isCoreEnvelope(envelope({ ch, id: '8812345:4096:3:1762581600000', type: 'append' })), true, ch);
+    assert.equal(isCoreEnvelope(envelope({ ch, id: '0fa4ec0d-7' })), false, ch);
+  }
+  for (const ch of ['machine', `layers:${PK}`, `file:${PK}:F1F2F3F4F5F6F7F8`, `transcript:${PK}`]) {
+    assert.equal(isCoreEnvelope(envelope({ ch, id: '0fa4ec0d-7' })), true, ch);
+    assert.equal(isCoreEnvelope(envelope({ ch, id: '8812345:4096:3:1762581600000' })), false, ch);
+  }
+});
+
+test('161 DEC-012: isNewKind and newKindOf name the LAYERS_KINDS kind of a channel; no other channel has one', () => {
+  const { isNewKind, newKindOf } = require('../src/live-child.ts');
+  for (const [name, kind] of [['machine', 'machine'], ['layers:a1b2c3d4e5f60718', 'layers'], ['file:a:b', 'file'], ['transcript:a:b', 'transcript']]) {
+    assert.equal(isNewKind(name), true, name);
+    assert.equal(newKindOf(name), kind, name);
+  }
+  for (const name of ['now', 'run:a:b', 'tasks:a', 'worker:w-0123456789ab', 'worker:w-0123456789ab:out', 'machines', 'layer:x', 'layers', 'file', 'machine:x']) {
+    assert.equal(isNewKind(name), false, name);
+    assert.equal(newKindOf(name), null, name);
+  }
+});

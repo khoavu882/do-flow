@@ -116,6 +116,8 @@ const SHAPES: Readonly<Record<string, Shape>> = deepFreeze({
   workflow: { argv: ['workflow', '--task-class', TASK_CLASS], ttl: Infinity, byCoreVersion: true },
   capabilities: { argv: ['capabilities'], ttl: 30_000 },
   version: { argv: ['--version'], ttl: Infinity, text: true },
+  // 161 DEC-012: the channel kinds the core's events verb knows, `{v:1, kinds}`; an older core refuses the flag (exit 2). Read once per process, as `version`.
+  'events-kinds': { argv: ['events', '--kinds'], ttl: Infinity },
   // IC-018: the Sessions reads. `slot --action list`, `slot --action release` and `worker --action cancel` are not shapes.
   observed: { argv: ['primary', '--action', 'observed'], ttl: 5_000 },
   slots: { argv: ['slot', '--action', 'peek'], ttl: 5_000 },
@@ -699,8 +701,8 @@ function createVerbRunner(options: RunnerOptions) {
 /**
  * IC-005 / IC-024: the error codes of the Fleet shapes and their HTTP status. `project-not-found` is a
  * runner failure (no spawn); the others are the id of a core `error` on an exit 1 (`errorId`). `stream-limit`
- * belongs to the stream route (V.8) and `live-unavailable` to `/api/live` (149 IC-011); both are listed here
- * so the status table is in one place.
+ * and `live-unavailable` belong to `/api/live` (149 IC-011, 161 IC-008); both are listed here so the status
+ * table is in one place.
  */
 const FLEET_ERROR_STATUS: Readonly<Record<string, number>> = Object.freeze({
   'cannot-list-projects': 502,

@@ -10,6 +10,12 @@
 // 2 s, 5 s, then every 30 s; the step returns to 1 s once a child has run for 60 s (DEC-023). A stdout
 // line that is not an IC-002 envelope ends the child, and that exit takes the restart path.
 //
+// Feature 161 (IC-007, plan DEC-012): LAYERS_KINDS are the channel kinds `machine`, `layers`, `file` and
+// `transcript`. A core without one exits 2 on it in a control line, ending every channel it follows, so
+// the hub (live.ts) checks that the core lists the kind (`events --kinds`, `coreKindsOf`) before any
+// `sub` of it reaches this supervisor. `file:` and `transcript:` frames carry the log id, as
+// `worker:<runId>:out|err` frames do.
+//
 // Memory: each line is handled synchronously in the runner's line callback and handed to the frame
 // listeners; nothing here pauses, queues or buffers stdout. The line itself is bounded by the
 // runner's 256 KiB line cap.
@@ -55,8 +61,10 @@ const ENVELOPE_KEYS: readonly string[] = Object.freeze(['at', 'ch', 'data', 'id'
 const ENVELOPE_ID = /^[0-9a-f]{8}-[1-9][0-9]{0,15}$/;
 /** 150 IC-007: a log frame's id, `<ino>:<offset>:<n>:<ms>` (src/runtime/events/envelope.ts LOG_ID). */
 const LOG_ID = /^[0-9]{1,20}:[0-9]{1,16}:[1-9][0-9]{0,15}:[0-9]{1,16}$/;
-/** 150 IC-006: a log channel, `worker:<runId>:out` or `:err`. */
-const LOG_CHANNEL = /^worker:w-[0-9a-f]{12}:(?:out|err)$/;
+/** 150 IC-006 and 161 IC-001: a log channel, `worker:<runId>:out` or `:err`, `file:<pk>:<fk>` or `transcript:<pk>:<ak>`. */
+const LOG_CHANNEL = /^(?:worker:w-[0-9a-f]{12}:(?:out|err)|(?:file|transcript):[0-9a-f]{16}:[0-9a-f]{16})$/;
+/** 161 IC-001, DEC-012: the channel kinds a core must list (`events --kinds`) before the hub sends a `sub` of one. */
+const LAYERS_KINDS: readonly string[] = Object.freeze(['machine', 'layers', 'file', 'transcript']);
 const FRAME_TYPES: readonly string[] = Object.freeze(['snapshot', 'patch', 'append', 'reset', 'error', 'gone']);
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
@@ -252,4 +260,30 @@ function createLiveChild(options: { runner: FollowRunner; clock?: Clock }) {
   };
 }
 
-module.exports = { RESTART_DELAYS_MS, STEP_RESET_MS, createLiveChild, isCoreEnvelope };
+/** The LAYERS_KINDS kind of a channel name (`machine`, or the part before its first `:`), or null for any other channel. */
+function newKindOf(channel: string): string | null {
+  if (channel === 'machine') return 'machine';
+  const kind = channel.split(':')[0];
+  return channel.includes(':') && kind !== 'machine' && LAYERS_KINDS.includes(kind) ? kind : null;
+}
+
+/** True when `channel` is of one of the LAYERS_KINDS. */
+const isNewKind = (channel: string): boolean => newKindOf(channel) !== null;
+
+/**
+ * DEC-012: the kinds a core's `events --kinds --json` answer (a verb runner result) lists. An exit 0
+ * `{v:1, kinds:[string...]}` gives its kinds; any non-zero exit (an older core refuses the flag) gives the
+ * empty set, the row-150 kinds only, as does an exit 0 that is not that body; a failure with no exit
+ * (unreachable, timed out, stopped) is null, unknown.
+ */
+function coreKindsOf(answer: unknown): ReadonlySet<string> | null {
+  if (!isPlainObject(answer)) return null;
+  if (answer.ok === true) {
+    const body = answer.json;
+    const listed = isPlainObject(body) && body.v === 1 && Array.isArray(body.kinds) && body.kinds.every((kind) => typeof kind === 'string');
+    return new Set(listed ? (body.kinds as string[]) : []);
+  }
+  return typeof answer.exit === 'number' ? new Set() : null;
+}
+
+module.exports = { LAYERS_KINDS, RESTART_DELAYS_MS, STEP_RESET_MS, coreKindsOf, createLiveChild, isCoreEnvelope, isNewKind, newKindOf };

@@ -1,11 +1,21 @@
 'use strict';
 
 // The one list of what a paired device may reach (feature 160, IC-007). `buildRoutes` (routes.ts) asks
-// `deviceMayUse` for every /api route in LAN mode, after the device check; row 161 widens `view` here and
-// row 162 adds `control`-only entries here and checks `session.scope`. In this row `control` is a value a
-// device can hold and the list shows, but it reads exactly what `view` reads.
+// `deviceMayUse` for every /api route in LAN mode, after the device check; row 162 adds `control`-only
+// entries here and checks `session.scope`. In this row `control` is a value a device can hold and the
+// list shows, but it reads exactly what `view` reads.
+//
+// Feature 161 (IC-009, DEC-008): both scopes gain the live stream (every channel kind), the sessions
+// read and the worker-run reads. Briefs, reports and transcripts reach a device only through `/api/live`
+// lanes; every route not listed here stays refused. A live stream re-runs the device check on every
+// keepalive and ends on a refusal (routes.ts `requireDevice`, live-stream.ts).
 
-const READS = Object.freeze(['GET /api/info', 'GET /api/runs', 'GET /api/runs/:slug/:taskId', 'GET /api/workflows']);
+const READS = Object.freeze([
+  'GET /api/info', 'GET /api/runs', 'GET /api/runs/:slug/:taskId', 'GET /api/workflows',
+  'GET /api/live', 'GET /api/sessions',
+  'GET /api/worker-runs/:slug', 'GET /api/worker-runs/:slug/:runId/result', 'GET /api/worker-runs/:slug/:runId/status',
+  'GET /api/worker-runs/:slug/:runId/log', 'GET /api/worker-runs/:slug/:runId/transcript',
+]);
 
 const DEVICE_ROUTES: Readonly<Record<'view' | 'control', readonly string[]>> = Object.freeze({
   view: READS,

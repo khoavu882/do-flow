@@ -1,0 +1,488 @@
+{
+ "channel": "layers:a1b2c3d4e5f60718",
+ "readme": "Recorded core frames for feature 161 (IC-002 to IC-005), one file per channel kind. Each frame is {type, data} as the core events verb prints it on that channel (data of a state channel is {sections} of SectionResults; of a lane, the IC-004/IC-005 body). Planted values (a GitHub token, an email, a path) must never reach a browser frame.",
+ "frames": [
+  {
+   "type": "snapshot",
+   "data": {
+    "sections": {
+     "checkouts": {
+      "exit": 0,
+      "json": [
+       {
+        "worktreeKey": "b1b2c3d4e5f60718",
+        "label": "do-flow",
+        "branch": "feat/161-live-layers-stream",
+        "main": true
+       },
+       {
+        "worktreeKey": "b2b2c3d4e5f60718",
+        "label": "do-flow-fu21",
+        "branch": null,
+        "main": false
+       }
+      ]
+     },
+     "tree": {
+      "exit": 0,
+      "json": {
+       "v": 1,
+       "projectKey": "a1b2c3d4e5f60718",
+       "nodes": [
+        {
+         "agentKey": "aa11bb22cc33dd44",
+         "kind": "main-session",
+         "harness": "claude",
+         "model": "claude-opus-5-5",
+         "modelBasis": "hook-observation",
+         "label": null,
+         "depth": 0,
+         "worktreeKey": "b1b2c3d4e5f60718",
+         "startedAt": "2026-11-15T08:00:00.000Z",
+         "lastRecordAt": "2026-11-15T09:00:00.000Z",
+         "liveness": "not-checked",
+         "ended": null,
+         "transcript": {
+          "reader": "claude-jsonl",
+          "linked": true,
+          "reason": null
+         },
+         "sessionId": "s-planted"
+        },
+        {
+         "agentKey": "aa11bb22cc33dd55",
+         "kind": "harness-subagent",
+         "harness": "claude",
+         "model": null,
+         "modelBasis": null,
+         "label": "core-implementer",
+         "depth": 1,
+         "worktreeKey": "b1b2c3d4e5f60718",
+         "startedAt": "2026-11-15T08:30:00.000Z",
+         "lastRecordAt": null,
+         "liveness": "not-checked",
+         "ended": null,
+         "transcript": {
+          "reader": "claude-jsonl",
+          "linked": true,
+          "reason": null
+         }
+        }
+       ],
+       "edges": [
+        {
+         "from": "aa11bb22cc33dd44",
+         "to": "aa11bb22cc33dd55",
+         "basis": "harness-subagent-record"
+        }
+       ],
+       "limits": {
+        "nodes": 256,
+        "notChecked": 0
+       },
+       "unreadable": 0
+      }
+     },
+     "runs": {
+      "exit": 0,
+      "json": {
+       "v": 1,
+       "runs": [
+        {
+         "taskId": "060-write-set-completeness",
+         "featureSlug": "060-write-set-completeness",
+         "taskClass": "feature",
+         "workflowName": "Feature Delivery",
+         "state": "RUNNING",
+         "current": {
+          "type": "stage",
+          "id": "design",
+          "kind": "design",
+          "agent": null,
+          "mutatesSource": false,
+          "readinessTemplate": null
+         },
+         "awaitingGate": null,
+         "progress": {
+          "done": 2,
+          "total": 9
+         },
+         "terminalStage": {
+          "id": "review",
+          "skill": "do-code-review",
+          "kind": "review"
+         },
+         "revision": 3,
+         "startedAt": "2026-10-09T16:02:05.111Z",
+         "updatedAt": "2026-10-09T16:02:11.778Z",
+         "origin": "current",
+         "runKey": "b1b2c3d4e5f60718/r-1/l-1"
+        },
+        {
+         "taskId": "058-verify-readiness-enforcement",
+         "featureSlug": null,
+         "taskClass": "feature",
+         "workflowName": "Feature Delivery",
+         "state": "COMPLETED",
+         "current": null,
+         "awaitingGate": null,
+         "progress": {
+          "done": 9,
+          "total": 9
+         },
+         "terminalStage": {
+          "id": "review",
+          "skill": "do-code-review",
+          "kind": "review"
+         },
+         "revision": 10,
+         "startedAt": "2026-10-08T14:19:17.371Z",
+         "updatedAt": "2026-10-08T17:34:13.659Z",
+         "origin": "current",
+         "runKey": null
+        },
+        {
+         "taskId": "t1",
+         "featureSlug": null,
+         "taskClass": "feature",
+         "workflowName": "Feature Delivery",
+         "state": "AWAITING_GATE",
+         "current": {
+          "type": "gate",
+          "id": "gate-0",
+          "kind": "clarification",
+          "agent": null,
+          "mutatesSource": null,
+          "readinessTemplate": null
+         },
+         "awaitingGate": {
+          "gateId": "gate-0",
+          "name": "Unresolved clarifications ZZ-MARKER-7f3"
+         },
+         "progress": {
+          "done": 1,
+          "total": 9
+         },
+         "terminalStage": {
+          "id": "review",
+          "skill": "ZZ-MARKER-7f3",
+          "kind": "review"
+         },
+         "revision": 2,
+         "startedAt": "2026-10-26T03:38:40.615Z",
+         "updatedAt": "2026-10-26T03:38:40.760Z",
+         "origin": "current",
+         "runKey": null
+        }
+       ],
+       "unreadable": [
+        {
+         "taskId": "bad",
+         "featureSlug": null,
+         "origin": "current",
+         "reason": "id-mismatch"
+        },
+        {
+         "taskId": "broken",
+         "featureSlug": null,
+         "origin": "current",
+         "reason": "unparseable"
+        },
+        {
+         "taskId": "x1",
+         "featureSlug": null,
+         "origin": "other",
+         "reason": "unparseable ZZ-MARKER-7f3"
+        }
+       ]
+      }
+     },
+     "gates": {
+      "exit": 0,
+      "json": [
+       {
+        "runKey": "b1b2c3d4e5f60718/r-1/l-1",
+        "slug": "060-write-set-completeness",
+        "taskId": "060-write-set-completeness",
+        "gateId": "gate-0",
+        "name": "Unresolved clarifications",
+        "state": "approved",
+        "at": "2026-11-15T08:00:00.000Z",
+        "by": "autopilot"
+       }
+      ]
+     },
+     "artifacts": {
+      "exit": 0,
+      "json": [
+       {
+        "fileKey": "f1f2f3f4f5f6f7f8",
+        "kind": "task-brief",
+        "worktreeKey": "b1b2c3d4e5f60718",
+        "feature": "161-live-layers-stream",
+        "task": "3",
+        "bytes": 40,
+        "at": "2026-11-15T09:01:00.000Z",
+        "path": "/work/planted/main/exec/task-3-brief.md"
+       },
+       {
+        "fileKey": "f9f2f3f4f5f6f7f8",
+        "kind": "worker-out",
+        "worktreeKey": "b1b2c3d4e5f60718",
+        "feature": null,
+        "runId": "w-0123456789ab",
+        "bytes": 1200,
+        "at": "2026-11-15T09:00:00.000Z"
+       }
+      ]
+     },
+     "reviews": {
+      "exit": 0,
+      "json": [
+       {
+        "worktreeKey": "b1b2c3d4e5f60718",
+        "feature": "161-live-layers-stream",
+        "state": "ok",
+        "counts": {
+         "task": "161-live-layers-stream",
+         "rounds": 2,
+         "seats": 2,
+         "seat_findings": 5,
+         "converged": 3,
+         "blocker": 0,
+         "should_fix": 2,
+         "note": 1,
+         "open": 1,
+         "fixed": 2,
+         "refuted": 0,
+         "user_accepted": 0,
+         "pre_existing": 0,
+         "escaped": 0,
+         "confirmed": 2,
+         "plausible": 1,
+         "unverified_blockers": 0,
+         "bug_classes": 1
+        }
+       },
+       {
+        "worktreeKey": "b2b2c3d4e5f60718",
+        "feature": "160-console-device-pairing",
+        "state": "absent"
+       }
+      ]
+     },
+     "sessions": {
+      "exit": 0,
+      "json": [
+       {
+        "sessionKey": "5e55105e55105e55",
+        "harness": "claude",
+        "audit": {
+         "observed": true,
+         "open": 1,
+         "started": 1,
+         "stopped": 0,
+         "recent": [
+          {
+           "at": "2026-11-15T08:30:00.000Z",
+           "event": "SubagentStart",
+           "agentType": "core-implementer",
+           "agentKey": "aa11bb22cc33dd55"
+          }
+         ]
+        },
+        "denials": {
+         "observed": true,
+         "count": 1,
+         "recent": [
+          {
+           "at": "2026-11-15T08:40:00.000Z",
+           "tool": "Bash",
+           "reason": "mail planted.person@example.com was refused"
+          }
+         ]
+        }
+       },
+       {
+        "sessionKey": "5e55105e55105e66",
+        "harness": "codex",
+        "audit": {
+         "observed": true,
+         "open": 0,
+         "started": 0,
+         "stopped": 0,
+         "recent": []
+        },
+        "denials": {
+         "observed": false,
+         "reason": "no-harness-record"
+        }
+       }
+      ]
+     },
+     "traffic": {
+      "exit": 0,
+      "json": {
+       "v": 1,
+       "projectKey": "a1b2c3d4e5f60718",
+       "windowMin": 10,
+       "agents": [
+        {
+         "agentKey": "aa11bb22cc33dd44",
+         "harness": "claude",
+         "model": "claude-opus-5-5",
+         "eventsPerMin": 1.5,
+         "toolCalls": 4,
+         "toolErrors": 0,
+         "toolDurationMs": {
+          "p50": 20,
+          "max": 90,
+          "n": 3
+         },
+         "tokens": null,
+         "lastRecordAt": "2026-11-15T09:00:00.000Z"
+        }
+       ],
+       "models": [],
+       "pairs": [],
+       "notChecked": 0
+      }
+     },
+     "coverage": {
+      "exit": 0,
+      "json": [
+       {
+        "harness": "claude",
+        "main": {
+         "observed": true
+        },
+        "subagents": {
+         "observed": true
+        },
+        "transcript": {
+         "observed": true
+        },
+        "permissions": {
+         "observed": true
+        },
+        "questions": {
+         "observed": false,
+         "reason": "no-harness-record"
+        }
+       },
+       {
+        "harness": "gemini",
+        "main": {
+         "observed": true
+        },
+        "subagents": {
+         "observed": false,
+         "reason": "no-audit-hook"
+        },
+        "transcript": {
+         "observed": false,
+         "reason": "no-reader"
+        },
+        "permissions": {
+         "observed": false,
+         "reason": "no-harness-record"
+        },
+        "questions": {
+         "observed": false,
+         "reason": "no-harness-record"
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "type": "patch",
+   "data": {
+    "sections": {
+     "gates": {
+      "exit": 0,
+      "json": [
+       {
+        "runKey": "b1b2c3d4e5f60718/r-1/l-1",
+        "slug": "060-write-set-completeness",
+        "taskId": "060-write-set-completeness",
+        "gateId": "gate-1",
+        "name": "Design approval ghp_abcdefghijklmnopqrstuvwxyz0123456789",
+        "state": "awaiting",
+        "at": "2026-11-15T09:05:00.000Z",
+        "by": null
+       },
+       {
+        "runKey": "b1b2c3d4e5f60718/r-1/l-1",
+        "slug": "060-write-set-completeness",
+        "taskId": "060-write-set-completeness",
+        "gateId": "gate-0",
+        "name": "Unresolved clarifications",
+        "state": "approved",
+        "at": "2026-11-15T08:00:00.000Z",
+        "by": "autopilot"
+       }
+      ]
+     },
+     "sessions": {
+      "exit": 0,
+      "json": [
+       {
+        "sessionKey": "5e55105e55105e55",
+        "harness": "claude",
+        "audit": {
+         "observed": true,
+         "open": 2,
+         "started": 2,
+         "stopped": 0,
+         "recent": [
+          {
+           "at": "2026-11-15T09:06:00.000Z",
+           "event": "SubagentStart",
+           "agentType": "quality-guardian",
+           "agentKey": null
+          },
+          {
+           "at": "2026-11-15T08:30:00.000Z",
+           "event": "SubagentStart",
+           "agentType": "core-implementer",
+           "agentKey": "aa11bb22cc33dd55"
+          }
+         ]
+        },
+        "denials": {
+         "observed": true,
+         "count": 1,
+         "recent": [
+          {
+           "at": "2026-11-15T08:40:00.000Z",
+           "tool": "Bash",
+           "reason": "mail planted.person@example.com was refused"
+          }
+         ]
+        }
+       },
+       {
+        "sessionKey": "5e55105e55105e66",
+        "harness": "codex",
+        "audit": {
+         "observed": true,
+         "open": 0,
+         "started": 0,
+         "stopped": 0,
+         "recent": []
+        },
+        "denials": {
+         "observed": false,
+         "reason": "no-harness-record"
+        }
+       }
+      ]
+     }
+    }
+   }
+  }
+ ]
+}

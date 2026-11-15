@@ -25,6 +25,12 @@ const KEY = '0cc00ec6d2062bc0';
 const SLUG = '060-write-set-completeness';
 const TASK = '060-write-set-completeness';
 const RUN_ID = 'w-0123456789ab';
+/** 161: a project, a file and an agent key of the layers-frames fixtures. */
+const PK = 'a1b2c3d4e5f60718';
+const FK = 'f1f2f3f4f5f6f7f8';
+const AK = 'aa11bb22cc33dd55';
+const LAYERS_FRAMES = path.join(__dirname, 'fixtures', 'layers-frames');
+const recorded = (name: string) => JSON.parse(fs.readFileSync(path.join(LAYERS_FRAMES, `${name}.json`), 'utf8'));
 
 const SAMPLES: Record<string, () => any> = {
   observed: () => ({ v: 1, store: 'present', truncated: false, unreadable: 0, sessions: [],
@@ -416,7 +422,19 @@ test('channels: the IC-003 grammar with the core length bound, and 150 IC-006\'s
     assert.equal(isChannel(bad), false, bad);
   }
   assert.deepEqual(parseChannel('run:feat-a:A.3'), { kind: 'run', name: 'run:feat-a:A.3', slug: 'feat-a', taskId: 'A.3' });
-  assert.deepEqual(parseChannel(`worker:${RUN_ID}:err`), { kind: 'log', name: `worker:${RUN_ID}:err`, runId: RUN_ID, stream: 'err' });
+  assert.deepEqual(parseChannel(`worker:${RUN_ID}:err`), { kind: 'log', source: 'worker', name: `worker:${RUN_ID}:err`, runId: RUN_ID, stream: 'err' });
+});
+
+test('channels, 161 IC-001: machine, layers:<pk>, file:<pk>:<fk> and transcript:<pk>:<ak>, keys of 16 lowercase hex', () => {
+  for (const good of ['machine', `layers:${PK}`, `file:${PK}:${FK}`, `transcript:${PK}:${AK}`]) assert.equal(isChannel(good), true, good);
+  for (const bad of ['machine:x', 'layers', 'layers:', `layers:${PK.toUpperCase()}`, `layers:${PK}0`, `layers:${PK.slice(1)}`, `layers:${PK}:x`, `file:${PK}`,
+    `file:${PK}:${FK}:x`, `file:${PK}:${FK.slice(1)}`, `transcript:${PK}`, `transcript:${PK}:g${AK.slice(1)}`, `transcript:${PK}:${AK}:out`, 'transcript:x', 'fleet:x']) {
+    assert.equal(isChannel(bad), false, bad);
+  }
+  assert.deepEqual(parseChannel('machine'), { kind: 'machine', name: 'machine' });
+  assert.deepEqual(parseChannel(`layers:${PK}`), { kind: 'layers', name: `layers:${PK}`, projectKey: PK });
+  assert.deepEqual(parseChannel(`file:${PK}:${FK}`), { kind: 'log', source: 'file', name: `file:${PK}:${FK}`, projectKey: PK, fileKey: FK });
+  assert.deepEqual(parseChannel(`transcript:${PK}:${AK}`), { kind: 'transcript', name: `transcript:${PK}:${AK}`, projectKey: PK, agentKey: AK });
 });
 
 // ---- pending, debounce ----
@@ -1064,4 +1082,158 @@ test('log channels: events-down reaches them and a channel made while the child 
   log.unsubscribe();
   again.unsubscribe();
   assert.ok(!supervisor.last.includes(LOG) && !supervisor.last.includes(ERR));
+});
+
+// ---- 161: machine, layers, file and transcript lanes; the capability gate (DEC-012) and the lane limit ----
+
+/** Every channel kind the core of this row lists (src/runtime/events/channels.ts CHANNEL_KINDS). */
+const ALL_KINDS = ['now', 'run', 'tasks', 'worker', 'log', 'machine', 'layers', 'file', 'transcript'];
+/** A runner whose `events-kinds` read lists `kinds`, is refused as an older core refuses the flag (`'old'`, exit 2), or fails with no exit (null). */
+const kindsAnswer = (kinds: string[] | 'old' | null) =>
+  kinds === null ? { ok: false, code: 'core-unreachable', exit: null }
+    : kinds === 'old' ? { ok: false, code: 'core-error', exit: 2, reason: 'old-core' }
+      : { ok: true, json: { v: 1, kinds }, exit: 0 };
+const kindsRunner = (kinds: string[] | 'old' | null = ALL_KINDS) => realRunner({ 'events-kinds': () => kindsAnswer(kinds) });
+const NEW_KINDS = ['machine', `layers:${PK}`, `file:${PK}:${FK}`, `transcript:${PK}:${AK}`];
+const kindReads = (runner: any) => runner.calls.filter((call: any) => call.shape === 'events-kinds').length;
+
+test('161 DEC-012: the required kinds are exactly machine, layers, file and transcript; a kinds answer lists them, an exit lists none, no exit is unknown', () => {
+  const { LAYERS_KINDS, coreKindsOf } = require('../src/live-child.ts');
+  assert.deepEqual([...LAYERS_KINDS], ['machine', 'layers', 'file', 'transcript']);
+  assert.ok(Object.isFrozen(LAYERS_KINDS));
+  assert.deepEqual([...coreKindsOf(kindsAnswer(ALL_KINDS))], ALL_KINDS);
+  assert.deepEqual([...coreKindsOf(kindsAnswer('old'))], [], 'an older core refusing the flag lists only the row-150 kinds');
+  assert.deepEqual([...coreKindsOf({ ok: false, code: 'core-error', exit: 1 })], []);
+  for (const json of [{ v: 2, kinds: ALL_KINDS }, { v: 1, kinds: 'machine' }, { v: 1, kinds: [1] }, ['machine'], 'machine']) {
+    assert.deepEqual([...coreKindsOf({ ok: true, json, exit: 0 })], [], `a malformed answer lists none: ${JSON.stringify(json)}`);
+  }
+  assert.deepEqual([...coreKindsOf({ ok: false, code: 'core-error', exit: 0, reason: 'not-json' })], []);
+  for (const answer of [kindsAnswer(null), { ok: false, code: 'core-error', exit: null, reason: 'timeout' }, null, undefined]) assert.equal(coreKindsOf(answer), null);
+});
+
+test('161 DEC-012: on an older core (events --kinds refused) every new kind gets error core-lacks-channel and its sub is never sent; row-150 channels keep working', async () => {
+  const { hub, advance, supervisor, runner, listen } = setup(coreSections(), kindsRunner('old'));
+  const now = listen('now');
+  const lanes = NEW_KINDS.map((name) => listen(name));
+  await advance(100);
+  for (const [i, lane] of lanes.entries()) {
+    assert.deepEqual(lane.frames.map((f) => [f.type, f.data]), [['error', { code: 'core-lacks-channel' }]], NEW_KINDS[i]);
+  }
+  for (const set of supervisor.needs) for (const name of NEW_KINDS) assert.equal(set.includes(name), false, `${name} never in a need set: ${set}`);
+  assert.deepEqual(now.frames.map((f) => f.type), ['snapshot'], 'the now channel composes on the old core');
+  assert.equal(kindReads(runner), 1, 'one kinds read per hub');
+  assert.equal(runner.calls.some((call) => call.shape === 'version'), false, 'no version number gate');
+  // A later subscribe of a new kind on the same hub: the same answer, no second read.
+  const later = listen(`layers:${'b'.repeat(16)}`);
+  await advance(50);
+  assert.deepEqual(later.frames.map((f) => f.data), [{ code: 'core-lacks-channel' }]);
+  assert.equal(kindReads(runner), 1);
+  hub.stop();
+});
+
+test('161 DEC-012: a row-150 channel alone never reads the kinds; a core listing only some kinds follows those and refuses the rest', async () => {
+  const solo = setup(coreSections(), kindsRunner());
+  const now = solo.listen('now');
+  await solo.advance(100);
+  assert.deepEqual(now.frames.map((f) => f.type), ['snapshot']);
+  assert.equal(kindReads(solo.runner), 0, 'row-150 channels never depend on the kinds read');
+  solo.hub.stop();
+
+  const { hub, advance, supervisor, listen } = setup(null, kindsRunner(['now', 'run', 'tasks', 'worker', 'log', 'machine', 'layers']));
+  const lanes = NEW_KINDS.map((name) => listen(name));
+  await advance(50);
+  assert.deepEqual(supervisor.last.filter((name) => NEW_KINDS.includes(name)), ['layers:' + PK, 'machine'].sort());
+  assert.deepEqual(lanes.map((lane) => lane.frames.map((f) => f.data)), [[], [], [{ code: 'core-lacks-channel' }], [{ code: 'core-lacks-channel' }]]);
+  hub.stop();
+});
+
+test('161 DEC-012: a core listing the kinds gets the subs once the kinds read answers; a read with no exit sends none and the next subscribe asks again', async () => {
+  let kinds: string[] | null = null;
+  const runner = realRunner({ 'events-kinds': () => kindsAnswer(kinds) });
+  const { hub, advance, supervisor, listen } = setup(null, runner);
+  const first = listen('machine');
+  assert.equal(supervisor.last.includes('machine'), false, 'no sub before the kinds are known');
+  await advance(50);
+  assert.equal(supervisor.last.includes('machine'), false, 'a failed read sends no sub');
+  assert.deepEqual(first.frames, [], 'and no error: the gate is still unknown');
+  kinds = ALL_KINDS;
+  listen(`layers:${PK}`);
+  await advance(50);
+  assert.deepEqual(supervisor.last.filter((name) => NEW_KINDS.includes(name) || name === 'machine'), ['layers:' + PK, 'machine'].sort());
+  assert.equal(kindReads(runner), 2);
+  hub.stop();
+});
+
+test('161 IC-008: a hub follows at most 32 lanes; the 33rd is error too-many-lanes, never followed and never promoted; a freed slot takes a new lane', async () => {
+  const { LANE_LIMIT } = require('../src/live.ts');
+  assert.equal(LANE_LIMIT, 32);
+  const { hub, advance, supervisor, listen } = setup(null, kindsRunner());
+  const key = (i: number) => i.toString(16).padStart(16, '0');
+  const held = Array.from({ length: LANE_LIMIT }, (_, i) => listen(i % 2 === 0 ? `file:${PK}:${key(i)}` : `transcript:${PK}:${key(i)}`));
+  await advance(50);
+  const lanes = (set: string[]) => set.filter((name) => name.startsWith('file:') || name.startsWith('transcript:'));
+  assert.equal(lanes(supervisor.last).length, LANE_LIMIT);
+  const over = listen(`transcript:${PK}:${key(99)}`);
+  const overFile = listen(`file:${PK}:${key(98)}`);
+  await advance(50);
+  assert.deepEqual(over.frames.map((f) => [f.type, f.data]), [['error', { code: 'too-many-lanes' }]]);
+  assert.deepEqual(overFile.frames.map((f) => [f.type, f.data]), [['error', { code: 'too-many-lanes' }]]);
+  assert.equal(lanes(supervisor.last).length, LANE_LIMIT);
+  assert.equal(supervisor.last.includes(`transcript:${PK}:${key(99)}`), false);
+  held[0].unsubscribe();
+  await advance(50);
+  assert.equal(supervisor.last.includes(`transcript:${PK}:${key(99)}`), false, 'a refused lane is not promoted when a slot frees');
+  over.unsubscribe();
+  const fresh = listen(`transcript:${PK}:${key(99)}`);
+  await advance(50);
+  assert.ok(supervisor.last.includes(`transcript:${PK}:${key(99)}`), 'subscribed again, it takes the freed slot');
+  assert.deepEqual(fresh.frames, []);
+  hub.stop();
+});
+
+test('161 IC-003: the layers member is closed-field and masked; runs rows gain their skill through the cached workflow read; one bad section fails alone', async () => {
+  const fx = recorded('layers');
+  const { hub, advance, supervisor, runner, listen } = setup(null, kindsRunner());
+  const seen = listen(fx.channel);
+  await advance(50);
+  const sections = { ...fx.frames[0].data.sections, ...fx.frames[1].data.sections, reviews: { exit: 1, json: { error: 'unreadable' } }, coverage: { exit: 0, json: [{ harness: 'claude' }] } };
+  supervisor.push(fx.channel, 'snapshot', { sections });
+  await advance(100);
+  const member = seen.frames[0].data.state.layers;
+  assert.equal(member.status, 200);
+  assert.deepEqual(Object.keys(member.body), ['v', 'projectKey', 'sections']);
+  assert.equal(member.body.projectKey, PK);
+  assert.deepEqual(Object.keys(member.body.sections), ['checkouts', 'tree', 'runs', 'gates', 'artifacts', 'reviews', 'sessions', 'traffic', 'coverage']);
+  assert.deepEqual(member.body.sections.reviews, { ok: false, code: 'core-error' });
+  assert.deepEqual(member.body.sections.coverage, { ok: false, code: 'core-contract-mismatch' });
+  for (const name of ['checkouts', 'tree', 'runs', 'gates', 'artifacts', 'sessions', 'traffic']) assert.equal(member.body.sections[name].ok, true, name);
+  const rows = member.body.sections.runs.data.runs;
+  assert.deepEqual(rows.map((row: any) => [row.runKey, row.skill]), [['b1b2c3d4e5f60718/r-1/l-1', 'do-design'], [null, null], [null, null]]);
+  assert.equal(Object.hasOwn(member.body.sections.artifacts.data[0], 'path'), false, 'no path leaves');
+  const text = JSON.stringify(seen.frames);
+  for (const planted of ['ghp_abcdefghijklmnopqrstuvwxyz0123456789', '/work/planted', 'planted.person@example.com']) assert.equal(text.includes(planted), false, planted);
+  assert.ok(text.includes('<masked>'), 'the control: the planted values were there and were masked');
+  assert.deepEqual(runner.calls.map((call) => call.shape), ['events-kinds', 'workflow']);
+  hub.stop();
+});
+
+test('161 IC-005: a transcript lane keeps at most 200 events; a client behind a dropped event can no longer resume from the window', async () => {
+  const { TRANSCRIPT_WINDOW_EVENTS } = require('../src/live.ts');
+  assert.equal(TRANSCRIPT_WINDOW_EVENTS, 200);
+  const fx = recorded('transcript');
+  const { hub, advance, supervisor, listen } = setup(null, kindsRunner());
+  const seen = listen(fx.channel);
+  await advance(50);
+  supervisor.push(fx.channel, 'snapshot', fx.frames[0].data);
+  const event = (seq: number) => ({ ...fx.frames[1].data.events[0], seq, text: `line ${seq}` });
+  for (let k = 0; k < 4; k += 1) {
+    supervisor.push(fx.channel, 'append', { ...fx.frames[1].data, events: Array.from({ length: 50 }, (_, i) => event(2 + k * 50 + i)) });
+  }
+  const current = hub.current(fx.channel);
+  assert.equal(current.n, 5);
+  assert.equal(current.transcript.events.length, TRANSCRIPT_WINDOW_EVENTS);
+  assert.equal(current.transcript.events[0].seq, 2, 'the two snapshot events were dropped from the front');
+  assert.equal(current.transcript.base, 1, 'a client holding n 1 lost events: it gets a snapshot');
+  assert.deepEqual(seen.frames.map((f) => f.type), ['snapshot', 'append', 'append', 'append', 'append']);
+  hub.stop();
 });

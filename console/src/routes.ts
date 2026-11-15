@@ -3,8 +3,8 @@
 // The Console route table (IC-005). A route declares its method, so the server answers 405 for every
 // method no route declares for a path; the only non-GET route the contract allows is
 // `POST /api/session`, the launch-code exchange (092 IC-011), in loopback mode and `POST /api/pair`
-// (device-auth.ts, 160 IC-006) in LAN mode, and the stream routes are exactly
-// `GET /api/stream` and `GET /api/live` (`stream: true`: the handler writes to `ctx.res` over time and
+// (device-auth.ts, 160 IC-006) in LAN mode, and the one stream route is
+// `GET /api/live` (`stream: true`: the handler writes to `ctx.res` over time and
 // returns null once it has taken the response over; before that it may still return an error Reply). `buildRoutes` puts every
 // other /api route behind the session check (loopback) or the paired-device check and the scope list of
 // scopes.ts (LAN), so a route added to the table cannot skip it. Paths are literal segments, `:name` segments (one non-empty raw segment,
@@ -20,14 +20,16 @@ const { project } = require('./project.ts');
 const { anchorsOf } = require('./place.ts');
 const { handshake } = require('./handshake.ts');
 const { PARAM_PATTERN, PATTERNS, fleetError } = require('./verb-runner.ts');
-const { createStreams, createStreamCap, parseLastEventId, MAX_STREAMS_PER_SESSION } = require('./stream.ts');
+const { createStreamCap, MAX_STREAMS_PER_CONSOLE, MAX_STREAMS_PER_SESSION } = require('./stream-cap.ts');
 const { createLiveStreams, lastEventVector, parseChannelList, parseVector } = require('./live-stream.ts');
 
 type Reply = { status: number, headers?: Record<string, string>, body?: string | Uint8Array };
 type Session = { scope: 'read' } | { scope: 'view' | 'control', deviceId: string };
 // `clientClass` is set in LAN mode only: a request with an Origin, a Sec-Fetch-Site or a device cookie is a
-// browser, any other a native client (160 IC-005).
-type RouteContext = { req: any, res: any, pathname: string, params: Record<string, string>, webRoot: string, port: number, clientClass?: 'browser' | 'native', session?: Session };
+// browser, any other a native client (160 IC-005). `recheck` is set in LAN mode only: the device check again,
+// for a stream to run on each keepalive (161 IC-009).
+type RouteContext = { req: any, res: any, pathname: string, params: Record<string, string>, webRoot: string, port: number, clientClass?: 'browser' | 'native', session?: Session,
+  recheck?: () => Promise<boolean> };
 type Route = Readonly<{ method: 'GET' | 'POST', path: string, stream?: true, handler: (ctx: RouteContext) => Reply | null | Promise<Reply | null> }>;
 type StreamCap = { acquire(session: object): (() => void) | null, open(): number };
 /** The live hub of live.ts (one per Console, made in main.ts), as far as the route and live-stream.ts use it. */
@@ -37,6 +39,8 @@ type LiveHub = {
   current(channel: string): { n: number, state: unknown, error: string | null, gone: boolean } | null,
   readonly unsupported: boolean,
   onUnsupported(listener: () => void): void,
+  /** The hub's clock; its streams keep time by it (keepalive, stall, the device recheck). */
+  readonly clock?: { now(): number, setTimeout(fn: () => void, ms: number): any, clearTimeout(handle: any): void },
 };
 
 const JSON_TYPE = 'application/json; charset=utf-8';
@@ -124,12 +128,18 @@ function requireSession(sessions: any, route: Route): Route['handler'] {
 
 // LAN mode: the credential is checked by the device auth (device-auth.ts), then the device's scope must
 // list the route (scopes.ts); a refreshed cookie rides on the reply of a browser whose last-seen was written.
+// The handler gets `recheck`, the same two checks again on the same request (161 IC-009: a stream runs it
+// on each keepalive, so a revoked or expired device is cut off within one).
 function requireDevice(auth: any, route: Route): Route['handler'] {
   return async (ctx) => {
     const checked = await auth.authenticate(ctx);
     if ('reply' in checked) return checked.reply;
     if (!deviceMayUse(checked.session.scope, route.method, route.path)) return errorReply(403, 'phone-scope');
-    const reply = await route.handler({ ...ctx, session: checked.session });
+    const recheck = async (): Promise<boolean> => {
+      const again = await auth.authenticate(ctx);
+      return !('reply' in again) && deviceMayUse(again.session.scope, route.method, route.path);
+    };
+    const reply = await route.handler({ ...ctx, session: checked.session, recheck });
     return reply !== null && checked.refresh ? { ...reply, headers: { ...reply.headers, 'Set-Cookie': checked.refresh } } : reply;
   };
 }
@@ -377,46 +387,13 @@ async function workflows(runner: Runner): Promise<Reply> {
   return jsonReply(200, { v: 1, workflows: reads.map((entry) => (entry as any).body) });
 }
 
-// ---- IC-025: GET /api/fleet, GET /api/transcript, GET /api/stream ----
+// ---- the transcript read of a worker run ----
 
-/** IC-025: projects shown per Fleet read; the rest are counted. The traffic window (10 min) is a literal of the `traffic` shape. */
-const FLEET_PROJECT_LIMIT = 12;
 /** One transcript page per read: the core's own default (IC-022). */
 const TRANSCRIPT_PAGE = '200';
-// The verb runner checks these again (IC-024); routes check them first so a bad parameter is a 400 before any verb runs.
-const KEY16 = /^[0-9a-f]{16}$/;
-const CURSOR = /^[0-9]+:[0-9]+:[0-9]+:[0-9]+$/;
 
-/**
- * IC-025: `projects`, then `tree` and `traffic` for at most FLEET_PROJECT_LIMIT of them. A failed
- * `projects` fails the read (`cannot-list-projects`); a failed `tree` or `traffic` fails its own section.
- */
-async function fleetRead(runner: Runner): Promise<Read> {
-  const list = await read(runner, 'projects', {});
-  if (!list.ok) return list;
-  const shown: any[] = list.body.projects.slice(0, FLEET_PROJECT_LIMIT);
-  const projects = await Promise.all(shown.map(async (entry) => {
-    const [tree, traffic] = await Promise.all([
-      read(runner, 'tree', { projectKey: entry.projectKey }),
-      read(runner, 'traffic', { projectKey: entry.projectKey }),
-    ]);
-    return { projectKey: entry.projectKey, label: entry.label, current: entry.current, temp: entry.temp, checkouts: entry.checkouts, lastRecordAt: entry.lastRecordAt, tree: sectionOf(tree), traffic: sectionOf(traffic) };
-  }));
-  return {
-    ok: true,
-    exit: 0,
-    body: {
-      v: 1,
-      store: list.body.store,
-      projects,
-      excluded: list.body.excluded,
-      limits: { projectsShown: shown.length, projectsNotShown: list.body.projects.length - shown.length, truncated: list.body.truncated },
-    },
-  };
-}
-
-function transcriptRead(runner: Runner, project: string, agent: string, cursor: string | null): Promise<Read> {
-  return read(runner, 'transcript', { projectKey: project, agent, limit: TRANSCRIPT_PAGE, ...(cursor === null ? {} : { cursor }) });
+function transcriptRead(runner: Runner, project: string, agent: string): Promise<Read> {
+  return read(runner, 'transcript', { projectKey: project, agent, limit: TRANSCRIPT_PAGE });
 }
 
 /** The query parameters of `req`, or null when one is unknown or given twice. */
@@ -431,21 +408,6 @@ function queryOf(req: any, names: readonly string[]): Map<string, string> | null
   });
   return ok ? found : null;
 }
-
-const fleetRoute = (runner: Runner): Route['handler'] => async () => {
-  const fleet = await fleetRead(runner);
-  return fleet.ok ? jsonReply(200, fleet.body) : fleet.reply;
-};
-
-const transcriptRoute = (runner: Runner): Route['handler'] => async (ctx) => {
-  const query = queryOf(ctx.req, ['project', 'agent', 'cursor']);
-  const project = query?.get('project');
-  const agent = query?.get('agent');
-  const cursor = query?.get('cursor') ?? null;
-  if (!query || project === undefined || agent === undefined || !KEY16.test(project) || !KEY16.test(agent) || (cursor !== null && !CURSOR.test(cursor))) return errorReply(400, 'usage');
-  const page = await transcriptRead(runner, project, agent, cursor);
-  return page.ok ? jsonReply(200, page.body) : page.reply;
-};
 
 // ---- 150 IC-012: GET /api/worker-runs/:slug and the four per-run routes ----
 
@@ -539,42 +501,22 @@ const workerRunRoute = (runner: Runner, kind: WorkerRead): Route['handler'] => a
   if (!list.ok) return list.reply;
   const current = list.body.projects.find((entry: any) => entry.current === true);
   if (!current) return errorReply(404, 'project-not-found', 'projects', null);
-  const page = await transcriptRead(runner, current.projectKey, workerAgentKey(runId), null);
+  const page = await transcriptRead(runner, current.projectKey, workerAgentKey(runId));
   return page.ok ? jsonReply(200, page.body) : page.reply;
 };
 
 const workerRunsRoute = (runner: Runner): Route['handler'] => (ctx) => (queryOf(ctx.req, []) === null ? errorReply(400, 'usage') : workerRuns(runner, ctx.params.slug));
 
 /**
- * The stream route kind: validated here, then handed to stream.ts, which owns the response from
- * `retry:` on. A stream takes its slot from `cap`, the Console's one stream cap (IC-014): at most four
- * open stream connections per session; the fifth is `429 stream-limit` as a JSON body before any
- * stream header.
- */
-const streamRoute = (runner: Runner, cap: StreamCap): Route['handler'] => {
-  const streams = createStreams({ fleet: fleetRead.bind(null, runner), transcript: (project: string, agent: string, cursor: string | null) => transcriptRead(runner, project, agent, cursor) }, cap);
-  return (ctx) => {
-    const query = queryOf(ctx.req, ['project', 'agent']);
-    const project = query?.get('project');
-    const agent = query?.get('agent') ?? null;
-    if (!query || project === undefined || !KEY16.test(project) || (agent !== null && !KEY16.test(agent))) return errorReply(400, 'usage');
-    const release = streams.acquire(ctx.session as object);
-    if (release === null) return errorReply(429, 'stream-limit');
-    const resume = parseLastEventId(ctx.req.headers['last-event-id']);
-    streams.serve(ctx.req, ctx.res, { project, agent, revision: resume.revision, cursor: agent === null ? null : resume.cursor, release });
-    return null;
-  };
-};
-
-/**
  * `GET /api/live` (IC-011). After the session check of buildRoutes: the query (`ch`, `since`; 400
- * usage), the slot from the stream cap shared with `/api/stream` (429 stream-limit), availability (503
- * live-unavailable with the slot released first: no hub, or a hub whose supervisor is unsupported),
- * then live-stream.ts owns the response. No hub subscribe, so no events child, happens before that
+ * usage), the slot from the Console's stream cap (429 stream-limit: four per session or device, sixteen
+ * in all, 161 IC-008), availability (503 live-unavailable with the slot released first: no hub, or a hub
+ * whose supervisor is unsupported), then live-stream.ts owns the response, with the device recheck of
+ * `requireDevice` in LAN mode (161 IC-009). No hub subscribe, so no events child, happens before that
  * last step (AC-16). `since` wins over `Last-Event-ID`; a malformed `Last-Event-ID` resumes nothing.
  */
 const liveRoute = (live: LiveHub | null, cap: StreamCap): Route['handler'] => {
-  const streams = live === null ? null : createLiveStreams(live);
+  const streams = live === null ? null : createLiveStreams(live, live.clock);
   return (ctx) => {
     const query = queryOf(ctx.req, ['ch', 'since']);
     const channels = query === null ? null : parseChannelList(query.get('ch'));
@@ -589,7 +531,7 @@ const liveRoute = (live: LiveHub | null, cap: StreamCap): Route['handler'] => {
       return errorReply(503, 'live-unavailable');
     }
     const resume = since ?? lastEventVector(ctx.req.headers['last-event-id'], channels);
-    streams.serve(ctx.req, ctx.res, { channels, resume, release });
+    streams.serve(ctx.req, ctx.res, { channels, resume, release, recheck: ctx.recheck ?? null });
     return null;
   };
 };
@@ -739,13 +681,13 @@ const sessionsHistoryRoute = (runner: Runner, anchors: Anchors): Route['handler'
 /**
  * The Console's table (IC-005) over `runner`: every /api route but the exchange is behind the session
  * check (buildRoutes), every one is GET, and each answers `{v:1, ...}` or IC-005's error body. The
- * stream routes share one stream cap (DEC-031), made here once per table. `live` is the Console's live
+ * stream route takes its slots from one stream cap (DEC-031, 161 IC-008), made here once per table. `live` is the Console's live
  * hub; without one (route tests over a scripted runner) `/api/live` answers 503 live-unavailable.
  * `place` gives the anchors the management routes place paths and text under (151 IC-006).
  */
 function consoleRoutes(runner: Runner, access: any = processSessions, live: LiveHub | null = null,
   place: Place = { projectRoot: process.cwd(), home: os.homedir() }): readonly Route[] {
-  const streamCap = createStreamCap(MAX_STREAMS_PER_SESSION);
+  const streamCap = createStreamCap(MAX_STREAMS_PER_SESSION, MAX_STREAMS_PER_CONSOLE);
   const anchors: Anchors = anchorsOf({ projectRoot: place.projectRoot, home: place.home });
   return buildRoutes(access, [
     healthz,
@@ -754,8 +696,6 @@ function consoleRoutes(runner: Runner, access: any = processSessions, live: Live
     { method: 'GET', path: '/api/runs/:slug/:taskId', handler: (ctx) => runDetail(runner, ctx.params.slug, ctx.params.taskId) },
     { method: 'GET', path: '/api/workflows', handler: () => workflows(runner) },
     { method: 'GET', path: '/api/sessions', handler: () => sessionsView(runner) },
-    { method: 'GET', path: '/api/fleet', handler: fleetRoute(runner) },
-    { method: 'GET', path: '/api/transcript', handler: transcriptRoute(runner) },
     { method: 'GET', path: '/api/worker-runs/:slug', handler: workerRunsRoute(runner) },
     { method: 'GET', path: '/api/worker-runs/:slug/:runId/result', handler: workerRunRoute(runner, 'result') },
     { method: 'GET', path: '/api/worker-runs/:slug/:runId/status', handler: workerRunRoute(runner, 'status') },
@@ -769,7 +709,6 @@ function consoleRoutes(runner: Runner, access: any = processSessions, live: Live
     { method: 'GET', path: '/api/doctor', handler: doctorRoute(runner, anchors) },
     { method: 'GET', path: '/api/storage', handler: storageRoute(runner, anchors) },
     { method: 'GET', path: '/api/sessions-history', handler: sessionsHistoryRoute(runner, anchors) },
-    { method: 'GET', path: '/api/stream', stream: true, handler: streamRoute(runner, streamCap) },
     { method: 'GET', path: '/api/live', stream: true, handler: liveRoute(live, streamCap) },
     staticFallback,
   ]);

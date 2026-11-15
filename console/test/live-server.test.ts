@@ -135,8 +135,10 @@ function get(port: number, target: string, cookie: string): Promise<{ status: nu
 }
 
 /** The data frames of a live stream, parsed. */
+/** The frames of `stream`: every unnamed message's data (a named `keepalive` event is no frame; 161 streams keep time by the hub's clock). */
 function framesOf(stream: Stream): any[] {
   return stream.text().split('\n\n').slice(0, -1)
+    .filter((block) => !block.split('\n').some((line) => line.startsWith('event: ')))
     .map((block) => block.split('\n').find((line) => line.startsWith('data: ')))
     .filter((line): line is string => line !== undefined)
     .map((line) => JSON.parse(line.slice(6)));
@@ -297,7 +299,7 @@ test('the follow child takes no pool or reserved slot: two pooled GET reads and 
 
   fs.writeFileSync(w.hold, '');
   const base = w.pooled().length;
-  const replies = Promise.all([w.get('/api/runs'), w.get('/api/info'), w.get(`/api/transcript?project=${KEY}&agent=${AGENT}`)]);
+  const replies = Promise.all([w.get('/api/runs'), w.get('/api/info'), w.get(`/api/worker-runs/${SLUG}/w-0123456789ab/transcript`)]);
   const held = () => w.pooled().slice(base).filter((entry) => !entry.closed);
   await until(() => held().length === POOL_SIZE + RESERVED_SLOTS, 'two pooled reads and a transcript running at once');
   assert.deepEqual(held().map((entry) => entry.argv.slice(0, 3).join(' ')).sort(), ['capabilities --json', 'orchestrate --action list', 'transcript --action read']);

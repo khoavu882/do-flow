@@ -1,0 +1,112 @@
+{
+ "channel": "transcript:a1b2c3d4e5f60718:aa11bb22cc33dd55",
+ "readme": "Recorded core frames for feature 161 (IC-002 to IC-005), one file per channel kind. Each frame is {type, data} as the core events verb prints it on that channel (data of a state channel is {sections} of SectionResults; of a lane, the IC-004/IC-005 body). Planted values (a GitHub token, an email, a path) must never reach a browser frame.",
+ "frames": [
+  {
+   "type": "snapshot",
+   "data": {
+    "v": 1,
+    "agentKey": "aa11bb22cc33dd55",
+    "harness": "claude",
+    "reader": {
+     "id": "claude-jsonl",
+     "status": "supported"
+    },
+    "transcript": {
+     "linked": true,
+     "reason": null
+    },
+    "events": [
+     {
+      "seq": 0,
+      "at": "2026-11-15T09:00:00.000Z",
+      "kind": "reply",
+      "agentKey": "aa11bb22cc33dd55",
+      "model": null,
+      "tool": null,
+      "text": "Reading the brief.",
+      "args": null,
+      "cut": false,
+      "tokens": null,
+      "record": null
+     },
+     {
+      "seq": 1,
+      "at": "2026-11-15T09:00:00.000Z",
+      "kind": "tool-call",
+      "agentKey": "aa11bb22cc33dd55",
+      "model": null,
+      "tool": {
+       "name": "Bash",
+       "callKey": "f1f2f3f4f5f6f7f8",
+       "status": null,
+       "bytes": null,
+       "durationMs": null
+      },
+      "text": null,
+      "args": "{\"command\":\"ls\"}",
+      "cut": false,
+      "tokens": null,
+      "record": null
+     }
+    ],
+    "cursor": "4242:900:2:1790000000000",
+    "reset": false,
+    "eof": true,
+    "otherRecords": 0,
+    "unparsable": 0,
+    "masked": 0,
+    "warnings": [],
+    "path": "/home/planted/t.jsonl"
+   }
+  },
+  {
+   "type": "append",
+   "data": {
+    "events": [
+     {
+      "seq": 2,
+      "at": "2026-11-15T09:00:00.000Z",
+      "kind": "reply",
+      "agentKey": "aa11bb22cc33dd55",
+      "model": null,
+      "tool": null,
+      "text": "Found ghp_abcdefghijklmnopqrstuvwxyz0123456789 in env.",
+      "args": null,
+      "cut": false,
+      "tokens": null,
+      "record": null
+     }
+    ],
+    "cursor": "4242:1500:3:1790000001000",
+    "eof": true,
+    "masked": 1,
+    "warnings": []
+   }
+  },
+  {
+   "type": "append",
+   "data": {
+    "events": [
+     {
+      "seq": 3,
+      "at": "2026-11-15T09:00:00.000Z",
+      "kind": "reply",
+      "agentKey": "aa11bb22cc33dd55",
+      "model": null,
+      "tool": null,
+      "text": "Done.",
+      "args": null,
+      "cut": false,
+      "tokens": null,
+      "record": null
+     }
+    ],
+    "cursor": "4242:1800:4:1790000002000",
+    "eof": true,
+    "masked": 1,
+    "warnings": []
+   }
+  }
+ ]
+}
