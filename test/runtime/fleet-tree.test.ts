@@ -262,12 +262,31 @@ test('a main-session run is a started-session node with file keys', (t) => {
   assert.deepEqual(n.fileKeys, { out: sha16(`${f.main}\0${rel('out')}`), err: sha16(`${f.main}\0${rel('err')}`) });
   assert.equal(body.nodes.filter((x: any) => x.kind === 'worker-run' && x.agentKey === n.agentKey).length, 0, 'not also a worker node');
   assert.equal(body.nodes.filter((x: any) => x.agentKey === n.agentKey).length, 1);
+  assert.deepEqual(n.observed, { state: 'not-observed', reason: 'not-yet-observed' }, 'claude has a session hook; no session names the run yet');
   assert.deepEqual(body.edges, [], 'no caller edge and no doflow-run node from the starter\'s run key');
   // An ordinary run in the same store is unchanged: no kind, no started fields.
   const w = byKey(body, sha16('worker:w-6666666666ff'));
   assert.deepEqual([w.kind, w.modelBasis, 'fileKeys' in w, 'startedBy' in w], ['worker-run', null, false, false]);
   const json = JSON.stringify(body);
   assert.ok(!json.includes(f.main) && !json.includes(runId), 'no path and no raw run id');
+});
+
+test('165 C-7: the hook session naming a started run is that run\'s node, with its transcript and sub-agents', (t) => {
+  const f = world(t);
+  const runId = started(f);
+  session(f, 'claude', `${ID}c001`, f.main);
+  const ctx = path.join(f.store, 'sessions', `${ID}c001`, 'git-context.json');
+  fs.writeFileSync(ctx, JSON.stringify({ ...JSON.parse(fs.readFileSync(ctx, 'utf8')), started_run: runId }));
+  const built = buildTree({ env: env(f), cwd: f.main, platform: TRANSCRIPT_PLATFORM, alive: () => true });
+  const body = built.body;
+  assert.equal(byKey(body, AK('claude', `${ID}c001`)), undefined, 'no main-session node of its own');
+  const n = byKey(body, sha16(`worker:${runId}`));
+  assert.deepEqual([n.kind, n.model, n.modelBasis, n.transcript.linked], ['started-session', 'claude-fixture-9', 'start-record', true]);
+  assert.deepEqual([n.observed.state, n.observed.sessionKey, n.observed.model], ['observed', sha16(`${ID}c001`), 'claude-fixture-1']);
+  const afx1 = byKey(body, AK('claude', `${ID}c001`, 'afx1'));
+  assert.ok(edgesOf(body, 'harness-subagent-record').some((e: any) => e.from === n.agentKey && e.to === afx1.agentKey), 'its sub-agents hang under the one node');
+  assert.equal(built.internal.get(n.agentKey).runId, runId);
+  assert.equal(typeof built.internal.get(n.agentKey).file, 'string', 'the transcript opens from the joined node');
 });
 
 test('no-merge: sessions and runs of one harness and model stay separate nodes', (t) => {
