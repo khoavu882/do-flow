@@ -17,7 +17,11 @@ const REPO = path.resolve(__dirname, '../../..');
 const registry = loadRegistry({ repoRoot: REPO });
 const descriptor = registry.harnesses.find((h: any) => h.id === 'codex').worker;
 const set = (map: any) => ({ state: 'set', map, reason: null });
-const main = (model: string | null, extra: any = {}) => ({ harness: 'codex', model, state: 'observed', ...extra });
+// A resolvePrimary result: `confirmed` is observed by the hook; the others carry the declaration's origin layer.
+const main = (model: string | null, extra: any = {}) => ({ harness: 'codex', model, state: 'confirmed', declared: null, ...extra });
+const declared = (state: string, layer: string, model = 'session-1') => ({
+  harness: 'codex', model, state, declared: { harness: 'codex', model, origin: { harness: layer, model: layer } },
+});
 
 test('a bound orchestrator wins over the main session and the frontier binding', () => {
   const out = resolveOrchestratorModel({ harness: 'codex', bindings: set({ codex: { orchestrator: 'orch-1', frontier: 'front-1' } }), primary: main('session-1'), descriptor });
@@ -31,18 +35,52 @@ test('without an orchestrator binding the main session model wins, on the primar
   assert.equal(same.model, 'session-1');
   assert.equal(same.source, 'main-session');
   assert.equal(same.flag, 'supported');
-  const other = resolveOrchestratorModel({ harness: 'codex', bindings, primary: { harness: 'claude', model: 'session-1', state: 'observed' }, descriptor });
+  const other = resolveOrchestratorModel({ harness: 'codex', bindings, primary: { harness: 'claude', model: 'session-1', state: 'confirmed' }, descriptor });
   assert.equal(other.source, 'frontier-binding');
   assert.equal(other.model, 'front-1');
 });
 
-test('an unknown, refused or model-less main session is not used', () => {
+test('the main session model counts when confirmed by the hook, or declared in the user layer', () => {
   const bindings = set({ codex: { frontier: 'front-1' } });
-  for (const primary of [main('s', { state: 'unknown' }), main('s', { state: 'refused' }), main('s', { state: 'not-primary' }), main(null), main(''), null]) {
-    const out = resolveOrchestratorModel({ harness: 'codex', bindings, primary, descriptor });
-    assert.equal(out.source, 'frontier-binding', JSON.stringify(primary));
-    assert.equal(out.model, 'front-1');
+  const pick = (primary: any) => resolveOrchestratorModel({ harness: 'codex', bindings, primary, descriptor });
+  for (const primary of [main('session-1'), declared('declared-only', 'user'), declared('unconfirmed', 'user')]) {
+    const out = pick(primary);
+    assert.deepEqual([out.model, out.source], ['session-1', 'main-session'], JSON.stringify(primary));
   }
+});
+
+test('a declaration from a project, local or env origin, or from no origin, never picks the orchestrator model', () => {
+  const bindings = set({ codex: { frontier: 'front-1' } });
+  const cases: any[] = [];
+  for (const state of ['declared-only', 'unconfirmed']) {
+    for (const layer of ['project', 'local', 'env', 'default']) cases.push(declared(state, layer));
+    cases.push({ harness: 'codex', model: 'session-1', state, declared: null }, { harness: 'codex', model: 'session-1', state });
+  }
+  for (const primary of cases) {
+    const out = resolveOrchestratorModel({ harness: 'codex', bindings, primary, descriptor });
+    assert.deepEqual([out.model, out.source], ['front-1', 'frontier-binding'], JSON.stringify(primary));
+  }
+});
+
+test('contradicted, refused, unknown and not-primary states, and a model-less or invalid primary, fall through to the frontier binding', () => {
+  const bindings = set({ codex: { frontier: 'front-1' } });
+  const cases = [
+    ...['contradicted', 'refused', 'unknown', 'not-primary'].map((state) => declared(state, 'user')),
+    main(null), main(''), main('-rf'), main('a model; rm -rf'), { ...declared('declared-only', 'user'), harness: 'claude' }, null,
+  ];
+  for (const primary of cases) {
+    const out = resolveOrchestratorModel({ harness: 'codex', bindings, primary, descriptor });
+    assert.deepEqual([out.model, out.source], ['front-1', 'frontier-binding'], JSON.stringify(primary));
+  }
+});
+
+test("the review repro: a user frontier binding plus a project's primary.model resolves to the user's frontier binding", () => {
+  const out = resolveOrchestratorModel({
+    harness: 'codex', bindings: set({ codex: { frontier: 'user-frontier' } }), primary: declared('declared-only', 'project', 'project-picked-model'), descriptor,
+  });
+  assert.deepEqual([out.model, out.source], ['user-frontier', 'frontier-binding']);
+  const none = resolveOrchestratorModel({ harness: 'codex', bindings: { state: 'unset', map: null, reason: null }, primary: declared('declared-only', 'project'), descriptor });
+  assert.deepEqual([none.model, none.source], [null, 'harness-default']);
 });
 
 test('with nothing bound and no main session the orchestrator gets the harness default', () => {
@@ -82,7 +120,7 @@ test('resolveTaskModel gives delivery-lead the orchestrator model and every othe
 
 test('dispatchModelFor records the orchestrator source in the dispatch snapshot', () => {
   const bindings = set({ claude: { frontier: 'front-1' } });
-  const primary = { harness: 'claude', model: 'session-1', state: 'observed' };
+  const primary = { harness: 'claude', model: 'session-1', state: 'confirmed' };
   const lead = dispatchModelFor({ mode: 'subagent', harness: 'claude', tier: 'frontier', owner: 'delivery-lead', resolvedTier: { tier: 'frontier', source: 'owner' }, bindings, primary });
   assert.deepEqual(lead.model, { tier: 'frontier', requested: 'session-1', source: 'main-session' });
   const noSession = dispatchModelFor({ mode: 'subagent', harness: 'claude', tier: 'frontier', owner: 'delivery-lead', resolvedTier: { tier: 'frontier', source: 'owner' }, bindings, primary: null });

@@ -305,6 +305,30 @@ test('orchestrator slot loop: owner delivery-lead records the orchestrator model
   assert.deepEqual(dispatches(viaBinding)[0].model, { tier: 'frontier', requested: 'orch-1', source: 'binding', served: null });
 });
 
+test('orchestrator slot loop: a project primary.model never reaches the launch argv; only the resolved orchestrator id does', POSIX, async (t) => {
+  const plan = fs.readFileSync(path.join(__dirname, '..', 'fixtures', 'dispatch', 'plans', 'budget.md'), 'utf8').replace('owner: core-implementer', 'owner: delivery-lead');
+  const launched = async (userSettings: any, projectSettings: any) => {
+    const p = await project(t, { plan, modelFlag: true });
+    const user = path.join(p.sb.home, '.config', 'doflow', 'settings.json');
+    fs.mkdirSync(path.dirname(user), { recursive: true });
+    fs.writeFileSync(user, `${JSON.stringify({ schema: 1, ...userSettings })}\n`);
+    fs.mkdirSync(path.join(p.sb.root, '.doflow'), { recursive: true });
+    fs.writeFileSync(path.join(p.sb.root, '.doflow', 'settings.json'), `${JSON.stringify({ schema: 1, ...projectSettings })}\n`);
+    await p.run();
+    const argvs = fs.existsSync(p.sb.log) ? fs.readFileSync(p.sb.log, 'utf8').trim().split('\n').filter(Boolean).map((line: any) => JSON.parse(line).argv) : [];
+    return { p, flat: argvs.flat(), record: dispatches(p)[0] };
+  };
+  const project1 = await launched({ 'workers.models': { claude: { frontier: 'user-front' } } }, { 'primary.harness': 'claude', 'primary.model': 'project-evil' });
+  assert.ok(project1.flat.includes('user-front'), JSON.stringify(project1.flat));
+  assert.equal(project1.flat.includes('project-evil'), false);
+  assert.deepEqual([project1.record.model.requested, project1.record.model.source], ['user-front', 'frontier-binding']);
+  // The user layer's own declaration is the main session's model.
+  const user1 = await launched({ 'workers.models': { claude: { frontier: 'user-front' } }, 'primary.harness': 'claude', 'primary.model': 'user-session' }, {});
+  assert.ok(user1.flat.includes('user-session'), JSON.stringify(user1.flat));
+  assert.equal(user1.flat.includes('user-front'), false);
+  assert.deepEqual([user1.record.model.requested, user1.record.model.source], ['user-session', 'main-session']);
+});
+
 test('IC-013 / IC-010 loop: a sequential admission records the primary binding and snapshot', POSIX, async (t) => {
   const p = await project(t, {
     fallback: fb({ mode: 'auto', ladder: ['claude'], inSession: true }),

@@ -114,18 +114,29 @@ function resolveBinding({ worker, tier, bindings, descriptor, catalogue, allowed
   return res;
 }
 
+/** The main session's model on `harness`, when it may pick what is billed: confirmed by the hook, or declared in the
+ * USER layer (`primary.model` set by a person in their own settings). A model a project file or the environment
+ * declares is not trusted here: `workers.models` is global-only, and this step must not reopen it to a project.
+ * `declared-only` and `unconfirmed` from any other layer, `contradicted`, `refused`, `unknown` and `not-primary` give null. */
+function trustedPrimaryModel(primary: any, harness: string): string | null {
+  if (!primary || primary.harness !== harness || typeof primary.model !== 'string' || primary.model === '') return null;
+  if (require('../settings/files.ts').validateValue({ type: 'model-id' }, primary.model)) return null;
+  if (primary.state === 'confirmed') return primary.model;
+  if ((primary.state === 'declared-only' || primary.state === 'unconfirmed') && primary.declared?.origin?.model === 'user') return primary.model;
+  return null;
+}
+
 /** The model for the orchestrator role on `harness`, first match wins: the bound `orchestrator` id
- * (`binding`); the primary's own model when `harness` is the primary's harness and that model is known
- * (`main-session`); the bound `frontier` id (`frontier-binding`); else the harness default. An unreadable
- * binding is `invalid`, as for a tier. `primary` is a `resolvePrimary` result or null. */
+ * (`binding`); the primary's own model when `harness` is the primary's harness and that model is trusted
+ * (`trustedPrimaryModel`; `main-session`); the bound `frontier` id (`frontier-binding`); else the harness default.
+ * An unreadable binding is `invalid`, as for a tier. `primary` is a `resolvePrimary` result or null. */
 function resolveOrchestratorModel({ harness, bindings, primary, descriptor, catalogue, allowedModels }: any): BindingResolution {
   const own = resolveBinding({ worker: harness, tier: ORCHESTRATOR_KEY, bindings, descriptor, catalogue, allowedModels });
   if (own.source !== 'harness-default') return own;
-  const known = primary && !['unknown', 'refused', 'not-primary'].includes(primary.state)
-    && primary.harness === harness && typeof primary.model === 'string' && primary.model !== '';
-  if (known) {
+  const trusted = trustedPrimaryModel(primary, harness);
+  if (trusted !== null) {
     const supported = descriptor?.model?.status === 'supported' && Array.isArray(descriptor.model.argv);
-    return { model: primary.model, source: 'main-session', flag: supported ? 'supported' : 'unevidenced' };
+    return { model: trusted, source: 'main-session', flag: supported ? 'supported' : 'unevidenced' };
   }
   const frontier = resolveBinding({ worker: harness, tier: 'frontier', bindings, descriptor, catalogue, allowedModels });
   return frontier.source === 'binding' ? { ...frontier, source: 'frontier-binding' } : own;
@@ -170,6 +181,6 @@ function bindingsOf({ worker, descriptor, bindings, tiers, catalogue, allowedMod
 }
 
 module.exports = {
-  ORCHESTRATOR_OWNER, ORCHESTRATOR_KEY, resolveTier, readBindings, readAllowedModels, resolveBinding, resolveOrchestratorModel,
+  trustedPrimaryModel, ORCHESTRATOR_OWNER, ORCHESTRATOR_KEY, resolveTier, readBindings, readAllowedModels, resolveBinding, resolveOrchestratorModel,
   usesOrchestratorModel, resolveTaskModel, bindingGap, bindingsOf,
 };
