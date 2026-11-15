@@ -285,7 +285,7 @@ test('without colour there is no escape code, block characters on the terminal b
   assert.equal(lines.pop(), '  (if it does not scan, use the link)');
   assert.equal(lines.length, 29);
   for (const line of lines) { assert.equal([...line].length, 57); assert.match(line, /^[ █▀▄]+$/); }
-  lines.forEach((line, row) => [...line].forEach((ch, x) => {
+  lines.forEach((line: string, row: number) => [...line].forEach((ch, x) => {
     const at = (y: number) => y >= 4 && y < 53 && x >= 4 && x < 53 && matrix.modules[y - 4][x - 4];
     assert.equal(ch, at(row * 2) ? (at(row * 2 + 1) ? '█' : '▀') : (at(row * 2 + 1) ? '▄' : ' '));
   }));

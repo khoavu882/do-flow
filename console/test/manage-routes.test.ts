@@ -145,7 +145,7 @@ test('session: the seven routes are 401 without the cookie, and no verb runs', a
 
 test('device scope: the seven routes are 403 phone-scope, and no verb runs', async (t) => {
   const w = world('manage', t);
-  const { json } = await deviceClient(t, (auth) => consoleRoutes(w.runner, auth, null, w.place), webRoot);
+  const { json } = await deviceClient(t, (auth: any) => consoleRoutes(w.runner, auth, null, w.place), webRoot);
   for (const target of [...ROUTES, '/api/advice?kind=tier', '/api/followups?state=all', '/api/doctor?refresh=1']) {
     const reply = await json(target);
     assert.equal(reply.status, 403, target);

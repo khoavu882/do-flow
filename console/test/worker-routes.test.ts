@@ -124,7 +124,7 @@ test('session: the five routes are 401 without the cookie, and no verb runs', as
 
 test('device scope: the five routes are 403 phone-scope (the device list is the four reads), and no verb runs', async (t) => {
   const runner = recording(null);
-  const { json } = await deviceClient(t, (auth) => consoleRoutes(runner, auth), webRoot);
+  const { json } = await deviceClient(t, (auth: any) => consoleRoutes(runner, auth), webRoot);
   for (const target of TARGETS) assert.deepEqual(await json(target), { status: 403, body: errorBody('phone-scope'), text: JSON.stringify(errorBody('phone-scope')) }, target);
   assert.deepEqual(runner.calls, []);
 });

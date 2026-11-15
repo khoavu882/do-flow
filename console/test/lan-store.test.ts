@@ -26,7 +26,7 @@ function clock(start = Date.UTC(2026, 10, 15, 10, 0, 0)) {
   let t = start;
   return { now: () => t, advance: (by: number) => { t += by; } };
 }
-const open = (dir: string, c = clock(), extra: any = {}) => createLanStore({ dir, now: c.now, host: 'testhost', pid: process.pid, lockWaitMs: 300, ...extra });
+const open = (dir: string, c: { now: () => number } = clock(), extra: any = {}) => createLanStore({ dir, now: c.now, host: 'testhost', pid: process.pid, lockWaitMs: 300, ...extra });
 const pair = async (store: any, scope: 'view' | 'control' = 'view', name = 'Pixel') => {
   const { code } = await store.mintCode(scope);
   const result = await store.consumeCode(code, { name, via: 'browser', address: '192.168.1.40' });

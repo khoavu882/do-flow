@@ -92,7 +92,7 @@ function ipBytes(address: string): Buffer {
   if (halves.length === 2 ? missing < 1 : missing !== 0) throw fail();
   const groups = [...head, ...Array(halves.length === 2 ? missing : 0).fill(0), ...rest];
   const out = Buffer.alloc(16);
-  groups.forEach((group, index) => out.writeUInt16BE(group, index * 2));
+  groups.forEach((group, index) => { out[index * 2] = group >> 8; out[index * 2 + 1] = group & 0xff; });
   return out;
 }
 

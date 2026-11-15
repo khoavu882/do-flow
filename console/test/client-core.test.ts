@@ -80,6 +80,7 @@ class El {
   style = { vars: new Map<string, string>(), setProperty(name: string, value: string) { this.vars.set(name, String(value)); }, getPropertyValue(name: string) { return this.vars.get(name) ?? ''; } };
   dataset: any;
   classList: any;
+  value = '';
   scrollTop = 0;
   scrollHeight = 0;
   clientHeight = 0;

@@ -877,7 +877,7 @@ test('GET /api/live: a bad query is 400 usage before any slot, subscribe, verb o
 test('GET /api/live: a paired device is 403 phone-scope (not on the device list)', async (t) => {
   const hub = fakeHub();
   const runner = countingRunner();
-  const { json } = await deviceClient(t, (auth) => consoleRoutes(runner, auth, hub), webRoot);
+  const { json } = await deviceClient(t, (auth: any) => consoleRoutes(runner, auth, hub), webRoot);
   const reply = await json('/api/live?ch=now');
   assert.deepEqual([reply.status, reply.body], [403, errorBody('phone-scope')]);
   assert.deepEqual([hub.subscribes.length, runner.calls, runner.follows], [0, 0, 0]);
