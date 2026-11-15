@@ -82,8 +82,8 @@ function repo(dir: string) {
 }
 
 /** The real observe-model step, through bridge.sh, for one main session. */
-function observe(f: any, sessionId: string, cwd: string, model = 'claude-sonnet-4') {
-  const native = { hook_event_name: 'SessionStart', session_id: sessionId, model, cwd };
+function observe(f: any, sessionId: string, cwd: string, model = 'claude-sonnet-4', extra: any = {}) {
+  const native = { hook_event_name: 'SessionStart', session_id: sessionId, model, cwd, ...extra };
   const r = spawnSync(bashPath(), [BRIDGE, 'claude', 'SessionStart', 'mcp-tool-guard'], { cwd, env: baseEnv(f), input: JSON.stringify(native), encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
 }
@@ -188,6 +188,18 @@ HOOK_TEST('observed lists the checkouts and joins hook records by session key (I
   assert.ok(!r.stdout.includes(sessionKey(S3)), "the other project's session key is absent");
 });
 
+HOOK_TEST('a subagent compaction under the main session id leaves the session model the main one (FU-v8reh7)', (t) => {
+  const f = fixture(t);
+  // Claude Code's SessionStart for a subagent compaction: parent session id, subagent model, no agent_id.
+  observe(f, S2, f.main, 'claude-sonnet-5-5', { source: 'compact' });
+  observe(f, 'e5-compact-only-RAWID-5', f.main, 'claude-sonnet-5-5', { source: 'compact' });
+  const r = cli(f, ['--action', 'observed', '--json']);
+  assert.equal(r.status, 0, r.stderr);
+  const sessions = Object.fromEntries(JSON.parse(r.stdout).sessions.map((s: any) => [s.sessionKey, s]));
+  assert.equal(sessions[sessionKey(S2)].model, 'claude-opus-4');
+  assert.equal(sessions[sessionKey('e5-compact-only-RAWID-5')], undefined, 'a compaction-only record names no session model');
+});
+
 HOOK_TEST('observed writes nothing: project, user-state and config-home trees stay byte-identical (IC-018)', (t) => {
   const f = fixture(t);
   const before = treeSnapshot(f.root);
@@ -197,6 +209,17 @@ HOOK_TEST('observed writes nothing: project, user-state and config-home trees st
   assert.equal(text.status, 0, text.stderr);
   assert.deepEqual(treeSnapshot(f.root), before);
   assert.ok(!text.stdout.includes(f.root) && !text.stdout.includes(S1), 'the text form carries no path or raw id');
+});
+
+HOOK_TEST('the text form labels the git-context capture time "context-captured", never "started": a compaction rewrites it (FU-v8reh7)', (t) => {
+  const f = fixture(t);
+  const ctx1 = JSON.parse(fs.readFileSync(path.join(f.store, 'sessions', S1, 'git-context.json'), 'utf8'));
+  const text = cli(f, ['--action', 'observed']);
+  assert.equal(text.status, 0, text.stderr);
+  const line = text.stdout.split('\n').find((l: string) => l.startsWith(`session ${sessionKey(S1)} `));
+  assert.ok(line, 'the session line is printed');
+  assert.ok(line.includes(` context-captured ${ctx1.captured_at} last-hook-record `), line);
+  assert.ok(!/ started /.test(line), 'no session line claims a start time');
 });
 
 test('no config home gives store absent, empty sessions, exit 0 (IC-018 a)', (t) => {

@@ -2483,3 +2483,59 @@
   .doctor-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin-block: var(--space-4); }
   .doctor-head h2 { margin: 0; }
 }
+
+/* The Console actions (feature 162, design IC-010, §10): the buttons that open the one confirmation dialog, and the dialog. The violet
+   accent marks an action; a reject, close or stop takes the failed tint and its word, never the colour alone. The dialog is a sheet
+   below 768 px and a centred panel from 768. */
+@layer components {
+  .acts { display: grid; gap: var(--space-2); margin-top: var(--space-3); min-width: 0; }
+  .acts:empty { display: none; }
+  .acts__row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+  .acts__reason { margin: 0; font: var(--type-sm); color: var(--text-muted); }
+  .btn--act { background: var(--accent); color: var(--on-accent); }
+  .btn--act:active { filter: brightness(0.92); }
+  .btn--act[data-tone="danger"] { background: var(--state-failed-tint); color: var(--state-failed-fg); border-color: var(--state-failed-mark); }
+  .btn--act[disabled] { opacity: 0.5; cursor: default; }
+  .acts--card { margin-top: auto; padding-top: var(--space-4); position: relative; z-index: 1; }
+  .acts--head { margin-top: var(--space-3); }
+  .tl-item__by { font: var(--type-xs); color: var(--text-muted); overflow-wrap: anywhere; }
+
+  .confirm { position: fixed; inset: 0; z-index: var(--z-skip); display: grid; align-items: end; justify-items: stretch; }
+  .confirm__scrim { position: absolute; inset: 0; background: var(--scrim); }
+  .confirm__panel {
+    position: relative;
+    box-sizing: border-box;
+    display: grid;
+    gap: var(--space-3);
+    max-height: 100%;
+    overflow: auto;
+    padding: var(--space-4);
+    background: var(--surface-3);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    box-shadow: var(--elev-2);
+  }
+  .confirm__title { margin: 0; font: var(--type-lg); overflow-wrap: anywhere; }
+  .confirm__effect { margin: 0; font: var(--type-sm); overflow-wrap: anywhere; }
+  .confirm__field { display: grid; gap: var(--space-1); }
+  .confirm__field[hidden], .confirm__verb[hidden], .confirm__review[hidden] { display: none; }
+  .confirm__label { font: var(--type-sm); font-weight: 600; }
+  .confirm__input { box-sizing: border-box; width: 100%; padding: var(--space-2) var(--space-3); background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: var(--radius-md); font: var(--type-sm); resize: vertical; }
+  .confirm__count { justify-self: end; font: var(--type-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+  .confirm__count[data-over="true"] { color: var(--state-failed-fg); font-weight: 600; }
+  .confirm__result:empty { display: none; }
+  .confirm__line { margin: 0; font: var(--type-sm); overflow-wrap: anywhere; }
+  .confirm[data-state="stale"] .confirm__result, .confirm[data-state="refused"] .confirm__result, .confirm[data-state="unknown"] .confirm__result { padding: var(--space-3); background: var(--state-failed-tint); color: var(--state-failed-fg); border-radius: var(--radius-md); }
+  .confirm__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); }
+  @media (min-width: 768px) {
+    .confirm { align-items: center; justify-items: center; padding: var(--space-4); }
+    .confirm__panel { width: min(100%, 520px); border-radius: var(--radius-lg); }
+  }
+}
+
+@media (forced-colors: active) {
+  .btn--act { border: 1px solid ButtonText; }
+  .btn--act[disabled] { color: GrayText; border-color: GrayText; opacity: 1; }
+  .confirm__panel { border: 1px solid CanvasText; }
+}

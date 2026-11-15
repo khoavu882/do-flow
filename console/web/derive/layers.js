@@ -11,6 +11,8 @@
 
 // ---- the transcript panel's helpers --------------------------------------------------------------------------------------
 
+import { byWords } from './actions.js';
+
 /** The events a stream panel keeps (V8 7b.2). */
 const MAX_EVENTS = 500;
 
@@ -236,7 +238,7 @@ function streamCopy(state) {
 // ---- gates --------------------------------------------------------------------------------------------------------------------
 
 /**
- * The words of a gate event's state and decider (plan DEC-006): `by` is `autopilot`, `manual` (a direct command: a person, or an attended agent for them) or null (no decider recorded).
+ * The words of a gate event's state and decider (plan DEC-006): `by` is `autopilot`, `manual` (a direct command: a person, or an attended agent for them), `console` or `device.d-<12 hex>` (162: the Console actions, words in derive/actions.js `byWords`) or null (no decider recorded).
  * @param {{ state: string, by: string | null }} gate
  * @returns {{ token: string, word: string }}
  */
@@ -245,9 +247,9 @@ function gateWords(gate) {
   if (gate.state === 'skipped') return { token: 'skipped', word: 'skipped' };
   const verb = gate.state === 'rejected' ? 'rejected' : 'approved';
   const token = gate.state === 'rejected' ? 'rejected' : 'done';
-  if (gate.by === 'autopilot') return { token, word: `${verb} by autopilot` };
   if (gate.by === 'manual') return { token, word: 'decided manually' };
-  return { token, word: 'decider not recorded' };
+  const from = byWords(gate.by);
+  return { token, word: from === 'decider not recorded' ? from : `${verb} ${from}` };
 }
 
 // ---- the machine page ----------------------------------------------------------------------------------------------------------

@@ -283,6 +283,32 @@ test('161 IC-003, DEC-006: gates carry by autopilot, manual or null from the tim
   assert.ok(!JSON.stringify(sections).includes('PRIVATE'), 'no gate prompt or decision note');
 });
 
+test('162 IC-006, D15: the awaiting gate row carries the run record revision; decided and skipped rows carry null', async (t) => {
+  const f = fixture(t);
+  const a = project(f, 'proj-rev');
+  const gate = (id: string, status: string) => ({ type: 'gate', id, kind: 'approval', name: `Approve ${id}`, prompt: 'p', status });
+  journal(a, 'feat-rev', 't1', {
+    state: 'AWAITING_GATE', revision: 5, updatedAt: '2026-11-15T05:00:00.000Z',
+    program: [gate('gate-a', 'pending'), gate('g-decided', 'done'), gate('g-skipped', 'skipped')],
+    history: [
+      { at: '2026-11-15T01:00:00.000Z', action: 'decide-gate', node: 'g-decided', detail: 'approve', by: 'manual' },
+      { at: '2026-11-15T02:00:00.000Z', action: 'skip-gate', node: 'g-skipped' },
+    ],
+  });
+  journal(a, 'feat-rev', 't2', {
+    state: 'AWAITING_GATE', updatedAt: '2026-11-15T04:00:00.000Z', program: [gate('g-old', 'pending')], revision: undefined,
+  });
+  const spec = channelSpec(`layers:${cwdHash(a)}`, { cwd: a, env: f.env, index: indexFor(f, a) });
+  const { sections } = await spec.compute(['gates']);
+  assert.equal(sections.gates.exit, 0, JSON.stringify(sections.gates.json));
+  assert.deepEqual(sections.gates.json.map((g: any) => [g.taskId, g.gateId, g.state, g.revision]), [
+    ['t1', 'gate-a', 'awaiting', 5],
+    ['t1', 'g-skipped', 'skipped', null],
+    ['t1', 'g-decided', 'approved', null],
+    ['t2', 'g-old', 'awaiting', 0],
+  ]);
+});
+
 test('161 IC-003, IC-004: artifacts list the ten kinds from regular files only; never .last.log, a symbolic link or a dotted id; the fileKey lookup stays inside the core', (t) => {
   const root = fs.realpathSync(tempDir(t, 'doflow-events-artifacts-'));
   const main = path.join(root, 'main');

@@ -492,3 +492,87 @@ test('DEC-063 the supervisor spawn forwards only allowlisted execArgv entries', 
   // `--disable-warning <x>` in two elements is dropped whole: the value would otherwise be read as the script.
   assert.deepEqual(allowedExecArgv(['--disable-warning', 'ExperimentalWarning', '--disable-warning=']), []);
 });
+
+// ── 162 IC-005, DEC-007: --operator, --via and cancelBy ────────────────────────────────────────
+
+/** The caller's env with no run and no lineage: a person's own terminal (`default-main`). */
+function deskEnv(p: any) {
+  const env: any = { ...p.env };
+  delete env.DOFLOW_RUN_ID;
+  delete env.DOFLOW_LINEAGE_ID;
+  return env;
+}
+
+test('--operator and --via usage: --via required, --by refused, --via alone refused, --worker-run only, a closed label', async (t) => {
+  const p = project(t);
+  const runId = seedRun(p, null);
+  const storeBefore = fs.readFileSync(p.store);
+  const env = deskEnv(p);
+  const bad: any = [
+    { action: 'cancel', workerRun: runId, operator: true, reason: 'stop' },
+    { action: 'cancel', workerRun: runId, operator: true, via: 'console', by: 'main', reason: 'stop' },
+    { action: 'cancel', workerRun: runId, operator: true, by: 'main', reason: 'stop' },
+    { action: 'cancel', workerRun: runId, via: 'console', by: 'main', reason: 'stop' },
+    { action: 'cancel', workerRun: runId, via: 'console', reason: 'stop' },
+    { action: 'cancel', task: 'A.1', token: p.token, operator: true, via: 'console', reason: 'stop' },
+    { action: 'cancel', workerRun: runId, task: 'A.1', token: p.token, operator: true, via: 'console', reason: 'stop' },
+    { action: 'cancel', workerRun: runId, operator: true, via: 'person', reason: 'stop' },
+    { action: 'cancel', workerRun: runId, operator: true, via: 'device.d-0A1B2C3D4E5F', reason: 'stop' },
+    { action: 'cancel', workerRun: runId, operator: true, via: 'console' },
+    { action: 'status', workerRun: runId, operator: true },
+    { action: 'status', workerRun: runId, via: 'console' },
+  ];
+  for (const options of bad) {
+    const { exit, body } = await p.cmd({ env, ...options });
+    assert.equal(exit, 2, JSON.stringify(options));
+    assert.deepEqual([body.ok, body.error], [false, 'usage'], JSON.stringify({ options, body }));
+  }
+  assert.deepEqual(fs.readFileSync(p.store), storeBefore, 'no usage case writes');
+  const logs: any = [];
+  t.mock.method(console, 'log', (line: any) => logs.push(line));
+  t.mock.method(console, 'error', (line: any) => logs.push(line));
+  const saved = process.exitCode;
+  t.after(() => { process.exitCode = saved; });
+  assert.equal(await handleWorkerCommand({ descriptors: FAKES, env, cwd: p.dir, slug: SLUG, json: true, action: 'cancel', workerRun: runId, operator: true, reason: 'stop' }), 2);
+  assert.equal(JSON.parse(logs.pop()).error, 'usage');
+  process.exitCode = saved;
+});
+
+test('an operator cancel from a terminal outside any run ends the run, and status reads cancelBy back', async (t) => {
+  const p = project(t);
+  const runId = seedRun(p, null);
+  const env = deskEnv(p);
+  const plain = await p.cmd({ action: 'cancel', workerRun: runId, by: 'main', reason: 'stop', env });
+  assert.deepEqual([plain.exit, plain.body.reason], [1, 'foreign-run'], 'without --operator the same terminal is refused');
+  const inRun = await p.cmd({ action: 'cancel', workerRun: runId, operator: true, via: 'console', reason: 'stop' });
+  assert.deepEqual([inRun.exit, inRun.body.reason], [1, 'operator-in-run'], "the run's own caller is inside run r1");
+  const inWorker = await p.cmd({ action: 'cancel', workerRun: 'w-000000000000', operator: true, via: 'console', reason: 'stop', env: { ...env, DOFLOW_SESSION_ROLE: 'worker' } });
+  assert.deepEqual([inWorker.exit, inWorker.body.reason], [1, 'operator-in-run'], 'identity is refused before the run is looked up');
+
+  const done = await p.cmd({ action: 'cancel', workerRun: runId, operator: true, via: 'device.d-0a1b2c3d4e5f', reason: 'stop from the phone', env });
+  assert.equal(done.exit, 0, JSON.stringify(done.body));
+  assert.deepEqual([done.body.disposition, done.body.endState], ['cancelled', 'cancelled']);
+  assert.deepEqual(done.body.attemptCancel, { disposition: 'refused', reason: 'foreign-run' });
+  const record = readRuns(p.store)[runId];
+  assert.deepEqual([record.cancel.by, record.cancel.source], ['device.d-0a1b2c3d4e5f', 'operator']);
+  const status = await p.cmd({ action: 'status', workerRun: runId });
+  assert.equal(status.body.state, 'cancelled');
+  assert.deepEqual(status.body.cancelBy, { by: 'device.d-0a1b2c3d4e5f', source: 'operator', requestedAt: record.cancel.requestedAt });
+  assert.equal(status.body.cancel, undefined, 'cancel stays set only while cancelling');
+  assert.equal(p.attempt().state, 'active', "the 080 attempt stays with its owner (R2)");
+});
+
+test('cancelBy is null before any cancel, set while cancelling, and source user after a plain cancel', async (t) => {
+  const p = project(t);
+  const fresh = seedRun(p, null);
+  assert.equal((await p.cmd({ action: 'status', workerRun: fresh })).body.cancelBy, null);
+  // A stale operator request (over 30 s old), so the plain cancel below takes it over.
+  const requestedAt = new Date(Date.now() - 60000).toISOString();
+  assert.equal(transition(p.store, fresh, ['starting'], (run: any) => { run.phase = 'cancelling'; run.cancel = { requestedAt, by: 'console', reason: 'x', source: 'operator' }; }).applied, true);
+  assert.deepEqual((await p.cmd({ action: 'status', workerRun: fresh })).body.cancelBy, { by: 'console', source: 'operator', requestedAt });
+
+  const cancelled = await p.cmd({ action: 'cancel', workerRun: fresh, by: 'main', reason: 'stop' });
+  assert.equal(cancelled.exit, 0, JSON.stringify(cancelled.body));
+  const status = await p.cmd({ action: 'status', workerRun: fresh });
+  assert.deepEqual(status.body.cancelBy, { by: 'main', source: 'user', requestedAt: readRuns(p.store)[fresh].cancel.requestedAt });
+});

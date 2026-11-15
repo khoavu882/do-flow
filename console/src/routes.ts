@@ -1,9 +1,11 @@
 'use strict';
 
 // The Console route table (IC-005). A route declares its method, so the server answers 405 for every
-// method no route declares for a path; the only non-GET route the contract allows is
+// method no route declares for a path; the non-GET routes the contract allows are
 // `POST /api/session`, the launch-code exchange (092 IC-011), in loopback mode and `POST /api/pair`
-// (device-auth.ts, 160 IC-006) in LAN mode, and the one stream route is
+// (device-auth.ts, 160 IC-006) in LAN mode, and in both modes the action routes `POST /api/actions/<id>`
+// (actions.ts, 162 IC-002; `action: true`: the wrappers log their refusals through the route's own `refused`
+// and `unauthenticated`), and the one stream route is
 // `GET /api/live` (`stream: true`: the handler writes to `ctx.res` over time and
 // returns null once it has taken the response over; before that it may still return an error Reply). `buildRoutes` puts every
 // other /api route behind the session check (loopback) or the paired-device check and the scope list of
@@ -24,13 +26,20 @@ const { createStreamCap, MAX_STREAMS_PER_CONSOLE, MAX_STREAMS_PER_SESSION } = re
 const { createLiveStreams, lastEventVector, parseChannelList, parseVector } = require('./live-stream.ts');
 
 type Reply = { status: number, headers?: Record<string, string>, body?: string | Uint8Array };
-type Session = { scope: 'read' } | { scope: 'view' | 'control', deviceId: string };
+type Session = { scope: 'local' } | { scope: 'view' | 'control', deviceId: string, via: 'browser' | 'native' };
 // `clientClass` is set in LAN mode only: a request with an Origin, a Sec-Fetch-Site or a device cookie is a
 // browser, any other a native client (160 IC-005). `recheck` is set in LAN mode only: the device check again,
 // for a stream to run on each keepalive (161 IC-009).
 type RouteContext = { req: any, res: any, pathname: string, params: Record<string, string>, webRoot: string, port: number, clientClass?: 'browser' | 'native', session?: Session,
   recheck?: () => Promise<boolean> };
-type Route = Readonly<{ method: 'GET' | 'POST', path: string, stream?: true, handler: (ctx: RouteContext) => Reply | null | Promise<Reply | null> }>;
+/**
+ * An `action` route (162 IC-007) also carries `refused(ctx, session, code)`, which logs a refusal before it replies
+ * 403, and `unauthenticated(ctx, code)`, which counts a 401 for the log's aggregated line; the wrappers call both.
+ */
+type Route = Readonly<{ method: 'GET' | 'POST', path: string, stream?: true, action?: true,
+  handler: (ctx: RouteContext) => Reply | null | Promise<Reply | null>,
+  refused?: (ctx: RouteContext, session: Session, code: string) => Promise<Reply>,
+  unauthenticated?: (ctx: RouteContext, code: string) => Promise<void> }>;
 type StreamCap = { acquire(session: object): (() => void) | null, open(): number };
 /** The live hub of live.ts (one per Console, made in main.ts), as far as the route and live-stream.ts use it. */
 type LiveHub = {
@@ -119,22 +128,41 @@ function sessionRoute(sessions: any): Route {
 }
 
 function requireSession(sessions: any, route: Route): Route['handler'] {
-  return (ctx) => {
+  return async (ctx) => {
     const session = sessions.verify(readCookie(ctx.req.headers.cookie, cookieName(ctx.port)));
-    if (!session) return errorReply(401, 'unauthenticated');
+    if (!session) {
+      if (route.unauthenticated) await route.unauthenticated(ctx, 'unauthenticated');
+      return errorReply(401, 'unauthenticated');
+    }
     return route.handler({ ...ctx, session });
   };
+}
+
+/** The IC-005 error code of a reply this module built, or null. */
+function codeOf(reply: Reply): string | null {
+  try {
+    const code = JSON.parse(String(reply.body)).error.code;
+    return typeof code === 'string' ? code : null;
+  } catch {
+    return null;
+  }
 }
 
 // LAN mode: the credential is checked by the device auth (device-auth.ts), then the device's scope must
 // list the route (scopes.ts); a refreshed cookie rides on the reply of a browser whose last-seen was written.
 // The handler gets `recheck`, the same two checks again on the same request (161 IC-009: a stream runs it
-// on each keepalive, so a revoked or expired device is cut off within one).
+// on each keepalive, so a revoked or expired device is cut off within one). An action route's 401 and 403 go
+// through its own `unauthenticated` and `refused` (162 IC-007), in the same order, so each is logged.
 function requireDevice(auth: any, route: Route): Route['handler'] {
   return async (ctx) => {
     const checked = await auth.authenticate(ctx);
-    if ('reply' in checked) return checked.reply;
-    if (!deviceMayUse(checked.session.scope, route.method, route.path)) return errorReply(403, 'phone-scope');
+    if ('reply' in checked) {
+      if (route.unauthenticated && checked.reply.status === 401) await route.unauthenticated(ctx, codeOf(checked.reply) ?? 'unauthenticated');
+      return checked.reply;
+    }
+    if (!deviceMayUse(checked.session.scope, route.method, route.path)) {
+      return route.refused ? route.refused(ctx, checked.session, 'phone-scope') : errorReply(403, 'phone-scope');
+    }
     const recheck = async (): Promise<boolean> => {
       const again = await auth.authenticate(ctx);
       return !('reply' in again) && deviceMayUse(again.session.scope, route.method, route.path);
@@ -680,14 +708,18 @@ const sessionsHistoryRoute = (runner: Runner, anchors: Anchors): Route['handler'
 
 /**
  * The Console's table (IC-005) over `runner`: every /api route but the exchange is behind the session
- * check (buildRoutes), every one is GET, and each answers `{v:1, ...}` or IC-005's error body. The
+ * check (buildRoutes), every one is GET but the action routes of `actions` (actions.ts, 162 IC-002: one
+ * `POST /api/actions/<id>` per ACTIONS row, and `GET /api/actions`; without `actions` they are made over no log,
+ * so every action answers 503 action-log-unwritable), and each answers `{v:1, ...}` or IC-005's error body. The
  * stream route takes its slots from one stream cap (DEC-031, 161 IC-008), made here once per table. `live` is the Console's live
  * hub; without one (route tests over a scripted runner) `/api/live` answers 503 live-unavailable.
  * `place` gives the anchors the management routes place paths and text under (151 IC-006).
  */
 function consoleRoutes(runner: Runner, access: any = processSessions, live: LiveHub | null = null,
-  place: Place = { projectRoot: process.cwd(), home: os.homedir() }): readonly Route[] {
+  place: Place = { projectRoot: process.cwd(), home: os.homedir() }, actions: { routes: readonly Route[] } | null = null): readonly Route[] {
   const streamCap = createStreamCap(MAX_STREAMS_PER_SESSION, MAX_STREAMS_PER_CONSOLE);
+  // Required here, not at the top: actions.ts requires this module for its reply helpers.
+  const actionRoutes = (actions ?? require('./actions.ts').createActions({ runner, log: null })).routes;
   const anchors: Anchors = anchorsOf({ projectRoot: place.projectRoot, home: place.home });
   return buildRoutes(access, [
     healthz,
@@ -710,6 +742,7 @@ function consoleRoutes(runner: Runner, access: any = processSessions, live: Live
     { method: 'GET', path: '/api/storage', handler: storageRoute(runner, anchors) },
     { method: 'GET', path: '/api/sessions-history', handler: sessionsHistoryRoute(runner, anchors) },
     { method: 'GET', path: '/api/live', stream: true, handler: liveRoute(live, streamCap) },
+    ...actionRoutes,
     staticFallback,
   ]);
 }

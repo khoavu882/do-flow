@@ -8,6 +8,8 @@ const lower = (/** @type {string} */ text) => text.charAt(0).toLowerCase() + tex
 
 /** At most this many attempts are listed in the slot; the rest are counted. */
 const ATTEMPT_LIMIT = 8;
+/** A feature slug as the core's id grammar allows it (162: the decide command names it). */
+const SLUG = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 /** The result words of an attempt that finished, and the state words of one that ended without a result. */
 const RESULT_WORD = Object.freeze({ COMPLETED: 'completed', BLOCKED: 'blocked', ABANDONED: 'abandoned', INCONCLUSIVE: 'inconclusive', FAILED: 'failed' });
@@ -52,13 +54,14 @@ function clauseWords(event) {
 }
 
 /**
- * The two complete decide lines of a gate (E.2 Q2). They need only the run id and the gate id.
+ * The two complete decide lines of a gate (E.2 Q2): the run id, the feature slug when the run has one (162: the command then names the run the page shows), and the gate id.
  * @param {any} row
  */
 function decideCommands(row) {
   const current = isObject(row) && isObject(row.current) ? row.current : null;
   if (current === null || typeof row.taskId !== 'string' || typeof current.id !== 'string') return null;
-  const base = `doflow orchestrate --action decide-gate --task-id ${row.taskId} --gate ${current.id} --decision`;
+  const slug = typeof row.featureSlug === 'string' && SLUG.test(row.featureSlug) ? ` --slug ${row.featureSlug}` : '';
+  const base = `doflow orchestrate --action decide-gate --task-id ${row.taskId}${slug} --gate ${current.id} --decision`;
   return { approve: `${base} approve`, reject: `${base} reject` };
 }
 

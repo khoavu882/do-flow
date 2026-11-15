@@ -95,6 +95,9 @@ function parseArgs(argv: string[]): any {
       case '--adopt-unowned': o.adoptUnowned = true; break;
       // worker --action run: wait for the run to end. A switch, like --adopt-unowned (081 IC-026).
       case '--wait': o.wait = true; break;
+      // worker --action cancel: cancel a worker of another run, for a person at the machine or a paired
+      // control device acting through the Console. A switch; it needs --via (162 IC-005).
+      case '--operator': o.operator = true; break;
       // slot --action run: refuse at once instead of queueing (115 IC-008). A switch, so key `noWait`.
       case '--no-wait': o.noWait = true; break;
       // slot --action run -- <command> [args...]: everything after the first `--` is the command's
@@ -422,6 +425,7 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--budget-attempts', 'budgetAttempts'], // start: the run's attempt limit
   ['--budget-tokens', 'budgetTokens'], // start: the run's token limit
   ['--by', 'by'],                      // start|pause|cancel|reopen|resume: who acts on the run
+  ['--via', 'via'],                    // orchestrate decide-gate|close, worker cancel --operator: the relay label, console | device.d-<12 hex> (162 IC-004)
   ['--ack', 'ack'],                    // resume: the digest the unacknowledged resume reported
   // 081 worker (IC-025, IC-026). Read as text and validated in handleWorkerCommand.
   // `--need`, `--harness`, `--budget-tokens`, `--task`, `--token`, `--by` and `--reason` are shared.
@@ -489,6 +493,7 @@ const RUNTIME_INT_FLAGS = new Map([
   ['--iteration', 'iteration'],        // recover: retries already spent, bounding the retry budget
   ['--observed-exit', 'observedExit'], // evidence --action add: exit status of the observed command (0 is meaningful)
   ['--timeout', 'timeout'],            // slot --action run: seconds to wait for the slot; the verb checks 1 to 86400 (115 IC-008)
+  ['--expect-revision', 'expectRevision'], // orchestrate decide-gate|close: refuse unless the run is at this revision (162 IC-004)
 ]);
 
 /**
@@ -531,7 +536,8 @@ function parseRuntimeFlag(arg: string, argv: string[], i: number, o: any): numbe
 
   if (RUNTIME_INT_FLAGS.has(name)) {
     const parsed = parseInt(value, 10);
-    if (!Number.isFinite(parsed) || parsed < 0) argError(o, argv, `${name} expects a non-negative integer, got '${value}'`, 2);
+    // A revision precondition is exact: `1.5` or `3abc` must not be read as 1 or 3.
+    if (!Number.isFinite(parsed) || parsed < 0 || (name === '--expect-revision' && !/^\d+$/.test(value))) argError(o, argv, `${name} expects a non-negative integer, got '${value}'`, 2);
     o[key] = parsed;
   } else if (RUNTIME_LIST_FLAGS.has(name)) {
     // --exclude and --exclude-family both accept comma lists or repeated flags. Keep --exclude's
@@ -785,6 +791,14 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --stage, --status                     retrieval-plan (--need is repeatable), outcome
       --mcp-outcome <server>=<outcome>      orchestrate --action handoff, repeatable: used | nothing-usable |
                                             skipped:<reason> | unavailable (a server left out only warns)
+      --expect-revision <n>                 orchestrate --action decide-gate (without --policy) | close: refuse as
+                                            stale-revision unless the run is at revision n; nothing is written
+      --via console|device.d-<12 hex>       orchestrate --action decide-gate (without --policy) | close: the relay
+                                            label recorded as the entry's by (default manual); also worker --action
+                                            cancel --operator, where it is required
+      --operator                            worker --action cancel: cancel a worker of another run, for a person at
+                                            the machine or a paired control device acting through the Console; needs
+                                            --via; refused inside a worker session
       --state <COMPLETED|BLOCKED|
                ABANDONED|INCONCLUSIVE>,
       --readiness, --verification           outcome --action record

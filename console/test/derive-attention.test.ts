@@ -16,13 +16,13 @@ const DERIVE = path.join(__dirname, '..', 'web', 'derive');
 let scratch: string[] = [];
 let attention: any;
 
-/** Copies of derive/attention.js and the derive/layers.js it imports, as ES modules a CommonJS package can import. */
+/** Copies of derive/attention.js and of what it imports (derive/layers.js, which reads derive/actions.js), as ES modules a CommonJS package can import. */
 async function load(): Promise<any> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-ui-attention-'));
   scratch.push(dir);
   fs.mkdirSync(path.join(dir, 'derive'));
   fs.writeFileSync(path.join(dir, 'package.json'), '{"type":"module"}\n');
-  for (const name of ['attention.js', 'layers.js']) fs.writeFileSync(path.join(dir, 'derive', name), fs.readFileSync(path.join(DERIVE, name), 'utf8'));
+  for (const name of ['attention.js', 'layers.js', 'actions.js']) fs.writeFileSync(path.join(dir, 'derive', name), fs.readFileSync(path.join(DERIVE, name), 'utf8'));
   return import(pathToFileURL(path.join(dir, 'derive', 'attention.js')).href);
 }
 

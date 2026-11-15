@@ -44,7 +44,7 @@ const evidence = require('./evidence.ts');
 const { launchEnv, launchRecord, PROMPT_LIMITS } = require('./launch.ts');
 const { BASE_FILE } = require('../worktree.ts');
 const { SUPERVISOR_FILE, resultOfRun } = require('./supervisor.ts');
-const { cancelRun } = require('./cancel.ts');
+const { cancelRun, callerRefusal, RELAY_LABEL } = require('./cancel.ts');
 const processTree = require('./process-tree.ts');
 const attempts = require('../task-attempts.ts');
 const { runKeyFor, identityRefusal } = require('../task-run.ts');
@@ -100,6 +100,8 @@ const FLAG_ACTIONS: Record<string, { flag: string; actions: string[] }> = Object
   out: { flag: '--out', actions: ['evidence'] },
   by: { flag: '--by', actions: ['cancel'] },
   reason: { flag: '--reason', actions: ['cancel'] },
+  operator: { flag: '--operator', actions: ['cancel'] },
+  via: { flag: '--via', actions: ['cancel'] },
 });
 
 /** DEC-063: the execArgv entries the supervisor spawn forwards; every other entry is dropped. */
@@ -461,6 +463,8 @@ function statusView(run: any, ledger: any, { platform, nowMs }: any) {
     edit: run.edit ?? null, isolation: run.isolation ?? null, childOf: run.childOf ?? null, request: run.request ?? null,
     verified, attemptActive, resultOffered, withheld,
     cleanup: run.cleanup ?? null, supervisorCleanup: run.supervisorCleanup ?? null, attemptCancel: run.attemptCancel ?? null,
+    // 162 IC-005: who asked for the cancel, in every phase; `cancel` above is set only while cancelling.
+    cancelBy: run.cancel ? { by: run.cancel.by ?? null, source: run.cancel.source ?? null, requestedAt: run.cancel.requestedAt ?? null } : null,
     output: run.output ?? null, launchObserved: run.launchObserved ?? null,
   };
 }
@@ -532,14 +536,14 @@ function summaryLines(body: any): string[] {
  */
 async function executeWorkerCommand({
   action, slug = null, harness, need, modelCheck, budgetTokens, task, token, promptFile, timeoutSeconds, wait = false,
-  workerRun, checks, out, by, reason, edit = false, childOf, request, execWorktree,
+  workerRun, checks, out, by, reason, edit = false, childOf, request, execWorktree, operator = false, via,
   env = process.env, cwd = process.cwd(), resolveSlug = null, platform = process.platform, now = () => new Date(),
   descriptors, registry, coverage, sleep = defaultSleep, binding = null,
 }: any = {}): Promise<{ exit: number; body: any }> {
   try {
     if (!given(action)) throw usage(`--action is required; valid: ${ACTIONS.join(' | ')}`);
     if (!ACTIONS.includes(action)) throw usage(`unknown action '${action}'; valid: ${ACTIONS.join(' | ')}`);
-    refuseMisplacedFlags(action, { slug, harness, need, modelCheck, budgetTokens, task, token, promptFile, timeoutSeconds, wait, workerRun, checks, out, by, reason, edit, childOf, request, execWorktree });
+    refuseMisplacedFlags(action, { slug, harness, need, modelCheck, budgetTokens, task, token, promptFile, timeoutSeconds, wait, workerRun, checks, out, by, reason, edit, childOf, request, execWorktree, operator, via });
     if (given(task) && !TASK_ID.test(String(task))) throw usage(`--task expects a plan task id such as A.1, got '${task}'`);
     if (given(token)) digits(token, '--token', 1);
     if (given(budgetTokens) && !given(modelCheck)) throw usage('--budget-tokens applies only with --model-check');
@@ -631,18 +635,27 @@ async function executeWorkerCommand({
       }
       default: {
         const feature = featureOf(slug, resolveSlug, cwd);
+        // 162 IC-005, DEC-007: `--operator` names a run by `--worker-run` and its relay by `--via`.
+        const isOperator = given(operator);
+        if (isOperator) {
+          if (!given(workerRun) || given(task) || given(token)) throw usage('--operator takes --worker-run, not --task with --token');
+          if (given(by)) throw usage('--operator takes --via, not --by');
+          if (!given(via)) throw usage('--operator needs --via console or --via device.d-<12 hex>');
+          if (!RELAY_LABEL.test(String(via))) throw usage(`--via expects console or device.d-<12 lowercase hex>, got '${via}'`);
+        } else if (given(via)) throw usage('--via applies only with --operator');
         const selector = runSelector(workerRun, task, token, 'cancel');
-        if (!given(by) || !attempts.SAFE_NAME.test(String(by))) throw usage('--by is required: the name of the agent or person cancelling the run');
+        if (!isOperator && (!given(by) || !attempts.SAFE_NAME.test(String(by)))) throw usage('--by is required: the name of the agent or person cancelling the run');
         if (typeof reason !== 'string' || !reason.trim()) throw usage('--reason is required: why the run is being cancelled');
+        const source = isOperator ? 'operator' : 'user';
         const file = storeFileFor(root, feature);
         const run = findRun(file, selector);
         if (!run) {
           // IC-021 step 1 order: the caller's identity before the run's existence.
           const key = runKeyFor(env, cwd);
-          const who = identityRefusal(key.identity);
+          const who = callerRefusal(key, env, source);
           body = who ? refused(who.reason, { runKey: key.runKey }) : refused('unknown-run', selector.workerRun ? { runId: selector.workerRun } : { task: selector.task, token: selector.token });
         } else {
-          body = await cancelRun({ file, runId: run.runId, by: String(by), reason, source: 'user', env, cwd, platform, now: clock });
+          body = await cancelRun({ file, runId: run.runId, by: String(isOperator ? via : by), reason, source, env, cwd, platform, now: clock });
         }
       }
     }

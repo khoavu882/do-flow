@@ -6,7 +6,7 @@ import { h, icon } from './dom.js';
 import { skel, reltime } from './states.js';
 import { loadHome, homeOf, renderHome, skeletonHome, homeKey, tickHome } from './views/home.js';
 import { connectLive } from './live-view.js';
-import { renderRun, tickRun, releaseRun, rerouteRun } from './views/run.js';
+import { renderRun, tickRun, releaseRun, rerouteRun, runHeadActs } from './views/run.js';
 import { renderGraph, rerouteGraph } from './views/graph.js';
 import { renderSessions, rerouteSessions } from './views/sessions.js';
 import { renderWorkflows } from './views/workflows.js';
@@ -81,7 +81,7 @@ const awaitingCount = (/** @type {any} */ data) => data.runs.filter((/** @type {
 
 /**
  * The run head (CD-B8): crumb to Runs, the title with a muted task id, the meta line, and the step counter with, beside it in
- * the same grid area, the link to the run's Session screen (150 IC-020). @param {any} params
+ * the same grid area, the link to the run's Session screen (150 IC-020) and the place of the Close run button (162 IC-010). @param {any} params
  */
 function buildRunHead(params) {
   const crumb = h('nav', { class: 'run-head__crumb', 'aria-label': 'Breadcrumb' }, [
@@ -92,7 +92,7 @@ function buildRunHead(params) {
   const step = h('p', { class: 'run-head__step', hidden: true });
   const chainHref = hashFor({ id: 'session', params: { slug: params.slug, taskId: params.taskId } });
   const chain = chainHref === null ? null : h('a', { class: 'graph__back', href: chainHref }, 'Chain');
-  const aside = h('div', { class: 'run-head__aside' }, [step, chain]);
+  const aside = h('div', { class: 'run-head__aside' }, [step, chain, runHeadActs()]);
   return { root: h('header', { class: 'view-head run-head' }, [crumb, h1, meta, aside]), h1, meta, step };
 }
 

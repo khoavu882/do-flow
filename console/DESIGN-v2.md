@@ -1,5 +1,7 @@
 # DoFlow Console v2: design proposal
 
+> History, not the present: rows 149, 151 and 161 built parts of this proposal, and since row 162 the Console has write routes (`POST /api/actions/*`, see `README.md`), so every statement below that the Console is read-only, one-way or has no write route but the session exchange describes it before row 162.
+
 Status: proposal, 2026-11-07. Nothing here is built. `DESIGN.md` stays the system of record for tokens,
 components and states; this file says what changes and why. Facts marked **(S)** were read from code or
 files in this checkout; everything else is a proposal or an inference and is labelled so.

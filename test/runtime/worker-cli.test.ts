@@ -62,14 +62,17 @@ function project(t: any, { dispatcher = false }: any = {}) {
     DOFLOW_WORKTREE: work,
     ...(dispatcher ? { DOFLOW_CLI: CLI } : {}),
   };
-  const spawn = (cmd: any, args: any) => {
-    const done = spawnSync(cmd, args, { cwd: work, env, encoding: 'utf8' });
+  const spawn = (cmd: any, args: any, edit?: any) => {
+    const done = spawnSync(cmd, args, { cwd: work, env: edit ? edit({ ...env }) : env, encoding: 'utf8' });
     let data = null;
     try { data = JSON.parse(done.stdout); } catch { /* no JSON on stdout */ }
     return { status: done.status, stdout: done.stdout, stderr: done.stderr, data };
   };
   return {
     bin,
+    work,
+    /** `cli` with the child's env edited by `edit` (given a copy), for a terminal outside any run or a worker session. */
+    cliEnv: (edit: any, ...args: any[]) => spawn(process.execPath, [CLI, 'worker', ...args], edit),
     cli: (...args: any[]) => spawn(process.execPath, [CLI, 'worker', ...args]),
     run: (...args: any[]) => spawn(bashPath(), [RUN, 'worker', ...args]),
   };
@@ -139,4 +142,67 @@ test('worker --help lists the eight actions, the evidence flags included', (t) =
   assert.match(r.stdout, /^ {2}worker {2,}\S/m, 'worker has a command line in the help');
   assert.match(r.stdout, /--checks, --out\s+worker \(/, 'the help lists the evidence flags --checks and --out');
   assert.match(r.stdout, /evidence: --harness --out and exactly one of --checks/);
+});
+
+// ── 162 IC-004, IC-005: --operator and --via reach the verb through bin/doflow.js ───────────────
+
+const OPERATOR_SLUG = 'feat-op';
+const OPERATOR_RUN = 'w-0a1b2c3d4e5f';
+const OPERATOR_VIA = 'device.d-0a1b2c3d4e5f';
+
+/** A person's own terminal: every DOFLOW_* identity variable removed. */
+function deskEnv(env: any) {
+  for (const key of Object.keys(env)) if (key.startsWith('DOFLOW_')) delete env[key];
+  return env;
+}
+
+/** A project with one `running` worker run whose caller is another lineage's; no process is started. */
+function seededProject(t: any) {
+  const p = project(t);
+  fs.mkdirSync(path.join(p.work, '.git'));
+  const store = path.join(p.work, '.doflow', 'state', 'worker-runs', `${OPERATOR_SLUG}.json`);
+  const { insertRun } = require('../../src/runtime/worker/run-store.ts');
+  const record = {
+    runId: OPERATOR_RUN, task: 'A.1', token: 1, harness: 'claude', phase: 'running', execWorktree: p.work,
+    createdAt: new Date().toISOString(), timeoutSeconds: 60,
+    caller: { cwd: p.work, runKey: 'other-lineage', run: 'r9', lineage: 'other', attempt: null, role: 'main', lineageKind: 'default-main' },
+    needs: [],
+  };
+  assert.equal(insertRun(store, record).applied, true);
+  const cancel = (edit: any, ...extra: any[]) => p.cliEnv(edit, '--action', 'cancel', '--slug', OPERATOR_SLUG, '--worker-run', OPERATOR_RUN, '--reason', 'x', '--json', ...extra);
+  const status = () => p.cliEnv(deskEnv, '--action', 'status', '--slug', OPERATOR_SLUG, '--worker-run', OPERATOR_RUN, '--json');
+  return { p, store, cancel, status };
+}
+
+test('worker --action cancel --operator --via from a terminal outside any run ends the run, and status shows cancelBy', (t) => {
+  const { store, cancel, status } = seededProject(t);
+  const done = cancel(deskEnv, '--operator', '--via', OPERATOR_VIA);
+  assert.equal(done.status, 0, done.stderr || done.stdout);
+  assert.equal(done.data.disposition, 'cancelled');
+  assert.equal(done.data.endState, 'cancelled');
+  const read = status();
+  assert.equal(read.status, 0, read.stderr || read.stdout);
+  assert.equal(read.data.state, 'cancelled');
+  assert.deepEqual({ by: read.data.cancelBy.by, source: read.data.cancelBy.source }, { by: OPERATOR_VIA, source: 'operator' });
+  assert.equal(JSON.parse(fs.readFileSync(store, 'utf8')).runs[OPERATOR_RUN].cancel.source, 'operator');
+});
+
+test('worker --action cancel --operator in a worker session is refused operator-in-run and writes nothing', (t) => {
+  const { store, cancel } = seededProject(t);
+  const before = fs.readFileSync(store);
+  const r = cancel((env: any) => { deskEnv(env); env.DOFLOW_SESSION_ROLE = 'worker'; return env; }, '--operator', '--via', 'console');
+  assert.equal(r.status, 1, r.stderr || r.stdout);
+  assert.deepEqual([r.data.disposition, r.data.reason], ['refused', 'operator-in-run']);
+  assert.deepEqual(fs.readFileSync(store), before, 'a refused cancel leaves the store byte-identical');
+});
+
+test('worker --operator without --via, and --via without --operator, are exit 2 usage', (t) => {
+  const { store, cancel } = seededProject(t);
+  const before = fs.readFileSync(store);
+  for (const flags of [['--operator'], ['--via', 'console']]) {
+    const r = cancel(deskEnv, ...flags);
+    assert.equal(r.status, 2, `${flags.join(' ')}: ${r.stderr || r.stdout}`);
+    assert.deepEqual([r.data.ok, r.data.error], [false, 'usage']);
+  }
+  assert.deepEqual(fs.readFileSync(store), before, 'a usage error writes nothing');
 });

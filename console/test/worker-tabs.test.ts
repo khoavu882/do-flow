@@ -19,6 +19,8 @@ const WEB_ROOT = path.join(__dirname, '..', 'web');
 const SOURCE = fs.readFileSync(path.join(WEB_ROOT, 'views', 'worker-tabs.js'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 let copy: string;
 let mod: any;
+let actions: any;
+let confirm: any;
 let savedDocument: PropertyDescriptor | undefined;
 
 // ---- a fake DOM ---------------------------------------------------------------------------------
@@ -140,6 +142,7 @@ Object.assign(doc, {
   createElementNS: (_ns: string, tag: string) => new El(tag),
   createTextNode: (text: string) => new Txt(text),
   getElementById: () => null,
+  body: new El('body'), // where a confirmation dialog is appended (162)
 });
 
 /** Every node under `node`, depth first. */
@@ -154,6 +157,8 @@ before(async () => {
   savedDocument = Object.getOwnPropertyDescriptor(globalThis, 'document');
   Object.defineProperty(globalThis, 'document', { value: doc, configurable: true, writable: true });
   mod = await import(pathToFileURL(path.join(copy, 'views', 'worker-tabs.js')).href);
+  actions = await import(pathToFileURL(path.join(copy, 'actions.js')).href);
+  confirm = await import(pathToFileURL(path.join(copy, 'views', 'confirm.js')).href);
 });
 after(() => {
   if (savedDocument) Object.defineProperty(globalThis, 'document', savedDocument);
@@ -885,4 +890,96 @@ test('every tab builds text nodes only and has no live region', async () => {
     }
   }
   t.handle.destroy();
+});
+
+// ---- 162 IC-010: Stop worker and the `cancelBy` fact ----------------------------------------------
+
+const PK = '0123456789abcdef';
+const actionsBody = (allowed: boolean, reason: string | null, project: any = { projectKey: PK, label: 'do-flow' }) => ({
+  v: 1, actor: allowed ? { kind: 'local', transport: 'loopback' } : { kind: 'device', deviceId: 'd-0a1b2c3d4e5f', scope: 'view', transport: 'browser' }, textMax: 500,
+  actions: ['decide-gate', 'close-run', 'cancel-worker'].map((id) => ({ id, allowed, reason })), ...(project ? { project } : {}),
+});
+/** Runs `body` with the page's actions as `read` answers them and every confirmation closed afterwards. */
+async function withActions(read: any, body: (sent: any[]) => Promise<void>) {
+  const sent: any[] = [];
+  confirm.releaseActionAreas(); // earlier tests drew heads: their listener goes before the actions are reset
+  actions.resetActions();
+  actions.setActionTransport(async (request: any) => {
+    sent.push({ ...request, body: request.body === null ? null : JSON.parse(request.body) });
+    return request.method === 'GET' ? { status: 200, headers: {}, body: read } : { status: 200, headers: {}, body: { v: 1, action: 'cancel-worker', outcome: 'applied', replayed: false } };
+  });
+  try {
+    await body(sent);
+  } finally {
+    confirm.closeConfirm();
+    confirm.releaseActionAreas();
+    actions.resetActions();
+  }
+}
+const stopButton = (root: El) => root.querySelectorAll('.btn--act').find((b) => text(b) === 'Stop worker') ?? null;
+
+test('162 Stop worker: drawn for a starting or running run when the page may act; the request names the run and the feature and carries no revision', async () => {
+  await withActions(actionsBody(true, null), async (sent) => {
+    const t = mountTabs({});
+    await flush();
+    const button = stopButton(t.root) as El;
+    assert.ok(button, 'a running worker has a Stop button');
+    assert.equal(button.getAttribute('data-tone'), 'danger');
+    assert.equal(sent.filter((r) => r.method === 'POST').length, 0, 'drawing it posts nothing');
+    button.fire('click');
+    const dialog = doc.body.querySelector('.confirm') as El;
+    assert.equal(text(dialog.querySelector('.confirm__effect') as El), 'Stop worker w-1a2b3c4d5e6f (codex, task A.1) of feat-a in do-flow. Its processes get SIGTERM, then SIGKILL after 3 s. Edits it has not handed back stay in its own worktree and are not merged. This cannot be undone.');
+    (dialog.querySelector('.confirm__input') as any).value = 'stuck on a prompt';
+    (dialog.querySelector('.confirm__input') as El).fire('input');
+    (dialog.querySelector('.confirm__verb') as El).fire('click');
+    await flush();
+    const posts = sent.filter((r) => r.method === 'POST');
+    assert.equal(posts.length, 1);
+    assert.equal(posts[0].path, '/api/actions/cancel-worker');
+    assert.deepEqual({ ...posts[0].body, requestId: undefined }, { v: 1, projectKey: PK, slug: 'feat-a', runId: RUN, reason: 'stuck on a prompt', requestId: undefined });
+    t.handle.destroy();
+  });
+});
+
+test('162 Stop worker: no button for an ended run, one with a cancel in progress or one already asked to stop, a view-scope page, or a page that does not name its project', async () => {
+  await withActions(actionsBody(true, null), async () => {
+    for (const row of [runRow({ phase: 'ended', endState: 'exited', endedAt: '2026-11-08T05:03:00.000Z' }), runRow({ phase: 'cancelling' }), runRow({ phase: 'starting' })]) {
+      const t = mountTabs({}, { run: row });
+      await flush();
+      assert.equal(stopButton(t.root) !== null, row.phase === 'starting', `${row.phase}`);
+      t.handle.destroy();
+    }
+    const asked = mountTabs({}, {});
+    await flush();
+    asked.handle.update({ worker: { status: 200, body: statusBody({ cancelBy: { by: 'console', source: 'operator', requestedAt: '2026-11-08T05:10:00.000Z' } }) } });
+    assert.equal(stopButton(asked.root), null, 'a stop was already asked');
+    asked.handle.destroy();
+  });
+  await withActions(actionsBody(false, 'phone-scope'), async () => {
+    const t = mountTabs({});
+    await flush();
+    assert.equal(stopButton(t.root), null);
+    assert.equal(text(t.root.querySelector('.acts__reason') as El), 'Actions need a control device paired from the Android app.');
+    t.handle.destroy();
+  });
+  await withActions(actionsBody(true, null, null), async () => {
+    const t = mountTabs({});
+    await flush();
+    assert.equal(stopButton(t.root), null, 'no project key to name in the request');
+    t.handle.destroy();
+  });
+});
+
+test('162 cancelBy: the head says who asked for the stop and when; nothing when no stop was asked', async () => {
+  await withActions(actionsBody(false, 'phone-scope'), async () => {
+    const t = mountTabs({});
+    await flush();
+    t.handle.update({ worker: { status: 200, body: statusBody({ cancelBy: null }) } });
+    assert.equal(factOf(t.root, 'Stop asked'), null);
+    t.handle.update({ worker: { status: 200, body: statusBody({ cancelBy: { by: 'device.d-0a1b2c3d4e5f', source: 'operator', requestedAt: '2026-11-08T05:10:00.000Z' } }) } });
+    assert.match(factOf(t.root, 'Stop asked') as string, /^from paired device d-0a1b2c3d4e5f, /);
+    t.handle.update({ worker: { status: 200, body: statusBody({ cancelBy: { by: 'person', source: 'operator', requestedAt: null }, state: 'cancelled' }) } });
+    assert.equal(factOf(t.root, 'Stop asked'), 'requester not recorded');
+    t.handle.destroy();
+  });
 });

@@ -140,7 +140,7 @@ function gatesSection(entry: Entry): SectionResult {
     const program: any[] = Array.isArray(record.program) ? record.program : [];
     const nameOf = (gateId: string): string => gateName(program.find((n) => n && n.type === 'gate' && n.id === gateId)?.name, gateId);
     const runKey = runKeyOf(record.runKey);
-    const row = (gateId: string, state: string, at: string | null, by: string | null) => ({ runKey, slug, taskId: stem, gateId, name: nameOf(gateId), state, at, by });
+    const row = (gateId: string, state: string, at: string | null, by: string | null, revision: number | null = null) => ({ runKey, slug, taskId: stem, gateId, name: nameOf(gateId), state, at, by, revision });
     const events: any[] = [];
     let timeline: any;
     let snapshot: any;
@@ -151,7 +151,7 @@ function gatesSection(entry: Entry): SectionResult {
       else if (ev.action === 'skip-gate') events.push(row(ev.node, 'skipped', ev.at, null));
     }
     const awaiting = snapshot.awaitingGate;
-    if (awaiting && typeof awaiting.gateId === 'string' && ID.test(awaiting.gateId)) events.push(row(awaiting.gateId, 'awaiting', isoAt(record.updatedAt), null));
+    if (awaiting && typeof awaiting.gateId === 'string' && ID.test(awaiting.gateId)) events.push(row(awaiting.gateId, 'awaiting', isoAt(record.updatedAt), null, record.revision || 0));
     if (events.length === 0) continue;
     events.sort((a, b) => byTimeDesc(a.at, b.at));
     runs.push({ updatedAt: isoAt(record.updatedAt), taskId: stem, events: events.slice(0, GATE_EVENTS) });

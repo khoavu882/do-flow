@@ -28,6 +28,8 @@ const { loadStorageRegistry } = require('./storage/registry.ts');
 const { resolveRoots, resolveStorePath } = require('./storage/roots.ts');
 const { checkCompletion: checkTaskAttemptCompletion, storeFile: taskAttemptStoreFile } = require('./task-attempts.ts');
 const { runKeyFor, refuseSolo } = require('./task-run.ts');
+const { RELAY_LABEL } = require('./relay-label.ts');
+const { inWorkerSession } = require('./context/identity.ts');
 const { projectRoot: lifecycleProjectRoot } = require('./lifecycle/root.ts');
 const { appendOutcome, findPick, readWindow } = require('./advice/record.ts');
 const {
@@ -95,6 +97,43 @@ function snapshotRun(run: any) {
     terminalStage: run.terminalStage,
     revision: Number.isInteger(run.revision) ? run.revision : 0,
   };
+}
+
+/** The refusal ids of IC-004: a run that was found and not changed, or no run at all. */
+const REFUSAL_CODES = Object.freeze(['no-run', 'not-awaiting-gate', 'gate-mismatch', 'run-terminal', 'concurrent-update', 'lock-lost', 'ambiguous-run', 'other-feature', 'stale-revision']);
+
+/**
+ * A refusal a caller can name: `code` is one of REFUSAL_CODES, `run` the record as the refusing call read it
+ * (null when there is none). The message is the line `orchestrate` prints on stderr, unchanged.
+ */
+class RunRefusal extends Error {
+  code: string;
+  run: any;
+  constructor(code: string, message: string, run: any = null) {
+    super(message);
+    if (!REFUSAL_CODES.includes(code)) throw new TypeError(`Unknown run refusal '${code}' (expected one of: ${REFUSAL_CODES.join(', ')})`);
+    this.name = 'RunRefusal';
+    this.code = code;
+    this.run = run;
+  }
+}
+
+/** What a timeline shows as `by` on a decide-gate entry, and on a close-run entry. */
+const DECIDE_BY = /^(?:autopilot|manual|console|device\.d-[0-9a-f]{12})$/;
+const CLOSE_BY = /^(?:manual|console|device\.d-[0-9a-f]{12})$/;
+
+/** `--via`, checked where it is used as well as where the CLI reads it, so no caller records a label outside the grammar. */
+function assertVia(via: any) {
+  if (via !== undefined && !RELAY_LABEL.test(String(via))) throw new Error(`--via takes console or device.d-<12 hex>, got '${via}'`);
+}
+
+/** `--expect-revision`: the run's revision as this call read it must be the one the caller saw. */
+function assertExpectedRevision(run: any, expectRevision: any) {
+  if (expectRevision === undefined) return;
+  const revision = run.revision || 0;
+  if (revision !== expectRevision) {
+    throw new RunRefusal('stale-revision', `Run '${run.taskId}' is at revision ${revision}, not the expected ${expectRevision}; reload the run before retrying. Nothing was written.`, run);
+  }
 }
 
 const GATE_DECISIONS = Object.freeze(['approve', 'reject']);
@@ -318,7 +357,7 @@ class WorkflowOrchestrator {
     const expectedRevision = run.revision || 0;
     updateTaskState({ file, fsImpl: this.fsImpl, prepare: seed, build: (disk: any) => {
       if ((disk?.revision || 0) !== expectedRevision) {
-        throw new Error(`Concurrent workflow update for '${run.taskId}'; reload the run before retrying. Nothing was written.`);
+        throw new RunRefusal('concurrent-update', `Concurrent workflow update for '${run.taskId}'; reload the run before retrying. Nothing was written.`, run);
       }
       if (beforeWrite) beforeWrite();
       return run;
@@ -621,7 +660,7 @@ class WorkflowOrchestrator {
 
   requireRun(taskId: any) {
     const run = this.readRun(taskId);
-    if (!run) throw new Error(`No workflow run for task '${taskId}'`);
+    if (!run) throw new RunRefusal('no-run', `No workflow run for task '${taskId}'`);
     return run;
   }
 
@@ -832,7 +871,7 @@ class WorkflowOrchestrator {
    * `forced` decision (e.g. approving despite unresolved clarification markers) requires an
    * explicit `note` reason — never a silent override — and is flagged in history for
    * `render-audit.sh` to distinguish from a routine handoff. */
-  decideGate({ taskId, gateId, decision, policy, by, note, forced = false, now, bindHead }: any = {}) {
+  decideGate({ taskId, gateId, decision, policy, by, via, expectRevision, note, forced = false, now, bindHead }: any = {}) {
     assertSafeId(gateId, 'gateId');
     if (bindHead !== undefined && (policy === undefined || !/^[0-9a-f]{40}$/.test(String(bindHead)))) throw new Error('bindHead is a 40-hex feature head and needs --policy');
     // IC-005: the decider is derived, never named by a caller: --policy records `autopilot`, any other
@@ -844,15 +883,19 @@ class WorkflowOrchestrator {
       if (decision !== undefined || forced) throw new Error('--policy refuses --decision and --forced');
     } else if (!GATE_DECISIONS.includes(decision)) throw new Error(`Invalid gate decision '${decision}'; valid: ${GATE_DECISIONS.join(', ')}`);
     if (forced && (!note || !String(note).trim())) throw new Error('A forced gate decision requires a --note reason');
+    // The relay label and the revision precondition belong to a person's decision, never to the policy path.
+    if (policy !== undefined && (via !== undefined || expectRevision !== undefined)) throw new Error('--policy refuses --via and --expect-revision');
+    assertVia(via);
     const run = this.requireRun(taskId);
-    if (run.state !== 'AWAITING_GATE') throw new Error(`Run '${run.taskId}' is not awaiting a gate (state=${run.state})`);
+    assertExpectedRevision(run, expectRevision);
+    if (run.state !== 'AWAITING_GATE') throw new RunRefusal('not-awaiting-gate', `Run '${run.taskId}' is not awaiting a gate (state=${run.state})`, run);
     const node = this.currentNode(run);
     if (!node || node.type !== 'gate') throw new Error('Run state says AWAITING_GATE but no gate is at the cursor');
-    if (node.id !== gateId) throw new Error(`Expected gate '${node.id}' next, got '${gateId}'`);
+    if (node.id !== gateId) throw new RunRefusal('gate-mismatch', `Expected gate '${node.id}' next, got '${gateId}'`, run);
     if (policy !== undefined) return this.decideGateByPolicy(run, node, policy, now, bindHead);
     node.status = nodeStatus(decision === 'approve' ? 'approved' : 'rejected');
     node.decision = decision;
-    run.history.push({ at: iso(now), action: 'decide-gate', node: node.id, detail: decision, by: 'manual', note: note ?? null, forced: Boolean(forced) });
+    run.history.push({ at: iso(now), action: 'decide-gate', node: node.id, detail: decision, by: via ?? 'manual', note: note ?? null, forced: Boolean(forced) });
     if (decision === 'reject') {
       run.state = runState('REJECTED');
     } else {
@@ -974,11 +1017,13 @@ class WorkflowOrchestrator {
    * no node changes status, so the record still shows how far the run really got. A finished run is
    * refused: closing is not a way to rewrite an outcome.
    */
-  close({ taskId, note, now }: any = {}) {
+  close({ taskId, note, via, expectRevision, now }: any = {}) {
     if (!note || !String(note).trim()) throw new Error('close requires a --note reason');
+    assertVia(via);
     const run = this.requireRun(taskId);
-    if (TERMINAL_STATES.includes(run.state)) throw new Error(`Run '${run.taskId}' is already ${run.state}`);
-    run.history.push({ at: iso(now), action: 'close-run', node: this.currentNode(run)?.id ?? null, note: String(note).trim() });
+    assertExpectedRevision(run, expectRevision);
+    if (TERMINAL_STATES.includes(run.state)) throw new RunRefusal('run-terminal', `Run '${run.taskId}' is already ${run.state}`, run);
+    run.history.push({ at: iso(now), action: 'close-run', node: this.currentNode(run)?.id ?? null, by: via ?? 'manual', note: String(note).trim() });
     run.state = runState('CLOSED');
     this.writeRun(run, now);
     return this.snapshot(run);
@@ -1175,8 +1220,8 @@ const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]
  * 093 IC-012: one run's history as closed values only. Each event copies the action, an id-shaped
  * node, the stage outcome (complete-stage), the gate decision (decide-gate's `detail`), `forced`, and
  * whether the entry records no work done (the indicators rule, trace/indicators.ts isSynthetic).
- * Of a decide-gate entry's deciders only `by` is read, and only as `autopilot` or `manual` (any other
- * value, or none, is null). Notes, detail text, policy inputs, consultations and trace ids are never read.
+ * `by` is read on a decide-gate entry as `autopilot`, `manual`, `console` or `device.d-<12 hex>`, and on a
+ * close-run entry as `manual`, `console` or `device.d-<12 hex>` (any other value, or none, is null). Notes, detail text, policy inputs, consultations and trace ids are never read.
  */
 function timelineOf(run: any, taskId: string, featureSlug: any) {
   const at = (value: any) => journalTime(value) !== null && ISO_INSTANT.test(value) ? value : null;
@@ -1193,7 +1238,7 @@ function timelineOf(run: any, taskId: string, featureSlug: any) {
       node: typeof entry.node === 'string' && ID_PATTERN.test(entry.node) ? entry.node : null,
       outcome: entry.action === 'complete-stage' && STAGE_OUTCOMES.has(entry.outcome) ? entry.outcome : null,
       decision: entry.action === 'decide-gate' && GATE_DECISIONS.includes(entry.detail) ? entry.detail : null,
-      by: entry.action === 'decide-gate' && (entry.by === 'autopilot' || entry.by === 'manual') ? entry.by : null,
+      by: typeof entry.by === 'string' && ((entry.action === 'decide-gate' && DECIDE_BY.test(entry.by)) || (entry.action === 'close-run' && CLOSE_BY.test(entry.by))) ? entry.by : null,
       forced: entry.forced === true,
       synthetic: Boolean(entry.backfilled) || Boolean(entry.executionStatus && entry.executionStatus !== 'completed'),
     });
@@ -1375,9 +1420,9 @@ function locateRun({ action, taskId, slug = null, recordSlug, repoRoot, stateRoo
     // still act on this checkout's feature only.
     const changes = (action === 'annotate' || action === 'close') && !slug;
     const found = findRunFile({ stateRoot: state, taskId, slug: featureSlug, anyNamespace: (action === 'status' || action === 'timeline') && !slug, acrossFlat: changes });
-    if (found.status === 'ambiguous') return { ambiguous: ambiguousRunMessage(taskId, found) };
+    if (found.status === 'ambiguous') return { ambiguous: ambiguousRunMessage(taskId, found), refusal: 'ambiguous-run' };
     if (changes && found.status === 'found' && found.feature !== undefined && featureSlug && found.feature !== featureSlug) {
-      return { ambiguous: `[ERROR] orchestrate: run '${taskId}' belongs to feature '${found.feature}', not this checkout's feature '${featureSlug}'; pass --slug ${found.feature} to act on it. Nothing was changed.` };
+      return { ambiguous: `[ERROR] orchestrate: run '${taskId}' belongs to feature '${found.feature}', not this checkout's feature '${featureSlug}'; pass --slug ${found.feature} to act on it. Nothing was changed.`, refusal: 'other-feature' };
     }
     if (found.status === 'found') {
       runRoot = found.root;
@@ -1441,10 +1486,35 @@ function timelineResult(options: { stateRoot?: string; sourceRoot?: string; task
  * Completing a source-mutating gated stage needs a READY readiness record of the stage's template,
  * made by `doflow readiness` before this call; nothing is evaluated here. */
 function handleOrchestrateCommand({
-  action = 'status', taskId, taskClass, stage, gate, node, decision, policy, note, reason, forced = false,
+  action = 'status', taskId, taskClass, stage, gate, node, decision, policy, note, reason, forced = false, via, expectRevision,
   verificationPlan, scope, invariants, result, mcpOutcome, callingSkill, json = false, repoRoot, stateRoot, sourceRoot, slug = null, recordSlug, buildAdapters = null, dryRun = false,
+  env = process.env,
 }: any = {}) {
   const { finishRuntime, usageError } = require('./cli-result.ts');
+
+  // IC-004: --expect-revision and --via are read by a person's gate decision and by close, and by nothing
+  // else; a flag an action would drop is refused, never ignored, before anything is read or written.
+  const readsRelay = action === 'close' || (action === 'decide-gate' && policy === undefined);
+  for (const [flag, given] of [['--expect-revision', expectRevision], ['--via', via]] as const) {
+    if (given !== undefined && !readsRelay) {
+      return usageError('orchestrate', `'${flag}' has no effect on action '${action}' — only decide-gate (without --policy) and close read it`, json);
+    }
+  }
+  if (via !== undefined && !RELAY_LABEL.test(String(via))) {
+    return usageError('orchestrate', `'--via' takes console or device.d-<12 hex>, got '${via}'`, json);
+  }
+  // 162 review 5: the label is an assertion by whoever runs the command; an agent in a worker session (the guard
+  // `worker --operator` and `models --action bind` use) cannot label its own decision as the Console's or a device's.
+  if (via !== undefined && inWorkerSession(env)) {
+    console.error("[ERROR] orchestrate: '--via' relays a person's decision from the Console or a paired device and is refused in a worker session; decide without it");
+    if (json) console.log(JSON.stringify({ v: 1, ok: false, error: 'worker-session', current: null }));
+    return finishRuntime(1);
+  }
+  // Under --json, a refused decide-gate or close is data too: the code and the run as it now stands.
+  const refusalJson = json && (action === 'decide-gate' || action === 'close');
+  const printRefusal = (code: string, current: any) => {
+    console.log(JSON.stringify({ v: 1, ok: false, error: code, current }));
+  };
 
   if (action === 'list') {
     return listRuns({ taskId, taskClass, gate, decision, policy, forced, note, reason, stage, node, verificationPlan, scope, invariants, result, mcpOutcome, callingSkill, slug, dryRun, json, stateRoot });
@@ -1462,6 +1532,7 @@ function handleOrchestrateCommand({
   const located = locateRun({ action, taskId, slug, recordSlug, repoRoot, stateRoot, sourceRoot, buildAdapters });
   if (located.ambiguous !== null) {
     console.error(located.ambiguous);
+    if (refusalJson) printRefusal(located.refusal, null);
     return finishRuntime(1);
   }
   const { root, state, source, runRoot, orchestrator } = located;
@@ -1566,11 +1637,11 @@ function handleOrchestrateCommand({
         break;
       case 'decide-gate':
         if (!taskId || !gate || (policy === undefined && !decision)) return usageError('orchestrate', 'decide-gate requires --task-id, --gate and --decision approve|reject or --policy <gateId>', json);
-        snapshot = orchestrator.decideGate({ taskId, gateId: gate, decision, policy, note, forced });
+        snapshot = orchestrator.decideGate({ taskId, gateId: gate, decision, policy, via, expectRevision, note, forced });
         break;
       case 'close':
         if (!taskId || !note) return usageError('orchestrate', 'close requires --task-id and --note (why the run ended outside the record)', json);
-        snapshot = orchestrator.close({ taskId, note });
+        snapshot = orchestrator.close({ taskId, note, via, expectRevision });
         break;
       case 'annotate':
         if (!taskId || !node || !note) return usageError('orchestrate', 'annotate requires --task-id, --node and --note', json);
@@ -1637,11 +1708,20 @@ function handleOrchestrateCommand({
     // Transition refusals are findings, not crashes: out-of-order stages and unready gates are
     // exactly what an operator asked about when they ran this.
     console.error(`[ERROR] orchestrate: ${error.message}`);
+    const code = error instanceof RunRefusal ? error.code : error?.code === 'lock-lost' ? 'lock-lost' : null;
+    if (refusalJson && code) {
+      let current = null;
+      try {
+        const fresh = orchestrator.readRun(taskId);
+        current = fresh ? snapshotRun(fresh) : null;
+      } catch { /* an unreadable record is reported as no current state */ }
+      printRefusal(code, current);
+    }
     return finishRuntime(1);
   }
 }
 
 module.exports = {
   WorkflowOrchestrator, loopWorkflow, RUN_STATES, NODE_STATUSES, isNodeDone, nodeStatus, GATE_DECISIONS, STAGE_OUTCOMES, handleOrchestrateCommand, recordStagePack,
-  snapshotRun, timelineOf, listRunsResult, statusResult, timelineResult,
+  RunRefusal, snapshotRun, timelineOf, listRunsResult, statusResult, timelineResult,
 };

@@ -181,7 +181,11 @@ function resolvePrimary({
     return result('unconfirmed', { harness, model: declaredModel, declared, probe, warnings, reason: 'ambiguous-sessions' });
   }
 
-  const group = [...groups.values()][0];
+  // A compaction's record may be a subagent's (observe-model.sh): it never confirms, contradicts or refuses.
+  const group = [...groups.values()][0].filter((observation) => !observation.event.endsWith(':compact'));
+  if (group.length === 0) {
+    return result('unconfirmed', { harness, model: declaredModel, declared, probe, warnings, reason: 'unattributed-observation' });
+  }
   group.sort((a, b) => b.time - a.time);
   const newest = group[0];
   const observed: Observation = {
@@ -289,6 +293,7 @@ function observedSessions({
     for (const dirent of harnesses) {
       if (!dirent.isDirectory() || !HARNESS_DIR.test(dirent.name)) continue;
       for (const o of readObservations({ root, projectRoot: top, harness: dirent.name, now: nowMs, maxAgeMs, counts })) {
+        if (o.event.endsWith(':compact')) continue; // possibly a subagent's model (observe-model.sh): not the session's
         const e = entry(o.session, worktreeKey);
         if (e.modelFirstSeenAt !== null && Date.parse(e.modelFirstSeenAt) >= o.time) continue; // the newest observation of a key wins
         Object.assign(e, { harness: dirent.name, model: o.model, modelFirstSeenAt: o.observedAt });
