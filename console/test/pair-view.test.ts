@@ -52,6 +52,7 @@ test('pairFailure sorts each refusal of POST /api/pair into its row; only a refu
   assert.equal(sort(409, 'device-limit').key, 'device-limit');
   assert.equal(sort(503, 'store-busy').key, 'store-busy');
   assert.equal(sort(503, 'store-unreadable').key, 'store-unreadable');
+  assert.equal(sort(503, 'cert-expired').key, 'cert-expired');
   assert.equal(sort(null, null).key, 'pair-offline');
   assert.equal(sort(400, 'usage').key, 'pair-failed');
   assert.equal(sort(403, 'forbidden-origin').key, 'pair-failed');
