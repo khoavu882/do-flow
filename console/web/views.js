@@ -21,6 +21,7 @@ import { renderAdvice, rerouteAdvice, adviceTitle } from './views/advice.js';
 import { loadFollowups, renderFollowups, rerouteFollowups, followupsTitle } from './views/followups.js';
 import { renderHealth, rerouteHealth, healthTitle } from './views/health.js';
 import { renderWorkers, rerouteWorkers, workersTitle } from './views/workers.js';
+import { renderMore } from './views/more.js';
 import { renderCompare, skeletonCompare, compareTitle, rerouteCompare } from './views/compare.js';
 import { deriveSessions } from './derive/sessions.js';
 import { runStepCopy, runToken } from './derive/rail.js';
@@ -175,7 +176,9 @@ const VIEWS = Object.freeze({
     wide: false,
     skeleton: skeletonHome,
     head: () => ({ text: 'Runs', mono: false }),
-    meta: () => null,
+    // The scope, in words: the attention strip above counts this machine, this page lists one project and names it once the page knows it.
+    meta: (/** @type {any} */ _params, /** @type {any} */ _data, /** @type {number} */ _nowMs, /** @type {{ project: string | null }} */ shell) =>
+      h('p', { class: 'view-head__meta' }, shell && shell.project ? `Runs of ${shell.project}, the project this Console was started in.` : 'The runs of the project this Console was started in.'),
     render: (/** @type {any} */ data, /** @type {any} */ params, /** @type {any} */ local) => renderHome(data, { badge, local }),
     isEmpty: (/** @type {any} */ data) => data.runs.length === 0,
     empty: {
@@ -363,6 +366,22 @@ const VIEWS = Object.freeze({
     isEmpty: () => false,
     title: (/** @type {any} */ params) => compareTitle(params),
   },
+  // The destinations a phone's tab bar has no room for, and the theme control: it reads nothing (the shell's heartbeat runs).
+  more: {
+    id: 'more',
+    inspectable: false,
+    noun: 'this page',
+    shapes: [],
+    api: () => null,
+    pollMs: 5000,
+    wide: false,
+    skeleton: skeletonBlock,
+    head: () => ({ text: 'More', mono: false }),
+    meta: () => null,
+    render: renderMore,
+    isEmpty: () => false,
+    title: () => 'More',
+  },
   'not-found': {
     id: 'not-found',
     inspectable: false,
@@ -399,6 +418,7 @@ function parseRoute(hash) {
   if (path === '/sessions') return { id: 'sessions', params: {}, view: VIEWS.sessions };
   if (path === '/compare') return { id: 'compare', params: {}, view: VIEWS.compare };
   if (path === '/layers') return { id: 'layers', params: {}, view: VIEWS.layers };
+  if (path === '/more') return { id: 'more', params: {}, view: VIEWS.more };
   const parts = path.split('/'); // ['', 'run', slug, taskId, ...selection]
   const manage = parts[1];
   const base = (/** @type {string} */ id, /** @type {any} */ extra = {}) => ({ id, params: {}, view: VIEWS[id], ...extra });
@@ -474,17 +494,20 @@ function titleFor(route, data = null) {
   return `${base} · ${PRODUCT}`;
 }
 
+/** The routes of the Manage group: a phone reaches them through More, so the More tab is their current tab there. */
+const MANAGE_VIEWS = Object.freeze(['followups', 'workflows', 'workers', 'advice', 'settings', 'health']);
+
 /**
- * Which rail link is current (IC-020, DEC-035; 150 IC-015): Now on `#/`, every `#/run/...` and every `#/session/...` (the
- * id stays `runs`; the Runs heading and title keep Runs), Workflows on `#/workflows`, Sessions on `#/sessions`, Layers on
- * every `#/layers...`, else none.
+ * Which navigation link is current: Now on `#/`, every `#/run/...` and every `#/session/...` (the id stays `runs`; the Runs
+ * heading and title keep Runs), Sessions on `#/sessions...` and `#/compare...`, Layers on every `#/layers...`, More on `#/more`,
+ * each Manage view on its own link, else none.
  * @param {any} route
  */
 function navFor(route) {
-  if (['workflows', 'sessions', 'settings', 'advice', 'followups', 'health', 'workers'].includes(route.id)) return route.id;
+  if (route.id === 'sessions' || route.id === 'more' || MANAGE_VIEWS.includes(route.id)) return route.id;
   if (route.id === 'compare') return 'sessions';
   if (route.id === 'layers' || route.id === 'layers-project') return 'layers';
   return route.id === 'not-found' ? null : 'runs';
 }
 
-export { CORE_RANGE, PARAM_PATTERN, KEY16, VIEWS, SHAPES_USED, parseRoute, hashFor, baseRoute, titleFor, navFor, badge, awaitingCount };
+export { CORE_RANGE, PARAM_PATTERN, KEY16, VIEWS, SHAPES_USED, MANAGE_VIEWS, parseRoute, hashFor, baseRoute, titleFor, navFor, badge, awaitingCount };

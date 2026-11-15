@@ -11,7 +11,7 @@
 //   B. The route over a real server on 127.0.0.1:0: every refusal as JSON with the security headers
 //      and no stream header, with no verb run, no follow and no hub subscribe; Host and Origin; the
 //      stream headers; `since` over `Last-Event-ID`; the slot; the real hub's supervisor set; log
-//      positions in `since`.
+//      positions in `since`; a paired view device's machine frame over the real hub and core (162 review A-3).
 
 const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -29,6 +29,9 @@ const { createServer } = require('../src/server.ts');
 const { consoleRoutes } = require('../src/routes.ts');
 const { createSessions, cookieName } = require('../src/session.ts');
 const { deviceClient } = require('./helpers/lan-world.ts');
+const { buildFleetWorld } = require('./helpers/core-fixture.ts');
+const { createVerbRunner } = require('../src/verb-runner.ts');
+const { createLiveChild } = require('../src/live-child.ts');
 const { securityHeaders } = require('../src/headers.ts');
 
 const EPOCH = 'a1b2c3d4';
@@ -1075,6 +1078,65 @@ test('GET /api/live with log positions: a log channel with n or another channel 
   assert.equal(page.status, 200);
   await until(() => hub.subscribes.length === 7, 'five subscribes');
   assert.deepEqual(hub.subscribes.slice(2), five);
+});
+
+// The shell's attention strip follows `machine` beside the view's own channel on every page (app.js `startAttention`), so the
+// stream a paired phone opens is `ch=<view>,machine`. A `view` device is not refused it: both channels are subscribed. This
+// case is admission only, over a fake hub; the real hub's machine frame to a view device is the case after it (162 review A-3).
+test('GET /api/live: the route admits a paired view device, as a control device, to ch=now,machine and subscribes both channels (fake hub)', async (t) => {
+  for (const scope of ['view', 'control'] as const) {
+    const hub: any = fakeHub();
+    hub.clock = fakeClock();
+    const client = await deviceClient(t, (auth: any) => consoleRoutes(countingRunner(), auth, hub), webRoot);
+    const paired = await client.world.pair(scope, `Phone ${scope}`);
+    const stream = client.request('GET', '/api/live?ch=now,machine', { headers: { Cookie: paired.cookie } });
+    await until(() => hub.subscribes.length === 2, `${scope}: the stream subscribed`);
+    assert.deepEqual([...hub.subscribes].sort(), ['machine', 'now'], scope);
+    assert.equal(await client.world.store.revoke(paired.device.id), 'revoked');
+    hub.clock.step(KEEPALIVE_MS);
+    assert.equal((await stream).status, 200, `${scope}: opened, not refused`);
+  }
+});
+
+// 162 review A-3: the same stream over the REAL hub, supervisor and runner on this checkout's core, aimed at the fixture
+// project whose `run-gate` waits at a gate: the paired view device receives a `machine` frame that carries that gate.
+test('GET /api/live with the real hub: a paired view device receives a machine frame carrying the fixture project\'s waiting gate', { timeout: 30_000 }, async (t) => {
+  const https = require('node:https');
+  const w = buildFleetWorld((fn: () => void) => t.after(fn));
+  const runner = createVerbRunner({ corePath: w.core, projectRoot: w.alpha, env: w.env });
+  const hub = createLiveHub({ runner, supervisor: createLiveChild({ runner }) });
+  t.after(() => { hub.stop(); runner.stop(); });
+  const client = await deviceClient(t, (auth: any) => consoleRoutes(runner, auth, hub), webRoot);
+  const paired = await client.world.pair('view', 'Real hub phone');
+  const ca = fs.readFileSync(client.cert.certPath);
+  const frames: any[] = [];
+  let status = 0;
+  const req = https.request({ host: '127.0.0.1', port: client.app.port, path: '/api/live?ch=now,machine', ca, servername: '', agent: false, headers: { Host: `127.0.0.1:${client.app.port}`, Cookie: paired.cookie } }, (res: any) => {
+    status = res.statusCode;
+    res.setEncoding('utf8');
+    let buffer = '';
+    res.on('data', (chunk: string) => {
+      buffer += chunk;
+      for (let at = buffer.indexOf('\n\n'); at >= 0; at = buffer.indexOf('\n\n')) {
+        const data = buffer.slice(0, at).split('\n').filter((line) => line.startsWith('data: ')).map((line) => line.slice(6)).join('');
+        buffer = buffer.slice(at + 2);
+        if (data !== '') frames.push(JSON.parse(data));
+      }
+    });
+    res.on('error', () => {});
+  });
+  req.on('error', () => {});
+  req.end();
+  t.after(() => req.destroy());
+  const gatesOf = (frame: any) => frame?.data?.state?.machine?.body?.sections?.activity?.data?.items?.flatMap((item: any) => item.gates) ?? [];
+  await until(() => frames.some((frame) => frame.ch === 'machine' && gatesOf(frame).some((gate: any) => gate.taskId === 'run-gate')), 'a machine frame with the waiting gate', 20_000);
+  assert.equal(status, 200);
+  const frame = frames.find((f) => f.ch === 'machine' && gatesOf(f).length > 0);
+  const gate = gatesOf(frame).find((g: any) => g.taskId === 'run-gate');
+  assert.equal(gate.slug, 'feat-graph');
+  assert.equal(typeof gate.gateId, 'string');
+  const items = frame.data.state.machine.body.sections.activity.data.items;
+  assert.ok(items.some((item: any) => item.runs.awaiting >= 1), 'the summary counts the awaiting run');
 });
 
 // ---- 161: the device recheck, the Console cap, and resume of the layers channels and lanes ----

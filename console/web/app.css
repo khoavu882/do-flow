@@ -89,34 +89,35 @@
 
 /* ---- layout -------------------------------------------------------------------------------------- */
 @layer layout {
-  .site-header { background: var(--surface); border-bottom: 1px solid var(--border); }
-
-  .site-header__inner {
-    max-width: var(--content-max);
-    margin-inline: auto;
-    padding-inline: var(--gutter);
-    display: grid;
-    /* CD-B9: three rows below 768. Keep pause beside theme so it cannot orphan beneath the header. */
-    grid-template-areas: "brand conn" "nav nav" "pause theme";
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-rows: var(--header-h) auto 48px;
-    column-gap: var(--space-4);
-    align-items: center;
+  /* The app bar: one row at every width, stuck to the top. Below 768 it holds the brand, the connection pill and the pause
+     control; the theme control joins from 768 (below that it is on the More page) and the core version from 1440. */
+  .site-header {
+    position: sticky;
+    top: 0;
+    z-index: var(--z-header);
+    padding-top: var(--safe-top);
+    background: var(--surface);
+    color: var(--text);
+    border-bottom: 1px solid var(--border);
   }
-  .brand { grid-area: brand; }
-  .nav { grid-area: nav; justify-self: stretch; }
-  .conn { grid-area: conn; justify-self: end; }
-  .pause { grid-area: pause; justify-self: start; }
-  .theme { grid-area: theme; justify-self: end; }
+  .site-header__inner {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    height: var(--header-h);
+    padding-inline: max(var(--gutter), var(--safe-left)) max(var(--gutter), var(--safe-right));
+  }
+  .brand { margin-right: auto; }
   .core-version { display: none; }
 
   .banner-slot { position: relative; z-index: var(--z-banner); }
 
+  /* The canvas clears the tab bar and the safe areas of a phone. */
   .page {
     max-width: var(--content-max);
     margin-inline: auto;
-    padding-inline: var(--gutter);
-    padding-block: var(--space-5) var(--space-8);
+    padding-inline: max(var(--gutter), var(--safe-left)) max(var(--gutter), var(--safe-right));
+    padding-block: var(--space-4) calc(var(--space-7) + var(--chrome-bottom));
   }
   .page--wide { max-width: none; }
 
@@ -126,8 +127,8 @@
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
-  .view-head { margin-bottom: var(--space-5); }
-  .view-title { font: var(--type-xl); letter-spacing: var(--tracking-tight); overflow-wrap: anywhere; }
+  .view-head { margin-bottom: var(--space-4); }
+  .view-title { font: var(--type-lg); letter-spacing: var(--tracking-tight); overflow-wrap: anywhere; }
   .view-title.mono { font-family: var(--font-mono); }
   .view-head__meta {
     display: flex;
@@ -149,29 +150,16 @@
   }
 
   @media (min-width: 768px) {
-    .site-header { position: sticky; top: 0; z-index: var(--z-header); }
-    .site-header__inner {
-      grid-template-areas: "brand conn pause theme" "nav nav nav nav";
-      grid-template-columns: minmax(0, 1fr) auto auto auto;
-      grid-template-rows: var(--header-h) auto;
-    }
+    .site-header__inner { gap: var(--space-4); }
     .page { padding-top: var(--space-6); }
+    .view-head { margin-bottom: var(--space-5); }
+    .view-title { font: var(--type-xl); letter-spacing: var(--tracking-tight); }
     .grid { grid-template-columns: repeat(8, minmax(0, 1fr)); gap: var(--space-5); }
     .summary {
       grid-template-columns: minmax(0, 1.8fr) repeat(2, minmax(0, 1fr));
       align-items: stretch;
       gap: var(--space-5);
     }
-  }
-
-  @media (min-width: 1100px) {
-    .site-header__inner {
-      display: flex;
-      align-items: center;
-      gap: var(--space-4);
-      height: var(--header-h);
-    }
-    .nav { margin-left: var(--space-5); }
   }
 
   @media (min-width: 1280px) {
@@ -200,26 +188,6 @@
   .brand .brand-gate { color: var(--accent); }
   .brand .brand-line { color: var(--border-strong); }
 
-  /* Navigation */
-  .nav ul { display: flex; gap: var(--space-1); }
-  @media (max-width: 767px) {
-    .nav ul { gap: 0; }
-    .nav__link { padding-inline: var(--space-2); }
-  }
-  .nav__link {
-    display: inline-flex;
-    align-items: center;
-    min-height: var(--target);
-    padding-inline: var(--space-3);
-    border-radius: var(--radius-pill);
-    font: var(--type-sm);
-    font-weight: 600;
-    color: var(--text-muted);
-    text-decoration: none;
-  }
-  .nav__link:hover { background: var(--surface-2); color: var(--text); }
-  .nav__link[aria-current="page"] { background: var(--accent-tint); color: var(--accent); }
-
   /* Connection pill: colours come from the state it shows. */
   .conn {
     display: inline-flex;
@@ -240,36 +208,34 @@
   .conn__long { display: none; }
 
   /* Pause control (feature 133): keep the action explicit at every width. */
-  .pause { gap: var(--space-1); }
+  /* Below 1280 the control is an icon button: the words stay its accessible name. */
+  .pause { gap: var(--space-1); width: var(--target); padding-inline: 0; }
   .pause[hidden] { display: none; }
   .pause[aria-pressed="true"] { background: var(--state-unknown-tint); color: var(--state-unknown-fg); }
-  .pause__label { white-space: nowrap; }
+  .pause__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .site-header .theme { display: none; }
   @media (min-width: 768px) {
-    /* In this layer, after .conn's own margin: an earlier layer would lose to it. */
-    .conn { margin-left: auto; }
     .conn__long { display: inline; }
     .conn__short { display: none; }
     .brand__product { display: inline; }
+    .site-header .theme { display: inline-flex; }
+  }
+  @media (min-width: 1280px) {
+    .pause { width: auto; padding-inline: var(--space-3); }
+    .pause__label { position: static; width: auto; height: auto; overflow: visible; clip-path: none; }
   }
 
   .core-version { margin: 0; font: var(--type-xs); font-family: var(--font-mono); color: var(--text-muted); }
 
   /* Theme control: a radio group of three. */
-  .theme {
-    display: inline-flex;
-    padding: 2px;
-    gap: 2px;
-    background: var(--surface-2);
-    border-radius: var(--radius-pill);
-    border: 1px solid var(--border);
-  }
+  .theme { display: inline-flex; gap: 2px; }
   .theme__opt {
     position: relative;
-    min-width: var(--target);
-    height: calc(var(--target) - 6px);
+    min-width: 32px;
+    height: 32px;
     padding-inline: var(--space-2);
     border: 0;
-    border-radius: var(--radius-pill);
+    border-radius: var(--radius-md);
     background: transparent;
     color: var(--text-muted);
     font: var(--type-sm);
@@ -280,8 +246,9 @@
     gap: var(--space-1);
     cursor: pointer;
   }
-  .theme__opt::before { content: ""; position: absolute; inset: -3px 0; }
-  .theme__opt[aria-checked="true"] { background: var(--surface); color: var(--text); box-shadow: inset 0 0 0 1px var(--border-strong); }
+  .theme__opt::before { content: ""; position: absolute; inset: -6px 0; }
+  .theme__opt:hover { color: var(--text); }
+  .theme__opt[aria-checked="true"] { background: var(--surface-2); color: var(--text); }
   .theme__label {
     position: absolute;
     width: 1px;
@@ -290,10 +257,36 @@
     clip-path: inset(50%);
     white-space: nowrap;
   }
-  @media (min-width: 1280px) {
-    .theme__opt { padding-inline: var(--space-3); }
-    .theme__label { position: static; width: auto; height: auto; overflow: visible; clip-path: none; }
+  /* The control of the More page shows its words and fills the row; the app bar's is icons only at every width. */
+  .theme--labelled { display: flex; max-width: 480px; padding: 2px; background: var(--surface-2); color: var(--text); border-radius: var(--radius-md); }
+  .theme--labelled .theme__opt[aria-checked="true"] { background: var(--surface); color: var(--text); box-shadow: inset 0 0 0 1px var(--border-strong); }
+  .theme--labelled .theme__opt { flex: 1 1 0; height: var(--target); }
+  .theme--labelled .theme__label { position: static; width: auto; height: auto; overflow: visible; clip-path: none; }
+
+  /* The More page: lists of destinations as full-width rows, one touch target each. */
+  .more { display: grid; gap: var(--space-5); max-width: 640px; }
+  .more__section { display: grid; gap: var(--space-2); min-width: 0; }
+  .more__title { font: var(--type-xs); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--text-muted); }
+  .more__list { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
+  .more__list li + li { border-top: 1px solid var(--border); }
+  .more__item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-height: 56px;
+    padding: var(--space-2) var(--space-3) var(--space-2) var(--space-4);
+    color: var(--text);
+    text-decoration: none;
   }
+  .more__item:hover, .more__item:active { background: var(--surface-2); }
+  .more__item:focus-visible { outline-offset: calc(-1 * var(--focus-width)); }
+  .more__item .icon { color: var(--text-muted); }
+  .more__text { flex: 1 1 auto; min-width: 0; display: grid; }
+  .more__label { font: var(--type-md); font-weight: 600; }
+  .more__hint { font: var(--type-sm); color: var(--text-muted); overflow-wrap: anywhere; }
+  .more__facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-1) var(--space-4); font: var(--type-sm); }
+  .more__facts dt { color: var(--text-muted); }
+  .more__facts dd { overflow-wrap: anywhere; }
 
   /* Buttons */
   .btn {
@@ -441,6 +434,9 @@
   }
   .state-panel__head { display: flex; align-items: center; gap: var(--space-2); }
   .state-panel__head .icon { color: var(--state-failed-fg); }
+  /* A stream that is connecting or paused has not failed: the same panel in the neutral tint. */
+  .state-panel[data-kind="stream-connecting"], .state-panel[data-kind="stream-paused"] { background: var(--surface-2); color: var(--text); border-left-color: var(--border-strong); }
+  .state-panel[data-kind="stream-connecting"] .state-panel__head .icon, .state-panel[data-kind="stream-paused"] .state-panel__head .icon { color: var(--text-muted); }
   .state-panel__title { font: var(--type-lg); letter-spacing: var(--tracking-tight); color: var(--text); }
   .state-panel__sentence { margin-top: var(--space-2); font: var(--type-md); color: var(--text); }
   .state-panel .hint { color: var(--text-muted); }
@@ -740,9 +736,9 @@
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    min-height: 52px;
+    min-height: var(--target);
     box-sizing: border-box;
-    padding: var(--space-3) var(--space-4);
+    padding: var(--space-2) var(--space-4);
     background: var(--state-awaiting-tint);
     color: var(--state-awaiting-fg);
   }
@@ -753,7 +749,7 @@
   .gate-card__wait-word { font: var(--type-xs); }
   .gate-card__wait-dur { font: var(--type-lg); font-variant-numeric: tabular-nums; }
   .gate-card__wait-dur[data-unknown="true"] { font: var(--type-xs); }
-  .gate-card__body { display: flex; flex-direction: column; flex: 1 1 auto; padding: var(--space-4); }
+  .gate-card__body { display: flex; flex-direction: column; flex: 1 1 auto; padding: var(--space-3) var(--space-4); }
   .gate-card__name { margin: 0; font: var(--type-lg); letter-spacing: var(--tracking-tight); color: var(--text); overflow-wrap: anywhere; }
   .gate-card__prompt {
     margin: var(--space-1) 0 0;
@@ -764,7 +760,7 @@
     -webkit-line-clamp: 3;
     overflow: hidden;
   }
-  .gate-card__run { display: grid; gap: var(--space-2); margin-top: var(--space-4); padding-top: var(--space-4); border-top: 1px solid var(--border); }
+  .gate-card__run { display: grid; gap: var(--space-2); margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--border); }
   .gate-card__id { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); margin: 0; min-width: 0; font: var(--type-sm); font-family: var(--font-mono); }
   .gate-card__id .run-row__slug, .gate-card__id .run-row__id { font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
   .gate-card__id .run-row__task { font-weight: 400; color: var(--text-muted); overflow-wrap: anywhere; }
@@ -772,7 +768,9 @@
   .gate-card__link {
     align-self: flex-start;
     margin-top: auto;
-    padding-top: var(--space-4);
+    padding-top: var(--space-3);
+    min-height: var(--target);
+    align-items: center;
     display: inline-flex;
     gap: var(--space-1);
     font: var(--type-sm);
@@ -781,9 +779,12 @@
     text-decoration: none;
   }
   .gate-card__link::after { content: ""; position: absolute; inset: 0; }
-  .gate-card__note { margin: auto 0 0; padding-top: var(--space-4); font: var(--type-sm); color: var(--text-muted); }
+  .gate-card__note { margin: auto 0 0; padding-top: var(--space-3); font: var(--type-sm); color: var(--text-muted); }
   @media (min-width: 768px) {
     .gate-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-5); }
+    .gate-card__head { min-height: 52px; padding-block: var(--space-3); }
+    .gate-card__body { padding: var(--space-4); }
+    .gate-card__run { margin-top: var(--space-4); padding-top: var(--space-4); }
   }
   @media (min-width: 1280px) {
     .gate-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -836,7 +837,10 @@
   .rail--lg .rail__glyph + .rail__glyph::before { flex-basis: 8px; min-width: 8px; }
   .rail--lg .rail__glyph[data-type="stage"]::after { width: 28px; height: 12px; }
   .rail--compact .rail__glyph[data-state="pending"]::before { background: var(--border); }
-  .rail--compact .rail__glyph[data-state="not-reached"]::before { background: transparent; }
+  /* A not-reached connector is dotted: the chain stays one line, and nothing claims the run went there. */
+  .rail--compact .rail__glyph[data-state="not-reached"]::before { height: 0; background: transparent; border-top: 2px dotted var(--border); border-radius: 0; }
+  /* The connector into a node the run reached takes the node's own mark, so progress reads as one filled line. */
+  .rail--compact .rail__glyph + .rail__glyph:is([data-state="done"], [data-state="running"], [data-state="awaiting"], [data-state="rejected"])::before { background: var(--mark); }
   .rail__glyph[data-type="stage"]::after {
     content: "";
     flex: none;
@@ -1402,13 +1406,6 @@
   }
 
   /* ---- E.7: the Sessions view (design.md 7a V7): a row per checkout with its lanes, holds and last record; conflicts lead ---- */
-  /* CD-B9 with three nav items: tighter pills and header gap below 768 so Runs, Workflows and Sessions stay on row 1 at 360. */
-  .nav__link { padding-inline: var(--space-2); }
-  .site-header__inner { column-gap: var(--space-2); }
-  @media (min-width: 768px) {
-    .nav__link { padding-inline: var(--space-3); }
-    .site-header__inner { column-gap: var(--space-4); }
-  }
 
   .sessions [hidden] { display: none; }
   .sessions__top { display: grid; justify-items: start; gap: var(--space-3); margin-bottom: var(--space-4); }
@@ -1524,7 +1521,7 @@
   .skel--srow { height: 112px; border-radius: var(--radius-lg); }
 
   @media (min-width: 768px) {
-    .sbar { position: sticky; top: calc(var(--header-h) + var(--space-2)); z-index: var(--z-banner); }
+    .sbar { position: sticky; top: calc(var(--chrome-top) + var(--space-2)); z-index: var(--z-banner); }
     .sbar[data-open="false"] .sbar__list { display: grid; }
     .sbar__toggle { display: none; }
     .srow__body { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); align-items: start; }
@@ -1582,8 +1579,8 @@
 /* Keyframes animate transform, opacity and SVG stroke only. An infinite loop runs only under [data-loop="on"], which a view
    sets on one element at most; every other host shows its still variant. Script never drives a frame. */
 @layer motion {
-  @keyframes shimmer { from { opacity: 1; } to { opacity: 0.5; } }
-  @keyframes view-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  @keyframes shimmer { from { opacity: 1; } to { opacity: 0.6; } }
+  @keyframes view-in { from { opacity: 0; } to { opacity: 1; } }
   @keyframes banner-in { from { opacity: 0; } to { opacity: 1; } }
   @keyframes banner-out { from { opacity: 1; } to { opacity: 0; } }
   @keyframes fade { from { opacity: 0.4; } to { opacity: 1; } }
@@ -1598,11 +1595,14 @@
 
   /* The drawer and the sheet come in a short way over the canvas: transform and opacity only, so the canvas never reflows. */
   .inspector[data-mode="drawer"] { --panel-from: translateX(var(--space-6)); }
-  .inspector[data-mode="sheet"] { --panel-from: translateY(var(--space-6)); }
-  .inspector[data-mode="drawer"]:not([hidden]), .inspector[data-mode="sheet"]:not([hidden]) { animation: panel-in var(--motion-swap) var(--ease-standard) both; }
+  .inspector[data-mode="sheet"] { --panel-from: translateY(var(--space-8)); }
+  .inspector[data-mode="drawer"]:not([hidden]), .inspector[data-mode="sheet"]:not([hidden]) { animation: panel-in var(--motion-gate) var(--ease-settle) both; }
+  /* The confirmation comes in the same way: the sheet rises, the scrim fades. */
+  .confirm__panel { --panel-from: translateY(var(--space-8)); animation: panel-in var(--motion-gate) var(--ease-settle) both; }
+  .confirm__scrim { animation: view-in var(--motion-fast) var(--ease-standard) both; }
 
   .conn { transition: background-color var(--motion-base) var(--ease-standard), color var(--motion-base) var(--ease-standard); }
-  .nav__link, .btn, .theme__opt {
+  .navrail__link, .btn, .theme__opt {
     transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard), box-shadow var(--motion-fast) var(--ease-standard);
   }
 
@@ -1610,15 +1610,16 @@
   html.theme-switching * { transition: none !important; }
 
   /* ---- E.1 motion: a still variant exists for every loop, nothing moves on first paint ---- */
-  @keyframes pulse { from { transform: scale(0.85); opacity: 0.6; } to { transform: scale(1.25); opacity: 0; } }
+  @keyframes pulse { 0% { transform: scale(0.9); opacity: 0.7; } 60%, 100% { transform: scale(1.6); opacity: 0; } }
   @keyframes flow { from { transform: none; } to { transform: translate(var(--flow-x), var(--flow-y)); } }
   @keyframes tint-decay { from { opacity: 1; } to { opacity: 0; } }
-  @keyframes settle { from { transform: scale(0.9); } to { transform: none; } }
-  @keyframes gate-open { from { transform: rotate(-90deg) scale(0.75); } to { transform: none; } }
+  @keyframes settle { from { transform: scale(0.8); opacity: 0.4; } to { transform: none; opacity: 1; } }
+  @keyframes gate-open { from { transform: rotate(-45deg) scale(0.85); opacity: 0.4; } to { transform: none; opacity: 1; } }
   @keyframes draw { from { stroke-dashoffset: 20; } to { stroke-dashoffset: 0; } }
 
   .tile, .gate-card { transition: box-shadow var(--motion-fast) var(--ease-standard); }
-  .run-row { transition: background-color var(--motion-fast) var(--ease-standard); }
+  .run-row, .chain__row { transition: background-color var(--motion-fast) var(--ease-standard); }
+  .chain__twist { transition: transform var(--motion-fast) var(--ease-standard); }
 
   /* The awaiting gate the view marks pulses: a ring around the glyph. Every other awaiting gate shows the still variant. */
   .rail--compact .rail__glyph[data-type="gate"][data-state="awaiting"][data-loop="on"]::after, .rail-fallback .rail__glyph[data-type="gate"][data-state="awaiting"][data-loop="on"]::after {
@@ -1641,9 +1642,9 @@
   /* The still variant of the full rail's awaiting gate: the 3 px focus outline. */
   .rail__item[data-type="gate"][data-state="awaiting"] .rail__node:not(:has(> .rail__glyph[data-loop="on"])) { outline: 3px solid var(--focus); outline-offset: 2px; }
 
-  /* The running connector the view marks flows into its stage: its dash strip moves inside the clipped edge (transform
-     only, so nothing reflows). The still variant is the same dashes, standing. */
-  .flow-edge[data-loop="on"]::before { animation: flow var(--motion-march) linear infinite; }
+  /* The dot flow: on a running connector the dot runs to the node and back, out and home again like a request and its
+     answer. The still variant is the dot at rest. */
+  .flow-edge[data-loop="on"]::before, .flow-dot[data-loop="on"], .chain__flow[data-loop="on"] { animation: flow var(--motion-march) ease-in-out infinite alternate; }
 
   /* The arrowhead of the still connector: drawn only under reduced motion (content is set there). */
   .rail--full .rail__item[data-state="running"]::after {
@@ -1708,7 +1709,7 @@
 /* ---- forced colours: a shape and a border carry what colour did ---------------------------------- */
 @media (forced-colors: active) {
   .badge, .conn, .tile { border: 1px solid CanvasText; }
-  .nav__link[aria-current="page"], .theme__opt[aria-checked="true"] { border: 2px solid Highlight; }
+  .navrail__link[aria-current], .theme__opt[aria-checked="true"] { border: 2px solid Highlight; }
   .skel { border: 1px dashed CanvasText; }
 }
 
@@ -1820,11 +1821,6 @@
 
 /* ---- V.10 / 161: the nav, the model chip, the response-stream panel and the Layers views ---- */
 @layer components {
-  /* CD-B9 (V.10): four nav items. Row 2 is the nav alone across the width; the list may wrap as a fallback below 360. */
-  .nav ul { flex-wrap: wrap; }
-  @media (min-width: 768px) {
-    .nav ul { flex-wrap: nowrap; }
-  }
 
   .tag--accent { border-color: var(--accent); color: var(--accent); }
   .tag--mono { font-family: var(--font-mono); }
@@ -2007,27 +2003,61 @@
   }
 }
 
-/* The Session screen's outline (150 IC-017): a tree of the run's chain, one row per node with its chip, live count and
-   marker; nested groups indent under a rule, the selected row is tinted. */
+/* The Session screen's chain (150 IC-017): a stepper. Every node is a state-marked dot on one vertical line with its name
+   and its state in words beside it; children step in under their parent; the selected step is tinted. */
 @layer components {
   .chain { display: grid; gap: var(--space-3); min-width: 0; }
   .chain > p { margin: 0; font: var(--type-sm); color: var(--text-muted); }
   .chain [role="tree"], .chain [role="group"] { list-style: none; margin: 0; padding: 0; }
-  .chain [role="group"] { margin-inline-start: var(--space-3); padding-inline-start: var(--space-2); border-inline-start: 1px solid var(--border); }
-  .chain__item { outline: none; }
-  .chain__item > div {
-    display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-height: var(--target); padding: var(--space-1) var(--space-2);
-    border-radius: var(--radius-md); cursor: pointer; overflow-wrap: anywhere;
+  .chain [role="tree"] { padding: var(--space-2); background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+  .chain [role="group"] { margin-inline-start: var(--space-4); }
+  .chain__item { position: relative; outline: none; }
+  /* The line: through every step of a group, ending at the dot of the last one. */
+  .chain [role="group"] > .chain__item::before { content: ""; position: absolute; top: 0; bottom: 0; left: calc(var(--space-2) + 11px); width: 2px; background: var(--border); }
+  .chain [role="group"] > .chain__item:last-child::before { bottom: auto; height: calc(var(--space-2) + 12px); }
+  .chain__row {
+    position: relative; display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; align-items: start; gap: var(--space-3);
+    min-height: var(--target); box-sizing: border-box; padding: var(--space-2); border-radius: var(--radius-md); cursor: pointer;
   }
-  .chain__item > div:hover { background: var(--surface-2); color: var(--text); }
-  .chain__item:focus-visible > div { outline: var(--focus-width) solid var(--focus); outline-offset: calc(-1 * var(--focus-width)); }
-  .chain__item[aria-selected="true"] > div { background: var(--accent-tint); color: var(--text); }
-  .chain__chip { flex: none; }
-  .chain__live { font: var(--type-xs); color: var(--text-muted); }
-  .chain__marker { font: var(--type-xs); color: var(--text-muted); font-style: italic; }
+  .chain__row:hover { background: var(--surface-2); color: var(--text); }
+  .chain__item:focus-visible > .chain__row { outline: var(--focus-width) solid var(--focus); outline-offset: calc(-1 * var(--focus-width)); }
+  .chain__item[aria-selected="true"] > .chain__row { background: var(--accent-tint); color: var(--text); box-shadow: inset 2px 0 0 var(--accent); }
+  .chain__node {
+    --tint: var(--state-pending-tint); --mark: var(--state-pending-mark); --fg: var(--state-pending-fg);
+    display: grid; place-items: center; width: 24px; height: 24px; box-sizing: border-box; border-radius: 50%;
+    background: var(--surface); color: var(--fg); border: 2px solid var(--mark);
+  }
+  .chain__node[data-state="running"] { --tint: var(--state-running-tint); --mark: var(--state-running-mark); --fg: var(--state-running-fg); }
+  .chain__node[data-state="awaiting"] { --tint: var(--state-awaiting-tint); --mark: var(--state-awaiting-mark); --fg: var(--state-awaiting-fg); }
+  .chain__node[data-state="done"] { --tint: var(--state-done-tint); --mark: var(--state-done-mark); --fg: var(--state-done-fg); }
+  .chain__node[data-state="rejected"] { --tint: var(--state-rejected-tint); --mark: var(--state-rejected-mark); --fg: var(--state-rejected-fg); }
+  .chain__node[data-state="failed"] { --tint: var(--state-failed-tint); --mark: var(--state-failed-mark); --fg: var(--state-failed-fg); }
+  .chain__node[data-state="stale"] { --tint: var(--state-stale-tint); --mark: var(--state-stale-mark); --fg: var(--state-stale-fg); }
+  .chain__node[data-state="unknown"] { --tint: var(--state-unknown-tint); --mark: var(--state-unknown-mark); --fg: var(--state-unknown-fg); }
+  .chain__node[data-state="skipped"], .chain__node[data-state="closed"] { --tint: var(--state-skipped-tint); --mark: var(--state-skipped-mark); --fg: var(--state-skipped-fg); }
+  /* A step the run reached is filled with its tint; one it did not reach stays hollow and dashed. */
+  .chain__node:is([data-state="running"], [data-state="awaiting"], [data-state="done"], [data-state="rejected"], [data-state="failed"], [data-state="stale"]) { background: var(--tint); color: var(--fg); }
+  .chain__node:is([data-state="pending"], [data-state="skipped"], [data-state="closed"]) { border-style: dashed; }
+  .chain__body { display: grid; gap: 2px; min-width: 0; padding-top: 2px; }
+  .chain__label { font: var(--type-md); color: var(--text); overflow-wrap: anywhere; }
+  .chain__item[aria-level="1"] > .chain__row .chain__label { font: var(--type-lg); letter-spacing: var(--tracking-tight); }
+  .chain__facts { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--space-2); font: var(--type-sm); color: var(--text-muted); }
+  .chain__chip { color: var(--text-muted); }
+  .chain__chip[data-state="running"] { color: var(--state-running-fg); font-weight: 600; }
+  .chain__chip[data-state="awaiting"] { color: var(--state-awaiting-fg); font-weight: 600; }
+  .chain__chip[data-state="done"] { color: var(--state-done-fg); }
+  .chain__chip[data-state="rejected"] { color: var(--state-rejected-fg); }
+  .chain__chip[data-state="failed"] { color: var(--state-failed-fg); font-weight: 600; }
+  .chain__chip[data-state="stale"] { color: var(--state-stale-fg); }
+  .chain__live { color: var(--state-running-fg); }
+  .chain__marker { font-style: italic; }
+  .chain__twist { display: grid; place-items: center; width: 24px; height: 24px; color: var(--text-muted); }
+  .chain__item[aria-expanded="true"] > .chain__row .chain__twist { transform: rotate(90deg); }
   @media (forced-colors: active) {
-    .chain__item[aria-selected="true"] > div { outline: 2px solid Highlight; }
+    .chain__item[aria-selected="true"] > .chain__row { outline: 2px solid Highlight; }
+    .chain__node { border-color: CanvasText; }
   }
+}
 }
 
 @layer motion {
@@ -2157,74 +2187,157 @@
   .palette__option[aria-selected="true"] { outline: 2px solid Highlight; outline-offset: -2px; }
 }
 
-/* ---- 149 D.1: the shell (IC-020, DEC-036): rail, canvas and inspector by band -------------------- */
-/* Below 768 the rail is the nav row under the header and the canvas is one column; from 768 the rail is a 56 px icon column;
-   from 1280 it is 200 px with labels and, on an inspectable view, the docked inspector column is always present, so opening
-   or closing the inspector never changes the canvas width. The drawer and the sheet overlay the canvas. */
+/* ---- the shell: navigation, attention strip, canvas and inspector by band ------------------------- */
+/* Below 768 the navigation is a tab bar fixed to the bottom edge (Now, Sessions, Layers, More) and the canvas is one column;
+   from 768 it is a 72 px rail of icons over labels with the Manage group under a rule; from 1280 a 200 px rail of rows and, on
+   an inspectable view while a panel is open (data-panel="open"), the docked inspector column: the canvas narrows when a panel
+   opens and takes the width back when it closes. The drawer and the sheet overlay the canvas. The attention strip is a row
+   above the canvas at every width. */
 @layer layout {
   .shell {
     display: grid;
-    grid-template-areas: "nav" "main";
+    grid-template-areas: "attention" "main";
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
   }
   .shell > .page { grid-area: main; width: 100%; min-width: 0; }
+  .attention { grid-area: attention; }
   .inspector { grid-area: inspector; }
 
   @media (min-width: 768px) {
     .shell {
-      grid-template-areas: "nav main";
+      grid-template-areas: "nav attention" "nav main";
       grid-template-columns: var(--navrail-w-icons) minmax(0, 1fr);
     }
+    .navrail { grid-area: nav; }
   }
   @media (min-width: 1280px) {
     .shell { grid-template-columns: var(--navrail-w) minmax(0, 1fr); }
-    .shell[data-inspectable="true"] {
-      grid-template-areas: "nav main inspector";
+    /* The docked column exists only while a panel is open: an empty column never takes width from the canvas. */
+    .shell[data-inspectable="true"][data-panel="open"] {
+      grid-template-areas: "nav attention inspector" "nav main inspector";
       grid-template-columns: var(--navrail-w) minmax(0, 1fr) var(--inspector-w);
     }
   }
 }
 
 @layer components {
-  /* The rail. It keeps the .nav row rules below 768 (no icons, the list wraps as a fallback). */
+  /* The navigation. One element in three shapes; a link is a column (icon over label) below 1280 and a row from 1280. */
   .navrail {
+    position: fixed;
+    inset: auto 0 0;
+    z-index: var(--z-header);
     margin: 0;
-    padding-inline: var(--gutter);
+    padding: 0 var(--safe-right) var(--safe-bottom) var(--safe-left);
     background: var(--surface);
     color: var(--text);
-    border-bottom: 1px solid var(--border);
+    border-top: 1px solid var(--border);
   }
-  .navrail .navrail__link { gap: var(--space-2); }
-  .navrail__link .icon { display: none; }
+  .navrail ul { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); height: var(--tabbar-h); }
+  .navrail__slot:empty, .navrail__slot[hidden] { display: none; }
+  .navrail .navrail__heading, .navrail .navrail__group { display: none; }
+  .navrail__link {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    height: 100%;
+    min-height: var(--target);
+    font: var(--type-xs);
+    font-weight: 600;
+    color: var(--text-muted);
+    text-decoration: none;
+  }
+  .navrail__link:focus-visible { outline-offset: calc(-1 * var(--focus-width)); }
+  .navrail__link:hover { color: var(--text); }
+  /* The current destination: the accent, a filled plate behind the icon and a bar on the edge next to the canvas. */
+  .navrail__link[aria-current] { color: var(--accent); box-shadow: inset 0 2px 0 var(--accent); }
+  .navrail__link .icon { box-sizing: content-box; padding: 2px var(--space-3); border-radius: var(--radius-pill); }
+  .navrail__link[aria-current] .icon { background: var(--accent-tint); }
+  /* The count of gates waiting for you, on the Layers link (the attention strip says it in words). */
+  .navrail__badge {
+    position: absolute;
+    top: var(--space-1);
+    left: calc(50% + var(--space-2));
+    min-width: 20px;
+    padding: 0 var(--space-1);
+    border: 1px solid var(--state-awaiting-mark);
+    border-radius: var(--radius-pill);
+    background: var(--state-awaiting-tint);
+    color: var(--state-awaiting-fg);
+    font: var(--type-xs);
+    font-weight: 650;
+    text-align: center;
+  }
 
   @media (min-width: 768px) {
     .navrail {
       position: sticky;
-      top: var(--header-h);
+      inset: auto;
+      top: var(--chrome-top);
       align-self: start;
-      height: calc(100vh - var(--header-h));
-      padding-inline: 0;
-      border-bottom: 0;
+      height: calc(100dvh - var(--chrome-top));
+      padding: var(--space-3) 0 var(--space-3) var(--safe-left);
+      border-top: 0;
       border-right: 1px solid var(--border);
       overflow-y: auto;
     }
-    .navrail ul { flex-direction: column; align-items: center; gap: var(--space-1); padding-block: var(--space-4); }
-    .navrail .navrail__link { justify-content: center; width: var(--target); padding-inline: 0; border-radius: var(--radius-md); }
-    .navrail__link .icon { display: block; flex: none; }
-    /* Icons only: the label is visually hidden and stays the link's accessible name. */
-    .navrail__label {
-      position: absolute;
-      width: 1px;
-      height: 1px;
-      overflow: hidden;
-      clip-path: inset(50%);
-      white-space: nowrap;
-    }
+    .navrail ul { display: flex; flex-direction: column; align-items: center; gap: var(--space-1); height: auto; }
+    .navrail__more { display: none; }
+    .navrail .navrail__group { display: flex; margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--border); }
+    .navrail__link { width: calc(var(--navrail-w-icons) - var(--space-2)); height: auto; min-height: 52px; border-radius: var(--radius-md); }
+    .navrail__link:hover { background: var(--surface-2); }
+    .navrail__link[aria-current] { background: var(--accent-tint); box-shadow: inset 2px 0 0 var(--accent); }
+    .navrail__link[aria-current] .icon { background: transparent; }
+    .navrail__link:focus-visible { outline-offset: var(--focus-offset); }
   }
   @media (min-width: 1280px) {
-    .navrail ul { align-items: stretch; padding-inline: var(--space-3); }
-    .navrail .navrail__link { justify-content: flex-start; width: auto; padding-inline: var(--space-3); }
-    .navrail__label { position: static; width: auto; height: auto; overflow: visible; clip-path: none; }
+    .navrail { padding: var(--space-4) var(--space-3) var(--space-4) calc(var(--space-3) + var(--safe-left)); }
+    .navrail ul { align-items: stretch; }
+    .navrail .navrail__heading {
+      display: block;
+      margin: var(--space-5) 0 var(--space-1);
+      padding-inline: var(--space-3);
+      font: var(--type-xs);
+      letter-spacing: var(--tracking-caps);
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+    .navrail .navrail__group { margin-top: 0; padding-top: 0; border-top: 0; }
+    .navrail__link { flex-direction: row; justify-content: flex-start; gap: var(--space-2); width: auto; min-height: var(--target); padding-inline: var(--space-1) var(--space-3); font: var(--type-sm); font-weight: 600; }
+    .navrail__link .icon { padding-inline: var(--space-2); }
+    .navrail__badge { position: static; margin-left: auto; }
+  }
+
+  /* The attention strip: what waits for you on this machine, in words, on every view but the Layers machine page (which
+     leads with the same gates). Amber is the awaiting state; the muted variant says the gates are not observed. */
+  .attention {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0 var(--space-2);
+    margin: 0;
+    padding-inline: max(var(--gutter), var(--safe-left)) max(var(--gutter), var(--safe-right));
+    min-height: var(--target);
+    background: var(--state-awaiting-tint);
+    color: var(--state-awaiting-fg);
+    border-bottom: 1px solid var(--state-awaiting-mark);
+    font: var(--type-sm);
+  }
+  .attention[hidden] { display: none; }
+  .attention[data-state="unknown"] { background: var(--state-unknown-tint); color: var(--state-unknown-fg); border-bottom-color: var(--border); }
+  .attention__count { font-weight: 650; }
+  .attention__where { min-width: 0; overflow-wrap: anywhere; }
+  .attention__link {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--target);
+    margin-left: auto;
+    padding-inline: var(--space-2);
+    color: inherit;
+    font-weight: 650;
   }
 
   /* The inspector: docked column, drawer or sheet (shell.js sets data-mode). */
@@ -2247,17 +2360,16 @@
     border-bottom: 1px solid var(--border);
   }
   .inspector__title { margin: 0; font: var(--type-md); font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
-  .inspector__empty { margin: 0; padding: var(--space-4); font: var(--type-sm); color: var(--text-muted); }
   .inspector__body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: var(--space-4); }
   .inspector[data-mode="dock"] {
     position: sticky;
-    top: var(--header-h);
+    top: var(--chrome-top);
     align-self: start;
-    height: calc(100vh - var(--header-h));
+    height: calc(100dvh - var(--chrome-top));
   }
   .inspector[data-mode="drawer"] {
     position: fixed;
-    top: var(--header-h);
+    top: var(--chrome-top);
     right: 0;
     bottom: 0;
     width: min(var(--inspector-w), 100% - var(--space-7));
@@ -2270,7 +2382,8 @@
     right: 0;
     bottom: 0;
     width: 100%;
-    max-height: calc(100vh - var(--header-h));
+    max-height: calc(100dvh - var(--chrome-top) - var(--space-4));
+    padding-bottom: var(--safe-bottom);
     z-index: var(--z-panel);
     border-left: 0;
     border-top: 1px solid var(--border);
@@ -2285,45 +2398,51 @@
     background: var(--scrim);
   }
   @media (min-width: 768px) {
-    .inspector__scrim { top: var(--header-h); }
+    .inspector__scrim { top: var(--chrome-top); }
   }
 }
 
-/* ---- 149 D.5: the running connector of the full rail is a real element (IC-022), so its dash strip can move by transform
-   inside a clipped edge. It takes the place and the size of the item's ::before connector. ---- */
+/* ---- the dot flow: the connector into a running node is a real element, a still track with one dot on it. Under
+   [data-loop="on"] the dot runs to the node and back (transform only, so nothing reflows): work going out and its answer
+   coming back. The dot is a background of a box as long as the track, so a translate by the box's own length, less the dot,
+   carries it from one end to the other at any track length. The still variant is the dot at rest at the start. ---- */
 @layer components {
   .rail--full .rail__item:has(> .flow-edge)::before { content: none; }
   .flow-edge {
     --flow-x: 0px;
-    --flow-y: 8px;
+    --flow-y: calc(100% - 6px);
     position: relative;
     display: block;
     flex: none;
     width: 2px;
-    height: 12px;
+    height: 24px;
     margin-inline-start: 11px;
-    overflow: hidden;
+    background: var(--state-running-tint);
+    color: var(--state-running-fg);
   }
-  .flow-edge::before {
+  .flow-edge::before, .flow-dot, .chain__flow {
     content: "";
     position: absolute;
-    inset: -8px 0 0;
-    background-image: linear-gradient(180deg, var(--state-running-mark) 50%, transparent 0);
-    background-size: 2px 8px;
+    background: radial-gradient(circle at 50% 3px, var(--state-running-mark) 3px, transparent 3.5px) no-repeat;
+    pointer-events: none;
   }
+  .flow-edge::before { inset: 0 -2px; }
+  /* The compact rail: the dot runs the connector into the running glyph (the glyph's own width is kept clear). */
+  .flow-dot { --flow-x: calc(100% - 6px); --flow-y: 0px; left: 0; right: 20px; top: calc(50% - 3px); height: 6px; background-position: 0 50%; background-image: radial-gradient(circle at 3px 50%, var(--state-running-mark) 3px, transparent 3.5px); }
+  .rail--lg .flow-dot { right: 28px; }
+  /* The chain: the dot runs the line between the step above and the running step. */
+  .chain__flow { --flow-x: 0px; --flow-y: calc(100% - 6px); display: none; left: calc(var(--space-2) + 9px); width: 6px; top: -32px; height: 40px; }
+  .chain [role="group"] > .chain__item > .chain__flow { display: block; }
+  .chain [role="group"] > .chain__item:first-child > .chain__flow { top: -4px; height: 12px; }
   @media (min-width: 768px) {
-    .flow-edge { --flow-x: 8px; --flow-y: 0px; flex: 1 0 24px; width: auto; height: 2px; margin: calc(var(--space-4) - 1px) 0 0; }
+    .flow-edge { --flow-x: calc(100% - 6px); --flow-y: 0px; flex: 1 0 24px; width: auto; height: 2px; margin: calc(var(--space-4) - 1px) 0 0; }
     .rail--full:not(:has(> li:nth-child(6))) > .rail__item > .flow-edge { flex: 0 0 64px; }
-    .flow-edge::before {
-      inset: 0 0 0 -8px;
-      background-image: linear-gradient(90deg, var(--state-running-mark) 50%, transparent 0);
-      background-size: 8px 2px;
-    }
+    .flow-edge::before { inset: -2px 0; background-image: radial-gradient(circle at 3px 50%, var(--state-running-mark) 3px, transparent 3.5px); }
   }
 }
 
 @media (forced-colors: active) {
-  .flow-edge::before { background: CanvasText; }
+  .flow-edge { background: CanvasText; }
 }
 
 @layer components {
@@ -2367,16 +2486,17 @@
   .candidates { display: grid; gap: var(--space-2); padding-inline-start: var(--space-5); }
   .doctor-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin-block: var(--space-4); }
   .doctor-head h2 { margin: 0; }
-  .navrail__group { border-top: 1px solid var(--border); }
 }
 
 /* The Console actions (feature 162, design IC-010, §10): the buttons that open the one confirmation dialog, and the dialog. The violet
    accent marks an action; a reject, close or stop takes the failed tint and its word, never the colour alone. The dialog is a sheet
-   below 768 px and a centred panel from 768. */
+   below 768 px and a centred panel from 768. On the phone the buttons share the row's full width, so each is a thumb-wide target, and
+   the sheet clears the home indicator; from 768 they take their own width. */
 @layer components {
   .acts { display: grid; gap: var(--space-2); margin-top: var(--space-3); min-width: 0; }
   .acts:empty { display: none; }
   .acts__row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+  .acts__row .btn, .confirm__actions .btn { flex: 1 1 0; }
   .acts__reason { margin: 0; font: var(--type-sm); color: var(--text-muted); }
   .btn--act { background: var(--accent); color: var(--on-accent); }
   .btn--act:active { filter: brightness(0.92); }
@@ -2396,6 +2516,7 @@
     max-height: 100%;
     overflow: auto;
     padding: var(--space-4);
+    padding-bottom: calc(var(--space-4) + var(--safe-bottom));
     background: var(--surface-3);
     color: var(--text);
     border: 1px solid var(--border);
@@ -2416,7 +2537,9 @@
   .confirm__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); }
   @media (min-width: 768px) {
     .confirm { align-items: center; justify-items: center; padding: var(--space-4); }
-    .confirm__panel { width: min(100%, 520px); border-radius: var(--radius-lg); }
+    .confirm__panel { width: min(100%, 520px); padding-bottom: var(--space-4); border-radius: var(--radius-lg); }
+    .acts__row .btn, .confirm__actions .btn { flex: 0 0 auto; }
+    .acts--head { justify-items: start; }
   }
 }
 

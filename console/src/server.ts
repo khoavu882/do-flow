@@ -131,18 +131,24 @@ async function createServer(options: ServerOptions = {}): Promise<ConsoleServer>
     const hostHeader = req.headers.host;
     if (typeof hostHeader !== 'string' || !allowedHosts.has(hostHeader.toLowerCase())) return { status: 421 };
     const origin = req.headers.origin;
+    // An action route counts its requests refused here (403 forbidden-origin, 415 unsupported-media), before any actor exists.
+    const refusedBefore = async (status: number, code: string): Promise<Reply> => {
+      const route = routes.find((candidate: any) => typeof candidate.refusedEarly === 'function' && candidate.method === req.method && matchPath(candidate.path, pathname) !== null);
+      if (route) await route.refusedEarly(code);
+      return errorReply(status, code);
+    };
     // LAN mode: a request that carries an Origin, a Sec-Fetch-Site or the device cookie is a browser and is
     // read by cookie only; any other is a native client and is read by Bearer only (device-auth.ts).
     let clientClass: 'browser' | 'native' | undefined;
     if (lan) {
       const browser = origin !== undefined || req.headers['sec-fetch-site'] !== undefined || readCookie(req.headers.cookie, DEVICE_COOKIE) !== null;
       clientClass = browser ? 'browser' : 'native';
-      if (api && browser && req.headers.authorization !== undefined) return errorReply(403, 'forbidden-origin');
+      if (api && browser && req.headers.authorization !== undefined) return refusedBefore(403, 'forbidden-origin');
       // A cross-site, same-site or other-mode request is refused for every method; a missing header (not a browser) passes.
       const site = req.headers['sec-fetch-site'];
-      if (api && site !== undefined && site !== 'same-origin' && site !== 'none') return errorReply(403, 'forbidden-origin');
+      if (api && site !== undefined && site !== 'same-origin' && site !== 'none') return refusedBefore(403, 'forbidden-origin');
     }
-    if (api && origin !== undefined && !allowedOrigins.has(origin)) return errorReply(403, 'forbidden-origin');
+    if (api && origin !== undefined && !allowedOrigins.has(origin)) return refusedBefore(403, 'forbidden-origin');
 
     const matches = routes
       .map((route: any) => ({ route, params: matchPath(route.path, pathname) }))
@@ -164,11 +170,11 @@ async function createServer(options: ServerOptions = {}): Promise<ConsoleServer>
     }
     if (req.method !== 'GET') {
       if (clientClass !== 'native') {
-        if (origin === undefined || !allowedOrigins.has(origin)) return errorReply(403, 'forbidden-origin');
+        if (origin === undefined || !allowedOrigins.has(origin)) return refusedBefore(403, 'forbidden-origin');
         const fetchSite = req.headers['sec-fetch-site'];
-        if (fetchSite !== undefined && fetchSite !== 'same-origin') return errorReply(403, 'forbidden-origin');
+        if (fetchSite !== undefined && fetchSite !== 'same-origin') return refusedBefore(403, 'forbidden-origin');
       }
-      if (req.headers['content-type'] !== 'application/json') return errorReply(415, 'unsupported-media');
+      if (req.headers['content-type'] !== 'application/json') return refusedBefore(415, 'unsupported-media');
     }
     return hit.route.handler({ req, res, pathname, params: hit.params, webRoot, port: boundPort, ...(clientClass === undefined ? {} : { clientClass }) });
   }

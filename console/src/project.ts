@@ -387,7 +387,7 @@ function observed(value: unknown) {
       harness: orNull(harness)(entry.harness),
       model: orNull(label)(entry.model),
       modelFirstSeenAt: orNull(iso)(entry.modelFirstSeenAt),
-      startedAt: orNull(iso)(entry.startedAt),
+      contextCapturedAt: orNull(iso)(entry.contextCapturedAt),
       branchAtStart: orNull(label)(entry.branchAtStart),
       lastHookRecordAt: orNull(iso)(entry.lastHookRecordAt),
       launched: orNull((v) => {
@@ -698,6 +698,7 @@ function tree(value: unknown) {
       depth: count(n.depth),
       worktreeKey: key16(n.worktreeKey),
       startedAt: orNull(iso)(n.startedAt),
+      contextCapturedAt: orNull(iso)(n.contextCapturedAt),
       lastRecordAt: orNull(iso)(n.lastRecordAt),
       liveness: oneOf(CLOSED_SETS.livenessStates)(n.liveness),
       ended: orNull((v) => {

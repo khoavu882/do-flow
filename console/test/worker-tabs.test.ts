@@ -142,6 +142,7 @@ Object.assign(doc, {
   createElementNS: (_ns: string, tag: string) => new El(tag),
   createTextNode: (text: string) => new Txt(text),
   getElementById: () => null,
+  querySelector: () => null,
   body: new El('body'), // where a confirmation dialog is appended (162)
 });
 

@@ -200,10 +200,10 @@ test('the Sessions fixture: two checkouts, hook records from the real scripts, a
   const linked = bySession('fixture-session-linked-RAWID-1');
   assert.equal(linked.harness, 'claude');
   assert.equal(linked.model, 'claude-sonnet-4');
-  assert.ok(linked.startedAt !== null && linked.lastHookRecordAt !== null, 'both records joined by the session key');
+  assert.ok(linked.contextCapturedAt !== null && linked.lastHookRecordAt !== null, 'both records joined by the session key');
   const codex = bySession('fixture-session-main-RAWID-2');
   assert.equal(codex.harness, 'codex');
-  assert.equal(codex.startedAt, null, 'an observation with no session directory');
+  assert.equal(codex.contextCapturedAt, null, 'an observation with no session directory');
   assert.ok(sessions.some((entry: any) => entry.kind === 'launched' && entry.launched.run === 'run-two' && entry.launched.lineage === 'lin2'));
   // Two Sessions hook sessions, and the four of the Layers world (V.10: claude, codex, antigravity, opencode); the second projects' sessions are not listed.
   assert.equal(sessions.filter((entry: any) => entry.kind === 'hook').length, 6, 'the other projects\' sessions are not listed');

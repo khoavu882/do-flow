@@ -310,16 +310,25 @@ test('cascade: no min-width rule of app.css loses to a base rule of the same sel
   assert.deepEqual(overridesLost(cssRules(appCss)), []);
 });
 
-test('control: the connection pill margin rule moved back into an earlier layer is reported lost (F1)', () => {
-  const moved = appCss.replace('.conn { margin-left: auto; }', '').replace('@layer layout {', '@layer layout {\n  @media (min-width: 768px) { .conn { margin-left: auto; } }');
+test('control: the 768 px rule of the theme control moved back into an earlier layer is reported lost', () => {
+  const moved = appCss.replace('    .site-header .theme { display: inline-flex; }\n', '').replace('@layer layout {', '@layer layout {\n  @media (min-width: 768px) { .site-header .theme { display: inline-flex; } }');
   assert.notEqual(moved, appCss);
-  assert.ok(overridesLost(cssRules(moved)).some((entry) => entry.startsWith('.conn { margin-left }')));
+  assert.ok(overridesLost(cssRules(moved)).some((entry) => entry.startsWith('.site-header .theme { display }')));
 });
 
-test('layout F1: the pill takes the free space from 768, so the theme control sits at the end', () => {
+test('layout shell: the app bar is one sticky row at every width; the theme control joins it from 768', () => {
   const rules = cssRules(appCss);
-  assert.equal(effective(rules, '.conn', 'margin-left', 360), '0');
-  assert.equal(effective(rules, '.conn', 'margin-left', 768), 'auto');
+  for (const width of [360, 768, 1280]) {
+    assert.equal(effective(rules, '.site-header', 'position', width), 'sticky');
+    assert.equal(effective(rules, '.site-header__inner', 'display', width), 'flex');
+    assert.equal(effective(rules, '.site-header__inner', 'height', width), 'var(--header-h)');
+    assert.equal(effective(rules, '.brand', 'margin-right', width), 'auto', 'the brand takes the free space, so the controls sit at the end');
+  }
+  assert.equal(effective(rules, '.site-header .theme', 'display', 360), 'none', 'a phone sets the theme on the More page');
+  assert.equal(effective(rules, '.site-header .theme', 'display', 768), 'inline-flex');
+  assert.equal(effective(rules, '.conn__long', 'display', 360), 'none');
+  assert.equal(effective(rules, '.conn__long', 'display', 768), 'inline');
+  assert.equal(effective(rules, '.conn__short', 'display', 768), 'none');
 });
 
 test('layout F3: summary gives needs-you priority, running support and finished quiet history', () => {
@@ -429,7 +438,10 @@ test('layout CD-B1/B8: gate cards are 1, 2 and 3 columns; the run head is one co
   assert.equal(effective(rules, '.gate-cards', 'grid-template-columns', 768), 'repeat(2, minmax(0, 1fr))');
   assert.equal(effective(rules, '.gate-cards', 'grid-template-columns', 1280), 'repeat(3, minmax(0, 1fr))');
   assert.equal(effective(rules, '.gate-card', 'border', 360), '1px solid var(--state-awaiting-mark)');
-  assert.equal(effective(rules, '.gate-card__head', 'min-height', 360), '52px');
+  assert.equal(effective(rules, '.gate-card__head', 'min-height', 360), 'var(--target)', 'a compact head on a phone');
+  assert.equal(effective(rules, '.gate-card__head', 'min-height', 768), '52px');
+  assert.equal(effective(rules, '.gate-card__body', 'padding', 360), 'var(--space-3) var(--space-4)');
+  assert.equal(effective(rules, '.gate-card__body', 'padding', 768), 'var(--space-4)');
   assert.equal(effective(rules, '.run-head', 'grid-template-areas', 360), '"crumb" "title" "meta" "step"');
   assert.equal(effective(rules, '.run-head', 'grid-template-areas', 768), '"crumb crumb" "title step" "meta step"');
   assert.equal(effective(rules, '.run-head', 'grid-template-columns', 768), 'minmax(0, 1fr) auto');
@@ -532,39 +544,57 @@ test('control: a planted state word, storage call or missing masked line turns t
   assert.equal(layersFindings('views/layers.js', fs.readFileSync(path.join(copy, 'views', 'layers.js'), 'utf8')).length, 2);
 });
 
-test('layout CD-B9: phone header keeps pause and theme reachable alongside navigation', () => {
+test('layout shell: the pause control is an icon button below 1280 and keeps its words as its name', () => {
   const rules = cssRules(appCss);
-  assert.equal(effective(rules, '.site-header__inner', 'grid-template-areas', 360), '"brand conn" "nav nav" "pause theme"');
-  assert.equal(effective(rules, '.pause', 'grid-area', 360), 'pause');
-  assert.equal(effective(rules, '.theme', 'grid-area', 360), 'theme');
+  assert.equal(effective(rules, '.pause', 'width', 360), 'var(--target)');
+  assert.equal(effective(rules, '.pause__label', 'clip-path', 360), 'inset(50%)', 'visually hidden, still the accessible name');
   assert.equal(effective(rules, '.pause__label', 'white-space', 360), 'nowrap');
-  const orphanPause = cssRules(appCss.replace('"brand conn" "nav nav" "pause theme"', '"brand conn" "nav nav" "theme theme"'));
-  assert.notEqual(effective(orphanPause, '.site-header__inner', 'grid-template-areas', 360), effective(rules, '.site-header__inner', 'grid-template-areas', 360));
-  assert.equal(effective(rules, '.site-header__inner', 'grid-template-rows', 360), 'var(--header-h) auto 48px');
-  assert.equal(effective(rules, '.nav', 'justify-self', 360), 'stretch');
-  assert.equal(effective(rules, '.conn', 'justify-self', 360), 'end');
-  assert.equal(effective(rules, '.nav ul', 'flex-wrap', 359), 'wrap', 'the list may wrap as a fallback below 360');
-  assert.equal(effective(rules, '.nav ul', 'flex-wrap', 768), 'nowrap');
-  const html = fs.readFileSync(path.join(WEB_ROOT, 'index.html'), 'utf8');
-  assert.deepEqual([...html.matchAll(/class="nav__link navrail__link" href="([^"]+)"><span class="navrail__label">([^<]+)</g)].map((m) => m[2]), ['Now', 'Sessions', 'Workflows', 'Layers', 'Workers', 'Advice', 'Follow-ups', 'Settings', 'Health']);
-  assert.ok(!/<button[^>]*menu/i.test(html), 'no menu button');
+  assert.equal(effective(rules, '.pause', 'width', 768), 'var(--target)');
+  assert.equal(effective(rules, '.pause', 'width', 1280), 'auto');
+  assert.equal(effective(rules, '.pause__label', 'clip-path', 1280), 'none');
+  // The app bar's theme control is three icons at every width; its words show on the More page.
+  for (const width of [768, 1280, 1920]) assert.equal(effective(rules, '.theme__label', 'clip-path', width), 'inset(50%)');
+  assert.equal(effective(rules, '.theme--labelled .theme__label', 'clip-path', 360), 'none');
 });
 
-test('layout CD-B9: tablet header separates navigation until the desktop row fits', () => {
+test('layout shell: the navigation is a tab bar fixed to the bottom below 768, a rail of columns from 768 and of rows from 1280', () => {
   const rules = cssRules(appCss);
-  for (const width of [768, 1024, 1099]) {
-    assert.equal(effective(rules, '.site-header__inner', 'display', width), 'grid');
-    assert.equal(effective(rules, '.site-header__inner', 'grid-template-areas', width), '"brand conn pause theme" "nav nav nav nav"');
-    assert.equal(effective(rules, '.site-header__inner', 'grid-template-columns', width), 'minmax(0, 1fr) auto auto auto');
-    assert.equal(effective(rules, '.site-header__inner', 'grid-template-rows', width), 'var(--header-h) auto');
-  }
-  assert.equal(effective(rules, '.site-header__inner', 'display', 1100), 'flex');
-  assert.equal(effective(rules, '.site-header__inner', 'height', 1100), 'var(--header-h)');
-  const earlyDesktop = cssRules(appCss.replace('@media (min-width: 1100px)', '@media (min-width: 768px)'));
-  assert.equal(effective(earlyDesktop, '.site-header__inner', 'display', 768), 'flex');
-  assert.notEqual(effective(earlyDesktop, '.site-header__inner', 'display', 768), effective(rules, '.site-header__inner', 'display', 768));
-  const orphanPause = cssRules(appCss.replace('"brand conn pause theme" "nav nav nav nav"', '"brand conn conn theme" "nav nav nav nav"'));
-  assert.notEqual(effective(orphanPause, '.site-header__inner', 'grid-template-areas', 768), effective(rules, '.site-header__inner', 'grid-template-areas', 768));
+  assert.equal(effective(rules, '.navrail', 'position', 360), 'fixed');
+  assert.equal(effective(rules, '.navrail', 'inset', 360), 'auto 0 0');
+  assert.equal(effective(rules, '.navrail', 'padding', 360), '0 var(--safe-right) var(--safe-bottom) var(--safe-left)', 'the bar clears the home indicator');
+  assert.equal(effective(rules, '.navrail ul', 'height', 360), 'var(--tabbar-h)');
+  assert.equal(effective(rules, '.navrail ul', 'grid-auto-columns', 360), 'minmax(0, 1fr)', 'equal tabs');
+  assert.equal(effective(rules, '.navrail .navrail__group', 'display', 360), 'none', 'the Manage group is behind More on a phone');
+  assert.equal(effective(rules, '.navrail .navrail__heading', 'display', 360), 'none');
+  assert.equal(effective(rules, '.navrail__link', 'min-height', 360), 'var(--target)');
+  assert.equal(effective(rules, '.navrail__link', 'flex-direction', 360), 'column', 'the label is always shown, under the icon');
+  assert.equal(effective(rules, '.page', 'padding-block', 360), 'var(--space-4) calc(var(--space-7) + var(--chrome-bottom))', 'the canvas ends above the tab bar');
+  assert.equal(effective(rules, '.navrail', 'position', 768), 'sticky');
+  assert.equal(effective(rules, '.navrail', 'top', 768), 'var(--chrome-top)');
+  assert.equal(effective(rules, '.navrail__more', 'display', 768), 'none', 'from 768 the rail holds every destination, so More leaves it');
+  assert.equal(effective(rules, '.navrail .navrail__group', 'display', 768), 'flex');
+  assert.equal(effective(rules, '.navrail__link', 'flex-direction', 768), 'column');
+  assert.equal(effective(rules, '.navrail .navrail__heading', 'display', 768), 'none');
+  assert.equal(effective(rules, '.navrail__link', 'flex-direction', 1280), 'row');
+  assert.equal(effective(rules, '.navrail .navrail__heading', 'display', 1280), 'block');
+  assert.equal(effective(rules, '.shell', 'grid-template-areas', 360), '"attention" "main"');
+  assert.equal(effective(rules, '.shell', 'grid-template-areas', 768), '"nav attention" "nav main"');
+  assert.equal(effective(rules, '.shell[data-inspectable="true"][data-panel="open"]', 'grid-template-areas', 1280), '"nav attention inspector" "nav main inspector"');
+  const html = fs.readFileSync(path.join(WEB_ROOT, 'index.html'), 'utf8');
+  const labels = [...html.matchAll(/class="navrail__link" href="([^"]+)"><span class="navrail__label">([^<]+)</g)].map((m) => m[2]);
+  assert.deepEqual(labels.slice(0, 4), ['Now', 'Sessions', 'Layers', 'More'], 'the four tabs of a phone');
+  assert.deepEqual(labels.slice(4), ['Follow-ups', 'Workflows', 'Workers', 'Advice', 'Settings', 'Health'], 'the Manage group');
+  assert.ok(!/<button[^>]*menu/i.test(html), 'no menu button: every destination is a link');
+  const tokens = fs.readFileSync(path.join(WEB_ROOT, 'tokens.css'), 'utf8');
+  assert.match(tokens, /@media \(min-width: 768px\) \{\s*:root \{[^}]*--tabbar-h: 0px;/, 'no tab bar from 768, so nothing is reserved for it');
+});
+
+test('layout shell: the sheet clears the app bar and the home indicator; the dock and the drawer start under the app bar', () => {
+  const rules = cssRules(appCss);
+  assert.equal(effective(rules, '.inspector[data-mode="sheet"]', 'max-height', 360), 'calc(100dvh - var(--chrome-top) - var(--space-4))');
+  assert.equal(effective(rules, '.inspector[data-mode="sheet"]', 'padding-bottom', 360), 'var(--safe-bottom)');
+  assert.equal(effective(rules, '.inspector[data-mode="drawer"]', 'top', 768), 'var(--chrome-top)');
+  assert.equal(effective(rules, '.inspector[data-mode="dock"]', 'top', 1280), 'var(--chrome-top)');
 });
 
 test('layout 161: the project row of the machine page and the lane rows follow the bands of the design note', () => {
@@ -584,4 +614,21 @@ test('layout 161: the project row of the machine page and the lane rows follow t
   assert.equal(effective(rules, '.layers-crumb__agent', 'display', 360), 'none');
   assert.equal(effective(rules, '.layers-crumb[data-agent="true"] .layers-crumb__agent', 'display', 360), 'inline');
   assert.equal(effective(rules, '.layers-crumb[data-agent="true"] .layers-crumb__agent', 'display', 768), undefined);
+});
+
+// The page names its own icon, so no browser asks for /favicon.ico (a 404 on every load before). The icon is a text SVG the static
+// route serves as `image/svg+xml` under the unchanged policy (`img-src 'self'`): no binary file, no data: URI, no style or script in it.
+test('the page icon is a small SVG file of the bundle, linked from index.html and served by the static route', async () => {
+  const { readStatic } = require('../src/static.ts');
+  const html = fs.readFileSync(path.join(WEB_ROOT, 'index.html'), 'utf8');
+  assert.match(html, /<link rel="icon" type="image\/svg\+xml" href="favicon\.svg">/);
+  assert.doesNotMatch(html, /favicon\.ico|href="data:/);
+  const served = await readStatic(fs.realpathSync(WEB_ROOT), '/favicon.svg');
+  assert.ok(served, 'the static route finds it');
+  assert.equal(served.type, 'image/svg+xml');
+  const svg = String(served.body);
+  assert.ok(svg.length < 1024, 'small');
+  assert.match(svg, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" viewBox="0 0 16 16">/);
+  assert.doesNotMatch(svg, /<script|<style|style=|href=|url\(|\bon[a-z]+=/i);
+  assert.deepEqual(fs.readdirSync(WEB_ROOT).filter((name: string) => /\.(ico|png|jpe?g|gif)$/i.test(name)), [], 'no binary icon');
 });

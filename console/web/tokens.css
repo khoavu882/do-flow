@@ -12,7 +12,7 @@
  *   3. prefers-color-scheme dark  the same dark values for "System" on a dark OS; the light override
  *                                 ([data-theme="light"]) opts out of it through :not()
  *   4. prefers-reduced-motion     every duration becomes 0ms
- *   5. width breakpoints          gutter, header height and target size per layout band
+ *   5. width breakpoints          gutter, header height, tab bar height and target size per layout band
  * Blocks 2 and 3 hold the same names and values (IC-017 checks it). No selector here styles an
  * element: this file declares custom properties and color-scheme only.
  */
@@ -54,23 +54,24 @@
   --motion-base: 200ms;
   --motion-slow: 480ms;
   --motion-flash: 600ms;
-  --motion-pulse: 1600ms;
-  --motion-march: 1200ms;
+  --motion-pulse: 2400ms;
+  --motion-march: 1100ms;
   --motion-shimmer: 1400ms;
   --motion-swap: 160ms;
   --motion-row: 180ms;
   --motion-gate: 240ms;
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --ease-exit: cubic-bezier(0.4, 0, 1, 1);
-  --ease-settle: cubic-bezier(0.34, 1.4, 0.64, 1);
+  --ease-settle: cubic-bezier(0.22, 1, 0.36, 1);
 
   /* Layout. Block 5 changes the responsive ones per band. */
   --content-max: 1440px;
   --prose-max: 72ch;
   --gutter: 16px;
-  --header-h: 56px;
+  --header-h: 48px;
+  --tabbar-h: 56px;
   --navrail-w: 200px;
-  --navrail-w-icons: 56px;
+  --navrail-w-icons: 72px;
   --inspector-w: 400px;
   --target: 44px;
   --target-min: 24px;
@@ -80,6 +81,15 @@
   --z-header: 10;
   --z-panel: 20;
   --z-skip: 30;
+
+  /* Safe areas of a phone or a web view shell (0 px where the browser has none). */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  /* What the fixed chrome covers at the top and the bottom edge: the app bar, the tab bar and the safe areas. */
+  --chrome-top: calc(var(--header-h) + var(--safe-top));
+  --chrome-bottom: calc(var(--tabbar-h) + var(--safe-bottom));
 
   /* Light theme: neutrals. */
   --bg: #F5F3EF;
@@ -248,7 +258,8 @@
 @media (min-width: 768px) {
   :root {
     --gutter: 24px;
-    --header-h: 64px;
+    --header-h: 56px;
+    --tabbar-h: 0px;
   }
 }
 

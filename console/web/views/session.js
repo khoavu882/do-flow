@@ -201,14 +201,20 @@ function nameOf(node) {
   return parts.join(', ');
 }
 
-/** One node's row: label, chip, live count and marker. @param {any} node */
+/** One node's row: the state dot on the line, the label, then the state in words, the live count and the marker. @param {any} node */
 function rowOf(node) {
   const marker = markerWords(node.marker);
-  return h('div', {}, [
-    h('span', { class: node.kind === 'worker' || node.kind === 'main' ? 'mono' : null }, node.label),
-    h('span', { class: 'badge chain__chip', dataset: { state: node.chip.token } }, [icon(TOKEN_FACE[node.chip.token] ?? 'pending', 12), node.chip.word]),
-    (node.live ?? 0) > 0 ? h('span', { class: 'chain__live' }, `${node.live} live`) : null,
-    marker !== null ? h('span', { class: 'chain__marker', dataset: { marker: node.marker } }, marker) : null,
+  return h('div', { class: 'chain__row' }, [
+    h('span', { class: 'chain__node', 'aria-hidden': 'true', dataset: { state: node.chip.token } }, icon(TOKEN_FACE[node.chip.token] ?? 'pending', 12)),
+    h('span', { class: 'chain__body' }, [
+      h('span', { class: node.kind === 'worker' || node.kind === 'main' ? 'chain__label mono' : 'chain__label' }, node.label),
+      h('span', { class: 'chain__facts' }, [
+        h('span', { class: 'chain__chip', dataset: { state: node.chip.token } }, node.chip.word),
+        (node.live ?? 0) > 0 ? h('span', { class: 'chain__live' }, `${node.live} live`) : null,
+        marker !== null ? h('span', { class: 'chain__marker', dataset: { marker: node.marker } }, marker) : null,
+      ]),
+    ]),
+    node.children.length > 0 ? h('span', { class: 'chain__twist', 'aria-hidden': 'true' }, icon('chevron-right', 16)) : null,
   ]);
 }
 
@@ -217,7 +223,11 @@ function buildItem(memory, node, level, parent, list) {
   const li = h('li', {
     class: 'chain__item', role: 'treeitem', tabindex: '-1', 'aria-level': String(level), 'aria-label': nameOf(node),
     dataset: { key: node.key, kind: node.kind, focusKey: `chain:${node.key}` },
-  }, rowOf(node));
+  }, [
+    // The dot flow: on the line into a step the data says is running (the root has no line).
+    parent !== null && node.chip.token === 'running' ? h('span', { class: 'chain__flow', 'aria-hidden': 'true', dataset: { loop: 'on' } }) : null,
+    rowOf(node),
+  ]);
   /** @type {any} */
   let group = null;
   if (node.children.length > 0) {

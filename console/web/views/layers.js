@@ -248,7 +248,7 @@ function gateCard(gate, ctx) {
         h('p', { class: 'gate-card__id' }, [
           ctx.projectLabel !== null ? h('a', { class: 'layers-link', href: `#/layers/${ctx.projectKey}`, dataset: { focusKey: `project:${ctx.projectKey}` } }, ctx.projectLabel) : null,
           slug !== null ? h('span', { class: 'run-row__slug' }, slug) : null,
-          h('span', { class: 'run-row__id' }, gate.taskId),
+          gate.taskId === slug ? null : h('span', { class: 'run-row__id' }, gate.taskId),
         ]),
         h('p', { class: 'gate-card__meta' }, [badge('awaiting', 'awaiting', 'Waiting for you'), name !== null ? [' ', h('span', { class: 'mono' }, gate.gateId)] : null]),
       ]),
