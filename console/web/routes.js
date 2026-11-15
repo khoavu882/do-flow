@@ -10,7 +10,7 @@ const CORE_RANGE = '>=2.0.0-beta.7 <3.0.0';
 /** IC-003's parameter pattern: a route parameter failing it is not-found before any fetch. */
 const PARAM_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
-/** The Fleet keys of IC-019 and IC-020: 16 lower-case hex. */
+/** The Layers keys of 161 IC-001 (project, agent, file): 16 lower-case hex. */
 const KEY16 = /^[0-9a-f]{16}$/;
 
 /** IC-015's run id of a worker node (RUN_ID, src/runtime/worker/run-store.ts:27). */
@@ -152,10 +152,12 @@ function hashFor(route) {
     if (id === 'advice') { if (params.kind !== undefined) hash += `/kind/${params.kind}`; if (route.pick !== undefined) hash += `/pick/${route.pick}`; }
     return isValidManageHash(hash, id) ? hash : null;
   }
-  if (id === 'fleet') return '#/fleet';
-  if (id === 'fleet-project') {
-    if (!KEY16.test(params.project) || (params.agent !== undefined && !KEY16.test(params.agent))) return null;
-    return `#/fleet/${params.project}${params.agent === undefined ? '' : `/${params.agent}`}`;
+  if (id === 'layers') return '#/layers';
+  if (id === 'layers-project') {
+    // One selection at most: an agent or a file, each a 16-hex key (IC-001).
+    if (!KEY16.test(params.project) || (params.agent !== undefined && !KEY16.test(params.agent)) || (params.file !== undefined && !KEY16.test(params.file))) return null;
+    if (params.agent !== undefined && params.file !== undefined) return null;
+    return `#/layers/${params.project}${params.agent === undefined ? '' : `/agent/${params.agent}`}${params.file === undefined ? '' : `/file/${params.file}`}`;
   }
   if (id === 'sessions') {
     if (route.mode === 'history' || route.params?.mode === 'history') return '#/sessions/history';
@@ -180,14 +182,14 @@ function hashFor(route) {
 }
 
 /**
- * The route without its selection (IC-019, 150 IC-015): the base a selection hash change stays inside. Fleet's base keeps the
- * project.
+ * The route without its selection (IC-019, 150 IC-015): the base a selection hash change stays inside. The Layers project's base keeps
+ * the project.
  * @param {any} route
  */
 function baseRoute(route) {
   const { sel, task, lane, node, tab, key, pick, item, store, cell, ...rest } = route;
-  if (route.id !== 'fleet-project') return rest;
-  return { id: 'fleet-project', params: { project: route.params?.project } };
+  if (route.id !== 'layers-project') return rest;
+  return { id: 'layers-project', params: { project: route.params?.project } };
 }
 
 export {

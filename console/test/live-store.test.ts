@@ -23,7 +23,7 @@ before(async () => {
   copy = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-ui-store-'));
   fs.cpSync(WEB_ROOT, copy, { recursive: true });
   fs.writeFileSync(path.join(copy, 'package.json'), '{"type":"module"}\n');
-  mods = { store: await import(url('store.js')) };
+  mods = { store: await import(url('store.js')), logStore: await import(url('log-store.js')) };
 });
 after(() => { fs.rmSync(copy, { recursive: true, force: true }); });
 
@@ -519,4 +519,108 @@ test('log lane: reset, error and gone drop the lane\'s own position; reset tells
   assert.deepEqual(rec[ERR].last(), { kind: 'gone', state: null, code: null });
   clock.advance(50);
   assert.deepEqual(adapter.opens[2].channels, [OUT, 'now'], 'a gone log lane leaves the union');
+});
+
+// ---- 161: transcript and file lanes, and a recorded sequence with no fetch -----------------------------------
+
+const PK = 'a1b2c3d4e5f60718';
+const FRAMES = (name: string) => require(`./fixtures/layers-frames/${name}.json`);
+const TR = `transcript:${PK}:aa11bb22cc33dd55`;
+const FILE = `file:${PK}:f1f2f3f4f5f6f7f8`;
+
+test('transcript lane (161 IC-005): a snapshot tells its window, an append the newer events, in order; a patch is ignored; a late subscriber hears nothing until the next frame', () => {
+  const { adapter, store, rec } = opened(['machine', TR]);
+  const frames = FRAMES('transcript').frames;
+  adapter.push(env(TR, `${E}-1`, 'snapshot', frames[0].data));
+  adapter.push(env(TR, `${E}-2`, 'append', frames[1].data));
+  adapter.push(env(TR, `${E}-3`, 'patch', { set: { '/x': 1 }, unset: [] }));
+  adapter.push(env(TR, `${E}-4`, 'append', frames[2].data));
+  assert.deepEqual(rec[TR].events.map((e) => e.kind), ['state', 'append', 'append'], 'the patch is not a frame of a transcript lane');
+  assert.equal(rec[TR].events[0].state, frames[0].data);
+  assert.equal(rec[TR].events[2].state, frames[2].data);
+  adapter.push(env(TR, `${E}-4`, 'append', frames[1].data));
+  assert.equal(rec[TR].events.length, 3, 'an append with a position already applied is dropped');
+  const late = recorder();
+  store.subscribe(TR, late.listener);
+  assert.deepEqual(late.events, [], 'the store keeps no events, so a late subscriber gets no replay');
+  adapter.push(env(TR, `${E}-5`, 'append', frames[2].data));
+  assert.deepEqual(late.events.map((e) => e.kind), ['append']);
+});
+
+test('transcript lane: an append before any snapshot or of another epoch is not applied; the other epoch asks for a snapshot by reopening', () => {
+  const { clock, adapter, rec } = opened([TR]);
+  const frames = FRAMES('transcript').frames;
+  adapter.push(env(TR, `${E}-1`, 'append', frames[1].data));
+  assert.equal(rec[TR].events.length, 0, 'an append that cannot follow a snapshot');
+  adapter.push(env(TR, `${E}-2`, 'snapshot', frames[0].data));
+  adapter.push(env(TR, `${F}-3`, 'append', frames[1].data));
+  assert.equal(rec[TR].events.length, 1, 'an append of another epoch is not applied');
+  clock.advance(50);
+  assert.equal(adapter.opens.length, 2, 'and the store reopens to get a snapshot');
+  assert.equal(adapter.opens[1].since, null, 'without the lane position');
+});
+
+test('transcript lane: reset, error and gone reach the subscriber and a held error reaches a late one', () => {
+  const { adapter, store, rec } = opened([TR]);
+  adapter.push(env(TR, `${E}-1`, 'snapshot', FRAMES('transcript').frames[0].data));
+  adapter.push(env(TR, `${E}-2`, 'reset', { reason: 'replaced' }));
+  assert.deepEqual(rec[TR].last(), { kind: 'reset', state: null, code: 'replaced' });
+  adapter.push(env(TR, `${E}-3`, 'error', { code: 'agent-not-in-project' }));
+  const late = recorder();
+  store.subscribe(TR, late.listener);
+  assert.deepEqual(late.last(), { kind: 'error', state: null, code: 'agent-not-in-project' });
+  adapter.push(env(TR, `${E}-4`, 'gone', {}));
+  assert.deepEqual(rec[TR].last(), { kind: 'gone', state: null, code: null });
+});
+
+test('file lane (161 IC-004): the recorded frames go through the log id grammar, with the byte position in since', () => {
+  const { adapter, rec, clock, store } = opened([FILE]);
+  const [snap, app, reset, again] = FRAMES('file').frames;
+  adapter.push(env(FILE, '4242:20:1:1', 'snapshot', snap.data));
+  adapter.push(env(FILE, '4242:46:2:2', 'append', app.data));
+  assert.deepEqual(rec[FILE].events.map((e) => e.kind), ['state', 'append']);
+  adapter.push(env(FILE, `${E}-3`, 'append', app.data));
+  assert.equal(rec[FILE].events.length, 2, 'a state-channel id is not a log id');
+  adapter.push(env(FILE, '4242:46:3:3', 'reset', reset.data));
+  adapter.push(env(FILE, '4343:9:4:4', 'snapshot', again.data));
+  assert.deepEqual(rec[FILE].events.map((e) => e.kind), ['state', 'append', 'reset', 'state']);
+  store.subscribe('machine', () => {});
+  clock.advance(50);
+  assert.equal(adapter.opens[1].since, `00000000/${FILE}=4343:9`);
+});
+
+test('a file lane through the log store is live-only: no GET and no poll, the recorded frames are applied, a down connection says `down`, never `polling`', async () => {
+  const { clock, adapter, store } = setup();
+  let gets = 0;
+  const apiGet = () => { gets += 1; return Promise.reject(new Error('a file lane never reads')); };
+  const fetchSpy = globalThis.fetch;
+  (globalThis as any).fetch = () => { gets += 1; return Promise.reject(new Error('no fetch')); };
+  try {
+    const lane = mods.logStore.createLogStream({ apiGet, store, clock, file: { projectKey: PK, fileKey: 'f1f2f3f4f5f6f7f8' } });
+    const seen: any[] = [];
+    lane.onChange((state: any) => seen.push(state));
+    await lane.open();
+    clock.advance(50);
+    assert.deepEqual(adapter.opens[0].channels, [FILE]);
+    const [snap, app, , again] = FRAMES('file').frames;
+    adapter.push(env(FILE, '4242:20:1:1', 'snapshot', snap.data));
+    await Promise.resolve();
+    adapter.push(env(FILE, '4242:46:2:2', 'append', app.data));
+    for (let i = 0; i < 8; i += 1) await Promise.resolve();
+    const state = seen.at(-1);
+    assert.equal(state.mode, 'live');
+    assert.equal(state.pieces.map((p: any) => p.text).join(''), snap.data.pieces.concat(app.data.pieces).map((p: any) => p.text).join(''));
+    adapter.state('closed');
+    assert.equal(seen.at(-1).mode, 'down', 'a connection that is down is `down`');
+    clock.advance(5100);
+    assert.equal(adapter.opens.length, 2, 'the store reopens a closed connection');
+    adapter.push(env(FILE, '4343:9:3:3', 'snapshot', again.data));
+    for (let i = 0; i < 8; i += 1) await Promise.resolve();
+    assert.equal(seen.at(-1).mode, 'live', 'the next frame is live again');
+    clock.advance(60_000);
+    assert.equal(gets, 0, 'no GET and no poll for a file lane');
+    lane.close();
+  } finally {
+    (globalThis as any).fetch = fetchSpy;
+  }
 });

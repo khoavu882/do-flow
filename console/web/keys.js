@@ -18,9 +18,9 @@ const SHORTCUTS = Object.freeze([
   { id: 'go.runs', scope: 'global', keys: ['g', 'r'], chord: true, label: 'Go to Runs' },
   { id: 'go.workflows', scope: 'global', keys: ['g', 'w'], chord: true, label: 'Go to Workflows' },
   { id: 'go.sessions', scope: 'global', keys: ['g', 's'], chord: true, label: 'Go to Sessions' },
-  { id: 'go.fleet', scope: 'global', keys: ['g', 'f'], chord: true, label: 'Go to Fleet' },
-  { id: 'close', scope: 'view', keys: ['Escape'], label: 'Close the open details panel (or this list)', where: 'Run rail, Tasks board, Sessions, Fleet' },
-  { id: 'move', scope: 'widget', keys: ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End'], label: 'Move between items; the focused item is the one tab stop', where: 'Run rail, Tasks board, Sessions, Fleet tree, Workers matrix, theme control, filter chips' },
+  { id: 'go.layers', scope: 'global', keys: ['g', 'l'], chord: true, label: 'Go to Layers' },
+  { id: 'close', scope: 'view', keys: ['Escape'], label: 'Close the open details panel (or this list)', where: 'Run rail, Tasks board, Sessions, Layers' },
+  { id: 'move', scope: 'widget', keys: ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End'], label: 'Move between items; the focused item is the one tab stop', where: 'Run rail, Tasks board, Sessions, Workers matrix, theme control, filter chips' },
 ]);
 
 /** How long the first key of a chord waits for the second. */

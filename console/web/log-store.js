@@ -22,6 +22,11 @@
 //   The subscription stays: an open connection (with the channel not in error) or the next frame on the channel is live
 //   again, and the store's reopen carries `since` at the held `<ino>:<to>`.
 //
+// File lanes (161 IC-004): `createLogStream({ store, file: { projectKey, fileKey } })` follows `file:<pk>:<fk>` and is live-only (D3):
+// it makes no GET, runs no poll and has no Load earlier or Jump to newest. `open()` subscribes at once. A chunk past a gap
+// replaces the held text (there is no read to fill it). A connection that is down, or a channel in error, puts the mode at `down`
+// (never `polling`) and the lane's error code in `error.code`; the next frame or an open connection is `live` again.
+//
 // `onChange(listener)` calls `listener(state)` at once and after every change, and returns the unsubscribe. `state` is a new
 // object each time; treat it and its pieces as read-only:
 //   { log, ino, from, to, pieces, phase, end, notices, following, mode, error }
@@ -35,7 +40,8 @@
 //             paused), 'reset' (the file was replaced; until Jump to newest), 'withheld', 'capped' (end.capped is true),
 //             'waiting', 'none', 'gone'
 //   following false while Load earlier holds the stream past the bound
-//   mode      'idle' | 'loading' | 'live' | 'polling' | 'not-in-core' | 'not-found' | 'failed' | 'gone' | 'closed'
+//   mode      'idle' | 'loading' | 'live' | 'polling' | 'down' | 'not-in-core' | 'not-found' | 'failed' | 'gone' | 'closed'
+//             (`down` is a file lane's)
 //   error     the last failed read as { status, code, network }, null after a successful one
 
 /** 150 IC-019 (proposed): the most bytes (`to - from`) one stream holds. */
@@ -44,6 +50,7 @@ const LOG_HOLD_BYTES = 1048576;
 const POLL_MS = 3000;
 
 const RUN_ID = /^w-[0-9a-f]{12}$/;
+const KEY16 = /^[0-9a-f]{16}$/;
 const STREAMS = Object.freeze(['out', 'err']);
 const LOG_STATES = Object.freeze(['waiting', 'open', 'none', 'gone']);
 /** The store's transport states that end live delivery (live-view.js DOWN_STATES). */
@@ -136,22 +143,29 @@ function failureOf(error) {
 
 /**
  * @param {object} options
- * @param {(path: string) => Promise<any>} options.apiGet the shell's same-origin GET (app.js): the body, or a thrown
- *   `{ status, code, network }`
+ * @param {(path: string) => Promise<any>} [options.apiGet] the shell's same-origin GET (app.js): the body, or a thrown
+ *   `{ status, code, network }`; not used by a file lane
  * @param {any} options.store the page's one live store (store.js)
  * @param {{ now(): number, setTimeout(fn: () => void, ms: number): any, clearTimeout(handle: any): void }} [options.clock]
- * @param {string} options.slug
- * @param {string} options.runId
- * @param {'out' | 'err'} options.stream
+ * @param {string} [options.slug]
+ * @param {string} [options.runId]
+ * @param {'out' | 'err'} [options.stream]
+ * @param {{ projectKey: string, fileKey: string }} [options.file] 161 IC-004: a file lane instead of a worker stream
  */
 function createLogStream(options) {
-  const { apiGet, store, slug, runId, stream } = options;
-  if (typeof apiGet !== 'function' || !store || typeof slug !== 'string' || slug === '' || !RUN_ID.test(runId) || !STREAMS.includes(stream)) {
+  const { store, file } = options;
+  const apiGet = options.apiGet ?? (() => Promise.reject(new TypeError('no GET')));
+  const { slug, runId, stream } = /** @type {any} */ (options);
+  if (file !== undefined) {
+    if (!store || !KEY16.test(file.projectKey) || !KEY16.test(file.fileKey)) throw new TypeError('createLogStream({ store, clock, file: { projectKey, fileKey } })');
+  } else if (typeof options.apiGet !== 'function' || !store || typeof slug !== 'string' || slug === '' || !RUN_ID.test(runId) || !STREAMS.includes(stream)) {
     throw new TypeError('createLogStream({ apiGet, store, clock, slug, runId, stream })');
   }
   const clock = options.clock ?? defaultClock;
-  const base = `/api/worker-runs/${encodeURIComponent(slug)}/${encodeURIComponent(runId)}/log?stream=${stream}`;
-  const channel = `worker:${runId}:${stream}`;
+  const base = file === undefined ? `/api/worker-runs/${encodeURIComponent(slug)}/${encodeURIComponent(runId)}/log?stream=${stream}` : '';
+  const channel = file === undefined ? `worker:${runId}:${stream}` : `file:${file.projectKey}:${file.fileKey}`;
+  /** A file lane is live-only: no GET, no poll. */
+  const liveOnly = file !== undefined;
 
   /** @type {string | null} */
   let log = null;
@@ -343,7 +357,7 @@ function createLogStream(options) {
       emit();
       return undefined;
     }
-    if (chunk.from - to >= LOG_HOLD_BYTES) {
+    if (liveOnly || chunk.from - to >= LOG_HOLD_BYTES) {
       replaceWith(chunk);
       emit();
       return undefined;
@@ -408,7 +422,7 @@ function createLogStream(options) {
     pollTimer = null;
   }
 
-  const shouldPoll = () => mode === 'polling' && following && end === null && !AWAY_STATES.includes(transport);
+  const shouldPoll = () => mode === 'polling' && !liveOnly && following && end === null && !AWAY_STATES.includes(transport);
 
   /** The poll timer runs exactly while the stream should poll and no read is running. */
   function arm() {
@@ -443,13 +457,14 @@ function createLogStream(options) {
   }
 
   function enterPolling() {
-    if (FINAL_MODES.includes(mode) || mode === 'polling') return;
-    mode = 'polling';
+    const down = liveOnly ? 'down' : 'polling';
+    if (FINAL_MODES.includes(mode) || mode === down) return;
+    mode = down;
     emit();
   }
 
   function goLive() {
-    if (mode !== 'polling') return;
+    if (mode !== 'polling' && mode !== 'down') return;
     mode = 'live';
     disarm();
     emit();
@@ -466,6 +481,7 @@ function createLogStream(options) {
       const chunk = frameChunk(event.state, idIno, event.kind === 'state');
       if (chunk === null) return;
       laneError = false;
+      if (liveOnly) error = null;
       goLive();
       void enqueue(() => (alive(mine) ? mergeLive(chunk, mine) : undefined));
     } else if (event.kind === 'reset') {
@@ -481,6 +497,7 @@ function createLogStream(options) {
       });
     } else if (event.kind === 'error') {
       laneError = true;
+      if (liveOnly) error = { status: null, code: event.code, network: false };
       enterPolling();
       arm();
     } else if (event.kind === 'gone') {
@@ -509,7 +526,7 @@ function createLogStream(options) {
     transport = store.status().transport;
     unTransport = store.onTransport(onTransport);
     unsubscribe = store.subscribe(channel, onLive, { position });
-    mode = DOWN_STATES.includes(transport) ? 'polling' : 'live';
+    mode = DOWN_STATES.includes(transport) ? (liveOnly ? 'down' : 'polling') : 'live';
   }
 
   /** The first paint. @param {number} mine */
@@ -540,6 +557,13 @@ function createLogStream(options) {
   return {
     /** Paints the newest page and follows the channel; again after `failed`. Resolves when the first paint is done. */
     open() {
+      if (liveOnly) {
+        if (mode === 'idle') {
+          subscribe();
+          emit();
+        }
+        return Promise.resolve();
+      }
       if (opening !== null) return opening;
       if (mode !== 'idle' && mode !== 'failed') return Promise.resolve();
       const mine = life;
@@ -558,6 +582,7 @@ function createLogStream(options) {
     },
     /** One page before the held text, prepended; past the bound following pauses. Resolves when done. */
     loadEarlier() {
+      if (liveOnly) return Promise.resolve();
       const mine = life;
       return enqueue(async () => {
         if (!alive(mine) || ino === null || from === 0 || log !== 'open') return;
@@ -587,6 +612,7 @@ function createLogStream(options) {
     },
     /** Replaces the held text with a tail page and follows again. Resolves when done. */
     jumpToNewest() {
+      if (liveOnly) return Promise.resolve();
       const mine = life;
       return enqueue(async () => {
         if (!alive(mine) || (mode !== 'live' && mode !== 'polling')) return;

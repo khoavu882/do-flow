@@ -45,7 +45,14 @@
 // `listener({ state, code, at })` with every adapter state, plus the store's own `idle`, `hidden`, `paused` and the
 // `refused` `retry-limit` above, so the connector can choose live or polling.
 //
-// Log lanes (150 IC-006, IC-007, IC-014, IC-019): `worker:<runId>:out` and `:err`. Their frames carry the byte-cursor id
+// Transcript lanes (161 IC-005): `transcript:<pk>:<ak>`. Their frames carry `<epoch>-<n>` ids like a state channel and are `snapshot`
+// (the window as one data object, no `state` key), `append` (newer events), `reset`, `error` and `gone`; a `patch` is ignored. The
+// store keeps no events: a `snapshot` tells listeners `{ kind: 'state', state: <frame data> }` and an `append` `{ kind: 'append',
+// state: <frame data> }`, in arrival order; a late subscriber gets the lane's error, if any, and nothing else. The lane's `since`
+// entry is the hub n like a state channel's; an `append` of another epoch, or one that cannot follow a snapshot, marks the lane as
+// needing a snapshot and schedules a reopen, as a patch does.
+//
+// Log lanes (150 IC-006, IC-007, IC-014, IC-019; 161 IC-004 adds `file:<pk>:<fk>`): `worker:<runId>:out` and `:err`. Their frames carry the byte-cursor id
 // `<ino>:<offset>:<n>:<ms>` (and every other channel's frames `<epoch>-<n>`; a frame with the other form is ignored), never
 // change the epoch, and are `snapshot`, `append`, `reset`, `error` and `gone` (a `patch` is ignored). The store keeps no log
 // text: the client log store (log-store.js) merges it. A `snapshot` tells listeners `{ kind: 'state', state: <frame data>,
@@ -77,13 +84,19 @@ const ID_PATTERN = /^([0-9a-f]{8})-([1-9][0-9]{0,15})$/;
 const LOG_ID_PATTERN = /^([0-9]{1,20}):([0-9]{1,16}):[1-9][0-9]{0,15}:[0-9]{1,16}$/;
 /** 150 IC-014 `logpos`, the position a log lane resumes from. */
 const LOG_POSITION = /^[0-9]{1,20}:[0-9]{1,16}$/;
-/** 150 IC-006: the two worker output channels. */
-const LOG_CHANNEL = /^worker:w-[0-9a-f]{12}:(?:out|err)$/;
+/** 150 IC-006: the two worker output channels; 161 IC-004: `file:<pk>:<fk>`, a file of a project's artifacts index. */
+const LOG_CHANNEL = /^(?:worker:w-[0-9a-f]{12}:(?:out|err)|file:[0-9a-f]{16}:[0-9a-f]{16})$/;
+/** 161 IC-005: one agent's transcript lane. */
+const TRANSCRIPT_CHANNEL = /^transcript:[0-9a-f]{16}:[0-9a-f]{16}$/;
+/** What a transcript lane's entry holds in place of a state: the store keeps no events (the subscriber holds the window), only that a snapshot came. */
+const TRANSCRIPT_HELD = Object.freeze({});
 /** The epoch of a `since` vector that holds log positions only (they count whatever the epoch, 150 IC-014). */
 const NO_EPOCH = '00000000';
 
 /** @param {unknown} name */
 const isLogChannel = (name) => typeof name === 'string' && LOG_CHANNEL.test(name);
+/** @param {unknown} name */
+const isTranscriptChannel = (name) => typeof name === 'string' && TRANSCRIPT_CHANNEL.test(name);
 
 const defaultClock = {
   now: () => Date.now(),
@@ -119,7 +132,8 @@ const defaultVisibility = {
  * @property {boolean} stale a patch could not apply: patches are ignored and the position is not sent until a snapshot
  * @property {string | null} errorCode
  * @property {boolean} overflow kept out of the union by the channel limit
- * @property {boolean} log a log lane (150 IC-006)
+ * @property {boolean} log a log lane (150 IC-006, 161 IC-004)
+ * @property {boolean} transcript a transcript lane (161 IC-005): its frames are a window `snapshot` and `append`s, ids `<epoch>-<n>`
  * @property {string | null} logPos a log lane's `<ino>:<offset>` from its last snapshot or append
  */
 
@@ -431,13 +445,32 @@ function createLiveStore(options) {
     const data = envelope.data;
     switch (envelope.type) {
       case 'snapshot': {
+        if (entry.transcript) {
+          if (!isPlainObject(data)) return;
+          Object.assign(entry, { state: TRANSCRIPT_HELD, epoch, n, stale: false, errorCode: null });
+          notify(entry, { kind: 'state', state: data, code: null });
+          return;
+        }
         if (!isPlainObject(data) || !isPlainObject(data.state)) return;
         Object.assign(entry, { state: data.state, epoch, n, stale: false, errorCode: null });
         notify(entry, { kind: 'state', state: entry.state, code: null });
         return;
       }
+      case 'append': {
+        // 161 IC-005: the newer events of a transcript lane; on any other state channel there is nothing to apply.
+        if (!entry.transcript || entry.state === null || entry.stale) return;
+        if (epoch !== entry.epoch) {
+          entry.stale = true;
+          scheduleReopen();
+          return;
+        }
+        if (n <= entry.n || !isPlainObject(data)) return;
+        entry.n = n;
+        notify(entry, { kind: 'append', state: data, code: null });
+        return;
+      }
       case 'patch': {
-        if (entry.state === null || entry.stale) return;
+        if (entry.transcript || entry.state === null || entry.stale) return;
         if (epoch !== entry.epoch) {
           entry.stale = true;
           scheduleReopen();
@@ -475,7 +508,6 @@ function createLiveStore(options) {
         return;
       }
       default:
-        // `append` belongs to log lanes (150 IC-007, above); on any other channel there is nothing to apply.
     }
   }
 
@@ -521,7 +553,7 @@ function createLiveStore(options) {
       let entry = channels.get(channel);
       const fresh = entry === undefined;
       if (entry === undefined) {
-        entry = { listeners: new Set(), state: null, epoch: null, n: 0n, stale: false, errorCode: null, overflow: false, log: isLogChannel(channel), logPos: null };
+        entry = { listeners: new Set(), state: null, epoch: null, n: 0n, stale: false, errorCode: null, overflow: false, log: isLogChannel(channel), transcript: isTranscriptChannel(channel), logPos: null };
         channels.set(channel, entry);
       }
       const token = { listener, position };
@@ -531,7 +563,7 @@ function createLiveStore(options) {
         if (!entry.overflow) scheduleReopen();
       } else if (entry.overflow) listener({ kind: 'error', state: null, code: 'too-many-channels' });
       else if (entry.errorCode !== null) listener({ kind: 'error', state: null, code: entry.errorCode });
-      else if (entry.state !== null) listener({ kind: 'state', state: entry.state, code: null });
+      else if (entry.state !== null && !entry.transcript) listener({ kind: 'state', state: entry.state, code: null });
       let done = false;
       return () => {
         if (done) return;

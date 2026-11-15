@@ -20,7 +20,7 @@ before(async () => {
   copy = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-ui-live-'));
   fs.cpSync(WEB_ROOT, copy, { recursive: true });
   fs.writeFileSync(path.join(copy, 'package.json'), '{"type":"module"}\n');
-  mods = { poll: await import(url('poll.js')), views: await import(url('views.js')), stream: await import(url('stream.js')), notices: await import(url('notices.js')), keys: await import(url('keys.js')) };
+  mods = { poll: await import(url('poll.js')), views: await import(url('views.js')), notices: await import(url('notices.js')), keys: await import(url('keys.js')) };
 });
 after(() => { fs.rmSync(copy, { recursive: true, force: true }); });
 
@@ -230,55 +230,6 @@ test('notices: a fixed set, unknown keys are dropped, a system notice is not rep
   assert.equal(notice('paused', '', 2001), true);
 });
 
-// ---- stream: pause, resume, resync ----------------------------------------------------------------------
-
-class FakeSource {
-  static all: FakeSource[] = [];
-  readyState = 1;
-  listeners = new Map<string, Function[]>();
-  closed = false;
-  url: string;
-  constructor(url: string) { this.url = url; FakeSource.all.push(this); }
-  addEventListener(type: string, fn: Function) { this.listeners.set(type, [...(this.listeners.get(type) ?? []), fn]); }
-  close() { this.closed = true; this.readyState = 2; }
-  emit(type: string, body: unknown) { for (const fn of this.listeners.get(type) ?? []) fn({ data: JSON.stringify(body) }); }
-}
-
-function streamRig() {
-  FakeSource.all = [];
-  const clock = fakeClock();
-  const events: string[] = [];
-  const stream = mods.stream.createFleetStream({
-    project: 'p1', agent: null, EventSource: FakeSource, clock,
-    visibility: { hidden: () => false, subscribe: () => () => {} },
-    fetchJson: async () => ({ projects: [] }),
-    handlers: {
-      resync: () => events.push('resync'),
-      snapshot: () => events.push('snapshot'), fleet: () => events.push('fleet'), transcript: () => events.push('transcript'),
-      streamError: () => {}, mode: () => {}, failure: () => {},
-    },
-  });
-  return { stream, clock, events };
-}
-
-test('stream: pause closes the source; resume opens a new one whose snapshot is reported as a resync', async () => {
-  const { stream, events } = streamRig();
-  stream.start();
-  FakeSource.all[0].emit('snapshot', { projects: [] });
-  assert.deepEqual(events, ['snapshot'], 'the first snapshot is not a resync');
-  stream.pause();
-  assert.equal(stream.paused, true);
-  assert.equal(FakeSource.all[0].closed, true);
-  assert.equal(stream.isStale(), false);
-  stream.resume();
-  assert.equal(FakeSource.all.length, 2, 'a new stream is opened');
-  FakeSource.all[1].emit('snapshot', { projects: [] });
-  assert.deepEqual(events, ['snapshot', 'resync', 'snapshot']);
-  FakeSource.all[1].emit('fleet', { projects: [], gone: [] });
-  assert.deepEqual(events, ['snapshot', 'resync', 'snapshot', 'fleet'], 'a delta on the open stream is not a resync');
-});
-
-
 // ---- FR-6: the shortcut registry -------------------------------------------------------------------------
 
 test('keys: ids are unique, every entry has a label, chords have two keys, and the help rows list every entry once', () => {
@@ -332,19 +283,6 @@ test('keys: every document-level keydown listener of the web modules is installe
   assert.deepEqual(offenders, []);
 });
 
-test('stream: a browser reconnect that keeps the mode at push still reports the next snapshot as a resync', async () => {
-  const { stream, events } = streamRig();
-  stream.start();
-  FakeSource.all[0].emit('snapshot', { projects: [] });
-  FakeSource.all[0].readyState = 0; // the browser is reconnecting on its own
-  for (const fn of FakeSource.all[0].listeners.get('error') ?? []) fn({});
-  FakeSource.all[0].readyState = 1;
-  FakeSource.all[0].emit('snapshot', { projects: [] });
-  assert.deepEqual(events, ['snapshot', 'resync', 'snapshot']);
-  FakeSource.all[0].emit('fleet', { projects: [], gone: [] });
-  assert.deepEqual(events, ['snapshot', 'resync', 'snapshot', 'fleet'], 'a delta on the recovered stream is not a resync');
-});
-
 // ---- feature 149 IC-016, FR-016: one module opens the live stream ---------------------------------------
 
 /** The source with its `//` and block (JSDoc included) comments removed; string and template literals are kept as they are. */
@@ -355,7 +293,7 @@ const withoutComments = (source: string) =>
 const eventSourceNamers = (sources: Array<[string, string]>) =>
   sources.filter(([, text]) => /\bEventSource\b/.test(withoutComments(text))).map(([name]) => name).sort();
 
-test('live: only live.js and stream.js of the web modules name EventSource (Fleet keeps its own, DEC-005)', () => {
+test('live: only live.js of the web modules names EventSource (161: the Fleet stream is gone)', () => {
   const sources: Array<[string, string]> = [];
   const walk = (dir: string) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -365,7 +303,7 @@ test('live: only live.js and stream.js of the web modules name EventSource (Flee
     }
   };
   walk(WEB_ROOT);
-  assert.deepEqual(eventSourceNamers(sources), ['live.js', 'stream.js']);
+  assert.deepEqual(eventSourceNamers(sources), ['live.js']);
 });
 
 test('control: a planted `new EventSource(` in another module is reported; a comment-only mention is not', () => {

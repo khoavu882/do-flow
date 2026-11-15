@@ -125,6 +125,43 @@ test('isChannel: the two log channels are channels; every other worker stream is
   for (const ch of ['worker:w-0123456789ab:last', 'worker:w-0123456789ab:x', 'worker:w-0123456789ab:', 'worker:w-0123456789ab:out:x', 'worker:w-0123456789AB:out', 'worker:x:out', 'worker:out', 'tasks:a:out']) assert.equal(live.isChannel(ch), false, ch);
 });
 
+const PK = '0cc00ec6d2062bc0';
+const FK = 'f1e2d3c4b5a69788';
+const AK = 'a1b2c3d4e5f60718';
+
+test('161 IC-007: machine, layers:<pk>, file:<pk>:<fk> and transcript:<pk>:<ak> are channels; every near miss is not', () => {
+  for (const ch of ['machine', `layers:${PK}`, `file:${PK}:${FK}`, `transcript:${PK}:${AK}`]) assert.equal(live.isChannel(ch), true, ch);
+  for (const ch of ['Machine', 'machine:x', 'layers', `layers:${PK.slice(1)}`, `layers:${PK.toUpperCase()}`, `layers:${PK}:x`, 'layers:a',
+    `file:${PK}`, `file:${PK}:${FK.slice(1)}`, `file:${PK}:${FK}:x`, `file:${PK}:${FK.toUpperCase()}`,
+    `transcript:${PK}`, `transcript:${PK}:${AK}:out`, `transcript:${PK}:g${AK.slice(1)}`, 'fleet:p1']) assert.equal(live.isChannel(ch), false, ch);
+  assert.equal(live.isLogChannel(`file:${PK}:${FK}`), true, 'a file lane is a log channel (byte-cursor ids, append)');
+  assert.equal(live.isLogChannel(`transcript:${PK}:${AK}`), false);
+  assert.equal(live.isTranscriptChannel(`transcript:${PK}:${AK}`), true);
+  assert.deepEqual([...live.TRANSCRIPT_FRAME_TYPES], ['snapshot', 'append', 'reset', 'error', 'gone']);
+});
+
+test('161 IC-007: frame types per channel kind: layers and machine take patch and never append; a file lane takes a log id; a transcript lane takes append with a plain id and never patch', () => {
+  const r = rig();
+  r.adapter.open(['machine', `layers:${PK}`, `file:${PK}:${FK}`, `transcript:${PK}:${AK}`], null);
+  const src = FakeSource.all[0];
+  const good = [
+    { ...ENVELOPE, ch: 'machine', type: 'snapshot' }, { ...ENVELOPE, ch: 'machine', type: 'patch' },
+    { ...ENVELOPE, ch: `layers:${PK}`, type: 'patch' },
+    { ...LOG_ENVELOPE, ch: `file:${PK}:${FK}` },
+    { ...ENVELOPE, ch: `transcript:${PK}:${AK}`, type: 'snapshot' }, { ...ENVELOPE, ch: `transcript:${PK}:${AK}`, type: 'append' },
+  ];
+  for (const frame of good) src.message(frame);
+  assert.equal(r.frames.length, good.length);
+  const before = r.frames.length;
+  for (const frame of [
+    { ...ENVELOPE, ch: 'machine', type: 'append' }, { ...ENVELOPE, ch: `layers:${PK}`, type: 'append' },
+    { ...ENVELOPE, ch: `file:${PK}:${FK}` }, { ...LOG_ENVELOPE, ch: `file:${PK}:${FK}`, type: 'patch' },
+    { ...ENVELOPE, ch: `transcript:${PK}:${AK}`, type: 'patch' }, { ...LOG_ENVELOPE, ch: `transcript:${PK}:${AK}` },
+    { ...ENVELOPE, ch: `layers:${PK.slice(1)}` },
+  ]) src.message(frame);
+  assert.equal(r.frames.length, before, 'each of these is dropped');
+});
+
 test('frames: every message failing the envelope grammar is dropped', () => {
   const r = rig();
   r.adapter.open(['now'], null);

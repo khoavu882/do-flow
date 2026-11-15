@@ -1,4 +1,4 @@
-// The response-stream panel of the Fleet view (V.10; design ui/V8.md 7b.5 "The response-stream panel", 7b.9, 7b.10).
+// The response-stream panel of the Layers inspector (161; V.10, design ui/V8.md 7b.5 "The response-stream panel", 7b.9, 7b.10).
 // It shows what an agent's records state and nothing more: replies, tool calls with their result metadata, usage, dividers,
 // and DoFlow's own `record` events. Every string from the Console reaches the page as a text node (IC-007); the redactor's
 // three markers become chips; thinking, prompts and tool-result text never arrive (IC-022). The list is patched, never
@@ -10,7 +10,7 @@
 import { h, mount, icon, announce } from '../dom.js';
 import {
   MAX_EVENTS, appendEvents, secondsStamp, splitMasked, usageLine, resultBits, recordWords, nodeTitle, titleIsLabel, kindWord,
-} from '../derive/fleet.js';
+} from '../derive/layers.js';
 
 const CLAMP_REPLY_LINES = 12;
 const CLAMP_ARGS_LINES = 4;
@@ -167,7 +167,7 @@ function renderEventList(events, ctx) {
 }
 
 /**
- * The panel of one project fleet. `hooks`: `nodeOf(agentKey)` the tree node or null, `select(agentKey)` selects an agent,
+ * The panel of one agent of a project. `hooks`: `nodeOf(agentKey)` the tree node or null, `select(agentKey)` selects an agent,
  * `back()` leaves a gone agent. The shell's inspector holds the panel and gives it its close control (149 D.2).
  * @param {any} hooks
  */
