@@ -16,7 +16,7 @@ const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 const { V8_ROOT, LOCATION_ROOTS } = require('../fixtures/transcripts/v8/scan.ts');
 const { cwdHash } = require('../../src/runtime/context/identity.ts');
 const { clearCheckoutCache } = require('../../src/runtime/checkouts.ts');
-const { readAgent } = require('../../src/runtime/transcripts/read.ts');
+const { readAgent, resolveAgent, readResolved } = require('../../src/runtime/transcripts/read.ts');
 const { handleTranscriptCommand } = require('../../src/runtime/transcripts/command.ts');
 
 const REPO = path.resolve(__dirname, '../..');
@@ -382,4 +382,33 @@ test('a read with upkeep due leaves project, user state, config home and every h
     }
   }
   assert.deepEqual(snapshot(f.root), before);
+});
+
+for (const harness of Object.keys(EXPECT)) {
+  test(`161 IC-011: ${harness}: readAgent equals readResolved(resolveAgent()), and one resolution reads many times`, (t) => {
+    const f = world(t);
+    scenario(f);
+    const agent = AK(harness, `${ID}${MAIN_ID[harness]}`);
+    const opts = { env: env(f), cwd: f.main, agent, alive: unknown, ...(TRANSCRIPT_PLATFORM ? { platform: TRANSCRIPT_PLATFORM } : {}) };
+    clearCheckoutCache();
+    const whole = readAgent(opts);
+    clearCheckoutCache();
+    const resolved = resolveAgent(opts);
+    assert.equal(resolved.ok, true, JSON.stringify(resolved));
+    assert.deepEqual(readResolved(resolved.resolved, undefined, undefined), whole);
+    // A second read of the same resolution with the first cursor sees nothing new.
+    const again = readResolved(resolved.resolved, whole.body.cursor, undefined);
+    assert.equal(again.ok, true);
+    assert.deepEqual(again.body.events.filter((e: any) => e.kind !== 'record'), []);
+  });
+}
+
+test('161 IC-011: resolveAgent refuses what readAgent refuses', (t) => {
+  const f = world(t);
+  scenario(f);
+  clearCheckoutCache();
+  assert.deepEqual(resolveAgent({ env: env(f), cwd: f.main, agent: 'f'.repeat(16), alive: unknown, ...(TRANSCRIPT_PLATFORM ? { platform: TRANSCRIPT_PLATFORM } : {}) }), { ok: false, error: 'agent-not-in-project' });
+  session(f, 'claude', `${ID}c0f2`, f.main);
+  clearCheckoutCache();
+  assert.deepEqual(resolveAgent({ env: env(f), cwd: f.main, agent: AK('claude', `${ID}c0f2`), alive: unknown, ...(TRANSCRIPT_PLATFORM ? { platform: TRANSCRIPT_PLATFORM } : {}) }), { ok: false, error: 'session-not-in-project' });
 });

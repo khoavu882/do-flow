@@ -835,8 +835,9 @@ class WorkflowOrchestrator {
   decideGate({ taskId, gateId, decision, policy, by, note, forced = false, now, bindHead }: any = {}) {
     assertSafeId(gateId, 'gateId');
     if (bindHead !== undefined && (policy === undefined || !/^[0-9a-f]{40}$/.test(String(bindHead)))) throw new Error('bindHead is a 40-hex feature head and needs --policy');
-    // IC-005: the decider is derived, never named by a caller; `autopilot` is recorded only by --policy.
-    if (by !== undefined) throw new Error('decide-gate takes no decider (by); only --policy records autopilot');
+    // IC-005: the decider is derived, never named by a caller: --policy records `autopilot`, any other
+    // decision records `person`.
+    if (by !== undefined) throw new Error('decide-gate takes no decider (by); it is derived: --policy records autopilot, a manual decision records person');
     if (policy !== undefined) {
       if (policy !== gateId) throw new Error('--policy must name the gate being decided');
       if (decision !== undefined || forced) throw new Error('--policy refuses --decision and --forced');
@@ -850,7 +851,7 @@ class WorkflowOrchestrator {
     if (policy !== undefined) return this.decideGateByPolicy(run, node, policy, now, bindHead);
     node.status = nodeStatus(decision === 'approve' ? 'approved' : 'rejected');
     node.decision = decision;
-    run.history.push({ at: iso(now), action: 'decide-gate', node: node.id, detail: decision, note: note ?? null, forced: Boolean(forced) });
+    run.history.push({ at: iso(now), action: 'decide-gate', node: node.id, detail: decision, by: 'person', note: note ?? null, forced: Boolean(forced) });
     if (decision === 'reject') {
       run.state = runState('REJECTED');
     } else {
@@ -1159,6 +1160,12 @@ function noEffectFlag({ taskId, taskClass, gate, decision, policy, forced, note,
 const journalTime = (value: any) => typeof value === 'string'
   && /^\d{4}-\d{2}-\d{2}T/.test(value) && !Number.isNaN(Date.parse(value)) ? value : null;
 
+/** A stored run key (`<worktreeKey16>/<run>/<lineage>`) when it has exactly that shape, else null. */
+const runKeyOf = (value: any) => {
+  const parts = typeof value === 'string' ? value.split('/') : [];
+  return parts.length === 3 && /^[0-9a-f]{16}$/.test(parts[0]) && ID_PATTERN.test(parts[1]) && ID_PATTERN.test(parts[2]) ? value : null;
+};
+
 /** The journal actions a timeline shows (093 IC-012); any other is counted in `otherEvents`. */
 const TIMELINE_ACTIONS = new Set(['start', 'complete-stage', 'skip-stage', 'skip-gate', 'decide-gate', 'annotate', 'complete-run', 'close-run']);
 const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
@@ -1167,7 +1174,8 @@ const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]
  * 093 IC-012: one run's history as closed values only. Each event copies the action, an id-shaped
  * node, the stage outcome (complete-stage), the gate decision (decide-gate's `detail`), `forced`, and
  * whether the entry records no work done (the indicators rule, trace/indicators.ts isSynthetic).
- * Notes, detail text, deciders, policy inputs, consultations and trace ids are never read.
+ * Of a decide-gate entry's deciders only `by` is read, and only as `autopilot` or `person` (any other
+ * value, or none, is null). Notes, detail text, policy inputs, consultations and trace ids are never read.
  */
 function timelineOf(run: any, taskId: string, featureSlug: any) {
   const at = (value: any) => journalTime(value) !== null && ISO_INSTANT.test(value) ? value : null;
@@ -1184,6 +1192,7 @@ function timelineOf(run: any, taskId: string, featureSlug: any) {
       node: typeof entry.node === 'string' && ID_PATTERN.test(entry.node) ? entry.node : null,
       outcome: entry.action === 'complete-stage' && STAGE_OUTCOMES.has(entry.outcome) ? entry.outcome : null,
       decision: entry.action === 'decide-gate' && GATE_DECISIONS.includes(entry.detail) ? entry.detail : null,
+      by: entry.action === 'decide-gate' && (entry.by === 'autopilot' || entry.by === 'person') ? entry.by : null,
       forced: entry.forced === true,
       synthetic: Boolean(entry.backfilled) || Boolean(entry.executionStatus && entry.executionStatus !== 'completed'),
     });
@@ -1283,6 +1292,9 @@ function listRunsResult({ stateRoot }: { stateRoot?: string } = {}): { exit: num
       startedAt: journalTime(record.startedAt),
       updatedAt: journalTime(record.updatedAt),
       origin: entry.origin,
+      // 161 IC-011: the record's 080 run key (absent with telemetry off or a solo lineage), so a reader
+      // can join this run to its lane by an exact key; a value that is not key-shaped is null.
+      runKey: runKeyOf(record.runKey),
     });
   }
 

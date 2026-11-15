@@ -70,8 +70,13 @@ function recordEvents(records: any[], node: any, sinceMs: number | null, firstSe
   }));
 }
 
-function readAgent({
-  env = process.env, cwd = process.cwd(), agent, cursor, limit, exec, alive, fsImpl = fs, platform, home, now,
+/**
+ * 161 IC-011: find one agent and its reader, with no transcript read. `{ ok: true, resolved }` carries what
+ * `readResolved` needs; a caller that reads the same agent many times resolves once. The refusals are the
+ * ones a read gives (`agent-not-in-project`, `session-not-in-project`).
+ */
+function resolveAgent({
+  env = process.env, cwd = process.cwd(), agent, exec, alive, fsImpl = fs, platform, home, now,
 }: any = {}): any {
   const built = buildTree({ env, cwd, ...(exec ? { exec } : {}), ...(alive ? { alive } : {}), ...(fsImpl !== fs ? { fsImpl } : {}), ...(platform ? { platform } : {}), ...(home ? { home } : {}), ...(now ? { now } : {}) });
   if (!built.ok) return { ok: false, error: built.error };
@@ -80,13 +85,22 @@ function readAgent({
   const internal = built.internal.get(node.agentKey) ?? {};
   const registry = registryById();
   const reader = readerFor(registry, node);
+  let mod: any = null;
+  if (node.transcript.linked && internal.file) {
+    mod = READERS[registry[node.harness].reader]();
+    const header = mod.header({ file: internal.file, companion: internal.companion });
+    if (!inCheckouts(header.cwd, checkoutRoots({ cwd, exec, fsImpl }), fsImpl)) return { ok: false, error: 'session-not-in-project' };
+  }
+  return { ok: true, resolved: { node, internal, registry, reader, mod } };
+}
+
+/** 161 IC-011: one read of an agent `resolveAgent` found, from `cursor` (IC-005 limits are the reader's own). */
+function readResolved(resolved: any, cursor?: any, limit?: any): any {
+  const { node, internal, registry, reader, mod } = resolved;
   let transcript = { linked: node.transcript.linked, reason: node.transcript.reason };
   let result: any = null;
 
-  if (node.transcript.linked && internal.file) {
-    const mod = READERS[registry[node.harness].reader]();
-    const header = mod.header({ file: internal.file, companion: internal.companion });
-    if (!inCheckouts(header.cwd, checkoutRoots({ cwd, exec, fsImpl }), fsImpl)) return { ok: false, error: 'session-not-in-project' };
+  if (mod) {
     try {
       result = mod.read({ file: internal.file, companion: internal.companion, mode: 'text', cursor, limit, agentKey: node.agentKey });
     } catch (error: any) {
@@ -123,4 +137,10 @@ function readAgent({
   };
 }
 
-module.exports = { readAgent, inCheckouts, checkoutRoots, registryById, AGENT_KEY };
+/** One agent's recent events: resolve, then read once. */
+function readAgent(options: any = {}): any {
+  const found = resolveAgent(options);
+  return found.ok ? readResolved(found.resolved, options.cursor, options.limit) : found;
+}
+
+module.exports = { readAgent, resolveAgent, readResolved, inCheckouts, checkoutRoots, registryById, AGENT_KEY };
