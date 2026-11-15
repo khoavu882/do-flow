@@ -46,11 +46,11 @@ const { createProjectsIndex } = require('./projects-index.ts');
 const CONTROL_LINE_BYTES = 1024;
 
 /**
- * 161 IC-001: the kinds whose producers are not built yet. Until T4 (`layers`) and T5 (`file`,
- * `transcript`) give `channelSpec` an entry for them, a `sub` to one prints a `producer-failed`
- * error on that channel and is not followed, unless a `specFor` seam is injected.
+ * 161 IC-001: the kinds whose producers are not built yet. Until T5 (`file`, `transcript`) gives
+ * them a producer, a `sub` to one prints a `producer-failed` error on that channel and is not
+ * followed, unless a `specFor` seam is injected.
  */
-const NO_PRODUCER_KINDS: ReadonlySet<string> = new Set(['layers', 'file', 'transcript']);
+const NO_PRODUCER_KINDS: ReadonlySet<string> = new Set(['file', 'transcript']);
 
 /** IC-001: the flags the verb takes; each at most once. */
 const FLAGS: ReadonlySet<string> = new Set(['--follow', '--channels', '--control', '--json']);
@@ -259,10 +259,21 @@ function handleEventsCommand(options: EventsOptions = {}): Promise<number> {
       if (!spec || stopped) return;
       if (spec.log === true) { recomputeLog(ch, spec, request); return; }
       const snapshot = request.snapshot || writer.needsSnapshot(ch);
-      let computed: { sections: Sections; removed?: string[] };
+      let computed: { sections: Sections; removed?: string[]; gone?: true };
       let masked: Sections;
       try {
         computed = await spec.compute(snapshot || request.scope === 'all' ? undefined : request.sections);
+        if (computed.gone === true) {
+          // 161 IC-001: the channel names a project the index no longer knows after a refresh.
+          if (specs.get(ch) !== spec || stopped) return;
+          specs.delete(ch);
+          last.delete(ch);
+          failed.delete(ch);
+          sourceKeys.delete(ch);
+          detector.unfollow(ch);
+          emit(writer.gone(ch));
+          return;
+        }
         masked = maskSections(computed.sections);
         if (specs.get(ch) === spec && !stopped) syncSources(ch, spec);
       } catch {

@@ -736,7 +736,16 @@ function createDetector(options: DetectorOptions): Detector {
     for (const { state, sections } of dirty) mark(state, sections);
     if (derived) {
       for (const state of [...channels.values()]) {
-        if (state.sources.derived.length > 0) await evaluate(state, { scope: 'derived', sections: state.sources.derived, snapshot: false });
+        // 161 IC-003: a throttled derived section still inside its window was just recomputed (or has
+        // a trailing run set) and is skipped; one that runs here restarts its window.
+        const due = state.sources.derived.filter((name) => {
+          const throttleMs = state.sources.policies[name]?.throttleMs;
+          const last = state.lastRun.get(name);
+          return throttleMs === undefined || last === undefined || clock.now() - last >= throttleMs;
+        });
+        if (due.length === 0) continue;
+        stamp(state, due);
+        await evaluate(state, { scope: 'derived', sections: due, snapshot: false });
       }
     }
   }
