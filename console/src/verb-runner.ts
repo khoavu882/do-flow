@@ -1,7 +1,7 @@
 'use strict';
 
 // Console verb runner (feature 093, IC-003 over 092 IC-009; FR-002): the only path from the Console
-// to the core. A frozen allow-list of complete argv shapes, parameters checked before they reach
+// to the core. Reads: a frozen allow-list of complete argv shapes, parameters checked before they reach
 // argv, the core spawned as `process.execPath <core> ...argv --json` with `shell: false`, cwd the
 // project, and an environment with every DOFLOW_* and identity variable removed. Pool of 2, 10 s
 // timeout, single-flight per argv, per-shape cache, 30 s backoff after an `[ERROR]` exit 1, 4 MiB
@@ -23,13 +23,25 @@
 // (cached, no backoff); on a `usageIsOldCore` shape an exit 2 with the JSON `usage` id is an older core;
 // `run(id, params, {fresh: true})` on a shape with `refreshFloorMs` reads past the cache; every result
 // carries `at`, the runner clock's ms when the child closed.
+//
+// Write path (162 IC-003, D9): the runner is no longer read-only. It has exactly one write path, `act()`, over a
+// second frozen table, WRITE_SHAPES (`decide-gate`, `close-run`, `cancel-worker`), that `run()` refuses and that
+// `act()` alone accepts (and `act()` refuses every read shape). Every write shape is project-scoped, with the same
+// projectKey -> root map as `transcript`. `act()` has no cache, no single flight and no backoff, one write slot of
+// its own outside the pool (writes queue in arrival order; reads go on beside one), a 30 s timeout, and the same
+// environment, spawn options, stderr handling and old-core rule as a read. An exit 0 or 1 with one JSON object on
+// stdout is data (the core's refusals are JSON on exit 1); exit 2 is `usage`; any other outcome is a failure.
 
 const childProcess = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
-/** `pattern` names an entry of PATTERNS (default `id`); `flag` makes the parameter its own `--flag value` pair, omitted when `optional` and absent. */
-type Param = { param: string; pattern?: keyof typeof PATTERNS; flag?: string; optional?: true };
+/**
+ * `pattern` names an entry of PATTERNS (default `id`); `flag` makes the parameter its own `--flag value` pair, omitted when
+ * `optional` and absent. `free` (162): free text, checked only to be one string without a NUL (the caller normalizes it, IC-009),
+ * passed as exactly one argv element; empty is refused, or, with `omitEmpty`, left out with its flag.
+ */
+type Param = { param: string; pattern?: keyof typeof PATTERNS; flag?: string; optional?: true; free?: true; omitEmpty?: true };
 interface Shape {
   readonly argv: readonly (string | Param)[];
   /** Cache lifetime in ms; Infinity is the process lifetime; 0 is never cached. */
@@ -51,8 +63,9 @@ interface Shape {
   /** Minimum ms between the end of one spawn and the start of a `fresh` one (151 DEC-029). A shape without it refuses `fresh`. */
   readonly refreshFloorMs?: number;
 }
+/** 162 IC-003: a write that was still running at 30 s is `timeout`; the read path reports its 10 s as `core-error` with `reason: 'timeout'`. */
 /** `errorId`: the core's own JSON `error` id from a failed call's stdout (see errorIdOf); nothing else of that stdout. */
-type Failure = { ok: false; code: 'usage' | 'core-error' | 'core-unreachable' | 'project-not-found'; exit: number | null; reason?: string; errorId?: string };
+type Failure = { ok: false; code: 'usage' | 'core-error' | 'core-unreachable' | 'project-not-found' | 'timeout'; exit: number | null; reason?: string; errorId?: string };
 type Bare = { ok: true; json: any; exit: number } | Failure;
 /** 151 IC-005: how a `fresh` call was answered. */
 type Fresh = 'joined' | 'too-soon' | 'ran';
@@ -106,6 +119,13 @@ const FU_ID: Param = { param: 'id', pattern: 'fuId' };
 // 152 IC-004: sessions-history window and limit
 const DAYS_OPT: Param = { param: 'days', pattern: 'days', flag: '--days', optional: true };
 const LIMIT_OPT: Param = { param: 'limit', pattern: 'limit', flag: '--limit', optional: true };
+// 162 IC-003: the write shapes' parameters. The relay label is the Console's own (never the body's); NOTE is required text, NOTE_OPT is a gate note left out when empty.
+const REVISION: Param = { param: 'revision', pattern: 'revision' };
+const RELAY: Param = { param: 'relay', pattern: 'relay' };
+const DECISION: Param = { param: 'decision', pattern: 'decision' };
+const GATE: Param = { param: 'gate' };
+const NOTE: Param = { param: 'note', free: true };
+const NOTE_OPT: Param = { param: 'note', flag: '--note', optional: true, free: true, omitEmpty: true };
 
 /** IC-003, the whole allow-list. `--json` is appended to every shape. */
 const SHAPES: Readonly<Record<string, Shape>> = deepFreeze({
@@ -145,6 +165,30 @@ const SHAPES: Readonly<Record<string, Shape>> = deepFreeze({
   'sessions-history': { argv: ['sessions-history', DAYS_OPT, LIMIT_OPT], ttl: 5_000 },
 });
 const SHAPE_IDS: readonly string[] = Object.freeze(Object.keys(SHAPES));
+
+/**
+ * 162 IC-003 (D9): the write allow-list, taken only by `act()`; `--json` is appended. Every shape is scoped: it runs in the root of
+ * the project named by `projectKey`. DEC-007: the relay label of a worker cancel is `--via` beside `--operator`, not `--by`.
+ */
+interface WriteShape {
+  readonly argv: readonly (string | Param)[];
+  readonly scoped: true;
+}
+const WRITE_SHAPES: Readonly<Record<string, WriteShape>> = deepFreeze({
+  'decide-gate': {
+    argv: ['orchestrate', '--action', 'decide-gate', '--task-id', TASK_ID, SLUG_OPT, '--gate', GATE, '--decision', DECISION, '--expect-revision', REVISION, '--via', RELAY, NOTE_OPT],
+    scoped: true,
+  },
+  'close-run': {
+    argv: ['orchestrate', '--action', 'close', '--task-id', TASK_ID, SLUG_OPT, '--expect-revision', REVISION, '--via', RELAY, '--note', NOTE],
+    scoped: true,
+  },
+  'cancel-worker': {
+    argv: ['worker', '--action', 'cancel', '--slug', SLUG, '--worker-run', RUN, '--operator', '--via', RELAY, '--reason', NOTE],
+    scoped: true,
+  },
+});
+const WRITE_SHAPE_IDS: readonly string[] = Object.freeze(Object.keys(WRITE_SHAPES));
 
 /**
  * IC-008: the one long-lived child, outside the pool (DEC-022). `--json` is appended. Sub and unsub
@@ -227,6 +271,10 @@ const PATTERNS = Object.freeze({
   fuId: /^FU-[0-9a-hjkmnp-tv-z]{6}$/,
   /** 152 IC-004: days retention parameter (1..90) */
   days: /^[1-9][0-9]{0,2}$/,
+  /** 162 IC-003: a gate decision, a run revision (the core's integer flag, up to nine digits, no leading zero) and the relay label (design §3). */
+  decision: /^(?:approve|reject)$/,
+  revision: /^(?:0|[1-9][0-9]{0,8})$/,
+  relay: /^(?:console|device\.d-[0-9a-f]{12})$/,
 });
 const LIMIT_MAX = 500;
 const DAYS_MAX = 90;
@@ -251,6 +299,8 @@ const POOL_SIZE = 2;
 /** IC-024: slots beyond the pool that only `transcript` may take. */
 const RESERVED_SLOTS = 1;
 const TIMEOUT_MS = 10_000;
+/** 162 IC-003: a write may take longer than a read; then SIGTERM, then SIGKILL after KILL_GRACE_MS. */
+const WRITE_TIMEOUT_MS = 30_000;
 const KILL_GRACE_MS = 1_000;
 const BACKOFF_MS = 30_000;
 const OUTPUT_CAP_BYTES = 4 * 1024 * 1024;
@@ -267,11 +317,11 @@ const labelled = (result: Result, fresh: Fresh): Result => stamp({ ...result, fr
  * The argv of a shape with its parameters filled, and the project key of a scoped shape, or null when
  * the call is not on the allow-list.
  */
-function buildArgv(shapeId: unknown, params: unknown): { argv: string[]; projectKey: string | null } | null {
-  if (typeof shapeId !== 'string' || !Object.hasOwn(SHAPES, shapeId)) return null;
+function buildArgv(shapeId: unknown, params: unknown, shapes: Readonly<Record<string, { argv: readonly (string | Param)[]; scoped?: true }>> = SHAPES): { argv: string[]; projectKey: string | null } | null {
+  if (typeof shapeId !== 'string' || !Object.hasOwn(shapes, shapeId)) return null;
   const given = params ?? {};
   if (typeof given !== 'object' || Array.isArray(given)) return null;
-  const shape = SHAPES[shapeId];
+  const shape = shapes[shapeId];
   const declared = shape.argv.filter((part): part is Param => typeof part !== 'string');
   if (shape.scoped) declared.push(PROJECT);
   const keys = Object.keys(given);
@@ -285,7 +335,15 @@ function buildArgv(shapeId: unknown, params: unknown): { argv: string[]; project
     }
     const value = (given as Record<string, unknown>)[part.param];
     if (value === undefined && part.optional) continue;
-    if (typeof value !== 'string' || !acceptable(part.pattern ?? 'id', value)) return null;
+    if (typeof value !== 'string') return null;
+    if (part.free) {
+      // 162: text is the caller's to normalize (IC-009); a NUL would make the spawn throw, so it is usage, never core-unreachable.
+      if (value.includes('\0')) return null;
+      if (value === '') {
+        if (part.omitEmpty) continue;
+        return null;
+      }
+    } else if (!acceptable(part.pattern ?? 'id', value)) return null;
     if (part.flag) argv.push(part.flag);
     argv.push(value);
   }
@@ -334,6 +392,27 @@ function errorIdOf(chunks: Buffer[]): string | null {
   return typeof id === 'string' && PARAM_PATTERN.test(id) ? id : null;
 }
 
+/**
+ * 162 IC-003: the result of a write child that has closed. A timeout is `timeout`; an old core (the read rule: exit 1 or 2,
+ * empty stdout, the unknown marker, no `[ERROR]`) is `old-core`; exit 2 is `usage`; an exit 0 or 1 whose stdout is one JSON
+ * object is data (the core's refusals are JSON on exit 1); anything else is `core-error`, with the core's own `error` id when it
+ * printed one. Stderr is only ever the two markers.
+ */
+function writeOutcome(code: number | null, failure: string | null, bytes: number, chunks: Buffer[], stderr: ReturnType<typeof stderrScanner>): Bare {
+  if (failure === 'timeout') return { ok: false, code: 'timeout', exit: null };
+  if (failure !== null) return { ok: false, code: 'core-error', exit: null, reason: failure };
+  if ((code === 1 || code === 2) && bytes === 0 && !stderr.seen.error && stderr.seen.unknown) return { ok: false, code: 'core-error', exit: code, reason: 'old-core' };
+  if (code === 2) return { ok: false, code: 'usage', exit: 2 };
+  if (code === 0 || code === 1) {
+    const json = jsonObjectOf(chunks);
+    return json === null ? { ok: false, code: 'core-error', exit: code, reason: 'not-json' } : { ok: true, json, exit: code };
+  }
+  const result: Failure = { ok: false, code: 'core-error', exit: code };
+  const errorId = errorIdOf(chunks);
+  if (errorId !== null) result.errorId = errorId;
+  return result;
+}
+
 const realClock: Clock = {
   now: () => Date.now(),
   setTimeout: (fn, ms) => setTimeout(fn, ms),
@@ -353,8 +432,9 @@ function createVerbRunner(options: RunnerOptions) {
   let reservedActive = 0;
   let stopped = false;
 
-  /** One spawn of the core. Resolves when the child has closed; never rejects. */
-  function spawnCore(shape: Shape, argv: string[], cwd: string, flightKey: string): Promise<Result> {
+  /** One spawn of the core, of a read `shape` or, with `null`, of a write (162: `act`). Resolves when the child has closed; never rejects. */
+  function spawnCore(shape: Shape | null, argv: string[], cwd: string, flightKey: string): Promise<Result> {
+    const write = shape === null;
     return new Promise((resolveResult) => {
       const resolve = (result: Bare) => resolveResult(stamp(result, clock.now()));
       let child: any;
@@ -381,7 +461,7 @@ function createVerbRunner(options: RunnerOptions) {
         failure ??= 'timeout';
         child.kill('SIGTERM');
         killTimer = clock.setTimeout(() => child.kill('SIGKILL'), KILL_GRACE_MS);
-      }, TIMEOUT_MS);
+      }, write ? WRITE_TIMEOUT_MS : TIMEOUT_MS);
 
       child.stdout.on('data', (chunk: Buffer) => {
         if (failure !== null) return;
@@ -410,16 +490,17 @@ function createVerbRunner(options: RunnerOptions) {
         if (killTimer !== null) clock.clearTimeout(killTimer);
         running.delete(child);
         if (spawnFailed || failure === 'stopped') return resolve(unreachable());
+        if (write) return resolve(writeOutcome(code, failure, bytes, chunks, stderr));
         if (failure !== null) return resolve({ ok: false, code: 'core-error', exit: null, reason: failure });
         if (code !== 0) {
           // 151 DEC-024: a declared data exit with output is data when it is one JSON object, cached like an
           // exit 0; anything else is not-json. Neither backs off, whatever stderr held.
-          if (code !== null && bytes > 0 && shape.exitsAsData?.includes(code)) {
+          if (code !== null && bytes > 0 && shape?.exitsAsData?.includes(code)) {
             const json = jsonObjectOf(chunks);
             return resolve(json === null ? { ok: false, code: 'core-error', exit: code, reason: 'not-json' } : { ok: true, json, exit: code });
           }
           // 151 DEC-041: a core that answers a fully checked shape with its JSON `usage` id lacks the verb or flag. Never cached, no backoff.
-          if (shape.usageIsOldCore && code === 2 && errorIdOf(chunks) === 'usage') {
+          if (shape?.usageIsOldCore && code === 2 && errorIdOf(chunks) === 'usage') {
             return resolve({ ok: false, code: 'core-error', exit: 2, reason: 'old-core' });
           }
           // 150 IC-010: an older core lacking the verb or flag. Never cached (not ok) and no backoff (no `[ERROR]`).
@@ -433,7 +514,7 @@ function createVerbRunner(options: RunnerOptions) {
           return resolve(result);
         }
         const stdout = Buffer.concat(chunks).toString('utf8');
-        if (shape.text) {
+        if (shape?.text) {
           const line = stdout.trim();
           return resolve(line === '' || line.includes('\n') ? { ok: false, code: 'core-error', exit: 0, reason: 'not-json' } : { ok: true, json: line, exit: 0 });
         }
@@ -561,6 +642,25 @@ function createVerbRunner(options: RunnerOptions) {
     const result = await flight;
     if (result.ok && cacheKey !== null && shape.ttl > 0) cache.set(cacheKey, { result, expires: clock.now() + shape.ttl });
     return fresh ? labelled(result, 'ran') : result;
+  }
+
+  /** The tail of the write queue: a write starts when the one before it has closed. */
+  let writeTail: Promise<unknown> = Promise.resolve();
+
+  /**
+   * 162 IC-003 (D9): one allow-listed write, from WRITE_SHAPES only. No cache, no single flight, no backoff: two identical
+   * calls spawn twice. One write slot outside the read pool, so a write waits only for an earlier write (arrival order) and
+   * reads go on beside it. Stopped: a running write is killed and a queued one answers `core-unreachable`.
+   */
+  async function act(shapeId: string, params?: Record<string, unknown> | null): Promise<Result> {
+    const built = buildArgv(shapeId, params, WRITE_SHAPES);
+    if (built === null) return stamp(usage(), clock.now());
+    if (stopped) return stamp(unreachable(), clock.now());
+    const root = roots.get(built.projectKey!);
+    if (root === undefined) return stamp({ ok: false, code: 'project-not-found', exit: null }, clock.now());
+    const turn = writeTail.then(() => (stopped ? stamp(unreachable(), clock.now()) : spawnCore(null, built.argv, root, '')));
+    writeTail = turn;
+    return turn;
   }
 
   /** The follow child alive now, or null: at most one (DEC-022). */
@@ -693,7 +793,7 @@ function createVerbRunner(options: RunnerOptions) {
     followLive?.stop();
   }
 
-  return { run, follow, stop };
+  return { run, act, follow, stop };
 }
 
 /**
@@ -749,6 +849,9 @@ module.exports = {
   SHAPES,
   SHAPE_IDS,
   TIMEOUT_MS,
+  WRITE_SHAPES,
+  WRITE_SHAPE_IDS,
+  WRITE_TIMEOUT_MS,
   createVerbRunner,
   fleetError,
 };
