@@ -447,10 +447,24 @@ const processState = (value: unknown) => {
   };
 };
 
-/** 162 IC-005: who asked for a worker cancel. `by` (at most 64 characters) is a relay label or the name of the agent that asked; the reason and the rest are not read. */
+/** 162 review 8: the core's `--by` name rule (src/runtime/task-attempts.ts SAFE_NAME, checked against it in project.test.ts); it has no length bound. */
+const CORE_NAME = /^[A-Za-z0-9][A-Za-z0-9._ -]*$/;
+/** How many code points of a name are shown. */
+const NAME_SHOWN = 64;
+/** A name the core took, as display text: masked (mask-lite.ts), then cut to NAME_SHOWN code points with `…`; null (not recorded) otherwise. */
+const shownName = (value: unknown): string | null => {
+  if (typeof value !== 'string' || !CORE_NAME.test(value)) return null;
+  const masked = [...maskLite(value)];
+  return masked.length <= NAME_SHOWN ? masked.join('') : `${masked.slice(0, NAME_SHOWN - 1).join('')}…`;
+};
+
+/**
+ * 162 IC-005: who asked for a worker cancel. `by` is a relay label or the name the agent or person gave (`--by`), as shownName makes it:
+ * a value outside the core's rule is null for `by` alone, never a failed read (162 review 8). The reason and the rest are not read.
+ */
 const cancelBy = (value: unknown) => {
   const c = record(value);
-  return { by: orNull((v: unknown) => (typeof v === 'string' && v.length <= 64 ? id(v) : fail()))(c.by), source: orNull(oneOf(CLOSED_SETS.cancelSources))(c.source), requestedAt: orNull(iso)(c.requestedAt) };
+  return { by: shownName(c.by), source: orNull(oneOf(CLOSED_SETS.cancelSources))(c.source), requestedAt: orNull(iso)(c.requestedAt) };
 };
 
 /**
@@ -1752,5 +1766,5 @@ function project(shapeId: string, value: unknown, context?: Context): Projected 
   }
 }
 
-module.exports = { ADVICE_MODES, CANDIDATE_STATUSES, CLOSED_SETS, FEATURE_BUCKETS, FILE_CODES, FOLLOWUP_STATES, LAYERS, MATRIX_GROUPS, MATRIX_STATUSES, OTHER_HARNESS,
+module.exports = { ADVICE_MODES, CANDIDATE_STATUSES, CLOSED_SETS, CORE_NAME, FEATURE_BUCKETS, FILE_CODES, FOLLOWUP_STATES, LAYERS, MATRIX_GROUPS, MATRIX_STATUSES, OTHER_HARNESS,
   PROJECTOR_IDS, RELEASE_MODES, SCOPES, SOURCE_KINDS, VIA, WITHHELD, project, projectSessionsHistory };

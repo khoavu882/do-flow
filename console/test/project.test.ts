@@ -11,7 +11,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { project, PROJECTOR_IDS, WITHHELD, OTHER_HARNESS, CLOSED_SETS } = require('../src/project.ts');
+const { project, PROJECTOR_IDS, WITHHELD, OTHER_HARNESS, CLOSED_SETS, CORE_NAME } = require('../src/project.ts');
 const { checkCoreVersion, handshake, satisfiesRange } = require('../src/handshake.ts');
 const { SHAPE_IDS } = require('../src/verb-runner.ts');
 const coreSemver = require('../../src/helper/semver.ts');
@@ -411,9 +411,19 @@ test('worker-status (162 IC-005): cancelBy is who asked for the cancel, as by, s
   assert.equal(asked(null).body.cancelBy, null);
   assert.equal(project('worker-status', fixture('worker-status')).body.cancelBy, null, 'an older core has no cancelBy');
   assert.deepEqual(asked({ by: 'x', source: 'someone', requestedAt: null }), MISMATCH);
-  assert.deepEqual(asked({ by: 'two words', source: 'user', requestedAt: null }), MISMATCH);
-  assert.deepEqual(asked({ by: 'a'.repeat(65), source: 'user', requestedAt: null }), MISMATCH, 'a name over 64 characters');
+  // 162 review 8: any name the core's `--by` takes (SAFE_NAME, no length bound) is bounded, masked display text; a value outside even
+  // that is "not recorded" (null) for `by` alone, never a failed read.
+  assert.equal(asked({ by: 'Jane Doe', source: 'user', requestedAt: null }).body.cancelBy.by, 'Jane Doe');
   assert.equal(asked({ by: 'a'.repeat(64), source: 'user', requestedAt: null }).body.cancelBy.by, 'a'.repeat(64));
+  assert.equal(asked({ by: 'a'.repeat(65), source: 'user', requestedAt: null }).body.cancelBy.by, `${'a'.repeat(63)}…`, 'a longer name is cut to 64 with an ellipsis');
+  assert.equal(asked({ by: 'a'.repeat(100_000), source: 'user', requestedAt: null }).body.cancelBy.by.length, 64);
+  const hidden = asked({ by: 'ops 10.1.2.3', source: 'user', requestedAt: null }).body.cancelBy.by;
+  assert.equal(hidden.includes('10.1.2.3'), false, `the name is masked: ${hidden}`);
+  for (const odd of ['-dash', ' lead', 'a/b', 'a\nb', '', 7, { name: 'x' }]) {
+    const read = asked({ by: odd, source: 'user', requestedAt: '2026-10-26T09:50:00.000Z' });
+    assert.equal(read.ok, true, JSON.stringify(odd));
+    assert.deepEqual(read.body.cancelBy, { by: null, source: 'user', requestedAt: '2026-10-26T09:50:00.000Z' }, JSON.stringify(odd));
+  }
   assert.deepEqual(asked({ by: null, source: 'user', requestedAt: 'soon' }), MISMATCH);
   assert.deepEqual(asked('console'), MISMATCH);
 });
@@ -911,6 +921,9 @@ test('closed sets match the core source', () => {
   assert.deepEqual(sorted(CLOSED_SETS.cancelSources), frozen(read(path.join('worker', 'cancel.ts')), 'SOURCES'));
   assert.match(orchestrator, /const DECIDE_BY = \/\^\(\?:autopilot\|manual\|console\|device\\\.d-\[0-9a-f\]\{12\}\)\$\//);
   assert.deepEqual(sorted(CLOSED_SETS.attemptModes), frozen(ledger, 'MODES'));
+  // 162 review 8: the cancel `by` projector reads names by the core's own `--by` rule.
+  assert.match(ledger, /const SAFE_NAME = \/\^\[A-Za-z0-9\]\[A-Za-z0-9\._ -\]\*\$\/;/);
+  assert.equal(String(CORE_NAME), '/^[A-Za-z0-9][A-Za-z0-9._ -]*$/');
   assert.deepEqual(sorted(CLOSED_SETS.attemptResults), frozen(ledger, 'RESULTS'));
   const outcomes = orchestrator.match(/const STAGE_OUTCOMES = new Set\(\[([^\]]*)\]\)/);
   assert.ok(outcomes);

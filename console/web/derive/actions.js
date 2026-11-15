@@ -43,7 +43,8 @@ function cancelWords(cancelBy) {
     const from = byWords(who.by);
     return from === 'decider not recorded' ? 'requester not recorded' : from;
   }
-  if (who.source === 'user' && typeof who.by === 'string' && ID.test(who.by)) return `by ${who.by}`;
+  // 162 review 8: the Console projects a name as bounded, masked display text (project.ts shownName), spaces included.
+  if (who.source === 'user' && typeof who.by === 'string' && who.by !== '') return `by ${who.by}`;
   return 'requester not recorded';
 }
 

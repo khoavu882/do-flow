@@ -153,6 +153,8 @@ test('the cancel words: who asked for a worker stop, from the worker status `can
   assert.equal(words.cancelWords({ by: 'console', source: 'operator', requestedAt: null }), 'from the Console on this machine');
   assert.equal(words.cancelWords({ by: 'device.d-0a1b2c3d4e5f', source: 'operator', requestedAt: null }), 'from paired device d-0a1b2c3d4e5f');
   assert.equal(words.cancelWords({ by: 'worker-b', source: 'user', requestedAt: null }), 'by worker-b');
+  // 162 review 8: the projector carries any name the core takes as display text.
+  assert.equal(words.cancelWords({ by: 'Jane Doe', source: 'user', requestedAt: null }), 'by Jane Doe');
   assert.equal(words.cancelWords({ by: null, source: 'timeout', requestedAt: null }), 'by the deadline');
   for (const odd of [{ by: 'person', source: 'operator' }, { by: null, source: 'user' }, { by: 'x', source: 'other' }, 'console', 7]) assert.equal(words.cancelWords(odd), 'requester not recorded', JSON.stringify(odd));
 });
