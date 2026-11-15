@@ -173,6 +173,10 @@ The servers are optional. A stage that names one consults it only when its trigg
 server is available, and says what it did at handoff; see [MCP server selection](#mcp-server-selection)
 for which stage names which server and how to add one.
 
+### Model per tier (optional)
+
+To choose which model each tier uses on each installed harness, run `doflow models --action sync`, then `doflow models --action bind --harness <id> --tier <light|standard|frontier|orchestrator>`; see [Choose the model for each tier](guide.md#choose-the-model-for-each-tier). Unbound tiers use the harness default.
+
 ### Decision model (optional)
 
 To enable advisory decision picks, run `doflow advise --action configure --model <decision-capable-model>`.

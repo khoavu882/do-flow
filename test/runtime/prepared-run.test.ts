@@ -15,7 +15,9 @@ const REGISTRY = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/setti
 const HARNESS_REGISTRY = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/harnesses.json'), 'utf8'));
 const WORKERS = HARNESS_REGISTRY.harnesses.filter((item: any) => item.worker);
 const SUPPORTED = WORKERS.find((item: any) => item.worker.model?.status === 'supported')?.id;
-const UNSUPPORTED = WORKERS.find((item: any) => item.worker.model?.status !== 'supported')?.id;
+// Every shipped worker records a supported --model flag since antigravity's help was read from stderr (core/worker-evidence/antigravity/2026-11-07-cli-check.json),
+// so the unevidenced case is built by downgrading one worker's entry in the registry text the validator reads.
+const UNSUPPORTED = WORKERS[WORKERS.length - 1].id;
 const BARE_PATH: any = { PATH: path.dirname(process.execPath) };
 
 /** A fixture plus a `validate(file-content | object, extraArgs)` runner that writes the prepared run outside project and HOME. */
@@ -337,12 +339,36 @@ test('workers.enabled applies project narrowing and reports shape faults at the 
 });
 
 test('workers.models validates bindings and reports unevidenced flags without exposing model names', (t) => {
-  const { validate } = setup(t);
+  const { f, prepared, validate } = setup(t);
+  const exitCode = process.exitCode;
+  t.after(() => { process.exitCode = exitCode; }); // the in-process validate below sets the exit code of a failing run
   assert.ok(SUPPORTED, 'registry includes a supported model flag');
-  assert.ok(UNSUPPORTED, 'registry includes a worker without a supported model flag');
+  assert.equal(WORKERS.every((item: any) => item.worker.model?.status === 'supported'), true, 'every shipped worker records a supported model flag');
 
-  const unsupported = validate({ ...VALID(), workers: { models: { [UNSUPPORTED]: { standard: 'secret-model', frontier: 'other-model' }, [SUPPORTED]: { frontier: 'gpt-X' } } } });
-  assert.equal(unsupported.status, 1);
+  const downgraded = {
+    ...fs,
+    readFileSync(file: any, ...rest: any[]) {
+      const text = fs.readFileSync(file, ...rest);
+      if (path.resolve(String(file)) !== path.join(REPO, 'core', 'registry', 'harnesses.json')) return text;
+      const doc = JSON.parse(text);
+      const worker = doc.harnesses.find((item: any) => item.id === UNSUPPORTED).worker;
+      worker.model = { status: 'unknown', evidence: [], verification: 'x', verifiedOn: '2026-11-15', reason: 'x' };
+      return JSON.stringify(doc);
+    },
+  };
+  const unsupported: any = (() => {
+    const file = prepared({ ...VALID(), workers: { models: { [UNSUPPORTED]: { standard: 'secret-model', frontier: 'other-model' }, [SUPPORTED]: { frontier: 'gpt-X' } } } });
+    let out = '';
+    const log = console.log;
+    console.log = (msg: any) => { out += `${msg}\n`; };
+    try {
+      const status = require('../../src/runtime/settings/cli.ts').handleConfigCommand({
+        json: true, positional: ['validate'], preparedRun: file, projectRoot: f.project, repoRoot: REPO, env: f.env(), fsImpl: downgraded,
+      });
+      return { status, json: JSON.parse(out), raw: out };
+    } finally { console.log = log; }
+  })();
+  assert.equal(unsupported.status, 1, unsupported.raw);
   assert.deepEqual(unsupported.json.errors.map((e: any) => [e.key, e.code, e.layer]), [
     [`workers.models.${UNSUPPORTED}.standard`, 'model-flag-unevidenced', null],
     [`workers.models.${UNSUPPORTED}.frontier`, 'model-flag-unevidenced', null],

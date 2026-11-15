@@ -114,7 +114,8 @@ test('worker-models faults use stable codes and never echo input keys, tiers or 
     ['private-input-text', 'type', 'private-input-text'],
     [new Date(0), 'type'],
     [{ codex: {} }, 'items'],
-    [{ codex: { light: 'x', standard: 'x', frontier: 'x', ultra: 'x' } }, 'items', 'ultra'],
+    [{ codex: { light: 'x', standard: 'x', frontier: 'x', orchestrator: 'x', ultra: 'x' } }, 'items', 'ultra'],
+    [{ codex: { light: 'x', standard: 'x', frontier: 'x', ultra: 'x' } }, 'enum', 'ultra'],
     [{ codex: 'private-entry-text' }, 'type', 'private-entry-text'],
     [{ codex: [] }, 'type'],
     [{ codex: new Date(0) }, 'type'],
@@ -139,6 +140,10 @@ test('worker-models accepts sixteen workers, all three tiers and qualified ids',
   assert.equal(validateValue(SPEC, sixteen), null);
   assert.equal(validateValue(SPEC, GOOD), null);
   assert.equal(validateValue(SPEC, { codex: { light: 'a', standard: 'b', frontier: 'c' } }), null);
+  // The orchestrator is a fourth key beside the three tiers (a role, not a dispatch tier).
+  assert.equal(validateValue(SPEC, { codex: { light: 'a', standard: 'b', frontier: 'c', orchestrator: 'd' } }), null);
+  assert.equal(validateValue(SPEC, { codex: { orchestrator: 'gpt-6.1-sol' } }), null);
+  assert.equal(validateValue(SPEC, { codex: { orchestrator: '-rf' } }).code, 'type');
   assert.equal(validateValue(SPEC, { 'acme.coder': { light: 'provider/model#v' } }), null);
   assert.equal(validateValue(SPEC, { codex: { light: 'Model [1m]' } }), null);
 });

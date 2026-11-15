@@ -51,7 +51,7 @@ const readiness = require('../worker/readiness.ts');
 const { executeWorkerCommand, settledStatus } = require('../worker/command.ts');
 const { cancelRun } = require('../worker/cancel.ts');
 const { activeWorkers, workerGate, inSessionGate } = require('../worker/active.ts');
-const { resolveTier, readBindings, resolveBinding, bindingGap } = require('../worker/models.ts');
+const { resolveTier, readBindings, resolveTaskModel, usesOrchestratorModel, bindingGap } = require('../worker/models.ts');
 const { resultOfRun } = require('../worker/supervisor.ts');
 const { protectedPathGap } = require('../worker/protected-paths.ts');
 const { readRuns, storeFileFor: runStoreFileFor } = require('../worker/run-store.ts');
@@ -241,6 +241,20 @@ function noStepReason(registry: any, owner: string | null, tier: string | null =
 }
 
 /**
+ * The main session's model, read once the same way for the ladder gate, the launch and the dispatch record, so the three agree.
+ * Only a task that takes the orchestrator rule (owner `delivery-lead` on its owner-given tier) reads it, or a sequential choice
+ * (`always`); every other task gets null. A read that fails is state `unknown`, which no rule trusts.
+ */
+function primaryFor(p: any, { owner, resolvedTier, always = false }: any): any {
+  if (!always && !usesOrchestratorModel(owner, resolvedTier)) return null;
+  try {
+    return require('../context/primary.ts').resolvePrimary({ env: p.env, projectRoot: p.cwd, registry: p.reg() });
+  } catch {
+    return { harness: null, model: null, state: 'unknown' };
+  }
+}
+
+/**
  * IC-022: the mode one attempt of `task` runs in. `held` (a take over) is `manual` under policy
  * `manual`, else `sequential`; policies `manual` and `sequential` are themselves; under `auto` a
  * task whose last failure class is `launch` runs `sequential`, else the first eligible harness runs
@@ -297,12 +311,12 @@ function selectMode({ policy = 'auto', held = false, lastFailureClass = null, ca
   // IC-012: the cached readiness is shared; bindings gate a fresh array for this task's tier.
   if (rest.bindings !== undefined) {
     const reg = rest.registry || loadRegistry({ repoRoot: REPO_ROOT });
-    const resolvedTier = resolveTier({ dispatchTiers: reg.dispatchTiers, owner, tier, missing: [] }).tier;
+    const resolvedTier = resolveTier({ dispatchTiers: reg.dispatchTiers, owner, tier, missing: [] });
     const entries = readiness.workerDescriptors({ descriptors: rest.descriptors, registry: reg });
     candidates = candidates.map((c: any) => {
       if (!c.eligible) return c;
       const descriptor = entries.find((entry: any) => entry.harness === c.harness)?.worker;
-      const gap = bindingGap(resolveBinding({ worker: c.harness, tier: resolvedTier, bindings: rest.bindings, descriptor }));
+      const gap = bindingGap(resolveTaskModel({ worker: c.harness, owner, resolvedTier, bindings: rest.bindings, descriptor, primary: rest.primary ?? null }));
       return gap ? { ...c, eligible: false, gaps: [...c.gaps, gap] } : c;
     });
   }
@@ -1152,15 +1166,18 @@ async function launch(p: any, admitted: any, plan: any, view: any) {
     }
     // IC-012: settings may have changed since selection; refuse before writing the handoff.
     const reg = p.reg();
-    const tier = resolveTier({
+    const owner = p.ownerOf ? p.ownerOf(d.task) : null;
+    const resolvedTier = resolveTier({
       dispatchTiers: reg.dispatchTiers,
-      owner: p.ownerOf ? p.ownerOf(d.task) : null,
+      owner,
       tier: p.tierOf ? p.tierOf(d.task) : null,
       missing: [],
-    }).tier;
+    });
     const descriptor = readiness.workerDescriptors({ descriptors: p.descriptors, registry: reg })
       .find((entry: any) => entry.harness === d.harness)?.worker;
-    const resolved = resolveBinding({ worker: d.harness, tier, bindings: p.bindingsNow(), descriptor });
+    // The orchestrator's owner takes the orchestrator rule, which may read the main session's model.
+    const primary = primaryFor(p, { owner, resolvedTier });
+    const resolved = resolveTaskModel({ worker: d.harness, owner, resolvedTier, bindings: p.bindingsNow(), descriptor, primary });
     const gap = bindingGap(resolved);
     if (gap) {
       p.act('launch', d, 'refused', gap.reason, 0);
@@ -1287,35 +1304,35 @@ async function admitAndLaunch(p: any) {
   const newHolds = new Map<string, any>();
   const active = p.activeNow();
   const bindings = p.bindingsNow();
-  let primary: any = null;
-  let primaryResolved = false;
-  // IC-013 / IC-010: reuse this pass's bindings and resolve primary only for sequential choices.
-  const modelFor = (task: string, { mode, harness }: any) => {
-    const tier = resolveTier({
-      dispatchTiers: p.reg().dispatchTiers,
-      owner: p.ownerOf ? p.ownerOf(task) : null,
-      tier: p.tierOf ? p.tierOf(task) : null,
-      missing: [],
-    }).tier;
-    if (mode === 'sequential' && !primaryResolved) {
-      primaryResolved = true;
-      try {
-        const { resolvePrimary } = require('../context/primary.ts');
-        primary = resolvePrimary({ env: p.env, projectRoot: p.cwd, registry: p.reg() });
-      } catch {
-        primary = { harness: null, model: null, state: 'unknown' };
-      }
+  // One reading per pass, shared by the mode choice and the record (the launch reads it again at its own time).
+  let primaryRead: any;
+  const primaryOf = (owner: any, resolvedTier: any, always = false) => {
+    if (primaryRead === undefined) {
+      const read = primaryFor(p, { owner, resolvedTier, always });
+      if (read === null) return null;
+      primaryRead = read;
     }
-    return dispatchModelFor({ mode, harness, tier, bindings, primary });
+    return primaryRead;
+  };
+  const resolvedTierOf = (task: string, owner: any) => resolveTier({
+    dispatchTiers: p.reg().dispatchTiers, owner, tier: p.tierOf ? p.tierOf(task) : null, missing: [],
+  });
+  const modelFor = (task: string, { mode, harness }: any) => {
+    const owner = p.ownerOf ? p.ownerOf(task) : null;
+    const resolvedTier = resolvedTierOf(task, owner);
+    const primary = primaryOf(owner, resolvedTier, mode === 'sequential');
+    const descriptor = harness ? readiness.workerDescriptors({ descriptors: p.descriptors, registry: p.reg() }).find((entry: any) => entry.harness === harness)?.worker : null;
+    return dispatchModelFor({ mode, harness, tier: resolvedTier.tier, owner, resolvedTier, bindings, primary, descriptor });
   };
   const modeFor = (task: string, { store: s }: any) => {
     if (Object.hasOwn(heldBefore, task)) return { hold: heldBefore[task].reason };
+    const owner = p.ownerOf ? p.ownerOf(task) : null;
     const choice: any = selectMode({
       policy: run.mode || 'auto', held: Boolean(run.held && Object.hasOwn(run.held, task)), lastFailureClass: lastFailure(s, task),
       billingCap: run.billingCap,
       harness: run.harness || null, needs: Array.isArray(run.needs) ? run.needs : [], descriptors: p.descriptors, registry: p.reg(),
       coverage: p.coverage, env: p.env, cwd: p.cwd, root: p.root, now: () => p.clock().getTime(), platform: p.platform,
-      evaluateImpl: p.evaluateImpl, cache: p.cache, fallback: f, owner: p.ownerOf ? p.ownerOf(task) : null, tier: p.tierOf ? p.tierOf(task) : null,
+      evaluateImpl: p.evaluateImpl, cache: p.cache, fallback: f, owner, tier: p.tierOf ? p.tierOf(task) : null, primary: primaryOf(owner, resolvedTierOf(task, owner)),
       files: p.filesOf ? p.filesOf(task) : [], task, last: lastWorkerDispatch(s, task), active, bindings,
     });
     if (!choice.hold) return choice;

@@ -6,7 +6,8 @@
  *   review    the protocol `review --action start` resolves per task class, attended and unattended (the real
  *             `resolveProtocol`; nothing is copied from the registries)
  *   gates     per class and gate `autopilot` and `minSeats` from the packaged gates.json, and the loop limits
- *   tiers     owner -> tier, and tier -> model per worker from `workers.models`
+ *   tiers     owner -> tier, and for each installed harness the model per tier and the orchestrator's resolved model and source
+ *             (from `workers.models`, the main session's primary), with the primary named
  *   settings  the effective value and layer of the keys above
  * A value that cannot be resolved prints as `unresolved:<reason>`. The verb writes nothing and spawns only `git`
  * (to say whether develop holds a committed gate policy).
@@ -185,7 +186,7 @@ function reviewSection(taskClasses: string[], settings: any, gatePolicy: any, ga
   return { classes };
 }
 
-function tiersSection(env: Record<string, string | undefined>): any {
+function tiersSection(env: Record<string, string | undefined>, project: string | null = null): any {
   let tiers: any;
   try {
     tiers = readJson('models.json').dispatchTiers;
@@ -193,21 +194,16 @@ function tiersSection(env: Record<string, string | undefined>): any {
   } catch (error) {
     return unresolved(error);
   }
-  let models: any;
+  let view: any;
   try {
-    const { readBindings } = require('./worker/models.ts');
-    const bindings = readBindings({ env, projectRoot: null });
-    const { knownWorkerIds } = require('../registry/worker-ids.ts');
-    const workers: string[] = knownWorkerIds({ registry: { harnesses: readJson('harnesses.json').harnesses } }).ids;
-    models = bindings.state === 'invalid'
-      ? unresolved(`workers.models ${bindings.reason}`)
-      : Object.fromEntries(workers.map((worker) => [worker, Object.fromEntries(tiers.tiers.map((tier: string) => [tier, bindings.map?.[worker]?.[tier] ?? 'unset']))]));
+    const { loadRegistry } = require('../registry/index.ts');
+    view = require('./models/tier-view.ts').tierView({ registry: loadRegistry({ repoRoot: REPO_ROOT }), env, projectRoot: project });
   } catch (error) {
-    models = unresolved(error);
+    view = unresolved(error);
   }
   return {
     source: MODELS_FILE, default: tiers.default, tiers: tiers.tiers, byOwner: tiers.byOwner,
-    modelsSource: 'settings:user workers.models (global-only)', models,
+    modelsSource: 'settings:user workers.models (global-only; bind with `models --action bind`)', models: view,
   };
 }
 
@@ -217,7 +213,7 @@ function buildRulesReport({ taskClass = null, global = false, project = null, en
   try {
     taskClasses = Object.keys(readJson('gates.json').classes);
   } catch (error) {
-    return { schema: 1, review: unresolved(error), gates: unresolved(error), tiers: tiersSection(env), settings: {} };
+    return { schema: 1, review: unresolved(error), gates: unresolved(error), tiers: tiersSection(env, global ? null : project), settings: {} };
   }
   if (taskClass) taskClasses = taskClasses.filter((name) => name === taskClass);
 
@@ -241,7 +237,7 @@ function buildRulesReport({ taskClass = null, global = false, project = null, en
     : { classes: Object.fromEntries(taskClasses.map((name) => [name, { attended: settingsReason, unattended: settingsReason }])) };
   report.review.override = loadedPolicy.override;
   report.gates = gates.section;
-  report.tiers = tiersSection(env);
+  report.tiers = tiersSection(env, global ? null : project);
   report.settings = {};
   for (const key of REPORT_SETTINGS) {
     // The autopilot switch is global-only: read it from the global view whatever the project says.
@@ -292,11 +288,17 @@ function rulesLines(report: any): string[] {
   else {
     lines.push(`tiers: owner -> tier from ${report.tiers.source} (default ${report.tiers.default}; tiers ${report.tiers.tiers.join(', ')})`);
     lines.push(`  ${Object.entries(report.tiers.byOwner).map(([owner, tier]) => `${owner}=${tier}`).join(' ')}`);
-    if (typeof report.tiers.models === 'string') lines.push(`  models: ${report.tiers.models}`);
+    const view = report.tiers.models;
+    if (typeof view === 'string') lines.push(`  models: ${view}`);
     else {
-      const set = Object.entries<any>(report.tiers.models).filter(([, byTier]) => Object.values(byTier).some((model) => model !== 'unset'));
-      lines.push(`  model per worker and tier (${report.tiers.modelsSource}): ${set.length === 0 ? `unset for all ${Object.keys(report.tiers.models).length} workers` : ''}`.trimEnd());
-      for (const [worker, byTier] of set) lines.push(`    ${worker}: ${Object.entries(byTier).map(([tier, model]) => `${tier}=${model}`).join(' ')}`);
+      const main = view.primary?.harness ? `${view.primary.harness}${view.primary.model ? ` running ${view.primary.model}` : ''} (${view.primary.state})` : 'unknown';
+      lines.push(`  main session: ${main}; orchestrator = bound orchestrator, else the main session's model on its harness, else frontier, else default`);
+      if (view.bindings.state === 'invalid') lines.push(`  workers.models is unreadable (${view.bindings.reason}); every model reads as unresolved`);
+      lines.push(`  model per installed harness (${report.tiers.modelsSource}): ${view.harnesses.length === 0 ? 'no installed or bound harness' : ''}`.trimEnd());
+      const model = (id: string | null, source = 'binding') => (source === 'invalid' ? 'unresolved' : id ?? 'default');
+      for (const h of view.harnesses) {
+        lines.push(`    ${h.harness}: ${report.tiers.tiers.map((tier: string) => `${tier}=${model(h[tier], view.bindings.state)}`).join(' ')} orchestrator=${model(h.orchestrator, h.orchestratorSource)} (${h.orchestratorSource})`);
+      }
     }
   }
   lines.push('');

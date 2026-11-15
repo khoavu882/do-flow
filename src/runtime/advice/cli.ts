@@ -17,6 +17,7 @@ const { materializeKind, validateQuestionSet, validateStaticAnswer } = require('
 const { findPick, appendOutcome } = require('./record.ts');
 const { strengthWords } = require('./strength.ts');
 const { buildReport, renderText } = require('./report.ts');
+const { inWorkerSession } = require('../context/identity.ts');
 const { projectLayerSource } = require('../settings/project-layers.ts');
 
 function loadSources(repoRoot: any) {
@@ -324,6 +325,12 @@ function handleReport(options: any, runtime: any) {
 async function handleAdviseCommand(options: any = {}) {
   const action = options.actionGiven ? options.action : 'ask';
   if (!['ask', 'outcome', 'configure', 'report'].includes(action)) return usageError('advise', `unknown action '${action}'`, options.json);
+  if (action === 'configure' && inWorkerSession(options.env || process.env)) {
+    const message = "configure changes the user's decision-model settings and is not run from a worker session; a person runs it from their own terminal";
+    if (options.json) console.log(JSON.stringify({ ok: false, error: 'worker-session', message }, null, 2));
+    else console.error(`advise: ${message}`);
+    return finishRuntime(1);
+  }
   try {
     const projectRoot = options.global ? null : path.resolve(options.projectRoot || process.cwd());
     const runtime = loadRuntime({ projectRoot, global: options.global });

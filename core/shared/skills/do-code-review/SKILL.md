@@ -217,8 +217,8 @@ files by the same dispatch tables, states the same Review Contract, and returns 
 vocabulary. A dispatched review that reports differently from an in-session one is a defect, not a
 variant.
 
-Review read-only at `frontier`, with an agent and model different from the author; pass `model:`
-where supported. Follow the protocol `review --action start` prints; each `protocol.blocker` is a blocker rule.
+Review read-only at `frontier`, with an agent and model different from the author; pass the brief's
+bound model id where it names one, else translate the tier (never invent an id). Follow the protocol `review --action start` prints; each `protocol.blocker` is a blocker rule.
 Re-review only fixes automatically: read only `reviewedHead`..new head
 (`"$DOFLOW" review-package --task=<task id> --base=<reviewedHead> --head=HEAD`), raise `rounds` by
 one, and at round 3 ask the author to reconsider the approach. See `references/MODEL_SELECTION.md`.

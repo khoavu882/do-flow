@@ -128,12 +128,12 @@ function renderBriefTools({ registry, router, probes, reach, owner, tier, harnes
   const lineHarnessEntry = lineHarness ? registry.harnesses.find((item: any) => item.id === lineHarness) : null;
   let model = null;
   if (lineHarness) {
-    const { resolveBinding } = require('./worker/models.ts');
-    const binding = resolveBinding({ worker: lineHarness, tier: resolved.tier, bindings, descriptor: lineHarnessEntry?.worker });
+    const { resolveTaskModel } = require('./worker/models.ts');
+    const binding = resolveTaskModel({ worker: lineHarness, owner, resolvedTier: resolved, bindings, descriptor: lineHarnessEntry?.worker, primary });
     if (binding.source === 'invalid') {
       model = { harness: lineHarness, id: null, source: 'invalid' };
-    } else if (binding.source === 'binding') {
-      model = { harness: lineHarness, id: binding.model, source: 'binding' };
+    } else if (binding.model !== null && binding.source !== 'harness-default') {
+      model = { harness: lineHarness, id: binding.model, source: binding.source };
     } else {
       model = { harness: lineHarness, id: null, source: 'harness-default' };
     }
@@ -215,7 +215,11 @@ function renderBriefTools({ registry, router, probes, reach, owner, tier, harnes
       ? `Model: binding unreadable on \`${model.harness}\`; harness default.`
       : model.source === 'binding'
         ? `Model: \`${model.id}\` on \`${model.harness}\` (binding, user layer).`
-        : `Model: harness default on \`${model.harness}\`.`] : []),
+        : model.source === 'main-session'
+          ? `Model: \`${model.id}\` on \`${model.harness}\` (the main session's model).`
+          : model.source === 'frontier-binding'
+            ? `Model: \`${model.id}\` on \`${model.harness}\` (frontier binding, user layer).`
+            : `Model: harness default on \`${model.harness}\`.`] : []),
     '',
     'Tools this machine answers with, per information need. Searching with them before reading whole',
     'files is recommended where it saves reading; it is not required.',

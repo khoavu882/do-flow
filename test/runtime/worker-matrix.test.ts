@@ -75,7 +75,7 @@ test('the shipped registry: 7 harnesses, 14 worker and 6 orchestration cells, th
   assert.deepEqual(b.groups.worker, WORKER_NAMES);
   assert.deepEqual(b.groups.orchestration, ORCHESTRATION_NAMES);
   assert.deepEqual(b.counts, {
-    worker: { supported: 39, unknown: 59, unsupported: 0 },
+    worker: { supported: 40, unknown: 58, unsupported: 0 }, // antigravity's model entry is supported (core/worker-evidence/antigravity/2026-11-07-cli-check.json)
     orchestration: { supported: 23, unknown: 17, unsupported: 2 },
   });
   assert.deepEqual(b.limits, { shown: 7, notShown: 0, cellsNotShown: 0, cut: 0 });

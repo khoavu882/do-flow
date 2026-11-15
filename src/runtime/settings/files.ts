@@ -189,10 +189,13 @@ function validateValue(spec: any, value: unknown, enumValues: readonly string[] 
           return { code: 'type', reason: 'each worker entry must be an object keyed by tier' };
         }
         const tiers = Object.keys(entry);
-        if (tiers.length < 1 || tiers.length > 3) return { code: 'items', reason: 'each worker entry must hold 1 to 3 tiers' };
+        // The orchestrator is a role beside the dispatch tiers, so a worker entry holds up to one more key than there are tiers.
+        const slots = Array.isArray(spec.tiers) && spec.tiers.length > 0 ? [...spec.tiers, 'orchestrator'] : [];
+        const most = slots.length || 4; // no tiers available: the enum fault below names that, not a count
+        if (tiers.length < 1 || tiers.length > most) return { code: 'items', reason: `each worker entry must hold 1 to ${most} keys` };
         for (const tier of tiers) {
-          if (!Array.isArray(spec.tiers) || spec.tiers.length === 0) return { code: 'enum', reason: 'has no allowed tiers available' };
-          if (!spec.tiers.includes(tier)) return { code: 'enum', reason: `each tier must be one of: ${spec.tiers.join(', ')}` };
+          if (slots.length === 0) return { code: 'enum', reason: 'has no allowed tiers available' };
+          if (!slots.includes(tier)) return { code: 'enum', reason: `each key must be one of: ${slots.join(', ')}` };
           const modelFault = validateValue({ type: 'model-id' }, entry[tier]);
           if (modelFault) return { code: modelFault.code, reason: `a tier's model ${modelFault.reason}` };
         }

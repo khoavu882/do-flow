@@ -104,7 +104,8 @@ function groupNames(harnesses: any[], group: Group): { names: string[]; notShown
     const block = harness[group];
     if (!plainObject(block)) continue;
     for (const key of Object.keys(block)) {
-      if (!seen.has(key) && isCell(block[key])) { seen.add(key); all.push(key); }
+      // `modelList` is how a harness's CLI lists its models (supported or none-recorded), not a capability cell.
+      if (!seen.has(key) && !(group === 'worker' && key === 'modelList') && isCell(block[key])) { seen.add(key); all.push(key); }
     }
   }
   return { names: all.slice(0, MATRIX_CELLS_PER_GROUP), notShown: Math.max(0, all.length - MATRIX_CELLS_PER_GROUP) };

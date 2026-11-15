@@ -36,7 +36,7 @@ const CEILINGS: readonly (readonly [string, number, number])[] = [
   ['lifecycle --action overview --maintain --view brief --json', 0, 14528], // 13,965 B
   ['goal --action list --json', 0, 640], // 555 B
   ['workflow --task-class feature --json', 0, 6528], // 6,208 B
-  ['rules --json', 0, 6592], // 6,236 B
+  ['rules --json', 0, 7168], // 6,805 B (every installed harness's three tiers and orchestrator)
   ['capabilities --json', 0, 3840], // 3,651 B
   ['discover --json', 0, 2240], // 2,109 B
   ['paths --json', 0, 896], // 841 B
@@ -51,11 +51,11 @@ const CEILINGS: readonly (readonly [string, number, number])[] = [
   ['attendance --task-id x --json', 0, 64], // 55 B
   ['help', 0, 6656], // 6,282 B (text; the verb has no JSON form; 151: the advice-picks and worker-matrix usage lines)
   ['prereqs --json', 0, 128], // 113 B
-  ['models --action list --json', 0, 64], // 19 B
+  ['models --action list --json', 0, 1600], // 1,467 B (one row per installed harness: three tiers, orchestrator and its source)
   ['protocol --action list --json', 0, 2688], // 2,522 B
   ['primary --action resolve --json', 0, 192], // 142 B
   ['advice-picks --json', 0, 7040], // 6,692 B (151 IC-001: 91 days, no picks on the fixture)
-  ['worker-matrix --json', 0, 74624], // 74,077 B (151 IC-003: the shipped harness registry)
+  ['worker-matrix --json', 0, 74624], // 74,212 B (151 IC-003: the shipped harness registry)
 ];
 
 const WRITES_STATE = 'writes-state';

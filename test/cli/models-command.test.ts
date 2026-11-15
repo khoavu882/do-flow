@@ -104,6 +104,7 @@ test('doflow models --action list reflects enablement from models.enabled', asyn
           { id: 'claude-3-7-sonnet', displayName: 'Claude 3.7 Sonnet', family: 'anthropic' },
           { id: 'claude-3-5-haiku', displayName: 'Claude 3.5 Haiku', family: 'anthropic' },
         ],
+        modelList: { status: 'listed' },
         lastSyncedAt: new Date().toISOString(),
       },
     },
@@ -138,7 +139,10 @@ test('doflow models --action list reflects enablement from models.enabled', asyn
       env,
     });
     assert.equal(code, 0);
-    const rows = JSON.parse(logged);
+    // `list --json` is `{ primary, bindings, harnesses, models }`; the observed-model rows are `.models`.
+    const parsed = JSON.parse(logged);
+    assert.ok(Array.isArray(parsed.harnesses));
+    const rows = parsed.models;
     assert.equal(rows.length, 2);
     const m1 = rows.find((r: any) => r.model === 'claude-3-7-sonnet');
     const m2 = rows.find((r: any) => r.model === 'claude-3-5-haiku');
@@ -168,6 +172,7 @@ test('doflow models --action describe shows metadata and offering harnesses', as
         offeredModels: [
           { id: 'claude-3-7-sonnet', displayName: 'Claude 3.7 Sonnet', family: 'anthropic' },
         ],
+        modelList: { status: 'listed' },
         lastSyncedAt: new Date().toISOString(),
       },
     },
@@ -282,6 +287,7 @@ test('workerPoolDoctorView and handleDoctorCommand report worker pool diagnostic
         offeredModels: [
           { id: 'o3-mini', displayName: 'o3-mini', family: 'openai' },
         ],
+        modelList: { status: 'listed' },
         lastSyncedAt: new Date().toISOString(),
       },
     },
