@@ -17,7 +17,7 @@ const { sha16 } = require('../../src/runtime/scaffold/fingerprint.ts');
 const { handleEventsCommand } = require('../../src/runtime/events/command.ts');
 const { channelSpec } = require('../../src/runtime/events/sections.ts');
 const { createProjectsIndex } = require('../../src/runtime/events/projects-index.ts');
-const { scanArtifacts, findArtifact, ARTIFACT_LIMIT } = require('../../src/runtime/events/artifacts.ts');
+const { scanArtifacts, findArtifact, artifactDirs, ARTIFACT_LIMIT } = require('../../src/runtime/events/artifacts.ts');
 const { AUDIT } = require('../../src/runtime/events/coverage.ts');
 const { maskBody } = require('../../src/runtime/mask.ts');
 const { gateName, REVIEW_BYTES } = require('../../src/runtime/events/layers.ts');
@@ -355,6 +355,23 @@ test('161 IC-003, IC-004: artifacts list the ten kinds from regular files only; 
   assert.deepEqual(findArtifact([main, linked], brief.fileKey), { path: path.join(exec, 'task-3-brief.md'), kind: 'task-brief', root: main });
   assert.equal(findArtifact([main, linked], fileKeyOf(main, 'agent-docs/doflow/161-x/exec/task-9-brief.md')), null, 'a link is never resolved');
   assert.equal(findArtifact([main, linked], fileKeyOf(linked, '.doflow/state/worker-output/w-0123456789ab.last.log')), null);
+});
+
+test('165 D8: a started session\'s prompt file is a session-prompt artifact; only w-<12 hex>.prompt.txt in session-prompts is listed, never a link', (t) => {
+  const root = fs.realpathSync(tempDir(t, 'doflow-events-artifacts-'));
+  const dir = path.join(root, '.doflow', 'state', 'session-prompts');
+  const at = Date.now() - 5000;
+  const prompt = write(path.join(dir, 'w-0123456789ab.prompt.txt'), 'Use the DoFlow do skill for this request:\n\nfix it\n', at);
+  write(path.join(dir, 'w-nothex.prompt.txt'), 'x', at);
+  write(path.join(dir, 'w-0123456789ab.out.log'), 'x', at);
+  const outside = write(path.join(root, 'outside.txt'), 'SECRET', at);
+  fs.symlinkSync(outside, path.join(dir, 'w-0123456789ac.prompt.txt'));
+  const scan = scanArtifacts([root]);
+  assert.deepEqual(scan.items.map((i: any) => [i.kind, i.runId, i.feature]), [['session-prompt', 'w-0123456789ab', null]]);
+  assert.equal(scan.items[0].fileKey, fileKeyOf(root, '.doflow/state/session-prompts/w-0123456789ab.prompt.txt'));
+  assert.deepEqual(findArtifact([root], scan.items[0].fileKey), { path: prompt, kind: 'session-prompt', root });
+  assert.ok(!JSON.stringify(scan.items).includes(root), 'no path in an item');
+  assert.ok(artifactDirs([root]).state.includes(dir), 'the directory is watched');
 });
 
 test('161 IC-003: artifacts keep the 64 newest', (t) => {

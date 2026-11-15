@@ -232,6 +232,44 @@ test('worker runs: caller and childOf edges, ended, the process check, runs merg
   assert.ok(!JSON.stringify(body).includes('w-aaaa') && !JSON.stringify(body).includes('wk1/run1'));
 });
 
+/** A started session as `worker --action start-session` records it (165 IC-003), plus an ordinary worker run in the same store. */
+function started(f: any, phase = 'running') {
+  const runId = 'w-5555555555ee';
+  writeStore(f, 'worker-runs', 'started-sessions', {
+    slug: 'started-sessions', runs: {
+      [runId]: {
+        runId, kind: 'main-session', task: 'main-session', token: 1, seq: 1, request: 'r'.repeat(22), childOf: null, harness: 'claude', phase,
+        createdAt: '2026-11-15T01:00:00.000Z', startedAt: '2026-11-15T01:00:02.000Z', startedBy: 'device.d-0123456789ab',
+        caller: { runKey: 'wk9/run9/lin9', run: 'run9', lineage: 'lin9' }, project: { projectKey: cwdHash(f.main), worktreeKey: cwdHash(f.main) },
+        binding: { model: 'claude-fixture-9', source: 'catalogue' }, supervisor: { pid: 5, start: 'x' },
+        ...(phase === 'ended' ? { end: { state: 'exited', at: '2026-11-15T01:09:00.000Z' } } : {}),
+      },
+      'w-6666666666ff': { runId: 'w-6666666666ff', task: 'A.1', token: 1, seq: 1, harness: 'codex', phase: 'running', startedAt: '2026-11-15T01:05:00.000Z', childOf: null },
+    },
+  });
+  return runId;
+}
+
+test('a main-session run is a started-session node with file keys', (t) => {
+  const f = world(t, { fixtures: false });
+  const runId = started(f);
+  const body = tree(f, { alive: () => true });
+  const n = byKey(body, sha16(`worker:${runId}`));
+  assert.ok(n, 'the run is a node under the worker key');
+  assert.deepEqual([n.kind, n.harness, n.model, n.modelBasis, n.depth], ['started-session', 'claude', 'claude-fixture-9', 'start-record', 0]);
+  assert.deepEqual([n.startedBy, n.phase, n.worktreeKey, n.liveness], ['device.d-0123456789ab', 'running', cwdHash(f.main), 'process-seen']);
+  const rel = (stream: string) => `.doflow/state/worker-output/${runId}.${stream}.log`;
+  assert.deepEqual(n.fileKeys, { out: sha16(`${f.main}\0${rel('out')}`), err: sha16(`${f.main}\0${rel('err')}`) });
+  assert.equal(body.nodes.filter((x: any) => x.kind === 'worker-run' && x.agentKey === n.agentKey).length, 0, 'not also a worker node');
+  assert.equal(body.nodes.filter((x: any) => x.agentKey === n.agentKey).length, 1);
+  assert.deepEqual(body.edges, [], 'no caller edge and no doflow-run node from the starter\'s run key');
+  // An ordinary run in the same store is unchanged: no kind, no started fields.
+  const w = byKey(body, sha16('worker:w-6666666666ff'));
+  assert.deepEqual([w.kind, w.modelBasis, 'fileKeys' in w, 'startedBy' in w], ['worker-run', null, false, false]);
+  const json = JSON.stringify(body);
+  assert.ok(!json.includes(f.main) && !json.includes(runId), 'no path and no raw run id');
+});
+
 test('no-merge: sessions and runs of one harness and model stay separate nodes', (t) => {
   const f = world(t, { fixtures: false });
   session(f, 'claude', `${ID}c001`, f.main, 'same-model-1');

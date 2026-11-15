@@ -29,6 +29,7 @@ const { loadTranscriptRegistry } = require('../transcripts/registry.ts');
 const { readJsonFile, label } = require('../transcripts/cursor.ts');
 const { confinedReader } = require('../events/confined.ts');
 const { isSafeSlug } = require('../task-scope.ts');
+const { fileKeyOf } = require('../events/artifacts.ts');
 
 const MAX_SESSIONS = 64;
 const MAX_NODES = 256;
@@ -339,7 +340,10 @@ function buildTree({
   const ordered = [...runs.entries()].sort((a, b) => String(b[1].run.startedAt ?? b[1].run.createdAt ?? '').localeCompare(String(a[1].run.startedAt ?? a[1].run.createdAt ?? '')) || (a[0] < b[0] ? -1 : 1));
   const workerKey = (runId: string) => sha16(`worker:${runId}`);
   for (const [runId, { run, checkout, slug }] of ordered) {
-    const caller = run.caller && typeof run.caller.runKey === 'string' ? runNode(run.caller.runKey) : null;
+    // 165 D8: a started session (record kind `main-session`) is its own node kind under the same agent key; the starter's
+    // run key is not a caller, so it gets no caller or attempt edge and no hold (its `task` is the kind, not a task).
+    const startedSession = run.kind === 'main-session';
+    const caller = !startedSession && run.caller && typeof run.caller.runKey === 'string' ? runNode(run.caller.runKey) : null;
     const harness = harnessOf(run.harness);
     const isChild = typeof run.childOf === 'string' && run.childOf !== '';
     let liveness = 'not-checked';
@@ -350,9 +354,13 @@ function buildTree({
         liveness = seen.includes(true) ? 'process-seen' : seen.every((v) => v === false) ? 'process-gone' : 'not-checked';
       } else counts.notChecked += 1;
     }
+    const rel = (stream: string) => `.doflow/state/worker-output/${runId}.${stream}.log`;
     const n = node(workerKey(runId), {
-      kind: isChild ? 'child-worker-run' : 'worker-run', harness, model: label(run.binding?.model), modelBasis: run.binding?.model ? 'worker-binding' : null,
-      depth: isChild ? 2 : caller ? 1 : 0, worktreeKey: (run.caller?.runKey ?? '').split('/')[0] || cwdHash(checkout),
+      kind: startedSession ? 'started-session' : isChild ? 'child-worker-run' : 'worker-run', harness, model: label(run.binding?.model),
+      modelBasis: run.binding?.model ? (startedSession ? 'start-record' : 'worker-binding') : null,
+      depth: isChild ? 2 : caller ? 1 : 0,
+      worktreeKey: startedSession ? (run.project?.worktreeKey ?? cwdHash(checkout)) : (run.caller?.runKey ?? '').split('/')[0] || cwdHash(checkout),
+      ...(startedSession ? { startedBy: label(run.startedBy), phase: run.phase, fileKeys: { out: fileKeyOf(checkout, rel('out')), err: fileKeyOf(checkout, rel('err')) } } : {}),
       startedAt: run.startedAt ?? run.createdAt ?? null, lastRecordAt: run.end?.at ?? run.startedAt ?? run.createdAt ?? null, liveness,
       ended: run.end && typeof run.end.at === 'string' ? { at: run.end.at, result: typeof run.end.state === 'string' ? run.end.state : null } : null,
       transcript: transcriptOf(harness, null),
@@ -362,7 +370,8 @@ function buildTree({
     const startedAt = run.startedAt ?? run.createdAt;
     if (typeof startedAt === 'string') note(n, 'records', { type: 'worker-run-start', at: startedAt, task, result: null });
     if (run.end && typeof run.end.at === 'string') note(n, 'records', { type: 'worker-run-end', at: run.end.at, task, result: typeof run.end.state === 'string' ? label(run.end.state) : null });
-    if (run.phase !== 'ended' && typeof run.task === 'string') note(n, 'holds', { slug, task: run.task });
+    if (!startedSession && run.phase !== 'ended' && typeof run.task === 'string') note(n, 'holds', { slug, task: run.task });
+    if (startedSession) continue;
     if (isChild) edge(workerKey(run.childOf), n.agentKey, 'worker-childOf');
     else if (caller) edge(caller.agentKey, n.agentKey, 'worker-caller');
     else {
