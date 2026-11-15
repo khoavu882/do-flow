@@ -41,6 +41,8 @@ const { handleWorkflowCommand } = require('../runtime/workflow-engine.ts');
 const { handleOrchestrateCommand } = require('../runtime/workflow-orchestrator.ts');
 const { handleResearchRequestCommand } = require('../runtime/research-request.ts');
 const { handleTaskAttemptCommand } = require('../runtime/task-attempts.ts');
+// Loaded on use: the models verb reads settings, which `install` must not load.
+const handleModelsCommand = (options: any) => require('../runtime/models/command.ts').handleModelsCommand(options);
 const { handleWorkerCommand } = require('../runtime/worker/command.ts');
 const { handleDispatchCommand } = require('../runtime/dispatch/command.ts');
 const { handleRetrieveCommand } = require('../runtime/knowledge/retrieval.ts');
@@ -66,7 +68,6 @@ const { handleReviewCommand } = require('../runtime/review/command.ts');
 const { handleProtocolCommand } = require('../runtime/review/protocol-command.ts');
 const { handleRulesCommand } = require('../runtime/rules-report.ts');
 const { handlePackageCommand } = require('../runtime/packages/command.ts');
-const { handleModelsCommand } = require('../runtime/models/command.ts');
 const { handleWorktreeCommand } = require('../runtime/roadmap/worktree-cleanup.ts');
 const { handleAttendanceCommand } = require('../runtime/roadmap/attendance.ts');
 // `plan-check` is read-only (115 IC-001): no upkeep, which would write `.gitignore` and `upkeep-due`.
