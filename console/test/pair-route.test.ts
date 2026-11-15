@@ -8,6 +8,7 @@
 const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const https = require('node:https');
 const os = require('node:os');
 const path = require('node:path');
 const { Readable } = require('node:stream');
@@ -151,12 +152,15 @@ test('the server refuses before the handler: wrong Content-Type is 415, a browse
   assert.equal(crossSite.status, 403);
   const withBearer = await browser(payload, { Authorization: 'Bearer dfd1_x' });
   assert.equal(withBearer.status, 403);
-  const get = await request('GET', '/api/pair');
-  assert.equal(get.status, 404, 'a GET to a path that has only a POST route is the plain 404');
-  const put = await request('PUT', '/api/pair', { headers: JSON_HEADERS, body: payload });
+  // Unpaired, a wrong method on the pairing path is the one 401 of every /api path; a paired device gets the true 405.
+  assert.deepEqual(JSON.parse((await request('GET', '/api/pair')).body), errorBody('device-unpaired'));
+  assert.equal((await request('PUT', '/api/pair', { headers: JSON_HEADERS, body: payload })).status, 401);
+  const { bearer } = await world.pair('view');
+  const put = await request('PUT', '/api/pair', { headers: { ...JSON_HEADERS, Authorization: bearer }, body: payload });
   assert.equal(put.status, 405);
   assert.equal(put.headers.allow, 'POST');
-  assert.equal(world.store.list().length, 0, 'nothing above spent the code');
+  assert.equal((await request('GET', '/api/pair', { headers: { Authorization: bearer } })).headers.allow, 'POST');
+  assert.equal(world.store.list().length, 1, 'nothing above spent the code: only the one device paired for the 405 exists');
   assert.equal(origin.startsWith('https://127.0.0.1:'), true);
 });
 
@@ -188,9 +192,9 @@ test('the 65th device is 409 device-limit and the code stays good; a store that 
 
 // ---- rate limits, through the handler with a fake request ----
 
-function pairer(t: any, start = Date.UTC(2026, 10, 15, 10, 0, 0)) {
+function pairer(t: any, start = Date.UTC(2026, 10, 15, 10, 0, 0), authExtra: Record<string, any> = {}) {
   const clock = { t: start, now: () => clock.t };
-  const world = lanWorld(t, clock);
+  const world = lanWorld(t, clock, authExtra);
   const route = world.auth.pairRoute();
   const post = (address: string, code: string) => route.handler({
     req: Object.assign(Readable.from([Buffer.from(body(code))]), { headers: {}, socket: { remoteAddress: address } }),
@@ -219,17 +223,80 @@ test('five refused codes from one address, then 429 pair-rate-limited with Retry
   assert.equal((await post('10.0.0.9', wrong(10))).status, 401);
 });
 
-test('twenty refused codes overall, however spread, pause pairing for everyone until the window ends', async (t) => {
-  const { clock, world, post, wrong } = pairer(t);
+test('twenty refused codes overall only slow pairing down: a fresh code still pairs, and the delay grows to a cap and ends with the window', async (t) => {
+  const slept: number[] = [];
+  const { clock, world, post, wrong } = pairer(t, undefined, { sleep: async (ms: number) => { slept.push(ms); } });
   for (let i = 0; i < 20; i += 1) assert.equal((await post(`10.0.1.${i}`, wrong(i))).status, 401);
+  assert.deepEqual(slept, [], 'the first twenty attempts are not delayed');
+  // The owner mints a code after a stranger has burned the whole budget: it is accepted, after a delay.
   const { code } = await world.store.mintCode('view');
-  clock.t += 100_000;
-  const limited = await post('10.0.2.1', code);
-  assert.equal(limited.status, 429);
-  assert.equal(limited.headers['Retry-After'], '500');
-  clock.t += 500_000;
-  const next = (await world.store.mintCode('view')).code;
-  assert.equal((await post('10.0.2.1', next)).status, 200);
+  const paired = await post('10.0.2.1', code);
+  assert.equal(paired.status, 200, 'never a 429 for an address that has not failed');
+  assert.deepEqual(slept, [150]);
+  // Further refused codes lengthen the wait to a few seconds and no more.
+  for (let i = 0; i < 40; i += 1) await post(`10.0.5.${i % 100}`, wrong(100 + i));
+  assert.equal(Math.max(...slept), 3000);
+  assert.ok(slept.every((ms) => ms <= 3000));
+  // A new window starts clean.
+  clock.t += 11 * 60_000;
+  slept.length = 0;
+  assert.equal((await post('10.0.6.1', wrong(500))).status, 401);
+  assert.deepEqual(slept, []);
+});
+
+test('forty parallel wrong codes from one address: at most five are tried, the rest are 429 (the count is taken before the body is read)', async (t) => {
+  const world = lanWorld(t);
+  const server = await lanServer(t, world, buildRoutes(world.auth, [info]), webRoot);
+  const ca = fs.readFileSync(server.cert.certPath);
+  const letters = 'abcdefghijklmnopqrstuvwxyz234567';
+  const held: Array<[any, string]> = [];
+  const answers: Array<Promise<number | string>> = [];
+  for (let i = 0; i < 40; i += 1) {
+    const payload = body(`${'b'.repeat(25)}${letters[i % 32]}`);
+    answers.push(new Promise((resolve) => {
+      const req = https.request({
+        host: '127.0.0.1', port: server.app.port, method: 'POST', path: '/api/pair', ca, agent: false, servername: '',
+        headers: { Host: `127.0.0.1:${server.app.port}`, ...JSON_HEADERS, 'Content-Length': String(Buffer.byteLength(payload)) },
+      }, (res: any) => { res.resume(); res.on('end', () => resolve(res.statusCode)); });
+      req.on('error', () => resolve('error'));
+      req.flushHeaders();
+      held.push([req, payload]);
+    }));
+  }
+  // Every connection has sent its headers and none its body: the guesses are all in flight at once.
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  for (const [req, payload] of held) req.end(payload);
+  const statuses = await Promise.all(answers);
+  const count = (status: number | string) => statuses.filter((s) => s === status).length;
+  assert.ok(count(401) <= 5, `401s: ${count(401)}`);
+  assert.equal(count(401) + count(429), 40, JSON.stringify(statuses));
+  assert.ok(count(429) >= 35);
+});
+
+test('a refund: a success, a 400, a 409 and a store failure each give the attempt back; only a refused code stays counted', async (t) => {
+  const { world, post, wrong } = pairer(t);
+  const route = world.auth.pairRoute();
+  for (let i = 0; i < 4; i += 1) assert.equal((await post('10.0.7.1', wrong(i))).status, 401);
+  for (let i = 0; i < 6; i += 1) {
+    const { code } = await world.store.mintCode('view');
+    assert.equal((await post('10.0.7.1', code)).status, 200, `success ${i + 1} is not counted`);
+  }
+  const reply = await route.handler({ req: Object.assign(Readable.from([Buffer.from('{}')]), { headers: {}, socket: { remoteAddress: '10.0.7.1' } }), clientClass: 'native' });
+  assert.equal(reply.status, 400);
+  assert.equal((await post('10.0.7.1', wrong(9))).status, 401, 'the fifth refusal is still tried');
+  assert.equal((await post('10.0.7.1', wrong(10))).status, 429, 'and the sixth is not');
+});
+
+test('the browser transport is view for ever: a control code pairs a browser as view and a native client as control', async (t) => {
+  const { world, browser, native } = await start(t);
+  const first = await world.store.mintCode('control');
+  const viaBrowser = await browser(body(first.code));
+  assert.equal(viaBrowser.status, 200);
+  assert.equal(JSON.parse(viaBrowser.body).device.scope, 'view');
+  const second = await world.store.mintCode('control');
+  const viaNative = await native(body(second.code));
+  assert.equal(JSON.parse(viaNative.body).device.scope, 'control');
+  assert.deepEqual(world.store.list().map((d: any) => [d.via, d.scope]).sort(), [['browser', 'view'], ['native', 'control']]);
 });
 
 test('only refused codes count: a 400 and a device-limit refusal leave the budget alone', async (t) => {
@@ -250,8 +317,8 @@ test('the log says refusals once per address a minute and the pause once, and ne
   const tried: string[] = [];
   for (let i = 0; i < 5; i += 1) { tried.push(wrong(i)); await post('10.0.4.1', wrong(i)); }
   assert.deepEqual(world.logs, [
-    'pairing refused from 10.0.4.1 (1 in this window)',
-    'pairing paused for 600 s: too many failed codes',
+    'pairing refused from 10.0.4.1',
+    'pairing from 10.0.4.1 paused for 600 s: too many failed codes',
   ]);
   clock.t += 61_000;
   await post('10.0.4.2', wrong(6));
