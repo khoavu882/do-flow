@@ -232,7 +232,7 @@ const V1 = {
     scope: 'global-only', combine: 'override', securityRelevant: true, failSafe: { state: 'invalid' },
     env: null, flag: null, shellRead: null, needsConfigHome: true, legacy: [],
     consumers: ['src/runtime/worker/models.ts'],
-    description: 'Model per worker and tier (light, standard, frontier) plus the orchestrator role; a worker or key not listed keeps the harness default. Written by doflow models --action bind or unbind; config set refuses it.' },
+    description: 'Model per worker and tier (light, standard, frontier) plus the orchestrator role; a worker or key not listed keeps the harness default. Written by doflow models --action bind or unbind, by a person.' },
   'models.enabled': { type: 'model-list', default: [],
     scope: 'project-overridable', combine: 'subset', direction: 'narrow-only', securityRelevant: false,
     env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
