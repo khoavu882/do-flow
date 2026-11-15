@@ -72,16 +72,34 @@ function scratchLog(t: any, now?: () => number) {
   return { dir, log, lines };
 }
 
+/**
+ * `actions` with a counter of the action requests whose body the server has read in full. After that read a handler runs
+ * on to the queue and the memo with nothing left to wait for (actions.ts), so a test that waits for the count and then
+ * yields one turn knows those requests have reached them: no fixed sleep. It adds a listener only; the route consumes the
+ * body as before.
+ */
+function counting(actions: any) {
+  let bodies = 0;
+  const routes = actions.routes.map((route: any) => (route.method !== 'POST' ? route
+    : { ...route, handler: (ctx: any) => { ctx.req.once('end', () => { bodies += 1; }); return route.handler(ctx); } }));
+  const bodiesRead = async (count: number) => {
+    await until(() => bodies >= count, `${count} action bodies read`);
+    await new Promise((resolve) => setImmediate(resolve));
+  };
+  return { actions: { ...actions, routes }, bodiesRead };
+}
+
 /** The REAL LAN table over a scratch world, a scratch log and `runner`. */
 async function lan(t: any, runner: any, options: { now?: () => number, log?: any } = {}) {
   const world = lanWorld(t);
   const scratch = scratchLog(t, options.now);
   const actions = createActions({ runner, log: options.log === undefined ? scratch.log : options.log, ...(options.now ? { now: options.now } : {}), warn: () => {} });
   t.after(() => actions.stop());
-  const server = await lanServer(t, world, consoleRoutes(runner, world.auth, null, place, actions), webRoot);
+  const counted = counting(actions);
+  const server = await lanServer(t, world, consoleRoutes(runner, world.auth, null, place, counted.actions), webRoot);
   const post = (id: string, body: unknown, headers: Record<string, string>) =>
     server.request('POST', `/api/actions/${id}`, { headers: { 'Content-Type': 'application/json', ...headers }, body: typeof body === 'string' ? body : JSON.stringify(body) });
-  return { world, server, actions, post, ...scratch };
+  return { world, server, actions, post, bodiesRead: counted.bodiesRead, ...scratch };
 }
 
 /** The REAL loopback table over a real launch-code session, a scratch log and `runner`; `post` sends the own Origin, the session cookie and JSON unless told otherwise (a null header is left out). */
@@ -90,7 +108,8 @@ async function loopback(t: any, runner: any, options: { now?: () => number, log?
   const scratch = scratchLog(t, options.now);
   const actions = createActions({ runner, log: options.log === undefined ? scratch.log : options.log, ...(options.now ? { now: options.now } : {}), warn: () => {} });
   t.after(() => actions.stop());
-  const app = await createServer({ webRoot, routes: consoleRoutes(runner, sessions, null, place, actions) });
+  const counted = counting(actions);
+  const app = await createServer({ webRoot, routes: consoleRoutes(runner, sessions, null, place, counted.actions) });
   t.after(() => app.close());
   const cookie = `${cookieName(app.port)}=${sessions.exchange(sessions.mintLaunchCode())}`;
   const request = (method: string, target: string, headers: Record<string, string | null>, body?: string): Promise<{ status: number, headers: Record<string, any>, body: string }> =>
@@ -109,7 +128,7 @@ async function loopback(t: any, runner: any, options: { now?: () => number, log?
   const post = (id: string, body: unknown, headers: Record<string, string | null> = {}) => request('POST', `/api/actions/${id}`,
     { Origin: `http://127.0.0.1:${app.port}`, 'Content-Type': 'application/json', Cookie: cookie, ...headers }, typeof body === 'string' ? body : JSON.stringify(body));
   const get = (target: string) => request('GET', target, { Cookie: cookie });
-  return { app, actions, post, get, cookie, ...scratch };
+  return { app, actions, post, get, cookie, bodiesRead: counted.bodiesRead, ...scratch };
 }
 
 /** A clock the test moves. */
@@ -344,7 +363,7 @@ test('the queue: one in flight and four waiting; a fifth waiter is 429 action-bu
   const bodies = [0, 1, 2, 3, 4].map((index) => BODIES['close-run']({ taskId: `run-${index}` }));
   const pending = bodies.map((body) => w.post('close-run', body));
   await until(() => held.runner.acts.length === 1, 'the first attempt is in flight');
-  await new Promise((resolve) => setTimeout(resolve, 300));
+  await w.bodiesRead(bodies.length);
   const busy = await w.post('close-run', BODIES['close-run']({ taskId: 'run-5' }));
   assert.equal(busy.status, 429);
   assert.equal(errorOf(busy), 'action-busy');
@@ -370,7 +389,7 @@ test('idempotency: a repeated requestId runs act once and replays the first repl
   const first = w.post('decide-gate', body, auth);
   await until(() => held.runner.acts.length === 1, 'the first attempt is in flight');
   const duplicate = w.post('decide-gate', body, auth);
-  await new Promise((resolve) => setTimeout(resolve, 100));
+  await w.bodiesRead(2);
   held.releaseAll();
   const [a, b] = await Promise.all([first, duplicate]);
   assert.equal(held.runner.acts.length, 1, 'the pending duplicate did not run');

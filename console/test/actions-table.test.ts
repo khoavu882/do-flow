@@ -8,7 +8,9 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
+const { pathToFileURL } = require('node:url');
 const { ACTIONS } = require('../src/actions.ts');
 const { ACTION_IDS, DEVICE_ROUTES } = require('../src/scopes.ts');
 const { WRITE_SHAPES, WRITE_SHAPE_IDS } = require('../src/verb-runner.ts');
@@ -28,6 +30,28 @@ test('ACTIONS ids, ACTION_IDS and WRITE_SHAPE_IDS are one set; every row names a
   assert.deepEqual(writes, ACTION_IDS.map((id: string) => `POST /api/actions/${id}`));
   assert.ok(DEVICE_ROUTES.view.every((entry: string) => entry.startsWith('GET ')), 'view lists no write');
   assert.ok(DEVICE_ROUTES.view.includes('GET /api/actions') && DEVICE_ROUTES.control.includes('GET /api/actions'));
+});
+
+/**
+ * IC-012, the four-way check: the words table (web/derive/actions.js ACTION_WORDS) is keyed by the same ids as ACTIONS,
+ * ACTION_IDS and WRITE_SHAPE_IDS. The module is an ES module in a CommonJS package, so its one file is copied beside a
+ * {"type":"module"} marker in a scratch folder and imported from there, read-only.
+ */
+test('IC-012: the words table\'s ids, ACTION_IDS, ACTIONS ids and WRITE_SHAPE_IDS are one set, and every entry says an effect and an applied notice', async () => {
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-ui-actions-table-'));
+  try {
+    fs.mkdirSync(path.join(scratch, 'derive'));
+    fs.copyFileSync(path.join(__dirname, '..', 'web', 'derive', 'actions.js'), path.join(scratch, 'derive', 'actions.js'));
+    fs.writeFileSync(path.join(scratch, 'package.json'), '{"type":"module"}\n');
+    const { ACTION_WORDS } = await import(pathToFileURL(path.join(scratch, 'derive', 'actions.js')).href);
+    const words = Object.keys(ACTION_WORDS).sort();
+    assert.deepEqual(words, [...ACTION_IDS].sort());
+    assert.deepEqual(words, ACTIONS.map((spec: any) => spec.id).sort());
+    assert.deepEqual(words, [...WRITE_SHAPE_IDS].sort());
+    for (const id of words) assert.deepEqual(Object.keys(ACTION_WORDS[id]).sort(), ['applied', 'effect'], id);
+  } finally {
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
 });
 
 test('each row passes its write shape exactly the parameters the shape declares (plus projectKey), and the relay label is the one given, never the body\'s', () => {
