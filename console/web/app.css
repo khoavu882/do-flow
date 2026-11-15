@@ -1597,6 +1597,9 @@
   .inspector[data-mode="drawer"] { --panel-from: translateX(var(--space-6)); }
   .inspector[data-mode="sheet"] { --panel-from: translateY(var(--space-8)); }
   .inspector[data-mode="drawer"]:not([hidden]), .inspector[data-mode="sheet"]:not([hidden]) { animation: panel-in var(--motion-gate) var(--ease-settle) both; }
+  /* The confirmation comes in the same way: the sheet rises, the scrim fades. */
+  .confirm__panel { --panel-from: translateY(var(--space-8)); animation: panel-in var(--motion-gate) var(--ease-settle) both; }
+  .confirm__scrim { animation: view-in var(--motion-fast) var(--ease-standard) both; }
 
   .conn { transition: background-color var(--motion-base) var(--ease-standard), color var(--motion-base) var(--ease-standard); }
   .navrail__link, .btn, .theme__opt {
@@ -2486,11 +2489,13 @@
 
 /* The Console actions (feature 162, design IC-010, §10): the buttons that open the one confirmation dialog, and the dialog. The violet
    accent marks an action; a reject, close or stop takes the failed tint and its word, never the colour alone. The dialog is a sheet
-   below 768 px and a centred panel from 768. */
+   below 768 px and a centred panel from 768. On the phone the buttons share the row's full width, so each is a thumb-wide target, and
+   the sheet clears the home indicator; from 768 they take their own width. */
 @layer components {
   .acts { display: grid; gap: var(--space-2); margin-top: var(--space-3); min-width: 0; }
   .acts:empty { display: none; }
   .acts__row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+  .acts__row .btn, .confirm__actions .btn { flex: 1 1 0; }
   .acts__reason { margin: 0; font: var(--type-sm); color: var(--text-muted); }
   .btn--act { background: var(--accent); color: var(--on-accent); }
   .btn--act:active { filter: brightness(0.92); }
@@ -2510,6 +2515,7 @@
     max-height: 100%;
     overflow: auto;
     padding: var(--space-4);
+    padding-bottom: calc(var(--space-4) + var(--safe-bottom));
     background: var(--surface-3);
     color: var(--text);
     border: 1px solid var(--border);
@@ -2530,7 +2536,9 @@
   .confirm__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); }
   @media (min-width: 768px) {
     .confirm { align-items: center; justify-items: center; padding: var(--space-4); }
-    .confirm__panel { width: min(100%, 520px); border-radius: var(--radius-lg); }
+    .confirm__panel { width: min(100%, 520px); padding-bottom: var(--space-4); border-radius: var(--radius-lg); }
+    .acts__row .btn, .confirm__actions .btn { flex: 0 0 auto; }
+    .acts--head { justify-items: start; }
   }
 }
 
