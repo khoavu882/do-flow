@@ -15,7 +15,8 @@
 //                that reason, no events
 //   reset        `replaced`, then a snapshot, when the reader rejects the cursor (another inode or a shorter file)
 //   append       `{events, cursor, eof, masked, warnings}` for the events past the cursor, at most
-//                CATCHUP_FRAMES reads per recompute and then a re-mark
+//                CATCHUP_FRAMES reads per recompute and then a re-mark; a record event already sent since
+//                the last snapshot is dropped (a Kiro read from its cursor returns them again, review 8)
 //
 // The cursor lives in this lane: a new child (a restart) reads a fresh snapshot, so its appends continue
 // from that snapshot's cursor and no event is in both. The transcript file is the detector's one tail
@@ -36,6 +37,8 @@ const { TAIL_ACTIVE_MS, RESOLVE_MS } = require('./files.ts');
 
 /** The events one read returns at most (IC-005). */
 const READ_LIMIT = 200;
+/** Record events remembered as sent, oldest dropped first (a read returns at most 64). Ceiling: an older record re-read past this many is sent again. */
+const SENT_RECORDS = 512;
 /** A change in the record stores resolves the agent again at most once per this many ms. */
 const RECORDS_THROTTLE_MS = 1000;
 const JSON_RECORD = /\.json$/;
@@ -85,6 +88,18 @@ function createTranscriptLane(options: TranscriptLaneOptions): any {
   /** What the last snapshot said: `linked`, `unlinked`, or null while one is owed. */
   let mode: 'linked' | 'unlinked' | null = null;
   let cursor: string | undefined;
+  /** 161 review 8: the record events sent since the last snapshot (a Kiro read from its cursor returns them again). */
+  let sentRecords = new Set<string>();
+  const recordKey = (e: any): string | null => (e && e.kind === 'record' ? JSON.stringify([e.at, e.record]) : null);
+  function remember(events: any[]): void {
+    for (const e of events) {
+      const key = recordKey(e);
+      if (key === null) continue;
+      sentRecords.delete(key);
+      sentRecords.add(key);
+      if (sentRecords.size > SENT_RECORDS) sentRecords.delete(sentRecords.values().next().value as string);
+    }
+  }
 
   /** One tree build and one agent lookup; the checkout list comes from the project index, not from git. */
   function resolve(): Resolution {
@@ -143,6 +158,8 @@ function createTranscriptLane(options: TranscriptLaneOptions): any {
     const lines = writer.transcriptSnapshot(ch, body);
     mode = 'linked';
     cursor = body.cursor;
+    sentRecords = new Set();
+    remember(body.events);
     return lines;
   }
 
@@ -193,8 +210,10 @@ function createTranscriptLane(options: TranscriptLaneOptions): any {
         } else if (body.reset) {
           lines.push(...writer.reset(ch, 'replaced'), ...snapshot(body));
         } else {
-          if (body.events.length > 0) {
-            lines.push(...writer.transcriptAppend(ch, { events: body.events, cursor: body.cursor, eof: body.eof, masked: body.masked, warnings: body.warnings }));
+          const events = body.events.filter((e: any) => { const key = recordKey(e); return key === null || !sentRecords.has(key); });
+          if (events.length > 0) {
+            remember(events);
+            lines.push(...writer.transcriptAppend(ch, { events, cursor: body.cursor, eof: body.eof, masked: body.masked, warnings: body.warnings }));
             if (writer.needsSnapshot(ch)) { // `reset` `frame-cap`: the next recompute snapshots
               mode = null;
               return { lines, again: 0 };

@@ -18,6 +18,8 @@ const { cwdHash } = require('../../src/runtime/context/identity.ts');
 const { clearCheckoutCache } = require('../../src/runtime/checkouts.ts');
 const { readAgent, resolveAgent, readResolved } = require('../../src/runtime/transcripts/read.ts');
 const { handleTranscriptCommand } = require('../../src/runtime/transcripts/command.ts');
+const { createTranscriptLane } = require('../../src/runtime/events/transcript-lane.ts');
+const { createEnvelopeWriter } = require('../../src/runtime/events/envelope.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const CLI = path.join(REPO, 'bin', 'doflow.js');
@@ -396,12 +398,36 @@ for (const harness of Object.keys(EXPECT)) {
     const resolved = resolveAgent(opts);
     assert.equal(resolved.ok, true, JSON.stringify(resolved));
     assert.deepEqual(readResolved(resolved.resolved, undefined, undefined), whole);
-    // A second read of the same resolution with the first cursor sees nothing new.
+    // A second read of the same resolution with the first cursor sees nothing new from the reader. Kiro's cursor
+    // keeps the reader's own time, so its record events come again (161 review 8: the events lane drops them).
     const again = readResolved(resolved.resolved, whole.body.cursor, undefined);
     assert.equal(again.ok, true);
-    assert.deepEqual(again.body.events.filter((e: any) => e.kind !== 'record'), []);
+    const records = whole.body.events.filter((e: any) => e.kind === 'record');
+    if (harness === 'kiro') {
+      assert.ok(records.length > 0, 'the kiro session has record events');
+      assert.deepEqual(again.body.events.map((e: any) => [e.kind, e.at, e.record]), records.map((e: any) => [e.kind, e.at, e.record]));
+    } else {
+      assert.deepEqual(again.body.events, []);
+    }
   });
 }
+
+test('161 review 8: a transcript lane on a Kiro agent sends each record event once, however often it reads from its cursor', { skip: WIN }, (t) => {
+  const f = world(t);
+  scenario(f);
+  const pk = 'b'.repeat(16);
+  const agentKey = AK('kiro', `${ID}${MAIN_ID.kiro}`);
+  const index = { lookup: (k: string) => (k === pk ? { projectKey: pk, main: f.main, checkouts: [f.main] } : null), replay: spawnSync, now: Date.now, sessionsDir: () => null };
+  const writer = createEnvelopeWriter({ clock: Date.now });
+  const lane = createTranscriptLane({ channel: { kind: 'transcript', name: `transcript:${pk}:${agentKey}`, projectKey: pk, agentKey }, ctx: { cwd: f.main, env: env(f), index, alive: unknown }, writer });
+  lane.sources();
+  const frames = [0, 1, 2].flatMap(() => lane.recompute(false).lines.map((l: string) => JSON.parse(l)));
+  assert.equal(frames[0].type, 'snapshot', JSON.stringify(frames[0]));
+  const sent = frames.flatMap((x: any) => x.data.events ?? []).filter((e: any) => e.kind === 'record').map((e: any) => JSON.stringify([e.at, e.record]));
+  assert.ok(sent.length > 0);
+  assert.deepEqual(frames.map((x: any) => x.type), ['snapshot'], 'no append repeats a record');
+  assert.equal(new Set(sent).size, sent.length);
+});
 
 test('161 IC-011: resolveAgent refuses what readAgent refuses', (t) => {
   const f = world(t);
