@@ -17,6 +17,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { readLogPage } = require('../worker/log-read.ts');
 
 /** O_NOFOLLOW where the platform defines it, else 0 (the inode check still holds). */
 const NOFOLLOW: number = fs.constants.O_NOFOLLOW ?? 0;
@@ -100,4 +101,27 @@ function confinedReader(root: string, fsImpl: any = fs): any {
   };
 }
 
-module.exports = { openConfined, readConfined, confinedReader, NOFOLLOW };
+/**
+ * 161 review 2: one `readLogPage` page of `args.file` through `confinedReader(root)`, and whether it ends
+ * inside an unfinished line (its last byte, at the file's end, is not a newline), read on the same
+ * descriptor. A lane that sent such a page re-sends that line whole when it grows, so a secret split
+ * across two writes is masked as one line.
+ */
+function readConfinedPage(root: string, args: Record<string, unknown>, fsImpl: any = fs): { page: any; unfinished: boolean } {
+  const via = confinedReader(root, fsImpl);
+  let fd: number | null = null;
+  const held = { ...via, openSync: (file: string) => (fd = via.openSync(file)), closeSync: () => {} };
+  try {
+    const page = readLogPage({ ...args, fsImpl: held });
+    let unfinished = false;
+    if (fd !== null && page.file === 'present' && page.to > 0 && page.to === page.size) {
+      const last = Buffer.alloc(1);
+      unfinished = fsImpl.readSync(fd, last, 0, 1, page.to - 1) === 1 && last[0] !== 0x0a;
+    }
+    return { page, unfinished };
+  } finally {
+    if (fd !== null) fsImpl.closeSync(fd);
+  }
+}
+
+module.exports = { openConfined, readConfined, confinedReader, readConfinedPage, NOFOLLOW };

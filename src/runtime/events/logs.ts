@@ -16,6 +16,9 @@
 //   5. another inode, or a size below the cursor: `reset` `replaced`, then a snapshot
 //   6. bytes past the cursor: `forward` reads, at most CATCHUP_FRAMES appends, then a re-mark
 //   7. a change of `phase` or `end` with no new bytes: one append with no pieces
+//   8. the last page sent ended inside an unfinished line (a final read, the run ended) and the file
+//      changed (a process that outlived the run still writes): a `tail` read and a new `snapshot`, so
+//      the line is masked whole (161 review 2; bound as in files.ts: lines under the 32 KiB piece grid)
 //
 // Every read goes through `readLogPage` (IC-001) on the path `logFile` forms, so only
 // `<runId>.out.log` and `<runId>.err.log` can be opened and never `<runId>.last.log` (FR-012), and
@@ -27,8 +30,8 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { logFile, readLogPage } = require('../worker/log-read.ts');
-const { confinedReader } = require('./confined.ts');
+const { logFile } = require('../worker/log-read.ts');
+const { readConfinedPage } = require('./confined.ts');
 const { readRuns, PHASES } = require('../worker/run-store.ts');
 const { projectRoot: lifecycleProjectRoot } = require('../lifecycle/root.ts');
 const { findWorkerRun, workerSources } = require('./sections.ts');
@@ -118,6 +121,9 @@ function createLogSubscription(options: LogSubscriptionOptions): LogSubscription
   let failedCode: string | null = null;
   /** The phase the last recompute read; the log pass runs while it is not `ended`. */
   let phaseSeen: string | null = null;
+  /** The last page read ended inside an unfinished line; `sent`: the last page emitted did. */
+  let readUnfinished = false;
+  let sentUnfinished = false;
 
   /** The run's record: from the declared primary store, else the store that holds it now. */
   function readRecord(): { ok: true; run: any } | { ok: false } {
@@ -138,8 +144,10 @@ function createLogSubscription(options: LogSubscriptionOptions): LogSubscription
   }
 
   function read(mode: 'tail' | 'forward', final: boolean): Page {
-    const via = confinedReader(lifecycleRoot, fsImpl); // a link on the way to the log, or a swap at the open, reads as absent
-    return readLogPage(mode === 'tail' ? { file, mode, final, fsImpl: via } : { file, mode, offset: cursor, ino: ino as string, final, fsImpl: via });
+    // A link on the way to the log, or a swap at the open, reads as absent.
+    const read = readConfinedPage(lifecycleRoot, mode === 'tail' ? { file, mode, final } : { file, mode, offset: cursor, ino: ino as string, final }, fsImpl);
+    readUnfinished = read.unfinished;
+    return read.page;
   }
 
   /** An `error` frame once per spell; a later good read ends the spell with a snapshot. */
@@ -170,6 +178,7 @@ function createLogSubscription(options: LogSubscriptionOptions): LogSubscription
     ino = open ? page.ino : null;
     cursor = open ? page.to : 0;
     sent = state;
+    sentUnfinished = open && readUnfinished;
     return lines;
   }
 
@@ -198,6 +207,7 @@ function createLogSubscription(options: LogSubscriptionOptions): LogSubscription
         }
         cursor = page.to;
         sent = carried;
+        sentUnfinished = readUnfinished;
         frames += 1;
       }
       if (page.eof) break;
@@ -250,7 +260,7 @@ function createLogSubscription(options: LogSubscriptionOptions): LogSubscription
       const state: RunState = { phase, end: ended ? { capped: pointer ? pointer.truncated === true : null } : null };
       const final = ended && pointer !== null;
       const owe = snapshotAsked || lastLog === null || writer.needsSnapshot(ch);
-      const positioned = !owe && lastLog === 'open' && ino !== null;
+      const positioned = !owe && lastLog === 'open' && ino !== null && !sentUnfinished;
       let page: Page;
       try {
         page = read(positioned ? 'forward' : 'tail', final);
@@ -276,7 +286,9 @@ function createLogSubscription(options: LogSubscriptionOptions): LogSubscription
       missingSince = null;
       seenFile = true;
       if (owe || lastLog !== 'open') return { lines: snapshot('open', page, state) }; // step 4 (a tail read)
-      if (page.reset) return { lines: [...writer.reset(ch, 'replaced'), ...snapshot('open', page, state)] }; // step 5
+      // Step 5; a step 8 tail read carries no inode to compare, so another inode or a shorter file is checked here.
+      if (page.reset || (!positioned && (page.ino !== ino || page.size < cursor))) return { lines: [...writer.reset(ch, 'replaced'), ...snapshot('open', page, state)] };
+      if (!positioned) return { lines: page.to === cursor ? change(state) : snapshot('open', page, state) }; // step 8
       return catchUp(page, state, final); // steps 6 and 7
     },
 

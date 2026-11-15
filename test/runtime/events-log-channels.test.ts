@@ -235,6 +235,21 @@ test('the final read sends a last line without a newline before end; a capped ru
   assert.deepEqual(k.of(OUT)[0].data, { log: 'open', ino: q.ino(q.out), from: 0, to: 6, pieces: [{ at: 0, text: 'capped' }], phase: 'ended', end: { capped: true } });
 });
 
+test('161 review 2: bytes written after an ended run\'s unfinished last line re-send the line whole, so a split secret is never sent unmasked', async (t) => {
+  const p = project(t);
+  p.ended({ stdout: { path: `worker-output/${RUN}.out.log`, bytes: 10, truncated: false } });
+  fs.mkdirSync(p.outputDir);
+  fs.writeFileSync(p.out, 'one\ntoken=');
+  const h = run(t, p);
+  h.stdin.json('sub', OUT);
+  await settle();
+  assert.deepEqual(h.of(OUT)[0].data.pieces, [{ at: 0, text: 'one' }, { at: 4, text: 'token=' }]);
+  fs.appendFileSync(p.out, 'hunter2'); // a process that outlived the run still writes
+  await h.clock.advance(PASS_MS + DEBOUNCE_MS);
+  assert.ok(!h.stdout.text.includes('hunter2'), h.stdout.text);
+  assert.equal(h.of(OUT).at(-1).type, 'snapshot');
+});
+
 test('an inode change and a shorter file each give reset replaced, then a snapshot', async (t) => {
   const p = project(t);
   p.writeRun({ phase: 'running' });

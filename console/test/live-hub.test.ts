@@ -957,6 +957,17 @@ test('log window: a restarted child\'s snapshot of the same file merges into one
   assert.deepEqual(log.frames[log.frames.length - 1].data, { log: 'none', ino: null, from: 0, to: 0, pieces: [], phase: 'ended', end: null });
 });
 
+test('log window (161 review 2): a same-inode snapshot whose first piece straddles the window end replaces the window, and the whole line is masked again', async () => {
+  const { hub, supervisor, log } = await logSetup();
+  supervisor.push(LOG, 'snapshot', snap(0, 14, [{ at: 0, text: 'first' }, { at: 6, text: 'token=' }]));
+  // The core re-sends the unfinished line whole when it grows; this one carries the secret unmasked to prove the hub masks it.
+  supervisor.push(LOG, 'snapshot', snap(0, 21, [{ at: 0, text: 'first' }, { at: 6, text: 'token=hunter2' }]));
+  const last = log.frames[log.frames.length - 1];
+  assert.equal(last.type, 'snapshot', 'replaced, not merged into an append');
+  assert.ok(!JSON.stringify(log.frames).includes('hunter2'), JSON.stringify(log.frames));
+  assert.deepEqual(hub.current(LOG).window.pieces.map((p: any) => p.at), [0, 6]);
+});
+
 test('log window: reset clears it and the next snapshot replaces it; error is forwarded and keeps it; gone ends the channel', async () => {
   const { hub, supervisor, log, clock } = await logSetup();
   supervisor.push(LOG, 'snapshot', snap(0, 200, lines(0, 2, 100)));

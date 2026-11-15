@@ -319,6 +319,36 @@ test('161 review 1: a directory on the way to the brief swapped for a link betwe
   assert.ok(!JSON.stringify(after).includes('OUTSIDE'), JSON.stringify(after));
 });
 
+test('161 review 2: a secret split across two appends of an unfinished line is never sent unmasked; the line is re-sent whole as a snapshot', (t) => {
+  const f = fixture(t);
+  const a = project(f, 'proj-a');
+  const brief = write(path.join(a, ...REL.split('/')), '# brief\ntoken=');
+  const { step } = directLane(a, REL);
+  const first = step();
+  assert.deepEqual(first.map((x: any) => [x.type, x.data.pieces.map((p: any) => p.text)]), [['snapshot', ['# brief', 'token=']]]);
+  fs.appendFileSync(brief, 'hunter2');
+  const second = step(1000);
+  assert.ok(!JSON.stringify(second).includes('hunter2'), JSON.stringify(second));
+  assert.deepEqual(second.map((x: any) => [x.type, x.data.from, x.data.pieces.map((p: any) => p.text)]), [['snapshot', 0, ['# brief', maskBody('token=hunter2').text]]]);
+  // The line ends: only the newline is new, so the lane appends again from the line's end.
+  fs.appendFileSync(brief, '\nnext line\n');
+  const third = step(1000);
+  assert.ok(!JSON.stringify(third).includes('hunter2'), JSON.stringify(third));
+  assert.ok(third.every((x: any) => x.type === 'snapshot' || x.type === 'append'), JSON.stringify(third));
+  assert.deepEqual(step(1000), [], 'nothing new');
+  fs.appendFileSync(brief, 'tail ');
+  step(1000);
+  fs.appendFileSync(brief, 'end\n');
+  const last = step(1000);
+  assert.deepEqual(last.map((x: any) => x.type), ['snapshot'], 'a later unfinished line is re-sent whole as well');
+  // While a line is unfinished, a rename-over is still reset replaced before the snapshot.
+  fs.appendFileSync(brief, 'open');
+  step(1000);
+  fs.writeFileSync(`${brief}.tmp`, 'other\n');
+  fs.renameSync(`${brief}.tmp`, brief);
+  assert.deepEqual(step(1000).map((x: any) => [x.type, x.data.reason ?? x.data.pieces.map((p: any) => p.text)]), [['reset', 'replaced'], ['snapshot', ['other']]]);
+});
+
 test('161 T5 IC-004: a worker log artifact holds its unfinished line until the newline, and the lane is followed again by a later sub', async (t) => {
   const f = fixture(t);
   const a = project(f, 'proj-a');

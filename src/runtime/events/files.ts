@@ -14,6 +14,10 @@
 //   3. first read, or one owed (after an error or a `reset`): an `open` snapshot of the newest page
 //   4. another inode, or a size below the cursor: `reset` `replaced`, then a snapshot
 //   5. bytes past the cursor: `forward` reads, at most CATCHUP_FRAMES appends, then a re-mark
+//   6. the last page sent ended inside an unfinished line (no final newline yet) and the file changed:
+//      a `tail` read and a new `snapshot`, so the line is masked whole, never as two fragments
+//      (review 2). Bound: the line is masked whole when it is under the reader's 32 KiB piece grid;
+//      a longer line is cut at grid points and each piece is masked alone (log-read.ts).
 //
 // The listing is checked again when the last check is RESOLVE_MS old (the detector's 30 s pass always
 // finds it so), before every snapshot, on another inode, and whenever the file cannot be opened.
@@ -26,9 +30,8 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { readLogPage } = require('../worker/log-read.ts');
 const { findArtifact } = require('./artifacts.ts');
-const { confinedReader } = require('./confined.ts');
+const { readConfinedPage } = require('./confined.ts');
 const { CATCHUP_FRAMES } = require('./logs.ts');
 
 /** The 250 ms log pass reads a file while it changed in the last 10 minutes. */
@@ -76,6 +79,9 @@ function createFileLane(options: FileLaneOptions): any {
   let ino: string | null = null;
   let cursor = 0;
   let failed = false;
+  /** The last page read ended inside an unfinished line; `sent`: the last page emitted did. */
+  let readUnfinished = false;
+  let sentUnfinished = false;
 
   /** Looks the file up in the project's current artifacts index; false when it is not listed. */
   function resolve(): boolean {
@@ -103,8 +109,9 @@ function createFileLane(options: FileLaneOptions): any {
   function read(mode: 'tail' | 'forward'): Page {
     const file = (found as { path: string; kind: string; root: string });
     const final = !file.kind.startsWith('worker-') || !active();
-    const via = confinedReader(file.root, fsImpl);
-    return readLogPage(mode === 'tail' ? { file: file.path, mode, final, fsImpl: via } : { file: file.path, mode, offset: cursor, ino: ino as string, final, fsImpl: via });
+    const read = readConfinedPage(file.root, mode === 'tail' ? { file: file.path, mode, final } : { file: file.path, mode, offset: cursor, ino: ino as string, final }, fsImpl);
+    readUnfinished = read.unfinished;
+    return read.page;
   }
 
   function snapshot(log: 'open' | 'none', page: Page | null): string[] {
@@ -115,6 +122,7 @@ function createFileLane(options: FileLaneOptions): any {
     lastLog = log;
     ino = open ? page.ino : null;
     cursor = open ? page.to : 0;
+    sentUnfinished = open && readUnfinished;
     return lines;
   }
 
@@ -131,6 +139,7 @@ function createFileLane(options: FileLaneOptions): any {
           return { lines, again: 0 };
         }
         cursor = page.to;
+        sentUnfinished = readUnfinished;
         frames += 1;
       }
       if (page.eof) return { lines };
@@ -163,9 +172,10 @@ function createFileLane(options: FileLaneOptions): any {
       if (found === null || owe || now() - resolvedAt >= RESOLVE_MS) {
         if (!resolve()) return gone();
       }
+      const forward = !owe && lastLog === 'open' && ino !== null && !sentUnfinished;
       let page: Page;
       try {
-        page = read(!owe && lastLog === 'open' && ino !== null ? 'forward' : 'tail');
+        page = read(forward ? 'forward' : 'tail');
       } catch {
         if (failed) return { lines: [] };
         failed = true;
@@ -178,10 +188,12 @@ function createFileLane(options: FileLaneOptions): any {
         return { lines: lastLog === 'none' && !owe ? [] : snapshot('none', null) };
       }
       if (owe || lastLog !== 'open') return { lines: snapshot('open', page) };
-      if (page.reset) {
+      // A tail read (step 6) carries no inode to compare, so another inode or a shorter file is checked here.
+      if (page.reset || (!forward && (page.ino !== ino || page.size < cursor))) {
         if (!resolve()) return gone(); // another inode: listed again before it is served
         return { lines: [...writer.reset(ch, 'replaced'), ...snapshot('open', page)] };
       }
+      if (!forward) return { lines: page.to === cursor ? [] : snapshot('open', page) }; // step 6
       return catchUp(page);
     },
 
