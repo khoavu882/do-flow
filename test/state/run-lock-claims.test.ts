@@ -32,6 +32,10 @@ function deadPid() { return spawnSync(process.execPath, ['-e', '']).pid; }
 
 function liveChild() {
   const child = spawn(process.execPath, ['-e', 'setTimeout(()=>{}, 30000)'], { stdio: 'ignore' });
+  // A failed spawn (EAGAIN, EMFILE under load) emits 'error' with no pid: fail the case that asked for it, with the reason.
+  let spawnError: any = null;
+  child.on('error', (error: any) => { spawnError = error; });
+  if (typeof child.pid !== 'number') throw new Error(`could not start a child process: ${spawnError?.message ?? 'no pid'}`);
   children.push(child);
   return child;
 }
@@ -48,8 +52,8 @@ function plantStaleLock(root: any, overrides: any = {}) {
   return { file, token };
 }
 
-function writeClaim(file: string, { token, pid, hostname = os.hostname(), mtime }: any) {
-  fs.writeFileSync(file, `${JSON.stringify({ version: 1, token, pid, hostname, at: new Date().toISOString(), target: 'x' })}\n`);
+function writeClaim(file: string, { token, pid, hostname = os.hostname(), mtime, processStart }: any) {
+  fs.writeFileSync(file, `${JSON.stringify({ version: 1, token, pid, hostname, ...(processStart ? { processStart } : {}), at: new Date().toISOString(), target: 'x' })}\n`);
   if (mtime !== undefined) fs.utimesSync(file, mtime, mtime);
 }
 
@@ -144,6 +148,48 @@ test('a live claimant on this host keeps its claim at any age', (t) => {
   assert.throws(() => acquireRunLock(target(root), { waitMs: 300, pollMs: 20, log: () => {} }), RunLockTimeoutError);
   assert.equal(tokenAt(claim), '11'.repeat(16));
   assert.equal(tokenAt(runLockPath(root)), stale.token);
+});
+
+test('a live pid with no recorded start time is told from a reused one by age: kept below staleMs, orphan above it', (t) => {
+  const live = liveChild();
+  for (const [mtime, cleared] of [[SIXTY_SECONDS_AGO(), false], [ELEVEN_MINUTES_AGO(), true]] as const) {
+    const root = scopeRoot(t);
+    const stale = plantStaleLock(root);
+    const claim = claimFor(root, stale.token);
+    writeClaim(claim, { token: '11'.repeat(16), pid: live.pid, mtime });
+    if (!cleared) {
+      assert.throws(() => acquireRunLock(target(root), { waitMs: 200, pollMs: 20, log: () => {} }), RunLockTimeoutError);
+      assert.equal(tokenAt(claim), '11'.repeat(16));
+    } else {
+      const hold = acquireRunLock(target(root), { log: () => {} });
+      hold.release();
+    }
+  }
+});
+
+test('a live claimant whose start time matches keeps its claim at any age; a different start time is a reused pid', (t) => {
+  const live = liveChild();
+  const stable = { startTimeStable: () => true, procStart: () => 'Sat Nov 14 10:00:00 2026', log: () => {} };
+  const root = scopeRoot(t);
+  const stale = plantStaleLock(root);
+  const claim = claimFor(root, stale.token);
+  writeClaim(claim, { token: '11'.repeat(16), pid: live.pid, processStart: 'Sat Nov 14 10:00:00 2026', mtime: ELEVEN_MINUTES_AGO() - 3600 });
+  assert.throws(() => acquireRunLock(target(root), { ...stable, waitMs: 200, pollMs: 20 }), RunLockTimeoutError);
+  assert.equal(tokenAt(claim), '11'.repeat(16));
+  writeClaim(claim, { token: '11'.repeat(16), pid: live.pid, processStart: 'Thu Jan  1 00:00:00 1970' });
+  acquireRunLock(target(root), { ...stable, waitMs: 2000 }).release();
+});
+
+test('where start times are not stable a recorded start is ignored and a live claimant takes the age path', (t) => {
+  const live = liveChild();
+  const unstable = { startTimeStable: () => false, procStart: () => 'Sat Nov 14 10:00:00 2026', log: () => {} };
+  const root = scopeRoot(t);
+  const stale = plantStaleLock(root);
+  const claim = claimFor(root, stale.token);
+  writeClaim(claim, { token: '11'.repeat(16), pid: live.pid, processStart: 'Sat Nov 14 10:00:00 2026', mtime: SIXTY_SECONDS_AGO() });
+  assert.throws(() => acquireRunLock(target(root), { ...unstable, waitMs: 200, pollMs: 20 }), RunLockTimeoutError);
+  writeClaim(claim, { token: '11'.repeat(16), pid: live.pid, processStart: 'Sat Nov 14 10:00:00 2026', mtime: ELEVEN_MINUTES_AGO() });
+  acquireRunLock(target(root), { ...unstable, waitMs: 2000 }).release();
 });
 
 test('where liveness cannot be asked, age decides: an old claim from another host or with no owner is cleared, a young one waited for', (t) => {
@@ -263,6 +309,22 @@ test('the sweep removes moved-aside files older than the stale age, and keeps a 
   const old = `run.lock.claim.aside.4242.beef.${Date.now() - 11 * 60 * 1000}`;
   const recent = `run.lock.claim.aside.4242.f00d.${Date.now()}`;
   fs.writeFileSync(path.join(stateDir(root), old), '{}\n');
+  fs.writeFileSync(path.join(stateDir(root), recent), '{}\n');
+  const hold = acquireRunLock(target(root), { log: () => {} });
+  try {
+    assert.deepEqual(listState(root), ['run.lock', recent]);
+  } finally {
+    hold.release();
+  }
+});
+
+test('the sweep removes moved-aside files of the v2.5.0 shape by their mtime', (t) => {
+  const root = scopeRoot(t);
+  fs.mkdirSync(stateDir(root), { recursive: true });
+  const old = `run.lock.claim.${'a'.repeat(32)}.${'b'.repeat(32)}.gone`;
+  const recent = `run.lock.claim.${'c'.repeat(32)}.${'d'.repeat(32)}.gone`;
+  fs.writeFileSync(path.join(stateDir(root), old), '{}\n');
+  fs.utimesSync(path.join(stateDir(root), old), ELEVEN_MINUTES_AGO(), ELEVEN_MINUTES_AGO());
   fs.writeFileSync(path.join(stateDir(root), recent), '{}\n');
   const hold = acquireRunLock(target(root), { log: () => {} });
   try {

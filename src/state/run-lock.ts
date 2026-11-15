@@ -21,6 +21,10 @@
 // is its own or is the one it judged. Ceiling: for the instant between a wrongly moved file's
 // rename and its link-back the name is free, so a third run can take it; the displaced run finds
 // out at its next `checkpoint` (RunLockLostError) or when its claim no longer holds its record.
+// Other accepted ceilings: the two-holders trace through an orphan claim needs four runs and two
+// sub-millisecond windows; the sweep deletes a moved-aside file older than staleMs even if its
+// remover is merely stalled; a live claimant with a matching start time that is suspended costs the
+// runs behind it their waitMs.
 //
 // Supported on a local POSIX filesystem on one host. The CLI is synchronous, so waiting blocks
 // with Atomics.wait rather than a timer.
@@ -36,6 +40,8 @@ const CLAIM_PREFIX = `${LOCK_FILE}.claim.`;
 const TEMP_NAME = /^\.run\.lock\.([0-9a-f]{32})\.tmp$/;
 const CLAIM_NAME = /^run\.lock\.claim\.([^.]+)$/;
 /** `run.lock.claim.aside.<pid>.<random>.<epoch ms>`: a file moved aside by `removeIfAccepted`, the epoch being when. Named under the claim prefix so the storage registry's run-lock pattern covers it. */
+/** The aside shape of v2.5.0, `run.lock.claim.<key>.<token>.gone`: no epoch in the name, so the file's mtime is its age. */
+const LEGACY_ASIDE_NAME = /^run\.lock\.claim\.[^.]+\.[0-9a-f]{32}\.gone$/;
 const ASIDE_NAME = /^run\.lock\.claim\.aside\.\d+\.[0-9a-f]+\.(\d+)$/;
 
 function loadVersion(): string {
@@ -235,15 +241,24 @@ function readClaimFile(fsImpl: any, file: string): { raw: string, claim: any, mt
 }
 
 /**
- * A claim left by a run that died while clearing. On this host the claimant's process decides, at any
- * age: a live claimant is never orphan, so a claimant stalled past claimStaleMs (a suspended laptop,
- * SIGSTOP) keeps its claim and the runs behind it wait, up to their waitMs, instead of taking it. Age
- * decides only where liveness cannot be asked: a claim from another host, or one with no readable owner.
+ * A claim left by a run that died while clearing. On this host a dead claimant (or this process's own
+ * pid, which a live claim of this process never has) makes it orphan at once. A live claimant whose
+ * recorded start time is stable on this platform and equals the pid's now keeps its claim at any age: a
+ * claimant stalled past claimStaleMs (a suspended laptop, SIGSTOP) is waited for, up to the others'
+ * waitMs. A different start time is a reused pid: orphan at once. Every other live pid (no recorded start,
+ * start times not stable here, or the start unreadable) cannot be told from a reused one, so the claim is
+ * orphan once older than staleMs, the bound the lock itself uses. A claim from another host, or one with
+ * no readable owner, is orphan after claimStaleMs.
  */
-function isOrphanClaim(read: { claim: any, mtimeMs: number }, { hostname, isAlive, procStart, now, claimStaleMs }: any): boolean {
+function isOrphanClaim(read: { claim: any, mtimeMs: number }, { hostname, isAlive, procStart, now, staleMs, claimStaleMs, startTimeStable }: any): boolean {
   const { claim } = read;
-  if (claim && claim.hostname === hostname) return claim.pid === process.pid || !isAlive(claim.pid) || pidReused(claim, procStart);
-  return now() - read.mtimeMs > claimStaleMs;
+  if (!claim || claim.hostname !== hostname) return now() - read.mtimeMs > claimStaleMs;
+  if (claim.pid === process.pid || !isAlive(claim.pid)) return true;
+  if (startTimeStable() && typeof claim.processStart === 'string') {
+    const current = procStart(claim.pid);
+    if (typeof current === 'string') return current !== claim.processStart;
+  }
+  return now() - read.mtimeMs > staleMs;
 }
 
 /** Whether the moved-aside file is the claim that was judged orphan, byte for byte (and, with no owner to name it, old enough). */
@@ -348,6 +363,10 @@ function sweepLeftovers(fsImpl: any, stateDir: string, lockPath: string, judge: 
       if (judge.now() - Number(aside[1]) > judge.staleMs) unlinkQuietly(fsImpl, file);
       continue;
     }
+    if (LEGACY_ASIDE_NAME.test(name)) {
+      try { if (judge.now() - fsImpl.statSync(file).mtimeMs > judge.staleMs) unlinkQuietly(fsImpl, file); } catch { /* gone already */ }
+      continue;
+    }
     const claim = CLAIM_NAME.exec(name);
     if (!claim) continue;
     if (lockKey === undefined) {
@@ -379,7 +398,7 @@ function removeCreatedDirs(fsImpl: any, stateDir: string, firstCreated: any): vo
  * @throws {RunLockTimeoutError|RunLockError}
  */
 function acquireRunLock({ scopeRoot, scope, command }: { scopeRoot: string, scope: 'global' | 'project', command: string }, {
-  waitMs = 60_000, pollMs = 250, staleMs = 600_000, claimStaleMs = 30_000,
+  waitMs = 60_000, pollMs = 250, staleMs = 600_000, claimStaleMs = 30_000, startTimeStable = startTimeIsStable,
   now = Date.now, isAlive = defaultIsAlive, procStart = defaultProcStart, hostname = os.hostname(),
   log = (line: string) => process.stderr.write(`${line}\n`), fsImpl = fs, sleep = atomicsSleep,
 }: any = {}): any {
@@ -422,7 +441,7 @@ function acquireRunLock({ scopeRoot, scope, command }: { scopeRoot: string, scop
     return error;
   };
 
-  const judge = { token, hostname, isAlive, procStart, processStart: record.processStart, now, staleMs, claimStaleMs };
+  const judge = { token, hostname, isAlive, procStart, startTimeStable, processStart: record.processStart, now, staleMs, claimStaleMs };
   sweepLeftovers(fsImpl, stateDir, lockPath, judge);
   const start = now();
   const cleared: any[] = [];
