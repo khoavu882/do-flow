@@ -144,7 +144,8 @@ const SHAPES: Readonly<Record<string, Shape>> = deepFreeze({
   'worker-status': { argv: ['worker', '--action', 'status', '--slug', SLUG, '--task', TASK, '--token', TOKEN], ttl: 5_000 },
   roadmap: { argv: ['roadmap', '--action', 'status'], ttl: 10_000 },
   // IC-024: `projects` fills the key-to-root map; `transcript` is scoped to a project, never cached and has the reserved slot.
-  projects: { argv: ['fleet', '--action', 'projects'], ttl: 10_000, listsProjects: true },
+  // 162 review 10: an action on a key the map lacks reads `projects` fresh, at most one spawn per 5 s for the whole Console.
+  projects: { argv: ['fleet', '--action', 'projects'], ttl: 10_000, listsProjects: true, refreshFloorMs: 5_000 },
   transcript: { argv: ['transcript', '--action', 'read', '--agent', AGENT, CURSOR, '--limit', LIMIT], ttl: 0, scoped: true, reserved: true },
   // 150 IC-010: the worker chain reads. `worker-run-status` names a run by id; `worker-log` is never cached and has no reserved slot.
   'worker-runs': { argv: ['worker-runs', '--slug', SLUG], ttl: 2_000 },

@@ -51,10 +51,11 @@ type Answer = (shape: string, params: Record<string, string>) => any;
 function fakeRunner(answer: Answer = (shape) => applied(shape), listing: Array<Record<string, unknown>> = []) {
   const acts: Array<{ shape: string, params: Record<string, string> }> = [];
   const reads: string[] = [];
+  const readOptions: unknown[] = [];
   return {
-    acts, reads,
+    acts, reads, readOptions,
     act: async (shape: string, params: Record<string, string>) => { acts.push({ shape, params }); return answer(shape, params); },
-    run: async (shape: string) => { reads.push(shape); return { ok: true, exit: 0, json: { v: 1, store: 'present', projects: listing, excluded: { missing: 0, temp: 0, notDoflow: 0, unreadable: 0 }, truncated: false } }; },
+    run: async (shape: string, _params?: unknown, options?: unknown) => { reads.push(shape); readOptions.push(options ?? null); return { ok: true, exit: 0, json: { v: 1, store: 'present', projects: listing, excluded: { missing: 0, temp: 0, notDoflow: 0, unreadable: 0 }, truncated: false } }; },
     follow: () => null,
     stop: () => {},
   };
@@ -658,4 +659,12 @@ test('162 review 11: a repeated requestId whose first reply was an error replays
   assert.equal(Object.hasOwn(json(first), 'replayed'), false, 'a first error reply is IC-005\'s, as before');
   assert.deepEqual(json(again), { ...json(first), replayed: true });
   assert.deepEqual(json(again).current, { state: 'RUNNING', revision: 9, awaitingGate: null });
+});
+
+test('162 review 10: the projects refresh before a 404 reads past the runner\'s cache (fresh), so a project registered seconds ago is found', async (t) => {
+  let calls = 0;
+  const late = fakeRunner((shape) => (calls++ === 0 ? { ok: false, code: 'project-not-found', exit: null } : applied(shape)));
+  const w = await loopback(t, late);
+  assert.equal((await w.post('decide-gate', BODIES['decide-gate']())).status, 200);
+  assert.deepEqual([late.reads, late.readOptions], [['projects'], [{ fresh: true }]]);
 });

@@ -27,7 +27,7 @@
 // lines a minute and never rotates the `begin` and `end` lines of attempts that ran out of the log.
 // Then `begin` is logged (fail closed: a line that cannot be written is 503 action-log-unwritable and nothing
 // runs), `runner.act` runs the shape in the project named by `projectKey` (D14; an unknown key refreshes the
-// runner's `projects` map once and tries again before 404 project-not-found), and `end` is logged with the
+// runner's `projects` map once, past its cache but under its 5 s floor, and tries again before 404 project-not-found), and `end` is logged with the
 // outcome (a failed `end` is said on stderr at most once a minute). The reply is a closed projection of the core's
 // JSON (IC-002), or the IC-005 error body, with `current` on a refusal by state.
 //
@@ -487,7 +487,9 @@ function createActions({ runner, log, now = Date.now, warn = () => {} }: Options
     const params = spec.params(body, actor.relay);
     let result = await runner.act(spec.shape, params);
     if (!result.ok && result.code === 'project-not-found') {
-      await runner.run('projects', {});
+      // 162 review 10: past the 10 s cache, so a project registered seconds ago is found; the runner's 5 s floor
+      // (verb-runner.ts `projects`) keeps this to one spawn per 5 s for the whole Console, whoever asks.
+      await runner.run('projects', {}, { fresh: true });
       result = await runner.act(spec.shape, params);
     }
     const done = spec.outcome(result, body);

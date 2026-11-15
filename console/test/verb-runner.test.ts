@@ -1409,10 +1409,12 @@ test('the ten IC-005 shapes carry their ttl, byCoreVersion, exitsAsData, usageIs
     if (SHAPES[id].exitsAsData) assert.ok(Object.isFrozen(SHAPES[id].exitsAsData), `${id} exitsAsData is frozen`);
   }
   for (const id of SHAPE_IDS.filter((shape: string) => !MANAGE_IDS.includes(shape))) {
-    for (const field of ['exitsAsData', 'usageIsOldCore', 'refreshFloorMs']) assert.equal(field in SHAPES[id], false, `${id} has ${field}`);
+    for (const field of ['exitsAsData', 'usageIsOldCore']) assert.equal(field in SHAPES[id], false, `${id} has ${field}`);
+    if (id !== 'projects') assert.equal('refreshFloorMs' in SHAPES[id], false, `${id} has refreshFloorMs`);
   }
-  // Only doctor has a floor; only config-list and doctor have data exits.
-  assert.deepEqual(SHAPE_IDS.filter((id: string) => SHAPES[id].refreshFloorMs !== undefined), ['doctor']);
+  // Only doctor and (162 review 10) projects have a floor; only config-list and doctor have data exits.
+  assert.deepEqual(SHAPE_IDS.filter((id: string) => SHAPES[id].refreshFloorMs !== undefined), ['projects', 'doctor']);
+  assert.equal(SHAPES.projects.refreshFloorMs, 5_000);
   assert.deepEqual(SHAPE_IDS.filter((id: string) => SHAPES[id].exitsAsData !== undefined), ['config-list', 'doctor']);
   assert.throws(() => {
     SHAPES.doctor.exitsAsData.push(2);
@@ -1679,7 +1681,7 @@ test('a fresh call joins a doctor run in flight, and a second fresh call joins t
 
 test('fresh is usage on every shape without a floor, before any spawn or project lookup', async () => {
   const { runner, spawnCalls } = setup('echo');
-  for (const id of SHAPE_IDS.filter((shape: string) => shape !== 'doctor')) {
+  for (const id of SHAPE_IDS.filter((shape: string) => shape !== 'doctor' && shape !== 'projects')) {
     assert.deepEqual(await runner.run(id, paramsOf(id), { fresh: true }), { ok: false, code: 'usage', exit: null }, id);
   }
   assert.equal(spawnCalls.length, 0);
@@ -2171,4 +2173,18 @@ test('162 review 7: a write that exits 1 with empty stdout and [ERROR] on stderr
   const t = writeStandIn(() => [KEY_A], () => ({ exit: 1 }));
   await t.runner.run('projects', {});
   assert.equal((await t.runner.act('close-run', CLOSE_PARAMS(KEY_A))).reason, 'not-json');
+});
+
+test('162 review 10: projects read fresh spawns past its 10 s cache once its last spawn is 5 s old, and not sooner, so the action routes\' refresh finds a project registered since', async () => {
+  const keys = [KEY_A];
+  const s = writeStandIn(() => keys, () => ({ stdout: JSON.stringify({ v: 1, ok: true }), exit: 0 }));
+  assert.equal((await s.runner.run('projects', {})).ok, true);
+  keys.push(KEY_B);
+  assert.equal((await s.runner.act('close-run', CLOSE_PARAMS(KEY_B))).code, 'project-not-found');
+  const soon = await s.runner.run('projects', {}, { fresh: true });
+  assert.deepEqual([soon.ok, soon.fresh, s.spawns()], [true, 'too-soon', 1], 'under the 5 s floor: the cached listing, no spawn');
+  s.clock.advance(5_000);
+  const fresh = await s.runner.run('projects', {}, { fresh: true });
+  assert.deepEqual([fresh.ok, fresh.fresh, s.spawns()], [true, 'ran', 2], 'past the floor, inside the 10 s ttl: a spawn');
+  assert.equal((await s.runner.act('close-run', CLOSE_PARAMS(KEY_B))).ok, true);
 });

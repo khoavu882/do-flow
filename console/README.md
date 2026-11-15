@@ -117,7 +117,7 @@ Three actions, each a `POST` with a JSON body of at most 4 KiB to `POST /api/act
 |---|---|---|
 | 400 | `usage` | the body, a pattern or the text rule |
 | 403 | `phone-scope`, `action-transport` | scope or transport, above |
-| 404 | `project-not-found`, `run-not-found` | an unknown project key (after one refresh), no such run or worker run |
+| 404 | `project-not-found`, `run-not-found` | an unknown project key (after one refresh of the project listing past its 10 s cache; the Console spawns that read at most once per 5 s), no such run or worker run |
 | 409 | `stale` + `current` | the run is no longer at the expected revision or not at that gate, is already ended, or changed during the call; a worker run already ended |
 | 409 | `cancel-in-progress` + `current` | another cancel of that worker run is under way |
 | 409 | `ambiguous-run`, `request-reused` | the run is found in more than one feature or checkout; the same `requestId` came with another body |
