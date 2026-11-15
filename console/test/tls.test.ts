@@ -114,7 +114,7 @@ test('--listen-address, --tls-cert and --tls-key come together', () => {
 
 test('--listen-address refuses a DNS name, the loopback address, a public address and a relative path', () => {
   assert.match((flags('--listen-address', 'console.example.test', '--tls-cert', ABS('a.crt'), '--tls-key', ABS('a.key')) as any).error, /literal IP address, not a DNS name/);
-  assert.match((flags('--listen-address', '127.0.0.1', '--tls-cert', ABS('a.crt'), '--tls-key', ABS('a.key')) as any).error, /must be a private network address/);
+  assert.match((flags('--listen-address', '127.0.0.1', '--tls-cert', ABS('a.crt'), '--tls-key', ABS('a.key')) as any).error, /RFC1918/);
   assert.match((flags('--listen-address', '8.8.8.8', '--tls-cert', ABS('a.crt'), '--tls-key', ABS('a.key')) as any).error, /RFC1918/);
   assert.match((flags('--listen-address', FAKE_ADDRESS, '--tls-cert', 'a.crt', '--tls-key', ABS('a.key')) as any).error, /must be absolute paths/);
   assert.match((flags('--listen-address', FAKE_ADDRESS, '--tls-cert', ABS('a.crt'), '--tls-key', 'a.key') as any).error, /must be absolute paths/);
