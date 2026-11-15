@@ -7,7 +7,21 @@
 // so two processes never lose each other's change. A read stats the file and reloads when it changed, so a
 // revoke written by any process is seen by every Console on its next request: no timer, no `fs.watch`.
 // An unreadable or invalid file is never overwritten: writers throw `store-unreadable` and `verify` refuses.
+// The file is opened without following a symlink and must be a regular file of at most 1 MiB, and the folder
+// must be this user's and 0700 (writers set it): anything else is `store-unreadable`, never trusted.
+// A device paired over the browser transport (cookie) is `view` forever: only the native Bearer transport,
+// which pins the certificate, can hold `control` (a record that says otherwise reads as `view`).
+// An idle-expired device stays on file as long as a revoked one (30 days) so it reads `device-expired`.
 // Secrets are held as SHA-256 only; nothing here logs.
+//
+// Ceiling (the lock): POSIX has no compare-and-delete, so a stale lock is moved aside, read again there and
+// deleted only when it is the one judged stale; a lock that was not is linked back. Exact trace that still
+// fails: writers A and B both judge lock L stale; A moves L aside and C takes the freed name (L2); B then
+// moves L2 aside (it renames whatever holds the name); for the instant before B links L2 back the name is
+// free and a fourth writer D can take it, so C and D both believe they hold it. Mitigation, not a cure: a
+// writer re-reads the lock right before its rename over `lan.json` and gives up with `store-busy` when the
+// lock is no longer its own, so the two-holders window shrinks to that one read-to-rename gap. src/ is not
+// importable here (this package depends on nothing), so src/state/run-lock.ts is not reused.
 
 const crypto = require('node:crypto');
 const fs = require('node:fs');
@@ -26,6 +40,7 @@ const LOCK_WAIT_MS = 2_000;
 const LOCK_POLL_MS = 25;
 const LOCK_STALE_MS = 30_000;
 const LEFTOVER_MS = 60_000;
+const MAX_FILE_BYTES = 1024 * 1024;
 const LAN_FILE = 'lan.json';
 const TOKEN_PREFIX = 'dfd1_';
 
@@ -112,7 +127,10 @@ function parse(text: string): Data {
   } catch {
     throw new Error('not valid JSON');
   }
-  return validate(value);
+  const data = validate(value);
+  // The browser transport never holds control: such a record reads as view.
+  for (const device of data.devices) if (device.via === 'browser' && device.scope === 'control') device.scope = 'view';
+  return data;
 }
 
 const view = ({ tokenSha256, ...rest }: Device): DeviceView => rest;
@@ -126,14 +144,53 @@ function createLanStore(options: Options) {
   const lockWaitMs = options.lockWaitMs ?? LOCK_WAIT_MS;
   const file = path.join(dir, LAN_FILE);
   const lock = `${file}.lock`;
-  const unreadable = (reason: string) => new StoreError('store-unreadable', `device store ${file} is unreadable (${reason}); move it aside to start over, every device pairs again`);
+  const unreadable = (reason: string) => new StoreError('store-unreadable', `device store ${file} is unreadable (${reason}); fix it, or move it aside to start over (every device pairs again)`);
+
+  /** The file's text, null when absent; throws a short reason for a symlink, a non-regular file, an oversized file or a failed read. */
+  function readRegular(): string | null {
+    let fd: number;
+    try {
+      fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0) | (fs.constants.O_NONBLOCK ?? 0));
+    } catch (error: any) {
+      if (error && error.code === 'ENOENT') return null;
+      if (error && error.code === 'ELOOP') throw new Error('not a regular file (a symlink)');
+      throw new Error(`cannot read: ${error && error.code ? error.code : 'error'}`);
+    }
+    try {
+      const stat = fs.fstatSync(fd);
+      if (!stat.isFile()) throw new Error('not a regular file');
+      if (stat.size > MAX_FILE_BYTES) throw new Error(`larger than ${MAX_FILE_BYTES} bytes`);
+      return fs.readFileSync(fd, 'utf8');
+    } finally {
+      fs.closeSync(fd);
+    }
+  }
+
+  /** Why the store folder cannot be trusted, else null (absent counts). `fix` lets a writer set it to 0700 first. */
+  function dirProblem(fix: boolean): string | null {
+    let stat: any;
+    try {
+      stat = fs.statSync(dir);
+    } catch (error: any) {
+      return error && error.code === 'ENOENT' ? null : `cannot read the folder: ${error && error.code ? error.code : 'error'}`;
+    }
+    if (!stat.isDirectory()) return 'the store folder is not a directory';
+    if (typeof process.getuid === 'function' && stat.uid !== process.getuid()) return 'the store folder is not owned by this user';
+    if (process.platform === 'win32') return null;
+    if (fix && (stat.mode & 0o777) !== 0o700) {
+      try { fs.chmodSync(dir, 0o700); } catch { /* judged below */ }
+      try { stat = fs.statSync(dir); } catch { return 'the store folder cannot be read'; }
+    }
+    if ((stat.mode & (fix ? 0o077 : 0o022)) !== 0) return fix ? 'the store folder mode cannot be set to 0700' : 'the store folder is writable by others';
+    return null;
+  }
 
   // ---- read side: a stat-keyed cache ----
 
   let cache: { key: string, data: Data | null, error: string | null } | null = null;
   const statKey = (): string => {
     try {
-      const s = fs.statSync(file);
+      const s = fs.lstatSync(file);
       return `${s.ino}:${s.size}:${s.mtimeMs}:${s.ctimeMs}`;
     } catch (error: any) {
       return error && error.code === 'ENOENT' ? 'absent' : `error:${error && error.code}`;
@@ -141,14 +198,16 @@ function createLanStore(options: Options) {
   };
   /** The store's current content (reloaded when the file changed on disk) or the reason it cannot be read. */
   function current(): { data: Data } | { error: string } {
+    const problem = dirProblem(false);
+    if (problem !== null) return { error: problem };
     const key = statKey();
     if (cache === null || cache.key !== key) {
       let text: string | null = null;
       let readError: string | null = null;
       try {
-        text = fs.readFileSync(file, 'utf8');
+        text = readRegular();
       } catch (error: any) {
-        if (!error || error.code !== 'ENOENT') readError = `cannot read: ${error && error.code ? error.code : 'error'}`;
+        readError = error.message;
       }
       if (readError !== null) {
         cache = { key, data: null, error: readError };
@@ -197,7 +256,8 @@ function createLanStore(options: Options) {
 
   function prepareDir(): void {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-    try { fs.chmodSync(dir, 0o700); } catch { /* not ours to change */ }
+    const problem = dirProblem(true);
+    if (problem !== null) throw unreadable(problem);
   }
 
   function sweepLeftovers(): void {
@@ -210,7 +270,7 @@ function createLanStore(options: Options) {
     } catch { /* nothing to sweep */ }
   }
 
-  async function acquire(): Promise<() => void> {
+  async function acquire(): Promise<{ release: () => void, held: () => boolean }> {
     prepareDir();
     const deadline = Date.now() + lockWaitMs;
     const mine = owner();
@@ -218,9 +278,11 @@ function createLanStore(options: Options) {
       try {
         const fd = fs.openSync(lock, 'wx', 0o600);
         try { fs.writeSync(fd, mine); } finally { fs.closeSync(fd); }
-        return () => {
+        const held = () => { try { return fs.readFileSync(lock, 'utf8') === mine; } catch { return false; } };
+        return {
+          held,
           // Only this call's own lock is removed: a lock reclaimed from under a stalled writer is another's.
-          try { if (fs.readFileSync(lock, 'utf8') === mine) fs.rmSync(lock, { force: true }); } catch { /* already gone */ }
+          release: () => { try { if (held()) fs.rmSync(lock, { force: true }); } catch { /* already gone */ } },
         };
       } catch (error: any) {
         if (!error || error.code !== 'EEXIST') throw new StoreError('store-busy', `device store lock ${lock} cannot be taken (${error && error.code ? error.code : 'error'})`);
@@ -233,20 +295,21 @@ function createLanStore(options: Options) {
 
   function prune(data: Data, t: number): void {
     data.codes = data.codes.filter((c) => ms(c.expiresAt) > t);
-    data.devices = data.devices.filter((d) => (d.revokedAt === null ? t - ms(d.lastSeenAt) <= IDLE_MS : t - ms(d.revokedAt) <= TOMBSTONE_MS));
+    // An idle-expired device is kept like a revoked one, so it reads `device-expired` rather than unknown.
+    data.devices = data.devices.filter((d) => (d.revokedAt === null ? t - ms(d.lastSeenAt) <= IDLE_MS + TOMBSTONE_MS : t - ms(d.revokedAt) <= TOMBSTONE_MS));
     data.consoles = data.consoles.filter((e) => t - ms(e.startedAt) <= CONSOLE_KEEP_MS && fs.existsSync(e.project));
   }
 
   /** Runs `change` on the freshly read, pruned store under the lock; writes only when the content changed. */
   async function mutate<T>(change: (data: Data, t: number) => T): Promise<T> {
-    const release = await acquire();
+    const { release, held } = await acquire();
     try {
       sweepLeftovers();
       let text: string | null = null;
       try {
-        text = fs.readFileSync(file, 'utf8');
+        text = readRegular();
       } catch (error: any) {
-        if (!error || error.code !== 'ENOENT') throw unreadable(`cannot read: ${error && error.code ? error.code : 'error'}`);
+        throw unreadable(error.message);
       }
       let data: Data;
       try {
@@ -267,6 +330,11 @@ function createLanStore(options: Options) {
           fs.fsyncSync(fd);
         } finally {
           fs.closeSync(fd);
+        }
+        // The lock may have been taken from under a stalled writer: checked once more before the rename.
+        if (!held()) {
+          fs.rmSync(temp, { force: true });
+          throw new StoreError('store-busy', `device store lock ${lock} was taken over while this write waited; nothing was changed`);
         }
         fs.renameSync(temp, file);
       }
@@ -294,7 +362,7 @@ function createLanStore(options: Options) {
 
     /** Runs `fn` holding the store lock (a boot step that must not interleave with another Console's). `fn` must not call a store write. */
     async withLock<T>(fn: () => T | Promise<T>): Promise<T> {
-      const release = await acquire();
+      const { release } = await acquire();
       try {
         return await fn();
       } finally {
@@ -322,13 +390,14 @@ function createLanStore(options: Options) {
         let hit = -1;
         data.codes.forEach((c, index) => { if (crypto.timingSafeEqual(guess, Buffer.from(c.sha256, 'hex')) && hit < 0) hit = index; });
         if (hit < 0) return { refused: 'pair-refused' as const };
-        if (data.devices.filter((d) => d.revokedAt === null).length >= MAX_DEVICES) return { refused: 'device-limit' as const };
+        if (data.devices.filter((d) => d.revokedAt === null && t - ms(d.lastSeenAt) <= IDLE_MS).length >= MAX_DEVICES) return { refused: 'device-limit' as const };
         const [spent] = data.codes.splice(hit, 1);
         const token = `${TOKEN_PREFIX}${crypto.randomBytes(32).toString('base64url')}`;
         let id = '';
         do { id = `d-${crypto.randomBytes(6).toString('hex')}`; } while (data.devices.some((d) => d.id === id));
         const stamp = new Date(t).toISOString();
-        const device: Device = { id, name: cleanName(name), scope: spent.scope, via, tokenSha256: sha256Hex(token), pairedAt: stamp, lastSeenAt: stamp, lastAddress: String(address), revokedAt: null };
+        // Only the native transport, which pins the certificate, can be granted control.
+        const device: Device = { id, name: cleanName(name), scope: via === 'native' ? spent.scope : 'view', via, tokenSha256: sha256Hex(token), pairedAt: stamp, lastSeenAt: stamp, lastAddress: String(address), revokedAt: null };
         data.devices.push(device);
         return { device: view(device), token };
       });
@@ -413,5 +482,5 @@ function createLanStore(options: Options) {
 
 module.exports = {
   createLanStore, StoreError, cleanName, sha256Hex, newCode,
-  CODE_TTL_MS, IDLE_MS, TOUCH_MS, TOMBSTONE_MS, CONSOLE_KEEP_MS, MAX_CODES, MAX_DEVICES, NAME_MAX, LAN_FILE, TOKEN_PREFIX,
+  CODE_TTL_MS, MAX_FILE_BYTES, IDLE_MS, TOUCH_MS, TOMBSTONE_MS, CONSOLE_KEEP_MS, MAX_CODES, MAX_DEVICES, NAME_MAX, LAN_FILE, TOKEN_PREFIX,
 };

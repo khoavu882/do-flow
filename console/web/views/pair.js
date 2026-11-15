@@ -1,6 +1,6 @@
 // The pairing screen of a LAN Console (feature 160, IC-009): a full-page form shown when the page was opened from
 // the link `doflow ui --lan` or `--action pair` prints (`#pair=<code>&fp=<hex>&v=1`). It asks for a device name,
-// shows the certificate fingerprint to compare with what the browser shows for this site, and hands the click to the
+// shows the fingerprint the link carries (labelled as the link's own value: a hostile page can show any), tells the person to compare the terminal's with the browser's before proceeding past the warning, and hands the click to the
 // shell, which posts the code. The code lives in the shell's memory only; this module never sees it and holds no
 // credential (the device cookie is HttpOnly). Every string reaches the page as text.
 
@@ -45,9 +45,10 @@ function createPairPage({ fingerprint, onPair }) {
     h('p', { class: 'eyebrow' }, 'Pair this device'),
     h('h1', { class: 'full-state__title', tabindex: '-1' }, 'Pair this device with the Console'),
     h('p', { class: 'full-state__body' }, 'This Console runs on your local network. Name this device, then pair it with the one-use code from the link you opened.'),
-    h('p', { class: 'pair__fp-label' }, 'Certificate fingerprint (SHA-256)'),
+    h('p', { class: 'pair__fp-label' }, 'Fingerprint from your link (SHA-256)'),
     h('p', { class: 'pair__fp mono' }, colonPairs(fingerprint)),
-    h('p', { class: 'hint' }, 'Your browser warned about this site’s certificate. Compare this fingerprint with the one the browser shows in the certificate details, and pair only when they are the same.'),
+    h('p', { class: 'hint' }, 'This value comes from the link, so this page cannot vouch for it. The check is yours, and it comes before you proceed past your browser’s warning: compare the fingerprint printed in your terminal with the one your browser shows in the certificate details. If you did not, or they differ, close this page.'),
+    h('p', { class: 'hint' }, 'A device paired in a browser can only view runs and workflows.'),
     form,
   ]);
   return {

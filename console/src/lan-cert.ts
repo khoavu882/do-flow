@@ -82,4 +82,32 @@ function ensureCertificate(dir: string, address: string, now: number): Certifica
   return { certPath, keyPath, fingerprint: fingerprintOf(pem), issued: true, validTo: cert.validToDate.getTime() };
 }
 
-module.exports = { ensureCertificate, fingerprintOf, MAX_CERT_FILES };
+/**
+ * Watches the end date of the certificate in `certPath` while the Console runs. `check()` (called once a day and at each
+ * pairing) returns `expired` past the end date (the Console then serves no LAN request and says so once on
+ * stderr), `expiring` inside the 30-day reissue window (one warning) and `ok` otherwise. The date is read once from
+ * the file; `now` is ms and injectable.
+ */
+function certWatch({ certPath, now = Date.now, log = () => {} }: { certPath: string, now?: () => number, log?: (line: string) => void }) {
+  const validTo = new crypto.X509Certificate(fs.readFileSync(certPath)).validToDate.getTime();
+  const day = (t: number) => new Date(t).toISOString().slice(0, 10);
+  const said = new Set<string>();
+  const once = (state: string, line: string) => { if (!said.has(state)) { said.add(state); log(line); } };
+  return {
+    validTo,
+    check(): 'ok' | 'expiring' | 'expired' {
+      const t = now();
+      if (t > validTo) {
+        once('expired', `certificate expired on ${day(validTo)}: no LAN request is served; restart doflow ui --lan to issue a new one (a device that pinned the old fingerprint pairs again)`);
+        return 'expired';
+      }
+      if (validTo - t < RENEW_BEFORE_MS) {
+        once('expiring', `certificate ends on ${day(validTo)}: restart doflow ui --lan before then to issue a new one`);
+        return 'expiring';
+      }
+      return 'ok';
+    },
+  };
+}
+
+module.exports = { certWatch, ensureCertificate, fingerprintOf, MAX_CERT_FILES };

@@ -592,6 +592,7 @@ test('classify sorts every IC-005 outcome into the rows of the error table (6.6)
     assert.deepEqual(c(401, code, { exchange: 'none', sessionWorked: true }), { scope: 'session', key: code, auto: false, status: 401, code }, code);
   }
   assert.deepEqual(c(503, 'store-unreadable'), { scope: 'session', key: 'store-unreadable', auto: false, status: 503, code: 'store-unreadable' });
+  assert.deepEqual(c(503, 'cert-expired'), { scope: 'session', key: 'cert-expired', auto: false, status: 503, code: 'cert-expired' });
   assert.deepEqual(c(403, 'phone-scope'), { scope: 'inline', key: 'phone-scope', auto: false, status: 403, code: 'phone-scope' });
   assert.equal(key(null, null), 'offline');
   assert.equal(key(503, 'core-unreachable'), 'runtime-missing');
@@ -752,7 +753,10 @@ test('pair: a #pair= fragment is removed at once, nothing is fetched, and the fo
   assert.equal(page.main.querySelector('label').getAttribute('for'), 'pair-name');
   assert.equal(pairInput(page).getAttribute('id'), 'pair-name');
   assert.equal(text(page.main.querySelector('.pair__fp')), PAIR_FP.toUpperCase().match(/../g)!.join(':'));
-  assert.match(text(page.main), /Compare this fingerprint/);
+  assert.match(text(page.main), /Fingerprint from your link/, 'the page labels its own value as the link\u2019s');
+  assert.match(text(page.main), /before you proceed past your browser.s warning: compare the fingerprint printed in your terminal/);
+  assert.doesNotMatch(text(page.main), /pair only when they are the same/, 'the click is never presented as the check');
+  assert.match(text(page.main), /A device paired in a browser can only view/);
   assert.equal(text(page.main).includes(PAIR_CODE), false, 'the code is never on the page');
   assert.equal(page.doc.documentElement.classList.contains('booting'), false);
 });
@@ -820,6 +824,7 @@ test('pair: a device refused after pairing gets its own full page: unpaired, rev
     [401, 'device-revoked', 'This device was revoked', 'doflow ui --action pair'],
     [401, 'device-expired', 'This device was idle too long', 'doflow ui --action pair'],
     [503, 'store-unreadable', 'The Console cannot read its device store', null],
+    [503, 'cert-expired', 'The Console’s certificate has ended', 'doflow ui --lan'],
   ];
   for (const [status, code, title, command] of cases) {
     const page = await start({ hash: '', fetch: (target, init) => (target === '/api/info' ? errorReply(status, code) : standard(target, init)) });

@@ -16,25 +16,25 @@ const { createServer } = require('../../src/server.ts');
 type Reply = { status: number, headers: Record<string, any>, body: string };
 
 /** A store, an auth and a log over a fresh temp dir removed when the test ends. `clock` replaces Date.now for both. */
-function lanWorld(t: any, clock: { now: () => number } = { now: Date.now }) {
+function lanWorld(t: any, clock: { now: () => number } = { now: Date.now }, authExtra: Record<string, any> = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-lan-world-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const store = createLanStore({ dir, now: clock.now, host: 'testhost', pid: process.pid, lockWaitMs: 300 });
   const logs: string[] = [];
-  const auth = createDeviceAuth({ store, now: clock.now, log: (line: string) => logs.push(line) });
-  /** Pairs a device straight through the store: its token, the cookie header value and the Bearer header value. */
-  const pair = async (scope: 'view' | 'control' = 'view', name = 'Test phone') => {
+  const auth = createDeviceAuth({ store, now: clock.now, log: (line: string) => logs.push(line), ...authExtra });
+  /** Pairs a device straight through the store: its token, the cookie header value and the Bearer header value. Control is only ever held by a native pairing, so that is how a `control` device pairs here. */
+  const pair = async (scope: 'view' | 'control' = 'view', name = 'Test phone', via: 'browser' | 'native' = scope === 'control' ? 'native' : 'browser') => {
     const { code } = await store.mintCode(scope);
-    const result = await store.consumeCode(code, { name, via: 'browser', address: '192.168.1.40' });
+    const result = await store.consumeCode(code, { name, via, address: '192.168.1.40' });
     return { ...result, cookie: `doflow_device=${result.token}`, bearer: `Bearer ${result.token}`, digest: sha256Hex(result.token) };
   };
   return { dir, store, auth, logs, pair };
 }
 
 /** An https server in LAN mode on 127.0.0.1 with a certificate from lan-cert.ts; `request` trusts it as its own CA. */
-async function lanServer(t: any, world: { dir: string }, routes: readonly any[], webRoot: string) {
+async function lanServer(t: any, world: { dir: string, auth?: any }, routes: readonly any[], webRoot: string) {
   const cert = ensureCertificate(world.dir, '127.0.0.1', Date.now());
-  const app = await createServer({ webRoot, routes, mode: 'lan', host: '127.0.0.1', port: 0, addressCheck: () => null, tls: { certPath: cert.certPath, keyPath: cert.keyPath } });
+  const app = await createServer({ webRoot, routes, mode: 'lan', host: '127.0.0.1', port: 0, addressCheck: () => null, tls: { certPath: cert.certPath, keyPath: cert.keyPath }, ...(world.auth ? { authenticate: world.auth.authenticate } : {}) });
   t.after(() => app.close());
   const ca = fs.readFileSync(cert.certPath);
   const request = (method: string, target: string, options: { headers?: Record<string, string>, body?: string } = {}): Promise<Reply> => new Promise((resolve, reject) => {

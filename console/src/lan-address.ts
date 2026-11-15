@@ -7,7 +7,9 @@
 
 /** Interface-name prefixes of virtual, tunnel, bridge and container interfaces, compared case-insensitively. */
 const VIRTUAL_PREFIXES = ['docker', 'br-', 'veth', 'virbr', 'vmnet', 'vboxnet', 'utun', 'tun', 'tap', 'tailscale', 'zt', 'wg', 'bridge',
-  'vethernet', 'lxc', 'lxd', 'cni', 'flannel', 'podman', 'awdl', 'llw', 'anpi'];
+  'vethernet', 'lxc', 'lxd', 'cni', 'flannel', 'podman', 'awdl', 'llw', 'anpi', 'ppp', 'ipsec', 'cscotun', 'gpd'];
+/** Windows adapter names are free text ("VMware Network Adapter VMnet8", "Ethernet 2 (TAP-Windows)"): matched anywhere in the name, case-insensitively. */
+const VIRTUAL_WORDS = ['vmware', 'virtualbox', 'hyper-v', 'vethernet', 'tap-', 'wireguard', 'tailscale', 'zerotier'];
 const RULE = 'the only private IPv4 address on a non-virtual interface';
 
 type Seen = { address: string, iface: string };
@@ -23,7 +25,10 @@ function octets(address: string): number[] | null {
 
 const isRfc1918 = ([a, b]: number[]) => a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
 const isCgnat = ([a, b]: number[]) => a === 100 && b >= 64 && b <= 127;
-const isVirtual = (name: string) => VIRTUAL_PREFIXES.some((prefix) => name.toLowerCase().startsWith(prefix));
+const isVirtual = (name: string) => {
+  const lower = name.toLowerCase();
+  return VIRTUAL_PREFIXES.some((prefix) => lower.startsWith(prefix)) || VIRTUAL_WORDS.some((word) => lower.includes(word));
+};
 
 /** `interfaces` is the shape of `os.networkInterfaces()`. One address, or the refusal with every private address seen. */
 function chooseLanAddress(interfaces: Record<string, any[] | undefined>): Chosen | Refusal {
@@ -42,4 +47,4 @@ function chooseLanAddress(interfaces: Record<string, any[] | undefined>): Chosen
   return { error: candidates.length === 0 ? 'no private IPv4 address on a non-virtual interface' : 'several private IPv4 addresses on non-virtual interfaces', seen };
 }
 
-module.exports = { chooseLanAddress, VIRTUAL_PREFIXES, RULE };
+module.exports = { chooseLanAddress, VIRTUAL_PREFIXES, VIRTUAL_WORDS, RULE };

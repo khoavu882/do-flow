@@ -26,7 +26,7 @@ const { consoleRoutes } = require('./routes.ts');
 const { processSessions } = require('./session.ts');
 const { createDeviceAuth } = require('./device-auth.ts');
 const { chooseLanAddress } = require('./lan-address.ts');
-const { ensureCertificate, fingerprintOf } = require('./lan-cert.ts');
+const { ensureCertificate, fingerprintOf, certWatch } = require('./lan-cert.ts');
 const { payloadBlock, colonPairs } = require('./pair-payload.ts');
 const { openStore, runAction } = require('./lan-cli.ts');
 const { doflowCore } = require('../package.json');
@@ -172,7 +172,13 @@ async function startLan(flags: Flags, io: Io, serving: { runner: any, live: any 
     }
   }
 
-  const auth = createDeviceAuth({ store, log: say });
+  let watch: any;
+  try {
+    watch = certWatch({ certPath, log: say });
+  } catch (error: any) {
+    return { exit: 1, message: `certificate ${certPath} cannot be read (${detailOf(error)})` };
+  }
+  const auth = createDeviceAuth({ store, log: say, certState: () => watch.check() });
   const routes = consoleRoutes(serving.runner, auth, serving.live, { projectRoot: flags.project, home: os.homedir() });
   const remembered = store.rememberedPort(flags.project);
   const ports: number[] = flags.portGiven ? [flags.port] : [...new Set<number>([...(remembered === null ? [] : [remembered]), ...LAN_PORTS])];
@@ -181,7 +187,7 @@ async function startLan(flags: Flags, io: Io, serving: { runner: any, live: any 
   for (const port of ports) {
     try {
       app = await createServer({
-        webRoot: WEB_ROOT, port, mode: 'lan', host: address, routes, tls: { certPath, keyPath },
+        webRoot: WEB_ROOT, port, mode: 'lan', host: address, routes, tls: { certPath, keyPath }, authenticate: auth.authenticate,
         ...(io.addressCheck ? { addressCheck: io.addressCheck } : {}),
       });
       break;
@@ -208,7 +214,12 @@ async function startLan(flags: Flags, io: Io, serving: { runner: any, live: any 
     host: address, port: app.port, code, fingerprint, interfaceName: iface, rule, scope: 'view', expiresAt,
     tty: io.stdout.isTTY === true, color: !io.env.NO_COLOR,
   });
+  // Once now (an own certificate may already be near its end) and once a day while the Console runs.
+  watch.check();
+  const daily = setInterval(() => watch.check(), 24 * 60 * 60 * 1000);
+  daily.unref();
   const stop = async () => {
+    clearInterval(daily);
     try {
       await store.stopConsole(flags.project, process.pid);
     } catch (error: any) {

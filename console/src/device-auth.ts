@@ -5,7 +5,9 @@
 // native client; server.ts has already refused both together), asks the store (stat-keyed, so a revoke
 // from any process is seen on the next request), writes last-seen at most hourly and hands the handler a
 // frozen `{ scope, deviceId }` session, one object per device per process. `pairRoute()` is `POST /api/pair`,
-// the only route reachable without a device. Secrets (codes, tokens, digests, cookies, bodies) are never
+// the only route reachable without a device. Pairing is rate limited per address (a refusal) and overall (a
+// delay only, so a stranger's failed codes can never lock the owner out: a code freshly minted stays
+// redeemable, and with 128-bit codes and at most 16 pending a guess is infeasible at any rate). Secrets (codes, tokens, digests, cookies, bodies) are never
 // logged or echoed: `log` receives the event lines of design IC-008 and nothing else.
 
 const { errorReply, jsonReply, readBody } = require('./routes.ts');
@@ -19,8 +21,10 @@ const WINDOW_MS = 10 * 60 * 1000;
 const FAILS_PER_ADDRESS = 5;
 const FAILS_OVERALL = 20;
 const LOG_EVERY_MS = 60_000;
+const DELAY_STEP_MS = 150;
+const DELAY_MAX_MS = 3_000;
 const TOKEN = /^dfd1_[A-Za-z0-9_-]{43}$/;
-const BEARER = /^Bearer (dfd1_[A-Za-z0-9_-]{43})$/;
+const BEARER = /^bearer (dfd1_[A-Za-z0-9_-]{43})$/i;
 const CODE = /^[a-z2-7]{26}$/;
 
 type Reply = { status: number, headers?: Record<string, string>, body?: string | Uint8Array };
@@ -32,7 +36,8 @@ const clearingCookie = () => `${DEVICE_COOKIE}=; HttpOnly; Secure; SameSite=Stri
 const withCookie = (reply: Reply, cookie: string): Reply => ({ ...reply, headers: { ...reply.headers, 'Set-Cookie': cookie } });
 
 /** `{ mode: 'lan', authenticate, pairRoute }` over `store` (lan-store.ts). `log(line)` gets IC-008's event lines without the `doflow ui: ` prefix. */
-function createDeviceAuth({ store, now = Date.now, log = () => {} }: { store: any, now?: () => number, log?: (line: string) => void }) {
+function createDeviceAuth({ store, now = Date.now, log = () => {}, sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)), certState = () => 'ok' }:
+  { store: any, now?: () => number, log?: (line: string) => void, sleep?: (ms: number) => Promise<void>, certState?: () => 'ok' | 'expiring' | 'expired' }) {
   const sessions = new Map<string, Session>();
   const sessionFor = (device: { id: string, scope: 'view' | 'control' }): Session => {
     const key = `${device.id}:${device.scope}`;
@@ -66,6 +71,7 @@ function createDeviceAuth({ store, now = Date.now, log = () => {} }: { store: an
   };
 
   async function authenticate(ctx: any): Promise<{ session: Session, refresh?: string } | { reply: Reply }> {
+    if (certState() === 'expired') return { reply: errorReply(503, 'cert-expired') };
     const browser = ctx.clientClass !== 'native';
     const token = tokenOf(ctx);
     if (token === null) return { reply: errorReply(401, 'device-unpaired') };
@@ -102,25 +108,24 @@ function createDeviceAuth({ store, now = Date.now, log = () => {} }: { store: an
   const fresh = (entry: Window | undefined, t: number): Window => (entry && t - entry.start < WINDOW_MS ? entry : { start: t, count: 0 });
   const retryAfter = (entry: Window, t: number) => Math.max(1, Math.ceil((entry.start + WINDOW_MS - t) / 1000));
 
-  /** Seconds to wait when this address or the Console as a whole has used up its failed codes, else null. */
-  function waitFor(address: string, t: number): number | null {
+  /**
+   * Counts one attempt from `address` before anything is awaited, so parallel requests are counted one by
+   * one. A refusal (`wait` seconds) when this address has used its attempts; else a `refund` and the `delayMs`
+   * the overall count asks for (it delays, never refuses).
+   */
+  function reserve(address: string, t: number): { wait: number } | { refund: () => void, delayMs: number } {
     overall = fresh(overall, t);
     const mine = fresh(byAddress.get(address), t);
-    if (mine.count >= FAILS_PER_ADDRESS) return retryAfter(mine, t);
-    if (overall.count >= FAILS_OVERALL) return retryAfter(overall, t);
-    return null;
-  }
-
-  function recordFailure(address: string, t: number): void {
-    overall = fresh(overall, t);
-    const mine = fresh(byAddress.get(address), t);
-    overall.count += 1;
-    mine.count += 1;
     byAddress.set(address, mine);
+    if (mine.count >= FAILS_PER_ADDRESS) return { wait: retryAfter(mine, t) };
+    mine.count += 1;
+    overall.count += 1;
     for (const [name, entry] of byAddress) if (t - entry.start >= WINDOW_MS) byAddress.delete(name);
-    sayOnce(`pair:${address}`, `pairing refused from ${address} (${mine.count} in this window)`, LOG_EVERY_MS);
-    if (mine.count === FAILS_PER_ADDRESS) log(`pairing paused for ${retryAfter(mine, t)} s: too many failed codes`);
-    else if (overall.count === FAILS_OVERALL) log(`pairing paused for ${retryAfter(overall, t)} s: too many failed codes`);
+    const total = overall;
+    return {
+      refund: () => { mine.count = Math.max(0, mine.count - 1); total.count = Math.max(0, total.count - 1); },
+      delayMs: total.count > FAILS_OVERALL ? Math.min(DELAY_MAX_MS, (total.count - FAILS_OVERALL) * DELAY_STEP_MS) : 0,
+    };
   }
 
   function pairRoute() {
@@ -128,41 +133,55 @@ function createDeviceAuth({ store, now = Date.now, log = () => {} }: { store: an
       method: 'POST' as const,
       path: '/api/pair',
       handler: async (ctx: any): Promise<Reply> => {
+        if (certState() === 'expired') return errorReply(503, 'cert-expired');
         const address = ctx.req.socket && typeof ctx.req.socket.remoteAddress === 'string' ? ctx.req.socket.remoteAddress : '';
-        const wait = waitFor(address, now());
-        if (wait !== null) return withHeader(errorReply(429, 'pair-rate-limited'), 'Retry-After', String(wait));
-        const text = await readBody(ctx.req, BODY_CAP);
-        let body: any = null;
+        const t = now();
+        const slot = reserve(address, t);
+        if ('wait' in slot) return withHeader(errorReply(429, 'pair-rate-limited'), 'Retry-After', String(slot.wait));
+        // The attempt stays counted only when a code was really tried and refused; every other end gives it back.
+        let counted = false;
         try {
-          body = text === null ? null : JSON.parse(text);
-        } catch { /* a body that is not JSON is a usage error */ }
-        if (body === null || typeof body !== 'object' || Array.isArray(body)
-          || Object.keys(body).sort().join() !== 'code,name,v' || body.v !== 1
-          || typeof body.code !== 'string' || typeof body.name !== 'string' || body.name.length > NAME_RAW_MAX) return errorReply(400, 'usage');
-        const code = body.code.toLowerCase();
-        if (!CODE.test(code)) return errorReply(400, 'usage');
-        const via = ctx.clientClass === 'native' ? 'native' : 'browser';
-        let result: any;
-        try {
-          result = await store.consumeCode(code, { name: cleanName(body.name), via, address });
-        } catch (error: any) {
-          if (error instanceof StoreError) {
-            if (error.code === 'store-unreadable') sayOnce('unreadable', `device store unreadable: ${store.check() ?? 'cannot be read'}`, LOG_EVERY_MS);
-            return errorReply(503, error.code);
+          const text = await readBody(ctx.req, BODY_CAP);
+          let body: any = null;
+          try {
+            body = text === null ? null : JSON.parse(text);
+          } catch { /* a body that is not JSON is a usage error */ }
+          if (body === null || typeof body !== 'object' || Array.isArray(body)
+            || Object.keys(body).sort().join() !== 'code,name,v' || body.v !== 1
+            || typeof body.code !== 'string' || typeof body.name !== 'string' || body.name.length > NAME_RAW_MAX) return errorReply(400, 'usage');
+          const code = body.code.toLowerCase();
+          if (!CODE.test(code)) return errorReply(400, 'usage');
+          if (slot.delayMs > 0) {
+            sayOnce('slow', `pairing slowed to ${slot.delayMs} ms a try: many refused codes`, LOG_EVERY_MS);
+            await sleep(slot.delayMs);
           }
-          throw error;
+          const via = ctx.clientClass === 'native' ? 'native' : 'browser';
+          let result: any;
+          try {
+            result = await store.consumeCode(code, { name: cleanName(body.name), via, address });
+          } catch (error: any) {
+            if (error instanceof StoreError) {
+              if (error.code === 'store-unreadable') sayOnce('unreadable', `device store unreadable: ${store.check() ?? 'cannot be read'}`, LOG_EVERY_MS);
+              return errorReply(503, error.code);
+            }
+            throw error;
+          }
+          if ('refused' in result) {
+            if (result.refused === 'device-limit') return errorReply(409, 'device-limit');
+            counted = true;
+            sayOnce(`pair:${address}`, `pairing refused from ${address}`, LOG_EVERY_MS);
+            if (byAddress.get(address)?.count === FAILS_PER_ADDRESS) log(`pairing from ${address} paused for ${retryAfter(byAddress.get(address) as Window, now())} s: too many failed codes`);
+            return errorReply(401, 'pair-refused');
+          }
+          const { device, token } = result;
+          log(`paired ${device.id} "${device.name}" scope ${device.scope} via ${via} from ${address}`);
+          const shown = { v: 1, device: { id: device.id, name: device.name, scope: device.scope } };
+          return via === 'native'
+            ? jsonReply(200, { ...shown, token })
+            : withCookie(jsonReply(200, shown), deviceCookie(token));
+        } finally {
+          if (!counted) slot.refund();
         }
-        if ('refused' in result) {
-          if (result.refused === 'device-limit') return errorReply(409, 'device-limit');
-          recordFailure(address, now());
-          return errorReply(401, 'pair-refused');
-        }
-        const { device, token } = result;
-        log(`paired ${device.id} "${device.name}" scope ${device.scope} via ${via} from ${address}`);
-        const shown = { v: 1, device: { id: device.id, name: device.name, scope: device.scope } };
-        return via === 'native'
-          ? jsonReply(200, { ...shown, token })
-          : withCookie(jsonReply(200, shown), deviceCookie(token));
       },
     };
   }

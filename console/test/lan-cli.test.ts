@@ -126,6 +126,17 @@ test('devices lists in a table with a print-safe name, and --json has the fixed 
   assert.equal(JSON.stringify(json).includes('tokenSha256'), false);
 });
 
+test('devices shows the transport of each device, and a control code never makes a browser device control', async (t) => {
+  const world = scratch(t);
+  await pairDevice(world.store, 'Browser phone', 'control', 'browser');
+  await pairDevice(world.store, 'Native app', 'control', 'native');
+  const lines = (await run(world, ['--action', 'devices'])).out.trimEnd().split('\n');
+  assert.match(lines[1], /Browser phone +view +browser /);
+  assert.match(lines[2], /Native app +control +native /);
+  const json = JSON.parse((await run(world, ['--action', 'devices', '--json'])).out);
+  assert.deepEqual(json.devices.map((d: any) => [d.via, d.scope]), [['browser', 'view'], ['native', 'control']]);
+});
+
 test('devices prints a name through the print-safe filter even when the stored one carries controls', async (t) => {
   const world = scratch(t);
   const device = await pairDevice(world.store, 'plain');
