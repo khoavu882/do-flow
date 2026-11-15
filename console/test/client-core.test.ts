@@ -2146,7 +2146,7 @@ const tasksBody = (...tasks: any[]) => ({ revision: 3, graph: { tasks: [] }, tas
 const runBodyWith = (row: any, events: any[], tasks: any = null, over: any = {}) => ({ ...runBody(row, WF_FEATURE, events), tasks, ...over });
 const hasAll = (el: El, names: string[]) => names.every((name) => el.querySelector(name) !== null);
 
-test('E.2 gate slot: registry name and prompt, two commands with their own Copy names, the read-only note, and a wait that counts from the last progress event', async () => {
+test('E.2 gate slot: registry name and prompt, two commands with their own Copy names, the note on where deciding works, and a wait that counts from the last progress event', async () => {
   mods.home.resetHome();
   const events = () => [ev(60, 'start', null), ev(50, 'complete-stage', 'discovery', { outcome: 'passed' }), ev(40, 'decide-gate', 'gate-0', { decision: 'approve' }), ev(30, 'complete-stage', 'design', { outcome: 'passed' }), ev(20, 'complete-stage', 'planning', { outcome: 'passed' }), ev(5, 'annotate', 'planning')];
   const journal = { gateId: 'gate-a', name: 'Journal name', prompt: 'Journal prompt' };
@@ -2166,7 +2166,7 @@ test('E.2 gate slot: registry name and prompt, two commands with their own Copy 
   ]);
   assert.deepEqual(slot.querySelectorAll('.cmd__copy').map((b: El) => b.getAttribute('aria-label')), ['Copy the approve command', 'Copy the reject command']);
   assert.deepEqual(slot.querySelectorAll('.cmd__copy').map((b: El) => b.getAttribute('data-focus-key')), ['copy:approve', 'copy:reject']);
-  assert.equal(text(slot.querySelector('.activity__note')), 'The Console only reads. Deciding stays in the terminal.');
+  assert.equal(text(slot.querySelector('.activity__note')), 'Deciding from this page needs the Console on this machine or a paired control device. The terminal commands still work.');
   assert.match(text(slot.querySelector('.activity__tasks')), /^1 task attempt is still active\. Open the task graph →$/);
   assert.equal(slot.querySelector('.attempts__link').getAttribute('href'), '#/run/feat-a/run-1/tasks');
   assert.equal(slot.getAttribute('data-changed'), null, 'nothing flashes on first paint');
@@ -2207,7 +2207,7 @@ test('162 run page, a view-scope device: no button anywhere, the command block s
       'doflow orchestrate --action decide-gate --task-id run-1 --slug feat-a --gate gate-a --decision reject',
     ]);
     assert.deepEqual(slot.querySelectorAll('.acts__reason').map(text), ['Actions need a control device paired from the Android app.']);
-    assert.equal(text(slot.querySelector('.activity__note')), 'The Console only reads. Deciding stays in the terminal.');
+    assert.equal(text(slot.querySelector('.activity__note')), 'Deciding from this page needs the Console on this machine or a paired control device. The terminal commands still work.');
     assert.equal(page.calls.filter((c) => c.method === 'POST').length, 0);
   });
 });
@@ -3279,6 +3279,14 @@ test('161 layers machine: no GET reads the page; the first paint is the first fr
   assert.equal(page.slot.querySelectorAll('.banner').length, 0, 'an open stream is never stale');
 });
 
+test('162 review 3: a Layers gate card that cannot open its run says where deciding works, not that the Console only reads', async () => {
+  const page = await startLayers('#/layers');
+  await openedLayers(page, [{ ...gateOf('T-9', 'g-flat', 'Flat gate'), slug: null }]);
+  const card = page.main.querySelector('.gate-card');
+  assert.equal(text(card.querySelector('.gate-card__note')),
+    'Decide in a terminal in that project. Deciding from this page needs the Console on this machine or a paired control device.');
+});
+
 test('162 layers machine: a gate card has Approve and Reject when the page may act, and the request names the card\u2019s project, run, gate and revision', async () => {
   await withActions(async () => {
     const base = (target: string, init: any) => {
@@ -3292,7 +3300,7 @@ test('162 layers machine: a gate card has Approve and Reject when the page may a
     const cards = page.main.querySelectorAll('.gate-card');
     assert.equal(cards.length, 2);
     assert.deepEqual(cards[0].querySelectorAll('.btn--act').map(text), ['Approve', 'Reject']);
-    assert.equal(cards[0].querySelectorAll('.gate-card__note').length, 0, 'the read-only note goes when the buttons are there');
+    assert.equal(cards[0].querySelectorAll('.gate-card__note').length, 0, 'the terminal note goes when the buttons are there');
     assert.equal(cards[1].querySelectorAll('.btn--act').length, 0, 'a gate row with no revision (an older core) has nothing to send as the precondition');
     assert.ok(cards[1].querySelector('.gate-card__link'), 'it keeps the link to the run, where the command is');
     cards[0].querySelectorAll('.btn--act')[1].fire('click');

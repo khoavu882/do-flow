@@ -260,7 +260,7 @@ function gateCard(gate, ctx) {
         const approve = actionButton({ id: 'decide-gate', label: 'Approve', tone: 'approve', make: make('approve') });
         const reject = actionButton({ id: 'decide-gate', label: 'Reject', tone: 'danger', make: make('reject') });
         if (approve || reject) return h('div', { class: 'acts__row' }, [approve, reject]);
-        return [notAllowedLine(['decide-gate']), ctx.openRun && slug !== null ? null : h('p', { class: 'gate-card__note' }, 'Decide in a terminal in that project. The Console only reads.')];
+        return [notAllowedLine(['decide-gate']), ctx.openRun && slug !== null ? null : h('p', { class: 'gate-card__note' }, 'Decide in a terminal in that project. Deciding from this page needs the Console on this machine or a paired control device.')];
       }, 'acts acts--card'),
     ]),
   ]);

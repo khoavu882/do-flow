@@ -1,6 +1,6 @@
 # DoFlow Console design
 
-Read this before you change `console/web/`. It is the agent-readable design file of the Console: a read-only local web UI (plain ES modules, no build step, no runtime dependency, CSP `default-src 'self'`). The shipped truth is `console/web/tokens.css` (tokens, both themes) and `console/web/app.css` (components). The two generated blocks below are rewritten from those files by `node console/scripts/build-design-md.ts --write`, and `console/test/design-md.test.ts` fails when they drift. Everything outside the generated blocks is hand-written; a token or class named in it must exist in the CSS (the test checks it).
+Read this before you change `console/web/`. It is the agent-readable design file of the Console: a local web UI that reads through the core and, since row 162, relays three decisions to it (decide a gate, close a run, cancel a worker) (plain ES modules, no build step, no runtime dependency, CSP `default-src 'self'`). The shipped truth is `console/web/tokens.css` (tokens, both themes) and `console/web/app.css` (components). The two generated blocks below are rewritten from those files by `node console/scripts/build-design-md.ts --write`, and `console/test/design-md.test.ts` fails when they drift. Everything outside the generated blocks is hand-written; a token or class named in it must exist in the CSS (the test checks it).
 
 ## Principles
 

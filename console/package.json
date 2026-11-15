@@ -1,7 +1,7 @@
 {
   "name": "@khoavu882/doflow-ui",
   "version": "0.1.0",
-  "description": "DoFlow Console: a read-only local web UI over the doflow CLI",
+  "description": "DoFlow Console: a local web UI over the doflow CLI that shows runs and relays gate, close and cancel decisions",
   "private": true,
   "license": "MIT",
   "type": "commonjs",

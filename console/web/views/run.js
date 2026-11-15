@@ -239,7 +239,7 @@ function gateSlot(model, ctx) {
           h('div', { class: 'activity__cmd' }, [h('p', { class: 'activity__cmdlabel' }, 'To reject'), reject]),
         ]),
       ] : null,
-      h('p', { class: 'activity__note' }, 'The Console only reads. Deciding stays in the terminal.'),
+      h('p', { class: 'activity__note' }, 'Deciding from this page needs the Console on this machine or a paired control device. The terminal commands still work.'),
     ];
   }, 'acts acts--decide');
   const body = h('div', { class: 'activity__body' }, [
