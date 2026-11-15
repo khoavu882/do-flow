@@ -6,25 +6,29 @@
 // One run per run state, a stale run, a shape-mismatch run, a flat run, a 12-task plan over 3 owners with
 // finished, released and active attempts, several gate kinds; `--empty` and `--core-missing` modes; and
 // the live steps. The "running lane" case is the one that needs the fixture's active attempts. The `--worker-log`
-// cases (feature 150 D.1, IC-021) run the script as a child and drive it with stdin `log` lines.
+// cases (feature 150 D.1, IC-021) run the script as a child and drive it with stdin `log` lines. The Layers cases (feature 161
+// T8) read the live stream (/api/live) the way the page does: the machine channel, `layers:<pk>`, a `transcript:` lane and the
+// `file:` lane of `--layers`.
 
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { CORE_CLI } = require('./helpers/core-fixture.ts');
-const { RUNS, OWNERS, SCRATCH_ROOT, CHAIN, LOG_APPENDS, startFixtureConsole, parseFlags } = require('../scripts/fixture-console.ts');
+const { RUNS, OWNERS, SCRATCH_ROOT, CHAIN, LOG_APPENDS, LAYERS, LAYERS_APPENDS, startFixtureConsole, parseFlags } = require('../scripts/fixture-console.ts');
 const { readRuns } = require('../../src/runtime/worker/run-store.ts');
 const crypto = require('node:crypto');
 const os = require('node:os');
 const { pathToFileURL } = require('node:url');
+const http = require('node:http');
 const { spawn, spawnSync } = require('node:child_process');
+const { sha16 } = require('../../src/runtime/scaffold/fingerprint.ts');
 
 const DAY = 24 * 60 * 60 * 1000;
 const URL_FORM = /^http:\/\/127\.0\.0\.1:\d+\/#c=[0-9a-f]{64}$/;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-type Api = { get(target: string): Promise<{ status: number, json: any }>, exchange: number, health: number };
+type Api = { get(target: string): Promise<{ status: number, json: any }>, exchange: number, health: number, cookie: string };
 
 /** Exchanges the launch code (POST /api/session) and returns a GET over the session cookie. */
 async function session(app: any): Promise<Api> {
@@ -35,6 +39,7 @@ async function session(app: any): Promise<Api> {
   return {
     exchange: exchange.status,
     health: health.status,
+    cookie,
     async get(target: string) {
       const reply = await fetch(`${own}${target}`, { headers: { Cookie: cookie } });
       return { status: reply.status, json: await reply.json() };
@@ -47,6 +52,52 @@ const row = (runs: any[], taskId: string) => {
   assert.ok(found, `${taskId} is listed`);
   return found;
 };
+
+type Live = { frames: any[], waitFor(pick: (frame: any) => boolean, label: string, ms?: number): Promise<any>, close(): void };
+
+/** One /api/live stream over the session cookie: every envelope that arrives is kept in `frames`. */
+function openLive(app: any, api: Api, channels: string[]): Live {
+  const frames: any[] = [];
+  const req = http.get({ host: '127.0.0.1', port: app.port, path: `/api/live?ch=${channels.join(',')}`, headers: { Cookie: api.cookie, Accept: 'text/event-stream' } }, (res: any) => {
+    res.setEncoding('utf8');
+    let buffer = '';
+    res.on('data', (chunk: string) => {
+      buffer += chunk;
+      for (let at = buffer.indexOf('\n\n'); at >= 0; at = buffer.indexOf('\n\n')) {
+        const block = buffer.slice(0, at);
+        buffer = buffer.slice(at + 2);
+        const data = block.split('\n').filter((line) => line.startsWith('data: ')).map((line) => line.slice(6)).join('');
+        if (data !== '') frames.push(JSON.parse(data));
+      }
+    });
+    res.on('error', () => {});
+  });
+  req.on('error', () => {});
+  return {
+    frames,
+    async waitFor(pick, label, ms = 20_000) {
+      const start = Date.now();
+      for (;;) {
+        const found = frames.find(pick);
+        if (found) return found;
+        if (Date.now() - start > ms) throw new Error(`no frame: ${label}; got ${JSON.stringify(frames.map((f) => [f.ch, f.type]))}`);
+        await sleep(25);
+      }
+    },
+    close: () => req.destroy(),
+  };
+}
+
+/** The project key of the Console's own project, from the machine channel as the page reads it. */
+async function currentProject(app: any, api: Api): Promise<string> {
+  const live = openLive(app, api, ['machine']);
+  try {
+    const frame = await live.waitFor((f) => f.ch === 'machine' && f.type === 'snapshot', 'the machine snapshot');
+    const projects = frame.data.state.machine.body.sections.projects.data.projects;
+    assert.deepEqual(projects.map((p: any) => [p.label, p.current]), [['main', true], ['beta', false]], 'the Console\'s project first, then the second');
+    return projects[0].projectKey;
+  } finally { live.close(); }
+}
 
 let full: any;
 let fullApi: Api;
@@ -228,7 +279,7 @@ test('every scratch directory is made under SCRATCH_ROOT and is gone after stop'
 });
 
 test('--core must be an absolute path to an existing file', () => {
-  assert.deepEqual(Object.keys(parseFlags(['--core', CORE_CLI, '--empty', '--core-missing', '--keep', '--tick', '2', '--append', '1'])).sort(), ['append', 'coreMissing', 'core', 'empty', 'history', 'keep', 'manage', 'tick', 'workerLog'].sort()); // V.10 adds --append, 150 D.1 --worker-log, 152 D.1 --history
+  assert.deepEqual(Object.keys(parseFlags(['--core', CORE_CLI, '--empty', '--core-missing', '--keep', '--tick', '2', '--append', '1'])).sort(), ['append', 'coreMissing', 'core', 'empty', 'history', 'keep', 'layers', 'manage', 'tick', 'workerLog'].sort()); // V.10 adds --append, 150 D.1 --worker-log, 152 D.1 --history, 161 T8 --layers
   for (const argv of [[], ['--core', 'relative/doflow.js'], ['--core', path.join(path.dirname(CORE_CLI), 'no-such.js')], ['--core', CORE_CLI, '--bogus'], ['--core', CORE_CLI, '--tick', '0'], ['--core', CORE_CLI, '--append', '0']]) {
     assert.ok('error' in parseFlags(argv), `refused: ${argv.join(' ')}`);
   }
@@ -372,43 +423,115 @@ test('each tick takes the next step of the live run, then reports none left', { 
   assert.equal(full.tick(), null);
 });
 
-test('the Fleet fixture (V.10): two projects, the harness homes, nodes with their transcript notes, and the appending writer', async () => {
-  const listed = await fullApi.get('/api/fleet');
-  assert.equal(listed.status, 200);
-  const body = listed.json;
-  assert.equal(body.store, 'present');
-  assert.deepEqual(body.projects.map((p: any) => [p.label, p.current]), [['main', true], ['beta', false]], 'the Console\'s project first, then the second');
-  assert.ok(body.excluded.notDoflow >= 1, 'the Sessions fixture\'s second repository has no DoFlow state and is counted');
-  const [alpha, beta] = body.projects;
-  assert.equal(alpha.tree.ok, true);
-  assert.equal(beta.tree.ok, true);
-  const nodes = alpha.tree.data.nodes;
-  const by = (harness: string) => nodes.filter((n: any) => n.harness === harness);
-  assert.ok(by('claude').length >= 3, 'the Claude main session and its two subagents');
-  assert.ok(nodes.some((n: any) => n.kind === 'harness-subagent' && n.harness === 'claude'));
-  assert.equal(by('opencode')[0].transcript.reason, 'no-reader');
-  assert.equal(by('antigravity')[0].transcript.reason, 'not-linked');
-  assert.ok(nodes.some((n: any) => n.transcript.linked), 'a transcript is linked');
-  assert.equal(beta.tree.data.nodes.length >= 1, true);
-  const text = JSON.stringify(body);
-  for (const marker of ['/work/fixture-project', 'fa000000', 'fx-Secret-4471', 'fixture.person@example.invalid', full.project, full.dir]) assert.ok(!text.includes(marker), `no ${marker} in the Fleet body`);
+test('the Layers world of the full fixture (was the Fleet fixture, V.10): the project, the harness homes, nodes with their transcript notes, and the appending writer, over /api/live', { timeout: 60_000 }, async () => {
+  const pk = await currentProject(full, fullApi);
+  const layers = openLive(full, fullApi, [`layers:${pk}`]);
+  try {
+    const snapshot = await layers.waitFor((f) => f.ch === `layers:${pk}` && f.type === 'snapshot', 'the layers snapshot');
+    const body = snapshot.data.state.layers.body;
+    assert.equal(body.sections.tree.ok, true);
+    const nodes = body.sections.tree.data.nodes;
+    const by = (harness: string) => nodes.filter((n: any) => n.harness === harness);
+    assert.ok(by('claude').length >= 3, 'the Claude main session and its two subagents');
+    assert.ok(nodes.some((n: any) => n.kind === 'harness-subagent' && n.harness === 'claude'));
+    assert.equal(by('opencode')[0].transcript.reason, 'no-reader');
+    assert.equal(by('antigravity')[0].transcript.reason, 'not-linked');
+    assert.ok(nodes.some((n: any) => n.transcript.linked), 'a transcript is linked');
+    const text = JSON.stringify(snapshot);
+    for (const marker of ['/work/fixture-project', 'fa000000', 'fx-Secret-4471', 'fixture.person@example.invalid', full.project, full.dir]) assert.ok(!text.includes(marker), `no ${marker} in the layers frame`);
 
-  // The appending writer: a reply, a tool call and its result show in the transcript within one read.
-  const agent = nodes.find((n: any) => n.harness === 'claude' && n.kind === 'main-session' && n.transcript.linked);
-  assert.ok(agent, 'the Claude main session is linked to its transcript');
-  const url = `/api/transcript?project=${alpha.projectKey}&agent=${agent.agentKey}`;
-  const first = await fullApi.get(url);
-  assert.equal(first.status, 200);
-  const before = JSON.stringify(first.json.events);
-  assert.ok(!before.includes('FIXTURE-APPEND-1'));
-  const wrote = full.append();
-  assert.equal(wrote, 'FIXTURE-APPEND-1');
-  const second = await fullApi.get(`${url}&cursor=${encodeURIComponent(first.json.cursor)}`);
-  assert.equal(second.status, 200);
-  const replies = second.json.events.filter((e: any) => e.kind === 'reply').map((e: any) => e.text);
-  assert.ok(replies.some((t: string) => t.includes('FIXTURE-APPEND-1')), `the appended reply is read from the old cursor: ${JSON.stringify(replies)}`);
-  assert.ok(second.json.events.some((e: any) => e.kind === 'tool-call'));
-  assert.ok(!JSON.stringify(second.json).includes('FIXTURE-APPEND-RESULT'), 'tool-result text never arrives');
+    // The appending writer: a reply, a tool call and its result show on the agent's `transcript:` lane as one `append` frame.
+    const agent = nodes.find((n: any) => n.harness === 'claude' && n.kind === 'main-session' && n.transcript.linked);
+    assert.ok(agent, 'the Claude main session is linked to its transcript');
+    const channel = `transcript:${pk}:${agent.agentKey}`;
+    const lane = openLive(full, fullApi, [channel]);
+    try {
+      const first = await lane.waitFor((f) => f.ch === channel && f.type === 'snapshot', 'the transcript snapshot');
+      assert.ok(!JSON.stringify(first).includes('FIXTURE-APPEND-1'));
+      assert.equal(full.append(), 'FIXTURE-APPEND-1');
+      const appended = await lane.waitFor((f) => f.ch === channel && f.type === 'append', 'the append frame');
+      const replies = appended.data.events.filter((e: any) => e.kind === 'reply').map((e: any) => e.text);
+      assert.ok(replies.some((t: string) => t.includes('FIXTURE-APPEND-1')), `the appended reply arrives: ${JSON.stringify(replies)}`);
+      assert.ok(appended.data.events.some((e: any) => e.kind === 'tool-call'));
+      assert.ok(!JSON.stringify(appended).includes('FIXTURE-APPEND-RESULT'), 'tool-result text never arrives');
+    } finally { lane.close(); }
+  } finally { layers.close(); }
+});
+
+test('--layers takes no value, is a flag of its own, and an unflagged fixture has no layers world', () => {
+  assert.equal((parseFlags(['--core', CORE_CLI, '--layers']) as any).layers, true);
+  assert.equal((parseFlags(['--core', CORE_CLI]) as any).layers, false);
+  assert.ok('error' in parseFlags(['--core', CORE_CLI, '--layers', '5']), 'a value after --layers is an unknown argument');
+  assert.equal(full.layers, null);
+  assert.equal(full.layersAudit(), null);
+  assert.equal(full.layersBrief(), null);
+});
+
+test('--layers: the audit log and the brief are listed by `layers:<pk>`, and each append reaches its channel (a patch, a file-lane append)', { timeout: 120_000 }, async () => {
+  const app = await startFixtureConsole({ core: CORE_CLI, layers: true });
+  try {
+    const api = await session(app);
+    const pk = await currentProject(app, api);
+    const live = openLive(app, api, [`layers:${pk}`]);
+    try {
+      const snapshot = await live.waitFor((f) => f.ch === `layers:${pk}` && f.type === 'snapshot', 'the layers snapshot');
+      const sections = snapshot.data.state.layers.body.sections;
+      for (const name of ['sessions', 'artifacts']) assert.equal(sections[name].ok, true, name);
+      const mine = sections.sessions.data.find((row: any) => row.sessionKey === sha16(LAYERS.session));
+      assert.ok(mine, 'the layers session is listed by its key');
+      assert.deepEqual([mine.harness, mine.audit.observed, mine.audit.started, mine.audit.stopped], ['claude', true, 1, 0], 'its audit log holds the seed line');
+      const brief = sections.artifacts.data.find((item: any) => item.kind === 'task-brief' && item.feature === LAYERS.feature);
+      assert.ok(brief, 'the brief is in the artifacts index');
+      assert.equal(brief.task, '1');
+      assert.ok(!('path' in brief), 'no path leaves the core');
+      assert.ok(app.layers.audit.endsWith('subagent-audit.log') && app.layers.brief.endsWith(LAYERS.brief));
+
+      // One audit line: the next patch names its agent key.
+      assert.equal(app.layersAudit(), 1);
+      const key = sha16(`claude:${LAYERS.session}:m-1`);
+      await live.waitFor((f) => f.ch === `layers:${pk}` && f.type === 'patch' && JSON.stringify(f.data).includes(key), 'a patch with the audit line');
+      assert.ok(fs.readFileSync(app.layers.audit, 'utf8').trim().split('\n').length === 2);
+
+      // One brief line: the file lane holds the heading in its snapshot and the line in an append.
+      const channel = `file:${pk}:${brief.fileKey}`;
+      const lane = openLive(app, api, [channel]);
+      try {
+        const first = await lane.waitFor((f) => f.ch === channel && f.type === 'snapshot', 'the file snapshot');
+        assert.ok(JSON.stringify(first).includes('Task 1 brief'));
+        assert.equal(app.layersBrief(), 1);
+        const appended = await lane.waitFor((f) => f.ch === channel && f.type === 'append' && JSON.stringify(f).includes('brief chunk 1'), 'the file append');
+        assert.ok(appended);
+        assert.ok(!JSON.stringify(lane.frames).includes(app.dir), 'no path leaves the core');
+      } finally { lane.close(); }
+    } finally { live.close(); }
+  } finally { await app.stop(); }
+});
+
+test('--layers appends stop after 100 of each kind, and the stdin lines print `audit <n>` / `brief <n>` after the write', { timeout: 120_000 }, async (t: any) => {
+  assert.equal(LAYERS_APPENDS, 100);
+  const child = spawn(process.execPath, [FIXTURE_SCRIPT, '--core', CORE_CLI, '--layers'], { stdio: ['pipe', 'pipe', 'pipe'] });
+  const exited = new Promise<number | null>((resolve) => child.on('exit', (code: number | null) => resolve(code)));
+  t.after(async () => { if (child.exitCode === null && child.signalCode === null) { child.kill('SIGTERM'); await exited; } });
+  const lines: string[] = [];
+  let pending = '';
+  let out = '';
+  child.stdout.setEncoding('utf8');
+  child.stdout.on('data', (chunk: string) => { out += chunk; });
+  child.stderr.setEncoding('utf8');
+  child.stderr.on('data', (chunk: string) => { pending += chunk; const parts = pending.split('\n'); pending = parts.pop() ?? ''; lines.push(...parts); });
+  const until = async (check: () => boolean, label: string) => { for (let i = 0; i < 2400 && !check(); i += 1) await sleep(25); assert.ok(check(), `${label}; stderr ${lines.slice(-5).join(' | ')}`); };
+  await until(() => /^doflow ui: /m.test(out) && lines.some((l) => /scratch directory .+; project /.test(l)), 'the fixture booted');
+  const project = /; project (.+)$/.exec(lines.find((l) => /; project /.test(l)) as string)![1];
+  const brief = path.join(project, 'agent-docs', 'doflow', LAYERS.feature, 'exec', LAYERS.brief);
+  child.stdin.write('audit\nbrief\nbrief\n');
+  await until(() => lines.includes('fixture-console: audit 1') && lines.includes('fixture-console: brief 2'), 'the audit and brief lines');
+  assert.equal(fs.readFileSync(brief, 'utf8'), '# Task 1 brief\nbrief chunk 1\nbrief chunk 2\n', 'the line is printed after the write');
+  for (let i = 0; i < LAYERS_APPENDS; i += 1) child.stdin.write('brief\n');
+  await until(() => lines.includes('fixture-console: no brief line left'), 'the brief appends are exhausted');
+  assert.equal(lines.filter((l) => /^fixture-console: brief \d+$/.test(l)).length, LAYERS_APPENDS);
+  assert.ok(!lines.some((l) => /^fixture-console: audit (?!1$)/.test(l)), 'the audit count is its own');
+  child.kill('SIGTERM');
+  assert.equal(await exited, 0);
 });
 
 

@@ -6,7 +6,7 @@
 // on 127.0.0.1:0 against it, and prints the Console's one URL line on stdout. It is the only Console a
 // designer or a browser check may open. Everything else it says goes to stderr.
 //
-//   node console/scripts/fixture-console.ts --core <abs path to bin/doflow.js> [--empty] [--manage] [--core-missing] [--keep] [--tick <seconds>] [--append <seconds>] [--worker-log <seconds>]
+//   node console/scripts/fixture-console.ts --core <abs path to bin/doflow.js> [--empty] [--manage] [--core-missing] [--keep] [--tick <seconds>] [--append <seconds>] [--worker-log <seconds>] [--layers]
 //
 //   --empty          a project with no runs (the empty views)
 //   --manage         add the management settings, follow-ups, goals, advice and doctor fixture world
@@ -22,7 +22,8 @@
 //                    A line `tick` on stdin takes the same next step at once. The steps end there:
 //                    completing implementation needs a readiness record, which a fixture does not make.
 //   --append <seconds> every <seconds> (and on a stdin line `append`), the appending writer adds a reply, a tool call and its
-//                    result to the Claude fixture transcript of the Fleet view; the Console shows them within a second.
+//                    result to the Claude fixture transcript that the Layers agent inspector follows (the `transcript:` lane of the
+//                    live stream). The flag stays: the Layers inspector is what reads that transcript now (the Fleet view is gone).
 //   --worker-log <seconds> (feature 150, IC-021) adds the feature feat-chain: run `run-chain` through orchestrate
 //                    (discovery and design passed, gate-0 approved: RUNNING in planning), two plan tasks with three
 //                    subagent attempts (A.1 failed then claimed again, A.2 released), and the shared worker world of
@@ -30,6 +31,13 @@
 //                    process's own pid and start as its supervisor. R1's out and err files do not exist yet. Every
 //                    <seconds> (and on a stdin line `log`) one line is appended to each file, then `log <n>` is printed
 //                    on stderr; after 24 appends R1 is moved to `ended` with its output pointers. Not with --empty.
+//
+//   --layers         (feature 161 T8, IC-010) the world of scripts/measure-layers.ts, on the Console's own project: a Claude hook session
+//                    whose session directory holds a `subagent-audit.log` (one SubagentStart line already in it), and the task brief
+//                    `agent-docs/doflow/feat-layers/exec/task-1-brief.md` (one heading line), both of which the core's `layers:<pk>`
+//                    channel lists. On a stdin line `audit` one SubagentStart line is appended to that log (agent id `m-<n>`), on
+//                    `brief` one line `brief chunk <n>` to the brief; `audit <n>` / `brief <n>` is printed on stderr after the write
+//                    returned. At most 100 of each; a line past that prints `no audit line left` / `no brief line left`.
 //
 // Ctrl-C (SIGINT) or SIGTERM stops the Console and removes the scratch directories (exact paths, all
 // under SCRATCH_ROOT) unless --keep.
@@ -72,7 +80,7 @@ const URL_LINE = /^doflow ui: http:\/\/127\.0\.0\.1:(\d+)\/#c=([0-9a-f]{64})\n/;
 const BOOT_MS = 30_000;
 const STOP_MS = 5_000;
 const HOUR = 60 * 60 * 1000;
-const USAGE = 'usage: fixture-console.ts --core <absolute path to bin/doflow.js> [--empty] [--manage] [--history] [--core-missing] [--keep] [--tick <seconds>] [--append <seconds>] [--worker-log <seconds>]';
+const USAGE = 'usage: fixture-console.ts --core <absolute path to bin/doflow.js> [--empty] [--manage] [--history] [--core-missing] [--keep] [--tick <seconds>] [--append <seconds>] [--worker-log <seconds>] [--layers]';
 const REPO = path.resolve(__dirname, '..', '..');
 /** The session ids of the V.2 transcript fixtures (test/fixtures/transcripts/v8): `<RAW>c001` is the Claude main session. */
 const RAW = 'fa000000-0000-4000-8000-00000000';
@@ -148,6 +156,10 @@ const CHAIN = Object.freeze({ slug: 'feat-chain', taskId: 'run-chain' });
 const LOG_APPENDS = 24;
 /** setInterval's longest delay; a longer one fires at once. */
 const MAX_TIMER_S = 2_147_483;
+/** --layers (161 T8): the most audit lines, and the most brief lines, one stdin line each. */
+const LAYERS_APPENDS = 100;
+/** --layers: the Claude hook session whose audit log grows, and the brief whose text grows. */
+const LAYERS = Object.freeze({ session: 'fixture-session-layers-RAWID-9', feature: 'feat-layers', brief: 'task-1-brief.md' });
 const CHAIN_PLAN = [
   '# Plan', '', '**Task graph:** v1', '', ...CONSTITUTION_CHECK, '## Tasks', '',
   '### Phase A', '',
@@ -156,7 +168,7 @@ const CHAIN_PLAN = [
   '',
 ].join('\n');
 
-type Options = { core: string, empty?: boolean, manage?: boolean, history?: boolean, coreMissing?: boolean, keep?: boolean, chain?: boolean, log?: (line: string) => void };
+type Options = { core: string, empty?: boolean, manage?: boolean, history?: boolean, coreMissing?: boolean, keep?: boolean, chain?: boolean, layers?: boolean, log?: (line: string) => void };
 type Fixture = ReturnType<typeof buildFixture>;
 type Handle = {
   url: string, port: number, code: string, dir: string, project: string, env: Record<string, string>,
@@ -175,6 +187,12 @@ type Handle = {
   logAppend(): number | null,
   /** Moves R1 to `ended` with its output pointers; the ended record. */
   logEnd(): any,
+  /** The --layers world (`layers: true`), or null: the audit log and the brief the two appenders grow. */
+  layers: { audit: string, brief: string } | null,
+  /** Appends one SubagentStart line to the session's audit log; the line's number (1 to 100), or null when none is left or with no --layers world. */
+  layersAudit(): number | null,
+  /** Appends one line to the brief; the line's number (1 to 100), or null when none is left or with no --layers world. */
+  layersBrief(): number | null,
   stop(): Promise<void>,
 };
 
@@ -521,6 +539,38 @@ function addChain(fixture: Fixture, core: string) {
   });
 }
 
+/**
+ * The --layers world (IC-010): a Claude hook session of the Console's project with a `subagent-audit.log` that already holds one
+ * line, and a task brief the artifacts index lists. Returns the two files and their appenders.
+ */
+function addLayers(fixture: Fixture) {
+  const { main } = fixture;
+  const store = path.join(fixture.roots['config-home'], 'session-env');
+  hookSession(store, 'claude', LAYERS.session, main);
+  const audit = path.join(store, 'sessions', LAYERS.session, 'subagent-audit.log');
+  const line = (id: string) => `${JSON.stringify({ timestamp: new Date().toISOString().replace(/\.\d+Z$/, 'Z'), session_id: LAYERS.session, event: 'SubagentStart', agent_type: 'Explore', agent_id: id })}\n`;
+  fs.writeFileSync(audit, line('m-0'));
+  const brief = path.join(main, 'agent-docs', 'doflow', LAYERS.feature, 'exec', LAYERS.brief);
+  fs.mkdirSync(path.dirname(brief), { recursive: true });
+  fs.writeFileSync(brief, '# Task 1 brief\n');
+  const counts = { audit: 0, brief: 0 };
+  return {
+    audit, brief,
+    appendAudit(): number | null {
+      if (counts.audit >= LAYERS_APPENDS) return null;
+      counts.audit += 1;
+      fs.appendFileSync(audit, line(`m-${counts.audit}`));
+      return counts.audit;
+    },
+    appendBrief(): number | null {
+      if (counts.brief >= LAYERS_APPENDS) return null;
+      counts.brief += 1;
+      fs.appendFileSync(brief, `brief chunk ${counts.brief}\n`);
+      return counts.brief;
+    },
+  };
+}
+
 /** Zero runs: both stores the helper wrote to (the main checkout and its linked worktree) are emptied. */
 function dropRuns(fixture: Fixture) {
   for (const root of [fixture.main, fixture.linked]) fs.rmSync(path.join(root, '.doflow', 'state', 'orchestration'), { recursive: true, force: true });
@@ -674,6 +724,7 @@ async function startFixtureConsole(options: Options): Promise<Handle> {
   const scratch = [fixture.dir];
   let steps: Array<{ describe: string, args: string[], before?: () => void }> = [];
   let world: ReturnType<typeof addChain> | null = null;
+  let layersWorld: ReturnType<typeof addLayers> | null = null;
   try {
     if (options.empty && options.manage) throw new Error('fixture-console: --manage cannot be combined with --empty');
     if (options.empty && options.chain) throw new Error('fixture-console: --worker-log needs runs; it cannot be combined with --empty');
@@ -691,6 +742,7 @@ async function startFixtureConsole(options: Options): Promise<Handle> {
       }
     }
     const fleet = addFleet(fixture, options.core);
+    if (options.layers) layersWorld = addLayers(fixture);
     // This helper asserts the world's core-level premises before the Console can publish its URL.
     if (options.manage) buildManageWorld({ fixture, core: options.core });
 
@@ -726,6 +778,7 @@ async function startFixtureConsole(options: Options): Promise<Handle> {
     let stopped = false;
     let appended = 0;
     const chainWorld = world;
+    const layersFiles = layersWorld;
     const r1 = chainWorld === null ? null : chainWorld.runs.running as string;
     return {
       url: `http://127.0.0.1:${booted.port}/#c=${booted.code}`,
@@ -754,6 +807,9 @@ async function startFixtureConsole(options: Options): Promise<Handle> {
         if (chainWorld === null) throw new Error('fixture-console: no --worker-log world');
         return chainWorld.endRunning();
       },
+      layers: layersFiles === null ? null : { audit: layersFiles.audit, brief: layersFiles.brief },
+      layersAudit: () => (layersFiles === null ? null : layersFiles.appendAudit()),
+      layersBrief: () => (layersFiles === null ? null : layersFiles.appendBrief()),
       tick() {
         if (next >= steps.length) return null;
         const step = steps[next];
@@ -778,10 +834,10 @@ async function startFixtureConsole(options: Options): Promise<Handle> {
   }
 }
 
-type Flags = { core: string, empty: boolean, manage: boolean, history: boolean, coreMissing: boolean, keep: boolean, tick: number | null, append: number | null, workerLog: number | null };
+type Flags = { core: string, empty: boolean, manage: boolean, history: boolean, coreMissing: boolean, keep: boolean, layers: boolean, tick: number | null, append: number | null, workerLog: number | null };
 
 function parseFlags(argv: readonly string[]): Flags | { error: string } {
-  const flags: Flags = { core: '', empty: false, manage: false, history: false, coreMissing: false, keep: false, tick: null, append: null, workerLog: null };
+  const flags: Flags = { core: '', empty: false, manage: false, history: false, coreMissing: false, keep: false, layers: false, tick: null, append: null, workerLog: null };
   for (let index = 0; index < argv.length; index += 1) {
     const name = argv[index];
     if (name === '--empty') flags.empty = true;
@@ -789,6 +845,7 @@ function parseFlags(argv: readonly string[]): Flags | { error: string } {
     else if (name === '--history') flags.history = true;
     else if (name === '--core-missing') flags.coreMissing = true;
     else if (name === '--keep') flags.keep = true;
+    else if (name === '--layers') flags.layers = true;
     else if (name === '--core' || name === '--tick' || name === '--append') {
       const value = argv[index + 1];
       if (value === undefined) return { error: `${name} needs a value` };
@@ -822,7 +879,7 @@ async function main(argv: readonly string[]): Promise<number> {
   const log = (line: string) => process.stderr.write(`fixture-console: ${line}\n`);
   let app: Handle;
   try {
-    app = await startFixtureConsole({ ...flags, chain: flags.workerLog !== null, log });
+    app = await startFixtureConsole({ ...flags, chain: flags.workerLog !== null, layers: flags.layers, log });
   } catch (error: any) {
     process.stderr.write(`${error && error.message ? error.message : error}\n`);
     return 1;
@@ -870,11 +927,22 @@ async function main(argv: readonly string[]): Promise<number> {
     }
   };
   const logger = flags.workerLog === null ? null : setInterval(() => { if (!logOnce()) clearInterval(logger as any); }, flags.workerLog * 1000);
+  // 161 T8: `audit <n>` / `brief <n>` goes out only after the append returned.
+  const layersOnce = (kind: 'audit' | 'brief') => {
+    try {
+      const n = kind === 'audit' ? app.layersAudit() : app.layersBrief();
+      log(n === null ? `no ${kind} line left` : `${kind} ${n}`);
+    } catch (error: any) {
+      log(`${kind} failed: ${error && error.message ? error.message : error}`);
+    }
+  };
   process.stdin.on('data', (chunk: string) => {
     for (const line of chunk.split('\n')) {
       if (line.trim() === 'tick') tick();
       else if (line.trim() === 'append') appendOnce();
       else if (line.trim() === 'log' && flags.workerLog !== null) logOnce();
+      else if (line.trim() === 'audit' && flags.layers) layersOnce('audit');
+      else if (line.trim() === 'brief' && flags.layers) layersOnce('brief');
     }
   });
   return new Promise<number>((resolve) => {
@@ -890,6 +958,6 @@ async function main(argv: readonly string[]): Promise<number> {
   });
 }
 
-module.exports = { RUNS, OWNERS, SCRATCH_ROOT, CHAIN, LOG_APPENDS, startFixtureConsole, parseFlags };
+module.exports = { RUNS, OWNERS, SCRATCH_ROOT, CHAIN, LOG_APPENDS, LAYERS, LAYERS_APPENDS, startFixtureConsole, parseFlags };
 
 if (require.main === module) main(process.argv.slice(2)).then((code) => process.exit(code));
