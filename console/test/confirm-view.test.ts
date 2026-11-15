@@ -454,6 +454,8 @@ test('loadActions reads GET /api/actions once per page load; a view-scope device
   assert.equal(a, b);
   assert.deepEqual(client.actionPower('close-run'), { allowed: false, reason: 'phone-scope' });
   assert.equal(words.notAllowedWords('phone-scope'), 'Actions need a control device paired from the Android app.');
+  // 162 review 2: a Console that cannot write its action log offers no action, and says why.
+  assert.equal(words.notAllowedWords('action-log-unwritable'), 'Actions are off: the Console cannot write its action log.');
 });
 
 test('a local actor may do every action; a failed read, an older Console and a reply of another shape leave the page without buttons', async () => {

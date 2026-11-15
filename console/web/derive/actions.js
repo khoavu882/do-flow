@@ -242,6 +242,7 @@ const NOT_ALLOWED_WORDS = Object.freeze({
   'phone-scope': 'Actions need a control device paired from the Android app.',
   'action-transport': 'Actions run only over the Android app’s own connection, not from this page.',
   'core-lacks-action': 'The installed DoFlow core cannot take this action. Update the core to enable it.',
+  'action-log-unwritable': 'Actions are off: the Console cannot write its action log.',
 });
 
 /** @param {any} reason */

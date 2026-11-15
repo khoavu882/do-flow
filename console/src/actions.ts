@@ -569,12 +569,15 @@ function createActions({ runner, log, now = Date.now, warn = () => {} }: Options
       const view = actor !== null && actor.kind === 'device'
         ? { kind: 'device', deviceId: actor.deviceId, scope: actor.scope, transport: transportOf(ctx) }
         : { kind: 'local', transport: 'loopback' };
+      // 162 review 2: a log that is absent or cannot be written refuses every POST (503), so no action is offered.
+      const logOk = log !== null && await log.writable();
       const reasonOf = (spec: ActionSpec): string | null => {
         if (actor === null) return 'action-transport';
         if (actor.kind === 'device') {
           if (actor.scope !== 'control') return 'phone-scope';
           if (!deviceMayAct(actor.session, ctx.clientClass)) return 'action-transport';
         }
+        if (!logOk) return 'action-log-unwritable';
         return lacking.has(spec.id) ? 'core-lacks-action' : null;
       };
       return jsonReply(200, {

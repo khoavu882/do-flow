@@ -628,3 +628,20 @@ test('162 review 1: a flood of refusals that never reach the core (300 phone-sco
   const other = await w.world.pair('control', 'Tablet');
   assert.equal((await w.post('close-run', BODIES['close-run'](), { Authorization: other.bearer })).status, 200);
 });
+
+test('162 review 2: GET /api/actions says allowed false, reason action-log-unwritable, when there is no log or the log cannot be written, as every POST would answer; it says allowed again once the log can be written', async (t) => {
+  const runner = fakeRunner();
+  const none = await loopback(t, runner, { log: null });
+  const reasons = (reply: { body: string }) => json(reply).actions.map((entry: any) => [entry.id, entry.allowed, entry.reason]);
+  assert.deepEqual(reasons(await none.get('/api/actions')), IDS.map((id) => [id, false, 'action-log-unwritable']));
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-ui-action-log-'));
+  t.after(() => fs.rmSync(parent, { recursive: true, force: true }));
+  const dir = path.join(parent, 'console');
+  fs.writeFileSync(dir, 'a file where the folder should be');
+  const broken = await loopback(t, runner, { log: createActionLog({ dir }) });
+  assert.deepEqual(reasons(await broken.get('/api/actions')), IDS.map((id) => [id, false, 'action-log-unwritable']));
+  assert.equal(errorOf(await broken.post('close-run', BODIES['close-run']())), 'action-log-unwritable');
+  fs.rmSync(dir);
+  assert.deepEqual(reasons(await broken.get('/api/actions')), IDS.map((id) => [id, true, null]));
+  assert.equal(runner.acts.length, 0);
+});

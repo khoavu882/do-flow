@@ -22,6 +22,8 @@
 //                                    once the minute has passed (on a later `summary` or `flush`); `base`
 //                                    ({ actor, address, action }) is taken from the bucket's first call. So a flood
 //                                    of refusals adds at most one line per code and key a minute (162 review 1).
+//   log.writable()                -> whether the folder can be prepared and the log's name holds a regular file or
+//                                    nothing; writes nothing (what `GET /api/actions` asks, 162 review 2)
 //   log.flush(all?)               -> writes the buckets of minutes that have passed (all of them when `all`, for
 //                                    shutdown); a bucket whose write fails is dropped and the error thrown
 //   log.writeLine(text)           -> the low-level write: one line of at most 2048 bytes, rotation included
@@ -257,6 +259,17 @@ function createActionLog(options: Options) {
     return { pid, seq: sequence };
   });
 
+  /** The folder can be prepared and `actions.ndjson` is a regular file or absent; nothing is written. */
+  async function writable(): Promise<boolean> {
+    try {
+      prepareDir();
+      sizeOf();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   // ---- the aggregated lines: 401s, 429s and every refusal before the core ----
 
   const buckets = new Map<string, Bucket>();
@@ -291,6 +304,7 @@ function createActionLog(options: Options) {
     begin: (fields: Fields) => append('begin', fields),
     end: (fields: Fields) => append('end', fields),
     summary,
+    writable,
     flush,
     writeLine,
   };
