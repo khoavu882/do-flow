@@ -212,7 +212,7 @@ function createLogSubscription(options: LogSubscriptionOptions): LogSubscription
     /**
      * IC-008's declared sources, read now: the `worker-output` directory with `match`
      * `^<runId>\.<stream>\.log$`, the directories and primary record `worker:<runId>` declares
-     * (`workerSources`), and the file as the detector's `tail`.
+     * (`workerSources`), and the file as the detector's one tail.
      */
     sources() {
       const worker = workerSources({ lifecycleRoot }, runId);
@@ -222,7 +222,7 @@ function createLogSubscription(options: LogSubscriptionOptions): LogSubscription
         files: [],
         derived: [],
         primary: worker.primary,
-        tail: { path: file, active: () => !done && phaseSeen !== 'ended' },
+        tails: [{ path: file, active: () => !done && phaseSeen !== 'ended' }],
       };
     },
 

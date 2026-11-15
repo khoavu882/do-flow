@@ -8,12 +8,14 @@ const {
   createEnvelopeWriter, newEpoch, maskJson, maskSections,
   ENVELOPE_VERSION, FRAME_TYPES, ERROR_CODES, RESET_REASONS, LINE_CAP_BYTES, ENVELOPE_ID, EPOCH_PATTERN, LOG_ID,
 } = require('../../src/runtime/events/envelope.ts');
-const { parseChannel, parseChannelList, isChannelId, CHANNEL_LIMIT, CHANNEL_KINDS } = require('../../src/runtime/events/channels.ts');
+const { parseChannel, parseChannelList, isChannelId, projectKeyOf, isLogKind, CHANNEL_LIMIT, CHANNEL_KINDS, PROJECT_LIMIT } = require('../../src/runtime/events/channels.ts');
 const { ID_PATTERN } = require('../../src/runtime/context/identity.ts');
 
 const T0 = Date.UTC(2026, 10, 7, 12, 0, 0, 0);
 const EPOCH = '3f9a0c12';
 const RUN = 'run:feat-a:A.3';
+const PK = '0123456789abcdef';
+const FK = 'fedcba9876543210';
 
 function fixedWriter(epoch = EPOCH) {
   let tick = 0;
@@ -42,11 +44,11 @@ function assertEnvelope(env: any, ch: string, type: string) {
 test('exported constants match IC-002 and IC-007', () => {
   assert.equal(ENVELOPE_VERSION, 1);
   assert.deepEqual([...FRAME_TYPES], ['snapshot', 'patch', 'append', 'reset', 'error', 'gone']);
-  assert.deepEqual([...ERROR_CODES], ['unsupported-version', 'store-unreadable', 'producer-failed', 'too-many-channels']);
+  assert.deepEqual([...ERROR_CODES], ['unsupported-version', 'store-unreadable', 'producer-failed', 'too-many-channels', 'too-many-projects']);
   assert.deepEqual([...RESET_REASONS], ['frame-cap', 'replaced']);
   assert.equal(LINE_CAP_BYTES, 262144);
   assert.equal(CHANNEL_LIMIT, 64);
-  assert.deepEqual([...CHANNEL_KINDS], ['now', 'run', 'tasks', 'worker', 'log']);
+  assert.deepEqual([...CHANNEL_KINDS], ['now', 'run', 'tasks', 'worker', 'log', 'machine', 'layers', 'file', 'transcript']);
   assert.ok(Object.isFrozen(FRAME_TYPES) && Object.isFrozen(ERROR_CODES) && Object.isFrozen(RESET_REASONS));
 });
 
@@ -373,6 +375,31 @@ test('log order: a log channel owes a logSnapshot first and after reset, error o
   }
 });
 
+test('161 IC-001: machine and layers are framed by sections, file and transcript by log frames, and too-many-projects is an error code', () => {
+  const writer = fixedWriter();
+  const stateChannels = ['machine', `layers:${PK}`];
+  const logChannels = [`file:${PK}:${FK}`, `transcript:${PK}:${FK}`];
+  for (const ch of stateChannels) {
+    const [snap] = parse(writer.snapshot(ch, { s: { exit: 0, json: 1 } }));
+    assert.match(snap.id, ENVELOPE_ID);
+    assert.deepEqual([snap.ch, snap.type], [ch, 'snapshot']);
+    assert.throws(() => writer.logSnapshot(ch, openSnap(0, 0, [], { log: 'waiting', ino: null })), TypeError, ch);
+  }
+  for (const ch of logChannels) {
+    const [snap] = parse(writer.logSnapshot(ch, openSnap(0, 4, [{ at: 0, text: 'abcd' }])));
+    assert.match(snap.id, LOG_ID);
+    assert.deepEqual([snap.ch, snap.type], [ch, 'snapshot']);
+    const [append] = parse(writer.append(ch, appendOf(4, 6, [{ at: 4, text: 'ef' }])));
+    assert.deepEqual([append.ch, append.type], [ch, 'append']);
+    assert.throws(() => writer.snapshot(ch, { s: { exit: 0, json: 1 } }), TypeError, ch);
+  }
+  for (const ch of [...stateChannels, ...logChannels]) {
+    const [error] = parse(writer.error(ch, 'too-many-projects'));
+    assert.deepEqual([error.ch, error.type, error.data], [ch, 'error', { code: 'too-many-projects' }]);
+    assert.equal(writer.needsSnapshot(ch), true);
+  }
+});
+
 test('log channels only: append and logSnapshot refuse any other channel; sections refuse a log channel', () => {
   const writer = fixedWriter();
   for (const ch of ['run:feat-a:t', 'now', 'tasks:feat-a', 'worker:w-0123456789ab', 'worker:w-0123456789ab:last', 'worker:w-0123456789AB:out', 'worker:w-0123456789ab:out:x']) {
@@ -541,12 +568,23 @@ test('channels: every refused kind and malformed form is refused with a reason',
   const cases: Array<[string, string]> = [
     ['worker:w-0123456789ab:last', 'malformed'],
     ['worker:w-0123456789ab:x', 'malformed'],
-    ['transcript:abc', 'refused-kind'],
-    ['transcript', 'refused-kind'],
+    ['transcript:abc', 'malformed'],
+    ['transcript', 'malformed'],
     ['followups', 'refused-kind'],
     ['advice', 'refused-kind'],
-    ['fleet:project-a', 'refused-kind'],
-    ['fleet', 'refused-kind'],
+    ['fleet:project-a', 'unknown-kind'],
+    ['fleet', 'unknown-kind'],
+    ['machine:x', 'malformed'],
+    ['layers', 'malformed'],
+    [`layers:${PK.toUpperCase()}`, 'malformed'],
+    [`layers:${PK.slice(1)}`, 'malformed'],
+    [`layers:${PK}:${FK}`, 'malformed'],
+    [`file:${PK}`, 'malformed'],
+    [`file:${PK}:${FK}:${FK}`, 'malformed'],
+    [`file:${PK}:${FK.slice(0, 15)}`, 'malformed'],
+    [`file:${PK}:../${FK.slice(3)}`, 'malformed'],
+    [`transcript:${PK}`, 'malformed'],
+    [`transcript:${PK}:${'g'.repeat(16)}`, 'malformed'],
     ['sessions', 'unknown-kind'],
     ['NOW', 'unknown-kind'],
     ['now:x', 'malformed'],
@@ -570,6 +608,26 @@ test('channels: every refused kind and malformed form is refused with a reason',
     assert.ok(result.reason.length > 0);
   }
   for (const value of [undefined, null, 5, ['now']]) assert.equal(parseChannel(value).ok, false);
+});
+
+test('161 IC-001: machine, layers, file and transcript parse with 16-hex keys', () => {
+  assert.deepEqual(parseChannel('machine'), { ok: true, channel: { kind: 'machine', name: 'machine' } });
+  assert.deepEqual(parseChannel(`layers:${PK}`), { ok: true, channel: { kind: 'layers', name: `layers:${PK}`, projectKey: PK } });
+  assert.deepEqual(parseChannel(`file:${PK}:${FK}`), { ok: true, channel: { kind: 'file', name: `file:${PK}:${FK}`, projectKey: PK, fileKey: FK } });
+  assert.deepEqual(parseChannel(`transcript:${PK}:${FK}`), { ok: true, channel: { kind: 'transcript', name: `transcript:${PK}:${FK}`, projectKey: PK, agentKey: FK } });
+  assert.equal(projectKeyOf(parseChannel('machine').channel), null);
+  assert.equal(projectKeyOf(parseChannel('now').channel), null);
+  for (const text of [`layers:${PK}`, `file:${PK}:${FK}`, `transcript:${PK}:${FK}`]) assert.equal(projectKeyOf(parseChannel(text).channel), PK, text);
+  assert.deepEqual(['now', 'machine', `layers:${PK}`, `file:${PK}:${FK}`, `transcript:${PK}:${FK}`, 'worker:w-0123456789ab:out'].map((text) => isLogKind(parseChannel(text).channel)), [false, false, false, true, true, true]);
+});
+
+test('161 IC-001: the 8-project bound counts distinct projects across layers, file and transcript', () => {
+  const keys = Array.from({ length: 9 }, (_v, i) => i.toString(16).padStart(16, '0'));
+  const eight = keys.slice(0, 8).map((k) => `layers:${k},file:${k}:${FK},transcript:${k}:${FK}`).join(',');
+  assert.equal(parseChannelList(`now,machine,${eight}`).ok, true, 'eight projects, many channels each');
+  const nine = parseChannelList(`${eight},layers:${keys[8]}`);
+  assert.deepEqual([nine.ok, nine.code], [false, 'too-many-projects']);
+  assert.equal(PROJECT_LIMIT, 8);
 });
 
 test('channel list: comma-separated, distinct, at most 64', () => {

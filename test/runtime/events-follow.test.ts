@@ -156,7 +156,7 @@ test('AC-10: a terminal follow prints a snapshot, then a patch with a greater id
 
 test('AC-13: a refused kind exits 2 before any envelope', (t) => {
   const root = tempDir(t, 'doflow-events-follow-refused-');
-  for (const channels of ['transcript:x', 'fleet:x', 'followups', 'advice', `now,fleet:x`]) {
+  for (const channels of ['followups', 'advice', 'now,advice']) {
     const r = spawnSync(process.execPath, [CLI, 'events', '--follow', '--channels', channels, '--json'], {
       cwd: root, env: { ...process.env, DOFLOW_UPKEEP: 'off', DOFLOW_TELEMETRY: 'off' }, encoding: 'utf8',
     });
@@ -164,6 +164,16 @@ test('AC-13: a refused kind exits 2 before any envelope', (t) => {
     assert.equal(r.stdout, '', channels);
     assert.match(r.stderr, /^doflow events: .*refused/, channels);
     assert.ok(!r.stderr.includes('[ERROR]'));
+  }
+  // 161: transcript and fleet are no longer refused kinds: a bad transcript is malformed, fleet is unknown.
+  for (const [channels, pattern] of [['transcript:x', /is not a channel: use transcript:<projectKey>/], ['fleet:x', /is not a channel: use now/]] as Array<[string, RegExp]>) {
+    const r = spawnSync(process.execPath, [CLI, 'events', '--follow', '--channels', channels, '--json'], {
+      cwd: root, env: { ...process.env, DOFLOW_UPKEEP: 'off', DOFLOW_TELEMETRY: 'off' }, encoding: 'utf8',
+    });
+    assert.equal(r.status, 2, `${channels}: ${r.stderr}`);
+    assert.equal(r.stdout, '', channels);
+    assert.match(r.stderr, pattern, channels);
+    assert.doesNotMatch(r.stderr, /refused/, channels);
   }
   assert.deepEqual(fs.readdirSync(root), [], 'nothing was created');
 });

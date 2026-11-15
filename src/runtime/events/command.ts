@@ -35,7 +35,7 @@
 
 const { finishRuntime } = require('../cli-result.ts');
 const { shown } = require('../mask.ts');
-const { parseChannel, parseChannelList, CHANNEL_LIMIT } = require('./channels.ts');
+const { parseChannel, parseChannelList, projectKeyOf, CHANNEL_LIMIT, PROJECT_LIMIT } = require('./channels.ts');
 const { createEnvelopeWriter, maskSections } = require('./envelope.ts');
 const { createDetector } = require('./detector.ts');
 const { channelSpec } = require('./sections.ts');
@@ -43,6 +43,13 @@ const { createLogSubscription } = require('./logs.ts');
 
 /** IC-005: the longest control line, in bytes, newline excluded. */
 const CONTROL_LINE_BYTES = 1024;
+
+/**
+ * 161 IC-001: the kinds whose producers are not built yet. Until T3 (`machine`), T4 (`layers`) and
+ * T5 (`file`, `transcript`) give `channelSpec` an entry for them, a `sub` to one prints a
+ * `producer-failed` error on that channel and is not followed, unless a `specFor` seam is injected.
+ */
+const NO_PRODUCER_KINDS: ReadonlySet<string> = new Set(['machine', 'layers', 'file', 'transcript']);
 
 /** IC-001: the flags the verb takes; each at most once. */
 const FLAGS: ReadonlySet<string> = new Set(['--follow', '--channels', '--control', '--json']);
@@ -290,6 +297,10 @@ function handleEventsCommand(options: EventsOptions = {}): Promise<number> {
 
     /** Follows a channel, or follows it again: either way its next frame is a fresh snapshot. */
     async function followChannel(channel: any): Promise<void> {
+      if (!options.specFor && NO_PRODUCER_KINDS.has(channel.kind)) {
+        emit(writer.error(channel.name, 'producer-failed'));
+        return;
+      }
       const prior = specs.get(channel.name);
       if (prior && prior.log === true) prior.end();
       const spec = channel.kind === 'log' ? logSpec(channel) : specFor(channel, ctx);
@@ -320,6 +331,18 @@ function handleEventsCommand(options: EventsOptions = {}): Promise<number> {
       if (!specs.has(ch) && specs.size >= CHANNEL_LIMIT) {
         emit(writer.error(ch, 'too-many-channels')); // IC-003: not followed
         return;
+      }
+      const project = projectKeyOf(channel);
+      if (project !== null && !specs.has(ch)) {
+        const followed = new Set<string>();
+        for (const name of specs.keys()) {
+          const key = projectKeyOf(parseChannel(name).channel);
+          if (key !== null) followed.add(key);
+        }
+        if (!followed.has(project) && followed.size >= PROJECT_LIMIT) {
+          emit(writer.error(ch, 'too-many-projects')); // 161 IC-001: not followed; an unsub frees the slot
+          return;
+        }
       }
       await followChannel(channel);
     }

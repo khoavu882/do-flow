@@ -22,11 +22,19 @@
 //   `src/runtime/task-state.ts:501-539`; worker runs: `seq` +1 per transition,
 //   `src/runtime/worker/run-store.ts:160`) are applied before every recompute of a channel that
 //   has a primary record, and its `seq` and `revision` are probed by every 1 s pass.
-// - Feature 150 A.6 (IC-008): a channel may declare a `tail`, one log file and an `active` test
+// - Feature 150 A.6 (IC-008): a channel may declare `tails`, log files each with an `active` test
 //   (the run's phase is not `ended`). While any channel declares one, a 250 ms log pass
 //   fingerprints each active tail and marks its channel when the fingerprint moved, so a growing
 //   log is read within a pass even when no watch event arrives. `mark(channel, afterMs?)` lets the
 //   caller ask for one more recompute, now (after the debounce) or later.
+// - Feature 161 (IC-006): a directory, file or tail may carry `sections`; a mark from it recomputes
+//   only those sections (`scope: 'sections'`), a source without them recomputes everything. A
+//   channel's `policies` give a section a `throttleMs`: it recomputes at most once per that many
+//   ms, and a mark that arrives sooner is run once more when the window ends (a trailing run), so
+//   a last change is never lost. A full-scope recompute is never throttled; it restarts the window.
+//   `update(channel, sources)` swaps a channel's sources without a resnapshot. At most
+//   `WATCH_PER_CHANNEL` directories are watched per channel and `WATCH_PER_CHILD` per detector;
+//   past that a directory is covered by the 1 s fingerprint pass only (`counts()`).
 //
 // Read-only: files are read with flag 'r'; this module creates, writes, renames and deletes nothing.
 
@@ -43,6 +51,9 @@ const LOG_PASS_MS = 250;
 const DERIVED_TICKS = 5;
 /** Every how many 1 s ticks the full pass is due (30 s). */
 const FULL_TICKS = 30;
+/** 161 IC-006, IC-008: directories watched per channel and per detector; the rest are fingerprint-only. */
+const WATCH_PER_CHANNEL = 128;
+const WATCH_PER_CHILD = 256;
 /** Wait before the one re-read of a primary record that failed to parse. */
 const RETRY_MS = 50;
 /** How long a primary record seen before must be missing before the channel is `gone`. */
@@ -52,8 +63,17 @@ const RECORD_VERSION = 1;
 
 type RecordEvent = 'store-unreadable' | 'unsupported-version' | 'replaced' | 'gone';
 
-/** A followed directory; `match` selects the entry names its fingerprint covers (all when absent). */
-interface DirectorySource { path: string; match?: RegExp }
+/**
+ * A followed directory; `match` selects the entry names its fingerprint covers (all when absent);
+ * `sections` limits the recompute a change in it asks for (everything when absent).
+ */
+interface DirectorySource { path: string; match?: RegExp; sections?: readonly string[] }
+
+/** A followed file (fingerprinted, never watched); `sections` as for a directory. */
+interface FileSource { path: string; sections?: readonly string[] }
+
+/** 161 IC-006: a section's recompute policy: at most once per `throttleMs`, with a trailing run. */
+interface SectionPolicy { throttleMs?: number }
 
 /**
  * A channel's primary record (IC-004): the file whose `version` and `revision` are checked, and
@@ -67,16 +87,18 @@ interface PrimaryRecord { path: string; pick?: (doc: any) => any }
  * 150 IC-008: a followed log file. `active()` says whether the log pass fingerprints it now (its
  * run's phase is not `ended`); the file is otherwise covered by the 1 s pass through its directory.
  */
-interface TailSource { path: string; active: () => boolean }
+interface TailSource { path: string; active: () => boolean; sections?: readonly string[] }
 
 /** What a channel declares (IC-004): directories (watched and fingerprinted), files (fingerprinted),
- * the names of its derived sections, its primary record, if it has one, and its log file, if any. */
+ * the names of its derived sections, its primary record, if it has one, its log files and its
+ * per-section recompute policies. */
 interface ChannelSources {
   directories?: ReadonlyArray<string | DirectorySource>;
-  files?: readonly string[];
+  files?: ReadonlyArray<string | FileSource>;
   derived?: readonly string[];
   primary?: PrimaryRecord | null;
-  tail?: TailSource | null;
+  tails?: readonly TailSource[];
+  policies?: Readonly<Record<string, SectionPolicy>>;
 }
 
 /**
@@ -86,7 +108,8 @@ interface ChannelSources {
  */
 type RecomputeRequest =
   | { scope: 'all'; snapshot: boolean }
-  | { scope: 'derived'; sections: readonly string[]; snapshot: false };
+  | { scope: 'derived'; sections: readonly string[]; snapshot: false }
+  | { scope: 'sections'; sections: readonly string[]; snapshot: false };
 
 interface Clock {
   now(): number;
@@ -110,9 +133,11 @@ interface DetectorOptions {
 
 interface Detector {
   follow(channel: string, sources: ChannelSources): Promise<void>;
+  update(channel: string, sources: ChannelSources): void;
   unfollow(channel: string): void;
   mark(channel: string, afterMs?: number): void;
   followed(): string[];
+  counts(): { watched: number; fingerprintOnly: number };
   close(): void;
 }
 
@@ -122,10 +147,11 @@ type Probe =
 
 interface Normalized {
   directories: DirectorySource[];
-  files: string[];
+  files: FileSource[];
   derived: string[];
   primary: PrimaryRecord | null;
-  tail: TailSource | null;
+  tails: TailSource[];
+  policies: Record<string, SectionPolicy>;
 }
 
 interface ChannelState {
@@ -141,10 +167,22 @@ interface ChannelState {
   lastRevision: number | null;
   probeKey: string | undefined;
   missingSince: number | null;
-  /** The tail's fingerprint the last recompute took in (150 IC-008). */
-  tailKey: string | undefined;
+  /** Each tail's fingerprint the last recompute took in (150 IC-008), by path. */
+  tailKeys: Map<string, string>;
   /** A `mark(channel, afterMs)` timer, at most one. */
   later: any;
+  /** What the pending debounce will recompute: everything, or the named sections. */
+  pending: Set<string> | 'all';
+  /** The sections each source key limits its recompute to; a key absent here recomputes everything. */
+  keySections: Map<string, readonly string[]>;
+  /** The same per watched directory path: `undefined` means everything. */
+  dirSections: Map<string, readonly string[] | undefined>;
+  /** Directories this channel watches, and those it only fingerprints (past the watch bound). */
+  watched: Set<string>;
+  fingerprintOnly: Set<string>;
+  /** When each throttled section was last dispatched, and its trailing-run timer, if one is set. */
+  lastRun: Map<string, number>;
+  trailing: Map<string, any>;
 }
 
 interface SourceEntry { kind: 'dir' | 'file'; path: string; match: RegExp | null; channels: Set<string> }
@@ -164,6 +202,15 @@ function nonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value !== '';
 }
 
+/** A source's `sections`: absent, or a non-empty list of non-empty names (de-duplicated). */
+function normalizeSections(value: unknown, what: string): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length === 0 || value.some((name) => !nonEmptyString(name))) {
+    throw new TypeError(`the sections of ${what} must be a non-empty list of section names`);
+  }
+  return [...new Set<string>(value)];
+}
+
 /** Validates a registration and returns it with defaults, de-duplicated, and stateless regexps. */
 function normalize(sources: ChannelSources): Normalized {
   if (!sources || typeof sources !== 'object') throw new TypeError('channel sources must be an object');
@@ -175,13 +222,23 @@ function normalize(sources: ChannelSources): Normalized {
     if (dir.match !== undefined && !(dir.match instanceof RegExp)) throw new TypeError(`the match of '${dir.path}' must be a RegExp`);
     // `g` and `y` make RegExp#test stateful; the fingerprint must not depend on the previous call.
     const match = dir.match ? new RegExp(dir.match.source, dir.match.flags.replace(/[gy]/g, '')) : undefined;
-    const key = dirKey(dir.path, match ?? null);
+    const sectionNames = normalizeSections(dir.sections, `directory '${dir.path}'`);
+    const key = dirKey(dir.path, match ?? null, sectionNames);
     if (seenDirs.has(key)) continue;
     seenDirs.add(key);
-    directories.push(match ? { path: dir.path, match } : { path: dir.path });
+    directories.push({ path: dir.path, ...(match ? { match } : {}), ...(sectionNames ? { sections: sectionNames } : {}) });
   }
-  const files = [...new Set(sources.files ?? [])];
-  if (files.some((file) => !nonEmptyString(file))) throw new TypeError('a declared file needs a non-empty path');
+  const files: FileSource[] = [];
+  const seenFiles = new Set<string>();
+  for (const entry of sources.files ?? []) {
+    const file: FileSource = typeof entry === 'string' ? { path: entry } : entry;
+    if (!file || !nonEmptyString(file.path)) throw new TypeError('a declared file needs a non-empty path');
+    const sectionNames = normalizeSections(file.sections, `file '${file.path}'`);
+    const key = fileKey(file.path, sectionNames);
+    if (seenFiles.has(key)) continue;
+    seenFiles.add(key);
+    files.push({ path: file.path, ...(sectionNames ? { sections: sectionNames } : {}) });
+  }
   const derived = [...new Set(sources.derived ?? [])];
   if (derived.some((name) => !nonEmptyString(name))) throw new TypeError('a derived section needs a non-empty name');
   const primary = sources.primary ?? null;
@@ -189,19 +246,31 @@ function normalize(sources: ChannelSources): Normalized {
     if (typeof primary !== 'object' || !nonEmptyString(primary.path)) throw new TypeError('a primary record needs a non-empty path');
     if (primary.pick !== undefined && typeof primary.pick !== 'function') throw new TypeError('a primary record pick must be a function');
   }
-  const tail = sources.tail ?? null;
-  if (tail !== null) {
-    if (typeof tail !== 'object' || !nonEmptyString(tail.path) || typeof tail.active !== 'function') throw new TypeError('a tail needs a non-empty path and an active function');
+  const tails: TailSource[] = [];
+  for (const tail of sources.tails ?? []) {
+    if (!tail || typeof tail !== 'object' || !nonEmptyString(tail.path) || typeof tail.active !== 'function') throw new TypeError('a tail needs a non-empty path and an active function');
+    const sectionNames = normalizeSections(tail.sections, `tail '${tail.path}'`);
+    tails.push({ path: tail.path, active: tail.active, ...(sectionNames ? { sections: sectionNames } : {}) });
   }
-  return { directories, files, derived, primary, tail };
+  const policies: Record<string, SectionPolicy> = {};
+  for (const [name, policy] of Object.entries(sources.policies ?? {})) {
+    const ms = policy && (policy as SectionPolicy).throttleMs;
+    if (ms !== undefined && !(typeof ms === 'number' && Number.isFinite(ms) && ms > 0)) throw new TypeError(`the throttleMs of section '${name}' must be a positive number`);
+    if (ms !== undefined) policies[name] = { throttleMs: ms };
+  }
+  return { directories, files, derived, primary, tails, policies };
 }
 
-function dirKey(dirPath: string, match: RegExp | null): string {
-  return `d\0${dirPath}\0${match ? `${match.source}/${match.flags}` : ''}`;
+function sectionsTag(sections: readonly string[] | undefined | null): string {
+  return sections ? [...sections].sort().join(',') : '';
 }
 
-function fileKey(filePath: string): string {
-  return `f\0${filePath}`;
+function dirKey(dirPath: string, match: RegExp | null, sections?: readonly string[] | null): string {
+  return `d\0${dirPath}\0${match ? `${match.source}/${match.flags}` : ''}\0${sectionsTag(sections)}`;
+}
+
+function fileKey(filePath: string, sections?: readonly string[] | null): string {
+  return `f\0${filePath}\0${sectionsTag(sections)}`;
 }
 
 function probeKeyOf(probe: Probe): string {
@@ -309,13 +378,23 @@ function createDetector(options: DetectorOptions): Detector {
     };
   }
 
-  /** Takes in what the channel's sources look like now, so the 1 s pass marks only later changes. */
-  function consume(state: ChannelState): void {
+  /**
+   * Takes in what the channel's sources look like now, so the 1 s pass marks only later changes.
+   * With `only`, just the sources that ask for one of those sections (a `sections` recompute).
+   */
+  function consume(state: ChannelState, only?: readonly string[]): void {
     for (const key of state.keys) {
+      if (only) {
+        const own = state.keySections.get(key);
+        if (!own || !own.some((name) => only.includes(name))) continue;
+      }
       const entry = sources.get(key);
       if (entry) state.consumed.set(key, fingerprint(entry));
     }
-    if (state.sources.tail) state.tailKey = statKey(state.sources.tail.path);
+    for (const tail of state.sources.tails) {
+      if (only && !(tail.sections && tail.sections.some((name) => only.includes(name)))) continue;
+      state.tailKeys.set(tail.path, statKey(tail.path));
+    }
   }
 
   function attach(dir: string, entry: WatchEntry): void {
@@ -325,7 +404,7 @@ function createDetector(options: DetectorOptions): Detector {
         if (closed || watchers.get(dir) !== entry || entry.handle !== handle) return;
         for (const id of entry.channels) {
           const state = channels.get(id);
-          if (state) mark(state);
+          if (state) mark(state, state.dirSections.get(dir));
         }
       });
     } catch {
@@ -339,82 +418,165 @@ function createDetector(options: DetectorOptions): Detector {
     });
   }
 
-  function register(state: ChannelState): void {
-    const add = (key: string, make: () => SourceEntry): void => {
+  /** Registers the channel's sources; `takeIn` false leaves `consumed` to the caller (`update`). */
+  function register(state: ChannelState, takeIn: boolean = true): void {
+    const add = (key: string, make: () => SourceEntry, sectionNames?: readonly string[]): void => {
       let entry = sources.get(key);
       if (!entry) { entry = make(); sources.set(key, entry); }
       entry.channels.add(state.id);
       state.keys.push(key);
+      if (sectionNames) state.keySections.set(key, sectionNames);
     };
     for (const dir of state.sources.directories) {
-      add(dirKey(dir.path, dir.match ?? null), () => ({ kind: 'dir', path: dir.path, match: dir.match ?? null, channels: new Set() }));
-      let watch = watchers.get(dir.path);
-      if (!watch) {
-        watch = { channels: new Set(), handle: null };
-        watchers.set(dir.path, watch);
-        attach(dir.path, watch);
-      }
-      watch.channels.add(state.id);
+      add(dirKey(dir.path, dir.match ?? null, dir.sections), () => ({ kind: 'dir', path: dir.path, match: dir.match ?? null, channels: new Set() }), dir.sections);
+      // A path declared twice keeps the wider reading: any declaration without sections means everything.
+      const known = state.dirSections.get(dir.path);
+      if (!state.dirSections.has(dir.path)) state.dirSections.set(dir.path, dir.sections);
+      else if (known && dir.sections) state.dirSections.set(dir.path, [...new Set([...known, ...dir.sections])]);
+      else state.dirSections.set(dir.path, undefined);
+      watchOrFingerprint(state, dir.path);
     }
     for (const file of state.sources.files) {
-      add(fileKey(file), () => ({ kind: 'file', path: file, match: null, channels: new Set() }));
+      add(fileKey(file.path, file.sections), () => ({ kind: 'file', path: file.path, match: null, channels: new Set() }), file.sections);
     }
-    consume(state);
+    if (takeIn) consume(state);
   }
 
-  function unregister(state: ChannelState): void {
+  /** Joins or creates the directory's watcher inside the bounds, else marks it fingerprint-only. */
+  function watchOrFingerprint(state: ChannelState, dirPath: string): void {
+    if (state.watched.has(dirPath) || state.fingerprintOnly.has(dirPath)) return;
+    let watch = watchers.get(dirPath);
+    const fresh = !watch;
+    if (state.watched.size >= WATCH_PER_CHANNEL || (fresh && watchers.size >= WATCH_PER_CHILD)) {
+      state.fingerprintOnly.add(dirPath);
+      return;
+    }
+    if (!watch) {
+      watch = { channels: new Set(), handle: null };
+      watchers.set(dirPath, watch);
+      attach(dirPath, watch);
+    }
+    watch.channels.add(state.id);
+    state.watched.add(dirPath);
+  }
+
+  function clearTimers(state: ChannelState): void {
     if (state.debounce !== null) { clock.clearTimeout(state.debounce); state.debounce = null; }
     if (state.later !== null) { clock.clearTimeout(state.later); state.later = null; }
+    for (const handle of state.trailing.values()) clock.clearTimeout(handle);
+    state.trailing.clear();
+    state.pending = new Set();
+  }
+
+  /** Drops the channel's source and watcher registrations (not its timers or state). */
+  function unregisterSources(state: ChannelState): void {
     for (const key of state.keys) {
       const entry = sources.get(key);
       if (!entry) continue;
       entry.channels.delete(state.id);
       if (entry.channels.size === 0) sources.delete(key);
     }
-    for (const dir of state.sources.directories) {
-      const watch = watchers.get(dir.path);
+    for (const dir of state.watched) {
+      const watch = watchers.get(dir);
       if (!watch) continue;
       watch.channels.delete(state.id);
       if (watch.channels.size === 0) {
-        watchers.delete(dir.path);
+        watchers.delete(dir);
         if (watch.handle) { try { watch.handle.close(); } catch { /* already closed */ } }
       }
     }
+    state.keys = [];
+    state.keySections.clear();
+    state.dirSections.clear();
+    state.watched.clear();
+    state.fingerprintOnly.clear();
   }
 
-  function mark(state: ChannelState): void {
-    if (!live(state) || state.debounce !== null) return;
+  function unregister(state: ChannelState): void {
+    clearTimers(state);
+    unregisterSources(state);
+  }
+
+  /**
+   * Asks for a recompute after the debounce: of everything, or of `sections` (added to what an
+   * earlier mark in the same debounce asked for).
+   */
+  function mark(state: ChannelState, sections?: readonly string[]): void {
+    if (!live(state)) return;
+    if (sections === undefined) state.pending = 'all';
+    else if (state.pending !== 'all') for (const name of sections) state.pending.add(name);
+    if (state.debounce !== null) return;
     state.debounce = clock.setTimeout(() => {
       state.debounce = null;
-      void evaluate(state, { scope: 'all', snapshot: false });
+      flush(state);
     }, DEBOUNCE_MS);
+  }
+
+  /** Runs the pending recompute, holding back a throttled section whose window has not ended. */
+  function flush(state: ChannelState): void {
+    const pending = state.pending;
+    state.pending = new Set();
+    if (pending === 'all') { void evaluate(state, { scope: 'all', snapshot: false }); return; }
+    const due: string[] = [];
+    for (const name of pending) {
+      const throttleMs = state.sources.policies[name]?.throttleMs;
+      const last = state.lastRun.get(name);
+      if (throttleMs !== undefined && last !== undefined && clock.now() - last < throttleMs) {
+        if (!state.trailing.has(name)) {
+          state.trailing.set(name, clock.setTimeout(() => {
+            state.trailing.delete(name);
+            if (live(state)) dispatch(state, [name]);
+          }, last + throttleMs - clock.now()));
+        }
+      } else {
+        due.push(name);
+      }
+    }
+    if (due.length > 0) dispatch(state, due);
+  }
+
+  /** Starts the recompute of `names`; a throttled one has its window restarted and its trailing run dropped. */
+  function dispatch(state: ChannelState, names: readonly string[]): void {
+    stamp(state, names);
+    void evaluate(state, { scope: 'sections', sections: names, snapshot: false });
+  }
+
+  /** Records that the throttled sections among `names` (all of them when absent) were recomputed now. */
+  function stamp(state: ChannelState, names?: readonly string[]): void {
+    for (const name of names ?? Object.keys(state.sources.policies)) {
+      if (state.sources.policies[name]?.throttleMs === undefined) continue;
+      state.lastRun.set(name, clock.now());
+      const handle = state.trailing.get(name);
+      if (handle !== undefined) { clock.clearTimeout(handle); state.trailing.delete(name); }
+    }
   }
 
   /** 150 IC-008: the log pass. Each active tail whose fingerprint moved marks its channel. */
   function onLogTick(): void {
     if (closed) return;
     for (const state of [...channels.values()]) {
-      const { tail } = state.sources;
-      if (!tail || !live(state)) continue;
-      let active: boolean;
-      try {
-        active = tail.active() === true;
-      } catch (error) {
-        fault(error);
-        continue;
-      }
-      if (!active) continue;
-      const key = statKey(tail.path);
-      if (key !== state.tailKey) {
-        state.tailKey = key;
-        mark(state);
+      if (state.sources.tails.length === 0 || !live(state)) continue;
+      for (const tail of state.sources.tails) {
+        let active: boolean;
+        try {
+          active = tail.active() === true;
+        } catch (error) {
+          fault(error);
+          continue;
+        }
+        if (!active) continue;
+        const key = statKey(tail.path);
+        if (key !== state.tailKeys.get(tail.path)) {
+          state.tailKeys.set(tail.path, key);
+          mark(state, tail.sections);
+        }
       }
     }
   }
 
   /** Runs the log pass exactly while some followed channel declares a tail. */
   function syncLogTicker(): void {
-    const wanted = !closed && [...channels.values()].some((state) => state.sources.tail !== null);
+    const wanted = !closed && [...channels.values()].some((state) => state.sources.tails.length > 0);
     if (wanted && logTicker === null) logTicker = clock.setInterval(onLogTick, LOG_PASS_MS);
     else if (!wanted && logTicker !== null) { clock.clearInterval(logTicker); logTicker = null; }
   }
@@ -467,6 +629,7 @@ function createDetector(options: DetectorOptions): Detector {
   async function recomputeOnce(state: ChannelState, request: RecomputeRequest): Promise<void> {
     if (!live(state)) return;
     if (request.scope === 'all') consume(state);
+    else if (request.scope === 'sections') consume(state, request.sections);
     let snapshot = request.snapshot;
     const { primary } = state.sources;
     if (primary) {
@@ -478,12 +641,16 @@ function createDetector(options: DetectorOptions): Detector {
       ? { scope: 'all', snapshot }
       : request;
     if (decided.scope === 'all' && request.scope !== 'all') consume(state);
+    if (decided.scope === 'all') stamp(state);
     await options.onRecompute(state.id, decided);
   }
 
   function merge(queued: RecomputeRequest | null, next: RecomputeRequest): RecomputeRequest {
     if (!queued) return next;
     if (queued.scope === 'derived' && next.scope === 'derived') return next;
+    if (queued.scope !== 'all' && next.scope !== 'all') {
+      return { scope: 'sections', sections: [...new Set([...queued.sections, ...next.sections])], snapshot: false };
+    }
     return { scope: 'all', snapshot: queued.snapshot || next.snapshot };
   }
 
@@ -528,10 +695,20 @@ function createDetector(options: DetectorOptions): Detector {
     }
     const current = new Map<string, string>();
     for (const [key, entry] of sources) current.set(key, fingerprint(entry));
-    const dirty: ChannelState[] = [];
+    const dirty: Array<{ state: ChannelState; sections: string[] | undefined }> = [];
     const gone: ChannelState[] = [];
     for (const state of channels.values()) {
-      let changed = state.keys.some((key) => current.has(key) && current.get(key) !== state.consumed.get(key));
+      // `names` collects the sections the changed sources ask for; a source without sections, or a
+      // record change, asks for everything.
+      let changed = false;
+      let everything = false;
+      const names = new Set<string>();
+      for (const key of state.keys) {
+        if (!current.has(key) || current.get(key) === state.consumed.get(key)) continue;
+        changed = true;
+        const own = state.keySections.get(key);
+        if (own) for (const name of own) names.add(name); else everything = true;
+      }
       const { primary } = state.sources;
       if (primary) {
         const result = probe(primary);
@@ -542,20 +719,21 @@ function createDetector(options: DetectorOptions): Detector {
           state.missingSince = null;
         }
         const key = probeKeyOf(result);
-        if (state.probeKey !== undefined && key !== state.probeKey) changed = true; // a `seq` or `revision` change
+        if (state.probeKey !== undefined && key !== state.probeKey) { changed = true; everything = true; } // a `seq` or `revision` change
         state.probeKey = key;
       }
-      if (changed) dirty.push(state);
+      if (changed) dirty.push({ state, sections: everything ? undefined : [...names] });
     }
     for (const state of gone) await goneOf(state);
     if (full) {
       for (const state of [...channels.values()]) {
         if (state.debounce !== null) { clock.clearTimeout(state.debounce); state.debounce = null; }
+        state.pending = new Set();
         await evaluate(state, { scope: 'all', snapshot: false });
       }
       return;
     }
-    for (const state of dirty) mark(state);
+    for (const { state, sections } of dirty) mark(state, sections);
     if (derived) {
       for (const state of [...channels.values()]) {
         if (state.sources.derived.length > 0) await evaluate(state, { scope: 'derived', sections: state.sources.derived, snapshot: false });
@@ -613,13 +791,47 @@ function createDetector(options: DetectorOptions): Detector {
         lastRevision: samePrimary ? prior!.lastRevision : null,
         probeKey: undefined,
         missingSince: null,
-        tailKey: undefined,
+        tailKeys: new Map(),
         later: null,
+        pending: new Set(),
+        keySections: new Map(),
+        dirSections: new Map(),
+        watched: new Set(),
+        fingerprintOnly: new Set(),
+        lastRun: new Map(),
+        trailing: new Map(),
       };
       channels.set(channel, state);
       register(state);
       syncLogTicker();
       return evaluate(state, { scope: 'all', snapshot: true });
+    },
+    /**
+     * 161 IC-006: swaps a followed channel's sources without a resnapshot (a spec whose
+     * `sourcesKey()` changed). What the channel has taken in so far is kept for a source that stays,
+     * so a change that was pending is not lost; a new source starts from what it looks like now.
+     * An unknown channel is ignored.
+     */
+    update(channel: string, declared: ChannelSources): void {
+      if (closed) throw new Error('the detector is closed');
+      const state = channels.get(channel);
+      const normalized = normalize(declared);
+      if (!state || !live(state)) return;
+      const before = state.consumed;
+      const beforeTails = state.tailKeys;
+      unregisterSources(state);
+      state.sources = normalized;
+      state.consumed = new Map();
+      state.tailKeys = new Map();
+      register(state, false);
+      for (const key of state.keys) {
+        const known = before.get(key);
+        const entry = sources.get(key);
+        if (known !== undefined) state.consumed.set(key, known);
+        else if (entry) state.consumed.set(key, fingerprint(entry));
+      }
+      for (const tail of normalized.tails) state.tailKeys.set(tail.path, beforeTails.get(tail.path) ?? statKey(tail.path));
+      syncLogTicker();
     },
     /** Stops following a channel; its sources are dropped when no other channel declares them. */
     unfollow(channel: string): void {
@@ -648,6 +860,12 @@ function createDetector(options: DetectorOptions): Detector {
     followed(): string[] {
       return [...channels.keys()];
     },
+    /** 161 IC-006: the directories watched now, and those declared but only fingerprinted (past the bounds). */
+    counts(): { watched: number; fingerprintOnly: number } {
+      const only = new Set<string>();
+      for (const state of channels.values()) for (const dir of state.fingerprintOnly) only.add(dir);
+      return { watched: watchers.size, fingerprintOnly: [...only].filter((dir) => !watchers.has(dir)).length };
+    },
     /** Closes every watcher and timer; no callback runs after it returns. */
     close(): void {
       if (closed) return;
@@ -656,10 +874,7 @@ function createDetector(options: DetectorOptions): Detector {
       if (logTicker !== null) { clock.clearInterval(logTicker); logTicker = null; }
       for (const handle of sleeps) clock.clearTimeout(handle);
       sleeps.clear();
-      for (const state of channels.values()) {
-        if (state.debounce !== null) { clock.clearTimeout(state.debounce); state.debounce = null; }
-        if (state.later !== null) { clock.clearTimeout(state.later); state.later = null; }
-      }
+      for (const state of channels.values()) clearTimers(state);
       for (const entry of watchers.values()) {
         if (entry.handle) { try { entry.handle.close(); } catch { /* already closed */ } }
         entry.handle = null;
@@ -674,6 +889,8 @@ function createDetector(options: DetectorOptions): Detector {
 module.exports = {
   createDetector,
   DEBOUNCE_MS,
+  WATCH_PER_CHANNEL,
+  WATCH_PER_CHILD,
   PASS_MS,
   LOG_PASS_MS,
   DERIVED_TICKS,

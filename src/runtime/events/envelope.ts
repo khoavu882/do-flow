@@ -21,17 +21,17 @@
 
 const crypto = require('node:crypto');
 const { maskBody } = require('../mask.ts');
-const { parseChannel } = require('./channels.ts');
-const { RUN_ID, PHASES } = require('../worker/run-store.ts');
+const { parseChannel, isLogKind } = require('./channels.ts');
+const { PHASES } = require('../worker/run-store.ts');
 
 /** IC-002: the envelope's `v`. */
 const ENVELOPE_VERSION = 1;
 
-/** IC-002, IC-007: every frame type. `append` is the log frame: only `worker:<runId>:out|err` carry it. */
+/** IC-002, IC-007: every frame type. `append` is the log frame: only the log channels carry it (`worker:<runId>:out|err`, `file`, `transcript`). */
 const FRAME_TYPES: readonly string[] = Object.freeze(['snapshot', 'patch', 'append', 'reset', 'error', 'gone']);
 
 /** IC-002: the codes of an `error` frame at the core level. */
-const ERROR_CODES: readonly string[] = Object.freeze(['unsupported-version', 'store-unreadable', 'producer-failed', 'too-many-channels']);
+const ERROR_CODES: readonly string[] = Object.freeze(['unsupported-version', 'store-unreadable', 'producer-failed', 'too-many-channels', 'too-many-projects']);
 
 /** IC-002: the reasons of a `reset` frame. */
 const RESET_REASONS: readonly string[] = Object.freeze(['frame-cap', 'replaced']);
@@ -145,14 +145,15 @@ function maskSections(sections: Sections): Sections {
 }
 
 /**
- * Whether `ch` is a log channel (IC-006, IC-007): `worker:<runId>:out` or `worker:<runId>:err`.
+ * Whether `ch` is a log channel (IC-006, IC-007; 161 IC-001): `worker:<runId>:out`, `worker:<runId>:err`,
+ * `file:<pk>:<fk>` or `transcript:<pk>:<ak>`.
  * @param {unknown} ch
  * @returns {boolean}
  */
 function isLogChannel(ch: unknown): ch is string {
   if (typeof ch !== 'string') return false;
-  const parts = ch.split(':');
-  return parts.length === 3 && parts[0] === 'worker' && RUN_ID.test(parts[1]) && (parts[2] === 'out' || parts[2] === 'err');
+  const parsed = parseChannel(ch);
+  return parsed.ok && isLogKind(parsed.channel);
 }
 
 /** A channel framed by sections (`snapshot`, `patch`): every channel of 149 IC-003, never a log channel. */
@@ -170,7 +171,7 @@ function checkAnyChannel(ch: unknown): string {
 
 /** A channel framed by `logSnapshot` or `append`: a log channel only. */
 function checkLogChannel(ch: unknown): string {
-  if (!isLogChannel(ch)) throw new TypeError('cannot frame a log on this channel: only worker:<runId>:out and worker:<runId>:err are log channels');
+  if (!isLogChannel(ch)) throw new TypeError('cannot frame a log on this channel: only worker:<runId>:out|err, file:<pk>:<fk> and transcript:<pk>:<ak> are log channels');
   return ch;
 }
 
