@@ -158,8 +158,73 @@ test('ui-launcher: usage errors exit 2 before any lookup or spawn', (t) => {
     const r = runHandler(argv, core, { env: { T_EXIT: '9' } });
     assert.equal(r.status, 2, `${argv.join(' ')}: ${r.stderr}`);
     assert.equal(r.stdout, '', `${argv.join(' ')}: nothing is spawned`);
-    assert.match(r.stderr, /^doflow ui: usage: doflow ui \[<project>\] \[--port N\] \[--listen-address <private IP> --tls-cert <absolute path> --tls-key <absolute path>\]\n$/, argv.join(' '));
+    assert.match(r.stderr, /^doflow ui: usage: doflow ui \[<project>\] \[--port N\] \[--lan /, argv.join(' '));
   }
+});
+
+test('ui-launcher: --lan, --action pair --scope control, --action revoke --device and --action devices --json reach the Console binary unchanged', (t) => {
+  const { scope, core, project } = layout(t);
+  const bin = fakePackage(path.join(scope, 'doflow-ui'));
+  const base = ['--core', path.join(core, 'bin', 'doflow.js')];
+  const cases: Array<[string[], string[]]> = [
+    [[project, '--lan'], [...base, '--project', project, '--lan']],
+    [[project, '--lan', '--port', '47390', '--listen-address', '192.168.1.2'], [...base, '--project', project, '--port', '47390', '--listen-address', '192.168.1.2', '--lan']],
+    [['--action', 'pair', '--scope', 'control'], [...base, '--action', 'pair', '--scope', 'control']],
+    [[project, '--action', 'pair'], [...base, '--project', project, '--action', 'pair']],
+    [['--action=revoke', '--device', 'd-0123456789ab'], [...base, '--action', 'revoke', '--device', 'd-0123456789ab']],
+    [['--action', 'devices', '--json'], [...base, '--action', 'devices', '--json']],
+    [['--action', 'devices'], [...base, '--action', 'devices']],
+  ];
+  for (const [argv, expected] of cases) {
+    const r = runHandler(argv, core);
+    assert.equal(r.status, 0, `${argv.join(' ')}: ${r.stderr}`);
+    assert.equal(r.stderr, `doflow ui: using ${bin}\n`, argv.join(' '));
+    assert.deepEqual(JSON.parse(r.stdout.trim()).argv, expected, argv.join(' '));
+  }
+});
+
+test('ui-launcher: each LAN flag combination IC-001 excludes exits 2 with the usage line before any spawn', (t) => {
+  const { scope, core, project } = layout(t);
+  fakePackage(path.join(scope, 'doflow-ui'));
+  const cert = ['--tls-cert', '/tmp/c.pem', '--tls-key', '/tmp/k.pem'];
+  const bad: string[][] = [
+    [project, '--lan', ...cert, '--listen-address', '192.168.1.2'],   // generated and own certificate exclude each other
+    [project, '--lan', '--tls-cert', '/tmp/c.pem'],
+    ['--lan', '--action', 'pair'],                                    // an action excludes the listen flags
+    ['--action', 'pair', '--port', '47390'],
+    ['--action', 'pair', '--listen-address', '192.168.1.2'],
+    ['--action', 'devices', ...cert],
+    ['--action', 'status'],                                           // only pair, devices and revoke are actions of ui
+    ['--action', 'revoke'],                                           // revoke needs --device
+    ['--action', 'pair', '--device', 'd-0123456789ab'],               // --device only with revoke
+    ['--action', 'devices', '--device', 'd-0123456789ab'],
+    ['--device', 'd-0123456789ab'],
+    ['--action', 'devices', '--scope', 'view'],                       // --scope only with pair
+    ['--scope', 'control'],
+    ['--action', 'pair', '--scope', 'admin'],                         // view or control
+    [project, '--action', 'pair', '--json'],                          // --json only with devices
+    [project, '--lan', '--json'],
+    [project, '--action', 'devices'],                                 // devices and revoke take no project
+    [project, '--action', 'revoke', '--device', 'd-0123456789ab'],
+    [project, project, '--action', 'pair'],
+  ];
+  for (const argv of bad) {
+    const r = runHandler(argv, core, { env: { T_EXIT: '9' } });
+    assert.equal(r.status, 2, `${argv.join(' ')}: ${r.stderr}`);
+    assert.equal(r.stdout, '', `${argv.join(' ')}: nothing is spawned`);
+    assert.match(r.stderr, /^doflow ui: usage: /, argv.join(' '));
+  }
+});
+
+test('ui-launcher: --lan and --device stay unknown flags on every other verb, and --device needs a value', () => {
+  for (const argv of [['status', '--lan'], ['list-backups', '--device', 'd-0123456789ab']]) {
+    const r = spawnSync(process.execPath, [DOFLOW, ...argv], { encoding: 'utf8', timeout: 20000, cwd: REPO });
+    assert.notEqual(r.status, 0, `${argv.join(' ')}: ${r.stderr}`);
+    assert.match(r.stderr, /unknown flag '--(lan|device)'/, argv.join(' '));
+  }
+  const bare = spawnSync(process.execPath, [DOFLOW, 'ui', '--action', 'revoke', '--device'], { encoding: 'utf8', timeout: 20000, cwd: REPO });
+  assert.equal(bare.status, 2, bare.stderr);
+  assert.match(bare.stderr, /--device requires a value/);
 });
 
 test('ui-launcher: SIGINT to the launcher reaches the Console as SIGTERM and its exit code comes back', async (t) => {

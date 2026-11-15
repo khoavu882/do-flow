@@ -1,6 +1,6 @@
 'use strict';
-// `doflow ui [<project>] [--port N] [private TLS flags]` — run the DoFlow Console, a separately installed package
-// (092 IC-008). The package is found by file existence and never loaded into the core: this module
+// `doflow ui [<project>] [--port N] [--lan | private TLS flags]` and its `--action pair|devices|revoke` — run the DoFlow
+// Console, a separately installed package (092 IC-008, 160 IC-001); every flag is only forwarded. The package is found by file existence and never loaded into the core: this module
 // loads only node:fs, node:path and node:child_process (test/runtime/ui-launcher.test.ts). It never
 // listens, reads DoFlow state, installs anything, or adds a variable to the Console's environment.
 // TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
@@ -10,7 +10,10 @@ const { spawn } = require('node:child_process');
 
 /** The package's entry, fixed by its own contract (093 IC-002). */
 const CONSOLE_BIN = path.join('bin', 'doflow-ui.js');
-const USAGE = 'doflow ui: usage: doflow ui [<project>] [--port N] [--listen-address <private IP> --tls-cert <absolute path> --tls-key <absolute path>]';
+const USAGE = 'doflow ui: usage: doflow ui [<project>] [--port N] [--lan [--listen-address <private IP>] | --listen-address <private IP> --tls-cert <absolute path> --tls-key <absolute path>]'
+  + ' | doflow ui [<project>] --action pair [--scope view|control] | doflow ui --action devices [--json] | doflow ui --action revoke --device <id>';
+const ACTIONS = new Set(['pair', 'devices', 'revoke']);
+const UI_FLAGS = new Set(['--listen-address', '--tls-cert', '--tls-key', '--lan', '--action', '--device', '--scope', '--json']);
 const NOT_INSTALLED = 'doflow ui: the Console is not installed. Install it with: npm install -g @khoavu882/doflow-ui';
 
 /** The Console bin when `dir` holds both the package's package.json and its bin, else null. */
@@ -37,15 +40,23 @@ function findConsole(coreRoot: string, project: string): string | null {
 /** `coreRoot` is this core's package root, passed in by the COMMANDS table (src/helper/repo-root.ts owns it). */
 function cmdUi(o: any, coreRoot: string): Promise<void> | void {
   const port = o.port;
-  const uiFlags = new Set(['--listen-address', '--tls-cert', '--tls-key']);
   const otherFlags = o.flagsGiven.filter((flag: string) => {
     const name = flag.split('=', 1)[0];
-    return name !== '--port' && !uiFlags.has(name);
+    return name !== '--port' && !UI_FLAGS.has(name);
   });
+  const action: string | undefined = o.actionGiven ? o.action : undefined;
   const remoteValues = [o.listenAddress, o.tlsCert, o.tlsKey];
   const remoteCount = remoteValues.filter((value: unknown) => value !== undefined).length;
-  if (o.positional.length > 1 || otherFlags.length > 0
-    || (remoteCount !== 0 && remoteCount !== remoteValues.length)
+  // The launcher checks only which flags may meet; values (the id's shape, the address) are the Console's to judge.
+  const combination = action !== undefined
+    ? !ACTIONS.has(action) || o.lan === true || port !== undefined || remoteCount !== 0
+      || (action === 'revoke') !== (o.device !== undefined)
+      || (o.scope !== undefined && (action !== 'pair' || !['view', 'control'].includes(o.scope)))
+      || (o.json === true && action !== 'devices')
+      || (o.positional.length > 0 && action !== 'pair')
+    : o.device !== undefined || o.scope !== undefined || o.json === true
+      || (o.lan === true ? o.tlsCert !== undefined || o.tlsKey !== undefined : remoteCount !== 0 && remoteCount !== remoteValues.length);
+  if (o.positional.length > 1 || otherFlags.length > 0 || combination
     || (port !== undefined && !(/^[0-9]{1,5}$/.test(port) && Number(port) <= 65535))) {
     console.error(USAGE);
     process.exitCode = 2;
@@ -66,6 +77,11 @@ function cmdUi(o: any, coreRoot: string): Promise<void> | void {
   if (o.listenAddress !== undefined) args.push('--listen-address', o.listenAddress);
   if (o.tlsCert !== undefined) args.push('--tls-cert', o.tlsCert);
   if (o.tlsKey !== undefined) args.push('--tls-key', o.tlsKey);
+  if (o.lan === true) args.push('--lan');
+  if (action !== undefined) args.push('--action', action);
+  if (o.device !== undefined) args.push('--device', o.device);
+  if (o.scope !== undefined) args.push('--scope', o.scope);
+  if (o.json === true) args.push('--json');
   const child = spawn(process.execPath, args, { stdio: 'inherit' });
 
   // Stay up until the Console exits, so its exit code is ours. A terminal Ctrl-C already reaches the

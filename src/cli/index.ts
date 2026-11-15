@@ -78,7 +78,7 @@ function parseArgs(argv: string[]): any {
     if (a.startsWith('-')) o.flagsGiven.push(a);
     // `--commit` is the roadmap verb's own flag: anywhere else it must reach the default branch and get
     // that verb's unknown-flag answer, as it did before it was added. '' matches no case.
-    switch (a === '--commit' && o.cmd !== 'roadmap' ? '' : a === '--follow' && o.cmd !== 'events' ? '' : a.startsWith('--action=') ? '--action' : a) {
+    switch (a === '--commit' && o.cmd !== 'roadmap' ? '' : a === '--follow' && o.cmd !== 'events' ? '' : a === '--lan' && o.cmd !== 'ui' ? '' : a.startsWith('--action=') ? '--action' : a) {
       case '-h': case '--help': o.help = true; break;
       case '-v': o.version = true; break;
       case '--version':
@@ -122,6 +122,9 @@ function parseArgs(argv: string[]): any {
       // events: follow the channels until a signal or stdin EOF (149 IC-001). Like `--commit`, only the
       // events verb knows it; anywhere else it reaches the default branch and that verb's unknown-flag answer.
       case '--follow': o.follow = true; break;
+      // ui --lan: serve paired devices on the private network over a generated certificate (160 IC-001). Only the
+      // ui verb knows it; anywhere else it reaches the default branch and the unknown-flag answer.
+      case '--lan': o.lan = true; break;
       // package --action verify: rewrite an unreadable state.json (never widens, 122 IC-009).
       case '--repair': o.repair = true; break;
       // decision --action list: every decision by id, not just the live ones.
@@ -285,6 +288,7 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--listen-address', 'listenAddress'], // ui: explicit private interface for TLS phone access
   ['--tls-cert', 'tlsCert'],             // ui: absolute PEM certificate chain
   ['--tls-key', 'tlsKey'],               // ui: absolute PEM private key
+  ['--device', 'device'],                // ui --action revoke: the device id (160 IC-001)
   // `--reason <text>` is parsed by its own case above; this entry is the `--reason=<text>` spelling
   // of the same flag (FU-8eqytg), so the two forms mean the same on every verb that accepts it.
   ['--reason', 'reason'],
@@ -506,7 +510,7 @@ function parseRuntimeFlag(arg: string, argv: string[], i: number, o: any): numbe
   const inline = eq === -1 ? null : arg.slice(eq + 1);
   const key = RUNTIME_STRING_FLAGS.get(name) || RUNTIME_LIST_FLAGS.get(name) || RUNTIME_INT_FLAGS.get(name);
   if (!key) return null;
-  if ((name === '--listen-address' || name === '--tls-cert' || name === '--tls-key') && o.cmd !== 'ui') return null;
+  if ((name === '--listen-address' || name === '--tls-cert' || name === '--tls-key' || name === '--device') && o.cmd !== 'ui') return null;
 
   let value: any = inline;
   let next = i;
@@ -556,7 +560,7 @@ Commands:
   list-backups         List available backups
   self-update          git pull + reinstall
   tools                List external tools and whether each is present; install, update or uninstall one
-  ui [<project>]       Run the DoFlow Console, a separately installed package (--port N; exit 2 when it is not installed)
+  ui [<project>]       Run the DoFlow Console, a separately installed package (--port N, --lan, --action pair|devices|revoke; exit 2 when it is not installed)
   capabilities         Show registered abstract capabilities and resolved providers
   enforcement          Report lifecycle policy enforcement coverage (--harness, --policy)
   doctor               System health and capability smoke check diagnostics
