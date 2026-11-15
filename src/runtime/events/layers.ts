@@ -27,6 +27,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { sha16 } = require('../scaffold/fingerprint.ts');
+const { maskBody } = require('../mask.ts');
 const { cwdHash, stateDir } = require('../context/identity.ts');
 const { observedSessions } = require('../context/primary.ts');
 const { listCheckouts, clearCheckoutCache } = require('../checkouts.ts');
@@ -54,9 +55,21 @@ const GATE_RUNS = 8;
 const GATE_EVENTS = 8;
 const GATE_NAME_CHARS = 200;
 
-/** A gate's display name: a non-empty string name capped to GATE_NAME_CHARS, else the gate id (shared with the `machine` channel). */
+/**
+ * 161 review 3: `text` masked whole, then cut to `max` characters. A cut that the envelope's own
+ * masking would change (a `<masked>` cut short, a key whose value it cut) is cut shorter until it is
+ * left as it is, so the framed text stays within `max` and never holds the front of a secret.
+ */
+function maskedCap(text: string, max: number): string {
+  const masked = maskBody(text).text;
+  let out = masked.slice(0, max);
+  for (let cut = out.length; maskBody(out).text !== out; cut -= 1) out = masked.slice(0, cut - 1);
+  return out;
+}
+
+/** A gate's display name: a non-empty string name masked and capped to GATE_NAME_CHARS, else the gate id (shared with the `machine` channel). */
 function gateName(name: unknown, gateId: string): string {
-  return typeof name === 'string' && name !== '' ? name.slice(0, GATE_NAME_CHARS) : gateId;
+  return typeof name === 'string' && name !== '' ? maskedCap(name, GATE_NAME_CHARS) : gateId;
 }
 const REVIEW_LIMIT = 16;
 const SESSION_LIMIT = 16;
@@ -252,7 +265,7 @@ function denialsOf(root: string, file: string, harness: string | null, fsImpl: a
     const doc = jsonLine(line);
     const at = doc ? isoAt(doc.timestamp) : null;
     if (at === null) continue;
-    recent.push({ at, tool: typeof doc.tool_name === 'string' ? doc.tool_name : '', reason: typeof doc.reason === 'string' ? doc.reason.slice(0, DENIAL_REASON_CHARS) : '' });
+    recent.push({ at, tool: typeof doc.tool_name === 'string' ? doc.tool_name : '', reason: typeof doc.reason === 'string' ? maskedCap(doc.reason, DENIAL_REASON_CHARS) : '' });
   }
   return { observed: true, count: recent.length, recent: recent.slice(-DENIAL_RECENT).reverse() };
 }

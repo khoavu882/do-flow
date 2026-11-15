@@ -19,6 +19,8 @@ const { channelSpec } = require('../../src/runtime/events/sections.ts');
 const { createProjectsIndex } = require('../../src/runtime/events/projects-index.ts');
 const { scanArtifacts, findArtifact, ARTIFACT_LIMIT } = require('../../src/runtime/events/artifacts.ts');
 const { AUDIT } = require('../../src/runtime/events/coverage.ts');
+const { maskBody } = require('../../src/runtime/mask.ts');
+const { gateName } = require('../../src/runtime/events/layers.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 
 const WIN = process.platform === 'win32';
@@ -377,6 +379,22 @@ test('161 IC-003, D8, AC-5: a codex audit line has agentKey null, an antigravity
   for (const row of sections.coverage.json) {
     assert.deepEqual(Object.keys(row), ['harness', 'main', 'subagents', 'transcript', 'permissions', 'questions']);
     assert.deepEqual(row.questions, { observed: false, reason: 'no-harness-record' }, `${row.harness}: no harness records a question (D7)`);
+  }
+});
+
+test('161 review 3: a denial reason and a gate name are masked whole before the 200-character cap, so a secret cut at the boundary is never sent', async (t) => {
+  const f = fixture(t);
+  const a = project(f, 'proj-m');
+  const secret = ' sk-Abcdef0123456789xyz';
+  const claude = session(f, 'claude', 'sess-claude-m', a, Date.now());
+  write(path.join(claude, 'permission-audit.log'), `${JSON.stringify({ timestamp: '2026-11-15T01:00:00Z', tool_name: 'Bash', reason: 'x'.repeat(185) + secret })}\n`);
+  const spec = channelSpec(`layers:${cwdHash(a)}`, { cwd: a, env: f.env, index: indexFor(f, a) });
+  const { sections } = await spec.compute(['sessions']);
+  const [reason] = sections.sessions.json[0].denials.recent.map((r: any) => r.reason);
+  for (const text of [reason, gateName('x'.repeat(185) + secret, 'g-1'), gateName(`${'y'.repeat(190)} token=hunter2`, 'g-1')]) {
+    assert.ok(!text.includes('sk-Abc') && !text.includes('hunter'), text);
+    assert.ok(text.length <= 200, String(text.length));
+    assert.equal(maskBody(text).text, text, 'the envelope\'s own masking leaves it as it is, so it stays under the cap');
   }
 });
 
