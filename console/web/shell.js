@@ -34,7 +34,8 @@ const focusable = (node) => Boolean(node && typeof node.focus === 'function');
  *     Opening again replaces the content and calls the previous `onClose`. As drawer or sheet, focus moves to the close button.
  *   close() empties it, drops `aria-labelledby` and calls `onClose`; as drawer or sheet, focus returns to the owner, or to
  *     #main when the owner is gone.
- *   setInspectable(on) marks the shell for the current view: the docked column is present exactly on inspectable views.
+ *   setInspectable(on) marks the shell for the current view: on an inspectable view the docked column is present only while a
+ *     panel is open (`data-panel="open"`).
  * @param {object} options
  * @param {any} options.doc the document
  * @param {any} options.shell `#shell`

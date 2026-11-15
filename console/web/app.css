@@ -2190,8 +2190,9 @@
 /* ---- the shell: navigation, attention strip, canvas and inspector by band ------------------------- */
 /* Below 768 the navigation is a tab bar fixed to the bottom edge (Now, Sessions, Layers, More) and the canvas is one column;
    from 768 it is a 72 px rail of icons over labels with the Manage group under a rule; from 1280 a 200 px rail of rows and, on
-   an inspectable view, the docked inspector column, so opening or closing the inspector never changes the canvas width. The
-   drawer and the sheet overlay the canvas. The attention strip is a row above the canvas at every width. */
+   an inspectable view while a panel is open (data-panel="open"), the docked inspector column: the canvas narrows when a panel
+   opens and takes the width back when it closes. The drawer and the sheet overlay the canvas. The attention strip is a row
+   above the canvas at every width. */
 @layer layout {
   .shell {
     display: grid;
