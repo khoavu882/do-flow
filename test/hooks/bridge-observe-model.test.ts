@@ -133,3 +133,62 @@ test('negative control: a kiro payload carrying a model writes nothing', (t) => 
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(files(s.store), []);
 });
+
+// FU-v8reh7: Claude Code 2.1.311 runs SessionStart (source `compact`) when an in-session subagent
+// compacts, under the parent's session_id, with the subagent's model and no agent_id. Codex puts
+// agent_id and agent_type on a subagent's PreToolUse. Neither may become the main session's model.
+const MAIN = 'parent-session-0001';
+const claudeStart = (model: string, source: string, extra: any = {}) => ({
+  hook_event_name: 'SessionStart', session_id: MAIN, transcript_path: `/t/${MAIN}.jsonl`, cwd: '', permission_mode: 'auto', source, model, ...extra,
+});
+const observation = (s: any, harness: string) => {
+  const file = path.join(s.store, 'primary', cwdHash(s.cwd), harness, `${sessionKey(MAIN)}.json`);
+  return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : null;
+};
+
+test('a subagent compaction (claude SessionStart source compact) does not replace the main session model', (t) => {
+  const s = scratch(t);
+  bridge(s, 'claude', { native: { ...claudeStart('claude-fable-5-2', 'startup'), cwd: s.cwd } });
+  assert.equal(observation(s, 'claude').model, 'claude-fable-5-2');
+  bridge(s, 'claude', { native: { ...claudeStart('claude-sonnet-5-5', 'compact'), cwd: s.cwd } });
+  const value = observation(s, 'claude');
+  assert.equal(value.model, 'claude-fable-5-2');
+  assert.equal(value.event, 'SessionStart');
+});
+
+test('a compaction with no record yet is written as SessionStart:compact, which the reader does not confirm', (t) => {
+  const s = scratch(t);
+  bridge(s, 'claude', { native: { ...claudeStart('claude-opus-5-5', 'compact'), cwd: s.cwd } });
+  const value = observation(s, 'claude');
+  assert.equal(value.model, 'claude-opus-5-5');
+  assert.equal(value.event, 'SessionStart:compact');
+  // The next main-session start confirms it, even with the same model.
+  bridge(s, 'claude', { native: { ...claudeStart('claude-opus-5-5', 'resume'), cwd: s.cwd } });
+  assert.deepEqual([observation(s, 'claude').model, observation(s, 'claude').event], ['claude-opus-5-5', 'SessionStart']);
+});
+
+test('an event carrying agent_id (codex subagent PreToolUse) records nothing and changes nothing', (t) => {
+  const s = scratch(t);
+  const sub = { ...MODEL_PAYLOADS.codex.native, session_id: MAIN, cwd: s.cwd, model: 'gpt-6-luna', agent_id: 'agent-1', agent_type: 'worker' };
+  bridge(s, 'codex', { native: sub });
+  assert.equal(observation(s, 'codex'), null);
+  bridge(s, 'codex', { native: { ...sub, agent_id: undefined, agent_type: undefined, model: 'gpt-6.1-sol' } });
+  bridge(s, 'codex', { native: sub });
+  assert.equal(observation(s, 'codex').model, 'gpt-6.1-sol');
+  bridge(s, 'claude', { native: { ...claudeStart('claude-sonnet-5-5', 'startup'), cwd: s.cwd, agent_id: 'a1' } });
+  assert.equal(observation(s, 'claude'), null);
+});
+
+test('a wrong record left on disk heals on the next main-session event, and a compaction does not re-break it', (t) => {
+  const s = scratch(t);
+  const dir = path.join(s.store, 'primary', cwdHash(s.cwd), 'claude');
+  fs.mkdirSync(dir, { recursive: true });
+  // The record a subagent compaction wrote before this fix: indistinguishable from a main one.
+  fs.writeFileSync(path.join(dir, `${sessionKey(MAIN)}.json`), `${JSON.stringify({ schema: 1, harness: 'claude', model: 'claude-sonnet-5-5', event: 'SessionStart', observedAt: '2026-11-15T05:41:45Z', session: sessionKey(MAIN) })}\n`);
+  bridge(s, 'claude', { native: { ...claudeStart('claude-opus-5-5', 'compact'), cwd: s.cwd } });
+  assert.equal(observation(s, 'claude').model, 'claude-sonnet-5-5', 'a compaction never replaces a non-compaction record');
+  bridge(s, 'claude', { native: { ...claudeStart('claude-fable-5-2', 'resume'), cwd: s.cwd } });
+  assert.equal(observation(s, 'claude').model, 'claude-fable-5-2');
+  bridge(s, 'claude', { native: { ...claudeStart('claude-sonnet-5-5', 'compact'), cwd: s.cwd } });
+  assert.equal(observation(s, 'claude').model, 'claude-fable-5-2');
+});

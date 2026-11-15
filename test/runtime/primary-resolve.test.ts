@@ -135,3 +135,29 @@ test('primary resolution follows ordered declaration, observation, and role rule
   }
   assert.equal(resolve(f).reason, 'no-observation');
 });
+
+test('a SessionStart:compact observation (a subagent compaction cannot be told from a main one) is never trusted', (t) => {
+  const { trustedPrimaryModel } = require('../../src/runtime/worker/models.ts');
+  let f = setup(t);
+  f.env.DOFLOW_PRIMARY_HARNESS = 'claude';
+  writeObservation(f, 'claude', 'claude-opus-5-5', 'b123456789abcdef', { event: 'SessionStart:compact' });
+  const unattributed = resolve(f);
+  assert.deepEqual([unattributed.state, unattributed.reason, unattributed.model], ['unconfirmed', 'unattributed-observation', null]);
+  assert.equal(trustedPrimaryModel(unattributed, 'claude'), null);
+
+  // A compaction in another session with a different model still makes the sessions disagree.
+  f = setup(t);
+  f.env.DOFLOW_PRIMARY_HARNESS = 'claude';
+  writeObservation(f, 'claude', 'claude-fable-5-2', 'c123456789abcdef');
+  writeObservation(f, 'claude', 'claude-opus-5-5', 'd123456789abcdef', { event: 'SessionStart:compact' });
+  assert.equal(resolve(f).reason, 'ambiguous-sessions');
+
+  // With the same model, the attributed observation confirms it.
+  f = setup(t);
+  f.env.DOFLOW_PRIMARY_HARNESS = 'claude';
+  writeObservation(f, 'claude', 'claude-fable-5-2', 'e123456789abcdef', { observedAt: '2026-10-24T10:00:00.000Z' });
+  writeObservation(f, 'claude', 'claude-fable-5-2', 'f123456789abcdef', { event: 'SessionStart:compact' });
+  const confirmed = resolve(f);
+  assert.deepEqual([confirmed.state, confirmed.model, confirmed.observed.event], ['confirmed', 'claude-fable-5-2', 'SessionStart']);
+  assert.equal(trustedPrimaryModel(confirmed, 'claude'), 'claude-fable-5-2');
+});

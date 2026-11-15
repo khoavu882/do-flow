@@ -20,6 +20,11 @@ case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; th
 #   {"schema":1,"harness":"<id>","model":"<model-id>","event":"<event>","observedAt":"<UTC>","session":"<sessionKey>"}
 # and is written only when absent or when its model differs: a tmp file in the same folder, then a
 # rename, mode 0600. With no config home, no sha256 tool or a link in place of the file, nothing.
+# A payload with a non-empty agent_id comes from a subagent (Claude Code and Codex name it so) and
+# records nothing. A SessionStart with source `compact` is recorded as event `SessionStart:compact`:
+# Claude Code also sends one, under the parent's session id and with the subagent's model and no
+# agent_id, when an in-session subagent compacts, so it never replaces a record from another event,
+# and the reader does not take it as confirming the main session's model.
 # The storage stores model-observations and worker-model-observations bound both folders.
 
 _DOFLOW_SRC=${BASH_SOURCE[0]//\\//}; case $_DOFLOW_SRC in */*) _DOFLOW_OBSERVE_DIR=${_DOFLOW_SRC%/*} ;; *) _DOFLOW_OBSERVE_DIR=. ;; esac
@@ -34,10 +39,11 @@ doflow_observe_model() {
   fields=$(printf '%s\n' "$envelope" | jq -r '
     def text: type == "string" and length > 0 and (test("[[:cntrl:]]") | not);
     .doflow_event as $e
-    | select(($e.identity.model | text) and ($e.identity.session | text))
+    | select(($e.identity.model | text) and ($e.identity.session | text) and (.agent_id == null or .agent_id == ""))
     | $e.identity.model, ($e.identity.model | tojson), $e.identity.session,
       (if (.cwd | text) and (.cwd | startswith("/")) then .cwd else "-" end),
-      ($e.event | tojson), (now | strftime("%Y-%m-%dT%H:%M:%SZ"))' 2>/dev/null) || return 0
+      (if $e.event == "SessionStart" and .source == "compact" then "SessionStart:compact" else $e.event end | tojson),
+      (now | strftime("%Y-%m-%dT%H:%M:%SZ"))' 2>/dev/null) || return 0
   { IFS= read -r model && IFS= read -r model_json && IFS= read -r session && IFS= read -r cwd \
     && IFS= read -r event && IFS= read -r now; } <<<"$fields" || return 0
 
@@ -60,8 +66,12 @@ doflow_observe_model() {
 
   [ ! -L "$file" ] || return 0
   if [ -f "$file" ]; then
-    current=$(jq -r 'if (.model | type) == "string" then .model else empty end' "$file" 2>/dev/null) || current=""
-    [ "$current" != "$model" ] || return 0
+    # current is "<c|a> <model>": c when the record came from a compaction, a from any other event.
+    current=$(jq -r 'if (.model | type) == "string" then (if (.event | type) == "string" and (.event | endswith(":compact")) then "c " else "a " end) + .model else empty end' "$file" 2>/dev/null) || current=""
+    case "$event" in
+      *':compact"') case "$current" in "a "*|"c $model") return 0 ;; esac ;;
+      *) [ "$current" != "a $model" ] || return 0 ;;
+    esac
   fi
   umask 077
   mkdir -p "$dir" || return 0
