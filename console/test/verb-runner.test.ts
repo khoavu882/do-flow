@@ -171,6 +171,8 @@ const EXPECTED_SHAPES = {
   'storage-report': { argv: ['storage', '--action', 'report', '--json'], params: {} },
   'worker-matrix': { argv: ['worker-matrix', '--json'], params: {} },
   'sessions-history': { argv: ['sessions-history', '--json'], params: {} },
+  // 165 IC-004: the start options of one project; `--project-key` is both the scope and a core argument (cases below).
+  'start-options': { argv: ['worker', '--action', 'start-options', '--project-key', KEY_A, '--json'], params: { projectKey: KEY_A }, scoped: true },
 };
 
 test('the allow-list is the frozen IC-003 table and nothing else', () => {
@@ -293,12 +295,12 @@ test('write verbs, flags, unknown shapes and bad parameters are refused as usage
 test('no shape is a write or signal action of the Sessions verbs: slot list and release, worker cancel', () => {
   const actionOf = (argv: readonly unknown[]) => `${argv[0]} ${argv[argv.indexOf('--action') + 1]}`;
   const actions = SHAPE_IDS.map((id: string) => actionOf(SHAPES[id].argv));
-  for (const refused of ['slot list', 'slot release', 'slot run', 'worker cancel', 'worker run', 'worker evidence']) {
+  for (const refused of ['slot list', 'slot release', 'slot run', 'worker cancel', 'worker run', 'worker evidence', 'worker start-session']) {
     assert.ok(!actions.includes(refused), `${refused} is on the allow-list`);
   }
   // 150 IC-010: `worker-run-status` is the same `worker status` read by run id; the list gains it on purpose.
   assert.deepEqual(actions.filter((action: string) => /^(slot|worker|roadmap|primary) /.test(action)).sort(),
-    ['primary observed', 'roadmap status', 'slot peek', 'worker status', 'worker status']);
+    ['primary observed', 'roadmap status', 'slot peek', 'worker start-options', 'worker status', 'worker status']);
 });
 
 test('the child environment has no DOFLOW_* but the four pass-throughs and DOFLOW_UPKEEP=off, and no identity variable', async () => {
@@ -613,8 +615,16 @@ const writeDone = (mode) => {
     process.stdout.write(JSON.stringify({ v: 1, ok: true, argv, cwd: process.cwd() }));
   }
 };
+// 165: a start-session child reads its prompt from stdin and echoes the bytes back (base64), so a case sees exactly what arrived.
+const echoStdin = () => {
+  const parts = [];
+  process.stdin.on('data', (chunk) => parts.push(chunk));
+  process.stdin.on('end', () => process.stdout.write(JSON.stringify({ v: 1, ok: true, argv, cwd: process.cwd(), stdinB64: Buffer.concat(parts).toString('base64') })));
+};
 const done = () => {
-  if (isWrite && process.env.FAKE_WRITE_MODE) {
+  if (argv[0] === 'worker' && argv[2] === 'start-session') {
+    echoStdin();
+  } else if (isWrite && process.env.FAKE_WRITE_MODE) {
     writeDone(process.env.FAKE_WRITE_MODE);
   } else if (argv[0] === 'transcript' && argv[2] === 'read' && process.env.FAKE_ERROR_CWD === process.cwd()) {
     process.stderr.write('[ERROR] transcript: boom\\n');
@@ -1834,6 +1844,13 @@ const WRITE_CASES: Record<string, { params: Record<string, string>; argv: string
   },
 };
 const DEVICE_RELAY = 'device.d-0123456789ab';
+/** 165 IC-001: the start-session write; the prompt is a parameter of the shape but rides the core's stdin, never argv. */
+const REQUEST_ID_A = 'abcdefghijklmnopqrstuv';
+const PROMPT = 'Use the DoFlow do skill for this request:\n\nfix the login page --and "quote" $(x) ünïcode ✓';
+const START_CASE = {
+  params: { projectKey: KEY_A, worktreeKey: KEY_B, harness: 'claude', model: 'claude-sonnet-4.5', entry: 'do', relay: 'console', requestId: REQUEST_ID_A, prompt: PROMPT } as Record<string, any>,
+  argv: ['worker', '--action', 'start-session', '--project-key', KEY_A, '--worktree-key', KEY_B, '--harness', 'claude', '--model', 'claude-sonnet-4.5', '--entry', 'do', '--via', 'console', '--request-id', REQUEST_ID_A, '--stdin', '--json'],
+};
 
 /** A fleet runner whose key map is filled, so a scoped write finds its root. */
 async function writeSetup(writeMode?: string, extraEnv: Record<string, string> = {}, mode = 'echo') {
@@ -1844,7 +1861,7 @@ async function writeSetup(writeMode?: string, extraEnv: Record<string, string> =
 }
 
 test('WRITE_SHAPES is the frozen IC-003 set, apart from the read allow-list', () => {
-  assert.deepEqual([...WRITE_SHAPE_IDS], ['decide-gate', 'close-run', 'cancel-worker']);
+  assert.deepEqual([...WRITE_SHAPE_IDS], ['decide-gate', 'close-run', 'cancel-worker', 'start-session']);
   assert.ok(Object.isFrozen(WRITE_SHAPES) && Object.isFrozen(WRITE_SHAPE_IDS));
   for (const id of WRITE_SHAPE_IDS) {
     assert.ok(Object.isFrozen(WRITE_SHAPES[id]) && Object.isFrozen(WRITE_SHAPES[id].argv), `${id} is frozen`);
@@ -1974,7 +1991,8 @@ test('a bad parameter is usage before any spawn: patterns, missing or extra keys
 
   // `run` refuses every write id, with a full and valid parameter set.
   for (const id of WRITE_SHAPE_IDS) {
-    assert.deepEqual(await f.runner.run(id, WRITE_CASES[id].params), { ok: false, code: 'usage', exit: null }, id);
+    const params = id === 'start-session' ? START_CASE.params : WRITE_CASES[id].params;
+    assert.deepEqual(await f.runner.run(id, params), { ok: false, code: 'usage', exit: null }, id);
   }
   assert.equal(f.spawnCalls.length, before);
 });
@@ -2187,4 +2205,164 @@ test('162 review 10: projects read fresh spawns past its 10 s cache once its las
   const fresh = await s.runner.run('projects', {}, { fresh: true });
   assert.deepEqual([fresh.ok, fresh.fresh, s.spawns()], [true, 'ran', 2], 'past the floor, inside the 10 s ttl: a spawn');
   assert.equal((await s.runner.act('close-run', CLOSE_PARAMS(KEY_B))).ok, true);
+});
+
+// ---- 165 IC-001, IC-004 (T5): the start-session write with the prompt on the core's stdin, and the start-options read ----
+
+const startStarts = (f: any) => f.starts().filter((start: any) => start.argv[2] === 'start-session');
+const stdinOf = (result: any) => Buffer.from(result.json.stdinB64, 'base64').toString('utf8');
+
+test('act start-session writes the prompt to the core\'s stdin and to no argv element', async () => {
+  const f = await writeSetup();
+  const result = await f.runner.act('start-session', START_CASE.params);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual(result.json.argv, START_CASE.argv);
+  const [start] = startStarts(f);
+  assert.deepEqual(start.argv, START_CASE.argv);
+  assert.equal(start.cwd, f.rootA, 'cwd is the root of the project key');
+  assert.equal(stdinOf(result), PROMPT, 'the child read exactly the prompt bytes');
+  assert.ok(!start.argv.some((element: string) => element.includes('login') || element.includes(PROMPT.slice(0, 12))), 'no argv element holds the prompt');
+  assert.ok(!start.argv.join(' ').includes('quote'));
+  // The spawn piped stdin for this shape, shell off, and the environment rules are the write path's.
+  const call = f.spawnCalls.at(-1);
+  assert.deepEqual(call.options.stdio, ['pipe', 'pipe', 'pipe']);
+  assert.equal(call.options.shell, false);
+  assert.equal(start.env.DOFLOW_UPKEEP, 'off');
+  // Bytes survive whatever the prompt holds: a leading dash, a newline-only edge, a large text.
+  for (const prompt of ['--json', '-x', '\n', 'a\r\nb\n', 'x'.repeat(100_000), '😀 end']) {
+    const again = await f.runner.act('start-session', { ...START_CASE.params, prompt });
+    assert.equal(stdinOf(again), prompt, JSON.stringify(prompt.slice(0, 20)));
+    assert.deepEqual(startStarts(f).at(-1).argv, START_CASE.argv);
+  }
+});
+
+test('act start-session leaves --model out for a null, absent or empty model; any other value is checked', async () => {
+  const f = await writeSetup();
+  const { model: _model, ...without } = START_CASE.params;
+  const noModel = START_CASE.argv.filter((element, index) => element !== '--model' && START_CASE.argv[index - 1] !== '--model');
+  for (const params of [{ ...without, model: null }, { ...without, model: '' }, without]) {
+    const result = await f.runner.act('start-session', params);
+    assert.equal(result.ok, true, JSON.stringify(params));
+    assert.deepEqual(result.json.argv, noModel);
+    assert.equal(stdinOf(result), PROMPT);
+  }
+  for (const model of ['gpt-6.1:high', 'a/b@c', 'A.b_c-1', 'm'.repeat(128)]) {
+    assert.equal((await f.runner.act('start-session', { ...START_CASE.params, model })).ok, true, model);
+  }
+});
+
+test('act start-session refuses a bad parameter as usage and spawns nothing', async () => {
+  const f = await writeSetup();
+  const before = f.spawnCalls.length;
+  const base = START_CASE.params;
+  const refused: Array<Record<string, any>> = [
+    { ...base, model: '-m' }, { ...base, model: '--model' }, { ...base, model: 'a b' }, { ...base, model: 'm'.repeat(129) }, { ...base, model: 'a\n' }, { ...base, model: 5 },
+    { ...base, harness: '-claude' }, { ...base, harness: 'Claude' }, { ...base, harness: 'c' }, { ...base, harness: 'a'.repeat(33) }, { ...base, harness: 'claude\n' }, { ...base, harness: undefined },
+    { ...base, entry: 'DO' }, { ...base, entry: 'do\n' }, { ...base, entry: 'all' }, { ...base, entry: '' }, { ...base, entry: undefined },
+    { ...base, requestId: 'short' }, { ...base, requestId: `${REQUEST_ID_A}x` }, { ...base, requestId: 'a'.repeat(21) + '/' }, { ...base, requestId: undefined },
+    { ...base, relay: 'manual' }, { ...base, relay: undefined },
+    { ...base, worktreeKey: 'ZZZZZZZZZZZZZZZZ' }, { ...base, worktreeKey: '../x' }, { ...base, worktreeKey: undefined },
+    { ...base, projectKey: 'nope' }, { ...base, projectKey: undefined },
+    { ...base, prompt: undefined }, { ...base, prompt: '' }, { ...base, prompt: 'a\0b' }, { ...base, prompt: 5 }, { ...base, prompt: null }, { ...base, prompt: ['x'] },
+    { ...base, extra: 'x' }, { ...base, argv: ['--evil'] },
+  ];
+  for (const params of refused) {
+    const cleaned = Object.fromEntries(Object.entries(params).filter(([, value]) => value !== undefined));
+    assert.deepEqual(await f.runner.act('start-session', cleaned), { ok: false, code: 'usage', exit: null }, JSON.stringify(cleaned).slice(0, 160));
+  }
+  assert.equal(f.spawnCalls.length, before, 'nothing spawned');
+});
+
+test('only start-session declares stdin; every other spawn keeps stdin ignored', async () => {
+  assert.deepEqual(WRITE_SHAPE_IDS.filter((id: string) => 'stdin' in WRITE_SHAPES[id]), ['start-session']);
+  assert.equal(SHAPE_IDS.filter((id: string) => 'stdin' in SHAPES[id]).length, 0);
+  assert.deepEqual(WRITE_SHAPES['start-session'].stdin, { param: 'prompt', free: true });
+  const f = await writeSetup();
+  await f.runner.run('projects', {});
+  await f.runner.run('start-options', { projectKey: KEY_A });
+  for (const [id, case_] of Object.entries(WRITE_CASES)) assert.equal((await f.runner.act(id, case_.params)).ok, true, id);
+  const piped = f.spawnCalls.filter((call: any) => !call.args.includes('--stdin'));
+  assert.ok(piped.length >= 5);
+  for (const call of piped) assert.deepEqual(call.options.stdio, ['ignore', 'pipe', 'pipe'], call.args.slice(1).join(' '));
+  // The follow child, which does need stdin, is unchanged: piped.
+  const follower = followSetup();
+  const handle = follower.runner.follow('events');
+  assert.deepEqual(follower.spawnCalls.at(-1).options.stdio, ['pipe', 'pipe', 'pipe']);
+  follower.fakes[0].close(0);
+  await handle.exited;
+});
+
+test('start-options runs scoped in the project root with --project-key in argv, ttl 5 s, no fresh', async () => {
+  const f = await writeSetup();
+  assert.equal(SHAPES['start-options'].ttl, 5_000);
+  assert.equal(SHAPES['start-options'].scoped, true);
+  assert.equal('refreshFloorMs' in SHAPES['start-options'], false);
+  const read = await f.runner.run('start-options', { projectKey: KEY_B });
+  assert.equal(read.ok, true);
+  const start = f.starts().find((entry: any) => entry.argv[2] === 'start-options');
+  assert.deepEqual(start.argv, ['worker', '--action', 'start-options', '--project-key', KEY_B, '--json']);
+  assert.equal(start.cwd, f.rootB);
+  // Cached for 5 s per (projectKey, argv), then read again.
+  await f.runner.run('start-options', { projectKey: KEY_B });
+  assert.equal(f.starts().filter((entry: any) => entry.argv[2] === 'start-options').length, 1);
+  f.clock.advance(5_000);
+  await f.runner.run('start-options', { projectKey: KEY_B });
+  assert.equal(f.starts().filter((entry: any) => entry.argv[2] === 'start-options').length, 2);
+  // `fresh` is refused; an unknown key is project-not-found; a bad key and an extra key are usage; all before any spawn.
+  const spawned = f.spawnCalls.length;
+  assert.deepEqual(await f.runner.run('start-options', { projectKey: KEY_B }, { fresh: true }), { ok: false, code: 'usage', exit: null });
+  assert.deepEqual(await f.runner.run('start-options', { projectKey: 'cccccccccccccccc' }), { ok: false, code: 'project-not-found', exit: null });
+  assert.deepEqual(await f.runner.run('start-options', { projectKey: 'x' }), { ok: false, code: 'usage', exit: null });
+  assert.deepEqual(await f.runner.run('start-options', { projectKey: KEY_B, harness: 'claude' }), { ok: false, code: 'usage', exit: null });
+  assert.deepEqual(await f.runner.run('start-options', {}), { ok: false, code: 'usage', exit: null });
+  assert.deepEqual(await f.runner.act('start-options', { projectKey: KEY_B }), { ok: false, code: 'usage', exit: null }, 'act refuses a read shape');
+  assert.equal(f.spawnCalls.length, spawned);
+});
+
+test('a stdin write failure (EPIPE) is the existing failure shape, never a crash or a leak of the prompt', async () => {
+  const secret = 'prompt-secret-text';
+  for (const phase of ['close-first', 'no-close']) {
+    const children: any[] = [];
+    const base = fleetSetup('echo', {}, undefined);
+    const fake = createVerbRunner({
+      corePath: FLEET_CORE, projectRoot: base.project, env: { FAKE_PROJECTS_FILE: path.join(path.dirname(base.rootA), 'projects.json') }, clock: base.clock,
+      spawnImpl: (command: string, args: string[], options: any) => {
+        if (args.includes('fleet')) return childProcess.spawn(command, args, options);
+        const child = fakeChild();
+        child.stdin.end = (data: Buffer) => {
+          child.stdin.endedWith = data;
+          // A dead child's stdin fails with EPIPE after the write; the listener must absorb it.
+          setImmediate(() => child.stdin.emit('error', Object.assign(new Error('write EPIPE'), { code: 'EPIPE' })));
+        };
+        children.push(child);
+        if (phase === 'close-first') setImmediate(() => { child.err('[ERROR] start: gone\n'); child.close(1); });
+        return child;
+      },
+    });
+    assert.equal((await fake.run('projects', {})).ok, true);
+    if (phase === 'no-close') {
+      const pending = fake.act('start-session', { ...START_CASE.params, prompt: secret });
+      await realDelay(30);
+      assert.equal(children[0].stdin.endedWith.toString('utf8'), secret);
+      children[0].close(1);
+      assert.equal(JSON.stringify(await pending).includes(secret), false);
+      continue;
+    }
+    const result = await fake.act('start-session', { ...START_CASE.params, prompt: secret });
+    assert.deepEqual({ ...result }, { ok: false, code: 'core-error', exit: 1 });
+    assert.equal(JSON.stringify(result).includes(secret), false);
+    assert.equal(children[0].stdin.endedWith.toString('utf8'), secret);
+    fake.stop();
+  }
+});
+
+test('the new patterns: harness, model, entry and the request id', () => {
+  const accepts = (pattern: RegExp, good: string[], bad: string[]) => {
+    for (const value of good) assert.ok(pattern.test(value), `accepts ${JSON.stringify(value)}`);
+    for (const value of bad) assert.ok(!pattern.test(value), `refuses ${JSON.stringify(value)}`);
+  };
+  accepts(PATTERNS.harness, ['claude', 'codex', 'kiro', 'opencode', 'copilot', 'pi', 'a1', 'a'.repeat(32)], ['-x', 'c', 'Claude', 'a_b', 'a b', 'a'.repeat(33), '1abc', '', 'claude\n']);
+  accepts(PATTERNS.model, ['claude-sonnet-4.5', 'gpt-6.1:high', 'a/b@c', 'A', 'm'.repeat(128)], ['-m', '--model', '.x', '', 'a b', 'a\n', 'a\0', 'm'.repeat(129)]);
+  accepts(PATTERNS.entry, ['do', 'none'], ['DO', 'do\n', ' do', 'all', '', 'none ']);
+  accepts(PATTERNS.requestId, [REQUEST_ID_A, 'A'.repeat(22), '_-_-_-_-_-_-_-_-_-_-'.padEnd(22, 'a')], ['', 'a'.repeat(21), 'a'.repeat(23), `${'a'.repeat(21)}.`, `${'a'.repeat(21)}\n`]);
 });

@@ -31,6 +31,8 @@
 // its own outside the pool (writes queue in arrival order; reads go on beside one), a 30 s timeout, and the same
 // environment, spawn options, stderr handling and old-core rule as a read. An exit 0 or 1 with one JSON object on
 // stdout is data (the core's refusals are JSON on exit 1); exit 2 is `usage`; any other outcome is a failure.
+// 165 IC-001: a write shape may declare `stdin`, one free parameter written to the core's stdin (UTF-8) and then ended; only
+// that spawn pipes stdin (every other keeps 'ignore'), and the text is never in argv, a log or a result.
 
 const childProcess = require('node:child_process');
 const fs = require('node:fs');
@@ -39,7 +41,8 @@ const path = require('node:path');
 /**
  * `pattern` names an entry of PATTERNS (default `id`); `flag` makes the parameter its own `--flag value` pair, omitted when
  * `optional` and absent. `free` (162): free text, checked only to be one string without a NUL (the caller normalizes it, IC-009),
- * passed as exactly one argv element; empty is refused, or, with `omitEmpty`, left out with its flag.
+ * passed as exactly one argv element; empty is refused, or, with `omitEmpty`, left out with its flag. 165: `omitEmpty` on a patterned
+ * parameter also leaves it out, with its flag, when it is null or empty; any other value must match.
  */
 type Param = { param: string; pattern?: keyof typeof PATTERNS; flag?: string; optional?: true; free?: true; omitEmpty?: true };
 interface Shape {
@@ -126,6 +129,13 @@ const DECISION: Param = { param: 'decision', pattern: 'decision' };
 const GATE: Param = { param: 'gate' };
 const NOTE: Param = { param: 'note', free: true };
 const NOTE_OPT: Param = { param: 'note', flag: '--note', optional: true, free: true, omitEmpty: true };
+// 165 IC-001/IC-004: the start-session parameters. The prompt is the shape's stdin, never an argv element.
+const WORKTREE: Param = { param: 'worktreeKey', pattern: 'key16' };
+const HARNESS: Param = { param: 'harness', pattern: 'harness' };
+const MODEL_OPT: Param = { param: 'model', pattern: 'model', flag: '--model', optional: true, omitEmpty: true };
+const ENTRY: Param = { param: 'entry', pattern: 'entry' };
+const REQUEST: Param = { param: 'requestId', pattern: 'requestId' };
+const PROMPT: Param = { param: 'prompt', free: true };
 
 /** IC-003, the whole allow-list. `--json` is appended to every shape. */
 const SHAPES: Readonly<Record<string, Shape>> = deepFreeze({
@@ -164,6 +174,8 @@ const SHAPES: Readonly<Record<string, Shape>> = deepFreeze({
   'storage-report': { argv: ['storage', '--action', 'report'], ttl: 30_000, usageIsOldCore: true },
   'worker-matrix': { argv: ['worker-matrix'], ttl: Infinity, byCoreVersion: true },
   'sessions-history': { argv: ['sessions-history', DAYS_OPT, LIMIT_OPT], ttl: 5_000 },
+  // 165 IC-004: what a project can start. Scoped like `transcript`, but the core re-checks the key, so it is argv too.
+  'start-options': { argv: ['worker', '--action', 'start-options', '--project-key', PROJECT], ttl: 5_000, scoped: true },
 });
 const SHAPE_IDS: readonly string[] = Object.freeze(Object.keys(SHAPES));
 
@@ -174,6 +186,8 @@ const SHAPE_IDS: readonly string[] = Object.freeze(Object.keys(SHAPES));
 interface WriteShape {
   readonly argv: readonly (string | Param)[];
   readonly scoped: true;
+  /** 165: the free parameter written to the core's stdin (UTF-8, then ended) instead of argv; only this shape's spawn pipes stdin. */
+  readonly stdin?: Param;
 }
 const WRITE_SHAPES: Readonly<Record<string, WriteShape>> = deepFreeze({
   'decide-gate': {
@@ -187,6 +201,12 @@ const WRITE_SHAPES: Readonly<Record<string, WriteShape>> = deepFreeze({
   'cancel-worker': {
     argv: ['worker', '--action', 'cancel', '--slug', SLUG, '--worker-run', RUN, '--operator', '--via', RELAY, '--reason', NOTE],
     scoped: true,
+  },
+  // 165 IC-001: start one session in a checkout of the project; the prompt rides stdin (`--stdin`), the key is argv too (the core re-checks it).
+  'start-session': {
+    argv: ['worker', '--action', 'start-session', '--project-key', PROJECT, '--worktree-key', WORKTREE, '--harness', HARNESS, MODEL_OPT, '--entry', ENTRY, '--via', RELAY, '--request-id', REQUEST, '--stdin'],
+    scoped: true,
+    stdin: PROMPT,
   },
 });
 const WRITE_SHAPE_IDS: readonly string[] = Object.freeze(Object.keys(WRITE_SHAPES));
@@ -281,6 +301,11 @@ const PATTERNS = Object.freeze({
   decision: /^(?:approve|reject)$/,
   revision: /^(?:0|[1-9][0-9]{0,8})$/,
   relay: /^(?:console|device\.d-[0-9a-f]{12})$/,
+  /** 165 IC-001: a harness id (form only; the core checks it against the registry), a model name, a prompt entry, and the request id (actions.ts REQUEST_ID). */
+  harness: /^[a-z][a-z0-9-]{1,31}$/,
+  model: /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}$/,
+  entry: /^(?:do|none)$/,
+  requestId: /^[A-Za-z0-9_-]{22}$/,
 });
 const LIMIT_MAX = 500;
 const DAYS_MAX = 90;
@@ -323,13 +348,14 @@ const labelled = (result: Result, fresh: Fresh): Result => stamp({ ...result, fr
  * The argv of a shape with its parameters filled, and the project key of a scoped shape, or null when
  * the call is not on the allow-list.
  */
-function buildArgv(shapeId: unknown, params: unknown, shapes: Readonly<Record<string, { argv: readonly (string | Param)[]; scoped?: true }>> = SHAPES): { argv: string[]; projectKey: string | null } | null {
+function buildArgv(shapeId: unknown, params: unknown, shapes: Readonly<Record<string, { argv: readonly (string | Param)[]; scoped?: true; stdin?: Param }>> = SHAPES): { argv: string[]; projectKey: string | null; stdin: string | null } | null {
   if (typeof shapeId !== 'string' || !Object.hasOwn(shapes, shapeId)) return null;
   const given = params ?? {};
   if (typeof given !== 'object' || Array.isArray(given)) return null;
   const shape = shapes[shapeId];
   const declared = shape.argv.filter((part): part is Param => typeof part !== 'string');
   if (shape.scoped) declared.push(PROJECT);
+  if (shape.stdin) declared.push(shape.stdin);
   const keys = Object.keys(given);
   if (!keys.every((key) => declared.some((part) => part.param === key))) return null;
   if (!declared.every((part) => part.optional || keys.includes(part.param))) return null;
@@ -341,6 +367,8 @@ function buildArgv(shapeId: unknown, params: unknown, shapes: Readonly<Record<st
     }
     const value = (given as Record<string, unknown>)[part.param];
     if (value === undefined && part.optional) continue;
+    // 165: a patterned `omitEmpty` parameter (the model) is also left out, flag and all, when null or empty.
+    if (part.omitEmpty && !part.free && (value === null || value === '')) continue;
     if (typeof value !== 'string') return null;
     if (part.free) {
       // 162: text is the caller's to normalize (IC-009); a NUL would make the spawn throw, so it is usage, never core-unreachable.
@@ -354,12 +382,19 @@ function buildArgv(shapeId: unknown, params: unknown, shapes: Readonly<Record<st
     argv.push(value);
   }
   argv.push('--json');
+  // 165: the stdin text is one non-empty string without a NUL, like any free parameter, and is not in argv.
+  let stdin: string | null = null;
+  if (shape.stdin) {
+    const text = (given as Record<string, unknown>)[shape.stdin.param];
+    if (typeof text !== 'string' || text === '' || text.includes('\0')) return null;
+    stdin = text;
+  }
   const projectKey = (given as Record<string, unknown>).projectKey;
   if (shape.scoped) {
     if (typeof projectKey !== 'string' || !acceptable(PROJECT.pattern!, projectKey)) return null;
-    return { argv, projectKey };
+    return { argv, projectKey, stdin };
   }
-  return { argv, projectKey: null };
+  return { argv, projectKey: null, stdin };
 }
 
 /** The parent environment minus every DOFLOW_* and identity variable, plus the pass-throughs and DOFLOW_UPKEEP=off. */
@@ -440,8 +475,8 @@ function createVerbRunner(options: RunnerOptions) {
   let reservedActive = 0;
   let stopped = false;
 
-  /** One spawn of the core, of a read `shape` or, with `null`, of a write (162: `act`). Resolves when the child has closed; never rejects. */
-  function spawnCore(shape: Shape | null, argv: string[], cwd: string, flightKey: string): Promise<Result> {
+  /** One spawn of the core, of a read `shape` or, with `null`, of a write (162: `act`). Resolves when the child has closed; never rejects. A write with `stdin` pipes it, writes the text and ends it (165). */
+  function spawnCore(shape: Shape | null, argv: string[], cwd: string, flightKey: string, stdin: string | null = null): Promise<Result> {
     const write = shape === null;
     return new Promise((resolveResult) => {
       const resolve = (result: Bare) => resolveResult(stamp(result, clock.now()));
@@ -452,9 +487,14 @@ function createVerbRunner(options: RunnerOptions) {
           cwd,
           env: childEnv(env),
           shell: false,
-          stdio: ['ignore', 'pipe', 'pipe'],
+          stdio: [stdin === null ? 'ignore' : 'pipe', 'pipe', 'pipe'],
           windowsHide: true,
         });
+        if (stdin !== null) {
+          // A child that died first fails the write with EPIPE: that is its exit, which 'close' reports, never a Console crash.
+          child.stdin.on('error', () => {});
+          child.stdin.end(Buffer.from(stdin, 'utf8'));
+        }
       } catch {
         return resolve(unreachable());
       }
@@ -666,7 +706,7 @@ function createVerbRunner(options: RunnerOptions) {
     if (stopped) return stamp(unreachable(), clock.now());
     const root = roots.get(built.projectKey!);
     if (root === undefined) return stamp({ ok: false, code: 'project-not-found', exit: null }, clock.now());
-    const turn = writeTail.then(() => (stopped ? stamp(unreachable(), clock.now()) : spawnCore(null, built.argv, root, '')));
+    const turn = writeTail.then(() => (stopped ? stamp(unreachable(), clock.now()) : spawnCore(null, built.argv, root, '', built.stdin)));
     writeTail = turn;
     return turn;
   }
