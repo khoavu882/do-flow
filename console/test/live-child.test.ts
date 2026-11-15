@@ -511,3 +511,25 @@ test('161 DEC-012: isNewKind and newKindOf name the LAYERS_KINDS kind of a chann
     assert.equal(newKindOf(name), null, name);
   }
 });
+
+test('161 DEC-012: the hub\'s required kinds are exactly the new kinds the real core lists', () => {
+  const { spawnSync } = require('node:child_process');
+  const fs = require('node:fs');
+  const { LAYERS_KINDS } = require('../src/live-child.ts');
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'live-kinds-'));
+  after(() => fs.rmSync(scratch, { recursive: true, force: true }));
+  const bin = path.join(__dirname, '..', '..', 'bin', 'doflow.js');
+  const home = path.join(scratch, 'home');
+  fs.mkdirSync(home);
+  const run = spawnSync(process.execPath, [bin, 'events', '--kinds', '--json'], {
+    cwd: scratch,
+    encoding: 'utf8',
+    env: { ...process.env, HOME: home, XDG_CONFIG_HOME: path.join(home, '.config') },
+  });
+  assert.equal(run.status, 0, run.stderr);
+  const body = JSON.parse(run.stdout);
+  assert.equal(body.v, 1);
+  const ROW_150 = ['now', 'run', 'tasks', 'worker'];
+  assert.deepEqual(ROW_150.filter((kind) => !body.kinds.includes(kind)), [], 'the core still lists the row-150 kinds');
+  assert.deepEqual([...LAYERS_KINDS].sort(), body.kinds.filter((kind: string) => !ROW_150.includes(kind)).sort());
+});
