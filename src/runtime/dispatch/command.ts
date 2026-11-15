@@ -542,6 +542,8 @@ async function runDispatchCommand(options: any): Promise<{ exit: number; body: a
     refuseMisplacedFlags(action, options);
     const settings = action === 'start' ? startSettings(options) : (actionFlags(action, options), null);
     const slug = featureOf(options.slug, options.resolveSlug, cwd);
+    // 165 D1: `started-sessions` is the started main sessions' run store, not a feature a dispatch can drive.
+    if (slug === 'started-sessions') return { exit: 1, body: { disposition: 'refused', reason: 'slug-reserved', slug } };
     const o = { ...options, env, cwd, slug, clock };
 
     let body: any;

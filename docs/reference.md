@@ -144,7 +144,7 @@ When `doflow-run` selects a CLI from the caller's checkout, it warns on stderr i
 | `orchestrate` | Start or resume a run: complete stages, decide gates \(--action\) |
 | `research-request` | Open, list or resolve a feature-stage research question \(--task-id\) |
 | `task-attempt` | Claim, finish, release, run controls, resume, inspect, reopen or report usage on a plan's task attempts \(--action, --slug\) |
-| `worker` | Discover, probe, describe, select, run, status or cancel an external headless worker on a claimed task \(--action\) |
+| `worker` | Discover, probe, describe, select, run, status or cancel an external headless worker on a claimed task, or start a main session \(--action\) |
 | `dispatch` | Run a feature's task graph: start, step, run, submit, spawn, pause, inspect, cancel, takeover or resume \(--action\) |
 | `retrieve` | BM25 guidance search by default; use --scope code for scoped project retrieval \(--query\) |
 | `model-role` | Resolve a model role to ranked provider candidates \(--role, --exclude-family\) |

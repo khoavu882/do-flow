@@ -21,6 +21,15 @@
 // promise that resolves once the process has spawned and rejects on any throw or a spawn `error`
 // (for example ENOENT); the supervisor ends such a run `not-started`. No variable's value is stored,
 // and the emission text is never returned for storage.
+//
+// 165 IC-006, D1, D9: a started main session (`kind: 'main-session'`) launches through the same spawn
+// with its own recipe. `mainArgv` takes `mainSession.argv` and splices the model part (`model.argv`
+// with `{model}` replaced whole, absent for the harness default) in before the first positional tail
+// element (`-`, `--` or `{prompt}`), else at the end: claude `-p --output-format text --model M`,
+// codex `exec --json -o F -m M -`, opencode `run --format json --model M <prompt>`, pi
+// `-p --mode json --model M -- <prompt>`. `mainEnv` drops the five identity variables,
+// DOFLOW_WORKER_RUN and the primary declaration (it names the caller's session, not this one), sets
+// nothing worker-ish and adds DOFLOW_STARTED_RUN=<runId>. No context emission is prepended.
 
 const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
@@ -43,6 +52,10 @@ const MODEL_ELEMENT = '{model}';
 const PROMPT_LIMITS = Object.freeze({ argv: 131071, stdin: 1048576 });
 const DEFAULT_RUN = 'local';
 const RUN_ID = /^w-[0-9a-f]{12}$/;
+/** 165 D9: names the run a started main session belongs to, so a start from inside it is `nested-start`. */
+const STARTED_RUN_VAR = 'DOFLOW_STARTED_RUN';
+/** 165 IC-006: the elements that open a main-session argv's positional tail; the model part goes before the first. */
+const MAIN_TAIL = new Set(['-', '--', '{prompt}']);
 /** IC-003 / 120 IC-011: order of the run recipe's argv; model is conditional on its binding. */
 const RECIPE_ORDER = Object.freeze(['readOnly', 'model', 'spawnDenial', 'structuredOutput', 'oneShot']);
 /** 082 IC-014 / 120 IC-011: the order of an edit run's recipe argv. */
@@ -176,6 +189,101 @@ function launchRecord(recipe: any, identity: WorkerIdentity, prompt: string, edi
   };
 }
 
+/** 165 IC-006: `mainSession.argv` with the model part spliced in and the placeholders replaced whole.
+ * `model` null is the harness default (no model part). */
+function mainArgv(recipe: any, element: string, lastMessageFile?: string, model: string | null = null): string[] {
+  const entry = recipe?.mainSession;
+  if (!entry || entry.status !== 'supported' || !Array.isArray(entry.argv)) {
+    throw new LaunchUsageError('recipe-incomplete', "mainArgv: worker 'mainSession' is not supported with an argv");
+  }
+  if ((entry.promptVia === 'argv') !== entry.argv.includes(PROMPT_ELEMENT)) {
+    throw new LaunchUsageError('recipe-incomplete', `mainArgv: promptVia '${entry.promptVia}' and the argv's '{prompt}' element disagree`);
+  }
+  let modelPart: string[] = [];
+  if (model !== null) {
+    if (typeof model !== 'string' || model === '') throw new LaunchUsageError('model-invalid', 'mainArgv: a model must be a non-empty string');
+    if (recipe.model?.status !== 'supported' || !Array.isArray(recipe.model.argv)) {
+      throw new LaunchUsageError('recipe-incomplete', "mainArgv: worker 'model' is not supported with an argv");
+    }
+    modelPart = recipe.model.argv.map((value: string) => (value === MODEL_ELEMENT ? model : value));
+  }
+  const at = entry.argv.findIndex((value: string) => MAIN_TAIL.has(value));
+  const spliced = at === -1 ? [...entry.argv, ...modelPart] : [...entry.argv.slice(0, at), ...modelPart, ...entry.argv.slice(at)];
+  return spliced.map((value: string) => {
+    if (value === LAST_MESSAGE_FILE_ELEMENT) {
+      if (lastMessageFile === undefined) throw new LaunchUsageError('last-message-file-missing', "mainArgv: the recipe needs a '{lastMessageFile}' output path");
+      return lastMessageFile;
+    }
+    return value === PROMPT_ELEMENT ? element : value;
+  });
+}
+
+/** 165 IC-003: the stored main-session argv, the prompt hashed, the output path and the model as placeholders. */
+function mainArgvShape(recipe: any, prompt: string, model: string | null = null): string[] {
+  const hex = crypto.createHash('sha256').update(prompt, 'utf8').digest('hex');
+  return mainArgv(recipe, `<prompt sha256:${hex} bytes:${Buffer.byteLength(prompt, 'utf8')}>`, '<last-message-file>', model === null ? null : MODEL_ELEMENT);
+}
+
+/** 165 D9: the caller's environment without any identity, worker or primary variable, plus DOFLOW_STARTED_RUN. */
+function mainEnv(env: Env, runId: string): Env {
+  if (!RUN_ID.test(runId)) throw new LaunchUsageError('run-id-malformed', `mainEnv: run id must match ${RUN_ID}: ${runId}`);
+  const out: Env = { ...env };
+  for (const name of ENV_SET) delete out[name];
+  delete out.DOFLOW_PRIMARY_HARNESS;
+  delete out.DOFLOW_PRIMARY_MODEL;
+  out[STARTED_RUN_VAR] = runId;
+  return out;
+}
+
+/** 165 IC-003: the launch fields a main-session record stores. Names only, never a value. */
+function mainLaunchRecord(recipe: any, prompt: string, model: string | null) {
+  return {
+    recipe: {
+      binary: recipe.cli.binary,
+      argvShape: mainArgvShape(recipe, prompt, model),
+      promptVia: recipe.mainSession.promptVia === 'argv' ? 'argv' : 'stdin',
+      parser: recipe.mainSession.parser ?? null,
+      profile: 'main-session',
+    },
+    envSet: [STARTED_RUN_VAR],
+    envInherited: true,
+  };
+}
+
+/** Spawns `file` detached; with `viaStdin` the text is written to stdin and ended. Resolves `{ child, ...extra }` once spawned. */
+function spawnHarness(file: string, args: string[], options: any, viaStdin: boolean, text: string, extra: any): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(file, args, { ...options, detached: true, stdio: [viaStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'] });
+    // Kept attached: a reject after the resolve is a no-op, and an early error never goes unhandled.
+    child.on('error', reject);
+    child.once('spawn', () => {
+      if (viaStdin) {
+        // A process that exits before reading closes the pipe; its exit is what the supervisor records.
+        child.stdin.on('error', () => {});
+        child.stdin.end(text);
+      }
+      resolve({ child, ...extra });
+    });
+  });
+}
+
+/** 165 D1, D9: launches a started main session from its recipe in `execWorktree`. No context emission, no grant. */
+function launchMainSession({ recipe, prompt, execWorktree, env, runId, model = null, lastMessageFile }: {
+  recipe: any; prompt: string; execWorktree: string; env: Env; runId: string; model?: string | null; lastMessageFile?: string;
+}): Promise<any> {
+  return Promise.resolve().then(() => {
+    const sessionEnv = mainEnv(env, runId);
+    const argv = mainArgv(recipe, prompt, lastMessageFile, model);
+    const parser = recipe.mainSession.parser;
+    if (parser !== null && parser !== undefined) {
+      const { PARSERS } = require('./parsers.ts');
+      if (!Object.hasOwn(PARSERS, parser)) throw new LaunchUsageError('parser-unknown', `launchMainSession: parser '${parser}' is not in core PARSERS`);
+    }
+    const viaStdin = recipe.mainSession.promptVia !== 'argv';
+    return spawnHarness(recipe.cli?.binary, argv, { cwd: execWorktree, env: sessionEnv, shell: false }, viaStdin, prompt, { env: sessionEnv, launched: null });
+  });
+}
+
 interface LaunchOptions {
   recipe: any;
   prompt: string;
@@ -215,13 +323,7 @@ function launchWorker({ recipe, prompt, identity, execWorktree, env, taskId, gra
     }
     let file = recipe.cli?.binary;
     let spawnArgs = argv;
-    let spawnOptions: any = {
-      cwd: execWorktree,
-      env: workerEnv,
-      detached: true,
-      shell: false,
-      stdio: [viaStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
-    };
+    let spawnOptions: any = { cwd: execWorktree, env: workerEnv, shell: false };
     if (recipe.program && recipe.storeEntry) {
       const { launchSpec } = require('../packages/programs.ts');
       const spec = launchSpec({
@@ -233,24 +335,13 @@ function launchWorker({ recipe, prompt, identity, execWorktree, env, taskId, gra
       });
       file = spec.file;
       spawnArgs = spec.args;
-      spawnOptions = {
-        ...spec.options,
-        detached: true,
-        stdio: [viaStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
-      };
+      spawnOptions = spec.options;
     }
-    const child = spawn(file, spawnArgs, spawnOptions);
-    // Kept attached: a reject after the resolve is a no-op, and an early error never goes unhandled.
-    child.on('error', reject);
-    child.once('spawn', () => {
-      if (viaStdin) {
-        // A worker that exits before reading closes the pipe; its exit is what the supervisor records.
-        child.stdin.on('error', () => {});
-        child.stdin.end(text);
-      }
-      resolve({ child, env: workerEnv, launched });
-    });
+    spawnHarness(file, spawnArgs, spawnOptions, viaStdin, text, { env: workerEnv, launched }).then(resolve, reject);
   });
 }
 
-module.exports = { ENV_SET, PROMPT_LIMITS, RECIPE_ORDER, EDIT_RECIPE_ORDER, LaunchUsageError, argvShape, assembleArgv, launchEnv, launchRecord, launchWorker };
+module.exports = {
+  ENV_SET, PROMPT_LIMITS, RECIPE_ORDER, EDIT_RECIPE_ORDER, STARTED_RUN_VAR, LaunchUsageError, argvShape, assembleArgv,
+  launchEnv, launchRecord, launchWorker, mainArgv, mainArgvShape, mainEnv, mainLaunchRecord, launchMainSession,
+};

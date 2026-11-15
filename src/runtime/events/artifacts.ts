@@ -63,6 +63,12 @@ interface Artifact {
 }
 interface Scan { items: Artifact[]; files: Map<string, { path: string; kind: Kind; root: string }> }
 
+/** fileKey = sha16(checkoutRoot + "\0" + relPath), `relPath` with `/` separators: the one formula the index and the
+ * start-session reply (165 IC-001) both use. */
+function fileKeyOf(checkout: string, rel: string): string {
+  return sha16(`${checkout}\0${rel}`);
+}
+
 /**
  * The names in `checkout/<parts>` when every directory on the way down from the checkout is a real
  * directory (no component is a link), else none.
@@ -130,7 +136,7 @@ function scanArtifacts(checkouts: readonly string[], fsImpl: any = fs): Scan {
       if (!st.isFile()) continue; // a symbolic link, a directory or anything else is never listed
       const rel = path.relative(checkout, file).split(path.sep).join('/');
       const item: Artifact = {
-        fileKey: sha16(`${checkout}\0${rel}`), kind: rule.kind, worktreeKey: cwdHash(checkout), feature,
+        fileKey: fileKeyOf(checkout, rel), kind: rule.kind, worktreeKey: cwdHash(checkout), feature,
         [rule.field]: value, bytes: st.size, at: new Date(st.mtimeMs).toISOString(),
       } as Artifact;
       found.push({ item, file, root: checkout, ms: st.mtimeMs });
@@ -154,4 +160,4 @@ function findArtifact(checkouts: readonly string[], fileKey: string, fsImpl: any
   return scanArtifacts(checkouts, fsImpl).files.get(fileKey) ?? null;
 }
 
-module.exports = { scanArtifacts, findArtifact, artifactDirs, ARTIFACT_LIMIT };
+module.exports = { scanArtifacts, findArtifact, artifactDirs, fileKeyOf, ARTIFACT_LIMIT };

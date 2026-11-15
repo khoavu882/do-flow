@@ -28,6 +28,12 @@
 // dispatch (read through dispatch/store.ts's `readDispatch`); status and cancel by
 // `--task --token` keep naming the granter, and cancelling a child never cancels the 080 attempt.
 //
+// Row 165 (IC-001, IC-002): `start-session` starts a harness headless as a started main session
+// (start-session.ts), and `start-options` is the start form's read. Both answer `{ ok, ... }`-shaped
+// JSON: exit 0 for a start, a replay or the options, 1 for a refusal `{ ok: false, code, message,
+// current? }`, 2 for usage. `run` refuses the reserved slug `started-sessions` (`slug-reserved`), and
+// status of a main-session run shows no 080 attempt but who started it, its entry and its model.
+//
 // This module makes no fs write call: the run store is written through `insertRun` and
 // `transition`, the probe record by readiness, the ledger only by 080's cancel (G26 (b), IC-027).
 
@@ -55,8 +61,11 @@ const { isSafeSlug } = require('../task-scope.ts');
 const { loadRegistry } = require('../../registry/index.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { readDispatch, storeFileFor: dispatchStoreFileFor } = require('../dispatch/store.ts');
+const { startSession, startOptions, STARTED_SLUG, KIND: MAIN_SESSION_KIND } = require('./start-session.ts');
 
-const ACTIONS = Object.freeze(['discover', 'probe', 'describe', 'select', 'run', 'status', 'cancel', 'evidence']);
+const ACTIONS = Object.freeze(['discover', 'probe', 'describe', 'select', 'run', 'status', 'cancel', 'evidence', 'start-session', 'start-options']);
+/** 165 IC-001 / IC-002: the actions that answer `{ ok, ... }`: exit 0, or 1 for `ok: false`. */
+const OK_ACTIONS = Object.freeze(['start-session', 'start-options']);
 /** IC-025: the dispositions that exit 0; `refused` and `none-eligible` exit 1. */
 const EXIT_ZERO = Object.freeze(['discovered', 'probed', 'described', 'selected', 'started', 'cancelled', 'status', 'recorded']);
 const ERROR_CODES = Object.freeze(['usage', 'store-unreadable', 'registry-invalid']);
@@ -82,7 +91,7 @@ const REPO_ENV = Object.freeze(['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'G
 /** IC-025: the actions each flag may be given to; any other action is exit 2 `usage`. */
 const FLAG_ACTIONS: Record<string, { flag: string; actions: string[] }> = Object.freeze({
   slug: { flag: '--slug', actions: ['run', 'status', 'cancel', 'evidence'] },
-  harness: { flag: '--harness', actions: ['probe', 'describe', 'select', 'run', 'evidence'] },
+  harness: { flag: '--harness', actions: ['probe', 'describe', 'select', 'run', 'evidence', 'start-session'] },
   edit: { flag: '--edit', actions: ['describe', 'select', 'run'] },
   childOf: { flag: '--child-of', actions: ['run'] },
   request: { flag: '--request', actions: ['run'] },
@@ -101,7 +110,13 @@ const FLAG_ACTIONS: Record<string, { flag: string; actions: string[] }> = Object
   by: { flag: '--by', actions: ['cancel'] },
   reason: { flag: '--reason', actions: ['cancel'] },
   operator: { flag: '--operator', actions: ['cancel'] },
-  via: { flag: '--via', actions: ['cancel'] },
+  via: { flag: '--via', actions: ['cancel', 'start-session'] },
+  projectKey: { flag: '--project-key', actions: ['start-session', 'start-options'] },
+  worktreeKey: { flag: '--worktree-key', actions: ['start-session'] },
+  model: { flag: '--model', actions: ['start-session'] },
+  entry: { flag: '--entry', actions: ['start-session'] },
+  requestId: { flag: '--request-id', actions: ['start-session'] },
+  stdin: { flag: '--stdin', actions: ['start-session'] },
 });
 
 /** DEC-063: the execArgv entries the supervisor spawn forwards; every other entry is dropped. */
@@ -289,6 +304,21 @@ function evaluate({ reg, worker, harness, needs, coverage, env, cwd, root, nowMs
   return { requirements, version: found.version, binaryPath: found.path, ...readiness.eligibility(requirements) };
 }
 
+/** The supervisor of run `runId`, detached, with the caller's environment and cwd (IC-014, DEC-022, DEC-038);
+ * its pid and start are written by compare-and-set. */
+function spawnSupervisor({ file, runId, cwd, env, platform }: any) {
+  const child = spawn(process.execPath, [...allowedExecArgv((process as any).execArgv), SUPERVISOR_FILE, file, runId], {
+    detached: true, stdio: 'ignore', cwd, env,
+  });
+  // A spawn error leaves the run `starting` with no live supervisor, which status reads as lost.
+  child.on('error', () => {});
+  child.unref();
+  if (Number.isInteger(child.pid)) {
+    const supervisor = { pid: child.pid, pgid: child.pid, start: platform === 'win32' ? null : processTree.procStart(child.pid) };
+    transition(file, runId, ['starting', 'running', 'cancelling'], (run: any) => { run.supervisor = supervisor; });
+  }
+}
+
 /** IC-011 steps 0 to 12, then the supervisor spawn and the start poll. */
 async function runAction(o: any) {
   const { env, cwd, root, platform, clock, sleep, slug, harness, task, token, needs, timeoutSeconds, prompt, worker, reg, coverage } = o;
@@ -375,17 +405,7 @@ async function runAction(o: any) {
   const inserted = insertRun(file, record);
   if (!inserted.applied) return refused('run-exists', { task, token, runId: inserted.runId, phase: inserted.phase });
 
-  // The supervisor, detached, with the caller's environment and cwd (IC-014, DEC-022, DEC-038).
-  const child = spawn(process.execPath, [...allowedExecArgv((process as any).execArgv), SUPERVISOR_FILE, file, runId], {
-    detached: true, stdio: 'ignore', cwd, env,
-  });
-  // A spawn error leaves the run `starting` with no live supervisor, which status reads as lost.
-  child.on('error', () => {});
-  child.unref();
-  if (Number.isInteger(child.pid)) {
-    const supervisor = { pid: child.pid, pgid: child.pid, start: platform === 'win32' ? null : processTree.procStart(child.pid) };
-    transition(file, runId, ['starting', 'running', 'cancelling'], (run: any) => { run.supervisor = supervisor; });
-  }
+  spawnSupervisor({ file, runId, cwd, env, platform });
 
   // Poll up to 10 s for the record to leave `starting`.
   const startUntil = nowMs() + START_WAIT_MS;
@@ -450,13 +470,16 @@ function statusView(run: any, ledger: any, { platform, nowMs }: any) {
       [state, reason] = ['unknown', sup === false && wrk === false ? 'process-lost' : 'liveness-unknown'];
     }
   }
-  const attempt = attemptFor(ledger, run.task, run.token);
+  // 165: a started main session holds no 080 attempt; it shows who started it, its entry and its model.
+  const main = run.kind === MAIN_SESSION_KIND;
+  const attempt = main ? null : attemptFor(ledger, run.task, run.token);
   const attemptActive = attempt?.state === 'active';
   const verified = attempt && !attemptActive ? { state: attempt.state, result: attempt.result ?? null, evidenceId: attempt.evidenceId ?? null } : null;
   const { resultOffered, withheld } = resultOfRun(run);
   return {
     disposition: 'status',
     runId: run.runId, task: run.task, token: run.token, harness: run.harness ?? null, identity: run.identity ?? null,
+    ...(main ? { kind: MAIN_SESSION_KIND, startedBy: run.startedBy ?? null, entry: run.entry ?? null, model: run.binding?.model ?? null } : {}),
     state, reason, ...extra,
     startedAt: run.startedAt ?? null, endedAt: run.end?.at ?? null, deadline: run.deadline ?? null,
     process: run.process ?? null, report: run.report ?? null, readOnly: run.readOnly ?? null,
@@ -507,6 +530,12 @@ function runSelector(workerRun: any, task: any, token: any, action: string) {
 
 /** One summary line per harness or run, never output file content (IC-025). */
 function summaryLines(body: any): string[] {
+  // 165: start-session and start-options.
+  if (body.ok === false && typeof body.code === 'string') return [`refused ${body.code}`];
+  if (body.ok === true && body.run) return [`${body.replayed ? 'replayed' : 'started'} ${body.run.runId} ${body.run.phase}`];
+  if (body.project && Array.isArray(body.checkouts) && Array.isArray(body.harnesses)) {
+    return body.harnesses.map((h: any) => `${h.harness}  ${h.startable ? 'startable' : `not startable: ${h.reason}`}`);
+  }
   const list = body.harnesses || body.candidates;
   if (Array.isArray(list)) {
     const head = body.disposition === 'selected' ? [`selected ${body.harness}`] : (body.disposition === 'none-eligible' ? ['none-eligible'] : []);
@@ -537,13 +566,18 @@ function summaryLines(body: any): string[] {
 async function executeWorkerCommand({
   action, slug = null, harness, need, modelCheck, budgetTokens, task, token, promptFile, timeoutSeconds, wait = false,
   workerRun, checks, out, by, reason, edit = false, childOf, request, execWorktree, operator = false, via,
+  projectKey, worktreeKey, model, entry, requestId, stdin = false, readStdin = () => fs.readFileSync(0, 'utf8'),
   env = process.env, cwd = process.cwd(), resolveSlug = null, platform = process.platform, now = () => new Date(),
-  descriptors, registry, coverage, sleep = defaultSleep, binding = null,
+  descriptors, registry, coverage, sleep = defaultSleep, binding = null, projects = null,
 }: any = {}): Promise<{ exit: number; body: any }> {
   try {
     if (!given(action)) throw usage(`--action is required; valid: ${ACTIONS.join(' | ')}`);
     if (!ACTIONS.includes(action)) throw usage(`unknown action '${action}'; valid: ${ACTIONS.join(' | ')}`);
-    refuseMisplacedFlags(action, { slug, harness, need, modelCheck, budgetTokens, task, token, promptFile, timeoutSeconds, wait, workerRun, checks, out, by, reason, edit, childOf, request, execWorktree, operator, via });
+    // 165 IC-001 step 1: a start from inside a started session is refused before its flags are read.
+    if (action === 'start-session' && typeof env.DOFLOW_STARTED_RUN === 'string') {
+      return { exit: 1, body: await startSession({ env }) };
+    }
+    refuseMisplacedFlags(action, { slug, harness, need, modelCheck, budgetTokens, task, token, promptFile, timeoutSeconds, wait, workerRun, checks, out, by, reason, edit, childOf, request, execWorktree, operator, via, projectKey, worktreeKey, model, entry, requestId, stdin });
     if (given(task) && !TASK_ID.test(String(task))) throw usage(`--task expects a plan task id such as A.1, got '${task}'`);
     if (given(token)) digits(token, '--token', 1);
     if (given(budgetTokens) && !given(modelCheck)) throw usage('--budget-tokens applies only with --model-check');
@@ -580,8 +614,24 @@ async function executeWorkerCommand({
         break;
       }
       case 'select': body = readiness.select({ ...atRoot, coverage: cov, harness: given(harness) ? String(harness) : undefined, needs, edit: given(edit), active: activeWorkers({ registry: reg, env, projectRoot: root }) }); break;
+      case 'start-session':
+      case 'start-options': {
+        const listProjects = projects ?? require('../fleet/projects.ts').listProjects;
+        const o = {
+          projectKey, worktreeKey, harness, model, entry, via, requestId, stdin, readStdin,
+          env, cwd, root, reg, descriptors, platform, clock, sleep, projects: listProjects,
+          spawnSupervisor: ({ file, runId }: any) => spawnSupervisor({ file, runId, cwd, env, platform }),
+        };
+        body = action === 'start-session' ? await startSession(o) : startOptions(o);
+        break;
+      }
       case 'run': {
         const feature = featureOf(slug, resolveSlug, cwd);
+        // 165: the started sessions' store is reserved; no feature's runs mix with them.
+        if (feature === STARTED_SLUG) {
+          body = refused('slug-reserved', { slug: feature });
+          break;
+        }
         if (!given(harness)) throw usage('--action run needs --harness');
         if (!given(task) || !given(token)) throw usage('--action run needs --task and --token');
         if (!given(promptFile)) throw usage('--action run needs --prompt-file');
@@ -659,6 +709,7 @@ async function executeWorkerCommand({
         }
       }
     }
+    if (OK_ACTIONS.includes(action)) return { exit: body.ok === false ? 1 : 0, body };
     return { exit: EXIT_ZERO.includes(body.disposition) ? 0 : 1, body };
   } catch (error: any) {
     if (error instanceof evidence.WorkerEvidenceError) {
