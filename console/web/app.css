@@ -1662,7 +1662,7 @@
   /* Something that changed since the previous poll: its tint, a 6 px ring drawn by a pseudo-element, fades out once. */
   .rail--full .rail__item[data-changed="true"] .rail__node::before,
   .activity[data-changed="true"]::after, .attempt[data-changed="true"]::after, .tl-item[data-changed="true"]::after,
-  .srow[data-fresh="true"]::after, .srow[data-cleared="true"]::after, .fnode[data-fresh="true"] > .fnode__row::after {
+  .srow[data-fresh="true"]::after, .srow[data-cleared="true"]::after, .gate-card[data-fresh="true"]::after {
     content: "";
     position: absolute;
     inset: 0;
@@ -1672,7 +1672,7 @@
     pointer-events: none;
     animation: tint-decay var(--motion-flash) var(--ease-standard) both;
   }
-  .activity[data-changed="true"], .attempt[data-changed="true"], .srow[data-fresh="true"], .srow[data-cleared="true"], .fnode[data-fresh="true"] > .fnode__row { position: relative; }
+  .activity[data-changed="true"], .attempt[data-changed="true"], .srow[data-fresh="true"], .srow[data-cleared="true"], .gate-card[data-fresh="true"] { position: relative; }
 
   /* A node whose state changed: a stage glyph fades in, an awaiting gate settles, a decided gate turns open, a check draws. */
   .rail--full .rail__item[data-changed="true"][data-type="stage"] .rail__glyph { animation: fade var(--motion-swap) var(--ease-standard) both; }
@@ -1818,7 +1818,7 @@
   .wf__fallback { border-style: dashed; }
 }
 
-/* ---- V.10: the Fleet views (design ui/V8.md): the project list, one project's agent tree, the response-stream panel, the traffic and "Working together" ---- */
+/* ---- V.10 / 161: the nav, the model chip, the response-stream panel and the Layers views ---- */
 @layer components {
   /* CD-B9 (V.10): four nav items. Row 2 is the nav alone across the width; the list may wrap as a fallback below 360. */
   .nav ul { flex-wrap: wrap; }
@@ -1843,93 +1843,6 @@
   .segmented__opt[aria-checked="true"] { background: var(--accent-tint); color: var(--accent); font-weight: 600; }
   .model-chip { display: inline-flex; align-items: center; height: 20px; padding: 0 var(--space-2); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text); font: var(--type-xs); font-family: var(--font-mono); }
 
-  .bar { display: inline-block; width: 64px; height: 4px; vertical-align: middle; }
-  .bar__track { fill: var(--surface-2); }
-  .bar__fill { fill: var(--border-strong); }
-
-  /* The transport line (7b.3): a glyph and one sentence under the view head. */
-  .fleet-transport { display: flex; align-items: center; gap: var(--space-2); margin: 0 0 var(--space-4); font: var(--type-xs); color: var(--text-muted); min-height: 16px; }
-  .ftransport__mark { display: inline-flex; flex: none; }
-  .ftransport__mark[data-state="done"] { color: var(--state-done-mark); }
-  .ftransport__mark[data-state="failed"] { color: var(--state-failed-mark); }
-  .ftransport__mark[data-state="stale"] { color: var(--state-stale-mark); }
-  .ftransport__mark[data-state="unknown"], .ftransport__mark[data-state="pending"] { color: var(--state-unknown-mark); }
-  .fleet [hidden] { display: none; }
-
-  /* V8a: the project list, a run-list card with a row per project; the whole row is one link. */
-  .project-list { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--elev-1); overflow: hidden; }
-  .project-row {
-    position: relative; display: grid; align-items: center; row-gap: var(--space-2); column-gap: var(--space-4); min-height: 132px; padding: var(--space-4);
-    grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name name" "agents agents" "models models" "traffic last";
-  }
-  .project-row + .project-row { box-shadow: inset 0 1px 0 var(--border); }
-  .project-row:hover { background: var(--surface-2); }
-  .project-row[data-current="true"] { background: var(--surface-2); }
-  .project-row[data-current="true"] .pr__link { font-weight: 700; }
-  .pr__name { grid-area: name; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-width: 0; }
-  .pr__link { font-family: var(--font-mono); font-weight: 600; color: var(--text); text-decoration: none; overflow-wrap: anywhere; }
-  .pr__link::after { content: ""; position: absolute; inset: 0; }
-  .pr__link:focus-visible { outline: none; }
-  .project-row:has(.pr__link:focus-visible) { outline: var(--focus-width) solid var(--focus); outline-offset: calc(-1 * var(--focus-width)); }
-  .pr__co, .pr__more, .pr__none, .pr__rel { font: var(--type-xs); color: var(--text-muted); }
-  .pr__agents { grid-area: agents; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); font: var(--type-sm); color: var(--text); }
-  .pr__seen { display: inline-flex; align-items: center; gap: var(--space-1); font: var(--type-xs); color: var(--text-muted); }
-  .pr__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--state-running-mark); }
-  .pr__models { grid-area: models; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); min-width: 0; }
-  .pr__traffic { grid-area: traffic; font: var(--type-sm); color: var(--text); display: flex; align-items: center; gap: var(--space-1); flex-wrap: wrap; }
-  .pr__last { grid-area: last; display: flex; align-items: baseline; gap: var(--space-2); font: var(--type-sm); justify-self: end; }
-  @media (min-width: 768px) {
-    .project-row { min-height: 76px; padding: var(--space-4) var(--space-5); grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 9rem; grid-template-areas: "name agents last" "models traffic last"; }
-  }
-  @media (min-width: 1280px) {
-    .project-row { min-height: 64px; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.6fr) minmax(0, 1.4fr) 10rem 9rem; grid-template-areas: "name agents models traffic last"; }
-  }
-  .fleet-footer { display: grid; gap: var(--space-4); margin-top: var(--space-5); }
-  .fleet-limits, .fleet-blind { padding: var(--space-4); border-radius: var(--radius-lg); font: var(--type-sm); }
-  .fleet-limits { background: var(--surface); border: 1px solid var(--border-strong); }
-  .fleet-blind { border: 1px dashed var(--border-strong); }
-  .fleet-box__title { margin: 0 0 var(--space-2); font: var(--type-xs); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--text-muted); }
-  .fleet-limits ul, .fleet-blind ul { margin: 0; padding-inline-start: var(--space-5); display: grid; gap: var(--space-1); }
-  @media (min-width: 768px) {
-    .fleet-footer { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  }
-
-  /* V8b and V8c: the head, then the grid of tree, panel, traffic and "Working together" (DOM order never changes with the band). */
-  .fleet-head .fleet-title__tag { margin-inline-start: var(--space-2); font-family: var(--font-sans); vertical-align: middle; }
-  .fleet-crumb__agent, .fleet-crumb__sep { display: none; }
-  .fleet-grid { display: grid; gap: var(--space-5); grid-template-columns: minmax(0, 1fr); align-items: start; }
-  @media (max-width: 767px) {
-    .fleet-crumb[data-agent="true"] .fleet-crumb__agent, .fleet-crumb[data-agent="true"] .fleet-crumb__sep { display: inline; }
-  }
-  .fleet-tree__empty { margin: 0; padding: var(--space-5); background: var(--surface); border: 1px dashed var(--border-strong); border-radius: var(--radius-lg); font: var(--type-sm); color: var(--text-muted); }
-
-  .ftree, .ftree ul { list-style: none; margin: 0; padding: 0; }
-  .ftree ul[role="group"] { margin: 0 0 0 var(--space-1); padding: 0 0 0 var(--space-2); border-inline-start: 1px solid var(--border); }
-  .ftree ul[role="group"] ul[role="group"] ul[role="group"] ul[role="group"] ul[role="group"] { margin: 0; padding: 0; border: 0; }
-  .fnode[data-orphan-start="true"]::before { content: "No parent in the records"; display: block; margin: var(--space-3) 0 var(--space-1); font: var(--type-xs); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--text-muted); }
-  .fnode { outline: none; }
-  .fnode__row { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto 16px; column-gap: var(--space-2); align-items: start; min-height: 56px; padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); cursor: pointer; }
-  .fnode__row:hover { background: var(--surface-2); }
-  .fnode:focus-visible > .fnode__row { outline: var(--focus-width) solid var(--focus); outline-offset: calc(-1 * var(--focus-width)); }
-  .fnode[aria-selected="true"] > .fnode__row { background: var(--accent-tint); }
-  .fnode[aria-selected="true"] > .fnode__row .fnode__meta { color: var(--text); }
-  .fnode[aria-selected="true"] > .fnode__row > .icon--chevron-right { color: var(--accent); }
-  .fnode__glyph { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 20px; }
-  .fnode__glyph--dot::before, .fnode__glyph--ring::before { content: ""; width: 10px; height: 10px; border-radius: 50%; box-sizing: border-box; }
-  .fnode__glyph--dot::before { background: var(--dot, var(--state-unknown-mark)); }
-  .fnode__glyph--running { --dot: var(--state-running-mark); }
-  .fnode__glyph--done { --dot: var(--state-done-mark); }
-  .fnode__glyph--failed { --dot: var(--state-failed-mark); }
-  .fnode__glyph--ring::before { border: 1.5px solid var(--state-unknown-mark); }
-  .fnode__glyph--clock { color: var(--state-stale-mark); }
-  .fnode__main { min-width: 0; }
-  .fnode__title { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: 0; font: var(--type-sm); font-weight: 600; color: var(--text); }
-  .fnode__name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-  .fnode__more { font: var(--type-xs); font-weight: 400; color: var(--text-muted); }
-  .fnode__meta, .fnode__note { margin: 0; font: var(--type-xs); color: var(--text-muted); overflow-wrap: anywhere; }
-  .fnode__note { display: flex; align-items: center; gap: var(--space-1); }
-  .fnode__side { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-1); font: var(--type-xs); color: var(--text-muted); text-align: end; white-space: nowrap; }
-  .fnode__spacer { width: 16px; }
 
   /* The response-stream panel. */
   /* It is shown in the shell's inspector at every width (149 D.2), which gives it the surface, the edge and the close control. */
@@ -1993,18 +1906,9 @@
   .skel--ev { height: 20px; margin-block: var(--space-2); border-radius: var(--radius-sm); }
   .skel--ev-tall { height: 64px; }
   .skel--prow { height: 132px; margin-bottom: var(--space-2); border-radius: var(--radius-lg); }
-  .skel--ftree { height: 336px; border-radius: var(--radius-lg); }
-  .skel--fpanel { height: 480px; margin-top: var(--space-5); border-radius: var(--radius-lg); }
-  .skel--ftraffic { height: 240px; margin-top: var(--space-5); border-radius: var(--radius-lg); }
 
-  /* Traffic (IC-023): a table from 768, cards below it (the cells carry their labels). */
-  .traffic, .together { min-width: 0; }
-  .traffic__head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin-bottom: var(--space-3); }
-  .traffic__head h2, .together h2 { margin: 0; font: var(--type-lg); }
-  .traffic__window { font: var(--type-sm); color: var(--text-muted); }
-  .traffic__switch { margin-inline-start: auto; }
+  /* The coverage table of a project (161): a table from 768, cards below it (the cells carry their labels). */
   .ttable { width: 100%; border-collapse: collapse; font: var(--type-sm); }
-  .traffic[data-group="agent"] .ttable--models, .traffic[data-group="model"] .ttable--agents { display: none; }
   .ttable th { text-align: start; font-weight: 400; }
   .ttable thead th { font: var(--type-xs); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--text-muted); padding: var(--space-2); border-bottom: 1px solid var(--border); }
   .ttable tbody th, .ttable tbody td { padding: var(--space-2); min-height: 40px; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; vertical-align: middle; }
@@ -2012,7 +1916,6 @@
   .ttable__err { margin-inline-start: var(--space-2); display: inline-flex; align-items: center; gap: var(--space-1); color: var(--state-failed-fg); }
   .ttable__n { font: var(--type-xs); color: var(--text-muted); }
   .ttable__btn { min-height: var(--target-min); padding: 0 var(--space-1); font-weight: 600; margin-inline-end: var(--space-1); }
-  .traffic__note { margin-top: var(--space-2); }
   @media (max-width: 767px) {
     .ttable thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
     .ttable, .ttable tbody { display: block; }
@@ -2021,34 +1924,59 @@
     .ttable tbody td::before { content: attr(data-label); font: var(--type-xs); color: var(--text-muted); }
     .ttable tbody th { display: block; padding-bottom: var(--space-2); }
   }
-  .together__sub { margin: var(--space-1) 0 var(--space-3); font: var(--type-sm); color: var(--text-muted); }
-  .together__group + .together__group { margin-top: var(--space-4); }
-  .together__group h3 { margin: 0 0 var(--space-2); font: var(--type-xs); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--text-muted); }
-  .together__group ul { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
-  .together__row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
-  .together__id { font-weight: 600; }
-  .together__text, .together__empty { font: var(--type-sm); color: var(--text-muted); }
-  .achip { min-height: 28px; }
-  .achip__harness { color: var(--text-muted); }
-  .achip[aria-pressed="true"] .achip__harness { color: var(--accent); }
-  @media (max-width: 1279px) {
-    .achip { min-height: var(--target); }
-  }
 
-  /* From 1280: the tree and "Working together" side by side, the traffic below; the transcript is in the docked inspector. */
-  @media (min-width: 1280px) {
-    .fleet-grid { grid-template-columns: repeat(12, minmax(0, 1fr)); }
-    .fleet-tree { grid-column: 1 / span 7; }
-    .traffic { grid-column: 1 / span 12; }
-    .together { grid-column: 8 / span 5; grid-row: 1 / span 1; }
+  /* Layers (161, design section 8): the machine page and one project's page. Every state is a shape, a word and a tint together. */
+  .layers [hidden] { display: none; }
+  .layers-stream:empty { display: none; }
+  .layers-stream { margin-bottom: var(--space-4); }
+  .layers-banner { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: 0; font: var(--type-sm); color: var(--text); }
+  .layers-banner .code-chip { margin-top: 0; margin-inline-start: var(--space-2); }
+  .layers-sections { display: grid; gap: var(--space-6); }
+  .layers-section__title { margin: 0 0 var(--space-3); font: var(--type-lg); letter-spacing: var(--tracking-tight); }
+  .layers-none, .layers-note { margin: 0; padding: var(--space-4); border-radius: var(--radius-lg); font: var(--type-sm); color: var(--text-muted); }
+  .layers-none { background: var(--surface); border: 1px dashed var(--border-strong); }
+  .layers-note { border: 1px solid var(--border); }
+  .layers-unreadable { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: 0 0 var(--space-3); padding: var(--space-3); border-radius: var(--radius-md); background: var(--state-failed-tint); color: var(--text); font: var(--type-sm); }
+  .layers-link { color: var(--text); font-weight: 600; text-decoration: none; overflow-wrap: anywhere; }
+  .layers-link:hover { text-decoration: underline; }
+  .gate-card__glyph { position: relative; }
+  .project-list, .lane__rows { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--elev-1); overflow: hidden; }
+  .lrow { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-1) var(--space-4); padding: var(--space-3) var(--space-4); }
+  .lrow + .lrow { box-shadow: inset 0 1px 0 var(--border); }
+  .lrow[data-kind="project"]:hover { background: var(--surface-2); }
+  .lrow[data-selected="true"] { background: var(--accent-tint); }
+  .lrow[data-current="true"] .lrow__link { font-weight: 700; }
+  .lrow[data-kind="project"] .lrow__link::after { content: ""; position: absolute; inset: 0; }
+  .lrow[data-kind="project"] .lrow__link:focus-visible { outline: none; }
+  .lrow[data-kind="project"]:has(.lrow__link:focus-visible) { outline: var(--focus-width) solid var(--focus); outline-offset: calc(-1 * var(--focus-width)); }
+  .lrow__name { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-width: 0; }
+  .lrow__id { font-weight: 600; }
+  .lrow__facts, .lrow__last, .lrow__unread, .lrow__co, .lrow__none { font: var(--type-xs); color: var(--text-muted); }
+  .lrow__facts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
+  .lrow__wait { display: inline-flex; }
+  .lrow__gates { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--space-2); font: var(--type-xs); }
+  .gate-chip { display: inline-flex; align-items: center; gap: var(--space-1); }
+  @media (min-width: 768px) {
+    .lrow[data-kind="project"] { grid-template-columns: minmax(0, 1.4fr) minmax(0, 2fr) 10rem; align-items: center; }
+    .lrow__unread { grid-column: 1 / -1; }
   }
-  @media (min-width: 1920px) {
-    .fleet-grid { grid-template-columns: repeat(12, minmax(0, 1fr)); }
-    .fleet-tree { grid-column: 1 / span 8; }
-    .together { grid-column: 9 / span 4; grid-row: 1 / span 1; }
-    .traffic { grid-column: 1 / span 12; }
-    .traffic__switch { display: none; }
-    .traffic[data-group="agent"] .ttable--models, .traffic[data-group="model"] .ttable--agents { display: table; }
+  .layers-lanes { display: grid; gap: var(--space-5); }
+  .lane { display: grid; gap: var(--space-3); min-width: 0; }
+  .lane__head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+  .lane__name { margin: 0; font: var(--type-md); font-weight: 600; overflow-wrap: anywhere; }
+  .lane__group { display: grid; gap: var(--space-2); }
+  .lane__title { margin: 0; font: var(--type-xs); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--text-muted); }
+  .layers-foot { display: grid; gap: var(--space-2); padding: var(--space-4); border: 1px dashed var(--border-strong); border-radius: var(--radius-lg); font: var(--type-sm); }
+  .layers-foot__line { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+  .layers-head .layers-title__tag { margin-inline-start: var(--space-2); font-family: var(--font-sans); vertical-align: middle; }
+  .layers-crumb__agent, .layers-crumb__sep { display: none; }
+  @media (max-width: 767px) {
+    .layers-crumb[data-agent="true"] .layers-crumb__agent, .layers-crumb[data-agent="true"] .layers-crumb__sep { display: inline; }
+  }
+  .layers-inspect { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+  .layers-inspect__note { margin: 0; padding: var(--space-2) var(--space-4); font: var(--type-xs); color: var(--text-muted); }
+  @media (min-width: 1280px) {
+    .layers--machine .gate-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
 }
 
@@ -2104,24 +2032,19 @@
 
 @layer motion {
   @keyframes ev-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-  .fnode[data-fresh="true"] > .fnode__row { --tint: var(--accent-tint); }
+  .gate-card[data-fresh="true"] { --tint: var(--state-awaiting-tint); }
+  /* The one loop of a Layers page: the first awaiting gate card's glyph; every other card shows the still glyph. */
+  .gate-card__glyph[data-loop="on"]::after { content: ""; position: absolute; inset: -4px; border: 2px solid var(--state-awaiting-mark); border-radius: 50%; animation: pulse var(--motion-pulse) var(--ease-standard) infinite; }
   .ev--enter { animation: ev-enter var(--motion-base) var(--ease-standard) both; }
-  .fleet-transport { transition: opacity var(--motion-fast) var(--ease-standard); }
   @media (prefers-reduced-motion: reduce) {
-    .fnode[data-fresh="true"] > .fnode__row { outline: 2px solid var(--text); outline-offset: -2px; }
-    .fleet-transport { transition: none; }
+    .gate-card[data-fresh="true"] { outline: 2px solid var(--text); outline-offset: -2px; }
   }
 }
 
-/* ---- forced colours: the Fleet view keeps its shapes in system colours ---- */
+/* ---- forced colours: the Layers view keeps its shapes in system colours ---- */
 @media (forced-colors: active) {
-  .fnode__glyph--dot::before { background: CanvasText; }
-  .fnode__glyph--ring::before { border-color: CanvasText; }
-  .fnode[aria-selected="true"] > .fnode__row { outline: 2px solid Highlight; }
   .ev__tool { border: 1px solid CanvasText; }
   .masked { border: 1px solid CanvasText; }
-  .bar__fill { fill: CanvasText; }
-  .bar__track { fill: GrayText; }
   .chip[aria-pressed="true"], .chip[aria-checked="true"], .segmented__opt[aria-checked="true"] { outline: 2px solid Highlight; }
 }
 

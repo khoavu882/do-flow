@@ -7,7 +7,7 @@
 // for a non-GET route: an own Origin, `Sec-Fetch-Site: same-origin` when sent (a native LAN client sends
 // neither), and `Content-Type: application/json` exactly (else 403 / 415) -> the handler. Every response, including
 // Node's own 400 for a malformed request, carries the header set of headers.ts. A stream route's
-// handler gets `res` and returns null once it owns the response (stream.ts writes the same header set
+// handler gets `res` and returns null once it owns the response (live-stream.ts writes the same header set
 // itself); a Reply it returns instead is sent as usual.
 
 const fs = require('node:fs');

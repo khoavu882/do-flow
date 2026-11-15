@@ -191,7 +191,7 @@ test('list has the contract key order, removes awaitingGate.prompt, normalizes t
   const row = result.data.runs[0];
   assert.deepEqual(Object.keys(row), [
     'taskId', 'featureSlug', 'taskClass', 'workflowName', 'state', 'current', 'awaitingGate',
-    'progress', 'terminalStage', 'revision', 'startedAt', 'updatedAt', 'origin',
+    'progress', 'terminalStage', 'revision', 'startedAt', 'updatedAt', 'origin', 'runKey',
   ]);
   assert.deepEqual(Object.keys(row.awaitingGate), ['gateId', 'name']);
   assert.equal(Object.hasOwn(row.awaitingGate, 'prompt'), false);
@@ -585,4 +585,14 @@ test('status reads a journal written before revision existed as revision zero', 
   const result = runCli(root, ['orchestrate', '--action', 'status', '--task-id', 'old-revision', '--json']);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(JSON.parse(result.stdout).revision, 0);
+});
+
+test('161 IC-011: a row carries the record\'s runKey, null when the record has none or a malformed one', (t) => {
+  const root = project(t);
+  const key = 'ab12cd34ef56ab78/main-run/lin-1';
+  writeJournal(root, 'with-key', { runKey: key });
+  writeJournal(root, 'no-key');
+  writeJournal(root, 'bad-key', { runKey: 'not a key\nZZ' });
+  const rows: any = Object.fromEntries(listed(root).data.runs.map((row: any) => [row.taskId, row.runKey]));
+  assert.deepEqual(rows, { 'with-key': key, 'no-key': null, 'bad-key': null });
 });

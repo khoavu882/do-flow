@@ -209,7 +209,10 @@ test('IC-005: every invalid control line writes one stderr line and exits 2', as
     ['an extra key', Buffer.from('{"op":"sub","ch":"now","x":1}\n')],
     ['a missing key', Buffer.from('{"op":"sub"}\n')],
     ['an unknown op', Buffer.from('{"op":"pub","ch":"now"}\n')],
-    ['a refused channel', Buffer.from('{"op":"sub","ch":"transcript:x"}\n')],
+    ['a refused channel', Buffer.from('{"op":"sub","ch":"followups"}\n')],
+    ['a malformed transcript channel', Buffer.from('{"op":"sub","ch":"transcript:x"}\n')],
+    ['an unknown kind', Buffer.from('{"op":"sub","ch":"fleet:x"}\n')],
+    ['a layers channel with a short key', Buffer.from('{"op":"sub","ch":"layers:0123"}\n')],
     ['a worker last-message stream', Buffer.from('{"op":"sub","ch":"worker:w-0123456789ab:last"}\n')],
     ['a malformed channel', Buffer.from('{"op":"sub","ch":"run:only-slug"}\n')],
     ['a line over 1024 bytes', Buffer.from(`{"op":"sub","ch":"now","pad":"${'x'.repeat(CONTROL_LINE_BYTES)}"}\n`)],
@@ -352,7 +355,9 @@ test('IC-001: usage errors exit 2 before any envelope, opening no channel', asyn
     ['an unknown flag', { flags: ['--follow', '--control', '--slug'] }],
     ['--follow with a value', { flags: ['--follow=yes', '--control'] }],
     ['a positional argument', { positional: ['/some/project'] }],
-    ['a refused kind in --channels', { control: undefined, channels: 'now,fleet:x', flags: ['--follow', '--channels'] }],
+    ['a refused kind in --channels', { control: undefined, channels: 'now,advice', flags: ['--follow', '--channels'] }],
+    ['an unknown kind in --channels', { control: undefined, channels: 'now,fleet:x', flags: ['--follow', '--channels'] }],
+    ['more than 8 projects in --channels', { control: undefined, channels: Array.from({ length: 9 }, (_, i) => `layers:${i.toString(16).padStart(16, '0')}`).join(','), flags: ['--follow', '--channels'] }],
     ['a repeated channel', { control: undefined, channels: 'now,now', flags: ['--follow', '--channels'] }],
     ['more than 64 channels', { control: undefined, channels: Array.from({ length: 65 }, (_, i) => `tasks:f${i}`).join(','), flags: ['--follow', '--channels'] }],
   ];
@@ -407,4 +412,79 @@ test('IC-005 through the CLI: sub prints a snapshot, an unsub and stdin EOF exit
   assert.deepEqual([lines[0].ch, lines[0].type], ['run:feat-a:a1', 'snapshot']);
   assert.deepEqual(lines[0].data.sections.status, { exit: 1, json: null }, 'no such run is the verb\'s exit 1');
   assert.equal(err, '');
+});
+
+// Feature 161 (IC-001, IC-008, AC-7): the new channel kinds in control mode.
+
+const pk = (i: number): string => i.toString(16).padStart(16, '0');
+
+test('161 IC-001: the ninth project gets error too-many-projects on that channel, is not followed, and an unsub frees the slot', async (t) => {
+  const h = run(t);
+  for (let i = 0; i < 8; i += 1) h.stdin.json('sub', `layers:${pk(i)}`);
+  // A second channel of an already-followed project costs no new slot.
+  h.stdin.json('sub', 'machine');
+  await settle();
+  assert.equal(h.stdout.frames().length, 9);
+  assert.ok(h.stdout.frames().every((f: any) => f.type === 'snapshot'), h.stdout.text);
+
+  h.stdin.json('sub', `layers:${pk(8)}`);
+  await settle();
+  const refused = h.stdout.frames().at(-1);
+  assert.deepEqual([refused.ch, refused.type, refused.data], [`layers:${pk(8)}`, 'error', { code: 'too-many-projects' }]);
+  assert.equal(h.exit(), null, 'the exit code is unchanged: the process goes on');
+  assert.equal(h.cat.made.filter((name: string) => name === `layers:${pk(8)}`).length, 0, 'nothing was opened for it');
+
+  h.stdin.json('unsub', `layers:${pk(0)}`);
+  h.stdin.json('sub', `layers:${pk(8)}`);
+  await settle();
+  assert.deepEqual([h.stdout.frames().at(-1).ch, h.stdout.frames().at(-1).type], [`layers:${pk(8)}`, 'snapshot'], 'the freed slot is taken');
+  h.stdin.json('sub', `layers:${pk(0)}`);
+  await settle();
+  assert.deepEqual([h.stdout.frames().at(-1).ch, h.stdout.frames().at(-1).data], [`layers:${pk(0)}`, { code: 'too-many-projects' }]);
+  h.stdin.emit('end');
+  assert.equal(await h.done, 0);
+});
+
+test('161 T5 IC-001: every new kind has a producer: machine snapshots, and layers, file and transcript of a project the index does not know are gone, none producer-failed', async (t) => {
+  const index = {
+    ensure() {}, lookup: () => null, entries: () => [], sources: () => [], sessionsDir: () => null, generation: () => 1, now: () => Date.now(),
+    replay: () => ({ status: 1, stdout: '', stderr: '' }),
+    body: () => ({ ok: true, body: { v: 1, store: 'absent', projects: [], excluded: { missing: 0, temp: 0, notDoflow: 0, unreadable: 0 }, truncated: false } }),
+  };
+  const h = run(t, { options: { specFor: undefined, projectsIndex: index } });
+  h.stdin.json('sub', 'machine');
+  h.stdin.json('sub', `layers:${pk(1)}`);
+  h.stdin.json('sub', `file:${pk(1)}:${pk(2)}`);
+  h.stdin.json('sub', `transcript:${pk(1)}:${pk(2)}`);
+  await settle();
+  assert.deepEqual(h.stdout.frames().map((f: any) => [f.ch, f.type]), [
+    ['machine', 'snapshot'],
+    [`layers:${pk(1)}`, 'gone'],
+    [`file:${pk(1)}:${pk(2)}`, 'gone'],
+    [`transcript:${pk(1)}:${pk(2)}`, 'gone'],
+  ]);
+  assert.ok(!h.stdout.text.includes('producer-failed'));
+  h.stdin.emit('end');
+  assert.equal(await h.done, 0);
+  assert.equal(h.stderr.text, '');
+});
+
+// AC-7: the verb opens no file for writing and takes no lock. The catalogue, the detector, the log
+// reader and this command are scanned for any write-capable file call or lock name, so a producer
+// added for a new kind cannot start writing without this test saying so.
+test('161 AC-7: the events modules call no file-writing API and take no lock', () => {
+  const dir = path.join(REPO, 'src', 'runtime', 'events');
+  // A write-capable open flag is a string with w, a or + (r+ included) or any numeric write, append, create or truncate bit.
+  const forbidden = /\b(writeFileSync|writeFile|appendFileSync|appendFile|mkdirSync|mkdir|renameSync|rename|unlinkSync|unlink|rmSync|rmdirSync|copyFileSync|truncateSync|createWriteStream|utimesSync|chmodSync|symlinkSync|withLock|acquireLock|lockfile|updateTaskState|O_WRONLY|O_RDWR|O_APPEND|O_CREAT|O_TRUNC)\b|\bopen(?:Sync)?\([^)]*['"][rs]*[wa+]/;
+  // The guard itself: each mutation is caught, and the read-only open the lanes use is not.
+  for (const bad of ["fs.openSync(file, fs.constants.O_WRONLY)", "fsImpl.openSync(f, O_RDWR)", "fs.openSync(file, 'r+')", "fs.open(file, 'a', cb)", "fsImpl.openSync(file, 'w')"]) assert.ok(forbidden.test(bad), bad);
+  for (const good of ["fsImpl.openSync(file, 'r')", "fsImpl.openSync(file, fs.constants.O_RDONLY | NOFOLLOW)"]) assert.ok(!forbidden.test(good), good);
+  const offenders: string[] = [];
+  for (const name of fs.readdirSync(dir).filter((file: string) => file.endsWith('.ts'))) {
+    fs.readFileSync(path.join(dir, name), 'utf8').split('\n').forEach((text: string, i: number) => {
+      if (/^\s*(\/\/|\*|\/\*)/.test(text)) return; // a comment may name what the module does not do
+      if (forbidden.test(text)) offenders.push(`${name}:${i + 1}: ${text.trim()}`);
+    });
+  }
+  assert.deepEqual(offenders, []);
 });

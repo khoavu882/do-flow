@@ -113,16 +113,16 @@ const app = /** @type {any} */ ({
   liveStore: null, // the page's one live store (IC-017), made when the first live view starts
   inspector: null, // the shell's details region (IC-020), see shell.js
   palette: null, // the command palette (IC-021), see palette.js
-  loaded: { runs: null, sessions: null, fleet: null }, // the latest Runs, Sessions and Fleet bodies: the palette's targets
+  loaded: { runs: null, sessions: null, layers: null }, // the latest Runs and Sessions bodies and Layers data: the palette's targets
 });
 let viewSeq = 0;
 
 /** The four screens, by their rail labels. */
-const SCREENS = Object.freeze([['Now', 'runs'], ['Sessions', 'sessions'], ['Workflows', 'workflows'], ['Fleet', 'fleet'], ['Workers', 'workers'], ['Advice', 'advice'], ['Follow-ups', 'followups'], ['Settings', 'settings'], ['Health', 'health']]);
+const SCREENS = Object.freeze([['Now', 'runs'], ['Sessions', 'sessions'], ['Workflows', 'workflows'], ['Layers', 'layers'], ['Workers', 'workers'], ['Advice', 'advice'], ['Follow-ups', 'followups'], ['Settings', 'settings'], ['Health', 'health']]);
 
 /**
  * What the command palette can reach (IC-021, DEC-011): the screens, then the runs (each with its Chain target, 150 IC-020),
- * session lanes and Fleet projects of the
+ * session lanes and Layers projects of the
  * latest bodies this page has loaded. Labels are the ones the views show; every hash comes from `hashFor`, so a target that
  * cannot be linked is left out. Nothing is fetched.
  */
@@ -136,7 +136,7 @@ function paletteTargets() {
   for (const [label, id] of SCREENS) add('screen', label, 'Screen', { id, params: {} });
   add('action', 'Compare workflow runs', 'Compare', { id: 'compare', params: {} });
   add('action', 'Sessions history', 'Sessions', { id: 'sessions', params: { mode: 'history' }, mode: 'history' });
-  const { runs, sessions, fleet } = app.loaded;
+  const { runs, sessions, layers } = app.loaded;
   for (const run of (runs && Array.isArray(runs.runs) ? runs.runs : [])) {
     if (typeof run.featureSlug !== 'string') continue;
     const workflow = run.workflowName || run.taskClass;
@@ -152,16 +152,22 @@ function paletteTargets() {
       }
     }
   }
-  for (const project of (fleet && Array.isArray(fleet.projects) ? fleet.projects : [])) {
-    add('project', String(project.label ?? project.projectKey), 'Fleet project', { id: 'fleet-project', params: { project: project.projectKey } });
+  for (const project of layersProjects(layers)) {
+    add('project', String(project.label ?? project.projectKey), 'Layers project', { id: 'layers-project', params: { project: project.projectKey } });
   }
   return out;
+}
+
+/** The projects of the latest `machine` member the Layers page held (its `projects` section), or none. @param {any} data */
+function layersProjects(data) {
+  const section = data && data.machine && data.machine.sections ? data.machine.sections.projects : null;
+  return section && section.ok === true && Array.isArray(section.data.projects) ? section.data.projects : [];
 }
 
 /** Keeps the latest body of the views the palette reads. @param {string} id the view id @param {any} body */
 function rememberLoaded(id, body) {
   if (id === 'runs' || id === 'sessions') app.loaded[id] = body;
-  else if (id === 'fleet' || id === 'fleet-project') app.loaded.fleet = body;
+  else if (id === 'layers' || id === 'layers-project') app.loaded.layers = body;
 }
 
 /** The page's one live store over one live adapter (IC-016, IC-017): every live view of this page shares it. */
@@ -329,7 +335,7 @@ function bodyContent(view) {
     return { key: `loading:${view.skeletonShown}`, nodes: () => renderLoading({ noun: spec.noun, skeleton: spec.skeleton, showSkeleton: view.skeletonShown }), busy: true };
   }
   if (spec.isEmpty(view.data, view.route.params)) {
-    // `empty` may be a function of the data (the Fleet list has two empty panels).
+    // `empty` may be a function of the data (a view with two empty panels).
     const empty = typeof spec.empty === 'function' ? spec.empty(view.data) : spec.empty;
     return { key: typeof spec.empty === 'function' ? `empty:${empty.title}` : 'empty', nodes: () => renderEmpty(empty) };
   }
@@ -447,8 +453,9 @@ function pillFor(view, now) {
   if (poller.lastSuccessAt === null) return { state: 'unknown', long: 'Connecting', short: 'Connecting' };
   const age = Math.max(0, now - poller.lastSuccessAt);
   const text = age < 5000 ? 'just now' : `${age < 60000 ? `${Math.floor(age / 1000)} s` : `${Math.floor(age / 60000)} min`} ago`;
-  // A live view's connector (IC-018, DEC-033) names its mode; the Fleet stream and a plain poller have no `live` or `polling` mode.
+  // A live view's connector (IC-018, DEC-033) names its mode; a plain poller has no `live` or `polling` mode; Layers' stream names `down`.
   if (poller.mode === 'live') return { state: 'done', long: `Live · last change ${text}`, short: 'Live' };
+  if (poller.mode === 'down') return { state: 'stale', long: `Stream down · last record ${text}`, short: 'Down' };
   if (poller.mode === 'polling') return { state: 'unknown', long: `Polling · Updated ${text}`, short: 'Polling' };
   return { state: 'done', long: `Updated ${text}`, short: text };
 }
@@ -700,9 +707,9 @@ function startPoller(view, path, intervalMs, heartbeat) {
   const isActive = () => heartbeat || !view.hasData || typeof spec.active !== 'function' || spec.active(view.data, nowMs());
   const size = () => (heartbeat || !view.hasData || typeof spec.size !== 'function' ? 0 : spec.size(view.data));
   if (!heartbeat && typeof spec.connect === 'function') {
-    // A live view reads through a stream of its own (stream.js for the Fleet, the page's live store for the others,
-    // live-view.js) that answers the poller interface, so the pill, the stale banner and "Try again" work unchanged. The
-    // poll hooks are what the connector's own fallback poller uses; the Fleet's connector ignores them.
+    // A live view reads through the page's live store (live-view.js for the views that fall back to a GET, the stream-only
+    // connector of Layers) and answers the poller interface, so the pill, the stale banner and "Try again" work unchanged. The
+    // poll hooks are what the connector's own fallback poller uses; the Layers connector ignores them.
     const stream = spec.connect(view.local, view.route.params, {
       fetchJson: apiGet,
       onData: (/** @type {any} */ body) => onData(view, body, false),
@@ -1008,7 +1015,7 @@ function boot() {
     const brand = document.querySelector('.brand');
     if (brand && !brand.querySelector('.icon')) brand.prepend(icon('brand', 28));
     /** @type {Record<string, string>} */
-    const railIcons = { '#/': 'rail-now', '#/sessions': 'rail-sessions', '#/workflows': 'rail-workflows', '#/fleet': 'rail-fleet', '#/workers': 'rail-workers', '#/advice': 'rail-advice', '#/followups': 'rail-followups', '#/settings': 'rail-settings', '#/health': 'rail-health' };
+    const railIcons = { '#/': 'rail-now', '#/sessions': 'rail-sessions', '#/workflows': 'rail-workflows', '#/layers': 'rail-layers', '#/workers': 'rail-workers', '#/advice': 'rail-advice', '#/followups': 'rail-followups', '#/settings': 'rail-settings', '#/health': 'rail-health' };
     for (const link of app.els.navLinks) {
       const name = railIcons[link.getAttribute('href')];
       if (name && !link.querySelector('.icon')) link.prepend(icon(name, 16));
@@ -1028,7 +1035,7 @@ function boot() {
       actions: {
         palette: () => { app.shortcuts.closeHelp(); app.palette.open(); },
         help: () => { app.palette.close(); },
-        pause: () => { togglePause(); }, 'go.runs': go('#/'), 'go.workflows': go('#/workflows'), 'go.sessions': go('#/sessions'), 'go.fleet': go('#/fleet'),
+        pause: () => { togglePause(); }, 'go.runs': go('#/'), 'go.workflows': go('#/workflows'), 'go.sessions': go('#/sessions'), 'go.layers': go('#/layers'),
       },
     });
     const skip = document.querySelector('.skip');
@@ -1046,7 +1053,7 @@ function boot() {
       const own = view ? hashFor(view.route) : null;
       // The address now names the route the view is on: a selection the view made itself (linkSelection).
       if (view && !app.fatal && own !== null && own === hashFor(route)) return;
-      // A live view (Fleet) patches its mounted body, so it reroutes only once loaded; the Run, Tasks, Sessions and Session
+      // A live view (Layers) patches its mounted body, so it reroutes only once loaded; the Run, Tasks, Sessions and Session
       // views keep the selection in their memory, which their next render reads too.
       const ready = spec.live !== true || (Boolean(view) && view.hasData && view.painted === loadedKey(view));
       if (view && !app.fatal && ready && typeof spec.reroute === 'function' && view.route.view === spec

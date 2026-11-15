@@ -143,15 +143,14 @@ const EXPECTED_SHAPES = {
   workflow: { argv: ['workflow', '--task-class', 'feature', '--json'], params: { taskClass: 'feature' } },
   capabilities: { argv: ['capabilities', '--json'], params: {} },
   version: { argv: ['--version', '--json'], params: {} },
+  'events-kinds': { argv: ['events', '--kinds', '--json'], params: {} },
   observed: { argv: ['primary', '--action', 'observed', '--json'], params: {} },
   slots: { argv: ['slot', '--action', 'peek', '--json'], params: {} },
   'worker-status': { argv: ['worker', '--action', 'status', '--slug', 's.1', '--task', 'A.2', '--token', '2', '--json'], params: { slug: 's.1', task: 'A.2', token: '2' } },
   roadmap: { argv: ['roadmap', '--action', 'status', '--json'], params: {} },
-  // IC-024: the Fleet shapes. `tree`, `transcript` and `traffic` are scoped to a project (fleet cases below).
+  // IC-024: `projects` lists the keys; `transcript` is scoped to a project (cases below).
   projects: { argv: ['fleet', '--action', 'projects', '--json'], params: {} },
-  tree: { argv: ['fleet', '--action', 'tree', '--json'], params: { projectKey: KEY_A }, scoped: true },
   transcript: { argv: ['transcript', '--action', 'read', '--agent', AGENT, '--limit', '200', '--json'], params: { projectKey: KEY_A, agent: AGENT, limit: '200' }, scoped: true },
-  traffic: { argv: ['transcript', '--action', 'stats', '--window', '10', '--json'], params: { projectKey: KEY_A }, scoped: true },
   // 150 IC-010: the worker chain reads. `worker-log`'s optional `--slug`, `--cursor` and `--before` are in the case below.
   'worker-runs': { argv: ['worker-runs', '--slug', 's.1', '--json'], params: { slug: 's.1' } },
   'worker-result': { argv: ['worker-result', '--slug', 's.1', '--worker-run', RUN_ID, '--json'], params: { slug: 's.1', runId: RUN_ID } },
@@ -253,13 +252,15 @@ test('write verbs, flags, unknown shapes and bad parameters are refused as usage
     ['roadmap', { action: 'next' }],
     ['observed', { action: 'resolve' }],
     // IC-024: keys, cursor and limit are checked against their patterns before they reach argv.
-    ['tree', {}],
-    ['tree', { projectKey: 'AAAAAAAAAAAAAAAA' }],
-    ['tree', { projectKey: 'aaaaaaaaaaaaaaa' }],
-    ['tree', { projectKey: 'aaaaaaaaaaaaaaaaa' }],
-    ['tree', { projectKey: '../../../etc/passwd' }],
-    ['tree', { projectKey: KEY_A, root: '/tmp' }],
-    ['traffic', { projectKey: KEY_A, window: '60' }],
+    ['transcript', { agent: AGENT, limit: '10' }],
+    ['transcript', { projectKey: 'AAAAAAAAAAAAAAAA', agent: AGENT, limit: '10' }],
+    ['transcript', { projectKey: 'aaaaaaaaaaaaaaa', agent: AGENT, limit: '10' }],
+    ['transcript', { projectKey: 'aaaaaaaaaaaaaaaaa', agent: AGENT, limit: '10' }],
+    ['transcript', { projectKey: '../../../etc/passwd', agent: AGENT, limit: '10' }],
+    ['transcript', { projectKey: KEY_A, agent: AGENT, limit: '10', root: '/tmp' }],
+    // 161: the Fleet page is gone, and with it its `tree` and `traffic` reads.
+    ['tree', { projectKey: KEY_A }],
+    ['traffic', { projectKey: KEY_A }],
     ['projects', { projectKey: KEY_A }],
     ['transcript', { projectKey: KEY_A, limit: '10' }],
     ['transcript', { projectKey: KEY_A, agent: AGENT }],
@@ -554,11 +555,11 @@ test('stop() kills running children and answers queued calls as core-unreachable
   assert.equal(children.length, 2);
 });
 
-// ---- V.7: the Fleet shapes (IC-024) ----
+// ---- V.7: the project-scoped shapes (IC-024) ----
 //
-// A second fake core stands in for `fleet` and `transcript`: it logs argv, cwd and the environment like the first,
+// A second fake core stands in for `fleet --action projects` and `transcript`: it logs argv, cwd and the environment like the first,
 // answers `fleet --action projects` with the file named by FAKE_PROJECTS_FILE (so a case can change the answer), and
-// echoes `{argv, cwd}` for everything else. FAKE_ERROR_CWD makes `fleet --action tree` fail with [ERROR] in that
+// echoes `{argv, cwd}` for everything else. FAKE_ERROR_CWD makes `transcript --action read` fail with [ERROR] in that
 // directory; mode `agent-missing` answers `transcript --action read` with the core's `agent-not-in-project` error.
 
 const fleetDirs: string[] = [];
@@ -570,8 +571,8 @@ const fs = require('node:fs');
 const argv = process.argv.slice(2);
 if (process.env.FAKE_CORE_LOG) fs.appendFileSync(process.env.FAKE_CORE_LOG, JSON.stringify({ argv, env: process.env, cwd: process.cwd() }) + '\\n');
 const done = () => {
-  if (argv[0] === 'fleet' && argv[2] === 'tree' && process.env.FAKE_ERROR_CWD === process.cwd()) {
-    process.stderr.write('[ERROR] fleet: boom\\n');
+  if (argv[0] === 'transcript' && argv[2] === 'read' && process.env.FAKE_ERROR_CWD === process.cwd()) {
+    process.stderr.write('[ERROR] transcript: boom\\n');
     process.exitCode = 1;
   } else if (process.env.FAKE_CORE_MODE === 'agent-missing' && argv[0] === 'transcript' && argv[2] === 'read') {
     process.stdout.write(JSON.stringify({ v: 1, error: 'agent-not-in-project' }));
@@ -606,12 +607,10 @@ function fleetSetup(mode = 'echo', extraEnv: Record<string, string> = {}, errorO
   return { ...base, rootA, rootB, writeProjects };
 }
 
-test('the Fleet shapes run in their project root, found by key from the last projects read; projects runs in the console project', async () => {
+test('transcript runs in its project root, found by key from the last projects read; projects runs in the console project', async () => {
   const f = fleetSetup('echo');
   // No projects read yet: every key is unknown, and nothing is spawned.
-  for (const shape of [['tree', { projectKey: KEY_A }], ['traffic', { projectKey: KEY_A }], ['transcript', { projectKey: KEY_A, agent: AGENT, limit: '9' }]] as Array<[string, any]>) {
-    assert.deepEqual(await f.runner.run(shape[0], shape[1]), { ok: false, code: 'project-not-found', exit: null }, shape[0]);
-  }
+  assert.deepEqual(await f.runner.run('transcript', { projectKey: KEY_A, agent: AGENT, limit: '9' }), { ok: false, code: 'project-not-found', exit: null });
   assert.equal(f.spawnCalls.length, 0);
 
   const listed = await f.runner.run('projects', {});
@@ -619,19 +618,14 @@ test('the Fleet shapes run in their project root, found by key from the last pro
   assert.equal(f.starts()[0].cwd, f.project);
   assert.deepEqual(f.starts()[0].argv, ['fleet', '--action', 'projects', '--json']);
 
-  const tree = await f.runner.run('tree', { projectKey: KEY_A });
-  const treeB = await f.runner.run('tree', { projectKey: KEY_B });
-  const traffic = await f.runner.run('traffic', { projectKey: KEY_B });
   const read = await f.runner.run('transcript', { projectKey: KEY_A, agent: AGENT, cursor: '12:34:5:6789', limit: '50' });
   const readFresh = await f.runner.run('transcript', { projectKey: KEY_B, agent: AGENT, limit: '500' });
-  assert.deepEqual([tree, treeB, traffic, read, readFresh].map((r: any) => r.ok), [true, true, true, true, true]);
-  const [, aTree, bTree, bTraffic, aRead, bRead] = f.starts();
-  assert.deepEqual([aTree.cwd, bTree.cwd, bTraffic.cwd, aRead.cwd, bRead.cwd], [f.rootA, f.rootB, f.rootB, f.rootA, f.rootB]);
-  assert.deepEqual(aTree.argv, ['fleet', '--action', 'tree', '--json']);
-  assert.deepEqual(bTraffic.argv, ['transcript', '--action', 'stats', '--window', '10', '--json']);
+  assert.deepEqual([read, readFresh].map((r: any) => r.ok), [true, true]);
+  const [, aRead, bRead] = f.starts();
+  assert.deepEqual([aRead.cwd, bRead.cwd], [f.rootA, f.rootB]);
   assert.deepEqual(aRead.argv, ['transcript', '--action', 'read', '--agent', AGENT, '--cursor', '12:34:5:6789', '--limit', '50', '--json']);
   assert.deepEqual(bRead.argv, ['transcript', '--action', 'read', '--agent', AGENT, '--limit', '500', '--json']);
-  // The key and the root are never argv; the same environment rules apply to the Fleet children.
+  // The key and the root are never argv; the same environment rules apply to every child.
   for (const start of f.starts()) {
     assert.ok(!start.argv.includes(KEY_A) && !start.argv.some((a: string) => a.includes('/')), JSON.stringify(start.argv));
     assert.equal(start.env.DOFLOW_UPKEEP, 'off');
@@ -640,81 +634,68 @@ test('the Fleet shapes run in their project root, found by key from the last pro
 
   // A key that matches the pattern but was not in the projects answer: refused before any spawn.
   const before = f.spawnCalls.length;
-  assert.deepEqual(await f.runner.run('tree', { projectKey: 'cccccccccccccccc' }), { ok: false, code: 'project-not-found', exit: null });
+  assert.deepEqual(await f.runner.run('transcript', { projectKey: 'cccccccccccccccc', agent: AGENT, limit: '10' }), { ok: false, code: 'project-not-found', exit: null });
   assert.equal(f.spawnCalls.length, before);
 });
 
 test('the key map is replaced by each projects read, not merged', async () => {
   const f = fleetSetup('echo');
+  const read = (projectKey: string) => f.runner.run('transcript', { projectKey, agent: AGENT, limit: '10' });
+  const missing = { ok: false, code: 'project-not-found', exit: null };
   await f.runner.run('projects', {});
-  assert.equal((await f.runner.run('tree', { projectKey: KEY_A })).ok, true);
+  assert.equal((await read(KEY_A)).ok, true);
   f.writeProjects([[KEY_B, f.rootB]]);
   f.clock.advance(10_000);
   assert.equal((await f.runner.run('projects', {})).ok, true);
-  assert.deepEqual(await f.runner.run('tree', { projectKey: KEY_A }), { ok: false, code: 'project-not-found', exit: null });
-  assert.equal((await f.runner.run('tree', { projectKey: KEY_B })).ok, true);
+  assert.deepEqual(await read(KEY_A), missing);
+  assert.equal((await read(KEY_B)).ok, true);
   // A root that is not absolute, or a key that is not 16 hex, never enters the map.
   fs.writeFileSync(path.join(path.dirname(f.rootA), 'projects.json'), JSON.stringify({ v: 1, projects: [{ projectKey: KEY_A, root: 'relative/dir' }, { projectKey: 'XYZ', root: f.rootA }, { projectKey: KEY_B, root: f.rootB }] }));
   f.clock.advance(10_000);
   await f.runner.run('projects', {});
-  assert.deepEqual(await f.runner.run('tree', { projectKey: KEY_A }), { ok: false, code: 'project-not-found', exit: null });
-  assert.equal((await f.runner.run('tree', { projectKey: KEY_B })).ok, true);
+  assert.deepEqual(await read(KEY_A), missing);
+  assert.equal((await read(KEY_B)).ok, true);
   // A body that is not a list leaves the map as it was.
   fs.writeFileSync(path.join(path.dirname(f.rootA), 'projects.json'), JSON.stringify({ v: 1 }));
   f.clock.advance(10_000);
   await f.runner.run('projects', {});
-  assert.equal((await f.runner.run('tree', { projectKey: KEY_B })).ok, true);
+  assert.equal((await read(KEY_B)).ok, true);
 });
 
-test('the runner key is (projectKey, argv): single flight, cache and backoff are per project', async () => {
+test('the runner key is (projectKey, argv): single flight and backoff are per project', async () => {
   const f = fleetSetup('delay', { FAKE_CORE_DELAY_MS: '80' }, 'A');
   await f.runner.run('projects', {});
   const base = f.starts().length;
-  // Same argv, two projects: two spawns; the same project twice: one.
-  const [a1, a2, b1] = await Promise.all([f.runner.run('traffic', { projectKey: KEY_A }), f.runner.run('traffic', { projectKey: KEY_A }), f.runner.run('traffic', { projectKey: KEY_B })]);
-  assert.deepEqual([a1.ok, a2.ok, b1.ok], [true, true, true]);
-  assert.equal(f.starts().length - base, 2);
-  assert.deepEqual(f.starts().slice(base).map((s: any) => s.cwd).sort(), [f.rootA, f.rootB].sort());
-  // Cached per project for 5 s.
-  await f.runner.run('traffic', { projectKey: KEY_A });
-  await f.runner.run('traffic', { projectKey: KEY_B });
-  assert.equal(f.starts().length - base, 2);
-  f.clock.advance(5_000);
-  await f.runner.run('traffic', { projectKey: KEY_A });
-  assert.equal(f.starts().length - base, 3);
-  // Backoff: project A's tree fails with [ERROR] and exit 1; A is held for 30 s, B is not.
-  const failed = await f.runner.run('tree', { projectKey: KEY_A });
+  const read = (projectKey: string, agent = AGENT) => f.runner.run('transcript', { projectKey, agent, limit: '10' });
+  // Same argv, two projects: two spawns; the same project twice: one. (B reads first so A's failure below is its own.)
+  const [b1, b2, b3] = await Promise.all([read(KEY_B), read(KEY_B), read(KEY_B)]);
+  assert.deepEqual([b1.ok, b2.ok, b3.ok], [true, true, true]);
+  assert.equal(f.starts().length - base, 1);
+  assert.equal(f.starts()[base].cwd, f.rootB);
+  // Backoff: project A's read fails with [ERROR] and exit 1; A is held for 30 s, B is not.
+  const failed = await read(KEY_A);
   assert.deepEqual(failed, { ok: false, code: 'core-error', exit: 1 });
-  const held = await f.runner.run('tree', { projectKey: KEY_A });
+  const held = await read(KEY_A);
   assert.deepEqual(held, { ok: false, code: 'core-error', exit: 1, reason: 'backoff' });
-  assert.equal((await f.runner.run('tree', { projectKey: KEY_B })).ok, true);
-  assert.equal(f.starts().filter((s: any) => s.argv[0] === 'fleet' && s.argv[2] === 'tree').length, 2);
+  assert.equal((await read(KEY_B, 'fedcba9876543210')).ok, true);
+  assert.equal(f.starts().filter((s: any) => s.cwd === f.rootA).length, 1);
 });
 
-test('cache lifetimes of the Fleet shapes: 10 s projects, 5 s tree and traffic, transcript never', async () => {
+test('cache lifetimes: 10 s projects, transcript never', async () => {
   const f = fleetSetup('echo');
-  const count = (shape: string) => f.starts().filter((s: any) => (shape === 'projects' ? s.argv[2] === 'projects' : shape === 'tree' ? s.argv[2] === 'tree' : s.argv[2] === shape)).length;
+  const count = (verb: string) => f.starts().filter((s: any) => s.argv[0] === verb).length;
   await f.runner.run('projects', {});
-  await f.runner.run('tree', { projectKey: KEY_A });
-  await f.runner.run('traffic', { projectKey: KEY_A });
   const read = { projectKey: KEY_A, agent: AGENT, limit: '10' };
   await f.runner.run('transcript', read);
   await f.runner.run('transcript', read);
   await f.runner.run('transcript', read);
-  assert.equal(count('read'), 3, 'transcript is never cached');
-  f.clock.advance(4_999);
+  assert.equal(count('transcript'), 3, 'transcript is never cached');
+  f.clock.advance(9_999);
   await f.runner.run('projects', {});
-  await f.runner.run('tree', { projectKey: KEY_A });
-  await f.runner.run('traffic', { projectKey: KEY_A });
-  assert.deepEqual([count('projects'), count('tree'), count('stats')], [1, 1, 1]);
+  assert.equal(count('fleet'), 1);
   f.clock.advance(1);
-  await f.runner.run('tree', { projectKey: KEY_A });
-  await f.runner.run('traffic', { projectKey: KEY_A });
   await f.runner.run('projects', {});
-  assert.deepEqual([count('projects'), count('tree'), count('stats')], [1, 2, 2]);
-  f.clock.advance(5_000);
-  await f.runner.run('projects', {});
-  assert.equal(count('projects'), 2);
+  assert.equal(count('fleet'), 2);
 });
 
 test('a third slot is reserved for transcript: it runs while two other reads hold the pool, and no other shape can take it', async () => {
@@ -741,7 +722,7 @@ test('the reserved slot is not taken by a shape other than transcript', async ()
   const f = fleetSetup('delay', { FAKE_CORE_DELAY_MS: '250' });
   await f.runner.run('projects', {});
   const base = f.starts().length;
-  const calls = [f.runner.run('attempts', { slug: 'a' }), f.runner.run('attempts', { slug: 'b' }), f.runner.run('observed', {}), f.runner.run('traffic', { projectKey: KEY_A })];
+  const calls = [f.runner.run('attempts', { slug: 'a' }), f.runner.run('attempts', { slug: 'b' }), f.runner.run('observed', {}), f.runner.run('roadmap', {})];
   await f.startsReach(base + 2);
   await realDelay(100);
   assert.equal(f.starts().length, base + 2, 'the third and fourth reads wait for the pool, not the reserved slot');
@@ -758,11 +739,11 @@ test('IC-005 Fleet error codes: project-not-found from the runner, the others fr
   const gone = await f.runner.run('transcript', { projectKey: KEY_A, agent: AGENT, limit: '10' });
   assert.deepEqual(gone, { ok: false, code: 'core-error', exit: 1, errorId: 'agent-not-in-project' });
   assert.deepEqual(fleetError('transcript', gone), { status: 404, code: 'agent-not-in-project' });
-  assert.deepEqual(fleetError('tree', { code: 'project-not-found', exit: null }), { status: 404, code: 'project-not-found' });
+  assert.deepEqual(fleetError('transcript', { code: 'project-not-found', exit: null }), { status: 404, code: 'project-not-found' });
   assert.deepEqual(fleetError('transcript', { code: 'core-error', exit: 1, errorId: 'session-not-in-project' }), { status: 404, code: 'session-not-in-project' });
   assert.deepEqual(fleetError('projects', { code: 'core-error', exit: 1, errorId: 'cannot-list-projects' }), { status: 502, code: 'cannot-list-projects' });
   // Not Fleet codes: a code on the wrong shape, a different exit, no id, or a runner failure.
-  assert.equal(fleetError('tree', { code: 'core-error', exit: 1, errorId: 'agent-not-in-project' }), null);
+  assert.equal(fleetError('projects', { code: 'core-error', exit: 1, errorId: 'agent-not-in-project' }), null);
   assert.equal(fleetError('transcript', { code: 'core-error', exit: 2, errorId: 'agent-not-in-project' }), null);
   assert.equal(fleetError('projects', { code: 'core-error', exit: 1 }), null);
   assert.equal(fleetError('projects', { code: 'core-unreachable', exit: null }), null);

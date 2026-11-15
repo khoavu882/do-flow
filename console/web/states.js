@@ -117,7 +117,7 @@ const ERROR_COPY = Object.freeze({
   'cannot-list': { title: () => 'Could not list this project’s checkouts', sentence: 'Git did not answer for this project.', hint: () => ['', 'git worktree list', ' shows them.'] },
   // 151 IC-016: the sentence takes the view noun, as the section state of figures.js says it.
   'core-lacks-verb': { title: () => 'Not provided by this DoFlow core', sentence: (/** @type {string} */ noun) => `This DoFlow core does not provide ${noun}.` },
-  'phone-scope': { title: () => 'This view is unavailable on a paired device', sentence: 'Paired devices can view runs and workflows. Open the Console on the machine itself to use this view.', link: 'Back to Runs' },
+  'phone-scope': { title: () => 'This view is unavailable on a paired device', sentence: 'Paired devices can view runs, workflows, sessions and worker runs. Open the Console on the machine itself to use this view.', link: 'Back to Runs' },
   'device-unpaired': { title: 'This device is not paired', sentence: 'On the machine run `doflow ui --action pair` and scan the code.', command: 'doflow ui --action pair' },
   'device-revoked': { title: 'This device was revoked', sentence: 'Someone removed its access with `doflow ui --action revoke`. Pair it again to continue.', command: 'doflow ui --action pair' },
   'device-expired': { title: 'This device was idle too long', sentence: 'A paired device stops working after 30 days without use. Pair it again to continue.', command: 'doflow ui --action pair' },

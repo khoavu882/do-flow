@@ -1,0 +1,171 @@
+{
+ "channel": "machine",
+ "readme": "Recorded core frames for feature 161 (IC-002 to IC-005), one file per channel kind. Each frame is {type, data} as the core events verb prints it on that channel (data of a state channel is {sections} of SectionResults; of a lane, the IC-004/IC-005 body). Planted values (a GitHub token, an email, a path) must never reach a browser frame.",
+ "frames": [
+  {
+   "type": "snapshot",
+   "data": {
+    "sections": {
+     "projects": {
+      "exit": 0,
+      "json": {
+       "v": 1,
+       "store": "present",
+       "projects": [
+        {
+         "projectKey": "a1b2c3d4e5f60718",
+         "root": "/work/planted/main",
+         "label": "do-flow",
+         "current": true,
+         "temp": false,
+         "checkouts": 2,
+         "sources": [
+          "upkeep-roots",
+          "hook-dirs"
+         ],
+         "lastRecordAt": "2026-11-15T09:00:00.000Z"
+        },
+        {
+         "projectKey": "c0ffee00c0ffee00",
+         "root": "/work/planted/other",
+         "label": "other",
+         "current": false,
+         "temp": false,
+         "checkouts": 1,
+         "sources": [
+          "hook-dirs"
+         ],
+         "lastRecordAt": null
+        }
+       ],
+       "excluded": {
+        "missing": 0,
+        "temp": 1,
+        "notDoflow": 0,
+        "unreadable": 0
+       },
+       "truncated": false
+      }
+     },
+     "activity": {
+      "exit": 0,
+      "json": {
+       "v": 1,
+       "limits": {
+        "projects": 16,
+        "notShown": 0,
+        "watched": 7,
+        "fingerprintOnly": 0
+       },
+       "items": [
+        {
+         "projectKey": "a1b2c3d4e5f60718",
+         "runs": {
+          "open": 1,
+          "awaiting": 0
+         },
+         "gates": [],
+         "workers": {
+          "open": 0
+         },
+         "sessions": {
+          "observed": 2,
+          "harnesses": [
+           "claude",
+           "codex"
+          ]
+         },
+         "unreadable": []
+        },
+        {
+         "projectKey": "c0ffee00c0ffee00",
+         "runs": {
+          "open": 0,
+          "awaiting": 0
+         },
+         "gates": [],
+         "workers": {
+          "open": 1
+         },
+         "sessions": {
+          "observed": 0,
+          "harnesses": []
+         },
+         "unreadable": [
+          "worker-runs"
+         ]
+        }
+       ]
+      }
+     }
+    }
+   }
+  },
+  {
+   "type": "patch",
+   "data": {
+    "sections": {
+     "activity": {
+      "exit": 0,
+      "json": {
+       "v": 1,
+       "limits": {
+        "projects": 16,
+        "notShown": 0,
+        "watched": 7,
+        "fingerprintOnly": 0
+       },
+       "items": [
+        {
+         "projectKey": "a1b2c3d4e5f60718",
+         "runs": {
+          "open": 1,
+          "awaiting": 1
+         },
+         "gates": [
+          {
+           "slug": "161-live-layers-stream",
+           "taskId": "161-live-layers-stream",
+           "gateId": "gate-2",
+           "name": "Design approval ghp_abcdefghijklmnopqrstuvwxyz0123456789",
+           "recordAt": "2026-11-15T09:05:00.000Z"
+          }
+         ],
+         "workers": {
+          "open": 0
+         },
+         "sessions": {
+          "observed": 2,
+          "harnesses": [
+           "claude",
+           "codex"
+          ]
+         },
+         "unreadable": []
+        },
+        {
+         "projectKey": "c0ffee00c0ffee00",
+         "runs": {
+          "open": 0,
+          "awaiting": 0
+         },
+         "gates": [],
+         "workers": {
+          "open": 1
+         },
+         "sessions": {
+          "observed": 0,
+          "harnesses": []
+         },
+         "unreadable": [
+          "worker-runs"
+         ]
+        }
+       ]
+      }
+     }
+    }
+   }
+  }
+ ]
+}

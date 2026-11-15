@@ -37,8 +37,6 @@ before(async () => {
     poll: await import(url('poll.js')),
     states: await import(url('states.js')),
     views: await import(url('views.js')),
-    stream: await import(url('stream.js')),
-    fleet: await import(url('derive/fleet.js')),
     derive: await import(url('derive/rail.js')),
     home: await import(url('views/home.js')),
     railView: await import(url('views/rail.js')),
@@ -220,7 +218,7 @@ function installPage(opts: { hash?: string, stored?: string | null, throwStorage
   const link = (href: string, text: string) => el('a', { class: 'nav__link navrail__link', href }, [el('span', { class: 'navrail__label' }, [text])]);
   const radio = (choice: string) => el('button', { type: 'button', role: 'radio', class: 'theme__opt', 'aria-checked': 'false', tabindex: '-1', 'data-theme-choice': choice }, [el('span', { class: 'theme__label' }, [choice])]);
   const skip = el('a', { class: 'skip', href: '#main' }, ['Skip to content']);
-  const nav = [link('#/', 'Now'), link('#/sessions', 'Sessions'), link('#/workflows', 'Workflows'), link('#/fleet', 'Fleet'), link('#/workers', 'Workers'), link('#/advice', 'Advice'), link('#/followups', 'Follow-ups'), link('#/settings', 'Settings'), link('#/health', 'Health')]; // 149 D.1: the fake page mirrors index.html's rail
+  const nav = [link('#/', 'Now'), link('#/sessions', 'Sessions'), link('#/workflows', 'Workflows'), link('#/layers', 'Layers'), link('#/workers', 'Workers'), link('#/advice', 'Advice'), link('#/followups', 'Follow-ups'), link('#/settings', 'Settings'), link('#/health', 'Health')]; // 149 D.1: the fake page mirrors index.html's rail
   const radios = ['light', 'dark', 'system'].map(radio);
   const conn = el('p', { class: 'conn', id: 'conn', 'data-state': 'unknown' }, [el('span', { class: 'conn__long' }, ['Connecting']), el('span', { class: 'conn__short' }, ['Connecting'])]);
   const pause = el('button', { type: 'button', class: 'btn btn--ghost pause', id: 'pause', 'aria-pressed': 'false', hidden: '' }, [el('span', { class: 'pause__label' }, ['Pause updates'])]);
@@ -667,7 +665,7 @@ test('views: the router table maps hashes to views, and a bad parameter is not-f
   assert.equal(navFor(parseRoute('#/session/s/t')), 'runs', '150 C.5: the Session route marks Now');
   assert.equal(navFor(parseRoute('#/session/s/t/worker/w-0123456789ab/log')), 'runs');
   assert.equal(titleFor(parseRoute('#/session/s/t/main')), 'Chain \u00b7 s / t \u00b7 DoFlow Console');
-  assert.deepEqual(Object.keys(VIEWS).sort(), ['advice', 'compare', 'fleet', 'fleet-project', 'followups', 'health', 'not-found', 'run', 'runs', 'session', 'sessions', 'settings', 'tasks', 'workers', 'workflows']); // E.7 adds the sessions view, V.10 the two Fleet views, 150 C.5 the session view, 152 C.2 compare view
+  assert.deepEqual(Object.keys(VIEWS).sort(), ['advice', 'compare', 'followups', 'health', 'layers', 'layers-project', 'not-found', 'run', 'runs', 'session', 'sessions', 'settings', 'tasks', 'workers', 'workflows']); // E.7 adds the sessions view, 161 the two Layers views (the Fleet views are gone), 150 C.5 the session view, 152 C.2 compare view
 });
 
 test('index.html provides the elements the shell needs', () => {
@@ -675,7 +673,7 @@ test('index.html provides the elements the shell needs', () => {
   for (const id of ['main', 'conn', 'core-version', 'banner-slot', 'announcer', 'pause']) assert.match(html, new RegExp(`id="${id}"`));
   assert.match(html, /aria-live="polite"/);
   assert.deepEqual([...html.matchAll(/class="nav__link navrail__link" href="([^"]+)"><span class="navrail__label">([^<]+)</g)].map((m) => [m[1], m[2]]),
-    [['#/', 'Now'], ['#/sessions', 'Sessions'], ['#/workflows', 'Workflows'], ['#/fleet', 'Fleet'], ['#/workers', 'Workers'], ['#/advice', 'Advice'], ['#/followups', 'Follow-ups'], ['#/settings', 'Settings'], ['#/health', 'Health']]); // 149 D.1 (IC-020, DEC-035): the rail reads Now
+    [['#/', 'Now'], ['#/sessions', 'Sessions'], ['#/workflows', 'Workflows'], ['#/layers', 'Layers'], ['#/workers', 'Workers'], ['#/advice', 'Advice'], ['#/followups', 'Follow-ups'], ['#/settings', 'Settings'], ['#/health', 'Health']]); // 149 D.1 (IC-020, DEC-035): the rail reads Now
   assert.deepEqual([...html.matchAll(/data-theme-choice="([^"]+)"/g)].map((m) => m[1]), ['light', 'dark', 'system']);
   assert.match(html, /<html lang="en" class="booting">/);
   assert.match(html, /<main id="main" class="page" tabindex="-1">/);
@@ -954,10 +952,10 @@ test('router: the skip link moves focus to the heading without changing the rout
 
 test('shell: data-inspectable per view, the rail icons, and the docked column with its empty note at 1280 px and wider', async () => {
   assert.deepEqual(Object.fromEntries(Object.entries(mods.views.VIEWS).map(([id, view]: [string, any]) => [id, view.inspectable])),
-    { runs: false, run: true, tasks: true, session: true, sessions: true, workflows: false, fleet: false, 'fleet-project': true, settings: true, advice: true, followups: true, health: true, workers: true, compare: false, 'not-found': false });
+    { runs: false, run: true, tasks: true, session: true, sessions: true, workflows: false, layers: false, 'layers-project': true, settings: true, advice: true, followups: true, health: true, workers: true, compare: false, 'not-found': false });
   const page = await start({ hash: '', width: 1440, fetch: standard });
   assert.deepEqual(page.nav.map((a) => a.querySelector('.icon') && a.querySelector('.icon').getAttribute('class')),
-    ['icon icon--16 icon--rail-now', 'icon icon--16 icon--rail-sessions', 'icon icon--16 icon--rail-workflows', 'icon icon--16 icon--rail-fleet', 'icon icon--16 icon--rail-workers', 'icon icon--16 icon--rail-advice', 'icon icon--16 icon--rail-followups', 'icon icon--16 icon--rail-settings', 'icon icon--16 icon--rail-health']);
+    ['icon icon--16 icon--rail-now', 'icon icon--16 icon--rail-sessions', 'icon icon--16 icon--rail-workflows', 'icon icon--16 icon--rail-layers', 'icon icon--16 icon--rail-workers', 'icon icon--16 icon--rail-advice', 'icon icon--16 icon--rail-followups', 'icon icon--16 icon--rail-settings', 'icon icon--16 icon--rail-health']);
   assert.equal(page.shell.dataset.inspectable, 'false');
   assert.equal(page.inspector.dataset.mode, 'dock');
   assert.equal(page.inspector.getAttribute('hidden'), '', 'no docked column on Runs');
@@ -1047,7 +1045,7 @@ test('inspector as drawer and sheet: a modal dialog with the scrim; focus moves 
     const owner = page.doc.createElement('button');
     page.main.append(owner);
     owner.focus();
-    const link = mods.dom.h('a', { href: '#/fleet' }, 'Open');
+    const link = mods.dom.h('a', { href: '#/layers' }, 'Open');
     inspector.open({ title: 'Lane', body: [mods.dom.h('p', {}, 'Lane detail'), link] });
     const close = page.inspector.querySelector('.inspector__close');
     assert.equal(page.inspector.getAttribute('hidden'), null);
@@ -1092,7 +1090,7 @@ test('inspector open while docked: narrowing into drawer or sheet moves focus in
     const owner = page.doc.createElement('button');
     page.main.append(owner);
     owner.focus();
-    const link = mods.dom.h('a', { href: '#/fleet' }, 'Open');
+    const link = mods.dom.h('a', { href: '#/layers' }, 'Open');
     inspector.open({ title: 'Step', body: link, owner });
     assert.equal(page.doc.activeElement, owner, 'docked, focus stays on the owner');
     const close = page.inspector.querySelector('.inspector__close');
@@ -1227,7 +1225,7 @@ test('error: run-not-found is final (no retry), names the way back, and the hear
 test('device scope: restricted view explains access and links to runs without retrying', async () => {
   const page = await start({ hash: '#/sessions', fetch: (target, init) => (target === '/api/sessions' ? errorReply(403, 'phone-scope') : standard(target, init)) });
   assert.equal(text(page.main.querySelector('.state-panel__title')), 'This view is unavailable on a paired device');
-  assert.match(text(page.main), /Paired devices can view runs and workflows/);
+  assert.match(text(page.main), /Paired devices can view runs, workflows, sessions and worker runs/);
   assert.equal(page.main.querySelector('a.btn').getAttribute('href'), '#/');
   assert.equal(page.main.querySelector('.countdown'), null);
   await advance(20_000);
@@ -2956,36 +2954,18 @@ test('F.2 workflows: an empty route body shows the empty state; a failed read sh
   assert.match(text(failed.main), /workflows/i);
 });
 
-// ---- V.10: the Fleet views and the stream (IC-005, IC-025, IC-026; design ui/V8.md) ------------------------------
-// A fake EventSource and a scripted fetch stand in for the Console. The cases check the transport (push, then the polling
-// fallback after 3 errors, on 429 and without EventSource; closed while the tab is hidden), the `live: true` rule (a body is
-// patched, never re-mounted: the element and the focus survive), the tree, the stream panel and what the page may say.
+// ---- 161: the Layers views draw from /api/live frames alone (design section 8; FR-009, FR-012, AC-5) -----------------------------
+// A fake EventSource stands in for the Console. The cases check that no GET reads a Layers page, that the first paint is the first
+// frame, the stream states (connecting, following, stream down, refused, unsupported, core-lacks-channel), the one loop of a view,
+// the inspector lanes, and what the page may say.
 
 const fk = (n: number) => n.toString(16).padStart(16, '0');
 const P1 = fk(0x11);
 const P2 = fk(0x12);
-const [A_MAIN, A_SUB, A_OC, A_ORPHAN] = [fk(0xa1), fk(0xa2), fk(0xa3), fk(0xa4)];
+const [A_MAIN, A_SUB, A_OC] = [fk(0xa1), fk(0xa2), fk(0xa3)];
+const F_BRIEF = fk(0xf1);
+const WK_MAIN = fk(0xb1);
 const AT = (min: number) => new Date(Date.UTC(2026, 9, 27, 12, 0, 0) - min * 60_000).toISOString();
-
-const fNode = (key: string, extra: any = {}) => ({
-  agentKey: key, kind: 'main-session', harness: 'claude', model: 'model-a', modelBasis: 'harness-record', label: null, depth: 0, worktreeKey: fk(1),
-  startedAt: AT(90), lastRecordAt: AT(3), liveness: 'not-checked', ended: null, transcript: { reader: 'claude-jsonl', linked: true, reason: null }, ...extra,
-});
-const fAgent = (key: string, extra: any = {}) => ({ agentKey: key, harness: 'claude', model: 'model-a', eventsPerMin: 8, toolCalls: 14, toolErrors: 1, toolDurationMs: { p50: 1200, max: 9800, n: 14 }, tokens: { input: 12400, output: 3100, cacheRead: null, cacheWrite: null, reasoning: null }, lastRecordAt: AT(3), ...extra });
-const fProject = (key: string, label: string, current: boolean, nodes: any[], edges: any[] = [], traffic: any = {}) => ({
-  projectKey: key, label, current, checkouts: 1, lastRecordAt: AT(3),
-  tree: { ok: true, data: { v: 1, projectKey: key, nodes, edges, limits: { nodes: 256, notChecked: 0 }, unparsable: 0, masked: 0, warnings: [] } },
-  traffic: { ok: true, data: { v: 1, projectKey: key, windowMin: 10, agents: nodes.filter((n) => n.transcript.linked).map((n) => fAgent(n.agentKey)), models: [{ model: 'model-a', agents: 1, eventsPerMin: 8, toolCalls: 14, tokens: null }], pairs: [], notChecked: 0, ...traffic } },
-});
-const fBody = (projects: any[]) => ({ v: 1, store: 'present', projects, excluded: { missing: 1, temp: 2, notDoflow: 3, unreadable: 0 }, limits: { projectsShown: projects.length, projectsNotShown: 0, truncated: false } });
-const TREE_NODES = () => [
-  fNode(A_MAIN),
-  fNode(A_SUB, { kind: 'harness-subagent', label: 'system-architect', depth: 1, startedAt: AT(60), lastRecordAt: AT(10) }),
-  fNode(A_OC, { kind: 'harness-subagent', harness: 'opencode', depth: 1, startedAt: AT(50), transcript: { reader: null, linked: false, reason: 'no-reader' } }),
-  fNode(A_ORPHAN, { kind: 'doflow-run', harness: null, model: null, modelBasis: null, startedAt: AT(40), transcript: { reader: null, linked: false, reason: 'not-found' } }),
-];
-const TREE_EDGES = () => [{ from: A_MAIN, to: A_SUB, basis: 'harness-subagent-record' }, { from: A_MAIN, to: A_OC, basis: 'harness-subagent-record' }];
-const FLEET_TWO = () => fBody([fProject(P1, 'example-project', true, TREE_NODES(), TREE_EDGES()), { ...fProject(P2, 'other-project', false, [fNode(fk(0xb1), { liveness: 'process-seen' })]), temp: true }]);
 
 /**
  * A scripted EventSource: tests open it, emit named events and fail it. While open it hears the live server's `keepalive`
@@ -3016,50 +2996,9 @@ class FakeES {
 }
 const esOf = (match: string): FakeES => FakeES.all.filter((e) => e.url.includes(match) && !e.closed).at(-1)!;
 
-const fleetRoute = (build: () => any = FLEET_TWO) => (target: string, init: any): Reply => (target === '/api/fleet' ? reply(200, build()) : standard(target, init));
-async function startFleet(hash: string, route = fleetRoute(), root: string | null = null, eventSource: unknown = FakeES): Promise<Page> {
-  FakeES.all = [];
-  return start({ hash, fetch: route, eventSource: eventSource === 'absent' ? undefined : eventSource }, root);
-}
-
-test('V.10 fleet: routes take only 16-hex keys; the title, the nav item and the shapes read', () => {
-  const { parseRoute, titleFor, navFor, VIEWS, SHAPES_USED } = mods.views;
-  assert.equal(parseRoute('#/fleet').id, 'fleet');
-  assert.deepEqual(parseRoute(`#/fleet/${P1}`).params, { project: P1 });
-  assert.deepEqual(parseRoute(`#/fleet/${P1}/${A_MAIN}`).params, { project: P1, agent: A_MAIN });
-  for (const bad of ['#/fleet/', '#/fleet/xyz', `#/fleet/${'A'.repeat(16)}`, `#/fleet/${P1}/${A_MAIN}/x`, `#/fleet/${P1}/not-a-key`, '#/fleet/../x', `#/fleet/${'a'.repeat(17)}`]) {
-    assert.equal(parseRoute(bad).id, 'not-found', bad);
-  }
-  assert.equal(titleFor(parseRoute('#/fleet')), 'Fleet · DoFlow Console');
-  assert.equal(navFor(parseRoute('#/fleet')), 'fleet');
-  assert.equal(navFor(parseRoute(`#/fleet/${P1}/${A_MAIN}`)), 'fleet');
-  assert.equal(VIEWS.fleet.live, true);
-  assert.equal(VIEWS['fleet-project'].live, true);
-  for (const shape of [...VIEWS.fleet.shapes, ...VIEWS['fleet-project'].shapes]) assert.ok(SHAPES_USED.includes(shape) && SHAPE_IDS.includes(shape), `${shape} is read and on the allow-list`);
-  const project = fProject(P1, 'example-project', true, TREE_NODES(), TREE_EDGES());
-  assert.equal(titleFor(parseRoute(`#/fleet/${P1}`), fBody([project])), 'example-project · Fleet · DoFlow Console');
-  assert.equal(titleFor(parseRoute(`#/fleet/${P1}/${A_SUB}`), fBody([project])), 'system-architect · example-project · Fleet · DoFlow Console');
-  assert.equal(titleFor(parseRoute(`#/fleet/${P1}`), fBody([])), 'Fleet · DoFlow Console', 'a project not in the list reads Fleet');
-});
-
-const treeItem = (page: Page, key: string): any => page.main.querySelectorAll('.fnode').find((li: El) => li.dataset.key === key);
-const rowsText = (page: Page) => page.main.querySelectorAll('.project-row').map((r: El) => text(r.querySelector('.pr__link')));
-const transport = (page: Page) => text(page.main.querySelector('.fleet-transport'));
 const BAD_WORDS = /\b(active|online|idle|live|working|busy)\b/i;
 const mutated: string[] = [];
 after(() => { for (const dir of mutated) fs.rmSync(dir, { recursive: true, force: true }); });
-
-/** A copy of the web root with one text replaced in one file, as a root `start` can boot. */
-function mutatedWeb(file: string, from: string, to: string): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-ui-client-mut-'));
-  mutated.push(dir);
-  fs.cpSync(WEB_ROOT, dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'package.json'), '{"type":"module"}\n');
-  const source = fs.readFileSync(path.join(dir, file), 'utf8');
-  assert.ok(source.includes(from), `${file} holds the text to mutate`);
-  fs.writeFileSync(path.join(dir, file), source.replace(from, to));
-  return dir;
-}
 
 /** A private copy of the web root: dom.js keeps one announcer per module instance, and a pending timer of an earlier test (mock time was reset) would hold this test's message back. */
 function freshWeb(): string {
@@ -3070,611 +3009,371 @@ function freshWeb(): string {
   return dir;
 }
 
-test('V.10 fleet list: the stream opens on a listed project, the rows show records only, and the footer counts what is not listed', async () => {
-  const page = await startFleet('#/fleet');
-  await settle();
-  assert.equal(apiCalls(page, '/api/fleet').length, 1, 'no project key on the list yet: the fleet is read once');
-  assert.equal(FakeES.all.length, 1);
-  assert.equal(FakeES.all[0].url, `/api/stream?project=${P1}`, 'the stream opens on the first listed project; the list itself needs no agent');
-  assert.deepEqual(current(page), ['Fleet']);
-  assert.equal(page.doc.title, 'Fleet \u00b7 DoFlow Console');
-  assert.deepEqual(rowsText(page), ['example-project', 'other-project']);
-  const first = page.main.querySelectorAll('.project-row')[0];
-  assert.equal(text(first.querySelector('.tag--accent')), 'this project');
-  assert.equal(first.querySelector('.pr__link').getAttribute('href'), `#/fleet/${P1}`);
-  assert.deepEqual(first.querySelectorAll('.tag').map((t: El) => text(t)), ['this project'], 'a project outside a temp folder carries no temp mark (FU-w9j11f R6)');
-  assert.deepEqual(page.main.querySelectorAll('.project-row')[1].querySelectorAll('.tag').map((t: El) => text(t)), ['temp'], 'a project under a temp folder carries one');
-  assert.match(text(first), /1 checkout/);
-  assert.match(text(first), /1 main session · 3 subagents/);
-  assert.match(text(first), /model-a/);
-  assert.match(text(first), /16\s*events\/min/);
-  assert.equal(text(page.main.querySelectorAll('.project-row')[1].querySelector('.pr__seen')).trim(), '1 process seen');
-  const limits = text(page.main.querySelector('.fleet-limits'));
-  assert.match(limits, /Not listed/);
-  assert.match(limits, /1 root no longer exists/);
-  assert.match(limits, /2 in a test scratch folder/);
-  assert.match(limits, /3 without DoFlow state/);
-  assert.match(text(page.main.querySelector('.fleet-blind')), /What this view cannot see/);
-  assert.match(text(page.main.querySelector('.fleet-blind')), /no transcript reader for it|DoFlow has no transcript reader for it/);
-  assert.doesNotMatch(text(page.main), BAD_WORDS, 'no row claims an agent is working now');
-  const hrefs = page.main.querySelectorAll('a').map((a: El) => a.getAttribute('href'));
-  assert.ok(hrefs.every((href: any) => /^#\/fleet\/[0-9a-f]{16}$/.test(href)), `no path or label in a link: ${hrefs}`);
-  FakeES.all[0].open();
-  FakeES.all[0].emit('snapshot', FLEET_TWO());
-  await settle();
-  assert.match(transport(page), /^Pushed by the Console · updated \d\d:\d\d:\d\d$/);
+const lok = (data: any) => ({ ok: true, data });
+const lbad = (code: string) => ({ ok: false, code });
+const gateOf = (taskId: string, gateId: string, name: string | null, minAgo = 5) => ({ slug: 'feat-a', taskId, gateId, name, recordAt: AT(minAgo) });
+const machineBody = (gates: any[] = [], over: any = {}) => ({
+  v: 1,
+  sections: {
+    projects: lok({ v: 1, store: 'present', excluded: { missing: 1, temp: 2, notDoflow: 3, unreadable: 0 }, truncated: false, projects: [
+      { projectKey: P1, label: 'example-project', current: true, temp: false, checkouts: 2, sources: [], lastRecordAt: AT(3) },
+      { projectKey: P2, label: 'other-project', current: false, temp: true, checkouts: 1, sources: [], lastRecordAt: null },
+    ] }),
+    activity: lok({ v: 1, limits: { projects: 2, notShown: 0, watched: 2, fingerprintOnly: 0 }, items: [
+      { projectKey: P1, runs: { open: 1, awaiting: gates.length }, gates, workers: { open: 0 }, sessions: { observed: 2, harnesses: ['claude'] }, unreadable: [] },
+      { projectKey: P2, runs: { open: 0, awaiting: 0 }, gates: [], workers: { open: 0 }, sessions: { observed: 0, harnesses: [] }, unreadable: [] },
+    ] }),
+    ...over,
+  },
 });
-
-test('V.10 fleet list: no project and no user state have their own empty panels', async () => {
-  const none = await startFleet('#/fleet', fleetRoute(() => fBody([])));
-  await settle();
-  assert.equal(text(none.main.querySelector('.empty__title')), 'No DoFlow project on this machine yet');
-  assert.match(text(none.main), /doflow doctor/);
-  uninstallPage();
-  mock.timers.reset();
-  const absent = await startFleet('#/fleet', fleetRoute(() => ({ ...fBody([]), store: 'absent' })));
-  await settle();
-  assert.equal(text(absent.main.querySelector('.empty__title')), 'This machine has no DoFlow user state');
-  assert.doesNotMatch(text(absent.main), /doflow doctor/);
+const lnode = (key: string, over: any = {}) => ({
+  agentKey: key, kind: 'main-session', harness: 'claude', model: 'model-a', modelBasis: 'hook-observation', label: null, depth: 0, worktreeKey: WK_MAIN,
+  startedAt: AT(90), lastRecordAt: AT(3), liveness: 'not-checked', ended: null, transcript: { reader: 'claude-jsonl', linked: true, reason: null }, ...over,
 });
+const never = { observed: false, reason: 'no-audit-hook' };
+const layersBody = (over: any = {}) => ({
+  v: 1, projectKey: P1,
+  sections: {
+    checkouts: lok([{ worktreeKey: WK_MAIN, label: 'do-flow', branch: 'feat/161', main: true }]),
+    tree: lok({ v: 1, projectKey: P1, nodes: [lnode(A_MAIN), lnode(A_SUB, { kind: 'harness-subagent', label: 'system-architect', depth: 1 }), lnode(A_OC, { kind: 'harness-subagent', harness: 'opencode', depth: 1, transcript: { reader: null, linked: false, reason: 'no-reader' } })], edges: [], limits: { nodes: 3, notChecked: 0 }, unreadable: 0 }),
+    runs: lok({ v: 1, runs: [], limits: {} }),
+    gates: lok([]),
+    artifacts: lok([{ fileKey: F_BRIEF, kind: 'brief', worktreeKey: WK_MAIN, feature: 'feat-a', task: 'T-3', bytes: 20, at: AT(8) }]),
+    reviews: lok([]),
+    sessions: lok([]),
+    traffic: lok({ v: 1, projectKey: P1, windowMin: 10, agents: [], models: [], pairs: [], notChecked: 0 }),
+    coverage: lok([
+      { harness: 'claude', main: { observed: true }, subagents: { observed: true }, transcript: { observed: true }, permissions: { observed: true }, questions: { observed: false, reason: 'no-harness-record' } },
+      { harness: 'gemini', main: { observed: true }, subagents: never, transcript: never, permissions: never, questions: { observed: true } },
+    ]),
+    ...over,
+  },
+});
+const member = (name: string, body: any) => ({ state: { [name]: { status: 200, body } } });
 
-/** The live scenario: the tree is focused, a delta arrives. Returns what survived. */
-async function liveRun(root: string | null) {
-  const page = await startFleet(`#/fleet/${P1}`, fleetRoute(), root);
-  const es = esOf(`project=${P1}`);
-  es.open();
-  es.emit('snapshot', FLEET_TWO());
-  await settle();
-  const tree = page.main.querySelector('.ftree');
-  const sub = treeItem(page, A_SUB);
-  sub.focus();
-  const focusCalls = page.doc.focusLog.length;
-  const next = FLEET_TWO();
-  const project = next.projects[0];
-  project.tree.data.nodes = [...project.tree.data.nodes.filter((n: any) => n.agentKey !== A_SUB), { ...project.tree.data.nodes.find((n: any) => n.agentKey === A_SUB), lastRecordAt: AT(1) }, fNode(fk(0xa5), { kind: 'harness-subagent', label: 'quality-guardian', depth: 1, startedAt: AT(5) })];
-  project.tree.data.edges = [...TREE_EDGES(), { from: A_MAIN, to: fk(0xa5), basis: 'harness-subagent-record' }];
-  es.emit('fleet', { v: 1, store: 'present', excluded: next.excluded, limits: next.limits, projects: [project], gone: [] });
-  await settle();
-  return {
-    page,
-    sameTree: page.main.querySelector('.ftree') === tree,
-    sameRow: treeItem(page, A_SUB) === sub,
-    focusKept: page.doc.activeElement === sub && page.doc.focusLog.length === focusCalls,
-  };
+/** Boots a Layers page over a private copy of the web root; the base route answers the boot reads only. */
+async function startLayers(hash: string, eventSource: unknown = FakeES, base: (target: string, init: any) => Reply | Promise<Reply> = standard): Promise<Page> {
+  FakeES.all = [];
+  liveSeq = 0;
+  return start({ hash, fetch: (target: string, init: any) => (target.startsWith('/api/live') ? reply(500) : base(target, init)), eventSource: eventSource === 'absent' ? undefined : eventSource }, freshWeb());
 }
-
-test('V.10 fleet project: a live view is patched, never re-mounted: the tree, the focused row and the focus survive a push', async () => {
-  const run = await liveRun(null);
-  assert.equal(run.sameTree, true, 'the tree element is the same');
-  assert.equal(run.sameRow, true, 'the focused row is the same element');
-  assert.equal(run.focusKept, true, 'the focus was never taken and given back');
-  const page = run.page;
-  assert.ok(treeItem(page, fk(0xa5)), 'the new node is in the tree');
-  assert.equal(treeItem(page, fk(0xa5)).dataset.fresh, 'true', 'a node that appears after the first paint flashes once');
-  assert.equal(treeItem(page, A_SUB).dataset.fresh, undefined);
-  assert.equal(text(page.main.querySelector('.fleet-title__label')), 'example-project');
-  assert.equal(page.doc.title, 'example-project \u00b7 Fleet \u00b7 DoFlow Console');
-});
-
-test('control: re-mounting a live view instead of patching it loses the element and the focus (client-core red)', async () => {
-  const root = mutatedWeb('app.js', "view.route.view.live === true ? 'data:live' : `data:${view.dataText}`", '`data:${view.dataText}`');
-  uninstallPage();
-  mock.timers.reset();
-  const run = await liveRun(root);
-  assert.equal(run.sameTree, false, 'a re-mount builds a new tree');
-  assert.equal(run.focusKept, false, 'and the focus is given back to a new element');
-});
-
-test('V.10 fleet project: the tree orders agents, names them from records only and keeps a parentless node apart', async () => {
-  const page = await startFleet(`#/fleet/${P1}`);
-  const es = esOf(`project=${P1}`);
+/** The page's one stream, opened, with the machine snapshot (and the project snapshot on a project page) delivered. */
+async function openedLayers(page: Page, gates: any[] = [], layers: any = layersBody()) {
+  await advance(100);
+  const es = liveES();
   es.open();
-  es.emit('snapshot', FLEET_TWO());
+  const project = decodeURIComponent(es.url).includes('layers:');
+  if (project) es.emit('message', liveFrame(`layers:${P1}`, 'snapshot', member('layers', layers)));
+  es.emit('message', liveFrame('machine', 'snapshot', member('machine', machineBody(gates))));
   await settle();
-  const items = page.main.querySelectorAll('.fnode');
-  assert.deepEqual(items.map((li: El) => li.dataset.key), [A_MAIN, A_SUB, A_OC, A_ORPHAN]);
-  assert.deepEqual(items.map((li: El) => li.getAttribute('aria-level')), ['1', '2', '2', '1']);
-  assert.equal(items[0].getAttribute('aria-expanded'), 'true');
-  assert.equal(items[1].getAttribute('aria-expanded'), null, 'a leaf has no expanded state');
-  assert.equal(page.main.querySelector('.ftree').getAttribute('role'), 'tree');
-  assert.equal(items[1].getAttribute('role'), 'treeitem');
-  assert.match(items[1].getAttribute('aria-label'), /^system-architect\. Subagent\. claude, model model-a, from the harness record\. Started (?:[A-Z][a-z]{2} \d+ )?\d\d:\d\d, last record (?:[A-Z][a-z]{2} \d+ )?\d\d:\d\d\. Recorded, process not checked\. Transcript available\./);
-  assert.match(items[2].getAttribute('aria-label'), /No transcript reader for opencode\./);
-  assert.match(text(items[2]), /no transcript reader for opencode/);
-  assert.match(items[3].getAttribute('aria-label'), /No parent in the records\.$/);
-  assert.equal(items[3].dataset.orphanStart, 'true');
-  assert.equal(items.filter((li: El) => li.getAttribute('tabindex') === '0').length, 1, 'one tab stop');
-  assert.equal(items[0].getAttribute('tabindex'), '0');
-  assert.doesNotMatch(text(page.main), BAD_WORDS);
-  assert.doesNotMatch(items.map((li: El) => li.getAttribute('aria-label')).join(' '), BAD_WORDS);
-  assert.match(text(page.main.querySelector('.fleet-crumb')), /Fleet \/ example-project/);
-  assert.match(text(page.main.querySelector('.traffic')), /Traffic/);
-  assert.match(text(page.main.querySelector('.together')), /No two agents share a task, files or a model in the last 10 min\./);
-});
-
-test('V.10 fleet project: the tree keyboard (arrows, Home, End, Left and Right, typeahead) and Enter selects by the route', async () => {
-  const page = await startFleet(`#/fleet/${P1}`);
-  const es = esOf(`project=${P1}`);
-  es.open();
-  es.emit('snapshot', FLEET_TWO());
-  await settle();
-  const tree = page.main.querySelector('.ftree');
-  const key = (target: El, name: string, extra: any = {}) => tree.fire('keydown', { key: name, target, ...extra });
-  treeItem(page, A_MAIN).focus();
-  key(treeItem(page, A_MAIN), 'ArrowDown');
-  assert.equal(page.doc.activeElement, treeItem(page, A_SUB));
-  key(treeItem(page, A_SUB), 'End');
-  assert.equal(page.doc.activeElement, treeItem(page, A_ORPHAN));
-  key(treeItem(page, A_ORPHAN), 'Home');
-  assert.equal(page.doc.activeElement, treeItem(page, A_MAIN));
-  key(treeItem(page, A_MAIN), 'ArrowLeft');
-  assert.equal(treeItem(page, A_MAIN).getAttribute('aria-expanded'), 'false', 'Left collapses an expanded node');
-  assert.equal(treeItem(page, A_MAIN).querySelector('ul').getAttribute('hidden'), '', 'its children are hidden');
-  key(treeItem(page, A_MAIN), 'ArrowDown');
-  assert.equal(page.doc.activeElement, treeItem(page, A_ORPHAN), 'a hidden child is skipped');
-  key(treeItem(page, A_ORPHAN), 'Home');
-  key(treeItem(page, A_MAIN), 'ArrowRight');
-  assert.equal(treeItem(page, A_MAIN).getAttribute('aria-expanded'), 'true', 'Right expands a collapsed node');
-  key(treeItem(page, A_MAIN), 'ArrowRight');
-  assert.equal(page.doc.activeElement, treeItem(page, A_SUB), 'Right on an expanded node goes to its first child');
-  key(treeItem(page, A_SUB), 'ArrowLeft');
-  assert.equal(page.doc.activeElement, treeItem(page, A_MAIN), 'Left on a leaf goes to its parent');
-  key(treeItem(page, A_MAIN), 's');
-  assert.equal(page.doc.activeElement, treeItem(page, A_SUB), 'typeahead finds "system-architect"');
-  assert.equal(page.location.hash, `#/fleet/${P1}`, 'moving the focus does not select');
-  key(treeItem(page, A_SUB), 'Enter');
-  assert.equal(page.location.hash, `#/fleet/${P1}/${A_SUB}`, 'Enter selects by the route');
-  assert.equal(esOf('agent='), undefined, 'the stream is reopened by the route change, not by the key');
-});
-
-test('V.10 fleet project: selecting an agent moves between routes without a re-mount: the focus stays, the stream is retargeted and the panel names the agent', async () => {
-  const page = await startFleet(`#/fleet/${P1}`);
-  const first = esOf(`project=${P1}`);
-  first.open();
-  first.emit('snapshot', FLEET_TWO());
-  await settle();
-  const tree = page.main.querySelector('.ftree');
-  treeItem(page, A_SUB).focus();
-  page.location.hash = `#/fleet/${P1}/${A_SUB}`;
-  page.win.dispatch('hashchange');
-  await settle();
-  assert.equal(page.main.querySelector('.ftree'), tree, 'the tree is the same element');
-  assert.equal(page.doc.activeElement, treeItem(page, A_SUB), 'the focus stayed in the tree');
-  assert.equal(first.closed, true, 'the stream without an agent is closed');
-  const second = esOf(`agent=${A_SUB}`);
-  assert.equal(second.url, `/api/stream?project=${P1}&agent=${A_SUB}`);
-  assert.equal(treeItem(page, A_SUB).getAttribute('aria-selected'), 'true');
-  assert.equal(treeItem(page, A_MAIN).getAttribute('aria-selected'), 'false');
-  assert.equal(page.doc.title, 'system-architect \u00b7 example-project \u00b7 Fleet \u00b7 DoFlow Console');
-  assert.equal(text(page.inspector.querySelector('.fpanel__title')), 'system-architect');
-  assert.equal(page.main.querySelector('.fleet--project').dataset.selected, 'true');
-  assert.deepEqual(current(page), ['Fleet']);
-});
-
-const reply1 = (n: number, extra: any = {}) => ({ seq: n, at: new Date(Date.UTC(2026, 9, 27, 12, 0, n)).toISOString(), kind: 'reply', agentKey: A_SUB, model: null, tool: null, text: `reply number ${n}`, args: null, cut: false, tokens: null, record: null, ...extra });
-const tBody = (events: any[], extra: any = {}) => ({
-  v: 1, agent: A_SUB, agentKey: A_SUB, harness: 'claude', reader: { id: 'claude-jsonl', status: 'ok' }, transcript: { linked: true, reason: null }, events,
-  cursor: '1:2:3:4', reset: false, eof: true, otherRecords: 14, unparsable: 0, masked: 3, warnings: [], ...extra,
-});
-
-async function startPanel(hash = `#/fleet/${P1}/${A_SUB}`, route = fleetRoute(), root: string | null = null) {
-  const page = await startFleet(hash, route, root);
-  const es = esOf('agent=');
-  es.open();
-  es.emit('snapshot', FLEET_TWO());
-  await settle();
-  return { page, es };
+  return es;
 }
+const channelsOf = (es: FakeES) => decodeURIComponent(new URL(es.url, 'http://x').searchParams.get('ch') ?? '').split(',').sort();
+const GETS_OF_THE_OLD_FLEET = ['/api/fleet', '/api/stream', '/api/transcript', '/api/machine', '/api/layers'];
+const noReads = (page: Page) => { for (const gone of GETS_OF_THE_OLD_FLEET) assert.equal(apiCalls(page, gone).length, 0, `no GET of ${gone}`); };
+const loops = (page: Page) => page.main.querySelectorAll('[data-loop="on"]').length;
 
-test('V.10 stream panel: replies, tool calls with their result attached, usage and dividers; masked markers become chips; nothing is markup', async () => {
-  const { page, es } = await startPanel();
-  es.emit('transcript', tBody([
-    reply1(1, { text: 'Done. password=<masked> mail <email> at <ip> <script>alert(1)</script>' }),
-    reply1(2, { kind: 'tool-call', text: null, args: '{"path":"<masked>"}', tool: { name: 'Read', callKey: 'k1', status: null, bytes: null, durationMs: null } }),
-    reply1(3, { kind: 'tool-result', text: null, tool: { name: 'Read', callKey: 'k1', status: 'ok', bytes: 2400, durationMs: 1200 } }),
-    reply1(4, { kind: 'usage', text: null, tokens: { input: 1204, output: 312, cacheRead: 18000, cacheWrite: 0, reasoning: null } }),
-    reply1(5, { kind: 'turn-end', text: null }),
-  ]));
-  await settle();
-  const rows = page.inspector.querySelectorAll('.ev');
-  assert.equal(rows.length, 4, 'a result is no row of its own');
-  assert.deepEqual(rows.map((r: El) => r.dataset.kind), ['reply', 'tool-call', 'usage', 'turn-end']);
-  assert.deepEqual(page.inspector.querySelectorAll('.masked').map((m: El) => text(m)), ['masked', 'email', 'ip', 'masked']);
-  assert.ok(!tags(page.main).includes('script'), 'a script-looking reply is text');
-  assert.match(text(rows[0]), /<script>alert\(1\)<\/script>/);
-  assert.match(text(rows[1].querySelector('.ev__status')), /^ok · 2\.3 KB · 1\.2 s$/);
-  assert.equal(text(rows[2]).includes('Tokens: 1,204 in · 312 out · 18,000 cache read · 0 cache write'), true);
-  const list = page.inspector.querySelector('.stream');
-  assert.equal(list.getAttribute('aria-live'), null, 'streamed text is never announced');
-  assert.equal(list.getAttribute('role'), null);
-  const foot = text(page.inspector.querySelector('.fpanel__foot'));
-  assert.match(foot, /masked, best effort/);
-  assert.match(foot, /Not shown: 14 other records \(prompts, thinking, attachments, system\)\. 0 unreadable\./);
-  assert.match(text(page.inspector.querySelector('.fpanel__masked')), /3 values masked/);
-  assert.doesNotMatch(text(page.inspector.querySelector('.fpanel')), BAD_WORDS);
-});
-
-test('V.10 stream panel: Follow scrolls to the end, scrolling up turns it off and shows the pill, the pill returns to the end; the filter hides rows', async () => {
-  const { page, es } = await startPanel();
-  const scroll = page.inspector.querySelector('.fpanel__scroll');
-  scroll.scrollHeight = 1000;
-  scroll.clientHeight = 400;
-  scroll.scrollTop = 0;
-  es.emit('transcript', tBody([reply1(1), reply1(2)]));
-  await settle();
-  assert.equal(scroll.scrollTop, 1000, 'follow on: the list is scrolled to its end');
-  const follow = page.inspector.querySelector('.fpanel__follow');
-  assert.equal(follow.getAttribute('aria-pressed'), 'true');
-  scroll.scrollTop = 100;
-  scroll.fire('scroll');
-  assert.equal(follow.getAttribute('aria-pressed'), 'false', 'scrolling up turns Follow off');
-  es.emit('transcript', tBody([reply1(3), reply1(4), reply1(5)]));
-  await settle();
-  assert.equal(scroll.scrollTop, 100, 'with Follow off the reading position does not move');
-  const pill = page.inspector.querySelector('.fpanel__new');
-  assert.equal(pill.getAttribute('hidden'), null);
-  assert.equal(text(pill), '3 new events');
-  pill.fire('click');
-  assert.equal(follow.getAttribute('aria-pressed'), 'true');
-  assert.equal(scroll.scrollTop, 1000);
-  assert.equal(pill.getAttribute('hidden'), '');
-  es.emit('transcript', tBody([reply1(6, { kind: 'tool-call', text: null, args: 'x', tool: { name: 'Bash', callKey: 'k2', status: null, bytes: null, durationMs: null } })]));
-  await settle();
-  const chip = (word: string) => page.inspector.querySelector('.fpanel__filter').querySelectorAll('.chip').find((c: El) => text(c) === word);
-  chip('Tools')!.fire('click');
-  const hiddenKinds = page.inspector.querySelectorAll('.ev').filter((r: El) => r.getAttribute('hidden') !== null).map((r: El) => r.dataset.kind);
-  assert.equal(hiddenKinds.length, 5, 'the five replies are hidden under Tools');
-  assert.equal(chip('Tools')!.getAttribute('aria-checked'), 'true');
-  chip('All')!.fire('click');
-  assert.equal(page.inspector.querySelectorAll('.ev').filter((r: El) => r.getAttribute('hidden') !== null).length, 0, 'the filter hides rows, it never drops them');
-});
-
-test('V.10 stream panel: above 500 events the oldest are removed from the top, the note shows, and the reading position keeps its place', async () => {
-  const { page, es } = await startPanel();
-  const scroll = page.inspector.querySelector('.fpanel__scroll');
-  scroll.scrollHeight = 5000;
-  scroll.clientHeight = 400;
-  scroll.scrollTop = 1000;
-  scroll.fire('scroll');
-  for (let batch = 0; batch < 3; batch += 1) {
-    es.emit('transcript', tBody(Array.from({ length: 200 }, (_, i) => reply1(batch * 200 + i, { text: `r${batch * 200 + i}` }))));
+test('161 layers: routes take only 16-hex keys; the title, the nav item and the views read', () => {
+  const { parseRoute, titleFor, navFor, hashFor, VIEWS } = mods.views;
+  assert.equal(parseRoute('#/layers').id, 'layers');
+  assert.deepEqual(parseRoute(`#/layers/${P1}`).params, { project: P1 });
+  assert.deepEqual(parseRoute(`#/layers/${P1}/agent/${A_MAIN}`).params, { project: P1, agent: A_MAIN });
+  assert.deepEqual(parseRoute(`#/layers/${P1}/file/${F_BRIEF}`).params, { project: P1, file: F_BRIEF });
+  for (const bad of ['#/layers/', '#/layers/xyz', `#/layers/${'A'.repeat(16)}`, `#/layers/${P1}/agent`, `#/layers/${P1}/agent/${A_MAIN}/x`, `#/layers/${P1}/agent/not-a-key`,
+    `#/layers/${P1}/other/${A_MAIN}`, '#/layers/../x', `#/layers/${'a'.repeat(17)}`, '#/fleet', `#/fleet/${P1}`]) {
+    assert.equal(parseRoute(bad).id, 'not-found', bad);
   }
-  await settle();
-  const rows = page.inspector.querySelectorAll('.ev');
-  assert.equal(rows.length, 500);
-  assert.equal(text(rows[0].querySelector('.ev__text')), 'r100', 'the oldest hundred were removed');
-  assert.equal(text(page.inspector.querySelector('.ev--bound')), 'Earlier events are not kept in this view (500 shown).');
-  assert.equal(scroll.scrollTop, 1000, 'no height to subtract in a fake DOM, and the position is not moved to the end');
+  assert.equal(titleFor(parseRoute('#/layers')), 'Layers · DoFlow Console');
+  assert.equal(navFor(parseRoute('#/layers')), 'layers');
+  assert.equal(navFor(parseRoute(`#/layers/${P1}/agent/${A_MAIN}`)), 'layers');
+  for (const id of ['layers', 'layers-project']) {
+    assert.equal(VIEWS[id].live, true);
+    assert.equal(VIEWS[id].api(), null, `${id} reads no GET`);
+    assert.equal(VIEWS[id].pollMs, 0, `${id} has no poll`);
+    assert.deepEqual(VIEWS[id].shapes, []);
+  }
+  assert.equal(VIEWS.fleet, undefined);
+  assert.equal(VIEWS['fleet-project'], undefined);
+  const body = { machine: machineBody([]), layers: layersBody() };
+  assert.equal(titleFor(parseRoute(`#/layers/${P1}`), body), 'example-project · Layers · DoFlow Console');
+  assert.equal(titleFor(parseRoute(`#/layers/${P1}/agent/${A_SUB}`), body), 'system-architect · example-project · Layers · DoFlow Console');
+  assert.match(titleFor(parseRoute(`#/layers/${P1}`), null), / · Layers · DoFlow Console$/, 'a project not in the machine member still has a title');
+  for (const hash of ['#/layers', `#/layers/${P1}`, `#/layers/${P1}/agent/${A_MAIN}`, `#/layers/${P1}/file/${F_BRIEF}`]) assert.equal(hashFor(parseRoute(hash)), hash, hash);
+  assert.equal(hashFor({ id: 'layers-project', params: { project: P1, agent: A_MAIN, file: F_BRIEF } }), null, 'an agent and a file at once is no route');
 });
 
-test('V.10 stream panel: a reset starts the list over with a divider and an announcement; a resumed stream drops what the panel already holds', async () => {
-  const { page, es } = await startPanel(`#/fleet/${P1}/${A_SUB}`, fleetRoute(), freshWeb());
-  es.emit('transcript', tBody([reply1(1), reply1(2)]));
+test('161 layers machine: no GET reads the page; the first paint is the first frame; the project rows link by key; one loop only', async () => {
+  const page = await startLayers('#/layers');
+  assert.equal(FakeES.all.length, 0, 'the store opens 50 ms after the first subscribe');
+  assert.equal(page.main.querySelector('.state-panel').dataset.kind, 'stream-connecting', 'before any frame the view says it is connecting');
+  await advance(100);
+  const es = liveES();
+  assert.deepEqual(channelsOf(es), ['machine']);
+  es.open();
+  es.emit('message', liveFrame('machine', 'snapshot', member('machine', machineBody([gateOf('T-1', 'g-design', 'Design approval')]))));
+  await settle();
+  assert.equal(page.main.querySelector('.state-panel'), null, 'the first frame replaces the connecting state');
+  assert.equal(text(heading(page)), 'Layers');
+  const cards = page.main.querySelectorAll('.gate-card');
+  assert.equal(cards.length, 1);
+  assert.match(text(cards[0]), /Design approval/);
+  assert.match(text(cards[0]), /Waiting for you/);
+  assert.equal(cards[0].querySelector('.gate-card__link').getAttribute('href'), '#/run/feat-a/T-1', 'the run of the current project opens to decide');
+  const rows = page.main.querySelectorAll('.lrow');
+  assert.deepEqual(rows.map((r: El) => text(r.querySelector('.lrow__link'))), ['example-project', 'other-project']);
+  assert.deepEqual(rows.map((r: El) => r.querySelector('.lrow__link').getAttribute('href')), [`#/layers/${P1}`, `#/layers/${P2}`]);
+  assert.match(text(rows[1]), /Not summarized|0 open runs|no record time/);
+  assert.equal(loops(page), 1, 'the one loop of the view is the first awaiting gate glyph');
+  assert.equal(page.main.querySelectorAll('.gate-card__glyph').filter((g: El) => g.dataset.loop === 'on').length, 1);
+  await advance(61_000);
+  noReads(page);
+  assert.equal(apiCalls(page, '/api/live').length, 0, 'no probe while the stream holds');
+  assert.equal(FakeES.all.length, 1, 'one stream');
+  assert.equal(page.slot.querySelectorAll('.banner').length, 0, 'an open stream is never stale');
+});
+
+test('161 layers machine: a patch adding an awaiting gate adds its card, marks it fresh and announces it; a recorded gate keeps its card', async () => {
+  const page = await startLayers('#/layers');
+  const es = await openedLayers(page, [gateOf('T-1', 'g-a', 'Old gate')]);
+  assert.equal(page.main.querySelectorAll('.gate-card').length, 1);
+  assert.equal(page.main.querySelector('.gate-card').dataset.fresh, undefined, 'the first paint marks nothing as new');
+  const next = machineBody([gateOf('T-2', 'g-b', 'New gate', 1), gateOf('T-1', 'g-a', 'Old gate')]);
+  es.emit('message', liveFrame('machine', 'patch', { set: { '/machine/body/sections/activity': next.sections.activity }, unset: [] }));
+  await settle();
+  const cards = page.main.querySelectorAll('.gate-card');
+  assert.deepEqual(cards.map((c: El) => text(c.querySelector('.gate-card__name'))), ['New gate', 'Old gate'], 'the newest gate leads');
+  assert.equal(cards[0].dataset.fresh, 'true');
+  assert.equal(cards[1].dataset.fresh, undefined);
+  assert.match(text(page.region), /A gate is waiting for you: New gate in example-project/);
+  assert.equal(loops(page), 1);
+  assert.equal(page.main.querySelectorAll('.layers-sections').length, 1, 'patched, never re-mounted');
+  noReads(page);
+});
+
+test('161 layers machine: a section that failed says unreadable with its code; no project says so with the next step', async () => {
+  const page = await startLayers('#/layers');
+  await advance(100);
+  const es = liveES();
+  es.open();
+  es.emit('message', liveFrame('machine', 'snapshot', member('machine', machineBody([], { activity: lbad('core-contract-mismatch') }))));
+  await settle();
+  const note = page.main.querySelector('.layers-unreadable');
+  assert.match(text(note), /unreadable/);
+  assert.match(text(note), /Nothing is claimed/);
+  assert.equal(page.main.querySelectorAll('.lrow').length, 2, 'the project list still draws from its own section');
+  es.emit('message', liveFrame('machine', 'snapshot', member('machine', machineBody([], { projects: lok({ v: 1, store: 'present', excluded: { missing: 0, temp: 0, notDoflow: 0, unreadable: 0 }, truncated: false, projects: [] }) }))));
+  await settle();
+  assert.match(text(page.main), /No DoFlow project on this machine yet/);
+});
+
+test('161 layers project: the page reads layers:<pk> and machine; checkouts hold their agents, a gemini source reads not observed with its reason, never idle', async () => {
+  const page = await startLayers(`#/layers/${P1}`);
+  await advance(100);
+  const es = liveES();
+  assert.deepEqual(channelsOf(es), [`layers:${P1}`, 'machine'].sort());
+  es.open();
+  es.emit('message', liveFrame(`layers:${P1}`, 'snapshot', member('layers', layersBody({ gates: lok([{ runKey: `${WK_MAIN}/run-1/main`, slug: 'feat-a', taskId: 'T-1', gateId: 'g-design', name: 'Design approval', state: 'awaiting', at: AT(5), by: null }]) }))));
+  es.emit('message', liveFrame('machine', 'snapshot', member('machine', machineBody())));
+  await settle();
+  assert.equal(page.doc.title, 'example-project · Layers · DoFlow Console');
+  assert.equal(text(page.main.querySelector('.layers-title__label')), 'example-project');
+  const lane = page.main.querySelector('.lane');
+  assert.equal(lane.dataset.main, 'true');
+  const agents = page.main.querySelectorAll('.lrow--agent');
+  assert.equal(agents.length, 3);
+  assert.deepEqual(agents.map((a: El) => a.querySelector('.lrow__link').getAttribute('href')), [A_MAIN, A_SUB, A_OC].map((k) => `#/layers/${P1}/agent/${k}`));
+  assert.match(text(agents[2]), /transcript not observed: no reader/);
+  assert.equal(page.main.querySelectorAll('.lrow--file').length, 1);
+  assert.equal(page.main.querySelectorAll('.gate-card').length, 1, 'an awaiting gate leads the page');
+  const table = page.main.querySelector('.layers-coverage');
+  const gemini = table.querySelectorAll('tr').find((tr: El) => /gemini/.test(text(tr)));
+  assert.match(text(gemini), /not observed/);
+  assert.match(text(gemini), /no audit hook/);
+  assert.doesNotMatch(text(gemini), /\bidle\b/i);
+  const claude = table.querySelectorAll('tr').find((tr: El) => /claude/.test(text(tr)));
+  assert.match(text(claude!.querySelectorAll('td')[4]), /not observed/, 'questions is not observed for every harness');
+  assert.equal(loops(page), 1);
+  noReads(page);
+  assert.equal(apiCalls(page, '/api/info').length, 1, 'the boot read only');
+});
+
+test('161 layers project: a patch of the layers member reaches the page; the copy of the whole page never says an agent is working', async () => {
+  const page = await startLayers(`#/layers/${P1}`);
+  const es = await openedLayers(page);
+  assert.equal(page.main.querySelectorAll('.gate-card').length, 0);
+  assert.match(text(page.main), /Nothing is waiting for you in this project/);
+  es.emit('message', liveFrame(`layers:${P1}`, 'patch', { set: { '/layers/body/sections/gates': lok([{ runKey: null, slug: 'feat-a', taskId: 'T-4', gateId: 'g-x', name: null, state: 'awaiting', at: AT(1), by: null }]) }, unset: [] }));
+  await settle();
+  const cards = page.main.querySelectorAll('.gate-card');
+  assert.equal(cards.length, 1, 'the awaiting gate moved to the lead card');
+  assert.equal(cards[0].dataset.fresh, 'true');
+  assert.equal(loops(page), 1);
+  const words = text(page.main).replace(/[0-9a-f]{16}/g, '');
+  assert.doesNotMatch(words, BAD_WORDS);
+  assert.doesNotMatch(text(page.region), BAD_WORDS);
+});
+
+test('161 layers states: connecting, then following; a stream that went down keeps its records and says so, with no polling; the next frame follows again', async () => {
+  const page = await startLayers('#/layers');
+  const es = await openedLayers(page, [gateOf('T-1', 'g-a', 'Gate')]);
+  assert.equal(page.main.querySelector('.layers').dataset.stream, 'following');
+  assert.equal(page.main.querySelector('.layers-banner'), null, 'following is the quiet default');
+  es.fail(2);
+  await settle();
+  assert.equal(page.main.querySelector('.layers').dataset.stream, 'down');
+  assert.match(text(page.main.querySelector('.layers-banner')), /stream down/i);
+  assert.equal(page.main.querySelectorAll('.gate-card').length, 1, 'the records it holds stay on the page');
+  assert.equal(page.main.querySelectorAll('.lrow').length, 2);
+  assert.deepEqual(pillOf(page).slice(0, 1).concat(pillOf(page)[2]), ['stale', 'Down'], 'the pill is the stale shape and says Down, not Live');
+  assert.match(pillOf(page)[1], /^Stream down/);
+  const calls = page.calls.length;
+  await advance(20_000);
+  assert.equal(apiCalls(page, '/api/machine').length, 0);
+  assert.deepEqual(page.calls.slice(calls).filter((c) => !c.url.startsWith('/api/live')).map((c) => c.url), [], 'no GET and no poll while down');
+  await advance(6000);
+  const again = liveES();
+  assert.notEqual(again, es, 'the store reopens');
+  again.open();
+  again.emit('message', liveFrame('machine', 'snapshot', member('machine', machineBody([gateOf('T-1', 'g-a', 'Gate')]))));
+  await settle();
+  assert.equal(page.main.querySelector('.layers').dataset.stream, 'following');
+  assert.equal(page.main.querySelector('.layers-banner'), null);
+});
+
+test('161 layers states: a refused stream (401) keeps the records, says refused and does not poll', async () => {
+  const refused = await (async () => {
+    FakeES.all = [];
+    liveSeq = 0;
+    return start({ hash: '#/layers', fetch: (target: string, init: any) => (target.startsWith('/api/live') ? errorReply(401, 'unauthorized') : standard(target, init)), eventSource: FakeES }, freshWeb());
+  })();
+  await advance(100);
+  const es = liveES();
+  es.open();
+  es.emit('message', liveFrame('machine', 'snapshot', member('machine', machineBody())));
+  await settle();
+  es.fail(2);
+  await settle();
+  assert.equal(refused.main.querySelector('.layers').dataset.stream, 'refused');
+  assert.match(text(refused.main.querySelector('.layers-banner')), /refused|no longer|not allowed/i);
+  assert.equal(refused.main.querySelectorAll('.lrow').length, 2, 'the records it holds stay');
+  await advance(60_000);
+  noReads(refused);
+});
+
+test('161 layers states: a browser without EventSource says unsupported and reads nothing', async () => {
+  const noES = await startLayers('#/layers', 'absent');
+  await advance(100);
+  assert.equal(FakeES.all.length, 0);
+  assert.equal(noES.main.querySelector('.layers').dataset.stream, 'unsupported');
+  assert.equal(noES.main.querySelector('.state-panel').dataset.kind, 'stream-unsupported');
+  assert.match(text(noES.main.querySelector('.state-panel')), /no polling fallback/i);
+  await advance(60_000);
+  noReads(noES);
+  assert.equal(noES.calls.filter((c) => !c.url.startsWith('/api/info') && !c.url.startsWith('/api/session')).length, 0, 'nothing else is read');
+});
+
+test('161 layers states: an error frame core-lacks-channel names the old core; the code is shown, nothing is polled', async () => {
+  const page = await startLayers('#/layers');
+  await advance(100);
+  const es = liveES();
+  es.open();
+  es.emit('message', liveFrame('machine', 'error', { code: 'core-lacks-channel' }));
+  await settle();
+  assert.equal(page.main.querySelector('.layers').dataset.stream, 'core-lacks-channel');
+  const panel = page.main.querySelector('.state-panel');
+  assert.equal(panel.dataset.kind, 'stream-core-lacks-channel');
+  assert.match(text(panel), /core-lacks-channel/);
+  assert.match(text(panel), /older|too old|does not have|lacks/i);
+  await advance(60_000);
+  noReads(page);
+});
+
+test('161 layers inspector: an agent route opens its transcript lane over the stream; events arrive as frames and append; closing goes back to the project route', async () => {
+  const page = await startLayers(`#/layers/${P1}/agent/${A_SUB}`);
+  const es = await openedLayers(page);
+  assert.equal(inspectorOpen(page), true);
+  assert.equal(text(page.inspector.querySelector('.inspector__title')), 'Agent transcript');
+  assert.equal(page.main.querySelector('.fpanel'), null, 'the transcript is not mounted inline');
+  assert.equal(text(page.inspector.querySelector('.fpanel__title')), 'system-architect');
+  await advance(100);
+  const lane = `transcript:${P1}:${A_SUB}`;
+  const channels = channelsOf(liveES());
+  assert.ok(channels.includes(lane), `the lane is in the union: ${channels}`);
+  const ev = (seq: number, text: string) => ({ seq, at: AT(2), kind: 'reply', agentKey: A_SUB, model: null, tool: null, text, args: null, cut: false, tokens: null, record: null });
+  const body = (events: any[], extra: any = {}) => ({ v: 1, agentKey: A_SUB, harness: 'claude', reader: { id: 'claude-jsonl', status: 'supported' }, transcript: { linked: true, reason: null }, events, cursor: '1:1:1:1', eof: true, masked: 0, warnings: [], ...extra });
+  const open = liveES();
+  open.open();
+  open.emit('message', liveFrame(lane, 'snapshot', body([ev(1, 'first reply'), ev(2, 'second reply')])));
   await settle();
   assert.equal(page.inspector.querySelectorAll('.ev').length, 2);
-  es.emit('transcript', tBody([reply1(10, { text: 'after the rewrite' })], { reset: true }));
+  open.emit('message', liveFrame(lane, 'append', { events: [ev(3, 'third reply')], cursor: '2:2:2:2', eof: true, masked: 1, warnings: [] }));
   await settle();
-  const rows = page.inspector.querySelectorAll('.ev');
-  assert.equal(rows.length, 2, 'the divider and the one new reply');
-  assert.match(text(rows[0]), /The transcript was rewritten\. Showing its last 64 records\./);
-  assert.match(text(page.region), /The transcript was rewritten; showing its last 64 records\./);
-  // Hidden, then back: the new stream starts from the transcript's last records.
-  page.doc.hidden = true;
-  for (const fn of page.doc.listeners.get('visibilitychange') ?? []) fn({ type: 'visibilitychange' });
-  assert.equal(es.closed, true, 'a hidden tab closes the stream');
-  const before = FakeES.all.length;
-  page.doc.hidden = false;
-  for (const fn of page.doc.listeners.get('visibilitychange') ?? []) fn({ type: 'visibilitychange' });
+  assert.equal(page.inspector.querySelectorAll('.ev').length, 3, 'an append adds its events');
+  assert.match(text(page.inspector), /masked/i);
+  noReads(page);
+  closeInspector(page);
+  assert.equal(page.location.hash, `#/layers/${P1}`, 'closing goes back to the project');
+  page.win.dispatch('hashchange');
   await settle();
-  assert.equal(FakeES.all.length, before + 1, 'and a visible tab opens a new one');
-  const again = esOf('agent=');
-  again.open();
-  again.emit('transcript', tBody([reply1(10, { text: 'after the rewrite' }), reply1(11, { text: 'new' })]));
+  assert.equal(inspectorOpen(page), false);
+  assert.equal(page.inspector.querySelector('.fpanel'), null);
+  await advance(100);
+  assert.equal(channelsOf(liveES()).includes(lane), false, 'the lane left the union');
+  void es;
+});
+
+test('161 layers inspector: a second agent keeps the inspector open and retargets the lane; a file route follows its file lane; an unknown agent says so', async () => {
+  const page = await startLayers(`#/layers/${P1}`);
+  await openedLayers(page);
+  assert.equal(inspectorOpen(page), false);
+  page.location.hash = `#/layers/${P1}/agent/${A_SUB}`;
+  page.win.dispatch('hashchange');
   await settle();
-  assert.deepEqual(page.inspector.querySelectorAll('.ev__text').map((t: El) => text(t)), ['after the rewrite', 'new'], 'no duplicate event');
-});
-
-test('V.10 stream panel states: no reader, not linked, not found, format drift, gone agent and a tick error keep their copy', async () => {
-  const oc = await startPanel(`#/fleet/${P1}/${A_OC}`);
-  oc.es.emit('transcript', tBody([reply1(1, { kind: 'record', text: null, record: { type: 'hook-record', task: null, result: null } })], { agent: A_OC, agentKey: A_OC, harness: 'opencode', reader: { id: null, status: 'events-only' }, transcript: { linked: false, reason: 'no-reader' } }));
+  assert.equal(inspectorOpen(page), true);
+  const panel = page.inspector.querySelector('.fpanel');
+  page.location.hash = `#/layers/${P1}/agent/${A_MAIN}`;
+  page.win.dispatch('hashchange');
   await settle();
-  assert.match(text(oc.page.inspector.querySelector('.fbanner')), /No transcript reader for opencode\. DoFlow’s own records for this agent are listed below\./);
-  assert.equal(text(oc.page.inspector.querySelector('.ev__record')).includes('hook record'), true, 'the panel is never blank');
-  assert.equal(text(oc.page.inspector.querySelector('.fpanel__title')), 'Subagent');
-  uninstallPage();
-  mock.timers.reset();
-
-  const orphan = await startPanel(`#/fleet/${P1}/${A_ORPHAN}`);
-  assert.match(text(orphan.page.inspector.querySelector('.fbanner')), /Transcript not found\./);
-  orphan.es.emit('transcript', tBody([], { agent: A_ORPHAN, agentKey: A_ORPHAN, warnings: ['format-unrecognized'], transcript: { linked: true, reason: null } }));
+  assert.equal(inspectorOpen(page), true, 'the second selection keeps it open');
+  assert.equal(page.inspector.querySelector('.fpanel'), panel, 'the same panel, retargeted');
+  await advance(100);
+  const channels = channelsOf(liveES());
+  assert.ok(channels.includes(`transcript:${P1}:${A_MAIN}`) && !channels.includes(`transcript:${P1}:${A_SUB}`), `the lane follows the new agent: ${channels}`);
+  const selected = page.main.querySelectorAll('.lrow--agent').filter((r: El) => r.dataset.selected === 'true');
+  assert.deepEqual(selected.map((r: El) => r.dataset.key), [A_MAIN]);
+  page.location.hash = `#/layers/${P1}/file/${F_BRIEF}`;
+  page.win.dispatch('hashchange');
   await settle();
-  assert.match(text(orphan.page.inspector.querySelector('.fpanel__notice')), /records this reader does not recognise\. Showing the ones it could read\./);
-  assert.match(text(orphan.page.inspector.querySelector('.fpanel__state')), /No reply or tool call is recorded for this agent yet\./);
-  orphan.es.emit('error', { code: 'core-contract-mismatch', verb: 'transcript', exit: 1 });
-  assert.match(transport(orphan.page), /core-contract-mismatch/);
-  orphan.es.emit('error', { code: 'agent-not-in-project', verb: 'transcript', exit: 1 });
-  assert.match(text(orphan.page.inspector.querySelector('.fpanel__state')), /This agent is no longer in this project’s records\./);
-  assert.equal(orphan.es.closed, true, 'a gone agent ends the stream');
-  uninstallPage();
-  mock.timers.reset();
-
-  const none = await startFleet(`#/fleet/${P1}`);
-  const stream = esOf(`project=${P1}`);
-  stream.open();
-  stream.emit('snapshot', FLEET_TWO());
+  await advance(100);
+  const fileLane = `file:${P1}:${F_BRIEF}`;
+  assert.ok(channelsOf(liveES()).includes(fileLane), 'the file lane is followed');
+  const file = liveES();
+  file.open();
+  file.emit('message', { v: 1, ch: fileLane, id: '4242:20:1:1', type: 'snapshot', at: new Date(Date.now()).toISOString(), data: { log: 'open', ino: '4242', from: 0, to: 20, pieces: [{ at: 0, text: '# Task 3 brief' }, { at: 15, text: 'goal' }], phase: null, end: null } });
   await settle();
-  assert.equal(none.inspector.querySelector('.fpanel'), null, 'no agent is selected, so the inspector holds no transcript');
-  assert.equal(text(none.inspector.querySelector('.inspector__empty')), 'Select an item to see its details here.');
-});
-
-test('V.10 fleet project: a project the list no longer holds says so, with a way back', async () => {
-  const page = await startFleet(`#/fleet/${fk(0x99)}`);
-  const es = esOf(`project=${fk(0x99)}`);
-  es.open();
-  es.emit('snapshot', FLEET_TWO());
+  assert.match(text(page.inspector.querySelector('pre')), /# Task 3 brief\ngoal/);
+  noReads(page);
+  page.location.hash = `#/layers/${P1}/agent/${fk(0x99)}`;
+  page.win.dispatch('hashchange');
   await settle();
-  assert.match(text(page.main), /This project is not in the Fleet list any more\./);
-  const back = page.main.querySelectorAll('a').find((a: El) => text(a) === 'Back to Fleet');
-  assert.equal(back!.getAttribute('href'), '#/fleet');
+  assert.match(text(page.inspector), /no longer in this project/);
+  assert.equal(page.inspector.querySelectorAll('a').filter((a: El) => text(a) === 'Back to the project')[0].getAttribute('href'), `#/layers/${P1}`);
 });
 
-test('V.10 fleet transport: three stream errors in a row, a 429 and a missing EventSource each end in the polling mode, announced once', async () => {
-  const errors = await startFleet(`#/fleet/${P1}/${A_SUB}`, fleetRoute(), freshWeb());
-  const es = esOf('agent=');
-  es.open();
-  es.emit('snapshot', FLEET_TWO());
+test('161 layers pages: the Layers link is current on every Layers route', async () => {
+  const page = await startLayers(`#/layers/${P1}/agent/${A_MAIN}`);
+  await openedLayers(page);
+  assert.deepEqual(current(page), ['Layers']);
+  page.location.hash = '#/layers';
+  page.win.dispatch('hashchange');
   await settle();
-  const polls = () => apiCalls(errors, '/api/fleet').length;
-  assert.equal(polls(), 0, 'nothing is polled while the stream holds');
-  es.fail();
-  es.fail();
-  assert.equal(polls(), 0, 'two errors in a row are not enough');
-  es.fail();
-  await settle();
-  assert.equal(es.closed, true);
-  assert.equal(polls(), 1, 'the third error polls at once');
-  assert.match(transport(errors), /^Push unavailable: polling every 5 s · updated \d\d:\d\d:\d\d$/);
-  assert.match(text(errors.region), /Push unavailable; polling every 5 seconds\./);
-  assert.equal(apiCalls(errors, '/api/transcript').length, 1, 'the transcript is polled too');
-  await advance(5000);
-  assert.equal(polls(), 2, 'then every 5 s');
-  await advance(2000);
-  assert.ok(apiCalls(errors, '/api/transcript').length >= 2, 'and the transcript every 2 s');
-  assert.ok(errors.calls.some((c) => c.url.startsWith('/api/fleet')), 'the polled body renders the same views');
-  assert.deepEqual(rowsTextOf(errors), []);
-  uninstallPage();
-  mock.timers.reset();
-
-  const noes = await startFleet(`#/fleet/${P1}`, fleetRoute(), null, 'absent');
-  await settle();
-  assert.equal(FakeES.all.length, 0);
-  assert.match(transport(noes), /^Push unavailable: polling every 5 s/);
-  assert.equal(apiCalls(noes, '/api/fleet').length, 1);
-  await advance(5000);
-  assert.equal(apiCalls(noes, '/api/fleet').length, 2);
-  assert.ok(noes.main.querySelector('.ftree'), 'the polled fleet draws the same tree');
-  uninstallPage();
-  mock.timers.reset();
-
-  const limited = await startFleet(`#/fleet/${P1}`, (target, init) => (target.startsWith('/api/stream') ? errorReply(429, 'stream-limit') : fleetRoute()(target, init)));
-  const refused = esOf(`project=${P1}`);
-  refused.fail(2);
-  await advance(10);
-  assert.match(transport(limited), /^Another tab holds this page’s push; this tab polls every 5 s$/);
-  assert.equal(apiCalls(limited, '/api/fleet').length, 1);
-});
-const rowsTextOf = (page: Page) => page.main.querySelectorAll('.project-row').map((r: El) => text(r));
-
-test('V.10 fleet transport: a stream that stays broken for 20 s is stale; the page says so and reads the time without "ago"', async () => {
-  const page = await startFleet(`#/fleet/${P1}`);
-  const es = esOf(`project=${P1}`);
-  es.open();
-  es.emit('snapshot', FLEET_TWO());
-  await advance(1000);
-  assert.equal(page.main.getAttribute('data-stale'), null);
-  es.fail();
-  await advance(21_000);
-  assert.equal(page.main.getAttribute('data-stale'), 'true');
-  assert.match(transport(page), /^No update for \d+ s · last \d\d:\d\d:\d\d$/);
+  assert.deepEqual(current(page), ['Layers']);
 });
 
-test('V.10 fleet pages: the Fleet link is current on every Fleet route and the copy of the whole page never says an agent is working', async () => {
-  const page = await startFleet(`#/fleet/${P1}/${A_MAIN}`);
-  const es = esOf('agent=');
-  es.open();
-  es.emit('snapshot', FLEET_TWO());
-  es.emit('transcript', tBody([reply1(1)], { agent: A_MAIN, agentKey: A_MAIN }));
-  await settle();
-  assert.deepEqual(current(page), ['Fleet']);
-  assert.doesNotMatch(text(page.main), BAD_WORDS);
-  assert.ok(!page.main.querySelectorAll('a').some((a: El) => !/^#\//.test(a.getAttribute('href') ?? '')), 'no link leaves the page');
-});
-
-// ---- stream.js on its own: a fake clock, a fake EventSource and a scripted fetch ---------------------------------
-
-function streamRig(opts: { project?: string | null, agent?: string | null, noES?: boolean, probe?: any, fail?: boolean } = {}) {
-  const clock = fakeClock();
-  let hidden = false;
-  let listener: () => void = () => {};
-  const sources: FakeES[] = [];
-  class ES extends FakeES { constructor(url: string) { super(url); sources.push(this); } }
-  const log = { snapshot: [] as any[], fleet: [] as any[], transcript: [] as any[], modes: [] as string[], errors: [] as any[], failures: [] as any[], paths: [] as string[] };
-  const body = { projects: [{ projectKey: P1 }] };
-  const stream = mods.stream.createFleetStream({
-    project: opts.project === undefined ? P1 : opts.project,
-    agent: opts.agent === undefined ? null : opts.agent,
-    ...(opts.noES ? { EventSource: undefined } : { EventSource: ES }),
-    clock,
-    visibility: { hidden: () => hidden, subscribe: (fn: () => void) => { listener = fn; return () => {}; } },
-    probe: opts.probe ?? (async () => ({ status: 500, code: null })),
-    fetchJson: async (path: string) => {
-      log.paths.push(path);
-      if (opts.fail) throw { status: null, code: null, network: true };
-      return path.startsWith('/api/fleet') ? body : { cursor: '9:9:9:9', events: [] };
-    },
-    handlers: {
-      snapshot: (b: any) => log.snapshot.push(b),
-      fleet: (b: any) => log.fleet.push(b),
-      transcript: (b: any, meta: any) => log.transcript.push({ b, meta }),
-      streamError: (i: any) => log.errors.push(i),
-      mode: (m: any) => log.modes.push(m.mode + (m.reason ? `:${m.reason}` : '')),
-      failure: (e: any) => log.failures.push(e),
-    },
-  });
-  return { stream, clock, sources, log, setHidden(value: boolean) { hidden = value; listener(); } };
-}
-
-test('V.10 stream.js: one EventSource opens on the project and agent; its first frame is push; the polling is never started', async () => {
-  const rig = streamRig({ agent: A_SUB });
-  rig.stream.start();
-  assert.equal(rig.sources.length, 1);
-  assert.equal(rig.sources[0].url, `/api/stream?project=${P1}&agent=${A_SUB}`);
-  assert.deepEqual(rig.log.modes, [], 'the first mode is connecting and is not announced');
-  rig.sources[0].open();
-  rig.sources[0].emit('snapshot', { projects: [] });
-  rig.sources[0].emit('transcript', { cursor: '1:1:1:1', events: [] });
-  assert.deepEqual(rig.log.modes, ['push']);
-  assert.equal(rig.log.snapshot.length, 1);
-  assert.deepEqual(rig.log.transcript[0].meta, { resumed: false });
-  await rig.clock.advance(60_000);
-  assert.deepEqual(rig.log.paths, [], 'nothing is polled while the stream holds');
-  assert.equal(rig.stream.isStale(), false);
-  rig.stream.stop();
-  assert.equal(rig.sources[0].closed, true);
-});
-
-test('V.10 stream.js: three errors in a row fall back to polling at 5 s and 2 s from the last cursor; a good frame resets the count', async () => {
-  const rig = streamRig({ agent: A_SUB });
-  rig.stream.start();
-  const es = rig.sources[0];
-  es.fail();
-  es.fail();
-  es.emit('snapshot', { projects: [] });
-  es.fail();
-  es.fail();
-  assert.deepEqual(rig.log.paths, [], 'a frame between the errors reset the count');
-  es.emit('transcript', { cursor: '4:5:6:7', events: [] });
-  es.fail();
-  es.fail();
-  es.fail();
-  await rig.clock.flush();
-  assert.equal(rig.stream.mode, 'fallback');
-  assert.deepEqual(rig.log.paths.slice(0, 2), ['/api/fleet', `/api/transcript?project=${P1}&agent=${A_SUB}&cursor=4%3A5%3A6%3A7`]);
-  await rig.clock.advance(5000);
-  assert.equal(rig.log.paths.filter((p) => p === '/api/fleet').length, 2);
-  assert.ok(rig.log.paths.filter((p) => p.startsWith('/api/transcript')).length >= 3, 'every 2 s');
-  assert.ok(rig.log.paths.filter((p) => p.startsWith('/api/transcript')).slice(1).every((p) => p.includes('cursor=9%3A9%3A9%3A9')), 'each poll continues from the cursor of the last answer');
-});
-
-test('V.10 stream.js: a refused stream (the browser closed it) is probed once; 429 is the stream limit and polls, anything else counts as an error', async () => {
-  const limited = streamRig({ probe: async () => ({ status: 429, code: 'stream-limit' }) });
-  limited.stream.start();
-  limited.sources[0].fail(2);
-  await limited.clock.flush();
-  assert.equal(limited.stream.mode, 'limit');
-  assert.deepEqual(limited.log.paths, ['/api/fleet']);
-  const other = streamRig({ probe: async () => ({ status: 500, code: null }) });
-  other.stream.start();
-  other.sources[0].fail(2);
-  await other.clock.flush();
-  assert.equal(other.stream.mode, 'connecting', 'one refusal is one error');
-  await other.clock.advance(5000);
-  assert.equal(other.sources.length, 2, 'the page reopens the stream after the Console’s retry delay');
-});
-
-test('V.10 stream.js: without EventSource the page polls at once and never tries a stream', async () => {
-  const rig = streamRig({ noES: true, agent: A_SUB });
-  rig.stream.start();
-  await rig.clock.flush();
-  assert.equal(rig.stream.mode, 'fallback');
-  assert.equal(rig.stream.reason, 'no-eventsource');
-  assert.deepEqual(rig.log.paths.slice(0, 2), ['/api/fleet', `/api/transcript?project=${P1}&agent=${A_SUB}`]);
-  await rig.clock.advance(120_000);
-  assert.equal(rig.sources.length, 0);
-});
-
-test('V.10 stream.js: a hidden tab closes the stream and polls nothing; on return it reopens, and the next transcript batch is marked resumed', async () => {
-  const rig = streamRig({ agent: A_SUB });
-  rig.stream.start();
-  rig.sources[0].open();
-  rig.sources[0].emit('transcript', { cursor: '1:1:1:1', events: [] });
-  rig.setHidden(true);
-  assert.equal(rig.sources[0].closed, true, 'hidden closes the stream');
-  await rig.clock.advance(60_000);
-  assert.equal(rig.sources.length, 1, 'nothing is opened while hidden');
-  assert.equal(rig.stream.isStale(), false, 'a hidden page is not stale');
-  rig.setHidden(false);
-  assert.equal(rig.sources.length, 2);
-  rig.sources[1].open();
-  rig.sources[1].emit('transcript', { cursor: '2:2:2:2', events: [] });
-  rig.sources[1].emit('transcript', { cursor: '3:3:3:3', events: [] });
-  assert.deepEqual(rig.log.transcript.map((entry) => entry.meta.resumed), [false, true, false]);
-});
-
-test('V.10 stream.js: while polling, a push is tried again every 60 s; its first frame ends the polling and restores the push mode', async () => {
-  const rig = streamRig();
-  rig.stream.start();
-  rig.sources[0].fail();
-  rig.sources[0].fail();
-  rig.sources[0].fail();
-  await rig.clock.flush();
-  assert.equal(rig.stream.mode, 'fallback');
-  const polled = () => rig.log.paths.filter((p) => p === '/api/fleet').length;
-  await rig.clock.advance(59_000);
-  assert.equal(rig.sources.length, 1);
-  await rig.clock.advance(2000);
-  assert.equal(rig.sources.length, 2, 'a trial stream opens after a minute');
-  rig.sources[1].fail();
-  assert.equal(rig.stream.mode, 'fallback', 'a failed trial changes nothing');
-  assert.equal(rig.sources[1].closed, true);
-  await rig.clock.advance(60_000);
-  assert.equal(rig.sources.length, 3);
-  const before = polled();
-  rig.sources[2].emit('snapshot', { projects: [] });
-  assert.equal(rig.stream.mode, 'push');
-  assert.deepEqual(rig.log.modes.slice(-2), ['fallback:errors', 'push']);
-  await rig.clock.advance(30_000);
-  assert.equal(polled(), before, 'the polls ended');
-});
-
-test('V.10 stream.js: the stale rule — 20 s of a broken stream under push, 3 missed polls under fallback', async () => {
-  const rig = streamRig();
-  rig.stream.start();
-  rig.sources[0].open();
-  rig.sources[0].emit('snapshot', { projects: [] });
-  assert.equal(rig.stream.isStale(), false);
-  rig.sources[0].fail();
-  await rig.clock.advance(19_000);
-  assert.equal(rig.stream.isStale(), false);
-  await rig.clock.advance(2000);
-  assert.equal(rig.stream.isStale(), true);
-  const polled = streamRig({ noES: true, fail: true });
-  polled.stream.start();
-  await polled.clock.flush();
-  assert.equal(polled.stream.isStale(), false, 'no frame yet: nothing to be stale');
-  const ok = streamRig({ noES: true });
-  ok.stream.start();
-  await ok.clock.flush();
-  assert.equal(ok.stream.misses, 0);
-});
-
-test('V.10 stream.js: a gone target ends the stream, and the project list opens its stream only once a project is listed', async () => {
-  const rig = streamRig({ agent: A_SUB });
-  rig.stream.start();
-  rig.sources[0].emit('error', { code: 'agent-not-in-project', verb: 'transcript', exit: 1 });
-  assert.equal(rig.stream.ended, true);
-  assert.equal(rig.sources[0].closed, true);
-  assert.deepEqual(rig.log.errors, [{ code: 'agent-not-in-project', verb: 'transcript', exit: 1 }]);
-  await rig.clock.advance(120_000);
-  assert.deepEqual(rig.log.paths, [], 'a gone agent is not polled');
-
-  const list = streamRig({ project: null });
-  list.stream.start();
-  assert.equal(list.sources.length, 0, 'no key to open a stream on yet');
-  await list.clock.flush();
-  assert.deepEqual(list.log.paths, ['/api/fleet']);
-  assert.equal(list.sources.length, 1);
-  assert.equal(list.sources[0].url, `/api/stream?project=${P1}`);
+test('161 layers: the old Fleet routes are not routes any more', async () => {
+  const page = await startLayers('#/fleet');
+  assert.match(text(page.main), /not found|Not found/i);
+  noReads(page);
 });
 
 
@@ -3890,7 +3589,7 @@ test('149 palette: Ctrl K and Cmd K open the combobox dialog (not with Alt); Esc
     const list = page.doc.getElementById(input.getAttribute('aria-controls'));
     assert.equal(list.getAttribute('role'), 'listbox');
     assert.ok(list.querySelectorAll('li').every((li: El) => li.getAttribute('role') === 'option'));
-    assert.deepEqual(paletteOptions(page), ['Now', 'Sessions', 'Workflows', 'Fleet', 'Workers', 'Advice', 'Follow-ups', 'Settings', 'Health', 'feat-a / r1', 'feat-a / r2', 'feat-a / r3', 'feat-a / r4', 'feat-a / r5'], 'an empty query: the screens, then the runs');
+    assert.deepEqual(paletteOptions(page), ['Now', 'Sessions', 'Workflows', 'Layers', 'Workers', 'Advice', 'Follow-ups', 'Settings', 'Health', 'feat-a / r1', 'feat-a / r2', 'feat-a / r3', 'feat-a / r4', 'feat-a / r5'], 'an empty query: the screens, then the runs');
     assert.equal(input.getAttribute('aria-activedescendant'), 'palette-opt-0');
     assert.equal(page.doc.getElementById('palette-opt-0').getAttribute('aria-selected'), 'true');
     const tab = input.fire('keydown', { key: 'Tab' });
@@ -3966,22 +3665,24 @@ test('149 palette: part of a slug then Enter opens the Run view with focus on it
 test('149 palette: matchTargets orders screens, runs, sessions, projects, matches the hint too and lists at most 50', async () => {
   const { matchTargets, MAX_OPTIONS } = await import(url('palette.js'));
   const t = (kind: string, label: string, hint = '') => ({ kind, label, hint, hash: '#/' });
-  const list = [t('project', 'Alpha project'), t('session', 'Worker', 'Session · main'), t('run', 'alpha / r1'), t('screen', 'Fleet'), t('screen', 'Now')];
+  const list = [t('project', 'Alpha project'), t('session', 'Worker', 'Session · main'), t('run', 'alpha / r1'), t('screen', 'Layers'), t('screen', 'Now')];
   assert.deepEqual(matchTargets(list, 'ALPHA').map((x: any) => x.label), ['alpha / r1', 'Alpha project']);
   assert.deepEqual(matchTargets(list, 'main').map((x: any) => x.label), ['Worker'], 'the hint matches');
-  assert.deepEqual(matchTargets(list, '').map((x: any) => x.label), ['Fleet', 'Now', 'alpha / r1'], 'empty: the screens, then the runs');
+  assert.deepEqual(matchTargets(list, '').map((x: any) => x.label), ['Layers', 'Now', 'alpha / r1'], 'empty: the screens, then the runs');
   const many = Array.from({ length: 60 }, (_, i) => t('run', `feat / r${i}`));
   assert.equal(MAX_OPTIONS, 50);
   assert.equal(matchTargets(many, 'feat').length, 50);
 });
 
-test('149 palette: targets are the loaded Sessions lanes and Fleet projects, as hashes from hashFor', async () => {
+test('149 palette: targets are the loaded Sessions lanes and Layers projects, as hashes from hashFor', async () => {
   await withFreshModules(async () => {
-    const both = (target: string, init: any) => (target === '/api/sessions' ? reply(200, BUSY()) : fleetRoute()(target, init));
-    const page = await start({ hash: '#/sessions', fetch: both });
+    FakeES.all = [];
+    liveSeq = 0;
+    const both = (target: string, init: any) => (target === '/api/sessions' ? reply(200, BUSY()) : target.startsWith('/api/live') ? reply(500) : standard(target, init));
+    const page = await start({ hash: '#/sessions', fetch: both, eventSource: FakeES });
     keydownOn(page, 'k', { ctrlKey: true, target: page.doc.body });
     paletteType(page, 'project');
-    assert.deepEqual(paletteOptions(page), [], 'no Fleet body is loaded yet: nothing is fetched for it');
+    assert.deepEqual(paletteOptions(page), [], 'no Layers body is loaded yet: nothing is fetched for it');
     paletteType(page, 'session · feat-1');
     assert.deepEqual(paletteOptions(page), ['DoFlow run local/main', 'DoFlow run run-two/lin2', 'Hook session'], 'the lanes of one checkout, by the titles the Sessions view shows; the checkout is the hint');
     paletteType(page, 'hook session');
@@ -3989,18 +3690,22 @@ test('149 palette: targets are the loaded Sessions lanes and Fleet projects, as 
     paletteInput(page).fire('keydown', { key: 'Enter' });
     assert.match(page.location.hash, /^#\/sessions\/hook\/[0-9a-f]{16}$/);
     assert.equal(mods.views.parseRoute(page.location.hash).id, 'sessions');
-    page.location.hash = '#/fleet';
+    page.location.hash = '#/layers';
     page.win.dispatch('hashchange');
     await advance(100);
+    const es = liveES();
+    es.open();
+    es.emit('message', liveFrame('machine', 'snapshot', member('machine', machineBody())));
+    await settle();
     const before = page.calls.length;
     keydownOn(page, 'k', { ctrlKey: true, target: page.doc.body });
-    paletteType(page, 'fleet project');
+    paletteType(page, 'layers project');
     assert.deepEqual(paletteOptions(page), ['example-project', 'other-project']);
     paletteType(page, 'session');
     assert.ok(paletteOptions(page).length > 0, 'the Sessions body loaded earlier is still a source');
     paletteType(page, 'other');
     paletteInput(page).fire('keydown', { key: 'Enter' });
-    assert.equal(page.location.hash, `#/fleet/${P2}`);
+    assert.equal(page.location.hash, `#/layers/${P2}`);
     assert.equal(page.calls.length, before, 'the palette fetches nothing');
   });
 });
@@ -4648,7 +4353,7 @@ test('149 C.4 Adapter seam: a fake adapter (open, close, onFrame, onState) drive
   }
 });
 
-// ---- 149 D.2: the inspector hosts the Run rail detail, the Tasks panel, the Sessions lane panel and the Fleet transcript ----
+// ---- 149 D.2: the inspector hosts the Run rail detail, the Tasks panel, the Sessions lane panel and the Layers transcript ----
 
 const inspectorOpen = (page: Page) => page.inspector.querySelector('.inspector__empty').getAttribute('hidden') === '';
 const closeInspector = (page: Page) => page.inspector.querySelector('.inspector__close').fire('click');
@@ -4732,39 +4437,6 @@ test('D.2 Sessions: a second lane keeps the inspector open on the new lane; the 
   assert.equal(page.doc.activeElement.getAttribute('data-focus-key'), `lane:${b}`);
 });
 
-test('D.2 Fleet: a second agent keeps the inspector open on its transcript; the inspector close goes back to the project route', async () => {
-  const page = await startFleet(`#/fleet/${P1}`);
-  const first = esOf(`project=${P1}`);
-  first.open();
-  first.emit('snapshot', FLEET_TWO());
-  await settle();
-  assert.equal(inspectorOpen(page), false);
-  page.location.hash = `#/fleet/${P1}/${A_SUB}`;
-  page.win.dispatch('hashchange');
-  await settle();
-  assert.equal(inspectorOpen(page), true);
-  assert.equal(text(page.inspector.querySelector('.inspector__title')), 'Agent transcript');
-  assert.equal(page.main.querySelector('.fpanel'), null, 'the transcript is not mounted inline');
-  const panel = page.inspector.querySelector('.fpanel');
-  assert.equal(text(panel.querySelector('.fpanel__title')), 'system-architect');
-  assert.equal(page.inspector.getAttribute('aria-labelledby'), 'inspector-title fpanel-title', 'named by the title and the heading with the agent');
-  page.location.hash = `#/fleet/${P1}/${A_MAIN}`;
-  page.win.dispatch('hashchange');
-  await settle();
-  assert.equal(inspectorOpen(page), true, 'the second selection keeps it open');
-  assert.equal(page.inspector.querySelector('.fpanel'), panel, 'the same panel, retargeted');
-  assert.notEqual(text(panel.querySelector('.fpanel__title')), 'system-architect');
-  assert.equal(esOf(`agent=${A_MAIN}`).url, `/api/stream?project=${P1}&agent=${A_MAIN}`, 'the stream follows the new agent');
-  assert.equal(treeItem(page, A_MAIN).getAttribute('aria-selected'), 'true');
-  closeInspector(page);
-  assert.equal(page.location.hash, `#/fleet/${P1}`, 'closing goes back to the project');
-  page.win.dispatch('hashchange');
-  await settle();
-  assert.equal(inspectorOpen(page), false);
-  assert.equal(page.inspector.querySelector('.fpanel'), null);
-  assert.equal(treeItem(page, A_MAIN).getAttribute('aria-selected'), 'false');
-});
-
 /** Opens the row of `label` when it is closed (the fake matchMedia reads every max-width query as a phone). */
 const openRow = (page: Page, label: string) => {
   const head = srowOf(page, label).querySelector('.srow__head');
@@ -4838,13 +4510,14 @@ test('D.3 grammar: parseRoute names the selection of Run, Tasks and Sessions; ha
     assert.equal(route.lane, lane, hash);
     assert.equal(hashFor(route), hash, `${hash} round trips`);
   }
-  // Fleet keeps its params; routes without a selection carry no selection field.
-  assert.deepEqual(parseRoute(`#/fleet/${sk(7)}/${sk(8)}`).params, { project: sk(7), agent: sk(8) });
+  // Layers keeps its params (an agent or a file, never both); routes without a selection carry no selection field.
+  assert.deepEqual(parseRoute(`#/layers/${sk(7)}/agent/${sk(8)}`).params, { project: sk(7), agent: sk(8) });
+  assert.deepEqual(parseRoute(`#/layers/${sk(7)}/file/${sk(8)}`).params, { project: sk(7), file: sk(8) });
   assert.equal('sel' in parseRoute('#/run/feat-a/run-1'), false);
   assert.equal('task' in parseRoute('#/run/feat-a/run-1/tasks'), false);
   assert.equal('lane' in parseRoute('#/sessions'), false);
   // The round trip: parseRoute(hashFor(r)) equals r for every route hashFor gives a hash for.
-  const hashes = ['#/', '#/workflows', '#/sessions', '#/fleet', `#/fleet/${sk(7)}`, `#/fleet/${sk(7)}/${sk(8)}`, '#/run/feat-a/run-1', '#/run/feat-a/run-1/tasks',
+  const hashes = ['#/', '#/workflows', '#/sessions', '#/layers', `#/layers/${sk(7)}`, `#/layers/${sk(7)}/agent/${sk(8)}`, `#/layers/${sk(7)}/file/${sk(8)}`, '#/run/feat-a/run-1', '#/run/feat-a/run-1/tasks',
     '#/run/feat-a/run-1/tasks/A.1', '#/run/feat-a/run-1/stage/design', '#/run/feat-a/run-1/gate/gate-0', ...lanes.map(([hash]) => hash), ...SESSION_HASHES];
   for (const hash of hashes) {
     const route = parseRoute(hash);
@@ -5417,7 +5090,7 @@ test('150 C.6 palette: one session target per run, labelled slug / taskId with t
     const page = await start({ fetch: (target, init) => standard(target, init) });
     const before = page.calls.length;
     keydownOn(page, 'k', { ctrlKey: true });
-    assert.deepEqual(paletteOptions(page), ['Now', 'Sessions', 'Workflows', 'Fleet', 'Workers', 'Advice', 'Follow-ups', 'Settings', 'Health', 'feat-a / r1', 'feat-a / r2', 'feat-a / r3', 'feat-a / r4', 'feat-a / r5'], 'an empty query is unchanged: the screens, then the runs');
+    assert.deepEqual(paletteOptions(page), ['Now', 'Sessions', 'Workflows', 'Layers', 'Workers', 'Advice', 'Follow-ups', 'Settings', 'Health', 'feat-a / r1', 'feat-a / r2', 'feat-a / r3', 'feat-a / r4', 'feat-a / r5'], 'an empty query is unchanged: the screens, then the runs');
     paletteType(page, 'chain');
     const options = paletteOf(page).querySelectorAll('li');
     assert.deepEqual(options.map((li: El) => [text(li.querySelector('.palette__label')), text(li.querySelector('.palette__hint')), li.dataset.kind]),

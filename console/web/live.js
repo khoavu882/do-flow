@@ -1,15 +1,16 @@
-// The live transport adapter (feature 149, IC-016; FR-016). The only web module that opens the live stream `/api/live`;
-// the Fleet keeps its own source in stream.js (DEC-005). `open(channels, since)` opens one EventSource on the relative URL,
-// every unnamed `message` is parsed and checked against the envelope grammar (IC-002, IC-003, IC-012; for the log channels
-// `worker:<runId>:out` and `:err`, 150 IC-006 and IC-007: the `<ino>:<offset>:<n>:<ms>` id and the `append` type, on log
-// channels only) and a failing one is dropped (DEC-028: frames are never named events). The one named event is the server's `keepalive`, which carries no frame.
+// The live transport adapter (feature 149, IC-016; FR-016). The only web module that opens the live stream `/api/live`
+// (161: there is no other stream; the Layers view reads this one). `open(channels, since)` opens one EventSource on the
+// relative URL, every unnamed `message` is parsed and checked against the envelope grammar (IC-002, IC-003, IC-012; for the log
+// channels `worker:<runId>:out` and `:err` and 161's `file:<pk>:<fk>`, 150 IC-006 and IC-007: the `<ino>:<offset>:<n>:<ms>` id
+// and the `append` type, on log channels only; 161 IC-005's `transcript:<pk>:<ak>` takes the `append` type with a plain id) and
+// a failing one is dropped (DEC-028: frames are never named events). The one named event is the server's `keepalive`, which carries no frame.
 // The SSE `id:` vector is the browser's business (IC-013); the store reads the envelope's own `id`. Connection states go to
 // the state listeners as `{ state, code, at }`. Every error while the browser reconnects is one `retrying`; an error after the
 // browser gave up probes the URL once to tell the stream limit (429) and an old core (503, DEC-013) from a refusal of the
 // session (401, 403) and from anything else (`closed`). A source that hears nothing (no open, message or keepalive) for
 // SILENT_MS, as when the server is frozen with the socket still open, is closed and reported `closed` with code `silent` and
 // `at` the last time it heard something; no probe is made. After `closed`, `refused` or `unsupported` nothing is reopened
-// here: the store decides (IC-017, DEC-041). The constructor, the probe and the clock are injected, like createFleetStream.
+// here: the store decides (IC-017, DEC-041). The constructor, the probe and the clock are injected.
 // Nothing here keeps a frame or touches a storage API.
 
 const CONNECTING = 0;
@@ -20,10 +21,12 @@ const LIVE_PATH = '/api/live';
 
 /** IC-016: the transport state words. */
 const LIVE_STATES = Object.freeze(['connecting', 'open', 'retrying', 'refused', 'unsupported', 'closed']);
-/** IC-012: the frame types the browser receives on the `now`, `run:`, `tasks:` and `worker:<runId>` channels; `append` there is dropped. */
+/** IC-012: the frame types the browser receives on the `now`, `run:`, `tasks:`, `worker:<runId>`, `machine` and `layers:` channels; `append` there is dropped. */
 const FRAME_TYPES = Object.freeze(['snapshot', 'patch', 'reset', 'error', 'gone']);
-/** 150 IC-007: the frame types of a log channel (`worker:<runId>:out` and `:err`); never `patch`. */
+/** 150 IC-007: the frame types of a log channel (`worker:<runId>:out` and `:err`, `file:<pk>:<fk>`); never `patch`. */
 const LOG_FRAME_TYPES = Object.freeze(['snapshot', 'append', 'reset', 'error', 'gone']);
+/** 161 IC-005: a transcript lane's frames: its window as a `snapshot` and `append`s of newer events, never `patch`. */
+const TRANSCRIPT_FRAME_TYPES = Object.freeze(['snapshot', 'append', 'reset', 'error', 'gone']);
 /** The code of `unsupported` when the page has no EventSource constructor. */
 const NO_EVENTSOURCE = 'no-eventsource';
 /** A source that hears no open, message or keepalive for this long is closed (`closed` `silent`); the server's keepalive is 15 s. */
@@ -33,6 +36,8 @@ const SILENT_MS = 30000;
 const CHANNEL_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,55}$/;
 /** src/runtime/worker/run-store.ts RUN_ID (console/src/live.ts RUN_ID). */
 const RUN_ID = /^w-[0-9a-f]{12}$/;
+/** 161 IC-001: the 16 lowercase hex of a project, file or agent key. */
+const KEY16 = /^[0-9a-f]{16}$/;
 /** IC-002: `<epoch>-<n>`, 8 lowercase hex and a decimal from 1 (DEC-026). */
 const FRAME_ID = /^[0-9a-f]{8}-[1-9][0-9]{0,15}$/;
 /** 150 IC-007: a log channel's byte-cursor id `<ino>:<offset>:<n>:<ms>`. */
@@ -43,18 +48,30 @@ const LOG_ID = /^[0-9]{1,20}:[0-9]{1,16}:[1-9][0-9]{0,15}:[0-9]{1,16}$/;
  * @typedef {{ state: string, code: string | null, at: number }} LiveState
  */
 
-/** True when `text` is a log channel of 150 IC-006: `worker:<runId>:out` or `:err`, never `last` or any other stream. @param {unknown} text */
+/** True when `text` is a log channel: 150 IC-006's `worker:<runId>:out` or `:err` (never `last`), or 161 IC-004's `file:<pk>:<fk>`. @param {unknown} text */
 function isLogChannel(text) {
   if (typeof text !== 'string') return false;
   const parts = text.split(':');
-  return parts.length === 3 && parts[0] === 'worker' && RUN_ID.test(parts[1]) && (parts[2] === 'out' || parts[2] === 'err');
+  if (parts.length !== 3) return false;
+  if (parts[0] === 'file') return KEY16.test(parts[1]) && KEY16.test(parts[2]);
+  return parts[0] === 'worker' && RUN_ID.test(parts[1]) && (parts[2] === 'out' || parts[2] === 'err');
 }
 
-/** True when `text` is a channel of IC-003, or a log channel of 150 IC-006. @param {unknown} text */
+/** True when `text` is 161 IC-005's `transcript:<pk>:<ak>`. @param {unknown} text */
+function isTranscriptChannel(text) {
+  if (typeof text !== 'string') return false;
+  const parts = text.split(':');
+  return parts.length === 3 && parts[0] === 'transcript' && KEY16.test(parts[1]) && KEY16.test(parts[2]);
+}
+
+/** True when `text` is a channel of IC-003, a log channel of 150 IC-006, or one of 161's `machine`, `layers:<pk>`, `file:<pk>:<fk>`, `transcript:<pk>:<ak>`. @param {unknown} text */
 function isChannel(text) {
   if (typeof text !== 'string') return false;
-  if (text === 'now') return true;
+  if (text === 'now' || text === 'machine') return true;
   const parts = text.split(':');
+  if (parts[0] === 'layers') return parts.length === 2 && KEY16.test(parts[1]);
+  if (parts[0] === 'file') return isLogChannel(text);
+  if (parts[0] === 'transcript') return isTranscriptChannel(text);
   if (parts[0] === 'run') return parts.length === 3 && CHANNEL_ID.test(parts[1]) && CHANNEL_ID.test(parts[2]);
   if (parts[0] === 'tasks') return parts.length === 2 && CHANNEL_ID.test(parts[1]);
   if (parts[0] === 'worker') return (parts.length === 2 && RUN_ID.test(parts[1])) || isLogChannel(text);
@@ -85,7 +102,8 @@ function parseEnvelope(text) {
   if (value.v !== 1 || !isChannel(value.ch) || typeof value.id !== 'string') return null;
   const log = isLogChannel(value.ch);
   if (!(log ? LOG_ID : FRAME_ID).test(value.id)) return null;
-  if (typeof value.type !== 'string' || !(log ? LOG_FRAME_TYPES : FRAME_TYPES).includes(value.type) || typeof value.at !== 'string' || !isPlainObject(value.data)) return null;
+  const types = log ? LOG_FRAME_TYPES : isTranscriptChannel(value.ch) ? TRANSCRIPT_FRAME_TYPES : FRAME_TYPES;
+  if (typeof value.type !== 'string' || !types.includes(value.type) || typeof value.at !== 'string' || !isPlainObject(value.data)) return null;
   return /** @type {LiveEnvelope} */ (value);
 }
 
@@ -301,4 +319,4 @@ function createLiveAdapter(options = {}) {
   };
 }
 
-export { CONNECTING, OPEN, CLOSED, LIVE_PATH, LIVE_STATES, FRAME_TYPES, LOG_FRAME_TYPES, NO_EVENTSOURCE, SILENT_MS, CHANNEL_ID, RUN_ID, FRAME_ID, LOG_ID, isChannel, isLogChannel, parseEnvelope, liveUrl, stateOfProbe, createLiveAdapter };
+export { CONNECTING, OPEN, CLOSED, LIVE_PATH, LIVE_STATES, FRAME_TYPES, LOG_FRAME_TYPES, TRANSCRIPT_FRAME_TYPES, NO_EVENTSOURCE, SILENT_MS, CHANNEL_ID, RUN_ID, KEY16, FRAME_ID, LOG_ID, isChannel, isLogChannel, isTranscriptChannel, parseEnvelope, liveUrl, stateOfProbe, createLiveAdapter };

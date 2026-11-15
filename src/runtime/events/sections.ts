@@ -13,6 +13,9 @@
 //   run:<slug>:<task>    status, timeline
 //   tasks:<slug>         attempts, runs, worker:<task>:<token>* (one per active attempt, at most 16)
 //   worker:<runId>       status*, result
+//   machine              projects, activity (161 IC-002; machine.ts, over the child's project index)
+//   layers:<pk>          checkouts, tree*, runs, gates, artifacts, reviews, sessions, traffic*, coverage
+//                        (161 IC-003; layers.ts, over the child's project index)
 //   (* derived from the clock or a process: recomputed by the detector's 5 s pass)
 //
 // Each channel also declares its sources and primary record (IC-004, IC-006) in the shape
@@ -41,6 +44,8 @@ const { loadStorageRegistry } = require('../storage/registry.ts');
 const { resolveRoots } = require('../storage/roots.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { parseChannel } = require('./channels.ts');
+const { machineSpec } = require('./machine.ts');
+const { layersSpec } = require('./layers.ts');
 
 type Env = Record<string, string | undefined>;
 type SectionResult = { exit: number; json: any };
@@ -49,10 +54,15 @@ type Channel =
   | { kind: 'now'; name: 'now' }
   | { kind: 'run'; name: string; slug: string; taskId: string }
   | { kind: 'tasks'; name: string; slug: string }
-  | { kind: 'worker'; name: string; runId: string };
+  | { kind: 'worker'; name: string; runId: string }
+  | { kind: 'machine'; name: 'machine' }
+  | { kind: 'layers'; name: string; projectKey: string };
 
-/** What a channel needs to run its verbs: the directory the verb would run in and its environment. */
-interface SectionContext { cwd: string; env?: Env }
+/**
+ * What a channel needs to run its verbs: the directory the verb would run in and its environment;
+ * 161: the child's project index and the detector's watch counts, which `machine` reads.
+ */
+interface SectionContext { cwd: string; env?: Env; index?: any; counts?: () => { watched: number; fingerprintOnly: number } }
 
 /** The roots the CLI resolves for one call from `cwd` and `env` (see `resolveContext`). */
 interface ResolvedContext {
@@ -84,6 +94,8 @@ interface ChannelSpec {
   isDerived(name: string): boolean;
   sources(): FollowSources;
   compute(only?: readonly string[]): Promise<ComputeResult>;
+  /** 161 IC-006: changes when `sources()` would declare other sources; the command then calls `detector.update`. */
+  sourcesKey?(): string;
 }
 
 /** IC-004: the most `worker:<task>:<token>` sections one `tasks:` channel carries (`SESSION_LIMITS.workers`). */
@@ -104,6 +116,11 @@ const CATALOGUE: Readonly<Record<Channel['kind'], { sections: readonly string[];
   run: Object.freeze({ sections: Object.freeze(['status', 'timeline']), derived: Object.freeze([]) }),
   tasks: Object.freeze({ sections: Object.freeze(['attempts', 'runs']), derived: Object.freeze([WORKER_SECTIONS]) }),
   worker: Object.freeze({ sections: Object.freeze(['status', 'result']), derived: Object.freeze(['status']) }),
+  machine: Object.freeze({ sections: Object.freeze(['projects', 'activity']), derived: Object.freeze([]) }),
+  layers: Object.freeze({
+    sections: Object.freeze(['checkouts', 'tree', 'runs', 'gates', 'artifacts', 'reviews', 'sessions', 'traffic', 'coverage']),
+    derived: Object.freeze(['tree', 'traffic']),
+  }),
 });
 
 /** Record files of a store directory: no `<file>.lock` directory and no `<file>.<pid>.tmp`. */
@@ -405,8 +422,11 @@ function wanted(kind: Channel['kind'], only: readonly string[] | undefined): Set
  * @returns {ChannelSpec}
  */
 function channelSpec(channel: Channel | string, ctx: SectionContext): ChannelSpec {
-  const ch = toChannel(channel);
+  const named = toChannel(channel);
   if (!ctx || typeof ctx.cwd !== 'string' || ctx.cwd === '') throw new TypeError('a section context needs a cwd');
+  if (named.kind === 'machine') return machineSpec(ctx);
+  if (named.kind === 'layers') return layersSpec(named, ctx);
+  const ch: Exclude<Channel, { kind: 'machine' } | { kind: 'layers' }> = named;
   const context: SectionContext = { cwd: ctx.cwd, env: ctx.env ?? process.env };
   let workers: string[] = [];
   const derived = CATALOGUE[ch.kind].derived;
@@ -467,4 +487,4 @@ function channelSpec(channel: Channel | string, ctx: SectionContext): ChannelSpe
   };
 }
 
-module.exports = { channelSpec, resolveContext, findWorkerRun, workerSources, CATALOGUE, WORKER_SECTIONS, WORKER_SECTION_LIMIT };
+module.exports = { channelSpec, resolveContext, findWorkerRun, workerSources, orchestrationDirs, CATALOGUE, WORKER_SECTIONS, WORKER_SECTION_LIMIT };

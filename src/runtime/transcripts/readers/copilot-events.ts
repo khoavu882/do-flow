@@ -75,8 +75,8 @@ const SPEC = {
 };
 
 /** Header facts: `session.start` ids and the sub-agents this session started (`agentId` and its `agentName`). */
-function header({ file }: { file: string }): any {
-  const records = headRecords(file, 2000, 256 * 1024);
+function header({ file, root }: { file: string; root?: string }): any {
+  const records = headRecords(file, 2000, 256 * 1024, root);
   const start = records.find((r: any) => r.type === 'session.start');
   const d = (start && start.data) || {};
   return {

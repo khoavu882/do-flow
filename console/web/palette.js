@@ -1,5 +1,5 @@
 // The command palette (149 IC-021, DEC-011, DEC-037): a modal combobox that jumps to a screen, a run, a session lane or a
-// Fleet project the page has already loaded. It never fetches: `targets()` reads what the shell holds in memory, and a
+// Layers project the page has already loaded. It never fetches: `targets()` reads what the shell holds in memory, and a
 // choice only sets `location.hash` through `go`. keys.js opens it (Ctrl K or Cmd K); its own input handles the keys inside it,
 // asking keys.js which key is "move" and which is "close". Nothing here runs at import time.
 

@@ -405,3 +405,272 @@ test('client, a frozen server (FU-mnes07): after live data, closed silent hands 
   assert.equal(c.gets.length, getsAtDown, 'the one polling GET is still pending');
   assert.equal(c.view.poller.lastSuccessAt < quietAt, true, 'what the view shows is the snapshot from before the stream went quiet');
 });
+
+// ---- 161: the layers channels across a core child restart (IC-007, D10) ----
+//
+// The live hub over a fake events supervisor and a fake clock, fed the recorded frames of
+// fixtures/layers-frames (IC-002 to IC-005). The supervisor's `down('events-down')` is the child's
+// exit; the restarted child answers every channel of the need set with a fresh snapshot, as the real
+// one does after its `sub` lines. The browser side is the page store's own `applyPatch` (store.js).
+
+const { createLiveHub: createHub161, RESTART_GRACE_MS } = require('../src/live.ts');
+
+const LAYERS_FRAMES = path.join(__dirname, 'fixtures', 'layers-frames');
+const recorded = (name: string) => JSON.parse(fs.readFileSync(path.join(LAYERS_FRAMES, `${name}.json`), 'utf8'));
+const WORKFLOW = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'core', 'workflow.json'), 'utf8'));
+const PLANTED = 'ghp_abcdefghijklmnopqrstuvwxyz0123456789';
+
+function fakeClock161() {
+  let now = Date.parse('2026-11-15T09:00:00.000Z');
+  const timers = new Set<{ at: number, fn: () => void }>();
+  return {
+    now: () => now,
+    setTimeout(fn: () => void, ms: number) {
+      const handle = { at: now + ms, fn };
+      timers.add(handle);
+      return handle;
+    },
+    clearTimeout(handle: any) {
+      timers.delete(handle);
+    },
+    step(ms: number) {
+      now += ms;
+      for (const handle of [...timers].sort((a, b) => a.at - b.at)) {
+        if (handle.at <= now && timers.has(handle)) {
+          timers.delete(handle);
+          handle.fn();
+        }
+      }
+    },
+  };
+}
+
+/** A supervisor the case drives: `push` is a core envelope, `down` the child's exit, `back` the restarted child. */
+function fakeChild() {
+  let frameListener: (envelope: any) => void = () => {};
+  let downListener: (code: string) => void = () => {};
+  let seq = 0;
+  const sup = {
+    state: 'stopped' as string,
+    needs: [] as string[][],
+    need(channels: ReadonlySet<string>) {
+      sup.needs.push([...channels].sort());
+      if (channels.size === 0) sup.state = 'stopped';
+      else if (sup.state === 'stopped') sup.state = 'running';
+    },
+    get last(): string[] {
+      return sup.needs.at(-1) ?? [];
+    },
+    onFrame(listener: (envelope: any) => void) { frameListener = listener; },
+    onDown(listener: (code: string) => void) { downListener = listener; },
+    stop() {},
+    push(ch: string, type: string, data: any) {
+      seq += 1;
+      frameListener({ v: 1, ch, id: `0badc0de-${seq}`, type, at: '2026-11-15T09:00:00.000Z', data });
+    },
+    down() {
+      sup.state = 'down';
+      downListener('events-down');
+    },
+    back() {
+      sup.state = 'running';
+    },
+  };
+  return sup;
+}
+
+/** The kinds the core of this row lists (src/runtime/events/channels.ts CHANNEL_KINDS). */
+const CORE_KINDS = ['now', 'run', 'tasks', 'worker', 'log', 'machine', 'layers', 'file', 'transcript'];
+
+/** A runner whose `events-kinds` read lists the row's kinds and whose `workflow` is the core fixture; every call recorded. */
+function layersRunner() {
+  const calls: string[] = [];
+  return {
+    calls,
+    run: async (shape: string) => {
+      calls.push(shape);
+      if (shape === 'events-kinds') return { ok: true, json: { v: 1, kinds: CORE_KINDS }, exit: 0 };
+      if (shape === 'workflow') return { ok: true, json: WORKFLOW, exit: 0 };
+      return { ok: false, code: 'core-unreachable', exit: null };
+    },
+  };
+}
+
+function rig161() {
+  const clock = fakeClock161();
+  const child = fakeChild();
+  const runner = layersRunner();
+  const hub = createHub161({ runner, supervisor: child, clock });
+  const tick = () => new Promise((resolve) => setImmediate(resolve));
+  const advance = async (ms: number) => {
+    await tick();
+    for (let done = 0; done < ms; done += 25) {
+      clock.step(Math.min(25, ms - done));
+      await tick();
+      await tick();
+    }
+  };
+  const listen = (channel: string) => {
+    const frames: any[] = [];
+    const unsubscribe = hub.subscribe(channel, (frame: any) => frames.push(frame));
+    return { frames, unsubscribe };
+  };
+  return { clock, child, runner, hub, advance, listen };
+}
+
+/** The page store's `applyPatch`, from a copy of the web root as an ES module tree (as clientRig loads it). */
+async function storePatch(t: any) {
+  const web = tempDir(t, 'doflow-ui-recovery-store-');
+  fs.cpSync(WEB_ROOT, web, { recursive: true });
+  fs.writeFileSync(path.join(web, 'package.json'), '{"type":"module"}\n');
+  return (await import(pathToFileURL(path.join(web, 'store.js')).href)).applyPatch;
+}
+
+/** The page store's merge of one channel's frames: the state it shows after them. */
+function merged(applyPatch: (state: any, data: any) => any, frames: any[]) {
+  let state: any = null;
+  for (const frame of frames) {
+    if (frame.type === 'snapshot') state = frame.data.state;
+    else if (frame.type === 'patch') state = applyPatch(state, frame.data);
+    else state = null;
+  }
+  return state;
+}
+
+test('161: after the core child restarts, a layers channel continues with a patch at the next hub n and the merged browser state equals an uninterrupted run', async (t: any) => {
+  const applyPatch = await storePatch(t);
+  const fx = recorded('layers');
+  const [first, second] = fx.frames;
+  // Second section set as the restarted child's snapshot carries it: the first snapshot's sections with the patch's applied.
+  const restarted = { sections: { ...first.data.sections, ...second.data.sections } };
+
+  // Uninterrupted: snapshot, then the core's patch.
+  const calm = rig161();
+  const plain = calm.listen(fx.channel);
+  await calm.advance(50);
+  assert.ok(calm.child.last.includes(fx.channel), `the capability gate let the sub through: ${calm.child.last}`);
+  calm.child.push(fx.channel, first.type, first.data);
+  await calm.advance(100);
+  calm.child.push(fx.channel, second.type, second.data);
+  await calm.advance(100);
+  assert.deepEqual(plain.frames.map((f) => [f.type, f.n]), [['snapshot', 1], ['patch', 2]]);
+
+  // Interrupted: snapshot, the child dies, the restarted child sends its snapshot of the newer state.
+  const live = rig161();
+  const seen = live.listen(fx.channel);
+  await live.advance(50);
+  live.child.push(fx.channel, first.type, first.data);
+  await live.advance(100);
+  live.child.down();
+  await live.advance(1_000);
+  assert.deepEqual(seen.frames.map((f) => f.type), ['snapshot'], 'no error and no reset while the child restarts within the grace');
+  live.child.back();
+  live.child.push(fx.channel, 'snapshot', restarted);
+  await live.advance(100);
+  assert.deepEqual(seen.frames.map((f) => [f.type, f.n]), [['snapshot', 1], ['patch', 2]], 'one patch at the next hub n, no browser resnapshot');
+  assert.deepEqual(live.hub.current(fx.channel).state, calm.hub.current(fx.channel).state);
+  assert.deepEqual(merged(applyPatch, seen.frames), merged(applyPatch, plain.frames), 'the merged browser state equals the uninterrupted run');
+  assert.deepEqual(merged(applyPatch, seen.frames), live.hub.current(fx.channel).state);
+  const text = JSON.stringify(seen.frames);
+  assert.equal(text.includes(PLANTED), false, 'the planted token never reaches a frame');
+  assert.equal(text.includes('/work/planted'), false, 'no path reaches a frame');
+  assert.equal(text.includes('planted.person@example.com'), false);
+  calm.hub.stop();
+  live.hub.stop();
+});
+
+test('161: a layers channel whose child is not back within the restart grace gets events-down, then a snapshot from the restarted child', async () => {
+  const fx = recorded('layers');
+  const { child, hub, advance, listen } = rig161();
+  const seen = listen(fx.channel);
+  await advance(50);
+  child.push(fx.channel, 'snapshot', fx.frames[0].data);
+  await advance(100);
+  child.down();
+  await advance(RESTART_GRACE_MS - 25);
+  assert.deepEqual(seen.frames.map((f) => f.type), ['snapshot']);
+  await advance(50);
+  assert.deepEqual(seen.frames.map((f) => [f.type, f.data.code ?? null]), [['snapshot', null], ['error', 'events-down']]);
+  child.back();
+  child.push(fx.channel, 'snapshot', fx.frames[0].data);
+  await advance(100);
+  assert.deepEqual(seen.frames.map((f) => [f.type, f.n]), [['snapshot', 1], ['error', 2], ['snapshot', 3]], 'after an error the browser holds no state: a snapshot');
+  hub.stop();
+});
+
+test('161: a machine channel continues across a restart the same way; its member is closed-field and masked', async (t: any) => {
+  const applyPatch = await storePatch(t);
+  const fx = recorded('machine');
+  const { child, hub, advance, listen } = rig161();
+  const seen = listen('machine');
+  await advance(50);
+  assert.ok(child.last.includes('machine'));
+  child.push('machine', 'snapshot', fx.frames[0].data);
+  await advance(100);
+  const machine = seen.frames[0].data.state.machine;
+  assert.equal(machine.status, 200);
+  assert.deepEqual(Object.keys(machine.body.sections), ['projects', 'activity']);
+  assert.ok(machine.body.sections.projects.ok && machine.body.sections.activity.ok);
+  assert.equal(JSON.stringify(machine).includes('/work/planted'), false, 'the projects projector keeps no root');
+  child.down();
+  await advance(500);
+  child.back();
+  child.push('machine', 'snapshot', { sections: { ...fx.frames[0].data.sections, ...fx.frames[1].data.sections } });
+  await advance(100);
+  assert.deepEqual(seen.frames.map((f) => [f.type, f.n]), [['snapshot', 1], ['patch', 2]]);
+  const after = merged(applyPatch, seen.frames);
+  assert.equal(after.machine.body.sections.activity.data.items[0].runs.awaiting, 1);
+  assert.equal(after.machine.body.sections.activity.data.items[0].gates[0].name, 'Design approval <masked>');
+  assert.equal(JSON.stringify(seen.frames).includes(PLANTED), false);
+  hub.stop();
+});
+
+test('161: a file lane across a restart: the same inode continues with an append from its end; another inode is reset replaced, then a snapshot', async () => {
+  const fx = recorded('file');
+  const [snapshot, append, , replaced] = fx.frames;
+  const { child, hub, advance, listen } = rig161();
+  const seen = listen(fx.channel);
+  await advance(50);
+  assert.ok(child.last.includes(fx.channel));
+  child.push(fx.channel, 'snapshot', snapshot.data);
+  child.down();
+  await advance(500);
+  child.back();
+  // The restarted child's snapshot of the same file, now longer.
+  child.push(fx.channel, 'snapshot', { ...snapshot.data, to: append.data.to, pieces: [...snapshot.data.pieces, ...append.data.pieces] });
+  await advance(50);
+  assert.deepEqual(seen.frames.map((f) => [f.type, f.data.from ?? null, f.data.to ?? null]), [['snapshot', 0, 20], ['append', 20, 46]], 'only the bytes past the window');
+  assert.equal(seen.frames[1].data.pieces[0].text.includes(PLANTED), false, 'masked');
+  child.down();
+  await advance(500);
+  child.back();
+  child.push(fx.channel, 'snapshot', replaced.data);
+  await advance(50);
+  assert.deepEqual(seen.frames.slice(2).map((f) => [f.type, f.data.reason ?? f.data.ino]), [['reset', 'replaced'], ['snapshot', '4343']]);
+  hub.stop();
+});
+
+test('161: a transcript lane across a restart replaces its window with one hub snapshot; every event carries the hub n of its frame', async () => {
+  const fx = recorded('transcript');
+  const [snapshot, append, later] = fx.frames;
+  const { child, hub, advance, listen } = rig161();
+  const seen = listen(fx.channel);
+  await advance(50);
+  assert.ok(child.last.includes(fx.channel));
+  child.push(fx.channel, 'snapshot', snapshot.data);
+  child.push(fx.channel, 'append', append.data);
+  assert.deepEqual(seen.frames.map((f) => [f.type, f.n, f.data.events.map((e: any) => e.n)]), [['snapshot', 1, [1, 1]], ['append', 2, [2]]]);
+  assert.equal(JSON.stringify(seen.frames).includes(PLANTED), false, 'masked');
+  // The fixture's snapshot carries a `path` the core never sends; the hub's projection drops it (paths never leave the core).
+  assert.equal(typeof snapshot.data.path, 'string', 'the fixture plants a path');
+  assert.equal(JSON.stringify(seen.frames).includes(snapshot.data.path), false, 'no path');
+  child.down();
+  await advance(500);
+  assert.equal(seen.frames.length, 2, 'held through the restart');
+  child.back();
+  child.push(fx.channel, 'snapshot', { ...snapshot.data, events: [...snapshot.data.events, ...append.data.events, ...later.data.events], cursor: later.data.cursor, masked: 1 });
+  await advance(50);
+  assert.deepEqual(seen.frames.slice(2).map((f) => [f.type, f.n, f.data.events.length]), [['snapshot', 3, 4]]);
+  assert.deepEqual(hub.current(fx.channel).transcript.events.map((e: any) => e.n), [3, 3, 3, 3]);
+  hub.stop();
+});

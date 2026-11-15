@@ -203,7 +203,7 @@ test('C5: a blocker user-accepted on a question-channel decision denies autopilo
   const person = f.orch.decideGate({ taskId: SLUG, gateId: 'gate-b', decision: 'approve', now: FIXED });
   assert.notEqual(person.state, 'AWAITING_GATE');
   assert.equal(f.orch.readRun(SLUG).program.find((n: any) => n.id === 'gate-b').status, 'approved');
-  assert.equal(f.orch.readRun(SLUG).history.at(-1).by, undefined);
+  assert.equal(f.orch.readRun(SLUG).history.at(-1).by, 'manual');
 });
 
 test('AU D4: a note user-accepted on a default-channel decision passes autopilot gate-b; the same acceptance on a blocker is denied', t => {

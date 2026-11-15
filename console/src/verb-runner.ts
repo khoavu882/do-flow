@@ -13,7 +13,7 @@
 // a time, outside the pool, with the same launch options plus piped stdin, no timeout or output cap,
 // a 256 KiB line cap, and stderr read only for the `[ERROR]` and unknown-verb markers. stop() ends it.
 //
-// V8 Fleet shapes (IC-024): `tree`, `transcript` and `traffic` run in another project's root. The
+// Project-scoped shapes (093 IC-024; 161 removed the Fleet page, `transcript` is the one scoped read left): they run in another project's root. The
 // runner keeps a `projectKey -> root` map filled from the raw output of its last `projects` read, so a
 // caller (and so the browser) holds only the key; an unknown key is `project-not-found` before any
 // spawn. The single-flight, cache and backoff key is `(projectKey, argv)`. `transcript` is never cached
@@ -116,16 +116,16 @@ const SHAPES: Readonly<Record<string, Shape>> = deepFreeze({
   workflow: { argv: ['workflow', '--task-class', TASK_CLASS], ttl: Infinity, byCoreVersion: true },
   capabilities: { argv: ['capabilities'], ttl: 30_000 },
   version: { argv: ['--version'], ttl: Infinity, text: true },
+  // 161 DEC-012: the channel kinds the core's events verb knows, `{v:1, kinds}`; an older core refuses the flag (exit 2). Read once per process, as `version`.
+  'events-kinds': { argv: ['events', '--kinds'], ttl: Infinity },
   // IC-018: the Sessions reads. `slot --action list`, `slot --action release` and `worker --action cancel` are not shapes.
   observed: { argv: ['primary', '--action', 'observed'], ttl: 5_000 },
   slots: { argv: ['slot', '--action', 'peek'], ttl: 5_000 },
   'worker-status': { argv: ['worker', '--action', 'status', '--slug', SLUG, '--task', TASK, '--token', TOKEN], ttl: 5_000 },
   roadmap: { argv: ['roadmap', '--action', 'status'], ttl: 10_000 },
-  // IC-024: the Fleet reads. `tree` and `traffic` take only the project; `transcript` is never cached and has the reserved slot.
+  // IC-024: `projects` fills the key-to-root map; `transcript` is scoped to a project, never cached and has the reserved slot.
   projects: { argv: ['fleet', '--action', 'projects'], ttl: 10_000, listsProjects: true },
-  tree: { argv: ['fleet', '--action', 'tree'], ttl: 5_000, scoped: true },
   transcript: { argv: ['transcript', '--action', 'read', '--agent', AGENT, CURSOR, '--limit', LIMIT], ttl: 0, scoped: true, reserved: true },
-  traffic: { argv: ['transcript', '--action', 'stats', '--window', '10'], ttl: 5_000, scoped: true },
   // 150 IC-010: the worker chain reads. `worker-run-status` names a run by id; `worker-log` is never cached and has no reserved slot.
   'worker-runs': { argv: ['worker-runs', '--slug', SLUG], ttl: 2_000 },
   'worker-result': { argv: ['worker-result', '--slug', SLUG, '--worker-run', RUN], ttl: 2_000 },
@@ -697,10 +697,10 @@ function createVerbRunner(options: RunnerOptions) {
 }
 
 /**
- * IC-005 / IC-024: the error codes of the Fleet shapes and their HTTP status. `project-not-found` is a
+ * IC-005 / IC-024: the error codes of the project, transcript and worker shapes and their HTTP status. `project-not-found` is a
  * runner failure (no spawn); the others are the id of a core `error` on an exit 1 (`errorId`). `stream-limit`
- * belongs to the stream route (V.8) and `live-unavailable` to `/api/live` (149 IC-011); both are listed here
- * so the status table is in one place.
+ * and `live-unavailable` belong to `/api/live` (149 IC-011, 161 IC-008); both are listed here so the status
+ * table is in one place.
  */
 const FLEET_ERROR_STATUS: Readonly<Record<string, number>> = Object.freeze({
   'cannot-list-projects': 502,
@@ -715,7 +715,7 @@ const FLEET_ERROR_STATUS: Readonly<Record<string, number>> = Object.freeze({
   // 151 IC-013: `/api/followups/:id` answers it when the record read holds no follow-up (no core exit id).
   'followup-not-found': 404,
 });
-/** The error ids a core exit 1 may carry, by Fleet shape. */
+/** The error ids a core exit 1 may carry, by shape. */
 const FLEET_CORE_ERRORS: Readonly<Record<string, readonly string[]>> = Object.freeze({
   projects: Object.freeze(['cannot-list-projects']),
   transcript: Object.freeze(['agent-not-in-project', 'session-not-in-project']),
@@ -723,7 +723,7 @@ const FLEET_CORE_ERRORS: Readonly<Record<string, readonly string[]>> = Object.fr
   'worker-log': Object.freeze(['unknown-run']),
 });
 
-/** The IC-005 `{status, code}` of a failed Fleet read, or null when it is none of the Fleet codes (the caller then maps it as any runner failure). */
+/** The IC-005 `{status, code}` of a failed read, or null when it is none of these codes (the caller then maps it as any runner failure). */
 function fleetError(shapeId: string, failure: { code: string; exit: number | null; errorId?: string }): { status: number; code: string } | null {
   if (failure.code === 'project-not-found') return { status: 404, code: 'project-not-found' };
   if (failure.code !== 'core-error' || failure.exit !== 1 || failure.errorId === undefined) return null;

@@ -17,7 +17,7 @@ const REPO = path.resolve(__dirname, '..', '..');
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
 const STORE = path.join('.doflow', 'state', 'orchestration');
 const MARKER = 'ZZ-MARKER-7f3';
-const EVENT_KEYS = ['at', 'action', 'node', 'outcome', 'decision', 'forced', 'synthetic'];
+const EVENT_KEYS = ['at', 'action', 'node', 'outcome', 'decision', 'by', 'forced', 'synthetic'];
 const BODY_KEYS = ['v', 'taskId', 'featureSlug', 'revision', 'startedAt', 'events', 'otherEvents'];
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
@@ -94,7 +94,7 @@ function snapshot(roots: any[]) {
   });
 }
 
-const event = (action: string, fields: any = {}) => ({ action, node: null, outcome: null, decision: null, forced: false, synthetic: false, ...fields });
+const event = (action: string, fields: any = {}) => ({ action, node: null, outcome: null, decision: null, by: null, forced: false, synthetic: false, ...fields });
 const shapeOf = (events: any[]) => events.map(({ at, ...rest }: any) => rest);
 
 test('IC-012: a run walked with real verbs gives its events in journal order with exactly the contract fields', (t) => {
@@ -121,7 +121,7 @@ test('IC-012: a run walked with real verbs gives its events in journal order wit
   assert.deepEqual(shapeOf(body.events), [
     event('start'),
     event('complete-stage', { node: 'discovery', outcome: 'passed' }),
-    event('decide-gate', { node: 'gate-0', decision: 'approve', forced: true }),
+    event('decide-gate', { node: 'gate-0', decision: 'approve', by: 'manual', forced: true }),
     event('annotate', { node: 'discovery' }),
   ]);
   const times = body.events.map((entry: any) => Date.parse(entry.at));
@@ -155,7 +155,7 @@ test('IC-012: skip-stage, a backfilled stage, a rejection and complete-run carry
   ok(root, ['--action', 'complete-stage', '--task-id', 'f1', '--stage', 'discovery']);
   ok(root, ['--action', 'decide-gate', '--task-id', 'f1', '--gate', 'gate-0', '--decision', 'reject', '--note', MARKER]);
   assert.deepEqual(shapeOf(timeline(root, ['--task-id', 'f1']).events).slice(-1), [
-    event('decide-gate', { node: 'gate-0', decision: 'reject' }),
+    event('decide-gate', { node: 'gate-0', decision: 'reject', by: 'manual' }),
   ]);
 });
 
@@ -185,6 +185,36 @@ test('close through the verb: the run reads CLOSED, the timeline shows close-run
   const again = runCli(root, ['orchestrate', '--action', 'close', '--task-id', 'c1', '--note', 'twice', '--json']);
   assert.notEqual(again.status, 0);
   assert.match(again.stdout + again.stderr, /already CLOSED/);
+});
+
+test('161 IC-011: an autopilot-decided gate has by autopilot, a manual one has by person, an entry with no by or another value has null', (t) => {
+  const root = project(t);
+  const file = path.join(root, STORE, 'b1.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const decide = (at: string, node: string, extra: any) => ({ at, action: 'decide-gate', node, detail: 'approve', note: MARKER, forced: false, ...extra });
+  fs.writeFileSync(file, JSON.stringify({
+    version: 1, taskId: 'b1', taskClass: 'feature', workflowName: 'Feature', terminalStage: null, state: 'RUNNING',
+    cursor: 0, program: [{ type: 'stage', id: 'x', status: 'pending' }], revision: 1,
+    history: [
+      decide('2026-10-26T01:00:00.000Z', 'gate-a', { by: 'autopilot' }),
+      decide('2026-10-26T01:01:00.000Z', 'gate-b', { by: 'manual' }),
+      decide('2026-10-26T01:02:00.000Z', 'gate-c', {}),
+      decide('2026-10-26T01:03:00.000Z', 'gate-d', { by: MARKER }),
+      { at: '2026-10-26T01:04:00.000Z', action: 'annotate', node: 'x', by: 'autopilot' },
+    ],
+  }));
+  const body = timeline(root, ['--task-id', 'b1']);
+  assert.deepEqual(body.events.map((entry: any) => entry.by), ['autopilot', 'manual', null, null, null]);
+  assert.ok(!JSON.stringify(body).includes(MARKER));
+
+  // A manual decide-gate through the verb records manual; the CLI still refuses a named decider.
+  ok(root, ['--action', 'start', '--task-id', 'm2', '--task-class', 'feature']);
+  ok(root, ['--action', 'complete-stage', '--task-id', 'm2', '--stage', 'discovery']);
+  ok(root, ['--action', 'decide-gate', '--task-id', 'm2', '--gate', 'gate-0', '--decision', 'approve']);
+  assert.equal(timeline(root, ['--task-id', 'm2']).events.at(-1).by, 'manual');
+  const named = runCli(root, ['orchestrate', '--action', 'decide-gate', '--task-id', 'm2', '--gate', 'gate-1', '--decision', 'approve', '--by', 'autopilot', '--json']);
+  assert.equal(named.status, 2);
+  assert.match(named.stdout + named.stderr, /--by is not accepted/);
 });
 
 test('IC-012: journal entries keep only closed values; other actions are counted, never shown', (t) => {
@@ -223,7 +253,7 @@ test('IC-012: journal entries keep only closed values; other actions are counted
     event('complete-stage', { node: 'a', outcome: 'passed', synthetic: true }),
     event('skip-stage', { node: 'b', synthetic: true }),
     event('skip-gate', { node: 'g' }),
-    event('decide-gate', { node: 'gate-a', decision: 'approve' }),
+    event('decide-gate', { node: 'gate-a', decision: 'approve' }),  // by: MARKER is not a closed value, so null
     event('decide-gate', { node: 'gate-b' }),
     event('annotate', { forced: true }),
     event('complete-run'),
@@ -243,7 +273,7 @@ test('IC-012: no note, detail text, decider, consultation or trace id reaches ei
   const json = runCli(root, ['orchestrate', '--action', 'timeline', '--task-id', 'm1', ...slug, '--json']);
   assert.equal(json.status, 0, json.stderr);
   assert.equal(json.stdout.includes(MARKER), false, json.stdout);
-  for (const key of ['note', 'detail', 'by', 'consultations', 'traceId', 'runKey']) {
+  for (const key of ['note', 'detail', 'consultations', 'traceId', 'runKey']) {
     assert.equal(json.stdout.includes(`"${key}"`), false, `${key} reached the JSON`);
   }
   const text = runCli(root, ['orchestrate', '--action', 'timeline', '--task-id', 'm1', ...slug]);

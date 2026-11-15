@@ -1,0 +1,65 @@
+{
+ "channel": "file:a1b2c3d4e5f60718:f1f2f3f4f5f6f7f8",
+ "readme": "Recorded core frames for feature 161 (IC-002 to IC-005), one file per channel kind. Each frame is {type, data} as the core events verb prints it on that channel (data of a state channel is {sections} of SectionResults; of a lane, the IC-004/IC-005 body). Planted values (a GitHub token, an email, a path) must never reach a browser frame.",
+ "frames": [
+  {
+   "type": "snapshot",
+   "data": {
+    "log": "open",
+    "ino": "4242",
+    "from": 0,
+    "to": 20,
+    "pieces": [
+     {
+      "at": 0,
+      "text": "# Task 3 brief\n"
+     },
+     {
+      "at": 15,
+      "text": "goal\n"
+     }
+    ],
+    "phase": null,
+    "end": null
+   }
+  },
+  {
+   "type": "append",
+   "data": {
+    "from": 20,
+    "to": 46,
+    "pieces": [
+     {
+      "at": 20,
+      "text": "token ghp_abcdefghijklmnopqrstuvwxyz0123456789\n"
+     }
+    ],
+    "phase": null,
+    "end": null
+   }
+  },
+  {
+   "type": "reset",
+   "data": {
+    "reason": "replaced"
+   }
+  },
+  {
+   "type": "snapshot",
+   "data": {
+    "log": "open",
+    "ino": "4343",
+    "from": 0,
+    "to": 9,
+    "pieces": [
+     {
+      "at": 0,
+      "text": "rewritten"
+     }
+    ],
+    "phase": null,
+    "end": null
+   }
+  }
+ ]
+}

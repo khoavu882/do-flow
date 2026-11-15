@@ -18,20 +18,25 @@
 // the frame's `to` (the channel's last `to` for `reset`, `error` and `gone`). Every piece text is
 // masked with `maskBody` again; an `append` over the cap is split at piece boundaries into
 // consecutive `append` frames, and a log snapshot over the cap drops pieces from its front.
+//
+// Feature 161 T5 (IC-005): a `transcript:<pk>:<ak>` lane is framed by `transcriptSnapshot` (the
+// transcript read body) and `transcriptAppend` (`{events, cursor, eof, masked, warnings}`). Its id is
+// the same `<ino>:<offset>:<n>:<ms>`, taken from the reader's cursor (`<ino>:<offset>:<seq>:<atMs>`).
+// A frame over the cap drops events from the front (snapshot) or splits between events (append).
 
 const crypto = require('node:crypto');
 const { maskBody } = require('../mask.ts');
-const { parseChannel } = require('./channels.ts');
-const { RUN_ID, PHASES } = require('../worker/run-store.ts');
+const { parseChannel, isLogKind } = require('./channels.ts');
+const { PHASES } = require('../worker/run-store.ts');
 
 /** IC-002: the envelope's `v`. */
 const ENVELOPE_VERSION = 1;
 
-/** IC-002, IC-007: every frame type. `append` is the log frame: only `worker:<runId>:out|err` carry it. */
+/** IC-002, IC-007: every frame type. `append` is the log frame: only the log channels carry it (`worker:<runId>:out|err`, `file`, `transcript`). */
 const FRAME_TYPES: readonly string[] = Object.freeze(['snapshot', 'patch', 'append', 'reset', 'error', 'gone']);
 
 /** IC-002: the codes of an `error` frame at the core level. */
-const ERROR_CODES: readonly string[] = Object.freeze(['unsupported-version', 'store-unreadable', 'producer-failed', 'too-many-channels']);
+const ERROR_CODES: readonly string[] = Object.freeze(['unsupported-version', 'store-unreadable', 'producer-failed', 'too-many-channels', 'too-many-projects']);
 
 /** IC-002: the reasons of a `reset` frame. */
 const RESET_REASONS: readonly string[] = Object.freeze(['frame-cap', 'replaced']);
@@ -78,12 +83,23 @@ interface AppendData {
   end: LogEnd;
 }
 
+/** 161 IC-005: the data of a transcript `append`. */
+interface TranscriptAppendData {
+  events: readonly unknown[];
+  cursor: string;
+  eof: boolean;
+  masked: number;
+  warnings: readonly unknown[];
+}
+
 interface EnvelopeWriter {
   readonly epoch: string;
   snapshot(ch: string, sections: Sections): string[];
   patch(ch: string, sections: Sections, removed?: readonly string[]): string[];
   logSnapshot(ch: string, data: LogSnapshotData): string[];
   append(ch: string, data: AppendData): string[];
+  transcriptSnapshot(ch: string, body: Record<string, unknown>): string[];
+  transcriptAppend(ch: string, data: TranscriptAppendData): string[];
   reset(ch: string, reason: string): string[];
   error(ch: string, code: string): string[];
   gone(ch: string): string[];
@@ -145,14 +161,15 @@ function maskSections(sections: Sections): Sections {
 }
 
 /**
- * Whether `ch` is a log channel (IC-006, IC-007): `worker:<runId>:out` or `worker:<runId>:err`.
+ * Whether `ch` is a log channel (IC-006, IC-007; 161 IC-001): `worker:<runId>:out`, `worker:<runId>:err`,
+ * `file:<pk>:<fk>` or `transcript:<pk>:<ak>`.
  * @param {unknown} ch
  * @returns {boolean}
  */
 function isLogChannel(ch: unknown): ch is string {
   if (typeof ch !== 'string') return false;
-  const parts = ch.split(':');
-  return parts.length === 3 && parts[0] === 'worker' && RUN_ID.test(parts[1]) && (parts[2] === 'out' || parts[2] === 'err');
+  const parsed = parseChannel(ch);
+  return parsed.ok && isLogKind(parsed.channel);
 }
 
 /** A channel framed by sections (`snapshot`, `patch`): every channel of 149 IC-003, never a log channel. */
@@ -168,9 +185,23 @@ function checkAnyChannel(ch: unknown): string {
   return isLogChannel(ch) ? ch : checkChannel(ch);
 }
 
+/** A channel framed by `transcriptSnapshot` or `transcriptAppend`: a `transcript:<pk>:<ak>` channel only. */
+function checkTranscriptChannel(ch: unknown): string {
+  const parsed = typeof ch === 'string' ? parseChannel(ch) : null;
+  if (parsed === null || !parsed.ok || parsed.channel.kind !== 'transcript') throw new TypeError('cannot frame a transcript on this channel: only transcript:<pk>:<ak>');
+  return ch as string;
+}
+
+/** A transcript reader cursor `<ino>:<offset>:<seq>:<atMs>`; its first two parts name the frame's position. */
+function cursorParts(cursor: unknown): { ino: string; offset: number } {
+  const m = typeof cursor === 'string' ? /^([0-9]{1,20}):([0-9]{1,16}):[0-9]{1,16}:[0-9]{1,16}$/.exec(cursor) : null;
+  if (!m || !Number.isSafeInteger(Number(m[2]))) throw new TypeError('cursor must be <ino>:<offset>:<seq>:<atMs>');
+  return { ino: m[1], offset: Number(m[2]) };
+}
+
 /** A channel framed by `logSnapshot` or `append`: a log channel only. */
 function checkLogChannel(ch: unknown): string {
-  if (!isLogChannel(ch)) throw new TypeError('cannot frame a log on this channel: only worker:<runId>:out and worker:<runId>:err are log channels');
+  if (!isLogChannel(ch)) throw new TypeError('cannot frame a log on this channel: only worker:<runId>:out|err, file:<pk>:<fk> and transcript:<pk>:<ak> are log channels');
   return ch;
 }
 
@@ -447,6 +478,76 @@ function createEnvelopeWriter(options: { epoch?: string; clock?: () => number } 
       }
       const lines = bounds.map(([start, stop, lo, hi], index) => frame(index, start, stop, lo, hi, true));
       cursors.set(name, { ino: cursor.ino, to: data.to });
+      return emit(name, lines);
+    },
+
+    /**
+     * 161 IC-005: a transcript lane's `snapshot`: the read body (`v`, `agentKey`, `harness`, `reader`,
+     * `transcript`, `events`, `cursor`, ...), masked again leaf by leaf. Over the cap, the oldest events
+     * are dropped until the line fits. The channel's cursor becomes the body's cursor `ino` and `offset`.
+     * @throws {TypeError} on a channel that is not `transcript:<pk>:<ak>`, or a body without `events` and `cursor`
+     */
+    transcriptSnapshot(ch: string, body: Record<string, unknown>): string[] {
+      const name = checkTranscriptChannel(ch);
+      if (!isPlainObject(body) || !Array.isArray(body.events)) throw new TypeError('a transcript snapshot body needs an events array');
+      const { ino, offset } = cursorParts(body.cursor);
+      const masked = maskJson(body) as Record<string, unknown>;
+      const events = masked.events as unknown[];
+      const ms = clock();
+      const at = new Date(ms).toISOString();
+      const id = logId(ino, offset, (counters.get(name) || 0) + 1, ms);
+      const sums = [0];
+      for (const event of events) sums.push(sums[sums.length - 1] + byteLength(JSON.stringify(event)));
+      const shell = byteLength(encode(name, id, 'snapshot', at, { ...masked, events: [] }));
+      let keep = 0;
+      while (keep < events.length && shell + sums[events.length] - sums[keep] + Math.max(0, events.length - keep - 1) > LINE_CAP_BYTES) keep += 1;
+      open.add(name);
+      cursors.set(name, { ino, to: offset });
+      return emit(name, [encode(name, id, 'snapshot', at, { ...masked, events: events.slice(keep) })]);
+    },
+
+    /**
+     * 161 IC-005: the events past the channel's last snapshot or append, `{events, cursor, eof, masked,
+     * warnings}`, masked again. A frame over the cap is split between events into consecutive `append`
+     * frames; each carries the read's `cursor`, only the last the read's `eof`, and `masked` and
+     * `warnings` only the first. An event too big for a frame of its own turns the emission into `reset`
+     * `frame-cap`.
+     * @throws {TypeError} on a channel that is not `transcript:<pk>:<ak>`, while the channel owes a snapshot, or on malformed data
+     */
+    transcriptAppend(ch: string, data: TranscriptAppendData): string[] {
+      const name = checkTranscriptChannel(ch);
+      const cursor = cursors.get(name);
+      if (!open.has(name) || cursor === undefined) throw new TypeError(`channel '${name}' owes a snapshot before any append`);
+      if (!isPlainObject(data) || !Array.isArray(data.events) || !Array.isArray(data.warnings) || typeof data.eof !== 'boolean' || !Number.isSafeInteger(data.masked)) {
+        throw new TypeError('append data must be {events, cursor, eof, masked, warnings}');
+      }
+      const next = cursorParts(data.cursor);
+      const events = maskJson(data.events) as unknown[];
+      const warnings = maskJson(data.warnings) as unknown[];
+      const ms = clock();
+      const at = new Date(ms).toISOString();
+      const base = counters.get(name) || 0;
+      const sums = [0];
+      for (const event of events) sums.push(sums[sums.length - 1] + byteLength(JSON.stringify(event)));
+      const frame = (index: number, i: number, j: number, last: boolean): string =>
+        encode(name, logId(next.ino, next.offset, base + index + 1, ms), 'append', at, {
+          events: events.slice(i, j), cursor: data.cursor, eof: last ? data.eof : false, masked: index === 0 ? data.masked : 0, warnings: index === 0 ? warnings : [],
+        });
+      const size = (index: number, i: number, j: number, last: boolean): number => byteLength(frame(index, i, i, last)) + sums[j] - sums[i] + Math.max(0, j - i - 1);
+      const bounds: Array<[number, number, boolean]> = [];
+      let i = 0;
+      for (;;) {
+        const index = bounds.length;
+        if (size(index, i, events.length, true) <= LINE_CAP_BYTES) { bounds.push([i, events.length, true]); break; }
+        let j = i;
+        while (j < events.length && size(index, i, j + 1, false) <= LINE_CAP_BYTES) j += 1;
+        if (j === i) return resetLines(name, 'frame-cap');
+        bounds.push([i, j, false]);
+        i = j;
+      }
+      const lines = bounds.map(([start, stop, last], index) => frame(index, start, stop, last));
+      if (!lines.every((line) => byteLength(line) <= LINE_CAP_BYTES)) return resetLines(name, 'frame-cap');
+      cursors.set(name, { ino: next.ino, to: next.offset });
       return emit(name, lines);
     },
 

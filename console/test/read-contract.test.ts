@@ -752,14 +752,23 @@ test('the Console reads every route from the real core, leaks no free text, and 
   assert.ok(changed.length > 0, 'Fixture is vacuous: the reads without DOFLOW_UPKEEP=off changed none of the three trees');
 });
 
-test('Fleet shapes against the real core over two projects: nothing written, no planted marker or path in any body, errors as IC-005 names them', { timeout: 180_000 }, async (t: any) => {
+test('project reads against the real core over two projects: nothing written, no planted marker or path in any body, errors as IC-005 names them', { timeout: 180_000 }, async (t: any) => {
   const w = buildFleetWorld((fn: () => void) => t.after(fn));
   const runner = createVerbRunner({ corePath: w.core, projectRoot: w.alpha, env: w.env });
   t.after(() => runner.stop());
   const before = snapshotTrees(w.roots);
   const bodies: Array<[string, string]> = []; // [what, JSON of the projected body], scanned for planted text below
+  // 161: the Console runs no `tree` or `traffic` shape any more (the Layers view reads their sections from the events child),
+  // so this test runs those two core verbs itself in the project's root; the projectors are the ones the hub uses.
+  const SCOPED_VERBS: Record<string, string[]> = { tree: ['fleet', '--action', 'tree'], traffic: ['transcript', '--action', 'stats', '--window', '10'] };
+  const rootOf: Record<string, string> = {};
+  const run = async (shape: string, params: Record<string, string>) => {
+    if (!Object.hasOwn(SCOPED_VERBS, shape)) return runner.run(shape, params);
+    const out = await coreJson(rootOf[params.projectKey], { ...w.env, DOFLOW_UPKEEP: 'off' }, SCOPED_VERBS[shape]);
+    return out.exit === 0 ? { ok: true, json: out.json } : { ok: false, code: 'core-error', exit: out.exit };
+  };
   const read = async (shape: string, params: Record<string, string>) => {
-    const result = await runner.run(shape, params);
+    const result = await run(shape, params);
     assert.equal(result.ok, true, `${shape} ${JSON.stringify(params)}: ${JSON.stringify(result)}`);
     const projected = project(shape, result.json);
     assert.equal(projected.ok, true, `${shape} projects: ${JSON.stringify(projected)}`);
@@ -783,6 +792,7 @@ test('Fleet shapes against the real core over two projects: nothing written, no 
   assert.deepEqual(listed.body.projects.map((p: any) => [p.label, p.current, p.checkouts]), [['main', true, 2], ['beta', false, 1]]);
   assert.deepEqual(listed.body.projects.map((p: any) => p.sources), [['hook-dirs'], ['hook-dirs']]);
   const [keyA, keyB] = listed.body.projects.map((p: any) => p.projectKey);
+  for (const entry of listed.raw.projects) rootOf[entry.projectKey] = entry.root;
   assert.notEqual(keyA, keyB);
   assert.equal(listed.body.excluded.temp, 0);
 
@@ -832,7 +842,7 @@ test('Fleet shapes against the real core over two projects: nothing written, no 
   const foreign = trees[keyB].nodes.find((n: any) => n.kind === 'main-session' && n.transcript.linked);
   const crossed = await runner.run('transcript', { projectKey: keyB, agent: foreign.agentKey, limit: '10' });
   assert.deepEqual(fleetError('transcript', crossed), { status: 404, code: 'session-not-in-project' });
-  assert.deepEqual(await runner.run('tree', { projectKey: 'cccccccccccccccc' }), { ok: false, code: 'project-not-found', exit: null });
+  assert.deepEqual(await runner.run('transcript', { projectKey: 'cccccccccccccccc', agent: 'ffffffffffffffff', limit: '10' }), { ok: false, code: 'project-not-found', exit: null });
 
   // No planted marker, raw session id, fixture path or other project's reply in any projected body; every key a hex key.
   for (const [what, text] of bodies) {

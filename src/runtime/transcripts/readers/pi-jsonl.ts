@@ -46,8 +46,8 @@ const SPEC = {
 };
 
 /** Header facts from the `session` record; `sessionId`, `cwd` and the parent id are for core only. */
-function header({ file }: { file: string }): any {
-  const h = headRecords(file, 1)[0] || {};
+function header({ file, root }: { file: string; root?: string }): any {
+  const h = headRecords(file, 1, 64 * 1024, root)[0] || {};
   const parent = typeof h.parentSession === 'string' ? /_([0-9a-f-]{36})\.jsonl$/.exec(h.parentSession) : null;
   return {
     sessionId: h.type === 'session' && typeof h.id === 'string' ? h.id : null, agentId: null,

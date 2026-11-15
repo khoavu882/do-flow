@@ -34,6 +34,10 @@ const { securityHeaders } = require('../src/headers.ts');
 const EPOCH = 'a1b2c3d4';
 const AT = '2026-11-07T12:00:00.000Z';
 const TASKS = 'tasks:feat-a';
+/** 161: a project, a file and an agent key. */
+const PK = 'a1b2c3d4e5f60718';
+const FK = 'f1f2f3f4f5f6f7f8';
+const AK = 'aa11bb22cc33dd55';
 const STREAM_HEADERS = { ...securityHeaders(true), 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store, no-transform' };
 
 // ---- fakes ----
@@ -226,7 +230,7 @@ test('grammar: ch is 1 to 8 distinct IC-003 channels; a vector is epoch/ch=n wit
   assert.equal(lastEventVector('garbage', ['now']), null);
 });
 
-test('opening: the /api/stream headers, setNoDelay, retry: 2000 first; every message unnamed with an id vector', () => {
+test('opening: the event-stream headers, setNoDelay, retry: 2000 first; every message unnamed with an id vector', () => {
   const hub = fakeHub();
   const { res, req } = openLive(hub, ['now', TASKS]);
   assert.equal(res.head.status, 200);
@@ -874,13 +878,30 @@ test('GET /api/live: a bad query is 400 usage before any slot, subscribe, verb o
   assert.equal(ok.status, 200, 'control: eight channels and a since over them open');
 });
 
-test('GET /api/live: a paired device is 403 phone-scope (not on the device list)', async (t) => {
-  const hub = fakeHub();
+test('GET /api/live, 161 IC-009: a paired view device opens a stream; once revoked it is ended at the next keepalive (fake clock), and its reconnect is 401 device-revoked', async (t) => {
+  const hub: any = fakeHub();
+  hub.clock = fakeClock();
   const runner = countingRunner();
-  const { json } = await deviceClient(t, (auth: any) => consoleRoutes(runner, auth, hub), webRoot);
-  const reply = await json('/api/live?ch=now');
-  assert.deepEqual([reply.status, reply.body], [403, errorBody('phone-scope')]);
-  assert.deepEqual([hub.subscribes.length, runner.calls, runner.follows], [0, 0, 0]);
+  const client = await deviceClient(t, (auth: any) => consoleRoutes(runner, auth, hub), webRoot);
+  const paired = await client.world.pair('view', 'Second phone');
+  const cookie = paired.cookie;
+  const stream = client.request('GET', `/api/live?ch=now,layers:${PK}`, { headers: { Cookie: cookie } });
+  await until(() => hub.subscribes.length === 2, 'the device stream subscribed');
+  hub.clock.step(KEEPALIVE_MS);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(hub.unsubscribes.length, 0, 'a recheck that passes keeps the stream');
+  assert.equal(await client.world.store.revoke(paired.device.id), 'revoked');
+  hub.clock.step(KEEPALIVE_MS - 1);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(hub.unsubscribes.length, 0, 'nothing before the keepalive');
+  hub.clock.step(1);
+  const reply = await stream;
+  assert.equal(reply.status, 200);
+  assert.equal(reply.body.split('event: keepalive').length, 2, 'one keepalive, then the end: the second beat was the refused recheck');
+  assert.deepEqual(hub.unsubscribes.sort(), ['now', `layers:${PK}`].sort());
+  const again = await client.request('GET', '/api/live?ch=now', { headers: { Cookie: cookie } });
+  assert.deepEqual([again.status, JSON.parse(again.body)], [401, errorBody('device-revoked')]);
+  assert.deepEqual([runner.calls, runner.follows], [0, 0]);
 });
 
 test('GET /api/live: Host not allowed is 421 with an empty body; a cross Origin is 403 forbidden-origin', async (t) => {
@@ -1054,4 +1075,191 @@ test('GET /api/live with log positions: a log channel with n or another channel 
   assert.equal(page.status, 200);
   await until(() => hub.subscribes.length === 7, 'five subscribes');
   assert.deepEqual(hub.subscribes.slice(2), five);
+});
+
+// ---- 161: the device recheck, the Console cap, and resume of the layers channels and lanes ----
+
+test('161 IC-009: a recheck runs before every keepalive; true beats, false or a rejection ends the response once, releasing its slot and channels', async () => {
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  for (const answer of ['false', 'reject', 'throw'] as const) {
+    const hub = fakeHub();
+    const clock = fakeClock();
+    const streams = createLiveStreams(hub, clock);
+    const req = fakeRequest();
+    const res = fakeResponse();
+    let checks = 0;
+    let released = 0;
+    let allow = true;
+    const recheck = () => {
+      checks += 1;
+      if (allow) return Promise.resolve(true);
+      if (answer === 'throw') throw new Error('boom');
+      return answer === 'false' ? Promise.resolve(false) : Promise.reject(new Error('store unreadable'));
+    };
+    streams.serve(req, res, { channels: ['now'], resume: null, release: () => { released += 1; }, recheck });
+    clock.step(KEEPALIVE_MS);
+    await settle();
+    assert.equal(checks, 1, answer);
+    assert.equal(messages(res.chunks).filter((m) => m.event === 'keepalive').length, 1, `${answer}: a passed recheck beats`);
+    allow = false;
+    clock.step(KEEPALIVE_MS);
+    await settle();
+    assert.equal(checks, 2, answer);
+    assert.equal(res.writableEnded, true, `${answer}: the response ended`);
+    assert.equal(messages(res.chunks).filter((m) => m.event === 'keepalive').length, 1, `${answer}: no keepalive after the refusal`);
+    assert.deepEqual([released, hub.unsubscribes], [1, ['now']], answer);
+    clock.step(KEEPALIVE_MS * 3);
+    await settle();
+    assert.equal(checks, 2, `${answer}: no timer left`);
+  }
+});
+
+test('GET /api/live, 161 IC-008: sixteen streams per Console over every device; the seventeenth is 429 stream-limit, and a freed slot opens again', async (t) => {
+  const https = require('node:https');
+  const hub = fakeHub();
+  const runner = countingRunner();
+  const client = await deviceClient(t, (auth: any) => consoleRoutes(runner, auth, hub), webRoot);
+  const ca = fs.readFileSync(client.cert.certPath);
+  const port = new URL(client.origin).port;
+  /** One device stream over https: resolves on its status line, the body left open. */
+  const stream = (cookie: string) => new Promise<{ status: number, closed: Promise<void>, destroy(): void }>((resolve, reject) => {
+    const req = https.request({ host: '127.0.0.1', port, path: '/api/live?ch=now', ca, servername: '', agent: false, headers: { Host: `127.0.0.1:${port}`, Cookie: cookie } }, (res: any) => {
+      res.resume();
+      const closed = new Promise<void>((done) => { res.on('close', () => done()); res.on('error', () => {}); });
+      resolve({ status: res.statusCode, closed, destroy: () => req.destroy() });
+    });
+    req.on('error', (error: any) => { if (error.code !== 'ECONNRESET') reject(error); });
+    req.end();
+  });
+  const cookies: string[] = [];
+  for (let i = 0; i < 5; i += 1) cookies.push((await client.world.pair('view', `Phone ${i}`)).cookie);
+  const open: Array<Awaited<ReturnType<typeof stream>>> = [];
+  t.after(() => { for (const each of open) each.destroy(); });
+  for (const cookie of cookies.slice(0, 4)) for (let i = 0; i < 4; i += 1) open.push(await stream(cookie));
+  assert.deepEqual(open.map((each) => each.status), Array(16).fill(200));
+  const refused = await client.request('GET', '/api/live?ch=now', { headers: { Cookie: cookies[4] } });
+  assert.deepEqual([refused.status, JSON.parse(refused.body)], [429, errorBody('stream-limit')], 'a fifth device past the Console cap');
+  assert.equal(hub.subscribes.length, 16);
+  open[0].destroy();
+  await open[0].closed;
+  await until(() => hub.unsubscribes.length === 1, 'the closed connection unsubscribes');
+  let again: any = null;
+  for (let attempt = 0; attempt < 50 && again === null; attempt += 1) {
+    const each = await stream(cookies[4]);
+    if (each.status === 200) again = each;
+    else await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.ok(again, 'the freed slot opens for the fifth device');
+  open.push(again);
+});
+
+/** The real hub over a supervisor whose frames a case pushes, on a core whose `events --kinds` lists the 161 kinds. */
+function layersHub() {
+  let onFrame: (envelope: any) => void = () => {};
+  let seq = 0;
+  const supervisor = {
+    state: 'stopped',
+    last: [] as string[],
+    need(set: Set<string>) { supervisor.state = set.size > 0 ? 'running' : 'stopped'; supervisor.last = [...set].sort(); },
+    onFrame(listener: (envelope: any) => void) { onFrame = listener; },
+    onDown() {},
+    stop() {},
+  };
+  const workflow = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'core', 'workflow.json'), 'utf8'));
+  const kinds = ['now', 'run', 'tasks', 'worker', 'log', 'machine', 'layers', 'file', 'transcript'];
+  const runner = { run: async (shape: string) => (shape === 'events-kinds' ? { ok: true, json: { v: 1, kinds }, exit: 0 } : shape === 'workflow' ? { ok: true, json: workflow, exit: 0 } : { ok: false, code: 'core-unreachable', exit: null }) };
+  const clock = fakeClock();
+  const hub = createLiveHub({ runner, supervisor, clock });
+  const push = (ch: string, type: string, data: any) => {
+    seq += 1;
+    onFrame({ v: 1, ch, id: `0badc0de-${seq}`, type, at: AT, data });
+  };
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  const compose = async () => {
+    for (let step = 0; step < 4; step += 1) {
+      clock.step(25);
+      await settle();
+      await settle();
+    }
+  };
+  return { hub, supervisor, push, compose };
+}
+const recorded = (name: string) => JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'layers-frames', `${name}.json`), 'utf8'));
+
+test('161 IC-007: transcript resume: an n inside the hub window gets one append of the newer events, its own n nothing, an n before the window a snapshot', async () => {
+  const fx = recorded('transcript');
+  const CH = fx.channel;
+  const { hub, push, compose } = layersHub();
+  try {
+    const keeper = openLive(hub, [CH]);
+    await compose();
+    push(CH, 'snapshot', fx.frames[0].data);
+    push(CH, 'append', fx.frames[1].data);
+    push(CH, 'append', fx.frames[2].data);
+    const sent = dataOf(keeper.res);
+    assert.deepEqual(sent.map((m) => [m.data.type, m.id]), [['snapshot', `${hub.epoch}/${CH}=1`], ['append', `${hub.epoch}/${CH}=2`], ['append', `${hub.epoch}/${CH}=3`]]);
+    assert.deepEqual(sent.map((m) => m.data.id), [`${hub.epoch}-1`, `${hub.epoch}-2`, `${hub.epoch}-3`]);
+
+    const resumed = openLive(hub, [CH], parseVector(sent[0].id));
+    const got = dataOf(resumed.res);
+    assert.deepEqual(got.map((m) => [m.data.type, m.id]), [['append', `${hub.epoch}/${CH}=3`]], 'one append');
+    assert.deepEqual(got[0].data.data.events.map((e: any) => [e.seq, e.n]), [[2, 2], [3, 3]], 'the newer events, each with the n of its frame');
+    assert.deepEqual(dataOf(openLive(hub, [CH], parseVector(sent[2].id)).res), [], 'its own n: nothing');
+    const before = dataOf(openLive(hub, [CH], parseVector(`${hub.epoch}/${CH}=7`)).res);
+    assert.deepEqual(before.map((m) => [m.data.type, m.data.data.events.length]), [['snapshot', 4]], 'an n the hub never sent: the window as a snapshot');
+    const other = dataOf(openLive(hub, [CH], parseVector(`ffffffff/${CH}=2`)).res);
+    assert.deepEqual(other.map((m) => m.data.type), ['snapshot'], 'another epoch: a snapshot');
+  } finally {
+    hub.stop();
+  }
+});
+
+test('161 IC-007: file resume: the same inode resumes with an append from the offset; another inode is reset replaced, then the snapshot', async () => {
+  const fx = recorded('file');
+  const CH = fx.channel;
+  const { hub, push, compose } = layersHub();
+  try {
+    const keeper = openLive(hub, [CH]);
+    await compose();
+    push(CH, 'snapshot', fx.frames[0].data);
+    const first = dataOf(keeper.res)[0];
+    assert.equal(first.id, `${hub.epoch}/${CH}=4242:20`);
+    push(CH, 'append', fx.frames[1].data);
+    const inside = dataOf(openLive(hub, [CH], parseVector(first.id)).res);
+    assert.deepEqual(inside.map((m) => [m.data.type, m.data.data.from, m.data.data.to]), [['append', 20, 46]]);
+    const replaced = dataOf(openLive(hub, [CH], parseVector(`${hub.epoch}/${CH}=4141:20`)).res);
+    assert.deepEqual(replaced.map((m) => [m.data.type, m.data.data.reason ?? m.data.data.ino]), [['reset', 'replaced'], ['snapshot', '4242']]);
+    const none = dataOf(openLive(hub, [CH]).res);
+    assert.deepEqual(none.map((m) => m.data.type), ['snapshot'], 'no position: the snapshot, no reset');
+  } finally {
+    hub.stop();
+  }
+});
+
+test('161 IC-007: a layers channel resumed from an n the hub holds the patches after gets those patches; from before them a snapshot', async () => {
+  const fx = recorded('layers');
+  const CH = fx.channel;
+  const { hub, push, compose } = layersHub();
+  try {
+    const keeper = openLive(hub, [CH]);
+    await compose();
+    push(CH, 'snapshot', fx.frames[0].data);
+    await compose();
+    push(CH, 'patch', fx.frames[1].data);
+    await compose();
+    push(CH, 'patch', { sections: { gates: fx.frames[0].data.sections.gates } });
+    await compose();
+    const sent = dataOf(keeper.res);
+    assert.deepEqual(sent.map((m) => [m.data.type, m.id]), [['snapshot', `${hub.epoch}/${CH}=1`], ['patch', `${hub.epoch}/${CH}=2`], ['patch', `${hub.epoch}/${CH}=3`]]);
+    const resumed = dataOf(openLive(hub, [CH], parseVector(sent[0].id)).res);
+    assert.deepEqual(resumed.map((m) => [m.data.type, m.data.id]), [['patch', `${hub.epoch}-2`], ['patch', `${hub.epoch}-3`]], 'the held patches, in order');
+    assert.deepEqual(resumed.map((m) => m.data.data), sent.slice(1).map((m) => m.data.data));
+    assert.deepEqual(dataOf(openLive(hub, [CH], parseVector(sent[2].id)).res), [], 'at the current n: nothing');
+    const outside = dataOf(openLive(hub, [CH], parseVector(`${hub.epoch}/${CH}=9`)).res);
+    assert.deepEqual(outside.map((m) => [m.data.type, m.data.id]), [['snapshot', `${hub.epoch}-3`]]);
+    // A row-150 channel keeps its 149 behaviour: any other position is a snapshot, never a replay.
+    assert.equal(hub.since('now', 0), null);
+  } finally {
+    hub.stop();
+  }
 });

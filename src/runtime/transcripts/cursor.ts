@@ -14,14 +14,20 @@
  *  - text policy: every text-bearing string is masked with `maskBody` AFTER JSON decoding, then cut after
  *    masking (reply 4 KiB, tool arguments 512 B) with `cut: true`. Never on the raw line (R§4.8): escaped JSON
  *    such as `\"token\":\"...\"` inside a string slips past the key rules until it is decoded.
- * Read-only: files are opened `'r'` and nothing is created or written. Ceilings: `recordSeq` counts events
+ * Read-only: nothing is created or written. 161 review 1: every file is opened through `confinedReader` of
+ * src/runtime/events/confined.ts below `root`, the harness's transcript directory the caller found it in (its
+ * own directory when no root is given): no link is followed below the root, the descriptor's dev and inode are
+ * the ones the check saw, and a refusal reads as ENOENT, so a file swapped for a link is `not-found`. The root
+ * itself (and every directory above it, such as a symlinked `~/.claude`) is trusted as given. Ceilings: `recordSeq` counts events
  * from the reset point, not from the start of the file; Claude usage dedup and the model of an event only see
  * the current window, so a message split across two reads can count its usage twice.
  */
 
 const fs = require('node:fs');
+const path = require('node:path');
 const { createHash } = require('node:crypto');
 const { maskBody } = require('../mask.ts');
+const { confinedReader } = require('../events/confined.ts');
 
 const MAX_READ_BYTES = 256 * 1024;
 const TAIL_RECORDS = 64;
@@ -126,6 +132,11 @@ function capArgs(value: any, cap: number): { text: string; cut: boolean; masked:
   return { text: r.text, cut: r.cut, masked: masked + r.masked };
 }
 
+/** 161 review 1: `file` opened as the regular file below `root` (default: its own directory); a refusal is ENOENT. */
+function openIn(file: string, root?: string): number {
+  return confinedReader(root ?? path.dirname(file)).openSync(file);
+}
+
 function readRange(fd: number, from: number, to: number): Buffer {
   const buf = Buffer.alloc(Math.max(0, to - from));
   let got = 0;
@@ -162,8 +173,8 @@ function splitLines(buf: Buffer, base: number, skipFirst: boolean): { lines: Lin
  * The window one call reads. `lines` are the records to process; `prior()` returns the raw lines before the
  * window (Copilot differences its cumulative usage against them).
  */
-function openWindow(file: string, cursorText: any, maxBytes: number, tailRecords: number = TAIL_RECORDS): any {
-  const fd = fs.openSync(file, 'r');
+function openWindow(file: string, cursorText: any, maxBytes: number, tailRecords: number = TAIL_RECORDS, root?: string): any {
+  const fd = openIn(file, root);
   try {
     const st = fs.fstatSync(fd, { bigint: true });
     const ino = String(st.ino);
@@ -191,8 +202,11 @@ function openWindow(file: string, cursorText: any, maxBytes: number, tailRecords
         if (startOffset === 0) return [];
         const pFrom = Math.max(0, startOffset - maxBytes);
         const pBase = pFrom > 0 ? pFrom - 1 : 0;
-        const pfd = fs.openSync(file, 'r');
-        try { return splitLines(readRange(pfd, pBase, startOffset), pBase, pFrom > 0).lines.map((l) => l.text); } finally { fs.closeSync(pfd); }
+        const pfd = openIn(file, root);
+        try {
+          if (String(fs.fstatSync(pfd, { bigint: true }).ino) !== ino) return []; // replaced since the window was read
+          return splitLines(readRange(pfd, pBase, startOffset), pBase, pFrom > 0).lines.map((l) => l.text);
+        } finally { fs.closeSync(pfd); }
       },
     };
   } finally {
@@ -201,8 +215,8 @@ function openWindow(file: string, cursorText: any, maxBytes: number, tailRecords
 }
 
 /** The first `maxLines` JSON-object records of a file (at most 64 KiB), for a reader's `header`. */
-function headRecords(file: string, maxLines: number = 8, maxBytes: number = 64 * 1024): any[] {
-  const fd = fs.openSync(file, 'r');
+function headRecords(file: string, maxLines: number = 8, maxBytes: number = 64 * 1024, root?: string): any[] {
+  const fd = openIn(file, root);
   try {
     const out: any[] = [];
     const { lines } = splitLines(readRange(fd, 0, maxBytes), 0, false);
@@ -217,9 +231,9 @@ function headRecords(file: string, maxLines: number = 8, maxBytes: number = 64 *
 }
 
 /** A small JSON companion file (at most 256 KiB), or null when absent or unreadable. */
-function readJsonFile(file: string): any {
+function readJsonFile(file: string, root?: string): any {
   try {
-    const fd = fs.openSync(file, 'r');
+    const fd = openIn(file, root);
     try {
       const size = fs.fstatSync(fd).size;
       if (size > MAX_READ_BYTES) return null;
@@ -261,13 +275,14 @@ function makeContext(mode: string, agentKey: any): any {
 /**
  * Runs one reader over one transcript file. `opts`: `file`, `mode` ('text' | 'metadata'), `cursor`, `limit`
  * (default 200, at most 500), `agentKey`, `companion` (Kiro's `.json`), `maxBytes` (default 256 KiB), `tailRecords`
- * (records kept by a read with no cursor, default 64; the traffic stats read the whole 256 KiB tail).
+ * (records kept by a read with no cursor, default 64; the traffic stats read the whole 256 KiB tail), `root` (the
+ * transcript directory the file was found in; see the header).
  * Throws the fs error when the file cannot be opened; the caller maps it to `not-found`.
  */
 function readTranscript(spec: any, opts: any): any {
   const mode = opts.mode === 'metadata' ? 'metadata' : 'text';
   const limit = Math.min(MAX_LIMIT, Math.max(1, Number.isInteger(opts.limit) ? opts.limit : DEFAULT_LIMIT));
-  const win = openWindow(opts.file, opts.cursor, opts.maxBytes ?? MAX_READ_BYTES, opts.tailRecords ?? TAIL_RECORDS);
+  const win = openWindow(opts.file, opts.cursor, opts.maxBytes ?? MAX_READ_BYTES, opts.tailRecords ?? TAIL_RECORDS, opts.root);
   const ctx = makeContext(mode, opts.agentKey ?? null);
   if (spec.init) ctx.state = spec.init(win, opts, ctx) ?? {};
 

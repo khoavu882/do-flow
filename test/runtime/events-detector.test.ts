@@ -452,3 +452,197 @@ test('IC-006: the real fs.watch reports a temp-file rename in a followed directo
   await clock.advance(DEBOUNCE_MS);
   assert.deepEqual(calls, [{ channel: 'tasks:feat-a', scope: 'all', snapshot: false }]);
 });
+
+// Feature 161 (IC-006): per-source sections, per-section throttle with a trailing run, many tails,
+// `update()` without a resnapshot and the watch bound.
+
+test('161 IC-006: a mark on a source with sections [gates] recomputes only gates; a throttleMs 1000 section recomputes once in a 300 ms burst and once more after (trailing)', async (t) => {
+  const root = tempDir(t, 'doflow-detector-');
+  const gates = path.join(root, 'gates');
+  const other = path.join(root, 'other');
+  fs.mkdirSync(gates);
+  fs.mkdirSync(other);
+  const h = harness();
+  t.after(() => h.detector.close());
+  await h.detector.follow('machine', {
+    directories: [{ path: gates, sections: ['gates'] }, other],
+    policies: { gates: { throttleMs: 1000 } },
+  });
+  h.take();
+  await h.clock.advance(1000); // the snapshot's window has ended
+
+  // A mark from the source with sections recomputes those sections only.
+  h.watch.open(gates)[0].emit('change', 'a.json');
+  await h.clock.advance(DEBOUNCE_MS);
+  assert.deepEqual(h.take().map((c) => [c.scope, c.sections, c.snapshot]), [['sections', ['gates'], false]]);
+
+  // A source without sections still recomputes everything.
+  h.watch.open(other)[0].emit('change', 'b.json');
+  await h.clock.advance(DEBOUNCE_MS);
+  assert.deepEqual(h.take().map((c) => [c.scope, c.snapshot]), [['all', false]]);
+
+  // The 300 ms burst: the first mark runs, the rest wait for the window and run once more at its end.
+  await h.clock.advance(1000);
+  h.take();
+  const start = h.clock.now();
+  const watcher = h.watch.open(gates)[0];
+  for (let i = 0; i < 4; i += 1) {
+    watcher.emit('change', `a${i}.json`);
+    await h.clock.advance(100);
+  }
+  const burst = h.take();
+  assert.deepEqual(burst.map((c) => [c.scope, c.sections, c.at - start]), [['sections', ['gates'], DEBOUNCE_MS]], 'once inside the burst');
+  await h.clock.advance(1000 - 400);
+  assert.deepEqual(h.take(), [], 'nothing until the window of 1000 ms ends');
+  await h.clock.advance(DEBOUNCE_MS);
+  assert.deepEqual(h.take().map((c) => [c.scope, c.sections, c.at - start]), [['sections', ['gates'], 1000 + DEBOUNCE_MS]], 'the trailing run');
+  await h.clock.advance(3000);
+  assert.deepEqual(h.take(), [], 'no run past the trailing one');
+});
+
+test('161 IC-006: a change in a sections source is taken in by its recompute, so the 1 s pass does not repeat it', async (t) => {
+  const root = tempDir(t, 'doflow-detector-');
+  const dir = path.join(root, 'gates');
+  fs.mkdirSync(dir);
+  const h = harness();
+  t.after(() => h.detector.close());
+  await h.detector.follow('machine', { directories: [{ path: dir, sections: ['gates'] }, { path: path.join(root, 'none'), sections: ['x'] }] });
+  h.take();
+  fs.writeFileSync(path.join(dir, 'a.json'), '{}');
+  await h.clock.advance(1000 + DEBOUNCE_MS);
+  assert.deepEqual(h.take().map((c) => [c.scope, c.sections]), [['sections', ['gates']]], 'the fingerprint pass asks for the declared sections only');
+  await h.clock.advance(3000);
+  assert.deepEqual(h.take(), [], 'consumed by the sections recompute');
+});
+
+test('161 IC-006: marks in one debounce are merged, and a full mark wins over named sections', async (t) => {
+  const root = tempDir(t, 'doflow-detector-');
+  const a = path.join(root, 'a');
+  const b = path.join(root, 'b');
+  const c = path.join(root, 'c');
+  for (const d of [a, b, c]) fs.mkdirSync(d);
+  const h = harness();
+  t.after(() => h.detector.close());
+  await h.detector.follow('layers:x', { directories: [{ path: a, sections: ['one'] }, { path: b, sections: ['two'] }, c] });
+  h.take();
+  h.watch.open(a)[0].emit('change', 'x');
+  h.watch.open(b)[0].emit('change', 'y');
+  await h.clock.advance(DEBOUNCE_MS);
+  assert.deepEqual(h.take().map((call) => [call.scope, [...call.sections].sort()]), [['sections', ['one', 'two']]]);
+  h.watch.open(a)[0].emit('change', 'x');
+  h.watch.open(c)[0].emit('change', 'z');
+  await h.clock.advance(DEBOUNCE_MS);
+  assert.deepEqual(h.take().map((call) => [call.scope, call.sections]), [['all', undefined]]);
+});
+
+test('161 IC-006: many tails mark the channel by their own sections while active, and not when ended', async (t) => {
+  const root = tempDir(t, 'doflow-detector-');
+  const one = path.join(root, 'one.log');
+  const two = path.join(root, 'two.log');
+  fs.writeFileSync(one, 'a');
+  fs.writeFileSync(two, 'a');
+  let twoActive = true;
+  const h = harness();
+  t.after(() => h.detector.close());
+  await h.detector.follow('layers:x', {
+    tails: [{ path: one, active: () => true, sections: ['one'] }, { path: two, active: () => twoActive, sections: ['two'] }],
+  });
+  h.take();
+  fs.appendFileSync(two, 'b');
+  await h.clock.advance(250 + DEBOUNCE_MS);
+  assert.deepEqual(h.take().map((c) => [c.scope, c.sections, c.at]), [['sections', ['two'], 250 + DEBOUNCE_MS]], 'the log pass marks the tail that grew');
+  fs.appendFileSync(one, 'b');
+  fs.appendFileSync(two, 'c');
+  twoActive = false;
+  await h.clock.advance(250 + DEBOUNCE_MS);
+  assert.deepEqual(h.take().map((c) => [c.scope, c.sections]), [['sections', ['one']]], 'an ended tail is not fingerprinted');
+  h.detector.unfollow('layers:x');
+  assert.equal(h.clock.pending(), 1, 'only the 1 s ticker is left: the log pass stops with the last tail');
+});
+
+test('161 IC-006: update() swaps sources without a resnapshot, keeps what was taken in, and follows the new ones', async (t) => {
+  const root = tempDir(t, 'doflow-detector-');
+  const first = path.join(root, 'first');
+  const second = path.join(root, 'second');
+  fs.mkdirSync(first);
+  fs.mkdirSync(second);
+  const h = harness();
+  t.after(() => h.detector.close());
+  await h.detector.follow('layers:x', { directories: [first] });
+  assert.deepEqual(h.take().map((c) => [c.scope, c.snapshot]), [['all', true]]);
+  h.detector.update('layers:x', { directories: [second] });
+  await h.clock.advance(10);
+  assert.deepEqual(h.take(), [], 'no resnapshot and no recompute');
+  assert.equal(h.watch.open(first).length, 0, 'the old directory is no longer watched');
+  assert.equal(h.watch.open(second).length, 1);
+  h.watch.open(second)[0].emit('change', 'x');
+  await h.clock.advance(DEBOUNCE_MS);
+  assert.deepEqual(h.take().map((c) => [c.channel, c.scope, c.snapshot]), [['layers:x', 'all', false]], 'the new source marks the channel');
+  assert.doesNotThrow(() => h.detector.update('unknown', { directories: [] }), 'an unknown channel is ignored');
+  assert.deepEqual(h.detector.followed(), ['layers:x']);
+});
+
+test('161 IC-006: update() keeps a change that was waiting for its recompute', async (t) => {
+  const root = tempDir(t, 'doflow-detector-');
+  const dir = path.join(root, 'd');
+  fs.mkdirSync(dir);
+  const h = harness();
+  t.after(() => h.detector.close());
+  await h.detector.follow('machine', { directories: [dir] });
+  h.take();
+  fs.writeFileSync(path.join(dir, 'a.json'), '{}');
+  h.detector.update('machine', { directories: [dir], files: [path.join(root, 'f.json')] });
+  await h.clock.advance(1000 + DEBOUNCE_MS);
+  assert.deepEqual(h.take().map((c) => [c.scope, c.snapshot]), [['all', false]], 'the unconsumed change is still found by the 1 s pass');
+});
+
+test('161 IC-006, IC-008: past 128 directories per channel the rest are fingerprint-only, and counts() says so', async (t) => {
+  const root = tempDir(t, 'doflow-detector-');
+  const dirs = Array.from({ length: 130 }, (_v, i) => path.join(root, `d${i}`));
+  for (const d of dirs) fs.mkdirSync(d);
+  const h = harness();
+  t.after(() => h.detector.close());
+  await h.detector.follow('machine', { directories: dirs });
+  h.take();
+  assert.deepEqual(h.detector.counts(), { watched: 128, fingerprintOnly: 2 });
+  assert.equal(h.watch.handles.length, 128);
+  assert.equal(h.watch.open(dirs[129]).length, 0);
+  fs.writeFileSync(path.join(dirs[129], 'a.json'), '{}');
+  await h.clock.advance(1000 + DEBOUNCE_MS);
+  assert.deepEqual(h.take().map((c) => [c.channel, c.scope]), [['machine', 'all']], 'the 1 s pass still sees a fingerprint-only directory');
+  h.detector.unfollow('machine');
+  assert.deepEqual(h.detector.counts(), { watched: 0, fingerprintOnly: 0 });
+});
+
+test('161 IC-006, IC-008: past 256 watched directories per detector a new directory is fingerprint-only; a shared one is not', async (t) => {
+  const root = tempDir(t, 'doflow-detector-');
+  const make = (prefix: string, count: number) => Array.from({ length: count }, (_v, i) => {
+    const d = path.join(root, `${prefix}${i}`);
+    fs.mkdirSync(d);
+    return d;
+  });
+  const first = make('a', 128);
+  const second = make('b', 128);
+  const extra = make('c', 2);
+  const h = harness();
+  t.after(() => h.detector.close());
+  await h.detector.follow('layers:a', { directories: first });
+  await h.detector.follow('layers:b', { directories: second });
+  await h.detector.follow('layers:c', { directories: [...extra, first[0]] });
+  assert.deepEqual(h.detector.counts(), { watched: 256, fingerprintOnly: 2 });
+  assert.equal(h.watch.open(first[0]).length, 1, 'a directory already watched is joined at no cost');
+  h.take();
+  h.watch.open(first[0])[0].emit('change', 'x');
+  await h.clock.advance(DEBOUNCE_MS);
+  assert.deepEqual(h.take().map((c) => c.channel).sort(), ['layers:a', 'layers:c'], 'both channels that declared it are marked');
+});
+
+test('161 IC-006: bad sections, tails and policies are refused at registration', async (t) => {
+  const h = harness();
+  t.after(() => h.detector.close());
+  assert.throws(() => h.detector.follow('x', { directories: [{ path: '/a', sections: [] }] }), /sections/);
+  assert.throws(() => h.detector.follow('x', { files: [{ path: '/a', sections: [''] }] }), /sections/);
+  assert.throws(() => h.detector.follow('x', { tails: [{ path: '/a', active: () => true, sections: 'gates' as any }] }), /sections/);
+  assert.throws(() => h.detector.follow('x', { tails: [{ path: '/a' } as any] }), /tail/);
+  assert.throws(() => h.detector.follow('x', { policies: { gates: { throttleMs: 0 } } }), /throttleMs/);
+});

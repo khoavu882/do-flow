@@ -24,14 +24,44 @@
 // (so no `sub` line reaches the events child) before it answers `supported`. No verb runs per append
 // or on a timer (NFR-008).
 //
+// Feature 161 (IC-007, IC-008, D10, DEC-012): four more kinds. `machine` (member `machine`) and
+// `layers:<pk>` (member `layers`) are composed from the core channel of the same name by the
+// closed-field projectors of layers-compose.ts; `layers` joins each run's stage to its skill through the
+// runner's cached `workflow` shape. `file:<pk>:<fk>` is a log lane as above. `transcript:<pk>:<ak>` is a
+// TranscriptLane: the core's `snapshot` (a transcript read body) and `append` (`{events, cursor, eof,
+// masked, warnings}`) through project.ts's `transcript` projector, a window of at most
+// TRANSCRIPT_WINDOW_EVENTS events and HUB_WINDOW_BYTES, each event tagged `n` with the hub n of the frame
+// that carried it; its frames carry `<epoch>-<n>` ids, so a browser position on it is the hub n.
+//
+// Capability gate (plan DEC-012, replacing D11's version number): an older core exits on an unknown kind in
+// a control line, so no channel of a LAYERS_KINDS kind (live-child.ts) joins the need set before one
+// `events-kinds` read through the runner lists that kind. A kind the core does not list (an older core
+// refuses the flag with a non-zero exit: no 161 kind) gives each of its channels `error`
+// `core-lacks-channel` and nothing else, while the row-150 channels go on and never wait on the read. A
+// read that fails with no exit (unreachable, timed out) leaves the gate unknown for the next subscribe.
+//
+// Core child restart (D10): a `machine` or `layers` channel with a state, and a `file` or `transcript`
+// lane with a window, is held through `events-down`, with no frame: the new child's snapshot is
+// composed and diffed against the hub's last state into one `patch` at the next n; a file lane merges
+// the new snapshot into its window (another inode is `reset` `replaced`, then the snapshot); a
+// transcript lane replaces its window with one snapshot. A channel still held RESTART_GRACE_MS after
+// the first `events-down` gets `error` `events-down` as any other. `machine` and `layers` keep their
+// last patches (at most STATE_HISTORY_FRAMES and HUB_WINDOW_BYTES of envelopes) for `since`.
+//
+// Limits (IC-008): at most LANE_LIMIT lanes (worker log, file and transcript) per hub; a lane past it is
+// made in `error` `too-many-lanes`, never followed, and never takes a slot (no open lane is evicted).
+//
 // API, for the /api/live route (B.5):
 //
 //   createLiveHub({ runner, supervisor, clock? }) -> {
 //     readonly epoch: string;                  // 8 lowercase hex, minted here
 //     subscribe(channel, listener): () => void; // IC-003/IC-006 channel (throws TypeError otherwise); returns unsubscribe
-//     current(channel): { n, state, error, gone } | { n, window, error, gone } | null;  // the second form on a log channel
+//     current(channel): { n, state, error, gone } | { n, window, error, gone } | { n, transcript, error, gone } | null;
+//                                              // the second form on a log lane, the third on a transcript lane
+//     since(channel, n): Frame[] | null;       // machine and layers: the frames after n when the hub still holds them all
 //     readonly unsupported: boolean;          // supervisor.state === 'unsupported'
 //     onUnsupported(listener): void;
+//     readonly clock: Clock;                   // the injected clock; the hub's streams keep time by it
 //     stop(): void;                           // ends timers and calls supervisor.stop()
 //   }
 //   listener(frame: { ch, n, type, at, data, id? })  // type: snapshot | patch | append | reset | error | gone;
@@ -56,6 +86,8 @@ const crypto = require('node:crypto');
 const { project } = require('./project.ts');
 const { PARAM_PATTERN, fleetError } = require('./verb-runner.ts');
 const { maskLite } = require('./mask-lite.ts');
+const { composeLayers, composeMachine } = require('./layers-compose.ts');
+const { coreKindsOf, isNewKind, newKindOf } = require('./live-child.ts');
 
 // routes.ts is read when a composition runs, not at load: the /api/live route that routes.ts gains
 // depends on this module, and a load-time destructure would see routes.ts's exports before they exist.
@@ -84,9 +116,15 @@ type Channel =
   | { kind: 'now'; name: string }
   | { kind: 'run'; name: string; slug: string; taskId: string }
   | { kind: 'tasks'; name: string; slug: string }
-  | { kind: 'worker'; name: string; runId: string };
-/** 150 IC-006: a worker run's stdout or stderr. */
-type LogChannel = { kind: 'log'; name: string; runId: string; stream: 'out' | 'err' };
+  | { kind: 'worker'; name: string; runId: string }
+  | { kind: 'machine'; name: string }
+  | { kind: 'layers'; name: string; projectKey: string };
+/** 150 IC-006: a worker run's stdout or stderr; 161 IC-004: a file of a project's artifacts index. */
+type LogChannel =
+  | { kind: 'log'; source: 'worker'; name: string; runId: string; stream: 'out' | 'err' }
+  | { kind: 'log'; source: 'file'; name: string; projectKey: string; fileKey: string };
+/** 161 IC-005: one agent's transcript. */
+type TranscriptChannel = { kind: 'transcript'; name: string; projectKey: string; agentKey: string };
 type Member = { status: number; body: unknown };
 type State = Record<string, Member>;
 type FrameType = 'snapshot' | 'patch' | 'append' | 'reset' | 'error' | 'gone';
@@ -110,6 +148,28 @@ type LogLane = {
   to: number;
   /** The deferred first notice of a channel made while support is `unsupported` or the child is down. */
   startTimer: any;
+  /** Made past LANE_LIMIT: in `error` `too-many-lanes`, never followed. */
+  refused: boolean;
+  /** Held through `events-down` (a file lane with a window): no error frame unless the grace runs out. */
+  held: boolean;
+};
+/** 161 IC-007: a projected transcript event with the hub n of the frame that carried it. */
+type TranscriptEvent = Record<string, unknown> & { n: number };
+/**
+ * The newest events of a transcript lane and the read's other fields (`head`); `base` is the lowest
+ * hub n from which the window holds every newer event, `bytes` the events' JSON bytes.
+ */
+type TranscriptWindow = { head: Record<string, unknown>; events: TranscriptEvent[]; bytes: number; base: number };
+type TranscriptLane = {
+  channel: TranscriptChannel;
+  subscribers: Set<{ listener: Listener }>;
+  n: number;
+  window: TranscriptWindow | null;
+  error: string | null;
+  gone: boolean;
+  startTimer: any;
+  refused: boolean;
+  held: boolean;
 };
 type Listener = (frame: Frame) => void;
 type Patch = { set: Record<string, unknown>; unset: string[] };
@@ -141,6 +201,12 @@ type Browser = {
   pending: boolean;
   pendingTimer: any;
   pendingReported: boolean;
+  /** 161 D10: held through `events-down` with its last state, no frame sent (machine and layers only). */
+  held: boolean;
+  /** 161 IC-007: machine and layers keep their last patches; `historyBase` is the n they follow. */
+  history: Frame[];
+  historyBytes: number;
+  historyBase: number;
 };
 
 /** IC-014, DEC-018: the largest envelope sent. 4 KiB under 262144 leaves room for B.5's SSE `id:` vector (at most 2048 characters) and framing. */
@@ -152,7 +218,7 @@ const PENDING_TIMEOUT_MS = 5_000;
 /** IC-012: the most segments of a patch pointer. */
 const MAX_POINTER_DEPTH = 4;
 /** IC-002: the core error codes passed through; any other code is `core-contract-mismatch`. */
-const CORE_ERROR_CODES: readonly string[] = Object.freeze(['unsupported-version', 'store-unreadable', 'producer-failed', 'too-many-channels']);
+const CORE_ERROR_CODES: readonly string[] = Object.freeze(['unsupported-version', 'store-unreadable', 'producer-failed', 'too-many-channels', 'too-many-projects']);
 /** 150 IC-013 (proposed): the most bytes (`to - from`) a log window covers. */
 const HUB_WINDOW_BYTES = 131_072;
 /** 150 IC-010: the pooled runner's result for a core without the verb, which a missing `runs` or `result` section stands for. */
@@ -160,23 +226,45 @@ const OLD_CORE: Readonly<RunnerResult> = Object.freeze({ ok: false, code: 'core-
 /** 150 IC-009: the sections an older core does not make, by core channel kind. */
 const NEWER_SECTIONS: Readonly<Record<string, string>> = Object.freeze({ tasks: 'runs', worker: 'result' });
 const LOG_STATES: readonly string[] = Object.freeze(['waiting', 'open', 'none']);
+/** 161 IC-008: lanes (worker log, file and transcript) per hub. */
+const LANE_LIMIT = 32;
+/** 161 IC-007: the most events a transcript lane's window keeps (its bytes are bounded by HUB_WINDOW_BYTES). */
+const TRANSCRIPT_WINDOW_EVENTS = 200;
+/** 161 IC-007: the most patches a machine or layers channel keeps for a resume (their bytes are bounded by HUB_WINDOW_BYTES). */
+const STATE_HISTORY_FRAMES = 64;
+/**
+ * 161 D10: how long a held channel waits for the restarted child before it gets `error` `events-down`;
+ * the supervisor's first two restarts (1 s, then 2 s) fall inside it.
+ */
+const RESTART_GRACE_MS = 5_000;
+/** 161 IC-005: the fields of a transcript `append` frame, as the core sends them and the browser gets them. */
+const TRANSCRIPT_APPEND_FIELDS: readonly string[] = Object.freeze(['events', 'cursor', 'eof', 'masked', 'warnings']);
 const RESET_REASONS: readonly string[] = Object.freeze(['replaced', 'frame-cap']);
 
 /** IC-003: the core's ID_PATTERN (src/runtime/context/identity.ts, at most 56 characters) with the dot the Console's PARAM_PATTERN allows. */
 const CHANNEL_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,55}$/;
 /** src/runtime/worker/run-store.ts RUN_ID. */
 const RUN_ID = /^w-[0-9a-f]{12}$/;
+/** 161 IC-001: a project, file or agent key. */
+const KEY = /^[0-9a-f]{16}$/;
 
-/** The IC-003 channel `text` names (with 150 IC-006's `worker:<runId>:out` and `:err`), or null for every other form. */
-function parseChannel(text: unknown): Channel | LogChannel | null {
+/**
+ * The IC-003 channel `text` names (with 150 IC-006's `worker:<runId>:out` and `:err`, and 161 IC-001's
+ * `machine`, `layers:<pk>`, `file:<pk>:<fk>` and `transcript:<pk>:<ak>`), or null for every other form.
+ */
+function parseChannel(text: unknown): Channel | LogChannel | TranscriptChannel | null {
   if (typeof text !== 'string') return null;
   const parts = text.split(':');
   if (text === 'now') return { kind: 'now', name: text };
+  if (text === 'machine') return { kind: 'machine', name: text };
+  if (parts[0] === 'layers' && parts.length === 2 && KEY.test(parts[1])) return { kind: 'layers', name: text, projectKey: parts[1] };
+  if (parts[0] === 'file' && parts.length === 3 && KEY.test(parts[1]) && KEY.test(parts[2])) return { kind: 'log', source: 'file', name: text, projectKey: parts[1], fileKey: parts[2] };
+  if (parts[0] === 'transcript' && parts.length === 3 && KEY.test(parts[1]) && KEY.test(parts[2])) return { kind: 'transcript', name: text, projectKey: parts[1], agentKey: parts[2] };
   if (parts[0] === 'run' && parts.length === 3 && CHANNEL_ID.test(parts[1]) && CHANNEL_ID.test(parts[2])) return { kind: 'run', name: text, slug: parts[1], taskId: parts[2] };
   if (parts[0] === 'tasks' && parts.length === 2 && CHANNEL_ID.test(parts[1])) return { kind: 'tasks', name: text, slug: parts[1] };
   if (parts[0] === 'worker' && parts.length === 2 && RUN_ID.test(parts[1])) return { kind: 'worker', name: text, runId: parts[1] };
   // Only out and err are worker output channels: `last` and every other stream are refused (FR-012).
-  if (parts[0] === 'worker' && parts.length === 3 && RUN_ID.test(parts[1]) && (parts[2] === 'out' || parts[2] === 'err')) return { kind: 'log', name: text, runId: parts[1], stream: parts[2] };
+  if (parts[0] === 'worker' && parts.length === 3 && RUN_ID.test(parts[1]) && (parts[2] === 'out' || parts[2] === 'err')) return { kind: 'log', source: 'worker', name: text, runId: parts[1], stream: parts[2] };
   return null;
 }
 
@@ -377,6 +465,8 @@ function targetOf(shapeId: string, params: Record<string, any>): { channel: stri
 /** One composition's reads: every core channel touched, and whether one was missing (pending) or in error (blocked). */
 type Composition = { reads: Set<string>; missing: boolean; blocked: boolean; closed: boolean; abort: () => void };
 type Read = (core: string, section: string) => Promise<RunnerResult>;
+/** Every section of a complete core channel (161: machine and layers compose from all of them). */
+type ReadAll = (core: string) => Promise<ReadonlyMap<string, SectionResult>>;
 
 /** routes.ts `failureInfo` for the failures a section maps to: a Fleet code first, then 501 for an older core, else 502 with the exit. */
 function failureMember(shapeId: string, failure: RunnerResult & { ok: false }): Member {
@@ -404,8 +494,13 @@ function workerReadMember(shapeId: 'worker-result' | 'worker-run-status', result
   return { status: 200, body: projected.body };
 }
 
-/** IC-012: the members of a browser channel, from the route composers over `runner`. */
-async function composeState(channel: Channel, runner: Runner, read: Read): Promise<State> {
+/** IC-012: the members of a browser channel, from the route composers over `runner`; 161: machine and layers from layers-compose.ts. */
+async function composeState(channel: Channel, runner: Runner, read: Read, readAll: ReadAll): Promise<State> {
+  if (channel.kind === 'machine') return { machine: composeMachine(await readAll(channel.name)) };
+  if (channel.kind === 'layers') {
+    const sections = await readAll(channel.name);
+    return { layers: await composeLayers(channel.projectKey, sections, (taskClass: string) => runner.run('workflow', { taskClass })) };
+  }
   const r = routes();
   if (channel.kind === 'now') {
     const [list, sessions] = await Promise.all([r.runs(runner), r.sessionsView(runner)]);
@@ -449,8 +544,19 @@ function createLiveHub(options: { runner: Runner; supervisor: Supervisor; clock?
   const logs = new Map<string, LogLane>();
   let logSupport: LogSupport = 'unknown';
   let probing = false;
+  /** 161: the transcript lanes by name, the kinds the core lists (null until read; DEC-012), and the one restart grace timer. */
+  const transcripts = new Map<string, TranscriptLane>();
+  let coreKinds: ReadonlySet<string> | null = null;
+  let kindsProbing = false;
+  let graceTimer: any = null;
+  /** DEC-012: whether the core follows the LAYERS_KINDS kind of `name`: unknown before the kinds read answers. */
+  const kindSupport = (name: string): LogSupport => (coreKinds === null ? 'unknown' : coreKinds.has(newKindOf(name) ?? '') ? 'supported' : 'unsupported');
 
   const alive = (ch: Browser): boolean => !stopped && !ch.gone && channels.get(ch.channel.name) === ch;
+  /** Lanes that take a LANE_LIMIT slot: every log and transcript lane but the refused ones. */
+  const lanesHeld = (): number => [...logs.values(), ...transcripts.values()].filter((lane) => !lane.refused).length;
+  /** Whether a log lane's frames are followed: a worker lane by the log support value, a file lane by the capability gate. */
+  const laneSupported = (lane: LogLane): boolean => (lane.channel.source === 'worker' ? logSupport : kindSupport(lane.channel.name)) === 'supported';
   const freshEntry = (): CoreEntry => ({ sections: new Map(), snapshotSeen: false, complete: false, error: null });
 
   /**
@@ -462,8 +568,10 @@ function createLiveHub(options: { runner: Runner; supervisor: Supervisor; clock?
     for (const ch of channels.values()) if (!ch.gone) for (const dep of ch.deps) deps.add(dep);
     for (const name of [...core.keys()]) if (!deps.has(name)) core.delete(name);
     for (const name of deps) if (!core.has(name)) core.set(name, freshEntry());
-    const next = new Set(deps);
-    if (logSupport === 'supported') for (const lane of logs.values()) if (!lane.gone) next.add(lane.channel.name);
+    // 161 DEC-012: no channel of a new kind is sent to the child before the core lists its kind.
+    const next = new Set([...deps].filter((name) => !isNewKind(name) || kindSupport(name) === 'supported'));
+    for (const lane of logs.values()) if (!lane.gone && !lane.refused && laneSupported(lane)) next.add(lane.channel.name);
+    for (const lane of transcripts.values()) if (!lane.gone && !lane.refused && kindSupport(lane.channel.name) === 'supported') next.add(lane.channel.name);
     if (next.size === needed.size && [...next].every((name) => needed.has(name))) return;
     needed = next;
     if (!stopped) supervisor.need(new Set(next));
@@ -484,15 +592,34 @@ function createLiveHub(options: { runner: Runner; supervisor: Supervisor; clock?
   function emit(ch: Browser, type: FrameType, data: Record<string, unknown>): boolean {
     const at = new Date(clock.now()).toISOString();
     let frame: Frame = { ch: ch.channel.name, n: ch.n + 1, type, at, data };
-    let fits = Buffer.byteLength(envelopeText(epoch, frame), 'utf8') <= LIVE_FRAME_BUDGET;
+    const bytes = Buffer.byteLength(envelopeText(epoch, frame), 'utf8');
+    const fits = bytes <= LIVE_FRAME_BUDGET;
     if (!fits) {
       frame = { ch: ch.channel.name, n: ch.n + 1, type: 'reset', at, data: { reason: 'frame-cap' } };
       ch.owesSnapshot = true;
       ch.error = null;
     }
     ch.n = frame.n;
+    if (isNewKind(ch.channel.name)) keepHistory(ch, frame, bytes);
     deliver(ch.subscribers, frame);
     return fits;
+  }
+
+  /** 161 IC-007: a patch joins the channel's history (oldest dropped past its bounds); any other frame starts it again after itself. */
+  function keepHistory(ch: Browser, frame: Frame, bytes: number) {
+    if (frame.type !== 'patch') {
+      ch.history = [];
+      ch.historyBytes = 0;
+      ch.historyBase = frame.n;
+      return;
+    }
+    ch.history.push(frame);
+    ch.historyBytes += bytes;
+    while (ch.history.length > STATE_HISTORY_FRAMES || ch.historyBytes > HUB_WINDOW_BYTES) {
+      const old = ch.history.shift() as Frame;
+      ch.historyBytes -= Buffer.byteLength(envelopeText(epoch, old), 'utf8');
+      ch.historyBase = old.n;
+    }
   }
 
   function emitError(ch: Browser, code: string) {
@@ -571,6 +698,22 @@ function createLiveHub(options: { runner: Runner; supervisor: Supervisor; clock?
       }
       return Promise.resolve(resultOf(found));
     };
+    const readAll: ReadAll = (name: string) => {
+      if (ctx.closed) return new Promise(() => {});
+      ctx.reads.add(name);
+      const entry = core.get(name);
+      if (entry !== undefined && entry.error !== null) {
+        ctx.blocked = true;
+        ctx.abort();
+        return new Promise(() => {});
+      }
+      if (entry === undefined || !entry.complete) {
+        ctx.missing = true;
+        ctx.abort();
+        return new Promise(() => {});
+      }
+      return Promise.resolve(new Map(entry.sections));
+    };
     const hubRunner: Runner = {
       run(shapeId: string, params?: Record<string, string>) {
         const target = targetOf(shapeId, params ?? {});
@@ -579,7 +722,7 @@ function createLiveHub(options: { runner: Runner; supervisor: Supervisor; clock?
         return read(target.channel, target.section);
       },
     };
-    const done = composeState(ch.channel, hubRunner, read).then(
+    const done = composeState(ch.channel, hubRunner, read, readAll).then(
       (state): Outcome => ({ kind: 'done', state, reads: ctx.reads }),
       (): Outcome => ({ kind: 'failed', reads: ctx.reads }),
     );
@@ -595,8 +738,13 @@ function createLiveHub(options: { runner: Runner; supervisor: Supervisor; clock?
       ch.again = true;
       return;
     }
-    // A channel made while the child is down or unsupported learns so on its first composition.
-    if (supervisor.state === 'down' && ch.error === null) emitError(ch, 'events-down');
+    // 161 DEC-012: a kind the core does not list gets core-lacks-channel and is never composed.
+    if (isNewKind(ch.channel.name) && kindSupport(ch.channel.name) === 'unsupported') {
+      if (ch.error !== 'core-lacks-channel') emitError(ch, 'core-lacks-channel');
+      return;
+    }
+    // A channel made while the child is down or unsupported learns so on its first composition; a held one waits for the new child.
+    if (supervisor.state === 'down' && ch.error === null && !ch.held) emitError(ch, 'events-down');
     if (supervisor.state === 'unsupported' && ch.error === null) emitError(ch, 'live-unavailable');
     ch.composing = true;
     const interrupts = ch.interrupts;
@@ -631,6 +779,8 @@ function createLiveHub(options: { runner: Runner; supervisor: Supervisor; clock?
   }
 
   function publish(ch: Browser, next: State) {
+    // 161 D10: the restarted child answered; a held channel continues with a patch from its last state.
+    ch.held = false;
     const before = ch.state;
     ch.state = next;
     if (Object.values(next).some(isMismatch)) {
@@ -771,14 +921,17 @@ function createLiveHub(options: { runner: Runner; supervisor: Supervisor; clock?
   }
 
   function onLogFrame(lane: LogLane, envelope: CoreEnvelope) {
-    if (!laneAlive(lane) || logSupport !== 'supported') return;
+    if (!laneAlive(lane) || lane.refused || !laneSupported(lane)) return;
     const data = envelope.data;
     if (envelope.type === 'snapshot') {
       const next = logSnapshotOf(data);
       if (next === null) return laneError(lane, 'core-contract-mismatch');
+      lane.held = false;
       const w = lane.window;
       // A restarted child's snapshot of the same file reaching the window's end: only the bytes past it are new.
       const merges = w !== null && w.log === 'open' && next.log === 'open' && w.ino === next.ino && next.from <= w.to && next.to >= w.to && !straddles(next.pieces, w.to, next.to);
+      // 161 IC-007: a file lane whose file is another inode now says so before the snapshot.
+      if (!merges && lane.channel.source === 'file' && w !== null && w.log === 'open' && w.ino !== next.ino) sendLogSingle(lane, 'reset', { reason: 'replaced' });
       if (!merges) return replaceWindow(lane, next);
       return extendWindow(lane, next.pieces.filter((piece) => piece.at >= (w as LogWindow).to), next.to, next.phase, next.end);
     }
@@ -822,7 +975,7 @@ function createLiveHub(options: { runner: Runner; supervisor: Supervisor; clock?
    * `core-lacks-verb`; any other failure leaves `unknown` for the next subscribe to try again.
    */
   function probeLogSupport(lane: LogLane) {
-    if (logSupport !== 'unknown' || probing || stopped) return;
+    if (logSupport !== 'unknown' || probing || stopped || lane.channel.source !== 'worker') return;
     probing = true;
     let call: Promise<any>;
     try {
@@ -838,8 +991,36 @@ function createLiveHub(options: { runner: Runner; supervisor: Supervisor; clock?
         recomputeNeed();
       } else if (answer.ok === false && answer.reason === 'old-core') {
         logSupport = 'unsupported';
-        for (const each of logs.values()) if (laneAlive(each)) laneError(each, 'core-lacks-verb');
+        for (const each of logs.values()) if (laneAlive(each) && each.channel.source === 'worker' && !each.refused) laneError(each, 'core-lacks-verb');
       }
+    });
+  }
+
+  /**
+   * 161 DEC-012: while the kinds are unknown, one `events-kinds` read through the runner. The listed
+   * LAYERS_KINDS kinds join the need set; each channel of a kind not listed gets `error`
+   * `core-lacks-channel` and is never sent. A non-zero exit (an older core refuses the flag) lists none; a
+   * read with no exit leaves the kinds unknown for the next subscribe to try again.
+   */
+  function probeCoreKinds() {
+    if (coreKinds !== null || kindsProbing || stopped) return;
+    kindsProbing = true;
+    let call: Promise<any>;
+    try {
+      call = Promise.resolve(runner.run('events-kinds', {}));
+    } catch {
+      call = Promise.resolve(null);
+    }
+    call.then((answer) => answer, () => null).then((answer: any) => {
+      kindsProbing = false;
+      const kinds = coreKindsOf(answer);
+      if (stopped || coreKinds !== null || kinds === null) return;
+      coreKinds = kinds;
+      recomputeNeed();
+      const lacks = (name: string) => kindSupport(name) === 'unsupported';
+      for (const ch of channels.values()) if (alive(ch) && isNewKind(ch.channel.name) && lacks(ch.channel.name) && ch.error !== 'core-lacks-channel') emitError(ch, 'core-lacks-channel');
+      for (const lane of logs.values()) if (laneAlive(lane) && lane.channel.source === 'file' && !lane.refused && lacks(lane.channel.name)) laneError(lane, 'core-lacks-channel');
+      for (const lane of transcripts.values()) if (transcriptAlive(lane) && !lane.refused && lacks(lane.channel.name)) transcriptError(lane, 'core-lacks-channel');
     });
   }
 
@@ -847,20 +1028,30 @@ function createLiveHub(options: { runner: Runner; supervisor: Supervisor; clock?
     const name = channel.name;
     let lane = logs.get(name);
     if (lane === undefined) {
-      const made: LogLane = { channel, subscribers: new Set(), n: lastN.get(name) ?? 0, window: null, error: null, gone: false, ino: '0', to: 0, startTimer: null };
+      // 161 IC-008: past LANE_LIMIT the lane is never followed, takes no slot, and learns `too-many-lanes`.
+      const refused = lanesHeld() >= LANE_LIMIT;
+      const made: LogLane = {
+        channel, subscribers: new Set(), n: lastN.get(name) ?? 0, window: null, error: null, gone: false, ino: '0', to: 0,
+        startTimer: null, refused, held: false,
+      };
       logs.set(name, made);
       recomputeNeed();
       // As a composed channel's first flush: a channel made while support is `unsupported` or the child is down learns so, never synchronously.
       made.startTimer = clock.setTimeout(() => {
         made.startTimer = null;
         if (!laneAlive(made)) return;
-        if (logSupport === 'unsupported') laneError(made, 'core-lacks-verb');
+        if (made.refused) laneError(made, 'too-many-lanes');
+        else if (made.channel.source === 'worker' && logSupport === 'unsupported') laneError(made, 'core-lacks-verb');
+        else if (made.channel.source === 'file' && kindSupport(name) === 'unsupported') laneError(made, 'core-lacks-channel');
         else if (supervisor.state === 'down') laneError(made, 'events-down');
         else if (supervisor.state === 'unsupported') laneError(made, 'live-unavailable');
       }, 0);
       lane = made;
     }
-    probeLogSupport(lane);
+    if (!lane.refused) {
+      if (lane.channel.source === 'worker') probeLogSupport(lane);
+      else probeCoreKinds();
+    }
     const owner = lane;
     const subscriber = { listener };
     owner.subscribers.add(subscriber);
@@ -874,8 +1065,147 @@ function createLiveHub(options: { runner: Runner; supervisor: Supervisor; clock?
     };
   }
 
+  // ---- 161 IC-005, IC-007: transcript lanes ----
+
+  const transcriptAlive = (lane: TranscriptLane): boolean => !stopped && !lane.gone && transcripts.get(lane.channel.name) === lane;
+  const eventBytes = (event: unknown): number => Buffer.byteLength(JSON.stringify(event), 'utf8');
+
+  /** One frame on a transcript lane with the next hub n; its id is `<epoch>-<n>`. */
+  function sendTranscript(lane: TranscriptLane, type: FrameType, data: Record<string, unknown>): number {
+    const n = lane.n + 1;
+    lane.n = n;
+    deliver(lane.subscribers, { ch: lane.channel.name, n, type, at: new Date(clock.now()).toISOString(), data });
+    return n;
+  }
+
+  function transcriptError(lane: TranscriptLane, code: string) {
+    if (lane.error === code) return;
+    lane.error = code;
+    sendTranscript(lane, 'error', { code });
+  }
+
+  /** The window to TRANSCRIPT_WINDOW_EVENTS and HUB_WINDOW_BYTES from its front; a client behind a dropped event can no longer resume from the window. */
+  function trimTranscript(w: TranscriptWindow) {
+    while (w.events.length > TRANSCRIPT_WINDOW_EVENTS || w.bytes > HUB_WINDOW_BYTES) {
+      const old = w.events.shift() as TranscriptEvent;
+      w.bytes -= eventBytes(old);
+      w.base = Math.max(w.base, old.n);
+    }
+  }
+
+  const appendData = (head: Record<string, unknown>, events: TranscriptEvent[]): Record<string, unknown> =>
+    ({ events, cursor: head.cursor, eof: head.eof, masked: head.masked, warnings: head.warnings });
+
+  function onTranscriptFrame(lane: TranscriptLane, envelope: CoreEnvelope) {
+    if (!transcriptAlive(lane) || lane.refused || kindSupport(lane.channel.name) !== 'supported') return;
+    const data = envelope.data;
+    if (envelope.type === 'snapshot') {
+      const projected = project('transcript', data);
+      if (!projected.ok) return transcriptError(lane, 'core-contract-mismatch');
+      const { events, ...head } = projected.body;
+      const n = lane.n + 1;
+      const tagged: TranscriptEvent[] = events.map((event: Record<string, unknown>) => ({ ...event, n }));
+      const w: TranscriptWindow = { head, events: tagged, bytes: tagged.reduce((sum, event) => sum + eventBytes(event), 0), base: n };
+      trimTranscript(w);
+      lane.window = w;
+      lane.error = null;
+      lane.held = false;
+      sendTranscript(lane, 'snapshot', { ...head, events: w.events.map((event) => ({ ...event })) });
+      return;
+    }
+    if (envelope.type === 'append') {
+      const w = lane.window;
+      if (w === null || !TRANSCRIPT_APPEND_FIELDS.every((field) => Object.hasOwn(data, field))) return transcriptError(lane, 'core-contract-mismatch');
+      // The read's other fields are the window's: the projector checks the appended ones as a whole read.
+      const projected = project('transcript', { ...w.head, events: data.events, cursor: data.cursor, eof: data.eof, masked: data.masked, warnings: data.warnings });
+      if (!projected.ok) return transcriptError(lane, 'core-contract-mismatch');
+      const { events, ...head } = projected.body;
+      if (events.length === 0 && deepEqual(head, w.head) && lane.error === null) return;
+      w.head = head;
+      lane.error = null;
+      // Split so every frame fits LIVE_FRAME_BUDGET; each event is tagged with the n of the frame that carries it.
+      const room = LIVE_FRAME_BUDGET - Buffer.byteLength(JSON.stringify(appendData(head, [])), 'utf8') - 1_024;
+      let batch: Record<string, unknown>[] = [];
+      let size = 0;
+      const flushBatch = () => {
+        const n = lane.n + 1;
+        const tagged: TranscriptEvent[] = batch.map((event) => ({ ...event, n }));
+        for (const event of tagged) {
+          w.events.push(event);
+          w.bytes += eventBytes(event);
+        }
+        sendTranscript(lane, 'append', appendData(head, tagged.map((event) => ({ ...event }))));
+        batch = [];
+        size = 0;
+      };
+      for (const event of events as Record<string, unknown>[]) {
+        const bytes = eventBytes(event) + 32;
+        if (batch.length > 0 && size + bytes > room) flushBatch();
+        batch.push(event);
+        size += bytes;
+      }
+      flushBatch();
+      trimTranscript(w);
+      return;
+    }
+    if (envelope.type === 'reset') {
+      if (!RESET_REASONS.includes(data.reason)) return transcriptError(lane, 'core-contract-mismatch');
+      lane.window = null;
+      lane.error = null;
+      sendTranscript(lane, 'reset', { reason: data.reason });
+      return;
+    }
+    if (envelope.type === 'error') return transcriptError(lane, typeof data.code === 'string' && CORE_ERROR_CODES.includes(data.code) ? data.code : 'core-contract-mismatch');
+    if (envelope.type === 'gone') {
+      sendTranscript(lane, 'gone', {});
+      lane.gone = true;
+      lane.window = null;
+      if (lane.startTimer !== null) clock.clearTimeout(lane.startTimer);
+      lane.startTimer = null;
+      return recomputeNeed();
+    }
+    // `patch` never reaches a lane.
+    transcriptError(lane, 'core-contract-mismatch');
+  }
+
+  function subscribeTranscript(channel: TranscriptChannel, listener: Listener): () => void {
+    const name = channel.name;
+    let lane = transcripts.get(name);
+    if (lane === undefined) {
+      const refused = lanesHeld() >= LANE_LIMIT;
+      const made: TranscriptLane = {
+        channel, subscribers: new Set(), n: lastN.get(name) ?? 0, window: null, error: null, gone: false, startTimer: null, refused, held: false,
+      };
+      transcripts.set(name, made);
+      recomputeNeed();
+      made.startTimer = clock.setTimeout(() => {
+        made.startTimer = null;
+        if (!transcriptAlive(made)) return;
+        if (made.refused) transcriptError(made, 'too-many-lanes');
+        else if (kindSupport(name) === 'unsupported') transcriptError(made, 'core-lacks-channel');
+        else if (supervisor.state === 'down') transcriptError(made, 'events-down');
+        else if (supervisor.state === 'unsupported') transcriptError(made, 'live-unavailable');
+      }, 0);
+      lane = made;
+    }
+    if (!lane.refused) probeCoreKinds();
+    const owner = lane;
+    const subscriber = { listener };
+    owner.subscribers.add(subscriber);
+    return () => {
+      if (!owner.subscribers.delete(subscriber) || owner.subscribers.size > 0 || transcripts.get(name) !== owner) return;
+      if (owner.startTimer !== null) clock.clearTimeout(owner.startTimer);
+      owner.startTimer = null;
+      lastN.set(name, owner.n);
+      transcripts.delete(name);
+      recomputeNeed();
+    };
+  }
+
   function onCoreFrame(envelope: CoreEnvelope) {
     if (stopped) return;
+    const transcript = transcripts.get(envelope.ch);
+    if (transcript !== undefined) return onTranscriptFrame(transcript, envelope);
     const lane = logs.get(envelope.ch);
     if (lane !== undefined) return onLogFrame(lane, envelope);
     const name = envelope.ch;
@@ -933,13 +1263,70 @@ function createLiveHub(options: { runner: Runner; supervisor: Supervisor; clock?
     // `append` belongs to log channels (150 IC-007), which onLogFrame took above; on a composed channel it is dropped.
   }
 
+  /** 161 D10: every channel and lane still held when the grace runs out gets `error` `events-down`. */
+  function endGrace() {
+    graceTimer = null;
+    for (const ch of channels.values()) {
+      if (!alive(ch) || !ch.held) continue;
+      ch.held = false;
+      emitError(ch, 'events-down');
+    }
+    for (const lane of logs.values()) {
+      if (!laneAlive(lane) || !lane.held) continue;
+      lane.held = false;
+      laneError(lane, 'events-down');
+    }
+    for (const lane of transcripts.values()) {
+      if (!transcriptAlive(lane) || !lane.held) continue;
+      lane.held = false;
+      transcriptError(lane, 'events-down');
+    }
+  }
+
   function onDown(code: 'events-down' | 'live-unavailable') {
     if (stopped) return;
     // The restarted child sends every channel a fresh snapshot; until then nothing is composed from the old ones.
     for (const name of core.keys()) core.set(name, freshEntry());
-    for (const ch of channels.values()) if (alive(ch) && ch.error !== code) emitError(ch, code);
-    // A log channel keeps its window: the restarted child's snapshot merges into it. An unsupported one gets nothing but core-lacks-verb.
-    if (logSupport !== 'unsupported') for (const lane of logs.values()) if (laneAlive(lane)) laneError(lane, code);
+    // 161 D10: on events-down a machine or layers channel with a state, and a file or transcript lane with a window, is held, no frame sent.
+    const hold = code === 'events-down';
+    let held = false;
+    for (const ch of channels.values()) {
+      if (!alive(ch)) continue;
+      if (hold && (ch.held || (isNewKind(ch.channel.name) && ch.state !== null && !ch.owesSnapshot && ch.error === null))) {
+        ch.held = true;
+        held = true;
+        continue;
+      }
+      ch.held = false;
+      if (ch.error !== code) emitError(ch, code);
+    }
+    // A log channel keeps its window: the restarted child's snapshot merges into it. An unsupported one gets nothing but core-lacks-verb (core-lacks-channel on a file lane).
+    for (const lane of logs.values()) {
+      if (!laneAlive(lane) || lane.refused) continue;
+      if (lane.channel.source === 'worker') {
+        if (logSupport !== 'unsupported') laneError(lane, code);
+        continue;
+      }
+      if (kindSupport(lane.channel.name) === 'unsupported') continue;
+      if (hold && (lane.held || (lane.window !== null && lane.error === null))) {
+        lane.held = true;
+        held = true;
+        continue;
+      }
+      lane.held = false;
+      laneError(lane, code);
+    }
+    for (const lane of transcripts.values()) {
+      if (!transcriptAlive(lane) || lane.refused || kindSupport(lane.channel.name) === 'unsupported') continue;
+      if (hold && (lane.held || (lane.window !== null && lane.error === null))) {
+        lane.held = true;
+        held = true;
+        continue;
+      }
+      lane.held = false;
+      transcriptError(lane, code);
+    }
+    if (held && graceTimer === null) graceTimer = clock.setTimeout(endGrace, RESTART_GRACE_MS);
     if (code === 'live-unavailable') {
       for (const listener of unsupportedListeners) {
         try {
@@ -968,18 +1355,21 @@ function createLiveHub(options: { runner: Runner; supervisor: Supervisor; clock?
     if (parsed === null) throw new TypeError(`'${String(name).slice(0, 80)}' is not a live channel`);
     if (typeof listener !== 'function') throw new TypeError('a live subscriber needs a listener');
     if (parsed.kind === 'log') return subscribeLog(parsed, listener);
+    if (parsed.kind === 'transcript') return subscribeTranscript(parsed, listener);
     const channel: Channel = parsed;
     let ch = channels.get(name);
     if (ch === undefined) {
+      const n = lastN.get(name) ?? 0;
       ch = {
-        channel, subscribers: new Set(), n: lastN.get(name) ?? 0, state: null, error: null, owesSnapshot: true, cappedText: null, gone: false,
+        channel, subscribers: new Set(), n, state: null, error: null, owesSnapshot: true, cappedText: null, gone: false,
         deps: new Set(initialDeps(channel)), markTimer: null, composing: false, again: false, interrupts: 0,
-        pending: false, pendingTimer: null, pendingReported: false,
+        pending: false, pendingTimer: null, pendingReported: false, held: false, history: [], historyBytes: 0, historyBase: n,
       };
       channels.set(name, ch);
       recomputeNeed();
       mark(ch);
     }
+    if (isNewKind(name)) probeCoreKinds();
     const owner = ch;
     const subscriber = { listener };
     owner.subscribers.add(subscriber);
@@ -989,7 +1379,17 @@ function createLiveHub(options: { runner: Runner; supervisor: Supervisor; clock?
     };
   }
 
-  function current(name: string): { n: number; state: State | null; error: string | null; gone: boolean } | { n: number; window: LogWindow | null; error: string | null; gone: boolean } | null {
+  function current(name: string):
+    | { n: number; state: State | null; error: string | null; gone: boolean }
+    | { n: number; window: LogWindow | null; error: string | null; gone: boolean }
+    | { n: number; transcript: TranscriptWindow | null; error: string | null; gone: boolean }
+    | null {
+    const transcript = transcripts.get(name);
+    if (transcript !== undefined) {
+      const w = transcript.window;
+      const copy = w === null ? null : { head: { ...w.head }, events: w.events.map((event) => ({ ...event })), bytes: w.bytes, base: w.base };
+      return { n: transcript.n, transcript: copy, error: transcript.error, gone: transcript.gone };
+    }
     const lane = logs.get(name);
     if (lane !== undefined) {
       const w = lane.window;
@@ -1001,6 +1401,18 @@ function createLiveHub(options: { runner: Runner; supervisor: Supervisor; clock?
     return { n: ch.n, state: ch.owesSnapshot ? null : ch.state, error: ch.error, gone: ch.gone };
   }
 
+  /**
+   * 161 IC-007: the frames of a machine or layers channel after `n`, when the hub still holds every one
+   * of them (all patches, in order; `[]` at the channel's own n); null when it does not, or the channel
+   * owes a snapshot, is in error or gone, or is of another kind.
+   */
+  function since(name: string, n: number): Frame[] | null {
+    const ch = channels.get(name);
+    if (ch === undefined || !isNewKind(name) || ch.owesSnapshot || ch.state === null || ch.error !== null || ch.gone) return null;
+    if (!Number.isSafeInteger(n) || n < ch.historyBase || n > ch.n) return null;
+    return ch.history.filter((frame) => frame.n > n).map((frame) => ({ ...frame }));
+  }
+
   function stop() {
     if (stopped) return;
     stopped = true;
@@ -1009,6 +1421,10 @@ function createLiveHub(options: { runner: Runner; supervisor: Supervisor; clock?
       if (ch.pendingTimer !== null) clock.clearTimeout(ch.pendingTimer);
     }
     for (const lane of logs.values()) if (lane.startTimer !== null) clock.clearTimeout(lane.startTimer);
+    for (const lane of transcripts.values()) if (lane.startTimer !== null) clock.clearTimeout(lane.startTimer);
+    if (graceTimer !== null) clock.clearTimeout(graceTimer);
+    graceTimer = null;
+    transcripts.clear();
     channels.clear();
     logs.clear();
     core.clear();
@@ -1021,12 +1437,15 @@ function createLiveHub(options: { runner: Runner; supervisor: Supervisor; clock?
     },
     subscribe,
     current,
+    since,
     get unsupported(): boolean {
       return supervisor.state === 'unsupported';
     },
     onUnsupported(listener: () => void) {
       unsupportedListeners.push(listener);
     },
+    /** The streams over this hub keep time by its clock (routes.ts). */
+    clock,
     stop,
   };
 }
@@ -1035,9 +1454,13 @@ module.exports = {
   CORE_ERROR_CODES,
   DEBOUNCE_MS,
   HUB_WINDOW_BYTES,
+  LANE_LIMIT,
   LIVE_FRAME_BUDGET,
   MAX_POINTER_DEPTH,
   PENDING_TIMEOUT_MS,
+  RESTART_GRACE_MS,
+  STATE_HISTORY_FRAMES,
+  TRANSCRIPT_WINDOW_EVENTS,
   createLiveHub,
   diffState,
   envelopeText,

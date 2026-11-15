@@ -461,15 +461,15 @@ test('layout E.1 r4: R4-4 the meta is one 20 px line so a badge row is 76 px; R3
   assert.equal(effective(rules, '.run-row[data-state="COMPLETED"] .run-row__sp', 'display', 768), 'inline');
 });
 
-// ---- V.10: the Fleet files (IC-007, IC-026; design ui/V8.md) ---------------------------------------------------------
+// ---- 161: the Layers files (IC-007; design section 8) ---------------------------------------------------------
 
-/** The Fleet sources IC-026 names, plus the derivations that feed their words. */
-const FLEET_FILES = ['views/fleet.js', 'views/transcript.js', 'stream.js', 'derive/fleet.js'];
+/** The Layers sources, plus the transcript panel the agent inspector uses and the derivation that feeds their words. */
+const LAYERS_FILES = ['views/layers.js', 'views/transcript.js', 'derive/layers.js'];
 const STATE_WORDS = /\b(active|online|idle)\b/i;
 const STORAGE_API = /\b(?:localStorage|sessionStorage|indexedDB|caches|CacheStorage|openDatabase)\b/;
 
-/** Findings of the Fleet copy and storage rules for one file's text, as `<file>:<line>: <rule>`. */
-function fleetFindings(file: string, source: string): string[] {
+/** Findings of the Layers copy and storage rules for one file's text, as `<file>:<line>: <rule>`. */
+function layersFindings(file: string, source: string): string[] {
   const found: string[] = [];
   source.split('\n').forEach((line, index) => {
     if (STATE_WORDS.test(line)) found.push(`${file}:${index + 1}: state-word`);
@@ -478,10 +478,10 @@ function fleetFindings(file: string, source: string): string[] {
   return found;
 }
 
-test('V.10: the Fleet files exist, pass IC-007, never say active, online or idle, and touch no storage API', () => {
-  for (const name of FLEET_FILES) assert.ok(fs.existsSync(path.join(WEB_ROOT, name)), `${name} exists`);
+test('161: the Layers files exist, pass IC-007, never say active, online or idle, and touch no storage API', () => {
+  for (const name of LAYERS_FILES) assert.ok(fs.existsSync(path.join(WEB_ROOT, name)), `${name} exists`);
   assert.deepEqual(scanDir(WEB_ROOT), [], 'IC-007 over the whole web root, the new files included');
-  for (const name of FLEET_FILES) assert.deepEqual(fleetFindings(name, fs.readFileSync(path.join(WEB_ROOT, name), 'utf8')), []);
+  for (const name of LAYERS_FILES) assert.deepEqual(layersFindings(name, fs.readFileSync(path.join(WEB_ROOT, name), 'utf8')), []);
 });
 
 test('V.10: the stream panel says its text is masked, best effort', () => {
@@ -489,20 +489,20 @@ test('V.10: the stream panel says its text is masked, best effort', () => {
   assert.ok(panel.includes('masked, best effort'));
 });
 
-test('control: a planted state word, storage call or missing masked line turns the Fleet checks red', () => {
-  assert.deepEqual(fleetFindings('x.js', "mount(el, 'The agent is active');"), ['x.js:1: state-word']);
-  assert.deepEqual(fleetFindings('x.js', "h('p', {}, 'Online now');"), ['x.js:1: state-word']);
-  assert.deepEqual(fleetFindings('x.js', 'const idle = true;'), ['x.js:1: state-word']);
-  assert.deepEqual(fleetFindings('x.js', "globalThis.localStorage.setItem('t', text);"), ['x.js:1: storage-api']);
-  assert.deepEqual(fleetFindings('x.js', 'await caches.open("c");'), ['x.js:1: storage-api']);
-  assert.deepEqual(fleetFindings('x.js', "const text = 'a running process was seen at 10:41';"), []);
+test('control: a planted state word, storage call or missing masked line turns the Layers checks red', () => {
+  assert.deepEqual(layersFindings('x.js', "mount(el, 'The agent is active');"), ['x.js:1: state-word']);
+  assert.deepEqual(layersFindings('x.js', "h('p', {}, 'Online now');"), ['x.js:1: state-word']);
+  assert.deepEqual(layersFindings('x.js', 'const idle = true;'), ['x.js:1: state-word']);
+  assert.deepEqual(layersFindings('x.js', "globalThis.localStorage.setItem('t', text);"), ['x.js:1: storage-api']);
+  assert.deepEqual(layersFindings('x.js', 'await caches.open("c");'), ['x.js:1: storage-api']);
+  assert.deepEqual(layersFindings('x.js', "const text = 'a running process was seen at 10:41';"), []);
   const panel = fs.readFileSync(path.join(WEB_ROOT, 'views', 'transcript.js'), 'utf8');
   assert.ok(!panel.replaceAll('masked, best effort', 'masked').includes('masked, best effort'));
   const copy = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-ui-websafety-'));
   tmp.push(copy);
   fs.cpSync(WEB_ROOT, copy, { recursive: true });
-  fs.appendFileSync(path.join(copy, 'views', 'fleet.js'), "\nexport const bad = 'The agent is online';\nglobalThis.sessionStorage.setItem('t', 'x');\n");
-  assert.equal(fleetFindings('views/fleet.js', fs.readFileSync(path.join(copy, 'views', 'fleet.js'), 'utf8')).length, 2);
+  fs.appendFileSync(path.join(copy, 'views', 'layers.js'), "\nexport const bad = 'The agent is online';\nglobalThis.sessionStorage.setItem('t', 'x');\n");
+  assert.equal(layersFindings('views/layers.js', fs.readFileSync(path.join(copy, 'views', 'layers.js'), 'utf8')).length, 2);
 });
 
 test('layout CD-B9: phone header keeps pause and theme reachable alongside navigation', () => {
@@ -519,7 +519,7 @@ test('layout CD-B9: phone header keeps pause and theme reachable alongside navig
   assert.equal(effective(rules, '.nav ul', 'flex-wrap', 359), 'wrap', 'the list may wrap as a fallback below 360');
   assert.equal(effective(rules, '.nav ul', 'flex-wrap', 768), 'nowrap');
   const html = fs.readFileSync(path.join(WEB_ROOT, 'index.html'), 'utf8');
-  assert.deepEqual([...html.matchAll(/class="nav__link navrail__link" href="([^"]+)"><span class="navrail__label">([^<]+)</g)].map((m) => m[2]), ['Now', 'Sessions', 'Workflows', 'Fleet', 'Workers', 'Advice', 'Follow-ups', 'Settings', 'Health']);
+  assert.deepEqual([...html.matchAll(/class="nav__link navrail__link" href="([^"]+)"><span class="navrail__label">([^<]+)</g)].map((m) => m[2]), ['Now', 'Sessions', 'Workflows', 'Layers', 'Workers', 'Advice', 'Follow-ups', 'Settings', 'Health']);
   assert.ok(!/<button[^>]*menu/i.test(html), 'no menu button');
 });
 
@@ -540,24 +540,21 @@ test('layout CD-B9: tablet header separates navigation until the desktop row fit
   assert.notEqual(effective(orphanPause, '.site-header__inner', 'grid-template-areas', 768), effective(rules, '.site-header__inner', 'grid-template-areas', 768));
 });
 
-test('layout V.10: the project row, the Fleet grid and the sheet follow the bands of the design note', () => {
+test('layout 161: the project row of the machine page and the lane rows follow the bands of the design note', () => {
   const rules = cssRules(appCss);
-  assert.equal(effective(rules, '.project-row', 'grid-template-areas', 360), '"name name" "agents agents" "models models" "traffic last"');
-  assert.equal(effective(rules, '.project-row', 'min-height', 360), '132px');
-  assert.equal(effective(rules, '.project-row', 'grid-template-areas', 768), '"name agents last" "models traffic last"');
-  assert.equal(effective(rules, '.project-row', 'min-height', 768), '76px');
-  assert.equal(effective(rules, '.project-row', 'grid-template-areas', 1280), '"name agents models traffic last"');
-  assert.equal(effective(rules, '.project-row', 'min-height', 1280), '64px');
-  assert.equal(effective(rules, '.fleet-grid', 'grid-template-columns', 360), 'minmax(0, 1fr)');
-  assert.equal(effective(rules, '.fleet-grid', 'grid-template-columns', 1280), 'repeat(12, minmax(0, 1fr))');
-  // 149 D.2: the transcript panel is in the shell's inspector, so the grid holds the tree, the traffic and "Working together".
-  assert.equal(effective(rules, '.fleet-tree', 'grid-column', 1280), '1 / span 7');
-  assert.equal(effective(rules, '.together', 'grid-column', 1280), '8 / span 5');
-  assert.equal(effective(rules, '.fleet-tree', 'grid-column', 1920), '1 / span 8');
-  assert.equal(effective(rules, '.together', 'grid-column', 1920), '9 / span 4');
+  const project = '.lrow[data-kind="project"]';
+  assert.equal(effective(rules, '.lrow', 'grid-template-columns', 360), 'minmax(0, 1fr)');
+  assert.equal(effective(rules, project, 'grid-template-columns', 360), undefined, 'the project row is one column below 768');
+  assert.equal(effective(rules, project, 'grid-template-columns', 768), 'minmax(0, 1.4fr) minmax(0, 2fr) 10rem');
+  assert.equal(effective(rules, project, 'grid-template-columns', 1920), 'minmax(0, 1.4fr) minmax(0, 2fr) 10rem');
+  assert.equal(effective(rules, '.layers--machine .gate-cards', 'grid-template-columns', 768), undefined);
+  assert.equal(effective(rules, '.layers--machine .gate-cards', 'grid-template-columns', 1280), 'repeat(2, minmax(0, 1fr))');
+  // The agent transcript is in the shell's inspector, so the page frame holds no panel of its own.
   for (const width of [360, 768, 1280, 1920]) {
-    assert.equal(effective(rules, '.fpanel', 'grid-column', width), undefined, `${width}: the panel has no place in the Fleet grid`);
+    assert.equal(effective(rules, '.fpanel', 'grid-column', width), undefined, `${width}: the panel has no place in the page grid`);
     assert.equal(effective(rules, '.fpanel', 'position', width), undefined, `${width}: the panel is not a sheet of its own`);
   }
-  assert.equal(effective(rules, '.traffic__switch', 'display', 1920), 'none');
+  assert.equal(effective(rules, '.layers-crumb__agent', 'display', 360), 'none');
+  assert.equal(effective(rules, '.layers-crumb[data-agent="true"] .layers-crumb__agent', 'display', 360), 'inline');
+  assert.equal(effective(rules, '.layers-crumb[data-agent="true"] .layers-crumb__agent', 'display', 768), undefined);
 });

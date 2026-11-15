@@ -5,6 +5,7 @@
 //
 //   doflow events --follow --channels <channel>[,<channel>...] [--json]
 //   doflow events --follow --control stdin [--json]
+//   doflow events --kinds [--json]
 //
 // It composes the four modules beside it: channels.ts parses the channel names, sections.ts runs
 // each channel's verbs in-process, detector.ts decides when a channel is recomputed and which
@@ -19,6 +20,12 @@
 // catalogue: a recompute prints the subscription's `snapshot`, `append`, `reset`, `error` or `gone`
 // frames, and its re-mark asks are passed to the detector. A refused stream (`last` included) is a
 // usage error from the channel grammar, so nothing is made and no file is opened for it.
+//
+// Feature 161 (IC-001, IC-004, IC-005, DEC-012): `file:<pk>:<fk>` and `transcript:<pk>:<ak>` are log
+// channels too, followed by the lanes of files.ts and transcript-lane.ts through the same subscription
+// path; `machine` and `layers:<pk>` are catalogue entries. `--kinds` prints the channel kinds this core
+// follows (`{v:1, kinds}` with `--json`, else one per line) and follows nothing: the Console reads it
+// once per child to learn which kinds it may `sub`.
 //
 // - stdout carries envelopes only, one per line, in `--json` mode or not.
 // - A usage error (exit 2) is one `doflow events: ...` line on stderr, printed before any envelope
@@ -35,17 +42,26 @@
 
 const { finishRuntime } = require('../cli-result.ts');
 const { shown } = require('../mask.ts');
-const { parseChannel, parseChannelList, CHANNEL_LIMIT } = require('./channels.ts');
+const { parseChannel, parseChannelList, projectKeyOf, isLogKind, CHANNEL_LIMIT, CHANNEL_KINDS, PROJECT_LIMIT } = require('./channels.ts');
 const { createEnvelopeWriter, maskSections } = require('./envelope.ts');
 const { createDetector } = require('./detector.ts');
 const { channelSpec } = require('./sections.ts');
 const { createLogSubscription } = require('./logs.ts');
+const { createFileLane } = require('./files.ts');
+const { createTranscriptLane } = require('./transcript-lane.ts');
+const { createProjectsIndex } = require('./projects-index.ts');
 
 /** IC-005: the longest control line, in bytes, newline excluded. */
 const CONTROL_LINE_BYTES = 1024;
 
+/**
+ * 161 DEC-012: the channel kinds this core follows, as `--kinds` lists them. `log` is the grammar's
+ * name for `worker:<runId>:out|err`, which a caller subs as the `worker` kind.
+ */
+const FOLLOW_KINDS: readonly string[] = Object.freeze(CHANNEL_KINDS.filter((kind: string) => kind !== 'log'));
+
 /** IC-001: the flags the verb takes; each at most once. */
-const FLAGS: ReadonlySet<string> = new Set(['--follow', '--channels', '--control', '--json']);
+const FLAGS: ReadonlySet<string> = new Set(['--follow', '--channels', '--control', '--json', '--kinds']);
 /** The flags among them that take a value (`--flag value` or `--flag=value`). */
 const VALUE_FLAGS: ReadonlySet<string> = new Set(['--channels', '--control']);
 
@@ -86,6 +102,8 @@ interface EventsOptions {
   specFor?: (channel: any, ctx: { cwd: string; env: Env }) => any;
   logFor?: (options: any) => any;
   detectorFactory?: (options: any) => any;
+  /** 161 D4: the child's project index (`projects-index.ts`); one is made from `env` and `cwd` when absent. */
+  projectsIndex?: any;
 }
 
 /** The first problem with the flags and positionals as typed, or null. */
@@ -152,6 +170,14 @@ function handleEventsCommand(options: EventsOptions = {}): Promise<number> {
 
   const problem = flagProblem(options.flags ?? [], options.positional ?? []);
   if (problem) return usage(problem);
+  if ((options.flags ?? []).includes('--kinds')) {
+    // 161 DEC-012: lists the kinds and follows nothing: no watch, no lock, no write.
+    if (options.follow !== undefined && options.follow !== false || options.channels !== undefined || options.control !== undefined) {
+      return usage('--kinds takes no --follow, --channels or --control; it lists the channel kinds and follows nothing');
+    }
+    try { stdout.write(options.json === true ? `${JSON.stringify({ v: 1, kinds: FOLLOW_KINDS })}\n` : `${FOLLOW_KINDS.join('\n')}\n`); } catch { /* stdout is gone */ }
+    return Promise.resolve(finishRuntime(0));
+  }
   if (options.follow !== true) return usage('--follow is required');
   const hasChannels = options.channels !== undefined;
   const hasControl = options.control !== undefined;
@@ -164,19 +190,29 @@ function handleEventsCommand(options: EventsOptions = {}): Promise<number> {
     initial = list.channels;
   }
 
-  const ctx = { cwd: options.cwd ?? process.cwd(), env: options.env ?? process.env };
   const specFor = options.specFor ?? channelSpec;
-  const logFor = options.logFor ?? createLogSubscription;
   const detectorFactory = options.detectorFactory ?? createDetector;
   const signals: SignalSource = options.signals ?? process;
   const clock = options.clock;
+  let detector: any = null;
+  const cwd = options.cwd ?? process.cwd();
+  const env = options.env ?? process.env;
+  // 161 D4: one project index per child, shared by every channel that names projects; and the
+  // detector's watch counts, which `machine` reports.
+  const ctx = {
+    cwd,
+    env,
+    index: options.projectsIndex ?? createProjectsIndex({ env, cwd, ...(clock ? { now: () => clock.now() } : {}) }),
+    counts: () => (detector && typeof detector.counts === 'function' ? detector.counts() : { watched: 0, fingerprintOnly: 0 }),
+  };
 
   return new Promise<number>((resolve) => {
     const specs = new Map<string, any>();
     const last = new Map<string, Map<string, string>>();
     const failed = new Set<string>();
+    /** 161 IC-006: the `sourcesKey()` each channel's detector registration was made from. */
+    const sourceKeys = new Map<string, string>();
     let stopped = false;
-    let detector: any = null;
     let stdin: Readable | null = null;
     let queue: Promise<void> = Promise.resolve();
     let ending = false;
@@ -220,16 +256,18 @@ function handleEventsCommand(options: EventsOptions = {}): Promise<number> {
       queue = queue.then(() => (stopped ? undefined : fn())).catch(fault);
     }
 
-    /** 150 IC-008: a log channel's recompute is its subscription's decision. */
+    /** 150 IC-008: a log channel's recompute is its subscription's decision; 161: the request says which of its sources moved. */
     function recomputeLog(ch: string, sub: any, request: any): void {
-      const step = sub.recompute(request.snapshot === true);
+      const step = sub.recompute(request.snapshot === true, request);
       if (specs.get(ch) !== sub || stopped) return;
       emit(step.lines);
       if (step.gone) {
         specs.delete(ch);
+        sourceKeys.delete(ch);
         detector.unfollow(ch);
         return;
       }
+      syncSources(ch, sub); // a transcript lane's file can change when it is resolved again
       if (typeof step.again === 'number' && typeof detector.mark === 'function') detector.mark(ch, step.again);
     }
 
@@ -238,11 +276,23 @@ function handleEventsCommand(options: EventsOptions = {}): Promise<number> {
       if (!spec || stopped) return;
       if (spec.log === true) { recomputeLog(ch, spec, request); return; }
       const snapshot = request.snapshot || writer.needsSnapshot(ch);
-      let computed: { sections: Sections; removed?: string[] };
+      let computed: { sections: Sections; removed?: string[]; gone?: true };
       let masked: Sections;
       try {
         computed = await spec.compute(snapshot || request.scope === 'all' ? undefined : request.sections);
+        if (computed.gone === true) {
+          // 161 IC-001: the channel names a project the index no longer knows after a refresh.
+          if (specs.get(ch) !== spec || stopped) return;
+          specs.delete(ch);
+          last.delete(ch);
+          failed.delete(ch);
+          sourceKeys.delete(ch);
+          detector.unfollow(ch);
+          emit(writer.gone(ch));
+          return;
+        }
         masked = maskSections(computed.sections);
+        if (specs.get(ch) === spec && !stopped) syncSources(ch, spec);
       } catch {
         // IC-002: a producer fault is the channel's `error`, once per spell; the next snapshot ends it.
         if (specs.get(ch) !== spec || stopped || failed.has(ch)) return;
@@ -274,6 +324,15 @@ function handleEventsCommand(options: EventsOptions = {}): Promise<number> {
       emit(lines);
     }
 
+    /** 161 IC-006: a spec whose `sourcesKey()` moved has its new sources swapped in, without a resnapshot. */
+    function syncSources(ch: string, spec: any): void {
+      if (typeof spec.sourcesKey !== 'function') return;
+      const key = spec.sourcesKey();
+      if (sourceKeys.get(ch) === key) return;
+      sourceKeys.set(ch, key);
+      detector.update(ch, spec.sources());
+    }
+
     function recordEvent(ch: string, event: string): void {
       if (stopped || !specs.has(ch)) return;
       last.delete(ch);
@@ -292,16 +351,20 @@ function handleEventsCommand(options: EventsOptions = {}): Promise<number> {
     async function followChannel(channel: any): Promise<void> {
       const prior = specs.get(channel.name);
       if (prior && prior.log === true) prior.end();
-      const spec = channel.kind === 'log' ? logSpec(channel) : specFor(channel, ctx);
+      const spec = isLogKind(channel) ? logSpec(channel) : specFor(channel, ctx);
       specs.set(channel.name, spec);
       last.delete(channel.name);
       failed.delete(channel.name);
-      await detector.follow(channel.name, spec.sources());
+      const sources = spec.sources();
+      if (typeof spec.sourcesKey === 'function') sourceKeys.set(channel.name, spec.sourcesKey());
+      else sourceKeys.delete(channel.name);
+      await detector.follow(channel.name, sources);
     }
 
-    /** A log channel's subscription, marked so `recompute` tells it from a catalogue entry. */
+    /** A log channel's subscription (a worker log, a `file` lane or a `transcript` lane), marked so `recompute` tells it from a catalogue entry. */
     function logSpec(channel: any): any {
-      const sub = logFor({ channel, ctx, writer, ...(options.fsImpl ? { fsImpl: options.fsImpl } : {}), ...(clock ? { now: () => clock.now() } : {}) });
+      const make = options.logFor ?? (channel.kind === 'file' ? createFileLane : channel.kind === 'transcript' ? createTranscriptLane : createLogSubscription);
+      const sub = make({ channel, ctx, writer, ...(options.fsImpl ? { fsImpl: options.fsImpl } : {}), ...(clock ? { now: () => clock.now() } : {}) });
       return Object.assign(sub, { log: true });
     }
 
@@ -315,11 +378,24 @@ function handleEventsCommand(options: EventsOptions = {}): Promise<number> {
         specs.delete(ch);
         last.delete(ch);
         failed.delete(ch);
+        sourceKeys.delete(ch);
         return;
       }
       if (!specs.has(ch) && specs.size >= CHANNEL_LIMIT) {
         emit(writer.error(ch, 'too-many-channels')); // IC-003: not followed
         return;
+      }
+      const project = projectKeyOf(channel);
+      if (project !== null && !specs.has(ch)) {
+        const followed = new Set<string>();
+        for (const name of specs.keys()) {
+          const key = projectKeyOf(parseChannel(name).channel);
+          if (key !== null) followed.add(key);
+        }
+        if (!followed.has(project) && followed.size >= PROJECT_LIMIT) {
+          emit(writer.error(ch, 'too-many-projects')); // 161 IC-001: not followed; an unsub frees the slot
+          return;
+        }
       }
       await followChannel(channel);
     }

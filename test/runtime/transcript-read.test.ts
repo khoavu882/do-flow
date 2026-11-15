@@ -16,8 +16,10 @@ const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 const { V8_ROOT, LOCATION_ROOTS } = require('../fixtures/transcripts/v8/scan.ts');
 const { cwdHash } = require('../../src/runtime/context/identity.ts');
 const { clearCheckoutCache } = require('../../src/runtime/checkouts.ts');
-const { readAgent } = require('../../src/runtime/transcripts/read.ts');
+const { readAgent, resolveAgent, readResolved } = require('../../src/runtime/transcripts/read.ts');
 const { handleTranscriptCommand } = require('../../src/runtime/transcripts/command.ts');
+const { createTranscriptLane } = require('../../src/runtime/events/transcript-lane.ts');
+const { createEnvelopeWriter } = require('../../src/runtime/events/envelope.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const CLI = path.join(REPO, 'bin', 'doflow.js');
@@ -382,4 +384,101 @@ test('a read with upkeep due leaves project, user state, config home and every h
     }
   }
   assert.deepEqual(snapshot(f.root), before);
+});
+
+for (const harness of Object.keys(EXPECT)) {
+  test(`161 IC-011: ${harness}: readAgent equals readResolved(resolveAgent()), and one resolution reads many times`, (t) => {
+    const f = world(t);
+    scenario(f);
+    const agent = AK(harness, `${ID}${MAIN_ID[harness]}`);
+    const opts = { env: env(f), cwd: f.main, agent, alive: unknown, ...(TRANSCRIPT_PLATFORM ? { platform: TRANSCRIPT_PLATFORM } : {}) };
+    clearCheckoutCache();
+    const whole = readAgent(opts);
+    clearCheckoutCache();
+    const resolved = resolveAgent(opts);
+    assert.equal(resolved.ok, true, JSON.stringify(resolved));
+    assert.deepEqual(readResolved(resolved.resolved, undefined, undefined), whole);
+    // A second read of the same resolution with the first cursor sees nothing new from the reader. Kiro's cursor
+    // keeps the reader's own time, so its record events come again (161 review 8: the events lane drops them).
+    const again = readResolved(resolved.resolved, whole.body.cursor, undefined);
+    assert.equal(again.ok, true);
+    const records = whole.body.events.filter((e: any) => e.kind === 'record');
+    if (harness === 'kiro') {
+      assert.ok(records.length > 0, 'the kiro session has record events');
+      assert.deepEqual(again.body.events.map((e: any) => [e.kind, e.at, e.record]), records.map((e: any) => [e.kind, e.at, e.record]));
+    } else {
+      assert.deepEqual(again.body.events, []);
+    }
+  });
+}
+
+test('161 review 8: a transcript lane on a Kiro agent sends each record event once, however often it reads from its cursor', { skip: WIN }, (t) => {
+  const f = world(t);
+  scenario(f);
+  const pk = 'b'.repeat(16);
+  const agentKey = AK('kiro', `${ID}${MAIN_ID.kiro}`);
+  const index = { lookup: (k: string) => (k === pk ? { projectKey: pk, main: f.main, checkouts: [f.main] } : null), replay: spawnSync, now: Date.now, sessionsDir: () => null };
+  const writer = createEnvelopeWriter({ clock: Date.now });
+  const lane = createTranscriptLane({ channel: { kind: 'transcript', name: `transcript:${pk}:${agentKey}`, projectKey: pk, agentKey }, ctx: { cwd: f.main, env: env(f), index, alive: unknown }, writer });
+  lane.sources();
+  const frames = [0, 1, 2].flatMap(() => lane.recompute(false).lines.map((l: string) => JSON.parse(l)));
+  assert.equal(frames[0].type, 'snapshot', JSON.stringify(frames[0]));
+  const sent = frames.flatMap((x: any) => x.data.events ?? []).filter((e: any) => e.kind === 'record').map((e: any) => JSON.stringify([e.at, e.record]));
+  assert.ok(sent.length > 0);
+  assert.deepEqual(frames.map((x: any) => x.type), ['snapshot'], 'no append repeats a record');
+  assert.equal(new Set(sent).size, sent.length);
+});
+
+test('161 IC-011: resolveAgent refuses what readAgent refuses', (t) => {
+  const f = world(t);
+  scenario(f);
+  clearCheckoutCache();
+  assert.deepEqual(resolveAgent({ env: env(f), cwd: f.main, agent: 'f'.repeat(16), alive: unknown, ...(TRANSCRIPT_PLATFORM ? { platform: TRANSCRIPT_PLATFORM } : {}) }), { ok: false, error: 'agent-not-in-project' });
+  session(f, 'claude', `${ID}c0f2`, f.main);
+  clearCheckoutCache();
+  assert.deepEqual(resolveAgent({ env: env(f), cwd: f.main, agent: AK('claude', `${ID}c0f2`), alive: unknown, ...(TRANSCRIPT_PLATFORM ? { platform: TRANSCRIPT_PLATFORM } : {}) }), { ok: false, error: 'session-not-in-project' });
+});
+
+test('161 review 1: a transcript is read only as the regular file below its harness transcript directory, never through a link', { skip: WIN }, (t) => {
+  const f = world(t);
+  scenario(f);
+  const opts = { env: env(f), cwd: f.main, alive: unknown };
+  const root = path.join(f.home, ...LOCATION_ROOTS.claude);
+  const dir = path.join(root, '-work-fixture-project');
+  const name = `${ID}c001.jsonl`;
+  // The outside copy holds the same records with a planted marker in the main reply and in a sub-agent reply.
+  const outside = path.join(f.root, 'outside');
+  fs.cpSync(dir, outside, { recursive: true });
+  fs.writeFileSync(path.join(outside, name), fs.readFileSync(path.join(outside, name), 'utf8').replace(' and mail ', ' OUTSIDE-MAIN and mail '));
+  const sub = path.join(outside, `${ID}c001`, 'subagents', 'agent-afx1.jsonl');
+  fs.writeFileSync(sub, fs.readFileSync(sub, 'utf8').split('FIXTURE-REPLY-OK csub1').join('OUTSIDE-SUB csub1'));
+  const clean = (body: any, why: string) => assert.ok(!/OUTSIDE-/.test(JSON.stringify(body)), `${why}: ${JSON.stringify(body).slice(0, 300)}`);
+
+  // 1. The file swapped for a link after the agent was resolved (a lane resolves once and reads many times).
+  clearCheckoutCache();
+  const found = resolveAgent({ ...opts, agent: AK('claude', `${ID}c001`) });
+  assert.equal(found.ok, true);
+  fs.rmSync(path.join(dir, name));
+  fs.symlinkSync(path.join(outside, name), path.join(dir, name));
+  const swapped = readResolved(found.resolved).body;
+  clean(swapped, 'a file swapped for a link');
+  assert.deepEqual(swapped.transcript, { linked: false, reason: 'not-found' });
+
+  // 2. A sub-agent directory swapped for a link: the sub-agent is never read through it.
+  fs.rmSync(path.join(dir, name));
+  fs.copyFileSync(path.join(V8_ROOT, 'claude', '-work-fixture-project', name), path.join(dir, name));
+  retarget(dir, '/work/fixture-project', fs.realpathSync(f.main));
+  fs.rmSync(path.join(dir, `${ID}c001`, 'subagents'), { recursive: true });
+  fs.symlinkSync(path.dirname(sub), path.join(dir, `${ID}c001`, 'subagents'));
+  clearCheckoutCache();
+  const subBody = read(f, AK('claude', `${ID}c001`, 'afx1'));
+  clean(subBody, 'a sub-agent directory swapped for a link');
+
+  // 3. The session directory swapped for a link: the main transcript is not read through it.
+  fs.renameSync(dir, path.join(f.root, 'moved')); // out of the root, so no other directory matches the glob
+  fs.symlinkSync(outside, dir);
+  clearCheckoutCache();
+  const linked = ok(f, AK('claude', `${ID}c001`));
+  clean(linked, 'a session directory swapped for a link');
+  assert.deepEqual(linked.transcript, { linked: false, reason: 'not-found' });
 });

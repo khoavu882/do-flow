@@ -44,7 +44,7 @@ function readWindow(mod: any, node: any, internal: any): { events: any[]; clock:
   let cursor: string | undefined;
   let clock = NaN;
   for (let page = 0; page < MAX_PAGES; page += 1) {
-    const r = mod.read({ file: internal.file, companion: internal.companion, mode: 'metadata', cursor, limit: 500, tailRecords: TAIL_RECORDS, agentKey: node.agentKey });
+    const r = mod.read({ file: internal.file, companion: internal.companion, root: internal.root, mode: 'metadata', cursor, limit: 500, tailRecords: TAIL_RECORDS, agentKey: node.agentKey });
     events.push(...r.events);
     const c = parseCursor(r.cursor);
     clock = c && c.atMs > 0 ? c.atMs : clock;
@@ -129,7 +129,7 @@ function computeStats({
     if (node.transcript.linked && internal.file) {
       try {
         const mod = READERS[registry[node.harness].reader]();
-        const header = mod.header({ file: internal.file, companion: internal.companion });
+        const header = mod.header({ file: internal.file, companion: internal.companion, root: internal.root });
         if (inCheckouts(header.cwd, roots, fsImpl)) {
           const { events, clock } = readWindow(mod, node, internal);
           numbers = summarize(events, clock, startMs, windowMin);

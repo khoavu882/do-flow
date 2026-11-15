@@ -26,9 +26,9 @@ import { deriveSessions } from './derive/sessions.js';
 import { runStepCopy, runToken } from './derive/rail.js';
 import { workflowsOf } from './derive/workflows.js';
 import {
-  connectFleet, tickFleet, teardownFleet, renderFleetList, updateFleetList, listMeta, listEmpty, buildProjectHead, renderProject, updateProject,
-  rerouteProject, projectMeta, projectTitle, skeletonFleetList, skeletonFleetProject,
-} from './views/fleet.js';
+  connectLayers, renderMachine, updateMachine, machineMeta, renderProject, updateProject, rerouteProject, buildProjectHead, projectMeta, projectTitle,
+  teardownLayers, skeletonLayers,
+} from './views/layers.js';
 import {
   PARAM_PATTERN, KEY16, RUN_ID, SESSION_TABS, TOKEN, laneOfParts, laneSegments, sessionSelection, sessionSegments, hashFor, baseRoute,
 } from './routes.js';
@@ -149,7 +149,7 @@ const sessionsKey = (data) => JSON.stringify([data, deriveSessions(data, Date.no
  * `render(data, params, local)` where `local` is the view instance's own memory; `isEmpty(data)`; `empty`;
  * `title(params, data)`. Optional: `active(data, nowMs)` false when nothing is running (the poll interval is x10; a view without it
  * is always active) and `size(data)` the graph size in nodes (the poll interval is at least size/1000 s); `load(local, apiGet)` reads more than `api` names; `dataKey(data)` decides when
- * the body is re-mounted; `tick(root, nowMs, local)` runs on the shell's 1 s timer. A `live: true` view (V.10, the Fleet
+ * the body is re-mounted; `tick(root, nowMs, local)` runs on the shell's 1 s timer. A `live: true` view (V.10, the Layers
  * views) is mounted once and then patched: `connect(local, params, hooks)` returns a poller-shaped object over a stream,
  * `update(local, data, params)` patches the mounted body, `reroute(local, params, data)` moves between routes of one view
  * without a re-mount (the selected agent changed), and `empty` may be a function of the data. The Runs, Run, Tasks and Sessions
@@ -293,47 +293,49 @@ const VIEWS = Object.freeze({
     },
     title: () => 'Workflows',
   },
-  fleet: {
-    id: 'fleet',
+  layers: {
+    id: 'layers',
     inspectable: false,
-    noun: 'projects',
-    // IC-025: the fleet body is built from these shapes by the server; each project section carries its own ok or code.
-    shapes: ['projects', 'tree', 'traffic'],
-    api: () => '/api/fleet',
+    noun: 'layers',
+    // 161: no GET reads this view; its data is the `machine` channel of /api/live (D3, FR-012).
+    shapes: [],
+    api: () => null,
+    // The stream-only connector starts in place of a first read; the shell never calls this (live.js is the only reader).
+    load: () => Promise.reject(new Error('layers is live-only')),
     live: true,
-    connect: connectFleet,
-    update: (/** @type {any} */ local, /** @type {any} */ data) => updateFleetList(local, data),
-    tick: tickFleet,
-    teardown: teardownFleet,
-    pollMs: 5000,
+    connect: connectLayers,
+    update: (/** @type {any} */ local, /** @type {any} */ data, /** @type {any} */ params) => updateMachine(local, data, params),
+    teardown: teardownLayers,
+    pollMs: 0,
     wide: true,
-    skeleton: skeletonFleetList,
-    head: () => ({ text: 'Fleet', mono: false }),
-    meta: listMeta,
-    render: renderFleetList,
-    isEmpty: (/** @type {any} */ data) => data.store === 'absent' || data.projects.length === 0,
-    empty: listEmpty,
-    title: () => 'Fleet',
+    skeleton: skeletonLayers,
+    head: () => ({ text: 'Layers', mono: false }),
+    meta: machineMeta,
+    render: renderMachine,
+    isEmpty: () => false,
+    dataKey: (/** @type {any} */ data) => String(data.rev),
+    title: () => 'Layers',
   },
-  'fleet-project': {
-    id: 'fleet-project',
+  'layers-project': {
+    id: 'layers-project',
     inspectable: true,
     noun: 'this project',
-    shapes: ['projects', 'tree', 'transcript', 'traffic'],
-    api: () => '/api/fleet',
+    shapes: [],
+    api: () => null,
+    load: () => Promise.reject(new Error('layers is live-only')),
     live: true,
-    connect: connectFleet,
+    connect: connectLayers,
     update: (/** @type {any} */ local, /** @type {any} */ data, /** @type {any} */ params) => updateProject(local, data, params),
     reroute: rerouteProject,
-    tick: tickFleet,
-    teardown: teardownFleet,
-    pollMs: 5000,
+    teardown: teardownLayers,
+    pollMs: 0,
     wide: true,
-    skeleton: skeletonFleetProject,
+    skeleton: skeletonLayers,
     head: (/** @type {any} */ params) => ({ text: 'Project', mono: true, build: () => buildProjectHead(params) }),
     meta: projectMeta,
     render: renderProject,
     isEmpty: () => false,
+    dataKey: (/** @type {any} */ data) => String(data.rev),
     title: projectTitle,
   },
   settings: { id: 'settings', inspectable: true, noun: 'settings', shapes: ['config-list', 'config-schema'], api: () => '/api/settings', pollMs: 30000, wide: true, skeleton: skeletonBlock, head: () => ({ text: 'Settings', mono: false }), meta: () => null, render: renderSettings, reroute: rerouteSettings, isEmpty: (/** @type {any} */ data) => data?.sections?.effective?.ok === true && data.sections.effective.data.keys.length === 0, empty: { title: 'No settings listed', sentence: 'The DoFlow core listed no settings.' }, title: settingsTitle },
@@ -383,7 +385,7 @@ const SHAPES_USED = Object.freeze([...new Set(Object.values(VIEWS).flatMap((view
 
 /**
  * A location hash to `{ id, params, view }`, and the selection it names (IC-019, 150 IC-015): `sel: { type, id }` on `run`,
- * `task` on `tasks`, `lane` on `sessions`, `node` and `tab` on `session` (Fleet's agent stays in `params`). An unknown route,
+ * `task` on `tasks`, `lane` on `sessions`, `node` and `tab` on `session` (Layers' agent and file stay in `params`). An unknown route,
  * or a segment failing its pattern, is `not-found`: no fetch is made for it.
  * @param {any} hash
  */
@@ -396,7 +398,7 @@ function parseRoute(hash) {
   if (path === '/workflows') return { id: 'workflows', params: {}, view: VIEWS.workflows };
   if (path === '/sessions') return { id: 'sessions', params: {}, view: VIEWS.sessions };
   if (path === '/compare') return { id: 'compare', params: {}, view: VIEWS.compare };
-  if (path === '/fleet') return { id: 'fleet', params: {}, view: VIEWS.fleet };
+  if (path === '/layers') return { id: 'layers', params: {}, view: VIEWS.layers };
   const parts = path.split('/'); // ['', 'run', slug, taskId, ...selection]
   const manage = parts[1];
   const base = (/** @type {string} */ id, /** @type {any} */ extra = {}) => ({ id, params: {}, view: VIEWS[id], ...extra });
@@ -420,10 +422,13 @@ function parseRoute(hash) {
     if (parts[i] === 'pick' && pick(parts[i + 1])) { extra.pick = parts[i + 1]; i += 2; }
     return i === parts.length ? { id: manage, params, view: VIEWS.advice, ...extra } : notFound;
   }
-  if (parts[1] === 'fleet') {
-    // '', 'fleet', project, agent?: the keys of IC-019 and IC-020, nothing else (no path, label or session id is ever in a URL).
-    if (parts.length < 3 || parts.length > 4 || !KEY16.test(parts[2]) || (parts.length === 4 && !KEY16.test(parts[3]))) return notFound;
-    return { id: 'fleet-project', params: parts.length === 4 ? { project: parts[2], agent: parts[3] } : { project: parts[2] }, view: VIEWS['fleet-project'] };
+  if (parts[1] === 'layers') {
+    // '', 'layers', project, then nothing, `agent/<ak>` or `file/<fk>`: the keys of IC-001, never a path, label or session id.
+    if (parts.length === 3 && KEY16.test(parts[2])) return { id: 'layers-project', params: { project: parts[2] }, view: VIEWS['layers-project'] };
+    if (parts.length === 5 && KEY16.test(parts[2]) && KEY16.test(parts[4]) && (parts[3] === 'agent' || parts[3] === 'file')) {
+      return { id: 'layers-project', params: { project: parts[2], [parts[3]]: parts[4] }, view: VIEWS['layers-project'] };
+    }
+    return notFound;
   }
   if (parts[1] === 'sessions') {
     if (parts.length === 3 && parts[2] === 'history') {
@@ -471,14 +476,14 @@ function titleFor(route, data = null) {
 
 /**
  * Which rail link is current (IC-020, DEC-035; 150 IC-015): Now on `#/`, every `#/run/...` and every `#/session/...` (the
- * id stays `runs`; the Runs heading and title keep Runs), Workflows on `#/workflows`, Sessions on `#/sessions`, Fleet on
- * every `#/fleet...`, else none.
+ * id stays `runs`; the Runs heading and title keep Runs), Workflows on `#/workflows`, Sessions on `#/sessions`, Layers on
+ * every `#/layers...`, else none.
  * @param {any} route
  */
 function navFor(route) {
   if (['workflows', 'sessions', 'settings', 'advice', 'followups', 'health', 'workers'].includes(route.id)) return route.id;
   if (route.id === 'compare') return 'sessions';
-  if (route.id === 'fleet' || route.id === 'fleet-project') return 'fleet';
+  if (route.id === 'layers' || route.id === 'layers-project') return 'layers';
   return route.id === 'not-found' ? null : 'runs';
 }
 
