@@ -21,6 +21,8 @@ import { createPanel } from './transcript.js';
 import { createLogStream } from '../log-store.js';
 import { showPanel, hidePanel } from '../shell.js';
 import { isChannel } from '../live.js';
+import { actionArea, actionButton, notAllowedLine } from './confirm.js';
+import { buildConfirmation } from '../derive/actions.js';
 import {
   nodeTitle, titleIsLabel, kindWord, stamp, streamState, streamCopy, machineModel, projectModel, summarizedLine, COVERAGE_COLUMNS, coverageCell, projectLabel,
 } from '../derive/layers.js';
@@ -226,7 +228,9 @@ const unreadableNote = (name, code) => h('p', { class: 'layers-unreadable', data
 /**
  * The "Waiting for you" card of one awaiting gate. `where`: the project's label and link on the machine page; the run link only
  * when the gate is in the project the Console runs in (the run pages read that project).
- * @param {any} gate @param {{ projectKey: string, projectLabel: string | null, openRun: boolean, fresh: boolean, loop: boolean }} ctx
+ * 162: Approve and Reject open the confirmation when the page may act (`/api/actions`), else the card says what it said before.
+ * `ctx.latest()` is the gate as the newest update holds it (null once it was decided), so "Review again" never reads a stale card.
+ * @param {any} gate @param {{ projectKey: string, projectLabel: string | null, openRun: boolean, fresh: boolean, loop: boolean, label: string | null, latest: () => any }} ctx
  */
 function gateCard(gate, ctx) {
   const at = gate.recordAt ?? gate.at ?? null;
@@ -250,17 +254,41 @@ function gateCard(gate, ctx) {
       ]),
       ctx.openRun && slug !== null
         ? h('a', { class: 'gate-card__link', href: `#/run/${slug}/${gate.taskId}`, dataset: { focusKey: `gate:${gate.taskId}/${gate.gateId}` } }, ['Open the run to decide', h('span', { 'aria-hidden': 'true' }, ' →')])
-        : h('p', { class: 'gate-card__note' }, 'Decide in a terminal in that project. The Console only reads.'),
+        : null,
+      actionArea(() => {
+        const make = (/** @type {'approve' | 'reject'} */ decision) => () => gateSpec(ctx.latest(), ctx, decision);
+        const approve = actionButton({ id: 'decide-gate', label: 'Approve', tone: 'approve', make: make('approve') });
+        const reject = actionButton({ id: 'decide-gate', label: 'Reject', tone: 'danger', make: make('reject') });
+        if (approve || reject) return h('div', { class: 'acts__row' }, [approve, reject]);
+        return [notAllowedLine(['decide-gate']), ctx.openRun && slug !== null ? null : h('p', { class: 'gate-card__note' }, 'Decide in a terminal in that project. The Console only reads.')];
+      }, 'acts acts--card'),
     ]),
   ]);
 }
 
-/** @param {any[]} gates @param {Set<string>} fresh @param {(gate: any) => { projectKey: string, projectLabel: string | null, openRun: boolean }} where */
-function gateCards(gates, fresh, where) {
+/**
+ * The confirmation of a gate card, from the gate as the newest update holds it. Null when the gate is gone, or the page lacks what the
+ * request carries (the run revision: an older core sends none).
+ * @param {any} gate @param {{ projectKey: string, label: string | null }} ctx @param {'approve' | 'reject'} decision
+ */
+function gateSpec(gate, ctx, decision) {
+  if (!gate) return null;
+  return buildConfirmation('decide-gate', {
+    projectKey: ctx.projectKey, project: ctx.label, slug: typeof gate.slug === 'string' ? gate.slug : null, taskId: gate.taskId,
+    gate: { id: gate.gateId, name: gate.name }, decision, revision: gate.revision,
+  });
+}
+
+/**
+ * @param {any[]} gates @param {Set<string>} fresh @param {(gate: any) => { projectKey: string, projectLabel: string | null, openRun: boolean, label?: string | null }} where
+ * @param {(key: string) => any} latest the gate of a card key as the newest update holds it
+ */
+function gateCards(gates, fresh, where, latest) {
   let loop = true;
   return h('ul', { class: 'gate-cards' }, gates.map((gate) => {
     const w = where(gate);
-    const card = gateCard(gate, { ...w, fresh: fresh.has(`${w.projectKey}/${gate.taskId}/${gate.gateId}`), loop });
+    const key = `${w.projectKey}/${gate.taskId}/${gate.gateId}`;
+    const card = gateCard(gate, { ...w, label: w.label ?? w.projectLabel, fresh: fresh.has(key), loop, latest: () => latest(key) });
     loop = false;
     return card;
   }));
@@ -344,11 +372,13 @@ function updateMachine(local, data, params) {
   local.seen = new Set(keys);
 
   const current = new Set(model.rows.filter((r) => r.current).map((r) => r.projectKey));
-  setSection(local, 'lead', JSON.stringify([model.activitySection, model.gates.map((/** @type {any} */ g) => [g.projectKey, g.taskId, g.gateId, g.name, g.slug, g.recordAt]), [...fresh]]), () => {
+  const held = new Map(model.gates.map((/** @type {any} */ g) => [`${g.projectKey}/${g.taskId}/${g.gateId}`, g]));
+  local.heldGates = held;
+  setSection(local, 'lead', JSON.stringify([model.activitySection, model.gates.map((/** @type {any} */ g) => [g.projectKey, g.taskId, g.gateId, g.name, g.slug, g.recordAt, g.revision ?? null]), [...fresh]]), () => {
     if (model.activitySection.state === 'unreadable') return unreadableNote('gates of every project', model.activitySection.code);
     if (model.activitySection.state === 'absent') return h('p', { class: 'layers-none' }, 'The activity of the projects has not arrived yet.');
     if (model.gates.length === 0) return h('p', { class: 'layers-none' }, 'Nothing is waiting for you in the projects summarized here.');
-    return gateCards(model.gates, fresh, (g) => ({ projectKey: g.projectKey, projectLabel: g.projectLabel, openRun: current.has(g.projectKey) }));
+    return gateCards(model.gates, fresh, (g) => ({ projectKey: g.projectKey, projectLabel: g.projectLabel, openRun: current.has(g.projectKey) }), (key) => local.heldGates.get(key) ?? null);
   });
   setSection(local, 'projects', JSON.stringify([model.projectsSection, model.rows]), () => {
     if (model.projectsSection.state === 'unreadable') return unreadableNote('the project list', model.projectsSection.code);
@@ -546,10 +576,11 @@ function updateProject(local, data, params) {
   const arrived = model.waiting.filter((g) => fresh.has(`${pk}/${g.taskId}/${g.gateId}`));
   local.seen = new Set(keys);
 
-  setSection(local, 'lead', JSON.stringify([model.sections.gates, model.waiting.map((g) => [g.taskId, g.gateId, g.name, g.slug, g.at]), who.current, [...fresh]]), () => {
+  local.heldGates = new Map(model.waiting.map((g) => [`${pk}/${g.taskId}/${g.gateId}`, g]));
+  setSection(local, 'lead', JSON.stringify([model.sections.gates, model.waiting.map((g) => [g.taskId, g.gateId, g.name, g.slug, g.at, g.revision ?? null]), who.current, [...fresh], who.label]), () => {
     if (model.sections.gates.state === 'unreadable') return unreadableNote('the gates', model.sections.gates.code);
     if (model.waiting.length === 0) return h('p', { class: 'layers-none' }, 'Nothing is waiting for you in this project.');
-    return gateCards(model.waiting, fresh, () => ({ projectKey: pk, projectLabel: null, openRun: who.current }));
+    return gateCards(model.waiting, fresh, () => ({ projectKey: pk, projectLabel: null, openRun: who.current, label: who.label }), (key) => local.heldGates.get(key) ?? null);
   });
   setSection(local, 'lanes', JSON.stringify([model.sections, model.lanes, model.loose, model.auditOnly, sel]), () => {
     const failed = ['checkouts', 'tree', 'runs', 'artifacts'].filter((name) => model.sections[/** @type {'tree'} */ (name)].state === 'unreadable');

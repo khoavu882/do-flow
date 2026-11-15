@@ -34,6 +34,9 @@ import { createLogStream } from '../log-store.js';
 import { workerChip } from '../derive/chain.js';
 import { reasonBanner, renderEventList } from './transcript.js';
 import { CORE_RANGE } from '../routes.js';
+import { actionArea, actionButton, notAllowedLine } from './confirm.js';
+import { currentProject } from '../actions.js';
+import { buildConfirmation, cancelWords } from '../derive/actions.js';
 
 /** The tabs in IC-018's order (requirement A2). */
 const TABS = Object.freeze([['log', 'Log'], ['transcript', 'Transcript'], ['result', 'Result'], ['process', 'Process']]);
@@ -292,8 +295,21 @@ function mountWorkerTabs(container, options) {
 
   // ---- the head ----
 
+  /**
+   * The Stop confirmation for the run as it is now (162): null unless the run is starting or running with no stop asked yet, and the
+   * page names the project. Read when the button is pressed and by "Review again", so it follows every update of the row.
+   */
+  function stopSpec() {
+    const project = currentProject();
+    const worker = members.worker && members.worker.ok && isObject(members.worker.body) ? members.worker.body : null;
+    const phase = typeof run.phase === 'string' ? run.phase : worker ? worker.state : null;
+    if (destroyed || !project || (phase !== 'starting' && phase !== 'running') || (worker && worker.cancelBy)) return null;
+    return buildConfirmation('cancel-worker', { projectKey: project.projectKey, project: project.label, slug, worker: { runId: run.runId, harness: run.harness, task: run.task } });
+  }
+
   function renderHead() {
     const worker = members.worker && members.worker.ok && isObject(members.worker.body) ? members.worker.body : null;
+    const stop = worker && worker.cancelBy ? cancelWords(worker.cancelBy) : null;
     const chip = workerChip(run, worker ? worker.state : null);
     const ended = run.phase === 'ended' || (run.phase === null && typeof run.endState === 'string');
     mount(head, [
@@ -307,7 +323,12 @@ function mountWorkerTabs(container, options) {
         typeof run.childOf === 'string' ? fact('Granted by', run.childOf) : null,
         fact('Started', timeOr(run.startedAt ?? (worker ? worker.startedAt : null), NOT_YET)),
         fact('Ended', timeOr(run.endedAt ?? (worker ? worker.endedAt : null), ended ? 'not recorded' : NOT_YET)),
+        stop === null ? null : fact('Stop asked', worker.cancelBy.requestedAt ? [`${stop}, `, timeOr(worker.cancelBy.requestedAt, NOT_YET)] : stop),
       ]),
+      actionArea(() => [
+        actionButton({ id: 'cancel-worker', label: 'Stop worker', tone: 'danger', make: stopSpec }),
+        stopSpec() === null ? null : notAllowedLine(['cancel-worker']),
+      ], 'acts acts--head'),
     ]);
   }
 

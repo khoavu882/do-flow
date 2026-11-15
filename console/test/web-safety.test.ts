@@ -188,6 +188,33 @@ test('control: an innerHTML line in a file added to a copy of the shipped web ro
   assert.deepEqual(scanDir(copy), ['fixture.js:2: innerHTML']);
 });
 
+// ---- 162: the page writes only from the confirmation dialog -------------------------------------
+
+/** Where the page mentions `postAction`, code only (comments dropped): the files that import or call it, as paths below the web root. */
+function postActionUsers(root: string): string[] {
+  return files(root).filter((file) => path.extname(file) === '.js')
+    .filter((file) => /\bpostAction\b/.test(fs.readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')))
+    .map((file) => path.relative(root, file).split(path.sep).join('/')).sort();
+}
+
+test('162: `postAction` is defined in actions.js and imported by views/confirm.js and by nothing else; no other file names an action route', () => {
+  assert.deepEqual(postActionUsers(WEB_ROOT), ['actions.js', 'views/confirm.js']);
+  const confirm = fs.readFileSync(path.join(WEB_ROOT, 'views', 'confirm.js'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  assert.equal(confirm.match(/\bpostAction\s*\(/g)?.length, 1, 'it is called once, from the verb button\u2019s send()');
+  const named = files(WEB_ROOT).filter((file) => path.extname(file) === '.js' && /\/api\/actions/.test(fs.readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')))
+    .map((file) => path.relative(WEB_ROOT, file).split(path.sep).join('/'));
+  assert.deepEqual(named, ['actions.js'], 'the action routes are named in one file');
+});
+
+test('control: a view that imports or calls `postAction`, or names an action route, turns the guard red', () => {
+  const copy = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-ui-websafety-post-'));
+  tmp.push(copy);
+  fs.cpSync(WEB_ROOT, copy, { recursive: true });
+  assert.deepEqual(postActionUsers(copy), ['actions.js', 'views/confirm.js']);
+  fs.writeFileSync(path.join(copy, 'views', 'sneaky.js'), "import { postAction } from '../actions.js';\nexport const go = () => postAction('close-run', {});\n");
+  assert.deepEqual(postActionUsers(copy), ['actions.js', 'views/confirm.js', 'views/sneaky.js']);
+});
+
 // ---- app.css cascade (design note D.2, review findings F1, F3, F4, F5) -------------------------------
 
 type CssRule = { selector: string, layer: number, media: { min: number, max: number } | null, order: number, decls: Map<string, string> };

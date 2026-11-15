@@ -10,6 +10,9 @@ import { runToken, formatDuration, liveDuration, clockHM, sinceStamp, stateWord 
 import { deriveActivity, clauseWords, attemptChanges, finishedCounts } from '../derive/activity.js';
 import { deriveTimeline, axisDomain, tickMarks, mergeMarkers, position, rowCopy } from '../derive/timeline.js';
 import { withReplay, isReplaying, releaseReplay } from './replay.js';
+import { actionArea, actionButton, notAllowedLine } from './confirm.js';
+import { currentProject } from '../actions.js';
+import { buildConfirmation } from '../derive/actions.js';
 
 /** A change mark lasts one poll interval (reduced motion shows it as an outline), or until its animation ends. */
 const CHANGED_MS = 3000;
@@ -47,11 +50,47 @@ function stampOf(iso, nowMs) {
 const plural = (/** @type {number} */ n, /** @type {string} */ one, /** @type {string} */ many) => `${n} ${n === 1 ? one : many}`;
 const gateWord = (/** @type {any} */ kind) => (kind === 'clarification' ? 'Clarification gate' : 'Approval gate');
 
+/** A run in one of these states can be closed (162: the Console's "Close run"). */
+const OPEN_STATES = Object.freeze(['RUNNING', 'AWAITING_GATE']);
+
+/**
+ * The confirmation of a run action, built from the row the page holds when it is asked (`ctx.act()`, the latest render's row, never the
+ * one a button was drawn with). Null when the page has no row, is replaying, does not know the project, or the run is not in a state
+ * the action applies to.
+ * @param {() => any} act @param {'decide-gate' | 'close-run'} id @param {'approve' | 'reject' | null} decision
+ */
+function runSpec(act, id, decision) {
+  const held = act();
+  const project = currentProject();
+  if (!held || !project) return null;
+  const { row, model } = held;
+  const current = row.current && typeof row.current.id === 'string' ? row.current : null;
+  if (row.state === 'AWAITING_GATE' && id === 'decide-gate' && current !== null && current.type === 'gate' && decision !== null) {
+    const node = model.node;
+    return buildConfirmation('decide-gate', {
+      projectKey: project.projectKey, project: project.label, slug: row.featureSlug ?? null, taskId: row.taskId, revision: row.revision,
+      gate: { id: current.id, name: node && !node.missing ? node.name : null }, decision,
+    });
+  }
+  if (id === 'close-run' && OPEN_STATES.includes(row.state)) {
+    return buildConfirmation('close-run', { projectKey: project.projectKey, project: project.label, slug: row.featureSlug ?? null, taskId: row.taskId, revision: row.revision, current });
+  }
+  return null;
+}
+
+/** The "Close run" button of a run that is not over, with the reason line when `reason` and the page may not act. @param {any} ctx @param {boolean} reason */
+function closeArea(ctx, reason) {
+  return actionArea(() => [
+    actionButton({ id: 'close-run', label: 'Close run', tone: 'danger', make: () => runSpec(ctx.act, 'close-run', null) }),
+    reason ? notAllowedLine(['close-run']) : null,
+  ], 'acts acts--close');
+}
+
 // ---- the activity slot ----------------------------------------------------------------------------------------
 
 /**
  * @param {any} model `deriveActivity`'s result
- * @param {{ nowMs: number, params: any, live: any[], changed: Set<string>, flash: boolean, row: any, tasksReason: any, startIso: string | null, rail: any }} ctx
+ * @param {{ nowMs: number, params: any, live: any[], changed: Set<string>, flash: boolean, row: any, tasksReason: any, startIso: string | null, rail: any, act: () => any }} ctx
  */
 function buildSlot(model, ctx) {
   if (model.kind === 'gate') return gateSlot(model, ctx);
@@ -120,6 +159,7 @@ function stageSlot(model, ctx) {
       ? h('p', { class: 'activity__stale' }, [icon('stale', 16), `No event since ${stampOf(model.since, ctx.nowMs)}. The run may have stopped without recording it.`]) : null,
     // The Console decides nothing; it names the one command that ends a run whose work finished somewhere else.
     staleRun ? h('p', { class: 'activity__note' }, ['If its work ended elsewhere, close it in a terminal: ', h('code', { class: 'mono' }, `doflow orchestrate --action close --task-id ${ctx.row.taskId}${typeof ctx.row.featureSlug === 'string' ? ` --slug ${ctx.row.featureSlug}` : ''} --note "<why>"`)]) : null,
+    closeArea(ctx, true),
     missing ? null : h('p', { class: 'activity__foot' }, 'Skill and agent are what the workflow declares for this stage.'),
   ]);
   return { el: h('section', { class: `activity activity--stage${staleRun ? ' activity--stale' : ''}`, 'aria-labelledby': 'activity-title', dataset: { changed: ctx.flash ? 'true' : null } }, [h('div', { class: 'activity__grid' }, [main, attemptsAside(model, ctx)])]) };
@@ -173,26 +213,37 @@ function gateSlot(model, ctx) {
       : (/** @type {number} */ now, /** @type {boolean} */ stale) => (stale ? `waiting since ${sinceStamp(sinceMs, now)}` : `waiting ${liveDuration(Math.max(0, now - sinceMs))}`);
   const missing = node === null || node.missing === true;
   const command = model.command;
-  const approve = command ? commandBlock(command.approve, 'the approve command') : null;
-  const reject = command ? commandBlock(command.reject, 'the reject command') : null;
-  if (approve) approve.querySelector('button').dataset.focusKey = 'copy:approve';
-  if (reject) reject.querySelector('button').dataset.focusKey = 'copy:reject';
+  /** The decision: two buttons when the page may act, else the two commands of a terminal and why there are no buttons. */
+  const decide = actionArea(() => {
+    const approveButton = actionButton({ id: 'decide-gate', label: 'Approve', tone: 'approve', make: () => runSpec(ctx.act, 'decide-gate', 'approve') });
+    const rejectButton = actionButton({ id: 'decide-gate', label: 'Reject', tone: 'danger', make: () => runSpec(ctx.act, 'decide-gate', 'reject') });
+    if (approveButton || rejectButton) return h('div', { class: 'acts__row' }, [approveButton, rejectButton]);
+    const approve = command ? commandBlock(command.approve, 'the approve command') : null;
+    const reject = command ? commandBlock(command.reject, 'the reject command') : null;
+    if (approve) approve.querySelector('button').dataset.focusKey = 'copy:approve';
+    if (reject) reject.querySelector('button').dataset.focusKey = 'copy:reject';
+    return [
+      notAllowedLine(['decide-gate']),
+      command ? [
+        h('p', { class: 'activity__lead' }, 'Decide in a terminal in this project:'),
+        h('div', { class: 'activity__cmds' }, [
+          h('div', { class: 'activity__cmd' }, [h('p', { class: 'activity__cmdlabel' }, 'To approve'), approve]),
+          h('div', { class: 'activity__cmd' }, [h('p', { class: 'activity__cmdlabel' }, 'To reject'), reject]),
+        ]),
+      ] : null,
+      h('p', { class: 'activity__note' }, 'The Console only reads. Deciding stays in the terminal.'),
+    ];
+  }, 'acts acts--decide');
   const body = h('div', { class: 'activity__body' }, [
     node ? h('p', { class: 'activity__name' }, missing || !node.name ? node.id : node.name) : null,
     node && node.prompt ? h('p', { class: 'activity__prompt' }, node.prompt) : null,
     node ? h('p', { class: 'activity__idline' }, [h('span', { class: 'mono' }, node.id), node.after ? [' · after ', h('span', { class: 'mono' }, node.after)] : null]) : null,
     missing && node ? h('p', { class: 'activity__missing' }, model.workflowUnavailable ? 'The workflow could not be read, so its details are not shown.' : 'This step is not in the current workflow, so its details are not shown.') : null,
     model.journalGateDiffers ? h('p', { class: 'activity__journal' }, [icon('info', 16), 'When this gate opened, the run recorded different wording. This is the current workflow’s.']) : null,
-    command ? [
-      h('p', { class: 'activity__lead' }, 'Decide in a terminal in this project:'),
-      h('div', { class: 'activity__cmds' }, [
-        h('div', { class: 'activity__cmd' }, [h('p', { class: 'activity__cmdlabel' }, 'To approve'), approve]),
-        h('div', { class: 'activity__cmd' }, [h('p', { class: 'activity__cmdlabel' }, 'To reject'), reject]),
-      ]),
-    ] : null,
-    h('p', { class: 'activity__note' }, 'The Console only reads. Deciding stays in the terminal.'),
+    decide,
     model.origin === 'other' ? h('p', { class: 'activity__other' }, [icon('info', 16), 'This run belongs to another checkout of this project. Run the command there.']) : null,
     tasksLine(model, ctx),
+    closeArea(ctx, false),
   ]);
   const head = h('div', { class: 'activity__head' }, [
     icon(kind === 'clarification' ? 'gate-clarification-12' : 'gate-approval-12', 16),
@@ -248,6 +299,7 @@ function listItems(tl, memory, nowMs, fresh) {
     const li = h('li', { class: 'tl-item', dataset: { tone: item.tone, changed: index < fresh ? 'true' : null } }, [
       h('time', { class: 'mono tl-item__time' }, at === null ? 'time not recorded' : at),
       h('span', { class: 'tl-item__words' }, item.words),
+      item.by === null || item.by === undefined ? null : h('span', { class: 'tl-item__by' }, item.by),
       h('span', { class: 'mono tl-item__dur' }, duration === null ? '' : duration),
     ]);
     if (index < fresh) expire(li);
@@ -483,7 +535,9 @@ function renderRunBody(data, params, local) {
   /** @type {any[]} */
   const liveTexts = [];
   const startIso = timeline && typeof timeline.startedAt === 'string' ? timeline.startedAt : row.startedAt ?? null;
-  const slot = buildSlot(model, { nowMs, params, live: liveTexts, changed, flash, row, tasksReason: data.tasksReason, startIso, rail: tl.rail });
+  // The row a confirmation is built from: this render's, and none while a replayed moment is shown.
+  memory.act = isReplaying(local) ? null : { row, model };
+  const slot = buildSlot(model, { nowMs, params, live: liveTexts, changed, flash, row, tasksReason: data.tasksReason, startIso, rail: tl.rail, act: () => memory.act ?? null });
   if (flash) expire(slot.el);
   const card = timelineCard(tl, memory, { nowMs, row, fresh });
 

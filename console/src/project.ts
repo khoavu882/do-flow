@@ -98,6 +98,8 @@ const CLOSED_SETS = Object.freeze({
   leftoverStatuses: Object.freeze(['verified', 'survivors', 'unknown']),
   /** src/runtime/worker/supervisor.ts `process.kind` */
   processKinds: Object.freeze(['exited', 'not-started']),
+  /** src/runtime/worker/cancel.ts `SOURCES`: who may have asked for a worker cancel (162 IC-005). */
+  cancelSources: Object.freeze(['user', 'timeout', 'operator']),
   /** src/runtime/worker/log-read.ts LOG_STREAMS */
   logStreams: Object.freeze(['out', 'err']),
   /** src/runtime/worker/reads.ts IC-002 log states */
@@ -150,6 +152,12 @@ const each = <T>(check: Check<T>): Check<T[]> => (value) => (Array.isArray(value
 const orNull = <T>(check: Check<T>): Check<T | null> => (value) => (value === null ? null : check(value));
 const oneOf = (set: readonly string[]): Check<string> => (value) => (typeof value === 'string' && set.includes(value) ? value : fail());
 const id: Check<string> = (value) => (typeof value === 'string' && ID.test(value) ? value : fail());
+/**
+ * 162 IC-005: the decider of a gate decision or a close, as the core's DECIDE_BY and CLOSE_BY allow it (a relay label is `console` or
+ * `device.d-<12 hex>`). A value outside the grammar is null, never carried, so the page says "decider not recorded" for it.
+ */
+const DECIDER = /^(?:autopilot|manual|console|device\.d-[0-9a-f]{12})$/;
+const decider: Check<string | null> = (value) => (typeof value === 'string' && DECIDER.test(value) ? value : null);
 const text: Check<string> = (value) => (typeof value === 'string' ? value : fail());
 /** A label is a name, never a place or a secret: a leading `/` or `~`, a drive prefix, or text the mask would change is withheld. */
 const PATH_LABEL = /^[/~]|^[A-Za-z]:[\\/]/;
@@ -247,6 +255,7 @@ const timelineEvent = (value: unknown) => {
     node: orNull(id)(event.node),
     outcome: orNull(oneOf(CLOSED_SETS.stageOutcomes))(event.outcome),
     decision: orNull(oneOf(CLOSED_SETS.gateDecisions))(event.decision),
+    by: optional(decider)(event.by),
     forced: bool(event.forced),
     synthetic: bool(event.synthetic),
   };
@@ -438,6 +447,12 @@ const processState = (value: unknown) => {
   };
 };
 
+/** 162 IC-005: who asked for a worker cancel. `by` (at most 64 characters) is a relay label or the name of the agent that asked; the reason and the rest are not read. */
+const cancelBy = (value: unknown) => {
+  const c = record(value);
+  return { by: orNull((v: unknown) => (typeof v === 'string' && v.length <= 64 ? id(v) : fail()))(c.by), source: orNull(oneOf(CLOSED_SETS.cancelSources))(c.source), requestedAt: orNull(iso)(c.requestedAt) };
+};
+
 /**
  * IC-018 d, widened by 150 IC-011 (FR-016): one worker run's state, the process check, the deadline,
  * the granter, the process outcome and the cleanup verdict. Dropped: identity, report, output, edit,
@@ -470,6 +485,7 @@ function workerStatus(value: unknown) {
     childOf: optional(runId)(body.childOf),
     process: optional(processState)(body.process),
     cleanup: optional(leftover)(body.cleanup),
+    cancelBy: optional(cancelBy)(body.cancelBy),
   };
 }
 

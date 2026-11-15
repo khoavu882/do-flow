@@ -34,7 +34,9 @@ const REVIEW_STATES: readonly string[] = Object.freeze(['absent', 'unreadable', 
 /** src/runtime/review/findings.ts `countFindings`, its number fields (`task` is the feature, already a field of the row). */
 const REVIEW_COUNTS: readonly string[] = Object.freeze(['seats', 'seat_findings', 'converged', 'blocker', 'should_fix', 'note', 'open', 'fixed', 'refuted',
   'user_accepted', 'pre_existing', 'escaped', 'confirmed', 'plausible', 'unverified_blockers', 'bug_classes']);
-const DECIDERS: readonly string[] = Object.freeze(['autopilot', 'manual']);
+/** 162 IC-005: who decided a gate, as the core's DECIDE_BY allows it: autopilot, manual, the Console (`console`) or a paired device (`device.d-<12 hex>`). */
+const DECIDER = /^(?:autopilot|manual|console|device\.d-[0-9a-f]{12})$/;
+const decider: Check<string> = (value) => (typeof value === 'string' && DECIDER.test(value) ? value : fail());
 const STORES: readonly string[] = Object.freeze(['absent', 'present']);
 /** IC-003 and IC-002 bounds; a section past one breaks the contract. */
 const BOUNDS = Object.freeze({ checkouts: 64, gates: 64, artifacts: 64, reviews: 16, sessions: 16, audit: 8, denials: 3, coverage: 32, activity: 16, activityGates: 8, harnesses: 32, unreadable: 32 });
@@ -105,7 +107,7 @@ function activity(value: unknown) {
     const sessions = record(a.sessions);
     const gate = (g: unknown) => {
       const e = record(g);
-      return { slug: orNull(id)(e.slug), taskId: id(e.taskId), gateId: id(e.gateId), name: capped(NAME_CHARS)(e.name), recordAt: orNull(iso)(e.recordAt) };
+      return { slug: orNull(id)(e.slug), taskId: id(e.taskId), gateId: id(e.gateId), name: capped(NAME_CHARS)(e.name), recordAt: orNull(iso)(e.recordAt), revision: optional(count)(e.revision) };
     };
     return {
       projectKey: key16(a.projectKey),
@@ -148,7 +150,7 @@ function gates(value: unknown) {
     const g = record(item);
     return {
       runKey: runKeyOf(g.runKey), slug: orNull(id)(g.slug), taskId: id(g.taskId), gateId: id(g.gateId), name: capped(NAME_CHARS)(g.name), state: id(g.state),
-      at: orNull(iso)(g.at), by: orNull(oneOf(DECIDERS))(g.by),
+      at: orNull(iso)(g.at), by: orNull(decider)(g.by), revision: optional(count)(g.revision),
     };
   };
   return each(entry, BOUNDS.gates)(value);
