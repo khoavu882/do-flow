@@ -945,6 +945,17 @@ test('boot: blocked storage still renders, as System', async () => {
   assert.equal(page.doc.documentElement.dataset.theme, 'light', 'the choice still applies for this page load');
 });
 
+test('162 review B-10: without storage a control built later marks the theme the page applies, not System', async () => {
+  const page = await start({ hash: '', throwStorage: true, fetch: standard });
+  page.radios[1].fire('click');
+  assert.equal(page.doc.documentElement.dataset.theme, 'dark');
+  goTo(page, '#/more');
+  await settle();
+  const radios = page.main.querySelectorAll('[data-theme-choice]');
+  assert.deepEqual(radios.map((r: El) => r.getAttribute('aria-checked')), ['false', 'true', 'false'], 'the More page control marks Dark, the applied theme');
+  assert.deepEqual(radios.map((r: El) => r.getAttribute('tabindex')), ['-1', '0', '-1']);
+});
+
 test('theme control: arrows move and select with wrapping, Home and End jump, and the choice is stored', async () => {
   const page = await start({ hash: '', fetch: standard });
   const [light, dark, system] = page.radios;

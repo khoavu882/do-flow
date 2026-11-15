@@ -63,7 +63,9 @@ function setupThemeControl(group) {
   if (!group) return;
   const radios = Array.from(group.querySelectorAll('[data-theme-choice]'));
   const marks = Object.fromEntries(THEME_CHOICES.map((choice) => [choice.id, choice.mark]));
-  const current = readTheme();
+  // The applied theme, not the stored one: without storage a choice made on this page lives only on the root element.
+  const applied = document.documentElement.dataset.theme;
+  const current = applied === 'light' || applied === 'dark' ? applied : 'system';
   for (const radio of radios) {
     if (!radio.querySelector('.icon')) radio.prepend(icon(marks[radio.dataset.themeChoice], 16));
     radio.addEventListener('click', () => chooseTheme(radio.dataset.themeChoice));
