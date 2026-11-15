@@ -134,6 +134,7 @@ class El {
   }
   remove() { if (this.parent) { this.parent.children.splice(this.parent.children.indexOf(this), 1); this.parent = null; } }
   contains(node: any): boolean { for (let n = node; n; n = n.parent) if (n === this) return true; return false; }
+  get isConnected(): boolean { return this.doc.documentElement ? this.doc.documentElement.contains(this) : false; }
   setAttribute(name: string, value: string) { this.attrs.set(name, String(value)); }
   getAttribute(name: string) { return this.attrs.has(name) ? this.attrs.get(name) : null; }
   removeAttribute(name: string) { this.attrs.delete(name); }
@@ -2446,6 +2447,40 @@ test('162 run page, the run head: the Close run button leaves the head when the 
     cursor = 5;
     await advance(3_000);
     assert.equal(page.main.querySelector('.run-head__acts').querySelectorAll('.btn--act').length, 0, 'a run that is over has no Close run');
+  });
+});
+
+test('162 review B-11: a run page re-rendered by its polls, and then left, holds none of the action areas it took off the page', async () => {
+  const v8 = require('node:v8');
+  const vm = require('node:vm');
+  v8.setFlagsFromString('--expose-gc');
+  const gc = vm.runInNewContext('gc');
+  const collected = async (ref: WeakRef<object>) => {
+    for (let i = 0; i < 3; i += 1) {
+      await new Promise((resolve) => setImmediate(resolve));
+      gc();
+    }
+    return ref.deref() === undefined;
+  };
+  mods.home.resetHome();
+  await withActions(async () => {
+    let revision = 6;
+    const route = (target: string, init: any) => (target === '/api/actions' ? actionsReply(true, null, { kind: 'local', transport: 'loopback' })
+      : runRoute(() => runBodyWith(frow('run-1', 4, { revision }), gateEvents162()))(target, init));
+    const page = await start({ hash: '#/run/feat-a/run-1', fetch: route });
+    const areasNow = () => [page.main.querySelector('.activity--gate').querySelector('.acts'), page.main.querySelector('.acts--close')];
+    const first = areasNow().map((node) => new WeakRef(node));
+    assert.ok(first.every((ref) => ref.deref()), 'the page draws the gate buttons and Close run');
+    revision = 7;
+    await advance(3_000);
+    const second = areasNow();
+    assert.ok(second.every((node, i) => node && node !== first[i].deref()), 'the poll re-rendered both areas');
+    const secondRefs = second.map((node) => new WeakRef(node));
+    second.length = 0;
+    for (const ref of first) assert.equal(await collected(ref), true, 'an area a re-render took off the page is not held');
+    goTo(page, '#/');
+    await settle();
+    for (const [i, ref] of secondRefs.entries()) assert.equal(await collected(ref), true, `leaving the view lets its areas go (${i})`);
   });
 });
 

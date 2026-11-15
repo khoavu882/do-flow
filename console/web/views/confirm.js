@@ -182,7 +182,7 @@ function openConfirm(spec, options = {}) {
     if (active === handle) active = null;
     root.remove();
     // The opener while it is on the page; else, as keys.js's help list does, `#main` and then the view heading (162 review B-5).
-    const back = opener && opener !== doc.body && typeof opener.focus === 'function' && doc.body.contains(opener) ? opener : doc.getElementById('main') ?? doc.querySelector('h1');
+    const back = opener && opener !== doc.body && typeof opener.focus === 'function' && opener.isConnected === true ? opener : doc.getElementById('main') ?? doc.querySelector('h1');
     if (back && typeof back.focus === 'function') back.focus();
     if (typeof options.onClose === 'function') options.onClose(state);
   }
@@ -254,12 +254,15 @@ const areas = new Set();
 /** @type {(() => void) | null} */
 let stopListening = null;
 
-/** Repaints every area still on the page when the page learns what it may do; one that was taken off the page is dropped. */
+/** Forgets every area taken off the page: the shell runs it after each paint, so a long-open page holds no detached node. */
+function pruneActionAreas() {
+  for (const area of [...areas]) if (area.el.isConnected === false) areas.delete(area);
+}
+
+/** Repaints every area still on the page when the page learns what it may do. */
 function paintAreas() {
-  for (const area of [...areas]) {
-    if (area.el.isConnected === false) areas.delete(area);
-    else area.paint();
-  }
+  pruneActionAreas();
+  for (const area of areas) area.paint();
 }
 
 /**
@@ -314,4 +317,4 @@ function notAllowedLine(ids) {
   return null;
 }
 
-export { newRequestId, onRefetch, openConfirm, closeConfirm, isConfirmOpen, actionArea, releaseActionAreas, actionButton, notAllowedLine };
+export { newRequestId, onRefetch, openConfirm, closeConfirm, isConfirmOpen, actionArea, pruneActionAreas, releaseActionAreas, actionButton, notAllowedLine };

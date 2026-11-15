@@ -18,7 +18,7 @@ import {
 import { parsePairFragment, createPairPage } from './views/pair.js';
 import { CORE_RANGE, MANAGE_VIEWS, parseRoute, hashFor, baseRoute, titleFor, navFor } from './views.js';
 import { createInspector, hidePanel } from './shell.js';
-import { onRefetch, closeConfirm, isConfirmOpen } from './views/confirm.js';
+import { onRefetch, closeConfirm, isConfirmOpen, pruneActionAreas, releaseActionAreas } from './views/confirm.js';
 import { readTheme, applyTheme, setupThemeControl } from './theme.js';
 import { attentionModel, attentionWords, currentProject } from './derive/attention.js';
 
@@ -314,6 +314,7 @@ function paint(view) {
       main.removeAttribute('aria-busy');
       if (focusWasIn) focusHeading();
       refreshStatus();
+      pruneActionAreas();
     }
     return;
   }
@@ -338,6 +339,7 @@ function paint(view) {
     const hadFocus = view.body.contains(before) || inPanel;
     const focusKey = focusKeyOf(before);
     mount(view.body, next.nodes());
+    pruneActionAreas();
     view.painted = next.key;
     const after = document.activeElement;
     const kept = view.body.contains(after) || (inPanel && after === before && panel.contains(after));
@@ -506,6 +508,7 @@ function teardownView() {
   if (view.poller) view.poller.stop();
   if (view.skeletonTimer) globalThis.clearTimeout(view.skeletonTimer);
   if (view.holdTimer) globalThis.clearTimeout(view.holdTimer);
+  releaseActionAreas();
   if (app.banner) {
     app.banner.node.remove();
     app.banner = null;
@@ -809,6 +812,7 @@ function onData(view, body, heartbeat) {
     if (changed && spec.live === true && view.painted === loadedKey(view) && view.root && mainEl().contains(view.root) && !spec.isEmpty(body, view.route.params)) {
       // A live view is patched, never re-mounted (N-6).
       spec.update(view.local, body, view.route.params);
+      pruneActionAreas();
       updateMeta(view);
       refreshStatus();
     } else if (changed) paint(view);

@@ -90,6 +90,7 @@ class El {
   }
   remove() { if (this.parent) { this.parent.children.splice(this.parent.children.indexOf(this), 1); this.parent = null; } }
   contains(node: any): boolean { for (let n = node; n; n = n.parent) if (n === this) return true; return false; }
+  get isConnected(): boolean { return doc.body.contains(this); }
   setAttribute(name: string, value: string) { this.attrs.set(name, String(value)); }
   getAttribute(name: string) { return this.attrs.has(name) ? this.attrs.get(name) : null; }
   hasAttribute(name: string) { return this.attrs.has(name); }
