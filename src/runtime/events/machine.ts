@@ -91,6 +91,7 @@ function orchestrationActivity(entry: { main: string; checkouts: string[] }): { 
       gateId: gate.gateId,
       name: gateName(gate.name, gate.gateId),
       recordAt: isoOrNull(record.updatedAt),
+      revision: record.revision || 0,
     });
   }
   const time = (g: any) => (g.recordAt === null ? -Infinity : Date.parse(g.recordAt));
