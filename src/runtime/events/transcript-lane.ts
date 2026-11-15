@@ -19,16 +19,28 @@
 //
 // The cursor lives in this lane: a new child (a restart) reads a fresh snapshot, so its appends continue
 // from that snapshot's cursor and no event is in both. The transcript file is the detector's one tail
-// while it changed in the last TAIL_ACTIVE_MS. Read-only: no file is written or locked, and the tree
+// while it changed in the last TAIL_ACTIVE_MS (section `transcript`). The record events come from the
+// resolution (`internal.records`), so the stores they derive from are watched as section `records`
+// (review 5, 10): each checkout's `.doflow/state/{worker-runs,task-attempts,dispatch}`, the hook
+// sessions directory and, for a main session, its own session directory. A change there resolves the
+// agent again at once, at most once per RECORDS_THROTTLE_MS. Worst case from a record write to its
+// event: the 1 s fingerprint pass when no watch event comes, plus that throttle window and the 25 ms
+// debounce, about 2 s (one watch event and the debounce when the watch works). Read-only: no file is written or locked, and the tree
 // build runs no git process (the project index replays its checkout list).
 
 const { resolveAgent, readResolved } = require('../transcripts/read.ts');
 const { clearCheckoutCache, listCheckouts } = require('../checkouts.ts');
+const path = require('node:path');
 const { CATCHUP_FRAMES } = require('./logs.ts');
 const { TAIL_ACTIVE_MS, RESOLVE_MS } = require('./files.ts');
 
 /** The events one read returns at most (IC-005). */
 const READ_LIMIT = 200;
+/** A change in the record stores resolves the agent again at most once per this many ms. */
+const RECORDS_THROTTLE_MS = 1000;
+const JSON_RECORD = /\.json$/;
+const SESSION_ENTRY = /^[A-Za-z0-9]/;
+const SESSION_DIR = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
 type TranscriptChannel = { kind: 'transcript'; name: string; projectKey: string; agentKey: string };
 type Resolution = 'ok' | 'gone' | 'unlinked' | 'failed';
@@ -91,6 +103,21 @@ function createTranscriptLane(options: TranscriptLaneOptions): any {
     return found.error === 'session-not-in-project' ? 'unlinked' : 'failed';
   }
 
+  /** The stores this agent's record events derive from (fleet/tree.ts), as section `records`. */
+  function recordDirs(): Array<{ path: string; match: RegExp; sections: string[] }> {
+    const entry = index.lookup(channel.projectKey);
+    if (entry === null) return [];
+    const dirs = entry.checkouts.flatMap((root: string) => ['worker-runs', 'task-attempts', 'dispatch']
+      .map((store) => ({ path: path.join(root, '.doflow', 'state', store), match: JSON_RECORD, sections: ['records'] })));
+    const sessions = index.sessionsDir();
+    if (sessions !== null) {
+      dirs.push({ path: sessions, match: SESSION_ENTRY, sections: ['records'] });
+      const own = resolved !== null && typeof resolved.internal?.sessionId === 'string' ? resolved.internal.sessionId : null;
+      if (own !== null && SESSION_DIR.test(own)) dirs.push({ path: path.join(sessions, own), match: /^[^.]/, sections: ['records'] });
+    }
+    return dirs;
+  }
+
   const fileOf = (): string | null => (resolved !== null && typeof resolved.internal?.file === 'string' ? resolved.internal.file : null);
 
   function active(): boolean {
@@ -122,22 +149,24 @@ function createTranscriptLane(options: TranscriptLaneOptions): any {
   return {
     channel,
 
-    /** The transcript file as the detector's one tail (none while the agent has no linked transcript). */
+    /** The record stores (section `records`) and the transcript file as the detector's one tail (section `transcript`). */
     sources() {
       if (status === null) status = resolve();
       const file = fileOf();
       return {
-        directories: [], files: [], derived: [], primary: null,
-        tails: file === null ? [] : [{ path: file, active: () => !done && active() }],
+        directories: recordDirs(), files: [], derived: [], primary: null,
+        tails: file === null ? [] : [{ path: file, sections: ['transcript'], active: () => !done && active() }],
+        policies: { records: { throttleMs: RECORDS_THROTTLE_MS } },
       };
     },
 
-    /** Moves when a new resolution finds another file, so the command swaps the lane's tail. */
-    sourcesKey: () => fileOf() ?? '',
+    /** Moves when a new resolution finds another file or another set of record stores, so the command swaps the lane's sources. */
+    sourcesKey: () => JSON.stringify([fileOf() ?? '', recordDirs().map((d) => d.path)]),
 
-    recompute(snapshotAsked: boolean): LaneStep {
+    recompute(snapshotAsked: boolean, request?: { scope?: string; sections?: readonly string[] }): LaneStep {
       if (done) return { lines: [] };
-      if (status === null || now() - resolvedAt >= RESOLVE_MS) status = resolve();
+      const recordsMoved = request?.scope === 'sections' && (request.sections ?? []).includes('records');
+      if (status === null || recordsMoved || now() - resolvedAt >= RESOLVE_MS) status = resolve();
       if (status === 'gone') return gone();
       if (status === 'failed') return fail();
       const owe = snapshotAsked || mode === null || writer.needsSnapshot(ch);

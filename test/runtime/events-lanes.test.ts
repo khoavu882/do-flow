@@ -123,6 +123,10 @@ function indexFor(f: any, cwd: string, now: () => number = Date.now) {
   return createProjectsIndex({ env: f.env, cwd, now, tempRoots: [], scratchName: SCRATCH });
 }
 
+function auditLine(event: string, sessionId: string, agentId: string): string {
+  return `${JSON.stringify({ timestamp: new Date().toISOString().replace(/\.\d+Z$/, 'Z'), session_id: sessionId, event, agent_type: 'Explore', agent_id: agentId })}\n`;
+}
+
 /** A hook session as the hooks leave it: a model observation at the checkout and a session directory with its git context. */
 function session(f: any, rawId: string, cwd: string): void {
   const dir = path.join(f.store, 'primary', cwdHash(cwd), 'claude');
@@ -497,6 +501,53 @@ test('161 T5 IC-005: an agent that leaves the project tree is gone at the next 3
 });
 
 // ── the writer's transcript frames ───────────────────────────────────────────────────────────────────
+
+/** Writes a worker-runs store as the supervisor does (temp file, then rename). */
+function workerStore(root: string, runs: Record<string, any>, revision: number): void {
+  const file = path.join(root, '.doflow', 'state', 'worker-runs', 'feat-w.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(`${file}.tmp`, JSON.stringify({ version: 1, revision, slug: 'feat-w', runs }));
+  fs.renameSync(`${file}.tmp`, file);
+}
+
+test('161 review 5: a record-only transcript (a worker run, no linked transcript) shows the run end within the 1 s pass, not the 30 s one', { skip: WIN }, async (t) => {
+  const f = fixture(t);
+  const a = project(f, 'proj-a');
+  const runId = 'w-0123456789ab';
+  const run = { runId, task: 'T-1', token: 1, phase: 'ended', seq: 1, harness: 'claude', startedAt: '2026-11-15T09:00:00.000Z' };
+  workerStore(a, { [runId]: run }, 1);
+  const ch = `transcript:${cwdHash(a)}:${sha16(`worker:${runId}`)}`;
+  const h = start(t, f, a);
+  h.stdin.json('sub', ch);
+  await settle();
+  const records = (frames: any[]) => frames.flatMap((x: any) => x.data.events ?? []).filter((e: any) => e.kind === 'record').map((e: any) => e.record.type);
+  assert.deepEqual(h.of(ch).map((x: any) => x.type), ['snapshot'], h.stdout.text + h.stderr.text);
+  assert.deepEqual(records(h.of(ch)), ['worker-run-start']);
+  workerStore(a, { [runId]: { ...run, seq: 2, end: { state: 'exited', at: '2026-11-15T09:05:00.000Z' } } }, 2);
+  await h.clock.advance(PASS_MS + DEBOUNCE_MS);
+  assert.deepEqual(records(h.of(ch)), ['worker-run-start', 'worker-run-end'], 'the end arrives within one fingerprint pass');
+  assert.equal(await h.end(), 0);
+});
+
+test('161 review 10: an events-only transcript (a main session with no transcript file) shows a new hook record within the 1 s pass', { skip: WIN }, async (t) => {
+  const f = fixture(t);
+  const a = project(f, 'proj-a');
+  session(f, RAW, a); // no transcript file is written: the session's events are its hook records
+  const h = start(t, f, a);
+  h.stdin.json('sub', `transcript:${cwdHash(a)}:${AK}`);
+  await settle();
+  const ch = `transcript:${cwdHash(a)}:${AK}`;
+  const hooks = () => h.of(ch).flatMap((x: any) => x.data.events ?? []).filter((e: any) => e.kind === 'record' && e.record.type === 'hook-record').length;
+  assert.equal(h.of(ch)[0].type, 'snapshot', h.stdout.text + h.stderr.text);
+  const before = hooks();
+  const later = new Date(h.clock.now() + 1000);
+  const note = path.join(f.sessions, RAW, 'subagent-audit.log');
+  fs.appendFileSync(note, auditLine('SubagentStart', RAW, 'agent-1'));
+  fs.utimesSync(note, later, later);
+  await h.clock.advance(PASS_MS + DEBOUNCE_MS);
+  assert.equal(hooks(), before + 1, 'one new hook record within one fingerprint pass');
+  assert.equal(await h.end(), 0);
+});
 
 test('161 T5 IC-005: the writer drops the oldest events of a snapshot over the line cap and splits an append between events', () => {
   const writer = createEnvelopeWriter({ epoch: '0a1b2c3d', clock: () => 1790000000000 });

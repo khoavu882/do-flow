@@ -256,9 +256,9 @@ function handleEventsCommand(options: EventsOptions = {}): Promise<number> {
       queue = queue.then(() => (stopped ? undefined : fn())).catch(fault);
     }
 
-    /** 150 IC-008: a log channel's recompute is its subscription's decision. */
+    /** 150 IC-008: a log channel's recompute is its subscription's decision; 161: the request says which of its sources moved. */
     function recomputeLog(ch: string, sub: any, request: any): void {
-      const step = sub.recompute(request.snapshot === true);
+      const step = sub.recompute(request.snapshot === true, request);
       if (specs.get(ch) !== sub || stopped) return;
       emit(step.lines);
       if (step.gone) {
