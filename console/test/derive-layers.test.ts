@@ -40,7 +40,7 @@ const bad = (code: string) => ({ ok: false, code });
 function node(over: any = {}): any {
   return {
     agentKey: 'aa11bb22cc33dd44', kind: 'main-session', harness: 'claude', model: 'claude-opus-5-5', modelBasis: 'hook-observation', label: null, depth: 0,
-    worktreeKey: WK, startedAt: '2026-11-15T08:00:00.000Z', lastRecordAt: '2026-11-15T09:00:00.000Z', liveness: 'not-checked', ended: null,
+    worktreeKey: WK, startedAt: null, contextCapturedAt: '2026-11-15T08:00:00.000Z', lastRecordAt: '2026-11-15T09:00:00.000Z', liveness: 'not-checked', ended: null,
     transcript: { reader: 'claude-jsonl', linked: true, reason: null }, ...over,
   };
 }

@@ -2774,7 +2774,7 @@ test('E.4 hostile text: a task id and an owner in the replay banner reach the pa
 const sk = (n: number) => n.toString(16).padStart(16, '0');
 const sCheckout = (n: number, over: any = {}) => ({ worktreeKey: sk(n), role: n === 1 ? 'main' : 'linked', current: n === 1, branch: `feat-${n}`, head: 'abcdef012345', headCommittedAt: null, ...over });
 const sHook = (n: number, wk: number, over: any = {}) => ({
-  sessionKey: sk(100 + n), worktreeKey: sk(wk), kind: 'hook', harness: 'codex', model: 'gpt-6-luna', modelFirstSeenAt: agoIso(3 * 60 * MIN_MS), startedAt: agoIso(3 * 60 * MIN_MS),
+  sessionKey: sk(100 + n), worktreeKey: sk(wk), kind: 'hook', harness: 'codex', model: 'gpt-6-luna', modelFirstSeenAt: agoIso(3 * 60 * MIN_MS), contextCapturedAt: agoIso(3 * 60 * MIN_MS),
   branchAtStart: null, lastHookRecordAt: agoIso(60 * MIN_MS), launched: null, ...over,
 });
 const sAttempt = (token: number, task: string, over: any = {}) => ({ task, token, owner: 'core-implementer', mode: 'subagent', state: 'active', startedAt: agoIso(30 * MIN_MS), endedAt: null, result: null, worktreeKey: sk(1), run: 'local', lineage: 'main', ...over });
@@ -2834,7 +2834,7 @@ test('E.7 sessions: rows run current, conflict, records, none; conflicts lead in
   assert.equal(srowOf(page, 'feat-1').getAttribute('data-conflict'), 'true', 'the overlap is held in the main checkout too');
   // Lanes: the hook session is recorded only, never live; the dead lock is stale with a word.
   const hook = slaneOf(page, `hook:${sk(101)}`);
-  assert.match(hook.getAttribute('aria-label'), /^Hook session, codex, model gpt-6-luna, started \d\d:\d\d, last hook record \d\d:\d\d, holds nothing, checkout feat-1$/);
+  assert.match(hook.getAttribute('aria-label'), /^Hook session, codex, model gpt-6-luna, context captured \d\d:\d\d, last hook record \d\d:\d\d, holds nothing, checkout feat-1$/);
   assert.equal(hook.getAttribute('data-state'), 'unknown');
   assert.equal(hook.querySelector('.slane__mark').getAttribute('data-mark'), 'recorded');
   assert.equal(text(hook.querySelector('.slane__state')), 'Recorded only');
@@ -3177,7 +3177,7 @@ const machineBody = (gates: any[] = [], over: any = {}) => ({
 });
 const lnode = (key: string, over: any = {}) => ({
   agentKey: key, kind: 'main-session', harness: 'claude', model: 'model-a', modelBasis: 'hook-observation', label: null, depth: 0, worktreeKey: WK_MAIN,
-  startedAt: AT(90), lastRecordAt: AT(3), liveness: 'not-checked', ended: null, transcript: { reader: 'claude-jsonl', linked: true, reason: null }, ...over,
+  startedAt: null, contextCapturedAt: AT(90), lastRecordAt: AT(3), liveness: 'not-checked', ended: null, transcript: { reader: 'claude-jsonl', linked: true, reason: null }, ...over,
 });
 const never = { observed: false, reason: 'no-audit-hook' };
 const layersBody = (over: any = {}) => ({

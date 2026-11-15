@@ -62,7 +62,7 @@ function observedLines(body: any): string[] {
     ...body.checkouts.map((c: any) => `checkout ${c.worktreeKey} ${c.role}${c.current ? ' current' : ''} ${c.branch === null ? 'detached' : c.branch} ${dash(c.head)} ${dash(c.headCommittedAt)}`),
     ...body.sessions.map((s: any) => {
       const unit = s.launched ? ` L.${s.launched.run}.${s.launched.lineage}.${s.launched.attempt}` : '';
-      return `session ${s.sessionKey} ${s.worktreeKey} ${s.kind}${unit} harness ${dash(s.harness)} model ${dash(s.model)} context-captured ${dash(s.startedAt)} last-hook-record ${dash(s.lastHookRecordAt)}`;
+      return `session ${s.sessionKey} ${s.worktreeKey} ${s.kind}${unit} harness ${dash(s.harness)} model ${dash(s.model)} context-captured ${dash(s.contextCapturedAt)} last-hook-record ${dash(s.lastHookRecordAt)}`;
     }),
     ...(body.truncated ? ['truncated: true'] : []),
     ...(body.unreadable > 0 ? [`unreadable: ${body.unreadable}`] : []),

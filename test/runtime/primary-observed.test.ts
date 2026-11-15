@@ -138,7 +138,7 @@ function cli(f: any, args: string[], { cwd = f.main, env = baseEnv(f) }: any = {
 }
 
 const CHECKOUT_KEYS = ['worktreeKey', 'role', 'current', 'branch', 'head', 'headCommittedAt'];
-const SESSION_KEYS = ['sessionKey', 'worktreeKey', 'kind', 'harness', 'model', 'modelFirstSeenAt', 'startedAt', 'branchAtStart', 'lastHookRecordAt', 'launched'];
+const SESSION_KEYS = ['sessionKey', 'worktreeKey', 'kind', 'harness', 'model', 'modelFirstSeenAt', 'contextCapturedAt', 'branchAtStart', 'lastHookRecordAt', 'launched'];
 
 HOOK_TEST('observed lists the checkouts and joins hook records by session key (IC-018 a)', (t) => {
   const f = fixture(t);
@@ -168,17 +168,17 @@ HOOK_TEST('observed lists the checkouts and joins hook records by session key (I
   const newest = (dir: string) => new Date(Math.max(...fs.readdirSync(dir).map((n: string) => fs.lstatSync(path.join(dir, n))).filter((s: any) => s.isFile()).map((s: any) => s.mtimeMs))).toISOString();
   assert.deepEqual(sessions[sessionKey(S1)], {
     sessionKey: sessionKey(S1), worktreeKey: cwdHash(f.linked), kind: 'hook', harness: 'claude', model: 'claude-sonnet-4',
-    modelFirstSeenAt: obs1.observedAt, startedAt: ctx1.captured_at, branchAtStart: 'feat-x',
+    modelFirstSeenAt: obs1.observedAt, contextCapturedAt: ctx1.captured_at, branchAtStart: 'feat-x',
     lastHookRecordAt: newest(path.join(f.store, 'sessions', S1)), launched: null,
   });
   const obs2 = JSON.parse(fs.readFileSync(path.join(f.store, 'primary', cwdHash(f.main), 'claude', `${sessionKey(S2)}.json`), 'utf8'));
   assert.deepEqual(sessions[sessionKey(S2)], {
     sessionKey: sessionKey(S2), worktreeKey: cwdHash(f.main), kind: 'hook', harness: 'claude', model: 'claude-opus-4',
-    modelFirstSeenAt: obs2.observedAt, startedAt: null, branchAtStart: null, lastHookRecordAt: null, launched: null,
+    modelFirstSeenAt: obs2.observedAt, contextCapturedAt: null, branchAtStart: null, lastHookRecordAt: null, launched: null,
   });
   assert.deepEqual(sessions[sessionKey(LAUNCHED)], {
     sessionKey: sessionKey(LAUNCHED), worktreeKey: cwdHash(f.detached), kind: 'launched', harness: null, model: null,
-    modelFirstSeenAt: null, startedAt: '2026-01-03T00:00:00Z', branchAtStart: null,
+    modelFirstSeenAt: null, contextCapturedAt: '2026-01-03T00:00:00Z', branchAtStart: null,
     lastHookRecordAt: newest(path.join(f.store, 'sessions', LAUNCHED)), launched: { run: 'r9', lineage: 'lin2', attempt: '3' },
   });
 

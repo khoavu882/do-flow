@@ -140,7 +140,7 @@ function buildTree({
       if (nodes.size >= MAX_NODES) { counts.notChecked += 1; return null; }
       n = {
         agentKey, kind: null, harness: null, model: null, modelBasis: null, label: null, depth: 0, worktreeKey: projectKey,
-        startedAt: null, lastRecordAt: null, liveness: 'not-checked', ended: null, transcript: { reader: null, linked: false, reason: 'no-reader' },
+        startedAt: null, contextCapturedAt: null, lastRecordAt: null, liveness: 'not-checked', ended: null, transcript: { reader: null, linked: false, reason: 'no-reader' },
         ...fields,
       };
       nodes.set(agentKey, n);
@@ -221,13 +221,13 @@ function buildTree({
     const companion = file && harness === 'kiro' ? file.replace(/\.jsonl$/, '.json') : undefined;
     const n = node(agentKey, {
       kind: 'main-session', harness, model: label(s.model), modelBasis: s.model ? 'hook-observation' : null, worktreeKey: s.worktreeKey,
-      startedAt: s.startedAt, lastRecordAt: (file && harness && lastAt(harness, file, companion)) || s.lastHookRecordAt,
+      contextCapturedAt: s.contextCapturedAt, lastRecordAt: (file && harness && lastAt(harness, file, companion)) || s.lastHookRecordAt,
       transcript: transcriptOf(harness, file),
     }, { harness, sessionId: rawId, file, companion });
     if (n) {
       mains.push({ n, harness, rawId, file });
-      if (s.startedAt) note(n, 'records', { type: 'hook-record', at: s.startedAt, task: null, result: null });
-      if (s.lastHookRecordAt && s.lastHookRecordAt !== s.startedAt) note(n, 'records', { type: 'hook-record', at: s.lastHookRecordAt, task: null, result: null });
+      if (s.contextCapturedAt) note(n, 'records', { type: 'hook-record', at: s.contextCapturedAt, task: null, result: null });
+      if (s.lastHookRecordAt && s.lastHookRecordAt !== s.contextCapturedAt) note(n, 'records', { type: 'hook-record', at: s.lastHookRecordAt, task: null, result: null });
     }
   }
 
