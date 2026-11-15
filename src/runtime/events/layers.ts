@@ -39,6 +39,7 @@ const { isSafeSlug } = require('../task-scope.ts');
 const { isChannelId } = require('./channels.ts');
 const { scanArtifacts, artifactDirs } = require('./artifacts.ts');
 const { coverageBody, AUDIT } = require('./coverage.ts');
+const { openConfined, readConfined } = require('./confined.ts');
 
 type Env = Record<string, string | undefined>;
 type SectionResult = { exit: number; json: any };
@@ -148,7 +149,7 @@ function gatesSection(entry: Entry): SectionResult {
  * The review record of a feature directory: absent, unreadable (`review` not a real directory, the
  * record not a regular file, or not JSON), invalid, or its counts.
  */
-function reviewOf(dir: string, fsImpl: any): { state: string; counts?: any } {
+function reviewOf(checkout: string, dir: string, fsImpl: any): { state: string; counts?: any } {
   const file = path.join(dir, 'review', 'findings.json');
   let st: any;
   try {
@@ -157,7 +158,7 @@ function reviewOf(dir: string, fsImpl: any): { state: string; counts?: any } {
   } catch (error: any) { return { state: error && error.code === 'ENOENT' ? 'absent' : 'unreadable' }; }
   if (!st.isFile()) return { state: 'unreadable' };
   let doc: any;
-  try { doc = JSON.parse(fsImpl.readFileSync(file, 'utf8')); } catch { return { state: 'unreadable' }; }
+  try { doc = JSON.parse((readConfined(checkout, file, fsImpl) as Buffer).toString('utf8')); } catch { return { state: 'unreadable' }; }
   let counts: any;
   try { counts = countFindings(doc); } catch { counts = null; }
   if (counts === null) return { state: 'invalid' };
@@ -181,21 +182,22 @@ function reviewsSection(entry: Entry, fsImpl: any): SectionResult {
       try { const st = fsImpl.lstatSync(dir); if (!st.isDirectory()) continue; ms = st.mtimeMs; } catch { continue; }
       const file = path.join(dir, 'review', 'findings.json');
       try { ms = Math.max(ms, fsImpl.lstatSync(file).mtimeMs); } catch { /* absent */ }
-      rows.push({ ms, row: { worktreeKey: cwdHash(checkout), feature, ...reviewOf(dir, fsImpl) } });
+      rows.push({ ms, row: { worktreeKey: cwdHash(checkout), feature, ...reviewOf(checkout, dir, fsImpl) } });
     }
   }
   rows.sort((a, b) => b.ms - a.ms || (a.row.feature < b.row.feature ? -1 : a.row.feature > b.row.feature ? 1 : 0));
   return ok(rows.slice(0, REVIEW_LIMIT).map((r) => r.row));
 }
 
-/** The last AUDIT_TAIL_BYTES of a regular file as whole lines, or null when it is absent or not a regular file. */
-function tailLines(file: string, fsImpl: any): string[] | null {
-  let st: any;
-  try { st = fsImpl.lstatSync(file); } catch { return null; }
-  if (!st.isFile()) return null;
+/**
+ * The last AUDIT_TAIL_BYTES of a regular file below `root` as whole lines, or null when it is absent or
+ * not a regular file (opened through `confined.ts`, so a link swapped in before the open is refused).
+ */
+function tailLines(root: string, file: string, fsImpl: any): string[] | null {
   try {
-    const fd = fsImpl.openSync(file, 'r');
+    const fd = openConfined(root, file, fsImpl);
     try {
+      const st = fsImpl.fstatSync(fd);
       const start = Math.max(0, st.size - AUDIT_TAIL_BYTES);
       const buf = Buffer.alloc(st.size - start);
       const n = fsImpl.readSync(fd, buf, 0, buf.length, start);
@@ -214,8 +216,8 @@ const jsonLine = (line: string): any => {
 const text = (value: unknown): string | null => (typeof value === 'string' && value !== '' ? value : null);
 
 /** A `subagent-audit.log`: start and stop counts, the ids still open, and the newest AUDIT_RECENT lines with their tree agentKey. */
-function auditOf(file: string, harness: string | null, fsImpl: any): any {
-  const lines = tailLines(file, fsImpl);
+function auditOf(root: string, file: string, harness: string | null, fsImpl: any): any {
+  const lines = tailLines(root, file, fsImpl);
   if (lines === null) {
     if (harness !== null && AUDIT.subagents.includes(harness)) return { observed: true, open: 0, started: 0, stopped: 0, recent: [] };
     return { observed: false, reason: harness === null ? 'harness-not-recorded' : 'no-audit-hook' };
@@ -239,8 +241,8 @@ function auditOf(file: string, harness: string | null, fsImpl: any): any {
 }
 
 /** A `permission-audit.log` (D8, "permission refused"): the count and the newest DENIAL_RECENT. */
-function denialsOf(file: string, harness: string | null, fsImpl: any): any {
-  const lines = tailLines(file, fsImpl);
+function denialsOf(root: string, file: string, harness: string | null, fsImpl: any): any {
+  const lines = tailLines(root, file, fsImpl);
   if (lines === null) {
     if (harness !== null && AUDIT.permissions.includes(harness)) return { observed: true, count: 0, recent: [] };
     return { observed: false, reason: 'no-harness-record' };
@@ -256,28 +258,31 @@ function denialsOf(file: string, harness: string | null, fsImpl: any): any {
 }
 
 /** The project's SESSION_LIMIT newest hook sessions (observedSessions order) with the directory each one's id names. */
-function shownSessions(entry: Entry, env: Env, index: any, fsImpl: any): { ok: boolean; sessions: Array<{ s: any; dir: string | null }> } {
+type Shown = { ok: boolean; root: string | null; sessions: Array<{ s: any; dir: string | null }> };
+
+function shownSessions(entry: Entry, env: Env, index: any, fsImpl: any): Shown {
   const root = stateDir(env);
   let answer: any;
   try { answer = observedSessions({ env, cwd: entry.main, exec: index.replay, now: () => index.now(), fsImpl }); } catch { answer = { ok: false }; }
-  if (!answer || !answer.ok) return { ok: false, sessions: [] };
+  if (!answer || !answer.ok) return { ok: false, root, sessions: [] };
   const dirs = new Map<string, string>();
   if (root !== null) {
     try { for (const name of fsImpl.readdirSync(path.join(root, 'sessions')).map(String)) if (SESSION_DIR.test(name)) dirs.set(sha16(name), path.join(root, 'sessions', name)); } catch { /* none */ }
   }
   const sessions = (answer.body.sessions as any[]).filter((s) => s.kind === 'hook').slice(0, SESSION_LIMIT);
-  return { ok: true, sessions: sessions.map((s) => ({ s, dir: dirs.get(s.sessionKey) ?? null })) };
+  return { ok: true, root, sessions: sessions.map((s) => ({ s, dir: dirs.get(s.sessionKey) ?? null })) };
 }
 
-function sessionsSection(shown: { ok: boolean; sessions: Array<{ s: any; dir: string | null }> }, fsImpl: any): SectionResult {
+function sessionsSection(shown: Shown, fsImpl: any): SectionResult {
   if (!shown.ok) return failed('cannot-list-checkouts');
+  const root = shown.root as string; // a session directory is only found under the state home
   return ok(shown.sessions.map(({ s, dir }) => {
     const harness = typeof s.harness === 'string' ? s.harness : null;
     return {
       sessionKey: s.sessionKey,
       harness,
-      audit: dir === null ? { observed: false, reason: 'no-session-dir' } : auditOf(path.join(dir, AUDIT_FILE), harness, fsImpl),
-      denials: dir === null ? { observed: false, reason: 'no-session-dir' } : denialsOf(path.join(dir, DENIAL_FILE), harness, fsImpl),
+      audit: dir === null ? { observed: false, reason: 'no-session-dir' } : auditOf(root, path.join(dir, AUDIT_FILE), harness, fsImpl),
+      denials: dir === null ? { observed: false, reason: 'no-session-dir' } : denialsOf(root, path.join(dir, DENIAL_FILE), harness, fsImpl),
     };
   }));
 }

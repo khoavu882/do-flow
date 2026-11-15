@@ -16,16 +16,19 @@
 //   5. bytes past the cursor: `forward` reads, at most CATCHUP_FRAMES appends, then a re-mark
 //
 // The listing is checked again when the last check is RESOLVE_MS old (the detector's 30 s pass always
-// finds it so) and whenever the file cannot be opened. Ceiling: a file pushed out of the 64 newest
-// artifacts, or turned into a link, stays followed for at most that long. Reads go through
-// `readLogPage` (masking, bounded pages). A worker log is read to its last newline while it is active;
+// finds it so), before every snapshot, on another inode, and whenever the file cannot be opened.
+// Ceiling: a file pushed out of the 64 newest artifacts stays followed for at most RESOLVE_MS. Every
+// read opens the file through `confined.ts` under its checkout: a link anywhere on the way, or a file
+// swapped between the check and the open, reads as absent, so the listing is checked again and a
+// link (never listed) is `gone`. Reads go through `readLogPage` (masking, bounded pages). A worker log is read to its last newline while it is active;
 // every other file, and a worker log idle for TAIL_ACTIVE_MS, to its last byte, so a brief with no final
-// newline shows whole. Read-only: opened with flag 'r'; no file is created, written or locked.
+// newline shows whole. Read-only: opened O_RDONLY (with O_NOFOLLOW); no file is created, written or locked.
 
 const fs = require('node:fs');
 const path = require('node:path');
 const { readLogPage } = require('../worker/log-read.ts');
 const { findArtifact } = require('./artifacts.ts');
+const { confinedReader } = require('./confined.ts');
 const { CATCHUP_FRAMES } = require('./logs.ts');
 
 /** The 250 ms log pass reads a file while it changed in the last 10 minutes. */
@@ -65,7 +68,7 @@ function createFileLane(options: FileLaneOptions): any {
   const now = options.now ?? Date.now;
   const ch = channel.name;
 
-  let found: { path: string; kind: string } | null = null;
+  let found: { path: string; kind: string; root: string } | null = null;
   let resolvedAt = -Infinity;
   let done = false;
   /** What the last snapshot said; null while a snapshot is owed. */
@@ -98,9 +101,10 @@ function createFileLane(options: FileLaneOptions): any {
   }
 
   function read(mode: 'tail' | 'forward'): Page {
-    const file = (found as { path: string; kind: string });
+    const file = (found as { path: string; kind: string; root: string });
     const final = !file.kind.startsWith('worker-') || !active();
-    return readLogPage(mode === 'tail' ? { file: file.path, mode, final, fsImpl } : { file: file.path, mode, offset: cursor, ino: ino as string, final, fsImpl });
+    const via = confinedReader(file.root, fsImpl);
+    return readLogPage(mode === 'tail' ? { file: file.path, mode, final, fsImpl: via } : { file: file.path, mode, offset: cursor, ino: ino as string, final, fsImpl: via });
   }
 
   function snapshot(log: 'open' | 'none', page: Page | null): string[] {
@@ -155,10 +159,10 @@ function createFileLane(options: FileLaneOptions): any {
 
     recompute(snapshotAsked: boolean): LaneStep {
       if (done) return { lines: [] };
-      if (found === null || now() - resolvedAt >= RESOLVE_MS) {
+      const owe = snapshotAsked || lastLog === null || writer.needsSnapshot(ch);
+      if (found === null || owe || now() - resolvedAt >= RESOLVE_MS) {
         if (!resolve()) return gone();
       }
-      const owe = snapshotAsked || lastLog === null || writer.needsSnapshot(ch);
       let page: Page;
       try {
         page = read(!owe && lastLog === 'open' && ino !== null ? 'forward' : 'tail');
@@ -174,7 +178,10 @@ function createFileLane(options: FileLaneOptions): any {
         return { lines: lastLog === 'none' && !owe ? [] : snapshot('none', null) };
       }
       if (owe || lastLog !== 'open') return { lines: snapshot('open', page) };
-      if (page.reset) return { lines: [...writer.reset(ch, 'replaced'), ...snapshot('open', page)] };
+      if (page.reset) {
+        if (!resolve()) return gone(); // another inode: listed again before it is served
+        return { lines: [...writer.reset(ch, 'replaced'), ...snapshot('open', page)] };
+      }
       return catchUp(page);
     },
 

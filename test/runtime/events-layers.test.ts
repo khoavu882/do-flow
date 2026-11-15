@@ -324,7 +324,7 @@ test('161 IC-003, IC-004: artifacts list the ten kinds from regular files only; 
   assert.equal(worker.fileKey, fileKeyOf(linked, '.doflow/state/worker-output/w-0123456789ab.err.log'));
   for (const item of scan.items) assert.ok(!JSON.stringify(item).includes(root), 'no path in an item');
   const brief = scan.items.at(-1);
-  assert.deepEqual(findArtifact([main, linked], brief.fileKey), { path: path.join(exec, 'task-3-brief.md'), kind: 'task-brief' });
+  assert.deepEqual(findArtifact([main, linked], brief.fileKey), { path: path.join(exec, 'task-3-brief.md'), kind: 'task-brief', root: main });
   assert.equal(findArtifact([main, linked], fileKeyOf(main, 'agent-docs/doflow/161-x/exec/task-9-brief.md')), null, 'a link is never resolved');
   assert.equal(findArtifact([main, linked], fileKeyOf(linked, '.doflow/state/worker-output/w-0123456789ab.last.log')), null);
 });
@@ -378,6 +378,37 @@ test('161 IC-003, D8, AC-5: a codex audit line has agentKey null, an antigravity
     assert.deepEqual(Object.keys(row), ['harness', 'main', 'subagents', 'transcript', 'permissions', 'questions']);
     assert.deepEqual(row.questions, { observed: false, reason: 'no-harness-record' }, `${row.harness}: no harness records a question (D7)`);
   }
+});
+
+/** An fs whose next open (or read by name) of a key of `swaps` first swaps it for a link to its value, after every lstat the reader made. */
+function swapAtOpen(swaps: Map<string, string>): any {
+  const swap = (file: any) => {
+    const outside = typeof file === 'string' ? swaps.get(file) : undefined;
+    if (outside === undefined) return;
+    swaps.delete(file);
+    fs.renameSync(file, `${file}.moved`);
+    fs.symlinkSync(outside, file);
+  };
+  return {
+    ...fs,
+    openSync(file: any, flags: any, mode?: any) { swap(file); return fs.openSync(file, flags, mode); },
+    readFileSync(file: any, options?: any) { swap(file); return fs.readFileSync(file, options); },
+  };
+}
+
+test('161 review 1: a denial log and a findings.json swapped for links between the lstat and the open read nothing from outside', async (t) => {
+  const f = fixture(t);
+  const a = project(f, 'proj-l');
+  const claude = session(f, 'claude', 'sess-claude-l', a, Date.now());
+  const denials = write(path.join(claude, 'permission-audit.log'), `${JSON.stringify({ timestamp: '2026-11-15T01:00:00Z', tool_name: 'Bash', reason: 'inside the project, a line longer than the outside one' })}\n`);
+  const outsideLog = write(path.join(f.root, 'outside.log'), `${JSON.stringify({ timestamp: '2026-11-15T02:00:00Z', tool_name: 'Bash', reason: 'OUTSIDE-LINE' })}\n`);
+  const findings = write(path.join(a, 'agent-docs', 'doflow', '161-l', 'review', 'findings.json'), JSON.stringify({ schema: 2 }));
+  const outsideFindings = write(path.join(f.root, 'outside.json'), JSON.stringify({ schema: 1, row: '161', slug: '161-l', reviewedHead: '0123456789abcdef0123456789abcdef01234567', seats: [], converged: [] }));
+  const fsImpl = swapAtOpen(new Map([[denials, outsideLog], [findings, outsideFindings]]));
+  const spec = channelSpec(`layers:${cwdHash(a)}`, { cwd: a, env: f.env, index: indexFor(f, a), fsImpl });
+  const { sections } = await spec.compute(['sessions', 'reviews']);
+  assert.ok(!JSON.stringify(sections.sessions.json).includes('OUTSIDE-LINE'), JSON.stringify(sections.sessions.json));
+  assert.notEqual(sections.reviews.json.find((r: any) => r.feature === '161-l').state, 'ok', 'the outside findings are not counted');
 });
 
 /** The harnesses whose front door, wired in their own hook config under `events`, is a script that runs `policy`. */

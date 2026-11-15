@@ -61,7 +61,7 @@ interface Artifact {
   fileKey: string; kind: Kind; worktreeKey: string; feature: string | null;
   task?: string; group?: string; dispatchId?: string; runId?: string; bytes: number; at: string;
 }
-interface Scan { items: Artifact[]; files: Map<string, { path: string; kind: Kind }> }
+interface Scan { items: Artifact[]; files: Map<string, { path: string; kind: Kind; root: string }> }
 
 /**
  * The names in `checkout/<parts>` when every directory on the way down from the checkout is a real
@@ -112,11 +112,11 @@ function artifactDirs(checkouts: readonly string[], fsImpl: any = fs): { feature
 /**
  * Lists the artifacts of a project's checkouts (main first, as the project index lists them).
  * @param {string[]} checkouts absolute checkout roots
- * @returns {{items: Artifact[], files: Map<string, {path: string, kind: string}>}} at most
- *   ARTIFACT_LIMIT items, newest `at` first (then fileKey), and the same set as fileKey -> file.
+ * @returns {{items: Artifact[], files: Map<string, {path: string, kind: string, root: string}>}} at most
+ *   ARTIFACT_LIMIT items, newest `at` first (then fileKey), and the same set as fileKey -> file (with its checkout).
  */
 function scanArtifacts(checkouts: readonly string[], fsImpl: any = fs): Scan {
-  const found: Array<{ item: Artifact; file: string; ms: number }> = [];
+  const found: Array<{ item: Artifact; file: string; root: string; ms: number }> = [];
   const take = (checkout: string, parts: readonly string[], rules: readonly Rule[], feature: string | null): void => {
     const dir = path.join(checkout, ...parts);
     for (const name of names(checkout, parts, fsImpl)) {
@@ -133,7 +133,7 @@ function scanArtifacts(checkouts: readonly string[], fsImpl: any = fs): Scan {
         fileKey: sha16(`${checkout}\0${rel}`), kind: rule.kind, worktreeKey: cwdHash(checkout), feature,
         [rule.field]: value, bytes: st.size, at: new Date(st.mtimeMs).toISOString(),
       } as Artifact;
-      found.push({ item, file, ms: st.mtimeMs });
+      found.push({ item, file, root: checkout, ms: st.mtimeMs });
     }
   };
   for (const checkout of checkouts) {
@@ -143,14 +143,14 @@ function scanArtifacts(checkouts: readonly string[], fsImpl: any = fs): Scan {
   }
   found.sort((a, b) => b.ms - a.ms || (a.item.fileKey < b.item.fileKey ? -1 : a.item.fileKey > b.item.fileKey ? 1 : 0));
   const kept = found.slice(0, ARTIFACT_LIMIT);
-  return { items: kept.map((f) => f.item), files: new Map(kept.map((f) => [f.item.fileKey, { path: f.file, kind: f.item.kind }])) };
+  return { items: kept.map((f) => f.item), files: new Map(kept.map((f) => [f.item.fileKey, { path: f.file, kind: f.item.kind, root: f.root }])) };
 }
 
 /**
  * IC-004: the file a `file:<pk>:<fk>` lane may read: the one the project's current index lists
- * under `fileKey`, else null (the lane is then `gone`). The path never leaves the core.
+ * under `fileKey` with the checkout it is under, else null (the lane is then `gone`). The path never leaves the core.
  */
-function findArtifact(checkouts: readonly string[], fileKey: string, fsImpl: any = fs): { path: string; kind: Kind } | null {
+function findArtifact(checkouts: readonly string[], fileKey: string, fsImpl: any = fs): { path: string; kind: Kind; root: string } | null {
   return scanArtifacts(checkouts, fsImpl).files.get(fileKey) ?? null;
 }
 

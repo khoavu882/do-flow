@@ -18,7 +18,8 @@
 //   7. a change of `phase` or `end` with no new bytes: one append with no pieces
 //
 // Every read goes through `readLogPage` (IC-001) on the path `logFile` forms, so only
-// `<runId>.out.log` and `<runId>.err.log` can be opened and never `<runId>.last.log` (FR-012).
+// `<runId>.out.log` and `<runId>.err.log` can be opened and never `<runId>.last.log` (FR-012), and
+// opens it through `confined.ts` under the lifecycle root: a link on the way reads as absent.
 // `final` is IC-001's rule: the run has ended and its record holds the stream's output pointer.
 // The record rules of 149 (version, torn store, replaced, record gone) stay the detector's.
 // Read-only: no file is created, written, renamed or deleted, and no process is started after the
@@ -27,6 +28,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { logFile, readLogPage } = require('../worker/log-read.ts');
+const { confinedReader } = require('./confined.ts');
 const { readRuns, PHASES } = require('../worker/run-store.ts');
 const { projectRoot: lifecycleProjectRoot } = require('../lifecycle/root.ts');
 const { findWorkerRun, workerSources } = require('./sections.ts');
@@ -136,7 +138,8 @@ function createLogSubscription(options: LogSubscriptionOptions): LogSubscription
   }
 
   function read(mode: 'tail' | 'forward', final: boolean): Page {
-    return readLogPage(mode === 'tail' ? { file, mode, final, fsImpl } : { file, mode, offset: cursor, ino: ino as string, final, fsImpl });
+    const via = confinedReader(lifecycleRoot, fsImpl); // a link on the way to the log, or a swap at the open, reads as absent
+    return readLogPage(mode === 'tail' ? { file, mode, final, fsImpl: via } : { file, mode, offset: cursor, ino: ino as string, final, fsImpl: via });
   }
 
   /** An `error` frame once per spell; a later good read ends the spell with a snapshot. */

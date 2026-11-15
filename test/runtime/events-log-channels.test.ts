@@ -399,6 +399,21 @@ test('the 250 ms pass delivers an append with the watch disabled; after the end 
   assert.equal(spawned.length, before);
 });
 
+test('161 review 1: an out log that is a symbolic link is never followed: the channel waits and nothing from its target is sent', async (t) => {
+  const p = project(t);
+  p.writeRun({ phase: 'running' });
+  const outside = path.join(p.root, 'OUTSIDE.txt');
+  fs.writeFileSync(outside, 'OUTSIDE-SECRET line\n');
+  fs.mkdirSync(p.outputDir);
+  fs.symlinkSync(outside, p.out);
+  const h = run(t, p);
+  h.stdin.json('sub', OUT);
+  await settle();
+  await h.clock.advance(LOG_PASS_MS + DEBOUNCE_MS);
+  assert.ok(!h.stdout.text.includes('OUTSIDE-SECRET'), h.stdout.text);
+  assert.deepEqual(h.of(OUT).map((f: any) => [f.type, f.data.log]), [['snapshot', 'waiting']]);
+});
+
 test('FR-012: a .last.log next to the out file is never opened, and a :last channel opens nothing', async (t) => {
   const marker = 'LAST-MESSAGE-MARKER-150';
   const p = project(t);

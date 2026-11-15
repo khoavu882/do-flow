@@ -20,6 +20,7 @@ const { handleEventsCommand } = require('../../src/runtime/events/command.ts');
 const { createProjectsIndex } = require('../../src/runtime/events/projects-index.ts');
 const { createEnvelopeWriter, LOG_ID, LINE_CAP_BYTES } = require('../../src/runtime/events/envelope.ts');
 const { LOG_PASS_MS, DEBOUNCE_MS, FULL_TICKS, PASS_MS } = require('../../src/runtime/events/detector.ts');
+const { createFileLane } = require('../../src/runtime/events/files.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const CLI = path.join(REPO, 'bin', 'doflow.js');
@@ -262,6 +263,60 @@ test('161 T5 IC-004: a project the index does not know and an unlisted worker .l
   for (const ch of lanes) assert.deepEqual(shape(h.of(ch)), [['gone', {}]], ch);
   assert.ok(!h.stdout.text.includes('OUTSIDE-SECRET') && !h.stdout.text.includes('final words'));
   assert.equal(await h.end(), 0);
+});
+
+/** A file lane made directly on `root` (one checkout), with a fake index and clock, as the review's reproducer runs it. */
+function directLane(root: string, rel: string, fsImpl?: any) {
+  const pk = 'a'.repeat(16);
+  const index = { lookup: (k: string) => (k === pk ? { projectKey: pk, main: root, checkouts: [root] } : null) };
+  const clock = { t: 1_000_000 };
+  const writer = createEnvelopeWriter({ clock: () => clock.t });
+  const lane = createFileLane({ channel: { kind: 'file', name: `file:${pk}:${fileKeyOf(root, rel)}`, projectKey: pk, fileKey: fileKeyOf(root, rel) }, ctx: { cwd: root, index }, writer, now: () => clock.t, ...(fsImpl ? { fsImpl } : {}) });
+  lane.sources();
+  const step = (ms = 0) => { clock.t += ms; return lane.recompute(false).lines.map((l: string) => JSON.parse(l)); };
+  return { lane, step };
+}
+
+test('161 review 1: a followed brief swapped for a link inside the 25 s listing window streams nothing from outside and is gone', (t) => {
+  const f = fixture(t);
+  const a = project(f, 'proj-a');
+  const brief = write(path.join(a, ...REL.split('/')), '# brief\n');
+  const outside = write(path.join(f.root, 'OUTSIDE-SECRET.txt'), 'contents of a file outside the artifact set\n');
+  const { step } = directLane(a, REL);
+  assert.deepEqual(step().map((x: any) => x.type), ['snapshot']);
+  const tmp = `${brief}.tmp`;
+  fs.symlinkSync(outside, tmp);
+  fs.renameSync(tmp, brief);
+  const after = [...step(1000), ...step(25000)];
+  assert.ok(!JSON.stringify(after).includes('outside the artifact set'), JSON.stringify(after));
+  assert.deepEqual(after.map((x: any) => x.type), ['gone']);
+});
+
+test('161 review 1: a directory on the way to the brief swapped for a link between the check and the open is refused by its inode', (t) => {
+  const f = fixture(t);
+  const a = project(f, 'proj-a');
+  write(path.join(a, ...REL.split('/')), '# brief\n');
+  const elsewhere = path.join(f.root, 'elsewhere');
+  write(path.join(elsewhere, 'task-3-brief.md'), 'OUTSIDE body\n');
+  const exec = path.dirname(path.join(a, ...REL.split('/')));
+  let armed = false;
+  const fsImpl = {
+    ...fs,
+    openSync(file: any, flags: any, mode?: any) {
+      if (armed && typeof file === 'string' && file.startsWith(exec)) { // the swap lands after every lstat of this read
+        armed = false;
+        fs.renameSync(exec, `${exec}.moved`);
+        fs.symlinkSync(elsewhere, exec);
+      }
+      return fs.openSync(file, flags, mode);
+    },
+  };
+  const { step } = directLane(a, REL, fsImpl);
+  assert.deepEqual(step().map((x: any) => x.type), ['snapshot']);
+  fs.appendFileSync(path.join(a, ...REL.split('/')), 'more\n');
+  armed = true;
+  const after = step(1000);
+  assert.ok(!JSON.stringify(after).includes('OUTSIDE'), JSON.stringify(after));
 });
 
 test('161 T5 IC-004: a worker log artifact holds its unfinished line until the newline, and the lane is followed again by a later sub', async (t) => {
