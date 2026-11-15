@@ -394,15 +394,17 @@ function errorIdOf(chunks: Buffer[]): string | null {
 
 /**
  * 162 IC-003: the result of a write child that has closed. A timeout is `timeout`; an old core (the read rule: exit 1 or 2,
- * empty stdout, the unknown marker, no `[ERROR]`) is `old-core`; exit 2 is `usage`; an exit 0 or 1 whose stdout is one JSON
- * object is data (the core's refusals are JSON on exit 1); anything else is `core-error`, with the core's own `error` id when it
- * printed one. Stderr is only ever the two markers.
+ * empty stdout, the unknown marker, no `[ERROR]`) is `old-core`; exit 2 is `usage`; an exit 1 with empty stdout and an `[ERROR]`
+ * line is `core-error`; an exit 0 or 1 whose stdout is one JSON object is data (the core's refusals are JSON on exit 1); anything
+ * else is `core-error`, with the core's own `error` id when it printed one. Stderr is only ever the two markers.
  */
 function writeOutcome(code: number | null, failure: string | null, bytes: number, chunks: Buffer[], stderr: ReturnType<typeof stderrScanner>): Bare {
   if (failure === 'timeout') return { ok: false, code: 'timeout', exit: null };
   if (failure !== null) return { ok: false, code: 'core-error', exit: null, reason: failure };
   if ((code === 1 || code === 2) && bytes === 0 && !stderr.seen.error && stderr.seen.unknown) return { ok: false, code: 'core-error', exit: code, reason: 'old-core' };
   if (code === 2) return { ok: false, code: 'usage', exit: 2 };
+  // 162 review 7: exit 1, nothing on stdout and an `[ERROR]` line is the core's own error, not a refusal it printed as data.
+  if (code === 1 && bytes === 0 && stderr.seen.error) return { ok: false, code: 'core-error', exit: 1 };
   if (code === 0 || code === 1) {
     const json = jsonObjectOf(chunks);
     return json === null ? { ok: false, code: 'core-error', exit: code, reason: 'not-json' } : { ok: true, json, exit: code };

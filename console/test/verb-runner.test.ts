@@ -2069,7 +2069,8 @@ test('every other outcome is a failure: exit 2 is usage, an old core is old-core
   assert.deepEqual(await act('text'), { ok: false, code: 'core-error', exit: 0, reason: 'not-json' });
   assert.deepEqual(await act('array'), { ok: false, code: 'core-error', exit: 0, reason: 'not-json' });
   assert.deepEqual(await act('text-exit1'), { ok: false, code: 'core-error', exit: 1, reason: 'not-json' });
-  assert.deepEqual(await act('error-empty'), { ok: false, code: 'core-error', exit: 1, reason: 'not-json' });
+  // 162 review 7: exit 1, empty stdout and an [ERROR] line is the core's own error.
+  assert.deepEqual(await act('error-empty'), { ok: false, code: 'core-error', exit: 1 });
   // An exit other than 0, 1 or 2 is never data; the core's own `error` id rides along as on a read failure.
   assert.deepEqual(await act('exit3'), { ok: false, code: 'core-error', exit: 3, errorId: 'stale-revision' });
 });
@@ -2148,4 +2149,26 @@ test('the write child has no identity variable and no DOFLOW_* beyond the pass-t
   assert.deepEqual(doflow, ['DOFLOW_UPKEEP']);
   assert.equal(env.DOFLOW_UPKEEP, 'off');
   assert.equal(env.KEEP_ME, 'kept');
+});
+
+// ---- 162 review 7 and 10: a core error on a write, and the project refresh past the cache ----
+
+/** A stand-in core whose `fleet --action projects` lists `keys()` (read at each spawn) and whose writes answer `write`. */
+function writeStandIn(keys: () => string[], write: () => { stdout?: string; stderr?: string[]; exit: number }) {
+  return standIn((argv) => (argv[0] === 'fleet'
+    ? { stdout: JSON.stringify({ v: 1, store: 'present', projects: keys().map((projectKey) => ({ projectKey, root: os.tmpdir() })) }), exit: 0 }
+    : write()));
+}
+const CLOSE_PARAMS = (projectKey: string) => ({ projectKey, relay: 'console', taskId: 't-1', revision: '0', note: 'done here' });
+
+test('162 review 7: a write that exits 1 with empty stdout and [ERROR] on stderr is core-error, not not-json; the stderr text is never returned', async () => {
+  const s = writeStandIn(() => [KEY_A], () => ({ stderr: ['[ERROR] orchestrate: secret-stderr-text\n'], exit: 1 }));
+  assert.equal((await s.runner.run('projects', {})).ok, true);
+  const result = await s.runner.act('close-run', CLOSE_PARAMS(KEY_A));
+  assert.deepEqual({ ...result }, { ok: false, code: 'core-error', exit: 1 });
+  assert.equal(JSON.stringify(result).includes('secret'), false);
+  // Without the [ERROR] line, an exit 1 with empty stdout is still a body the contract cannot read.
+  const t = writeStandIn(() => [KEY_A], () => ({ exit: 1 }));
+  await t.runner.run('projects', {});
+  assert.equal((await t.runner.act('close-run', CLOSE_PARAMS(KEY_A))).reason, 'not-json');
 });
