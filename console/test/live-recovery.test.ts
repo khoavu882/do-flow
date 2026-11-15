@@ -661,7 +661,9 @@ test('161: a transcript lane across a restart replaces its window with one hub s
   child.push(fx.channel, 'append', append.data);
   assert.deepEqual(seen.frames.map((f) => [f.type, f.n, f.data.events.map((e: any) => e.n)]), [['snapshot', 1, [1, 1]], ['append', 2, [2]]]);
   assert.equal(JSON.stringify(seen.frames).includes(PLANTED), false, 'masked');
-  assert.equal(JSON.stringify(seen.frames).includes('/home/planted'), false, 'no path');
+  // The fixture's snapshot carries a `path` the core never sends; the hub's projection drops it (paths never leave the core).
+  assert.equal(typeof snapshot.data.path, 'string', 'the fixture plants a path');
+  assert.equal(JSON.stringify(seen.frames).includes(snapshot.data.path), false, 'no path');
   child.down();
   await advance(500);
   assert.equal(seen.frames.length, 2, 'held through the restart');
