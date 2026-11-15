@@ -6,9 +6,10 @@
 // list shows, but it reads exactly what `view` reads.
 //
 // Feature 161 (IC-009, DEC-008): both scopes gain the live stream (every channel kind), the sessions
-// read and the worker-run reads. Briefs, reports and transcripts reach a device only through `/api/live`
-// lanes; every route not listed here stays refused. A live stream re-runs the device check on every
-// keepalive and ends on a refusal (routes.ts `requireDevice`, live-stream.ts).
+// read and the worker-run reads. Briefs and task reports reach a device only through `/api/live`
+// lanes (a worker run's result, status, log and transcript are also listed below); every route not listed
+// here stays refused. A live stream re-runs the device check on every keepalive and ends on a refusal
+// (routes.ts `requireDevice`, live-stream.ts).
 
 const READS = Object.freeze([
   'GET /api/info', 'GET /api/runs', 'GET /api/runs/:slug/:taskId', 'GET /api/workflows',

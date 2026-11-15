@@ -1225,7 +1225,7 @@ test('error: run-not-found is final (no retry), names the way back, and the hear
 test('device scope: restricted view explains access and links to runs without retrying', async () => {
   const page = await start({ hash: '#/sessions', fetch: (target, init) => (target === '/api/sessions' ? errorReply(403, 'phone-scope') : standard(target, init)) });
   assert.equal(text(page.main.querySelector('.state-panel__title')), 'This view is unavailable on a paired device');
-  assert.match(text(page.main), /Paired devices can view runs and workflows/);
+  assert.match(text(page.main), /Paired devices can view runs, workflows, sessions and worker runs/);
   assert.equal(page.main.querySelector('a.btn').getAttribute('href'), '#/');
   assert.equal(page.main.querySelector('.countdown'), null);
   await advance(20_000);
