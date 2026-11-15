@@ -19,6 +19,7 @@ const { createSessions, cookieName } = require('../src/session.ts');
 const { createActions, normalizeText } = require('../src/actions.ts');
 const { createActionLog } = require('../src/action-log.ts');
 const { lanWorld, lanServer } = require('./helpers/lan-world.ts');
+const { TEXT_VECTORS } = require('./helpers/text-vectors.ts');
 
 const webRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-ui-actions-'));
 fs.writeFileSync(path.join(webRoot, 'index.html'), '<!doctype html><title>t</title>');
@@ -263,19 +264,7 @@ test('closed bodies: a key too many or too few, a wrong v, requestId, projectKey
 });
 
 test('IC-009 text: NFC, whitespace to a space, controls and invisible marks removed, spaces collapsed, trimmed; 1..500 code points required (0..500 for a gate note, 0 leaves --note out); never in the log', async (t) => {
-  const table: Array<[string, string | null]> = [
-    ['a\r\nb\tc', 'a b c'],
-    ['   x   ', 'x'],
-    ['é', 'é'],
-    ['a​b‮c⁦d﻿e\u0007f\u009Bg\u007Fh\u0000i', 'abcdefghi'],
-    ['a      b', 'a b'],
-    ['\u0000‏', ''],
-    ['-x --json', '-x --json'],
-    ['ok 😀', 'ok 😀'],
-    ['bad \uD800 half', null],
-    ['bad \uDC00', null],
-  ];
-  for (const [raw, normalized] of table) assert.equal(normalizeText(raw), normalized, JSON.stringify(raw));
+  for (const [raw, normalized] of TEXT_VECTORS) assert.equal(normalizeText(raw), normalized, JSON.stringify(raw));
 
   const clock = manual();
   const runner = fakeRunner();

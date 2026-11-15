@@ -12,6 +12,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { WRITE_SHAPE_IDS } = require('../src/verb-runner.ts');
+const { TEXT_VECTORS } = require('./helpers/text-vectors.ts');
 
 const WEB_ROOT = path.join(__dirname, '..', 'web');
 let scratch: string;
@@ -123,6 +124,12 @@ test('the text rules of IC-009 as the page counts them: one line, no control cha
   assert.equal(words.normalizeText('  a\r\nb\tc  ​\u0007d  '), 'a b c d');
   assert.equal(words.normalizeText('‮evil⁩'), 'evil');
   assert.equal(words.normalizeText('é'), 'é', 'NFC');
+  // 162 review 6: the server's vectors, the same list actions-routes.test.ts runs; a text the server refuses is never ok here.
+  for (const [raw, normalized] of TEXT_VECTORS) {
+    assert.equal(words.normalizeText(raw), normalized, JSON.stringify(raw));
+    if (normalized === null) assert.equal(words.textState({ required: false, max: 500 }, raw).ok, false, JSON.stringify(raw));
+  }
+  assert.equal(words.textState({ required: true, max: 500 }, '\u007F').ok, false, 'a note of only DEL is empty, as the server makes it');
   const text = words.textState({ required: true, max: 500 }, '   ');
   assert.deepEqual(text, { text: '', count: 0, ok: false, over: false });
   assert.equal(words.textState({ required: false, max: 500 }, '').ok, true);

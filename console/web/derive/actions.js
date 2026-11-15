@@ -5,6 +5,7 @@
 // Console's own closed-grammar fields (project.ts), never free text.
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 const KEY16 = /^[0-9a-f]{16}$/;
 const WORKER_RUN = /^w-[0-9a-f]{12}$/;
 const DEVICE_BY = /^device\.(d-[0-9a-f]{12})$/;
@@ -146,16 +147,20 @@ function staleWords(id, current) {
 }
 
 /**
- * IC-009 as far as the page can apply it: NFC; tab, CR and LF become a space; C0, C1, U+200B-U+200F, U+202A-U+202E, U+2066-U+2069
+ * IC-009 as the Console applies it (162 review 6: the same vectors, test/helpers/text-vectors.ts): null for a lone surrogate; NFC;
+ * tab, CR and LF become a space; C0, DEL, C1, U+200B-U+200F, U+202A-U+202E, U+2066-U+2069
  * and U+FEFF are removed; runs of spaces collapse; trimmed. The Console normalizes again and refuses more than 500 code points.
  * @param {any} value
  */
 function normalizeText(value) {
-  return String(value ?? '')
+  const raw = String(value ?? '');
+  // A lone surrogate has no UTF-8 form; the Console refuses it (src/actions.ts), so the page does too.
+  if (LONE_SURROGATE.test(raw)) return null;
+  return raw
     .normalize('NFC')
     .replace(/[\r\n\t]/g, ' ')
     // eslint-disable-next-line no-control-regex
-    .replace(/[\u0000-\u001F\u0080-\u009F​-‏‪-‮⁦-⁩﻿]/g, '')
+    .replace(/[\u0000-\u001F\u007F-\u009F​-‏‪-‮⁦-⁩﻿]/g, '')
     .replace(/ {2,}/g, ' ')
     .trim();
 }
@@ -165,7 +170,9 @@ function normalizeText(value) {
  * at least one, no text has more than `max`), and whether it is over. @param {{ required: boolean, max: number }} rule @param {any} value
  */
 function textState(rule, value) {
-  const text = normalizeText(value);
+  const normalized = normalizeText(value);
+  if (normalized === null) return { text: '', count: 0, ok: false, over: false };
+  const text = normalized;
   const count = [...text].length;
   const over = count > rule.max;
   return { text, count, ok: !over && (!rule.required || count > 0), over };
