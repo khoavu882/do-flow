@@ -78,12 +78,21 @@ function runSpec(act, id, decision) {
   return null;
 }
 
-/** The "Close run" button of a run that is not over, with the reason line when `reason` and the page may not act. @param {any} ctx @param {boolean} reason */
-function closeArea(ctx, reason) {
-  return actionArea(() => [
-    actionButton({ id: 'close-run', label: 'Close run', tone: 'danger', make: () => runSpec(ctx.act, 'close-run', null) }),
-    reason ? notAllowedLine(['close-run']) : null,
-  ], 'acts acts--close');
+/**
+ * The "Close run" button of a run that is not over (IC-010: the run head's), drawn from the latest render's row; nothing for a run that
+ * is over, a replayed moment, a page that does not know its project, or one that may not act. @param {() => any} act
+ */
+function closeArea(act) {
+  return actionArea(() => actionButton({ id: 'close-run', label: 'Close run', tone: 'danger', make: () => runSpec(act, 'close-run', null) }), 'acts acts--close');
+}
+
+/** The run head's place for the Close run button (views.js builds the head, each render of the body fills it); the latest head's. @type {HTMLElement | null} */
+let headActs = null;
+
+/** The empty place in the run head for the Close run button. */
+function runHeadActs() {
+  headActs = h('div', { class: 'run-head__acts' });
+  return headActs;
 }
 
 // ---- the activity slot ----------------------------------------------------------------------------------------
@@ -159,7 +168,6 @@ function stageSlot(model, ctx) {
       ? h('p', { class: 'activity__stale' }, [icon('stale', 16), `No event since ${stampOf(model.since, ctx.nowMs)}. The run may have stopped without recording it.`]) : null,
     // The Console decides nothing; it names the one command that ends a run whose work finished somewhere else.
     staleRun ? h('p', { class: 'activity__note' }, ['If its work ended elsewhere, close it in a terminal: ', h('code', { class: 'mono' }, `doflow orchestrate --action close --task-id ${ctx.row.taskId}${typeof ctx.row.featureSlug === 'string' ? ` --slug ${ctx.row.featureSlug}` : ''} --note "<why>"`)]) : null,
-    closeArea(ctx, true),
     missing ? null : h('p', { class: 'activity__foot' }, 'Skill and agent are what the workflow declares for this stage.'),
   ]);
   return { el: h('section', { class: `activity activity--stage${staleRun ? ' activity--stale' : ''}`, 'aria-labelledby': 'activity-title', dataset: { changed: ctx.flash ? 'true' : null } }, [h('div', { class: 'activity__grid' }, [main, attemptsAside(model, ctx)])]) };
@@ -243,7 +251,6 @@ function gateSlot(model, ctx) {
     decide,
     model.origin === 'other' ? h('p', { class: 'activity__other' }, [icon('info', 16), 'This run belongs to another checkout of this project. Run the command there.']) : null,
     tasksLine(model, ctx),
-    closeArea(ctx, false),
   ]);
   const head = h('div', { class: 'activity__head' }, [
     icon(kind === 'clarification' ? 'gate-clarification-12' : 'gate-approval-12', 16),
@@ -537,6 +544,7 @@ function renderRunBody(data, params, local) {
   const startIso = timeline && typeof timeline.startedAt === 'string' ? timeline.startedAt : row.startedAt ?? null;
   // The row a confirmation is built from: this render's, and none while a replayed moment is shown.
   memory.act = isReplaying(local) ? null : { row, model };
+  if (headActs !== null) mount(headActs, closeArea(() => memory.act ?? null));
   const slot = buildSlot(model, { nowMs, params, live: liveTexts, changed, flash, row, tasksReason: data.tasksReason, startIso, rail: tl.rail, act: () => memory.act ?? null });
   if (flash) expire(slot.el);
   const card = timelineCard(tl, memory, { nowMs, row, fresh });
@@ -619,4 +627,4 @@ function rerouteRun(local) {
   rerouteRail(local);
 }
 
-export { renderRun, tickRun, releaseRun, rerouteRun };
+export { renderRun, tickRun, releaseRun, rerouteRun, runHeadActs };

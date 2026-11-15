@@ -122,6 +122,7 @@ test('decide-gate on the real core: a control device approves at the stream revi
   const before = w.status(GRAPH, 'run-gate');
   assert.equal(before.state, 'AWAITING_GATE');
   assert.equal(before.awaitingGate.gateId, 'gate-0');
+  assert.equal(json(await l.list(control.bearer)).project.projectKey, w.key, 'the Console\'s own project, as the real core lists it');
 
   const refusedView = await l.post('decide-gate', gateBody(w, before.revision), view.bearer);
   assert.equal(refusedView.status, 403);

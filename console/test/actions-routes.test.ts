@@ -48,13 +48,13 @@ const applied = (shape: string) => ({ ok: true, exit: 0, json: shape === 'cancel
 
 type Answer = (shape: string, params: Record<string, string>) => any;
 /** A runner whose `act` answers from `answer` (default: applied) and records every call; `projects` reads are counted. */
-function fakeRunner(answer: Answer = (shape) => applied(shape)) {
+function fakeRunner(answer: Answer = (shape) => applied(shape), listing: Array<Record<string, unknown>> = []) {
   const acts: Array<{ shape: string, params: Record<string, string> }> = [];
   const reads: string[] = [];
   return {
     acts, reads,
     act: async (shape: string, params: Record<string, string>) => { acts.push({ shape, params }); return answer(shape, params); },
-    run: async (shape: string) => { reads.push(shape); return { ok: true, exit: 0, json: { v: 1, projects: [] } }; },
+    run: async (shape: string) => { reads.push(shape); return { ok: true, exit: 0, json: { v: 1, store: 'present', projects: listing, excluded: { missing: 0, temp: 0, notDoflow: 0, unreadable: 0 }, truncated: false } }; },
     follow: () => null,
     stop: () => {},
   };
@@ -520,7 +520,7 @@ test('GET /api/actions: local, a view device, a control device over Bearer and o
   assert.deepEqual(first, {
     v: 1, actor: { kind: 'local', transport: 'loopback' },
     actions: IDS.map((id) => ({ id, allowed: true, reason: null })),
-    textMax: 500, limits: { actor: { perMinute: 6, perHour: 30 }, console: { perMinute: 20 } },
+    project: null, textMax: 500, limits: { actor: { perMinute: 6, perHour: 30 }, console: { perMinute: 20 } },
   });
   const old = await local.post('close-run', BODIES['close-run']());
   assert.equal(old.status, 501);
@@ -543,6 +543,21 @@ test('GET /api/actions: local, a view device, a control device over Bearer and o
   assert.equal(asBrowser.actor.transport, 'browser');
   assert.deepEqual(asBrowser.actions.map((entry: any) => entry.reason), ['action-transport', 'action-transport', 'action-transport']);
   assert.equal((await get({})).status, 401, 'no device, no answer');
+});
+
+test('GET /api/actions names the Console\'s own project (the listing\'s current entry: key and label); with no current entry, or a listing that cannot be read, it is null', async (t) => {
+  const entry = (over: Record<string, unknown>) => ({ projectKey: PK, root: os.tmpdir(), label: 'do-flow', current: false, checkouts: 1, sources: ['hook-dirs'], lastRecordAt: null, ...over });
+  const other = entry({ projectKey: 'fedcba9876543210', label: 'elsewhere' });
+  const own = await loopback(t, fakeRunner(undefined, [other, entry({ current: true })]));
+  assert.deepEqual(json(await own.get('/api/actions')).project, { projectKey: PK, label: 'do-flow' });
+  const absent = await loopback(t, fakeRunner(undefined, [other]));
+  assert.equal(json(await absent.get('/api/actions')).project, null);
+  const broken = fakeRunner();
+  broken.run = async () => ({ ok: false, code: 'core-error', exit: 1 }) as any;
+  const unread = await loopback(t, broken);
+  const reply = await unread.get('/api/actions');
+  assert.equal(reply.status, 200);
+  assert.equal(json(reply).project, null);
 });
 
 test('LAN 401s on the action routes are counted per address on one summary line a minute; no attempt runs', async (t) => {

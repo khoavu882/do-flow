@@ -39,6 +39,7 @@ const crypto = require('node:crypto');
 const { errorReply, jsonReply, readBody } = require('./routes.ts');
 const { ACTION_IDS, deviceMayAct } = require('./scopes.ts');
 const { PATTERNS } = require('./verb-runner.ts');
+const { project: projectBody } = require('./project.ts');
 
 type Reply = { status: number, headers?: Record<string, string>, body?: string | Uint8Array };
 type Body = Record<string, any>;
@@ -526,11 +527,25 @@ function createActions({ runner, log, now = Date.now, warn = () => {} }: Options
     };
   }
 
+  /**
+   * 162 DEC-015: the Console's own project, `{ projectKey, label }`: the `fleet --action projects` entry the core marks `current`
+   * (the one routes.ts's transcript read uses; the runner's cached `projects` read), its label as project.ts projects it. Null when
+   * no entry is current, or the listing cannot be read or projected: the page then draws no run-page action.
+   */
+  async function ownProject(): Promise<{ projectKey: string, label: string } | null> {
+    const listed = await runner.run('projects', {});
+    if (!listed.ok) return null;
+    const projected = projectBody('projects', listed.json);
+    if (!projected.ok) return null;
+    const own = projected.body.projects.find((entry: any) => entry.current === true);
+    return own ? { projectKey: own.projectKey, label: own.label } : null;
+  }
+
   /** IC-002 `GET /api/actions`: what the asking session may do, and why not. */
   const listRoute = {
     method: 'GET' as const,
     path: '/api/actions',
-    handler: (ctx: any): Reply => {
+    handler: async (ctx: any): Promise<Reply> => {
       const actor = actorOf(ctx);
       const view = actor !== null && actor.kind === 'device'
         ? { kind: 'device', deviceId: actor.deviceId, scope: actor.scope, transport: transportOf(ctx) }
@@ -550,6 +565,7 @@ function createActions({ runner, log, now = Date.now, warn = () => {} }: Options
           const reason = reasonOf(spec);
           return { id: spec.id, allowed: reason === null, reason };
         }),
+        project: await ownProject(),
         textMax: TEXT_MAX,
         limits: LIMITS,
       });

@@ -2223,8 +2223,9 @@ test('162 run page, the local actor: Approve and Reject replace the command bloc
     const page = await start({ hash: '#/run/feat-a/run-1', fetch: route });
     const slot = page.main.querySelector('.activity--gate');
     const buttons = slot.querySelectorAll('.btn--act');
-    assert.deepEqual(buttons.map(text), ['Approve', 'Reject', 'Close run']);
-    assert.deepEqual(buttons.map((b: El) => b.getAttribute('data-tone')), ['approve', 'danger', 'danger']);
+    assert.deepEqual(buttons.map(text), ['Approve', 'Reject']);
+    assert.deepEqual(buttons.map((b: El) => b.getAttribute('data-tone')), ['approve', 'danger']);
+    assert.deepEqual(page.main.querySelector('.run-head__acts').querySelectorAll('.btn--act').map(text), ['Close run'], 'Close run is in the run head, not in the slot');
     assert.equal(slot.querySelectorAll('.cmd__text').length, 0, 'the buttons replace the command block');
     assert.equal(page.calls.filter((c) => c.method === 'POST').length, 0, 'drawing a button posts nothing');
     buttons[0].fire('click');
@@ -2252,8 +2253,10 @@ test('162 run page: the timeline says who decided or closed a step; a stage that
     const page = await start({ hash: '#/run/feat-a/run-1', fetch: route });
     assert.deepEqual(page.main.querySelectorAll('.tl-item__by').map(text), ['by autopilot', 'from paired device d-0a1b2c3d4e5f']);
     const slot = page.main.querySelector('.activity--stage');
-    assert.deepEqual(slot.querySelectorAll('.btn--act').map(text), ['Close run']);
-    slot.querySelector('.btn--act').fire('click');
+    assert.equal(slot.querySelectorAll('.btn--act').length, 0, 'the slot has no button: Close run is in the run head');
+    const head = page.main.querySelector('.run-head__acts');
+    assert.deepEqual(head.querySelectorAll('.btn--act').map(text), ['Close run']);
+    head.querySelector('.btn--act').fire('click');
     const dialog = page.doc.body.querySelector('.confirm');
     assert.equal(text(dialog.querySelector('.confirm__effect')), 'Close run feat-a/run-1 in do-flow, now at planning. It ends as closed where it stands. This cannot be undone.');
     assert.equal(dialog.querySelector('.confirm__verb').getAttribute('disabled') !== null, true, 'a close needs a reason');
@@ -2268,6 +2271,40 @@ test('162 run page: a Console that does not name its project gives no button (no
     const page = await start({ hash: '#/run/feat-a/run-1', fetch: route });
     assert.equal(page.main.querySelectorAll('.btn--act').length, 0);
     assert.equal(page.main.querySelectorAll('.cmd__text').length, 2);
+  });
+});
+
+test('162 run page, the run head: no Close run for a view-scope device, and none when the run is over', async () => {
+  mods.home.resetHome();
+  await withActions(async () => {
+    const route = (target: string, init: any) => (target === '/api/actions' ? actionsReply(false, 'phone-scope', { kind: 'device', deviceId: 'd-0a1b2c3d4e5f', scope: 'view', transport: 'browser' })
+      : runRoute(() => runBodyWith(frow('run-1', 3, { revision: 4 }), gateEvents162()))(target, init));
+    const page = await start({ hash: '#/run/feat-a/run-1', fetch: route });
+    assert.equal(page.main.querySelector('.run-head__acts').querySelectorAll('.btn--act').length, 0);
+  });
+  uninstallPage();
+  mock.timers.reset();
+
+  mods.home.resetHome();
+  await withActions(async () => {
+    const route = (target: string, init: any) => (target === '/api/actions' ? actionsReply(true, null, { kind: 'local', transport: 'loopback' })
+      : runRoute(() => runBodyWith(frow('run-1', 5), gateEvents162()))(target, init));
+    const page = await start({ hash: '#/run/feat-a/run-1', fetch: route });
+    assert.equal(page.main.querySelector('.run-head__acts').querySelectorAll('.btn--act').length, 0);
+  });
+});
+
+test('162 run page, the run head: the Close run button leaves the head when the run completes', async () => {
+  mods.home.resetHome();
+  await withActions(async () => {
+    let cursor = 3;
+    const route = (target: string, init: any) => (target === '/api/actions' ? actionsReply(true, null, { kind: 'local', transport: 'loopback' })
+      : runRoute(() => runBodyWith(frow('run-1', cursor, { revision: 4 }), gateEvents162()))(target, init));
+    const page = await start({ hash: '#/run/feat-a/run-1', fetch: route });
+    assert.deepEqual(page.main.querySelector('.run-head__acts').querySelectorAll('.btn--act').map(text), ['Close run']);
+    cursor = 5;
+    await advance(3_000);
+    assert.equal(page.main.querySelector('.run-head__acts').querySelectorAll('.btn--act').length, 0, 'a run that is over has no Close run');
   });
 });
 
@@ -5206,7 +5243,7 @@ test('150 C.6 Run head: a Chain link follows the step counter; the crumb keeps i
   const head = page.main.querySelector('.run-head');
   assert.deepEqual(head.children.map((c: El) => c.className), ['run-head__crumb', 'run-head__title', 'run-head__metawrap', 'run-head__aside']);
   const aside = head.querySelector('.run-head__aside');
-  assert.deepEqual(aside.children.map((c: El) => c.className), ['run-head__step', 'graph__back'], 'Chain sits beside the step counter, in its grid area (IC-020)');
+  assert.deepEqual(aside.children.map((c: El) => c.className), ['run-head__step', 'graph__back', 'run-head__acts'], 'Chain sits beside the step counter, in its grid area (IC-020); the place of Close run (162 IC-010) follows it');
   assert.deepEqual(linksOf(head), [['#/', 'Runs'], ['#/session/feat-a/run-1', 'Chain']]);
   assert.equal(text(page.main.querySelector('.run-head__step')), 'step 5 of 5', 'the step counter is unchanged');
   assert.equal(mods.views.parseRoute(head.querySelectorAll('a')[1].getAttribute('href')).id, 'session');
