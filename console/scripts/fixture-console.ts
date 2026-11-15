@@ -39,8 +39,8 @@
 //                    `brief` one line `brief chunk <n>` to the brief; `audit <n>` / `brief <n>` is printed on stderr after the write
 //                    returned. At most 100 of each; a line past that prints `no audit line left` / `no brief line left`.
 //
-// Ctrl-C (SIGINT) or SIGTERM stops the Console and removes the scratch directories (exact paths, all
-// under SCRATCH_ROOT) unless --keep.
+// Ctrl-C (SIGINT), SIGTERM or the death of the process that started this script stops the Console and removes the
+// scratch directories (exact paths, all under SCRATCH_ROOT) unless --keep.
 //
 // The Sessions view (E.7) has its own run, feat-sessions: two overlapping tasks claimed by two runs and a 30 h claim
 // (the ledger's startedAt moved back, like the stale run's times); hook records written by the REAL hook scripts
@@ -79,6 +79,10 @@ const BIN = path.join(__dirname, '..', 'bin', 'doflow-ui.js');
 const URL_LINE = /^doflow ui: http:\/\/127\.0\.0\.1:(\d+)\/#c=([0-9a-f]{64})\n/;
 const BOOT_MS = 30_000;
 const STOP_MS = 5_000;
+// 161 review: the Console this fixture starts ends itself (SIGTERM, its own clean stop) once the process that started
+// it is gone, however that process died (a SIGKILL, a test runner's kill, a parent script's timeout); without this
+// it was left running with parent pid 1. Checked once a second, unref'd so it holds nothing open.
+const PARENT_WATCH = `data:text/javascript,${encodeURIComponent('const p = process.ppid; setInterval(() => { if (process.ppid !== p) process.kill(process.pid, "SIGTERM"); }, 1000).unref();')}`;
 const HOUR = 60 * 60 * 1000;
 const USAGE = 'usage: fixture-console.ts --core <absolute path to bin/doflow.js> [--empty] [--manage] [--history] [--core-missing] [--keep] [--tick <seconds>] [--append <seconds>] [--worker-log <seconds>] [--layers]';
 const REPO = path.resolve(__dirname, '..', '..');
@@ -757,7 +761,7 @@ async function startFixtureConsole(options: Options): Promise<Handle> {
       cleanups.push(() => fs.rmSync(linkDir as string, { recursive: true, force: true }));
     }
 
-    const child = spawn(process.execPath, [BIN, '--core', corePath, '--project', fixture.main, '--port', '0'], { cwd: fixture.main, env: { ...fixture.env, ...fleet.env }, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, ['--import', PARENT_WATCH, BIN, '--core', corePath, '--project', fixture.main, '--port', '0'], { cwd: fixture.main, env: { ...fixture.env, ...fleet.env }, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     let err = '';
     const exited = new Promise<number | null>((resolve) => child.on('exit', (code: number | null) => resolve(code)));
@@ -946,7 +950,11 @@ async function main(argv: readonly string[]): Promise<number> {
     }
   });
   return new Promise<number>((resolve) => {
+    // 161 review: the same for this script: a parent that died (measure-layers killed on its timeout) stops the Console here.
+    const parent = process.ppid;
+    const orphaned = setInterval(() => { if (process.ppid !== parent) shutdown(); }, 1000);
     const shutdown = () => {
+      clearInterval(orphaned);
       if (timer !== null) clearInterval(timer);
       if (writer !== null) clearInterval(writer);
       if (logger !== null) clearInterval(logger);
