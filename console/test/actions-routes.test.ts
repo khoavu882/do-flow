@@ -166,11 +166,7 @@ test('on the real LAN table: a view device is 403 phone-scope and logged; a cont
     assert.deepEqual(json(reply), { error: { code: 'action-transport', verb: null, exit: null } }, id);
   }
   assert.equal(runner.acts.length, 0, 'no refused attempt reached the runner');
-  const refused = w.lines().filter((line) => line.phase === 'refused');
-  assert.deepEqual(refused.map((line) => [line.action, line.code, line.actor.deviceId, line.actor.scope, line.actor.transport, line.outcome]), [
-    ...IDS.map((id) => [id, 'phone-scope', view.device.id, 'view', 'native', 'refused']),
-    ...IDS.map((id) => [id, 'action-transport', control.device.id, 'control', 'browser', 'refused']),
-  ]);
+  assert.deepEqual(w.lines(), [], 'a refusal is counted on its minute\'s summary line, never a line of its own');
   for (const id of IDS) {
     const body = BODIES[id]();
     const reply = await w.post(id, body, { Authorization: control.bearer });
@@ -181,6 +177,12 @@ test('on the real LAN table: a view device is 403 phone-scope and logged; a cont
   assert.deepEqual(runner.acts.map((call) => [call.shape, call.params.relay]), IDS.map((id) => [id, `device.${control.device.id}`]));
   const ran = w.lines().filter((line) => line.phase === 'begin' || line.phase === 'end');
   assert.deepEqual(ran.map((line) => [line.phase, line.action, line.actor.deviceId, line.outcome]), IDS.flatMap((id) => [['begin', id, control.device.id, null], ['end', id, control.device.id, 'applied']]));
+  await w.actions.stop();
+  const summaries = w.lines().filter((line) => line.phase === 'summary');
+  assert.deepEqual(summaries.map((line) => [line.action, line.code, line.count, line.actor.deviceId, line.actor.scope, line.actor.transport, line.outcome]), [
+    ['decide-gate', 'phone-scope', 3, view.device.id, 'view', 'native', 'refused'],
+    ['decide-gate', 'action-transport', 3, control.device.id, 'control', 'browser', 'refused'],
+  ]);
 });
 
 test('loopback: the local session acts with relay console; the server\'s non-GET checks still hold (no Origin 403, a foreign Origin 403, text/plain 415); no cookie is 401 and counted', async (t) => {
@@ -214,9 +216,10 @@ test('loopback: the local session acts with relay console; the server\'s non-GET
     [['unauthenticated', 2, '127.0.0.1', 'unknown', 'loopback', 'decide-gate']]);
 });
 
-test('closed bodies: a key too many or too few, a wrong v, requestId, projectKey, id, decision, revision or run id, a body over 4 KiB, not JSON: 400 usage, logged, never run', async (t) => {
+test('closed bodies: a key too many or too few, a wrong v, requestId, projectKey, id, decision, revision or run id, a body over 4 KiB, not JSON: 400 usage, counted, never run', async (t) => {
+  const clock = manual();
   const runner = fakeRunner();
-  const w = await loopback(t, runner);
+  const w = await loopback(t, runner, { now: clock.now });
   const bad: Array<[Id, unknown]> = [
     ['decide-gate', 'not json'], ['decide-gate', '[]'], ['decide-gate', 'null'], ['decide-gate', ''],
     ['decide-gate', BODIES['decide-gate']({ extra: 1 })],
@@ -239,17 +242,22 @@ test('closed bodies: a key too many or too few, a wrong v, requestId, projectKey
     ['cancel-worker', BODIES['cancel-worker']({ expect: { revision: 1 } })],
   ];
   for (const [id, body] of bad) {
+    // A refusal counts against the actor's windows (6 a minute, 30 an hour): each one here is in a minute of its own.
+    clock.t += 3 * MINUTE;
     const reply = await w.post(id, body);
     assert.equal(reply.status, 400, `${id} ${typeof body === 'string' ? body : JSON.stringify(body).slice(0, 120)}`);
     assert.equal(errorOf(reply), 'usage');
   }
   assert.equal(runner.acts.length, 0);
+  clock.t += 3 * MINUTE;
+  await w.actions.stop();
   const refused = w.lines();
-  assert.equal(refused.length, bad.length);
-  assert.ok(refused.every((line) => line.phase === 'refused' && line.code === 'usage' && line.outcome === 'refused'));
+  assert.equal(refused.length, bad.length, 'one summary line per minute that had a refusal');
+  assert.ok(refused.every((line) => line.phase === 'summary' && line.code === 'usage' && line.outcome === 'refused' && line.count === 1));
   // The six keys of a well-formed body in any order are accepted.
   const body = BODIES['cancel-worker']();
   const reversed = Object.fromEntries(Object.entries(body).reverse());
+  clock.t += 3 * MINUTE;
   assert.equal((await w.post('cancel-worker', reversed)).status, 200);
 });
 
@@ -375,7 +383,8 @@ test('the queue: one in flight and four waiting; a fifth waiter is 429 action-bu
   const replies = await Promise.all(pending);
   assert.deepEqual(replies.map((reply) => reply.status), [200, 200, 200, 200, 200]);
   assert.deepEqual(held.runner.acts.map((call) => call.params.taskId), ['run-0', 'run-1', 'run-2', 'run-3', 'run-4']);
-  assert.deepEqual(w.lines().filter((line) => line.phase === 'refused').map((line) => [line.code, line.target.taskId]), [['action-busy', 'run-5']]);
+  await w.actions.stop();
+  assert.deepEqual(w.lines().filter((line) => line.phase === 'summary').map((line) => [line.code, line.count, line.actor.kind]), [['action-busy', 1, 'local']]);
 });
 
 test('idempotency: a repeated requestId runs act once and replays the first reply, uncounted; a pending duplicate awaits it; another body under the id is 409 request-reused; another actor has its own ids', async (t) => {
@@ -404,8 +413,9 @@ test('idempotency: a repeated requestId runs act once and replays the first repl
   const crossAction = await w.post('close-run', BODIES['close-run']({ requestId: body.requestId }), auth);
   assert.equal(errorOf(crossAction), 'request-reused', 'an id is one request, whichever route');
   assert.equal(held.runner.acts.length, 1);
-  // Replays are not counted: five more new attempts are admitted, the sixth new one is the limit.
-  for (let index = 0; index < 5; index += 1) {
+  // Replays are not counted; the two request-reused refusals are (162 review 1): three more new attempts are admitted, the
+  // fourth new one is the limit.
+  for (let index = 0; index < 3; index += 1) {
     const next = w.post('decide-gate', BODIES['decide-gate'](), auth);
     await until(() => held.runner.acts.length === index + 2, 'runs');
     held.releaseAll();
@@ -414,18 +424,21 @@ test('idempotency: a repeated requestId runs act once and replays the first repl
   assert.equal((await w.post('decide-gate', BODIES['decide-gate'](), auth)).status, 429);
   // Another device's attempt under the same id is its own.
   const theirs = w.post('decide-gate', body, { Authorization: other.bearer });
-  await until(() => held.runner.acts.length === 7, 'the other actor runs');
+  await until(() => held.runner.acts.length === 5, 'the other actor runs');
   held.releaseAll();
   assert.deepEqual([(await theirs).status, json(await theirs).replayed], [200, false]);
   const phases = w.lines().map((line) => [line.phase, line.outcome, line.code]);
   assert.deepEqual(phases.filter(([phase, outcome]) => phase === 'end' && outcome === 'replayed').length, 2);
-  assert.deepEqual(phases.filter(([phase]) => phase === 'refused').map(([, , code]) => code), ['request-reused', 'request-reused']);
+  assert.deepEqual(phases.filter(([phase]) => phase === 'summary'), [], 'the minute of the two request-reused has not passed yet');
   // Ten minutes on, the id is forgotten and runs again.
   clock.t += 10 * MINUTE;
   const later = w.post('decide-gate', body, auth);
-  await until(() => held.runner.acts.length === 8, 'a forgotten id runs');
+  await until(() => held.runner.acts.length === 6, 'a forgotten id runs');
   held.releaseAll();
   assert.equal(json(await later).replayed, false);
+  await w.actions.stop();
+  assert.deepEqual(w.lines().filter((line) => line.phase === 'summary').map((line) => [line.code, line.count, line.actor.deviceId]).sort(),
+    [['rate-limited', 1, phone.device.id], ['request-reused', 2, phone.device.id]].sort());
 });
 
 test('fail closed: when the begin line cannot be written the reply is 503 action-log-unwritable and act is never called; the id is not remembered', async (t) => {
@@ -577,4 +590,41 @@ test('LAN 401s on the action routes are counted per address on one summary line 
   const lines = w.lines();
   assert.deepEqual(lines.map((line) => [line.phase, line.code, line.count, line.address, line.actor.kind, line.actor.transport, line.outcome]),
     [['summary', 'unauthenticated', 4, '127.0.0.1', 'unknown', 'native', 'refused']]);
+});
+
+test('162 review 1: a flood of refusals that never reach the core (300 phone-scope from a view device, 300 bad bodies from a control device) adds a bounded number of summary lines, meets 429 once the actor\'s own window is full, and leaves an earlier begin and end in place', async (t) => {
+  const clock = manual();
+  const runner = fakeRunner();
+  const w = await lan(t, runner, { now: clock.now });
+  const control = await w.world.pair('control', 'Phone');
+  const view = await w.world.pair('view', 'Viewer', 'native');
+  assert.equal((await w.post('decide-gate', BODIES['decide-gate'](), { Authorization: control.bearer })).status, 200);
+  const before = w.lines();
+  assert.deepEqual(before.map((line) => line.phase), ['begin', 'end']);
+  clock.t += 2 * MINUTE;
+  const statuses: Record<string, number[]> = { view: [], control: [] };
+  for (let index = 0; index < 300; index += 1) {
+    statuses.view.push((await w.post('cancel-worker', BODIES['cancel-worker'](), { Authorization: view.bearer })).status);
+    statuses.control.push((await w.post('decide-gate', 'not json', { Authorization: control.bearer })).status);
+  }
+  assert.equal(runner.acts.length, 1, 'no refused attempt reached the runner');
+  // The actor's own windows (6 a minute) count a refusal: the first six are 403 or 400, the rest 429.
+  assert.deepEqual([...new Set(statuses.view.slice(0, 6))], [403]);
+  assert.deepEqual([...new Set(statuses.view.slice(6))], [429]);
+  assert.deepEqual([...new Set(statuses.control.slice(0, 6))], [400]);
+  assert.deepEqual([...new Set(statuses.control.slice(6))], [429]);
+  await w.actions.stop();
+  const lines = w.lines();
+  assert.deepEqual(lines.slice(0, 2), before, 'the begin and end lines of the attempt that ran are still there, first');
+  const summaries = lines.slice(2);
+  assert.ok(summaries.length <= 4, `600 refusals in one minute add at most one line per code and actor: ${summaries.length}`);
+  assert.deepEqual(summaries.map((line) => [line.phase, line.code, line.count, line.actor.deviceId]).sort(), [
+    ['summary', 'phone-scope', 6, view.device.id],
+    ['summary', 'rate-limited', 294, control.device.id],
+    ['summary', 'rate-limited', 294, view.device.id],
+    ['summary', 'usage', 6, control.device.id],
+  ].sort());
+  // One actor's refusals never fill the Console's window: another actor still acts.
+  const other = await w.world.pair('control', 'Tablet');
+  assert.equal((await w.post('close-run', BODIES['close-run'](), { Authorization: other.bearer })).status, 200);
 });

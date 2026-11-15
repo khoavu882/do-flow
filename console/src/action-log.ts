@@ -15,12 +15,13 @@
 //                                    takes the folder directly (tests, scratch config homes)
 //   log.begin(fields)             -> phase `begin`, written before the spawn; resolves `{ pid, seq }`
 //   log.end(fields)               -> phase `end`, after the core's exit
-//   log.refused(fields)           -> phase `refused`, an attempt refused before any spawn
-//   log.append(phase, fields)     -> any of the three above
-//   log.summary(code, key, base)  -> counts one `unauthenticated` (key = the address) or `rate-limited` (key =
-//                                    the actor) attempt; the minute's bucket is written as one `summary` line
-//                                    with `count` once the minute has passed (on a later `summary` or `flush`);
-//                                    `base` ({ actor, address, transport }) is taken from the bucket's first call
+//   log.append(phase, fields)     -> either of the two above
+//   log.summary(code, key, base)  -> counts one attempt that never reached the core: `unauthenticated` (key = the
+//                                    address), or one of SUMMARY_CODES' refusals and `rate-limited` (key = the
+//                                    actor); the minute's bucket is written as one `summary` line with `count`
+//                                    once the minute has passed (on a later `summary` or `flush`); `base`
+//                                    ({ actor, address, action }) is taken from the bucket's first call. So a flood
+//                                    of refusals adds at most one line per code and key a minute (162 review 1).
 //   log.flush(all?)               -> writes the buckets of minutes that have passed (all of them when `all`, for
 //                                    shutdown); a bucket whose write fails is dropped and the error thrown
 //   log.writeLine(text)           -> the low-level write: one line of at most 2048 bytes, rotation included
@@ -56,14 +57,16 @@ const LOG_FILE = 'actions.ndjson';
 const OLDER_FILE = 'actions.1.ndjson';
 const LOCK_FILE = 'actions.lock';
 
-const PHASES = ['begin', 'end', 'refused', 'summary'] as const;
+const PHASES = ['begin', 'end', 'summary'] as const;
+/** What a `summary` line counts: a 401, a 429 of the limits, and every refusal before the core (162 review 1). */
+const SUMMARY_CODES = ['unauthenticated', 'rate-limited', 'phone-scope', 'action-transport', 'usage', 'request-reused', 'action-busy'] as const;
 const KINDS = ['local', 'device', 'unknown'] as const;
 const SCOPES = ['local', 'view', 'control'] as const;
 const TRANSPORTS = ['loopback', 'native', 'browser'] as const;
 const OUTCOMES = ['applied', 'refused', 'failed', 'unknown', 'replayed'] as const;
 
 type Phase = typeof PHASES[number];
-type SummaryCode = 'unauthenticated' | 'rate-limited';
+type SummaryCode = typeof SUMMARY_CODES[number];
 type Reason = 'line-too-long' | 'invalid-field' | 'folder' | 'not-regular' | 'lock-busy' | 'io';
 type Fields = {
   id?: string | null,
@@ -254,7 +257,7 @@ function createActionLog(options: Options) {
     return { pid, seq: sequence };
   });
 
-  // ---- the aggregated 401 and 429 lines ----
+  // ---- the aggregated lines: 401s, 429s and every refusal before the core ----
 
   const buckets = new Map<string, Bucket>();
   const minuteOf = (at: number) => Math.floor(at / MINUTE_MS) * MINUTE_MS;
@@ -272,7 +275,7 @@ function createActionLog(options: Options) {
   }
 
   function summary(code: SummaryCode, key: string, base: Fields = {}): Promise<void> {
-    if (code !== 'unauthenticated' && code !== 'rate-limited') throw new ActionLogError('invalid-field', 'a summary code is unauthenticated or rate-limited');
+    if (!(SUMMARY_CODES as readonly string[]).includes(code)) throw new ActionLogError('invalid-field', `a summary code is one of ${SUMMARY_CODES.join(', ')}`);
     const minute = minuteOf(now());
     let id = `${code}\n${minute}\n${String(key)}`;
     if (!buckets.has(id) && buckets.size >= MAX_BUCKETS) id = `${code}\n${minute}\n*overflow*`;
@@ -287,7 +290,6 @@ function createActionLog(options: Options) {
     append,
     begin: (fields: Fields) => append('begin', fields),
     end: (fields: Fields) => append('end', fields),
-    refused: (fields: Fields) => append('refused', fields),
     summary,
     flush,
     writeLine,
@@ -302,5 +304,5 @@ function openActionLog(env: Record<string, string | undefined>, extra: Omit<Opti
 
 module.exports = {
   createActionLog, openActionLog, ActionLogError,
-  ACTION_LOG_BYTES, LINE_MAX_BYTES, LOG_FILE, OLDER_FILE, LOCK_FILE,
+  ACTION_LOG_BYTES, LINE_MAX_BYTES, LOG_FILE, OLDER_FILE, LOCK_FILE, SUMMARY_CODES,
 };

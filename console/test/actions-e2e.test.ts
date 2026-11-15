@@ -76,7 +76,7 @@ async function lan(t: any, w: any, corePath: string = w.core) {
   const post = (id: string, body: unknown, bearer: string) =>
     server.request('POST', `/api/actions/${id}`, { headers: { 'Content-Type': 'application/json', Authorization: bearer }, body: JSON.stringify(body) });
   const list = (bearer: string) => server.request('GET', '/api/actions', { headers: { Authorization: bearer } });
-  return { devices, server, post, list, ...scratch };
+  return { devices, server, post, list, actions, ...scratch };
 }
 
 /** The real loopback table over a real launch-code session. */
@@ -148,13 +148,13 @@ test('decide-gate on the real core: a control device approves at the stream revi
   assert.deepEqual(snapshotTrees(w.roots), afterApply, 'a stale attempt wrote nothing');
   assert.equal(w.timeline(GRAPH, 'run-gate').events.filter((event: any) => event.action === 'decide-gate').length, 1);
 
-  const ran = l.lines().filter((line) => line.phase === 'begin' || line.phase === 'end' || line.phase === 'refused');
-  assert.deepEqual(ran.map((line) => [line.phase, line.action, line.outcome, line.code ?? null, line.actor.deviceId]), [
-    ['refused', 'decide-gate', 'refused', 'phone-scope', view.device.id],
+  await l.actions.stop();
+  assert.deepEqual(l.lines().map((line) => [line.phase, line.action, line.outcome, line.code ?? null, line.actor.deviceId]), [
     ['begin', 'decide-gate', null, null, control.device.id],
     ['end', 'decide-gate', 'applied', null, control.device.id],
     ['begin', 'decide-gate', null, null, control.device.id],
     ['end', 'decide-gate', 'refused', 'stale', control.device.id],
+    ['summary', 'decide-gate', 'refused', 'phone-scope', view.device.id],
   ]);
 });
 

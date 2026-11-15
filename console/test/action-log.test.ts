@@ -68,7 +68,7 @@ test('one append writes one whole line: the closed fields, the file 0600, the fo
 test('a hostile string never shapes a line: newlines, quotes and free text become null, an unknown enum is refused', async () => {
   const root = scratch();
   const log = open(root);
-  await log.refused({ id: 'x"}\n{"phase":"end"', action: 'a b', address: 'evil\nhost', target: { slug: '../../etc', gateId: 'ok' }, code: 'stale\r\n', outcome: 'refused' });
+  await log.end({ id: 'x"}\n{"phase":"end"', action: 'a b', address: 'evil\nhost', target: { slug: '../../etc', gateId: 'ok' }, code: 'stale\r\n', outcome: 'refused' });
   const text = fs.readFileSync(path.join(root, 'console', 'actions.ndjson'), 'utf8');
   assert.equal(text.split('\n').length, 2);
   const [line] = linesOf(path.join(root, 'console', 'actions.ndjson'));
@@ -78,8 +78,8 @@ test('a hostile string never shapes a line: newlines, quotes and free text becom
   assert.equal(line.target.slug, null);
   assert.equal(line.target.gateId, 'ok');
   assert.equal(line.code, null);
-  await refused(log.refused({ outcome: 'exploded' }), 'invalid-field');
-  await refused(log.refused({ actor: { transport: 'carrier-pigeon' } }), 'invalid-field');
+  await refused(log.end({ outcome: 'exploded' }), 'invalid-field');
+  await refused(log.end({ actor: { transport: 'carrier-pigeon' } }), 'invalid-field');
   assert.equal(linesOf(path.join(root, 'console', 'actions.ndjson')).length, 1);
 });
 

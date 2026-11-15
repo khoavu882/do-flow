@@ -2,24 +2,29 @@
 
 // The Console's action routes (feature 162, IC-001, IC-002, IC-007, IC-009; D1, D5, D6, D11, D12, D13, D14). A
 // person's decision is relayed to exactly one frozen argv shape (verb-runner.ts WRITE_SHAPES, through `runner.act`
-// only); nothing a device cannot do reaches the runner; every attempt is logged (action-log.ts); a log that cannot
-// be written refuses the action.
+// only); nothing a device cannot do reaches the runner; every attempt is logged (action-log.ts): one `begin` and one `end`
+// line for an attempt that reaches the core, one aggregated `summary` line per code and actor a minute for one that does
+// not; a log that cannot be written refuses the action.
 //
 // One route per ACTIONS row, `POST /api/actions/<id>` (D1), declared `action: true`, behind the wrappers of
 // routes.ts. In order, an attempt is checked for:
 //   1. the credential (the wrappers: 401, counted on the log's aggregated `unauthenticated` line per address);
-//   2. the scope (LAN, the wrapper: `deviceMayUse`, else 403 phone-scope, logged `refused`);
+//   2. the scope (LAN, the wrapper: `deviceMayUse`, else 403 phone-scope);
 //   3. the transport (LAN: `deviceMayAct`, a `control` record paired natively over the native class, else 403
-//      action-transport, logged; loopback: the `local` session acts, behind server.ts's non-GET checks, D5);
+//      action-transport; loopback: the `local` session acts, behind server.ts's non-GET checks, D5);
 //   4. the body (4 KiB, one JSON object with exactly the row's keys plus `v`, `requestId` and `projectKey`; the
-//      text rule of IC-009; else 400 usage, logged);
+//      text rule of IC-009; else 400 usage);
 //   5. idempotency (D12: `(actor, requestId)` for 10 min, 256 entries, least recently used out; a duplicate awaits
 //      or replays the first answer, `replayed: true`, uncounted; another body under the same id is 409
-//      request-reused, logged);
+//      request-reused);
 //   6. the limits (D11: per actor 6 a minute and 30 an hour, per Console 20 a minute; 429 action-rate-limited with
 //      `Retry-After` in whole seconds until the oldest counted attempt leaves its window; counted on the log's
 //      aggregated `rate-limited` line per actor);
-//   7. the queue (one attempt in flight, four waiting, FIFO; else 429 action-busy, `Retry-After: 2`, logged).
+//   7. the queue (one attempt in flight, four waiting, FIFO; else 429 action-busy, `Retry-After: 2`).
+// A refusal at 2 to 5 counts against the actor's own windows (never the Console's, so one actor's refusals cannot
+// block another's actions) and, once they are full, is 429 action-rate-limited instead (162 review 1). Every refusal
+// at 2 to 7 is counted on the log's aggregated `summary` line for its code and actor, so a flood adds at most a few
+// lines a minute and never rotates the `begin` and `end` lines of attempts that ran out of the log.
 // Then `begin` is logged (fail closed: a line that cannot be written is 503 action-log-unwritable and nothing
 // runs), `runner.act` runs the shape in the project named by `projectKey` (D14; an unknown key refreshes the
 // runner's `projects` map once and tries again before 404 project-not-found), and `end` is logged with the
@@ -340,17 +345,18 @@ function createLimits() {
   let all: number[] = [];
   const waitFor = (oldest: number, windowMs: number, t: number) => Math.max(1, Math.ceil((oldest + windowMs - t) / 1000));
   return {
-    admit(key: string, t: number): number {
+    /** `shared` false (a refusal): only the actor's own windows are checked and counted, never the Console's. */
+    admit(key: string, t: number, shared = true): number {
       const mine = (actors.get(key) ?? []).filter((at) => t - at < HOUR_MS);
       all = all.filter((at) => t - at < MINUTE_MS);
       const minute = mine.filter((at) => t - at < MINUTE_MS);
       let wait = 0;
       if (minute.length >= LIMITS.actor.perMinute) wait = Math.max(wait, waitFor(minute[0], MINUTE_MS, t));
       if (mine.length >= LIMITS.actor.perHour) wait = Math.max(wait, waitFor(mine[0], HOUR_MS, t));
-      if (all.length >= LIMITS.console.perMinute) wait = Math.max(wait, waitFor(all[0], MINUTE_MS, t));
+      if (shared && all.length >= LIMITS.console.perMinute) wait = Math.max(wait, waitFor(all[0], MINUTE_MS, t));
       if (wait === 0) {
         mine.push(t);
-        all.push(t);
+        if (shared) all.push(t);
       }
       if (mine.length) actors.set(key, mine);
       else actors.delete(key);
@@ -441,11 +447,24 @@ function createActions({ runner, log, now = Date.now, warn = () => {} }: Options
   const idle = log ? setInterval(() => { quietly(() => log.flush(false)); }, FLUSH_EVERY_MS) : null;
   if (idle && typeof idle.unref === 'function') idle.unref();
 
-  /** A refusal before any spawn: logged `refused`, then the reply. */
-  async function refuse(fields: Record<string, unknown>, status: number, code: string, headers: Record<string, string> = {}): Promise<Reply> {
-    if (log) await quietly(() => log.refused({ ...fields, outcome: 'refused', code }));
+  /** 429 action-rate-limited, counted on the actor's aggregated `rate-limited` line. */
+  async function rateLimited(key: string, base: Record<string, unknown>, wait: number): Promise<Reply> {
+    if (log) await quietly(() => log.summary('rate-limited', key, base));
+    return withHeader(errorReply(429, 'action-rate-limited'), 'Retry-After', String(wait));
+  }
+
+  /**
+   * A refusal before any spawn (162 review 1): counted against the actor's own windows unless `counted` already (then a full
+   * window answers 429 instead), and on the aggregated `summary` line of its code and actor, never a line of its own.
+   */
+  async function refuse(key: string, base: Record<string, unknown>, status: number, code: string, options: { counted?: boolean, headers?: Record<string, string> } = {}): Promise<Reply> {
+    if (!options.counted) {
+      const wait = limits.admit(key, now(), false);
+      if (wait > 0) return rateLimited(key, base, wait);
+    }
+    if (log) await quietly(() => log.summary(code, key, base));
     let reply = errorReply(status, code);
-    for (const [name, value] of Object.entries(headers)) reply = withHeader(reply, name, value);
+    for (const [name, value] of Object.entries(options.headers ?? {})) reply = withHeader(reply, name, value);
     return reply;
   }
 
@@ -480,11 +499,13 @@ function createActions({ runner, log, now = Date.now, warn = () => {} }: Options
   function actionRoute(spec: ActionSpec) {
     const path = `/api/actions/${spec.id}`;
     const baseOf = (ctx: any, session: any) => ({ actor: logActor(ctx, session), address: addressOf(ctx), action: spec.id });
+    /** The limits' and the summary's key: the actor's, else the address of a session that is neither. */
+    const keyOf = (ctx: any, session: any) => actorOf({ ...ctx, session })?.key ?? `address:${addressOf(ctx) ?? 'unknown'}`;
     return {
       method: 'POST' as const,
       path,
       action: true as const,
-      refused: (ctx: any, session: any, code: string) => refuse(baseOf(ctx, session), 403, code),
+      refused: (ctx: any, session: any, code: string) => refuse(keyOf(ctx, session), baseOf(ctx, session), 403, code),
       unauthenticated: async (ctx: any) => {
         if (!log) return;
         const base = baseOf(ctx, null);
@@ -493,35 +514,33 @@ function createActions({ runner, log, now = Date.now, warn = () => {} }: Options
       handler: async (ctx: any): Promise<Reply> => {
         const actor = actorOf(ctx);
         const base = baseOf(ctx, ctx.session);
-        if (actor === null || (actor.kind === 'device' && !deviceMayAct(actor.session, ctx.clientClass))) return refuse(base, 403, 'action-transport');
+        const key = keyOf(ctx, ctx.session);
+        if (actor === null || (actor.kind === 'device' && !deviceMayAct(actor.session, ctx.clientClass))) return refuse(key, base, 403, 'action-transport');
         if (!log) return errorReply(503, 'action-log-unwritable');
         const body = parseBody(spec, await readBody(ctx.req, BODY_CAP));
-        if (body === null) return refuse(base, 400, 'usage');
+        if (body === null) return refuse(key, base, 400, 'usage');
         const fields = {
           ...base, id: body.requestId, project: body.projectKey, target: spec.target(body), expect: spec.expect(body),
           input: { decision: body.decision ?? null, textChars: spec.textField === null ? null : codePoints(body[spec.textField]) },
         };
-        const key = `${actor.key}\n${body.requestId}`;
+        const memoKey = `${actor.key}\n${body.requestId}`;
         const digest = digestOf(spec.id, body);
-        const seen = memo.get(key, now());
+        const seen = memo.get(memoKey, now());
         if (seen) {
-          if (seen.digest !== digest) return refuse(fields, 409, 'request-reused');
+          if (seen.digest !== digest) return refuse(key, base, 409, 'request-reused');
           const first = await seen.settled;
           await quietly(() => log.end({ ...fields, outcome: 'replayed', code: first.code, exit: first.exit }));
           return replyOf(spec, body, actor, first, true);
         }
         const wait = limits.admit(actor.key, now());
-        if (wait > 0) {
-          await quietly(() => log.summary('rate-limited', actor.key, base));
-          return withHeader(errorReply(429, 'action-rate-limited'), 'Retry-After', String(wait));
-        }
+        if (wait > 0) return rateLimited(key, base, wait);
         const slot = queue.reserve();
-        if (slot === null) return refuse(fields, 429, 'action-busy', { 'Retry-After': String(BUSY_RETRY_S) });
+        if (slot === null) return refuse(key, base, 429, 'action-busy', { counted: true, headers: { 'Retry-After': String(BUSY_RETRY_S) } });
         const settled = slot.ready.then(() => attempt(spec, body, actor, fields)).finally(slot.release);
-        memo.set(key, { digest, settled, at: now() });
+        memo.set(memoKey, { digest, settled, at: now() });
         const done = await settled;
         // Nothing ran (no begin line, no spawn): the same request may be tried again.
-        if (!done.ran) memo.delete(key);
+        if (!done.ran) memo.delete(memoKey);
         return replyOf(spec, body, actor, done, false);
       },
     };
