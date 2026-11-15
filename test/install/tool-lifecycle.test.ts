@@ -397,6 +397,29 @@ test('an interpreter given code in any inline form, or a bare word as a status, 
   }
 });
 
+test('an interpreter in any spelling, a wrapper, or an installer subcommand that runs code never reaches the runner, with no validator in front', async () => {
+  const withStatus = (command: string[]) => ({ id: 'x', officialEvidence: ['https://example.test/x'], status: { commands: [[command[0], '--version']] } });
+  // An update or uninstall command of the tool's own program.
+  for (const command of [['node', '--import=data:text/javascript,1'], ['node', '--loader', 'data:text/javascript,1'], ['python3', '-m', 'timeit', 'x'], ['python3.13t', '-c', '1'], ['pypy3', 'x.py'], ['nodejs', '-e', '1'],
+    ['ruby3.2', '-e', '1'], ['perl5.34', '-e', '1'], ['bun', 'x.ts'], ['timeout', '5', 'sh'], ['arch', '-arm64', 'sh'], ['xcrun', 'sh']]) {
+    const tool = { ...withStatus(command), update: { command } };
+    const plan = await planToolLifecycle({ registry: { externalTools: [tool] }, action: 'update', platform: 'darwin', execFileSyncImpl: fakeExec(new Map([[`${command[0]} --version`, 'v 1']])) });
+    const ran: any[] = [];
+    const out = executeToolLifecycle({ plan, displayCommand() {}, confirmCommand: () => true, execFileSyncImpl: fakeExec(new Map(), ran) });
+    assert.deepEqual(ran, [], `${command.join(' ')} is not run as an update`);
+    assert.notEqual(out.results[0].status, 'succeeded', command.join(' '));
+  }
+  // An install route whose installer is a known one, run with a subcommand that runs a program or code.
+  for (const command of [['npm', 'exec', '--', 'sh', '-c', 'id'], ['npm', 'x', '-c', 'id'], ['uv', 'run', 'python', '-c', '1'], ['brew', 'ruby', '-e', '1'], ['pipx', 'run', 'pkg'], ['cargo', 'run']]) {
+    const tool = { ...withStatus(['tool-x']), install: { routes: [{ installer: command[0], command, evidence: 'https://example.test/x' }] } };
+    const plan = await planToolLifecycle({ registry: { externalTools: [tool] }, action: 'install', platform: 'darwin', execFileSyncImpl: fakeExec(new Map([['tool-x --version', absent('tool-x')], [`${command[0]} --version`, 'v 1']])) });
+    const ran: any[] = [];
+    const out = executeToolLifecycle({ plan, displayCommand() {}, confirmCommand: () => true, execFileSyncImpl: fakeExec(new Map(), ran) });
+    assert.deepEqual(ran, [], `${command.join(' ')} is not run as an install`);
+    assert.notEqual(out.results[0].status, 'succeeded', command.join(' '));
+  }
+});
+
 test('a status command is the tool\'s program and one flag or subcommand, the same program throughout', async () => {
   const run = async (commands: string[][]) => {
     const ran: any[] = [];
