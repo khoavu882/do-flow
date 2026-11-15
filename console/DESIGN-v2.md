@@ -18,12 +18,16 @@ files in this checkout; everything else is a proposal or an inference and is lab
 
 ## 2. Where the Console is today (S)
 
+This section is the state on 2026-11-07. Feature 149 added the live hub (`/api/live`) and feature 161 replaced the Fleet page and
+its own stream with the Layers view over that hub; only the Fleet lines below were updated.
+
 - Plain ES modules, no framework, no build step, no runtime dependency; Node type stripping on the server
   (`console/package.json`, `bin/doflow-ui.js`). 29.8k lines including tests.
-- Hash routes: Runs `#/`, Run `#/run/:slug/:taskId`, Task graph `.../tasks`, Workflows, Sessions, Fleet
-  `#/fleet[/:project[/:agent]]` (`web/views.js`).
+- Hash routes: Runs `#/`, Run `#/run/:slug/:taskId`, Task graph `.../tasks`, Workflows, Sessions, Layers
+  `#/layers[/:project[/agent/:agent][/file/:file]]` (`web/routes.js`; feature 161 replaced Fleet `#/fleet[/:project[/:agent]]`, and
+  `#/fleet` is now a not-found route).
 - Refresh: Runs 5 s, Run and Task graph 3 s, Sessions 10 s, Workflows 30 s, all polling. **Only Fleet
-  pushes** (SSE, `src/stream.ts`), and each SSE tick is still one spawned `doflow` verb.
+  pushed** (SSE, `src/stream.ts`, removed in 161: `/api/live` is the one stream now), and each SSE tick was still one spawned `doflow` verb.
 - Server runs only allow-listed read verbs (`verb-runner.ts` `SHAPES`), pool of 2 plus 1 for transcript,
   10 s timeout, 4 MiB output cap. Loopback by default; remote mode needs a private IP, a TLS certificate
   with an IP SAN, and gives a phone-scope session only four routes.
