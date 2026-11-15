@@ -17,8 +17,10 @@
 //   log.end(fields)               -> phase `end`, after the core's exit
 //   log.append(phase, fields)     -> either of the two above
 //   log.summary(code, key, base)  -> counts one attempt that never reached the core: `unauthenticated` (key = the
-//                                    address), or one of SUMMARY_CODES' refusals and `rate-limited` (key = the
-//                                    actor); the minute's bucket is written as one `summary` line with `count`
+//                                    address), one of SUMMARY_CODES' refusals and `rate-limited` (key = the
+//                                    actor), or a refusal before an actor exists, `forbidden-origin` and
+//                                    `unsupported-media` (actor kind `none`, key `none`: one line per reason, whoever
+//                                    sent it); the minute's bucket is written as one `summary` line with `count`
 //                                    once the minute has passed (on a later `summary` or `flush`); `base`
 //                                    ({ actor, address, action }) is taken from the bucket's first call. So a flood
 //                                    of refusals adds at most one line per code and key a minute (162 review 1).
@@ -63,9 +65,9 @@ const OLDER_FILE = 'actions.1.ndjson';
 const LOCK_FILE = 'actions.lock';
 
 const PHASES = ['begin', 'end', 'summary'] as const;
-/** What a `summary` line counts: a 401, a 429 of the limits, and every refusal before the core (162 review 1). */
-const SUMMARY_CODES = ['unauthenticated', 'rate-limited', 'phone-scope', 'action-transport', 'usage', 'request-reused', 'action-busy'] as const;
-const KINDS = ['local', 'device', 'unknown'] as const;
+/** What a `summary` line counts: a 401, a 429 of the limits, and every refusal before the core (162 review 1), those before an actor exists included. */
+const SUMMARY_CODES = ['unauthenticated', 'rate-limited', 'phone-scope', 'action-transport', 'usage', 'request-reused', 'action-busy', 'forbidden-origin', 'unsupported-media'] as const;
+const KINDS = ['local', 'device', 'unknown', 'none'] as const;
 const SCOPES = ['local', 'view', 'control'] as const;
 const TRANSPORTS = ['loopback', 'native', 'browser'] as const;
 const OUTCOMES = ['applied', 'refused', 'failed', 'unknown', 'replayed'] as const;

@@ -34,12 +34,15 @@ type RouteContext = { req: any, res: any, pathname: string, params: Record<strin
   recheck?: () => Promise<boolean> };
 /**
  * An `action` route (162 IC-007) also carries `refused(ctx, session, code)`, which logs a refusal before it replies
- * 403, and `unauthenticated(ctx, code)`, which counts a 401 for the log's aggregated line; the wrappers call both.
+ * 403, and `unauthenticated(ctx, code)`, which counts a 401 for the log's aggregated line; the wrappers call both. server.ts
+ * calls `refusedEarly(code)` for its own 403 forbidden-origin and 415 unsupported-media, which come before the wrappers.
  */
 type Route = Readonly<{ method: 'GET' | 'POST', path: string, stream?: true, action?: true,
   handler: (ctx: RouteContext) => Reply | null | Promise<Reply | null>,
   refused?: (ctx: RouteContext, session: Session, code: string) => Promise<Reply>,
-  unauthenticated?: (ctx: RouteContext, code: string) => Promise<void> }>;
+  unauthenticated?: (ctx: RouteContext, code: string) => Promise<void>,
+  /** server.ts's refusals before the route's wrappers run, so before any actor exists (`forbidden-origin`, `unsupported-media`): counts one for the log. */
+  refusedEarly?: (code: string) => Promise<void> }>;
 type StreamCap = { acquire(session: object): (() => void) | null, open(): number };
 /** The live hub of live.ts (one per Console, made in main.ts), as far as the route and live-stream.ts use it. */
 type LiveHub = {

@@ -215,7 +215,40 @@ test('loopback: the local session acts with relay console; the server\'s non-GET
   await w.actions.stop();
   const summaries = w.lines().filter((line) => line.phase === 'summary');
   assert.deepEqual(summaries.map((line) => [line.code, line.count, line.address, line.actor.kind, line.actor.transport, line.action]),
-    [['unauthenticated', 2, '127.0.0.1', 'unknown', 'loopback', 'decide-gate']]);
+    [['forbidden-origin', 3, null, 'none', null, null], ['unsupported-media', 2, null, 'none', null, null], ['unauthenticated', 2, '127.0.0.1', 'unknown', 'loopback', 'decide-gate']]);
+});
+
+test('162 finding: a request refused before an actor exists (403 forbidden-origin, 415 unsupported-media) on an action route is counted on one summary line a minute per reason, actor none; a flood adds no more, and other routes are not counted', async (t) => {
+  const clock = manual();
+  const runner = fakeRunner();
+  const w = await lan(t, runner, { now: clock.now });
+  const control = await w.world.pair('control', 'Phone');
+  const refusals: Array<[Record<string, string>, number, string]> = [
+    [{ Authorization: control.bearer, Origin: 'https://evil.example' }, 403, 'forbidden-origin'],
+    [{ Authorization: control.bearer, 'Sec-Fetch-Site': 'cross-site' }, 403, 'forbidden-origin'],
+    [{ Authorization: control.bearer, 'Content-Type': 'text/plain' }, 415, 'unsupported-media'],
+  ];
+  for (let minute = 0; minute < 3; minute += 1) {
+    for (let index = 0; index < 100; index += 1) {
+      for (const [headers, status, code] of refusals) {
+        const reply = await w.post('close-run', BODIES['close-run'](), headers);
+        assert.equal(reply.status, status);
+        assert.equal(errorOf(reply), code);
+      }
+    }
+    clock.t += MINUTE;
+  }
+  // The same refusals on a read route are not the action log's business.
+  assert.equal((await w.server.request('GET', '/api/actions', { headers: { Authorization: control.bearer, Origin: 'https://evil.example' } })).status, 403);
+  assert.equal(runner.acts.length, 0);
+  await w.actions.stop();
+  const lines = w.lines();
+  assert.deepEqual(lines.map((line) => [line.phase, line.code, line.count, line.actor, line.address, line.action, line.outcome]),
+    [0, 1, 2].flatMap(() => [
+      ['summary', 'forbidden-origin', 200, { kind: 'none', deviceId: null, scope: null, transport: null }, null, null, 'refused'],
+      ['summary', 'unsupported-media', 100, { kind: 'none', deviceId: null, scope: null, transport: null }, null, null, 'refused'],
+    ]), 'one line per reason per minute, 900 refusals in all');
+  assert.ok(Buffer.byteLength(JSON.stringify(lines)) < 4096);
 });
 
 test('closed bodies: a key too many or too few, a wrong v, requestId, projectKey, id, decision, revision or run id, a body over 4 KiB, not JSON: 400 usage, counted, never run', async (t) => {

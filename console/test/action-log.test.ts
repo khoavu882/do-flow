@@ -195,6 +195,26 @@ test('summary writes one line per key per minute with the count, once the minute
   assert.equal(linesOf(file).length, 4, 'a written bucket is not written again');
 });
 
+test('162 finding: the refusals before an actor exists are summary codes of actor kind none, one line per reason per minute whoever sent them', async () => {
+  const root = scratch();
+  const file = path.join(root, 'console', 'actions.ndjson');
+  const c = clock(Date.UTC(2026, 10, 15, 10, 0, 5));
+  const log = open(root, { now: c.now });
+  for (let i = 0; i < 500; i += 1) {
+    await log.summary('forbidden-origin', 'none', { actor: { kind: 'none' } });
+    await log.summary('unsupported-media', 'none', { actor: { kind: 'none' } });
+  }
+  c.advance(60_000);
+  await log.flush(false);
+  const lines = linesOf(file);
+  assert.deepEqual(lines.map((l: any) => [l.phase, l.code, l.count, l.actor, l.address, l.outcome]), [
+    ['summary', 'forbidden-origin', 500, { kind: 'none', deviceId: null, scope: null, transport: null }, null, 'refused'],
+    ['summary', 'unsupported-media', 500, { kind: 'none', deviceId: null, scope: null, transport: null }, null, 'refused'],
+  ]);
+  assert.ok(lines.every((l: any) => JSON.stringify(l).length < 2048));
+  await assert.rejects(log.append('begin', { actor: { kind: 'nobody' } }), { reason: 'invalid-field' });
+});
+
 test('summary buckets are bounded: keys past the cap count under one overflow bucket', async () => {
   const root = scratch();
   const file = path.join(root, 'console', 'actions.ndjson');
