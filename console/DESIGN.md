@@ -216,15 +216,15 @@ Generated list of the top-level class blocks in `app.css` (elements are `block__
 `.fnode`, `.fpanel`, `.ftransport`, `.ftree`, `.full-state`, `.gate`, `.gate-card`, `.gate-cards`
 `.gattempt`, `.gattempts`, `.gcard`, `.gdetail`, `.glane`, `.graph`, `.grid`, `.grow`, `.help`
 `.hint`, `.icon`, `.inspector`, `.logpane`, `.masked`, `.matrix`, `.model-chip`, `.mono`, `.mtable`
-`.nav`, `.navrail`, `.noscript`, `.num`, `.ov-check`, `.ov-cross`, `.ov-forced`, `.page`, `.palette`
-`.pause`, `.pr`, `.project-list`, `.project-row`, `.rail`, `.rail-detail`, `.rail-fallback`
-`.rail-note`, `.rail-scroll`, `.reltime`, `.replay`, `.replay-host`, `.run-head`, `.run-list`
-`.run-rail`, `.run-row`, `.run-section`, `.sbar`, `.segmented`, `.sessions`, `.sfilter`, `.sfoot`
-`.sgroup`, `.shape`, `.shell`, `.shold`, `.site-header`, `.skel`, `.skeleton`, `.skip`, `.slane`
-`.slane-children`, `.snote`, `.spanel`, `.srow`, `.srows`, `.state-panel`, `.stream`, `.summary`
-`.tag`, `.theme`, `.tile`, `.timeline`, `.tl`, `.tl-item`, `.tl-list`, `.together`, `.traffic`
-`.ttable`, `.vh`, `.view-enter`, `.view-head`, `.view-note`, `.view-title`, `.wf`, `.wf-list`
-`.wtabs`
+`.nav`, `.navrail`, `.noscript`, `.num`, `.ov-check`, `.ov-cross`, `.ov-forced`, `.page`, `.pair`
+`.palette`, `.pause`, `.pr`, `.project-list`, `.project-row`, `.rail`, `.rail-detail`
+`.rail-fallback`, `.rail-note`, `.rail-scroll`, `.reltime`, `.replay`, `.replay-host`, `.run-head`
+`.run-list`, `.run-rail`, `.run-row`, `.run-section`, `.sbar`, `.segmented`, `.sessions`, `.sfilter`
+`.sfoot`, `.sgroup`, `.shape`, `.shell`, `.shold`, `.site-header`, `.skel`, `.skeleton`, `.skip`
+`.slane`, `.slane-children`, `.snote`, `.spanel`, `.srow`, `.srows`, `.state-panel`, `.stream`
+`.summary`, `.tag`, `.theme`, `.tile`, `.timeline`, `.tl`, `.tl-item`, `.tl-list`, `.together`
+`.traffic`, `.ttable`, `.vh`, `.view-enter`, `.view-head`, `.view-note`, `.view-title`, `.wf`
+`.wf-list`, `.wtabs`
 <!-- /generated -->
 
 What an agent most often touches:

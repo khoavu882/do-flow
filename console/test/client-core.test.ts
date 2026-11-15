@@ -587,6 +587,10 @@ test('classify sorts every IC-005 outcome into the rows of the error table (6.6)
   assert.equal(key(401, 'unauthenticated', { exchange: 'none', sessionWorked: false }), 'session-unauth');
   assert.equal(key(401, 'unauthenticated', { exchange: 'ok', sessionWorked: true }), 'session-ended');
   assert.equal(key(403, 'forbidden-origin'), 'forbidden-origin');
+  for (const code of ['device-unpaired', 'device-revoked', 'device-expired']) {
+    assert.deepEqual(c(401, code, { exchange: 'none', sessionWorked: true }), { scope: 'session', key: code, auto: false, status: 401, code }, code);
+  }
+  assert.deepEqual(c(503, 'store-unreadable'), { scope: 'session', key: 'store-unreadable', auto: false, status: 503, code: 'store-unreadable' });
   assert.deepEqual(c(403, 'phone-scope'), { scope: 'inline', key: 'phone-scope', auto: false, status: 403, code: 'phone-scope' });
   assert.equal(key(null, null), 'offline');
   assert.equal(key(503, 'core-unreachable'), 'runtime-missing');
@@ -601,7 +605,7 @@ test('classify sorts every IC-005 outcome into the rows of the error table (6.6)
   assert.deepEqual(['core-error', 'contract-mismatch', 'cannot-list', 'offline', 'runtime-missing'].map((k) => c(k === 'offline' ? null : k === 'runtime-missing' ? 503 : 502, k === 'contract-mismatch' ? 'core-contract-mismatch' : k === 'cannot-list' ? 'cannot-list-checkouts' : k === 'runtime-missing' ? 'core-unreachable' : k === 'core-error' ? 'core-error' : null).auto), [true, true, true, true, true]);
   assert.equal(c(404, 'run-not-found').auto, false);
   assert.equal(c(401, null).scope, 'session');
-  for (const k of ['session-used', 'session-unauth', 'session-ended', 'forbidden-origin', 'offline', 'core-error', 'contract-mismatch', 'cannot-list', 'run-not-found', 'not-found', 'refused']) {
+  for (const k of ['session-used', 'session-unauth', 'session-ended', 'forbidden-origin', 'offline', 'core-error', 'contract-mismatch', 'cannot-list', 'run-not-found', 'not-found', 'refused', 'device-unpaired', 'device-revoked', 'device-expired', 'store-unreadable']) {
     assert.ok(ERROR_COPY[k], `copy for ${k}`);
   }
 });
@@ -722,6 +726,120 @@ test('boot: a launch code that was already used shows the used page, removes the
   assert.equal(page.conn.getAttribute('data-state'), 'failed');
   await advance(30_000);
   assert.equal(apiCalls(page, '/api/runs').length, 0, 'no data polling after a session error');
+});
+
+// ---- app.js: pairing a device on a LAN Console (160 IC-009) ----
+
+const PAIR_CODE = 'abcdefghijklmnopqrstuvwxyz'.slice(0, 22) + '2345';
+const PAIR_FP = '0123456789abcdef'.repeat(4);
+const PAIR_HASH = `#pair=${PAIR_CODE}&fp=${PAIR_FP}&v=1`;
+const pairReply = (status: number, code: string | null, headers: Record<string, string> = {}): Reply & { headers: any } => ({
+  ok: status === 200, status, json: async () => (code === null ? { v: 1, device: { id: 'd-0123456789ab', name: 'x', scope: 'view' } } : { error: { code, verb: null, exit: null } }),
+  headers: { get: (name: string) => headers[name] ?? null },
+});
+const pairForm = (page: Page) => page.main.querySelector('form');
+const pairInput = (page: Page) => page.main.querySelector('input');
+const pairButton = (page: Page) => page.main.querySelector('button');
+
+test('pair: a #pair= fragment is removed at once, nothing is fetched, and the form shows the name field and the fingerprint', async () => {
+  const page = await start({ hash: PAIR_HASH, fetch: standard });
+  assert.deepEqual(page.history, ['/#/']);
+  assert.equal(page.location.hash, '#/');
+  assert.deepEqual(page.calls.map((c) => `${c.method} ${c.url}`), [], 'no request before the person acts');
+  assert.equal(text(heading(page)), 'Pair this device with the Console');
+  assert.equal(pairInput(page).value, 'Phone browser');
+  assert.equal(page.main.querySelector('label').getAttribute('for'), 'pair-name');
+  assert.equal(pairInput(page).getAttribute('id'), 'pair-name');
+  assert.equal(text(page.main.querySelector('.pair__fp')), PAIR_FP.toUpperCase().match(/../g)!.join(':'));
+  assert.match(text(page.main), /Compare this fingerprint/);
+  assert.equal(text(page.main).includes(PAIR_CODE), false, 'the code is never on the page');
+  assert.equal(page.doc.documentElement.classList.contains('booting'), false);
+});
+
+test('pair: Pair posts the code once with the typed name, then boots as a paired device', async () => {
+  const page = await start({ hash: PAIR_HASH, fetch: (target, init) => (target === '/api/pair' ? pairReply(200, null) : standard(target, init)) });
+  pairInput(page).value = '  Kai phone  ';
+  pairForm(page).fire('submit');
+  await settle();
+  const posts = page.calls.filter((c) => c.method === 'POST');
+  assert.deepEqual(posts.map((c) => [c.url, c.body]), [['/api/pair', { v: 1, code: PAIR_CODE, name: 'Kai phone' }]]);
+  assert.equal(apiCalls(page, '/api/info').length >= 1, true);
+  assert.equal(text(heading(page)), 'Runs');
+  assert.equal(JSON.stringify(page.history).includes(PAIR_CODE), false);
+  assert.equal(text(page.main).includes(PAIR_CODE), false);
+});
+
+test('pair: an empty name posts the default, and a double click posts once', async () => {
+  let release: (value: Reply) => void = () => {};
+  const held = new Promise<Reply>((resolve) => { release = resolve; });
+  const page = await start({ hash: PAIR_HASH, fetch: (target, init) => (target === '/api/pair' ? held : standard(target, init)) });
+  pairInput(page).value = '   ';
+  pairForm(page).fire('submit');
+  pairForm(page).fire('submit');
+  await settle();
+  assert.equal(pairButton(page).getAttribute('disabled'), '');
+  assert.equal(text(pairButton(page)), 'Pairing…');
+  release(pairReply(200, null));
+  await settle();
+  const posts = page.calls.filter((c) => c.method === 'POST');
+  assert.deepEqual(posts.map((c) => c.body.name), ['Phone browser']);
+});
+
+test('pair: a refused code says so in the form, offers no second try, and tells what to run', async () => {
+  const page = await start({ hash: PAIR_HASH, fetch: (target, init) => (target === '/api/pair' ? pairReply(401, 'pair-refused') : standard(target, init)) });
+  pairForm(page).fire('submit');
+  await settle();
+  assert.equal(text(page.main.querySelector('.pair__failure-title')), 'This code was not accepted');
+  assert.match(text(page.main.querySelector('.pair__failure-text')), /doflow ui --action pair/);
+  assert.equal(pairButton(page).getAttribute('disabled'), '');
+  pairForm(page).fire('submit');
+  await settle();
+  assert.equal(page.calls.filter((c) => c.method === 'POST').length, 1, 'the spent code is not posted again');
+  assert.equal(apiCalls(page, '/api/info').length, 0);
+});
+
+test('pair: rate limited shows the wait and stays open for another try; full, busy, unreadable and offline each have their own words', async () => {
+  const answers: Array<Reply | 'network'> = [pairReply(429, 'pair-rate-limited', { 'Retry-After': '540' }), pairReply(409, 'device-limit'), pairReply(503, 'store-busy'), pairReply(503, 'store-unreadable'), 'network'];
+  const page = await start({ hash: PAIR_HASH, fetch: (target, init) => (target === '/api/pair' ? answers.shift() as any : standard(target, init)) });
+  const titles: string[] = [];
+  for (let i = 0; i < 5; i += 1) {
+    pairForm(page).fire('submit');
+    await settle();
+    titles.push(text(page.main.querySelector('.pair__failure-title')));
+    if (i === 0) assert.match(text(page.main.querySelector('.pair__failure-text')), /Try again in 9 min/);
+    assert.equal(pairButton(page).getAttribute('disabled'), null, `try ${i + 1} stays open`);
+  }
+  assert.deepEqual(titles, ['Pairing is paused', 'This Console has no room for another device', 'The device store is busy', 'The Console cannot read its device store', 'The Console did not answer']);
+  assert.equal(page.calls.filter((c) => c.method === 'POST').length, 5);
+});
+
+test('pair: a device refused after pairing gets its own full page: unpaired, revoked, expired, store unreadable', async () => {
+  const cases: Array<[number, string, string, string | null]> = [
+    [401, 'device-unpaired', 'This device is not paired', 'doflow ui --action pair'],
+    [401, 'device-revoked', 'This device was revoked', 'doflow ui --action pair'],
+    [401, 'device-expired', 'This device was idle too long', 'doflow ui --action pair'],
+    [503, 'store-unreadable', 'The Console cannot read its device store', null],
+  ];
+  for (const [status, code, title, command] of cases) {
+    const page = await start({ hash: '', fetch: (target, init) => (target === '/api/info' ? errorReply(status, code) : standard(target, init)) });
+    assert.equal(text(heading(page)), title, code);
+    const shown = page.main.querySelector('.cmd__text');
+    assert.equal(shown ? text(shown) : null, command, code);
+    assert.equal(page.conn.getAttribute('data-state'), 'failed');
+    uninstallPage();
+    mock.timers.reset();
+  }
+});
+
+test('pair: a fragment that does not parse is removed and the page boots as it would without it', async () => {
+  for (const hash of ['#pair=short&fp=abc&v=1', `#pair=${PAIR_CODE.toUpperCase()}&fp=${PAIR_FP}&v=1`, `#pair=${PAIR_CODE}&fp=${PAIR_FP}&v=2`, `#pair=${PAIR_CODE}&fp=${PAIR_FP}&v=1&x=1`]) {
+    const page = await start({ hash, fetch: (target, init) => (target === '/api/info' ? errorReply(401, 'device-unpaired') : standard(target, init)) });
+    assert.deepEqual(page.history, ['/#/'], hash);
+    assert.equal(text(heading(page)), 'This device is not paired', hash);
+    assert.equal(page.calls.filter((c) => c.method === 'POST').length, 0);
+    uninstallPage();
+    mock.timers.reset();
+  }
 });
 
 test('boot: blocked storage still renders, as System', async () => {
@@ -1100,10 +1218,10 @@ test('error: run-not-found is final (no retry), names the way back, and the hear
   assert.equal(page.conn.getAttribute('data-state'), 'done');
 });
 
-test('phone scope: restricted view explains access and links to runs without retrying', async () => {
+test('device scope: restricted view explains access and links to runs without retrying', async () => {
   const page = await start({ hash: '#/sessions', fetch: (target, init) => (target === '/api/sessions' ? errorReply(403, 'phone-scope') : standard(target, init)) });
-  assert.equal(text(page.main.querySelector('.state-panel__title')), 'This view is unavailable on a phone session');
-  assert.match(text(page.main), /Phone sessions can view runs and workflows/);
+  assert.equal(text(page.main.querySelector('.state-panel__title')), 'This view is unavailable on a paired device');
+  assert.match(text(page.main), /Paired devices can view runs and workflows/);
   assert.equal(page.main.querySelector('a.btn').getAttribute('href'), '#/');
   assert.equal(page.main.querySelector('.countdown'), null);
   await advance(20_000);

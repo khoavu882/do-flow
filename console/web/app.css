@@ -465,6 +465,27 @@
   .facts dd { font: var(--type-sm); font-family: var(--font-mono); color: var(--text); overflow-wrap: anywhere; }
   .full-state__foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin-top: var(--space-5); }
 
+  /* The pairing form of a LAN Console (160) */
+  .pair .eyebrow { color: var(--text-muted); }
+  .pair__fp-label { font: var(--type-sm); color: var(--text-muted); }
+  .pair__fp { margin: var(--space-1) 0 var(--space-2); font: var(--type-sm); font-family: var(--font-mono); color: var(--text); overflow-wrap: anywhere; }
+  .pair__form { display: grid; gap: var(--space-2); max-width: 28rem; margin-top: var(--space-5); }
+  .pair__label { font: var(--type-sm); font-weight: 600; color: var(--text); }
+  .pair__input {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: var(--target);
+    padding: 0 var(--space-3);
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-md);
+    font: var(--type-md);
+  }
+  .pair__status:empty { display: none; }
+  .pair__failure-title { font: var(--type-md); font-weight: 600; color: var(--state-failed-fg); }
+  .pair__failure-text { font: var(--type-sm); color: var(--text-muted); }
+
   /* Stale banner */
   .banner-wrap {
     max-width: var(--content-max);
