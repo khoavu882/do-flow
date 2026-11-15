@@ -253,7 +253,7 @@ test('161 IC-002: awaiting gates newest first and at most 8, open runs and worke
   let item = (await spec.compute()).sections.activity.json.items[0];
   assert.deepEqual(item.runs, { open: GATE_LIMIT + 3, awaiting: GATE_LIMIT + 2 });
   assert.equal(item.gates.length, GATE_LIMIT);
-  assert.deepEqual(item.gates[0], { slug: 'feat-a', taskId: 'g9', gateId: 'gate-9', name: 'Approve gate-9', recordAt: '2026-11-15T09:00:00.000Z' });
+  assert.deepEqual(item.gates[0], { slug: 'feat-a', taskId: 'g9', gateId: 'gate-9', name: 'Approve gate-9', recordAt: '2026-11-15T09:00:00.000Z', revision: 1 });
   assert.deepEqual(item.gates.map((g: any) => g.taskId), ['g9', 'g8', 'g7', 'g6', 'g5', 'g4', 'g3', 'g2'], 'newest first');
   assert.deepEqual(item.workers, { open: 2 });
   assert.deepEqual(item.sessions, { observed: 2, harnesses: ['claude'] });
@@ -311,6 +311,22 @@ test('161 IC-001: lookup returns a project main checkout and checkouts; an unkno
   const calls = counter.calls.length;
   assert.equal(index.lookup('ffffffffffffffff'), null);
   assert.equal(counter.calls.length, calls, 'and none again until 5 s more');
+});
+
+test('162 IC-006, D15: an awaiting gate item carries the run record revision (a record without one gives 0)', async (t) => {
+  const f = fixture(t);
+  const a = project(f, 'proj-rev');
+  journal(a, 'feat-a', 't1', {
+    state: 'AWAITING_GATE', revision: 5, updatedAt: '2026-11-15T01:00:00.000Z',
+    program: [{ type: 'gate', id: 'gate-a', kind: 'approval', name: 'Approve gate-a', prompt: 'p', status: 'pending' }],
+  });
+  const old = awaiting(a, 'feat-a', 't2', 'gate-b', '2026-11-15T00:30:00.000Z');
+  const doc = JSON.parse(fs.readFileSync(old, 'utf8'));
+  delete doc.revision;
+  fs.writeFileSync(old, JSON.stringify(doc));
+  const spec = channelSpec('machine', { cwd: a, env: f.env, index: indexFor(f, a, countingExec().exec) });
+  const item = (await spec.compute()).sections.activity.json.items[0];
+  assert.deepEqual(item.gates.map((g: any) => [g.taskId, g.gateId, g.revision]), [['t1', 'gate-a', 5], ['t2', 'gate-b', 0]]);
 });
 
 test('161 FX1: an awaiting gate whose record has no name is listed with its gate id as name, never null', async (t) => {

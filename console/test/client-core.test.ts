@@ -41,6 +41,8 @@ before(async () => {
     home: await import(url('views/home.js')),
     railView: await import(url('views/rail.js')),
     shell: await import(url('shell.js')),
+    actions: await import(url('actions.js')),
+    confirm: await import(url('views/confirm.js')),
   };
 });
 after(() => { fs.rmSync(copy, { recursive: true, force: true }); });
@@ -2144,7 +2146,7 @@ const tasksBody = (...tasks: any[]) => ({ revision: 3, graph: { tasks: [] }, tas
 const runBodyWith = (row: any, events: any[], tasks: any = null, over: any = {}) => ({ ...runBody(row, WF_FEATURE, events), tasks, ...over });
 const hasAll = (el: El, names: string[]) => names.every((name) => el.querySelector(name) !== null);
 
-test('E.2 gate slot: registry name and prompt, two commands with their own Copy names, the read-only note, and a wait that counts from the last progress event', async () => {
+test('E.2 gate slot: registry name and prompt, two commands with their own Copy names, the note on where deciding works, and a wait that counts from the last progress event', async () => {
   mods.home.resetHome();
   const events = () => [ev(60, 'start', null), ev(50, 'complete-stage', 'discovery', { outcome: 'passed' }), ev(40, 'decide-gate', 'gate-0', { decision: 'approve' }), ev(30, 'complete-stage', 'design', { outcome: 'passed' }), ev(20, 'complete-stage', 'planning', { outcome: 'passed' }), ev(5, 'annotate', 'planning')];
   const journal = { gateId: 'gate-a', name: 'Journal name', prompt: 'Journal prompt' };
@@ -2159,16 +2161,161 @@ test('E.2 gate slot: registry name and prompt, two commands with their own Copy 
   assert.equal(text(slot.querySelector('.activity__idline')), 'gate-a · after planning');
   assert.ok(slot.querySelector('.activity__journal'));
   assert.deepEqual(slot.querySelectorAll('.cmd__text').map(text), [
-    'doflow orchestrate --action decide-gate --task-id run-1 --gate gate-a --decision approve',
-    'doflow orchestrate --action decide-gate --task-id run-1 --gate gate-a --decision reject',
+    'doflow orchestrate --action decide-gate --task-id run-1 --slug feat-a --gate gate-a --decision approve',
+    'doflow orchestrate --action decide-gate --task-id run-1 --slug feat-a --gate gate-a --decision reject',
   ]);
   assert.deepEqual(slot.querySelectorAll('.cmd__copy').map((b: El) => b.getAttribute('aria-label')), ['Copy the approve command', 'Copy the reject command']);
   assert.deepEqual(slot.querySelectorAll('.cmd__copy').map((b: El) => b.getAttribute('data-focus-key')), ['copy:approve', 'copy:reject']);
-  assert.equal(text(slot.querySelector('.activity__note')), 'The Console only reads. Deciding stays in the terminal.');
+  assert.equal(text(slot.querySelector('.activity__note')), 'Deciding from this page needs the Console on this machine or a paired control device. The terminal commands still work.');
   assert.match(text(slot.querySelector('.activity__tasks')), /^1 task attempt is still active\. Open the task graph →$/);
   assert.equal(slot.querySelector('.attempts__link').getAttribute('href'), '#/run/feat-a/run-1/tasks');
   assert.equal(slot.getAttribute('data-changed'), null, 'nothing flashes on first paint');
-  assert.equal(slot.querySelectorAll('button').length, 2, 'only the two Copy buttons: nothing decides');
+  assert.equal(slot.querySelectorAll('button').length, 2, 'only the two Copy buttons: the page has not been told it may act (no /api/actions)');
+});
+
+// ---- 162 IC-010: the actions on the run page ----------------------------------------------------
+
+const PK162 = '0123456789abcdef';
+const actionsReply = (allowed: boolean, reason: string | null, actor: any, project: any = { projectKey: PK162, label: 'do-flow' }) => reply(200, {
+  v: 1, actor, textMax: 500, limits: {}, ...(project ? { project } : {}),
+  actions: ['decide-gate', 'close-run', 'cancel-worker'].map((id) => ({ id, allowed, reason })),
+});
+/** The page's actions as the run page finds them are read once per page load; each 162 test starts from nothing and leaves the "read failed" state the others expect. */
+async function withActions(run: () => Promise<void>) {
+  mods.confirm.releaseActionAreas();
+  mods.actions.resetActions();
+  try {
+    await run();
+  } finally {
+    mods.confirm.closeConfirm();
+    mods.confirm.releaseActionAreas();
+    mods.actions.resetActions();
+  }
+}
+const gateEvents162 = () => [ev(60, 'start', null), ev(50, 'complete-stage', 'discovery', { outcome: 'passed' }), ev(40, 'decide-gate', 'gate-0', { decision: 'approve' }), ev(30, 'complete-stage', 'design', { outcome: 'passed' }), ev(20, 'complete-stage', 'planning', { outcome: 'passed' })];
+
+test('162 run page, a view-scope device: no button anywhere, the command block stays with one muted reason line, and nothing is posted', async () => {
+  mods.home.resetHome();
+  await withActions(async () => {
+    const route = (target: string, init: any) => (target === '/api/actions' ? actionsReply(false, 'phone-scope', { kind: 'device', deviceId: 'd-0a1b2c3d4e5f', scope: 'view', transport: 'browser' })
+      : runRoute(() => runBodyWith(frow('run-1', 4, { revision: 6 }), gateEvents162()))(target, init));
+    const page = await start({ hash: '#/run/feat-a/run-1', fetch: route });
+    const slot = page.main.querySelector('.activity--gate');
+    assert.equal(slot.querySelectorAll('.btn--act').length, 0);
+    assert.deepEqual(slot.querySelectorAll('.cmd__text').map(text), [
+      'doflow orchestrate --action decide-gate --task-id run-1 --slug feat-a --gate gate-a --decision approve',
+      'doflow orchestrate --action decide-gate --task-id run-1 --slug feat-a --gate gate-a --decision reject',
+    ]);
+    assert.deepEqual(slot.querySelectorAll('.acts__reason').map(text), ['Actions need a control device paired from the Android app.']);
+    assert.equal(text(slot.querySelector('.activity__note')), 'Deciding from this page needs the Console on this machine or a paired control device. The terminal commands still work.');
+    assert.equal(page.calls.filter((c) => c.method === 'POST').length, 0);
+  });
+});
+
+test('162 run page, the local actor: Approve and Reject replace the command block; Approve opens the dialog with focus on Cancel and posts only from its verb button, with the revision the page drew', async () => {
+  mods.home.resetHome();
+  await withActions(async () => {
+    const route = (target: string, init: any) => {
+      if (target === '/api/actions' && (init.method ?? 'GET') === 'GET') return actionsReply(true, null, { kind: 'local', transport: 'loopback' });
+      if (target === '/api/actions/decide-gate') return reply(200, { v: 1, action: 'decide-gate', requestId: 'x', outcome: 'applied', replayed: false, by: 'console', result: { taskId: 'run-1', featureSlug: 'feat-a', state: 'RUNNING', revision: 7, awaitingGate: null, current: { type: 'stage', id: 'implementation' } } });
+      return runRoute(() => runBodyWith(frow('run-1', 4, { revision: 6 }), gateEvents162()))(target, init);
+    };
+    const page = await start({ hash: '#/run/feat-a/run-1', fetch: route });
+    const slot = page.main.querySelector('.activity--gate');
+    const buttons = slot.querySelectorAll('.btn--act');
+    assert.deepEqual(buttons.map(text), ['Approve', 'Reject']);
+    assert.deepEqual(buttons.map((b: El) => b.getAttribute('data-tone')), ['approve', 'danger']);
+    assert.deepEqual(page.main.querySelector('.run-head__acts').querySelectorAll('.btn--act').map(text), ['Close run'], 'Close run is in the run head, not in the slot');
+    assert.equal(slot.querySelectorAll('.cmd__text').length, 0, 'the buttons replace the command block');
+    assert.equal(page.calls.filter((c) => c.method === 'POST').length, 0, 'drawing a button posts nothing');
+    buttons[0].fire('click');
+    const dialog = page.doc.body.querySelector('.confirm');
+    assert.ok(dialog, 'the dialog is open');
+    assert.equal(page.doc.activeElement, dialog.querySelector('.confirm__cancel'));
+    assert.equal(text(dialog.querySelector('.confirm__effect')), 'Approve Name of gate-a (gate-a) of run feat-a/run-1 in do-flow. The run continues past this gate.');
+    assert.equal(page.calls.filter((c) => c.method === 'POST').length, 0, 'opening the dialog posts nothing');
+    dialog.querySelector('.confirm__verb').fire('click');
+    await settle();
+    const posts = page.calls.filter((c) => c.method === 'POST');
+    assert.equal(posts.length, 1);
+    assert.equal(posts[0].url, '/api/actions/decide-gate');
+    assert.deepEqual({ ...posts[0].body, requestId: undefined }, { v: 1, projectKey: PK162, slug: 'feat-a', taskId: 'run-1', gateId: 'gate-a', decision: 'approve', note: null, expect: { revision: 6 }, requestId: undefined });
+    assert.equal(text(dialog.querySelector('.confirm__result')), 'Approved. The page shows the run\u2019s new state.');
+  });
+});
+
+test('162 run page: the timeline says who decided or closed a step; a stage that is running has a Close run button and no decision buttons', async () => {
+  mods.home.resetHome();
+  await withActions(async () => {
+    const events = () => [ev(60, 'start', null), ev(50, 'complete-stage', 'discovery', { outcome: 'passed' }), ev(40, 'decide-gate', 'gate-0', { decision: 'approve', by: 'device.d-0a1b2c3d4e5f' }), ev(30, 'decide-gate', 'gate-1', { decision: 'approve', by: 'autopilot' })];
+    const route = (target: string, init: any) => (target === '/api/actions' ? actionsReply(true, null, { kind: 'local', transport: 'loopback' })
+      : runRoute(() => runBodyWith(frow('run-1', 3, { revision: 4 }), events()))(target, init));
+    const page = await start({ hash: '#/run/feat-a/run-1', fetch: route });
+    assert.deepEqual(page.main.querySelectorAll('.tl-item__by').map(text), ['by autopilot', 'from paired device d-0a1b2c3d4e5f']);
+    const slot = page.main.querySelector('.activity--stage');
+    assert.equal(slot.querySelectorAll('.btn--act').length, 0, 'the slot has no button: Close run is in the run head');
+    const head = page.main.querySelector('.run-head__acts');
+    assert.deepEqual(head.querySelectorAll('.btn--act').map(text), ['Close run']);
+    head.querySelector('.btn--act').fire('click');
+    const dialog = page.doc.body.querySelector('.confirm');
+    assert.equal(text(dialog.querySelector('.confirm__effect')), 'Close run feat-a/run-1 in do-flow, now at planning. It ends as closed where it stands. This cannot be undone.');
+    assert.equal(dialog.querySelector('.confirm__verb').getAttribute('disabled') !== null, true, 'a close needs a reason');
+  });
+});
+
+test('162 run page: a Console that does not name its project gives no button (nothing to build a request from) and the command block stays', async () => {
+  mods.home.resetHome();
+  await withActions(async () => {
+    const route = (target: string, init: any) => (target === '/api/actions' ? actionsReply(true, null, { kind: 'local', transport: 'loopback' }, null)
+      : runRoute(() => runBodyWith(frow('run-1', 4), gateEvents162()))(target, init));
+    const page = await start({ hash: '#/run/feat-a/run-1', fetch: route });
+    assert.equal(page.main.querySelectorAll('.btn--act').length, 0);
+    assert.equal(page.main.querySelectorAll('.cmd__text').length, 2);
+  });
+});
+
+test('162 run page, the run head: no Close run for a view-scope device, and none when the run is over', async () => {
+  mods.home.resetHome();
+  await withActions(async () => {
+    const route = (target: string, init: any) => (target === '/api/actions' ? actionsReply(false, 'phone-scope', { kind: 'device', deviceId: 'd-0a1b2c3d4e5f', scope: 'view', transport: 'browser' })
+      : runRoute(() => runBodyWith(frow('run-1', 3, { revision: 4 }), gateEvents162()))(target, init));
+    const page = await start({ hash: '#/run/feat-a/run-1', fetch: route });
+    assert.equal(page.main.querySelector('.run-head__acts').querySelectorAll('.btn--act').length, 0);
+  });
+  uninstallPage();
+  mock.timers.reset();
+
+  mods.home.resetHome();
+  await withActions(async () => {
+    const route = (target: string, init: any) => (target === '/api/actions' ? actionsReply(true, null, { kind: 'local', transport: 'loopback' })
+      : runRoute(() => runBodyWith(frow('run-1', 5), gateEvents162()))(target, init));
+    const page = await start({ hash: '#/run/feat-a/run-1', fetch: route });
+    assert.equal(page.main.querySelector('.run-head__acts').querySelectorAll('.btn--act').length, 0);
+  });
+});
+
+test('162 run page, the run head: the Close run button leaves the head when the run completes', async () => {
+  mods.home.resetHome();
+  await withActions(async () => {
+    let cursor = 3;
+    const route = (target: string, init: any) => (target === '/api/actions' ? actionsReply(true, null, { kind: 'local', transport: 'loopback' })
+      : runRoute(() => runBodyWith(frow('run-1', cursor, { revision: 4 }), gateEvents162()))(target, init));
+    const page = await start({ hash: '#/run/feat-a/run-1', fetch: route });
+    assert.deepEqual(page.main.querySelector('.run-head__acts').querySelectorAll('.btn--act').map(text), ['Close run']);
+    cursor = 5;
+    await advance(3_000);
+    assert.equal(page.main.querySelector('.run-head__acts').querySelectorAll('.btn--act').length, 0, 'a run that is over has no Close run');
+  });
+});
+
+test('162 run page: a completed run has nothing to decide or close, whatever the page may do', async () => {
+  mods.home.resetHome();
+  await withActions(async () => {
+    const route = (target: string, init: any) => (target === '/api/actions' ? actionsReply(true, null, { kind: 'local', transport: 'loopback' })
+      : runRoute(() => runBodyWith(frow('run-1', 5), gateEvents162()))(target, init));
+    const page = await start({ hash: '#/run/feat-a/run-1', fetch: route });
+    assert.equal(page.main.querySelectorAll('.btn--act').length, 0);
+  });
 });
 
 test('E.2 stage slot: the registry stage, the active attempts oldest first, no plan copy; an attempt that starts is announced once and flashes only its row', async () => {
@@ -3130,6 +3277,54 @@ test('161 layers machine: no GET reads the page; the first paint is the first fr
   assert.equal(apiCalls(page, '/api/live').length, 0, 'no probe while the stream holds');
   assert.equal(FakeES.all.length, 1, 'one stream');
   assert.equal(page.slot.querySelectorAll('.banner').length, 0, 'an open stream is never stale');
+});
+
+test('162 review 3: a Layers gate card that cannot open its run says where deciding works, not that the Console only reads', async () => {
+  const page = await startLayers('#/layers');
+  await openedLayers(page, [{ ...gateOf('T-9', 'g-flat', 'Flat gate'), slug: null }]);
+  const card = page.main.querySelector('.gate-card');
+  assert.equal(text(card.querySelector('.gate-card__note')),
+    'Decide in a terminal in that project. Deciding from this page needs the Console on this machine or a paired control device.');
+});
+
+test('162 layers machine: a gate card has Approve and Reject when the page may act, and the request names the card\u2019s project, run, gate and revision', async () => {
+  await withActions(async () => {
+    const base = (target: string, init: any) => {
+      if (target === '/api/actions' && (init.method ?? 'GET') === 'GET') return actionsReply(true, null, { kind: 'local', transport: 'loopback' }, null);
+      if (target === '/api/actions/decide-gate') return reply(200, { v: 1, action: 'decide-gate', requestId: 'x', outcome: 'applied', replayed: false, by: 'console', result: { taskId: 'T-1', featureSlug: 'feat-a', state: 'RUNNING', revision: 5, awaitingGate: null, current: null } });
+      return standard(target, init);
+    };
+    const page = await startLayers('#/layers', FakeES, base);
+    await openedLayers(page, [{ ...gateOf('T-1', 'g-design', 'Design approval'), revision: 4 }, gateOf('T-2', 'g-old', 'Older core')]);
+    await settle();
+    const cards = page.main.querySelectorAll('.gate-card');
+    assert.equal(cards.length, 2);
+    assert.deepEqual(cards[0].querySelectorAll('.btn--act').map(text), ['Approve', 'Reject']);
+    assert.equal(cards[0].querySelectorAll('.gate-card__note').length, 0, 'the terminal note goes when the buttons are there');
+    assert.equal(cards[1].querySelectorAll('.btn--act').length, 0, 'a gate row with no revision (an older core) has nothing to send as the precondition');
+    assert.ok(cards[1].querySelector('.gate-card__link'), 'it keeps the link to the run, where the command is');
+    cards[0].querySelectorAll('.btn--act')[1].fire('click');
+    const dialog = page.doc.body.querySelector('.confirm');
+    assert.equal(text(dialog.querySelector('.confirm__effect')), `Reject Design approval (g-design) of run feat-a/T-1 in example-project. The run ends as rejected. This cannot be undone.`);
+    dialog.querySelector('.confirm__verb').fire('click');
+    await settle();
+    const posts = page.calls.filter((c) => c.method === 'POST');
+    assert.equal(posts.length, 1);
+    assert.deepEqual({ ...posts[0].body, requestId: undefined }, { v: 1, projectKey: P1, slug: 'feat-a', taskId: 'T-1', gateId: 'g-design', decision: 'reject', note: null, expect: { revision: 4 }, requestId: undefined });
+  });
+});
+
+test('162 layers machine: a view-scope device sees the cards as before, with the one reason line and no button', async () => {
+  await withActions(async () => {
+    const base = (target: string, init: any) => (target === '/api/actions' ? actionsReply(false, 'phone-scope', { kind: 'device', deviceId: 'd-0a1b2c3d4e5f', scope: 'view', transport: 'browser' }, null) : standard(target, init));
+    const page = await startLayers('#/layers', FakeES, base);
+    await openedLayers(page, [{ ...gateOf('T-1', 'g-design', 'Design approval'), revision: 4 }]);
+    await settle();
+    const card = page.main.querySelector('.gate-card');
+    assert.equal(card.querySelectorAll('.btn--act').length, 0);
+    assert.deepEqual(card.querySelectorAll('.acts__reason').map(text), ['Actions need a control device paired from the Android app.']);
+    assert.equal(card.querySelector('.gate-card__link').getAttribute('href'), '#/run/feat-a/T-1');
+  });
 });
 
 test('161 layers machine: a patch adding an awaiting gate adds its card, marks it fresh and announces it; a recorded gate keeps its card', async () => {
@@ -5056,7 +5251,7 @@ test('150 C.6 Run head: a Chain link follows the step counter; the crumb keeps i
   const head = page.main.querySelector('.run-head');
   assert.deepEqual(head.children.map((c: El) => c.className), ['run-head__crumb', 'run-head__title', 'run-head__metawrap', 'run-head__aside']);
   const aside = head.querySelector('.run-head__aside');
-  assert.deepEqual(aside.children.map((c: El) => c.className), ['run-head__step', 'graph__back'], 'Chain sits beside the step counter, in its grid area (IC-020)');
+  assert.deepEqual(aside.children.map((c: El) => c.className), ['run-head__step', 'graph__back', 'run-head__acts'], 'Chain sits beside the step counter, in its grid area (IC-020); the place of Close run (162 IC-010) follows it');
   assert.deepEqual(linksOf(head), [['#/', 'Runs'], ['#/session/feat-a/run-1', 'Chain']]);
   assert.equal(text(page.main.querySelector('.run-head__step')), 'step 5 of 5', 'the step counter is unchanged');
   assert.equal(mods.views.parseRoute(head.querySelectorAll('a')[1].getAttribute('href')).id, 'session');

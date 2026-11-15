@@ -177,7 +177,7 @@ test('close through the verb: the run reads CLOSED, the timeline shows close-run
   assert.equal(ok(root, ['--action', 'close', '--task-id', 'c1', '--note', `shipped by hand ${MARKER}`]).state, 'CLOSED');
   assert.equal(ok(root, ['--action', 'status', '--task-id', 'c1']).state, 'CLOSED');
   const body = timeline(root, ['--task-id', 'c1']);
-  assert.deepEqual(shapeOf(body.events).slice(-1), [event('close-run', { node: 'reproduction' })]);
+  assert.deepEqual(shapeOf(body.events).slice(-1), [event('close-run', { node: 'reproduction', by: 'manual' })]);
   assert.ok(!JSON.stringify(body).includes(MARKER), 'the reason stays in the journal, not in the timeline');
   const listed = ok(root, ['--action', 'list']).runs.find((run: any) => run.taskId === 'c1');
   assert.equal(listed.state, 'CLOSED');
@@ -388,4 +388,38 @@ test('FU-aeyx13: start refuses --dry-run instead of ignoring it and starting a r
   assert.equal(result.status, 2, `${result.stdout}${result.stderr}`);
   assert.match(result.stderr + result.stdout, /'--dry-run' has no effect on action 'start'/);
   assert.equal(fs.existsSync(path.join(root, STORE)), false, 'no run was written');
+});
+
+test('162 IC-004: decide-gate by is autopilot, manual, console or device.d-<12 hex>; close-run by is manual, console or a device; anything else is null', (t) => {
+  const root = project(t);
+  const file = path.join(root, STORE, 'r1.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const DEVICE = 'device.d-0a1b2c3d4e5f';
+  const decide = (minute: number, by: any) => ({ at: `2026-10-26T01:0${minute}:00.000Z`, action: 'decide-gate', node: 'gate-a', detail: 'approve', note: MARKER, forced: false, ...(by === undefined ? {} : { by }) });
+  const close = (minute: number, by: any) => ({ at: `2026-10-26T01:1${minute}:00.000Z`, action: 'close-run', node: 'x', note: MARKER, ...(by === undefined ? {} : { by }) });
+  fs.writeFileSync(file, JSON.stringify({
+    version: 1, taskId: 'r1', taskClass: 'feature', workflowName: 'Feature', terminalStage: null, state: 'RUNNING',
+    cursor: 0, program: [{ type: 'stage', id: 'x', status: 'pending' }], revision: 1,
+    history: [
+      decide(0, 'autopilot'), decide(1, 'manual'), decide(2, 'console'), decide(3, DEVICE),
+      decide(4, 'person'), decide(5, 'device.d-0a1b2c3d4e5'), decide(6, 'device.d-0A1B2C3D4E5F'), decide(7, `${DEVICE}0`), decide(8, undefined),
+      close(0, 'manual'), close(1, 'console'), close(2, DEVICE), close(3, 'autopilot'), close(4, 'person'), close(5, undefined),
+    ],
+  }));
+  const body = timeline(root, ['--task-id', 'r1']);
+  assert.deepEqual(body.events.map((entry: any) => entry.by), [
+    'autopilot', 'manual', 'console', DEVICE, null, null, null, null, null,
+    'manual', 'console', DEVICE, null, null, null,
+  ]);
+  assert.ok(!JSON.stringify(body).includes(MARKER));
+});
+
+test('162 IC-004: --expect-revision and --via are refused by timeline like every other flag it does not read', (t) => {
+  const root = project(t);
+  ok(root, ['--action', 'start', '--task-id', 'v1', '--task-class', 'bug']);
+  for (const [flag, options] of [['--expect-revision', { expectRevision: 1 }], ['--via', { via: 'console' }]] as any[]) {
+    const result: any = orchestrate(root, { action: 'timeline', taskId: 'v1', json: true, ...options });
+    assert.equal(result.status, 2, `${flag}: ${result.stderr}`);
+    assert.match(result.stderr + result.stdout, new RegExp(`'${flag}' has no effect on action 'timeline'`));
+  }
 });

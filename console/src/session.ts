@@ -6,13 +6,15 @@
 // devices only (device-auth.ts, 160 IC-005). Codes and tokens are compared as SHA-256 digests, so every
 // guess, of any length, takes the same single `timingSafeEqual` over two 32-byte buffers. Nothing here
 // logs: the code's one appearance is the stdout line C.1 prints from `mintLaunchCode()` (IC-002).
+// Feature 162 (D5): the loopback session's scope is `local`: the person at this machine, who may act through
+// the action routes (actions.ts) behind the server's non-GET checks and this SameSite=Strict cookie.
 
 const crypto = require('node:crypto');
 
 const LAUNCH_CODE_TTL_MS = 5 * 60 * 1000;
 const SECRET_BYTES = 32;
 
-type Session = Readonly<{ scope: 'read' }>;
+type Session = Readonly<{ scope: 'local' }>;
 type Sessions = {
   mintLaunchCode(): string,
   exchange(code: string): string | null,
@@ -47,7 +49,7 @@ function createSessions(options: { now?: () => number, ttlMs?: number } = {}): S
       code = null; // a matched code is spent whether or not it was still live
       if (!live) return null;
       const token = crypto.randomBytes(SECRET_BYTES).toString('hex');
-      sessions.set(digest(token).toString('hex'), Object.freeze({ scope: 'read' }));
+      sessions.set(digest(token).toString('hex'), Object.freeze({ scope: 'local' }));
       return token;
     },
     verify(token: unknown) {

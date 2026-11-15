@@ -4,6 +4,7 @@
 
 import { deriveRail, formatDuration, liveDuration, stateWord, kindWord, sinceStamp, clockHM } from './rail.js';
 import { eventWords, isProgress } from './activity.js';
+import { byWords } from './actions.js';
 
 const SECOND = 1000;
 const MINUTE = 60 * SECOND;
@@ -54,7 +55,7 @@ function eventTone(event) {
  *  - `markers`: one per timed note, `{ atMs, nodeId }`.
  *  - `domain`: `{ startMs, endMs, live }`; `axisDomain` turns it into the drawn axis.
  *  - `untimed`: events without a usable time (placed nowhere). `other`: the count of events of other actions.
- *  - `list`: every event, newest first (journal order reversed), `{ at, words, durationMs, tone, action }`.
+ *  - `list`: every event, newest first (journal order reversed), `{ at, words, durationMs, tone, action, by }` (`by`: the words of who decided or closed, else null).
  *  - `available`: false when the timeline could not be read (`timeline` null).
  * @param {any} workflow
  * @param {any} row the run route's `run`
@@ -122,7 +123,9 @@ function deriveTimeline(workflow, row, timeline, nowMs) {
     const span = closedBy.get(index);
     const duration = span && nodeTypeOf(event) !== null && event.action !== 'skip-stage' && event.action !== 'skip-gate' && Number.isFinite(span.fromMs) && Number.isFinite(span.toMs)
       ? Math.max(0, span.toMs - span.fromMs) : null;
-    return { at: event.at ?? null, action: event.action, words: eventWords(event), durationMs: duration, tone: eventTone(event) };
+    // 162: who made a decision or a close, in words; no other event has a decider.
+    const decided = event.action === 'decide-gate' || event.action === 'close-run';
+    return { at: event.at ?? null, action: event.action, words: eventWords(event), durationMs: duration, tone: eventTone(event), by: decided ? byWords(event.by) : null };
   }).reverse();
 
   return {

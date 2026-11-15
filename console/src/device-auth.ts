@@ -4,7 +4,8 @@
 // `authenticate(ctx)` reads the one credential a request's class allows (cookie for a browser, Bearer for a
 // native client; server.ts has already refused both together), asks the store (stat-keyed, so a revoke
 // from any process is seen on the next request), writes last-seen at most hourly and hands the handler a
-// frozen `{ scope, deviceId }` session, one object per device per process. `pairRoute()` is `POST /api/pair`,
+// frozen `{ scope, deviceId, via }` session, one object per device per process (`via` is the record's pairing
+// transport, which 162 D6 needs: only a natively paired control device may act). `pairRoute()` is `POST /api/pair`,
 // the only route reachable without a device. Pairing is rate limited per address (a refusal) and overall (a
 // delay only, so a stranger's failed codes can never lock the owner out: a code freshly minted stays
 // redeemable, and with 128-bit codes and at most 16 pending a guess is infeasible at any rate). Secrets (codes, tokens, digests, cookies, bodies) are never
@@ -28,7 +29,7 @@ const BEARER = /^bearer (dfd1_[A-Za-z0-9_-]{43})$/i;
 const CODE = /^[a-z2-7]{26}$/;
 
 type Reply = { status: number, headers?: Record<string, string>, body?: string | Uint8Array };
-type Session = Readonly<{ scope: 'view' | 'control', deviceId: string }>;
+type Session = Readonly<{ scope: 'view' | 'control', deviceId: string, via: 'browser' | 'native' }>;
 type Window = { start: number, count: number };
 
 const deviceCookie = (token: string) => `${DEVICE_COOKIE}=${token}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${COOKIE_MAX_AGE_S}`;
@@ -39,11 +40,11 @@ const withCookie = (reply: Reply, cookie: string): Reply => ({ ...reply, headers
 function createDeviceAuth({ store, now = Date.now, log = () => {}, sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)), certState = () => 'ok' }:
   { store: any, now?: () => number, log?: (line: string) => void, sleep?: (ms: number) => Promise<void>, certState?: () => 'ok' | 'expiring' | 'expired' }) {
   const sessions = new Map<string, Session>();
-  const sessionFor = (device: { id: string, scope: 'view' | 'control' }): Session => {
-    const key = `${device.id}:${device.scope}`;
+  const sessionFor = (device: { id: string, scope: 'view' | 'control', via: 'browser' | 'native' }): Session => {
+    const key = `${device.id}:${device.scope}:${device.via}`;
     let session = sessions.get(key);
     if (!session) {
-      session = Object.freeze({ scope: device.scope, deviceId: device.id });
+      session = Object.freeze({ scope: device.scope, deviceId: device.id, via: device.via });
       sessions.set(key, session);
     }
     return session;

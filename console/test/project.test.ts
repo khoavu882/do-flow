@@ -11,7 +11,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { project, PROJECTOR_IDS, WITHHELD, OTHER_HARNESS, CLOSED_SETS } = require('../src/project.ts');
+const { project, PROJECTOR_IDS, WITHHELD, OTHER_HARNESS, CLOSED_SETS, CORE_NAME } = require('../src/project.ts');
 const { checkCoreVersion, handshake, satisfiesRange } = require('../src/handshake.ts');
 const { SHAPE_IDS } = require('../src/verb-runner.ts');
 const coreSemver = require('../../src/helper/semver.ts');
@@ -182,7 +182,7 @@ const FIELD_SETS: Record<string, string[]> = {
     ...[...ROW, '.featureSlug', '.startedAt', '.updatedAt', '.origin'].map((p) => `.runs[]${p}`)],
   status: [...ROW, '.journalGateDiffers'],
   timeline: ['.v', '.taskId', '.featureSlug', '.revision', '.startedAt', '.events', '.otherEvents',
-    ...['at', 'action', 'node', 'outcome', 'decision', 'forced', 'synthetic'].map((k) => `.events[].${k}`)],
+    ...['at', 'action', 'node', 'outcome', 'decision', 'by', 'forced', 'synthetic'].map((k) => `.events[].${k}`)],
   attempts: ['.revision', '.graph', '.graph.digest', '.graph.graphPlan', '.graph.tasks',
     ...['id', 'phase', 'owner', 'taskDeps', 'taskDeps[]', 'parallel'].map((k) => `.graph.tasks[].${k}`),
     '.tasks', ...['id', 'state', 'reason', 'budget', 'budget.used', 'budget.limit', 'attempts'].map((k) => `.tasks[].${k}`),
@@ -200,7 +200,7 @@ const FIELD_SETS: Record<string, string[]> = {
   slots: ['.v', '.slots', '.unreadable', ...['name', 'holder', 'waiters', 'holder.label', 'holder.since', 'holder.alive', 'holder.worktreeKey'].map((k) => `.slots[].${k}`)],
   'worker-status': [...['runId', 'task', 'token', 'harness', 'state', 'reason', 'startedAt', 'endedAt', 'overdue', 'supervisorLost', 'attemptActive'].map((k) => `.${k}`),
     // 150 IC-011: the widened fields.
-    ...['deadline', 'childOf', 'process', 'cleanup', 'cleanup.status', 'cleanup.reason'].map((k) => `.${k}`),
+    ...['deadline', 'childOf', 'process', 'cleanup', 'cleanup.status', 'cleanup.reason', 'cancelBy'].map((k) => `.${k}`),
     ...['kind', 'code', 'signal', 'at', 'reason', 'groupAlive', 'leftover', 'leftover.status', 'leftover.reason'].map((k) => `.process.${k}`)],
   roadmap: ['.run', '.lease', '.lease.runId', '.lease.acquiredAt', '.holds', ...['row', 'state', 'kind'].map((k) => `.holds[].${k}`)],
   // IC-019..IC-023, with `root` dropped from projects (IC-024).
@@ -384,9 +384,48 @@ test('status: journalGateDiffers compares the journal gate with the registry, an
 
 test('timeline: events keep the IC-012 fields only', () => {
   const { body } = project('timeline', fixture('timeline'));
-  assert.deepEqual(body.events[2], { at: '2026-10-26T04:00:00.000Z', action: 'decide-gate', node: 'gate-0', outcome: null, decision: 'approve', forced: true, synthetic: false });
+  assert.deepEqual(body.events[2], { at: '2026-10-26T04:00:00.000Z', action: 'decide-gate', node: 'gate-0', outcome: null, decision: 'approve', by: null, forced: true, synthetic: false });
   assert.equal(body.events[3].at, null);
   assert.equal(body.otherEvents, 1);
+});
+
+test('timeline (162 IC-005): the decider of a gate decision or a close is the closed `by` grammar; an older core with no `by`, or a value outside it, reads as null', () => {
+  const withBy = (by: unknown) => {
+    const raw = fixture('timeline');
+    raw.events[2].by = by;
+    return project('timeline', raw);
+  };
+  for (const by of ['autopilot', 'manual', 'console', 'device.d-0a1b2c3d4e5f']) assert.equal(withBy(by).body.events[2].by, by, by);
+  assert.equal(withBy(null).body.events[2].by, null);
+  for (const by of ['person', 'device.d-XYZ', 'device:d-0a1b2c3d4e5f', 'device.d-0A1B2C3D4E5F', 7, `${MARKER} <b>`]) assert.equal(withBy(by).body.events[2].by, null, String(by));
+  assert.equal(JSON.stringify(withBy(MARKER).body).includes(MARKER), false);
+});
+
+test('worker-status (162 IC-005): cancelBy is who asked for the cancel, as by, source and when; absent or null on a run nobody cancelled; the reason and the rest stay out', () => {
+  const asked = (cancelBy: unknown) => project('worker-status', { ...fixture('worker-status'), cancelBy });
+  const body = asked({ by: 'device.d-0a1b2c3d4e5f', source: 'operator', requestedAt: '2026-10-26T09:50:00.000Z', reason: MARKER, pid: 987001 }).body;
+  assert.deepEqual(body.cancelBy, { by: 'device.d-0a1b2c3d4e5f', source: 'operator', requestedAt: '2026-10-26T09:50:00.000Z' });
+  assert.deepEqual(plantedIn(body), []);
+  assert.deepEqual(asked({ by: 'console', source: 'operator', requestedAt: null }).body.cancelBy, { by: 'console', source: 'operator', requestedAt: null });
+  assert.deepEqual(asked({ by: 'worker-b', source: 'user', requestedAt: '2026-10-26T09:50:00.000Z' }).body.cancelBy, { by: 'worker-b', source: 'user', requestedAt: '2026-10-26T09:50:00.000Z' });
+  assert.equal(asked(null).body.cancelBy, null);
+  assert.equal(project('worker-status', fixture('worker-status')).body.cancelBy, null, 'an older core has no cancelBy');
+  assert.deepEqual(asked({ by: 'x', source: 'someone', requestedAt: null }), MISMATCH);
+  // 162 review 8: any name the core's `--by` takes (SAFE_NAME, no length bound) is bounded, masked display text; a value outside even
+  // that is "not recorded" (null) for `by` alone, never a failed read.
+  assert.equal(asked({ by: 'Jane Doe', source: 'user', requestedAt: null }).body.cancelBy.by, 'Jane Doe');
+  assert.equal(asked({ by: 'a'.repeat(64), source: 'user', requestedAt: null }).body.cancelBy.by, 'a'.repeat(64));
+  assert.equal(asked({ by: 'a'.repeat(65), source: 'user', requestedAt: null }).body.cancelBy.by, `${'a'.repeat(63)}…`, 'a longer name is cut to 64 with an ellipsis');
+  assert.equal(asked({ by: 'a'.repeat(100_000), source: 'user', requestedAt: null }).body.cancelBy.by.length, 64);
+  const hidden = asked({ by: 'ops 10.1.2.3', source: 'user', requestedAt: null }).body.cancelBy.by;
+  assert.equal(hidden.includes('10.1.2.3'), false, `the name is masked: ${hidden}`);
+  for (const odd of ['-dash', ' lead', 'a/b', 'a\nb', '', 7, { name: 'x' }]) {
+    const read = asked({ by: odd, source: 'user', requestedAt: '2026-10-26T09:50:00.000Z' });
+    assert.equal(read.ok, true, JSON.stringify(odd));
+    assert.deepEqual(read.body.cancelBy, { by: null, source: 'user', requestedAt: '2026-10-26T09:50:00.000Z' }, JSON.stringify(odd));
+  }
+  assert.deepEqual(asked({ by: null, source: 'user', requestedAt: 'soon' }), MISMATCH);
+  assert.deepEqual(asked('console'), MISMATCH);
 });
 
 test('attempts: IC-013 attempts copied, files and the rest dropped', () => {
@@ -441,7 +480,7 @@ test('worker-status: exactly the IC-018 d set; an unknown harness is (other); no
     // 150 IC-011: the widened fields.
     deadline: '2026-10-26T10:00:00.000Z', childOf: null,
     process: { kind: 'exited', code: 0, signal: null, at: '2026-10-26T09:20:00.000Z', reason: null, groupAlive: true, leftover: { status: 'survivors', reason: null } },
-    cleanup: { status: 'verified', reason: null },
+    cleanup: { status: 'verified', reason: null }, cancelBy: null,
   });
   const ended = { ...fixture('worker-status'), harness: 'some-new-harness', state: 'exited', endedAt: '2026-10-26T09:30:00.000Z', attemptActive: false };
   delete ended.overdue;
@@ -878,7 +917,13 @@ test('closed sets match the core source', () => {
   const sorted = (values: readonly string[]) => [...values].sort();
   assert.deepEqual(sorted(CLOSED_SETS.runStates), frozen(orchestrator, 'RUN_STATES'));
   assert.deepEqual(sorted(CLOSED_SETS.gateDecisions), frozen(orchestrator, 'GATE_DECISIONS'));
+  // 162 IC-005: who may have asked for a worker cancel (worker/cancel.ts `SOURCES`), and the `by` grammars of the timeline (the core's DECIDE_BY and CLOSE_BY are the same one set, with close excluding autopilot).
+  assert.deepEqual(sorted(CLOSED_SETS.cancelSources), frozen(read(path.join('worker', 'cancel.ts')), 'SOURCES'));
+  assert.match(orchestrator, /const DECIDE_BY = \/\^\(\?:autopilot\|manual\|console\|device\\\.d-\[0-9a-f\]\{12\}\)\$\//);
   assert.deepEqual(sorted(CLOSED_SETS.attemptModes), frozen(ledger, 'MODES'));
+  // 162 review 8: the cancel `by` projector reads names by the core's own `--by` rule.
+  assert.match(ledger, /const SAFE_NAME = \/\^\[A-Za-z0-9\]\[A-Za-z0-9\._ -\]\*\$\/;/);
+  assert.equal(String(CORE_NAME), '/^[A-Za-z0-9][A-Za-z0-9._ -]*$/');
   assert.deepEqual(sorted(CLOSED_SETS.attemptResults), frozen(ledger, 'RESULTS'));
   const outcomes = orchestrator.match(/const STAGE_OUTCOMES = new Set\(\[([^\]]*)\]\)/);
   assert.ok(outcomes);

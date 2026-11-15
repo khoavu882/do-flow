@@ -49,7 +49,7 @@ test('a browser pairs: 200 with the device, a Secure HttpOnly SameSite=Strict co
   const cookie = reply.headers['set-cookie'][0].split(';')[0];
   const next = await request('GET', '/api/info', { headers: { Cookie: cookie, Origin: origin } });
   assert.equal(next.status, 200);
-  assert.deepEqual(JSON.parse(next.body).session, { scope: 'view', deviceId: shown.device.id });
+  assert.deepEqual(JSON.parse(next.body).session, { scope: 'view', deviceId: shown.device.id, via: 'browser' });
   const [stored] = world.store.list();
   assert.deepEqual([stored.via, stored.lastAddress, stored.name], ['browser', '127.0.0.1', 'Pixel browser']);
   assert.deepEqual(world.logs, [`paired ${shown.device.id} "Pixel browser" scope view via browser from 127.0.0.1`]);

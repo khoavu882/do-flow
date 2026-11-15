@@ -28,6 +28,9 @@ const {
   FOLLOW_STDERR_LINE_BYTES,
   PATTERNS,
   fleetError,
+  WRITE_SHAPES,
+  WRITE_SHAPE_IDS,
+  WRITE_TIMEOUT_MS,
 } = require('../src/verb-runner.ts');
 const { EventEmitter } = require('node:events');
 
@@ -569,9 +572,51 @@ const FLEET_CORE = path.join(FLEET_CORE_DIR, 'fleet-core.js');
 fs.writeFileSync(FLEET_CORE, `'use strict';
 const fs = require('node:fs');
 const argv = process.argv.slice(2);
+if (process.env.FAKE_WRITE_MODE === 'ignore-term') process.on('SIGTERM', () => {});
 if (process.env.FAKE_CORE_LOG) fs.appendFileSync(process.env.FAKE_CORE_LOG, JSON.stringify({ argv, env: process.env, cwd: process.cwd() }) + '\\n');
+const isWrite = (argv[0] === 'orchestrate' && (argv[2] === 'decide-gate' || argv[2] === 'close')) || (argv[0] === 'worker' && argv[2] === 'cancel');
+const REFUSAL = JSON.stringify({ v: 1, ok: false, error: 'stale-revision', current: null });
+const writeDone = (mode) => {
+  if (mode === 'stale' || mode === 'stale-error') {
+    if (mode === 'stale-error') process.stderr.write('[ERROR] stale secret-stderr-text\\n');
+    process.stdout.write(REFUSAL);
+    process.exitCode = 1;
+  } else if (mode === 'old-flag') {
+    process.stderr.write("doflow: unknown flag '--expect-revision'\\n");
+    process.exitCode = 1;
+  } else if (mode === 'old-flag-2') {
+    process.stderr.write("doflow: unknown flag '--via'\\n");
+    process.exitCode = 2;
+  } else if (mode === 'usage') {
+    process.stderr.write('doflow: bad usage secret-stderr-text\\n');
+    process.exitCode = 2;
+  } else if (mode === 'usage-json') {
+    process.stdout.write(JSON.stringify({ v: 1, ok: false, error: 'usage' }));
+    process.exitCode = 2;
+  } else if (mode === 'text') {
+    process.stdout.write('written\\n');
+  } else if (mode === 'array') {
+    process.stdout.write('[1]');
+  } else if (mode === 'text-exit1') {
+    process.stdout.write('boom');
+    process.exitCode = 1;
+  } else if (mode === 'error-empty') {
+    process.stderr.write('[ERROR] secret-stderr-text\\n');
+    process.exitCode = 1;
+  } else if (mode === 'exit3') {
+    process.stdout.write(REFUSAL);
+    process.exitCode = 3;
+  } else if (mode === 'sleep' || mode === 'ignore-term') {
+    setInterval(() => {}, 1000);
+    setTimeout(() => process.exit(9), 60000);
+  } else {
+    process.stdout.write(JSON.stringify({ v: 1, ok: true, argv, cwd: process.cwd() }));
+  }
+};
 const done = () => {
-  if (argv[0] === 'transcript' && argv[2] === 'read' && process.env.FAKE_ERROR_CWD === process.cwd()) {
+  if (isWrite && process.env.FAKE_WRITE_MODE) {
+    writeDone(process.env.FAKE_WRITE_MODE);
+  } else if (argv[0] === 'transcript' && argv[2] === 'read' && process.env.FAKE_ERROR_CWD === process.cwd()) {
     process.stderr.write('[ERROR] transcript: boom\\n');
     process.exitCode = 1;
   } else if (process.env.FAKE_CORE_MODE === 'agent-missing' && argv[0] === 'transcript' && argv[2] === 'read') {
@@ -1364,10 +1409,12 @@ test('the ten IC-005 shapes carry their ttl, byCoreVersion, exitsAsData, usageIs
     if (SHAPES[id].exitsAsData) assert.ok(Object.isFrozen(SHAPES[id].exitsAsData), `${id} exitsAsData is frozen`);
   }
   for (const id of SHAPE_IDS.filter((shape: string) => !MANAGE_IDS.includes(shape))) {
-    for (const field of ['exitsAsData', 'usageIsOldCore', 'refreshFloorMs']) assert.equal(field in SHAPES[id], false, `${id} has ${field}`);
+    for (const field of ['exitsAsData', 'usageIsOldCore']) assert.equal(field in SHAPES[id], false, `${id} has ${field}`);
+    if (id !== 'projects') assert.equal('refreshFloorMs' in SHAPES[id], false, `${id} has refreshFloorMs`);
   }
-  // Only doctor has a floor; only config-list and doctor have data exits.
-  assert.deepEqual(SHAPE_IDS.filter((id: string) => SHAPES[id].refreshFloorMs !== undefined), ['doctor']);
+  // Only doctor and (162 review 10) projects have a floor; only config-list and doctor have data exits.
+  assert.deepEqual(SHAPE_IDS.filter((id: string) => SHAPES[id].refreshFloorMs !== undefined), ['projects', 'doctor']);
+  assert.equal(SHAPES.projects.refreshFloorMs, 5_000);
   assert.deepEqual(SHAPE_IDS.filter((id: string) => SHAPES[id].exitsAsData !== undefined), ['config-list', 'doctor']);
   assert.throws(() => {
     SHAPES.doctor.exitsAsData.push(2);
@@ -1634,7 +1681,7 @@ test('a fresh call joins a doctor run in flight, and a second fresh call joins t
 
 test('fresh is usage on every shape without a floor, before any spawn or project lookup', async () => {
   const { runner, spawnCalls } = setup('echo');
-  for (const id of SHAPE_IDS.filter((shape: string) => shape !== 'doctor')) {
+  for (const id of SHAPE_IDS.filter((shape: string) => shape !== 'doctor' && shape !== 'projects')) {
     assert.deepEqual(await runner.run(id, paramsOf(id), { fresh: true }), { ok: false, code: 'usage', exit: null }, id);
   }
   assert.equal(spawnCalls.length, 0);
@@ -1763,4 +1810,381 @@ test('adviceKind accepts every advice registry kind and adhoc; a pattern-valid k
   // One direction only, on purpose: the Console checks the form and the core checks the registry (IC-012).
   assert.equal(await run('advice-picks', { kind: 'no-such-kind' }), true);
   for (const kind of ['Tier', '-tier', '1tier', 'tier_x', '', 'tier\n', `t${'a'.repeat(32)}`]) assert.equal(await run('advice-picks', { kind }), false, JSON.stringify(kind));
+});
+
+// ---- 162 IC-003 (T4): the frozen write shapes and the separate write path `act()` ----
+//
+// The fleet fake core answers the three write verbs as FAKE_WRITE_MODE says (see writeDone there); every other
+// verb behaves as before, so reads and writes share one fake core and one fake clock.
+
+const WRITE_ID = { projectKey: KEY_A, relay: 'console' };
+const WRITE_CASES: Record<string, { params: Record<string, string>; argv: string[] }> = {
+  'decide-gate': {
+    params: { ...WRITE_ID, taskId: 't-1', slug: 's.1', gate: 'gate-a', decision: 'approve', revision: '7', note: 'looks fine' },
+    argv: ['orchestrate', '--action', 'decide-gate', '--task-id', 't-1', '--slug', 's.1', '--gate', 'gate-a', '--decision', 'approve', '--expect-revision', '7', '--via', 'console', '--note', 'looks fine', '--json'],
+  },
+  'close-run': {
+    params: { ...WRITE_ID, taskId: 't-1', slug: 's.1', revision: '0', note: 'done here' },
+    argv: ['orchestrate', '--action', 'close', '--task-id', 't-1', '--slug', 's.1', '--expect-revision', '0', '--via', 'console', '--note', 'done here', '--json'],
+  },
+  'cancel-worker': {
+    params: { ...WRITE_ID, slug: 's.1', runId: RUN_ID, note: 'stuck' },
+    // 162 DEC-007: the relay label is `--via` with `--operator`, not `--by`.
+    argv: ['worker', '--action', 'cancel', '--slug', 's.1', '--worker-run', RUN_ID, '--operator', '--via', 'console', '--reason', 'stuck', '--json'],
+  },
+};
+const DEVICE_RELAY = 'device.d-0123456789ab';
+
+/** A fleet runner whose key map is filled, so a scoped write finds its root. */
+async function writeSetup(writeMode?: string, extraEnv: Record<string, string> = {}, mode = 'echo') {
+  const f = fleetSetup(mode, { ...(writeMode ? { FAKE_WRITE_MODE: writeMode } : {}), ...extraEnv });
+  assert.equal((await f.runner.run('projects', {})).ok, true);
+  const writeStarts = () => f.starts().filter((s: any) => s.argv[0] === 'orchestrate' || s.argv[0] === 'worker');
+  return { ...f, writeStarts };
+}
+
+test('WRITE_SHAPES is the frozen IC-003 set, apart from the read allow-list', () => {
+  assert.deepEqual([...WRITE_SHAPE_IDS], ['decide-gate', 'close-run', 'cancel-worker']);
+  assert.ok(Object.isFrozen(WRITE_SHAPES) && Object.isFrozen(WRITE_SHAPE_IDS));
+  for (const id of WRITE_SHAPE_IDS) {
+    assert.ok(Object.isFrozen(WRITE_SHAPES[id]) && Object.isFrozen(WRITE_SHAPES[id].argv), `${id} is frozen`);
+    assert.equal(WRITE_SHAPES[id].scoped, true, `${id} is scoped`);
+    assert.ok(!SHAPE_IDS.includes(id), `${id} is not a read shape`);
+  }
+  assert.throws(() => {
+    WRITE_SHAPES['close-run'].argv.push('--forced');
+  }, TypeError);
+  assert.throws(() => {
+    WRITE_SHAPES.start = { argv: ['orchestrate', '--action', 'start'], scoped: true };
+  }, TypeError);
+  assert.equal(WRITE_TIMEOUT_MS, 30_000);
+});
+
+test('act runs exactly the IC-003 argv plus --json, shell off, in the root of the project key; the key and root are never argv', async () => {
+  const f = await writeSetup();
+  for (const [id, expected] of Object.entries(WRITE_CASES)) {
+    const result = await f.runner.act(id, expected.params);
+    assert.equal(result.ok, true, id);
+    assert.equal(result.exit, 0);
+    assert.deepEqual(result.json.argv, expected.argv, id);
+  }
+  const started = f.writeStarts();
+  assert.equal(started.length, 3);
+  for (const [index, id] of Object.keys(WRITE_CASES).entries()) {
+    assert.deepEqual(started[index].argv, WRITE_CASES[id].argv);
+    assert.equal(started[index].cwd, f.rootA);
+    assert.ok(!started[index].argv.includes(KEY_A) && !started[index].argv.includes(f.rootA));
+  }
+  const spawned = f.spawnCalls.filter((call: any) => call.args[1] !== 'fleet');
+  for (const call of spawned) assert.equal(call.options.shell, false);
+  // The other project's root, and an optional slug, and a gate note left out when empty or absent.
+  const b = await f.runner.act('decide-gate', { projectKey: KEY_B, taskId: 't-1', gate: 'gate-a', decision: 'reject', revision: '12', relay: DEVICE_RELAY, note: '' });
+  assert.equal(b.ok, true);
+  const last = f.writeStarts().at(-1);
+  assert.equal(last.cwd, f.rootB);
+  assert.deepEqual(last.argv, ['orchestrate', '--action', 'decide-gate', '--task-id', 't-1', '--gate', 'gate-a', '--decision', 'reject', '--expect-revision', '12', '--via', DEVICE_RELAY, '--json']);
+  await f.runner.act('decide-gate', { projectKey: KEY_B, taskId: 't-1', gate: 'gate-a', decision: 'reject', revision: '12', relay: 'console' });
+  assert.ok(!f.writeStarts().at(-1).argv.includes('--note'));
+});
+
+test('act passes the text as exactly one argv element, never checked or split, whatever it holds', async () => {
+  const f = await writeSetup();
+  const texts = ['--operator', '-x --via device.d-000000000000', 'a b  "c" \'d\' $(x) `y` ;|&', '--json', 'ünïcode ✓', 'x'.repeat(500)];
+  for (const note of texts) {
+    assert.equal((await f.runner.act('close-run', { ...WRITE_CASES['close-run'].params, note })).ok, true);
+    const argv = f.writeStarts().at(-1).argv;
+    assert.equal(argv.length, WRITE_CASES['close-run'].argv.length, JSON.stringify(note));
+    assert.equal(argv[argv.indexOf('--note') + 1], note);
+    assert.equal(argv.at(-1), '--json');
+  }
+});
+
+test('a bad parameter is usage before any spawn: patterns, missing or extra keys, a read id, a write id on run', async () => {
+  const f = await writeSetup();
+  const before = f.spawnCalls.length;
+  const decide = WRITE_CASES['decide-gate'].params;
+  const close = WRITE_CASES['close-run'].params;
+  const cancel = WRITE_CASES['cancel-worker'].params;
+  const refused: Array<[string, any]> = [
+    ['decide-gate', { ...decide, relay: 'device:d-0123456789ab' }],
+    ['decide-gate', { ...decide, relay: 'Console' }],
+    ['decide-gate', { ...decide, relay: 'device.d-0123456789a' }],
+    ['decide-gate', { ...decide, relay: 'device.d-0123456789abc' }],
+    ['decide-gate', { ...decide, relay: 'device.d-0123456789AB' }],
+    ['decide-gate', { ...decide, relay: 'console\n' }],
+    ['decide-gate', { ...decide, relay: 'manual' }],
+    ['decide-gate', { ...decide, decision: 'approved' }],
+    ['decide-gate', { ...decide, decision: 'APPROVE' }],
+    ['decide-gate', { ...decide, decision: 'approve\n' }],
+    ['decide-gate', { ...decide, decision: '--policy' }],
+    ['decide-gate', { ...decide, revision: '-1' }],
+    ['decide-gate', { ...decide, revision: '01' }],
+    ['decide-gate', { ...decide, revision: '1.5' }],
+    ['decide-gate', { ...decide, revision: '1234567890' }],
+    ['decide-gate', { ...decide, revision: '' }],
+    ['decide-gate', { ...decide, revision: 7 }],
+    ['decide-gate', { ...decide, revision: '7 ' }],
+    ['decide-gate', { ...decide, gate: '--gate' }],
+    ['decide-gate', { ...decide, gate: 'a b' }],
+    ['decide-gate', { ...decide, taskId: '-t' }],
+    ['decide-gate', { ...decide, slug: 'a/b' }],
+    ['decide-gate', { ...decide, note: 5 }],
+    ['decide-gate', { ...decide, note: 'bad\0note' }],
+    ['decide-gate', { ...decide, policy: 'x' }],
+    ['decide-gate', { ...decide, root: '/tmp' }],
+    ['decide-gate', { ...decide, projectKey: undefined }],
+    ['decide-gate', { ...decide, projectKey: 'AAAAAAAAAAAAAAAA' }],
+    ['decide-gate', { ...decide, projectKey: '../../x' }],
+    ['decide-gate', { ...decide, revision: undefined }],
+    ['decide-gate', { ...decide, relay: undefined }],
+    ['decide-gate', { ...decide, taskId: undefined }],
+    ['decide-gate', { ...decide, gate: undefined }],
+    ['decide-gate', { ...decide, decision: undefined }],
+    ['decide-gate', null],
+    ['decide-gate', 'projectKey'],
+    ['decide-gate', []],
+    ['close-run', { ...close, note: undefined }],
+    ['close-run', { ...close, note: '' }],
+    ['close-run', { ...close, gate: 'gate-a' }],
+    ['cancel-worker', { ...cancel, runId: 'w-1A2B3C4D5E6F' }],
+    ['cancel-worker', { ...cancel, runId: '--operator' }],
+    ['cancel-worker', { ...cancel, note: undefined }],
+    ['cancel-worker', { ...cancel, note: '' }],
+    ['cancel-worker', { ...cancel, slug: undefined }],
+    ['cancel-worker', { ...cancel, taskId: 't-1' }],
+    // `run`'s reads, and ids that are not shapes at all.
+    ['list', {}],
+    ['transcript', { projectKey: KEY_A, agent: AGENT, limit: '10' }],
+    ['projects', {}],
+    ['start', {}],
+    ['complete-stage', {}],
+    ['__proto__', {}],
+    ['constructor', {}],
+    ['toString', {}],
+    ['--forced', {}],
+    ['', {}],
+  ];
+  for (const [shape, params] of refused) {
+    const cleaned = params && typeof params === 'object' && !Array.isArray(params) ? Object.fromEntries(Object.entries(params).filter(([, value]) => value !== undefined)) : params;
+    const result = await f.runner.act(shape, cleaned);
+    assert.deepEqual(result, { ok: false, code: 'usage', exit: null }, `${shape} ${JSON.stringify(params)}`);
+  }
+  assert.equal(await f.runner.act(5, {}).then((r: any) => r.code), 'usage');
+  assert.equal(f.spawnCalls.length, before);
+
+  // `run` refuses every write id, with a full and valid parameter set.
+  for (const id of WRITE_SHAPE_IDS) {
+    assert.deepEqual(await f.runner.run(id, WRITE_CASES[id].params), { ok: false, code: 'usage', exit: null }, id);
+  }
+  assert.equal(f.spawnCalls.length, before);
+});
+
+test('the new patterns: relay, revision and decision', () => {
+  const accepts = (pattern: RegExp, good: string[], bad: string[]) => {
+    for (const value of good) assert.ok(pattern.test(value), `accepts ${JSON.stringify(value)}`);
+    for (const value of bad) assert.ok(!pattern.test(value), `refuses ${JSON.stringify(value)}`);
+  };
+  accepts(PATTERNS.relay, ['console', DEVICE_RELAY, 'device.d-abcdef012345'], ['device:d-0123456789ab', 'device.d-0123456789a', 'device.d-0123456789abc', 'device.d-0123456789AB', 'device.0123456789ab', 'device.d-0123456789ag', 'Console', ' console', 'console\n', 'console ', '', 'manual', 'autopilot', 'device.d-0123456789ab\n']);
+  accepts(PATTERNS.revision, ['0', '1', '7', '10', '123456789'], ['-1', '01', '00', '1234567890', '1.5', '', ' 1', '1 ', '+1', '0x1', '1e3', '1\n']);
+  accepts(PATTERNS.decision, ['approve', 'reject'], ['approved', 'Approve', 'approve ', 'approve\n', '', 'defer', 'approve|reject']);
+});
+
+test('act has no single flight and no cache: two identical concurrent calls spawn twice, then a third spawns again', async () => {
+  const f = await writeSetup(undefined, { FAKE_CORE_DELAY_MS: '60' }, 'delay');
+  const base = f.writeStarts().length;
+  const params = WRITE_CASES['close-run'].params;
+  const [a, b] = await Promise.all([f.runner.act('close-run', params), f.runner.act('close-run', params)]);
+  assert.deepEqual([a.ok, b.ok], [true, true]);
+  assert.equal(f.writeStarts().length - base, 2);
+  assert.equal((await f.runner.act('close-run', params)).ok, true);
+  assert.equal(f.writeStarts().length - base, 3);
+});
+
+test('act has one write slot: a second write waits for the first and runs after it, in order', async () => {
+  const f = await writeSetup(undefined, { FAKE_CORE_DELAY_MS: '120' }, 'delay');
+  const base = f.writeStarts().length;
+  const first = f.runner.act('close-run', { ...WRITE_CASES['close-run'].params, note: 'first' });
+  const second = f.runner.act('close-run', { ...WRITE_CASES['close-run'].params, note: 'second' });
+  await realDelay(60);
+  assert.equal(f.writeStarts().length - base, 1, 'the second write has not started');
+  assert.deepEqual((await Promise.all([first, second])).map((r: any) => r.ok), [true, true]);
+  assert.deepEqual(f.writeStarts().slice(base).map((s: any) => s.argv[s.argv.indexOf('--note') + 1]), ['first', 'second']);
+});
+
+test('the write slot is outside the read pool: a write starts while two reads hold the pool, and reads go on while a write runs', async () => {
+  const f = await writeSetup(undefined, { FAKE_CORE_DELAY_MS: '200' }, 'delay');
+  const base = f.spawnCalls.length;
+  const reads = [f.runner.run('attempts', { slug: 'a' }), f.runner.run('attempts', { slug: 'b' }), f.runner.run('attempts', { slug: 'c' })];
+  const write = f.runner.act('close-run', WRITE_CASES['close-run'].params);
+  await f.startsReach(1 + 3); // the projects read, two pool reads, the write; the third read waits in the queue
+  assert.equal(f.spawnCalls.length - base, 3);
+  assert.ok(f.writeStarts().length === 1, 'the write is running beside the full pool');
+  assert.equal((await write).ok, true);
+  assert.ok((await Promise.all(reads)).every((r: any) => r.ok));
+  assert.equal(f.spawnCalls.length - base, 4);
+
+  // A read answers while a write is still pending.
+  const sleeping = await writeSetup('sleep');
+  const pending = sleeping.runner.act('close-run', WRITE_CASES['close-run'].params);
+  await sleeping.startsReach(2);
+  assert.equal((await sleeping.runner.run('attempts', { slug: 'a' })).ok, true);
+  assert.equal(sleeping.children.at(-2).exitCode, null, 'the write child is still running');
+  sleeping.clock.advance(WRITE_TIMEOUT_MS);
+  assert.equal((await pending).ok, false);
+});
+
+test('an exit 0 or 1 whose stdout is one JSON object is data; no backoff, no cache, stderr never returned', async () => {
+  for (const mode of ['stale', 'stale-error']) {
+    const f = await writeSetup(mode);
+    const params = WRITE_CASES['close-run'].params;
+    const first = await f.runner.act('close-run', params);
+    assert.deepEqual({ ...first }, { ok: true, exit: 1, json: { v: 1, ok: false, error: 'stale-revision', current: null } }, mode);
+    assert.equal(typeof first.at, 'number');
+    // The same call again spawns again (no backoff, no cache) and answers the same.
+    const second = await f.runner.act('close-run', params);
+    assert.deepEqual({ ...second }, { ...first });
+    assert.equal(f.writeStarts().length, 2, mode);
+    assert.ok(!JSON.stringify([first, second]).includes('secret-stderr-text'));
+    // Nor does a failed write back a read of the same verb path off.
+    assert.equal((await f.runner.run('list', {})).ok, true);
+  }
+  const ok = await (await writeSetup()).runner.act('decide-gate', WRITE_CASES['decide-gate'].params);
+  assert.equal(ok.ok && ok.exit, 0);
+  assert.ok('at' in ok && typeof ok.at === 'number');
+});
+
+test('every other outcome is a failure: exit 2 is usage, an old core is old-core, the rest is core-error or core-unreachable', async () => {
+  const params = WRITE_CASES['cancel-worker'].params;
+  const act = async (mode: string) => {
+    const f = await writeSetup(mode);
+    const result = await f.runner.act('cancel-worker', params);
+    // None of these is cached or backed off: the next call spawns again.
+    assert.deepEqual({ ...(await f.runner.act('cancel-worker', params)) }, { ...result }, mode);
+    assert.equal(f.writeStarts().length, 2, mode);
+    assert.ok(!JSON.stringify(result).includes('secret-stderr-text'), mode);
+    return { ...result };
+  };
+  assert.deepEqual(await act('usage'), { ok: false, code: 'usage', exit: 2 });
+  assert.deepEqual(await act('usage-json'), { ok: false, code: 'usage', exit: 2 });
+  assert.deepEqual(await act('old-flag'), { ok: false, code: 'core-error', exit: 1, reason: 'old-core' });
+  assert.deepEqual(await act('old-flag-2'), { ok: false, code: 'core-error', exit: 2, reason: 'old-core' });
+  assert.deepEqual(await act('text'), { ok: false, code: 'core-error', exit: 0, reason: 'not-json' });
+  assert.deepEqual(await act('array'), { ok: false, code: 'core-error', exit: 0, reason: 'not-json' });
+  assert.deepEqual(await act('text-exit1'), { ok: false, code: 'core-error', exit: 1, reason: 'not-json' });
+  // 162 review 7: exit 1, empty stdout and an [ERROR] line is the core's own error.
+  assert.deepEqual(await act('error-empty'), { ok: false, code: 'core-error', exit: 1 });
+  // An exit other than 0, 1 or 2 is never data; the core's own `error` id rides along as on a read failure.
+  assert.deepEqual(await act('exit3'), { ok: false, code: 'core-error', exit: 3, errorId: 'stale-revision' });
+});
+
+test('act on an unknown project key, before a projects read, or on a stopped runner never spawns', async () => {
+  const f = fleetSetup('echo');
+  const params = WRITE_CASES['close-run'].params;
+  assert.deepEqual(await f.runner.act('close-run', params), { ok: false, code: 'project-not-found', exit: null });
+  await f.runner.run('projects', {});
+  assert.deepEqual(await f.runner.act('close-run', { ...params, projectKey: 'cccccccccccccccc' }), { ok: false, code: 'project-not-found', exit: null });
+  assert.equal(f.spawnCalls.length, 1, 'only the projects read spawned');
+  f.runner.stop();
+  assert.deepEqual(await f.runner.act('close-run', params), { ok: false, code: 'core-unreachable', exit: null });
+  assert.equal(f.spawnCalls.length, 1);
+});
+
+test('a missing core or a failed spawn is core-unreachable for a write', async () => {
+  const f = await writeSetup();
+  const missing = createVerbRunner({ corePath: path.join(f.project, 'no-such-core.js'), projectRoot: f.project, env: {}, clock: f.clock, spawnImpl: () => assert.fail('spawned') });
+  // No projects read for this runner, so the key is unknown first; fill its map through a projects read on a real core.
+  assert.deepEqual(await missing.act('close-run', WRITE_CASES['close-run'].params), { ok: false, code: 'project-not-found', exit: null });
+  const throwing = createVerbRunner({ corePath: FLEET_CORE, projectRoot: f.project, env: { FAKE_PROJECTS_FILE: path.join(path.dirname(f.rootA), 'projects.json') }, clock: f.clock, spawnImpl: (command: string, args: string[], options: any) => {
+    if (args.includes('fleet')) return childProcess.spawn(command, args, options);
+    throw new Error('spawn denied');
+  } });
+  assert.equal((await throwing.run('projects', {})).ok, true);
+  assert.deepEqual(await throwing.act('close-run', WRITE_CASES['close-run'].params), { ok: false, code: 'core-unreachable', exit: null });
+  throwing.stop();
+});
+
+test('a write still running at 30 s gets SIGTERM, then SIGKILL after the grace, and is a timeout; at 10 s it is left alone', async () => {
+  const f = await writeSetup('sleep');
+  const pending = f.runner.act('close-run', WRITE_CASES['close-run'].params);
+  await f.startsReach(2);
+  const child = f.children.at(-1);
+  f.clock.advance(10_000); // the read timeout does not apply
+  f.clock.advance(WRITE_TIMEOUT_MS - 10_001);
+  await realDelay(50);
+  assert.equal(child.exitCode, null);
+  assert.equal(child.signalCode, null);
+  f.clock.advance(1);
+  const result = await pending;
+  assert.deepEqual({ ...result }, { ok: false, code: 'timeout', exit: null });
+  assert.equal(child.signalCode, 'SIGTERM');
+  // The slot is free again: the next write runs.
+  const f2 = await writeSetup('ignore-term');
+  const stuck = f2.runner.act('close-run', WRITE_CASES['close-run'].params);
+  await f2.startsReach(2);
+  f2.clock.advance(WRITE_TIMEOUT_MS);
+  await realDelay(100);
+  assert.equal(f2.children.at(-1).signalCode, null, 'SIGTERM was ignored');
+  f2.clock.advance(KILL_GRACE_MS);
+  assert.deepEqual({ ...(await stuck) }, { ok: false, code: 'timeout', exit: null });
+  assert.equal(f2.children.at(-1).signalCode, 'SIGKILL');
+});
+
+test('stop() kills a running write and answers a queued write as core-unreachable', async () => {
+  const f = await writeSetup('sleep');
+  const running = f.runner.act('close-run', WRITE_CASES['close-run'].params);
+  const queued = f.runner.act('close-run', WRITE_CASES['close-run'].params);
+  await f.startsReach(2);
+  f.runner.stop();
+  assert.deepEqual({ ...(await running) }, { ok: false, code: 'core-unreachable', exit: null });
+  assert.deepEqual({ ...(await queued) }, { ok: false, code: 'core-unreachable', exit: null });
+  assert.equal(f.writeStarts().length, 1);
+});
+
+test('the write child has no identity variable and no DOFLOW_* beyond the pass-throughs and DOFLOW_UPKEEP=off', async () => {
+  const planted: Record<string, string> = { KEEP_ME: 'kept', DOFLOW_SCOPE: 'global', doflow_lower_case: 'x', DOFLOW_UPKEEP: 'on' };
+  for (const name of IDENTITY_VARIABLES) planted[name] = 'identity';
+  const f = await writeSetup(undefined, planted);
+  assert.equal((await f.runner.act('close-run', WRITE_CASES['close-run'].params)).ok, true);
+  const env = f.writeStarts()[0].env;
+  for (const name of IDENTITY_VARIABLES) assert.equal(name in env, false, `${name} reached the write child`);
+  const doflow = Object.keys(env).filter((name) => name.toUpperCase().startsWith('DOFLOW_')).sort();
+  assert.deepEqual(doflow, ['DOFLOW_UPKEEP']);
+  assert.equal(env.DOFLOW_UPKEEP, 'off');
+  assert.equal(env.KEEP_ME, 'kept');
+});
+
+// ---- 162 review 7 and 10: a core error on a write, and the project refresh past the cache ----
+
+/** A stand-in core whose `fleet --action projects` lists `keys()` (read at each spawn) and whose writes answer `write`. */
+function writeStandIn(keys: () => string[], write: () => { stdout?: string; stderr?: string[]; exit: number }) {
+  return standIn((argv) => (argv[0] === 'fleet'
+    ? { stdout: JSON.stringify({ v: 1, store: 'present', projects: keys().map((projectKey) => ({ projectKey, root: os.tmpdir() })) }), exit: 0 }
+    : write()));
+}
+const CLOSE_PARAMS = (projectKey: string) => ({ projectKey, relay: 'console', taskId: 't-1', revision: '0', note: 'done here' });
+
+test('162 review 7: a write that exits 1 with empty stdout and [ERROR] on stderr is core-error, not not-json; the stderr text is never returned', async () => {
+  const s = writeStandIn(() => [KEY_A], () => ({ stderr: ['[ERROR] orchestrate: secret-stderr-text\n'], exit: 1 }));
+  assert.equal((await s.runner.run('projects', {})).ok, true);
+  const result = await s.runner.act('close-run', CLOSE_PARAMS(KEY_A));
+  assert.deepEqual({ ...result }, { ok: false, code: 'core-error', exit: 1 });
+  assert.equal(JSON.stringify(result).includes('secret'), false);
+  // Without the [ERROR] line, an exit 1 with empty stdout is still a body the contract cannot read.
+  const t = writeStandIn(() => [KEY_A], () => ({ exit: 1 }));
+  await t.runner.run('projects', {});
+  assert.equal((await t.runner.act('close-run', CLOSE_PARAMS(KEY_A))).reason, 'not-json');
+});
+
+test('162 review 10: projects read fresh spawns past its 10 s cache once its last spawn is 5 s old, and not sooner, so the action routes\' refresh finds a project registered since', async () => {
+  const keys = [KEY_A];
+  const s = writeStandIn(() => keys, () => ({ stdout: JSON.stringify({ v: 1, ok: true }), exit: 0 }));
+  assert.equal((await s.runner.run('projects', {})).ok, true);
+  keys.push(KEY_B);
+  assert.equal((await s.runner.act('close-run', CLOSE_PARAMS(KEY_B))).code, 'project-not-found');
+  const soon = await s.runner.run('projects', {}, { fresh: true });
+  assert.deepEqual([soon.ok, soon.fresh, s.spawns()], [true, 'too-soon', 1], 'under the 5 s floor: the cached listing, no spawn');
+  s.clock.advance(5_000);
+  const fresh = await s.runner.run('projects', {}, { fresh: true });
+  assert.deepEqual([fresh.ok, fresh.fresh, s.spawns()], [true, 'ran', 2], 'past the floor, inside the 10 s ttl: a spawn');
+  assert.equal((await s.runner.act('close-run', CLOSE_PARAMS(KEY_B))).ok, true);
 });

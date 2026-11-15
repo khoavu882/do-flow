@@ -11,7 +11,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { buildRoutes, consoleRoutes, isApiPath, jsonReply, healthz, staticFallback } = require('../src/routes.ts');
-const { DEVICE_ROUTES, PAIRING_ROUTES, PUBLIC_PATHS, deviceMayUse } = require('../src/scopes.ts');
+const { ACTION_IDS, DEVICE_ROUTES, PAIRING_ROUTES, PUBLIC_PATHS, deviceMayUse, deviceMayAct } = require('../src/scopes.ts');
 const { IDLE_MS } = require('../src/lan-store.ts');
 const { lanWorld, lanServer } = require('./helpers/lan-world.ts');
 
@@ -28,7 +28,10 @@ const json = (reply: { body: string }) => JSON.parse(reply.body);
 const FOUR = ['/api/info', '/api/runs', '/api/runs/:slug/:taskId', '/api/workflows'];
 const ADDED_161 = ['/api/live', '/api/sessions', '/api/worker-runs/:slug', '/api/worker-runs/:slug/:runId/result', '/api/worker-runs/:slug/:runId/status',
   '/api/worker-runs/:slug/:runId/log', '/api/worker-runs/:slug/:runId/transcript'];
-const READS = [...FOUR, ...ADDED_161];
+// 162 IC-007: both scopes read what they may do; `control` alone lists the three action routes.
+const ADDED_162 = ['/api/actions'];
+const READS = [...FOUR, ...ADDED_161, ...ADDED_162];
+const ACTION_ROUTES = ['/api/actions/decide-gate', '/api/actions/close-run', '/api/actions/cancel-worker'];
 // The removed Fleet paths stay refused even on a table that still had them; so does every management route.
 const OTHERS = ['/api/fleet', '/api/transcript', '/api/stream', '/api/settings', '/api/sessions-history', '/api/workers', '/api/doctor', '/api/followups', '/api/added-later'];
 const probe = (routePath: string) => ({ method: 'GET', path: routePath, handler: (ctx: any) => jsonReply(200, { ran: routePath, session: ctx.session }) });
@@ -64,10 +67,10 @@ test('a paired device passes with its cookie (browser) and with its Bearer (nati
   const device = await world.pair('view');
   const viaCookie = await request('GET', '/api/info', { headers: { Cookie: device.cookie, Origin: origin } });
   assert.equal(viaCookie.status, 200);
-  assert.deepEqual(json(viaCookie).session, { scope: 'view', deviceId: device.device.id });
+  assert.deepEqual(json(viaCookie).session, { scope: 'view', deviceId: device.device.id, via: 'browser' });
   const viaBearer = await request('GET', '/api/info', { headers: { Authorization: device.bearer } });
   assert.equal(viaBearer.status, 200);
-  assert.deepEqual(json(viaBearer).session, { scope: 'view', deviceId: device.device.id });
+  assert.deepEqual(json(viaBearer).session, { scope: 'view', deviceId: device.device.id, via: 'browser' }, 'via is the record\'s pairing transport, not the request\'s');
   // A browser that sends only the cookie, with no Origin, is still a browser (the cookie makes it one).
   assert.equal((await request('GET', '/api/info', { headers: { Cookie: device.cookie } })).status, 200);
   // Cache and security headers ride on LAN replies like loopback ones.
@@ -189,7 +192,7 @@ test('a device passes exactly the device read routes (row 160 four plus the 161 
   }
 });
 
-test('the REAL route table: every /api route that is not in the device list is refused for a device, whichever scope; a route added later is refused by default', async (t) => {
+test('the REAL route table: every /api route that is not in the device list is refused for a device, whichever scope; the action routes are control-only; a route added later is refused by default', async (t) => {
   const world = lanWorld(t);
   const reached: string[] = [];
   // A runner that records any call and answers core-unreachable: a refused route must never reach it.
@@ -203,9 +206,13 @@ test('the REAL route table: every /api route that is not in the device list is r
   const server = await lanServer(t, world, table, webRoot);
   const apiRoutes = table.filter((route: any) => isApiPath(route.path) && route.path !== '/api/pair');
   assert.ok(apiRoutes.length >= 15, `the table has ${apiRoutes.length} /api routes`);
-  assert.deepEqual(apiRoutes.filter((route: any) => route.method !== 'GET'), [], 'every /api route but the pairing exchange is a GET');
+  assert.deepEqual(apiRoutes.filter((route: any) => route.method !== 'GET').map((route: any) => `${route.method} ${route.path}`), ACTION_ROUTES.map((p) => `POST ${p}`),
+    'every /api route but the pairing exchange and the three action routes is a GET');
+  assert.ok(apiRoutes.filter((route: any) => route.method !== 'GET').every((route: any) => route.action === true), 'each action route is declared action: true');
   const allowed = apiRoutes.filter((route: any) => deviceMayUse('view', route.method, route.path)).map((route: any) => route.path).sort();
   assert.deepEqual(allowed, [...READS].sort(), 'the device list names routes the table really has, and nothing else');
+  const controlOnly = apiRoutes.filter((route: any) => deviceMayUse('control', route.method, route.path) && !deviceMayUse('view', route.method, route.path));
+  assert.deepEqual(controlOnly.map((route: any) => `${route.method} ${route.path}`), ACTION_ROUTES.map((p) => `POST ${p}`));
   const refused = apiRoutes.filter((route: any) => !deviceMayUse('view', route.method, route.path)).map((route: any) => route.path);
   for (const management of ['/api/settings', '/api/doctor', '/api/storage', '/api/workers', '/api/followups', '/api/advice', '/api/sessions-history']) {
     assert.ok(refused.includes(management), `${management} stays off the device list`);
@@ -215,12 +222,21 @@ test('the REAL route table: every /api route that is not in the device list is r
     const device = await world.pair(scope);
     for (const route of apiRoutes) {
       if (deviceMayUse(scope, route.method, route.path)) continue;
-      const reply = await server.request('GET', concrete(route.path).replace(/:[A-Za-z]+/g, 'x1'), { headers: { Authorization: device.bearer } });
+      const reply = route.method === 'GET'
+        ? await server.request('GET', concrete(route.path).replace(/:[A-Za-z]+/g, 'x1'), { headers: { Authorization: device.bearer } })
+        : await server.request(route.method, route.path, { headers: { Authorization: device.bearer, 'Content-Type': 'application/json' }, body: '{}' });
       assert.equal(reply.status, 403, `${scope} ${route.path}`);
       assert.deepEqual(json(reply), errorBody('phone-scope'), `${scope} ${route.path}`);
     }
   }
   assert.deepEqual(reached, [], 'no refused route ran a verb');
+  // A control device passes the scope on an action route; with no action log (no config home) it is refused before any verb runs.
+  const control = await world.pair('control', 'Controller');
+  for (const routePath of ACTION_ROUTES) {
+    const reply = await server.request('POST', routePath, { headers: { Authorization: control.bearer, 'Content-Type': 'application/json' }, body: '{}' });
+    assert.deepEqual(json(reply), errorBody('action-log-unwritable'), routePath);
+  }
+  assert.deepEqual(reached, [], 'still no verb ran');
   // Every listed route of the real table is reached past the device check: whatever it answers, it is not the scope refusal.
   // (`/api/live` has no hub here, so it answers 503 live-unavailable; the others answer from the unreachable core or refuse a param.)
   const view = await world.pair('view', 'Reader');
@@ -301,10 +317,22 @@ test('past the certificate end date every device request and the pairing exchang
   assert.equal(world.store.list().length, 1, 'the code was not spent');
 });
 
-test('the scope list is frozen, names the device reads for both scopes, and refuses an unknown scope or a write', () => {
-  assert.ok(Object.isFrozen(DEVICE_ROUTES) && Object.isFrozen(DEVICE_ROUTES.view) && Object.isFrozen(DEVICE_ROUTES.control));
+test('the scope list is frozen, names the device reads for both scopes and the action routes for control only, and refuses an unknown scope or another write', () => {
+  assert.ok(Object.isFrozen(DEVICE_ROUTES) && Object.isFrozen(DEVICE_ROUTES.view) && Object.isFrozen(DEVICE_ROUTES.control) && Object.isFrozen(ACTION_IDS));
   assert.deepEqual([...DEVICE_ROUTES.view].sort(), READS.map((p) => `GET ${p}`).sort());
-  assert.deepEqual([...DEVICE_ROUTES.control], [...DEVICE_ROUTES.view]);
+  assert.deepEqual([...DEVICE_ROUTES.control], [...DEVICE_ROUTES.view, ...ACTION_ROUTES.map((p) => `POST ${p}`)]);
+  for (const routePath of ACTION_ROUTES) {
+    assert.equal(deviceMayUse('control', 'POST', routePath), true, routePath);
+    assert.equal(deviceMayUse('view', 'POST', routePath), false, routePath);
+    assert.equal(deviceMayUse('control', 'GET', routePath), false, routePath);
+  }
+  // DEC-009: the stored scope, the record's pairing transport and this request's class must all be native control.
+  assert.equal(deviceMayAct({ scope: 'control', via: 'native' }, 'native'), true);
+  assert.equal(deviceMayAct({ scope: 'control', via: 'native' }, 'browser'), false);
+  assert.equal(deviceMayAct({ scope: 'control', via: 'browser' }, 'native'), false);
+  assert.equal(deviceMayAct({ scope: 'view', via: 'native' }, 'native'), false);
+  assert.equal(deviceMayAct({ scope: 'local' }, undefined), false);
+  assert.equal(deviceMayAct(null, 'native'), false);
   assert.deepEqual([...PAIRING_ROUTES], ['POST /api/pair']);
   assert.deepEqual([...PUBLIC_PATHS], ['GET /healthz', 'GET /* (static web bundle)']);
   assert.equal(deviceMayUse('view', 'GET', '/api/info'), true);

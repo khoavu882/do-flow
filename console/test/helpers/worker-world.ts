@@ -16,7 +16,9 @@
 //
 // The world, by role (the caller passes the feature's attempts; at least one active and two ended):
 //   running    top-level on the active attempt, `running`, its supervisor and worker this process's own
-//              pid and start, so liveness reads alive; out and err files present unless asked otherwise
+//              pid and start, so liveness reads alive; out and err files present unless asked otherwise.
+//              With `runningWorker` its worker is that process instead (a real child the test started, its
+//              pid, process group and start recorded as the core records them), so a cancel signals it
 //   child      a child of `running`, `running`, alive, no output files yet
 //   overdue    a child of `running`, `running`, alive, past its deadline
 //   edit       top-level edit run on the first ended attempt: isolation `violated` `outside-write`
@@ -76,6 +78,8 @@ type WorldOptions = {
   marker?: string;
   /** `absent`: the running run's out and err files do not exist yet (IC-021's first tick creates them). */
   runningLogs?: 'present' | 'absent';
+  /** The `running` run's worker process, as the supervisor records it: `{pid, pgid, start}` (`start` from process-tree's procStart). Default: this process. */
+  runningWorker?: { pid: number; pgid: number; start: string | null };
   now?: number;
 };
 
@@ -232,7 +236,7 @@ function buildWorkerWorld(options: WorldOptions) {
   const runs: Record<string, string> = {};
 
   // The live runs: the active attempt's run and two of its children.
-  runs.running = start('running', active, { ...alive, startedAt: now - 2 * MINUTE, deadline: now + 60 * MINUTE });
+  runs.running = start('running', active, { ...alive, worker: options.runningWorker ?? self, startedAt: now - 2 * MINUTE, deadline: now + 60 * MINUTE });
   if (runningLogs === 'present') {
     fs.writeFileSync(logFile(runs.running, 'out'), `world running out 1 ${text}\nworld running out 2 compiling\n`);
     fs.writeFileSync(logFile(runs.running, 'err'), `world running err 1 ${text}\n`);

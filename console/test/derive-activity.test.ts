@@ -90,17 +90,17 @@ test('control: building the gate slot from awaitingGate.prompt turns the registr
   assert.notEqual(mutated.deriveActivity(body, WORKFLOW, tl(GATE_EVENTS), null, T0 + 42 * MIN).node.prompt, activity.deriveActivity(body, WORKFLOW, tl(GATE_EVENTS), null, T0 + 42 * MIN).node.prompt);
 });
 
-test('gate slot: the decide commands are two complete lines with the run id and the gate id, and no --slug', () => {
+test('gate slot: the decide commands are two complete lines with the run id, the feature slug (162) and the gate id; a flat run has no --slug', () => {
   const model = activity.deriveActivity(atGateA(), WORKFLOW, tl(GATE_EVENTS), null, T0 + 42 * MIN);
   assert.deepEqual(model.command, {
-    approve: 'doflow orchestrate --action decide-gate --task-id run-1 --gate gate-a --decision approve',
-    reject: 'doflow orchestrate --action decide-gate --task-id run-1 --gate gate-a --decision reject',
+    approve: 'doflow orchestrate --action decide-gate --task-id run-1 --slug feat-a --gate gate-a --decision approve',
+    reject: 'doflow orchestrate --action decide-gate --task-id run-1 --slug feat-a --gate gate-a --decision reject',
   });
-  assert.ok(!JSON.stringify(model.command).includes('--slug'));
-  assert.deepEqual(activity.decideCommands(row('AWAITING_GATE', gate('gate-0', 'clarification'), 1, { taskId: 'run-x' })), {
+  assert.deepEqual(activity.decideCommands(row('AWAITING_GATE', gate('gate-0', 'clarification'), 1, { taskId: 'run-x', featureSlug: null })), {
     approve: 'doflow orchestrate --action decide-gate --task-id run-x --gate gate-0 --decision approve',
     reject: 'doflow orchestrate --action decide-gate --task-id run-x --gate gate-0 --decision reject',
   });
+  assert.equal(activity.decideCommands(row('AWAITING_GATE', gate('gate-0', 'clarification'), 1, { featureSlug: 'two words' })).approve.includes('--slug'), false, 'a slug outside the id grammar is left out');
   assert.equal(activity.deriveActivity(row('RUNNING', stage('design'), 2), WORKFLOW, tl(GATE_EVENTS), null, T0).command, null, 'only a gate has commands');
 });
 
@@ -173,7 +173,7 @@ test('a step the registry does not hold is marked missing, with the id and no re
   assert.deepEqual(stageGone.node, { type: 'stage', id: 'mystery', missing: true, skill: null, agent: null, purpose: null, index: null, count: 6 });
   const gateGone = activity.deriveActivity(row('AWAITING_GATE', gate('gate-z', 'clarification'), 2), WORKFLOW, tl(GATE_EVENTS), null, T0 + 50 * MIN);
   assert.deepEqual(gateGone.node, { type: 'gate', id: 'gate-z', missing: true, name: null, kind: 'clarification', prompt: null, after: null });
-  assert.equal(gateGone.command.approve, 'doflow orchestrate --action decide-gate --task-id run-1 --gate gate-z --decision approve', 'the commands need only ids');
+  assert.equal(gateGone.command.approve, 'doflow orchestrate --action decide-gate --task-id run-1 --slug feat-a --gate gate-z --decision approve', 'the commands need only ids');
   const noWorkflow = activity.deriveActivity(row('RUNNING', stage('design'), 2), null, tl(GATE_EVENTS), null, T0 + 50 * MIN);
   assert.equal(noWorkflow.node.missing, true);
   assert.equal(noWorkflow.workflowUnavailable, true);
@@ -282,6 +282,17 @@ test('timeline: an event without a time is counted and placed nowhere; otherEven
   assert.deepEqual(model.list.map((item: any) => item.at), [null, iso(8), null, iso(0)], 'the list keeps every event, newest first');
   const noTime = timeline.deriveTimeline(WORKFLOW, row('RUNNING', stage('design'), 2), tl([ev(0, 'start'), ev(null, 'complete-stage', 'discovery'), ev(null, 'decide-gate', 'gate-0', { decision: 'approve' })]), T0 + 20 * MIN);
   assert.deepEqual(noTime.rows.find((r: any) => r.node.id === 'design').segments, [], 'the last progress event has no time: the live segment is unknown');
+});
+
+test('162 IC-010: a decision or a close in the timeline list says who made it, in the `by` words; no other event carries one', () => {
+  const events = [ev(0, 'start'), ev(5, 'complete-stage', 'discovery', { outcome: 'passed' }), ev(8, 'decide-gate', 'gate-0', { decision: 'approve', by: 'device.d-0a1b2c3d4e5f' }),
+    ev(9, 'decide-gate', 'gate-a', { decision: 'approve', by: 'autopilot' }), ev(10, 'decide-gate', 'gate-b', { decision: 'reject' }), ev(12, 'close-run', 'review', { by: 'console' }),
+    ev(13, 'annotate', 'review', { by: 'manual' })];
+  const list = timeline.deriveTimeline(WORKFLOW, row('CLOSED', null, 5), tl(events), T0 + 60 * MIN).list;
+  assert.deepEqual(list.map((i: any) => [i.action, i.by]), [
+    ['annotate', null], ['close-run', 'from the Console on this machine'], ['decide-gate', 'decider not recorded'], ['decide-gate', 'by autopilot'], ['decide-gate', 'from paired device d-0a1b2c3d4e5f'],
+    ['complete-stage', null], ['start', null],
+  ]);
 });
 
 test('timeline list: newest first with the duration each event closed, and none for start, a note, an untimed event or the end of the run', () => {

@@ -24,6 +24,7 @@ async function load(): Promise<any> {
   fs.mkdirSync(path.join(dir, 'derive'));
   fs.writeFileSync(path.join(dir, 'package.json'), '{"type":"module"}\n');
   fs.writeFileSync(path.join(dir, 'derive', 'layers.js'), fs.readFileSync(SOURCE_PATH, 'utf8'));
+  fs.writeFileSync(path.join(dir, 'derive', 'actions.js'), fs.readFileSync(path.join(path.dirname(SOURCE_PATH), 'actions.js'), 'utf8')); // the `by` words (162)
   return import(pathToFileURL(path.join(dir, 'derive', 'layers.js')).href);
 }
 
@@ -99,6 +100,13 @@ test('a gate decided by a direct command reads "decided manually", never "by a p
   assert.equal(layers.gateWords(gate({ by: 'autopilot' })).word, 'approved by autopilot');
   assert.equal(layers.gateWords(gate({ by: null })).word, 'decider not recorded');
   assert.equal(layers.gateWords(gate({ by: 'person' })).word, 'decider not recorded', 'the retired value is not a decider');
+});
+
+test('162 IC-005: a gate decided from the Console or a paired device reads where it came from; a rejected one says rejected', () => {
+  assert.equal(layers.gateWords(gate({ by: 'console' })).word, 'approved from the Console on this machine');
+  assert.equal(layers.gateWords(gate({ by: 'device.d-0a1b2c3d4e5f' })).word, 'approved from paired device d-0a1b2c3d4e5f');
+  assert.deepEqual(layers.gateWords(gate({ by: 'console', state: 'rejected' })), { token: 'rejected', word: 'rejected from the Console on this machine' });
+  assert.equal(layers.gateWords(gate({ by: 'device.d-XYZ' })).word, 'decider not recorded');
 });
 
 test('questions is `not observed` for every harness, whatever the core said (FR-009)', () => {
