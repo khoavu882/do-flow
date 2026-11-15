@@ -90,6 +90,31 @@ test('list --json gives unresolved:<reason> for the tier fields when workers.mod
   assert.match(text.out, /light=unresolved/);
 });
 
+test('two syncs of different harnesses in one project both keep their entry, and no lock is left behind', async (t: any) => {
+  const s = setup(t);
+  const later = (answer: string, ms: number) => (_bin: string, args: string[], _opts: any, cb: any) => {
+    setTimeout(() => (args[0] === 'models' || args[0] === '--list-models' ? cb(null, answer, '') : cb(null, '1.0.0', '')), ms);
+  };
+  const log = console.log;
+  console.log = () => {};
+  let codes: number[];
+  try {
+    // opencode answers after pi has started, so both read the catalogue before either writes.
+    codes = await Promise.all([
+      handleModelsCommand({ actionGiven: true, action: 'sync', harness: 'opencode', projectRoot: s.project, env: s.env, json: true, syncOptions: { execFileImpl: later('a/one\n', 60) } }),
+      handleModelsCommand({ actionGiven: true, action: 'sync', harness: 'pi', projectRoot: s.project, env: s.env, json: true, syncOptions: { execFileImpl: later('provider model\nx y\n', 5) } }),
+    ]);
+  } finally {
+    console.log = log;
+  }
+  assert.deepEqual(codes, [0, 0]);
+  const file = path.join(s.project, '.doflow', 'state', 'models', 'catalogue.json');
+  const stored = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.deepEqual(Object.keys(stored.harnesses).sort(), ['opencode', 'pi']);
+  assert.deepEqual(stored.harnesses.opencode.offeredModels, [{ id: 'a/one' }]);
+  assert.equal(fs.existsSync(`${file}.lock`), false);
+});
+
 test('bind and unbind refuse from a worker session: exit 1, nothing written, a person runs it from their own terminal', async (t: any) => {
   const s = setup(t);
   for (const role of ['worker', 'Worker', 'surprise']) {

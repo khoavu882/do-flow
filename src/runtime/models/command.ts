@@ -1,6 +1,6 @@
 'use strict';
 
-const { readCatalogue, writeCatalogue, syncHarness, syncAllHarnesses, workerIds } = require('./catalogue.ts');
+const { readCatalogue, mergeCatalogueEntries, syncHarness, syncAllHarnesses, workerIds } = require('./catalogue.ts');
 const { readAllowedModels, ORCHESTRATOR_KEY } = require('../worker/models.ts');
 const { finishRuntime, usageError } = require('../cli-result.ts');
 const { validateValue } = require('../settings/files.ts');
@@ -60,10 +60,7 @@ async function handleBind({ act, harness, tier, model, allowUnlisted, json, proj
     if (chosen === null) {
       if (!interactive) return usageError('models', `--model is required without a terminal; usage: ${usage}`, json);
       const res = await syncHarness(harness, { ...syncOptions, projectRoot, env, previous: readCatalogue(projectRoot)?.harnesses?.[harness] ?? null });
-      const catalogue = readCatalogue(projectRoot) || { version: 1, syncedAt: new Date().toISOString(), harnesses: {} };
-      catalogue.harnesses[harness] = res;
-      catalogue.syncedAt = new Date().toISOString();
-      writeCatalogue(catalogue, projectRoot);
+      mergeCatalogueEntries({ [harness]: res }, projectRoot);
       if (res.offeredModels.length === 0) {
         const why = res.modelList?.reason ? ` (${res.modelList.reason})` : '';
         return usageError('models', `${harness} gave no model list${why}; pass --model <id> to type the id yourself`, json);
@@ -169,14 +166,7 @@ async function handleModelsCommand({
       }
       const before = readCatalogue(projectRoot);
       const res = await syncHarness(harness, { ...syncOptions, projectRoot, env, previous: before?.harnesses?.[harness] ?? null });
-      const catalogue = before || {
-        version: 1,
-        syncedAt: new Date().toISOString(),
-        harnesses: {},
-      };
-      catalogue.harnesses[harness] = res;
-      catalogue.syncedAt = new Date().toISOString();
-      writeCatalogue(catalogue, projectRoot);
+      mergeCatalogueEntries({ [harness]: res }, projectRoot);
 
       if (json) {
         console.log(JSON.stringify(res, null, 2));

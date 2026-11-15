@@ -169,6 +169,32 @@ function writeCatalogue(
   fsImpl.renameSync(tmpPath, targetPath);
 }
 
+/**
+ * Puts `entries` (harness id to synced entry) into the catalogue: under the state-file lock the repo uses for its small
+ * state files, the file is read again and only these harnesses are replaced, so two syncs running together each keep
+ * the other's entry. Returns the catalogue as written. The slow part (probing a CLI) belongs outside this call.
+ */
+function mergeCatalogueEntries(
+  entries: Record<string, SyncHarnessResult>,
+  projectRoot?: string,
+  options: { fsImpl?: any; homeDir?: string; env?: any } = {}
+): ObservedCatalogue {
+  const { acquireLock } = require('../task-state.ts');
+  const fsImpl = options.fsImpl || fs;
+  const root = projectRoot ? path.resolve(projectRoot) : resolveProjectRoot(undefined, fsImpl);
+  const targetPath = root ? getProjectCataloguePath(root) : getUserCataloguePath(options.homeDir, options.env);
+  fsImpl.mkdirSync(path.dirname(targetPath), { recursive: true });
+  const release = acquireLock(fsImpl, targetPath);
+  try {
+    const current: ObservedCatalogue = readCatalogue(projectRoot, options) || { version: 1, syncedAt: '', harnesses: {} };
+    const merged: ObservedCatalogue = { ...current, version: 1, syncedAt: new Date().toISOString(), harnesses: { ...current.harnesses, ...entries } };
+    writeCatalogue(merged, projectRoot, options);
+    return merged;
+  } finally {
+    release();
+  }
+}
+
 /** Adapts a callback-style `execFile` (the probes' injection point) to the promise form `listHarnessModels` runs. */
 function listExecFrom(runner: any): any {
   return (file: string, args: string[], opts: any) => new Promise((resolve, reject) => {
@@ -253,14 +279,7 @@ async function syncAllHarnesses(
     results[id] = await syncHarness(id, { ...options, previous: before?.harnesses?.[id] ?? null });
   }
 
-  const catalogue: ObservedCatalogue = {
-    version: 1,
-    syncedAt: new Date().toISOString(),
-    harnesses: results,
-  };
-
-  writeCatalogue(catalogue, options.projectRoot, options);
-  return catalogue;
+  return mergeCatalogueEntries(results, options.projectRoot, options);
 }
 
 module.exports = {
@@ -268,6 +287,7 @@ module.exports = {
   getUserCataloguePath,
   readCatalogue,
   writeCatalogue,
+  mergeCatalogueEntries,
   syncHarness,
   syncAllHarnesses,
   workerDescriptor,
