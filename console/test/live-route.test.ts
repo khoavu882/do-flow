@@ -1077,6 +1077,23 @@ test('GET /api/live with log positions: a log channel with n or another channel 
   assert.deepEqual(hub.subscribes.slice(2), five);
 });
 
+// The shell's attention strip follows `machine` beside the view's own channel on every page (app.js `startAttention`), so the
+// stream a paired phone opens is `ch=<view>,machine`. A `view` device is not refused it: both channels are subscribed.
+test('GET /api/live: a paired view device follows the machine channel beside its view\'s, as a control device does', async (t) => {
+  for (const scope of ['view', 'control'] as const) {
+    const hub: any = fakeHub();
+    hub.clock = fakeClock();
+    const client = await deviceClient(t, (auth: any) => consoleRoutes(countingRunner(), auth, hub), webRoot);
+    const paired = await client.world.pair(scope, `Phone ${scope}`);
+    const stream = client.request('GET', '/api/live?ch=now,machine', { headers: { Cookie: paired.cookie } });
+    await until(() => hub.subscribes.length === 2, `${scope}: the stream subscribed`);
+    assert.deepEqual([...hub.subscribes].sort(), ['machine', 'now'], scope);
+    assert.equal(await client.world.store.revoke(paired.device.id), 'revoked');
+    hub.clock.step(KEEPALIVE_MS);
+    assert.equal((await stream).status, 200, `${scope}: opened, not refused`);
+  }
+});
+
 // ---- 161: the device recheck, the Console cap, and resume of the layers channels and lanes ----
 
 test('161 IC-009: a recheck runs before every keepalive; true beats, false or a rejection ends the response once, releasing its slot and channels', async () => {
