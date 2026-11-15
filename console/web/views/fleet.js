@@ -927,7 +927,7 @@ function updateProject(local, data, params) {
   const crumb = document.querySelector('.fleet-crumb__label');
   setText(h1, project.label);
   setText(crumb, project.label);
-  const tag = document.querySelector('.fleet-title__tag');
+  const tag = /** @type {HTMLElement | null} */ (document.querySelector('.fleet-title__tag'));
   if (tag) {
     const marks = [project.current ? 'this project' : null, project.temp ? 'temp' : null].filter(Boolean).join('|');
     if (tag.dataset.marks !== marks) {

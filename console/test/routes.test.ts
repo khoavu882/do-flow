@@ -15,6 +15,7 @@ const net = require('node:net');
 const { createServer } = require('../src/server.ts');
 const { consoleRoutes, TASK_CLASSES } = require('../src/routes.ts');
 const { createSessions, cookieName } = require('../src/session.ts');
+const { lanWorld } = require('./helpers/lan-world.ts');
 const { createVerbRunner } = require('../src/verb-runner.ts');
 
 const FIXTURES = path.join(__dirname, 'fixtures', 'core');
@@ -102,7 +103,7 @@ async function harness(runner: any, t: any) {
 
 const errorBody = (code: string, verb: string | null = null, exit: number | null = null) => ({ error: { code, verb, exit } });
 
-test('route table: frozen, the only non-GET route is POST /api/session, the stream routes are exactly GET /api/stream and GET /api/live, the IC-005 read paths plus /api/live, the phone allow-list the four routes', async () => {
+test('route table: frozen, the only non-GET route is POST /api/session, the stream routes are exactly GET /api/stream and GET /api/live, the IC-005 read paths plus /api/live, the device list the four routes', async (t) => {
   const routes = consoleRoutes(scripted(), createSessions());
   assert.ok(Object.isFrozen(routes) && routes.every((route: any) => Object.isFrozen(route)));
   assert.deepEqual(routes.filter((route: any) => route.method !== 'GET').map((route: any) => `${route.method} ${route.path}`), ['POST /api/session']);
@@ -112,14 +113,16 @@ test('route table: frozen, the only non-GET route is POST /api/session, the stre
       '/api/sessions', '/api/sessions-history', '/api/settings', '/api/storage', '/api/stream', '/api/transcript',
       '/api/worker-runs/:slug', '/api/worker-runs/:slug/:runId/log', '/api/worker-runs/:slug/:runId/result', '/api/worker-runs/:slug/:runId/status',
       '/api/worker-runs/:slug/:runId/transcript', '/api/workers', '/api/workflows', '/healthz']);
-  // PHONE_ROUTE_ALLOWLIST by behaviour (DEC-007): a phone session passes the session check on exactly the four routes.
-  const phone = createSessions({ scope: 'phone' });
-  const cookie = `${cookieName(4310)}=${phone.exchange(phone.mintLaunchCode())}`;
-  const phoneRoutes = consoleRoutes(scripted(), phone);
+  // The device list (scopes.ts, 160 IC-007) by behaviour: a paired device passes the device check on exactly the four routes,
+  // and the LAN table has POST /api/pair as its only non-GET route and no launch-code exchange.
+  const world = lanWorld(t);
+  const { cookie } = await world.pair('view');
+  const lanRoutes = consoleRoutes(scripted(), world.auth);
+  assert.deepEqual(lanRoutes.filter((route: any) => route.method !== 'GET').map((route: any) => `${route.method} ${route.path}`), ['POST /api/pair']);
   const reachable: string[] = [];
   const refused: string[] = [];
-  for (const route of phoneRoutes.filter((item: any) => item.method === 'GET' && item.path.startsWith('/api/'))) {
-    const reply = await route.handler({ req: { headers: { cookie }, url: route.path }, port: 4310, params: { slug: 'feat-a', taskId: 'run-1' }, pathname: route.path, webRoot: '/tmp', res: {} });
+  for (const route of lanRoutes.filter((item: any) => item.method === 'GET' && item.path.startsWith('/api/'))) {
+    const reply = await route.handler({ req: { headers: { cookie }, url: route.path, socket: { remoteAddress: '192.168.1.40' } }, clientClass: 'browser', port: 4310, params: { slug: 'feat-a', taskId: 'run-1' }, pathname: route.path, webRoot: '/tmp', res: {} });
     if (reply === null || reply.status !== 403) reachable.push(route.path);
     else {
       assert.deepEqual(JSON.parse(reply.body), errorBody('phone-scope'), route.path);
@@ -143,36 +146,35 @@ test('session: every read route is 401 without the cookie and no verb runs', asy
   assert.deepEqual(runner.calls, []);
 });
 
-test('phone session: only the four phone GET routes are allowed', async () => {
+test('device session: only the four device GET routes are allowed, for view and for control', async (t) => {
   const runner = scripted();
-  const sessions = createSessions({ scope: 'phone' });
-  const token = sessions.exchange(sessions.mintLaunchCode());
-  const cookie = `${cookieName(4310)}=${token}`;
-  const routes = consoleRoutes(runner, sessions);
-  const invoke = (route: any, params: Record<string, string> = {}) => route.handler({
-    req: { headers: { cookie } }, port: 4310, params, pathname: route.path, webRoot: '/tmp', res: {},
-  });
-
-  const allowed = [
-    ['/api/info', {}],
-    ['/api/runs', {}],
-    ['/api/runs/:slug/:taskId', { slug: 'feat-a', taskId: 'run-1' }],
-    ['/api/workflows', {}],
-  ] as const;
-  for (const [path, params] of allowed) {
-    const route = routes.find((item: any) => item.method === 'GET' && item.path === path);
-    assert.ok(route, path);
-    const reply = await invoke(route, params as Record<string, string>);
-    assert.notEqual(reply.status, 403, `${path} is in phone scope`);
-  }
-
-  for (const path of ['/api/sessions', '/api/fleet', '/api/transcript', '/api/stream', '/api/live', '/api/worker-runs/:slug', '/api/worker-runs/:slug/:runId/result',
-    '/api/worker-runs/:slug/:runId/status', '/api/worker-runs/:slug/:runId/log', '/api/worker-runs/:slug/:runId/transcript']) {
-    const route = routes.find((item: any) => item.method === 'GET' && item.path === path);
-    assert.ok(route, path);
-    const reply = await invoke(route);
-    assert.equal(reply.status, 403, path);
-    assert.deepEqual(JSON.parse(reply.body), errorBody('phone-scope'), path);
+  const world = lanWorld(t);
+  const routes = consoleRoutes(runner, world.auth);
+  for (const scope of ['view', 'control'] as const) {
+    const { cookie } = await world.pair(scope);
+    const invoke = (route: any, params: Record<string, string> = {}) => route.handler({
+      req: { headers: { cookie }, socket: { remoteAddress: '192.168.1.40' } }, clientClass: 'browser', port: 4310, params, pathname: route.path, webRoot: '/tmp', res: {},
+    });
+    const allowed = [
+      ['/api/info', {}],
+      ['/api/runs', {}],
+      ['/api/runs/:slug/:taskId', { slug: 'feat-a', taskId: 'run-1' }],
+      ['/api/workflows', {}],
+    ] as const;
+    for (const [path, params] of allowed) {
+      const route = routes.find((item: any) => item.method === 'GET' && item.path === path);
+      assert.ok(route, path);
+      const reply = await invoke(route, params as Record<string, string>);
+      assert.notEqual(reply.status, 403, `${path} is on the device list (${scope})`);
+    }
+    for (const path of ['/api/sessions', '/api/fleet', '/api/transcript', '/api/stream', '/api/live', '/api/worker-runs/:slug', '/api/worker-runs/:slug/:runId/result',
+      '/api/worker-runs/:slug/:runId/status', '/api/worker-runs/:slug/:runId/log', '/api/worker-runs/:slug/:runId/transcript']) {
+      const route = routes.find((item: any) => item.method === 'GET' && item.path === path);
+      assert.ok(route, path);
+      const reply = await invoke(route);
+      assert.equal(reply.status, 403, path);
+      assert.deepEqual(JSON.parse(reply.body), errorBody('phone-scope'), path);
+    }
   }
 });
 

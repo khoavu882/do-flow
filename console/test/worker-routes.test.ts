@@ -16,6 +16,7 @@ const net = require('node:net');
 const { createServer } = require('../src/server.ts');
 const { consoleRoutes, workerAgentKey, workerRuns, SESSION_LIMITS } = require('../src/routes.ts');
 const { createSessions, cookieName } = require('../src/session.ts');
+const { deviceClient } = require('./helpers/lan-world.ts');
 const { createVerbRunner } = require('../src/verb-runner.ts');
 
 const FAKE_CORE = path.join(__dirname, 'fixtures', 'fake-core.js');
@@ -88,8 +89,8 @@ function raw(port: number, text: string): Promise<Reply> {
 }
 
 /** A server over `runner` with one session of `scope`; `get` sends its cookie unless told not to. */
-async function harness(runner: Runner, t: any, scope: 'read' | 'phone' = 'read') {
-  const sessions = createSessions(scope === 'phone' ? { scope: 'phone' } : undefined);
+async function harness(runner: Runner, t: any) {
+  const sessions = createSessions();
   const app = await createServer({ webRoot, routes: consoleRoutes(runner, sessions) });
   t.after(() => app.close());
   const token = sessions.exchange(sessions.mintLaunchCode());
@@ -121,9 +122,9 @@ test('session: the five routes are 401 without the cookie, and no verb runs', as
   assert.deepEqual(runner.calls, []);
 });
 
-test('phone scope: the five routes are 403 phone-scope (PHONE_ROUTE_ALLOWLIST unchanged), and no verb runs', async (t) => {
+test('device scope: the five routes are 403 phone-scope (the device list is the four reads), and no verb runs', async (t) => {
   const runner = recording(null);
-  const { json } = await harness(runner, t, 'phone');
+  const { json } = await deviceClient(t, (auth: any) => consoleRoutes(runner, auth), webRoot);
   for (const target of TARGETS) assert.deepEqual(await json(target), { status: 403, body: errorBody('phone-scope'), text: JSON.stringify(errorBody('phone-scope')) }, target);
   assert.deepEqual(runner.calls, []);
 });

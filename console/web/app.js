@@ -13,8 +13,9 @@ import { createPoller, BACKOFF_MS } from './poll.js';
 import { createLiveAdapter } from './live.js';
 import { createLiveStore } from './store.js';
 import {
-  classify, clockTime, refreshReltimes, renderLoading, renderEmpty, renderError, renderFullPage, renderPill, createStaleBanner, errorTitle,
+  classify, clockTime, refreshReltimes, renderLoading, renderEmpty, renderError, renderFullPage, renderPill, createStaleBanner, errorTitle, pairFailure,
 } from './states.js';
+import { parsePairFragment, createPairPage } from './views/pair.js';
 import { CORE_RANGE, parseRoute, hashFor, baseRoute, titleFor, navFor } from './views.js';
 import { createInspector, hidePanel } from './shell.js';
 
@@ -101,7 +102,8 @@ const app = /** @type {any} */ ({
   info: null, // the last /api/info body
   exchange: 'none', // 'none' | 'ok' | 'used'
   sessionWorked: false,
-  fatal: null, // { info, found }: a full page for every route (session error, no runtime)
+  fatal: null, // { info, found }: a full page for every route (session error, no runtime, the pairing form)
+  pair: null, // the pairing form's state while it shows: { code, ui, busy } (the code is memory only)
   recovery: null, // the poller on /api/info that ends a no-runtime page
   banner: null, // the stale banner while the current view's data is stale
   tick: null,
@@ -212,6 +214,35 @@ async function postSession(code) {
     throw { status: null, code: null, network: true };
   }
   if (reply.status !== 204) throw { status: reply.status, code: null, network: false };
+}
+
+/**
+ * The pairing exchange (160 IC-006): the one-use code and the device name. A refusal throws `{ status, code, network, retryAfter }`;
+ * on 200 the cookie is already set and nothing is read from the body.
+ * @param {string} code
+ * @param {string} name
+ */
+async function postPair(code, name) {
+  let reply;
+  try {
+    reply = await globalThis.fetch('/api/pair', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ v: 1, code, name }),
+    });
+  } catch {
+    throw { status: null, code: null, network: true };
+  }
+  if (reply.status === 200) return;
+  let body = null;
+  try {
+    body = await reply.json();
+  } catch {
+    // An empty or non-JSON body carries no code.
+  }
+  const retry = reply.headers && typeof reply.headers.get === 'function' ? Number(reply.headers.get('Retry-After')) : 0;
+  throw { status: reply.status, code: body && body.error && typeof body.error.code === 'string' ? body.error.code : null, network: false, retryAfter: Number.isFinite(retry) ? retry : 0 };
 }
 
 // ---- 3. rendering ----
@@ -328,12 +359,14 @@ function paint(view) {
   if (full) {
     const key = `${full.info.key}:${full.found ?? ''}`;
     if (view.fullKey !== key) {
-      mount(main, renderFullPage({
-        info: full.info,
-        range: CORE_RANGE,
-        found: full.found ?? 'nothing',
-        onCheck: () => (app.fatal ? app.recovery && app.recovery.refreshNow() : view.poller && view.poller.refreshNow()),
-      }));
+      mount(main, full.info.scope === 'pair' && app.pair
+        ? app.pair.ui.node
+        : renderFullPage({
+          info: full.info,
+          range: CORE_RANGE,
+          found: full.found ?? 'nothing',
+          onCheck: () => (app.fatal ? app.recovery && app.recovery.refreshNow() : view.poller && view.poller.refreshNow()),
+        }));
       view.fullKey = key;
       app.wasFull = true;
       view.root = null;
@@ -814,6 +847,38 @@ function enterSession(info) {
 }
 
 /**
+ * The pairing form (160 IC-009) as the page's full state. The code stays in `app.pair` (memory only); a click posts it
+ * once, a refusal is shown in the form, and success carries on with the normal boot.
+ * @param {{ code: string, fingerprint: string }} pairing
+ */
+function enterPair(pairing) {
+  stopAllPolling();
+  const ui = createPairPage({ fingerprint: pairing.fingerprint, onPair: () => submitPair() });
+  app.pair = { code: pairing.code, ui, busy: false, dead: false };
+  app.fatal = { info: { scope: 'pair', key: 'pair', auto: false, status: null, code: null }, found: null };
+  if (app.view) paint(app.view);
+}
+
+async function submitPair() {
+  const pair = app.pair;
+  if (!pair || pair.busy || pair.dead) return;
+  pair.busy = true;
+  pair.ui.setState({ busy: true, failure: null });
+  try {
+    await postPair(pair.code, pair.ui.name());
+  } catch (error) {
+    const failure = pairFailure(error);
+    pair.busy = false;
+    pair.dead = failure.final;
+    pair.ui.setState({ busy: false, failure });
+    return;
+  }
+  app.pair = null;
+  app.fatal = null;
+  await loadInfo();
+}
+
+/**
  * No runtime: a full page on every route; /api/info is retried on 5, 10, 30, 30 ... s until the core fits.
  * @param {any} info
  * @param {any} found
@@ -871,8 +936,19 @@ function takeFragmentCode() {
   return match ? match[1] : null;
 }
 
-/** @param {any} code */
-async function finishBoot(code) {
+/**
+ * The pairing code and fingerprint from `#pair=<26 base32>&fp=<64 hex>&v=1`, removed from the address bar and history at
+ * once (even when it does not parse), or null. They are kept in memory only.
+ */
+function takePairing() {
+  const hash = globalThis.location.hash;
+  if (!hash.startsWith('#pair=')) return null;
+  globalThis.history.replaceState(null, '', `${globalThis.location.pathname}${globalThis.location.search}#/`);
+  return parsePairFragment(hash);
+}
+
+/** @param {any} code @param {any} pairing */
+async function finishBoot(code, pairing) {
   if (code !== null) {
     try {
       await postSession(code);
@@ -888,6 +964,16 @@ async function finishBoot(code) {
       }
     }
   }
+  if (pairing !== null) {
+    enterPair(pairing);
+    app.ready = true;
+    return;
+  }
+  await loadInfo();
+}
+
+/** The first `/api/info` of the page: the core version and the session check; then the view begins. */
+async function loadInfo() {
   try {
     const body = await apiGet('/api/info');
     app.sessionWorked = true;
@@ -906,6 +992,7 @@ async function finishBoot(code) {
 
 function boot() {
   const code = takeFragmentCode();
+  const pairing = code === null ? takePairing() : null;
   const root = document.documentElement;
   try {
     app.els = {
@@ -994,7 +1081,7 @@ function boot() {
   } finally {
     root.classList.remove('booting');
   }
-  return finishBoot(code);
+  return finishBoot(code, pairing);
 }
 
 boot();

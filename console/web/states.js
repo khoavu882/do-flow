@@ -73,6 +73,9 @@ function refreshReltimes(root, nowMs) {
 function classify(error, ctx = {}) {
   const { status = null, code = null, network = false } = error ?? {};
   if (network || status === null) return { scope: 'offline', key: 'offline', auto: true, status: null, code: null };
+  // 160 IC-005: a LAN Console answers an unpaired, revoked or idle device with its own code; the device pages say what to do.
+  if (status === 401 && (code === 'device-unpaired' || code === 'device-revoked' || code === 'device-expired')) return { scope: 'session', key: code, auto: false, status, code };
+  if (status === 503 && (code === 'store-unreadable' || code === 'cert-expired')) return { scope: 'session', key: code, auto: false, status, code };
   if (status === 401) {
     const key = ctx.exchange === 'used' ? 'session-used' : ctx.sessionWorked ? 'session-ended' : 'session-unauth';
     return { scope: 'session', key, auto: false, status, code };
@@ -114,11 +117,51 @@ const ERROR_COPY = Object.freeze({
   'cannot-list': { title: () => 'Could not list this project’s checkouts', sentence: 'Git did not answer for this project.', hint: () => ['', 'git worktree list', ' shows them.'] },
   // 151 IC-016: the sentence takes the view noun, as the section state of figures.js says it.
   'core-lacks-verb': { title: () => 'Not provided by this DoFlow core', sentence: (/** @type {string} */ noun) => `This DoFlow core does not provide ${noun}.` },
-  'phone-scope': { title: () => 'This view is unavailable on a phone session', sentence: 'Phone sessions can view runs and workflows. Open the Console locally to use this view.', link: 'Back to Runs' },
+  'phone-scope': { title: () => 'This view is unavailable on a paired device', sentence: 'Paired devices can view runs and workflows. Open the Console on the machine itself to use this view.', link: 'Back to Runs' },
+  'device-unpaired': { title: 'This device is not paired', sentence: 'On the machine run `doflow ui --action pair` and scan the code.', command: 'doflow ui --action pair' },
+  'device-revoked': { title: 'This device was revoked', sentence: 'Someone removed its access with `doflow ui --action revoke`. Pair it again to continue.', command: 'doflow ui --action pair' },
+  'device-expired': { title: 'This device was idle too long', sentence: 'A paired device stops working after 30 days without use. Pair it again to continue.', command: 'doflow ui --action pair' },
+  'cert-expired': { title: 'The Console’s certificate has ended', sentence: 'It serves no device until it is restarted, which issues a new one. A device that pinned the old fingerprint pairs again.', command: 'doflow ui --lan' },
+  'store-unreadable': { title: 'The Console cannot read its device store', sentence: 'It refuses every device until the file is repaired. The terminal running `doflow ui` names the file.' },
   'run-not-found': { title: () => 'This run is not in the record', sentence: 'It may have been removed, or its checkout deleted.', link: 'Back to Runs' },
   'not-found': { title: () => 'This page does not exist', sentence: 'The address does not match any Console view.', link: 'Back to Runs' },
   refused: { title: () => 'The Console refused this request', sentence: 'This is a bug in the Console page. Reload; if it happens again, run `doflow ui` again.', reload: true },
 });
+
+/**
+ * The failures of the pairing form (160 IC-009), shown in the form itself. `final`: the code cannot work any more, so the form
+ * offers no second try. `sentence` may take the wait in seconds (`pair-rate-limited`).
+ * @type {Record<string, any>}
+ */
+const PAIR_COPY = Object.freeze({
+  'pair-refused': { title: 'This code was not accepted', sentence: 'It is wrong, expired or already used. On the machine run `doflow ui --action pair` and scan the new code.', final: true },
+  'pair-rate-limited': { title: 'Pairing is paused', sentence: (/** @type {number} */ wait) => `Too many codes were refused. Try again in ${wait > 0 ? ageUnits(wait * 1000) : 'a few minutes'}.`, final: false },
+  'device-limit': { title: 'This Console has no room for another device', sentence: 'Remove one with `doflow ui --action revoke --device <id>`; `doflow ui --action devices` lists them. Then try again.', final: false },
+  'store-busy': { title: 'The device store is busy', sentence: 'Try again in a few seconds.', final: false },
+  'store-unreadable': { title: 'The Console cannot read its device store', sentence: 'The terminal running `doflow ui` names the file. Pairing works again once it is repaired.', final: false },
+  'cert-expired': { title: 'The Console’s certificate has ended', sentence: 'Restart `doflow ui --lan` on the machine to issue a new one, then pair again.', final: false },
+  'pair-offline': { title: 'The Console did not answer', sentence: 'Check that `doflow ui` is still running, then try again.', final: false },
+  'pair-failed': { title: 'Pairing did not work', sentence: 'Reload this page and try again; if it happens again, run `doflow ui --action pair` for a new code.', final: false },
+});
+
+/**
+ * Sorts a failed `POST /api/pair` (`{ status, code, network, retryAfter }`) into a PAIR_COPY row.
+ * @param {any} error
+ * @returns {{ key: string, title: string, sentence: string, final: boolean }}
+ */
+function pairFailure(error) {
+  const { status = null, code = null, network = false, retryAfter = 0 } = error ?? {};
+  let key = 'pair-failed';
+  if (network || status === null) key = 'pair-offline';
+  else if (status === 401 && code === 'pair-refused') key = 'pair-refused';
+  else if (status === 429) key = 'pair-rate-limited';
+  else if (status === 409 && code === 'device-limit') key = 'device-limit';
+  else if (status === 503 && code === 'store-busy') key = 'store-busy';
+  else if (status === 503 && code === 'store-unreadable') key = 'store-unreadable';
+  else if (status === 503 && code === 'cert-expired') key = 'cert-expired';
+  const copy = PAIR_COPY[key];
+  return { key, title: copy.title, sentence: typeof copy.sentence === 'function' ? copy.sentence(Number(retryAfter) || 0) : copy.sentence, final: copy.final };
+}
 
 /** The two no-runtime variants (6.5). */
 /** @type {Record<string, any>} */
@@ -385,7 +428,7 @@ function createStaleBanner({ sinceMs, onTry }) {
 
 export {
   ageText, ageUnits, clockTime, reltime, refreshReltimes,
-  classify, errorTitle, errorSentence, ERROR_COPY, RUNTIME_COPY, STALE_CAUSE,
+  classify, errorTitle, errorSentence, ERROR_COPY, RUNTIME_COPY, STALE_CAUSE, PAIR_COPY, pairFailure,
   inline, commandBlock, button, skel,
   renderLoading, renderEmpty, renderError, renderFullPage, renderPill, createStaleBanner,
 };

@@ -15,6 +15,7 @@ const net = require('node:net');
 const { createServer } = require('../src/server.ts');
 const { consoleRoutes } = require('../src/routes.ts');
 const { createSessions, cookieName } = require('../src/session.ts');
+const { deviceClient } = require('./helpers/lan-world.ts');
 const { createVerbRunner, PATTERNS } = require('../src/verb-runner.ts');
 
 const FAKE_CORE = path.join(__dirname, 'fixtures', 'fake-core.js');
@@ -106,8 +107,8 @@ function raw(port: number, text: string): Promise<Reply> {
 }
 
 /** A server over `w.runner` with its place and one session of `scope`; `json` sends the cookie and parses the reply. */
-async function harness(w: { runner: any, place: any }, t: any, scope: 'read' | 'phone' = 'read') {
-  const sessions = createSessions(scope === 'phone' ? { scope: 'phone' } : undefined);
+async function harness(w: { runner: any, place: any }, t: any) {
+  const sessions = createSessions();
   const app = await createServer({ webRoot, routes: consoleRoutes(w.runner, sessions, null, w.place) });
   t.after(() => app.close());
   const token = sessions.exchange(sessions.mintLaunchCode());
@@ -142,16 +143,16 @@ test('session: the seven routes are 401 without the cookie, and no verb runs', a
   assert.deepEqual(w.starts(), []);
 });
 
-test('phone scope: the seven routes are 403 phone-scope, and no verb runs', async (t) => {
+test('device scope: the seven routes are 403 phone-scope, and no verb runs', async (t) => {
   const w = world('manage', t);
-  const { json } = await harness(w, t, 'phone');
+  const { json } = await deviceClient(t, (auth: any) => consoleRoutes(w.runner, auth, null, w.place), webRoot);
   for (const target of [...ROUTES, '/api/advice?kind=tier', '/api/followups?state=all', '/api/doctor?refresh=1']) {
     const reply = await json(target);
     assert.equal(reply.status, 403, target);
     assert.deepEqual(reply.body, errorBody('phone-scope'), target);
   }
   assert.deepEqual(w.starts(), []);
-  // Control: a phone route still answers.
+  // Control: a device route still answers.
   assert.notEqual((await json('/api/runs')).status, 403);
 });
 

@@ -1600,6 +1600,48 @@
         "file": "src/runtime/models/catalogue.ts",
         "pattern": "models-observed.json"
       }
+    },
+    {
+      "id": "console-device-store",
+      "root": "config-home",
+      "path": "console",
+      "entry": "file",
+      "match": "^lan\\.json(?:\\.lock(?:\\.\\d+\\.[0-9a-f]{8}\\.gone)?|\\.\\d+\\.[0-9a-f]{8}\\.tmp)?$",
+      "rule": "existing",
+      "bound": {
+        "value": 64,
+        "text": "one JSON file of the Console's paired devices (at most 64), pending pairing codes (at most 16) and LAN Console entries, written whole through a temp file and a rename while lan.json.lock is held; a device idle for 30 days is dropped on the next write, a revoked one 30 days after its revocation, a Console entry 90 days after it started; a stale lock is moved aside before it is removed"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "console/src/lan-store.ts"
+      ],
+      "source": {
+        "file": "console/src/lan-store.ts",
+        "pattern": "MAX_DEVICES = {value}"
+      }
+    },
+    {
+      "id": "console-tls",
+      "root": "config-home",
+      "path": "console/tls",
+      "entry": "file",
+      "match": "^(?:key\\.pem|cert-[0-9a-f.-]+\\.pem)(?:\\.\\d+\\.[0-9a-f]{8}\\.tmp)?$",
+      "rule": "existing",
+      "bound": {
+        "value": 4,
+        "text": "one private key (mode 0600) kept until it is missing or unreadable, and at most 4 certificate files, one per LAN address; a certificate is issued again when fewer than 30 days remain and the oldest file is deleted when a fifth is issued"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "console/src/lan-cert.ts"
+      ],
+      "source": {
+        "file": "console/src/lan-cert.ts",
+        "pattern": "MAX_CERT_FILES = {value}"
+      }
     }
   ],
   "externalWriters": [

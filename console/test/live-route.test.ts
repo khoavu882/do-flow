@@ -28,6 +28,7 @@ const { createLiveHub, HUB_WINDOW_BYTES, LIVE_FRAME_BUDGET } = require('../src/l
 const { createServer } = require('../src/server.ts');
 const { consoleRoutes } = require('../src/routes.ts');
 const { createSessions, cookieName } = require('../src/session.ts');
+const { deviceClient } = require('./helpers/lan-world.ts');
 const { securityHeaders } = require('../src/headers.ts');
 
 const EPOCH = 'a1b2c3d4';
@@ -828,9 +829,9 @@ async function until(check: () => boolean, label: string, ms = 2000) {
   }
 }
 
-async function harness(t: any, live: any, scope: 'read' | 'phone' = 'read') {
+async function harness(t: any, live: any) {
   const runner = countingRunner();
-  const sessions = createSessions(scope === 'phone' ? { scope: 'phone' } : undefined);
+  const sessions = createSessions();
   const app = await createServer({ webRoot, routes: consoleRoutes(runner, sessions, live) });
   t.after(() => app.close());
   const cookie = `${cookieName(app.port)}=${sessions.exchange(sessions.mintLaunchCode())}`;
@@ -873,10 +874,12 @@ test('GET /api/live: a bad query is 400 usage before any slot, subscribe, verb o
   assert.equal(ok.status, 200, 'control: eight channels and a since over them open');
 });
 
-test('GET /api/live: a phone session is 403 phone-scope (not in the phone allow-list)', async (t) => {
+test('GET /api/live: a paired device is 403 phone-scope (not on the device list)', async (t) => {
   const hub = fakeHub();
-  const { port, runner, cookie } = await harness(t, hub, 'phone');
-  assertRefusal(await get(port, '/api/live?ch=now', { Cookie: cookie }), 403, 'phone-scope', 'phone');
+  const runner = countingRunner();
+  const { json } = await deviceClient(t, (auth: any) => consoleRoutes(runner, auth, hub), webRoot);
+  const reply = await json('/api/live?ch=now');
+  assert.deepEqual([reply.status, reply.body], [403, errorBody('phone-scope')]);
   assert.deepEqual([hub.subscribes.length, runner.calls, runner.follows], [0, 0, 0]);
 });
 
