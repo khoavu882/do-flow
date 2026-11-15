@@ -236,7 +236,7 @@ function streamCopy(state) {
 // ---- gates --------------------------------------------------------------------------------------------------------------------
 
 /**
- * The words of a gate event's state and decider (plan DEC-006): `by` is `autopilot`, `person` or null (no decider recorded).
+ * The words of a gate event's state and decider (plan DEC-006): `by` is `autopilot`, `manual` (a direct command: a person, or an attended agent for them) or null (no decider recorded).
  * @param {{ state: string, by: string | null }} gate
  * @returns {{ token: string, word: string }}
  */
@@ -246,7 +246,7 @@ function gateWords(gate) {
   const verb = gate.state === 'rejected' ? 'rejected' : 'approved';
   const token = gate.state === 'rejected' ? 'rejected' : 'done';
   if (gate.by === 'autopilot') return { token, word: `${verb} by autopilot` };
-  if (gate.by === 'person') return { token, word: `decided by a person` };
+  if (gate.by === 'manual') return { token, word: 'decided manually' };
   return { token, word: 'decider not recorded' };
 }
 

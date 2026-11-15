@@ -94,6 +94,13 @@ test('a layers patch adding an awaiting gate moves it to the lead card; a gemini
   for (const cell of cells) assert.notEqual(cell.word, 'idle');
 });
 
+test('a gate decided by a direct command reads "decided manually", never "by a person"; autopilot and null keep their words', () => {
+  assert.equal(layers.gateWords(gate({ by: 'manual' })).word, 'decided manually');
+  assert.equal(layers.gateWords(gate({ by: 'autopilot' })).word, 'approved by autopilot');
+  assert.equal(layers.gateWords(gate({ by: null })).word, 'decider not recorded');
+  assert.equal(layers.gateWords(gate({ by: 'person' })).word, 'decider not recorded', 'the retired value is not a decider');
+});
+
 test('questions is `not observed` for every harness, whatever the core said (FR-009)', () => {
   assert.deepEqual(layers.coverageCell('questions', { observed: true }), { observed: false, word: 'not observed', reason: 'no harness record' });
   assert.equal(layers.coverageCell('main', { observed: true }).word, 'observed');

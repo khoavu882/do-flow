@@ -121,7 +121,7 @@ test('IC-012: a run walked with real verbs gives its events in journal order wit
   assert.deepEqual(shapeOf(body.events), [
     event('start'),
     event('complete-stage', { node: 'discovery', outcome: 'passed' }),
-    event('decide-gate', { node: 'gate-0', decision: 'approve', by: 'person', forced: true }),
+    event('decide-gate', { node: 'gate-0', decision: 'approve', by: 'manual', forced: true }),
     event('annotate', { node: 'discovery' }),
   ]);
   const times = body.events.map((entry: any) => Date.parse(entry.at));
@@ -155,7 +155,7 @@ test('IC-012: skip-stage, a backfilled stage, a rejection and complete-run carry
   ok(root, ['--action', 'complete-stage', '--task-id', 'f1', '--stage', 'discovery']);
   ok(root, ['--action', 'decide-gate', '--task-id', 'f1', '--gate', 'gate-0', '--decision', 'reject', '--note', MARKER]);
   assert.deepEqual(shapeOf(timeline(root, ['--task-id', 'f1']).events).slice(-1), [
-    event('decide-gate', { node: 'gate-0', decision: 'reject', by: 'person' }),
+    event('decide-gate', { node: 'gate-0', decision: 'reject', by: 'manual' }),
   ]);
 });
 
@@ -197,23 +197,24 @@ test('161 IC-011: an autopilot-decided gate has by autopilot, a manual one has b
     cursor: 0, program: [{ type: 'stage', id: 'x', status: 'pending' }], revision: 1,
     history: [
       decide('2026-10-26T01:00:00.000Z', 'gate-a', { by: 'autopilot' }),
-      decide('2026-10-26T01:01:00.000Z', 'gate-b', { by: 'person' }),
+      decide('2026-10-26T01:01:00.000Z', 'gate-b', { by: 'manual' }),
       decide('2026-10-26T01:02:00.000Z', 'gate-c', {}),
       decide('2026-10-26T01:03:00.000Z', 'gate-d', { by: MARKER }),
       { at: '2026-10-26T01:04:00.000Z', action: 'annotate', node: 'x', by: 'autopilot' },
     ],
   }));
   const body = timeline(root, ['--task-id', 'b1']);
-  assert.deepEqual(body.events.map((entry: any) => entry.by), ['autopilot', 'person', null, null, null]);
+  assert.deepEqual(body.events.map((entry: any) => entry.by), ['autopilot', 'manual', null, null, null]);
   assert.ok(!JSON.stringify(body).includes(MARKER));
 
-  // A manual decide-gate through the verb records person; the CLI still refuses a named decider.
+  // A manual decide-gate through the verb records manual; the CLI still refuses a named decider.
   ok(root, ['--action', 'start', '--task-id', 'm2', '--task-class', 'feature']);
   ok(root, ['--action', 'complete-stage', '--task-id', 'm2', '--stage', 'discovery']);
   ok(root, ['--action', 'decide-gate', '--task-id', 'm2', '--gate', 'gate-0', '--decision', 'approve']);
-  assert.equal(timeline(root, ['--task-id', 'm2']).events.at(-1).by, 'person');
+  assert.equal(timeline(root, ['--task-id', 'm2']).events.at(-1).by, 'manual');
   const named = runCli(root, ['orchestrate', '--action', 'decide-gate', '--task-id', 'm2', '--gate', 'gate-1', '--decision', 'approve', '--by', 'autopilot', '--json']);
-  assert.notEqual(named.status, 0);
+  assert.equal(named.status, 2);
+  assert.match(named.stdout + named.stderr, /--by is not accepted/);
 });
 
 test('IC-012: journal entries keep only closed values; other actions are counted, never shown', (t) => {
