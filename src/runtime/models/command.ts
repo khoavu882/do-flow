@@ -1,9 +1,8 @@
 'use strict';
 
-const { readCatalogue, writeCatalogue, syncHarness, syncAllHarnesses } = require('./catalogue.ts');
+const { readCatalogue, writeCatalogue, syncHarness, syncAllHarnesses, workerIds } = require('./catalogue.ts');
 const { readAllowedModels, ORCHESTRATOR_KEY } = require('../worker/models.ts');
 const { finishRuntime, usageError } = require('../cli-result.ts');
-const { HARNESS_IDS } = require('../worker/probes/index.ts');
 const { validateValue } = require('../settings/files.ts');
 const { tierView, shown, slotsOf } = require('./tier-view.ts');
 const { changeBinding, closestIds } = require('./bind.ts');
@@ -50,7 +49,8 @@ async function handleBind({ act, harness, tier, model, allowUnlisted, json, proj
   const registry = loadRegistry({ repoRoot: REPO_ROOT });
   const slots = [...slotsOf(registry), ORCHESTRATOR_KEY];
   if (!harness || !tier) return usageError('models', `--harness and --tier are required; usage: ${usage}`, json);
-  if (!HARNESS_IDS.includes(harness)) return usageError('models', `unknown harness '${harness}'; expected one of: ${HARNESS_IDS.join(', ')}`, json);
+  const known = workerIds({ registry, env, projectRoot, view: syncOptions.view });
+  if (!known.includes(harness)) return usageError('models', `unknown harness '${harness}'; expected one of: ${known.join(', ')}`, json);
   if (!slots.includes(tier)) return usageError('models', `unknown tier '${tier}'; expected one of: ${slots.join(', ')}`, json);
 
   let chosen: string | null = null;
@@ -110,10 +110,10 @@ async function handleBind({ act, harness, tier, model, allowUnlisted, json, proj
 }
 
 /** `models --action list`: the model each tier and the orchestrator get on every installed harness, then the observed models. */
-function handleList({ json, projectRoot, env }: any): number {
+function handleList({ json, projectRoot, env, syncOptions = {} }: any): number {
   const catalogue = readCatalogue(projectRoot);
   const registry = loadRegistry({ repoRoot: REPO_ROOT });
-  const view = tierView({ registry, env, projectRoot, catalogue });
+  const view = tierView({ registry, env, projectRoot, catalogue, view: syncOptions.view });
   const allowed = readAllowedModels({ env, projectRoot }) || [];
   const models: any[] = [];
   for (const [harnessId, h] of Object.entries<any>(catalogue?.harnesses || {})) {
@@ -157,17 +157,18 @@ async function handleModelsCommand({
   env = process.env,
   interactive = Boolean(process.stdin.isTTY) && Boolean(process.stdout.isTTY),
   ask = (message: string) => require('../../helper/prompt.ts').promptLine(message),
-  syncOptions = {}, // test seam: execFileImpl / listExecImpl for the probes and the listing command
+  syncOptions = {}, // test seam: execFileImpl / listExecImpl for the probes and the listing command, view (package view) for the worker list
 }: any): Promise<number> {
   const act = actionGiven ? action : (action || (positional && positional[0]) || 'list');
 
   if (act === 'sync') {
     if (harness) {
-      if (!HARNESS_IDS.includes(harness)) {
-        return usageError('models', `unknown harness '${harness}'; expected one of: ${HARNESS_IDS.join(', ')}`, json);
+      const known = workerIds({ env, projectRoot, view: syncOptions.view });
+      if (!known.includes(harness)) {
+        return usageError('models', `unknown harness '${harness}'; expected one of: ${known.join(', ')}`, json);
       }
       const before = readCatalogue(projectRoot);
-      const res = await syncHarness(harness, { ...syncOptions, projectRoot, previous: before?.harnesses?.[harness] ?? null });
+      const res = await syncHarness(harness, { ...syncOptions, projectRoot, env, previous: before?.harnesses?.[harness] ?? null });
       const catalogue = before || {
         version: 1,
         syncedAt: new Date().toISOString(),
@@ -186,7 +187,7 @@ async function handleModelsCommand({
       return finishRuntime(0);
     }
 
-    const catalogue = await syncAllHarnesses({ ...syncOptions, projectRoot });
+    const catalogue = await syncAllHarnesses({ ...syncOptions, projectRoot, env });
     if (json) {
       console.log(JSON.stringify(catalogue, null, 2));
     } else {
@@ -199,7 +200,7 @@ async function handleModelsCommand({
     return finishRuntime(0);
   }
 
-  if (act === 'list') return handleList({ json, projectRoot, env });
+  if (act === 'list') return handleList({ json, projectRoot, env, syncOptions });
 
   if (act === 'bind' || act === 'unbind') {
     return handleBind({ act, harness, tier, model, allowUnlisted, json, projectRoot, env, interactive, ask, syncOptions });

@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { PROBES, HARNESS_IDS } = require('../worker/probes/index.ts');
+const { PROBES } = require('../worker/probes/index.ts');
 const { configHome } = require('../config-home.ts');
 
 export type LoginState = 'logged-in' | 'logged-out' | 'unsupported' | 'error';
@@ -178,24 +178,36 @@ function listExecFrom(runner: any): any {
   });
 }
 
-/** The registry worker block for `harnessId`, from an injected registry or the shipped one. */
-function workerDescriptor(harnessId: string, registry?: any): any {
-  const { loadRegistry } = require('../../registry/index.ts');
-  const { REPO_ROOT } = require('../../helper/repo-root.ts');
-  const reg = registry || loadRegistry({ repoRoot: REPO_ROOT });
-  return (reg.harnesses || []).find((entry: any) => entry.id === harnessId)?.worker ?? null;
+/** Every worker the registry knows: the built-in harnesses, then the active package workers (the same source the worker
+ * verbs read). `view` is the package view; without one it is read for `env` and `projectRoot`. */
+function workerEntries({ registry, env, projectRoot, view }: any = {}): any[] {
+  const { workerCatalogue } = require('../worker/catalogue.ts');
+  let packages = view;
+  if (!packages) {
+    try { packages = require('../packages/view.ts').packageView({ env, ...(projectRoot ? { projectRoot } : {}) }); } catch { packages = undefined; }
+  }
+  return workerCatalogue({ registry, view: packages });
+}
+
+const workerIds = (options: any = {}): string[] => workerEntries(options).map((entry: any) => entry.id);
+
+/** The worker block for `harnessId`, from an injected registry or the shipped one, built-in or package. */
+function workerDescriptor(harnessId: string, options: any = {}): any {
+  return workerEntries(options).find((entry: any) => entry.id === harnessId)?.worker ?? null;
 }
 
 type SyncOptions = {
   timeoutMs?: number; execFileImpl?: any; listExecImpl?: any; env?: any; fsImpl?: any; homeDir?: string;
   projectRoot?: string; registry?: any; previous?: ObservedHarness | null;
+  /** The package view the worker list is read from (a test seam; default: read for `env` and `projectRoot`). */
+  view?: any;
 };
 
 /** Fills `offeredModels` from the harness's own listing command. A failed listing keeps the previous list, marked stale. */
 async function withListing(result: SyncHarnessResult, options: SyncOptions): Promise<SyncHarnessResult> {
   const { listHarnessModels } = require('./list-models.ts');
   const execImpl = options.listExecImpl ?? (options.execFileImpl ? listExecFrom(options.execFileImpl) : undefined);
-  const listing = await listHarnessModels({ descriptor: workerDescriptor(result.harnessId, options.registry), execImpl });
+  const listing = await listHarnessModels({ descriptor: workerDescriptor(result.harnessId, options), execImpl });
   if (listing.status === 'listed') return { ...result, offeredModels: listing.models, modelList: { status: 'listed', ...(listing.dropped ? { dropped: listing.dropped } : {}), ...(listing.capped ? { capped: true } : {}) } };
   if (listing.status === 'none-recorded') return { ...result, offeredModels: [], modelList: { status: 'none-recorded', reason: listing.reason } };
   // A list from before this field existed came from the removed hard-coded table, so it is not kept.
@@ -208,22 +220,28 @@ async function syncHarness(
   options: SyncOptions = {}
 ): Promise<SyncHarnessResult> {
   const probe = PROBES[harnessId];
-  if (!probe) {
-    return {
-      harnessId,
-      binary: harnessId,
-      installed: false,
-      version: null,
-      loginState: 'unsupported',
-      reloginHint: null,
-      detectedMode: 'unverified',
-      derivedBilling: 'unknown',
-      offeredModels: [],
-      lastSyncedAt: new Date().toISOString(),
-    };
-  }
+  const unprobed = (extra: Partial<SyncHarnessResult> = {}): SyncHarnessResult => ({
+    harnessId,
+    binary: harnessId,
+    installed: false,
+    version: null,
+    loginState: 'unsupported',
+    reloginHint: null,
+    detectedMode: 'unverified',
+    derivedBilling: 'unknown',
+    offeredModels: [],
+    lastSyncedAt: new Date().toISOString(),
+    ...extra,
+  });
+  if (probe) return await withListing(await probe(options), options);
 
-  return await withListing(await probe(options), options);
+  // A package worker has no built-in probe: it is found on PATH (no process started) and its own listing recipe is run.
+  const descriptor = workerDescriptor(harnessId, options);
+  if (!descriptor) return unprobed();
+  const binary = typeof descriptor.cli?.binary === 'string' ? descriptor.cli.binary : harnessId;
+  let installed = false;
+  try { installed = require('../worker/readiness.ts').findOnPath(binary, options.env ?? process.env) !== null; } catch { /* not found */ }
+  return await withListing(unprobed({ binary, installed }), options);
 }
 
 async function syncAllHarnesses(
@@ -231,7 +249,7 @@ async function syncAllHarnesses(
 ): Promise<ObservedCatalogue> {
   const results: Record<string, SyncHarnessResult> = {};
   const before = readCatalogue(options.projectRoot, options);
-  for (const id of HARNESS_IDS) {
+  for (const id of workerIds(options)) {
     results[id] = await syncHarness(id, { ...options, previous: before?.harnesses?.[id] ?? null });
   }
 
@@ -253,4 +271,6 @@ module.exports = {
   syncHarness,
   syncAllHarnesses,
   workerDescriptor,
+  workerEntries,
+  workerIds,
 };

@@ -19,9 +19,10 @@ function onPath(worker: any, env: any): boolean {
 }
 
 /** `{ primary, bindings, harnesses }`: each installed built-in harness (and any with a binding, installed or not) as
- * `{ harness, <tier>: id|null ..., orchestrator: id|null, orchestratorSource }` (`null` is the harness default).
+ * `{ harness, <tier>: id|null ..., orchestrator: id|null, orchestratorSource }` (`null` is the harness default;
+ * `unresolved:<reason>` when `workers.models` cannot be read).
  * `catalogue` marks installed from a sync too. */
-function tierView({ registry, env = process.env, projectRoot = null, primary: given, catalogue = null }: any): any {
+function tierView({ registry, env = process.env, projectRoot = null, primary: given, catalogue = null, view = undefined }: any): any {
   const bindings = readBindings({ env, projectRoot: null });
   let primary = given;
   if (primary === undefined) {
@@ -29,7 +30,10 @@ function tierView({ registry, env = process.env, projectRoot = null, primary: gi
     catch { primary = null; }
   }
   const tiers = slotsOf(registry);
-  const harnesses = (registry.harnesses || []).filter((entry: any) => entry.worker).flatMap((entry: any) => {
+  // `null` means the harness default, so an unreadable binding setting must not read as one.
+  const unresolved = `unresolved:${bindings.reason ?? 'invalid'}`;
+  const { workerEntries } = require('./catalogue.ts');
+  const harnesses = workerEntries({ registry, env, projectRoot, view }).flatMap((entry: any) => {
     const descriptor = entry.worker;
     const installed = catalogue?.harnesses?.[entry.id]?.installed === true || onPath(descriptor, env);
     const bound = bindings.state === 'set' && Object.hasOwn(bindings.map ?? {}, entry.id);
@@ -37,10 +41,10 @@ function tierView({ registry, env = process.env, projectRoot = null, primary: gi
     const row: any = { harness: entry.id };
     for (const tier of tiers) {
       const resolved = resolveBinding({ worker: entry.id, tier, bindings, descriptor });
-      row[tier] = resolved.source === 'binding' ? resolved.model : null;
+      row[tier] = resolved.source === 'invalid' ? unresolved : resolved.source === 'binding' ? resolved.model : null;
     }
     const orchestrator = resolveOrchestratorModel({ harness: entry.id, bindings, primary, descriptor });
-    return [{ ...row, orchestrator: orchestrator.model, orchestratorSource: orchestrator.source }];
+    return [{ ...row, orchestrator: orchestrator.source === 'invalid' ? unresolved : orchestrator.model, orchestratorSource: orchestrator.source }];
   });
   return {
     bindings: { state: bindings.state, reason: bindings.reason },

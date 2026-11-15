@@ -76,6 +76,20 @@ test('the sync line says how many ids were left out and when the list was cut', 
   assert.match(res.out, /models: 500 \[1 ids that are not usable model ids left out; the list was cut at its first 500 ids\]/);
 });
 
+test('list --json gives unresolved:<reason> for the tier fields when workers.models cannot be read, never null', async (t: any) => {
+  const s = setup(t);
+  fs.writeFileSync(path.join(s.bin, 'codex'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  fs.mkdirSync(path.dirname(s.settingsFile), { recursive: true });
+  fs.writeFileSync(s.settingsFile, JSON.stringify({ schema: 1, 'workers.models': { codex: { bogus: 'x' } } }));
+  const res = await run({ action: 'list', projectRoot: s.project, env: s.env, json: true });
+  const out = JSON.parse(res.out);
+  assert.equal(out.bindings.state, 'invalid');
+  const row = out.harnesses.find((h: any) => h.harness === 'codex');
+  for (const key of ['light', 'standard', 'frontier', 'orchestrator']) assert.match(row[key], /^unresolved:.+/, key);
+  const text = await run({ action: 'list', projectRoot: s.project, env: s.env });
+  assert.match(text.out, /light=unresolved/);
+});
+
 test('bind and unbind refuse from a worker session: exit 1, nothing written, a person runs it from their own terminal', async (t: any) => {
   const s = setup(t);
   for (const role of ['worker', 'Worker', 'surprise']) {
