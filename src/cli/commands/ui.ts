@@ -22,10 +22,21 @@ function consoleBinIn(dir: string): string | null {
   return fs.existsSync(path.join(dir, 'package.json')) && fs.existsSync(bin) ? bin : null;
 }
 
+/** True when `dir` is the Console package by name; an unreadable or other package.json is not. */
+function isConsolePackage(dir: string): boolean {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).name === '@khoavu882/doflow-ui';
+  } catch {
+    return false;
+  }
+}
+
 /**
  * IC-008 order. First the core's sibling: npm puts both packages in the same
  * `node_modules/@khoavu882/`, global or project, so that copy was installed next to this very core.
  * Then a walk up from the project for `node_modules/@khoavu882/doflow-ui`.
+ * Last, `<coreRoot>/console`, the Console of a development checkout (the published core ships no
+ * `console/`); it is last so an installed Console still wins, and it must carry the package's name.
  */
 function findConsole(coreRoot: string, project: string): string | null {
   const sibling = consoleBinIn(path.join(coreRoot, '..', 'doflow-ui'));
@@ -33,8 +44,10 @@ function findConsole(coreRoot: string, project: string): string | null {
   for (let dir = project; ; dir = path.dirname(dir)) {
     const bin = consoleBinIn(path.join(dir, 'node_modules', '@khoavu882', 'doflow-ui'));
     if (bin) return bin;
-    if (path.dirname(dir) === dir) return null;
+    if (path.dirname(dir) === dir) break;
   }
+  const checkout = path.join(coreRoot, 'console');
+  return isConsolePackage(checkout) ? consoleBinIn(checkout) : null;
 }
 
 /** `coreRoot` is this core's package root, passed in by the COMMANDS table (src/helper/repo-root.ts owns it). */
