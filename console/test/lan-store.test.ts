@@ -11,7 +11,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { createLanStore, StoreError, cleanName, sha256Hex, MAX_CODES, MAX_DEVICES, IDLE_MS, TOUCH_MS, TOMBSTONE_MS, CONSOLE_KEEP_MS, TOKEN_PREFIX } = require('../src/lan-store.ts');
+const { createLanStore, StoreError, cleanName, sha256Hex, MAX_CODES, MAX_DEVICES, IDLE_MS, TOUCH_MS, TOMBSTONE_MS, CONSOLE_KEEP_MS, TOKEN_PREFIX, MAX_FILE_BYTES } = require('../src/lan-store.ts');
 
 const DAY = 24 * 60 * 60 * 1000;
 const made: string[] = [];
@@ -27,9 +27,9 @@ function clock(start = Date.UTC(2026, 10, 15, 10, 0, 0)) {
   return { now: () => t, advance: (by: number) => { t += by; } };
 }
 const open = (dir: string, c: { now: () => number } = clock(), extra: any = {}) => createLanStore({ dir, now: c.now, host: 'testhost', pid: process.pid, lockWaitMs: 300, ...extra });
-const pair = async (store: any, scope: 'view' | 'control' = 'view', name = 'Pixel') => {
+const pair = async (store: any, scope: 'view' | 'control' = 'view', name = 'Pixel', via: 'browser' | 'native' = scope === 'control' ? 'native' : 'browser') => {
   const { code } = await store.mintCode(scope);
-  const result = await store.consumeCode(code, { name, via: 'browser', address: '192.168.1.40' });
+  const result = await store.consumeCode(code, { name, via, address: '192.168.1.40' });
   assert.equal('token' in result, true);
   return result as { device: any, token: string };
 };
@@ -107,6 +107,7 @@ test('the code fixes the scope, and the token is dfd1_ plus 43 base64url charact
   assert.match(device.id, /^d-[0-9a-f]{12}$/);
   const file = JSON.parse(text(dir));
   assert.equal(file.devices[0].tokenSha256, digestOf(token));
+  assert.equal(file.devices[0].via, 'native', 'the transport is recorded per device');
   assert.equal(text(dir).includes(token), false);
   assert.equal('tokenSha256' in device, false);
   await assert.rejects(store.mintCode('admin'), /scope/);
@@ -185,12 +186,13 @@ test('pruning on a write drops spent codes, idle devices, old tombstones and sta
   c.advance(TOMBSTONE_MS + 1);
   const keeper = await pair(store, 'view', 'keeper'); // a write at the new time
   let file = JSON.parse(text(dir));
-  assert.deepEqual(file.devices.map((d: any) => d.name), ['keeper'], 'idle and old-tombstone devices are gone');
+  assert.deepEqual(file.devices.map((d: any) => d.name), ['idle', 'keeper'], 'the old tombstone is gone; the idle device is kept, as expired, for another 30 days');
   assert.equal(file.codes.length, 0);
   assert.equal(file.consoles.length, 1);
   c.advance(CONSOLE_KEEP_MS);
   await store.revoke(keeper.device.id);
   file = JSON.parse(text(dir));
+  assert.deepEqual(file.devices, [], 'both idle devices went at 60 days (the keeper was one: the revoke found it gone)');
   assert.equal(file.consoles.length, 0, 'not started for 90 days');
   await store.registerConsole({ project, address: '10.0.0.2', port: 47380, fingerprint: 'a'.repeat(64) });
   fs.rmSync(project, { recursive: true });
@@ -369,4 +371,161 @@ test('withLock holds the lock while it runs and releases it after, also on a thr
 
 test('the hash of a token is the plain SHA-256 hex a request can compute', () => {
   assert.equal(sha256Hex('abc'), crypto.createHash('sha256').update('abc').digest('hex'));
+});
+
+// ---- review 160: transport, expiry, file and folder trust, the lock ----
+
+test('a device paired over the browser transport is view for ever: a control code pairs it as view, and a stored browser+control record reads as view', async () => {
+  const dir = scratch();
+  const store = open(dir);
+  const viaBrowser = await pair(store, 'control', 'browser phone', 'browser');
+  assert.equal(viaBrowser.device.scope, 'view');
+  assert.equal(viaBrowser.device.via, 'browser');
+  const viaNative = await pair(store, 'control', 'app', 'native');
+  assert.equal(viaNative.device.scope, 'control');
+  // A hand-edited or older file that says browser + control is not invalid: it reads as view, in every view of it.
+  const file = path.join(dir, 'lan.json');
+  const data = JSON.parse(text(dir));
+  data.devices.find((d: any) => d.name === 'browser phone').scope = 'control';
+  fs.writeFileSync(file, JSON.stringify(data));
+  const fresh = open(dir);
+  assert.equal(fresh.check(), null);
+  assert.equal(fresh.verify(digestOf(viaBrowser.token)).device.scope, 'view');
+  assert.deepEqual(fresh.list().map((d: any) => [d.name, d.via, d.scope]).sort(), [['app', 'native', 'control'], ['browser phone', 'browser', 'view']]);
+  await fresh.revoke(viaNative.device.id);
+  assert.equal(JSON.parse(text(dir)).devices.find((d: any) => d.name === 'browser phone').scope, 'view', 'a write persists the corrected scope');
+});
+
+test('an idle-expired device reads device-expired for another 30 days, does not count toward the 64, and is dropped after that', async () => {
+  const dir = scratch();
+  const c = clock();
+  const store = open(dir, c);
+  const idle = await pair(store, 'view', 'idle');
+  c.advance(IDLE_MS + 1);
+  await pair(store, 'view', 'other'); // a write: the old behaviour pruned the expired device here
+  assert.deepEqual(store.verify(digestOf(idle.token)), { refused: 'device-expired', id: idle.device.id });
+  assert.equal(store.list().find((d: any) => d.name === 'idle').state, 'expired');
+  c.advance(TOMBSTONE_MS - 2);
+  await pair(store, 'view', 'again');
+  assert.deepEqual(store.verify(digestOf(idle.token)), { refused: 'device-expired', id: idle.device.id }, 'still kept just inside the 60 days');
+  c.advance(10);
+  await pair(store, 'view', 'later');
+  assert.deepEqual(store.verify(digestOf(idle.token)), { refused: 'device-unpaired' }, 'gone after the window');
+
+  const full = open(scratch(), c);
+  for (let i = 0; i < MAX_DEVICES; i += 1) await pair(full, 'view', `d${i}`);
+  c.advance(IDLE_MS + 1);
+  const { code } = await full.mintCode('view');
+  assert.equal('token' in await full.consumeCode(code, { name: 'room', via: 'browser', address: 'a' }), true, 'expired devices free their places');
+});
+
+test('lan.json must be a regular file: a symlink, a directory and a FIFO are store-unreadable and are never followed, read or replaced', { skip: process.platform === 'win32' && 'POSIX file types' }, async () => {
+  const dir = scratch();
+  const file = path.join(dir, 'lan.json');
+  const elsewhere = path.join(scratch(), 'other.json');
+  fs.writeFileSync(elsewhere, '{"v":1,"devices":[],"codes":[],"consoles":[]}');
+  for (const [label, make] of [
+    ['symlink to a good file', () => fs.symlinkSync(elsewhere, file)],
+    ['dangling symlink', () => fs.symlinkSync(path.join(dir, 'nowhere'), file)],
+    ['directory', () => fs.mkdirSync(file)],
+    ['fifo', () => cp.execFileSync('mkfifo', [file])],
+  ] as const) {
+    fs.rmSync(file, { recursive: true, force: true });
+    make();
+    const store = open(dir);
+    assert.match(store.check(), /not a regular file/, label);
+    assert.deepEqual(store.verify(digestOf('dfd1_x')), { refused: 'store-unreadable' }, label);
+    await assert.rejects(store.mintCode('view'), (error: any) => error instanceof StoreError && error.code === 'store-unreadable' && /not a regular file/.test(error.message), label);
+    assert.equal(fs.readFileSync(elsewhere, 'utf8').includes('devices'), true, 'the link target was not written');
+    assert.equal(fs.lstatSync(file).isFile(), false, `${label} was not replaced`);
+  }
+});
+
+test('lan.json larger than 1 MiB is store-unreadable without being read into a parse; one at the limit is read', async () => {
+  const dir = scratch();
+  const file = path.join(dir, 'lan.json');
+  const filler = (bytes: number) => `{"v":1,"devices":[],"codes":[],"consoles":[],"pad":"${'x'.repeat(bytes)}"}`;
+  fs.writeFileSync(file, filler(MAX_FILE_BYTES));
+  const store = open(dir);
+  assert.match(store.check(), /larger than 1048576 bytes/);
+  await assert.rejects(store.mintCode('view'), (error: any) => error.code === 'store-unreadable');
+  assert.equal(fs.statSync(file).size > MAX_FILE_BYTES, true, 'never overwritten');
+  const exact = '{"v":1,"devices":[],"codes":[],"consoles":[]}';
+  fs.writeFileSync(file, `${exact}${' '.repeat(MAX_FILE_BYTES - exact.length)}`);
+  assert.equal(fs.statSync(file).size, MAX_FILE_BYTES);
+  assert.equal(open(dir).check(), null);
+});
+
+test('wrong types in lan.json are store-unreadable, each reported by the check', async () => {
+  const dir = scratch();
+  const file = path.join(dir, 'lan.json');
+  const good = { id: 'd-0123456789ab', name: 'n', scope: 'view', via: 'browser', tokenSha256: 'a'.repeat(64), pairedAt: new Date().toISOString(), lastSeenAt: new Date().toISOString(), lastAddress: 'x', revokedAt: null };
+  for (const bad of [
+    { v: 1, devices: {}, codes: [], consoles: [] },
+    { v: 1, devices: [{ ...good, scope: 'admin' }], codes: [], consoles: [] },
+    { v: 1, devices: [{ ...good, via: 'carrier-pigeon' }], codes: [], consoles: [] },
+    { v: 1, devices: [{ ...good, tokenSha256: 'short' }], codes: [], consoles: [] },
+    { v: 1, devices: [{ ...good, pairedAt: 12 }], codes: [], consoles: [] },
+    { v: 1, devices: [good, good], codes: [], consoles: [] },
+    { v: 1, devices: [], codes: [{ sha256: 'a'.repeat(64), scope: 'view', issuedAt: 'x', expiresAt: 'y' }], consoles: [] },
+    { v: 1, devices: [], codes: [], consoles: [{ project: 1 }] },
+  ]) {
+    fs.writeFileSync(file, JSON.stringify(bad));
+    assert.notEqual(open(dir).check(), null, JSON.stringify(bad).slice(0, 80));
+  }
+});
+
+test('the store folder must be this user\'s: one owned by someone else is refused for reads and writes, and nothing is created in it', { skip: (process.platform === 'win32' || (process.getuid && process.getuid() === 0)) && 'needs a POSIX non-root user' }, async () => {
+  const store = open('/usr');
+  assert.match(store.check(), /not owned by this user/);
+  assert.deepEqual(store.verify(digestOf('dfd1_x')), { refused: 'store-unreadable' });
+  await assert.rejects(store.mintCode('view'), (error: any) => error instanceof StoreError && error.code === 'store-unreadable' && /not owned by this user/.test(error.message));
+  assert.equal(fs.existsSync('/usr/lan.json.lock'), false);
+});
+
+test('a folder that others can write is refused by a reader; a writer sets it to 0700 and the store heals', { skip: process.platform === 'win32' && 'POSIX modes' }, async () => {
+  const dir = scratch();
+  const store = open(dir);
+  await pair(store);
+  fs.chmodSync(dir, 0o777);
+  assert.match(open(dir).check(), /writable by others/);
+  await store.mintCode('view'); // a writer repairs the mode first
+  assert.equal(fs.statSync(dir).mode & 0o777, 0o700);
+  assert.equal(open(dir).check(), null);
+});
+
+test('modes under umask 0: the folder is 0700, lan.json and its lock 0600, whatever the process umask', { skip: process.platform === 'win32' && 'POSIX modes' }, async () => {
+  const before = process.umask(0);
+  try {
+    const dir = path.join(scratch(), 'console');
+    const store = open(dir);
+    await pair(store);
+    assert.equal(fs.statSync(dir).mode & 0o777, 0o700);
+    assert.equal(fs.statSync(path.join(dir, 'lan.json')).mode & 0o777, 0o600);
+    let during = 0;
+    await store.withLock(() => { during = fs.statSync(path.join(dir, 'lan.json.lock')).mode & 0o777; });
+    assert.equal(during, 0o600);
+    assert.deepEqual(fs.readdirSync(dir), ['lan.json']);
+  } finally {
+    process.umask(before);
+  }
+});
+
+test('a writer whose lock was taken from under it gives up with store-busy instead of renaming over the file, and leaves no temp file', async () => {
+  const dir = scratch();
+  const lock = path.join(dir, 'lan.json.lock');
+  let steal = false;
+  const c = clock();
+  const store = createLanStore({ dir, host: 'testhost', pid: process.pid, lockWaitMs: 300, now: () => {
+    // Called once under the lock, before the write: another writer's lock lands on the name.
+    if (steal && fs.existsSync(lock)) fs.writeFileSync(lock, JSON.stringify({ pid: process.pid, host: 'testhost', at: 1, id: 'someone-else' }));
+    return c.now();
+  } });
+  await pair(store);
+  const before = text(dir);
+  steal = true;
+  await assert.rejects(store.mintCode('view'), (error: any) => error instanceof StoreError && error.code === 'store-busy' && /taken over/.test(error.message));
+  assert.equal(text(dir), before, 'the file was not replaced');
+  assert.deepEqual(fs.readdirSync(dir).sort(), ['lan.json', 'lan.json.lock'], 'no temp file; the other writer\'s lock is left alone');
+  assert.equal(JSON.parse(fs.readFileSync(lock, 'utf8')).id, 'someone-else');
 });
