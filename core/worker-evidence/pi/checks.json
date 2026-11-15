@@ -44,6 +44,17 @@
       "argv": ["--help"],
       "expect": ["^\\s+--model <pattern>\\s"],
       "establishes": ["model"]
+    },
+    {
+      "id": "main-session",
+      "argv": ["--help"],
+      "expect": [
+        "^\\s+pi \\[options\\] \\[--\\] \\[@files\\.\\.\\.\\] \\[messages\\.\\.\\.\\]",
+        "^\\s+--print, -p\\s+Non-interactive mode: process prompt and exit",
+        "^\\s+--mode <mode>\\s+Output mode: text \\(default\\), json, or rpc",
+        "^\\s+--\\s+End option parsing; treat remaining arguments as messages/files"
+      ],
+      "establishes": ["mainSession"]
     }
   ]
 }

@@ -705,6 +705,8 @@ const WORKER_CAPABILITIES: Record<string, { allowed: string[], required: string[
 const WORKER_OPTIONAL_CAPABILITIES: Record<string, { allowed: string[], required: string[] }> = Object.freeze({
   isolatedEdit: { allowed: ['argv', 'protectedPaths'], required: ['argv'] },
   model: { allowed: ['argv'], required: ['argv'] },
+  // 165 IC-006: how the harness starts a user-visible main session from a prompt. `parser` is a parser id or null.
+  mainSession: { allowed: ['argv', 'promptVia', 'parser'], required: ['argv', 'promptVia', 'parser'] },
 });
 const WORKER_BILLING = new Set(['free', 'metered', 'unknown']);
 const WORKER_KEYS = Object.freeze(['profile', 'billing', ...Object.keys(WORKER_CAPABILITIES), 'modelChecks']);
@@ -716,6 +718,14 @@ const WORKER_RECIPE_FIELDS = new Set(['binary', 'versionArgv', 'argv', 'promptVi
 const WORKER_QUOTA_SIGNALS_FIELDS = new Set(['signals', 'unverifiedSignals', 'basis', 'evidence']);
 const WORKER_FACTS = new Set(['hooksLoaded', 'identityForwarded', 'guidanceLoaded', 'login']);
 const WORKER_MODEL_CHECK_FIELDS = new Set(['id', 'argv', 'establishes', 'estimateTokens', 'timeoutSeconds']);
+// 165 FR-015 / owner P-2: a main session never gets a flag that widens what the harness may do. Matched on the element
+// (and on its name before an `=`), and by prefix for the three families. No widening flag, ever, for any harness.
+const MAIN_SESSION_DENIED_FLAGS = new Set([
+  '--dangerously-skip-permissions', '--dangerously-bypass-approvals-and-sandbox', '--auto', '--allow-all-tools',
+  '--yolo', '--trust-folder', '--trust-workspace',
+]);
+const MAIN_SESSION_DENIED_PREFIXES = Object.freeze(['--add-dir', '--dangerously', '--yolo']);
+const MAIN_SESSION_PLACEHOLDERS = new Set(['{prompt}', '{model}', '{lastMessageFile}']);
 const WORKER_ARGV_MAX = 32;
 const WORKER_ARG_MAX_CHARS = 200;
 
@@ -831,6 +841,14 @@ function validateWorker(value: any, location: string, errors: string[]): void {
       if (!WORKER_RECIPE_FIELDS.has(field) || !rule.allowed.includes(field)) { fail(key, `has unknown field '${field}'`); continue; }
       if (entry.status !== 'supported') fail(key, `recipe field '${field}' is allowed only when status is supported`);
     }
+    if (key === 'mainSession' && Array.isArray(entry.argv)) {
+      for (const item of entry.argv) {
+        if (typeof item !== 'string') continue;
+        if (MAIN_SESSION_DENIED_FLAGS.has(item.split('=')[0]) || MAIN_SESSION_DENIED_PREFIXES.some((prefix) => item.startsWith(prefix))) {
+          fail(key, `argv must not contain the widening flag '${item}'`);
+        }
+      }
+    }
     if (entry.status !== 'supported') continue;
     for (const field of rule.required) if (!Object.hasOwn(entry, field)) fail(key, `requires recipe field '${field}' when status is supported`);
 
@@ -853,10 +871,19 @@ function validateWorker(value: any, location: string, errors: string[]): void {
           fail(key, `${field} must not contain '{model}' outside model.argv`);
         }
         // DEC-066: only oneShot.argv carries the prompt; a second placeholder would duplicate it.
-        if (!(key === 'oneShot' && field === 'argv') && entry[field].includes('{prompt}')) {
+        if (!(key === 'oneShot' && field === 'argv') && !(key === 'mainSession' && field === 'argv') && entry[field].includes('{prompt}')) {
           fail(key, `${field} must not contain '{prompt}' outside oneShot.argv`);
         }
-        if (key === 'structuredOutput' && field === 'argv') {
+        if (key === 'mainSession' && field === 'argv') {
+          // 165: {prompt} and {lastMessageFile} are whole elements; {model} stays model.argv's alone (checked above).
+          if (entry.argv.filter((item: string) => item === '{lastMessageFile}').length > 1) fail(key, "argv must contain '{lastMessageFile}' at most once");
+          for (const item of entry.argv) {
+            const token = /\{[^{}]*\}/.exec(item);
+            if (!token || MAIN_SESSION_PLACEHOLDERS.has(item)) continue;
+            if (MAIN_SESSION_PLACEHOLDERS.has(token[0])) fail(key, `argv holds '${token[0]}' inside a longer element; a placeholder is a whole element`);
+            else fail(key, `argv contains the unknown placeholder '${token[0]}'`);
+          }
+        } else if (key === 'structuredOutput' && field === 'argv') {
           const count = entry.argv.filter((item: any) => item === '{lastMessageFile}').length;
           if (count > 1) {
             fail(key, "argv must contain '{lastMessageFile}' only once and only in structuredOutput.argv");
@@ -870,7 +897,9 @@ function validateWorker(value: any, location: string, errors: string[]): void {
       const problem = workerProtectedPathsProblem(entry.protectedPaths);
       if (problem) fail(key, problem);
     }
-    if (Object.hasOwn(entry, 'parser') && (typeof entry.parser !== 'string' || !entry.parser.trim())) fail(key, 'parser must be a parser id');
+    if (key === 'mainSession' && Object.hasOwn(entry, 'parser')) {
+      if (entry.parser !== null && (typeof entry.parser !== 'string' || !entry.parser.trim())) fail(key, 'parser must be a parser id or null');
+    } else if (Object.hasOwn(entry, 'parser') && (typeof entry.parser !== 'string' || !entry.parser.trim())) fail(key, 'parser must be a parser id');
     if (key === 'structuredOutput' && Object.hasOwn(entry, 'quotaSignals')) {
       const quota = entry.quotaSignals;
       if (!object(quota)) fail(key, 'quotaSignals must be an object');
@@ -927,7 +956,7 @@ function validateWorker(value: any, location: string, errors: string[]): void {
     if (Object.hasOwn(entry, 'marker') && (typeof entry.marker !== 'string' || entry.marker.length < 1 || entry.marker.length > 200)) {
       fail(key, 'marker must be 1 to 200 characters');
     }
-    if (key === 'oneShot' && Object.hasOwn(entry, 'promptVia')) {
+    if ((key === 'oneShot' || key === 'mainSession') && Object.hasOwn(entry, 'promptVia')) {
       const count = Array.isArray(entry.argv) ? entry.argv.filter((item: any) => item === '{prompt}').length : 0;
       if (entry.promptVia === 'argv') {
         if (count !== 1) fail(key, "argv must contain the element '{prompt}' exactly once when promptVia is argv");

@@ -265,9 +265,93 @@ const cases = [
   }, /worker 'modelChecks\[1\]': duplicate id 'same'/],
   ['establishes outside the four facts', (w: any) => { w.modelChecks = [{ id: 'x', argv: [], establishes: ['runnable'], estimateTokens: 1, timeoutSeconds: 1 }]; }, /worker 'modelChecks\[0\]': establishes must be a non-empty subset/],
   ['estimateTokens 0', (w: any) => { w.modelChecks = [{ id: 'x', argv: [], establishes: ['login'], estimateTokens: 0, timeoutSeconds: 1 }]; }, /worker 'modelChecks\[0\]': estimateTokens must be an integer of at least 1/],
+  // 165 T1: the `mainSession` descriptor key (a user-started main session): shape, placeholders and the widening-flag deny list.
+  ['a mainSession entry holding --dangerously-skip-permissions is refused', (w: any) => { w.mainSession = supported({ argv: ['-p', '--dangerously-skip-permissions'], promptVia: 'stdin', parser: null }); }, /worker 'mainSession': argv must not contain the widening flag '--dangerously-skip-permissions'/],
+  ['a mainSession element --add-dir=x is refused', (w: any) => { w.mainSession = supported({ argv: ['-p', '--add-dir=x'], promptVia: 'stdin', parser: null }); }, /worker 'mainSession': argv must not contain the widening flag '--add-dir=x'/],
+  ['a mainSession element --dangerously-other is refused by its prefix', (w: any) => { w.mainSession = supported({ argv: ['--dangerously-other'], promptVia: 'stdin', parser: null }); }, /worker 'mainSession': argv must not contain the widening flag '--dangerously-other'/],
+  ['{prompt} in a mainSession argv with promptVia stdin', (w: any) => { w.mainSession = supported({ argv: ['-p', '{prompt}'], promptVia: 'stdin', parser: null }); }, /worker 'mainSession': argv must not contain '\{prompt\}' when promptVia is stdin/],
+  ['{prompt} absent from a mainSession argv with promptVia argv', (w: any) => { w.mainSession = supported({ argv: ['-p'], promptVia: 'argv', parser: null }); }, /worker 'mainSession': argv must contain the element '\{prompt\}' exactly once/],
+  ['an unknown placeholder in a mainSession argv', (w: any) => { w.mainSession = supported({ argv: ['-p', '{cwd}'], promptVia: 'stdin', parser: null }); }, /worker 'mainSession': argv contains the unknown placeholder '\{cwd\}'/],
+  ['{model} in a mainSession argv', (w: any) => { w.mainSession = supported({ argv: ['--model', '{model}'], promptVia: 'stdin', parser: null }); }, /worker 'mainSession': argv must not contain '\{model\}' outside model\.argv/],
+  ['{lastMessageFile} twice in a mainSession argv', (w: any) => { w.mainSession = supported({ argv: ['-o', '{lastMessageFile}', '{lastMessageFile}'], promptVia: 'stdin', parser: null }); }, /worker 'mainSession': argv must contain '\{lastMessageFile\}' at most once/],
+  ['a mainSession without promptVia', (w: any) => { w.mainSession = supported({ argv: ['-p'], parser: null }); }, /worker 'mainSession': requires recipe field 'promptVia' when status is supported/],
+  ['a mainSession without parser', (w: any) => { w.mainSession = supported({ argv: ['-p'], promptVia: 'stdin' }); }, /worker 'mainSession': requires recipe field 'parser' when status is supported/],
+  ['a mainSession parser that is neither null nor an id', (w: any) => { w.mainSession = supported({ argv: ['-p'], promptVia: 'stdin', parser: '' }); }, /worker 'mainSession': parser must be a parser id or null/],
+  ['a supported mainSession without evidence', (w: any) => { w.mainSession = supported({ argv: ['-p'], promptVia: 'stdin', parser: null, evidence: [] }); }, /worker 'mainSession': evidence must not be empty when status is supported/],
+  ['an unknown mainSession carrying an argv', (w: any) => { w.mainSession = { status: 'unknown', evidence: [], verification: 'Read it.', verifiedOn: '2026-11-15', reason: 'x', argv: ['--yolo'] }; }, /worker 'mainSession': argv must not contain the widening flag '--yolo'/],
   ['timeoutSeconds 601', (w: any) => { w.modelChecks = [{ id: 'x', argv: [], establishes: ['login'], estimateTokens: 1, timeoutSeconds: 601 }]; }, /worker 'modelChecks\[0\]': timeoutSeconds must be an integer from 1 to 600/],
 ];
 
 for (const [name, mutate, pattern] of cases) {
   test(`worker: ${name} is reported`, () => { assertReports(mutated(mutate), pattern); });
 }
+
+// 165 T1: every widening flag in the owner's deny list is refused, as an exact element and with an `=value` tail.
+test('worker: every mainSession deny-list flag is refused, bare and with a value', () => {
+  const flags = ['--dangerously-skip-permissions', '--dangerously-bypass-approvals-and-sandbox', '--auto', '--allow-all-tools', '--yolo', '--trust-folder', '--trust-workspace', '--add-dir', '--yolo-mode'];
+  for (const flag of flags) {
+    for (const element of [flag, `${flag}=1`]) {
+      assertReports(mutated((w: any) => { w.mainSession = supported({ argv: ['-p', element], promptVia: 'stdin', parser: null }); }), new RegExp(`worker 'mainSession': argv must not contain the widening flag '${element.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}'`));
+    }
+  }
+});
+
+test('worker: a mainSession may carry {prompt} once (argv) or {lastMessageFile} once (stdin) and a null parser', () => {
+  const errors: any = [];
+  validateWorker({
+    profile: null, billing: 'unknown',
+    cli: supported({ binary: 'fake-cli', versionArgv: ['--version'] }),
+    oneShot: supported({ argv: ['{prompt}'], promptVia: 'argv' }),
+    structuredOutput: supported({ argv: ['--json'], parser: 'doflow-jsonl-v1' }),
+    readOnly: supported({ argv: ['--read-only'] }), spawnDenial: supported({ argv: ['--no-agents'] }), runnableProbe: supported({ argv: ['--probe'] }),
+    hooksProbe: supported({ argv: ['--hooks'] }), guidanceProbe: supported({ argv: ['--guidance'], marker: 'M' }), loginProbe: supported({ argv: ['--whoami'] }),
+    persistentSession: supported({}), resume: supported({}), steering: supported({}),
+    mainSession: supported({ argv: ['run', '--format', 'json', '--', '{prompt}'], promptVia: 'argv', parser: 'doflow-jsonl-v1' }),
+    modelChecks: [],
+  }, "harness 'claude'", errors);
+  assert.deepEqual(errors, []);
+  const second: any = [];
+  validateWorker({
+    profile: null, billing: 'unknown',
+    cli: supported({ binary: 'fake-cli', versionArgv: ['--version'] }),
+    oneShot: supported({ argv: ['{prompt}'], promptVia: 'argv' }),
+    structuredOutput: supported({ argv: ['--json'], parser: 'doflow-jsonl-v1' }),
+    readOnly: supported({ argv: ['--read-only'] }), spawnDenial: supported({ argv: ['--no-agents'] }), runnableProbe: supported({ argv: ['--probe'] }),
+    hooksProbe: supported({ argv: ['--hooks'] }), guidanceProbe: supported({ argv: ['--guidance'], marker: 'M' }), loginProbe: supported({ argv: ['--whoami'] }),
+    persistentSession: supported({}), resume: supported({}), steering: supported({}),
+    mainSession: supported({ argv: ['exec', '-o', '{lastMessageFile}', '-'], promptVia: 'stdin', parser: null }),
+    modelChecks: [],
+  }, "harness 'claude'", second);
+  assert.deepEqual(second, []);
+});
+
+// 165 T1 (owner P-1, P-2): the descriptor each harness declares. The argv holds no model flag (the `model` entry owns it).
+const MAIN_SESSION_RECIPES: any = {
+  claude: { argv: ['-p', '--output-format', 'text'], promptVia: 'stdin', parser: null },
+  codex: { argv: ['exec', '--json', '-o', '{lastMessageFile}', '-'], promptVia: 'stdin', parser: 'codex-exec-json-v1' },
+  opencode: { argv: ['run', '--format', 'json', '{prompt}'], promptVia: 'argv', parser: 'opencode-run-json-v1' },
+  pi: { argv: ['-p', '--mode', 'json', '--', '{prompt}'], promptVia: 'argv', parser: 'pi-json-v1' },
+};
+
+test('worker: claude, codex, opencode and pi declare a supported mainSession on their 2026-11-15 record; copilot, kiro and antigravity stay unknown with a reason', () => {
+  const registry = loadRegistry({ repoRoot: REPO });
+  for (const harness of registry.harnesses) {
+    const entry = harness.worker.mainSession;
+    assert.ok(entry, `${harness.id} carries a mainSession entry`);
+    assert.equal(entry.verifiedOn, '2026-11-15', `${harness.id} verifiedOn`);
+    if (MAIN_SESSION_RECIPES[harness.id]) {
+      const { status, argv, promptVia, parser, evidence } = entry;
+      assert.deepEqual({ status, argv, promptVia, parser }, { status: 'supported', ...MAIN_SESSION_RECIPES[harness.id] }, `${harness.id} mainSession`);
+      assert.deepEqual(evidence, [`core/worker-evidence/${harness.id}/2026-11-15-cli-check-main-session.json`], `${harness.id} evidence`);
+    } else {
+      assert.equal(entry.status, 'unknown', `${harness.id} mainSession`);
+      assert.ok(entry.reason.length > 20, `${harness.id} reason`);
+      assert.deepEqual(entry.evidence, [], `${harness.id} evidence`);
+      assert.ok(!Object.hasOwn(entry, 'argv'), `${harness.id} carries no argv`);
+    }
+  }
+  const reasonOf = (id: string) => registry.harnesses.find((harness: any) => harness.id === id).worker.mainSession.reason;
+  assert.match(reasonOf('copilot'), /--allow-all-tools/);
+  assert.match(reasonOf('kiro'), /quota/);
+  assert.match(reasonOf('antigravity'), /headless/);
+});

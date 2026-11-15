@@ -33,6 +33,16 @@
       "argv": ["run", "--help"],
       "expect": ["^\\s+--model, -m string\\s"],
       "establishes": ["model"]
+    },
+    {
+      "id": "main-session",
+      "argv": ["run", "--help"],
+      "expect": [
+        "^\\s+opencode run \\[flags\\] \\[<message\\.\\.\\.>\\]",
+        "^\\s+message\\.\\.\\. string\\s+Message to send",
+        "^\\s+--format choice\\s+Output format \\(choices: default, json\\)"
+      ],
+      "establishes": ["mainSession"]
     }
   ]
 }

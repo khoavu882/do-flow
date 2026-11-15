@@ -341,14 +341,42 @@ const PARSER_BY_HARNESS: any = {
 };
 
 const ACCEPTED_KEYS: any = {
-  codex: ['isolatedEdit', 'model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
-  opencode: ['model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
-  claude: ['model'],
+  codex: ['isolatedEdit', 'mainSession', 'model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
+  opencode: ['mainSession', 'model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
+  claude: ['mainSession', 'model'],
   copilot: ['model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
-  pi: ['model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
+  pi: ['mainSession', 'model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
   kiro: ['model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
   antigravity: ['model'],
 };
+
+// 165 IC-006: the parser each supported `mainSession` declares (claude reads its plain-text stdout, so none), pinned literally.
+const MAIN_SESSION_PARSER_BY_HARNESS: any = {
+  claude: null,
+  codex: 'codex-exec-json-v1',
+  opencode: 'opencode-run-json-v1',
+  pi: 'pi-json-v1',
+};
+
+/** G41.3 (165): a supported mainSession declares exactly its mapped parser (null is a mapped value), a harness with no
+ * mapping may not be supported, one that is not supported declares none, and every mapped id is a key of `parsers`. */
+function mainSessionParserFindings(registry: any, map: any, parsers: any) {
+  const findings: any = [];
+  for (const [id, parser] of Object.entries(map)) {
+    if (parser !== null && !Object.hasOwn(parsers, parser as any)) findings.push(`G41.3: MAIN_SESSION_PARSER_BY_HARNESS maps '${id}' to ${JSON.stringify(parser)}, which is not a key of PARSERS`);
+  }
+  for (const harness of registry.harnesses) {
+    const entry = harness.worker?.mainSession;
+    if (!entry) continue;
+    if (entry.status === 'supported') {
+      if (!Object.hasOwn(map, harness.id)) findings.push(`G41.3: harness '${harness.id}' has a supported mainSession but no entry in MAIN_SESSION_PARSER_BY_HARNESS`);
+      else if (entry.parser !== map[harness.id]) findings.push(`G41.3: harness '${harness.id}' declares mainSession parser ${JSON.stringify(entry.parser)}, expected ${JSON.stringify(map[harness.id])}`);
+    } else if (Object.hasOwn(entry, 'parser')) {
+      findings.push(`G41.3: harness '${harness.id}' declares a parser on a mainSession that is not supported`);
+    }
+  }
+  return findings;
+}
 
 test('G41.3: PARSER_BY_HARNESS names every parser-bearing harness, each id a key of PARSERS', () => {
   assert.deepEqual(Object.keys(PARSER_BY_HARNESS).sort(), ['antigravity', 'claude', 'codex', 'copilot', 'kiro', 'opencode', 'pi']);
@@ -378,6 +406,27 @@ test('G41.3 control: a mapped id outside PARSERS, a wrong parser, a parser on a 
   assert.match(parserMapFindings(registry, withoutAgy, PARSERS).join('\n'), /harness 'antigravity' has a supported structuredOutput but no entry in PARSER_BY_HARNESS/);
 });
 
+test('G41.3 (165): each supported mainSession declares exactly its pinned parser; the control reports a wrong one, a parser on an unsupported entry and a missing map entry', () => {
+  const { registry } = shipped();
+  assert.deepEqual(mainSessionParserFindings(registry, MAIN_SESSION_PARSER_BY_HARNESS, PARSERS), []);
+  assert.equal(mainSessionParserFindings(registry, { ...MAIN_SESSION_PARSER_BY_HARNESS, pi: 'codex-exec-json-v1' }, PARSERS).length, 1, 'wrong parser for pi');
+  assert.match(mainSessionParserFindings(registry, { ...MAIN_SESSION_PARSER_BY_HARNESS, pi: 'not-a-registered-parser' }, PARSERS).join('\n'), /maps 'pi' to "not-a-registered-parser".*not a key of PARSERS/);
+  const { opencode: _, ...withoutOpencode } = MAIN_SESSION_PARSER_BY_HARNESS;
+  assert.match(mainSessionParserFindings(registry, withoutOpencode, PARSERS).join('\n'), /harness 'opencode' has a supported mainSession but no entry/);
+  const copy = structuredClone(registry);
+  copy.harnesses.find((h: any) => h.id === 'copilot').worker.mainSession.parser = 'copilot-json-v1';
+  assert.match(mainSessionParserFindings(copy, MAIN_SESSION_PARSER_BY_HARNESS, PARSERS).join('\n'), /harness 'copilot' declares a parser on a mainSession that is not supported/);
+});
+
+test('G41.4 (165): mainSession is an accepted key for claude, codex, opencode and pi, and for no other harness', () => {
+  const { registry } = shipped();
+  for (const id of ['claude', 'codex', 'opencode', 'pi']) {
+    assert.ok(ACCEPTED_KEYS[id].includes('mainSession'), `${id}: ACCEPTED_KEYS names mainSession`);
+    assert.ok(supportedKeys(registry.harnesses.find((h: any) => h.id === id)).includes('mainSession'), `${id}: registry supports mainSession`);
+  }
+  for (const id of ['copilot', 'kiro', 'antigravity']) assert.ok(!(ACCEPTED_KEYS[id] || []).includes('mainSession'), `${id}: mainSession is not accepted`);
+});
+
 test('G41.4: every supported worker entry cites a recorded evidence file that establishes it', () => {
   const { registry } = shipped();
   assert.deepEqual(establishingRecordFindings(registry, REPO), []);
@@ -392,7 +441,7 @@ test('G41.4: every supported worker entry cites a recorded evidence file that es
 
 test('G41.4 control: an ACCEPTED_KEYS entry with no registry key, one for no harness, and a registry key with no map entry are each reported', () => {
   const registry = structuredClone(shipped().registry);
-  const extraKey = acceptedKeyFindings(registry, { ...ACCEPTED_KEYS, claude: ['model', 'oneShot'] });
+  const extraKey = acceptedKeyFindings(registry, { ...ACCEPTED_KEYS, claude: ['mainSession', 'model', 'oneShot'] });
   assert.equal(extraKey.length, 1);
   assert.match(extraKey[0], /ACCEPTED_KEYS lists 'oneShot' for harness 'claude'/);
   const extraHarness = acceptedKeyFindings(registry, { ...ACCEPTED_KEYS, nonesuch: [] });
@@ -408,7 +457,7 @@ test('G41.4 control: a supported key added to claude without a map entry fails',
   for (const id of ['claude']) {
     const registry = structuredClone(shipped().registry);
     const harness = registry.harnesses.find((h: any) => h.id === id);
-    assert.deepEqual(supportedKeys(harness), ['model'], `${id}: control precondition`);
+    assert.deepEqual(supportedKeys(harness), ['mainSession', 'model'], `${id}: control precondition`);
     harness.worker.oneShot = { status: 'supported', evidence: ['https://example.invalid/one-shot'], verification: 'control fixture', verifiedOn: '2026-01-01' };
     assert.deepEqual(acceptedKeyFindings(registry, ACCEPTED_KEYS), [`G41.4: harness '${id}' worker 'oneShot' is supported but not in ACCEPTED_KEYS`], id);
   }
@@ -506,6 +555,8 @@ function scratchRecordRoot(t: any, mutate: any) {
   const codex = registry.harnesses.find((h: any) => h.id === 'codex');
   registry.harnesses = [codex];
   const cited = codex.worker.model.evidence[0];
+  // 165: mainSession cites its own 2026-11-15 record, so it is left out of the seven bound to the model record here.
+  delete codex.worker.mainSession;
   for (const [key, entry] of Object.entries(codex.worker)) {
     if (!NOT_CAPABILITIES.has(key) && entry?.status === 'supported') entry.evidence = [cited];
   }
@@ -531,6 +582,29 @@ test('G41.4 C control: the older codex record cannot establish model', () => {
   assert.deepEqual(establishingRecordFindings(registry, REPO), [
     "G41.4: harness 'codex' worker 'model': supported without a recorded evidence file that establishes it",
   ]);
+});
+
+test('G41.4 control (165): a main-session check that fails, or a record that no longer lists mainSession, withdraws mainSession and nothing else', (t) => {
+  const mainSessionOf = (record: any) => record.checks.find((c: any) => c.id === 'exec-main-session');
+  for (const mutate of [
+    (record: any) => Object.assign(mainSessionOf(record), { result: 'fail', exit: 1, matched: [] }),
+    (record: any) => { mainSessionOf(record).matched = []; },
+    (record: any) => { record.establishes = record.establishes.filter((key: any) => key !== 'mainSession'); },
+  ]) {
+    const registry = structuredClone(shipped().registry);
+    const cited = registry.harnesses.find((h: any) => h.id === 'codex').worker.mainSession.evidence[0];
+    const root = tempDir(t, 'doflow-g414-main-');
+    const record = JSON.parse(fs.readFileSync(path.join(REPO, cited), 'utf8'));
+    mutate(record);
+    fs.mkdirSync(path.join(root, path.dirname(cited)), { recursive: true });
+    fs.writeFileSync(path.join(root, cited), JSON.stringify(record));
+    fs.copyFileSync(path.join(REPO, path.dirname(cited), 'checks.json'), path.join(root, path.dirname(cited), 'checks.json'));
+    registry.harnesses = registry.harnesses.filter((h: any) => h.id === 'codex');
+    for (const [key, entry] of Object.entries(registry.harnesses[0].worker)) {
+      if (!NOT_CAPABILITIES.has(key) && key !== 'mainSession' && (entry as any)?.status === 'supported') (entry as any).evidence = [cited];
+    }
+    assert.deepEqual(establishingRecordFindings(registry, root).map((f: any) => /worker '(\w+)'/.exec(f)![1]), ['mainSession']);
+  }
 });
 
 test('G41.4 control: a record that no longer establishes structuredOutput gives exactly that one finding', (t) => {

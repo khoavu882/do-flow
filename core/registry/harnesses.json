@@ -395,6 +395,21 @@
               "{model}"
             ]
           },
+        "mainSession": {
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/claude/2026-11-15-cli-check-main-session.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness claude --checks core/worker-evidence/claude/checks.json --out <new cli-check path>` against the installed claude and read the matched help lines (check main-session). Recorded 2026-11-15 on Claude Code 2.1.311: `-p, --print` and `--output-format <format>` (\"text\" is the default) are listed in `claude --help`. That `-p` reads the prompt from stdin when none is given is read from the usage line `[prompt]` and the `--print` text 'useful for pipes', not stated outright, and no prompt was sent. The combination is untested until a live run.",
+          "verifiedOn": "2026-11-15",
+          "argv": [
+            "-p",
+            "--output-format",
+            "text"
+          ],
+          "promptVia": "stdin",
+          "parser": null
+        },
         "modelList": {
           "status": "none-recorded",
           "reason": "`claude --help` lists no command that prints the available models; type the id"
@@ -939,6 +954,23 @@
             "{model}"
           ]
         },
+        "mainSession": {
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/codex/2026-11-15-cli-check-main-session.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness codex --checks core/worker-evidence/codex/checks.json --out <new cli-check path>` against the installed codex and read the matched help lines (check exec-main-session). Recorded 2026-11-15 on codex-cli 0.164.0: `codex exec --help` lists `--json`, `-o, --output-last-message <FILE>` and says instructions are read from stdin when `-` is used. No sandbox, approval or ephemeral flag is part of the recipe. The combination is untested until a live run.",
+          "verifiedOn": "2026-11-15",
+          "argv": [
+            "exec",
+            "--json",
+            "-o",
+            "{lastMessageFile}",
+            "-"
+          ],
+          "promptVia": "stdin",
+          "parser": "codex-exec-json-v1"
+        },
         "modelList": {
           "status": "none-recorded",
           "reason": "`codex --help` lists no command that prints the available models; type the id"
@@ -1473,6 +1505,22 @@
               "{model}"
             ]
           },
+        "mainSession": {
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/opencode/2026-11-15-cli-check-main-session.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness opencode --checks core/worker-evidence/opencode/checks.json --out <new cli-check path>` against the installed opencode and read the matched help lines (check main-session). Recorded 2026-11-15 on opencode v2.2.7: `opencode run --help` lists `[<message...>]` and `--format choice` (default, json). Neither `run --help` nor `--help` documents `--` to end option parsing, so none is placed before the prompt; a prompt starting with `-` is refused by the caller. No `--auto`. The combination is untested until a live run.",
+          "verifiedOn": "2026-11-15",
+          "argv": [
+            "run",
+            "--format",
+            "json",
+            "{prompt}"
+          ],
+          "promptVia": "argv",
+          "parser": "opencode-run-json-v1"
+        },
         "modelList": {
           "status": "supported",
           "argv": [
@@ -1954,6 +2002,23 @@
               "{model}"
             ]
           },
+        "mainSession": {
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/pi/2026-11-15-cli-check-main-session.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness pi --checks core/worker-evidence/pi/checks.json --out <new cli-check path>` against the installed pi and read the matched help lines (check main-session). Recorded 2026-11-15 on pi 1.5.2: `pi --help` lists `--print, -p`, `--mode <mode>` (json) and `--`, which ends option parsing and treats the remaining arguments as messages or files (its usage reads `pi [options] [--] [@files...] [messages...]`, so a message starting with `@` is still read as a file). The combination is untested until a live run.",
+          "verifiedOn": "2026-11-15",
+          "argv": [
+            "-p",
+            "--mode",
+            "json",
+            "--",
+            "{prompt}"
+          ],
+          "promptVia": "argv",
+          "parser": "pi-json-v1"
+        },
         "modelList": {
           "status": "supported",
           "argv": [
@@ -2508,6 +2573,13 @@
               "{model}"
             ]
           },
+        "mainSession": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read copilot's headless CLI documentation and `copilot --help`; record the flag that sends a prompt and exits, and its source",
+          "verifiedOn": "2026-11-15",
+          "reason": "copilot's non-interactive prompt mode needs `--allow-all-tools` (`copilot --help` on 1.0.105: 'required for non-interactive mode'), a flag that widens what the session may do; no widening flag is ever used for a started session (row 165 owner ruling P-2), so copilot is not started from the Console"
+        },
         "modelList": {
           "status": "none-recorded",
           "reason": "`copilot --help` lists no command that prints the available models; type the id"
@@ -2968,6 +3040,13 @@
               "{model}"
             ]
           },
+        "mainSession": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read kiro's headless CLI documentation and `kiro-cli --help`; record the flag that sends a prompt and exits, and its source",
+          "verifiedOn": "2026-11-15",
+          "reason": "no probe this month: kiro-cli is out of quota and is never executed here, so its headless main-session invocation has no recorded evidence"
+        },
         "modelList": {
           "status": "none-recorded",
           "reason": "`kiro-cli chat --help` lists `--list-models`, but running it on 2026-11-15 opened a login portal and gave no list within 20 s; its output shape is not verified"
@@ -3447,6 +3526,13 @@
             "--model",
             "{model}"
           ]
+        },
+        "mainSession": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read antigravity's headless CLI documentation and `agy --help`; record the flag that sends a prompt and exits, and its source",
+          "verifiedOn": "2026-11-15",
+          "reason": "no headless main-session evidence for agy: no recorded check shows a flag that sends a prompt and exits, and nothing is inferred from another harness"
         },
         "modelList": {
           "status": "supported",

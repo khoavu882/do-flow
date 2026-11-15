@@ -33,6 +33,17 @@
       "argv": ["--help"],
       "expect": ["^\\s+--model <model>\\s"],
       "establishes": ["model"]
+    },
+    {
+      "id": "main-session",
+      "argv": ["--help"],
+      "expect": [
+        "^Usage: claude \\[options\\] \\[command\\] \\[prompt\\]",
+        "^\\s+-p, --print\\s+Print response and exit \\(useful for",
+        "^\\s+--output-format <format>\\s+Output format \\(only works with --print\\):",
+        "\"text\" \\(default\\), \"json\" \\(single"
+      ],
+      "establishes": ["mainSession"]
     }
   ]
 }
