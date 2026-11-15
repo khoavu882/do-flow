@@ -2032,6 +2032,23 @@ test('162 finding: a read in flight when a write ends is neither cached nor join
   assert.equal(lists(), 2, 'the pre-write answer was not cached');
 });
 
+test('162 review A-1: a write leaves a floor-held read alone: its flight is joined across the write, its answer is cached and the floor holds', async () => {
+  const f = await writeSetup(undefined, { FAKE_CORE_DELAY_MS: '80' }, 'delay');
+  const doctors = () => f.starts().filter((s: any) => s.argv[0] === 'doctor').length;
+  const base = f.starts().length;
+  const write = f.runner.act('close-run', WRITE_CASES['close-run'].params);
+  await f.startsReach(base + 1);
+  const first = f.runner.run('doctor', {});
+  await f.startsReach(base + 2);
+  assert.equal((await write).ok, true);
+  const joined = f.runner.run('doctor', {});
+  assert.deepEqual([(await first).ok, (await joined).ok], [true, true]);
+  assert.equal(doctors(), 1, 'the read after the write joined the doctor flight');
+  const fresh = await f.runner.run('doctor', {}, { fresh: true });
+  assert.equal(fresh.fresh, 'too-soon', 'the answer was cached and the 5 s floor holds');
+  assert.equal(doctors(), 1);
+});
+
 test('act has one write slot: a second write waits for the first and runs after it, in order', async () => {
   const f = await writeSetup(undefined, { FAKE_CORE_DELAY_MS: '120' }, 'delay');
   const base = f.writeStarts().length;
