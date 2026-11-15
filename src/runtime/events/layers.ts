@@ -52,6 +52,11 @@ const POLICIES = Object.freeze({ tree: Object.freeze({ throttleMs: 1000 }), traf
 const GATE_RUNS = 8;
 const GATE_EVENTS = 8;
 const GATE_NAME_CHARS = 200;
+
+/** A gate's display name: a non-empty string name capped to GATE_NAME_CHARS, else the gate id (shared with the `machine` channel). */
+function gateName(name: unknown, gateId: string): string {
+  return typeof name === 'string' && name !== '' ? name.slice(0, GATE_NAME_CHARS) : gateId;
+}
 const REVIEW_LIMIT = 16;
 const SESSION_LIMIT = 16;
 const AUDIT_RECENT = 8;
@@ -117,10 +122,7 @@ function gatesSection(entry: Entry): SectionResult {
       || !RUN_STATES.includes(record.state) || record.taskId !== stem || !isChannelId(stem)) continue;
     const slug = typeof e.slug === 'string' && isSafeSlug(e.slug) ? e.slug : null;
     const program: any[] = Array.isArray(record.program) ? record.program : [];
-    const nameOf = (gateId: string): string => {
-      const node = program.find((n) => n && n.type === 'gate' && n.id === gateId);
-      return typeof node?.name === 'string' && node.name !== '' ? node.name.slice(0, GATE_NAME_CHARS) : gateId;
-    };
+    const nameOf = (gateId: string): string => gateName(program.find((n) => n && n.type === 'gate' && n.id === gateId)?.name, gateId);
     const runKey = runKeyOf(record.runKey);
     const row = (gateId: string, state: string, at: string | null, by: string | null) => ({ runKey, slug, taskId: stem, gateId, name: nameOf(gateId), state, at, by });
     const events: any[] = [];
@@ -396,4 +398,4 @@ function layersSpec(channel: { kind: 'layers'; name: string; projectKey: string 
   };
 }
 
-module.exports = { layersSpec, SECTIONS, DERIVED, POLICIES, GATE_RUNS, GATE_EVENTS, REVIEW_LIMIT, SESSION_LIMIT };
+module.exports = { layersSpec, gateName, SECTIONS, DERIVED, POLICIES, GATE_RUNS, GATE_EVENTS, REVIEW_LIMIT, SESSION_LIMIT };

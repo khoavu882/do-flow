@@ -27,6 +27,7 @@ const { readRuns } = require('../worker/run-store.ts');
 const { observedSessions } = require('../context/primary.ts');
 const { isSafeSlug } = require('../task-scope.ts');
 const { isChannelId } = require('./channels.ts');
+const { gateName } = require('./layers.ts');
 const { createProjectsIndex } = require('./projects-index.ts');
 
 type Env = Record<string, string | undefined>;
@@ -88,7 +89,7 @@ function orchestrationActivity(entry: { main: string; checkouts: string[] }): { 
       slug: typeof e.slug === 'string' && isSafeSlug(e.slug) ? e.slug : null,
       taskId: stem,
       gateId: gate.gateId,
-      name: typeof gate.name === 'string' ? gate.name : null,
+      name: gateName(gate.name, gate.gateId),
       recordAt: isoOrNull(record.updatedAt),
     });
   }

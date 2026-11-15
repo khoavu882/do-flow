@@ -312,3 +312,16 @@ test('161 IC-001: lookup returns a project main checkout and checkouts; an unkno
   assert.equal(index.lookup('ffffffffffffffff'), null);
   assert.equal(counter.calls.length, calls, 'and none again until 5 s more');
 });
+
+test('161 FX1: an awaiting gate whose record has no name is listed with its gate id as name, never null', async (t) => {
+  const f = fixture(t);
+  const a = project(f, 'proj-a');
+  journal(a, 'feat-a', 't1', {
+    state: 'AWAITING_GATE', updatedAt: '2026-11-15T01:00:00.000Z',
+    program: [{ type: 'gate', id: 'gate-x', kind: 'approval', prompt: 'p', status: 'pending' }],
+  });
+  const spec = channelSpec('machine', { cwd: a, env: f.env, index: indexFor(f, a, countingExec().exec) });
+  const item = (await spec.compute()).sections.activity.json.items[0];
+  assert.equal(item.gates.length, 1);
+  assert.equal(item.gates[0].name, 'gate-x');
+});
