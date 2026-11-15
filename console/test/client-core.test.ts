@@ -552,6 +552,31 @@ test('poller: stale is not evaluated while hidden, nor until the poll after a re
   assert.equal(instance.isStale(), false, 'fresh after it settled');
 });
 
+test('poller: refreshAfterAction fetches at once, and the answer of a fetch already in flight is dropped, never painted', async () => {
+  const clock = fakeClock();
+  const releases: Array<(value: any) => void> = [];
+  const painted: any[] = [];
+  const instance = mods.poll.createPoller({
+    clock, visibility: { hidden: () => false, subscribe: () => () => {} }, intervalMs: 5000,
+    fetchOnce: () => new Promise((resolve) => { releases.push(resolve); }), onSuccess: (data: any) => painted.push(data),
+  });
+  instance.start();
+  assert.equal(releases.length, 1, 'the first fetch is in flight');
+  assert.equal(instance.refreshAfterAction(), true);
+  assert.equal(releases.length, 1, 'nothing starts while one is in flight');
+  releases[0]('before the action');
+  await clock.advance(1);
+  assert.deepEqual(painted, [], 'the answer that began before the action is not painted');
+  assert.equal(releases.length, 2, 'and a fetch begins at once instead');
+  releases[1]('after the action');
+  await clock.advance(1);
+  assert.deepEqual(painted, ['after the action']);
+  assert.equal(instance.refreshAfterAction(), true);
+  assert.equal(releases.length, 3, 'idle: it fetches at once');
+  instance.stop();
+  assert.equal(instance.refreshAfterAction(), false);
+});
+
 test('poller: refreshNow restarts the backoff; retry=false ends polling; stop ignores a late result', async () => {
   const p = poller(['fail', 'fail', 'fail']);
   p.instance.start();
@@ -2236,8 +2261,10 @@ test('162 run page, the local actor: Approve and Reject replace the command bloc
     assert.equal(page.doc.activeElement, dialog.querySelector('.confirm__cancel'));
     assert.equal(text(dialog.querySelector('.confirm__effect')), 'Approve Name of gate-a (gate-a) of run feat-a/run-1 in do-flow. The run continues past this gate.');
     assert.equal(page.calls.filter((c) => c.method === 'POST').length, 0, 'opening the dialog posts nothing');
+    const reads = apiCalls(page, '/api/runs/feat-a/run-1').length;
     dialog.querySelector('.confirm__verb').fire('click');
     await settle();
+    assert.equal(apiCalls(page, '/api/runs/feat-a/run-1').length, reads + 1, '162: an applied action makes the page read the run again at once, not at its next interval');
     const posts = page.calls.filter((c) => c.method === 'POST');
     assert.equal(posts.length, 1);
     assert.equal(posts[0].url, '/api/actions/decide-gate');

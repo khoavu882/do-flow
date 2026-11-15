@@ -18,6 +18,7 @@ import {
 import { parsePairFragment, createPairPage } from './views/pair.js';
 import { CORE_RANGE, MANAGE_VIEWS, parseRoute, hashFor, baseRoute, titleFor, navFor } from './views.js';
 import { createInspector, hidePanel } from './shell.js';
+import { onApplied } from './views/confirm.js';
 import { readTheme, applyTheme, setupThemeControl } from './theme.js';
 import { attentionModel, attentionWords, currentProject } from './derive/attention.js';
 
@@ -1044,6 +1045,8 @@ function boot() {
       app.inspector = createInspector({ doc: document, shell: app.els.shell, el: app.els.inspector, main: app.els.main, matchMedia });
     }
     setupThemeControl(document.querySelector('.theme'));
+    // 162: an applied action makes what the view shows old; its poller refetches (the server has dropped its cache of the run).
+    onApplied(() => { if (app.view && app.view.poller && typeof app.view.poller.refreshAfterAction === 'function') app.view.poller.refreshAfterAction(); });
     if (app.els.pause) app.els.pause.addEventListener('click', () => togglePause());
     // The one shortcut registry (keys.js) binds the document once; each entry's action is a plain call into the shell.
     const go = (/** @type {string} */ hash) => () => { globalThis.location.hash = hash; };

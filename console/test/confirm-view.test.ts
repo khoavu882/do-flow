@@ -320,6 +320,31 @@ test('applied: the notice replaces the field, the verb button is gone and Cancel
   assert.equal(confirm.isConfirmOpen(), false);
 });
 
+test('162 finding: an applied action tells the page once, so it refetches its data; a refusal and a stale reply do not', async () => {
+  const told: string[] = [];
+  const stop = confirm.onApplied(() => told.push('applied'));
+  try {
+    transportOf(() => refusal(409, 'stale', { current: { state: 'RUNNING', revision: 4 } }));
+    const stale = open(closeSpec());
+    stale.verb.fire('click');
+    await flush();
+    confirm.closeConfirm();
+    transportOf(() => refusal(403, 'action-transport'));
+    const refused = open(closeSpec());
+    refused.verb.fire('click');
+    await flush();
+    confirm.closeConfirm();
+    assert.deepEqual(told, []);
+    transportOf(() => ok200());
+    const applied = open(gateSpec());
+    applied.verb.fire('click');
+    await flush();
+    assert.deepEqual(told, ['applied']);
+  } finally {
+    stop();
+  }
+});
+
 test('stale (409): the current state in words, "Nothing was applied.", and Review again, which reopens from the page’s current row', async () => {
   transportOf(() => refusal(409, 'stale', { current: { state: 'AWAITING_GATE', revision: 8, awaitingGate: { gateId: 'gate-b', name: 'Plan approval' } } }));
   const spec = gateSpec();

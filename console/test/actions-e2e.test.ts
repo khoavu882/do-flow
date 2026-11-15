@@ -220,6 +220,22 @@ test('close-run on the real core: a control device closes at the current revisio
   assert.equal(flatClosed.at(-1).by, 'console');
 });
 
+test('162 finding: GET /api/runs right after an applied close-run shows the run closed at the new revision, not the cached list (the runner drops what the write may have changed)', { timeout: 180_000 }, async (t: any) => {
+  const w = world(t);
+  const l = await lan(t, w);
+  const control = await l.devices.pair('control', 'Phone');
+  const row = async () => (json(await l.server.request('GET', '/api/runs', { headers: { Authorization: control.bearer } })).runs as any[]).find((r) => r.featureSlug === LEGACY && r.taskId === 'run-live');
+  const before = await row();
+  assert.equal(before.state, 'RUNNING');
+  assert.equal((await row()).revision, before.revision, 'the second read is the cached one');
+  const reply = await l.post('close-run', closeBody(w, before.revision), control.bearer);
+  assert.equal(reply.status, 200, reply.body);
+  const after = await row();
+  assert.notEqual(after.state, 'RUNNING', 'the list says what the action returned');
+  assert.equal(after.state, json(reply).result.state);
+  assert.ok(after.revision > before.revision);
+});
+
 /** A real process of its own group, standing in for a worker; its pid and start as the core records them. Stopped by `t.after`. */
 function sleeper(t: any) {
   const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore' });

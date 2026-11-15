@@ -355,6 +355,12 @@ function createLiveView(config, local, params, hooks) {
       if (mode === 'live') return refetch();
       return poller !== null ? poller.refreshNow() : false;
     },
+    /** 162: an action was applied; the poller's refresh while polling, one GET while live. */
+    refreshAfterAction() {
+      if (!running) return false;
+      if (mode === 'live') return refetch();
+      return poller !== null ? poller.refreshAfterAction() : false;
+    },
     isStale() {
       if (!running) return false;
       if (mode !== 'live') {

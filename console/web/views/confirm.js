@@ -17,6 +17,14 @@ import { textState, refusalWords, staleWords, appliedWords, notAllowedWords, UNK
 let opened = 0;
 /** @type {{ close: () => void } | null} */
 let active = null;
+/** @type {(() => void) | null} */
+let appliedListener = null;
+
+/** 162: who is told when an action was applied: the page's one listener (the last set), which refetches what it shows. @param {() => void} listener @returns {() => void} the call that stops telling it */
+function onApplied(listener) {
+  appliedListener = listener;
+  return () => { if (appliedListener === listener) appliedListener = null; };
+}
 
 /**
  * A fresh request id: 16 random bytes as base64url, 22 characters (IC-002 `^[A-Za-z0-9_-]{22}$`).
@@ -108,6 +116,7 @@ function openConfirm(spec, options = {}) {
     } else if (reply.status === 200 && code === null) {
       state = 'applied';
       say([appliedWords(spec.actionId, spec.decision)]);
+      if (appliedListener !== null) appliedListener();
     } else if (reply.status === 409 && code === 'stale') {
       state = 'stale';
       say(staleWords(spec.actionId, reply.body.current));
@@ -262,4 +271,4 @@ function notAllowedLine(ids) {
   return null;
 }
 
-export { newRequestId, openConfirm, closeConfirm, isConfirmOpen, actionArea, releaseActionAreas, actionButton, notAllowedLine };
+export { newRequestId, onApplied, openConfirm, closeConfirm, isConfirmOpen, actionArea, releaseActionAreas, actionButton, notAllowedLine };

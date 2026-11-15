@@ -2000,6 +2000,38 @@ test('act has no single flight and no cache: two identical concurrent calls spaw
   assert.equal(f.writeStarts().length - base, 3);
 });
 
+test('162 finding: a write that ran drops the cached state reads, so the next read spawns; static and floor-held entries stay', async () => {
+  const f = await writeSetup();
+  const reads = () => f.starts().filter((s: any) => s.argv[0] === 'task-attempt' || s.argv[0] === 'orchestrate' && s.argv[2] === 'list').length;
+  assert.equal((await f.runner.run('list', {})).ok, true);
+  assert.equal((await f.runner.run('attempts', { slug: 'a' })).ok, true);
+  assert.equal((await f.runner.run('list', {})).ok, true);
+  assert.equal(reads(), 2, 'cached inside the 2 s ttl');
+  const projects = f.starts().filter((s: any) => s.argv[0] === 'fleet').length;
+  assert.equal((await f.runner.act('close-run', WRITE_CASES['close-run'].params)).ok, true);
+  assert.equal((await f.runner.run('list', {})).ok, true);
+  assert.equal((await f.runner.run('attempts', { slug: 'a' })).ok, true);
+  assert.equal(reads(), 4, 'both reads spawned again after the write');
+  assert.equal(f.starts().filter((s: any) => s.argv[0] === 'fleet').length, projects, 'the projects read and its 5 s floor are not touched');
+  // Within the ttl again: cached.
+  assert.equal((await f.runner.run('list', {})).ok, true);
+  assert.equal(reads(), 4);
+});
+
+test('162 finding: a read in flight when a write ends is neither cached nor joined by the next read', async () => {
+  const f = await writeSetup(undefined, { FAKE_CORE_DELAY_MS: '80' }, 'delay');
+  const lists = () => f.starts().filter((s: any) => s.argv[0] === 'orchestrate' && s.argv[2] === 'list').length;
+  const base = f.starts().length;
+  const write = f.runner.act('close-run', WRITE_CASES['close-run'].params);
+  await f.startsReach(base + 1);
+  const before = f.runner.run('list', {});
+  assert.equal((await write).ok, true);
+  await before;
+  assert.equal(lists(), 1);
+  assert.equal((await f.runner.run('list', {})).ok, true);
+  assert.equal(lists(), 2, 'the pre-write answer was not cached');
+});
+
 test('act has one write slot: a second write waits for the first and runs after it, in order', async () => {
   const f = await writeSetup(undefined, { FAKE_CORE_DELAY_MS: '120' }, 'delay');
   const base = f.writeStarts().length;

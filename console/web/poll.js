@@ -56,6 +56,8 @@ function createPoller(options) {
   let keepStale = false; // resumed from a stale pause: stale until a fetch succeeds
   let inFlight = false;
   let resuming = false;
+  /** An action was applied while a fetch was in flight: that answer began before it, so it is dropped and a new fetch begins. */
+  let dropInFlight = false;
   /** @type {any} */
   let timer = null;
   /** @type {number | null} */
@@ -131,6 +133,11 @@ function createPoller(options) {
     if (mine !== generation) return;
     inFlight = false;
     resuming = false;
+    if (dropInFlight) {
+      dropInFlight = false;
+      pollNow();
+      return;
+    }
     if (ok) {
       keepStale = false;
       misses = 0;
@@ -189,6 +196,7 @@ function createPoller(options) {
       running = false;
       generation += 1;
       inFlight = false;
+      dropInFlight = false;
       resuming = false;
       clearTimer();
       if (unsubscribe) unsubscribe();
@@ -216,6 +224,19 @@ function createPoller(options) {
       if (!running || inFlight) return false;
       backoffStep = 0;
       pollNow();
+      return true;
+    },
+    /**
+     * 162: an action was applied, so what the data says is old. Fetches at once; a fetch already in flight began before the action,
+     * so its answer is dropped unpainted and a new one begins. False when stopped.
+     */
+    refreshAfterAction() {
+      if (!running) return false;
+      if (inFlight) dropInFlight = true;
+      else {
+        backoffStep = 0;
+        pollNow();
+      }
       return true;
     },
     /** The stale rule of 6.4. Not evaluated while the tab is hidden or the poll after a return is in flight. */
