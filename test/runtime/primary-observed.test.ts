@@ -211,6 +211,17 @@ HOOK_TEST('observed writes nothing: project, user-state and config-home trees st
   assert.ok(!text.stdout.includes(f.root) && !text.stdout.includes(S1), 'the text form carries no path or raw id');
 });
 
+HOOK_TEST('the text form labels the git-context capture time "context-captured", never "started": a compaction rewrites it (FU-v8reh7)', (t) => {
+  const f = fixture(t);
+  const ctx1 = JSON.parse(fs.readFileSync(path.join(f.store, 'sessions', S1, 'git-context.json'), 'utf8'));
+  const text = cli(f, ['--action', 'observed']);
+  assert.equal(text.status, 0, text.stderr);
+  const line = text.stdout.split('\n').find((l: string) => l.startsWith(`session ${sessionKey(S1)} `));
+  assert.ok(line, 'the session line is printed');
+  assert.ok(line.includes(` context-captured ${ctx1.captured_at} last-hook-record `), line);
+  assert.ok(!/ started /.test(line), 'no session line claims a start time');
+});
+
 test('no config home gives store absent, empty sessions, exit 0 (IC-018 a)', (t) => {
   const root = tempDir(t, 'doflow-primary-observed-nohome-');
   const main = path.join(root, 'proj');
