@@ -18,7 +18,7 @@
 //   7. a change of `phase` or `end` with no new bytes: one append with no pieces
 //   8. the last page sent ended inside an unfinished line (a final read, the run ended) and the file
 //      changed (a process that outlived the run still writes): a `tail` read and a new `snapshot`, so
-//      the line is masked whole (161 review 2; bound as in files.ts: lines under the 32 KiB piece grid)
+//      the line is masked whole (161 review 2; a longer line is cut and masked as files.ts says)
 //
 // Every read goes through `readLogPage` (IC-001) on the path `logFile` forms, so only
 // `<runId>.out.log` and `<runId>.err.log` can be opened and never `<runId>.last.log` (FR-012), and

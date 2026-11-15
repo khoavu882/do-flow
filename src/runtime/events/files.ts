@@ -16,8 +16,8 @@
 //   5. bytes past the cursor: `forward` reads, at most CATCHUP_FRAMES appends, then a re-mark
 //   6. the last page sent ended inside an unfinished line (no final newline yet) and the file changed:
 //      a `tail` read and a new `snapshot`, so the line is masked whole, never as two fragments
-//      (review 2). Bound: the line is masked whole when it is under the reader's 32 KiB piece grid;
-//      a longer line is cut at grid points and each piece is masked alone (log-read.ts).
+//      (review 2). A longer line is cut at the reader's 32 KiB grid points, and a piece at a cut is
+//      masked with 4 KiB of its line on each side (log-read.ts, review B).
 //
 // The listing is checked again when the last check is RESOLVE_MS old (the detector's 30 s pass always
 // finds it so), before every snapshot, on another inode, and whenever the file cannot be opened.
