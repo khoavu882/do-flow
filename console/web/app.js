@@ -19,7 +19,7 @@ import { parsePairFragment, createPairPage } from './views/pair.js';
 import { CORE_RANGE, MANAGE_VIEWS, parseRoute, hashFor, baseRoute, titleFor, navFor } from './views.js';
 import { createInspector, hidePanel } from './shell.js';
 import { readTheme, applyTheme, setupThemeControl } from './theme.js';
-import { attentionModel, attentionWords } from './derive/attention.js';
+import { attentionModel, attentionWords, currentProject } from './derive/attention.js';
 
 // ---- 1. theme: the module's first statement, before the fragment is read or anything is fetched ----
 
@@ -239,7 +239,7 @@ function buildRoot(view, animate) {
 /** @param {any} view */
 function updateMeta(view) {
   const spec = view.route.view;
-  mount(view.metaEl, spec.meta(view.route.params, view.hasData ? view.data : null, nowMs()));
+  mount(view.metaEl, spec.meta(view.route.params, view.hasData ? view.data : null, nowMs(), { project: app.attention ? currentProject(app.attention.body) : null }));
   if (view.stepEl && spec.step) {
     const content = spec.step(view.route.params, view.hasData ? view.data : null);
     mount(view.stepEl, content);
@@ -538,7 +538,7 @@ function setNav(href, manage = false) {
 function startAttention() {
   if (app.attention !== null || !app.els || !app.els.attention) return;
   const store = pageStore();
-  const held = { body: /** @type {any} */ (null), error: /** @type {string | null} */ (null), transport: { state: store.status().transport, code: /** @type {string | null} */ (null) }, frameAt: /** @type {number | null} */ (null), key: '' };
+  const held = { body: /** @type {any} */ (null), error: /** @type {string | null} */ (null), transport: { state: store.status().transport, code: /** @type {string | null} */ (null) }, frameAt: /** @type {number | null} */ (null), key: '', project: /** @type {string | null} */ (null) };
   app.attention = held;
   store.onTransport((/** @type {any} */ event) => {
     held.transport = { state: event.state, code: typeof event.code === 'string' ? event.code : null };
@@ -575,8 +575,15 @@ function paintAttention() {
   const words = attentionWords(model, held.frameAt === null ? null : clockTime(held.frameAt));
   const onLayers = Boolean(app.view) && app.view.route.id === 'layers';
   const show = words !== null && !onLayers && !app.fatal;
-  const key = JSON.stringify([words, show]);
+  const project = currentProject(held.body);
+  const key = JSON.stringify([words, show, project]);
   if (held.key === key) return;
+  // The Now page names the project it lists: its head is drawn again when the page learns the label.
+  if (held.project !== project && app.view && app.view.route.id === 'runs' && app.view.hasData) {
+    held.project = project;
+    updateMeta(app.view);
+  }
+  held.project = project;
   held.key = key;
   if (show) {
     strip.dataset.state = words.state;

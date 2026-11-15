@@ -67,24 +67,34 @@ test('a readable record with no awaiting gate is clear; an unreadable activity s
   assert.deepEqual(model(absent, { state: 'closed', code: null }), { kind: 'unobserved', reason: 'down', code: null });
 });
 
-test('waiting gates are counted across projects; the link opens the run only for the one gate of this project', () => {
-  assert.deepEqual(model(body([gate('T-1')])), { kind: 'waiting', count: 1, projects: 1, target: '#/run/feat-a/T-1', held: false });
-  assert.deepEqual(model(body([], [gate('T-9')])), { kind: 'waiting', count: 1, projects: 1, target: '#/layers', held: false }, 'the run pages read this project only');
-  assert.deepEqual(model(body([gate('T-1', null)])), { kind: 'waiting', count: 1, projects: 1, target: '#/layers', held: false }, 'no feature folder: no run page');
-  assert.deepEqual(model(body([gate('T-1'), gate('T-2')], [gate('T-9')])), { kind: 'waiting', count: 3, projects: 2, target: '#/layers', held: false });
+test('waiting gates are counted across the machine; the link opens the run for the one gate of this project, the project page for gates of one other project', () => {
+  assert.deepEqual(model(body([gate('T-1')])), { kind: 'waiting', count: 1, projects: 1, place: 'here', label: null, target: '#/run/feat-a/T-1', held: false });
+  assert.deepEqual(model(body([], [gate('T-9')])), { kind: 'waiting', count: 1, projects: 1, place: 'other', label: 'there', target: `#/layers/${THERE}`, held: false }, 'another project: its page, the run pages read this project only');
+  assert.deepEqual(model(body([], [gate('T-8'), gate('T-9')])), { kind: 'waiting', count: 2, projects: 1, place: 'other', label: 'there', target: `#/layers/${THERE}`, held: false });
+  assert.deepEqual(model(body([gate('T-1', null)])), { kind: 'waiting', count: 1, projects: 1, place: 'here', label: null, target: '#/layers', held: false }, 'no feature folder: no run page');
+  assert.deepEqual(model(body([gate('T-1'), gate('T-2')], [gate('T-9')])), { kind: 'waiting', count: 3, projects: 2, place: 'several', label: null, target: '#/layers', held: false });
   assert.equal(model(body([gate('T-1')]), { state: 'paused', code: null }).held, true);
   assert.equal(model(body([gate('T-1')]), open, 'events-down').held, true);
 });
 
 test('the words: a count and where, a held record says as of when, not observed says why; quiet and clear show nothing', () => {
   const words = attention.attentionWords;
-  assert.deepEqual(words(model(body([gate('T-1')])), '09:30'), { state: 'awaiting', count: '1 gate waiting for you', where: '', link: { href: '#/run/feat-a/T-1', text: 'Review' }, badge: '1' });
+  assert.deepEqual(words(model(body([gate('T-1')])), '09:30'), { state: 'awaiting', count: '1 gate waiting for you', where: 'on this machine, in this project', link: { href: '#/run/feat-a/T-1', text: 'Review' }, badge: '1' });
+  assert.equal(words(model(body([], [gate('T-9')]))).where, 'on this machine, in there', 'the strip counts the machine and names the other project');
   assert.deepEqual(words(model(body([gate('T-1'), gate('T-2')], [gate('T-9')]), { state: 'retrying', code: null }), '09:30'),
-    { state: 'awaiting', count: '3 gates waiting for you', where: 'in 2 projects · as of 09:30', link: { href: '#/layers', text: 'Review' }, badge: '3' });
+    { state: 'awaiting', count: '3 gates waiting for you', where: 'on this machine, in 2 projects · as of 09:30', link: { href: '#/layers', text: 'Review' }, badge: '3' });
   assert.deepEqual(words(model(null, { state: 'refused', code: 'stream-limit' })),
     { state: 'unknown', count: 'Waiting gates not observed', where: 'the Console refused this stream (stream-limit)', link: { href: '#/layers', text: 'Details' }, badge: null });
   assert.equal(words(model(null, { state: 'closed', code: null })).where, 'the stream from the Console is down');
   assert.equal(words(model(body([]))), null);
   assert.equal(words({ kind: 'quiet' }), null);
   for (const reason of Object.values(attention.UNOBSERVED_REASON)) assert.doesNotMatch(String(reason), /idle|nothing waiting/);
+});
+
+test('the project the Console runs in, by its label: what the Now page names beside the strip\'s machine count', () => {
+  assert.equal(attention.currentProject(body([])), 'here');
+  assert.equal(attention.currentProject(null), null);
+  const none = body([]);
+  for (const project of none.sections.projects.data.projects) project.current = false;
+  assert.equal(attention.currentProject(none), null);
 });

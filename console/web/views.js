@@ -176,8 +176,9 @@ const VIEWS = Object.freeze({
     wide: false,
     skeleton: skeletonHome,
     head: () => ({ text: 'Runs', mono: false }),
-    // The scope, in words: the attention strip above counts every project, this page lists one.
-    meta: () => h('p', { class: 'view-head__meta' }, 'The runs of the project this Console was started in.'),
+    // The scope, in words: the attention strip above counts this machine, this page lists one project and names it once the page knows it.
+    meta: (/** @type {any} */ _params, /** @type {any} */ _data, /** @type {number} */ _nowMs, /** @type {{ project: string | null }} */ shell) =>
+      h('p', { class: 'view-head__meta' }, shell && shell.project ? `Runs of ${shell.project}, the project this Console was started in.` : 'The runs of the project this Console was started in.'),
     render: (/** @type {any} */ data, /** @type {any} */ params, /** @type {any} */ local) => renderHome(data, { badge, local }),
     isEmpty: (/** @type {any} */ data) => data.runs.length === 0,
     empty: {

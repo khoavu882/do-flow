@@ -23,8 +23,10 @@ const UNOBSERVED_REASON = Object.freeze({
  *   `quiet`       nothing to say yet: the stream is connecting or paused and no record is held, or the activity has not arrived;
  *   `unobserved`  nothing can be said, with `reason` (a key of UNOBSERVED_REASON) and `code`;
  *   `clear`       a readable record holds no awaiting gate;
- *   `waiting`     `count` gates in `projects` projects; `target` is the hash that shows them: the run when the only gate is in
- *                 the project the Console runs in, else the Layers machine page.
+ *   `waiting`     `count` gates in `projects` projects of this machine. `place` says where they are: `here` (all in the project
+ *                 the Console runs in, the one the Now page lists), `other` (all in one other project, named by `label`) or
+ *                 `several`. `target` is the hash that shows them: the run when the only gate is here, the project's Layers page
+ *                 when they are all in one other project, else the Layers machine page.
  * `held` is true when the record is not being followed right now (stream down, refused, paused): the words then say as of when.
  * @param {{ body: any, transport: { state: string, code: string | null } | null, error: string | null }} input
  */
@@ -38,11 +40,14 @@ function attentionModel({ body, transport, error }) {
   const held = stream.token !== 'following';
   const gates = model.gates;
   if (gates.length === 0) return { kind: 'clear', held };
-  const projects = new Set(gates.map((/** @type {any} */ gate) => gate.projectKey)).size;
+  const keys = [...new Set(gates.map((/** @type {any} */ gate) => gate.projectKey))];
   const current = new Set(model.rows.filter((row) => row.current).map((row) => row.projectKey));
+  const place = keys.length > 1 ? 'several' : current.has(keys[0]) ? 'here' : 'other';
+  const row = place === 'other' ? model.rows.find((item) => item.projectKey === keys[0]) : null;
   const only = gates.length === 1 ? gates[0] : null;
-  const target = only !== null && current.has(only.projectKey) && typeof only.slug === 'string' ? `#/run/${only.slug}/${only.taskId}` : '#/layers';
-  return { kind: 'waiting', count: gates.length, projects, target, held };
+  const target = place === 'other' ? `#/layers/${keys[0]}`
+    : place === 'here' && only !== null && typeof only.slug === 'string' ? `#/run/${only.slug}/${only.taskId}` : '#/layers';
+  return { kind: 'waiting', count: gates.length, projects: keys.length, place, label: row && typeof row.label === 'string' ? row.label : null, target, held };
 }
 
 /**
@@ -52,7 +57,9 @@ function attentionModel({ body, transport, error }) {
  */
 function attentionWords(model, asOf = null) {
   if (model.kind === 'waiting') {
-    const where = [model.projects > 1 ? `in ${model.projects} projects` : null, model.held && asOf ? `as of ${asOf}` : null].filter(Boolean).join(' · ');
+    // The count is of the whole machine, and says so: the Now page lists one project (it names it), so the two never read as one scope.
+    const place = model.place === 'several' ? `in ${model.projects} projects` : model.place === 'here' ? 'in this project' : `in ${model.label ?? 'another project'}`;
+    const where = [`on this machine, ${place}`, model.held && asOf ? `as of ${asOf}` : null].filter(Boolean).join(' · ');
     return { state: 'awaiting', count: `${plural(model.count, 'gate')} waiting for you`, where, link: { href: model.target, text: 'Review' }, badge: String(model.count) };
   }
   if (model.kind === 'unobserved') {
@@ -62,4 +69,10 @@ function attentionWords(model, asOf = null) {
   return null;
 }
 
-export { UNOBSERVED_REASON, attentionModel, attentionWords };
+/** The label of the project the Console runs in, from the `machine` member's project list, or null when it does not say. @param {any} body */
+function currentProject(body) {
+  const row = machineModel(body).rows.find((item) => item.current);
+  return row && typeof row.label === 'string' && row.label !== '' ? row.label : null;
+}
+
+export { UNOBSERVED_REASON, attentionModel, attentionWords, currentProject };

@@ -5326,6 +5326,8 @@ test('shell attention: gates waiting anywhere on the machine show on every page 
   assert.equal(strip(page).getAttribute('data-state'), 'awaiting');
   assert.equal(text(strip(page).querySelector('.attention__count')), '1 gate waiting for you');
   assert.equal(strip(page).querySelector('.attention__link').getAttribute('href'), '#/run/feat-a/T-1', 'one gate in this project: straight to its run');
+  assert.equal(text(strip(page).querySelector('.attention__where')), 'on this machine, in this project', 'the strip counts the machine');
+  assert.equal(text(page.main.querySelector('.view-head__meta')), 'Runs of example-project, the project this Console was started in.', 'Now names the one project it lists');
   assert.equal(text(navLink(page, '#/layers').querySelector('.navrail__badge')), '1 1 gate waiting for you');
 
   const two = machineBody([gateOf('T-2', 'g-b', null, 1), gateOf('T-1', 'g-a', 'Approve the plan')]);
