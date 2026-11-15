@@ -449,6 +449,6 @@ async function main(argv: readonly string[]): Promise<number> {
   }
 }
 
-module.exports = { P50_BAR_MS, MAX_BAR_MS, DEFAULT_SAMPLES, WORST_CASE_NOTE, MEASURE, summarize, verdict, measure, parseFlags };
+module.exports = { P50_BAR_MS, MAX_BAR_MS, DEFAULT_SAMPLES, WORST_CASE_NOTE, MEASURE, summarize, verdict, measure, report, parseFlags };
 
 if (require.main === module) main(process.argv.slice(2)).then((code) => process.exit(code));

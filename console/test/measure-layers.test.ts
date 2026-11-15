@@ -10,7 +10,7 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { CORE_CLI } = require('./helpers/core-fixture.ts');
-const { P50_BAR_MS, MAX_BAR_MS, DEFAULT_SAMPLES, summarize, verdict, parseFlags } = require('../scripts/measure-layers.ts');
+const { P50_BAR_MS, MAX_BAR_MS, DEFAULT_SAMPLES, MEASURE, WORST_CASE_NOTE, summarize, verdict, report, parseFlags } = require('../scripts/measure-layers.ts');
 
 const SCRIPT = path.join(__dirname, '..', 'scripts', 'measure-layers.ts');
 const fill = (n: number, ms: number) => Array.from({ length: n }, () => ms);
@@ -55,6 +55,17 @@ test('parseFlags: --samples 1 to 100 (default 24) and an absolute, existing --co
     assert.ok('error' in answer, `${argv.join(' ')} is refused`);
     assert.match(answer.error, message, argv.join(' '));
   }
+});
+
+test('report: the printed JSON carries the samples and the verdict of injected samples', () => {
+  const samples = { audit: [40, 10, 30, 20], brief: [5, 1200, 7, 6] };
+  const out = report({ ...verdict(samples), samples, early: 1, viewFailures: 0, coreKinds: ['layers'], fixtureExit: 0 });
+  assert.equal(out.measure, MEASURE);
+  assert.equal(out.worstCaseNote, WORST_CASE_NOTE);
+  assert.deepEqual(out.audit, { samples: samples.audit, min: 10, p50: 20, p95: 40, max: 40, ok: true });
+  assert.deepEqual(out.brief, { samples: samples.brief, min: 5, p50: 6, p95: 1200, max: 1200, ok: false });
+  assert.deepEqual([out.ok, out.early, out.viewFailures, out.fixtureExit, out.coreKinds], [false, 1, 0, 0, ['layers']]);
+  assert.deepEqual(out.bar, { p50Ms: P50_BAR_MS, maxMs: MAX_BAR_MS });
 });
 
 test('usage errors exit 2 with the usage line and print nothing on stdout', () => {
