@@ -56,6 +56,20 @@ test('bind writes the user-layer workers.models through the settings writer, one
   assert.ok(fs.existsSync(`${s.settingsFile}.config.bak`), 'the replaced bytes are kept');
 });
 
+test('bind and unbind refuse from a worker session: exit 1, nothing written, a person runs it from their own terminal', async (t: any) => {
+  const s = setup(t);
+  for (const role of ['worker', 'Worker', 'surprise']) {
+    const env = { ...s.env, DOFLOW_SESSION_ROLE: role };
+    for (const action of ['bind', 'unbind']) {
+      const res = await run({ action, projectRoot: s.project, env, harness: 'codex', tier: 'frontier', model: 'gpt-6.1-sol' });
+      assert.equal(res.code, 1);
+      assert.match(res.err, /worker session; a person runs it from their own terminal/);
+    }
+  }
+  assert.equal(fs.existsSync(s.settingsFile), false);
+  assert.equal((await bind({ ...s, env: { ...s.env, DOFLOW_SESSION_ROLE: 'main' } }, { harness: 'codex', tier: 'frontier', model: 'gpt-6.1-sol' })).code, 0);
+});
+
 test('a harness with no model list accepts the typed id and says it was not checked', async (t: any) => {
   const s = setup(t);
   const res = await bind(s, { harness: 'codex', tier: 'standard', model: 'my-model' });

@@ -7,6 +7,7 @@ const { HARNESS_IDS } = require('../worker/probes/index.ts');
 const { validateValue } = require('../settings/files.ts');
 const { tierView, shown, slotsOf } = require('./tier-view.ts');
 const { changeBinding, closestIds } = require('./bind.ts');
+const { inWorkerSession } = require('../context/identity.ts');
 const { loadRegistry } = require('../../registry/index.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 
@@ -33,8 +34,17 @@ function pickFrom(models: any[], ask: (message: string) => string): string | nul
   return Number.isInteger(index) && index >= 1 && index <= models.length ? models[index - 1].id : null;
 }
 
+/** bind and unbind change the user's own model choices: a worker session does not run them. */
+function refuseWorkerSession(act: string, json: any): number {
+  const message = `${act} changes the user's model settings and is not run from a worker session; a person runs it from their own terminal`;
+  if (json) console.log(JSON.stringify({ ok: false, error: 'worker-session', message }, null, 2));
+  else console.error(`doflow models: ${message}`);
+  return finishRuntime(1);
+}
+
 async function handleBind({ act, harness, tier, model, allowUnlisted, json, projectRoot, env, interactive, ask, syncOptions }: any): Promise<number> {
   const usage = act === 'bind' ? BIND_USAGE : UNBIND_USAGE;
+  if (inWorkerSession(env)) return refuseWorkerSession(act, json);
   const registry = loadRegistry({ repoRoot: REPO_ROOT });
   const slots = [...slotsOf(registry), ORCHESTRATOR_KEY];
   if (!harness || !tier) return usageError('models', `--harness and --tier are required; usage: ${usage}`, json);

@@ -197,6 +197,18 @@ test('IC-009 outcome appends to the pick store and works while the feature is of
   assert.match(invalid.stderr, /light, standard, frontier/);
 });
 
+test('configure refuses from a worker session: exit 1, nothing written, and a person runs it from their own terminal', (t: any) => {
+  const f = fixture(t);
+  for (const role of ['worker', 'Worker', 'surprise']) {
+    const res = spawnSync(bashPath(), [RUN, 'advise', '--action', 'configure', '--off'], { cwd: f.project, env: { ...f.env(), DOFLOW_SESSION_ROLE: role }, encoding: 'utf8' });
+    assert.equal(res.status, 1, res.stderr);
+    assert.match(res.stderr, /worker session; a person runs it from their own terminal/);
+    assert.equal(fs.existsSync(f.userSettingsFile), false);
+  }
+  const main = spawnSync(bashPath(), [RUN, 'advise', '--action', 'configure', '--off'], { cwd: f.project, env: { ...f.env(), DOFLOW_SESSION_ROLE: 'main' }, encoding: 'utf8' });
+  assert.equal(main.status, 0, main.stderr);
+});
+
 test('IC-021 configure writes user/project forms and off performs no server check', async (t) => {
   const f = fixture(t);
   const server = await f.startServer();
