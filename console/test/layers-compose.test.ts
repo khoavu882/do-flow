@@ -18,3 +18,14 @@ test('161 DEC-019: a gate decided manually keeps by manual, autopilot and null s
   assert.deepEqual(kept.data.map((g: any) => g.by), ['manual', 'autopilot', null]);
   assert.deepEqual(await gatesOf([gate('person')]), { ok: false, code: 'core-contract-mismatch' });
 });
+
+const reviewsOf = async (rows: unknown[]) => ((await composeLayers(WK, new Map([['reviews', { exit: 0, json: rows }]]), async () => ({ ok: false }))) as any).body.sections.reviews;
+
+test('161 review C: an unreadable review keeps the core\'s reason (too-large); other rows carry none', async () => {
+  const row = (over: any) => ({ worktreeKey: WK, feature: '161-live', ...over });
+  const kept = await reviewsOf([row({ state: 'unreadable', reason: 'too-large' }), row({ feature: 'f2', state: 'unreadable' }), row({ feature: 'f3', state: 'absent' })]);
+  assert.equal(kept.ok, true, JSON.stringify(kept));
+  assert.deepEqual(kept.data.map((r: any) => r.reason ?? null), ['too-large', null, null]);
+  assert.equal('reason' in kept.data[1], false, 'no reason key when the core sent none');
+  assert.deepEqual(await reviewsOf([row({ state: 'unreadable', reason: 'not an id!' })]), { ok: false, code: 'core-contract-mismatch' });
+});

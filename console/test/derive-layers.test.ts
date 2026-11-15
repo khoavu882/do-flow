@@ -185,3 +185,17 @@ test('transcript helpers: the event list is bounded at 500 and the redactor mark
   assert.equal(result.dropped, 10);
   assert.deepEqual(layers.splitMasked('a <masked> b'), [{ text: 'a ' }, { mask: 'masked' }, { text: ' b' }]);
 });
+
+test('161 review C: a review too large to read says "not read: too large"; an audit or denial log that could not be read is listed, never quiet', () => {
+  const review = (over: any) => ({ worktreeKey: WK, feature: '161-live', counts: null, ...over });
+  assert.deepEqual(layers.reviewWords(review({ state: 'unreadable', reason: 'too-large' })), { token: 'unknown', words: ['review not read: too large'] });
+  assert.deepEqual(layers.reviewWords(review({ state: 'unreadable' })), { token: 'unknown', words: ['review unreadable'] });
+  const model = layers.projectModel(layersBody({ reviews: ok([review({ state: 'unreadable', reason: 'too-large' })]) }));
+  assert.deepEqual(model.lanes.find((l: any) => l.worktreeKey === WK).runs[0].review.words, ['review not read: too large']);
+  const sessions = ok([
+    { sessionKey: 'cc11dd22ee33ff44', harness: 'claude', audit: { observed: false, reason: 'unreadable' }, denials: { observed: false, reason: 'no-harness-record' } },
+    { sessionKey: 'cc11dd22ee33ff55', harness: 'codex', audit: never, denials: { observed: false, reason: 'unreadable' } },
+  ]);
+  assert.deepEqual(layers.projectModel(layersBody({ sessions })).unreadLogs, [{ harness: 'claude', log: 'audit' }, { harness: 'codex', log: 'denials' }]);
+  assert.deepEqual(layers.projectModel(layersBody()).unreadLogs, []);
+});

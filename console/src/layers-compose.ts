@@ -177,7 +177,9 @@ function reviews(value: unknown) {
       for (const name of REVIEW_COUNTS) out[name] = count(c[name]);
       return out;
     })(r.counts);
-    return { worktreeKey: key16(r.worktreeKey), feature: id(r.feature), state, counts };
+    // 161 review C: the core says why an unreadable review was not read (`too-large`); an id, kept only when sent.
+    const reason = state === 'unreadable' && r.reason !== undefined ? { reason: id(r.reason) } : {};
+    return { worktreeKey: key16(r.worktreeKey), feature: id(r.feature), state, counts, ...reason };
   };
   return each(entry, BOUNDS.reviews)(value);
 }

@@ -336,6 +336,8 @@ const KIND_WORDS = Object.freeze({
  */
 function reviewWords(review) {
   if (!review || review.state === 'absent') return null;
+  // 161 review C: the reason the core gave for not reading it (`too-large`), in words.
+  if (review.state === 'unreadable' && typeof review.reason === 'string') return { token: 'unknown', words: [`review not read: ${review.reason.replace(/-/g, ' ')}`] };
   if (review.state === 'unreadable' || review.state === 'invalid') return { token: 'unknown', words: [`review ${review.state}`] };
   const c = review.counts;
   if (!c) return { token: 'unknown', words: ['review recorded'] };
@@ -452,6 +454,13 @@ function projectModel(body) {
     runs: runs.filter((r) => r.runKey === null || r.runKey === undefined || !placed(r.runKey.split('/')[0])).map(runRow),
     agents: nodes.filter((n) => !placed(n.worktreeKey) && n.kind !== 'doflow-run').map(agentRow),
   };
+  // 161 review C: an audit or denial log that exists but could not be read, so the page never shows it as quiet.
+  const unreadLogs = [];
+  for (const session of sessions) {
+    for (const log of /** @type {const} */ (['audit', 'denials'])) {
+      if (session[log] && session[log].observed === false && session[log].reason === 'unreadable') unreadLogs.push({ harness: session.harness, log });
+    }
+  }
   const withheld = [];
   for (const name of /** @type {const} */ (['checkouts', 'tree', 'runs', 'gates', 'artifacts', 'reviews', 'sessions', 'traffic', 'coverage'])) {
     if (sec[name].state === 'unreadable') withheld.push({ section: name, code: sec[name].code });
@@ -468,6 +477,7 @@ function projectModel(body) {
     coverage: sec.coverage.state === 'ok' ? sec.coverage.data : [],
     notChecked: sec.tree.state === 'ok' && sec.tree.data.limits ? sec.tree.data.limits.notChecked : 0,
     withheld,
+    unreadLogs,
   };
 }
 

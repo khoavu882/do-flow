@@ -563,7 +563,12 @@ function updateProject(local, data, params) {
   });
   setSection(local, 'coverage', JSON.stringify([model.sections.coverage, model.coverage]), () => coverageTable(model));
   const rest = model.withheld.filter((w) => !['checkouts', 'tree', 'runs', 'artifacts', 'gates', 'coverage'].includes(w.section));
-  setSection(local, 'withheld', JSON.stringify(rest), () => (rest.length === 0 ? null : h('div', { class: 'layers-foot' }, rest.map((w) => unreadableNote(w.section, w.code)))));
+  // 161 review C: an audit or denial log that exists but could not be read is said so, never left out as quiet.
+  const unreadLogs = model.unreadLogs;
+  setSection(local, 'withheld', JSON.stringify([rest, unreadLogs]), () => (rest.length + unreadLogs.length === 0 ? null : h('div', { class: 'layers-foot' }, [
+    ...rest.map((w) => unreadableNote(w.section, w.code)),
+    ...unreadLogs.map((u) => h('p', { class: 'layers-unreadable', dataset: { state: 'failed' } }, [badge('failed', 'failed', 'unreadable'), ` The ${u.log === 'audit' ? 'audit' : 'denial'} log of a ${u.harness} session: not read. Nothing is claimed about it.`])),
+  ])));
   if (arrived.length === 1) announce(`A gate is waiting for you: ${arrived[0].name ?? arrived[0].gateId}.`);
   else if (arrived.length > 1) announce(`${arrived.length} gates are waiting for you.`);
   syncInspector(local, data, params);
