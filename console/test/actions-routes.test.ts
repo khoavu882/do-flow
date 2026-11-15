@@ -325,6 +325,34 @@ test('limits: the seventh action of an actor in a minute is 429 action-rate-limi
   assert.deepEqual(summary.map((line) => [line.code, line.count, line.actor.kind]), [['rate-limited', 2, 'local']]);
 });
 
+test('162 finding: Retry-After is the real wait, the seconds until the oldest counted attempt of the refusing limit leaves its window, rounded up, at least 1', async (t) => {
+  const clock = manual();
+  const w = await loopback(t, fakeRunner(), { now: clock.now });
+  // Per minute: attempts at 0, 10, 20, 25, 26 and 27 s, so the oldest (0 s) leaves 60 s after it, whatever the others do.
+  for (const at of [0, 10, 20, 25, 26, 27]) {
+    clock.t = at * 1000;
+    assert.equal((await w.post('decide-gate', BODIES['decide-gate']())).status, 200);
+  }
+  clock.t = 30_000;
+  assert.equal((await w.post('decide-gate', BODIES['decide-gate']())).headers['retry-after'], '30', 'not a fixed 30: 60 s minus the age of the oldest');
+  clock.t = 45_000;
+  assert.equal((await w.post('decide-gate', BODIES['decide-gate']())).headers['retry-after'], '15');
+  clock.t = 59_400;
+  assert.equal((await w.post('decide-gate', BODIES['decide-gate']())).headers['retry-after'], '1', 'rounded up, never 0');
+  clock.t = 60_000;
+  assert.equal((await w.post('decide-gate', BODIES['decide-gate']())).status, 200, 'and at that second the oldest has left');
+  // Per hour: one attempt every 100 s never fills a minute; the thirty-first, at 3000 s, waits for the first to leave the hour.
+  const hourly = await loopback(t, fakeRunner(), { now: clock.now });
+  for (let index = 0; index < 30; index += 1) {
+    clock.t = 3_600_000 + index * 100_000;
+    assert.equal((await hourly.post('close-run', BODIES['close-run']())).status, 200, `attempt ${index + 1}`);
+  }
+  clock.t = 3_600_000 + 3_000_000;
+  const limited = await hourly.post('close-run', BODIES['close-run']());
+  assert.equal(limited.status, 429);
+  assert.equal(limited.headers['retry-after'], '600', 'the hour window: 3600 s minus 3000 s');
+});
+
 test('limits: 30 an hour per actor, and 20 a minute per Console across devices', async (t) => {
   const clock = manual();
   const runner = fakeRunner();
