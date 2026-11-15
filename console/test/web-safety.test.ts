@@ -615,3 +615,20 @@ test('layout 161: the project row of the machine page and the lane rows follow t
   assert.equal(effective(rules, '.layers-crumb[data-agent="true"] .layers-crumb__agent', 'display', 360), 'inline');
   assert.equal(effective(rules, '.layers-crumb[data-agent="true"] .layers-crumb__agent', 'display', 768), undefined);
 });
+
+// The page names its own icon, so no browser asks for /favicon.ico (a 404 on every load before). The icon is a text SVG the static
+// route serves as `image/svg+xml` under the unchanged policy (`img-src 'self'`): no binary file, no data: URI, no style or script in it.
+test('the page icon is a small SVG file of the bundle, linked from index.html and served by the static route', async () => {
+  const { readStatic } = require('../src/static.ts');
+  const html = fs.readFileSync(path.join(WEB_ROOT, 'index.html'), 'utf8');
+  assert.match(html, /<link rel="icon" type="image\/svg\+xml" href="favicon\.svg">/);
+  assert.doesNotMatch(html, /favicon\.ico|href="data:/);
+  const served = await readStatic(fs.realpathSync(WEB_ROOT), '/favicon.svg');
+  assert.ok(served, 'the static route finds it');
+  assert.equal(served.type, 'image/svg+xml');
+  const svg = String(served.body);
+  assert.ok(svg.length < 1024, 'small');
+  assert.match(svg, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" viewBox="0 0 16 16">/);
+  assert.doesNotMatch(svg, /<script|<style|style=|href=|url\(|\bon[a-z]+=/i);
+  assert.deepEqual(fs.readdirSync(WEB_ROOT).filter((name: string) => /\.(ico|png|jpe?g|gif)$/i.test(name)), [], 'no binary icon');
+});
