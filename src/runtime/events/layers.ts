@@ -215,10 +215,12 @@ function reviewsSection(entry: Entry, fsImpl: any): SectionResult {
 }
 
 /**
- * The last AUDIT_TAIL_BYTES of a regular file below `root` as whole lines, or null when it is absent or
- * not a regular file (opened through `confined.ts`, so a link swapped in before the open is refused).
+ * The last AUDIT_TAIL_BYTES of a regular file below `root` as whole lines; `'absent'` when it does not
+ * exist; `'unreadable'` when it exists but cannot be read (no permission, a link or not a regular file,
+ * a read error; review 6, design decision 5: never shown as idle). Opened through `confined.ts`, so a
+ * link swapped in before the open is refused.
  */
-function tailLines(root: string, file: string, fsImpl: any): string[] | null {
+function tailLines(root: string, file: string, fsImpl: any): string[] | 'absent' | 'unreadable' {
   try {
     const fd = openConfined(root, file, fsImpl);
     try {
@@ -230,8 +232,8 @@ function tailLines(root: string, file: string, fsImpl: any): string[] | null {
       if (start > 0) lines.shift(); // the first line was cut
       return lines.filter((line) => line.trim() !== '');
     } finally { fsImpl.closeSync(fd); }
-  } catch {
-    return null;
+  } catch (error: any) {
+    return error && (error.code === 'ENOENT' || error.code === 'ENOTDIR') ? 'absent' : 'unreadable';
   }
 }
 
@@ -243,7 +245,8 @@ const text = (value: unknown): string | null => (typeof value === 'string' && va
 /** A `subagent-audit.log`: start and stop counts, the ids still open, and the newest AUDIT_RECENT lines with their tree agentKey. */
 function auditOf(root: string, file: string, harness: string | null, fsImpl: any): any {
   const lines = tailLines(root, file, fsImpl);
-  if (lines === null) {
+  if (lines === 'unreadable') return { observed: false, reason: 'unreadable' };
+  if (lines === 'absent') {
     if (harness !== null && AUDIT.subagents.includes(harness)) return { observed: true, open: 0, started: 0, stopped: 0, recent: [] };
     return { observed: false, reason: harness === null ? 'harness-not-recorded' : 'no-audit-hook' };
   }
@@ -268,7 +271,8 @@ function auditOf(root: string, file: string, harness: string | null, fsImpl: any
 /** A `permission-audit.log` (D8, "permission refused"): the count and the newest DENIAL_RECENT. */
 function denialsOf(root: string, file: string, harness: string | null, fsImpl: any): any {
   const lines = tailLines(root, file, fsImpl);
-  if (lines === null) {
+  if (lines === 'unreadable') return { observed: false, reason: 'unreadable' };
+  if (lines === 'absent') {
     if (harness !== null && AUDIT.permissions.includes(harness)) return { observed: true, count: 0, recent: [] };
     return { observed: false, reason: 'no-harness-record' };
   }

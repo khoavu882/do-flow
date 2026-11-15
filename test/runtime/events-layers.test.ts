@@ -408,6 +408,26 @@ test('161 review 4: reviews choose the 16 newest features by metadata, then read
   assert.equal(new Set(opened).size, 15, `only the 15 chosen bodies are opened (the big one is refused by its size): ${opened.length}`);
 });
 
+test('161 review 6: an audit or denial log that exists but cannot be read is not observed with reason unreadable, never zero activity', { skip: WIN || process.getuid?.() === 0 }, async (t) => {
+  const f = fixture(t);
+  const a = project(f, 'proj-u');
+  const claude = session(f, 'claude', 'sess-claude-u', a, Date.now());
+  const audit = write(path.join(claude, 'subagent-audit.log'), auditLine('SubagentStart', 'sess-claude-u', 'agent-1'));
+  const denials = write(path.join(claude, 'permission-audit.log'), `${JSON.stringify({ timestamp: '2026-11-15T01:00:00Z', tool_name: 'Bash', reason: 'r' })}\n`);
+  fs.chmodSync(audit, 0o000);
+  fs.chmodSync(denials, 0o000);
+  t.after(() => { for (const file of [audit, denials]) if (fs.existsSync(file)) fs.chmodSync(file, 0o600); });
+  const spec = channelSpec(`layers:${cwdHash(a)}`, { cwd: a, env: f.env, index: indexFor(f, a) });
+  const { sections } = await spec.compute(['sessions']);
+  const [row] = sections.sessions.json;
+  assert.deepEqual([row.audit, row.denials], [{ observed: false, reason: 'unreadable' }, { observed: false, reason: 'unreadable' }]);
+  // An absent log of a hooked harness is still zero activity.
+  fs.rmSync(audit);
+  fs.rmSync(denials);
+  const again = (await spec.compute(['sessions'])).sections.sessions.json[0];
+  assert.deepEqual([again.audit.observed, again.audit.started, again.denials.observed, again.denials.count], [true, 0, true, 0]);
+});
+
 test('161 review 3: a denial reason and a gate name are masked whole before the 200-character cap, so a secret cut at the boundary is never sent', async (t) => {
   const f = fixture(t);
   const a = project(f, 'proj-m');
