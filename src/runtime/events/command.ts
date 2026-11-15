@@ -40,16 +40,17 @@ const { createEnvelopeWriter, maskSections } = require('./envelope.ts');
 const { createDetector } = require('./detector.ts');
 const { channelSpec } = require('./sections.ts');
 const { createLogSubscription } = require('./logs.ts');
+const { createProjectsIndex } = require('./projects-index.ts');
 
 /** IC-005: the longest control line, in bytes, newline excluded. */
 const CONTROL_LINE_BYTES = 1024;
 
 /**
- * 161 IC-001: the kinds whose producers are not built yet. Until T3 (`machine`), T4 (`layers`) and
- * T5 (`file`, `transcript`) give `channelSpec` an entry for them, a `sub` to one prints a
- * `producer-failed` error on that channel and is not followed, unless a `specFor` seam is injected.
+ * 161 IC-001: the kinds whose producers are not built yet. Until T4 (`layers`) and T5 (`file`,
+ * `transcript`) give `channelSpec` an entry for them, a `sub` to one prints a `producer-failed`
+ * error on that channel and is not followed, unless a `specFor` seam is injected.
  */
-const NO_PRODUCER_KINDS: ReadonlySet<string> = new Set(['machine', 'layers', 'file', 'transcript']);
+const NO_PRODUCER_KINDS: ReadonlySet<string> = new Set(['layers', 'file', 'transcript']);
 
 /** IC-001: the flags the verb takes; each at most once. */
 const FLAGS: ReadonlySet<string> = new Set(['--follow', '--channels', '--control', '--json']);
@@ -93,6 +94,8 @@ interface EventsOptions {
   specFor?: (channel: any, ctx: { cwd: string; env: Env }) => any;
   logFor?: (options: any) => any;
   detectorFactory?: (options: any) => any;
+  /** 161 D4: the child's project index (`projects-index.ts`); one is made from `env` and `cwd` when absent. */
+  projectsIndex?: any;
 }
 
 /** The first problem with the flags and positionals as typed, or null. */
@@ -171,19 +174,30 @@ function handleEventsCommand(options: EventsOptions = {}): Promise<number> {
     initial = list.channels;
   }
 
-  const ctx = { cwd: options.cwd ?? process.cwd(), env: options.env ?? process.env };
   const specFor = options.specFor ?? channelSpec;
   const logFor = options.logFor ?? createLogSubscription;
   const detectorFactory = options.detectorFactory ?? createDetector;
   const signals: SignalSource = options.signals ?? process;
   const clock = options.clock;
+  let detector: any = null;
+  const cwd = options.cwd ?? process.cwd();
+  const env = options.env ?? process.env;
+  // 161 D4: one project index per child, shared by every channel that names projects; and the
+  // detector's watch counts, which `machine` reports.
+  const ctx = {
+    cwd,
+    env,
+    index: options.projectsIndex ?? createProjectsIndex({ env, cwd, ...(clock ? { now: () => clock.now() } : {}) }),
+    counts: () => (detector && typeof detector.counts === 'function' ? detector.counts() : { watched: 0, fingerprintOnly: 0 }),
+  };
 
   return new Promise<number>((resolve) => {
     const specs = new Map<string, any>();
     const last = new Map<string, Map<string, string>>();
     const failed = new Set<string>();
+    /** 161 IC-006: the `sourcesKey()` each channel's detector registration was made from. */
+    const sourceKeys = new Map<string, string>();
     let stopped = false;
-    let detector: any = null;
     let stdin: Readable | null = null;
     let queue: Promise<void> = Promise.resolve();
     let ending = false;
@@ -250,6 +264,7 @@ function handleEventsCommand(options: EventsOptions = {}): Promise<number> {
       try {
         computed = await spec.compute(snapshot || request.scope === 'all' ? undefined : request.sections);
         masked = maskSections(computed.sections);
+        if (specs.get(ch) === spec && !stopped) syncSources(ch, spec);
       } catch {
         // IC-002: a producer fault is the channel's `error`, once per spell; the next snapshot ends it.
         if (specs.get(ch) !== spec || stopped || failed.has(ch)) return;
@@ -281,6 +296,15 @@ function handleEventsCommand(options: EventsOptions = {}): Promise<number> {
       emit(lines);
     }
 
+    /** 161 IC-006: a spec whose `sourcesKey()` moved has its new sources swapped in, without a resnapshot. */
+    function syncSources(ch: string, spec: any): void {
+      if (typeof spec.sourcesKey !== 'function') return;
+      const key = spec.sourcesKey();
+      if (sourceKeys.get(ch) === key) return;
+      sourceKeys.set(ch, key);
+      detector.update(ch, spec.sources());
+    }
+
     function recordEvent(ch: string, event: string): void {
       if (stopped || !specs.has(ch)) return;
       last.delete(ch);
@@ -307,7 +331,10 @@ function handleEventsCommand(options: EventsOptions = {}): Promise<number> {
       specs.set(channel.name, spec);
       last.delete(channel.name);
       failed.delete(channel.name);
-      await detector.follow(channel.name, spec.sources());
+      const sources = spec.sources();
+      if (typeof spec.sourcesKey === 'function') sourceKeys.set(channel.name, spec.sourcesKey());
+      else sourceKeys.delete(channel.name);
+      await detector.follow(channel.name, sources);
     }
 
     /** A log channel's subscription, marked so `recompute` tells it from a catalogue entry. */
@@ -326,6 +353,7 @@ function handleEventsCommand(options: EventsOptions = {}): Promise<number> {
         specs.delete(ch);
         last.delete(ch);
         failed.delete(ch);
+        sourceKeys.delete(ch);
         return;
       }
       if (!specs.has(ch) && specs.size >= CHANNEL_LIMIT) {

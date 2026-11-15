@@ -447,19 +447,17 @@ test('161 IC-001: the ninth project gets error too-many-projects on that channel
 
 test('161 IC-001: a kind whose producer is not built gets a per-channel error frame, is not followed and the exit stays 0', async (t) => {
   const h = run(t, { options: { specFor: undefined } });
-  h.stdin.json('sub', 'machine');
   h.stdin.json('sub', `layers:${pk(1)}`);
   h.stdin.json('sub', `file:${pk(1)}:${pk(2)}`);
   h.stdin.json('sub', `transcript:${pk(1)}:${pk(2)}`);
   await settle();
   assert.deepEqual(h.stdout.frames().map((f: any) => [f.ch, f.type, f.data.code]), [
-    ['machine', 'error', 'producer-failed'],
     [`layers:${pk(1)}`, 'error', 'producer-failed'],
     [`file:${pk(1)}:${pk(2)}`, 'error', 'producer-failed'],
     [`transcript:${pk(1)}:${pk(2)}`, 'error', 'producer-failed'],
   ]);
   await h.clock.advance(60000);
-  assert.equal(h.stdout.frames().length, 4, 'nothing is followed, so nothing more is printed');
+  assert.equal(h.stdout.frames().length, 3, 'nothing is followed, so nothing more is printed');
   h.stdin.emit('end');
   assert.equal(await h.done, 0);
   assert.equal(h.stderr.text, '');

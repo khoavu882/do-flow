@@ -326,3 +326,24 @@ test('IC-004: every section of every channel kind equals its verb with --json ov
     assert.deepEqual(sources.derived, [...CATALOGUE.worker.derived]);
   });
 });
+
+// 161 IC-002: `machine` is in the catalogue with its two sections, none derived, and is routed to
+// its producer (`machine.ts`, tested in events-machine.test.ts) over the context's project index.
+test('161 IC-002: the machine channel is catalogued with projects and activity and refuses other names', async () => {
+  assert.deepEqual([...CATALOGUE.machine.sections], ['projects', 'activity']);
+  assert.deepEqual([...CATALOGUE.machine.derived], []);
+  const index = {
+    ensure() {}, generation: () => 1, now: () => 0, entries: () => [], sources: () => [], sessionsDir: () => null,
+    body: () => ({ ok: true, body: { v: 1, store: 'absent', projects: [], excluded: { missing: 0, temp: 0, notDoflow: 0, unreadable: 0 }, truncated: false } }),
+    replay: () => ({ status: 1 }),
+  };
+  const spec = channelSpec('machine', { cwd: REPO, env: {}, index });
+  assert.deepEqual(spec.channel, { kind: 'machine', name: 'machine' });
+  assert.deepEqual(spec.sectionNames(), ['projects', 'activity']);
+  assert.equal(spec.isDerived('activity'), false);
+  assert.equal(typeof spec.sourcesKey(), 'string');
+  const { sections } = await spec.compute();
+  assert.deepEqual(sections.projects, { exit: 0, json: index.body().body });
+  assert.deepEqual(sections.activity, { exit: 0, json: { v: 1, limits: { projects: 16, notShown: 0, watched: 0, fingerprintOnly: 0 }, items: [] } });
+  await assert.rejects(spec.compute(['list']), /'list' is not a section of a machine channel/);
+});
