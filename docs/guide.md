@@ -162,7 +162,7 @@ doflow config unset review.rounds --layer project
 doflow config validate --prepared-run prepared.json   # check a prepared-run file; writes nothing
 ```
 
-Quote a string value so the shell passes it as JSON. A security-relevant setting (`autopilot.enabled`, `verify.reuse`, `workers.enabled`, `workers.models`, `workers.billing`, every `advice.*`) is refused: you write those in the settings file yourself. A refused write exits 1 and changes nothing; a usage mistake exits 2. The lock, backup (`<file>.config.bak`), size and symlink behaviour of a write are in the `config set` row of the command index.
+Quote a string value so the shell passes it as JSON. A security-relevant setting (`autopilot.enabled`, `verify.reuse`, `workers.enabled`, `workers.models`, `workers.billing`, every `advice.*`) is refused: you write those in the settings file yourself, except `workers.models`, which has its own command ([Choose the model for each tier](#choose-the-model-for-each-tier)). A refused write exits 1 and changes nothing; a usage mistake exits 2. The lock, backup (`<file>.config.bak`), size and symlink behaviour of a write are in the `config set` row of the command index.
 
 ### See what a review, a rule or the primary session resolves to
 
@@ -177,8 +177,26 @@ doflow primary --action resolve [--json]
 ```
 
 - `protocol` prints how a review or a debate will run, so a brief can embed it as printed. `list` shows each preset with its seats, rounds, synthesizer and decider, then the invariants no setting can change; `resolve` shows the protocol one run would use and where each value came from. It has no diff to read, so a review always resolves to at least the deep preset and a `--preset` can only raise it. A looser preset exits 1; a bad flag value exits 2.
-- `rules` prints the values the runtime owns (review seats and rounds, the seat floor per task class, loop limits, the tier of each agent owner, the model behind each worker tier), each with the file or settings layer it came from. Point guidance and policy text at it instead of restating numbers that go stale. A value it cannot resolve prints as `unresolved:<reason>`, never as a guess.
+- `rules` prints the values the runtime owns (review seats and rounds, the seat floor per task class, loop limits, the tier of each agent owner, the model each installed harness gets per tier and for the orchestrator), each with the file or settings layer it came from. Point guidance and policy text at it instead of restating numbers that go stale. A value it cannot resolve prints as `unresolved:<reason>`, never as a guess.
 - `primary` prints which harness and model DoFlow takes the main session to run, from your `primary.harness` and `primary.model` settings and what the harness reported at session start. It exits 0 for every state except `refused` (1: the declared model differs from the observed one and `primary.onContradiction` is `refuse`). `doflow status` and `doflow doctor` show the same state in one line.
+
+### Choose the model for each tier
+
+A tier (`light`, `standard`, `frontier`) is a kind of work; the model behind it differs per harness. You bind one model to each tier on each harness, and optionally one to the orchestrator role, picking the id from what that harness's own command lists. A tier you leave unbound uses the harness default: nothing is forced.
+
+```bash
+doflow models --action sync --harness antigravity          # read the harness's own model list
+doflow models --action bind --harness antigravity --tier frontier --model <id>
+doflow models --action bind --harness codex --tier light   # on a terminal: pick from a numbered list
+doflow models --action bind --harness codex --tier orchestrator --model <id>
+doflow models --action list                                # every installed harness: three tiers + orchestrator
+doflow models --action unbind --harness codex --tier light
+```
+
+- `sync` asks `agy models`, `opencode models` and `pi --list-models` for their ids (the only harnesses whose CLI prints a list today) and keeps them in the catalogue. For the others you type the id, and `bind` says it was not checked. A listing that fails (not logged in, offline, no answer in 20 seconds) leaves the previous list in place, marked stale, and `sync` still exits 0.
+- `bind --model <id>` refuses an id that is not in the harness's list and shows the three closest ones; `--allow-unlisted` binds it anyway. Without `--model` on a terminal it syncs, prints the list and reads one number; without a terminal it exits 2.
+- Both actions write the `workers.models` setting in your user settings file, with the settings writer's lock and `<file>.config.bak` backup. The binding applies to every place a tier becomes a model: a headless worker launch, the `Model:` line of a task brief, and `doflow rules`.
+- The orchestrator is the role that runs the plan (agent owner `delivery-lead`). Its model is, first match wins: the bound `orchestrator` id; the main session's own model when the harness is the one the main session runs on (`doflow primary --action resolve`); the bound `frontier` id; the harness default. A task line that names a tier still wins over the owner's default.
 
 ### Switch off the /do suggestion
 
@@ -446,11 +464,10 @@ doflow roadmap --action status           # merged / in-flight / not-started per 
 
 Each key is a registry harness id, `billing` is `free` or `metered`, `asserted` is the real calendar date (`YYYY-MM-DD`) on which you stated it, and `basis` is an optional one-line note. A capped `dispatch start` prints one line per recorded worker, for example `billing: codex free (user record, asserted 2026-10-23)`, so you see what counts as free before any worker launches. If the record is malformed or names an id that is not a registry harness, no worker counts as free. The record says nothing about quota: when a worker runs out of quota, the fallback ladder decides what happens next. The rules for the record are under `workers.billing` in [Settings keys](reference.md#settings-keys).
 
-**Enable workers and bind model tiers.** By default, all shipped harnesses followed by `primary` (in-session execution) are enabled in registry order. Restrict and order the eligible workers with `workers.enabled`, and assign models by tier (`light`, `standard`, `frontier`) with `workers.models`, in `<config home>/settings.json`. Validate before writing; which harnesses can run as workers is in [External worker support](reference.md#external-worker-support-by-harness):
+**Enable workers and bind model tiers.** By default, all shipped harnesses followed by `primary` (in-session execution) are enabled in registry order. Restrict and order the eligible workers with `workers.enabled` in `<config home>/settings.json`; validate before writing, and see [External worker support](reference.md#external-worker-support-by-harness) for which harnesses can run as workers. Bind a model to each tier with `doflow models --action bind` ([Choose the model for each tier](#choose-the-model-for-each-tier)).
 
 ```bash
 doflow config validate workers.enabled '["worker-a","worker-b","primary"]' --layer user
-doflow config validate workers.models '{"worker-a":{"standard":"vendor-model-std","frontier":"vendor-model-adv"}}' --layer user
 ```
 
 **Turn it on and off.** It ships off. To turn it on, put `{"schema":1,"autopilot.enabled":"on"}` in `~/.config/doflow/settings.json` (or under `$XDG_CONFIG_HOME/doflow`). To stop it: set `DOFLOW_AUTOPILOT_ENABLED=off`, set the value to `off`, or create the file `autopilot/off` in the same folder. The switch is read before every mutating act, not only at the start of a call (a switch turned off mid-call stops the next act), and a stopped call names the layer in `annotations.switch`. A sentinel file the loop cannot read counts as set, so a permissions error stops it rather than letting it run. The environment variable and the file can only switch it off. The loop itself creates `autopilot/off` when develop gets a revert of an autopilot merge or a merge fails its post-merge check (`merged-unverified`); only you remove it. `doflow config -g` can still show `on` while only that file is set; believe the loop's `stopped`.
