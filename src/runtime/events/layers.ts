@@ -8,7 +8,7 @@
 //   runs       the `orchestrate --action list` body, rows with `runKey`       orchestration stores
 //   gates      <= 8 runs x <= 8 gate events {runKey, slug, taskId, gateId, name, state, at, by}
 //   artifacts  <= 64 newest briefs, reports, envelopes, prompts, worker logs (artifacts.ts)
-//   reviews    <= 16 features {worktreeKey, feature, state, counts?} (countFindings)
+//   reviews    <= 16 features {worktreeKey, feature, state, reason?, counts?} (countFindings, <= 1 MiB each)
 //   sessions   <= 16 sessions {sessionKey, harness, audit, denials}         session dirs, audit tails
 //   traffic    the transcript stats body (computeStats)                       derived, <= 1 per 5000 ms
 //   coverage   per registry harness, what is observed and why not (coverage.ts)          full pass
@@ -72,6 +72,8 @@ function gateName(name: unknown, gateId: string): string {
   return typeof name === 'string' && name !== '' ? maskedCap(name, GATE_NAME_CHARS) : gateId;
 }
 const REVIEW_LIMIT = 16;
+/** 161 review 4: the most bytes of one findings.json read; a larger one is `unreadable` `too-large`. Real ones are about 10 KiB. */
+const REVIEW_BYTES = 1024 * 1024;
 const SESSION_LIMIT = 16;
 const AUDIT_RECENT = 8;
 const DENIAL_RECENT = 3;
@@ -160,9 +162,10 @@ function gatesSection(entry: Entry): SectionResult {
 
 /**
  * The review record of a feature directory: absent, unreadable (`review` not a real directory, the
- * record not a regular file, or not JSON), invalid, or its counts.
+ * record not a regular file, or not JSON; `reason: 'too-large'` over REVIEW_BYTES, never read), invalid,
+ * or its counts.
  */
-function reviewOf(checkout: string, dir: string, fsImpl: any): { state: string; counts?: any } {
+function reviewOf(checkout: string, dir: string, fsImpl: any): { state: string; reason?: string; counts?: any } {
   const file = path.join(dir, 'review', 'findings.json');
   let st: any;
   try {
@@ -170,17 +173,26 @@ function reviewOf(checkout: string, dir: string, fsImpl: any): { state: string; 
     st = fsImpl.lstatSync(file);
   } catch (error: any) { return { state: error && error.code === 'ENOENT' ? 'absent' : 'unreadable' }; }
   if (!st.isFile()) return { state: 'unreadable' };
+  const tooLarge = { state: 'unreadable', reason: 'too-large' };
+  if (st.size > REVIEW_BYTES) return tooLarge;
   let doc: any;
-  try { doc = JSON.parse((readConfined(checkout, file, fsImpl) as Buffer).toString('utf8')); } catch { return { state: 'unreadable' }; }
+  try {
+    const bytes = readConfined(checkout, file, fsImpl, REVIEW_BYTES);
+    if (bytes === null) return tooLarge; // it grew past the cap after the lstat
+    doc = JSON.parse(bytes.toString('utf8'));
+  } catch { return { state: 'unreadable' }; }
   let counts: any;
   try { counts = countFindings(doc); } catch { counts = null; }
   if (counts === null) return { state: 'invalid' };
   return { state: 'ok', counts };
 }
 
-/** The REVIEW_LIMIT features most recently touched (the feature directory or its findings), each checkout's. */
+/**
+ * The REVIEW_LIMIT features most recently touched (the feature directory or its findings), each
+ * checkout's: chosen by `lstat` times first, and only those findings are read (review 4).
+ */
 function reviewsSection(entry: Entry, fsImpl: any): SectionResult {
-  const rows: Array<{ ms: number; row: any }> = [];
+  const rows: Array<{ ms: number; checkout: string; dir: string; feature: string }> = [];
   for (const checkout of entry.checkouts) {
     const base = path.join(checkout, 'agent-docs', 'doflow');
     let names: string[] = [];
@@ -195,11 +207,11 @@ function reviewsSection(entry: Entry, fsImpl: any): SectionResult {
       try { const st = fsImpl.lstatSync(dir); if (!st.isDirectory()) continue; ms = st.mtimeMs; } catch { continue; }
       const file = path.join(dir, 'review', 'findings.json');
       try { ms = Math.max(ms, fsImpl.lstatSync(file).mtimeMs); } catch { /* absent */ }
-      rows.push({ ms, row: { worktreeKey: cwdHash(checkout), feature, ...reviewOf(checkout, dir, fsImpl) } });
+      rows.push({ ms, checkout, dir, feature });
     }
   }
-  rows.sort((a, b) => b.ms - a.ms || (a.row.feature < b.row.feature ? -1 : a.row.feature > b.row.feature ? 1 : 0));
-  return ok(rows.slice(0, REVIEW_LIMIT).map((r) => r.row));
+  rows.sort((a, b) => b.ms - a.ms || (a.feature < b.feature ? -1 : a.feature > b.feature ? 1 : 0));
+  return ok(rows.slice(0, REVIEW_LIMIT).map((r) => ({ worktreeKey: cwdHash(r.checkout), feature: r.feature, ...reviewOf(r.checkout, r.dir, fsImpl) })));
 }
 
 /**
@@ -416,4 +428,4 @@ function layersSpec(channel: { kind: 'layers'; name: string; projectKey: string 
   };
 }
 
-module.exports = { layersSpec, gateName, SECTIONS, DERIVED, POLICIES, GATE_RUNS, GATE_EVENTS, REVIEW_LIMIT, SESSION_LIMIT };
+module.exports = { layersSpec, gateName, SECTIONS, DERIVED, POLICIES, GATE_RUNS, GATE_EVENTS, REVIEW_LIMIT, REVIEW_BYTES, SESSION_LIMIT };

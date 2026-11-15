@@ -20,7 +20,7 @@ const { createProjectsIndex } = require('../../src/runtime/events/projects-index
 const { scanArtifacts, findArtifact, ARTIFACT_LIMIT } = require('../../src/runtime/events/artifacts.ts');
 const { AUDIT } = require('../../src/runtime/events/coverage.ts');
 const { maskBody } = require('../../src/runtime/mask.ts');
-const { gateName } = require('../../src/runtime/events/layers.ts');
+const { gateName, REVIEW_BYTES } = require('../../src/runtime/events/layers.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 
 const WIN = process.platform === 'win32';
@@ -380,6 +380,32 @@ test('161 IC-003, D8, AC-5: a codex audit line has agentKey null, an antigravity
     assert.deepEqual(Object.keys(row), ['harness', 'main', 'subagents', 'transcript', 'permissions', 'questions']);
     assert.deepEqual(row.questions, { observed: false, reason: 'no-harness-record' }, `${row.harness}: no harness records a question (D7)`);
   }
+});
+
+test('161 review 4: reviews choose the 16 newest features by metadata, then read only those, each within REVIEW_BYTES; an oversized one is unreadable too-large', async (t) => {
+  const f = fixture(t);
+  const a = project(f, 'proj-v');
+  const features = path.join(a, 'agent-docs', 'doflow');
+  const body = (slug: string) => JSON.stringify({ schema: 1, row: '161', slug, reviewedHead: '0123456789abcdef0123456789abcdef01234567', seats: [], converged: [] });
+  const base = Date.now() - 100 * 60000;
+  for (let i = 0; i < 40; i += 1) write(path.join(features, `161-f${String(i).padStart(2, '0')}`, 'review', 'findings.json'), body(`161-f${i}`), base + i * 60000);
+  assert.equal(typeof REVIEW_BYTES, 'number');
+  write(path.join(features, '161-big', 'review', 'findings.json'), ' '.repeat(REVIEW_BYTES + 1), base + 41 * 60000);
+  const opened: string[] = [];
+  const count = (file: any) => { if (typeof file === 'string' && file.endsWith('findings.json')) opened.push(file); };
+  const fsImpl = {
+    ...fs,
+    openSync(file: any, ...rest: any[]) { count(file); return (fs.openSync as any)(file, ...rest); },
+    readFileSync(file: any, ...rest: any[]) { count(file); return (fs.readFileSync as any)(file, ...rest); },
+  };
+  const spec = channelSpec(`layers:${cwdHash(a)}`, { cwd: a, env: f.env, index: indexFor(f, a), fsImpl });
+  const { sections } = await spec.compute(['reviews']);
+  const rows = sections.reviews.json;
+  assert.equal(rows.length, 16);
+  assert.deepEqual(rows[0], { worktreeKey: cwdHash(a), feature: '161-big', state: 'unreadable', reason: 'too-large' }, 'shown, not dropped');
+  assert.deepEqual(rows.slice(1).map((r: any) => r.feature), Array.from({ length: 15 }, (_, i) => `161-f${39 - i}`));
+  assert.ok(rows.slice(1).every((r: any) => r.state === 'ok'));
+  assert.equal(new Set(opened).size, 15, `only the 15 chosen bodies are opened (the big one is refused by its size): ${opened.length}`);
 });
 
 test('161 review 3: a denial reason and a gate name are masked whole before the 200-character cap, so a secret cut at the boundary is never sent', async (t) => {
