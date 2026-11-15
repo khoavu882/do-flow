@@ -144,6 +144,48 @@ for (const [name, text] of [
   });
 }
 
+test('165 IC-005: refuse returning a code writes nothing and answers {applied:false, reason, current}', (t) => {
+  const file = storeIn(t);
+  const seen: any[] = [];
+  const answer = insertRun(file, record(), fs, { refuse: (store: any) => { seen.push(store); return { code: 'checkout-busy', current: 1 }; } });
+  assert.deepEqual(answer, { applied: false, reason: 'checkout-busy', current: 1 });
+  assert.equal(fs.existsSync(file), false, 'a refused insert creates no file');
+  assert.equal(seen.length, 1);
+  assert.deepEqual(seen[0].runs, {});
+});
+
+test('165 IC-005: refuse returning null lets the insert through; it sees the runs already stored', (t) => {
+  const file = storeIn(t);
+  insertRun(file, record({ token: 1 }));
+  let count = -1;
+  const answer = insertRun(file, record({ token: 2 }), fs, { refuse: (store: any) => { count = Object.keys(store.runs).length; return null; } });
+  assert.equal(answer.applied, true);
+  assert.equal(count, 1);
+  assert.equal(Object.keys(readRuns(file)).length, 2);
+});
+
+test('165 IC-005: a run-exists replay beats refuse, and refuse is not called for it', (t) => {
+  const file = storeIn(t);
+  const first = record();
+  insertRun(file, first);
+  let called = 0;
+  const answer = insertRun(file, record({ token: first.token }), fs, { refuse: () => { called += 1; return { code: 'checkout-busy', current: 1 }; } });
+  assert.equal(answer.applied, false);
+  assert.equal(answer.reason, 'run-exists');
+  assert.equal(answer.runId, first.runId);
+  assert.equal(called, 0);
+});
+
+test('165 IC-005: refuse gets a copy, so mutating it changes nothing in the store', (t) => {
+  const file = storeIn(t);
+  const first = record();
+  insertRun(file, first);
+  const answer = insertRun(file, record({ token: 2 }), fs, { refuse: (store: any) => { store.runs = {}; delete store.slug; return null; } });
+  assert.equal(answer.applied, true);
+  assert.ok(readRuns(file)[first.runId], 'the first run is still there');
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).slug, SLUG);
+});
+
 test('two processes inserting the same token at once yield one run', async (t) => {
   const dir = tempDir(t, 'doflow-run-store-race-');
   const file = storeFileFor(dir, SLUG);

@@ -322,6 +322,8 @@ const runId = newRunId();
 const inserted = insertRun(path.join(stateRoot, 'worker-runs', 'g26-task.json'), { runId, task: 'A.1', token: 1, harness: 'claude', phase: 'starting', descriptor });
 if (!inserted.applied) { console.error(JSON.stringify(inserted)); process.exit(1); }
 const sink = createOutputSink({ stateRoot, runId, stream: 'stdout' });
+const { writePrompt } = require(${JSON.stringify(path.join(REPO, 'src/runtime/worker/session-prompt.ts'))});
+writePrompt(path.resolve(stateRoot, '..', '..'), runId, 'a prompt', { isEnded: () => true });
 sink.write('one line\\n');
 sink.end().then(() => process.exit(0), () => process.exit(1));`;
     // No CLI step can write the three dispatch stores: the real registry makes every harness

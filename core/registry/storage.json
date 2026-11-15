@@ -326,6 +326,25 @@
       ]
     },
     {
+      "id": "session-prompts",
+      "root": "project-state",
+      "path": "session-prompts",
+      "entry": "file",
+      "match": "^w-[0-9a-f]{12}\\.prompt\\.txt$",
+      "rule": "count-and-age",
+      "bound": {
+        "keepNewest": 200,
+        "maxAgeDays": 30
+      },
+      "protect": null,
+      "moments": [
+        "verb"
+      ],
+      "writers": [
+        "src/runtime/worker/session-prompt.ts"
+      ]
+    },
+    {
       "id": "dispatch",
       "root": "project-state",
       "path": "dispatch",
