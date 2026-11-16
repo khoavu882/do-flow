@@ -359,6 +359,11 @@ test('length: a last message with stopReason length is its own non-success outco
   assert.deepEqual([blank.status, blank.reason, blank.summary], ['failure', 'length', null]);
 });
 
+test('length (A-7): a length stop followed by a tool result as the last message is unparsed', () => {
+  const report = run([{ type: 'agent_end', messages: [assistant('part', 'length'), { role: 'toolResult', content: [], isError: false }] }]);
+  assert.deepEqual([report.status, report.reason], ['unparsed', 'no-final-message']);
+});
+
 test('length: it is not a success for any settle, and a spawn or oversize line still beats it', () => {
   assert.deepEqual(run([end(assistant('part', 'length')), { type: 'agent_settled', aborted: false }]).status, 'failure');
   assert.equal(run([end(assistant('part', 'length')), { type: 'agent_settled', aborted: true }]).reason, 'length');
