@@ -50,8 +50,6 @@ test('Slice A: writeCatalogue writes atomically and readCatalogue reads from pro
           binary: 'claude',
           installed: true,
           version: '1.0.0',
-          loginState: 'logged-in',
-          reloginHint: null,
           detectedMode: 'subscription',
           derivedBilling: 'free',
           offeredModels: [{ id: 'claude-3-7-sonnet', displayName: 'Claude 3.7 Sonnet', family: 'claude' }],
@@ -119,48 +117,49 @@ test('Slice A: readCatalogue handles corrupt file fail-safe by moving it aside a
   }
 });
 
-test('Slice A: syncHarness and syncAllHarnesses with mock probe runners', async () => {
+test('Slice A: readCatalogue drops the login fields an entry written before row 172 carries', () => {
+  const tmpProject = createTempDir('proj-old');
+  try {
+    const file = getProjectCataloguePath(tmpProject);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const entry = { harnessId: 'claude', binary: 'claude', installed: true, version: '1', detectedMode: 'subscription', derivedBilling: 'free', offeredModels: [], modelList: { status: 'none-recorded', reason: 'x' }, lastSyncedAt: '2026-10-25T12:00:00.000Z' };
+    fs.writeFileSync(file, JSON.stringify({ version: 1, syncedAt: '2026-10-25T12:00:00.000Z', harnesses: { claude: { ...entry, loginState: 'logged-in', reloginHint: 'claude login', loginCheck: 'probe' } } }));
+    assert.deepEqual(readCatalogue(tmpProject).harnesses.claude, entry);
+  } finally {
+    fs.rmSync(tmpProject, { recursive: true, force: true });
+  }
+});
+
+test('Slice A: syncHarness and syncAllHarnesses against a fake claude on a scratch PATH', { skip: process.platform === 'win32' && 'the fake CLI is linked by symlink on POSIX' }, async () => {
+  const { createScratch, childEnv } = require('../../helper/scratch-env.ts');
+  const { linkBin, writeScenario, readLog } = require('../../helper/fake-harness-cli.ts');
+  const { loadRegistry } = require('../../../src/registry/index.ts');
+  const scratch = createScratch('doflow-catalogue-sync-');
+  const log = path.join(scratch.dir, 'log.jsonl');
+  const scenario = { byArgv: [
+    { argv: ['--version'], steps: [{ print: 'mock-tool 2.1.0' }, { exit: 0 }] },
+    { argv: ['auth', 'status', '--json'], steps: [{ print: JSON.stringify({ loggedIn: true, authMethod: 'api_key' }) }, { exit: 0 }] },
+  ] };
+  const env = childEnv(scratch, { PATH: linkBin(path.join(scratch.dir, 'bin'), ['fake-claude']), FAKE_HARNESS_SCENARIO: writeScenario(scratch.dir, scenario), FAKE_HARNESS_LOG: log });
+  const registry = structuredClone(loadRegistry({ repoRoot: path.resolve(__dirname, '..', '..', '..') }));
+  const claude = registry.harnesses.find((h: any) => h.id === 'claude');
+  claude.worker.cli = { ...claude.worker.cli, binary: 'fake-claude' };
   const tmpProject = createTempDir('proj-sync');
+  const NO_PACKAGES = { packages: [], stateRead: { state: {} }, grants: { grants: [] } };
 
   try {
-    const mockExecFile = (bin: string, args: string[], opts: any, callback: any) => {
-      if (args.includes('--version')) {
-        callback(null, 'mock-tool 2.1.0\n', '');
-      } else if (args.includes('status')) {
-        callback(null, 'Logged in as mock user\n', '');
-      } else if (args.includes('auth')) {
-        callback(null, JSON.stringify([{ type: 'oauth', provider: 'mock' }]), '');
-      } else {
-        callback(null, '', '');
-      }
-    };
+    const result = await syncHarness('claude', { projectRoot: tmpProject, env, registry, view: NO_PACKAGES });
+    assert.deepEqual([result.harnessId, result.binary, result.installed, result.version], ['claude', 'fake-claude', true, '2.1.0']);
+    assert.deepEqual([result.detectedMode, result.derivedBilling], ['api-key', 'metered']);
+    assert.equal('loginState' in result, false);
 
-    const result = await syncHarness('claude', {
-      projectRoot: tmpProject,
-      execFileImpl: mockExecFile,
-      env: { ANTHROPIC_API_KEY: 'test-key' },
-    });
-
-    assert.equal(result.harnessId, 'claude');
-    assert.equal(result.installed, true);
-    assert.equal(result.loginState, 'logged-in');
-    assert.equal(result.detectedMode, 'api-key');
-    assert.equal(result.derivedBilling, 'metered');
-
-    const catalogue = await syncAllHarnesses({
-      projectRoot: tmpProject,
-      execFileImpl: mockExecFile,
-      env: { ANTHROPIC_API_KEY: 'test-key' },
-    });
-
+    const catalogue = await syncAllHarnesses({ projectRoot: tmpProject, env, registry, view: NO_PACKAGES });
     assert.equal(catalogue.version, 1);
-    assert.ok(catalogue.harnesses.claude);
-    assert.ok(catalogue.harnesses.codex);
-    assert.ok(catalogue.harnesses.opencode);
-    assert.ok(catalogue.harnesses.pi);
-    assert.ok(catalogue.harnesses.copilot);
-    assert.ok(catalogue.harnesses.kiro);
-    assert.ok(catalogue.harnesses.antigravity);
+    assert.deepEqual(Object.keys(catalogue.harnesses).sort(), registry.harnesses.map((h: any) => h.id).sort());
+    for (const [id, h] of Object.entries<any>(catalogue.harnesses)) {
+      if (id !== 'claude') assert.deepEqual([h.installed, h.version, h.detectedMode], [false, null, 'unverified'], id);
+    }
+    assert.deepEqual(readLog(log).map((entry: any) => entry.argv), [['--version'], ['auth', 'status', '--json'], ['--version'], ['auth', 'status', '--json']]);
 
     // Verify it was written to disk
     const onDisk = readCatalogue(tmpProject);

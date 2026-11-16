@@ -18,7 +18,7 @@ The registry rows for a harness:
 - [`transcripts.json`](https://github.com/khoavu882/do-flow/blob/develop/core/registry/transcripts.json): where the harness keeps its session transcripts.
 - [`telemetry.json`](https://github.com/khoavu882/do-flow/blob/develop/core/registry/telemetry.json): the closed list of harness names that telemetry accepts (`vocabularies.harness`).
 
-Lists of harness ids are not edited by hand. `src/registry/harness-ids.ts` reads the ids and binary names from `harnesses.json` when it loads, and the install targets, lifecycle views and probes use that. Adding a harness edits the registry and one test pin, the list in `test/registry/harness-ids.test.ts` ("the active harnesses are exactly these"). Every other list in source and tests is derived from the registry, and guard G83 fails on a stray one.
+Lists of harness ids are not edited by hand. `src/registry/harness-ids.ts` reads the ids and binary names from `harnesses.json` when it loads, and the install targets and lifecycle views use that. Adding a harness edits the registry and one test pin, the list in `test/registry/harness-ids.test.ts` ("the active harnesses are exactly these"). Every other list in source and tests is derived from the registry, and guard G83 fails on a stray one.
 
 ## Step 1: the descriptor
 
@@ -87,7 +87,6 @@ These modules hold per-harness code that the registry cannot yet express. The ta
 | `parsers/kiro.ts` | kiro | parser | the base object is `data.update` or `data` (coalesce), and spawn is a text prefix match (`/^\s*subagent/i`) |
 | `parsers/opencode.ts` | opencode | parser | usage accumulated with all-or-nothing validity, a `finish-<reason>` reason built and cut, and a conditional error precedence |
 | `parsers/pi.ts` | pi | parser | usage and cost summed over `message_end` events, `messages[-1]` indexing, text blocks joined, the aborted modifier, and a `/subagent/i` match |
-| `probes/index.ts` `PROBES` (7) | all | probe | each probe parses its own CLI's text or JSON output; `loginCheck` moves to the login recipe (row 172) and model lists to row 169 |
 | `transcripts/readers/*.ts` (5) | claude, codex, copilot, kiro, pi | transcript reader | each harness's on-disk session format; no shared grammar yet |
 | `src/adapters/<id>/` (7) | all | install adapter | each writes its tool's config format (TOML, JSON, settings merge) |
 | `hooks/adapters/antigravity.js` | antigravity | hook adapter | translates Antigravity's hook payload |

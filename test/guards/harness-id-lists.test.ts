@@ -19,8 +19,7 @@
 //   G83.4 audit: the table in docs/adding-a-harness.md equals the per-harness modules on disk
 //   G83.5 ninth harness: with `ninth` added to a copy of the registry, G83.1, G83.2, G83.4 and the worker
 //         validator pass with no list edited; the derived src lists (targets.ts VALID, coverage.ts
-//         HARNESS_ORDER, view.ts LIFECYCLE_HARNESSES, probes HARNESS_BINARIES), loaded against that root, take
-//         in `ninth`; and a planted stale list (the shipped ids without `ninth`) is caught
+//         HARNESS_ORDER, view.ts LIFECYCLE_HARNESSES), loaded against that root, take in `ninth`; and a planted stale list (the shipped ids without `ninth`) is caught
 //
 // This file holds no literal list of the active ids: it would trip G83.2.
 const { test } = require('node:test');
@@ -199,8 +198,6 @@ const LITERAL_LISTS: Row[] = [
   { file: 'src/install/targets.ts', symbol: 'DEFAULT_TARGETS', relation: 'subset', reason: 'the one harness `--target` falls back to, a product choice' },
   { file: 'src/install/targets.ts', symbol: 'TARGET_ALIASES', relation: 'subset', take: 'values', reason: 'per-id fact pin: the short name a harness answers to' },
   { file: 'src/install/targets.ts', symbol: "const root = global ? os.homedir() : canonicalPath(projectRoot);\n  return ", relation: 'subset', reason: 'per-id code map: the tool directory each harness installs into (toolDirs)' },
-  { file: 'src/runtime/worker/probes/index.ts', symbol: 'RELOGIN_HINTS', relation: 'subset', reason: 'per-id fact pin: the login command a harness documents (row 172 moves it into the login recipe)' },
-  { file: 'src/runtime/worker/probes/index.ts', symbol: 'const PROBES: Record<string, HarnessProbeRunner> = ', relation: 'subset', reason: 'per-id code map: each probe parses its own CLI output' },
   { file: 'src/runtime/fleet/tree.ts', symbol: 'ENCODE', relation: 'subset', reason: 'per-id code map: how a harness encodes a cwd into its transcript directory' },
   { file: 'src/cli/shared.ts', symbol: 'createAdapterRegistry(', relation: 'subset', reason: 'per-id code map: the adapter constructions, one explicit require each' },
   { file: 'src/lifecycle/view.ts', symbol: 'createAdapterRegistry(', relation: 'subset', reason: 'per-id code map: the adapter constructions, kept literal beside buildAdapterRegistry' },
@@ -340,9 +337,6 @@ function auditFromDisk(root: string, ids: readonly string[]): { rows: AuditEntry
   for (const file of listDir(root, 'src/runtime/worker/parsers', (e) => e.isFile() && e.name.endsWith('.ts') && !['common.ts', 'field-map.ts'].includes(e.name))) {
     rows.push({ module: `parsers/${file}`, harnesses: [stem(file)] }); inIds(`parsers/${file}`, [stem(file)]);
   }
-  const probes = locateRow(root, { file: 'src/runtime/worker/probes/index.ts', symbol: 'const PROBES: Record<string, HarnessProbeRunner> = ', relation: 'subset', reason: '' });
-  if (probes.problem) problems.push(probes.problem);
-  else { rows.push({ module: `probes/index.ts PROBES (${probes.ids!.length})`, harnesses: ['all'] }); inIds('PROBES', probes.ids!); }
   const readers = listDir(root, 'src/runtime/transcripts/readers', (e) => e.isFile() && e.name.endsWith('.ts'));
   const readerHarnesses = readers.map((file: string) => stem(file).split('-')[0]).sort();
   rows.push({ module: `transcripts/readers/*.ts (${readers.length})`, harnesses: readerHarnesses }); inIds('transcripts/readers', readerHarnesses);
@@ -410,23 +404,20 @@ function ninthRoot(t: any): { root: string; registry: any } {
 
 /** `ninthRoot` plus a copy of src/: a module loaded from <root>/src resolves REPO_ROOT (src/helper/repo-root.ts,
  * from its own location) to <root>, so the src lists read the scratch registry exactly as they read the shipped
- * one, with no test-only parameter. The ninth harness gets its own binary so HARNESS_BINARIES can show it. */
+ * one, with no test-only parameter. */
 function ninthMirror(t: any): string {
-  const { root, registry } = ninthRoot(t);
-  registry.harnesses[registry.harnesses.length - 1].worker.cli.binary = 'ninth-cli';
-  fs.writeFileSync(path.join(root, 'core', 'registry', 'harnesses.json'), JSON.stringify(registry));
+  const { root } = ninthRoot(t);
   fs.cpSync(path.join(REPO, 'src'), path.join(root, 'src'), { recursive: true });
   return root;
 }
 
-/** The four src lists design §7 A derives from the registry, as a module loaded from `<root>/src` sees them. */
+/** The three src lists design §7 A derives from the registry, as a module loaded from `<root>/src` sees them. */
 function derivedLists(root: string): Record<string, readonly string[]> {
   const load = (rel: string) => require(path.join(root, 'src', rel));
   return {
     'targets.ts VALID': load('install/targets.ts').VALID,
     'coverage.ts HARNESS_ORDER': load('lifecycle/coverage.ts').HARNESS_ORDER,
     'view.ts LIFECYCLE_HARNESSES': load('lifecycle/view.ts').LIFECYCLE_HARNESSES,
-    'probes HARNESS_BINARIES': Object.keys(load('runtime/worker/probes/index.ts').HARNESS_BINARIES),
   };
 }
 
@@ -520,11 +511,10 @@ test('G83.5: with a ninth harness in the registry, the inventory, the stray scan
   const errors: string[] = [];
   validateWorker(harnessesOf(root).find((h: any) => h.id === 'ninth').worker, "harness 'ninth'", errors);
   assert.deepEqual(errors, []);
-  // The derived src lists, loaded against that root, take in `ninth` (and probes binds it to its own binary).
+  // The derived src lists, loaded against that root, take in `ninth`.
   const mirror = ninthMirror(t);
   assert.deepEqual(activeIds(mirror), ids);
   assert.deepEqual(derivedProblems(mirror, ids), []);
-  assert.equal(require(path.join(mirror, 'src', 'runtime/worker/probes/index.ts')).HARNESS_BINARIES.ninth, 'ninth-cli');
   // Left out for `ninth`, by design: G83.3 (its README and setup rows, and its telemetry vocabulary entry, are content
   // written with the harness) and every `equal` relation row (an equal row names the shipped ids; G83.1 fails on it
   // until the pin and console/src/project.ts name `ninth`, which is the edit adding a harness makes). Conform is row 171 T6's.

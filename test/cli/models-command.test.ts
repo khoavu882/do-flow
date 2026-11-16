@@ -201,7 +201,8 @@ test('doflow models --action describe shows metadata and offering harnesses', as
     assert.equal(desc.displayName, 'Claude 3.7 Sonnet');
     assert.equal(desc.harnesses.length, 1);
     assert.equal(desc.harnesses[0].harnessId, 'claude');
-    assert.equal(desc.harnesses[0].loginState, 'logged-in');
+    // 172: loginState is the harness-login store's answer, not the catalogue entry's old field; nothing is recorded here.
+    assert.equal(desc.harnesses[0].loginState, 'unknown');
   } finally {
     console.log = originalLog;
   }

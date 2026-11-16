@@ -224,3 +224,59 @@ test('doctor --json holds login per harness, and doctor text shows the claude ce
   assert.ok(line!.includes(`login: logged-in (login check, ${answer.at}; its help and docs do not show that this check runs offline) mode:`), line);
   assert.ok(lines.some((text: string) => /^ {2}pi +binary: unknown +login: unknown \(never checked\) mode:/.test(text)), 'pi: never checked');
 });
+
+// ── D10: one generic sync runs the version argv and the recipe, and records the answer ──────────────────────────
+
+/** The shipped registry with claude's binary renamed to `fake-claude`, so PATH lookup finds the fake. */
+function fakeClaudeRegistry() {
+  const registry = structuredClone(loadRegistry({ repoRoot: REPO }));
+  const claude = registry.harnesses.find((h: any) => h.id === 'claude');
+  claude.worker.cli = { ...claude.worker.cli, binary: 'fake-claude' };
+  return registry;
+}
+
+/** `models --action sync --harness claude --json` with `steps` as the fake claude's status answer; the parsed JSON. */
+async function syncClaude(r: any, registry: any) {
+  const { handleModelsCommand } = require(path.join(REPO, 'src', 'runtime', 'models', 'command.ts'));
+  const project = path.join(r.cwd, 'project');
+  fs.mkdirSync(project, { recursive: true });
+  let out = '';
+  const log = console.log;
+  console.log = (text: string) => { out += `${text}\n`; };
+  try {
+    assert.equal(await handleModelsCommand({ action: 'sync', actionGiven: true, harness: 'claude', json: true, projectRoot: project, env: r.env, syncOptions: { registry } }), 0);
+  } finally {
+    console.log = log;
+  }
+  return { res: JSON.parse(out), project };
+}
+
+test('models --action sync on a scratch PATH runs the version argv and the recipe, records the answer and fills derivedBilling from it', POSIX_ONLY, async () => {
+  const version = { argv: ['--version'], steps: [{ print: '2.1.311 (Claude Code)' }, { exit: 0 }] };
+  const store = require(path.join(REPO, 'src', 'runtime', 'worker', 'login-store.ts'));
+  const { readCatalogue } = require(path.join(REPO, 'src', 'runtime', 'models', 'catalogue.ts'));
+
+  const sub = rig(['claude'], { byArgv: [version, { argv: CLAUDE_ARGV, steps: status('claude.ai') }] });
+  const { res, project } = await syncClaude(sub, fakeClaudeRegistry());
+  assert.deepEqual([res.installed, res.version, res.loginState, res.detectedMode, res.derivedBilling], [true, '2.1.311', 'logged-in', 'subscription', 'free']);
+  for (const key of ['reloginHint', 'loginCheck']) assert.equal(key in res, false, key);
+  assert.deepEqual(sub.calls(), [['--version'], CLAUDE_ARGV]);
+  const recorded = store.readLoginStore(sub.env).harnesses.claude.recipe;
+  assert.deepEqual([recorded.state, recorded.billing, recorded.digest], ['logged-in', { mode: 'subscription', billing: 'free' }, login.recipeDigest(shipped('claude'))]);
+  assert.equal('loginState' in readCatalogue(project).harnesses.claude, false, 'the catalogue keeps no login field');
+
+  const key = rig(['claude'], { byArgv: [version, { argv: CLAUDE_ARGV, steps: status('api_key') }] });
+  const metered = (await syncClaude(key, fakeClaudeRegistry())).res;
+  assert.deepEqual([metered.detectedMode, metered.derivedBilling], ['api-key', 'metered']);
+
+  const out = rig(['claude'], { byArgv: [version, { argv: CLAUDE_ARGV, steps: status('claude.ai', false) }] });
+  const loggedOut = (await syncClaude(out, fakeClaudeRegistry())).res;
+  assert.deepEqual([loggedOut.loginState, loggedOut.detectedMode, loggedOut.derivedBilling], ['logged-out', 'unverified', 'unknown']);
+
+  // Not on PATH: no process, nothing recorded, unknown never-checked.
+  const none = rig(['pi']);
+  const missing = (await syncClaude(none, fakeClaudeRegistry())).res;
+  assert.deepEqual([missing.installed, missing.version, missing.loginState, missing.detectedMode], [false, null, 'unknown', 'unverified']);
+  assert.deepEqual(none.calls(), []);
+  assert.equal(store.readLoginStore(none.env).harnesses.claude, undefined);
+});
