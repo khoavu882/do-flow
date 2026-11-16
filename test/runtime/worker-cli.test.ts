@@ -22,7 +22,7 @@ const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const CLI = path.join(REPO_ROOT, 'bin', 'doflow.js');
 const RUN = path.join(REPO_ROOT, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
 const HARNESSES: any = ACTIVE_HARNESS_IDS;
-const ACTIONS: any = ['discover', 'probe', 'describe', 'select', 'run', 'status', 'cancel', 'evidence', 'start-session', 'start-options'];
+const ACTIONS: any = ['discover', 'probe', 'describe', 'select', 'run', 'status', 'cancel', 'evidence', 'start-session', 'start-options', 'login-state'];
 const DISPATCHER_TOOLS: any = ['dirname', 'date'];
 const WIN = process.platform === 'win32';
 

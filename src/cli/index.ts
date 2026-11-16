@@ -725,7 +725,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
                        outcome: record|show · advise: ask|outcome|configure|report · tools: see below
                        followup: add|list|take|settle|promote|report
                        task-attempt: claim|finish|release|status|start|pause|cancel|resume|inspect|reopen|report-usage
-                       worker: discover|probe|describe|select|run|status|cancel|evidence|start-session|start-options
+                       worker: discover|probe|describe|select|run|status|cancel|evidence|start-session|start-options|login-state
                        dispatch: start|step|run|submit|spawn|pause|inspect|cancel|takeover|resume
                        lifecycle: overview|init|release|status|merged
                        goal: add|item|check|link|list|done
