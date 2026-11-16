@@ -33,7 +33,7 @@ function inheritedEnv() {
 /**
  * @param {string} [prefix]
  * @param {{prune?: 'on'|'off', hookHarnesses?: string[]}} [options] `hookHarnesses` writes the user layer's
- *   `hooks.harnesses`; left out, the shipped default applies.
+ *   `hooks.harnesses`; left out, the shipped default applies. The user layer always holds `storage.prune`.
  * @returns {{dir: string, home: string, xdg: string, env: (extra?: Object) => Object, apply: () => void, restore: () => void, remove: () => void}}
  *   `dir` is a real path (macOS reaches the temp folder through a symlink, and git reports the real one).
  */
@@ -44,8 +44,9 @@ function createScratch(prefix = 'doflow-lifecycle-', { prune = 'off', hookHarnes
   fs.mkdirSync(home);
   fs.mkdirSync(xdg);
   fs.mkdirSync(path.join(xdg, 'doflow'));
-  fs.writeFileSync(path.join(xdg, 'doflow', 'prune'), prune === 'on' ? 'on\n' : 'off\n');
-  if (hookHarnesses) fs.writeFileSync(path.join(xdg, 'doflow', 'settings.json'), `${JSON.stringify({ schema: 1, 'hooks.harnesses': hookHarnesses })}\n`);
+  const settings: any = { schema: 1, 'storage.prune': prune === 'on' ? 'on' : 'off' };
+  if (hookHarnesses) settings['hooks.harnesses'] = hookHarnesses;
+  fs.writeFileSync(path.join(xdg, 'doflow', 'settings.json'), `${JSON.stringify(settings)}\n`);
   const saved: any = {};
   return {
     dir,

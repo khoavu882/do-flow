@@ -53,13 +53,13 @@ test('verify runs unthrottled storage upkeep and preserves its visible result', 
     const runVerify = () => spawnSync(process.execPath, [BIN, 'verify', '--task-id', 'D.3', '--risk', 'LOW', '--plan-path', plan], {
       cwd: project, env: scratch.env(), encoding: 'utf8',
     });
-    const setting = path.join(project, '.doflow/prune');
-    fs.writeFileSync(setting, 'off\n');
+    const setting = path.join(project, '.doflow/settings.json');
+    fs.writeFileSync(setting, '{"schema":1,"storage.prune":"off"}\n');
     const baseline = runVerify();
     assert.equal(baseline.status, 0, baseline.stderr);
     assert.match(baseline.stdout, /Checks: 1\/1 passed/, 'verify runs the one-check contract');
 
-    fs.writeFileSync(setting, 'on\n');
+    fs.writeFileSync(setting, '{"schema":1,"storage.prune":"on"}\n');
     const dueMarker = path.join(project, '.doflow/state/upkeep-due');
     const dueText = `${Math.floor((now + 365 * 86400000) / 1000)}\n`;
     fs.writeFileSync(dueMarker, dueText);
@@ -94,13 +94,13 @@ test('C-9: upkeepAfterVerify prunes verification-reuse records aged 3 days; prun
     }
     assert.equal(fs.readdirSync(reuseDir).length, 450);
 
-    const pruneFile = path.join(project, '.doflow/prune');
-    fs.writeFileSync(pruneFile, 'off\n');
+    const pruneFile = path.join(project, '.doflow/settings.json');
+    fs.writeFileSync(pruneFile, '{"schema":1,"storage.prune":"off"}\n');
     const { upkeepAfterVerify } = require('../../src/runtime/storage/upkeep.ts');
     upkeepAfterVerify({ projectRoot: project, now, env: scratch.env() });
     assert.equal(fs.readdirSync(reuseDir).length, 450, 'with prune-off, 450 records are kept');
 
-    fs.writeFileSync(pruneFile, 'on\n');
+    fs.writeFileSync(pruneFile, '{"schema":1,"storage.prune":"on"}\n');
     upkeepAfterVerify({ projectRoot: project, now, env: scratch.env() });
     assert.equal(fs.readdirSync(reuseDir).length, 0, 'upkeepAfterVerify prunes all 450 records aged 3 days');
   } finally {

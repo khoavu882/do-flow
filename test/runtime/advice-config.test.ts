@@ -23,16 +23,20 @@ function fixture(t: any, global: any = false) {
   const roots = resolveRoots({ registry: STORAGE, projectRoot: project, global, env });
   return {
     roots,
-    userFile: roots['config-home'] && path.join(roots['config-home'], 'decision-model.json'),
-    projectFile: roots['project-doflow'] && path.join(roots['project-doflow'], 'decision-model.json'),
+    userFile: roots['config-home'] && path.join(roots['config-home'], 'settings.json'),
+    projectFile: roots['project-doflow'] && path.join(roots['project-doflow'], 'settings.json'),
   };
 }
 
-function userSetting(overrides: any = {}) {
-  return {
-    schema: 1, enabled: true, provider: 'ollama', endpoint: 'http://127.0.0.1:11434', model: 'clef-flash', ...overrides,
-  };
+/** A settings.json document for the advice keys; `overrides` are short field names (`enabled`, `model`) or full keys. */
+function settingsDoc(overrides: any = {}, base: any = { enabled: true, provider: 'ollama', endpoint: 'http://127.0.0.1:11434', model: 'clef-flash' }) {
+  const doc: any = { schema: 1 };
+  for (const [key, value] of Object.entries({ ...base, ...overrides })) doc[key.includes('.') ? key : `advice.${key}`] = value;
+  return doc;
 }
+const userSetting = settingsDoc;
+/** A settings.json document holding exactly `fields`, each stored as its `advice.` key. */
+const only = (fields: any) => settingsDoc(fields, {});
 
 function writeJson(file: any, value: any) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -45,7 +49,7 @@ function resolve(paths: any, extra: any = {}) {
 
 test('IC-001 step 1: an absent user file is off and does not consult the project', (t) => {
   const paths = fixture(t);
-  writeJson(paths.projectFile, { schema: 1, enabled: false });
+  writeJson(paths.projectFile, only({ enabled: false }));
   const result = resolve(paths);
   assert.equal(result.state, 'off');
   assert.equal(result.reason, 'not-configured');
@@ -61,7 +65,7 @@ test('IC-001 step 2: invalid user files fail closed with config-invalid', (t) =>
   assert.equal(result.state, 'off');
   assert.equal(result.reason, 'config-invalid');
   assert.equal(result.decidedBy.user, paths.userFile);
-  writeJson(paths.userFile, { schema: 1, model: 'missing-enabled' });
+  writeJson(paths.userFile, only({ enabled: 'yes' }));
   result = resolve(paths);
   assert.equal(result.reason, 'config-invalid');
   assert.equal(result.decidedBy.user, paths.userFile);
@@ -84,7 +88,7 @@ test('IC-001 step 2: unreadable user file fails closed without throwing', (t) =>
 test('IC-001 step 3: user disabled takes precedence over project settings', (t) => {
   const paths = fixture(t);
   writeJson(paths.userFile, userSetting({ enabled: false }));
-  writeJson(paths.projectFile, { schema: 1, model: 'nimble' });
+  writeJson(paths.projectFile, only({ model: 'nimble' }));
   const result = resolve(paths);
   assert.equal(result.state, 'off');
   assert.equal(result.reason, 'user-disabled');
@@ -94,7 +98,7 @@ test('IC-001 step 3: user disabled takes precedence over project settings', (t) 
 
 test('IC-001 step 5: enabled user setting supplies defaults and records its source', (t) => {
   const paths = fixture(t);
-  writeJson(paths.userFile, { schema: 1, enabled: true, model: 'clef-flash' });
+  writeJson(paths.userFile, only({ enabled: true, model: 'clef-flash' }));
   const result = resolve(paths);
   assert.equal(result.state, 'on');
   assert.equal(result.reason, null);
@@ -108,7 +112,7 @@ test('IC-001 step 5: enabled user setting supplies defaults and records its sour
 test('IC-001 step 4: project enabled:false turns the user setting off', (t) => {
   const paths = fixture(t);
   writeJson(paths.userFile, userSetting());
-  writeJson(paths.projectFile, { schema: 1, enabled: false });
+  writeJson(paths.projectFile, only({ enabled: false }));
   const result = resolve(paths);
   assert.equal(result.state, 'off');
   assert.equal(result.reason, 'project-disabled');
@@ -118,7 +122,7 @@ test('IC-001 step 4: project enabled:false turns the user setting off', (t) => {
 test('IC-001 step 5: project model overrides only the model and reports modelFrom', (t) => {
   const paths = fixture(t);
   writeJson(paths.userFile, userSetting());
-  writeJson(paths.projectFile, { schema: 1, model: 'nimble' });
+  writeJson(paths.projectFile, only({ model: 'nimble' }));
   const result = resolve(paths);
   assert.equal(result.state, 'on');
   assert.equal(result.model, 'nimble');
@@ -127,20 +131,19 @@ test('IC-001 step 5: project model overrides only the model and reports modelFro
   assert.deepEqual(result.decidedBy, { user: paths.userFile, project: paths.projectFile });
 });
 
-test('IC-001 lists unknown user keys and ignores project enable, endpoint and provider with notes', (t) => {
+test('IC-001 lists unknown keys and ignores a project enable, endpoint and provider', (t) => {
   const paths = fixture(t);
-  writeJson(paths.userFile, userSetting({ futureUserKey: 'keep-noted' }));
+  writeJson(paths.userFile, { ...userSetting(), futureUserKey: 'keep-noted' });
   writeJson(paths.projectFile, {
-    schema: 1, enabled: true, model: 'nimble', endpoint: 'http://example.invalid', provider: 'other', futureProjectKey: true,
+    ...only({ enabled: true, model: 'nimble', endpoint: 'http://example.invalid', provider: 'other' }), futureProjectKey: true,
   });
   const result = resolve(paths);
   assert.equal(result.state, 'on');
   assert.equal(result.model, 'nimble');
-  for (const key of ['futureUserKey', 'enabled', 'endpoint', 'provider', 'futureProjectKey']) {
+  assert.equal(result.provider, 'ollama');
+  assert.equal(result.endpoint, 'http://127.0.0.1:11434');
+  for (const key of ['futureUserKey', 'futureProjectKey']) {
     assert.ok(result.notes.some((note: any) => note.includes(key)), `missing note for ${key}`);
-  }
-  for (const key of ['enabled', 'endpoint', 'provider']) {
-    assert.ok(result.notes.some((note: any) => note.includes(key) && note.includes('a project cannot enable the decision model or choose its endpoint')));
   }
 });
 
@@ -165,7 +168,7 @@ test('IC-001 global mode reads only the user setting', (t) => {
   assert.equal(result.decidedBy.project, null);
 });
 
-test('C4: decision-model JSON failures report offsets without file contents', (t) => {
+test('C4: settings JSON failures report offsets without file contents', (t) => {
   const paths = fixture(t);
   const userSecret = 'S3CR3T!';
   fs.mkdirSync(path.dirname(paths.userFile), { recursive: true });
@@ -174,7 +177,7 @@ test('C4: decision-model JSON failures report offsets without file contents', (t
   let result = resolve(paths);
   assert.equal(result.state, 'off');
   assert.equal(result.reason, 'config-invalid');
-  assert.match(result.notes[0], /could not be read: not valid JSON at offset \d+/);
+  assert.match(result.notes[0], /is invalid for 'advice\.enabled': not valid JSON at offset \d+/);
   assert.doesNotMatch(result.notes.join('\n'), new RegExp(userSecret));
 
   writeJson(paths.userFile, userSetting());
@@ -191,7 +194,7 @@ test('C4: decision-model JSON failures report offsets without file contents', (t
 
 test('C4: the default provider comes from the settings registry', (t) => {
   const paths = fixture(t);
-  writeJson(paths.userFile, { schema: 1, enabled: true, model: 'registry-default-check' });
+  writeJson(paths.userFile, only({ enabled: true, model: 'registry-default-check' }));
 
   const loaded = loadSettingsRegistry({ repoRoot: REPO });
   assert.equal(loaded.ok, true, loaded.detail);
@@ -214,13 +217,13 @@ test('C4: a subdirectory projectRoot reads its own layer like the 2.0 direct pat
   const env: any = { HOME: home, XDG_CONFIG_HOME: path.join(home, 'xdg') };
   fs.mkdirSync(path.join(repository, '.git'), { recursive: true });
   fs.mkdirSync(nested, { recursive: true });
-  writeJson(path.join(env.XDG_CONFIG_HOME, 'doflow', 'decision-model.json'), userSetting());
-  writeJson(path.join(repository, '.doflow', 'decision-model.json'), { schema: 1, enabled: false });
-  const projectFile = path.join(nested, '.doflow', 'decision-model.json');
-  writeJson(projectFile, { schema: 1, model: 'nested-project-model' });
+  writeJson(path.join(env.XDG_CONFIG_HOME, 'doflow', 'settings.json'), userSetting());
+  writeJson(path.join(repository, '.doflow', 'settings.json'), only({ enabled: false }));
+  const projectFile = path.join(nested, '.doflow', 'settings.json');
+  writeJson(projectFile, only({ model: 'nested-project-model' }));
 
   const result = resolveSetting({ adviceRegistry: ADVICE, storageRegistry: STORAGE, projectRoot: nested, env });
   assert.equal(result.state, 'on');
   assert.equal(result.model, 'nested-project-model');
-  assert.deepEqual(result.decidedBy, { user: path.join(env.XDG_CONFIG_HOME, 'doflow', 'decision-model.json'), project: projectFile });
+  assert.deepEqual(result.decidedBy, { user: path.join(env.XDG_CONFIG_HOME, 'doflow', 'settings.json'), project: projectFile });
 });

@@ -113,8 +113,8 @@ test('unset uses the 4320-hour default with prune on, removes 180-day events, ke
   const now = Date.now();
   const old = writeAll(eventsDir(dir), dismissedFollowup('FU-aaaaaa', now, 180 * 24 + 1));
   const recent = writeAll(eventsDir(dir), dismissedFollowup('FU-bbbbbb', now, 179 * 24));
-  const prune = path.join(scratch.xdg, 'doflow', 'prune');
-  fs.writeFileSync(prune, 'on\n');
+  const prune = path.join(scratch.xdg, 'doflow', 'settings.json');
+  fs.writeFileSync(prune, '{"schema":1,"storage.prune":"on"}\n');
   try {
     const r = run(dir, ['followup', '--action', 'list', '--state', 'all', '--json']);
     assert.equal(r.status, 0, r.stderr);
@@ -123,17 +123,17 @@ test('unset uses the 4320-hour default with prune on, removes 180-day events, ke
     assert.deepEqual(eventFiles(dir), recent.sort());
     assert.equal(old.every((name: any) => !eventFiles(dir).includes(name)), true);
   } finally {
-    fs.writeFileSync(prune, 'off\n');
+    fs.writeFileSync(prune, '{"schema":1,"storage.prune":"off"}\n');
   }
 });
 
 test('retentionWindow preserves an explicit setting and otherwise composes the project prune setting with the registry default', () => {
   const dir = project('window-composition');
-  const projectPrune = path.join(dir, '.doflow', 'prune');
+  const projectPrune = path.join(dir, '.doflow', 'settings.json');
   fs.mkdirSync(path.dirname(projectPrune), { recursive: true });
-  fs.writeFileSync(projectPrune, 'on\n');
+  fs.writeFileSync(projectPrune, '{"schema":1,"storage.prune":"on"}\n');
   assert.deepEqual(retentionWindow({ env: scratch.env(), projectRoot: dir }), { state: 'on', hours: 4320, ms: 4320 * HOUR, source: 'default' });
-  fs.writeFileSync(projectPrune, 'off\n');
+  fs.writeFileSync(projectPrune, '{"schema":1,"storage.prune":"off"}\n');
   assert.deepEqual(retentionWindow({ env: scratch.env(), projectRoot: dir }), { state: 'off' });
   assert.deepEqual(retentionWindow({ env: scratch.env({ DOFLOW_RETENTION_HOURS: '3' }), projectRoot: dir }), { state: 'on', hours: 3, ms: 3 * HOUR, source: 'env' });
   assert.deepEqual(retentionWindow({ env: scratch.env({ DOFLOW_RETENTION_HOURS: 'bad' }), projectRoot: dir }), { state: 'invalid', raw: 'bad' });
@@ -142,9 +142,9 @@ test('retentionWindow preserves an explicit setting and otherwise composes the p
 test('retentionWindow uses the settings registry default and resolves an explicit project window', () => {
   const dir = project('settings-window');
   const env = scratch.env();
-  const prune = path.join(dir, '.doflow', 'prune');
+  const prune = path.join(dir, '.doflow', 'settings.json');
   fs.mkdirSync(path.dirname(prune), { recursive: true });
-  fs.writeFileSync(prune, 'on\n');
+  fs.writeFileSync(prune, '{"schema":1,"storage.prune":"on"}\n');
   const defaultHours = loadSettings({ projectRoot: dir, env }).get('storage.retentionHours', 'project').meta.default;
   assert.equal(defaultHours, 4320);
   assert.deepEqual(retentionWindow({ env, projectRoot: dir }), {
@@ -162,8 +162,8 @@ test('retentionWindow uses the settings registry default and resolves an explici
 test('a missing or malformed registry disables automatic retention without breaking lifecycle reads', () => {
   const dir = project('registry-refused');
   const files = writeAll(eventsDir(dir), dismissedFollowup('FU-aaaaaa', Date.now(), 1000));
-  const prune = path.join(scratch.xdg, 'doflow', 'prune');
-  fs.writeFileSync(prune, 'on\n');
+  const prune = path.join(scratch.xdg, 'doflow', 'settings.json');
+  fs.writeFileSync(prune, '{"schema":1,"storage.prune":"on"}\n');
   try {
     for (const [name, replacement] of [['missing', "throw Object.assign(new Error('missing'), { code: 'ENOENT' });"], ['malformed', "return '{';"]]) {
       const preload = path.join(scratch.dir, `refused-registry-${name}.js`);
@@ -196,7 +196,7 @@ test('a missing or malformed registry disables automatic retention without break
     assert.deepEqual(retentionWindow({ env: scratch.env({ DOFLOW_RETENTION_HOURS: '2' }), projectRoot: dir, fsImpl: refusedFs }), { state: 'on', hours: 2, ms: 2 * HOUR, source: 'env' });
     assert.deepEqual(retentionWindow({ env: scratch.env({ DOFLOW_RETENTION_HOURS: 'bad' }), projectRoot: dir, fsImpl: refusedFs }), { state: 'invalid', raw: 'bad' });
   } finally {
-    fs.writeFileSync(prune, 'off\n');
+    fs.writeFileSync(prune, '{"schema":1,"storage.prune":"off"}\n');
   }
 });
 

@@ -57,7 +57,7 @@ function fakeLookup(addresses: any, calls: any = []) {
   };
 }
 
-function refused(value: any, file: any = '/settings/decision-model.json') {
+function refused(value: any, file: any = '/settings/settings.json') {
   return `decision model: endpoint ${value} refused: only loopback addresses are allowed (127.0.0.0/8, ::1); set in ${file}`;
 }
 
@@ -65,7 +65,7 @@ test('IC-002 accepts http and https hostnames only after all returned addresses 
   for (const scheme of ['http', 'https']) {
     const calls: any = [];
     const result: any = await checkEndpoint(`${scheme}://localhost:1234`, {
-      file: '/settings/decision-model.json',
+      file: '/settings/settings.json',
       lookup: fakeLookup([{ address: '127.0.0.1', family: 4 }, { address: '::1', family: 6 }], calls),
     });
     assert.equal(result.ok, true);
@@ -132,8 +132,8 @@ test('IC-002 pinned lookup answers with the first checked address in both Node c
 
 test('IC-002 refusal text names the supplying file or provider default exactly', async () => {
   const url = 'https://public.example:11434';
-  const withFile = await checkEndpoint(url, { file: '/project/.doflow/decision-model.json', lookup: fakeLookup([{ address: '198.51.100.2', family: 4 }]) });
+  const withFile = await checkEndpoint(url, { file: '/project/.doflow/settings.json', lookup: fakeLookup([{ address: '198.51.100.2', family: 4 }]) });
   const defaultFile = await checkEndpoint(url, { lookup: fakeLookup([{ address: '198.51.100.2', family: 4 }]) });
-  assert.deepEqual(withFile, { ok: false, message: refused(url, '/project/.doflow/decision-model.json') });
+  assert.deepEqual(withFile, { ok: false, message: refused(url, '/project/.doflow/settings.json') });
   assert.deepEqual(defaultFile, { ok: false, message: refused(url, 'provider default') });
 });

@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * Reading one settings layer file (`settings.json` / `settings.local.json`; 086 IC-002, data-model §2)
  * and the value encodings that file uses. A leaf module: it takes the registry as an argument and
@@ -10,7 +8,7 @@
  * Nothing here ever returns file text. `JSON.parse` quotes the first bytes of the input in its
  * "Unexpected token" messages (Node 24 and 26 both do), so a parse failure is reported as a code and a
  * byte offset only, and `error.message` is never forwarded. `jsonFailure` is the shared helper for any
- * other reader that parses a user's JSON (the legacy decision-model reads move onto it in C.4).
+ * other reader that parses a user's JSON.
  */
 
 const nodeFs = require('node:fs');

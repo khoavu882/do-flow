@@ -23,7 +23,7 @@ test('IC-016: git add -A stages only ledger.json under state, but stages setting
   for (const [name, text] of Object.entries({
     '.doflow/state/ledger.json': '{}\n', '.doflow/state/evidence/old.json': '{}\n',
     '.doflow/state/verification/logs/1700000000000-old.log': 'log\n', '.doflow/state/other': 'other\n',
-    '.doflow/prompt-nudge': 'off\n', '.doflow/prune': 'off\n', '.doflow/scripts/example.sh': '#!/bin/sh\n',
+    '.doflow/prompt-nudge': 'off\n', '.doflow/settings.json': '{"schema":1,"storage.prune":"off"}\n', '.doflow/scripts/example.sh': '#!/bin/sh\n',
   })) {
     const file = path.join(project, name); fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, text);
   }
@@ -37,5 +37,5 @@ test('IC-016: git add -A stages only ledger.json under state, but stages setting
   git('add', '-A');
   const staged = git('diff', '--cached', '--name-only').trim().split('\n');
   assert.deepEqual(staged.filter((name: any) => name.startsWith('.doflow/state/')), ['.doflow/state/ledger.json']);
-  for (const name of ['.doflow/prompt-nudge', '.doflow/prune', '.doflow/scripts/example.sh']) assert.ok(staged.includes(name), name);
+  for (const name of ['.doflow/prompt-nudge', '.doflow/settings.json', '.doflow/scripts/example.sh']) assert.ok(staged.includes(name), name);
 });

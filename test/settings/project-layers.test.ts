@@ -58,10 +58,10 @@ test('a linked worktree with no settings of its own takes the main checkout .dof
   assert.equal(fx.worktree, linked);
 });
 
-test('negative control: the same worktree with its own settings stays own, for each file the 2.0 reader knew', (t) => {
+test('negative control: the same worktree with its own settings stays own, for each file the resolver reads', (t) => {
   const { fx, linked } = worktreePair(t);
-  for (const name of ['settings.json', 'settings.local.json', 'decision-model.json', 'prune']) {
-    const file = write(fx.projectFile(name, linked), name.endsWith('.json') ? {} : 'x\n');
+  for (const name of ['settings.json', 'settings.local.json']) {
+    const file = write(fx.projectFile(name, linked), {});
     assert.deepEqual(projectLayerSource(linked), { layersFrom: path.join(linked, '.doflow'), checkout: 'own', files: filesOf(linked) }, name);
     fs.rmSync(file);
     assert.equal(projectLayerSource(linked).checkout, 'main', `${name} removed`);

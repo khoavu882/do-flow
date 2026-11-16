@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * `doflow config schema|validate|set|unset` (119 IC-007, IC-008, IC-009; D-2). One read, validate and
  * write path over the settings registry, the resolver and the atomic `writeLayer`. A value is never
@@ -27,7 +25,7 @@ const { writeLayer, layerDocument, serializeLayer, oversize } = require('./write
 const { REF_META } = require('./refs.ts');
 const { maskUrl } = require('./shared.ts');
 const { loadProtocols, presetIds } = require('../review/protocols.ts');
-const { LADDER_MAX, classifyWorkerId, retiredAdvisory } = require('../../registry/worker-ids.ts');
+const { LADDER_MAX, classifyWorkerId } = require('../../registry/worker-ids.ts');
 
 const LAYERS = ['user', 'project', 'local'];
 const LAYER_FILE: Record<string, string> = { user: 'settings.json', project: 'settings.json', local: 'settings.local.json' };
@@ -129,18 +127,14 @@ function layerEntry(registry: any, key: string, layer: string, file: string, par
   if (candidate.status === 'ignored-scope') return entryOf(registry, key, layer, 'scope', `${key} cannot be set at the ${layer} layer (${candidate.reason})`);
   if (!parsed.ok) return entryOf(registry, key, layer, 'type', NOT_JSON);
   if (candidate.status === 'invalid') return entryOf(registry, key, layer, candidate.code, candidate.reason);
-  if (candidate.code === 'retired' && notes && registry.keys.get(key).type === 'enum') notes.push(`note: ${candidate.reason}`);
   // IC-002, IC-004: valid worker lists and model maps keep dangling ids advisory.
   const type = registry.keys.get(key).type;
   if ((type === 'worker-list' || type === 'worker-models') && notes) {
     const known = registry.enumValues(key) ?? [];
-    const retired = registry.retired?.() ?? [];
     const ids = type === 'worker-models' ? Object.keys(parsed.value as Record<string, unknown>) : parsed.value as string[];
     for (const id of ids) {
       if (id === 'primary') continue;
-      const kind = classifyWorkerId(id, known, retired);
-      if (kind === 'retired') notes.push(`note: ${retiredAdvisory(key, retired.find((entry: any) => entry.id === id))}`);
-      else if (kind === 'dangling') notes.push(`note: ${key}: worker '${id}' is not installed (ignored)`);
+      if (classifyWorkerId(id, known) === 'dangling') notes.push(`note: ${key}: worker '${id}' is not installed (ignored)`);
     }
     if (type === 'worker-list' && candidate.code === 'order-ignored') notes.push(`note: ${key}: the order is ignored at the ${layer} layer; the order below applies`);
   }
@@ -254,12 +248,6 @@ function handleChange({ action, key, valueText, layer, json, registry, repoRoot,
   if (layer === undefined) {
     if (!parsed.ok) return refuse(action, [entryOf(registry, key, null, 'type', NOT_JSON)], json);
     const fault = validateValue(spec, parsed.value, registry.enumValues(key));
-    const retired = fault?.code === 'enum' && spec.valuesRef === 'harnesses.primaryIds'
-      ? (registry.retired?.() ?? []).find((entry: any) => entry.id === parsed.value) : null;
-    if (retired) {
-      const note = `note: ${retiredAdvisory(key, retired)}`;
-      return done(json, { ok: true, errors: [], notes: [note] }, [`${key}: valid`, note]);
-    }
     if (fault) return refuse(action, [entryOf(registry, key, null, fault.code, fault.reason)], json);
     return done(json, { ok: true, errors: [] }, [`${key}: valid`]);
   }

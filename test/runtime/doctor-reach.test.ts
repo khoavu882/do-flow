@@ -114,16 +114,15 @@ test('doctor text: with no ledger rows the section says so and the run exits 0',
   assert.match(result.stdout, /\[Runtime Reach\]\n {2}No harness has DoFlow ledger rows in this project or in the home directory\./);
 });
 
-test('doctor reports ignored relative XDG and a deprecated file as warnings without changing its exit rule', (testContext) => {
+test('doctor reports ignored relative XDG and the settings files it finds as warnings without changing its exit rule', (testContext) => {
   const t = fixture(testContext);
-  const sentinel = path.join(t.home, '.config', 'doflow', 'failures', 'off');
+  const sentinel = path.join(t.home, '.config', 'doflow', 'autopilot', 'off');
   write(sentinel, 'off\n');
   const result = doctor(t, [t.proj], { XDG_CONFIG_HOME: 'relative/xdg' });
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /\[Settings\]/);
   assert.match(result.stdout, /XDG_CONFIG_HOME.*ignored|ignored.*XDG_CONFIG_HOME/);
   assert.ok(result.stdout.includes(sentinel));
-  assert.match(result.stdout, /deprecated/);
 });
 
 test('doctor -g reports global rows only, and N/A alone leaves the exit code at 0', (testContext) => {

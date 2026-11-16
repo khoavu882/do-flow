@@ -149,11 +149,11 @@ function runtime() {
 }
 
 function ic014OffText(setting: any) {
-  const location = setting.decidedBy?.project || setting.decidedBy?.user || 'decision-model.json';
+  const location = setting.decidedBy?.project || setting.decidedBy?.user || 'settings.json';
   const reason = setting.reason === 'not-configured' ? 'not configured'
     : setting.reason === 'user-disabled' || setting.reason === 'project-disabled' ? `switched off in ${location}`
       : `unreadable setting in ${location}`;
-  return `[Decision Model] — advisory, never blocking\n  off (${reason}). To turn it on: doflow advise --action configure --model <a decision-capable model>\n  or write ~/.config/doflow/decision-model.json:\n  {"schema": 1, "enabled": true, "endpoint": "http://127.0.0.1:11434", "model": "<a decision-capable model>"}`;
+  return `[Decision Model] — advisory, never blocking\n  off (${reason}). To turn it on: doflow advise --action configure --model <a decision-capable model>`;
 }
 
 async function cmdAdvice({ kind: selectedKind, split, json = false }: any = {}) {

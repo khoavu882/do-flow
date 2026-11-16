@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * The settings resolver (086 IC-006, DD-2, DD-5, DD-6; data-model §3-4). `loadSettings()` returns a
  * view; `view.get(key, 'project' | 'global')` folds that key bottom-up from its registry default:
@@ -33,8 +31,7 @@
  * of those keys hit rule 2; `requires` rules (advice enabled with no model, C7); `needsConfigHome`.
  *
  * Reads are lazy and bounded: a key reads only its own sources, every path is `stat`ed and read at
- * most once per view, `legacy.ts` and `lexical.ts` are required only when a key needs them (legacy
- * after a `stat` hit). No file is written, no process spawned. A settings fault never throws; it is a
+ * most once per view, `lexical.ts` is required only when a key needs it. No file is written, no process spawned. A settings fault never throws; it is a
  * candidate status plus an `errors` entry. Only an unusable registry throws (IC-001), and so does a
  * caller's mistake (an unknown key, the project view of a `-g` load).
  *
@@ -45,7 +42,7 @@
 const nodeFs = require('node:fs');
 const path = require('node:path');
 const { isOffWord } = require('../off-words.ts');
-const { classifyWorkerId, retiredAdvisory } = require('../../registry/worker-ids.ts');
+const { classifyWorkerId } = require('../../registry/worker-ids.ts');
 
 function maskUrl(value: string): string {
   return require('./shared.ts').maskUrl(value);
@@ -76,8 +73,6 @@ interface SettingsNote { code: string; key: string | null; source: string | null
 interface Raw {
   layer: Layer; source: string; legacy: boolean; checkout: Checkout; display: string; value: unknown;
   fault: { code: string; reason: string; offset: number | null } | null; noEffect?: boolean;
-  /** 127 IC-005: the value names a retired harness id; the candidate is ignored with an advisory. */
-  retired?: { id: string; replacement: string };
 }
 
 const NEW_FILE = { user: 'settings.json', project: 'settings.json', local: 'settings.local.json' } as const;
@@ -263,30 +258,6 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
   const resolved = new Map<string, { resolution: Resolution; tripped: Candidate | null }>();
   const resolving = new Set<string>();
 
-  const keyOfField = (field: string): string | null => {
-    for (const [name, spec] of registry.keys) {
-      if (spec.legacy.some((entry: any) => entry.kind === 'decision-model' && entry.field === field)) return name;
-    }
-    return null;
-  };
-
-  /** What a user decision-model.json is checked against, from the registry (no default kept in code). */
-  function providers(): any {
-    const providerKey = keyOfField('provider');
-    const endpointKey = keyOfField('endpoint');
-    const providerSpec = providerKey ? registry.keys.get(providerKey) : null;
-    const endpointSpec = endpointKey ? registry.keys.get(endpointKey) : null;
-    return {
-      defaultProvider: providerSpec?.default,
-      ids: (providerKey && registry.enumValues(providerKey)) || [],
-      defaultEndpoint(id: string) {
-        if (!endpointSpec) return null;
-        if (!endpointSpec.defaultRef) return endpointSpec.default;
-        try { return registry.resolveRef(endpointSpec.defaultRef, { [providerKey as string]: id }); } catch { return null; }
-      },
-    };
-  }
-
   function record(entry: FileRecord): void {
     files.push(entry);
   }
@@ -316,68 +287,28 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
     return { raw: entry.raw, value: entry.raw, error: null };
   }
 
-  /** A legacy file read: a `stat` first, and `legacy.ts` only on a hit. */
+  /** The `autopilot/off` sentinel: present when the path is a regular file; its content is never read. */
   function legacyFile(layer: 'user' | 'project', entry: any, file: string, checkout: Checkout): any {
     if (!reads.has(file)) {
-      let hit = false;
-      try { io.statSync(file); hit = true; } catch (error: any) {
-        // 2.0 read decision-model.json without a stat: any error but ENOENT made it invalid
-        hit = entry.kind === 'decision-model' && error?.code !== 'ENOENT';
-      }
-      let read: any = { status: 'absent' };
-      if (hit) {
-        const legacy = require('./legacy.ts');
-        if (entry.kind === 'decision-model') {
-          read = legacy.readDecisionModel(file, layer, layer === 'user' ? providers() : null, io);
-          for (const note of read.notes) {
-            notes.push({ code: note.code, key: note.field ? keyOfField(note.field) : null, source: file, text: note.text });
-          }
-        } else if (entry.kind === 'line-onoff') {
-          const value = legacy.readLineOnOff(file, io);
-          read = value === null ? { status: 'absent' } : { status: 'ok', value };
-        } else {
-          read = legacy.readSentinel(file, io) ? { status: 'ok', value: entry.value } : { status: 'absent' };
-        }
-      }
-      record({ layer, path: file, kind: 'legacy', legacyKind: entry.kind, checkout, status: read.status, code: read.code ?? null, offset: read.offset ?? null });
+      let present = false;
+      try { present = io.statSync(file).isFile(); } catch { /* no sentinel */ }
+      const read: any = present ? { status: 'ok', value: entry.value } : { status: 'absent' };
+      record({ layer, path: file, kind: 'legacy', legacyKind: entry.kind, checkout, status: read.status, code: null, offset: null });
       reads.set(file, read);
     }
     return reads.get(file);
   }
 
-  function newPath(layer: 'user' | 'project'): string {
-    return layer === 'user' ? path.join(home.dir, NEW_FILE.user) : path.join(layers.layersFrom as string, NEW_FILE.project);
-  }
-
-  /** 127 IC-005: the retired record a `harnesses.primaryIds` enum value names, else null (any other id stays an enum fault). */
-  function retiredHarnessOf(spec: any, value: unknown): { id: string; replacement: string } | null {
-    if (spec.valuesRef !== 'harnesses.primaryIds' || typeof value !== 'string') return null;
-    return (registry.retired?.() ?? []).find((entry: any) => entry.id === value) ?? null;
-  }
-
   /** The candidates of one key in one view, lowest layer first (the env last). */
   function rawCandidates(key: string, spec: any, viewName: ViewName): Raw[] {
     const out: Raw[] = [];
-    // The legacy file's deprecation note waits until the new file has been read: it tells the reader to set the
-    // key there, which is noise when settings.json already holds it (FU-3xc3fj).
-    const deprecated: Array<{ layer: 'user' | 'project'; file: string }> = [];
     const legacyAt = (layer: 'user' | 'project', base: string, checkout: Checkout): void => {
       for (const entry of spec.legacy) {
         if (entry.layer !== layer) continue;
         const file = path.join(base, entry.path);
         const read = legacyFile(layer, entry, file, checkout);
-        const base0 = { layer, source: file, legacy: true, checkout };
         if (read.status === 'absent') continue;
-        if (read.status === 'invalid') {
-          out.push({ ...base0, display: '', value: null, fault: { code: read.code, reason: read.reason, offset: read.offset } });
-        } else if (entry.kind === 'decision-model') {
-          if (!read.fields.has(entry.field)) continue;
-          const value = read.fields.get(entry.field);
-          out.push({ ...base0, display: displayOf(spec, value), value, fault: null });
-        } else {
-          out.push({ ...base0, display: displayOf(spec, read.value), value: read.value, fault: null });
-        }
-        deprecated.push({ layer, file });
+        out.push({ layer, source: file, legacy: true, checkout, display: displayOf(spec, read.value), value: read.value, fault: null });
       }
     };
     const fileAt = (layer: 'user' | 'project' | 'local', file: string, checkout: Checkout): void => {
@@ -407,11 +338,6 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
       }
       let entry = read.values.get(key);
       if (!entry) return;
-      const retired = entry.error?.code === 'enum' ? retiredHarnessOf(spec, entry.raw) : null;
-      if (retired) {
-        out.push({ ...base0, display: displayOf(spec, entry.raw), value: null, fault: null, retired });
-        return;
-      }
       if (spec.unknownMembers === 'warn' && entry.error?.code === 'enum') entry = keepUnknownMembers(key, spec, entry, file);
       out.push({ ...base0, display: displayOf(spec, entry.raw), value: entry.value, fault: entry.error ? { ...entry.error, offset: null } : null });
     };
@@ -436,22 +362,13 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
         } else if (spec.env.parse === 'verbatim') {
           // 120 IC-002: taken as written and judged like any file value
           const fault = validateValue(spec, raw, registry.enumValues(key));
-          const retired = fault?.code === 'enum' ? retiredHarnessOf(spec, raw) : null;
-          if (retired) out.push({ ...base0, value: null, fault: null, retired });
-          else out.push({ ...base0, value: fault ? null : raw, fault: fault ? { ...fault, offset: null } : null });
+          out.push({ ...base0, value: fault ? null : raw, fault: fault ? { ...fault, offset: null } : null });
         } else if (isOffWord(raw)) {
           // 2.0 envSetting + OFF_VALUES (failure/home.ts): only an off word has an effect
           out.push({ ...base0, value: 'off', fault: null });
         } else {
           out.push({ ...base0, value: null, fault: null, noEffect: true });
         }
-      }
-    }
-    for (const { layer, file } of deprecated) {
-      const held = reads.get(newPath(layer));
-      if (held?.status === 'ok' && held.values.has(key)) continue;
-      if (once(`deprecated\0${file}\0${key}`)) {
-        notes.push({ code: 'deprecated', key, source: file, text: `${file} is deprecated; set "${key}" in ${newPath(layer)} (read through 2.x)` });
       }
     }
     return out;
@@ -501,12 +418,6 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
         Object.assign(c, { status: 'ignored-scope', value: null, reason: 'global-only: a project cannot set it' });
         continue;
       }
-      if (raw.retired) {
-        const reason = retiredAdvisory(key, raw.retired);
-        Object.assign(c, { status: 'no-effect', value: null, code: 'retired', reason });
-        if (once(`retired\0${key}\0${c.source}\0${raw.retired.id}`)) notes.push({ code: 'retired', key, source: c.source, text: reason });
-        continue;
-      }
       if (raw.fault) {
         Object.assign(c, { status: 'invalid', reason: raw.fault.reason, code: raw.fault.code });
         if (once(`error\0${key}\0${c.layer}\0${c.source}`)) {
@@ -530,34 +441,14 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
         continue;
       }
       // IC-002, IC-004: report each dangling worker once per key, source and id, across both views.
-      // 127 IC-005: a retired id is reported as retired and dropped from the value instead.
       if (spec.type === 'worker-list' || spec.type === 'worker-models' || spec.type === 'worker-billing') {
         const known = registry.enumValues(key) ?? [];
-        const retired = registry.retired?.() ?? [];
-        const isList = spec.type === 'worker-list';
-        const ids = isList ? c.value as string[] : Object.keys(c.value as Record<string, unknown>);
-        const gone = new Set<string>();
+        const ids = spec.type === 'worker-list' ? c.value as string[] : Object.keys(c.value as Record<string, unknown>);
         for (const id of ids) {
           if (id === 'primary') continue;
-          const kind = classifyWorkerId(id, known, retired);
-          if (kind === 'retired') {
-            gone.add(id);
-            if (once(`retired\0${key}\0${c.source}\0${id}`)) {
-              notes.push({ code: 'retired', key, source: c.source, text: retiredAdvisory(key, retired.find((entry: any) => entry.id === id)) });
-            }
-          } else if (kind === 'dangling' && spec.type !== 'worker-billing' && once(`dangling-worker\0${key}\0${c.source}\0${id}`)) {
+          if (classifyWorkerId(id, known) === 'dangling' && spec.type !== 'worker-billing' && once(`dangling-worker\0${key}\0${c.source}\0${id}`)) {
             notes.push({ code: 'dangling-worker', key, source: c.source, text: `${key}: worker '${id}' is not installed (ignored)` });
           }
-        }
-        if (gone.size > 0) {
-          const kept = isList
-            ? (c.value as string[]).filter((id) => !gone.has(id))
-            : Object.fromEntries(Object.entries(c.value as Record<string, unknown>).filter(([id]) => !gone.has(id)));
-          if ((isList ? (kept as string[]).length : Object.keys(kept).length) === 0) {
-            Object.assign(c, { status: 'no-effect', value: null, code: 'retired', reason: 'every worker it names is retired' });
-            continue;
-          }
-          c.value = kept;
         }
       }
       if (spec.combine === 'union') {

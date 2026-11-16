@@ -9,7 +9,6 @@ const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env.ts');
 const { spawnFakeServer } = require('../helper/fake-decision-server.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
-const { emitDeprecatedNotes } = require('../../src/runtime/advice/cli.ts');
 
 const RUN = path.join(REPO_ROOT, 'core/shared/scripts/doflow/bin/doflow-run');
 const BIN = path.join(REPO_ROOT, 'bin/doflow.js');
@@ -18,8 +17,6 @@ function fixture(t: any, { setting = null }: any = {}) {
   const scratch = createScratch('doflow-advice-verb-');
   const project = path.join(scratch.dir, 'project');
   fs.mkdirSync(project);
-  const userFile = path.join(scratch.xdg, 'doflow', 'decision-model.json');
-  const projectFile = path.join(project, '.doflow', 'decision-model.json');
   const userSettingsFile = path.join(scratch.xdg, 'doflow', 'settings.json');
   const projectSettingsFile = path.join(project, '.doflow', 'settings.json');
   const servers: any = [];
@@ -27,9 +24,11 @@ function fixture(t: any, { setting = null }: any = {}) {
     for (const server of servers) await server.close();
     scratch.remove();
   });
-  if (setting) writeJson(userFile, setting);
+  // createScratch leaves the user settings.json holding storage.prune: a failed configure must leave it as it was
+  const baseline = fs.readFileSync(userSettingsFile, 'utf8');
+  if (setting) writeJson(userSettingsFile, setting);
   return {
-    scratch, project, userFile, projectFile, userSettingsFile, projectSettingsFile,
+    scratch, project, userSettingsFile, projectSettingsFile, baseline,
     env: () => scratch.env({ DOFLOW_CLI: BIN }),
     run: (args: any, { cwd = project }: any = {}) => spawnSync(bashPath(), [RUN, 'advise', ...args], { cwd, env: scratch.env({ DOFLOW_CLI: BIN }), encoding: 'utf8' }),
     startServer: async (routes: any = {}) => {
@@ -58,7 +57,9 @@ function writeJson(file: any, value: any) {
   fs.writeFileSync(file, JSON.stringify(value, null, 2));
 }
 function userSetting(endpoint: any, overrides: any = {}) {
-  return { schema: 1, enabled: true, provider: 'ollama', endpoint, model: 'clef-flash', ...overrides };
+  const doc: any = { schema: 1, 'advice.enabled': true, 'advice.provider': 'ollama', 'advice.endpoint': endpoint, 'advice.model': 'clef-flash' };
+  for (const [key, value] of Object.entries(overrides)) doc[`advice.${key}`] = value;
+  return doc;
 }
 function questionFile(f: any, name: any = 'risk') {
   const file = path.join(f.scratch.dir, 'questions.json');
@@ -78,7 +79,7 @@ test('score CLI exposes numeric JSON, human criterion words and exact criterion 
   const server = await f.startServer({ 'POST /v1/systemone': { status: 200, body: { answers: {
     impact: { type: 'score', score: 1.15, legend: { 0: 'Low', 1: 'Medium', 2: 'High' }, probabilities: { 0: 0.25, 1: 0.35, 2: 0.4 }, confidence: 0.7 },
   } } } });
-  writeJson(f.userFile, userSetting(server.origin));
+  writeJson(f.userSettingsFile, userSetting(server.origin));
   const file = path.join(f.scratch.dir, 'score-questions.json');
   writeJson(file, { questions: [{ name: 'impact', type: 'score', instructions: 'Assess impact.', criteria: ['Low', 'Medium', 'High'] }] });
   const args: any = ['--questions-file', file, '--state', 'Assess task.'];
@@ -99,7 +100,7 @@ test('score CLI exposes numeric JSON, human criterion words and exact criterion 
     assert.equal(invalid.status, 2);
     assert.match(invalid.stderr, /Low, Medium, High/);
   }
-  writeJson(f.userFile, userSetting(server.origin, { enabled: false }));
+  writeJson(f.userSettingsFile, userSetting(server.origin, { enabled: false }));
   const outcome = f.run(['--action', 'outcome', '--pick-id', answer.pickId, '--actual', 'Medium', '--json']);
   assert.equal(outcome.status, 0, outcome.stderr);
   assert.equal(JSON.parse(outcome.stdout).actual, 'Medium');
@@ -108,7 +109,7 @@ test('score CLI exposes numeric JSON, human criterion words and exact criterion 
  test('IC-008 ask supports a named kind, state-file, server, questions-file and JSON/text output', async (t) => {
   const f = fixture(t);
   const server = await f.startServer();
-  writeJson(f.userFile, userSetting(server.origin));
+  writeJson(f.userSettingsFile, userSetting(server.origin));
 
   const json = f.run(['--action', 'ask', '--kind', 'tier', '--state', 'Choose a tier.', '--static', 'standard', '--json']);
   assert.equal(json.status, 0, json.stderr);
@@ -180,11 +181,11 @@ test('IC-008 off and unavailable both print the none line and exit zero', (t) =>
 test('IC-009 outcome appends to the pick store and works while the feature is off', async (t) => {
   const f = fixture(t);
   const server = await f.startServer();
-  writeJson(f.userFile, userSetting(server.origin));
+  writeJson(f.userSettingsFile, userSetting(server.origin));
   const answered = f.run(['--action', 'ask', '--kind', 'tier', '--state', 'state', '--json']);
   assert.equal(answered.status, 0, answered.stderr);
   const pickId = JSON.parse(answered.stdout).answers[0].pickId;
-  writeJson(f.userFile, userSetting(server.origin, { enabled: false }));
+  writeJson(f.userSettingsFile, userSetting(server.origin, { enabled: false }));
   const outcome = f.run(['--action', 'outcome', '--pick-id', pickId, '--actual', 'light', '--json']);
   assert.equal(outcome.status, 0, outcome.stderr);
   assert.deepEqual(JSON.parse(outcome.stdout), { pickId, actual: 'light', recorded: true, file: path.join(f.project, '.doflow/state/advice/picks', `${new Date().toISOString().slice(0, 10)}.jsonl`) });
@@ -203,7 +204,7 @@ test('configure refuses from a worker session: exit 1, nothing written, and a pe
     const res = spawnSync(bashPath(), [RUN, 'advise', '--action', 'configure', '--off'], { cwd: f.project, env: { ...f.env(), DOFLOW_SESSION_ROLE: role }, encoding: 'utf8' });
     assert.equal(res.status, 1, res.stderr);
     assert.match(res.stderr, /worker session; a person runs it from their own terminal/);
-    assert.equal(fs.existsSync(f.userSettingsFile), false);
+    assert.equal(fs.readFileSync(f.userSettingsFile, 'utf8'), f.baseline);
   }
   const main = spawnSync(bashPath(), [RUN, 'advise', '--action', 'configure', '--off'], { cwd: f.project, env: { ...f.env(), DOFLOW_SESSION_ROLE: 'main' }, encoding: 'utf8' });
   assert.equal(main.status, 0, main.stderr);
@@ -219,6 +220,7 @@ test('IC-021 configure writes user/project forms and off performs no server chec
   assert.equal(json.written, f.userSettingsFile);
   assert.deepEqual(JSON.parse(fs.readFileSync(f.userSettingsFile, 'utf8')), {
     schema: 1, 'advice.enabled': true, 'advice.provider': 'ollama', 'advice.endpoint': server.origin, 'advice.model': 'clef-flash',
+    'storage.prune': 'off', // the scratch's own key, kept
   });
 
   // A closed endpoint makes accidental inspection fail; --off must succeed without opening a socket.
@@ -255,12 +257,11 @@ test('project configure in an inheriting worktree writes the main layer and keep
   const f = fixture(t);
   const server = await f.startServer();
   const worktree = linkProjectWorktree(f.project, path.join(f.scratch.dir, 'linked'));
-  writeJson(f.userFile, userSetting(server.origin));
+  writeJson(f.userSettingsFile, userSetting(server.origin));
   writeJson(f.projectSettingsFile, { schema: 1, 'advice.enabled': false });
 
   const configured = f.run(['--action', 'configure', '--project', '--model', 'clef-flash', '--json'], { cwd: worktree });
   assert.equal(configured.status, 0, `${configured.stderr}\n${configured.stdout}`);
-  assert.match(configured.stderr, /decision-model\.json is deprecated; set "advice\.enabled"/);
   const json = JSON.parse(configured.stdout);
   assert.equal(json.written, f.projectSettingsFile);
   assert.equal(json.inheritedFromMainCheckout, true);
@@ -275,44 +276,14 @@ test('project configure in an inheriting worktree writes the main layer and keep
   assert.ok(text.stdout.includes(`wrote ${f.projectSettingsFile} (inherited from the main checkout)`), text.stdout);
 });
 
-test('advise writes a legacy deprecation note to stderr without changing JSON stdout', async (t) => {
-  const legacy = fixture(t);
-  const server = await legacy.startServer();
-  writeJson(legacy.userFile, userSetting(server.origin));
-  const advised = legacy.run(['--action', 'ask', '--kind', 'tier', '--state', 'Choose a tier.', '--json']);
-  assert.equal(advised.status, 0, advised.stderr);
-  assert.equal(JSON.parse(advised.stdout).status, 'answered');
-  assert.match(advised.stderr, /note: .*decision-model\.json is deprecated; set "advice\.enabled" in .*settings\.json \(read through 2\.x\)/);
-  assert.doesNotMatch(advised.stdout, /decision-model\.json is deprecated/);
-
-  const current = fixture(t);
-  writeJson(current.userSettingsFile, {
-    schema: 1, 'advice.enabled': true, 'advice.provider': 'ollama',
-    'advice.endpoint': server.origin, 'advice.model': 'clef-flash',
-  });
-  const clean = current.run(['--action', 'ask', '--kind', 'tier', '--state', 'Choose a tier.', '--json']);
+test('advise with a current settings file writes no note on stderr', async (t) => {
+  const f = fixture(t);
+  const server = await f.startServer();
+  writeJson(f.userSettingsFile, userSetting(server.origin));
+  const clean = f.run(['--action', 'ask', '--kind', 'tier', '--state', 'Choose a tier.', '--json']);
   assert.equal(clean.status, 0, clean.stderr);
-  assert.equal(clean.stderr, '', 'control: a current settings file has no deprecation note');
-});
-
-test('advise keeps a deprecated note when its wording changes', (): any => {
-  const source = '/tmp/doflow-advice-note/decision-model.json';
-  const output: any = [];
-  const originalError = console.error;
-  console.error = (line) => output.push(String(line));
-  try {
-    emitDeprecatedNotes({
-      adviceRegistry: {},
-      roots: { 'config-home': '/tmp/doflow-advice-note/doflow', 'project-doflow': null },
-    }, () => ({
-      files: [{ path: source, layer: 'user' }],
-      notes: [{ code: 'deprecated', key: 'advice.enabled', source, text: 'Legacy settings remain supported.' }],
-      get: () => ({ value: true, state: 'ok', origin: { via: null, legacy: true, source } }),
-    }));
-  } finally {
-    console.error = originalError;
-  }
-  assert.deepEqual(output, ['note: Legacy settings remain supported.']);
+  assert.equal(JSON.parse(clean.stdout).status, 'answered');
+  assert.equal(clean.stderr, '');
 });
 
 test('configure at user level with no config home exits 2 naming HOME or XDG_CONFIG_HOME, writes nothing and throws no TypeError (086 DD-7)', (t) => {
@@ -336,7 +307,7 @@ test('configure at user level with no config home exits 2 naming HOME or XDG_CON
   // control: with a config home the same command writes as before
   const ok = f.run(['--action', 'configure', '--off']);
   assert.equal(ok.status, 0, ok.stderr);
-  assert.equal(fs.existsSync(f.userSettingsFile), true);
+  assert.equal(JSON.parse(fs.readFileSync(f.userSettingsFile, 'utf8'))['advice.enabled'], false);
 });
 
 for (const failure of [
@@ -354,7 +325,7 @@ for (const failure of [
     const result = f.run(['--action', 'configure', '--model', model, '--endpoint', endpoint, ...failure.args]);
     assert.equal(result.status, 1, result.stderr);
     assert.ok(result.stderr.includes(failure.expected), result.stderr);
-    assert.equal(fs.existsSync(f.userFile), false, 'failed configuration must not write');
+    assert.equal(fs.readFileSync(f.userSettingsFile, 'utf8'), f.baseline, 'failed configuration must not write');
   });
 }
 

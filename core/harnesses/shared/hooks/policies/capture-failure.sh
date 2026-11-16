@@ -21,7 +21,7 @@ _DOFLOW_SRC=${BASH_SOURCE[0]//\\//}; case $_DOFLOW_SRC in */*) _DOFLOW_CAPTURE_F
 # directory, the harness name and the install version: never the tool call, its arguments or stdin.
 # It is a no-op when there is no config home (neither XDG_CONFIG_HOME nor HOME is set to an absolute
 # path; doflow_config_home below) and while capture is off (DOFLOW_FAILURE_CAPTURE=off|0|false|no,
-# the `off` sentinel file, or a `failure.capture` value other than "on" in <config home>/settings.json,
+# or a `failure.capture` value other than "on" in <config home>/settings.json,
 # read by doflow_lex_capture below), the same rules the Node writer follows (IC-011, IC-014, IC-005).
 # The two marked blocks are byte-identical to the ones in bin/doflow-run.
 
@@ -78,7 +78,6 @@ doflow_capture_failure() {
   case "$setting" in
     off|0|false|no) return 0 ;;
   esac
-  [ -f "$home/off" ] && return 0
   doflow_lex_capture "$DOFLOW_HOME/settings.json"
   [ "$DOFLOW_LEX_CAPTURE" = off ] && return 0
 

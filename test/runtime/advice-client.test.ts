@@ -33,9 +33,9 @@ function fixture(t: any, { setting = true, endpoint, adviceOverrides = {}, looku
     env: { HOME: home, XDG_CONFIG_HOME: path.join(home, 'xdg') },
   });
   if (setting) {
-    const file = path.join(roots['config-home'], 'decision-model.json');
+    const file = path.join(roots['config-home'], 'settings.json');
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, JSON.stringify({ schema: 1, enabled: true, provider: 'ollama', endpoint: endpoint || 'http://127.0.0.1:11434', model: 'clef-flash' }));
+    fs.writeFileSync(file, JSON.stringify({ schema: 1, 'advice.enabled': true, 'advice.provider': 'ollama', 'advice.endpoint': endpoint || 'http://127.0.0.1:11434', 'advice.model': 'clef-flash' }));
   }
   const adviceRegistry = structuredClone(BASE_ADVICE);
   Object.assign(adviceRegistry, adviceOverrides);

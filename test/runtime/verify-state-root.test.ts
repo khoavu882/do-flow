@@ -149,7 +149,7 @@ test('N1: a failing verify in an attempt worktree with planted delivery pack wri
   const xdg = path.join(scratchDir, 'xdg');
   fs.mkdirSync(home, { recursive: true });
   fs.mkdirSync(path.join(xdg, 'doflow'), { recursive: true });
-  fs.writeFileSync(path.join(xdg, 'doflow', 'prune'), 'on\n');
+  fs.writeFileSync(path.join(xdg, 'doflow', 'settings.json'), '{"schema":1,"storage.prune":"on"}\n');
   const env: any = { HOME: home, XDG_CONFIG_HOME: xdg, DOFLOW_CONFIG_DIR: undefined };
 
   const store = path.join(p.root, '.doflow');
