@@ -332,6 +332,11 @@ const IDENTITY_VARIABLES: readonly string[] = Object.freeze([
   'DOFLOW_WORKTREE',
 ]);
 const PASS_THROUGH: readonly string[] = Object.freeze(['DOFLOW_CONFIG_DIR', 'DOFLOW_TELEMETRY', 'DOFLOW_FAILURE_CAPTURE', 'DOFLOW_RETENTION_HOURS']);
+/**
+ * 165 review B-1: the one variable a write shape also passes. A Console run inside a started session carries that session's
+ * `DOFLOW_STARTED_RUN`; the start shape passes it so the core's own `nested-start` refusal fires. No other shape gets it.
+ */
+const WRITE_PASS_THROUGH: Readonly<Record<string, readonly string[]>> = Object.freeze({ 'start-session': Object.freeze(['DOFLOW_STARTED_RUN']) });
 
 const POOL_SIZE = 2;
 /** IC-024: slots beyond the pool that only `transcript` may take. */
@@ -404,14 +409,15 @@ function buildArgv(shapeId: unknown, params: unknown, shapes: Readonly<Record<st
   return { argv, projectKey: null, stdin };
 }
 
-/** The parent environment minus every DOFLOW_* and identity variable, plus the pass-throughs and DOFLOW_UPKEEP=off. */
-function childEnv(parent: Record<string, string | undefined>): Record<string, string> {
+/** The parent environment minus every DOFLOW_* and identity variable, plus the pass-throughs (and the write shape's own, B-1) and DOFLOW_UPKEEP=off. */
+function childEnv(parent: Record<string, string | undefined>, writeShape: string | null = null): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [name, value] of Object.entries(parent)) {
     if (value === undefined || name.toUpperCase().startsWith('DOFLOW_') || IDENTITY_VARIABLES.includes(name)) continue;
     env[name] = value;
   }
-  for (const name of PASS_THROUGH) {
+  const own = writeShape !== null && Object.hasOwn(WRITE_PASS_THROUGH, writeShape) ? WRITE_PASS_THROUGH[writeShape] : [];
+  for (const name of [...PASS_THROUGH, ...own]) {
     const value = parent[name];
     if (value !== undefined) env[name] = value;
   }
@@ -490,7 +496,7 @@ function createVerbRunner(options: RunnerOptions) {
   let stopped = false;
 
   /** One spawn of the core, of a read `shape` or, with `null`, of a write (162: `act`). Resolves when the child has closed; never rejects. A write with `stdin` pipes it, writes the text and ends it (165). */
-  function spawnCore(shape: Shape | null, argv: string[], cwd: string, flightKey: string, stdin: string | null = null): Promise<Result> {
+  function spawnCore(shape: Shape | null, argv: string[], cwd: string, flightKey: string, stdin: string | null = null, writeShape: string | null = null): Promise<Result> {
     const write = shape === null;
     return new Promise((resolveResult) => {
       const resolve = (result: Bare) => resolveResult(stamp(result, clock.now()));
@@ -499,7 +505,7 @@ function createVerbRunner(options: RunnerOptions) {
         if (!fs.statSync(corePath).isFile()) return resolve(unreachable());
         child = spawnImpl(process.execPath, [corePath, ...argv], {
           cwd,
-          env: childEnv(env),
+          env: childEnv(env, write ? writeShape : null),
           shell: false,
           stdio: [stdin === null ? 'ignore' : 'pipe', 'pipe', 'pipe'],
           windowsHide: true,
@@ -740,7 +746,7 @@ function createVerbRunner(options: RunnerOptions) {
     if (root === undefined) return stamp({ ok: false, code: 'project-not-found', exit: null }, clock.now());
     const turn = writeTail.then(async () => {
       if (stopped) return stamp(unreachable(), clock.now());
-      const result = await spawnCore(null, built.argv, root, '', built.stdin);
+      const result = await spawnCore(null, built.argv, root, '', built.stdin, shapeId);
       forgetState();
       return result;
     });
@@ -928,6 +934,7 @@ module.exports = {
   OUTPUT_CAP_BYTES,
   PARAM_PATTERN,
   PASS_THROUGH,
+  WRITE_PASS_THROUGH,
   PATTERNS,
   ID_MAX,
   POOL_SIZE,

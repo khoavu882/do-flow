@@ -349,8 +349,8 @@ test('refusals: view 403 phone-scope; browser-transport control 403 action-trans
   // Nested start: the first session's own environment names its run; a start made with that environment is refused.
   const call = w.calls()[0];
   assert.match(call.env.DOFLOW_STARTED_RUN, /^w-[0-9a-f]{12}$/);
-  // The Console's runner strips every DOFLOW_* variable from the core's environment (verb-runner.ts), so a nested start cannot arrive
-  // through it; the core itself, called from inside the session with the variable the fake recorded, refuses it.
+  // The core itself, called from inside the session with the variable the fake recorded, refuses it; a Console run inside a started
+  // session passes the variable for the start shape (verb-runner.ts WRITE_PASS_THROUGH), see the B-1 test below.
   const nested = spawnSync(process.execPath, [CORE, 'worker', '--action', 'start-session', '--project-key', w.key, '--worktree-key', w.mainKey, '--harness', 'codex',
     '--entry', 'do', '--via', 'console', '--request-id', rid(), '--stdin', '--json'], {
     cwd: w.main, input: 'nested hello', encoding: 'utf8', env: { ...w.env, DOFLOW_STARTED_RUN: call.env.DOFLOW_STARTED_RUN },
@@ -372,6 +372,18 @@ test('a harness not on the scratch PATH is 409 harness-not-startable, and nothin
   assert.deepEqual([reply.status, json(reply).error.code], [409, 'harness-not-startable'], reply.body);
   assert.equal(json(reply).current.reason, 'not-installed');
   assert.equal(w.calls().length, 0);
+});
+
+test('165 review B-1: a Console run inside a started session passes DOFLOW_STARTED_RUN to the core for a start only: 409 nested-start, nothing spawns, reads are unchanged', { ...POSIX, timeout: 60_000 }, async (t: any) => {
+  const w = world(t);
+  const inside = 'w-0123456789ab';
+  const l = await loopback(t, w, { env: { DOFLOW_STARTED_RUN: inside } });
+  const reply = await l.post('start-session', startBody(w));
+  assert.deepEqual([reply.status, json(reply).error.code], [409, 'nested-start'], reply.body);
+  assert.equal(w.calls().length, 0, 'a nested start spawns nothing');
+  assert.deepEqual(w.runs(), {}, 'and records nothing');
+  const options = await l.request('GET', `/api/start/options?projectKey=${w.key}`);
+  assert.equal(options.status, 200, 'a read is not refused: the variable reaches the start shape only');
 });
 
 test('the same requestId is one run (memo); after a Console restart it is 200 replayed with the first run id and nothing new spawns', { ...POSIX, timeout: 90_000 }, async (t: any) => {

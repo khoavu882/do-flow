@@ -17,6 +17,7 @@ const {
   SHAPE_IDS,
   IDENTITY_VARIABLES,
   PASS_THROUGH,
+  WRITE_PASS_THROUGH,
   OUTPUT_CAP_BYTES,
   KILL_GRACE_MS,
   POOL_SIZE,
@@ -1905,6 +1906,23 @@ test('act runs exactly the IC-003 argv plus --json, shell off, in the root of th
   assert.deepEqual(last.argv, ['orchestrate', '--action', 'decide-gate', '--task-id', 't-1', '--gate', 'gate-a', '--decision', 'reject', '--expect-revision', '12', '--via', DEVICE_RELAY, '--json']);
   await f.runner.act('decide-gate', { projectKey: KEY_B, taskId: 't-1', gate: 'gate-a', decision: 'reject', revision: '12', relay: 'console' });
   assert.ok(!f.writeStarts().at(-1).argv.includes('--note'));
+});
+
+test('165 review B-1: DOFLOW_STARTED_RUN reaches the core for the start-session write only; every other write and every read is stripped of it', async () => {
+  assert.deepEqual(JSON.parse(JSON.stringify(WRITE_PASS_THROUGH)), { 'start-session': ['DOFLOW_STARTED_RUN'] });
+  assert.ok(Object.isFrozen(WRITE_PASS_THROUGH) && Object.isFrozen(WRITE_PASS_THROUGH['start-session']));
+  const f = await writeSetup(undefined, { DOFLOW_STARTED_RUN: 'w-0123456789ab', DOFLOW_SCOPE: 'global' });
+  for (const [id, expected] of Object.entries(WRITE_CASES)) assert.equal((await f.runner.act(id, expected.params)).ok, true, id);
+  assert.equal((await f.runner.act('start-session', START_CASE.params)).ok, true);
+  const starts = f.starts();
+  const doflowOf = (start: any) => Object.keys(start.env).filter((name) => name.startsWith('DOFLOW_')).sort();
+  const startSession = starts.filter((s: any) => s.argv[1] === '--action' && s.argv[2] === 'start-session');
+  assert.equal(startSession.length, 1);
+  assert.equal(startSession[0].env.DOFLOW_STARTED_RUN, 'w-0123456789ab');
+  assert.deepEqual(doflowOf(startSession[0]), ['DOFLOW_STARTED_RUN', 'DOFLOW_UPKEEP'], 'no other DOFLOW_* variable');
+  const others = starts.filter((s: any) => !startSession.includes(s));
+  assert.ok(others.length >= 4, 'the three other writes and the projects read');
+  for (const start of others) assert.deepEqual(doflowOf(start), ['DOFLOW_UPKEEP'], start.argv.join(' '));
 });
 
 test('act passes the text as exactly one argv element, never checked or split, whatever it holds', async () => {
