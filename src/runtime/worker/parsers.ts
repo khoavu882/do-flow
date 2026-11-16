@@ -15,11 +15,17 @@
  *     JSON-looking one makes the report `unparsed`, reason `oversize-line`, unless a denial was seen
  *     (DEC-057).
  *   - `unparsed` is the fallback for a null or unknown id, and always reports `status: 'unparsed'`.
+ *   - `codex-exec-json-v1` is data: the codex field map in `core/registry/harnesses.json`, compiled when this
+ *     module loads (171 FR-008), like every harness whose `worker.structuredOutput` carries a `fieldMap`.
  *
  * Every free-text field is masked before it is kept: `summary` with the body profile, `action` and
- * `detail` with the line profile. No I/O and no state outside one parser instance.
+ * `detail` with the line profile. Reading harnesses.json at load is the only I/O; an instance does none and
+ * keeps no state outside itself.
  */
 
+const fs = require('node:fs');
+const path = require('node:path');
+const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { maskLine, maskBody } = require('../mask.ts');
 const { MAX_DENIALS, DETAIL_CHARS, SUMMARY_BYTES, cutBytes, cutChars, eventOf, lineText } = require('./parsers/common.ts');
 
@@ -35,7 +41,6 @@ const { canonicalJson } = require('../canonical-json.ts');
 import type { Denial, Report } from './parsers/common.ts';
 
 const JSONL_V1 = 'doflow-jsonl-v1';
-const CODEX_EXEC_JSON_V1 = 'codex-exec-json-v1';
 const UNPARSED = 'unparsed';
 const RESULT_STATUSES = new Set(['success', 'failure']);
 
@@ -82,82 +87,6 @@ function createJsonlV1() {
   };
 }
 
-/** Parses Codex `exec --json` events (IC-003). */
-function createCodexExecJsonV1() {
-  const denials: Denial[] = [];
-  let deniedCount = 0;
-  let usage: { tokens: number } | null = null;
-  let ignoredLines = 0;
-  let oversizeJson = false;
-  let final: string | null = null;
-  let fileFinal: string | null = null;
-  let spawnObserved = false;
-  let terminal: 'completed' | 'failed' | null = null;
-  let failMessage: string | null = null;
-  let streamError: string | null = null;
-
-  return {
-    oversize(looksJson: boolean): void {
-      ignoredLines++;
-      if (looksJson) oversizeJson = true;
-    },
-    line(text: string): void {
-      const event = eventOf(lineText(text));
-      if (!event) {
-        ignoredLines++;
-        return;
-      }
-
-      const item = event.item;
-      if (event.type === 'item.completed' && item?.type === 'agent_message' && typeof item.text === 'string') {
-        final = item.text;
-      } else if (['item.started', 'item.updated', 'item.completed'].includes(event.type)
-        && item?.type === 'collab_tool_call' && item.tool === 'spawn_agent') {
-        spawnObserved = true;
-      } else if (event.type === 'item.completed' && item?.type === 'command_execution' && item.status === 'declined') {
-        deniedCount++;
-        if (denials.length < MAX_DENIALS) {
-          denials.push({ action: 'command', detail: cutChars(maskLine(String(item.command ?? '')).text, DETAIL_CHARS) });
-        }
-      } else if (event.type === 'turn.completed') {
-        terminal = 'completed';
-        const reported = event.usage;
-        const input = Number.isInteger(reported?.input_tokens) && reported.input_tokens >= 0 ? reported.input_tokens : null;
-        const output = Number.isInteger(reported?.output_tokens) && reported.output_tokens >= 0 ? reported.output_tokens : null;
-        usage = input === null && output === null ? null : { tokens: (input ?? 0) + (output ?? 0) };
-      } else if (event.type === 'turn.failed' && typeof event.error?.message === 'string') {
-        terminal = 'failed';
-        failMessage = event.error.message;
-      } else if (event.type === 'error' && typeof event.message === 'string') {
-        streamError = event.message;
-      } else {
-        ignoredLines++;
-      }
-    },
-    lastMessage(text: string): void {
-      if (String(text ?? '').trim()) fileFinal = String(text);
-    },
-    end(): Report {
-      let status: Report['status'];
-      let reason: string | null = null;
-      let rawSummary: string | null = null;
-      if (deniedCount > 0) status = 'denied';
-      else if (oversizeJson) { status = 'unparsed'; reason = 'oversize-line'; }
-      else if (spawnObserved) { status = 'failure'; reason = 'spawn-observed'; }
-      else if (terminal === 'failed') { status = 'failure'; rawSummary = failMessage; }
-      else if (terminal === 'completed' && (final ?? fileFinal) !== null) {
-        status = 'success';
-        rawSummary = final ?? fileFinal;
-      } else if (terminal === 'completed') { status = 'unparsed'; reason = 'no-final-message'; }
-      else if (streamError !== null) { status = 'failure'; reason = 'stream-error'; rawSummary = streamError; }
-      else { status = 'unparsed'; reason = 'no-turn-end'; }
-
-      const summary = rawSummary === null ? null : cutBytes(maskBody(rawSummary).text, SUMMARY_BYTES);
-      return { parser: CODEX_EXEC_JSON_V1, status, reason, summary, denials: denials.slice(), deniedCount, usage, ignoredLines };
-    },
-  };
-}
-
 /** The fallback: reads nothing and reports `unparsed` with the reason it was chosen. */
 function unparsedParser(reason: 'no-structured-output-declared' | 'parser-unknown') {
   return {
@@ -178,16 +107,26 @@ function unparsedParser(reason: 'no-structured-output-declared' | 'parser-unknow
 type ParserInstance = { line(text: string): void; oversize(looksJson: boolean): void; lastMessage?: (text: string) => void; end(): Report };
 type ParserFactory = { id: string; create(): ParserInstance };
 
-const PARSERS: Readonly<Record<string, ParserFactory>> = Object.freeze({
-  [JSONL_V1]: Object.freeze({ id: JSONL_V1, create: createJsonlV1 }),
-  [CODEX_EXEC_JSON_V1]: Object.freeze({ id: CODEX_EXEC_JSON_V1, create: createCodexExecJsonV1 }),
-  [claude.ID]: Object.freeze({ id: claude.ID, create: claude.create }),
-  [opencode.ID]: Object.freeze({ id: opencode.ID, create: opencode.create }),
-  [copilot.ID]: Object.freeze({ id: copilot.ID, create: copilot.create }),
-  [kiro.ID]: Object.freeze({ id: kiro.ID, create: kiro.create }),
-  [pi.ID]: Object.freeze({ id: pi.ID, create: pi.create }),
-  [antigravity.ID]: Object.freeze({ id: antigravity.ID, create: antigravity.create }),
-});
+/** 171 FR-008: every active harness's `worker.structuredOutput.fieldMap` in harnesses.json, compiled once here. */
+function registryMaps(): ParserFactory[] {
+  const registry = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'harnesses.json'), 'utf8'));
+  return (registry.harnesses ?? []).map((harness: any) => harness?.worker?.structuredOutput?.fieldMap).filter(Boolean).map(compileFieldMap);
+}
+
+/** `doflow-jsonl-v1`, then the registry maps in registry order, then the code parsers; an id is never shadowed. */
+function parserTable(): Readonly<Record<string, ParserFactory>> {
+  const table: Record<string, ParserFactory> = {};
+  const add = (factory: ParserFactory) => {
+    if (Object.hasOwn(table, factory.id)) throw new Error(`parser id '${factory.id}' is declared twice`);
+    table[factory.id] = factory;
+  };
+  add(Object.freeze({ id: JSONL_V1, create: createJsonlV1 }));
+  for (const factory of registryMaps()) add(factory);
+  for (const code of [claude, opencode, copilot, kiro, pi, antigravity]) add(Object.freeze({ id: code.ID, create: code.create }));
+  return Object.freeze(table);
+}
+
+const PARSERS = parserTable();
 
 /** The parser for `id`; the `unparsed` fallback for a null or unknown one. */
 function parserFor(id: string | null | undefined) {
@@ -233,4 +172,4 @@ function parserOf(descriptor: any, which: 'structured' | 'main'): ParserFactory 
   return parserFor(id);
 }
 
-module.exports = { PARSERS, parserFor, parserOf, parserIdOf, JSONL_V1, CODEX_EXEC_JSON_V1, UNPARSED, MAX_DENIALS, DETAIL_CHARS, SUMMARY_BYTES };
+module.exports = { PARSERS, parserFor, parserOf, parserIdOf, JSONL_V1, UNPARSED, MAX_DENIALS, DETAIL_CHARS, SUMMARY_BYTES };
