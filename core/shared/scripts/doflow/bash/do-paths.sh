@@ -192,7 +192,6 @@ feature_root="$repo_root"
 feature_dir=""; requirement=""; design=""; specs=""; data_model=""; plan=""; state=""; audit=""
 decisions=""; decisions_register=""; has_decisions=false
 has_requirement=false; has_design=false; has_plan=false; has_specs=false; has_data_model=false
-layout="structured"
 intention_next_round=""; design_next_round=""; plan_next_round=""
 if [ -n "$feature_slug" ]; then
   feature_dir="$specs_rel/$feature_slug"
@@ -329,7 +328,6 @@ jq -n \
   --arg decisions "$decisions" --arg decisions_register "$decisions_register" --argjson has_decisions "$has_decisions" \
   --argjson has_requirement "$has_requirement" --argjson has_design "$has_design" --argjson has_plan "$has_plan" \
   --argjson has_specs "$has_specs" --argjson has_data_model "$has_data_model" \
-  --arg layout "$layout" \
   --arg intention_next_round "$intention_next_round" \
   --arg design_next_round "$design_next_round" \
   --arg plan_next_round "$plan_next_round" \
@@ -346,7 +344,6 @@ jq -n \
     feature_slug:       (if $feature_slug=="" then null else $feature_slug end),
     feature_dir:        (if $feature_dir=="" then null else $feature_dir end),
     candidate_slugs:    $candidate_slugs,
-    layout:             $layout,
     requirement:        (if $requirement=="" then null else $requirement end),
     design:             (if $design=="" then null else $design end),
     specs:              (if $specs=="" then null else $specs end),

@@ -93,15 +93,15 @@ describe('RK5: slugs that work today are still accepted', { skip: SKIP }, () => 
     const repo = makeRepo({ branch: 'feat/046-shapes' });
     const fixtureRoot = path.join(__dirname, '..', 'fixtures', 'feature-layouts');
     const shapes = [
-      ['041-structured', 'structured', false],
-      ['042-structured-register', 'structured', true],
+      ['041-structured', false],
+      ['042-structured-register', true],
     ];
-    for (const [slug, layout, hasDecisions] of shapes) {
+    for (const [slug, hasDecisions] of shapes) {
       fs.cpSync(path.join(fixtureRoot, slug), path.join(repo, 'agent-docs', 'doflow', slug), { recursive: true });
       const res = run(repo, ['paths', `--slug=${slug}`, '--json']);
       assert.strictEqual(res.status, 0, `${slug}: ${res.stdout}${res.stderr}`);
       assert.strictEqual(res.json.feature_slug, slug);
-      assert.strictEqual(res.json.layout, layout, slug);
+      assert.strictEqual('layout' in res.json, false, slug);
       assert.strictEqual(res.json.has_requirement, true, slug);
       assert.strictEqual(res.json.has_decisions, hasDecisions, slug);
     }

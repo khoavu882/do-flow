@@ -875,8 +875,8 @@ eq "empty feature dir -> plan_next_round:1" \
 # into their own subdirs, even before design.md/specs.md/plan.md exist.
 mkdir -p agent-docs/doflow/901-structured-fixture/intention
 echo r > agent-docs/doflow/901-structured-fixture/intention/requirement.md
-eq "structured layout dir -> layout:structured" \
-   "$($PATHS --slug=901-structured-fixture | jq -r '.layout')" "structured"
+eq "paths JSON carries no layout key" \
+   "$($PATHS --slug=901-structured-fixture | jq -r 'has("layout")')" "false"
 eq "structured layout -> requirement resolves into intention/" \
    "$($PATHS --slug=901-structured-fixture | jq -r '.requirement')" \
    "agent-docs/doflow/901-structured-fixture/intention/requirement.md"

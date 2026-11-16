@@ -34,7 +34,7 @@ test('a feat/ branch resolves its feature folder and returns the resolver JSON',
   assert.ok(samePath(result.repoRoot, root), `${result.repoRoot} is ${root}`);
   assert.ok(samePath(result.featureDir, path.join(root, 'agent-docs/doflow/001-demo')), result.featureDir);
   assert.equal(result.paths.feature_slug, '001-demo');
-  assert.equal(result.paths.layout, 'structured');
+  assert.equal('layout' in result.paths, false);
   assert.equal(result.paths.requirement, 'agent-docs/doflow/001-demo/intention/requirement.md');
   assert.equal(result.paths.has_requirement, true);
   assert.equal(result.paths.has_design, false);
