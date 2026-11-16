@@ -27,6 +27,9 @@
 //
 // A scenario is `{ <kind>: [step, ...], byBinary?: { <binary>: { <kind>: [step, ...] } } }`; the
 // byBinary entry for the invoked name wins over the top-level kind. A kind with no steps exits 0.
+// `byArgv: [{ argv: [...], steps: [step, ...] }, ...]` (172), at the top level or inside a byBinary entry,
+// matches an invocation whose argv equals `argv` element by element; the first match wins over every kind
+// (the binary's own list first), so one fake answers a listing and each per-provider check differently.
 // Steps, run in order:
 //
 //   { print: 'text' }                       stdout text plus a newline
@@ -96,9 +99,19 @@ function kindOf(argv: any) {
   return 'run';
 }
 
-/** The steps a scenario gives one binary name and kind. */
-function stepsFor(scenario: any, binary: any, kind: any) {
+/** The steps of the first `byArgv` entry whose argv equals `argv` exactly, or null. */
+function argvSteps(list: any, argv: string[]) {
+  if (!Array.isArray(list)) return null;
+  const hit = list.find((entry: any) => Array.isArray(entry?.argv) && entry.argv.length === argv.length
+    && entry.argv.every((item: any, i: number) => item === argv[i]));
+  return hit ? (Array.isArray(hit.steps) ? hit.steps : []) : null;
+}
+
+/** The steps a scenario gives one binary name and kind; an exact `byArgv` match wins over the kind. */
+function stepsFor(scenario: any, binary: any, kind: any, argv: string[] = []) {
   const own = scenario?.byBinary?.[binary];
+  const exact = argvSteps(own?.byArgv, argv) ?? argvSteps(scenario?.byArgv, argv);
+  if (exact) return exact;
   if (own && Object.hasOwn(own, kind)) return own[kind];
   return Object.hasOwn(scenario ?? {}, kind) ? scenario[kind] : [];
 }
@@ -172,7 +185,7 @@ async function main() {
     return;
   }
 
-  for (const step of stepsFor(scenario, binary, kindOf(argv))) {
+  for (const step of stepsFor(scenario, binary, kindOf(argv), argv)) {
     if (Object.hasOwn(step, 'print')) out(`${step.print}\n`);
     else if (Object.hasOwn(step, 'emit')) for (const event of [].concat(step.emit)) out(`${JSON.stringify(event)}\n`);
     else if (Object.hasOwn(step, 'write')) {
@@ -308,4 +321,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { FAKE_CLI, IDENTITY_VARS, kindOf, linkBin, writeScenario, readLog };
+module.exports = { FAKE_CLI, IDENTITY_VARS, kindOf, stepsFor, linkBin, writeScenario, readLog };

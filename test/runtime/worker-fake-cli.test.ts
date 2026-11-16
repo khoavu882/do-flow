@@ -9,7 +9,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp.ts');
-const { IDENTITY_VARS, kindOf, linkBin, writeScenario, readLog } = require('../helper/fake-harness-cli.ts');
+const { IDENTITY_VARS, kindOf, stepsFor, linkBin, writeScenario, readLog } = require('../helper/fake-harness-cli.ts');
 const { validateWorker, WORKER_KEYS, WORKER_CAPABILITIES } = require('../../src/registry/index.ts');
 const DESCRIPTORS = require('../fixtures/worker/descriptors.json');
 const HARNESSES = require('../../core/registry/harnesses.json');
@@ -63,6 +63,18 @@ test('fake cli: argv selects the invocation kind', () => {
   assert.equal(kindOf(['model-check', 'hooks-roundtrip']), 'model-check:hooks-roundtrip');
   assert.equal(kindOf(['--read-only', '--no-spawn', '--jsonl', 'run', 'do it']), 'run');
   assert.equal(kindOf(['probe', 'unheard-of']), 'run');
+});
+
+test('fake cli: an exact byArgv match wins over the kind, the binary\'s own list first (172)', () => {
+  const scenario = {
+    login: [{ exit: 1 }],
+    byArgv: [{ argv: ['probe', 'login'], steps: [{ exit: 2 }] }, { argv: ['--list'], steps: [{ print: 'a' }] }],
+    byBinary: { 'fake-pi': { byArgv: [{ argv: ['probe', 'login'], steps: [{ exit: 3 }] }] } },
+  };
+  assert.deepEqual(stepsFor(scenario, 'fake-claude', 'login', ['probe', 'login']), [{ exit: 2 }]);
+  assert.deepEqual(stepsFor(scenario, 'fake-pi', 'login', ['probe', 'login']), [{ exit: 3 }]);
+  assert.deepEqual(stepsFor(scenario, 'fake-claude', 'login', ['probe', 'login', '--json']), [{ exit: 1 }], 'a longer argv is not a match');
+  assert.deepEqual(stepsFor(scenario, 'fake-claude', 'run', ['--list']), [{ print: 'a' }]);
 });
 
 test('fake cli: print, emit and exit run in order; a kind with no steps exits 0', POSIX_ONLY, (t) => {

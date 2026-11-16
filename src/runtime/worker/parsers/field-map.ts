@@ -185,4 +185,4 @@ function compileFieldMap(map: any) {
   return Object.freeze({ id, create });
 }
 
-module.exports = { compileFieldMap };
+module.exports = { compileFieldMap, compileTest, read };
