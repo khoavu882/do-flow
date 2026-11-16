@@ -259,7 +259,7 @@ const V1 = {
     needsConfigHome: false,
     legacy: [],
     consumers: ['src/runtime/profiles/resolve.ts'],
-    description: 'Active rollout profile governing retrieval, decision advisor, code graph, and verification automation.',
+    description: 'Active rollout profile governing retrieval, decision advisor, and verification automation.',
   },
   'team.writerCap': {
     type: 'integer',
