@@ -21,7 +21,7 @@ const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const CLI = path.join(REPO_ROOT, 'bin', 'doflow.js');
 const RUN = path.join(REPO_ROOT, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
 const HARNESSES: any = ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
-const ACTIONS: any = ['discover', 'probe', 'describe', 'select', 'run', 'status', 'cancel', 'evidence'];
+const ACTIONS: any = ['discover', 'probe', 'describe', 'select', 'run', 'status', 'cancel', 'evidence', 'start-session', 'start-options'];
 const DISPATCHER_TOOLS: any = ['dirname', 'date'];
 const WIN = process.platform === 'win32';
 
@@ -140,7 +140,7 @@ test('worker --help lists the eight actions, the evidence flags included', (t) =
   assert.ok(line, 'the help names the worker actions');
   assert.deepEqual(line.trim().replace(/^worker: /, '').split('|'), ACTIONS);
   assert.match(r.stdout, /^ {2}worker {2,}\S/m, 'worker has a command line in the help');
-  assert.match(r.stdout, /--checks, --out\s+worker \(/, 'the help lists the evidence flags --checks and --out');
+  assert.match(r.stdout, /--checks, --out, --project-key,\n\s+--worktree-key, --entry\s+worker \(/, 'the help lists the evidence flags --checks and --out');
   assert.match(r.stdout, /evidence: --harness --out and exactly one of --checks/);
 });
 
