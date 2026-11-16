@@ -11,6 +11,11 @@
 // applied.", "Review again"), refused (the code in words) and unknown (a 504, or no answer: the outcome cannot be told, and the page
 // shows the run as it is now). An applied, unknown or stale outcome makes the page refetch at once (`onRefetch`); "Review again" waits
 // for that answer and builds from the refreshed row, never from the revision this dialog was opened with. Every string is a text node.
+//
+// 165 (the start of a session): a spec with `text: null` has no field (its body is complete: the start form already holds the prompt), a
+// spec may carry the `requestId` of an earlier unanswered attempt (a retry after a 504 reuses it, so the core replays the start), its own
+// `unknown` words and a `refusal(code, reply)` that returns the lines of a refusal; the options `onSend` and `onReply(reply, state)` tell
+// the page that the one write began and what came back.
 
 import { h, mount } from '../dom.js';
 import { isKey } from '../keys.js';
@@ -60,7 +65,7 @@ function newRequestId(source) {
  * Opens the dialog for `spec` (see derive/actions.js `buildConfirmation`; a view may add `reopen()`, which returns a fresh spec
  * from the page's current row, or null, for "Review again"). Any dialog already open is closed first. Returns `{ el, close, state }`.
  * @param {any} spec
- * @param {{ host?: any, random?: any, onClose?: (state: string) => void }} [options]
+ * @param {{ host?: any, random?: any, onClose?: (state: string) => void, onSend?: (...a: any[]) => any, onReply?: (...a: any[]) => any }} [options]
  */
 function openConfirm(spec, options = {}) {
   if (active) active.close();
@@ -70,7 +75,7 @@ function openConfirm(spec, options = {}) {
   const opener = doc.activeElement;
   const id = `confirm-${(opened += 1)}`;
   // Fixed now: what the page drew, and the id this confirmation is known by.
-  const requestId = newRequestId(options.random);
+  const requestId = typeof spec.requestId === 'string' && /^[A-Za-z0-9_-]{22}$/.test(spec.requestId) ? spec.requestId : newRequestId(options.random);
   const base = JSON.parse(JSON.stringify(spec.body));
   const expect = spec.expect === null ? null : { revision: spec.expect.revision };
   const rule = spec.text;
@@ -85,11 +90,11 @@ function openConfirm(spec, options = {}) {
   const title = h('h2', { class: 'confirm__title', id: `${id}-title` }, spec.title);
   const effect = h('p', { class: 'confirm__effect', id: `${id}-effect` }, spec.effect);
   const area = h('textarea', {
-    class: 'confirm__input', id: `${id}-text`, rows: 3, 'aria-describedby': `${id}-count`, 'aria-required': rule.required ? 'true' : 'false', autocomplete: 'off',
+    class: 'confirm__input', id: `${id}-text`, rows: 3, 'aria-describedby': `${id}-count`, 'aria-required': rule !== null && rule.required ? 'true' : 'false', autocomplete: 'off',
     on: { input: () => { typed = String(area.value ?? ''); paint(); } },
   });
   const count = h('span', { class: 'confirm__count', id: `${id}-count`, dataset: { over: null } });
-  const field = h('div', { class: 'confirm__field' }, [h('label', { class: 'confirm__label', for: `${id}-text` }, rule.label), area, count]);
+  const field = h('div', { class: 'confirm__field', hidden: rule === null }, rule === null ? [] : [h('label', { class: 'confirm__label', for: `${id}-text` }, rule.label), area, count]);
   const result = h('div', { class: 'confirm__result', role: 'status', 'aria-live': 'polite' });
   const cancel = h('button', { type: 'button', class: 'btn btn--secondary confirm__cancel', on: { click: () => close() } }, 'Cancel');
   const review = h('button', { type: 'button', class: 'btn btn--secondary confirm__review', hidden: true, on: { click: () => reviewAgain() } }, 'Review again');
@@ -106,15 +111,18 @@ function openConfirm(spec, options = {}) {
     else el.removeAttribute(name);
   };
 
+  /** What the typed text allows: a spec with no field has nothing to type, so the verb is open. */
+  const textOf = () => (rule === null ? { text: '', count: 0, ok: true, over: false } : textState(rule, typed));
+
   function paint() {
-    const text = textState(rule, typed);
+    const text = textOf();
     const settled = state !== 'ready' && state !== 'sending';
     root.dataset.state = state;
-    count.textContent = `${text.count} / ${rule.max}`;
+    if (rule !== null) count.textContent = `${text.count} / ${rule.max}`;
     if (text.over) count.dataset.over = 'true';
     else delete count.dataset.over;
     setAttr(area, 'disabled', state !== 'ready');
-    setAttr(field, 'hidden', settled);
+    setAttr(field, 'hidden', settled || rule === null);
     setAttr(verb, 'hidden', settled);
     setAttr(verb, 'disabled', state !== 'ready' || !text.ok);
     setAttr(cancel, 'disabled', state === 'sending');
@@ -136,7 +144,7 @@ function openConfirm(spec, options = {}) {
     const code = reply && reply.body && reply.body.error && typeof reply.body.error.code === 'string' ? reply.body.error.code : null;
     if (reply === null || reply.status === 504 || code === 'action-timeout') {
       state = 'unknown';
-      say([UNKNOWN_WORDS]);
+      say([typeof spec.unknown === 'string' ? spec.unknown : UNKNOWN_WORDS]);
       refreshed = askRefetch();
     } else if (reply.status === 200 && code === null) {
       state = 'applied';
@@ -150,20 +158,23 @@ function openConfirm(spec, options = {}) {
     } else {
       state = 'refused';
       const wait = reply.status === 429 && reply.headers && /^[0-9]{1,4}$/.test(String(reply.headers['retry-after'] ?? '')) ? [`Try again in ${reply.headers['retry-after']} s.`] : [];
-      say([refusalWords(code), ...wait]);
+      say(typeof spec.refusal === 'function' ? spec.refusal(code, reply) : [refusalWords(code), ...wait]);
     }
+    if (typeof options.onReply === 'function') options.onReply(reply, state);
     paint();
     if (!closed) cancel.focus();
   }
 
   /** The only write of the page: it runs from the verb button's click and from nowhere else. */
   async function send() {
-    const text = textState(rule, typed);
+    const text = textOf();
     if (state !== 'ready' || !text.ok) return;
     state = 'sending';
     say(['Sending…']);
     paint();
-    const body = { ...base, requestId, [rule.field]: text.text === '' ? null : text.text };
+    if (typeof options.onSend === 'function') options.onSend();
+    const body = { ...base, requestId };
+    if (rule !== null) body[rule.field] = text.text === '' ? null : text.text;
     if (expect !== null) body.expect = { ...expect };
     /** @type {any} */
     let reply = null;
@@ -209,7 +220,7 @@ function openConfirm(spec, options = {}) {
   }
 
   /** What Tab can reach, in order: the text field only while the dialog is still asking for it. */
-  const items = () => [state === 'ready' || state === 'sending' ? area : null, cancel, review, verb].filter((el) => el !== null && el.getAttribute('disabled') === null && el.getAttribute('hidden') === null);
+  const items = () => [(state === 'ready' || state === 'sending') && rule !== null ? area : null, cancel, review, verb].filter((el) => el !== null && el.getAttribute('disabled') === null && el.getAttribute('hidden') === null);
 
   root.addEventListener('keydown', (/** @type {any} */ event) => {
     if (event.defaultPrevented) return;
@@ -231,7 +242,7 @@ function openConfirm(spec, options = {}) {
     }
   });
 
-  const handle = { el: root, close, state: () => state };
+  const handle = { el: root, close, state: () => state, requestId };
   active = handle;
   paint();
   host.append(root);

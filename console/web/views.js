@@ -8,7 +8,7 @@ import { loadHome, homeOf, renderHome, skeletonHome, homeKey, tickHome } from '.
 import { connectLive } from './live-view.js';
 import { renderRun, tickRun, releaseRun, rerouteRun, runHeadActs } from './views/run.js';
 import { renderGraph, rerouteGraph } from './views/graph.js';
-import { renderSessions, rerouteSessions } from './views/sessions.js';
+import { renderSessions, rerouteSessions, connectSessions } from './views/sessions.js';
 import { renderWorkflows } from './views/workflows.js';
 // session.js reaches back here through worker-tabs.js (CORE_RANGE), so when it is imported first this module's body runs
 // before session.js's: at this module's evaluation only session.js's function declarations are read, and its `const`
@@ -22,6 +22,7 @@ import { loadFollowups, renderFollowups, rerouteFollowups, followupsTitle } from
 import { renderHealth, rerouteHealth, healthTitle } from './views/health.js';
 import { renderWorkers, rerouteWorkers, workersTitle } from './views/workers.js';
 import { renderMore } from './views/more.js';
+import { connectStart, renderStart, teardownStart, startKey } from './views/start.js';
 import { renderCompare, skeletonCompare, compareTitle, rerouteCompare } from './views/compare.js';
 import { deriveSessions } from './derive/sessions.js';
 import { runStepCopy, runToken } from './derive/rail.js';
@@ -263,7 +264,7 @@ const VIEWS = Object.freeze({
     // IC-018 e: the body is built from these six shapes by the server; each section carries its own ok or code.
     shapes: ['observed', 'slots', 'list', 'attempts', 'worker-status', 'roadmap'],
     api: () => '/api/sessions',
-    connect: connectLive({ channel: () => 'now', member: 'sessions', intervalMs: 10000 }),
+    connect: connectSessions,
     dataKey: sessionsKey,
     pollMs: 10000,
     wide: true,
@@ -382,6 +383,25 @@ const VIEWS = Object.freeze({
     isEmpty: () => false,
     title: () => 'More',
   },
+  // 165: start a session. The project list is `GET /api/start`; the form, the options and the run live in the view's own memory.
+  start: {
+    id: 'start',
+    inspectable: false,
+    noun: 'this page',
+    shapes: [],
+    api: () => '/api/start',
+    connect: connectStart,
+    dataKey: startKey,
+    pollMs: 30000,
+    wide: false,
+    skeleton: skeletonBlock,
+    head: () => ({ text: 'Start a session', mono: false }),
+    meta: () => null,
+    teardown: teardownStart,
+    render: renderStart,
+    isEmpty: () => false,
+    title: () => 'Start a session',
+  },
   'not-found': {
     id: 'not-found',
     inspectable: false,
@@ -419,6 +439,7 @@ function parseRoute(hash) {
   if (path === '/compare') return { id: 'compare', params: {}, view: VIEWS.compare };
   if (path === '/layers') return { id: 'layers', params: {}, view: VIEWS.layers };
   if (path === '/more') return { id: 'more', params: {}, view: VIEWS.more };
+  if (path === '/start') return { id: 'start', params: {}, view: VIEWS.start };
   const parts = path.split('/'); // ['', 'run', slug, taskId, ...selection]
   const manage = parts[1];
   const base = (/** @type {string} */ id, /** @type {any} */ extra = {}) => ({ id, params: {}, view: VIEWS[id], ...extra });
@@ -499,12 +520,12 @@ const MANAGE_VIEWS = Object.freeze(['followups', 'workflows', 'workers', 'advice
 
 /**
  * Which navigation link is current: Now on `#/`, every `#/run/...` and every `#/session/...` (the id stays `runs`; the Runs
- * heading and title keep Runs), Sessions on `#/sessions...` and `#/compare...`, Layers on every `#/layers...`, More on `#/more`,
+ * heading and title keep Runs), Sessions on `#/sessions...` and `#/compare...`, Layers on every `#/layers...`, More on `#/more`, Start on `#/start`,
  * each Manage view on its own link, else none.
  * @param {any} route
  */
 function navFor(route) {
-  if (route.id === 'sessions' || route.id === 'more' || MANAGE_VIEWS.includes(route.id)) return route.id;
+  if (route.id === 'sessions' || route.id === 'more' || route.id === 'start' || MANAGE_VIEWS.includes(route.id)) return route.id;
   if (route.id === 'compare') return 'sessions';
   if (route.id === 'layers' || route.id === 'layers-project') return 'layers';
   return route.id === 'not-found' ? null : 'runs';

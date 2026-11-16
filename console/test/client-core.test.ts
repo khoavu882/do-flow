@@ -44,6 +44,7 @@ before(async () => {
     actions: await import(url('actions.js')),
     confirm: await import(url('views/confirm.js')),
     liveView: await import(url('live-view.js')),
+    start: await import(url('derive/start.js')),
   };
 });
 after(() => { fs.rmSync(copy, { recursive: true, force: true }); });
@@ -751,7 +752,7 @@ test('views: the router table maps hashes to views, and a bad parameter is not-f
   assert.equal(navFor(parseRoute('#/session/s/t')), 'runs', '150 C.5: the Session route marks Now');
   assert.equal(navFor(parseRoute('#/session/s/t/worker/w-0123456789ab/log')), 'runs');
   assert.equal(titleFor(parseRoute('#/session/s/t/main')), 'Chain \u00b7 s / t \u00b7 DoFlow Console');
-  assert.deepEqual(Object.keys(VIEWS).sort(), ['advice', 'compare', 'followups', 'health', 'layers', 'layers-project', 'more', 'not-found', 'run', 'runs', 'session', 'sessions', 'settings', 'tasks', 'workers', 'workflows']); // E.7 adds the sessions view, 161 the two Layers views (the Fleet views are gone), 150 C.5 the session view, 152 C.2 compare view
+  assert.deepEqual(Object.keys(VIEWS).sort(), ['advice', 'compare', 'followups', 'health', 'layers', 'layers-project', 'more', 'not-found', 'run', 'runs', 'session', 'sessions', 'settings', 'start', 'tasks', 'workers', 'workflows']); // 165 the start view, E.7 adds the sessions view, 161 the two Layers views (the Fleet views are gone), 150 C.5 the session view, 152 C.2 compare view
 });
 
 test('index.html provides the elements the shell needs', () => {
@@ -761,7 +762,7 @@ test('index.html provides the elements the shell needs', () => {
   assert.deepEqual([...html.matchAll(/class="navrail__link" href="([^"]+)"><span class="navrail__label">([^<]+)</g)].map((m) => [m[1], m[2]]),
     [['#/', 'Now'], ['#/sessions', 'Sessions'], ['#/layers', 'Layers'], ['#/more', 'More'], ['#/followups', 'Follow-ups'], ['#/workflows', 'Workflows'], ['#/workers', 'Workers'], ['#/advice', 'Advice'], ['#/settings', 'Settings'], ['#/health', 'Health']]); // the tab bar's four, then the Manage group
   assert.match(html, /<li class="navrail__more"><a class="navrail__link" href="#\/more">/, 'More is marked: it shows below 768 px only');
-  assert.match(html, /<li class="navrail__slot" data-slot="start-session" hidden><\/li>/, 'the labelled, empty slot of the start-a-session entry (row 165)');
+  assert.match(html, /<li class="navrail__slot" data-slot="start-session"><a class="navrail__link" href="#\/start"><svg [^>]*aria-hidden="true"[^>]*>.*<\/svg><span class="navrail__label">Start<\/span><\/a><\/li>/, 'the slot of the start-a-session entry holds its link and its label (row 165)');
   assert.match(html, /<p class="attention" id="attention" hidden><\/p>/, 'the attention strip starts hidden and empty');
   assert.match(html, /viewport-fit=cover/, 'the page may draw under the safe areas, which the tokens then pad');
   assert.deepEqual([...html.matchAll(/data-theme-choice="([^"]+)"/g)].map((m) => m[1]), ['light', 'dark', 'system']);
@@ -1053,7 +1054,7 @@ test('router: the skip link moves focus to the heading without changing the rout
 
 test('shell: data-inspectable per view, the rail icons, and the docked column with its empty note at 1280 px and wider', async () => {
   assert.deepEqual(Object.fromEntries(Object.entries(mods.views.VIEWS).map(([id, view]: [string, any]) => [id, view.inspectable])),
-    { runs: false, run: true, tasks: true, session: true, sessions: true, workflows: false, layers: false, 'layers-project': true, settings: true, advice: true, followups: true, health: true, workers: true, compare: false, more: false, 'not-found': false });
+    { runs: false, run: true, tasks: true, session: true, sessions: true, workflows: false, layers: false, 'layers-project': true, settings: true, advice: true, followups: true, health: true, workers: true, compare: false, more: false, start: false, 'not-found': false });
   const page = await start({ hash: '', width: 1440, fetch: standard });
   assert.deepEqual(page.nav.map((a) => a.querySelector('.icon') && a.querySelector('.icon').getAttribute('class')),
     ['now', 'sessions', 'layers', 'more', 'followups', 'workflows', 'workers', 'advice', 'settings', 'health'].map((name) => `icon icon--20 icon--rail-${name}`));
@@ -5583,4 +5584,276 @@ test('the More page lists the Manage destinations and the records without a tab,
   goTo(page, '#/sessions');
   await settle();
   assert.equal(navLink(page, '#/more').getAttribute('aria-current'), null);
+});
+
+test('165: #/start parses, its hash round-trips, the Start link is current on it, and it has no other route shape', () => {
+  const { parseRoute, hashFor, navFor, titleFor, VIEWS } = mods.views;
+  const route = parseRoute('#/start');
+  assert.equal(route.id, 'start');
+  assert.equal(route.view, VIEWS.start);
+  assert.equal(hashFor(route), '#/start');
+  assert.deepEqual(parseRoute(hashFor(route)), route);
+  assert.equal(navFor(route), 'start');
+  assert.equal(titleFor(route), 'Start a session \u00b7 DoFlow Console');
+  for (const hash of ['#/start/x', '#/start/', '#/starts']) assert.equal(parseRoute(hash).id, 'not-found', hash);
+  assert.equal(VIEWS.start.inspectable, false);
+  assert.deepEqual(VIEWS.start.shapes, [], 'the page reads /api/start, which no verb shape backs');
+});
+
+// ---- 165: the start view, the started-session node of Layers and "Started here" of Sessions -----------------------------------------
+
+const RUN165 = 'w-0123456789ab';
+const FILE_OUT = fk(0x71);
+const FILE_ERR = fk(0x72);
+const startedAgentKey = () => mods.start.agentKeyOf(RUN165);
+const startedItem165 = (over: any = {}) => ({ runId: RUN165, harness: 'claude', model: null, phase: 'running', startedBy: 'console', worktreeKey: WK_MAIN, createdAt: AT(2), ...over });
+const startedMachine = (items: any[] = [startedItem165()], count = items.length) => machineBody([], {
+  activity: lok({ v: 1, limits: { projects: 2, notShown: 0, watched: 2, fingerprintOnly: 0 }, items: [
+    { projectKey: P1, runs: { open: 0, awaiting: 0 }, gates: [], workers: { open: 0 }, sessions: { observed: 1, harnesses: ['claude'] }, unreadable: [], started: items, startedCount: count },
+    { projectKey: P2, runs: { open: 0, awaiting: 0 }, gates: [], workers: { open: 0 }, sessions: { observed: 0, harnesses: [] }, unreadable: [] },
+  ] }),
+});
+const startedNode = (over: any = {}) => lnode(startedAgentKey(), {
+  kind: 'started-session', model: null, modelBasis: null, contextCapturedAt: null, startedAt: AT(2), lastRecordAt: AT(2), startedBy: 'console', phase: 'running', liveness: 'process-seen',
+  fileKeys: { out: FILE_OUT, err: FILE_ERR }, observed: { state: 'not-observed', reason: 'not-yet-observed' }, transcript: { reader: null, linked: false, reason: 'no-reader' }, ...over,
+});
+const treeWith = (nodes: any[]) => ({ tree: lok({ v: 1, projectKey: P1, nodes, edges: [], limits: { nodes: nodes.length, notChecked: 0 }, unreadable: 0 }) });
+const actions165 = (allowed: boolean, reason: string | null = null, actor: any = { kind: 'local', transport: 'loopback' }) => reply(200, {
+  v: 1, actor, textMax: 500, limits: {}, project: { projectKey: P1, label: 'example-project' },
+  actions: ['start-session', 'cancel-worker', 'decide-gate', 'close-run'].map((id) => ({ id, allowed, reason })),
+});
+const fileFrame = (fileKey: string, _id: string, pieces: any[], to: number) => ({ v: 1, ch: `file:${P1}:${fileKey}`, id: `4242:${to}:1:1`, type: 'snapshot', at: new Date(Date.now()).toISOString(), data: { log: 'open', ino: '4242', from: 0, to, pieces, phase: null, end: null } });
+
+test('165 layers: a started session is one node in the orchestrator lane, titled started session, with its starter, "session not observed" and its reason', async () => {
+  const page = await startLayers(`#/layers/${P1}`);
+  await openedLayers(page, [], layersBody(treeWith([lnode(A_MAIN), startedNode()])));
+  const rows = page.main.querySelectorAll('.lane')[0].querySelectorAll('.lrow--agent');
+  assert.equal(rows.length, 2, 'the main session and the started session; no second node for the one run');
+  const row = rows.find((r: El) => r.dataset.key === startedAgentKey());
+  if (!row) throw new Error('the started row is missing');
+  assert.match(text(row.querySelector('.lrow__link')), /started session/i);
+  assert.equal(text(row.querySelector('[data-started-by="true"]')), 'started from the Console');
+  assert.match(text(row.querySelector('.lrow__facts')), /session not observed: not seen yet/);
+  assert.equal(page.main.querySelectorAll('.lane')[0].querySelectorAll('.lane__title').filter((t: El) => text(t) === 'Worker runs').length, 0, 'never a worker row');
+});
+
+test('165 layers: the pane of a started session follows its out and err file lanes, and Stop opens the cancel-worker confirmation of the started-sessions store', async () => {
+  const base = (target: string, init: any) => (target === '/api/actions' ? actions165(true)
+    : target === '/api/actions/cancel-worker' ? reply(200, { v: 1, action: 'cancel-worker', requestId: 'x', outcome: 'applied', replayed: false, by: 'console', result: { runId: RUN165 } })
+      : standard(target, init));
+  const page = await startLayers(`#/layers/${P1}/agent/${startedAgentKey()}`, FakeES, base);
+  const es = await openedLayers(page, [], layersBody(treeWith([lnode(A_MAIN), startedNode()])));
+  es.emit('message', liveFrame('machine', 'patch', { set: { '/machine/body/sections/activity': startedMachine().sections.activity }, unset: [] }));
+  await settle();
+  await advance(100);
+  const channels = channelsOf(liveES());
+  assert.ok(channels.includes(`file:${P1}:${FILE_OUT}`) && channels.includes(`file:${P1}:${FILE_ERR}`), `both output lanes are followed: ${channels}`);
+  assert.equal(text(page.inspector.querySelector('.inspector__title')), 'Started session');
+  const open = liveES();
+  open.open();
+  open.emit('message', fileFrame(FILE_OUT, '1', [{ at: 0, text: 'hello from the session' }], 22));
+  await settle();
+  assert.match(text(page.inspector.querySelectorAll('pre')[0]), /hello from the session/);
+  assert.match(text(page.inspector), /masked/i);
+  const stop = page.inspector.querySelector('.btn--act');
+  assert.equal(text(stop), 'Stop session');
+  stop.fire('click');
+  const dialog = page.doc.body.querySelector('.confirm');
+  assert.match(text(dialog.querySelector('.confirm__title')), new RegExp(`Stop worker ${RUN165}`));
+  dialog.querySelector('.confirm__input').value = 'not needed';
+  dialog.querySelector('.confirm__input').fire('input');
+  dialog.querySelector('.confirm__verb').fire('click');
+  await settle();
+  const posts = page.calls.filter((c) => c.method === 'POST');
+  assert.equal(posts.length, 1);
+  assert.deepEqual({ ...posts[0].body, requestId: undefined }, { v: 1, projectKey: P1, slug: 'started-sessions', runId: RUN165, reason: 'not needed', requestId: undefined });
+});
+
+test('165 layers: a started session whose run is not among the newest of the project shows no Stop, and says why; an ended one shows none either', async () => {
+  const base = (target: string, init: any) => (target === '/api/actions' ? actions165(true) : standard(target, init));
+  const page = await startLayers(`#/layers/${P1}/agent/${startedAgentKey()}`, FakeES, base);
+  await openedLayers(page, [], layersBody(treeWith([lnode(A_MAIN), startedNode()])));
+  assert.equal(page.inspector.querySelectorAll('.btn--act').length, 0);
+  assert.match(text(page.inspector), /Stop is offered once this run is among the newest/);
+});
+
+test('165 layers: an ended started session shows no Stop and says how it ended', async () => {
+  const base = (target: string, init: any) => (target === '/api/actions' ? actions165(true) : standard(target, init));
+  const ended = await startLayers(`#/layers/${P1}/agent/${startedAgentKey()}`, FakeES, base);
+  const es = await openedLayers(ended, [], layersBody(treeWith([lnode(A_MAIN), startedNode({ phase: 'ended', ended: { at: AT(1), result: 'timed-out' } })])));
+  es.emit('message', liveFrame('machine', 'patch', { set: { '/machine/body/sections/activity': startedMachine([startedItem165({ phase: 'ended' })]).sections.activity }, unset: [] }));
+  await settle();
+  assert.equal(ended.inspector.querySelectorAll('.btn--act').length, 0);
+  assert.match(text(ended.inspector), /ended .*timed out/);
+});
+
+test('165 sessions: "Started here" lists the sessions started from the Console with a Layers link each; a core that reports none says so, and nothing shows before the machine member arrives', async () => {
+  const page = await startLive('#/sessions', liveRoute(sessionsRoute(BUSY)));
+  assert.equal(page.main.querySelectorAll('.started-here').length, 0, 'nothing before the machine member');
+  await advance(100);
+  const es = liveES();
+  es.open();
+  es.emit('message', liveFrame('machine', 'snapshot', member('machine', startedMachine([startedItem165(), startedItem165({ runId: 'w-0123456789ac', harness: 'codex', model: 'gpt-x', phase: 'starting', startedBy: 'device.d-0123456789ab' })], 10))));
+  await settle();
+  const rows = page.main.querySelectorAll('.started-here__row');
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].querySelector('.started-here__link').getAttribute('href'), `#/layers/${P1}/agent/${startedAgentKey()}`);
+  assert.match(text(rows[0]), /claude.*started from the Console.*process seen/);
+  assert.match(text(rows[1]), /codex.*gpt-x.*started from paired device d-0123456789ab.*starting/);
+  assert.match(text(page.main.querySelector('.started-here')), /8 more in Layers/);
+  es.emit('message', liveFrame('machine', 'patch', { set: { '/machine/body/sections/activity': machineBody([], { activity: lok({ v: 1, limits: {}, items: [{ projectKey: P1, runs: { open: 0, awaiting: 0 }, gates: [], workers: { open: 0 }, sessions: { observed: 0, harnesses: [] }, unreadable: [] }] }) }).sections.activity }, unset: [] }));
+  await settle();
+  assert.match(text(page.main.querySelector('.started-here')), /does not report the sessions started from the Console/);
+});
+
+const WORDS165 = { claude: 'claude can start a session here', opencode: 'opencode can start a session here', codex: 'codex is logged out. Run codex login, then read this page again.', copilot: 'copilot has no recorded way to start a main session, so it is not offered.' };
+const harness165 = (name: string, over: any = {}) => ({ harness: name, startable: true, reason: null, words: (WORDS165 as any)[name], warnings: ['runnable-not-checked'], login: { state: 'logged-in', checkedAt: AT(5) }, version: '1.0.0', models: [{ id: null, source: 'default' }], ...over });
+const options165 = (over: any = {}) => ({
+  v: 1, project: { projectKey: P1, label: 'example-project', root: null },
+  checkouts: [{ worktreeKey: WK_MAIN, label: 'do-flow', branch: 'develop', main: true, busy: null, observedSession: null }],
+  harnesses: [
+    harness165('claude', { models: [{ id: null, source: 'default' }, { id: 'claude-haiku-5', source: 'light' }, { id: 'claude-sonnet-5', source: 'standard' }, { id: 'claude-opus-5-5', source: 'orchestrator' }, { id: 'claude-seen', source: 'observed' }] }),
+    harness165('opencode', { warnings: ['prompt-in-argv', 'login-not-checked'] }),
+    harness165('codex', { startable: false, reason: 'logged-out', warnings: [] }),
+    harness165('copilot', { startable: false, reason: 'no-main-session-shape', warnings: [], login: null }),
+  ],
+  limits: { perCheckout: 1, perActor: 2, machine: 4, perActorPerHour: 6 }, open: { machine: 0 }, dispatch: { running: false }, promptMax: { codePoints: 8000, bytes: 32768 },
+  entries: ['do', 'none'], entryLine: 'Use the DoFlow do skill for this request:', ...over,
+});
+function route165(state: { options?: any, actions?: Reply, post?: (init: any) => Reply | 'network' } = {}) {
+  return (target: string, init: any): Reply | 'network' | Promise<Reply> => {
+    if (target === '/api/start') return reply(200, { v: 1, projects: [{ projectKey: P1, label: 'example-project', current: true }], truncated: false });
+    if (target.startsWith('/api/start/options')) return reply(200, state.options ?? options165());
+    if (target === '/api/actions') return state.actions ?? actions165(true);
+    if (target === '/api/actions/start-session') return state.post ? state.post(init) : reply(500);
+    if (target.startsWith('/api/live')) return reply(500);
+    return standard(target, init);
+  };
+}
+async function startPage165(state: Parameters<typeof route165>[0] = {}): Promise<Page> {
+  FakeES.all = [];
+  liveSeq = 0;
+  const page = await start({ hash: '#/start', fetch: route165(state), eventSource: FakeES }, freshWeb());
+  await settle();
+  return page;
+}
+const radios165 = (page: Page, name: string) => page.main.querySelectorAll('input').filter((i: El) => i.getAttribute('name') === name);
+const run165 = (over: any = {}) => ({ runId: RUN165, kind: 'main-session', phase: 'running', harness: 'claude', model: null, modelSource: 'default', worktreeKey: WK_MAIN, startedBy: 'console', createdAt: AT(0), agentKey: startedAgentKey(), layers: `#/layers/${P1}`, files: { out: FILE_OUT, err: FILE_ERR }, ...over });
+const applied165 = (run = run165()) => reply(200, { v: 1, action: 'start-session', requestId: 'x', outcome: 'applied', replayed: false, by: 'console', result: { replayed: false, run } });
+async function fill165(page: Page, harness = 'claude', prompt = 'Fix the failing test') {
+  radios165(page, 'start-harness').find((i: El) => i.getAttribute('value') === harness)!.fire('change');
+  await settle();
+  const area = page.main.querySelector('textarea');
+  area.value = prompt;
+  area.fire('input');
+}
+
+test('165 start: a device that may not start gets the explanation and the terminal command as text, no form and no button', async () => {
+  const page = await startPage165({ actions: actions165(false, 'phone-scope', { kind: 'device', deviceId: 'd-0a1b2c3d4e5f', scope: 'view', transport: 'browser' }) });
+  assert.match(text(page.main), /Starting a session needs this machine’s Console or a phone paired with control over the app/);
+  assert.match(text(page.main.querySelector('.cmd__text')), /^doflow worker --action start-session /);
+  assert.equal(page.main.querySelectorAll('button').filter((b: El) => /^Start$/.test(text(b))).length, 0);
+  assert.equal(page.main.querySelectorAll('input').length, 0);
+  assert.equal(page.calls.filter((c) => c.method === 'POST').length, 0);
+});
+
+test('165 start: nothing is preselected; the harnesses that cannot start are listed with the core’s words; the argv warning shows before a choice; models are grouped in the owner’s order; Start waits for the form', async () => {
+  const page = await startPage165();
+  assert.equal(page.main.querySelector('h1') && text(page.main.querySelector('h1')), 'Start a session');
+  assert.deepEqual(radios165(page, 'start-harness').map((i: El) => i.getAttribute('value')), ['claude', 'opencode'], 'only a startable harness is a choice');
+  assert.deepEqual(radios165(page, 'start-harness').map((i: El) => i.getAttribute('checked')), [null, null], 'no harness is preselected');
+  assert.deepEqual(page.main.querySelector('.start__blocked-list').children.map((li: El) => [li.dataset.harness, li.dataset.reason, text(li).includes((WORDS165 as any)[li.dataset.harness])]), [['codex', 'logged-out', true], ['copilot', 'no-main-session-shape', true]]);
+  assert.match(text(page.main.querySelector('[data-warning="prompt-in-argv"]')), /process list/);
+  assert.match(text(page.main.querySelector('[data-fact="permission"]')), /own permission settings.*nobody can give it here/);
+  assert.equal(radios165(page, 'start-checkout').length, 1);
+  assert.equal(radios165(page, 'start-checkout')[0].getAttribute('checked'), '', 'the one free checkout is the only choice made for the person');
+  assert.deepEqual(radios165(page, 'start-entry').map((i: El) => [i.getAttribute('value'), i.getAttribute('checked')]), [['do', ''], ['none', null]]);
+  assert.match(text(page.main), /Start with DoFlow's do skill/);
+  assert.match(text(page.main), /Send my text only/);
+  assert.equal(page.main.querySelector('#start-submit').getAttribute('disabled'), '', 'Start waits for a harness and a text');
+  await fill165(page, 'claude', '');
+  assert.deepEqual(page.main.querySelectorAll('optgroup').map((g: El) => g.getAttribute('label')), ['Orchestrator', 'Standard', 'Light', 'Seen in use', 'Harness default']);
+  const area = page.main.querySelector('textarea');
+  area.value = 'Fix the failing test';
+  area.fire('input');
+  assert.equal(text(page.main.querySelector('#start-count')), '20 / 8000');
+  assert.equal(page.main.querySelector('#start-submit').getAttribute('disabled'), null, 'a harness, a checkout and a text: Start opens');
+  area.value = '-rf';
+  area.fire('input');
+  assert.equal(text(page.main.querySelector('#start-issue')), '', 'a text starting with a dash is fine for claude with the do entry');
+  assert.equal(page.main.querySelector('#start-submit').getAttribute('disabled'), null);
+  await fill165(page, 'opencode', '-rf');
+  assert.match(text(page.main.querySelector('#start-issue')), /starts with “-”/, 'opencode takes the prompt as an argument: a leading dash is refused whatever the entry');
+  assert.equal(page.main.querySelector('#start-submit').getAttribute('disabled'), '');
+});
+
+test('165 start: a start through the dialog posts the body once, then shows Running with no output yet, Streaming once the out lane writes, and Ended with its words', async () => {
+  const page = await startPage165({ post: () => applied165() });
+  await fill165(page);
+  page.main.querySelector('#start-submit').fire('click');
+  const dialog = page.doc.body.querySelector('.confirm');
+  assert.ok(dialog, 'the existing confirm dialog opens');
+  assert.equal(dialog.querySelector('.confirm__field').getAttribute('hidden'), '', 'it has no field of its own: the form holds the text');
+  dialog.querySelector('.confirm__verb').fire('click');
+  await settle();
+  const posts = page.calls.filter((c) => c.method === 'POST');
+  assert.equal(posts.length, 1);
+  assert.match(posts[0].url, /\/api\/actions\/start-session$/);
+  assert.match(posts[0].body.requestId, /^[A-Za-z0-9_-]{22}$/);
+  assert.deepEqual({ ...posts[0].body, requestId: undefined }, { v: 1, projectKey: P1, worktreeKey: WK_MAIN, harness: 'claude', model: null, entry: 'do', prompt: 'Fix the failing test', requestId: undefined });
+  assert.match(text(page.main.querySelector('.start__flow-title')), /^.\s?Running: claude in example-project \/ do-flow/);
+  assert.match(text(page.main.querySelector('.start__flow')), /No output yet/);
+  assert.equal(page.main.querySelectorAll('textarea').length, 0, 'the form is out of the way while a session runs');
+  await advance(100);
+  const channels = channelsOf(liveES());
+  assert.ok(channels.includes(`file:${P1}:${FILE_OUT}`) && channels.includes(`file:${P1}:${FILE_ERR}`) && channels.includes(`layers:${P1}`), `the lanes and the node are followed: ${channels}`);
+  const live = liveES();
+  live.open();
+  live.emit('message', fileFrame(FILE_OUT, '1', Array.from({ length: 250 }, (_, i) => ({ at: i * 8, text: `out ${i}` })), 2000));
+  await settle();
+  assert.match(text(page.main.querySelector('.start__flow')), /the last 200 lines/);
+  const out = text(page.main.querySelectorAll('pre')[0]);
+  assert.ok(out.startsWith('out 50\n') && out.endsWith('out 249'), 'the last 200 lines');
+  assert.match(text(page.main.querySelector('.start__flow')), /Stop session/);
+  live.emit('message', liveFrame(`layers:${P1}`, 'snapshot', member('layers', layersBody(treeWith([startedNode({ phase: 'ended', ended: { at: AT(0), result: 'timed-out' } })])))));
+  await settle();
+  assert.match(text(page.main.querySelector('.start__flow-title')), /Ended: claude/);
+  assert.match(text(page.main.querySelector('.start__flow')), /passed its 3600 s limit/);
+  assert.equal(page.main.querySelectorAll('.btn--act').filter((b: El) => /Stop session/.test(text(b))).length, 0);
+  assert.ok(String(page.main.querySelector('.layers-link')?.getAttribute('href')).startsWith(`#/layers/${P1}/agent/`));
+});
+
+test('165 start: a refusal says its reason in words, keeps the form with what was typed and reads the options again; a 504 keeps the request id for the retry; a new submit gets a new one', async () => {
+  const answers: Array<Reply | 'network'> = [reply(409, { error: { code: 'checkout-busy', verb: 'worker', exit: 1 }, current: { runId: RUN165 } }), reply(504, { error: { code: 'action-timeout', verb: 'worker', exit: null } }), reply(504, { error: { code: 'action-timeout', verb: 'worker', exit: null } }), applied165()];
+  const page = await startPage165({ post: () => answers.shift()! });
+  await fill165(page);
+  const submit = async () => { page.main.querySelector('#start-submit').fire('click'); const d = page.doc.body.querySelector('.confirm'); d.querySelector('.confirm__verb').fire('click'); await settle(); return d; };
+  let dialog = await submit();
+  assert.match(text(dialog.querySelector('.confirm__result')), /A started session is already open in this checkout.*Nothing was started/);
+  dialog.querySelector('.confirm__cancel').fire('click');
+  await settle();
+  assert.equal(text(page.main.querySelector('textarea')), 'Fix the failing test', 'the form kept the text');
+  assert.equal(apiCalls(page, '/api/start/options').length, 2, 'the options were read again');
+  assert.match(text(page.main.querySelector('.start__flow')), /The session did not start/);
+  dialog = await submit();
+  assert.match(text(dialog.querySelector('.confirm__result')), /No answer; check Sessions before trying again/);
+  dialog.querySelector('.confirm__cancel').fire('click');
+  await settle();
+  const first = page.calls.filter((c) => c.method === 'POST').map((c) => c.body.requestId);
+  dialog = await submit();
+  dialog.querySelector('.confirm__cancel').fire('click');
+  await settle();
+  const posts = page.calls.filter((c) => c.method === 'POST').map((c) => c.body.requestId);
+  assert.notEqual(posts[0], posts[1], 'a new submit after a refusal is a new request');
+  assert.equal(posts[1], posts[2], 'the retry of an unanswered start reuses its id');
+  assert.equal(first.length, 2);
+});
+
+test('165 start: a prompt over the limit turns the count red and keeps Start shut; the do entry and the text-only entry are both offered; Copilot is never a choice', async () => {
+  const page = await startPage165();
+  await fill165(page, 'claude', 'x'.repeat(8001));
+  assert.equal(text(page.main.querySelector('#start-count')), '8001 / 8000');
+  assert.equal(page.main.querySelector('#start-count').dataset.over, 'true');
+  assert.equal(page.main.querySelector('#start-submit').getAttribute('disabled'), '');
+  assert.equal(radios165(page, 'start-harness').some((i: El) => i.getAttribute('value') === 'copilot'), false);
 });

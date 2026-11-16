@@ -10,6 +10,8 @@ import { showPanel, hidePanel } from '../shell.js';
 import { h, icon, mount, announce } from '../dom.js';
 import { clockTime, reltime, commandBlock } from '../states.js';
 import { formatDuration, formatTokens } from '../derive/compare.js';
+import { connectLive } from '../live-view.js';
+import { startedHere, startedByWords, PHASE_WORDS } from '../derive/start.js';
 import {
   deriveSessions, conflictWords, noteWords, limitWords, laneName, rowName, filterRows, newConflicts, moveFocus, commandFor,
 } from '../derive/sessions.js';
@@ -140,7 +142,62 @@ function conflictBadge(conflict, words) {
 }
 
 /** The lane key the route names, or null. @param {any} route */
-const routeLane = (route) => (route && typeof route.lane === 'string' ? route.lane : null);
+// ---- 165: the sessions started from the Console ------------------------------------------------------------------------------
+
+/** "Started here": the sessions this Console started in its own project, from the `machine` channel's activity, each with its Layers link. @param {any} machine */
+function startedSection(machine) {
+  const model = startedHere(machine);
+  if (model.state === 'unread') return null;
+  const heading = h('h2', { class: 'started-here__title', id: 'started-here-title' }, 'Started here');
+  if (model.state === 'not-reported') return h('section', { class: 'started-here', 'aria-labelledby': 'started-here-title' }, [heading, h('p', { class: 'started-here__none' }, 'This DoFlow core does not report the sessions started from the Console.')]);
+  if (model.rows.length === 0) return h('section', { class: 'started-here', 'aria-labelledby': 'started-here-title' }, [heading, h('p', { class: 'started-here__none' }, ['No session was started from the Console in this project. ', h('a', { href: '#/start' }, 'Start one')])]);
+  const now = Date.now();
+  return h('section', { class: 'started-here', 'aria-labelledby': 'started-here-title' }, [
+    heading,
+    h('ul', { class: 'started-here__list' }, model.rows.map((/** @type {any} */ row) => h('li', { class: 'started-here__row', dataset: { runId: row.runId } }, [
+      h('span', { class: 'tag tag--mono' }, row.harness),
+      h('span', { class: 'started-here__model' }, row.model ?? 'harness default model'),
+      h('span', { class: 'started-here__facts' }, [startedByWords(row.startedBy), ' · ', PHASE_WORDS[row.phase] ?? 'phase not recorded', row.createdAt ? [' · started ', reltime(row.createdAt, now)] : null]),
+      h('a', { class: 'started-here__link layers-link', href: row.href, dataset: { focusKey: `started:${row.runId}` } }, 'Layers'),
+    ]))),
+    model.more > 0 ? h('p', { class: 'started-here__none' }, `${model.more} more in Layers.`) : null,
+  ]);
+}
+
+/** Draws the "Started here" section of the mounted page from the last `machine` member the page held. @param {any} local */
+function paintStarted(local) {
+  if (local.startedHost) mount(local.startedHost, startedSection(local.machine ?? null));
+}
+
+/**
+ * `spec.connect` of the Sessions view: the shell's `now.sessions` connector, plus the page's `machine` channel for the "Started here" list.
+ * @param {any} local @param {any} params @param {any} hooks
+ */
+function connectSessions(local, params, hooks) {
+  const stream = connectLive({ channel: () => 'now', member: 'sessions', intervalMs: 10000 })(local, params, hooks);
+  const store = hooks.store();
+  /** @type {(() => void) | null} */
+  let off = null;
+  return Object.create(stream, {
+    start: {
+      value: () => {
+        if (off === null) {
+          off = store.subscribe('machine', (/** @type {any} */ event) => {
+            if (event.kind !== 'state') return;
+            const member = event.state && typeof event.state === 'object' ? event.state.machine : null;
+            if (!member || member.status !== 200) return;
+            local.machine = member.body;
+            paintStarted(local);
+          });
+        }
+        stream.start();
+      },
+    },
+    stop: { value: () => { if (off !== null) off(); off = null; stream.stop(); } },
+  });
+}
+
+const routeLane = (/** @type {any} */ route) => (route && typeof route.lane === 'string' ? route.lane : null);
 
 /** The route's selection changed without a re-mount (IC-019): the rows open the lane it names. @param {any} local */
 function rerouteSessions(local) {
@@ -609,10 +666,12 @@ function renderSessions(data, params, local) {
   };
   draw();
   drawChips();
-  const top = [tabNav, h('div', { class: 'sessions__top' }, [summary, chips, legend]), ...notes, absent, bar];
+  local.startedHost = h('div', { class: 'started-here__host' });
+  paintStarted(local);
+  const top = [tabNav, h('div', { class: 'sessions__top' }, [summary, chips, legend]), local.startedHost, ...notes, absent, bar];
   const layout = h('div', { class: 'sessions__layout' }, [rowsHost]);
   mount(root, [...top, layout, footer]);
   return root;
 }
 
-export { renderSessions, rerouteSessions, laneTitle };
+export { renderSessions, rerouteSessions, laneTitle, connectSessions };

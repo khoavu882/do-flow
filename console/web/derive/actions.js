@@ -193,13 +193,15 @@ function textState(rule, value) {
  * @param {string} id the action id
  * @param {any} ctx decide-gate: { projectKey, project, slug, taskId, gate: {id, name}, decision, revision };
  *   close-run: { projectKey, project, slug, taskId, current: {type, id} | null, revision };
- *   cancel-worker: { projectKey, project, slug, worker: {runId, harness, task} }
- * @returns {{ actionId: string, title: string, effect: string, verb: string, tone: 'approve' | 'danger', text: { field: string, required: boolean, max: number, label: string }, expect: { revision: number } | null, body: Record<string, any>, decision: string | null } | null}
+ *   cancel-worker: { projectKey, project, slug, worker: {runId, harness, task} };
+ *   start-session (165): { projectKey, project, checkout, worktreeKey, harness, model, entry, prompt }
+ * @returns {{ actionId: string, title: string, effect: string, verb: string, tone: 'approve' | 'danger', text: { field: string, required: boolean, max: number, label: string } | null, expect: { revision: number } | null, body: Record<string, any>, decision: string | null, unknown?: string } | null}
  */
 function buildConfirmation(id, ctx) {
   if (!ACTION_WORDS[id] || !ctx || typeof ctx !== 'object') return null;
   if (typeof ctx.projectKey !== 'string' || !KEY16.test(ctx.projectKey)) return null;
   const project = typeof ctx.project === 'string' && ctx.project !== '' ? ctx.project : ctx.projectKey.slice(0, 8);
+  if (id === 'start-session') return buildStartConfirmation(ctx, project);
   const slug = ctx.slug === null || ctx.slug === undefined ? null : ctx.slug;
   if (slug !== null && !isId(slug)) return null;
   const base = { v: 1, projectKey: ctx.projectKey, slug };
@@ -248,6 +250,32 @@ function buildConfirmation(id, ctx) {
     text: { field: 'reason', required: true, max: TEXT_MAX, label: 'Why is this worker stopped? (required)' },
     expect: null,
     body: { ...base, runId: worker.runId, reason: null },
+    decision: null,
+  };
+}
+
+/**
+ * 165 design §10 state 3: the start confirmation. It has no text field (`text: null`: the start form holds the prompt), no `expect`, and its
+ * body is complete but for the request id. `ctx` is `{ projectKey, project, checkout, worktreeKey, harness, model, entry, prompt }`.
+ * @param {any} ctx @param {string} project
+ */
+function buildStartConfirmation(ctx, project) {
+  const model = ctx.model === null || ctx.model === undefined ? null : ctx.model;
+  if (!KEY16.test(String(ctx.worktreeKey)) || typeof ctx.harness !== 'string' || !/^[a-z][a-z0-9-]{1,31}$/.test(ctx.harness)) return null;
+  if (model !== null && (typeof model !== 'string' || model === '')) return null;
+  if (ctx.entry !== 'do' && ctx.entry !== 'none') return null;
+  if (typeof ctx.prompt !== 'string' || ctx.prompt === '') return null;
+  const checkout = typeof ctx.checkout === 'string' && ctx.checkout !== '' ? ctx.checkout : ctx.worktreeKey.slice(0, 8);
+  return {
+    actionId: 'start-session',
+    title: `Start ${ctx.harness}`,
+    effect: ACTION_WORDS['start-session'].effect({ harness: ctx.harness, model, project, checkout }),
+    verb: `Start ${ctx.harness}`,
+    tone: /** @type {'approve'} */ ('approve'),
+    text: null,
+    expect: null,
+    unknown: 'No answer; check Sessions before trying again.',
+    body: { v: 1, projectKey: ctx.projectKey, worktreeKey: ctx.worktreeKey, harness: ctx.harness, model, entry: ctx.entry, prompt: ctx.prompt },
     decision: null,
   };
 }
