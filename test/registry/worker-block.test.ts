@@ -108,8 +108,12 @@ test('worker: the shipped registry carries the block on every harness and valida
   assert.equal(registry.validation.ok, true, registry.validation.errors.join('\n'));
   const modelChecksAt = WORKER_KEYS.indexOf('modelChecks');
   // `modelList` (how the harness's own CLI lists its models) sits between the optional capabilities and modelChecks.
-  const expectedKeys = [...WORKER_KEYS.slice(0, modelChecksAt), ...Object.keys(WORKER_OPTIONAL_CAPABILITIES), 'modelList', ...WORKER_KEYS.slice(modelChecksAt)];
-  for (const harness of registry.harnesses) assert.deepEqual(Object.keys(harness.worker), expectedKeys, `${harness.id} worker keys`);
+  // 169: `provider` and `effort` may be absent (read as unknown) until a harness's descriptor declares them; every other optional entry is carried.
+  const carried = (harness: any) => Object.keys(WORKER_OPTIONAL_CAPABILITIES).filter((key) => !['provider', 'effort'].includes(key) || Object.hasOwn(harness.worker, key));
+  for (const harness of registry.harnesses) {
+    const expectedKeys = [...WORKER_KEYS.slice(0, modelChecksAt), ...carried(harness), 'modelList', ...WORKER_KEYS.slice(modelChecksAt)];
+    assert.deepEqual(Object.keys(harness.worker), expectedKeys, `${harness.id} worker keys`);
+  }
 });
 
 test('worker: the seven harnesses declare IC-002 values and nothing else as supported', () => {

@@ -28,9 +28,6 @@
     { "id": "intake-category", "versions": [1], "tier": "inert", "status": "open", "entry": "file",
       "validator": "intake-category-v1", "combine": "add-only", "consumer": "src/runtime/intake/taxonomy.ts",
       "referencedBy": [], "slice": "136", "template": "package-templates/intake-category" },
-    { "id": "model-list-parser", "versions": [], "tier": "executable", "status": "reserved", "entry": "file",
-      "validator": null, "combine": "add-only", "consumer": null, "referencedBy": [], "slice": "171",
-      "opensWith": "row 169: worker.modelList.format, a field map of grammar model-list-v1 over the list command's output" },
     { "id": "control-channel", "versions": [], "tier": "executable", "status": "reserved", "entry": "file",
       "validator": null, "combine": "add-only", "consumer": null, "referencedBy": [], "slice": "171",
       "opensWith": "row 170: worker.controlChannel, a capability entry whose settled event is a field-map Test list" }
