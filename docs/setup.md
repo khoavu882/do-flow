@@ -181,8 +181,8 @@ To choose which model each tier uses on each installed harness, run `doflow mode
 
 To enable advisory decision picks, run `doflow advise --action configure --model <decision-capable-model>`.
 This writes the user setting to `$XDG_CONFIG_HOME/doflow/settings.json`, or to
-`~/.config/doflow/settings.json` when `XDG_CONFIG_HOME` is unset; an existing `decision-model.json`
-there is still read. A project may override that
+`~/.config/doflow/settings.json` when `XDG_CONFIG_HOME` is unset; an old `decision-model.json`
+there is no longer read. A project may override that
 user setting only after the user enables it: project configuration can disable advice or choose a
 model, but cannot enable advice or select an endpoint or provider. Decision-model endpoints must
 resolve only to loopback addresses; DoFlow rejects non-loopback endpoints. DoFlow never pulls a
