@@ -152,13 +152,15 @@ test('matrix renders every harness and cell with readable states and a roving ke
   const matrix = root.querySelector('table.matrix');
   assert.equal(matrix.getAttribute('role'), 'grid'); assert.equal(matrix.getAttribute('aria-label'), 'Harness capabilities');
   assert.ok(matrix.querySelector('caption')); assert.equal(matrix.querySelectorAll('tbody')[0].querySelectorAll('tr').length, 7);
-  assert.equal(gridcells(root).length, 140);
+  // 165 T1: the column count is every capability key of the fixture (+ mainSession per harness), not a literal.
+  const columnCount = Object.values(MATRIX.groups as Record<string, string[]>).reduce((n, names) => n + names.length, 0);
+  assert.equal(gridcells(root).length, MATRIX.harnesses.length * columnCount);
   assert.equal(gridcells(root).filter((td: El) => td.getAttribute('tabindex') === '0').length, 1);
   const pi = gridcells(root).find((td: El) => td.getAttribute('data-key') === 'pi/orchestration/spawn');
   assert.equal(pi?.textContent, 'Unsupported'); assert.equal(pi?.querySelector('.badge').getAttribute('data-state'), 'rejected');
   const first = gridcells(root)[0]; first.key('ArrowRight');
   const second = (globalThis as any).__focused; assert.equal(second.getAttribute('data-col'), '1'); assert.equal(second.getAttribute('tabindex'), '0');
-  second.key('End'); const last = (globalThis as any).__focused; assert.equal(last.getAttribute('data-col'), '19');
+  second.key('End'); const last = (globalThis as any).__focused; assert.equal(last.getAttribute('data-col'), String(columnCount - 1));
   last.key('Home'); const back = (globalThis as any).__focused; assert.equal(back.getAttribute('data-col'), '0');
   back.key('ArrowDown'); const below = (globalThis as any).__focused; assert.equal(below.getAttribute('data-row'), '1');
   below.key('Enter'); assert.equal(below.getAttribute('aria-selected'), 'true'); assert.ok(ctx.local.route.cell);
