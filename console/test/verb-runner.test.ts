@@ -595,6 +595,9 @@ const writeDone = (mode) => {
   } else if (mode === 'usage-json') {
     process.stdout.write(JSON.stringify({ v: 1, ok: false, error: 'usage' }));
     process.exitCode = 2;
+  } else if (mode === 'exit2-id') {
+    process.stdout.write(JSON.stringify({ v: 1, ok: false, error: 'store-unreadable' }));
+    process.exitCode = 2;
   } else if (mode === 'text') {
     process.stdout.write('written\\n');
   } else if (mode === 'array') {
@@ -2132,7 +2135,9 @@ test('every other outcome is a failure: exit 2 is usage, an old core is old-core
     return { ...result };
   };
   assert.deepEqual(await act('usage'), { ok: false, code: 'usage', exit: 2 });
-  assert.deepEqual(await act('usage-json'), { ok: false, code: 'usage', exit: 2 });
+  // 165 F1: an exit 2 keeps the core's own `error` id (the read path's rule), so a caller can tell `usage` from another refusal.
+  assert.deepEqual(await act('usage-json'), { ok: false, code: 'usage', exit: 2, errorId: 'usage' });
+  assert.deepEqual(await act('exit2-id'), { ok: false, code: 'usage', exit: 2, errorId: 'store-unreadable' });
   assert.deepEqual(await act('old-flag'), { ok: false, code: 'core-error', exit: 1, reason: 'old-core' });
   assert.deepEqual(await act('old-flag-2'), { ok: false, code: 'core-error', exit: 2, reason: 'old-core' });
   assert.deepEqual(await act('text'), { ok: false, code: 'core-error', exit: 0, reason: 'not-json' });

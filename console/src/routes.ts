@@ -721,84 +721,6 @@ const startProjectsRoute = (runner: Runner): Route['handler'] => async (ctx) => 
   return jsonReply(200, { v: 1, projects, truncated: list.body.truncated });
 };
 
-class StartMismatch extends Error {}
-const startFail = (): never => {
-  throw new StartMismatch('start-options');
-};
-const START_LABEL = /^[A-Za-z0-9 ._:/@-]{1,64}$/;
-const START_WITHHELD = '(withheld)';
-/** Free words of the core (a reason, a relogin hint): one line of at most 300 characters with no control character. */
-const START_WORDS = /^[^\u0000-\u001F\u007F-\u009F\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]{1,300}$/;
-/** A token that looks like an absolute or home path; a label or words holding one is withheld (the core's label rule allows `/`). */
-const START_PATH = /(?:^|[\s(])(?:\/|~\/|[A-Za-z]:\\)/;
-const START_ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
-const START_VERSION = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$/;
-const START_SOURCES: readonly string[] = Object.freeze(['orchestrator', 'frontier', 'standard', 'light', 'observed', 'default']);
-const START_REASONS: readonly string[] = Object.freeze(['not-listed', 'no-main-session-shape', 'not-installed', 'logged-out']);
-const START_BOUNDS = Object.freeze({ checkouts: 64, harnesses: 32, models: 50, warnings: 8 });
-
-const sRecord = (value: unknown): Record<string, any> => (value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, any> : startFail());
-const sList = (value: unknown, max: number): unknown[] => (Array.isArray(value) && value.length <= max ? value : startFail());
-const sCount = (value: unknown): number => (Number.isSafeInteger(value) && (value as number) >= 0 ? value as number : startFail());
-const sBool = (value: unknown): boolean => (typeof value === 'boolean' ? value : startFail());
-const sMatch = (re: RegExp) => (value: unknown): string => (typeof value === 'string' && re.test(value) ? value : startFail());
-const sNull = <T>(check: (value: unknown) => T) => (value: unknown): T | null => (value === null ? null : check(value));
-const sLabel = (value: unknown): string => (typeof value !== 'string' ? startFail()
-  : value === START_WITHHELD || (START_LABEL.test(value) && !START_PATH.test(value)) ? value : START_WITHHELD);
-const sWords = (value: unknown): string => (typeof value !== 'string' ? startFail() : START_WORDS.test(value) && !START_PATH.test(value) ? value : START_WITHHELD);
-const sOneOf = (set: readonly string[]) => (value: unknown): string => (typeof value === 'string' && set.includes(value) ? value : startFail());
-
-/**
- * IC-002, closed: the core's start options with every field checked and nothing else; `project.root` must be null (the core never
- * sends it) and `project.projectKey` the one asked for. Labels and words that look like a path are withheld. Throws StartMismatch.
- */
-function startOptionsBody(value: unknown, projectKey: string) {
-  const body = sRecord(value);
-  const project = sRecord(body.project);
-  if (project.projectKey !== projectKey || project.root !== null) startFail();
-  const checkout = (item: unknown) => {
-    const c = sRecord(item);
-    const busy = sNull((v) => ({ runId: sMatch(PATTERNS.runId)(sRecord(v).runId) }))(c.busy);
-    const observed = sNull((v) => {
-      const o = sRecord(v);
-      return { harness: sNull(sMatch(PATTERNS.harness))(o.harness), lastSeenAt: sMatch(START_ISO)(o.lastSeenAt) };
-    })(c.observedSession);
-    return { worktreeKey: sMatch(PATTERNS.key16)(c.worktreeKey), label: sLabel(c.label), branch: sNull(sLabel)(c.branch), main: sBool(c.main), busy, observedSession: observed };
-  };
-  const harness = (item: unknown) => {
-    const h = sRecord(item);
-    const login = sNull((v) => {
-      const l = sRecord(v);
-      return { state: sNull(sMatch(PARAM_PATTERN))(l.state), checkedAt: sNull(sMatch(START_ISO))(l.checkedAt) };
-    })(h.login);
-    const model = (m: unknown) => {
-      const e = sRecord(m);
-      return { id: sNull(sMatch(PATTERNS.model))(e.id), source: sOneOf(START_SOURCES)(e.source) };
-    };
-    return {
-      harness: sMatch(PATTERNS.harness)(h.harness), startable: sBool(h.startable), reason: sNull(sOneOf(START_REASONS))(h.reason), words: sWords(h.words),
-      warnings: sList(h.warnings, START_BOUNDS.warnings).map(sMatch(PARAM_PATTERN)), login,
-      version: h.version === null ? null : typeof h.version === 'string' ? (START_VERSION.test(h.version) ? h.version : null) : startFail(),
-      models: sList(h.models, START_BOUNDS.models).map(model),
-    };
-  };
-  const limits = sRecord(body.limits);
-  const dispatch = sRecord(body.dispatch);
-  const promptMax = sRecord(body.promptMax);
-  const running = sBool(dispatch.running);
-  return {
-    project: { projectKey, label: sLabel(project.label), root: null },
-    checkouts: sList(body.checkouts, START_BOUNDS.checkouts).map(checkout),
-    harnesses: sList(body.harnesses, START_BOUNDS.harnesses).map(harness),
-    limits: { perCheckout: sCount(limits.perCheckout), perActor: sCount(limits.perActor), machine: sCount(limits.machine), perActorPerHour: sCount(limits.perActorPerHour) },
-    open: { machine: sCount(sRecord(body.open).machine) },
-    dispatch: running ? { running: true, slug: sMatch(PARAM_PATTERN)(dispatch.slug) } : { running: false },
-    promptMax: { codePoints: sCount(promptMax.codePoints), bytes: sCount(promptMax.bytes) },
-    entries: sList(body.entries, 2).map(sOneOf(['do', 'none'])),
-    entryLine: sWords(body.entryLine),
-  };
-}
-
 /**
  * `GET /api/start/options?projectKey=K`: IC-002 for one project, through `start-options` (scoped: run in that project's root). A
  * key the runner's map lacks refreshes `projects` once, past its cache (as an action does), before 404 project-not-found. An older
@@ -817,12 +739,8 @@ const startOptionsRoute = (runner: Runner): Route['handler'] => async (ctx) => {
     if (result.code === 'core-error' && result.exit === 2 && result.errorId === 'usage') return errorReply(501, 'core-lacks-verb', 'start-options', null);
     return failureReply('start-options', result);
   }
-  try {
-    return jsonReply(200, { v: 1, ...startOptionsBody(result.json, projectKey) });
-  } catch (error) {
-    if (error instanceof StartMismatch) return errorReply(502, 'core-contract-mismatch', 'start-options', 0);
-    throw error;
-  }
+  const projected = project('start-options', result.json, { projectKey });
+  return projected.ok ? jsonReply(200, { v: 1, ...projected.body }) : errorReply(502, 'core-contract-mismatch', 'start-options', 0);
 };
 
 /**

@@ -15,7 +15,7 @@
 // (the projector refused it) or `section-missing` (the snapshot did not carry it). One failed section
 // never fails the others.
 
-const { project } = require('./project.ts');
+const { CLOSED_SETS, project } = require('./project.ts');
 const { maskLite } = require('./mask-lite.ts');
 
 type SectionResult = { exit: number; json: unknown };
@@ -39,7 +39,7 @@ const DECIDER = /^(?:autopilot|manual|console|device\.d-[0-9a-f]{12})$/;
 const decider: Check<string> = (value) => (typeof value === 'string' && DECIDER.test(value) ? value : fail());
 const STORES: readonly string[] = Object.freeze(['absent', 'present']);
 /** IC-003 and IC-002 bounds; a section past one breaks the contract. */
-const BOUNDS = Object.freeze({ checkouts: 64, gates: 64, artifacts: 64, reviews: 16, sessions: 16, audit: 8, denials: 3, coverage: 32, activity: 16, activityGates: 8, harnesses: 32, unreadable: 32 });
+const BOUNDS = Object.freeze({ checkouts: 64, gates: 64, artifacts: 64, reviews: 16, sessions: 16, audit: 8, denials: 3, coverage: 32, activity: 16, activityGates: 8, activityStarted: 8, harnesses: 32, unreadable: 32 });
 /** IC-003: a denial reason, in characters, as the core caps it. */
 const REASON_CHARS = 200;
 /** A gate name is registry text; anything longer is not one. */
@@ -97,6 +97,15 @@ const viaProject = (shapeId: string): Check<any> => (value) => {
 
 // ---- IC-002 machine ----
 
+/** 165 D8: one started session of a `machine` activity item (src/runtime/events/machine.ts `workerActivity`): these seven fields only. */
+const startedSession = (entry: unknown) => {
+  const r = record(entry);
+  return {
+    runId: orNull((v) => (typeof v === 'string' && RUN_ID.test(v) ? v : fail()))(r.runId), harness: orNull(id)(r.harness), model: orNull(label)(r.model),
+    phase: oneOf(CLOSED_SETS.phases)(r.phase), startedBy: orNull(label)(r.startedBy), worktreeKey: orNull(key16)(r.worktreeKey), createdAt: orNull(iso)(r.createdAt),
+  };
+};
+
 function activity(value: unknown) {
   const body = record(value);
   const limits = record(body.limits);
@@ -114,6 +123,9 @@ function activity(value: unknown) {
       runs: { open: count(runs.open), awaiting: count(runs.awaiting) },
       gates: each(gate, BOUNDS.activityGates)(a.gates),
       workers: { open: count(workers.open) },
+      // 165 D8: the started sessions (newest first, at most STARTED_LIMIT = 8 of the core's machine.ts) and how many there are; an older core sends neither: null, not zero.
+      started: optional(each(startedSession, BOUNDS.activityStarted))(a.started),
+      startedCount: optional(count)(a.startedCount),
       sessions: { observed: count(sessions.observed), harnesses: each(id, BOUNDS.harnesses)(sessions.harnesses) },
       unreadable: each(id, BOUNDS.unreadable)(a.unreadable),
     };

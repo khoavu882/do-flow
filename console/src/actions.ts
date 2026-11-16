@@ -64,7 +64,7 @@ type Current = Record<string, unknown> | null;
  * only on a refusal by state (it may be null there), `ran` false when nothing was spawned.
  */
 type Answer = { status: number, code: string | null, outcome: 'applied' | 'refused' | 'failed' | 'unknown' | 'replayed', exit: number | null,
-  verb: string | null, current?: Current, result?: Record<string, unknown>, ran: boolean, runId?: string };
+  verb: string | null, current?: Current, result?: Record<string, unknown>, ran: boolean, runId?: string, errorId?: string };
 type Target = { slug: string | null, taskId: string | null, gateId: string | null, runId: string | null,
   worktreeKey?: string, harness?: string, model?: string };
 type ActionSpec = Readonly<{
@@ -405,13 +405,18 @@ function startRun(run: unknown, projectKey: string): Record<string, unknown> | n
 
 /**
  * start-session (IC-001, IC-004): `{ok:true, replayed, run}` on exit 0 (200 for a start and for the core's replay, which the log
- * records as `replayed`), `{ok:false, code, message, current?}` on exit 1 by START_REFUSALS. FR-016: an exit 2 `usage` is an older
- * core without the action, since every flag passed the runner's own patterns first: 501 core-lacks-action.
+ * records as `replayed`), `{ok:false, code, message, current?}` on exit 1 by START_REFUSALS. FR-016: an exit 2 `usage` (or none) is an older
+ * core without the action, since every flag passed the runner's own patterns first: 501 core-lacks-action. Any other `error` id on an
+ * exit 2 (the core's `store-unreadable`) is the core's own failure: 502 core-error carrying the id (165 F1).
  */
 function startOutcome(shape: string) {
   return (result: any, body: Body): Answer => {
     if (!result.ok) {
-      if (result.code === 'usage' && result.exit === 2) return answer(501, 'core-lacks-action', 'failed', 2, shape);
+      if (result.code === 'usage' && result.exit === 2) {
+        return result.errorId === undefined || result.errorId === 'usage'
+          ? answer(501, 'core-lacks-action', 'failed', 2, shape)
+          : answer(502, 'core-error', 'failed', 2, shape, { errorId: result.errorId });
+      }
       return failureAnswer(shape, result);
     }
     const json = result.json;
@@ -701,9 +706,11 @@ function createActions({ runner, log, now = Date.now, warn = () => {} }: Options
   function replyOf(spec: ActionSpec, body: Body, actor: Actor, done: Answer, replayed: boolean): Reply {
     if (done.status === 200) return jsonReply(200, { v: 1, action: spec.id, requestId: body.requestId, outcome: 'applied', replayed, by: actor.relay, result: done.result });
     const reply = errorReply(done.status, done.code as string, done.verb, done.exit);
-    if (done.current === undefined && !replayed) return reply;
-    // 162 review 11: a replayed error says so, with the first reply's status and `current`.
-    return jsonReply(done.status, { ...JSON.parse(String(reply.body)), ...(done.current === undefined ? {} : { current: done.current }), ...(replayed ? { replayed: true } : {}) });
+    if (done.current === undefined && done.errorId === undefined && !replayed) return reply;
+    // 162 review 11: a replayed error says so, with the first reply's status and `current`. 165 F1: a core error says which id.
+    const plain = JSON.parse(String(reply.body));
+    if (done.errorId !== undefined) plain.error.id = done.errorId;
+    return jsonReply(done.status, { ...plain, ...(done.current === undefined ? {} : { current: done.current }), ...(replayed ? { replayed: true } : {}) });
   }
 
   /** begin, act (one projects refresh for an unknown key), end. */

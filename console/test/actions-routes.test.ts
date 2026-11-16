@@ -860,13 +860,13 @@ test('the prompt kind: CRLF and CR become LF, C0 (but tab and LF), C1 and bidi c
   const emoji = '\u{1F600}'.repeat(8000);
   const cases: Array<[string, number, string | null]> = [
     ['one\r\ntwo\rthree', 200, 'one\ntwo\nthree'],
-    ['a\u0007b\u0085c‎d⁦e؜f‮g\u001Bh', 200, 'abcdefgh'],
+    ['a\u0007b\u0085c\u200Ed\u2066e\u061Cf\u202Eg\u001Bh', 200, 'abcdefgh'],
     ['col\tcol\nrow', 200, 'col\tcol\nrow'],
     [emoji, 200, emoji],
     ['a\u0000b', 400, 'usage'],
     ['a\uD800b', 400, 'usage'],
     ['', 400, 'prompt-empty'],
-    [' \n\t‏ ', 400, 'prompt-empty'],
+    [' \n\t\u200F ', 400, 'prompt-empty'],
     [`${emoji}x`, 400, 'prompt-too-long'],
     ['\u0001'.repeat(7000), 400, 'usage'],
   ];
@@ -1012,6 +1012,29 @@ test('every start-session refusal id maps to IC-004\'s status with the core\'s c
   assert.equal(gone.status, 404);
   assert.deepEqual(json(gone).error, { code: 'project-not-found', verb: 'start-session', exit: null });
   assert.deepEqual([lost.acts.length, lost.reads, lost.readOptions], [2, ['projects'], [{ fresh: true }]]);
+});
+
+test('165 F1: an exit 2 of start-session is 501 core-lacks-action only for the id usage or none; any other id is 502 core-error carrying the id, and the action stays offered', async (t) => {
+  const clock = manual();
+  let next: any = null;
+  const runner = startRunner(() => next);
+  const w = await loopback(t, runner, { now: clock.now });
+  const cases: Array<[any, number, string, string | undefined]> = [
+    [{ ok: false, code: 'usage', exit: 2, errorId: 'store-unreadable' }, 502, 'core-error', 'store-unreadable'],
+    [{ ok: false, code: 'usage', exit: 2, errorId: 'registry-invalid' }, 502, 'core-error', 'registry-invalid'],
+    [{ ok: false, code: 'usage', exit: 2, errorId: 'usage' }, 501, 'core-lacks-action', undefined],
+  ];
+  for (const [result, status, code, id] of cases) {
+    clock.t += 61 * MINUTE;
+    next = result;
+    const reply = await w.post('start-session', startBody());
+    assert.equal(reply.status, status, reply.body);
+    assert.deepEqual(json(reply).error, { code, verb: 'start-session', exit: 2, ...(id === undefined ? {} : { id }) });
+    if (status === 502) {
+      const listed = json(await w.get('/api/actions')).actions.find((entry: any) => entry.id === 'start-session');
+      assert.deepEqual(listed, { id: 'start-session', allowed: true, reason: null }, 'a core error is not a missing action');
+    }
+  }
 });
 
 test('GET /api/start lists the projects by key and label, never a root; GET /api/start/options passes IC-002 through with root null; a bad query is 400 usage, an unknown key 404 after one refresh, an older core 501, a body that does not project 502', async (t) => {
