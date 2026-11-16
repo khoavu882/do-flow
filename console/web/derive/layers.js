@@ -449,7 +449,7 @@ function projectModel(body) {
       process: PROCESS_WORD[node.liveness] ?? 'process not checked', linked: node.transcript.linked === true, reason: node.transcript.reason,
       audit: line ? { word: AUDIT_WORD[line.event] ?? 'recorded', at: line.at } : null,
       toolCalls: t ? t.toolCalls : null, eventsPerMin: t ? t.eventsPerMin : null,
-      ...(node.kind === 'started-session' ? { ...startedWords(node), runId: node.runId, fileKeys: node.fileKeys ?? null, endedAt: node.ended ? node.ended.at : null, endedResult: node.ended ? node.ended.result : null } : {}),
+      ...(node.kind === 'started-session' ? { ...startedWords(node), runId: node.runId, fileKeys: node.fileKeys ?? null } : {}),
     };
   };
 
