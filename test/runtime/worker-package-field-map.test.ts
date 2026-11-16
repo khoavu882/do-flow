@@ -74,8 +74,8 @@ function mapWorker(map: any = fieldMap()): any {
   };
 }
 
-/** Writes, adds, enables and trusts package `acme` with one worker `mycli`; returns the active catalogue. */
-function catalogueWith(scratch: any, worker: any) {
+/** Writes package `acme` with one worker `mycli` and plans its add; returns the plan result unasserted. */
+function planWith(scratch: any, worker: any) {
   const dir = path.join(scratch.dir, 'pkg-src');
   fs.mkdirSync(path.join(dir, 'workers'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'doflow-package.json'), JSON.stringify({
@@ -84,7 +84,12 @@ function catalogueWith(scratch: any, worker: any) {
     contributions: [{ point: 'worker', version: 1, id: 'mycli', file: 'workers/mycli.json', programs: ['mycli'] }],
   }, null, 2));
   fs.writeFileSync(path.join(dir, 'workers', 'mycli.json'), JSON.stringify(worker, null, 2));
-  const planned = planPackage({ action: 'add', source: dir, homeDir: scratch.home, repoRoot: REPO_ROOT, now: Date.parse(AT) });
+  return planPackage({ action: 'add', source: dir, homeDir: scratch.home, repoRoot: REPO_ROOT, now: Date.parse(AT) });
+}
+
+/** Writes, adds, enables and trusts package `acme` with one worker `mycli`; returns the active catalogue. */
+function catalogueWith(scratch: any, worker: any) {
+  const planned = planWith(scratch, worker);
   assert.equal(planned.ok, true, JSON.stringify(planned.findings));
   const applied = applyPlan({ planId: planned.plan.planId, action: 'add', homeDir: scratch.home, repoRoot: REPO_ROOT, env: scratch.env() });
   assert.equal(applied.ok, true, JSON.stringify(applied.findings));
@@ -206,7 +211,22 @@ test('a map id equal to codex-exec-json-v1 is refused', (t: any) => {
   assert.deepEqual(errors, [], 'validateWorker cannot tell a package from a built-in (S5 lives in the catalogue)');
   const scratch = createScratch('doflow-fieldmap-');
   t.after(() => scratch.remove());
-  const catalogue = catalogueWith(scratch, worker);
+  // The point validator cannot see a built-in, but a package install can: S5 refuses the core-id map at plan time.
+  assert.ok(POINT_VALIDATORS['worker-v1']('mycli', worker, { packageId: 'acme' }).some((e: string) => e.includes("fieldMap.id 'codex-exec-json-v1' is a core parser id")));
+  const refused = planWith(scratch, worker);
+  assert.equal(refused.ok, false, 'the install of a package map named for a core parser is refused');
+  assert.ok(refused.findings.some((f: any) => f.code === 'contribution-invalid' && f.message.includes("fieldMap.id 'codex-exec-json-v1' is a core parser id")), JSON.stringify(refused.findings));
+
+  // Defence in depth: the catalogue refuses it too when the stored file changes after a valid install.
+  const scratch2 = createScratch('doflow-fieldmap-');
+  t.after(() => scratch2.remove());
+  const first = catalogueWith(scratch2, mapWorker());
+  assert.ok(first.some((e: any) => e.id === 'acme.mycli'));
+  const stored = first.find((e: any) => e.id === 'acme.mycli').worker.storeEntry;
+  fs.writeFileSync(path.join(stored, 'workers', 'mycli.json'), JSON.stringify(worker));
+  resetPackageView();
+  const view = packageView({ repoRoot: REPO_ROOT, homeDir: scratch2.home, env: scratch2.env(), tmpDir: NO_TMP });
+  const catalogue = workerCatalogue({ view, repoRoot: REPO_ROOT });
   assert.equal(catalogue.some((e: any) => e.id === 'acme.mycli'), false, 'a package map can never shadow a core parser');
   assert.ok(catalogue.some((e: any) => e.id === 'codex'), 'the built-ins stay');
 });

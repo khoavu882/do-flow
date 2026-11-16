@@ -58,8 +58,17 @@ function workerValidator(id: string, worker: any, context: any = {}): string[] {
   validateWorker(worker, location, errors);
   const { PARSERS } = require('../worker/parsers.ts');
   if (worker && typeof worker === 'object' && worker.structuredOutput && typeof worker.structuredOutput === 'object') {
-    if (typeof worker.structuredOutput.parser === 'string' && !Object.hasOwn(PARSERS, worker.structuredOutput.parser)) {
-      errors.push(`${location} worker 'structuredOutput': parser '${worker.structuredOutput.parser}' is not a registered core parser`);
+    const so = worker.structuredOutput;
+    if (typeof so.parser === 'string' && !Object.hasOwn(PARSERS, so.parser)) {
+      errors.push(`${location} worker 'structuredOutput': parser '${so.parser}' is not a registered core parser`);
+    }
+    // 171 S5: a package carries one or the other (a built-in may carry both when they agree), and its map never takes a core parser's id.
+    if (Object.hasOwn(so, 'parser') && Object.hasOwn(so, 'fieldMap')) {
+      errors.push(`${location} worker 'structuredOutput': carries 'parser' and 'fieldMap'; a package worker carries one, not both`);
+    }
+    const mapId = so.fieldMap?.id;
+    if (typeof mapId === 'string' && Object.hasOwn(PARSERS, mapId)) {
+      errors.push(`${location} worker 'structuredOutput': fieldMap.id '${mapId}' is a core parser id`);
     }
   }
   return errors;
