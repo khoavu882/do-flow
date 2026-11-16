@@ -192,6 +192,12 @@ function cliFixture(t: any, origin: string) {
   };
 }
 
+/**
+ * Off/shadow pairs per command in A1. Each pair runs both arms back to back, in alternating order (off then shadow, then
+ * shadow then off), so load that drifts across the run hits both arms of a pair alike and neither arm always goes first.
+ */
+const A1_PAIRS = 9;
+
 test('A1: classify, claim link and review start end within 100 ms of the kind-off run while the model stalls', async (t) => {
   const model = await fakeModel(t);
   const f = cliFixture(t, model.origin);
@@ -207,9 +213,13 @@ test('A1: classify, claim link and review start end within 100 ms of the kind-of
     }).filter(Number.isInteger);
     const children = new Set<number>();
     let lastShadowAt = 0;
-    // Alternating arms, three runs each, compared by median: load drift hits both arms alike.
-    for (let round = 0; round < 3; round += 1) {
-      for (const mode of ['off', 'shadow']) {
+    for (let pair = 0; pair < A1_PAIRS; pair += 1) {
+      for (const mode of pair % 2 === 0 ? ['off', 'shadow'] : ['shadow', 'off']) {
+        if (mode === 'shadow') {
+          // Untimed set-up: a free slot for this run's child, which would otherwise record a busy miss and never ask.
+          const free = await waitFor(() => slotPids().length < ADVICE.shadowSlots, budget + CHILD_SLACK_MS);
+          assert.ok(free, `${name}: every shadow slot was still held ${budget + CHILD_SLACK_MS} ms later`);
+        }
         f.kinds(mode);
         const killAfter = mode === 'off' ? 30000 : median(times.off.length ? times.off : [30000]) + 2000;
         const res = await f.run(command.args(), killAfter);
@@ -223,18 +233,23 @@ test('A1: classify, claim link and review start end within 100 ms of the kind-of
         }
       }
     }
-    const gap = median(times.shadow) - median(times.off);
-    t.diagnostic(`${name}: off ${times.off.map(Math.round).join('/')} ms, shadow ${times.shadow.map(Math.round).join('/')} ms, median gap ${Math.round(gap)} ms`);
-    assert.ok(gap <= 100, `${name} with the kind in shadow took ${Math.round(gap)} ms longer (median of three) than with it off`);
+    // The statistic: the median over the pairs of (shadow run - off run of the same pair). A paired difference cancels
+    // the load both runs of a pair share, and the median of nine ignores the few pairs a burst of load hit on one side.
+    const diffs = times.shadow.map((ms, index) => ms - times.off[index]);
+    const gap = median(diffs);
+    t.diagnostic(`${name}: off ${times.off.map(Math.round).join('/')} ms, shadow ${times.shadow.map(Math.round).join('/')} ms, paired differences ${diffs.map(Math.round).join('/')} ms, median ${Math.round(gap)} ms`);
+    assert.ok(gap <= 100, `${name} with the kind in shadow took ${Math.round(gap)} ms longer (median of ${A1_PAIRS} paired differences) than with it off`);
     // Every detached call reached the stalled model, dropped it at the kind budget, recorded a timeout and exited.
-    assert.equal(children.size, 3, `${name}: each shadow run left one detached child holding a slot`);
+    assert.equal(children.size, A1_PAIRS, `${name}: each shadow run left one detached child holding a slot`);
     const gone = (pid: number) => { try { process.kill(pid, 0); return false; } catch (error: any) { return error.code === 'ESRCH'; } };
-    const settled = await waitFor(() => readWindow({ roots: f.roots }).records.length >= linesBefore + 3 && model.allClosed()
+    const settled = await waitFor(() => readWindow({ roots: f.roots }).records.length >= linesBefore + A1_PAIRS && model.allClosed()
       && slotPids().length === 0 && [...children].every(gone), Math.max(0, lastShadowAt + budget + CHILD_SLACK_MS - Date.now()));
-    assert.ok(settled, `${name}: a detached child was still running ${budget + CHILD_SLACK_MS} ms after the last spawn`);
-    assert.equal(model.asks().length - asksBefore, 3, `${name}: one model request per shadow run`);
+    assert.ok(settled, `${name}: a detached child was still running ${budget + CHILD_SLACK_MS} ms after the last spawn (`
+      + `${readWindow({ roots: f.roots }).records.length - linesBefore} of ${A1_PAIRS} recorded, sockets all closed ${model.allClosed()}, `
+      + `${slotPids().length} slots held, ${[...children].filter((pid) => !gone(pid)).length} children alive)`);
+    assert.equal(model.asks().length - asksBefore, A1_PAIRS, `${name}: one model request per shadow run`);
     const lines = readWindow({ roots: f.roots }).records.slice(linesBefore).map((entry: any) => entry.record);
-    assert.deepEqual(lines.map((line: any) => [line.type, line.kind, line.mode, line.reason]), Array(3).fill(['miss', command.kind, 'shadow', 'timeout']));
+    assert.deepEqual(lines.map((line: any) => [line.type, line.kind, line.mode, line.reason]), Array(A1_PAIRS).fill(['miss', command.kind, 'shadow', 'timeout']));
     for (const line of lines) assert.ok(line.durationMs >= budget - 50 && line.durationMs < budget + 1000, `${name}: a call ran ${line.durationMs} ms against its ${budget} ms budget`);
   }
 });
