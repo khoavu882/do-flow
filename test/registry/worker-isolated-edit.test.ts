@@ -8,10 +8,11 @@ const path = require('node:path');
 const {
   loadRegistry, validateRegistry, validateWorker, WORKER_KEYS, WORKER_OPTIONAL_CAPABILITIES,
 } = require('../../src/registry/index.ts');
+const { ACTIVE_HARNESS_IDS } = require('../helper/harness-ids.ts');
 const ORCHESTRATION_AT_BE752D8 = require('../fixtures/worker/orchestration-be752d8.json');
 
 const REPO = path.resolve(__dirname, '../..');
-const HARNESSES = ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
+const HARNESSES = ACTIVE_HARNESS_IDS;
 const BINARIES: any = { claude: 'claude', codex: 'codex', opencode: 'opencode', pi: 'pi', copilot: 'copilot', kiro: 'kiro-cli', antigravity: 'agy' };
 const CODEX_RECORD = 'core/worker-evidence/codex/2026-10-18-cli-check.json';
 const CODEX_PROBE = 'core/worker-evidence/codex/2026-11-05-sandbox-probe.json';
@@ -54,8 +55,8 @@ test('isolatedEdit: the real registry loads; codex is supported on its recorded 
   const registry = loadRegistry({ repoRoot: REPO });
   assert.deepEqual(registry.validation.errors.filter((line: any) => line.includes(" worker 'isolatedEdit'")), []);
   assert.equal(registry.validation.ok, true, registry.validation.errors.join('\n'));
-  assert.deepEqual(registry.harnesses.map((h: any) => h.id), HARNESSES);
-  for (const harness of registry.harnesses) {
+  assert.ok(Object.keys(BINARIES).every((id) => HARNESSES.includes(id)), 'every BINARIES key is an active id');
+  for (const harness of registry.harnesses.filter((h: any) => Object.hasOwn(BINARIES, h.id))) {
     const binary = BINARIES[harness.id];
     if (harness.id === 'codex') {
       assert.deepEqual(harness.worker.isolatedEdit, {

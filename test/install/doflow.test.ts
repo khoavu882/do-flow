@@ -1,6 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert');
+const { ACTIVE_HARNESS_IDS } = require('../helper/harness-ids.ts');
 const os = require('node:os');
 const path = require('node:path');
 const fs = require('node:fs');
@@ -75,8 +76,8 @@ test('resolveTargets defaults to claude alone and validates', () => {
   assert.throws(() => resolveTargets(['bogus']), /Unknown target/);
 });
 
-test('VALID lists all seven harnesses', () => {
-  assert.deepStrictEqual(VALID, ['claude', 'codex', 'copilot', 'kiro', 'opencode', 'pi', 'antigravity']);
+test('VALID is the active harness ids in registry order', () => {
+  assert.deepStrictEqual(VALID, ACTIVE_HARNESS_IDS);
 });
 
 for (const target of ['copilot', 'kiro', 'opencode', 'pi']) {

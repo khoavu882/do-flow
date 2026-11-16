@@ -37,6 +37,9 @@ const { emitContext, utf8Bytes } = require('../context/arbitrate.ts');
 const { grantSummary } = require('../context/summary-store.ts');
 const { wideningProblem, wideningFlagsProblem } = require('../../registry/widening-flags.ts');
 
+/** The parser table, required on first use as before (171 IC-003 resolves every parser id through it). */
+function parsers() { return require('./parsers.ts'); }
+
 type Env = Record<string, string | undefined>;
 /** 120 IC-011 / IC-012: the binding shape consumed by the recipe assembler. */
 type ModelBinding = { model: string | null; flag: 'supported' | 'unevidenced' | 'n/a' };
@@ -166,6 +169,13 @@ function promptVia(recipe: any): 'argv' | 'stdin' {
   return recipe?.oneShot?.promptVia === 'stdin' ? 'stdin' : 'argv';
 }
 
+/** 171 IC-005: what launch sends for `prompt`: one whole argv element, or the exact stdin bytes (UTF-8, then end).
+ * `main` reads mainSession's transport, else oneShot's. Conform checks the fake received exactly this. */
+function promptInput(recipe: any, prompt: string, main = false): { via: 'argv' | 'stdin'; element: string | null; stdin: Buffer | null } {
+  const via = main ? (recipe?.mainSession?.promptVia === 'argv' ? 'argv' : 'stdin') : promptVia(recipe);
+  return via === 'stdin' ? { via, element: null, stdin: Buffer.from(prompt, 'utf8') } : { via, element: prompt, stdin: null };
+}
+
 /** IC-003: the worker argv for `prompt`; a prompt over its mode's limit is `prompt-too-large`.
  * `edit` selects the edit recipe order (082 IC-014); 120 IC-011 optionally inserts the bound model. */
 function assembleArgv(recipe: any, prompt: string, edit = false, lastMessageFile?: string, binding?: ModelBinding | null): string[] {
@@ -193,7 +203,7 @@ function launchRecord(recipe: any, identity: WorkerIdentity, prompt: string, edi
       binary: recipe.cli.binary,
       argvShape: argvShape(recipe, prompt, edit, binding),
       promptVia: promptVia(recipe),
-      parser: recipe.structuredOutput.parser,
+      parser: parsers().parserIdOf(recipe.structuredOutput),
       profile: recipe.profile ?? null,
     },
     envSet: [...ENV_SET],
@@ -255,7 +265,7 @@ function mainLaunchRecord(recipe: any, prompt: string, model: string | null) {
       binary: recipe.cli.binary,
       argvShape: mainArgvShape(recipe, prompt, model),
       promptVia: recipe.mainSession.promptVia === 'argv' ? 'argv' : 'stdin',
-      parser: recipe.mainSession.parser ?? null,
+      parser: parsers().parserIdOf(recipe.mainSession),
       profile: 'main-session',
     },
     envSet: [STARTED_RUN_VAR],
@@ -263,8 +273,9 @@ function mainLaunchRecord(recipe: any, prompt: string, model: string | null) {
   };
 }
 
-/** Spawns `file` detached; with `viaStdin` the text is written to stdin and ended. Resolves `{ child, ...extra }` once spawned. */
-function spawnHarness(file: string, args: string[], options: any, viaStdin: boolean, text: string, extra: any): Promise<any> {
+/** Spawns `file` detached; `input.stdin`, when set, is written to stdin and ended. Resolves `{ child, ...extra }` once spawned. */
+function spawnHarness(file: string, args: string[], options: any, input: { stdin: Buffer | null }, extra: any): Promise<any> {
+  const viaStdin = input.stdin !== null;
   return new Promise((resolve, reject) => {
     const child = spawn(file, args, { ...options, detached: true, stdio: [viaStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'] });
     // Kept attached: a reject after the resolve is a no-op, and an early error never goes unhandled.
@@ -273,11 +284,21 @@ function spawnHarness(file: string, args: string[], options: any, viaStdin: bool
       if (viaStdin) {
         // A process that exits before reading closes the pipe; its exit is what the supervisor records.
         child.stdin.on('error', () => {});
-        child.stdin.end(text);
+        child.stdin.end(input.stdin);
       }
       resolve({ child, ...extra });
     });
   });
+}
+
+/** 171 IC-003: the main session's parser is a code parser, or this descriptor's own structuredOutput.fieldMap id;
+ * one that resolves to unparsed throws `parser-unknown`. launchMainSession and conform's main-session part call it. */
+function refuseUnknownMainParser(recipe: any): void {
+  const { parserIdOf, parserOf, UNPARSED } = parsers();
+  const parser = parserIdOf(recipe.mainSession);
+  if (parser !== null && parserOf(recipe, 'main').id === UNPARSED) {
+    throw new LaunchUsageError('parser-unknown', `launchMainSession: parser '${parser}' is not in core PARSERS`);
+  }
 }
 
 /** 165 D1, D9: launches a started main session from its recipe in `execWorktree`. No context emission, no grant. */
@@ -287,13 +308,8 @@ function launchMainSession({ recipe, prompt, execWorktree, env, runId, model = n
   return Promise.resolve().then(() => {
     const sessionEnv = mainEnv(env, runId);
     const argv = mainArgv(recipe, prompt, lastMessageFile, model);
-    const parser = recipe.mainSession.parser;
-    if (parser !== null && parser !== undefined) {
-      const { PARSERS } = require('./parsers.ts');
-      if (!Object.hasOwn(PARSERS, parser)) throw new LaunchUsageError('parser-unknown', `launchMainSession: parser '${parser}' is not in core PARSERS`);
-    }
-    const viaStdin = recipe.mainSession.promptVia !== 'argv';
-    return spawnHarness(recipe.cli?.binary, argv, { cwd: execWorktree, env: sessionEnv, shell: false }, viaStdin, prompt, { env: sessionEnv, launched: null });
+    refuseUnknownMainParser(recipe);
+    return spawnHarness(recipe.cli?.binary, argv, { cwd: execWorktree, env: sessionEnv, shell: false }, promptInput(recipe, prompt, true), { env: sessionEnv, launched: null });
   });
 }
 
@@ -327,12 +343,10 @@ function launchWorker({ recipe, prompt, identity, execWorktree, env, taskId, gra
     const text = delivered !== null ? `${delivered}\n\n${prompt}` : prompt;
     const launched = { reason, bytes: delivered !== null ? utf8Bytes(delivered) : 0 };
     const argv = assembleArgv(recipe, text, edit, lastMessageFile, binding);
-    const viaStdin = promptVia(recipe) === 'stdin';
-    if (recipe?.structuredOutput?.parser) {
-      const { PARSERS } = require('./parsers.ts');
-      if (!Object.hasOwn(PARSERS, recipe.structuredOutput.parser)) {
-        throw new LaunchUsageError('parser-unknown', `launchWorker: parser '${recipe.structuredOutput.parser}' is not in core PARSERS`);
-      }
+    const { parserIdOf, parserOf, UNPARSED } = parsers();
+    const parser = parserIdOf(recipe?.structuredOutput);
+    if (parser && parserOf(recipe, 'structured').id === UNPARSED) {
+      throw new LaunchUsageError('parser-unknown', `launchWorker: parser '${parser}' is not in core PARSERS`);
     }
     let file = recipe.cli?.binary;
     let spawnArgs = argv;
@@ -350,11 +364,12 @@ function launchWorker({ recipe, prompt, identity, execWorktree, env, taskId, gra
       spawnArgs = spec.args;
       spawnOptions = spec.options;
     }
-    spawnHarness(file, spawnArgs, spawnOptions, viaStdin, text, { env: workerEnv, launched }).then(resolve, reject);
+    spawnHarness(file, spawnArgs, spawnOptions, promptInput(recipe, text), { env: workerEnv, launched }).then(resolve, reject);
   });
 }
 
 module.exports = {
   ENV_SET, PROMPT_LIMITS, RECIPE_ORDER, EDIT_RECIPE_ORDER, STARTED_RUN_VAR, LaunchUsageError, argvShape, assembleArgv,
-  launchEnv, launchRecord, launchWorker, mainArgv, mainArgvShape, mainEnv, mainLaunchRecord, launchMainSession,
+  launchEnv, launchRecord, launchWorker, mainArgv, mainArgvShape, mainEnv, mainLaunchRecord, launchMainSession, promptInput,
+  refuseUnknownMainParser,
 };

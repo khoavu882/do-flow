@@ -2,6 +2,7 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const { ACTIVE_HARNESS_IDS } = require('../helper/harness-ids.ts');
 const fs = require('node:fs');
 const path = require('node:path');
 const { createScratch } = require('../helper/scratch-env.ts');
@@ -146,7 +147,7 @@ test('negative control: with no package, catalogue equals built-in harnesses', (
   const catalogue = workerCatalogue({ repoRoot: REPO_ROOT });
   assert.ok(catalogue.length > 0);
   assert.ok(catalogue.every((e: any) => e.origin === 'builtin'));
-  for (const id of ['claude', 'codex', 'antigravity', 'pi', 'opencode', 'copilot', 'kiro']) {
+  for (const id of ACTIVE_HARNESS_IDS) {
     assert.ok(catalogue.some((e: any) => e.id === id));
   }
 });
@@ -214,6 +215,41 @@ test('package worker catalogue lifecycle: needs-trust, active, unverified family
     },
   });
   assert.notEqual(selectRes.harness, 'acme.mycli');
+});
+
+const MAP = (id: string) => ({
+  id, format: 'jsonl-field-map-v1', eventType: ['type'], missingTerminal: 'no-done',
+  rules: [
+    { when: [{ path: ['type'], equals: 'message' }, { path: ['text'], is: 'string' }], then: { final: ['text'] } },
+    { when: [{ path: ['type'], equals: 'done' }], then: { terminal: { outcome: 'completed' } } },
+  ],
+});
+
+test('171 review: a package worker may carry a fieldMap alone, or a core parser alone', () => {
+  const mapOnly: any = validWorkerJson();
+  delete mapOnly.structuredOutput.parser;
+  mapOnly.structuredOutput.fieldMap = MAP('acme-stream-v1');
+  assert.deepEqual(POINT_VALIDATORS['worker-v1']('mycli', mapOnly, { packageId: 'acme' }), []);
+  assert.deepEqual(POINT_VALIDATORS['worker-v1']('mycli', validWorkerJson(), { packageId: 'acme' }), []);
+});
+
+test('171 review: a package worker carrying both parser and fieldMap is refused, naming the fields, even when parser equals the map id', () => {
+  for (const [parser, mapId] of [['doflow-jsonl-v1', 'acme-stream-v1'], ['acme-stream-v1', 'acme-stream-v1']]) {
+    const both: any = validWorkerJson();
+    both.structuredOutput.parser = parser;
+    both.structuredOutput.fieldMap = MAP(mapId);
+    const errors = POINT_VALIDATORS['worker-v1']('mycli', both, { packageId: 'acme' });
+    assert.ok(errors.some((err: string) => /structuredOutput/.test(err) && /'parser'/.test(err) && /'fieldMap'/.test(err) && /not both/.test(err)), JSON.stringify([parser, errors]));
+  }
+});
+
+test('171 review S5: a package fieldMap whose id is a core PARSERS key is refused at install', () => {
+  const taken: any = validWorkerJson();
+  delete taken.structuredOutput.parser;
+  taken.structuredOutput.fieldMap = MAP('codex-exec-json-v1');
+  assert.equal(Object.hasOwn(PARSERS, 'codex-exec-json-v1'), true);
+  const errors = POINT_VALIDATORS['worker-v1']('mycli', taken, { packageId: 'acme' });
+  assert.ok(errors.some((err: string) => /fieldMap\.id 'codex-exec-json-v1' is a core parser id/.test(err)), JSON.stringify(errors));
 });
 
 test('a parser id not in PARSERS is refused by worker-v1 validator', () => {

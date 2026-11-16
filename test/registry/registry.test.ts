@@ -7,6 +7,7 @@ const {
   REGISTRY_FILES, COPY_TREE_SELECTS, loadRegistry, validateRegistry, selectAssets, selectMcpServers, mcpCapable, capabilityMapData,
 } = require('../../src/registry/index.ts');
 const { SELECTORS } = require('../../src/adapters/copy-tree.ts');
+const { ACTIVE_HARNESS_IDS } = require('../helper/harness-ids.ts');
 const { projectAdapterInput } = require('../../src/adapters/index.ts');
 const { tempDir } = require('../helper/tmp.ts');
 
@@ -14,12 +15,11 @@ const REPO = path.resolve(__dirname, "../..");
 
 test('loads and validates the complete multi-harness registry', () => {
   const registry = loadRegistry({ repoRoot: REPO });
-  assert.deepEqual(registry.harnesses.map((item: any) => item.id), ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity']);
   assert.deepEqual(Object.keys(REGISTRY_FILES), ['harnesses', 'assets', 'mcp', 'lifecycle', 'contracts', 'externalTools', 'models']);
   // contracts.json declares what each harness ACCEPTS, deliberately separate from harnesses.json's
   // what-DoFlow-SUPPORTS: nesting them would make the registry-truth guard validate the registry
   // against itself. Every harness must have exactly one contract.
-  assert.deepEqual(registry.contracts.map((c: any) => c.harness), ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity']);
+  assert.deepEqual(registry.contracts.map((c: any) => c.harness), ACTIVE_HARNESS_IDS);
   assert.equal(registry.validation.ok, true);
   assert.deepEqual(registry.harnesses.find((harness: any) => harness.id === 'codex').nativeProjection.config.resources,
     [{ kind: 'configuration-entry', identity: 'features.hooks', value: true }]);
@@ -333,7 +333,7 @@ test('selects the neutral MCP catalog and rejects unknown selections', () => {
 test('mcpCapable names every harness that takes the shared MCP catalog', () => {
   const registry = loadRegistry({ repoRoot: REPO });
   assert.deepEqual(registry.harnesses.map((item: any) => item.id).filter((id: any) => mcpCapable(registry, id)),
-    ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity']);
+    ACTIVE_HARNESS_IDS);
   assert.throws(() => mcpCapable(registry, 'unknown'), /Unknown registry harness/);
 });
 

@@ -6,6 +6,7 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const { ACTIVE_HARNESS_IDS } = require('../helper/harness-ids.ts');
 const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp.ts');
@@ -267,13 +268,14 @@ test('a registry with no single-labelled review preset is refused registry-incom
 });
 
 // 119 F.1 (IC-003, FR-008): `enforcement` says, per harness, whether the read-only limit of a read-only seat
-// agent is enforced. The expected rows are written out here, never read from the code under test.
+// agent is enforced. The expected rows are written out here, never read from the code under test; the harness
+// order is the registry's, fixed by the pin in test/registry/harness-ids.test.ts.
 const { loadEnforcementInputs } = require('../../src/runtime/review/start.ts');
 
-const HARNESS_ORDER: any = ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
+const HARNESS_ORDER: any = ACTIVE_HARNESS_IDS;
 const UNENFORCED: any = ['codex', 'pi', 'antigravity'];
 
-test('enforcement: the loaded inputs give 7 reviewer rows, codex, pi and antigravity unenforced', () => {
+test('enforcement: the loaded inputs give one reviewer row per active harness, codex, pi and antigravity unenforced', () => {
   const inputs = loadEnforcementInputs(REGISTRY);
   assert.equal('error' in inputs, false, JSON.stringify(inputs));
   assert.equal(inputs.agentAccess.reviewer, 'read-only');
@@ -289,7 +291,7 @@ test('enforcement: the loaded inputs give 7 reviewer rows, codex, pi and antigra
   assert.deepEqual(Object.keys(protocol.enforcement[0]), ['agent', 'harness', 'status', 'reason']);
   const single = resolve({ ...inputs });
   assert.equal(single.protocol.id, 'review-single');
-  assert.equal(single.protocol.enforcement.length, 7);
+  assert.equal(single.protocol.enforcement.length, HARNESS_ORDER.length);
 });
 
 test('enforcement: a debate (write-access seat agents) has none; so has a caller that passes no inputs', () => {

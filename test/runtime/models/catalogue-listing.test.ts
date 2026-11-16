@@ -5,6 +5,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { ACTIVE_HARNESS_IDS } = require('../../helper/harness-ids.ts');
 const { suiteTempDir } = require('../../helper/tmp.ts');
 const { syncHarness, syncAllHarnesses, readCatalogue } = require('../../../src/runtime/models/catalogue.ts');
 const probes = require('../../../src/runtime/worker/probes/index.ts');
@@ -81,7 +82,7 @@ test('a list written before the listing path existed (no modelList field) is not
 test('the hard-coded model table is gone: a probe alone offers no models', async () => {
   assert.equal('DEFAULT_MODELS' in probes, false);
   const home = suiteTempDir('doflow-test-sync-home-');
-  for (const id of ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity']) {
+  for (const id of ACTIVE_HARNESS_IDS) {
     const res = await probes.PROBES[id]({ execFileImpl: runner(LIST), homeDir: home, env: {} });
     assert.deepEqual(res.offeredModels, [], id);
   }

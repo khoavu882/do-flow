@@ -16,11 +16,12 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp.ts');
+const { ACTIVE_HARNESS_IDS } = require('../helper/harness-ids.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 
 const CLI = path.join(REPO_ROOT, 'bin', 'doflow.js');
 const RUN = path.join(REPO_ROOT, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
-const HARNESSES: any = ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
+const HARNESSES: any = ACTIVE_HARNESS_IDS;
 const ACTIONS: any = ['discover', 'probe', 'describe', 'select', 'run', 'status', 'cancel', 'evidence', 'start-session', 'start-options'];
 const DISPATCHER_TOOLS: any = ['dirname', 'date'];
 const WIN = process.platform === 'win32';

@@ -8,6 +8,7 @@ const path = require('node:path');
 const { validatePathsSection } = require('../helper/harness-paths.ts');
 const { PRIVILEGE_WORDS, KNOWN_INSTALLERS, programName, ownProgram, allowedPrograms, refusalReason, statusRefusal } = require('../install/tool-lifecycle.ts');
 const { BUILTIN_WORKER_ID_RE, RESERVED_WORKER_IDS } = require('./worker-ids.ts');
+const { validateFieldMap } = require('./field-map.ts');
 
 const REGISTRY_FILES = Object.freeze({
   harnesses: 'harnesses.json',
@@ -689,7 +690,8 @@ function validateToolScope(entry: any, at: string, errors: string[]): void {
 const WORKER_CAPABILITIES: Record<string, { allowed: string[], required: string[] }> = Object.freeze({
   cli: { allowed: ['binary', 'versionArgv'], required: ['binary', 'versionArgv'] },
   oneShot: { allowed: ['argv', 'promptVia'], required: ['argv', 'promptVia'] },
-  structuredOutput: { allowed: ['argv', 'parser', 'quotaSignals'], required: ['parser'] },
+  // 171 IC-002: a supported structuredOutput carries `parser`, `fieldMap` or both (checked in validateWorker).
+  structuredOutput: { allowed: ['argv', 'parser', 'fieldMap', 'quotaSignals'], required: [] },
   readOnly: { allowed: ['argv'], required: ['argv'] },
   spawnDenial: { allowed: ['argv'], required: ['argv'] },
   runnableProbe: { allowed: ['argv'], required: ['argv'] },
@@ -714,7 +716,9 @@ const WORKER_ALLOWED_KEYS = Object.freeze([...WORKER_KEYS, ...Object.keys(WORKER
 const WORKER_ENTRY_FIELDS = new Set(['status', 'evidence', 'verification', 'verifiedOn', 'reason']);
 // Soft hyphen, Mongolian vowel separator, zero-width and directional marks, word joiner and invisible operators, BOM.
 const INVISIBLE_CHARACTER = /[\u00ad\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff]/;
-const WORKER_RECIPE_FIELDS = new Set(['binary', 'versionArgv', 'argv', 'promptVia', 'parser', 'marker', 'quotaSignals', 'protectedPaths']);
+/** A bare command name: safe as a file name and as a PATH lookup (a worker recipe's `binary`; conform's fake). */
+const BARE_COMMAND = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const WORKER_RECIPE_FIELDS = new Set(['binary', 'versionArgv', 'argv', 'promptVia', 'parser', 'fieldMap', 'marker', 'quotaSignals', 'protectedPaths']);
 const WORKER_QUOTA_SIGNALS_FIELDS = new Set(['signals', 'unverifiedSignals', 'basis', 'evidence']);
 const WORKER_FACTS = new Set(['hooksLoaded', 'identityForwarded', 'guidanceLoaded', 'login']);
 const WORKER_MODEL_CHECK_FIELDS = new Set(['id', 'argv', 'establishes', 'estimateTokens', 'timeoutSeconds']);
@@ -799,7 +803,8 @@ function workerArgvProblem(value: any): string | null {
 /** Validates one harness's `worker` block (081 IC-001): the external-worker capabilities and launch
  * recipe beside `orchestration`. Every message reads `harness '<id>' worker '<key>': ...` and never
  * contains ` orchestration`, so G33.15's orchestration filter reads none of them. Membership of
- * `structuredOutput.parser` in the parser table is checked where that table lives (G41.3, IC-008),
+ * `structuredOutput.parser` and `mainSession.parser` in the parser table (or, for the latter, equality with
+ * this worker's `structuredOutput.fieldMap.id`) is checked where that table lives (G41.3, IC-008; 171 IC-002),
  * not here, so the registry does not require a runtime module. */
 function validateWorker(value: any, location: string, errors: string[]): void {
   const fail = (key: string, message: string) => issue(errors, `${location} worker '${key}'`, message);
@@ -848,8 +853,16 @@ function validateWorker(value: any, location: string, errors: string[]): void {
     }
     if (entry.status !== 'supported') continue;
     for (const field of rule.required) if (!Object.hasOwn(entry, field)) fail(key, `requires recipe field '${field}' when status is supported`);
+    if (key === 'structuredOutput') {
+      // 171 IC-002: the parser is a code-parser id, an inline field map, or both naming the same id.
+      if (!Object.hasOwn(entry, 'parser') && !Object.hasOwn(entry, 'fieldMap')) fail(key, "requires recipe field 'parser' or 'fieldMap' when status is supported");
+      if (Object.hasOwn(entry, 'fieldMap')) {
+        validateFieldMap(entry.fieldMap, `${location} worker '${key}': fieldMap`, errors);
+        if (Object.hasOwn(entry, 'parser') && entry.parser !== entry.fieldMap?.id) fail(key, 'structuredOutput.parser must equal fieldMap.id');
+      }
+    }
 
-    if (Object.hasOwn(entry, 'binary') && (typeof entry.binary !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(entry.binary))) {
+    if (Object.hasOwn(entry, 'binary') && (typeof entry.binary !== 'string' || !BARE_COMMAND.test(entry.binary))) {
       fail(key, 'binary must be a bare command name');
     }
     for (const field of ['versionArgv', 'argv']) {
@@ -1505,7 +1518,7 @@ function capabilityMapData(registry: any): any[] {
 }
 
 module.exports = {
-  REGISTRY_FILES, CAPABILITY_STATUS, COPY_TREE_SELECTS, ORCHESTRATION_STATUS, ORCHESTRATION_OPS, validateOrchestration, AGENT_LIMIT_STATUS, validateAgentLimits, TOOL_SCOPE_CATEGORIES, agentToolScopeView, WORKER_KEYS, WORKER_CAPABILITIES, WORKER_OPTIONAL_CAPABILITIES, validateWorker, CONTEXT_PROFILE_FIELDS, validateContextProfile, PROVIDER_SOURCE_MODES, validateCapabilityProviders, EXTERNAL_TOOL_IDS, EXTERNAL_TOOL_ACTIONS, validateCoverage,
+  REGISTRY_FILES, CAPABILITY_STATUS, COPY_TREE_SELECTS, ORCHESTRATION_STATUS, ORCHESTRATION_OPS, validateOrchestration, AGENT_LIMIT_STATUS, validateAgentLimits, TOOL_SCOPE_CATEGORIES, agentToolScopeView, WORKER_KEYS, WORKER_CAPABILITIES, WORKER_OPTIONAL_CAPABILITIES, validateWorker, BARE_COMMAND, CONTEXT_PROFILE_FIELDS, validateContextProfile, PROVIDER_SOURCE_MODES, validateCapabilityProviders, EXTERNAL_TOOL_IDS, EXTERNAL_TOOL_ACTIONS, validateCoverage,
   parseRegistryFile, registryDir, loadRegistry, validateRegistry, registrySourceMode,
   harnessFor, retiredFor, isRetired, selectAssets, selectMcpServers, mcpCapable, nativeMcpCatalog, capabilityMapData,
 };

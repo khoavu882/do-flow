@@ -8,10 +8,11 @@ const path = require('node:path');
 const {
   loadRegistry, validateRegistry, validateWorker, isRetired, WORKER_KEYS, WORKER_CAPABILITIES, WORKER_OPTIONAL_CAPABILITIES,
 } = require('../../src/registry/index.ts');
+const { ACTIVE_HARNESS_IDS } = require('../helper/harness-ids.ts');
 const ORCHESTRATION_AT_BE752D8 = require('../fixtures/worker/orchestration-be752d8.json');
 
 const REPO = path.resolve(__dirname, '../..');
-const HARNESSES = ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
+const HARNESSES = ACTIVE_HARNESS_IDS;
 const CODEX_RECORD = 'core/worker-evidence/codex/2026-10-18-cli-check.json';
 const LIVE_READ_ONLY = 'core/worker-evidence/codex/2026-10-18-live-run-read-only.json';
 const LIVE_EDIT = 'core/worker-evidence/codex/2026-10-18-live-run-edit.json';
@@ -88,12 +89,11 @@ function assertReports(result: any, pattern: any) {
   }
 }
 
-test('worker: the shipped registry carries the block on all seven harnesses and validates', () => {
+test('worker: the shipped registry carries the block on every harness and validates', () => {
   const registry = loadRegistry({ repoRoot: REPO });
   const workerErrors = registry.validation.errors.filter((line: any) => line.includes(" worker '"));
   assert.deepEqual(workerErrors, []);
   assert.equal(registry.validation.ok, true, registry.validation.errors.join('\n'));
-  assert.deepEqual(registry.harnesses.map((harness: any) => harness.id), HARNESSES);
   const modelChecksAt = WORKER_KEYS.indexOf('modelChecks');
   // `modelList` (how the harness's own CLI lists its models) sits between the optional capabilities and modelChecks.
   const expectedKeys = [...WORKER_KEYS.slice(0, modelChecksAt), ...Object.keys(WORKER_OPTIONAL_CAPABILITIES), 'modelList', ...WORKER_KEYS.slice(modelChecksAt)];
@@ -102,7 +102,8 @@ test('worker: the shipped registry carries the block on all seven harnesses and 
 
 test('worker: the seven harnesses declare IC-002 values and nothing else as supported', () => {
   const registry = loadRegistry({ repoRoot: REPO });
-  for (const harness of registry.harnesses) {
+  assert.ok(Object.keys(BINARIES).every((id) => HARNESSES.includes(id)), 'every BINARIES key is an active id');
+  for (const harness of registry.harnesses.filter((h: any) => Object.hasOwn(BINARIES, h.id))) {
     const worker = harness.worker;
     const binary = BINARIES[harness.id];
     assert.equal(worker.profile, null, `${harness.id} profile`);
@@ -206,8 +207,9 @@ test('worker: the five supported opencode and kiro entries equal their IC-009 re
 test('worker: every harness orchestration block equals the copy taken at be752d8', () => {
   const registry = loadRegistry({ repoRoot: REPO });
   // The copy is frozen history: it still holds the harnesses retired since be752d8 (row 127).
-  assert.deepEqual(Object.keys(ORCHESTRATION_AT_BE752D8).filter((id) => !isRetired(registry, id)), HARNESSES);
-  for (const harness of registry.harnesses) {
+  const kept = Object.keys(ORCHESTRATION_AT_BE752D8).filter((id) => !isRetired(registry, id));
+  assert.ok(kept.length > 0 && kept.every((id) => HARNESSES.includes(id)), `the copy's live ids are active ids: ${kept}`);
+  for (const harness of registry.harnesses.filter((h: any) => kept.includes(h.id))) {
     // 118 IC-004 adds `nest` after be752d8; the copy covers the five operations that existed then.
     const { nest: _nest, ...atBe752d8 } = harness.orchestration;
     assert.deepEqual(atBe752d8, ORCHESTRATION_AT_BE752D8[harness.id], `${harness.id} orchestration`);

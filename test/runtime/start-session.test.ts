@@ -46,6 +46,7 @@ fs.appendFileSync(process.env.FAKE_LOG, JSON.stringify({ name: path.basename(pro
 const o = argv.indexOf('-o');
 if (o !== -1 && argv[o + 1]) fs.writeFileSync(argv[o + 1], 'fake last message\\n');
 process.stdout.write('fake output line\\n');
+if (process.env.FAKE_STDOUT) process.stdout.write(process.env.FAKE_STDOUT);
 const gate = process.env.FAKE_GATE;
 if (gate) {
   const until = Date.now() + 60000;
@@ -599,15 +600,15 @@ const { packageView, resetPackageView } = require(path.join(SRC, 'packages', 'vi
 const { readLock, writeLock, lockPackages } = require(path.join(REPO, 'src', 'state', 'lockfile.ts'));
 
 /** An active package `acme` with two worker contributions on the fake CLI `fake-acme`: `acme.worker` has a main-session shape, `acme.bare` none. */
-function acmePackage(f: any) {
+function acmePackage(f: any, { fieldMap = null }: { fieldMap?: any } = {}) {
   const unknown = (what: string) => ({ status: 'unknown', evidence: [], verification: `Check ${what}`, verifiedOn: '2026-11-16', reason: 'test' });
   const supported = (extra: any) => ({ status: 'supported', evidence: ['test'], verification: 'test', verifiedOn: '2026-11-16', ...extra });
   const worker = (mainSession: boolean) => ({
     profile: null, billing: 'unknown', family: 'custom-family',
     cli: supported({ binary: 'fake-acme', versionArgv: ['--version'] }),
     oneShot: supported({ argv: ['{prompt}'], promptVia: 'argv' }),
-    structuredOutput: supported({ argv: [], parser: 'doflow-jsonl-v1' }),
-    ...(mainSession ? { mainSession: supported({ argv: ['{prompt}'], promptVia: 'argv', parser: null }) } : {}),
+    structuredOutput: supported(fieldMap ? { argv: [], fieldMap } : { argv: [], parser: 'doflow-jsonl-v1' }),
+    ...(mainSession ? { mainSession: supported({ argv: ['{prompt}'], promptVia: 'argv', parser: fieldMap ? fieldMap.id : null }) } : {}),
     readOnly: unknown('readOnly'), spawnDenial: unknown('spawnDenial'), runnableProbe: unknown('runnableProbe'), hooksProbe: unknown('hooksProbe'),
     guidanceProbe: unknown('guidanceProbe'), loginProbe: unknown('loginProbe'), persistentSession: unknown('persistentSession'), resume: unknown('resume'), steering: unknown('steering'),
     modelChecks: [],
@@ -660,4 +661,46 @@ test('A-2: an active package worker is listed like any harness: startable with a
   // An id outside the registry's grammar is not listed, not a usage error: the Console's form pattern is looser than the grammar.
   const odd = await start(f, { harness: 'Acme.Worker', view });
   assert.deepEqual([odd.exit, odd.body.code, odd.body.current?.reason], [1, 'harness-not-startable', 'not-listed'], JSON.stringify(odd.body));
+});
+
+/** A valid `jsonl-field-map-v1` map: a `message` event carries the final text, a `done` event ends the turn. */
+const ACME_MAP = {
+  id: 'acme-stream-v1', format: 'jsonl-field-map-v1', eventType: ['type'], missingTerminal: 'no-done',
+  rules: [
+    { when: [{ path: ['type'], equals: 'message' }, { path: ['text'], is: 'string' }], then: { final: ['text'] } },
+    { when: [{ path: ['type'], equals: 'done' }], then: { terminal: { outcome: 'completed' }, usage: { tokens: { sum: [['tokens']], require: 'any' } } } },
+  ],
+};
+
+test('171 T3b: a package worker whose mainSession.parser names its own fieldMap id starts, and its run record\'s descriptor carries that map', POSIX, async (t: any) => {
+  const f = fixture(t, { fakes: ['codex', 'acme'] });
+  const view = acmePackage(f, { fieldMap: ACME_MAP });
+  f.env.FAKE_STDOUT = `${JSON.stringify({ type: 'message', text: 'all done' })}\n${JSON.stringify({ type: 'done', tokens: 7 })}\n`;
+  const started = await start(f, { harness: 'acme.worker', view });
+  assert.equal(started.exit, 0, JSON.stringify(started.body));
+  const run = await ended(f, started.body.run.runId);
+  assert.deepEqual(run.descriptor.structuredOutput, { fieldMap: ACME_MAP });
+  assert.equal(run.descriptor.mainSession.parser, ACME_MAP.id);
+  // The map's own parser read the stream: its id is on the report, and the map's success shape is a real success.
+  assert.equal(run.report.parser, ACME_MAP.id);
+  assert.equal(run.report.status, 'success');
+  assert.equal(run.report.summary, 'all done');
+  // The launch was not refused parser-unknown: the fake CLI ran once, and the run ended by exiting.
+  assert.deepEqual(fakeLog(f).map((c: any) => c.name), ['fake-acme']);
+  assert.equal(run.end.state, 'exited');
+});
+
+test('171 T3b: a built-in\'s stored descriptor has no structuredOutput, and a package worker naming a core parser carries none', POSIX, async (t: any) => {
+  const f = fixture(t, { fakes: ['codex', 'acme'] });
+  const view = acmePackage(f);
+  const builtin = await start(f, { harness: 'codex', view });
+  assert.equal(builtin.exit, 0, JSON.stringify(builtin.body));
+  const run = await ended(f, builtin.body.run.runId);
+  assert.deepEqual(Object.keys(run.descriptor).sort(), ['cli', 'mainSession', 'model']);
+  // codex's own map is compiled into PARSERS, so it is not copied into the record either.
+  assert.equal(Object.hasOwn(run.descriptor, 'structuredOutput'), false);
+  const plain = await start(f, { harness: 'acme.worker', view });
+  assert.equal(plain.exit, 0, JSON.stringify(plain.body));
+  const plainRun = await ended(f, plain.body.run.runId);
+  assert.equal(Object.hasOwn(plainRun.descriptor, 'structuredOutput'), false);
 });

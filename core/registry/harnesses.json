@@ -821,6 +821,193 @@
             "{lastMessageFile}"
           ],
           "parser": "codex-exec-json-v1",
+          "fieldMap": {
+            "id": "codex-exec-json-v1",
+            "format": "jsonl-field-map-v1",
+            "eventType": [
+              "type"
+            ],
+            "missingTerminal": "no-turn-end",
+            "finalFallback": "last-message-file",
+            "rules": [
+              {
+                "when": [
+                  {
+                    "path": [
+                      "type"
+                    ],
+                    "equals": "item.completed"
+                  },
+                  {
+                    "path": [
+                      "item",
+                      "type"
+                    ],
+                    "equals": "agent_message"
+                  },
+                  {
+                    "path": [
+                      "item",
+                      "text"
+                    ],
+                    "is": "string"
+                  }
+                ],
+                "then": {
+                  "final": [
+                    "item",
+                    "text"
+                  ]
+                }
+              },
+              {
+                "when": [
+                  {
+                    "path": [
+                      "type"
+                    ],
+                    "in": [
+                      "item.started",
+                      "item.updated",
+                      "item.completed"
+                    ]
+                  },
+                  {
+                    "path": [
+                      "item",
+                      "type"
+                    ],
+                    "equals": "collab_tool_call"
+                  },
+                  {
+                    "path": [
+                      "item",
+                      "tool"
+                    ],
+                    "equals": "spawn_agent"
+                  }
+                ],
+                "then": {
+                  "spawn": true
+                }
+              },
+              {
+                "when": [
+                  {
+                    "path": [
+                      "type"
+                    ],
+                    "equals": "item.completed"
+                  },
+                  {
+                    "path": [
+                      "item",
+                      "type"
+                    ],
+                    "equals": "command_execution"
+                  },
+                  {
+                    "path": [
+                      "item",
+                      "status"
+                    ],
+                    "equals": "declined"
+                  }
+                ],
+                "then": {
+                  "denial": {
+                    "action": {
+                      "literal": "command"
+                    },
+                    "detail": {
+                      "path": [
+                        "item",
+                        "command"
+                      ],
+                      "as": "text"
+                    }
+                  }
+                }
+              },
+              {
+                "when": [
+                  {
+                    "path": [
+                      "type"
+                    ],
+                    "equals": "turn.completed"
+                  }
+                ],
+                "then": {
+                  "usage": {
+                    "tokens": {
+                      "sum": [
+                        [
+                          "usage",
+                          "input_tokens"
+                        ],
+                        [
+                          "usage",
+                          "output_tokens"
+                        ]
+                      ],
+                      "require": "any"
+                    }
+                  },
+                  "terminal": {
+                    "outcome": "completed"
+                  }
+                }
+              },
+              {
+                "when": [
+                  {
+                    "path": [
+                      "type"
+                    ],
+                    "equals": "turn.failed"
+                  },
+                  {
+                    "path": [
+                      "error",
+                      "message"
+                    ],
+                    "is": "string"
+                  }
+                ],
+                "then": {
+                  "terminal": {
+                    "outcome": "failed",
+                    "summary": [
+                      "error",
+                      "message"
+                    ]
+                  }
+                }
+              },
+              {
+                "when": [
+                  {
+                    "path": [
+                      "type"
+                    ],
+                    "equals": "error"
+                  },
+                  {
+                    "path": [
+                      "message"
+                    ],
+                    "is": "string"
+                  }
+                ],
+                "then": {
+                  "streamError": [
+                    "message"
+                  ]
+                }
+              }
+            ]
+          },
           "quotaSignals": {
             "signals": [
               "usage limit"

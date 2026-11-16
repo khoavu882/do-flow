@@ -15,3 +15,7 @@
 ## Reference
 
 - [Reference](https://khoavu882.github.io/do-flow/reference/): Lookup for skills, commands, settings keys, storage, hooks, worker support, agents and git intents.
+
+## Adding a harness
+
+- [Adding a harness](https://khoavu882.github.io/do-flow/adding-a-harness/): How to add a harness to DoFlow, from its registry rows and descriptor to a field map and the conform check.

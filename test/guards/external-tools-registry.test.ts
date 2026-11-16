@@ -25,6 +25,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { REPO } = require('./_shared.ts');
 const { loadRegistry } = require('../../src/registry/index.ts');
+const { binaryOf } = require('../../src/registry/harness-ids.ts');
+const { ACTIVE_HARNESS_IDS } = require('../helper/harness-ids.ts');
 const { KNOWN_INSTALLERS } = require('../../src/install/tool-lifecycle.ts');
 
 // Probed with `command -v` and deliberately not registered: DoFlow degrades without them or they ship with the OS.
@@ -48,7 +50,7 @@ const RUN_NOT_REGISTERED: Record<string, string> = {
 };
 // The harness CLIs named by core/registry/harnesses.json. The person installs the AI tool they run DoFlow in; DoFlow does not.
 const HARNESS_CLI_REASON = 'a harness CLI (the AI coding tool DoFlow runs in), installed by the person who uses that harness, not by DoFlow';
-const HARNESS_CLIS = ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro-cli', 'agy'];
+const HARNESS_CLIS: string[] = ACTIVE_HARNESS_IDS.map((id: string) => binaryOf(id) as string);
 // Words that open an `if` condition in shell without being a program to install.
 const SHELL_WORDS = new Set(['command', 'test', 'cat', 'printf', 'echo', 'read', 'type']);
 

@@ -62,8 +62,9 @@ const { loadRegistry } = require('../../registry/index.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { readDispatch, storeFileFor: dispatchStoreFileFor } = require('../dispatch/store.ts');
 const { startSession, startOptions, STARTED_SLUG, KIND: MAIN_SESSION_KIND } = require('./start-session.ts');
+const { conform, conformLines } = require('./conform.ts');
 
-const ACTIONS = Object.freeze(['discover', 'probe', 'describe', 'select', 'run', 'status', 'cancel', 'evidence', 'start-session', 'start-options']);
+const ACTIONS = Object.freeze(['discover', 'probe', 'describe', 'select', 'run', 'status', 'cancel', 'evidence', 'start-session', 'start-options', 'conform']);
 /** 165 IC-001 / IC-002: the actions that answer `{ ok, ... }`: exit 0, or 1 for `ok: false`. */
 const OK_ACTIONS = Object.freeze(['start-session', 'start-options']);
 /** IC-025: the dispositions that exit 0; `refused` and `none-eligible` exit 1. */
@@ -91,7 +92,7 @@ const REPO_ENV = Object.freeze(['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'G
 /** IC-025: the actions each flag may be given to; any other action is exit 2 `usage`. */
 const FLAG_ACTIONS: Record<string, { flag: string; actions: string[] }> = Object.freeze({
   slug: { flag: '--slug', actions: ['run', 'status', 'cancel', 'evidence'] },
-  harness: { flag: '--harness', actions: ['probe', 'describe', 'select', 'run', 'evidence', 'start-session'] },
+  harness: { flag: '--harness', actions: ['probe', 'describe', 'select', 'run', 'evidence', 'start-session', 'conform'] },
   edit: { flag: '--edit', actions: ['describe', 'select', 'run'] },
   childOf: { flag: '--child-of', actions: ['run'] },
   request: { flag: '--request', actions: ['run'] },
@@ -530,6 +531,8 @@ function runSelector(workerRun: any, task: any, token: any, action: string) {
 
 /** One summary line per harness or run, never output file content (IC-025). */
 function summaryLines(body: any): string[] {
+  // 171 IC-005: conform's part lines.
+  if (Array.isArray(body.parts)) return conformLines(body);
   // 165: start-session and start-options.
   if (body.ok === false && typeof body.code === 'string') return [`refused ${body.code}`];
   if (body.ok === true && body.run) return [`${body.replayed ? 'replayed' : 'started'} ${body.run.runId} ${body.run.phase}`];
@@ -615,6 +618,10 @@ async function executeWorkerCommand({
         break;
       }
       case 'select': body = readiness.select({ ...atRoot, coverage: cov, harness: given(harness) ? String(harness) : undefined, needs, edit: given(edit), active: activeWorkers({ registry: reg, env, projectRoot: root }) }); break;
+      // 171 IC-005: conform has its own exit mapping (0, 1 naming the failed parts, 2), so it returns here.
+      case 'conform':
+        if (!given(harness)) throw usage('--action conform needs --harness');
+        return conform({ harness: String(harness), registry: reg, view, platform });
       case 'start-session':
       case 'start-options': {
         const listProjects = projects ?? require('../fleet/projects.ts').listProjects;

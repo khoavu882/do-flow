@@ -1714,6 +1714,14 @@
       "reason": "agent-docs deliverable (<feature>/page.html, or the file --out names, written by tmp and rename); OS temp scratch for the renderer, removed by dispose()"
     },
     {
+      "file": "src/runtime/worker/conform.ts",
+      "reason": "OS temp scratch (doflow-conform-*) for the fake harness, its only write; removed in finally and on SIGINT or SIGTERM; the CLI runs no upkeep after conform (runsUpkeep in src/cli/runtime-commands.ts), so it writes no store, telemetry or .gitignore"
+    },
+    {
+      "file": "src/runtime/worker/conform-fake.ts",
+      "reason": "the fake harness's log line and last-message file, inside conform's OS temp scratch (doflow-conform-*)"
+    },
+    {
       "file": "src/runtime/drawio-project.ts",
       "reason": "agent-docs deliverable (<feature>/design/presentation/<level>.drawio and its .sha sidecar, each written by tmp and rename, after the output folder is checked to sit inside the checkout and a symlinked output path is refused; the .drawio.svg is written by the draw.io binary it runs)"
     },

@@ -2,6 +2,7 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const { ACTIVE_HARNESS_IDS } = require('../helper/harness-ids.ts');
 const path = require('node:path');
 const { loadRegistry } = require('../../src/registry/index.ts');
 const {
@@ -38,7 +39,7 @@ test('knownWorkerIds equals registry harnesses with worker blocks', () => {
 
 test('workerIdFault accepts built-ins and qualified ids only', () => {
   // Built-in harness ids pass
-  for (const id of ['claude', 'codex', 'antigravity', 'pi', 'opencode', 'copilot', 'kiro']) {
+  for (const id of ACTIVE_HARNESS_IDS) {
     assert.equal(workerIdFault(id), null);
   }
 

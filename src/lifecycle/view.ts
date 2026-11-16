@@ -19,6 +19,7 @@ const { createCopilotAdapter } = require('../adapters/copilot/index.ts');
 const { createKiroAdapter } = require('../adapters/kiro/index.ts');
 const { createAntigravityAdapter } = require('../adapters/antigravity/index.ts');
 const { planLifecycle } = require('./index.ts');
+const { activeIds } = require('../registry/harness-ids.ts');
 const { canonicalPath, canonicalLedger } = require('../install/paths.ts');
 const { formatRetiredPlans } = require('./retired-harnesses.ts');
 const { resolveHookTier, hookTierWarnings } = require('./hook-tier.ts');
@@ -113,10 +114,9 @@ function printPlanNotices(view: any) {
   for (const { harness, notice } of view.plan.notices) console.log(`[INFO] ${harness}: ${notice}`);
 }
 
-/** Harnesses whose native resources are reconciled through the registry/lifecycle path (all of
- * them, as of this wiring). Kept as an explicit list — rather than reusing VALID from
- * src/targets.js — so a future non-lifecycle target doesn't silently gain lifecycle behavior. */
-const LIFECYCLE_HARNESSES = ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
+/** Harnesses whose native resources are reconciled through the registry/lifecycle path: every
+ * registry harness, in registry order (row 171 IC-004). */
+const LIFECYCLE_HARNESSES = activeIds();
 
 function assertSafeRegistryPlan(view: any) {
   if (view.plan.safe) return;

@@ -27,7 +27,16 @@
       "referencedBy": [], "slice": "D", "template": "package-templates/capability-provider" },
     { "id": "intake-category", "versions": [1], "tier": "inert", "status": "open", "entry": "file",
       "validator": "intake-category-v1", "combine": "add-only", "consumer": "src/runtime/intake/taxonomy.ts",
-      "referencedBy": [], "slice": "136", "template": "package-templates/intake-category" }
+      "referencedBy": [], "slice": "136", "template": "package-templates/intake-category" },
+    { "id": "model-list-parser", "versions": [], "tier": "executable", "status": "reserved", "entry": "file",
+      "validator": null, "combine": "add-only", "consumer": null, "referencedBy": [], "slice": "171",
+      "opensWith": "row 169: worker.modelList.format, a field map of grammar model-list-v1 over the list command's output" },
+    { "id": "control-channel", "versions": [], "tier": "executable", "status": "reserved", "entry": "file",
+      "validator": null, "combine": "add-only", "consumer": null, "referencedBy": [], "slice": "171",
+      "opensWith": "row 170: worker.controlChannel, a capability entry whose settled event is a field-map Test list" },
+    { "id": "login-recipe", "versions": [], "tier": "executable", "status": "reserved", "entry": "file",
+      "validator": null, "combine": "add-only", "consumer": null, "referencedBy": [], "slice": "171",
+      "opensWith": "row 172: worker.loginProbe.exitCodes and worker.loginProbe.authType, a field-map Path" }
   ],
   "bundled": [
     { "id": "doflow", "dir": "core/registry/packages/doflow", "contentDigest": "da001c06367a2aec28840a2e6d5355a7ee8f7d8a7638d09ddae3bac7d3f0fa64" }

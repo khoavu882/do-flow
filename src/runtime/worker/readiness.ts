@@ -39,7 +39,7 @@ const { configHome } = require('../config-home.ts');
 const { loadRegistry } = require('../../registry/index.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { spawnBounded } = require('./process-tree.ts');
-const { parserFor, PARSERS } = require('./parsers.ts');
+const { parserOf, parserIdOf, UNPARSED } = require('./parsers.ts');
 const { enforcementFor, UnknownEnforcementTarget } = require('../../lifecycle/coverage.ts');
 
 /** A recorded fact is effective for 24 hours against a matching discover (DEC-019). */
@@ -307,7 +307,7 @@ async function runModelCheck(worker: any, found: any, check: any, budgetTokens: 
 
   let measured: number | null = null;
   if (supported(worker.structuredOutput)) {
-    const parser = parserFor(worker.structuredOutput.parser).create();
+    const parser = parserOf(worker, 'structured').create();
     for (const line of String(result.stdout).split('\n')) if (line) parser.line(line);
     measured = parser.end().usage?.tokens ?? null;
   }
@@ -525,8 +525,9 @@ function factRequirement(requirement: string, value: any) {
 function capabilityRequirement(requirement: string, entry: any) {
   if (!entry || typeof entry !== 'object') return { requirement, result: 'unknown', reason: 'not-declared' };
   if (entry.status === 'supported') {
-    if (requirement === 'structured-output' && !Object.hasOwn(PARSERS, entry.parser)) {
-      return { requirement, result: 'failed', reason: `parser-unknown ${entry.parser}` };
+    // 171 IC-003: a code parser or this entry's own field map; anything that resolves to `unparsed` fails.
+    if (requirement === 'structured-output' && parserOf({ structuredOutput: entry }, 'structured').id === UNPARSED) {
+      return { requirement, result: 'failed', reason: `parser-unknown ${parserIdOf(entry)}` };
     }
     return { requirement, result: 'met', reason: 'supported' };
   }
@@ -697,6 +698,7 @@ module.exports = {
   findOnPath,
   discover,
   probe,
+  exitFact,
   newProbeIdentity,
   observeForwarding,
   bindingObserved,

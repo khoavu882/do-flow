@@ -1,6 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert');
+const { ACTIVE_HARNESS_IDS } = require('../helper/harness-ids.ts');
 const path = require('node:path');
 const {
   readAllServers, promptMcpCheckbox, parseMcpFlag, resolveMcpSelections, recordedMcpSelections, adoptableMcpIds,
@@ -38,7 +39,7 @@ test('promptMcpCheckbox returns [] immediately for an empty server list, never e
 
 // Per-harness selection. A lock pins its rows' harnesses as targets; a ledger "holds" a harness when
 // any resource row names it.
-const ALL_HARNESSES = ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
+const ALL_HARNESSES = ACTIVE_HARNESS_IDS;
 const lockWith = (rows: any, extraTargets = []) => ({
   targets: [...new Set([...Object.keys(rows), ...extraTargets])].map((harness) => ({ harness })),
   mcpSelections: rows,

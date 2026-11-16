@@ -35,6 +35,7 @@ nav:
       - Guide: guide.md
       - How DoFlow works: how-doflow-work.md
   - Reference: reference.md
+  - Adding a harness: adding-a-harness.md
 
 validation:
   omitted_files: warn

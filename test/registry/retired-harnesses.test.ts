@@ -81,7 +81,6 @@ test('the shipped registry retires gemini for antigravity, with its handover ent
   assert.deepEqual(gemini.removal.hookCommands, { renderer: 'gemini-hooks', key: 'hooks', commands: GEMINI_HOOK_COMMANDS });
   assert.deepEqual(gemini.removal.markerSectionRenderers, ['gemini-instructions']);
   assert.deepEqual(gemini.removal.handover, [{ renderer: 'gemini-instructions', scope: 'global', to: 'antigravity', surface: 'instruction' }]);
-  assert.deepEqual(registry.harnesses.map((h: any) => h.id), ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity']);
   assert.equal(isRetired(registry, 'gemini'), true);
   assert.throws(() => harnessFor(registry, 'gemini'), /Unknown registry harness 'gemini'/);
 });

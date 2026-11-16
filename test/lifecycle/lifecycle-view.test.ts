@@ -1,6 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const { ACTIVE_HARNESS_IDS } = require('../helper/harness-ids.ts');
 const path = require('node:path');
 const { loadRegistry } = require('../../src/registry/index.ts');
 const {
@@ -17,8 +18,8 @@ test('codexScope maps {global} to Codex\'s "global"/"project" scope names', () =
   assert.equal(codexScope({ global: false }), 'project');
 });
 
-test('LIFECYCLE_HARNESSES names exactly the seven harnesses the registry/lifecycle path covers', () => {
-  assert.deepEqual(LIFECYCLE_HARNESSES, ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity']);
+test('LIFECYCLE_HARNESSES names exactly the active harnesses, in registry order', () => {
+  assert.deepEqual(LIFECYCLE_HARNESSES, ACTIVE_HARNESS_IDS);
 });
 
 test('registryLifecycleView computes a fresh-install plan for every requested harness from a real registry', (t) => {

@@ -15,8 +15,10 @@
 const os = require('node:os');
 const path = require('node:path');
 const { canonicalPath } = require('./paths.ts');
+const { activeIds } = require('../registry/harness-ids.ts');
 
-const VALID = ['claude', 'codex', 'copilot', 'kiro', 'opencode', 'pi', 'antigravity'];
+/** The ids `--target` accepts: the registry's harnesses, in registry order (row 171 IC-004). */
+const VALID: readonly string[] = activeIds();
 
 /** The target used when `--target` is omitted. Deliberately one harness, not all of VALID: an
  * install with no flag should touch the one tool the user almost certainly has, not write
