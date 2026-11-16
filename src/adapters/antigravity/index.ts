@@ -510,7 +510,7 @@ function mcpEntriesInput({ paths, mcp = [], resources = [] }: any) {
   return {
     file: paths.mcpFile, selected: rendered(mcp),
     ownRows: rows.filter((row: any) => row.harness === HARNESS).map((row: any) => ({
-      identity: row.identity, target: row.target, fingerprint: row.fingerprint ?? null, ownershipIdentity: row.ownershipIdentity, legacy: false,
+      identity: row.identity, target: row.target, fingerprint: row.fingerprint ?? null, ownershipIdentity: row.ownershipIdentity,
     })),
     foreignRows: rows.filter((row: any) => row.harness !== HARNESS).map((row: any) => ({ harness: row.harness, identity: row.identity, target: row.target })),
     identityFor: ownershipIdentity, assetId: POINTER_ASSET_ID, renderer: MCP_RENDERER, label: 'Antigravity MCP',

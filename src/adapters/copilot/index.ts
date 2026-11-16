@@ -273,7 +273,7 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS],
     return {
       file: paths.mcp, selected: rendered(mcp),
       ownRows: rows.filter((row: any) => row.harness === HARNESS).map((row: any) => ({
-        identity: row.identity, target: row.target, fingerprint: row.fingerprint ?? null, ownershipIdentity: row.ownershipIdentity, legacy: false,
+        identity: row.identity, target: row.target, fingerprint: row.fingerprint ?? null, ownershipIdentity: row.ownershipIdentity,
       })),
       foreignRows: rows.filter((row: any) => row.harness !== HARNESS).map((row: any) => ({ harness: row.harness, identity: row.identity, target: row.target })),
       identityFor: ownershipIdentity, assetId: pseudoAssetId(assets), renderer: MCP_RENDERER, label: 'Copilot MCP',
