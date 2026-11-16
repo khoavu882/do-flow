@@ -145,4 +145,4 @@ function effortCheck(entry: any, choice: ModelChoice, worker: any): EffortCheck 
   return verdicts.size === 1 ? [...verdicts][0] : 'unchecked';
 }
 
-module.exports = { COMPOSED_ID_MAX, choiceOf, composeModelPart, listedOf, matchListed, modelCheck, effortCheck };
+module.exports = { choiceOf, composeModelPart, matchListed, modelCheck, effortCheck };

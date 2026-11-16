@@ -188,6 +188,6 @@ function validateModelParts(worker: any, fail: Fail, { declared = [], secretDecl
 }
 
 module.exports = {
-  TRANSPORT_KINDS, SEPARATORS, PROVIDER_RE, EFFORT_RE, COLUMN_TARGETS, FLAG_RE, KEY_ASSIGNMENT_RE, COLUMN_HEADER_RE, LEVELS_MAX, ENTRY_MAX_BYTES,
+  TRANSPORT_KINDS, SEPARATORS, PROVIDER_RE, EFFORT_RE, COLUMN_TARGETS, LEVELS_MAX,
   validateModelParts, validateModelListColumns,
 };
