@@ -2,7 +2,7 @@
 
 // Row 169 A-02 tripwire. The models and worker test folders sync, list and launch against fakes; none of them may reach a
 // real harness binary. This runs those files as a child `node --test` whose PATH holds only a directory of tripwire fakes
-// (one per harness binary name, each writes a marker file and exits 1) and the node directory, then asserts no marker was
+// (one per harness binary name, each writes a marker file and exits 1) and a link to node, then asserts no marker was
 // written. A test that resolves a harness binary on the real PATH shows up here as a marker. The same directory links the
 // non-harness tools those tests shell out to (git and the POSIX tools their fakes and fixtures use), so a test fails for a
 // real reason and not because its PATH is bare; the guard asserts the child run passed too, or "no marker" proves little.
@@ -71,7 +71,11 @@ test('no test in the models and worker folders reaches a real harness binary', {
   }
   const files = targetFiles();
   assert.ok(files.length > 50, `the target set is ${files.length} files`);
-  const env: any = { ...process.env, PATH: [bin, path.dirname(process.execPath)].join(path.delimiter) };
+  // node itself is linked into the tripwire directory: its own directory (here `~/.local/bin`) also holds real harness
+  // binaries, so it must not be on the child PATH.
+  fs.symlinkSync(process.execPath, path.join(bin, 'node'));
+  const env: any = { ...process.env, PATH: bin };
+  assert.deepEqual(env.PATH.split(path.delimiter), [bin], 'the tripwire directory is the only PATH entry of the child');
   delete env.NODE_TEST_CONTEXT;
   const run = spawnSync(process.execPath, ['--test', '--test-reporter=tap', ...files], { cwd: REPO, env, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
   const found = fs.readdirSync(markers).map((name: string) => `${name}: ${fs.readFileSync(path.join(markers, name), 'utf8').trim().split('\n')[0]}`);
