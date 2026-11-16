@@ -97,12 +97,22 @@ const viaProject = (shapeId: string): Check<any> => (value) => {
 
 // ---- IC-002 machine ----
 
-/** 165 D8: one started session of a `machine` activity item (src/runtime/events/machine.ts `workerActivity`): these seven fields only. */
+/** 165 review B-4: how a started session ended, `{ state, at }` of the closed end states; nothing else of the run's end record. */
+const sessionEnd = (value: unknown) => {
+  const e = record(value);
+  return { state: oneOf(CLOSED_SETS.endStates)(e.state), at: orNull(iso)(e.at) };
+};
+
+/**
+ * 165 D8: one started session of a `machine` activity item (src/runtime/events/machine.ts `workerActivity`): these eight fields only.
+ * `end` (165 review B-4) is null while the session is open and from a core that sends none.
+ */
 const startedSession = (entry: unknown) => {
   const r = record(entry);
   return {
     runId: orNull((v) => (typeof v === 'string' && RUN_ID.test(v) ? v : fail()))(r.runId), harness: orNull(id)(r.harness), model: orNull(label)(r.model),
     phase: oneOf(CLOSED_SETS.phases)(r.phase), startedBy: orNull(label)(r.startedBy), worktreeKey: orNull(key16)(r.worktreeKey), createdAt: orNull(iso)(r.createdAt),
+    end: optional(sessionEnd)(r.end),
   };
 };
 
@@ -123,7 +133,7 @@ function activity(value: unknown) {
       runs: { open: count(runs.open), awaiting: count(runs.awaiting) },
       gates: each(gate, BOUNDS.activityGates)(a.gates),
       workers: { open: count(workers.open) },
-      // 165 D8: the started sessions (newest first, at most STARTED_LIMIT = 8 of the core's machine.ts) and how many there are; an older core sends neither: null, not zero.
+      // 165 D8: the started sessions (open and, since 165 review B-4, the newest ended; newest first, at most STARTED_LIMIT = 8 of the core's machine.ts) and how many the store holds; an older core sends neither: null, not zero.
       started: optional(each(startedSession, BOUNDS.activityStarted))(a.started),
       startedCount: optional(count)(a.startedCount),
       sessions: { observed: count(sessions.observed), harnesses: each(id, BOUNDS.harnesses)(sessions.harnesses) },

@@ -5694,7 +5694,7 @@ for (const [end, want] of END_CASES_165) {
   });
 }
 
-test('165 sessions: "Started here" lists the sessions started from the Console with a Layers link each; a core that reports none says so, and nothing shows before the machine member arrives', async () => {
+test('165 sessions: "Started here" lists the sessions started in the project with a Layers link each; a core that reports none says so, and nothing shows before the machine member arrives', async () => {
   const page = await startLive('#/sessions', liveRoute(sessionsRoute(BUSY)));
   assert.equal(page.main.querySelectorAll('.started-here').length, 0, 'nothing before the machine member');
   await advance(100);
@@ -5705,12 +5705,33 @@ test('165 sessions: "Started here" lists the sessions started from the Console w
   const rows = page.main.querySelectorAll('.started-here__row');
   assert.equal(rows.length, 2);
   assert.equal(rows[0].querySelector('.started-here__link').getAttribute('href'), `#/layers/${P1}/agent/${startedAgentKey()}`);
-  assert.match(text(rows[0]), /claude.*started from the Console.*process seen/);
-  assert.match(text(rows[1]), /codex.*gpt-x.*started from paired device d-0123456789ab.*starting/);
-  assert.match(text(page.main.querySelector('.started-here')), /8 more in Layers/);
+  assert.match(text(rows[0]), /claude.*started by console.*process seen/);
+  assert.match(text(rows[1]), /codex.*gpt-x.*started by device\.d-0123456789ab.*starting/);
+  assert.match(text(page.main.querySelector('.started-here')), /8 older sessions are not listed/);
+  assert.equal(text(page.main.querySelector('.started-here__title')), 'Sessions started in this project');
   es.emit('message', liveFrame('machine', 'patch', { set: { '/machine/body/sections/activity': machineBody([], { activity: lok({ v: 1, limits: {}, items: [{ projectKey: P1, runs: { open: 0, awaiting: 0 }, gates: [], workers: { open: 0 }, sessions: { observed: 0, harnesses: [] }, unreadable: [] }] }) }).sections.activity }, unset: [] }));
   await settle();
-  assert.match(text(page.main.querySelector('.started-here')), /does not report the sessions started from the Console/);
+  assert.match(text(page.main.querySelector('.started-here')), /does not report the sessions started in this project/);
+});
+
+test('165 review B-4: Sessions lists an ended started session with how and when it ended and who started it; the empty words show only when the store holds none', async () => {
+  const page = await startLive('#/sessions', liveRoute(sessionsRoute(BUSY)));
+  await advance(100);
+  const es = liveES();
+  es.open();
+  es.emit('message', liveFrame('machine', 'snapshot', member('machine', startedMachine([
+    startedItem165({ startedBy: 'manual', end: null }),
+    startedItem165({ runId: 'w-0123456789ac', phase: 'ended', startedBy: 'device.d-0123456789ab', end: { state: 'cancelled', at: AT(3) } }),
+  ], 2))));
+  await settle();
+  const rows = page.main.querySelectorAll('.started-here__row');
+  assert.equal(rows.length, 2);
+  assert.match(text(rows[0]), /started by terminal.*process seen/);
+  assert.match(text(rows[1]), /started by device\.d-0123456789ab.*ended: stopped/);
+  assert.equal(page.main.querySelectorAll('.started-here__none').length, 0, 'no empty words while the store holds sessions');
+  es.emit('message', liveFrame('machine', 'snapshot', member('machine', startedMachine([], 0))));
+  await settle();
+  assert.equal(text(page.main.querySelector('.started-here__none')).startsWith('No session has been started in this project, from the Console, a paired device or a terminal.'), true);
 });
 
 const WORDS165 = { claude: 'claude can start a session here', opencode: 'opencode can start a session here', codex: 'codex is logged out. Run codex login, then read this page again.', copilot: 'copilot has no recorded way to start a main session, so it is not offered.' };

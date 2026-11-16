@@ -309,6 +309,20 @@ test('"Started here" lists the started sessions of the project the Console runs 
   assert.deepEqual(['console', 'manual', 'device.d-0123456789ab', null].map((b) => start.startedByWords(b)), ['started from the Console', 'started by command', 'started from paired device d-0123456789ab', 'starter not recorded']);
 });
 
+test('165 review B-4: "Started here" is every session started in the project, open and ended, with who started it; it is empty only when the store holds none', () => {
+  const ended = startedItem(2, { phase: 'ended', startedBy: 'manual', end: { state: 'timed-out', at: '2026-11-16T10:00:00.000Z' } });
+  const here = start.startedHere(machine([{ projectKey: PK, started: [startedItem(1, { startedBy: 'device.d-0123456789ab', end: null }), ended], startedCount: 2 }]));
+  assert.deepEqual(here.rows.map((r: any) => [r.starter, r.end]), [['device.d-0123456789ab', null], ['terminal', { state: 'timed-out', at: '2026-11-16T10:00:00.000Z' }]]);
+  assert.equal(here.empty, false);
+  assert.deepEqual(['console', 'manual', 'device.d-0123456789ab', 'phone', null].map((b) => start.starterLabel(b)), ['console', 'terminal', 'device.d-0123456789ab', 'not recorded', 'not recorded']);
+  assert.equal(start.startedHere(machine([{ projectKey: PK, started: [], startedCount: 0 }])).empty, true, 'the store holds none');
+  assert.equal(start.startedHere(machine([{ projectKey: PK, started: [], startedCount: 3 }])).empty, false, 'the store holds some the list does not carry');
+  assert.equal(start.startedHere(machine([])).empty, true);
+  assert.equal(start.STARTED_HERE_TITLE, 'Sessions started in this project');
+  assert.equal(start.STARTED_HERE_EMPTY, 'No session has been started in this project, from the Console, a paired device or a terminal.');
+  assert.deepEqual([start.endedWords({ state: 'exited', at: null }), start.endedWords({ state: 'timed-out' }), start.endedWords({ state: 'cancelled' }), start.endedWords(null)], ['exited', 'stopped at its time limit', 'stopped', 'ended']);
+});
+
 test('the output tail keeps the last 200 lines of the pieces a file lane holds, joins pieces with a newline unless one was cut mid-line, and says how many it dropped', () => {
   const pieces = Array.from({ length: 250 }, (_, i) => ({ text: `line ${i}`, at: i * 10, cut: false }));
   const tail = start.outputTail(pieces);

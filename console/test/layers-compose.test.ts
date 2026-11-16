@@ -55,7 +55,8 @@ test('165 F1: the machine activity item carries the started sessions (at most 8,
   assert.equal(kept.ok, true, JSON.stringify(kept));
   const item = kept.data.items[0];
   assert.equal(item.startedCount, 11);
-  assert.deepEqual(Object.keys(item.started[0]).sort(), ['createdAt', 'harness', 'model', 'phase', 'runId', 'startedBy', 'worktreeKey']);
+  assert.deepEqual(Object.keys(item.started[0]).sort(), ['createdAt', 'end', 'harness', 'model', 'phase', 'runId', 'startedBy', 'worktreeKey']);
+  assert.equal(item.started[0].end, null, 'a core before 165 review B-4 sends no end: null');
   assert.deepEqual(item.started.map((s: any) => [s.runId, s.model, s.startedBy]), [['w-000000000000', null, 'console'], ['w-000000000001', 'claude-opus-5-5', 'device.d-0123456789ab']]);
   assert.equal(JSON.stringify(item).includes('planted'), false);
   assert.deepEqual([itemOf({}).data.items[0].started, itemOf({}).data.items[0].startedCount], [null, null]);
@@ -63,6 +64,18 @@ test('165 F1: the machine activity item carries the started sessions (at most 8,
   for (const bad of [{ started: Array.from({ length: 9 }, (_, n) => started(n)), startedCount: 9 }, { started: [{ ...started(0), phase: 'paused' }], startedCount: 1 }, { started: [{ ...started(0), runId: 'x' }], startedCount: 1 },
     { started: [started(0)], startedCount: -1 }, { started: [started(0)], startedCount: 1.5 }]) {
     assert.deepEqual(itemOf(bad), { ok: false, code: 'core-contract-mismatch' }, JSON.stringify(bad).slice(0, 80));
+  }
+});
+
+test('165 review B-4: a started session of the machine list carries its end, { state, at } of the closed end states, null while open', () => {
+  const started = (over: Record<string, unknown>) => ({ runId: 'w-000000000001', harness: 'codex', model: null, phase: 'ended', startedBy: 'manual', worktreeKey: WK, createdAt: '2026-11-15T10:00:00.000Z', ...over });
+  const itemOf = (list: unknown[]) => (composeMachine(new Map([['activity', { exit: 0, json: { v: 1, limits: { projects: 1, notShown: 0, watched: 1, fingerprintOnly: 0 },
+    items: [{ ...activityItem([]), started: list, startedCount: list.length }] } }]])) as any).body.sections.activity;
+  const kept = itemOf([started({ end: { state: 'cancelled', at: '2026-11-15T10:05:00.000Z', reason: 'planted' } }), started({ runId: 'w-000000000002', phase: 'running', end: null })]);
+  assert.equal(kept.ok, true, JSON.stringify(kept));
+  assert.deepEqual(kept.data.items[0].started.map((s: any) => s.end), [{ state: 'cancelled', at: '2026-11-15T10:05:00.000Z' }, null]);
+  for (const end of [{ state: 'paused', at: null }, { state: 'exited', at: 'yesterday' }, 'exited']) {
+    assert.deepEqual(itemOf([started({ end })]), { ok: false, code: 'core-contract-mismatch' }, JSON.stringify(end));
   }
 });
 

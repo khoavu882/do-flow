@@ -95,6 +95,22 @@ function startedByWords(by) {
   return device ? `started from paired device ${device[1]}` : 'starter not recorded';
 }
 
+/** 165 review B-4: who started a session, as the Sessions list names it: `console`, the relay label of a paired device, or `terminal`. @param {any} by */
+function starterLabel(by) {
+  if (by === 'console') return 'console';
+  if (by === 'manual') return 'terminal';
+  return typeof by === 'string' && /^device\.d-[0-9a-f]{12}$/.test(by) ? by : 'not recorded';
+}
+
+/** 165 review B-4: how an ended session ended, in a word or two, from its `end.state`. @param {any} end */
+function endedWords(end) {
+  const state = end && typeof end === 'object' ? end.state : null;
+  if (state === 'exited') return 'exited';
+  if (state === 'timed-out') return 'stopped at its time limit';
+  if (state === 'cancelled') return 'stopped';
+  return 'ended';
+}
+
 /** The run phases of a started session in words. @type {Readonly<Record<string, string>>} */
 const PHASE_WORDS = Object.freeze({ starting: 'starting', running: 'process seen', cancelling: 'stopping', ended: 'ended' });
 
@@ -454,7 +470,7 @@ function outputTail(pieces) {
 
 // ---- the Layers node and the Sessions list ---------------------------------------------------------------------------------------------------------
 
-/** The started sessions the `machine` activity of a project lists: `{ runId, harness, model, phase, startedBy, worktreeKey, createdAt }`, newest first. @param {any} machine @param {string} projectKey */
+/** The started sessions the `machine` activity of a project lists: `{ runId, harness, model, phase, startedBy, worktreeKey, createdAt, end }`, newest first. @param {any} machine @param {string} projectKey */
 function startedItems(machine, projectKey) {
   const section = machine && machine.sections ? machine.sections.activity : null;
   if (!section || section.ok !== true || !section.data || !Array.isArray(section.data.items)) return null;
@@ -464,27 +480,32 @@ function startedItems(machine, projectKey) {
   return { list: item.started, count: Number.isSafeInteger(item.startedCount) ? item.startedCount : item.started.length };
 }
 
+/** 165 review B-4: the heading of the Sessions list and its words when the store holds no started session. */
+const STARTED_HERE_TITLE = 'Sessions started in this project';
+const STARTED_HERE_EMPTY = 'No session has been started in this project, from the Console, a paired device or a terminal.';
+
 /**
- * "Started here" of the Sessions page: the started sessions of the project the Console runs in, from the `machine` member. `state` is
- * `unread` before the member arrived or when its activity could not be read, `not-reported` for a core that lists none, else `ok`.
+ * "Started here" of the Sessions page: the sessions started in the project the Console runs in, open and ended (165 review B-4), from the
+ * `machine` member, each with who started it and how it ended. `state` is `unread` before the member arrived or when its activity could
+ * not be read, `not-reported` for a core that lists none, else `ok`; `empty` is true only when the store holds none.
  * @param {any} machine
  */
 function startedHere(machine) {
   const projects = machine && machine.sections && machine.sections.projects && machine.sections.projects.ok === true ? machine.sections.projects.data.projects : null;
   const here = Array.isArray(projects) ? projects.find((/** @type {any} */ p) => p.current === true) : null;
-  if (!here) return { state: 'unread', projectKey: null, rows: [], more: 0 };
+  if (!here) return { state: 'unread', projectKey: null, rows: [], more: 0, empty: false };
   const held = startedItems(machine, here.projectKey);
-  if (held === null) return { state: machine && machine.sections && machine.sections.activity && machine.sections.activity.ok === true ? 'not-reported' : 'unread', projectKey: here.projectKey, rows: [], more: 0 };
+  if (held === null) return { state: machine && machine.sections && machine.sections.activity && machine.sections.activity.ok === true ? 'not-reported' : 'unread', projectKey: here.projectKey, rows: [], more: 0, empty: false };
   const rows = held.list.map((/** @type {any} */ s) => ({
-    runId: s.runId, harness: s.harness, model: s.model ?? null, phase: s.phase, startedBy: s.startedBy ?? null, createdAt: s.createdAt ?? null,
-    href: `#/layers/${here.projectKey}/agent/${agentKeyOf(s.runId)}`,
+    runId: s.runId, harness: s.harness, model: s.model ?? null, phase: s.phase, startedBy: s.startedBy ?? null, starter: starterLabel(s.startedBy), createdAt: s.createdAt ?? null,
+    end: s.end && typeof s.end === 'object' ? s.end : null, href: `#/layers/${here.projectKey}/agent/${agentKeyOf(s.runId)}`,
   }));
-  return { state: 'ok', projectKey: here.projectKey, rows, more: Math.max(0, held.count - rows.length) };
+  return { state: 'ok', projectKey: here.projectKey, rows, more: Math.max(0, held.count - rows.length), empty: rows.length === 0 && held.count === 0 };
 }
 
 export {
   VIEW_ONLY_WORDS, terminalCommand, ENTRY_DO, ENTRY_NONE, NOT_STARTABLE_TITLE, SOURCE_ORDER, PHASE_WORDS,
-  sha256Hex, agentKeyOf, startedByWords, endWords, permissionWords, warningWords,
+  sha256Hex, agentKeyOf, startedByWords, starterLabel, endedWords, STARTED_HERE_TITLE, STARTED_HERE_EMPTY, endWords, permissionWords, warningWords,
   projectRows, harnessRows, harnessOf, modelGroups, checkoutRows, entryChoices, limitWords, dispatchWords,
   promptState, formFor, readiness, startBody, attemptFor, settleAttempt,
   OUTPUT_LINES, outputTail, optionsErrorWords, nodeIn, startRefusalLines, refusalRereads, initialFlow, flowReduce, flowWords, startedItems, startedHere,

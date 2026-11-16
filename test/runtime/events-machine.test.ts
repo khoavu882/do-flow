@@ -269,7 +269,7 @@ test('161 IC-002: awaiting gates newest first and at most 8, open runs and worke
   assert.equal(counter.calls.length, gitCalls, 'the session reader got its checkout list from the index, not from git');
 });
 
-test('165 D8: open started sessions are listed newest first, at most 8, and are not counted as worker runs; an ended one and an ordinary run are not listed', async (t) => {
+test('165 D8: open started sessions are listed newest first, at most 8, and are not counted as worker runs; an ended one is listed only below the cap, an ordinary run never', async (t) => {
   const f = fixture(t);
   const a = project(f, 'proj-a');
   const dir = path.join(a, '.doflow', 'state', 'worker-runs');
@@ -289,12 +289,42 @@ test('165 D8: open started sessions are listed newest first, at most 8, and are 
   const spec = channelSpec('machine', { cwd: a, env: f.env, index: indexFor(f, a, countingExec().exec) });
   const item = (await spec.compute()).sections.activity.json.items[0];
   assert.deepEqual(item.workers, { open: 1 }, 'only the ordinary run');
-  assert.equal(item.startedCount, STARTED_LIMIT + 3);
+  assert.equal(item.startedCount, STARTED_LIMIT + 4, 'every started session the store holds, open and ended');
   assert.equal(item.started.length, STARTED_LIMIT);
-  assert.deepEqual(item.started.map((r: any) => r.runId), Array.from({ length: STARTED_LIMIT }, (_, i) => hex(STARTED_LIMIT + 3 - i)), 'newest first');
-  assert.deepEqual(item.started.at(-1), { runId: hex(4), harness: 'claude', model: 'claude-x', phase: 'starting', startedBy: 'console', worktreeKey: cwdHash(a), createdAt: '2026-11-15T01:04:00.000Z' });
-  assert.deepEqual(Object.keys(item.started[0]).sort(), ['createdAt', 'harness', 'model', 'phase', 'runId', 'startedBy', 'worktreeKey']);
+  assert.deepEqual(item.started.map((r: any) => r.runId), Array.from({ length: STARTED_LIMIT }, (_, i) => hex(STARTED_LIMIT + 3 - i)), 'the open ones fill the cap, newest first; the newer ended one is left out');
+  assert.deepEqual(item.started.at(-1), { runId: hex(4), harness: 'claude', model: 'claude-x', phase: 'starting', startedBy: 'console', worktreeKey: cwdHash(a), createdAt: '2026-11-15T01:04:00.000Z', end: null });
+  assert.deepEqual(Object.keys(item.started[0]).sort(), ['createdAt', 'end', 'harness', 'model', 'phase', 'runId', 'startedBy', 'worktreeKey']);
   assert.ok(!JSON.stringify(item).includes(a) && !JSON.stringify(item).includes('prompt.txt'), 'no path, no prompt');
+});
+
+test('165 review B-4: the started list carries ended sessions too: the open ones, then the newest ended up to the cap, newest first, each with its end state and time', async (t) => {
+  const f = fixture(t);
+  const a = project(f, 'proj-a');
+  const dir = path.join(a, '.doflow', 'state', 'worker-runs');
+  fs.mkdirSync(dir, { recursive: true });
+  const hex = (i: number) => `w-${String(i).padStart(12, '0')}`;
+  const at = (i: number) => `2026-11-15T${String(i).padStart(2, '0')}:00:00.000Z`;
+  const runs: any = {};
+  const add = (i: number, phase: string, end: any = null, startedBy: any = 'console') => {
+    runs[hex(i)] = {
+      runId: hex(i), kind: 'main-session', task: 'main-session', seq: 1, phase, harness: 'codex', startedBy, project: { projectKey: cwdHash(a), worktreeKey: cwdHash(a) },
+      binding: { model: null, source: 'default' }, createdAt: at(i), ...(end ? { end } : {}),
+    };
+  };
+  // Three open ones, two of them older than every ended one; ten ended, of which the newest five fit under the cap.
+  add(1, 'running'); add(2, 'starting', null, 'manual'); add(20, 'running', null, 'device.d-0123456789ab');
+  for (let i = 3; i <= 12; i += 1) add(i, 'ended', { state: i % 3 === 0 ? 'cancelled' : i % 3 === 1 ? 'exited' : 'timed-out', at: `2026-11-15T${String(i).padStart(2, '0')}:30:00.000Z` });
+  fs.writeFileSync(path.join(dir, 'started-sessions.json'), JSON.stringify({ version: 1, revision: 1, slug: 'started-sessions', runs }));
+  const spec = channelSpec('machine', { cwd: a, env: f.env, index: indexFor(f, a, countingExec().exec) });
+  const item = (await spec.compute()).sections.activity.json.items[0];
+  assert.equal(item.startedCount, 13);
+  assert.deepEqual(item.started.map((r: any) => r.runId), [20, 12, 11, 10, 9, 8, 2, 1].map(hex), 'every open one and the five newest ended, newest first');
+  assert.deepEqual(item.started[0], { runId: hex(20), harness: 'codex', model: null, phase: 'running', startedBy: 'device.d-0123456789ab', worktreeKey: cwdHash(a), createdAt: at(20), end: null });
+  assert.deepEqual(item.started[1].end, { state: 'cancelled', at: '2026-11-15T12:30:00.000Z' });
+  assert.deepEqual(item.started[2].end, { state: 'timed-out', at: '2026-11-15T11:30:00.000Z' });
+  assert.deepEqual(item.started[3].end, { state: 'exited', at: '2026-11-15T10:30:00.000Z' });
+  assert.equal(item.started[6].startedBy, 'manual');
+  assert.deepEqual(item.workers, { open: 0 });
 });
 
 test('161 IC-002: a failing project index is the channel producer-failed error, not an exit', async (t) => {

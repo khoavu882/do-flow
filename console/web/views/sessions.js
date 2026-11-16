@@ -11,7 +11,7 @@ import { h, icon, mount, announce } from '../dom.js';
 import { clockTime, reltime, commandBlock } from '../states.js';
 import { formatDuration, formatTokens } from '../derive/compare.js';
 import { connectLive } from '../live-view.js';
-import { startedHere, startedByWords, PHASE_WORDS } from '../derive/start.js';
+import { startedHere, endedWords, STARTED_HERE_TITLE, STARTED_HERE_EMPTY, PHASE_WORDS } from '../derive/start.js';
 import {
   deriveSessions, conflictWords, noteWords, limitWords, laneName, rowName, filterRows, newConflicts, moveFocus, commandFor,
 } from '../derive/sessions.js';
@@ -144,23 +144,31 @@ function conflictBadge(conflict, words) {
 /** The lane key the route names, or null. @param {any} route */
 // ---- 165: the sessions started from the Console ------------------------------------------------------------------------------
 
-/** "Started here": the sessions this Console started in its own project, from the `machine` channel's activity, each with its Layers link. @param {any} machine */
+/**
+ * "Started here": the sessions started in the Console's own project, open and ended, from the `machine` channel's activity, each with who
+ * started it, how it ended and its Layers link (165 review B-4). @param {any} machine
+ */
 function startedSection(machine) {
   const model = startedHere(machine);
   if (model.state === 'unread') return null;
-  const heading = h('h2', { class: 'started-here__title', id: 'started-here-title' }, 'Started here');
-  if (model.state === 'not-reported') return h('section', { class: 'started-here', 'aria-labelledby': 'started-here-title' }, [heading, h('p', { class: 'started-here__none' }, 'This DoFlow core does not report the sessions started from the Console.')]);
-  if (model.rows.length === 0) return h('section', { class: 'started-here', 'aria-labelledby': 'started-here-title' }, [heading, h('p', { class: 'started-here__none' }, ['No session was started from the Console in this project. ', h('a', { href: '#/start' }, 'Start one')])]);
+  const heading = h('h2', { class: 'started-here__title', id: 'started-here-title' }, STARTED_HERE_TITLE);
+  if (model.state === 'not-reported') return h('section', { class: 'started-here', 'aria-labelledby': 'started-here-title' }, [heading, h('p', { class: 'started-here__none' }, 'This DoFlow core does not report the sessions started in this project.')]);
+  if (model.empty) return h('section', { class: 'started-here', 'aria-labelledby': 'started-here-title' }, [heading, h('p', { class: 'started-here__none' }, [STARTED_HERE_EMPTY, ' ', h('a', { href: '#/start' }, 'Start one')])]);
   const now = Date.now();
   return h('section', { class: 'started-here', 'aria-labelledby': 'started-here-title' }, [
     heading,
     h('ul', { class: 'started-here__list' }, model.rows.map((/** @type {any} */ row) => h('li', { class: 'started-here__row', dataset: { runId: row.runId } }, [
       h('span', { class: 'tag tag--mono' }, row.harness),
       h('span', { class: 'started-here__model' }, row.model ?? 'harness default model'),
-      h('span', { class: 'started-here__facts' }, [startedByWords(row.startedBy), ' · ', PHASE_WORDS[row.phase] ?? 'phase not recorded', row.createdAt ? [' · started ', reltime(row.createdAt, now)] : null]),
+      h('span', { class: 'started-here__facts' }, [
+        `started by ${row.starter}`, ' · ',
+        row.phase === 'ended' ? `ended: ${endedWords(row.end)}` : PHASE_WORDS[row.phase] ?? 'phase not recorded',
+        row.phase === 'ended' && row.end && row.end.at ? [' ', reltime(row.end.at, now)] : null,
+        row.createdAt ? [' · started ', reltime(row.createdAt, now)] : null,
+      ]),
       h('a', { class: 'started-here__link layers-link', href: row.href, dataset: { focusKey: `started:${row.runId}` } }, 'Layers'),
     ]))),
-    model.more > 0 ? h('p', { class: 'started-here__none' }, `${model.more} more in Layers.`) : null,
+    model.more > 0 ? h('p', { class: 'started-here__none' }, `${model.more} older sessions are not listed.`) : null,
   ]);
 }
 
