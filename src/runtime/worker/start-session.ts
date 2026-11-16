@@ -34,6 +34,7 @@ const { spawnSync } = require('node:child_process');
 const readiness = require('./readiness.ts');
 const { readBindings } = require('./models.ts');
 const { workerCatalogue } = require('./catalogue.ts');
+const { workerIdFault } = require('../../registry/worker-ids.ts');
 const { storeFileFor, newRunId, insertRun, transition, readRuns } = require('./run-store.ts');
 const { mainLaunchRecord, STARTED_RUN_VAR } = require('./launch.ts');
 const { preparePrompt, writePrompt, ENTRY_LINE, PROMPT_MAX } = require('./session-prompt.ts');
@@ -54,7 +55,6 @@ const TIMEOUT_SECONDS = 3600;
 const LIMITS = Object.freeze({ perCheckout: 1, perActor: 2, machine: 4, perActorPerHour: 6 });
 const ENTRIES = Object.freeze(['do', 'none']);
 const KEY16 = /^[0-9a-f]{16}$/;
-const HARNESS_ID = /^[a-z][a-z0-9-]{1,31}$/;
 const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}$/;
 /** The Console's request id (console/src/verb-runner.ts PATTERNS.requestId): 22 base64url characters, the first a letter or digit (the CLI cannot carry a flag value that begins with `-`). */
 const REQUEST_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{21}$/;
@@ -113,9 +113,9 @@ function worktreeGone(main: string, worktreeKey: string): boolean {
     .some((p) => !fs.existsSync(p) && cwdHash(p) === worktreeKey);
 }
 
-/** The worker blocks in registry order: `[{ harness, worker }]`, an injected descriptor winning. */
-function harnessBlocks(reg: any, descriptors: any) {
-  return workerCatalogue({ registry: reg }).map((entry: any) => ({
+/** The worker blocks in catalogue order, package workers included: `[{ harness, worker }]`, an injected descriptor winning. */
+function harnessBlocks(reg: any, descriptors: any, view: any) {
+  return workerCatalogue({ registry: reg, view }).map((entry: any) => ({
     harness: entry.id,
     worker: descriptors && Object.hasOwn(descriptors, entry.id) ? descriptors[entry.id] : entry.worker,
   }));
@@ -126,16 +126,16 @@ function harnessBlocks(reg: any, descriptors: any) {
  * discover entry as `found` (not part of the reply). The shape is checked first, so a harness DoFlow cannot
  * start headless is never run, not even for its version.
  */
-function harnessFacts({ harness, worker, reg, env, cwd, root, nowMs, platform, catalogue }: any) {
+function harnessFacts({ harness, worker, reg, view, env, cwd, root, nowMs, platform, catalogue }: any) {
   const shut = (reason: string, words: string, extra: any = {}) => ({
     harness, startable: false, reason, words, warnings: [] as string[], login: null, version: null, found: null, ...extra,
   });
-  if (!worker) return shut('not-listed', `${harness} is not a DoFlow harness`);
+  if (!worker) return shut('not-listed', workerIdFault(harness) ? 'the --harness value is not a DoFlow harness id' : `${harness} is not a DoFlow harness`);
   const ms = worker.mainSession;
   if (ms?.status !== 'supported' || !Array.isArray(ms.evidence) || ms.evidence.length === 0) {
     return shut('no-main-session-shape', `DoFlow has no recorded headless way to start ${harness}${typeof ms?.reason === 'string' ? `: ${ms.reason}` : ''}`);
   }
-  const found = readiness.discover({ descriptors: { [harness]: worker }, registry: reg, env, cwd, now: nowMs, platform }).harnesses[0];
+  const found = readiness.discover({ descriptors: { [harness]: worker }, registry: reg, view, env, cwd, now: nowMs, platform }).harnesses[0];
   if (!found?.present) return shut('not-installed', `${harness} is not installed on this machine`);
   const entry = catalogue?.harnesses && Object.hasOwn(catalogue.harnesses, harness) ? catalogue.harnesses[harness] : null;
   const login = entry ? { state: entry.loginState ?? null, checkedAt: entry.lastSyncedAt ?? null } : null;
@@ -287,7 +287,7 @@ const replayOf = (runs: Record<string, any>, requestId: string) => (Object.value
  * `projects(o)` (listProjects) and `spawnSupervisor({ file, runId })`. Resolves IC-001's reply.
  */
 async function startSession(o: any) {
-  const { env, cwd, root, reg, descriptors, platform, clock, sleep, projects, spawnSupervisor } = o;
+  const { env, cwd, root, reg, descriptors, view, platform, clock, sleep, projects, spawnSupervisor } = o;
   const nowMs = () => clock().getTime();
 
   // Step 1: a start from inside a started session.
@@ -298,7 +298,9 @@ async function startSession(o: any) {
   // Step 2: the flags, each by pattern.
   const projectKey = pattern(o.projectKey, KEY16, '--project-key', '16 lowercase hex characters');
   const worktreeKey = pattern(o.worktreeKey, KEY16, '--worktree-key', '16 lowercase hex characters');
-  const harness = pattern(o.harness, HARNESS_ID, '--harness', 'a harness id');
+  // 165 review A-2: any id the registry's worker-id grammar refuses is simply not listed (step 6), not a usage error.
+  if (typeof o.harness !== 'string' || o.harness === '') throw new StartUsageError('--harness is required');
+  const harness = o.harness;
   const entry = pattern(o.entry, /^(?:do|none)$/, '--entry', 'do or none');
   const requestId = pattern(o.requestId, REQUEST_ID, '--request-id', '22 base64url characters beginning with a letter or digit');
   const model = given(o.model) ? pattern(o.model, MODEL_ID, '--model', 'a model id') : null;
@@ -321,7 +323,7 @@ async function startSession(o: any) {
   }
 
   // Step 5: the prompt, as the harness takes it.
-  const blocks = harnessBlocks(reg, descriptors);
+  const blocks = harnessBlocks(reg, descriptors, view);
   const worker = blocks.find((b: any) => b.harness === harness)?.worker ?? null;
   const promptVia = worker?.mainSession?.promptVia === 'argv' ? 'argv' : 'stdin';
   const prepared = preparePrompt(o.readStdin(), { entry, promptVia });
@@ -329,7 +331,7 @@ async function startSession(o: any) {
 
   // Step 6: the harness is startable here and now.
   const catalogue = readCatalogue(root, { env });
-  const facts = harnessFacts({ harness, worker, reg, env, cwd, root, nowMs, platform, catalogue });
+  const facts = harnessFacts({ harness, worker, reg, view, env, cwd, root, nowMs, platform, catalogue });
   if (!facts.startable) return refusal('harness-not-startable', facts.words, { harness, reason: facts.reason });
 
   // Step 7: the model is one the options offer.
@@ -448,7 +450,7 @@ function observedByCheckout(env: any, cwd: string): Map<string, any> {
  * Resolves the options, or a `project-mismatch` / `project-not-indexed` refusal. Writes nothing.
  */
 function startOptions(o: any) {
-  const { env, cwd, root, reg, descriptors, platform, clock, projects } = o;
+  const { env, cwd, root, reg, descriptors, view, platform, clock, projects } = o;
   const nowMs = () => clock().getTime();
   const projectKey = pattern(o.projectKey, KEY16, '--project-key', '16 lowercase hex characters');
   const resolved = resolveProject({ cwd, env, projectKey, projects });
@@ -467,8 +469,8 @@ function startOptions(o: any) {
   });
   const catalogue = readCatalogue(root, { env });
   const bindings = readBindings({ env, projectRoot: root });
-  const harnesses = harnessBlocks(reg, descriptors).map(({ harness, worker }: any) => {
-    const { found, ...facts } = harnessFacts({ harness, worker, reg, env, cwd, root, nowMs, platform, catalogue });
+  const harnesses = harnessBlocks(reg, descriptors, view).map(({ harness, worker }: any) => {
+    const { found, ...facts } = harnessFacts({ harness, worker, reg, view, env, cwd, root, nowMs, platform, catalogue });
     return { ...facts, models: modelsFor({ harness, worker, bindings, catalogue }) };
   });
   const dispatch = dispatchRunning(root, platform);

@@ -1128,6 +1128,15 @@ test('165 F1 start-options: IC-002 projects through PROJECTORS with the key aske
   const unreadable = mutate((b) => { b.dispatch = { running: true, slug: null, reason: 'dispatch-unreadable' }; });
   assert.deepEqual(unreadable.body.dispatch, { running: true, slug: null, reason: 'dispatch-unreadable' });
   assert.deepEqual(mutate((b) => { b.dispatch = { running: true, slug: null, reason: '../x' }; }), MISMATCH);
+  // 165 review A-2: a package worker's qualified id is a harness like any other; it does not turn the whole answer into a mismatch.
+  const pkg = mutate((b) => {
+    b.harnesses.push({ harness: 'acme.worker', startable: true, reason: null, words: 'acme.worker can start a session here', warnings: [], login: null, version: null, models: [{ id: null, source: 'default' }] },
+      { harness: 'acme.bare', startable: false, reason: 'no-main-session-shape', words: 'DoFlow has no recorded headless way to start acme.bare', warnings: [], login: null, version: null, models: [{ id: null, source: 'default' }] });
+    b.checkouts[0].observedSession.harness = 'acme.worker';
+  });
+  assert.equal(pkg.ok, true, JSON.stringify(pkg));
+  assert.deepEqual(pkg.body.harnesses.map((h: any) => [h.harness, h.startable, h.reason]), [['claude', true, null], ['copilot', false, 'no-main-session-shape'], ['acme.worker', true, null], ['acme.bare', false, 'no-main-session-shape']]);
+  assert.equal(pkg.body.checkouts[0].observedSession.harness, 'acme.worker');
 });
 
 test('transcript: text and args are masked a second time and the cap is re-checked', () => {

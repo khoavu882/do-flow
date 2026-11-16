@@ -557,3 +557,73 @@ test('A-3: a dispatch directory that cannot be listed (EACCES) refuses the start
   await ended(f, free.body.run.runId);
   assert.equal(fakeLog(f).length, 1);
 });
+
+// ---- 165 review A-2: a package worker is listed like any harness ---------------------------------------------------------------
+
+const { planPackage, applyPlan } = require(path.join(SRC, 'packages', 'store.ts'));
+const { packageView, resetPackageView } = require(path.join(SRC, 'packages', 'view.ts'));
+const { readLock, writeLock, lockPackages } = require(path.join(REPO, 'src', 'state', 'lockfile.ts'));
+
+/** An active package `acme` with two worker contributions on the fake CLI `fake-acme`: `acme.worker` has a main-session shape, `acme.bare` none. */
+function acmePackage(f: any) {
+  const unknown = (what: string) => ({ status: 'unknown', evidence: [], verification: `Check ${what}`, verifiedOn: '2026-11-16', reason: 'test' });
+  const supported = (extra: any) => ({ status: 'supported', evidence: ['test'], verification: 'test', verifiedOn: '2026-11-16', ...extra });
+  const worker = (mainSession: boolean) => ({
+    profile: null, billing: 'unknown', family: 'custom-family',
+    cli: supported({ binary: 'fake-acme', versionArgv: ['--version'] }),
+    oneShot: supported({ argv: ['{prompt}'], promptVia: 'argv' }),
+    structuredOutput: supported({ argv: [], parser: 'doflow-jsonl-v1' }),
+    ...(mainSession ? { mainSession: supported({ argv: ['{prompt}'], promptVia: 'argv', parser: null }) } : {}),
+    readOnly: unknown('readOnly'), spawnDenial: unknown('spawnDenial'), runnableProbe: unknown('runnableProbe'), hooksProbe: unknown('hooksProbe'),
+    guidanceProbe: unknown('guidanceProbe'), loginProbe: unknown('loginProbe'), persistentSession: unknown('persistentSession'), resume: unknown('resume'), steering: unknown('steering'),
+    modelChecks: [],
+  });
+  const src = path.join(f.dir, 'pkg-src');
+  fs.mkdirSync(path.join(src, 'workers'), { recursive: true });
+  fs.writeFileSync(path.join(src, 'doflow-package.json'), JSON.stringify({
+    manifest: 1, id: 'acme', version: '1.0.0', summary: 'Two workers', doflow: '>=2.0.0-beta.1 <3.0.0',
+    programs: [{ id: 'cli', binary: 'fake-acme', argv: 'worker-recipe' }],
+    contributions: [
+      { point: 'worker', version: 1, id: 'worker', file: 'workers/worker.json', programs: ['cli'] },
+      { point: 'worker', version: 1, id: 'bare', file: 'workers/bare.json', programs: ['cli'] },
+    ],
+  }, null, 2));
+  fs.writeFileSync(path.join(src, 'workers', 'worker.json'), JSON.stringify(worker(true), null, 2));
+  fs.writeFileSync(path.join(src, 'workers', 'bare.json'), JSON.stringify(worker(false), null, 2));
+  fs.writeFileSync(path.join(src, 'README.md'), 'notes\n');
+  const planned = planPackage({ action: 'add', source: src, homeDir: f.home, repoRoot: REPO, now: Date.parse('2026-11-16T09:00:00Z') });
+  assert.equal(planned.ok, true, JSON.stringify(planned.findings));
+  const applied = applyPlan({ planId: planned.plan.planId, action: 'add', homeDir: f.home, repoRoot: REPO, env: f.env });
+  assert.equal(applied.ok, true, JSON.stringify(applied.findings));
+  const lockOpts = { scope: 'global', homeDir: f.home };
+  const lock = readLock(lockOpts);
+  writeLock(lockOpts, { ...lock, packages: lockPackages(lock).map((r: any) => (r.id === 'acme' ? { ...r, enabled: true } : r)) });
+  const grants = path.join(f.config, 'doflow', 'packages', 'grants.jsonl');
+  fs.mkdirSync(path.dirname(grants), { recursive: true });
+  fs.appendFileSync(grants, `${planned.plan.grantLines.trust}\n`);
+  resetPackageView();
+  // The fixture lives under the temp root, where grants are read as misplaced; NO_TMP moves that rule out of the way.
+  const view = packageView({ repoRoot: REPO, homeDir: f.home, env: f.env, tmpDir: '/nonexistent-doflow-tmp' });
+  assert.equal(view.packages.find((p: any) => p.id === 'acme')?.state, 'active');
+  return view;
+}
+
+test('A-2: an active package worker is listed like any harness: startable with a main-session shape, not startable without, and it starts', POSIX, async (t: any) => {
+  const f = fixture(t, { fakes: ['codex', 'acme'] });
+  const view = acmePackage(f);
+  const options = await executeWorkerCommand({ action: 'start-options', projectKey: f.projectKey, env: f.env, cwd: f.main, descriptors: DESCRIPTORS, projects: projectsImpl, view });
+  assert.equal(options.exit, 0, JSON.stringify(options.body));
+  const by = Object.fromEntries(options.body.harnesses.map((h: any) => [h.harness, h]));
+  assert.deepEqual([by['acme.worker']?.startable, by['acme.worker']?.reason], [true, null], JSON.stringify(by['acme.worker'] ?? null));
+  assert.deepEqual([by['acme.bare']?.startable, by['acme.bare']?.reason], [false, 'no-main-session-shape']);
+  assert.equal(by.codex.startable, true);
+  const started = await start(f, { harness: 'acme.worker', view });
+  assert.equal(started.exit, 0, JSON.stringify(started.body));
+  await ended(f, started.body.run.runId);
+  assert.deepEqual(fakeLog(f).map((c: any) => c.name), ['fake-acme']);
+  const bare = await start(f, { harness: 'acme.bare', view });
+  assert.deepEqual([bare.exit, bare.body.code, bare.body.current?.reason], [1, 'harness-not-startable', 'no-main-session-shape'], JSON.stringify(bare.body));
+  // An id outside the registry's grammar is not listed, not a usage error: the Console's form pattern is looser than the grammar.
+  const odd = await start(f, { harness: 'Acme.Worker', view });
+  assert.deepEqual([odd.exit, odd.body.code, odd.body.current?.reason], [1, 'harness-not-startable', 'not-listed'], JSON.stringify(odd.body));
+});

@@ -887,7 +887,7 @@ test('the prompt kind: CRLF and CR become LF, C0 (but tab and LF), C1 and bidi c
   assert.equal((await w.post('start-session', startBody({ prompt: 'x'.repeat(5000) }))).status, 200, 'a start body is past 4 KiB and under its own cap');
   clock.t += 61 * MINUTE;
   assert.equal((await w.post('close-run', BODIES['close-run']({ note: 'x'.repeat(5000) }))).status, 400, 'the 162 rows keep their 4 KiB cap');
-  for (const [name, value] of [['worktreeKey', WK.toUpperCase()], ['harness', 'Claude'], ['model', ''], ['model', '-x'], ['entry', 'auto'], ['entry', null], ['prompt', null], ['relay', 'console']] as Array<[string, unknown]>) {
+  for (const [name, value] of [['worktreeKey', WK.toUpperCase()], ['harness', '.claude'], ['model', ''], ['model', '-x'], ['entry', 'auto'], ['entry', null], ['prompt', null], ['relay', 'console']] as Array<[string, unknown]>) {
     clock.t += 61 * MINUTE;
     const reply = await w.post('start-session', startBody({ [name]: value }));
     assert.equal(reply.status, 400, `${name}=${JSON.stringify(value)}`);

@@ -720,6 +720,13 @@ test('165: the start confirmation says what it will do, has no text field, posts
   assert.equal(d.handle.requestId, requestId);
 });
 
+test('165 review A-2: a package worker\'s qualified id builds a start confirmation; an id outside the generic id form does not', () => {
+  const spec = startSpec({ harness: 'acme.worker' });
+  assert.equal(spec?.title, 'Start acme.worker');
+  assert.equal(spec?.body.harness, 'acme.worker');
+  for (const harness of ['', '.x', 'a b', 'a/b']) assert.equal(startSpec({ harness }), null, harness);
+});
+
 test('165: a spec that carries a requestId reuses it (the retry of an unanswered start); a malformed one is replaced; 504 says "No answer; check Sessions before trying again."', async () => {
   const sent = transportOf(() => refusal(504, 'action-timeout'));
   const reuse = 'AAAAAAAAAAAAAAAAAAAAAA';

@@ -261,7 +261,7 @@ function buildConfirmation(id, ctx) {
  */
 function buildStartConfirmation(ctx, project) {
   const model = ctx.model === null || ctx.model === undefined ? null : ctx.model;
-  if (!KEY16.test(String(ctx.worktreeKey)) || typeof ctx.harness !== 'string' || !/^[a-z][a-z0-9-]{1,31}$/.test(ctx.harness)) return null;
+  if (!KEY16.test(String(ctx.worktreeKey)) || !isId(ctx.harness)) return null;
   if (model !== null && (typeof model !== 'string' || model === '')) return null;
   if (ctx.entry !== 'do' && ctx.entry !== 'none') return null;
   if (typeof ctx.prompt !== 'string' || ctx.prompt === '') return null;

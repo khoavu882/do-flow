@@ -303,8 +303,12 @@ const PATTERNS = Object.freeze({
   decision: /^(?:approve|reject)$/,
   revision: /^(?:0|[1-9][0-9]{0,8})$/,
   relay: /^(?:console|device\.d-[0-9a-f]{12})$/,
-  /** 165 IC-001: a harness id (form only; the core checks it against the registry), a model name, a prompt entry, and the request id (actions.ts REQUEST_ID). */
-  harness: /^[a-z][a-z0-9-]{1,31}$/,
+  /**
+   * 165 IC-001: a harness id (form only: the generic id, so a package worker's qualified `<package>.<local>` id passes; the core holds
+   * the worker-id grammar and answers `harness-not-startable` for an id it does not list), a model name, a prompt entry, and the
+   * request id (actions.ts REQUEST_ID).
+   */
+  harness: PARAM_PATTERN,
   model: /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}$/,
   entry: /^(?:do|none)$/,
   // Begins with a letter or digit: the CLI reads a flag value that starts with `-` as a missing value, so the core never sees such an id.

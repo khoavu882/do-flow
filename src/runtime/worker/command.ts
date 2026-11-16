@@ -569,6 +569,7 @@ async function executeWorkerCommand({
   projectKey, worktreeKey, model, entry, requestId, stdin = false, readStdin = () => fs.readFileSync(0, 'utf8'),
   env = process.env, cwd = process.cwd(), resolveSlug = null, platform = process.platform, now = () => new Date(),
   descriptors, registry, coverage, sleep = defaultSleep, binding = null, projects = null,
+  view, // test seam: the package view the start verbs read their worker list from
 }: any = {}): Promise<{ exit: number; body: any }> {
   try {
     if (!given(action)) throw usage(`--action is required; valid: ${ACTIONS.join(' | ')}`);
@@ -619,7 +620,7 @@ async function executeWorkerCommand({
         const listProjects = projects ?? require('../fleet/projects.ts').listProjects;
         const o = {
           projectKey, worktreeKey, harness, model, entry, via, requestId, stdin, readStdin,
-          env, cwd, root, reg, descriptors, platform, clock, sleep, projects: listProjects,
+          env, cwd, root, reg, descriptors, view, platform, clock, sleep, projects: listProjects,
           spawnSupervisor: ({ file, runId }: any) => spawnSupervisor({ file, runId, cwd, env, platform }),
         };
         body = action === 'start-session' ? await startSession(o) : startOptions(o);

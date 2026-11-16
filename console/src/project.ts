@@ -1764,9 +1764,12 @@ function projectSessionsHistory(value: unknown, context?: Context) {
 
 // ---- 165 IC-002: the start form's options (`worker --action start-options`) ----
 
-/** The form of a started run's id, a harness id and a model name (verb-runner.ts PATTERNS); the core checks them against its own registry. */
+/**
+ * The form of a started run's id, a harness id and a model name (verb-runner.ts PATTERNS); the core checks them against its own registry.
+ * A harness id is the generic `ID`, so a package worker's qualified id (165 review A-2) is listed like a built-in one.
+ */
 const START_RUN_ID = /^w-[0-9a-f]{12}$/;
-const START_HARNESS = /^[a-z][a-z0-9-]{1,31}$/;
+const START_HARNESS = ID;
 const START_MODEL = /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}$/;
 /** Free words of the core (a reason, a relogin hint): one line of at most 300 characters with no control character. */
 const START_WORDS = /^[^\u0000-\u001F\u007F-\u009F\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]{1,300}$/;

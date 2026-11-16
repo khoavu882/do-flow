@@ -2311,7 +2311,7 @@ test('act start-session refuses a bad parameter as usage and spawns nothing', as
   const base = START_CASE.params;
   const refused: Array<Record<string, any>> = [
     { ...base, model: '-m' }, { ...base, model: '--model' }, { ...base, model: 'a b' }, { ...base, model: 'm'.repeat(129) }, { ...base, model: 'a\n' }, { ...base, model: 5 },
-    { ...base, harness: '-claude' }, { ...base, harness: 'Claude' }, { ...base, harness: 'c' }, { ...base, harness: 'a'.repeat(33) }, { ...base, harness: 'claude\n' }, { ...base, harness: undefined },
+    { ...base, harness: '-claude' }, { ...base, harness: '.claude' }, { ...base, harness: 'a b' }, { ...base, harness: 'a/b' }, { ...base, harness: 'claude\n' }, { ...base, harness: undefined },
     { ...base, entry: 'DO' }, { ...base, entry: 'do\n' }, { ...base, entry: 'all' }, { ...base, entry: '' }, { ...base, entry: undefined },
     { ...base, requestId: 'short' }, { ...base, requestId: `${REQUEST_ID_A}x` }, { ...base, requestId: 'a'.repeat(21) + '/' }, { ...base, requestId: undefined },
     { ...base, relay: 'manual' }, { ...base, relay: undefined },
@@ -2415,7 +2415,12 @@ test('the new patterns: harness, model, entry and the request id', () => {
     for (const value of good) assert.ok(pattern.test(value), `accepts ${JSON.stringify(value)}`);
     for (const value of bad) assert.ok(!pattern.test(value), `refuses ${JSON.stringify(value)}`);
   };
-  accepts(PATTERNS.harness, ['claude', 'codex', 'kiro', 'opencode', 'copilot', 'pi', 'a1', 'a'.repeat(32)], ['-x', 'c', 'Claude', 'a_b', 'a b', 'a'.repeat(33), '1abc', '', 'claude\n']);
+  // 165 review A-2: the form pattern is the generic id; the core holds the worker-id grammar and refuses what it does not list.
+  accepts(PATTERNS.harness, ['claude', 'codex', 'kiro', 'opencode', 'copilot', 'pi', 'a1', 'acme.worker'], ['-x', '.x', 'a b', '', 'claude\n', 'a/b']);
+  const { workerIdFault } = require('../../src/registry/worker-ids.ts');
+  const grammar = ['claude', 'a', 'a'.repeat(32), 'acme.worker', 'ab.cd', `${'p'.repeat(16)}.${'l'.repeat(15)}`, 'x-1.y-2'];
+  for (const id of grammar) assert.equal(workerIdFault(id), null, id);
+  accepts(PATTERNS.harness, grammar, []);
   accepts(PATTERNS.model, ['claude-sonnet-4.5', 'gpt-6.1:high', 'a/b@c', 'A', 'm'.repeat(128)], ['-m', '--model', '.x', '', 'a b', 'a\n', 'a\0', 'm'.repeat(129)]);
   accepts(PATTERNS.entry, ['do', 'none'], ['DO', 'do\n', ' do', 'all', '', 'none ']);
   accepts(PATTERNS.requestId, [REQUEST_ID_A, 'A'.repeat(22), `a${'_-'.repeat(10)}_`, '0'.repeat(22)], ['', '-'.repeat(22), `-${'a'.repeat(21)}`, `_${'a'.repeat(21)}`, 'a'.repeat(21), 'a'.repeat(23), `${'a'.repeat(21)}.`, `${'a'.repeat(21)}\n`]);
