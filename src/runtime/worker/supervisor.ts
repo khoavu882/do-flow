@@ -30,7 +30,7 @@
 //
 // This is the one module under `src/runtime/worker/` that holds a direct fs write call: the output
 // sink's `mkdirSync` and `createWriteStream` (IC-018, IC-027, RK3). Every record write goes through
-// the run store's `transition`.
+// the run store's `transition`; the run's login outcome (172 design 4.5) goes through `login-store.ts`.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -48,6 +48,8 @@ const { cancelRun, mergeCleanup } = require('./cancel.ts');
 const { bindingObserved } = require('./readiness.ts');
 const { maskBody } = require('../mask.ts');
 const { quotaOf } = require('./quota.ts');
+const { loginExpiredOf } = require('./login.ts');
+const { recordRunOutcome } = require('./login-store.ts');
 
 /** This module's own file, which the run command spawns (G16). */
 const SUPERVISOR_FILE = __filename;
@@ -551,6 +553,9 @@ async function superviseRun({
   // 106 IC-002: a failure whose masked summary holds a declared quota signal is marked quota.
   const quota = quotaOf(report, run.descriptor);
   if (quota) report.quota = quota;
+  // 172 design 4.4: a failure whose masked summary holds a declared expiry sign is marked loginExpired.
+  const loginExpired = loginExpiredOf(report, run.descriptor);
+  if (loginExpired) report.loginExpired = loginExpired;
   const unit = `L.${run.identity?.run}.${run.identity?.lineage}.${run.token}`;
   const launchObserved = run.identity ? (bindingObserved(launched.env ?? env, unit) ? 'yes' : 'no') : 'unknown';
   transition(file, runId, STEP6, (r: any) => {
@@ -564,6 +569,17 @@ async function superviseRun({
       r.phase = 'ended';
     }
   });
+
+  // 172 design 4.5: the run's login outcome goes to the user-level `harness-login` store, a run or a started session
+  // alike. The store is a cache: a write that fails never changes the run.
+  const outcome = loginExpired ? 'expired' : (report.status === 'success' ? 'succeeded' : null);
+  if (outcome && typeof run.harness === 'string') {
+    try {
+      recordRunOutcome(env, run.harness, { outcome, at: iso(clock), runId, provider: loginExpired?.provider ?? null, sign: loginExpired?.sign ?? null }, { now: () => clock().getTime() });
+    } catch {
+      // the store stays as it was; the next run or login check writes it
+    }
+  }
 
   // Step 7: a timeout's cancel finishes before the supervisor exits; the canceller writes that end.
   if (timedOut) await timedOut;

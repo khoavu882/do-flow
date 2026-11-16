@@ -199,13 +199,16 @@ test('probe: guidance is decided by the marker', POSIX_ONLY, async (t) => {
   assert.deepEqual([facts.guidanceLoaded.state, facts.guidanceLoaded.reason], ['no', 'marker-absent']);
 });
 
-test('probe: login comes from the exit status only, never the output', POSIX_ONLY, async (t) => {
+test('probe: login comes from the recipe\'s exit rules (172 design 4.1, 4.6), never the output', POSIX_ONLY, async (t) => {
   const s = setup(t, { login: [{ print: 'not logged in' }, { exit: 0 }] }, ['fake-claude']);
   let { login } = one(await probe({ descriptors: { claude: FIXTURE.claude }, env: s.env, cwd: s.root }), 'claude').facts;
-  assert.deepEqual([login.state, login.reason], ['yes', 'exit 0']);
+  assert.deepEqual([login.state, login.reason], ['yes', 'logged-in']);
+  writeScenario(s.dir, { login: [{ print: 'logged in as someone' }, { exit: 1 }] });
+  ({ login } = one(await probe({ descriptors: { claude: FIXTURE.claude }, env: s.env, cwd: s.root }), 'claude').facts);
+  assert.deepEqual([login.state, login.reason], ['no', 'logged-out']);
   writeScenario(s.dir, { login: [{ print: 'logged in as someone' }, { exit: 3 }] });
   ({ login } = one(await probe({ descriptors: { claude: FIXTURE.claude }, env: s.env, cwd: s.root }), 'claude').facts);
-  assert.deepEqual([login.state, login.reason], ['no', 'exit 3']);
+  assert.deepEqual([login.state, login.reason], ['unknown', 'exit 3']);
 });
 
 test('model check: refused without a budget or below the estimate, run once and recorded estimated with both', POSIX_ONLY, async (t) => {

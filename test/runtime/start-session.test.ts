@@ -704,3 +704,30 @@ test('171 T3b: a built-in\'s stored descriptor has no structuredOutput, and a pa
   const plainRun = await ended(f, plain.body.run.runId);
   assert.equal(Object.hasOwn(plainRun.descriptor, 'structuredOutput'), false);
 });
+
+// 172 FR-011: a started session goes through the same supervisor, so a failure whose summary holds the worker's expiry
+// sign marks the run and the login store, and the start form then reads the harness as expired (startable, warned).
+test('172 FR-011: a started session that fails with an expiry sign is recorded expired, and start-options says so', POSIX, async (t: any) => {
+  const f = fixture(t, { fakes: ['codex'] });
+  const codex = structuredClone(DESCRIPTORS.codex);
+  codex.loginProbe = { ...codex.loginProbe, expirySigns: { signs: ['OAuth refresh failed for {provider}'], basis: 'source', evidence: ['test'] }, hint: 'codex login' };
+  const descriptors = { ...DESCRIPTORS, codex };
+  f.env.FAKE_STDOUT = `${JSON.stringify({ type: 'turn.failed', error: { message: 'OAuth refresh failed for openai' } })}\n`;
+  const fresh = await executeWorkerCommand({ action: 'start-options', projectKey: f.projectKey, env: f.env, cwd: f.main, descriptors, projects: projectsImpl });
+  const before = fresh.body.harnesses.find((h: any) => h.harness === 'codex');
+  assert.deepEqual([before.startable, before.login.state, before.login.source], [true, 'unknown', 'never-checked']);
+  assert.ok(before.warnings.includes('login-unknown'), JSON.stringify(before.warnings));
+
+  const started = await start(f, { descriptors });
+  assert.equal(started.exit, 0, JSON.stringify(started.body));
+  const run = await ended(f, started.body.run.runId);
+  assert.deepEqual(run.descriptor.loginProbe, { expirySigns: codex.loginProbe.expirySigns });
+  assert.equal(run.report.status, 'failure');
+  assert.deepEqual(run.report.loginExpired, { sign: 'OAuth refresh failed for {provider}', provider: 'openai' });
+
+  const after = await executeWorkerCommand({ action: 'start-options', projectKey: f.projectKey, env: f.env, cwd: f.main, descriptors, projects: projectsImpl });
+  const h = after.body.harnesses.find((item: any) => item.harness === 'codex');
+  assert.deepEqual([h.startable, h.login.state, h.login.source, h.login.provider, h.login.hint], [true, 'expired', 'last-run', 'openai', 'codex login']);
+  assert.ok(h.warnings.includes('login-expired'));
+  assert.equal(h.warnings.includes('login-unknown'), false);
+});

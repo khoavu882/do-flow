@@ -166,6 +166,32 @@ test('a soft denial with exit 0 is report-denied', POSIX, async (t) => {
   assert.deepEqual(resultOfRun(run), { resultOffered: false, withheld: ['report-denied'] });
 });
 
+// 172 design 4.4, 4.5: a failure whose summary holds a declared expiry sign carries report.loginExpired and records
+// `expired` in the user-level login store; a failure without one records nothing; a success records `succeeded`.
+test('172: an expiry sign in a failure summary sets report.loginExpired and the login store; a success records succeeded', POSIX, async (t) => {
+  const signs = (descriptor: any) => {
+    descriptor.loginProbe.expirySigns = { signs: ['OAuth refresh failed for {provider}', 'session expired'], basis: 'source', evidence: ['test'] };
+  };
+  const storeFile = (p: any) => path.join(p.dir, 'config', 'doflow', 'state', 'harness-login.json');
+  const slot = (p: any) => JSON.parse(fs.readFileSync(storeFile(p), 'utf8')).harnesses.claude;
+
+  const expired = project(t, { run: [{ emit: { type: 'result', status: 'failure', summary: 'OAuth refresh failed for Anthropic.' } }, { exit: 1 }] });
+  const first = expired.seed({ edit: signs });
+  const run = await expired.supervise(first.runId);
+  assert.deepEqual(run.report.loginExpired, { sign: 'OAuth refresh failed for {provider}', provider: 'Anthropic' });
+  assert.deepEqual([slot(expired).run.outcome, slot(expired).run.runId, slot(expired).run.provider], ['expired', first.runId, 'Anthropic']);
+
+  const other = project(t, { run: [{ emit: { type: 'result', status: 'failure', summary: 'the tests failed' } }, { exit: 1 }] });
+  const plain = await other.supervise(other.seed({ edit: signs }).runId);
+  assert.equal(Object.hasOwn(plain.report, 'loginExpired'), false);
+  assert.equal(fs.existsSync(storeFile(other)), false, 'a failure without a sign writes no login outcome');
+
+  const ok = project(t, { run: [{ emit: SUCCESS }] });
+  const good = await ok.supervise(ok.seed({ edit: signs }).runId);
+  assert.equal(Object.hasOwn(good.report, 'loginExpired'), false);
+  assert.equal(slot(ok).run.outcome, 'succeeded');
+});
+
 test('launchObserved follows the unit binding', POSIX, async (t) => {
   const bound = project(t, { run: [{ emit: SUCCESS }] });
   const a = bound.seed();

@@ -9,9 +9,10 @@
  * IC-009, IC-010). DEC-002, DEC-003, DEC-004, DEC-006, DEC-009, DEC-018, DEC-019, DEC-020,
  * DEC-031, DEC-044. Describe and select write nothing.
  *
- * Nothing here reads a credential: login is learned from a probe's exit status only, probe stdout
- * is read up to 64 KiB and never stored, and the only paths read under the home directory are the
- * unit binding `stateDir()/sessions/<unit>/bound` and `sessions.log` (IC-030).
+ * Nothing here reads a credential: login is learned from the harness's declared recipe (`login.ts`,
+ * 172 design 4.6), probe stdout is read up to 64 KiB and never stored, and the only paths read under
+ * the home directory are the unit binding `stateDir()/sessions/<unit>/bound`, `sessions.log` (IC-030)
+ * and the user-level `harness-login` store, from which the effective `login` fact is read.
  *
  * Harness descriptors come from the registry's `worker` blocks, or from `descriptors`
  * (`{ <harnessId>: <worker block> }`) passed in process by tests (DEC-036). When `descriptors` is
@@ -41,6 +42,8 @@ const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { spawnBounded } = require('./process-tree.ts');
 const { parserOf, parserIdOf, UNPARSED } = require('./parsers.ts');
 const { enforcementFor, UnknownEnforcementTarget } = require('../../lifecycle/coverage.ts');
+const { checkLogin, loginAnswerOf, loginFact, recipeDigest } = require('./login.ts');
+const { readLoginStore, recordRecipeAnswer, recordRunOutcome } = require('./login-store.ts');
 
 /** A recorded fact is effective for 24 hours against a matching discover (DEC-019). */
 const PROBE_MAX_AGE_MS = 86400000;
@@ -243,8 +246,23 @@ function installedFact(found: any) {
   return fact('unknown', found.reason, found.at);
 }
 
+/** The store is a cache (172 D6): a write that fails leaves it as it was and changes no probe. */
+function storeWrite(write: () => unknown) {
+  try { write(); } catch { /* the next check or run writes it */ }
+}
+
+/**
+ * 172 design 4.6: `harness`'s login answer, read from the `harness-login` store (one read per call when `store` is
+ * given), never from the probe record. Starts no process.
+ */
+function loginAnswerFor(harness: string, worker: any, { env, now, store }: any) {
+  const loaded = store ?? readLoginStore(env);
+  const record = Object.hasOwn(loaded.harnesses, harness) ? loaded.harnesses[harness] : null;
+  return loginAnswerOf({ harness, worker, record, now });
+}
+
 /** IC-005: the eight free facts for one harness. */
-async function freeFacts(worker: any, found: any, { env, root, now, probeIdentity }: any) {
+async function freeFacts(harness: string, worker: any, found: any, { env, root, now, probeIdentity }: any) {
   const facts: any = { installed: installedFact(found) };
   const bounded = (argv: string[], childEnv = env) => runBounded(found.path, argv, { env: childEnv, cwd: root, timeoutMs: PROBE_TIMEOUT_MS, now });
   const gate = (entry: any) => {
@@ -275,10 +293,12 @@ async function freeFacts(worker: any, found: any, { env, root, now, probeIdentit
     facts.guidanceLoaded = guidanceFact(result, worker.guidanceProbe.marker, at);
   }
 
+  // 172 design 4.6: the declared recipe, its answer recorded in the store; the record keeps what it found.
   facts.login = gate(worker.loginProbe);
   if (!facts.login) {
-    const { result, at } = await bounded(worker.loginProbe.argv);
-    facts.login = exitFact(result, at);
+    const answer = await checkLogin({ harness, worker, env, cwd: root, now, binaryPath: found.path });
+    storeWrite(() => recordRecipeAnswer(env, harness, answer, recipeDigest(worker)));
+    facts.login = loginFact({ ...answer, harness, provider: null });
   }
 
   const at = iso(now());
@@ -288,7 +308,7 @@ async function freeFacts(worker: any, found: any, { env, root, now, probeIdentit
 }
 
 /** IC-006: runs one declared model check and returns the facts it establishes and its usage. */
-async function runModelCheck(worker: any, found: any, check: any, budgetTokens: number, { env, root, now, probeIdentity }: any) {
+async function runModelCheck(harness: string, worker: any, found: any, check: any, budgetTokens: number, { env, root, now, probeIdentity }: any) {
   const identity = probeIdentity();
   const { result, startedAtMs, at } = await runBounded(found.path, check.argv, {
     env: probeEnv(env, identity, root), cwd: root, timeoutMs: check.timeoutSeconds * 1000, now,
@@ -303,7 +323,11 @@ async function runModelCheck(worker: any, found: any, check: any, budgetTokens: 
   if (establishes.has('guidanceLoaded')) {
     facts.guidanceLoaded = guidanceFact(result, supported(worker.guidanceProbe) ? worker.guidanceProbe.marker : undefined, at, basis);
   }
-  if (establishes.has('login')) facts.login = exitFact(result, at, basis);
+  if (establishes.has('login')) {
+    facts.login = exitFact(result, at, basis);
+    // 172 design 4.6: a model check that ran is a run; its exit 0 is a `succeeded` outcome.
+    if (facts.login.state === 'yes') storeWrite(() => recordRunOutcome(env, harness, { outcome: 'succeeded', at }, { now }));
+  }
 
   let measured: number | null = null;
   if (supported(worker.structuredOutput)) {
@@ -371,23 +395,21 @@ function writeRecord(root: string, record: any, nowMs: number) {
 /**
  * IC-007: the effective facts of `record` against `current`, a discover entry carrying
  * `descriptorDigest`. A fact older than 24 hours, or a record whose binary path, version or digest
- * differs, reads `unknown`, `probe-stale`; a harness with no record reads `not-probed`.
+ * differs, reads `unknown`, `probe-stale`; a harness with no record reads `not-probed`. With `login`
+ * (a 172 `LoginAnswer`, `loginAnswerFor`'s), the `login` fact is that answer's, record or not.
  */
-function effectiveFacts(record: any, current: any, now: any = Date.now) {
+function effectiveFacts(record: any, current: any, now: any = Date.now, login?: any) {
   const nowMs = clock(now)();
   const out: any = {};
-  if (!record) {
-    for (const name of FACTS) out[name] = { state: 'unknown', reason: 'not-probed', at: null };
-    return out;
-  }
-  const matches = Boolean(current) && record.binaryPath === current.path && record.version === current.version
+  const matches = Boolean(record) && Boolean(current) && record.binaryPath === current.path && record.version === current.version
     && record.descriptorDigest === current.descriptorDigest;
   for (const name of FACTS) {
-    const recorded = record.facts?.[name];
+    const recorded = record?.facts?.[name];
     if (!recorded) out[name] = { state: 'unknown', reason: 'not-probed', at: null };
     else if (!matches || !freshAt(recorded.at, nowMs)) out[name] = { state: 'unknown', reason: 'probe-stale', at: recorded.at };
     else out[name] = recorded;
   }
+  if (login) out.login = loginFact(login);
   return out;
 }
 
@@ -436,13 +458,13 @@ async function probe({
   const results: any[] = [];
   for (const entry of entries) {
     const found = discoverOne(entry, { env, cwd, now: tick, platform });
-    const facts = await freeFacts(entry.worker, found, { env, root, now: tick, probeIdentity });
+    const facts = await freeFacts(entry.harness, entry.worker, found, { env, root, now: tick, probeIdentity });
     const modelChecks: any = {};
     let ran: any;
     if (modelCheck !== undefined && modelCheck !== null) {
       const check = entry.worker.modelChecks.find((item: any) => item.id === modelCheck);
       if (found.present) {
-        const outcome = await runModelCheck(entry.worker, found, check, budgetTokens, { env, root, now: tick, probeIdentity });
+        const outcome = await runModelCheck(entry.harness, entry.worker, found, check, budgetTokens, { env, root, now: tick, probeIdentity });
         Object.assign(facts, outcome.facts);
         modelChecks[modelCheck] = outcome.summary;
         ran = { id: modelCheck, ran: true, ...outcome.summary };
@@ -461,7 +483,8 @@ async function probe({
       modelChecks,
     }, atMs);
     // FR-003: task-eligible, IC-008 over the effective facts of the record just written; never stored.
-    const effective = effectiveFacts(record, { path: found.path, version: found.version, descriptorDigest: record.descriptorDigest }, atMs);
+    const login = loginAnswerFor(entry.harness, entry.worker, { env, now: atMs });
+    const effective = effectiveFacts(record, { path: found.path, version: found.version, descriptorDigest: record.descriptorDigest }, atMs, login);
     const taskEligible = eligibility(requirementsFor(entry, effective, valid, cov));
     results.push({ harness: entry.harness, facts: record.facts, taskEligible, recordedAt: record.at, ...(ran ? { modelCheck: ran } : {}) });
   }
@@ -584,10 +607,11 @@ function readinessContext({ descriptors, registry, coverage, active, view }: any
 }
 
 /** Discover, then the IC-007 effective facts and IC-008 evaluation of one harness. Writes nothing. */
-function evaluateHarness(entry: any, needs: string[], coverage: any, { env, cwd, root, now, platform, edit }: any) {
+function evaluateHarness(entry: any, needs: string[], coverage: any, { env, cwd, root, now, platform, edit, store }: any) {
   const found = discoverOne(entry, { env, cwd, now, platform });
   const record = readProbeRecord(root, entry.harness);
-  const facts = effectiveFacts(record, { ...found, descriptorDigest: descriptorDigest(entry.worker) }, now);
+  const login = loginAnswerFor(entry.harness, entry.worker, { env, now, store });
+  const facts = effectiveFacts(record, { ...found, descriptorDigest: descriptorDigest(entry.worker) }, now, login);
   const requirements = requirementsFor(entry, facts, needs, coverage, edit === true);
   return { harness: entry.harness, facts, recordedAt: record?.at ?? null, requirements, ...eligibility(requirements) };
 }
@@ -668,7 +692,8 @@ function select({
   }
   const valid = validateNeeds(needs, context.coverage);
   const tick = clock(now);
-  const evaluated = entries.map((entry) => evaluateHarness(entry, valid, context.coverage, { env, cwd, root, now: tick, platform, edit }));
+  const store = readLoginStore(env);
+  const evaluated = entries.map((entry) => evaluateHarness(entry, valid, context.coverage, { env, cwd, root, now: tick, platform, edit, store }));
   const candidates = evaluated.map(({ harness: id, eligible, gaps }) => ({ harness: id, eligible, gaps }));
   const chosen = evaluated.find((item) => item.eligible);
   if (!chosen) {
@@ -699,6 +724,7 @@ module.exports = {
   discover,
   probe,
   exitFact,
+  loginAnswerFor,
   newProbeIdentity,
   observeForwarding,
   bindingObserved,

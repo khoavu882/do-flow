@@ -362,6 +362,27 @@ function loginFact(answer: LoginAnswer, basis = 'free') {
   return fact('unknown', answer.reason);
 }
 
-module.exports = { checkLogin, loginAnswerOf, loginAnswers, loginExpiredOf, loginFact, recipeDigest, PROCESS_MS, LISTING_MS, TOTAL_MS, ANSWER_BYTES };
+/**
+ * Design 7.2's doctor `login:` cell for one answer, with LD-1's caveat inside the brackets of a recipe-sourced answer:
+ * `logged-in (login check, <at>; <caveat>)`, `expired (run, <at>) provider <p> (re-login: <hint>)`, `unknown (never
+ * checked)`, `unknown (no login check: <reason>)`, `unknown (stale; last <state> <at>)`, `unknown (<reason>, <at>)`.
+ */
+function loginCell(answer: LoginAnswer): string {
+  const caveat = answer.caveat ? `; ${answer.caveat}` : '';
+  const relogin = answer.hint ? ` (re-login: ${answer.hint})` : '';
+  const how = `${answer.source === 'recipe' ? 'login check' : 'run'}, ${answer.at}${caveat}`;
+  if (answer.state === 'logged-in') return `logged-in (${how})`;
+  if (answer.state === 'logged-out') return `logged-out (${how})${relogin}`;
+  if (answer.state === 'expired') return `expired (${how})${answer.provider ? ` provider ${answer.provider}` : ''}${relogin}`;
+  const reason = answer.reason ?? 'unknown';
+  if (reason === 'never-checked') return 'unknown (never checked)';
+  if (reason === 'no-recipe' || reason.startsWith('no-recipe: ')) {
+    return `unknown (no login check${reason === 'no-recipe' ? '' : `: ${reason.slice('no-recipe: '.length)}`})`;
+  }
+  if (reason === 'stale' && answer.last) return `unknown (stale; last ${answer.last.state} ${answer.last.at}${caveat})`;
+  return `unknown (${reason}${answer.at ? `, ${answer.at}` : ''}${caveat})`;
+}
+
+module.exports = { checkLogin, loginAnswerOf, loginAnswers, loginExpiredOf, loginFact, loginCell, recipeDigest, PROCESS_MS, LISTING_MS, TOTAL_MS, ANSWER_BYTES };
 
 export type { LoginRecipe, RecipeAnswer, LoginAnswer, LoginState, ProviderAnswer };
