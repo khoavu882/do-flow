@@ -101,7 +101,7 @@ Copilot settings file and no plugin. OpenCode
 uses code modules rather than the shell commands DoFlow ships, so no OpenCode hook is installed.
 Pi now has a `tool_call` guard extension at user and project scope; the project extension runs only
 after the project is trusted. OpenCode's `opencode.json` merge remains supported; DoFlow does not write Pi's `settings.json`.
-Gemini CLI was retired in favour of Antigravity: `--target gemini` is refused, and an existing
+Gemini CLI was retired in favour of Antigravity: `--target gemini` is an unknown target, and an existing
 Gemini CLI install is released on the next `install`, `update` or `reconcile`; see
 [Antigravity's global instructions file](#antigravity-global-instructions-file). Each of the three
 backs up the files the release changes before it applies it, so `doflow rollback` can undo it. The
