@@ -18,4 +18,4 @@
 
 ## Adding a harness
 
-- [Adding a harness](https://khoavu882.github.io/do-flow/adding-a-harness/): Adding a harness to DoFlow, starting with the per-harness code that is still not data.
+- [Adding a harness](https://khoavu882.github.io/do-flow/adding-a-harness/): How to add a harness to DoFlow, from its registry rows and descriptor to a field map and the conform check.
