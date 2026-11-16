@@ -34,6 +34,7 @@ const { spawnSync } = require('node:child_process');
 const readiness = require('./readiness.ts');
 const { readBindings } = require('./models.ts');
 const { workerCatalogue } = require('./catalogue.ts');
+const { PARSERS, parserIdOf } = require('./parsers.ts');
 const { workerIdFault } = require('../../registry/worker-ids.ts');
 const { storeFileFor, newRunId, insertRun, transition, readRuns } = require('./run-store.ts');
 const { mainLaunchRecord, STARTED_RUN_VAR } = require('./launch.ts');
@@ -120,6 +121,16 @@ function worktreeGone(main: string, worktreeKey: string): boolean {
   return String(r.stdout).split('\n').filter((line) => line.startsWith('worktree '))
     .map((line) => line.slice('worktree '.length))
     .some((p) => !fs.existsSync(p) && cwdHash(p) === worktreeKey);
+}
+
+/**
+ * 171 FR-006: the part of a worker's `structuredOutput` the detached supervisor needs to resolve the main-session parser: its own
+ * field map, only when `mainSession.parser` is no `PARSERS` key and names that map's id. A built-in's record stays unchanged.
+ */
+function mapPart(worker: any): { structuredOutput?: { fieldMap: any } } {
+  const id = parserIdOf(worker.mainSession);
+  const map = worker.structuredOutput?.fieldMap;
+  return typeof id === 'string' && !Object.hasOwn(PARSERS, id) && map?.id === id ? { structuredOutput: { fieldMap: map } } : {};
 }
 
 /** The worker blocks in catalogue order, package workers included: `[{ harness, worker }]`, an injected descriptor winning. */
@@ -390,7 +401,7 @@ async function startSession(o: any) {
     ...mainLaunchRecord(worker, prepared.sent, model),
     // The detached supervisor launches from the record alone: the binary the version read found (an absolute
     // path, as `run` records), the recipe and the model part.
-    descriptor: { cli: { binary: facts.found.path }, mainSession: worker.mainSession, model: worker.model ?? null },
+    descriptor: { cli: { binary: facts.found.path }, mainSession: worker.mainSession, ...mapPart(worker), model: worker.model ?? null },
   };
   // Liveness is read outside the lock (`ps` is a process); a run inserted after this reading is counted open and live.
   const named = namingScan(platform);
