@@ -148,14 +148,103 @@ test('a field map whose earlier rule shadows a later one fails stream as shadowe
   assert.deepEqual(outcome.body.failed, ['stream']);
 });
 
-test('a declared loginProbe passes on exit 0 yes and exit 1 no, and one holding a widening flag fails login by name', POSIX, async (t) => {
-  const login = (argv: string[]) => registryWith('codex', (w) => { w.loginProbe = { status: 'supported', argv }; });
-  const good = await conformVia(t, 'codex', login(['login', 'status']));
-  assert.equal(good.exit, 0, JSON.stringify(good.body));
-  assert.equal(partOf(good.body, 'login').result, 'passed');
-  const bad = await conformVia(t, 'codex', login(['login', 'status', '--dangerously-bypass-approvals-and-sandbox']));
-  assertFailsPart(bad, 'login', /widening/);
-  assert.deepEqual(bad.body.failed, ['login']);
+// Row 172 T4 (design §8): scratch copies of design §3.3's two recipes, the claude one with LD-1's caveat. Injected
+// through `registryWith`, so the registry validator (L3 would refuse a shadowed rule) does not see them: the cases
+// below test conform's own dynamic checks.
+const EVIDENCE = { evidence: ['scratch'], verification: 'Scratch.', verifiedOn: '2026-11-16' };
+const CLAUDE_RECIPE = {
+  ...EVIDENCE, status: 'supported', argv: ['auth', 'status', '--json'], output: 'json',
+  answers: [{ exit: 0, state: 'logged-in' }, { exit: 1, state: 'logged-out' }],
+  billing: { path: ['authMethod'], values: {
+    'claude.ai': { mode: 'subscription', billing: 'free' }, oauth_token: { mode: 'subscription', billing: 'free' },
+    api_key: { mode: 'api-key', billing: 'metered' }, api_key_helper: { mode: 'api-key', billing: 'metered' } } },
+  expiry: 'not-seen', hint: 'claude auth login', caveat: 'its help and docs do not show that this check runs offline',
+};
+const PI_RECIPE = {
+  ...EVIDENCE, status: 'supported', argv: ['auth', 'check', '--provider', '{provider}', '--json', '--no-refresh'], output: 'json',
+  providers: { argv: ['--list-models', '--offline'], parse: 'table-column:provider', emptyMeans: 'logged-out', max: 8 },
+  answers: [
+    { exit: 0, state: 'logged-in' },
+    { exit: 1, when: [{ path: ['reason'], equals: 'provider_not_found' }], state: 'unknown', reason: 'provider-not-found' },
+    { exit: 1, when: [{ path: ['status'], equals: 'not_ready' }], state: 'logged-out' },
+    { exit: 2, state: 'unknown', reason: 'invalid' }],
+  billing: { path: ['authType'], values: { oauth: { mode: 'subscription', billing: 'unknown' }, api_key: { mode: 'api-key', billing: 'metered' } } },
+  expiry: 'not-seen',
+  expirySigns: { signs: ['OAuth refresh failed for {provider}', 'OAuth refresh returned a token that expires too soon for {provider}'],
+    basis: 'source', evidence: ['<Pi 1.5.2 pi-ai dist/auth/resolve.js:81,114>'] },
+  hint: 'pi auth login <provider>',
+};
+const withRecipe = (id: string, recipe: any, change: (probe: any) => void = () => {}) => registryWith(id, (w) => {
+  w.loginProbe = structuredClone(recipe);
+  change(w.loginProbe);
+});
+
+test('a scratch descriptor whose answers[1] is shadowed fails the login part naming answers[1]', POSIX, async (t) => {
+  // An exit-0 rule with a test, placed after the exit-0 rule with none: answers[0] takes every exit 0 first.
+  const reg = withRecipe('pi', PI_RECIPE, (probe) => {
+    probe.answers.splice(1, 0, { exit: 0, when: [{ path: ['status'], equals: 'expired' }], state: 'expired', reason: 'token-expired' });
+  });
+  const outcome = await conformVia(t, 'pi', reg);
+  assertFailsPart(outcome, 'login', /^answers\[1\] is shadowed by answers\[0\]$/);
+  assert.deepEqual(outcome.body.failed, ['login']);
+});
+
+test('a scratch copy of the pi recipe passes the login part: 4 answers, 2 signs, providers yes', POSIX, async (t) => {
+  const outcome = await conformVia(t, 'pi', withRecipe('pi', PI_RECIPE));
+  assert.equal(outcome.exit, 0, JSON.stringify(outcome.body));
+  assert.deepEqual(partOf(outcome.body, 'login'), { part: 'login', result: 'passed', reason: '4 answers, 2 signs, providers yes' });
+});
+
+test('a scratch copy of the claude recipe, with its caveat, passes the login part: 2 answers, 0 signs, providers no', POSIX, async (t) => {
+  const outcome = await conformVia(t, 'claude', withRecipe('claude', CLAUDE_RECIPE));
+  assert.equal(outcome.exit, 0, JSON.stringify(outcome.body));
+  assert.deepEqual(partOf(outcome.body, 'login'), { part: 'login', result: 'passed', reason: '2 answers, 0 signs, providers no' });
+});
+
+test('a rule its own case does not answer fails as answers[i] reads <state>', POSIX, async (t) => {
+  // output none: no stdout is parsed, so the provider_not_found case reads `unknown unparseable-output`.
+  const reg = withRecipe('pi', PI_RECIPE, (probe) => { probe.output = 'none'; delete probe.billing; });
+  const outcome = await conformVia(t, 'pi', reg);
+  assertFailsPart(outcome, 'login', /answers\[1\] reads unknown unparseable-output, want unknown provider-not-found/);
+});
+
+test('an expiry sign that its own sample cannot match fails the login part naming the sign', POSIX, async (t) => {
+  const reg = withRecipe('pi', PI_RECIPE, (probe) => { probe.expirySigns.signs = ['OAuth refresh failed for {provider}', 'OAuth refresh failed for {provider} again']; });
+  const outcome = await conformVia(t, 'pi', reg);
+  assertFailsPart(outcome, 'login', /expirySigns\.signs\[1\] is matched as signs\[0\]/);
+  assert.deepEqual(outcome.body.failed, ['login']);
+});
+
+test('a recipe argv holding a secret flag or a widening flag fails the login part by name', POSIX, async (t) => {
+  const secret = await conformVia(t, 'claude', withRecipe('claude', CLAUDE_RECIPE, (probe) => { probe.argv.push('--show-token'); }));
+  assertFailsPart(secret, 'login', /secret flag '--show-token'/);
+  assert.deepEqual(secret.body.failed, ['login']);
+  const listing = await conformVia(t, 'pi', withRecipe('pi', PI_RECIPE, (probe) => { probe.providers.argv.push('--credentials', 'x'); }));
+  assertFailsPart(listing, 'login', /providers argv holds the secret flag '--credentials'/);
+  const widening = await conformVia(t, 'codex', withRecipe('codex', CLAUDE_RECIPE, (probe) => { probe.argv.push('--dangerously-bypass-approvals-and-sandbox'); }));
+  assertFailsPart(widening, 'login', /widening flag '--dangerously-bypass-approvals-and-sandbox'/);
+});
+
+test('an unknown or unsupported loginProbe leaves the login part unchecked not-declared', POSIX, async (t) => {
+  for (const status of ['unknown', 'unsupported']) {
+    const reg = registryWith('pi', (w) => { w.loginProbe = { ...EVIDENCE, status, reason: 'scratch' }; });
+    const outcome = await conformVia(t, 'pi', reg);
+    assert.equal(outcome.exit, 0, JSON.stringify(outcome.body));
+    assert.deepEqual(partOf(outcome.body, 'login'), { part: 'login', result: 'unchecked', reason: 'not-declared' });
+  }
+});
+
+test("the login part's slow-fake case reads unknown timeout within 1 s", POSIX, async () => {
+  // The slow case is the part's last: its listing is the last listing logged, then one check that sleeps past the
+  // part's 300 ms bound. The part fails unless that check reads `unknown timeout`, so a pass is that reading.
+  let listed = 0;
+  const onLog = (log: any) => { if (JSON.stringify(log.argv) === JSON.stringify(PI_RECIPE.providers.argv)) listed = Date.now(); };
+  const { exit, body } = await conformModule().conform({ harness: 'pi', registry: withRecipe('pi', PI_RECIPE), view: EMPTY_VIEW, onLog });
+  const ended = Date.now();
+  assert.equal(exit, 0, JSON.stringify(body));
+  assert.equal(partOf(body, 'login').result, 'passed');
+  assert.ok(listed > 0, 'the listing ran');
+  assert.ok(ended - listed < 1000, `the slow check ended ${ended - listed} ms after its listing, want under 1000`);
 });
 
 test('the fake logged only PATH, HOME, LANG and DOFLOW_CONFORM_* env keys', POSIX, async (t) => {
