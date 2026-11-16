@@ -244,14 +244,6 @@ test('createFileBackup throws BackupError on a copy error and leaves no backup a
   assert.deepStrictEqual(fs.readdirSync(backupRoot), [], 'neither the id directory nor a .tmp- directory remains');
 });
 
-test('createFileBackup refuses the legacy root before writing anything', () => {
-  const root = scratchDir();
-  const file = write(path.join(root, '.claude', 'a.md'), 'x');
-  const legacyRoot = path.join(root, '.claude', 'backups');
-  assert.throws(() => backup(handSet(root, [{ file }]), legacyRoot), /legacy backup root/);
-  assert.ok(!fs.existsSync(legacyRoot));
-});
-
 test('a temp records when the run started, not the date the backup is named for (FU-kj372j)', () => {
   const root = scratchDir();
   const file = write(path.join(root, '.claude', 'a.md'), 'x');
@@ -304,10 +296,9 @@ test('sweepStaleTemps removes dead and expired temps, keeps live ones, ignores n
   assert.deepStrictEqual(fs.readdirSync(backupRoot).sort(), ['install_2026-01-01_00-00-00', 'tmp-not-dot']);
 });
 
-test('sweepStaleTemps returns 0 for a missing root and refuses the legacy root', () => {
+test('sweepStaleTemps returns 0 for a missing root', () => {
   const root = scratchDir();
   assert.strictEqual(sweepStaleTemps(path.join(root, '.doflow', 'backups')), 0);
-  assert.throws(() => sweepStaleTemps(path.join(root, '.claude', 'backups')), /legacy backup root/);
 });
 
 test('listBackups skips temps and reports format, completeness and size for each kind', () => {

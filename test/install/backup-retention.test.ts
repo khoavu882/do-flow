@@ -363,18 +363,6 @@ test('a removal error is reported and the pass continues', () => {
   assert.strictEqual(result.kept, 3);
 });
 
-test('the legacy root is refused and its backups keep their bytes', () => {
-  const scope = scratchDir();
-  const legacyRoot = path.join(scope, '.claude', 'backups');
-  const dir = plant(legacyRoot, 'install_2026-01-01_00-00-00', '2026-01-01T00:00:00.000Z');
-  const before = fs.readFileSync(path.join(dir, 'files', 'a.md'));
-  plant(legacyRoot, 'install_2026-01-02_00-00-00', '2026-01-02T00:00:00.000Z');
-
-  assert.throws(() => applyRetention({ backupRoot: legacyRoot, keep: 1 }), /legacy backup root/);
-  assert.deepStrictEqual(fs.readFileSync(path.join(dir, 'files', 'a.md')), before);
-  assert.strictEqual(remaining(legacyRoot).length, 2);
-});
-
 test('a project pass leaves the global root untouched', () => {
   const home = scratchDir();
   const project = path.join(home, 'project');

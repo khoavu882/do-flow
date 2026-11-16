@@ -79,8 +79,7 @@ function ownershipView({ file, files, selected = [], adoptable = [], ownRows = [
     return recorded !== null ? entryFingerprint(value) === recorded : sameValue(value, rendered.get(row.identity));
   };
   const rowsFor = (id: string) => ownRows.filter((row: any) => row.identity === id && row.target === file);
-  // A legacy row is consumed alongside the current one, but never preferred over it.
-  const rowFor = (id: string) => { const rows = rowsFor(id); return rows.find((row: any) => !row.legacy) ?? rows[0] ?? null; };
+  const rowFor = (id: string) => rowsFor(id)[0] ?? null;
   const adoptionOpen = ownRows.length === 0;
   const adoptableIds = new Set(adoptable.map((server: any) => server.id));
   const selectedIds = new Set(selected.map((server: any) => server.id));
@@ -106,7 +105,7 @@ function orderOf(selected: any[], adoptable: any[]): (a: any, b: any) => number 
 
 /**
  * Decide every MCP entry change for one harness at one scope. `selected` and `adoptable` are the
- * adapter's rendered entries `[{ id, entry }]`; `ownRows` its rows (legacy ones flagged `legacy`);
+ * adapter's rendered entries `[{ id, entry }]`; `ownRows` its rows;
  * `foreignRows` other harnesses' rows; `identityFor` composes the adapter's ownership identity.
  */
 function planMcpEntries({ file, files, selected = [], adoptable = [], ownRows = [], foreignRows = [], removing = false,
@@ -147,8 +146,6 @@ function planMcpEntries({ file, files, selected = [], adoptable = [], ownRows = 
       if (row || value === undefined) {
         if (value === undefined) changes.push(write('create', id, entry));
         else if (!sameValue(value, entry)) changes.push(write('update', id, entry));
-        // The row verify records under the adapter's identity replaces the legacy one in this run.
-        for (const item of rows) if (item.legacy) changes.push(drop(item, true));
       } else if (!view.claimable(id, entry)) {
         notices.push(NOTICES.collision(id, file));
       }

@@ -112,10 +112,10 @@ describe('capture switch (IC-014)', () => {
   let ctx: any;
   beforeEach(() => { ctx = freshEnv('switch'); });
 
-  test('on by default, and stat-ing the sentinel creates no folder', (): any => {
+  test('on by default, and reading the switch creates no folder', (): any => {
     const home = homeOf(ctx.env);
     assert.deepEqual(captureSwitch(home, ctx.env), {
-      effective: 'on', sentinel: false, env: null, settings: null, decidedBy: 'core/registry/settings.json',
+      effective: 'on', env: null, settings: null, decidedBy: 'core/registry/settings.json',
     });
     assert.equal(fs.existsSync(home), false);
   });
@@ -132,14 +132,13 @@ describe('capture switch (IC-014)', () => {
       assert.equal(captureIsOff(homeOf(env), env), false);
     });
   }
-  test('the sentinel wins, and an env value of on cannot turn capture on over it', () => {
+  test('a failures/off file is not read: capture stays on', () => {
     const home = homeOf(ctx.env);
     fs.mkdirSync(home, { recursive: true });
     fs.writeFileSync(path.join(home, 'off'), '2026-10-03T00:00:00.000Z\n');
-    const env: any = { ...ctx.env, DOFLOW_FAILURE_CAPTURE: 'on' };
-    assert.equal(captureIsOff(home, env), true);
-    assert.deepEqual(captureSwitch(home, env), {
-      effective: 'off', sentinel: true, env: 'on', settings: null, decidedBy: path.join(home, 'off'),
+    assert.equal(captureIsOff(home, ctx.env), false);
+    assert.deepEqual(captureSwitch(home, ctx.env), {
+      effective: 'on', env: null, settings: null, decidedBy: 'core/registry/settings.json',
     });
   });
   test('settings.json: a failure.capture value other than "on" turns capture off; "on" and a missing key do not (IC-005)', (): any => {
@@ -154,7 +153,7 @@ describe('capture switch (IC-014)', () => {
     ]) {
       fs.writeFileSync(settings, text);
       assert.deepEqual(captureSwitch(home, ctx.env), {
-        effective, sentinel: false, env: null, settings: settingsValue, decidedBy,
+        effective, env: null, settings: settingsValue, decidedBy,
       }, text);
       assert.equal(captureIsOff(home, ctx.env), effective === 'off', text);
     }
@@ -175,11 +174,11 @@ describe('capture switch (IC-014)', () => {
     const viaEnv: any = { ...ctx.env, DOFLOW_FAILURE_CAPTURE: 'off' };
     assert.equal(captureError(new TypeError('x'), { command: 'decision' }, viaEnv), false);
     assert.equal(fs.existsSync(homeOf(viaEnv)), false);
-    const sentinelHome = homeOf(ctx.env);
-    fs.mkdirSync(sentinelHome, { recursive: true });
-    fs.writeFileSync(path.join(sentinelHome, 'off'), 'x');
+    const settingsHome = homeOf(ctx.env);
+    fs.mkdirSync(path.dirname(settingsHome), { recursive: true });
+    fs.writeFileSync(path.join(path.dirname(settingsHome), 'settings.json'), '{"failure.capture":"off"}');
     assert.equal(captureError(new TypeError('y'), { command: 'decision' }, ctx.env), false);
-    assert.deepEqual(fs.readdirSync(sentinelHome), ['off']);
+    assert.equal(fs.existsSync(settingsHome), false);
   });
 });
 

@@ -115,11 +115,10 @@ function failureHome(env) {
   return dir === null ? null : path.join(dir, 'failures');
 }
 
-/** IC-014, IC-005: the environment first, then one stat of the sentinel file, then settings.json beside the failure home. */
+/** IC-014, IC-005: the environment first, then settings.json beside the failure home. */
 function captureIsOff(home, env) {
   const setting = env.DOFLOW_FAILURE_CAPTURE;
   if (typeof setting === 'string' && CAPTURE_OFF_VALUES.includes(setting.trim().toLowerCase())) return true;
-  try { if (fs.statSync(path.join(home, 'off')).isFile()) return true; } catch { /* no sentinel */ }
   return readLexicalCapture(path.join(path.dirname(home), 'settings.json')) === 'off';
 }
 

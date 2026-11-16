@@ -248,7 +248,7 @@ Seven harnesses, one entry each in `core/registry/transcripts.json`. Only synthe
 | Antigravity | none | DoFlow `record` events only: "transcript not linked", because its adapter records no session id (FU-v82erq) |
 | OpenCode | none | DoFlow `record` events only: "no transcript reader for opencode" (FU-0mc1vc; a read-only SQLite open changed the `-shm` file in the spike, so no reader was built) |
 
-Every agent, whatever its harness, shows DoFlow's own `record` events, so no panel is blank. Gemini CLI has no row: it left the registry. **Windows:** only a Claude Code location is listed for Windows, and its status is `unknown`; transcript locations on Windows are unverified (FU-062jdd). `doctor` reports an entry whose `verifiedOn` date is older than 90 days.
+Every agent, whatever its harness, shows DoFlow's own `record` events, so no panel is blank. **Windows:** only a Claude Code location is listed for Windows, and its status is `unknown`; transcript locations on Windows are unverified (FU-062jdd). `doctor` reports an entry whose `verifiedOn` date is older than 90 days.
 
 ## Design system
 

@@ -257,12 +257,12 @@ function checkSettingsStores(registry: any) {
   const expected: any = {
     'user-settings-project-doflow': {
       root: 'project-doflow',
-      match: '^(?:prompt-nudge|prune|decision-model\\.json|settings\\.json|settings\\.local\\.json)$',
+      match: '^(?:prompt-nudge|settings\\.json|settings\\.local\\.json)$',
       legacyLocal: true,
     },
     'user-settings-config-home': {
       root: 'config-home',
-      match: '^(?:prompt-nudge|prune|decision-model\\.json|settings\\.json)$',
+      match: '^(?:prompt-nudge|settings\\.json)$',
       legacyLocal: false,
     },
   };
@@ -325,12 +325,12 @@ test('G44 S2 control: wrong Type and Legacy file cells are rejected', () => {
   const loaded = loadSettingsRegistry({ repoRoot: REPO, verifyRefs: true });
   assert.equal(loaded.ok, true, loaded.ok ? '' : loaded.detail);
   const good = renderSettingsTable(raw, loaded.registry);
-  const row = good.split('\n').find((line: any) => line.includes('| `storage.prune` |'));
-  assert.ok(row, 'the fixture has a storage.prune row');
-  const wrong = good.replace(row, row.replace('| enum |', '| string |').replace(' | `prune` |', ' | `obsolete-prune` |'));
+  const row = good.split('\n').find((line: any) => line.includes('| `autopilot.enabled` |'));
+  assert.ok(row, 'the fixture has an autopilot.enabled row (the one key that still has a legacy file)');
+  const wrong = good.replace(row, row.replace('| enum |', '| string |').replace(' | `autopilot/off` | ', ' | `obsolete-sentinel` | '));
   const errors = checkSettingsDocs(raw, wrong, loaded.registry);
-  assert.ok(errors.some((message: any) => message.includes('storage.prune type')), errors.join('\n'));
-  assert.ok(errors.some((message: any) => message.includes('storage.prune legacy file')), errors.join('\n'));
+  assert.ok(errors.some((message: any) => message.includes('autopilot.enabled type')), errors.join('\n'));
+  assert.ok(errors.some((message: any) => message.includes('autopilot.enabled legacy file')), errors.join('\n'));
 });
 
 test('G44 S2 control: default refs receive dependencies from registry metadata and requires', () => {

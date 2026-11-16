@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * The `failure` verb (IC-019): `list`, `settle` and `capture` over the machine-wide failure store
  * (IC-011 to IC-015). The store is per machine, so the verb ignores `-g` and works from any
@@ -141,9 +139,8 @@ function captureState({ set, env = process.env }: any = {}): any {
   }
   const state = captureSwitchDetailed(home, env);
   if (settingsFile && state.decidedBy === 'core/registry/settings.json') state.decidedBy = settingsFile;
-  for (const note of state.deprecatedNotes) console.error(printSafe(`note: ${note}`));
   // With no failure home nothing is captured, whatever the switch says.
-  const result: any = { ok: true, action: 'capture', effective: home === null ? 'off' : state.effective, sentinel: state.sentinel, env: state.env };
+  const result: any = { ok: true, action: 'capture', effective: home === null ? 'off' : state.effective, env: state.env };
   if (home === null) result.home = null;
   else if (set !== undefined) {
     result.decidedBy = state.decidedBy;
@@ -163,7 +160,7 @@ function lines(result: any): string[] {
     return [...out, ...result.next.map((n: string) => `next: ${n}`)];
   }
   if (result.action === 'settle') return [`${result.fp} settled as ${result.as}${result.followup ? `, follow-up ${result.followup.id}` : ''}`];
-  return [`capture ${result.effective}${result.sentinel ? ' (switched off on this machine)' : ''}${result.env ? ` (DOFLOW_FAILURE_CAPTURE=${result.env})` : ''}${result.decidedBy ? ` (decided by ${result.decidedBy})` : ''}`];
+  return [`capture ${result.effective}${result.env ? ` (DOFLOW_FAILURE_CAPTURE=${result.env})` : ''}${result.decidedBy ? ` (decided by ${result.decidedBy})` : ''}`];
 }
 
 /**

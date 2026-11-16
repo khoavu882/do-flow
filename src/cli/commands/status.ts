@@ -28,13 +28,13 @@ function cmdStatus(o: any): void {
   let mcpSelections: any = null;
   try {
     const registry = loadRegistry({ repoRoot: REPO_ROOT });
-    const { lock, ledger, manifestServers } = scopeSelectionState(scope);
-    const recorded = recordedMcpSelections({ registry, lock, ledger, targets, manifestServers });
+    const { lock } = scopeSelectionState(scope);
+    const recorded = recordedMcpSelections({ registry, lock, targets });
     const rows = pinnedSelections(lock);
     mcpSelections = Object.fromEntries(targets.filter((harness: string) => mcpCapable(registry, harness))
       .map((harness: string) => [harness, rows[harness] ?? null]));
     registryView = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets,
-      mcpSelections: recorded.selections, mcpAdoptable: recorded.adoptable, retainedMcpIds: recorded.retainedMcpIds });
+      mcpSelections: recorded.selections, retainedMcpIds: recorded.retainedMcpIds });
     ctx.registry = {
       directory: registryView.registry.directory,
       versions: registryView.registry.versions,

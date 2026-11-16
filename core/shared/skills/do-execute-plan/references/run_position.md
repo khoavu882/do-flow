@@ -19,8 +19,8 @@ follows is the call that positions the run and every branch off its response.
 - `<slug>` is step 1's `feature_slug`; `<class>` is the class step 2's `classify` call accepted;
   `<stage id>` is the id of the entry in that call's `workflow.stages[]` whose `skill` is
   `do-execute-plan` (`implementation` in the `feature` workflow) — read it off that response,
-  never hardcode a guess. One call positions the run: it starts one when none exists yet (an
-  old-layout feature, or a chain that skipped straight here), backfills any earlier non-mutating
+  never hardcode a guess. One call positions the run: it starts one when none exists yet (a
+  feature with no run record yet, or a chain that skipped straight here), backfills any earlier non-mutating
   stage as a routine handoff (marked `backfilled` in the trail, distinct from a stage its own
   skill actually completed), and stops on the node this skill must act on — or on any gate in the
   way, `clarification`-kind included, since only a human or that gate's own owning skill may

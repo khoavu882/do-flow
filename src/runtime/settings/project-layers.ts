@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * 086 IC-007, DD-9: where the project layer of the settings lives. Locates files only; both project
  * files are untrusted (D-16) and the resolver reads them. A linked worktree with no settings of its
@@ -21,7 +19,7 @@ const nodeFs = require('node:fs');
 const path = require('node:path');
 
 const MARKER = '.doflow-worktree-base';
-const SETTINGS_FILES = Object.freeze(['settings.json', 'settings.local.json', 'decision-model.json', 'prune']);
+const SETTINGS_FILES = Object.freeze(['settings.json', 'settings.local.json']);
 const MAX_POINTER_BYTES = 4096;
 const GITDIR_LINE = /^gitdir:[ \t]*([^\r\n]+?)[ \t]*\r?\n?$/;
 

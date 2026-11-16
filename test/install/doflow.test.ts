@@ -123,52 +123,6 @@ test('toolDirs global:true resolves under $HOME', () => {
   assert.strictEqual(dirs.pi, path.join(os.homedir(), '.pi', 'agent'));
 });
 
-test('manifest keeps legacy state readable without a managed-resource ledger', (t) => {
-  const root = tempDir(t, 'doflow-doflow-');
-  const claudeDir = path.join(root, '.claude');
-  fs.mkdirSync(claudeDir, { recursive: true });
-  fs.writeFileSync(manifestPath(claudeDir), JSON.stringify({
-    script_version: '2.4.4', last_operation: 'install', last_run: '2026-07-24T00:00:00Z',
-    source_path: REPO, source_commit: 'legacy', last_backup_id: 'install_legacy', tools: {},
-  }));
-
-  const manifest = readManifest(claudeDir);
-  assert.strictEqual(manifest.operation, 'install');
-  assert.deepStrictEqual(manifest.managedResources, []);
-});
-
-test('manifest writes and reads Codex managed-resource ownership records', (t) => {
-  const root = tempDir(t, 'doflow-doflow-');
-  const claudeDir = path.join(root, '.claude');
-  const managedResources = [{
-    target: 'codex', scope: 'project', kind: 'mcp-server', identity: 'doflow.context7',
-    sourceVersion: '2.4.4', fingerprint: 'sha256:managed-value', selection: true,
-    recoveryPoint: 'install_2026-07-24_00-00-00',
-  }];
-
-  writeManifest({
-    claudeDir, scriptVersion: '2.4.4', operation: 'install', repoRoot: REPO,
-    tools: ['codex'], date: new Date('2026-07-24T00:00:00Z'), sourceCommit: 'test',
-    managedResources,
-  });
-
-  const raw = JSON.parse(fs.readFileSync(manifestPath(claudeDir), 'utf8'));
-  assert.deepStrictEqual(raw.managed_resources, managedResources);
-  assert.deepStrictEqual(readManifest(claudeDir).managedResources, managedResources);
-});
-
-test('manifest preserves a managed-resource ledger when legacy callers omit it', (t) => {
-  const root = tempDir(t, 'doflow-doflow-');
-  const claudeDir = path.join(root, '.claude');
-  const managedResources = [{ target: 'codex', scope: 'global', kind: 'asset', identity: 'doflow.config', sourceVersion: '2.4.4', fingerprint: 'sha256:config', selection: null, recoveryPoint: 'backup_1' }];
-  const common = { claudeDir, scriptVersion: '2.4.4', repoRoot: REPO, tools: ['codex'], sourceCommit: 'test' };
-
-  writeManifest({ ...common, operation: 'install', date: new Date('2026-07-24T00:00:00Z'), managedResources });
-  writeManifest({ ...common, operation: 'update', date: new Date('2026-07-25T00:00:00Z') });
-
-  assert.deepStrictEqual(readManifest(claudeDir).managedResources, managedResources);
-});
-
 test('resolveContext exposes an optional managed-resource ledger without changing legacy context', () => {
   const base = { repoRoot: REPO, global: false, projectRoot: '/tmp/project', targets: ['codex'], dirs: { codex: '/tmp/project/.codex' }, sourceCommit: 'test' };
   assert.ok(!Object.hasOwn(resolveContext(base), 'managedResources'));

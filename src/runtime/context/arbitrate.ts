@@ -16,12 +16,12 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { cwdHash, resolveIdentity, stateDir } = require('./identity.ts');
 
-type EmissionEvent = 'launch' | 'prompt' | 'delta' | 'legacy-adopt' | 'compact-store' | 'compact-meta' | 'compact-instructions';
-type Segment = 'slot' | 'git' | 'summary' | 'warning' | 'grant' | 'nudge' | 'legacy' | 'pack' | 'meta' | 'instructions';
-type Action = 'skip' | 'include' | 'truncate' | 'whole' | 'pointer' | 'claim' | 'adopt' | 'write';
+type EmissionEvent = 'launch' | 'prompt' | 'delta' | 'compact-store' | 'compact-meta' | 'compact-instructions';
+type Segment = 'slot' | 'git' | 'summary' | 'warning' | 'grant' | 'nudge' | 'pack' | 'meta' | 'instructions';
+type Action = 'skip' | 'include' | 'truncate' | 'whole' | 'pointer' | 'claim' | 'write';
 type SegmentClass = 'n/a' | 'optional' | 'mandatory' | 'per-item';
-type Claim = 'slot' | 'summary' | 'grant' | 'warning' | 'legacy';
-type InputName = 'role' | 'lineageKind' | 'bootstrapped' | 'subagent' | 'ownSummary' | 'legacy' | 'grant' | 'refusedSeen' | 'warning' | 'nudge';
+type Claim = 'slot' | 'summary' | 'grant' | 'warning';
+type InputName = 'role' | 'lineageKind' | 'bootstrapped' | 'subagent' | 'ownSummary' | 'grant' | 'refusedSeen' | 'warning' | 'nudge';
 
 /** The fields of an IC-007 SessionIdentity (resolveIdentity()) that the rules read. */
 interface ArbitrationIdentity {
@@ -34,7 +34,6 @@ interface EmissionState {
   bootstrapped: boolean;
   subagent: boolean;
   ownSummary: 'none' | 'pending' | 'own-write';
-  legacy: boolean;
   grant: 'none' | 'fits' | 'over';
   refusedSeen: boolean;
   warning: boolean;
@@ -69,14 +68,13 @@ const INPUT_DOMAINS: Readonly<Record<InputName, readonly string[]>> = Object.fre
   bootstrapped: Object.freeze(['false', 'true']),
   subagent: Object.freeze(['false', 'true']),
   ownSummary: Object.freeze(['none', 'pending', 'own-write']),
-  legacy: Object.freeze(['false', 'true']),
   grant: Object.freeze(['none', 'fits', 'over']),
   refusedSeen: Object.freeze(['false', 'true']),
   warning: Object.freeze(['false', 'true']),
   nudge: Object.freeze(['nudge', 'suppress', 'none']),
 });
 
-const EVENTS: readonly EmissionEvent[] = ['launch', 'prompt', 'delta', 'legacy-adopt', 'compact-store', 'compact-meta', 'compact-instructions'];
+const EVENTS: readonly EmissionEvent[] = ['launch', 'prompt', 'delta', 'compact-store', 'compact-meta', 'compact-instructions'];
 
 function rule(event: EmissionEvent, segment: Segment, inputs: InputName[], cls: SegmentClass, arms: RuleArm[]): EmissionRule {
   return { event, segment, inputs, arms, class: cls };
@@ -103,9 +101,6 @@ const EMISSION_RULES: readonly EmissionRule[] = deepFreeze([
   ]),
   rule('prompt', 'nudge', ['role', 'nudge'], 'optional', [
     { when: [['main'], ['nudge']], action: 'include' },
-  ]),
-  rule('legacy-adopt', 'legacy', ['role', 'lineageKind', 'subagent', 'bootstrapped', 'legacy'], 'n/a', [
-    { when: [['main'], ['default-main'], ['false'], ['false'], ['true']], action: 'adopt' },
   ]),
   rule('launch', 'slot', ['bootstrapped'], 'n/a', [
     { when: [['false']], action: 'claim' },
@@ -167,9 +162,9 @@ function ruleVector(r: EmissionRule, request: EmissionRequest): string[] {
 }
 
 const TEXT_ACTIONS: readonly Action[] = ['include', 'truncate', 'whole', 'pointer'];
-/** IC-004 claim order, with the legacy adoption (IC-004 step 4) ahead of the prompt claims. */
+/** IC-004 claim order. */
 const CLAIM_ORDER: ReadonlyArray<[Claim, Action]> = [
-  ['legacy', 'adopt'], ['slot', 'claim'], ['summary', 'truncate'], ['grant', 'whole'], ['warning', 'include'],
+  ['slot', 'claim'], ['summary', 'truncate'], ['grant', 'whole'], ['warning', 'include'],
 ];
 const REFUSED = 'refused:mandatory-over-budget';
 
@@ -554,38 +549,22 @@ function emitContext(options: EmitOptions): EmitResult {
   const ledger = readLedger(path.join(dir, 'emitted'));
   const { run, lineage, worktree } = identity;
 
-  // emission.sh step 3. The warning, the legacy file and the owner summary only matter before the
+  // emission.sh step 3. The warning and the owner summary only matter before the
   // bootstrap. Grants are read only by launched identities (DEC-039).
   let bootstrapped = present(slot);
   const warnFile = path.join(root, 'projects', cwdHash(cwd), 'uncommitted-warning.txt');
   let warning = false;
-  let legacy = false;
   let own: EmissionState['ownSummary'] = 'none';
   if (!bootstrapped) {
     warning = isFile(warnFile);
-    legacy = store.legacySummary(cwd, env) !== null;
     own = store.peekSummary(worktree, run, lineage, sessionId, env).own;
   }
   const grant = identity.lineageKind === 'launched'
     ? store.peekGrant(run, lineage, max, env)
     : { grant: 'none', file: null, id: null, bytes: null };
   const refusedSeen = grant.grant === 'over' && grant.id !== null && ledgerSeen(ledger, 'grant', grant.id, REFUSED);
-  const state = (b: boolean): EmissionState => ({ bootstrapped: b, subagent: false, ownSummary: own, legacy, grant: grant.grant, refusedSeen, warning, nudge: options.nudge ?? 'none' });
+  const state = (b: boolean): EmissionState => ({ bootstrapped: b, subagent: false, ownSummary: own, grant: grant.grant, refusedSeen, warning, nudge: options.nudge ?? 'none' });
 
-  // Step 4 (IC-014, DEC-043): the legacy adoption, then the owner summary bit again. A peek takes
-  // nothing, so it reads the legacy file where it lies as the summary the prompt would adopt.
-  let legacyFile: string | null = null;
-  if (event === 'prompt' && arbitrate({ event: 'legacy-adopt', identity, budget, state: state(bootstrapped) }).actions.legacy === 'adopt') {
-    if (peek) {
-      if (own === 'none') {
-        legacyFile = store.legacySummary(cwd, env);
-        if (legacyFile !== null) own = 'pending';
-      }
-    } else {
-      store.adoptLegacy(cwd, worktree, env);
-      own = store.peekSummary(worktree, run, lineage, sessionId, env).own;
-    }
-  }
   const decide = (b: boolean): EmissionDecision => arbitrate({ event, identity, budget, state: state(b) });
   let decision = decide(bootstrapped);
 
@@ -668,7 +647,7 @@ function emitContext(options: EmitOptions): EmitResult {
     let removeWarning = false;
     if (decision.actions.summary === 'truncate') {
       if (peek) {
-        const file = legacyFile ?? store.peekSummary(worktree, run, lineage, sessionId, env).file;
+        const file = store.peekSummary(worktree, run, lineage, sessionId, env).file;
         if (file !== null) {
           const raw = fs.readFileSync(file);
           inputs.summary = raw.subarray(0, SUMMARY_READ).toString('utf8');

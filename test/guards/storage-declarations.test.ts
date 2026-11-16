@@ -42,9 +42,8 @@ function walkFiles(relativeDir: any): any {
 }
 
 /** The language of a shipped source file, by extension or shebang; null for data and prose files.
- * `.ts` is a JS-family source: DoFlow runs it directly through Node native type-stripping
- * (agent-docs/BRIEF_GOAL_DOFLOW.md), so a converted writer still makes the same fs write calls and
- * must still be scanned and declared. `.d.ts` is a declaration file, not a module, and is excluded. */
+ * `.ts` is a JS-family source: DoFlow runs it directly through Node native type-stripping,
+ * so a writer in `.ts` still makes the same fs write calls and must still be scanned and declared. `.d.ts` is a declaration file, not a module, and is excluded. */
 function sourceKind(file: any, text: any) {
   if (/\.d\.ts$/.test(file)) return null;
   if (/\.(?:js|cjs|mjs|ts)$/.test(file)) return 'js';
@@ -300,7 +299,7 @@ function runScenario() {
     const target: any = ['--force', '--target', TARGETS];
     const bridge = path.join(mirror, '.doflow/shared/hooks/bridge/bridge.sh');
     const modelPayload = JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 'g26-session', cwd: project, model: 'gpt-5.1' });
-    const enableAdvice = "const fs=require('node:fs'),path=require('node:path');const f=path.join(process.env.XDG_CONFIG_HOME,'doflow','decision-model.json');fs.writeFileSync(f,JSON.stringify({schema:1,enabled:true,provider:'ollama',endpoint:'http://127.0.0.1:9',model:'clef-flash'})+'\\n');";
+    const enableAdvice = "const fs=require('node:fs'),path=require('node:path');const f=path.join(process.env.XDG_CONFIG_HOME,'doflow','settings.json');fs.writeFileSync(f,JSON.stringify({schema:1,'advice.enabled':true,'advice.provider':'ollama','advice.endpoint':'http://127.0.0.1:9','advice.model':'clef-flash'})+'\\n');";
     // The bash summary store (feature 078): a scoped summary write and its owner claim, then a grant
     // seeded where grantSummary() would write it and claimed by rename.
     const summaryStore = (script: any) => ({

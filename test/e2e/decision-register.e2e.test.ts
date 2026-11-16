@@ -361,7 +361,6 @@ test('7. the context pack carries live decisions only (US2, IC-012)', { skip: SK
 
 test('8. existing features are untouched (FR-016)', { skip: SKIP }, () => {
   const layouts: any = {
-    legacy: { 'requirement.md': '# Requirement\n\n## 1. Overview\n\nOld flat feature.\n\n## 9. History\n\n- 2026-09-01 an entry\n' },
     structured: { 'intention/requirement.md': '# Requirement\n\n## 1. Overview\n\nOld structured feature.\n\n## 9. History\n\n- 2026-09-01 an entry\n' },
   };
   for (const [layout, files] of Object.entries(layouts)) {

@@ -5,8 +5,7 @@ const { bashPath } = require('../helper/bash-locator.ts');
 // prompt hook (from an install mirror) and emitContext({event: 'prompt'}) committing over a byte
 // copy of the same store must render the same context and the same emit decision when
 //   - the owner summary is removed between the peek and the claim,
-//   - a fitting grant is removed between the peek and the claim,
-//   - a pre-078 project summary (IC-014) is present.
+//   - a fitting grant is removed between the peek and the claim.
 // The race is the claim's own rename losing its source: in the hook a test-only `mv` function in a
 // mirrored summary-store.sh removes the source first; in-process fs.renameSync does the same. Both
 // sides record that the race fired, so a pass cannot come from a race that never happened.
@@ -22,7 +21,6 @@ const { firstPrompt } = require('../helper/launcher-stand-in.ts');
 const { writeSummary } = require('../helper/summary-fixture.ts');
 const { emitContext } = require('../../src/runtime/context-pack.ts');
 const { grantSummary } = require('../../src/runtime/context/summary-store.ts');
-const { cwdHash } = require('../../src/runtime/context/identity.ts');
 
 const scratch = createScratch('doflow-context-races-');
 const mirror = path.join(scratch.dir, 'mirror');
@@ -128,16 +126,6 @@ const STATES = [
     },
     env: LAUNCHED, race: 'grant', absent: /RACE-GRANT|\[Granted summary/,
   },
-  {
-    name: 'pre-078 project summary present',
-    prepare(w: any) {
-      const old = path.join(w.store, 'projects', cwdHash(w.repo), 'last-compact-summary.md');
-      fs.mkdirSync(path.dirname(old), { recursive: true });
-      fs.writeFileSync(old, '---\ncompacted_at: 2026-01-01T00:00:00Z\nsession_id: OLD\ntrigger: auto\nbranch: main\n---\n\nRACE-LEGACY\n');
-      w.legacy = old;
-    },
-    env: {}, race: null, expect: /RACE-LEGACY/,
-  },
 ];
 
 /** One state through both callers; `root` is the install mirror whose hook runs. */
@@ -166,12 +154,6 @@ function compare(harness: any, state: any, root = mirror) {
     assert.equal(fs.readFileSync(mark, 'utf8').trim().split('\n').length, 1, 'the hook claim lost its source once');
     assert.match(peeked.text ?? '', /RACE-/, 'the peek before the race would have delivered it');
     assert.doesNotMatch(hook.additionalContext, state.absent, 'the lost input is absent');
-  }
-  if (state.expect) {
-    assert.match(hook.additionalContext, state.expect, 'the legacy summary is delivered');
-    assert.equal(peeked.text, result.text, 'the peek reads the legacy file as the summary the prompt adopts');
-    assert.equal(fs.existsSync(w.legacy), false, 'the hook adopted and removed the legacy file');
-    assert.equal(fs.existsSync(path.join(copy.store, 'projects', cwdHash(w.repo), 'last-compact-summary.md')), false, 'and so did emitContext');
   }
 }
 

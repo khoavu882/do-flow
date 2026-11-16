@@ -316,7 +316,7 @@ describe('what capture must never change', () => {
     }
   });
 
-  test('failure capture prints the sentinel deprecation note to stderr', () => {
+  test('failure capture does not read a failures/off file and prints no note', () => {
     const result = run(['failure', '--action', 'capture', '--json'], {
       setup(cwd: any) {
         const sentinel = path.join(cwd, '..', 'xdg', 'doflow', 'failures', 'off');
@@ -325,13 +325,8 @@ describe('what capture must never change', () => {
       },
     });
     assert.equal(result.status, 0, result.stderr);
-    assert.equal(JSON.parse(result.stdout).effective, 'off');
-    assert.match(result.stderr, /note: .*failures[\\/]off is deprecated; set "failure\.capture" in .*settings\.json \(read through 2\.x\)/);
-    assert.doesNotMatch(result.stdout, /is deprecated/);
-
-    const current = run(['failure', '--action', 'capture', '--json']);
-    assert.equal(current.status, 0, current.stderr);
-    assert.equal(current.stderr, '', 'control: no legacy sentinel means no deprecation note');
+    assert.equal(JSON.parse(result.stdout).effective, 'on');
+    assert.equal(result.stderr, '');
   });
 
   test('an unwritable store: silent, same output and exit status as capture off', (t) => {
@@ -368,14 +363,14 @@ describe('what capture must never change', () => {
     assert.equal(fs.existsSync(path.join(result.home, '.config')), false);
   });
 
-  test('the sentinel turns capture off over an env value of on', (t) => {
+  test('a failures/off file does not turn capture off', (t) => {
     const dir = tempDir(t, 'doflow-failure-capture-cli-sentinel-');
     const xdg = path.join(dir, 'xdg');
     fs.mkdirSync(path.join(xdg, 'doflow', 'failures'), { recursive: true });
     fs.writeFileSync(path.join(xdg, 'doflow', 'failures', 'off'), 'x');
     const result = run(['status', '--json'], { fault: type, env: { XDG_CONFIG_HOME: xdg, DOFLOW_FAILURE_CAPTURE: 'on' } });
     assert.equal(result.status, 1);
-    assert.deepEqual(fs.readdirSync(path.join(xdg, 'doflow', 'failures')), ['off']);
+    assert.deepEqual(fs.readdirSync(path.join(xdg, 'doflow', 'failures')).sort(), ['events.jsonl', 'off']);
   });
 
   test('a bad flag, an unknown command and --help are never recorded', () => {

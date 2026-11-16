@@ -26,7 +26,7 @@ function fixture(t: any) {
   return {
     scratch,
     project,
-    userFile: path.join(scratch.xdg, 'doflow', 'decision-model.json'),
+    userFile: path.join(scratch.xdg, 'doflow', 'settings.json'),
     env: scratch.env({ DOFLOW_CLI: BIN }),
     run: (args: any) => spawnSync(bashPath(), [RUN, 'classify', ...args], {
       cwd: project, env: scratch.env({ DOFLOW_CLI: BIN }), encoding: 'utf8',
@@ -37,8 +37,8 @@ function fixture(t: any) {
       return server;
     },
     enable: (endpoint: any) => {
-      fs.writeFileSync(path.join(scratch.xdg, 'doflow', 'decision-model.json'), JSON.stringify({
-        schema: 1, enabled: true, provider: 'ollama', endpoint, model: 'clef-flash',
+      fs.writeFileSync(path.join(scratch.xdg, 'doflow', 'settings.json'), JSON.stringify({
+        schema: 1, 'advice.enabled': true, 'advice.provider': 'ollama', 'advice.endpoint': endpoint, 'advice.model': 'clef-flash',
       }, null, 2));
     },
   };

@@ -114,18 +114,17 @@ test('lib.sh nudge helpers with HOME unset: no abort, nothing read under /, noth
 
 // ── the state libraries sourced after lib.sh ────────────────────────────────────────────────────
 
-test('summary-store.sh with no config home has no store: scope, peek and adopt find nothing, nothing created', { skip: !POSIX }, (t) => {
+test('summary-store.sh with no config home has no store: scope and peek find nothing, nothing created', { skip: !POSIX }, (t) => {
   const body = [
     '. "$1"; . "$2"',
     '_doflow_ss_root && echo "root=0[$_DF_SS_ROOT]" || echo "root=$?[$_DF_SS_ROOT]"',
     'doflow_summary_scope "$PWD" r1 w1 && echo "scope=0" || echo "scope=$?[$DF_SUMMARY_SCOPE]"',
     'doflow_grant_peek r1 w1 4096; echo "grant=$DF_GRANT"',
-    'doflow_summary_adopt_legacy "$PWD" "$PWD" && echo "adopt=0" || echo "adopt=$?"',
   ].join('\n');
   const args: any = ['-c', body, 'x', path.join(POLICIES, 'lib.sh'), path.join(POLICIES, 'summary-store.sh')];
   const r = bash(t, args);
   assert.deepEqual([r.status, r.stderr], [0, '']);
-  assert.equal(r.stdout, 'root=1[]\nscope=1[]\ngrant=none\nadopt=1\n');
+  assert.equal(r.stdout, 'root=1[]\nscope=1[]\ngrant=none\n');
   assert.ok(r.untouched);
   // control: a relative XDG with an absolute HOME takes $HOME/.config (case 9); sourced alone, no STATE_DIR is no store
   assert.match(bash(t, args, { XDG_CONFIG_HOME: 'rel-xdg', HOME: '/h' }).stdout, /^root=0\[\/h\/\.config\/doflow\/session-env\]\n/);

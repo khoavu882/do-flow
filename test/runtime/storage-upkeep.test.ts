@@ -30,6 +30,8 @@ function fixture(t: any, rootIds: any = ['project-state']) {
   rootIds.forEach((id: any) => fs.mkdirSync(roots[id], { recursive: true }));
   return { dir, roots, projectRoot, env, now: NOW };
 }
+const PRUNE_OFF = '{"schema":1,"storage.prune":"off"}\n';
+const PRUNE_ON = '{"schema":1,"storage.prune":"on"}\n';
 function put(dir: any, name: any, text: any = '{}', age: any = 0) {
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, name);
@@ -120,7 +122,7 @@ for (const stale of [false, true]) {
 
 test('IC-014/016: off writes exact atomic ignore bytes but no marker, lock or pass', t => {
   const f = fixture(t, ['project-state', 'user-state', 'config-home']);
-  put(f.roots['config-home'], 'prune', 'off\n');
+  put(f.roots['config-home'], 'settings.json', PRUNE_OFF);
   const commits: any = [];
   upkeep().upkeepAfterVerb({ ...f, fsImpl: spyFs({
     renameSync(from: any, to: any) { commits.push([from, to]); return fs.renameSync(from, to); },
@@ -154,7 +156,7 @@ test('IC-016: absent state folders are never created, and existing ignore bytes/
 
 test('IC-017: one append per newly created project ignore; user pass rewrites duplicates and gone roots atomically', t => {
   const f = fixture(t, ['project-state', 'user-state', 'config-home']);
-  put(f.roots['config-home'], 'prune', 'off\n');
+  put(f.roots['config-home'], 'settings.json', PRUNE_OFF);
   const index = path.join(f.roots['user-state'], 'upkeep-roots'), appends: any = [], renames: any = [];
   const fsImpl = spyFs({
     appendFileSync(file: any, ...args: any[]) { if (file === index) appends.push(args[0]); return fs.appendFileSync(file, ...args); },
@@ -165,7 +167,7 @@ test('IC-017: one append per newly created project ignore; user pass rewrites du
   assert.deepEqual(appends, [`${fs.realpathSync(f.projectRoot)}\n`]);
   const gone = path.join(f.dir, 'gone');
   fs.writeFileSync(index, `${f.projectRoot}\n${f.projectRoot}\n${gone}\n`);
-  put(f.roots['config-home'], 'prune', 'on\n');
+  put(f.roots['config-home'], 'settings.json', PRUNE_ON);
   upkeep().upkeepAfterVerb({ ...f, fsImpl });
   assert.equal(fs.readFileSync(index, 'utf8'), `${f.projectRoot}\n`);
   assert.ok(renames.some(([from, to]: any) => to === index && from !== index));
@@ -228,7 +230,7 @@ function staleLockTakenOverAtRemoval(lock: any) {
 
 test('IC-017: the roots-index lock another process took while this one was removing a stale one is not removed', t => {
   const f = fixture(t, ['project-state', 'user-state', 'config-home']);
-  put(f.roots['config-home'], 'prune', 'off\n');
+  put(f.roots['config-home'], 'settings.json', PRUNE_OFF);
   const lock = path.join(f.roots['user-state'], 'upkeep-roots.lock');
   const { fsImpl, fired } = staleLockTakenOverAtRemoval(lock);
   upkeep().upkeepAfterVerb({ ...f, now: Date.now(), fsImpl });
@@ -385,7 +387,7 @@ test('IC-010: verify is unthrottled, locked and restricted to project verificati
   assert.deepEqual(calls, [['verification-logs', 'verification-reuse']]);
   assert.equal(fs.existsSync(log), false); assert.equal(fs.existsSync(work), true);
   assert.equal(fs.readFileSync(marker, 'utf8'), `${NOW / 1000 + 86400}\n`);
-  put(f.roots['project-doflow'], 'prune', 'off\n');
+  put(f.roots['project-doflow'], 'settings.json', PRUNE_OFF);
   const kept = put(path.join(root, 'verification/logs'), `${NOW - 32 * DAY}-off.log`);
   upkeep().upkeepAfterVerify(f);
   assert.equal(fs.existsSync(kept), true);
@@ -419,14 +421,14 @@ function controls(root: any, ignore: any = IGNORE) {
 test('IC-019: forgetting project removes only owned controls/index line and leaves settings/state', t => {
   const f = fixture(t, ['project-state', 'user-state']);
   controls(f.roots['project-state']);
-  put(f.roots['project-doflow'], 'prune', 'off\n'); put(f.roots['project-doflow'], 'prompt-nudge', 'on\n');
+  put(f.roots['project-doflow'], 'settings.json', PRUNE_OFF); put(f.roots['project-doflow'], 'prompt-nudge', 'on\n');
   const index = put(f.roots['user-state'], 'upkeep-roots', `${f.projectRoot}\n${f.env.HOME}\n`);
   const result = capture(() => upkeep().storageForgetScope({ scope: 'project', scopeRoot: f.projectRoot, env: f.env }));
   assert.deepEqual(result.out, ['[INFO] Storage: removed 3 DoFlow control file(s)']);
   assert.deepEqual(result.err, []);
   assert.equal(fs.readFileSync(index, 'utf8'), `${f.env.HOME}\n`);
   assert.deepEqual(fs.readdirSync(f.roots['project-state']), ['keep.json']);
-  assert.equal(fs.readFileSync(path.join(f.roots['project-doflow'], 'prune'), 'utf8'), 'off\n');
+  assert.equal(fs.readFileSync(path.join(f.roots['project-doflow'], 'settings.json'), 'utf8'), PRUNE_OFF);
   assert.equal(fs.readFileSync(path.join(f.roots['project-doflow'], 'prompt-nudge'), 'utf8'), 'on\n');
   controls(f.roots['project-state'], 'custom\n');
   capture(() => upkeep().storageForgetScope({ scope: 'project', scopeRoot: f.projectRoot, env: f.env }));
@@ -439,7 +441,7 @@ test('IC-019: forgetting global preserves installed projects, cleans departed ro
   controls(f.roots['project-state']); controls(installedState); controls(f.roots['user-state']);
   put(path.join(installed, '.doflow'), 'doflow.lock', '{}');
   put(f.roots['config-home'], 'upkeep-due', '1\n'); fs.mkdirSync(path.join(f.roots['config-home'], 'upkeep.lock'));
-  put(f.roots['config-home'], 'prune', 'off\n'); put(f.roots['config-home'], 'prompt-nudge', 'on\n');
+  put(f.roots['config-home'], 'settings.json', PRUNE_OFF); put(f.roots['config-home'], 'prompt-nudge', 'on\n');
   put(f.roots['user-state'], 'upkeep-roots', `${f.projectRoot}\n${installed}\n`);
   const result = capture(() => upkeep().storageForgetScope({ scope: 'global', scopeRoot: f.env.HOME, env: f.env }));
   assert.deepEqual(result.out, ['[INFO] Storage: removed 9 DoFlow control file(s)']);
@@ -448,7 +450,7 @@ test('IC-019: forgetting global preserves installed projects, cleans departed ro
   assert.deepEqual(fs.readdirSync(f.roots['user-state']), ['keep.json']);
   assert.equal(fs.readFileSync(path.join(installedState, '.gitignore'), 'utf8'), IGNORE);
   assert.equal(fs.existsSync(path.join(installedState, 'upkeep.lock')), true);
-  assert.deepEqual(fs.readdirSync(f.roots['config-home']).sort(), ['prompt-nudge', 'prune']);
+  assert.deepEqual(fs.readdirSync(f.roots['config-home']).sort(), ['prompt-nudge', 'settings.json']);
 });
 
 for (const scope of ['project', 'global']) {
@@ -480,9 +482,9 @@ test('IC-008: expired entry under read-only parent stays; triggering verb equals
   const run = () => spawnSync(bashPath(), [RUN, 'evidence', '--action', 'list', '--task-id', 'idle', '--json'], {
     cwd: f.projectRoot, env: { ...f.env, DOFLOW_CLI: path.join(REPO, 'bin/doflow.js'), DOFLOW_CONFIG_DIR: f.roots['project-doflow'] }, encoding: 'utf8',
   });
-  put(f.roots['config-home'], 'prune', 'off\n');
+  put(f.roots['config-home'], 'settings.json', PRUNE_OFF);
   const off = run(); assert.equal(off.status, 0, off.stderr);
-  put(f.roots['config-home'], 'prune', 'on\n');
+  put(f.roots['config-home'], 'settings.json', PRUNE_ON);
   fs.chmodSync(logDir, 0o555);
   try {
     const on = run();

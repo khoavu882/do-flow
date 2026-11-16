@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * `doflow config validate --prepared-run <file>` (119 IC-010, FR-013, NFR-005). Checks a prepared-run file
  * `{ schema: 1, taskClass, primary: { harness, model }, settings: { <key>: <value> }, presets: { review, debate } }`
@@ -57,7 +55,7 @@ function validatePrepared(doc: Record<string, any>, ctx: any): Entry[] {
   if (typeof doc.taskClass !== 'string') {
     errors.push(entry('taskClass', null, 'type', Object.hasOwn(doc, 'taskClass') ? 'taskClass must be a string' : 'taskClass is required'));
   } else if (!classes.includes(doc.taskClass)) {
-    errors.push(entry('taskClass', null, 'enum', `${doc.taskClass} is not a task class in core/registry/workflows.yaml`, classes));
+    errors.push(entry('taskClass', null, 'enum', `${doc.taskClass} is not a task class in core/registry/workflows.json`, classes));
   } else taskClass = doc.taskClass;
 
   const settings: Record<string, any> = isObject(doc.settings) ? doc.settings : {};

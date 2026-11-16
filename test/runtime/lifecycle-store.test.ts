@@ -130,7 +130,7 @@ test('prepareStore composes the default retention window from a project prune se
   const events = path.join(dir, store.EVENTS_REL);
   fs.mkdirSync(events, { recursive: true });
   fs.mkdirSync(path.join(dir, '.doflow'), { recursive: true });
-  fs.writeFileSync(path.join(dir, '.doflow', 'prune'), 'on\n');
+  fs.writeFileSync(path.join(dir, '.doflow', 'settings.json'), '{"schema":1,"storage.prune":"on"}\n');
   fs.writeFileSync(path.join(events, `${addedId}.json`), JSON.stringify({ v: 1, id: addedId, type: 'followup.added', at, by: 'agent', data: { id: 'FU-aaaaaa', statement: 'settled', source: { kind: 'manual' } } }));
   fs.writeFileSync(path.join(events, `${settledId}.json`), JSON.stringify({ v: 1, id: settledId, type: 'followup.settled', at: settledAt, by: 'agent', data: { id: 'FU-aaaaaa', as: 'dismissed', reason: 'done' } }));
   const out = prepareStore(dir, { env: scratch.env() });

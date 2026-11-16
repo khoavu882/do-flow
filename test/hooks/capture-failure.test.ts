@@ -136,17 +136,17 @@ describe('mcp-tool-guard policy-file-missing', { skip: !HAS_JQ && 'jq is not ins
     assert.deepEqual(a, b);
     assert.equal(a.status, 0);
   });
-  test('the switch: env values and the sentinel turn it off', () => {
+  test('the switch: env values turn it off, and a failures/off file is not read', () => {
     for (const value of ['off', 'OFF', '0', 'false', 'No']) {
       const m: any = machine('switch', { patterns: false });
       run(m, 'mcp-tool-guard.sh', mcp, { env: { DOFLOW_FAILURE_CAPTURE: value } });
       assert.equal(fs.existsSync(m.failures), false, value);
     }
-    const m: any = machine('sentinel', { patterns: false });
+    const m: any = machine('old-sentinel', { patterns: false });
     fs.mkdirSync(m.failures, { recursive: true });
     fs.writeFileSync(path.join(m.failures, 'off'), 'x');
     run(m, 'mcp-tool-guard.sh', mcp, { env: { DOFLOW_FAILURE_CAPTURE: 'on' } });
-    assert.deepEqual(fs.readdirSync(m.failures), ['off']);
+    assert.deepEqual(fs.readdirSync(m.failures).sort(), ['events.jsonl', 'off']);
   });
   test('a missing helper file changes nothing', () => {
     const m: any = machine('nohelper', { patterns: false });

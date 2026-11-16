@@ -1,10 +1,12 @@
 'use strict';
 
-// Feature 086, task A.1: the 2.0 compatibility goldens, rows C1 to C23 and W1 of the matrix in
+// Feature 086, task A.1: the compatibility goldens, rows C1 to C23 and W1 of the matrix in
 // design/data-model.md section 5. Every row runs through today's public functions and CLI exit
 // codes (resolveSetting, readPruneSetting, retentionWindow, captureSwitch/captureIsOff, the
-// storage, failure and followup verbs) and pins the 2.0 result. They stay green unchanged through the
-// settings-layering work, except the rows named `2.0-pin:` below, which flip on purpose.
+// storage, failure and followup verbs). The 2.0 file formats (decision-model.json, the one-line
+// prune files, the failures/off sentinel) are no longer read, so every row now sets its value in
+// settings.json; the rows that pinned how those formats were parsed (the prune file's first line, the
+// sentinel) are gone, and the failures/off rows now pin that the file is not read.
 //
 // Negative controls: each row group ends with a `control` test that changes the fixture so the
 // 2.0 behaviour differs (the other layer, the other file content, the other env value) and shows
@@ -18,7 +20,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { createSettingsEnv, userDecision, writeSettledFollowup, write, REPO }: any = require('../helper/settings-fixtures.ts');
+const { createSettingsEnv, userAdvice, writeSettledFollowup, write, REPO }: any = require('../helper/settings-fixtures.ts');
 const { loadAdviceRegistry }: any = require('../../src/runtime/advice/registry.ts');
 const { loadStorageRegistry }: any = require('../../src/runtime/storage/registry.ts');
 const { resolveRoots, readPruneSetting }: any = require('../../src/runtime/storage/roots.ts');
@@ -31,7 +33,9 @@ const ADVICE = loadAdviceRegistry({ repoRoot: REPO }).registry;
 const STORAGE = loadStorageRegistry({ repoRoot: REPO });
 const POSIX = process.platform !== 'win32';
 const HOUR = 3600000;
-const PROJECT_NOTE = 'a project cannot enable the decision model or choose its endpoint';
+const SETTINGS = 'settings.json';
+/** A settings.json document of `advice.*` and other flat keys; `fields` are written as given. */
+const doc = (fields: any = {}) => ({ schema: 1, ...fields });
 
 function fx(t: any, options?: any) { return createSettingsEnv(t, options); }
 function rootsOf(f: any, { projectRoot = f.project, global = false, env = f.env() } = {}) {
@@ -61,9 +65,9 @@ test('C1: no advice file is off not-configured and nothing decided', (t: any) =>
   assert.deepEqual(result.notes, []);
 });
 
-test('C2: a user file {schema:1,enabled:true,model} is on with provider ollama and its default endpoint', (t: any) => {
+test('C2: a user file {advice.enabled:true,advice.model} is on with provider ollama and its default endpoint', (t: any) => {
   const f = fx(t);
-  f.writeUserDecision({ schema: 1, enabled: true, model: 'm' });
+  f.writeUserSettings(doc({ 'advice.enabled': true, 'advice.model': 'm' }));
   const result = advice(f);
   assert.equal(result.state, 'on');
   assert.equal(result.reason, null);
@@ -71,149 +75,145 @@ test('C2: a user file {schema:1,enabled:true,model} is on with provider ollama a
   assert.equal(result.endpoint, 'http://127.0.0.1:11434');
   assert.equal(result.model, 'm');
   assert.equal(result.modelFrom, 'user');
-  assert.deepEqual(result.decidedBy, { user: f.userFile('decision-model.json'), project: null });
+  assert.deepEqual(result.decidedBy, { user: f.userFile(SETTINGS), project: null });
 });
 
-test('C3: C2 plus a project {enabled:false} is off project-disabled, decided by the project file', (t: any) => {
+test('C3: C2 plus a project {advice.enabled:false} is off project-disabled, decided by the project file', (t: any) => {
   const f = fx(t);
-  f.writeUserDecision(userDecision());
-  f.writeProjectDecision({ schema: 1, enabled: false });
+  f.writeUserSettings(userAdvice());
+  f.writeProjectSettings(doc({ 'advice.enabled': false }));
   const result = advice(f);
   assert.equal(result.state, 'off');
   assert.equal(result.reason, 'project-disabled');
-  assert.deepEqual(result.decidedBy, { user: f.userFile('decision-model.json'), project: f.projectFile('decision-model.json') });
+  assert.deepEqual(result.decidedBy, { user: f.userFile(SETTINGS), project: f.projectFile(SETTINGS) });
   assert.equal(result.model, 'clef-flash', 'an off result still carries the user model');
 });
 
-test('C4: C2 plus a project {model:p} is on with model p and modelFrom project', (t: any) => {
+test('C4: C2 plus a project {advice.model:p} is on with model p and modelFrom project', (t: any) => {
   const f = fx(t);
-  f.writeUserDecision(userDecision());
-  f.writeProjectDecision({ schema: 1, model: 'p' });
+  f.writeUserSettings(userAdvice());
+  f.writeProjectSettings(doc({ 'advice.model': 'p' }));
   const result = advice(f);
   assert.equal(result.state, 'on');
   assert.equal(result.model, 'p');
   assert.equal(result.modelFrom, 'project');
   assert.equal(result.endpoint, 'http://127.0.0.1:11434');
-  assert.deepEqual(result.decidedBy, { user: f.userFile('decision-model.json'), project: f.projectFile('decision-model.json') });
+  assert.deepEqual(result.decidedBy, { user: f.userFile(SETTINGS), project: f.projectFile(SETTINGS) });
 });
 
-test('C5: a project {enabled:true,endpoint,provider} is on with the user values and exactly three notes', (t: any) => {
+test('C5: a project {advice.enabled:true,endpoint,provider} is on with the user values; the project cannot enable or choose the endpoint', (t: any) => {
   const f = fx(t);
-  f.writeUserDecision(userDecision());
-  f.writeProjectDecision({ schema: 1, enabled: true, endpoint: 'http://example.invalid', provider: 'other' });
+  f.writeUserSettings(userAdvice());
+  f.writeProjectSettings(doc({ 'advice.enabled': true, 'advice.endpoint': 'http://example.invalid', 'advice.provider': 'other' }));
   const result = advice(f);
   assert.equal(result.state, 'on');
   assert.equal(result.provider, 'ollama');
   assert.equal(result.endpoint, 'http://127.0.0.1:11434');
   assert.equal(result.model, 'clef-flash');
   assert.equal(result.modelFrom, 'user');
-  assert.deepEqual(result.notes, [
-    `project key 'enabled' ignored: ${PROJECT_NOTE}`,
-    `project key 'endpoint' ignored: ${PROJECT_NOTE}`,
-    `project key 'provider' ignored: ${PROJECT_NOTE}`,
-  ]);
-  assert.deepEqual(result.decidedBy, { user: f.userFile('decision-model.json'), project: null });
+  assert.deepEqual(result.decidedBy, { user: f.userFile(SETTINGS), project: null });
 });
 
-test('C6: a user {enabled:false} is off user-disabled and the project file is never read, even an invalid one', (t: any) => {
+test('C6: a user {advice.enabled:false} is off user-disabled and the project file is never read, even an invalid one', (t: any) => {
   const f = fx(t);
-  f.writeUserDecision(userDecision({ enabled: false }));
-  f.writeProjectDecision('{this is not json');
+  f.writeUserSettings(userAdvice({ enabled: false }));
+  f.writeProjectSettings('{this is not json');
   const result = advice(f);
   assert.equal(result.state, 'off');
   assert.equal(result.reason, 'user-disabled');
-  assert.deepEqual(result.decidedBy, { user: f.userFile('decision-model.json'), project: null });
+  assert.deepEqual(result.decidedBy, { user: f.userFile(SETTINGS), project: null });
   assert.deepEqual(result.notes, [], 'no project note: the project file was not read');
   // The same malformed project file under an enabled user file is read: it appears as a note, and advice is
   // off (119 phase-BC item 6: advice.model is security-relevant, so a malformed project file turns advice off).
-  f.writeUserDecision(userDecision());
+  f.writeUserSettings(userAdvice());
   const enabled = advice(f);
   assert.equal(enabled.state, 'off');
   assert.equal(enabled.reason, 'config-invalid');
-  assert.ok(enabled.notes.some((note: any) => note.startsWith(`project setting at ${f.projectFile('decision-model.json')} is invalid:`) && note.endsWith('; advice is off')));
+  assert.ok(enabled.notes.some((note: any) => note.startsWith(`project setting at ${f.projectFile(SETTINGS)} is invalid:`) && note.endsWith('; advice is off')));
 });
 
 const C7_CASES = [
   ['a', 'unparseable JSON', '{not json'],
   ['b', 'not a JSON object', '[]'],
-  ['c', 'schema other than 1', userDecision({ schema: 2 })],
-  ['d', 'enabled not a boolean', userDecision({ enabled: 'yes' })],
-  ['e', 'provider not in advice.json', userDecision({ provider: 'nope' })],
-  ['f', 'enabled true without a model', userDecision({ model: undefined })],
+  ['c', 'schema other than 1', userAdvice({ schema: 2 })],
+  ['d', 'enabled not a boolean', userAdvice({ enabled: 'yes' })],
 ];
 for (const [letter, label, content] of C7_CASES) {
   test(`C7${letter}: an invalid user file (${label}) is off config-invalid and the error names the file`, (t: any) => {
     const f = fx(t);
-    const file = f.writeUserDecision(content);
+    const file = f.writeUserSettings(content);
     const result = advice(f);
     assert.equal(result.state, 'off');
     assert.equal(result.reason, 'config-invalid');
     assert.deepEqual(result.decidedBy, { user: file, project: null });
     assert.equal(result.model, null);
-    assert.equal(result.notes.length, 1);
-    assert.ok(result.notes[0].includes(file), `the note names the file: ${result.notes[0]}`);
+    // settings.json is one file read once per advice key, so a broken file is reported once per key
+    assert.ok(result.notes.length >= 1);
+    assert.ok(result.notes.every((note: any) => note.includes(file)), `every note names the file: ${result.notes}`);
   });
 }
 
 // 119 phase-BC item 6 (advice.model security-relevant, fail-safe gate advice.enabled): a malformed project
-// decision-model.json no longer leaves advice on with the user values; it turns advice off and the note says so.
+// settings.json leaves no advice on with the user values; it turns advice off and the note says so.
 test('C8: C2 plus an invalid project file is off config-invalid with the user values kept and a note naming the project file', (t: any) => {
   const f = fx(t);
-  f.writeUserDecision(userDecision());
-  const projectFile = f.writeProjectDecision('{not json');
+  f.writeUserSettings(userAdvice());
+  const projectFile = f.writeProjectSettings('{not json');
   const result = advice(f);
   assert.equal(result.state, 'off');
   assert.equal(result.reason, 'config-invalid');
   assert.equal(result.model, 'clef-flash');
   assert.equal(result.modelFrom, 'user');
-  assert.deepEqual(result.decidedBy, { user: f.userFile('decision-model.json'), project: projectFile });
-  assert.equal(result.notes.length, 1);
-  assert.ok(result.notes[0].startsWith(`project setting at ${projectFile} is invalid:`));
-  assert.ok(result.notes[0].endsWith('; advice is off'));
+  assert.deepEqual(result.decidedBy, { user: f.userFile(SETTINGS), project: projectFile });
+  assert.ok(result.notes.length >= 1);
+  assert.ok(result.notes.every((note: any) => note.startsWith(`project setting at ${projectFile} is invalid:`) && note.endsWith('; advice is off')), `${result.notes}`);
 });
 
 test('control C1-C8: the layer that decides changes the result when its file changes', (t: any) => {
   const f = fx(t);
   assert.equal(advice(f).reason, 'not-configured');                       // C1 differs once a user file exists
-  f.writeUserDecision(userDecision());
+  f.writeUserSettings(userAdvice());
   assert.equal(advice(f).state, 'on');
-  f.writeProjectDecision({ schema: 1, enabled: false });
+  f.writeProjectSettings(doc({ 'advice.enabled': false }));
   assert.equal(advice(f).reason, 'project-disabled');                      // C3 differs from C2
-  f.writeProjectDecision({ schema: 1, model: 'p' });
+  f.writeProjectSettings(doc({ 'advice.model': 'p' }));
   assert.equal(advice(f).modelFrom, 'project');                            // C4 differs from C3
-  f.writeUserDecision(userDecision({ enabled: false }));
+  f.writeUserSettings(userAdvice({ enabled: false }));
   assert.equal(advice(f).reason, 'user-disabled');                         // C6: the user layer outranks the project one
-  f.writeUserDecision('{not json');
+  f.writeUserSettings('{not json');
   assert.equal(advice(f).reason, 'config-invalid');                        // C7 differs from C2
-  f.writeUserDecision(userDecision());
-  f.remove(f.projectFile('decision-model.json'));
+  f.writeUserSettings(userAdvice());
+  f.remove(f.projectFile(SETTINGS));
   assert.deepEqual(advice(f).notes, []);                                   // C8's note is the invalid project file's
 });
 
 // ── storage.prune: C9-C13 (readPruneSetting) ──────────────────────────────────────────────────
 
-test('C9: no prune file is on and nothing decided, for every root', (t: any) => {
+test('C9: no storage.prune setting is on and nothing decided, for every root', (t: any) => {
   const f = fx(t);
   for (const rootId of ['project-doflow', 'project-state', 'user-state', 'config-home']) {
     assert.deepEqual(prune(f, rootId), { setting: 'on', decidedBy: null }, rootId);
   }
 });
 
-test('C10: a user prune=off is off for every root; the storage verb reports pruning off and exits 0', (t: any) => {
+const PRUNE_OFF = doc({ 'storage.prune': 'off' });
+const PRUNE_ON = doc({ 'storage.prune': 'on' });
+
+test('C10: a user storage.prune=off is off for every root; the storage verb reports pruning off and exits 0', (t: any) => {
   const f = fx(t);
-  const userFile = f.writeUserPrune('off\n');
+  const userFile = f.writeUserSettings(PRUNE_OFF);
   for (const rootId of ['project-doflow', 'project-state', 'user-state', 'config-home']) {
     assert.deepEqual(prune(f, rootId), { setting: 'off', decidedBy: userFile }, rootId);
   }
   const r = f.run(['storage', '--action', 'prune']);
   assert.equal(r.status, 0, r.stderr);
-  assert.equal(r.stdout.trim(), `storage: pruning is off (${userFile}); nothing removed\nnote: ${userFile} is deprecated; set "storage.prune" in ${path.join(f.configDir, 'settings.json')} (read through 2.x)`);
+  assert.equal(r.stdout.trim(), `storage: pruning is off (${userFile}); nothing removed`);
 });
 
 test('C11: user off with project on is on for project roots (project file) and off for user roots', (t: any) => {
   const f = fx(t);
-  const userFile = f.writeUserPrune('off\n');
-  const projectFile = f.writeProjectPrune('on\n');
+  const userFile = f.writeUserSettings(PRUNE_OFF);
+  const projectFile = f.writeProjectSettings(PRUNE_ON);
   assert.deepEqual(prune(f, 'project-state'), { setting: 'on', decidedBy: projectFile });
   assert.deepEqual(prune(f, 'project-doflow'), { setting: 'on', decidedBy: projectFile });
   assert.deepEqual(prune(f, 'user-state'), { setting: 'off', decidedBy: userFile });
@@ -222,42 +222,36 @@ test('C11: user off with project on is on for project roots (project file) and o
 
 test('C12: project off with no user file is off for project roots and on for user roots', (t: any) => {
   const f = fx(t);
-  const projectFile = f.writeProjectPrune('off\n');
+  const projectFile = f.writeProjectSettings(PRUNE_OFF);
   assert.deepEqual(prune(f, 'project-state'), { setting: 'off', decidedBy: projectFile });
   assert.deepEqual(prune(f, 'user-state'), { setting: 'on', decidedBy: null });
   assert.deepEqual(prune(f, 'config-home'), { setting: 'on', decidedBy: null });
 });
 
-test('C13: a prune file that is empty, unreadable or anything else decides off', (t: any) => {
+test('C13: a one-line prune file is not read: only settings.json decides', (t: any) => {
   const f = fx(t);
-  const userFile = f.userFile('prune');
-  for (const content of ['', 'maybe\n', 'on yes\n', '\n']) {
-    f.writeUserPrune(content);
-    assert.deepEqual(prune(f, 'user-state'), { setting: 'off', decidedBy: userFile }, JSON.stringify(content));
+  write(f.userFile('prune'), 'off\n');
+  write(f.projectFile('prune'), 'off\n');
+  for (const rootId of ['project-doflow', 'project-state', 'user-state', 'config-home']) {
+    assert.deepEqual(prune(f, rootId), { setting: 'on', decidedBy: null }, rootId);
   }
-  f.remove(userFile);
-  fs.mkdirSync(userFile);                                   // exists but cannot be read as a file
-  assert.deepEqual(prune(f, 'user-state'), { setting: 'off', decidedBy: userFile }, 'unreadable');
-  f.remove(userFile);
-  f.writeUserPrune('  ON  \r\nsecond line ignored\n');       // first line, trimmed, any case
-  assert.deepEqual(prune(f, 'user-state'), { setting: 'on', decidedBy: userFile }, 'first line only');
+  const userFile = f.writeUserSettings(PRUNE_OFF);
+  assert.deepEqual(prune(f, 'user-state'), { setting: 'off', decidedBy: userFile }, 'settings.json decides');
 });
 
 test('control C9-C13: the file content and the root decide the result', (t: any) => {
   const f = fx(t);
   assert.equal(prune(f, 'user-state').decidedBy, null);                    // C9 differs once a file exists
-  f.writeUserPrune('off\n');
+  f.writeUserSettings(PRUNE_OFF);
   assert.equal(prune(f, 'user-state').setting, 'off');
-  f.writeProjectPrune('on\n');
+  f.writeProjectSettings(PRUNE_ON);
   assert.equal(prune(f, 'project-state').setting, 'on');                   // C11: project outranks user for project roots ...
   assert.equal(prune(f, 'user-state').setting, 'off');                     // ... and only for them
-  f.writeProjectPrune('off\n');
-  f.remove(f.userFile('prune'));
+  f.writeProjectSettings(PRUNE_OFF);
+  f.remove(f.userFile(SETTINGS));
   assert.equal(prune(f, 'project-state').setting, 'off');                  // C12 differs from C11
   assert.equal(prune(f, 'user-state').setting, 'on');
-  f.writeProjectPrune('banana\n');
-  assert.equal(prune(f, 'project-state').setting, 'off');                  // C13 other content: off, not the default
-  f.writeProjectPrune('on\n');
+  f.writeProjectSettings(PRUNE_ON);
   assert.equal(prune(f, 'project-state').setting, 'on');
 });
 
@@ -265,19 +259,19 @@ test('control C9-C13: the file content and the root decide the result', (t: any)
 
 test('C14: retention env unset with prune on is the 4320-hour default; with prune off it is off', (t: any) => {
   const f = fx(t);
-  assert.deepEqual(window(f), { state: 'on', hours: 4320, ms: 4320 * HOUR, source: 'default' }, 'no prune file is on');
-  f.writeProjectPrune('on\n');
+  assert.deepEqual(window(f), { state: 'on', hours: 4320, ms: 4320 * HOUR, source: 'default' }, 'no storage.prune setting is on');
+  f.writeProjectSettings(PRUNE_ON);
   assert.deepEqual(window(f), { state: 'on', hours: 4320, ms: 4320 * HOUR, source: 'default' });
-  f.writeProjectPrune('off\n');
+  f.writeProjectSettings(PRUNE_OFF);
   assert.deepEqual(window(f), { state: 'off' });
-  f.writeUserPrune('off\n');
-  f.remove(f.projectFile('prune'));
-  assert.deepEqual(window(f), { state: 'off' }, 'the user prune file decides when the project has none');
+  f.writeUserSettings(PRUNE_OFF);
+  f.remove(f.projectFile(SETTINGS));
+  assert.deepEqual(window(f), { state: 'off' }, 'the user settings.json decides when the project has none');
 });
 
 test('C15: DOFLOW_RETENTION_HOURS=48 with prune off removes settled events older than 48 hours and keeps newer ones', (t: any) => {
   const f = fx(t);
-  f.writeUserPrune('off\n');
+  f.writeUserSettings(PRUNE_OFF);
   assert.deepEqual(window(f, { DOFLOW_RETENTION_HOURS: '48' }), { state: 'on', hours: 48, ms: 48 * HOUR, source: 'env' });
   const old = writeSettledFollowup(eventsDir(f.project), 'FU-aaaaaa', 100);
   const recent = writeSettledFollowup(eventsDir(f.project), 'FU-bbbbbb', 1);
@@ -290,7 +284,7 @@ test('C15: DOFLOW_RETENTION_HOURS=48 with prune off removes settled events older
 
 test('C16: DOFLOW_RETENTION_HOURS=abc is {state:invalid}, warns, removes nothing and the verb exits 0', (t: any) => {
   const f = fx(t);
-  f.writeUserPrune('on\n');
+  f.writeUserSettings(PRUNE_ON);
   assert.deepEqual(window(f, { DOFLOW_RETENTION_HOURS: 'abc' }), { state: 'invalid', raw: 'abc' });
   const files = writeSettledFollowup(eventsDir(f.project), 'FU-aaaaaa', 100000);
   const r = f.run(['followup', '--action', 'list', '--state', 'all', '--json'], { env: { DOFLOW_RETENTION_HOURS: 'abc' } });
@@ -300,9 +294,9 @@ test('C16: DOFLOW_RETENTION_HOURS=abc is {state:invalid}, warns, removes nothing
   assert.deepEqual(eventFiles(f.project), files.sort());
 });
 
-test('control C14-C16: the env value and the prune file change the window and what is removed', (t: any) => {
+test('control C14-C16: the env value and storage.prune change the window and what is removed', (t: any) => {
   const f = fx(t);
-  f.writeUserPrune('off\n');
+  f.writeUserSettings(PRUNE_OFF);
   const files = writeSettledFollowup(eventsDir(f.project), 'FU-aaaaaa', 100);
   // unset and prune off: nothing is removed (C14 differs from C15)
   let r = f.run(['followup', '--action', 'list', '--state', 'all', '--json']);
@@ -319,39 +313,40 @@ test('control C14-C16: the env value and the prune file change the window and wh
 
 // ── failure.capture: C17-C20 (captureSwitch, captureIsOff, the failure verb) ───────────────────
 
-test('C17: no sentinel and env unset is capture on, through both readers and the verb', (t: any) => {
+test('C17: env unset is capture on, through both readers and the verb', (t: any) => {
   const f = fx(t);
   const env = f.env();
   const home = failureHome(env);
   assert.equal(home, f.failuresDir);
-  assert.deepEqual(captureSwitch(home, env), { effective: 'on', sentinel: false, env: null, settings: null, decidedBy: 'core/registry/settings.json' });
+  assert.deepEqual(captureSwitch(home, env), { effective: 'on', env: null, settings: null, decidedBy: 'core/registry/settings.json' });
   assert.equal(captureIsOff(home, env), false);
   const r = f.run(['failure', '--action', 'capture']);
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stdout.trim(), 'capture on');
 });
 
-test('C18: a failures/off sentinel is off whatever the env says', (t: any) => {
+test('C18: a failures/off file is not read: capture follows the env and settings.json only', (t: any) => {
   const f = fx(t);
-  f.writeSentinel();
-  for (const value of [undefined, 'on', '1', 'true', 'off']) {
+  write(path.join(f.failuresDir, 'off'), '');
+  for (const value of [undefined, 'on', '1', 'true']) {
     const env = f.env(value === undefined ? {} : { DOFLOW_FAILURE_CAPTURE: value });
     const home = failureHome(env);
-    assert.equal(captureSwitch(home, env).effective, 'off', String(value));
-    assert.equal(captureSwitch(home, env).sentinel, true, String(value));
-    assert.equal(captureIsOff(home, env), true, String(value));
+    assert.equal(captureSwitch(home, env).effective, 'on', String(value));
+    assert.equal(captureIsOff(home, env), false, String(value));
   }
-  const r = f.run(['failure', '--action', 'capture'], { env: { DOFLOW_FAILURE_CAPTURE: 'on' } });
+  const env = f.env({ DOFLOW_FAILURE_CAPTURE: 'off' });
+  assert.equal(captureIsOff(failureHome(env), env), true, 'the env still turns it off');
+  const r = f.run(['failure', '--action', 'capture']);
   assert.equal(r.status, 0, r.stderr);
-  assert.equal(r.stdout.trim(), 'capture off (switched off on this machine) (DOFLOW_FAILURE_CAPTURE=on)');
+  assert.equal(r.stdout.trim(), 'capture on');
 });
 
-test('C19: env off, 0, false or no in any case and padded is capture off with no sentinel', (t: any) => {
+test('C19: env off, 0, false or no in any case and padded is capture off', (t: any) => {
   const f = fx(t);
   for (const value of ['off', '0', 'false', 'no', 'OFF', 'False', ' No ', '  0\t']) {
     const env = f.env({ DOFLOW_FAILURE_CAPTURE: value });
     const home = failureHome(env);
-    assert.deepEqual(captureSwitch(home, env), { effective: 'off', sentinel: false, env: value, settings: null, decidedBy: 'DOFLOW_FAILURE_CAPTURE' }, JSON.stringify(value));
+    assert.deepEqual(captureSwitch(home, env), { effective: 'off', env: value, settings: null, decidedBy: 'DOFLOW_FAILURE_CAPTURE' }, JSON.stringify(value));
     assert.equal(captureIsOff(home, env), true, JSON.stringify(value));
   }
   const r = f.run(['failure', '--action', 'capture'], { env: { DOFLOW_FAILURE_CAPTURE: 'false' } });
@@ -359,34 +354,30 @@ test('C19: env off, 0, false or no in any case and padded is capture off with no
   assert.equal(r.stdout.trim(), 'capture off (DOFLOW_FAILURE_CAPTURE=false)');
 });
 
-test('C20: env on or any other word with no sentinel is capture on; the env cannot turn a sentinel off', (t: any) => {
+test('C20: env on or any other word is capture on', (t: any) => {
   const f = fx(t);
   for (const value of ['on', '1', 'true', 'yes', 'banana', 'offf']) {
     const env = f.env({ DOFLOW_FAILURE_CAPTURE: value });
     const home = failureHome(env);
-    assert.deepEqual(captureSwitch(home, env), { effective: 'on', sentinel: false, env: value, settings: null, decidedBy: 'core/registry/settings.json' }, value);
+    assert.deepEqual(captureSwitch(home, env), { effective: 'on', env: value, settings: null, decidedBy: 'core/registry/settings.json' }, value);
     assert.equal(captureIsOff(home, env), false, value);
   }
-  f.writeSentinel();
-  const env = f.env({ DOFLOW_FAILURE_CAPTURE: 'on' });
-  assert.equal(captureSwitch(failureHome(env), env).effective, 'off');
   const bad = f.run(['failure', '--action', 'capture', '--set', 'maybe']);
   assert.equal(bad.status, 2, 'a usage error exits 2');
 });
 
-test('control C17-C20: the sentinel and the env word each flip the result', (t: any) => {
+test('control C17-C20: the env word flips the result; a failures/off file or folder does not', (t: any) => {
   const f = fx(t);
   const on = f.env();
   const off = f.env({ DOFLOW_FAILURE_CAPTURE: 'off' });
   assert.equal(captureIsOff(failureHome(on), on), false);
   assert.equal(captureIsOff(failureHome(off), off), true);                 // C19 differs from C17
   assert.equal(captureIsOff(failureHome(f.env({ DOFLOW_FAILURE_CAPTURE: 'banana' })), f.env({ DOFLOW_FAILURE_CAPTURE: 'banana' })), false);
-  f.writeSentinel();
-  assert.equal(captureIsOff(failureHome(on), on), true);                   // C18 differs from C17
+  write(path.join(f.failuresDir, 'off'), '');
+  assert.equal(captureIsOff(failureHome(on), on), false);                  // C18: the file is not read
   f.remove(path.join(f.failuresDir, 'off'));
-  assert.equal(captureIsOff(failureHome(on), on), false);
   fs.mkdirSync(path.join(f.failuresDir, 'off'), { recursive: true });
-  assert.equal(captureIsOff(failureHome(on), on), false, 'a folder named off is not a sentinel (isFile)');
+  assert.equal(captureIsOff(failureHome(on), on), false);
 });
 
 // ── config home: C21 (absolute XDG), C22, C23 and W1 (2.0 pins that flip) ───────────────────────
@@ -396,14 +387,14 @@ test('C21: an absolute XDG_CONFIG_HOME is the config home in the roots, the advi
   const roots = rootsOf(f);
   assert.equal(roots['config-home'], path.join(f.xdg, 'doflow'));
   assert.equal(failureHome(f.env()), path.join(f.xdg, 'doflow', 'failures'));
-  f.writeUserDecision(userDecision());
+  f.writeUserSettings(userAdvice());
   assert.equal(advice(f).state, 'on');
-  assert.equal(advice(f).decidedBy.user, path.join(f.xdg, 'doflow', 'decision-model.json'));
+  assert.equal(advice(f).decidedBy.user, path.join(f.xdg, 'doflow', 'settings.json'));
 });
 
 test('control C21: XDG unset falls back to $HOME/.config and a different XDG does not see the file', (t: any) => {
   const f = fx(t);
-  f.writeUserDecision(userDecision());
+  f.writeUserSettings(userAdvice());
   const noXdg = f.env({ XDG_CONFIG_HOME: undefined });
   assert.equal(rootsOf(f, { env: noXdg })['config-home'], path.join(f.home, '.config', 'doflow'));
   assert.equal(failureHome(noXdg), path.join(f.home, '.config', 'doflow', 'failures'));
@@ -439,14 +430,13 @@ test('C22 (HOME unset, XDG unset), this release: there is no config home, no fai
   assert.equal(out.configHome, null);
   assert.equal(out.userState, null);
   assert.equal(out.failureHome, null);
-  assert.deepEqual(out.switch, { effective: 'on', sentinel: false, env: null, settings: null, decidedBy: null }, 'captureSwitch(null) reads on; the failure verb maps a null home to off');
+  assert.deepEqual(out.switch, { effective: 'on', env: null, settings: null, decidedBy: null }, 'captureSwitch(null) reads on; the failure verb maps a null home to off');
 });
 
-test('C22 (HOME relative, XDG unset), this release: the relative HOME is ignored; user advice and prune files are not read from <cwd>/<HOME>', { skip: !POSIX }, (t: any) => {
+test('C22 (HOME relative, XDG unset), this release: the relative HOME is ignored; user settings.json is not read from <cwd>/<HOME>', { skip: !POSIX }, (t: any) => {
   const f = fx(t);
   const configDir = path.join(f.project, 'rel-home', '.config', 'doflow');
-  write(path.join(configDir, 'decision-model.json'), userDecision());
-  write(path.join(configDir, 'prune'), 'off\n');
+  write(path.join(configDir, 'settings.json'), { ...userAdvice(), ...PRUNE_OFF });
   const out = f.node(NODE_PROBE, { env: { HOME: 'rel-home', XDG_CONFIG_HOME: undefined, PROBE_READ: '1' } });
   assert.equal(out.configHome, null);
   assert.equal(out.advice.reason, 'not-configured', 'the file exists at the relative path and is still not read');
@@ -454,8 +444,7 @@ test('C22 (HOME relative, XDG unset), this release: the relative HOME is ignored
   assert.equal(out.prune.decidedBy, null);
   assert.equal(out.failureHome, null);
   // control: an absolute HOME holding the same files reads them
-  write(path.join(f.home, '.config', 'doflow', 'decision-model.json'), userDecision());
-  write(path.join(f.home, '.config', 'doflow', 'prune'), 'off\n');
+  write(path.join(f.home, '.config', 'doflow', 'settings.json'), { ...userAdvice(), ...PRUNE_OFF });
   const clean = f.node(NODE_PROBE, { env: { XDG_CONFIG_HOME: undefined, PROBE_READ: '1' } });
   assert.equal(clean.advice.state, 'on');
   assert.equal(clean.prune.setting, 'off');
@@ -464,8 +453,7 @@ test('C22 (HOME relative, XDG unset), this release: the relative HOME is ignored
 test('C23 (XDG relative, HOME absolute), this release: the relative XDG is ignored and the config home is $HOME/.config/doflow', { skip: !POSIX }, (t: any) => {
   const f = fx(t);
   const relDir = path.join(f.project, 'rel-xdg', 'doflow');
-  write(path.join(relDir, 'decision-model.json'), userDecision());
-  write(path.join(relDir, 'prune'), 'off\n');
+  write(path.join(relDir, 'settings.json'), { ...userAdvice(), ...PRUNE_OFF });
   const home = path.join(f.home, '.config', 'doflow');
   let out = f.node(NODE_PROBE, { env: { XDG_CONFIG_HOME: 'rel-xdg', PROBE_READ: '1' } });
   assert.equal(out.configHome, home);
@@ -478,39 +466,39 @@ test('C23 (XDG relative, HOME absolute), this release: the relative XDG is ignor
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stdout, 'capture on\n');
   // control: files under $HOME/.config/doflow are read, the relative ones stay unread
-  write(path.join(home, 'decision-model.json'), userDecision());
-  write(path.join(home, 'prune'), 'off\n');
+  write(path.join(home, 'settings.json'), { ...userAdvice(), ...PRUNE_OFF });
   out = f.node(NODE_PROBE, { env: { XDG_CONFIG_HOME: 'rel-xdg', PROBE_READ: '1' } });
   assert.equal(out.advice.state, 'on');
-  assert.equal(out.advice.decidedBy.user, path.join(home, 'decision-model.json'));
+  assert.equal(out.advice.decidedBy.user, path.join(home, 'settings.json'));
   assert.equal(out.prune.setting, 'off');
   // control: the same files under an absolute XDG are read
-  write(path.join(f.xdg, 'doflow', 'decision-model.json'), userDecision());
+  write(path.join(f.xdg, 'doflow', 'settings.json'), userAdvice());
   assert.equal(f.node(NODE_PROBE, { env: { PROBE_READ: '1' } }).advice.state, 'on');
 });
 
 // This release's linked-worktree result is the one declared by FR-012/OI-4.
 test('W1: a linked worktree inherits the main checkout project layers; its own layers still win', (t: any) => {
   const f = fx(t, { worktree: true });
-  f.writeUserDecision(userDecision());
-  const mainPrune = f.writeProjectPrune('off\n');
-  const mainAdvice = f.writeProjectDecision({ schema: 1, enabled: false });
-  f.writeProjectSettings({ schema: 1, 'failure.capture': 'off' });          // capture remains global-only
+  f.writeUserSettings(userAdvice());
+  // capture remains global-only: the project's failure.capture is not read
+  const main = f.writeProjectSettings(doc({ 'storage.prune': 'off', 'advice.enabled': false, 'failure.capture': 'off' }));
+  const mainPrune = main;
+  const mainAdvice = main;
   const roots = rootsOf(f, { projectRoot: f.worktree });
   assert.equal(roots['project-doflow'], path.join(f.worktree, '.doflow'));
   assert.deepEqual(prune(f, 'project-state', { projectRoot: f.worktree }), { setting: 'off', decidedBy: mainPrune });
   const result = resolveSetting({ adviceRegistry: ADVICE, roots });
   assert.equal(result.state, 'off');
   assert.equal(result.reason, 'project-disabled');
-  assert.deepEqual(result.decidedBy, { user: f.userFile('decision-model.json'), project: mainAdvice });
+  assert.deepEqual(result.decidedBy, { user: f.userFile(SETTINGS), project: mainAdvice });
   assert.deepEqual(retentionWindow({ env: f.env(), projectRoot: f.worktree }), { state: 'off' });
-  assert.deepEqual(captureSwitch(failureHome(f.env()), f.env()), { effective: 'on', sentinel: false, env: null, settings: null, decidedBy: 'core/registry/settings.json' });
+  assert.deepEqual(captureSwitch(failureHome(f.env()), f.env()), { effective: 'on', env: null, settings: null, decidedBy: 'core/registry/settings.json' });
   // control: the main checkout itself does read its own files
   assert.equal(prune(f, 'project-state').setting, 'off');
   assert.equal(advice(f).reason, 'project-disabled');
-  assert.deepEqual(captureSwitch(failureHome(f.env()), f.env()), { effective: 'on', sentinel: false, env: null, settings: null, decidedBy: 'core/registry/settings.json' });
+  assert.deepEqual(captureSwitch(failureHome(f.env()), f.env()), { effective: 'on', env: null, settings: null, decidedBy: 'core/registry/settings.json' });
   // control: a file in the worktree's own .doflow is read
-  const own = f.writeProjectPrune('on\n', f.worktree);
+  const own = f.writeProjectSettings(PRUNE_ON, f.worktree);
   assert.deepEqual(prune(f, 'project-state', { projectRoot: f.worktree }), { setting: 'on', decidedBy: own });
   assert.equal(resolveSetting({ adviceRegistry: ADVICE, roots: rootsOf(f, { projectRoot: f.worktree }) }).state, 'on');
   assert.deepEqual(retentionWindow({ env: f.env(), projectRoot: f.worktree }), { state: 'on', hours: 4320, ms: 4320 * HOUR, source: 'default' });

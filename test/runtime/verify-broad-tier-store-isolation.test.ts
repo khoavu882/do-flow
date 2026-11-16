@@ -96,7 +96,7 @@ const CONTROLS: any = [
   { name: 'new file under HOME', root: 'home', base: () => 'process.env.HOME', file: '.doflow/state/delivery/T.1.json' },
   { name: 'new file under XDG_CONFIG_HOME', root: 'xdg', base: () => 'process.env.XDG_CONFIG_HOME', file: 'doflow/leaked.json' },
   { name: 'overwrite of the main store keep.json', root: 'main', base: (l: any) => JSON.stringify(l.main), file: '.doflow/state/delivery/keep.json' },
-  { name: 'overwrite of XDG doflow/prune', root: 'xdg', base: () => 'process.env.XDG_CONFIG_HOME', file: 'doflow/prune' },
+  { name: 'overwrite of XDG doflow/settings.json', root: 'xdg', base: () => 'process.env.XDG_CONFIG_HOME', file: 'doflow/settings.json' },
 ];
 
 for (const control of CONTROLS) {

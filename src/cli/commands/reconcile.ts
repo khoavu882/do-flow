@@ -82,7 +82,7 @@ function cmdReconcile(o: any): void {
   try {
     const dirs = toolDirs(scope);
     const lifecyclePaths = installPaths(scope);
-    const { lock, ledger, manifestServers } = scopeSelectionState(scope);
+    const { lock, ledger } = scopeSelectionState(scope);
     // Read only when there is a pin or a row to classify, as before this check existed.
     const registry = lock?.targets?.length || ledger?.resources?.length ? loadRegistry({ repoRoot: REPO_ROOT }) : null;
     const retired = (harness: string) => (registry ? retiredFor(registry, harness) : null);
@@ -113,9 +113,9 @@ function cmdReconcile(o: any): void {
     printContext(resolveContext({ repoRoot: REPO_ROOT, targets, dirs, sourceCommit: sourceCommit(SCRIPT_DIR), ...scope }));
     // Each harness converges onto its own pinned selection — reconcile never re-prompts and never
     // lends one harness's servers to another.
-    const recorded = recordedMcpSelections({ registry, lock, ledger, targets, manifestServers });
+    const recorded = recordedMcpSelections({ registry, lock, targets });
     const lifecycleView = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets,
-      mcpSelections: recorded.selections, mcpAdoptable: recorded.adoptable, retainedMcpIds: [], force: true });
+      mcpSelections: recorded.selections, retainedMcpIds: [], force: true });
     if (!lifecycleView.plan.safe) { assertSafeRegistryPlan(lifecycleView); return; }
 
     const report = reconcileReport(lifecycleView);

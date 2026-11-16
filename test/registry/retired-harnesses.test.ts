@@ -85,12 +85,12 @@ test('the shipped registry retires gemini for antigravity, with its handover ent
   assert.throws(() => harnessFor(registry, 'gemini'), /Unknown registry harness 'gemini'/);
 });
 
-test('resolveTargets maps agy to antigravity and refuses gemini with the IC-002 message', () => {
+test('resolveTargets maps agy to antigravity and refuses gemini as an unknown target', () => {
   assert.deepEqual(resolveTargets(['agy']), ['antigravity']);
   assert.equal(VALID.includes('gemini'), false);
   assert.throws(() => resolveTargets(['gemini']), (error: any) => {
     assert.equal(Object.getPrototypeOf(error), Error.prototype);
-    assert.equal(error.message, "Target 'gemini' was retired on 2026-10-26; use 'antigravity' (alias agy). Its DoFlow files are released by the next 'doflow install' or 'doflow update' in that scope.");
+    assert.equal(error.message, `Unknown target: 'gemini' (valid: ${VALID.join(', ')})`);
     return true;
   });
 });

@@ -13,16 +13,17 @@ const { tempDir } = require('../helper/tmp.ts');
 
 function feature(root: any, taskLines: any) {
   const featureDir = path.join(root, '001-deps');
-  fs.mkdirSync(featureDir, { recursive: true });
+  fs.mkdirSync(path.join(featureDir, 'intention'), { recursive: true });
+  fs.mkdirSync(path.join(featureDir, 'design'), { recursive: true });
   fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'fixture', scripts: { test: 'node --test' } }));
-  fs.writeFileSync(path.join(featureDir, 'requirement.md'), [
+  fs.writeFileSync(path.join(featureDir, 'intention', 'requirement.md'), [
     '# Requirement: Deps', '',
     '## 3. Functional Requirements', '',
     '| ID | Requirement | Stories | Priority | Status |',
     '|---|---|---|---|---|',
     '| FR-001 | The widget works | US1 | P1 | Live |', '',
   ].join('\n'));
-  fs.writeFileSync(path.join(featureDir, 'design.md'), [
+  fs.writeFileSync(path.join(featureDir, 'design', 'design.md'), [
     '# Design: Deps', '',
     '## 3. Components & Boundaries', '',
     '| ID | Component | Kind | Serves | Status |',

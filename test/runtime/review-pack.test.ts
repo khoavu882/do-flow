@@ -47,7 +47,7 @@ function fixture(t: any, { full = true }: any = {}) {
     item({ topic: 'naming', statement: 'Named it X.', channel: 'resolution', stage: 'implementation', rationale: 'Matches the neighbours.' }),
   ] });
   assert.equal(added.added.length, 4);
-  write(path.join(featureDir, 'requirement.md'), 'Open: [NEEDS CLARIFICATION: which id?] and `[NEEDS CLARIFICATION: in code]`.\n');
+  write(path.join(featureDir, 'intention', 'requirement.md'), 'Open: [NEEDS CLARIFICATION: which id?] and `[NEEDS CLARIFICATION: in code]`.\n');
   write(path.join(featureDir, 'review/findings.json'), JSON.stringify({
     schema: 1, row: '001', slug: SLUG, reviewedHead: 'c'.repeat(40), rounds: 2,
     seats: [{ id: 'seat-a', findings: [{ id: 'a-1', severity: 'should-fix', locator: 'x.ts:1', summary: 's' }, { id: 'a-2', severity: 'note', locator: 'y.ts:2', summary: 'n' }] }, { id: 'seat-b', findings: [] }],
@@ -141,6 +141,15 @@ test('open items list the follow-up filed for the feature and the unresolved mar
   assert.match(six, /FU-[A-Za-z0-9]{6} · open · review · Rename the helper later\./);
   assert.match(six, /Holds: none recorded/);
   assert.match(six, /requirement\.md: 1/);
+});
+
+test('a flat requirement.md or design.md carries no marker into the open items', (t) => {
+  const { root } = fixture(t, { full: false });
+  const featureDir = path.join(root, 'agent-docs', 'doflow', SLUG);
+  write(path.join(featureDir, 'requirement.md'), '[NEEDS CLARIFICATION: flat]\n');
+  write(path.join(featureDir, 'design.md'), '[NEEDS CLARIFICATION: flat]\n');
+  const six = section(fs.readFileSync(writeReviewPack({ cwd: root, slug: SLUG, now: NOW }).path, 'utf8'), 6);
+  assert.match(six, /markers: none recorded/);
 });
 
 test('a feature with no records gets "none recorded" in every section and a Not verified list', (t) => {

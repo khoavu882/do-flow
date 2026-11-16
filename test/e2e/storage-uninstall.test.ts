@@ -59,15 +59,15 @@ test('removing the final harness clears owned storage controls and leaves user s
     fs.mkdirSync(path.join(other, '.doflow/state'), { recursive: true });
     fs.writeFileSync(path.join(other, '.doflow/state/.gitignore'), ignore);
     fs.writeFileSync(path.join(other, '.doflow/state/upkeep-due'), '1\n');
-    fs.writeFileSync(path.join(project, '.doflow/prune'), 'off\n');
+    fs.writeFileSync(path.join(project, '.doflow/settings.json'), '{"schema":1,"storage.prune":"off"}\n');
     fs.writeFileSync(path.join(project, '.doflow/prompt-nudge'), 'user\n');
-    fs.writeFileSync(path.join(scratch.home, '.doflow/prune'), 'off\n');
+    fs.writeFileSync(path.join(scratch.home, '.doflow/settings.json'), '{"schema":1,"storage.prune":"off"}\n');
     fs.writeFileSync(path.join(scratch.home, '.doflow/prompt-nudge'), 'user\n');
 
     removeAll(scratch, false, project);
     for (const file of ['.gitignore', 'upkeep-due']) assert.equal(fs.existsSync(path.join(controls.projectState, file)), false);
     assert.equal(fs.existsSync(path.join(controls.projectState, 'upkeep.lock')), false);
-    assert.equal(fs.existsSync(path.join(project, '.doflow/prune')), true);
+    assert.equal(fs.existsSync(path.join(project, '.doflow/settings.json')), true);
     assert.equal(fs.existsSync(path.join(project, '.doflow/prompt-nudge')), true);
     assert.ok(fs.existsSync(path.join(other, '.doflow/state/.gitignore')));
     assert.ok(fs.existsSync(path.join(other, '.doflow/state/upkeep-due')));
@@ -80,7 +80,7 @@ test('removing the final harness clears owned storage controls and leaves user s
     }
     assert.equal(fs.readFileSync(path.join(controls.userState, '.gitignore'), 'utf8'), `${ignore}# user rule\n`);
     assert.equal(fs.existsSync(controls.index), false);
-    assert.equal(fs.existsSync(path.join(scratch.home, '.doflow/prune')), true);
+    assert.equal(fs.existsSync(path.join(scratch.home, '.doflow/settings.json')), true);
     assert.equal(fs.existsSync(path.join(scratch.home, '.doflow/prompt-nudge')), true);
   } finally { scratch.remove(); }
 });

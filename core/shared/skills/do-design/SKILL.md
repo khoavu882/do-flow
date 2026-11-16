@@ -111,7 +111,7 @@ a `design.md` for it invents an artifact its workflow never reads.
 6. **Write `design.md`, `specs.md` and `data-model.md`** — copy the design template into the
    feature dir and fill it from step 5, splitting the narrative, the interface contracts, and the
    data model/data-flow shape across three files at the paths step 1 resolved: `design`
-   (`design/design.md` in the structured layout), `specs` (`design/specs.md`), and `data_model`
+   (`design/design.md`), `specs` (`design/specs.md`), and `data_model`
    (`design/data-model.md`). `mkdir -p` their parent directory first.
    **Why narrative vs. contracts vs. data model**: Decoupling architectural narrative (`design.md`)
    from concrete interface contracts (`specs.md` with numbered `IC-###` items) and from the
@@ -129,24 +129,16 @@ a `design.md` for it invents an artifact its workflow never reads.
    entity/table name instead of an id. Leave `design.md`'s API / Interface Contracts, Data Model and Sequence / Data Flow sections as a one-line
    pointer to `./specs.md` §1 and `./data-model.md` §1/§2 respectively rather than restating their
    content in any of the three files.
-   When `specs` is `null` (an old-layout feature dir, which never had a `specs.md`), do not create
-   one: fill API / Interface Contracts and Data Model in `design.md` exactly as before and leave that dir's layout alone — this feature
-   migrates nothing.
-   When `data_model` is null (an old-layout feature dir, which never had a `data-model.md`), do not
-   create one: fill Data Model and Sequence / Data Flow in `design.md` — the content
-   `specs.md`'s former §2 and the template's old §6 carried — exactly as the old two-file
-   convention did, and leave that dir's layout alone — this feature migrates nothing.
-   Otherwise fill `data-model.md` §1 to §9. Read `references/data_model_example.md` only while filling it.
+   Fill `data-model.md` §1 to §9. Read `references/data_model_example.md` only while filling it.
    Each table row ends in a Source tag; copy every `proposed` row to `design.md` Open Points for
    Review. `design.md` Journeys keep user-visible states only and link to `./data-model.md` §3 for
    the entity states.
 The template is `templates/doflow/design-template.md` in the install step 1 resolved: take `constitution_base` from that JSON and swap its trailing `guidance/references/CONSTITUTION_BASE.md` for that path.
    Fill `[REQUIREMENT_PATH]` with step 1's own resolved `requirement` field, verbatim
-   (repo-root-relative, exactly as the resolver returns it) — never hand-compute it, which is only
-   correct under the legacy layout; under `layout: structured` the two artifacts sit in sibling
-   subdirectories (`design/design.md` vs `intention/requirement.md`), so a hand-computed path would
-   be wrong there. Reading it off the resolver, the same way `constitution_base` already is, is
-   what keeps the pointer correct under either layout.
+   (repo-root-relative, exactly as the resolver returns it) — never hand-compute it: the two
+   artifacts sit in sibling subdirectories (`design/design.md` vs `intention/requirement.md`), so a
+   hand-computed path would be wrong. Reading it off the resolver, the same way `constitution_base`
+   already is, is what keeps the pointer correct.
    the template's "Assumptions" section must read "None" unless a design-level
    clarification question was resolved via the defer escape hatch in Step 5, in which case record it
    there with a one-line rationale.

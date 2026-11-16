@@ -113,6 +113,13 @@ const STUB_SUFFIX = '.stub';
  * missing one of them is a scaffold with no traceability, no shape, or no file list. */
 const ARTIFACTS: readonly string[] = Object.freeze(['requirement.md', 'design.md', 'plan.md']);
 
+/** Where each artifact lives in a feature folder: the structured layout, the only one read. */
+const ARTIFACT_PATHS: Readonly<Record<string, string>> = Object.freeze({
+  'requirement.md': 'intention/requirement.md',
+  'design.md': 'design/design.md',
+  'plan.md': 'plan.md',
+});
+
 /**
  * Uniform exit codes, matching design §4.2's contract for every DoFlow verb.
  * `1` is "a finding the caller must act on" — which includes an unparseable artifact, so a caller
@@ -183,7 +190,7 @@ function readArtifacts(featureDir: string, fsImpl: any): { sources: any[]; notEv
   const notEvaluated: any[] = [];
   const texts: Record<string, string | null> = {};
   for (const name of ARTIFACTS) {
-    const text = readIfPresent(path.join(featureDir, name), fsImpl);
+    const text = readIfPresent(path.join(featureDir, ARTIFACT_PATHS[name]), fsImpl);
     texts[name] = text;
     sources.push({ name, present: text !== null, sha256: text === null ? null : sha256(text) });
     if (text === null) {
@@ -911,6 +918,7 @@ module.exports = {
   MANIFEST_NAME,
   STUB_SUFFIX,
   ARTIFACTS,
+  ARTIFACT_PATHS,
   FINGERPRINT_MARKER,
   FINGERPRINT_RE,
   EXTENSION_LANGUAGE,

@@ -3368,7 +3368,7 @@ const layersBody = (over: any = {}) => ({
     traffic: lok({ v: 1, projectKey: P1, windowMin: 10, agents: [], models: [], pairs: [], notChecked: 0 }),
     coverage: lok([
       { harness: 'claude', main: { observed: true }, subagents: { observed: true }, transcript: { observed: true }, permissions: { observed: true }, questions: { observed: false, reason: 'no-harness-record' } },
-      { harness: 'gemini', main: { observed: true }, subagents: never, transcript: never, permissions: never, questions: { observed: true } },
+      { harness: 'opencode', main: { observed: true }, subagents: never, transcript: never, permissions: never, questions: { observed: true } },
     ]),
     ...over,
   },
@@ -3538,7 +3538,7 @@ test('161 layers machine: a section that failed says unreadable with its code; n
   assert.match(text(page.main), /No DoFlow project on this machine yet/);
 });
 
-test('161 layers project: the page reads layers:<pk> and machine; checkouts hold their agents, a gemini source reads not observed with its reason, never idle', async () => {
+test('161 layers project: the page reads layers:<pk> and machine; checkouts hold their agents, an opencode source reads not observed with its reason, never idle', async () => {
   const page = await startLayers(`#/layers/${P1}`);
   await advance(100);
   const es = liveES();
@@ -3558,10 +3558,10 @@ test('161 layers project: the page reads layers:<pk> and machine; checkouts hold
   assert.equal(page.main.querySelectorAll('.lrow--file').length, 1);
   assert.equal(page.main.querySelectorAll('.gate-card').length, 1, 'an awaiting gate leads the page');
   const table = page.main.querySelector('.layers-coverage');
-  const gemini = table.querySelectorAll('tr').find((tr: El) => /gemini/.test(text(tr)));
-  assert.match(text(gemini), /not observed/);
-  assert.match(text(gemini), /no audit hook/);
-  assert.doesNotMatch(text(gemini), /\bidle\b/i);
+  const opencode = table.querySelectorAll('tr').find((tr: El) => /opencode/.test(text(tr)));
+  assert.match(text(opencode), /not observed/);
+  assert.match(text(opencode), /no audit hook/);
+  assert.doesNotMatch(text(opencode), /\bidle\b/i);
   const claude = table.querySelectorAll('tr').find((tr: El) => /claude/.test(text(tr)));
   assert.match(text(claude!.querySelectorAll('td')[4]), /not observed/, 'questions is not observed for every harness');
   assert.equal(loops(page), 1);

@@ -50,6 +50,16 @@ test('D.4 only points to allowed project-local detail and document ranges', (t) 
   assert.ok(pointers.every((pointer: any) => pointer.bytes > 0 && pointer.inlineBytes > 0 && pointer.tokensEst.value > 0));
 });
 
+test('a flat requirement.md or design.md in the feature folder supplies no pointer', (t) => {
+  const root = tempDir(t, 'doflow-pointer-flat-');
+  const featureDir = path.join(root, 'agent-docs', 'doflow', 'fixture-feature');
+  fs.mkdirSync(featureDir, { recursive: true });
+  const body = ['## 3. Functional Requirements', '| ID | Requirement |', '|---|---|', '| FR-001 | Example |', '**Detail**', '- **FR-001:** Required behavior.'].join('\n');
+  fs.writeFileSync(path.join(featureDir, 'requirement.md'), body);
+  fs.writeFileSync(path.join(featureDir, 'design.md'), '## IC-016: Pointers\nPointer contract.\n');
+  assert.deepEqual(collectPointers({ projectRoot: root, feature: { featureDir, repoRoot: root } }), []);
+});
+
 test('template-shaped Detail blocks without colons produce requirement pointers', (t) => {
   const root = tempDir(t, 'doflow-pointer-template-detail-');
   const featureDir = path.join(root, 'agent-docs', 'doflow', 'fixture-feature');

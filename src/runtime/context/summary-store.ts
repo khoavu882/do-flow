@@ -325,74 +325,6 @@ function releaseClaim(claimed: string, origin: string): boolean {
   return true;
 }
 
-// ── IC-014: the pre-078 project summary (DEC-043) ───────────────────────────────────────────────
-
-/**
- * The pre-078 project summary under projects/<cwdHash cwd>/ when it exists as a regular file and
- * not a symlink, else null. This and adoptLegacy() are the TypeScript side's only use of the name.
- */
-function legacySummary(cwd: string, env: Env = process.env): string | null {
-  const root = stateDir(env);
-  if (!cwd || root === null) return null;
-  const old = path.join(root, 'projects', cwdHash(cwd), 'last-compact-summary.md');
-  return regularFile(old) ? old : null;
-}
-
-/**
- * `doflow_summary_adopt_legacy` (IC-014, action `adopt` only): move the legacy summary once into
- * summaries/<worktreeKey>/local/main/summary.md, frontmatter kept. The legacy file is first claimed
- * by a rename to `.adopting.<pid>`, so of two concurrent adopters exactly one proceeds; the loser
- * returns false and changes nothing. The claimed file is then hard-linked to summary.md, which
- * refuses to replace: a summary already pending there is newer by construction and the legacy copy
- * is retired instead. Only when the link fails with summary.md absent (no hard links on this
- * filesystem) is it renamed into place after a re-check; that fallback is check-then-rename and so
- * can replace a summary written in the same instant (the ceiling it accepts). The `.adopting` name
- * is unlinked last. True when this call adopted or retired the legacy file.
- */
-function adoptLegacy(cwd: string, worktree: string, env: Env = process.env): boolean {
-  const old = legacySummary(cwd, env);
-  if (old === null) return false;
-  const scope = summaryScope(worktree || cwd, 'local', 'main', env);
-  if (scope === null) return false;
-  try {
-    fs.mkdirSync(scope, { recursive: true });
-  } catch {
-    return false;
-  }
-  const adopting = `${old}.adopting.${process.pid}`;
-  try {
-    fs.renameSync(old, adopting);
-  } catch {
-    return false;
-  }
-  const target = path.join(scope, 'summary.md');
-  try {
-    fs.linkSync(adopting, target);
-  } catch {
-    if (!present(target)) {
-      try {
-        fs.renameSync(adopting, target);
-        return true;
-      } catch {
-        // Neither a link nor a rename: the file is left under its .adopting name for a later
-        // cleanup; the retired legacy path is never written again (G38.4).
-        return false;
-      }
-    }
-  }
-  removeQuietly(adopting);
-  return true;
-}
-
-function present(file: string): boolean {
-  try {
-    fs.lstatSync(file);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 interface GrantOptions {
   /** A summary id, or `pending` for the source scope's current summary.md. */
   summary: string;
@@ -641,12 +573,10 @@ module.exports = {
   GRANT_EXIT,
   SUMMARY_ID_PATTERN,
   SummaryStoreError,
-  adoptLegacy,
   claimGrant,
   claimSummary,
   compareScopeContext,
   grantSummary,
-  legacySummary,
   peekGrant,
   peekSummary,
   releaseClaim,

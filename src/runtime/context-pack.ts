@@ -1287,7 +1287,7 @@ function resolveDeltaBasis({ root, source = root, taskId, slug, since, budget, p
 /** The mandatory fields of a task from its feature's requirement.md and the task's plan stories. */
 function gatherMandatory({ root, taskId, feature }: any) {
   let reqText: string | null = null;
-  let reqPath = 'requirement.md';
+  let reqPath = path.join('intention', 'requirement.md');
   // The folder lives in `featureRoot`, the checkout that holds it: the main checkout when the
   // checkout the verb runs in has none of its own.
   const folder = feature.featureFolder || feature.featureDir;

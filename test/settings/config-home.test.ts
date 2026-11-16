@@ -137,7 +137,6 @@ test('IC-010: with no config home every session-state reader skips and nothing i
   assert.equal(store.summaryScope(cwd, 'r1', 'w1', env), null);
   assert.deepEqual(store.peekGrant('r1', 'w1', 1000, env), { grant: 'none', file: null, id: null, bytes: null });
   assert.equal(store.claimGrant('r1', 'w1', 'u1', 's-20260101T000000Z-abcdef', env).claimed, null);
-  assert.equal(store.legacySummary(cwd, env), null);
   assert.deepEqual(store.scopeContext(cwd, 'r1', 'w1', env).grants, []);
   assert.throws(() => store.grantSummary({ summary: 'pending', toRun: 'r2', toLineage: 'w2', env, fromWorktree: cwd, fromRun: 'r1', fromLineage: 'w1' }),
     (e: any) => e.exitCode === 2 && /no config home/.test(e.message));

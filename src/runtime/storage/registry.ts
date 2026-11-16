@@ -37,7 +37,6 @@ function validateStorageRegistry(registry: any): { ok: boolean; errors: string[]
   const settings = registry.settings;
   if (!isObject(settings)) error(errors, 'settings', 'must be an object');
   else {
-    if (settings.optOutFile !== 'prune') error(errors, 'settings.optOutFile', 'must be prune');
     for (const field of ['upkeepIntervalHours', 'passBudgetMs', 'maxRemovalsPerPass', 'passLockStaleSeconds', 'orphanGraceHours', 'staleTmpHours']) {
       if (!positiveInteger(settings[field])) error(errors, `settings.${field}`, 'must be a positive integer');
     }

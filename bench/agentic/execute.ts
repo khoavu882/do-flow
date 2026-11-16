@@ -1123,7 +1123,6 @@ function checkHomeSetup(at: string, hs: any) {
   if (hs === null) return;
   if (!hs || typeof hs !== 'object' || !isStringArray(hs.argv) || hs.argv.length === 0) throw configError(at, 'must be null or { argv: [..] }');
   const argv: string[] = hs.argv;
-  if (argv.some((a) => /gemini/i.test(a))) throw configError(`${at}.argv`, 'must not name the gemini target');
   const targets = argv.flatMap((a, i) => (a === '-t' || a === '--target' ? [argv[i + 1]] : []));
   if (targets.length !== 1 || targets[0] !== 'claude') throw configError(`${at}.argv`, 'must name exactly one target, "-t claude"');
   if (!argv.includes('install') || !argv.includes('-g')) throw configError(`${at}.argv`, 'must be a global install ("install ... -g")');

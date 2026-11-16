@@ -154,8 +154,8 @@ test('DOFLOW_UPKEEP=off leaves project, user and config state byte-identical whe
     fs.writeFileSync(path.join(root, 'upkeep-due'), `${Math.floor((NOW - DAY) / 1000)}\n`);
     fs.writeFileSync(path.join(root, `preserve-${id}.txt`), `${id} state\n`);
   }
-  fs.writeFileSync(path.join(f.projectRoot, '.doflow', 'prune'), 'on\n');
-  fs.writeFileSync(path.join(f.roots['config-home'], 'prune'), 'on\n');
+  fs.writeFileSync(path.join(f.projectRoot, '.doflow', 'settings.json'), '{"schema":1,"storage.prune":"on"}\n');
+  fs.writeFileSync(path.join(f.roots['config-home'], 'settings.json'), '{"schema":1,"storage.prune":"on"}\n');
   const oldLog = path.join(f.roots['project-state'], 'verification', 'logs', `${NOW - 31 * DAY}-expired.log`);
   fs.mkdirSync(path.dirname(oldLog), { recursive: true });
   fs.writeFileSync(oldLog, 'expired log\n');

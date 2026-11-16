@@ -24,11 +24,12 @@ function setup(t: any, { xdg = 'xdg', global = false }: any = {}) {
   return { dir, project, home, xdg: xdgPath, env, registry, roots: resolveRoots({ registry, projectRoot: project, global, env }) };
 }
 function write(file: any, text: any) { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, text); }
-function projectPrune(s: any) { return path.join(s.project, '.doflow', 'prune'); }
-function userPrune(s: any) { return path.join(s.xdg, 'doflow', 'prune'); }
+function projectPrune(s: any) { return path.join(s.project, '.doflow', 'settings.json'); }
+function userPrune(s: any) { return path.join(s.xdg, 'doflow', 'settings.json'); }
+const pruneDoc = (value: string) => `${JSON.stringify({ schema: 1, 'storage.prune': value })}\n`;
 
 test('IC-014: project setting overrides user setting only for project roots and returns deciding file', (t) => {
-  const s = setup(t); write(userPrune(s), 'off\n'); write(projectPrune(s), 'on\n');
+  const s = setup(t); write(userPrune(s), pruneDoc('off')); write(projectPrune(s), pruneDoc('on'));
   const project = readPruneSetting({ registry: s.registry, roots: s.roots, rootId: 'project-state' });
   const user = readPruneSetting({ registry: s.registry, roots: s.roots, rootId: 'user-state' });
   const config = readPruneSetting({ registry: s.registry, roots: s.roots, rootId: 'config-home' });
@@ -38,18 +39,18 @@ test('IC-014: project setting overrides user setting only for project roots and 
 });
 
 test('IC-014: project off, neither setting, and malformed settings are off', (t) => {
-  const s = setup(t); write(userPrune(s), 'on\n'); write(projectPrune(s), 'off\n');
+  const s = setup(t); write(userPrune(s), pruneDoc('on')); write(projectPrune(s), pruneDoc('off'));
   assert.deepEqual(readPruneSetting({ registry: s.registry, roots: s.roots, rootId: 'project-doflow' }), { setting: 'off', decidedBy: projectPrune(s) });
   fs.rmSync(projectPrune(s)); fs.rmSync(userPrune(s));
   assert.deepEqual(readPruneSetting({ registry: s.registry, roots: s.roots, rootId: 'project-state' }), { setting: 'on', decidedBy: null });
-  for (const content of ['', 'maybe\n', ' OFF \n']) {
+  for (const content of ['', '{not json', pruneDoc('maybe')]) {
     write(userPrune(s), content);
     assert.deepEqual(readPruneSetting({ registry: s.registry, roots: s.roots, rootId: 'user-state' }), { setting: 'off', decidedBy: userPrune(s) });
   }
 });
 
 test('IC-014: unreadable user setting is off', { skip: process.platform === 'win32' || ROOT_USER }, (t) => {
-  const s = setup(t); write(userPrune(s), 'on\n'); fs.chmodSync(userPrune(s), 0);
+  const s = setup(t); write(userPrune(s), pruneDoc('on')); fs.chmodSync(userPrune(s), 0);
   t.after(() => { if (fs.existsSync(userPrune(s))) fs.chmodSync(userPrune(s), 0o600); });
   assert.deepEqual(readPruneSetting({ registry: s.registry, roots: s.roots, rootId: 'user-state' }), { setting: 'off', decidedBy: userPrune(s) });
 });
