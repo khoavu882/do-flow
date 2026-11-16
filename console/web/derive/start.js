@@ -75,11 +75,22 @@ function startedByWords(by) {
 /** The run phases of a started session in words. @type {Readonly<Record<string, string>>} */
 const PHASE_WORDS = Object.freeze({ starting: 'starting', running: 'process seen', cancelling: 'stopping', ended: 'ended' });
 
-/** The end state of a started session in words (the Console projects the state only, never an exit code). @param {any} state */
-function endWords(state) {
-  if (state === 'exited') return 'The session exited. Its error output is below.';
-  if (state === 'timed-out') return 'The session passed its 3600 s limit and was stopped.';
-  if (state === 'cancelled') return 'The session was stopped.';
+/** Why a session never started, in words (the supervisor's `not-started` reasons). @type {Readonly<Record<string, string>>} */
+const NOT_STARTED_WORDS = Object.freeze({ 'prompt-unwritable': 'its prompt could not be written' });
+
+/**
+ * The end of a started session in words, from the node's `end` (`{ state, exitCode, reason }`, 165 F2): the exit code when the process
+ * left one, the stop and the time limit, and a session that never started. @param {any} end
+ */
+function endWords(end) {
+  if (!end || typeof end !== 'object') return 'The session ended.';
+  if (typeof end.reason === 'string') return `The session did not start: ${NOT_STARTED_WORDS[end.reason] ?? end.reason.replace(/-/g, ' ')}. Nothing ran.`;
+  if (end.state === 'exited') {
+    if (end.exitCode === 0) return 'The session exited with code 0.';
+    return Number.isInteger(end.exitCode) ? `The session exited with code ${end.exitCode}. Its error output is below.` : 'The session exited. Its error output is below.';
+  }
+  if (end.state === 'timed-out') return 'The session passed its 3600 s limit and was stopped.';
+  if (end.state === 'cancelled') return 'The session was stopped.';
   return 'The session ended.';
 }
 
@@ -361,8 +372,9 @@ function flowWords(flow) {
     case 'running': return { token: 'running', title: `Running: ${where}`, lines: ['No output yet. It appears here when the session writes some.'], stop: true, output: true };
     case 'streaming': return { token: 'running', title: `Running: ${where}`, lines: ['Output of the session, masked, the last 200 lines.'], stop: true, output: true };
     case 'ended': {
-      const state = flow.node && flow.node.ended ? flow.node.ended.result : flow.run && flow.run.end ? flow.run.end.state : null;
-      return { token: state === 'exited' || state === null ? 'unknown' : 'rejected', title: `Ended: ${where}`, lines: [endWords(state)], stop: false, output: true };
+      const end = flow.node && flow.node.end ? flow.node.end : flow.run && flow.run.end ? { state: flow.run.end.state, exitCode: null, reason: null } : null;
+      const state = end ? end.state : null;
+      return { token: end && end.reason ? 'failed' : state === 'exited' || state === null ? 'unknown' : 'rejected', title: `Ended: ${where}`, lines: [endWords(end)], stop: false, output: true };
     }
     case 'unknown': return { token: 'stale', title: 'The outcome is unknown', lines: ['No answer; check Sessions before trying again.', 'Start again to reuse the same request: the core starts it once.'], stop: false, output: false };
     case 'refused': return { token: 'failed', title: 'The session did not start', lines: startRefusalLines(flow.refusal.code, flow.refusal.current, { retryAfter: flow.refusal.retryAfter }), stop: false, output: false };
@@ -420,18 +432,6 @@ function startedItems(machine, projectKey) {
 }
 
 /**
- * The run id of a started-session node, joined by its agent key (the node carries no run id; the machine activity does). Null when the
- * run is not among the newest eight of its project.
- * @param {any} machine @param {string} projectKey @param {string} agentKey
- */
-function runIdOfNode(machine, projectKey, agentKey) {
-  const held = startedItems(machine, projectKey);
-  if (held === null) return null;
-  const found = held.list.find((/** @type {any} */ s) => typeof s.runId === 'string' && agentKeyOf(s.runId) === agentKey);
-  return found ? found.runId : null;
-}
-
-/**
  * "Started here" of the Sessions page: the started sessions of the project the Console runs in, from the `machine` member. `state` is
  * `unread` before the member arrived or when its activity could not be read, `not-reported` for a core that lists none, else `ok`.
  * @param {any} machine
@@ -454,5 +454,5 @@ export {
   sha256Hex, agentKeyOf, startedByWords, endWords, permissionWords, warningWords,
   projectRows, harnessRows, harnessOf, modelGroups, checkoutRows, entryChoices, limitWords, dispatchWords,
   promptState, formFor, readiness, startBody, attemptFor, settleAttempt,
-  OUTPUT_LINES, outputTail, optionsErrorWords, nodeIn, startRefusalLines, refusalRereads, initialFlow, flowReduce, flowWords, startedItems, runIdOfNode, startedHere,
+  OUTPUT_LINES, outputTail, optionsErrorWords, nodeIn, startRefusalLines, refusalRereads, initialFlow, flowReduce, flowWords, startedItems, startedHere,
 };

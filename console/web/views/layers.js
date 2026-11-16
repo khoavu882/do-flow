@@ -25,7 +25,7 @@ import { actionArea, actionButton, notAllowedLine } from './confirm.js';
 import { tailPane } from './start.js';
 import { buildConfirmation } from '../derive/actions.js';
 import {
-  nodeTitle, titleIsLabel, kindWord, stamp, streamState, streamCopy, machineModel, projectModel, summarizedLine, COVERAGE_COLUMNS, coverageCell, projectLabel, startedRunId, startedWords,
+  nodeTitle, titleIsLabel, kindWord, stamp, streamState, streamCopy, machineModel, projectModel, summarizedLine, COVERAGE_COLUMNS, coverageCell, projectLabel, startedWords,
 } from '../derive/layers.js';
 
 const plural = (/** @type {number} */ n, /** @type {string} */ one, /** @type {string} */ many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -735,10 +735,10 @@ function syncInspector(local, data, params) {
   const key = `${sel.kind}|${sel.key}|${present}`;
   if (local.selKey === key) {
     if (sel.kind === 'agent' && node && node.kind === 'started-session' && local.startedPane) {
-      const sig = JSON.stringify([node, startedRunId(data.machine, pk, node.agentKey)]);
+      const sig = JSON.stringify(node);
       if (local.nodeSig !== sig) {
         local.nodeSig = sig;
-        local.startedPane.update(node, startedRunId(data.machine, pk, node.agentKey));
+        local.startedPane.update(node);
       }
     } else if (sel.kind === 'agent' && node && local.panel) {
       const sig = JSON.stringify(node);
@@ -775,7 +775,7 @@ function syncInspector(local, data, params) {
     });
     return;
   }
-  if (sel.kind === 'agent' && node.kind === 'started-session') openStarted(local, pk, node, startedRunId(data.machine, pk, node.agentKey), close);
+  if (sel.kind === 'agent' && node.kind === 'started-session') openStarted(local, pk, node, close);
   else if (sel.kind === 'agent') openAgent(local, pk, sel.key, node, close);
   else openFile(local, pk, sel.key, file, close);
 }
@@ -828,11 +828,11 @@ function setLaneNote(local, code) {
 
 /**
  * 165: the pane of a started session: who started it, its phase and whether the harness's own session was seen, the two output lanes
- * (`file:` lanes, masked, the last 200 lines) and Stop, which opens the cancel-worker confirmation of the `started-sessions` store. The
- * node carries no run id; the machine's started list does, so Stop is drawn once the run is among the newest of the project.
- * @param {any} local @param {string} pk @param {any} node @param {string | null} runId @param {() => void} close
+ * (`file:` lanes, masked, the last 200 lines) and Stop, which opens the cancel-worker confirmation of the `started-sessions` store.
+ * The node carries its own run id and how it ended (165 F2), so neither depends on the machine's started list.
+ * @param {any} local @param {string} pk @param {any} node @param {() => void} close
  */
-function openStarted(local, pk, node, runId, close) {
+function openStarted(local, pk, node, close) {
   const title = h('h2', { class: 'fpanel__title', id: 'layers-started-title', tabindex: '-1' }, 'Started session');
   const facts = h('div', { class: 'started__facts' });
   const acts = h('div', { class: 'started__acts' });
@@ -841,25 +841,23 @@ function openStarted(local, pk, node, runId, close) {
   const el = h('section', { class: 'layers-inspect started', 'aria-labelledby': 'layers-started-title', dataset: { stream: 'started' } }, [
     title, facts, acts, h('p', { class: 'logpane__note' }, MASKED_SENTENCE), out.el, err.el,
   ]);
-  /** @param {any} current @param {string | null} id */
-  const update = (current, id) => {
+  /** @param {any} current */
+  const update = (current) => {
     const words = startedWords(current);
     const live = current.phase === 'starting' || current.phase === 'running';
-    const stop = () => (id === null || !live ? null : buildConfirmation('cancel-worker', {
-      projectKey: pk, project: local.who ? local.who.label : null, slug: 'started-sessions', worker: { runId: id, harness: current.harness, task: 'main-session' },
+    const stop = () => (!live ? null : buildConfirmation('cancel-worker', {
+      projectKey: pk, project: local.who ? local.who.label : null, slug: 'started-sessions', worker: { runId: current.runId, harness: current.harness, task: 'main-session' },
     }));
     mount(facts, [
       h('p', { class: 'started__line' }, withSep([current.harness ? h('span', { class: 'tag tag--mono' }, current.harness) : null, current.model ?? 'model not recorded', words.startedBy, words.phase])),
       h('p', { class: 'started__line' }, words.observed),
-      current.ended ? h('p', { class: 'started__line' }, ['ended ', reltime(current.ended.at, Date.now()), current.ended.result ? `, ${String(current.ended.result).replace(/-/g, ' ')}` : '']) : null,
+      current.ended ? h('p', { class: 'started__line' }, ['ended ', reltime(current.ended.at, Date.now()), words.end ? `. ${words.end}` : '']) : null,
     ]);
-    mount(acts, id === null
-      ? (live ? h('p', { class: 'acts__reason' }, 'Stop is offered once this run is among the newest started sessions of the project; it is not now.') : null)
-      : actionArea(() => (live ? [actionButton({ id: 'cancel-worker', label: 'Stop session', tone: 'danger', make: stop }), stop() === null ? null : notAllowedLine(['cancel-worker'])] : null), 'acts acts--head'));
+    mount(acts, actionArea(() => (live ? [actionButton({ id: 'cancel-worker', label: 'Stop session', tone: 'danger', make: stop }), stop() === null ? null : notAllowedLine(['cancel-worker'])] : null), 'acts acts--head'));
   };
-  update(node, runId);
+  update(node);
   local.startedPane = { update };
-  local.nodeSig = JSON.stringify([node, runId]);
+  local.nodeSig = JSON.stringify(node);
   local.startedStreams = [];
   local.laneKey = `started:${pk}:${node.agentKey}`;
   /** @type {Array<() => void>} */

@@ -215,7 +215,7 @@ const STARTED_KEY = 'ee11ff22aa33bb44';
 function started(over: any = {}): any {
   return node({
     agentKey: STARTED_KEY, kind: 'started-session', harness: 'claude', model: null, modelBasis: null, contextCapturedAt: null, startedAt: '2026-11-16T08:00:00.000Z',
-    lastRecordAt: '2026-11-16T08:00:00.000Z', startedBy: 'console', phase: 'running', liveness: 'process-seen',
+    lastRecordAt: '2026-11-16T08:00:00.000Z', runId: 'w-0123456789ab', startedBy: 'console', phase: 'running', end: null, liveness: 'process-seen',
     fileKeys: { out: '1111111111111111', err: '2222222222222222' }, observed: { state: 'not-observed', reason: 'not-yet-observed' },
     transcript: { reader: null, linked: false, reason: 'no-reader' }, ...over,
   });
@@ -246,10 +246,11 @@ test('165: a not-observed started session says "session not observed" with its r
   assert.equal(row({ startedBy: null }).startedBy, 'starter not recorded');
 });
 
-test('165: the Stop target of a started session is its run id, joined from the machine started list; absent when the list does not hold it', () => {
-  const machine = { v: 1, sections: { projects: ok({ projects: [{ projectKey: PK, label: 'do-flow', current: true }] }), activity: ok({ items: [{ projectKey: PK, started: [{ runId: 'w-0123456789ab', harness: 'claude', phase: 'running', startedBy: 'console', worktreeKey: WK, createdAt: '2026-11-16T08:00:00.000Z' }], startedCount: 1 }] }) } };
-  const key = layers.startedKeyOf('w-0123456789ab');
-  assert.equal(layers.startedRunId(machine, PK, key), 'w-0123456789ab');
-  assert.equal(layers.startedRunId(machine, PK, STARTED_KEY), null);
-  assert.equal(layers.startedRunId(null, PK, key), null);
+test('165 F2: a started session words how it ended from its own end, and the join through the machine list is gone', () => {
+  const row = (extra: any) => withStarted(extra).lanes[0].orchestrator.find((r: any) => r.kind === 'started-session');
+  assert.equal(row({}).end, null);
+  assert.equal(row({ phase: 'ended', end: { state: 'exited', exitCode: 3, reason: null } }).end, 'The session exited with code 3. Its error output is below.');
+  assert.equal(row({ phase: 'ended', end: { state: 'exited', exitCode: null, reason: 'prompt-unwritable' } }).end, 'The session did not start: its prompt could not be written. Nothing ran.');
+  assert.equal(row({ runId: 'w-0123456789ab' }).runId, 'w-0123456789ab');
+  assert.equal('startedRunId' in layers, false);
 });

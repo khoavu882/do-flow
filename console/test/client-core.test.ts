@@ -5614,7 +5614,7 @@ const startedMachine = (items: any[] = [startedItem165()], count = items.length)
   ] }),
 });
 const startedNode = (over: any = {}) => lnode(startedAgentKey(), {
-  kind: 'started-session', model: null, modelBasis: null, contextCapturedAt: null, startedAt: AT(2), lastRecordAt: AT(2), startedBy: 'console', phase: 'running', liveness: 'process-seen',
+  kind: 'started-session', model: null, modelBasis: null, contextCapturedAt: null, startedAt: AT(2), lastRecordAt: AT(2), runId: RUN165, startedBy: 'console', phase: 'running', end: null, liveness: 'process-seen',
   fileKeys: { out: FILE_OUT, err: FILE_ERR }, observed: { state: 'not-observed', reason: 'not-yet-observed' }, transcript: { reader: null, linked: false, reason: 'no-reader' }, ...over,
 });
 const treeWith = (nodes: any[]) => ({ tree: lok({ v: 1, projectKey: P1, nodes, edges: [], limits: { nodes: nodes.length, notChecked: 0 }, unreadable: 0 }) });
@@ -5642,8 +5642,7 @@ test('165 layers: the pane of a started session follows its out and err file lan
     : target === '/api/actions/cancel-worker' ? reply(200, { v: 1, action: 'cancel-worker', requestId: 'x', outcome: 'applied', replayed: false, by: 'console', result: { runId: RUN165 } })
       : standard(target, init));
   const page = await startLayers(`#/layers/${P1}/agent/${startedAgentKey()}`, FakeES, base);
-  const es = await openedLayers(page, [], layersBody(treeWith([lnode(A_MAIN), startedNode()])));
-  es.emit('message', liveFrame('machine', 'patch', { set: { '/machine/body/sections/activity': startedMachine().sections.activity }, unset: [] }));
+  await openedLayers(page, [], layersBody(treeWith([lnode(A_MAIN), startedNode()])));
   await settle();
   await advance(100);
   const channels = channelsOf(liveES());
@@ -5669,23 +5668,31 @@ test('165 layers: the pane of a started session follows its out and err file lan
   assert.deepEqual({ ...posts[0].body, requestId: undefined }, { v: 1, projectKey: P1, slug: 'started-sessions', runId: RUN165, reason: 'not needed', requestId: undefined });
 });
 
-test('165 layers: a started session whose run is not among the newest of the project shows no Stop, and says why; an ended one shows none either', async () => {
+test('165 F2 layers: Stop comes from the node\'s own run id, with the machine list empty (a run past the newest eight still has it)', async () => {
   const base = (target: string, init: any) => (target === '/api/actions' ? actions165(true) : standard(target, init));
   const page = await startLayers(`#/layers/${P1}/agent/${startedAgentKey()}`, FakeES, base);
-  await openedLayers(page, [], layersBody(treeWith([lnode(A_MAIN), startedNode()])));
-  assert.equal(page.inspector.querySelectorAll('.btn--act').length, 0);
-  assert.match(text(page.inspector), /Stop is offered once this run is among the newest/);
+  const es = await openedLayers(page, [], layersBody(treeWith([lnode(A_MAIN), startedNode()])));
+  es.emit('message', liveFrame('machine', 'patch', { set: { '/machine/body/sections/activity': startedMachine([], 20).sections.activity }, unset: [] }));
+  await settle();
+  assert.equal(page.inspector.querySelectorAll('.btn--act').length, 1);
+  assert.doesNotMatch(text(page.inspector), /Stop is offered once/);
 });
 
-test('165 layers: an ended started session shows no Stop and says how it ended', async () => {
-  const base = (target: string, init: any) => (target === '/api/actions' ? actions165(true) : standard(target, init));
-  const ended = await startLayers(`#/layers/${P1}/agent/${startedAgentKey()}`, FakeES, base);
-  const es = await openedLayers(ended, [], layersBody(treeWith([lnode(A_MAIN), startedNode({ phase: 'ended', ended: { at: AT(1), result: 'timed-out' } })])));
-  es.emit('message', liveFrame('machine', 'patch', { set: { '/machine/body/sections/activity': startedMachine([startedItem165({ phase: 'ended' })]).sections.activity }, unset: [] }));
-  await settle();
-  assert.equal(ended.inspector.querySelectorAll('.btn--act').length, 0);
-  assert.match(text(ended.inspector), /ended .*timed out/);
-});
+const END_CASES_165: Array<[any, RegExp]> = [
+  [{ state: 'exited', exitCode: 0, reason: null }, /exited with code 0/], [{ state: 'exited', exitCode: 3, reason: null }, /exited with code 3/],
+  [{ state: 'cancelled', exitCode: null, reason: null }, /was stopped/], [{ state: 'timed-out', exitCode: null, reason: null }, /passed its 3600 s limit/],
+  [{ state: 'exited', exitCode: null, reason: 'prompt-unwritable' }, /did not start: its prompt could not be written/],
+];
+for (const [end, want] of END_CASES_165) {
+  test(`165 F2 layers: an ended started session shows no Stop and words its end: ${JSON.stringify(end)}`, async () => {
+    const base = (target: string, init: any) => (target === '/api/actions' ? actions165(true) : standard(target, init));
+    const ended = await startLayers(`#/layers/${P1}/agent/${startedAgentKey()}`, FakeES, base);
+    await openedLayers(ended, [], layersBody(treeWith([lnode(A_MAIN), startedNode({ phase: 'ended', ended: { at: AT(1), result: end.state }, end })])));
+    await settle();
+    assert.equal(ended.inspector.querySelectorAll('.btn--act').length, 0);
+    assert.match(text(ended.inspector), want);
+  });
+}
 
 test('165 sessions: "Started here" lists the sessions started from the Console with a Layers link each; a core that reports none says so, and nothing shows before the machine member arrives', async () => {
   const page = await startLive('#/sessions', liveRoute(sessionsRoute(BUSY)));
@@ -5815,7 +5822,7 @@ test('165 start: a start through the dialog posts the body once, then shows Runn
   const out = text(page.main.querySelectorAll('pre')[0]);
   assert.ok(out.startsWith('out 50\n') && out.endsWith('out 249'), 'the last 200 lines');
   assert.match(text(page.main.querySelector('.start__flow')), /Stop session/);
-  live.emit('message', liveFrame(`layers:${P1}`, 'snapshot', member('layers', layersBody(treeWith([startedNode({ phase: 'ended', ended: { at: AT(0), result: 'timed-out' } })])))));
+  live.emit('message', liveFrame(`layers:${P1}`, 'snapshot', member('layers', layersBody(treeWith([startedNode({ phase: 'ended', ended: { at: AT(0), result: 'timed-out' }, end: { state: 'timed-out', exitCode: null, reason: null } })])))));
   await settle();
   assert.match(text(page.main.querySelector('.start__flow-title')), /Ended: claude/);
   assert.match(text(page.main.querySelector('.start__flow')), /passed its 3600 s limit/);

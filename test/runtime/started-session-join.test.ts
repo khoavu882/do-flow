@@ -108,7 +108,8 @@ HOOK_TEST('a session-start record with DOFLOW_STARTED_RUN joins its started run:
   assert.match(n.contextCapturedAt, /^\d{4}-\d\d-\d\dT/, 'the joined node carries the session context time like a main-session node');
   assert.equal(body.nodes.filter((x: any) => x.kind === 'main-session').length, 0, 'the observed session is not a node of its own');
   const json = JSON.stringify(body);
-  assert.ok(!json.includes(SESSION) && !json.includes(RUN) && !json.includes(f.top), 'no raw session id, run id or path');
+  assert.ok(!json.includes(SESSION) && !json.includes(f.top), 'no raw session id or path');
+  assert.equal(json.split(RUN).length, 2, '165 F2: the run id appears once, as the started-session node\'s own runId');
 });
 
 HOOK_TEST('an invalid DOFLOW_STARTED_RUN value is not recorded, and the session still records', (t) => {

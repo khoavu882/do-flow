@@ -157,15 +157,22 @@ test('the state of a start goes starting, running, streaming, ended; the output 
   assert.match(start.flowWords(flow).lines[0], /masked, the last 200 lines/);
   flow = start.flowReduce(flow, { type: 'node', node: { phase: 'running', ended: null } });
   assert.equal(flow.step, 'streaming', 'a running node changes nothing');
-  flow = start.flowReduce(flow, { type: 'node', node: { phase: 'ended', ended: { at: '2026-11-16T09:05:00.000Z', result: 'exited' } } });
+  flow = start.flowReduce(flow, { type: 'node', node: { phase: 'ended', ended: { at: '2026-11-16T09:05:00.000Z', result: 'exited' }, end: { state: 'exited', exitCode: null, reason: null } } });
   assert.equal(flow.step, 'ended');
   assert.equal(start.flowWords(flow).lines[0], 'The session exited. Its error output is below.');
   assert.equal(start.flowReduce(flow, { type: 'again' }).step, 'form');
   // A reply that is already ended (a replay of a finished run) is ended at once.
   assert.equal(start.flowReduce(start.flowReduce(start.initialFlow(), { type: 'sending', info }), { type: 'reply', reply: { status: 200, headers: {}, body: { result: { run: { ...run, phase: 'ended', end: { state: 'cancelled', at: '2026-11-16T09:01:00.000Z' } } } } } }).step, 'ended');
-  assert.deepEqual(['exited', 'timed-out', 'cancelled', null].map((s) => start.endWords(s)), [
-    'The session exited. Its error output is below.', 'The session passed its 3600 s limit and was stopped.', 'The session was stopped.', 'The session ended.',
+  const end = (state: string, exitCode: number | null = null, reason: string | null = null) => ({ state, exitCode, reason });
+  assert.deepEqual([end('exited', 0), end('exited', 3), end('exited'), end('timed-out'), end('cancelled'), end('exited', null, 'prompt-unwritable'), null].map((e) => start.endWords(e)), [
+    'The session exited with code 0.', 'The session exited with code 3. Its error output is below.', 'The session exited. Its error output is below.',
+    'The session passed its 3600 s limit and was stopped.', 'The session was stopped.', 'The session did not start: its prompt could not be written. Nothing ran.', 'The session ended.',
   ]);
+  // 165 F2: the page words the end from the node's own `end`, with no machine list in sight.
+  const ended = (e: any) => start.flowWords({ ...flow, step: 'ended', node: { phase: 'ended', end: e } });
+  assert.equal(ended(end('exited', 3)).lines[0], 'The session exited with code 3. Its error output is below.');
+  assert.equal(ended(end('exited', null, 'prompt-unwritable')).token, 'failed');
+  assert.equal(ended(end('exited', 3)).token, 'unknown');
 });
 
 test('a refusal is the refused state with its words; no answer is unknown, never refused or started', () => {
@@ -254,8 +261,7 @@ test('"Started here" lists the started sessions of the project the Console runs 
   assert.equal(start.startedHere(machine([])).state, 'ok', 'a project with no activity item has none started');
   assert.deepEqual(start.startedHere(machine([], null)).state, 'unread');
   assert.equal(start.startedHere(null).state, 'unread');
-  assert.equal(start.runIdOfNode(body, PK, start.agentKeyOf('w-000000000001')), 'w-000000000001');
-  assert.equal(start.runIdOfNode(body, PK, 'ffffffffffffffff'), null, 'a node past the newest eight has no run id here');
+  assert.equal('runIdOfNode' in start, false, '165 F2: the node carries its run id; no join through the machine list');
   assert.deepEqual(['console', 'manual', 'device.d-0123456789ab', null].map((b) => start.startedByWords(b)), ['started from the Console', 'started by command', 'started from paired device d-0123456789ab', 'starter not recorded']);
 });
 

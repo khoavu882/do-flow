@@ -267,6 +267,16 @@ function buildTree({
     return node(sha16(`doflow:${runKey}`), { kind: 'doflow-run', worktreeKey: runKey.split('/')[0], ...extra }, { runKey });
   };
   const workerKey = (runId: string) => sha16(`worker:${runId}`);
+  // 165 F2: how a started run ended, so the page words the end without the machine list: the state, the exit code (null when the
+  // process left none) and the reason a process never started; null while the run has not ended.
+  const startedEnd = (run: any) => {
+    if (!run.end || typeof run.end.state !== 'string') return null;
+    const p = run.process;
+    return {
+      state: run.end.state, exitCode: p?.kind === 'exited' && Number.isInteger(p.code) ? p.code : null,
+      reason: p?.kind === 'not-started' && typeof p.reason === 'string' ? label(p.reason) : null,
+    };
+  };
   const builtRuns = new Map<string, any>(); // run id -> its node and what its edges need, built once
   const workerNodeOf = (runId: string): any => {
     if (builtRuns.has(runId)) return builtRuns.get(runId);
@@ -292,7 +302,7 @@ function buildTree({
       depth: isChild ? 2 : caller ? 1 : 0,
       worktreeKey: startedSession ? (run.project?.worktreeKey ?? cwdHash(checkout)) : (run.caller?.runKey ?? '').split('/')[0] || cwdHash(checkout),
       ...(startedSession ? {
-        startedBy: label(run.startedBy), phase: run.phase, fileKeys: { out: fileKeyOf(checkout, rel('out')), err: fileKeyOf(checkout, rel('err')) }, observed: notObserved(harness),
+        runId, startedBy: label(run.startedBy), phase: run.phase, end: startedEnd(run), fileKeys: { out: fileKeyOf(checkout, rel('out')), err: fileKeyOf(checkout, rel('err')) }, observed: notObserved(harness),
       } : {}),
       startedAt: run.startedAt ?? run.createdAt ?? null, lastRecordAt: run.end?.at ?? run.startedAt ?? run.createdAt ?? null, liveness,
       ended: run.end && typeof run.end.at === 'string' ? { at: run.end.at, result: typeof run.end.state === 'string' ? run.end.state : null } : null,

@@ -1053,7 +1053,7 @@ test('tree: a harness outside the registry is (other); an unknown model is withh
 
 const START_NODE = {
   agentKey: AGENT_B, kind: 'started-session', harness: 'claude', model: 'claude-opus-5-5', modelBasis: 'start-record', label: null, depth: 0, worktreeKey: KEY_MAIN,
-  startedBy: 'device.d-0123456789ab', phase: 'running', fileKeys: { out: '1111222233334444', err: '5555666677778888' },
+  runId: 'w-0123456789ab', startedBy: 'device.d-0123456789ab', phase: 'running', end: null, fileKeys: { out: '1111222233334444', err: '5555666677778888' },
   observed: { state: 'not-observed', reason: 'not-yet-observed' },
   startedAt: '2026-11-15T10:00:00.000Z', contextCapturedAt: null, lastRecordAt: '2026-11-15T10:00:00.000Z', liveness: 'process-seen', ended: null,
   transcript: { reader: null, linked: false, reason: 'no-reader' },
@@ -1072,8 +1072,18 @@ test('165 F1 tree: a started-session node projects with its start facts, and a m
   assert.deepEqual(joined.observed, { state: 'observed', sessionKey: 'a1b2c3d4e5f60718', model: 'claude-opus-5-5', lastSeenAt: '2026-11-15T10:01:00.000Z' });
   assert.equal(joined.contextCapturedAt, '2026-11-15T10:00:05.000Z');
   assert.equal(JSON.stringify(result.body).includes(MARKER), false, 'nothing outside the listed fields leaves');
+  assert.deepEqual([notYet.runId, notYet.end], ['w-0123456789ab', null]);
+  assert.equal(Object.hasOwn(main, 'runId') || Object.hasOwn(main, 'end'), false);
+  // 165 F2: the end of a started run: the state from a closed set, the exit code, a bounded reason id.
+  for (const end of [{ state: 'exited', exitCode: 0, reason: null }, { state: 'exited', exitCode: 3, reason: null }, { state: 'cancelled', exitCode: null, reason: null },
+    { state: 'timed-out', exitCode: null, reason: null }, { state: 'exited', exitCode: null, reason: 'prompt-unwritable' }]) {
+    const ended = fixture('tree');
+    ended.nodes.push({ ...clone(START_NODE), phase: 'ended', end, pid: 7 });
+    assert.deepEqual(project('tree', ended).body.nodes[2].end, end);
+  }
   // A started-session node lacking one of its facts, or holding one outside its set, is no partial body.
-  for (const [name, bad] of [['startedBy', undefined], ['phase', 'paused'], ['fileKeys', { out: 'x', err: 'y' }], ['observed', { state: 'seen' }], ['observed', { state: 'not-observed' }]] as Array<[string, unknown]>) {
+  for (const [name, bad] of [['runId', undefined], ['runId', 'w-xyz'], ['runId', '../../etc'], ['end', undefined], ['end', { state: 'paused', exitCode: null, reason: null }], ['end', { state: 'exited', exitCode: 'x', reason: null }],
+    ['end', { state: 'exited', exitCode: -1, reason: null }], ['end', { state: 'exited', exitCode: null, reason: '/etc/passwd' }], ['startedBy', undefined], ['phase', 'paused'], ['fileKeys', { out: 'x', err: 'y' }], ['observed', { state: 'seen' }], ['observed', { state: 'not-observed' }]] as Array<[string, unknown]>) {
     const broken = fixture('tree');
     broken.nodes.push({ ...clone(START_NODE), [name]: bad });
     assert.deepEqual(project('tree', broken), MISMATCH, `${name}=${JSON.stringify(bad)}`);

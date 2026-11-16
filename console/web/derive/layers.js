@@ -12,7 +12,7 @@
 // ---- the transcript panel's helpers --------------------------------------------------------------------------------------
 
 import { byWords } from './actions.js';
-import { agentKeyOf, runIdOfNode, startedByWords, PHASE_WORDS } from './start.js';
+import { startedByWords, endWords, PHASE_WORDS } from './start.js';
 
 /** The events a stream panel keeps (V8 7b.2). */
 const MAX_EVENTS = 500;
@@ -329,9 +329,9 @@ function observedWords(observed) {
   return `session not observed: ${NOT_OBSERVED_WORD[reason] ?? (reason === '' ? 'no reason recorded' : reason.replace(/-/g, ' '))}`;
 }
 
-/** The words of a started-session node: who started it, its phase, whether the harness's own session was seen. @param {any} node */
+/** The words of a started-session node: who started it, its phase, whether the harness's own session was seen, how it ended (null while it runs). @param {any} node */
 function startedWords(node) {
-  return { startedBy: startedByWords(node.startedBy), phase: PHASE_WORDS[node.phase] ?? 'phase not recorded', observed: observedWords(node.observed) };
+  return { startedBy: startedByWords(node.startedBy), phase: PHASE_WORDS[node.phase] ?? 'phase not recorded', observed: observedWords(node.observed), end: node.end ? endWords(node.end) : null };
 }
 
 /** Worker-run nodes of the agent tree. */
@@ -449,7 +449,7 @@ function projectModel(body) {
       process: PROCESS_WORD[node.liveness] ?? 'process not checked', linked: node.transcript.linked === true, reason: node.transcript.reason,
       audit: line ? { word: AUDIT_WORD[line.event] ?? 'recorded', at: line.at } : null,
       toolCalls: t ? t.toolCalls : null, eventsPerMin: t ? t.eventsPerMin : null,
-      ...(node.kind === 'started-session' ? { ...startedWords(node), fileKeys: node.fileKeys ?? null, endedAt: node.ended ? node.ended.at : null, endedResult: node.ended ? node.ended.result : null } : {}),
+      ...(node.kind === 'started-session' ? { ...startedWords(node), runId: node.runId, fileKeys: node.fileKeys ?? null, endedAt: node.ended ? node.ended.at : null, endedResult: node.ended ? node.ended.result : null } : {}),
     };
   };
 
@@ -536,7 +536,7 @@ function projectLabel(machine, projectKey) {
 }
 
 export {
-  agentKeyOf as startedKeyOf, runIdOfNode as startedRunId, startedWords,
+  startedWords,
   MAX_EVENTS, stamp, secondsStamp, kindWord, nodeTitle, titleIsLabel, fingerprint, appendEvents, splitMasked, usageLine, resultBits, recordWords, seconds,
   sectionOf, STREAM_STATES, streamState, streamCopy, gateWords, machineModel, summarizedLine, BRIEF_LIMIT, projectModel, COVERAGE_COLUMNS, coverageCell,
   reasonWord, projectLabel, reviewWords, PROCESS_WORD,

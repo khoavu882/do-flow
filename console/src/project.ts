@@ -684,7 +684,7 @@ function projects(value: unknown) {
 }
 
 /**
- * 165 D8: what a `started-session` node adds to IC-020: who started it, its run phase, the two output files' keys and whether a hook
+ * 165 D8: what a `started-session` node adds to IC-020: who started it, its run phase, its run id, how it ended (state, exit code, why it never started), the two output files' keys and whether a hook
  * session joined it (`observed`: the session's key, model and last record, or why none did). No other node carries these fields.
  */
 const startedFacts = (n: Record<string, unknown>) => {
@@ -692,8 +692,13 @@ const startedFacts = (n: Record<string, unknown>) => {
   const seen = record(n.observed);
   const state = oneOf(['observed', 'not-observed'])(seen.state);
   return {
+    runId: runId(n.runId),
     startedBy: label(n.startedBy),
     phase: oneOf(CLOSED_SETS.phases)(n.phase),
+    end: orNull((v) => {
+      const e = record(v);
+      return { state: oneOf(CLOSED_SETS.endStates)(e.state), exitCode: orNull(count)(e.exitCode), reason: orNull(id)(e.reason) };
+    })(n.end),
     fileKeys: { out: key16(files.out), err: key16(files.err) },
     observed: state === 'observed' ? { state, sessionKey: key16(seen.sessionKey), model: orNull(label)(seen.model), lastSeenAt: orNull(iso)(seen.lastSeenAt) } : { state, reason: id(seen.reason) },
   };
