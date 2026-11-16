@@ -341,11 +341,12 @@ function handleReport(options: any, runtime: any) {
   const { json } = options;
   const { adviceRegistry, adviceError, roots } = runtime;
   if (adviceError || !adviceRegistry) return writeFailure(`advice registry cannot be read: ${adviceError || 'missing'}`, json);
-  const ids = (adviceRegistry.kinds || []).map((entry: any) => entry.id);
+  // A kind nothing asks (an empty askedBy) has no record to report; a pick of a kind since removed still shows below.
+  const ids = (adviceRegistry.kinds || []).filter((entry: any) => entry.askedBy?.length > 0).map((entry: any) => entry.id);
   if (options.kind !== undefined && options.kind !== null && !ids.includes(options.kind) && options.kind !== 'adhoc') {
     return usageError('advise', `unknown --kind '${options.kind}'; known kinds: ${ids.join(', ')}`, json);
   }
-  const report = buildReport({ roots, kinds: ids, kind: options.kind ?? null, adviceRegistry, projectRoot: options.projectRoot ?? null, global: options.global === true });
+  const report = buildReport({ roots, kinds: ids, kind: options.kind ?? null, global: options.global === true });
   console.log(json ? JSON.stringify(report, null, 2) : renderText(report));
   return finishRuntime(0);
 }

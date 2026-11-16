@@ -18,7 +18,7 @@ const { spawn } = require('node:child_process');
 const RUNNER = path.join(__dirname, 'shadow-runner.ts');
 
 /** The advice registry's kinds (core/registry/advice.json). */
-type AdviceKind = 'tier' | 'task-class' | 'verify-risk' | 'review-depth' | 'mcp-need' | 'followup-triage' | 'rerank' | 'claim-support';
+type AdviceKind = 'tier' | 'task-class' | 'verify-risk' | 'review-depth' | 'mcp-need' | 'claim-support';
 type AdviceMode = 'off' | 'shadow' | 'act';
 type Env = Record<string, string | undefined>;
 type StoreRoots = Record<string, string | null>;
@@ -246,32 +246,15 @@ function storeRoots(context: DecisionPointContext, services: DispatcherServices)
 
 /**
  * The pick line's extra payload per kind, rebuilt from the context's `lineExtra` data and the answered call; `null`
- * records the call as a `malformed-reply` miss, `pick` replaces the first answer's pick on the line. A kind without an
- * entry writes no extra payload. Each entry is code the detached child requires, so no callback crosses a process.
+ * records the call as a `malformed-reply` miss. A kind without an entry
+ * writes no extra payload. Each entry is code the detached child requires, so no callback crosses a process.
  */
-const DESCRIBERS: Record<string, (call: AdvisorCall, context: DecisionPointContext) => { pick?: string; extra?: Record<string, unknown> } | null> = {
+const DESCRIBERS: Record<string, (call: AdvisorCall, context: DecisionPointContext) => { extra?: Record<string, unknown> } | null> = {
   // The model's answer is on the pick line (`probabilities.yes`); a reply that is not a readable yes/no answer is a miss.
   'claim-support': (call, context) => {
     const yes = call.answer?.probabilities && (call.answer.probabilities as Record<string, unknown>).yes;
     if (call.answer?.type !== 'yesno' || typeof yes !== 'number' || !Number.isFinite(yes)) return null;
     return { extra: { claimSupport: context.lineExtra?.claimSupport } };
-  },
-  // `lineExtra.rerank` carries the first stage's labels, refs, arm, truncation, timing and criteria digest and source (ids
-  // and numbers, no text); the answers give the order. Unreadable answers, or no such data, are a miss.
-  rerank: (call, context) => {
-    const data = context.lineExtra?.rerank as Record<string, any> | undefined;
-    if (!data || typeof data !== 'object') return null;
-    const { interpretRerankAnswers, rerankPayload } = require('./rerank.ts');
-    const read = interpretRerankAnswers(call.answers, data.labels, data.arm);
-    if (!read.valid) return null;
-    const rerank = {
-      ...rerankPayload({
-        arm: data.arm, labels: data.labels, refs: data.refs, order: read.order, truncated: data.truncated, params: registryKind(context)?.params,
-        firstStageMs: data.firstStageMs, expected: read.expected, confidence: read.confidence, criteriaDigest: data.criteriaDigest,
-      }),
-      criteriaSource: data.criteriaSource,
-    };
-    return { pick: read.order[0], extra: { rerank } };
   },
 };
 
@@ -282,7 +265,7 @@ function recordCall(context: DecisionPointContext, services: DispatcherServices,
   if (!roots) return;
   const common = { roots, fsImpl: services.fsImpl, kind: context.kind, caller: context.caller, model: asked.model, durationMs: asked.durationMs, mode };
   if (asked.status === 'answered') {
-    let answer = asked.answer;
+    const answer = asked.answer;
     let extra: Record<string, unknown> | undefined;
     const describe = Object.hasOwn(DESCRIBERS, context.kind) ? DESCRIBERS[context.kind] : null;
     if (describe) {
@@ -293,7 +276,6 @@ function recordCall(context: DecisionPointContext, services: DispatcherServices,
         return;
       }
       extra = described.extra;
-      if (answer && typeof described.pick === 'string' && described.pick) answer = { ...answer, pick: described.pick };
     }
     appendPick({
       ...common,

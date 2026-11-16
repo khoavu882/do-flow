@@ -35,7 +35,7 @@ test('score criteria preserve order and obey distinct nonempty string bounds', (
   const question: any = { type: 'score', criteria: ['Low', 'High'] };
   assert.equal(validateStaticAnswer(question, 'High').ok, true);
   for (const value of [1, '1', 'high', ' High']) assert.equal(validateStaticAnswer(question, value).ok, false);
-  assert.equal(ADVICE.kinds.length, 8);
+  assert.equal(ADVICE.kinds.length, 7);
   assert.equal(materialize('score').ok, false);
 });
 
@@ -79,8 +79,8 @@ test('IC-004: mcp-need requires a named server and uses its trigger as instructi
   assert.equal(extra.question.instructions, 'A fixture-only trigger.');
 });
 
-test('IC-004: both other own-criteria kinds use the registry text', () => {
-  for (const id of ['review-depth', 'followup-triage']) {
+test('IC-004: review-depth uses the registry text', () => {
+  for (const id of ['review-depth']) {
     const result = materialize(id);
     assert.equal(result.ok, true);
     assert.deepEqual(result.question.options, ADVICE.kinds.find((kind: any) => kind.id === id).criteria);

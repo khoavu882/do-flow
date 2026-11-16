@@ -572,6 +572,22 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
     assert.deepEqual(lines.map((line: any) => [line.type, line.mode, line.pick]), [['pick', 'shadow', 'standard']]);
   });
 
+  test('a kind with a registry maxMode shadow is held there: act is lowered to ACT_NOT_SUPPORTED and never reaches the bench gate', async (t) => {
+    const s = store(t);
+    await advised(t, s, answering(() => 'standard'));
+    const held = { timeoutMs: 1000, kinds: [{ id: 'tier', maxMode: 'shadow', budgetMs: 1000 }] };
+    const res = await interceptDecisionPoint(ctx(s, { adviceRegistry: held }), {
+      roots: s.roots, benchGate: () => { throw new Error('the bench gate must not be reached'); }, shadowConfig: { kind: 'tier', mode: 'act', model: 'm' },
+    });
+    assert.equal(res.mode, 'shadow');
+    assert.equal(res.warning, "ACT_NOT_SUPPORTED: kind 'tier' is limited to shadow");
+    assert.equal(res.effectiveDecision, 'light', 'the static pick stays the decision');
+    assert.equal(res.advisorPick, null);
+    assert.equal(res.elevated, false);
+    const lines = await waitFor(() => s.lines().length && s.lines());
+    assert.deepEqual(lines.map((line: any) => [line.type, line.mode, line.elevated]), [['pick', 'shadow', false]]);
+  });
+
   test('C-4: no advisor pick in act mode keeps the static pick and records a miss', async (t) => {
     const s = store(t);
     const res = await interceptDecisionPoint(ctx(s), {
@@ -714,20 +730,19 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
   });
 });
 
-describe('141 IC-010: dispatcher caps, budget, the per-kind line payload and the multi-question call (kind rerank)', () => {
+// Row 174: nothing asks the rerank kind at run time any more (retrieve makes no decision-model call); its question-set
+// builder stays for `bench advice-gate`. What is left here is the dispatcher's call-built, multi-answer path.
+describe('141 IC-010: the call-built multi-question call (kind rerank, offline)', () => {
   const { loadAdviceRegistry } = require('../../src/runtime/advice/registry.ts');
-  const { buildRerankQuestionSet, interpretRerankAnswers, rerankPayload } = require('../../src/runtime/advice/rerank.ts');
+  const { buildRerankQuestionSet } = require('../../src/runtime/advice/rerank.ts');
   const ADVICE = loadAdviceRegistry({ repoRoot: REPO_ROOT }).registry;
   const RERANK = ADVICE.kinds.find((kind: any) => kind.id === 'rerank');
-  const SENTINEL_QUERY = 'sentinel-query-text-4471';
-  const SENTINEL_CANDIDATE = 'sentinel-candidate-text-9023';
-  const SENTINEL_CRITERIA = 'sentinel-criteria-text-6618';
-  const CANDIDATES = ['a', 'b', 'c', 'd'].map((name) => ({ ref: `docs/${name}.md`, title: `T ${name}`, text: `${SENTINEL_CANDIDATE} ${name}` }));
+  const CANDIDATES = ['a', 'b', 'c', 'd'].map((name) => ({ ref: `docs/${name}.md`, title: `T ${name}`, text: `candidate text ${name}` }));
 
   function build(arm: string) {
-    const criteria = { ladder: RERANK.scoreLadder.criteria.map((line: string, i: number) => (i === 0 ? `${SENTINEL_CRITERIA} ${line}` : line)), choiceInstruction: `${SENTINEL_CRITERIA} choose` };
+    const criteria = { ladder: RERANK.scoreLadder.criteria, choiceInstruction: 'choose' };
     const built = buildRerankQuestionSet({
-      query: SENTINEL_QUERY, candidates: CANDIDATES, params: { ...RERANK.params, arm }, arm, criteria, scoreLadder: RERANK.scoreLadder, limits: ADVICE.limits,
+      query: 'a query', candidates: CANDIDATES, params: { ...RERANK.params, arm }, arm, criteria, scoreLadder: RERANK.scoreLadder, limits: ADVICE.limits,
     });
     assert.equal(built.ok, true);
     return built;
@@ -750,25 +765,9 @@ describe('141 IC-010: dispatcher caps, budget, the per-kind line payload and the
     };
   }
 
-  /** The first stage's data for the pick line (ids and numbers only), as retrieve hands it to the dispatcher. */
-  function lineExtraFor(built: any) {
-    return { rerank: { arm: built.arm, labels: built.labels, refs: built.refs, truncated: built.truncated, firstStageMs: 12, criteriaDigest: '3f9a1c0b27de', criteriaSource: 'registry' } };
-  }
-
-  /**
-   * The fake model's reply to a rerank question set, as `reply` above but through the wire: label C wins the choice arm;
-   * on the ladder arm the k-th label's score is k + 0.5 (half its mass on level k, half on k + 1), confidence 0.6.
-   */
-  function route(arm: string) {
-    if (arm === 'choice') return answering(() => 'C');
-    return ({ body }: any) => {
-      const answers: any = {};
-      Object.entries(body.questions).forEach(([name, question]: [string, any], k: number) => {
-        const probabilities = Object.fromEntries(question.criteria.map((_c: string, i: number) => [String(i), i === k || i === k + 1 ? 0.5 : 0]));
-        answers[name] = { type: 'score', legend: Object.fromEntries(question.criteria.map((c: string, i: number) => [String(i), c])), probabilities, score: k + 0.5, confidence: 0.6 };
-      });
-      return { status: 200, body: { answers } };
-    };
+  function recordingClient(response: any) {
+    const calls: any[] = [];
+    return { calls, ask: async (options: any) => { calls.push(options); return typeof response === 'function' ? response(options) : response; } };
   }
 
   function store(t: any) {
@@ -780,190 +779,30 @@ describe('141 IC-010: dispatcher caps, budget, the per-kind line payload and the
     return { dir, projectRoot, env, roots, lines: () => readWindow({ roots }).records.map((entry: any) => entry.record) };
   }
 
-  /** Advice on in the store's user settings against an in-process fake server answering `answer` (see the IC-002 block). */
-  async function advised(t: any, s: any, answer: any) {
-    const server: any = await startFakeServer({ routes: { 'POST /v1/systemone': answer } });
-    t.after(() => server.close());
-    const file = path.join(s.roots['config-home'], 'settings.json');
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, JSON.stringify({ schema: 1, 'advice.enabled': true, 'advice.provider': 'ollama', 'advice.endpoint': server.origin, 'advice.model': 'clef-flash' }));
-    return { server, asks: () => server.requests.filter((r: any) => r.pathname === '/v1/systemone') };
+  function ctx(built: any) {
+    return { kind: 'rerank', caller: 'bench', state: built.questionSet.state, staticPick: 'A', questionSet: built.questionSet, adviceRegistry: ADVICE };
   }
-
-  function recordingClient(response: any) {
-    const calls: any[] = [];
-    return { calls, ask: async (options: any) => { calls.push(options); return typeof response === 'function' ? response(options) : response; } };
-  }
-
-  function ctx(s: any, built: any, extra: any = {}) {
-    return {
-      kind: 'rerank', caller: 'retrieve', state: built.questionSet.state, staticPick: 'A', questionSet: built.questionSet,
-      adviceRegistry: ADVICE, lineExtra: lineExtraFor(built), projectRoot: s.projectRoot, env: s.env, ...extra,
-    };
-  }
-
-  async function waitFor(check: () => any, ms = 5000) {
-    const until = Date.now() + ms;
-    while (Date.now() < until) {
-      const value = check();
-      if (value) return value;
-      await new Promise((resolve) => setTimeout(resolve, 5));
-    }
-    return check();
-  }
-
-  const neverGate = () => { throw new Error('the bench gate must not be reached'); };
 
   for (const arm of ['choice', 'ladder']) {
-    test(`maxMode lowers a configured act to shadow with ACT_NOT_SUPPORTED, never reaching the bench gate (${arm} arm)`, async (t) => {
-      const s = store(t);
-      const built = build(arm);
-      await advised(t, s, route(arm));
-      const res = await interceptDecisionPoint(ctx(s, built), {
-        roots: s.roots, benchGate: neverGate, shadowConfig: { kind: 'rerank', mode: 'act', model: 'm' },
-      });
-      assert.equal(res.mode, 'shadow');
-      assert.equal(res.warning, "ACT_NOT_SUPPORTED: kind 'rerank' is limited to shadow");
-      assert.equal(res.effectiveDecision, 'A', 'the first-stage top candidate stays the decision');
-      assert.equal(res.advisorPick, null);
-      assert.equal(res.elevated, false);
-      const lines = await waitFor(() => s.lines().length && s.lines());
-      assert.equal(lines.length, 1);
-      assert.equal(lines[0].mode, 'shadow');
-      assert.equal(lines[0].elevated, false);
-    });
-
-    test(`${arm} arm: the client gets no static answer`, async (t) => {
-      const s = store(t);
+    test(`${arm} arm: the client gets no static answer`, async () => {
       const built = build(arm);
       const c = recordingClient(reply(built));
-      await askAdvisor(ctx(s, built), { adviceClient: c, roots: s.roots }, 'm', 5000);
+      await askAdvisor(ctx(built), { adviceClient: c }, 'm', 5000);
       assert.equal(c.calls.length, 1);
       assert.equal(c.calls[0].staticAnswer, null, 'a label is not a level of a score question; no static answer goes to the client');
       assert.equal(c.calls[0].kind, 'rerank');
       assert.equal(c.calls[0].record, false);
     });
-
-    test(`${arm} arm: the detached call's line records the static pick, the arm and the whole order`, async (t) => {
-      const s = store(t);
-      const built = build(arm);
-      const a = await advised(t, s, route(arm));
-      await interceptDecisionPoint(ctx(s, built), { roots: s.roots, shadowConfig: { kind: 'rerank', mode: 'shadow', model: 'm' } });
-      const [line] = await waitFor(() => s.lines().length && s.lines());
-      assert.equal(a.asks().length, 1);
-      assert.equal(line.type, 'pick');
-      assert.equal(line.kind, 'rerank');
-      assert.equal(line.question, 'rerank');
-      assert.equal(line.qtype, arm === 'choice' ? 'choice' : 'score');
-      assert.deepEqual(line.options, ['A', 'B', 'C', 'D']);
-      assert.equal(line.instructions, null);
-      assert.equal(line.static, 'A');
-      assert.equal(line.rerank.arm, arm);
-      assert.equal(line.rerank.n, 4);
-      assert.deepEqual(line.rerank.refs, CANDIDATES.map((candidate) => candidate.ref));
-      assert.equal(line.rerank.criteriaDigest, '3f9a1c0b27de');
-      assert.equal(line.rerank.criteriaSource, 'registry');
-      assert.equal(line.rerank.firstStageMs, 12);
-      assert.equal(line.rerank.candidateBytes, RERANK.params.candidateBytes, 'the params come from the registry kind');
-      if (arm === 'choice') {
-        assert.deepEqual(line.rerank.order, ['C', 'A', 'B', 'D']);
-        assert.equal(line.pick, 'C');
-        assert.equal(line.rerank.top1Changed, true);
-        assert.equal(typeof line.strength, 'string');
-        assert.equal(line.probabilities.C, 0.7);
-        assert.equal(line.confidence, 0.7);
-        assert.equal('expected' in line.rerank, false);
-      } else {
-        assert.deepEqual(line.rerank.order, ['D', 'C', 'B', 'A']);
-        assert.equal(line.pick, 'D');
-        assert.deepEqual(line.rerank.expected, [0.5, 1.5, 2.5, 3.5]);
-        assert.deepEqual(line.rerank.confidence, [0.6, 0.6, 0.6, 0.6]);
-        assert.deepEqual([line.strength, line.between, line.probabilities, line.confidence], [null, null, null, null]);
-        for (const key of ['criteria', 'pickIndex', 'score']) assert.equal(key in line, false, `a rerank pick has no ${key} key`);
-      }
-    });
-
-    test(`${arm} arm: no query, candidate or criteria text reaches the stored file`, async (t) => {
-      const s = store(t);
-      const built = build(arm);
-      assert.ok(JSON.stringify(built.questionSet).includes(SENTINEL_CRITERIA), 'the sentinel is in what the model is asked');
-      const a = await advised(t, s, route(arm));
-      await interceptDecisionPoint(ctx(s, built), { roots: s.roots, shadowConfig: { kind: 'rerank', mode: 'shadow', model: 'm' } });
-      await waitFor(() => s.lines().length);
-      assert.ok(JSON.stringify(a.asks()[0].body).includes(SENTINEL_CRITERIA), 'the detached call asked with the whole question set');
-      const dir = path.join(s.roots['project-state'], 'advice', 'picks');
-      const text = fs.readdirSync(dir).map((name: string) => fs.readFileSync(path.join(dir, name), 'utf8')).join('');
-      assert.ok(text.length > 0);
-      for (const sentinel of [SENTINEL_QUERY, SENTINEL_CANDIDATE, SENTINEL_CRITERIA]) assert.equal(text.includes(sentinel), false, sentinel);
-    });
   }
 
   test('the advisor call carries the whole reply: every answer, the first one as answer and pick', async () => {
     const built = build('ladder');
-    const asked = await askAdvisor(ctx({}, built), { adviceClient: recordingClient(reply(built)) }, 'm', 5000);
+    const asked = await askAdvisor(ctx(built), { adviceClient: recordingClient(reply(built)) }, 'm', 5000);
     assert.equal(asked.status, 'answered');
     assert.deepEqual(asked.answers.map((answer: any) => answer.name), ['rerank-a', 'rerank-b', 'rerank-c', 'rerank-d']);
     assert.equal(asked.answer.name, 'rerank-a');
     assert.equal(asked.pick, asked.answers[0].pick);
     assert.ok(asked.answers.every((answer: any) => answer.model === 'm'));
-  });
-
-  test('a rerank call without its first-stage data, or with an unreadable arm, records a malformed-reply miss and no pick', async (t) => {
-    const s = store(t);
-    const built = build('choice');
-    await advised(t, s, route('choice'));
-    const unreadable = { rerank: { ...lineExtraFor(built).rerank, arm: 'unknown' } };
-    for (const lineExtra of [undefined, unreadable]) {
-      const count = s.lines().length;
-      await interceptDecisionPoint(ctx(s, built, { lineExtra }), { roots: s.roots, shadowConfig: { kind: 'rerank', mode: 'shadow', model: 'm' } });
-      await waitFor(() => s.lines().length > count);
-    }
-    assert.deepEqual(s.lines().map((line: any) => [line.type, line.kind, line.reason, line.mode]), [
-      ['miss', 'rerank', 'malformed-reply', 'shadow'], ['miss', 'rerank', 'malformed-reply', 'shadow'],
-    ]);
-  });
-
-  test('a ladder answer that cannot be read as an order writes no pick (the ordinary branch would store criteria text)', async (t) => {
-    const s = store(t);
-    const built = build('ladder');
-    await advised(t, s, route('ladder'));
-    await interceptDecisionPoint(ctx(s, built, { lineExtra: { rerank: { ...lineExtraFor(built).rerank, labels: ['A', 'B'] } } }), {
-      roots: s.roots, shadowConfig: { kind: 'rerank', mode: 'shadow', model: 'm' },
-    });
-    const lines = await waitFor(() => s.lines().length && s.lines());
-    assert.deepEqual(lines.map((line: any) => [line.type, line.reason]), [['miss', 'malformed-reply']]);
-    const dir = path.join(s.roots['project-state'], 'advice', 'picks');
-    const text = fs.readdirSync(dir).map((name: string) => fs.readFileSync(path.join(dir, name), 'utf8')).join('');
-    assert.equal(text.includes(SENTINEL_CRITERIA), false);
-  });
-
-  test('budgetMs on the context lowers the kind budget, and the detached call drops its request when it ends', async (t) => {
-    const s = store(t);
-    const built = build('choice');
-    const a = await advised(t, s, { stall: true });
-    const started = Date.now();
-    await interceptDecisionPoint(ctx(s, built, { budgetMs: 60 }), { roots: s.roots, shadowConfig: { kind: 'rerank', mode: 'shadow', model: 'm' } });
-    const lines = await waitFor(() => s.lines().length && s.lines());
-    assert.ok(Date.now() - started < RERANK.budgetMs, `the miss took ${Date.now() - started}ms against a ${RERANK.budgetMs} ms kind budget`);
-    assert.deepEqual(lines.map((line: any) => [line.type, line.kind, line.reason]), [['miss', 'rerank', 'timeout']]);
-    assert.ok(lines[0].durationMs < 1000, `the call ran ${lines[0].durationMs}ms against a 60 ms budget`);
-    assert.equal(a.asks().length, 1, 'the call reached the stalled model');
-  });
-
-  test('without a context budgetMs the kind budgetMs bounds the call, not the registry timeoutMs', async (t) => {
-    const s = store(t);
-    const built = build('choice');
-    await advised(t, s, { stall: true });
-    const registry = JSON.parse(JSON.stringify(ADVICE));
-    registry.kinds.find((kind: any) => kind.id === 'rerank').budgetMs = 200;
-    const started = Date.now();
-    await interceptDecisionPoint(ctx(s, built, { adviceRegistry: registry }), {
-      roots: s.roots, shadowConfig: { kind: 'rerank', mode: 'shadow', model: 'm' },
-    });
-    const lines = await waitFor(() => s.lines().length && s.lines());
-    assert.ok(Date.now() - started < 3000, `the miss took ${Date.now() - started}ms; timeoutMs is ${registry.timeoutMs}`);
-    assert.deepEqual(lines.map((line: any) => line.reason), ['timeout']);
-    assert.ok(lines[0].durationMs >= 150 && lines[0].durationMs < 1500, `the call ran ${lines[0].durationMs}ms against a 200 ms kind budget`);
   });
 
   test('a kind without maxMode still reaches the bench gate and act, and a miss line keeps its shape', async (t) => {
@@ -980,6 +819,6 @@ describe('141 IC-010: dispatcher caps, budget, the per-kind line payload and the
     assert.equal(res.warning, undefined);
     assert.equal(c.calls[0].staticAnswer, 'light', 'a one-question named kind still gets its static answer');
     const [line] = s.lines();
-    assert.equal('rerank' in line, false);
+    assert.equal('rerank' in line, false, 'no pick line carries a rerank object any more');
   });
 });

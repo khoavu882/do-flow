@@ -50,9 +50,6 @@ function validateGate(gate: any, errors: string[]): void {
     addError(errors, 'gate.quality', 'must be an object');
   } else {
     if (!isNumber(quality.lowerBoundAbove)) addError(errors, 'gate.quality.lowerBoundAbove', 'must be a finite number');
-    if (!isNumber(quality.nonInferiorityDelta) || quality.nonInferiorityDelta < 0) {
-      addError(errors, 'gate.quality.nonInferiorityDelta', 'must be a number of at least 0');
-    }
     if (!isNumber(quality.confidence) || quality.confidence <= 0 || quality.confidence > 1) {
       addError(errors, 'gate.quality.confidence', 'must be a number above 0 and at most 1');
     }
@@ -71,7 +68,6 @@ function validateGate(gate: any, errors: string[]): void {
         if (!Number.isInteger(cap) || (cap as number) <= 0) addError(errors, 'gate.latency.p95CapMs', `${id} must be a positive integer`);
       }
     }
-    if (!isNumber(latency.ratioMax) || latency.ratioMax < 1) addError(errors, 'gate.latency.ratioMax', 'must be a number of at least 1');
   }
 }
 

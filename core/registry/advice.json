@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "timeoutMs bounds a kind-less (adhoc) ask only; a kind call is bounded by the kind's budgetMs, which no caller waits past. Each budgetMs is three times the kind's warm measured maximum server duration, rounded up to 500 ms, with a floor of 1500 (warm measurements with headroom); rerank keeps 5000 for the offline gate. shadowSlots is how many detached shadow calls may run at once across every project of this user; a shadow call that finds none free records a busy miss and makes no call.",
+  "description": "timeoutMs bounds a kind-less (adhoc) ask only; a kind call is bounded by the kind's budgetMs, which no caller waits past. Each budgetMs is three times the kind's warm measured maximum server duration, rounded up to 500 ms, with a floor of 1500 (warm measurements with headroom); rerank keeps 5000 for the offline gate. askedBy names the runtime callers that ask a kind; a kind with none has no advice.kinds or advice.models setting and no record. shadowSlots is how many detached shadow calls may run at once across every project of this user; a shadow call that finds none free records a busy miss and makes no call.",
   "timeoutMs": 15000,
   "shadowSlots": 4,
   "probeTimeoutMs": 1500,
@@ -33,7 +33,6 @@
     "validShareMin": 0.99,
     "quality": {
       "lowerBoundAbove": 0,
-      "nonInferiorityDelta": 0.02,
       "confidence": 0.95,
       "resamples": 10000,
       "seed": 20261106
@@ -42,8 +41,7 @@
       "p95CapMs": {
         "default": 5000,
         "rerank": 3000
-      },
-      "ratioMax": 2
+      }
     }
   },
   "providers": [
@@ -109,31 +107,17 @@
       "no": "The trigger is not due for this stage",
       "yes": "The trigger is due for this stage",
       "staticFrom": "whether the stage's steps name the server",
-      "askedBy": [],
-      "budgetMs": 1500
-    },
-    {
-      "id": "followup-triage",
-      "type": "choice",
-      "instructions": "Select when this follow-up should be addressed.",
-      "criteria": {
-        "now": "Act on it inside the current feature",
-        "later": "Keep it open for a later feature",
-        "dismiss": "It no longer applies"
-      },
-      "staticFrom": "none",
-      "askedBy": [],
+      "askedBy": ["do"],
       "budgetMs": 1500
     },
     {
       "id": "rerank",
       "type": "choice",
-      "description": "Illustrative defaults, set from one B.1 run (one laptop, 20 guidance queries, load-confounded): 16 candidates of 800 bytes; arm choice because it measured 2 to 3 times faster than ladder (cold p95 4.5 to 11.6 s against 12.8 to 21.7 s), 120 of 120 replies valid; budgetMs 5000, so with these latencies many calls end as timeout misses on this machine; gate.latency.p95CapMs.rerank stays 3000 and is expected to fail here.",
+      "description": "Offline measurement only: nothing asks this kind at run time (askedBy is empty, no kind or model setting exists, retrieve makes no decision-model call); `bench advice-gate --kind rerank` scores it. Illustrative defaults, set from one run on one laptop (20 guidance queries, load-confounded): 16 candidates of 800 bytes; arm choice because it measured 2 to 3 times faster than ladder (cold p95 4.5 to 11.6 s against 12.8 to 21.7 s), 120 of 120 replies valid; gate.latency.p95CapMs.rerank stays 3000 and is expected to fail on that laptop.",
       "instructions": "Select the candidate that best answers the query.",
       "criteriaFrom": "call",
       "staticFrom": "the first-stage top candidate (label A)",
-      "askedBy": ["retrieve"],
-      "maxMode": "shadow",
+      "askedBy": [],
       "budgetMs": 5000,
       "scoreLadder": {
         "instructions": "Rate how well candidate <label> answers the query, using only the fields for that label.",

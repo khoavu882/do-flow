@@ -233,11 +233,10 @@ function checkG31TierText({ files }: any): any {
   return findings;
 }
 
-// G31.4 — every registered advice kind has a call site that still exists. Comments never count.
+// G31.4 — every registered advice kind that something asks has a call site that still exists. Comments never count.
 //  - A runtime-asked kind names the verb that asks it: that source file must, outside comments, ask advice for the kind
 //    (`ask`) and, where the verb records the outcome (`outcome`), record it. `review-depth` records no outcome today
-//    (`review start` returns no pick id; its dispatcher path writes the pick line only, and its unset-kind path
-//    writes nothing), so it has `outcome: null`; a skill step cannot close that gap, and the day the verb records
+//    (`review start` returns no pick id; its dispatcher path writes the pick line only), so it has `outcome: null`; a skill step cannot close that gap, and the day the verb records
 //    one this entry must say so.
 //  - Every other kind needs an `advise --kind <id>` line inside a fenced bash block of a SKILL.md or reference, with an
 //    `advise --action outcome` line in the same block or in the next bash block of that file, if that block asks nothing itself. Prose, shell comments and
@@ -246,8 +245,6 @@ const RUNTIME_ASKED: any = {
   // Row 174 O-6: classify records no task-class outcome; the class the workflow ran under is not linked to the pick.
   'task-class': { caller: 'classify', file: 'src/runtime/task-classifier.ts', outcome: null },
   'review-depth': { caller: 'review', file: 'src/runtime/review/start.ts', outcome: null },
-  // 141 B.5: the detached shadow hook of `retrieve` asks it; no ground truth exists at the call site, so no outcome.
-  rerank: { caller: 'retrieve', file: 'src/runtime/knowledge/retrieval.ts', outcome: null },
   // 141 D.3: the detached shadow hook of `claim --action link` asks it; the recorded relation is the static answer, so no outcome line.
   'claim-support': { caller: 'claim', file: 'src/runtime/claims.ts', outcome: null },
 };
@@ -285,6 +282,8 @@ function checkG31CallSites({ files, docs }: any): any {
     .filter(([file]: any) => /(?:^|\/)SKILL\.md$|\/references\/[^/]+\.md$/.test(file))
     .map(([file, text]: any) => ({ file, blocks: bashBlocks(text) }));
   for (const kind of registry.kinds) {
+    // A kind nothing asks (an empty askedBy, `rerank`: measured offline by `bench advice-gate`) has no call site to keep.
+    if (kind.askedBy.length === 0) continue;
     const runtime = RUNTIME_ASKED[kind.id];
     if (runtime) {
       if (!kind.askedBy.includes(runtime.caller)) findings.push(`${kind.id}: askedBy must name '${runtime.caller}'`);
@@ -510,6 +509,16 @@ test('G31.4: every registered advice kind has a runtime ask or a skill call site
   test('G31.4 control: a call in prose outside a bash fence fails', () => {
     assert.ok(names(mutate(REFERENCE, (t) => t.replace(/```bash\n("\$DOFLOW" advise --kind mcp-need)/, 'Run $1')), 'mcp-need'));
     assert.ok(names(mutate(REFERENCE, (t) => t.replaceAll('```bash', '```text')), 'tier'));
+  });
+  test('G31.4 control: a kind with an empty askedBy needs no call site, and one with a caller does', () => {
+    const files: any = new Map(shipped);
+    const advice = JSON.parse(files.get('core/registry/advice.json'));
+    const offline = advice.kinds.find((kind: any) => kind.id === 'rerank');
+    assert.deepEqual(offline.askedBy, []);
+    assert.equal(names(checkG31CallSites({ files, docs: skillDocs }), 'rerank'), false);
+    offline.askedBy = ['retrieve'];
+    files.set('core/registry/advice.json', JSON.stringify(advice));
+    assert.ok(names(checkG31CallSites({ files, docs: skillDocs }), 'rerank'), 'a named caller with no call site is reported');
   });
   test('G31.4 control: a runtime-asked kind is named when its call or its outcome record is gone or commented out', () => {
     const classifier = 'src/runtime/task-classifier.ts';

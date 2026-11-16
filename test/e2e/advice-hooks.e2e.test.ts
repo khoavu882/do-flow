@@ -1,8 +1,9 @@
 'use strict';
 
-// 141 B.5 / D.3 (IC-010), through the real CLI: `doflow retrieve` (guidance and code scope) and `doflow claim --action
-// link` with a shadow kind, against a local fake Ollama. The unit tests inject the advice client; these runs do not, so
-// they prove the hooks resolve the same setting, roots and client as the other call sites. Each case compares the
+// 141 D.3 (IC-010), through the real CLI: `doflow claim --action link` with a shadow kind, against a local fake Ollama
+// (`doflow retrieve` makes no decision-model call since row 174; test/runtime/retrieve-no-decision-call.test.ts holds
+// that). The unit tests inject the advice client; these runs do not, so they prove the hook resolves the same setting,
+// roots and client as the other call sites. Each case compares the
 // command's stdout and exit status with a run whose kind is off, and counts what reached the fake server.
 
 const { test, describe } = require('node:test');
@@ -10,16 +11,13 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
-const { spawn, spawnSync } = require('node:child_process');
+const { spawn } = require('node:child_process');
 const { tempDir } = require('../helper/tmp.ts');
 const { createSettingsEnv } = require('../helper/settings-fixtures.ts');
 
 const BIN = path.resolve(__dirname, '../../bin/doflow.js');
-const NO_RG = spawnSync('rg', ['--version'], { stdio: 'ignore' }).status === 0 ? false : 'ripgrep (rg) is not installed';
 const BUDGET_MS = 5000;
 const SLACK_MS = 3000;
-const SENTINEL_QUERY = 'sentinelquery4471';
-const SENTINEL_CANDIDATE = 'sentinelcandidate9023';
 const SENTINEL_CLAIM = 'sentinelclaim5521';
 const SENTINEL_PASSAGE = 'sentinelpassage8830';
 const TASK = 'task_001';
@@ -107,7 +105,7 @@ function adviceFiles(dir: string): Record<string, string> {
 
 const records = (files: Record<string, string>) => Object.values(files).join('\n').split('\n').filter(Boolean).map((line) => JSON.parse(line));
 
-type Kind = 'rerank' | 'claim-support';
+type Kind = 'claim-support';
 type World = ReturnType<typeof createSettingsEnv>;
 
 /** A scratch HOME/XDG/project with the user settings file written as docs/reference.md (Settings keys) says. */
@@ -119,16 +117,6 @@ function world(t: any, { kind, kindValue, endpoint }: { kind: Kind; kindValue?: 
   if (kindValue !== undefined) settings[`advice.kinds.${kind}`] = kindValue;
   f.writeUserSettings(settings);
   const configDir = path.join(f.dir, 'doflow-config');
-  const guidance = path.join(configDir, 'guidance');
-  fs.mkdirSync(guidance, { recursive: true });
-  const padding = 'filler words '.repeat(30);
-  ['one', 'two', 'three', 'four', 'five'].forEach((name, index) => {
-    fs.writeFileSync(path.join(guidance, `${name}.md`), `calibration procedure ${name} ${'widget '.repeat(index + 1)}${padding}${SENTINEL_CANDIDATE} ${name}\n`);
-  });
-  fs.mkdirSync(path.join(f.project, 'src'), { recursive: true });
-  for (let i = 1; i <= 4; i += 1) {
-    fs.writeFileSync(path.join(f.project, 'src', `mod${i}.js`), `function parseToken${i}(value) {\n  // parseToken refresh credentials ${SENTINEL_CANDIDATE} ${i}\n  return value;\n}\n`);
-  }
   const env = f.env({ DOFLOW_CONFIG_DIR: configDir });
   const run = (args: string[]) => runCli(args, { cwd: f.project, env });
   return { f, env, run, advice: () => adviceFiles(f.dir) };
@@ -147,9 +135,7 @@ async function claimSetup(w: ReturnType<typeof world>) {
 }
 
 /** The command under test for each hook, with the ids/timestamps a run writes anew blanked from its output. */
-const SURFACES: Array<{ name: string; kind: Kind; detached?: boolean; skip?: any; prepare?: (w: any) => Promise<any>; args: (ctx: any) => string[] }> = [
-  { name: 'guidance retrieve', kind: 'rerank', args: () => ['retrieve', '--query', `calibration procedure widget ${SENTINEL_QUERY}`] },
-  { name: 'code retrieve', kind: 'rerank', skip: NO_RG, args: (ctx) => ['retrieve', '--scope', 'code', '--root', ctx.projectRoot, '--query', 'parseToken'] },
+const SURFACES: Array<{ name: string; kind: Kind; detached?: boolean; prepare?: (w: any) => Promise<any>; args: (ctx: any) => string[] }> = [
   {
     name: 'claim link', kind: 'claim-support', detached: true, prepare: claimSetup,
     args: (ctx) => ['claim', '--task-id', TASK, '--action', 'link', '--claim-id', ctx.claimId, '--evidence-id', ctx.evidenceId, '--relation', 'supports'],
@@ -178,8 +164,8 @@ async function scenario(t: any, surface: (typeof SURFACES)[number], { kindValue,
 }
 
 for (const surface of SURFACES) {
-  describe(`real CLI: ${surface.name}`, { skip: surface.skip }, () => {
-    const SENTINELS = [SENTINEL_QUERY, SENTINEL_CANDIDATE, SENTINEL_CLAIM, SENTINEL_PASSAGE];
+  describe(`real CLI: ${surface.name}`, () => {
+    const SENTINELS = [SENTINEL_CLAIM, SENTINEL_PASSAGE];
 
     test('(a) shadow: one request, one pick line without any text, output and status as with the kind off', async (t) => {
       const off = await scenario(t, surface, { kindValue: 'off', server: 'answer' });

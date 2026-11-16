@@ -67,7 +67,7 @@ test('adviceCoverage rejects each IC-016 structural violation and malformed corp
     ['unregistered kind', (c: any) => { c.unknown = { kind: 'unknown', cases: [] }; }, /unknown: unregistered kind/],
     ['non-object corpus case', (c: any) => { c.tier.cases[0] = null; }, /tier: case 1 must be an object/],
     ['cases must be an array', (c: any) => { c.tier.cases = {}; }, /tier: cases must be an array/],
-    ['kind/file mismatch', (c: any) => { c.tier.kind = 'followup-triage'; }, /tier: kind must match/],
+    ['kind/file mismatch', (c: any) => { c.tier.kind = 'task-class'; }, /tier: kind must match/],
     ['id pattern', (c: any) => { c.tier.cases[0].id = 'tier-x'; }, /tier: .*id must match/],
     ['duplicate id', (c: any) => { c.tier.cases[1].id = c.tier.cases[0].id; }, /tier: .*duplicate id/],
     ['split', (c: any) => { c.tier.cases[0].split = 'other'; }, /tier: .*split must be/],
@@ -114,7 +114,7 @@ test('adviceCoverage treats a criteriaFrom call kind as covered by the retrieval
   const sources: any = { workflows: source('workflows'), verification: source('verification'), mcp: source('mcp') };
   const corpus = Object.fromEntries(staticKinds.map(({ id }: any) => [id, require(`../../bench/advice/${id}.json`)]));
   const withCall = structuredClone(registry);
-  withCall.kinds.push({ id: 'call-kind', type: 'choice', instructions: 'x', criteriaFrom: 'call', staticFrom: 'the first-stage order', askedBy: [] });
+  withCall.kinds.push({ id: 'call-kind', type: 'choice', instructions: 'x', criteriaFrom: 'call', staticFrom: 'the first-stage order', askedBy: [], budgetMs: 1000 });
   const result = adviceCoverage({ adviceRegistry: withCall, corpus, sources });
   assert.ok(!result.gaps.some((item: any) => item.startsWith('call-kind:')), JSON.stringify(result.gaps));
   assert.ok(result.rows.some((row: any) => row.kind === 'call-kind' && row.missing.length === 0));

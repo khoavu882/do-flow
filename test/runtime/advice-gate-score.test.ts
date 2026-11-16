@@ -10,8 +10,8 @@ const stats = require('../../bench/retrieval/lib/stats.ts');
 const GATE = {
   minCases: 30,
   validShareMin: 0.99,
-  quality: { lowerBoundAbove: 0, nonInferiorityDelta: 0.02, confidence: 0.95, resamples: 2000, seed: 20261106 },
-  latency: { p95CapMs: { default: 5000, rerank: 3000 }, ratioMax: 2 },
+  quality: { lowerBoundAbove: 0, confidence: 0.95, resamples: 2000, seed: 20261106 },
+  latency: { p95CapMs: { default: 5000, rerank: 3000 } },
 };
 
 function choiceCase(correctModel: number, correctStatic: number, extra: Record<string, unknown> = {}) {

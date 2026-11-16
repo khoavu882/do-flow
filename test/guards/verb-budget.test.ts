@@ -40,7 +40,7 @@ const CEILINGS: readonly (readonly [string, number, number])[] = [
   ['capabilities --json', 0, 3840], // 3,651 B
   ['discover --json', 0, 2240], // 2,109 B
   ['paths --json', 0, 896], // 841 B
-  ['config --json', 0, 49536], // 48,988 B (141: five keys grew it: advice.kinds.rerank, advice.kinds.claim-support, advice.models.rerank, advice.models.claim-support, advice.criteria.rerank; 143: team.enforcement)
+  ['config --json', 0, 49536], // 48,988 B (141: five advice keys grew it: a mode and a model key for claim-support, and three keys of the rerank kind that row 174 removed again; 143: team.enforcement)
   ['doctor --json', 0, 30592], // 29,549 B (1,024 B margin, design R7; 172 T6: a login answer per harness, IC-003; was 26,665 B)
   ['storage --json', 0, 14592], // 14,056 B
   ['indicators --json', 0, 704], // 619 B

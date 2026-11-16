@@ -42,6 +42,48 @@ test('G6: no doc references a skill or agent that does not exist', () => {
   assert.deepEqual(dangling, [], `docs reference skills that do not exist:\n  ${dangling.join('\n  ')}`);
 });
 
+// G6/174 — every repo path docs/reference.md cites in backticks exists in the tree. A cite into agent-docs/doflow/<slug>
+// never counts: that folder is git-ignored, so a reader of the shipped doc cannot open it (row 174 found a cite to a
+// measurement file that was never there). A path with a placeholder or a glob (`<`, `*`, `{`, `$`) names a family, not a
+// file, and a path under agent-docs/ without a numbered feature folder names a project's own store, so neither is checked.
+const CITE_ROOTS = ['src', 'core', 'test', 'bench', 'docs', 'specs', 'scripts', 'console', 'agent-docs'];
+
+function citedPaths(text: any): any {
+  const found: any = new Set();
+  for (const [, cited] of text.matchAll(new RegExp(`\`((?:${CITE_ROOTS.join('|')})/[^\`\\s]*)\``, 'g'))) {
+    if (/[<*{$…]/.test(cited)) continue;
+    found.add(cited.replace(/[#:]\d.*$/, '').replace(/#.*$/, '').replace(/[.,;)]+$/, ''));
+  }
+  return [...found].sort();
+}
+
+function danglingCites(text: any, root: any): any {
+  return citedPaths(text).filter((cited: any) => {
+    if (cited.startsWith('agent-docs/')) return /^agent-docs\/doflow\/\d+-/.test(cited);
+    return !fs.existsSync(path.join(root, cited));
+  });
+}
+
+test('G6/174: every repo path docs/reference.md cites exists, and none points into agent-docs/doflow', () => {
+  const text = fs.readFileSync(path.join(REPO, 'docs/reference.md'), 'utf8');
+  assert.ok(citedPaths(text).length > 50, 'the extraction must still find the cited paths');
+  assert.deepEqual(danglingCites(text, REPO), [], 'docs/reference.md cites paths that do not exist or are not shipped');
+});
+
+test('G6/174 control: a missing file and a cite into agent-docs/doflow are reported; real paths, families and project stores are not', () => {
+  const text = [
+    'Real: `src/runtime/advice/cli.ts` and `core/registry/advice.json:12` and the folder `core/registry/`.',
+    'Missing: `src/runtime/advice/not-here.ts` and `docs/gone.md#top`.',
+    'Ignored folder: `agent-docs/doflow/141-decision-layer-involvement/measurement-b1.md`.',
+    'Families and stores: `src/<kind>.ts`, `core/worker-evidence/*/`, `agent-docs/doflow/<slug>`, `agent-docs/roadmap/rows.json`.',
+  ].join('\n');
+  assert.deepEqual(danglingCites(text, REPO), [
+    'agent-docs/doflow/141-decision-layer-involvement/measurement-b1.md',
+    'docs/gone.md',
+    'src/runtime/advice/not-here.ts',
+  ]);
+});
+
 test('G6: requirement-template.md provides hierarchical stories and BDD scenario scaffolding', () => {
   const reqTmpl = fs.readFileSync(path.join(REPO, 'core/shared/templates/doflow/requirement-template.md'), 'utf8');
   assert.ok(reqTmpl.includes('### Story 1: [Story Title] (P1)'), 'requirement template must scaffold story headings');

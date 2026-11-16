@@ -113,8 +113,8 @@ function deadPid() {
 // ── A1: the command a person waits on is not held by the model ───────────────────────────────────────────────────
 
 /**
- * One scratch checkout and user home for the four commands that ask a shadow kind: a git repository with one change
- * (review start), a task with one evidence item (claim link), a guidance tree (retrieve) and advice on against `origin`.
+ * One scratch checkout and user home for the three commands that ask a shadow kind: a git repository with one change
+ * (review start), a task with one evidence item (claim link) and advice on against `origin`.
  * `kinds(mode)` sets every asked kind to `mode` in the project settings.
  */
 function cliFixture(t: any, origin: string) {
@@ -160,16 +160,12 @@ function cliFixture(t: any, origin: string) {
   const slug = '174-detach';
   put(`.doflow/state/orchestration/${slug}.json`, JSON.stringify({ taskId: slug, taskClass: 'bug', state: 'ACTIVE', program: [], history: [] }));
   put(`.doflow/state/verification/runs/${slug}.jsonl`, `${JSON.stringify({ schema: 1, taskId: slug, head, clean: true, verdict: 'PASS', risk: 'LOW', at: '2026-10-23T00:00:00.000Z', reportSha256: 'x' })}\n`);
-  fs.mkdirSync(path.join(config, 'guidance'), { recursive: true });
-  ['one', 'two', 'three', 'four', 'five'].forEach((name, index) => {
-    fs.writeFileSync(path.join(config, 'guidance', `${name}.md`), `calibration procedure ${name} ${'widget '.repeat(index + 1)}\n`);
-  });
   const evidence = cli('evidence', '--action', 'add', '--task-id', 't1', '--kind', 'exact-search', '--provenance', 'extracted',
     '--provider', 'rg', '--capability', 'exact-search', '--locator', 'src/a.ts:1', '--content', 'the cache TTL is 300 seconds', '--json').evidence[0].id;
   const roots = resolveRoots({ registry: STORAGE, projectRoot: work, env });
   return {
     roots,
-    kinds: (mode: string) => put('.doflow/settings.json', JSON.stringify({ advice: { kinds: { 'task-class': mode, 'claim-support': mode, 'review-depth': mode, rerank: mode } } })),
+    kinds: (mode: string) => put('.doflow/settings.json', JSON.stringify({ advice: { kinds: { 'task-class': mode, 'claim-support': mode, 'review-depth': mode } } })),
     /** Each command's argument list; `claim link` links a fresh claim on every run, so every run does the same work. */
     commands: {
       classify: { kind: 'task-class', args: () => ['classify', '--task-class', 'bug', '--calling-skill', 'do', '--request', 'A broken behavior needs a repair.', '--json'] },
@@ -179,7 +175,6 @@ function cliFixture(t: any, origin: string) {
           '--claim-id', cli('claim', '--action', 'add', '--task-id', 't1', '--statement', 'The cache TTL is 300 seconds', '--json').claim.id],
       },
       'review start': { kind: 'review-depth', args: () => ['review', '--action', 'start', '--slug', slug, '--base', base, '--json'] },
-      retrieve: { kind: 'rerank', args: () => ['retrieve', '--query', 'calibration widget'] },
     } as Record<string, { kind: string; args: () => string[] }>,
     /** Runs the CLI to its exit and returns the wall time; a run still alive at `killAfterMs` is killed and fails. */
     run: (args: string[], killAfterMs: number) => new Promise<{ ms: number; code: any; out: string }>((resolve) => {
@@ -197,11 +192,10 @@ function cliFixture(t: any, origin: string) {
   };
 }
 
-test('A1: classify, claim link, review start and retrieve end within 100 ms of the kind-off run while the model stalls', async (t) => {
+test('A1: classify, claim link and review start end within 100 ms of the kind-off run while the model stalls', async (t) => {
   const model = await fakeModel(t);
   const f = cliFixture(t, model.origin);
   f.kinds('off');
-  await f.run(f.commands.retrieve.args(), 60000); // builds the guidance index, outside the timed runs
   for (const [name, command] of Object.entries(f.commands)) {
     const times: Record<string, number[]> = { off: [], shadow: [] };
     const asksBefore = model.asks().length;

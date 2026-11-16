@@ -16,7 +16,7 @@ const BIN = path.join(REPO_ROOT, 'bin/doflow.js');
 // `doctor` runs `<harness> --version` for every harness it finds on PATH (seconds each for some); these
 // tests read the advice sections only, so the spawned doctor sees node and the system tools and no harness.
 const DOCTOR_PATH = systemPath(path.dirname(process.execPath));
-const kinds = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core/registry/advice.json'), 'utf8')).kinds.map((kind: any) => kind.id);
+const kinds = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core/registry/advice.json'), 'utf8')).kinds.filter((kind: any) => kind.askedBy.length > 0).map((kind: any) => kind.id);
 
 function fixture(t: any, setting?: any) {
   const scratch = createScratch('doflow-advice-doctor-');
@@ -198,6 +198,25 @@ test('IC-015 aggregates retained picks and outcomes by registry kind, includes a
   assert.doesNotMatch(text, /%|\d\s*\/\s*\d/);
   const empty = fixture(t);
   assert.match(section(empty.run().stdout, '[Advice Agreement]'), /No picks recorded here\./);
+});
+
+test('174: a retained pick of a kind since removed (followup-triage, rerank) neither crashes doctor nor adds a row', (t) => {
+  const f = fixture(t);
+  const root = path.join(f.project, '.doflow/state/advice/picks');
+  const at = new Date().toISOString();
+  const records: any = [
+    { type: 'pick', pickId: 'g1', at, kind: 'followup-triage', pick: 'file', mode: 'shadow' },
+    { type: 'outcome', pickId: 'g1', at, actual: 'file', source: 'caller' },
+    { type: 'pick', pickId: 'g2', at, kind: 'rerank', pick: 'a', mode: 'shadow', rerank: { arms: {} } },
+    { type: 'pick', pickId: 'g3', at, kind: 'tier', pick: 'standard' },
+  ];
+  write(path.join(root, `${at.slice(0, 10)}.jsonl`), `${records.map(JSON.stringify).join('\n')}\n`);
+  const result = f.run(true);
+  assert.equal(result.status, 0, result.stderr);
+  const json = JSON.parse(result.stdout).advice;
+  assert.deepEqual(json.kinds.map((row: any) => row.kind), kinds);
+  assert.equal(json.kinds.find((row: any) => row.kind === 'tier').picks, 1);
+  assert.equal(f.run().status, 0);
 });
 
 test('advice leaves a real runtime-no-reach health finding and exit status unchanged when off or the endpoint fails', async (t) => {

@@ -39,7 +39,7 @@ function agreementRows(registry: any, records: any) {
     if (!current || String(record.at).localeCompare(String(current.at)) >= 0) outcomes.set(record.pickId, record);
   }
   const misses = records.filter(({ record }: any) => record.type === 'miss');
-  const ids = [...(registry.kinds || []).map((kind: any) => kind.id)];
+  const ids = [...(registry.kinds || []).filter((kind: any) => kind.askedBy?.length > 0).map((kind: any) => kind.id)];
   if (picks.some(({ record }: any) => record.kind === 'adhoc')) ids.push('adhoc');
   return ids.map((kind) => {
     const kindPicks = picks.filter(({ record }: any) => record.kind === kind);
