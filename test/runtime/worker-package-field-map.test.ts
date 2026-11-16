@@ -267,6 +267,20 @@ test('IC-003: the compile cache holds at most 64 maps', () => {
   assert.equal(again.id, 'cache-first-v1');
 });
 
+test('B3: a cache hit never returns a factory for a map that does not validate (a non-finite number is not null)', () => {
+  const gated = (gate: any) => {
+    const map = fieldMap('cache-gate-v1');
+    map.rules[1].when.push({ path: ['gate'], equals: gate });
+    return { structuredOutput: { fieldMap: map } };
+  };
+  const cached = parserOf(gated(null), 'structured');
+  assert.equal(cached.id, 'cache-gate-v1');
+  const infinite = parserOf(gated(JSON.parse('1e400')), 'structured');
+  assert.equal(infinite.id, UNPARSED, 'refused, not the cached sibling');
+  assert.equal(infinite.create().end().reason, 'parser-unknown');
+  assert.equal(parserOf(gated(null), 'structured'), cached, 'the valid sibling stays cached');
+});
+
 test('the launch record stores parserIdOf: the map id for a map-only worker, the parser for a code parser', () => {
   const identity = { run: 'r', lineage: 'main', attempt: '1', runSource: 'env' };
   assert.equal(launchRecord(mapWorker(), identity, 'p').recipe.parser, 'mycli-stream-v1');

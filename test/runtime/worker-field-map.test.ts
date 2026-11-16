@@ -227,6 +227,17 @@ test('usage: any sums with null as 0, all needs every path, an invalid count is 
   assert.deepEqual(usage([{ type: 'done', usage: {} }, { type: 'done', usage: { in: 1, out: 1 } }]), { tokens: 2 });
 });
 
+test('A-5: a usage part beyond the safe-integer range, or a sum that leaves it, makes usage null (the Pi parser\'s rule)', () => {
+  const usage = (events: any[]) => run(events).usage;
+  const SAFE = Number.MAX_SAFE_INTEGER;
+  assert.deepEqual(usage([{ type: 'done', usage: { in: SAFE - 1, out: 1 } }]), { tokens: SAFE });
+  assert.equal(usage([{ type: 'done', usage: { in: 2 ** 53, out: 1 } }]), null, 'a part over 2^53');
+  assert.equal(usage([{ type: 'done', usage: { in: 1e300 } }]), null, 'a lone huge part');
+  assert.equal(usage([{ type: 'strict', usage: { in: 2 ** 53, out: 0 } }]), null);
+  assert.equal(usage([{ type: 'done', usage: { in: SAFE, out: 1 } }]), null, 'two safe parts whose sum is 2^53');
+  assert.equal(usage([{ type: 'strict', usage: { in: SAFE, out: SAFE } }]), null);
+});
+
 test('a line with \\r endings parses and an escaped \\r inside a string is kept', () => {
   const target = parserOf();
   target.line('{"type":"msg","text":"a\\r"}\r');

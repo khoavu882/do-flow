@@ -237,6 +237,25 @@ function checkContradictions(rule: any, location: string, errors: string[]): voi
   });
 }
 
+/** True when every value `later` lets through, `earlier` lets through too (both on one path; every test needs the path present). */
+function implies(later: any, earlier: any): boolean {
+  if (!same(later.path, earlier.path)) return false;
+  if (has(earlier, 'equals')) return has(later, 'equals') && later.equals === earlier.equals;
+  if (has(earlier, 'in')) {
+    if (has(later, 'equals')) return earlier.in.includes(later.equals);
+    return has(later, 'in') && later.in.every((value: any) => earlier.in.includes(value));
+  }
+  if (earlier.is === 'present') return true;
+  const wide = KIND_ATOMS[earlier.is];
+  return [...allowedClasses(later)].every((atom) => wide.includes(atom));
+}
+
+/** The index of an earlier rule whose every test is implied by a test of `rule`, so it matches whenever `rule` does. */
+function hiddenBy(rules: any[], index: number): number {
+  const later: any[] = rules[index].when;
+  return rules.slice(0, index).findIndex((rule) => rule.when.every((earlier: any) => later.some((test) => implies(test, earlier))));
+}
+
 function guarded(rule: any, path: string[]): boolean {
   return rule.when.some((test: any) => test.is === 'string' && same(test.path, path));
 }
@@ -263,6 +282,16 @@ function validateFieldMap(map: any, location: string, errors: string[]): void {
     const eventTested = rule.when.some((test: any) => (has(test, 'equals') || has(test, 'in')) && same(test.path, map.eventType));
     if (!eventTested) issue(errors, `${at}.when`, `needs an 'equals' or 'in' test on eventType [${map.eventType.join(', ')}] (S2)`);
     checkContradictions(rule, at, errors);
+    for (const [j, test] of rule.when.entries()) {
+      if (!same(test.path, map.eventType)) continue;
+      if (has(test, 'equals') && typeof test.equals !== 'string') issue(errors, `${at}.when[${j}].equals`, 'an event type is always a string, so this rule can never match');
+      if (has(test, 'in')) test.in.forEach((value: any, k: number) => { if (typeof value !== 'string') issue(errors, `${at}.when[${j}].in[${k}]`, 'an event type is always a string, so this value can never match'); });
+    }
+    if (rule.then.terminal?.outcome === 'completed') {
+      if (rule.then.spawn) issue(errors, `${at}.then.spawn`, "a rule with terminal outcome 'completed' cannot also set 'spawn' (a spawn is reported as a failure)");
+      const hider = hiddenBy(rules, i);
+      if (hider >= 0) issue(errors, `${at}.when`, `rules[${hider}] matches whenever this rule does and comes first, so this completed rule can never run`);
+    }
   });
 
   if (!rules.some((rule) => rule.then.terminal?.outcome === 'completed')) issue(errors, `${location}.rules`, "no rule has terminal outcome 'completed', so success is unreachable (S3)");

@@ -27,6 +27,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { maskLine, maskBody } = require('../mask.ts');
+const { validateFieldMap } = require('../../registry/field-map.ts');
 const { MAX_DENIALS, DETAIL_CHARS, SUMMARY_BYTES, cutBytes, cutChars, eventOf, lineText } = require('./parsers/common.ts');
 
 const claude = require('./parsers/claude.ts');
@@ -144,6 +145,10 @@ const MAP_CACHE_MAX = 64;
 const mapCache = new Map<string, ParserFactory>();
 
 function compiledMap(map: any): ParserFactory | null {
+  // Validated before the lookup: the key collapses a non-finite number to null, so a hit proves nothing about this map.
+  const errors: string[] = [];
+  try { validateFieldMap(map, 'fieldMap', errors); } catch { return null; }
+  if (errors.length > 0) return null;
   let key: string;
   try { key = canonicalJson(map); } catch { return null; }
   const cached = mapCache.get(key);

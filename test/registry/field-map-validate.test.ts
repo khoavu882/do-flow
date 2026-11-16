@@ -118,7 +118,9 @@ test('S0: rule and test counts', () => {
   const wide = valid();
   wide.rules[1].when = [{ path: ['type'], equals: 'done' }, ...Array.from({ length: MAX_TESTS }, (_, i) => ({ path: [`k${i}`], is: 'present' }))];
   assert.ok(check(wide).some((e) => e.startsWith('fieldMap.rules[1].when: ')));
-  assert.deepEqual(check({ ...valid(), rules: [valid().rules[0], ...Array.from({ length: MAX_RULES - 1 }, () => clone(valid().rules[1]))] }), []);
+  // Distinct event types: identical completed rules would hide each other (A-4c).
+  const completed = (i: number) => { const rule = clone(valid().rules[1]); rule.when[0].equals = `done-${i}`; return rule; };
+  assert.deepEqual(check({ ...valid(), rules: [valid().rules[0], ...Array.from({ length: MAX_RULES - 1 }, (_, i) => completed(i))] }), []);
 });
 
 test('S0: a test holds one closed key set and one of equals, in, is', () => {
@@ -320,4 +322,63 @@ test('validateFieldMap does not mutate the map and accepts a frozen one', () => 
   const deep = (value: any): any => { if (value && typeof value === 'object') { Object.values(value).forEach(deep); Object.freeze(value); } return value; };
   assert.deepEqual(check(deep(map)), []);
   assert.equal(JSON.stringify(map), before);
+});
+
+test('A-4a: an equals or in test on the event type path with a non-string value is refused at its location', () => {
+  const equals = valid();
+  equals.rules[1].when[0] = { path: ['type'], equals: 7 };
+  assert.ok(check(equals).some((e) => e.startsWith('fieldMap.rules[1].when[0].equals: ') && e.includes('string')), JSON.stringify(check(equals)));
+  const list = valid();
+  list.rules[1].when[0] = { path: ['type'], in: ['done', null] };
+  assert.ok(check(list).some((e) => e.startsWith('fieldMap.rules[1].when[0].in[1]: ') && e.includes('string')), JSON.stringify(check(list)));
+  // A non-string on any other path is fine.
+  const other = valid();
+  other.rules[0].when.push({ path: ['n'], equals: 7 });
+  assert.deepEqual(check(other), []);
+});
+
+test('A-4b: a completed rule that also sets spawn is refused at its then.spawn', () => {
+  const map = valid();
+  map.rules[1].then.spawn = true;
+  assert.ok(check(map).some((e) => e.startsWith('fieldMap.rules[1].then.spawn: ') && e.includes('completed')), JSON.stringify(check(map)));
+  const failed = valid();
+  failed.rules.push({ when: [{ path: ['type'], equals: 'x' }], then: { spawn: true, terminal: { outcome: 'failed' } } });
+  assert.deepEqual(check(failed), []);
+});
+
+test('A-4c: a completed rule hidden by an earlier rule with the same or a wider test is refused, and an undecidable pair is accepted', () => {
+  const hidden = (earlier: any[], later: any[]) => {
+    const map = valid();
+    map.finalFallback = 'last-message-file';
+    map.rules = [{ when: earlier, then: { spawn: true } }, { when: later, then: { terminal: { outcome: 'completed' } } }];
+    return check(map);
+  };
+  const type = (value: string) => ({ path: ['type'], equals: value });
+  const shadow = (errors: string[]) => errors.some((e) => e.startsWith('fieldMap.rules[1].when: ') && e.includes('rules[0]'));
+  assert.ok(shadow(hidden([type('done')], [type('done')])), 'the same equals');
+  assert.ok(shadow(hidden([{ path: ['type'], in: ['done', 'end'] }], [type('done')])), 'in holds the later equals');
+  assert.ok(shadow(hidden([{ path: ['type'], in: ['done', 'end'] }], [{ path: ['type'], in: ['end'] }])), 'in holds the later in');
+  assert.ok(shadow(hidden([type('done'), { path: ['x'], is: 'string' }], [type('done'), { path: ['x'], equals: 'a' }])), 'an is kind the later value satisfies');
+  assert.ok(shadow(hidden([type('done'), { path: ['x'], is: 'present' }], [type('done'), { path: ['x'], is: 'count' }])), 'present on a path the later rule tests');
+  assert.ok(shadow(hidden([type('done'), { path: ['x'], is: 'number' }], [type('done'), { path: ['x'], is: 'integer' }])), 'a wider is kind');
+  // Not decidable from the pair, or not hidden: accepted.
+  assert.deepEqual(hidden([type('done'), { path: ['x'], equals: 'a' }], [type('done')]), [], 'the earlier rule needs a test the later one lacks');
+  assert.deepEqual(hidden([type('done')], [type('end')]), [], 'a different value');
+  assert.deepEqual(hidden([type('done'), { path: ['x'], is: 'integer' }], [type('done'), { path: ['x'], is: 'number' }]), [], 'a narrower earlier kind');
+  assert.deepEqual(hidden([{ path: ['type'], in: ['done'] }], [{ path: ['type'], in: ['done', 'end'] }]), [], 'a wider later in');
+  // A rule that does not complete is not checked.
+  const map = valid();
+  map.finalFallback = 'last-message-file';
+  map.rules = [{ when: [type('done')], then: { spawn: true } }, { when: [type('done')], then: { terminal: { outcome: 'failed' } } }, valid().rules[1]];
+  map.rules[2].when = [type('stop')];
+  assert.deepEqual(check(map), []);
+});
+
+test('B3: a non-finite number in an equals or in test is refused at its location', () => {
+  const equals = valid();
+  equals.rules[0].when.push({ path: ['n'], equals: JSON.parse('1e400') });
+  assert.ok(check(equals).some((e) => e.startsWith('fieldMap.rules[0].when[2].equals: ') && e.includes('finite')), JSON.stringify(check(equals)));
+  const list = valid();
+  list.rules[0].when.push({ path: ['n'], in: [1, -JSON.parse('1e400')] });
+  assert.ok(check(list).some((e) => e.startsWith('fieldMap.rules[0].when[2].in[1]: ') && e.includes('finite')), JSON.stringify(check(list)));
 });

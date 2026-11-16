@@ -128,9 +128,13 @@ function compileFieldMap(map: any) {
         }
       }
       if (actions.usage) {
-        const parts = actions.usage.sum.map((path) => count(read(event, path).value));
-        if (actions.usage.require === 'all' ? parts.some((part) => part === null) : parts.every((part) => part === null)) usage = null;
-        else usage = { tokens: parts.reduce((total: number, part) => total + (part ?? 0), 0) };
+        const values = actions.usage.sum.map((path) => read(event, path).value);
+        const parts = values.map(count);
+        // Like the Pi parser: an integer part beyond the safe range, or a sum that leaves it, is no total at all.
+        const tokens = parts.reduce((total: number, part) => total + (part ?? 0), 0);
+        if (values.some((value) => Number.isInteger(value) && !Number.isSafeInteger(value)) || !Number.isSafeInteger(tokens)) usage = null;
+        else if (actions.usage.require === 'all' ? parts.some((part) => part === null) : parts.every((part) => part === null)) usage = null;
+        else usage = { tokens };
       }
       if (actions.streamError) streamError = capture(event, actions.streamError);
       if (actions.terminal) {
