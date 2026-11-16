@@ -130,11 +130,11 @@ describe('NFR-001: the chain verbs answer as they did under v1.13.0', { skip: SK
   }
 
   /** Every leaf of `old` is present, unchanged, in `neu`; returns the paths only `neu` has. */
-  function additions(old: any, neu: any, at: any = '$', expandNewPaths: any = []): any {
+  function additions(old: any, neu: any, at: any = '$', expandNewPaths: any = [], removedPaths: any = []): any {
     if (Array.isArray(old)) {
       if (Array.isArray(neu) && old.length === neu.length && old.every((item) => item && typeof item === 'object' && !Array.isArray(item))
           && neu.every((item) => item && typeof item === 'object' && !Array.isArray(item))) {
-        return old.flatMap((item, index): any => additions(item, neu[index], `${at}[]`, expandNewPaths));
+        return old.flatMap((item, index): any => additions(item, neu[index], `${at}[]`, expandNewPaths, removedPaths));
       }
       assert.deepEqual(neu, old, `${at} changed`);
       return [];
@@ -157,8 +157,9 @@ describe('NFR-001: the chain verbs answer as they did under v1.13.0', { skip: SK
       }
     }
     for (const key of Object.keys(old)) {
+      if (removedPaths.includes(`${at}.${key}`)) continue;
       assert.ok(key in neu, `${at}.${key} was removed`);
-      added.push(...additions(old[key], neu[key], `${at}.${key}`, expandNewPaths));
+      added.push(...additions(old[key], neu[key], `${at}.${key}`, expandNewPaths, removedPaths));
     }
     return added;
   }
@@ -208,7 +209,9 @@ describe('NFR-001: the chain verbs answer as they did under v1.13.0', { skip: SK
       const expansionPaths: any = contextPack
         ? ['$.budgetEnforcement', '$.budgetEnforcement.limits']
         : [];
-      for (const field of additions(oldJson, newJson, '$', expansionPaths)) {
+      // The one deliberate removal: `paths --json` no longer prints `layout`, which is always `structured` now.
+      const removedPaths: any = label === 'paths --json' ? ['$.layout'] : [];
+      for (const field of additions(oldJson, newJson, '$', expansionPaths, removedPaths)) {
         const entry = `${label}: ${field}`;
         added.add(entry);
         if (contextPack) contextPackAdditions.add(entry);
