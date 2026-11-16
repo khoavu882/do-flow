@@ -72,6 +72,9 @@ function supported(recipe: any) {
   return { status: 'supported', evidence: ['test/registry/worker-block.test.ts'], verification: 'Run it.', verifiedOn: '2026-10-15', ...recipe };
 }
 
+/** 172 design §3.1: a supported loginProbe is a login recipe; the least one is exit 0 logged in, exit 1 logged out. */
+const LOGIN_RECIPE = { output: 'none', answers: [{ exit: 0, state: 'logged-in' }, { exit: 1, state: 'logged-out' }], expiry: 'not-seen' };
+
 /** Validates a fresh copy of the shipped registry after mutating claude's worker block. */
 function mutated(mutate: any) {
   const registry = structuredClone(loadRegistry({ repoRoot: REPO }));
@@ -229,7 +232,7 @@ test('worker: validateWorker accepts a full supported recipe in isolation', () =
     runnableProbe: supported({ argv: ['--probe'] }),
     hooksProbe: supported({ argv: ['--hooks'] }),
     guidanceProbe: supported({ argv: ['--guidance'], marker: 'DOFLOW-MARKER' }),
-    loginProbe: supported({ argv: ['--whoami'] }),
+    loginProbe: supported({ argv: ['--whoami'], ...LOGIN_RECIPE }),
     persistentSession: supported({}),
     resume: { status: 'unsupported', evidence: ['docs'], verification: 'Read it.', verifiedOn: '2026-10-15' },
     steering: { status: 'unknown', evidence: [], verification: 'Read it.', verifiedOn: '2026-10-15', reason: 'unread' },
@@ -335,7 +338,7 @@ test('worker: a mainSession may carry {prompt} once (argv) or {lastMessageFile} 
     oneShot: supported({ argv: ['{prompt}'], promptVia: 'argv' }),
     structuredOutput: supported({ argv: ['--json'], parser: 'doflow-jsonl-v1' }),
     readOnly: supported({ argv: ['--read-only'] }), spawnDenial: supported({ argv: ['--no-agents'] }), runnableProbe: supported({ argv: ['--probe'] }),
-    hooksProbe: supported({ argv: ['--hooks'] }), guidanceProbe: supported({ argv: ['--guidance'], marker: 'M' }), loginProbe: supported({ argv: ['--whoami'] }),
+    hooksProbe: supported({ argv: ['--hooks'] }), guidanceProbe: supported({ argv: ['--guidance'], marker: 'M' }), loginProbe: supported({ argv: ['--whoami'], ...LOGIN_RECIPE }),
     persistentSession: supported({}), resume: supported({}), steering: supported({}),
     mainSession: supported({ argv: ['run', '--format', 'json', '--', '{prompt}'], promptVia: 'argv', parser: 'doflow-jsonl-v1' }),
     modelChecks: [],
@@ -348,7 +351,7 @@ test('worker: a mainSession may carry {prompt} once (argv) or {lastMessageFile} 
     oneShot: supported({ argv: ['{prompt}'], promptVia: 'argv' }),
     structuredOutput: supported({ argv: ['--json'], parser: 'doflow-jsonl-v1' }),
     readOnly: supported({ argv: ['--read-only'] }), spawnDenial: supported({ argv: ['--no-agents'] }), runnableProbe: supported({ argv: ['--probe'] }),
-    hooksProbe: supported({ argv: ['--hooks'] }), guidanceProbe: supported({ argv: ['--guidance'], marker: 'M' }), loginProbe: supported({ argv: ['--whoami'] }),
+    hooksProbe: supported({ argv: ['--hooks'] }), guidanceProbe: supported({ argv: ['--guidance'], marker: 'M' }), loginProbe: supported({ argv: ['--whoami'], ...LOGIN_RECIPE }),
     persistentSession: supported({}), resume: supported({}), steering: supported({}),
     mainSession: supported({ argv: ['exec', '-o', '{lastMessageFile}', '-'], promptVia: 'stdin', parser: null }),
     modelChecks: [],

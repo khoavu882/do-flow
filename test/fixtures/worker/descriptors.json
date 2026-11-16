@@ -108,7 +108,19 @@
       "argv": [
         "probe",
         "login"
-      ]
+      ],
+      "output": "none",
+      "answers": [
+        {
+          "exit": 0,
+          "state": "logged-in"
+        },
+        {
+          "exit": 1,
+          "state": "logged-out"
+        }
+      ],
+      "expiry": "not-seen"
     },
     "persistentSession": {
       "status": "unknown",
@@ -242,7 +254,19 @@
       "argv": [
         "probe",
         "login"
-      ]
+      ],
+      "output": "none",
+      "answers": [
+        {
+          "exit": 0,
+          "state": "logged-in"
+        },
+        {
+          "exit": 1,
+          "state": "logged-out"
+        }
+      ],
+      "expiry": "not-seen"
     },
     "persistentSession": {
       "status": "unknown",
@@ -372,7 +396,19 @@
       "argv": [
         "probe",
         "login"
-      ]
+      ],
+      "output": "none",
+      "answers": [
+        {
+          "exit": 0,
+          "state": "logged-in"
+        },
+        {
+          "exit": 1,
+          "state": "logged-out"
+        }
+      ],
+      "expiry": "not-seen"
     },
     "persistentSession": {
       "status": "unknown",
@@ -501,7 +537,19 @@
       "argv": [
         "probe",
         "login"
-      ]
+      ],
+      "output": "none",
+      "answers": [
+        {
+          "exit": 0,
+          "state": "logged-in"
+        },
+        {
+          "exit": 1,
+          "state": "logged-out"
+        }
+      ],
+      "expiry": "not-seen"
     },
     "persistentSession": {
       "status": "unknown",

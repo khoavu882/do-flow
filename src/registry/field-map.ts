@@ -298,4 +298,8 @@ function validateFieldMap(map: any, location: string, errors: string[]): void {
   if (!rules.some((rule) => rule.then.final) && !has(map, 'finalFallback')) issue(errors, `${location}.rules`, "no rule has 'final' and 'finalFallback' is not set, so success is unreachable (S3)");
 }
 
-module.exports = { validateFieldMap, FIELD_MAP_FORMAT, MAX_BYTES, MAX_RULES, MAX_TESTS, MAX_SEGMENTS, MAX_VALUES };
+module.exports = {
+  validateFieldMap, FIELD_MAP_FORMAT, MAX_BYTES, MAX_RULES, MAX_TESTS, MAX_SEGMENTS, MAX_VALUES,
+  // 172 D3: the login recipe's `when` tests and `billing.path` are this grammar's Test and Path (src/registry/login-recipe.ts).
+  checkPath, checkTest, checkContradictions, implies,
+};

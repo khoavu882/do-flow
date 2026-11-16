@@ -26,6 +26,8 @@ const { POINT_VALIDATORS } = require('../../src/runtime/packages/points.ts');
 const registry = loadRegistry({ repoRoot: REPO });
 const workerOf = (id: string) => structuredClone(registry.harnesses.find((h: any) => h.id === id).worker);
 const supported = (argv: string[]) => ({ status: 'supported', evidence: ['test'], verification: 'v', verifiedOn: '2026-11-16', argv });
+// 172 design §3.1: a supported loginProbe is a login recipe; the least one is exit 0 logged in, exit 1 logged out.
+const login = (argv: string[]) => ({ ...supported(argv), output: 'none', answers: [{ exit: 0, state: 'logged-in' }, { exit: 1, state: 'logged-out' }], expiry: 'not-seen' });
 
 /** A package worker for a made-up binary, passed through the package point validator. */
 function packageErrors(change: (worker: any) => void): string {
@@ -36,9 +38,9 @@ function packageErrors(change: (worker: any) => void): string {
 }
 
 test('G84.1 a package worker whose loginProbe.argv holds --credentials is refused, naming worker.loginProbe.argv', () => {
-  assert.equal(packageErrors((w) => { w.loginProbe = supported(['auth', 'check']); }), '');
+  assert.equal(packageErrors((w) => { w.loginProbe = login(['auth', 'check']); }), '');
   assert.match(
-    packageErrors((w) => { w.loginProbe = supported(['auth', 'check', '--credentials']); }),
+    packageErrors((w) => { w.loginProbe = login(['auth', 'check', '--credentials']); }),
     /package 'acme' worker 'mycli' worker 'loginProbe': argv must not contain the secret-printing flag or command '--credentials'/,
   );
 });
@@ -87,8 +89,8 @@ test('G84.2 a worker\'s own secretFlags add to the built-in set, a short form on
   assert.equal(at(['keys', 'dump']), 'keys dump');
   assert.equal(at(['keys', 'list', 'dump']), null);
   assert.equal(secretProblem(['-R'], { binary: 'mycli' }), null, 'no declaration, no short form');
-  assert.equal(packageErrors((w) => { w.secretFlags = declared; w.loginProbe = supported(['keys', 'dump']); }).includes("command 'keys dump'"), true);
-  assert.equal(packageErrors((w) => { w.secretFlags = declared; w.loginProbe = supported(['keys', 'list']); }), '');
+  assert.equal(packageErrors((w) => { w.secretFlags = declared; w.loginProbe = login(['keys', 'dump']); }).includes("command 'keys dump'"), true);
+  assert.equal(packageErrors((w) => { w.secretFlags = declared; w.loginProbe = login(['keys', 'list']); }), '');
   for (const bad of ['--x', [], [{}], [{ flag: 'x' }], [{ flag: '--x', command: ['a'] }], [{ flag: '--x', extra: 1 }], [{ command: [] }],
     [{ command: ['a', 'b', 'c', 'd', 'e'] }], [{ command: ['{provider}'] }], [{ command: [' a'] }], [{ command: [''] }], [{ command: 'a b' }],
     [{ command: ['a'], short: '-a' }], [{ flag: '--x', short: 'x' }], Array.from({ length: 33 }, () => ({ flag: '--x' }))]) {

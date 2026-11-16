@@ -32,6 +32,9 @@ function supported(recipe: any) {
   };
 }
 
+/** 172 design §3.1: a supported loginProbe is a login recipe; the least one is exit 0 logged in, exit 1 logged out. */
+const LOGIN_RECIPE = { output: 'none', answers: [{ exit: 0, state: 'logged-in' }, { exit: 1, state: 'logged-out' }], expiry: 'not-seen' };
+
 test('registrySourceMode: detects package.json and returns require or skip', () => {
   assert.equal(registrySourceMode(REPO), 'require');
 
@@ -167,7 +170,7 @@ test('placement rule: {lastMessageFile} once in structuredOutput.argv is accepte
     runnableProbe: supported({ argv: ['--probe'] }),
     hooksProbe: supported({ argv: ['--hooks'] }),
     guidanceProbe: supported({ argv: ['--guidance'], marker: 'DOFLOW-MARKER' }),
-    loginProbe: supported({ argv: ['--whoami'] }),
+    loginProbe: supported({ argv: ['--whoami'], ...LOGIN_RECIPE }),
     persistentSession: supported({}),
     resume: { status: 'unsupported', evidence: ['docs'], verification: 'Read it.', verifiedOn: '2026-10-18' },
     steering: { status: 'unknown', evidence: [], verification: 'Read it.', verifiedOn: '2026-10-18', reason: 'unread' },
@@ -198,7 +201,7 @@ test('placement rule: {lastMessageFile} rejected anywhere else or twice (negativ
     runnableProbe: supported({ argv: ['--probe'] }),
     hooksProbe: supported({ argv: ['--hooks'] }),
     guidanceProbe: supported({ argv: ['--guidance'], marker: 'DOFLOW-MARKER' }),
-    loginProbe: supported({ argv: ['--whoami'] }),
+    loginProbe: supported({ argv: ['--whoami'], ...LOGIN_RECIPE }),
     persistentSession: supported({}),
     resume: { status: 'unsupported', evidence: ['docs'], verification: 'Read it.', verifiedOn: '2026-10-18' },
     steering: { status: 'unknown', evidence: [], verification: 'Read it.', verifiedOn: '2026-10-18', reason: 'unread' },
@@ -252,7 +255,7 @@ test('placement rule: {lastMessageFile} rejected anywhere else or twice (negativ
 
   // In loginProbe.argv
   check((w: any) => {
-    w.loginProbe = supported({ argv: ['--whoami', '{lastMessageFile}'] });
+    w.loginProbe = supported({ argv: ['--whoami', '{lastMessageFile}'], ...LOGIN_RECIPE });
   }, 'loginProbe');
 
   // In cli.versionArgv
