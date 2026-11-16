@@ -77,7 +77,8 @@ test('listHarnessModels runs the recipe through the injected exec and parses its
   assert.deepEqual(out.models.map((m: any) => m.id), ['gemini-4-argon-high', 'gemini-3.8-flash-high']);
   assert.deepEqual(calls, [{ file: 'agy', args: ['models'], timeout: 20000 }]);
   const pi = await listHarnessModels({ descriptor: descriptorOf('pi'), execImpl: async (file: string, args: string[]) => { assert.deepEqual([file, ...args], ['pi', '--list-models']); return PI; } });
-  assert.deepEqual(pi.models.map((m: any) => m.id), ['claude-fable-5', 'claude-haiku-4-5', 'Gemma-4-12b-Comp', 'Qwen-3.6-35B', 'gpt-4', 'gpt-4.1', 'gpt-4-turbo', 'gpt-6.1-terra', 'gpt-6-luna']);
+  assert.deepEqual(pi.models.map((m: any) => m.id), ['claude-fable-5', 'claude-haiku-4-5', 'Gemma-4-12b-Comp', 'Qwen-3.6-35B', 'gpt-4', 'gpt-4.1', 'gpt-4-turbo', 'gpt-6.1-terra', 'gpt-6-luna', 'gpt-6.1-terra']);
+  assert.deepEqual(pi.columns, ['provider', 'contextTokens', 'maxOutputTokens', 'reasoning', 'imageInput'], 'the shipped Pi descriptor declares its columns (169 T6)');
 });
 
 test('a harness with no listing command is none-recorded and starts nothing', async () => {
@@ -133,7 +134,7 @@ test('lines does not take a log line as an id', () => {
 test('listHarnessModels keeps only ids the settings model-id check accepts and counts what it dropped', async () => {
   const out = await listHarnessModels({ descriptor: descriptorOf('opencode'), execImpl: async () => '--foo\n-rf\nok/model\n.hidden\n/abs\n' + 'x'.repeat(121) + '\nsecond/model\n' });
   assert.equal(out.status, 'listed');
-  assert.deepEqual(out.models.map((m: any) => m.id), ['ok/model', 'second/model']);
+  assert.deepEqual(out.models.map((m: any) => `${m.provider}/${m.id}`), ['ok/model', 'second/model'], 'the shipped OpenCode descriptor declares providerInId (169 T6)');
   assert.equal(out.dropped, 5);
   assert.equal(out.capped, false);
   const none = await listHarnessModels({ descriptor: descriptorOf('opencode'), execImpl: async () => '--foo\n--bar\n' });
@@ -148,7 +149,7 @@ test('listHarnessModels refuses a 1 MiB answer and keeps at most 500 of 10,000 i
   const many = await listHarnessModels({ descriptor: descriptorOf('opencode'), execImpl: async () => Array.from({ length: 10000 }, (_, i) => `p/m${i}`).join('\n') });
   assert.equal(many.status, 'listed');
   assert.equal(many.models.length, 500);
-  assert.equal(many.models[0].id, 'p/m0');
+  assert.deepEqual([many.models[0].provider, many.models[0].id], ['p', 'm0']);
   assert.equal(many.capped, true);
 });
 
@@ -259,7 +260,7 @@ test('169 listHarnessModels reports the columns it read and the faults, and keep
   assert.deepEqual(out.columns, ['provider', 'contextTokens', 'maxOutputTokens', 'reasoning', 'imageInput']);
   assert.equal(out.columnFaults, 1);
   assert.equal(out.models.length, 11);
-  const noColumns = await listHarnessModels({ descriptor: descriptorOf('pi'), execImpl: async () => PI });
+  const noColumns = await listHarnessModels({ descriptor: { ...descriptorOf('pi'), modelList: { status: 'supported', argv: ['--list-models'], parse: 'table-column:model' } }, execImpl: async () => PI });
   assert.equal(noColumns.columns, undefined);
   assert.equal(noColumns.columnFaults, undefined);
   const prefixed = await listHarnessModels({ descriptor: { cli: { binary: 'opencode' }, modelList: { status: 'supported', argv: ['models'], parse: 'lines', providerInId: true }, provider: { status: 'supported', via: 'id-prefix', separator: '/' } }, execImpl: async () => OPENCODE_CAPTURE });

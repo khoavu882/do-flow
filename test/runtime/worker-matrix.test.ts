@@ -28,7 +28,7 @@ const HARNESS_KEYS = ['id', 'billing', 'profile', 'cells'];
 const CELL_KEYS = ['status', 'declared', 'evidence', 'verification', 'verifiedOn', 'reason', 'fallback', 'cut'];
 const LIMIT_KEYS = ['shown', 'notShown', 'cellsNotShown', 'cut'];
 const NOT_DECLARED = { status: 'unknown', declared: false, evidence: [], verification: null, verifiedOn: null, reason: 'not-declared', fallback: null, cut: false };
-const WORKER_NAMES = ['cli', 'oneShot', 'structuredOutput', 'readOnly', 'spawnDenial', 'runnableProbe', 'hooksProbe', 'guidanceProbe', 'loginProbe', 'persistentSession', 'resume', 'steering', 'isolatedEdit', 'model', 'mainSession'];
+const WORKER_NAMES = ['cli', 'oneShot', 'structuredOutput', 'readOnly', 'spawnDenial', 'runnableProbe', 'hooksProbe', 'guidanceProbe', 'loginProbe', 'persistentSession', 'resume', 'steering', 'isolatedEdit', 'model', 'mainSession', 'provider', 'effort'];
 const ORCHESTRATION_NAMES = ['spawn', 'wait', 'status', 'cancel', 'resume', 'nest'];
 const NEVER_FIELDS = ['binary', 'versionArgv', 'argv', 'promptVia', 'parser', 'quotaSignals', 'protectedPaths', 'modelChecks', 'retired'];
 
@@ -67,7 +67,7 @@ function call(options: any) {
 
 // ── The shipped registry ─────────────────────────────────────────────────────────────────────────
 
-test('the shipped registry: 7 harnesses, 15 worker and 6 orchestration cells, the worked-example counts', () => {
+test('the shipped registry: 7 harnesses, 17 worker and 6 orchestration cells, the worked-example counts', () => {
   const b = body(undefined);
   assert.deepEqual(Object.keys(b), BODY_KEYS);
   assert.equal(b.v, 1);
@@ -76,8 +76,8 @@ test('the shipped registry: 7 harnesses, 15 worker and 6 orchestration cells, th
   assert.deepEqual(b.groups.worker, WORKER_NAMES);
   assert.deepEqual(b.groups.orchestration, ORCHESTRATION_NAMES);
   assert.deepEqual(b.counts, {
-    // antigravity's model entry is supported (core/worker-evidence/antigravity/2026-11-07-cli-check.json); 165: mainSession is supported for claude, codex, opencode and pi, unknown for the other three; 168: pi's persistentSession, resume and steering are unsupported; 172: claude's and pi's loginProbe are supported (design §3.3).
-    worker: { supported: 46, unknown: 56, unsupported: 3 },
+    // antigravity's model entry is supported (core/worker-evidence/antigravity/2026-11-07-cli-check.json); 165: mainSession is supported for claude, codex, opencode and pi, unknown for the other three; 168: pi's persistentSession, resume and steering are unsupported; 172: claude's and pi's loginProbe are supported (design §3.3); 169: provider and effort are declared on all seven (supported: claude effort, opencode provider, pi provider and effort).
+    worker: { supported: 50, unknown: 66, unsupported: 3 },
     orchestration: { supported: 23, unknown: 17, unsupported: 2 },
   });
   assert.deepEqual(b.limits, { shown: 7, notShown: 0, cellsNotShown: 0, cut: 0 });

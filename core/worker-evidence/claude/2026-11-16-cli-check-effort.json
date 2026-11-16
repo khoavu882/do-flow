@@ -1,0 +1,34 @@
+{
+  "binary": "claude",
+  "checks": [
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "effort"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--effort <level>\\s+Effort level for the current session$",
+        "^\\s+\\(low, medium, high, xhigh, max\\)$"
+      ],
+      "id": "help-effort",
+      "matched": [
+        "  --effort <level>                      Effort level for the current session",
+        "                                        (low, medium, high, xhigh, max)"
+      ],
+      "result": "pass"
+    }
+  ],
+  "cliVersion": "2.1.311 (Claude Code)",
+  "establishes": [
+    "effort"
+  ],
+  "handAdded": "Hand-added for row 169: the matched lines are copied from agent-docs/doflow/169-tier-binding-effort-provider/captures/claude-help-effort.txt; no CLI was run for this record.",
+  "harness": "claude",
+  "kind": "cli-check",
+  "recordedAt": "2026-11-16T00:00:00.000Z",
+  "run": null,
+  "schema": "doflow-worker-evidence-v1"
+}

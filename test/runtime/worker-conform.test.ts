@@ -525,10 +525,11 @@ test('169: a per-model effort binds conform-effort-1; an id-suffix transport che
 test('169: the effort part fails when the fake sees the transport flag twice, and a part not declared is unchecked', POSIX, async (t) => {
   const twice = piWith((worker) => { worker.readOnly.argv = [...worker.readOnly.argv, '--thinking', 'off']; });
   assertFailsPart(await conformVia(t, 'pi', twice), 'effort', /--thinking appears 2 times/);
-  const shipped = await conformVia(t, 'pi');
-  assert.equal(partOf(shipped.body, 'provider').result, 'unchecked');
-  assert.equal(partOf(shipped.body, 'provider').reason, 'not-declared');
-  assert.equal(partOf(shipped.body, 'effort').reason, 'not-declared');
+  // The shipped data (169 T6): claude declares no provider, opencode declares no effort; each part is then unchecked, not failed.
+  const claude = await conformVia(t, 'claude');
+  assert.equal(partOf(claude.body, 'provider').result, 'unchecked');
+  assert.equal(partOf(claude.body, 'provider').reason, 'not-declared');
+  assert.equal(partOf((await conformVia(t, 'opencode')).body, 'effort').reason, 'not-declared');
 });
 
 test('169: a main-session-only worker checks the provider part through mainArgv', POSIX, async (t) => {

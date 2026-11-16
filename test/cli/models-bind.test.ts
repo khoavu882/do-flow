@@ -111,7 +111,7 @@ test('two syncs of different harnesses in one project both keep their entry, and
   const file = path.join(s.project, '.doflow', 'state', 'models', 'catalogue.json');
   const stored = JSON.parse(fs.readFileSync(file, 'utf8'));
   assert.deepEqual(Object.keys(stored.harnesses).sort(), ['opencode', 'pi']);
-  assert.deepEqual(stored.harnesses.opencode.offeredModels, [{ id: 'a/one' }]);
+  assert.deepEqual(stored.harnesses.opencode.offeredModels, [{ id: 'one', provider: 'a' }]);
   assert.equal(fs.existsSync(`${file}.lock`), false);
 });
 
@@ -216,12 +216,12 @@ test('on a terminal bind syncs the harness, prints a numbered list and binds the
     syncOptions: { execFileImpl, homeDir: s.root },
   });
   assert.equal(res.code, 0, res.err);
-  assert.match(res.out, /1  a\/one\n\s+2  b\/two\n\s+3  c\/three/);
+  assert.match(res.out, /1  one \(provider a\)\n\s+2  two \(provider b\)\n\s+3  three \(provider c\)/);
   assert.deepEqual(asked, ['Choose 1-3: ']);
-  assert.deepEqual(s.bindings(), { opencode: { standard: 'b/two' } });
+  assert.deepEqual(s.bindings(), { opencode: { standard: { model: 'two', provider: 'b' } } });
   const bad = await bind(s, { harness: 'opencode', tier: 'light', interactive: true, ask: () => '9', syncOptions: { execFileImpl, homeDir: s.root } });
   assert.equal(bad.code, 2);
-  assert.deepEqual(s.bindings(), { opencode: { standard: 'b/two' } });
+  assert.deepEqual(s.bindings(), { opencode: { standard: { model: 'two', provider: 'b' } } });
 });
 
 test('the picker on a harness with no list exits 2 and tells the person to type the id', async (t: any) => {

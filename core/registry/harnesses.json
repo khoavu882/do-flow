@@ -454,6 +454,34 @@
           "promptVia": "stdin",
           "parser": null
         },
+        "provider": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read claude's CLI documentation and `claude --help` for a provider flag or a provider-prefixed model id; add a check to core/worker-evidence/claude/checks.json that matches the line and establishes `provider`, then record it with `node bin/doflow.js worker --action evidence --harness claude --checks core/worker-evidence/claude/checks.json --out <new cli-check path>`",
+          "verifiedOn": "2026-11-16",
+          "reason": "no recorded help line or doc read shows a provider in argv for claude"
+        },
+        "effort": {
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/claude/2026-11-16-cli-check-effort.json",
+            "https://code.claude.com/docs/en/cli-reference"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness claude --checks core/worker-evidence/claude/checks.json --out <new cli-check path>` against the installed claude and read the matched `--effort <level>` lines (check help-effort). Recorded 2026-11-16 on Claude Code 2.1.311: `claude --help` lists `--effort <level>` with the levels low, medium, high, xhigh, max; the matched lines were copied by hand from a captured help output (the record's handAdded says so; no CLI was run for it). The CLI reference (https://code.claude.com/docs/en/cli-reference, fetched 2026-11-16, `--effort` row) says the available levels depend on the model and lists `ultracode`, which is left out here. That a given model accepts a given level is not checked; the level is passed through.",
+          "verifiedOn": "2026-11-16",
+          "via": "flag",
+          "argv": [
+            "--effort",
+            "{effort}"
+          ],
+          "levels": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        },
         "modelList": {
           "status": "none-recorded",
           "reason": "`claude --help` lists no command that prints the available models; type the id"
@@ -1203,6 +1231,22 @@
           "promptVia": "stdin",
           "parser": "codex-exec-json-v1"
         },
+        "provider": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read codex's CLI documentation and `codex --help` for a provider flag or a provider-prefixed model id; add a check to core/worker-evidence/codex/checks.json that matches the line and establishes `provider`, then record it with `node bin/doflow.js worker --action evidence --harness codex --checks core/worker-evidence/codex/checks.json --out <new cli-check path>`",
+          "verifiedOn": "2026-11-16",
+          "reason": "no recorded help line or doc read shows a provider in argv for codex"
+        },
+        "effort": {
+          "status": "unknown",
+          "evidence": [
+            "https://learn.chatgpt.com/docs/config-file/config-reference"
+          ],
+          "verification": "Read codex's CLI documentation and `codex --help` for the `-c model_reasoning_effort=<level>` form and its levels; add a check to core/worker-evidence/codex/checks.json that matches the line and establishes `effort`, then record it with `node bin/doflow.js worker --action evidence --harness codex --checks core/worker-evidence/codex/checks.json --out <new cli-check path>`",
+          "verifiedOn": "2026-11-16",
+          "reason": "`model_reasoning_effort` (low, medium, high, xhigh, max or ultra, by model and client) is documented for the config file at https://learn.chatgpt.com/docs/config-file/config-reference (read 2026-11-16), but no recorded help or doc read shows `-c, --config <key=value>` taking it; the effort is not sent"
+        },
         "modelList": {
           "status": "none-recorded",
           "reason": "`codex --help` lists no command that prints the available models; type the id"
@@ -1754,6 +1798,27 @@
           "promptVia": "argv",
           "parser": "opencode-run-json-v1"
         },
+        "provider": {
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/opencode/2026-11-16-cli-check-model-parts.json",
+            "https://opencode.ai/docs/models/"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness opencode --checks core/worker-evidence/opencode/checks.json --out <new cli-check path>` against the installed opencode and read the matched `--model, -m string` line (check help-provider). Recorded 2026-11-16 on opencode v2.2.7: `opencode run --help` gives the format `provider/model#variant`; the matched line was copied by hand from an earlier record (the record's handAdded says so; no CLI was run for it). The docs (https://opencode.ai/docs/models/) end the provider at the first `/`. That the CLI accepts a given provider is not checked; the provider is joined to the model id.",
+          "verifiedOn": "2026-11-16",
+          "via": "id-prefix",
+          "separator": "/"
+        },
+        "effort": {
+          "status": "unknown",
+          "evidence": [
+            "core/worker-evidence/opencode/2026-11-16-cli-check-model-parts.json",
+            "https://opencode.ai/docs/models/"
+          ],
+          "verification": "Read opencode's CLI documentation and `opencode --help` for a help line or doc that names an effort level and how to pass it; add a check to core/worker-evidence/opencode/checks.json that matches the line and establishes `effort`, then record it with `node bin/doflow.js worker --action evidence --harness opencode --checks core/worker-evidence/opencode/checks.json --out <new cli-check path>`",
+          "verifiedOn": "2026-11-16",
+          "reason": "`opencode run --help` (v2.2.7, recorded 2026-11-16) calls the `#...` part of `--model` a \"variant\", and https://opencode.ai/docs/models/ calls variants \"named options for one model, often used for reasoning effort or token budgets\"; neither calls it an effort level, so a bound effort is not sent"
+        },
         "modelList": {
           "status": "supported",
           "argv": [
@@ -1763,7 +1828,8 @@
           "verifiedOn": "2026-11-15",
           "evidence": [
             "Ran `opencode models` on 2026-11-15: one `<provider>/<id>` per line"
-          ]
+          ],
+          "providerInId": true
         },
         "modelChecks": []
       },
@@ -2341,6 +2407,40 @@
           "promptVia": "argv",
           "parser": "pi-json-v1"
         },
+        "provider": {
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/pi/2026-11-16-cli-check-model-parts.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness pi --checks core/worker-evidence/pi/checks.json --out <new cli-check path>` against the installed pi and read the matched `--model <pattern>` line (check help-provider). Recorded 2026-11-16 on pi 1.5.2: `pi --help` says the pattern supports \"provider/id\"; the matched line was copied by hand from an earlier record (the record's handAdded says so; no CLI was run for it). That the CLI accepts a given provider is not checked; the provider is joined to the model id.",
+          "verifiedOn": "2026-11-16",
+          "via": "id-prefix",
+          "separator": "/"
+        },
+        "effort": {
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/pi/2026-11-16-cli-check-model-parts.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness pi --checks core/worker-evidence/pi/checks.json --out <new cli-check path>` against the installed pi and read the matched `--thinking <level>` line (check help-thinking). Recorded 2026-11-16 on pi 1.5.2: `pi --help` lists the levels off, minimal, low, medium, high, xhigh, max; the matched line was copied by hand from an earlier record (the record's handAdded says so; no CLI was run for it). The one-shot argv with a bound effort (`--thinking <level>` in place of the fixed `--thinking off`) has not been verified on a live run: the live-run records hold the argv without a bound effort. Pi clamps a level the model cannot run to a lower one, so the harness may run a lower level than bound.",
+          "verifiedOn": "2026-11-16",
+          "via": "flag",
+          "argv": [
+            "--thinking",
+            "{effort}"
+          ],
+          "levels": [
+            "off",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "offLevel": "off",
+          "mayLower": true
+        },
         "modelList": {
           "status": "supported",
           "argv": [
@@ -2350,7 +2450,14 @@
           "verifiedOn": "2026-11-15",
           "evidence": [
             "Ran `pi --list-models` on 2026-11-15: a header row `provider model context max-out thinking images`, then one row per model"
-          ]
+          ],
+          "columns": {
+            "provider": "provider",
+            "contextTokens": "context",
+            "maxOutputTokens": "max-out",
+            "reasoning": "thinking",
+            "imageInput": "images"
+          }
         },
         "modelChecks": []
       },
@@ -2903,6 +3010,20 @@
           "verifiedOn": "2026-11-15",
           "reason": "copilot's non-interactive prompt mode needs `--allow-all-tools` (`copilot --help` on 1.0.105: 'required for non-interactive mode'), a flag that widens what the session may do; no widening flag is ever used for a started session (row 165 owner ruling P-2), so copilot is not started from the Console"
         },
+        "provider": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read copilot's CLI documentation and `copilot --help` for a provider flag or a provider-prefixed model id; add a check to core/worker-evidence/copilot/checks.json that matches the line and establishes `provider`, then record it with `node bin/doflow.js worker --action evidence --harness copilot --checks core/worker-evidence/copilot/checks.json --out <new cli-check path>`",
+          "verifiedOn": "2026-11-16",
+          "reason": "no recorded help line or doc read shows a provider in argv for copilot"
+        },
+        "effort": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read copilot's CLI documentation and `copilot --help` for a reasoning-effort flag and its levels; add a check to core/worker-evidence/copilot/checks.json that matches the line and establishes `effort`, then record it with `node bin/doflow.js worker --action evidence --harness copilot --checks core/worker-evidence/copilot/checks.json --out <new cli-check path>`",
+          "verifiedOn": "2026-11-16",
+          "reason": "no recorded help line or doc read shows an effort flag for copilot"
+        },
         "modelList": {
           "status": "none-recorded",
           "reason": "`copilot --help` lists no command that prints the available models; type the id"
@@ -3370,6 +3491,24 @@
           "verification": "Read kiro's headless CLI documentation and `kiro-cli --help`; record the flag that sends a prompt and exits, and its source",
           "verifiedOn": "2026-11-15",
           "reason": "no probe this month: kiro-cli is out of quota and is never executed here, so its headless main-session invocation has no recorded evidence"
+        },
+        "provider": {
+          "status": "unknown",
+          "evidence": [
+            "core/worker-evidence/kiro/2026-11-07-cli-check-model.json"
+          ],
+          "verification": "Read kiro's CLI documentation and `kiro-cli --help` for a provider flag or a provider-prefixed model id; add a check to core/worker-evidence/kiro/checks.json that matches the line and establishes `provider`, then record it with `node bin/doflow.js worker --action evidence --harness kiro --checks core/worker-evidence/kiro/checks.json --out <new cli-check path>`",
+          "verifiedOn": "2026-11-07",
+          "reason": "the recorded help (2026-11-07) shows no provider flag or provider-prefixed id; kiro-cli is not run"
+        },
+        "effort": {
+          "status": "unknown",
+          "evidence": [
+            "core/worker-evidence/kiro/2026-11-07-cli-check-model.json"
+          ],
+          "verification": "Read kiro's CLI documentation and `kiro-cli --help` for a reasoning-effort flag and its levels; add a check to core/worker-evidence/kiro/checks.json that matches the line and establishes `effort`, then record it with `node bin/doflow.js worker --action evidence --harness kiro --checks core/worker-evidence/kiro/checks.json --out <new cli-check path>`",
+          "verifiedOn": "2026-11-07",
+          "reason": "the recorded help (2026-11-07) shows no effort flag; kiro-cli is not run"
         },
         "modelList": {
           "status": "none-recorded",
@@ -3857,6 +3996,20 @@
           "verification": "Read antigravity's headless CLI documentation and `agy --help`; record the flag that sends a prompt and exits, and its source",
           "verifiedOn": "2026-11-15",
           "reason": "no headless main-session evidence for agy: no recorded check shows a flag that sends a prompt and exits, and nothing is inferred from another harness"
+        },
+        "provider": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read antigravity's CLI documentation and `agy --help` for a provider flag or a provider-prefixed model id; add a check to core/worker-evidence/antigravity/checks.json that matches the line and establishes `provider`, then record it with `node bin/doflow.js worker --action evidence --harness antigravity --checks core/worker-evidence/antigravity/checks.json --out <new cli-check path>`",
+          "verifiedOn": "2026-11-16",
+          "reason": "no recorded help line or doc read shows a provider in argv for antigravity"
+        },
+        "effort": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read antigravity's CLI documentation and `agy --help` for a reasoning-effort flag and its levels; add a check to core/worker-evidence/antigravity/checks.json that matches the line and establishes `effort`, then record it with `node bin/doflow.js worker --action evidence --harness antigravity --checks core/worker-evidence/antigravity/checks.json --out <new cli-check path>`",
+          "verifiedOn": "2026-11-16",
+          "reason": "no recorded help line or doc read shows an effort flag for antigravity"
         },
         "modelList": {
           "status": "supported",

@@ -27,7 +27,7 @@ test('sync fills offeredModels from the listing command and marks the list as li
   const home = suiteTempDir('doflow-test-sync-home-');
   const calls: string[][] = [];
   const res = await syncHarness('opencode', { execFileImpl: runner(LIST, calls), homeDir: home, env: {} });
-  assert.deepEqual(res.offeredModels, [{ id: 'anthropic/claude-x' }, { id: 'openai/gpt-y' }]);
+  assert.deepEqual(res.offeredModels, [{ id: 'claude-x', provider: 'anthropic' }, { id: 'gpt-y', provider: 'openai' }]);
   assert.deepEqual(res.modelList, { status: 'listed' });
   assert.ok(calls.some((c) => c.join(' ') === 'opencode models'));
 });
@@ -35,7 +35,7 @@ test('sync fills offeredModels from the listing command and marks the list as li
 test('sync keeps only usable ids and records how many were left out and whether the list was cut', async () => {
   const home = suiteTempDir('doflow-test-sync-home-');
   const dropped = await syncHarness('opencode', { execFileImpl: runner('--foo\nok/model\n-x\n'), homeDir: home, env: {} });
-  assert.deepEqual(dropped.offeredModels, [{ id: 'ok/model' }]);
+  assert.deepEqual(dropped.offeredModels, [{ id: 'model', provider: 'ok' }]);
   assert.deepEqual(dropped.modelList, { status: 'listed', dropped: 2 });
   const many = await syncHarness('opencode', { execFileImpl: runner(Array.from({ length: 1200 }, (_, i) => `p/m${i}`).join('\n')), homeDir: home, env: {} });
   assert.equal(many.offeredModels.length, 500);
@@ -83,10 +83,10 @@ test('syncAllHarnesses carries each harness previous list into its own listing',
   const project = suiteTempDir('doflow-test-sync-project-');
   const home = suiteTempDir('doflow-test-sync-home-');
   const first = await syncAllHarnesses({ projectRoot: project, homeDir: home, env: {}, execFileImpl: runner(LIST) });
-  assert.deepEqual(first.harnesses.opencode.offeredModels.map((m: any) => m.id), ['anthropic/claude-x', 'openai/gpt-y']);
+  assert.deepEqual(first.harnesses.opencode.offeredModels.map((m: any) => m.id), ['claude-x', 'gpt-y']);
   const second = await syncAllHarnesses({ projectRoot: project, homeDir: home, env: {}, execFileImpl: runner(new Error('offline')) });
   assert.equal(second.harnesses.opencode.modelList.stale, true);
-  assert.deepEqual(second.harnesses.opencode.offeredModels.map((m: any) => m.id), ['anthropic/claude-x', 'openai/gpt-y']);
+  assert.deepEqual(second.harnesses.opencode.offeredModels.map((m: any) => m.id), ['claude-x', 'gpt-y']);
   assert.deepEqual(readCatalogue(project, { homeDir: home }).harnesses.opencode.modelList.status, 'failed');
   assert.equal(second.harnesses.claude.modelList.status, 'none-recorded');
 });
