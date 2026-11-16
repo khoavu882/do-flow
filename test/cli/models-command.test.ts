@@ -100,8 +100,6 @@ test('doflow models --action list reflects enablement from models.enabled', asyn
         binary: 'claude',
         installed: true,
         version: '1.0.0',
-        loginState: 'logged-in',
-        reloginHint: null,
         detectedMode: 'subscription',
         derivedBilling: 'free',
         offeredModels: [
@@ -169,8 +167,6 @@ test('doflow models --action describe shows metadata and offering harnesses', as
         binary: 'claude',
         installed: true,
         version: '1.0.0',
-        loginState: 'logged-in',
-        reloginHint: null,
         detectedMode: 'subscription',
         derivedBilling: 'free',
         offeredModels: [
