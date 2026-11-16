@@ -7,13 +7,20 @@
 //   G83.1 inventory: each row of LITERAL_LISTS names a literal in a source file that stays hand-written (a
 //         per-id fact pin, a per-id code map); the ids pulled out of that literal satisfy the row's relation
 //         to the registry's active ids
-//   G83.2 no stray list: no array or object literal in src/, test/guards/ or test/registry/ holds every active
-//         id unless the inventory names it (a planted literal makes the scanner fail: the negative control)
+//   G83.2 no stray list: no array or object literal in src/, test/ or console/src/ holds every active id unless
+//         the inventory names it (a planted literal makes the scanner fail: the negative control). The inventory
+//         holds exactly one `equal` list in test/: the registry pin "the active harnesses are exactly these" in
+//         test/registry/harness-ids.test.ts; every other test reads the ids from test/helper/harness-ids.ts. Its
+//         one other `equal` row is console/src/project.ts `harnessIds` (a separate package that ships without
+//         the registry). A literal that holds every id only through an inventoried literal nested in it is not
+//         stray. G41's harness count is a number, not a list, and is not scanned
 //   G83.3 docs and vocabulary: the README "Tool support" table, the docs/setup.md `--target` table and
 //         telemetry.json `vocabularies.harness` carry every active id
 //   G83.4 audit: the table in docs/adding-a-harness.md equals the per-harness modules on disk
 //   G83.5 ninth harness: with `ninth` added to a copy of the registry, G83.1, G83.2, G83.4 and the worker
-//         validator pass with no list edited
+//         validator pass with no list edited; the derived src lists (targets.ts VALID, coverage.ts
+//         HARNESS_ORDER, view.ts LIFECYCLE_HARNESSES, probes HARNESS_BINARIES), loaded against that root, take
+//         in `ninth`; and a planted stale list (the shipped ids without `ninth`) is caught
 //
 // This file holds no literal list of the active ids: it would trip G83.2.
 const { test } = require('node:test');
@@ -22,10 +29,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { activeIds, idsFrom } = require('../../src/registry/harness-ids.ts');
 const { validateWorker } = require('../../src/registry/index.ts');
+const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp.ts');
 
 const REPO = path.resolve(__dirname, '../..');
-const SCAN_DIRS = ['src', 'test/guards', 'test/registry'];
+const SCAN_DIRS = ['src', 'test', 'console/src'];
 const AUDIT_PAGE = 'docs/adding-a-harness.md';
 
 // ---- text scanning ---------------------------------------------------------------------------------------
@@ -118,8 +126,9 @@ function entriesOf(code: string, plain: string, lit: Literal): string[] {
 
 const STRING = /^(['"])((?:(?!\1).)*)\1/;
 
-/** The ids a literal names, by `take`: `keys` (`id: value`), `items` (`'id'`), `values` (`key: 'id'`) or `first`
- * (the first string of each nested array). The default follows the opening bracket. */
+/** The ids a literal names, by `take`: `keys` (`id: value`), `items` (`'id'`), `values` (`key: 'id'`), `first`
+ * (the first string of each nested array) or `harness` (the `harness: 'id'` field each nested object opens
+ * with). The default follows the opening bracket. */
 function takeIds(code: string, plain: string, lit: Literal, take?: string): string[] {
   const mode = take ?? (lit.ch === '{' ? 'keys' : 'items');
   const out: string[] = [];
@@ -129,6 +138,7 @@ function takeIds(code: string, plain: string, lit: Literal, take?: string): stri
     else if (mode === 'keys') m = entry.match(/^(?:(['"])(.*?)\1|([A-Za-z_$][\w$]*))\s*:/);
     else if (mode === 'values') m = entry.match(/^[^:]+:\s*(['"])(.*?)\1\s*$/);
     else if (mode === 'first') m = entry.match(/^\[\s*(['"])(.*?)\1/);
+    else if (mode === 'harness') m = entry.match(/^\{\s*harness:\s*(['"])(.*?)\1/);
     if (m) out.push(m[2] ?? m[3]);
   }
   return out;
@@ -147,7 +157,7 @@ function sourceFiles(root: string, dir: string): string[] {
     for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
       const full = path.join(d, entry.name);
       if (entry.isDirectory()) walk(full);
-      else if (/\.(ts|js)$/.test(entry.name)) out.push(path.relative(root, full).split(path.sep).join('/'));
+      else if (/\.(ts|tsx|js|cjs|mjs)$/.test(entry.name)) out.push(path.relative(root, full).split(path.sep).join('/'));
     }
   };
   walk(base);
@@ -171,9 +181,20 @@ const LITERAL_LISTS: Row[] = [
   { file: 'test/registry/worker-block.test.ts', symbol: 'FREE_CHECK_HARNESSES', relation: 'subset', reason: 'per-id fact pin: the harnesses recorded by a free cli-check alone' },
   { file: 'test/registry/worker-isolated-edit.test.ts', symbol: 'BINARIES', relation: 'subset', reason: 'per-id fact pin: the binary each harness is launched by' },
   { file: 'test/registry/agent-limits.test.ts', symbol: 'assert.deepEqual(status, ', relation: 'subset', reason: 'per-id fact pin: the IC-003 readOnly status of each harness' },
-  { file: 'test/registry/harness-ids.test.ts', symbol: "assert.deepEqual(activeIds(REPO), ", relation: 'subset', reason: 'pin of the registry order that activeIds returns for the shipped tree' },
+  { file: 'test/registry/harness-ids.test.ts', symbol: 'assert.deepEqual(activeIds(), ', relation: 'equal', reason: 'THE pin: the one hand-written list of the active ids in tests, and their registry order (row 171 A-1, A-3)' },
+  { file: 'console/src/project.ts', symbol: 'harnessIds: Object.freeze(', relation: 'equal', reason: 'the console closed set: a separate package that ships without the registry, so it holds a copy, checked equal here' },
   { file: 'test/registry/worker-ladder-max.test.ts', symbol: 'const nineIds = ', relation: 'superset', reason: 'a nine-id ladder fixture: every active id plus two that are not harnesses' },
   { file: 'test/guards/lifecycle-bridges.test.ts', symbol: 'SYNTAX_CASES', relation: 'subset', take: 'first', reason: 'per-id fact pin: the bridge events a harness blocks on' },
+  { file: 'test/e2e/runtime-reach.e2e.test.ts', symbol: 'PLACEMENT', relation: 'subset', reason: 'per-id fact pin: where each harness puts the do-git skill and the locator shim' },
+  { file: 'test/fixtures/transcripts/v8/scan.ts', symbol: 'const LOCATION_ROOTS: Record<string, string[]> = ', relation: 'subset', reason: 'fixture: where each harness fixture directory belongs under a scratch HOME' },
+  { file: 'test/fixtures/transcripts/v8/scan.ts', symbol: 'const FIXTURES: Fixture[] = ', relation: 'subset', take: 'harness', reason: 'fixture: the transcript files on disk under v8/, one row per file' },
+  { file: 'test/helper/hook-fixtures.ts', symbol: 'MODEL_PAYLOADS', relation: 'subset', reason: 'per-id fact pin: the native hook payload each harness sends with a model' },
+  { file: 'test/install/mcp-selection-line.test.ts', symbol: 'const targets = view(', relation: 'subset', take: 'harness', reason: 'fixture: per-harness MCP selections the expected grouping is written for' },
+  { file: 'test/install/mcp.test.ts', symbol: 'const targets = ', relation: 'subset', reason: 'fixture: the targets (in a deliberate non-registry order) the per-id adoption rows below are written for' },
+  { file: 'test/install/mcp.test.ts', symbol: 'assert.deepEqual(legacy.adoptable, ', relation: 'subset', reason: 'per-id fact pin: the servers each harness may adopt from a 1.18.0 manifest' },
+  { file: 'test/install/mcp.test.ts', symbol: 'assert.deepEqual(bare, ', relation: 'subset', reason: 'per-id fact pin: the servers each harness may adopt with no manifest list' },
+  { file: 'test/runtime/rollout-profiles.test.ts', symbol: 'EXPECTED_CONTEXT_PROFILES', relation: 'subset', reason: 'per-id fact pin: the empirical context profile of each harness' },
+  { file: 'test/runtime/rollout-profiles.test.ts', symbol: 'EXPECTED_TELEMETRY', relation: 'subset', reason: 'per-id fact pin: the native telemetry block of each harness' },
   { file: 'test/registry/transcripts-registry.test.ts', symbol: "'none']);\n  assert.deepEqual(", relation: 'subset', reason: 'per-id fact pin (the reader ruling): the reader each harness with a transcript reader names' },
   { file: 'src/install/targets.ts', symbol: 'DEFAULT_TARGETS', relation: 'subset', reason: 'the one harness `--target` falls back to, a product choice' },
   { file: 'src/install/targets.ts', symbol: 'TARGET_ALIASES', relation: 'subset', take: 'values', reason: 'per-id fact pin: the short name a harness answers to' },
@@ -239,17 +260,22 @@ function inventoryProblems(root: string, rows: Row[], ids: readonly string[]): s
 
 // ---- G83.2 no stray list -----------------------------------------------------------------------------------
 
-/** Literals under `dirs` of `root` that hold every id of `ids` and are not in the inventory, as `file:line`. */
+/** Literals under `dirs` of `root` that hold every id of `ids` outside the inventoried literals, as `file:line`. */
 function scanStrayLists(root: string, ids: readonly string[], rows: Row[], dirs: string[] = SCAN_DIRS): string[] {
   const allowed = inventoryStarts(root, rows);
   const stray: string[] = [];
   for (const dir of dirs) {
     for (const rel of sourceFiles(root, dir)) {
       const { code, plain } = readScanned(root, rel);
-      for (const lit of literalsOf(code)) {
-        const body = plain.slice(lit.open, lit.close + 1);
-        if (!ids.every((id) => quoted(id).test(body))) continue;
+      const literals = literalsOf(code);
+      const inventoried = literals.filter((lit) => allowed.get(rel)?.has(lit.open));
+      for (const lit of literals) {
         if (allowed.get(rel)?.has(lit.open)) continue;
+        // An id counts only outside the inventoried literals nested in this one: a wrapper of an allowed list is not stray.
+        const chars = plain.slice(lit.open, lit.close + 1).split('');
+        for (const inner of inventoried) if (inner.open > lit.open && inner.close < lit.close) for (let k = inner.open; k <= inner.close; k++) chars[k - lit.open] = ' ';
+        const body = chars.join('');
+        if (!ids.every((id) => quoted(id).test(body))) continue;
         stray.push(`${rel}:${plain.slice(0, lit.open).split('\n').length}`);
       }
     }
@@ -382,6 +408,35 @@ function ninthRoot(t: any): { root: string; registry: any } {
   return { root, registry };
 }
 
+/** `ninthRoot` plus a copy of src/: a module loaded from <root>/src resolves REPO_ROOT (src/helper/repo-root.ts,
+ * from its own location) to <root>, so the src lists read the scratch registry exactly as they read the shipped
+ * one, with no test-only parameter. The ninth harness gets its own binary so HARNESS_BINARIES can show it. */
+function ninthMirror(t: any): string {
+  const { root, registry } = ninthRoot(t);
+  registry.harnesses[registry.harnesses.length - 1].worker.cli.binary = 'ninth-cli';
+  fs.writeFileSync(path.join(root, 'core', 'registry', 'harnesses.json'), JSON.stringify(registry));
+  fs.cpSync(path.join(REPO, 'src'), path.join(root, 'src'), { recursive: true });
+  return root;
+}
+
+/** The four src lists design §7 A derives from the registry, as a module loaded from `<root>/src` sees them. */
+function derivedLists(root: string): Record<string, readonly string[]> {
+  const load = (rel: string) => require(path.join(root, 'src', rel));
+  return {
+    'targets.ts VALID': load('install/targets.ts').VALID,
+    'coverage.ts HARNESS_ORDER': load('lifecycle/coverage.ts').HARNESS_ORDER,
+    'view.ts LIFECYCLE_HARNESSES': load('lifecycle/view.ts').LIFECYCLE_HARNESSES,
+    'probes HARNESS_BINARIES': Object.keys(load('runtime/worker/probes/index.ts').HARNESS_BINARIES),
+  };
+}
+
+/** Each derived list that is not exactly `ids` in order, as `name: [ids]`. */
+function derivedProblems(root: string, ids: readonly string[]): string[] {
+  return Object.entries(derivedLists(root))
+    .filter(([, list]) => JSON.stringify([...list]) !== JSON.stringify([...ids]))
+    .map(([name, list]) => `${name}: [${list.join(', ')}]`);
+}
+
 const harnessesOf = (root: string): any[] => JSON.parse(fs.readFileSync(path.join(root, 'core/registry/harnesses.json'), 'utf8')).harnesses;
 const page = () => fs.readFileSync(path.join(REPO, AUDIT_PAGE), 'utf8');
 
@@ -401,7 +456,7 @@ test('G83.1 control: a missing symbol, an id outside the registry and a failed e
   assert.match(inventoryProblems(REPO, [{ file: at, symbol: 'FREE_CHECK_HARNESSES', relation: 'superset', reason: 'x' }], ids).join('\n'), /lacks /);
 });
 
-test('G83.2: no array or object literal under src, test/guards or test/registry holds every active id outside the inventory', () => {
+test('G83.2: no array or object literal under src, test or console/src holds every active id outside the inventory', () => {
   assert.deepEqual(scanStrayLists(REPO, activeIds(), LITERAL_LISTS), []);
 });
 
@@ -465,6 +520,25 @@ test('G83.5: with a ninth harness in the registry, the inventory, the stray scan
   const errors: string[] = [];
   validateWorker(harnessesOf(root).find((h: any) => h.id === 'ninth').worker, "harness 'ninth'", errors);
   assert.deepEqual(errors, []);
+  // The derived src lists, loaded against that root, take in `ninth` (and probes binds it to its own binary).
+  const mirror = ninthMirror(t);
+  assert.deepEqual(activeIds(mirror), ids);
+  assert.deepEqual(derivedProblems(mirror, ids), []);
+  assert.equal(require(path.join(mirror, 'src', 'runtime/worker/probes/index.ts')).HARNESS_BINARIES.ninth, 'ninth-cli');
   // Left out for `ninth`, by design: G83.3 (its README and setup rows, and its telemetry vocabulary entry, are content
-  // written with the harness) and every `equal` relation row (an equal row names the seven shipped ids). Conform is row 171 T6's.
+  // written with the harness) and every `equal` relation row (an equal row names the shipped ids; G83.1 fails on it
+  // until the pin and console/src/project.ts name `ninth`, which is the edit adding a harness makes). Conform is row 171 T6's.
+});
+
+test('G83.5 control: a stale hand-written list planted in place of VALID misses the ninth harness and G83.2 catches it', (t) => {
+  const shipped = activeIds();
+  const mirror = ninthMirror(t);
+  const file = path.join(mirror, 'src', 'install', 'targets.ts');
+  const text = fs.readFileSync(file, 'utf8');
+  const derived = 'const VALID: readonly string[] = activeIds();';
+  assert.ok(text.includes(derived), 'targets.ts derives VALID from activeIds()');
+  fs.writeFileSync(file, text.replace(derived, `const VALID: readonly string[] = [${shipped.map((id: string) => `'${id}'`).join(', ')}];`));
+  const line = text.slice(0, text.indexOf(derived)).split('\n').length;
+  assert.deepEqual(derivedProblems(mirror, activeIds(mirror)), [`targets.ts VALID: [${shipped.join(', ')}]`]);
+  assert.deepEqual(scanStrayLists(mirror, shipped, LITERAL_LISTS, ['src']), [`src/install/targets.ts:${line}`]);
 });

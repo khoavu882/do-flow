@@ -8,11 +8,11 @@ const path = require('node:path');
 const {
   loadRegistry, validateRegistry, validateWorker, isRetired, WORKER_KEYS, WORKER_CAPABILITIES, WORKER_OPTIONAL_CAPABILITIES,
 } = require('../../src/registry/index.ts');
-const { activeIds } = require('../../src/registry/harness-ids.ts');
+const { ACTIVE_HARNESS_IDS } = require('../helper/harness-ids.ts');
 const ORCHESTRATION_AT_BE752D8 = require('../fixtures/worker/orchestration-be752d8.json');
 
 const REPO = path.resolve(__dirname, '../..');
-const HARNESSES = [...activeIds()];
+const HARNESSES = ACTIVE_HARNESS_IDS;
 const CODEX_RECORD = 'core/worker-evidence/codex/2026-10-18-cli-check.json';
 const LIVE_READ_ONLY = 'core/worker-evidence/codex/2026-10-18-live-run-read-only.json';
 const LIVE_EDIT = 'core/worker-evidence/codex/2026-10-18-live-run-edit.json';
@@ -89,12 +89,11 @@ function assertReports(result: any, pattern: any) {
   }
 }
 
-test('worker: the shipped registry carries the block on all seven harnesses and validates', () => {
+test('worker: the shipped registry carries the block on every harness and validates', () => {
   const registry = loadRegistry({ repoRoot: REPO });
   const workerErrors = registry.validation.errors.filter((line: any) => line.includes(" worker '"));
   assert.deepEqual(workerErrors, []);
   assert.equal(registry.validation.ok, true, registry.validation.errors.join('\n'));
-  assert.deepEqual(registry.harnesses.map((harness: any) => harness.id), HARNESSES);
   const modelChecksAt = WORKER_KEYS.indexOf('modelChecks');
   // `modelList` (how the harness's own CLI lists its models) sits between the optional capabilities and modelChecks.
   const expectedKeys = [...WORKER_KEYS.slice(0, modelChecksAt), ...Object.keys(WORKER_OPTIONAL_CAPABILITIES), 'modelList', ...WORKER_KEYS.slice(modelChecksAt)];

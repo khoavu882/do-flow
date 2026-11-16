@@ -17,6 +17,7 @@
 // Serves FR-001, FR-002, FR-003, NFR-001, NFR-002, NFR-005, NFR-007.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const { ACTIVE_HARNESS_IDS } = require('../helper/harness-ids.ts');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
@@ -26,7 +27,7 @@ const CLI = path.join(REPO, 'bin', 'doflow.js');
 const SOURCE_DISPATCHER = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
 const { inheritedEnv } = require('../helper/scratch-env.ts');
 const { suiteTempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
-const ALL_HARNESSES: any = ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
+const ALL_HARNESSES: any = ACTIVE_HARNESS_IDS;
 const { IS_WIN, interpreterSpawn, samePath } = require('../helper-platform.ts');
 
 // A developer's PI_CODING_AGENT_DIR would send this file's global Pi MCP writes outside the scratch home.

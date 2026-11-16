@@ -32,7 +32,7 @@ const { REPO } = require('./_shared.ts');
 const registryModule = require('../../src/registry/index.ts');
 const { PARSERS } = require('../../src/runtime/worker/parsers.ts');
 const { argvShape } = require('../../src/runtime/worker/launch.ts');
-const { activeIds } = require('../../src/registry/harness-ids.ts');
+const { ACTIVE_HARNESS_IDS } = require('../helper/harness-ids.ts');
 const { tempDir } = require('../helper/tmp.ts');
 
 const HARNESS_COUNT = 7;
@@ -380,7 +380,7 @@ function mainSessionParserFindings(registry: any, map: any, parsers: any) {
 }
 
 test('G41.3: PARSER_BY_HARNESS names every parser-bearing harness, each id a key of PARSERS', () => {
-  assert.ok(Object.keys(PARSER_BY_HARNESS).length > 0 && Object.keys(PARSER_BY_HARNESS).every((id) => activeIds().includes(id)), 'every pin key is a registry id');
+  assert.ok(Object.keys(PARSER_BY_HARNESS).length > 0 && Object.keys(PARSER_BY_HARNESS).every((id) => ACTIVE_HARNESS_IDS.includes(id)), 'every pin key is a registry id');
   for (const [id, parser] of Object.entries(PARSER_BY_HARNESS)) assert.ok(Object.hasOwn(PARSERS, parser as any), `${id}: ${parser}`);
 });
 

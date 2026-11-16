@@ -8,6 +8,7 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const { ACTIVE_HARNESS_IDS } = require('../helper/harness-ids.ts');
 const fs = require('node:fs');
 const net = require('node:net');
 const path = require('node:path');
@@ -71,7 +72,7 @@ test('the shipped registry: 7 harnesses, 15 worker and 6 orchestration cells, th
   assert.deepEqual(Object.keys(b), BODY_KEYS);
   assert.equal(b.v, 1);
   assert.equal(b.registryVersion, 1);
-  assert.deepEqual(b.harnesses.map((h: any) => h.id), ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity']);
+  assert.deepEqual(b.harnesses.map((h: any) => h.id), ACTIVE_HARNESS_IDS);
   assert.deepEqual(b.groups.worker, WORKER_NAMES);
   assert.deepEqual(b.groups.orchestration, ORCHESTRATION_NAMES);
   assert.deepEqual(b.counts, {

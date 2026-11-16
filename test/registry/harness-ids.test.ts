@@ -21,16 +21,21 @@ function scratchRoot(t: any, mutate: (registry: any) => void): string {
   return root;
 }
 
-test('activeIds equals harnesses[].id in file order, and a scratch root with a ninth id returns eight', (t) => {
-  assert.deepEqual(activeIds(), REGISTRY.harnesses.map((h: any) => h.id));
-  assert.deepEqual(activeIds(REPO), ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity']);
-  const root = scratchRoot(t, (r) => r.harnesses.push({ ...structuredClone(r.harnesses[0]), id: 'ninth' }));
-  assert.deepEqual(activeIds(root), [...REGISTRY.harnesses.map((h: any) => h.id), 'ninth']);
-  assert.equal(activeIds(root).length, REGISTRY.harnesses.length + 1);
+// The one hand-written list of the active harness ids in the test suite, and the one place their order is
+// written (row 171 A-1, A-3). Every other test and fixture that needs all of them reads
+// test/helper/harness-ids.ts, which returns activeIds(); G83 fails on any other literal holding every id.
+// Adding a harness edits core/registry/harnesses.json and this list.
+test('the active harnesses are exactly these', () => {
+  assert.deepEqual(activeIds(), ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity']);
 });
 
-test('binaryOf equals worker.cli.binary and is null for an unknown id', (t) => {
-  for (const h of REGISTRY.harnesses) assert.equal(binaryOf(h.id), h.worker.cli.binary, h.id);
+test('activeIds reads the given root: a scratch root with a ninth id appends it in file order', (t) => {
+  const root = scratchRoot(t, (r) => r.harnesses.push({ ...structuredClone(r.harnesses[0]), id: 'ninth' }));
+  assert.deepEqual(activeIds(root), [...activeIds(), 'ninth']);
+  assert.equal(activeIds(root).length, activeIds().length + 1);
+});
+
+test('binaryOf names a harness binary, reads the given root, and is null for an unknown id', (t) => {
   assert.equal(binaryOf('kiro'), 'kiro-cli');
   assert.equal(binaryOf('antigravity'), 'agy');
   assert.equal(binaryOf('nope'), null);
@@ -38,8 +43,7 @@ test('binaryOf equals worker.cli.binary and is null for an unknown id', (t) => {
   assert.equal(binaryOf('ninth', root), 'ninth-bin');
 });
 
-test('retiredIds equals retired[].id', (t) => {
-  assert.deepEqual(retiredIds(), REGISTRY.retired.map((r: any) => r.id));
+test('retiredIds names the retired ids and is empty when the registry has none', (t) => {
   assert.deepEqual(retiredIds(), ['gemini']);
   assert.deepEqual(retiredIds(scratchRoot(t, (r) => { delete r.retired; })), []);
 });

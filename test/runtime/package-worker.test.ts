@@ -2,6 +2,7 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const { ACTIVE_HARNESS_IDS } = require('../helper/harness-ids.ts');
 const fs = require('node:fs');
 const path = require('node:path');
 const { createScratch } = require('../helper/scratch-env.ts');
@@ -146,7 +147,7 @@ test('negative control: with no package, catalogue equals built-in harnesses', (
   const catalogue = workerCatalogue({ repoRoot: REPO_ROOT });
   assert.ok(catalogue.length > 0);
   assert.ok(catalogue.every((e: any) => e.origin === 'builtin'));
-  for (const id of ['claude', 'codex', 'antigravity', 'pi', 'opencode', 'copilot', 'kiro']) {
+  for (const id of ACTIVE_HARNESS_IDS) {
     assert.ok(catalogue.some((e: any) => e.id === id));
   }
 });

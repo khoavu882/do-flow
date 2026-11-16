@@ -8,10 +8,8 @@ const path = require('node:path');
 const {
   loadRegistry, validateRegistry, validateAgentLimits, AGENT_LIMIT_STATUS,
 } = require('../../src/registry/index.ts');
-const { activeIds } = require('../../src/registry/harness-ids.ts');
 
 const REPO = path.resolve(__dirname, '../..');
-const IDS = [...activeIds()];
 
 /** A fresh copy of the shipped registry whose first harness is claude, with a mutation applied. */
 function mutated(mutate: any) {
@@ -27,10 +25,9 @@ function assertReports(result: any, pattern: any) {
 
 const readOnlyOf = (registry: any, id: any) => registry.harnesses.find((h: any) => h.id === id).agentLimits.readOnly;
 
-test('agentLimits: the shipped registry declares readOnly on all seven harnesses and validates', () => {
+test('agentLimits: the shipped registry declares readOnly on every harness and validates', () => {
   const registry = loadRegistry({ repoRoot: REPO });
   assert.equal(registry.validation.ok, true, registry.validation.errors.join('\n'));
-  assert.deepEqual(registry.harnesses.map((h: any) => h.id).sort(), [...IDS].sort());
   for (const harness of registry.harnesses) {
     assert.deepEqual(Object.keys(harness.agentLimits), ['readOnly', 'toolScope'], `${harness.id} agentLimits keys`);
   }

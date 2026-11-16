@@ -2,16 +2,17 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const { ACTIVE_HARNESS_IDS } = require('../helper/harness-ids.ts');
 const fs = require('node:fs');
 const path = require('node:path');
 const context = require('../../bench/perf/lib/context.ts');
 const { alwaysLoaded } = require('../helper/always-loaded.ts');
 const { tempDir } = require('../helper/tmp.ts');
 
-test('computeStartupContext returns records for all 7 harnesses with IC-019 schema', () => {
+test('computeStartupContext returns a record for every active harness with IC-019 schema', () => {
   const result = context.computeStartupContext();
   assert.equal(Array.isArray(result), true);
-  assert.equal(result.length, 7);
+  assert.equal(result.length, ACTIVE_HARNESS_IDS.length);
 
   const always = alwaysLoaded();
   const expectedProjectedBytes = always.files.reduce((sum: any, f: any) => sum + f.bytes, 0);
@@ -38,14 +39,14 @@ test('computeStartupContext returns records for all 7 harnesses with IC-019 sche
 });
 
 test('computeContextBudgets reports injected unverified IC-019 profile facts', () => {
-  const harnesses = ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
+  const harnesses: readonly string[] = ACTIVE_HARNESS_IDS;
   const contextProfiles = Object.fromEntries(harnesses.map((harness) => [harness, {
     capacityTokens: { unverified: 'fixture capacity', verifiedOn: '2026-10-13' },
     reserveTokens: { unverified: 'fixture reserve', verifiedOn: '2026-10-13' },
   }]));
   const budgets = context.computeContextBudgets({ contextProfiles });
   assert.equal(Array.isArray(budgets), true);
-  assert.equal(budgets.length, 7);
+  assert.equal(budgets.length, harnesses.length);
 
   for (const b of budgets) {
     assert.equal(typeof b.harness, 'string');

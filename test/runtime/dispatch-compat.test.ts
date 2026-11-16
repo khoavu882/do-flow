@@ -19,6 +19,7 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const { ACTIVE_HARNESS_IDS } = require('../helper/harness-ids.ts');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
@@ -31,7 +32,7 @@ const CLI = path.join(REPO_ROOT, 'bin', 'doflow.js');
 const SLUG = '082-dispatch-compat';
 const SKIP = process.platform === 'win32' ? 'tree cleanup is unverified on win32 (NFR-005)' : false;
 const HARNESSES = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'harnesses.json'), 'utf8')).harnesses;
-const REAL_IDS = Object.freeze(['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity']);
+const REAL_IDS = ACTIVE_HARNESS_IDS;
 
 // ── NFR-001: zero dependency ─────────────────────────────────────────────────────────────────────
 
@@ -67,8 +68,7 @@ test('NFR-001: every require and import in src/runtime/dispatch/*.ts names a nod
   assert.ok(seen > 0, 'the scan read at least one require');
 });
 
-test('NFR-003 / IC-013 / 109 IC-008: codex is isolatedEdit supported on its recorded evidence, the other six keep it unknown, so auto runs sequential', () => {
-  assert.deepEqual(HARNESSES.map((h: any) => h.id).sort(), [...REAL_IDS].sort());
+test('NFR-003 / IC-013 / 109 IC-008: codex is isolatedEdit supported on its recorded evidence, the others keep it unknown, so auto runs sequential', () => {
   for (const h of HARNESSES) {
     assert.ok(h.worker && h.worker.isolatedEdit, `${h.id} declares a worker isolatedEdit block`);
     const want = h.id === 'codex' ? 'supported' : 'unknown';
