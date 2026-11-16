@@ -53,6 +53,7 @@ const { cancelRun } = require('../worker/cancel.ts');
 const { activeWorkers, workerGate, inSessionGate } = require('../worker/active.ts');
 const { resolveTier, readBindings, resolveTaskModel, usesOrchestratorModel, bindingGap } = require('../worker/models.ts');
 const { resultOfRun } = require('../worker/supervisor.ts');
+const { parserIdOf } = require('../worker/parsers.ts');
 const { protectedPathGap } = require('../worker/protected-paths.ts');
 const { readRuns, storeFileFor: runStoreFileFor } = require('../worker/run-store.ts');
 const {
@@ -1126,7 +1127,7 @@ function handoffFor(p: any, s: any, d: any, planTask: any, record: any) {
     grant: d.grant,
     worktree: { path: d.attempt.worktree, branch: d.attempt.branch, base: d.attempt.base },
     report: {
-      parser: worker && worker.structuredOutput && worker.structuredOutput.parser ? worker.structuredOutput.parser : null,
+      parser: worker ? parserIdOf(worker.structuredOutput) : null,
       spawn: grant ? ['dispatch', '--action', 'spawn', '--slug', p.slug, '--prompt-file', '<path>', '--reserve-tokens', '<n>'] : null,
     },
   });

@@ -241,6 +241,25 @@ test('IC-022 / DEC-048: with the claude fake supported the attempt runs subagent
   assert.deepEqual(callerState(p.root, p.env), p.before);
 });
 
+test('171 review: a package worker carrying only a fieldMap reports the map id as the handoff report.parser', POSIX, async (t) => {
+  const p = await project(t, { plan: 'budget', mode: 'auto', scenario: { run: [{ write: { path: 'src/retry.js', content: '// retried\n' } }, { emit: SUCCESS }] }, identity: { DOFLOW_ATTEMPT: undefined } });
+  const { parser: _core, ...rest } = p.sb.descriptors.claude.structuredOutput;
+  p.sb.descriptors.claude.structuredOutput = {
+    ...rest,
+    fieldMap: {
+      id: 'claude-like-v1', format: 'jsonl-field-map-v1', eventType: ['type'], missingTerminal: 'no-result',
+      rules: [{ when: [{ path: ['type'], equals: 'result' }, { path: ['summary'], is: 'string' }], then: { final: ['summary'], terminal: { outcome: 'completed' } } }],
+    },
+  };
+  assert.equal((await readiness.probe({ descriptors: p.sb.descriptors, env: p.env, cwd: p.root })).disposition, 'probed');
+  const r = await loop.run(p.options({ maxSeconds: 60 }));
+  assert.equal(r.outcome, 'completed', JSON.stringify(r.last.blocked || r.last.actions));
+  const [d] = Object.values(p.read().dispatches) as any[];
+  assert.equal(d.harness, 'claude');
+  const handoff = JSON.parse(fs.readFileSync(path.join(p.root, '.doflow', 'state', d.envelopes.handoff), 'utf8'));
+  assert.equal(handoff.report.parser, 'claude-like-v1');
+});
+
 test('IC-022: a refused launch fails as launch, is never relabelled, and the retry runs sequential', POSIX, async (t) => {
   // DOFLOW_ATTEMPT stays '1', so the caller is the unit a token-1 worker would be: 081 refuses
   // `identity-collision` after the claim (081 IC-011 step 9).
