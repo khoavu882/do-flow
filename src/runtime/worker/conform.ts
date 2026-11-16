@@ -3,26 +3,29 @@
 // Row 171 T6 (IC-005, FR-011..FR-013, D7; design §6): `worker --action conform --harness <id> [--json]`.
 //
 // Conform checks a built-in or package worker descriptor against a fake binary and names each part that fails.
-// Where it runs (§6.1): an OS-temp scratch `doflow-conform-*` holding bin/, home/ and log/, removed in `finally`.
+// Where it runs (§6.1): an OS-temp scratch `doflow-conform-*` holding bin/, home/ and log/, removed in `finally`,
+// and on SIGINT or SIGTERM by a handler that kills the running fake, removes the scratch and re-raises the signal.
 // The fake is `<scratch>/bin/<cli.binary>` (the name checked by the registry's bare-command pattern first), a
 // mode-0700 `#!/bin/sh` wrapper that execs `$DOFLOW_CONFORM_NODE $DOFLOW_CONFORM_FAKE "$@"` (conform-fake.ts).
 // Each spawn is by absolute path, `shell: false`, 10 s, with an environment built from nothing: PATH=<scratch>/bin,
 // HOME=<scratch>/home, LANG=C.UTF-8 and the DOFLOW_CONFORM_* variables. No real binary or package program runs, no
-// caller variable reaches the child, and nothing is written outside the scratch: no telemetry, no store.
+// caller variable reaches the child, and nothing is written outside the scratch: no telemetry, no store, and the
+// CLI runs no storage upkeep after it (`runsUpkeep` in src/cli/runtime-commands.ts).
 //
 // Parts, in order (§6.2): binary, one-shot, prompt-transport, model-flag, main-session, stream, login. A part is
 // `unchecked: not-declared` when its entry is not `supported`, and `unchecked: depends-on <part>` when a part it
 // needs failed. The stream cases are synthesized from the field map (§6.3); a code parser leaves stream
 // `unchecked: code-parser`. Exit (§6.4): 0 when no part failed, 1 naming each failed part, 2 for
-// `unknown-harness`, `platform-unsupported` or `scratch-failed`. Each reason is cut to 160 characters, so the
-// `--json` body stays within 4 KiB.
+// `unknown-harness`, `platform-unsupported` or `scratch-failed`. Each reason is cut to 160 characters, a refusal's
+// message to 512 and an echoed harness or parser id to 64; when the answer, `--json` or text, is still over 4 KiB the
+// reasons are cut further until it fits.
 
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { spawn } = require('node:child_process');
 const { workerCatalogue } = require('./catalogue.ts');
-const { assembleArgv, mainArgv, promptInput } = require('./launch.ts');
+const { assembleArgv, mainArgv, promptInput, refuseUnknownMainParser } = require('./launch.ts');
 const { PARSERS, parserOf, parserIdOf, UNPARSED } = require('./parsers.ts');
 const { compileFieldMap } = require('./parsers/field-map.ts');
 const { cutChars } = require('./parsers/common.ts');
@@ -34,6 +37,9 @@ const PARTS = Object.freeze(['binary', 'one-shot', 'prompt-transport', 'model-fl
 const FAKE = path.join(__dirname, 'conform-fake.ts');
 const TIMEOUT_MS = 10000;
 const REASON_CHARS = 160;
+const MESSAGE_CHARS = 512;
+const NAME_CHARS = 64;
+const ANSWER_BYTES = 4096;
 const STDOUT_MAX = 4 * 1048576;
 const MODEL_ID = 'conform-model-1';
 /** Spaces, both quote kinds, `$`, a backslash, a newline and non-ASCII: any shell or re-encoding on the way shows. */
@@ -55,29 +61,54 @@ const describeExit = (result: any): string => (result.status === 'exited'
   ? (result.code === null ? `signal ${result.signal}` : `exit ${result.code}`)
   : (result.status === 'timeout' ? 'timeout' : `spawn-failed ${result.error}`));
 
+/** One spawn of the fake, killed (SIGKILL) after TIMEOUT_MS or past STDOUT_MAX bytes of stdout. The child is kept
+ * in `ctx.child` while it runs, so a signal handler can kill it. Spawning without blocking lets that handler run. */
+function spawnFake(ctx: any, argv: string[], env: any, stdin: Buffer): Promise<{ result: any; stdout: string }> {
+  return new Promise((resolve) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let stopped: string | null = null;
+    let settled = false;
+    const child = spawn(ctx.fake, argv, { cwd: ctx.home, env, shell: false, stdio: ['pipe', 'pipe', 'ignore'] });
+    ctx.child = child;
+    const stop = (why: string) => {
+      stopped ??= why;
+      child.kill('SIGKILL');
+    };
+    const timer = setTimeout(() => stop('timeout'), TIMEOUT_MS);
+    const settle = (result: any) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      ctx.child = null;
+      resolve({ result, stdout: Buffer.concat(chunks).toString('utf8') });
+    };
+    child.stdout.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > STDOUT_MAX) stop('ENOBUFS');
+      else chunks.push(chunk);
+    });
+    // A fake that exits before reading closes the pipe; its exit is what counts.
+    child.stdin.on('error', () => {});
+    child.stdin.end(stdin);
+    child.on('error', (error: any) => settle({ status: 'error', code: null, signal: null, error: error?.code || 'spawn-failed' }));
+    child.on('close', (code: number | null, signal: string | null) => settle(stopped === 'timeout'
+      ? { status: 'timeout', code: null, signal }
+      : (stopped ? { status: 'error', code: null, signal: null, error: stopped } : { status: 'exited', code, signal })));
+  });
+}
+
 /** Runs the fake once with `argv`; the script says what it prints and whether it writes the last-message file. */
-function runFake(ctx: any, argv: string[], { stdin = null, exit = 0, stdout = [], lastMessage = null }: any = {}): Run {
+async function runFake(ctx: any, argv: string[], { stdin = null, exit = 0, stdout = [], lastMessage = null }: any = {}): Promise<Run> {
   const n = ctx.spawns++;
   const script = path.join(ctx.dir, 'log', `${n}.script.json`);
   const log = path.join(ctx.dir, 'log', `${n}.log`);
   fs.writeFileSync(script, JSON.stringify({ stdout, lastMessage, lastMessageFile: ctx.lastMessageFile }));
-  const r = spawnSync(ctx.fake, argv, {
-    cwd: ctx.home,
-    env: {
-      PATH: ctx.bin, HOME: ctx.home, LANG: 'C.UTF-8',
-      DOFLOW_CONFORM_NODE: process.execPath, DOFLOW_CONFORM_FAKE: FAKE, DOFLOW_CONFORM_SCRIPT: script,
-      DOFLOW_CONFORM_LOG: log, DOFLOW_CONFORM_EXIT: String(exit),
-    },
-    input: stdin ?? Buffer.alloc(0),
-    shell: false,
-    timeout: TIMEOUT_MS,
-    killSignal: 'SIGKILL',
-    maxBuffer: STDOUT_MAX,
-  });
-  let result: any;
-  if (r.error && r.error.code === 'ETIMEDOUT') result = { status: 'timeout', code: null, signal: r.signal };
-  else if (r.error) result = { status: 'error', code: null, signal: null, error: r.error.code || 'spawn-failed' };
-  else result = { status: 'exited', code: r.status, signal: r.signal };
+  const { result, stdout: out } = await spawnFake(ctx, argv, {
+    PATH: ctx.bin, HOME: ctx.home, LANG: 'C.UTF-8',
+    DOFLOW_CONFORM_NODE: process.execPath, DOFLOW_CONFORM_FAKE: FAKE, DOFLOW_CONFORM_SCRIPT: script,
+    DOFLOW_CONFORM_LOG: log, DOFLOW_CONFORM_EXIT: String(exit),
+  }, stdin ?? Buffer.alloc(0));
   let logged: any = null;
   try {
     logged = JSON.parse(fs.readFileSync(log, 'utf8'));
@@ -85,7 +116,7 @@ function runFake(ctx: any, argv: string[], { stdin = null, exit = 0, stdout = []
     logged = null;
   }
   if (logged && typeof ctx.onLog === 'function') ctx.onLog(logged);
-  return { result, log: logged, stdout: r.stdout ? r.stdout.toString('utf8') : '' };
+  return { result, log: logged, stdout: out };
 }
 
 /** The first difference between the argv the fake received and the one expected, or null. */
@@ -165,12 +196,27 @@ function placeholder(kind: string, index: number): any {
   }
 }
 
-/** The smallest event that meets rule `index`'s `when`: each `equals` value, the first `in` value, a typed placeholder per `is`. */
+const samePath = (a: string[], b: string[]): boolean => a.length === b.length && a.every((segment, i) => segment === b[i]);
+
+/** True when `value` at `at` meets every test of `when` on that same path. */
+function meetsAll(when: any[], at: string[], value: any): boolean {
+  const probe = {};
+  set(probe, at, value);
+  return when.every((test: any) => !samePath(test.path, at) || holds(test, probe));
+}
+
+/**
+ * The smallest event that meets rule `index`'s `when`: on each path an `equals` or `in` test names, the first of its
+ * values that meets every test on that path (so `equals` and `in` hold together), then a typed placeholder per `is`
+ * the event does not meet yet. Incompatible tests on one path are the validator's business; their first value stands.
+ */
 function eventFor(rule: any, index: number): any {
   const event = {};
   for (const test of rule.when) {
-    if (Object.hasOwn(test, 'equals')) set(event, test.path, test.equals);
-    else if (Object.hasOwn(test, 'in')) set(event, test.path, test.in[0]);
+    if (!Object.hasOwn(test, 'equals') && !Object.hasOwn(test, 'in')) continue;
+    const values = Object.hasOwn(test, 'equals') ? [test.equals] : test.in;
+    const fits = values.find((value: any) => meetsAll(rule.when, test.path, value));
+    set(event, test.path, fits === undefined ? values[0] : fits);
   }
   for (const test of rule.when) if (Object.hasOwn(test, 'is') && !holds(test, event)) set(event, test.path, placeholder(test.is, index));
   return event;
@@ -214,7 +260,7 @@ function streamCases(map: any): any[] {
   return cases;
 }
 
-function streamPart(ctx: any, worker: any): Part {
+async function streamPart(ctx: any, worker: any): Promise<Part> {
   const entry = worker.structuredOutput;
   const map = entry.fieldMap;
   const id = parserIdOf(entry);
@@ -242,7 +288,7 @@ function streamPart(ctx: any, worker: any): Part {
     }
     fs.rmSync(ctx.lastMessageFile, { force: true });
     const lines = c.lines ?? c.events.map(({ event }: any) => JSON.stringify(event));
-    const run = runFake(ctx, argv, { exit: c.exit, stdout: lines, lastMessage: c.lastMessage ?? null });
+    const run = await runFake(ctx, argv, { exit: c.exit, stdout: lines, lastMessage: c.lastMessage ?? null });
     if (run.result.status !== 'exited' || run.result.code !== c.exit) {
       problems.push(`${c.name}: the fake ended ${describeExit(run.result)}, want exit ${c.exit}`);
       continue;
@@ -262,7 +308,7 @@ function streamPart(ctx: any, worker: any): Part {
 
 // ---- the parts ---------------------------------------------------------------------------------------------
 
-function binaryPart(ctx: any, worker: any): Part {
+async function binaryPart(ctx: any, worker: any): Promise<Part> {
   const name = worker.cli?.binary;
   if (typeof name !== 'string' || !BARE_COMMAND.test(name)) return part('binary', 'failed', `cli.binary is not a bare command name: ${json(name)}`);
   const probe = supported(worker.runnableProbe) ? 'runnableProbe' : 'cli.versionArgv';
@@ -272,7 +318,7 @@ function binaryPart(ctx: any, worker: any): Part {
   if (widening) return part('binary', 'failed', `the ${probe} argv holds the widening flag '${widening}'`);
   ctx.fake = path.join(ctx.bin, name);
   fs.writeFileSync(ctx.fake, '#!/bin/sh\nexec "$DOFLOW_CONFORM_NODE" "$DOFLOW_CONFORM_FAKE" "$@"\n', { mode: 0o700 });
-  const run = runFake(ctx, argv);
+  const run = await runFake(ctx, argv);
   if (exitFact(run.result, '').state !== 'yes') return part('binary', 'failed', `the ${probe} run did not exit 0 (${describeExit(run.result)})`);
   const problem = argvProblem(run, argv);
   if (problem) return part('binary', 'failed', problem);
@@ -280,9 +326,9 @@ function binaryPart(ctx: any, worker: any): Part {
 }
 
 /** one-shot, then prompt-transport on the same run. */
-function oneShotParts(ctx: any, worker: any): Part[] {
+async function oneShotParts(ctx: any, worker: any): Promise<Part[]> {
   const entry = worker.oneShot;
-  const check = (): Part => {
+  const check = async (): Promise<Part> => {
     if (!isArgv(entry.argv)) return part('one-shot', 'failed', 'oneShot has no argv');
     if (entry.promptVia === 'argv' && !entry.argv.includes('{prompt}')) return part('one-shot', 'failed', "promptVia is argv but oneShot.argv has no '{prompt}' element");
     let expected: string[];
@@ -292,20 +338,20 @@ function oneShotParts(ctx: any, worker: any): Part[] {
       return part('one-shot', 'failed', error.message);
     }
     const input = promptInput(worker, MARKER);
-    const run = runFake(ctx, expected, { stdin: input.stdin });
+    const run = await runFake(ctx, expected, { stdin: input.stdin });
     const problem = argvProblem(run, expected);
     if (problem) return part('one-shot', 'failed', problem);
     ctx.oneShot = { input, log: run.log };
     return part('one-shot', 'passed', 'the argv equals assembleArgv');
   };
-  const oneShot = check();
+  const oneShot = await check();
   if (oneShot.result !== 'passed') return [oneShot, part('prompt-transport', 'unchecked', 'depends-on one-shot')];
   const problem = transportProblem(entry, ctx.oneShot.input, ctx.oneShot.log);
   if (problem) return [oneShot, part('prompt-transport', 'failed', problem)];
   return [oneShot, part('prompt-transport', 'passed', entry.promptVia === 'argv' ? 'one whole argv element' : 'stdin byte for byte, absent from argv')];
 }
 
-function modelPart(ctx: any, worker: any, oneShot: Part): Part {
+async function modelPart(ctx: any, worker: any, oneShot: Part): Promise<Part> {
   const binding = { model: MODEL_ID, flag: 'supported' };
   let via: 'one-shot' | 'main-session';
   let expected: string[];
@@ -320,7 +366,7 @@ function modelPart(ctx: any, worker: any, oneShot: Part): Part {
   } catch (error: any) {
     return part('model-flag', 'failed', error.message);
   }
-  const run = runFake(ctx, expected, { stdin: promptInput(worker, MARKER, via === 'main-session').stdin });
+  const run = await runFake(ctx, expected, { stdin: promptInput(worker, MARKER, via === 'main-session').stdin });
   const problem = argvProblem(run, expected);
   if (problem) return part('model-flag', 'failed', problem);
   const count = run.log.argv.filter((item: string) => item === MODEL_ID).length;
@@ -331,30 +377,32 @@ function modelPart(ctx: any, worker: any, oneShot: Part): Part {
   return part('model-flag', 'passed', `${MODEL_ID} once, via ${via}`);
 }
 
-function mainSessionPart(ctx: any, worker: any): Part {
+/** The argv and parser checks launchMainSession makes before it spawns, in its order, then the transport. */
+async function mainSessionPart(ctx: any, worker: any): Promise<Part> {
   const entry = worker.mainSession;
   if (!isArgv(entry.argv)) return part('main-session', 'failed', 'mainSession has no argv');
   let expected: string[];
   try {
     expected = mainArgv(worker, MARKER, ctx.lastMessageFile, null);
+    refuseUnknownMainParser(worker);
   } catch (error: any) {
     return part('main-session', 'failed', error.message);
   }
   const input = promptInput(worker, MARKER, true);
-  const run = runFake(ctx, expected, { stdin: input.stdin });
+  const run = await runFake(ctx, expected, { stdin: input.stdin });
   const problem = argvProblem(run, expected) ?? transportProblem(entry, input, run.log);
   if (problem) return part('main-session', 'failed', problem);
   return part('main-session', 'passed', `the argv equals mainArgv; the prompt by ${entry.promptVia}`);
 }
 
 /** A-5: today's loginProbe argv, no widening flag, and exit 0 read as yes and exit 1 as no. Exit codes beyond are row 172. */
-function loginPart(ctx: any, worker: any): Part {
+async function loginPart(ctx: any, worker: any): Promise<Part> {
   const argv = worker.loginProbe.argv;
   if (!isArgv(argv)) return part('login', 'failed', 'loginProbe has no argv');
   const widening = wideningProblem(argv, { binary: worker.cli.binary, declared: declaredOf(worker) });
   if (widening) return part('login', 'failed', `the loginProbe argv holds the widening flag '${widening}'`);
   for (const [exit, want] of [[0, 'yes'], [1, 'no']] as const) {
-    const run = runFake(ctx, argv, { exit });
+    const run = await runFake(ctx, argv, { exit });
     const problem = argvProblem(run, argv);
     if (problem) return part('login', 'failed', problem);
     const state = exitFact(run.result, '').state;
@@ -364,67 +412,99 @@ function loginPart(ctx: any, worker: any): Part {
 }
 
 /** §6.2: every part in order, with `not-declared` and `depends-on` applied before a part runs. */
-function checkParts(ctx: any, worker: any): Part[] {
+async function checkParts(ctx: any, worker: any): Promise<Part[]> {
   const gate = (name: string, entry: any, needs: Part | null): Part | null => {
     if (!supported(entry)) return part(name, 'unchecked', 'not-declared');
     if (needs && needs.result !== 'passed') return part(name, 'unchecked', `depends-on ${needs.part}`);
     return null;
   };
-  const binary = gate('binary', worker.cli, null) ?? binaryPart(ctx, worker);
+  const binary = gate('binary', worker.cli, null) ?? await binaryPart(ctx, worker);
   const shot = gate('one-shot', worker.oneShot, binary);
-  const [oneShot, transport] = shot ? [shot, part('prompt-transport', 'unchecked', shot.reason)] : oneShotParts(ctx, worker);
+  const [oneShot, transport] = shot ? [shot, part('prompt-transport', 'unchecked', shot.reason)] : await oneShotParts(ctx, worker);
   return [
     binary,
     oneShot,
     transport,
-    gate('model-flag', worker.model, binary) ?? modelPart(ctx, worker, oneShot),
-    gate('main-session', worker.mainSession, binary) ?? mainSessionPart(ctx, worker),
-    gate('stream', worker.structuredOutput, binary) ?? streamPart(ctx, worker),
-    gate('login', worker.loginProbe, binary) ?? loginPart(ctx, worker),
+    gate('model-flag', worker.model, binary) ?? await modelPart(ctx, worker, oneShot),
+    gate('main-session', worker.mainSession, binary) ?? await mainSessionPart(ctx, worker),
+    gate('stream', worker.structuredOutput, binary) ?? await streamPart(ctx, worker),
+    gate('login', worker.loginProbe, binary) ?? await loginPart(ctx, worker),
   ];
 }
 
-const refusal = (error: string, message: string) => ({ exit: 2, body: { ok: false, error, message } });
+const refusal = (error: string, message: string) => ({ exit: 2, body: { ok: false, error, message: cutChars(message, MESSAGE_CHARS) } });
+const answerBytes = (body: any): number => Math.max(
+  Buffer.byteLength(`${JSON.stringify(body, null, 2)}\n`),
+  Buffer.byteLength(`${conformLines(body).join('\n')}\n`),
+);
+
+/** B6: the answer, `--json` or text, is at most ANSWER_BYTES. Ids are cut to NAME_CHARS, so the reasons alone can be
+ * over; they are cut 20 characters at a time until it fits (with every reason empty the body is about 1.5 KB). */
+function fit(body: any): any {
+  for (let chars = REASON_CHARS - 20; chars >= 0 && answerBytes(body) > ANSWER_BYTES; chars -= 20) {
+    body.parts = body.parts.map((p: Part) => ({ ...p, reason: cutChars(p.reason, chars) }));
+  }
+  return body;
+}
 
 /**
- * IC-005: conforms `harness` (a built-in id or a package `<pkg>.<local>` id) and returns `{ exit, body }`.
+ * IC-005: conforms `harness` (a built-in id or a package `<pkg>.<local>` id) and resolves `{ exit, body }`.
  * `registry`, `view` and `repoRoot` reach `workerCatalogue`; `tmpDir` is where the scratch is made; `onLog` (a
  * test seam) receives each record the fake logged.
  */
-function conform({ harness, registry, view, repoRoot, platform = process.platform, tmpDir = os.tmpdir(), onLog = null }: any = {}): { exit: number; body: any } {
+async function conform({ harness, registry, view, repoRoot, platform = process.platform, tmpDir = os.tmpdir(), onLog = null }: any = {}): Promise<{ exit: number; body: any }> {
   const entries = workerCatalogue({ registry, view, ...(repoRoot ? { repoRoot } : {}) });
   const entry = entries.find((item: any) => item.id === harness);
-  if (!entry) return refusal('unknown-harness', `unknown harness '${harness}'; known: ${entries.map((item: any) => item.id).join(', ')}`);
+  if (!entry) return refusal('unknown-harness', `unknown harness '${cutChars(String(harness), NAME_CHARS)}'; known: ${entries.map((item: any) => item.id).join(', ')}`);
   if (platform === 'win32') return refusal('platform-unsupported', 'conform runs its fake through a POSIX shell wrapper; win32 is unsupported (DEC-008)');
-  let dir: string | null = null;
+  let dir = '';
   try {
     dir = fs.mkdtempSync(path.join(tmpDir, 'doflow-conform-'));
     for (const sub of ['bin', 'home', 'log']) fs.mkdirSync(path.join(dir, sub), { mode: 0o700 });
   } catch (error: any) {
     if (dir) fs.rmSync(dir, { recursive: true, force: true });
-    return refusal('scratch-failed', `conform could not make its scratch directory in ${tmpDir}: ${error?.code || error?.message}`);
+    return refusal('scratch-failed', `conform could not make its scratch directory (${error?.code || error?.message}) in ${tmpDir}`);
   }
+  const scratch = dir;
+  const ctx: any = {
+    dir: scratch, bin: path.join(scratch, 'bin'), home: path.join(scratch, 'home'), lastMessageFile: path.join(scratch, 'home', 'last-message.txt'),
+    fake: null, spawns: 0, onLog, oneShot: null, child: null,
+  };
+  // B5: a signal ends the running fake and removes the scratch, then takes its default course (it is re-raised once
+  // no other listener is left; a process that has others exits 128+n). The handlers live only while conform runs.
+  const unwatch = () => {
+    process.removeListener('SIGINT', onSigint);
+    process.removeListener('SIGTERM', onSigterm);
+  };
+  const onSignal = (signal: string) => {
+    unwatch();
+    ctx.child?.kill('SIGKILL');
+    fs.rmSync(scratch, { recursive: true, force: true });
+    if ((process as any).listenerCount(signal) === 0) process.kill(process.pid, signal);
+    else process.exit(128 + os.constants.signals[signal]);
+  };
+  const onSigint = () => onSignal('SIGINT');
+  const onSigterm = () => onSignal('SIGTERM');
+  process.once('SIGINT', onSigint);
+  process.once('SIGTERM', onSigterm);
   try {
     const worker = entry.worker;
-    const ctx = {
-      dir, bin: path.join(dir, 'bin'), home: path.join(dir, 'home'), lastMessageFile: path.join(dir, 'home', 'last-message.txt'),
-      fake: null, spawns: 0, onLog, oneShot: null,
-    };
-    const parts = checkParts(ctx, worker);
+    const parts = await checkParts(ctx, worker);
     const so = worker.structuredOutput;
     const id = supported(so) ? parserIdOf(so) : null;
     const failed = parts.filter((p) => p.result === 'failed').map((p) => p.part);
     const body = {
       ok: failed.length === 0,
-      harness,
+      harness: cutChars(String(harness), NAME_CHARS),
       origin: entry.origin,
-      parser: { id, kind: id === null ? null : (so.fieldMap ? 'field-map' : 'code') },
+      parser: { id: typeof id === 'string' ? cutChars(id, NAME_CHARS) : id, kind: id === null ? null : (so.fieldMap ? 'field-map' : 'code') },
       parts,
       failed,
     };
-    return { exit: failed.length === 0 ? 0 : 1, body };
+    return { exit: failed.length === 0 ? 0 : 1, body: fit(body) };
   } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
+    unwatch();
+    fs.rmSync(scratch, { recursive: true, force: true });
   }
 }
 

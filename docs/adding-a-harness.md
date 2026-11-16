@@ -113,7 +113,7 @@ doflow worker --action conform --harness <id>
 
 For a package worker, `<id>` is `<package>.<local>`. Add `--json` for a machine-readable body of at most 4 KiB.
 
-Conform runs the descriptor against a fake program, never the real harness. The fake is the only executable on `PATH`. The child gets an environment built from nothing (`PATH`, `HOME`, `LANG` and the conform variables), so no token reaches it. The scratch directory is made in the OS temp directory and removed afterwards. Conform writes no telemetry and no store. It is not supported on Windows.
+Conform runs the descriptor against a fake program, never the real harness. The fake is the only executable on `PATH`. The child gets an environment built from nothing (`PATH`, `HOME`, `LANG` and the conform variables), so no token reaches it. The scratch directory is made in the OS temp directory and removed afterwards, also when conform is stopped by Ctrl-C (SIGINT) or SIGTERM. That directory is its only write: conform writes no telemetry and no store, and no storage upkeep runs after it. It is not supported on Windows.
 
 It checks seven parts, in this order: `binary`, `one-shot`, `prompt-transport`, `model-flag`, `main-session`, `stream` and `login`. A part reads `passed`, `failed` or `unchecked`. A part is `unchecked` when its descriptor entry is not `supported`, or when a part it needs failed. For the `stream` part, conform builds the smallest event for each rule of the field map and checks the report it gives. It also reports a rule that an earlier rule hides. A harness with a code parser leaves `stream` unchecked.
 

@@ -87,8 +87,10 @@ const { handleAttendanceCommand } = require('../runtime/roadmap/attendance.ts');
 // `attendance` is read-only; `worktree --action cleanup` removes a merged feature's worktree under the roadmap lease and writes no DoFlow state, so neither runs upkeep.
 // `package` stays here (122 IC-012): `new` writes only the target folder; `add --plan`, `update --plan` and `remove` write the store and lock and run upkeep (see `runsUpkeep`).
 // `slot` is not here: `run`, `list` and `release` write the slot files and run upkeep; only `slot --action peek` is read-only and skips it (093 IC-018 b, see `runsUpkeep`).
+// `worker` is not here: its runs write the run store and run upkeep; only `worker --action conform` writes nothing outside its OS-temp scratch and skips it (171 IC-005, see `runsUpkeep`).
 const NO_UPKEEP = new Set(['storage', 'config', 'plan-check', 'review', 'protocol', 'rules', 'primary', 'package', 'models', 'fleet', 'transcript', 'events', 'worker-log', 'worker-result', 'worker-runs', 'advice-picks', 'worker-matrix', 'sessions-history', 'worktree', 'attendance']);
-const runsUpkeep = (o: any): boolean => (!NO_UPKEEP.has(o.cmd) && !(o.cmd === 'slot' && o.actionGiven && o.action === 'peek'))
+const runsUpkeep = (o: any): boolean => (!NO_UPKEEP.has(o.cmd) && !(o.cmd === 'slot' && o.actionGiven && o.action === 'peek')
+  && !(o.cmd === 'worker' && o.actionGiven && o.action === 'conform'))
   || (o.cmd === 'package' && ((typeof o.planId === 'string' && (o.action === 'add' || o.action === 'update')) || o.action === 'remove'));
 // Required on first use, so a CLI whose failure modules cannot be loaded still runs every other verb.
 function handleFailureCommand(options: any): any { return require('../runtime/failure/cli.ts').handleFailureCommand(options); }

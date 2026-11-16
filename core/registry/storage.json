@@ -1715,7 +1715,7 @@
     },
     {
       "file": "src/runtime/worker/conform.ts",
-      "reason": "OS temp scratch (doflow-conform-*) for the fake harness; removed in finally"
+      "reason": "OS temp scratch (doflow-conform-*) for the fake harness, its only write; removed in finally and on SIGINT or SIGTERM; the CLI runs no upkeep after conform (runsUpkeep in src/cli/runtime-commands.ts), so it writes no store, telemetry or .gitignore"
     },
     {
       "file": "src/runtime/worker/conform-fake.ts",

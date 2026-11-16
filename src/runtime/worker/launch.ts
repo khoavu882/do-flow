@@ -291,6 +291,16 @@ function spawnHarness(file: string, args: string[], options: any, input: { stdin
   });
 }
 
+/** 171 IC-003: the main session's parser is a code parser, or this descriptor's own structuredOutput.fieldMap id;
+ * one that resolves to unparsed throws `parser-unknown`. launchMainSession and conform's main-session part call it. */
+function refuseUnknownMainParser(recipe: any): void {
+  const { parserIdOf, parserOf, UNPARSED } = parsers();
+  const parser = parserIdOf(recipe.mainSession);
+  if (parser !== null && parserOf(recipe, 'main').id === UNPARSED) {
+    throw new LaunchUsageError('parser-unknown', `launchMainSession: parser '${parser}' is not in core PARSERS`);
+  }
+}
+
 /** 165 D1, D9: launches a started main session from its recipe in `execWorktree`. No context emission, no grant. */
 function launchMainSession({ recipe, prompt, execWorktree, env, runId, model = null, lastMessageFile }: {
   recipe: any; prompt: string; execWorktree: string; env: Env; runId: string; model?: string | null; lastMessageFile?: string;
@@ -298,12 +308,7 @@ function launchMainSession({ recipe, prompt, execWorktree, env, runId, model = n
   return Promise.resolve().then(() => {
     const sessionEnv = mainEnv(env, runId);
     const argv = mainArgv(recipe, prompt, lastMessageFile, model);
-    // 171 IC-003: a code parser, or this descriptor's own structuredOutput.fieldMap id.
-    const { parserIdOf, parserOf, UNPARSED } = parsers();
-    const parser = parserIdOf(recipe.mainSession);
-    if (parser !== null && parserOf(recipe, 'main').id === UNPARSED) {
-      throw new LaunchUsageError('parser-unknown', `launchMainSession: parser '${parser}' is not in core PARSERS`);
-    }
+    refuseUnknownMainParser(recipe);
     return spawnHarness(recipe.cli?.binary, argv, { cwd: execWorktree, env: sessionEnv, shell: false }, promptInput(recipe, prompt, true), { env: sessionEnv, launched: null });
   });
 }
@@ -366,4 +371,5 @@ function launchWorker({ recipe, prompt, identity, execWorktree, env, taskId, gra
 module.exports = {
   ENV_SET, PROMPT_LIMITS, RECIPE_ORDER, EDIT_RECIPE_ORDER, STARTED_RUN_VAR, LaunchUsageError, argvShape, assembleArgv,
   launchEnv, launchRecord, launchWorker, mainArgv, mainArgvShape, mainEnv, mainLaunchRecord, launchMainSession, promptInput,
+  refuseUnknownMainParser,
 };
