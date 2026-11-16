@@ -25,6 +25,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { workerCatalogue } = require('./catalogue.ts');
+const { keyOf } = require('./model-choice.ts');
 const { assembleArgv, mainArgv, promptInput, refuseUnknownMainParser } = require('./launch.ts');
 const { PARSERS, parserOf, parserIdOf, UNPARSED } = require('./parsers.ts');
 const { compileFieldMap, compileTest } = require('./parsers/field-map.ts');
@@ -408,13 +409,21 @@ async function transportPart(ctx: any, worker: any, kind: 'provider' | 'effort',
   const problem = argvProblem(run, expected);
   if (problem) return part(kind, 'failed', problem);
   if (entry.via === 'flag') {
+    // The transport is one `F v` pair (or `F=v` token), counted by its key when it has one (`F <key>=...`), so a fixed `F other=v` pair is not a second copy.
     const flag = entry.argv[0];
-    const count = run.log.argv.filter((item: string) => item === flag || item.startsWith(`${flag}=`)).length;
-    if (count !== 1) return part(kind, 'failed', `${flag} appears ${count} times in the ${via} argv, want once`);
-    return part(kind, 'passed', `${flag} ${value} once, via ${via}`);
+    const key = keyOf(entry.argv);
+    const argv: string[] = run.log.argv;
+    const owned = (item: string, next: string | undefined) => (key === null
+      ? item === flag || item.startsWith(`${flag}=`)
+      : (item === flag && next?.startsWith(`${key}=`)) || item.startsWith(`${flag}=${key}=`));
+    const count = argv.filter((item, i) => owned(item, argv[i + 1])).length;
+    if (count !== 1) return part(kind, 'failed', `${key === null ? flag : `${flag} ${key}`} appears ${count} times in the ${via} argv, want once`);
+    return part(kind, 'passed', `${flag} ${key === null ? value : `${key}=${value}`} once, via ${via}`);
   }
-  const composed = expected.filter((item) => item.includes(value));
-  if (composed.length !== 1) return part(kind, 'failed', `${value} appears in ${composed.length} argv elements of the ${via} argv, want one`);
+  // An id transport: the composed id (`provider + separator + model`, `model + separator + effort`) is one whole element, once.
+  const id = entry.via === 'id-prefix' ? `${value}${entry.separator}${MODEL_ID}` : `${MODEL_ID}${entry.separator}${value}`;
+  const composed = expected.filter((item) => item === id);
+  if (composed.length !== 1) return part(kind, 'failed', `${id} appears in ${composed.length} argv elements of the ${via} argv, want one`);
   return part(kind, 'passed', `${composed[0]} once, via ${via}`);
 }
 

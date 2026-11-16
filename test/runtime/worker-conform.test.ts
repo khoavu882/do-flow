@@ -538,3 +538,29 @@ test('169: a main-session-only worker checks the provider part through mainArgv'
   assert.equal(partOf(body, 'provider').result, 'passed', JSON.stringify(partOf(body, 'provider')));
   assert.match(partOf(body, 'provider').reason, /via main-session$/);
 });
+
+// ---- 169 review A-01 / A-07: the transport count is by key, and by whole composed id ---------------------------------
+
+test('169 A-01: a keyed effort transport counts only its own `-c <key>=` pair; a fixed `-c other=v` pair stays and passes', POSIX, async (t) => {
+  const registry = piWith((worker) => {
+    worker.effort = { status: 'supported', ...PART, via: 'flag', argv: ['-c', 'reasoning={effort}'], levels: ['low', 'high'] };
+    worker.readOnly.argv = [...worker.readOnly.argv, '-c', 'fixed_note=1'];
+  });
+  const { exit, body } = await conformVia(t, 'pi', registry);
+  assert.equal(exit, 0, JSON.stringify(body));
+  assert.equal(partOf(body, 'effort').result, 'passed', JSON.stringify(partOf(body, 'effort')));
+  assert.equal(partOf(body, 'effort').reason, '-c reasoning=low once, via one-shot');
+  const twice = piWith((worker) => {
+    worker.effort = { status: 'supported', ...PART, via: 'flag', argv: ['-c', 'reasoning={effort}'], levels: ['low', 'high'] };
+    worker.readOnly.argv = [...worker.readOnly.argv, '-c', 'reasoning=off'];
+  });
+  assertFailsPart(await conformVia(t, 'pi', twice), 'effort', /-c reasoning appears 2 times/);
+});
+
+test('169 A-07: an id transport counts argv elements equal to the composed id, not elements that merely contain the value', POSIX, async (t) => {
+  const registry = piWith((worker) => { worker.readOnly.argv = [...worker.readOnly.argv, '--note', 'about-conform-provider-1-here']; });
+  const { exit, body } = await conformVia(t, 'pi', registry);
+  assert.equal(exit, 0, JSON.stringify(body));
+  assert.equal(partOf(body, 'provider').result, 'passed', JSON.stringify(partOf(body, 'provider')));
+  assert.equal(partOf(body, 'provider').reason, 'conform-provider-1/conform-model-1 once, via one-shot');
+});
