@@ -16,6 +16,7 @@ const { reviewPrecondition } = require('../../src/runtime/review/start.ts');
 const { protocolDigest } = require('../../src/runtime/review/resolve-protocol.ts');
 const { storeFileFor } = require('../../src/runtime/dispatch/store.ts');
 const { cwdHash } = require('../../src/runtime/context/identity.ts');
+const { startFakeServer, answering } = require('../helper/fake-decision-server.ts');
 
 const CLI = path.join(REPO_ROOT, 'bin', 'doflow.js');
 const SLUG = '095b-review-depth';
@@ -855,6 +856,36 @@ test('FU-md0ywe: a HEAD, tree or record change during the advice call is refused
   assert.equal([exitCode, json.ok].join(), '0,true');
 });
 
+/** Puts a `git` shim first on the repo env's PATH that logs each call's first argument; returns the counter for one. */
+function countGit(t: any, r: any) {
+  const real = spawnSync('which', ['git'], { encoding: 'utf8' }).stdout.trim();
+  const bin = path.join(r.dir, 'shim-bin');
+  const log = path.join(r.dir, 'git-calls.log');
+  fs.mkdirSync(bin);
+  fs.writeFileSync(path.join(bin, 'git'), `#!/bin/sh\nfor a in "$@"; do case "$a" in -*|*/*) ;; *) echo "$a" >> '${log}'; break;; esac; done\nexec '${real}' "$@"\n`, { mode: 0o755 });
+  r.env.PATH = `${bin}${path.delimiter}${r.env.PATH}`;
+  return (sub: string) => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').split('\n').filter((l: string) => l === sub).length : 0);
+}
+
+test('row 174: a shadow advice result skips the state-moved re-read (no wait on the model); an awaited act answer keeps it', { skip: process.platform === 'win32' }, async (t) => {
+  // shadow: the precondition reads the working tree once (`git status`), and nothing reads it again after the advice call
+  const shadowRepo = kindsRepo(t, 'shadow');
+  const shadowStatuses = countGit(t, shadowRepo);
+  await serveAdvice(t, shadowRepo, 'deep');
+  const shadow = await start(shadowRepo, { base: shadowRepo.base });
+  assert.equal(shadow.json.advice.status, 'shadow');
+  await adviceLines(shadowRepo);
+  assert.equal(shadowStatuses('status'), 1, 'one working-tree read: the precondition, not a re-read after the advice call');
+  // act (an awaited client answer): the second read happens, and a moved state is refused (FU-md0ywe above)
+  const actRepo = repo(t);
+  actRepo.lines([actRepo.line()]);
+  actRepo.enableAdvice();
+  const actStatuses = countGit(t, actRepo);
+  const act = await start(actRepo, { adviceClient: fakeClient(answered('deep')) });
+  assert.equal(act.json.advice.status, 'answered');
+  assert.equal(actStatuses('status'), 2, 'the precondition read and the re-read after the awaited advice call');
+});
+
 test('Q-A1: --preset review-single with an advice answer of deep on a light LOW change is not a refusal; the run preset wins', async (t) => {
   const r: any = repo(t, { taskClass: 'bug', attended: true, files: { 'docs/a.md': 'x\n' } });
   r.lines([r.line({ risk: 'LOW' })]);
@@ -1144,7 +1175,7 @@ const adviceStore = (r: any) => fs.existsSync(path.join(r.cwd, '.doflow', 'state
 async function adviceLines(r: any): Promise<any[]> {
   const dir = path.join(r.cwd, '.doflow', 'state', 'advice', 'picks');
   const read = () => (fs.existsSync(dir) ? fs.readdirSync(dir).flatMap((f: string) => fs.readFileSync(path.join(dir, f), 'utf8').split('\n').filter(Boolean).map((l: string) => JSON.parse(l))) : []);
-  for (let i = 0; i < 50 && read().length === 0; i++) await new Promise((resolve) => setTimeout(resolve, 20));
+  for (let i = 0; i < 250 && read().length === 0; i++) await new Promise((resolve) => setTimeout(resolve, 20));
   await new Promise((resolve) => setTimeout(resolve, 20));
   return read();
 }
@@ -1153,10 +1184,17 @@ const stateEntries = (r: any) => {
   const root = path.join(r.cwd, '.doflow', 'state');
   return fs.existsSync(root) ? fs.readdirSync(root).sort() : [];
 };
-const fullAnswer = (pick: string) => ({
-  status: 'answered', provider: 'fake', model: 'clef-flash',
-  answers: [{ name: 'depth', type: 'choice', pick, probabilities: { single: 0.4, deep: 0.6 }, confidence: 0.6, strength: { word: 'lean', between: ['single', 'deep'] } }],
-});
+/**
+ * Points the user's advice endpoint at an in-process fake server answering `pick`: a shadow call runs in a detached child
+ * that builds its own client from the settings (row 174 O-2). `asks()` counts its decision requests.
+ */
+async function serveAdvice(t: any, r: any, pick: string) {
+  const server: any = await startFakeServer({ routes: { 'POST /v1/systemone': answering(() => pick) } });
+  t.after(() => server.close());
+  const file = path.join(r.env.XDG_CONFIG_HOME, 'doflow', 'settings.json');
+  fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), 'advice.endpoint': server.origin }));
+  return { asks: () => server.requests.filter((request: any) => request.pathname === '/v1/systemone').length };
+}
 
 test('084 H2: advice.kinds.review-depth off makes no client call', async (t) => {
   const r = kindsRepo(t, 'off');
@@ -1170,8 +1208,8 @@ test('084 H2: advice.kinds.review-depth off makes no client call', async (t) => 
 test('084 H2: advice.kinds.review-depth shadow writes exactly one advice line and no review or telemetry file', async (t) => {
   const r = kindsRepo(t, 'shadow');
   const before = stateEntries(r);
-  const client = fakeClient(fullAnswer('deep'));
-  const { json } = await start(r, { adviceClient: client, base: r.base });
+  const advice = await serveAdvice(t, r, 'deep');
+  const { json } = await start(r, { base: r.base });
   assert.equal(json.depth, 'single');
   assert.equal(json.depthBasis.raisedBy, null);
   assert.deepEqual(json.advice, { status: 'shadow', pick: null, reason: null });
@@ -1182,22 +1220,22 @@ test('084 H2: advice.kinds.review-depth shadow writes exactly one advice line an
   assert.equal(lines[0].mode, 'shadow');
   assert.match(lines[0].stateDigest, /^sha256:[0-9a-f]{64}$/, 'the state is stored as a digest, not as text');
   assert.equal(lines[0].state, undefined);
-  assert.equal(client.calls.length, 1);
-  assert.equal(client.calls[0].record, false, 'the dispatcher, not the client, records');
+  assert.equal(lines[0].pick, 'deep');
+  assert.equal(advice.asks(), 1);
   assert.deepEqual(stateEntries(r).filter((e: string) => !before.includes(e)), ['advice'], 'no review or telemetry file');
 });
 
 test('084 H2: advice.kinds.review-depth act without a passed bench bar keeps the decided depth and says why', async (t) => {
   const r = kindsRepo(t, 'act');
-  const client = fakeClient(answered('deep'));
-  const { json } = await start(r, { adviceClient: client, base: r.base });
+  const advice = await serveAdvice(t, r, 'deep');
+  const { json } = await start(r, { base: r.base });
   assert.equal(json.depth, 'single');
   assert.equal(json.depthBasis.raisedBy, null);
   assert.equal(json.advice.status, 'shadow');
   assert.equal(json.advice.pick, null);
   assert.match(json.advice.reason, /^BENCH_BAR_UNMET: /);
   const lines = await adviceLines(r);
-  assert.equal(client.calls.length, 1, 'degraded to shadow: the call is made and recorded');
+  assert.equal(advice.asks(), 1, 'degraded to shadow: the call is made and recorded');
   assert.equal(lines.length, 1);
   assert.equal(lines[0].mode, 'shadow');
   const text = await start(r, { adviceClient: fakeClient(answered('deep')), base: r.base, json: false });
@@ -1206,15 +1244,15 @@ test('084 H2: advice.kinds.review-depth act without a passed bench bar keeps the
 
 test('084 D3: advice.kinds.review-depth act with a passing bench file in the project keeps the decided depth', async (t) => {
   const r = kindsRepo(t, 'act', { bench: true });
-  const client = fakeClient(answered('deep'));
-  const { json } = await start(r, { adviceClient: client, base: r.base });
+  const advice = await serveAdvice(t, r, 'deep');
+  const { json } = await start(r, { base: r.base });
   assert.equal(json.depth, 'single');
   assert.equal(json.depthBasis.raisedBy, null);
   assert.equal(json.advice.status, 'shadow');
   assert.equal(json.advice.pick, null);
   assert.match(json.advice.reason, /^BENCH_BAR_UNMET: /);
   const lines = await adviceLines(r);
-  assert.equal(client.calls.length, 1, 'degraded to shadow: the call is made and recorded');
+  assert.equal(advice.asks(), 1, 'degraded to shadow: the call is made and recorded');
   assert.equal(lines.length, 1);
   assert.equal(lines[0].mode, 'shadow');
 });

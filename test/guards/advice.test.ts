@@ -1,6 +1,9 @@
 'use strict';
 
-// G30 — decision-model advice cannot leak into hooks, dependencies or unsafe runtime modules.
+// G30 — decision-model advice cannot leak into hooks, dependencies or unsafe runtime modules. The one child process the
+//       advice folder may start is the detached shadow call (row 174 O-2): `child_process` is allowed only in
+//       shadow-dispatcher.ts, and there only as `spawn(process.execPath, [RUNNER], ...)` with RUNNER the shadow-runner.ts
+//       beside it (G30.3). The detached child is why record.ts and the hooks stay free of it too.
 // G31 — advice corpus and tier criteria remain synchronized with their source registries, and every registered
 //       advice kind has a call site that still exists, outside comments and prose: asked by a runtime verb, or an
 //       `advise --kind` step in a bash block of a skill with an `advise --action outcome` line beside it (G31.4).
@@ -66,8 +69,47 @@ function checkG30Dependencies({ files }: any): any {
   return findings;
 }
 
+const SHADOW_DISPATCHER = 'src/runtime/advice/shadow-dispatcher.ts';
+
+/** Blanks comments, keeping every newline, so a regex over the result still reports the source line. */
+function blankComments(text: string): string {
+  return text.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' ')).replace(/\/\/[^\n]*/g, (m) => ' '.repeat(m.length));
+}
+
+/** The one spawn shadow-dispatcher.ts may hold: spawn(process.execPath, [RUNNER], ...), no shell, no exec*, no fork. */
+function checkShadowSpawn(file: string, text: string): any {
+  const code = blankComments(text);
+  const lineAt = (index: number) => code.slice(0, index).split('\n').length;
+  const findings: any = [];
+  const importMatch = code.match(/const\s*\{([^}]*)\}\s*=\s*require\s*\(\s*(['"])(?:node:)?child_process\2\s*\)/);
+  if (!importMatch || importMatch[1].trim() !== 'spawn') {
+    findings.push(`${file}:${importMatch ? lineAt(importMatch.index as number) : 1} must import exactly { spawn } from child_process`);
+  }
+  const calls = [...code.matchAll(/\bspawn\s*\)?\s*\(\s*([^,()]+?)\s*,\s*(\[[^\]]*\])/g)];
+  const callCount = [...code.matchAll(/\bspawn\s*\)?\s*\(/g)].length;
+  if (callCount !== 1 || calls.length !== 1) findings.push(`${file}:1 must hold exactly one spawn call (found ${callCount})`);
+  for (const call of calls) {
+    if (call[1] !== 'process.execPath' || call[2].replace(/\s+/g, '') !== '[RUNNER]') {
+      findings.push(`${file}:${lineAt(call.index as number)} the only spawn is spawn(process.execPath, [RUNNER], ...)`);
+    }
+  }
+  if (!/const RUNNER = path\.join\(__dirname, 'shadow-runner\.ts'\);/.test(code)) {
+    findings.push(`${file}:1 RUNNER must be path.join(__dirname, 'shadow-runner.ts')`);
+  }
+  for (const match of code.matchAll(/\b(?:exec|execSync|execFile|execFileSync|spawnSync|fork)\s*\(|\bshell\s*:/g)) {
+    findings.push(`${file}:${lineAt(match.index as number)} '${match[0].replace(/\s*\($/, '')}' is not permitted: only a plain spawn of the runner`);
+  }
+  return findings;
+}
+
 function checkG30Requires({ files }: any) {
   const findings: any = [];
+  const importPattern = /(?:require\s*\(|\bfrom\b|\bimport\s*\()\s*(['"])(?:node:)?child_process\1/;
+  for (const hit of pathLines(files, (file: any) => file.startsWith('src/runtime/advice/') && file !== SHADOW_DISPATCHER)) {
+    if (importPattern.test(hit.text)) findings.push(`${hit.file}:${hit.line} child_process is allowed only in ${SHADOW_DISPATCHER}`);
+  }
+  const dispatcher = getFile(files, SHADOW_DISPATCHER);
+  if (dispatcher !== undefined) findings.push(...checkShadowSpawn(SHADOW_DISPATCHER, dispatcher));
   const requirePattern = /require\s*\(\s*(['"])(?:node:)?(http|https|dns|net|child_process)\1\s*\)/g;
   for (const hit of pathLines(files, (file: any) => file.startsWith('src/runtime/advice/'))) {
     for (const match of hit.text.matchAll(requirePattern)) {
@@ -75,7 +117,8 @@ function checkG30Requires({ files }: any) {
       const base = hit.file.slice('src/runtime/advice/'.length);
       const provider = /^providers\/[^/]+\.(?:js|ts)$/.test(base);
       let allowed = true;
-      if (['net', 'child_process'].includes(moduleName)) allowed = false;
+      if (moduleName === 'child_process') continue; // judged above, per file
+      if (moduleName === 'net') allowed = false;
       else if (['record', 'config'].includes(base.replace(/\.(?:js|ts)$/, ''))) allowed = false;
       else if (['http', 'https'].includes(moduleName)) allowed = base.replace(/\.(?:js|ts)$/, '') === 'client' || provider;
       else if (moduleName === 'dns') allowed = base.replace(/\.(?:js|ts)$/, '') === 'endpoint-guard';
@@ -350,6 +393,36 @@ test('G30.3 controls: rejects forbidden record/config placements and permits app
   assert.ok(findings.some((finding: any) => finding.includes('src/runtime/advice/endpoint-guard.ts:1')));
   assert.ok(findings.some((finding: any) => finding.includes('src/runtime/advice/providers/process.js:1')));
   assert.equal(findings.length, 6);
+});
+test('G30.3 controls: child_process is allowed only in shadow-dispatcher.ts, and there only as the spawn of the runner', () => {
+  const dispatcher = 'src/runtime/advice/shadow-dispatcher.ts';
+  const good = [
+    "const { spawn } = require('node:child_process');",
+    "const RUNNER = path.join(__dirname, 'shadow-runner.ts');",
+    '// exec(...) and spawn(other, [x]) in a comment are not code',
+    'const child = (services.spawn || spawn)(process.execPath, [RUNNER], { detached: true });',
+    '',
+  ].join('\n');
+  const run = (extra: any) => checkG30Requires({ files: new Map(Object.entries(extra)) });
+  assert.deepEqual(run({ [dispatcher]: good }), [], 'the approved spawn passes');
+  const other = run({ [dispatcher]: good, 'src/runtime/advice/client.ts': "const cp = require('node:child_process');\n" });
+  assert.deepEqual(other.map((f: any) => f.split(' ')[0]), ['src/runtime/advice/client.ts:1']);
+  assert.ok(run({ 'src/runtime/advice/shadow-runner.ts': "import { spawn } from 'child_process';\n" }).length === 1, 'an import form of child_process elsewhere');
+  const rejected: Record<string, string> = {
+    'a second spawn of another command': good + "spawn('git', ['status']);\n",
+    'a different first argument': good.replace('process.execPath', "'node'"),
+    'a different second argument': good.replace('[RUNNER]', "['other.js']"),
+    'a shell option': good.replace('detached: true', 'shell: true'),
+    'exec': good + "exec('ls');\n",
+    'execFileSync': good + "execFileSync('ls');\n",
+    'spawnSync': good + "spawnSync('ls', []);\n",
+    'a wider import': good.replace('{ spawn }', '{ spawn, exec }'),
+    'a RUNNER elsewhere': good.replace("'shadow-runner.ts'", "'../elsewhere.ts'"),
+  };
+  for (const [name, text] of Object.entries(rejected)) {
+    assert.ok(run({ [dispatcher]: text }).length > 0, `${name} must fail`);
+  }
+  assert.ok(run({ [dispatcher]: good + "spawn('git', ['status']);\n" })[0].startsWith(`${dispatcher}:`), 'findings carry file:line');
 });
 test('G30.4: shipped providers contain no write routes or server start', () => {
   assert.deepEqual(checkG30ProviderRoutes({ files: shipped }), []);

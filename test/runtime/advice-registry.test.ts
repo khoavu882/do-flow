@@ -240,7 +240,7 @@ test('141 IC-001: the shipped claim-support kind is a shadow-only yes/no kind wi
   assert.equal(kind.yes, 'The passage fully supports the claim');
   assert.equal(kind.no, 'The passage does not fully support the claim');
   assert.equal(kind.maxMode, 'shadow');
-  assert.equal(kind.budgetMs, 5000);
+  assert.equal(kind.budgetMs, 1500);
   assert.deepEqual(kind.askedBy, ['claim']);
   assert.deepEqual(kind.params, { claimBytes: 1024, passageBytes: 2048 });
   assert.equal(Object.hasOwn(kind, 'criteria') || Object.hasOwn(kind, 'criteriaFrom'), false);
@@ -260,3 +260,23 @@ test('141 IC-001: a registry without the claim-support kind still loads (no such
   const result = loadAdviceRegistry(writeFixture(t, (r: any) => { r.kinds = r.kinds.filter((kind: any) => kind.id !== 'claim-support'); }));
   assert.equal(result.ok, true, result.detail);
 });
+
+// ── row 174 O-3: every kind carries its own call budget, and the detached shadow calls share a user-level slot limit ──
+
+test('row 174 O-3: every shipped kind has its budgetMs as data, and timeoutMs is left to a kind-less ask', () => {
+  const result = loadAdviceRegistry({ repoRoot: REPO });
+  assert.equal(result.ok, true, result.detail);
+  assert.deepEqual(Object.fromEntries(result.registry.kinds.map((kind: any) => [kind.id, kind.budgetMs])), {
+    tier: 1500, 'task-class': 3000, 'verify-risk': 2000, 'review-depth': 1500, 'mcp-need': 1500, 'followup-triage': 1500, rerank: 5000, 'claim-support': 1500,
+  });
+  assert.equal(result.registry.timeoutMs, 15000);
+  assert.match(result.registry.description, /warm measurements with headroom/);
+  assert.equal(result.registry.shadowSlots, 4);
+});
+
+for (const [index, kind] of validRegistry().kinds.entries()) {
+  expectInvalid(`${kind.id} without budgetMs`, `kinds[${index}].budgetMs`, (r: any) => { delete r.kinds[index].budgetMs; });
+}
+expectInvalid('shadowSlots missing', 'shadowSlots', (r: any) => { delete r.shadowSlots; });
+expectInvalid('shadowSlots zero', 'shadowSlots', (r: any) => { r.shadowSlots = 0; });
+expectInvalid('shadowSlots fraction', 'shadowSlots', (r: any) => { r.shadowSlots = 1.5; });

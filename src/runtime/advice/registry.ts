@@ -156,8 +156,8 @@ function validateClaimSupportParams(params: any, limits: any, base: string, erro
 function validateCallBuiltFields(kind: any, registry: any, base: string, errors: string[]): void {
   const callBuilt = kind.criteriaFrom === CALL_BUILT;
   if (Object.hasOwn(kind, 'maxMode') && !MODES.includes(kind.maxMode)) addError(errors, `${base}.maxMode`, `must be one of ${MODES.join(', ')}`);
-  if (Object.hasOwn(kind, 'budgetMs')
-    && (!Number.isInteger(kind.budgetMs) || kind.budgetMs < 100 || (Number.isInteger(registry.timeoutMs) && kind.budgetMs > registry.timeoutMs))) {
+  // Every kind carries its own call budget (row 174 O-3): a kind call is bounded by it, never by timeoutMs.
+  if (!Number.isInteger(kind.budgetMs) || kind.budgetMs < 100 || (Number.isInteger(registry.timeoutMs) && kind.budgetMs > registry.timeoutMs)) {
     addError(errors, `${base}.budgetMs`, 'must be an integer from 100 to timeoutMs');
   }
   if (Object.hasOwn(kind, 'description') && (typeof kind.description !== 'string' || !kind.description.trim())) {
@@ -198,6 +198,9 @@ function validateAdviceRegistry(registry: any, { repoRoot = REPO_ROOT, models, f
   }
   if (!Number.isInteger(registry.doctorBudgetMs) || registry.doctorBudgetMs <= 0) {
     addError(errors, 'doctorBudgetMs', 'must be a positive integer');
+  }
+  if (!Number.isInteger(registry.shadowSlots) || registry.shadowSlots < 1 || registry.shadowSlots > 64) {
+    addError(errors, 'shadowSlots', 'must be an integer from 1 to 64');
   }
 
   const limits = registry.limits;

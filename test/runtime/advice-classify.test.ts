@@ -229,6 +229,12 @@ function pickRecords(f: any) {
   const file = path.join(f.project, '.doflow', 'state', 'advice', 'picks', `${new Date().toISOString().slice(0, 10)}.jsonl`);
   return fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim().split('\n').map((line: any) => JSON.parse(line)) : [];
 }
+/** The pick records once the detached shadow call (row 174 O-2) has written one, or after 5 s. */
+async function settledPickRecords(f: any) {
+  const until = Date.now() + 5000;
+  while (Date.now() < until && pickRecords(f).length === 0) await new Promise((resolve) => setTimeout(resolve, 10));
+  return pickRecords(f);
+}
 const ACCEPTED_ARGS = ['--task-class', 'bug', '--calling-skill', 'do', '--request', 'A broken behavior needs a repair.', '--json'];
 
 /**
@@ -247,8 +253,8 @@ async function runCounted(t: any, f: any, args: any, { settings, env }: any = {}
   child.stdout.on('data', (chunk: any) => { stdout += chunk; });
   child.stderr.on('data', (chunk: any) => { stderr += chunk; });
   const status = await new Promise((resolve) => child.on('close', resolve));
-  const asks = server.requests.filter((r: any) => r.method === 'POST' && r.pathname === '/v1/systemone').length;
-  return { status, stdout, stderr, asks };
+  // Read when asserted: a shadow call runs in a detached child (row 174 O-2) that may ask after the verb has exited.
+  return { status, stdout, stderr, get asks() { return server.requests.filter((r: any) => r.method === 'POST' && r.pathname === '/v1/systemone').length; } };
 }
 
 test('084 H2: with advice.kinds.task-class unset the client records the pick, as before the dispatcher', async (t) => {
@@ -286,8 +292,8 @@ test('084 H2: advice.kinds.task-class shadow keeps the verdict, shows no opinion
   assert.equal(json.secondOpinion.status, 'shadow');
   assert.equal(json.secondOpinion.reason, null);
   assert.equal(json.secondOpinion.pick, null);
+  const records = await settledPickRecords(f);
   assert.equal(result.asks, 1);
-  const records = pickRecords(f);
   assert.deepEqual(records.map(({ type, mode, caller, static: s, pick, model }: any) => ({ type, mode, caller, static: s, pick, model })),
     [{ type: 'pick', mode: 'shadow', caller: 'classify', static: 'bug', pick: 'feature', model: 'clef-flash' }]);
 });
@@ -303,8 +309,8 @@ test('084 D3: advice.kinds.task-class act with a passing bench file in the proje
   assert.equal(json.secondOpinion.status, 'shadow');
   assert.equal(json.secondOpinion.pick, null);
   assert.match(json.secondOpinion.reason, /^BENCH_BAR_UNMET: /);
+  const records = await settledPickRecords(f);
   assert.equal(result.asks, 1, 'the degraded shadow query runs');
-  const records = pickRecords(f);
   assert.deepEqual(records.map(({ type, mode, pick, model }: any) => ({ type, mode, pick, model })),
     [{ type: 'pick', mode: 'shadow', pick: 'feature', model: 'clef-flash' }]);
   assert.equal(records.some((record: any) => record.type === 'outcome'), false, 'no pick was shown, so no outcome is joined');
@@ -319,8 +325,9 @@ test('084 H2: advice.kinds.task-class act without a passed bench bar falls back 
   assert.equal(json.secondOpinion.status, 'shadow');
   assert.equal(json.secondOpinion.pick, null);
   assert.match(json.secondOpinion.reason, /^BENCH_BAR_UNMET: /);
+  const records = await settledPickRecords(f);
   assert.equal(result.asks, 1, 'the degraded shadow query runs');
-  assert.deepEqual(pickRecords(f).map(({ type, mode, pick, model }: any) => ({ type, mode, pick, model })),
+  assert.deepEqual(records.map(({ type, mode, pick, model }: any) => ({ type, mode, pick, model })),
     [{ type: 'pick', mode: 'shadow', pick: 'feature', model: 'clef-flash' }]);
 });
 

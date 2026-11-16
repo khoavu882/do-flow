@@ -10,9 +10,15 @@ const { loadStorageRegistry } = require('../storage/registry.ts');
 const { resolveRoots } = require('../storage/roots.ts');
 const { profileAdvisorCap, capMode } = require('./mode.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
+const fs = require('node:fs');
+const path = require('node:path');
+const { spawn } = require('node:child_process');
+
+/** The detached shadow call's entry point (row 174 O-2). */
+const RUNNER = path.join(__dirname, 'shadow-runner.ts');
 
 /** The advice registry's kinds (core/registry/advice.json). */
-type AdviceKind = 'tier' | 'task-class' | 'verify-risk' | 'review-depth' | 'mcp-need' | 'followup-triage' | 'rerank';
+type AdviceKind = 'tier' | 'task-class' | 'verify-risk' | 'review-depth' | 'mcp-need' | 'followup-triage' | 'rerank' | 'claim-support';
 type AdviceMode = 'off' | 'shadow' | 'act';
 type Env = Record<string, string | undefined>;
 type StoreRoots = Record<string, string | null>;
@@ -68,13 +74,18 @@ interface BenchBarResult {
 type BenchGate = (kind: AdviceKind, model: string) => BenchBarResult | Promise<BenchBarResult>;
 
 interface DispatcherServices {
+  /** The client of an act call. A shadow call never uses it: it runs in the detached child, which builds its own. */
   adviceClient?: AdviceClient;
   /** The resolved per-kind config; resolved from the settings layers when absent. */
   shadowConfig?: KindShadowConfig;
   fsImpl?: any;
   benchGate?: BenchGate;
   roots?: StoreRoots;
+  /** Starts the detached shadow child; node:child_process spawn when absent. */
+  spawn?: typeof spawn;
 }
+
+type RegistryKind = { id?: string; maxMode?: string; criteriaFrom?: string; budgetMs?: number; params?: Record<string, unknown> };
 
 interface DecisionPointContext {
   kind: AdviceKind;
@@ -86,18 +97,18 @@ interface DecisionPointContext {
   env?: Env;
   /** The client question set (IC-001 of the advice client) and its registry; without them the advisor answers unavailable. */
   questionSet?: QuestionSet;
-  adviceRegistry?: { timeoutMs?: number; kinds?: Array<{ id?: string; maxMode?: string; criteriaFrom?: string }>; [field: string]: unknown };
+  adviceRegistry?: { timeoutMs?: number; kinds?: RegistryKind[]; [field: string]: unknown };
   staticAnswer?: string | null;
   /** false keeps the decision write-free: no pick or miss is recorded. */
   record?: boolean;
-  /** The budget of the advisor call in ms (141 IC-010); the registry's timeoutMs when absent. */
+  /** A lower budget for this call in ms; the kind's registry budgetMs bounds it either way (row 174 O-3). */
   budgetMs?: number;
   /**
-   * Builds the line's extra payload from the answered call, because it depends on the answer (141 IC-010). It receives
-   * the whole call, every answer included. `null` records the call as a `malformed-reply` miss; `pick` replaces the
-   * first answer's pick on the line.
+   * Data for the pick line's extra payload, rebuilt by kind once the call is answered (DESCRIBERS): a callback cannot
+   * cross into the detached shadow child, so a call site hands data, never a function. record.ts keeps only its
+   * allowlisted fields.
    */
-  describe?: (call: AdvisorCall) => { pick?: string; extra?: Record<string, unknown> } | null;
+  lineExtra?: Record<string, unknown>;
 }
 
 interface DecisionPointResolution {
@@ -126,25 +137,34 @@ interface AdvisorCall {
   durationMs: number;
 }
 
-/** The budget of one advisor call: the context's `budgetMs` when given, else the registry's timeoutMs (core/registry/advice.json), 0 (no call) when unknown. */
+function positive(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0;
+}
+
+/**
+ * The budget of one advisor call (row 174 O-3): the kind's registry budgetMs, lowered by the context's own `budgetMs`
+ * when that is smaller; the registry's timeoutMs only for a kind the registry does not list; 0 (no call) when unknown.
+ */
 function budgetMs(context: DecisionPointContext): number {
-  const given = context.budgetMs;
-  if (typeof given === 'number' && Number.isFinite(given) && given > 0) return given;
-  const own = context.adviceRegistry?.timeoutMs;
-  if (typeof own === 'number' && Number.isFinite(own) && own > 0) return own;
-  try {
-    const loaded = loadAdviceRegistry({ repoRoot: REPO_ROOT });
-    const shipped = loaded.ok ? loaded.registry.timeoutMs : null;
-    return typeof shipped === 'number' && Number.isFinite(shipped) && shipped > 0 ? shipped : 0;
-  } catch {
-    return 0;
+  let own = registryKind(context)?.budgetMs;
+  if (!positive(own)) own = context.adviceRegistry?.timeoutMs;
+  if (!positive(own)) {
+    try {
+      const loaded = loadAdviceRegistry({ repoRoot: REPO_ROOT });
+      own = loaded.ok ? loaded.registry.timeoutMs : 0;
+    } catch {
+      own = 0;
+    }
   }
+  const ceiling = positive(own) ? own : 0;
+  const given = context.budgetMs;
+  return positive(given) && (ceiling === 0 || given < ceiling) ? given : ceiling;
 }
 
 const MODE_RANK: Record<string, number> = { off: 0, shadow: 1, act: 2 };
 
 /** The kind's registry entry: from the context's registry when it lists kinds, else the shipped one; null when unknown. */
-function registryKind(context: DecisionPointContext): { id?: string; maxMode?: string; criteriaFrom?: string } | null {
+function registryKind(context: DecisionPointContext): RegistryKind | null {
   try {
     let kinds = context.adviceRegistry?.kinds;
     if (!Array.isArray(kinds)) {
@@ -159,9 +179,9 @@ function registryKind(context: DecisionPointContext): { id?: string; maxMode?: s
 
 /**
  * Asks the advisor with `model` (the one effective model; the client's own setting when null), bounded by `budget`.
- * When the budget ends the call's signal is aborted, so the client drops its request, socket and timer; the bound's own
- * timer is unref'd, so neither it nor a client that ignores the signal holds the process open. The client is asked
- * not to record: the dispatcher records the call itself.
+ * When the budget ends the call's signal is aborted, so the client drops its request, socket and timer. The client is
+ * asked not to record: the caller records the call itself (recordCall). An act call runs it in the command's process;
+ * a shadow call runs it in the detached child (shadow-runner.ts), so it never holds the command open.
  */
 async function askAdvisor(context: DecisionPointContext, services: DispatcherServices, model: string | null, budget: number): Promise<AdvisorCall> {
   const startedAt = Date.now();
@@ -219,6 +239,37 @@ function storeRoots(context: DecisionPointContext, services: DispatcherServices)
   }
 }
 
+/**
+ * The pick line's extra payload per kind, rebuilt from the context's `lineExtra` data and the answered call; `null`
+ * records the call as a `malformed-reply` miss, `pick` replaces the first answer's pick on the line. A kind without an
+ * entry writes no extra payload. Each entry is code the detached child requires, so no callback crosses a process.
+ */
+const DESCRIBERS: Record<string, (call: AdvisorCall, context: DecisionPointContext) => { pick?: string; extra?: Record<string, unknown> } | null> = {
+  // The model's answer is on the pick line (`probabilities.yes`); a reply that is not a readable yes/no answer is a miss.
+  'claim-support': (call, context) => {
+    const yes = call.answer?.probabilities && (call.answer.probabilities as Record<string, unknown>).yes;
+    if (call.answer?.type !== 'yesno' || typeof yes !== 'number' || !Number.isFinite(yes)) return null;
+    return { extra: { claimSupport: context.lineExtra?.claimSupport } };
+  },
+  // `lineExtra.rerank` carries the first stage's labels, refs, arm, truncation, timing and criteria digest and source (ids
+  // and numbers, no text); the answers give the order. Unreadable answers, or no such data, are a miss.
+  rerank: (call, context) => {
+    const data = context.lineExtra?.rerank as Record<string, any> | undefined;
+    if (!data || typeof data !== 'object') return null;
+    const { interpretRerankAnswers, rerankPayload } = require('./rerank.ts');
+    const read = interpretRerankAnswers(call.answers, data.labels, data.arm);
+    if (!read.valid) return null;
+    const rerank = {
+      ...rerankPayload({
+        arm: data.arm, labels: data.labels, refs: data.refs, order: read.order, truncated: data.truncated, params: registryKind(context)?.params,
+        firstStageMs: data.firstStageMs, expected: read.expected, confidence: read.confidence, criteriaDigest: data.criteriaDigest,
+      }),
+      criteriaSource: data.criteriaSource,
+    };
+    return { pick: read.order[0], extra: { rerank } };
+  },
+};
+
 /** Records one advisor call through record.ts: a pick line when there is a pick, a miss line with its reason otherwise. */
 function recordCall(context: DecisionPointContext, services: DispatcherServices, mode: 'shadow' | 'act', asked: AdvisorCall, pickId: string, elevated: boolean): void {
   if (context.record === false || asked.status === 'off') return;
@@ -228,9 +279,10 @@ function recordCall(context: DecisionPointContext, services: DispatcherServices,
   if (asked.status === 'answered') {
     let answer = asked.answer;
     let extra: Record<string, unknown> | undefined;
-    if (typeof context.describe === 'function') {
-      let described: ReturnType<NonNullable<DecisionPointContext['describe']>> = null;
-      try { described = context.describe(asked); } catch { described = null; }
+    const describe = Object.hasOwn(DESCRIBERS, context.kind) ? DESCRIBERS[context.kind] : null;
+    if (describe) {
+      let described: ReturnType<typeof describe> = null;
+      try { described = describe(asked, context); } catch { described = null; }
       if (!described || typeof described !== 'object') {
         appendMiss({ ...common, reason: 'malformed-reply' });
         return;
@@ -252,6 +304,83 @@ function recordCall(context: DecisionPointContext, services: DispatcherServices,
     });
   } else {
     appendMiss({ ...common, reason: asked.reason });
+  }
+}
+
+/** A call that was never made, for a miss recorded without asking (spawn-failed, busy). */
+function missCall(reason: string, model: string | null): AdvisorCall {
+  return { status: 'miss', pick: null, answer: null, answers: [], reason, provider: null, model, durationMs: 0 };
+}
+
+/** What the detached child receives on stdin (row 174 O-5): in memory only, never in argv, env or a file. */
+interface ShadowPayload {
+  v: 1;
+  context: Pick<DecisionPointContext, 'kind' | 'caller' | 'state' | 'staticPick' | 'staticAnswer' | 'taskId' | 'questionSet' | 'adviceRegistry' | 'lineExtra'>;
+  model: string | null;
+  budgetMs: number;
+  pickId: string;
+  roots: StoreRoots;
+}
+
+/** Whether `registry` is the shipped core/registry/advice.json, which the detached child loads itself. */
+function shippedRegistry(registry: unknown): boolean {
+  try {
+    return JSON.stringify(registry) === JSON.stringify(JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core/registry/advice.json'), 'utf8')));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Hands one shadow call to a detached child (shadow-runner.ts), which takes a slot, asks, records its pick or miss and
+ * exits; the command never waits for the model. The child holds neither this process's event loop nor its stdio:
+ * its stdout and stderr are ignored and its handle is unref'd. The payload goes through the child's stdin pipe, written
+ * in blocking mode, so it is in the pipe or read by the child before this returns and survives the command calling
+ * process.exit right after. The shipped registry stays behind (the child loads it), so a state within limits.maxBodyBytes
+ * fits the pipe's buffer (64 KiB on Linux and macOS) and costs one write; a larger payload (an injected registry with a
+ * near-maximal state) waits for the child to start and read, about its start-up time. The child reads its stdin before
+ * anything else. Where the pipe cannot block, the write stays queued and referenced until
+ * read, and is dropped once the budget ends. A spawn that fails records a `spawn-failed` miss and makes no call.
+ * Never throws.
+ * Ceiling accepted: a child that is alive but never reads (stopped by a signal) holds a payload over the buffer, and so
+ * the command, on its blocking write.
+ */
+function spawnShadow(context: DecisionPointContext, services: DispatcherServices, model: string | null, budget: number, pickId: string): void {
+  const roots = storeRoots(context, services);
+  if (!roots) return;
+  const failed = () => recordCall(context, services, 'shadow', missCall('spawn-failed', model), pickId, false);
+  try {
+    const registry = context.adviceRegistry;
+    // The state usually is the question set's state too: it crosses once, and the child puts it back (shadow-runner.ts).
+    const questionSet = context.questionSet && context.questionSet.state === context.state
+      ? { ...context.questionSet, state: undefined } : context.questionSet;
+    const payload: ShadowPayload = {
+      v: 1,
+      context: {
+        kind: context.kind, caller: context.caller, state: context.state, staticPick: context.staticPick,
+        staticAnswer: context.staticAnswer, taskId: context.taskId ?? null, questionSet: questionSet as QuestionSet | undefined,
+        // An injected full registry crosses as data; the shipped one and a partial one (no kinds) leave the child on the
+        // shipped registry.
+        adviceRegistry: Array.isArray(registry?.kinds) && !shippedRegistry(registry) ? registry : undefined,
+        lineExtra: context.lineExtra,
+      },
+      model, budgetMs: budget, pickId, roots,
+    };
+    const child = (services.spawn || spawn)(process.execPath, [RUNNER], {
+      detached: true, stdio: ['pipe', 'ignore', 'ignore'], env: context.env || process.env, windowsHide: true,
+    });
+    child.once('error', failed);
+    const stdin = child.stdin;
+    if (!stdin) { failed(); return; }
+    stdin.on('error', () => {});
+    try { (stdin as any)._handle?.setBlocking?.(true); } catch { /* the queued write below still delivers on a normal exit */ }
+    const drop = setTimeout(() => stdin.destroy(), budget);
+    drop.unref();
+    stdin.once('close', () => clearTimeout(drop));
+    stdin.end(JSON.stringify(payload));
+    child.unref();
+  } catch {
+    failed();
   }
 }
 
@@ -286,13 +415,13 @@ async function interceptDecisionPoint(context: DecisionPointContext, services: D
   const budget = budgetMs(context);
   const pickId = newPickId();
 
-  // Shadow: return the static pick now; the detached call records its pick or miss. With record:false nothing could be
+  // Shadow: return the static pick now; the detached child records its pick or miss. With record:false nothing could be
   // kept, so no call is made.
   const shadow = (warning?: string): DecisionPointResolution => {
     if (context.record !== false) {
-      askAdvisor(context, services, model, budget)
-        .then((asked) => recordCall(context, services, 'shadow', asked, pickId, false))
-        .catch(() => {});
+      // No known budget (the registry could not be read) is a call that would time out at once: record that, unasked.
+      if (budget > 0) spawnShadow(context, services, model, budget, pickId);
+      else recordCall(context, services, 'shadow', missCall('timeout', model), pickId, false);
     }
     return { ...unchanged, mode: 'shadow', pickId, ...(warning ? { warning } : {}) };
   };
@@ -328,4 +457,6 @@ async function interceptDecisionPoint(context: DecisionPointContext, services: D
 
 module.exports = {
   interceptDecisionPoint,
+  // For the detached child (shadow-runner.ts) only.
+  askAdvisor, recordCall, missCall,
 };

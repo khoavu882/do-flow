@@ -1,9 +1,9 @@
 'use strict';
 
-// 141 D.3 (IC-007, IC-009, IC-010): the claim-support builders and the shadow hook of `claim --action link`. The advice
-// client is a fake. The hook runs detached after the output is printed, so every case compares what the command printed,
-// its exit status and the claim and evidence files with the kind-off run, and reads the advice store only for what the
-// detached call wrote.
+// 141 D.3 (IC-007, IC-009, IC-010): the claim-support builders and the shadow hook of `claim --action link`. The model is
+// a fake server; the shadow call runs in a detached child (row 174 O-2) that builds its own client from the user
+// settings. Every case compares what the command printed, its exit status and the claim and evidence files with the
+// kind-off run, and reads the advice store only for what the detached call wrote.
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
@@ -19,6 +19,8 @@ const { buildClaimSupportState, claimSupportPayload } = require('../../src/runti
 const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
 const { handleClaimCommand } = require('../../src/runtime/claims.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
+const { startFakeServer, answering } = require('../helper/fake-decision-server.ts');
+const { recordCall } = require('../../src/runtime/advice/shadow-dispatcher.ts');
 
 const STORAGE = loadStorageRegistry({ repoRoot: REPO_ROOT });
 const ADVICE = loadAdviceRegistry({ repoRoot: REPO_ROOT }).registry;
@@ -34,31 +36,27 @@ function registryWith({ budgetMs = 5000 }: any = {}) {
   return registry;
 }
 
-function answeringClient(yes = 0.8) {
-  const calls: any[] = [];
-  return {
-    calls,
-    ask: async (options: any) => {
-      calls.push(options);
-      return {
-        status: 'answered', reason: null, model: 'm',
-        answers: [{ name: 'claim-support', type: 'yesno', pick: yes >= 0.5 ? 'yes' : 'no', strength: { word: 'clear', between: null }, probabilities: { no: 1 - yes, yes }, confidence: yes }],
-      };
-    },
-  };
+/**
+ * Advice on in the user settings against an in-process fake server answering `route` (yes probability 0.8 by default).
+ * `asks()` is every decision request the detached call made, with its body (the state and the question set).
+ */
+async function advised(s: any, route: any = answering(() => 0.8)) {
+  const server: any = await startFakeServer({ routes: { 'POST /v1/systemone': route } });
+  s.t.after(() => server.close());
+  const file = path.join(s.roots['config-home'], 'settings.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ schema: 1, 'advice.enabled': true, 'advice.provider': 'ollama', 'advice.endpoint': server.origin, 'advice.model': 'clef-flash' }));
+  return { server, asks: () => server.requests.filter((r: any) => r.pathname === '/v1/systemone') };
 }
 
-function rejectingClient() {
-  const calls: any[] = [];
-  return { calls, ask: async (options: any) => { calls.push(options); throw new Error('client exploded'); } };
+/** A spawn seam that counts the detached children the hook would start, and starts none. */
+function countingSpawn() {
+  const spawn: any = () => { spawn.count += 1; throw new Error('no child in this case'); };
+  spawn.count = 0;
+  return spawn;
 }
 
-function hangingClient() {
-  const calls: any[] = [];
-  return { calls, ask: (options: any) => { calls.push({ ...options, at: Date.now() }); return new Promise(() => {}); } };
-}
-
-async function waitFor(check: () => any, ms = 2000) {
+async function waitFor(check: () => any, ms = 5000) {
   const until = Date.now() + ms;
   while (Date.now() < until) {
     const value = check();
@@ -189,14 +187,13 @@ describe('claim link: the shadow hook', () => {
     test(`${relation}: output and files equal the kind-off run; one claim-support pick is written with no claim or passage text`, async (t) => {
       const s = setup(t);
       const registry = registryWith();
-      const offClient = answeringClient();
-      const off = await link(s, { relation, services: { adviceRegistry: registry, adviceClient: offClient, shadowConfig: { ...SHADOW, mode: 'off' } } });
-      await tick();
-      assert.equal(offClient.calls.length, 0, 'kind off: no client call');
+      const a = await advised(s);
+      const offSpawn = countingSpawn();
+      const off = await link(s, { relation, services: { adviceRegistry: registry, spawn: offSpawn, shadowConfig: { ...SHADOW, mode: 'off' } } });
+      assert.equal(offSpawn.count, 0, 'kind off: no call');
       assert.deepEqual(s.lines(), [], 'kind off: no file');
 
-      const client = answeringClient(0.8);
-      const on = await link(s, { relation, services: { adviceRegistry: registry, adviceClient: client, shadowConfig: SHADOW } });
+      const on = await link(s, { relation, services: { adviceRegistry: registry, shadowConfig: SHADOW } });
       const line = await waitFor(() => s.lines()[0]);
       assert.equal(on.exit, 0);
       assert.deepEqual(on.out, off.out, 'printed text is byte-identical with the kind on');
@@ -206,15 +203,11 @@ describe('claim link: the shadow hook', () => {
       const printedClaim = JSON.parse(on.out.join('\n'));
       assert.equal(printedClaim.status, relation === 'supports' ? 'supported' : 'rejected');
 
-      assert.equal(client.calls.length, 1);
-      assert.equal(client.calls[0].kind, 'claim-support');
-      assert.equal(client.calls[0].caller, 'claim');
-      assert.equal(client.calls[0].record, false);
-      assert.equal(client.calls[0].staticAnswer, staticPick);
-      assert.equal(client.calls[0].taskId, TASK);
-      const asked = client.calls[0].questionSet;
-      assert.equal(asked.questions.length, 1);
-      assert.equal(asked.questions[0].type, 'yesno');
+      assert.equal(a.asks().length, 1);
+      const asked = a.asks()[0].body;
+      assert.deepEqual(Object.keys(asked.questions), ['claim-support']);
+      assert.equal(asked.questions['claim-support'].type, 'noul', 'a yes/no question');
+      assert.equal(asked.model, 'm');
       assert.match(asked.state, new RegExp(`^claim: The cache TTL is 300 seconds ${SENTINEL_CLAIM}\\npassage: the cache TTL is 300 seconds ${SENTINEL_PASSAGE}$`), 'the model is asked with both texts');
 
       assert.equal(line.type, 'pick');
@@ -244,78 +237,90 @@ describe('claim link: the shadow hook', () => {
   test('the text output of the link command is also identical with the kind on and off', async (t) => {
     const s = setup(t);
     const registry = registryWith();
+    await advised(s);
     const off = await link(s, { json: false, services: { adviceRegistry: registry, shadowConfig: { ...SHADOW, mode: 'off' } } });
-    const on = await link(s, { json: false, services: { adviceRegistry: registry, adviceClient: answeringClient(), shadowConfig: SHADOW } });
+    const on = await link(s, { json: false, services: { adviceRegistry: registry, shadowConfig: SHADOW } });
     assert.deepEqual(on.out, off.out);
     assert.deepEqual(on.files, off.files);
     assert.equal(on.exit, off.exit);
     await waitFor(() => s.lines()[0]);
   });
 
-  test('a rejecting client leaves the output, exit status and files unchanged and records a miss', async (t) => {
+  test('a failing model leaves the output, exit status and files unchanged and records a miss', async (t) => {
     const s = setup(t);
     const registry = registryWith();
+    const a = await advised(s, { status: 500, body: { error: 'down' } });
     const off = await link(s, { services: { adviceRegistry: registry, shadowConfig: { ...SHADOW, mode: 'off' } } });
-    const client = rejectingClient();
-    const on = await link(s, { services: { adviceRegistry: registry, adviceClient: client, shadowConfig: SHADOW } });
+    const on = await link(s, { services: { adviceRegistry: registry, shadowConfig: SHADOW } });
     assert.deepEqual(on.out, off.out);
     assert.equal(on.exit, off.exit);
     assert.deepEqual(on.files, off.files);
     const line = await waitFor(() => s.lines()[0]);
-    assert.equal(client.calls.length, 1);
+    assert.equal(a.asks().length, 1);
     assert.equal(line.type, 'miss');
     assert.equal(line.kind, 'claim-support');
+    assert.equal(line.reason, 'server-error');
     assert.equal(s.storeText().includes(SENTINEL_CLAIM), false);
   });
 
-  test('a client that throws synchronously, or a registry that cannot be read, is swallowed', async (t) => {
+  test('a spawn that throws, or a registry that cannot be read, is swallowed; the failed spawn is a miss with no call', async (t) => {
     const s = setup(t);
     const registry = registryWith();
     const off = await link(s, { services: { adviceRegistry: registry, shadowConfig: { ...SHADOW, mode: 'off' } } });
-    const throwing = { ask: () => { throw new Error('sync boom'); } };
-    for (const services of [{ adviceRegistry: registry, adviceClient: throwing, shadowConfig: SHADOW }, { adviceRegistry: { kinds: 'broken' }, shadowConfig: SHADOW }, { adviceRegistry: { kinds: [{ id: 'claim-support', params: null }] }, shadowConfig: SHADOW }]) {
+    const spawn = countingSpawn();
+    for (const services of [{ adviceRegistry: registry, spawn, shadowConfig: SHADOW }, { adviceRegistry: { kinds: 'broken' }, shadowConfig: SHADOW }, { adviceRegistry: { kinds: [{ id: 'claim-support', params: null }] }, shadowConfig: SHADOW }]) {
       const on = await link(s, { services });
       assert.deepEqual(on.out, off.out);
       assert.equal(on.exit, off.exit);
       assert.deepEqual(on.files, off.files);
     }
+    assert.equal(spawn.count, 1);
+    assert.deepEqual(s.lines().map((line: any) => [line.type, line.kind, line.reason, line.mode]), [['miss', 'claim-support', 'spawn-failed', 'shadow']]);
   });
 
-  test('a hanging client: the handler returns first, the call is aborted at budgetMs and recorded as a timeout', async (t) => {
+  test('a stalled model: the handler returns first, the call is dropped at budgetMs and recorded as a timeout', async (t) => {
     const s = setup(t);
     const registry = registryWith({ budgetMs: 120 });
-    const client = hangingClient();
+    const a = await advised(s, { stall: true });
     const startedAt = Date.now();
-    const on = await link(s, { services: { adviceRegistry: registry, adviceClient: client, shadowConfig: SHADOW } });
+    const on = await link(s, { services: { adviceRegistry: registry, shadowConfig: SHADOW } });
     const returnedAt = Date.now();
     assert.equal(on.exit, 0);
     assert.ok(returnedAt - startedAt < 120, `the handler did not wait for the call (${returnedAt - startedAt} ms)`);
-    assert.equal(client.calls.length, 1);
-    assert.equal(client.calls[0].signal.aborted, false, 'the call is still running when the handler returns');
-    await waitFor(() => client.calls[0].signal.aborted, 1500);
-    assert.equal(client.calls[0].signal.aborted, true);
+    assert.equal(a.asks().length, 0, 'the call has not even started when the handler returns');
     const line = await waitFor(() => s.lines()[0]);
+    assert.equal(a.asks().length, 1, 'the detached call reached the stalled model');
     assert.equal(line.type, 'miss');
     assert.equal(line.reason, 'timeout');
+    assert.ok(line.durationMs >= 100 && line.durationMs < 1000, `the call ran ${line.durationMs}ms against a 120 ms budget`);
   });
 
-  test('an unreadable reply (not a yes/no answer) is recorded as a malformed-reply miss', async (t) => {
+  test('an unreadable reply is recorded as a malformed-reply miss', async (t) => {
     const s = setup(t);
-    const client = { calls: [] as any[], ask: async () => ({ status: 'answered', model: 'm', answers: [{ name: 'claim-support', type: 'choice', pick: 'yes', probabilities: {} }] }) };
-    await link(s, { services: { adviceRegistry: registryWith(), adviceClient: client, shadowConfig: SHADOW } });
+    await advised(s, { status: 200, body: { answers: { 'claim-support': { choice: 'yes' } } } });
+    await link(s, { services: { adviceRegistry: registryWith(), shadowConfig: SHADOW } });
     const line = await waitFor(() => s.lines()[0]);
     assert.equal(line.type, 'miss');
     assert.equal(line.reason, 'malformed-reply');
   });
 
+  test('an answered call that is not a yes/no answer is recorded as a malformed-reply miss, never a pick', (t) => {
+    const s = setup(t);
+    const answer = { name: 'claim-support', type: 'choice', pick: 'yes', probabilities: {}, model: 'm' };
+    const call = { status: 'answered', pick: 'yes', answer, answers: [answer], reason: null, provider: 'ollama', model: 'm', durationMs: 5 };
+    const context = { kind: 'claim-support', caller: 'claim', state: 'claim: c\npassage: p', staticPick: 'yes', lineExtra: { claimSupport: { claimId: 'c1' } } };
+    recordCall(context, { roots: s.roots }, 'shadow', call, 'adv-1700000000000-abcdef', false);
+    assert.deepEqual(s.lines().map((line: any) => [line.type, line.reason]), [['miss', 'malformed-reply']]);
+  });
+
   test('act is held at shadow: the bench gate is never consulted and the line says shadow', async (t) => {
     const s = setup(t);
     const registry = registryWith();
+    await advised(s);
     const off = await link(s, { services: { adviceRegistry: registry, shadowConfig: { ...SHADOW, mode: 'off' } } });
-    const client = answeringClient();
     let gateCalls = 0;
     const benchGate = () => { gateCalls += 1; return { passed: true }; };
-    const on = await link(s, { services: { adviceRegistry: registry, adviceClient: client, benchGate, shadowConfig: { ...SHADOW, mode: 'act' } } });
+    const on = await link(s, { services: { adviceRegistry: registry, benchGate, shadowConfig: { ...SHADOW, mode: 'act' } } });
     const line = await waitFor(() => s.lines()[0]);
     assert.equal(gateCalls, 0);
     assert.equal(line.mode, 'shadow');
@@ -328,48 +333,47 @@ describe('claim link: the shadow hook', () => {
 
   test('a long passage is cut to its byte cap and the line says truncated', async (t) => {
     const s = setup(t, { passage: `${'wide '.repeat(1000)}${SENTINEL_PASSAGE}` });
-    const client = answeringClient();
-    await link(s, { services: { adviceRegistry: registryWith(), adviceClient: client, shadowConfig: SHADOW } });
+    const a = await advised(s);
+    await link(s, { services: { adviceRegistry: registryWith(), shadowConfig: SHADOW } });
     const line = await waitFor(() => s.lines()[0]);
     assert.equal(line.claimSupport.truncated, true);
     assert.equal(line.claimSupport.passageBytes, 2048);
-    assert.equal(client.calls[0].questionSet.state.includes(SENTINEL_PASSAGE), false, 'the cut passage no longer reaches the sentinel at its end');
+    assert.equal(a.asks()[0].body.state.includes(SENTINEL_PASSAGE), false, 'the cut passage no longer reaches the sentinel at its end');
   });
 
   describe('skipped: no call and no file', () => {
     test('relation refutes (the link itself is refused) and any other action', async (t) => {
       const s = setup(t);
-      const client = answeringClient();
-      const services = { adviceRegistry: registryWith(), adviceClient: client, shadowConfig: SHADOW };
+      const spawn = countingSpawn();
+      const services = { adviceRegistry: registryWith(), spawn, shadowConfig: SHADOW };
       const refuted = await link(s, { relation: 'refutes', services });
       assert.notEqual(refuted.exit, 0, 'an unknown relation is refused as before');
       await link(s, { action: 'list', services });
-      await tick();
-      assert.equal(client.calls.length, 0);
+      assert.equal(spawn.count, 0);
       assert.deepEqual(s.lines(), []);
     });
 
     test('the hook function skips a relation other than supports or contradicts', async (t) => {
       const s = setup(t);
-      const client = answeringClient();
+      const spawn = countingSpawn();
       const { fireShadowClaimSupport } = require('../../src/runtime/claims.ts');
       fireShadowClaimSupport({
         taskId: TASK, claimId: 'c1', evidenceId: 'e1', relation: 'refutes', claimStatus: 'supported', claim: 'c', passage: 'p',
-        projectRoot: s.projectRoot, env: s.env, services: { roots: s.roots, adviceRegistry: registryWith(), adviceClient: client, shadowConfig: SHADOW },
+        projectRoot: s.projectRoot, env: s.env, services: { roots: s.roots, adviceRegistry: registryWith(), spawn, shadowConfig: SHADOW },
       });
       await tick();
-      assert.equal(client.calls.length, 0);
+      assert.equal(spawn.count, 0);
       assert.deepEqual(s.lines(), []);
     });
 
     test('an evidence item with no text', async (t) => {
       const s = setup(t);
-      const client = answeringClient();
+      const spawn = countingSpawn();
       const registry = registryWith();
       const off = await link(s, { evidence: s.noText, services: { adviceRegistry: registry, shadowConfig: { ...SHADOW, mode: 'off' } } });
-      const on = await link(s, { evidence: s.noText, services: { adviceRegistry: registry, adviceClient: client, shadowConfig: SHADOW } });
+      const on = await link(s, { evidence: s.noText, services: { adviceRegistry: registry, spawn, shadowConfig: SHADOW } });
       await tick();
-      assert.equal(client.calls.length, 0);
+      assert.equal(spawn.count, 0);
       assert.deepEqual(s.lines(), []);
       assert.deepEqual(on.out, off.out);
       assert.deepEqual(on.files, off.files);
@@ -377,21 +381,21 @@ describe('claim link: the shadow hook', () => {
 
     test('no project root given (every existing caller)', async (t) => {
       const s = setup(t);
-      const client = answeringClient();
-      const run = await link(s, { projectRoot: null, services: { adviceRegistry: registryWith(), adviceClient: client, shadowConfig: SHADOW } });
+      const spawn = countingSpawn();
+      const run = await link(s, { projectRoot: null, services: { adviceRegistry: registryWith(), spawn, shadowConfig: SHADOW } });
       await tick();
       assert.equal(run.exit, 0);
-      assert.equal(client.calls.length, 0);
+      assert.equal(spawn.count, 0);
       assert.deepEqual(s.lines(), []);
     });
 
     test('advice off in the project settings (no injected config): no call and no file', async (t) => {
       const s = setup(t);
-      const client = answeringClient();
-      const run = await link(s, { services: { adviceRegistry: registryWith(), adviceClient: client } });
+      const spawn = countingSpawn();
+      const run = await link(s, { services: { adviceRegistry: registryWith(), spawn } });
       await tick();
       assert.equal(run.exit, 0);
-      assert.equal(client.calls.length, 0);
+      assert.equal(spawn.count, 0);
       assert.deepEqual(s.lines(), []);
     });
   });

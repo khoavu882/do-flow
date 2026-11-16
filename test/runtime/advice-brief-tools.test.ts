@@ -150,6 +150,13 @@ function pickRecords(f: any) {
   return fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim().split('\n').map((line: any) => JSON.parse(line)) : [];
 }
 
+/** The pick records once the detached shadow call (row 174 O-2) has written one, or after 5 s. */
+async function settledPickRecords(f: any) {
+  const until = Date.now() + 5000;
+  while (Date.now() < until && pickRecords(f).length === 0) await new Promise((resolve) => setTimeout(resolve, 10));
+  return pickRecords(f);
+}
+
 /** Runs the verb in-process with a counting client; `settings` goes into the project first. */
 async function invokeCounted(f: any, { settings, env, tier = 'frontier', reply }: any = {}) {
   fs.mkdirSync(path.join(f.project, '.doflow', 'state'), { recursive: true });
@@ -215,7 +222,7 @@ test('084 H2: advice.kinds.tier shadow leaves the block unchanged and records a 
   const actual = answer(f.run(['--tasks', 'A.1']).stdout);
   assert.equal(actual.markdown, baseline.markdown);
   assert.deepEqual(actual.record.advice, { kind: 'tier', status: 'shadow', reason: null });
-  assert.deepEqual(pickRecords(f).map(({ type, mode, caller, static: s, pick, model }: any) => ({ type, mode, caller, static: s, pick, model })),
+  assert.deepEqual((await settledPickRecords(f)).map(({ type, mode, caller, static: s, pick, model }: any) => ({ type, mode, caller, static: s, pick, model })),
     [{ type: 'pick', mode: 'shadow', caller: 'brief-tools', static: 'frontier', pick: 'light', model: 'clef-flash' }]);
 });
 
@@ -230,7 +237,7 @@ test('084 H2: advice.kinds.tier act without a passed bench bar falls back to sha
   assert.equal(actual.markdown, baseline.markdown);
   assert.equal(actual.record.advice.status, 'shadow');
   assert.match(actual.record.advice.reason, /^BENCH_BAR_UNMET: /);
-  assert.deepEqual(pickRecords(f).map(({ type, mode, pick, model }: any) => ({ type, mode, pick, model })),
+  assert.deepEqual((await settledPickRecords(f)).map(({ type, mode, pick, model }: any) => ({ type, mode, pick, model })),
     [{ type: 'pick', mode: 'shadow', pick: 'light', model: 'clef-flash' }]);
 });
 
@@ -247,7 +254,7 @@ test('084 D3: advice.kinds.tier act with a passing bench file in the project sti
   assert.doesNotMatch(actual.markdown, /Decision model:/);
   assert.equal(actual.record.advice.status, 'shadow');
   assert.match(actual.record.advice.reason, /^BENCH_BAR_UNMET: /);
-  assert.deepEqual(pickRecords(f).map(({ type, mode, pick, model }: any) => ({ type, mode, pick, model })),
+  assert.deepEqual((await settledPickRecords(f)).map(({ type, mode, pick, model }: any) => ({ type, mode, pick, model })),
     [{ type: 'pick', mode: 'shadow', pick: 'light', model: 'clef-flash' }]);
 });
 

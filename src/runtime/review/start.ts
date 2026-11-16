@@ -517,8 +517,9 @@ async function handleReviewStart({ slug, base, preset, json = false, cwd, env, r
     const decided = resolveProtocol({ ...facts, advicePick: null });
     if (!decided.ok) return refuseResolution(decided.reason);
     const advice = await askAdvice({ decision: { depth: decided.protocol.depth, scope }, risk: result.risk, taskClass, slug: resolvedSlug, files: paths ? paths.length : null, cwd, env, adviceClient });
-    // The advice await can take a while: what the precondition and the risk were read from must still stand.
-    if (seen && advice.status !== 'off') {
+    // An awaited advice call can take a while: what the precondition and the risk were read from must still stand. An
+    // off or shadow result made no wait on the model (shadow runs detached), so there is nothing to re-read.
+    if (seen && advice.status !== 'off' && advice.status !== 'shadow') {
       const now = readHeadState(cwd, env);
       const records = parseRecordLines(verificationRunRecordFile(verificationRunsRoot(cwd), verifyId as string));
       if (now.head !== seen.head || now.clean !== seen.clean || 'error' in records || records.text !== seen.text) {

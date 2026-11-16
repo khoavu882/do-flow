@@ -380,12 +380,12 @@ class ClaimsManager {
 
 /**
  * Shadow claim-support hook (141 IC-010). Called after `claim --action link` has saved and printed. It asks the advisor,
- * detached and unawaited, whether `passage` fully supports `claim`, with the recorded relation as the static answer, and
- * records the reply as a `claim-support` pick. It reads only what it is handed: it never writes the claims file or the
- * evidence ledger, never changes a claim, and catches every error, so the command's output, exit status and stored files
- * equal the kind-off run. Skipped when no `projectRoot` is given, the relation is not `supports` or `contradicts`, the
+ * in a detached child process, whether `passage` fully supports `claim`, with the recorded relation as the static
+ * answer, and records the reply as a `claim-support` pick. It reads only what it is handed: it never writes the claims
+ * file or the evidence ledger, never changes a claim, and catches every error, so the command's output, exit status and
+ * stored files equal the kind-off run. Skipped when no `projectRoot` is given, the relation is not `supports` or `contradicts`, the
  * claim or passage has no text, or the kind is off (which includes advice off). `services` is the dispatcher's test seam
- * (`adviceClient`, `shadowConfig`, `roots`, `fsImpl`, `adviceRegistry`).
+ * (`shadowConfig`, `roots`, `fsImpl`, `adviceRegistry`); the child builds its own advice client from the settings.
  */
 function fireShadowClaimSupport({ taskId, claimId, evidenceId, relation, claimStatus, claim, passage, projectRoot, env, services }: any = {}): void {
   try {
@@ -413,15 +413,10 @@ function fireShadowClaimSupport({ taskId, claimId, evidenceId, relation, claimSt
       claimId, evidenceId, relation, claimStatus, claimBytes: built.claimBytes, passageBytes: built.passageBytes, truncated: built.truncated,
     });
     if (!payload) return;
-    // The model's answer is on the pick line (`probabilities.yes`); a reply that is not a readable yes/no answer is a miss.
-    const describe = (call: any) => {
-      const yes = call?.answer?.probabilities?.yes;
-      if (call?.answer?.type !== 'yesno' || typeof yes !== 'number' || !Number.isFinite(yes)) return null;
-      return { extra: { claimSupport: payload } };
-    };
+    // The payload crosses into the detached shadow child as data; the child checks the reply is a readable yes/no answer.
     interceptDecisionPoint({
       kind: 'claim-support', caller: 'claim', state: built.state, staticPick: relation === 'supports' ? 'yes' : 'no',
-      questionSet: { state: built.state, questions: [question.question] }, adviceRegistry, budgetMs: kind.budgetMs, describe,
+      questionSet: { state: built.state, questions: [question.question] }, adviceRegistry, lineExtra: { claimSupport: payload },
       projectRoot, env: environment, taskId,
     }, { ...withAdviceServices({ svc, adviceRegistry, projectRoot, env: environment }), shadowConfig }).catch(() => {});
   } catch { /* advice is advisory: nothing here may change a claim or its output */ }

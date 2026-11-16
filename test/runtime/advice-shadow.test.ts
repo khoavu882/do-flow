@@ -11,6 +11,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { suiteTempDir, tempDir } = require('../helper/tmp.ts');
 const { createScratch } = require('../helper/scratch-env.ts');
+const { startFakeServer, answering } = require('../helper/fake-decision-server.ts');
 const { loadStorageRegistry } = require('../../src/runtime/storage/registry.ts');
 const { resolveRoots } = require('../../src/runtime/storage/roots.ts');
 const { readWindow } = require('../../src/runtime/advice/record.ts');
@@ -26,6 +27,7 @@ const {
 
 const {
   interceptDecisionPoint,
+  askAdvisor,
 } = require('../../src/runtime/advice/shadow-dispatcher.ts');
 
 const STORAGE = loadStorageRegistry({ repoRoot: REPO_ROOT });
@@ -324,7 +326,20 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
     };
   }
 
-  async function waitFor(check: () => any, ms = 1000) {
+  /**
+   * Turns advice on in the store's user settings against an in-process fake server answering `route` (or the fake's
+   * default). A shadow call runs in a detached child that builds its own client from these settings (row 174 O-2).
+   */
+  async function advised(t: any, s: any, route?: any) {
+    const server: any = await startFakeServer(route ? { routes: { 'POST /v1/systemone': route } } : {});
+    t.after(() => server.close());
+    const file = path.join(s.roots['config-home'], 'settings.json');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ schema: 1, 'advice.enabled': true, 'advice.provider': 'ollama', 'advice.endpoint': server.origin, 'advice.model': 'clef-flash' }));
+    return { server, asks: () => server.requests.filter((r: any) => r.pathname === '/v1/systemone') };
+  }
+
+  async function waitFor(check: () => any, ms = 5000) {
     const until = Date.now() + ms;
     while (Date.now() < until) {
       const value = check();
@@ -355,9 +370,9 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
 
   test('mode shadow returns staticPick at once and records the advisor pick through record.ts', async (t) => {
     const s = store(t);
-    const c = client((options: any) => answered('frontier', options.model));
+    const a = await advised(t, s, answering(() => 'frontier'));
     const res = await interceptDecisionPoint(ctx(s), {
-      adviceClient: c, roots: s.roots, shadowConfig: { kind: 'tier', mode: 'shadow', model: 'qwen2.5-coder:1.5b' },
+      roots: s.roots, shadowConfig: { kind: 'tier', mode: 'shadow', model: 'qwen2.5-coder:1.5b' },
     });
     assert.equal(res.effectiveDecision, 'light');
     assert.equal(res.mode, 'shadow');
@@ -365,7 +380,9 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
     assert.equal(res.advisorPick, null, 'shadow never shows the pick');
     assert.match(res.pickId, /^adv-[0-9]{13}-[0-9a-f]{6}$/);
     const lines = await waitFor(() => s.lines().length && s.lines());
-    assert.equal(c.calls.length, 1);
+    assert.equal(a.asks().length, 1);
+    assert.equal(a.asks()[0].body.model, 'qwen2.5-coder:1.5b', 'the child asks the effective model');
+    assert.equal(a.asks()[0].body.state, QUESTION_SET.state, 'the state reaches the model whole');
     assert.equal(lines.length, 1);
     const [line] = lines;
     assert.equal(line.type, 'pick');
@@ -399,16 +416,16 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
 
   test('mode act degrades to shadow with BENCH_BAR_UNMET, and the shadow query runs and records', async (t) => {
     const s = store(t);
-    const c = client((options: any) => answered('frontier', options.model));
+    const a = await advised(t, s, answering(() => 'frontier'));
     const res = await interceptDecisionPoint(ctx(s), {
-      adviceClient: c, roots: s.roots, benchGate: failGate, shadowConfig: { kind: 'tier', mode: 'act', model: 'unverified-weak-model:0.5b' },
+      roots: s.roots, benchGate: failGate, shadowConfig: { kind: 'tier', mode: 'act', model: 'unverified-weak-model:0.5b' },
     });
     assert.equal(res.mode, 'shadow', 'mode must degrade to shadow when bench bar fails');
     assert.equal(res.effectiveDecision, 'light', 'effective decision remains staticPick on degradation');
     assert.equal(res.advisorPick, null);
     assert.equal(res.warning, 'BENCH_BAR_UNMET: injected failure');
     const lines = await waitFor(() => s.lines().length && s.lines());
-    assert.equal(c.calls.length, 1, 'the degraded shadow query ran');
+    assert.equal(a.asks().length, 1, 'the degraded shadow query ran');
     assert.equal(lines.length, 1);
     assert.equal(lines[0].mode, 'shadow');
     assert.equal(lines[0].pick, 'frontier');
@@ -467,13 +484,13 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
 
   test('C-4: an unavailable advisor in shadow mode records one miss with its reason and no pick', async (t) => {
     const s = store(t);
-    const c = client({ status: 'unavailable', reason: 'timeout', model: 'm', answers: [] });
-    await interceptDecisionPoint(ctx(s), { adviceClient: c, roots: s.roots, shadowConfig: { kind: 'tier', mode: 'shadow', model: 'm' } });
+    await advised(t, s, { status: 500, body: { error: 'down' } });
+    await interceptDecisionPoint(ctx(s), { roots: s.roots, shadowConfig: { kind: 'tier', mode: 'shadow', model: 'm' } });
     const lines = await waitFor(() => s.lines().length && s.lines());
     assert.equal(lines.filter((line: any) => line.type === 'miss').length, 1);
     assert.equal(lines.filter((line: any) => line.type === 'pick').length, 0);
     const [miss] = lines;
-    assert.equal(miss.reason, 'timeout');
+    assert.equal(miss.reason, 'server-error');
     assert.equal(miss.kind, 'tier');
     assert.equal(miss.caller, 'brief-tools');
     assert.equal(miss.mode, 'shadow');
@@ -482,25 +499,28 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
 
   test('C-4: a malformed answer and a throwing client record a miss, never a pick', async (t) => {
     const s = store(t);
-    const malformed = client({ status: 'answered', model: 'm', answers: [{ name: 'tier' }] });
-    await interceptDecisionPoint(ctx(s), { adviceClient: malformed, roots: s.roots, shadowConfig: { kind: 'tier', mode: 'shadow', model: 'm' } });
+    await advised(t, s, { status: 200, body: { answers: { tier: { choice: 'light' } } } });
+    await interceptDecisionPoint(ctx(s), { roots: s.roots, shadowConfig: { kind: 'tier', mode: 'shadow', model: 'm' } });
+    await waitFor(() => s.lines().length);
     const throwing = { ask: async () => { throw new Error('boom'); } };
-    await interceptDecisionPoint(ctx(s), { adviceClient: throwing, roots: s.roots, shadowConfig: { kind: 'tier', mode: 'shadow', model: 'm' } });
+    await interceptDecisionPoint(ctx(s), { adviceClient: throwing, roots: s.roots, benchGate: passGate, shadowConfig: { kind: 'tier', mode: 'act', model: 'm' } });
     const lines = await waitFor(() => s.lines().length >= 2 && s.lines());
-    assert.deepEqual(lines.map((line: any) => [line.type, line.reason]), [['miss', 'malformed-reply'], ['miss', 'config-invalid']]);
+    assert.deepEqual(lines.map((line: any) => [line.type, line.mode, line.reason]), [['miss', 'shadow', 'malformed-reply'], ['miss', 'act', 'config-invalid']]);
   });
 
   test('shadow with record:false asks nothing and writes nothing, also when act degrades', async (t) => {
     const s = store(t);
     const c = client(answered('frontier'));
-    const shadow = await interceptDecisionPoint(ctx(s, { record: false }), { adviceClient: c, roots: s.roots, shadowConfig: { kind: 'tier', mode: 'shadow', model: 'm' } });
+    let spawned = 0;
+    const spawn = () => { spawned += 1; throw new Error('no child may start'); };
+    const shadow = await interceptDecisionPoint(ctx(s, { record: false }), { adviceClient: c, roots: s.roots, spawn, shadowConfig: { kind: 'tier', mode: 'shadow', model: 'm' } });
     const degraded = await interceptDecisionPoint(ctx(s, { record: false }), {
-      adviceClient: c, roots: s.roots, benchGate: failGate, shadowConfig: { kind: 'tier', mode: 'act', model: 'm' },
+      adviceClient: c, roots: s.roots, spawn, benchGate: failGate, shadowConfig: { kind: 'tier', mode: 'act', model: 'm' },
     });
     assert.deepEqual([shadow.mode, degraded.mode, shadow.effectiveDecision, degraded.effectiveDecision], ['shadow', 'shadow', 'light', 'light']);
     assert.match(degraded.warning, /^BENCH_BAR_UNMET: /);
-    await new Promise((resolve) => setTimeout(resolve, 30));
-    assert.equal(c.calls.length, 0, 'a shadow call that records nothing is pure spend');
+    assert.equal(spawned, 0, 'a shadow call that records nothing is pure spend: no child starts');
+    assert.equal(c.calls.length, 0);
     assert.deepEqual(s.lines(), []);
   });
 
@@ -508,10 +528,10 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
     const s = store(t);
     fs.mkdirSync(path.join(s.projectRoot, '.doflow'));
     fs.writeFileSync(path.join(s.projectRoot, '.doflow', 'settings.json'), JSON.stringify({ rollout: { profile: 'staged' } }));
-    const c = client((options: any) => answered('standard', options.model));
+    await advised(t, s, answering(() => 'standard'));
     let gated = 0;
     const res = await interceptDecisionPoint(ctx(s), {
-      adviceClient: c, roots: s.roots, shadowConfig: { kind: 'tier', mode: 'act', model: 'm' },
+      roots: s.roots, shadowConfig: { kind: 'tier', mode: 'act', model: 'm' },
       benchGate: async () => { gated += 1; return { passed: true, reason: 'injected' }; },
     });
     assert.equal(res.mode, 'shadow');
@@ -541,8 +561,9 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
     fs.mkdirSync(projectRoot);
     const env = scratch.env();
     const roots = resolveRoots({ registry: STORAGE, projectRoot, env });
+    await advised(t, { roots }, answering(() => 'frontier'));
     const res = await interceptDecisionPoint(ctx({ projectRoot, env }), {
-      adviceClient: client(answered('frontier')), roots, shadowConfig: { kind: 'tier', mode: 'shadow', model: 'm' },
+      roots, shadowConfig: { kind: 'tier', mode: 'shadow', model: 'm' },
     });
     await waitFor(() => readWindow({ roots }).records.length);
     const run = spawnSync(bashPath(), [path.join(REPO_ROOT, 'core/shared/scripts/doflow/bin/doflow-run'), 'advise',
@@ -559,14 +580,14 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
     const picks = path.join(s.roots['project-state'], 'advice', 'picks');
     fs.mkdirSync(path.dirname(picks), { recursive: true });
     fs.symlinkSync(outside, picks);
-    const c = client(answered('frontier'));
-    await interceptDecisionPoint(ctx(s), { adviceClient: c, roots: s.roots, shadowConfig: { kind: 'tier', mode: 'shadow', model: 'm' } });
-    await interceptDecisionPoint(ctx(s), {
-      adviceClient: client({ status: 'unavailable', reason: 'timeout', answers: [] }), roots: s.roots,
-      shadowConfig: { kind: 'tier', mode: 'shadow', model: 'm' },
-    });
-    await waitFor(() => c.calls.length);
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    let replies = 0;
+    const a = await advised(t, s, (request: any) => { replies += 1; return replies === 1 ? answering(() => 'frontier')(request) : { status: 500, body: {} }; });
+    const slots = path.join(s.roots['user-state'], 'advice', 'shadow-slots');
+    for (let index = 0; index < 2; index += 1) {
+      await interceptDecisionPoint(ctx(s), { roots: s.roots, shadowConfig: { kind: 'tier', mode: 'shadow', model: 'm' } });
+      // Each child has asked and released its slot, so it has written whatever it was going to write.
+      assert.ok(await waitFor(() => a.asks().length === index + 1 && fs.existsSync(slots) && fs.readdirSync(slots).length === 0), `child ${index + 1} finished`);
+    }
     assert.deepEqual(fs.readdirSync(outside), []);
   });
 
@@ -575,7 +596,7 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
     const never = { ask: () => new Promise(() => {}) };
     const started = Date.now();
     const res: any = await Promise.race([
-      interceptDecisionPoint(ctx(s, { adviceRegistry: { timeoutMs: 50 } }), {
+      interceptDecisionPoint(ctx(s, { budgetMs: 50 }), {
         adviceClient: never, roots: s.roots, benchGate: passGate, shadowConfig: { kind: 'tier', mode: 'act', model: 'm' },
       }),
       new Promise((_resolve, reject) => setTimeout(() => reject(new Error('the dispatcher did not return within its budget')), 1500)),
@@ -586,59 +607,36 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
     assert.deepEqual(s.lines().map((line: any) => [line.type, line.reason]), [['miss', 'timeout']]);
   });
 
-  test('C-11: a never-resolving client in shadow mode records a timeout miss once the budget ends', async (t) => {
+  test('C-11: a stalled model in shadow mode records a timeout miss once the budget ends', async (t) => {
     const s = store(t);
+    await advised(t, s, { stall: true });
     const started = Date.now();
-    const res = await interceptDecisionPoint(ctx(s, { adviceRegistry: { timeoutMs: 300 } }), {
-      adviceClient: { ask: () => new Promise(() => {}) }, roots: s.roots, shadowConfig: { kind: 'tier', mode: 'shadow', model: 'm' },
+    const res = await interceptDecisionPoint(ctx(s, { budgetMs: 300 }), {
+      roots: s.roots, shadowConfig: { kind: 'tier', mode: 'shadow', model: 'm' },
     });
     assert.ok(Date.now() - started < 300, 'shadow returns before the budget');
     assert.equal(res.effectiveDecision, 'light');
-    const lines = await waitFor(() => s.lines().length && s.lines(), 2000);
+    const lines = await waitFor(() => s.lines().length && s.lines());
     assert.deepEqual(lines.map((line: any) => [line.type, line.reason]), [['miss', 'timeout']]);
   });
 
-  test('C-11: a pending shadow query does not hold the process open', (t) => {
-    const s = store(t);
-    const script = `
-      const { interceptDecisionPoint } = require(${JSON.stringify(DISPATCHER)});
-      interceptDecisionPoint({ kind: 'tier', caller: 'brief-tools', state: 's', staticPick: 'light',
-        questionSet: { state: 's', questions: [] }, adviceRegistry: { timeoutMs: 20000 },
-        projectRoot: ${JSON.stringify(s.projectRoot)}, env: ${JSON.stringify(s.env)} },
-        { adviceClient: { ask: () => new Promise(() => {}) }, shadowConfig: { kind: 'tier', mode: 'shadow', model: 'm' } })
-        .then((res) => console.log(res.mode));`;
-    const started = Date.now();
-    const run = spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 15000 });
-    assert.equal(run.status, 0, run.stderr);
-    assert.equal(run.stdout.trim(), 'shadow');
-    assert.ok(Date.now() - started < 10000, `the process stayed open for ${Date.now() - started}ms`);
-  });
-
   /**
-   * Runs one shadow decision in a child process through a real advice client (budget 60000 ms) with a dispatcher
-   * budget of 300 ms, against `endpoint`; `lookupSource`, when given, is the client's DNS lookup as source text.
+   * Runs one shadow decision in a child process with a call budget of 300 ms against `endpoint`, and returns how long
+   * that process took to exit. The call itself runs in the detached grandchild, which records its miss on its own.
    */
-  async function shadowChild(s: any, endpoint: string, lookupSource?: string) {
+  async function shadowChild(s: any, endpoint: string) {
     const settingFile = path.join(s.roots['config-home'], 'settings.json');
     fs.mkdirSync(path.dirname(settingFile), { recursive: true });
     fs.writeFileSync(settingFile, JSON.stringify({ schema: 1, 'advice.enabled': true, 'advice.provider': 'ollama', 'advice.endpoint': endpoint, 'advice.model': 'clef-flash' }));
     const script = `
       const { interceptDecisionPoint } = require(${JSON.stringify(DISPATCHER)});
-      const { createAdviceClient } = require(${JSON.stringify(path.join(REPO_ROOT, 'src/runtime/advice/client.ts'))});
-      const { loadAdviceRegistry } = require(${JSON.stringify(path.join(REPO_ROOT, 'src/runtime/advice/registry.ts'))});
-      const { loadStorageRegistry } = require(${JSON.stringify(path.join(REPO_ROOT, 'src/runtime/storage/registry.ts'))});
-      const { resolveRoots } = require(${JSON.stringify(path.join(REPO_ROOT, 'src/runtime/storage/roots.ts'))});
-      const repoRoot = ${JSON.stringify(REPO_ROOT)};
-      const roots = resolveRoots({ registry: loadStorageRegistry({ repoRoot }), projectRoot: ${JSON.stringify(s.projectRoot)}, env: ${JSON.stringify(s.env)} });
-      const adviceRegistry = { ...loadAdviceRegistry({ repoRoot }).registry, timeoutMs: 60000 };
-      const adviceClient = createAdviceClient({ adviceRegistry, roots${lookupSource ? `, lookup: ${lookupSource}` : ''} });
       interceptDecisionPoint({ kind: 'tier', caller: 'brief-tools', state: ${JSON.stringify(QUESTION_SET.state)}, staticPick: 'light',
-        questionSet: ${JSON.stringify(QUESTION_SET)}, adviceRegistry: { timeoutMs: 300 },
+        questionSet: ${JSON.stringify(QUESTION_SET)}, budgetMs: 300,
         projectRoot: ${JSON.stringify(s.projectRoot)}, env: ${JSON.stringify(s.env)} },
-        { adviceClient, roots, shadowConfig: { kind: 'tier', mode: 'shadow', model: 'm' } })
+        { roots: ${JSON.stringify(s.roots)}, shadowConfig: { kind: 'tier', mode: 'shadow', model: 'm' } })
         .then((res) => console.log(res.mode));`;
     const started = Date.now();
-    const child = require('node:child_process').spawn(process.execPath, ['-e', script], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = require('node:child_process').spawn(process.execPath, ['-e', script], { stdio: ['ignore', 'pipe', 'pipe'], env: s.env });
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (chunk: any) => { stdout += chunk; });
@@ -649,7 +647,7 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
     return { elapsed: Date.now() - started, code, stdout, stderr };
   }
 
-  test('C-11: the dispatcher budget aborts the real client request, so a stalled server does not hold the process open', async (t) => {
+  test('C-11: a stalled server holds neither the command process nor the detached call past its budget', async (t) => {
     const s = store(t);
     const sockets = new Set<any>();
     const server = require('node:http').createServer(() => { /* accept and never answer */ });
@@ -660,21 +658,33 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
     assert.ok(elapsed < 10000, `the process stayed open for ${elapsed}ms`);
     assert.equal(code, 0, stderr);
     assert.equal(stdout.trim(), 'shadow');
-    assert.equal(sockets.size, 1, 'the client reached the stalled server');
-    assert.deepEqual(s.lines().map((line: any) => [line.type, line.reason]), [['miss', 'timeout']]);
+    const lines = await waitFor(() => s.lines().length && s.lines());
+    assert.deepEqual(lines.map((line: any) => [line.type, line.reason]), [['miss', 'timeout']]);
+    assert.equal(sockets.size, 1, 'the detached call reached the stalled server');
+    assert.ok(await waitFor(() => [...sockets].every((socket: any) => socket.destroyed)), 'the detached call dropped its request at the budget');
   });
 
-  test('C-11: the dispatcher budget aborts the real client DNS validation, so a stalled lookup does not hold the process open', async (t) => {
+  test('C-11: the budget aborts the real client DNS validation of an act call, so a stalled lookup does not hold it', async (t) => {
     const s = store(t);
-    const { elapsed, code, stdout, stderr } = await shadowChild(s, 'http://localhost:11434', '() => { /* never answers */ }');
-    assert.ok(elapsed < 10000, `the process stayed open for ${elapsed}ms`);
-    assert.equal(code, 0, stderr);
-    assert.equal(stdout.trim(), 'shadow');
-    assert.deepEqual(s.lines().map((line: any) => [line.type, line.reason]), [['miss', 'timeout']]);
+    const { createAdviceClient } = require('../../src/runtime/advice/client.ts');
+    const { loadAdviceRegistry } = require('../../src/runtime/advice/registry.ts');
+    const settingFile = path.join(s.roots['config-home'], 'settings.json');
+    fs.mkdirSync(path.dirname(settingFile), { recursive: true });
+    // A name, so the endpoint guard resolves it through the lookup below, which never answers: no connection is made.
+    fs.writeFileSync(settingFile, JSON.stringify({ schema: 1, 'advice.enabled': true, 'advice.provider': 'ollama', 'advice.endpoint': 'http://advice-fake.invalid:9', 'advice.model': 'clef-flash' }));
+    const adviceRegistry = { ...loadAdviceRegistry({ repoRoot: REPO_ROOT }).registry, timeoutMs: 60000 };
+    const adviceClient = createAdviceClient({ adviceRegistry, roots: s.roots, lookup: () => { /* never answers */ } });
+    const started = Date.now();
+    const res = await interceptDecisionPoint(ctx(s, { budgetMs: 300 }), {
+      adviceClient, roots: s.roots, benchGate: passGate, shadowConfig: { kind: 'tier', mode: 'act', model: 'm' },
+    });
+    assert.ok(Date.now() - started < 2000, `the act call took ${Date.now() - started}ms against a 300 ms budget`);
+    assert.equal(res.effectiveDecision, 'light');
+    assert.deepEqual(s.lines().map((line: any) => [line.type, line.reason, line.mode]), [['miss', 'timeout', 'act']]);
   });
 });
 
-describe('141 IC-010: dispatcher caps, budget, describe and the multi-question call (kind rerank)', () => {
+describe('141 IC-010: dispatcher caps, budget, the per-kind line payload and the multi-question call (kind rerank)', () => {
   const { loadAdviceRegistry } = require('../../src/runtime/advice/registry.ts');
   const { buildRerankQuestionSet, interpretRerankAnswers, rerankPayload } = require('../../src/runtime/advice/rerank.ts');
   const ADVICE = loadAdviceRegistry({ repoRoot: REPO_ROOT }).registry;
@@ -710,15 +720,24 @@ describe('141 IC-010: dispatcher caps, budget, describe and the multi-question c
     };
   }
 
-  function describeFor(built: any) {
-    return (call: any) => {
-      const read = interpretRerankAnswers(call.answers, built.labels, built.arm);
-      if (!read.valid) return null;
-      const extra = { rerank: { ...rerankPayload({
-        arm: built.arm, labels: built.labels, refs: built.refs, order: read.order, truncated: built.truncated, params: RERANK.params,
-        firstStageMs: 12, expected: read.expected, confidence: read.confidence, criteriaDigest: '3f9a1c0b27de',
-      }), criteriaSource: 'registry' } };
-      return { pick: read.order[0], extra };
+  /** The first stage's data for the pick line (ids and numbers only), as retrieve hands it to the dispatcher. */
+  function lineExtraFor(built: any) {
+    return { rerank: { arm: built.arm, labels: built.labels, refs: built.refs, truncated: built.truncated, firstStageMs: 12, criteriaDigest: '3f9a1c0b27de', criteriaSource: 'registry' } };
+  }
+
+  /**
+   * The fake model's reply to a rerank question set, as `reply` above but through the wire: label C wins the choice arm;
+   * on the ladder arm the k-th label's score is k + 0.5 (half its mass on level k, half on k + 1), confidence 0.6.
+   */
+  function route(arm: string) {
+    if (arm === 'choice') return answering(() => 'C');
+    return ({ body }: any) => {
+      const answers: any = {};
+      Object.entries(body.questions).forEach(([name, question]: [string, any], k: number) => {
+        const probabilities = Object.fromEntries(question.criteria.map((_c: string, i: number) => [String(i), i === k || i === k + 1 ? 0.5 : 0]));
+        answers[name] = { type: 'score', legend: Object.fromEntries(question.criteria.map((c: string, i: number) => [String(i), c])), probabilities, score: k + 0.5, confidence: 0.6 };
+      });
+      return { status: 200, body: { answers } };
     };
   }
 
@@ -731,6 +750,16 @@ describe('141 IC-010: dispatcher caps, budget, describe and the multi-question c
     return { dir, projectRoot, env, roots, lines: () => readWindow({ roots }).records.map((entry: any) => entry.record) };
   }
 
+  /** Advice on in the store's user settings against an in-process fake server answering `answer` (see the IC-002 block). */
+  async function advised(t: any, s: any, answer: any) {
+    const server: any = await startFakeServer({ routes: { 'POST /v1/systemone': answer } });
+    t.after(() => server.close());
+    const file = path.join(s.roots['config-home'], 'settings.json');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ schema: 1, 'advice.enabled': true, 'advice.provider': 'ollama', 'advice.endpoint': server.origin, 'advice.model': 'clef-flash' }));
+    return { server, asks: () => server.requests.filter((r: any) => r.pathname === '/v1/systemone') };
+  }
+
   function recordingClient(response: any) {
     const calls: any[] = [];
     return { calls, ask: async (options: any) => { calls.push(options); return typeof response === 'function' ? response(options) : response; } };
@@ -739,11 +768,11 @@ describe('141 IC-010: dispatcher caps, budget, describe and the multi-question c
   function ctx(s: any, built: any, extra: any = {}) {
     return {
       kind: 'rerank', caller: 'retrieve', state: built.questionSet.state, staticPick: 'A', questionSet: built.questionSet,
-      adviceRegistry: ADVICE, budgetMs: 5000, describe: describeFor(built), projectRoot: s.projectRoot, env: s.env, ...extra,
+      adviceRegistry: ADVICE, lineExtra: lineExtraFor(built), projectRoot: s.projectRoot, env: s.env, ...extra,
     };
   }
 
-  async function waitFor(check: () => any, ms = 1500) {
+  async function waitFor(check: () => any, ms = 5000) {
     const until = Date.now() + ms;
     while (Date.now() < until) {
       const value = check();
@@ -759,9 +788,9 @@ describe('141 IC-010: dispatcher caps, budget, describe and the multi-question c
     test(`maxMode lowers a configured act to shadow with ACT_NOT_SUPPORTED, never reaching the bench gate (${arm} arm)`, async (t) => {
       const s = store(t);
       const built = build(arm);
-      const c = recordingClient(reply(built));
+      await advised(t, s, route(arm));
       const res = await interceptDecisionPoint(ctx(s, built), {
-        adviceClient: c, roots: s.roots, benchGate: neverGate, shadowConfig: { kind: 'rerank', mode: 'act', model: 'm' },
+        roots: s.roots, benchGate: neverGate, shadowConfig: { kind: 'rerank', mode: 'act', model: 'm' },
       });
       assert.equal(res.mode, 'shadow');
       assert.equal(res.warning, "ACT_NOT_SUPPORTED: kind 'rerank' is limited to shadow");
@@ -774,16 +803,24 @@ describe('141 IC-010: dispatcher caps, budget, describe and the multi-question c
       assert.equal(lines[0].elevated, false);
     });
 
-    test(`${arm} arm: the client gets no static answer, and the line still records the static pick, the arm and the whole order`, async (t) => {
+    test(`${arm} arm: the client gets no static answer`, async (t) => {
       const s = store(t);
       const built = build(arm);
       const c = recordingClient(reply(built));
-      await interceptDecisionPoint(ctx(s, built), { adviceClient: c, roots: s.roots, shadowConfig: { kind: 'rerank', mode: 'shadow', model: 'm' } });
-      const [line] = await waitFor(() => s.lines().length && s.lines());
+      await askAdvisor(ctx(s, built), { adviceClient: c, roots: s.roots }, 'm', 5000);
       assert.equal(c.calls.length, 1);
       assert.equal(c.calls[0].staticAnswer, null, 'a label is not a level of a score question; no static answer goes to the client');
       assert.equal(c.calls[0].kind, 'rerank');
       assert.equal(c.calls[0].record, false);
+    });
+
+    test(`${arm} arm: the detached call's line records the static pick, the arm and the whole order`, async (t) => {
+      const s = store(t);
+      const built = build(arm);
+      const a = await advised(t, s, route(arm));
+      await interceptDecisionPoint(ctx(s, built), { roots: s.roots, shadowConfig: { kind: 'rerank', mode: 'shadow', model: 'm' } });
+      const [line] = await waitFor(() => s.lines().length && s.lines());
+      assert.equal(a.asks().length, 1);
       assert.equal(line.type, 'pick');
       assert.equal(line.kind, 'rerank');
       assert.equal(line.question, 'rerank');
@@ -797,11 +834,12 @@ describe('141 IC-010: dispatcher caps, budget, describe and the multi-question c
       assert.equal(line.rerank.criteriaDigest, '3f9a1c0b27de');
       assert.equal(line.rerank.criteriaSource, 'registry');
       assert.equal(line.rerank.firstStageMs, 12);
+      assert.equal(line.rerank.candidateBytes, RERANK.params.candidateBytes, 'the params come from the registry kind');
       if (arm === 'choice') {
         assert.deepEqual(line.rerank.order, ['C', 'A', 'B', 'D']);
         assert.equal(line.pick, 'C');
         assert.equal(line.rerank.top1Changed, true);
-        assert.equal(line.strength, 'clear');
+        assert.equal(typeof line.strength, 'string');
         assert.equal(line.probabilities.C, 0.7);
         assert.equal(line.confidence, 0.7);
         assert.equal('expected' in line.rerank, false);
@@ -819,10 +857,10 @@ describe('141 IC-010: dispatcher caps, budget, describe and the multi-question c
       const s = store(t);
       const built = build(arm);
       assert.ok(JSON.stringify(built.questionSet).includes(SENTINEL_CRITERIA), 'the sentinel is in what the model is asked');
-      await interceptDecisionPoint(ctx(s, built), {
-        adviceClient: recordingClient(reply(built)), roots: s.roots, shadowConfig: { kind: 'rerank', mode: 'shadow', model: 'm' },
-      });
+      const a = await advised(t, s, route(arm));
+      await interceptDecisionPoint(ctx(s, built), { roots: s.roots, shadowConfig: { kind: 'rerank', mode: 'shadow', model: 'm' } });
       await waitFor(() => s.lines().length);
+      assert.ok(JSON.stringify(a.asks()[0].body).includes(SENTINEL_CRITERIA), 'the detached call asked with the whole question set');
       const dir = path.join(s.roots['project-state'], 'advice', 'picks');
       const text = fs.readdirSync(dir).map((name: string) => fs.readFileSync(path.join(dir, name), 'utf8')).join('');
       assert.ok(text.length > 0);
@@ -830,68 +868,72 @@ describe('141 IC-010: dispatcher caps, budget, describe and the multi-question c
     });
   }
 
-  test('describe receives the whole call: every answer, the first one as answer and pick', async (t) => {
-    const s = store(t);
+  test('the advisor call carries the whole reply: every answer, the first one as answer and pick', async () => {
     const built = build('ladder');
-    let seen: any = null;
-    await interceptDecisionPoint(ctx(s, built, { describe: (call: any) => { seen = call; return describeFor(built)(call); } }), {
-      adviceClient: recordingClient(reply(built)), roots: s.roots, shadowConfig: { kind: 'rerank', mode: 'shadow', model: 'm' },
-    });
-    await waitFor(() => seen);
-    assert.equal(seen.status, 'answered');
-    assert.deepEqual(seen.answers.map((answer: any) => answer.name), ['rerank-a', 'rerank-b', 'rerank-c', 'rerank-d']);
-    assert.equal(seen.answer.name, 'rerank-a');
-    assert.equal(seen.pick, seen.answers[0].pick);
-    assert.ok(seen.answers.every((answer: any) => answer.model === 'm'));
+    const asked = await askAdvisor(ctx({}, built), { adviceClient: recordingClient(reply(built)) }, 'm', 5000);
+    assert.equal(asked.status, 'answered');
+    assert.deepEqual(asked.answers.map((answer: any) => answer.name), ['rerank-a', 'rerank-b', 'rerank-c', 'rerank-d']);
+    assert.equal(asked.answer.name, 'rerank-a');
+    assert.equal(asked.pick, asked.answers[0].pick);
+    assert.ok(asked.answers.every((answer: any) => answer.model === 'm'));
   });
 
-  test('a describe that returns null, or throws, records a malformed-reply miss and no pick', async (t) => {
+  test('a rerank call without its first-stage data, or with an unreadable arm, records a malformed-reply miss and no pick', async (t) => {
     const s = store(t);
     const built = build('choice');
-    for (const describe of [() => null, () => { throw new Error('boom'); }]) {
-      await interceptDecisionPoint(ctx(s, built, { describe }), {
-        adviceClient: recordingClient(reply(built)), roots: s.roots, shadowConfig: { kind: 'rerank', mode: 'shadow', model: 'm' },
-      });
+    await advised(t, s, route('choice'));
+    const unreadable = { rerank: { ...lineExtraFor(built).rerank, arm: 'unknown' } };
+    for (const lineExtra of [undefined, unreadable]) {
+      const count = s.lines().length;
+      await interceptDecisionPoint(ctx(s, built, { lineExtra }), { roots: s.roots, shadowConfig: { kind: 'rerank', mode: 'shadow', model: 'm' } });
+      await waitFor(() => s.lines().length > count);
     }
-    const lines = await waitFor(() => s.lines().length >= 2 && s.lines());
-    assert.deepEqual(lines.map((line: any) => [line.type, line.kind, line.reason, line.mode]), [
+    assert.deepEqual(s.lines().map((line: any) => [line.type, line.kind, line.reason, line.mode]), [
       ['miss', 'rerank', 'malformed-reply', 'shadow'], ['miss', 'rerank', 'malformed-reply', 'shadow'],
     ]);
   });
 
-  test('a rerank answer whose describe gives no valid payload writes no pick (the ordinary branch would store criteria text)', async (t) => {
+  test('a ladder answer that cannot be read as an order writes no pick (the ordinary branch would store criteria text)', async (t) => {
     const s = store(t);
     const built = build('ladder');
-    await interceptDecisionPoint(ctx(s, built, { describe: () => ({ extra: { rerank: { arm: 'ladder', n: 'four' } } }) }), {
-      adviceClient: recordingClient(reply(built)), roots: s.roots, shadowConfig: { kind: 'rerank', mode: 'shadow', model: 'm' },
+    await advised(t, s, route('ladder'));
+    await interceptDecisionPoint(ctx(s, built, { lineExtra: { rerank: { ...lineExtraFor(built).rerank, labels: ['A', 'B'] } } }), {
+      roots: s.roots, shadowConfig: { kind: 'rerank', mode: 'shadow', model: 'm' },
     });
-    await new Promise((resolve) => setTimeout(resolve, 60));
-    assert.deepEqual(s.lines(), []);
+    const lines = await waitFor(() => s.lines().length && s.lines());
+    assert.deepEqual(lines.map((line: any) => [line.type, line.reason]), [['miss', 'malformed-reply']]);
+    const dir = path.join(s.roots['project-state'], 'advice', 'picks');
+    const text = fs.readdirSync(dir).map((name: string) => fs.readFileSync(path.join(dir, name), 'utf8')).join('');
+    assert.equal(text.includes(SENTINEL_CRITERIA), false);
   });
 
-  test('budgetMs on the context bounds the call, so a bigger registry timeoutMs does not delay the timeout miss', async (t) => {
+  test('budgetMs on the context lowers the kind budget, and the detached call drops its request when it ends', async (t) => {
     const s = store(t);
     const built = build('choice');
+    const a = await advised(t, s, { stall: true });
     const started = Date.now();
-    let aborted = false;
-    const hangs = { ask: (options: any) => { options.signal.addEventListener('abort', () => { aborted = true; }); return new Promise(() => {}); } };
-    await interceptDecisionPoint(ctx(s, built, { budgetMs: 60 }), { adviceClient: hangs, roots: s.roots, shadowConfig: { kind: 'rerank', mode: 'shadow', model: 'm' } });
+    await interceptDecisionPoint(ctx(s, built, { budgetMs: 60 }), { roots: s.roots, shadowConfig: { kind: 'rerank', mode: 'shadow', model: 'm' } });
     const lines = await waitFor(() => s.lines().length && s.lines());
-    assert.ok(Date.now() - started < 1500, `the miss took ${Date.now() - started}ms against a 15000 ms registry timeout`);
+    assert.ok(Date.now() - started < RERANK.budgetMs, `the miss took ${Date.now() - started}ms against a ${RERANK.budgetMs} ms kind budget`);
     assert.deepEqual(lines.map((line: any) => [line.type, line.kind, line.reason]), [['miss', 'rerank', 'timeout']]);
-    assert.equal(aborted, true);
+    assert.ok(lines[0].durationMs < 1000, `the call ran ${lines[0].durationMs}ms against a 60 ms budget`);
+    assert.equal(a.asks().length, 1, 'the call reached the stalled model');
   });
 
-  test('without budgetMs the registry timeoutMs applies, as before', async (t) => {
+  test('without a context budgetMs the kind budgetMs bounds the call, not the registry timeoutMs', async (t) => {
     const s = store(t);
     const built = build('choice');
+    await advised(t, s, { stall: true });
+    const registry = JSON.parse(JSON.stringify(ADVICE));
+    registry.kinds.find((kind: any) => kind.id === 'rerank').budgetMs = 200;
     const started = Date.now();
-    await interceptDecisionPoint(ctx(s, built, { budgetMs: undefined, adviceRegistry: { ...ADVICE, timeoutMs: 80 } }), {
-      adviceClient: { ask: () => new Promise(() => {}) }, roots: s.roots, shadowConfig: { kind: 'rerank', mode: 'shadow', model: 'm' },
+    await interceptDecisionPoint(ctx(s, built, { adviceRegistry: registry }), {
+      roots: s.roots, shadowConfig: { kind: 'rerank', mode: 'shadow', model: 'm' },
     });
     const lines = await waitFor(() => s.lines().length && s.lines());
-    assert.ok(Date.now() - started < 1500);
+    assert.ok(Date.now() - started < 3000, `the miss took ${Date.now() - started}ms; timeoutMs is ${registry.timeoutMs}`);
     assert.deepEqual(lines.map((line: any) => line.reason), ['timeout']);
+    assert.ok(lines[0].durationMs >= 150 && lines[0].durationMs < 1500, `the call ran ${lines[0].durationMs}ms against a 200 ms kind budget`);
   });
 
   test('a kind without maxMode still reaches the bench gate and act, and a miss line keeps its shape', async (t) => {

@@ -876,6 +876,7 @@ These are the stores DoFlow keeps on this machine. A pruned store has the bound 
 | `runs-user` | `~/.doflow/state/runs` | prune partitions older than 180 days |
 | `advice-picks-project` | `.doflow/state/advice/picks` | prune partitions older than 90 days |
 | `advice-picks-user` | `~/.doflow/state/advice/picks` | prune partitions older than 90 days |
+| `advice-shadow-slots-user` | `~/.doflow/state/advice/shadow-slots` | at most shadowSlots files (core/registry/advice.json), one per running detached shadow call, each removed by the call that took it; a stale one (its process gone, or older than its budget plus 5 s) is reclaimed in place |
 | `slots-user` | `~/.doflow/state/slots` | keep newest 64; prune entries older than 30 days |
 | `recovery-user` | `~/.doflow/state/recovery` | keep newest 3, plus the snapshot named by the ledger |
 | `recovery-project` | `.doflow/state/recovery` | keep newest 3, plus the snapshot named by the ledger |

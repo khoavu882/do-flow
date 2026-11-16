@@ -31,6 +31,8 @@ function appendLine({ roots, at, line, fsImpl = fs, store }: any): { file: strin
     try { if (fsImpl.lstatSync(file).isSymbolicLink()) return null; }
     catch (error: any) { if (error.code !== 'ENOENT') return null; }
     fsImpl.mkdirSync(path.dirname(file), { recursive: true });
+    // One whole line per call, written through an O_APPEND descriptor: each write lands at the end of the file as one
+    // piece, so lines from concurrent writers (the command and any detached shadow children) never interleave.
     fsImpl.appendFileSync(file, `${JSON.stringify(line)}\n`, 'utf8');
     return { file, store: selected.store };
   } catch {
