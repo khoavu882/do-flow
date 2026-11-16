@@ -921,6 +921,7 @@ These are the stores DoFlow keeps on this machine. A pruned store has the bound 
 | `feature-pointer` | `.doflow/state/feature` | one file per checkout naming its feature, rewritten in place by the runtime and removed when the feature finishes |
 | `project-models-catalogue` | `.doflow/state/models/catalogue.json` | one file, overwritten |
 | `user-models-catalogue` | `~/.config/doflow/state/models-observed.json` | one file, overwritten |
+| `harness-login` | `~/.config/doflow/state/harness-login.json` | one file, at most 64 harness entries, overwritten |
 
 Notes on five rows:
 
