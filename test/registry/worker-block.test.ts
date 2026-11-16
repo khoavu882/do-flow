@@ -67,6 +67,15 @@ const PER_HARNESS_REASON = ['oneShot', 'structuredOutput', 'spawnDenial']; // is
 const PI_DECIDED = ['loginProbe', 'persistentSession', 'resume', 'steering'];
 const BINARIES: any = { claude: 'claude', codex: 'codex', opencode: 'opencode', pi: 'pi', copilot: 'copilot', kiro: 'kiro-cli', antigravity: 'agy' };
 
+/** 172 design §3.3: the five harnesses without a login recipe read `unknown`, each with the help it was checked against and why. */
+const LOGIN_UNKNOWN: any = {
+  codex: { verification: "Run `codex login --help` and `codex login status --help`; a recipe needs the status command's exit codes or a JSON form stated in its help or published docs.", reason: "`codex login status --help` (0.164.0) documents no exit code and no JSON output, so its answer could only be guessed", hint: "codex login" },
+  opencode: { verification: "Run `opencode auth --help` and `opencode auth list --help`; a recipe needs a documented exit code or named output fields for the list.", reason: "`opencode auth list --help` (2.2.7) documents no exit code and does not name the fields a login would be read from", hint: "opencode auth login" },
+  copilot: { verification: "Run `copilot --help` and `copilot login --help`; a recipe needs a login status command whose exit meaning its help or published docs state.", reason: "`copilot --help` and `copilot login --help` (1.0.105) list `login` and no status or check command", hint: "copilot login" },
+  kiro: { verification: "A person runs `kiro-cli --help` and records any login status command and its exit meaning; agents do not run kiro-cli. The hint `kiro-cli login` is carried from the deleted probe and was not re-checked.", reason: "kiro-cli is never run by DoFlow agents, and no recorded help names a login status command for it", hint: "kiro-cli login" },
+  antigravity: { verification: "Run `agy --help`; a recipe needs a login status command whose exit meaning its help or published docs state.", reason: "`agy --help` (agy 1.5.9) lists no auth, login or status command" },
+};
+
 /** A supported entry carrying the given recipe fields. */
 function supported(recipe: any) {
   return { status: 'supported', evidence: ['test/registry/worker-block.test.ts'], verification: 'Run it.', verifiedOn: '2026-10-15', ...recipe };
@@ -144,6 +153,14 @@ test('worker: the seven harnesses declare IC-002 values and nothing else as supp
       }
       // 168: pi's loginProbe, persistentSession, resume and steering are decided on 2026-11-16 and pinned in pi-worker-truth.test.ts.
       if (harness.id === 'pi' && PI_DECIDED.includes(key)) continue;
+      // 172: claude's loginProbe ships as a supported login recipe (design §3.3), pinned in login-recipe.test.ts.
+      if (harness.id === 'claude' && key === 'loginProbe') continue;
+      if (key === 'loginProbe') {
+        // 172: an unknown loginProbe names the help it was checked against and why no recipe is declared (pinned exactly).
+        const { status, evidence, verifiedOn, ...rest } = worker[key];
+        assert.deepEqual({ status, evidence, verifiedOn, ...rest }, { status: 'unknown', evidence: [], verifiedOn: '2026-11-16', ...LOGIN_UNKNOWN[harness.id] }, `${harness.id} loginProbe`);
+        continue;
+      }
       assert.equal(worker[key].status, 'unknown', `${harness.id} ${key}`);
       assert.deepEqual(worker[key].evidence, [], `${harness.id} ${key} evidence`);
       assert.equal(worker[key].verification, `Read ${harness.id}'s headless CLI documentation and \`${binary} --help\`; record the flag and its source`, `${harness.id} ${key}`);
@@ -201,8 +218,10 @@ test('worker: the five supported opencode and kiro entries equal their IC-009 re
     // nothing beyond the five and the model flag: the unprobed capabilities stay unknown
     for (const key of ['hooksProbe', 'guidanceProbe', 'loginProbe', 'persistentSession', 'resume', 'steering', 'isolatedEdit']) {
       // 168: pi's persistentSession, resume and steering are `unsupported` with evidence (pi-worker-truth.test.ts).
+      // 172: pi's loginProbe is a supported login recipe (design §3.3), pinned in pi-worker-truth.test.ts.
       const decided = id === 'pi' && ['persistentSession', 'resume', 'steering'].includes(key);
-      assert.equal(worker[key].status, decided ? 'unsupported' : 'unknown', `${id} ${key}`);
+      const expected = id === 'pi' && key === 'loginProbe' ? 'supported' : decided ? 'unsupported' : 'unknown';
+      assert.equal(worker[key].status, expected, `${id} ${key}`);
     }
   }
 });
