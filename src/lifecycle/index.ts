@@ -615,7 +615,7 @@ function planPackagePart({ registry, adapters, harness, scope, scopeRoot, ledger
   const realRoot = fs.realpathSync(pkg.storeDir);
   // The native projection (codex's TOML agents and hooks) is DoFlow's own, never a package's: it is left out, so the
   // adapter plans the package's tree assets and nothing that reads the DoFlow checkout.
-  const adapterInput = projectAdapterInput({ registry, harness: { ...harness, nativeProjection: undefined }, scope, scopeRoot, assets, mcp: [], mcpAdoptable: [], policies: [],
+  const adapterInput = projectAdapterInput({ registry, harness: { ...harness, nativeProjection: undefined }, scope, scopeRoot, assets, mcp: [], policies: [],
     context: { repoRoot: realRoot, homeDir: context.homeDir ?? scopeRoot, projectRoot: scopeRoot, sourceVersion: context.sourceVersion, operation: context.operation } });
   const adapter = resolveAdapter(adapters, harness);
   const ids = new Set<string>(assets.map((asset: any) => asset.id));
@@ -707,7 +707,7 @@ function withPackageWork(target: any, work: any) {
 
 /** The plan entry of a package-only plan for one harness: no DoFlow asset, only the package work. */
 function packageHostTarget({ registry, harness, scope, scopeRoot, context, work }: any) {
-  const adapterInput = projectAdapterInput({ registry, harness: { ...harness, nativeProjection: undefined }, scope, scopeRoot, assets: [], mcp: [], mcpAdoptable: [], policies: [],
+  const adapterInput = projectAdapterInput({ registry, harness: { ...harness, nativeProjection: undefined }, scope, scopeRoot, assets: [], mcp: [], policies: [],
     context: { repoRoot: registry.repoRoot, homeDir: context.homeDir ?? scopeRoot, projectRoot: scopeRoot, operation: context.operation } });
   return { harness: harness.id, adapter: harness.adapter, assets: [], mcp: [], mcpSelected: null, policies: [], adapterInput, discovery: null,
     changes: work.changes, requiredNativeResources: work.changes, conflicts: [], prerequisites: [], notices: work.notices, skipped: false,
@@ -744,7 +744,7 @@ function withPackageVerification(verification: any, target: any, options: any) {
   return merged;
 }
 
-function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpSelections = {}, mcpAdoptable = {}, retainedMcpIds = [], ledger, context = {} }: any) {
+function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpSelections = {}, retainedMcpIds = [], ledger, context = {} }: any) {
   assertScope(scope);
   if (!registry) throw new Error('registry is required');
   const baseLedger = ledger ?? defaultLedger({ scope, scopeRoot });
@@ -772,11 +772,10 @@ function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpSelec
     const selection = harnessMcpSelection(registry, harness, mcpSelections[harness.id]);
     const assets = selectAssets(registry, { harness: harness.id });
     const policies = renderPolicies(registry, { harness: harness.id });
-    const adoptable = capable ? selectMcpServers(registry, catalogIds(registry, mcpAdoptable[harness.id] ?? [])) : [];
     const adapter = resolveAdapter(adapters, harness);
     const baseContext = handedTo.has(harness.id) ? { ...context, handovers: handedTo.get(harness.id) } : context;
     const harnessContext = hooksTieredOff(harness) ? withoutHookSources(baseContext) : baseContext;
-    const project = (mcp: any) => projectAdapterInput({ registry, harness, scope, scopeRoot, assets, mcp, mcpAdoptable: adoptable, policies, context: harnessContext });
+    const project = (mcp: any) => projectAdapterInput({ registry, harness, scope, scopeRoot, assets, mcp, policies, context: harnessContext });
     // `keep` asks the adapter what it owns before the real projection: the probe carries no
     // selection, so discovery reads the files as they are.
     const ids = selection === MCP_KEEP

@@ -63,15 +63,15 @@ function readMcpFiles({ file, ownRows = [], container, fsImpl = fs }: any): any 
   }));
 }
 
-function renderedById(selected: any[], adoptable: any[]): Map<string, any> {
+function renderedById(selected: any[]): Map<string, any> {
   const rendered = new Map<string, any>();
-  for (const { id, entry } of [...selected, ...adoptable]) if (!rendered.has(id)) rendered.set(id, entry);
+  for (const { id, entry } of selected) if (!rendered.has(id)) rendered.set(id, entry);
   return rendered;
 }
 
 /** Shared by plan, verify and ownedMcpIds, so the three read one entry the same way. */
-function ownershipView({ file, files, selected = [], adoptable = [], ownRows = [], foreignRows = [] }: any): any {
-  const rendered = renderedById(selected, adoptable);
+function ownershipView({ file, files, selected = [], ownRows = [], foreignRows = [] }: any): any {
+  const rendered = renderedById(selected);
   const valueOf = (target: string, id: string) => (files[target]?.ok ? files[target].servers?.[id] : undefined);
   const matches = (row: any, value: any) => {
     if (value === undefined) return false;
@@ -80,37 +80,29 @@ function ownershipView({ file, files, selected = [], adoptable = [], ownRows = [
   };
   const rowsFor = (id: string) => ownRows.filter((row: any) => row.identity === id && row.target === file);
   const rowFor = (id: string) => rowsFor(id)[0] ?? null;
-  const adoptionOpen = ownRows.length === 0;
-  const adoptableIds = new Set(adoptable.map((server: any) => server.id));
-  const selectedIds = new Set(selected.map((server: any) => server.id));
-  /** An equal entry no own row claims is DoFlow's when another harness's row claims it, or when it
-   * may be adopted. */
+  /** An equal entry no own row claims is DoFlow's when another harness's row claims it. */
   const claimable = (id: string, entry: any) => {
     const value = valueOf(file, id);
-    return sameValue(value, entry) && (foreignRows.some((row: any) => row.identity === id && row.target === file)
-      || (adoptionOpen && adoptableIds.has(id)));
+    return sameValue(value, entry) && foreignRows.some((row: any) => row.identity === id && row.target === file);
   };
-  /** Adoptable entries DoFlow takes out because nothing selects them any more. */
-  const adoptedRemovals = () => (adoptionOpen && files[file]?.ok
-    ? adoptable.filter(({ id, entry }: any) => !selectedIds.has(id) && sameValue(valueOf(file, id), entry)) : []);
-  return { rendered, valueOf, matches, rowsFor, rowFor, claimable, adoptedRemovals };
+  return { rendered, valueOf, matches, rowsFor, rowFor, claimable };
 }
 
-function orderOf(selected: any[], adoptable: any[]): (a: any, b: any) => number {
-  const ids = [...renderedById(selected, adoptable).keys()];
+function orderOf(selected: any[]): (a: any, b: any) => number {
+  const ids = [...renderedById(selected).keys()];
   const rank = (id: string) => { const index = ids.indexOf(id); return index < 0 ? ids.length : index; };
   return (a: any, b: any) => (a.target < b.target ? -1 : a.target > b.target ? 1
     : rank(a.identity) - rank(b.identity) || (a.identity < b.identity ? -1 : a.identity > b.identity ? 1 : 0));
 }
 
 /**
- * Decide every MCP entry change for one harness at one scope. `selected` and `adoptable` are the
+ * Decide every MCP entry change for one harness at one scope. `selected` is the
  * adapter's rendered entries `[{ id, entry }]`; `ownRows` its rows;
  * `foreignRows` other harnesses' rows; `identityFor` composes the adapter's ownership identity.
  */
-function planMcpEntries({ file, files, selected = [], adoptable = [], ownRows = [], foreignRows = [], removing = false,
+function planMcpEntries({ file, files, selected = [], ownRows = [], foreignRows = [], removing = false,
   identityFor, assetId, renderer, label }: any): any {
-  const view = ownershipView({ file, files, selected, adoptable, ownRows, foreignRows });
+  const view = ownershipView({ file, files, selected, ownRows, foreignRows });
   const changes: any[] = [];
   const conflicts: string[] = [];
   const notices: string[] = [];
@@ -167,15 +159,7 @@ function planMcpEntries({ file, files, selected = [], adoptable = [], ownRows = 
     }
   }
 
-  for (const { id } of view.adoptedRemovals()) {
-    const value = view.valueOf(file, id);
-    changes.push(base({
-      target: file, operation: 'remove', identity: id, ownershipIdentity: identityFor(id),
-      before: entryFingerprint(value), fingerprint: entryFingerprint(value),
-    }));
-  }
-
-  return { changes: changes.sort(orderOf(selected, adoptable)), conflicts, notices };
+  return { changes: changes.sort(orderOf(selected)), conflicts, notices };
 }
 
 /** Apply one file's planned changes to the server map read now. Each change goes ahead only while
@@ -201,10 +185,10 @@ function applyMcpEntries(servers: any, changes: any[]): any {
  * `snapshot` is what plan read: an entry plan found holding the user's value stays the user's,
  * whatever it holds now.
  */
-function verifyMcpEntries({ file, files, snapshot, selected = [], adoptable = [], ownRows = [], foreignRows = [], removing = false,
+function verifyMcpEntries({ file, files, snapshot, selected = [], ownRows = [], foreignRows = [], removing = false,
   identityFor, assetId, renderer, label, harness, sourceVersion = 'unknown' }: any): any {
-  const now = ownershipView({ file, files, selected, adoptable, ownRows, foreignRows });
-  const then = ownershipView({ file, files: snapshot, selected, adoptable, ownRows, foreignRows });
+  const now = ownershipView({ file, files, selected, ownRows, foreignRows });
+  const then = ownershipView({ file, files: snapshot, selected, ownRows, foreignRows });
   const statuses: any[] = [];
   const resources: any[] = [];
   const conflicts: string[] = [];
@@ -246,24 +230,14 @@ function verifyMcpEntries({ file, files, snapshot, selected = [], adoptable = []
     const value = now.valueOf(row.target, row.identity);
     report(row.identity, row.target, row.ownershipIdentity, leftover(value, now.matches(row, value), row.target));
   }
-  if (removing) {
-    for (const { id, entry } of then.adoptedRemovals()) {
-      const value = now.valueOf(file, id);
-      report(id, file, identityFor(id), leftover(value, sameValue(value, entry), file));
-    }
-  }
   return { statuses, resources, conflicts };
 }
 
 /** The ids DoFlow owns in this harness's MCP file now, in rendering order: those an own row matches,
- * and, while the harness holds no row, adoptable entries equal to DoFlow's rendering. A file that
- * cannot be read contributes none. */
-function ownedMcpIds({ file, files, selected = [], adoptable = [], ownRows = [] }: any): string[] {
-  const view = ownershipView({ file, files, selected, adoptable, ownRows });
+ * A file that cannot be read contributes none. */
+function ownedMcpIds({ file, files, selected = [], ownRows = [] }: any): string[] {
+  const view = ownershipView({ file, files, selected, ownRows });
   const owned = new Set<string>(ownRows.filter((row: any) => view.matches(row, view.valueOf(row.target, row.identity))).map((row: any) => row.identity));
-  if (!ownRows.length) {
-    for (const { id, entry } of adoptable) if (sameValue(view.valueOf(file, id), entry)) owned.add(id);
-  }
   const order: string[] = [...view.rendered.keys()];
   return [...order.filter((id) => owned.has(id)), ...[...owned].filter((id) => !order.includes(id)).sort()];
 }

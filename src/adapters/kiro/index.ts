@@ -54,9 +54,9 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
 
   /** Discovery keeps the MCP files as plan read them (`mcpSnapshot`), which verify compares against,
    * and reports the servers DoFlow owns in Kiro's mcp.json now (`mcpOwned`). */
-  function discover({ scope, scopeRoot, mcp = [], mcpAdoptable = [], ledger, fsImpl = fs }: any) {
+  function discover({ scope, scopeRoot, mcp = [], ledger, fsImpl = fs }: any) {
     const paths = nativePaths({ scope, scopeRoot });
-    const entries = mcpEntriesInput({ paths, mcp, mcpAdoptable, ledger });
+    const entries = mcpEntriesInput({ paths, mcp, ledger });
     const mcpSnapshot = readMcpFiles({ file: entries.file, ownRows: entries.ownRows, container: MCP_CONTAINER, fsImpl });
     const read = mcpSnapshot[entries.file];
     // `null` while the file is absent, unreadable or has no server map; every name in it otherwise, whoever wrote it.
@@ -198,10 +198,10 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
   }
 
   /** Everything the shared entry-ownership rules (../mcp-entries.ts) need from this adapter. */
-  function mcpEntriesInput({ paths, mcp = [], mcpAdoptable = [], ledger, assets = [] }: any) {
+  function mcpEntriesInput({ paths, mcp = [], ledger, assets = [] }: any) {
     const rendered = (servers: any) => servers.map((server: any) => ({ id: server.id, entry: buildServerEntry(server) }));
     return {
-      file: paths.mcp, selected: rendered(mcp), adoptable: rendered(mcpAdoptable),
+      file: paths.mcp, selected: rendered(mcp),
       ownRows: mcpOwnRows(ledger),
       foreignRows: (ledger?.resources || []).filter((row: any) => row.kind === 'mcp-server' && row.harness !== HARNESS)
         .map((row: any) => ({ harness: row.harness, identity: row.identity, target: row.target })),
@@ -232,8 +232,8 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
     return { status: 'supported', target: paths.hooks };
   }
 
-  function plan({ scope, scopeRoot, assets = [], mcp = [], mcpAdoptable = [], discovery, context = {}, ledger, fsImpl = fs }: any) {
-    const found = discovery || discover({ scope, scopeRoot, mcp, mcpAdoptable, ledger, fsImpl });
+  function plan({ scope, scopeRoot, assets = [], mcp = [], discovery, context = {}, ledger, fsImpl = fs }: any) {
+    const found = discovery || discover({ scope, scopeRoot, mcp, ledger, fsImpl });
     const changes = [];
     const conflicts = [];
     const removing = context.operation === 'remove';
@@ -243,7 +243,7 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
     conflicts.push(...copyTree.conflicts);
 
     const mcpPlan = planMcpEntries({
-      ...mcpEntriesInput({ paths: found.paths, mcp, mcpAdoptable, ledger, assets }), files: found.mcpSnapshot, removing,
+      ...mcpEntriesInput({ paths: found.paths, mcp, ledger, assets }), files: found.mcpSnapshot, removing,
     });
     changes.push(...mcpPlan.changes);
     conflicts.push(...mcpPlan.conflicts);
@@ -286,7 +286,7 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
     removeCopyTreeAssets(changes, { fsImpl });
   }
 
-  function verify({ scope, scopeRoot, assets = [], mcp = [], mcpAdoptable = [], discovery, ledger, operation, context = {}, fsImpl = fs }: any) {
+  function verify({ scope, scopeRoot, assets = [], mcp = [], discovery, ledger, operation, context = {}, fsImpl = fs }: any) {
     const paths = nativePaths({ scope, scopeRoot });
     const resources = [];
     const conflicts = [];
@@ -295,7 +295,7 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
     resources.push(...copyTree.resources);
     conflicts.push(...copyTree.conflicts);
 
-    const entries = mcpEntriesInput({ paths, mcp, mcpAdoptable, ledger, assets });
+    const entries = mcpEntriesInput({ paths, mcp, ledger, assets });
     const files = readMcpFiles({ file: entries.file, ownRows: entries.ownRows, container: MCP_CONTAINER, fsImpl });
     const mcpResult = verifyMcpEntries({
       ...entries, files, snapshot: discovery?.mcpSnapshot ?? files,

@@ -85,10 +85,10 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS],
 
   /** Discovery keeps the MCP files as plan read them (`mcpSnapshot`), which verify compares against,
    * and reports the servers DoFlow owns in Copilot's MCP config now (`mcpOwned`). */
-  function discover({ scope, scopeRoot, mcp = [], mcpAdoptable = [], ledger, fsImpl = fs }: any) {
+  function discover({ scope, scopeRoot, mcp = [], ledger, fsImpl = fs }: any) {
     const paths = nativePaths({ scope, scopeRoot });
     const instruction = paths.instruction && fsImpl.existsSync(paths.instruction) ? fsImpl.readFileSync(paths.instruction, 'utf8') : null;
-    const entries = mcpEntriesInput({ paths, mcp, mcpAdoptable, ledger });
+    const entries = mcpEntriesInput({ paths, mcp, ledger });
     const mcpSnapshot = readMcpFiles({ file: entries.file, ownRows: entries.ownRows, container: MCP_CONTAINER, fsImpl });
     const read = mcpSnapshot[entries.file];
     // `null` while the file is absent, unreadable or has no server map; every name in it otherwise, whoever wrote it.
@@ -267,11 +267,11 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS],
   function ownershipIdentity(id: any) { return `doflow:${HARNESS}:mcp-server:${id}`; }
 
   /** Everything the shared entry-ownership rules (../mcp-entries.ts) need from this adapter. */
-  function mcpEntriesInput({ paths, mcp = [], mcpAdoptable = [], ledger, assets = [] }: any) {
+  function mcpEntriesInput({ paths, mcp = [], ledger, assets = [] }: any) {
     const rendered = (servers: any) => servers.map((server: any) => ({ id: server.id, entry: buildServerEntry(server) }));
     const rows = (ledger?.resources || []).filter((row: any) => row.kind === 'mcp-server');
     return {
-      file: paths.mcp, selected: rendered(mcp), adoptable: rendered(mcpAdoptable),
+      file: paths.mcp, selected: rendered(mcp),
       ownRows: rows.filter((row: any) => row.harness === HARNESS).map((row: any) => ({
         identity: row.identity, target: row.target, fingerprint: row.fingerprint ?? null, ownershipIdentity: row.ownershipIdentity, legacy: false,
       })),
@@ -292,8 +292,8 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS],
 
   // ---- shared adapter contract ----
 
-  function plan({ scope, scopeRoot, assets = [], mcp = [], mcpAdoptable = [], discovery, context = {}, ledger, fsImpl = fs }: any) {
-    const found = discovery || discover({ scope, scopeRoot, mcp, mcpAdoptable, ledger, fsImpl });
+  function plan({ scope, scopeRoot, assets = [], mcp = [], discovery, context = {}, ledger, fsImpl = fs }: any) {
+    const found = discovery || discover({ scope, scopeRoot, mcp, ledger, fsImpl });
     const changes = [];
     const conflicts = [];
     const removing = context.operation === 'remove';
@@ -323,7 +323,7 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS],
     conflicts.push(...hooks.conflicts);
 
     const mcpPlan = planMcpEntries({
-      ...mcpEntriesInput({ paths: found.paths, mcp, mcpAdoptable, ledger, assets }), files: found.mcpSnapshot, removing,
+      ...mcpEntriesInput({ paths: found.paths, mcp, ledger, assets }), files: found.mcpSnapshot, removing,
     });
     changes.push(...mcpPlan.changes);
     conflicts.push(...mcpPlan.conflicts);
@@ -367,8 +367,8 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS],
     return { removed };
   }
 
-  function verify({ scope, scopeRoot, assets = [], mcp = [], mcpAdoptable = [], discovery, ledger, operation, context = {}, fsImpl = fs }: any) {
-    const found = discover({ scope, scopeRoot, mcp, mcpAdoptable, ledger, fsImpl });
+  function verify({ scope, scopeRoot, assets = [], mcp = [], discovery, ledger, operation, context = {}, fsImpl = fs }: any) {
+    const found = discover({ scope, scopeRoot, mcp, ledger, fsImpl });
     const statuses = [];
     const resources = [];
     const conflicts = [];
@@ -412,7 +412,7 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS],
     conflicts.push(...hooks.conflicts);
 
     const mcpResult = verifyMcpEntries({
-      ...mcpEntriesInput({ paths: found.paths, mcp, mcpAdoptable, ledger, assets }), files: found.mcpSnapshot,
+      ...mcpEntriesInput({ paths: found.paths, mcp, ledger, assets }), files: found.mcpSnapshot,
       snapshot: discovery?.mcpSnapshot ?? found.mcpSnapshot, removing: (operation ?? context.operation) === 'remove',
       harness: HARNESS, sourceVersion: context.sourceVersion ?? 'unknown',
     });

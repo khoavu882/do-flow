@@ -71,10 +71,10 @@ function createOpenCodeAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS]
 
   /** Discovery keeps opencode.json as plan read it (`mcpSnapshot`), which verify compares against,
    * and reports the servers DoFlow owns in its `mcp` object now (`mcpOwned`). */
-  function discover({ scope, scopeRoot, mcp = [], mcpAdoptable = [], ledger, context = {}, fsImpl = fs }: any) {
+  function discover({ scope, scopeRoot, mcp = [], ledger, context = {}, fsImpl = fs }: any) {
     const paths = nativePaths({ scope, scopeRoot, homeDir: context.homeDir });
     const instruction = fsImpl.existsSync(paths.instruction) ? fsImpl.readFileSync(paths.instruction, 'utf8') : null;
-    const entries = mcpEntriesInput({ paths, mcp, mcpAdoptable, ledger });
+    const entries = mcpEntriesInput({ paths, mcp, ledger });
     const mcpSnapshot = readMcpFiles({ file: entries.file, ownRows: entries.ownRows, container: MCP_CONTAINER, fsImpl });
     const read = mcpSnapshot[entries.file];
     // `null` while the file is absent, unreadable or has no server map; every name in it otherwise, whoever wrote it.
@@ -277,11 +277,11 @@ function createOpenCodeAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS]
   function ownershipIdentity(id: any) { return `doflow:${HARNESS}:mcp-server:${id}`; }
 
   /** Everything the shared entry-ownership rules (../mcp-entries.ts) need from this adapter. */
-  function mcpEntriesInput({ paths, mcp = [], mcpAdoptable = [], ledger, assets = [] }: any) {
+  function mcpEntriesInput({ paths, mcp = [], ledger, assets = [] }: any) {
     const rendered = (servers: any) => servers.map((server: any) => ({ id: server.id, entry: buildServerEntry(server) }));
     const rows = (ledger?.resources || []).filter((row: any) => row.kind === 'mcp-server');
     return {
-      file: paths.config, selected: rendered(mcp), adoptable: rendered(mcpAdoptable),
+      file: paths.config, selected: rendered(mcp),
       ownRows: rows.filter((row: any) => row.harness === HARNESS).map((row: any) => ({
         identity: row.identity, target: row.target, fingerprint: row.fingerprint ?? null, ownershipIdentity: row.ownershipIdentity, legacy: false,
       })),
@@ -298,8 +298,8 @@ function createOpenCodeAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS]
       ownershipIdentity: `${HARNESS}:config:registration`, harness: HARNESS, projection: { renderer: 'opencode-config' } }] : [];
   }
 
-  function plan({ scope, scopeRoot, assets = [], mcp = [], mcpAdoptable = [], discovery, context = {}, ledger, fsImpl = fs }: any) {
-    const found = discovery || discover({ scope, scopeRoot, mcp, mcpAdoptable, ledger, context, fsImpl });
+  function plan({ scope, scopeRoot, assets = [], mcp = [], discovery, context = {}, ledger, fsImpl = fs }: any) {
+    const found = discovery || discover({ scope, scopeRoot, mcp, ledger, context, fsImpl });
     const changes = [];
     const conflicts = [];
     const removing = context.operation === 'remove';
@@ -349,7 +349,7 @@ function createOpenCodeAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS]
     }
 
     const mcpPlan = planMcpEntries({
-      ...mcpEntriesInput({ paths: found.paths, mcp, mcpAdoptable, ledger, assets }), files: found.mcpSnapshot, removing,
+      ...mcpEntriesInput({ paths: found.paths, mcp, ledger, assets }), files: found.mcpSnapshot, removing,
     });
     changes.push(...mcpPlan.changes);
     conflicts.push(...mcpPlan.conflicts);
@@ -413,8 +413,8 @@ function createOpenCodeAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS]
     } catch { return false; }
   }
 
-  function verify({ scope, scopeRoot, assets = [], mcp = [], mcpAdoptable = [], discovery, ledger, operation, context = {}, fsImpl = fs }: any) {
-    const found = discover({ scope, scopeRoot, mcp, mcpAdoptable, ledger, context, fsImpl });
+  function verify({ scope, scopeRoot, assets = [], mcp = [], discovery, ledger, operation, context = {}, fsImpl = fs }: any) {
+    const found = discover({ scope, scopeRoot, mcp, ledger, context, fsImpl });
     const removing = (operation ?? context.operation) === 'remove';
     const statuses = [];
     const resources = [];
@@ -463,7 +463,7 @@ function createOpenCodeAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS]
     }
 
     const mcpResult = verifyMcpEntries({
-      ...mcpEntriesInput({ paths: found.paths, mcp, mcpAdoptable, ledger, assets }), files: found.mcpSnapshot,
+      ...mcpEntriesInput({ paths: found.paths, mcp, ledger, assets }), files: found.mcpSnapshot,
       snapshot: discovery?.mcpSnapshot ?? found.mcpSnapshot, removing, harness: HARNESS, sourceVersion: context.sourceVersion ?? 'unknown',
     });
     resources.push(...mcpResult.resources);

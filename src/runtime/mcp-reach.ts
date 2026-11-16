@@ -98,7 +98,7 @@ function mcpReach({ registry, projectRoot, homeDir = os.homedir(), fsImpl = fs, 
     };
     try {
       const discovery = resolveAdapter(adapters, harness).discover({
-        scope, scopeRoot: installRoot, homeDir, mcp: [], mcpAdoptable: [], ledger, registry, context: { homeDir },
+        scope, scopeRoot: installRoot, homeDir, mcp: [], ledger, registry, context: { homeDir },
       });
       row.configured = Array.isArray(discovery.mcpConfigured) ? discovery.mcpConfigured : null;
       row.complete = discovery.mcpComplete === true;

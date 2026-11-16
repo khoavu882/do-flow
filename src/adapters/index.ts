@@ -32,7 +32,7 @@ function nativeProjectionFor(registry: any, harness: any, mcp: any, context: any
  * adapter receives. Native serializers may add adapter-specific fields, but
  * cannot infer applicability from a missing projection.
  */
-function projectAdapterInput({ registry, harness, scope, scopeRoot, assets = [], mcp = [], mcpAdoptable = [], policies = [], context = {} }: any) {
+function projectAdapterInput({ registry, harness, scope, scopeRoot, assets = [], mcp = [], policies = [], context = {} }: any) {
   if (!registry || !harness) throw new Error('registry and harness are required for adapter projection');
   const projectAsset = (asset: any) => {
     const projection = asset?.projection?.[harness.id];
@@ -65,7 +65,6 @@ function projectAdapterInput({ registry, harness, scope, scopeRoot, assets = [],
     assets: Object.freeze(assets.map(projectAsset)),
     mcp: Object.freeze(mcp.map((server: any) => Object.freeze({ ...server }))),
     // Servers whose existing entries the adapter may take as its own while it holds no MCP row.
-    mcpAdoptable: Object.freeze(mcpAdoptable.map((server: any) => Object.freeze({ ...server }))),
     policies: Object.freeze(policies.map((policy: any) => Object.freeze({ ...policy }))),
     nativeTargets: Object.freeze({ ...harness.nativeTargets }),
     projection: Object.freeze({ ...projection }),
