@@ -1124,6 +1124,10 @@ test('165 F1 start-options: IC-002 projects through PROJECTORS with the key aske
   assert.deepEqual(mutate((b) => { b.entries = ['do', 'auto']; }), MISMATCH);
   assert.deepEqual(mutate((b) => { delete b.limits; }), MISMATCH);
   assert.throws(() => project('start-options', START_OPTIONS_BODY), /project key/);
+  // 165 review A-3: dispatch records that cannot be read are a running dispatch with no slug and the core's reason.
+  const unreadable = mutate((b) => { b.dispatch = { running: true, slug: null, reason: 'dispatch-unreadable' }; });
+  assert.deepEqual(unreadable.body.dispatch, { running: true, slug: null, reason: 'dispatch-unreadable' });
+  assert.deepEqual(mutate((b) => { b.dispatch = { running: true, slug: null, reason: '../x' }; }), MISMATCH);
 });
 
 test('transcript: text and args are masked a second time and the cap is re-checked', () => {

@@ -988,6 +988,7 @@ test('every start-session refusal id maps to IC-004\'s status with the core\'s c
     [refusal('dispatch-running', { slug: 'feat-a', driverPid: 4242 }), 409, 'dispatch-running', { slug: 'feat-a', dispatchId: null, driverPid: 4242, reason: null }, 1],
     [refusal('dispatch-running', { slug: 'feat-a', dispatchId: 'd-1' }), 409, 'dispatch-running', { slug: 'feat-a', dispatchId: 'd-1', driverPid: null, reason: null }, 1],
     [refusal('dispatch-running', { slug: 'feat-b', reason: 'store-unreadable' }), 409, 'dispatch-running', { slug: 'feat-b', dispatchId: null, driverPid: null, reason: 'store-unreadable' }, 1],
+    [refusal('dispatch-running', { slug: null, reason: 'dispatch-unreadable', detail: 'EACCES' }), 409, 'dispatch-running', { slug: null, dispatchId: null, driverPid: null, reason: 'dispatch-unreadable' }, 1],
     [refusal('harness-not-startable', { harness: 'copilot', reason: 'no-main-session-shape' }), 409, 'harness-not-startable', { harness: 'copilot', reason: 'no-main-session-shape' }, 1],
     [refusal('harness-not-startable', { harness: 'codex', reason: 'logged-out' }), 409, 'harness-not-startable', { harness: 'codex', reason: 'logged-out' }, 1],
     [refusal('nested-start', { runId: 'w-aaaabbbbcccc' }), 409, 'nested-start', { runId: 'w-aaaabbbbcccc' }, 1],

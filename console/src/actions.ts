@@ -348,7 +348,8 @@ const START_CURRENT: Readonly<Record<string, (c: any) => Current | undefined>> =
   // nested-start: the id is the environment's DOFLOW_STARTED_RUN, which the core does not check.
   nested: (c: any) => (object(c) ? { runId: runIdOrNull(c.runId) } : undefined),
   open: (c: any) => (object(c) && count(c.open) && count(c.max) ? { open: c.open, max: c.max } : undefined),
-  dispatch: (c: any) => (object(c) && isId(c.slug) && (c.dispatchId === undefined || c.dispatchId === null || isId(c.dispatchId))
+  // 165 review A-3: `slug` is null when the core cannot read the dispatch records; its `reason` then says so.
+  dispatch: (c: any) => (object(c) && (isId(c.slug) || (c.slug === null && isId(c.reason))) && (c.dispatchId === undefined || c.dispatchId === null || isId(c.dispatchId))
     && (c.driverPid === undefined || Number.isSafeInteger(c.driverPid)) && (c.reason === undefined || isId(c.reason))
     ? { slug: c.slug, dispatchId: c.dispatchId ?? null, driverPid: c.driverPid ?? null, reason: c.reason ?? null } : undefined),
   harness: (c: any) => (object(c) && typeof c.harness === 'string' && PATTERNS.harness.test(c.harness) && NOT_STARTABLE.includes(c.reason)

@@ -536,3 +536,24 @@ test('A-1: a run whose liveness cannot be read is refused checkout-busy-unknown 
   assert.equal(free.exit, 0, JSON.stringify(free.body));
   await ended(f, free.body.run.runId);
 });
+
+// ---- 165 review A-3: only a missing dispatch directory means "no dispatch records" -----------------------------------------------
+
+test('A-3: a dispatch directory that cannot be listed (EACCES) refuses the start and marks the options running; a missing one does not', { ...POSIX, skip: POSIX.skip || (process.getuid?.() === 0 && 'root reads a mode-000 directory') }, async (t: any) => {
+  const f = fixture(t);
+  const dir = path.join(f.main, '.doflow', 'state', 'dispatch');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.chmodSync(dir, 0o000);
+  t.after(() => { try { fs.chmodSync(dir, 0o755); } catch { /* gone */ } });
+  const refused = await start(f);
+  assert.deepEqual([refused.exit, refused.body.code, refused.body.current], [1, 'dispatch-running', { slug: null, reason: 'dispatch-unreadable', detail: 'EACCES' }], JSON.stringify(refused.body));
+  assert.doesNotMatch(refused.body.message, /running in null/);
+  const options = await executeWorkerCommand({ action: 'start-options', projectKey: f.projectKey, env: f.env, cwd: f.main, descriptors: DESCRIPTORS, projects: projectsImpl });
+  assert.deepEqual(options.body.dispatch, { running: true, slug: null, reason: 'dispatch-unreadable' });
+  fs.chmodSync(dir, 0o755);
+  fs.rmSync(dir, { recursive: true });
+  const free = await start(f);
+  assert.equal(free.exit, 0, JSON.stringify(free.body));
+  await ended(f, free.body.run.runId);
+  assert.equal(fakeLog(f).length, 1);
+});

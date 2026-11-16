@@ -1834,7 +1834,8 @@ function startOptions(value: unknown, context?: Context) {
     harnesses: sList(body.harnesses, START_BOUNDS.harnesses).map(harness),
     limits: { perCheckout: sCount(limits.perCheckout), perActor: sCount(limits.perActor), machine: sCount(limits.machine), perActorPerHour: sCount(limits.perActorPerHour) },
     open: { machine: sCount(sRecord(body.open).machine) },
-    dispatch: running ? { running: true, slug: sMatch(ID)(dispatch.slug) } : { running: false },
+    // 165 review A-3: dispatch records the core cannot read are a running dispatch with no slug and the core's reason.
+    dispatch: !running ? { running: false } : dispatch.slug === null ? { running: true, slug: null, reason: sMatch(ID)(dispatch.reason) } : { running: true, slug: sMatch(ID)(dispatch.slug) },
     promptMax: { codePoints: sCount(promptMax.codePoints), bytes: sCount(promptMax.bytes) },
     entries: sList(body.entries, 2).map(sOneOf(['do', 'none'])),
     entryLine: sWords(body.entryLine),

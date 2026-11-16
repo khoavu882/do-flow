@@ -191,10 +191,15 @@ function limitWords(options) {
   return `${open ? open.machine : 0} of ${limits.machine} sessions open on this machine; ${limits.perCheckout} per checkout, ${limits.perActor} per device and ${limits.perActorPerHour} starts per device per hour.`;
 }
 
+/** 165 review A-3: the core could not read the project's dispatch records, so it refuses as if one ran. */
+const UNREADABLE_DISPATCH = 'This project’s dispatch records cannot be read, so a running dispatch cannot be ruled out';
+
 /** The dispatch line of the options: a running dispatch holds the slot. @param {any} options */
 function dispatchWords(options) {
   const d = options && options.dispatch;
-  return d && d.running === true ? `A dispatch is running${d.slug ? ` in ${d.slug}` : ''}; start again when it ends.` : null;
+  if (!d || d.running !== true) return null;
+  if (d.slug === null && d.reason === 'dispatch-unreadable') return `${UNREADABLE_DISPATCH}; start again when they can be read.`;
+  return `A dispatch is running${d.slug ? ` in ${d.slug}` : ''}; start again when it ends.`;
 }
 
 // ---- the prompt -------------------------------------------------------------------------------------------------------------------------
@@ -314,7 +319,8 @@ function startRefusalLines(code, current, extra = {}) {
       'A started session in this checkout may still be running, and DoFlow cannot check its processes. Nothing was started.',
       `If it has ended, clear it in a terminal on this machine: doflow worker --action cancel --operator --slug started-sessions --worker-run ${typeof c.runId === 'string' && RUN_ID.test(c.runId) ? c.runId : '<run id>'} --via console --reason ended`,
     ];
-    case 'dispatch-running': return [`A dispatch is running${typeof c.slug === 'string' ? ` in ${c.slug}` : ''}; start again when it ends. Nothing was started.`];
+    case 'dispatch-running': if (c.slug === null && c.reason === 'dispatch-unreadable') return [`${UNREADABLE_DISPATCH}. Nothing was started.`];
+      return [`A dispatch is running${typeof c.slug === 'string' ? ` in ${c.slug}` : ''}; start again when it ends. Nothing was started.`];
     case 'harness-not-startable': return [`${typeof c.harness === 'string' ? c.harness : 'The harness'} cannot start here: ${reasonWords(c.reason)}. Nothing was started.`];
     case 'nested-start': return ['This Console runs inside a started session, which cannot start another. Nothing was started.'];
     case 'actor-limit': return [`This device already has ${c.open ?? 'its'} of ${c.max ?? 'the allowed'} sessions open. Stop one from Layers, then start again. Nothing was started.`];

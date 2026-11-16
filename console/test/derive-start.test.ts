@@ -125,6 +125,10 @@ test('Start is ready only with a checkout, a startable harness and a text; a run
   const held = options({ checkouts: [options().checkouts[1]], dispatch: { running: true, slug: '165-start' } });
   assert.equal(start.readiness(form, held).ok, false);
   assert.equal(start.readiness(form, held).dispatch, 'A dispatch is running in 165-start; start again when it ends.');
+  const unread = options({ checkouts: [options().checkouts[1]], dispatch: { running: true, slug: null, reason: 'dispatch-unreadable' } });
+  assert.equal(start.readiness(form, unread).ok, false);
+  assert.equal(start.readiness(form, unread).dispatch, 'This project’s dispatch records cannot be read, so a running dispatch cannot be ruled out; start again when they can be read.');
+  assert.equal(start.startRefusalLines('dispatch-running', { slug: null, reason: 'dispatch-unreadable' })[0], 'This project’s dispatch records cannot be read, so a running dispatch cannot be ruled out. Nothing was started.');
   assert.deepEqual(start.startBody(form), { v: 1, projectKey: PK, worktreeKey: WK1, harness: 'claude', model: null, entry: 'do', prompt: 'Fix the flaky test' });
 });
 

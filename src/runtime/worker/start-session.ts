@@ -178,14 +178,21 @@ function modelsFor({ harness, worker, bindings, catalogue }: any) {
 /**
  * §9.3: the project's dispatch is running when a dispatch store holds a driver with no `endedAt` and no
  * `lost` that `alive` reads as true, or a non-ended dispatch in a main-session mode. A liveness reading
- * of `unknown`, or a store that cannot be read, refuses too (fail closed). Read-only; signals nothing.
+ * of `unknown`, or a store that cannot be read, refuses too (fail closed). Only a missing dispatch directory means there is
+ * no dispatch record; any other failure to list it refuses with `{ slug: null, reason: 'dispatch-unreadable', detail }`
+ * (165 review A-3). Read-only; signals nothing.
  */
 function dispatchRunning(root: string, platform: string) {
   // Required here: admission.ts requires worker/command.ts, which requires this module.
   const { MAIN_SESSION_MODES } = require('../dispatch/admission.ts');
   const dir = path.join(root, '.doflow', 'state', 'dispatch');
   let names: string[] = [];
-  try { names = fs.readdirSync(dir).filter((name: string) => name.endsWith('.json')).sort(); } catch { return null; }
+  try {
+    names = fs.readdirSync(dir).filter((name: string) => name.endsWith('.json')).sort();
+  } catch (error: any) {
+    if (error?.code === 'ENOENT') return null;
+    return { slug: null, reason: 'dispatch-unreadable', detail: typeof error?.code === 'string' ? error.code : null };
+  }
   for (const name of names) {
     const slug = name.slice(0, -'.json'.length);
     let store: any;
@@ -332,7 +339,12 @@ async function startSession(o: any) {
 
   // Step 8: no dispatch of this project is running.
   const dispatch = dispatchRunning(root, platform);
-  if (dispatch) return refusal('dispatch-running', `a dispatch is running in ${dispatch.slug}; start again when it ends`, dispatch);
+  if (dispatch) {
+    const words = dispatch.slug === null
+      ? `the project's dispatch records cannot be read (${dispatch.detail ?? 'unknown error'}), so a running dispatch cannot be ruled out; start again when they can be read`
+      : `a dispatch is running in ${dispatch.slug}; start again when it ends`;
+    return refusal('dispatch-running', words, dispatch);
+  }
 
   // Step 9: the record, inserted under the store lock with the limits.
   const runId = newRunId();
@@ -466,7 +478,7 @@ function startOptions(o: any) {
     harnesses,
     limits: LIMITS,
     open: { machine: open.length + elsewhere(resolved.others, platform, nowMs(), named).total },
-    dispatch: dispatch ? { running: true, slug: dispatch.slug } : { running: false },
+    dispatch: dispatch ? { running: true, slug: dispatch.slug, ...(dispatch.slug === null ? { reason: dispatch.reason } : {}) } : { running: false },
     promptMax: PROMPT_MAX,
     entries: ENTRIES,
     entryLine: ENTRY_LINE,
