@@ -18,7 +18,7 @@ const { parseDesign } = require('../../src/runtime/scaffold/artifacts.ts');
 const ROOT = path.resolve(__dirname, '..', '..');
 const SCRIPTS = path.join(ROOT, 'core', 'shared', 'scripts', 'doflow');
 const TEMPLATE = fs.readFileSync(path.join(ROOT, 'core', 'shared', 'templates', 'doflow', 'design-template.md'), 'utf8');
-const OLD_FIXTURE = fs.readFileSync(path.join(ROOT, 'test', 'fixtures', 'scaffold', '005-evidence-ledger-readiness', 'design.md'), 'utf8');
+const OLD_FIXTURE = fs.readFileSync(path.join(ROOT, 'test', 'fixtures', 'scaffold', '005-evidence-ledger-readiness', 'design', 'design.md'), 'utf8');
 
 const scratch = createScratch('doflow-design-layouts-');
 after(() => scratch.remove());

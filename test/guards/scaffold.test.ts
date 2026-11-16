@@ -30,7 +30,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { REPO } = require('./_shared.ts');
 const {
-  generateScaffold, ARTIFACTS, FINGERPRINT_RE, SCAFFOLD_DIR_NAME, MANIFEST_NAME, STUB_SUFFIX, STATUS, EXIT,
+  generateScaffold, ARTIFACTS, ARTIFACT_PATHS, FINGERPRINT_RE, SCAFFOLD_DIR_NAME, MANIFEST_NAME, STUB_SUFFIX, STATUS, EXIT,
 } = require('../../src/runtime/scaffold/generate.ts');
 const { tempDir } = require('../helper/tmp.ts');
 
@@ -109,7 +109,8 @@ function fixtureFeature(dir: any, { omit = [] }: any = {}) {
   fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'fixture', scripts: { test: 'node --test' } }));
   for (const [name, body] of Object.entries(artifacts)) {
     if (omit.includes(name)) continue;
-    fs.writeFileSync(path.join(featureDir, name), body);
+    fs.mkdirSync(path.dirname(path.join(featureDir, ARTIFACT_PATHS[name])), { recursive: true });
+    fs.writeFileSync(path.join(featureDir, ARTIFACT_PATHS[name]), body);
   }
   return { featureDir, repoRoot: dir };
 }
@@ -298,6 +299,18 @@ test('G11: an artifact the generator cannot parse blocks the run instead of thin
     'a blocked run must not emit source files alongside its own failure report');
 });
 
+test('G11: a flat requirement.md or design.md is not read; only the structured paths are', (t) => {
+  const root = tempDir(t, 'doflow-scaffold-flat-');
+  const { featureDir, repoRoot }: any = fixtureFeature(root);
+  fs.copyFileSync(path.join(featureDir, ARTIFACT_PATHS['requirement.md']), path.join(featureDir, 'requirement.md'));
+  fs.copyFileSync(path.join(featureDir, ARTIFACT_PATHS['design.md']), path.join(featureDir, 'design.md'));
+  fs.rmSync(path.join(featureDir, 'intention'), { recursive: true });
+  fs.rmSync(path.join(featureDir, 'design'), { recursive: true });
+  const result = generateScaffold({ featureDir, repoRoot });
+  assert.equal(result.status, STATUS.BLOCKED, 'a flat requirement.md and design.md must not satisfy the scaffold');
+  assert.ok(result.sources.filter((s: any) => s.name !== 'plan.md').every((s: any) => !s.present));
+});
+
 test('G11: what was skipped is reported as prominently as what was produced', (t) => {
   const root = tempDir(t, 'doflow-scaffold-skips-');
   const { featureDir, repoRoot } = fixtureFeature(root);
@@ -335,7 +348,7 @@ test('G11: what was skipped is reported as prominently as what was produced', (t
 const FIXTURE_FEATURES = path.join(REPO, 'test', 'fixtures', 'scaffold');
 
 test('G11: real feature artifacts generate a contained, idempotent scaffold', (t) => {
-  const complete = (dir: any) => ARTIFACTS.every((a: any) => fs.existsSync(path.join(dir, a)));
+  const complete = (dir: any) => ARTIFACTS.every((a: any) => fs.existsSync(path.join(dir, ARTIFACT_PATHS[a])));
   const dirsIn = (root: any) => (fs.existsSync(root)
     ? fs.readdirSync(root, { withFileTypes: true })
       .filter((e: any) => e.isDirectory())
@@ -357,7 +370,10 @@ test('G11: real feature artifacts generate a contained, idempotent scaffold', (t
     const root = tempDir(t, 'doflow-scaffold-real-');
     const featureDir = path.join(root, path.basename(source));
     fs.mkdirSync(featureDir, { recursive: true });
-    for (const artifact of ARTIFACTS) fs.copyFileSync(path.join(source, artifact), path.join(featureDir, artifact));
+    for (const artifact of ARTIFACTS) {
+      fs.mkdirSync(path.dirname(path.join(featureDir, ARTIFACT_PATHS[artifact])), { recursive: true });
+      fs.copyFileSync(path.join(source, ARTIFACT_PATHS[artifact]), path.join(featureDir, ARTIFACT_PATHS[artifact]));
+    }
     fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'fixture', scripts: { test: 'node --test' } }));
 
     const recorded: any = [];
