@@ -24,7 +24,7 @@ Lists of harness ids are not edited by hand. `src/registry/harness-ids.ts` reads
 
 The descriptor is the `worker` block of the harness row in `harnesses.json`. A package can also contribute one through the `worker` contribution point. Its keys are checked by `validateWorker` in `src/registry/index.ts`.
 
-Required keys: `profile`, `billing`, `modelChecks`, and one capability entry each for `cli`, `oneShot`, `structuredOutput`, `readOnly`, `spawnDenial`, `runnableProbe`, `hooksProbe`, `guidanceProbe`, `loginProbe`, `persistentSession`, `resume` and `steering`. Optional keys: `isolatedEdit`, `model`, `mainSession`, `family`, `modelList`, `wideningFlags` and `secretFlags`.
+Required keys: `profile`, `billing`, `modelChecks`, and one capability entry each for `cli`, `oneShot`, `structuredOutput`, `readOnly`, `spawnDenial`, `runnableProbe`, `hooksProbe`, `guidanceProbe`, `loginProbe`, `persistentSession`, `resume` and `steering`. Optional keys: `isolatedEdit`, `model`, `provider`, `effort`, `mainSession`, `family`, `modelList`, `wideningFlags` and `secretFlags`.
 
 Every capability entry has `status` (`supported`, `unsupported` or `unknown`), `evidence`, `verification` and `verifiedOn`.
 
@@ -36,6 +36,19 @@ Every capability entry has `status` (`supported`, `unsupported` or `unknown`), `
 - A package worker carries `fieldMap` and no `parser`. Its map id must not be the id of a code parser.
 
 Two per-id fact pins in `test/guards/worker-descriptors.test.ts` are still added by hand, with the evidence: `PARSER_BY_HARNESS`, and `MAIN_SESSION_PARSER_BY_HARNESS` when `mainSession` is supported. They are not id lists. Each records, for one harness, which parser the evidence shows. Guard G41.3 asks for a pin for every supported `structuredOutput`.
+
+### Provider, effort and the model list
+
+A tier binding can carry a provider and an effort beside the model id (`{"model": <id>, "provider": <p>, "effort": <e>}`). The `provider` and `effort` entries say how each reaches the harness, as data; no code names a harness for this. Both are capability entries, so the rules above hold: `supported` cites evidence and carries the recipe, `unknown` carries a `reason`. A harness with no evidence for a part is `unknown`, and `models --action bind` and a prepared run refuse that part (`unknown` and `unsupported` alike).
+
+- `via` is the transport. `provider` takes `flag` or `id-prefix`; `effort` takes `flag` or `id-suffix`.
+- `via: "flag"` carries `argv`: `["--provider-flag", "{provider}"]`, or for effort `["--effort-flag", "{effort}"]` or `["-c", "<key>={effort}"]`. The flag must not appear in `readOnly`, `spawnDenial` or `isolatedEdit`, and where another recipe carries it, it must have a fixed value.
+- `via: "id-prefix"` or `"id-suffix"` carries `separator` (one of `/`, `:`, `#`, `@`) instead of `argv`: the provider is joined before the model id, the effort after it.
+- `effort` may carry `levels`: a list of 1 to 16 distinct names, or `"per-model"` when each model lists its own. `offLevel` names the level that switches reasoning off and needs a list. `mayLower: true` says the harness may run a lower level than bound when the model cannot run the one asked for; every display of such a binding says so. Pi sets it.
+- `provider` and `effort` need `model` to be `supported`. Every level, and a sample provider value, is put through the widening and secret-flag checks, so a level cannot add a widening flag.
+- `modelList` (when `supported`) may add `columns`, an object from a field (`provider`, `displayName`, `contextTokens`, `maxOutputTokens`, `reasoning`, `imageInput`, `effortLevels`) to a header of the listing's table, which needs `parse: "table-column:<id column>"`, and `providerInId: true`, which says each listed id is `<provider><separator><id>` and needs `provider` to be `supported` via `id-prefix`. A column for a provider needs `provider` `supported`; one for `effortLevels` or `reasoning` needs `effort` `supported`.
+
+The evidence bar is the same as for every other entry: a `supported` provider or effort cites a recorded check that establishes it (add the check to `core/worker-evidence/<id>/checks.json`; guard G41.4 recomputes it from the record). When the CLI cannot be run, a record may hold matched lines copied verbatim from a capture or an earlier record, if it carries a top-level `handAdded` string that says which file the lines come from and that no CLI was run. No evidence means `unknown` with the reason, not a guess. `doflow worker --action conform` has a `provider` and an `effort` part that check the composed argv against the fake harness.
 
 ### The login recipe
 
