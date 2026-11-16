@@ -71,6 +71,16 @@
         "^\\s+--no-approve, -na\\s+Ignore project-local files for this run"
       ],
       "establishes": ["mainSession"]
+    },
+    {
+      "id": "secret-commands",
+      "argv": ["auth", "--help"],
+      "expect": [
+        "^\\s+pi auth print-api-key\\b",
+        "^\\s+pi auth print-bearer-token\\b",
+        "^\\s+--credentials\\s+Emit the credential"
+      ],
+      "establishes": ["mainSession"]
     }
   ]
 }

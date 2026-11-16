@@ -712,7 +712,7 @@ const WORKER_OPTIONAL_CAPABILITIES: Record<string, { allowed: string[], required
 });
 const WORKER_BILLING = new Set(['free', 'metered', 'unknown']);
 const WORKER_KEYS = Object.freeze(['profile', 'billing', ...Object.keys(WORKER_CAPABILITIES), 'modelChecks']);
-const WORKER_ALLOWED_KEYS = Object.freeze([...WORKER_KEYS, ...Object.keys(WORKER_OPTIONAL_CAPABILITIES), 'family', 'modelList', 'wideningFlags']);
+const WORKER_ALLOWED_KEYS = Object.freeze([...WORKER_KEYS, ...Object.keys(WORKER_OPTIONAL_CAPABILITIES), 'family', 'modelList', 'wideningFlags', 'secretFlags']);
 const WORKER_ENTRY_FIELDS = new Set(['status', 'evidence', 'verification', 'verifiedOn', 'reason']);
 // Soft hyphen, Mongolian vowel separator, zero-width and directional marks, word joiner and invisible operators, BOM.
 const INVISIBLE_CHARACTER = /[\u00ad\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff]/;
@@ -726,6 +726,8 @@ const WORKER_MODEL_CHECK_FIELDS = new Set(['id', 'argv', 'establishes', 'estimat
 // data with one matcher (widening-flags.ts), run on oneShot.argv and mainSession.argv here and on the final argv at launch.
 const { wideningProblem, wideningFlagsProblem } = require('./widening-flags.ts');
 const WIDENING_CHECKED = Object.freeze(['oneShot', 'mainSession']);
+// 172 D9: no argv of a worker block prints a credential (secret-flags.ts: per-binary sets, owner list, `worker.secretFlags`).
+const { secretProblem, secretFlagsProblem } = require('./secret-flags.ts');
 const MAIN_SESSION_PLACEHOLDERS = new Set(['{prompt}', '{model}', '{lastMessageFile}']);
 const WORKER_ARGV_MAX = 32;
 const WORKER_ARG_MAX_CHARS = 200;
@@ -826,6 +828,16 @@ function validateWorker(value: any, location: string, errors: string[]): void {
   const declaredProblem = Object.hasOwn(value, 'wideningFlags') ? wideningFlagsProblem(value.wideningFlags) : null;
   if (declaredProblem) fail('wideningFlags', declaredProblem);
   const declared = Object.hasOwn(value, 'wideningFlags') && !declaredProblem ? value.wideningFlags : [];
+  const secretDeclaredProblem = Object.hasOwn(value, 'secretFlags') ? secretFlagsProblem(value.secretFlags) : null;
+  if (secretDeclaredProblem) fail('secretFlags', secretDeclaredProblem);
+  const secretDeclared = Object.hasOwn(value, 'secretFlags') && !secretDeclaredProblem ? value.secretFlags : [];
+  // The one place a worker argv is checked for a secret; every argv of the block goes through it.
+  const secretCheck = (key: string, field: string, argv: unknown) => {
+    if (!Array.isArray(argv)) return;
+    const secret = secretProblem(argv, { binary: value.cli?.binary, declared: secretDeclared });
+    if (secret) fail(key, `${field} must not contain the secret-printing flag or command '${secret}'`);
+  };
+  if (object(value.modelList)) secretCheck('modelList', 'argv', value.modelList.argv);
 
   for (const [key, rule] of [...Object.entries(WORKER_CAPABILITIES), ...Object.entries(WORKER_OPTIONAL_CAPABILITIES)]) {
     if (!Object.hasOwn(value, key)) continue;
@@ -871,6 +883,7 @@ function validateWorker(value: any, location: string, errors: string[]): void {
       if (problem) {
         fail(key, problem.replace(/^argv/, field));
       } else {
+        secretCheck(key, field, entry[field]);
         // 120 IC-011: only model.argv carries one whole model placeholder.
         if (key === 'model' && field === 'argv') {
           const count = entry.argv.filter((item: string) => item === '{model}').length;
@@ -992,6 +1005,7 @@ function validateWorker(value: any, location: string, errors: string[]): void {
     if (problem) {
       fail(key, problem);
     } else {
+      secretCheck(key, 'argv', check.argv);
       if (check.argv.some((item: string) => item.includes('{model}'))) fail(key, "argv must not contain '{model}' outside model.argv");
       if (check.argv.includes('{prompt}')) fail(key, "argv must not contain '{prompt}' outside oneShot.argv");
       if (check.argv.includes('{lastMessageFile}')) fail(key, "argv must contain '{lastMessageFile}' only once and only in structuredOutput.argv");

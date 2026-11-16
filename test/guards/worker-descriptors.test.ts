@@ -94,7 +94,7 @@ function parserFindings(registry: any, parsers: any) {
 const EVIDENCE_SCHEMA = 'doflow-worker-evidence-v1';
 // `modelList` is how the harness's own CLI lists its models, not a worker capability: its shape is the registry
 // validator's and its parsers are test/runtime/models/list-models.test.ts's, and its evidence is the dated listing run in its own text.
-const NOT_CAPABILITIES: any = new Set(['cli', 'profile', 'modelChecks', 'modelList']);
+const NOT_CAPABILITIES: any = new Set(['cli', 'profile', 'modelChecks', 'modelList', 'secretFlags']);
 
 /** The checks file a record is bound to: core/worker-evidence/<harness>/checks.json. */
 function checksFile(harnessId: any, repoRoot: any) {
