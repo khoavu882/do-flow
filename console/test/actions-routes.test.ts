@@ -754,9 +754,9 @@ const START_OPTIONS = {
     { worktreeKey: '0000111122223333', label: 'alpha-fix', branch: null, main: false, busy: { runId: 'w-aaaabbbbcccc' }, observedSession: null }],
   harnesses: [
     { harness: 'claude', startable: true, reason: null, words: 'claude can start a session here', warnings: ['runnable-not-checked'],
-      login: { state: 'logged-in', checkedAt: '2026-11-15T09:00:00.000Z' }, version: '2.1.0', models: [{ id: 'claude-opus-5-5', source: 'frontier' }, { id: null, source: 'default' }] },
+      login: { state: 'logged-in', checkedAt: '2026-11-15T09:00:00.000Z' }, version: '2.1.0', liveVerified: false, models: [{ id: 'claude-opus-5-5', source: 'frontier' }, { id: null, source: 'default' }] },
     { harness: 'copilot', startable: false, reason: 'no-main-session-shape', words: 'DoFlow has no recorded headless way to start copilot', warnings: [],
-      login: null, version: null, models: [{ id: null, source: 'default' }] },
+      login: null, version: null, liveVerified: false, models: [{ id: null, source: 'default' }] },
   ],
   limits: { perCheckout: 1, perActor: 2, machine: 4, perActorPerHour: 6 },
   open: { machine: 1 }, dispatch: { running: true, slug: 'feat-a' }, promptMax: { codePoints: 8000, bytes: 32768 },
