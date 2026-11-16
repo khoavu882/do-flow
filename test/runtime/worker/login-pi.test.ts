@@ -280,3 +280,18 @@ test('models --action sync on a scratch PATH runs the version argv and the recip
   assert.deepEqual(none.calls(), []);
   assert.equal(store.readLoginStore(none.env).harnesses.claude, undefined);
 });
+
+// ── AC-7: conform passes the shipped recipes ────────────────────────────────────────────────────────────────────
+
+test('AC-7: conform passes the shipped claude and pi recipes, and leaves the five without one unchecked not-declared', POSIX_ONLY, async () => {
+  const { executeWorkerCommand } = require(path.join(REPO, 'src', 'runtime', 'worker', 'command.ts'));
+  const view = { packages: [], stateRead: { state: { removed: [] } }, grants: { grants: [] } };
+  const loginPart = async (harness: string) => {
+    const cwd = createScratch('doflow-login-conform-').dir;
+    const { body } = await executeWorkerCommand({ action: 'conform', harness, view, cwd });
+    return body.parts.find((p: any) => p.part === 'login');
+  };
+  assert.deepEqual(await loginPart('claude'), { part: 'login', result: 'passed', reason: '2 answers, 0 signs, providers no' });
+  assert.deepEqual(await loginPart('pi'), { part: 'login', result: 'passed', reason: '4 answers, 2 signs, providers yes' });
+  for (const id of NO_RECIPE) assert.deepEqual(await loginPart(id), { part: 'login', result: 'unchecked', reason: 'not-declared' }, id);
+});
