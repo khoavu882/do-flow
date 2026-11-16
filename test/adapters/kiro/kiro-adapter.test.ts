@@ -267,8 +267,8 @@ function readMcp(root: any) { return JSON.parse(fs.readFileSync(mcpFileIn(root),
 /** One run the way the lifecycle drives an adapter: discover, plan, apply or remove, verify. The
  * returned ledger drops the rows the plan removed or released and takes the MCP rows verify reports,
  * as updateLedger does. */
-function runMcp(adapter: any, { root, mcp = [], mcpAdoptable = [], ledger = { resources: [] }, removing = false }: any) {
-  const input = { scope: 'project', scopeRoot: root, assets: MCP_ASSETS, mcp, mcpAdoptable, ledger, context: removing ? { operation: 'remove' } : {} };
+function runMcp(adapter: any, { root, mcp = [], ledger = { resources: [] }, removing = false }: any) {
+  const input = { scope: 'project', scopeRoot: root, assets: MCP_ASSETS, mcp, ledger, context: removing ? { operation: 'remove' } : {} };
   const discovery = adapter.discover(input);
   const planned = adapter.plan({ ...input, discovery });
   if (!planned.conflicts.length) adapter[removing ? 'remove' : 'apply']({ changes: planned.changes });

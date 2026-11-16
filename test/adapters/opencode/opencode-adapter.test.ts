@@ -151,8 +151,8 @@ function readConfig(root: any) { return JSON.parse(fs.readFileSync(configIn(root
 /** One run the way the lifecycle drives an adapter: discover, plan, apply or remove, verify. The
  * returned ledger drops the rows the plan removed or released and takes the rows verify reports,
  * as updateLedger does. */
-function runMcp(adapter: any, { root, mcp = [], mcpAdoptable = [], ledger = { resources: [] }, removing = false }: any) {
-  const input = { scope: 'project', scopeRoot: root, assets: MCP_ASSETS, mcp, mcpAdoptable, ledger, context: removing ? { operation: 'remove' } : {} };
+function runMcp(adapter: any, { root, mcp = [], ledger = { resources: [] }, removing = false }: any) {
+  const input = { scope: 'project', scopeRoot: root, assets: MCP_ASSETS, mcp, ledger, context: removing ? { operation: 'remove' } : {} };
   const discovery = adapter.discover(input);
   const planned = adapter.plan({ ...input, discovery });
   if (!planned.conflicts.length) adapter[removing ? 'remove' : 'apply']({ changes: planned.changes });
@@ -183,14 +183,6 @@ test('mcp: installs each selected server under its own row beside the instructio
   const removed = runMcp(adapter, { root, ledger: again.ledger, removing: true });
   assert.deepEqual(readConfig(root), { theme: 'dark', mcp: { handwritten: USER_SERVER } });
   assert.deepEqual(removed.ledger.resources, []);
-});
-
-test('mcp: while OpenCode holds no MCP row, an adoptable entry equal to DoFlow\'s is owned and an edited one is not', () => {
-  const root = scratch(); const adapter = createOpenCodeAdapter();
-  writeConfig(root, { mcp: { context7: CONTEXT7_ENTRY, 'sequential-thinking': { ...CONTEXT7_ENTRY, enabled: false } } });
-  const discovery = adapter.discover({ scope: 'project', scopeRoot: root, mcp: [], mcpAdoptable: [CONTEXT7, SEQUENTIAL], ledger: { resources: [] } });
-  assert.deepEqual(discovery.mcpOwned, ['context7']);
-  assert.deepEqual(adapter.discover({ scope: 'project', scopeRoot: root, ledger: { resources: [] } }).mcpOwned, [], 'nothing is adoptable');
 });
 
 test('A3 opencode: a narrower selection removes the deselected owned entry, and none removes every owned entry', () => {

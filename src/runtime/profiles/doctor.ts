@@ -77,7 +77,7 @@ function printProfilesDoctor(report: ProfileDoctorReport): void {
   }
 
   const caps = p.capabilities;
-  console.log(`  capabilities      retrieval: ${caps.retrieval}, advisor: ${caps.advisor}, graph: ${caps.graph}, verification: ${caps.verification}`);
+  console.log(`  capabilities      retrieval: ${caps.retrieval}, advisor: ${caps.advisor}, verification: ${caps.verification}`);
   console.log(`  canary tag        ${caps.telemetryCanaryTag ? 'yes' : 'no'} (sample rate: ${(p.canarySampleRate * 100).toFixed(0)}%)`);
 
   const reg = report.registryVerified;

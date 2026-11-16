@@ -1310,10 +1310,8 @@ function gatherMandatory({ root, taskId, feature }: any) {
     if (feature.paths?.plan) {
       planPath = path.resolve(feature.featureRoot || feature.repoRoot || root, feature.paths.plan);
     } else {
-      const nestedPlan = path.join(folder, 'plan', 'plan.md');
       const flatPlan = path.join(folder, 'plan.md');
-      if (fs.existsSync(nestedPlan)) planPath = nestedPlan;
-      else if (fs.existsSync(flatPlan)) planPath = flatPlan;
+      if (fs.existsSync(flatPlan)) planPath = flatPlan;
     }
     if (planPath && fs.existsSync(planPath)) {
       try {

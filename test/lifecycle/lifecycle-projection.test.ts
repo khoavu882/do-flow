@@ -9,8 +9,6 @@ const { renderPolicies } = require('../../src/lifecycle/policies.ts');
 const { createAdapterRegistry } = require('../../src/adapters/index.ts');
 const { planLifecycle, MCP_KEEP } = require('../../src/lifecycle/index.ts');
 const codexAdapter = require('../../src/adapters/codex/index.ts');
-const antigravityAdapter = require('../../src/adapters/antigravity/index.ts');
-const fs = require('node:fs');
 const { tempDir } = require('../helper/tmp.ts');
 
 const registry = loadRegistry({ repoRoot: path.resolve(__dirname, "../..") });
@@ -69,23 +67,6 @@ test('registry projection permits only safe hook-trust override, not source subs
   assert.equal(projected.projection.hooks.sourceFile, path.join(path.resolve(__dirname, "../.."), 'core', 'harnesses', 'codex', 'hooks', 'hooks.json'));
 });
 
-test('planLifecycle projects each harness\'s adoptable MCP servers, filtered to the catalog and frozen', (t) => {
-  const projectRoot = tempDir(t, 'doflow-adoptable-');
-  const seen: any = {};
-  const adapter = {
-    discover(input: any) { seen[input.harness.id] = input.mcpAdoptable; return {}; },
-    render() { return ''; }, plan() { return { changes: [] }; }, apply() {}, remove() {}, verify() { return { ok: true }; },
-  };
-  planLifecycle({
-    registry, adapters: createAdapterRegistry({ kiro: adapter, codex: adapter }), scope: 'project', scopeRoot: projectRoot,
-    targets: ['kiro', 'codex'], mcpAdoptable: { kiro: ['sequential-thinking', 'retired-server', 'context7'] },
-  });
-  assert.deepEqual(seen.kiro.map((server: any) => server.id), ['context7', 'sequential-thinking']);
-  assert.ok(Object.isFrozen(seen.kiro) && Object.isFrozen(seen.kiro[0]));
-  assert.deepEqual(seen.codex, [], 'a harness with no adoptable entry gets none');
-  assert.deepEqual(projectAdapterInput({ registry, harness: harnessFor(registry, 'kiro'), scope: 'project', scopeRoot: projectRoot }).mcpAdoptable, []);
-});
-
 /** An adapter that records the MCP input of every discover and plan call, and reports `owned` as the
  * servers it holds now. */
 function recordingAdapter({ owned = [] as any[] }: any = {}) {
@@ -142,37 +123,6 @@ test('P5: a selection that is neither ids nor keep is refused, and a harness wit
   assert.throws(() => planWith(t, { codex: adapter }, { targets: ['codex'], mcpSelections: { codex: [7] } }), /must be an array of server ids/);
   assert.throws(() => planWith(t, { antigravity: adapter }, { registry: noMcp, targets: ['antigravity'], mcpSelections: { antigravity: ['context7'] } }),
     /^Error: Harness 'antigravity' takes no MCP servers$/);
-  assert.deepEqual(planWith(t, { antigravity: adapter }, { registry: noMcp, targets: ['antigravity'], mcpSelections: { antigravity: MCP_KEEP }, mcpAdoptable: { antigravity: ['context7'] } })
-    .targets[0].mcpSelected, null, 'keep and adoptable ids mean nothing to a harness that takes no servers');
-});
-
-// Antigravity rows recorded up to 1.18.0 carry no fingerprint. Once the adoptable ids reach the
-// adapter, such a row is judged against DoFlow's rendering of its server, so an unedited entry is
-// owned and is never released as if the user had changed it.
-test('1.18.0 Antigravity rows without a fingerprint keep or remove their unedited entries, never release them', (t) => {
-  const home = tempDir(t, 'doflow-agy-upgrade-');
-  const file = path.join(home, '.gemini', 'config', 'mcp_config.json');
-  const entries = { context7: { command: 'npx', args: ['-y', '@upstash/context7-mcp'] },
-    'sequential-thinking': { command: 'npx', args: ['-y', '@modelcontextprotocol/server-sequential-thinking'] } };
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, `${JSON.stringify({ mcpServers: entries }, null, 2)}\n`);
-  const ledger = { resources: Object.keys(entries).map((id) => ({
-    harness: 'antigravity', scope: 'global', assetId: 'guidance.codex-pointer', target: file,
-    ownershipIdentity: `doflow:antigravity:mcp-server:${id}`, kind: 'mcp-server', identity: id,
-  })) };
-  const plan = (mcpSelections: any) => planLifecycle({
-    registry, adapters: createAdapterRegistry({ antigravity: antigravityAdapter }), scope: 'global', scopeRoot: home, targets: ['antigravity'],
-    mcpSelections, mcpAdoptable: { antigravity: ['context7', 'sequential-thinking'] }, ledger, context: { repoRoot: path.resolve(__dirname, '../..') },
-  });
-  const mcpChanges = (planned: any) => planned.changes.filter((change: any) => change.kind === 'mcp-server').map((change: any) => [change.identity, change.operation, change.release ?? false]);
-  const mcpNotices = (planned: any) => planned.notices.filter(({ notice }: any) => notice.startsWith('MCP:'));
-
-  const kept = plan({ antigravity: MCP_KEEP });
-  assert.deepEqual(kept.targets[0].mcpSelected, ['context7', 'sequential-thinking']);
-  assert.deepEqual(mcpChanges(kept), []);
-  assert.deepEqual(mcpNotices(kept), []);
-
-  const narrower = plan({ antigravity: ['context7'] });
-  assert.deepEqual(mcpChanges(narrower), [['sequential-thinking', 'remove', false]]);
-  assert.deepEqual(mcpNotices(narrower), []);
+  assert.deepEqual(planWith(t, { antigravity: adapter }, { registry: noMcp, targets: ['antigravity'], mcpSelections: { antigravity: MCP_KEEP } })
+    .targets[0].mcpSelected, null, 'keep means nothing to a harness that takes no servers');
 });

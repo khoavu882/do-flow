@@ -446,7 +446,7 @@ const LOG_LIMIT = 500;
 /** C17: gate and merge entries, with their input hashes, outlive the run record's log in audit.jsonl. */
 const AUDIT_LIMIT = 10000;
 const AUDIT_STEPS = ['gate', 'merge', 'render', 'cleanup'];
-const PLAN_FILES = ['plan.md', 'planning/plan.md'];
+const PLAN_FILE = 'plan.md';
 /** `LOOP_BY` of dispatch/loop.ts, the dispatch loop's own actor; G54 keeps that module out of here. */
 const DISPATCH_ACTOR = 'doflow-dispatch';
 /** The actor this loop names in the dispatch commands it yields. */
@@ -454,11 +454,11 @@ const LOOP_ACTOR = 'doflow-roadmap';
 /** The envelope's attendance field: the literal the stage skill reads. attendance.ts (P3) owns the verb and the rule. */
 const attendanceOf = (runId: string): { mode: 'unattended'; run: string } => ({ mode: 'unattended', run: runId });
 const QUOTA = /^quota\b/i;
-/** Stage artifacts (the decision-register.ts artifact list); planning keeps both plan locations. */
+/** Stage artifacts (the decision-register.ts artifact list). */
 const DOC_ARTIFACTS: Record<string, string[]> = {
   discovery: ['intention/requirement.md'],
   design: ['design/design.md'],
-  planning: PLAN_FILES,
+  planning: [PLAN_FILE],
   review: ['review/findings.json'],
 };
 
@@ -947,15 +947,13 @@ function postMergeReasons(row: any, cwd: string, head: string, fsImpl: any): str
 
 const verifyPending = (reasons: string[]): boolean => reasons.includes('verify-missing');
 
-/** The feature plan file the post-merge verify reads (plan.md, else planning/plan.md) and its bytes' digest. */
+/** The feature plan file the post-merge verify reads (plan.md) and its bytes' digest. */
 function featurePlan(ctx: any, row: any, worktree: string): { locator: string; sha256: string; exists: boolean } {
   const root = artifactRootOf(ctx, row, worktree);
-  for (const rel of PLAN_FILES) {
-    const file = path.join(root, rel);
-    try { return { locator: file, sha256: sha256Digest(ctx.fsImpl.readFileSync(file)), exists: true }; }
-    catch (error: any) { if (error.code !== 'ENOENT') throw new Unreadable([`plan:${file}`], error.message); }
-  }
-  return { locator: path.join(root, PLAN_FILES[0]), sha256: sha256Digest(''), exists: false };
+  const file = path.join(root, PLAN_FILE);
+  try { return { locator: file, sha256: sha256Digest(ctx.fsImpl.readFileSync(file)), exists: true }; }
+  catch (error: any) { if (error.code !== 'ENOENT') throw new Unreadable([`plan:${file}`], error.message); }
+  return { locator: file, sha256: sha256Digest(''), exists: false };
 }
 
 /**
@@ -977,7 +975,7 @@ function planChanged(ctx: any, row: any, intent: any): boolean {
     inputs = Array.isArray(entry?.inputs) ? entry.inputs : [];
   } catch { /* no readable journal: no baseline */ }
   const root = artifactRootOf(ctx, row, intent.featureWorktree);
-  const planInputs = inputs.filter((input: any) => PLAN_FILES.some((rel) => input?.locator === path.join(root, rel)));
+  const planInputs = inputs.filter((input: any) => input?.locator === path.join(root, PLAN_FILE));
   return planInputs.length > 0 && !planInputs.some((input: any) => input.locator === current.locator && input.sha256 === current.sha256);
 }
 

@@ -27,13 +27,13 @@ function readJson(file: any) { return JSON.parse(fs.readFileSync(file, 'utf8'));
 /** One run the way the lifecycle drives an adapter: discover, plan, apply or remove, verify. The
  * returned ledger drops the rows the plan removed or released and takes the MCP rows verify reports,
  * as updateLedger does. `scope: 'global'` takes the home directory as its scope root, as the CLI does. */
-function runMcp({ scope = 'global', root, mcp = [], mcpAdoptable = [], ledger = { resources: [] }, removing = false }: any) {
+function runMcp({ scope = 'global', root, mcp = [], ledger = { resources: [] }, removing = false }: any) {
   const adapter = createClaudeAdapter();
   const operation = removing ? 'remove' : 'apply';
   // Global scope takes the scratch root as home, as the CLI does; project scope gets a scratch home
   // so discovery never reads the developer's ~/.claude.json.
   const homeDir = scope === 'global' ? root : scratch();
-  const input = { scope, scopeRoot: root, assets: [], mcp, mcpAdoptable, ledger, context: { operation, homeDir } };
+  const input = { scope, scopeRoot: root, assets: [], mcp, ledger, context: { operation, homeDir } };
   const discovery = adapter.discover(input);
   const planned = adapter.plan({ ...input, discovery });
   if (!planned.conflicts.length) adapter[removing ? 'remove' : 'apply']({ ...input, changes: planned.changes });
@@ -90,29 +90,6 @@ test('A1 claude: nothing selected and nothing owned writes no file', () => {
   const run = runMcp({ root: home });
   assert.deepEqual(run.planned.changes, []);
   assert.equal(fs.existsSync(path.join(home, '.claude.json')), false);
-});
-
-test('A2 claude: entries written before Claude kept MCP rows are adopted when unedited, and remove deletes only those', () => {
-  const home = scratch();
-  const file = path.join(home, '.claude.json');
-  const edited = { ...ENTRIES['sequential-thinking'], env: { DEBUG: '1' } };
-  writeJson(file, { ...CLAUDE_STATE, mcpServers: { context7: ENTRIES.context7, 'sequential-thinking': edited, 'user-server': USER_SERVER } });
-  const before = fs.readFileSync(file);
-  // A 1.18.0 install: Claude holds ledger rows (none for MCP) and a lock row for both servers, so
-  // both are adoptable.
-  const adoptable = [CONTEXT7, SEQUENTIAL];
-
-  const installed = runMcp({ root: home, mcp: [CONTEXT7, SEQUENTIAL], mcpAdoptable: adoptable });
-  assert.deepEqual(installed.discovery.mcpOwned, ['context7']);
-  assert.deepEqual(installed.planned.changes, [], 'adopting writes nothing');
-  assert.deepEqual(installed.planned.notices,
-    ["MCP: kept your own entry 'sequential-thinking' in .claude.json and did not register DoFlow's; rename or remove yours to let DoFlow manage it."]);
-  assert.deepEqual(fs.readFileSync(file), before);
-  assert.deepEqual(mcpRows(installed.ledger).map((row: any) => row.identity), ['context7']);
-
-  const removed = runMcp({ root: home, mcpAdoptable: adoptable, removing: true });
-  assert.deepEqual(removed.planned.changes.map((change: any) => [change.identity, change.operation, change.release ?? false]), [['context7', 'remove', false]]);
-  assert.deepEqual(readJson(file), { ...CLAUDE_STATE, mcpServers: { 'sequential-thinking': edited, 'user-server': USER_SERVER } });
 });
 
 test('A6 claude: a malformed ~/.claude.json is an install conflict and a remove release, and is never written', () => {

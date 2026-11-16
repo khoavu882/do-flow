@@ -134,7 +134,7 @@ function planHookTierRemovals({ target, registry, adapter, harness, scope, scope
   if (!rows.length) return target;
   const assets = selectAssets(registry, { harness: harness.id });
   const policies = renderPolicies(registry, { harness: harness.id });
-  const input = projectAdapterInput({ registry, harness, scope, scopeRoot, assets, mcp: [], mcpAdoptable: [], policies,
+  const input = projectAdapterInput({ registry, harness, scope, scopeRoot, assets, mcp: [], policies,
     context: { ...context, operation: 'remove' } });
   const discovery = adapter.discover({ ...input, registry, ledger });
   const result = adapter.plan({ ...input, registry, ledger, discovery });

@@ -36,7 +36,7 @@ function stateFor(names: any, values: any) {
   const request: any = {
     identity: { role: 'main', lineageKind: 'default-main' },
     state: {
-      bootstrapped: false, subagent: false, ownSummary: 'none', legacy: false,
+      bootstrapped: false, subagent: false, ownSummary: 'none',
       grant: 'none', refusedSeen: false, warning: false, nudge: 'none',
     },
     budget: { maxBytes: 16384, source: 'default' },

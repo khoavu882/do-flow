@@ -204,7 +204,7 @@ function discover(options: any, { fsImpl = fs, nativePaths: resolvePaths = singl
   const paths = scopePaths(options, resolvePaths);
   const instruction = paths.instruction && fsImpl.existsSync(paths.instruction)
     ? fsImpl.readFileSync(paths.instruction, 'utf8') : null;
-  const entries = mcpEntriesInput({ paths, mcp: options.mcp, mcpAdoptable: options.mcpAdoptable, resources: ledgerResources(options) });
+  const entries = mcpEntriesInput({ paths, mcp: options.mcp, resources: ledgerResources(options) });
   const mcpSnapshot = readMcpFiles({ file: entries.file, ownRows: entries.ownRows, container: MCP_CONTAINER, fsImpl });
   const read = mcpSnapshot[entries.file];
   // `null` while the file is absent, unreadable or has no server map; every name in it otherwise, whoever wrote it.
@@ -504,13 +504,13 @@ function ownershipIdentity(id: any) { return `doflow:${HARNESS}:mcp-server:${id}
 /** Everything the shared entry-ownership rules (../mcp-entries.ts) need from this adapter. Rows
  * recorded before entries were fingerprinted carry `fingerprint: null`; such a row owns its entry
  * only while the entry still equals DoFlow's rendering. */
-function mcpEntriesInput({ paths, mcp = [], mcpAdoptable = [], resources = [] }: any) {
+function mcpEntriesInput({ paths, mcp = [], resources = [] }: any) {
   const rendered = (servers: any) => servers.map((server: any) => ({ id: server.id, entry: mcpDefinitionFor(server) }));
   const rows = resources.filter((row: any) => row.kind === 'mcp-server');
   return {
-    file: paths.mcpFile, selected: rendered(mcp), adoptable: rendered(mcpAdoptable),
+    file: paths.mcpFile, selected: rendered(mcp),
     ownRows: rows.filter((row: any) => row.harness === HARNESS).map((row: any) => ({
-      identity: row.identity, target: row.target, fingerprint: row.fingerprint ?? null, ownershipIdentity: row.ownershipIdentity, legacy: false,
+      identity: row.identity, target: row.target, fingerprint: row.fingerprint ?? null, ownershipIdentity: row.ownershipIdentity,
     })),
     foreignRows: rows.filter((row: any) => row.harness !== HARNESS).map((row: any) => ({ harness: row.harness, identity: row.identity, target: row.target })),
     identityFor: ownershipIdentity, assetId: POINTER_ASSET_ID, renderer: MCP_RENDERER, label: 'Antigravity MCP',
@@ -535,7 +535,7 @@ function plan(options: any = {}, impl: any = {}) {
   const trees = planTrees({ assets: options.assets, paths, scope, neutralResources, removing, repoRoot: context.repoRoot, force: context.force === true, fsImpl });
   const legacyShim = removing ? { changes: [], notices: [] } : planLegacyGeminiShim({ assets: options.assets, paths, scope, fsImpl });
   const mcp = planMcpEntries({
-    ...mcpEntriesInput({ paths, mcp: selectedServers, mcpAdoptable: options.mcpAdoptable, resources: neutralResources }),
+    ...mcpEntriesInput({ paths, mcp: selectedServers, resources: neutralResources }),
     files: discovery.mcpSnapshot, removing,
   });
   // Hook tiers (maint-hooks): outside `hooks.harnesses` this plan carries no hook change; the lifecycle
@@ -751,7 +751,7 @@ function verify(options: any = {}, impl: any = {}) {
     }
   }
 
-  const entries = mcpEntriesInput({ paths, mcp: options.mcp, mcpAdoptable: options.mcpAdoptable, resources: ledgerResources(options) });
+  const entries = mcpEntriesInput({ paths, mcp: options.mcp, resources: ledgerResources(options) });
   const mcpFiles = readMcpFiles({ file: entries.file, ownRows: entries.ownRows, container: MCP_CONTAINER, fsImpl });
   const mcp = verifyMcpEntries({
     ...entries, files: mcpFiles, snapshot: options.discovery?.mcpSnapshot ?? mcpFiles, removing,

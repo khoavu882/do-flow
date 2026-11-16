@@ -437,11 +437,8 @@ test('C6: gate-a and gate-b gather a plan-verification-block fact bound to the p
   // A malformed block is still a block: it would replace the commands or fail the verify run.
   env.write(`agent-docs/doflow/${row.slug}/plan.md`, `${plan}\n\`\`\`doflow-verification\n{not json\n\`\`\`\n`);
   assert.equal(fact('gate-a').value.present, true);
-  // planning/plan.md is read when plan.md is absent; neither file is present:false, never unreadable.
+  // No plan.md is present:false, never unreadable.
   fs.rmSync(planFile);
-  const nested = env.write(`agent-docs/doflow/${row.slug}/planning/plan.md`, block);
-  assert.deepEqual([fact('gate-b').locator, fact('gate-b').value.present], [nested, true]);
-  fs.rmSync(nested);
   assert.deepEqual(fact('gate-b'), { name: 'plan-verification-block', value: { present: false }, locator: planFile, sha256: sha256Digest('') });
   // Any other read error is unreadable, and the gate denies on it.
   fs.mkdirSync(planFile);

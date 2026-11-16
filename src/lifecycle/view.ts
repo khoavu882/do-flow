@@ -51,7 +51,7 @@ function codexConfigResources(repoRoot: any, fsImpl: any) {
  * mutation path until every native adapter has CLI-level parity.
  * `registry` is loaded once per command (by the caller) and threaded through here rather than
  * reloaded — the same registry also resolves every harness's MCP selection for that command. */
-function registryLifecycleView({ registry, scope, targets, mcpSelections = {}, mcpAdoptable = {}, retainedMcpIds = [], operation, repoRoot, force = false, adopt = false, permissions = false, statusline = false, hookHarnesses, fsImpl = fs }: any) {
+function registryLifecycleView({ registry, scope, targets, mcpSelections = {}, retainedMcpIds = [], operation, repoRoot, force = false, adopt = false, permissions = false, statusline = false, hookHarnesses, fsImpl = fs }: any) {
   const lifecycleScope = codexScope(scope);
   const scopeRoot = scope.global ? os.homedir() : canonicalPath(scope.projectRoot);
   const neutralStateRoot = stateRoot({ scope: lifecycleScope, projectRoot: scopeRoot, homeDir: scopeRoot });
@@ -66,7 +66,7 @@ function registryLifecycleView({ registry, scope, targets, mcpSelections = {}, m
     opencode: createOpenCodeAdapter({ declaredPaths: declared.opencode }), pi: createPiAdapter({ declaredPaths: declared.pi }),
     copilot: createCopilotAdapter({ declaredPaths: declared.copilot }), kiro: createKiroAdapter({ declaredPaths: declared.kiro }),
     antigravity: createAntigravityAdapter({ declaredPaths: declared.antigravity }) });
-  const plan = planLifecycle({ registry, adapters, scope: lifecycleScope, scopeRoot, targets, mcpSelections, mcpAdoptable, retainedMcpIds, ledger, context: {
+  const plan = planLifecycle({ registry, adapters, scope: lifecycleScope, scopeRoot, targets, mcpSelections, retainedMcpIds, ledger, context: {
     repoRoot, projectRoot: scopeRoot, homeDir: os.homedir(), sourceVersion: pkg.version,
     codexConfigResources: codexConfigResources(repoRoot, fsImpl),
     codexAgentsSourceDir: path.join(repoRoot, 'core', 'harnesses', 'codex', 'agents'),
