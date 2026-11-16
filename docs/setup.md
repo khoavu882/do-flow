@@ -101,7 +101,7 @@ Copilot settings file and no plugin. OpenCode
 uses code modules rather than the shell commands DoFlow ships, so no OpenCode hook is installed.
 Pi now has a `tool_call` guard extension at user and project scope; the project extension runs only
 after the project is trusted. OpenCode's `opencode.json` merge remains supported; DoFlow does not write Pi's `settings.json`.
-Gemini CLI was retired in favour of Antigravity: `--target gemini` is refused, and an existing
+Gemini CLI was retired in favour of Antigravity: `--target gemini` is an unknown target, and an existing
 Gemini CLI install is released on the next `install`, `update` or `reconcile`; see
 [Antigravity's global instructions file](#antigravity-global-instructions-file). Each of the three
 backs up the files the release changes before it applies it, so `doflow rollback` can undo it. The
@@ -181,8 +181,8 @@ To choose which model each tier uses on each installed harness, run `doflow mode
 
 To enable advisory decision picks, run `doflow advise --action configure --model <decision-capable-model>`.
 This writes the user setting to `$XDG_CONFIG_HOME/doflow/settings.json`, or to
-`~/.config/doflow/settings.json` when `XDG_CONFIG_HOME` is unset; an existing `decision-model.json`
-there is still read. A project may override that
+`~/.config/doflow/settings.json` when `XDG_CONFIG_HOME` is unset; an old `decision-model.json`
+there is no longer read. A project may override that
 user setting only after the user enables it: project configuration can disable advice or choose a
 model, but cannot enable advice or select an endpoint or provider. Decision-model endpoints must
 resolve only to loopback addresses; DoFlow rejects non-loopback endpoints. DoFlow never pulls a
@@ -317,7 +317,7 @@ install manifest is copied. After each install or update (and after a reconcile 
 backups of that scope are kept: `--prune N` keeps N, and `--prune 0` keeps all. An update with
 nothing to change prunes nothing, so the first run after upgrading from 1.19 that prunes is an
 install, or an update that changes files; it removes the older DoFlow-written backups beyond the
-newest 3 (`--dry-run` shows how many first). Pruning only removes backups older than the one the run just made, so a backup a concurrent run finished in the meantime is never pruned ("newer" follows the backup sort order, so a backup dated in the future is never pruned while its date is in the future), and each removal renames the backup aside first so a half-deleted backup is never listed. A leftover rename-aside (`.tmp-del-*`) from a pass that died is deleted by the next prune on the same host once its process is gone, and if both the delete and the roll-back of a pass failed, that backup, which the pass had already selected for removal, goes with it. The legacy `.claude/backups` folder is listed but never pruned. `--no-backup`
+newest 3 (`--dry-run` shows how many first). Pruning only removes backups older than the one the run just made, so a backup a concurrent run finished in the meantime is never pruned ("newer" follows the backup sort order, so a backup dated in the future is never pruned while its date is in the future), and each removal renames the backup aside first so a half-deleted backup is never listed. A leftover rename-aside (`.tmp-del-*`) from a pass that died is deleted by the next prune on the same host once its process is gone, and if both the delete and the roll-back of a pass failed, that backup, which the pass had already selected for removal, goes with it. A `.claude/backups` folder (the backup root before 1.8.3) is no longer listed or read, and is never touched. `--no-backup`
 requires `--force`; use it only when the configuration is disposable.
 
 ### doflow.lock and reconciliation
@@ -526,17 +526,16 @@ and any registered MCP servers in `.agents/mcp_config.json` (project) or
 Verified ownership and recovery records, lifecycle backups, and install metadata are stored
 independently of the harness: `<project>/.doflow/` for project scope and `~/.doflow/` for user
 scope. Backups live under `.doflow/backups/`, and the lifecycle manifest is
-`.doflow/.install-manifest.json`. Lifecycle commands use these scope-neutral paths exclusively;
-the explicit neutral-state importer still reads historical `.claude` metadata, and `list-backups` and
-`rollback` also read the legacy `.claude/backups` root, read-only.
+`.doflow/.install-manifest.json`. Lifecycle commands use these scope-neutral paths exclusively, and
+`list-backups` and `rollback` read only `.doflow/backups`.
 
 If a configuration update is wrong, restore the named backup with `doflow rollback`. Rollback
 restores the files the backup holds, leaves in place the files the run created and lists them, and
 exits 1 if a file cannot be restored. With no `--target` it restores the whole backup, including every
 released Gemini CLI row and `targets.gemini`; `--target` restores only the files of the named
 harnesses, and with them only the rows of the files it writes back. Before restoring, it snapshots only the files the
-restore will overwrite. Backups made by 1.19 restore as before. The reverse does not hold: DoFlow
-1.19's `rollback` of a newer backup takes a whole-home snapshot, restores nothing, and still reports
-success, so after downgrading do not rely on it for backups made since. `doflow list-backups` shows each
-backup's origin and size. MCP server registration is a surgical merge outside the installed
+restore will overwrite. A backup made by 1.19 or earlier (a tar.gz or copy tree per tool) is still
+listed and kept by `--prune`, but `rollback` refuses it. DoFlow 1.19's `rollback` of a newer backup takes
+a whole-home snapshot, restores nothing, and still reports success, so after downgrading do not rely on it
+for backups made since. `doflow list-backups` shows each backup's type and size. MCP server registration is a surgical merge outside the installed
 directory and is intentionally not reverted by rollback.

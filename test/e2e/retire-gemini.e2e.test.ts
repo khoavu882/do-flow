@@ -19,7 +19,7 @@ const { writeLedger, stateRoot } = require('../../src/state/index.ts');
 const REPO = path.resolve(__dirname, '..', '..');
 const CLI = path.join(REPO, 'bin', 'doflow.js');
 const RETIRED_LINE = (counts: string) => `[RETIRED] gemini → antigravity: ${counts}`;
-const REFUSAL = "Target 'gemini' was retired on 2026-10-26; use 'antigravity' (alias agy). Its DoFlow files are released by the next 'doflow install' or 'doflow update' in that scope.";
+const REFUSAL = "Unknown target: 'gemini' (valid: ";
 // The product prints the scope-relative path with the platform separator (path.relative), so the expected text does too.
 const DEFERRED = `${path.join('.gemini', 'GEMINI.md')}: handed over on the next run that targets antigravity`;
 
@@ -110,7 +110,7 @@ test('(1) install -g -t claude releases the gemini install: scripts and agent de
   assertUserSettingsKept(c.settings());
 });
 
-test('(2) a retired target is refused by every verb with the IC-002 message and changes nothing', () => {
+test('(2) a retired target is an unknown target for every verb and changes nothing', () => {
   const c = cell();
   const before = { files: digests(c.geminiDir), ledger: fs.readFileSync(c.ledgerFile, 'utf8') };
   for (const verb of ['install', 'update', 'remove', 'status']) {

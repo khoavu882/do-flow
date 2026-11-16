@@ -1,7 +1,7 @@
 'use strict';
 
-// Backups in the layout DoFlow 1.19 wrote, for tests of the code that still reads them. The 1.19
-// writers are gone from src/, so tests plant these directly: a full backup is one
+// Backups in the layout DoFlow 1.19 wrote, for tests of the code that still lists and counts them
+// (restoring them is gone). The 1.19 writers are gone from src/, so tests plant these directly: a full backup is one
 // `<tool>.tar.gz` made with `tar -czf <archive> -C <srcDir> .`, a partial backup is a plain copy
 // tree `<tool>/<rel>`, and each carries a `.manifest.json` with the seven 1.19 keys.
 // Pass `manifest: null` to leave the manifest out, or an object to override its keys.

@@ -17,7 +17,7 @@ const CONTAINER = 'mcpServers';
 
 const identityFor = (id: any) => `doflow:test:mcp-server:${id}`;
 const row = (file: any, server: any, fingerprint = entryFingerprint(server.entry)) => (
-  { identity: server.id, target: file, fingerprint, ownershipIdentity: identityFor(server.id), legacy: false });
+  { identity: server.id, target: file, fingerprint, ownershipIdentity: identityFor(server.id) });
 
 /** One harness's MCP inputs over a real file. */
 function setup(doc?: any) {
@@ -141,7 +141,7 @@ test('M7: removing deletes owned and equal adoptable entries, releases edited on
 test('M8: re-planning after apply gives no change', () => {
   const { file, run, plan } = setup({ mcpServers: { other: USER } });
   const { verified } = run({ selected: [A, B] });
-  const ownRows = verified.resources.map((resource: any) => ({ ...resource, legacy: false }));
+  const ownRows = verified.resources;
   assert.deepEqual(plan({ selected: [A, B], ownRows }), { changes: [], conflicts: [], notices: [] });
   assert.deepEqual(ownedMcpIds({ file, files: readMcpFiles({ file, ownRows, container: CONTAINER }), selected: [A, B], ownRows }), ['alpha', 'beta']);
 });
@@ -179,20 +179,13 @@ test('M11: a null-fingerprint row is owned only while its value equals the rende
   const { file, plan, files } = setup({ mcpServers: { alpha: A.entry, beta: { command: 'edited' }, gone: { command: 'old' }, legacy: { command: 'old' } } });
   const nullRow = (server: any) => ({ ...row(file, server), fingerprint: null });
   const ownRows: any = [nullRow(A), nullRow(B),
-    { identity: 'gone', target: file, fingerprint: entryFingerprint({ command: 'old' }), ownershipIdentity: identityFor('gone'), legacy: false },
-    { identity: 'legacy', target: file, fingerprint: null, ownershipIdentity: identityFor('legacy'), legacy: false }];
+    { identity: 'gone', target: file, fingerprint: entryFingerprint({ command: 'old' }), ownershipIdentity: identityFor('gone') },
+    { identity: 'legacy', target: file, fingerprint: null, ownershipIdentity: identityFor('legacy') }];
   assert.deepEqual(ownedMcpIds({ file, files: files(ownRows), adoptable: [A, B], ownRows }), ['alpha', 'gone']);
 
   const planned = plan({ selected: [A, B], adoptable: [A, B], ownRows });
   assert.deepEqual(planned.changes.map((change: any) => [change.identity, change.release ?? false]),
     [['beta', true], ['gone', false], ['legacy', true]]);
-});
-
-test('a legacy row consumed by a selection is released so the row verify records replaces it', () => {
-  const { file, plan } = setup({ mcpServers: { alpha: A.entry } });
-  const legacy = { ...row(file, A), ownershipIdentity: 'test:mcp:alpha', legacy: true };
-  const planned = plan({ selected: [A], ownRows: [legacy] });
-  assert.deepEqual(planned.changes.map((change: any) => [change.ownershipIdentity, change.release]), [['test:mcp:alpha', true]]);
 });
 
 test('writeMcpJson keeps the file mode and writes through a symlink without replacing it', { skip: process.platform === 'win32' }, () => {

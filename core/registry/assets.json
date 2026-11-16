@@ -4,7 +4,7 @@
     {
       "id": "guidance.core",
       "kind": "guidance",
-      "source": "core/shared/guidance/pointers/claude-gemini.md",
+      "source": "core/shared/guidance/pointers/claude.md",
       "appliesTo": [
         "claude"
       ],

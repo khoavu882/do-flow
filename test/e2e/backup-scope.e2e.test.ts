@@ -117,12 +117,12 @@ function sizeBound(cell: any) {
   return Math.ceil(Number(m[1]) * ({ B: 1, KiB: 1024, MiB: 1024 ** 2, GiB: 1024 ** 3 } as any)[m[2]]);
 }
 
-/** `{ id, type, origin, size }` for each row of the `list-backups` table. */
+/** `{ id, operation, type, size }` for each row of the `list-backups` table. */
 function listRows(scratch: any, extra: any = []) {
   const r = run(scratch, ['list-backups', '-g', ...extra]);
   assert.strictEqual(r.status, 0, r.stderr);
-  return r.stdout.split('\n').map((line: any) => /^(\S+)\s+(\S+)\s+(\S+)\s+(current|legacy)\s+(\S+(?: \S+)?)\s+\S+$/.exec(line))
-    .filter(Boolean).map((m: any) => ({ id: m[1], operation: m[2], type: m[3], origin: m[4], size: m[5] }));
+  return r.stdout.split('\n').map((line: any) => /^(\S+)\s+(\S+)\s+(\S+)\s+(\S+(?: \S+)?)\s+\S+$/.exec(line))
+    .filter(Boolean).map((m: any) => ({ id: m[1], operation: m[2], type: m[3], size: m[4] }));
 }
 
 const canChmod = !IS_WIN && typeof process.getuid === 'function' && process.getuid() !== 0;
@@ -364,7 +364,7 @@ test('a large backup folder is listed with sizes and cut to three', () => {
   assert.match(r.stderr, /removed 10/);
 });
 
-test('list-backups ends with a footer per origin and marks a size it cannot read', { skip: !canChmod && 'needs POSIX permissions and a non-root user' }, (t) => {
+test('list-backups ends with a size footer and marks a size it cannot read', { skip: !canChmod && 'needs POSIX permissions and a non-root user' }, (t) => {
   const scratch = newScratch();
   plantV2(backupRoot(scratch), 1);
   plantV2(backupRoot(scratch), 2);
@@ -372,17 +372,14 @@ test('list-backups ends with a footer per origin and marks a size it cannot read
   fs.mkdirSync(unreadable, { recursive: true });
   fs.chmodSync(unreadable, 0o000);
   t.after(() => fs.chmodSync(unreadable, 0o755));
-  const legacyRoot = path.join(scratch.home, '.claude', 'backups');
-  plantPartialBackup(legacyRoot, 'install_2019-01-01_00-00-00', { tool: 'claude', files: { 'a.md': 'one' } });
 
   const r = run(scratch, ['list-backups', '-g']);
   assert.strictEqual(r.status, 0, r.stderr);
-  assert.match(r.stdout, /^install_2020-01-03_00-00-00 +unknown +\? +current +\? +- \(incomplete: no manifest\)$/m);
-  assert.match(r.stdout, /^current: 3 backup\(s\), [\d.]+ (B|KiB) \(some sizes unknown\); install and update keep the newest 3 \(--prune N\)$/m);
-  assert.ok(r.stdout.includes(`legacy: 1 backup(s), `) && r.stdout.includes(` in ${legacyRoot}; read-only, never pruned`), r.stdout);
+  assert.match(r.stdout, /^install_2020-01-03_00-00-00 +unknown +\? +\? +- \(incomplete: no manifest\)$/m);
+  assert.match(r.stdout, /^[\d.]+ (B|KiB) \(some sizes unknown\); install and update keep the newest 3 \(--prune N\)$/m);
 });
 
-test('backups from before the move to .doflow are never touched', () => {
+test('backups from before the move to .doflow are neither listed nor touched', () => {
   const scratch = newScratch();
   const legacyRoot = path.join(scratch.home, '.claude', 'backups');
   plantPartialBackup(legacyRoot, 'install_2019-01-01_00-00-00', { tool: 'claude', files: { 'a.md': 'one' } });
@@ -400,8 +397,7 @@ test('backups from before the move to .doflow are never touched', () => {
   assert.strictEqual(rollback.status, 0, rollback.stderr);
   assert.deepStrictEqual(hashTree(legacyRoot), before);
 
-  const legacyRows = listRows(scratch).filter((row: any) => row.origin === 'legacy');
-  assert.deepStrictEqual(legacyRows.map((row: any) => row.id).sort(), ['install_2019-01-01_00-00-00', 'update_2019-01-02_00-00-00']);
+  assert.deepStrictEqual(listRows(scratch).filter((row: any) => row.id.includes('2019')), []);
 });
 
 test('project scope prunes the project folder and leaves the global one', () => {
@@ -461,7 +457,7 @@ test('a dry run before the first install writes no backup and removes none', () 
   assert.strictEqual(Number(m[1]), readManifest(scratch, createdId(real)).summary.files);
 });
 
-test('older backups are listed and roll back to their own bytes', () => {
+test('1.19 backups are listed, and rollback refuses them without writing', () => {
   const scratch = newScratch();
   const src = path.join(scratch.dir, 'archive-src');
   write(path.join(src, 'from-archive.txt'), 'archive bytes');
@@ -470,14 +466,13 @@ test('older backups are listed and roll back to their own bytes', () => {
   const rows = listRows(scratch);
   assert.deepStrictEqual(rows.map((row: any) => [row.id, row.type]), [['update_2020-03-02_00-00-00', 'partial'], ['install_2020-03-01_00-00-00', 'full']]);
 
-  const full = run(scratch, ['rollback', 'install_2020-03-01_00-00-00', '-g', '--force']);
-  assert.strictEqual(full.status, 0, full.stderr);
-  assert.match(full.stderr, /whole-home archive/);
-  assert.strictEqual(fs.readFileSync(path.join(scratch.home, '.claude', 'from-archive.txt'), 'utf8'), 'archive bytes');
-
-  const partial = run(scratch, ['rollback', 'update_2020-03-02_00-00-00', '-g', '--force']);
-  assert.strictEqual(partial.status, 0, partial.stderr);
-  assert.strictEqual(fs.readFileSync(path.join(scratch.home, '.claude', 'from-partial.txt'), 'utf8'), 'partial bytes');
+  for (const id of ['install_2020-03-01_00-00-00', 'update_2020-03-02_00-00-00']) {
+    const refused = run(scratch, ['rollback', id, '-g', '--force']);
+    assert.strictEqual(refused.status, 1, refused.stdout + refused.stderr);
+    assert.match(refused.stderr, /was made by DoFlow 1\.19 or earlier .* cannot restore it/);
+  }
+  assert.ok(!fs.existsSync(path.join(scratch.home, '.claude', 'from-archive.txt')));
+  assert.ok(!fs.existsSync(path.join(scratch.home, '.claude', 'from-partial.txt')));
 });
 
 test('a backup that cannot be written stops the run, and a dead run\'s temp folder is cleaned up next time', { skip: !canChmod && 'needs POSIX permissions and a non-root user' }, (t) => {

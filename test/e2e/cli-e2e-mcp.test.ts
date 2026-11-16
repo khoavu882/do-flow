@@ -265,7 +265,7 @@ test('Claude lifecycle: fresh install owns the instructions asset in the neutral
   // section is a short pointer into .doflow/guidance/, not the full guidance content anymore.
   const MARKER_START = '<!-- doflow:start — content below is managed by doflow install/update; edits here are overwritten on the next run -->';
   const MARKER_END = '<!-- doflow:end -->';
-  const pointerMd = fs.readFileSync(path.join(REPO, 'core', 'shared', 'guidance', 'pointers', 'claude-gemini.md'), 'utf8').replace(/\s+$/, '');
+  const pointerMd = fs.readFileSync(path.join(REPO, 'core', 'shared', 'guidance', 'pointers', 'claude.md'), 'utf8').replace(/\s+$/, '');
   assert.strictEqual(content, `${MARKER_START}\n${pointerMd}\n${MARKER_END}\n`);
   assert.ok(fs.existsSync(path.join(project, '.doflow', 'guidance', 'DOFLOW_CORE.md')), 'canonical guidance mirror must exist under .doflow/');
   assert.ok(fs.existsSync(path.join(project, '.doflow', 'guidance', 'rules', 'RULES.md')));

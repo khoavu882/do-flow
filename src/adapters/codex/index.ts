@@ -507,9 +507,8 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     return hooks;
   }
 
-  /** A script row for a name the source no longer ships (a retired front door) is released with the
-   * plan, so the ledger does not keep a row for a file the update deletes. The script itself goes by
-   * its bytes (deployCodexHooks), so this only drops the row. */
+  /** A script row for a name the source no longer ships is released with the plan, so the ledger
+   * does not keep a row for a file DoFlow no longer manages. The file itself is left as it is. */
   function withStaleScriptReleases(hooks: any, rows: any[]) {
     const shipped = new Set(hooks.scriptNames);
     const releases = rows.filter((row: any) => !shipped.has(row.identity)).map((row: any) => ({ type: 'remove', assetId: row.assetId, identity: row.identity,
