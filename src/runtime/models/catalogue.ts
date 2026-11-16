@@ -260,7 +260,8 @@ function billingOf(answer: any): { detectedMode: DetectedMode; derivedBilling: D
 /**
  * One path for built-in and package workers (172 D10): the binary is found on PATH, `cli.versionArgv` gives the
  * version, the declared login recipe runs and its answer is recorded in the `harness-login` store, and the harness's
- * own listing command fills the models. A harness not on PATH starts no process for its version or login.
+ * own listing command fills the models. A harness not on PATH starts no process for its version or login, and its
+ * recipe's answer is recorded as unknown `not-installed`.
  */
 async function syncHarness(
   harnessId: string,
@@ -281,14 +282,15 @@ async function syncHarness(
       const res = await spawnBounded({ binary: found, argv, cwd, env, timeoutMs: VERSION_MS, maxStdout: VERSION_BYTES });
       if (res.status === 'exited' && res.code === 0) version = parseVersion(String(res.stdout ?? ''));
     }
-    if (worker.loginProbe?.status === 'supported') {
-      const { checkLogin, recipeDigest, loginAnswerOf } = require('../worker/login.ts');
-      const store = require('../worker/login-store.ts');
-      const recipe = { ...(await checkLogin({ harness: harnessId, worker, env, cwd, binaryPath: found })), digest: recipeDigest(worker) };
-      try { store.recordRecipeAnswer(env, harnessId, recipe, recipe.digest); } catch { /* the next check writes it */ }
-      // Billing follows the answer the shared precedence gives, so a run's recorded expiry still holds over this check.
-      answer = loginAnswerOf({ harness: harnessId, worker, record: { recipe, run: store.readLoginStore(env).harnesses[harnessId]?.run ?? null } });
-    }
+  }
+  if (worker?.loginProbe?.status === 'supported') {
+    const { checkLogin, recipeDigest, loginAnswerOf } = require('../worker/login.ts');
+    const store = require('../worker/login-store.ts');
+    // Not on PATH, `checkLogin` answers unknown `not-installed` and starts no process; recording it replaces an older answer.
+    const recipe = { ...(await checkLogin({ harness: harnessId, worker, env, cwd, binaryPath: found ?? undefined })), digest: recipeDigest(worker) };
+    try { store.recordRecipeAnswer(env, harnessId, recipe, recipe.digest); } catch { /* the next check writes it */ }
+    // Billing follows the answer the shared precedence gives, so a run's recorded expiry still holds over this check.
+    answer = loginAnswerOf({ harness: harnessId, worker, record: { recipe, run: store.readLoginStore(env).harnesses[harnessId]?.run ?? null } });
   }
   return await withListing({
     harnessId,

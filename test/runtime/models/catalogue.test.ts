@@ -203,3 +203,20 @@ test('172 B-04: sync after a recorded expiry with a ready not-seen answer leaves
     fs.rmSync(tmpProject, { recursive: true, force: true });
   }
 });
+
+test('172 B-05: sync with the binary not on PATH records unknown not-installed, starting no process, over an earlier logged-out', async () => {
+  const r = loginRig('doflow-catalogue-missing-', []);
+  const tmpProject = createTempDir('proj-missing');
+  try {
+    const { recipeDigest } = require('../../../src/runtime/worker/login.ts');
+    const out = { state: 'logged-out', reason: null, at: new Date(Date.now() - 60000).toISOString(), billing: null, providers: [], checked: 1, listed: 0 };
+    loginStore().recordRecipeAnswer(r.env, 'claude', out, recipeDigest(r.worker));
+    assert.equal(loginOf(r).state, 'logged-out');
+    const result = await syncHarness('claude', { projectRoot: tmpProject, env: r.env, registry: r.registry, view: r.view });
+    assert.equal(result.installed, false);
+    assert.deepEqual(r.calls(), [], 'no process started');
+    assert.deepEqual([loginOf(r).state, loginOf(r).reason, loginOf(r).source], ['unknown', 'not-installed', 'recipe']);
+  } finally {
+    fs.rmSync(tmpProject, { recursive: true, force: true });
+  }
+});

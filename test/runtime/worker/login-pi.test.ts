@@ -279,12 +279,13 @@ test('models --action sync on a scratch PATH runs the version argv and the recip
   const loggedOut = (await syncClaude(out, fakeClaudeRegistry())).res;
   assert.deepEqual([loggedOut.loginState, loggedOut.detectedMode, loggedOut.derivedBilling], ['logged-out', 'unverified', 'unknown']);
 
-  // Not on PATH: no process, nothing recorded, unknown never-checked.
+  // Not on PATH: no process, and the recipe's answer is recorded as unknown not-installed (B-05).
   const none = rig(['pi']);
   const missing = (await syncClaude(none, fakeClaudeRegistry())).res;
   assert.deepEqual([missing.installed, missing.version, missing.loginState, missing.detectedMode], [false, null, 'unknown', 'unverified']);
   assert.deepEqual(none.calls(), []);
-  assert.equal(store.readLoginStore(none.env).harnesses.claude, undefined);
+  const absent = store.readLoginStore(none.env).harnesses.claude.recipe;
+  assert.deepEqual([absent.state, absent.reason, absent.checked], ['unknown', 'not-installed', 0]);
 });
 
 // ── AC-7: conform passes the shipped recipes ────────────────────────────────────────────────────────────────────
