@@ -32,12 +32,18 @@ const LIST = [
   'openai          gpt-x              400K     128K     yes       yes',
   'ollama-local    qwen-x             32K      8K       no        no',
 ].join('\n');
-const CHECKS: Record<string, { exit: number; json: any }> = {
+const CHECKS: Record<string, { exit: number | 'kill'; json: any }> = {
   anthropic: { exit: 0, json: { status: 'ready', provider: 'anthropic', authType: 'oauth' } },
   openai: { exit: 0, json: { status: 'ready', provider: 'openai', authType: 'api_key' } },
   'ollama-local': { exit: 0, json: { status: 'ready', provider: 'ollama-local', authType: 'api_key' } },
   gone: { exit: 1, json: { status: 'not_ready', provider: 'gone', reason: 'credentials_not_configured' } },
   broken: { exit: 2, json: { status: 'invalid', provider: 'broken', reason: 'invalid_state' } },
+  // Pi's auth command loads no extensions, so a provider an extension defines is listed yet not found there.
+  ghost: { exit: 1, json: { status: 'not_ready', provider: 'ghost', reason: 'provider_not_found' } },
+  // The check process dies on a signal: no exit code at all.
+  killed: { exit: 'kill', json: {} },
+  'off[0-9]*': { exit: 1, json: { status: 'not_ready', provider: 'off', reason: 'credentials_not_configured' } },
+  'key[0-9]*': { exit: 0, json: { status: 'ready', provider: 'key', authType: 'api_key' } },
 };
 
 const noFs = {
@@ -64,7 +70,7 @@ function fakePi(dir: string, { help = AUTH_HELP, models = LIST }: { help?: strin
     '  exit 0;;',
     '  "auth check")',
     '    case "$4" in',
-    ...Object.entries(CHECKS).map(([name, { exit, json }]) => `      ${name}) echo '${JSON.stringify(json)}'; exit ${exit};;`),
+    ...Object.entries(CHECKS).map(([name, { exit, json }]) => `      ${name}) echo '${JSON.stringify(json)}'; ${exit === 'kill' ? 'kill -9 $$' : `exit ${exit}`};;`),
     '      *) echo "unknown provider" >&2; exit 2;;',
     '    esac;;',
     'esac',
@@ -182,4 +188,80 @@ test('pi probe: the provider names read from the list are checked for shape and 
   const asked = calls().filter((c: string) => c.startsWith('auth check'));
   assert.equal(asked.length, 8);
   assert.ok(!asked.some((c: string) => c.includes('--credentials') || c.includes('bad/name')), asked.join('\n'));
+});
+
+// A fake that answers the probe's other commands and gives one `auth check` answer through the injected exec seam.
+function injected(checkAnswer: (cb: any) => void, models = 'provider model\nanthropic m 1 1 n n') {
+  return (bin: string, args: string[], opts: any, cb: any) => {
+    if (args[0] === '--version') cb(null, '1.5.2\n', '');
+    else if (args[0] === 'auth' && args[1] === '--help') cb(null, AUTH_HELP, '');
+    else if (args[0] === '--list-models') cb(null, models, '');
+    else checkAnswer(cb);
+  };
+}
+
+test('pi probe (B-1): a check that ended with no exit code, on a signal or a timeout is unknown, never logged out', async () => {
+  const dir = suiteTempDir('doflow-probe-pi-noexit-');
+  const timedOut = (cb: any) => cb(Object.assign(new Error('timed out'), { code: null, killed: true, signal: 'SIGTERM' }), '', '');
+  const signalled = (cb: any) => cb(Object.assign(new Error('killed'), { code: null, killed: false, signal: 'SIGKILL' }), '', '');
+  const noCode = (cb: any) => cb(Object.assign(new Error('odd'), { code: null }), '', '');
+  for (const [name, answer, reason] of [['timeout', timedOut, /timed out/], ['signal', signalled, /SIGKILL/], ['null code', noCode, /exit code/]] as any[]) {
+    const res: any = await probePi({ execFileImpl: injected(answer), homeDir: dir, env: {}, fsImpl: noFs });
+    assert.equal(res.loginState, 'error', name);
+    assert.equal(res.reloginHint, 'pi', name);
+    assert.deepEqual(res.loginCheck.providers.map((p: any) => p.status), ['unavailable'], name);
+    assert.match(res.loginCheck.providers[0].reason, reason, name);
+  }
+  // A real exit code of 1 from the same seam is still a definite not ready.
+  const one = (cb: any) => cb(Object.assign(new Error('exit 1'), { code: 1 }), '{"status":"not_ready","reason":"credentials_not_configured"}', '');
+  const gone: any = await probePi({ execFileImpl: injected(one), homeDir: dir, env: {}, fsImpl: noFs });
+  assert.deepEqual([gone.loginState, gone.loginCheck.providers[0].status], ['logged-out', 'not_ready']);
+});
+
+test('pi probe (B-1): a real process killed by a signal reads as unknown, and logged out needs every checked provider to say not ready', async () => {
+  const dir = suiteTempDir('doflow-probe-pi-kill-');
+  const probe = async (sub: string, rows: string) => probePi({ ...fakePi(path.join(dir, sub), { models: `provider model\n${rows}` }), homeDir: dir, fsImpl: noFs, timeoutMs: 10000 });
+  const killed: any = await probe('a', 'killed m 1 1 n n');
+  assert.equal(killed.loginState, 'error');
+  assert.equal(killed.loginCheck.providers[0].status, 'unavailable');
+  assert.match(killed.loginCheck.providers[0].reason, /SIGKILL/);
+  const mixed: any = await probe('b', 'gone m 1 1 n n\nkilled m 1 1 n n');
+  assert.equal(mixed.loginState, 'error');
+  const allGone: any = await probe('c', 'gone m 1 1 n n');
+  assert.equal(allGone.loginState, 'logged-out');
+  const ready: any = await probe('d', 'killed m 1 1 n n\nopenai m 1 1 n n');
+  assert.equal(ready.loginState, 'logged-in');
+});
+
+test('pi probe (B-2): provider_not_found for a provider the listing named is unknown, not logged out', async () => {
+  const dir = suiteTempDir('doflow-probe-pi-ghost-');
+  const ghost: any = await probePi({ ...fakePi(path.join(dir, 'a'), { models: 'provider model\nghost m 1 1 n n' }), homeDir: dir, fsImpl: noFs, timeoutMs: 10000 });
+  assert.equal(ghost.loginState, 'error');
+  assert.deepEqual(ghost.loginCheck.providers, [{ provider: 'ghost', status: 'unavailable', reason: 'provider_not_found' }]);
+  // Beside a ready provider it does not change the answer; beside a definite not ready it keeps the state unknown.
+  const ready: any = await probePi({ ...fakePi(path.join(dir, 'b'), { models: 'provider model\nghost m 1 1 n n\nopenai m 1 1 n n' }), homeDir: dir, fsImpl: noFs, timeoutMs: 10000 });
+  assert.equal(ready.loginState, 'logged-in');
+  const mixed: any = await probePi({ ...fakePi(path.join(dir, 'c'), { models: 'provider model\ngone m 1 1 n n\nghost m 1 1 n n' }), homeDir: dir, fsImpl: noFs, timeoutMs: 10000 });
+  assert.equal(mixed.loginState, 'error');
+});
+
+test('pi probe (B-3): more providers listed than checked says so, and mode and billing stay unknown', async () => {
+  const dir = suiteTempDir('doflow-probe-pi-cap-');
+  const keys = Array.from({ length: 8 }, (_, i) => `key${i} m 1 1 n n`);
+  const nine: any = await probePi({ ...fakePi(path.join(dir, 'a'), { models: ['provider model', ...keys, 'anthropic m 1 1 n n'].join('\n') }), homeDir: dir, fsImpl: noFs, timeoutMs: 10000 });
+  assert.equal(nine.loginCheck.providers.length, 8);
+  assert.equal(nine.loginCheck.checked, 8);
+  assert.equal(nine.loginCheck.listed, 9);
+  assert.match(nine.loginCheck.note, /8 of 9/);
+  assert.equal(nine.loginState, 'logged-in');
+  assert.deepEqual([nine.detectedMode, nine.derivedBilling], ['unverified', 'unknown']);
+  // Not truncated: the counts say so, there is no note, and the mode is read as before.
+  const eight: any = await probePi({ ...fakePi(path.join(dir, 'b'), { models: ['provider model', ...keys].join('\n') }), homeDir: dir, fsImpl: noFs, timeoutMs: 10000 });
+  assert.deepEqual([eight.loginCheck.checked, eight.loginCheck.listed, eight.loginCheck.note], [8, 8, undefined]);
+  assert.deepEqual([eight.detectedMode, eight.derivedBilling], ['api-key', 'metered']);
+  // Eight definite not-readys with a ninth listed that was never asked is not a definite logout.
+  const offs = Array.from({ length: 9 }, (_, i) => `off${i} m 1 1 n n`);
+  const out: any = await probePi({ ...fakePi(path.join(dir, 'c'), { models: ['provider model', ...offs].join('\n') }), homeDir: dir, fsImpl: noFs, timeoutMs: 10000 });
+  assert.deepEqual(out.loginCheck.providers.map((p: any) => p.status), Array(8).fill('not_ready'));
+  assert.equal(out.loginState, 'error');
 });

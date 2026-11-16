@@ -42,11 +42,17 @@ const HARNESS_BINARIES: Record<string, string> = {
   antigravity: 'agy',
 };
 
+/** How a failed process ended. `code` above reads a missing exit code as 1, so a timeout or a signal looks like an exit 1:
+ * a probe that must tell the two apart reads `exited` (a real numeric exit code), `killed` (a timeout) and `signal`. */
+function ended(err: any): { exited: boolean; signal: string | null; killed: boolean } {
+  return { exited: typeof err.code === 'number', signal: typeof err.signal === 'string' ? err.signal : null, killed: err.killed === true };
+}
+
 async function executeCommand(
   bin: string,
   args: string[],
   options: { timeoutMs?: number; execFileImpl?: any; env?: any }
-): Promise<{ ok: boolean; stdout: string; stderr: string; code: number | string | null }> {
+): Promise<{ ok: boolean; stdout: string; stderr: string; code: number | string | null; exited?: boolean; signal?: string | null; killed?: boolean }> {
   const timeout = options.timeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS;
   const runner = options.execFileImpl;
 
@@ -60,6 +66,7 @@ async function executeCommand(
               stdout: String(stdout || ''),
               stderr: String(stderr || err.message || ''),
               code: err.code || 1,
+              ...ended(err),
             });
           } else {
             resolve({
@@ -73,7 +80,7 @@ async function executeCommand(
         if (proc && typeof proc.then === 'function') {
           proc.then(
             (res: any) => resolve({ ok: true, stdout: String(res.stdout || '').trim(), stderr: String(res.stderr || '').trim(), code: 0 }),
-            (err: any) => resolve({ ok: false, stdout: String(err.stdout || ''), stderr: String(err.stderr || err.message || ''), code: err.code || 1 })
+            (err: any) => resolve({ ok: false, stdout: String(err.stdout || ''), stderr: String(err.stderr || err.message || ''), code: err.code || 1, ...ended(err) })
           );
         }
       } catch (err: any) {
@@ -96,6 +103,7 @@ async function executeCommand(
       stdout: String(err.stdout || ''),
       stderr: String(err.stderr || err.message || ''),
       code: err.code || 1,
+      ...ended(err),
     };
   }
 }
@@ -356,7 +364,7 @@ const PI_CHECK_LIMIT = 'an expired OAuth login reads as ready: `pi auth check --
 const PI_FALLBACK_LIMIT = 'no login is verified: an ANTHROPIC_API_KEY or OPENAI_API_KEY in the environment, or any parseable ~/.pi/agent/models.json, counts as logged in, and an OAuth-only login reads as logged out';
 
 /** The provider ids in `pi --list-models` output: the first column of the rows under the header, which Pi fills only
- * with providers that have usable credentials. Shape-checked and capped, since each reaches a command line. */
+ * with providers that have usable credentials. Shape-checked, since each reaches a command line; the caller caps them. */
 function piListedProviders(listing: string): string[] {
   const lines = listing.split('\n');
   const header = lines.findIndex((line) => /^provider\s+model\b/.test(line));
@@ -365,12 +373,12 @@ function piListedProviders(listing: string): string[] {
   for (const line of lines.slice(header + 1)) {
     const name = line.trim().split(/\s+/)[0] ?? '';
     if (PI_PROVIDER.test(name) && !seen.includes(name)) seen.push(name);
-    if (seen.length === PI_PROVIDERS_MAX) break;
   }
   return seen;
 }
 
-type PiProviderCheck = { provider: string; status: 'ready' | 'not_ready' | 'invalid' | 'unavailable'; authType?: 'oauth' | 'api_key' };
+/** `unavailable` is "unknown": the probe could not get an answer, and says why in `reason`. Only `not_ready` is a definite no. */
+type PiProviderCheck = { provider: string; status: 'ready' | 'not_ready' | 'invalid' | 'unavailable'; authType?: 'oauth' | 'api_key'; reason?: string };
 
 /** One `pi auth check --provider <name> --json --no-refresh`: the exit code is the verdict, the JSON only names the auth type. */
 async function piCheckProvider(binary: string, provider: string, options: ProbeOptions): Promise<PiProviderCheck> {
@@ -383,9 +391,18 @@ async function piCheckProvider(binary: string, provider: string, options: ProbeO
     } catch { /* the exit code stands */ }
     return { provider, status: 'ready', ...(authType ? { authType } : {}) };
   }
-  if (res.code === 1) return { provider, status: 'not_ready' };
-  if (res.code === 2) return { provider, status: 'invalid' };
-  return { provider, status: 'unavailable' };
+  // An answer the probe could not get is unknown, never logged out: a timeout, a signal or a missing exit code is no exit 1.
+  if (res.killed) return { provider, status: 'unavailable', reason: 'check timed out or was killed' };
+  if (res.signal) return { provider, status: 'unavailable', reason: `check ended by signal ${res.signal}` };
+  if (!res.exited) return { provider, status: 'unavailable', reason: 'check ended with no exit code' };
+  if (res.code === 1 || res.code === 2) {
+    let reason: unknown;
+    try { reason = JSON.parse(res.stdout)?.reason; } catch { /* the exit code stands */ }
+    // Pi's auth command loads no extensions, so a provider an extension defines is listed yet not found there.
+    if (reason === 'provider_not_found') return { provider, status: 'unavailable', reason: 'provider_not_found' };
+    return { provider, status: res.code === 1 ? 'not_ready' : 'invalid' };
+  }
+  return { provider, status: 'unavailable', reason: `check exited with ${String(res.code)}` };
 }
 
 const probePi: HarnessProbeRunner = async (options: ProbeOptions = {}) => {
@@ -421,16 +438,18 @@ const probePi: HarnessProbeRunner = async (options: ProbeOptions = {}) => {
   if (help.ok && PI_CHECK_SHOWN.test(help.stdout)) {
     const listing = await executeCommand(binary, ['--list-models', '--offline'], options);
     const providers: PiProviderCheck[] = [];
-    if (listing.ok) {
-      for (const name of piListedProviders(listing.stdout)) providers.push(await piCheckProvider(binary, name, options));
-    }
+    const listed = listing.ok ? piListedProviders(listing.stdout) : [];
+    for (const name of listed.slice(0, PI_PROVIDERS_MAX)) providers.push(await piCheckProvider(binary, name, options));
+    const complete = providers.length === listed.length;
     const ready = providers.filter((p) => p.status === 'ready');
     const authTypes = new Set(ready.map((p) => p.authType ?? 'unknown'));
+    // Logged out only when every listed provider was checked and every one answered a definite not ready.
     const loginState: LoginState = ready.length > 0 ? 'logged-in'
-      : providers.some((p) => p.status === 'invalid' || p.status === 'unavailable') || !listing.ok ? 'error'
+      : !listing.ok || !complete || providers.some((p) => p.status !== 'not_ready') ? 'error'
         : 'logged-out';
     // OAuth is a subscription login whose billing Pi does not say (an Anthropic one can bill as extra usage); a key is metered.
-    const onlyType = authTypes.size === 1 ? [...authTypes][0] : null;
+    // With providers left unchecked the mix is unknown, so mode and billing stay unknown.
+    const onlyType = complete && authTypes.size === 1 ? [...authTypes][0] : null;
     const detectedMode: DetectedMode = onlyType === 'oauth' ? 'subscription' : onlyType === 'api_key' ? 'api-key' : 'unverified';
     const derivedBilling: DerivedBilling = onlyType === 'api_key' ? 'metered' : 'unknown';
     const result: SyncHarnessResult & { loginCheck: unknown } = {
@@ -444,7 +463,14 @@ const probePi: HarnessProbeRunner = async (options: ProbeOptions = {}) => {
       derivedBilling,
       offeredModels: [],
       lastSyncedAt: new Date().toISOString(),
-      loginCheck: { method: 'pi-auth-check', providers, limit: PI_CHECK_LIMIT },
+      loginCheck: {
+        method: 'pi-auth-check',
+        providers,
+        checked: providers.length,
+        listed: listed.length,
+        ...(complete ? {} : { note: `checked ${providers.length} of ${listed.length} listed providers; mode and billing are unknown` }),
+        limit: PI_CHECK_LIMIT,
+      },
     };
     return result;
   }
