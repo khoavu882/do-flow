@@ -20,6 +20,8 @@ const EFFORT_PLACEHOLDER = '{effort}';
 type ModelChoice = { model: string; provider: string | null; effort: string | null };
 type Check = 'listed' | 'several-providers' | 'not-listed' | 'unchecked';
 type EffortCheck = null | 'listed' | 'not-offered' | 'unchecked';
+/** A transport the model part added: `flag` is the flag, `key` the `<key>` of a `[flag, "<key>={effort}"]` argv (null for a bare value), so only that pair is dropped from the fixed pieces. */
+type Strip = { flag: string; key: string | null };
 
 /** `LaunchUsageError` lives in launch.ts, which requires this module's callers; load it only on the throwing path (no require cycle). */
 function usageError(reason: 'model-part-unsupported' | 'model-part-invalid', message: string): Error {
@@ -41,18 +43,21 @@ function choiceOf(value: unknown): ModelChoice | null {
   return { model: value.model, provider, effort };
 }
 
+/** The `<key>` of a flag transport argv `[F, "<key>={value}"]`, or null when the value is bare. */
+const keyOf = (argv: string[]): string | null => /^([^=]+)=\{[a-z]+\}$/.exec(argv[1])?.[1] ?? null;
+
 /** Replaces every `from` in `text` with `to` (a plain split/join, so a `$` in a value is never a replacement pattern). */
 const fill = (text: string, from: string, to: string): string => text.split(from).join(to);
 
 /**
  * IC-002: the argv for the model part of a launch and the flags it owns. `worker` is a descriptor `worker` block, `choice` a
- * ModelChoice. `strip` lists the transport flags the model part added, so the assembler can drop a fixed copy from the
- * other pieces. Throws LaunchUsageError `model-part-unsupported` (a part is given and its entry is not `supported`, or
+ * ModelChoice. `strip` lists the flag transports (flag and key) the model part added, so the assembler can drop a fixed copy of the same
+ * pair from the other pieces. Throws LaunchUsageError `model-part-unsupported` (a part is given and its entry is not `supported`, or
  * the model is not) or `model-part-invalid` (a value outside its pattern, an effort outside a closed levels list, or a
  * composed id over 220 characters). `shape: true` composes with the placeholders {model}, {provider}, {effort} instead of the
  * values (the stored `argvShape`) and checks only that each given part is supported.
  */
-function composeModelPart(worker: any, choice: ModelChoice, { shape = false }: { shape?: boolean } = {}): { argv: string[]; strip: string[] } {
+function composeModelPart(worker: any, choice: ModelChoice, { shape = false }: { shape?: boolean } = {}): { argv: string[]; strip: Strip[] } {
   if (worker?.model?.status !== 'supported' || !Array.isArray(worker.model.argv)) {
     throw usageError('model-part-unsupported', 'the harness does not take a model argument');
   }
@@ -62,7 +67,7 @@ function composeModelPart(worker: any, choice: ModelChoice, { shape = false }: {
   if (!shape && (typeof model !== 'string' || model === '')) throw invalid('model', 'must be a non-empty string');
   let id = model;
   const extra: string[] = [];
-  const strip: string[] = [];
+  const strip: Strip[] = [];
 
   if (choice.provider !== null) {
     const entry = worker.provider;
@@ -70,7 +75,7 @@ function composeModelPart(worker: any, choice: ModelChoice, { shape = false }: {
     const provider = shape ? PROVIDER_PLACEHOLDER : choice.provider;
     if (!shape && !PROVIDER_RE.test(provider)) throw invalid('provider', 'must start with a letter or digit and use only letters, digits, . _ - (at most 64 characters)');
     if (entry.via === 'id-prefix') id = provider + entry.separator + id;
-    else { extra.push(entry.argv[0], fill(entry.argv[1], PROVIDER_PLACEHOLDER, provider)); strip.push(entry.argv[0]); }
+    else { extra.push(entry.argv[0], fill(entry.argv[1], PROVIDER_PLACEHOLDER, provider)); strip.push({ flag: entry.argv[0], key: keyOf(entry.argv) }); }
   }
   if (choice.effort !== null) {
     const entry = worker.effort;
@@ -81,7 +86,7 @@ function composeModelPart(worker: any, choice: ModelChoice, { shape = false }: {
       if (Array.isArray(entry.levels) && !entry.levels.includes(effort)) throw invalid('effort', `must be one of: ${entry.levels.join(', ')}`);
     }
     if (entry.via === 'id-suffix') id = id + entry.separator + effort;
-    else { extra.push(entry.argv[0], fill(entry.argv[1], EFFORT_PLACEHOLDER, effort)); strip.push(entry.argv[0]); }
+    else { extra.push(entry.argv[0], fill(entry.argv[1], EFFORT_PLACEHOLDER, effort)); strip.push({ flag: entry.argv[0], key: keyOf(entry.argv) }); }
   }
   if (!shape && id.length > COMPOSED_ID_MAX) throw invalid('model id', `is ${id.length} characters once composed; the limit is ${COMPOSED_ID_MAX}`);
   return { argv: [...worker.model.argv.map((item: string) => fill(item, MODEL_PLACEHOLDER, id)), ...extra], strip };
@@ -145,4 +150,4 @@ function effortCheck(entry: any, choice: ModelChoice, worker: any): EffortCheck 
   return verdicts.size === 1 ? [...verdicts][0] : 'unchecked';
 }
 
-module.exports = { choiceOf, composeModelPart, matchListed, modelCheck, effortCheck };
+module.exports = { keyOf, choiceOf, composeModelPart, matchListed, modelCheck, effortCheck };
