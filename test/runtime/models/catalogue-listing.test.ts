@@ -5,6 +5,8 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const { suiteTempDir } = require('../../helper/tmp.ts');
 const { syncHarness, syncAllHarnesses, readCatalogue } = require('../../../src/runtime/models/catalogue.ts');
 
@@ -87,4 +89,34 @@ test('syncAllHarnesses carries each harness previous list into its own listing',
   assert.deepEqual(second.harnesses.opencode.offeredModels.map((m: any) => m.id), ['anthropic/claude-x', 'openai/gpt-y']);
   assert.deepEqual(readCatalogue(project, { homeDir: home }).harnesses.opencode.modelList.status, 'failed');
   assert.equal(second.harnesses.claude.modelList.status, 'none-recorded');
+});
+
+test('169 sync stores the listed columns per model and records which columns were read', async () => {
+  const { loadRegistry } = require('../../../src/registry/index.ts');
+  const { createScratch, childEnv } = require('../../helper/scratch-env.ts');
+  const { linkBin, writeScenario } = require('../../helper/fake-harness-cli.ts');
+  const repo = path.resolve(__dirname, '..', '..', '..');
+  const pi = fs.readFileSync(path.join(repo, 'test', 'fixtures', 'worker', 'model-lists', 'pi-list-models.txt'), 'utf8');
+  const scratch = createScratch('doflow-catalogue-columns-');
+  const env = childEnv(scratch, { PATH: linkBin(path.join(scratch.dir, 'bin'), ['pi']), FAKE_HARNESS_SCENARIO: writeScenario(scratch.dir, { byArgv: [
+    { argv: ['--version'], steps: [{ print: 'pi 1.5.2' }, { exit: 0 }] },
+    { argv: ['--list-models'], steps: [{ print: pi }, { exit: 0 }] },
+  ] }), FAKE_HARNESS_LOG: path.join(scratch.dir, 'log.jsonl') });
+  const registry = structuredClone(loadRegistry({ repoRoot: repo }));
+  const worker = registry.harnesses.find((h: any) => h.id === 'pi').worker;
+  worker.provider = { status: 'supported', via: 'flag', argv: ['--provider', '{provider}'], evidence: ['x'], verification: 'x', verifiedOn: '2026-11-16' };
+  worker.effort = { status: 'supported', via: 'flag', argv: ['--thinking', '{effort}'], levels: ['off', 'low', 'high'], evidence: ['x'], verification: 'x', verifiedOn: '2026-11-16' };
+  worker.modelList = { ...worker.modelList, columns: { provider: 'provider', contextTokens: 'context', maxOutputTokens: 'max-out', reasoning: 'thinking', imageInput: 'images' } };
+  const view = { packages: [], stateRead: { state: {} }, grants: { grants: [] } };
+  const home = suiteTempDir('doflow-test-sync-home-');
+  // The listing runs the scratch `pi` (the fake), found on the scratch PATH: the default exec would look at the real PATH.
+  const { findOnPath } = require('../../../src/runtime/worker/readiness.ts');
+  const listExecImpl = (_file: string, args: string[]) => new Promise((resolve, reject) => {
+    require('node:child_process').execFile(findOnPath('pi', env, process.platform, scratch.dir), args, { env, encoding: 'utf8' }, (err: any, out: string) => (err ? reject(err) : resolve(out)));
+  });
+  const res = await syncHarness('pi', { env, registry, view, homeDir: home, projectRoot: suiteTempDir('doflow-test-sync-project-'), listExecImpl });
+  assert.equal(res.installed, true);
+  assert.deepEqual(res.modelList, { status: 'listed', columns: ['provider', 'contextTokens', 'maxOutputTokens', 'reasoning', 'imageInput'] });
+  assert.equal(res.offeredModels.length, 10);
+  assert.deepEqual(res.offeredModels.find((m: any) => m.provider === 'openai-codex' && m.id === 'gpt-6.1-terra'), { id: 'gpt-6.1-terra', provider: 'openai-codex', contextTokens: 500000, maxOutputTokens: 128000, reasoning: true, imageInput: true });
 });
