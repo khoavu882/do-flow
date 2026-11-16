@@ -237,7 +237,7 @@ function runCanaryFixture() {
   const runsDir = path.join(configDir, 'state', 'runs');
   fs.mkdirSync(home, { recursive: true });
   fs.mkdirSync(path.join(xdg, 'doflow'), { recursive: true });
-  fs.writeFileSync(path.join(xdg, 'doflow', 'prune'), 'off\n');
+  fs.writeFileSync(path.join(xdg, 'doflow', 'settings.json'), '{"schema":1,"storage.prune":"off"}\n');
   fs.mkdirSync(root, { recursive: true });
 
   // Build the install mirror so all harness hook front doors and the shared bridge live in `root`.

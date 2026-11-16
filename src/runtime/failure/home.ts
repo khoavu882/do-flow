@@ -6,9 +6,9 @@
  * config home (`../config-home.ts`, shared with the bash writers so a failure captured by either lands
  * in the one list). No config home means no failure home, and capture is skipped.
  *
- * The switch (IC-005), in order: no home skips; the environment can only turn capture off; the sentinel
- * `<home>/off` file turns it off; a `failure.capture` value in `<config home>/settings.json` other than
- * "on" turns it off (the lexical rule, `../settings/lexical.ts`). Otherwise it is on.
+ * The switch (IC-005), in order: no home skips; the environment can only turn capture off; a
+ * `failure.capture` value in `<config home>/settings.json` other than "on" turns it off (the lexical
+ * rule, `../settings/lexical.ts`). Otherwise it is on.
  */
 
 const path = require('node:path');
@@ -22,28 +22,22 @@ function failureHome(env: any = process.env): string | null {
   return dir === null ? null : path.join(dir, 'failures');
 }
 
-const sentinelPath = (home: string): string => path.join(home, 'off');
 const eventsPath = (home: string): string => path.join(home, 'events.jsonl');
 /** `settings.json` sits in the config home, one level above the failure home. */
 const settingsPath = (home: string): string => path.join(path.dirname(home), 'settings.json');
 
-/** Resolves the machine-wide setting and returns the file and sentinel parts of the old result shape. */
-function resolvedCapture(home: string, env: any): { effective: 'on' | 'off'; sentinel: boolean; settings: 'on' | 'off' | null; decidedBy: string | null; deprecatedNotes: string[] } {
+/** Resolves the machine-wide setting and returns the file part of the old result shape. */
+function resolvedCapture(home: string, env: any): { effective: 'on' | 'off'; settings: 'on' | 'off' | null; decidedBy: string | null } {
   const { loadSettings } = require('../settings/resolve.ts');
   const resolverEnv = { ...env, XDG_CONFIG_HOME: path.dirname(path.dirname(home)) };
   const view = loadSettings({ global: true, env: resolverEnv });
   const result = view.get('failure.capture', 'global');
-  const sentinel = result.candidates.some((candidate: any) =>
-    candidate.legacy && candidate.source === sentinelPath(home) && candidate.value === 'off');
   const file = result.candidates.find((candidate: any) =>
     !candidate.legacy && candidate.layer === 'user' && candidate.source === settingsPath(home));
   const settings = file?.value === 'on' || file?.value === 'off' ? file.value : null;
   return {
-    effective: result.value === 'off' ? 'off' : 'on', sentinel, settings,
+    effective: result.value === 'off' ? 'off' : 'on', settings,
     decidedBy: result.origin.source,
-    deprecatedNotes: view.notes.filter((note: any) => note.code === 'deprecated'
-      && note.key === 'failure.capture' && result.origin.legacy && note.source === result.origin.source)
-      .map((note: any) => note.text),
   };
 }
 
@@ -54,36 +48,36 @@ function envSetting(env: any = process.env): string | null {
 }
 
 /**
- * The capture switch (IC-014, IC-005). The resolver applies the global sentinel, lexical settings
+ * The capture switch (IC-014, IC-005). The resolver applies the lexical settings
  * file value and environment layers; any off value wins. The resolver reads without creating a folder.
  * @param {string|null} home
  * @param {Object} [env]
- * @returns {{effective: 'on'|'off', sentinel: boolean, env: string|null, settings: 'on'|'off'|null}}
+ * @returns {{effective: 'on'|'off', env: string|null, settings: 'on'|'off'|null}}
  *   `settings` is the lexical read of settings.json: null when the file holds no `failure.capture`
  */
-function captureSwitchDetailed(home: string | null, env: any = process.env): { effective: 'on' | 'off'; sentinel: boolean; env: string | null; settings: 'on' | 'off' | null; decidedBy: string | null; deprecatedNotes: string[] } {
+function captureSwitchDetailed(home: string | null, env: any = process.env): { effective: 'on' | 'off'; env: string | null; settings: 'on' | 'off' | null; decidedBy: string | null } {
   const setting = envSetting(env);
   if (!home) {
     const envOff = isOffWord(setting);
-    return { effective: envOff ? 'off' : 'on', sentinel: false, env: setting, settings: null, decidedBy: null, deprecatedNotes: [] };
+    return { effective: envOff ? 'off' : 'on', env: setting, settings: null, decidedBy: null };
   }
   try {
     const resolved = resolvedCapture(home, env);
     return { ...resolved, env: setting };
   } catch {
-    return { effective: 'off', sentinel: false, env: setting, settings: null, decidedBy: null, deprecatedNotes: [] };
+    return { effective: 'off', env: setting, settings: null, decidedBy: null };
   }
 }
 
 /** The public switch shape, with the resolver's deciding source added by IC-005 P3. */
-function captureSwitch(home: string | null, env: any = process.env): { effective: 'on' | 'off'; sentinel: boolean; env: string | null; settings: 'on' | 'off' | null; decidedBy: string | null } {
+function captureSwitch(home: string | null, env: any = process.env): { effective: 'on' | 'off'; env: string | null; settings: 'on' | 'off' | null; decidedBy: string | null } {
   const state = captureSwitchDetailed(home, env);
-  return { effective: state.effective, sentinel: state.sentinel, env: state.env, settings: state.settings, decidedBy: state.decidedBy };
+  return { effective: state.effective, env: state.env, settings: state.settings, decidedBy: state.decidedBy };
 }
 
-/** The hot-path check a writer makes; the shared resolver owns sentinel and settings-file reads. */
+/** The hot-path check a writer makes; the shared resolver owns the settings-file read. */
 function captureIsOff(home: string, env: any = process.env): boolean {
   try { return resolvedCapture(home, env).effective === 'off'; } catch { return true; }
 }
 
-module.exports = { failureHome, captureSwitch, captureSwitchDetailed, captureIsOff, sentinelPath, eventsPath, envSetting };
+module.exports = { failureHome, captureSwitch, captureSwitchDetailed, captureIsOff, eventsPath, envSetting };

@@ -237,12 +237,12 @@ test('stream-hook-runner capture: an unwritable store is silent', () => {
   assert.deepEqual(a, b);
 });
 
-test('stream-hook-runner capture: the sentinel and the environment switch turn capture off', () => {
+test('stream-hook-runner capture: the environment switch turns capture off, and a failures/off file is not read', () => {
   const m: any = capMachine('switch');
   fs.mkdirSync(m.failures, { recursive: true });
   fs.writeFileSync(path.join(m.failures, 'off'), 'x');
   runRunner(m, RUNNER, ['PreToolUse'], 'null', { env: { DOFLOW_FAILURE_CAPTURE: 'on' } });
-  assert.deepEqual(fs.readdirSync(m.failures), ['off']);
+  assert.deepEqual(fs.readdirSync(m.failures).sort(), ['events.jsonl', 'off']);
   for (const value of ['off', '0', 'false', 'no']) {
     const other: any = capMachine('switch-env');
     runRunner(other, RUNNER, ['PreToolUse'], 'null', { env: { DOFLOW_FAILURE_CAPTURE: value } });

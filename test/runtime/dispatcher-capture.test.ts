@@ -314,12 +314,12 @@ describe('switch and home (IC-011, IC-014)', () => {
       assert.equal(lines(t).length, 1, JSON.stringify(value));
     }
   });
-  test('the sentinel file turns capture off, over an env value of on', () => {
-    const t: any = tree('switch-sentinel');
+  test('a failures/off file is not read: capture stays on', () => {
+    const t: any = tree('switch-old-sentinel');
     fs.mkdirSync(t.failures, { recursive: true });
     fs.writeFileSync(path.join(t.failures, 'off'), 'x');
     dispatch(t, ['paths'], { env: { FAKE_EXIT: '139', DOFLOW_FAILURE_CAPTURE: 'on' } });
-    assert.deepEqual(fs.readdirSync(t.failures), ['off']);
+    assert.equal(lines(t).length, 1);
   });
   test('failure.capture "off" in <config home>/settings.json turns capture off, "on" leaves it on (IC-005)', () => {
     const off: any = tree('switch-settings-off');

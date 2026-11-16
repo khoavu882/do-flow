@@ -23,7 +23,7 @@ function fixture(t: any, setting?: any) {
   // outside the account profile on win32: the doctor walks up from the project to any `.doflow/` store
   const project = path.join(tempDirOutsideProfile(t, 'doflow-advice-doctor-proj-'), 'project');
   fs.mkdirSync(project);
-  const settingFile = path.join(scratch.xdg, 'doflow/decision-model.json');
+  const settingFile = path.join(scratch.xdg, 'doflow/settings.json');
   if (setting !== undefined) write(settingFile, typeof setting === 'string' ? setting : JSON.stringify(setting));
   const servers: any = [];
   t.after(async (): Promise<any> => { for (const server of servers) await server.close(); scratch.remove(); });
@@ -39,7 +39,7 @@ function fixture(t: any, setting?: any) {
   };
 }
 function write(file: any, contents: any, _mode?: any) { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, contents); }
-function enabled(endpoint: any, model: any = 'clef-flash') { return { schema: 1, enabled: true, provider: 'ollama', endpoint, model }; }
+function enabled(endpoint: any, model: any = 'clef-flash') { return { schema: 1, 'advice.enabled': true, 'advice.provider': 'ollama', 'advice.endpoint': endpoint, 'advice.model': model }; }
 function section(text: any, header: any) {
   const lines = text.split('\n');
   const start = lines.findIndex((line: any) => line.startsWith(header));
@@ -54,23 +54,23 @@ test('an invalid advice registry is named as the registry, not as an unreadable 
   const report = await buildAdviceDoctor({ repoRoot: f.project, projectRoot: f.project, env: f.scratch.env(),
     storageRegistry: loadStorageRegistry({ repoRoot: REPO_ROOT }) });
   assert.match(report._offReason, /^unreadable advice registry: .*advice\.json/);
-  assert.doesNotMatch(report._offReason, /decision-model/);
+  assert.doesNotMatch(report._offReason, /settings\.json/);
 });
 
-test('an error thrown while building the report is named by its message, not as an unreadable decision-model.json (FU-zsckkj)', async (t) => {
+test('an error thrown while building the report is named by its message, not as an unreadable settings file (FU-zsckkj)', async (t) => {
   const f = fixture(t);
   const report = await buildAdviceDoctor({ repoRoot: REPO_ROOT, projectRoot: f.project, env: f.scratch.env(), storageRegistry: { stores: null } });
   assert.equal(report.decisionModel.setting.reason, 'config-invalid');
   assert.match(report._offReason, /^advice doctor could not complete: .+/);
-  assert.doesNotMatch(report._offReason, /decision-model/);
+  assert.doesNotMatch(report._offReason, /settings\.json/);
   assert.equal(report._offReason, `advice doctor could not complete: ${report.decisionModel.setting.notes[0]}`);
 });
 
  test('feature-off reasons are advisory and never probe even a configured closed endpoint', async (t) => {
   const cases: any = [
     [undefined, /off \(not configured\)/],
-    [{ schema: 1, enabled: false }, /off \(switched off in .*decision-model\.json\)/],
-    ['{invalid', /off \(unreadable setting in .*decision-model\.json\)/],
+    [{ schema: 1, 'advice.enabled': false }, /off \(switched off in .*settings\.json\)/],
+    ['{invalid', /off \(unreadable setting in .*settings\.json\)/],
   ];
   for (const [setting, expected] of cases) {
     const f = fixture(t, setting);
@@ -87,21 +87,21 @@ test('an error thrown while building the report is named by its message, not as 
   const userDisabled = fixture(t);
   const userLive = await startFakeServer();
   t.after(() => userLive.close());
-  write(userDisabled.settingFile, JSON.stringify({ ...enabled(userLive.origin), enabled: false }));
+  write(userDisabled.settingFile, JSON.stringify({ ...enabled(userLive.origin), 'advice.enabled': false }));
   assert.match(section(userDisabled.run().stdout, '[Decision Model]'), /switched off in/);
   const userReport = await buildAdviceDoctor({ repoRoot: REPO_ROOT, projectRoot: userDisabled.project, env: userDisabled.scratch.env() });
   assert.equal(userReport.decisionModel.setting.reason, 'user-disabled');
   assert.deepEqual(userLive.requests, []);
 
   const projectDisabled = fixture(t, enabled(userLive.origin));
-  write(path.join(projectDisabled.project, '.doflow/decision-model.json'), JSON.stringify({ schema: 1, enabled: false }));
-  assert.match(section(projectDisabled.run().stdout, '[Decision Model]'), /switched off in .*project.*decision-model\.json/);
+  write(path.join(projectDisabled.project, '.doflow/settings.json'), JSON.stringify({ schema: 1, 'advice.enabled': false }));
+  assert.match(section(projectDisabled.run().stdout, '[Decision Model]'), /switched off in .*project.*settings\.json/);
   const projectReport = await buildAdviceDoctor({ repoRoot: REPO_ROOT, projectRoot: projectDisabled.project, env: projectDisabled.scratch.env() });
   assert.equal(projectReport.decisionModel.setting.reason, 'project-disabled');
   assert.deepEqual(userLive.requests, []);
 });
 
-test('IC-014 probes in order, renders status rows and provides the decision-model JSON shape', async (t) => {
+test('IC-014 probes in order, renders status rows', async (t) => {
   const f = fixture(t, enabled('http://127.0.0.1:9'));
   const server = await f.start({
     'GET /api/version': { status: 200, body: { version: '0.30.0' } },

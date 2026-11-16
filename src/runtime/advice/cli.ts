@@ -37,33 +37,6 @@ function loadRuntime({ projectRoot, global = false }: any = {}) {
   return { adviceRegistry, adviceError: advice.ok ? null : advice.detail, storage, roots, sources, projectLayers };
 }
 
-function emitDeprecatedNotes(runtime: any, loadSettingsImpl: any = loadSettings): void {
-  emitDeprecatedNotesByCode(runtime, loadSettingsImpl);
-}
-
-function emitDeprecatedNotesByCode(runtime: any, loadSettingsImpl: any = loadSettings): void {
-  if (!runtime.adviceRegistry) return;
-  const roots = runtime.roots || {};
-  const projectRoot = roots['project-doflow'] ? path.dirname(roots['project-doflow']) : null;
-
-  try {
-    const view = loadSettingsImpl({ projectRoot, fsImpl: fs });
-    const enabled = view.get('advice.enabled', 'global');
-    const canReadProject = enabled.value === true && enabled.state === 'ok' && enabled.origin.via === null;
-    for (const note of view.notes || []) {
-      if (note.code !== 'deprecated') continue;
-      const sourceLayer = view.files.find((file: any) => file.path === note.source)?.layer;
-      if (!note.key || !['user', 'project'].includes(sourceLayer)) continue;
-      if (sourceLayer === 'project' && !canReadProject) continue;
-      let resolution;
-      try { resolution = view.get(note.key, sourceLayer === 'user' ? 'global' : 'project'); } catch { continue; }
-      if (!resolution.origin.legacy || resolution.origin.source !== note.source) continue;
-      console.error('note: ' + note.text);
-    }
-  } catch {
-    // Advice remains usable when legacy-source reporting fails.
-  }
-}
 function emitResult(result: any, { json, kind }: any) {
   if (result.reason === 'over-limit') {
     return usageError('advise', result.detail || 'request exceeds an advice limit', json);
@@ -184,7 +157,6 @@ async function handleConfigure(options: any, runtime: any) {
   if (adviceError || !adviceRegistry) return writeFailure(`advice registry is invalid: ${adviceError || 'missing registry'}`, json);
 
   if (!project && !roots['config-home']) return usageError('advise', 'no config home resolves; set an absolute HOME or XDG_CONFIG_HOME, or use --project', json);
-  emitDeprecatedNotes(runtime);
 
   const file = project
     ? path.join(projectLayers.layersFrom || roots['project-doflow'], 'settings.json')
@@ -336,11 +308,10 @@ async function handleAdviseCommand(options: any = {}) {
     if (action === 'configure') return await handleConfigure(shaped, runtime);
     if (action === 'outcome') return handleOutcome(shaped, runtime);
     if (action === 'report') return handleReport(shaped, runtime);
-    emitDeprecatedNotes(runtime);
     return await handleAsk(shaped, runtime);
   } catch (error: any) {
     return writeFailure(error?.message || 'advice command failed', options.json);
   }
 }
 
-module.exports = { handleAdviseCommand, emitDeprecatedNotes };
+module.exports = { handleAdviseCommand };

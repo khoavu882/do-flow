@@ -27,14 +27,9 @@ function handleStorageCommand({ action = 'report', json = false, global = false,
     return;
   }
   const roots = resolveRoots({ registry, projectRoot: global ? null : path.resolve(projectRoot), global, env });
-  let settingsView: any = null;
-  const resolvePruneSetting = createPruneSettingsResolver({ roots, fsImpl, onView: (view: any) => { settingsView = view; } });
+  const resolvePruneSetting = createPruneSettingsResolver({ roots, fsImpl });
   const projectSetting = resolvePruneSetting('project-state');
   const userSetting = resolvePruneSetting('user-state');
-  let deprecationNotes: any[] = [];
-  try {
-    if (settingsView) deprecationNotes = settingsView.notes.filter((note: any) => note.code === 'deprecated' && note.key === 'storage.prune');
-  } catch { /* a settings fault does not change storage's fail-closed report */ }
   const setting = Object.fromEntries(Object.keys(roots).map(rootId => [rootId, resolvePruneSetting(rootId)]));
   const mode = action === 'prune' ? 'prune' : 'report';
   const result = runPass({ registry, roots, mode, setting, now: Date.now(), env, fsImpl });
@@ -45,7 +40,6 @@ function handleStorageCommand({ action = 'report', json = false, global = false,
     // IC-013: an explicitly set DOFLOW_RETENTION_HOURS still removes settled lifecycle events.
     console.log(removed === 0 ? `storage: pruning is off (${decision}); nothing removed`
       : `storage: pruning is off (${decision}); DOFLOW_RETENTION_HOURS still applied to lifecycle events: removed ${removed} ${entries}`);
-    for (const note of deprecationNotes) console.log(`note: ${note.text}`);
     return;
   }
   if (json) {
@@ -57,7 +51,6 @@ function handleStorageCommand({ action = 'report', json = false, global = false,
     return;
   }
   console.log(`Settings: project ${projectSetting.setting}${projectSetting.decidedBy ? ` (${projectSetting.decidedBy})` : ' (default)'}; user ${userSetting.setting}${userSetting.decidedBy ? ` (${userSetting.decidedBy})` : ' (default)'}`);
-  for (const note of deprecationNotes) console.log(`note: ${note.text}`);
   for (const row of result.stores) {
     const names = row.selected.slice(0, 20).map((entry: any) => entry.name);
     const more = row.selected.length > 20 ? `\n    ... and ${row.selected.length - 20} more` : '';

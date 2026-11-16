@@ -76,7 +76,10 @@ function repo(t: any, { taskClass = 'feature', files = { 'src/a.ts': 'export {};
   const lines = (records: any) => put(cwd, `.doflow/state/verification/runs/${SLUG}.jsonl`, records.map((r: any) => `${JSON.stringify(r)}\n`).join(''));
   const line = (extra: any = {}) => ({ schema: 1, taskId: SLUG, head, clean: true, verdict: 'PASS', at: '2026-10-23T00:00:00.000Z', reportSha256: 'x', ...extra });
   const enableAdvice = () => {
-    put(env.XDG_CONFIG_HOME, 'doflow/decision-model.json', JSON.stringify({ schema: 1, enabled: true, provider: 'ollama', endpoint: 'http://127.0.0.1:9', model: 'clef-flash' }));
+    // merged into the user settings.json the fixture already wrote (its OPT_IN document), not a replacement
+    const file = path.join(env.XDG_CONFIG_HOME, 'doflow', 'settings.json');
+    const current = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : { schema: 1 };
+    put(env.XDG_CONFIG_HOME, 'doflow/settings.json', JSON.stringify({ ...current, 'advice.enabled': true, 'advice.provider': 'ollama', 'advice.endpoint': 'http://127.0.0.1:9', 'advice.model': 'clef-flash' }));
   };
   return { dir, cwd, env, base, head, lines, line, enableAdvice, git: (args: any) => git(cwd, env, args) };
 }

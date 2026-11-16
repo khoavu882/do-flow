@@ -4,18 +4,13 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const crypto = require('node:crypto');
-const { createSettingsEnv, userDecision, REPO }: any = require('../helper/settings-fixtures.ts');
+const { createSettingsEnv, REPO }: any = require('../helper/settings-fixtures.ts');
 const os = require('node:os');
 const { spawn, spawnSync } = require('node:child_process');
 const { writeLayer }: any = require('../../src/runtime/settings/write.ts');
 const { loadSettings }: any = require('../../src/runtime/settings/resolve.ts');
 
-function sha256(file: any) {
-  return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
-}
-
-test('writes schema first and owned keys in registry order, keeps foreign keys, and leaves legacy files byte-identical', (t: any) => {
+test('writes schema first and owned keys in registry order, and keeps foreign keys', (t: any) => {
   const f = createSettingsEnv(t);
   f.writeUserSettings({
     'future.flag': 'preserve me',
@@ -23,10 +18,6 @@ test('writes schema first and owned keys in registry order, keeps foreign keys, 
     'advice.model': 'old-model',
     'failure.capture': 'off',
   });
-  const legacy = f.writeUserDecision(userDecision());
-  const legacyHash = sha256(legacy);
-  const sentinel = f.writeSentinel('off sentinel\n');
-  const sentinelHash = sha256(sentinel);
 
   const file = f.userFile('settings.json');
   const renames: any = [];
@@ -56,8 +47,6 @@ test('writes schema first and owned keys in registry order, keeps foreign keys, 
     'failure.capture': 'on',
     'future.flag': 'preserve me',
   });
-  assert.equal(sha256(legacy), legacyHash);
-  assert.equal(sha256(sentinel), sentinelHash);
 });
 
 test('a no-op keeps the existing settings file byte-identical', (t: any) => {
@@ -240,7 +229,7 @@ test('a failure --set with no config home keeps the existing no-home output and 
 
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(result.json, {
-    ok: true, action: 'capture', effective: 'off', sentinel: false, env: null, home: null,
+    ok: true, action: 'capture', effective: 'off', env: null, home: null,
   });
   assert.deepEqual(snapshot(), before);
 });

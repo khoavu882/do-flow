@@ -619,9 +619,9 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
    * budget of 300 ms, against `endpoint`; `lookupSource`, when given, is the client's DNS lookup as source text.
    */
   async function shadowChild(s: any, endpoint: string, lookupSource?: string) {
-    const settingFile = path.join(s.roots['config-home'], 'decision-model.json');
+    const settingFile = path.join(s.roots['config-home'], 'settings.json');
     fs.mkdirSync(path.dirname(settingFile), { recursive: true });
-    fs.writeFileSync(settingFile, JSON.stringify({ schema: 1, enabled: true, provider: 'ollama', endpoint, model: 'clef-flash' }));
+    fs.writeFileSync(settingFile, JSON.stringify({ schema: 1, 'advice.enabled': true, 'advice.provider': 'ollama', 'advice.endpoint': endpoint, 'advice.model': 'clef-flash' }));
     const script = `
       const { interceptDecisionPoint } = require(${JSON.stringify(DISPATCHER)});
       const { createAdviceClient } = require(${JSON.stringify(path.join(REPO_ROOT, 'src/runtime/advice/client.ts'))});

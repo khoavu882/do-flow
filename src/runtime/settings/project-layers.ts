@@ -19,7 +19,7 @@ const nodeFs = require('node:fs');
 const path = require('node:path');
 
 const MARKER = '.doflow-worktree-base';
-const SETTINGS_FILES = Object.freeze(['settings.json', 'settings.local.json', 'decision-model.json', 'prune']);
+const SETTINGS_FILES = Object.freeze(['settings.json', 'settings.local.json']);
 const MAX_POINTER_BYTES = 4096;
 const GITDIR_LINE = /^gitdir:[ \t]*([^\r\n]+?)[ \t]*\r?\n?$/;
 

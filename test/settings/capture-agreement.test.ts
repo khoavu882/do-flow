@@ -71,15 +71,14 @@ function dispatcherFunctions(text = fs.readFileSync(DISPATCHER, 'utf8')) {
 // ── rows ───────────────────────────────────────────────────────────────────────────────────────
 
 // `word` undefined leaves DOFLOW_FAILURE_CAPTURE unset; `xdg` is 'absolute' (XDG_CONFIG_HOME set to
-// the fixture folder) or 'unset' (the home falls back to $HOME/.config); `sentinel` puts the
-// failures/off file where that row's readers look; `off` is the expected answer (C17-C20, unchanged
-// from earlier betas).
+// the fixture folder) or 'unset' (the home falls back to $HOME/.config); `sentinel` puts an old
+// failures/off file where it used to be read, which no reader reads now; `off` is the expected answer.
 const ROWS: any = [];
 for (const xdg of ['absolute', 'unset']) {
-  ROWS.push({ name: 'unset, no sentinel', xdg, word: undefined, sentinel: false, off: false });
-  ROWS.push({ name: 'unset, sentinel', xdg, word: undefined, sentinel: true, off: true });
-  ROWS.push({ name: 'on, sentinel (env cannot turn a sentinel on)', xdg, word: 'on', sentinel: true, off: true });
-  ROWS.push({ name: 'off, sentinel', xdg, word: 'off', sentinel: true, off: true });
+  ROWS.push({ name: 'unset, no old file', xdg, word: undefined, sentinel: false, off: false });
+  ROWS.push({ name: 'unset, old failures/off file (not read)', xdg, word: undefined, sentinel: true, off: false });
+  ROWS.push({ name: 'on, old failures/off file (not read)', xdg, word: 'on', sentinel: true, off: false });
+  ROWS.push({ name: 'off, old failures/off file', xdg, word: 'off', sentinel: true, off: true });
   for (const word of ['off', 'OFF', ' off ', '0', '  0\t', 'false', 'No']) {
     ROWS.push({ name: `word ${JSON.stringify(word)}`, xdg, word, sentinel: false, off: true });
   }
@@ -93,7 +92,7 @@ for (const xdg of ['absolute', 'unset']) {
 // no config home, capture skipped, nothing created anywhere.
 const HOME_ROWS = [
   { name: 'relative XDG, absolute HOME: $HOME/.config decides (C23)', xdg: 'relative', off: false },
-  { name: 'relative XDG, absolute HOME, sentinel under $HOME/.config', xdg: 'relative', sentinel: true, off: true },
+  { name: 'relative XDG, absolute HOME, old failures/off file under $HOME/.config (not read)', xdg: 'relative', sentinel: true, off: false },
   { name: 'relative XDG, absolute HOME, settings.json off under $HOME/.config', xdg: 'relative', settings: { text: '{"failure.capture":"off"}' }, off: true },
   { name: 'relative XDG, HOME unset: no config home (case 7)', xdg: 'relative', noHome: true, off: true },
   { name: 'HOME and XDG unset: no config home (case 1, C22)', xdg: 'unset', noHome: true, off: true },
@@ -323,11 +322,11 @@ test('the two bash readers carry byte-identical config-home and lexical blocks',
   }
 });
 
-test('control: the tables have on, off and sentinel rows on both home shapes, so agreement is not trivial', () => {
+test('control: the tables have on, off and old-file rows on both home shapes, so agreement is not trivial', () => {
   for (const xdg of ['absolute', 'unset']) {
     assert.ok(ROWS.some((r: any) => r.xdg === xdg && r.off), `${xdg}: an off row`);
     assert.ok(ROWS.some((r: any) => r.xdg === xdg && !r.off), `${xdg}: an on row`);
-    assert.ok(ROWS.some((r: any) => r.xdg === xdg && r.sentinel), `${xdg}: a sentinel row`);
+    assert.ok(ROWS.some((r: any) => r.xdg === xdg && r.sentinel), `${xdg}: an old-file row`);
     assert.ok(FILE_ROWS.some((r: any) => r.xdg === xdg && r.off) && FILE_ROWS.some((r: any) => r.xdg === xdg && !r.off), `${xdg}: file rows both ways`);
   }
   assert.ok(CORPUS_ROWS.some((r: any) => r.off) && CORPUS_ROWS.some((r: any) => !r.off), 'corpus rows both ways');
@@ -444,11 +443,6 @@ test('captureSwitch delegates decidedBy to the resolver origin', (t: any) => {
   const f = createSettingsEnv(t);
   f.writeUserSettings({ schema: 1, 'failure.capture': 'off' });
   const settings = f.userFile('settings.json');
-  const sentinel = f.writeSentinel();
-
-  const sentinelState = captureSwitch(f.failuresDir, f.env());
-  assert.equal(sentinelState.decidedBy, sentinel);
-  fs.unlinkSync(sentinel);
   assert.equal(captureSwitch(f.failuresDir, f.env()).decidedBy, settings);
   fs.unlinkSync(settings);
   assert.equal(captureSwitch(f.failuresDir, f.env({ DOFLOW_FAILURE_CAPTURE: 'off' })).decidedBy, 'DOFLOW_FAILURE_CAPTURE');

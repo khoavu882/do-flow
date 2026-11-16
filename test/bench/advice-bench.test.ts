@@ -34,12 +34,12 @@ function runAt(cwd: any, ...args: any[]) {
 }
 
 function expectedOff(reason: any) {
-  return `[Decision Model] — advisory, never blocking\n  off (${reason}). To turn it on: doflow advise --action configure --model <a decision-capable model>\n  or write ~/.config/doflow/decision-model.json:\n  {"schema": 1, "enabled": true, "endpoint": "http://127.0.0.1:11434", "model": "<a decision-capable model>"}\n`;
+  return `[Decision Model] — advisory, never blocking\n  off (${reason}). To turn it on: doflow advise --action configure --model <a decision-capable model>\n`;
 }
 
 function configure(origin: any) {
-  fs.writeFileSync(path.join(scratch.xdg, 'doflow', 'decision-model.json'), JSON.stringify({
-    schema: 1, enabled: true, endpoint: origin, model: 'clef-flash',
+  fs.writeFileSync(path.join(scratch.xdg, 'doflow', 'settings.json'), JSON.stringify({
+    schema: 1, 'advice.enabled': true, 'advice.endpoint': origin, 'advice.model': 'clef-flash',
   }));
 }
 
@@ -172,17 +172,17 @@ test('advice off text exactly matches IC-014 for absent and disabled settings wi
   assert.equal(absent.status, 1);
   assert.equal(absent.stderr, expectedOff('not configured'));
 
-  const userFile = path.join(scratch.xdg, 'doflow', 'decision-model.json');
-  fs.writeFileSync(userFile, JSON.stringify({ schema: 1, enabled: false }));
+  const userFile = path.join(scratch.xdg, 'doflow', 'settings.json');
+  fs.writeFileSync(userFile, JSON.stringify({ schema: 1, 'advice.enabled': false }));
   const userOff = run('advice', '--kind', 'tier');
   assert.equal(userOff.status, 1);
   assert.equal(userOff.stderr, expectedOff(`switched off in ${userFile}`));
 
-  fs.writeFileSync(userFile, JSON.stringify({ schema: 1, enabled: true, endpoint: 'http://127.0.0.1:1', model: 'clef-flash' }));
+  fs.writeFileSync(userFile, JSON.stringify({ schema: 1, 'advice.enabled': true, 'advice.endpoint': 'http://127.0.0.1:1', 'advice.model': 'clef-flash' }));
   const project = path.join(scratch.dir, 'project');
   fs.mkdirSync(path.join(project, '.doflow'), { recursive: true });
-  const projectFile = path.join(project, '.doflow', 'decision-model.json');
-  fs.writeFileSync(projectFile, JSON.stringify({ schema: 1, enabled: false }));
+  const projectFile = path.join(project, '.doflow', 'settings.json');
+  fs.writeFileSync(projectFile, JSON.stringify({ schema: 1, 'advice.enabled': false }));
   const projectOff = runAt(project, 'advice', '--kind', 'tier');
   assert.equal(projectOff.status, 1);
   assert.equal(projectOff.stderr, expectedOff(`switched off in ${projectFile}`));

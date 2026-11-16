@@ -34,7 +34,7 @@ const COMBINES = ['override', 'narrowest', 'union', 'subset'];
 const PARSES = ['positive-int', 'off-words', 'verbatim'];
 const DIRECTIONS = ['any', 'narrow'];
 const LEGACY_LAYERS = ['user', 'project'];
-const LEGACY_KINDS = ['decision-model', 'line-onoff', 'sentinel'];
+const LEGACY_KINDS = ['sentinel'];
 const VIEWS = ['project', 'global'];
 const SHELL_READS = [null, 'lexical-v1'];
 const TOP_FIELDS = ['version', 'description', 'keys'];
@@ -346,11 +346,10 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
     else spec.legacy.forEach((entry: any, index: number) => {
       const where = `legacy[${index}]`;
       if (!isObject(entry)) { err(`${where} must be an object`); return; }
-      for (const field of Object.keys(entry)) if (!['layer', 'kind', 'path', 'field', 'value'].includes(field)) err(`${where} has unknown field '${field}'`);
+      for (const field of Object.keys(entry)) if (!['layer', 'kind', 'path', 'value'].includes(field)) err(`${where} has unknown field '${field}'`);
       if (!LEGACY_LAYERS.includes(entry.layer)) err(`${where}.layer must be one of ${LEGACY_LAYERS.join(', ')}`);
       if (!LEGACY_KINDS.includes(entry.kind)) err(`${where}.kind must be one of ${LEGACY_KINDS.join(', ')}`);
       if (!relativeInside(entry.path)) err(`${where}.path must be a relative path inside its root (no '..')`);
-      if ((entry.kind === 'decision-model') !== (typeof entry.field === 'string' && entry.field !== '')) err(`${where}.field is required for, and only for, decision-model`);
       if ((entry.kind === 'sentinel') !== has(entry, 'value')) err(`${where}.value is required for, and only for, sentinel`);
     });
 

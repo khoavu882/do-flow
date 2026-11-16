@@ -54,32 +54,28 @@ function captureListCase(t: any, row: any, reader = captureSwitch) {
 function captureSwitchWithoutLexicalRead(home: any, env: any) {
   const raw = env.DOFLOW_FAILURE_CAPTURE;
   const envOff = typeof raw === 'string' && ['off', '0', 'false', 'no'].includes(raw.trim().toLowerCase());
-  let sentinel = false;
-  if (home) {
-    try { sentinel = fs.statSync(path.join(home, 'off')).isFile(); } catch { /* no sentinel */ }
-  }
-  return { effective: home && !envOff && !sentinel ? 'on' : 'off' };
+  return { effective: home && !envOff ? 'on' : 'off' };
 }
 
-test('config list text names effective settings, origins, candidates, and deprecated files', (t) => {
+test('config list text names effective settings, origins and candidates', (t) => {
   const f = createSettingsEnv(t);
-  f.writeUserPrune('off\n');
-  f.writeProjectPrune('on\n');
+  f.writeUserSettings({ schema: 1, 'storage.prune': 'off' });
+  f.writeProjectSettings({ schema: 1, 'storage.prune': 'on' });
 
   const result = f.run(['config', '--show-origin']);
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, new RegExp(`config home: ${f.xdg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
   assert.match(result.stdout, /project: .*\((?:own|main|project)/);
-  assert.match(result.stdout, /storage\.prune \[project roots\] = "on"\s+\(project: .*\.doflow[\\/]prune\)/);
-  assert.match(result.stdout, /storage\.prune \[user roots\] = "off"\s+\(user: .*[\\/]doflow[\\/]prune\)/);
-  assert.match(result.stdout, /    project .*\.doflow[\\/]prune: "on" — decided/);
-  assert.match(result.stdout, /note: .*prune is deprecated/);
+  assert.match(result.stdout, /storage\.prune \[project roots\] = "on"\s+\(project: .*\.doflow[\\/]settings\.json\)/);
+  assert.match(result.stdout, /storage\.prune \[user roots\] = "off"\s+\(user: .*[\\/]doflow[\\/]settings\.json\)/);
+  assert.match(result.stdout, /    project .*\.doflow[\\/]settings\.json: "on" — decided/);
+  assert.doesNotMatch(result.stdout, /deprecated/);
 });
 
 test('config list JSON carries project and global storage views with resolver origins', (t) => {
   const f = createSettingsEnv(t);
-  f.writeUserPrune('off\n');
-  f.writeProjectPrune('on\n');
+  f.writeUserSettings({ schema: 1, 'storage.prune': 'off' });
+  f.writeProjectSettings({ schema: 1, 'storage.prune': 'on' });
 
   const project = f.run(['config', 'list', '--json']);
   assert.equal(project.status, 0, project.stderr);
@@ -89,7 +85,7 @@ test('config list JSON carries project and global storage views with resolver or
   assert.equal(project.json.keys['storage.prune'].global.value, 'off');
   assert.equal(project.json.keys['storage.prune'].project.origin.layer, 'project');
   assert.equal(project.json.keys['storage.prune'].global.origin.layer, 'user');
-  assert.ok(project.json.notes.some((note: any) => note.code === 'deprecated'));
+  assert.ok(!project.json.notes.some((note: any) => note.code === 'deprecated'));
 
   const global = f.run(['config', 'list', '-g', '--json']);
   assert.equal(global.status, 0, global.stderr);
@@ -103,8 +99,8 @@ test('config list JSON carries project and global storage views with resolver or
 
 test('config list masks credentials in both user and project URL candidates', (t) => {
   const f = createSettingsEnv(t);
-  f.writeUserDecision({ schema: 1, enabled: true, provider: 'ollama', endpoint: 'http://tok@h', model: 'clef-flash' });
-  f.writeProjectDecision({ schema: 1, enabled: false, provider: 'ollama', endpoint: 'http://u:p@h', model: 'project-model' });
+  f.writeUserSettings({ schema: 1, 'advice.enabled': true, 'advice.provider': 'ollama', 'advice.endpoint': 'http://tok@h', 'advice.model': 'clef-flash' });
+  f.writeProjectSettings({ schema: 1, 'advice.enabled': false, 'advice.provider': 'ollama', 'advice.endpoint': 'http://u:p@h', 'advice.model': 'project-model' });
 
   const result = f.run(['config', 'list', '--show-origin']);
   assert.ok([0, 1].includes(result.status), result.stderr);
@@ -239,10 +235,8 @@ test('config exits 2 when the settings registry cannot be loaded', (t) => {
   }
 });
 
-test('Writers write the new file only: config list shows settings.json deciding', (t) => {
+test('Writers write settings.json only: config list shows settings.json deciding', (t) => {
   const f = createSettingsEnv(t);
-  const legacyAdvice = f.writeUserDecision({ schema: 1, enabled: true, provider: 'ollama', endpoint: 'http://127.0.0.1:11434', model: 'clef-flash' });
-  const legacyAdviceBytes = fs.readFileSync(legacyAdvice);
   const sentinel = path.join(f.failuresDir, 'off');
 
   const configured = f.run(['advise', '--action', 'configure', '--off', '--json']);
@@ -251,7 +245,6 @@ test('Writers write the new file only: config list shows settings.json deciding'
   assert.equal(capture.status, 0, capture.stderr);
 
   const settings = f.userFile('settings.json');
-  assert.deepEqual(fs.readFileSync(legacyAdvice), legacyAdviceBytes);
   assert.equal(fs.existsSync(sentinel), false);
   const listed = f.run(['config', 'list', '--json']);
   assert.equal(listed.status, 0, listed.stderr);

@@ -3,8 +3,7 @@
 // Isolated settings environment for feature 086 tests. Each fixture owns a temp HOME, a temp
 // XDG_CONFIG_HOME and a project folder with `.doflow/`, optionally with a linked git worktree, and
 // hands the environment to the code under test explicitly, so no test reads or writes the real home
-// or ~/.config/doflow. Writers cover the 2.0 file formats (decision-model.json, `prune`, the
-// `failures/off` sentinel) and the settings.json format that arrives later in the feature.
+// or ~/.config/doflow. Writers cover the settings.json files of the user, the project and the local layer.
 //
 // Never let a test run with HOME unset against code that reads files: Node then names the real
 // account home through os.homedir(). Cases that unset HOME assert a computed path only.
@@ -26,11 +25,12 @@ function write(file: any, text: any) {
   return file;
 }
 
-/** A complete 2.0 user decision-model file; `overrides` replace fields, undefined removes one. */
-function userDecision(overrides = {}) {
-  const base: any = { schema: 1, enabled: true, provider: 'ollama', endpoint: 'http://127.0.0.1:11434', model: 'clef-flash' };
+/** A complete user settings.json that turns the decision model on; `overrides` (short field names) replace values, undefined removes one. */
+function userAdvice(overrides = {}) {
+  const base: any = { schema: 1, 'advice.enabled': true, 'advice.provider': 'ollama', 'advice.endpoint': 'http://127.0.0.1:11434', 'advice.model': 'clef-flash' };
   for (const [key, value] of Object.entries(overrides)) {
-    if (value === undefined) delete base[key]; else base[key] = value;
+    const name = key === 'schema' ? key : `advice.${key}`;
+    if (value === undefined) delete base[name]; else base[name] = value;
   }
   return base;
 }
@@ -77,14 +77,6 @@ function createSettingsEnv(t: any, { prefix = 'doflow-settings-', worktree = fal
     userFile: (name: any) => path.join(configDir, name),
     projectFile: (name: any, root = project) => path.join(root, '.doflow', name),
 
-    // 2.0 formats
-    writeUserDecision: (value: any) => write(fixture.userFile('decision-model.json'), value),
-    writeProjectDecision: (value: any, root = project) => write(fixture.projectFile('decision-model.json', root), value),
-    writeUserPrune: (text: any) => write(fixture.userFile('prune'), text),
-    writeProjectPrune: (text: any, root = project) => write(fixture.projectFile('prune', root), text),
-    writeSentinel: (text = 'off\n') => write(path.join(failuresDir, 'off'), text),
-
-    // the settings.json format of the feature (later tasks)
     writeUserSettings: (object: any) => write(fixture.userFile('settings.json'), object),
     writeProjectSettings: (object: any, root = project) => write(fixture.projectFile('settings.json', root), object),
     writeProjectLocal: (object: any, root = project) => write(fixture.projectFile('settings.local.json', root), object),
@@ -142,4 +134,4 @@ function writeSettledFollowup(eventsDir: any, id: any, hoursAgo: any, now = Date
   return events.map((event) => `${event.id}.json`);
 }
 
-module.exports = { createSettingsEnv, userDecision, writeSettledFollowup, write, CLI, REPO };
+module.exports = { createSettingsEnv, userAdvice, writeSettledFollowup, write, CLI, REPO };

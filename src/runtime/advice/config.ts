@@ -22,13 +22,6 @@ function projectLayer(layer: string): boolean {
 }
 
 function errorNote(error: any, offBy: string | null = null): string {
-  if (error.legacy && error.layer === 'user') {
-    if (error.code === 'unreadable' || error.code === 'not-file'
-      || (error.code === 'unparseable' && error.reason.startsWith('not valid JSON'))) {
-      return `user setting at ${error.source} could not be read: ${error.reason}`;
-    }
-    return `${error.reason} (${error.source})`;
-  }
   if (projectLayer(error.layer)) {
     if (offBy && error.source === offBy) return `project setting at ${error.source} is invalid: ${error.reason}; advice is off`;
     return `project setting at ${error.source} ignored: ${error.reason}`;
@@ -36,23 +29,14 @@ function errorNote(error: any, offBy: string | null = null): string {
   return `user setting at ${error.source} is invalid${error.key ? ` for '${error.key}'` : ''}: ${error.reason}`;
 }
 
-function settingNotes(view: any, includeProject: boolean, includeDeprecated = false, offBy: string | null = null): string[] {
+function settingNotes(view: any, includeProject: boolean, offBy: string | null = null): string[] {
   const notes = view.notes
-    .filter((note: any) => {
-      if (note.code !== 'deprecated' || !includeDeprecated) return note.code !== 'deprecated';
-      const sourceLayer = view.files.find((file: any) => file.path === note.source)?.layer;
-      if (!note.key || !['user', 'project'].includes(sourceLayer)) return false;
-      const resolution = view.get(note.key, sourceLayer === 'user' ? 'global' : 'project');
-      return resolution.origin.legacy && resolution.origin.source === note.source;
-    })
     .filter((note: any) => includeProject || !projectLayer(view.files.find((file: any) => file.path === note.source)?.layer))
     .map((note: any) => note.text);
   const seen = new Set<string>();
   for (const error of view.errors) {
     if (!includeProject && projectLayer(error.layer)) continue;
-    const key = error.legacy
-      ? `${error.layer}\0${error.source}`
-      : `${error.layer}\0${error.source}\0${error.key}\0${error.code}`;
+    const key = `${error.layer}\0${error.source}\0${error.key}\0${error.code}`;
     if (seen.has(key)) continue;
     seen.add(key);
     notes.push(errorNote(error, offBy));
@@ -79,7 +63,6 @@ function resolveSetting({
   global = false,
   env = process.env,
   fsImpl = fs,
-  includeDeprecated = false,
 }: any = {}): any {
   let resolvedRoots = roots;
   try {
@@ -123,7 +106,7 @@ function resolveSetting({
     }
 
     // A project file that turned advice off (fail-safe, reason config-invalid) is not "ignored": say advice is off.
-    const notes = settingNotes(view, canReadProject, includeDeprecated, reason === 'config-invalid' ? decidedBy.project : null);
+    const notes = settingNotes(view, canReadProject, reason === 'config-invalid' ? decidedBy.project : null);
     if (reason === 'not-configured') return offResult(reason, decidedBy, notes);
     if (reason === 'config-invalid' && (enabledGlobal.state === 'invalid'
       || enabledGlobal.origin.via === 'fail-safe' || enabledGlobal.origin.via === 'cross-key')) {

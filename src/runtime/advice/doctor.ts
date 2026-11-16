@@ -60,9 +60,9 @@ function agreementRows(registry: any, records: any) {
 
 function offReason(setting: any) {
   if (setting.reason === 'not-configured') return 'not configured';
-  if (setting.reason === 'config-invalid') return `unreadable setting in ${setting.decidedBy?.user || setting.decidedBy?.project || 'decision-model.json'}`;
+  if (setting.reason === 'config-invalid') return `unreadable setting in ${setting.decidedBy?.user || setting.decidedBy?.project || 'settings.json'}`;
   if (setting.reason === 'project-disabled') return `switched off in ${setting.decidedBy?.project}`;
-  return `switched off in ${setting.decidedBy?.user || 'decision-model.json'}`;
+  return `switched off in ${setting.decidedBy?.user || 'settings.json'}`;
 }
 
 async function buildAdviceDoctor({ repoRoot = REPO_ROOT, projectRoot = process.cwd(), env = process.env, fsImpl = fs,
@@ -129,8 +129,6 @@ function printAdviceDoctor(report: any) {
   console.log('\n[Decision Model] — advisory, never blocking');
   if (decision.setting.state === 'off') {
     console.log(`  off (${report._offReason}). To turn it on: doflow advise --action configure --model <a decision-capable model>`);
-    console.log('  or write ~/.config/doflow/decision-model.json:');
-    console.log('  {"schema": 1, "enabled": true, "endpoint": "http://127.0.0.1:11434", "model": "<a decision-capable model>"}');
   } else {
     const setting = decision.setting;
     console.log(`  setting       on (${setting.decidedBy.user || 'user setting'}${setting.modelFrom === 'project' ? `; model from ${setting.decidedBy.project}` : ''})`);

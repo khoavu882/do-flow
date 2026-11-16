@@ -31,8 +31,7 @@
  * of those keys hit rule 2; `requires` rules (advice enabled with no model, C7); `needsConfigHome`.
  *
  * Reads are lazy and bounded: a key reads only its own sources, every path is `stat`ed and read at
- * most once per view, `legacy.ts` and `lexical.ts` are required only when a key needs them (legacy
- * after a `stat` hit). No file is written, no process spawned. A settings fault never throws; it is a
+ * most once per view, `lexical.ts` is required only when a key needs it. No file is written, no process spawned. A settings fault never throws; it is a
  * candidate status plus an `errors` entry. Only an unusable registry throws (IC-001), and so does a
  * caller's mistake (an unknown key, the project view of a `-g` load).
  *
@@ -259,30 +258,6 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
   const resolved = new Map<string, { resolution: Resolution; tripped: Candidate | null }>();
   const resolving = new Set<string>();
 
-  const keyOfField = (field: string): string | null => {
-    for (const [name, spec] of registry.keys) {
-      if (spec.legacy.some((entry: any) => entry.kind === 'decision-model' && entry.field === field)) return name;
-    }
-    return null;
-  };
-
-  /** What a user decision-model.json is checked against, from the registry (no default kept in code). */
-  function providers(): any {
-    const providerKey = keyOfField('provider');
-    const endpointKey = keyOfField('endpoint');
-    const providerSpec = providerKey ? registry.keys.get(providerKey) : null;
-    const endpointSpec = endpointKey ? registry.keys.get(endpointKey) : null;
-    return {
-      defaultProvider: providerSpec?.default,
-      ids: (providerKey && registry.enumValues(providerKey)) || [],
-      defaultEndpoint(id: string) {
-        if (!endpointSpec) return null;
-        if (!endpointSpec.defaultRef) return endpointSpec.default;
-        try { return registry.resolveRef(endpointSpec.defaultRef, { [providerKey as string]: id }); } catch { return null; }
-      },
-    };
-  }
-
   function record(entry: FileRecord): void {
     files.push(entry);
   }
@@ -312,68 +287,28 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
     return { raw: entry.raw, value: entry.raw, error: null };
   }
 
-  /** A legacy file read: a `stat` first, and `legacy.ts` only on a hit. */
+  /** The `autopilot/off` sentinel: present when the path is a regular file; its content is never read. */
   function legacyFile(layer: 'user' | 'project', entry: any, file: string, checkout: Checkout): any {
     if (!reads.has(file)) {
-      let hit = false;
-      try { io.statSync(file); hit = true; } catch (error: any) {
-        // 2.0 read decision-model.json without a stat: any error but ENOENT made it invalid
-        hit = entry.kind === 'decision-model' && error?.code !== 'ENOENT';
-      }
-      let read: any = { status: 'absent' };
-      if (hit) {
-        const legacy = require('./legacy.ts');
-        if (entry.kind === 'decision-model') {
-          read = legacy.readDecisionModel(file, layer, layer === 'user' ? providers() : null, io);
-          for (const note of read.notes) {
-            notes.push({ code: note.code, key: note.field ? keyOfField(note.field) : null, source: file, text: note.text });
-          }
-        } else if (entry.kind === 'line-onoff') {
-          const value = legacy.readLineOnOff(file, io);
-          read = value === null ? { status: 'absent' } : { status: 'ok', value };
-        } else {
-          read = legacy.readSentinel(file, io) ? { status: 'ok', value: entry.value } : { status: 'absent' };
-        }
-      }
-      record({ layer, path: file, kind: 'legacy', legacyKind: entry.kind, checkout, status: read.status, code: read.code ?? null, offset: read.offset ?? null });
+      let present = false;
+      try { present = io.statSync(file).isFile(); } catch { /* no sentinel */ }
+      const read: any = present ? { status: 'ok', value: entry.value } : { status: 'absent' };
+      record({ layer, path: file, kind: 'legacy', legacyKind: entry.kind, checkout, status: read.status, code: null, offset: null });
       reads.set(file, read);
     }
     return reads.get(file);
   }
 
-  function newPath(layer: 'user' | 'project'): string {
-    return layer === 'user' ? path.join(home.dir, NEW_FILE.user) : path.join(layers.layersFrom as string, NEW_FILE.project);
-  }
-
-  /** 127 IC-005: the retired record a `harnesses.primaryIds` enum value names, else null (any other id stays an enum fault). */
-  function retiredHarnessOf(spec: any, value: unknown): { id: string; replacement: string } | null {
-    if (spec.valuesRef !== 'harnesses.primaryIds' || typeof value !== 'string') return null;
-    return (registry.retired?.() ?? []).find((entry: any) => entry.id === value) ?? null;
-  }
-
   /** The candidates of one key in one view, lowest layer first (the env last). */
   function rawCandidates(key: string, spec: any, viewName: ViewName): Raw[] {
     const out: Raw[] = [];
-    // The legacy file's deprecation note waits until the new file has been read: it tells the reader to set the
-    // key there, which is noise when settings.json already holds it (FU-3xc3fj).
-    const deprecated: Array<{ layer: 'user' | 'project'; file: string }> = [];
     const legacyAt = (layer: 'user' | 'project', base: string, checkout: Checkout): void => {
       for (const entry of spec.legacy) {
         if (entry.layer !== layer) continue;
         const file = path.join(base, entry.path);
         const read = legacyFile(layer, entry, file, checkout);
-        const base0 = { layer, source: file, legacy: true, checkout };
         if (read.status === 'absent') continue;
-        if (read.status === 'invalid') {
-          out.push({ ...base0, display: '', value: null, fault: { code: read.code, reason: read.reason, offset: read.offset } });
-        } else if (entry.kind === 'decision-model') {
-          if (!read.fields.has(entry.field)) continue;
-          const value = read.fields.get(entry.field);
-          out.push({ ...base0, display: displayOf(spec, value), value, fault: null });
-        } else {
-          out.push({ ...base0, display: displayOf(spec, read.value), value: read.value, fault: null });
-        }
-        deprecated.push({ layer, file });
+        out.push({ layer, source: file, legacy: true, checkout, display: displayOf(spec, read.value), value: read.value, fault: null });
       }
     };
     const fileAt = (layer: 'user' | 'project' | 'local', file: string, checkout: Checkout): void => {
@@ -434,13 +369,6 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
         } else {
           out.push({ ...base0, value: null, fault: null, noEffect: true });
         }
-      }
-    }
-    for (const { layer, file } of deprecated) {
-      const held = reads.get(newPath(layer));
-      if (held?.status === 'ok' && held.values.has(key)) continue;
-      if (once(`deprecated\0${file}\0${key}`)) {
-        notes.push({ code: 'deprecated', key, source: file, text: `${file} is deprecated; set "${key}" in ${newPath(layer)} (read through 2.x)` });
       }
     }
     return out;
