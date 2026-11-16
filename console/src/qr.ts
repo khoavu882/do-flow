@@ -23,7 +23,6 @@ const FORMAT_M = 0; // the two-bit indicator of level M
 const sizeOf = (version: number) => 17 + 4 * version;
 const dataCodewords = (version: number) => { const [, a, aData, b, bData] = BLOCKS_M[version - 1]; return a * aData + b * bData; };
 const totalCodewords = (version: number) => { const [ec, a, aData, b, bData] = BLOCKS_M[version - 1]; return a * (aData + ec) + b * (bData + ec); };
-const remainderBits = (version: number) => (version >= 2 && version <= 6 ? 7 : 0);
 const bit = (value: number, index: number) => ((value >>> index) & 1) === 1;
 
 // ---- Reed-Solomon over GF(256), polynomial 0x11D ----
@@ -308,4 +307,4 @@ function render(matrix: Matrix, { color }: { color: boolean }): string {
   return `${lines.join('\n')}${color ? '' : '\n  (if it does not scan, use the link)'}`;
 }
 
-module.exports = { encode, render, formatBits, versionBits, penalty, divisorOf, remainderOf, totalCodewords, dataCodewords, remainderBits, MAX_VERSION };
+module.exports = { encode, render, formatBits, versionBits, penalty, divisorOf, remainderOf, totalCodewords, dataCodewords, MAX_VERSION };
