@@ -4,10 +4,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { PROBES } = require('../worker/probes/index.ts');
 const { configHome } = require('../config-home.ts');
 
-export type LoginState = 'logged-in' | 'logged-out' | 'unsupported' | 'error';
 export type DetectedMode = 'subscription' | 'api-key' | 'unverified';
 export type DerivedBilling = 'free' | 'metered' | 'unknown';
 
@@ -40,8 +38,6 @@ export interface SyncHarnessResult {
   binary: string;
   installed: boolean;
   version: string | null;
-  loginState: LoginState;
-  reloginHint: string | null;
   detectedMode: DetectedMode;
   derivedBilling: DerivedBilling;
   offeredModels: Array<OfferedModel>;
@@ -86,13 +82,18 @@ function resolveProjectRoot(projectRoot?: string, fsImpl: any = fs): string | nu
   return null;
 }
 
+/** Login fields an entry written before row 172 carries; the login answer is in the `harness-login` store now. */
+const REMOVED_LOGIN_KEYS = ['loginState', 'reloginHint', 'loginCheck'];
+
 /**
  * An entry with no `modelList` was written before the harness's own list was read: its `offeredModels` came from a
- * table that no longer exists. Read it as "no list" so nothing suggests, checks against or shows those names.
+ * table that no longer exists. Read it as "no list" so nothing suggests, checks against or shows those names. The
+ * removed login keys are dropped, so no reader takes an old probe's guess for a login answer.
  */
-function withoutRemovedLists(parsed: any): any {
+function withoutRemovedFields(parsed: any): any {
   if (!parsed || typeof parsed !== 'object' || !parsed.harnesses || typeof parsed.harnesses !== 'object') return parsed;
   for (const entry of Object.values<any>(parsed.harnesses)) {
+    if (entry && typeof entry === 'object') for (const key of REMOVED_LOGIN_KEYS) delete entry[key];
     if (entry && typeof entry === 'object' && !(entry.modelList && typeof entry.modelList === 'object')) {
       entry.offeredModels = [];
       entry.modelList = { status: 'none-recorded', reason: 'this catalogue entry predates reading the harness\'s own model list; run `doflow models --action sync`' };
@@ -113,7 +114,7 @@ function readCatalogue(
     if (fsImpl.existsSync(projPath)) {
       try {
         const raw = fsImpl.readFileSync(projPath, 'utf8');
-        return withoutRemovedLists(JSON.parse(raw));
+        return withoutRemovedFields(JSON.parse(raw));
       } catch (err: any) {
         if (err instanceof SyntaxError) {
           const corrupt = `${projPath}.corrupt-${Date.now()}`;
@@ -134,7 +135,7 @@ function readCatalogue(
   if (fsImpl.existsSync(userPath)) {
     try {
       const raw = fsImpl.readFileSync(userPath, 'utf8');
-      return withoutRemovedLists(JSON.parse(raw));
+      return withoutRemovedFields(JSON.parse(raw));
     } catch (err: any) {
       if (err instanceof SyntaxError) {
         const corrupt = `${userPath}.corrupt-${Date.now()}`;
@@ -195,7 +196,7 @@ function mergeCatalogueEntries(
   }
 }
 
-/** Adapts a callback-style `execFile` (the probes' injection point) to the promise form `listHarnessModels` runs. */
+/** Adapts a callback-style `execFile` (the listing's test seam) to the promise form `listHarnessModels` runs. */
 function listExecFrom(runner: any): any {
   return (file: string, args: string[], opts: any) => new Promise((resolve, reject) => {
     const done = (err: any, stdout: any) => (err ? reject(err) : resolve(String(stdout ?? '')));
@@ -223,7 +224,7 @@ function workerDescriptor(harnessId: string, options: any = {}): any {
 }
 
 type SyncOptions = {
-  timeoutMs?: number; execFileImpl?: any; listExecImpl?: any; env?: any; fsImpl?: any; homeDir?: string;
+  execFileImpl?: any; listExecImpl?: any; env?: any; fsImpl?: any; homeDir?: string;
   projectRoot?: string; registry?: any; previous?: ObservedHarness | null;
   /** The package view the worker list is read from (a test seam; default: read for `env` and `projectRoot`). */
   view?: any;
@@ -241,33 +242,65 @@ async function withListing(result: SyncHarnessResult, options: SyncOptions): Pro
   return { ...result, offeredModels: kept, modelList: { status: 'failed', reason: listing.reason, ...(kept.length ? { stale: true } : {}) } };
 }
 
+const VERSION_MS = 3000;
+const VERSION_BYTES = 4096;
+
+function parseVersion(text: string): string | null {
+  const match = text.match(/\b\d+\.\d+(?:\.\d+)?(?:-[A-Za-z0-9.]+)?\b/);
+  return match ? match[0] : null;
+}
+
+/** `detectedMode` and `derivedBilling` from a logged-in answer's billing; `mixed`, null or no answer reads unverified. */
+function billingOf(answer: any): { detectedMode: DetectedMode; derivedBilling: DerivedBilling } {
+  const billing = answer?.state === 'logged-in' && answer.billing && typeof answer.billing === 'object' ? answer.billing : null;
+  if (!billing || !['subscription', 'api-key'].includes(billing.mode)) return { detectedMode: 'unverified', derivedBilling: 'unknown' };
+  return { detectedMode: billing.mode, derivedBilling: ['free', 'metered'].includes(billing.billing) ? billing.billing : 'unknown' };
+}
+
+/**
+ * One path for built-in and package workers (172 D10): the binary is found on PATH, `cli.versionArgv` gives the
+ * version, the declared login recipe runs and its answer is recorded in the `harness-login` store, and the harness's
+ * own listing command fills the models. A harness not on PATH starts no process for its version or login, and its
+ * recipe's answer is recorded as unknown `not-installed`.
+ */
 async function syncHarness(
   harnessId: string,
   options: SyncOptions = {}
 ): Promise<SyncHarnessResult> {
-  const probe = PROBES[harnessId];
-  const unprobed = (extra: Partial<SyncHarnessResult> = {}): SyncHarnessResult => ({
+  const env = options.env ?? process.env;
+  const cwd = options.projectRoot ?? process.cwd();
+  const worker = workerDescriptor(harnessId, options);
+  const binary = typeof worker?.cli?.binary === 'string' ? worker.cli.binary : harnessId;
+  const { findOnPath } = require('../worker/readiness.ts');
+  const found: string | null = worker ? findOnPath(binary, env, process.platform, cwd) : null;
+  let version: string | null = null;
+  let answer: any = null;
+  if (found) {
+    const { spawnBounded } = require('../worker/process-tree.ts');
+    const argv = worker.cli?.versionArgv;
+    if (Array.isArray(argv)) {
+      const res = await spawnBounded({ binary: found, argv, cwd, env, timeoutMs: VERSION_MS, maxStdout: VERSION_BYTES });
+      if (res.status === 'exited' && res.code === 0) version = parseVersion(String(res.stdout ?? ''));
+    }
+  }
+  if (worker?.loginProbe?.status === 'supported') {
+    const { checkLogin, recipeDigest, loginAnswerOf } = require('../worker/login.ts');
+    const store = require('../worker/login-store.ts');
+    // Not on PATH, `checkLogin` answers unknown `not-installed` and starts no process; recording it replaces an older answer.
+    const recipe = { ...(await checkLogin({ harness: harnessId, worker, env, cwd, binaryPath: found ?? undefined })), digest: recipeDigest(worker) };
+    try { store.recordRecipeAnswer(env, harnessId, recipe, recipe.digest); } catch { /* the next check writes it */ }
+    // Billing follows the answer the shared precedence gives, so a run's recorded expiry still holds over this check.
+    answer = loginAnswerOf({ harness: harnessId, worker, record: { recipe, run: store.readLoginStore(env).harnesses[harnessId]?.run ?? null } });
+  }
+  return await withListing({
     harnessId,
-    binary: harnessId,
-    installed: false,
-    version: null,
-    loginState: 'unsupported',
-    reloginHint: null,
-    detectedMode: 'unverified',
-    derivedBilling: 'unknown',
+    binary,
+    installed: found !== null,
+    version,
+    ...billingOf(answer),
     offeredModels: [],
     lastSyncedAt: new Date().toISOString(),
-    ...extra,
-  });
-  if (probe) return await withListing(await probe(options), options);
-
-  // A package worker has no built-in probe: it is found on PATH (no process started) and its own listing recipe is run.
-  const descriptor = workerDescriptor(harnessId, options);
-  if (!descriptor) return unprobed();
-  const binary = typeof descriptor.cli?.binary === 'string' ? descriptor.cli.binary : harnessId;
-  let installed = false;
-  try { installed = require('../worker/readiness.ts').findOnPath(binary, options.env ?? process.env) !== null; } catch { /* not found */ }
-  return await withListing(unprobed({ binary, installed }), options);
+  }, options);
 }
 
 async function syncAllHarnesses(

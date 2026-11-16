@@ -24,7 +24,7 @@ function setup(t: any) {
   const bindings = () => (fs.existsSync(settingsFile) ? JSON.parse(fs.readFileSync(settingsFile, 'utf8'))['workers.models'] : undefined);
   const catalogue = (harness: string, ids: string[] | null, extra: any = {}) => writeCatalogue({
     version: 1, syncedAt: new Date().toISOString(),
-    harnesses: { [harness]: { harnessId: harness, binary: harness, installed: true, version: '1', loginState: 'logged-in', reloginHint: null, detectedMode: 'subscription', derivedBilling: 'free', offeredModels: (ids || []).map((id) => ({ id })), lastSyncedAt: new Date().toISOString(), ...(ids ? { modelList: { status: 'listed' } } : { modelList: { status: 'none-recorded', reason: 'x' } }), ...extra } },
+    harnesses: { [harness]: { harnessId: harness, binary: harness, installed: true, version: '1', detectedMode: 'subscription', derivedBilling: 'free', offeredModels: (ids || []).map((id) => ({ id })), lastSyncedAt: new Date().toISOString(), ...(ids ? { modelList: { status: 'listed' } } : { modelList: { status: 'none-recorded', reason: 'x' } }), ...extra } },
   }, project);
   return { root, project, bin, env, settingsFile, bindings, catalogue };
 }
@@ -133,7 +133,7 @@ test('a catalogue entry written before model lists existed reads as no list: the
   const s = setup(t);
   const file = path.join(s.project, '.doflow', 'state', 'models', 'catalogue.json');
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  const old = { harnessId: 'codex', binary: 'codex', installed: true, version: '1', loginState: 'logged-in', reloginHint: null, detectedMode: 'subscription', derivedBilling: 'free', offeredModels: [{ id: 'removed-table-model-a' }, { id: 'removed-table-model-b' }], lastSyncedAt: new Date().toISOString() };
+  const old = { harnessId: 'codex', binary: 'codex', installed: true, version: '1', detectedMode: 'subscription', derivedBilling: 'free', offeredModels: [{ id: 'removed-table-model-a' }, { id: 'removed-table-model-b' }], lastSyncedAt: new Date().toISOString() };
   fs.writeFileSync(file, JSON.stringify({ version: 1, syncedAt: new Date().toISOString(), harnesses: { codex: old } }));
   // A typed id outside the old table is not refused against it, and the old names are not offered as "closest".
   const typed = await bind(s, { harness: 'codex', tier: 'frontier', model: 'removed-table-model-c', json: true });

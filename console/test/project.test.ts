@@ -1090,13 +1090,19 @@ test('165 F1 tree: a started-session node projects with its start facts, and a m
   }
 });
 
+/** 172 IC-001: a recipe-sourced `logged-in` answer, as the core sends it (claude's shipped recipe carries a caveat). */
+const LOGIN_CLAUDE = {
+  harness: 'claude', state: 'logged-in', reason: null, source: 'recipe', at: '2026-11-15T09:00:00.000Z', billing: { mode: 'subscription', billing: 'free' }, providers: [],
+  provider: null, hint: 'claude auth login', expirySeen: false, last: null, caveat: 'its help and docs do not show that this check runs offline',
+};
+
 const START_OPTIONS_BODY = {
   project: { projectKey: KEY_MAIN, label: 'alpha', root: null },
   checkouts: [{ worktreeKey: KEY_MAIN, label: 'alpha', branch: 'main', main: true, busy: null, observedSession: { harness: 'claude', lastSeenAt: '2026-11-15T09:00:00.000Z' } },
     { worktreeKey: KEY_LINKED, label: 'alpha-fix', branch: null, main: false, busy: { runId: RUN_A }, observedSession: null }],
   harnesses: [
     { harness: 'claude', startable: true, reason: null, words: 'claude can start a session here', warnings: ['runnable-not-checked'],
-      login: { state: 'logged-in', checkedAt: '2026-11-15T09:00:00.000Z' }, version: '2.1.0', liveVerified: false, models: [{ id: 'claude-opus-5-5', source: 'frontier' }, { id: null, source: 'default' }] },
+      login: LOGIN_CLAUDE, version: '2.1.0', liveVerified: false, models: [{ id: 'claude-opus-5-5', source: 'frontier' }, { id: null, source: 'default' }] },
     { harness: 'copilot', startable: false, reason: 'no-main-session-shape', words: 'DoFlow has no recorded headless way to start copilot', warnings: [],
       login: null, version: null, liveVerified: false, models: [{ id: null, source: 'default' }] },
   ],
@@ -1123,6 +1129,9 @@ test('165 F1 start-options: IC-002 projects through PROJECTORS with the key aske
   assert.deepEqual(mutate((b) => { b.harnesses[0].models.push(...Array.from({ length: 50 }, () => ({ id: null, source: 'default' }))); }), MISMATCH);
   assert.deepEqual(mutate((b) => { b.entries = ['do', 'auto']; }), MISMATCH);
   assert.deepEqual(mutate((b) => { delete b.limits; }), MISMATCH);
+  // 172 IC-004: the harness `login` is a LoginAnswer (or null); the old `{ state, checkedAt }` pair and an unknown state are a mismatch.
+  assert.deepEqual(mutate((b) => { b.harnesses[0].login = { state: 'logged-in', checkedAt: '2026-11-15T09:00:00.000Z' }; }), MISMATCH);
+  assert.deepEqual(mutate((b) => { b.harnesses[0].login.state = 'uncalibrated'; }), MISMATCH);
   assert.throws(() => project('start-options', START_OPTIONS_BODY), /project key/);
   // 165 review B-8: liveVerified is a boolean; a core before it sends none, which reads null (unknown), never true.
   assert.equal(mutate((b) => { b.harnesses[0].liveVerified = true; }).body.harnesses[0].liveVerified, true);
@@ -1968,9 +1977,9 @@ function doctorBody(): any {
     workerPool: {
       state: 'unsynced', syncedAt: null,
       harnesses: [
-        { harness: 'claude', binary: `${P_HOME}/bin/claude`, installed: false, loginState: 'uncalibrated', reloginHint: MARKER, detectedMode: 'unverified',
+        { harness: 'claude', binary: `${P_HOME}/bin/claude`, installed: false, login: { harness: 'claude', state: 'unknown', reason: MARKER, source: 'never-checked', at: null, billing: null, providers: [], provider: null, hint: MARKER, expirySeen: false, last: null, caveat: null }, synced: false, detectedMode: 'unverified',
           effectiveBilling: { value: 'unknown', source: 'registry' }, offeredCount: 0 },
-        { harness: 'codex', binary: 'codex', installed: true, loginState: 'logged-in', reloginHint: null, detectedMode: 'subscription',
+        { harness: 'codex', binary: 'codex', installed: true, login: { harness: 'codex', state: 'logged-in', reason: null, source: 'recipe', at: '2026-11-16T08:00:00.000Z', billing: null, providers: [], provider: null, hint: null, expirySeen: false, last: null, caveat: null }, synced: true, detectedMode: 'subscription',
           effectiveBilling: { value: 'free', source: 'user-record', asserted: '2026-10-23' }, offeredCount: 3 },
       ],
       models: { enabledCount: 1, listedCount: 2, enabled: [MARKER] },
@@ -2228,13 +2237,13 @@ test('151 doctor: the IC-010 sections only; a home path in every path field reac
   assert.deepEqual(body.workerPool, {
     state: 'unsynced', syncedAt: null,
     harnesses: [
-      { harness: 'claude', installed: false, loginState: 'uncalibrated', detectedMode: 'unverified', effectiveBilling: { value: 'unknown', source: 'registry', asserted: null } },
-      { harness: 'codex', installed: true, loginState: 'logged-in', detectedMode: 'subscription', effectiveBilling: { value: 'free', source: 'user-record', asserted: '2026-10-23' } },
+      { harness: 'claude', installed: false, detectedMode: 'unverified', effectiveBilling: { value: 'unknown', source: 'registry', asserted: null } },
+      { harness: 'codex', installed: true, detectedMode: 'subscription', effectiveBilling: { value: 'free', source: 'user-record', asserted: '2026-10-23' } },
     ],
   });
   const text = JSON.stringify(body);
   for (const dropped of ['identity', 'reach', 'probeCommand', 'binary', 'searched', 'artifact', 'refresh', 'filesScanned', 'description', 'totalProviders', 'origin', 'dangling', 'bindings',
-    'bound', 'reloginHint', 'offeredCount', 'models', 'mcp', 'packages', 'transcripts', 'upkeepSwitch', 'decisionModel', 'advice', 'settings', 'rolloutProfile', 'guidance', 'team',
+    'bound', 'reloginHint', 'loginState', 'synced', 'offeredCount', 'models', 'mcp', 'packages', 'transcripts', 'upkeepSwitch', 'decisionModel', 'advice', 'settings', 'rolloutProfile', 'guidance', 'team',
     'agentToolScope', 'primary', 'inSession']) {
     assert.ok(!text.includes(`"${dropped}"`), dropped);
   }
@@ -2510,4 +2519,65 @@ test('151 B.4: a pass-through projector would leak every planted value, next hin
   for (const build of [followupsBody, followupRecordBody, overviewBody, doctorBody, storageBody, matrixBody]) assert.ok(absent(build()).length > 0, build.name);
   for (const build of [followupsBody, followupRecordBody, overviewBody, doctorBody]) assert.ok(hintsIn(build()).length > 0, build.name);
   assert.ok(JSON.stringify(doctorBody()).includes(P_HOME));
+});
+
+// ---- 172 IC-005: the login-state projector and the one loginAnswer checker ----
+
+const LOGIN_PI = {
+  harness: 'pi', state: 'expired', reason: null, source: 'last-run', at: '2026-11-16T07:00:00.000Z', billing: 'mixed',
+  providers: [{ id: 'anthropic', state: 'logged-in', mode: 'subscription', reason: null }, { id: 'openai-codex', state: 'expired', mode: null, reason: 'token no longer accepted' }],
+  provider: 'openai-codex', hint: 'pi auth login <provider>', expirySeen: true, last: null, caveat: null,
+};
+const LOGIN_STALE = { ...LOGIN_CLAUDE, state: 'unknown', reason: 'stale', last: { state: 'logged-in', source: 'recipe', at: '2026-11-14T09:00:00.000Z' } };
+const LOGIN_NONE = { ...LOGIN_CLAUDE, harness: 'codex', state: 'unknown', reason: 'no-recipe: its help documents no exit code', source: 'never-checked', at: null, billing: null, caveat: null };
+const LOGIN_BODY = { harnesses: [LOGIN_CLAUDE, LOGIN_PI, LOGIN_STALE, LOGIN_NONE] };
+
+test('172 login-state: the answers of the core pass through unchanged, in order, and nothing outside the closed keys', () => {
+  const ok = project('login-state', { ...clone(LOGIN_BODY), extra: MARKER });
+  assert.equal(ok.ok, true, JSON.stringify(ok));
+  assert.deepEqual(ok.body, LOGIN_BODY);
+  const planted = clone(LOGIN_BODY) as any;
+  planted.harnesses[0].marker = MARKER;
+  assert.ok(!JSON.stringify(project('login-state', planted).body).includes(MARKER));
+  assert.deepEqual(project('login-state', { harnesses: [] }).body, { harnesses: [] });
+});
+
+test('172 login-state: a state, source, mode or billing outside its set, a ninth provider, a 33rd harness or a wrong type is core-contract-mismatch', () => {
+  const mutate = (edit: (b: any) => void) => { const b = clone(LOGIN_BODY) as any; edit(b); return project('login-state', b); };
+  for (const [name, edit] of [
+    ['an unknown state', (b: any) => { b.harnesses[0].state = 'uncalibrated'; }],
+    ['an unknown source', (b: any) => { b.harnesses[0].source = 'guess'; }],
+    ['an unknown billing word', (b: any) => { b.harnesses[0].billing = 'both'; }],
+    ['an unknown billing mode', (b: any) => { b.harnesses[0].billing.mode = 'trial'; }],
+    ['a last source of never-checked', (b: any) => { b.harnesses[2].last.source = 'never-checked'; }],
+    ['a provider state outside the set', (b: any) => { b.harnesses[1].providers[0].state = 'ok'; }],
+    ['a provider id that is not one token', (b: any) => { b.harnesses[1].providers[0].id = 'a b'; }],
+    ['a ninth provider', (b: any) => { b.harnesses[1].providers = Array.from({ length: 9 }, (_, i) => ({ id: `p${i}`, state: 'unknown', mode: null, reason: null })); }],
+    ['a time that is not ISO', (b: any) => { b.harnesses[0].at = 'yesterday'; }],
+    ['expirySeen not a boolean', (b: any) => { b.harnesses[0].expirySeen = 'no'; }],
+    ['a missing field', (b: any) => { delete b.harnesses[0].caveat; }],
+    ['a harness that is not an id', (b: any) => { b.harnesses[0].harness = '../x'; }],
+    ['harnesses not a list', (b: any) => { b.harnesses = {}; }],
+    ['a 33rd harness', (b: any) => { b.harnesses = Array.from({ length: 33 }, () => clone(LOGIN_CLAUDE)); }],
+  ] as Array<[string, (b: any) => void]>) {
+    assert.deepEqual(mutate(edit), MISMATCH, name);
+  }
+  assert.equal(mutate((b) => { b.harnesses = Array.from({ length: 32 }, () => clone(LOGIN_CLAUDE)); }).ok, true, 'exactly 32 and eight providers are the limits');
+  assert.equal(mutate((b) => { b.harnesses[1].providers = Array.from({ length: 8 }, (_, i) => ({ id: `p${i}`, state: 'unknown', mode: null, reason: null })); }).ok, true);
+});
+
+test('172 login-state: a reason, hint, caveat or provider reason holding a path is withheld, and a word that cannot be shown is withheld too', () => {
+  const body = clone(LOGIN_BODY) as any;
+  body.harnesses[0].hint = 'run /opt/x/bin/claude login';
+  body.harnesses[0].caveat = 'see ~/notes/claude.md';
+  body.harnesses[2].reason = 'C:\\Users\\x\\store';
+  body.harnesses[1].providers[1].reason = 'read /etc/secret';
+  body.harnesses[3].reason = 'bad\u202Ebidi';
+  const out = project('login-state', body).body.harnesses;
+  assert.deepEqual([out[0].hint, out[0].caveat, out[2].reason, out[1].providers[1].reason, out[3].reason], [WITHHELD, WITHHELD, WITHHELD, WITHHELD, WITHHELD]);
+  assert.ok(!JSON.stringify(out).includes('/opt/x') && !JSON.stringify(out).includes('/etc/secret'));
+  // A relative word with a slash inside it (not a path token) stays.
+  const kept = clone(LOGIN_BODY) as any;
+  kept.harnesses[0].caveat = 'input/output mode, not offline';
+  assert.equal(project('login-state', kept).body.harnesses[0].caveat, 'input/output mode, not offline');
 });

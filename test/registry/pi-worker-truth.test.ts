@@ -58,12 +58,23 @@ test('capabilities: resume, persistentSession and steering are each decided, wit
   }
 });
 
-test('login probe: the registry entry records why the static recipe stays unknown and points at the code probe', () => {
+test('login probe: Pi ships the design 172 section 3.3 recipe as supported, with the answers, expiry signs and evidence of pi 1.5.2', () => {
   const entry = pi.loginProbe;
-  assert.equal(entry.status, 'unknown');
-  assert.match(entry.reason, /--provider or --model/);
-  assert.match(entry.reason, /probePi/);
-  assert.match(entry.reason, /pi 1\.5\.2/);
+  assert.equal(entry.status, 'supported');
+  assert.deepEqual(entry.argv, ['auth', 'check', '--provider', '{provider}', '--json', '--no-refresh']);
+  assert.deepEqual(entry.providers.argv, ['--list-models', '--offline']);
+  assert.equal(entry.providers.parse, 'table-column:provider');
+  assert.deepEqual(
+    entry.answers.map((a: any) => [a.exit, a.state, a.reason ?? null]),
+    [[0, 'logged-in', null], [1, 'unknown', 'provider-not-found'], [1, 'logged-out', null], [2, 'unknown', 'invalid']],
+  );
+  assert.equal(entry.expiry, 'not-seen');
+  assert.equal(entry.expirySigns.signs.length, 2);
+  assert.equal(entry.expirySigns.basis, 'source');
+  assert.match(entry.expirySigns.evidence.join('\n'), /\bpi 1\.5\.2\b/i);
+  assert.match(entry.verification, /\bpi 1\.5\.2\b/);
+  assert.ok(entry.evidence.length > 0);
+  assert.equal(record(entry.evidence[0]).cliVersion, '1.5.2');
 });
 
 test('evidence: every Pi record names the Pi version it was taken on', () => {

@@ -685,9 +685,10 @@ function validateToolScope(entry: any, at: string, errors: string[]): void {
 }
 
 /** Keys of a harness's `worker` block (081 IC-001) and the recipe fields each capability entry may
- * carry when, and only when, its status is `supported`. `required` lists the fields a `supported`
- * entry must carry. The last three are declared, not implemented, so they take no recipe field. */
-const WORKER_CAPABILITIES: Record<string, { allowed: string[], required: string[] }> = Object.freeze({
+ * carry when, and only when, its status is `supported` (or, for a field in `anyStatus`, whatever its status).
+ * `required` lists the fields a `supported` entry must carry. The last three are declared, not implemented,
+ * so they take no recipe field. */
+const WORKER_CAPABILITIES: Record<string, { allowed: string[], required: string[], anyStatus?: string[] }> = Object.freeze({
   cli: { allowed: ['binary', 'versionArgv'], required: ['binary', 'versionArgv'] },
   oneShot: { allowed: ['argv', 'promptVia'], required: ['argv', 'promptVia'] },
   // 171 IC-002: a supported structuredOutput carries `parser`, `fieldMap` or both (checked in validateWorker).
@@ -697,7 +698,12 @@ const WORKER_CAPABILITIES: Record<string, { allowed: string[], required: string[
   runnableProbe: { allowed: ['argv'], required: ['argv'] },
   hooksProbe: { allowed: ['argv'], required: ['argv'] },
   guidanceProbe: { allowed: ['argv', 'marker'], required: ['argv'] },
-  loginProbe: { allowed: ['argv'], required: ['argv'] },
+  // 172 design §3.1: a declared login recipe; an entry that is not supported may still name its expiry signs and hint.
+  loginProbe: {
+    allowed: ['argv', 'output', 'providers', 'answers', 'billing', 'expiry', 'expirySigns', 'hint', 'caveat'],
+    required: ['argv', 'output', 'answers', 'expiry'],
+    anyStatus: ['expirySigns', 'hint'],
+  },
   persistentSession: { allowed: [], required: [] },
   resume: { allowed: [], required: [] },
   steering: { allowed: [], required: [] },
@@ -712,20 +718,28 @@ const WORKER_OPTIONAL_CAPABILITIES: Record<string, { allowed: string[], required
 });
 const WORKER_BILLING = new Set(['free', 'metered', 'unknown']);
 const WORKER_KEYS = Object.freeze(['profile', 'billing', ...Object.keys(WORKER_CAPABILITIES), 'modelChecks']);
-const WORKER_ALLOWED_KEYS = Object.freeze([...WORKER_KEYS, ...Object.keys(WORKER_OPTIONAL_CAPABILITIES), 'family', 'modelList', 'wideningFlags']);
+const WORKER_ALLOWED_KEYS = Object.freeze([...WORKER_KEYS, ...Object.keys(WORKER_OPTIONAL_CAPABILITIES), 'family', 'modelList', 'wideningFlags', 'secretFlags']);
 const WORKER_ENTRY_FIELDS = new Set(['status', 'evidence', 'verification', 'verifiedOn', 'reason']);
 // Soft hyphen, Mongolian vowel separator, zero-width and directional marks, word joiner and invisible operators, BOM.
 const INVISIBLE_CHARACTER = /[\u00ad\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff]/;
 /** A bare command name: safe as a file name and as a PATH lookup (a worker recipe's `binary`; conform's fake). */
 const BARE_COMMAND = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-const WORKER_RECIPE_FIELDS = new Set(['binary', 'versionArgv', 'argv', 'promptVia', 'parser', 'fieldMap', 'marker', 'quotaSignals', 'protectedPaths']);
+const WORKER_RECIPE_FIELDS = new Set([
+  'binary', 'versionArgv', 'argv', 'promptVia', 'parser', 'fieldMap', 'marker', 'quotaSignals', 'protectedPaths',
+  'output', 'providers', 'answers', 'billing', 'expiry', 'expirySigns', 'hint', 'caveat',
+]);
 const WORKER_QUOTA_SIGNALS_FIELDS = new Set(['signals', 'unverifiedSignals', 'basis', 'evidence']);
 const WORKER_FACTS = new Set(['hooksLoaded', 'identityForwarded', 'guidanceLoaded', 'login']);
 const WORKER_MODEL_CHECK_FIELDS = new Set(['id', 'argv', 'establishes', 'estimateTokens', 'timeoutSeconds']);
 // 165 FR-015 / owner P-2, review B-2: no recipe carries a flag that widens what the harness may do. The deny list is
-// data with one matcher (widening-flags.ts), run on oneShot.argv and mainSession.argv here and on the final argv at launch.
+// data with one matcher (widening-flags.ts), run on oneShot.argv, mainSession.argv, loginProbe.argv and
+// loginProbe.providers.argv here (172 L6) and on the final argv at launch.
 const { wideningProblem, wideningFlagsProblem } = require('./widening-flags.ts');
-const WIDENING_CHECKED = Object.freeze(['oneShot', 'mainSession']);
+const WIDENING_CHECKED = Object.freeze(['oneShot', 'mainSession', 'loginProbe']);
+// 172 D9: no argv of a worker block prints a credential (secret-flags.ts: per-binary sets, owner list, `worker.secretFlags`).
+const { secretProblem, secretFlagsProblem } = require('./secret-flags.ts');
+// 172 design §3.2: the login recipe's own checks (L0-L5); its flags (L6) are checked here with every other argv.
+const { validateLoginProbe } = require('./login-recipe.ts');
 const MAIN_SESSION_PLACEHOLDERS = new Set(['{prompt}', '{model}', '{lastMessageFile}']);
 const WORKER_ARGV_MAX = 32;
 const WORKER_ARG_MAX_CHARS = 200;
@@ -826,6 +840,16 @@ function validateWorker(value: any, location: string, errors: string[]): void {
   const declaredProblem = Object.hasOwn(value, 'wideningFlags') ? wideningFlagsProblem(value.wideningFlags) : null;
   if (declaredProblem) fail('wideningFlags', declaredProblem);
   const declared = Object.hasOwn(value, 'wideningFlags') && !declaredProblem ? value.wideningFlags : [];
+  const secretDeclaredProblem = Object.hasOwn(value, 'secretFlags') ? secretFlagsProblem(value.secretFlags) : null;
+  if (secretDeclaredProblem) fail('secretFlags', secretDeclaredProblem);
+  const secretDeclared = Object.hasOwn(value, 'secretFlags') && !secretDeclaredProblem ? value.secretFlags : [];
+  // The one place a worker argv is checked for a secret; every argv of the block goes through it.
+  const secretCheck = (key: string, field: string, argv: unknown) => {
+    if (!Array.isArray(argv)) return;
+    const secret = secretProblem(argv, { binary: value.cli?.binary, declared: secretDeclared });
+    if (secret) fail(key, `${field} must not contain the secret-printing flag or command '${secret}'`);
+  };
+  if (object(value.modelList)) secretCheck('modelList', 'argv', value.modelList.argv);
 
   for (const [key, rule] of [...Object.entries(WORKER_CAPABILITIES), ...Object.entries(WORKER_OPTIONAL_CAPABILITIES)]) {
     if (!Object.hasOwn(value, key)) continue;
@@ -845,11 +869,20 @@ function validateWorker(value: any, location: string, errors: string[]): void {
     for (const field of Object.keys(entry)) {
       if (WORKER_ENTRY_FIELDS.has(field)) continue;
       if (!WORKER_RECIPE_FIELDS.has(field) || !rule.allowed.includes(field)) { fail(key, `has unknown field '${field}'`); continue; }
-      if (entry.status !== 'supported') fail(key, `recipe field '${field}' is allowed only when status is supported`);
+      if (entry.status !== 'supported' && !rule.anyStatus?.includes(field)) fail(key, `recipe field '${field}' is allowed only when status is supported`);
     }
-    if (WIDENING_CHECKED.includes(key) && Array.isArray(entry.argv)) {
-      const widening = wideningProblem(entry.argv, { binary: value.cli?.binary, declared, mainSession: key === 'mainSession' });
-      if (widening) fail(key, `argv must not contain the widening flag '${widening}'`);
+    const wideningCheck = (field: string, argv: unknown) => {
+      if (!Array.isArray(argv)) return;
+      const widening = wideningProblem(argv, { binary: value.cli?.binary, declared, mainSession: key === 'mainSession' });
+      if (widening) fail(key, `${field} must not contain the widening flag '${widening}'`);
+    };
+    if (WIDENING_CHECKED.includes(key)) wideningCheck('argv', entry.argv);
+    if (key === 'loginProbe') {
+      validateLoginProbe(entry, { argvProblem: workerArgvProblem, listingParse: MODEL_LIST_PARSE, invisible: INVISIBLE_CHARACTER }, (message: string) => fail(key, message));
+      if (object(entry.providers)) {
+        wideningCheck('providers.argv', entry.providers.argv);
+        secretCheck(key, 'providers.argv', entry.providers.argv);
+      }
     }
     if (entry.status !== 'supported') continue;
     for (const field of rule.required) if (!Object.hasOwn(entry, field)) fail(key, `requires recipe field '${field}' when status is supported`);
@@ -871,6 +904,7 @@ function validateWorker(value: any, location: string, errors: string[]): void {
       if (problem) {
         fail(key, problem.replace(/^argv/, field));
       } else {
+        secretCheck(key, field, entry[field]);
         // 120 IC-011: only model.argv carries one whole model placeholder.
         if (key === 'model' && field === 'argv') {
           const count = entry.argv.filter((item: string) => item === '{model}').length;
@@ -992,6 +1026,7 @@ function validateWorker(value: any, location: string, errors: string[]): void {
     if (problem) {
       fail(key, problem);
     } else {
+      secretCheck(key, 'argv', check.argv);
       if (check.argv.some((item: string) => item.includes('{model}'))) fail(key, "argv must not contain '{model}' outside model.argv");
       if (check.argv.includes('{prompt}')) fail(key, "argv must not contain '{prompt}' outside oneShot.argv");
       if (check.argv.includes('{lastMessageFile}')) fail(key, "argv must contain '{lastMessageFile}' only once and only in structuredOutput.argv");

@@ -80,7 +80,6 @@ test('the shipped registry is valid and holds the IC-002 facts', () => {
     ['worker', 'open', 'executable'], ['capability-provider', 'open', 'executable'],
     ['intake-category', 'open', 'inert'],
     ['model-list-parser', 'reserved', 'executable'], ['control-channel', 'reserved', 'executable'],
-    ['login-recipe', 'reserved', 'executable'],
   ]);
   const byId = Object.fromEntries(reg.points.map((p: any) => [p.id, p]));
   assert.equal(byId.skill.validator, 'skill-v1');
@@ -121,20 +120,20 @@ test('POINT_VALIDATORS is a literal map; the preset validators call validatePres
   assert.match(POINT_VALIDATORS['review-preset-v1']('review-deep', { ...review, seats: [] }, context).join('\n'), /seats/);
 });
 
-test('points --json lists ten points with id, versions, tier, status, entry and opensWith', (t: any) => {
+test('points --json lists nine points with id, versions, tier, status, entry and opensWith', (t: any) => {
   const s = scratch(t);
   const res = s.cli(['package', '--action', 'points', '--json']);
   assert.equal(res.status, 0, res.stderr);
   const out = JSON.parse(res.stdout);
   assert.deepEqual(Object.keys(out), ['points']);
-  assert.equal(out.points.length, 10);
+  assert.equal(out.points.length, 9);
   assert.deepEqual(out.points[0], { id: 'review-preset', versions: [1], tier: 'inert', status: 'open', entry: 'file', opensWith: null });
   const cap = out.points.find((p: any) => p.id === 'capability-provider');
   assert.deepEqual(cap, { id: 'capability-provider', versions: [1], tier: 'executable', status: 'open', entry: 'file', opensWith: null });
   assert.deepEqual(out.points, pointRows(REAL));
 });
 
-test('points lists model-list-parser, control-channel and login-recipe as reserved, each opensWith its row', (t: any) => {
+test('points lists model-list-parser and control-channel as reserved, each opensWith its row', (t: any) => {
   const s = scratch(t);
   const res = s.cli(['package', '--action', 'points', '--json']);
   assert.equal(res.status, 0, res.stderr);
@@ -144,23 +143,25 @@ test('points lists model-list-parser, control-channel and login-recipe as reserv
       opensWith: 'row 169: worker.modelList.format, a field map of grammar model-list-v1 over the list command\'s output' },
     { id: 'control-channel', versions: [], tier: 'executable', status: 'reserved', entry: 'file',
       opensWith: 'row 170: worker.controlChannel, a capability entry whose settled event is a field-map Test list' },
-    { id: 'login-recipe', versions: [], tier: 'executable', status: 'reserved', entry: 'file',
-      opensWith: 'row 172: worker.loginProbe.exitCodes and worker.loginProbe.authType, a field-map Path' },
   ]);
   for (const row of rows) assert.ok(row.opensWith.length <= 160, `${row.id} opensWith is at most 160 characters`);
   const byId = Object.fromEntries(REAL.points.map((p: any) => [p.id, p]));
-  for (const id of ['model-list-parser', 'control-channel', 'login-recipe']) {
+  for (const id of ['model-list-parser', 'control-channel']) {
     assert.deepEqual([byId[id].validator, byId[id].consumer, byId[id].referencedBy, byId[id].combine, byId[id].slice, Object.hasOwn(byId[id], 'template')],
       [null, null, [], 'add-only', '171', false], id);
   }
 });
 
-test('a contribution to login-recipe is refused point-reserved', () => {
-  const refused = judgeContribution(REAL, { point: 'login-recipe', version: 1 }, { packageId: 'acme', index: 0 });
+test('a contribution to control-channel is refused point-reserved; login-recipe is no point (172 O-5: a worker descriptor carries its recipe)', () => {
+  const open = ['review-preset', 'debate-preset', 'skill', 'agent', 'worker', 'capability-provider', 'intake-category'];
+  const refused = judgeContribution(REAL, { point: 'control-channel', version: 1 }, { packageId: 'acme', index: 0 });
   assert.equal(refused.code, 'point-reserved');
-  assert.match(refused.message, /row 172/);
+  assert.match(refused.message, /row 170/);
   assert.equal(refused.field, 'contributions[0].point');
-  assert.deepEqual(refused.allowed, ['review-preset', 'debate-preset', 'skill', 'agent', 'worker', 'capability-provider', 'intake-category']);
+  assert.deepEqual(refused.allowed, open);
+  const gone = judgeContribution(REAL, { point: 'login-recipe', version: 1 }, { packageId: 'acme', index: 0 });
+  assert.equal(gone.code, 'undeclared-point');
+  assert.deepEqual(gone.allowed, open);
 });
 
 test('points text prints one line per point and writes nothing', (t: any) => {
@@ -169,7 +170,7 @@ test('points text prints one line per point and writes nothing', (t: any) => {
   const res = s.cli(['package', '--action', 'points']);
   assert.equal(res.status, 0, res.stderr);
   const lines = res.stdout.trim().split('\n');
-  assert.equal(lines.length, 10);
+  assert.equal(lines.length, 9);
   assert.match(lines[0], /^point review-preset: tier=inert status=open entry=file versions=1$/);
   assert.match(lines[5], /^point capability-provider: tier=executable status=open entry=file versions=1$/);
   assert.match(lines[6], /^point intake-category: tier=inert status=open entry=file versions=1$/);

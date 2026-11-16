@@ -27,11 +27,13 @@ const { spawn } = require('node:child_process');
 const { workerCatalogue } = require('./catalogue.ts');
 const { assembleArgv, mainArgv, promptInput, refuseUnknownMainParser } = require('./launch.ts');
 const { PARSERS, parserOf, parserIdOf, UNPARSED } = require('./parsers.ts');
-const { compileFieldMap } = require('./parsers/field-map.ts');
+const { compileFieldMap, compileTest } = require('./parsers/field-map.ts');
 const { cutChars } = require('./parsers/common.ts');
 const { BARE_COMMAND } = require('../../registry/index.ts');
 const { exitFact } = require('./readiness.ts');
 const { wideningProblem, wideningFlagsProblem } = require('../../registry/widening-flags.ts');
+const { secretProblem, secretFlagsProblem } = require('../../registry/secret-flags.ts');
+const { checkLogin, loginExpiredOf } = require('./login.ts');
 
 const PARTS = Object.freeze(['binary', 'one-shot', 'prompt-transport', 'model-flag', 'main-session', 'stream', 'login']);
 const FAKE = path.join(__dirname, 'conform-fake.ts');
@@ -61,9 +63,9 @@ const describeExit = (result: any): string => (result.status === 'exited'
   ? (result.code === null ? `signal ${result.signal}` : `exit ${result.code}`)
   : (result.status === 'timeout' ? 'timeout' : `spawn-failed ${result.error}`));
 
-/** One spawn of the fake, killed (SIGKILL) after TIMEOUT_MS or past STDOUT_MAX bytes of stdout. The child is kept
+/** One spawn of the fake, killed (SIGKILL) after `timeoutMs` or past STDOUT_MAX bytes of stdout. The child is kept
  * in `ctx.child` while it runs, so a signal handler can kill it. Spawning without blocking lets that handler run. */
-function spawnFake(ctx: any, argv: string[], env: any, stdin: Buffer): Promise<{ result: any; stdout: string }> {
+function spawnFake(ctx: any, argv: string[], env: any, stdin: Buffer, timeoutMs = TIMEOUT_MS): Promise<{ result: any; stdout: string }> {
   return new Promise((resolve) => {
     const chunks: Buffer[] = [];
     let size = 0;
@@ -75,7 +77,7 @@ function spawnFake(ctx: any, argv: string[], env: any, stdin: Buffer): Promise<{
       stopped ??= why;
       child.kill('SIGKILL');
     };
-    const timer = setTimeout(() => stop('timeout'), TIMEOUT_MS);
+    const timer = setTimeout(() => stop('timeout'), timeoutMs);
     const settle = (result: any) => {
       if (settled) return;
       settled = true;
@@ -98,17 +100,18 @@ function spawnFake(ctx: any, argv: string[], env: any, stdin: Buffer): Promise<{
   });
 }
 
-/** Runs the fake once with `argv`; the script says what it prints and whether it writes the last-message file. */
-async function runFake(ctx: any, argv: string[], { stdin = null, exit = 0, stdout = [], lastMessage = null }: any = {}): Promise<Run> {
+/** Runs the fake once with `argv`; the script says what it prints and whether it writes the last-message file, or,
+ * with `byArgv`, what it prints and exits with for each argv it may receive (conform-fake.ts). */
+async function runFake(ctx: any, argv: string[], { stdin = null, exit = 0, stdout = [], lastMessage = null, byArgv = null, timeoutMs = TIMEOUT_MS }: any = {}): Promise<Run> {
   const n = ctx.spawns++;
   const script = path.join(ctx.dir, 'log', `${n}.script.json`);
   const log = path.join(ctx.dir, 'log', `${n}.log`);
-  fs.writeFileSync(script, JSON.stringify({ stdout, lastMessage, lastMessageFile: ctx.lastMessageFile }));
+  fs.writeFileSync(script, JSON.stringify({ stdout, lastMessage, lastMessageFile: ctx.lastMessageFile, ...(byArgv ? { byArgv } : {}) }));
   const { result, stdout: out } = await spawnFake(ctx, argv, {
     PATH: ctx.bin, HOME: ctx.home, LANG: 'C.UTF-8',
     DOFLOW_CONFORM_NODE: process.execPath, DOFLOW_CONFORM_FAKE: FAKE, DOFLOW_CONFORM_SCRIPT: script,
     DOFLOW_CONFORM_LOG: log, DOFLOW_CONFORM_EXIT: String(exit),
-  }, stdin ?? Buffer.alloc(0));
+  }, stdin ?? Buffer.alloc(0), timeoutMs);
   let logged: any = null;
   try {
     logged = JSON.parse(fs.readFileSync(log, 'utf8'));
@@ -395,20 +398,112 @@ async function mainSessionPart(ctx: any, worker: any): Promise<Part> {
   return part('main-session', 'passed', `the argv equals mainArgv; the prompt by ${entry.promptVia}`);
 }
 
-/** A-5: today's loginProbe argv, no widening flag, and exit 0 read as yes and exit 1 as no. Exit codes beyond are row 172. */
+// ---- the login part (172 design §8) -------------------------------------------------------------------------
+
+const LOGIN_PROVIDER = 'conform-provider';
+/** The slow case's bound, set through checkLogin's spawn seam, and how long its fake sleeps: well past the bound. */
+const LOGIN_SLOW_MS = 300;
+const LOGIN_SLEEP_MS = 5000;
+/** The exit a fake run gives for an argv its script does not name; the seam reports that argv before any reading. */
+const STRAY_EXIT = 125;
+
+/** The listing's stdout naming one provider, `conform-provider`, in the form the declared `parse` reads. */
+function listingLines(parse: unknown): string[] {
+  if (parse === 'tsv-first-column') return [`${LOGIN_PROVIDER}\tConform provider`];
+  const column = typeof parse === 'string' ? /^table-column:(.+)$/.exec(parse) : null;
+  return column ? [column[1], LOGIN_PROVIDER] : [LOGIN_PROVIDER];
+}
+
+/** The first secret-printing or widening flag in `argv`, worded for a reason, or null (step 1). */
+function loginFlag(worker: any, argv: string[]): string | null {
+  const binary = worker.cli.binary;
+  const secrets = Array.isArray(worker.secretFlags) && secretFlagsProblem(worker.secretFlags) === null ? worker.secretFlags : [];
+  const secret = secretProblem(argv, { binary, declared: secrets });
+  if (secret) return `secret flag '${secret}'`;
+  const widening = wideningProblem(argv, { binary, declared: declaredOf(worker) });
+  return widening ? `widening flag '${widening}'` : null;
+}
+
+const testsOf = (rule: any): any[] => (Array.isArray(rule.when) ? rule.when : []);
+/** The rule checkLogin takes for `exit` and the parsed `event`: the first with that exit whose tests all hold, or -1. */
+const firstAnswer = (answers: any[], exit: number, event: any): number => answers
+  .findIndex((rule: any) => rule.exit === exit && testsOf(rule).every((test: any) => compileTest(test)(event)));
+const stateText = (answer: any): string => (answer.reason ? `${answer.state} ${answer.reason}` : answer.state);
+
+/**
+ * One case (step 2): checkLogin runs the recipe through its `spawn` seam, each process one run of the fake, whose
+ * script picks by the argv it receives: the listing argv prints `conform-provider` in the declared column, the check
+ * argv prints `check.stdout` and exits `check.exit` (after `check.sleepMs`). `bound` caps the check's timeout.
+ * Resolves the answer to compare, the provider's with `providers`, or `{stray}` when the fake got an argv neither names.
+ */
+async function loginCase(ctx: any, worker: any, check: any, bound = TIMEOUT_MS): Promise<any> {
+  const recipe = worker.loginProbe;
+  const checkArgv = recipe.argv.map((item: string) => (item === '{provider}' ? LOGIN_PROVIDER : item));
+  const byArgv = [
+    ...(recipe.providers ? [{ argv: recipe.providers.argv, stdout: listingLines(recipe.providers.parse), exit: 0 }] : []),
+    { argv: checkArgv, ...check },
+  ];
+  let stray: string[] | null = null;
+  const spawn = async ({ argv, timeoutMs }: any) => {
+    const run = await runFake(ctx, argv, { byArgv, exit: STRAY_EXIT, timeoutMs: sameArgv(argv, checkArgv) ? Math.min(timeoutMs, bound) : timeoutMs });
+    if (run.log && !byArgv.some((entry) => sameArgv(run.log.argv, entry.argv))) stray ??= run.log.argv;
+    return { ...run.result, error: run.result.error ?? null, stdout: run.stdout, truncated: false };
+  };
+  const answer = await checkLogin({ harness: worker.cli.binary, worker, env: {}, cwd: ctx.home, binaryPath: ctx.fake, spawn });
+  if (stray) return { stray };
+  return recipe.providers ? answer.providers[0] ?? answer : answer;
+}
+
+/**
+ * Design §8, replacing row 171 A-5: no secret or widening flag; each answer rule's own case (the smallest JSON
+ * object meeting its `when`, `eventFor`, and its exit) reads the rule's state and reason; an exit no rule names reads
+ * `unknown exit <n>`; a check that sleeps past a 300 ms bound reads `unknown timeout`; each expiry sign is found in a
+ * failure summary made of itself with `{provider}` set to `conform-provider`.
+ */
 async function loginPart(ctx: any, worker: any): Promise<Part> {
-  const argv = worker.loginProbe.argv;
-  if (!isArgv(argv)) return part('login', 'failed', 'loginProbe has no argv');
-  const widening = wideningProblem(argv, { binary: worker.cli.binary, declared: declaredOf(worker) });
-  if (widening) return part('login', 'failed', `the loginProbe argv holds the widening flag '${widening}'`);
-  for (const [exit, want] of [[0, 'yes'], [1, 'no']] as const) {
-    const run = await runFake(ctx, argv, { exit });
-    const problem = argvProblem(run, argv);
-    if (problem) return part('login', 'failed', problem);
-    const state = exitFact(run.result, '').state;
-    if (state !== want) return part('login', 'failed', `exit ${exit} reads as ${state}, want ${want}`);
+  const recipe = worker.loginProbe;
+  if (!isArgv(recipe.argv) || recipe.argv.length === 0) return part('login', 'failed', 'loginProbe has no argv');
+  if (recipe.providers && !isArgv(recipe.providers.argv)) return part('login', 'failed', 'loginProbe.providers has no argv');
+  const answers = recipe.answers;
+  if (!Array.isArray(answers) || answers.length === 0 || !answers.every(plain)) return part('login', 'failed', 'loginProbe has no answers');
+  for (const [where, argv] of [['argv', recipe.argv], ['providers argv', recipe.providers?.argv]] as const) {
+    const flag = argv ? loginFlag(worker, argv) : null;
+    if (flag) return part('login', 'failed', `the loginProbe ${where} holds the ${flag}`);
   }
-  return part('login', 'passed', 'exit 0 reads yes, exit 1 reads no');
+  const signs: any[] = Array.isArray(recipe.expirySigns?.signs) ? recipe.expirySigns.signs : [];
+  const problems: string[] = [];
+  const expect = async (name: string, check: any, want: any, bound?: number) => {
+    const got = await loginCase(ctx, worker, check, bound);
+    if (got.stray) problems.push(`${name}: the fake received ${json(got.stray)}, not a recipe argv`);
+    else if (got.state !== want.state || (got.reason ?? null) !== want.reason) problems.push(`${name} reads ${stateText(got)}, want ${stateText(want)}`);
+  };
+  try {
+    for (const [i, rule] of answers.entries()) {
+      const event = testsOf(rule).length > 0 ? eventFor(rule, i) : {};
+      const first = firstAnswer(answers, rule.exit, event);
+      if (first !== i) {
+        problems.push(first === -1 ? `no stdout meets answers[${i}]` : `answers[${i}] is shadowed by answers[${first}]`);
+        continue;
+      }
+      await expect(`answers[${i}]`, { stdout: [json(event)], exit: rule.exit }, { state: rule.state, reason: rule.reason ?? null });
+    }
+    let unnamed = 0;
+    while (answers.some((rule: any) => rule.exit === unnamed)) unnamed += 1;
+    await expect(`exit ${unnamed}`, { stdout: [], exit: unnamed }, { state: 'unknown', reason: `exit ${unnamed}` });
+    await expect('the slow fake', { stdout: [], exit: 0, sleepMs: LOGIN_SLEEP_MS }, { state: 'unknown', reason: 'timeout' }, LOGIN_SLOW_MS);
+    for (const [i, sign] of signs.entries()) {
+      const slot = typeof sign === 'string' && sign.includes('{provider}');
+      const found = loginExpiredOf({ status: 'failure', summary: String(sign).split('{provider}').join(LOGIN_PROVIDER) }, worker);
+      const k = found ? signs.indexOf(found.sign) : -1;
+      if (k === -1) problems.push(`expirySigns.signs[${i}] does not match its own sample`);
+      else if (k !== i) problems.push(`expirySigns.signs[${i}] is matched as signs[${k}]`);
+      else if (found.provider !== (slot ? LOGIN_PROVIDER : null)) problems.push(`expirySigns.signs[${i}] reads provider ${json(found.provider)}`);
+    }
+  } catch (error: any) {
+    return part('login', 'failed', error?.message ?? String(error));
+  }
+  if (problems.length > 0) return part('login', 'failed', problems.join('; '));
+  return part('login', 'passed', `${answers.length} answers, ${signs.length} signs, providers ${recipe.providers ? 'yes' : 'no'}`);
 }
 
 /** §6.2: every part in order, with `not-declared` and `depends-on` applied before a part runs. */

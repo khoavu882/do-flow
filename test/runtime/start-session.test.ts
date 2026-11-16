@@ -27,6 +27,8 @@ const { mutateDispatch, storeFileFor: dispatchStoreFor } = require(path.join(SRC
 const { sha16 } = require(path.join(SRC, 'scaffold', 'fingerprint.ts'));
 const { loadRegistry } = require(path.join(REPO, 'src', 'registry', 'index.ts'));
 const { workerCatalogue } = require(path.join(SRC, 'worker', 'catalogue.ts'));
+const { recordRecipeAnswer } = require(path.join(SRC, 'worker', 'login-store.ts'));
+const { recipeDigest } = require(path.join(SRC, 'worker', 'login.ts'));
 
 const POSIX: any = { skip: process.platform === 'win32' && 'worker process control is unverified on win32' };
 const ENTRY_LINE = 'Use the DoFlow do skill for this request:';
@@ -703,4 +705,91 @@ test('171 T3b: a built-in\'s stored descriptor has no structuredOutput, and a pa
   assert.equal(plain.exit, 0, JSON.stringify(plain.body));
   const plainRun = await ended(f, plain.body.run.runId);
   assert.equal(Object.hasOwn(plainRun.descriptor, 'structuredOutput'), false);
+});
+
+// 172 FR-011: a started session goes through the same supervisor, so a failure whose summary holds the worker's expiry
+// sign marks the run and the login store, and the start form then reads the harness as expired (startable, warned).
+test('172 FR-011: a started session that fails with an expiry sign is recorded expired, and start-options says so', POSIX, async (t: any) => {
+  const f = fixture(t, { fakes: ['codex'] });
+  const codex = structuredClone(DESCRIPTORS.codex);
+  codex.loginProbe = { ...codex.loginProbe, expirySigns: { signs: ['OAuth refresh failed for {provider}'], basis: 'source', evidence: ['test'] }, hint: 'codex login' };
+  const descriptors = { ...DESCRIPTORS, codex };
+  f.env.FAKE_STDOUT = `${JSON.stringify({ type: 'turn.failed', error: { message: 'OAuth refresh failed for openai' } })}\n`;
+  const fresh = await executeWorkerCommand({ action: 'start-options', projectKey: f.projectKey, env: f.env, cwd: f.main, descriptors, projects: projectsImpl });
+  const before = fresh.body.harnesses.find((h: any) => h.harness === 'codex');
+  assert.deepEqual([before.startable, before.login.state, before.login.source], [true, 'unknown', 'never-checked']);
+  assert.ok(before.warnings.includes('login-unknown'), JSON.stringify(before.warnings));
+
+  const started = await start(f, { descriptors });
+  assert.equal(started.exit, 0, JSON.stringify(started.body));
+  const run = await ended(f, started.body.run.runId);
+  assert.deepEqual(run.descriptor.loginProbe, { expirySigns: codex.loginProbe.expirySigns });
+  assert.equal(run.report.status, 'failure');
+  assert.deepEqual(run.report.loginExpired, { sign: 'OAuth refresh failed for {provider}', provider: 'openai' });
+
+  const after = await executeWorkerCommand({ action: 'start-options', projectKey: f.projectKey, env: f.env, cwd: f.main, descriptors, projects: projectsImpl });
+  const h = after.body.harnesses.find((item: any) => item.harness === 'codex');
+  assert.deepEqual([h.startable, h.login.state, h.login.source, h.login.provider, h.login.hint], [true, 'expired', 'last-run', 'openai', 'codex login']);
+  assert.ok(h.warnings.includes('login-expired'));
+  assert.equal(h.warnings.includes('login-unknown'), false);
+});
+
+// 172 AC-6 on the SHIPPED descriptors: codex, opencode, copilot, kiro and antigravity carry no login recipe, so each reads
+// `unknown` with the descriptor's own `loginProbe.reason`, and login never blocks a start. The expected reason is read from
+// core/registry/harnesses.json, not copied. copilot, kiro and antigravity are non-startable for a reason unrelated to login
+// (`no-main-session-shape`: no recorded headless way to start them), so for those the proof is the login-state answer plus
+// that start-options names no `logged-out` reason; codex and opencode are startable and carry the `login-unknown` warning.
+test('172 AC-6: the five harnesses without a recipe read unknown with their loginProbe.reason and are not blocked by login', POSIX, async (t: any) => {
+  const FIVE = ['codex', 'opencode', 'copilot', 'kiro', 'antigravity'];
+  const f = fixture(t, { fakes: FIVE });
+  const shipped = loadRegistry({ repoRoot: REPO });
+  const reasonOf = (id: string) => {
+    const entry = workerCatalogue({ registry: shipped }).find((e: any) => e.id === id);
+    assert.equal(entry.worker.loginProbe.status, 'unknown', `${id} ships no recipe`);
+    assert.equal(typeof entry.worker.loginProbe.reason, 'string', id);
+    return entry.worker.loginProbe.reason;
+  };
+
+  const state = await executeWorkerCommand({ action: 'login-state', env: f.env, cwd: f.main, descriptors: DESCRIPTORS, projects: projectsImpl });
+  assert.equal(state.exit, 0, JSON.stringify(state.body));
+  const answers = Object.fromEntries(state.body.harnesses.map((a: any) => [a.harness, a]));
+
+  const options = await executeWorkerCommand({ action: 'start-options', projectKey: f.projectKey, env: f.env, cwd: f.main, descriptors: DESCRIPTORS, projects: projectsImpl });
+  assert.equal(options.exit, 0, JSON.stringify(options.body));
+  const by = Object.fromEntries(options.body.harnesses.map((h: any) => [h.harness, h]));
+
+  for (const id of FIVE) {
+    const want = reasonOf(id);
+    assert.equal(answers[id].state, 'unknown', id);
+    assert.equal(answers[id].reason, `no-recipe: ${want.slice(0, 120)}`, id);
+    assert.notEqual(by[id].reason, 'logged-out', id);
+  }
+  for (const id of ['codex', 'opencode']) {
+    assert.deepEqual([by[id].startable, by[id].reason], [true, null], id);
+    assert.equal(by[id].login.state, 'unknown', id);
+    assert.equal(by[id].login.reason, answers[id].reason, id);
+    assert.ok(by[id].warnings.includes('login-unknown'), `${id}: ${JSON.stringify(by[id].warnings)}`);
+  }
+  for (const id of ['copilot', 'kiro', 'antigravity']) {
+    assert.deepEqual([by[id].startable, by[id].reason], [false, 'no-main-session-shape'], `${id} is blocked by its missing main-session shape, not by login`);
+  }
+});
+
+// Control for the test above: the same assertions would fail if one of the five read `logged-out`. A scratch codex that
+// carries a recipe, with a stored `logged-out` recipe answer for that recipe, is blocked (reason `logged-out`, not
+// startable, no `login-unknown` warning), so "reason is not logged-out, startable, login-unknown" separates the two.
+test('172 AC-6 control: a codex with a recipe and a stored logged-out answer is blocked, unlike the shipped no-recipe codex', POSIX, async (t: any) => {
+  const f = fixture(t, { fakes: ['codex'] });
+  const codex = structuredClone(DESCRIPTORS.codex);
+  codex.loginProbe = {
+    status: 'supported', evidence: ['test'], verification: 'test', verifiedOn: '2026-11-16', argv: ['probe', 'login'], output: 'none',
+    answers: [{ exit: 0, state: 'logged-in' }, { exit: 1, state: 'logged-out' }], expiry: 'not-seen', hint: 'codex login',
+  };
+  const descriptors = { ...DESCRIPTORS, codex };
+  recordRecipeAnswer(f.env, 'codex', { state: 'logged-out', reason: 'exit 1', at: new Date().toISOString(), billing: null, providers: [], checked: 1, listed: 1 }, recipeDigest(codex));
+  const { exit, body } = await executeWorkerCommand({ action: 'start-options', projectKey: f.projectKey, env: f.env, cwd: f.main, descriptors, projects: projectsImpl });
+  assert.equal(exit, 0, JSON.stringify(body));
+  const h = body.harnesses.find((item: any) => item.harness === 'codex');
+  assert.deepEqual([h.startable, h.reason, h.login.state], [false, 'logged-out', 'logged-out']);
+  assert.equal(h.warnings.includes('login-unknown'), false);
 });

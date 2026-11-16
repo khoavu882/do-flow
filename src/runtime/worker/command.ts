@@ -34,6 +34,9 @@
 // current? }`, 2 for usage. `run` refuses the reserved slug `started-sessions` (`slug-reserved`), and
 // status of a main-session run shows no 080 attempt but who started it, its entry and its model.
 //
+// Row 172 (IC-002): `login-state` reads each harness's login answer from the `harness-login` store,
+// `{ harnesses: LoginAnswer[] }` in worker-catalogue order; it starts no process and writes nothing.
+//
 // This module makes no fs write call: the run store is written through `insertRun` and
 // `transition`, the probe record by readiness, the ledger only by 080's cancel (G26 (b), IC-027).
 
@@ -63,10 +66,11 @@ const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { readDispatch, storeFileFor: dispatchStoreFileFor } = require('../dispatch/store.ts');
 const { startSession, startOptions, STARTED_SLUG, KIND: MAIN_SESSION_KIND } = require('./start-session.ts');
 const { conform, conformLines } = require('./conform.ts');
+const { loginAnswers, loginCell } = require('./login.ts');
 
-const ACTIONS = Object.freeze(['discover', 'probe', 'describe', 'select', 'run', 'status', 'cancel', 'evidence', 'start-session', 'start-options', 'conform']);
-/** 165 IC-001 / IC-002: the actions that answer `{ ok, ... }`: exit 0, or 1 for `ok: false`. */
-const OK_ACTIONS = Object.freeze(['start-session', 'start-options']);
+const ACTIONS = Object.freeze(['discover', 'probe', 'describe', 'select', 'run', 'status', 'cancel', 'evidence', 'start-session', 'start-options', 'conform', 'login-state']);
+/** 165 IC-001 / IC-002 and 172 IC-002: the actions that answer with no disposition: exit 0, or 1 for `ok: false`. */
+const OK_ACTIONS = Object.freeze(['start-session', 'start-options', 'login-state']);
 /** IC-025: the dispositions that exit 0; `refused` and `none-eligible` exit 1. */
 const EXIT_ZERO = Object.freeze(['discovered', 'probed', 'described', 'selected', 'started', 'cancelled', 'status', 'recorded']);
 const ERROR_CODES = Object.freeze(['usage', 'store-unreadable', 'registry-invalid']);
@@ -92,7 +96,7 @@ const REPO_ENV = Object.freeze(['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'G
 /** IC-025: the actions each flag may be given to; any other action is exit 2 `usage`. */
 const FLAG_ACTIONS: Record<string, { flag: string; actions: string[] }> = Object.freeze({
   slug: { flag: '--slug', actions: ['run', 'status', 'cancel', 'evidence'] },
-  harness: { flag: '--harness', actions: ['probe', 'describe', 'select', 'run', 'evidence', 'start-session', 'conform'] },
+  harness: { flag: '--harness', actions: ['probe', 'describe', 'select', 'run', 'evidence', 'start-session', 'conform', 'login-state'] },
   edit: { flag: '--edit', actions: ['describe', 'select', 'run'] },
   childOf: { flag: '--child-of', actions: ['run'] },
   request: { flag: '--request', actions: ['run'] },
@@ -300,6 +304,7 @@ function evaluate({ reg, worker, harness, needs, coverage, env, cwd, root, nowMs
     readiness.readProbeRecord(root, harness),
     { ...found, descriptorDigest: readiness.descriptorDigest(worker) },
     nowMs,
+    readiness.loginAnswerFor(harness, worker, { env, now: nowMs }),
   );
   const requirements = readiness.requirementsFor({ harness, worker }, facts, needs, coverage, edit);
   return { requirements, version: found.version, binaryPath: found.path, ...readiness.eligibility(requirements) };
@@ -533,6 +538,8 @@ function runSelector(workerRun: any, task: any, token: any, action: string) {
 function summaryLines(body: any): string[] {
   // 171 IC-005: conform's part lines.
   if (Array.isArray(body.parts)) return conformLines(body);
+  // 172 IC-002: login-state, one doctor cell per harness.
+  if (Array.isArray(body.harnesses) && Object.keys(body).length === 1) return body.harnesses.map((a: any) => `${a.harness}  ${loginCell(a)}`);
   // 165: start-session and start-options.
   if (body.ok === false && typeof body.code === 'string') return [`refused ${body.code}`];
   if (body.ok === true && body.run) return [`${body.replayed ? 'replayed' : 'started'} ${body.run.runId} ${body.run.phase}`];
@@ -618,6 +625,16 @@ async function executeWorkerCommand({
         break;
       }
       case 'select': body = readiness.select({ ...atRoot, coverage: cov, harness: given(harness) ? String(harness) : undefined, needs, edit: given(edit), active: activeWorkers({ registry: reg, env, projectRoot: root }) }); break;
+      // 172 IC-002: read-only; the worker list (an injected descriptor winning) and the store, no process.
+      case 'login-state': {
+        const workers = workerCatalogue({ registry: reg, view }).map((item: any) => ({
+          id: item.id, worker: descriptors && Object.hasOwn(descriptors, item.id) ? descriptors[item.id] : item.worker,
+        }));
+        const chosen = given(harness) ? workers.filter((item: any) => item.id === String(harness)) : workers;
+        if (chosen.length === 0) throw usage(`unknown harness '${harness}'; known: ${workers.map((item: any) => item.id).join(', ')}`);
+        body = { harnesses: loginAnswers({ env, now: nowMs, workers: chosen }) };
+        break;
+      }
       // 171 IC-005: conform has its own exit mapping (0, 1 naming the failed parts, 2), so it returns here.
       case 'conform':
         if (!given(harness)) throw usage('--action conform needs --harness');

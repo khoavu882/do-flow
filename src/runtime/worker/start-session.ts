@@ -23,7 +23,8 @@
 // R3 accepts the cross-project race). A run is not open only on positive evidence that it is dead
 // (R5, 165 review A-1: `liveness` below); one whose liveness cannot be read counts open, and in the
 // checkout it is refused `checkout-busy-unknown`, which names the cancel that clears it. No probe is
-// run: readiness reads the version (`discover`), the probe record and the models catalogue only (D10).
+// run: readiness reads the version (`discover`), the probe record and the models catalogue, and login is the
+// `harness-login` store's answer (172 IC-004, D12): `logged-out` is not startable, `expired` and `unknown` warn.
 //
 // This module makes no fs write call: the run store is written through `insertRun` and `transition`,
 // the prompt through `session-prompt.ts`.
@@ -48,6 +49,8 @@ const { sha16 } = require('../scaffold/fingerprint.ts');
 const { fileKeyOf } = require('../events/artifacts.ts');
 const { readDispatch } = require('../dispatch/store.ts');
 const { readCatalogue } = require('../models/catalogue.ts');
+const { loginAnswerOf } = require('./login.ts');
+const { readLoginStore } = require('./login-store.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 
 /** The reserved store slug: `worker --action run` and `dispatch` refuse it (`slug-reserved`). */
@@ -133,6 +136,12 @@ function mapPart(worker: any): { structuredOutput?: { fieldMap: any } } {
   return typeof id === 'string' && !Object.hasOwn(PARSERS, id) && map?.id === id ? { structuredOutput: { fieldMap: map } } : {};
 }
 
+/** 172 FR-011: the expiry signs the supervisor matches on a started session's failure, only when the worker declares some. */
+function signsPart(worker: any): { loginProbe?: { expirySigns: any } } {
+  const signs = worker.loginProbe?.expirySigns;
+  return signs && typeof signs === 'object' ? { loginProbe: { expirySigns: signs } } : {};
+}
+
 /** The worker blocks in catalogue order, package workers included: `[{ harness, worker }]`, an injected descriptor winning. */
 function harnessBlocks(reg: any, descriptors: any, view: any) {
   return workerCatalogue({ registry: reg, view }).map((entry: any) => ({
@@ -164,9 +173,10 @@ function liveVerified(harness: string, ms: any): boolean {
 /**
  * D10 / §9.2 for one harness: `{ harness, startable, reason, words, warnings, login, version, liveVerified }`, plus the
  * discover entry as `found` (not part of the reply). The shape is checked first, so a harness DoFlow cannot
- * start headless is never run, not even for its version.
+ * start headless is never run, not even for its version. `login` is 172's `LoginAnswer` from `store` (null before
+ * the harness is found installed).
  */
-function harnessFacts({ harness, worker, reg, view, env, cwd, root, nowMs, platform, catalogue }: any) {
+function harnessFacts({ harness, worker, reg, view, env, cwd, root, nowMs, platform, store }: any) {
   const shut = (reason: string, words: string, extra: any = {}) => ({
     harness, startable: false, reason, words, warnings: [] as string[], login: null, version: null, liveVerified: false, found: null, ...extra,
   });
@@ -177,10 +187,11 @@ function harnessFacts({ harness, worker, reg, view, env, cwd, root, nowMs, platf
   }
   const found = readiness.discover({ descriptors: { [harness]: worker }, registry: reg, view, env, cwd, now: nowMs, platform }).harnesses[0];
   if (!found?.present) return shut('not-installed', `${harness} is not installed on this machine`);
-  const entry = catalogue?.harnesses && Object.hasOwn(catalogue.harnesses, harness) ? catalogue.harnesses[harness] : null;
-  const login = entry ? { state: entry.loginState ?? null, checkedAt: entry.lastSyncedAt ?? null } : null;
-  if (login?.state === 'logged-out') {
-    return shut('logged-out', `${harness} is logged out: ${entry.reloginHint || 'log in to it again'}`, { login, version: found.version, found });
+  const stored = store ?? readLoginStore(env);
+  const login = loginAnswerOf({ harness, worker, record: Object.hasOwn(stored.harnesses, harness) ? stored.harnesses[harness] : null, now: nowMs });
+  if (login.state === 'logged-out') {
+    const how = login.hint ? `run ${login.hint} in a terminal` : 'log in to it again';
+    return shut('logged-out', `${harness} is logged out: ${how}, then doflow models --action sync`, { login, version: found.version, found });
   }
   const warnings: string[] = [];
   let runnable: any = null;
@@ -190,7 +201,8 @@ function harnessFacts({ harness, worker, reg, view, env, cwd, root, nowMs, platf
     runnable = null;
   }
   if (runnable?.state !== 'yes') warnings.push('runnable-not-checked');
-  if (login?.state !== 'logged-in') warnings.push('login-not-checked');
+  if (login.state === 'expired') warnings.push('login-expired');
+  else if (login.state === 'unknown') warnings.push('login-unknown');
   if (ms.promptVia === 'argv') warnings.push('prompt-in-argv');
   return { harness, startable: true, reason: null, words: `${harness} can start a session here`, warnings, login, version: found.version, liveVerified: liveVerified(harness, ms), found };
 }
@@ -371,7 +383,7 @@ async function startSession(o: any) {
 
   // Step 6: the harness is startable here and now.
   const catalogue = readCatalogue(root, { env });
-  const facts = harnessFacts({ harness, worker, reg, view, env, cwd, root, nowMs, platform, catalogue });
+  const facts = harnessFacts({ harness, worker, reg, view, env, cwd, root, nowMs, platform });
   if (!facts.startable) return refusal('harness-not-startable', facts.words, { harness, reason: facts.reason });
 
   // Step 7: the model is one the options offer.
@@ -401,7 +413,7 @@ async function startSession(o: any) {
     ...mainLaunchRecord(worker, prepared.sent, model),
     // The detached supervisor launches from the record alone: the binary the version read found (an absolute
     // path, as `run` records), the recipe and the model part.
-    descriptor: { cli: { binary: facts.found.path }, mainSession: worker.mainSession, ...mapPart(worker), model: worker.model ?? null },
+    descriptor: { cli: { binary: facts.found.path }, mainSession: worker.mainSession, ...mapPart(worker), model: worker.model ?? null, ...signsPart(worker) },
   };
   // Liveness is read outside the lock (`ps` is a process); a run inserted after this reading is counted open and live.
   const named = namingScan(platform);
@@ -508,9 +520,10 @@ function startOptions(o: any) {
     };
   });
   const catalogue = readCatalogue(root, { env });
+  const store = readLoginStore(env);
   const bindings = readBindings({ env, projectRoot: root });
   const harnesses = harnessBlocks(reg, descriptors, view).map(({ harness, worker }: any) => {
-    const { found, ...facts } = harnessFacts({ harness, worker, reg, view, env, cwd, root, nowMs, platform, catalogue });
+    const { found, ...facts } = harnessFacts({ harness, worker, reg, view, env, cwd, root, nowMs, platform, store });
     return { ...facts, models: modelsFor({ harness, worker, bindings, catalogue }) };
   });
   const dispatch = dispatchRunning(root, platform);

@@ -1,6 +1,7 @@
 'use strict';
 
-const { readCatalogue, mergeCatalogueEntries, syncHarness, syncAllHarnesses, workerIds } = require('./catalogue.ts');
+const { readCatalogue, mergeCatalogueEntries, syncHarness, syncAllHarnesses, workerIds, workerEntries } = require('./catalogue.ts');
+const { loginAnswers, loginCell } = require('../worker/login.ts');
 const { readAllowedModels, ORCHESTRATOR_KEY } = require('../worker/models.ts');
 const { finishRuntime, usageError } = require('../cli-result.ts');
 const { validateValue } = require('../settings/files.ts');
@@ -26,6 +27,14 @@ function listNote(h: any): string {
   const cut = [h.modelList?.dropped ? `${h.modelList.dropped} ids that are not usable model ids left out` : '', h.modelList?.capped ? `the list was cut at its first ${LIST_MAX_MODELS} ids` : ''].filter(Boolean);
   return cut.length ? ` [${cut.join('; ')}]` : '';
 }
+
+/** Each worker's login answer by id, read from the `harness-login` store (172 IC-001; starts no process). The JSON key
+ * `loginState` carries the answer's state. */
+function loginById({ env, projectRoot, view }: any): Map<string, any> {
+  return new Map(loginAnswers({ env, workers: workerEntries({ env, projectRoot, view }) }).map((answer: any) => [answer.harness, answer]));
+}
+const stateOf = (logins: Map<string, any>, id: string): string => logins.get(id)?.state ?? 'unknown';
+const cellOf = (logins: Map<string, any>, id: string): string => (logins.has(id) ? loginCell(logins.get(id)) : 'unknown');
 
 /** A numbered pick from the harness's own list, on a terminal. Returns the id, or null when nothing valid was chosen. */
 function pickFrom(models: any[], ask: (message: string) => string): string | null {
@@ -113,9 +122,10 @@ function handleList({ json, projectRoot, env, syncOptions = {} }: any): number {
   const view = tierView({ registry, env, projectRoot, catalogue, view: syncOptions.view });
   const allowed = readAllowedModels({ env, projectRoot }) || [];
   const models: any[] = [];
+  const logins = loginById({ env, projectRoot, view: syncOptions.view });
   for (const [harnessId, h] of Object.entries<any>(catalogue?.harnesses || {})) {
     for (const m of h.offeredModels || []) {
-      models.push({ harness: harnessId, model: m.id, displayName: m.displayName || m.id, loginState: h.loginState, status: allowed.includes(m.id) ? 'enabled' : 'listed' });
+      models.push({ harness: harnessId, model: m.id, displayName: m.displayName || m.id, loginState: stateOf(logins, harnessId), status: allowed.includes(m.id) ? 'enabled' : 'listed' });
     }
   }
   const harnesses = view.harnesses;
@@ -167,24 +177,25 @@ async function handleModelsCommand({
       const before = readCatalogue(projectRoot);
       const res = await syncHarness(harness, { ...syncOptions, projectRoot, env, previous: before?.harnesses?.[harness] ?? null });
       mergeCatalogueEntries({ [harness]: res }, projectRoot);
+      const logins = loginById({ env, projectRoot, view: syncOptions.view });
 
       if (json) {
-        console.log(JSON.stringify(res, null, 2));
+        console.log(JSON.stringify({ ...res, loginState: stateOf(logins, harness) }, null, 2));
       } else {
-        const hint = res.loginState === 'logged-out' && res.reloginHint ? ` (re-login: ${res.reloginHint})` : '';
-        console.log(`Synced harness '${harness}': ${res.loginState}${hint}, mode: ${res.detectedMode}, billing: ${res.derivedBilling}, models: ${res.offeredModels.length}${listNote(res)}`);
+        console.log(`Synced harness '${harness}': ${cellOf(logins, harness)}, mode: ${res.detectedMode}, billing: ${res.derivedBilling}, models: ${res.offeredModels.length}${listNote(res)}`);
       }
       return finishRuntime(0);
     }
 
     const catalogue = await syncAllHarnesses({ ...syncOptions, projectRoot, env });
+    const logins = loginById({ env, projectRoot, view: syncOptions.view });
     if (json) {
-      console.log(JSON.stringify(catalogue, null, 2));
+      const harnesses = Object.fromEntries(Object.entries<any>(catalogue.harnesses).map(([id, h]) => [id, { ...h, loginState: stateOf(logins, id) }]));
+      console.log(JSON.stringify({ ...catalogue, harnesses }, null, 2));
     } else {
       console.log(`Synced ${Object.keys(catalogue.harnesses).length} harness(es) at ${catalogue.syncedAt}`);
-      for (const [id, h] of Object.entries(catalogue.harnesses)) {
-        const hint = h.loginState === 'logged-out' && h.reloginHint ? ` (re-login: ${h.reloginHint})` : '';
-        console.log(`  ${id.padEnd(14)} ${h.loginState.padEnd(12)} mode: ${h.detectedMode.padEnd(14)} billing: ${h.derivedBilling.padEnd(9)} models: ${h.offeredModels.length}${hint}${listNote(h)}`);
+      for (const [id, h] of Object.entries<any>(catalogue.harnesses)) {
+        console.log(`  ${id.padEnd(14)} mode: ${h.detectedMode.padEnd(14)} billing: ${h.derivedBilling.padEnd(9)} models: ${h.offeredModels.length} login: ${cellOf(logins, id)}${listNote(h)}`);
       }
     }
     return finishRuntime(0);
@@ -205,6 +216,7 @@ async function handleModelsCommand({
     const allowed = readAllowedModels({ env, projectRoot }) || [];
     const matchingHarnesses: any[] = [];
     let modelMeta: any = null;
+    const logins = loginById({ env, projectRoot });
 
     if (catalogue && catalogue.harnesses) {
       for (const [harnessId, h] of Object.entries(catalogue.harnesses)) {
@@ -213,7 +225,7 @@ async function handleModelsCommand({
           if (!modelMeta) modelMeta = found;
           matchingHarnesses.push({
             harnessId,
-            loginState: h.loginState,
+            loginState: stateOf(logins, harnessId),
             detectedMode: h.detectedMode,
             derivedBilling: h.derivedBilling,
           });

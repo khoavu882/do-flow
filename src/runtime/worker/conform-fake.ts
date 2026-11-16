@@ -6,8 +6,10 @@
 //
 // It writes `{argv, stdinBase64 (at most 1 MiB), env (the keys only)}` as one JSON line to $DOFLOW_CONFORM_LOG,
 // writes the script's `lastMessage` to its `lastMessageFile` when the argv holds that path, prints the script's
-// stdout lines and exits with $DOFLOW_CONFORM_EXIT. It reads no file but its script ($DOFLOW_CONFORM_SCRIPT) and
-// stdin, and makes no network call.
+// stdout lines and exits with $DOFLOW_CONFORM_EXIT. Row 172 (design §8 step 2): a script with `byArgv`
+// (`[{argv, stdout, exit, sleepMs?}]`) picks its stdout and exit by the argv this invocation received, after sleeping
+// `sleepMs` when set; an argv it does not name prints nothing and exits with $DOFLOW_CONFORM_EXIT. It reads no file
+// but its script ($DOFLOW_CONFORM_SCRIPT) and stdin, and makes no network call.
 
 const fs = require('node:fs');
 
@@ -29,6 +31,12 @@ fs.writeFileSync(String(env.DOFLOW_CONFORM_LOG), `${JSON.stringify({
 if (typeof script.lastMessageFile === 'string' && typeof script.lastMessage === 'string' && argv.includes(script.lastMessageFile)) {
   fs.writeFileSync(script.lastMessageFile, script.lastMessage);
 }
-const lines: string[] = Array.isArray(script.stdout) ? script.stdout : [];
-process.stdout.write(lines.map((line) => `${line}\n`).join(''));
-process.exitCode = Number(env.DOFLOW_CONFORM_EXIT);
+const same = (a: unknown) => Array.isArray(a) && a.length === argv.length && a.every((item, i) => item === argv[i]);
+const picked = Array.isArray(script.byArgv) ? script.byArgv.find((entry: any) => same(entry?.argv)) ?? { stdout: [] } : script;
+const lines: string[] = Array.isArray(picked.stdout) ? picked.stdout : [];
+const finish = () => {
+  process.stdout.write(lines.map((line) => `${line}\n`).join(''));
+  process.exitCode = Number.isInteger(picked.exit) ? picked.exit : Number(env.DOFLOW_CONFORM_EXIT);
+};
+if (Number.isInteger(picked.sleepMs) && picked.sleepMs > 0) setTimeout(finish, picked.sleepMs);
+else finish();

@@ -142,8 +142,59 @@ const permissionWords = (harness) => `The session runs with ${harness}’s own p
 function warningWords(id, harness) {
   if (id === 'prompt-in-argv') return `${harness} takes the prompt as a command-line argument, so the text is visible in this machine’s process list while the session runs.`;
   if (id === 'runnable-not-checked') return `DoFlow has not checked that ${harness} can run here.`;
-  if (id === 'login-not-checked') return `DoFlow has not checked that ${harness} is logged in.`;
+  if (id === 'login-expired') return `${harness}’s login has expired.`;
+  if (id === 'login-unknown') return `DoFlow cannot tell whether ${harness} is logged in.`;
   return null;
+}
+
+/** The core's prefix of a reason for a harness whose worker declares no login check (src/runtime/worker/login.ts). */
+const NO_RECIPE = 'no-recipe';
+
+/** `<b>` of design 172 §7.2: "on a subscription" or "with an API key"; nothing for `mixed` or no billing. @param {any} billing */
+function billingWords(billing) {
+  if (!billing || typeof billing !== 'object') return '';
+  return billing.mode === 'subscription' ? ' on a subscription' : billing.mode === 'api-key' ? ' with an API key' : '';
+}
+
+/**
+ * The login of a harness as the start form says it (design 172 §7.2, LD-1): the sentence of the answer, then one `<id>: <state>[, <mode>]` line per
+ * provider. A `logged-out` harness gets none (the core's own words, which are the §7.2 sentence, are its row). `caveat`, the recipe's own warning
+ * about how much its check proves, goes in brackets before the sentence's full stop. `ago` makes the relative time of an ISO time (the page's
+ * clock is not in this module); without one the time is written as it came.
+ * @param {any} login @param {string} harness @param {(iso: string) => string} [ago]
+ * @returns {string[]}
+ */
+function loginLines(login, harness, ago = (iso) => `at ${iso}`) {
+  if (!login || typeof login !== 'object' || login.state === 'logged-out') return [];
+  const note = typeof login.caveat === 'string' && login.caveat !== '' ? ` (${login.caveat})` : '';
+  const when = typeof login.at === 'string' ? ago(login.at) : 'at an unknown time';
+  const reason = typeof login.reason === 'string' ? login.reason : '';
+  /** @type {string} */
+  let sentence;
+  if (login.state === 'logged-in') {
+    sentence = login.source === 'recipe'
+      ? `${harness} is logged in${billingWords(login.billing)}; its own login check said so ${when}${note}.`
+      : `${harness} is logged in${billingWords(login.billing)}; a run succeeded ${when}${note}.`;
+  } else if (login.state === 'expired') {
+    const hint = typeof login.hint === 'string' ? `: run ${login.hint}` : '';
+    const named = `${harness}’s login expired${typeof login.provider === 'string' ? ` for ${login.provider}` : ''}`;
+    sentence = login.source === 'recipe'
+      ? `${named} in its login check ${when}${note}${hint}. DoFlow shows it as expired until its login check says otherwise.`
+      : `${named} on a run ${when}${hint}. DoFlow shows it as expired until a run succeeds${login.expirySeen === true ? ' or its login check says logged in' : ''}.`;
+  } else if (reason === 'never-checked') {
+    sentence = `DoFlow has not checked that ${harness} is logged in; doflow models --action sync checks it.`;
+  } else if (reason === NO_RECIPE || reason.startsWith(`${NO_RECIPE}: `)) {
+    sentence = `DoFlow cannot check ${harness}’s login${reason === NO_RECIPE ? '' : `: ${reason.slice(NO_RECIPE.length + 2)}`}.`;
+  } else if (reason === 'stale' && login.last && typeof login.last === 'object') {
+    const seen = typeof login.last.at === 'string' ? ago(login.last.at) : 'a while ago';
+    sentence = login.last.source === 'last-run'
+      ? `${harness}’s login was last seen on a run ${seen} (${login.last.state}); that is over a day old.`
+      : `${harness}’s login was last checked ${seen} (${login.last.state})${note}; that is over a day old.`;
+  } else {
+    sentence = `${harness}’s login check gave no answer: ${reason || 'unknown'}${note}.`;
+  }
+  const providers = (Array.isArray(login.providers) ? login.providers : []).map((/** @type {any} */ p) => `${p.id}: ${p.state}${typeof p.mode === 'string' ? `, ${p.mode}` : ''}`);
+  return [sentence, ...providers];
 }
 
 // ---- the options to rows ---------------------------------------------------------------------------------------------------------------
@@ -160,10 +211,10 @@ function projectRows(body) {
 
 /**
  * The harnesses of the options: the ones that can start in the core's registry order, then the ones that cannot, each with the core's
- * words and, for a logged-out one, when the login was checked. Nothing is marked preferred or chosen.
- * @param {any} options
+ * words, the words of its login (`loginLines`) and, for a logged-out one, when the login was checked. Nothing is marked preferred or chosen.
+ * @param {any} options @param {(iso: string) => string} [ago] the relative time of an ISO time, from the page's clock
  */
-function harnessRows(options) {
+function harnessRows(options, ago) {
   const list = options && Array.isArray(options.harnesses) ? options.harnesses : [];
   const rows = list.map((/** @type {any} */ item) => ({
     harness: item.harness,
@@ -171,7 +222,8 @@ function harnessRows(options) {
     reason: item.startable === true ? null : (item.reason ?? null),
     words: String(item.words ?? ''),
     version: item.version ?? null,
-    checkedAt: item.login && typeof item.login.checkedAt === 'string' ? item.login.checkedAt : null,
+    checkedAt: item.login && typeof item.login.at === 'string' ? item.login.at : null,
+    loginLines: loginLines(item.login ?? null, item.harness, ago),
     warnings: (Array.isArray(item.warnings) ? item.warnings : []).map((/** @type {string} */ id) => ({ id, words: warningWords(id, item.harness) })).filter((/** @type {any} */ w) => w.words !== null),
     argv: Array.isArray(item.warnings) && item.warnings.includes('prompt-in-argv'),
     // 165 review B-8: true only when the core says so; false and an older core's silence both read as not verified.
@@ -510,7 +562,7 @@ function startedHere(machine) {
 
 export {
   VIEW_ONLY_WORDS, terminalCommand, ENTRY_DO, ENTRY_NONE, NOT_STARTABLE_TITLE, NOT_LIVE_VERIFIED, SOURCE_ORDER, PHASE_WORDS,
-  sha256Hex, agentKeyOf, startedByWords, starterLabel, endedWords, STARTED_HERE_TITLE, STARTED_HERE_EMPTY, endWords, permissionWords, warningWords,
+  sha256Hex, agentKeyOf, startedByWords, starterLabel, endedWords, STARTED_HERE_TITLE, STARTED_HERE_EMPTY, endWords, permissionWords, warningWords, loginLines,
   projectRows, harnessRows, harnessOf, modelGroups, checkoutRows, entryChoices, limitWords, dispatchWords,
   promptState, formFor, readiness, startBody, attemptFor, settleAttempt,
   OUTPUT_LINES, outputTail, optionsErrorWords, nodeIn, startRefusalLines, refusalRereads, initialFlow, flowReduce, flowWords, startedItems, startedHere,

@@ -9,7 +9,7 @@
 // from the Console is a text node; no markup is written and no style is set.
 
 import { h, mount } from '../dom.js';
-import { commandBlock, reltime } from '../states.js';
+import { commandBlock, reltime, ageText } from '../states.js';
 import { createPoller } from '../poll.js';
 import { createLogStream } from '../log-store.js';
 import { actionPower, loadActions, onActions } from '../actions.js';
@@ -175,6 +175,12 @@ const group = (legend, rows) => h('fieldset', { class: 'start__group' }, [h('leg
 /** The words of one harness row's warnings. @param {any} row */
 const warningLines = (row) => row.warnings.map((/** @type {any} */ w) => h('p', { class: 'start__warn', dataset: { warning: w.id } }, w.words));
 
+/** The relative time of an ISO time, from the page's clock (the login words of derive/start.js have none). @param {string} iso */
+const agoOf = (iso) => ageText(Date.now() - Date.parse(iso));
+
+/** The login words of one harness row: the sentence and one line per provider (design 172 §7.2). @param {any} row */
+const loginNotes = (row) => row.loginLines.map((/** @type {string} */ line, /** @type {number} */ i) => h('span', { class: 'start__note', dataset: { fact: i === 0 ? 'login' : 'login-provider' } }, line));
+
 /** @param {any} st */
 function projectField(st) {
   if (st.projects.length <= 1) return st.projects.length === 1 ? h('p', { class: 'start__line' }, ['Project: ', h('span', { class: 'mono' }, st.projects[0].label)]) : null;
@@ -196,7 +202,7 @@ function projectField(st) {
 function formBody(st, options) {
   const form = st.form;
   const ready = readiness(form, options);
-  const { startable, blocked } = harnessRows(options);
+  const { startable, blocked } = harnessRows(options, agoOf);
   const chosen = harnessOf(options, form.harness);
   const set = (/** @type {any} */ patch) => {
     st.form = { ...st.form, ...patch };
@@ -222,6 +228,7 @@ function formBody(st, options) {
         h('span', { class: 'mono' }, row.harness),
         row.version ? h('span', { class: 'tag tag--mono' }, row.version) : null,
         h('span', { class: 'start__note' }, row.words),
+        ...loginNotes(row),
         row.liveLine ? h('span', { class: 'start__note', dataset: { fact: 'live-verified' } }, row.liveLine) : null,
         ...warningLines(row),
       ]),

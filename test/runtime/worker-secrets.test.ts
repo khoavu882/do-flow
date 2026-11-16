@@ -260,6 +260,11 @@ test('credentials stay unread and secrets stay out of every DoFlow file (IC-030)
   const S = stateDir(a.env);
   assert.equal(S, path.join(home, '.config', 'doflow', 'session-env'), 'the session-env store sits under the fixture HOME');
   const sessionsLog = path.join(home, '.config', 'doflow', 'sessions.log');
+  // 172 design 4.5 (D5): the user-level `harness-login` store, declared in core/registry/storage.json, written
+  // through task-state.ts (its lock directory, temp file and rename). Its parent is created for it.
+  const loginStore = path.join(home, '.config', 'doflow', 'state', 'harness-login.json');
+  const loginStoreHit = (hit: any) => hit.from === 'src/runtime/task-state.ts' && (hit.path === path.dirname(loginStore)
+    || hit.path === loginStore || under(hit.path, `${loginStore}.lock`) || /^harness-login\.json\.\d+\.tmp$/.test(path.relative(path.dirname(loginStore), hit.path)));
   fs.mkdirSync(path.dirname(sessionsLog), { recursive: true });
   fs.writeFileSync(sessionsLog, '2026-10-15T00:00:00Z START s-old /nowhere\n');
 
@@ -325,8 +330,9 @@ test('credentials stay unread and secrets stay out of every DoFlow file (IC-030)
     assert.ok(fromWorker.some((hit: any) => allowed(hit.path) && hit.path !== sessionsLog), 'the spy saw the unit-binding lookup (positive control)');
     assert.ok(fromWorker.some((hit: any) => hit.path === sessionsLog), 'the spy saw the sessions.log read (positive control)');
     assert.deepEqual(fromWorker.filter((hit: any) => !allowed(hit.path)), []);
-    // Any other HOME access, from any module, stays inside DoFlow's own session-env store.
-    assert.deepEqual(spy.hits.filter((hit: any) => under(hit.path, home) && !under(hit.path, S) && hit.path !== sessionsLog), []);
+    // Any other HOME access, from any module, stays inside DoFlow's own session-env store and the login store.
+    assert.ok(spy.hits.some(loginStoreHit), 'the spy saw the supervised run\'s login outcome written (positive control)');
+    assert.deepEqual(spy.hits.filter((hit: any) => under(hit.path, home) && !under(hit.path, S) && hit.path !== sessionsLog && !loginStoreHit(hit)), []);
   });
 
   await t.test('the known secret is only ever <masked>, and records hold variable names only', () => {

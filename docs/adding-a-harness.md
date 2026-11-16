@@ -18,13 +18,13 @@ The registry rows for a harness:
 - [`transcripts.json`](https://github.com/khoavu882/do-flow/blob/develop/core/registry/transcripts.json): where the harness keeps its session transcripts.
 - [`telemetry.json`](https://github.com/khoavu882/do-flow/blob/develop/core/registry/telemetry.json): the closed list of harness names that telemetry accepts (`vocabularies.harness`).
 
-Lists of harness ids are not edited by hand. `src/registry/harness-ids.ts` reads the ids and binary names from `harnesses.json` when it loads, and the install targets, lifecycle views and probes use that. Adding a harness edits the registry and one test pin, the list in `test/registry/harness-ids.test.ts` ("the active harnesses are exactly these"). Every other list in source and tests is derived from the registry, and guard G83 fails on a stray one.
+Lists of harness ids are not edited by hand. `src/registry/harness-ids.ts` reads the ids and binary names from `harnesses.json` when it loads, and the install targets and lifecycle views use that. Adding a harness edits the registry and one test pin, the list in `test/registry/harness-ids.test.ts` ("the active harnesses are exactly these"). Every other list in source and tests is derived from the registry, and guard G83 fails on a stray one.
 
 ## Step 1: the descriptor
 
 The descriptor is the `worker` block of the harness row in `harnesses.json`. A package can also contribute one through the `worker` contribution point. Its keys are checked by `validateWorker` in `src/registry/index.ts`.
 
-Required keys: `profile`, `billing`, `modelChecks`, and one capability entry each for `cli`, `oneShot`, `structuredOutput`, `readOnly`, `spawnDenial`, `runnableProbe`, `hooksProbe`, `guidanceProbe`, `loginProbe`, `persistentSession`, `resume` and `steering`. Optional keys: `isolatedEdit`, `model`, `mainSession`, `family`, `modelList` and `wideningFlags`.
+Required keys: `profile`, `billing`, `modelChecks`, and one capability entry each for `cli`, `oneShot`, `structuredOutput`, `readOnly`, `spawnDenial`, `runnableProbe`, `hooksProbe`, `guidanceProbe`, `loginProbe`, `persistentSession`, `resume` and `steering`. Optional keys: `isolatedEdit`, `model`, `mainSession`, `family`, `modelList`, `wideningFlags` and `secretFlags`.
 
 Every capability entry has `status` (`supported`, `unsupported` or `unknown`), `evidence`, `verification` and `verifiedOn`.
 
@@ -36,6 +36,10 @@ Every capability entry has `status` (`supported`, `unsupported` or `unknown`), `
 - A package worker carries `fieldMap` and no `parser`. Its map id must not be the id of a code parser.
 
 Two per-id fact pins in `test/guards/worker-descriptors.test.ts` are still added by hand, with the evidence: `PARSER_BY_HARNESS`, and `MAIN_SESSION_PARSER_BY_HARNESS` when `mainSession` is supported. They are not id lists. Each records, for one harness, which parser the evidence shows. Guard G41.3 asks for a pin for every supported `structuredOutput`.
+
+### The login recipe
+
+`loginProbe` says how DoFlow learns that the harness is logged in. Declare it `supported` only when the harness's own help or published docs, cited in `evidence`, show a status command and what its exit codes mean; otherwise leave it `unknown` with the reason, never a guess. DoFlow runs that argv and nothing else, and never opens a credential file. `secretFlags` adds flags or subcommands that print a credential, which no argv may carry. Both are in [Login state](reference.md#login-state); conform checks the recipe.
 
 ## Step 2: the field map
 
@@ -87,7 +91,6 @@ These modules hold per-harness code that the registry cannot yet express. The ta
 | `parsers/kiro.ts` | kiro | parser | the base object is `data.update` or `data` (coalesce), and spawn is a text prefix match (`/^\s*subagent/i`) |
 | `parsers/opencode.ts` | opencode | parser | usage accumulated with all-or-nothing validity, a `finish-<reason>` reason built and cut, and a conditional error precedence |
 | `parsers/pi.ts` | pi | parser | usage and cost summed over `message_end` events, `messages[-1]` indexing, text blocks joined, the aborted modifier, and a `/subagent/i` match |
-| `probes/index.ts` `PROBES` (7) | all | probe | each probe parses its own CLI's text or JSON output; `loginCheck` moves to the login recipe (row 172) and model lists to row 169 |
 | `transcripts/readers/*.ts` (5) | claude, codex, copilot, kiro, pi | transcript reader | each harness's on-disk session format; no shared grammar yet |
 | `src/adapters/<id>/` (7) | all | install adapter | each writes its tool's config format (TOML, JSON, settings merge) |
 | `hooks/adapters/antigravity.js` | antigravity | hook adapter | translates Antigravity's hook payload |

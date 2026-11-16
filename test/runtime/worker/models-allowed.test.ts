@@ -29,8 +29,6 @@ const catalogueFixture: ObservedCatalogue = {
       binary: 'claude',
       installed: true,
       version: '1.0.0',
-      loginState: 'logged-in',
-      reloginHint: null,
       detectedMode: 'subscription',
       derivedBilling: 'free',
       offeredModels: [

@@ -1620,6 +1620,26 @@
       }
     },
     {
+      "id": "harness-login",
+      "root": "config-home",
+      "path": "state/harness-login.json",
+      "entry": "file",
+      "match": "^harness-login\\.json$",
+      "rule": "existing",
+      "bound": {
+        "text": "one file, at most 64 harness entries, overwritten"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/task-state.ts"
+      ],
+      "source": {
+        "file": "src/runtime/worker/login-store.ts",
+        "pattern": "harness-login.json"
+      }
+    },
+    {
       "id": "console-device-store",
       "root": "config-home",
       "path": "console",

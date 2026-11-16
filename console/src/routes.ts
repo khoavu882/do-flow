@@ -744,6 +744,21 @@ const startOptionsRoute = (runner: Runner): Route['handler'] => async (ctx) => {
 };
 
 /**
+ * 172 IC-005 `GET /api/harness-login`: each worker harness's login answer (`worker --action login-state`), at most 32, one KiB each.
+ * An older core without the action answers its JSON `usage` id: 501 core-lacks-verb.
+ */
+const harnessLoginRoute = (runner: Runner): Route['handler'] => async (ctx) => {
+  if (queryOf(ctx.req, []) === null) return errorReply(400, 'usage');
+  const result = await runner.run('login-state', {});
+  if (!result.ok) {
+    if (result.code === 'core-error' && result.exit === 2 && result.errorId === 'usage') return errorReply(501, 'core-lacks-verb', 'login-state', null);
+    return failureReply('login-state', result);
+  }
+  const projected = project('login-state', result.json);
+  return projected.ok ? jsonReply(200, { v: 1, ...projected.body }) : errorReply(502, 'core-contract-mismatch', 'login-state', 0);
+};
+
+/**
  * The Console's table (IC-005) over `runner`: every /api route but the exchange is behind the session
  * check (buildRoutes), every one is GET but the action routes of `actions` (actions.ts, 162 IC-002: one
  * `POST /api/actions/<id>` per ACTIONS row, and `GET /api/actions`; without `actions` they are made over no log,
@@ -781,6 +796,7 @@ function consoleRoutes(runner: Runner, access: any = processSessions, live: Live
     { method: 'GET', path: '/api/live', stream: true, handler: liveRoute(live, streamCap) },
     { method: 'GET', path: '/api/start', handler: startProjectsRoute(runner) },
     { method: 'GET', path: '/api/start/options', handler: startOptionsRoute(runner) },
+    { method: 'GET', path: '/api/harness-login', handler: harnessLoginRoute(runner) },
     ...actionRoutes,
     staticFallback,
   ]);

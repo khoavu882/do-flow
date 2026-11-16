@@ -41,10 +41,10 @@ const CEILINGS: readonly (readonly [string, number, number])[] = [
   ['discover --json', 0, 2240], // 2,109 B
   ['paths --json', 0, 896], // 841 B
   ['config --json', 0, 49536], // 48,988 B (141: five keys grew it: advice.kinds.rerank, advice.kinds.claim-support, advice.models.rerank, advice.models.claim-support, advice.criteria.rerank; 143: team.enforcement)
-  ['doctor --json', 0, 27712], // 26,665 B (1,024 B margin, design R7; measured at commit 76069f3f)
+  ['doctor --json', 0, 30592], // 29,549 B (1,024 B margin, design R7; 172 T6: a login answer per harness, IC-003; was 26,665 B)
   ['storage --json', 0, 14592], // 14,056 B
   ['indicators --json', 0, 704], // 619 B
-  ['package --action list --json', 0, 1920], // 1,827 B (171 T7: three reserved points model-list-parser, control-channel, login-recipe)
+  ['package --action list --json', 0, 1920], // 1,636 B (172 T2: two reserved points model-list-parser, control-channel; login-recipe removed, was 1,827 B)
   ['failure --action list --json', 0, 256], // 231 B
   ['git-state --json', 0, 320], // 276 B
   ['inventory --json', 0, 1088], // 1,002 B
@@ -55,7 +55,7 @@ const CEILINGS: readonly (readonly [string, number, number])[] = [
   ['protocol --action list --json', 0, 2688], // 2,522 B
   ['primary --action resolve --json', 0, 192], // 142 B
   ['advice-picks --json', 0, 7040], // 6,692 B (151 IC-001: 91 days, no picks on the fixture)
-  ['worker-matrix --json', 0, 79296], // 78,758 B (165 T1: the mainSession descriptors; measured at commit 773de107)
+  ['worker-matrix --json', 0, 80832], // 80,273 B (172 T6: the seven shipped loginProbe entries, two of them recipes; was 78,758 B)
 ];
 
 const WRITES_STATE = 'writes-state';

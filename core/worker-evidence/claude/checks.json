@@ -60,6 +60,21 @@
         "^\\s+--settings <file-or-json>\\s"
       ],
       "establishes": ["mainSession"]
+    },
+    {
+      "id": "secret-commands",
+      "argv": ["--help"],
+      "expect": ["^\\s+setup-token\\s+Set up a long-lived authentication token"],
+      "establishes": ["mainSession"]
+    },
+    {
+      "id": "login-recipe",
+      "argv": ["auth", "status", "--help"],
+      "expect": [
+        "^Usage: claude auth status \\[options\\]",
+        "^\\s+--json\\s+Output as JSON \\(default\\)"
+      ],
+      "establishes": ["loginProbe"]
     }
   ]
 }

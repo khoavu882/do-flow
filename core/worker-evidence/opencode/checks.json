@@ -51,6 +51,15 @@
         "^\\s+--auto\\s+Auto-approve permissions"
       ],
       "establishes": ["mainSession"]
+    },
+    {
+      "id": "secret-commands",
+      "argv": ["auth", "--help"],
+      "expect": [
+        "^\\s+opencode auth <subcommand>",
+        "^\\s+export\\s+print stored credentials, including secrets, as JSON"
+      ],
+      "establishes": ["mainSession"]
     }
   ]
 }

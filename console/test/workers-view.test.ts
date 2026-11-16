@@ -138,12 +138,18 @@ const settings = { keys: [
   { key: 'workers.billing', views: [{ value: {}, origin: { layer: 'default' } }] },
 ] };
 function setup(matrix: any = MATRIX) {
-  const requests: string[] = []; let resolve: any;
+  const requests: string[] = []; const pending = new Map<string, { resolve: (body: any) => void, reject: (error: any) => void }>();
   const inspector: any = { current: null, open(spec: any) { this.current = spec; }, close() { this.current = null; } };
-  const local: any = { route: { id: 'workers', params: {} }, inspector, link: (patch: any) => { local.route.cell = patch?.cell; }, apiGet: (p: string) => { requests.push(p); return new Promise((r) => { resolve = r; }); } };
+  const local: any = { route: { id: 'workers', params: {} }, inspector, link: (patch: any) => { local.route.cell = patch?.cell; }, apiGet: (p: string) => { requests.push(p); return new Promise((resolve, reject) => { pending.set(p, { resolve, reject }); }); } };
   const body = { sections: { matrix: matrix === null ? { ok: false, code: 'core-lacks-verb' } : { ok: true, data: matrix, at: AT }, settings: { ok: true, data: settings, at: AT } } };
   const render = () => view.renderWorkers(body, {}, local);
-  return { requests, local, inspector, render, answer: (doctor: any) => resolve({ doctor, at: AT, refresh: 'ran' }) };
+  return {
+    requests, local, inspector, render,
+    answerDoctorRefresh: () => pending.get('/api/doctor?refresh=1')!.resolve({ doctor: { workers: { rows: [] }, workerPool: { harnesses: [] } }, at: AT, refresh: 'ran' }),
+    answer: (doctor: any) => pending.get('/api/doctor')!.resolve({ doctor, at: AT, refresh: 'ran' }),
+    answerLogin: (harnesses: any[]) => pending.get('/api/harness-login')!.resolve({ v: 1, harnesses }),
+    failLogin: () => pending.get('/api/harness-login')!.reject({ status: 502, code: 'core-contract-mismatch', network: false }),
+  };
 }
 const gridcells = (root: any) => root.querySelectorAll('td').filter((el: El) => el.getAttribute('role') === 'gridcell');
 
@@ -164,7 +170,7 @@ test('matrix renders every harness and cell with readable states and a roving ke
   last.key('Home'); const back = (globalThis as any).__focused; assert.equal(back.getAttribute('data-col'), '0');
   back.key('ArrowDown'); const below = (globalThis as any).__focused; assert.equal(below.getAttribute('data-row'), '1');
   below.key('Enter'); assert.equal(below.getAttribute('aria-selected'), 'true'); assert.ok(ctx.local.route.cell);
-  assert.ok(ctx.inspector.current); assert.deepEqual(ctx.requests, ['/api/doctor']);
+  assert.ok(ctx.inspector.current); assert.deepEqual(ctx.requests, ['/api/doctor', '/api/harness-login']);
 });
 
 test('inspector keeps evidence text inert and concept waits for doctor with no repeated reads', async () => {
@@ -176,9 +182,9 @@ test('inspector keeps evidence text inert and concept waits for doctor with no r
   assert.equal(ctx.inspector.current.body.querySelectorAll('a').length, 0);
   assert.ok(ctx.inspector.current.body.textContent.includes('Some text of this cell was cut by DoFlow.'));
   assert.ok(root.textContent.includes('model-one') && root.textContent.includes('primary') && root.textContent.includes('project'));
-  ctx.answer({ workers: { rows: [{ harness: 'codex', eligible: false, firstGap: { requirement: 'installed', result: 'fail', reason: 'missing' } }] }, workerPool: { harnesses: [{ harness: 'codex', installed: false, loginState: 'unknown' }] } }); await flush();
+  ctx.answer({ workers: { rows: [{ harness: 'codex', eligible: false, firstGap: { requirement: 'installed', result: 'fail', reason: 'missing' } }] }, workerPool: { harnesses: [{ harness: 'codex', installed: false }] } }); await flush();
   assert.ok(root.textContent.includes('installed: fail: missing'));
-  ctx.render(); assert.deepEqual(ctx.requests, ['/api/doctor']);
+  ctx.render(); assert.deepEqual(ctx.requests, ['/api/doctor', '/api/harness-login']);
   const item = matrix.harnesses[0].cells.worker[name]; item.evidence = [];
   const other = setup(matrix); other.local.route.cell = { harness: first.id, group: 'worker', cell: name }; other.render();
   assert.ok(other.inspector.current.body.textContent.includes('No evidence recorded'));
@@ -190,4 +196,57 @@ test('missing matrix keeps settings and doctor panel usable', () => {
   assert.ok(root.textContent.includes('Worker settings')); assert.ok(root.textContent.includes('model-one'));
   assert.equal(root.querySelectorAll('table.matrix').length, 0);
   assert.equal(view.workersTitle({}, null), 'Workers');
+});
+
+const answerOf = (over: any) => ({ harness: 'codex', state: 'unknown', reason: 'never-checked', source: 'never-checked', at: null, billing: null, providers: [], provider: null, hint: null, expirySeen: false, last: null, caveat: null, ...over });
+/** The Login cell of a worker row, by the worker's name in the first cell. */
+const loginCellOf = (root: any, id: string) => root.querySelector('table.mtable').querySelectorAll('tr').find((tr: El) => tr.children[0]?.textContent === id)?.children[4].textContent;
+
+test('172: the Login column reads GET /api/harness-login once, apart from doctor, and says the state and where it came from', async () => {
+  const ctx = setup(); const root = ctx.render();
+  assert.equal(loginCellOf(root, 'codex'), 'not checked yet', 'before the read answers');
+  ctx.answerLogin([
+    answerOf({ harness: 'codex', state: 'logged-in', reason: null, source: 'recipe', at: AT }),
+    answerOf({ harness: 'claude', state: 'logged-in', reason: null, source: 'last-run', at: AT }),
+    answerOf({ harness: 'pi', state: 'expired', reason: null, source: 'last-run', at: AT, provider: 'openai-codex' }),
+    answerOf({ harness: 'copilot', state: 'logged-out', reason: 'logged-out', source: 'recipe', at: AT }),
+    answerOf({ harness: 'kiro' }),
+    answerOf({ harness: 'opencode', reason: 'no-recipe: its help documents no exit code' }),
+    answerOf({ harness: 'antigravity', reason: 'stale', last: { state: 'logged-in', source: 'recipe', at: AT } }),
+  ]);
+  await flush();
+  assert.deepEqual(['codex', 'claude', 'pi', 'copilot', 'kiro', 'opencode', 'antigravity'].map((id) => loginCellOf(root, id)),
+    ['logged-in (login check)', 'logged-in (run)', 'expired (run)', 'logged-out (login check)', 'unknown (never checked)', 'unknown (no login check)', 'unknown (stale)']);
+  ctx.render();
+  assert.deepEqual(ctx.requests.filter((r: string) => r === '/api/harness-login'), ['/api/harness-login'], 'a repaint reads nothing again');
+  ctx.answer({ workers: { rows: [] }, workerPool: { harnesses: [] } }); await flush();
+  assert.equal(loginCellOf(root, 'codex'), 'logged-in (login check)', 'doctor answering later does not change the login cell');
+});
+
+test('172: a failed login read says unknown in the Login column and leaves the other columns alone; a harness the answer lacks is unknown', async () => {
+  const ctx = setup(); const root = ctx.render();
+  ctx.failLogin(); await flush();
+  assert.equal(loginCellOf(root, 'codex'), 'unknown (could not read)', 'a failed read is not a real unknown');
+  const other = setup(); const second = other.render();
+  other.answerLogin([answerOf({ harness: 'pi', state: 'logged-in', reason: null, source: 'recipe', at: AT })]); await flush();
+  assert.equal(loginCellOf(second, 'codex'), 'unknown');
+});
+
+test('172: each doctor refresh reads the login answer again; a failed re-read says could not read, a later good one answers', async () => {
+  const ctx = setup(); const root = ctx.render();
+  ctx.answerLogin([answerOf({ harness: 'codex', state: 'logged-in', reason: null, source: 'recipe', at: AT })]); await flush();
+  ctx.answer({ workers: { rows: [] }, workerPool: { harnesses: [] } }); await flush();
+  assert.equal(loginCellOf(root, 'codex'), 'logged-in (login check)');
+  const reads = () => ctx.requests.filter((r: string) => r === '/api/harness-login').length;
+  assert.equal(reads(), 1);
+  void ctx.local.workersMemory.controller.refresh(); await flush();
+  assert.equal(reads(), 2, 'the refresh read the login answer again');
+  assert.ok(ctx.requests.includes('/api/doctor?refresh=1'));
+  ctx.failLogin(); await flush();
+  assert.equal(loginCellOf(root, 'codex'), 'unknown (could not read)', 'the old answer is not shown as if it were current');
+  ctx.answerDoctorRefresh(); await flush();
+  void ctx.local.workersMemory.controller.refresh(); await flush();
+  assert.equal(reads(), 3);
+  ctx.answerLogin([answerOf({ harness: 'codex', state: 'logged-out', reason: 'logged-out', source: 'recipe', at: AT })]); await flush();
+  assert.equal(loginCellOf(root, 'codex'), 'logged-out (login check)');
 });

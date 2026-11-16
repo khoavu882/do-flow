@@ -23,8 +23,6 @@ const catalogueOf = (harnessId: string, detectedMode: 'subscription' | 'api-key'
       binary: harnessId,
       installed: true,
       version: '1.0.0',
-      loginState: 'logged-in',
-      reloginHint: null,
       detectedMode,
       derivedBilling,
       offeredModels: [],

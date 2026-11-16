@@ -71,6 +71,26 @@
         "^\\s+--no-approve, -na\\s+Ignore project-local files for this run"
       ],
       "establishes": ["mainSession"]
+    },
+    {
+      "id": "secret-commands",
+      "argv": ["auth", "--help"],
+      "expect": [
+        "^\\s+pi auth print-api-key\\b",
+        "^\\s+pi auth print-bearer-token\\b",
+        "^\\s+--credentials\\s+Emit the credential"
+      ],
+      "establishes": ["mainSession"]
+    },
+    {
+      "id": "login-recipe",
+      "argv": ["auth", "--help"],
+      "expect": [
+        "^\\s+pi auth check \\[--provider <provider>\\] \\[--model <model>\\] \\[--json\\]",
+        "^\\s+check\\s+Print ready, not_ready, or invalid; exit with 0, 1, or 2",
+        "^\\s+--no-refresh\\s+Do not refresh expired OAuth credentials during check"
+      ],
+      "establishes": ["loginProbe"]
     }
   ]
 }

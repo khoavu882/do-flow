@@ -1,0 +1,102 @@
+{
+  "harnesses": [
+    {
+      "harness": "claude",
+      "state": "unknown",
+      "reason": "never-checked",
+      "source": "never-checked",
+      "at": null,
+      "billing": null,
+      "providers": [],
+      "provider": null,
+      "hint": "claude auth login",
+      "expirySeen": false,
+      "last": null,
+      "caveat": null
+    },
+    {
+      "harness": "codex",
+      "state": "unknown",
+      "reason": "no-recipe: `codex login status --help` (0.164.0) documents no exit code and no JSON output, so its answer could only be guessed",
+      "source": "never-checked",
+      "at": null,
+      "billing": null,
+      "providers": [],
+      "provider": null,
+      "hint": "codex login",
+      "expirySeen": false,
+      "last": null,
+      "caveat": null
+    },
+    {
+      "harness": "opencode",
+      "state": "unknown",
+      "reason": "no-recipe: `opencode auth list --help` (2.2.7) documents no exit code and does not name the fields a login would be read from",
+      "source": "never-checked",
+      "at": null,
+      "billing": null,
+      "providers": [],
+      "provider": null,
+      "hint": "opencode auth login",
+      "expirySeen": false,
+      "last": null,
+      "caveat": null
+    },
+    {
+      "harness": "pi",
+      "state": "unknown",
+      "reason": "never-checked",
+      "source": "never-checked",
+      "at": null,
+      "billing": null,
+      "providers": [],
+      "provider": null,
+      "hint": "pi auth login <provider>",
+      "expirySeen": false,
+      "last": null,
+      "caveat": null
+    },
+    {
+      "harness": "copilot",
+      "state": "unknown",
+      "reason": "no-recipe: `copilot --help` and `copilot login --help` (1.0.105) list `login` and no status or check command",
+      "source": "never-checked",
+      "at": null,
+      "billing": null,
+      "providers": [],
+      "provider": null,
+      "hint": "copilot login",
+      "expirySeen": false,
+      "last": null,
+      "caveat": null
+    },
+    {
+      "harness": "kiro",
+      "state": "unknown",
+      "reason": "no-recipe: kiro-cli is never run by DoFlow agents, and no recorded help names a login status command for it",
+      "source": "never-checked",
+      "at": null,
+      "billing": null,
+      "providers": [],
+      "provider": null,
+      "hint": "kiro-cli login",
+      "expirySeen": false,
+      "last": null,
+      "caveat": null
+    },
+    {
+      "harness": "antigravity",
+      "state": "unknown",
+      "reason": "no-recipe: `agy --help` (agy 1.5.9) lists no auth, login or status command",
+      "source": "never-checked",
+      "at": null,
+      "billing": null,
+      "providers": [],
+      "provider": null,
+      "hint": null,
+      "expirySeen": false,
+      "last": null,
+      "caveat": null
+    }
+  ]
+}

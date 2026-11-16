@@ -1535,7 +1535,6 @@ function doctor(value: unknown, context?: Context) {
     return {
       harness: harness(h.harness),
       installed: bool(h.installed),
-      loginState: id(h.loginState),
       detectedMode: id(h.detectedMode),
       effectiveBilling: { value: id(billing.value), source: id(billing.source), asserted: optional(date)(billing.asserted) },
     };
@@ -1791,6 +1790,48 @@ const sLabel = (value: unknown): string => (typeof value !== 'string' ? fail()
 const sWords = (value: unknown): string => (typeof value !== 'string' ? fail() : START_WORDS.test(value) && !START_PATH.test(value) ? value : WITHHELD);
 const sOneOf = (set: readonly string[]) => (value: unknown): string => (typeof value === 'string' && set.includes(value) ? value : fail());
 
+// ---- 172 IC-001, IC-005: the login answer of a worker harness (`LoginAnswer`, src/runtime/worker/login.ts) ----
+
+const LOGIN_STATES: readonly string[] = Object.freeze(['logged-in', 'logged-out', 'expired', 'unknown']);
+const LOGIN_SOURCES: readonly string[] = Object.freeze(['recipe', 'last-run', 'never-checked']);
+const LOGIN_LAST_SOURCES: readonly string[] = Object.freeze(['recipe', 'last-run']);
+const LOGIN_MODES: readonly string[] = Object.freeze(['subscription', 'api-key']);
+const LOGIN_BILLINGS: readonly string[] = Object.freeze(['free', 'metered', 'unknown']);
+/** The core's provider id (login.ts PROVIDER_ID): one token of at most 64 characters. */
+const LOGIN_PROVIDER = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const LOGIN_BOUNDS = Object.freeze({ providers: 8, harnesses: 32 });
+
+/**
+ * IC-001, closed: one harness's login answer with every field checked and nothing else. A reason, hint or caveat that looks like a path
+ * is withheld (`sWords`); a state, source or mode outside its set or a ninth provider is a Mismatch; any other key is dropped.
+ */
+function loginAnswer(value: unknown) {
+  const l = sRecord(value);
+  const billing = sNull((v) => {
+    if (v === 'mixed') return 'mixed';
+    const b = sRecord(v);
+    return { mode: sOneOf(LOGIN_MODES)(b.mode), billing: sOneOf(LOGIN_BILLINGS)(b.billing) };
+  })(l.billing);
+  const provider = (item: unknown) => {
+    const p = sRecord(item);
+    return { id: sMatch(LOGIN_PROVIDER)(p.id), state: sOneOf(LOGIN_STATES)(p.state), mode: sNull(sOneOf(LOGIN_MODES))(p.mode), reason: sNull(sWords)(p.reason) };
+  };
+  const last = sNull((v) => {
+    const x = sRecord(v);
+    return { state: sOneOf(LOGIN_STATES)(x.state), source: sOneOf(LOGIN_LAST_SOURCES)(x.source), at: sMatch(ISO)(x.at) };
+  })(l.last);
+  return {
+    harness: sMatch(START_HARNESS)(l.harness), state: sOneOf(LOGIN_STATES)(l.state), reason: sNull(sWords)(l.reason), source: sOneOf(LOGIN_SOURCES)(l.source),
+    at: sNull(sMatch(ISO))(l.at), billing, providers: sList(l.providers, LOGIN_BOUNDS.providers).map(provider),
+    provider: sNull(sMatch(LOGIN_PROVIDER))(l.provider), hint: sNull(sWords)(l.hint), expirySeen: sBool(l.expirySeen), last, caveat: sNull(sWords)(l.caveat),
+  };
+}
+
+/** IC-005 `login-state`: `{ harnesses: LoginAnswer[] }`, at most 32, in the core's order. */
+function loginState(value: unknown) {
+  return { harnesses: sList(sRecord(value).harnesses, LOGIN_BOUNDS.harnesses).map(loginAnswer) };
+}
+
 /**
  * IC-002, closed: the core's start options with every field checked and nothing else; `project.root` must be null (the core never
  * sends it) and `project.projectKey` the one asked for. Labels and words that look like a path are withheld. A field that fails its check is a Mismatch (`core-contract-mismatch`); `context.projectKey` is the key asked for.
@@ -1812,10 +1853,7 @@ function startOptions(value: unknown, context?: Context) {
   };
   const harness = (item: unknown) => {
     const h = sRecord(item);
-    const login = sNull((v) => {
-      const l = sRecord(v);
-      return { state: sNull(sMatch(ID))(l.state), checkedAt: sNull(sMatch(ISO))(l.checkedAt) };
-    })(h.login);
+    const login = sNull(loginAnswer)(h.login);
     const model = (m: unknown) => {
       const e = sRecord(m);
       return { id: sNull(sMatch(START_MODEL))(e.id), source: sOneOf(START_SOURCES)(e.source) };
@@ -1855,7 +1893,7 @@ const PROJECTORS: Readonly<Record<string, (value: unknown, context?: any) => unk
   'worker-runs': workerRuns, 'worker-result': workerResult, 'worker-run-status': workerStatus, 'worker-log': workerLog,
   'config-list': configList, 'config-schema': configSchema, 'advise-report': adviseReport, 'advice-picks': advicePicks,
   followups, 'followup-record': followupRecord, 'lifecycle-overview': lifecycleOverview, doctor, 'storage-report': storageReport, 'worker-matrix': workerMatrix,
-  'sessions-history': projectSessionsHistory, 'start-options': startOptions,
+  'sessions-history': projectSessionsHistory, 'start-options': startOptions, 'login-state': loginState,
 });
 const PROJECTOR_IDS: readonly string[] = Object.freeze(Object.keys(PROJECTORS));
 

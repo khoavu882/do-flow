@@ -262,7 +262,7 @@ test('readiness facts kept apart: installed and runnable yes, quota and login un
   assert.equal(p.kinds().includes('run'), false);
   // FR-003 / IC-005: task-eligible is the third fact, against the baseline and --need.
   const eligible = Object.fromEntries(body.harnesses.map((entry: any) => [entry.harness, entry.taskEligible]));
-  assert.deepEqual(eligible.claude, { eligible: false, gaps: [{ requirement: 'login', result: 'unknown', reason: 'no-free-probe-declared' }] },
+  assert.deepEqual(eligible.claude, { eligible: false, gaps: [{ requirement: 'login', result: 'unknown', reason: 'no-recipe: this fake prints nothing about login' }] },
     'the baseline is met; the --need the fake cannot meet is the one gap');
   assert.equal(eligible.codex.eligible, false);
   assert.deepEqual(eligible.codex.gaps.map((gap: any) => gap.requirement), ['runnable', 'login']);
