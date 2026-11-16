@@ -191,6 +191,22 @@ test('storage upkeep stays silent and exits 0 when the registry is unavailable (
   } finally { scratch.remove(); }
 });
 
+test('storage prune with unresolvable settings says so and names no prune file', () => {
+  const scratch = createScratch('doflow-storage-cli-');
+  const project = path.join(scratch.dir, 'project'); fs.mkdirSync(project);
+  const lines: any = [];
+  const originalLog = console.log, originalExitCode = process.exitCode;
+  // A fault in the settings registry fails every root closed, with no layer to name.
+  const fsImpl = { ...fs, readFileSync: (file: any, ...rest: any) => {
+    if (String(file).endsWith(path.join('registry', 'settings.json'))) throw new Error('settings registry unreadable');
+    return (fs as any).readFileSync(file, ...rest);
+  } };
+  console.log = (line: any) => lines.push(line);
+  try { handleStorageCommand({ action: 'prune', projectRoot: project, env: scratch.env(), fsImpl }); }
+  finally { console.log = originalLog; process.exitCode = originalExitCode; scratch.remove(); }
+  assert.deepEqual(lines, ['storage: pruning is off (settings could not be resolved); nothing removed']);
+});
+
 test('storage prune honors off and upkeep is silent', () => {
   const scratch = createScratch('doflow-storage-cli-');
   try {
@@ -198,6 +214,7 @@ test('storage prune honors off and upkeep is silent', () => {
     const off = run(['--action', 'prune'], project, scratch.env());
     assert.equal(off.status, 0, off.stderr);
     assert.match(off.stdout, /storage: pruning is off .*; nothing removed/);
+    assert.doesNotMatch(off.stdout, /\/prune\)/);
     const upkeep = run(['--action', 'upkeep', '--json'], project, scratch.env());
     assert.equal(upkeep.status, 0, upkeep.stderr);
     assert.equal(upkeep.stdout, '');

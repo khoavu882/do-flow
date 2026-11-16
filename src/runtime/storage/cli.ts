@@ -36,7 +36,7 @@ function handleStorageCommand({ action = 'report', json = false, global = false,
   const removed = result.stores.reduce((sum: any, row: any) => sum + row.removed, 0);
   const entries = `entr${removed === 1 ? 'y' : 'ies'}`;
   if (action === 'prune' && Object.values(setting).every(value => value.setting === 'off')) {
-    const decision = projectSetting.decidedBy || userSetting.decidedBy || path.join(roots['config-home'], registry.settings.optOutFile);
+    const decision = projectSetting.decidedBy || userSetting.decidedBy || 'settings could not be resolved';
     // IC-013: an explicitly set DOFLOW_RETENTION_HOURS still removes settled lifecycle events.
     console.log(removed === 0 ? `storage: pruning is off (${decision}); nothing removed`
       : `storage: pruning is off (${decision}); DOFLOW_RETENTION_HOURS still applied to lifecycle events: removed ${removed} ${entries}`);

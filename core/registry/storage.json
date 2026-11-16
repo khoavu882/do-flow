@@ -2,7 +2,6 @@
   "version": 1,
   "description": "Declared DoFlow storage retention catalogue.",
   "settings": {
-    "optOutFile": "prune",
     "upkeepIntervalHours": 24,
     "passBudgetMs": 750,
     "maxRemovalsPerPass": 5000,
