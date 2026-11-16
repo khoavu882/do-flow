@@ -636,9 +636,9 @@ test('172: a body of 32 harnesses with every field at its limit is at most 40 Ki
   assert.equal(JSON.parse(reply.body).harnesses.length, 32);
 
   const pathy = full(0);
-  Object.assign(pathy, { reason: 'failed at /Users/x/.config/h', hint: 'run ~/bin/h login', caveat: 'see C:\\tools\\h' });
+  Object.assign(pathy, { reason: 'failed at /opt/x/.config/h', hint: 'run ~/bin/h login', caveat: 'see C:\\tools\\h' });
   const withheld = await harness(scripted({ 'login-state': () => ok({ harnesses: [pathy] }) }), t);
   const body = (await withheld.json('/api/harness-login')).body.harnesses[0];
   assert.deepEqual([body.reason, body.hint, body.caveat], ['(withheld)', '(withheld)', '(withheld)']);
-  assert.ok(!JSON.stringify(body).includes('/Users/x'));
+  assert.ok(!JSON.stringify(body).includes('/opt/x'));
 });

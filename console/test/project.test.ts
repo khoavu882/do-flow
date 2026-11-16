@@ -2568,14 +2568,14 @@ test('172 login-state: a state, source, mode or billing outside its set, a ninth
 
 test('172 login-state: a reason, hint, caveat or provider reason holding a path is withheld, and a word that cannot be shown is withheld too', () => {
   const body = clone(LOGIN_BODY) as any;
-  body.harnesses[0].hint = 'run /Users/x/bin/claude login';
+  body.harnesses[0].hint = 'run /opt/x/bin/claude login';
   body.harnesses[0].caveat = 'see ~/notes/claude.md';
   body.harnesses[2].reason = 'C:\\Users\\x\\store';
   body.harnesses[1].providers[1].reason = 'read /etc/secret';
   body.harnesses[3].reason = 'bad\u202Ebidi';
   const out = project('login-state', body).body.harnesses;
   assert.deepEqual([out[0].hint, out[0].caveat, out[2].reason, out[1].providers[1].reason, out[3].reason], [WITHHELD, WITHHELD, WITHHELD, WITHHELD, WITHHELD]);
-  assert.ok(!JSON.stringify(out).includes('/Users/x') && !JSON.stringify(out).includes('/etc/secret'));
+  assert.ok(!JSON.stringify(out).includes('/opt/x') && !JSON.stringify(out).includes('/etc/secret'));
   // A relative word with a slash inside it (not a path token) stays.
   const kept = clone(LOGIN_BODY) as any;
   kept.harnesses[0].caveat = 'input/output mode, not offline';
