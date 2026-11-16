@@ -69,6 +69,7 @@ test('the refusal says when the list it checked against is the last one, kept st
 
 test('the sync line says how many ids were left out and when the list was cut', async (t: any) => {
   const s = setup(t);
+  fs.writeFileSync(path.join(s.bin, 'opencode'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
   const execFileImpl = (_bin: string, args: string[], _opts: any, cb: any) => (args[0] === 'models'
     ? cb(null, `--foo\n${Array.from({ length: 600 }, (_, i) => `p/m${i}`).join('\n')}\n`, '') : cb(null, '1.0.0', ''));
   const res = await run({ action: 'sync', harness: 'opencode', projectRoot: s.project, env: s.env, syncOptions: { execFileImpl, homeDir: s.root } });
@@ -92,6 +93,8 @@ test('list --json gives unresolved:<reason> for the tier fields when workers.mod
 
 test('two syncs of different harnesses in one project both keep their entry, and no lock is left behind', async (t: any) => {
   const s = setup(t);
+  fs.writeFileSync(path.join(s.bin, 'opencode'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  fs.writeFileSync(path.join(s.bin, 'pi'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
   const later = (answer: string, ms: number) => (_bin: string, args: string[], _opts: any, cb: any) => {
     setTimeout(() => (args[0] === 'models' || args[0] === '--list-models' ? cb(null, answer, '') : cb(null, '1.0.0', '')), ms);
   };
@@ -209,6 +212,7 @@ test('without --model and without a terminal bind exits 2 with the usage line', 
 
 test('on a terminal bind syncs the harness, prints a numbered list and binds the chosen id', async (t: any) => {
   const s = setup(t);
+  fs.writeFileSync(path.join(s.bin, 'opencode'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
   const asked: string[] = [];
   const execFileImpl = (_bin: string, args: string[], _o: any, cb: any) => (args[0] === 'models' ? cb(null, 'a/one\nb/two\nc/three\n', '') : cb(null, '1.0.0', ''));
   const res = await bind(s, {

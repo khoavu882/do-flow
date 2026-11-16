@@ -242,10 +242,10 @@ type SyncOptions = {
 };
 
 /** Fills `offeredModels` from the harness's own listing command. A failed listing keeps the previous list, marked stale. */
-async function withListing(result: SyncHarnessResult, options: SyncOptions): Promise<SyncHarnessResult> {
+async function withListing(result: SyncHarnessResult, options: SyncOptions, run: { binaryPath: string | null; env: any; cwd: string }): Promise<SyncHarnessResult> {
   const { listHarnessModels } = require('./list-models.ts');
   const execImpl = options.listExecImpl ?? (options.execFileImpl ? listExecFrom(options.execFileImpl) : undefined);
-  const listing = await listHarnessModels({ descriptor: workerDescriptor(result.harnessId, options), execImpl });
+  const listing = await listHarnessModels({ descriptor: workerDescriptor(result.harnessId, options), execImpl, ...run });
   if (listing.status === 'listed') return { ...result, offeredModels: listing.models, modelList: { status: 'listed', ...(listing.dropped ? { dropped: listing.dropped } : {}), ...(listing.capped ? { capped: true } : {}), ...(listing.columns ? { columns: listing.columns } : {}), ...(listing.columnFaults ? { columnFaults: listing.columnFaults } : {}) } };
   if (listing.status === 'none-recorded') return { ...result, offeredModels: [], modelList: { status: 'none-recorded', reason: listing.reason } };
   // A list from before this field existed came from the removed hard-coded table, so it is not kept.
@@ -311,7 +311,7 @@ async function syncHarness(
     ...billingOf(answer),
     offeredModels: [],
     lastSyncedAt: new Date().toISOString(),
-  }, options);
+  }, options, { binaryPath: found, env, cwd });
 }
 
 async function syncAllHarnesses(

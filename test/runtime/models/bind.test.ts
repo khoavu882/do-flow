@@ -47,7 +47,7 @@ function setup(t: any) {
   const raw = () => (fs.existsSync(settingsFile) ? fs.readFileSync(settingsFile, 'utf8') : null);
   const seed = async (harnesses: any) => writeCatalogue({ version: 1, syncedAt: NOW, harnesses }, project);
   const seedPi = async () => {
-    const listing = await listHarnessModels({ descriptor: registry.harnesses.find((h: any) => h.id === 'pi').worker, execImpl: async () => PI_LIST });
+    const listing = await listHarnessModels({ descriptor: registry.harnesses.find((h: any) => h.id === 'pi').worker, binaryPath: path.join(bin, 'pi'), execImpl: async () => PI_LIST });
     assert.equal(listing.status, 'listed');
     await seed({
       pi: { harnessId: 'pi', binary: 'pi', installed: true, version: '1', detectedMode: 'subscription', derivedBilling: 'free', offeredModels: listing.models, lastSyncedAt: NOW, modelList: { status: 'listed', columns: listing.columns } },

@@ -12,6 +12,15 @@ const { syncHarness, syncAllHarnesses, readCatalogue } = require('../../../src/r
 
 const LIST = 'anthropic/claude-x\nopenai/gpt-y\n';
 
+/** An environment whose PATH holds the fake harness CLI under each of `names` (the listing runs through the injected
+ * runner; the version and login probes run the fake), and a scratch HOME. A harness not named is not on the PATH. */
+function pathWith(names: string[]) {
+  const { createScratch, childEnv } = require('../../helper/scratch-env.ts');
+  const { linkBin } = require('../../helper/fake-harness-cli.ts');
+  const scratch = createScratch('doflow-listing-');
+  return childEnv(scratch, { PATH: linkBin(path.join(scratch.dir, 'bin'), names) });
+}
+
 /** A callback-style execFile: `--version` answers, `models` answers `listing` (a string, or an Error to fail with). */
 function runner(listing: string | Error, calls: string[][] = []) {
   return (bin: string, args: string[], _opts: any, cb: any) => {
@@ -25,39 +34,69 @@ function runner(listing: string | Error, calls: string[][] = []) {
 
 test('sync fills offeredModels from the listing command and marks the list as listed', async () => {
   const home = suiteTempDir('doflow-test-sync-home-');
+  const env = pathWith(['opencode', 'claude']);
   const calls: string[][] = [];
-  const res = await syncHarness('opencode', { execFileImpl: runner(LIST, calls), homeDir: home, env: {} });
+  const res = await syncHarness('opencode', { execFileImpl: runner(LIST, calls), homeDir: home, env });
   assert.deepEqual(res.offeredModels, [{ id: 'claude-x', provider: 'anthropic' }, { id: 'gpt-y', provider: 'openai' }]);
   assert.deepEqual(res.modelList, { status: 'listed' });
-  assert.ok(calls.some((c) => c.join(' ') === 'opencode models'));
+  assert.ok(calls.some((c) => path.basename(c[0]) === 'opencode' && c.slice(1).join(' ') === 'models'), 'the listing ran the binary found on PATH');
 });
 
 test('sync keeps only usable ids and records how many were left out and whether the list was cut', async () => {
   const home = suiteTempDir('doflow-test-sync-home-');
-  const dropped = await syncHarness('opencode', { execFileImpl: runner('--foo\nok/model\n-x\n'), homeDir: home, env: {} });
+  const env = pathWith(['opencode', 'claude']);
+  const dropped = await syncHarness('opencode', { execFileImpl: runner('--foo\nok/model\n-x\n'), homeDir: home, env });
   assert.deepEqual(dropped.offeredModels, [{ id: 'model', provider: 'ok' }]);
   assert.deepEqual(dropped.modelList, { status: 'listed', dropped: 2 });
-  const many = await syncHarness('opencode', { execFileImpl: runner(Array.from({ length: 1200 }, (_, i) => `p/m${i}`).join('\n')), homeDir: home, env: {} });
+  const many = await syncHarness('opencode', { execFileImpl: runner(Array.from({ length: 1200 }, (_, i) => `p/m${i}`).join('\n')), homeDir: home, env });
   assert.equal(many.offeredModels.length, 500);
   assert.deepEqual(many.modelList, { status: 'listed', capped: true });
 });
 
 test('a harness with no listing command gets an empty list and a field saying why', async () => {
   const home = suiteTempDir('doflow-test-sync-home-');
+  const env = pathWith(['opencode', 'claude']);
   const calls: string[][] = [];
-  const res = await syncHarness('claude', { execFileImpl: runner(LIST, calls), homeDir: home, env: {} });
+  const res = await syncHarness('claude', { execFileImpl: runner(LIST, calls), homeDir: home, env });
   assert.deepEqual(res.offeredModels, []);
   assert.equal(res.modelList.status, 'none-recorded');
   assert.match(res.modelList.reason, /\S/);
   assert.equal(calls.some((c) => c[1] === 'models'), false, 'nothing is asked of a harness with no listing command');
 });
 
+test('A-02 a harness not on PATH starts no listing and is recorded as not installed, keeping a previous list stale', async () => {
+  const home = suiteTempDir('doflow-test-sync-home-');
+  const calls: string[][] = [];
+  const previous = { ...(await syncHarness('opencode', { execFileImpl: runner(LIST), homeDir: home, env: pathWith(['opencode']) })) };
+  const res = await syncHarness('opencode', { execFileImpl: runner(LIST, calls), homeDir: home, env: pathWith([]), previous });
+  assert.deepEqual(calls, [], 'no listing process was started');
+  assert.equal(res.installed, false);
+  assert.equal(res.modelList.status, 'failed');
+  assert.match(res.modelList.reason, /opencode is not installed/);
+  assert.equal(res.modelList.stale, true);
+  assert.deepEqual(res.offeredModels, previous.offeredModels);
+});
+
+test('A-02 the listing exec gets the binary path found on PATH, the caller env and the project as cwd', async () => {
+  const env = pathWith(['opencode']);
+  const project = suiteTempDir('doflow-test-sync-project-');
+  const seen: any[] = [];
+  const listExecImpl = async (file: string, args: string[], opts: any) => { seen.push({ file, args, env: opts.env, cwd: opts.cwd }); return LIST; };
+  await syncHarness('opencode', { listExecImpl, homeDir: suiteTempDir('doflow-test-sync-home-'), env, projectRoot: project });
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].file, path.join(env.PATH.split(path.delimiter)[0], 'opencode'));
+  assert.deepEqual(seen[0].args, ['models']);
+  assert.equal(seen[0].env, env);
+  assert.equal(seen[0].cwd, project);
+});
+
 test('a failed listing keeps the previous list, marked stale, and is not an error', async () => {
   const home = suiteTempDir('doflow-test-sync-home-');
+  const env = pathWith(['opencode', 'claude']);
   const previous = {
-    ...(await syncHarness('opencode', { execFileImpl: runner(LIST), homeDir: home, env: {} })),
+    ...(await syncHarness('opencode', { execFileImpl: runner(LIST), homeDir: home, env })),
   };
-  const res = await syncHarness('opencode', { execFileImpl: runner(new Error('not logged in')), homeDir: home, env: {}, previous });
+  const res = await syncHarness('opencode', { execFileImpl: runner(new Error('not logged in')), homeDir: home, env, previous });
   assert.deepEqual(res.offeredModels, previous.offeredModels);
   assert.equal(res.modelList.status, 'failed');
   assert.equal(res.modelList.stale, true);
@@ -66,7 +105,8 @@ test('a failed listing keeps the previous list, marked stale, and is not an erro
 
 test('a failed listing with no previous list leaves the list empty and not stale', async () => {
   const home = suiteTempDir('doflow-test-sync-home-');
-  const res = await syncHarness('opencode', { execFileImpl: runner(new Error('offline')), homeDir: home, env: {}, previous: null });
+  const env = pathWith(['opencode', 'claude']);
+  const res = await syncHarness('opencode', { execFileImpl: runner(new Error('offline')), homeDir: home, env, previous: null });
   assert.deepEqual(res.offeredModels, []);
   assert.equal(res.modelList.status, 'failed');
   assert.equal(res.modelList.stale, undefined);
@@ -74,17 +114,19 @@ test('a failed listing with no previous list leaves the list empty and not stale
 
 test('a list written before the listing path existed (no modelList field) is not kept as stale', async () => {
   const home = suiteTempDir('doflow-test-sync-home-');
+  const env = pathWith(['opencode', 'claude']);
   const legacy: any = { harnessId: 'opencode', offeredModels: [{ id: 'old-hard-coded-name' }] };
-  const res = await syncHarness('opencode', { execFileImpl: runner(new Error('offline')), homeDir: home, env: {}, previous: legacy });
+  const res = await syncHarness('opencode', { execFileImpl: runner(new Error('offline')), homeDir: home, env, previous: legacy });
   assert.deepEqual(res.offeredModels, []);
 });
 
 test('syncAllHarnesses carries each harness previous list into its own listing', async () => {
   const project = suiteTempDir('doflow-test-sync-project-');
   const home = suiteTempDir('doflow-test-sync-home-');
-  const first = await syncAllHarnesses({ projectRoot: project, homeDir: home, env: {}, execFileImpl: runner(LIST) });
+  const env = pathWith(['opencode', 'claude']);
+  const first = await syncAllHarnesses({ projectRoot: project, homeDir: home, env, execFileImpl: runner(LIST) });
   assert.deepEqual(first.harnesses.opencode.offeredModels.map((m: any) => m.id), ['claude-x', 'gpt-y']);
-  const second = await syncAllHarnesses({ projectRoot: project, homeDir: home, env: {}, execFileImpl: runner(new Error('offline')) });
+  const second = await syncAllHarnesses({ projectRoot: project, homeDir: home, env, execFileImpl: runner(new Error('offline')) });
   assert.equal(second.harnesses.opencode.modelList.stale, true);
   assert.deepEqual(second.harnesses.opencode.offeredModels.map((m: any) => m.id), ['claude-x', 'gpt-y']);
   assert.deepEqual(readCatalogue(project, { homeDir: home }).harnesses.opencode.modelList.status, 'failed');
@@ -109,10 +151,9 @@ test('169 sync stores the listed columns per model and records which columns wer
   worker.modelList = { ...worker.modelList, columns: { provider: 'provider', contextTokens: 'context', maxOutputTokens: 'max-out', reasoning: 'thinking', imageInput: 'images' } };
   const view = { packages: [], stateRead: { state: {} }, grants: { grants: [] } };
   const home = suiteTempDir('doflow-test-sync-home-');
-  // The listing runs the scratch `pi` (the fake), found on the scratch PATH: the default exec would look at the real PATH.
-  const { findOnPath } = require('../../../src/runtime/worker/readiness.ts');
-  const listExecImpl = (_file: string, args: string[]) => new Promise((resolve, reject) => {
-    require('node:child_process').execFile(findOnPath('pi', env, process.platform, scratch.dir), args, { env, encoding: 'utf8' }, (err: any, out: string) => (err ? reject(err) : resolve(out)));
+  // The listing runs the scratch `pi` (the fake): the exec is handed the path found on the scratch PATH, and the caller's env.
+  const listExecImpl = (file: string, args: string[], opts: any) => new Promise((resolve, reject) => {
+    require('node:child_process').execFile(file, args, { env: opts.env, encoding: 'utf8' }, (err: any, out: string) => (err ? reject(err) : resolve(out)));
   });
   const res = await syncHarness('pi', { env, registry, view, homeDir: home, projectRoot: suiteTempDir('doflow-test-sync-project-'), listExecImpl });
   assert.equal(res.installed, true);

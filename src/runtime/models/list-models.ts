@@ -20,10 +20,12 @@ export type ModelListing =
   | { status: 'none-recorded'; models: ListedModel[]; reason: string }
   | { status: 'failed'; models: ListedModel[]; reason: string };
 
-/** The listing for one worker descriptor (`harness.worker`). `execImpl(file, args, { timeout })` resolves
- * with stdout or rejects; the default is the tool probe. A failure (not installed, not logged in, offline,
- * timeout, no models in the output) is a `failed` result with a reason, never a throw. */
-async function listHarnessModels({ descriptor, execImpl, timeoutMs = LIST_TIMEOUT_MS }: { descriptor: any; execImpl?: any; timeoutMs?: number }): Promise<ModelListing> {
+/** The listing for one worker descriptor (`harness.worker`). `binaryPath` is the binary found on the caller's PATH: with
+ * none, no process starts and the result is `failed` (not installed). `execImpl(file, args, { timeout, env, cwd })` is
+ * called with that path and the caller's `env` and `cwd`, and resolves with stdout or rejects; the default is the tool
+ * probe. A failure (not installed, not logged in, offline, timeout, no models in the output) is a `failed` result with a
+ * reason, never a throw. */
+async function listHarnessModels({ descriptor, execImpl, binaryPath, env, cwd, timeoutMs = LIST_TIMEOUT_MS }: { descriptor: any; execImpl?: any; binaryPath?: string | null; env?: any; cwd?: string; timeoutMs?: number }): Promise<ModelListing> {
   const recipe = descriptor?.modelList;
   if (!recipe) return { status: 'none-recorded', models: [], reason: 'the registry records no model listing command for this harness' };
   if (recipe.status !== 'supported') return { status: 'none-recorded', models: [], reason: String(recipe.reason || 'no model listing command is recorded') };
@@ -31,10 +33,12 @@ async function listHarnessModels({ descriptor, execImpl, timeoutMs = LIST_TIMEOU
   const binary = descriptor?.cli?.binary;
   if (!parse || typeof binary !== 'string') return { status: 'failed', models: [], reason: `the registry modelList recipe is not usable (parse ${JSON.stringify(recipe.parse)})` };
 
+  if (!binaryPath) return { status: 'failed', models: [], reason: `${binary} ${recipe.argv.join(' ')}: ${binary} is not installed` };
+
   const run = execImpl || require('../../install/tool-lifecycle.ts').probeExec;
   let stdout: string;
   try {
-    stdout = String(await run(binary, recipe.argv, { encoding: 'utf8', stdio: 'pipe', timeout: timeoutMs, maxBuffer: LIST_MAX_BYTES }) ?? '');
+    stdout = String(await run(binaryPath, recipe.argv, { encoding: 'utf8', stdio: 'pipe', timeout: timeoutMs, maxBuffer: LIST_MAX_BYTES, env, cwd }) ?? '');
   } catch (error: any) {
     const why = error?.code === 'ENOENT' ? `${binary} is not installed`
       : error?.code === 'EMAXBUFFER' ? `more than ${LIST_MAX_BYTES / 1024} KiB of output; the command was stopped`
