@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * C7 — report assembler and the `inventory` verb (FR-005, FR-008, FR-009; IC-001, IC-002).
  *

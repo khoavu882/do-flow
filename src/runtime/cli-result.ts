@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * CLI exit and error reporting for runtime verb handlers. These presentation helpers are being
  * factored out as verb handlers move from bin/doflow.js into engine modules. Homed here rather

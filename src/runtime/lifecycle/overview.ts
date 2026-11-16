@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * `lifecycle --action overview | init | status` (IC-007, IC-008, IC-021): the project's open
  * follow-ups, intents, goals and feature statuses, and the writes that tie a new feature to them.

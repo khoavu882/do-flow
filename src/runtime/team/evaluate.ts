@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * 143 IC-001..IC-005: the evaluation half of the team wiring. It drives the feature 103 modules
  * (`admission.ts`, `review-guard.ts`) through their public API at the dispatch and review call sites,

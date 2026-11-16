@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * History compactor (IC-005, IC-009). Moves the body of an artifact's `## <n>. History` section into
  * `decisions/history/<artifact>.md` and leaves a comment-and-pointer stub behind, so the live

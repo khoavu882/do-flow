@@ -5,7 +5,6 @@
 // adapter-registry factory, and the helpers more than one command uses (scope resolution, MCP
 // selection, backup-table printing). Nothing here is harness-specific — native quirks belong in
 // src/adapters/<id>/.
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');

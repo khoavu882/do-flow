@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * C6 — repair-coverage annotator (FR-006, design §3 C6, entity `REPAIR_COVERAGE`).
  *

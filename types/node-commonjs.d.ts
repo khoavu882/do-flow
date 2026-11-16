@@ -3,7 +3,7 @@
 // the handful of Node globals the `.ts` bodies reference are declared here rather than pulled from
 // a devDependency. Kept intentionally narrow: this is not a re-implementation of @types/node, only
 // the surface the migrated modules actually touch. Extend it as more modules migrate, not ahead of
-// need. See agent-docs/BRIEF_GOAL_DOFLOW.md for the migration roadmap.
+// need.
 
 type TestCallback = (t?: any, done?: any) => any;
 interface TestFn {

@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * Login state from a declared recipe, `worker.loginProbe` (design 172 sections 4.1 to 4.4, IC-001). The runner,
  * `checkLogin`, runs the harness's own status command (and, with `providers`, its listing and one check per listed

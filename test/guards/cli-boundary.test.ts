@@ -27,8 +27,7 @@ const { REPO } = require('./_shared.ts');
 const BIN = fs.readFileSync(path.join(REPO, 'bin', 'doflow.js'), 'utf8');
 const CLI_DIR = path.join(REPO, 'src', 'cli');
 
-/** The ten installer commands and the kebab-case handler filename each one owns.
- * `.ts` since the TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md) converted the CLI layer. */
+/** The ten installer commands and the kebab-case handler filename each one owns. */
 const COMMAND_FILES: any = new Map([
   ['install', 'install.ts'],
   ['update', 'update.ts'],

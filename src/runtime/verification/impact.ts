@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * Impacted test selector (feature 089, IC-009, DD-7, DD-8; feature 090, IC-001, IC-002).
  *

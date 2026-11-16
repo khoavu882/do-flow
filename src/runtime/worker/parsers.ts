@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * The worker parser table (IC-016, DEC-027). A descriptor's `structuredOutput.parser` names an entry
  * of `PARSERS`; the supervisor feeds it stdout one line at a time and reads one `Report` at the end.

@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * The project lifecycle event store (IC-001, IC-002, IC-003). One JSON file per event under
  * `<root>/.doflow/state/lifecycle/events/`, created with an exclusive create, never edited or

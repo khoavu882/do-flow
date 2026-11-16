@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * Scaffold generator — turns `requirement.md`, `design.md` and `plan.md` into a reviewable code
  * scaffold under the active feature directory (plan task C.8, design component C16, FR-023).

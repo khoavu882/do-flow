@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 // doflow.lock — the resolved-projection lockfile. A ledger records what DoFlow OWNS;
 // a lock records what DoFlow CHOSE. It pins, per scope: targeted harnesses, selected assets with
 // their projection summaries, MCP selections, and the source version they were resolved from, so

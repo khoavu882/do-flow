@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * MCP consultation resolver (062 CH4, IC-005 and IC-007 to IC-011).
  *

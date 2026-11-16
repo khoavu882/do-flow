@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * The Node failure writer (IC-011, IC-014, IC-015, DEC-019, DEC-020). Records one line per internal
  * error in the machine-wide `events.jsonl`. Capture is a side channel and must never be noticed by

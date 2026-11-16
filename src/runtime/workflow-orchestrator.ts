@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 // WorkflowOrchestrator — deterministic execution over the workflow registry. The registry
 // declares WHAT a class's
 // stages are (workflow-engine resolves that); this module owns the state machine that walks it:

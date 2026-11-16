@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 // Model role router. DoFlow binds no model for the harness's own work; the runtime calls a
 // configured local decision model only for advisory picks. This resolves an abstract role from
 // core/registry/models.json into availability-annotated provider candidates that skills,

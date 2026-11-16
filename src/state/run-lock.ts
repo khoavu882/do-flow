@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 // run.lock — one DoFlow run at a time per scope. install, update, remove, reconcile and rollback
 // read the ledger, doflow.lock and the install manifest, decide, and write them back; two runs in
 // one scope interleaving those steps lose each other's rows. The lock serialises them.

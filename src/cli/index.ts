@@ -7,7 +7,6 @@
 // implementations stay one-per-module in src/runtime/. Adding an installer command means a new
 // file in src/cli/commands/, an entry in COMMANDS, and an edit to test/guards/cli-boundary.test.js,
 // which ratchets this surface.
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 const {
   handleCapabilitiesCommand, handleReadinessCommand, handleEvidenceCommand,
   EVIDENCE_SCORE_FIELDS, scoreFieldRefusal,

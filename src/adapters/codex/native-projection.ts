@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 // Codex's native-projection normalizer, moved here from the common adapter module (review A3:
 // `nativeProjectionFor` in src/adapters/index.ts contained this Codex-specific shape inline, so
 // per-harness knowledge lived on the shared side of the adapter boundary). The common module now

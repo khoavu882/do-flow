@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /** The names a retrieval score arrives under, in camelCase (`--relevance-score` normalises here).
  *  Exported because `bin/doflow.js` refuses the same names on the command line, and because
  *  `retrieval-plan.ts` and `outcome.ts` refuse them on the option object a declared plan and a

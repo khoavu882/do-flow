@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 // Registry lifecycle policies are logical intent. This projection reports what a
 // harness may render and any human prerequisite; native event serialization stays
 // in the owning harness adapter.

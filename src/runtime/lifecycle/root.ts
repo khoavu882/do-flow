@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * The project root every lifecycle record is keyed by (IC-001, DEC-043). Paths are real paths,
  * because git reports the resolved spelling and a temp directory is often reached through a symlink.

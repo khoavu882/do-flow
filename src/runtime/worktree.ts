@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * Ephemeral git worktrees for isolated task execution — the JavaScript port of
  * `core/shared/scripts/doflow/sandbox/worktree_manager.py` (plan task B.3, pulled forward because

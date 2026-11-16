@@ -1,7 +1,6 @@
 'use strict';
 // `doflow reconcile` — converge observed state onto the doflow.lock pin: report drift, then heal
 // it on confirmation. Never re-prompts for MCP; selections ride exactly as pinned.
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 const path = require('node:path');
 const { toolDirs } = require('../../install/targets.ts');
 const { resolveContext, printContext } = require('../../install/context.ts');

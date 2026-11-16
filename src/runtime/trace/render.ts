@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * CLI rendering for `doflow trace`/`stats`/`discover` (split out of `trace.js`, plan task H.3).
  *

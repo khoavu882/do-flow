@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * The feature pointer (row 135): `<storeRoot>/.doflow/state/feature/<id>.json` names the feature one
  * checkout of the repository is working on, so a fresh session reads it instead of inferring the

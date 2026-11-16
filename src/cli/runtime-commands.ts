@@ -17,7 +17,6 @@
 // this switch — each case written as the single expression `case '<name>': return
 // handle<Name>Command(...)` — to cross-check the dispatcher's verb table in both directions. Keep
 // every case in exactly that shape.
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 const os = require('node:os');
 const path = require('node:path');
 const {

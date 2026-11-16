@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * `pi-json-v1` (IC-007): the stream of `pi -p --mode json`, one JSON object per line.
  *

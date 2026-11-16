@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 const fs = require('node:fs');
 const { boundedAcquire, updateTaskState } = require('../task-state.ts');
 const { taskRecord } = require('../task-scope.ts');

@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * Promotion to a new intent (IC-024, FR-005). Creates `agent-docs/intent/<kebab-title>.md` under the
  * IC-001 root from headings fixed in this file, never from a template file: an installed runtime

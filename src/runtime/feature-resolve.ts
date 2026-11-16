@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { resolveBashHelper } = require('../helper/bash-helper.ts');

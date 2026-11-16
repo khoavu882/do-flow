@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 // Antigravity CLI adapter (#8). Scope follows the surfaces verified against Antigravity's own
 // docs (antigravity.google/docs/cli/*):
 //   instructions — marker-managed section in project AGENTS.md and global ~/.gemini/GEMINI.md (left

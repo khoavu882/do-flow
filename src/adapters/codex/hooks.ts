@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 // Codex hook planning intentionally keeps deployment separate from CLI wiring.  Command hooks
 // execute code, so a plan fails closed for malformed definitions, missing wrappers, or wrappers
 // that are not executable.  Trust is reported as a prerequisite rather than being bypassed.

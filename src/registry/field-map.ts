@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * The static checks of the `jsonl-field-map-v1` grammar (design 171 section 3.4): S0 shape, S1 guarded captures,
  * S2 event type, S3 reachable success, S4 no contradiction, and the id pattern of S5 (the package/PARSERS part of S5

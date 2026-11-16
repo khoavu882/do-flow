@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * The goal service (IC-022, FR-013, FR-014): add, item, check, link, list and done, over the
  * lifecycle event store. A goal is DoFlow's own record of one outcome and its checklist, independent

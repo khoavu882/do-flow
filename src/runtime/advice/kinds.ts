@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 function isObject(value: any): boolean {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }

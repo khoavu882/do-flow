@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * Static reach: for each harness the ledger says is installed, can the skills it received find a
  * dispatcher and a runtime? The answer mirrors the lookup order of the skill resolver and of

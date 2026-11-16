@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 // Codex config.toml reconciliation.  This module deliberately manages individual,
 // manifest-backed keys rather than serialising a whole TOML document.  The latter would either
 // require a TOML dependency or, more importantly, risk reformatting/deleting a user's settings.

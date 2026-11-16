@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 // Native state and formats remain adapter-owned. The lifecycle layer selects
 // registry assets, validates declarative changes, journals mutations, and keeps
 // the neutral ledger in sync only after successful verification.

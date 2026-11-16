@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * Changed-test selector (feature 071, design C3): builds the `{pattern}` for a scopable targeted
  * test command from the tests a feature changed, so a LOW verification runs a few files instead of

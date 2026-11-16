@@ -10,11 +10,6 @@
 //
 // A backup DoFlow 1.19 or earlier made (a tar.gz or copy tree per tool, no format key) is still
 // listed and counted by retention, but this version cannot restore it.
-//
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): authored as `.ts`, run directly by Node
-// native type-stripping — no build step, no runtime dependency. Body stays CommonJS so a `.js`
-// caller's `require('../install/backup.ts')` keeps working while the tree is still `.js`. The
-// `./paths` require already carries `.ts` (paths migrated first); `../helper/git.ts` is `.ts` too.
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');

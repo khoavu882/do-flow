@@ -3,7 +3,6 @@
 // whole restore first, then snapshots exactly the files it will overwrite (regardless of
 // --no-backup), then restores. A per-file backup restores every file it holds unless --target
 // narrows it, and the ledger rows of exactly the files it restores.
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 const path = require('node:path');
 const { VALID, resolveTargets, toolDirs } = require('../../install/targets.ts');
 const { resolveContext, printContext } = require('../../install/context.ts');

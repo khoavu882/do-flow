@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * Language selection and emitters — everything `scaffold.js`'s generator needs to know about a
  * target language: which extension maps to which language, which extensions are content rather

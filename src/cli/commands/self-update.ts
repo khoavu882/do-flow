@@ -1,7 +1,6 @@
 'use strict';
 // `doflow self-update` — git fetch/pull the checkout, then re-run the install path so the
 // installed trees match the freshly pulled source.
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');

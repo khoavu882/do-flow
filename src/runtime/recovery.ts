@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * Failure classifier and bounded recovery planner — the JavaScript port of
  * `core/shared/scripts/doflow/recovery/recovery_manager.py` (plan task B.3, component C8).

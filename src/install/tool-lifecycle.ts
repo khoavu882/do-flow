@@ -3,10 +3,6 @@
 // External-tool lifecycle coordination deliberately uses execFile-style argument vectors.
 // Commands in the registry are data, never shell snippets, so neither inspection nor mutation
 // needs interpolation or a shell process.
-//
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): authored as `.ts`, run directly by Node
-// native type-stripping — no build step, no runtime dependency. Body stays CommonJS so a `.js`
-// caller's `require('../install/tool-lifecycle.ts')` keeps working while the tree is still `.js`.
 const { execFileSync, spawn, spawnSync } = require('node:child_process');
 
 const SUPPORTED_PLATFORMS = new Set(['darwin', 'linux']);

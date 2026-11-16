@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 // Codex MCP reconciliation.  Unlike Claude's JSON registry, Codex discovers MCP servers from
 // config.toml.  This adapter manages only table names that it created and recorded in the
 // manifest ledger; every other MCP table remains user-owned and byte-for-byte untouched.

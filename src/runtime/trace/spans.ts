@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 const nodeFs = require('node:fs');
 const path = require('node:path');
 const { sortKeysDeep: sorted } = require('../canonical-json.ts');

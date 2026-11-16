@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 // OpenCode adapter.
 //
 // OpenCode gets its own copy of DoFlow's skills tree, the same as Claude and Codex: it

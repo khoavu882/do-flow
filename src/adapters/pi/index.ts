@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 // Pi adapter — a marker-merged instruction file plus copy-tree materialisation, the same shape
 // Claude/Codex already use for their own skills trees.
 //

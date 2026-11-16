@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 // Codex custom-agent projection. Agent contracts are independent TOML documents, so unlike
 // config.toml there is no safe key-level merge: a same-named destination is changed only when
 // the manifest proves DoFlow owns the exact bytes currently on disk.

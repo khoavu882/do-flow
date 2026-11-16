@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * `kiro-stream-json-v1` (IC-006): `kiro-cli chat --no-interactive --output-format stream-json`.
  * Pure, never throws, keeps only the masked final text. `runFinished` is the one terminal event;

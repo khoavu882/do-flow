@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * Registry-driven verification layer (plan task C.2, design C7): `VerificationEngine` compiles a
  * contract **before** implementation and a report **after**, scaling required tiers to risk,

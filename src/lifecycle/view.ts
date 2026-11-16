@@ -1,6 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 // lifecycle-view.js — CLI-facing view over the registry/lifecycle path: computes a plan across
 // every requested harness (claude, codex, opencode, pi, copilot, kiro, antigravity) from a loaded registry, a neutral ledger, and the
 // Codex-native source locations under `repoRoot`, then renders/gates it for bin/doflow.js's

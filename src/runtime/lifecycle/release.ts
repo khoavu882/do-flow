@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * `lifecycle --action release` and `--action merged` (IC-020, IC-021, DEC-021, DEC-022, DEC-030,
  * DEC-044). A release is previewed from git and recorded, on `--confirm`, as one local

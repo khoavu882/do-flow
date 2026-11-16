@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * Read-only snapshot of an execution worktree and the comparison of two snapshots (081 IC-015,
  * DEC-041). The supervisor takes one snapshot before the worker starts and one after it exits; a

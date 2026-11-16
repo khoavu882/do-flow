@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * The `followup`, `lifecycle` and `goal` verb handlers (IC-006 to IC-009, IC-022). All work on the
  * project store at the IC-001 root, so `-g` is refused with exit 2. `--json` prints the result

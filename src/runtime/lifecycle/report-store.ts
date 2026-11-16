@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * The machine-local report body (IC-005, DEC-014). A report's text can hold a crash trace, a log or
  * pasted output, so it never enters the repository: the body is masked with the body profile (IC-012),

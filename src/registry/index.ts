@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 // Registry loader and validator.  Registry files are plain JSON (core/registry/*.json).
 const fs = require('node:fs');
 const path = require('node:path');
