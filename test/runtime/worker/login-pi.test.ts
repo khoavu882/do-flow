@@ -187,3 +187,40 @@ test('AC-6: codex, opencode, copilot, kiro and antigravity read unknown with the
   }
   assert.deepEqual(r.calls(), []);
 });
+
+// ── IC-003: doctor reads the answer ─────────────────────────────────────────────────────────────────────────────
+
+const { execFileSync } = require('node:child_process');
+const CLI = path.join(REPO, 'bin', 'doflow.js');
+
+test('doctor --json holds login per harness, and doctor text shows the claude cell with its caveat', POSIX_ONLY, async () => {
+  const r = rig(['claude'], { byArgv: [{ argv: CLAUDE_ARGV, steps: status('claude.ai') }] });
+  const worker = shipped('claude');
+  const answer = await login.checkLogin({ harness: 'claude', worker, env: r.env, cwd: r.cwd, binaryPath: path.join(r.bin, 'fake-claude') });
+  const store = require(path.join(REPO, 'src', 'runtime', 'worker', 'login-store.ts'));
+  assert.ok(store.recordRecipeAnswer(r.env, 'claude', answer, login.recipeDigest(worker)));
+  const project = path.join(r.cwd, 'project');
+  fs.mkdirSync(project);
+  const doctor = (...args: string[]) => execFileSync(process.execPath, [CLI, 'doctor', ...args], { cwd: project, env: r.env, encoding: 'utf8' });
+
+  const pool = JSON.parse(doctor('--json')).workerPool;
+  const ids = loadRegistry({ repoRoot: REPO }).harnesses.map((h: any) => h.id);
+  assert.deepEqual(pool.harnesses.map((h: any) => h.harness), ids);
+  const KEYS = ['harness', 'state', 'reason', 'source', 'at', 'billing', 'providers', 'provider', 'hint', 'expirySeen', 'last', 'caveat'];
+  for (const h of pool.harnesses) {
+    assert.deepEqual(Object.keys(h.login), KEYS, h.harness);
+    assert.equal(h.login.harness, h.harness);
+    assert.equal('loginState' in h, false, `${h.harness}: loginState is gone`);
+    assert.equal('reloginHint' in h, false, `${h.harness}: reloginHint is gone`);
+  }
+  const claude = pool.harnesses.find((h: any) => h.harness === 'claude');
+  assert.deepEqual([claude.login.state, claude.login.source, claude.login.at, claude.login.billing, claude.login.caveat],
+    ['logged-in', 'recipe', answer.at, { mode: 'subscription', billing: 'free' }, 'its help and docs do not show that this check runs offline']);
+  for (const id of NO_RECIPE) assert.match(pool.harnesses.find((h: any) => h.harness === id).login.reason, /^no-recipe: /, id);
+
+  const lines = doctor().split('\n');
+  const line = lines.find((text: string) => /^ {2}claude +binary:/.test(text));
+  assert.ok(line, 'a claude line');
+  assert.ok(line!.includes(`login: logged-in (login check, ${answer.at}; its help and docs do not show that this check runs offline) mode:`), line);
+  assert.ok(lines.some((text: string) => /^ {2}pi +binary: unknown +login: unknown \(never checked\) mode:/.test(text)), 'pi: never checked');
+});

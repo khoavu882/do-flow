@@ -1100,14 +1100,21 @@ function workersDoctorView({
   };
 }
 
-/** IC-005: read observed catalogue, login states, derived billing and enabled models without running probes. */
+/**
+ * IC-005: read the observed catalogue, derived billing and enabled models without running a probe. Each harness's
+ * `login` is 172's `LoginAnswer` (IC-003), read from the `harness-login` store, so a harness with no catalogue entry
+ * still gets its answer; `synced` says whether the catalogue holds the harness (its binary is unknown when not).
+ */
 function workerPoolDoctorView({
   env = process.env, projectRoot, repoRoot = REPO_ROOT,
 }: any = {}) {
   const { readCatalogue } = require('./models/catalogue.ts');
   const { readAllowedModels } = require('./worker/models.ts');
   const { readWorkerBilling, effectiveBilling } = require('./settings/worker-billing.ts');
-  const { HARNESS_IDS } = require('./worker/probes/index.ts');
+  const { activeIds } = require('../registry/harness-ids.ts');
+  const { workerCatalogue } = require('./worker/catalogue.ts');
+  const { loginAnswerOf } = require('./worker/login.ts');
+  const { readLoginStore } = require('./worker/login-store.ts');
   const reg = loadRegistry({ repoRoot });
   const root = require('./lifecycle/root.ts').projectRoot(projectRoot);
 
@@ -1115,44 +1122,31 @@ function workerPoolDoctorView({
   const allowed = readAllowedModels({ projectRoot: root }) || [];
   const workerIds = reg.harnesses.map((h: any) => h.id);
   const billingRecord = readWorkerBilling(env, { workerIds });
+  const workers = new Map<string, any>(workerCatalogue({ registry: reg }).map((entry: any) => [entry.id, entry.worker]));
+  const store = readLoginStore(env);
 
   const observedModelIds = new Set<string>();
   const harnesses: any[] = [];
-  const allHarnessIds = Array.from(new Set([...HARNESS_IDS, ...Object.keys(catalogue?.harnesses || {})]));
+  const allHarnessIds = Array.from(new Set([...activeIds(repoRoot), ...Object.keys(catalogue?.harnesses || {})]));
 
   for (const id of allHarnessIds) {
     const catEntry = catalogue?.harnesses?.[id];
     const regEntry = reg.harnesses.find((h: any) => h.id === id);
     const descBilling = regEntry?.worker?.billing ?? 'unknown';
-
-    if (catEntry) {
-      for (const m of catEntry.offeredModels || []) {
-        if (m && m.id) observedModelIds.add(m.id);
-      }
-      const effBilling = effectiveBilling(descBilling, id, billingRecord, catalogue);
-      harnesses.push({
-        harness: id,
-        binary: catEntry.binary || id,
-        installed: Boolean(catEntry.installed),
-        loginState: catEntry.loginState,
-        reloginHint: catEntry.reloginHint || null,
-        detectedMode: catEntry.detectedMode,
-        effectiveBilling: effBilling,
-        offeredCount: (catEntry.offeredModels || []).length,
-      });
-    } else {
-      const effBilling = effectiveBilling(descBilling, id, billingRecord, null);
-      harnesses.push({
-        harness: id,
-        binary: id,
-        installed: false,
-        loginState: 'uncalibrated',
-        reloginHint: null,
-        detectedMode: 'unverified',
-        effectiveBilling: effBilling,
-        offeredCount: 0,
-      });
+    const login = loginAnswerOf({ harness: id, worker: workers.get(id) ?? null, record: Object.hasOwn(store.harnesses, id) ? store.harnesses[id] : null });
+    for (const m of catEntry?.offeredModels || []) {
+      if (m && m.id) observedModelIds.add(m.id);
     }
+    harnesses.push({
+      harness: id,
+      binary: catEntry?.binary || id,
+      installed: Boolean(catEntry?.installed),
+      synced: Boolean(catEntry),
+      login,
+      detectedMode: catEntry?.detectedMode ?? 'unverified',
+      effectiveBilling: effectiveBilling(descBilling, id, billingRecord, catEntry ? catalogue : null),
+      offeredCount: (catEntry?.offeredModels || []).length,
+    });
   }
 
   let enabledCount = 0;
@@ -1411,15 +1405,14 @@ async function handleDoctorCommand({ json = false, repoRoot, projectRoot = proce
   console.log('\n[Worker Pool & Models]');
   if (report.workerPool.state === 'unavailable') {
     console.log(`  worker pool: unavailable (${report.workerPool.message})`);
-  } else if (report.workerPool.state === 'unsynced') {
-    console.log('  No observed catalogue. Run `doflow models --action sync` to probe worker pool.');
-    console.log(`  Models: ${report.workerPool.models.enabledCount} enabled, ${report.workerPool.models.listedCount} listed`);
   } else {
+    if (report.workerPool.state === 'unsynced') console.log('  No observed catalogue. Run `doflow models --action sync` to probe worker pool.');
+    const { loginCell } = require('./worker/login.ts');
     for (const h of report.workerPool.harnesses) {
-      const binStatus = h.installed ? 'installed' : (h.loginState === 'uncalibrated' ? 'unknown' : 'missing');
-      const hint = h.loginState === 'logged-out' && h.reloginHint ? ` (re-login: ${h.reloginHint})` : '';
+      const binStatus = h.installed ? 'installed' : (h.synced ? 'missing' : 'unknown');
       const billSource = h.effectiveBilling.source ? ` (${h.effectiveBilling.source})` : '';
-      console.log(`  ${h.harness.padEnd(14)} binary: ${binStatus.padEnd(10)} ${h.loginState.padEnd(12)} mode: ${h.detectedMode.padEnd(14)} billing: ${h.effectiveBilling.value}${billSource}${hint}`);
+      console.log(`  ${h.harness.padEnd(14)} binary: ${binStatus.padEnd(10)} login: ${loginCell(h.login)} mode: ${h.detectedMode} billing: ${h.effectiveBilling.value}${billSource}`);
+      for (const p of h.login.providers) console.log(`    ${p.id}: ${p.state}${p.mode ? `, ${p.mode}` : ''}`);
     }
     console.log(`  Models: ${report.workerPool.models.enabledCount} enabled, ${report.workerPool.models.listedCount} listed`);
   }

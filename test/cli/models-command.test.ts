@@ -17,9 +17,13 @@ function setup(t: any) {
   const userDoflow = path.join(config, 'doflow');
   fs.mkdirSync(project, { recursive: true });
   fs.mkdirSync(userDoflow, { recursive: true });
+  // 172: an empty PATH dir, so a sync never starts a real harness binary.
+  const bin = path.join(root, 'bin');
+  fs.mkdirSync(bin);
 
   const env = {
     ...process.env,
+    PATH: bin,
     HOME: root,
     USERPROFILE: root,
     XDG_CONFIG_HOME: config,
@@ -264,7 +268,10 @@ test('workerPoolDoctorView reports unsynced when catalogue is absent', (t: any) 
   assert.ok(Array.isArray(view.harnesses));
   assert.equal(view.harnesses.length, 7);
   for (const h of view.harnesses) {
-    assert.equal(h.loginState, 'uncalibrated');
+    // 172 IC-003: the login answer comes from the harness-login store; with no catalogue the binary is not known.
+    assert.equal(h.login.state, 'unknown');
+    assert.equal(h.synced, false);
+    assert.equal('loginState' in h, false);
   }
 });
 
@@ -298,8 +305,10 @@ test('workerPoolDoctorView and handleDoctorCommand report worker pool diagnostic
   assert.equal(view.models.listedCount, 1);
   const codex = view.harnesses.find((h: any) => h.harness === 'codex');
   assert.ok(codex);
-  assert.equal(codex.loginState, 'logged-out');
-  assert.equal(codex.reloginHint, 'gh auth login');
+  // 172 IC-003: the catalogue's old loginState and reloginHint are not read; codex has no login recipe.
+  assert.equal(codex.login.state, 'unknown');
+  assert.match(codex.login.reason, /^no-recipe: /);
+  assert.equal('reloginHint' in codex, false);
   assert.equal(codex.effectiveBilling.value, 'unknown');
 
   let textOutput = '';
@@ -311,7 +320,7 @@ test('workerPoolDoctorView and handleDoctorCommand report worker pool diagnostic
     assert.equal(code, 0);
     assert.ok(textOutput.includes('[Worker Pool & Models]'));
     assert.ok(textOutput.includes('codex'));
-    assert.ok(textOutput.includes('(re-login: gh auth login)'));
+    assert.ok(textOutput.includes('login: unknown (no login check: '));
     assert.ok(textOutput.includes('Models: 0 enabled, 1 listed'));
   } finally {
     console.log = originalLog;
