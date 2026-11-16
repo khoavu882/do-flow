@@ -153,8 +153,27 @@ test('worker: the seven harnesses declare IC-002 values and nothing else as supp
       }
       // 168: pi's loginProbe, persistentSession, resume and steering are decided on 2026-11-16 and pinned in pi-worker-truth.test.ts.
       if (harness.id === 'pi' && PI_DECIDED.includes(key)) continue;
-      // 172: claude's loginProbe ships as a supported login recipe (design §3.3), pinned in login-recipe.test.ts.
-      if (harness.id === 'claude' && key === 'loginProbe') continue;
+      // 172: claude's loginProbe ships as a supported login recipe (design §3.3 plus the LD-1 caveat); this is its exact pin.
+      if (harness.id === 'claude' && key === 'loginProbe') {
+        const { verification, ...recipe } = worker[key];
+        assert.match(verification, /^Run `node bin\/doflow\.js worker --action evidence/, 'claude loginProbe verification');
+        assert.deepEqual(recipe, {
+          status: 'supported',
+          evidence: ['core/worker-evidence/claude/2026-11-16-cli-check-login-recipe.json', recipe.evidence[1]],
+          verifiedOn: '2026-11-16',
+          argv: ['auth', 'status', '--json'],
+          output: 'json',
+          answers: [{ exit: 0, state: 'logged-in' }, { exit: 1, state: 'logged-out' }],
+          billing: { path: ['authMethod'], values: {
+            'claude.ai': { mode: 'subscription', billing: 'free' }, oauth_token: { mode: 'subscription', billing: 'free' },
+            api_key: { mode: 'api-key', billing: 'metered' }, api_key_helper: { mode: 'api-key', billing: 'metered' } } },
+          expiry: 'not-seen',
+          hint: 'claude auth login',
+          caveat: 'its help and docs do not show that this check runs offline',
+        }, 'claude loginProbe');
+        assert.match(recipe.evidence[1], /^https:\/\/code\.claude\.com\/docs\/en\/cli-reference /, 'claude loginProbe docs evidence');
+        continue;
+      }
       if (key === 'loginProbe') {
         // 172: an unknown loginProbe names the help it was checked against and why no recipe is declared (pinned exactly).
         const { status, evidence, verifiedOn, ...rest } = worker[key];
