@@ -35,6 +35,7 @@ const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
 const { emitContext, utf8Bytes } = require('../context/arbitrate.ts');
 const { grantSummary } = require('../context/summary-store.ts');
+const { wideningProblem, wideningFlagsProblem } = require('../../registry/widening-flags.ts');
 
 type Env = Record<string, string | undefined>;
 /** 120 IC-011 / IC-012: the binding shape consumed by the recipe assembler. */
@@ -125,6 +126,16 @@ function boundModel(binding?: ModelBinding | null): string | null {
   return binding.model;
 }
 
+/**
+ * 165 review B-2: the final argv, the model already in it and the prompt and output path still placeholders, holds no
+ * widening flag (the validator's own matcher), so a model id or a descriptor that skipped the validator cannot add one.
+ */
+function refuseWidening(recipe: any, argv: string[], mainSession: boolean): void {
+  const declared = Array.isArray(recipe?.wideningFlags) && wideningFlagsProblem(recipe.wideningFlags) === null ? recipe.wideningFlags : [];
+  const widening = wideningProblem(argv, { binary: recipe?.cli?.binary, declared, mainSession });
+  if (widening) throw new LaunchUsageError('widening-flag', `the ${mainSession ? 'main-session' : 'worker'} argv holds the widening flag '${widening}'`);
+}
+
 /** IC-003 / 120 IC-011: replace prompt, output path and bound model only as whole elements. */
 function assemble(recipe: any, element: string, edit = false, lastMessageFile?: string, binding?: ModelBinding | null): string[] {
   const model = boundModel(binding);
@@ -137,6 +148,7 @@ function assemble(recipe: any, element: string, edit = false, lastMessageFile?: 
     }
     argv.push(...entry.argv);
   }
+  refuseWidening(recipe, argv.map((value) => (value === MODEL_ELEMENT && model !== null ? model : value)), false);
   return argv.map((value) => {
     if (value === LAST_MESSAGE_FILE_ELEMENT) {
       if (lastMessageFile === undefined) {
@@ -209,6 +221,7 @@ function mainArgv(recipe: any, element: string, lastMessageFile?: string, model:
   }
   const at = entry.argv.findIndex((value: string) => MAIN_TAIL.has(value));
   const spliced = at === -1 ? [...entry.argv, ...modelPart] : [...entry.argv.slice(0, at), ...modelPart, ...entry.argv.slice(at)];
+  refuseWidening(recipe, spliced, true);
   return spliced.map((value: string) => {
     if (value === LAST_MESSAGE_FILE_ELEMENT) {
       if (lastMessageFile === undefined) throw new LaunchUsageError('last-message-file-missing', "mainArgv: the recipe needs a '{lastMessageFile}' output path");

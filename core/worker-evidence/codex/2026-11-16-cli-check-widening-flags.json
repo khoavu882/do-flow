@@ -1,0 +1,214 @@
+{
+  "binary": "codex",
+  "checks": [
+    {
+      "argv": [
+        "exec",
+        "--help"
+      ],
+      "establishes": [
+        "runnableProbe",
+        "oneShot"
+      ],
+      "exit": 0,
+      "expect": [
+        "^Usage: codex exec \\[OPTIONS\\] \\[PROMPT\\]",
+        "instructions are read from stdin"
+      ],
+      "id": "exec-one-shot",
+      "matched": [
+        "Usage: codex exec [OPTIONS] [PROMPT]",
+        "          instructions are read from stdin. If stdin is piped and a prompt is also provided, stdin"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "exec",
+        "--help"
+      ],
+      "establishes": [
+        "structuredOutput"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--json$",
+        "Print events to stdout as JSONL",
+        "-o, --output-last-message"
+      ],
+      "id": "exec-json",
+      "matched": [
+        "      --json",
+        "          Print events to stdout as JSONL",
+        "  -o, --output-last-message <FILE>"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "exec",
+        "--help"
+      ],
+      "establishes": [
+        "readOnly",
+        "isolatedEdit"
+      ],
+      "exit": 0,
+      "expect": [
+        "-s, --sandbox <SANDBOX_MODE>",
+        "read-only, workspace-write"
+      ],
+      "id": "exec-sandbox",
+      "matched": [
+        "  -s, --sandbox <SANDBOX_MODE>",
+        "          [possible values: read-only, workspace-write, danger-full-access]"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "features",
+        "list",
+        "--disable",
+        "multi_agent",
+        "--disable",
+        "multi_agent_v2"
+      ],
+      "establishes": [
+        "spawnDenial"
+      ],
+      "exit": 0,
+      "expect": [
+        "^multi_agent\\s+\\S+\\s+false$",
+        "^multi_agent_v2\\s+\\S+\\s+false$"
+      ],
+      "id": "spawn-denial",
+      "matched": [
+        "multi_agent                              stable             false",
+        "multi_agent_v2                           stable             false"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "exec",
+        "--help"
+      ],
+      "establishes": [
+        "model"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+-m, --model <MODEL>$"
+      ],
+      "id": "exec-model",
+      "matched": [
+        "  -m, --model <MODEL>"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "exec",
+        "--help"
+      ],
+      "establishes": [
+        "mainSession"
+      ],
+      "exit": 0,
+      "expect": [
+        "^Usage: codex exec \\[OPTIONS\\] \\[PROMPT\\]",
+        "\\(or if `-` is used\\)",
+        "instructions are read from stdin",
+        "^\\s+--json$",
+        "-o, --output-last-message <FILE>"
+      ],
+      "id": "exec-main-session",
+      "matched": [
+        "Usage: codex exec [OPTIONS] [PROMPT]",
+        "          Initial instructions for the agent. If not provided as an argument (or if `-` is used),",
+        "          instructions are read from stdin. If stdin is piped and a prompt is also provided, stdin",
+        "      --json",
+        "  -o, --output-last-message <FILE>"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "exec",
+        "--help"
+      ],
+      "establishes": [
+        "mainSession"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+-c, --config <key=value>$",
+        "sandbox_permissions=",
+        "^\\s+--enable <FEATURE>$",
+        "^\\s+-s, --sandbox <SANDBOX_MODE>$",
+        "\\[possible values: read-only, workspace-write, danger-full-access\\]",
+        "^\\s+--approve-for-me$",
+        "^\\s+--dangerously-bypass-approvals-and-sandbox$",
+        "^\\s+--dangerously-bypass-hook-trust$",
+        "^\\s+-C, --cd <DIR>$",
+        "^\\s+--add-dir <DIR>$",
+        "^\\s+--ignore-user-config$",
+        "^\\s+--ignore-rules$"
+      ],
+      "id": "widening-flags-exec",
+      "matched": [
+        "  -c, --config <key=value>",
+        "          Examples: - `-c model=\"o3\"` - `-c 'sandbox_permissions=[\"disk-full-read-access\"]'` - `-c",
+        "      --enable <FEATURE>",
+        "  -s, --sandbox <SANDBOX_MODE>",
+        "          [possible values: read-only, workspace-write, danger-full-access]",
+        "      --approve-for-me",
+        "      --dangerously-bypass-approvals-and-sandbox",
+        "      --dangerously-bypass-hook-trust",
+        "  -C, --cd <DIR>",
+        "      --add-dir <DIR>",
+        "      --ignore-user-config",
+        "      --ignore-rules"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "mainSession"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+-a, --ask-for-approval <APPROVAL_POLICY>$",
+        "^\\s+- never:",
+        "^\\s+--search$"
+      ],
+      "id": "widening-flags",
+      "matched": [
+        "  -a, --ask-for-approval <APPROVAL_POLICY>",
+        "          - never:      Never ask for user approval Execution failures are immediately returned to",
+        "      --search"
+      ],
+      "result": "pass"
+    }
+  ],
+  "cliVersion": "codex-cli 0.164.0",
+  "establishes": [
+    "isolatedEdit",
+    "mainSession",
+    "model",
+    "oneShot",
+    "readOnly",
+    "runnableProbe",
+    "spawnDenial",
+    "structuredOutput"
+  ],
+  "harness": "codex",
+  "kind": "cli-check",
+  "recordedAt": "2026-11-16T04:42:13.165Z",
+  "run": null,
+  "schema": "doflow-worker-evidence-v1"
+}

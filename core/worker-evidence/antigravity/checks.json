@@ -33,6 +33,17 @@
       "argv": ["--help"],
       "expect": ["^\\s+--model\\s"],
       "establishes": ["model"]
+    },
+    {
+      "id": "widening-flags",
+      "argv": ["--help"],
+      "expect": [
+        "^\\s+--add-dir\\s",
+        "^\\s+--dangerously-skip-permissions\\s",
+        "^\\s+--mode\\s+Set the agent execution mode for this session \\(accept-edits, auto, plan\\)$",
+        "^\\s+--settings\\s"
+      ],
+      "establishes": ["mainSession"]
     }
   ]
 }

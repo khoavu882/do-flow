@@ -710,7 +710,7 @@ const WORKER_OPTIONAL_CAPABILITIES: Record<string, { allowed: string[], required
 });
 const WORKER_BILLING = new Set(['free', 'metered', 'unknown']);
 const WORKER_KEYS = Object.freeze(['profile', 'billing', ...Object.keys(WORKER_CAPABILITIES), 'modelChecks']);
-const WORKER_ALLOWED_KEYS = Object.freeze([...WORKER_KEYS, ...Object.keys(WORKER_OPTIONAL_CAPABILITIES), 'family', 'modelList']);
+const WORKER_ALLOWED_KEYS = Object.freeze([...WORKER_KEYS, ...Object.keys(WORKER_OPTIONAL_CAPABILITIES), 'family', 'modelList', 'wideningFlags']);
 const WORKER_ENTRY_FIELDS = new Set(['status', 'evidence', 'verification', 'verifiedOn', 'reason']);
 // Soft hyphen, Mongolian vowel separator, zero-width and directional marks, word joiner and invisible operators, BOM.
 const INVISIBLE_CHARACTER = /[\u00ad\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff]/;
@@ -718,13 +718,10 @@ const WORKER_RECIPE_FIELDS = new Set(['binary', 'versionArgv', 'argv', 'promptVi
 const WORKER_QUOTA_SIGNALS_FIELDS = new Set(['signals', 'unverifiedSignals', 'basis', 'evidence']);
 const WORKER_FACTS = new Set(['hooksLoaded', 'identityForwarded', 'guidanceLoaded', 'login']);
 const WORKER_MODEL_CHECK_FIELDS = new Set(['id', 'argv', 'establishes', 'estimateTokens', 'timeoutSeconds']);
-// 165 FR-015 / owner P-2: a main session never gets a flag that widens what the harness may do. Matched on the element
-// (and on its name before an `=`), and by prefix for the three families. No widening flag, ever, for any harness.
-const MAIN_SESSION_DENIED_FLAGS = new Set([
-  '--dangerously-skip-permissions', '--dangerously-bypass-approvals-and-sandbox', '--auto', '--allow-all-tools',
-  '--yolo', '--trust-folder', '--trust-workspace',
-]);
-const MAIN_SESSION_DENIED_PREFIXES = Object.freeze(['--add-dir', '--dangerously', '--yolo']);
+// 165 FR-015 / owner P-2, review B-2: no recipe carries a flag that widens what the harness may do. The deny list is
+// data with one matcher (widening-flags.ts), run on oneShot.argv and mainSession.argv here and on the final argv at launch.
+const { wideningProblem, wideningFlagsProblem } = require('./widening-flags.ts');
+const WIDENING_CHECKED = Object.freeze(['oneShot', 'mainSession']);
 const MAIN_SESSION_PLACEHOLDERS = new Set(['{prompt}', '{model}', '{lastMessageFile}']);
 const WORKER_ARGV_MAX = 32;
 const WORKER_ARG_MAX_CHARS = 200;
@@ -820,6 +817,10 @@ function validateWorker(value: any, location: string, errors: string[]): void {
     fail('family', 'must be a non-empty string');
   }
   if (Object.hasOwn(value, 'modelList')) validateModelList(value.modelList, fail);
+  // 165 review B-2: a worker's own widening flags add to the built-in set; a malformed list is reported and not used.
+  const declaredProblem = Object.hasOwn(value, 'wideningFlags') ? wideningFlagsProblem(value.wideningFlags) : null;
+  if (declaredProblem) fail('wideningFlags', declaredProblem);
+  const declared = Object.hasOwn(value, 'wideningFlags') && !declaredProblem ? value.wideningFlags : [];
 
   for (const [key, rule] of [...Object.entries(WORKER_CAPABILITIES), ...Object.entries(WORKER_OPTIONAL_CAPABILITIES)]) {
     if (!Object.hasOwn(value, key)) continue;
@@ -841,13 +842,9 @@ function validateWorker(value: any, location: string, errors: string[]): void {
       if (!WORKER_RECIPE_FIELDS.has(field) || !rule.allowed.includes(field)) { fail(key, `has unknown field '${field}'`); continue; }
       if (entry.status !== 'supported') fail(key, `recipe field '${field}' is allowed only when status is supported`);
     }
-    if (key === 'mainSession' && Array.isArray(entry.argv)) {
-      for (const item of entry.argv) {
-        if (typeof item !== 'string') continue;
-        if (MAIN_SESSION_DENIED_FLAGS.has(item.split('=')[0]) || MAIN_SESSION_DENIED_PREFIXES.some((prefix) => item.startsWith(prefix))) {
-          fail(key, `argv must not contain the widening flag '${item}'`);
-        }
-      }
+    if (WIDENING_CHECKED.includes(key) && Array.isArray(entry.argv)) {
+      const widening = wideningProblem(entry.argv, { binary: value.cli?.binary, declared, mainSession: key === 'mainSession' });
+      if (widening) fail(key, `argv must not contain the widening flag '${widening}'`);
     }
     if (entry.status !== 'supported') continue;
     for (const field of rule.required) if (!Object.hasOwn(entry, field)) fail(key, `requires recipe field '${field}' when status is supported`);

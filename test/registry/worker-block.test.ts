@@ -296,6 +296,30 @@ test('worker: every mainSession deny-list flag is refused, bare and with a value
   }
 });
 
+// 165 review B-2: seat B's deny-list probe, as a test. A codex `mainSession.argv` of `exec <extra> --json -o {lastMessageFile} -`
+// accepted every line below; each is refused, and the shipped argv is not.
+test('165 review B-2 probe: every widening line the probe showed accepted is refused in a codex mainSession argv', () => {
+  const codex = structuredClone(loadRegistry({ repoRoot: REPO }).harnesses.find((h: any) => h.id === 'codex').worker);
+  const errorsOf = (extra: string[]) => {
+    const w = structuredClone(codex);
+    w.mainSession.argv = ['exec', ...extra, '--json', '-o', '{lastMessageFile}', '-'];
+    const errors: string[] = [];
+    validateWorker(w, "harness 'codex'", errors);
+    return errors;
+  };
+  assert.deepEqual(errorsOf([]), []);
+  const probe = [
+    ['--full-auto'], ['-s', 'danger-full-access'], ['--sandbox', 'danger-full-access'], ['-a', 'never'],
+    ['-c', 'sandbox_mode="danger-full-access"'], ['--permission-mode', 'bypassPermissions'], ['--allowedTools', 'Bash'],
+    ['--allow-all-tools'], ['--dangerously-skip-permissions'], ['--dangerously-bypass-approvals-and-sandbox'], ['--yolo'],
+  ];
+  for (const extra of probe) {
+    const errors = errorsOf(extra);
+    assert.equal(errors.length, 1, `${JSON.stringify(extra)} -> ${JSON.stringify(errors)}`);
+    assert.match(errors[0], /^harness 'codex' worker 'mainSession': argv must not contain the widening flag '/);
+  }
+});
+
 test('worker: a mainSession may carry {prompt} once (argv) or {lastMessageFile} once (stdin) and a null parser', () => {
   const errors: any = [];
   validateWorker({

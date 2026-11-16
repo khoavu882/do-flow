@@ -45,6 +45,35 @@
         "-o, --output-last-message <FILE>"
       ],
       "establishes": ["mainSession"]
+    },
+    {
+      "id": "widening-flags-exec",
+      "argv": ["exec", "--help"],
+      "expect": [
+        "^\\s+-c, --config <key=value>$",
+        "sandbox_permissions=",
+        "^\\s+--enable <FEATURE>$",
+        "^\\s+-s, --sandbox <SANDBOX_MODE>$",
+        "\\[possible values: read-only, workspace-write, danger-full-access\\]",
+        "^\\s+--approve-for-me$",
+        "^\\s+--dangerously-bypass-approvals-and-sandbox$",
+        "^\\s+--dangerously-bypass-hook-trust$",
+        "^\\s+-C, --cd <DIR>$",
+        "^\\s+--add-dir <DIR>$",
+        "^\\s+--ignore-user-config$",
+        "^\\s+--ignore-rules$"
+      ],
+      "establishes": ["mainSession"]
+    },
+    {
+      "id": "widening-flags",
+      "argv": ["--help"],
+      "expect": [
+        "^\\s+-a, --ask-for-approval <APPROVAL_POLICY>$",
+        "^\\s+- never:",
+        "^\\s+--search$"
+      ],
+      "establishes": ["mainSession"]
     }
   ]
 }

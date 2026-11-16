@@ -43,6 +43,14 @@
         "^\\s+--format choice\\s+Output format \\(choices: default, json\\)"
       ],
       "establishes": ["mainSession"]
+    },
+    {
+      "id": "widening-flags",
+      "argv": ["run", "--help"],
+      "expect": [
+        "^\\s+--auto\\s+Auto-approve permissions"
+      ],
+      "establishes": ["mainSession"]
     }
   ]
 }

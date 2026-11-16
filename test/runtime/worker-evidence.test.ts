@@ -344,7 +344,8 @@ test('the shipped codex checks file still validates and runs only free commands'
   const calls = fakeCalls(p);
   assert.ok(calls.length >= 5, 'the version check and every declared check ran');
   for (const call of calls) {
-    assert.match(call, /^(--version|exec --help|features list )/, `only free commands ran: ${call}`);
+    // 165 review B-2: the widening-flags check also reads the top-level `codex --help`.
+    assert.match(call, /^(--version|exec --help|--help|features list )/, `only free commands ran: ${call}`);
   }
 });
 

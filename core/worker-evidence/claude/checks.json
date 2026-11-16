@@ -44,6 +44,22 @@
         "\"text\" \\(default\\), \"json\" \\(single"
       ],
       "establishes": ["mainSession"]
+    },
+    {
+      "id": "widening-flags",
+      "argv": ["--help"],
+      "expect": [
+        "^\\s+--add-dir <directories\\.\\.\\.>",
+        "^\\s+--allow-dangerously-skip-permissions\\s",
+        "^\\s+--allowedTools, --allowed-tools <tools\\.\\.\\.>$",
+        "^\\s+--dangerously-skip-permissions\\s",
+        "^\\s+--permission-mode <mode>\\s",
+        "\\(choices: \"acceptEdits\", \"auto\",$",
+        "\"bypassPermissions\", \"manual\",$",
+        "--permission-prompt-tool\\) or \"none\"$",
+        "^\\s+--settings <file-or-json>\\s"
+      ],
+      "establishes": ["mainSession"]
     }
   ]
 }

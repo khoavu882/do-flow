@@ -55,6 +55,14 @@
         "^\\s+--\\s+End option parsing; treat remaining arguments as messages/files"
       ],
       "establishes": ["mainSession"]
+    },
+    {
+      "id": "widening-flags",
+      "argv": ["--help"],
+      "expect": [
+        "^\\s+--approve, -a\\s+Trust project-local files"
+      ],
+      "establishes": ["mainSession"]
     }
   ]
 }
