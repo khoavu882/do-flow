@@ -40,6 +40,7 @@ const { spawn } = require('node:child_process');
 const { emitContext, utf8Bytes } = require('../context/arbitrate.ts');
 const { grantSummary } = require('../context/summary-store.ts');
 const { wideningProblem, wideningFlagsProblem } = require('../../registry/widening-flags.ts');
+const { secretProblem, secretFlagsProblem } = require('../../registry/secret-flags.ts');
 const { composeModelPart } = require('./model-choice.ts');
 
 /** The parser table, required on first use as before (171 IC-003 resolves every parser id through it). */
@@ -134,13 +135,18 @@ function boundChoice(binding?: ModelBinding | null): ModelChoice | null {
   return { model: binding.model, provider: binding.provider ?? null, effort: binding.effort ?? null };
 }
 
-/** 169 IC-002: `argv` without every `F v` pair and `F=v` token for each flag `F` in `flags` (the flags the model part now owns). */
-function withoutFlags(argv: string[], flags: string[]): string[] {
-  if (flags.length === 0) return argv;
+/**
+ * 169 IC-002: `argv` without the fixed copy of each transport the model part now owns. A bare transport (`[F, "{value}"]`)
+ * drops every `F v` pair and `F=v` token; a keyed one (`[F, "<key>={value}"]`) drops only `F <key>=...` and `F=<key>=...`
+ * for that same key, so a fixed `F other=v` pair survives.
+ */
+function withoutFlags(argv: string[], strips: { flag: string; key: string | null }[]): string[] {
+  if (strips.length === 0) return argv;
   const out: string[] = [];
   for (let i = 0; i < argv.length; i += 1) {
-    if (flags.includes(argv[i])) i += 1;
-    else if (!flags.some((flag) => argv[i].startsWith(`${flag}=`))) out.push(argv[i]);
+    const pair = strips.some(({ flag, key }) => argv[i] === flag && (key === null || argv[i + 1]?.startsWith(`${key}=`)));
+    if (pair) i += 1;
+    else if (!strips.some(({ flag, key }) => argv[i].startsWith(`${flag}=${key === null ? '' : `${key}=`}`))) out.push(argv[i]);
   }
   return out;
 }
@@ -158,10 +164,21 @@ function refuseWidening(recipe: any, argv: string[], mainSession: boolean): void
   if (widening) throw new LaunchUsageError('widening-flag', `the ${mainSession ? 'main-session' : 'worker'} argv holds the widening flag '${widening}'`);
 }
 
+/**
+ * 169 review A-06: the same final argv holds no secret-printing flag or command (the registry's matcher, the worker's own
+ * `secretFlags` included), so a bound model, provider or effort value cannot form one; the validator checks only the
+ * declared and sample values.
+ */
+function refuseSecret(recipe: any, argv: string[]): void {
+  const declared = Array.isArray(recipe?.secretFlags) && secretFlagsProblem(recipe.secretFlags) === null ? recipe.secretFlags : [];
+  const secret = secretProblem(argv, { binary: recipe?.cli?.binary, declared });
+  if (secret) throw new LaunchUsageError('secret-flag', `the argv holds the secret-printing flag or command '${secret}'`);
+}
+
 /** IC-003 / 120 IC-011 / 169 IC-002: replace prompt, output path and the model part only as whole elements; `shape` keeps the placeholders. */
 function assemble(recipe: any, element: string, edit = false, lastMessageFile?: string, binding?: ModelBinding | null, shape = false): string[] {
   const choice = boundChoice(binding);
-  let model: { argv: string[]; strip: string[] } | null = null;
+  let model: { argv: string[]; strip: { flag: string; key: string | null }[] } | null = null;
   if (choice !== null) {
     if (recipe?.model?.status !== 'supported' || !Array.isArray(recipe.model.argv)) {
       throw new LaunchUsageError('recipe-incomplete', "assembleArgv: worker 'model' is not supported with an argv");
@@ -181,6 +198,7 @@ function assemble(recipe: any, element: string, edit = false, lastMessageFile?: 
     argv.push(...(model !== null && STRIPPABLE.has(key) ? withoutFlags(entry.argv, model.strip) : entry.argv));
   }
   refuseWidening(recipe, argv, false);
+  refuseSecret(recipe, argv);
   return argv.map((value) => {
     if (value === LAST_MESSAGE_FILE_ELEMENT) {
       if (lastMessageFile === undefined) {
@@ -260,6 +278,7 @@ function mainArgvOf(recipe: any, element: string, lastMessageFile: string | unde
   const at = tail.findIndex((value: string) => MAIN_TAIL.has(value));
   const spliced = at === -1 ? [...tail, ...modelPart] : [...tail.slice(0, at), ...modelPart, ...tail.slice(at)];
   refuseWidening(recipe, spliced, true);
+  refuseSecret(recipe, spliced);
   return spliced.map((value: string) => {
     if (value === LAST_MESSAGE_FILE_ELEMENT) {
       if (lastMessageFile === undefined) throw new LaunchUsageError('last-message-file-missing', "mainArgv: the recipe needs a '{lastMessageFile}' output path");
