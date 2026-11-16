@@ -1,8 +1,7 @@
 'use strict';
 
 /**
- * Deterministic check execution — the JavaScript port of
- * `core/shared/scripts/doflow/verification/contract_runner.py` (plan task B.3, component C7).
+ * Deterministic check execution (plan task B.3, component C7).
  *
  * Runs an ordered list of shell checks, cheapest and most deterministic first
  * (syntax → compile → types → lint → unit → integration → architecture → scope), and compiles a

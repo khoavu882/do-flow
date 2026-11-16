@@ -83,7 +83,7 @@ Specifically, when capacity and reserve are declared:
 ### Capacity and basis
 
 - Declared capacity reports `{ value: number, basis: "declared:<source>" }`.
-- Unknown capacity reports `{ value: null, basis: "unknown:<reason>" }` (in 075, all 8 harnesses are unverified: `basis: "unknown:values belong to 085 (A-19)"`).
+- Unknown capacity reports `{ value: null, basis: "unknown:<reason>" }` (in 075, every harness is unverified: `basis: "unknown:values belong to 085 (A-19)"`).
 - Unstated harness reports `{ value: null, basis: "unknown:harness-unstated" }`.
 - No model-name inference is performed.
 - The tool-result limit notice (IC-009) prints only when `toolResultLimitBytes` is declared and exceeded.
@@ -105,7 +105,7 @@ This replaces and retires the earlier proposal of downgrading context modes acro
 - **Delivery store**: Defined in IC-014 under `.doflow/state/delivery/<feature-ns>/<taskId>.json`.
 - **Locking**: Acquired using bounded acquire option (`boundedAcquire`: 1 try + 3 retries 5ms apart) in `src/runtime/task-state.ts:131-155`. If the lock is held, `recorded: false` with `reason: "store-locked"` is returned without changing the exit code. The `store-locked` failure carries `lockPath` and `strayEntries` (the names in the lock folder that no DoFlow runtime makes), and the JSON `delivery` object then adds the optional fields `lockPath` (the lock folder, relative to the state root) and `strayEntries` (an array); both are absent for every other reason, the failure's message and code are unchanged, and automatic upkeep stays silent.
 - **Retention**: At most 5 delivery entries are kept per task; oldest entries are evicted. The first writer of a delivery key (pack digest, form and harness) stands.
-- **Delta conditions (IC-015)**: A delta pack requires `--since <digest>` matching a recorded entry, matching source hashes, and harness profile `retention: "supported"`. In 075, profile retention is unverified across all 8 harnesses, so delta is dormant (`deltaRefused: "retention-unproven"` or `"harness-unstated"`).
+- **Delta conditions (IC-015)**: A delta pack requires `--since <digest>` matching a recorded entry, matching source hashes, and harness profile `retention: "supported"`. In 075, profile retention is unverified across every harness, so delta is dormant (`deltaRefused: "retention-unproven"` or `"harness-unstated"`).
 
 ## 7. Telemetry and silence
 

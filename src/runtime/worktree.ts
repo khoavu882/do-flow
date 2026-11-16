@@ -1,8 +1,7 @@
 'use strict';
 
 /**
- * Ephemeral git worktrees for isolated task execution — the JavaScript port of
- * `core/shared/scripts/doflow/sandbox/worktree_manager.py` (plan task B.3, pulled forward because
+ * Ephemeral git worktrees for isolated task execution (plan task B.3, pulled forward because
  * A.3's baseline capture cannot run safely without it).
  *
  * Why this exists: bench cases invoke skills that write files, create branches, or

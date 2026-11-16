@@ -1,8 +1,7 @@
 'use strict';
 
 /**
- * Failure classifier and bounded recovery planner — the JavaScript port of
- * `core/shared/scripts/doflow/recovery/recovery_manager.py` (plan task B.3, component C8).
+ * Failure classifier and bounded recovery planner (plan task B.3, component C8).
  *
  * All **eleven** failure classes are kept, against the specification's seven (design R4, plan
  * decision D3 and risk RK6): TOOL_FAILURE, AGENT_FAILURE, BUDGET_EXCEEDED and UNKNOWN_FAILURE are
