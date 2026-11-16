@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * `doflow review --action start` (095b IC-001). The verb checks the verify precondition on HEAD and
  * resolves the review protocol (119 IC-003/IC-005, `resolve-protocol.ts`) in one call. It never

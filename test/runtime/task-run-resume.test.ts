@@ -138,7 +138,7 @@ test('resume reports a paused run, its active attempt, a changed file and a summ
   const run = p.read().runs[key];
   assert.equal(run.control, 'running');
   assert.equal(run.epoch, 2);
-  // 088 adds `traceId` and `traceLink` to the entry when telemetry is on (test/runtime/trace-ids.test.js pins them); this pin is the pre-088 shape.
+  // 088 adds `traceId` and `traceLink` to the entry when telemetry is on (test/runtime/trace-ids.test.ts pins them); this pin is the pre-088 shape.
   const { traceId, traceLink, ...resumeEntry } = run.history.at(-1);
   assert.deepEqual(resumeEntry, {
     at: LATER.toISOString(), action: 'resume', by: 'orchestrator', reason: null, digest: asked.digest, epoch: 2, cleared: [],

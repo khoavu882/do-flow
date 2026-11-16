@@ -2,10 +2,6 @@
 // marker-merge.js — marker-delimited merge so a target project's own CLAUDE.md
 // content survives repeated doflow install/update runs; only the span between the
 // markers is ever regenerated.
-//
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): authored as `.ts`, run directly by Node
-// native type-stripping — no build step, no runtime dependency. Body stays CommonJS so a `.js`
-// caller's `require('../helper/marker-merge.ts')` keeps working while the tree is still `.js`.
 const fs = require('node:fs');
 const path = require('node:path');
 

@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * Review findings record (`review/findings.json` schema 1): the one validator, shared by roadmap
  * gate-b (`src/runtime/roadmap/gates.ts`) and the review check verb. Pure: no filesystem, no git,

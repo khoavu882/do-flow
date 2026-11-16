@@ -132,7 +132,7 @@ test('assertBashAvailableForHooks skips a skipped target even if it would otherw
 });
 
 // --- Integration through applyLifecycle --------------------------------------------------------
-// Same fake-adapter fixture pattern as test/lifecycle/lifecycle-orchestrator.test.js: a minimal raw
+// Same fake-adapter fixture pattern as test/lifecycle/lifecycle-orchestrator.test.ts: a minimal raw
 // registry object (bypassing loadRegistry's file-backed validation) plus a fake adapter that
 // records every call it receives.
 

@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 // Codex adapter boundary. Native parsing and mutation remain in the existing
 // codex-* modules; this module composes their non-mutating plans into the
 // common adapter shape without changing legacy CLI ownership.

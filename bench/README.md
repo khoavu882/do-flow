@@ -3,7 +3,7 @@
 The corpus in this directory is TRACKED: the runner, the per-skill eval definitions, `config.json` and
 the sanitized baseline all ship with the repository, so the behavioral baseline is reproducible from a
 clean clone. Only `bench/runs/` and `bench/reports/` stay local, being artifacts of paid runs rather
-than corpus. `test/guards/evals.test.js` fails if the corpus stops being tracked. For native Codex/Claude discovery and session
+than corpus. `test/guards/evals.test.ts` fails if the corpus stops being tracked. For native Codex/Claude discovery and session
 behavior, use the separate [native-session corpus](native/README.md). It starts from ordinary user
 messages and reports task outcomes and usage separately; the by-path skill benchmark below measures
 a different surface.
@@ -23,10 +23,10 @@ calls** across 13 skills, so it runs under its own command — the same separati
 `test/code-review-fixtures.sh` already uses.
 
 ```bash
-node bench/runner.js coverage     # offline, free
-node bench/runner.js advice-coverage # offline decision-model corpus coverage
+node bench/runner.ts coverage     # offline, free
+node bench/runner.ts advice-coverage # offline decision-model corpus coverage
 npm run bench -- advice-gate --kind tier # gate verdict for one kind; asks the local decision model
-node bench/runner.js plan --iteration baseline > /tmp/plan.json
+node bench/runner.ts plan --iteration baseline > /tmp/plan.json
 ```
 
 ## Which skills a run measures
@@ -117,7 +117,7 @@ runner.js baseline / report
 | `report --iteration a[,b..] [--noise F] [--decision-out F]` | Per-case delta of a run (or candidate repeats) against the baseline, evaluated against the noise band with a decision block (`corpus`, `train`, `heldout`), pending rows, usage, ceiling check, and per-skill delta when without-skill runs exist. `--decision-out` writes standalone decision JSON | no |
 | `noise --iterations a,b[,c..] [--out F] [--json]` | Measure eval noise floor over k baseline repeats. Validates model, commit and case set, re-runs programmatic grading twice in memory for grader stability, and computes per-repeat means, noise, baseline mean, headroom and a noise-check verdict. `--out` writes the noise artifact | no |
 | `impact-replay [--rev <ref>] [--commits <n>] [--json] [--out F]` | Offline replay of the last `--commits` non-merge commits reachable from `--rev`: each is exported to a scratch directory (`git archive`), its co-changed tests are run, the changed non-test files are restored to their parent versions and the tests run again to find the detecting set (a lower bound), which is compared with `src/runtime/verification/impact.ts`'s selection. No model call. Prints `insufficient-data`, `keep-off` or `selection-candidate`; the verdict enables nothing, because `verify` does not use the selector. Defaults come from the `impactReplay` block of `config.json`; the report goes to `runs/impact-replay/<UTC stamp>.json` unless `--out` is given | no |
-| `review-miss <corpus\|lint\|grade\|noise\|report> [flags]` | The review-miss suite: `corpus` generates cases from the fixed findings of the review records, `lint` checks a corpus file, `grade` scores one iteration's findings, `noise` and `report` build the A/A band and a decision over `bench/noise.js`. Verbs, flags and exit codes: [`review-miss/README.md`](review-miss/README.md). Routed to `bench/review-miss/runner.js`, as `agentic` is | no |
+| `review-miss <corpus\|lint\|grade\|noise\|report> [flags]` | The review-miss suite: `corpus` generates cases from the fixed findings of the review records, `lint` checks a corpus file, `grade` scores one iteration's findings, `noise` and `report` build the A/A band and a decision over `bench/noise.ts`. Verbs, flags and exit codes: [`review-miss/README.md`](review-miss/README.md). Routed to `bench/review-miss/runner.ts`, as `agentic` is | no |
 
 `--split` is accepted by `plan`, `list`, and `advice`; `--arm` by `plan` (value `without-skill`) and by `advice-gate` (values `choice`, `ladder`, `both`); `--kind` by `advice` and `advice-gate`; `--model`, `--write` and `--freeze` by `advice-gate` only. Any other command refuses
 the flag with exit 2, as it does an unknown option.
@@ -289,7 +289,7 @@ A without-skill run differs from its pair in these ways:
 - Its `sandbox.create` deletes the skill's copies from the sandbox after projecting it, drops the
   skill's entry from the sandbox's `.doflow-skill-source.json`, and marks the tracked deletions
   skip-worktree so they do not appear in the sandbox's `git status` or `git diff`. `bench/` stays,
-  because cases work on `bench/runner.js`. The plan lists the skill's copies in
+  because cases work on `bench/runner.ts`. The plan lists the skill's copies in
   `skills.withheldPaths`. `~/.claude/skills` is outside any sandbox and cannot
   be removed that way, so its `skills.instruction` forbids reading or invoking the skill, and
   `grade` checks afterwards.
@@ -365,7 +365,7 @@ or file under `outputs/`. Runs with infra failures or malformed records receive 
 With-skill runs whose skill source is not `verified` are excluded as `source-unverified`, also with
 `pass_rate: null`. Exclusions are counted apart by class or mark.
 
-The words below are defined once, in `bench/noise.js`; guard G60 compares this table to that
+The words below are defined once, in `bench/noise.ts`; guard G60 compares this table to that
 module's exports, row for row and value for value, in order.
 
 | Vocabulary | Values |
@@ -381,7 +381,7 @@ module's exports, row for row and value for value, in order.
 `noise` measures the eval noise floor across k baseline repeats (default k=3 in `bench/config.json`):
 
 ```bash
-node bench/runner.js noise --iterations <a,b[,c...]> [--out <file>] [--json]
+node bench/runner.ts noise --iterations <a,b[,c...]> [--out <file>] [--json]
 ```
 
 It validates that iterations share the same model, commit, and case set, re-runs programmatic grading
@@ -398,7 +398,7 @@ also match the configured and candidate models. Candidate iteration stamps must 
 and `sourceAt`; a missing value is refused with exit 2.
 
 ```bash
-node bench/runner.js report --iteration <a[,b...]> [--noise <file>] [--decision-out <file>]
+node bench/runner.ts report --iteration <a[,b...]> [--noise <file>] [--decision-out <file>]
 ```
 
 Per-case deltas are evaluated against the noise band `max(noise, mde)` with a 95% bootstrap confidence

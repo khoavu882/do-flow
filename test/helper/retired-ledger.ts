@@ -27,7 +27,7 @@ function hookCommand(id: string, script: string): string {
 /** An IC-001 retired record for `id`. */
 function retiredRecord({ id = 'oldtool', replacement = 'antigravity', handover = [] as any[] } = {}): any {
   return {
-    id, displayName: id, replacement, retiredOn: '2026-10-26', reason: 'test fixture', evidence: ['test'],
+    id, replacement,
     removal: {
       hookCommands: { renderer: `${id}-hooks`, key: 'hooks', commands: HOOK_SCRIPTS.map((script) => hookCommand(id, script)) },
       markerSectionRenderers: [`${id}-instructions`], handover,

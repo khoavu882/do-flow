@@ -8,10 +8,6 @@
 // Scope is explicit, never inferred: -g/--global -> $HOME-based (sync.sh parity); default (no -g) ->
 // rooted at an explicit project path, defaulting to cwd ('.') when no path is given. The parity
 // harness must pass -g for doflow, since sync.sh has no project mode to compare against.
-//
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): authored as `.ts`, run directly by Node
-// native type-stripping — no build step, no runtime dependency. Body stays CommonJS so a `.js`
-// caller's `require('../install/targets.ts')` keeps working while the rest of the tree is still `.js`.
 const os = require('node:os');
 const path = require('node:path');
 const { canonicalPath } = require('./paths.ts');

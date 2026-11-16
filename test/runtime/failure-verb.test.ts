@@ -35,7 +35,7 @@ function machine(name: any) {
 const LINE: any = {
   v: 1, at: '2026-10-03T10:00:00.000Z', source: 'cli', command: 'decision', harness: 'none', version: '1.14.0',
   project: '~/work/app', kind: 'TypeError', message: 'Cannot read properties of undefined (reading "...")',
-  frame: 'src/runtime/decision-register.js:normalizeItem', exit: 1,
+  frame: 'src/runtime/decision-register.ts:normalizeItem', exit: 1,
 };
 const line = (over: any = {}) => ({ ...LINE, ...over });
 

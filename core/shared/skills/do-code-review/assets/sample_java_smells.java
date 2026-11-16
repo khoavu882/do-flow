@@ -1,4 +1,4 @@
-// Sample Java file demonstrating the Java-specific patterns the code-reviewer
+// Sample Java file demonstrating the Java-specific patterns the do-code-review
 // skill detects. Each smell is labelled inline. This file is NOT meant to
 // compile cleanly — it is a fixture for code_quality_checker.py and
 // pr_analyzer.py.

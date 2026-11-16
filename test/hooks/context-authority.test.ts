@@ -3,7 +3,7 @@ const { bashPath } = require('../helper/bash-locator.ts');
 
 // Feature 078, IC-006 and IC-022 (DEC-001, DEC-034): one emission authority behind the prompt hook
 // and the launcher. The hook runs from an install mirror (test/helper/hook-fixtures
-// buildInstallMirror); the launcher is the IC-006 stand-in (test/helper/launcher-stand-in.js),
+// buildInstallMirror); the launcher is the IC-006 stand-in (test/helper/launcher-stand-in.ts),
 // which 081 replaces with its real launcher. Every hook and every in-process call gets a scratch
 // HOME and XDG_CONFIG_HOME, so nothing reads or writes the developer's own store.
 

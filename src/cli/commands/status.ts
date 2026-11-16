@@ -2,7 +2,6 @@
 // `doflow status` — resolved context plus installed state from the manifest, with per-harness
 // lifecycle verification. Must stay usable even when the local registry is invalid (--json for
 // scripting).
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 const path = require('node:path');
 const { resolveTargets, toolDirs } = require('../../install/targets.ts');
 const { resolveContext, printContext } = require('../../install/context.ts');

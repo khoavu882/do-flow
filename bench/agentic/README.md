@@ -14,14 +14,14 @@ planning figure is labelled INFERRED; none was measured on a real harness.
 | Item | Value |
 |---|---|
 | Contrast | One tool. Arm N: the harness's own tools only. Arm D: the same, plus `doflow retrieve` (lexical default) on `PATH` and named in one prompt paragraph (`arms` in `config.json`) |
-| Task kind | Code localization: the agent answers with up to 10 repository-relative paths, graded by `fileRecallAt10` (`scoreTask` in `bench/retrieval/lib/metrics.js`). Nothing is edited |
+| Task kind | Code localization: the agent answers with up to 10 repository-relative paths, graded by `fileRecallAt10` (`scoreTask` in `bench/retrieval/lib/metrics.ts`). Nothing is edited |
 | Tasks | 20: 12 train (referenced from `bench/retrieval/tasks/dev.json` by id, listed in `tasks.json`) and 8 heldout (`HC-901`..`HC-908`, `tasks-heldout.json`) |
-| Band and decision | The 096 rules in `bench/noise.js`, unchanged: arm N repeats make the noise band, arm D repeats are the candidate. Parameters (`k`=3, `mde`, `headroom`, `maxInfraShare`, `seed`) come from `noise` in `bench/config.json` |
+| Band and decision | The 096 rules in `bench/noise.ts`, unchanged: arm N repeats make the noise band, arm D repeats are the candidate. Parameters (`k`=3, `mde`, `headroom`, `maxInfraShare`, `seed`) come from `noise` in `bench/config.json` |
 | Executor | Bench-local over the harness registry (`core/registry/harnesses.json`): read-only one-shot argv, prompt on stdin. Not `worker run` (that prepends a context pack to both arms) |
 
 ## 2. Verbs
 
-Run as `npm run bench -- agentic <verb> [flags]` (or `node bench/runner.js agentic <verb>`). An unknown
+Run as `npm run bench -- agentic <verb> [flags]` (or `node bench/runner.ts agentic <verb>`). An unknown
 verb or flag, or a missing required flag, exits 2.
 
 | Verb | Flags | Spawns | Exit codes |
@@ -117,12 +117,12 @@ range beside it. The 096 rules define no token rule.
 | Path | Content | Tracked |
 |---|---|---|
 | `bench/runs/agentic/<iteration>/` | `iteration.json` and, per task, launch, transcript, last message, run status, timing and grading | no, gitignored under `bench/runs/` |
-| `bench/agentic/results/noise.json`, `bench/agentic/results/decision.json` | Output of the `noise` and `report` commands in stage N and D | yes, once written; `test/guards/eval-noise.test.js` (G60) validates them |
+| `bench/agentic/results/noise.json`, `bench/agentic/results/decision.json` | Output of the `noise` and `report` commands in stage N and D | yes, once written; `test/guards/eval-noise.test.ts` (G60) validates them |
 
 ## 7. Keeping this page current
 
-The commands are checked against `plan` output (`node bench/runner.js agentic plan --iteration dry --arm N`,
-which spawns nothing). The CLI is exercised by `test/bench/agentic-e2e.test.js` against
+The commands are checked against `plan` output (`node bench/runner.ts agentic plan --iteration dry --arm N`,
+which spawns nothing). The CLI is exercised by `test/bench/agentic-e2e.test.ts` against
 `test/fixtures/agentic/fake-worker.js` with three train and three heldout tasks. Numbers come from
 `config.json`, `bench/config.json` and the cost estimate. When a verb, flag, exit code or ceiling
 changes, change this page in the same commit. Section 8 is exercised by `test/bench/agentic-ab-unit.test.ts`

@@ -1,6 +1,6 @@
 /*
  * sample_c_smells.c — labelled instances of every C-specific pattern
- * the code-reviewer skill flags. Every smell is annotated inline with
+ * the do-code-review skill flags. Every smell is annotated inline with
  * its CWE and the rule from languages/c.md.
  *
  * Refactored counterpart: sample_c_clean.c

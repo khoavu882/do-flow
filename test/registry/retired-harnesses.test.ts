@@ -16,11 +16,7 @@ const REGISTRY_DIR = path.join(REPO, 'core', 'registry');
 function oldtool(overrides: any = {}): any {
   return {
     id: 'oldtool',
-    displayName: 'Old Tool',
     replacement: 'antigravity',
-    retiredOn: '2026-10-26',
-    reason: 'Replaced upstream by Antigravity CLI.',
-    evidence: ['fixture (row 127)'],
     removal: {
       hookCommands: { renderer: 'oldtool-hooks', key: 'hooks', commands: ['bash "$OLDTOOL_DIR/hooks/session-start.sh"'] },
       markerSectionRenderers: ['oldtool-instructions'],
@@ -75,9 +71,7 @@ test('the shipped registry retires gemini for antigravity, with its handover ent
   assert.equal(registry.retired.length, 1);
   const [gemini] = registry.retired;
   assert.equal(gemini.id, 'gemini');
-  assert.equal(gemini.displayName, 'Gemini CLI');
   assert.equal(gemini.replacement, 'antigravity');
-  assert.equal(gemini.retiredOn, '2026-10-26');
   assert.deepEqual(gemini.removal.hookCommands, { renderer: 'gemini-hooks', key: 'hooks', commands: GEMINI_HOOK_COMMANDS });
   assert.deepEqual(gemini.removal.markerSectionRenderers, ['gemini-instructions']);
   assert.deepEqual(gemini.removal.handover, [{ renderer: 'gemini-instructions', scope: 'global', to: 'antigravity', surface: 'instruction' }]);
@@ -139,12 +133,7 @@ test('a removal.handover[].to that is not a live harness is rejected', () => {
 test('every retired field is required and typed', () => {
   const cases: Array<[string, (entry: any) => void, RegExp]> = [
     ['id pattern', (e) => { e.id = 'Old_Tool'; }, /id must match/],
-    ['displayName', (e) => { delete e.displayName; }, /displayName must be a non-empty string/],
     ['replacement', (e) => { e.replacement = 7; }, /replacement must be a non-empty string/],
-    ['retiredOn format', (e) => { e.retiredOn = '26/10/2026'; }, /retiredOn must be a YYYY-MM-DD date/],
-    ['retiredOn calendar', (e) => { e.retiredOn = '2026-02-30'; }, /retiredOn must be a YYYY-MM-DD date/],
-    ['reason', (e) => { e.reason = ''; }, /reason must be a non-empty string/],
-    ['evidence', (e) => { e.evidence = 'x'; }, /evidence must be a non-empty array of non-empty strings/],
     ['removal', (e) => { delete e.removal; }, /removal must be an object/],
     ['hookCommands', (e) => { e.removal.hookCommands = []; }, /removal\.hookCommands must be an object/],
     ['hookCommands.renderer', (e) => { delete e.removal.hookCommands.renderer; }, /removal\.hookCommands\.renderer must be a non-empty string/],

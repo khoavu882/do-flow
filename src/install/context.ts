@@ -2,10 +2,6 @@
 // context.js — resolved-scope/properties view, shown by `install --dry-run` and `status`.
 // Purpose: once install targets can be $HOME (global) OR a project path, it stops being obvious
 // at a glance which one a given invocation resolves to — this makes that explicit for debugging.
-//
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): authored as `.ts`, run directly by Node
-// native type-stripping — no build step, no runtime dependency. Body stays CommonJS so a `.js`
-// caller's `require('../install/context.ts')` keeps working while the tree is still `.js`.
 const path = require('node:path');
 const { canonicalPath } = require('./paths.ts');
 const { sourceCommit: gitSourceCommit } = require('../helper/git.ts');

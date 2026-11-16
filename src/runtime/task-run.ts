@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 // Task run records (feature 080, design C4): the run key, who may act on a run, the run record,
 // its totals, the aggregate budget check and the resume epoch.
 //

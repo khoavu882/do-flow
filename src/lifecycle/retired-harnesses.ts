@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * Retirement sweep (row 127 IC-003, design D2): release, delete or strip what a retired harness
  * installed, driven only by the scope's ledger and the retired record in the registry. The retired

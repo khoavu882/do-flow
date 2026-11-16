@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 // Index store for the guidance corpus. The index is derived state under the project's
 // own `.doflow/index/`: every indexed file is addressed by its sha256, so freshness is intrinsic —
 // a manifest whose digests no longer match the tree IS stale, by construction, and rebuilding only

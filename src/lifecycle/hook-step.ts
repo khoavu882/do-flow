@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 // IC-037 (DEC-034): the shared hooks tree and the hook front doors of every harness that reads it
 // move together. An install or update that writes changed bytes into `hooks.shared` also plans the
 // front doors of the other harnesses installed in the same scope, so a harness the run does not

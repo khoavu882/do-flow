@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 // Shared copy-tree engine — the generic "own a tree of files" implementation every asset
 // declaring `renderer: "copy-tree"` in core/registry/assets.json needs. Codex's adapter already
 // proved this per-file fingerprint/conflict model for agents and hooks (ownedRemovalPlan,

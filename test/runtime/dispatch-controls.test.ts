@@ -4,7 +4,7 @@
 // DEC-040, DEC-045, DEC-047): the controls on a dispatch run: pause and inspect, cancel, take over
 // and resume with its settlement and lease rule.
 //
-// Each case is a sandbox repository (test/helper/dispatch-sandbox.js) with a started 080 run, an
+// Each case is a sandbox repository (test/helper/dispatch-sandbox.ts) with a started 080 run, an
 // integration worktree made by createIntegrationWorktree and a seeded dispatch run, as in
 // test/runtime/dispatch-loop-step.test.js. Fake workers run through the loop where a live process
 // matters; other dispatches, worker runs and drivers are seeded through the stores' own writers.

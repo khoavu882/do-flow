@@ -96,7 +96,7 @@ function readHarnessIds(repoRoot: string, fsImpl: any = fs): string[] {
 
 /**
  * Checks the registry's shape and the id guard: the entry ids and `harnessIds` are the same set, with no
- * exception (row 127 retired Gemini CLI, so there is no Gemini entry and no allowance for one).
+ * exception.
  */
 function validateTranscriptRegistry(registry: any, { harnessIds }: { harnessIds: string[] }): { ok: boolean; errors: string[] } {
   const errors: string[] = [];

@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 // Task source records (feature 080, design C5, IC-013): what a task's declared `files:` looked like
 // at claim, and how that compares with what they look like at resume.
 //

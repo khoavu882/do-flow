@@ -48,7 +48,7 @@ const LEXICAL_SHELL = { 'doflow-run': DISPATCHER, 'policies/capture-failure.sh':
 
 // ── the canonical text (design/specs.md IC-003 and IC-004; the [A-Za-z]: arms are the Windows drive-path extension of issue #11) ─────────────────────────────────────
 
-const CANON_CONFIG_HOME = `# BEGIN doflow-config-home v1 (rule: src/runtime/config-home.ts; checked by test/guards/settings.test.js)
+const CANON_CONFIG_HOME = `# BEGIN doflow-config-home v1 (rule: src/runtime/config-home.ts; checked by test/guards/settings.test.ts)
 doflow_config_home() {
   DOFLOW_HOME=""
   case "\${XDG_CONFIG_HOME:-}" in
@@ -63,7 +63,7 @@ doflow_config_home() {
 }
 # END doflow-config-home v1`;
 
-const CANON_LEXICAL = `# BEGIN doflow-settings-lexical v1 (rule: src/runtime/settings/lexical.ts; checked by test/guards/settings.test.js)
+const CANON_LEXICAL = `# BEGIN doflow-settings-lexical v1 (rule: src/runtime/settings/lexical.ts; checked by test/guards/settings.test.ts)
 doflow_lex_capture() {
   local f="\${1:-}" text="" rest=""
   local re='"failure\\.capture"[[:space:]]*:[[:space:]]*("[^"]*"|[^,}"[:space:]]*)'
@@ -185,7 +185,7 @@ function identityHomeMisses(t: any, copy: any) {
   return misses;
 }
 
-// ── the IC-004 corpus (same strings as test/settings/lexical.test.js) ──────────────────────────
+// ── the IC-004 corpus (same strings as test/settings/lexical.test.ts) ──────────────────────────
 
 const BOM = '\u00ef\u00bb\u00bf';
 const NBSP = '\u00c2\u00a0'; // U+00A0 as its two UTF-8 bytes, latin1 characters

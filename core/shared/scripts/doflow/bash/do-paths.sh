@@ -117,7 +117,7 @@ if [ "$is_git_repo" = true ]; then
   # `feature_dir` is `agent-docs/doflow/<slug>`, and a slug with a `/` nests it a level deeper than
   # every other feature — deep enough that the non-git directory scan above can never find it,
   # since that scan globs one level and then drops names without a numeric prefix. And
-  # `assertSafeTaskId` in src/runtime/evidence-ledger.js rejects path separators outright, so
+  # `assertSafeTaskId` in src/runtime/evidence-ledger.ts rejects path separators outright, so
   # `doflow evidence` and `doflow claim` throw for the whole session.
   #
   # The arm above used to read `*/)`, which matches only a name ending in `/` — something git

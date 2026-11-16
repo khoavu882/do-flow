@@ -464,8 +464,8 @@ function boundFiles(config: any) {
 }
 
 /**
- * The DEC-044 store setups a binding event may name, as test/hooks/identity-bash.test.js and
- * test/runtime/context-identity.test.js apply them: `store-unwritable` makes sessions/ a regular
+ * The DEC-044 store setups a binding event may name, as test/hooks/identity-bash.test.ts and
+ * test/runtime/context-identity.test.ts apply them: `store-unwritable` makes sessions/ a regular
  * file, `bound-symlink` makes the event unit's bound a link to a file holding the event's session
  * id, `bound-empty` makes it an empty regular file. `root` holds the link target, outside the store.
  */

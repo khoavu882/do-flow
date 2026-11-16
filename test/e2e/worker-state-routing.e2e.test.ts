@@ -66,7 +66,7 @@ function makeHarnessDescriptors(baseDescriptors: any) {
   descriptors.codex.isolatedEdit = {
     status: 'supported',
     evidence: ['test/fixtures/worker/descriptors.json'],
-    verification: 'Run the fake CLI under test/helper/fake-harness-cli.js with a scenario for run.',
+    verification: 'Run the fake CLI under test/helper/fake-harness-cli.ts with a scenario for run.',
     verifiedOn: '2026-10-18',
     argv: ['exec', '-s', 'workspace-write'],
   };

@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 // ── Durable per-task state: locked, merged, versioned ────────────────────────────────────────────
 //
 // EvidenceLedger.save and ClaimsManager.save used to overwrite their whole JSON file with

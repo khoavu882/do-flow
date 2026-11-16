@@ -25,7 +25,7 @@ _DOFLOW_SRC=${BASH_SOURCE[0]//\\//}; case $_DOFLOW_SRC in */*) _DOFLOW_CAPTURE_F
 # read by doflow_lex_capture below), the same rules the Node writer follows (IC-011, IC-014, IC-005).
 # The two marked blocks are byte-identical to the ones in bin/doflow-run.
 
-# BEGIN doflow-config-home v1 (rule: src/runtime/config-home.ts; checked by test/guards/settings.test.js)
+# BEGIN doflow-config-home v1 (rule: src/runtime/config-home.ts; checked by test/guards/settings.test.ts)
 doflow_config_home() {
   DOFLOW_HOME=""
   case "${XDG_CONFIG_HOME:-}" in
@@ -40,7 +40,7 @@ doflow_config_home() {
 }
 # END doflow-config-home v1
 
-# BEGIN doflow-settings-lexical v1 (rule: src/runtime/settings/lexical.ts; checked by test/guards/settings.test.js)
+# BEGIN doflow-settings-lexical v1 (rule: src/runtime/settings/lexical.ts; checked by test/guards/settings.test.ts)
 doflow_lex_capture() {
   local f="${1:-}" text="" rest="" d=""
   local re='"failure\.capture"[[:space:]]*:[[:space:]]*("[^"]*"|[^,}"[:space:]]*)'

@@ -1,5 +1,5 @@
 'use strict';
-// The backup set builder (src/install/backup-set.js): which files a run backs up. Plans are built by
+// The backup set builder (src/install/backup-set.ts): which files a run backs up. Plans are built by
 // hand for the rules, and by the real lifecycle planner for the Codex hook scripts.
 const { test } = require('node:test');
 const assert = require('node:assert');

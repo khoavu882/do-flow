@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * C7 — report assembler and the `inventory` verb (FR-005, FR-008, FR-009; IC-001, IC-002).
  *
@@ -21,7 +19,7 @@
  *
  * 1. **Two scope vocabularies.** The ledger and `coverage.js` say `global`/`project`; the registry's
  *    `scopePrecedence.order` says `user`/`project` (the same word `registryScope()` uses in
- *    `src/lifecycle/index.js`). `precedence.js` passes both `presentAt` and `winner` through in
+ *    `src/lifecycle/index.ts`). `precedence.js` passes both `presentAt` and `winner` through in
  *    whatever vocabulary it was handed, so this module converts on the way in and back on the way
  *    out (`toRegistryScope`/`toReportScope`). Skipping either half produces a verdict naming a scope
  *    the rest of the report never mentions.
@@ -45,7 +43,7 @@
  *    finding spans both scopes and belongs to neither, so naming whichever copy sorted first stated
  *    something no computation had established.
  * 4. **A resource whose identity cannot be derived is never dropped.** `deriveAssetIdentity` returns
- *    `null` for a row carrying no harness or no `ownershipIdentity`. `src/lifecycle/index.js`
+ *    `null` for a row carrying no harness or no `ownershipIdentity`. `src/lifecycle/index.ts`
  *    refuses to record such a row, so no install produces one — but a ledger is a JSON file a user
  *    can hand-edit, so the branch stays reachable. `null` is not a join key — two such rows are not
  *    the same asset — so they cannot become logical-asset entries. They are reported one row each
@@ -130,7 +128,7 @@ function recordKey(record: any): string {
  *
  * `evaluated` exists because absence from `changes` carries two meanings that must not be conflated:
  * a copy-tree file whose destination bytes already equal what the source would produce yields no
- * change at all (`src/adapters/copy-tree.js`, the `unchanged, no-op` branch) — but so does a harness
+ * change at all (`src/adapters/copy-tree.ts`, the `unchanged, no-op` branch) — but so does a harness
  * whose plan was never produced. A harness the plan skipped, or whose adapter reported a conflict
  * (`codex: Malformed TOML value` is the live example), emitted a change set that is not a statement
  * of what the current source would write, so a resource missing from it was not examined.
@@ -157,7 +155,7 @@ function planBasis(snapshot: any): any {
 /**
  * Whether the bytes a planned change would write are the bytes already at its destination.
  *
- * A change is not by itself a statement that the content differs. `src/adapters/copy-tree.js` treats
+ * A change is not by itself a statement that the content differs. `src/adapters/copy-tree.ts` treats
  * a destination as a no-op only when three things agree — same location, disk bytes equal to the
  * source fingerprint, **and** the recorded ledger row equal to it too — which is right for its own
  * purpose, planning a write that also refreshes the row. It means a change is emitted whenever the

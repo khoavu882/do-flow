@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 // Pi MCP projection: DoFlow's stdio servers merged per server into the mcpServers map of Pi's
 // mcp.json. Ownership is one ledger row per server and file, whose fingerprint is the entry value
 // DoFlow last verified there. A same-named entry DoFlow holds no row for is the user's and is never

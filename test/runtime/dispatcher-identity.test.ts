@@ -6,7 +6,7 @@ const { bashPath } = require('../helper/bash-locator.ts');
 // `null` otherwise, so the run ledger line always parses.
 //
 // The dispatcher runs under /bin/bash (3.2 on macOS) with PATH set to the scratch bin/ from
-// test/helper/dispatch-sandbox.js, holding `node` and the three tools the dispatcher and its trace
+// test/helper/dispatch-sandbox.ts, holding `node` and the three tools the dispatcher and its trace
 // call (dirname, date, mkdir); the node directory is never on PATH (DEC-056, NFR-002). The verb is
 // served by a fake CLI script through DOFLOW_CLI, so the only ledger writer is `trace_run`.
 

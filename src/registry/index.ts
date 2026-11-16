@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 // Registry loader and validator.  Registry files are plain JSON (core/registry/*.json).
 const fs = require('node:fs');
 const path = require('node:path');
@@ -33,7 +31,7 @@ const ORCHESTRATION_OPS = ['spawn', 'wait', 'status', 'cancel', 'resume', 'nest'
 const ORCHESTRATION_FALLBACK = new Set(['sequential', 'manual']);
 // 'core' = must be supported/different (never unavailable) on every currently-integrated harness;
 // 'enhanced' = best-effort, wired wherever a harness's native surface allows. Optional field —
-// a policy without one is neither tier, and test/guards/registry.test.js's core-tier check simply
+// a policy without one is neither tier, and test/guards/registry.test.ts's core-tier check simply
 // skips it. See agent-docs research backing this (LSP capability negotiation, k8s feature gates,
 // progressive enhancement): reducing every policy to the true cross-harness intersection was
 // rejected as a design in favor of this, since it deletes real working capability instead of just
@@ -1435,18 +1433,12 @@ const HANDOVER_SCOPES = new Set(['global', 'project']);
 /** A harness DoFlow no longer supports, with what replaces it and how its installed files are
  * released (row 127 IC-001; `removal.handover` is IC-007). */
 interface RetiredHarness {
-  id: string; displayName: string; replacement: string; retiredOn: string; reason: string; evidence: string[];
+  id: string; replacement: string;
   removal: {
     hookCommands: { renderer: string; key: string; commands: string[] };
     markerSectionRenderers: string[];
     handover: Array<{ renderer: string; scope: 'global' | 'project'; to: string; surface: string }>;
   };
-}
-
-function isCalendarDate(value: any): boolean {
-  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const date = new Date(`${value}T00:00:00Z`);
-  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
 /** Validates harnesses.json `retired[]`: optional; every entry fully typed; ids unique and disjoint
@@ -1461,10 +1453,8 @@ function validateRetired(value: any, harnessIds: Set<string>, errors: string[]):
     const at = `retired harness '${typeof entry.id === 'string' ? entry.id : `#${index}`}'`;
     if (typeof entry.id !== 'string' || !RETIRED_ID_RE.test(entry.id)) issue(errors, at, `id must match ${RETIRED_ID_RE}`);
     else if (harnessIds.has(entry.id)) issue(errors, at, `id collides with live harness '${entry.id}'; an id is either live or retired`);
-    for (const field of ['displayName', 'replacement', 'reason']) if (!nonEmptyString(entry[field])) issue(errors, at, `${field} must be a non-empty string`);
+    if (!nonEmptyString(entry.replacement)) issue(errors, at, 'replacement must be a non-empty string');
     if (nonEmptyString(entry.replacement) && !harnessIds.has(entry.replacement)) issue(errors, at, `replacement '${entry.replacement}' is not a live harness`);
-    if (!isCalendarDate(entry.retiredOn)) issue(errors, at, 'retiredOn must be a YYYY-MM-DD date');
-    if (!strings(entry.evidence, false)) issue(errors, at, 'evidence must be a non-empty array of non-empty strings');
     const removal = entry.removal;
     if (!object(removal)) { issue(errors, at, 'removal must be an object'); continue; }
     const hooks = removal.hookCommands;

@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * Feature status deriver (IC-021, DEC-022, DEC-044, DEC-030, DEC-035). A tracked feature is
  * `finished`, `awaiting-release`, `in-progress` or `unknown`, derived on every read from git and the

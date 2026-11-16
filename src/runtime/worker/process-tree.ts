@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * Process identity, liveness, bounded group spawn and kill escalation (feature 081, IC-022 and
  * IC-021 step 3; DEC-023, DEC-043, DEC-050).

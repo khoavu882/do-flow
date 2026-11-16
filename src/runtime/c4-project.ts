@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * Project a C4-PlantUML source into the Mermaid flowchart that stands for it (035 IC-002/IC-004).
  *

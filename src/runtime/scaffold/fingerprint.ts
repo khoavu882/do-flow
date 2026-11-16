@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * Fingerprinting — the mechanism behind property 4 of the scaffold generator ("human edits
  * survive"). Every generated file carries a hash of its own body in its header; `compose()` writes

@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * MCP reach: for each harness the ledgers say is installed, which MCP servers does that harness
  * have — selected from DoFlow's catalog, configured by hand, absent, or out of the catalog's reach.

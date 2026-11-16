@@ -1,5 +1,5 @@
 'use strict';
-// Restore planning and execution in src/install/backup.js: format-2 backups restore per file, any
+// Restore planning and execution in src/install/backup.ts: format-2 backups restore per file, any
 // other format is refused. Every path lives under a scratch directory.
 const { test } = require('node:test');
 const assert = require('node:assert');

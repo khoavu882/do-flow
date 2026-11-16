@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * `review-pack --task-id <slug>` and `roadmap --action report`: the one place a person reviews what an
  * unattended run decided. Both read records and write a Markdown file; neither calls a model, and

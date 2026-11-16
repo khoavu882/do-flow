@@ -1,7 +1,6 @@
 'use strict';
 // `doflow install` — plan the full lifecycle across the requested targets, back up, apply, and
 // pin what was chosen in doflow.lock. Supports --dry-run previews and MCP selection.
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 const os = require('node:os');
 const path = require('node:path');
 const { resolveTargets, toolDirs } = require('../../install/targets.ts');

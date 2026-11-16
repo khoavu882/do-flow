@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 // Claude native adapter.  It owns only Claude path/format decisions; selection and
 // ownership journalling remain lifecycle concerns. Its MCP entries live in ./mcp.ts.
 const crypto = require('node:crypto');

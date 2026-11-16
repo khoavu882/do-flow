@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * Which event files the retention switch may delete. `DOFLOW_RETENTION_HOURS` overrides the window;
  * when it is unset, the declared default applies only while the project's `prune` setting is on.

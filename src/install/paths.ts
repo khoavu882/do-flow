@@ -1,8 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): authored as `.ts`, run directly by Node
-// native type-stripping — no build step, no runtime dependency. Body stays CommonJS so a `.js`
-// caller's `require('../install/paths.ts')` keeps working while the rest of the tree is still `.js`.
 const fs = require('node:fs');
 const path = require('node:path');
 

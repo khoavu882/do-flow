@@ -3,7 +3,7 @@
 // Feature 106 A.2 (IC-003, IC-004, IC-005; FR-002 to FR-008): the quota fallback ladder in 082
 // dispatch. Ladder selection is checked on the pure `selectMode` with a prefilled candidate cache;
 // holds, steps, events and gaps through the loop over a sandbox repository
-// (test/helper/dispatch-sandbox.js) whose PATH is the scratch bin/ alone (fake CLI links, node and
+// (test/helper/dispatch-sandbox.ts) whose PATH is the scratch bin/ alone (fake CLI links, node and
 // git, never a real harness binary, DEC-056); the setting through the settings fixture. No model or
 // network call. POSIX only where a sandbox is used.
 //

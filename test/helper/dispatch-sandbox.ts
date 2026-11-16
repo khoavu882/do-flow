@@ -3,10 +3,10 @@
 // dispatch-sandbox.js — feature 082, IC-041 fixtures (DEC-010, DEC-056). Test-only, never shipped.
 //
 // The one place a dispatch test builds a child PATH. makeDispatchSandbox(t, options) returns:
-//   - a scratch git repository (test/helper/tmp.js) holding agent-docs/doflow/<slug>/plan.md, with
+//   - a scratch git repository (test/helper/tmp.ts) holding agent-docs/doflow/<slug>/plan.md, with
 //     every file the plan's tasks declare seeded and committed so `commit -a` sees the edit, and
 //     agent-docs/ and .doflow/ ignored as in a real checkout;
-//   - a scratch bin/ holding the fake harness CLI links (test/helper/fake-harness-cli.js), a `node`
+//   - a scratch bin/ holding the fake harness CLI links (test/helper/fake-harness-cli.ts), a `node`
 //     symlink to process.execPath, a `git` symlink to the git binary resolved from this process's
 //     PATH, and only the system tools a test names (`systemTools`, for hook front doors);
 //   - an env whose PATH is that bin/ alone, with HOME in the scratch and the five DOFLOW_* identity
@@ -20,7 +20,7 @@
 // editDescriptors() is test/fixtures/worker/descriptors.json with a supported `isolatedEdit` on the
 // claude fake (argv ['--edit-in-cwd']); antigravity keeps none, so it reads unknown, reason
 // not-declared. It lives here rather than in descriptors.json because 081's
-// test/runtime/worker-fake-cli.test.js asserts each descriptors.json block holds exactly
+// test/runtime/worker-fake-cli.test.ts asserts each descriptors.json block holds exactly
 // WORKER_KEYS, and that file stays byte-identical (plan §1, NFR-003).
 
 const fs = require('node:fs');
@@ -47,8 +47,8 @@ function editDescriptors() {
   const copy = structuredClone(DESCRIPTORS);
   copy.claude.isolatedEdit = {
     status: 'supported',
-    evidence: ['test/helper/dispatch-sandbox.js → editDescriptors'],
-    verification: 'Run the fake CLI under test/helper/fake-harness-cli.js with --edit-in-cwd and a scenario for run.',
+    evidence: ['test/helper/dispatch-sandbox.ts → editDescriptors'],
+    verification: 'Run the fake CLI under test/helper/fake-harness-cli.ts with --edit-in-cwd and a scenario for run.',
     verifiedOn: '2026-10-16',
     argv: [...EDIT_ARGV],
   };

@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * Decision register (IC-001 to IC-009). One `decisions/register.json` per feature folder holds
  * every decision taken during the feature's chain; `decisions.md` (live view, one row per live

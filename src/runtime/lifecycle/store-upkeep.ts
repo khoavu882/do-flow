@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * Store upkeep, run once by each lifecycle verb before its own work. A project whose store still
  * lives at `agent-docs/lifecycle/events/` has it copied once into `.doflow/state/lifecycle/events/`

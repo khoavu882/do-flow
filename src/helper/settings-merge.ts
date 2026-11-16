@@ -12,10 +12,6 @@
 // CLAUDE.md: DoFlow guarantees ITS keys are present and correct, and treats everything else in
 // the file as none of its business — preserved on write, ignored on verify, left behind on
 // remove.
-//
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): authored as `.ts`, run directly by Node
-// native type-stripping — no build step, no runtime dependency. Body stays CommonJS so a `.js`
-// caller's `require('../helper/settings-merge.ts')` keeps working while the tree is still `.js`.
 
 interface HookCommand { command?: unknown }
 interface HookEntry { matcher?: unknown; hooks?: HookCommand[] }

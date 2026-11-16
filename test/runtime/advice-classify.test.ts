@@ -235,13 +235,12 @@ const ACCEPTED_ARGS = ['--task-class', 'bug', '--calling-skill', 'do', '--reques
  * Runs classify against an in-process fake server, so the model calls can be counted: `asks` is the number of
  * decision requests the verb made. The child runs asynchronously, which leaves the server free to answer.
  */
-async function runCounted(t: any, f: any, args: any, { settings, sentinel, env }: any = {}) {
+async function runCounted(t: any, f: any, args: any, { settings, env }: any = {}) {
   const server: any = await startFakeServer();
   t.after(() => server.close());
   f.enable(server.origin);
   fs.mkdirSync(path.join(f.project, '.doflow', 'state'), { recursive: true });
   if (settings) fs.writeFileSync(path.join(f.project, '.doflow', 'settings.json'), JSON.stringify(settings));
-  if (sentinel) fs.writeFileSync(path.join(f.project, '.doflow', 'state', 'rollback.json'), JSON.stringify(sentinel));
   const child = spawn(bashPath(), [RUN, 'classify', ...args], { cwd: f.project, env: f.scratch.env({ DOFLOW_CLI: BIN, ...(env || {}) }) });
   let stdout = '';
   let stderr = '';
@@ -341,7 +340,6 @@ test('085 H1: an explicit rollout.profile baseline turns a configured act off fo
 const CHOSEN_OFF: any = {
   'settings rollout.profile baseline': { settings: { rollout: { profile: 'baseline' } } },
   'env DOFLOW_ROLLOUT_PROFILE=baseline': { env: { DOFLOW_ROLLOUT_PROFILE: 'baseline' } },
-  'an active rollback sentinel': { sentinel: { active: true, reason: 'manual' } },
   'an invalid profile value': { settings: { rollout: { profile: 'bogus' } } },
 };
 for (const [name, c] of Object.entries(CHOSEN_OFF) as any) {

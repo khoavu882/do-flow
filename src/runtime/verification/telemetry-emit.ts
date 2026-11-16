@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 const path = require('node:path');
 const crypto = require('node:crypto');
 const nodeFs = require('node:fs');

@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * Worker readiness (feature 081 B.1 and B.2): discover (IC-004), probe facts and the probe
  * record (IC-005), model-backed checks (IC-006), freshness (IC-007), the identity-forwarding

@@ -3,12 +3,10 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { resolveRolloutProfile, isCapabilityActive } = require('./resolve.ts');
-const { checkRollbackState, tripRollback, resetRollback } = require('./rollback.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 
 interface ProfileDoctorReport {
   profile: ReturnType<typeof resolveRolloutProfile>;
-  rollback: ReturnType<typeof checkRollbackState>;
   registryVerified: {
     harnessCount: number;
     verifiedFacts: boolean;
@@ -26,7 +24,6 @@ function buildProfilesDoctor(options?: {
   const repoRoot = options?.repoRoot || REPO_ROOT;
 
   const profile = resolveRolloutProfile(options);
-  const rollback = checkRollbackState(options);
 
   let harnessCount = 0;
   let verifiedFacts = true;
@@ -55,7 +52,6 @@ function buildProfilesDoctor(options?: {
 
   return {
     profile,
-    rollback,
     registryVerified: {
       harnessCount,
       verifiedFacts,
@@ -67,14 +63,8 @@ function buildProfilesDoctor(options?: {
 function printProfilesDoctor(report: ProfileDoctorReport): void {
   console.log('\n[Rollout Profile & Governance]');
   const p = report.profile;
-  const r = report.rollback;
 
   console.log(`  profile           ${p.name.padEnd(12)} (${p.origin.source}: ${p.origin.detail || 'default'})`);
-  if (r.active) {
-    console.log(`  rollback          ACTIVE (${r.reason}, origin: ${r.origin}) -> forced baseline`);
-  } else {
-    console.log('  rollback          inactive (normal operation)');
-  }
 
   const caps = p.capabilities;
   console.log(`  capabilities      retrieval: ${caps.retrieval}, advisor: ${caps.advisor}, verification: ${caps.verification}`);
@@ -89,8 +79,5 @@ module.exports = {
   buildProfilesDoctor,
   printProfilesDoctor,
   resolveRolloutProfile,
-  checkRollbackState,
   isCapabilityActive,
-  tripRollback,
-  resetRollback,
 };

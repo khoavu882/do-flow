@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 // Structure-aware markdown chunker. Chunks follow document
 // structure — frontmatter becomes metadata, headings bound sections, fenced code blocks never
 // split mid-block — because every downstream stage (indexing, ranking, prompting) inherits the

@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * `agy-stream-json-v1`: Antigravity `--output-format stream-json`, one JSON object per line.
  * Implements IC-002 from agent-docs/doflow/138-agy-worker-parser/design/specs.md.

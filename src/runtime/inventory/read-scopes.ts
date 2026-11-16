@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * C2 — dual-scope reader (FR-002, NFR-002).
  *
@@ -36,7 +34,7 @@
  *   default: it is a positive statement that no server was chosen, and the plan then proposes to
  *   remove every one the harness owns. `doflow reconcile` and `doflow status` derive each
  *   harness's selection from the scope's own `doflow.lock` through
- *   `recordedMcpSelections` (`src/install/mcp.js`); this reader calls the same function per scope,
+ *   `recordedMcpSelections` (`src/install/mcp.ts`); this reader calls the same function per scope,
  *   so the plan a currency judgement is derived from is the plan the repair command would produce.
  */
 

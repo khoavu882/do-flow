@@ -1,7 +1,7 @@
 'use strict';
 
 // Feature 120 C.4 (IC-010): dispatch start gates enabled workers before creating anything.
-// The dispatch sandbox allocates temporary directories through test/helper/tmp.js and supplies
+// The dispatch sandbox allocates temporary directories through test/helper/tmp.ts and supplies
 // scratch HOME, XDG_CONFIG_HOME and PATH. No worker, model or network call. POSIX only.
 
 const test = require('node:test');

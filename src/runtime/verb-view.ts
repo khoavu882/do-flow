@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * The shared view helper for verbs that answer in a brief or a full view (feature 137, IC-002, IC-003, IC-007,
  * IC-008). A verb declares its own brief spec beside its handler; this module resolves the view a call asked for,

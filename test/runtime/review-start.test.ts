@@ -1232,7 +1232,6 @@ test('085 H1: DOFLOW_ROLLOUT_PROFILE=baseline in the verb env turns a configured
 const CHOSEN_OFF: any = {
   'settings rollout.profile baseline': { settings: { rollout: { profile: 'baseline' } } },
   'env DOFLOW_ROLLOUT_PROFILE=baseline': { env: { DOFLOW_ROLLOUT_PROFILE: 'baseline' } },
-  'an active rollback sentinel': { sentinel: { active: true, reason: 'manual' } },
   'an invalid profile value': { settings: { rollout: { profile: 'bogus' } } },
 };
 for (const [name, c] of Object.entries(CHOSEN_OFF) as any) {
@@ -1241,7 +1240,6 @@ for (const [name, c] of Object.entries(CHOSEN_OFF) as any) {
     r.lines([r.line({ risk: 'LOW' })]);
     r.enableAdvice();
     if (c.settings) put(r.cwd, '.doflow/settings.json', JSON.stringify(c.settings));
-    if (c.sentinel) put(r.cwd, '.doflow/state/rollback.json', JSON.stringify(c.sentinel));
     const client = fakeClient(answered('deep'));
     const { json } = await start({ ...r, env: { ...r.env, ...(c.env || {}) } }, { adviceClient: client, base: r.base });
     assert.equal(client.calls.length, 0);

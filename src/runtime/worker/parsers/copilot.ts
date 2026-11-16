@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * `copilot-json-v1` (IC-005): `copilot -p … --output-format json`, one `{type, data, …}` object per
  * line. Follows the IC-002 rules; precedence in `end()` is the codex parser's.

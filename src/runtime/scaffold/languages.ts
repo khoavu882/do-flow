@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * Language selection and emitters — everything `scaffold.js`'s generator needs to know about a
  * target language: which extension maps to which language, which extensions are content rather
@@ -14,7 +12,7 @@ const { detectCommands } = require('../command-detect.ts');
 
 /**
  * Per-file language comes from the file's own extension, because `plan.md` already states it:
- * `files: src/runtime/scaffold/generate.js` is not ambiguous about being JavaScript, and asking a
+ * `files: src/runtime/scaffold/generate.ts` is not ambiguous about being JavaScript, and asking a
  * repository-wide detector would be a worse answer than the one the plan wrote down.
  *
  * Repository-wide detection is still needed for the test stubs, which derive from acceptance

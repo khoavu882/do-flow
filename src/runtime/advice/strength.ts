@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 function strengthOf(answer: any, bands: any): { word: string; between: string[] | null } {
   const type = answer?.type;
   const thresholds = bands?.[type] || bands;

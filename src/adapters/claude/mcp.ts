@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 // Claude's MCP component: DoFlow's servers as entries of `mcpServers` in `~/.claude.json` (user
 // scope) or `<project>/.mcp.json` (project scope), the locations Claude Code actually reads. Both
 // files are shared — `~/.claude.json` also holds Claude Code's own state, and a project `.mcp.json`

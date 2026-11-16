@@ -1,7 +1,7 @@
 'use strict';
 
 // 119 IC-007, IC-008, IC-009 (D-2): `doflow config schema|validate|set|unset`. Every case runs the CLI
-// against a scratch HOME / XDG_CONFIG_HOME and a scratch project (test/helper/settings-fixtures.js),
+// against a scratch HOME / XDG_CONFIG_HOME and a scratch project (test/helper/settings-fixtures.ts),
 // so nothing here reads or writes the real config home or the live repository.
 
 const test = require('node:test');

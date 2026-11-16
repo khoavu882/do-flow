@@ -2,11 +2,6 @@
 // mcp.js — MCP server selection: which of the registry's servers each harness gets, from --mcp,
 // the interactive checkbox, doflow.lock or the ledger. Writing a harness's MCP
 // file is that harness's adapter's job (src/adapters/<id>/), never this module's.
-//
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): authored as `.ts`, run directly by Node
-// native type-stripping — no build step, no runtime dependency. Body stays CommonJS so a `.js`
-// caller's `require('../install/mcp.ts')` keeps working while the tree is still `.js`. The
-// `../registry` and `../state/lockfile` requires stay bare while those modules are still `.js`.
 const { readSyncBlocking } = require('../helper/prompt.ts');
 const { selectMcpServers, nativeMcpCatalog, mcpCapable } = require('../registry/index.ts');
 const { pinnedSelections } = require('../state/lockfile.ts');

@@ -1,7 +1,7 @@
 'use strict';
 
-// 081 B.4 (IC-024, IC-023; DEC-014, DEC-030): the scenarios of test/hooks/context-authority.test.js
-// that call the 078 stand-in's launch() (test/helper/launcher-stand-in.js), re-run through the real
+// 081 B.4 (IC-024, IC-023; DEC-014, DEC-030): the scenarios of test/hooks/context-authority.test.ts
+// that call the 078 stand-in's launch() (test/helper/launcher-stand-in.ts), re-run through the real
 // launcher, launchWorker (IC-012), and the fake CLI (IC-029). The fake's `frontDoors` step runs the
 // install mirror's session-start.sh and user-prompt-submit.sh with the environment the launcher gave
 // it, so the first prompt is the one the launched worker itself takes. Each case asserts what its
@@ -13,7 +13,7 @@
 // doflow-run") spawns the dispatcher's context-grant verb and calls no launcher, so it is outside
 // IC-024's rule (RK12) and is not re-run here.
 //
-// NFR-002: the launcher spawns `fake-claude`, a link to test/helper/fake-harness-cli.js in a scratch
+// NFR-002: the launcher spawns `fake-claude`, a link to test/helper/fake-harness-cli.ts in a scratch
 // bin/. The child PATH is that bin/ plus the directory of process.execPath. The front doors are bash
 // scripts that call POSIX tools, jq and git, so the same bin/ also links those named tools (TOOLS);
 // no harness binary is reachable. Every caller env is built from nothing and deletes the five DOFLOW_*

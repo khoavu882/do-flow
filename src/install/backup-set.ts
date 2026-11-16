@@ -8,11 +8,6 @@
 // rollback that restores files without the rows describing them leaves every later update and
 // remove refusing those files as modified outside DoFlow.
 // Reads only: it stats files and creates nothing.
-//
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): authored as `.ts`, run directly by Node
-// native type-stripping — no build step, no runtime dependency. Body stays CommonJS so a `.js`
-// caller's `require('../install/backup-set.ts')` keeps working while the tree is still `.js`. The
-// `./backup` require carries `.ts` because backup migrated in the same slice.
 const fs = require('node:fs');
 const path = require('node:path');
 const { BackupError, scopeRelative } = require('./backup.ts');

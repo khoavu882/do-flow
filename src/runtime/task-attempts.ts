@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 // Task-attempt ledger (feature 070, roadmap P2A first slice).
 //
 // `do-execute-plan` used to decide a plan task was done from a `[x]` checkbox and a `complete` row

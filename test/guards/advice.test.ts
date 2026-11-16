@@ -333,21 +333,21 @@ test('G30.3: shipped runtime requires stay within approved boundaries', () => {
 });
 test('G30.3 controls: rejects forbidden record/config placements and permits approved boundaries', () => {
   const fixture: any = new Map([
-    ['src/runtime/advice/record.js', "require('node:net');\n"],
-    ['src/runtime/advice/config.js', "require('dns');\n"],
-    ['src/runtime/advice/strength.js', "require('https');\n"],
+    ['src/runtime/advice/record.ts', "require('node:net');\n"],
+    ['src/runtime/advice/config.ts', "require('dns');\n"],
+    ['src/runtime/advice/strength.ts', "require('https');\n"],
     ['src/runtime/advice/other.js', "require('dns');\n"],
-    ['src/runtime/advice/endpoint-guard.js', "require('http');\nrequire('node:dns');\n"],
-    ['src/runtime/advice/client.js', "require('node:http');\n"],
+    ['src/runtime/advice/endpoint-guard.ts', "require('http');\nrequire('node:dns');\n"],
+    ['src/runtime/advice/client.ts', "require('node:http');\n"],
     ['src/runtime/advice/providers/example.js', "require('https');\n"],
     ['src/runtime/advice/providers/process.js', "require('node:child_process');\n"],
   ]);
   const findings = checkG30Requires({ files: fixture });
-  assert.ok(findings.some((finding: any) => finding.includes('src/runtime/advice/record.js:1')));
-  assert.ok(findings.some((finding: any) => finding.includes('src/runtime/advice/config.js:1')));
-  assert.ok(findings.some((finding: any) => finding.includes('src/runtime/advice/strength.js:1')));
+  assert.ok(findings.some((finding: any) => finding.includes('src/runtime/advice/record.ts:1')));
+  assert.ok(findings.some((finding: any) => finding.includes('src/runtime/advice/config.ts:1')));
+  assert.ok(findings.some((finding: any) => finding.includes('src/runtime/advice/strength.ts:1')));
   assert.ok(findings.some((finding: any) => finding.includes('src/runtime/advice/other.js:1')));
-  assert.ok(findings.some((finding: any) => finding.includes('src/runtime/advice/endpoint-guard.js:1')));
+  assert.ok(findings.some((finding: any) => finding.includes('src/runtime/advice/endpoint-guard.ts:1')));
   assert.ok(findings.some((finding: any) => finding.includes('src/runtime/advice/providers/process.js:1')));
   assert.equal(findings.length, 6);
 });

@@ -3,7 +3,7 @@
 /**
  * C7 — the `inventory` verb's invocation surface (feature 041, task G.2; IC-001).
  *
- * `test/runtime/inventory-verb.test.js` drives `buildInventoryReport`, which is the report
+ * `test/runtime/inventory-verb.test.ts` drives `buildInventoryReport`, which is the report
  * assembler. `handleInventoryCommand` is the layer above it, and IC-001's whole surface lives
  * there and nowhere else: the three exit statuses, the refusal of a scope selector, the
  * machine-readable output flag, and the optional positional project root. None of it was reachable
@@ -12,7 +12,7 @@
  * **Two halves, because the observable differs.**
  *
  * The in-process half calls the handler directly with stdout and stderr captured, following
- * `test/runtime/runtime-retrieval-plan.test.js`'s `callVerb` helper. It observes two things the
+ * `test/runtime/runtime-retrieval-plan.test.ts`'s `callVerb` helper. It observes two things the
  * handler produces: its **return value**, and `process.exitCode`, which `finishRuntime` sets on the
  * way out. Both are restored afterwards — a verb reporting a finding must not make the whole test
  * process exit non-zero. What this half cannot observe is the *process* status, which is the thing
@@ -21,7 +21,7 @@
  * The subprocess half therefore spawns the real CLI and reads the status the operating system saw.
  * It is not a duplicate of the first: a handler returning 1 while `bin/doflow.js` exits 0 would pass
  * every in-process assertion here. It is also the only half that can reach the positional's default,
- * because the default is applied in `src/cli/runtime-commands.js` (`path.resolve(o.positional[0] ||
+ * because the default is applied in `src/cli/runtime-commands.ts` (`path.resolve(o.positional[0] ||
  * '.')`) rather than in the handler, so an in-process call has no working directory to fall back to.
  *
  * **Hermetic throughout, and no absolute finding count anywhere.** `os.homedir()` reads `$HOME` on
@@ -283,7 +283,7 @@ test('IC-001: --json emits the report object, in IC-002\'s order, and nothing el
  * IC-001: "an optional project root, defaulting to the working directory".
  *
  * Only reachable through the CLI, where the default is applied
- * (`src/cli/runtime-commands.js`: `path.resolve(o.positional[0] || '.')`). Both halves of the clause
+ * (`src/cli/runtime-commands.ts`: `path.resolve(o.positional[0] || '.')`). Both halves of the clause
  * are asserted from one fixture, because the default only means something against an explicit value
  * that overrides it: a verb that reported the working directory whatever it was handed would satisfy
  * the first assertion alone.

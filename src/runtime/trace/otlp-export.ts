@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * `trace export --otlp-http` (091 IC-006, IC-007, IC-009): resolves OTLP environment,
  * maps spans through `otlp-map.ts`, and POSTs OTLP/HTTP JSON requests bounded to 20 requests.

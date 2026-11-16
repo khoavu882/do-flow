@@ -1,6 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 // lifecycle-view.js — CLI-facing view over the registry/lifecycle path: computes a plan across
 // every requested harness (claude, codex, opencode, pi, copilot, kiro, antigravity) from a loaded registry, a neutral ledger, and the
 // Codex-native source locations under `repoRoot`, then renders/gates it for bin/doflow.js's
@@ -57,7 +56,7 @@ function registryLifecycleView({ registry, scope, targets, mcpSelections = {}, r
   const neutralStateRoot = stateRoot({ scope: lifecycleScope, projectRoot: scopeRoot, homeDir: scopeRoot });
   const ledger = canonicalLedger(readLedger(neutralStateRoot), scopeRoot) ?? defaultLedger({ scope: lifecycleScope, scopeRoot });
   const tier = hookHarnesses ? { harnesses: hookHarnesses, workers: null } : resolveHookTier();
-  // Mirrors buildAdapterRegistry() in src/cli/shared.js — including the declared-paths wiring —
+  // Mirrors buildAdapterRegistry() in src/cli/shared.ts — including the declared-paths wiring —
   // and is kept as a literal construction here because the registry guard pins every declared
   // harness into each adapter-registry call site by parsing it.
   const declared = declaredHarnessPaths();

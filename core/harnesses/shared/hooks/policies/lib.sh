@@ -30,7 +30,7 @@ set -euo pipefail
 # (doflow_config_home: an absolute XDG_CONFIG_HOME, else an absolute HOME + /.config, else none). With
 # no config home every state path below is empty, sourcing this file still never exits, and each state
 # function returns 0 at once: session work is skipped and a guard reaches its own decision (086 IC-010).
-# BEGIN doflow-config-home v1 (rule: src/runtime/config-home.ts; checked by test/guards/settings.test.js)
+# BEGIN doflow-config-home v1 (rule: src/runtime/config-home.ts; checked by test/guards/settings.test.ts)
 doflow_config_home() {
   DOFLOW_HOME=""
   case "${XDG_CONFIG_HOME:-}" in

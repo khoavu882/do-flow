@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * Artifact parsing — turns the text of `requirement.md`, `design.md` and `plan.md` into the
  * structures `scaffold.js`'s generator reads: a requirement index and acceptance criteria, a

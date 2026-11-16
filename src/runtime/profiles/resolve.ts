@@ -2,7 +2,6 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { checkRollbackState } = require('./rollback.ts');
 const { shouldSample } = require('./sampler.ts');
 const { configHome } = require('../config-home.ts');
 
@@ -18,7 +17,7 @@ export interface ProfileCapabilityMatrix {
 export interface ResolvedRolloutProfile {
   name: RolloutProfileName;
   origin: {
-    source: 'env' | 'sentinel' | 'project' | 'user' | 'default';
+    source: 'env' | 'project' | 'user' | 'default';
     detail: string | null;
   };
   capabilities: ProfileCapabilityMatrix;
@@ -90,10 +89,9 @@ function readJsonFile(filePath: string, fsImpl: any): any {
 
 /**
  * Resolves the effective rollout profile by consulting:
- * 1. Rollback Controller (checkRollbackState - forces baseline if active)
- * 2. Environment override (DOFLOW_ROLLOUT_PROFILE)
- * 3. Layered settings (.doflow/settings.local.json -> settings.json -> user settings)
- * 4. Registry default (baseline)
+ * 1. Environment override (DOFLOW_ROLLOUT_PROFILE)
+ * 2. Layered settings (.doflow/settings.local.json -> settings.json -> user settings)
+ * 3. Registry default (baseline)
  *
  * Guarantees <= 5ms evaluation latency. Never throws.
  */
@@ -102,22 +100,7 @@ function resolveRolloutProfile(options?: ResolveProfileOptions): ResolvedRollout
   const env = options?.env ?? process.env;
   const projectRoot = options?.projectRoot ? path.resolve(options.projectRoot) : process.cwd();
 
-  // 1. Check Rollback Controller (forces baseline on trip)
-  const rollback = checkRollbackState({ projectRoot, env, fsImpl });
-  if (rollback.active) {
-    const originSource: 'env' | 'sentinel' = rollback.origin === 'env' ? 'env' : 'sentinel';
-    return {
-      name: 'baseline',
-      origin: {
-        source: originSource,
-        detail: rollback.reason || (rollback.origin === 'env' ? 'DOFLOW_ROLLOUT_PROFILE=baseline' : 'rollback-sentinel-active'),
-      },
-      capabilities: PROFILE_CAPABILITIES.baseline,
-      canarySampleRate: 0.10,
-    };
-  }
-
-  // 2. Environment Override Fast-Path
+  // 1. Environment Override Fast-Path
   const envProfile = env.DOFLOW_ROLLOUT_PROFILE;
   if (typeof envProfile === 'string' && envProfile.trim()) {
     const clean = envProfile.trim() as RolloutProfileName;
@@ -145,7 +128,7 @@ function resolveRolloutProfile(options?: ResolveProfileOptions): ResolvedRollout
     }
   }
 
-  // 3. Inspect Candidate Layered Settings Files (local -> project -> user)
+  // 2. Inspect Candidate Layered Settings Files (local -> project -> user)
   const candidateFiles: Array<{ layer: 'project' | 'user'; path: string }> = [];
   if (projectRoot) {
     candidateFiles.push({
@@ -200,7 +183,7 @@ function resolveRolloutProfile(options?: ResolveProfileOptions): ResolvedRollout
     }
   }
 
-  // 4. Default baseline fallback
+  // 3. Default baseline fallback
   return {
     name: 'baseline',
     origin: {
