@@ -12,8 +12,10 @@ const RUN_ID = /^w-[0-9a-f]{12}$/;
 // eslint-disable-next-line no-control-regex
 const PROMPT_REMOVED = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F؜‎‏‪-‮⁦-⁩]/g;
 
-/** The terminal form of the action, for a device that may not start from the page. */
-const TERMINAL_COMMAND = 'doflow worker --action start-session --harness <harness> --entry do --stdin';
+/** The core's patterns (src/runtime/worker/start-session.ts step 2): a value outside one is never written into the terminal command. */
+const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}$/;
+const REQUEST_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{21}$/;
+const HARNESS_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 /** The one sentence of a page that cannot start (design §10 state 1). */
 const VIEW_ONLY_WORDS = 'Starting a session needs this machine’s Console or a phone paired with control over the app.';
 const ENTRY_DO = 'Start with DoFlow\'s do skill';
@@ -57,6 +59,27 @@ function sha256Hex(text) {
     [a, b, c, d, e, f, g, hh].forEach((v, i) => { state[i] = (state[i] + v) >>> 0; });
   }
   return [...state].map((v) => v.toString(16).padStart(8, '0')).join('');
+}
+
+/**
+ * 165 review B-3: the terminal form of the start, for a device that may not start from the page: the whole command of docs/reference.md's
+ * **Command.** line with the form's choices and a fresh request id, the first text on stdin. A choice the page does not hold, or one
+ * outside the core's pattern, is the reference's placeholder; no `--model` is the harness default and no `--via` is a manual start.
+ * @param {{ projectKey?: any, worktreeKey?: any, harness?: any, model?: any, entry?: any } | null | undefined} choices @param {any} requestId
+ */
+function terminalCommand(choices, requestId) {
+  const c = choices && typeof choices === 'object' ? choices : {};
+  const fit = (/** @type {any} */ value, /** @type {RegExp} */ re, /** @type {string} */ hole) => (typeof value === 'string' && re.test(value) ? value : hole);
+  return [
+    'doflow worker --action start-session',
+    `--project-key ${fit(c.projectKey, KEY16, '<16 hex>')}`,
+    `--worktree-key ${fit(c.worktreeKey, KEY16, '<16 hex>')}`,
+    `--harness ${fit(c.harness, HARNESS_ID, '<id>')}`,
+    typeof c.model === 'string' && MODEL_ID.test(c.model) ? `--model ${c.model}` : null,
+    `--entry ${c.entry === 'none' ? 'none' : 'do'}`,
+    `--request-id ${fit(requestId, REQUEST_ID, '<id>')}`,
+    '--stdin',
+  ].filter((part) => part !== null).join(' ');
 }
 
 /** The agent key of a started run in the Layers tree (src/runtime/fleet/tree.ts `workerKey`): 16 hex of the SHA-256 of `worker:<runId>`. @param {string} runId */
@@ -460,7 +483,7 @@ function startedHere(machine) {
 }
 
 export {
-  VIEW_ONLY_WORDS, TERMINAL_COMMAND, ENTRY_DO, ENTRY_NONE, NOT_STARTABLE_TITLE, SOURCE_ORDER, PHASE_WORDS,
+  VIEW_ONLY_WORDS, terminalCommand, ENTRY_DO, ENTRY_NONE, NOT_STARTABLE_TITLE, SOURCE_ORDER, PHASE_WORDS,
   sha256Hex, agentKeyOf, startedByWords, endWords, permissionWords, warningWords,
   projectRows, harnessRows, harnessOf, modelGroups, checkoutRows, entryChoices, limitWords, dispatchWords,
   promptState, formFor, readiness, startBody, attemptFor, settleAttempt,

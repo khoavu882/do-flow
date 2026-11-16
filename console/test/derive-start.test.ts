@@ -237,9 +237,46 @@ test('a new request id comes with every submit; a retry of an unanswered one kee
   assert.equal(start.attemptFor(null, body, makeId).requestId, 'id-3', 'every submit after a settled one is new');
 });
 
-test('the view-only words and the terminal command are fixed text', () => {
+test('the view-only words are fixed text', () => {
   assert.equal(start.VIEW_ONLY_WORDS, 'Starting a session needs this machine’s Console or a phone paired with control over the app.');
-  assert.match(start.TERMINAL_COMMAND, /^doflow worker --action start-session /);
+});
+
+/** The flags of a command line: `required` outside `[...]`, `optional` inside, `--action` left out (it names the verb). @param {string} line */
+function flagsOf(line: string) {
+  const required = new Set<string>();
+  const optional = new Set<string>();
+  let depth = 0;
+  for (const token of line.match(/\[|\]|--[a-z][a-z-]*/g) ?? []) {
+    if (token === '[') depth += 1;
+    else if (token === ']') depth -= 1;
+    else if (token !== '--action') (depth > 0 ? optional : required).add(token);
+  }
+  return { required: [...required].sort(), optional: [...optional].sort() };
+}
+
+test('165 review B-3: the terminal command of a view-only page is the full runnable one, and the page, the reference and the core list the same flags', () => {
+  const { START_FLAGS } = require('../../src/runtime/worker/start-session.ts');
+  const core = { required: [...START_FLAGS.required].sort(), optional: [...START_FLAGS.optional].sort() };
+  const reference = fs.readFileSync(path.join(__dirname, '..', '..', 'docs', 'reference.md'), 'utf8');
+  const line = /^\*\*Command\.\*\* `(doflow worker --action start-session [^`]+)`/m.exec(reference);
+  assert.ok(line, 'docs/reference.md has the start-session Command line');
+  assert.deepEqual(flagsOf(line![1]), core, 'the reference names the core\'s required and optional flags');
+
+  const id = 'Abcdefghijklmnopqrstuv';
+  const full = start.terminalCommand({ projectKey: PK, worktreeKey: WK1, harness: 'codex', model: 'gpt-5.4', entry: 'none' }, id);
+  assert.equal(full, `doflow worker --action start-session --project-key ${PK} --worktree-key ${WK1} --harness codex --model gpt-5.4 --entry none --request-id ${id} --stdin`);
+  const page = flagsOf(full).required;
+  for (const flag of core.required) assert.ok(page.includes(flag), `the page's command has ${flag}`);
+  for (const flag of page) assert.ok(core.required.includes(flag) || core.optional.includes(flag), `${flag} is a flag the core takes`);
+
+  // The harness default sends no --model; the entry defaults to do, as the form does.
+  const plain = start.terminalCommand({ projectKey: PK, worktreeKey: WK1, harness: 'claude', model: null, entry: 'do' }, id);
+  assert.deepEqual(flagsOf(plain).required, core.required, 'without a model the command has exactly the required flags');
+  assert.ok(!/<|>/.test(plain), 'every value is filled in');
+  // A choice the page does not hold, or one outside the core's pattern, is the reference's placeholder, never pasted into the shell.
+  const open = start.terminalCommand({ projectKey: null, worktreeKey: 'nope', harness: 'a b', model: 'x;rm', entry: 'maybe' }, 'short');
+  assert.equal(open, 'doflow worker --action start-session --project-key <16 hex> --worktree-key <16 hex> --harness <id> --entry do --request-id <id> --stdin');
+  assert.deepEqual(flagsOf(open).required, core.required);
 });
 
 test('the agent key of a started run is the first 16 hex of the SHA-256 of `worker:<runId>`, as the core derives it', () => {

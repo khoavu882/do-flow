@@ -350,6 +350,20 @@ test('refusals: every IC-001 id, exit 1, and no store is changed', POSIX, async 
   assert.deepEqual(stateSnapshot(f), before);
 });
 
+test('165 review B-3: a start without any one of START_FLAGS.required is exit 2 usage, and one with all of them starts', POSIX, async (t: any) => {
+  const { START_FLAGS } = require(path.join(SRC, 'worker', 'start-session.ts'));
+  const KEYS: Record<string, string> = { '--project-key': 'projectKey', '--worktree-key': 'worktreeKey', '--harness': 'harness', '--entry': 'entry', '--request-id': 'requestId', '--stdin': 'stdin' };
+  assert.deepEqual(Object.keys(KEYS).sort(), [...START_FLAGS.required].sort());
+  const f = fixture(t);
+  for (const flag of START_FLAGS.required) {
+    const { exit, body } = await start(f, { [KEYS[flag]]: undefined, via: undefined });
+    assert.deepEqual([exit, body.error], [2, 'usage'], flag);
+  }
+  const { exit, body } = await start(f, { via: undefined, model: undefined });
+  assert.equal(exit, 0, JSON.stringify(body));
+  await ended(f, body.run.runId);
+});
+
 test('usage: a missing --stdin, a malformed key or request id is exit 2 usage', POSIX, async (t: any) => {
   const f = fixture(t);
   for (const over of [{ stdin: false }, { projectKey: 'XYZ' }, { requestId: 'short' }, { requestId: `-${'a'.repeat(21)}` }, { requestId: `_${'a'.repeat(21)}` }, { entry: 'maybe' }, { via: 'phone' }]) {

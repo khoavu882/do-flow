@@ -16,7 +16,7 @@ import { actionPower, loadActions, onActions } from '../actions.js';
 import { openConfirm, onRefetch, newRequestId, actionButton, notAllowedLine } from './confirm.js';
 import { buildConfirmation } from '../derive/actions.js';
 import {
-  VIEW_ONLY_WORDS, TERMINAL_COMMAND, NOT_STARTABLE_TITLE, projectRows, harnessRows, harnessOf, modelGroups, checkoutRows, entryChoices, limitWords, dispatchWords,
+  VIEW_ONLY_WORDS, terminalCommand, NOT_STARTABLE_TITLE, projectRows, harnessRows, harnessOf, modelGroups, checkoutRows, entryChoices, limitWords, dispatchWords,
   permissionWords, readiness, formFor, startBody, attemptFor, settleAttempt, startRefusalLines, refusalRereads, initialFlow, flowReduce, flowWords, optionsErrorWords,
   outputTail, nodeIn, startedByWords,
 } from '../derive/start.js';
@@ -98,7 +98,7 @@ function stateOf(local) {
   if (!local.start) {
     local.start = {
       alive: true, body: null, projects: [], projectKey: null, seq: 0, options: { state: 'idle', body: null, error: null }, form: null, flow: initialFlow(), attempt: null,
-      actionsRead: false, offActions: null, offRefetch: null, flowProject: null, run: null, streams: [], offs: [], tails: null,
+      actionsRead: false, offActions: null, offRefetch: null, flowProject: null, run: null, streams: [], offs: [], tails: null, terminalRequestId: null,
     };
   }
   return local.start;
@@ -313,14 +313,20 @@ function flowPanel(st) {
   ]));
 }
 
-/** The view-only page: why, and the terminal command as text. @param {any} st */
+/**
+ * The view-only page: why, and the terminal command as text, built from the form's choices where the page holds them, with a request id
+ * kept for the page's life so a repaint does not change the command being copied. @param {any} st
+ */
 function viewOnly(st) {
-  void st;
+  if (typeof st.terminalRequestId !== 'string') st.terminalRequestId = newRequestId();
+  const form = st.form ?? {};
+  const command = terminalCommand({ ...form, projectKey: form.projectKey ?? st.projectKey }, st.terminalRequestId);
   return h('section', { class: 'start__viewonly', dataset: { state: 'view-only' } }, clean([
     h('p', { class: 'start__line' }, VIEW_ONLY_WORDS),
     notAllowedLine(['start-session']),
-    h('p', { class: 'start__line' }, 'In a terminal on this machine:'),
-    commandBlock(TERMINAL_COMMAND, 'the terminal command'),
+    h('p', { class: 'start__line' }, 'In a terminal on this machine, then type the first text and end it with Ctrl-D:'),
+    commandBlock(command, 'the terminal command'),
+    command.includes('<') ? h('p', { class: 'start__line' }, 'doflow fleet --action projects and doflow worker --action start-options --project-key <key> list the keys and the harnesses.') : null,
   ]));
 }
 

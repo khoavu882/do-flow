@@ -59,6 +59,14 @@ const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}$/;
 /** The Console's request id (console/src/verb-runner.ts PATTERNS.requestId): 22 base64url characters, the first a letter or digit (the CLI cannot carry a flag value that begins with `-`). */
 const REQUEST_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{21}$/;
 const TIERS = Object.freeze(['orchestrator', 'frontier', 'standard', 'light']);
+/**
+ * 165 review B-3: the flags of `start-session` beside `--action`. Step 2 refuses a start without each required one; the Console's
+ * terminal command (console/web/derive/start.js `terminalCommand`) and docs/reference.md's Command line are tested against this list.
+ */
+const START_FLAGS = Object.freeze({
+  required: Object.freeze(['--project-key', '--worktree-key', '--harness', '--entry', '--request-id', '--stdin']),
+  optional: Object.freeze(['--model', '--via', '--json']),
+});
 const CHECKOUTS_MAX = 64;
 const MODELS_MAX = 50;
 /** The label rule of src/runtime/fleet/projects.ts (IC-004 there): at most 64 of these characters, else withheld. */
@@ -487,4 +495,4 @@ function startOptions(o: any) {
   };
 }
 
-module.exports = { startSession, startOptions, STARTED_SLUG, KIND, LIMITS, StartUsageError };
+module.exports = { startSession, startOptions, STARTED_SLUG, KIND, LIMITS, START_FLAGS, StartUsageError };
