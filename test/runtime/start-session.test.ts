@@ -216,7 +216,7 @@ function openRun(root: string, { startedBy = 'console', worktreeKey = 'a'.repeat
 for (const [harness, expectArgv, viaStdin] of [
   ['claude', ['-p', '--output-format', 'text'], true],
   ['opencode', ['run', '--format', 'json', '<prompt>'], false],
-  ['pi', ['-p', '--mode', 'json', '--', '<prompt>'], false],
+  ['pi', ['-p', '--mode', 'json', '--no-approve', '--', '<prompt>'], false],
 ] as const) {
   test(`${harness} shape: argv ${expectArgv.join(' ')}, the prompt ${viaStdin ? 'on stdin' : 'as one argv element'}, identity unset, DOFLOW_STARTED_RUN set`, POSIX, async (t: any) => {
     const f = fixture(t);
@@ -248,7 +248,7 @@ test('identity: the caller\'s identity and primary-session variables never reach
 test('entry none sends the text alone; the model part is spliced per harness as whole elements', POSIX, async (t: any) => {
   const f = fixture(t);
   fs.writeFileSync(path.join(f.config, 'doflow', 'settings.json'), JSON.stringify({ schema: 1, 'workers.models': { codex: { standard: 'gpt-x' }, claude: { frontier: 'opus-x' }, opencode: { light: 'oc/x' }, pi: { standard: 'pi-x' } } }));
-  const cases: any = { codex: ['gpt-x', ['exec', '--json', '-o', '*', '-m', 'gpt-x', '-']], claude: ['opus-x', ['-p', '--output-format', 'text', '--model', 'opus-x']], opencode: ['oc/x', ['run', '--format', 'json', '--model', 'oc/x', 'just text']], pi: ['pi-x', ['-p', '--mode', 'json', '--model', 'pi-x', '--', 'just text']] };
+  const cases: any = { codex: ['gpt-x', ['exec', '--json', '-o', '*', '-m', 'gpt-x', '-']], claude: ['opus-x', ['-p', '--output-format', 'text', '--model', 'opus-x']], opencode: ['oc/x', ['run', '--format', 'json', '--model', 'oc/x', 'just text']], pi: ['pi-x', ['-p', '--mode', 'json', '--no-approve', '--model', 'pi-x', '--', 'just text']] };
   for (const [harness, [model, argv]] of Object.entries(cases) as any) {
     const worktreeKey = harness === 'codex' || harness === 'opencode' ? f.linkedKey : f.mainKey;
     const { exit, body } = await start(f, { harness, model, entry: 'none', worktreeKey, readStdin: () => 'just text' });
