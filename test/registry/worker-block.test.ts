@@ -63,6 +63,7 @@ const FREE_CHECK_RECIPES: any = {
   },
 };
 const PER_HARNESS_REASON = ['oneShot', 'structuredOutput', 'spawnDenial']; // isolatedEdit's reason is pinned in worker-isolated-edit.test.js
+const PI_DECIDED = ['loginProbe', 'persistentSession', 'resume', 'steering'];
 const BINARIES: any = { claude: 'claude', codex: 'codex', opencode: 'opencode', pi: 'pi', copilot: 'copilot', kiro: 'kiro-cli', antigravity: 'agy' };
 
 /** A supported entry carrying the given recipe fields. */
@@ -137,6 +138,8 @@ test('worker: the seven harnesses declare IC-002 values and nothing else as supp
         assert.equal(worker[key].verifiedOn, '2026-11-07', `${harness.id} ${key} verifiedOn`);
         continue;
       }
+      // 168: pi's loginProbe, persistentSession, resume and steering are decided on 2026-11-16 and pinned in pi-worker-truth.test.ts.
+      if (harness.id === 'pi' && PI_DECIDED.includes(key)) continue;
       assert.equal(worker[key].status, 'unknown', `${harness.id} ${key}`);
       assert.deepEqual(worker[key].evidence, [], `${harness.id} ${key} evidence`);
       assert.equal(worker[key].verification, `Read ${harness.id}'s headless CLI documentation and \`${binary} --help\`; record the flag and its source`, `${harness.id} ${key}`);
@@ -193,7 +196,9 @@ test('worker: the five supported opencode and kiro entries equal their IC-009 re
     }
     // nothing beyond the five and the model flag: the unprobed capabilities stay unknown
     for (const key of ['hooksProbe', 'guidanceProbe', 'loginProbe', 'persistentSession', 'resume', 'steering', 'isolatedEdit']) {
-      assert.equal(worker[key].status, 'unknown', `${id} ${key}`);
+      // 168: pi's persistentSession, resume and steering are `unsupported` with evidence (pi-worker-truth.test.ts).
+      const decided = id === 'pi' && ['persistentSession', 'resume', 'steering'].includes(key);
+      assert.equal(worker[key].status, decided ? 'unsupported' : 'unknown', `${id} ${key}`);
     }
   }
 });
@@ -354,7 +359,8 @@ const MAIN_SESSION_RECIPES: any = {
   claude: { argv: ['-p', '--output-format', 'text'], promptVia: 'stdin', parser: null },
   codex: { argv: ['exec', '--json', '-o', '{lastMessageFile}', '-'], promptVia: 'stdin', parser: 'codex-exec-json-v1' },
   opencode: { argv: ['run', '--format', 'json', '{prompt}'], promptVia: 'argv', parser: 'opencode-run-json-v1' },
-  pi: { argv: ['-p', '--mode', 'json', '--', '{prompt}'], promptVia: 'argv', parser: 'pi-json-v1' },
+  // 168: pi passes the project-trust flag that makes a headless run load no unapproved project code.
+  pi: { argv: ['-p', '--mode', 'json', '--no-approve', '--', '{prompt}'], promptVia: 'argv', parser: 'pi-json-v1' },
 };
 
 test('worker: claude, codex, opencode and pi declare a supported mainSession on their 2026-11-15 record; copilot, kiro and antigravity stay unknown with a reason', () => {
@@ -362,11 +368,12 @@ test('worker: claude, codex, opencode and pi declare a supported mainSession on 
   for (const harness of registry.harnesses) {
     const entry = harness.worker.mainSession;
     assert.ok(entry, `${harness.id} carries a mainSession entry`);
-    assert.equal(entry.verifiedOn, '2026-11-15', `${harness.id} verifiedOn`);
+    const pinned = harness.id === 'pi'; // 168: pi's entry was re-recorded on 2026-11-16 with the project-trust check
+    assert.equal(entry.verifiedOn, pinned ? '2026-11-16' : '2026-11-15', `${harness.id} verifiedOn`);
     if (MAIN_SESSION_RECIPES[harness.id]) {
       const { status, argv, promptVia, parser, evidence } = entry;
       assert.deepEqual({ status, argv, promptVia, parser }, { status: 'supported', ...MAIN_SESSION_RECIPES[harness.id] }, `${harness.id} mainSession`);
-      assert.deepEqual(evidence, [`core/worker-evidence/${harness.id}/2026-11-15-cli-check-main-session.json`], `${harness.id} evidence`);
+      assert.deepEqual(evidence, [pinned ? 'core/worker-evidence/pi/2026-11-16-cli-check-project-trust.json' : `core/worker-evidence/${harness.id}/2026-11-15-cli-check-main-session.json`], `${harness.id} evidence`);
     } else {
       assert.equal(entry.status, 'unknown', `${harness.id} mainSession`);
       assert.ok(entry.reason.length > 20, `${harness.id} reason`);

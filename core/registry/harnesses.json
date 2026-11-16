@@ -1909,7 +1909,7 @@
             "core/worker-evidence/pi/2026-11-07-live-run-read-only.json",
             "core/worker-evidence/pi/2026-11-07-live-run-spawn.json"
           ],
-          "verification": "Run `node bin/doflow.js worker --action evidence --harness pi --checks core/worker-evidence/pi/checks.json --out core/worker-evidence/pi/2026-11-07-cli-check-model.json` against the installed pi and read the matched help lines. Recorded 2026-11-07 on pi 1.4.0: the flags are listed in `--help`. Live runs 2026-11-07 (pi 1.4.0, model openai/gpt-6.1-terra, which the stream reports; it was pinned by a `pi` wrapper on PATH that adds `--model openai/gpt-6.1-terra` and passes `--version` and `--help` through, because a manual worker run does not take a `workers.models` binding): both ran `--tools read,grep,find,ls --no-extensions --no-mcp --mode json -p --no-session --thinking off --no-skills --no-context-files --offline` in a scratch project, ended with report status success, no denied call, a clean worktree and unchanged HEAD and refs. Run w-e0cd09f3b80b asked for a file write: the stream's tool starts were `ls` and `find` only, no write, edit or shell tool, and the worker said no file-writing or shell tool was available. Run w-48ddfd236061 asked for a sub-agent hand-off: no tool was called and the worker said no sub-agent or task tool was available. The records hold only the report status, the clean worktree check and the prompt hash. `--tools` is an allowlist of tool names and `--no-extensions` and `--no-mcp` turn off the extension and MCP tool sources, but the runs show the tools called, not a refused call, so they do not by themselves prove that a write or a spawn would be refused. Limit: one model and one attempt per capability; the user's installed pi packages were switched off by the recipe, not exercised.",
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness pi --checks core/worker-evidence/pi/checks.json --out core/worker-evidence/pi/2026-11-07-cli-check-model.json` against the installed pi and read the matched help lines. Recorded 2026-11-07 on pi 1.4.0: the flags are listed in `--help`. Live runs 2026-11-07 (pi 1.5.0, model openai/gpt-6.1-terra, which the stream reports; it was pinned by a `pi` wrapper on PATH that adds `--model openai/gpt-6.1-terra` and passes `--version` and `--help` through, because a manual worker run does not take a `workers.models` binding): both ran `--tools read,grep,find,ls --no-extensions --no-mcp --mode json -p --no-session --thinking off --no-skills --no-context-files --offline` in a scratch project, ended with report status success, no denied call, a clean worktree and unchanged HEAD and refs. Run w-e0cd09f3b80b asked for a file write: the stream's tool starts were `ls` and `find` only, no write, edit or shell tool, and the worker said no file-writing or shell tool was available. Run w-48ddfd236061 asked for a sub-agent hand-off: no tool was called and the worker said no sub-agent or task tool was available. The records hold only the report status, the clean worktree check and the prompt hash. `--tools` is an allowlist of tool names and `--no-extensions` and `--no-mcp` turn off the extension and MCP tool sources, but the runs show the tools called, not a refused call, so they do not by themselves prove that a write or a spawn would be refused. Limit: one model and one attempt per capability; the user's installed pi packages were switched off by the recipe, not exercised.",
           "verifiedOn": "2026-11-07",
           "argv": [
             "--tools",
@@ -1923,7 +1923,7 @@
             "core/worker-evidence/pi/2026-11-07-live-run-read-only.json",
             "core/worker-evidence/pi/2026-11-07-live-run-spawn.json"
           ],
-          "verification": "Run `node bin/doflow.js worker --action evidence --harness pi --checks core/worker-evidence/pi/checks.json --out core/worker-evidence/pi/2026-11-07-cli-check-model.json` against the installed pi and read the matched help lines. Recorded 2026-11-07 on pi 1.4.0: the flags are listed in `--help`. Live runs 2026-11-07 (pi 1.4.0, model openai/gpt-6.1-terra, which the stream reports; it was pinned by a `pi` wrapper on PATH that adds `--model openai/gpt-6.1-terra` and passes `--version` and `--help` through, because a manual worker run does not take a `workers.models` binding): both ran `--tools read,grep,find,ls --no-extensions --no-mcp --mode json -p --no-session --thinking off --no-skills --no-context-files --offline` in a scratch project, ended with report status success, no denied call, a clean worktree and unchanged HEAD and refs. Run w-e0cd09f3b80b asked for a file write: the stream's tool starts were `ls` and `find` only, no write, edit or shell tool, and the worker said no file-writing or shell tool was available. Run w-48ddfd236061 asked for a sub-agent hand-off: no tool was called and the worker said no sub-agent or task tool was available. The records hold only the report status, the clean worktree check and the prompt hash. `--tools` is an allowlist of tool names and `--no-extensions` and `--no-mcp` turn off the extension and MCP tool sources, but the runs show the tools called, not a refused call, so they do not by themselves prove that a write or a spawn would be refused. Limit: one model and one attempt per capability; the user's installed pi packages were switched off by the recipe, not exercised.",
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness pi --checks core/worker-evidence/pi/checks.json --out core/worker-evidence/pi/2026-11-07-cli-check-model.json` against the installed pi and read the matched help lines. Recorded 2026-11-07 on pi 1.4.0: the flags are listed in `--help`. Live runs 2026-11-07 (pi 1.5.0, model openai/gpt-6.1-terra, which the stream reports; it was pinned by a `pi` wrapper on PATH that adds `--model openai/gpt-6.1-terra` and passes `--version` and `--help` through, because a manual worker run does not take a `workers.models` binding): both ran `--tools read,grep,find,ls --no-extensions --no-mcp --mode json -p --no-session --thinking off --no-skills --no-context-files --offline` in a scratch project, ended with report status success, no denied call, a clean worktree and unchanged HEAD and refs. Run w-e0cd09f3b80b asked for a file write: the stream's tool starts were `ls` and `find` only, no write, edit or shell tool, and the worker said no file-writing or shell tool was available. Run w-48ddfd236061 asked for a sub-agent hand-off: no tool was called and the worker said no sub-agent or task tool was available. The records hold only the report status, the clean worktree check and the prompt hash. `--tools` is an allowlist of tool names and `--no-extensions` and `--no-mcp` turn off the extension and MCP tool sources, but the runs show the tools called, not a refused call, so they do not by themselves prove that a write or a spawn would be refused. Limit: one model and one attempt per capability; the user's installed pi packages were switched off by the recipe, not exercised.",
           "verifiedOn": "2026-11-07",
           "argv": [
             "--no-extensions",
@@ -1958,30 +1958,36 @@
         "loginProbe": {
           "status": "unknown",
           "evidence": [],
-          "verification": "Read pi's headless CLI documentation and `pi --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for pi; nothing is inferred from another harness or a model name"
+          "verification": "Run `pi auth --help`; probePi (src/runtime/worker/probes/index.ts) runs its `check` line when shown.",
+          "verifiedOn": "2026-11-16",
+          "reason": "pi 1.5.2 `pi auth check` needs --provider or --model, which a static argv cannot name; probePi runs it per provider. An expired OAuth login reads as ready under --no-refresh."
         },
         "persistentSession": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read pi's headless CLI documentation and `pi --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for pi; nothing is inferred from another harness or a model name"
+          "status": "unsupported",
+          "evidence": [
+            "pi 1.5.2 docs/cli-integration.md: JSON mode is 'One invocation'; only RPC is 'Long-lived'"
+          ],
+          "verification": "Re-read docs/cli-integration.md of the installed pi.",
+          "verifiedOn": "2026-11-16",
+          "reason": "`pi -p --mode json` exits after its prompts; only `--mode rpc` stays alive and no worker recipe drives it. Docs read, no live run."
         },
         "resume": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read pi's headless CLI documentation and `pi --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for pi; nothing is inferred from another harness or a model name"
+          "status": "unsupported",
+          "evidence": [
+            "pi 1.5.2 `pi --help`: --continue, --resume, --session <path|id>"
+          ],
+          "verification": "Run `pi --help`; read docs/cli.md 'Sessions'.",
+          "verifiedOn": "2026-11-16",
+          "reason": "Pi has the flags, but no worker recipe drives them (oneShot passes --no-session) and guard G41's ACCEPTED_KEYS lists no supported resume for pi. Help and docs read, no live run."
         },
         "steering": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read pi's headless CLI documentation and `pi --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for pi; nothing is inferred from another harness or a model name"
+          "status": "unsupported",
+          "evidence": [
+            "pi 1.5.2 docs/cli-integration.md: JSON mode 'does not accept later commands'"
+          ],
+          "verification": "Re-read docs/cli-integration.md of the installed pi.",
+          "verifiedOn": "2026-11-16",
+          "reason": "`steer` exists only in `--mode rpc`, which no worker recipe drives. Docs read, no live run."
         },
         "isolatedEdit": {
           "status": "unknown",
@@ -2005,14 +2011,15 @@
         "mainSession": {
           "status": "supported",
           "evidence": [
-            "core/worker-evidence/pi/2026-11-15-cli-check-main-session.json"
+            "core/worker-evidence/pi/2026-11-16-cli-check-project-trust.json"
           ],
-          "verification": "Run `node bin/doflow.js worker --action evidence --harness pi --checks core/worker-evidence/pi/checks.json --out <new cli-check path>` against the installed pi and read the matched help lines (check main-session). Recorded 2026-11-15 on pi 1.5.2: `pi --help` lists `--print, -p`, `--mode <mode>` (json) and `--`, which ends option parsing and treats the remaining arguments as messages or files (its usage reads `pi [options] [--] [@files...] [messages...]`, so a message starting with `@` is still read as a file). The combination is untested until a live run.",
-          "verifiedOn": "2026-11-15",
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness pi --checks core/worker-evidence/pi/checks.json --out <new cli-check path>` against the installed pi and read the matched help lines (checks main-session and project-trust). Recorded 2026-11-16 on pi 1.5.2: `pi --help` lists `--print, -p`, `--mode <mode>` (json), `--no-approve, -na` (ignore project-local files: the trust flag for a run that cannot answer pi's prompt, docs/security.md) and `--` (usage `pi [options] [--] [@files...] [messages...]`, so a message starting with `@` is still read as a file). The widening guard refuses `--approve, -a`. The combination is untested until a live run.",
+          "verifiedOn": "2026-11-16",
           "argv": [
             "-p",
             "--mode",
             "json",
+            "--no-approve",
             "--",
             "{prompt}"
           ],
