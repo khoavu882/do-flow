@@ -288,12 +288,12 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
   }
 
   /** The `autopilot/off` sentinel: present when the path is a regular file; its content is never read. */
-  function legacyFile(layer: 'user' | 'project', entry: any, file: string, checkout: Checkout): any {
+  function legacyFile(entry: any, file: string): any {
     if (!reads.has(file)) {
       let present = false;
       try { present = io.statSync(file).isFile(); } catch { /* no sentinel */ }
       const read: any = present ? { status: 'ok', value: entry.value } : { status: 'absent' };
-      record({ layer, path: file, kind: 'legacy', legacyKind: entry.kind, checkout, status: read.status, code: null, offset: null });
+      record({ layer: 'user', path: file, kind: 'legacy', legacyKind: entry.kind, checkout: null, status: read.status, code: null, offset: null });
       reads.set(file, read);
     }
     return reads.get(file);
@@ -302,13 +302,12 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
   /** The candidates of one key in one view, lowest layer first (the env last). */
   function rawCandidates(key: string, spec: any, viewName: ViewName): Raw[] {
     const out: Raw[] = [];
-    const legacyAt = (layer: 'user' | 'project', base: string, checkout: Checkout): void => {
+    const legacyAt = (base: string): void => {
       for (const entry of spec.legacy) {
-        if (entry.layer !== layer) continue;
         const file = path.join(base, entry.path);
-        const read = legacyFile(layer, entry, file, checkout);
+        const read = legacyFile(entry, file);
         if (read.status === 'absent') continue;
-        out.push({ layer, source: file, legacy: true, checkout, display: displayOf(spec, read.value), value: read.value, fault: null });
+        out.push({ layer: 'user', source: file, legacy: true, checkout: null, display: displayOf(spec, read.value), value: read.value, fault: null });
       }
     };
     const fileAt = (layer: 'user' | 'project' | 'local', file: string, checkout: Checkout): void => {
@@ -343,11 +342,10 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
     };
 
     if (home.dir) {
-      legacyAt('user', home.dir, null);
+      legacyAt(home.dir);
       fileAt('user', path.join(home.dir, NEW_FILE.user), null);
     }
     if (viewName === 'project' && layers.layersFrom) {
-      legacyAt('project', layers.layersFrom, projectCheckout);
       fileAt('project', path.join(layers.layersFrom, NEW_FILE.project), projectCheckout);
       fileAt('local', path.join(layers.layersFrom, NEW_FILE.local), projectCheckout);
     }

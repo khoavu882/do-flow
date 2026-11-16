@@ -18,9 +18,9 @@ function verifyKey() {
     scope: 'narrow-only', combine: 'override', securityRelevant: false, failSafe: 'on',
     env: { name: 'DOFLOW_VERIFY_V0', parse: 'off-words', direction: 'narrow' },
     flag: null, shellRead: null, needsConfigHome: false,
-    legacy: [{ layer: 'project', kind: 'sentinel', path: 'verify-v0.off', value: 'off' }],
+    legacy: [{ layer: 'user', kind: 'sentinel', path: 'verify-v0.off', value: 'off' }],
     consumers: ['src/runtime/settings/resolve.ts'],
-    description: 'Verification baseline V0; a project or the env may switch it off.',
+    description: 'Verification baseline V0; the user or the env may switch it off.',
   };
 }
 
@@ -111,9 +111,10 @@ test('IC-016: verify.v0 registers through the existing consumer and config list 
   const envOutput = listConfig(repoRoot, fixture, { DOFLOW_VERIFY_V0: 'off' });
   assert.match(envOutput, /^verify\.v0 = "off"  \(env: DOFLOW_VERIFY_V0\)$/m);
 
-  fs.writeFileSync(path.join(fixture.project, '.doflow', 'verify-v0.off'), 'off\n');
+  fs.mkdirSync(path.join(fixture.xdg, 'doflow'), { recursive: true });
+  fs.writeFileSync(path.join(fixture.xdg, 'doflow', 'verify-v0.off'), 'off\n');
   const sentinelOutput = listConfig(repoRoot, fixture, { DOFLOW_VERIFY_V0: undefined });
-  assert.match(sentinelOutput, /^verify\.v0 = "off"  \(project: .*verify-v0\.off\)$/m);
+  assert.match(sentinelOutput, /^verify\.v0 = "off"  \(user: .*verify-v0\.off\)$/m);
 });
 
 test('config list prints both views generically for a registered 8th key', (t) => {
