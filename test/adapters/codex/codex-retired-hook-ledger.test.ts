@@ -12,7 +12,7 @@ after(cleanup);
 const RETIRED_BODY = '#!/usr/bin/env bash\ndoflow_bridge codex PreToolUse pre-bash-guard\n';
 const retiredRows = (ledger: any) => ledger.resources.filter((row: any) => row.harness === 'codex' && row.kind === 'hooks-script' && row.identity === 'pre-bash-guard.sh');
 
-test('install -f over an install that still has the retired pre-bash-guard front door drops its script and its ledger row', (t: any) => {
+test('install -f over an install whose ledger still has a row for the retired pre-bash-guard script drops the row and leaves the file', (t: any) => {
   const home = tempDir(t, 'doflow-codex-retired-home-');
   const xdg = tempDir(t, 'doflow-codex-retired-xdg-');
   const project = tempDir(t, 'doflow-codex-retired-project-');
@@ -37,7 +37,7 @@ test('install -f over an install that still has the retired pre-bash-guard front
 
   r = run(['install', project, '--force', '--target', 'codex'], opts);
   assert.equal(r.status, 0, r.stderr);
-  assert.equal(fs.existsSync(target), false, 'the retired script is deleted');
+  assert.equal(fs.existsSync(target), true, 'the script file itself is no longer deleted');
   assert.equal(retiredRows(JSON.parse(fs.readFileSync(ledgerFile, 'utf8'))).length, 0, 'its ledger row is dropped');
   assert.ok(fs.existsSync(path.join(hooksDir, 'pre-implement-gate.sh')), 'the shipped scripts stay');
 });
