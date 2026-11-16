@@ -1,9 +1,9 @@
 'use strict';
 const { bashPath } = require('../helper/bash-locator.ts');
 
-// The bash summary store policies/summary-store.sh (feature 078, IC-010, IC-011 store write, IC-012,
-// IC-014; DEC-003, DEC-012, DEC-014): the scoped write, the owner claim by rename, grant selection
-// and claim, and the legacy adopter. Records are read back through emission.jq, the renderer the
+// The bash summary store policies/summary-store.sh (feature 078, IC-010, IC-011 store write, IC-012;
+// DEC-003, DEC-012, DEC-014): the scoped write, the owner claim by rename, grant selection
+// and claim. Records are read back through emission.jq, the renderer the
 // hook passes the claimed file to. Runs under macOS /bin/bash 3.2.
 
 const test = require('node:test');
@@ -110,15 +110,6 @@ function grantRecord(id: any, body: any, extra: any = '') {
   return `---\nsummary_id: ${id}\ngranted_at: 2026-10-14T10:05:00Z\nfrom_worktree: /abs/wt\nfrom_run: local\nfrom_lineage: main\nto_run: r-7\nto_lineage: w-3\ncompacted_at: 2026-10-14T10:00:00Z\nbranch: topic\nbytes: 0\n${extra}---\n\n${body}\n`;
 }
 
-function legacyFile(cwd: any) {
-  const hash: any = ok('cwd_hash "$1"', [cwd]).trim();
-  const d = path.join(ENV_ROOT, 'projects', hash);
-  fs.mkdirSync(d, { recursive: true });
-  return path.join(d, 'last-compact-summary.md');
-}
-
-const LEGACY = '---\ncompacted_at: 2026-01-02T03:04:05Z\nsession_id: old-session\ntrigger: auto\nbranch: legacy-branch\nrole: main\n---\n\nlegacy body\n';
-
 // ── Sourcing ────────────────────────────────────────────────────────────────────────────────────
 
 test('sourcing defines functions only: no output, no option, no variable, no trap', () => {
@@ -129,15 +120,6 @@ test('sourcing defines functions only: no output, no option, no variable, no tra
   const lines = r.stdout.trim().split('\n');
   assert.deepEqual(lines.slice(0, -1), []);
   assert.ok(Number(lines[lines.length - 1]) >= 7);
-});
-
-test('the literal legacy file name appears once, inside doflow_summary_adopt_legacy', () => {
-  const text = fs.readFileSync(STORE, 'utf8');
-  const hits = text.split('\n').map((l: any, i: any) => [l, i]).filter(([l]: any) => l.includes('last-compact-summary.md'));
-  assert.equal(hits.length, 1);
-  const start = text.split('\n').findIndex((l: any) => l.startsWith('doflow_summary_adopt_legacy()'));
-  assert.ok(start >= 0 && hits[0][1] > start);
-  assert.ok(!/^\s*#/.test(hits[0][0]));
 });
 
 // ── IC-010, IC-011: the scoped write ──────────────────────────────────────────────────────────────
@@ -374,58 +356,4 @@ test('grant: an invalid run, lineage or budget reaches no path', () => {
   for (const [run, lineage, max] of [['../x', 'w-1', 100], ['r-7', 'a/b', 100], ['r-7', 'w-3', 0], ['r-7', 'w-3', 'x']]) {
     assert.equal(grantPeek(run, lineage, max).grant, 'none');
   }
-});
-
-// ── IC-014: legacy adopter ───────────────────────────────────────────────────────────────────────
-
-test('adopt without a pending summary: moved into local/main with its frontmatter, then claimed once', () => {
-  const wt: any = worktree();
-  const old = legacyFile(wt);
-  fs.writeFileSync(old, LEGACY);
-  const r: any = vars(ok('rc=0; doflow_summary_adopt_legacy "$1" "$1" || rc=$?\nprintf "rc=%s\\n" "$rc"', [wt]));
-  assert.equal(r.rc, '0');
-  assert.ok(!fs.existsSync(old));
-  const pending = path.join(scope(wt), 'summary.md');
-  assert.equal(fs.readFileSync(pending, 'utf8'), LEGACY);
-  const own: any = claim(wt, { unit: 'old-session', session: 'old-session' });
-  assert.equal(own.own, 'own-write');
-  const c: any = claim(wt);
-  assert.equal(c.rc, '0');
-  assert.equal(render('summary', 'truncate', c.claimed).text, '[Prior session summary, compacted 2026-01-02T03:04:05Z on branch legacy-branch]\nlegacy body');
-  const again: any = vars(ok('rc=0; doflow_summary_adopt_legacy "$1" "$1" || rc=$?\nprintf "rc=%s\\n" "$rc"', [wt]));
-  assert.equal(again.rc, '1');
-});
-
-test('adopt with a pending summary: the pending one is kept and the old file is removed', () => {
-  const wt: any = worktree();
-  const w: any = write(wt, { body: 'newer pending' });
-  const old = legacyFile(wt);
-  fs.writeFileSync(old, LEGACY);
-  const r: any = vars(ok('rc=0; doflow_summary_adopt_legacy "$1" "$1" || rc=$?\nprintf "rc=%s\\n" "$rc"', [wt]));
-  assert.equal(r.rc, '0');
-  assert.ok(!fs.existsSync(old));
-  assert.match(fs.readFileSync(w.path, 'utf8'), /\n\nnewer pending\n$/);
-});
-
-test('adopt uses the cwd for the legacy key and the worktree for the scope', () => {
-  const cwd: any = worktree();
-  const wt: any = worktree();
-  const old = legacyFile(cwd);
-  fs.writeFileSync(old, LEGACY);
-  assert.equal(vars(ok('rc=0; doflow_summary_adopt_legacy "$1" "$2" || rc=$?\nprintf "rc=%s\\n" "$rc"', [cwd, wt])).rc, '0');
-  assert.ok(fs.existsSync(path.join(scope(wt), 'summary.md')));
-  assert.ok(!fs.existsSync(path.join(scope(cwd), 'summary.md')));
-});
-
-test('adopt never runs for a symlinked legacy file', () => {
-  const wt: any = worktree();
-  const old = legacyFile(wt);
-  const target = path.join(scratch.dir, `ltarget${seq++}.md`);
-  fs.writeFileSync(target, LEGACY);
-  fs.symlinkSync(target, old);
-  const r: any = vars(ok('rc=0; doflow_summary_adopt_legacy "$1" "$1" || rc=$?\nprintf "rc=%s\\n" "$rc"', [wt]));
-  assert.equal(r.rc, '1');
-  assert.ok(fs.lstatSync(old).isSymbolicLink());
-  assert.equal(fs.readFileSync(target, 'utf8'), LEGACY);
-  assert.ok(!fs.existsSync(path.join(scope(wt), 'summary.md')));
 });

@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 const path = require('node:path');
 const fs = require('node:fs');
 const { configHome } = require('../config-home.ts');
@@ -261,8 +259,7 @@ function printSettingsReport(report: any): void {
   const present = (report.files || []).filter((file: any) => file.status !== 'absent');
   if (!present.length) console.log('  files: none');
   for (const file of present) {
-    const deprecated = file.kind === 'legacy' ? ' (deprecated)' : '';
-    console.log(`  ${file.layer} ${file.path}: ${file.status}${deprecated}`);
+    console.log(`  ${file.layer} ${file.path}: ${file.status}`);
   }
   for (const note of report.notes || []) console.log(`  note: ${note.text}`);
   for (const error of report.errors || []) {

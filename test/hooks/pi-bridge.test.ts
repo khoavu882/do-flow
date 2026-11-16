@@ -62,14 +62,13 @@ function makePolicyRepo(t: any, state: any) {
   if (state !== 'none') {
     const featureDir = path.join(repo, 'agent-docs/doflow/pi-gate');
     fs.mkdirSync(featureDir, { recursive: true });
-    if (state === 'all-artifacts') {
-      fs.writeFileSync(path.join(featureDir, 'requirement.md'), '# Requirement\n');
-      fs.writeFileSync(path.join(featureDir, 'design.md'), '# Design\n');
-      fs.writeFileSync(path.join(featureDir, 'plan.md'), '# Plan\n');
-    } else if (state === 'no-plan') {
-      fs.writeFileSync(path.join(featureDir, 'requirement.md'), '# Requirement\n');
-      fs.writeFileSync(path.join(featureDir, 'design.md'), '# Design\n');
+    if (state === 'all-artifacts' || state === 'no-plan') {
+      fs.mkdirSync(path.join(featureDir, 'intention'), { recursive: true });
+      fs.mkdirSync(path.join(featureDir, 'design'), { recursive: true });
+      fs.writeFileSync(path.join(featureDir, 'intention/requirement.md'), '# Requirement\n');
+      fs.writeFileSync(path.join(featureDir, 'design/design.md'), '# Design\n');
     }
+    if (state === 'all-artifacts') fs.writeFileSync(path.join(featureDir, 'plan.md'), '# Plan\n');
   }
   return repo;
 }

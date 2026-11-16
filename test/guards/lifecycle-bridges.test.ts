@@ -304,12 +304,12 @@ function migrationFindings(text: any) {
 }
 
 test('G35.6: migration guide anchors Pi on tool_call and documents envelope version 1', () => {
-  const text = fs.readFileSync(path.join(REPO, 'core/harnesses/shared/hooks/ENVELOPE_MIGRATION.md'), 'utf8');
+  const text = fs.readFileSync(path.join(REPO, 'core/harnesses/shared/hooks/ENVELOPE.md'), 'utf8');
   assert.deepEqual(migrationFindings(text), []);
 });
 
 test('G35.6 control: restoring the old Pi migration sentence is detected in memory', () => {
-  const text = fs.readFileSync(path.join(REPO, 'core/harnesses/shared/hooks/ENVELOPE_MIGRATION.md'), 'utf8');
+  const text = fs.readFileSync(path.join(REPO, 'core/harnesses/shared/hooks/ENVELOPE.md'), 'utf8');
   const mutated = text.replace(/tool_call/g, 'tool_execution_start');
   assert.ok(migrationFindings(mutated).includes('Pi is not anchored on tool_call'));
 });

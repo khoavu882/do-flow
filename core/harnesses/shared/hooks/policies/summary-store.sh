@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# summary-store.sh — Canonical Policy Library: scoped compact summaries, grants and the legacy
-# adopter (feature 078, IC-010, IC-011 store write, IC-012, IC-014; DEC-003, DEC-012, DEC-014).
+# summary-store.sh — Canonical Policy Library: scoped compact summaries and grants
+# (feature 078, IC-010, IC-011 store write, IC-012; DEC-003, DEC-012, DEC-014).
 #
 # Layout under STATE_DIR (lib.sh: <config home>/doflow/session-env; empty with no config home, and
-# then there is no store: peeks find nothing, writes, claims and adopts return 1):
+# then there is no store: peeks find nothing, writes and claims return 1):
 #   summaries/<worktreeKey>/<run>/<lineage>/summary.md            one pending summary per scope
 #   summaries/<worktreeKey>/<run>/<lineage>/.summary.XXXXXX       write temporary
 #   summaries/<worktreeKey>/<run>/<lineage>/.claimed.<unitId>     claim temporary
@@ -14,7 +14,7 @@
 #
 # Sourcing this file defines functions only: no option, no variable, no trap, no output. bash 3.2
 # safe and safe under the caller's `set -euo pipefail`. Peek functions always return 0; write,
-# claim and adopt return 0 when they did their work and 1 otherwise, so call them from `if` or
+# and claim return 0 when they did their work and 1 otherwise, so call them from `if` or
 # with `||`. Results are DF_SUMMARY_* and DF_GRANT_* variables. A claimed file is left in place for
 # the caller to pass to emission.jq (--rawfile summary or grant) and to remove after rendering.
 
@@ -296,52 +296,4 @@ doflow_grant_claim() {
   fi
   DF_GRANT_CLAIMED=$claimed
   return 0
-}
-
-# doflow_summary_adopt_legacy <cwd> <worktree> [check]
-# IC-014, on action `adopt` only: the pre-078 project summary under projects/<cwd_hash cwd>/, a
-# regular file and not a symlink, moves once into summaries/<worktreeKey>/local/main/summary.md
-# with its frontmatter kept. When a summary is already pending there it is newer by construction
-# and the old file is removed instead. The legacy file is first renamed to <old>.adopting.<pid>, so
-# only one adopter proceeds (a lost rename means another adopter won and returns 0, DEC-043); then
-# a hard link that refuses to replace, and the .adopting file is unlinked last, so a summary written
-# meanwhile is never overwritten. Without hard links, `mv -n` is the fallback, taken only when the
-# target is absent and verified afterwards. Nothing writes the old path. Returns 0 when a legacy
-# file was adopted or retired, or another adopter took it. With a third argument `check` it only tests that the
-# legacy file exists and changes nothing (doflow_summary_legacy_present). This function is the one
-# place that names the legacy file (G38.4).
-doflow_summary_adopt_legacy() {
-  local cwd="${1:-}" worktree="${2:-}" projects old new taken
-  [ -n "$cwd" ] || return 1
-  [ -n "$worktree" ] || worktree=$cwd
-  _doflow_ss_key "$cwd" || return 1
-  _doflow_ss_root || return 1
-  projects="${PROJECTS_DIR:-$_DF_SS_ROOT/projects}"
-  old="$projects/$_DF_SS_KEY/last-compact-summary.md"
-  [ -f "$old" ] && [ ! -L "$old" ] || return 1
-  [ "${3:-}" != check ] || return 0
-  doflow_summary_scope "$worktree" local main || return 1
-  new="$DF_SUMMARY_SCOPE/summary.md"
-  mkdir -p "$DF_SUMMARY_SCOPE" 2>/dev/null || return 1
-  taken="$old.adopting.$$"
-  mv "$old" "$taken" 2>/dev/null || return 0
-  # A link that refuses to replace; it fails when a summary is pending, which retires the legacy one.
-  if ! ln "$taken" "$new" 2>/dev/null && [ ! -e "$new" ] && [ ! -L "$new" ]; then
-    # No hard links on this filesystem: a rename that refuses to replace, then a check that $new is
-    # the adopted file (mv -n leaves the source in place when the target appeared meanwhile).
-    # The old path is never written again, so a failed rename leaves the .adopting file in place.
-    mv -n "$taken" "$new" 2>/dev/null || true
-    if [ -e "$taken" ] && [ ! -e "$new" ] && [ ! -L "$new" ]; then return 1; fi
-  fi
-  rm -f "$taken" 2>/dev/null || true
-  return 0
-}
-
-# doflow_summary_legacy_present <cwd>
-# Returns 0 when the pre-078 project summary under projects/<cwd_hash cwd>/ exists as a regular file
-# and not a symlink, and 1 otherwise. Runs adopt_legacy's check mode in a subshell, so it sets no
-# variable, prints nothing and changes nothing.
-doflow_summary_legacy_present() {
-  [ -n "${1:-}" ] || return 1
-  (doflow_summary_adopt_legacy "$1" "" check)
 }

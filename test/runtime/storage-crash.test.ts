@@ -17,7 +17,7 @@ function fixture(t: any) {
   const dir = tempDir(t, 'doflow-storage-crash-'), project = path.join(dir, 'project');
   const home = path.join(dir, 'home'), xdg = path.join(dir, 'xdg');
   for (const folder of [project, home, xdg]) fs.mkdirSync(folder);
-  fs.mkdirSync(path.join(xdg, 'doflow')); fs.writeFileSync(path.join(xdg, 'doflow/prune'), 'off\n');
+  fs.mkdirSync(path.join(xdg, 'doflow')); fs.writeFileSync(path.join(xdg, 'doflow/settings.json'), '{"schema":1,"storage.prune":"off"}\n');
   const roots = Object.fromEntries(Object.entries(registry.roots).map(([id, root]) => [id, path.join(root.base === 'home' ? home : root.base === 'xdg-config' ? xdg : project, ...root.segments)]));
   const env: any = { ...inheritedEnv(), HOME: home, XDG_CONFIG_HOME: xdg, GIT_CONFIG_GLOBAL: path.join(dir, 'no-gitconfig'), GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV };
   assert.equal(spawnSync('git', ['init', '-q', project], { env, encoding: 'utf8' }).status, 0);

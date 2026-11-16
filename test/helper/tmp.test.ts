@@ -182,8 +182,8 @@ test('createScratch writes the default prune setting, supports an override, and 
   const defaults = createScratch('doflow-tmp-scratch-default-');
   const enabled = createScratch('doflow-tmp-scratch-enabled-', { prune: 'on' });
 
-  assert.equal(fs.readFileSync(path.join(defaults.xdg, 'doflow', 'prune'), 'utf8'), 'off\n');
-  assert.equal(fs.readFileSync(path.join(enabled.xdg, 'doflow', 'prune'), 'utf8'), 'on\n');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(defaults.xdg, 'doflow', 'settings.json'), 'utf8'))['storage.prune'], 'off');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(enabled.xdg, 'doflow', 'settings.json'), 'utf8'))['storage.prune'], 'on');
   defaults.remove();
   assert.doesNotThrow(() => defaults.remove());
   enabled.remove();

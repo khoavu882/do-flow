@@ -137,18 +137,17 @@ function reportRetiredMcp(retired: string[]): void {
   console.error('        They were removed from DoFlow; your saved selection is being reconciled.');
 }
 
-/** The scope's doflow.lock, ledger and 1.18.0 manifest MCP list, as the MCP selection functions in
+/** The scope's doflow.lock and ledger, as the MCP selection functions in
  * src/install/mcp.js read them. */
 function scopeSelectionState(scope: any): any {
   const scopeRoot = scope.global ? os.homedir() : path.resolve(scope.projectRoot);
   return {
     lock: readLock(scope.global ? { scope: 'global', homeDir: scopeRoot } : { scope: 'project', projectRoot: scopeRoot }),
     ledger: canonicalLedger(readLedger(stateRoot({ scope: scope.global ? 'global' : 'project', projectRoot: scopeRoot, homeDir: scopeRoot })), scopeRoot),
-    manifestServers: readInstallManifest({ scopeRoot })?.mcpServers ?? null,
   };
 }
 
-const MCP_SOURCE_WORDS = Object.freeze({ flag: '--mcp', prompt: 'prompt', recorded: 'recorded', kept: 'kept', manifest: 'remembered', default: 'default' } as Record<string, string>);
+const MCP_SOURCE_WORDS = Object.freeze({ flag: '--mcp', prompt: 'prompt', recorded: 'recorded', kept: 'kept', default: 'default' } as Record<string, string>);
 
 /** The one line a run names its MCP selections in, from what the plan resolved for each harness:
  * harnesses with the same servers and source share a group, groups follow target order. Prints
@@ -193,22 +192,15 @@ function rowsSize(rows: any[]): string {
 
 function printBackupTable(rows: any[], rootLabel: string): void {
   if (rows.length === 0) { console.log(`[INFO] No backups found in ${rootLabel}`); return; }
-  const header = `${'BACKUP ID'.padEnd(42)} ${'OPERATION'.padEnd(14)} ${'TYPE'.padEnd(9)} ${'ORIGIN'.padEnd(9)} ${'SIZE'.padEnd(11)} TIMESTAMP`;
+  const header = `${'BACKUP ID'.padEnd(42)} ${'OPERATION'.padEnd(14)} ${'TYPE'.padEnd(9)} ${'SIZE'.padEnd(11)} TIMESTAMP`;
   console.log(`\n${header}`);
   console.log('─'.repeat(header.length));
   for (const r of rows) {
     const when = r.complete === false ? '- (incomplete: no manifest)' : r.timestamp;
-    console.log(`${r.id.padEnd(42)} ${r.operation.padEnd(14)} ${r.type.padEnd(9)} ${r.origin.padEnd(9)} ${formatBytes(r.bytes).padEnd(11)} ${when}`);
+    console.log(`${r.id.padEnd(42)} ${r.operation.padEnd(14)} ${r.type.padEnd(9)} ${formatBytes(r.bytes).padEnd(11)} ${when}`);
   }
   console.log(`\n${rows.length} backup(s) in ${rootLabel}`);
-  const current = rows.filter((r) => r.origin === 'current');
-  const legacy = rows.filter((r) => r.origin === 'legacy');
-  if (current.length) {
-    console.log(`current: ${current.length} backup(s), ${rowsSize(current)}; install and update keep the newest ${DEFAULT_BACKUP_RETENTION} (--prune N)`);
-  }
-  if (legacy.length) {
-    console.log(`legacy: ${legacy.length} backup(s), ${rowsSize(legacy)} in ${[...new Set(legacy.map((r) => r.backupRoot))].join(', ')}; read-only, never pruned`);
-  }
+  console.log(`${rowsSize(rows)}; install and update keep the newest ${DEFAULT_BACKUP_RETENTION} (--prune N)`);
   console.log('');
 }
 

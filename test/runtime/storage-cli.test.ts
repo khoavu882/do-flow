@@ -68,21 +68,18 @@ test('storage report JSON includes effective settings and all pass result fields
   } finally { scratch.remove(); }
 });
 
-test('storage report names deprecated prune only when a legacy prune file exists', () => {
+test('storage report does not read an old prune file', () => {
   const scratch = createScratch('doflow-storage-cli-');
   try {
     const project = path.join(scratch.dir, 'project'); fs.mkdirSync(project);
-    fs.rmSync(path.join(scratch.xdg, 'doflow', 'prune'));
-    const absent = run([], project, scratch.env());
-    assert.equal(absent.status, 0, absent.stderr);
-    assert.doesNotMatch(absent.stdout, /deprecated.*prune|prune.*deprecated/i);
-
+    fs.rmSync(path.join(scratch.xdg, 'doflow', 'settings.json'));
     const prune = path.join(project, '.doflow/prune');
-    fs.mkdirSync(path.dirname(prune), { recursive: true }); fs.writeFileSync(prune, 'on\n');
-    const present = run([], project, scratch.env());
-    assert.equal(present.status, 0, present.stderr);
-    assert.match(present.stdout, /deprecated.*prune|prune.*deprecated/i);
-    assert.ok(present.stdout.includes(prune));
+    fs.mkdirSync(path.dirname(prune), { recursive: true }); fs.writeFileSync(prune, 'off\n');
+    const result = run([], project, scratch.env());
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /Settings: project on \(default\); user on \(default\)/);
+    assert.doesNotMatch(result.stdout, /prune file|deprecated/i);
+    assert.ok(!result.stdout.includes(prune));
   } finally { scratch.remove(); }
 });
 
@@ -91,7 +88,7 @@ test('storage report shows deciding paths and caps listed recovery names at twen
   try {
     const project = path.join(scratch.dir, 'project'); fs.mkdirSync(project);
     const projectDoflow = path.join(project, '.doflow'); fs.mkdirSync(projectDoflow);
-    const projectSetting = path.join(projectDoflow, 'prune'); fs.writeFileSync(projectSetting, 'on\n');
+    const projectSetting = path.join(projectDoflow, 'settings.json'); fs.writeFileSync(projectSetting, '{"schema":1,"storage.prune":"on"}\n');
     const recovery = path.join(projectDoflow, 'state/recovery');
     for (let i = 0; i < 25; i++) putAged(recovery, `recovery_${String(i).padStart(2, '0')}.json`, (25 - i) * 1000);
     fs.writeFileSync(path.join(projectDoflow, 'state/ledger.json'), JSON.stringify({ lastRecoveryId: 'recovery_24' }));
@@ -99,7 +96,7 @@ test('storage report shows deciding paths and caps listed recovery names at twen
     const result = run([], project, scratch.env());
     assert.equal(result.status, 0, result.stderr);
     assert.ok(result.stdout.includes(`project on (${projectSetting})`));
-    assert.ok(result.stdout.includes(`user off (${path.join(scratch.xdg, 'doflow/prune')})`));
+    assert.ok(result.stdout.includes(`user off (${path.join(scratch.xdg, 'doflow/settings.json')})`));
     assert.match(result.stdout, /Would remove: 22/);
     assert.ok(result.stdout.includes('... and 2 more'));
     assert.match(result.stdout, /Bound:.*3/);
@@ -113,8 +110,8 @@ test('storage prune ignores upkeep-due and includes recovery stores', () => {
   try {
     const project = path.join(scratch.dir, 'project'); fs.mkdirSync(project);
     const projectDoflow = path.join(project, '.doflow'); fs.mkdirSync(projectDoflow);
-    fs.writeFileSync(path.join(projectDoflow, 'prune'), 'on\n');
-    fs.writeFileSync(path.join(scratch.xdg, 'doflow/prune'), 'on\n');
+    fs.writeFileSync(path.join(projectDoflow, 'settings.json'), '{"schema":1,"storage.prune":"on"}\n');
+    fs.writeFileSync(path.join(scratch.xdg, 'doflow/settings.json'), '{"schema":1,"storage.prune":"on"}\n');
     const state = path.join(projectDoflow, 'state'); fs.mkdirSync(state);
     const marker = path.join(state, 'upkeep-due'); fs.writeFileSync(marker, 'future\n');
     const oldLog = putAged(path.join(state, 'verification/logs'), `${Date.now() - 31 * DAY}-expired.log`, 31 * DAY, 'old');
@@ -194,6 +191,22 @@ test('storage upkeep stays silent and exits 0 when the registry is unavailable (
   } finally { scratch.remove(); }
 });
 
+test('storage prune with unresolvable settings says so and names no prune file', () => {
+  const scratch = createScratch('doflow-storage-cli-');
+  const project = path.join(scratch.dir, 'project'); fs.mkdirSync(project);
+  const lines: any = [];
+  const originalLog = console.log, originalExitCode = process.exitCode;
+  // A fault in the settings registry fails every root closed, with no layer to name.
+  const fsImpl = { ...fs, readFileSync: (file: any, ...rest: any) => {
+    if (String(file).endsWith(path.join('registry', 'settings.json'))) throw new Error('settings registry unreadable');
+    return (fs as any).readFileSync(file, ...rest);
+  } };
+  console.log = (line: any) => lines.push(line);
+  try { handleStorageCommand({ action: 'prune', projectRoot: project, env: scratch.env(), fsImpl }); }
+  finally { console.log = originalLog; process.exitCode = originalExitCode; scratch.remove(); }
+  assert.deepEqual(lines, ['storage: pruning is off (settings could not be resolved); nothing removed']);
+});
+
 test('storage prune honors off and upkeep is silent', () => {
   const scratch = createScratch('doflow-storage-cli-');
   try {
@@ -201,6 +214,7 @@ test('storage prune honors off and upkeep is silent', () => {
     const off = run(['--action', 'prune'], project, scratch.env());
     assert.equal(off.status, 0, off.stderr);
     assert.match(off.stdout, /storage: pruning is off .*; nothing removed/);
+    assert.doesNotMatch(off.stdout, /\/prune\)/);
     const upkeep = run(['--action', 'upkeep', '--json'], project, scratch.env());
     assert.equal(upkeep.status, 0, upkeep.stderr);
     assert.equal(upkeep.stdout, '');
@@ -234,7 +248,7 @@ test('storage prune with pruning off reports the lifecycle events an explicit DO
   const scratch = createScratch('doflow-storage-cli-');
   try {
     const project = path.join(scratch.dir, 'project'); fs.mkdirSync(path.join(project, '.doflow'), { recursive: true });
-    fs.writeFileSync(path.join(project, '.doflow/prune'), 'off\n');
+    fs.writeFileSync(path.join(project, '.doflow/settings.json'), '{"schema":1,"storage.prune":"off"}\n');
     const events = settledEvents(project);
     const kept = run(['--action', 'prune'], project, scratch.env());
     assert.equal(kept.status, 0, kept.stderr);

@@ -273,10 +273,10 @@ describe('failure --action list', () => {
     const all = run(m, ['--action', 'list', '--all', '--json']);
     assert.deepEqual(all.json.entries.map((e: any) => e.status).sort(), ['fixed', 'new', 'noise']);
   });
-  test('reports capture off when the sentinel exists, and still reads', () => {
+  test('reports capture off when settings.json says off, and still reads', () => {
     const m = machine('list-off');
     writeEvents(m, [line()]);
-    fs.writeFileSync(path.join(m.failures, 'off'), 'x');
+    fs.writeFileSync(path.join(m.xdg, 'doflow', 'settings.json'), '{"schema":1,"failure.capture":"off"}\n');
     const r = run(m, ['--action', 'list', '--json']);
     assert.equal(r.json.capture, 'off');
     assert.equal(r.json.entries.length, 1);
@@ -509,29 +509,29 @@ describe('failure --action capture', () => {
   test('status: on by default, and reading it creates nothing', () => {
     const m = machine('capture-status');
     const r = run(m, ['--action', 'capture', '--json']);
-    assert.deepEqual(r.json, { ok: true, action: 'capture', effective: 'on', sentinel: false, env: null });
+    assert.deepEqual(r.json, { ok: true, action: 'capture', effective: 'on', env: null });
     assert.equal(fs.existsSync(m.failures), false);
   });
-  test('--set writes failure.capture in settings.json and never changes the old sentinel', () => {
+  test('--set writes failure.capture in settings.json and creates no failures/off file', () => {
     const m = machine('capture-set');
     const off = run(m, ['--action', 'capture', '--set', 'off', '--json']);
     const settingsFile = path.join(m.xdg, 'doflow', 'settings.json');
     const sentinel = path.join(m.failures, 'off');
     assert.deepEqual(off.json, {
-      ok: true, action: 'capture', effective: 'off', sentinel: false, env: null, decidedBy: settingsFile,
+      ok: true, action: 'capture', effective: 'off', env: null, decidedBy: settingsFile,
     });
     assert.deepEqual(JSON.parse(fs.readFileSync(settingsFile, 'utf8')), { schema: 1, 'failure.capture': 'off' });
     assert.equal(fs.existsSync(sentinel), false);
     assert.equal(run(m, ['--action', 'capture', '--json']).json.effective, 'off');
     const on = run(m, ['--action', 'capture', '--set', 'on', '--json']);
     assert.deepEqual(on.json, {
-      ok: true, action: 'capture', effective: 'on', sentinel: false, env: null, decidedBy: settingsFile,
+      ok: true, action: 'capture', effective: 'on', env: null, decidedBy: settingsFile,
     });
     assert.deepEqual(JSON.parse(fs.readFileSync(settingsFile, 'utf8')), { schema: 1, 'failure.capture': 'on' });
     assert.equal(fs.existsSync(sentinel), false);
     assert.equal(run(m, ['--action', 'capture', '--set', 'on', '--json']).status, 0, 'switching on twice is fine');
   });
-  test('--set on beside an old off sentinel reports the sentinel and keeps it', () => {
+  test('an old failures/off file is not read: --set on is on, and the file is left alone', () => {
     const m = machine('capture-set-sentinel');
     fs.mkdirSync(m.failures, { recursive: true });
     const sentinel = path.join(m.failures, 'off');
@@ -541,19 +541,19 @@ describe('failure --action capture', () => {
 
     assert.equal(on.status, 0, on.stderr);
     assert.deepEqual(on.json, {
-      ok: true, action: 'capture', effective: 'off', sentinel: true, env: null, decidedBy: sentinel,
+      ok: true, action: 'capture', effective: 'on', env: null, decidedBy: path.join(m.xdg, 'doflow', 'settings.json'),
     });
     assert.equal(fs.readFileSync(sentinel, 'utf8'), 'old sentinel\n');
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(m.xdg, 'doflow', 'settings.json'), 'utf8')),
       { schema: 1, 'failure.capture': 'on' });
   });
-  test('the environment turns it off but cannot turn it on over the sentinel', () => {
+  test('the environment turns it off but cannot turn it on over settings.json', () => {
     const m = machine('capture-env');
     assert.deepEqual(run(m, ['--action', 'capture', '--json'], { env: { DOFLOW_FAILURE_CAPTURE: 'off' } }).json,
-      { ok: true, action: 'capture', effective: 'off', sentinel: false, env: 'off' });
+      { ok: true, action: 'capture', effective: 'off', env: 'off' });
     run(m, ['--action', 'capture', '--set', 'off']);
     assert.deepEqual(run(m, ['--action', 'capture', '--json'], { env: { DOFLOW_FAILURE_CAPTURE: 'on' } }).json,
-      { ok: true, action: 'capture', effective: 'off', sentinel: false, env: 'on' });
+      { ok: true, action: 'capture', effective: 'off', env: 'on' });
   });
   test('an invalid --set is a usage error', () => {
     const m = machine('capture-bad');

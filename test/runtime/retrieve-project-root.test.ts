@@ -8,7 +8,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
-const { createSettingsEnv, userDecision, CLI } = require('../helper/settings-fixtures.ts');
+const { createSettingsEnv, userAdvice, CLI } = require('../helper/settings-fixtures.ts');
 const { startFakeServer } = require('../helper/fake-decision-server.ts');
 
 const NO_RG = spawnSync('rg', ['--version'], { stdio: 'ignore' }).status === 0 ? false : 'ripgrep (rg) is not installed';
@@ -38,7 +38,7 @@ async function fixture(t: any) {
   const f = createSettingsEnv(t, { prefix: 'doflow-retrieve-root-' });
   const server = await startFakeServer();
   t.after(() => server.close());
-  f.writeUserDecision(userDecision({ endpoint: server.origin }));
+  f.writeUserSettings(userAdvice({ endpoint: server.origin }));
   f.writeProjectSettings({ advice: { kinds: { rerank: 'shadow' } } });
   const git = spawnSync('git', ['init', '-q'], { cwd: f.project, env: f.env() });
   assert.equal(git.status, 0);

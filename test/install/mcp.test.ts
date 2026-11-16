@@ -4,7 +4,7 @@ const assert = require('node:assert');
 const { ACTIVE_HARNESS_IDS } = require('../helper/harness-ids.ts');
 const path = require('node:path');
 const {
-  readAllServers, promptMcpCheckbox, parseMcpFlag, resolveMcpSelections, recordedMcpSelections, adoptableMcpIds,
+  readAllServers, promptMcpCheckbox, parseMcpFlag, resolveMcpSelections, recordedMcpSelections,
 } = require('../../src/install/mcp.ts');
 const { loadRegistry } = require('../../src/registry/index.ts');
 
@@ -46,7 +46,7 @@ const lockWith = (rows: any, extraTargets = []) => ({
 });
 const ledgerHolding = (...harnesses: any[]) => ({ resources: harnesses.map((harness) => ({ harness, kind: 'skill' })) });
 const resolve = (options: any) => resolveMcpSelections({
-  cmd: 'install', requested: null, targets: ALL_HARNESSES, registry, lock: null, ledger: null, manifestServers: null,
+  cmd: 'install', requested: null, targets: ALL_HARNESSES, registry, lock: null, ledger: null,
   interactive: false, promptFn: () => assert.fail('must not prompt'), ...options,
 });
 
@@ -75,16 +75,15 @@ test('S3: lock rows win per harness and stay distinct', () => {
   const result = resolve({
     targets: ['claude', 'codex'],
     lock: lockWith({ claude: ['context7'], codex: ['sequential-thinking'] }),
-    manifestServers: ['context7', 'sequential-thinking'],
   });
   assert.deepEqual(result.selections, { claude: ['context7'], codex: ['sequential-thinking'] });
   assert.deepEqual(result.sources, { claude: 'recorded', codex: 'recorded' });
 });
 
-test('S4: an installed harness with no row is kept, an uninstalled one takes the manifest list, else none', () => {
-  const kept = resolve({ targets: ['kiro', 'pi'], ledger: ledgerHolding('kiro'), manifestServers: ['context7'] });
-  assert.deepEqual(kept.selections, { kiro: 'keep', pi: ['context7'] });
-  assert.deepEqual(kept.sources, { kiro: 'kept', pi: 'manifest' });
+test('S4: an installed harness with no row is kept, an uninstalled one takes none', () => {
+  const kept = resolve({ targets: ['kiro', 'pi'], ledger: ledgerHolding('kiro') });
+  assert.deepEqual(kept.selections, { kiro: 'keep', pi: [] });
+  assert.deepEqual(kept.sources, { kiro: 'kept', pi: 'default' });
   const none = resolve({ targets: ['pi'] });
   assert.deepEqual(none.selections, { pi: [] });
   assert.deepEqual(none.sources, { pi: 'default' });
@@ -104,17 +103,14 @@ test('S5: an interactive install prompts once for every target; seed rules; null
   assert.deepEqual(prompted.sources, { kiro: 'prompt', pi: 'prompt' });
 
   calls.length = 0;
-  resolve({ targets: ['kiro', 'pi'], interactive: true, promptFn, manifestServers: ['context7'] });
-  assert.deepEqual(calls[0].seed, ['context7'], 'the manifest list seeds when no target has a row');
-  calls.length = 0;
   resolve({
-    targets: ['kiro', 'pi'], interactive: true, promptFn, manifestServers: ['context7'],
+    targets: ['kiro', 'pi'], interactive: true, promptFn,
     lock: lockWith({ pi: ['sequential-thinking'], claude: ['context7'] }),
   });
   assert.deepEqual(calls[0].seed, ['sequential-thinking'], 'the targeted harnesses\' rows seed first');
 
-  const fellThrough = resolve({ targets: ['kiro'], interactive: true, promptFn: () => null, manifestServers: ['context7'] });
-  assert.deepEqual(fellThrough.sources, { kiro: 'manifest' });
+  const fellThrough = resolve({ targets: ['kiro'], interactive: true, promptFn: () => null });
+  assert.deepEqual(fellThrough.sources, { kiro: 'default' });
   const update = resolve({ cmd: 'update', targets: ['kiro'], interactive: true });
   assert.deepEqual(update.sources, { kiro: 'default' });
 });
@@ -127,43 +123,17 @@ test('S6: non-interactive with no flag and nothing recorded resolves every targe
   }
 });
 
-test('S7: retired ids in a lock row or the manifest are dropped and reported once', () => {
+test('S7: retired ids in a lock row are dropped and reported once', () => {
   const reports: any = [];
   const result = resolve({
     targets: ['claude', 'pi'],
     lock: lockWith({ claude: ['playwright', 'context7'], codex: ['chrome-devtools'] }),
-    manifestServers: ['zz-retired', 'sequential-thinking'],
     onStale: (ids: any) => reports.push(ids),
   });
-  assert.deepEqual(result.selections, { claude: ['context7'], pi: ['sequential-thinking'] });
+  assert.deepEqual(result.selections, { claude: ['context7'], pi: [] });
   assert.deepEqual(result.retainedMcpIds, []);
-  assert.deepEqual(reports, [['chrome-devtools', 'playwright', 'zz-retired']]);
+  assert.deepEqual(reports, [['chrome-devtools', 'playwright']]);
   assert.throws(() => resolve({ requested: ['playwright'] }), /Unknown MCP server\(s\): playwright/);
-});
-
-test('S8: adoptable ids are only what a 1.18.0 install recorded for an installed harness, until a later run records its selection', () => {
-  const all = readAllServers(registry);
-  const ledger = { resources: [
-    ...ledgerHolding('claude', 'kiro', 'opencode', 'pi').resources,
-    { harness: 'copilot', ownershipIdentity: 'copilot:mcp:registration' },
-    { harness: 'antigravity', kind: 'mcp-server', identity: 'sequential-thinking', fingerprint: null },
-    { harness: 'antigravity', kind: 'mcp-server', identity: 'context7', fingerprint: 'sha256:abc' },
-  ] };
-  const targets = ['claude', 'kiro', 'opencode', 'pi', 'copilot', 'antigravity', 'codex'];
-  // The 1.18.0 manifest list reaches every installed harness; a harness the ledger does not hold gets none.
-  const legacy = resolve({ targets, requested: ['none'], lock: lockWith({ claude: ['context7'] }), ledger, manifestServers: ['context7'] });
-  assert.deepEqual(legacy.adoptable, { claude: ['context7'], kiro: ['context7'], opencode: ['context7'], pi: ['context7'],
-    copilot: ['context7'], antigravity: ['context7', 'sequential-thinking'], codex: [] });
-
-  // With no manifest list: Copilot's registration row covers the catalog, Antigravity's unfingerprinted
-  // rows their own ids, and nothing else is adoptable.
-  const bare = adoptableMcpIds({ registry, lock: null, ledger, harnesses: targets });
-  assert.deepEqual(bare, { claude: [], kiro: [], opencode: [], pi: [], copilot: all, antigravity: ['sequential-thinking'], codex: [] });
-
-  // A lock row only a later run writes (any row but a non-empty claude or codex one) closes adoption.
-  const settled = adoptableMcpIds({ registry, lock: lockWith({ claude: [], kiro: ['context7'], copilot: ['context7'] }), ledger,
-    harnesses: ['claude', 'kiro', 'copilot', 'opencode'], manifestServers: ['context7'] });
-  assert.deepEqual(settled, { claude: [], kiro: [], copilot: [], opencode: ['context7'] });
 });
 
 test('S9: retainedMcpIds is the union of the rows of lock harnesses not targeted', () => {
@@ -173,12 +143,9 @@ test('S9: retainedMcpIds is the union of the rows of lock harnesses not targeted
 });
 
 test('recordedMcpSelections reads each target\'s lock row, or keep, and never prompts', () => {
-  const all = readAllServers(registry);
   const lock = lockWith({ claude: ['context7', 'playwright'], codex: ['sequential-thinking'] });
-  const ledger = ledgerHolding('claude', 'kiro');
-  assert.deepEqual(recordedMcpSelections({ registry, lock, ledger, targets: ['claude', 'kiro'], manifestServers: all }), {
+  assert.deepEqual(recordedMcpSelections({ registry, lock, targets: ['claude', 'kiro'] }), {
     selections: { claude: ['context7'], kiro: 'keep' },
-    adoptable: { claude: all, kiro: all },
     retainedMcpIds: ['sequential-thinking'],
   });
 });

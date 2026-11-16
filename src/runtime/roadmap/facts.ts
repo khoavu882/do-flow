@@ -259,8 +259,8 @@ function gatherGateFacts(options: any): GateFact[] {
   }
   for (const artifact of ['requirement', 'design', 'plan']) {
     if (!uses(`markers-zero:${artifact}`)) continue;
-    const candidates = artifact === 'requirement' ? ['intention/requirement.md', 'requirement.md']
-      : artifact === 'design' ? ['design/design.md', 'design.md'] : ['plan.md', 'planning/plan.md'];
+    const candidates = artifact === 'requirement' ? ['intention/requirement.md']
+      : artifact === 'design' ? ['design/design.md'] : ['plan.md', 'planning/plan.md'];
     const input = read(candidates.map((entry) => path.join(artifactRoot, entry)));
     add(`markers:${artifact}`, input.unreadable ? null : countMarkers(input.text), input.locator, input.bytes, input.unreadable);
   }

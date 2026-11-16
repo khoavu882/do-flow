@@ -2,8 +2,7 @@
 // `doflow rollback` — restore from a backup (interactive pick when the id is omitted). Works out the
 // whole restore first, then snapshots exactly the files it will overwrite (regardless of
 // --no-backup), then restores. A per-file backup restores every file it holds unless --target
-// narrows it, and the ledger rows of exactly the files it restores; a backup from an earlier DoFlow
-// restores per tool, as it always did.
+// narrows it, and the ledger rows of exactly the files it restores.
 // TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 const path = require('node:path');
 const { VALID, resolveTargets, toolDirs } = require('../../install/targets.ts');
@@ -53,7 +52,7 @@ function cmdRollback(o: any): void {
     let plan: any;
     try {
       const neutralStateRoot = stateRoot({ scope: scopeName, projectRoot: lifecyclePaths.scopeRoot, homeDir: lifecyclePaths.scopeRoot });
-      plan = planRestore({ bid, backupRoot, scope: scopeName, scopeRoot: lifecyclePaths.scopeRoot, targets, explicitTargets, dirs,
+      plan = planRestore({ bid, backupRoot, scope: scopeName, scopeRoot: lifecyclePaths.scopeRoot, targets, explicitTargets,
         ledgerFile: ledgerPath(neutralStateRoot) });
     } catch (error) {
       fail(error);
@@ -62,10 +61,8 @@ function cmdRollback(o: any): void {
     // banner and the install manifest name those, not the default target. A backup taken by a run
     // that swept a retired harness (127 IC-003) holds that harness's files and rows too: they are
     // restored like any other, but a retired id is no target, so the banner and manifest skip it.
-    const restoredTools = plan.format === 2
-      ? [...new Set(plan.restore.flatMap((item: any) => item.harnesses))]
-        .filter((h: any) => VALID.includes(h) && (!explicitTargets || targets.includes(h))).sort()
-      : targets;
+    const restoredTools = [...new Set(plan.restore.flatMap((item: any) => item.harnesses))]
+      .filter((h: any) => VALID.includes(h) && (!explicitTargets || targets.includes(h))).sort();
     printContext(resolveContext({ repoRoot: REPO_ROOT, targets: restoredTools, dirs, sourceCommit: commit, global: o.global, projectRoot: '.' }));
 
     // PARITY-with-UX: install/update skip the confirm prompt entirely under --dry-run (nothing
@@ -82,28 +79,17 @@ function cmdRollback(o: any): void {
     }
     checkpointRunLock(hold);
 
-    if (plan.format === 1 && plan.type === 'full') {
-      for (const { tool, dstDir } of plan.v1.tools) {
-        console.error(`[INFO]  ${bid} is a whole-home archive from an earlier DoFlow; restoring ${tool}.tar.gz into ${dstDir}`);
-      }
-    }
-
     snapshotBeforeRestore({ o, plan, bid, backupRoot, lifecyclePaths, scopeName, commit });
 
     let result: any;
     try {
-      result = executeRestore(plan, { backupRoot, dryRun: o.dryRun });
+      result = executeRestore(plan, { dryRun: o.dryRun });
     } catch (error) {
       fail(error);
     }
 
     const writeRollbackManifest = () => writeManifest({ scopeRoot: lifecyclePaths.scopeRoot, scriptVersion: pkg.version, operation: 'rollback',
       repoRoot: SCRIPT_DIR, sourceCommit: commit, backupId: bid, tools: restoredTools, date: new Date(), dryRun: o.dryRun });
-    if (result.legacy) {
-      writeRollbackManifest();
-      console.log(o.dryRun ? '[DRY] Dry run complete' : `[OK] Rollback to '${bid}' complete!`);
-      return;
-    }
 
     if (result.untargeted > 0) console.error(`[INFO]  Skipped ${result.untargeted} file(s) of harnesses not in --target`);
     const left = result.absent.length;

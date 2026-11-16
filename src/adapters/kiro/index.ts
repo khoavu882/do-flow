@@ -26,10 +26,6 @@ const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harn
 const HARNESS = 'kiro';
 const MCP_CONTAINER = 'mcpServers';
 const MCP_RENDERER = 'kiro-mcp';
-// Releases up to 1.18.0 recorded one `kiro:mcp:<id>` row per server (and never a row for the old
-// `kiro:mcp:registration` change); they are read as owned rows until a run replaces them.
-const LEGACY_MCP_PREFIX = `${HARNESS}:mcp:`;
-const LEGACY_MCP_REGISTRATION = `${HARNESS}:mcp:registration`;
 
 /**
  * Native path facts live in core/registry/harnesses.json under this harness's "paths" section and
@@ -196,14 +192,9 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
   function ownershipIdentity(id: any) { return `doflow:${HARNESS}:mcp-server:${id}`; }
 
   function mcpOwnRows(ledger: any) {
-    return (ledger?.resources || []).filter((row: any) => row.harness === HARNESS).flatMap((row: any) => {
-      if (row.kind === 'mcp-server') {
-        return [{ identity: row.identity, target: row.target, fingerprint: row.fingerprint ?? null, ownershipIdentity: row.ownershipIdentity, legacy: false }];
-      }
-      const legacyIdentity = row.ownershipIdentity;
-      if (typeof legacyIdentity !== 'string' || !legacyIdentity.startsWith(LEGACY_MCP_PREFIX) || legacyIdentity === LEGACY_MCP_REGISTRATION) return [];
-      return [{ identity: legacyIdentity.slice(LEGACY_MCP_PREFIX.length), target: row.target, fingerprint: row.fingerprint ?? null, ownershipIdentity: legacyIdentity, legacy: true }];
-    });
+    return (ledger?.resources || []).filter((row: any) => row.harness === HARNESS && row.kind === 'mcp-server').map((row: any) => ({
+      identity: row.identity, target: row.target, fingerprint: row.fingerprint ?? null, ownershipIdentity: row.ownershipIdentity,
+    }));
   }
 
   /** Everything the shared entry-ownership rules (../mcp-entries.ts) need from this adapter. */

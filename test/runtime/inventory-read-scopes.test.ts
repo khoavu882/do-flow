@@ -388,32 +388,3 @@ function changesFor(snapshot: any, ownershipIdentity: any) {
     .filter((change: any) => change.ownershipIdentity === ownershipIdentity)
     .map((change: any) => change.operation);
 }
-
-// A scope 1.18.0 left behind: its manifest lists the servers it wrote, its MCP entries carry no rows,
-// and its lock records only Claude's selection. Reconcile reads the manifest list to tell DoFlow's
-// entries from the user's (recordedMcpSelections); this reader must judge the same plan.
-test('a 1.18.0 scope\'s manifest MCP list reaches the plan: kept entries are DoFlow\'s, not the user\'s', () => {
-  const homeDir = suiteTempDir('doflow-read-scopes-118-home-');
-  const projectRoot = suiteTempDir('doflow-read-scopes-118-project-');
-  seedScope({ scope: 'global', scopeRoot: homeDir, assetId: 'legacy.asset', harnesses: ['claude', 'opencode'] });
-  const both: any = ['context7', 'sequential-thinking'];
-  const entry = (id: any) => registry.mcp.find((server: any) => server.id === id);
-  fs.writeFileSync(path.join(homeDir, '.claude.json'), `${JSON.stringify({ mcpServers: Object.fromEntries(both.map((id: any) => [id,
-    { command: entry(id).command, args: entry(id).args }])) }, null, 2)}\n`);
-  const opencodeFile = path.join(homeDir, '.config', 'opencode', 'opencode.json');
-  fs.mkdirSync(path.dirname(opencodeFile), { recursive: true });
-  fs.writeFileSync(opencodeFile, `${JSON.stringify({ mcp: Object.fromEntries(both.map((id: any) => [id,
-    { type: 'local', command: [entry(id).command, ...entry(id).args], enabled: true }])) }, null, 2)}\n`);
-  fs.writeFileSync(path.join(homeDir, '.doflow', '.install-manifest.json'), `${JSON.stringify({ tools: {}, mcp_servers: both })}\n`);
-  const lock: any = { ...defaultLock({ scope: 'global', scopeRoot: homeDir }), targets: [{ harness: 'claude' }, { harness: 'opencode' }],
-    mcpSelections: { claude: both } };
-
-  const { global } = withHomeDir(homeDir, () => readScopes({
-    registry, repoRoot: REPO, projectRoot, targets: ['claude', 'opencode'], locks: { global: lock, project: null },
-  }));
-  const target = (harness: any) => global.plan.targets.find((item: any) => item.harness === harness);
-  assert.deepEqual(target('opencode').mcpSelected, both, 'OpenCode keeps the servers 1.18.0 wrote for it');
-  assert.deepEqual(global.plan.notices.filter(({ notice }: any) => notice.startsWith('MCP: kept your own entry')), [],
-    'no entry 1.18.0 wrote is reported as the user\'s');
-  assert.deepEqual(global.plan.changes.filter((change: any) => change.kind === 'mcp-server'), []);
-});

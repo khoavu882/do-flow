@@ -1,13 +1,13 @@
 'use strict';
-// Restore planning and execution in src/install/backup.js: format-2 backups restore per file, 1.19
-// backups keep restoring through restoreBackup. Every path lives under a scratch directory.
+// Restore planning and execution in src/install/backup.js: format-2 backups restore per file, any
+// other format is refused. Every path lives under a scratch directory.
 const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../helper/tmp.ts');
 const {
-  createFileBackup, planRestore, executeRestore, restoreBackup,
+  createFileBackup, planRestore, executeRestore,
 } = require('../../src/install/backup.ts') as any;
 const { defaultLedger } = require('../../src/state/index.ts');
 const { plantFullBackup, plantPartialBackup } = require('../helper/backup-v1-fixture.ts');
@@ -73,7 +73,7 @@ function setOf(scopeRoot: any, items: any) {
 
 function plan(ctx: any, bid: any, extra = {}) {
   return planRestore({
-    bid, backupRoot: ctx.backupRoot, scope: 'global', scopeRoot: ctx.scopeRoot, targets: ['claude'], explicitTargets: false, dirs: {}, ...extra,
+    bid, backupRoot: ctx.backupRoot, scope: 'global', scopeRoot: ctx.scopeRoot, targets: ['claude'], explicitTargets: false, ...extra,
   });
 }
 
@@ -86,12 +86,9 @@ test('a format-2 backup restores each file\'s bytes and mode', () => {
   write(file, 'changed', 0o644);
 
   const p = plan(ctx, id);
-  assert.strictEqual(p.format, 2);
-  assert.strictEqual(p.type, 'files');
-  assert.strictEqual(p.origin, 'current');
-  const result = executeRestore(p, { backupRoot: ctx.backupRoot });
+  const result = executeRestore(p);
 
-  assert.deepStrictEqual(result, { restored: [file], failed: [], absent: [], refused: [], untargeted: 0, legacy: false });
+  assert.deepStrictEqual(result, { restored: [file], failed: [], absent: [], refused: [], untargeted: 0 });
   assert.strictEqual(read(file), 'original');
   if (!IS_WIN) assert.strictEqual(fs.statSync(file).mode & 0o7777, 0o600);
   assert.deepStrictEqual(fs.readdirSync(path.dirname(file)), ['CLAUDE.md'], 'no restore temp is left behind');
@@ -108,7 +105,7 @@ test('a file recorded absent is listed and left in place', () => {
 
   const p = plan(ctx, id);
   assert.deepStrictEqual(p.absent, [created]);
-  const result = executeRestore(p, { backupRoot: ctx.backupRoot });
+  const result = executeRestore(p);
   assert.deepStrictEqual(result.absent, [created]);
   assert.deepStrictEqual(result.restored, [kept]);
   assert.strictEqual(read(created), 'written by the run', 'a file the run created is never deleted');
@@ -126,7 +123,7 @@ test('a target that cannot be written fails alone; the others restore', { skip: 
   ]);
   fs.chmodSync(path.dirname(locked), 0o555);
   try {
-    const result = executeRestore(plan(ctx, 'update_x'), { backupRoot: ctx.backupRoot });
+    const result = executeRestore(plan(ctx, 'update_x'));
     assert.deepStrictEqual(result.restored, [ok]);
     assert.strictEqual(result.failed.length, 1);
     assert.strictEqual(result.failed[0].path, locked);
@@ -147,7 +144,7 @@ test('a symlinked target is written through and stays a link', { skip: IS_WIN &&
   fs.symlinkSync(real, link);
   plantV2(ctx.backupRoot, 'update_x', [{ path: '.claude/CLAUDE.md', existed: true, content: 'before' }]);
 
-  const result = executeRestore(plan(ctx, 'update_x'), { backupRoot: ctx.backupRoot });
+  const result = executeRestore(plan(ctx, 'update_x'));
   assert.deepStrictEqual(result.restored, [link]);
   assert.ok(fs.lstatSync(link).isSymbolicLink());
   assert.strictEqual(read(real), 'before');
@@ -180,7 +177,7 @@ test('an entry whose mode is missing or not a permission mask is refused, and th
   ]);
   assert.deepStrictEqual(p.restore.map((r: any) => r.path), [good]);
   assert.deepStrictEqual(p.snapshot.map((r: any) => r.path), [good], 'a refused file is not snapshotted either');
-  const result = executeRestore(p, { backupRoot: ctx.backupRoot });
+  const result = executeRestore(p);
   assert.deepStrictEqual(result.restored, [good]);
   assert.deepStrictEqual(result.failed, []);
   assert.strictEqual(read(good), 'before');
@@ -191,7 +188,6 @@ test('the id "." names the backup root, not a backup: planning refuses it (FU-fs
   const ctx = scratchScope();
   plantV2(ctx.backupRoot, 'update_x', [{ path: '.claude/a.md', existed: true, content: 'x' }]);
   assert.throws(() => plan(ctx, '.'), /Invalid backup id/);
-  assert.throws(() => restoreBackup({ bid: '.', backupRoot: ctx.backupRoot, dirs: {} }), /Invalid backup id/);
 });
 
 test('unsafe entries are refused with their reasons and nothing is written for them', () => {
@@ -216,7 +212,7 @@ test('unsafe entries are refused with their reasons and nothing is written for t
     { path: path.join(ctx.scopeRoot, '.claude', 'missing-store.md'), reason: 'content missing from backup' },
   ]);
   assert.deepStrictEqual(project.restore, []);
-  executeRestore(project, { backupRoot: ctx.backupRoot });
+  executeRestore(project);
   assert.ok(!fs.existsSync(path.join(ctx.dir, 'escape.md')));
   assert.ok(!fs.existsSync(path.join(ctx.dir, 'abs.md')));
   assert.ok(!fs.existsSync(outsideFile));
@@ -224,7 +220,7 @@ test('unsafe entries are refused with their reasons and nothing is written for t
   // In global scope an entry outside the scope root restores to its absolute path.
   const global = plan(ctx, 'update_x', { scope: 'global' });
   assert.deepStrictEqual(global.restore.map((r: any) => r.path), [outsideFile]);
-  executeRestore(global, { backupRoot: ctx.backupRoot });
+  executeRestore(global);
   assert.strictEqual(read(outsideFile), 'x');
 });
 
@@ -283,7 +279,7 @@ test('the ledger restores only the rows of the files written back; every other c
 
   // --target claude: a.md and gone.md come back with their old rows; codex's c.md is not restored,
   // so its current row stays, as do every row of a file the backup does not restore and the MCP row.
-  const result = executeRestore(plan(ctx, 'update_x', { targets: ['claude'], explicitTargets: true, ledgerFile }), { backupRoot: ctx.backupRoot });
+  const result = executeRestore(plan(ctx, 'update_x', { targets: ['claude'], explicitTargets: true, ledgerFile }));
   assert.deepStrictEqual(result.restored, [at('.claude/a.md'), at('.claude/gone.md'), ledgerFile]);
   const after = JSON.parse(read(ledgerFile));
   const fp = Object.fromEntries(after.resources.map((r: any) => [path.relative(ctx.scopeRoot, r.target).split(path.sep).join('/'), r.fingerprint]));
@@ -299,12 +295,12 @@ test('the ledger restores only the rows of the files written back; every other c
   write(ledgerFile, JSON.stringify(current));
   const failing = plan(ctx, 'update_x', { ledgerFile });
   failing.restore.find((r: any) => r.path === at('.codex/c.md')).stored = path.join(ctx.dir, 'missing');
-  const partial = executeRestore(failing, { backupRoot: ctx.backupRoot });
+  const partial = executeRestore(failing);
   assert.deepStrictEqual(partial.failed.map((f: any) => f.path), [at('.codex/c.md')]);
   assert.strictEqual(JSON.parse(read(ledgerFile)).resources.find((r: any) => r.target === at('.codex/c.md')).fingerprint, 'new-c');
 });
 
-test('the snapshot lists exactly what the restore will write, for format 2, 1.19 full and 1.19 partial', () => {
+test('the snapshot lists exactly what the restore will write', () => {
   const ctx = scratchScope();
   plantV2(ctx.backupRoot, 'update_x', [
     { path: '.claude/a.md', existed: true, content: 'a', harnesses: ['claude'] },
@@ -313,40 +309,6 @@ test('the snapshot lists exactly what the restore will write, for format 2, 1.19
   const v2 = plan(ctx, 'update_x');
   assert.deepStrictEqual(v2.snapshot, v2.restore.map((r: any) => ({ path: r.path, harnesses: r.harnesses })));
   assert.deepStrictEqual(v2.snapshot, [{ path: path.join(ctx.scopeRoot, '.claude', 'a.md'), harnesses: ['claude'] }]);
-
-  const claudeDir = path.join(ctx.scopeRoot, '.claude');
-  const src = path.join(ctx.dir, 'src');
-  write(path.join(src, 'CLAUDE.md'), 'full');
-  write(path.join(src, 'skills', 'do', 'SKILL.md'), 'skill');
-  plantFullBackup(ctx.backupRoot, 'install_2026-01-01_00-00-00', { tool: 'claude', srcDir: src });
-  const full = plan(ctx, 'install_2026-01-01_00-00-00', { dirs: { claude: claudeDir } });
-  assert.strictEqual(full.format, 1);
-  assert.strictEqual(full.type, 'full');
-  assert.deepStrictEqual(full.v1, { tools: [{ tool: 'claude', dstDir: claudeDir, source: 'claude.tar.gz' }] });
-  assert.deepStrictEqual(full.snapshot.map((s: any) => s.path).sort(), [
-    path.join(claudeDir, 'CLAUDE.md'), path.join(claudeDir, 'skills', 'do', 'SKILL.md'),
-  ].sort());
-  assert.ok(full.snapshot.every((s: any) => s.harnesses.length === 1 && s.harnesses[0] === 'claude'));
-  assert.deepStrictEqual([full.restore, full.absent, full.refused], [[], [], []]);
-
-  plantPartialBackup(ctx.backupRoot, 'update_2026-01-02_00-00-00', { tool: 'claude', files: { 'a.md': 'A', 'sub/b.md': 'B' } });
-  const partial = plan(ctx, 'update_2026-01-02_00-00-00', { dirs: { claude: claudeDir } });
-  assert.strictEqual(partial.type, 'partial');
-  assert.deepStrictEqual(partial.v1, { tools: [{ tool: 'claude', dstDir: claudeDir, source: 'claude/' }] });
-  assert.deepStrictEqual(partial.snapshot, [
-    { path: path.join(claudeDir, 'a.md'), harnesses: ['claude'] },
-    { path: path.join(claudeDir, 'sub', 'b.md'), harnesses: ['claude'] },
-  ]);
-});
-
-test('archive listings drop directories, ./ prefixes and .. members', () => {
-  const ctx = scratchScope();
-  const claudeDir = path.join(ctx.scopeRoot, '.claude');
-  fs.mkdirSync(path.join(ctx.backupRoot, 'install_x'), { recursive: true });
-  write(path.join(ctx.backupRoot, 'install_x', 'claude.tar.gz'), 'not read');
-  const listTar = () => ['./', './CLAUDE.md', './skills/', './skills/x.md', '../evil.md', './a/../../evil.md', ''];
-  const p = plan(ctx, 'install_x', { dirs: { claude: claudeDir }, listTar });
-  assert.deepStrictEqual(p.snapshot.map((s: any) => s.path), [path.join(claudeDir, 'CLAUDE.md'), path.join(claudeDir, 'skills', 'x.md')]);
 });
 
 test('a backup from a newer DoFlow, or a missing id, is refused before anything is read further', () => {
@@ -359,40 +321,16 @@ test('a backup from a newer DoFlow, or a missing id, is refused before anything 
   assert.throws(() => plan(ctx, '../escape'), /Invalid backup id/);
 });
 
-test('1.19 full and partial backups restore through executeRestore exactly as restoreBackup does', () => {
+test('a 1.19 full or partial backup, and one with no readable manifest, are refused', () => {
   const ctx = scratchScope();
-  const claudeDir = path.join(ctx.scopeRoot, '.claude');
   const src = path.join(ctx.dir, 'src');
-  write(path.join(src, 'CLAUDE.md'), 'from the archive');
-  write(path.join(src, 'skills', 'x.md'), 'skill from the archive');
+  write(path.join(src, 'CLAUDE.md'), 'full');
   plantFullBackup(ctx.backupRoot, 'install_2026-01-01_00-00-00', { tool: 'claude', srcDir: src });
-  plantPartialBackup(ctx.backupRoot, 'update_2026-01-02_00-00-00', { tool: 'claude', files: { 'CLAUDE.md': 'from the copy' } });
-  const dirs = { claude: claudeDir };
-  const snapshotOf = () => ({ main: read(path.join(claudeDir, 'CLAUDE.md')), skill: read(path.join(claudeDir, 'skills', 'x.md')) });
-
-  for (const bid of ['install_2026-01-01_00-00-00', 'update_2026-01-02_00-00-00']) {
-    write(path.join(claudeDir, 'CLAUDE.md'), 'edited');
-    write(path.join(claudeDir, 'skills', 'x.md'), 'edited skill');
-    const result = executeRestore(plan(ctx, bid, { dirs }), { backupRoot: ctx.backupRoot });
-    assert.deepStrictEqual(result, { restored: ['claude'], failed: [], absent: [], refused: [], untargeted: 0, legacy: true });
-    const viaPlan = snapshotOf();
-
-    write(path.join(claudeDir, 'CLAUDE.md'), 'edited');
-    write(path.join(claudeDir, 'skills', 'x.md'), 'edited skill');
-    restoreBackup({ bid, backupRoot: ctx.backupRoot, dirs });
-    assert.deepStrictEqual(viaPlan, snapshotOf(), `${bid} restores the same bytes both ways`);
+  plantPartialBackup(ctx.backupRoot, 'update_2026-01-02_00-00-00', { tool: 'claude', files: { 'a.md': 'A' } });
+  plantFullBackup(ctx.backupRoot, 'install_2026-01-03_00-00-00', { tool: 'claude', srcDir: src, manifest: null });
+  for (const bid of ['install_2026-01-01_00-00-00', 'update_2026-01-02_00-00-00', 'install_2026-01-03_00-00-00']) {
+    assert.throws(() => plan(ctx, bid), { message: `Backup ${bid} was made by DoFlow 1.19 or earlier or has no readable manifest; this version cannot restore it` });
   }
-  assert.strictEqual(read(path.join(claudeDir, 'CLAUDE.md')), 'from the copy');
-  assert.strictEqual(read(path.join(claudeDir, 'skills', 'x.md')), 'edited skill', 'a partial restore leaves unlisted files alone');
-});
-
-test('restoreBackup refuses a format-2 backup instead of restoring nothing', () => {
-  const ctx = scratchScope();
-  plantV2(ctx.backupRoot, 'update_x', [{ path: '.claude/a.md', existed: true, content: 'a' }]);
-  assert.throws(
-    () => restoreBackup({ bid: 'update_x', backupRoot: ctx.backupRoot, dirs: { claude: path.join(ctx.scopeRoot, '.claude') } }),
-    { message: 'Backup update_x is format 2; restore it with doflow rollback' },
-  );
 });
 
 test('a dry run reports the restore and writes nothing', () => {
@@ -403,7 +341,7 @@ test('a dry run reports the restore and writes nothing', () => {
     { path: '.claude/new/b.md', existed: true, content: 'before' },
   ]);
 
-  const result = executeRestore(plan(ctx, 'update_x'), { backupRoot: ctx.backupRoot, dryRun: true });
+  const result = executeRestore(plan(ctx, 'update_x'), { dryRun: true });
   assert.deepStrictEqual(result.restored, [file, path.join(ctx.scopeRoot, '.claude', 'new', 'b.md')]);
   assert.strictEqual(read(file), 'now');
   assert.ok(!fs.existsSync(path.join(ctx.scopeRoot, '.claude', 'new')));

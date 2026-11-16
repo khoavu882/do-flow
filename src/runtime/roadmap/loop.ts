@@ -454,10 +454,10 @@ const LOOP_ACTOR = 'doflow-roadmap';
 /** The envelope's attendance field: the literal the stage skill reads. attendance.ts (P3) owns the verb and the rule. */
 const attendanceOf = (runId: string): { mode: 'unattended'; run: string } => ({ mode: 'unattended', run: runId });
 const QUOTA = /^quota\b/i;
-/** Stage artifacts, two layouts each (the decision-register.ts artifact list). */
+/** Stage artifacts (the decision-register.ts artifact list); planning keeps both plan locations. */
 const DOC_ARTIFACTS: Record<string, string[]> = {
-  discovery: ['intention/requirement.md', 'requirement.md'],
-  design: ['design/design.md', 'design.md'],
+  discovery: ['intention/requirement.md'],
+  design: ['design/design.md'],
   planning: PLAN_FILES,
   review: ['review/findings.json'],
 };

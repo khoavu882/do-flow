@@ -251,7 +251,7 @@ function normalizeItems(items: any): any[] {
 
 function summary({ action, slug, featureDir }: { action: string; slug: string; featureDir: string }): { action: string; slug: string; featureDir: string } { return { action, slug, featureDir }; }
 
-const FOLDER_ARTIFACTS = ['intention/requirement.md', 'requirement.md', 'design/design.md', 'design.md', 'plan.md'];
+const FOLDER_ARTIFACTS = ['intention/requirement.md', 'design/design.md', 'plan.md'];
 
 /** IC-002. */
 function initRegister({ featureDir, slug, fsImpl = nodeFs }: any): any {

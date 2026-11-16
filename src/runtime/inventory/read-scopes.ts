@@ -35,17 +35,14 @@
  *   harness the MCP servers handed to it for that harness, so an empty list is not a neutral
  *   default: it is a positive statement that no server was chosen, and the plan then proposes to
  *   remove every one the harness owns. `doflow reconcile` and `doflow status` derive each
- *   harness's selection from the scope's own `doflow.lock` and ledger through
+ *   harness's selection from the scope's own `doflow.lock` through
  *   `recordedMcpSelections` (`src/install/mcp.js`); this reader calls the same function per scope,
  *   so the plan a currency judgement is derived from is the plan the repair command would produce.
  */
 
-const os = require('node:os');
 const { registryLifecycleView, LIFECYCLE_HARNESSES } = require('../../lifecycle/view.ts');
 const { readLock } = require('../../state/lockfile.ts');
-const { stateRoot, readLedger } = require('../../state/index.ts');
 const { recordedMcpSelections } = require('../../install/mcp.ts');
-const { readInstallManifest } = require('../../install/manifest.ts');
 
 /**
  * @typedef {Object} ScopeSnapshot The `SCOPE_SNAPSHOT` entity of the feature's data model.
@@ -113,13 +110,9 @@ function readScopes({ registry, repoRoot, projectRoot, targets = LIFECYCLE_HARNE
     project: readLock({ scope: 'project', projectRoot }),
   };
   const read = (scope: any) => {
-    // Each scope's own ledger, at the root the view itself reads it from.
-    const ledger = readLedger(scope === 'global'
-      ? stateRoot({ scope: 'global', homeDir: os.homedir() }) : stateRoot({ scope: 'project', projectRoot }));
-    const manifestServers = readInstallManifest({ scopeRoot: scope === 'global' ? os.homedir() : projectRoot })?.mcpServers ?? null;
-    const recorded = recordedMcpSelections({ registry, lock: resolved?.[scope] ?? null, ledger, targets: wanted, manifestServers });
+    const recorded = recordedMcpSelections({ registry, lock: resolved?.[scope] ?? null, targets: wanted });
     return registryLifecycleView({
-      registry, repoRoot, targets: wanted, mcpSelections: recorded.selections, mcpAdoptable: recorded.adoptable,
+      registry, repoRoot, targets: wanted, mcpSelections: recorded.selections,
       scope: scope === 'global' ? { global: true } : { global: false, projectRoot },
     });
   };

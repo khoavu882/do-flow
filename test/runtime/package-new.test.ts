@@ -390,7 +390,7 @@ test('forced upkeep and removing a project-scope install preserve authored sourc
   const env: any = { ...w.env };
   delete env.DOFLOW_UPKEEP;
   fs.mkdirSync(path.join(w.xdg, 'doflow'), { recursive: true });
-  fs.writeFileSync(path.join(w.xdg, 'doflow', 'prune'), 'on\n');
+  fs.writeFileSync(path.join(w.xdg, 'doflow', 'settings.json'), '{"schema":1,"storage.prune":"on"}\n');
   upkeepAfterVerb({ projectRoot: w.project, env, now: Date.now() });
   assert.equal(treeHash(source), before);
   const pruned = cli(w, ['storage', '--action', 'prune', '--json'], { env });

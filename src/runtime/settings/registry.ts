@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * The settings key registry and its load-time checks (086 IC-001, DD-1, DD-5, DD-6;
  * data-model §1). `core/registry/settings.json` declares every key DoFlow reads from a settings file:
@@ -36,7 +34,7 @@ const COMBINES = ['override', 'narrowest', 'union', 'subset'];
 const PARSES = ['positive-int', 'off-words', 'verbatim'];
 const DIRECTIONS = ['any', 'narrow'];
 const LEGACY_LAYERS = ['user', 'project'];
-const LEGACY_KINDS = ['decision-model', 'line-onoff', 'sentinel'];
+const LEGACY_KINDS = ['sentinel'];
 const VIEWS = ['project', 'global'];
 const SHELL_READS = [null, 'lexical-v1'];
 const TOP_FIELDS = ['version', 'description', 'keys'];
@@ -348,11 +346,10 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
     else spec.legacy.forEach((entry: any, index: number) => {
       const where = `legacy[${index}]`;
       if (!isObject(entry)) { err(`${where} must be an object`); return; }
-      for (const field of Object.keys(entry)) if (!['layer', 'kind', 'path', 'field', 'value'].includes(field)) err(`${where} has unknown field '${field}'`);
+      for (const field of Object.keys(entry)) if (!['layer', 'kind', 'path', 'value'].includes(field)) err(`${where} has unknown field '${field}'`);
       if (!LEGACY_LAYERS.includes(entry.layer)) err(`${where}.layer must be one of ${LEGACY_LAYERS.join(', ')}`);
       if (!LEGACY_KINDS.includes(entry.kind)) err(`${where}.kind must be one of ${LEGACY_KINDS.join(', ')}`);
       if (!relativeInside(entry.path)) err(`${where}.path must be a relative path inside its root (no '..')`);
-      if ((entry.kind === 'decision-model') !== (typeof entry.field === 'string' && entry.field !== '')) err(`${where}.field is required for, and only for, decision-model`);
       if ((entry.kind === 'sentinel') !== has(entry, 'value')) err(`${where}.value is required for, and only for, sentinel`);
     });
 
@@ -452,8 +449,6 @@ interface SettingsRegistry {
   enumValues(key: string): string[] | null;
   /** The value of a named ref, lazily read from advice.json or storage.json. Throws when unreadable. */
   resolveRef(name: string, deps?: Record<string, unknown>): unknown;
-  /** 127 IC-005: the retired harness ids with their replacement; empty when none is recorded or harnesses.json is unreadable. */
-  retired(): { id: string; replacement: string }[];
 }
 type LoadResult = { ok: true; registry: SettingsRegistry } | { ok: false; reason: 'settings-registry-invalid'; detail: string; errors: string[] };
 
@@ -543,9 +538,6 @@ function loadSettingsRegistry({ repoRoot = REPO_ROOT, fsImpl, verifyRefs = false
       return list;
     },
     resolveRef: (name, deps) => refs.resolve(name, deps),
-    retired() {
-      try { return refs.retired(); } catch { return []; }
-    },
   };
   return done({ ok: true, registry });
 }

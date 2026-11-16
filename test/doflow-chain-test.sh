@@ -50,12 +50,12 @@ git checkout -q -b feat/001-auth
 eq "feat branch -> slug"              "$("$PATHS" | jq -r '.feature_slug')" "001-auth"
 mkdir -p agent-docs/doflow/003-x agent-docs/doflow/007-y
 eq "numbering = max(dirs,branch)+1"   "$("$PATHS" | jq -r '.next_number')" "008"
-mkdir -p agent-docs/doflow/001-auth
+mkdir -p agent-docs/doflow/001-auth/intention agent-docs/doflow/001-auth/design
 eq "has_requirement false pre-file"   "$("$PATHS" | jq -r '.has_requirement')" "false"
-echo r > agent-docs/doflow/001-auth/requirement.md
+echo r > agent-docs/doflow/001-auth/intention/requirement.md
 eq "has_requirement true post-file"   "$("$PATHS" | jq -r '.has_requirement')" "true"
 eq "has_design false pre-file"        "$("$PATHS" | jq -r '.has_design')" "false"
-echo d > agent-docs/doflow/001-auth/design.md
+echo d > agent-docs/doflow/001-auth/design/design.md
 eq "has_design true post-file"        "$("$PATHS" | jq -r '.has_design')" "true"
 
 echo "[resolver: constitution_base]"
@@ -153,9 +153,9 @@ eq "non-numeric stray dirs excluded -> next_number unaffected by them" \
 rm -rf agent-docs
 
 echo "[prereqs gate: non-git ambiguity + --slug passthrough]"
-mkdir -p agent-docs/doflow/001-solo agent-docs/doflow/002-other
-echo r > agent-docs/doflow/001-solo/requirement.md
-echo d > agent-docs/doflow/001-solo/design.md
+mkdir -p agent-docs/doflow/001-solo/intention agent-docs/doflow/001-solo/design agent-docs/doflow/002-other
+echo r > agent-docs/doflow/001-solo/intention/requirement.md
+echo d > agent-docs/doflow/001-solo/design/design.md
 echo p > agent-docs/doflow/001-solo/plan.md
 "$PREREQ" --require-plan >/dev/null 2>&1; eq "ambiguous non-git -> prereqs exit 2" "$?" "2"
 eq "ambiguous non-git -> prereqs error is ambiguous-feature" \
@@ -167,9 +167,9 @@ echo "[prereqs gate]"
 "$PREREQ" --require-plan >/dev/null 2>&1; eq "missing plan -> exit 2" "$?" "2"
 echo p > agent-docs/doflow/001-auth/plan.md
 "$PREREQ" --require-plan >/dev/null 2>&1; eq "prereqs met -> exit 0" "$?" "0"
-rm agent-docs/doflow/001-auth/design.md
+rm agent-docs/doflow/001-auth/design/design.md
 "$PREREQ" --require-plan >/dev/null 2>&1; eq "requirement+plan present, design missing -> exit 2" "$?" "2"
-echo d > agent-docs/doflow/001-auth/design.md
+echo d > agent-docs/doflow/001-auth/design/design.md
 
 echo "[pre-implement-gate hook]"
 ROOT="$(pwd -P)"
@@ -195,12 +195,12 @@ decision() {
   rc=$?
   gate_verdict "$rc" "$err"
 }
-# remove design.md so the feature is started-but-incomplete (widened gate: requirement+design+plan all required)
-rm agent-docs/doflow/001-auth/design.md
+# remove design/design.md so the feature is started-but-incomplete (widened gate: requirement+design+plan all required)
+rm agent-docs/doflow/001-auth/design/design.md
 eq "in-flow source edit, requirement+plan present but design missing -> advise" \
    "$(decision "{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/src/A.java\"}}")" "advise"
 eq "agent-docs edit -> allow" \
-   "$(decision "{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/agent-docs/doflow/001-auth/requirement.md\"}}")" "allow"
+   "$(decision "{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/agent-docs/doflow/001-auth/intention/requirement.md\"}}")" "allow"
 eq "outside-repo edit -> allow" \
    "$(decision "{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"/etc/hosts\"}}")" "allow"
 eq "non-edit tool -> allow" \
@@ -228,7 +228,7 @@ eq "v1 envelope outranks stray native fields beside it -> advise" \
 # the out-of-step line instead of reading the paths.
 eq "legacy unversioned doflow_event sent to the policy -> advise (out of step)" \
    "$(decision_env "{\"doflow_event\":{\"operation\":\"edit\",\"paths\":[\"$ROOT/src/A.java\"],\"projectRoot\":\"$ROOT\"}}")" "advise"
-echo d > agent-docs/doflow/001-auth/design.md
+echo d > agent-docs/doflow/001-auth/design/design.md
 eq "prereqs met -> allow" \
    "$(decision "{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/src/A.java\"}}")" "allow"
 eq "v1 envelope, prereqs met -> allow" \
@@ -248,7 +248,7 @@ decision_bare() {
   gate_verdict "$rc" "$err"
 }
 GATE_EDIT="{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/src/A.java\"}}"
-rm agent-docs/doflow/001-auth/design.md
+rm agent-docs/doflow/001-auth/design/design.md
 for b in feat/001-auth feature/001-auth 001-auth kai/001-auth task/001-auth; do
   git checkout -q -B "$b" master
   eq "$b, design missing -> advise (resolver)" "$(decision "$GATE_EDIT")" "advise"
@@ -275,7 +275,7 @@ for b in feat/x feature/x 001-auth kai/001-auth task/x; do
   esac
 done
 git checkout -q feat/001-auth
-echo d > agent-docs/doflow/001-auth/design.md
+echo d > agent-docs/doflow/001-auth/design/design.md
 
 echo "[sync-context marker writer]"
 CTX="$T/CLAUDE.md"; printf '# Ctx\n\nkeep me\n' > "$CTX"
@@ -295,7 +295,7 @@ git checkout -q feat/001-auth
 
 # Realistic artifacts: brief composition reads named sections of all three, so a fixture of
 # `echo r > requirement.md` would make every trace assertion vacuous rather than passing.
-cat > agent-docs/doflow/001-auth/requirement.md <<'FIXTURE'
+cat > agent-docs/doflow/001-auth/intention/requirement.md <<'FIXTURE'
 ## 2. User Stories
 - **US1 (P1):** As a user, I want to log in, so that I can reach my account.
   Continuation line that must survive.
@@ -316,7 +316,7 @@ cat > agent-docs/doflow/001-auth/requirement.md <<'FIXTURE'
 - **NFR-001 (Latency):** p95 under 200ms measured at the edge.
 ## 5. Out of Scope
 FIXTURE
-cat > agent-docs/doflow/001-auth/design.md <<'FIXTURE'
+cat > agent-docs/doflow/001-auth/design/design.md <<'FIXTURE'
 ## 3. Components & Boundaries
 | ID | Component | Kind | Serves | Status |
 |---|---|---|---|---|
@@ -848,37 +848,35 @@ $STATE --branch-name 2>/dev/null; eq "--branch-name without class -> exit 2" "$?
 $STATE --branch-name --class=feature 2>/dev/null; eq "--branch-name without slug -> exit 2" "$?" "2"
 
 # ==============================================================================
-# E.1: do-paths.sh layout detection (023-structured-feature-trail, FR-007/FR-008)
+# E.1: do-paths.sh feature-folder paths (023-structured-feature-trail, FR-007)
 # ==============================================================================
-echo "[E.1: do-paths.sh layout detection]"
+echo "[E.1: do-paths.sh feature-folder paths]"
 git checkout -q -B main
 
-# Legacy layout: only top-level requirement.md/design.md/plan.md, no intention/.
-mkdir -p agent-docs/doflow/900-legacy-fixture
-echo r > agent-docs/doflow/900-legacy-fixture/requirement.md
-echo d > agent-docs/doflow/900-legacy-fixture/design.md
-echo p > agent-docs/doflow/900-legacy-fixture/plan.md
-eq "legacy layout dir -> layout:legacy" \
-   "$($PATHS --slug=900-legacy-fixture | jq -r '.layout')" "legacy"
-eq "legacy layout -> specs:null" \
-   "$($PATHS --slug=900-legacy-fixture | jq -r '.specs // "null"')" "null"
-eq "legacy layout -> has_specs:false" \
-   "$($PATHS --slug=900-legacy-fixture | jq -r '.has_specs')" "false"
-eq "legacy layout -> audit populated as a path (file need not exist)" \
-   "$($PATHS --slug=900-legacy-fixture | jq -r '.audit')" "agent-docs/doflow/900-legacy-fixture/audit.md"
-eq "legacy layout -> intention_next_round:1" \
-   "$($PATHS --slug=900-legacy-fixture | jq -r '.intention_next_round')" "1"
-eq "legacy layout -> design_next_round:1" \
-   "$($PATHS --slug=900-legacy-fixture | jq -r '.design_next_round')" "1"
-eq "legacy layout -> plan_next_round:1" \
-   "$($PATHS --slug=900-legacy-fixture | jq -r '.plan_next_round')" "1"
+# A feature dir that holds nothing yet already resolves into intention/, design/ and a flat plan.md.
+mkdir -p agent-docs/doflow/900-empty-fixture
+eq "empty feature dir -> requirement resolves into intention/" \
+   "$($PATHS --slug=900-empty-fixture | jq -r '.requirement')" \
+   "agent-docs/doflow/900-empty-fixture/intention/requirement.md"
+eq "empty feature dir -> has_requirement:false" \
+   "$($PATHS --slug=900-empty-fixture | jq -r '.has_requirement')" "false"
+eq "empty feature dir -> has_specs:false" \
+   "$($PATHS --slug=900-empty-fixture | jq -r '.has_specs')" "false"
+eq "empty feature dir -> audit populated as a path (file need not exist)" \
+   "$($PATHS --slug=900-empty-fixture | jq -r '.audit')" "agent-docs/doflow/900-empty-fixture/audit.md"
+eq "empty feature dir -> intention_next_round:1" \
+   "$($PATHS --slug=900-empty-fixture | jq -r '.intention_next_round')" "1"
+eq "empty feature dir -> design_next_round:1" \
+   "$($PATHS --slug=900-empty-fixture | jq -r '.design_next_round')" "1"
+eq "empty feature dir -> plan_next_round:1" \
+   "$($PATHS --slug=900-empty-fixture | jq -r '.plan_next_round')" "1"
 
 # Structured layout: intention/requirement.md exists -> requirement/design/specs/plan all resolve
 # into their own subdirs, even before design.md/specs.md/plan.md exist.
 mkdir -p agent-docs/doflow/901-structured-fixture/intention
 echo r > agent-docs/doflow/901-structured-fixture/intention/requirement.md
-eq "structured layout dir -> layout:structured" \
-   "$($PATHS --slug=901-structured-fixture | jq -r '.layout')" "structured"
+eq "paths JSON carries no layout key" \
+   "$($PATHS --slug=901-structured-fixture | jq -r 'has("layout")')" "false"
 eq "structured layout -> requirement resolves into intention/" \
    "$($PATHS --slug=901-structured-fixture | jq -r '.requirement')" \
    "agent-docs/doflow/901-structured-fixture/intention/requirement.md"
@@ -913,26 +911,6 @@ eq "--paths-only -> plan_next_round is also null" \
 eq "normal --json mode is unaffected by the --paths-only fix (still 3)" \
    "$($PATHS --slug=901-structured-fixture | jq -r '.intention_next_round')" "3"
 
-# FR-008 regression: a feature dir shaped exactly like this repo's real
-# agent-docs/doflow/022-normalize-hooks (flat top-level, no intention/) must resolve identically
-# to before this feature -- the "old feature dirs keep working, no migration" guarantee.
-mkdir -p agent-docs/doflow/902-fr008-regression
-: > agent-docs/doflow/902-fr008-regression/requirement.md
-: > agent-docs/doflow/902-fr008-regression/design.md
-: > agent-docs/doflow/902-fr008-regression/plan.md
-: > agent-docs/doflow/902-fr008-regression/state.md
-eq "FR-008: old-shaped feature dir -> layout:legacy" \
-   "$($PATHS --slug=902-fr008-regression | jq -r '.layout')" "legacy"
-eq "FR-008: old-shaped feature dir -> requirement path unchanged" \
-   "$($PATHS --slug=902-fr008-regression | jq -r '.requirement')" \
-   "agent-docs/doflow/902-fr008-regression/requirement.md"
-eq "FR-008: old-shaped feature dir -> design path unchanged" \
-   "$($PATHS --slug=902-fr008-regression | jq -r '.design')" \
-   "agent-docs/doflow/902-fr008-regression/design.md"
-eq "FR-008: old-shaped feature dir -> plan path unchanged" \
-   "$($PATHS --slug=902-fr008-regression | jq -r '.plan')" \
-   "agent-docs/doflow/902-fr008-regression/plan.md"
-
 # 044-decision-register (IC-011): decisions / decisions_register / has_decisions track the register file.
 eq "decisions: feature without a register -> has_decisions:false" \
    "$($PATHS --slug=901-structured-fixture | jq -r '.has_decisions')" "false"
@@ -949,8 +927,8 @@ eq "decisions: feature with a register -> has_decisions:true" \
 eq "decisions: feature with a register -> decisions_register path" \
    "$($PATHS --slug=901-structured-fixture | jq -r '.decisions_register')" \
    "agent-docs/doflow/901-structured-fixture/decisions/register.json"
-eq "decisions: legacy-layout feature -> has_decisions:false" \
-   "$($PATHS --slug=900-legacy-fixture | jq -r '.has_decisions')" "false"
+eq "decisions: empty feature dir -> has_decisions:false" \
+   "$($PATHS --slug=900-empty-fixture | jq -r '.has_decisions')" "false"
 eq "decisions: no feature resolved -> null, null, false" \
    "$($PATHS | jq -c '[.decisions, .decisions_register, .has_decisions]')" "[null,null,false]"
 

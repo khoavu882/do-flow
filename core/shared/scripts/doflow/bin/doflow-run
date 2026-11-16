@@ -36,7 +36,7 @@ set -euo pipefail
 # interleave) and never rotates: rotation is done by the Node writers only (IC-015, DEC-019). It is
 # a no-op when there is no config home (neither XDG_CONFIG_HOME nor HOME is set to an absolute path;
 # doflow_config_home below, the rule of src/runtime/config-home.ts) and while capture is off
-# (DOFLOW_FAILURE_CAPTURE=off|0|false|no, the `off` sentinel file, or a `failure.capture` value other
+# (DOFLOW_FAILURE_CAPTURE=off|0|false|no, or a `failure.capture` value other
 # than "on" in <config home>/settings.json, read by doflow_lex_capture below). The line carries only
 # names from DoFlow's own tables and the working directory: never an argument, stdin or the
 # environment.
@@ -97,7 +97,6 @@ capture_failure_write() {
   case "$setting" in
     off|0|false|no) return 0 ;;
   esac
-  [ -f "$home/off" ] && return 0
   doflow_lex_capture "$DOFLOW_HOME/settings.json"
   [ "$DOFLOW_LEX_CAPTURE" = off ] && return 0
 

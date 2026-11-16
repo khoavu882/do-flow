@@ -2,7 +2,8 @@
 
 // 086 C.3 (IC-006, IC-007, IC-008; FR-002, FR-004, FR-005, FR-008, FR-010, FR-012, NFR-003, NFR-005):
 // the settings resolver. Compatibility rows C1-C21 of data-model §5 are reproduced THROUGH THE
-// RESOLVER on the same fixtures as compat-matrix.test.js (which keeps testing the public functions),
+// RESOLVER on the same fixtures as compat-matrix.test.ts (which keeps testing the public functions;
+// the 2.0 decision-model, prune and failures/off formats are no longer read, so both use settings.json),
 // plus origins and candidates, the scope rules, fail-safes by layer, the gate and cross-key rules,
 // views, worktrees, the memo, bounded reads, laziness and determinism.
 //
@@ -16,22 +17,25 @@ const assert = require('node:assert/strict');
 const childProcess = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
-const { createSettingsEnv, userDecision, write, REPO }: any = require('../helper/settings-fixtures.ts');
+const { createSettingsEnv, userAdvice, write, REPO }: any = require('../helper/settings-fixtures.ts');
 const { tempDir }: any = require('../helper/tmp.ts');
 const { loadSettings, registryOn, clearSettingsCache }: any = require('../../src/runtime/settings/resolve.ts');
 const { loadSettingsRegistry }: any = require('../../src/runtime/settings/registry.ts');
-const { PROJECT_NOTE }: any = require('../../src/runtime/settings/legacy.ts');
 const { MARKER }: any = require('../../src/runtime/settings/project-layers.ts');
 
 const REGISTRY = 'core/registry/settings.json';
 const ENDPOINT = 'http://127.0.0.1:11434';
 const POSIX = process.platform !== 'win32';
+const STAT_COUNT = 4;
 
 function fx(t: any, options?: any) { return createSettingsEnv(t, options); }
 function load(f: any, { env = {}, projectRoot = f.project, ...rest }: any = {}) {
   return loadSettings({ projectRoot, env: f.env(env), ...rest });
 }
 const statuses = (r: any) => r.candidates.map((c: any) => `${c.layer}${c.legacy ? '*' : ''}:${c.status}`);
+/** A settings.json document holding `advice.<field>` for each short field name. */
+const adv = (fields: any = {}) => ({ schema: 1, ...Object.fromEntries(Object.entries(fields).map(([k, v]) => [`advice.${k}`, v])) });
+const prune = (value: any) => ({ schema: 1, 'storage.prune': value });
 const origin = (layer: any, source: any, extra = {}) => ({ layer, source, legacy: false, checkout: null, via: null, ...extra });
 const DEFAULT = origin('default', REGISTRY);
 
@@ -52,51 +56,37 @@ test('C1: no advice file: every advice key is its registry default and nothing i
   assert.deepEqual(v.notes, []);
 });
 
-test('C2: a user decision-model {enabled:true, model} enables from the old file; provider and endpoint stay default', (t: any) => {
+test('C2: a user settings.json {advice.enabled:true, advice.model} enables; provider and endpoint stay default', (t: any) => {
   const f = fx(t);
-  const file = f.writeUserDecision({ schema: 1, enabled: true, model: 'm' });
+  const file = f.writeUserSettings(adv({ enabled: true, model: 'm' }));
   const v = load(f);
   assert.equal(v.get('advice.enabled').value, true);
-  assert.deepEqual(v.get('advice.enabled').origin, origin('user', file, { legacy: true }));
+  assert.deepEqual(v.get('advice.enabled').origin, origin('user', file));
   assert.equal(v.get('advice.model').value, 'm');
-  assert.deepEqual(v.get('advice.model').origin, origin('user', file, { legacy: true }));
+  assert.deepEqual(v.get('advice.model').origin, origin('user', file));
   assert.deepEqual(v.get('advice.provider').origin, DEFAULT);
   assert.equal(v.get('advice.endpoint').value, ENDPOINT);
   assert.deepEqual(v.get('advice.endpoint').origin, DEFAULT);
-  const deprecated = v.notes.filter((n: any) => n.code === 'deprecated').map((n: any) => n.text);
-  assert.deepEqual(deprecated, [
-    `${file} is deprecated; set "advice.enabled" in ${f.userFile('settings.json')} (read through 2.x)`,
-    `${file} is deprecated; set "advice.model" in ${f.userFile('settings.json')} (read through 2.x)`,
-  ]);
+  assert.deepEqual(v.notes, []);
 });
 
-test('C2b: the deprecation note names only the keys settings.json does not already hold', (t: any) => {
+test('C3: a project {advice.enabled:false} narrows: decided by the project file in the project view only', (t: any) => {
   const f = fx(t);
-  const file = f.writeUserDecision({ schema: 1, enabled: true, model: 'm' });
-  f.writeUserSettings({ schema: 1, 'advice.enabled': true });
-  const v = load(f);
-  for (const key of ['advice.enabled', 'advice.model']) v.get(key);
-  const deprecated = v.notes.filter((n: any) => n.code === 'deprecated').map((n: any) => n.text);
-  assert.deepEqual(deprecated, [`${file} is deprecated; set "advice.model" in ${f.userFile('settings.json')} (read through 2.x)`]);
-});
-
-test('C3: a project {enabled:false} narrows: decided by the project file in the project view only', (t: any) => {
-  const f = fx(t);
-  const userFile = f.writeUserDecision(userDecision());
-  const projectFile = f.writeProjectDecision({ schema: 1, enabled: false });
+  const userFile = f.writeUserSettings(userAdvice());
+  const projectFile = f.writeProjectSettings(adv({ enabled: false }));
   const v = load(f);
   const r = v.get('advice.enabled');
   assert.equal(r.value, false);
-  assert.deepEqual(r.origin, origin('project', projectFile, { legacy: true, checkout: 'own' }));
-  assert.deepEqual(statuses(r), ['user*:overridden', 'project*:decided']);
+  assert.deepEqual(r.origin, origin('project', projectFile, { checkout: 'own' }));
+  assert.deepEqual(statuses(r), ['user:overridden', 'project:decided']);
   assert.equal(v.get('advice.enabled', 'global').value, true);
   assert.deepEqual(v.get('advice.enabled', 'global').origin.source, userFile);
 });
 
-test('C4: a project {model:p} overrides the model in the project view; the global view keeps the user model', (t: any) => {
+test('C4: a project {advice.model:p} overrides the model in the project view; the global view keeps the user model', (t: any) => {
   const f = fx(t);
-  f.writeUserDecision(userDecision());
-  const projectFile = f.writeProjectDecision({ schema: 1, model: 'p' });
+  f.writeUserSettings(userAdvice());
+  const projectFile = f.writeProjectSettings(adv({ model: 'p' }));
   const v = load(f);
   assert.equal(v.get('advice.model').value, 'p');
   assert.equal(v.get('advice.model').origin.source, projectFile);
@@ -105,14 +95,14 @@ test('C4: a project {model:p} overrides the model in the project view; the globa
   assert.equal(v.get('advice.endpoint').value, ENDPOINT);
 });
 
-test('C5: a project {enabled:true, endpoint, provider} changes nothing; scope statuses and the three 2.0 notes', (t: any) => {
+test('C5: a project {advice.enabled:true, endpoint, provider} changes nothing; scope statuses', (t: any) => {
   const f = fx(t);
-  const userFile = f.writeUserDecision(userDecision());
-  const projectFile = f.writeProjectDecision({ schema: 1, enabled: true, endpoint: 'http://example.invalid', provider: 'other' });
+  const userFile = f.writeUserSettings(userAdvice());
+  f.writeProjectSettings(adv({ enabled: true, endpoint: 'http://example.invalid', provider: 'other' }));
   const v = load(f);
   assert.equal(v.get('advice.enabled').value, true);
   assert.equal(v.get('advice.enabled').origin.source, userFile);
-  assert.deepEqual(statuses(v.get('advice.enabled')), ['user*:decided', 'project*:redundant']);
+  assert.deepEqual(statuses(v.get('advice.enabled')), ['user:decided', 'project:redundant']);
   for (const [key, value] of [['advice.provider', 'ollama'], ['advice.endpoint', ENDPOINT]]) {
     const r = v.get(key);
     assert.equal(r.value, value, key);
@@ -121,11 +111,6 @@ test('C5: a project {enabled:true, endpoint, provider} changes nothing; scope st
     assert.equal(project.status, 'ignored-scope', key);
     assert.equal(project.value, null, key);
   }
-  assert.deepEqual(v.notes.filter((n: any) => n.source === projectFile && n.code !== 'deprecated').map((n: any) => [n.code, n.key, n.text]), [
-    ['scope', 'advice.enabled', `project key 'enabled' ignored: ${PROJECT_NOTE}`],
-    ['scope', 'advice.endpoint', `project key 'endpoint' ignored: ${PROJECT_NOTE}`],
-    ['scope', 'advice.provider', `project key 'provider' ignored: ${PROJECT_NOTE}`],
-  ]);
 });
 
 test('C5 shape: with no user setting, a project cannot enable advice (not-narrower) or set a global-only key', (t: any) => {
@@ -146,54 +131,57 @@ test('C5 shape: with no user setting, a project cannot enable advice (not-narrow
   assert.deepEqual(w.errors, []);
 });
 
-test('C6: user {enabled:false}: an equal project value is redundant and never takes the origin; an invalid one trips the gate', (t: any) => {
+test('C6: user {advice.enabled:false}: an equal project value is redundant and never takes the origin; an invalid one trips the gate', (t: any) => {
   const f = fx(t);
-  const userFile = f.writeUserDecision(userDecision({ enabled: false }));
-  f.writeProjectDecision({ schema: 1, enabled: false });
+  const userFile = f.writeUserSettings(userAdvice({ enabled: false }));
+  f.writeProjectSettings(adv({ enabled: false }));
   let r = load(f).get('advice.enabled');
   assert.equal(r.value, false);
   assert.equal(r.origin.source, userFile);
-  assert.deepEqual(statuses(r), ['user*:decided', 'project*:redundant']);
-  // 119 phase-BC item 6: a malformed project decision-model.json trips advice.model's gate, so advice.enabled
+  assert.deepEqual(statuses(r), ['user:decided', 'project:redundant']);
+  // 119 phase-BC item 6: a malformed project settings.json trips advice.model's gate, so advice.enabled
   // reports the file that forced it off (the value is unchanged, the user's off) and config list exits 1.
-  const projectFile = f.writeProjectDecision('{this is not json');
+  const projectFile = f.writeProjectSettings('{this is not json');
   r = load(f).get('advice.enabled');
   assert.equal(r.value, false);
-  assert.deepEqual(r.origin, origin('project', projectFile, { checkout: 'own', legacy: true, via: 'fail-safe' }));
-  assert.deepEqual(statuses(r), ['user*:overridden', 'project*:invalid']);
+  assert.deepEqual(r.origin, origin('project', projectFile, { checkout: 'own', via: 'fail-safe' }));
+  assert.deepEqual(statuses(r), ['user:overridden', 'project:invalid']);
 });
 
 const C7_CASES = [
-  ['a', '{not json', null],
-  ['b', '[]', 'user setting must be a JSON object'],
-  ['c', userDecision({ schema: 2 }), 'user setting schema must be 1'],
-  ['d', userDecision({ enabled: 'yes' }), 'user setting enabled must be a boolean'],
-  ['e', userDecision({ provider: 'nope' }), "user setting provider 'nope' is not in advice.json providers"],
-  ['f', userDecision({ model: undefined }), 'user setting model is required when enabled is true'],
+  ['a', '{not json'],
+  ['b', '[]'],
+  ['c', userAdvice({ schema: 2 })],
 ];
-for (const [letter, content, reason] of C7_CASES) {
-  test(`C7${letter}: an invalid user decision-model fails closed via fail-safe at the user layer, today's error text`, (t: any) => {
+for (const [letter, content] of C7_CASES) {
+  test(`C7${letter}: an invalid user settings.json fails closed via fail-safe at the user layer`, (t: any) => {
     const f = fx(t);
-    const file = f.writeUserDecision(content);
+    const file = f.writeUserSettings(content);
     const v = load(f);
     const r = v.get('advice.enabled');
     assert.equal(r.value, false);
-    assert.deepEqual(r.origin, origin('user', file, { legacy: true, via: 'fail-safe' }));
+    assert.deepEqual(r.origin, origin('user', file, { via: 'fail-safe' }));
     assert.equal(r.explicit, true);
     assert.equal(v.get('advice.model').value, null);
     const errors = v.errors.filter((e: any) => e.key === 'advice.enabled');
     assert.equal(errors.length, 1);
     assert.equal(errors[0].source, file);
-    if (reason) assert.equal(errors[0].reason, reason);
-    else {
-      assert.match(errors[0].reason, /^not valid JSON at offset \d+$/);
-      assert.equal(errors[0].offset, 1);
-      assert.ok(!JSON.stringify(v.report()).includes('not json'), 'no file text in any output');
-    }
+    assert.ok(!JSON.stringify(v.report()).includes('not json'), 'no file text in any output');
   });
 }
 
-test('C7 (new file): enabled with no model is cross-key; an invalid endpoint trips the advice.enabled gate', (t: any) => {
+test('C7d: an advice.enabled that is not a boolean fails closed with a type error naming the file', (t: any) => {
+  const f = fx(t);
+  const file = f.writeUserSettings(userAdvice({ enabled: 'yes' }));
+  const v = load(f);
+  const r = v.get('advice.enabled');
+  assert.equal(r.value, false);
+  assert.deepEqual(r.origin, origin('user', file, { via: 'fail-safe' }));
+  const errors = v.errors.filter((e: any) => e.key === 'advice.enabled');
+  assert.deepEqual(errors.map((e: any) => [e.source, e.code]), [[file, 'type']]);
+});
+
+test('C7 (cross-key): enabled with no model is cross-key; an invalid endpoint trips the advice.enabled gate', (t: any) => {
   const f = fx(t);
   const file = f.writeUserSettings({ schema: 1, 'advice.enabled': true });
   let v = load(f);
@@ -215,31 +203,31 @@ test('C7 (new file): enabled with no model is cross-key; an invalid endpoint tri
 });
 
 // 119 phase-BC item 6: advice.model is security-relevant with advice.enabled as its fail-safe gate, so an invalid
-// project decision-model trips the gate: advice.enabled takes its fail-safe (off), the gated keys keep the user values.
-test('C8: an invalid project decision-model trips the advice.enabled gate: advice is off, the user values stand', (t: any) => {
+// project settings.json trips the gate: advice.enabled takes its fail-safe (off), the gated keys keep the user values.
+test('C8: an invalid project settings.json trips the advice.enabled gate: advice is off, the user values stand', (t: any) => {
   const f = fx(t);
-  f.writeUserDecision(userDecision());
-  const projectFile = f.writeProjectDecision('{not json');
+  f.writeUserSettings(userAdvice());
+  const projectFile = f.writeProjectSettings('{not json');
   const v = load(f);
   assert.equal(v.get('advice.enabled').value, false);
-  assert.deepEqual(v.get('advice.enabled').origin, origin('project', projectFile, { checkout: 'own', legacy: true, via: 'fail-safe' }));
+  assert.deepEqual(v.get('advice.enabled').origin, origin('project', projectFile, { checkout: 'own', via: 'fail-safe' }));
   assert.equal(v.get('advice.model').value, 'clef-flash');
-  assert.deepEqual(statuses(v.get('advice.model')), ['user*:decided', 'project*:invalid']);
-  assert.deepEqual(statuses(v.get('advice.endpoint')), ['user*:decided', 'project*:ignored-scope']);
+  assert.deepEqual(statuses(v.get('advice.model')), ['user:decided', 'project:invalid']);
+  assert.deepEqual(statuses(v.get('advice.endpoint')), ['user:decided', 'project:ignored-scope']);
   assert.ok(v.errors.some((e: any) => e.source === projectFile && e.code === 'unparseable'));
 });
 
 test('control C1-C8: the deciding layer changes the advice result', (t: any) => {
   const f = fx(t);
   assert.equal(load(f).get('advice.enabled').origin.layer, 'default');
-  f.writeUserDecision(userDecision());
+  f.writeUserSettings(userAdvice());
   assert.equal(load(f).get('advice.enabled').value, true);
-  f.writeProjectDecision({ schema: 1, enabled: false });
+  f.writeProjectSettings(adv({ enabled: false }));
   assert.equal(load(f).get('advice.enabled').value, false);                       // C3 differs from C2
-  f.writeUserDecision(userDecision({ enabled: false }));
-  f.writeProjectDecision({ schema: 1, enabled: true });
+  f.writeUserSettings(userAdvice({ enabled: false }));
+  f.writeProjectSettings(adv({ enabled: true }));
   assert.equal(load(f).get('advice.enabled').candidates[1].status, 'not-narrower'); // C5 vs C6
-  f.writeUserDecision('{not json');
+  f.writeUserSettings('{not json');
   assert.equal(load(f).get('advice.enabled').origin.via, 'fail-safe');            // C7 differs from C2
 });
 
@@ -254,9 +242,9 @@ test('C9: no prune file: on from the default in both views', (t: any) => {
   }
 });
 
-test('C10: a user prune=off is off in both views, from the user file', (t: any) => {
+test('C10: a user storage.prune=off is off in both views, from the user file', (t: any) => {
   const f = fx(t);
-  const file = f.writeUserPrune('off\n');
+  const file = f.writeUserSettings(prune('off'));
   const v = load(f);
   for (const view of ['project', 'global']) {
     assert.equal(v.get('storage.prune', view).value, 'off', view);
@@ -266,63 +254,46 @@ test('C10: a user prune=off is off in both views, from the user file', (t: any) 
 
 test('C11: user off, project on: the project view is on from the project file, the global view off from the user file', (t: any) => {
   const f = fx(t);
-  const userFile = f.writeUserPrune('off\n');
-  const projectFile = f.writeProjectPrune('on\n');
+  const userFile = f.writeUserSettings(prune('off'));
+  const projectFile = f.writeProjectSettings(prune('on'));
   const v = load(f);
   assert.equal(v.get('storage.prune', 'project').value, 'on');
   assert.equal(v.get('storage.prune', 'project').origin.source, projectFile);
-  assert.deepEqual(statuses(v.get('storage.prune', 'project')), ['user*:overridden', 'project*:decided']);
+  assert.deepEqual(statuses(v.get('storage.prune', 'project')), ['user:overridden', 'project:decided']);
   assert.equal(v.get('storage.prune', 'global').value, 'off');
   assert.equal(v.get('storage.prune', 'global').origin.source, userFile);
 });
 
 test('C11 (equal values, OI-3): an override that agrees still takes the origin, so the project file is named', (t: any) => {
   const f = fx(t);
-  f.writeUserPrune('on\n');
-  const projectFile = f.writeProjectPrune('on\n');
+  f.writeUserSettings(prune('on'));
+  const projectFile = f.writeProjectSettings(prune('on'));
   const r = load(f).get('storage.prune', 'project');
   assert.equal(r.value, 'on');
   assert.equal(r.origin.source, projectFile);
-  assert.deepEqual(statuses(r), ['user*:overridden', 'project*:decided']);
+  assert.deepEqual(statuses(r), ['user:overridden', 'project:decided']);
 });
 
 test('C12: project off with no user file: off in the project view, on (default) in the global view', (t: any) => {
   const f = fx(t);
-  const projectFile = f.writeProjectPrune('off\n');
+  const projectFile = f.writeProjectSettings(prune('off'));
   const v = load(f);
   assert.equal(v.get('storage.prune', 'project').value, 'off');
   assert.equal(v.get('storage.prune', 'project').origin.source, projectFile);
   assert.deepEqual(v.get('storage.prune', 'global').origin, DEFAULT);
 });
 
-test('C13: a prune file that is empty, garbage or a folder decides off; the first line is trimmed, any case', (t: any) => {
+test('C13: a one-line prune file is not read: the default stands and no file is looked at', (t: any) => {
   const f = fx(t);
-  const file = f.userFile('prune');
-  for (const content of ['', 'maybe\n', 'on yes\n', '\n']) {
-    f.writeUserPrune(content);
-    const r = load(f).get('storage.prune', 'global');
-    assert.deepEqual([r.value, r.origin.source], ['off', file], JSON.stringify(content));
-  }
-  f.remove(file);
-  fs.mkdirSync(file);
-  assert.deepEqual([load(f).get('storage.prune', 'global').value, load(f).get('storage.prune', 'global').origin.source], ['off', file]);
-  f.remove(file);
-  f.writeUserPrune('  ON  \r\nsecond line ignored\n');
-  assert.equal(load(f).get('storage.prune', 'global').value, 'on');
-});
-
-test('D-11: a new file shadows the old one at the same layer (prune and model)', (t: any) => {
-  const f = fx(t);
-  f.writeUserPrune('off\n');
-  const settings = f.writeUserSettings({ schema: 1, 'storage.prune': 'on', 'advice.model': 'b' });
-  f.writeUserDecision(userDecision({ enabled: false, model: 'a' }));
+  write(f.userFile('prune'), 'off\n');
+  write(f.projectFile('prune'), 'off\n');
   const v = load(f);
-  assert.equal(v.get('storage.prune', 'global').value, 'on');
-  assert.equal(v.get('storage.prune', 'global').origin.source, settings);
-  assert.deepEqual(statuses(v.get('storage.prune', 'global')), ['user*:shadowed', 'user:decided']);
-  assert.equal(v.get('advice.model').value, 'b');
-  const old = v.get('advice.model').candidates[0];
-  assert.deepEqual([old.legacy, old.status, old.display], [true, 'shadowed', '"a"']);
+  for (const view of ['project', 'global']) {
+    assert.equal(v.get('storage.prune', view).value, 'on', view);
+    assert.deepEqual(v.get('storage.prune', view).origin, DEFAULT, view);
+  }
+  v.report();
+  assert.ok(v.files.every((file: any) => path.basename(file.path) !== 'prune'), 'no prune file is looked at');
 });
 
 test('invalid prune by layer: the user and project layers can widen prune, so it takes the fail-safe off', (t: any) => {
@@ -341,12 +312,12 @@ test('invalid prune by layer: the user and project layers can widen prune, so it
 
 test('control C9-C13: the file content and the view decide prune', (t: any) => {
   const f = fx(t);
-  f.writeUserPrune('off\n');
-  f.writeProjectPrune('on\n');
+  f.writeUserSettings(prune('off'));
+  f.writeProjectSettings(prune('on'));
   assert.notEqual(load(f).get('storage.prune', 'project').value, load(f).get('storage.prune', 'global').value); // C11
-  f.writeProjectPrune('banana\n');
-  assert.equal(load(f).get('storage.prune', 'project').value, 'off');            // C13: off, not the default
-  f.writeProjectPrune('on\n');
+  f.writeProjectSettings(prune('maybe'));
+  assert.equal(load(f).get('storage.prune', 'project').value, 'off');            // invalid: off, not the default
+  f.writeProjectSettings(prune('on'));
   assert.equal(load(f).get('storage.prune', 'project').value, 'on');
 });
 
@@ -364,7 +335,7 @@ test('C14: env unset: 4320 hours from the storage registry default, not explicit
 
 test('C15: DOFLOW_RETENTION_HOURS=48 is explicit from the env, whatever prune says', (t: any) => {
   const f = fx(t);
-  f.writeUserPrune('off\n');
+  f.writeUserSettings(prune('off'));
   const r = load(f, { env: { DOFLOW_RETENTION_HOURS: '48' } }).get('storage.retentionHours');
   assert.deepEqual([r.value, r.state, r.explicit], [48, 'ok', true]);
   assert.deepEqual(r.origin, origin('env', 'DOFLOW_RETENTION_HOURS'));
@@ -419,24 +390,27 @@ test('control C14-C16: the env value changes the window', (t: any) => {
 
 // ── failure.capture: C17-C21 ────────────────────────────────────────────────────────────────────
 
-test('C17: no sentinel, env unset: capture on from the default', (t: any) => {
+test('C17: env unset: capture on from the default', (t: any) => {
   const f = fx(t);
   const r = load(f).get('failure.capture', 'global');
   assert.equal(r.value, 'on');
   assert.deepEqual(r.origin, DEFAULT);
 });
 
-test('C18: a failures/off sentinel is off whatever the env says, from the sentinel', (t: any) => {
+test('C18: a failures/off file is not read: capture follows the env and settings.json only', (t: any) => {
   const f = fx(t);
-  const sentinel = f.writeSentinel();
-  for (const value of [undefined, 'on', '1', 'true', 'off']) {
+  const file = write(path.join(f.failuresDir, 'off'), '');
+  for (const value of [undefined, 'on', '1', 'true']) {
     const r = load(f, { env: { DOFLOW_FAILURE_CAPTURE: value } }).get('failure.capture', 'global');
-    assert.equal(r.value, 'off', String(value));
-    assert.deepEqual(r.origin, origin('user', sentinel, { legacy: true }), String(value));
+    assert.equal(r.value, 'on', String(value));
+    assert.equal(r.origin.source === file, false, String(value));
   }
-  fs.rmSync(sentinel);
-  fs.mkdirSync(sentinel);
-  assert.equal(load(f).get('failure.capture').value, 'on', 'a folder named off is not a sentinel');
+  const v = load(f);
+  v.report();
+  assert.ok(v.files.every((rec: any) => rec.path !== file), 'the file is not looked at');
+  fs.rmSync(file);
+  fs.mkdirSync(file);
+  assert.equal(load(f).get('failure.capture').value, 'on', 'a folder named off changes nothing either');
 });
 
 test('C19: env off|0|false|no, any case, padded, is off from the env', (t: any) => {
@@ -448,7 +422,7 @@ test('C19: env off|0|false|no, any case, padded, is off from the env', (t: any) 
   }
 });
 
-test('C20: any other env word has no effect; the env cannot turn an off file on', (t: any) => {
+test('C20: any other env word has no effect; the env cannot turn an off setting on', (t: any) => {
   const f = fx(t);
   for (const value of ['on', '1', 'true', 'yes', 'banana', 'offf', ' ']) {
     const r = load(f, { env: { DOFLOW_FAILURE_CAPTURE: value } }).get('failure.capture', 'global');
@@ -459,11 +433,8 @@ test('C20: any other env word has no effect; the env cannot turn an off file on'
   const r = load(f, { env: { DOFLOW_FAILURE_CAPTURE: 'on' } }).get('failure.capture');
   assert.equal(r.value, 'off');
   assert.equal(r.origin.source, file);
-  // off-dominance: a later "on" never beats an off below it, and an equal off is redundant
-  f.writeSentinel();
-  f.writeUserSettings({ schema: 1, 'failure.capture': 'on' });
-  assert.deepEqual(statuses(load(f).get('failure.capture')), ['user*:decided', 'user:not-narrower']);
-  assert.deepEqual(statuses(load(f, { env: { DOFLOW_FAILURE_CAPTURE: 'off' } }).get('failure.capture')), ['user*:decided', 'user:not-narrower', 'env:redundant']);
+  // off-dominance: an equal off in the env is redundant under the file's off
+  assert.deepEqual(statuses(load(f, { env: { DOFLOW_FAILURE_CAPTURE: 'off' } }).get('failure.capture')), ['user:decided', 'env:redundant']);
 });
 
 test('capture uses the lexical rule on the user file and ignores the project (global-only)', (t: any) => {
@@ -487,11 +458,11 @@ test('C21: an absolute XDG_CONFIG_HOME is the config home', (t: any) => {
   const f = fx(t);
   const v = load(f);
   assert.deepEqual(v.configHome, { dir: path.join(f.xdg, 'doflow'), ignored: [] });
-  f.writeUserDecision(userDecision());
-  assert.equal(load(f).get('advice.enabled').origin.source, path.join(f.xdg, 'doflow', 'decision-model.json'));
+  f.writeUserSettings(userAdvice());
+  assert.equal(load(f).get('advice.enabled').origin.source, path.join(f.xdg, 'doflow', 'settings.json'));
 });
 
-test('control C17-C21: the sentinel, the env word and the user file each flip capture', (t: any) => {
+test('control C17-C21: the env word and the user file each flip capture; a failures/off file does not', (t: any) => {
   const f = fx(t);
   assert.equal(load(f).get('failure.capture').value, 'on');
   assert.equal(load(f, { env: { DOFLOW_FAILURE_CAPTURE: 'off' } }).get('failure.capture').value, 'off');
@@ -499,8 +470,8 @@ test('control C17-C21: the sentinel, the env word and the user file each flip ca
   f.writeUserSettings({ schema: 1, 'failure.capture': 'off' });
   assert.equal(load(f).get('failure.capture').value, 'off');
   f.remove(f.userFile('settings.json'));
-  f.writeSentinel();
-  assert.equal(load(f).get('failure.capture').value, 'off');
+  write(path.join(f.failuresDir, 'off'), '');
+  assert.equal(load(f).get('failure.capture').value, 'on');
 });
 
 // ── no config home: C22, C23 ──────────────────────────────────────────────────────────────────────
@@ -523,11 +494,11 @@ test('C22: HOME and XDG unset: no user layer, capture off via no-config-home, th
 
 test('C23: a relative XDG_CONFIG_HOME is ignored and named; the config home is $HOME/.config/doflow', (t: any) => {
   const f = fx(t);
-  write(path.join(f.project, 'rel-xdg', 'doflow', 'prune'), 'off\n');
+  write(path.join(f.project, 'rel-xdg', 'doflow', 'settings.json'), prune('off'));
   const v = load(f, { env: { XDG_CONFIG_HOME: 'rel-xdg' } });
   assert.deepEqual(v.configHome, { dir: path.join(f.home, '.config', 'doflow'), ignored: ['XDG_CONFIG_HOME'] });
   assert.equal(v.get('storage.prune', 'global').value, 'on');
-  write(path.join(f.home, '.config', 'doflow', 'prune'), 'off\n');
+  write(path.join(f.home, '.config', 'doflow', 'settings.json'), prune('off'));
   assert.equal(load(f, { env: { XDG_CONFIG_HOME: 'rel-xdg' } }).get('storage.prune', 'global').value, 'off'); // control
 });
 
@@ -553,7 +524,6 @@ test('per-key precedence (§6.1): project prune on, user prune off, env retentio
 test('the global view omits the project layers and refuses a project get', (t: any) => {
   const f = fx(t);
   f.writeProjectSettings({ schema: 1, 'storage.prune': 'off', 'advice.model': 'p' });
-  f.writeProjectPrune('off\n');
   const v = load(f, { global: true });
   assert.equal(v.scope, 'global');
   assert.deepEqual(v.project, { root: null, layersFrom: null, checkout: null });
@@ -725,54 +695,32 @@ test('inverted boolean order: true is the narrower value', (t: any) => {
 
 test('W1 (this release): a linked worktree with no settings of its own reads the main checkout files, named as such', (t: any) => {
   const f = fx(t, { worktree: true });
-  f.writeUserDecision(userDecision());
-  const prune = f.writeProjectPrune('off\n');
-  const decision = f.writeProjectDecision({ schema: 1, enabled: false });
+  f.writeUserSettings(userAdvice());
+  const mainFile = f.writeProjectSettings({ schema: 1, 'storage.prune': 'off', 'advice.enabled': false });
   const v = load(f, { projectRoot: f.worktree });
   assert.equal(v.project.checkout, 'main');
   assert.equal(v.project.layersFrom, path.join(fs.realpathSync(f.project), '.doflow'));
   const main = (file: any) => path.join(fs.realpathSync(f.project), path.relative(f.project, file));
-  assert.deepEqual(v.get('storage.prune').origin, origin('project', main(prune), { legacy: true, checkout: 'main' }));
+  assert.deepEqual(v.get('storage.prune').origin, origin('project', main(mainFile), { checkout: 'main' }));
   assert.equal(v.get('advice.enabled').value, false);
-  assert.equal(v.get('advice.enabled').origin.source, main(decision));
+  assert.equal(v.get('advice.enabled').origin.source, main(mainFile));
   // W1b: the worktree's own file wins, and then nothing comes from the main checkout
-  const own = f.writeProjectPrune('on\n', f.worktree);
+  const own = f.writeProjectSettings(prune('on'), f.worktree);
   const w = load(f, { projectRoot: f.worktree });
   assert.equal(w.project.checkout, 'own');
-  assert.deepEqual(w.get('storage.prune').origin, origin('project', own, { legacy: true, checkout: 'own' }));
+  assert.deepEqual(w.get('storage.prune').origin, origin('project', own, { checkout: 'own' }));
   assert.equal(w.get('advice.enabled').value, true);
 });
 
 test('a sandbox reads only its own checkout', (t: any) => {
   const f = fx(t, { worktree: true });
-  f.writeProjectPrune('off\n');
+  f.writeProjectSettings(prune('off'));
   write(path.join(f.worktree, MARKER), 'base\n');
   const v = load(f, { projectRoot: f.worktree });
   assert.equal(v.project.checkout, 'sandbox');
   assert.deepEqual(v.get('storage.prune').origin, DEFAULT);
   fs.rmSync(path.join(f.worktree, MARKER));
   assert.equal(load(f, { projectRoot: f.worktree }).get('storage.prune').value, 'off', 'control: without the marker it inherits');
-});
-
-// ── before this release ────────────────────────────────────────────────────────────────────────
-
-test('a machine from earlier betas with only old files resolves to legacy values, each with a deprecation note', (t: any) => {
-  const f = fx(t);
-  const decision = f.writeUserDecision(userDecision());
-  const userPrune = f.writeUserPrune('off\n');
-  const projectPrune = f.writeProjectPrune('on\n');
-  const sentinel = f.writeSentinel();
-  const v = load(f);
-  const got = Object.fromEntries(['advice.enabled', 'advice.provider', 'advice.endpoint', 'advice.model', 'failure.capture'].map((k) => [k, v.get(k).value]));
-  assert.deepEqual(got, { 'advice.enabled': true, 'advice.provider': 'ollama', 'advice.endpoint': ENDPOINT, 'advice.model': 'clef-flash', 'failure.capture': 'off' });
-  assert.deepEqual([v.get('storage.prune', 'project').value, v.get('storage.prune', 'global').value], ['on', 'off']);
-  const deprecated = new Set(v.report().notes.filter((n: any) => n.code === 'deprecated').map((n: any) => `${n.source}|${n.key}`));
-  for (const entry of [`${decision}|advice.enabled`, `${decision}|advice.provider`, `${decision}|advice.endpoint`, `${decision}|advice.model`,
-    `${userPrune}|storage.prune`, `${projectPrune}|storage.prune`, `${sentinel}|failure.capture`]) {
-    assert.ok(deprecated.has(entry), entry);
-  }
-  assert.equal(v.notes.find((n: any) => n.source === projectPrune && n.code === 'deprecated').text,
-    `${projectPrune} is deprecated; set "storage.prune" in ${f.projectFile('settings.json')} (read through 2.x)`);
 });
 
 // ── reads, laziness, memo, spawn, determinism ─────────────────────────────────────────────────────
@@ -787,10 +735,8 @@ function countingFs() {
 test('bounded reads: every path is stat-ed and read at most once per view, only present files are read', (t: any) => {
   const f = fx(t);
   const present = [
-    f.writeUserSettings({ schema: 1, 'storage.prune': 'on', 'failure.capture': 'on' }),
-    f.writeUserDecision(userDecision()),
+    f.writeUserSettings({ ...userAdvice(), 'storage.prune': 'on', 'failure.capture': 'on' }),
     f.writeProjectSettings({ schema: 1, 'advice.model': 'p' }),
-    f.writeProjectPrune('off\n'),
   ];
   const spy = countingFs();
   const v = loadSettings({ projectRoot: f.project, env: f.env(), fsImpl: spy });
@@ -804,7 +750,7 @@ test('bounded reads: every path is stat-ed and read at most once per view, only 
   for (const [p, n] of count('statSync')) assert.equal(n, 1, `stat ${p}`);
   assert.deepEqual([...count('readFileSync').keys()].sort(), present.sort(), 'only present files are read');
   for (const [p, n] of count('readFileSync')) assert.equal(n, 1, `read ${p}`);
-  assert.equal(count('statSync').size, 9, 'two settings files and a local, two decision-models, two prunes, two sentinels');
+  assert.equal(count('statSync').size, STAT_COUNT, 'two settings files, a local, and the autopilot/off sentinel');
   // a fresh view reads again (the per-view bound, not a process-wide cache for an injected fs)
   loadSettings({ projectRoot: f.project, env: f.env(), fsImpl: spy }).get('storage.prune');
   assert.ok(count('statSync').get(f.userFile('settings.json')) === 2);
@@ -822,22 +768,20 @@ function nodeIn(f: any, script: any, extra = {}) {
   return f.node(`const repo = ${JSON.stringify(REPO)};\n${script}`, { env: extra });
 }
 
-test('legacy.ts is not loaded without a stat hit on a legacy path, and is loaded on one', (t: any) => {
+test('lexical.ts is loaded for the capture switch and not for retention alone', (t: any) => {
   const f = fx(t);
   const script = `
     const { loadSettings } = require(repo + '/src/runtime/settings/resolve.ts');
     loadSettings({ projectRoot: process.cwd() }).report();
     const loaded = (name) => Object.keys(require.cache).some((p) => p.replace(/\\\\/g, '/').endsWith('/settings/' + name));
-    process.stdout.write(JSON.stringify({ legacy: loaded('legacy.ts'), lexical: loaded('lexical.ts') }));`;
+    process.stdout.write(JSON.stringify({ lexical: loaded('lexical.ts') }));`;
   f.writeUserSettings({ schema: 1, 'storage.prune': 'off' });
-  assert.deepEqual(nodeIn(f, script), { legacy: false, lexical: true });
-  f.writeProjectPrune('off\n');
-  assert.deepEqual(nodeIn(f, script), { legacy: true, lexical: true });
-  const prune = `
+  assert.deepEqual(nodeIn(f, script), { lexical: true });
+  const retention = `
     const { loadSettings } = require(repo + '/src/runtime/settings/resolve.ts');
     loadSettings({ projectRoot: process.cwd() }).get('storage.retentionHours');
-    process.stdout.write(JSON.stringify(Object.keys(require.cache).some((p) => p.replace(/\\\\/g, '/').endsWith('/settings/legacy.ts') || p.replace(/\\\\/g, '/').endsWith('/settings/lexical.ts'))));`;
-  assert.equal(nodeIn(f, prune), false, 'retention alone loads neither');
+    process.stdout.write(JSON.stringify(Object.keys(require.cache).some((p) => p.replace(/\\\\/g, '/').endsWith('/settings/lexical.ts'))));`;
+  assert.equal(nodeIn(f, retention), false, 'retention alone loads no lexical reader');
 });
 
 test('memo: the real env and fs share one view per process until clearSettingsCache(); writes are seen after it', (t: any) => {
@@ -868,9 +812,8 @@ test('memo: the real env and fs share one view per process until clearSettingsCa
 
 test('no child process is spawned, in a linked worktree with every file present', (t: any) => {
   const f = fx(t, { worktree: true });
-  f.writeUserDecision(userDecision());
-  f.writeProjectPrune('off\n');
-  f.writeSentinel();
+  f.writeUserSettings(userAdvice());
+  f.writeProjectSettings(prune('off'));
   const names = ['spawn', 'spawnSync', 'exec', 'execSync', 'execFile', 'execFileSync', 'fork'];
   const saved = Object.fromEntries(names.map((n) => [n, childProcess[n]]));
   const calls: any = [];
@@ -887,7 +830,7 @@ test('no child process is spawned, in a linked worktree with every file present'
 
 test('deterministic: the same tree gives the same report, and reading creates nothing', { skip: !POSIX }, (t: any) => {
   const f = fx(t, { worktree: true });
-  f.writeUserDecision(userDecision());
+  f.writeUserSettings(userAdvice());
   f.writeProjectSettings({ schema: 1, 'storage.prune': 'off', bad: { x: 1 } });
   f.writeProjectLocal('{oops');
   const snapshot = () => childProcess.spawnSync('find', [f.dir], { encoding: 'utf8' }).stdout.split('\n').sort();
@@ -898,20 +841,6 @@ test('deterministic: the same tree gives the same report, and reading creates no
   assert.deepEqual(JSON.parse(JSON.stringify(a)), a, 'plain data');
   assert.deepEqual(snapshot(), before);
   clearSettingsCache();
-});
-
-test('legacy unknown project keys are JSON-escaped and capped before becoming notes', (t: any) => {
-  const f = fx(t);
-  const key = `unsafe\u001b]0;title\u0007${'x'.repeat(100)}${'y'.repeat(40)}`;
-  const file = f.writeProjectDecision({ schema: 1, enabled: false, [key]: 'ignored' });
-  const view = load(f);
-  view.get('advice.enabled');
-  const note = view.notes.find((entry: any) => entry.source === file && entry.text.startsWith('unknown project key'));
-  assert.ok(note, 'the legacy key is still reported');
-  const shown = JSON.stringify(`${key.slice(0, 80)}...`);
-  assert.equal(note.text, `unknown project key ${shown} ignored`);
-  assert.doesNotMatch(note.text, /[\u0000-\u001f\u007f-\u009f]/, 'terminal control bytes are escaped');
-  assert.ok(!note.text.includes(key.slice(80)), 'long keys are capped');
 });
 
 test('without a config home, the fail-safe owns failure.capture and the env candidate is overridden', (t: any) => {

@@ -27,7 +27,7 @@ test('install prunes recovery snapshots but retains the ledger snapshot and adds
   try {
     const project = path.join(scratch.dir, 'project'); fs.mkdirSync(project);
     fs.mkdirSync(path.join(project, '.doflow'), { recursive: true });
-    fs.writeFileSync(path.join(project, '.doflow/prune'), 'on\n');
+    fs.writeFileSync(path.join(project, '.doflow/settings.json'), '{"schema":1,"storage.prune":"on"}\n');
     const env = scratch.env();
     const first = install(project, env);
     assert.equal(first.status, 0, first.stderr + first.stdout);

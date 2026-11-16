@@ -25,7 +25,6 @@ const RULE_INPUTS: any = {
   'prompt.warning': ['role', 'subagent', 'bootstrapped', 'warning'],
   'prompt.grant': ['subagent', 'grant', 'refusedSeen'],
   'prompt.nudge': ['role', 'nudge'],
-  'legacy-adopt.legacy': ['role', 'lineageKind', 'subagent', 'bootstrapped', 'legacy'],
   'launch.slot': ['bootstrapped'],
   'launch.pack': ['bootstrapped'],
   'launch.summary': ['role', 'bootstrapped', 'ownSummary'],
@@ -46,7 +45,6 @@ const NON_SKIP: any = new Map([
   ['prompt.grant|false:fits:true', 'whole'],
   ['prompt.grant|false:over:false', 'pointer'],
   ['prompt.nudge|main:nudge', 'include'],
-  ['legacy-adopt.legacy|main:default-main:false:false:true', 'adopt'],
   ['launch.slot|false', 'claim'],
   ['launch.pack|false', 'include'],
   ['launch.summary|main:false:pending', 'truncate'],
@@ -69,7 +67,7 @@ const CLASSES: any = {
 };
 
 const DEFAULT_STATE: any = {
-  bootstrapped: false, subagent: false, ownSummary: 'none', legacy: false,
+  bootstrapped: false, subagent: false, ownSummary: 'none',
   grant: 'none', refusedSeen: false, warning: false, nudge: 'none',
 };
 
@@ -130,8 +128,6 @@ test('IC-001: arbitrate() is pure and deterministic, and names one action per ru
     claims: ['slot', 'summary', 'grant', 'warning'],
     ledger: null,
   });
-  const legacy = arbitrate(request('legacy-adopt', { legacy: 'true' }));
-  assert.deepEqual(legacy, { emit: false, reason: 'act', actions: { legacy: 'adopt' }, claims: ['legacy'], ledger: null });
 });
 
 test('IC-001: silence reasons, and values outside the IC-002 domain are refused', () => {

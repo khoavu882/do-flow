@@ -373,7 +373,7 @@
         }
        },
        {
-        "harness": "gemini",
+        "harness": "opencode",
         "main": {
          "observed": true
         },

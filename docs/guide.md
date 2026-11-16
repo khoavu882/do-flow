@@ -420,7 +420,7 @@ When a DoFlow command ends in an internal error, or the dispatcher or a guard ho
 
 ```bash
 doflow failure --action capture --set off      # writes failure.capture off to <config home>/settings.json
-doflow failure --action capture --set on       # writes it back on; an existing failures/off file still turns capture off
+doflow failure --action capture --set on       # writes it back on
 DOFLOW_FAILURE_CAPTURE=off doflow ...          # off for one command or shell; cannot turn capture on over the file
 ```
 

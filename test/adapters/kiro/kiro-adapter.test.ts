@@ -314,31 +314,6 @@ test('A3 kiro: a narrower selection removes the deselected owned entry, and none
   assert.deepEqual(none.ledger.resources, []);
 });
 
-test('A4 kiro: rows recorded as kiro:mcp:<id> are replaced on install and dropped on remove', () => {
-  const root = scratch(); const adapter = createKiroAdapter();
-  const entries = { context7: { command: 'npx', args: ['-y', '@upstash/context7-mcp'] },
-    'sequential-thinking': { command: 'npx', args: ['-y', '@modelcontextprotocol/server-sequential-thinking'] } };
-  writeMcp(root, { mcpServers: { ...entries, 'user-server': USER_SERVER } });
-  const before = fs.readFileSync(mcpFileIn(root));
-  const legacy = { resources: Object.entries(entries).map(([id, entry]) => ({
-    harness: 'kiro', scope: 'project', assetId: 'guidance.context-layer', target: mcpFileIn(root),
-    ownershipIdentity: `kiro:mcp:${id}`, identity: id, fingerprint: entryFingerprint(entry),
-  })) };
-
-  const installed = runMcp(adapter, { root, mcp: [CONTEXT7, SEQUENTIAL], ledger: legacy });
-  assert.deepEqual(installed.planned.changes.map((change: any) => [change.ownershipIdentity, change.operation, change.release ?? false]),
-    [['kiro:mcp:context7', 'remove', true], ['kiro:mcp:sequential-thinking', 'remove', true]]);
-  assert.deepEqual(fs.readFileSync(mcpFileIn(root)), before, 'replacing the rows writes nothing');
-  assert.deepEqual(installed.ledger.resources.map((row) => row.ownershipIdentity),
-    ['doflow:kiro:mcp-server:context7', 'doflow:kiro:mcp-server:sequential-thinking']);
-
-  const removed = runMcp(adapter, { root, ledger: legacy, removing: true });
-  assert.deepEqual(removed.planned.changes.map((change: any) => [change.ownershipIdentity, change.release ?? false]),
-    [['kiro:mcp:context7', false], ['kiro:mcp:sequential-thinking', false]]);
-  assert.deepEqual(readMcp(root).mcpServers, { 'user-server': USER_SERVER });
-  assert.deepEqual(removed.ledger.resources, []);
-});
-
 test('A5 kiro: a same-named user entry is kept through install and remove', () => {
   const root = scratch(); const adapter = createKiroAdapter();
   writeMcp(root, { mcpServers: { context7: USER_SERVER } });

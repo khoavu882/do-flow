@@ -1,6 +1,6 @@
 'use strict';
 // mcp.js — MCP server selection: which of the registry's servers each harness gets, from --mcp,
-// the interactive checkbox, doflow.lock, the ledger or a 1.18.0 manifest. Writing a harness's MCP
+// the interactive checkbox, doflow.lock or the ledger. Writing a harness's MCP
 // file is that harness's adapter's job (src/adapters/<id>/), never this module's.
 //
 // TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): authored as `.ts`, run directly by Node
@@ -49,38 +49,6 @@ const holdsRows = (ledger: any, harness: string) => (ledger?.resources ?? []).so
 /** Ids of `lists` that the catalog still declares, as one union in registry order. */
 const catalogUnion = (catalogIds: string[], lists: string[][]) => catalogIds.filter((id) => lists.some((ids) => ids.includes(id)));
 
-/** 1.18.0 wrote lock rows only for claude and codex, and only non-empty ones. Any other row was
- * written by a later run, which already settled which of that harness's entries are DoFlow's. */
-const LEGACY_LOCK_HARNESSES = ['claude', 'codex'];
-
-function settledByLaterRun(rows: Record<string, string[]>, harness: string): boolean {
-  return harness in rows && (!LEGACY_LOCK_HARNESSES.includes(harness) || rows[harness].length === 0);
-}
-
-/** The servers a 1.18.0 install recorded writing for this harness, from state no later run writes:
- * the manifest's MCP list, Antigravity's rows that carry no fingerprint, and Copilot's whole-map
- * registration row, which covers the manifest's list or, with none, the catalog 1.18.0 wrote. */
-function legacyRecordedIds({ catalogIds, ledger, harness, manifestServers }: { catalogIds: string[]; ledger: any; harness: string; manifestServers: string[] | null | undefined }): string[] {
-  const rows = (ledger?.resources ?? []).filter((row: any) => row.harness === harness);
-  const ids = [...(manifestServers ?? [])];
-  for (const row of rows) if (row.kind === 'mcp-server' && (row.fingerprint ?? null) === null) ids.push(row.identity);
-  if (!manifestServers && rows.some((row: any) => row.ownershipIdentity === `${harness}:mcp:registration`)) ids.push(...catalogIds);
-  return catalogUnion(catalogIds, [ids]);
-}
-
-/** Per MCP-capable harness, the servers DoFlow may adopt when their entries already equal its own:
- * only what a 1.18.0 install recorded for a harness the ledger holds, and only until a later run
- * has recorded the harness's own selection. An entry a user wrote is never adoptable merely because
- * DoFlow installed something else for that harness. Retired ids are dropped. */
-function adoptableMcpIds({ registry, lock, ledger, harnesses, manifestServers = null }: { registry: any; lock: any; ledger: any; harnesses: string[]; manifestServers?: string[] | null }): Record<string, string[]> {
-  const catalogIds = readAllServers(registry);
-  const rows = pinnedSelections(lock);
-  return Object.fromEntries(harnesses.filter((harness) => mcpCapable(registry, harness)).map((harness) => {
-    if (!holdsRows(ledger, harness) || settledByLaterRun(rows, harness)) return [harness, []];
-    return [harness, legacyRecordedIds({ catalogIds, ledger, harness, manifestServers })];
-  }));
-}
-
 /** Servers another harness of this scope still has recorded: the union of the lock rows of the lock's
  * harnesses that are not targeted, registry order. */
 function retainedMcpIds(catalogIds: string[], rows: Record<string, string[]>, targets: string[]): string[] {
@@ -93,13 +61,12 @@ function retainedMcpIds(catalogIds: string[], rows: Record<string, string[]>, ta
  *   2. install on a real TTY  -> one checkbox for every harness; a null answer falls through (prompt)
  *   3. a lock row             -> that row                                              (recorded)
  *   4. ledger rows            -> 'keep': the servers the harness owns now               (kept)
- *   5. a 1.18.0 manifest list -> that list                                             (manifest)
- *   6. otherwise              -> none                                                  (default)
- * Lock and manifest ids the registry retired are dropped and reported once through `onStale`; an
+ *   5. otherwise              -> none                                                  (default)
+ * Lock ids the registry retired are dropped and reported once through `onStale`; an
  * explicit --mcp naming one stays an error. Pure apart from `promptFn` and `onStale`.
  */
 function resolveMcpSelections({
-  cmd, requested, targets, registry, lock, ledger, manifestServers = null, interactive = false, promptFn, onStale,
+  cmd, requested, targets, registry, lock, ledger, interactive = false, promptFn, onStale,
 }: any): any {
   const catalogIds = readAllServers(registry);
   const flagged = parseMcpFlag(requested, catalogIds);
@@ -114,8 +81,7 @@ function resolveMcpSelections({
   let prompted: string[] | null = null;
   if (!flagged && cmd === 'install' && interactive && capable.length) {
     const recorded = capable.filter((harness: string) => harness in rows).map((harness: string) => rows[harness]);
-    const seed = recorded.length ? catalogUnion(catalogIds, recorded.map(known))
-      : manifestServers ? known(manifestServers) : [...catalogIds];
+    const seed = recorded.length ? catalogUnion(catalogIds, recorded.map(known)) : [...catalogIds];
     prompted = promptFn(catalogIds, seed);
   }
 
@@ -124,7 +90,6 @@ function resolveMcpSelections({
     if (prompted !== null) return [prompted, 'prompt'];
     if (harness in rows) return [known(rows[harness]), 'recorded'];
     if (holdsRows(ledger, harness)) return ['keep', 'kept'];
-    if (manifestServers) return [known(manifestServers), 'manifest'];
     return [[], 'default'];
   };
   const selections: Record<string, string[] | string> = {};
@@ -136,7 +101,6 @@ function resolveMcpSelections({
   return {
     selections,
     sources,
-    adoptable: adoptableMcpIds({ registry, lock, ledger, harnesses: capable, manifestServers }),
     retainedMcpIds: retainedMcpIds(catalogIds, rows, targets),
   };
 }
@@ -144,14 +108,13 @@ function resolveMcpSelections({
 /** The selections a scope has recorded, for readers that never prompt (reconcile, status, inventory):
  * each targeted MCP-capable harness's lock row, or 'keep' when the lock has none. Retired ids are
  * dropped silently. */
-function recordedMcpSelections({ registry, lock, ledger, targets, manifestServers = null }: any): any {
+function recordedMcpSelections({ registry, lock, targets }: any): any {
   const catalogIds = readAllServers(registry);
   const rows = pinnedSelections(lock);
   const capable = targets.filter((harness: string) => mcpCapable(registry, harness));
   return {
     selections: Object.fromEntries(capable.map((harness: string) => [harness,
       harness in rows ? catalogUnion(catalogIds, [rows[harness]]) : 'keep'])),
-    adoptable: adoptableMcpIds({ registry, lock, ledger, harnesses: capable, manifestServers }),
     retainedMcpIds: retainedMcpIds(catalogIds, rows, targets),
   };
 }
@@ -240,7 +203,7 @@ function promptMcpCheckbox(servers: string[], initialSelected: string[], message
     process.stdin.setRawMode(wasRaw);
   }
   console.log('');
-  if (aborted) return null; // fd went unusable mid-prompt — caller falls back to manifest/all
+  if (aborted) return null; // fd went unusable mid-prompt — caller falls back to all
   return servers.filter((s) => selected.has(s));
 }
 
@@ -249,6 +212,5 @@ module.exports = {
   parseMcpFlag,
   resolveMcpSelections,
   recordedMcpSelections,
-  adoptableMcpIds,
   promptMcpCheckbox,
 };

@@ -146,9 +146,9 @@ brief_abs="$repo_root/$brief_rel"
 record_rel="$(printf '%s' "$paths" | jq -r '.brief_record // empty')"
 feature_slug="$(printf '%s' "$resolved" | jq -r '.feature_slug // empty')"
 
-# The preamble names specs.md only when this feature actually has one: a legacy-layout brief
-# stays byte-identical to what it was before specs.md existed, rather than advertising a source
-# the reader will not find a section for.
+# The preamble names specs.md only when this feature actually has one: a brief for a feature
+# without a specs.md stays byte-identical to what it was before specs.md existed, rather than
+# advertising a source the reader will not find a section for.
 composed_from="plan.md, requirement.md and design.md"
 if [ "$has_specs" = "true" ] && [ -f "$specs_abs" ]; then
   composed_from="plan.md, requirement.md, design.md and specs.md"

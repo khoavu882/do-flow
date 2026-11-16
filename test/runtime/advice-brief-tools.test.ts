@@ -35,7 +35,7 @@ function fixture(t: any) {
   return {
     scratch, project,
     run(args: any) { return spawnSync(process.execPath, [CLI, 'brief-tools', '--owner', 'core-implementer', '--tier', 'frontier', '--slug', '001-feature', '--json', ...args], { cwd: project, env: scratch.env(), encoding: 'utf8', timeout: 10000 }); },
-    enable(endpoint: any) { fs.mkdirSync(path.join(scratch.xdg, 'doflow'), { recursive: true }); fs.writeFileSync(path.join(scratch.xdg, 'doflow/decision-model.json'), JSON.stringify({ schema: 1, enabled: true, provider: 'ollama', endpoint, model: 'clef-flash' })); },
+    enable(endpoint: any) { fs.mkdirSync(path.join(scratch.xdg, 'doflow'), { recursive: true }); fs.writeFileSync(path.join(scratch.xdg, 'doflow/settings.json'), JSON.stringify({ schema: 1, 'advice.enabled': true, 'advice.provider': 'ollama', 'advice.endpoint': endpoint, 'advice.model': 'clef-flash' })); },
     startServer: () => spawnFakeServer({ dir: scratch.dir }),
   };
 }

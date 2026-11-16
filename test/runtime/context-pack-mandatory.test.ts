@@ -217,57 +217,47 @@ test('mandatory: resolver spawns once during handleContextPackCommand (negative 
   );
 });
 
-test('mandatory: reads requirement from resolver paths.requirement supporting legacy flat-layout (CX.5)', (t) => {
+function packFor(t: any, feature: any, taskId: string) {
   const origResolve = featureResolve.resolveActiveFeature;
-  const temp = tempDir(t);
-  const legacyDir = path.join(temp, 'agent-docs', 'doflow', 'legacy-001');
-  fs.mkdirSync(legacyDir, { recursive: true });
-  const flatReqPath = path.join(legacyDir, 'requirement.md');
-  fs.writeFileSync(
-    flatReqPath,
-    '# Requirement: Legacy\n\n**Feature:** legacy-001 · **Maturity:** Draft\n\n## 1. Summary\n\nLegacy flat layout summary.\n\n## 6. Acceptance Criteria\n\n- [ ] **Scenario: S1** (FR-001)\n'
-  );
-
-  featureResolve.resolveActiveFeature = () => ({
-    repoRoot: temp,
-    featureDir: legacyDir,
-    paths: {
-      requirement: 'agent-docs/doflow/legacy-001/requirement.md',
-    },
-  });
+  featureResolve.resolveActiveFeature = () => feature;
   require('../../src/runtime/task-scope.ts').clearTaskScopeCache();
-
   t.after(() => {
     featureResolve.resolveActiveFeature = origResolve;
     require('../../src/runtime/task-scope.ts').clearTaskScopeCache();
   });
-
   let output = '';
   const origLog = console.log;
   const priorExitCode = process.exitCode;
   console.log = (msg) => { output = msg; };
   try {
-    handleContextPackCommand({ taskId: 't-legacy', json: true, stateRoot: tempDir(t) });
+    handleContextPackCommand({ taskId, json: true, stateRoot: tempDir(t) });
   } finally {
     console.log = origLog;
     process.exitCode = priorExitCode;
   }
+  return JSON.parse(output);
+}
 
-  const pack = JSON.parse(output);
-  assert.equal(pack.objective, 'Legacy flat layout summary.');
+const REQ_TEXT = '# Requirement: Feature\n\n**Feature:** feat-001 · **Maturity:** Draft\n\n## 1. Summary\n\nStructured layout summary.\n\n## 6. Acceptance Criteria\n\n- [ ] **Scenario: S1** (FR-001)\n';
+
+test('mandatory: reads requirement from resolver paths.requirement under intention/ (CX.5)', (t) => {
+  const temp = tempDir(t);
+  const featureDir = path.join(temp, 'agent-docs', 'doflow', 'feat-001');
+  fs.mkdirSync(path.join(featureDir, 'intention'), { recursive: true });
+  fs.writeFileSync(path.join(featureDir, 'intention', 'requirement.md'), REQ_TEXT);
+  const pack = packFor(t, { repoRoot: temp, featureDir, paths: { requirement: 'agent-docs/doflow/feat-001/intention/requirement.md' } }, 't-structured');
+  assert.equal(pack.objective, 'Structured layout summary.');
   assert.equal(pack.mandatory.objective.supplied, true);
+});
 
-  // Negative control: resolving with hardcoded nested path 'intention/requirement.md' fails on flat layout
-  function resolveWithHardcodedNested(featureDir: any) {
-    const nested = path.join(featureDir, 'intention', 'requirement.md');
-    if (!fs.existsSync(nested)) {
-      throw new Error(`Flat layout failed: '${nested}' does not exist`);
-    }
-  }
-  assert.throws(
-    () => resolveWithHardcodedNested(legacyDir),
-    (err: any) => err.message.includes('Flat layout failed')
-  );
+test('mandatory: a flat requirement.md in the feature folder supplies nothing', (t) => {
+  const temp = tempDir(t);
+  const featureDir = path.join(temp, 'agent-docs', 'doflow', 'feat-001');
+  fs.mkdirSync(featureDir, { recursive: true });
+  fs.writeFileSync(path.join(featureDir, 'requirement.md'), REQ_TEXT);
+  const pack = packFor(t, { repoRoot: temp, featureDir }, 't-flat');
+  assert.notEqual(pack.objective, 'Structured layout summary.');
+  assert.equal(pack.mandatory.objective.supplied, false);
 });
 
 test('mandatory: absent-artifact reason carries resolver message, not error code (CX.5)', (t) => {
