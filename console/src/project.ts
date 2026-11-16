@@ -1803,7 +1803,7 @@ const LOGIN_BOUNDS = Object.freeze({ providers: 8, harnesses: 32 });
 
 /**
  * IC-001, closed: one harness's login answer with every field checked and nothing else. A reason, hint or caveat that looks like a path
- * is withheld (`sWords`); a state, source or mode outside its set, a ninth provider or any other key is a Mismatch.
+ * is withheld (`sWords`); a state, source or mode outside its set or a ninth provider is a Mismatch; any other key is dropped.
  */
 function loginAnswer(value: unknown) {
   const l = sRecord(value);
