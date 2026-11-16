@@ -235,7 +235,7 @@ function gatherGateFacts(options: any): GateFact[] {
 
   let plan: any = null;
   if (uses('plan-parses') || uses('plan-within-write-set') || (uses('protected-paths') && gateId === 'gate-a')) {
-    const input = read([path.join(artifactRoot, 'plan.md'), path.join(artifactRoot, 'planning/plan.md')]);
+    const input = read([path.join(artifactRoot, 'plan.md')]);
     let value: any = { ok: false, files: [] };
     if (!input.unreadable) {
       try {
@@ -248,7 +248,7 @@ function gatherGateFacts(options: any): GateFact[] {
   if (uses('plan-verification-absent')) {
     // C6: a `doflow-verification` block replaces the verify commands, so its presence (even a
     // malformed one) is the fact. No plan at all is absent; any other read failure is unreadable.
-    const input = read([path.join(artifactRoot, 'plan.md'), path.join(artifactRoot, 'planning/plan.md')]);
+    const input = read([path.join(artifactRoot, 'plan.md')]);
     const absent = input.unreadable === 'ENOENT';
     let present: boolean | null = absent ? false : null;
     if (!input.unreadable) {
@@ -260,7 +260,7 @@ function gatherGateFacts(options: any): GateFact[] {
   for (const artifact of ['requirement', 'design', 'plan']) {
     if (!uses(`markers-zero:${artifact}`)) continue;
     const candidates = artifact === 'requirement' ? ['intention/requirement.md']
-      : artifact === 'design' ? ['design/design.md'] : ['plan.md', 'planning/plan.md'];
+      : artifact === 'design' ? ['design/design.md'] : ['plan.md'];
     const input = read(candidates.map((entry) => path.join(artifactRoot, entry)));
     add(`markers:${artifact}`, input.unreadable ? null : countMarkers(input.text), input.locator, input.bytes, input.unreadable);
   }

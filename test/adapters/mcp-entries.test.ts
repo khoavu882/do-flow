@@ -89,20 +89,6 @@ test('M4: a selected owned entry the user edited is released and left byte for b
   assert.deepEqual(verified.resources, []);
 });
 
-test('M5: adoption takes an equal entry with no write, never an unequal one, and closes once a row exists', () => {
-  const { file, run, plan } = setup({ mcpServers: { alpha: A.entry, beta: { command: 'other' } } });
-  const before = fs.readFileSync(file);
-  const { planned, verified } = run({ selected: [A, B], adoptable: [A, B] });
-  assert.deepEqual(planned.changes, []);
-  assert.deepEqual(fs.readFileSync(file), before);
-  assert.deepEqual(verified.resources.map((resource: any) => resource.identity), ['alpha']);
-  assert.deepEqual(verified.statuses.map((status: any) => [status.identity, status.status]), [['alpha', 'managed'], ['beta', 'not-managed']]);
-
-  const closed = plan({ selected: [A], adoptable: [A], ownRows: [row(file, B)] });
-  assert.match(closed.notices.join('\n'), /kept your own entry 'alpha'/);
-  assert.ok(!closed.changes.some((change: any) => change.identity === 'alpha'));
-});
-
 test('M6: an equal entry another harness\'s row claims is co-owned with no write', () => {
   const { file, run } = setup({ mcpServers: { alpha: A.entry } });
   const before = fs.readFileSync(file);
@@ -113,20 +99,13 @@ test('M6: an equal entry another harness\'s row claims is co-owned with no write
   assert.deepEqual(verified.resources.map((resource: any) => resource.identity), ['alpha']);
 });
 
-test('M7: removing deletes owned and equal adoptable entries, releases edited ones and an unparseable file', () => {
+test('M7: removing deletes owned entries, releases edited ones and an unparseable file', () => {
   const edited = { ...B.entry, args: ['edited'] };
   const owned = setup({ mcpServers: { alpha: A.entry, beta: edited, other: USER } });
   const removal = owned.run({ removing: true, ownRows: [row(owned.file, A), row(owned.file, B)] });
   assert.deepEqual(removal.planned.changes.map((change: any) => [change.identity, change.release ?? false]), [['alpha', false], ['beta', true]]);
   assert.deepEqual(owned.read(), { mcpServers: { beta: edited, other: USER } });
   assert.deepEqual(removal.verified.statuses.map((status: any) => [status.identity, status.status]), [['alpha', 'absent'], ['beta', 'not-managed']]);
-
-  const adopted = setup({ mcpServers: { alpha: A.entry, beta: { command: 'other' } } });
-  const adoption = adopted.run({ removing: true, adoptable: [A, B] });
-  assert.deepEqual(adoption.planned.changes.map((change: any) => [change.identity, change.operation, change.ownershipIdentity]),
-    [['alpha', 'remove', identityFor('alpha')]]);
-  assert.deepEqual(adopted.read(), { mcpServers: { beta: { command: 'other' } } });
-  assert.deepEqual(adoption.verified.statuses.map((status: any) => [status.identity, status.status]), [['alpha', 'absent']]);
 
   const broken = setup('{ not json');
   const release = broken.run({ removing: true, ownRows: [row(broken.file, A)] });
@@ -181,9 +160,9 @@ test('M11: a null-fingerprint row is owned only while its value equals the rende
   const ownRows: any = [nullRow(A), nullRow(B),
     { identity: 'gone', target: file, fingerprint: entryFingerprint({ command: 'old' }), ownershipIdentity: identityFor('gone') },
     { identity: 'legacy', target: file, fingerprint: null, ownershipIdentity: identityFor('legacy') }];
-  assert.deepEqual(ownedMcpIds({ file, files: files(ownRows), adoptable: [A, B], ownRows }), ['alpha', 'gone']);
+  assert.deepEqual(ownedMcpIds({ file, files: files(ownRows), selected: [A, B], ownRows }), ['alpha', 'gone']);
 
-  const planned = plan({ selected: [A, B], adoptable: [A, B], ownRows });
+  const planned = plan({ selected: [A, B], ownRows });
   assert.deepEqual(planned.changes.map((change: any) => [change.identity, change.release ?? false]),
     [['beta', true], ['gone', false], ['legacy', true]]);
 });

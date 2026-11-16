@@ -39,7 +39,7 @@ function planHookCompanions({ registry, adapters, scope, harnessScope, scopeRoot
     if (typeof adapter.planHookDoors !== 'function') continue;
     const assets = selectAssets(registry, { harness: harness.id });
     const policies = renderPolicies(registry, { harness: harness.id });
-    const adapterInput = projectAdapterInput({ registry, harness, scope, scopeRoot, assets, mcp: [], mcpAdoptable: [], policies, context });
+    const adapterInput = projectAdapterInput({ registry, harness, scope, scopeRoot, assets, mcp: [], policies, context });
     const input = { ...adapterInput, registry, ledger };
     const discovery = adapter.discover(input);
     const target = targetFromResult({ harness, assets, mcp: [], mcpSelected: null, policies, adapterInput, discovery,

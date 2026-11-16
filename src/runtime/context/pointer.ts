@@ -148,7 +148,6 @@ function sourceFiles({ projectRoot, feature, fsImpl = fs, intakeFile }: any): Ar
       path.join(featureDir, 'design', 'design.md'),
       path.join(featureDir, 'design', 'specs.md'),
       path.join(featureDir, 'design', 'data-model.md'),
-      path.join(featureDir, 'plan', 'plan.md'),
       path.join(featureDir, 'plan.md'),
     ]) add(file);
     const maxBytes = userPointerMaxBytes(intakeFile);

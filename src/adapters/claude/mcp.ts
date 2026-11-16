@@ -29,12 +29,12 @@ function rendered(servers: any) {
 }
 
 /** Everything the shared entry-ownership rules need from this adapter. */
-function mcpEntriesInput({ paths, mcp = [], mcpAdoptable = [], ledger }: any) {
+function mcpEntriesInput({ paths, mcp = [], ledger }: any) {
   const rows = (ledger?.resources || []).filter((row: any) => row.kind === 'mcp-server');
   return {
-    file: paths.mcp, selected: rendered(mcp), adoptable: rendered(mcpAdoptable),
+    file: paths.mcp, selected: rendered(mcp),
     ownRows: rows.filter((row: any) => row.harness === HARNESS).map((row: any) => ({
-      identity: row.identity, target: row.target, fingerprint: row.fingerprint ?? null, ownershipIdentity: row.ownershipIdentity, legacy: false,
+      identity: row.identity, target: row.target, fingerprint: row.fingerprint ?? null, ownershipIdentity: row.ownershipIdentity,
     })),
     foreignRows: rows.filter((row: any) => row.harness !== HARNESS).map((row: any) => ({ harness: row.harness, identity: row.identity, target: row.target })),
     identityFor: ownershipIdentity, assetId: MCP_ASSET_ID, renderer: MCP_RENDERER, label: 'Claude MCP',
@@ -64,8 +64,8 @@ function claudeJsonNames({ scopeRoot, homeDir, fsImpl }: any) {
  * (`mcpConfigured`): the scope's file, plus at project scope the local- and user-scope entries in
  * `~/.claude.json`. Claude Code also loads plugin, managed and connector servers DoFlow does not
  * read, so the view is never complete (`mcpComplete: false`) and absence is never proof. */
-function discoverMcp({ paths, mcp, mcpAdoptable, ledger, scope, scopeRoot, homeDir = os.homedir(), fsImpl = fs }: any) {
-  const entries = mcpEntriesInput({ paths, mcp, mcpAdoptable, ledger });
+function discoverMcp({ paths, mcp, ledger, scope, scopeRoot, homeDir = os.homedir(), fsImpl = fs }: any) {
+  const entries = mcpEntriesInput({ paths, mcp, ledger });
   const mcpSnapshot = readFiles(entries, fsImpl);
   // `null` while nothing could be read; every name otherwise, whoever wrote it.
   const read = mcpSnapshot[entries.file];
@@ -75,8 +75,8 @@ function discoverMcp({ paths, mcp, mcpAdoptable, ledger, scope, scopeRoot, homeD
   return { mcpSnapshot, mcpOwned: ownedMcpIds({ ...entries, files: mcpSnapshot }), mcpConfigured, mcpComplete: false };
 }
 
-function planMcp({ paths, mcp, mcpAdoptable, ledger, snapshot, removing, fsImpl = fs }: any) {
-  const entries = mcpEntriesInput({ paths, mcp, mcpAdoptable, ledger });
+function planMcp({ paths, mcp, ledger, snapshot, removing, fsImpl = fs }: any) {
+  const entries = mcpEntriesInput({ paths, mcp, ledger });
   return planMcpEntries({ ...entries, files: snapshot ?? readFiles(entries, fsImpl), removing });
 }
 
@@ -85,8 +85,8 @@ function writeMcp(changes: any, { fsImpl = fs } = {}) {
   return writeMcpEntries(changes, { container: MCP_CONTAINER, keepEmptyContainer: true, fsImpl });
 }
 
-function verifyMcp({ paths, mcp, mcpAdoptable, ledger, snapshot, removing, sourceVersion, fsImpl = fs }: any) {
-  const entries = mcpEntriesInput({ paths, mcp, mcpAdoptable, ledger });
+function verifyMcp({ paths, mcp, ledger, snapshot, removing, sourceVersion, fsImpl = fs }: any) {
+  const entries = mcpEntriesInput({ paths, mcp, ledger });
   const files = readFiles(entries, fsImpl);
   return verifyMcpEntries({ ...entries, files, snapshot: snapshot ?? files, removing, harness: HARNESS, sourceVersion });
 }

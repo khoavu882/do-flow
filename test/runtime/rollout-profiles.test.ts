@@ -18,7 +18,6 @@ const {
 } = require('../../src/runtime/profiles/resolve.ts');
 
 const {
-  CanarySampler,
   shouldSample,
   hashKey,
 } = require('../../src/runtime/profiles/sampler.ts');
@@ -64,19 +63,11 @@ function setupTestProject(settingsContent?: any, initialRollback?: any): { proje
 }
 
 function sampleDecision(unitId: string, rate?: number): boolean {
-  if (typeof shouldSample === 'function') {
-    return shouldSample(unitId, rate);
-  }
-  const sampler = new CanarySampler();
-  return sampler.shouldSample(unitId, rate);
+  return shouldSample(unitId, rate);
 }
 
 function computeHash(key: string): number {
-  if (typeof hashKey === 'function') {
-    return hashKey(key);
-  }
-  const sampler = new CanarySampler();
-  return sampler.hashKey(key);
+  return hashKey(key);
 }
 
 // --- Test Suites ---
@@ -292,7 +283,6 @@ describe('IC-003: Rollout Profile Configuration & Resolver (resolve.ts)', () => 
     assert.deepEqual(resolved.capabilities, {
       retrieval: 'lexical',
       advisor: 'off',
-      graph: 'off',
       verification: 'L0',
       telemetryCanaryTag: false,
     });
@@ -306,7 +296,6 @@ describe('IC-003: Rollout Profile Configuration & Resolver (resolve.ts)', () => 
     assert.deepEqual(canary.capabilities, {
       retrieval: 'canary-hybrid',
       advisor: 'shadow',
-      graph: 'advisory',
       verification: 'L0-L1',
       telemetryCanaryTag: true,
     });
@@ -316,7 +305,6 @@ describe('IC-003: Rollout Profile Configuration & Resolver (resolve.ts)', () => 
     assert.deepEqual(staged.capabilities, {
       retrieval: 'staged-hybrid',
       advisor: 'staged',
-      graph: 'bounded',
       verification: 'L0-L2',
       telemetryCanaryTag: false,
     });
@@ -326,7 +314,6 @@ describe('IC-003: Rollout Profile Configuration & Resolver (resolve.ts)', () => 
     assert.deepEqual(full.capabilities, {
       retrieval: 'full-hybrid',
       advisor: 'act',
-      graph: 'full',
       verification: 'L0-L3',
       telemetryCanaryTag: false,
     });
@@ -378,17 +365,14 @@ describe('IC-003: Rollout Profile Configuration & Resolver (resolve.ts)', () => 
   test('isCapabilityActive accurately reflects capability status across profiles', () => {
     // Under baseline: advanced features inactive
     assert.equal(isCapabilityActive('advisor', { env: { DOFLOW_ROLLOUT_PROFILE: 'baseline' } }), false);
-    assert.equal(isCapabilityActive('graph', { env: { DOFLOW_ROLLOUT_PROFILE: 'baseline' } }), false);
     assert.equal(isCapabilityActive('telemetryCanaryTag', { env: { DOFLOW_ROLLOUT_PROFILE: 'baseline' } }), false);
 
-    // Under canary: advisor, graph, telemetryCanaryTag active
+    // Under canary: advisor, telemetryCanaryTag active
     assert.equal(isCapabilityActive('advisor', { env: { DOFLOW_ROLLOUT_PROFILE: 'canary' } }), true);
-    assert.equal(isCapabilityActive('graph', { env: { DOFLOW_ROLLOUT_PROFILE: 'canary' } }), true);
     assert.equal(isCapabilityActive('telemetryCanaryTag', { env: { DOFLOW_ROLLOUT_PROFILE: 'canary' } }), true);
 
-    // Under full: advisor and graph active, telemetryCanaryTag inactive
+    // Under full: advisor active, telemetryCanaryTag inactive
     assert.equal(isCapabilityActive('advisor', { env: { DOFLOW_ROLLOUT_PROFILE: 'full' } }), true);
-    assert.equal(isCapabilityActive('graph', { env: { DOFLOW_ROLLOUT_PROFILE: 'full' } }), true);
     assert.equal(isCapabilityActive('telemetryCanaryTag', { env: { DOFLOW_ROLLOUT_PROFILE: 'full' } }), false);
   });
 });
@@ -659,7 +643,6 @@ describe('Gate G-P5 Invariant Verification (Zero-Repo-Change, Zero-Reindex, Sub-
     const resolved = resolveRolloutProfile({ projectRoot });
     assert.equal(resolved.name, 'baseline');
     assert.equal(resolved.capabilities.retrieval, 'lexical');
-    assert.equal(resolved.capabilities.graph, 'off');
 
     // Verify index files still exist with unchanged contents and mtimes
     assert.ok(fs.existsSync(vectorDb));

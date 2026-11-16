@@ -11,7 +11,6 @@ export type RolloutProfileName = 'baseline' | 'canary' | 'staged' | 'full';
 export interface ProfileCapabilityMatrix {
   retrieval: 'lexical' | 'canary-hybrid' | 'staged-hybrid' | 'full-hybrid';
   advisor: 'off' | 'shadow' | 'staged' | 'act';
-  graph: 'off' | 'advisory' | 'bounded' | 'full';
   verification: 'L0' | 'L0-L1' | 'L0-L2' | 'L0-L3';
   telemetryCanaryTag: boolean;
 }
@@ -36,28 +35,24 @@ const PROFILE_CAPABILITIES: Record<RolloutProfileName, ProfileCapabilityMatrix> 
   baseline: {
     retrieval: 'lexical',
     advisor: 'off',
-    graph: 'off',
     verification: 'L0',
     telemetryCanaryTag: false,
   },
   canary: {
     retrieval: 'canary-hybrid',
     advisor: 'shadow',
-    graph: 'advisory',
     verification: 'L0-L1',
     telemetryCanaryTag: true,
   },
   staged: {
     retrieval: 'staged-hybrid',
     advisor: 'staged',
-    graph: 'bounded',
     verification: 'L0-L2',
     telemetryCanaryTag: false,
   },
   full: {
     retrieval: 'full-hybrid',
     advisor: 'act',
-    graph: 'full',
     verification: 'L0-L3',
     telemetryCanaryTag: false,
   },
@@ -229,7 +224,6 @@ function isCapabilityActive(
 
   if (capability === 'retrieval') return val !== 'lexical';
   if (capability === 'advisor') return val !== 'off';
-  if (capability === 'graph') return val !== 'off';
   if (capability === 'verification') return val !== 'L0';
   if (capability === 'telemetryCanaryTag') return Boolean(val);
 
