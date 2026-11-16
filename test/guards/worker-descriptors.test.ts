@@ -34,6 +34,7 @@ const { PARSERS } = require('../../src/runtime/worker/parsers.ts');
 const { argvShape } = require('../../src/runtime/worker/launch.ts');
 const { ACTIVE_HARNESS_IDS } = require('../helper/harness-ids.ts');
 const { tempDir } = require('../helper/tmp.ts');
+const { cliVersionMatches, sameJson, checksEstablish } = require('../helper/worker-evidence.ts');
 
 const HARNESS_COUNT = 7;
 const WORKER_ERROR = " worker '";
@@ -95,42 +96,6 @@ const EVIDENCE_SCHEMA = 'doflow-worker-evidence-v1';
 // `modelList` is how the harness's own CLI lists its models, not a worker capability: its shape is the registry
 // validator's and its parsers are test/runtime/models/list-models.test.ts's, and its evidence is the dated listing run in its own text.
 const NOT_CAPABILITIES: any = new Set(['cli', 'profile', 'modelChecks', 'modelList', 'secretFlags']);
-
-/** The checks file a record is bound to: core/worker-evidence/<harness>/checks.json. */
-function checksFile(harnessId: any, repoRoot: any) {
-  try {
-    const spec = JSON.parse(fs.readFileSync(path.resolve(repoRoot, 'core', 'worker-evidence', harnessId, 'checks.json'), 'utf8'));
-    return spec && Array.isArray(spec.checks) ? spec : null;
-  } catch { return null; }
-}
-
-const checksSpec = (harnessId: any, repoRoot: any) => checksFile(harnessId, repoRoot)?.checks ?? null;
-
-/** True when `cliVersion` matches the harness's own `version.expect` from its checks.json (a hand-typed
- * 'x' or another harness's version line does not). */
-function cliVersionMatches(cliVersion: any, harnessId: any, repoRoot: any) {
-  const expect = checksFile(harnessId, repoRoot)?.version?.expect;
-  if (typeof expect !== 'string') return false;
-  try { return new RegExp(expect).test(cliVersion); } catch { return false; }
-}
-
-const sameJson = (a: any, b: any) => JSON.stringify(a) === JSON.stringify(b);
-
-/** True when every check of a cli-check record equals its checks.json entry (id, argv, expect,
- * establishes) and `key` is established by a check that passed: result pass, exit 0, matched lines. */
-function checksEstablish(record: any, harnessId: any, key: any, repoRoot: any) {
-  if (!Array.isArray(record.checks) || record.checks.length === 0) return false;
-  const spec = checksSpec(harnessId, repoRoot);
-  if (!spec) return false;
-  for (const check of record.checks) {
-    const bound = spec.find((entry: any) => entry.id === check?.id);
-    if (!bound || !sameJson(check.argv, bound.argv) || !sameJson(check.expect, bound.expect) || !sameJson(check.establishes, bound.establishes)) return false;
-  }
-  const recomputed: any = new Set(record.checks
-    .filter((check: any) => check.result === 'pass' && check.exit === 0 && Array.isArray(check.matched) && check.matched.length > 0)
-    .flatMap((check: any) => check.establishes));
-  return recomputed.has(key);
-}
 
 /** The prompt element is a per-run hash, so both shapes are compared with it written `<prompt>`. */
 function withoutPromptHash(shape: any) {

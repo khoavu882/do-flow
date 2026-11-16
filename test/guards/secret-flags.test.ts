@@ -21,6 +21,7 @@ const path = require('node:path');
 const REPO = path.resolve(__dirname, '../..');
 const { loadRegistry, validateWorker } = require('../../src/registry/index.ts');
 const { SECRET_BINARIES, secretProblem, secretFlagsProblem } = require('../../src/registry/secret-flags.ts');
+const { cliVersionMatches, checksEstablish } = require('../helper/worker-evidence.ts');
 const { POINT_VALIDATORS } = require('../../src/runtime/packages/points.ts');
 
 const registry = loadRegistry({ repoRoot: REPO });
@@ -123,22 +124,50 @@ test('G84.3 every built-in descriptor passes', () => {
   }
 });
 
+/** The first thing wrong with a set's evidence record, or null: a passing cli-check of that binary whose secret-commands check shows each
+ * flag and command in a help form. */
+function recordProblem(record: any, binary: string, set: any): string | null {
+  if (record.binary !== binary) return 'binary';
+  if (record.kind !== 'cli-check') return 'kind';
+  // The same two checks G41.4 applies (test/helper/worker-evidence.ts): every check equals checks.json, and the version line is the harness's.
+  if (typeof record.cliVersion !== 'string' || !cliVersionMatches(record.cliVersion, binary, REPO)) return 'cliVersion is not the harness\'s version line';
+  if (!checksEstablish(record, binary, 'mainSession', REPO)) return 'a check differs from checks.json';
+  const check = record.checks.find((c: any) => c.id === 'secret-commands');
+  if (!check) return 'no secret-commands check';
+  if (check.result !== 'pass') return 'secret-commands did not pass';
+  if (check.argv.at(-1) !== '--help') return 'not a help form';
+  const matched = check.matched.join('\n');
+  for (const entry of set.entries) {
+    for (const word of [entry.flag, entry.short, ...(entry.command ?? [])].filter(Boolean)) if (!matched.includes(word)) return `'${word}' is not in the matched lines`;
+  }
+  return null;
+}
+
+const recordOf = (binary: string) => JSON.parse(fs.readFileSync(path.join(REPO, SECRET_BINARIES[binary].evidence), 'utf8'));
+
+test('G84.4 a record that differs from checks.json, or whose cliVersion is not the harness\'s, is refused', () => {
+  const edits: Array<[string, (record: any) => void]> = [
+    ['a check argv is not the one in checks.json', (r) => { r.checks.find((c: any) => c.id === 'secret-commands').argv = ['--help', '--extra']; }],
+    ['a check expect is not the one in checks.json', (r) => { r.checks.find((c: any) => c.id === 'secret-commands').expect = ['.']; }],
+    ['a check establishes is not the one in checks.json', (r) => { r.checks.find((c: any) => c.id === 'secret-commands').establishes = ['readOnly']; }],
+    ['a check is not in checks.json at all', (r) => { r.checks.push({ ...r.checks[0], id: 'invented' }); }],
+    ['cliVersion is another harness\'s', (r) => { r.cliVersion = 'x'; }],
+  ];
+  for (const binary of Object.keys(SECRET_BINARIES)) {
+    for (const [what, edit] of edits) {
+      const record = recordOf(binary);
+      edit(record);
+      assert.notEqual(recordProblem(record, binary, SECRET_BINARIES[binary]), null, `${binary}: ${what}`);
+    }
+  }
+});
+
 test('G84.4 every set has an evidence record whose matched help lines show each flag and command', () => {
   assert.deepEqual(Object.keys(SECRET_BINARIES).sort(), ['claude', 'opencode', 'pi']);
   for (const [binary, set] of Object.entries(SECRET_BINARIES) as Array<[string, any]>) {
     const file = path.join(REPO, set.evidence);
     assert.ok(fs.existsSync(file), `${binary}: ${set.evidence} exists`);
-    const record = JSON.parse(fs.readFileSync(file, 'utf8'));
-    assert.equal(record.binary, binary, set.evidence);
-    assert.equal(record.kind, 'cli-check', set.evidence);
-    const check = record.checks.find((c: any) => c.id === 'secret-commands');
-    assert.ok(check, `${binary}: the record holds the secret-commands check`);
-    assert.equal(check.result, 'pass', `${binary}: secret-commands passed`);
-    assert.equal(check.argv.at(-1), '--help', `${binary}: a help form, never a login`);
-    const matched = check.matched.join('\n');
-    for (const entry of set.entries) {
-      for (const word of [entry.flag, entry.short, ...(entry.command ?? [])].filter(Boolean)) assert.ok(matched.includes(word), `${binary}: '${word}' is in ${set.evidence}`);
-    }
+    assert.equal(recordProblem(recordOf(binary), binary, set), null, `${binary}: ${set.evidence}`);
     const checks = JSON.parse(fs.readFileSync(path.join(REPO, 'core/worker-evidence', binary, 'checks.json'), 'utf8'));
     assert.ok(checks.checks.some((c: any) => c.id === 'secret-commands'), `${binary}: checks.json declares secret-commands`);
   }
