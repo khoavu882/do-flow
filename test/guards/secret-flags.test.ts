@@ -45,6 +45,18 @@ test('G84.1 a package worker whose loginProbe.argv holds --credentials is refuse
   );
 });
 
+test('G84.1 a package worker whose loginProbe.providers.argv holds print-api-key is refused, naming loginProbe and providers.argv', () => {
+  const withProviders = (providersArgv: string[]) => (w: any) => {
+    w.loginProbe = { ...login(['auth', 'check', '--provider', '{provider}']), output: 'json',
+      providers: { argv: providersArgv, parse: 'lines', emptyMeans: 'unknown' } };
+  };
+  assert.equal(packageErrors(withProviders(['auth', 'list-keys'])), '', 'control: the same recipe without the secret command is accepted');
+  const errors = packageErrors(withProviders(['auth', 'print-api-key']));
+  assert.match(errors, /worker 'loginProbe'/);
+  assert.match(errors, /providers\.argv/);
+  assert.match(errors, /secret-printing flag or command 'print-api-key'/);
+});
+
 test('G84.1 modelList.argv, a model check, cli.versionArgv and any capability argv are refused too', () => {
   assert.match(packageErrors((w) => { w.modelList = { status: 'supported', argv: ['auth', 'print-api-key'], parse: 'lines' }; }),
     /worker 'modelList': argv must not contain the secret-printing flag or command 'print-api-key'/);
