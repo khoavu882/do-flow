@@ -178,6 +178,8 @@ const SHAPES: Readonly<Record<string, Shape>> = deepFreeze({
   'sessions-history': { argv: ['sessions-history', DAYS_OPT, LIMIT_OPT], ttl: 5_000 },
   // 165 IC-004: what a project can start. Scoped like `transcript`, but the core re-checks the key, so it is argv too.
   'start-options': { argv: ['worker', '--action', 'start-options', '--project-key', PROJECT], ttl: 5_000, scoped: true },
+  // 172 IC-005: the login answer of every worker harness, read-only, no project (the store is the user's).
+  'login-state': { argv: ['worker', '--action', 'login-state'], ttl: 5_000 },
 });
 const SHAPE_IDS: readonly string[] = Object.freeze(Object.keys(SHAPES));
 

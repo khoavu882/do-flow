@@ -30,7 +30,9 @@ const ADDED_161 = ['/api/live', '/api/sessions', '/api/worker-runs/:slug', '/api
   '/api/worker-runs/:slug/:runId/log', '/api/worker-runs/:slug/:runId/transcript'];
 // 162 IC-007: both scopes read what they may do; `control` alone lists the action routes.
 const ADDED_162 = ['/api/actions'];
-const READS = [...FOUR, ...ADDED_161, ...ADDED_162];
+// 172 IC-005: each worker harness's login answer is a read for both scopes (the start form's reads stay control only).
+const ADDED_172 = ['/api/harness-login'];
+const READS = [...FOUR, ...ADDED_161, ...ADDED_162, ...ADDED_172];
 const ACTION_ROUTES = ['/api/actions/decide-gate', '/api/actions/close-run', '/api/actions/cancel-worker', '/api/actions/start-session'];
 // 165 D7: the two reads of the start form are control-only (and local), so a view device does not see them.
 const START_READS = ['/api/start', '/api/start/options'];

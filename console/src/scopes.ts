@@ -17,6 +17,8 @@
 // Feature 165 (IC-004, D7): `start-session` is a fourth action id, and the start form's two reads, `GET /api/start` and
 // `GET /api/start/options`, are `control` only (and the loopback session): a `view` device would see a form it can never
 // submit. The reads need the scope alone; the transport rule (`deviceMayAct`) is the action's, as for every action.
+//
+// Feature 172 (IC-005): `GET /api/harness-login` (each worker harness's login answer) is a plain read for both scopes.
 
 /** The Console's action ids (IC-001): each is a route suffix, an actions.ts ACTIONS row and a verb-runner WRITE_SHAPES id. */
 const ACTION_IDS: readonly string[] = Object.freeze(['decide-gate', 'close-run', 'cancel-worker', 'start-session']);
@@ -28,7 +30,7 @@ const READS = Object.freeze([
   'GET /api/live', 'GET /api/sessions',
   'GET /api/worker-runs/:slug', 'GET /api/worker-runs/:slug/:runId/result', 'GET /api/worker-runs/:slug/:runId/status',
   'GET /api/worker-runs/:slug/:runId/log', 'GET /api/worker-runs/:slug/:runId/transcript',
-  'GET /api/actions',
+  'GET /api/actions', 'GET /api/harness-login',
 ]);
 
 const DEVICE_ROUTES: Readonly<Record<'view' | 'control', readonly string[]>> = Object.freeze({

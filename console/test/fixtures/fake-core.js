@@ -483,7 +483,7 @@ function manageBody(shape, argv, exit1) {
         providers: [{ id: 'native.rg', status: 'HEALTHY', present: true, answered: true, durationMs: 3, version: 'ripgrep 15.2.0', binary: `${home}/bin/rg`, probeCommand: 'rg --version' }],
         freshness: [],
         workers: { state: 'set', rows: [{ harness: 'codex', enabled: { state: 'enabled', position: 1, origin: { layer: 'user', source: `${cfg}/settings.json` } }, eligible: true, firstGap: null }] },
-        workerPool: { state: 'unsynced', syncedAt: null, harnesses: [{ harness: 'codex', binary: `${home}/bin/codex`, installed: true, loginState: 'logged-in', detectedMode: 'subscription',
+        workerPool: { state: 'unsynced', syncedAt: null, harnesses: [{ harness: 'codex', binary: `${home}/bin/codex`, installed: true, login: { harness: 'codex', state: 'logged-in', reason: null, source: 'recipe', at: '2026-11-16T08:00:00.000Z', billing: null, providers: [], provider: null, hint: null, expirySeen: false, last: null, caveat: null }, synced: true, detectedMode: 'subscription',
           effectiveBilling: { value: 'free', source: 'user-record', asserted: '2026-10-23' } }] },
       };
     case 'storage-report':

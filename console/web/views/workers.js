@@ -15,8 +15,20 @@ function text(value) { return value === null || value === undefined ? 'unknown' 
 function setting(data, key) { return data?.keys?.find((/** @type {any} */ item) => item.key === key)?.views?.[0] ?? null; }
 /** @param {string} caption @param {string[]} columns @param {any[]} rows */
 function table(caption, columns, rows) { return h('table', { class: 'mtable', tabindex: '0' }, [h('caption', {}, caption), h('thead', {}, h('tr', {}, columns.map((col) => h('th', { scope: 'col' }, col)))), h('tbody', {}, rows)]); }
-/** @param {any} matrix @param {any} settings @param {any} doctor */
-function concept(matrix, settings, doctor) {
+/**
+ * The Login column's cell from one answer of `GET /api/harness-login` (design 172 §7.6): the state and where the answer came from.
+ * @param {any} answer
+ */
+function loginCell(answer) {
+  if (!answer || typeof answer.state !== 'string') return 'unknown';
+  if (answer.state !== 'unknown') return `${answer.state} (${answer.source === 'recipe' ? 'login check' : 'run'})`;
+  const reason = typeof answer.reason === 'string' ? answer.reason : '';
+  if (reason === 'never-checked') return 'unknown (never checked)';
+  if (reason === 'no-recipe' || reason.startsWith('no-recipe: ')) return 'unknown (no login check)';
+  return reason === 'stale' ? 'unknown (stale)' : 'unknown';
+}
+/** @param {any} matrix @param {any} settings @param {any} doctor @param {{ body: any, error: boolean }} login */
+function concept(matrix, settings, doctor, login) {
   const enabled = setting(settings, 'workers.enabled');
   const models = setting(settings, 'workers.models');
   const billing = setting(settings, 'workers.billing');
@@ -33,10 +45,10 @@ function concept(matrix, settings, doctor) {
     const worker = doctor?.workers?.rows?.find((/** @type {any} */ row) => row.harness === id);
     const pending = doctor === null;
     const installed = pending ? 'not checked yet' : pool?.installed == null ? 'unknown' : pool.installed ? 'yes' : 'no';
-    const login = pending ? 'not checked yet' : text(pool?.loginState);
+    const loginText = login.body === null && !login.error ? 'not checked yet' : loginCell(login.body?.harnesses?.find((/** @type {any} */ row) => row.harness === id));
     const eligible = pending ? 'not checked yet' : worker?.eligible == null ? 'unknown' : worker.eligible ? 'yes' : 'no';
     const gap = pending ? 'not checked yet' : worker?.firstGap ? [worker.firstGap.requirement, worker.firstGap.result, worker.firstGap.reason].filter(Boolean).join(': ') : worker ? 'none reported' : 'unknown';
-    return h('tr', {}, [id, model, text(bill ?? matrixRow?.billing), installed, login, eligible, gap].map((value) => h('td', {}, value)));
+    return h('tr', {}, [id, model, text(bill ?? matrixRow?.billing), installed, loginText, eligible, gap].map((value) => h('td', {}, value)));
   });
   return [h('h2', {}, 'Worker settings'), h('p', {}, `Enabled layer: ${text(enabled?.origin?.layer)}`), enabledList, table('Worker configuration', ['Worker', 'Models', 'Billing', 'Installed', 'Login', 'Eligible', 'First gap'], rows)];
 }
@@ -54,12 +66,12 @@ function renderWorkers(body, _params, local) {
   const matrix = matrixSection?.ok ? matrixSection.data : null;
   const settings = settingsSection?.ok ? settingsSection.data : null;
   const host = h('section', { 'aria-label': 'Worker concept' });
-  const memory = local.workersMemory ?? (local.workersMemory = { controller: null, drawConcept: null, row: 0, col: 0 });
+  const memory = local.workersMemory ?? (local.workersMemory = { controller: null, drawConcept: null, row: 0, col: 0, login: null });
   const owners = new Map();
   const gridCells = /** @type {any[][]} */ ([]);
   const retry = () => { if (typeof local.retry === 'function') local.retry(); else if (typeof local.refresh === 'function') local.refresh(); };
   memory.drawConcept = (/** @type {any} */ state) => {
-    const content = settings ? concept(matrix, settings, state.body?.doctor ?? null) : renderSection(settingsSection, { noun: 'worker settings', onRetry: retry, render: () => null });
+    const content = settings ? concept(matrix, settings, state.body?.doctor ?? null, memory.login ?? { body: null, error: false }) : renderSection(settingsSection, { noun: 'worker settings', onRetry: retry, render: () => null });
     const error = state.error ? h('p', { dataset: { state: 'error' } }, 'Doctor could not be read.') : null;
     mount(host, [content, error]);
   };
@@ -67,6 +79,12 @@ function renderWorkers(body, _params, local) {
     const apiGet = typeof local.apiGet === 'function' ? local.apiGet : () => Promise.reject({ network: true });
     memory.controller = createDoctorRead({ apiGet, onChange: (state) => { if (memory.drawConcept) memory.drawConcept(state); } });
     void memory.controller.open();
+    // 172 IC-005: the Login column is its own read (the answer of the login store, not doctor); once per view instance, like doctor's first read.
+    memory.login = { body: null, error: false };
+    Promise.resolve(apiGet('/api/harness-login')).then(
+      (/** @type {any} */ body) => { memory.login = { body, error: false }; },
+      () => { memory.login = { body: null, error: true }; },
+    ).then(() => { if (memory.drawConcept) memory.drawConcept(memory.controller.state); });
   }
   memory.drawConcept(memory.controller.state);
   const selectionKey = (/** @type {any} */ selection) => selection ? `${selection.harness}/${selection.group}/${selection.cell}` : '';

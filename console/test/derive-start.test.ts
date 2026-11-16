@@ -28,6 +28,12 @@ const WK1 = 'aaaaaaaaaaaaaaaa';
 const WK2 = 'bbbbbbbbbbbbbbbb';
 
 const model = (id: string | null, source: string) => ({ id, source });
+/** 172 IC-001: a LoginAnswer as the core sends it; `over` changes fields. */
+const loginOf = (harness: string, over: any = {}) => ({
+  harness, state: 'unknown', reason: 'never-checked', source: 'never-checked', at: null, billing: null, providers: [], provider: null, hint: `${harness} login`, expirySeen: false, last: null, caveat: null, ...over,
+});
+/** The relative time the page would say, fixed for the words. */
+const AGO = (iso: string) => `<${iso.slice(11, 16)} ago>`;
 function options(over: any = {}): any {
   return {
     v: 1, project: { projectKey: PK, label: 'do-flow', root: null },
@@ -36,11 +42,11 @@ function options(over: any = {}): any {
       { worktreeKey: WK1, label: 'do-flow', branch: 'develop', main: true, busy: null, observedSession: null },
     ],
     harnesses: [
-      { harness: 'claude', startable: true, reason: null, words: 'claude can start a session here', warnings: ['runnable-not-checked'], login: { state: 'logged-in', checkedAt: '2026-11-16T08:00:00.000Z' }, version: '2.1.0',
+      { harness: 'claude', startable: true, reason: null, words: 'claude can start a session here', warnings: ['runnable-not-checked'], login: loginOf('claude', { state: 'logged-in', reason: null, source: 'recipe', at: '2026-11-16T08:00:00.000Z', billing: { mode: 'subscription', billing: 'free' } }), version: '2.1.0',
         models: [model(null, 'default'), model('claude-haiku-5', 'light'), model('claude-sonnet-5', 'standard'), model('claude-opus-5', 'frontier'), model('claude-opus-5-5', 'orchestrator'), model('claude-seen-1', 'observed')] },
-      { harness: 'codex', startable: false, reason: 'logged-out', words: 'codex is logged out: run `codex login`', warnings: [], login: { state: 'logged-out', checkedAt: '2026-11-16T07:50:00.000Z' }, version: '1.4.0', models: [] },
+      { harness: 'codex', startable: false, reason: 'logged-out', words: 'codex is logged out: run `codex login`', warnings: [], login: loginOf('codex', { state: 'logged-out', reason: 'logged-out', source: 'recipe', at: '2026-11-16T07:50:00.000Z' }), version: '1.4.0', models: [] },
       { harness: 'opencode', startable: true, reason: null, words: 'opencode can start a session here', warnings: ['prompt-in-argv'], login: null, version: '0.9.0', models: [model(null, 'default')] },
-      { harness: 'pi', startable: true, reason: null, words: 'pi can start a session here', warnings: ['prompt-in-argv', 'login-not-checked'], login: null, version: '0.2.0', models: [model(null, 'default')] },
+      { harness: 'pi', startable: true, reason: null, words: 'pi can start a session here', warnings: ['prompt-in-argv', 'login-unknown'], login: loginOf('pi'), version: '0.2.0', models: [model(null, 'default')] },
       { harness: 'copilot', startable: false, reason: 'no-main-session-shape', words: 'DoFlow has no recorded headless way to start copilot', warnings: [], login: null, version: null, models: [] },
       { harness: 'kiro', startable: false, reason: 'not-installed', words: 'kiro is not installed on this machine', warnings: [], login: null, version: null, models: [] },
     ],
@@ -66,6 +72,7 @@ test('a logged-out harness is not startable with its relogin hint', () => {
   assert.equal(codex.reason, 'logged-out');
   assert.match(codex.words, /codex is logged out: run `codex login`/);
   assert.equal(codex.checkedAt, '2026-11-16T07:50:00.000Z', 'when the login was checked is kept for the page to say');
+  assert.deepEqual(codex.loginLines, [], 'the core\'s own words are the logged-out sentence; nothing is added');
   assert.deepEqual(blocked.map((r: any) => [r.harness, r.reason]), [['codex', 'logged-out'], ['copilot', 'no-main-session-shape'], ['kiro', 'not-installed']], 'copilot stays listed with its reason, in registry order');
   assert.deepEqual(startable.map((r: any) => r.harness), ['claude', 'opencode', 'pi'], 'startable first, in registry order');
 });
@@ -105,7 +112,7 @@ test('opencode and pi carry the prompt-in-argv words; a harness that takes the p
   assert.ok(words('opencode').some((w: string) => /visible in this machine’s process list/.test(w)), 'opencode');
   assert.ok(words('pi').some((w: string) => /visible in this machine’s process list/.test(w)), 'pi');
   assert.equal(words('claude').some((w: string) => /process list/.test(w)), false);
-  assert.match(words('pi').join(' '), /not checked that pi is logged in/);
+  assert.match(words('pi').join(' '), /cannot tell whether pi is logged in/);
   assert.match(start.permissionWords('claude'), /own permission settings.*nobody can give it here.*waits, skips that step or exits/);
 });
 
@@ -363,4 +370,60 @@ test('the layers node of a started run is found in the tree by its agent key; an
   assert.equal(start.nodeIn(tree([]), key), null);
   assert.equal(start.nodeIn({ v: 1, sections: { tree: { ok: false, code: 'core-error' } } }, key), null);
   assert.equal(start.nodeIn(null, key), null);
+});
+
+// ---- 172 design §7.2: each row of the start form's words ----
+
+const lines = (login: any, harness = 'claude') => start.loginLines(login, harness, AGO);
+
+test('172 §7.2: logged-in says its source and, when known, the billing, and appends the recipe\'s caveat', () => {
+  const at = '2026-11-16T08:00:00.000Z';
+  assert.deepEqual(lines(loginOf('claude', { state: 'logged-in', reason: null, source: 'recipe', at, billing: { mode: 'subscription', billing: 'free' } })),
+    ['claude is logged in on a subscription; its own login check said so <08:00 ago>.']);
+  assert.deepEqual(lines(loginOf('claude', { state: 'logged-in', reason: null, source: 'recipe', at, billing: { mode: 'api-key', billing: 'metered' } })),
+    ['claude is logged in with an API key; its own login check said so <08:00 ago>.']);
+  assert.deepEqual(lines(loginOf('claude', { state: 'logged-in', reason: null, source: 'last-run', at, billing: 'mixed' })), ['claude is logged in; a run succeeded <08:00 ago>.'], 'mixed billing says nothing');
+  assert.deepEqual(lines(loginOf('claude', { state: 'logged-in', reason: null, source: 'recipe', at, caveat: 'its help and docs do not show that this check runs offline' })),
+    ['claude is logged in; its own login check said so <08:00 ago> (its help and docs do not show that this check runs offline).']);
+});
+
+test('172 §7.2: logged-out has no extra line; expired names the provider, the hint and, only when the check can clear it, the check', () => {
+  assert.deepEqual(lines(loginOf('codex', { state: 'logged-out', reason: 'logged-out', source: 'recipe', at: '2026-11-16T07:50:00.000Z' })), []);
+  const at = '2026-11-16T07:00:00.000Z';
+  assert.deepEqual(lines(loginOf('pi', { state: 'expired', reason: null, source: 'last-run', at, provider: 'openai-codex', hint: 'pi auth login <provider>', expirySeen: true }), 'pi'),
+    ['pi’s login expired for openai-codex on a run <07:00 ago>: run pi auth login <provider>. DoFlow shows it as expired until a run succeeds or its login check says logged in.']);
+  assert.deepEqual(lines(loginOf('claude', { state: 'expired', reason: null, source: 'last-run', at, hint: 'claude auth login' })),
+    ['claude’s login expired on a run <07:00 ago>: run claude auth login. DoFlow shows it as expired until a run succeeds.']);
+  assert.deepEqual(lines(loginOf('antigravity', { state: 'expired', reason: null, source: 'last-run', at, hint: null }), 'antigravity'),
+    ['antigravity’s login expired on a run <07:00 ago>. DoFlow shows it as expired until a run succeeds.'], 'no hint: no instruction');
+});
+
+test('172 §7.2: the four unknown rows say never checked, no check, stale and no answer', () => {
+  assert.deepEqual(lines(loginOf('pi'), 'pi'), ['DoFlow has not checked that pi is logged in; doflow models --action sync checks it.']);
+  assert.deepEqual(lines(loginOf('codex', { reason: 'no-recipe: its help documents no exit code' }), 'codex'), ['DoFlow cannot check codex’s login: its help documents no exit code.']);
+  assert.deepEqual(lines(loginOf('codex', { reason: 'no-recipe' }), 'codex'), ['DoFlow cannot check codex’s login.']);
+  assert.deepEqual(lines(loginOf('claude', { reason: 'stale', source: 'recipe', at: '2026-11-14T09:00:00.000Z', last: { state: 'logged-in', source: 'recipe', at: '2026-11-14T09:00:00.000Z' } })),
+    ['claude’s login was last checked <09:00 ago> (logged-in); that is over a day old.']);
+  assert.deepEqual(lines(loginOf('claude', { reason: 'stale', source: 'recipe', at: '2026-11-14T09:00:00.000Z', caveat: 'unproven offline', last: { state: 'logged-out', source: 'recipe', at: '2026-11-14T09:00:00.000Z' } })),
+    ['claude’s login was last checked <09:00 ago> (logged-out) (unproven offline); that is over a day old.']);
+  assert.deepEqual(lines(loginOf('claude', { reason: 'timeout', source: 'recipe', at: '2026-11-16T08:00:00.000Z' })), ['claude’s login check gave no answer: timeout.']);
+});
+
+test('172 §7.2: a harness with providers adds one line each, `<id>: <state>[, <mode>]`; no login says nothing', () => {
+  const pi = loginOf('pi', { state: 'logged-in', reason: null, source: 'recipe', at: '2026-11-16T08:00:00.000Z', billing: 'mixed', providers: [
+    { id: 'anthropic', state: 'logged-in', mode: 'subscription', reason: null }, { id: 'openai-codex', state: 'logged-out', mode: null, reason: 'not logged in' }] });
+  assert.deepEqual(lines(pi, 'pi'), ['pi is logged in; its own login check said so <08:00 ago>.', 'anthropic: logged-in, subscription', 'openai-codex: logged-out']);
+  assert.deepEqual(lines(null), []);
+  assert.deepEqual(lines(undefined), []);
+});
+
+test('172 IC-004: harnessRows carries the sentence per row from the options, the relative time from the page, and the warning ids login-unknown and login-expired have words; login-not-checked has none', () => {
+  const rows = start.harnessRows(options(), AGO);
+  const by = (id: string) => [...rows.startable, ...rows.blocked].find((r: any) => r.harness === id);
+  assert.deepEqual(by('claude').loginLines, ['claude is logged in on a subscription; its own login check said so <08:00 ago>.']);
+  assert.deepEqual(by('pi').loginLines, ['DoFlow has not checked that pi is logged in; doflow models --action sync checks it.']);
+  assert.deepEqual(by('opencode').loginLines, [], 'a harness with no answer says nothing');
+  assert.deepEqual(by('pi').warnings.filter((w: any) => w.id.startsWith('login-')).map((w: any) => [w.id, w.words]), [['login-unknown', 'DoFlow cannot tell whether pi is logged in.']]);
+  assert.equal(start.warningWords('login-expired', 'pi'), 'pi’s login has expired.');
+  assert.equal(start.warningWords('login-not-checked', 'pi'), null, 'the old warning id is gone');
 });

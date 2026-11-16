@@ -114,7 +114,7 @@ test('route table: frozen, the only non-GET routes are POST /api/session and the
   assert.deepEqual(routes.filter((route: any) => route.method !== 'GET').map((route: any) => `${route.method} ${route.path}`), ['POST /api/session', ...ACTION_WRITES]);
   assert.deepEqual(routes.filter((route: any) => route.stream).map((route: any) => `${route.method} ${route.path}`), ['GET /api/live']);
   assert.deepEqual(routes.filter((route: any) => route.method === 'GET').map((route: any) => route.path).sort(),
-    ['/*', '/api/actions', '/api/advice', '/api/doctor', '/api/followups', '/api/followups/:id', '/api/info', '/api/live', '/api/runs', '/api/runs/:slug/:taskId',
+    ['/*', '/api/actions', '/api/advice', '/api/doctor', '/api/followups', '/api/followups/:id', '/api/harness-login', '/api/info', '/api/live', '/api/runs', '/api/runs/:slug/:taskId',
       '/api/sessions', '/api/sessions-history', '/api/settings', '/api/start', '/api/start/options', '/api/storage',
       '/api/worker-runs/:slug', '/api/worker-runs/:slug/:runId/log', '/api/worker-runs/:slug/:runId/result', '/api/worker-runs/:slug/:runId/status',
       '/api/worker-runs/:slug/:runId/transcript', '/api/workers', '/api/workflows', '/healthz']);
@@ -134,7 +134,7 @@ test('route table: frozen, the only non-GET routes are POST /api/session and the
       refused.push(route.path);
     }
   }
-  assert.deepEqual(reachable.sort(), ['/api/actions', '/api/info', '/api/live', '/api/runs', '/api/runs/:slug/:taskId', '/api/sessions', '/api/worker-runs/:slug', '/api/worker-runs/:slug/:runId/log',
+  assert.deepEqual(reachable.sort(), ['/api/actions', '/api/harness-login', '/api/info', '/api/live', '/api/runs', '/api/runs/:slug/:taskId', '/api/sessions', '/api/worker-runs/:slug', '/api/worker-runs/:slug/:runId/log',
     '/api/worker-runs/:slug/:runId/result', '/api/worker-runs/:slug/:runId/status', '/api/worker-runs/:slug/:runId/transcript', '/api/workflows']);
   // 151 IC-012 to IC-014, 152 IC-006: the management routes and sessions-history are among the refused.
   for (const path of ['/api/settings', '/api/advice', '/api/workers', '/api/followups', '/api/followups/:id', '/api/doctor', '/api/storage', '/api/sessions-history']) assert.ok(refused.includes(path), path);
@@ -166,6 +166,7 @@ test('device session: only the device GET routes are allowed (160 four, 161 live
       ['/api/runs', {}],
       ['/api/runs/:slug/:taskId', { slug: 'feat-a', taskId: 'run-1' }],
       ['/api/workflows', {}],
+      ['/api/harness-login', {}],
       ['/api/live', {}],
       ['/api/sessions', {}],
       ['/api/worker-runs/:slug', { slug: 'feat-a' }],
@@ -551,4 +552,93 @@ test('GET /api/sessions-history: returns 200 with projected body, supports query
   // Invalid limit (over 500)
   const replyOverLimit = await json('/api/sessions-history?limit=600');
   assert.equal(replyOverLimit.status, 400);
+});
+
+// ---- 172 IC-005: GET /api/harness-login ----
+
+const LOGIN_STATE = () => fixture('login-state');
+const deviceInvoke = (routes: any[], cookie: string) => (path: string) => {
+  const route = routes.find((item: any) => item.method === 'GET' && item.path === path);
+  assert.ok(route, path);
+  return route.handler({ req: { headers: { cookie }, url: path, socket: { remoteAddress: '192.168.1.40' } }, clientClass: 'browser', port: 4310, params: {}, pathname: path, webRoot: '/tmp', res: {} });
+};
+
+test('172: a view device reads GET /api/harness-login and is refused GET /api/start/options', async (t) => {
+  const runner = scripted({ 'login-state': () => ok(LOGIN_STATE()) });
+  const world = lanWorld(t);
+  const routes = consoleRoutes(runner, world.auth);
+  for (const scope of ['view', 'control'] as const) {
+    const { cookie } = await world.pair(scope);
+    const call = deviceInvoke(routes as any[], cookie);
+    const reply = await call('/api/harness-login');
+    assert.equal(reply.status, 200, scope);
+    const body = JSON.parse(reply.body);
+    assert.equal(body.v, 1);
+    assert.deepEqual(body.harnesses.map((entry: any) => entry.harness), LOGIN_STATE().harnesses.map((entry: any) => entry.harness));
+    assert.equal(body.harnesses[0].state, 'unknown');
+    assert.equal(body.harnesses[0].reason, 'never-checked');
+    assert.equal(body.harnesses[0].caveat, null);
+  }
+  const { cookie } = await world.pair('view');
+  const refused = await deviceInvoke(routes as any[], cookie)('/api/start/options');
+  assert.equal(refused.status, 403);
+  assert.deepEqual(JSON.parse(refused.body), errorBody('phone-scope'));
+  assert.ok(runner.calls.every((call) => call.shape === 'login-state'), 'the refused route ran no verb');
+});
+
+test('172: GET /api/harness-login runs the login-state shape once, with a query refused as usage, and a body the projector refuses is 502 core-contract-mismatch', async (t) => {
+  const runner = scripted({ 'login-state': () => ok(LOGIN_STATE()) });
+  const { json } = await harness(runner, t);
+  const reply = await json('/api/harness-login');
+  assert.equal(reply.status, 200);
+  assert.equal(reply.body.harnesses.length, 7);
+  assert.deepEqual(runner.calls, [{ shape: 'login-state', params: {} }]);
+  assert.equal((await json('/api/harness-login?x=1')).status, 400);
+  assert.equal(runner.calls.length, 1, 'a bad query runs no verb');
+
+  const bad = LOGIN_STATE(); bad.harnesses[0].state = 'uncalibrated';
+  const refused = await harness(scripted({ 'login-state': () => ok(bad) }), t);
+  const mismatch = await refused.json('/api/harness-login');
+  assert.equal(mismatch.status, 502);
+  assert.deepEqual(mismatch.body, errorBody('core-contract-mismatch', 'login-state', 0));
+});
+
+test('172: an older core with no login-state verb is 501 core-lacks-verb, a core that cannot be reached is the IC-005 reply', async (t) => {
+  const old = await harness(scripted({ 'login-state': () => ({ ok: false, code: 'core-error', exit: 2, errorId: 'usage' }) }), t);
+  const lacks = await old.json('/api/harness-login');
+  assert.equal(lacks.status, 501);
+  assert.deepEqual(lacks.body, errorBody('core-lacks-verb', 'login-state', null));
+  const down = await harness(scripted({ 'login-state': () => ({ ok: false, code: 'core-unreachable', exit: null }) }), t);
+  assert.equal((await down.json('/api/harness-login')).status, 503);
+});
+
+test('172: a body of 32 harnesses with every field at its limit is at most 40 KiB, and a reason, hint or caveat holding a path is withheld, not sent', async (t) => {
+  // One answer as large as the core lets it be: every word field at its limit (reason 160, hint 120, caveat 160) and as many providers
+  // as fit, the way login.ts `bounded` trims an answer to 1 KiB.
+  const full = (n: number) => {
+    const answer = {
+      harness: `h${String(n).padStart(2, '0')}`.padEnd(12, 'x'), state: 'unknown', reason: 'r'.repeat(160), source: 'recipe', at: '2026-11-16T08:00:00.000Z',
+      billing: { mode: 'subscription', billing: 'metered' }, providers: [] as any[],
+      provider: 'p0qqqqqq', hint: 'h'.repeat(120), expirySeen: true, last: { state: 'logged-in', source: 'recipe', at: '2026-11-15T08:00:00.000Z' }, caveat: 'c'.repeat(160),
+    };
+    while (answer.providers.length < 8) {
+      answer.providers.push({ id: `p${answer.providers.length}`.padEnd(8, 'q'), state: 'unknown', mode: 'api-key', reason: null });
+      if (Buffer.byteLength(JSON.stringify(answer)) > 1024) { answer.providers.pop(); break; }
+    }
+    return answer;
+  };
+  assert.ok(full(0).providers.length >= 1 && Buffer.byteLength(JSON.stringify(full(0))) <= 1024, 'the fixture answer is within the 1 KiB the core bounds an answer to');
+  const answers = Array.from({ length: 32 }, (_, i) => full(i));
+  const { get } = await harness(scripted({ 'login-state': () => ok({ harnesses: answers }) }), t);
+  const reply = await get('/api/harness-login');
+  assert.equal(reply.status, 200);
+  assert.ok(Buffer.byteLength(reply.body) <= 40 * 1024, `${Buffer.byteLength(reply.body)} bytes`);
+  assert.equal(JSON.parse(reply.body).harnesses.length, 32);
+
+  const pathy = full(0);
+  Object.assign(pathy, { reason: 'failed at /Users/x/.config/h', hint: 'run ~/bin/h login', caveat: 'see C:\\tools\\h' });
+  const withheld = await harness(scripted({ 'login-state': () => ok({ harnesses: [pathy] }) }), t);
+  const body = (await withheld.json('/api/harness-login')).body.harnesses[0];
+  assert.deepEqual([body.reason, body.hint, body.caveat], ['(withheld)', '(withheld)', '(withheld)']);
+  assert.ok(!JSON.stringify(body).includes('/Users/x'));
 });

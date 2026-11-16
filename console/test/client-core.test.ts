@@ -5735,13 +5735,13 @@ test('165 review B-4: Sessions lists an ended started session with how and when 
 });
 
 const WORDS165 = { claude: 'claude can start a session here', opencode: 'opencode can start a session here', codex: 'codex is logged out. Run codex login, then read this page again.', copilot: 'copilot has no recorded way to start a main session, so it is not offered.' };
-const harness165 = (name: string, over: any = {}) => ({ harness: name, startable: true, reason: null, words: (WORDS165 as any)[name], warnings: ['runnable-not-checked'], login: { state: 'logged-in', checkedAt: AT(5) }, version: '1.0.0', models: [{ id: null, source: 'default' }], ...over });
+const harness165 = (name: string, over: any = {}) => ({ harness: name, startable: true, reason: null, words: (WORDS165 as any)[name], warnings: ['runnable-not-checked'], login: { harness: name, state: 'logged-in', reason: null, source: 'recipe', at: AT(5), billing: null, providers: [], provider: null, hint: null, expirySeen: false, last: null, caveat: null }, version: '1.0.0', models: [{ id: null, source: 'default' }], ...over });
 const options165 = (over: any = {}) => ({
   v: 1, project: { projectKey: P1, label: 'example-project', root: null },
   checkouts: [{ worktreeKey: WK_MAIN, label: 'do-flow', branch: 'develop', main: true, busy: null, observedSession: null }],
   harnesses: [
     harness165('claude', { models: [{ id: null, source: 'default' }, { id: 'claude-haiku-5', source: 'light' }, { id: 'claude-sonnet-5', source: 'standard' }, { id: 'claude-opus-5-5', source: 'orchestrator' }, { id: 'claude-seen', source: 'observed' }] }),
-    harness165('opencode', { warnings: ['prompt-in-argv', 'login-not-checked'] }),
+    harness165('opencode', { warnings: ['prompt-in-argv', 'login-unknown'] }),
     harness165('codex', { startable: false, reason: 'logged-out', warnings: [] }),
     harness165('copilot', { startable: false, reason: 'no-main-session-shape', warnings: [], login: null }),
   ],

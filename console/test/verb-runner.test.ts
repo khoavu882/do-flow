@@ -174,6 +174,8 @@ const EXPECTED_SHAPES = {
   'sessions-history': { argv: ['sessions-history', '--json'], params: {} },
   // 165 IC-004: the start options of one project; `--project-key` is both the scope and a core argument (cases below).
   'start-options': { argv: ['worker', '--action', 'start-options', '--project-key', KEY_A, '--json'], params: { projectKey: KEY_A }, scoped: true },
+  // 172 IC-005: every worker harness's login answer; no project, no parameter.
+  'login-state': { argv: ['worker', '--action', 'login-state', '--json'], params: {} },
 };
 
 test('the allow-list is the frozen IC-003 table and nothing else', () => {
@@ -299,9 +301,9 @@ test('no shape is a write or signal action of the Sessions verbs: slot list and 
   for (const refused of ['slot list', 'slot release', 'slot run', 'worker cancel', 'worker run', 'worker evidence', 'worker start-session']) {
     assert.ok(!actions.includes(refused), `${refused} is on the allow-list`);
   }
-  // 150 IC-010: `worker-run-status` is the same `worker status` read by run id; the list gains it on purpose.
+  // 150 IC-010: `worker-run-status` is the same `worker status` read by run id; the list gains it on purpose. 172: `login-state` is read-only (the store, no process).
   assert.deepEqual(actions.filter((action: string) => /^(slot|worker|roadmap|primary) /.test(action)).sort(),
-    ['primary observed', 'roadmap status', 'slot peek', 'worker start-options', 'worker status', 'worker status']);
+    ['primary observed', 'roadmap status', 'slot peek', 'worker login-state', 'worker start-options', 'worker status', 'worker status']);
 });
 
 test('the child environment has no DOFLOW_* but the four pass-throughs and DOFLOW_UPKEEP=off, and no identity variable', async () => {
