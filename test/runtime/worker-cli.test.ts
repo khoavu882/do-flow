@@ -134,7 +134,7 @@ test('--reason with no value is a parser usage error: exit 1 and no JSON on stdo
   assert.match(r.stderr, /--reason requires a value/);
 });
 
-test('worker --help lists the eight actions, the evidence flags included', (t) => {
+test('worker --help lists the eleven actions, the evidence flags included', (t) => {
   const r = project(t).cli('--help');
   assert.equal(r.status, 0, r.stderr);
   const line = r.stdout.split('\n').find((l: any) => /^\s+worker: /.test(l));
