@@ -19,7 +19,8 @@ export type Report = {
   summary: string | null;
   denials: Denial[];
   deniedCount: number;
-  usage: { tokens: number } | null;
+  /** `tokens` is whole tokens; `cost` is present for a harness whose stream reports it (`null` when it sent none). */
+  usage: { tokens: number; cost?: number | null } | null;
   ignoredLines: number;
 };
 

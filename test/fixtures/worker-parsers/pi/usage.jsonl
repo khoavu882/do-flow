@@ -1,0 +1,16 @@
+{"type":"session","version":3,"id":"00000000-0000-4000-8000-000000000002","_fixture":"synthetic"}
+{"type":"agent_start","_fixture":"synthetic"}
+{"type":"turn_start","_fixture":"synthetic"}
+{"type":"message_start","message":{"role":"user","content":[{"type":"text","text":"say done"}]},"_fixture":"synthetic"}
+{"type":"message_end","message":{"role":"user","content":[{"type":"text","text":"say done"}]},"_fixture":"synthetic"}
+{"type":"message_start","message":{"role":"assistant","content":[],"stopReason":"pending"},"_fixture":"synthetic"}
+{"type":"message_update","usage":{"input":100,"output":20,"cacheRead":0,"cacheWrite":50,"totalTokens":170,"cost":{"input":0.0003,"output":0.0003,"cacheRead":0,"cacheWrite":0.0002,"total":0.0008}},"assistantMessageEvent":{"type":"text_delta","contentIndex":0,"delta":""},"_fixture":"synthetic"}
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"toolCall","id":"call_1","name":"read","arguments":{"path":"README.md"}}],"usage":{"input":100,"output":20,"cacheRead":0,"cacheWrite":50,"totalTokens":170,"cost":{"input":0.0003,"output":0.0003,"cacheRead":0,"cacheWrite":0.0002,"total":0.0008}},"stopReason":"toolUse"},"_fixture":"synthetic"}
+{"type":"tool_execution_start","toolCallId":"call_1","toolName":"read","args":{"path":"README.md"},"_fixture":"synthetic"}
+{"type":"tool_execution_end","toolCallId":"call_1","toolName":"read","isError":false,"_fixture":"synthetic"}
+{"type":"turn_end","message":{"role":"assistant","content":[{"type":"toolCall","id":"call_1","name":"read","arguments":{"path":"README.md"}}],"usage":{"input":100,"output":20,"cacheRead":0,"cacheWrite":50,"totalTokens":170,"cost":{"input":0.0003,"output":0.0003,"cacheRead":0,"cacheWrite":0.0002,"total":0.0008}},"stopReason":"toolUse"},"toolResults":[],"_fixture":"synthetic"}
+{"type":"turn_start","_fixture":"synthetic"}
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"All done."}],"usage":{"input":120,"output":30,"cacheRead":50,"cacheWrite":0,"totalTokens":200,"cost":{"input":0.00036,"output":0.00045,"cacheRead":1e-05,"cacheWrite":0,"total":0.00082}},"stopReason":"stop"},"_fixture":"synthetic"}
+{"type":"turn_end","message":{"role":"assistant","content":[{"type":"text","text":"All done."}],"usage":{"input":120,"output":30,"cacheRead":50,"cacheWrite":0,"totalTokens":200,"cost":{"input":0.00036,"output":0.00045,"cacheRead":1e-05,"cacheWrite":0,"total":0.00082}},"stopReason":"stop"},"toolResults":[],"_fixture":"synthetic"}
+{"type":"agent_end","messages":[{"role":"user","content":[{"type":"text","text":"say done"}]},{"role":"assistant","content":[{"type":"toolCall","id":"call_1","name":"read","arguments":{"path":"README.md"}}],"usage":{"input":100,"output":20,"cacheRead":0,"cacheWrite":50,"totalTokens":170,"cost":{"input":0.0003,"output":0.0003,"cacheRead":0,"cacheWrite":0.0002,"total":0.0008}},"stopReason":"toolUse"},{"role":"assistant","content":[{"type":"text","text":"All done."}],"usage":{"input":120,"output":30,"cacheRead":50,"cacheWrite":0,"totalTokens":200,"cost":{"input":0.00036,"output":0.00045,"cacheRead":1e-05,"cacheWrite":0,"total":0.00082}},"stopReason":"stop"}],"willRetry":false,"_fixture":"synthetic"}
+{"type":"agent_settled","aborted":false,"_fixture":"synthetic"}

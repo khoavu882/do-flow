@@ -104,7 +104,6 @@ test('fail closed: a terminal that is not a positive stop never becomes a succes
     end(assistant('')),
     end(assistant('   \n')),
     end(assistant(null)),
-    end(assistant('text', 'length')),
     end(assistant('text', 'toolUse')),
     end(assistant('text', 'aborted')),
     end({ role: 'user', content: [{ type: 'text', text: 'x' }], stopReason: 'stop' }),
@@ -232,9 +231,89 @@ test('only the masked summary is kept: reports carry no other event text', () =>
   assert.ok(!JSON.stringify(report).includes('LEAK'));
 });
 
-test('usage is null: IC-007 names no token field', () => {
-  const report = run([end({ ...assistant('x'), usage: { input: 3, output: 4 } })]);
-  assert.equal(report.usage, null);
+function messageEnd(message: any) {
+  return { type: 'message_end', message };
+}
+const usageOf = (totalTokens: any, total: any) => ({ input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total } });
+
+test('usage: the stream sums each assistant message_end usage (per message, not cumulative); tokens and cost', () => {
+  const report = fixture('usage');
+  assert.equal(report.status, 'success');
+  assert.equal(report.usage.tokens, 170 + 200);
+  assert.ok(Math.abs(report.usage.cost - (0.0008 + 0.00082)) < 1e-12, String(report.usage.cost));
+  assert.equal(report.ignoredLines, 12);
+});
+
+test('usage: a field Pi did not send stays null, never zero', () => {
+  // No usage anywhere: null, as before.
+  assert.equal(fixture('success').usage, null);
+  assert.equal(run([messageEnd(assistant('x')), end(assistant('x'))]).usage, null);
+  // Tokens sent, cost absent or unreadable: cost is null, not 0.
+  for (const cost of [undefined, null, 'free', -1, {}, { total: 'x' }, { total: null }]) {
+    const message: any = { ...assistant('x'), usage: { totalTokens: 7 } };
+    if (cost !== undefined) message.usage.cost = cost;
+    const report = run([messageEnd(message), end(assistant('x'))]);
+    assert.deepEqual(report.usage, { tokens: 7, cost: null }, JSON.stringify(cost));
+  }
+  // An unreadable token total is no token count; the whole usage is then null.
+  for (const totalTokens of [undefined, null, '7', -1, 1.5, NaN]) {
+    const report = run([messageEnd({ ...assistant('x'), usage: { ...usageOf(0, 0), totalTokens } }), end(assistant('x'))]);
+    assert.equal(report.usage, null, String(totalTokens));
+  }
+  // An explicit zero that Pi sent is a zero.
+  assert.deepEqual(run([messageEnd({ ...assistant('x'), usage: usageOf(0, 0) }), end(assistant('x'))]).usage, { tokens: 0, cost: 0 });
+});
+
+test('usage: only assistant message_end counts; message_update, turn_end, agent_end and user messages are not read', () => {
+  const withUsage = { ...assistant('x'), usage: usageOf(5, 0.5) };
+  const report = run([
+    { type: 'message_update', usage: usageOf(99, 9), assistantMessageEvent: { type: 'text_delta', delta: 'd' } },
+    messageEnd({ role: 'user', content: [], usage: usageOf(99, 9) }),
+    messageEnd({ role: 'toolResult', content: [], usage: usageOf(99, 9) }),
+    messageEnd(withUsage),
+    { type: 'turn_end', message: withUsage, toolResults: [] },
+    end(withUsage),
+  ]);
+  assert.deepEqual(report.usage, { tokens: 5, cost: 0.5 });
+});
+
+test('usage: a failure and a cut-off answer still report what Pi spent', () => {
+  const failed = run([messageEnd({ ...assistant(null, 'error', 'boom'), usage: usageOf(3, 0.25) }), end(assistant(null, 'error', 'boom'))]);
+  assert.deepEqual([failed.status, failed.usage], ['failure', { tokens: 3, cost: 0.25 }]);
+  assert.deepEqual(fixture('length').usage, { tokens: 4176, cost: 0.0616 });
+});
+
+test('usage: messages that report tokens add up and ones that do not are left out of the sum', () => {
+  const report = run([
+    messageEnd({ ...assistant('a'), usage: usageOf(10, 1) }),
+    messageEnd({ ...assistant('b'), usage: { totalTokens: 5 } }),
+    messageEnd({ ...assistant('c') }),
+    end(assistant('c')),
+  ]);
+  assert.deepEqual(report.usage, { tokens: 15, cost: 1 });
+});
+
+test('length: a last message with stopReason length is its own non-success outcome, reason length, not unparsed', () => {
+  const report = fixture('length');
+  assert.deepEqual([report.status, report.reason], ['failure', 'length']);
+  // The partial answer Pi printed is kept as the (masked) summary.
+  assert.equal(report.summary, 'The answer is cut o');
+  const empty = run([end(assistant(null, 'length'))]);
+  assert.deepEqual([empty.status, empty.reason, empty.summary], ['failure', 'length', null]);
+  const blank = run([end(assistant('  ', 'length'))]);
+  assert.deepEqual([blank.status, blank.reason, blank.summary], ['failure', 'length', null]);
+});
+
+test('length: it is not a success for any settle, and a spawn or oversize line still beats it', () => {
+  assert.deepEqual(run([end(assistant('part', 'length')), { type: 'agent_settled', aborted: false }]).status, 'failure');
+  assert.equal(run([end(assistant('part', 'length')), { type: 'agent_settled', aborted: true }]).reason, 'length');
+  assert.equal(run([{ type: 'tool_execution_start', toolName: 'subagent' }, end(assistant('part', 'length'))]).reason, 'spawn-observed');
+  const target = create();
+  line(target, end(assistant('part', 'length')));
+  target.oversize(true);
+  assert.equal(target.end().reason, 'oversize-line');
+  // Only an assistant message: a user message that says length is no signal.
+  assert.deepEqual(run([end({ role: 'user', content: [], stopReason: 'length' })]).reason, 'no-final-message');
 });
 
 test('each instance is independent', () => {
@@ -249,9 +328,9 @@ test('generated input: random lines never throw and always give a valid report s
   let seed = 142;
   const next = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
   const pick = (items: any[]) => items[Math.floor(next() * items.length)];
-  const types = ['agent_end', 'agent_settled', 'tool_execution_start', 'session', 'turn_end', 'x', 3, null];
-  const values = [null, true, false, 0, -1, 1.5, 'subagent', '', 'stop', 'error', [], {}, [null], [{}], [{ role: 'assistant', stopReason: 'stop', content: [{ type: 'text', text: 'm' }] }]];
-  const keys = ['messages', 'aborted', 'toolName', 'stopReason', 'errorMessage', 'content', 'role'];
+  const types = ['agent_end', 'agent_settled', 'tool_execution_start', 'message_end', 'session', 'turn_end', 'x', 3, null];
+  const values = [null, true, false, 0, -1, 1.5, 'subagent', '', 'stop', 'error', 'length', [], {}, [null], [{}], { role: 'assistant', usage: { totalTokens: 3, cost: { total: 0.5 } } }, { totalTokens: 2 }, [{ role: 'assistant', stopReason: 'stop', content: [{ type: 'text', text: 'm' }] }]];
+  const keys = ['messages', 'aborted', 'toolName', 'stopReason', 'errorMessage', 'content', 'role', 'message', 'usage'];
   const junk = ['', '{', '[]', 'null', '"s"', '\u0000', '\r', '{"type":'];
   const statuses = new Set(['success', 'failure', 'denied', 'unparsed']);
 
@@ -274,14 +353,14 @@ test('generated input: random lines never throw and always give a valid report s
     assert.ok(report.summary === null || (typeof report.summary === 'string' && Buffer.byteLength(report.summary) <= 2000));
     assert.ok(Array.isArray(report.denials) && report.denials.length <= 20);
     assert.ok(Number.isInteger(report.deniedCount) && Number.isInteger(report.ignoredLines) && report.ignoredLines >= 0);
-    assert.ok(report.usage === null || Number.isInteger(report.usage.tokens));
+    assert.ok(report.usage === null || (Number.isInteger(report.usage.tokens) && (report.usage.cost === null || Number.isFinite(report.usage.cost))));
     if (report.status === 'success') assert.ok(report.summary !== null && report.summary.length > 0);
   }
 });
 
 test('fixtures: every line is a labelled JSON object, LF endings, no absolute path, no secret shape', () => {
   const files = fs.readdirSync(FIXTURES).filter((name: string) => name.endsWith('.jsonl'));
-  assert.deepEqual(files.sort(), ['aborted.jsonl', 'failure.jsonl', 'spawn.jsonl', 'success.jsonl', 'truncated.jsonl', 'unknown-events.jsonl']);
+  assert.deepEqual(files.sort(), ['aborted.jsonl', 'failure.jsonl', 'length.jsonl', 'spawn.jsonl', 'success.jsonl', 'truncated.jsonl', 'unknown-events.jsonl', 'usage.jsonl']);
   for (const name of files) {
     const raw = fs.readFileSync(path.join(FIXTURES, name), 'utf8');
     assert.ok(raw.endsWith('\n') && !raw.includes('\r'), name);

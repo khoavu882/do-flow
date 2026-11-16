@@ -8,11 +8,20 @@
  *   - `agent_end` is the terminal event. Its last message decides the outcome: `role === "assistant"`,
  *     `stopReason === "stop"` and non-empty text (the concatenated `text` content blocks) is a success;
  *     `stopReason === "error"` is a failure whose summary is `errorMessage` when that is a string.
+ *     `stopReason === "length"` (the answer was cut off at the output token limit) is a failure, reason `length`;
+ *     the partial text Pi printed is kept as the summary when there is any.
  *     Any other last message is no positive signal, so it reports `unparsed`.
  *   - `agent_settled` with `aborted === true` turns a success into a failure, reason `aborted`.
  *   - `tool_execution_start` with a `toolName` matching /subagent/i is a spawn signal.
  *   - No denial event was observed for pi, so this parser never reports `denied`.
- *   - Usage is not read: IC-007 names no token field, so `usage` is always `null`.
+ *   - Usage and cost come from `message_end` events whose message is an assistant message (docs/json.md: `message_end`
+ *     is "the authoritative final message"; docs/message-types.md: "Assistant messages always contain usage"). Each
+ *     assistant message carries the usage of its own model call (the top-level `usage` of a `message_update` is the
+ *     cumulative usage of that one response), so the report is the SUM over the stream's assistant messages. The
+ *     token count is `usage.totalTokens` and the cost is `usage.cost.total`; a field that is missing or not a
+ *     finite non-negative number is not sent, so it stays `null` and is never counted as zero. `usage` is `null`
+ *     when no message gave a token count (a cost with no token count is not kept). Not counted, because Pi puts
+ *     them outside the assistant messages: compaction and summarization calls and a tool's nested model work.
  *
  * Pure: no I/O, no state outside one instance. Only the masked summary text is kept.
  */
@@ -25,7 +34,22 @@ import type { Report } from './common.ts';
 const ID = 'pi-json-v1';
 const SPAWN_TOOL = /subagent/i;
 
-type Terminal = { kind: 'stop'; text: string } | { kind: 'error'; message: string | null } | { kind: 'other' };
+type Terminal = { kind: 'stop'; text: string } | { kind: 'error'; message: string | null } | { kind: 'length'; text: string } | { kind: 'other' };
+
+const isCount = (value: unknown): value is number => Number.isInteger(value) && (value as number) >= 0;
+const isAmount = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0;
+
+/** The concatenated `text` blocks of an assistant message's content, or null when `content` is not a block list. */
+function textOf(content: unknown): string | null {
+  if (!Array.isArray(content)) return null;
+  let text = '';
+  for (const block of content) {
+    if (block !== null && typeof block === 'object' && (block as any).type === 'text' && typeof (block as any).text === 'string') {
+      text += (block as any).text;
+    }
+  }
+  return text;
+}
 
 /** The terminal read from an `agent_end` event, or null when `messages[-1]` cannot be read. */
 function terminalOf(event: any): Terminal | null {
@@ -36,15 +60,9 @@ function terminalOf(event: any): Terminal | null {
   if (last.stopReason === 'error') {
     return { kind: 'error', message: typeof last.errorMessage === 'string' ? last.errorMessage : null };
   }
-  if (last.role === 'assistant' && last.stopReason === 'stop' && Array.isArray(last.content)) {
-    let text = '';
-    for (const block of last.content) {
-      if (block !== null && typeof block === 'object' && block.type === 'text' && typeof block.text === 'string') {
-        text += block.text;
-      }
-    }
-    return text.trim() === '' ? { kind: 'other' } : { kind: 'stop', text };
-  }
+  const text = last.role === 'assistant' ? textOf(last.content) : null;
+  if (text !== null && last.stopReason === 'stop') return text.trim() === '' ? { kind: 'other' } : { kind: 'stop', text };
+  if (last.role === 'assistant' && last.stopReason === 'length') return { kind: 'length', text: text ?? '' };
   return { kind: 'other' };
 }
 
@@ -54,6 +72,16 @@ function create() {
   let spawnObserved = false;
   let aborted = false;
   let terminal: Terminal | null = null;
+  let tokens: number | null = null;
+  let cost: number | null = null;
+
+  /** Adds one assistant message's usage; a field it does not send adds nothing and leaves the total as it was. */
+  function addUsage(message: any): void {
+    const usage = message?.usage;
+    if (usage === null || typeof usage !== 'object') return;
+    if (isCount(usage.totalTokens)) tokens = (tokens ?? 0) + usage.totalTokens;
+    if (isAmount(usage.cost?.total)) cost = (cost ?? 0) + usage.cost.total;
+  }
 
   return {
     oversize(looksJson: boolean): void {
@@ -68,7 +96,9 @@ function create() {
         return;
       }
 
-      if (event.type === 'agent_end') {
+      if (event.type === 'message_end' && event.message?.role === 'assistant' && event.message.usage !== null && typeof event.message.usage === 'object') {
+        addUsage(event.message);
+      } else if (event.type === 'agent_end') {
         const read = terminalOf(event);
         if (read) terminal = read;
         else ignoredLines++;
@@ -91,13 +121,14 @@ function create() {
       else if (spawnObserved) { status = 'failure'; reason = 'spawn-observed'; }
       else if (done === null) { status = 'unparsed'; reason = 'no-agent-end'; }
       else if (done.kind === 'error') { status = 'failure'; rawSummary = done.message; }
+      else if (done.kind === 'length') { status = 'failure'; reason = 'length'; rawSummary = done.text.trim() === '' ? null : done.text; }
       else if (done.kind === 'stop' && aborted) { status = 'failure'; reason = 'aborted'; }
       else if (done.kind === 'stop') { status = 'success'; rawSummary = done.text; }
       else { status = 'unparsed'; reason = 'no-final-message'; }
 
       // Masked first and cut second, so a cut never leaves an unmasked prefix of a secret behind.
       const summary = rawSummary === null ? null : cutBytes(maskBody(rawSummary).text, SUMMARY_BYTES);
-      return { parser: ID, status, reason, summary, denials: [], deniedCount: 0, usage: null, ignoredLines };
+      return { parser: ID, status, reason, summary, denials: [], deniedCount: 0, usage: tokens === null ? null : { tokens, cost }, ignoredLines };
     },
   };
 }
