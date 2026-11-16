@@ -63,7 +63,7 @@ function laneLines(lane, nowMs) {
     const who = [lane.harness ?? 'harness not recorded', lane.model === null ? null : `model ${lane.model}`].filter(Boolean).join(' · ');
     return [
       lane.kind === 'launched' ? `Run ${lane.unit.run}, lineage ${lane.unit.lineage}, ${who}` : who,
-      ['started ', at(lane.startedAt, nowMs)],
+      ['context captured ', at(lane.contextCapturedAt, nowMs)],
       ['last hook record ', at(lane.lastRecordAt, nowMs)],
     ];
   }
@@ -92,7 +92,7 @@ function laneFacts(lane, row, nowMs) {
   /** @type {Array<[string, any]>} */
   const facts = [['Kind', laneTitle(lane)], ['Checkout', row.kind === 'unplaced' ? 'held from another directory' : row.label]];
   if (lane.kind === 'hook' || lane.kind === 'launched') {
-    facts.push(['Harness', lane.harness ?? 'not recorded'], ['Model', lane.model ?? 'not recorded'], ['Started', at(lane.startedAt, nowMs)]);
+    facts.push(['Harness', lane.harness ?? 'not recorded'], ['Model', lane.model ?? 'not recorded'], ['Context captured', at(lane.contextCapturedAt, nowMs)]);
     facts.push(['Model first seen', at(lane.modelFirstSeenAt, nowMs)], ['Last hook record', at(lane.lastRecordAt, nowMs)]);
     facts.push(['What this shows', 'Times when records were written. A main session has no heartbeat.']);
   } else if (lane.kind === 'run') {

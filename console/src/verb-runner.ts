@@ -30,7 +30,9 @@
 // projectKey -> root map as `transcript`. `act()` has no cache, no single flight and no backoff, one write slot of
 // its own outside the pool (writes queue in arrival order; reads go on beside one), a 30 s timeout, and the same
 // environment, spawn options, stderr handling and old-core rule as a read. An exit 0 or 1 with one JSON object on
-// stdout is data (the core's refusals are JSON on exit 1); exit 2 is `usage`; any other outcome is a failure.
+// stdout is data (the core's refusals are JSON on exit 1); exit 2 is `usage`; any other outcome is a failure. A write that
+// ran drops the cached reads that expire and their flights in progress (`forgetState`), so the next read is the core's answer
+// after the write, not up to a ttl old; `projects`, `doctor` and the once-per-process reads keep their entries and flights.
 // 165 IC-001: a write shape may declare `stdin`, one free parameter written to the core's stdin (UTF-8) and then ended; only
 // that spawn pipes stdin (every other keeps 'ignore'), and the text is never in argv, a log or a result.
 
@@ -464,9 +466,12 @@ const realClock: Clock = {
 
 function createVerbRunner(options: RunnerOptions) {
   const { corePath, projectRoot, env = process.env, clock = realClock, spawnImpl = childProcess.spawn } = options;
-  const cache = new Map<string, { result: Result; expires: number }>();
+  const cache = new Map<string, { result: Result; expires: number; state: boolean }>();
+  /** Counts the writes that have ended: a state read that began before one ended is not cached (162, `forgetState`). */
+  let writes = 0;
   const backoff = new Map<string, { result: Result; until: number }>();
-  const inFlight = new Map<string, Promise<Result>>();
+  /** The spawn in progress per argv key; `state` marks a shape whose flight a write forgets (162, `forgetState`). */
+  const inFlight = new Map<string, { flight: Promise<Result>; state: boolean }>();
   const queue: Array<{ reserved: boolean; grant: (slot: 'pool' | 'reserved' | null) => void }> = [];
   const running = new Set<any>();
   /** IC-024: projectKey -> root, from the last `projects` read. Never leaves the server. */
@@ -626,6 +631,18 @@ function createVerbRunner(options: RunnerOptions) {
     }
   }
 
+  /**
+   * 162: a write that ran may have changed what the cached reads say, so the next read must spawn. Drops the entries of a
+   * state shape (finite ttl, no refresh floor: not `projects`, `doctor`, nor the once-per-process ones) and forgets the
+   * flights in progress of those shapes, whose answer began before the write ended. A floor-held or once-per-process read
+   * keeps its flight, and its answer is cached as before (162 review A-1).
+   */
+  function forgetState() {
+    writes += 1;
+    for (const [key, entry] of cache) if (entry.state) cache.delete(key);
+    for (const [key, entry] of inFlight) if (entry.state) inFlight.delete(key);
+  }
+
   /** Fills the key-to-root map from the raw output of a `projects` read (IC-024); a body that is not a list leaves it as it was. */
   function rememberProjects(json: any) {
     if (!json || typeof json !== 'object' || !Array.isArray(json.projects)) return;
@@ -648,6 +665,7 @@ function createVerbRunner(options: RunnerOptions) {
     if (built === null || (freshOption !== undefined && freshOption !== true)) return stamp(usage(), clock.now());
     const shape = SHAPES[shapeId];
     const fresh = freshOption === true;
+    const state = shape.ttl !== Infinity && shape.refreshFloorMs === undefined;
     if (fresh && shape.refreshFloorMs === undefined) return stamp(usage(), clock.now());
     if (stopped) return stamp(unreachable(), clock.now());
     const { argv, projectKey } = built;
@@ -669,7 +687,7 @@ function createVerbRunner(options: RunnerOptions) {
     const cached = cacheKey === null ? undefined : cache.get(cacheKey);
     if (fresh) {
       const running = inFlight.get(argvKey);
-      if (running) return labelled(await running, 'joined');
+      if (running) return labelled(await running.flight, 'joined');
       if (cached && now - cached.result.at < shape.refreshFloorMs!) return labelled(cached.result, 'too-soon');
     } else if (cached && now < cached.expires) {
       return cached.result;
@@ -677,18 +695,23 @@ function createVerbRunner(options: RunnerOptions) {
     const held = backoff.get(argvKey);
     if (held && now < held.until) return held.result;
 
-    let flight = inFlight.get(argvKey);
+    const began = writes;
+    let flight = inFlight.get(argvKey)?.flight;
     if (!flight) {
-      flight = spawnPooled(shape, argv, cwd, argvKey)
+      const mine: Promise<Result> = spawnPooled(shape, argv, cwd, argvKey)
         .then((spawned) => {
           if (spawned.ok && shape.listsProjects) rememberProjects(spawned.json);
           return spawned;
         })
-        .finally(() => inFlight.delete(argvKey));
-      inFlight.set(argvKey, flight);
+        .finally(() => { if (inFlight.get(argvKey)?.flight === mine) inFlight.delete(argvKey); });
+      flight = mine;
+      inFlight.set(argvKey, { flight, state });
     }
     const result = await flight;
-    if (result.ok && cacheKey !== null && shape.ttl > 0) cache.set(cacheKey, { result, expires: clock.now() + shape.ttl });
+    // A state read that began before a write ended is not cached; a floor-held or once-per-process read is (162 review A-1).
+    if (result.ok && cacheKey !== null && shape.ttl > 0 && (!state || writes === began)) {
+      cache.set(cacheKey, { result, expires: clock.now() + shape.ttl, state });
+    }
     return fresh ? labelled(result, 'ran') : result;
   }
 
@@ -706,7 +729,12 @@ function createVerbRunner(options: RunnerOptions) {
     if (stopped) return stamp(unreachable(), clock.now());
     const root = roots.get(built.projectKey!);
     if (root === undefined) return stamp({ ok: false, code: 'project-not-found', exit: null }, clock.now());
-    const turn = writeTail.then(() => (stopped ? stamp(unreachable(), clock.now()) : spawnCore(null, built.argv, root, '', built.stdin)));
+    const turn = writeTail.then(async () => {
+      if (stopped) return stamp(unreachable(), clock.now());
+      const result = await spawnCore(null, built.argv, root, '', built.stdin);
+      forgetState();
+      return result;
+    });
     writeTail = turn;
     return turn;
   }

@@ -28,8 +28,8 @@ function resetHome() {
 
 /** @type {Record<string, { label: string, face: string, token: string, sentence: string, empty: string, emptyFace: string }>} */
 const SECTIONS = {
-  needs: { label: 'Needs you', face: 'awaiting', token: 'awaiting', sentence: 'Showing only runs that need you.', empty: 'Nothing is waiting for you.', emptyFace: 'check' },
-  running: { label: 'Running', face: 'running', token: 'running', sentence: 'Showing only running runs.', empty: 'Nothing is running right now.', emptyFace: 'pending' },
+  needs: { label: 'Needs you', face: 'awaiting', token: 'awaiting', sentence: 'Showing only runs that need you.', empty: 'Nothing is waiting for you in this project.', emptyFace: 'check' },
+  running: { label: 'Running', face: 'running', token: 'running', sentence: 'Showing only running runs.', empty: 'Nothing is running in this project right now.', emptyFace: 'pending' },
   finished: { label: 'Finished', face: 'check', token: 'done', sentence: 'Showing only finished runs.', empty: 'No run has finished yet.', emptyFace: 'pending' },
 };
 const SECTION_ORDER = ['needs', 'running', 'finished'];

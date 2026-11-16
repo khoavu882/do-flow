@@ -42,8 +42,9 @@ const INVARIANT = [
   '--motion-fast', '--motion-base', '--motion-slow', '--motion-flash', '--motion-pulse', '--motion-march', '--motion-shimmer',
   '--motion-swap', '--motion-row', '--motion-gate',
   '--ease-standard', '--ease-exit', '--ease-settle',
-  '--content-max', '--prose-max', '--gutter', '--header-h', '--navrail-w', '--navrail-w-icons', '--inspector-w', '--target', '--target-min', '--focus-width', '--focus-offset',
+  '--content-max', '--prose-max', '--gutter', '--header-h', '--tabbar-h', '--navrail-w', '--navrail-w-icons', '--inspector-w', '--target', '--target-min', '--focus-width', '--focus-offset',
   '--z-banner', '--z-header', '--z-panel', '--z-skip',
+  '--safe-top', '--safe-right', '--safe-bottom', '--safe-left', '--chrome-top', '--chrome-bottom',
 ];
 
 // ---- parsing ------------------------------------------------------------------------------------

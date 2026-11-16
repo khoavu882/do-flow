@@ -139,6 +139,10 @@ test('every harness gives its main session and its sub-agents, joined by session
   const claude = byKey(body, AK('claude', `${ID}c001`));
   const [afx1, afx2] = ['afx1', 'afx2'].map((id) => byKey(body, AK('claude', `${ID}c001`, id)));
   assert.deepEqual([claude.kind, claude.label, claude.depth, claude.model, claude.modelBasis], ['main-session', null, 0, 'claude-fixture-1', 'hook-observation']);
+  // A main session has no recorded start: its time is the last context capture, under its own key; a sub-agent has no capture.
+  assert.equal(claude.startedAt, null);
+  assert.match(String(claude.contextCapturedAt), /^\d{4}-\d\d-\d\dT/);
+  assert.equal(afx1.contextCapturedAt, null);
   assert.deepEqual([afx1.kind, afx1.label, afx1.depth, afx1.modelBasis], ['harness-subagent', 'fixture-explorer', 1, 'harness-record']);
   assert.deepEqual([afx2.label, afx2.depth], ['fixture-reviewer', 2]);
   const edges = edgesOf(body, 'harness-subagent-record').map((e: any) => `${e.from}>${e.to}`);

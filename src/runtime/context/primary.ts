@@ -277,7 +277,7 @@ function observedSessions({
     if (!sessions.has(sessionKey)) {
       sessions.set(sessionKey, {
         sessionKey, worktreeKey, kind: 'hook', harness: null, model: null, modelFirstSeenAt: null,
-        startedAt: null, branchAtStart: null, lastHookRecordAt: null, launched: null,
+        contextCapturedAt: null, branchAtStart: null, lastHookRecordAt: null, launched: null,
       });
     }
     return sessions.get(sessionKey);
@@ -333,14 +333,14 @@ function observedSessions({
     Object.assign(e, {
       worktreeKey: cwdHash(at.path),
       kind: unit ? 'launched' : 'hook',
-      startedAt: isoOrNull(context.captured_at),
+      contextCapturedAt: isoOrNull(context.captured_at),
       branchAtStart: typeof context.branch === 'string' && context.branch !== '' ? context.branch : null,
       lastHookRecordAt: Number.isFinite(newest) ? new Date(newest).toISOString() : null,
       launched: unit,
     });
   }
 
-  const time = (e: any) => Math.max(...[e.lastHookRecordAt, e.startedAt, e.modelFirstSeenAt].map((v) => (v === null ? -Infinity : Date.parse(v))));
+  const time = (e: any) => Math.max(...[e.lastHookRecordAt, e.contextCapturedAt, e.modelFirstSeenAt].map((v) => (v === null ? -Infinity : Date.parse(v))));
   body.sessions = [...sessions.values()].sort((a, b) => time(b) - time(a) || (a.sessionKey < b.sessionKey ? -1 : 1));
   body.unreadable = counts.unreadable;
   return { ok: true, body };

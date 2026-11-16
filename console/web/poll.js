@@ -56,6 +56,10 @@ function createPoller(options) {
   let keepStale = false; // resumed from a stale pause: stale until a fetch succeeds
   let inFlight = false;
   let resuming = false;
+  /** An action was applied while a fetch was in flight: that answer began before it, so it is dropped and a new fetch begins. */
+  let dropInFlight = false;
+  /** Who waits for the answer after an action (`refreshAfterAction(done)`): told true once it is painted, false when it failed. @type {Array<(ok: boolean) => void>} */
+  let afterAction = [];
   /** @type {any} */
   let timer = null;
   /** @type {number | null} */
@@ -131,6 +135,11 @@ function createPoller(options) {
     if (mine !== generation) return;
     inFlight = false;
     resuming = false;
+    if (dropInFlight) {
+      dropInFlight = false;
+      pollNow();
+      return;
+    }
     if (ok) {
       keepStale = false;
       misses = 0;
@@ -141,6 +150,7 @@ function createPoller(options) {
       const wait = refreshDelay();
       extraWaitMs = Math.max(0, wait - intervalMs);
       schedule(wait);
+      answerAfterAction(true);
       return;
     }
     misses += 1;
@@ -153,6 +163,14 @@ function createPoller(options) {
       schedule(delay);
     }
     onFailure(value);
+    answerAfterAction(false);
+  }
+
+  /** @param {boolean} ok */
+  function answerAfterAction(ok) {
+    const waiting = afterAction;
+    afterAction = [];
+    for (const done of waiting) done(ok);
   }
 
   /** The stale rule itself. */
@@ -189,10 +207,12 @@ function createPoller(options) {
       running = false;
       generation += 1;
       inFlight = false;
+      dropInFlight = false;
       resuming = false;
       clearTimer();
       if (unsubscribe) unsubscribe();
       unsubscribe = null;
+      answerAfterAction(false);
     },
     /** The person pauses polling: nothing is scheduled; a fetch in flight settles and is kept. An explicit `refreshNow` still fetches once. */
     pause() {
@@ -216,6 +236,22 @@ function createPoller(options) {
       if (!running || inFlight) return false;
       backoffStep = 0;
       pollNow();
+      return true;
+    },
+    /**
+     * 162: an action was applied, so what the data says is old. Fetches at once; a fetch already in flight began before the action,
+     * so its answer is dropped unpainted and a new one begins. `done(ok)`, when given, is told once that answer is painted (true) or
+     * failed, or polling stopped (false). False, and `done` never called, when stopped.
+     * @param {(ok: boolean) => void} [done]
+     */
+    refreshAfterAction(done) {
+      if (!running) return false;
+      if (typeof done === 'function') afterAction.push(done);
+      if (inFlight) dropInFlight = true;
+      else {
+        backoffStep = 0;
+        pollNow();
+      }
       return true;
     },
     /** The stale rule of 6.4. Not evaluated while the tab is hidden or the poll after a return is in flight. */

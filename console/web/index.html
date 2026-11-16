@@ -2,10 +2,11 @@
 <html lang="en" class="booting">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="description" content="A local view of DoFlow runs, gates, sessions and agents, with confirmed actions on gates, runs and workers.">
   <title>DoFlow Console</title>
   <meta name="color-scheme" content="light dark">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="stylesheet" href="tokens.css">
   <link rel="stylesheet" href="app.css">
   <script type="module" src="app.js"></script>
@@ -27,28 +28,31 @@
   </header>
   <div class="banner-slot" id="banner-slot"></div>
   <div class="shell" id="shell" data-inspectable="false">
-    <nav class="nav navrail" aria-label="Primary">
+    <nav class="navrail" aria-label="Primary">
       <ul>
-        <li><a class="nav__link navrail__link" href="#/"><span class="navrail__label">Now</span></a></li>
-        <li><a class="nav__link navrail__link" href="#/sessions"><span class="navrail__label">Sessions</span></a></li>
-        <li><a class="nav__link navrail__link" href="#/workflows"><span class="navrail__label">Workflows</span></a></li>
-        <li><a class="nav__link navrail__link" href="#/layers"><span class="navrail__label">Layers</span></a></li>
+        <li><a class="navrail__link" href="#/"><span class="navrail__label">Now</span></a></li>
+        <li><a class="navrail__link" href="#/sessions"><span class="navrail__label">Sessions</span></a></li>
+        <li class="navrail__slot" data-slot="start-session" hidden></li>
+        <li><a class="navrail__link" href="#/layers"><span class="navrail__label">Layers</span></a></li>
+        <li class="navrail__more"><a class="navrail__link" href="#/more"><span class="navrail__label">More</span></a></li>
       </ul>
-      <ul class="navrail__group" aria-label="Manage">
-        <li><a class="nav__link navrail__link" href="#/workers"><span class="navrail__label">Workers</span></a></li>
-        <li><a class="nav__link navrail__link" href="#/advice"><span class="navrail__label">Advice</span></a></li>
-        <li><a class="nav__link navrail__link" href="#/followups"><span class="navrail__label">Follow-ups</span></a></li>
-        <li><a class="nav__link navrail__link" href="#/settings"><span class="navrail__label">Settings</span></a></li>
-        <li><a class="nav__link navrail__link" href="#/health"><span class="navrail__label">Health</span></a></li>
+      <p class="navrail__heading" id="navrail-manage">Manage</p>
+      <ul class="navrail__group" aria-labelledby="navrail-manage">
+        <li><a class="navrail__link" href="#/followups"><span class="navrail__label">Follow-ups</span></a></li>
+        <li><a class="navrail__link" href="#/workflows"><span class="navrail__label">Workflows</span></a></li>
+        <li><a class="navrail__link" href="#/workers"><span class="navrail__label">Workers</span></a></li>
+        <li><a class="navrail__link" href="#/advice"><span class="navrail__label">Advice</span></a></li>
+        <li><a class="navrail__link" href="#/settings"><span class="navrail__label">Settings</span></a></li>
+        <li><a class="navrail__link" href="#/health"><span class="navrail__label">Health</span></a></li>
       </ul>
     </nav>
+    <p class="attention" id="attention" hidden></p>
     <main id="main" class="page" tabindex="-1"></main>
     <aside id="inspector" class="inspector" aria-label="Details" hidden>
       <div class="inspector__head">
         <h2 class="inspector__title" id="inspector-title">Details</h2>
         <button type="button" class="btn btn--ghost inspector__close"><span class="vh">Close details</span></button>
       </div>
-      <p class="inspector__empty">Select an item to see its details here.</p>
       <div class="inspector__body"></div>
     </aside>
   </div>

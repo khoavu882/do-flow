@@ -65,7 +65,7 @@ const dataOf = (section) => (isObject(section) && section.ok === true ? section.
 function makeLane(key, kind, title, more = {}) {
   return {
     key, kind, title, token: 'unknown', mark: 'recorded', liveness: 'recorded only',
-    harness: null, model: null, startedAt: null, modelFirstSeenAt: null, lastRecordAt: null,
+    harness: null, model: null, startedAt: null, contextCapturedAt: null, modelFirstSeenAt: null, lastRecordAt: null,
     holds: [], children: [], launched: [], times: [], ...more,
   };
 }
@@ -225,29 +225,29 @@ function deriveSessions(body, nowMs) {
       row.lanes.push(lane);
       return;
     }
-    for (const field of ['harness', 'model', 'startedAt', 'modelFirstSeenAt']) same[field] = same[field] ?? lane[field];
+    for (const field of ['harness', 'model', 'contextCapturedAt', 'modelFirstSeenAt']) same[field] = same[field] ?? lane[field];
     same.lastRecordAt = latest([same.lastRecordAt, lane.lastRecordAt]);
     same.times.push(...lane.times);
   };
   for (const s of list(observed && observed.sessions)) {
     const row = rowFor(s.worktreeKey);
-    const times = [s.startedAt, s.modelFirstSeenAt, s.lastHookRecordAt];
+    const times = [s.contextCapturedAt, s.modelFirstSeenAt, s.lastHookRecordAt];
     if (s.kind === 'launched' && isObject(s.launched)) {
-      const unit = { sessionKey: s.sessionKey, run: s.launched.run, lineage: s.launched.lineage, attempt: s.launched.attempt, startedAt: s.startedAt ?? null, lastHookRecordAt: s.lastHookRecordAt ?? null };
+      const unit = { sessionKey: s.sessionKey, run: s.launched.run, lineage: s.launched.lineage, attempt: s.launched.attempt, contextCapturedAt: s.contextCapturedAt ?? null, lastHookRecordAt: s.lastHookRecordAt ?? null };
       const joined = runLanes.get(runLaneKey(s.worktreeKey, unit.run, unit.lineage));
       if (joined && row.lanes.includes(joined)) {
         joined.launched.push(unit);
         joined.times.push(...times);
       } else {
         place(row, makeLane(`launched:${s.sessionKey}`, 'launched', 'Launched unit', {
-          harness: s.harness ?? null, model: s.model ?? null, startedAt: s.startedAt ?? null, modelFirstSeenAt: s.modelFirstSeenAt ?? null, lastRecordAt: s.lastHookRecordAt ?? null,
+          harness: s.harness ?? null, model: s.model ?? null, contextCapturedAt: s.contextCapturedAt ?? null, modelFirstSeenAt: s.modelFirstSeenAt ?? null, lastRecordAt: s.lastHookRecordAt ?? null,
           times, launched: [unit], unit,
         }));
       }
       continue;
     }
     place(row, makeLane(`hook:${s.sessionKey}`, 'hook', 'Hook session', {
-      harness: s.harness ?? null, model: s.model ?? null, startedAt: s.startedAt ?? null, modelFirstSeenAt: s.modelFirstSeenAt ?? null, lastRecordAt: s.lastHookRecordAt ?? null, times,
+      harness: s.harness ?? null, model: s.model ?? null, contextCapturedAt: s.contextCapturedAt ?? null, modelFirstSeenAt: s.modelFirstSeenAt ?? null, lastRecordAt: s.lastHookRecordAt ?? null, times,
       sessionKey: s.sessionKey,
     }));
   }
@@ -438,7 +438,7 @@ function laneName(lane, row, clock = defaultClock) {
   const place = `checkout ${placeWords(row)}`;
   if (lane.kind === 'hook' || lane.kind === 'launched') {
     const lead = lane.kind === 'hook' ? 'Hook session' : `Launched unit, run ${lane.unit.run}, lineage ${lane.unit.lineage}`;
-    return `${lead}, ${lane.harness ?? 'harness not recorded'}, model ${lane.model ?? 'not recorded'}, started ${when(lane.startedAt, clock)}, last hook record ${when(lane.lastRecordAt, clock)}, holds nothing, ${place}`;
+    return `${lead}, ${lane.harness ?? 'harness not recorded'}, model ${lane.model ?? 'not recorded'}, context captured ${when(lane.contextCapturedAt, clock)}, last hook record ${when(lane.lastRecordAt, clock)}, holds nothing, ${place}`;
   }
   if (lane.kind === 'run') {
     const claims = lane.attempts.map((/** @type {any} */ a) => `${a.task} in ${a.slug} by ${a.owner ?? 'unknown owner'} since ${when(a.startedAt, clock)}`);

@@ -21,6 +21,8 @@
 //      `Retry-After` in whole seconds until the oldest counted attempt leaves its window; counted on the log's
 //      aggregated `rate-limited` line per actor);
 //   7. the queue (one attempt in flight, four waiting, FIFO; else 429 action-busy, `Retry-After: 2`).
+// A request the server refuses before the wrappers (403 forbidden-origin, 415 unsupported-media) has no actor: it is counted
+// on the `summary` line of its reason with actor kind `none`, one line a minute per reason, whoever sent it.
 // A refusal at 2 to 5 counts against the actor's own windows (never the Console's, so one actor's refusals cannot
 // block another's actions) and, once they are full, is 429 action-rate-limited instead (162 review 1). Every refusal
 // at 2 to 7 is counted on the log's aggregated `summary` line for its code and actor, so a flood adds at most a few
@@ -511,6 +513,10 @@ function createActions({ runner, log, now = Date.now, warn = () => {} }: Options
       path,
       action: true as const,
       refused: (ctx: any, session: any, code: string) => refuse(keyOf(ctx, session), baseOf(ctx, session), 403, code),
+      // A refusal of server.ts before any actor exists: counted on the one line a minute of its reason, whoever sent it.
+      refusedEarly: async (code: string) => {
+        if (log) await quietly(() => log.summary(code as 'forbidden-origin' | 'unsupported-media', 'none', { actor: { kind: 'none' } }));
+      },
       unauthenticated: async (ctx: any) => {
         if (!log) return;
         const base = baseOf(ctx, null);

@@ -144,7 +144,7 @@ function buildTree({
       if (nodes.size >= MAX_NODES) { counts.notChecked += 1; return null; }
       n = {
         agentKey, kind: null, harness: null, model: null, modelBasis: null, label: null, depth: 0, worktreeKey: projectKey,
-        startedAt: null, lastRecordAt: null, liveness: 'not-checked', ended: null, transcript: { reader: null, linked: false, reason: 'no-reader' },
+        startedAt: null, contextCapturedAt: null, lastRecordAt: null, liveness: 'not-checked', ended: null, transcript: { reader: null, linked: false, reason: 'no-reader' },
         ...fields,
       };
       nodes.set(agentKey, n);
@@ -250,7 +250,7 @@ function buildTree({
     const id = startedRunOf(rawIds.get(s.sessionKey) ?? null);
     if (id === null || runs.get(id)?.run.kind !== 'main-session') continue;
     const had = joins.get(id);
-    if (!had || (s.startedAt ?? '~') < (had.startedAt ?? '~')) joins.set(id, s);
+    if (!had || (s.contextCapturedAt ?? '~') < (had.contextCapturedAt ?? '~')) joins.set(id, s);
   }
   const joinedRun = new Map<any, string>([...joins].map(([id, s]) => [s, id]));
   let sessionHooks: any = null;
@@ -325,19 +325,19 @@ function buildTree({
       n = workerNodeOf(startedRun).n;
       if (n) {
         if (n.model === null && s.model) Object.assign(n, { model: label(s.model), modelBasis: 'hook-observation' });
-        Object.assign(n, { observed: { state: 'observed', sessionKey: s.sessionKey, model: label(s.model), lastSeenAt: lastRecordAt }, transcript: transcriptOf(harness, file) });
+        Object.assign(n, { contextCapturedAt: s.contextCapturedAt, observed: { state: 'observed', sessionKey: s.sessionKey, model: label(s.model), lastSeenAt: lastRecordAt }, transcript: transcriptOf(harness, file) });
         node(n.agentKey, {}, { harness, sessionId: rawId, file, companion });
       }
     } else {
       n = node(agentKey, {
         kind: 'main-session', harness, model: label(s.model), modelBasis: s.model ? 'hook-observation' : null, worktreeKey: s.worktreeKey,
-        startedAt: s.startedAt, lastRecordAt, transcript: transcriptOf(harness, file),
+        contextCapturedAt: s.contextCapturedAt, lastRecordAt, transcript: transcriptOf(harness, file),
       }, { harness, sessionId: rawId, file, companion });
     }
     if (n) {
       mains.push({ n, harness, rawId, file });
-      if (s.startedAt) note(n, 'records', { type: 'hook-record', at: s.startedAt, task: null, result: null });
-      if (s.lastHookRecordAt && s.lastHookRecordAt !== s.startedAt) note(n, 'records', { type: 'hook-record', at: s.lastHookRecordAt, task: null, result: null });
+      if (s.contextCapturedAt) note(n, 'records', { type: 'hook-record', at: s.contextCapturedAt, task: null, result: null });
+      if (s.lastHookRecordAt && s.lastHookRecordAt !== s.contextCapturedAt) note(n, 'records', { type: 'hook-record', at: s.lastHookRecordAt, task: null, result: null });
     }
   }
 

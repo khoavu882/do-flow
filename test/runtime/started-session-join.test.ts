@@ -105,6 +105,7 @@ HOOK_TEST('a session-start record with DOFLOW_STARTED_RUN joins its started run:
   assert.equal(n.observed.state, 'observed');
   assert.deepEqual([n.observed.sessionKey, n.observed.model], [sha16(SESSION), 'claude-observed-1']);
   assert.match(n.observed.lastSeenAt, /^\d{4}-\d\d-\d\dT/);
+  assert.match(n.contextCapturedAt, /^\d{4}-\d\d-\d\dT/, 'the joined node carries the session context time like a main-session node');
   assert.equal(body.nodes.filter((x: any) => x.kind === 'main-session').length, 0, 'the observed session is not a node of its own');
   const json = JSON.stringify(body);
   assert.ok(!json.includes(SESSION) && !json.includes(RUN) && !json.includes(f.top), 'no raw session id, run id or path');
@@ -155,5 +156,6 @@ HOOK_TEST('two session records naming one started run: the earliest captured joi
   const body = tree(f);
   assert.equal(body.nodes.length, 2);
   assert.equal(body.nodes.find((n: any) => n.agentKey === workerKey(RUN)).observed.sessionKey, sha16('c7-first'));
+  assert.match(body.nodes.find((n: any) => n.agentKey === workerKey(RUN)).contextCapturedAt, /^2026-11-15T01:00:03/, 'the earliest context time, not the later one');
   assert.ok(body.nodes.find((n: any) => n.agentKey === sha16('claude:c7-second') && n.kind === 'main-session'));
 });

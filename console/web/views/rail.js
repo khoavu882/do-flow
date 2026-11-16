@@ -41,6 +41,13 @@ const STAGE_FACE = { done: 'check', failed: 'failed', unknown: 'unknown', runnin
 // ---- the compact rail (home rows) ---------------------------------------------------------------------
 
 /**
+ * The dot of the dot flow on the connector into a running stage, or null: a stage the data says is running, never the first
+ * (it has no connector). It runs under [data-loop="on"]; a stale page and reduced motion stop it (the states layer).
+ * @param {any} node @param {number} index
+ */
+const flowDot = (node, index) => (node.type === 'stage' && node.state === 'running' && index > 0 ? h('span', { class: 'flow-dot', dataset: { loop: 'on' } }) : null);
+
+/**
  * A still glyph strip, not interactive and hidden from assistive technology: the row description carries its meaning.
  * @param {{ nodes: any[] }} model
  * @param {{ changed?: Set<number>, large?: boolean, loop?: boolean }} [options] `large`: the variant of the gate cards (CD-B1);
@@ -52,7 +59,7 @@ function railCompact(model, { changed = new Set(), large = false, loop = false }
     const glyph = h('li', {
       class: 'rail__glyph',
       dataset: { type: node.type, kind: node.kind, state: node.state, changed: changed.has(index) ? 'true' : null, loop: index === loopAt ? 'on' : null },
-    }, node.type === 'gate' ? icon(gateIcon(node, '12'), large ? 16 : 12) : null);
+    }, node.type === 'gate' ? icon(gateIcon(node, '12'), large ? 16 : 12) : flowDot(node, index));
     if (changed.has(index)) expireChange(glyph);
     return glyph;
   }));

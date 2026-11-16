@@ -83,6 +83,8 @@ function appliedWords(id, decision) {
 
 /** What the dialog says when the Console could not say what happened (504, or no answer): the page's own record is the truth. */
 const UNKNOWN_WORDS = 'The outcome is unknown. The page shows the run as it is now.';
+/** "Review again" found the page still holding the revision the dialog was opened with (its refetch failed): it builds nothing from it. */
+const REREAD_WORDS = 'The page has not read the run again yet. Close this and decide from the page once it shows the new state.';
 
 /**
  * One sentence for each error code of IC-002 (the `error.code` of a refusal). The 409 `stale` has its own words (`staleWords`); its
@@ -257,5 +259,5 @@ const NOT_ALLOWED_WORDS = Object.freeze({
 const notAllowedWords = (reason) => (typeof reason === 'string' ? NOT_ALLOWED_WORDS[reason] ?? null : null);
 
 export {
-  TEXT_MAX, ACTION_WORDS, REFUSAL_WORDS, UNKNOWN_WORDS, NOT_ALLOWED_WORDS, byWords, cancelWords, refusalWords, staleWords, appliedWords, normalizeText, textState, buildConfirmation, notAllowedWords,
+  TEXT_MAX, ACTION_WORDS, REFUSAL_WORDS, UNKNOWN_WORDS, REREAD_WORDS, NOT_ALLOWED_WORDS, byWords, cancelWords, refusalWords, staleWords, appliedWords, normalizeText, textState, buildConfirmation, notAllowedWords,
 };

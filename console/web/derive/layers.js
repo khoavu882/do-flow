@@ -428,7 +428,7 @@ function projectModel(body) {
     const line = audit.byKey.get(node.agentKey) ?? null;
     const t = trafficBy.get(node.agentKey) ?? null;
     return {
-      agentKey: node.agentKey, kind: node.kind, label: node.label, title: nodeTitle(node), harness: node.harness, model: node.model, startedAt: node.startedAt, lastRecordAt: node.lastRecordAt,
+      agentKey: node.agentKey, kind: node.kind, label: node.label, title: nodeTitle(node), harness: node.harness, model: node.model, startedAt: node.startedAt, contextCapturedAt: node.contextCapturedAt ?? null, lastRecordAt: node.lastRecordAt,
       process: PROCESS_WORD[node.liveness] ?? 'process not checked', linked: node.transcript.linked === true, reason: node.transcript.reason,
       audit: line ? { word: AUDIT_WORD[line.event] ?? 'recorded', at: line.at } : null,
       toolCalls: t ? t.toolCalls : null, eventsPerMin: t ? t.eventsPerMin : null,
@@ -440,10 +440,11 @@ function projectModel(body) {
   const placed = (/** @type {string | null} */ worktreeKey) => worktreeKey !== null && keys.has(worktreeKey);
   const lanes = ordered.map((checkout) => {
     const mine = (/** @type {any} */ n) => n.worktreeKey === checkout.worktreeKey;
-    const sorted = (/** @type {any[]} */ list) => [...list].sort((a, b) => byNewest(a, b, 'startedAt', 'agentKey'));
+    // A main session has no recorded start: its lanes are ordered by the last context capture; a worker or sub-agent by its start.
+    const sorted = (/** @type {any[]} */ list, field = 'startedAt') => [...list].sort((a, b) => byNewest(a, b, field, 'agentKey'));
     return {
       worktreeKey: checkout.worktreeKey, label: checkout.label, branch: checkout.branch, main: checkout.main,
-      orchestrator: sorted(nodes.filter((n) => mine(n) && n.kind === 'main-session')).map(agentRow),
+      orchestrator: sorted(nodes.filter((n) => mine(n) && n.kind === 'main-session'), 'contextCapturedAt').map(agentRow),
       runs: runs.filter((r) => r.runKey !== null && r.runKey !== undefined && r.runKey.split('/')[0] === checkout.worktreeKey).map(runRow),
       workers: sorted(nodes.filter((n) => mine(n) && WORKER_KINDS.includes(n.kind))).map(agentRow),
       subagents: sorted(nodes.filter((n) => mine(n) && n.kind === 'harness-subagent')).map(agentRow),

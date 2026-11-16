@@ -215,7 +215,40 @@ test('loopback: the local session acts with relay console; the server\'s non-GET
   await w.actions.stop();
   const summaries = w.lines().filter((line) => line.phase === 'summary');
   assert.deepEqual(summaries.map((line) => [line.code, line.count, line.address, line.actor.kind, line.actor.transport, line.action]),
-    [['unauthenticated', 2, '127.0.0.1', 'unknown', 'loopback', 'decide-gate']]);
+    [['forbidden-origin', 3, null, 'none', null, null], ['unsupported-media', 2, null, 'none', null, null], ['unauthenticated', 2, '127.0.0.1', 'unknown', 'loopback', 'decide-gate']]);
+});
+
+test('162 finding: a request refused before an actor exists (403 forbidden-origin, 415 unsupported-media) on an action route is counted on one summary line a minute per reason, actor none; a flood adds no more, and other routes are not counted', async (t) => {
+  const clock = manual();
+  const runner = fakeRunner();
+  const w = await lan(t, runner, { now: clock.now });
+  const control = await w.world.pair('control', 'Phone');
+  const refusals: Array<[Record<string, string>, number, string]> = [
+    [{ Authorization: control.bearer, Origin: 'https://evil.example' }, 403, 'forbidden-origin'],
+    [{ Authorization: control.bearer, 'Sec-Fetch-Site': 'cross-site' }, 403, 'forbidden-origin'],
+    [{ Authorization: control.bearer, 'Content-Type': 'text/plain' }, 415, 'unsupported-media'],
+  ];
+  for (let minute = 0; minute < 3; minute += 1) {
+    for (let index = 0; index < 100; index += 1) {
+      for (const [headers, status, code] of refusals) {
+        const reply = await w.post('close-run', BODIES['close-run'](), headers);
+        assert.equal(reply.status, status);
+        assert.equal(errorOf(reply), code);
+      }
+    }
+    clock.t += MINUTE;
+  }
+  // The same refusals on a read route are not the action log's business.
+  assert.equal((await w.server.request('GET', '/api/actions', { headers: { Authorization: control.bearer, Origin: 'https://evil.example' } })).status, 403);
+  assert.equal(runner.acts.length, 0);
+  await w.actions.stop();
+  const lines = w.lines();
+  assert.deepEqual(lines.map((line) => [line.phase, line.code, line.count, line.actor, line.address, line.action, line.outcome]),
+    [0, 1, 2].flatMap(() => [
+      ['summary', 'forbidden-origin', 200, { kind: 'none', deviceId: null, scope: null, transport: null }, null, null, 'refused'],
+      ['summary', 'unsupported-media', 100, { kind: 'none', deviceId: null, scope: null, transport: null }, null, null, 'refused'],
+    ]), 'one line per reason per minute, 900 refusals in all');
+  assert.ok(Buffer.byteLength(JSON.stringify(lines)) < 4096);
 });
 
 test('closed bodies: a key too many or too few, a wrong v, requestId, projectKey, id, decision, revision or run id, a body over 4 KiB, not JSON: 400 usage, counted, never run', async (t) => {
@@ -323,6 +356,34 @@ test('limits: the seventh action of an actor in a minute is 429 action-rate-limi
   await w.actions.stop();
   const summary = w.lines().filter((line) => line.phase === 'summary');
   assert.deepEqual(summary.map((line) => [line.code, line.count, line.actor.kind]), [['rate-limited', 2, 'local']]);
+});
+
+test('162 finding: Retry-After is the real wait, the seconds until the oldest counted attempt of the refusing limit leaves its window, rounded up, at least 1', async (t) => {
+  const clock = manual();
+  const w = await loopback(t, fakeRunner(), { now: clock.now });
+  // Per minute: attempts at 0, 10, 20, 25, 26 and 27 s, so the oldest (0 s) leaves 60 s after it, whatever the others do.
+  for (const at of [0, 10, 20, 25, 26, 27]) {
+    clock.t = at * 1000;
+    assert.equal((await w.post('decide-gate', BODIES['decide-gate']())).status, 200);
+  }
+  clock.t = 30_000;
+  assert.equal((await w.post('decide-gate', BODIES['decide-gate']())).headers['retry-after'], '30', 'not a fixed 30: 60 s minus the age of the oldest');
+  clock.t = 45_000;
+  assert.equal((await w.post('decide-gate', BODIES['decide-gate']())).headers['retry-after'], '15');
+  clock.t = 59_400;
+  assert.equal((await w.post('decide-gate', BODIES['decide-gate']())).headers['retry-after'], '1', 'rounded up, never 0');
+  clock.t = 60_000;
+  assert.equal((await w.post('decide-gate', BODIES['decide-gate']())).status, 200, 'and at that second the oldest has left');
+  // Per hour: one attempt every 100 s never fills a minute; the thirty-first, at 3000 s, waits for the first to leave the hour.
+  const hourly = await loopback(t, fakeRunner(), { now: clock.now });
+  for (let index = 0; index < 30; index += 1) {
+    clock.t = 3_600_000 + index * 100_000;
+    assert.equal((await hourly.post('close-run', BODIES['close-run']())).status, 200, `attempt ${index + 1}`);
+  }
+  clock.t = 3_600_000 + 3_000_000;
+  const limited = await hourly.post('close-run', BODIES['close-run']());
+  assert.equal(limited.status, 429);
+  assert.equal(limited.headers['retry-after'], '600', 'the hour window: 3600 s minus 3000 s');
 });
 
 test('limits: 30 an hour per actor, and 20 a minute per Console across devices', async (t) => {

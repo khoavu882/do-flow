@@ -89,6 +89,8 @@ class El {
     this.append(...nodes);
   }
   remove() { if (this.parent) { this.parent.children.splice(this.parent.children.indexOf(this), 1); this.parent = null; } }
+  contains(node: any): boolean { for (let n = node; n; n = n.parent) if (n === this) return true; return false; }
+  get isConnected(): boolean { return doc.body.contains(this); }
   setAttribute(name: string, value: string) { this.attrs.set(name, String(value)); }
   getAttribute(name: string) { return this.attrs.has(name) ? this.attrs.get(name) : null; }
   hasAttribute(name: string) { return this.attrs.has(name); }
@@ -126,7 +128,8 @@ Object.assign(doc, {
   createElement: (tag: string) => new El(tag),
   createElementNS: (_ns: string, tag: string) => new El(tag),
   createTextNode: (text: string) => new Txt(text),
-  getElementById: () => null,
+  getElementById: (id: string) => doc.body.querySelectorAll('*').find((node: El) => node.getAttribute('id') === id) ?? null,
+  querySelector: (selector: string) => doc.body.querySelector(selector),
   body: new El('body'),
 });
 
@@ -320,6 +323,100 @@ test('applied: the notice replaces the field, the verb button is gone and Cancel
   assert.equal(confirm.isConfirmOpen(), false);
 });
 
+test('162 review B-6: an applied action, an unknown outcome and a stale refusal each tell the page once, so it refetches at once; another refusal does not', async () => {
+  const told: string[] = [];
+  const stop = confirm.onRefetch(() => { told.push('refetch'); return Promise.resolve(true); });
+  try {
+    transportOf(() => refusal(403, 'action-transport'));
+    const refused = open(closeSpec());
+    refused.type('why');
+    refused.verb.fire('click');
+    await flush();
+    confirm.closeConfirm();
+    assert.deepEqual(told, [], 'a refusal before the core changed nothing');
+    for (const [answer, state] of [[() => ok200(), 'applied'], [() => refusal(504, 'action-timeout'), 'unknown'], [() => new TypeError('network'), 'unknown'],
+      [() => refusal(409, 'stale', { current: { state: 'RUNNING', revision: 4 } }), 'stale']] as const) {
+      told.length = 0;
+      transportOf(answer as any);
+      const d = open(gateSpec());
+      d.verb.fire('click');
+      await flush();
+      assert.equal(d.handle.state(), state);
+      assert.deepEqual(told, ['refetch'], state);
+      confirm.closeConfirm();
+    }
+  } finally {
+    stop();
+  }
+});
+
+test('162 review B-6: Review again waits for the refetch and builds from the refreshed row, never from the old revision', async () => {
+  let row = { gate: { id: 'gate-a', name: 'Design approval' }, revision: 7 };
+  let landed: (ok: boolean) => void = () => {};
+  const stop = confirm.onRefetch(() => new Promise<boolean>((resolve) => { landed = (ok) => resolve(ok); }));
+  try {
+    transportOf(() => refusal(409, 'stale', { current: { state: 'AWAITING_GATE', revision: 8, awaitingGate: { gateId: 'gate-a', name: 'Design approval' } } }));
+    const spec = gateSpec();
+    spec.reopen = () => gateSpec(row);
+    const d = open(spec);
+    d.verb.fire('click');
+    await flush();
+    d.review.fire('click');
+    await flush();
+    assert.equal(d.root.parent !== null, true, 'the refetch has not landed: the stale dialog stays');
+    assert.equal(d.disabled(d.review), true, 'and Review again waits');
+    row = { ...row, revision: 8 };
+    landed(true);
+    await flush();
+    const next = doc.body.querySelector('.confirm') as El;
+    assert.notEqual(next, d.root);
+    const sent = transportOf(() => ok200());
+    (next.querySelector('.confirm__verb') as El).fire('click');
+    await flush();
+    assert.equal(sent[0].body.expect.revision, 8, 'the new dialog carries the refreshed revision');
+    confirm.closeConfirm();
+
+    // The refetch failed and the row still holds the old revision: no dialog is built from it.
+    row = { ...row, revision: 7 };
+    transportOf(() => refusal(409, 'stale', { current: { state: 'AWAITING_GATE', revision: 9 } }));
+    const again = gateSpec();
+    again.reopen = () => gateSpec(row);
+    const e = open(again);
+    e.verb.fire('click');
+    await flush();
+    e.review.fire('click');
+    landed(false);
+    await flush();
+    assert.equal(doc.body.querySelectorAll('.confirm').length, 1);
+    assert.equal(doc.body.querySelector('.confirm'), e.root, 'the stale dialog stays; no dialog of revision 7 opens');
+    assert.match(text(e.result), /not read the run again/);
+  } finally {
+    stop();
+  }
+});
+
+test('162 review B-5: on close focus returns to the opener while it is on the page, else to #main, else to the h1', () => {
+  transportOf(() => ok200());
+  const kept = open(gateSpec());
+  kept.handle.close();
+  assert.equal(doc.activeElement, kept.opener);
+
+  const main = new El('main');
+  main.setAttribute('id', 'main');
+  const h1 = new El('h1');
+  doc.body.append(main, h1);
+  const rebuilt = open(gateSpec());
+  rebuilt.opener.remove();
+  rebuilt.handle.close();
+  assert.equal(doc.activeElement, main, 'the opener was rebuilt: #main');
+
+  main.remove();
+  const gone = open(gateSpec());
+  gone.opener.remove();
+  gone.handle.close();
+  assert.equal(doc.activeElement, h1, 'no #main: the h1');
+});
+
 test('stale (409): the current state in words, "Nothing was applied.", and Review again, which reopens from the page’s current row', async () => {
   transportOf(() => refusal(409, 'stale', { current: { state: 'AWAITING_GATE', revision: 8, awaitingGate: { gateId: 'gate-b', name: 'Plan approval' } } }));
   const spec = gateSpec();
@@ -333,6 +430,7 @@ test('stale (409): the current state in words, "Nothing was applied.", and Revie
   assert.equal(d.hidden(d.verb), true);
   assert.equal(d.hidden(d.review), false);
   d.review.fire('click');
+  await flush();
   const next = doc.body.querySelector('.confirm') as El;
   assert.notEqual(next, d.root);
   assert.equal(d.root.parent, null);
@@ -573,6 +671,7 @@ test('"Review again" builds the confirmation from what `make` returns by then, n
   await flush();
   row = { gate: { id: 'gate-b', name: 'Plan approval' }, revision: 9 };
   (first.querySelector('.confirm__review') as El).fire('click');
+  await flush();
   const next = doc.body.querySelector('.confirm') as El;
   assert.equal(text(next.querySelector('.confirm__title') as El), 'Approve Plan approval');
 });

@@ -42,7 +42,7 @@ const K = { main: key(1), linked: key(2), third: key(3), gone: key(4) };
 // No commit time by default: a checkout with no record and a commit time is a C4 conflict, which only the C4 cases want.
 const checkout = (worktreeKey: string, over: any = {}) => ({ worktreeKey, role: 'linked', current: false, branch: 'feat', head: 'abcdef012345', headCommittedAt: null, ...over });
 const hook = (n: number, wk: string, over: any = {}) => ({
-  sessionKey: key(100 + n), worktreeKey: wk, kind: 'hook', harness: 'codex', model: 'gpt-6-luna', modelFirstSeenAt: iso(3 * HOUR), startedAt: iso(3 * HOUR),
+  sessionKey: key(100 + n), worktreeKey: wk, kind: 'hook', harness: 'codex', model: 'gpt-6-luna', modelFirstSeenAt: iso(3 * HOUR), contextCapturedAt: iso(3 * HOUR),
   branchAtStart: null, lastHookRecordAt: iso(HOUR), launched: null, ...over,
 });
 const attempt = (token: number, task: string, over: any = {}) => ({
@@ -83,7 +83,7 @@ test('rows are ordered: the current checkout, then conflicts, then records (newe
       checkout(K.third, { headCommittedAt: iso(50 * HOUR) }), // records only
       checkout(K.linked, { headCommittedAt: iso(HOUR / 2) }), // records, and a commit newer than them (C4)
       checkout(K.main, { role: 'main', current: true }), // current
-    ], [hook(1, K.third, { lastHookRecordAt: iso(2 * HOUR), startedAt: iso(5 * HOUR), modelFirstSeenAt: iso(5 * HOUR) }), hook(2, K.linked, { lastHookRecordAt: iso(3 * HOUR), startedAt: iso(4 * HOUR), modelFirstSeenAt: iso(4 * HOUR) })]),
+    ], [hook(1, K.third, { lastHookRecordAt: iso(2 * HOUR), contextCapturedAt: iso(5 * HOUR), modelFirstSeenAt: iso(5 * HOUR) }), hook(2, K.linked, { lastHookRecordAt: iso(3 * HOUR), contextCapturedAt: iso(4 * HOUR), modelFirstSeenAt: iso(4 * HOUR) })]),
   });
   assert.deepEqual(result.rows.map((r: any) => [r.key, r.group]), [[K.main, 'current'], [K.linked, 'conflict'], [K.gone, 'conflict'], [K.third, 'records']]);
 });
@@ -116,7 +116,7 @@ test('a row names its checkout by branch, or "detached at <sha7>", and counts it
 test('lanes are never merged without a shared key: two sessions of one harness stay two lanes, and an observation with no session directory is its own lane', () => {
   const result = derive({
     observed: observed([checkout(K.main, { role: 'main', current: true })], [
-      hook(1, K.main, { harness: 'codex', startedAt: null }), // an observation only: no session directory, so no start
+      hook(1, K.main, { harness: 'codex', contextCapturedAt: null }), // an observation only: no session directory, so no context capture
       hook(2, K.main, { harness: 'codex' }),
       hook(3, K.main, { harness: null, model: null, modelFirstSeenAt: null }), // a session directory only: the harness is not recorded
     ]),
@@ -283,7 +283,7 @@ test('C3 from alive false only', () => {
 
 test('C4 when the HEAD commit is after the newest record of that checkout', () => {
   const run = (head: string | null, list: any[]) => derive({ observed: observed([checkout(K.main, { role: 'main', current: true, headCommittedAt: head })], list) });
-  const record = hook(1, K.main, { startedAt: iso(5 * HOUR), modelFirstSeenAt: iso(5 * HOUR), lastHookRecordAt: iso(4 * HOUR) });
+  const record = hook(1, K.main, { contextCapturedAt: iso(5 * HOUR), modelFirstSeenAt: iso(5 * HOUR), lastHookRecordAt: iso(4 * HOUR) });
   assert.deepEqual(codes(run(iso(3 * HOUR), [record])), ['C4'], 'a commit after the last record');
   assert.deepEqual(codes(run(iso(4 * HOUR), [record])), [], 'the same second is not after');
   assert.deepEqual(codes(run(iso(6 * HOUR), [record])), [], 'a commit before the last record');
@@ -294,7 +294,7 @@ test('C4 when the HEAD commit is after the newest record of that checkout', () =
   assert.equal(c4.recordAt, iso(4 * HOUR));
   assert.equal(run(iso(6 * HOUR), []).conflicts[0].recordAt, null);
   // The newest record of a checkout is the newest of every lane's times, a start and a model first seen included.
-  assert.deepEqual(codes(run(iso(3 * HOUR), [hook(2, K.main, { startedAt: iso(2 * HOUR), lastHookRecordAt: null })])), [], 'a later start counts as a record');
+  assert.deepEqual(codes(run(iso(3 * HOUR), [hook(2, K.main, { contextCapturedAt: iso(2 * HOUR), lastHookRecordAt: null })])), [], 'a later context capture counts as a record');
 });
 
 test('the conflict words: the overlap names both tasks and the two runs; the outside-DoFlow sentence shows both times and attributes nothing', () => {
@@ -302,7 +302,7 @@ test('the conflict words: the overlap names both tasks and the two runs; the out
   assert.deepEqual(sessions.conflictWords(c1), { label: 'Overlap', text: 'A.4 and A.6 share 2 declared files, held by two runs', announce: 'New conflict: A.4 and A.6 overlap, held by two runs' });
   const one = sessions.conflictWords({ ...c1, fileCount: 1 });
   assert.match(one.text, /share 1 declared file,/);
-  const c4 = derive({ observed: observed([checkout(K.main, { role: 'main', current: true, headCommittedAt: iso(HOUR) })], [hook(1, K.main, { lastHookRecordAt: iso(3 * HOUR), startedAt: iso(3 * HOUR), modelFirstSeenAt: iso(3 * HOUR) })]) }).conflicts[0];
+  const c4 = derive({ observed: observed([checkout(K.main, { role: 'main', current: true, headCommittedAt: iso(HOUR) })], [hook(1, K.main, { lastHookRecordAt: iso(3 * HOUR), contextCapturedAt: iso(3 * HOUR), modelFirstSeenAt: iso(3 * HOUR) })]) }).conflicts[0];
   const clock = (ms: number) => `T${ms - NOW}`;
   assert.equal(sessions.conflictWords(c4, clock).text, `Git shows a commit at T${-HOUR}; DoFlow has no record from this checkout after T${-3 * HOUR}`);
   const none = derive({ observed: observed([checkout(K.main, { role: 'main', current: true, headCommittedAt: iso(HOUR) })]) }).conflicts[0];
@@ -338,10 +338,10 @@ test('no main-session lane carries a live state, and no lane text says active, o
 test('accessible names state kind, harness or owner, times and holds, and the checkout', () => {
   const clock = (ms: number) => new Date(ms).toISOString().slice(11, 16);
   const result = derive({
-    observed: observed([checkout(K.main, { role: 'main', current: true, branch: null, head: '725d3c7aabbcc' })], [hook(1, K.main, { harness: 'codex', model: 'gpt-6-luna', startedAt: iso(3 * HOUR), lastHookRecordAt: iso(HOUR) })]),
+    observed: observed([checkout(K.main, { role: 'main', current: true, branch: null, head: '725d3c7aabbcc' })], [hook(1, K.main, { harness: 'codex', model: 'gpt-6-luna', contextCapturedAt: iso(3 * HOUR), lastHookRecordAt: iso(HOUR) })]),
   });
   const row = rowOf(result, K.main);
-  assert.equal(sessions.laneName(row.lanes[0], row, clock), 'Hook session, codex, model gpt-6-luna, started 09:00, last hook record 11:00, holds nothing, checkout detached at 725d3c7');
+  assert.equal(sessions.laneName(row.lanes[0], row, clock), 'Hook session, codex, model gpt-6-luna, context captured 09:00, last hook record 11:00, holds nothing, checkout detached at 725d3c7');
   const noHarness = derive({ observed: observed([checkout(K.main, { role: 'main', current: true })], [hook(1, K.main, { harness: null, model: null, modelFirstSeenAt: null })]) });
   assert.match(sessions.laneName(noHarness.rows[0].lanes[0], noHarness.rows[0], clock), /^Hook session, harness not recorded, model not recorded,/);
   const full = derive({
@@ -396,7 +396,7 @@ test('limits are carried through, with the truncated and unreadable counts of th
 
 test('the filter chips: conflicts, with records, all', () => {
   const result = derive({
-    observed: observed([checkout(K.main, { role: 'main', current: true }), checkout(K.linked, { headCommittedAt: iso(HOUR / 2) }), checkout(K.third, { headCommittedAt: iso(500 * HOUR) })], [hook(1, K.linked, { lastHookRecordAt: iso(2 * HOUR), startedAt: iso(2 * HOUR), modelFirstSeenAt: iso(2 * HOUR) }), hook(2, K.third)]),
+    observed: observed([checkout(K.main, { role: 'main', current: true }), checkout(K.linked, { headCommittedAt: iso(HOUR / 2) }), checkout(K.third, { headCommittedAt: iso(500 * HOUR) })], [hook(1, K.linked, { lastHookRecordAt: iso(2 * HOUR), contextCapturedAt: iso(2 * HOUR), modelFirstSeenAt: iso(2 * HOUR) }), hook(2, K.third)]),
   });
   const keys = (filter: string) => sessions.filterRows(result.rows, filter).map((r: any) => r.key);
   assert.deepEqual(keys('all'), [K.main, K.linked, K.third]);

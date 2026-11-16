@@ -563,8 +563,9 @@ function disconnectTimeline(local) {
   if (memory && memory.tl) memory.tl.observer = null;
 }
 
-/** The teardown of the view: the rail's observer and the timeline's. @param {any} local */
+/** The teardown of the view: the rail's observer and the timeline's, and the head it filled, so the left page is not held. @param {any} local */
 function releaseRun(local) {
+  headActs = null;
   disconnectTimeline(local);
   releaseRail(local);
   releaseReplay(local);
