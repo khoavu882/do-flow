@@ -106,20 +106,18 @@ test('score CLI exposes numeric JSON, human criterion words and exact criterion 
   assert.equal(JSON.parse(outcome.stdout).actual, 'Medium');
 });
 
- test('IC-008 ask supports a named kind, state-file, server, questions-file and JSON/text output', async (t) => {
+test('IC-008 ask supports a named kind, state-file, server, questions-file and JSON/text output', async (t) => {
   const f = fixture(t);
   const server = await f.startServer();
   writeJson(f.userSettingsFile, userSetting(server.origin));
 
+  // A kind no layer sets is a shadow call (row 174 O-1): the child asks and records, the command shows no answer.
   const json = f.run(['--action', 'ask', '--kind', 'tier', '--state', 'Choose a tier.', '--static', 'standard', '--json']);
   assert.equal(json.status, 0, json.stderr);
   const result = JSON.parse(json.stdout);
-  assert.equal(result.status, 'answered');
-  assert.equal(result.answers[0].kind, 'tier');
-  assert.equal(result.answers[0].pick, 'light');
-  assert.equal(result.answers[0].staticAnswer, 'standard');
-  assert.equal(result.answers[0].agrees, false);
-  assert.match(result.answers[0].pickId, /^adv-[0-9]{13}-[0-9a-f]{6}$/);
+  assert.equal(result.status, 'shadow');
+  assert.deepEqual(result.answers, []);
+  assert.deepEqual(Object.keys(result), ['status', 'reason', 'detail', 'provider', 'model', 'endpoint', 'decidedBy', 'durationMs', 'answers']);
 
   const text = f.run(['--action', 'ask', '--kind', 'tier', '--state-file', path.join(f.scratch.dir, 'state.txt')]);
   // A missing state file is a usage error; create the file and prove the accepted spelling below.
@@ -127,16 +125,16 @@ test('score CLI exposes numeric JSON, human criterion words and exact criterion 
   fs.writeFileSync(path.join(f.scratch.dir, 'state.txt'), 'state from a file');
   const fileResult = f.run(['--action', 'ask', '--kind', 'tier', '--state-file', path.join(f.scratch.dir, 'state.txt')]);
   assert.equal(fileResult.status, 0, fileResult.stderr);
-  assert.match(fileResult.stdout, /^Advice \(tier\): light, clear\./);
-  assert.doesNotMatch(fileResult.stdout, /\d/);
+  assert.equal(fileResult.stdout.trim(), 'Advice (tier): status: shadow; the static answer stands.');
 
+  // An ad hoc question set has no kind setting: with no profile cap the ask is direct and answered.
   const adhoc = f.run(['--action', 'ask', '--questions-file', questionFile(f), '--state', 'Ad hoc state.', '--json']);
   assert.equal(adhoc.status, 0, adhoc.stderr);
   assert.equal(JSON.parse(adhoc.stdout).answers[0].kind, 'adhoc');
 
   const mcp = f.run(['--action', 'ask', '--kind', 'mcp-need', '--server', 'context7', '--state', 'Stage task text.', '--json']);
   assert.equal(mcp.status, 0, mcp.stderr);
-  assert.equal(JSON.parse(mcp.stdout).answers[0].kind, 'mcp-need');
+  assert.equal(JSON.parse(mcp.stdout).status, 'shadow');
 });
 
 test('IC-008 usage errors cover kind/question selection, state, files, server, static and limits', (t) => {
@@ -161,19 +159,22 @@ test('IC-008 usage errors cover kind/question selection, state, files, server, s
   assert.match(tooLarge.stderr, /49152/);
 });
 
-test('IC-008 off and unavailable both print the none line and exit zero', (t) => {
+test('IC-008 off prints its status and unavailable prints the none line, both exit zero', (t) => {
   const off = fixture(t);
   const offResult = off.run(['--action', 'ask', '--kind', 'tier', '--state', 'state']);
   assert.equal(offResult.status, 0, offResult.stderr);
-  assert.match(offResult.stdout, /Advice \(tier\): none; the static answer stands\./);
+  assert.match(offResult.stdout, /Advice \(tier\): status: off; the static answer stands\./);
   const offJson = off.run(['--action', 'ask', '--kind', 'tier', '--state', 'state', '--json']);
   assert.equal(JSON.parse(offJson.stdout).status, 'off');
+  assert.equal(JSON.parse(offJson.stdout).reason, 'not-configured');
 
+  // an ad hoc ask is the direct one, so an unreachable model is reported at once
   const unavailable: any = fixture(t, { setting: userSetting('http://127.0.0.1:9') });
-  const unavailableResult = unavailable.run(['--action', 'ask', '--kind', 'tier', '--state', 'state']);
+  const args = ['--action', 'ask', '--questions-file', questionFile(unavailable), '--state', 'state'];
+  const unavailableResult = unavailable.run(args);
   assert.equal(unavailableResult.status, 0, unavailableResult.stderr);
-  assert.match(unavailableResult.stdout, /Advice \(tier\): none; the static answer stands\./);
-  const unavailableJson = unavailable.run(['--action', 'ask', '--kind', 'tier', '--state', 'state', '--json']);
+  assert.match(unavailableResult.stdout, /Advice \(adhoc\): none; the static answer stands\./);
+  const unavailableJson = unavailable.run([...args, '--json']);
   assert.equal(JSON.parse(unavailableJson.stdout).status, 'unavailable');
   assert.equal(JSON.parse(unavailableJson.stdout).reason, 'unreachable');
 });
@@ -182,20 +183,20 @@ test('IC-009 outcome appends to the pick store and works while the feature is of
   const f = fixture(t);
   const server = await f.startServer();
   writeJson(f.userSettingsFile, userSetting(server.origin));
-  const answered = f.run(['--action', 'ask', '--kind', 'tier', '--state', 'state', '--json']);
+  const answered = f.run(['--action', 'ask', '--questions-file', questionFile(f), '--state', 'state', '--json']);
   assert.equal(answered.status, 0, answered.stderr);
   const pickId = JSON.parse(answered.stdout).answers[0].pickId;
   writeJson(f.userSettingsFile, userSetting(server.origin, { enabled: false }));
-  const outcome = f.run(['--action', 'outcome', '--pick-id', pickId, '--actual', 'light', '--json']);
+  const outcome = f.run(['--action', 'outcome', '--pick-id', pickId, '--actual', 'a', '--json']);
   assert.equal(outcome.status, 0, outcome.stderr);
-  assert.deepEqual(JSON.parse(outcome.stdout), { pickId, actual: 'light', recorded: true, file: path.join(f.project, '.doflow/state/advice/picks', `${new Date().toISOString().slice(0, 10)}.jsonl`) });
+  assert.deepEqual(JSON.parse(outcome.stdout), { pickId, actual: 'a', recorded: true, file: path.join(f.project, '.doflow/state/advice/picks', `${new Date().toISOString().slice(0, 10)}.jsonl`) });
   const line = fs.readFileSync(JSON.parse(outcome.stdout).file, 'utf8');
   assert.match(line, /"type":"outcome"/);
   assert.match(line, /"source":"caller"/);
   assert.equal(f.run(['--action', 'outcome', '--pick-id', 'adv-1780279200000-abcdef', '--actual', 'yes']).status, 1);
   const invalid = f.run(['--action', 'outcome', '--pick-id', pickId, '--actual', 'nope']);
   assert.equal(invalid.status, 2);
-  assert.match(invalid.stderr, /light, standard, frontier/);
+  assert.match(invalid.stderr, /a, b/);
 });
 
 test('configure refuses from a worker session: exit 1, nothing written, and a person runs it from their own terminal', (t: any) => {
@@ -280,7 +281,7 @@ test('advise with a current settings file writes no note on stderr', async (t) =
   const f = fixture(t);
   const server = await f.startServer();
   writeJson(f.userSettingsFile, userSetting(server.origin));
-  const clean = f.run(['--action', 'ask', '--kind', 'tier', '--state', 'Choose a tier.', '--json']);
+  const clean = f.run(['--action', 'ask', '--questions-file', questionFile(f), '--state', 'Choose a tier.', '--json']);
   assert.equal(clean.status, 0, clean.stderr);
   assert.equal(JSON.parse(clean.stdout).status, 'answered');
   assert.equal(clean.stderr, '');

@@ -11,7 +11,6 @@ const { REPO_ROOT } = require('../../helper/repo-root.ts');
 
 const WINDOW_DAYS = 90;
 const DONE_PHRASES: Record<string, string> = Object.freeze({
-  'classify-verdict': 'accepted class',
   'brief-record': 'tier the brief named',
   caller: 'value the caller recorded',
 });

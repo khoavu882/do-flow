@@ -301,21 +301,6 @@ async function askAdvice({ decision, risk, taskClass, slug, files, cwd, env, adv
       `changed files: ${files ?? 'unknown'}`, `decided depth: ${decision.depth}`].join('\n');
     const { resolveShadowConfig } = require('../advice/shadow-config.ts');
     const shadow = resolveShadowConfig('review-depth', { projectRoot: path.resolve(cwd), env, roots });
-    if (!shadow.kindSet) {
-      // advice.kinds.review-depth unset: ask the client directly, as before the dispatcher, and unrecorded. A chosen
-      // rollout profile caps it: off asks nothing, and shadow asks nothing too, since this path records nothing.
-      const { profileAdvisorCap, unsetKindPath } = require('../advice/mode.ts');
-      const route = unsetKindPath(profileAdvisorCap({ projectRoot: path.resolve(cwd), env }));
-      if (route === 'off') return { status: 'off', pick: null };
-      if (route === 'shadow') return { status: 'shadow', pick: null, reason: null };
-      const result = await client.ask({
-        questionSet: { state, questions: [built.question] },
-        kind: 'review-depth', staticAnswer: decision.depth, caller: 'review', taskId: slug, record: false,
-      });
-      const pick = result?.answers?.[0]?.pick;
-      if (result?.status === 'answered' && (pick === 'single' || pick === 'deep')) return { status: 'answered', pick };
-      return { status: result?.status === 'off' ? 'off' : 'unavailable', pick: null };
-    }
     const { interceptDecisionPoint } = require('../advice/shadow-dispatcher.ts');
     const intercepted = await interceptDecisionPoint({
       kind: 'review-depth', caller: 'review', state, staticPick: decision.depth,

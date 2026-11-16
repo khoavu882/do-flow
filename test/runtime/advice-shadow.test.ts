@@ -70,7 +70,6 @@ describe('IC-001: resolveShadowConfig (Per-Kind Shadow Configuration)', () => {
     assert.equal(cfg.kind, 'tier');
     assert.equal(cfg.mode, 'off');
     assert.equal(cfg.model, null);
-    assert.equal(cfg.kindSet, false);
     assert.deepEqual(cfg.diagnostics, []);
   });
 
@@ -139,11 +138,10 @@ describe('IC-001: resolveShadowConfig (Per-Kind Shadow Configuration)', () => {
     assert.equal(reviewCfg.mode, 'off', 'disabled advice must force mode to off');
   });
 
-  test('C-5: a present invalid value is off, never a lower layer\'s value, and still counts as set', (t) => {
+  test('C-5: a present invalid value is off, never a lower layer\'s value', (t) => {
     const { root, env } = layers(t, { local: { 'advice.kinds.tier': 'offf' }, user: { 'advice.kinds.tier': 'act' } });
     const cfg = resolveShadowConfig('tier', { projectRoot: root, env });
     assert.equal(cfg.mode, 'off');
-    assert.equal(cfg.kindSet, true, 'an invalid value must not route the kind to the legacy path');
     assert.match(cfg.decidedBy.mode, /^local:/);
     assert.ok(cfg.diagnostics.some((d: string) => /advice\.kinds\.tier/.test(d) && /offf/.test(d)), JSON.stringify(cfg.diagnostics));
   });
@@ -153,7 +151,6 @@ describe('IC-001: resolveShadowConfig (Per-Kind Shadow Configuration)', () => {
       const { root, files, env } = layers(t, { project: text, user: { 'advice.kinds.tier': 'act' } });
       const cfg = resolveShadowConfig('tier', { projectRoot: root, env });
       assert.equal(cfg.mode, 'off');
-      assert.equal(cfg.kindSet, true);
       assert.ok(cfg.diagnostics.some((d: string) => d.includes(files.project)), JSON.stringify(cfg.diagnostics));
     });
   }
@@ -172,10 +169,9 @@ describe('IC-001: resolveShadowConfig (Per-Kind Shadow Configuration)', () => {
     assert.ok(cfg.diagnostics.some((d: string) => d.includes(files.project)), JSON.stringify(cfg.diagnostics));
   });
 
-  test('C-5: a corrupt layer with the kind set nowhere counts as set and is off, so the dispatcher asks nothing', async (t) => {
+  test('C-5: a corrupt layer with the kind set nowhere is off, so the dispatcher asks nothing', async (t) => {
     const { root, files, env } = layers(t, { project: '{not json' });
     const cfg = resolveShadowConfig('tier', { projectRoot: root, env });
-    assert.equal(cfg.kindSet, true, 'an unreadable config never takes the legacy ask');
     assert.equal(cfg.mode, 'off');
     assert.ok(cfg.diagnostics.some((d: string) => d.includes(files.project)), JSON.stringify(cfg.diagnostics));
     let asked = 0;
@@ -186,6 +182,40 @@ describe('IC-001: resolveShadowConfig (Per-Kind Shadow Configuration)', () => {
     assert.equal(res.mode, 'off');
     await new Promise((resolve) => setTimeout(resolve, 20));
     assert.equal(asked, 0);
+  });
+
+  // Row 174 O-1: a kind no layer sets takes the one dispatcher path, shadow when a decision model is configured.
+  const ADVICE_ON = { 'advice.enabled': true, 'advice.provider': 'ollama', 'advice.endpoint': 'http://127.0.0.1:9' };
+
+  test('174 O-1: an unset kind is shadow when advice is on and a model is configured, off otherwise', (t) => {
+    const on = layers(t, { user: { ...ADVICE_ON, 'advice.model': 'clef-flash' } });
+    const cfg = resolveShadowConfig('tier', { projectRoot: on.root, env: on.env });
+    assert.equal(cfg.mode, 'shadow');
+    assert.equal(cfg.model, 'clef-flash');
+    assert.deepEqual(cfg.diagnostics, []);
+    assert.equal(Object.hasOwn(cfg, 'kindSet'), false, 'there is no second path to route on');
+
+    const perKind = layers(t, { user: { ...ADVICE_ON, 'advice.model': 'clef-flash', 'advice.models.tier': 'tier-model' } });
+    assert.equal(resolveShadowConfig('tier', { projectRoot: perKind.root, env: perKind.env }).model, 'tier-model');
+
+    const notConfigured = layers(t, {});
+    assert.equal(resolveShadowConfig('tier', { projectRoot: notConfigured.root, env: notConfigured.env }).mode, 'off');
+    const disabled = layers(t, { user: { ...ADVICE_ON, 'advice.model': 'clef-flash', 'advice.enabled': false } });
+    assert.equal(resolveShadowConfig('tier', { projectRoot: disabled.root, env: disabled.env }).mode, 'off');
+    const noModel = layers(t, { user: { ...ADVICE_ON, 'advice.model': null } });
+    const noModelCfg = resolveShadowConfig('tier', { projectRoot: noModel.root, env: noModel.env });
+    assert.equal(noModelCfg.model, null);
+    assert.equal(noModelCfg.mode, 'off', 'no model, no call');
+  });
+
+  test('174 O-1: a set kind keeps its own mode, and a corrupt layer stays off, even with a model configured', (t) => {
+    const user = { ...ADVICE_ON, 'advice.model': 'clef-flash' };
+    const off = layers(t, { user: { ...user, 'advice.kinds.tier': 'off' } });
+    assert.equal(resolveShadowConfig('tier', { projectRoot: off.root, env: off.env }).mode, 'off');
+    const act = layers(t, { user: { ...user, 'advice.kinds.tier': 'act' } });
+    assert.equal(resolveShadowConfig('tier', { projectRoot: act.root, env: act.env }).mode, 'act');
+    const corrupt = layers(t, { user, project: '{not json' });
+    assert.equal(resolveShadowConfig('tier', { projectRoot: corrupt.root, env: corrupt.env }).mode, 'off');
   });
 
   test('C-5: a valid local value decides over the user layer', (t) => {

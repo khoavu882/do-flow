@@ -113,14 +113,13 @@ function viewSays(view: any, kind: string) {
   const model = view.get(`advice.models.${kind}`);
   return {
     mode: mode.value ?? 'off',
-    kindSet: mode.origin.layer !== 'default' || mode.candidates.length > 0,
     model: model.value,
   };
 }
 
 function runtimeSays(f: any, kind: string) {
   const cfg = resolveShadowConfig(kind, { projectRoot: f.project, env: f.env() });
-  return { mode: cfg.mode, kindSet: cfg.kindSet, model: cfg.decidedBy.model ? cfg.model : null };
+  return { mode: cfg.mode, model: cfg.decidedBy.model ? cfg.model : null };
 }
 
 function product(values: unknown[], n: number): unknown[][] {

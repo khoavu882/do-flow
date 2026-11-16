@@ -243,7 +243,8 @@ function checkG31TierText({ files }: any): any {
 //    `advise --action outcome` line in the same block or in the next bash block of that file, if that block asks nothing itself. Prose, shell comments and
 //    HTML comments do not count. A new kind lands in one of the two places, or this fails.
 const RUNTIME_ASKED: any = {
-  'task-class': { caller: 'classify', file: 'src/runtime/task-classifier.ts', outcome: /\bappendOutcome\(/ },
+  // Row 174 O-6: classify records no task-class outcome; the class the workflow ran under is not linked to the pick.
+  'task-class': { caller: 'classify', file: 'src/runtime/task-classifier.ts', outcome: null },
   'review-depth': { caller: 'review', file: 'src/runtime/review/start.ts', outcome: null },
   // 141 B.5: the detached shadow hook of `retrieve` asks it; no ground truth exists at the call site, so no outcome.
   rerank: { caller: 'retrieve', file: 'src/runtime/knowledge/retrieval.ts', outcome: null },
@@ -513,7 +514,15 @@ test('G31.4: every registered advice kind has a runtime ask or a skill call site
   test('G31.4 control: a runtime-asked kind is named when its call or its outcome record is gone or commented out', () => {
     const classifier = 'src/runtime/task-classifier.ts';
     assert.ok(names(mutate(classifier, (t) => t.replace(/\b(client\.ask|interceptDecisionPoint)\(/g, '// $1(')), 'task-class'));
-    assert.ok(names(mutate(classifier, (t) => t.replace(/\bappendOutcome\(/g, '// appendOutcome(')), 'task-class'));
+    // No shipped runtime kind records an outcome now (O-6), so the outcome check is exercised with a stand-in pattern that
+    // the classifier source does match, then restored.
+    const entry = RUNTIME_ASKED['task-class'];
+    entry.outcome = /\bsecondOpinion\(/;
+    try {
+      assert.deepEqual(checkG31CallSites({ files: shipped, docs: skillDocs }), []);
+      const findings = mutate(classifier, (t) => t.replace(/\bsecondOpinion\(/g, '// secondOpinion('));
+      assert.ok(findings.some((finding: any) => /^task-class: .* no longer records its outcome/.test(finding)), JSON.stringify(findings));
+    } finally { entry.outcome = null; }
     const review = 'src/runtime/review/start.ts';
     assert.ok(names(mutate(review, (t) => t.replace(/\b(client\.ask|interceptDecisionPoint)\(/g, '/* $1( */')), 'review-depth'));
     assert.ok(names(mutate(review, (t) => t.replaceAll("'review-depth'", "/* 'review-depth' */")), 'review-depth'));

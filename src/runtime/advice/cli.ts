@@ -11,6 +11,9 @@ const { resolveSetting } = require('./config.ts');
 const { loadSettings } = require('../settings/resolve.ts');
 const { writeLayer } = require('../settings/write.ts');
 const { createAdviceClient } = require('./client.ts');
+const { interceptDecisionPoint } = require('./shadow-dispatcher.ts');
+const { resolveShadowConfig } = require('./shadow-config.ts');
+const { profileAdvisorCap, capMode } = require('./mode.ts');
 const { materializeKind, validateQuestionSet, validateStaticAnswer } = require('./kinds.ts');
 const { findPick, appendOutcome } = require('./record.ts');
 const { strengthWords } = require('./strength.ts');
@@ -48,6 +51,8 @@ function emitResult(result: any, { json, kind }: any) {
       const staticText = answer.staticAnswer === null ? '' : ` Static answer: ${answer.staticAnswer}.`;
       console.log(`Advice (${kind}): ${answer.pick}, ${strengthWords(answer.strength)}.${staticText}`);
     }
+  } else if (result.status === 'off' || result.status === 'shadow') {
+    console.log(`Advice (${kind}): status: ${result.status}; the static answer stands.`);
   } else {
     console.log(`Advice (${kind}): none; the static answer stands.`);
   }
@@ -214,7 +219,7 @@ async function handleConfigure(options: any, runtime: any) {
 async function handleAsk(options: any, runtime: any) {
   const parsed = parseAskInput(options);
   if (!parsed) return finishRuntime(2);
-  const { adviceRegistry, adviceError, roots, sources } = runtime;
+  const { adviceRegistry, adviceError } = runtime;
   if (adviceError || !adviceRegistry) {
     const result = {
       status: 'off', reason: 'config-invalid', detail: adviceError || 'advice registry is missing',
@@ -228,7 +233,7 @@ async function handleAsk(options: any, runtime: any) {
   let questionError = null;
   if (parsed.hasKind) {
     kind = options.kind;
-    const built = materializeKind(kind, { adviceRegistry, sources, server: options.server });
+    const built = materializeKind(kind, { adviceRegistry, sources: runtime.sources, server: options.server });
     if (!built.ok && built.reason === 'usage-error') return usageError('advise', built.detail, options.json);
     if (built.ok) questionSet = { state: parsed.state, questions: [built.question] };
     else {
@@ -247,14 +252,67 @@ async function handleAsk(options: any, runtime: any) {
     if (!validation.ok) return usageError('advise', validation.detail, options.json);
   }
 
-  const client = createAdviceClient({ adviceRegistry, roots, sources });
-  const result = await client.ask({
-    questionSet, kind, staticAnswer: options.staticAnswer, caller: 'advise', taskId: options.taskId,
-    record: true,
+  const result = await askThroughDispatcher({
+    options, runtime, parsed, questionSet, kind, questionError,
   });
-  // Preserve the kind materialiser's source-specific diagnostic while the client owns miss recording.
-  if (questionError && result.reason === 'config-invalid') result.detail = questionError;
   return emitResult(result, { json: options.json, kind });
+}
+
+/** The shape client.ask returns, for an ask that made no model call (off, or shadow where the child asks). */
+function noCallResult(status: string, reason: string | null, detail: string | null, setting: any) {
+  return {
+    status, reason, detail,
+    provider: setting?.provider ?? null, model: setting?.model ?? null, endpoint: setting?.endpoint ?? null,
+    decidedBy: setting?.decidedBy ?? { user: null, project: null }, durationMs: 0, answers: [],
+  };
+}
+
+/**
+ * One ask, through the one dispatcher path (row 174). A named kind runs in the mode `advice.kinds.<kind>` and the
+ * rollout profile's cap give it: off asks nothing, shadow hands the call to the detached child and shows nothing, act
+ * shows the model's answer once the kind passes the bench bar (below it the call is a shadow one, with its warning).
+ * An ad hoc question set has no kind setting: the profile cap alone decides between off, shadow and the direct ask.
+ */
+async function askThroughDispatcher({ options, runtime, parsed, questionSet, kind, questionError }: any) {
+  const { adviceRegistry, roots, sources } = runtime;
+  const env = options.env || process.env;
+  const projectRoot = options.projectRoot || undefined;
+  const setting = resolveSetting({ adviceRegistry, roots, env });
+  if (setting.state !== 'on') return noCallResult('off', setting.reason, setting.notes?.[0] || null, setting);
+
+  // The client's own state limit (client.ts), checked here too because a shadow call is asked in the detached child,
+  // after this command has printed; a state over the limit stays a usage error whichever mode the kind runs in.
+  const stateBytes = Buffer.byteLength(questionSet.state, 'utf8');
+  if (stateBytes > adviceRegistry.limits.maxStateBytes) {
+    return {
+      ...noCallResult('unavailable', 'over-limit', `state is ${stateBytes} bytes; the limit is ${adviceRegistry.limits.maxStateBytes} (core/registry/advice.json limits.maxStateBytes)`, setting),
+    };
+  }
+  const client = createAdviceClient({ adviceRegistry, roots, sources });
+  const cap = profileAdvisorCap({ projectRoot, env });
+  if (!parsed.hasKind && capMode(cap, 'act') === 'act') {
+    // No kind setting and no cap on the advisor: the direct ask, bounded by timeoutMs (client.ts).
+    return client.ask({ questionSet, kind, staticAnswer: options.staticAnswer, caller: 'advise', taskId: options.taskId, record: true });
+  }
+  const shadowConfig = parsed.hasKind
+    ? resolveShadowConfig(kind, { projectRoot, env, roots, global: options.global })
+    : { kind, mode: capMode(cap, 'act') === 'shadow' ? 'shadow' : 'off', model: null };
+  // The client's own reply, kept so an act answer prints as it always did; the dispatcher asks through this wrapper.
+  let reply: any = null;
+  const adviceClient = { ask: async (askOptions: any) => { reply = await client.ask(askOptions); return reply; } };
+  const intercepted = await interceptDecisionPoint({
+    kind, caller: 'advise', state: questionSet.state, staticPick: options.staticAnswer ?? '', staticAnswer: options.staticAnswer,
+    questionSet, adviceRegistry, taskId: options.taskId ?? null, projectRoot, env,
+  }, { adviceClient, roots, shadowConfig });
+  if (intercepted.mode === 'off') return noCallResult('off', null, null, setting);
+  if (intercepted.mode === 'shadow') return noCallResult('shadow', intercepted.warning || null, null, setting);
+  // Act: the client's own reply, with the pick id the dispatcher recorded; a question the materialiser could not build
+  // keeps its own diagnostic.
+  if (!reply) return { ...noCallResult('off', 'timeout', null, setting), status: 'unavailable' };
+  if (questionError && reply.reason === 'config-invalid') reply = { ...reply, detail: questionError };
+  if (reply.status !== 'answered') return reply;
+  if (!intercepted.advisorPick) return { ...reply, status: 'unavailable', reason: 'malformed-reply', answers: [] };
+  return { ...reply, answers: reply.answers.map((answer: any, index: number) => (index === 0 ? { ...answer, pickId: intercepted.pickId } : answer)) };
 }
 
 function handleOutcome(options: any, runtime: any) {

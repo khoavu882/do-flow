@@ -13,11 +13,6 @@ type AdviceKindMode = 'off' | 'shadow' | 'act';
 interface KindShadowConfig {
   kind: string;
   mode: AdviceKindMode;
-  /**
-   * true when a settings layer has `advice.kinds.<kind>`, valid or not, or a layer could not be read; callers route
-   * through the dispatcher only then, so an unreadable config never takes the legacy ask.
-   */
-  kindSet: boolean;
   model: string | null;
   decidedBy: {
     mode: string | null;
@@ -159,8 +154,6 @@ function resolveShadowConfig(
     }
   }
 
-  const kindSet = diagnostics.length > 0
-    || loadedCandidates.some(({ content }) => getSettingValue(content, `advice.kinds.${kind}`) !== undefined);
   let resolvedMode: AdviceKindMode = 'off';
   let modeDecidedBy: string | null = null;
 
@@ -211,10 +204,13 @@ function resolveShadowConfig(
     modelDecidedBy = globalSetting?.decidedBy?.project || globalSetting?.decidedBy?.user || null;
   }
 
+  // A kind no layer sets takes the one dispatcher path: shadow when a decision model is configured (advice on and a model
+  // resolved for the kind), otherwise no call. An unreadable or invalid layer, or advice switched off, stays off.
+  if (modeDecidedBy === null && diagnostics.length === 0 && globalSetting?.state === 'on' && resolvedModel) resolvedMode = 'shadow';
+
   return {
     kind,
     mode: resolvedMode,
-    kindSet,
     model: resolvedModel,
     decidedBy: {
       mode: modeDecidedBy,
