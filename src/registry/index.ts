@@ -716,6 +716,8 @@ const WORKER_ALLOWED_KEYS = Object.freeze([...WORKER_KEYS, ...Object.keys(WORKER
 const WORKER_ENTRY_FIELDS = new Set(['status', 'evidence', 'verification', 'verifiedOn', 'reason']);
 // Soft hyphen, Mongolian vowel separator, zero-width and directional marks, word joiner and invisible operators, BOM.
 const INVISIBLE_CHARACTER = /[\u00ad\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff]/;
+/** A bare command name: safe as a file name and as a PATH lookup (a worker recipe's `binary`; conform's fake). */
+const BARE_COMMAND = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const WORKER_RECIPE_FIELDS = new Set(['binary', 'versionArgv', 'argv', 'promptVia', 'parser', 'fieldMap', 'marker', 'quotaSignals', 'protectedPaths']);
 const WORKER_QUOTA_SIGNALS_FIELDS = new Set(['signals', 'unverifiedSignals', 'basis', 'evidence']);
 const WORKER_FACTS = new Set(['hooksLoaded', 'identityForwarded', 'guidanceLoaded', 'login']);
@@ -860,7 +862,7 @@ function validateWorker(value: any, location: string, errors: string[]): void {
       }
     }
 
-    if (Object.hasOwn(entry, 'binary') && (typeof entry.binary !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(entry.binary))) {
+    if (Object.hasOwn(entry, 'binary') && (typeof entry.binary !== 'string' || !BARE_COMMAND.test(entry.binary))) {
       fail(key, 'binary must be a bare command name');
     }
     for (const field of ['versionArgv', 'argv']) {
@@ -1516,7 +1518,7 @@ function capabilityMapData(registry: any): any[] {
 }
 
 module.exports = {
-  REGISTRY_FILES, CAPABILITY_STATUS, COPY_TREE_SELECTS, ORCHESTRATION_STATUS, ORCHESTRATION_OPS, validateOrchestration, AGENT_LIMIT_STATUS, validateAgentLimits, TOOL_SCOPE_CATEGORIES, agentToolScopeView, WORKER_KEYS, WORKER_CAPABILITIES, WORKER_OPTIONAL_CAPABILITIES, validateWorker, CONTEXT_PROFILE_FIELDS, validateContextProfile, PROVIDER_SOURCE_MODES, validateCapabilityProviders, EXTERNAL_TOOL_IDS, EXTERNAL_TOOL_ACTIONS, validateCoverage,
+  REGISTRY_FILES, CAPABILITY_STATUS, COPY_TREE_SELECTS, ORCHESTRATION_STATUS, ORCHESTRATION_OPS, validateOrchestration, AGENT_LIMIT_STATUS, validateAgentLimits, TOOL_SCOPE_CATEGORIES, agentToolScopeView, WORKER_KEYS, WORKER_CAPABILITIES, WORKER_OPTIONAL_CAPABILITIES, validateWorker, BARE_COMMAND, CONTEXT_PROFILE_FIELDS, validateContextProfile, PROVIDER_SOURCE_MODES, validateCapabilityProviders, EXTERNAL_TOOL_IDS, EXTERNAL_TOOL_ACTIONS, validateCoverage,
   parseRegistryFile, registryDir, loadRegistry, validateRegistry, registrySourceMode,
   harnessFor, retiredFor, isRetired, selectAssets, selectMcpServers, mcpCapable, nativeMcpCatalog, capabilityMapData,
 };

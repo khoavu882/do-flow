@@ -698,6 +698,7 @@ module.exports = {
   findOnPath,
   discover,
   probe,
+  exitFact,
   newProbeIdentity,
   observeForwarding,
   bindingObserved,

@@ -64,13 +64,15 @@ const PATH_CALLER_SURFACES: any = ['package.json', path.join('core', 'shared', '
 /**
  * An entry here documents why the named module is deliberately unreferenced — e.g. an entry point
  * invoked only via `node <path>` or `require.resolve` rather than a static `require('...')` a text
- * scan can see. Empty: the three modules no bin/ or src/ file requires are recognised by
+ * scan can see. Otherwise empty: the three modules no bin/ or src/ file requires are recognised by
  * PATH_CALLER_SURFACES (sync-plugin-versions.ts via the `version` npm script, c4-project.ts via
  * render-puml.sh) and CONSUMER_ROOTS (worktree.js via bench/runner.ts), both of which stop
  * vouching for a module the moment its caller goes — which an allowlist entry would not.
  * "Nothing calls it" is never a reason — that module is dead, and belongs deleted, not exempted.
+ * conform-fake.ts (171 R8) is run as a script: conform.ts writes a shell wrapper that execs
+ * `node <path.join(__dirname, 'conform-fake.ts')>`, a computed path no text scan sees.
  */
-const ALLOWLIST: any = new Set([]);
+const ALLOWLIST: any = new Set(['src/runtime/worker/conform-fake.ts']);
 
 /** Every runtime module file (`.js` or `.ts`) under a source/test root. The TypeScript migration
  * (see agent-docs/BRIEF_GOAL_DOFLOW.md) runs `.ts` directly through Node native type-stripping, so a

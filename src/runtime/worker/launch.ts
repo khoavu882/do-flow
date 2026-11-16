@@ -169,6 +169,13 @@ function promptVia(recipe: any): 'argv' | 'stdin' {
   return recipe?.oneShot?.promptVia === 'stdin' ? 'stdin' : 'argv';
 }
 
+/** 171 IC-005: what launch sends for `prompt`: one whole argv element, or the exact stdin bytes (UTF-8, then end).
+ * `main` reads mainSession's transport, else oneShot's. Conform checks the fake received exactly this. */
+function promptInput(recipe: any, prompt: string, main = false): { via: 'argv' | 'stdin'; element: string | null; stdin: Buffer | null } {
+  const via = main ? (recipe?.mainSession?.promptVia === 'argv' ? 'argv' : 'stdin') : promptVia(recipe);
+  return via === 'stdin' ? { via, element: null, stdin: Buffer.from(prompt, 'utf8') } : { via, element: prompt, stdin: null };
+}
+
 /** IC-003: the worker argv for `prompt`; a prompt over its mode's limit is `prompt-too-large`.
  * `edit` selects the edit recipe order (082 IC-014); 120 IC-011 optionally inserts the bound model. */
 function assembleArgv(recipe: any, prompt: string, edit = false, lastMessageFile?: string, binding?: ModelBinding | null): string[] {
@@ -266,8 +273,9 @@ function mainLaunchRecord(recipe: any, prompt: string, model: string | null) {
   };
 }
 
-/** Spawns `file` detached; with `viaStdin` the text is written to stdin and ended. Resolves `{ child, ...extra }` once spawned. */
-function spawnHarness(file: string, args: string[], options: any, viaStdin: boolean, text: string, extra: any): Promise<any> {
+/** Spawns `file` detached; `input.stdin`, when set, is written to stdin and ended. Resolves `{ child, ...extra }` once spawned. */
+function spawnHarness(file: string, args: string[], options: any, input: { stdin: Buffer | null }, extra: any): Promise<any> {
+  const viaStdin = input.stdin !== null;
   return new Promise((resolve, reject) => {
     const child = spawn(file, args, { ...options, detached: true, stdio: [viaStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'] });
     // Kept attached: a reject after the resolve is a no-op, and an early error never goes unhandled.
@@ -276,7 +284,7 @@ function spawnHarness(file: string, args: string[], options: any, viaStdin: bool
       if (viaStdin) {
         // A process that exits before reading closes the pipe; its exit is what the supervisor records.
         child.stdin.on('error', () => {});
-        child.stdin.end(text);
+        child.stdin.end(input.stdin);
       }
       resolve({ child, ...extra });
     });
@@ -296,8 +304,7 @@ function launchMainSession({ recipe, prompt, execWorktree, env, runId, model = n
     if (parser !== null && parserOf(recipe, 'main').id === UNPARSED) {
       throw new LaunchUsageError('parser-unknown', `launchMainSession: parser '${parser}' is not in core PARSERS`);
     }
-    const viaStdin = recipe.mainSession.promptVia !== 'argv';
-    return spawnHarness(recipe.cli?.binary, argv, { cwd: execWorktree, env: sessionEnv, shell: false }, viaStdin, prompt, { env: sessionEnv, launched: null });
+    return spawnHarness(recipe.cli?.binary, argv, { cwd: execWorktree, env: sessionEnv, shell: false }, promptInput(recipe, prompt, true), { env: sessionEnv, launched: null });
   });
 }
 
@@ -331,7 +338,6 @@ function launchWorker({ recipe, prompt, identity, execWorktree, env, taskId, gra
     const text = delivered !== null ? `${delivered}\n\n${prompt}` : prompt;
     const launched = { reason, bytes: delivered !== null ? utf8Bytes(delivered) : 0 };
     const argv = assembleArgv(recipe, text, edit, lastMessageFile, binding);
-    const viaStdin = promptVia(recipe) === 'stdin';
     const { parserIdOf, parserOf, UNPARSED } = parsers();
     const parser = parserIdOf(recipe?.structuredOutput);
     if (parser && parserOf(recipe, 'structured').id === UNPARSED) {
@@ -353,11 +359,11 @@ function launchWorker({ recipe, prompt, identity, execWorktree, env, taskId, gra
       spawnArgs = spec.args;
       spawnOptions = spec.options;
     }
-    spawnHarness(file, spawnArgs, spawnOptions, viaStdin, text, { env: workerEnv, launched }).then(resolve, reject);
+    spawnHarness(file, spawnArgs, spawnOptions, promptInput(recipe, text), { env: workerEnv, launched }).then(resolve, reject);
   });
 }
 
 module.exports = {
   ENV_SET, PROMPT_LIMITS, RECIPE_ORDER, EDIT_RECIPE_ORDER, STARTED_RUN_VAR, LaunchUsageError, argvShape, assembleArgv,
-  launchEnv, launchRecord, launchWorker, mainArgv, mainArgvShape, mainEnv, mainLaunchRecord, launchMainSession,
+  launchEnv, launchRecord, launchWorker, mainArgv, mainArgvShape, mainEnv, mainLaunchRecord, launchMainSession, promptInput,
 };
