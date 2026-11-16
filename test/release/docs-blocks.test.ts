@@ -469,8 +469,7 @@ test('N-1: an unindented heading inside Commands:, a doflow-run group without a 
 test('N-2: the G44 checker formats every expected cell as the generator does (a legacy path with a pipe and angle brackets passes)', (t) => {
   const root = fixture(t);
   editJson(path.join(root, 'core/registry/settings.json'), (raw: any) => {
-    raw.keys['storage.prune'].legacy[0].path = 'x|y<z>.json';
-    raw.keys['storage.prune'].legacy[1].path = 'x|y<z>.json';
+    raw.keys['autopilot.enabled'].legacy[0].path = 'x|y<z>.json';
   });
   const raw = JSON.parse(fs.readFileSync(path.join(root, 'core/registry/settings.json'), 'utf8'));
   const loaded = loadSettingsRegistry({ repoRoot: root, fsImpl: fs, verifyRefs: true });
