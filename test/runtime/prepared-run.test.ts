@@ -393,6 +393,38 @@ test('workers.models validates bindings and reports unevidenced flags without ex
   assert.ok(dangling.json.notes.some((note: string) => note.includes("worker 'zzz-nope' is not installed")));
 });
 
+test('workers.models object slots are judged like bind: provider and effort need a supported descriptor entry and a known level', (t) => {
+  const { validate } = setup(t);
+  const run = (models: any) => validate({ ...VALID(), workers: { models } });
+  const codes = (result: any) => result.json.errors.map((e: any) => [e.key, e.code, e.layer]);
+
+  // codex records provider and effort as unknown: refused, with the slot key, and no model name in the message.
+  const effort = run({ codex: { standard: { model: 'secret-model', effort: 'high' } } });
+  assert.equal(effort.status, 1, `${effort.stdout}${effort.stderr}`);
+  assert.deepEqual(codes(effort), [['workers.models.codex.standard', 'effort-unsupported', null]]);
+  assert.ok(effort.json.errors.every((e: any) => !e.message.includes('secret-model')));
+  const provider = run({ codex: { light: { model: 'm', provider: 'acme' } } });
+  assert.deepEqual(codes(provider), [['workers.models.codex.light', 'provider-unsupported', null]]);
+  const both = run({ codex: { frontier: { model: 'm', provider: 'acme', effort: 'high' } } });
+  assert.deepEqual(codes(both), [
+    ['workers.models.codex.frontier', 'provider-unsupported', null],
+    ['workers.models.codex.frontier', 'effort-unsupported', null],
+  ]);
+
+  // pi lists its effort levels: one outside them is refused, one inside passes, with or without a provider.
+  const level = run({ pi: { standard: { model: 'm', effort: 'bogus' } } });
+  assert.deepEqual(codes(level), [['workers.models.pi.standard', 'effort-unknown-level', null]]);
+  assert.match(level.json.errors[0].message, /off, minimal, low, medium, high, xhigh, max/);
+  const ok = run({ pi: { standard: { model: 'm', effort: 'low' }, light: { model: 'm', provider: 'acme', effort: 'off' } } });
+  assert.equal(ok.status, 0, `${ok.stdout}${ok.stderr}`);
+  assert.deepEqual(ok.json, { ok: true, errors: [] });
+
+  // A plain id, and an object with only a model, are judged as before (a part is not required).
+  const plain = run({ codex: { standard: 'gpt-X', light: { model: 'gpt-X' } } });
+  assert.equal(plain.status, 0, `${plain.stdout}${plain.stderr}`);
+  assert.deepEqual(plain.json, { ok: true, errors: [] });
+});
+
 test('workers prepared-run validation has no side effects and omits notes when none exist', (t) => {
   const { f, validate } = setup(t);
   const before = listing(f.project, f.home, f.xdg);
