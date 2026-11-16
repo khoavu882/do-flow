@@ -54,12 +54,13 @@ function psEnv() {
  * Runs `ps` with `args`. Returns its stdout, or null when `ps` could not run or exceeded its bound.
  * A `ps` that ran and exited non-zero (`-p` naming no live pid) returns what it printed.
  */
-function runPs(args: string[]): string | null {
+function runPs(args: string[], { maxBuffer = 1024 * 1024 }: { maxBuffer?: number } = {}): string | null {
   try {
     return execFileSync(PS_BIN, args, {
       encoding: 'utf8',
       env: psEnv(),
       timeout: PS_TIMEOUT_MS,
+      maxBuffer,
       stdio: ['ignore', 'pipe', 'ignore'],
     });
   } catch (error: any) {
@@ -204,6 +205,39 @@ function treeFromRows(rows: any[], proc: any) {
     }
   }
   return { members: [...byPid.values()], foreignLeader };
+}
+
+/** The bound on the one listing `processTexts` reads; a larger listing fails, which reads as unknown. */
+const TEXTS_MAX_BYTES = 16 * 1024 * 1024;
+
+/**
+ * 165 review A-1: one text per process of this user, its command line and, where the OS shows it, its environment; null when
+ * the listing cannot be read (win32, another platform, `ps` failing, a /proc entry of this user that cannot be read), which a
+ * caller reads as unknown. darwin: one `ps -wwAE -o command=` (environments of other users and of platform binaries are not
+ * shown, so such a process is read from its command line alone). linux: `/proc/<pid>/cmdline` and `environ` of every process
+ * this user owns. Writes nothing and signals nothing.
+ */
+function processTexts({ platform = process.platform, run = runPs, fsImpl = fs, uid = typeof process.getuid === 'function' ? process.getuid() : null }: any = {}): string[] | null {
+  if (platform === 'darwin') {
+    const out = run(['-wwAE', '-o', 'command='], { maxBuffer: TEXTS_MAX_BYTES });
+    return out == null ? null : String(out).split('\n').filter((line) => line.trim() !== '');
+  }
+  if (platform !== 'linux' || uid === null) return null;
+  const texts: string[] = [];
+  let names: string[];
+  try { names = fsImpl.readdirSync('/proc').filter((name: string) => /^[0-9]+$/.test(name)); } catch { return null; }
+  for (const name of names) {
+    try {
+      if (fsImpl.statSync(`/proc/${name}`).uid !== uid) continue;
+      const read = (file: string) => fsImpl.readFileSync(`/proc/${name}/${file}`).toString('utf8').split('\0').join(' ');
+      texts.push(`${read('cmdline')} ${read('environ')}`);
+    } catch (error: any) {
+      // A process that ended between the listing and the read is gone; any other failure leaves the answer unknown.
+      if (error?.code === 'ENOENT' || error?.code === 'ESRCH') continue;
+      return null;
+    }
+  }
+  return texts;
 }
 
 /**
@@ -410,6 +444,7 @@ module.exports = {
   groupMembers,
   groupAlive,
   snapshotTree,
+  processTexts,
   escalate,
   spawnBounded,
 };

@@ -191,7 +191,7 @@ test('a refusal is the refused state with its words; no answer is unknown, never
 });
 
 test('every refusal id and reason id of the start has its own words, and the ones that read again say so', () => {
-  const ids = ['prompt-empty', 'prompt-nul', 'prompt-too-long', 'prompt-leading-dash', 'prompt-leading-at', 'unknown-worktree', 'worktree-gone', 'project-not-found', 'model-not-offered', 'checkout-busy',
+  const ids = ['prompt-empty', 'prompt-nul', 'prompt-too-long', 'prompt-leading-dash', 'prompt-leading-at', 'unknown-worktree', 'worktree-gone', 'project-not-found', 'model-not-offered', 'checkout-busy', 'checkout-busy-unknown',
     'dispatch-running', 'harness-not-startable', 'nested-start', 'actor-limit', 'machine-limit', 'start-rate-limited', 'request-reused', 'core-lacks-action', 'action-timeout'];
   const seen = new Set<string>();
   for (const id of ids) {
@@ -210,6 +210,9 @@ test('every refusal id and reason id of the start has its own words, and the one
   assert.equal(start.startRefusalLines('machine-limit', { open: 4, max: 4 })[0], 'This machine already has 4 of 4 sessions open. Stop one from Layers, then start again. Nothing was started.');
   assert.deepEqual(start.startRefusalLines('phone-scope'), ['This device may only read. Pair a control device from the Android app to act.'], 'a generic id keeps the words of derive/actions.js');
   assert.deepEqual(['worktree-gone', 'checkout-busy', 'dispatch-running', 'prompt-empty', 'request-reused'].map((id) => start.refusalRereads(id)), [true, true, true, false, false]);
+  // 165 review A-1: the unknown hold names the cancel that clears it, with the run id the core gave.
+  assert.match(start.startRefusalLines('checkout-busy-unknown', { runId: 'w-aaaabbbbcccc' }).join(' '), /doflow worker --action cancel --operator --slug started-sessions --worker-run w-aaaabbbbcccc --via console --reason ended/);
+  assert.equal(start.refusalRereads('checkout-busy-unknown'), true);
 });
 
 test('a new request id comes with every submit; a retry of an unanswered one keeps its id, and any other outcome drops it', () => {

@@ -20,9 +20,10 @@
 //
 // Limits (P-4): 1 open per checkout, exact under the lock; 2 per actor and 4 on the machine, counted
 // in this store under the lock plus every other indexed project's store read just before it (design
-// R3 accepts the cross-project race). A run whose supervisor and worker are both seen gone is not
-// open (R5); a liveness reading that is not `false` counts it open. No probe is run: readiness reads
-// the version (`discover`), the probe record and the models catalogue only (D10).
+// R3 accepts the cross-project race). A run is not open only on positive evidence that it is dead
+// (R5, 165 review A-1: `liveness` below); one whose liveness cannot be read counts open, and in the
+// checkout it is refused `checkout-busy-unknown`, which names the cancel that clears it. No probe is
+// run: readiness reads the version (`discover`), the probe record and the models catalogue only (D10).
 //
 // This module makes no fs write call: the run store is written through `insertRun` and `transition`,
 // the prompt through `session-prompt.ts`.
@@ -202,27 +203,54 @@ function dispatchRunning(root: string, platform: string) {
   return null;
 }
 
-/** R5: a non-ended main-session run whose supervisor and worker are both seen gone. Reads `ps`; never under a lock. */
-function isDead(run: any, platform: string, nowMs: number): boolean {
-  if (!run.supervisor) return !(Date.parse(run.createdAt) > nowMs - UNSUPERVISED_GRACE_MS);
-  const gone = (proc: any) => !proc || processTree.alive(proc, { platform }) === false;
-  return gone(run.supervisor) && gone(run.worker);
+/**
+ * 165 review A-1: whether any process of this user names a run id in its command line or environment (the supervisor's argv
+ * carries the run id, the harness's environment `DOFLOW_STARTED_RUN`): `found`, `none` or `unknown` when the listing cannot be
+ * read. The listing is read once, on the first question, and only when one is asked.
+ */
+function namingScan(platform: string) {
+  let texts: string[] | null | undefined;
+  return (runId: string): 'found' | 'none' | 'unknown' => {
+    if (texts === undefined) texts = processTree.processTexts({ platform });
+    if (texts === null || texts === undefined) return 'unknown';
+    return texts.some((text) => text.includes(runId)) ? 'found' : 'none';
+  };
+}
+
+/**
+ * R5, 165 review A-1: `live`, `dead` or `unknown` for a non-ended main-session run. It is dead only on positive evidence: every
+ * process it records (supervisor, worker; pid and start, as `processTree.alive` reads them) is seen gone, and when it records
+ * fewer than both, no process of this user names it (`named`). With neither recorded it is `live` for UNSUPERVISED_GRACE_MS
+ * after its creation, while the spawn is in flight. A reading that is neither true nor false is `unknown`. Reads `ps`; never
+ * under a lock.
+ */
+function liveness(run: any, platform: string, nowMs: number, named: (runId: string) => string): 'live' | 'dead' | 'unknown' {
+  const recorded = [run.supervisor, run.worker].filter(Boolean);
+  const reads = recorded.map((proc: any) => processTree.alive(proc, { platform }));
+  if (reads.includes(true)) return 'live';
+  if (reads.some((read: any) => read !== false)) return 'unknown';
+  if (recorded.length === 2) return 'dead';
+  if (recorded.length === 0 && Date.parse(run.createdAt) > nowMs - UNSUPERVISED_GRACE_MS) return 'live';
+  const seen = named(run.runId);
+  return seen === 'none' ? 'dead' : seen === 'found' ? 'live' : 'unknown';
 }
 
 const isOpenShape = (run: any) => run && run.kind === KIND && run.phase !== 'ended';
 
-/** The open main-session runs of one store, liveness read now. */
-function openRuns(runs: Record<string, any>, platform: string, nowMs: number): any[] {
-  return Object.values(runs).filter((run: any) => isOpenShape(run) && !isDead(run, platform, nowMs));
+/** The open main-session runs of one store, each with its liveness read now: `[{ run, state }]`, the dead left out. */
+function openRuns(runs: Record<string, any>, platform: string, nowMs: number, named: (runId: string) => string): Array<{ run: any; state: string }> {
+  return (Object.values(runs) as any[]).filter(isOpenShape)
+    .map((run) => ({ run, state: liveness(run, platform, nowMs, named) }))
+    .filter((entry) => entry.state !== 'dead');
 }
 
 /** The open started sessions of every other indexed project: `{ total, byActor }`. An unreadable store counts nothing. */
-function elsewhere(others: any[], platform: string, nowMs: number) {
+function elsewhere(others: any[], platform: string, nowMs: number, named: (runId: string) => string) {
   const out = { total: 0, byActor: new Map<string, number>() };
   for (const project of others) {
     let runs: any = {};
     try { runs = readRuns(storeFileFor(project.root, STARTED_SLUG)); } catch { continue; }
-    for (const run of openRuns(runs, platform, nowMs)) {
+    for (const { run } of openRuns(runs, platform, nowMs, named)) {
       out.total += 1;
       out.byActor.set(run.startedBy, (out.byActor.get(run.startedBy) ?? 0) + 1);
     }
@@ -321,14 +349,17 @@ async function startSession(o: any) {
     // path, as `run` records), the recipe and the model part.
     descriptor: { cli: { binary: facts.found.path }, mainSession: worker.mainSession, model: worker.model ?? null },
   };
-  // Liveness is read outside the lock (`ps` is a process); a run inserted after this reading is counted open.
-  const dead = new Set((Object.values(readRuns(file)) as any[]).filter((run) => isOpenShape(run) && isDead(run, platform, nowMs())).map((run) => run.runId));
-  const away = elsewhere(resolved.others, platform, nowMs());
+  // Liveness is read outside the lock (`ps` is a process); a run inserted after this reading is counted open and live.
+  const named = namingScan(platform);
+  const states = new Map((Object.values(readRuns(file)) as any[]).filter(isOpenShape).map((run) => [run.runId, liveness(run, platform, nowMs(), named)]));
+  const away = elsewhere(resolved.others, platform, nowMs(), named);
   const inserted = insertRun(file, record, fs, {
     refuse: (store: any) => {
-      const open = (Object.values(store.runs) as any[]).filter((run) => isOpenShape(run) && !dead.has(run.runId));
-      const busy = open.find((run) => run.project?.worktreeKey === worktreeKey);
+      const open = (Object.values(store.runs) as any[]).filter((run) => isOpenShape(run) && states.get(run.runId) !== 'dead');
+      const here = open.filter((run) => run.project?.worktreeKey === worktreeKey);
+      const busy = here.find((run) => states.get(run.runId) !== 'unknown');
       if (busy) return { code: 'checkout-busy', current: { runId: busy.runId } };
+      if (here.length > 0) return { code: 'checkout-busy-unknown', current: { runId: here[0].runId } };
       const mine = open.filter((run) => run.startedBy === startedBy).length + (away.byActor.get(startedBy) ?? 0);
       if (mine >= LIMITS.perActor) return { code: 'actor-limit', current: { open: mine, max: LIMITS.perActor } };
       const all = open.length + away.total;
@@ -341,7 +372,8 @@ async function startSession(o: any) {
       const existing = readRuns(file)[inserted.runId];
       return { ok: true, replayed: true, run: replyRun(existing, root, projectKey) };
     }
-    return refusal(inserted.reason, LIMIT_WORDS[inserted.reason] ?? inserted.reason, inserted.current);
+    const words = inserted.reason === 'checkout-busy-unknown' ? unknownWords(inserted.current.runId) : LIMIT_WORDS[inserted.reason] ?? inserted.reason;
+    return refusal(inserted.reason, words, inserted.current);
   }
 
   // The prompt (IC-005), then the supervisor. A prompt that cannot be written ends the run not-started.
@@ -368,6 +400,10 @@ async function startSession(o: any) {
   }
   return { ok: true, replayed: false, run: replyRun(run, root, projectKey) };
 }
+
+/** 165 review A-1: the words of `checkout-busy-unknown`, with the cancel that clears it. */
+const unknownWords = (runId: string) => `a started session in this checkout (${runId}) may still be running and its processes cannot be checked; `
+  + `if it has ended, clear it with: doflow worker --action cancel --slug ${STARTED_SLUG} --worker-run ${runId} --operator --via console --reason ended`;
 
 const LIMIT_WORDS: Record<string, string> = Object.freeze({
   'checkout-busy': 'a started session is already open in this checkout',
@@ -406,7 +442,8 @@ function startOptions(o: any) {
   const resolved = resolveProject({ cwd, env, projectKey, projects });
   if (resolved.refused) return resolved.refused;
 
-  const open = openRuns(readRuns(storeFileFor(root, STARTED_SLUG)), platform, nowMs());
+  const named = namingScan(platform);
+  const open = openRuns(readRuns(storeFileFor(root, STARTED_SLUG)), platform, nowMs(), named).map((entry) => entry.run);
   const observed = observedByCheckout(env, root);
   const checkouts = resolved.listed.entries.filter((e: any) => !e.sandbox).slice(0, CHECKOUTS_MAX).map((e: any) => {
     const worktreeKey = cwdHash(e.path);
@@ -428,7 +465,7 @@ function startOptions(o: any) {
     checkouts,
     harnesses,
     limits: LIMITS,
-    open: { machine: open.length + elsewhere(resolved.others, platform, nowMs()).total },
+    open: { machine: open.length + elsewhere(resolved.others, platform, nowMs(), named).total },
     dispatch: dispatch ? { running: true, slug: dispatch.slug } : { running: false },
     promptMax: PROMPT_MAX,
     entries: ENTRIES,

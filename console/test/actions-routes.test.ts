@@ -983,6 +983,8 @@ test('every start-session refusal id maps to IC-004\'s status with the core\'s c
     [refusal('model-not-offered', { harness: 'claude', models: [{ id: 'claude-opus-5-5', source: 'frontier' }, { id: null, source: 'default' }] }), 400, 'model-not-offered',
       { harness: 'claude', models: [{ id: 'claude-opus-5-5', source: 'frontier' }, { id: null, source: 'default' }] }, 1],
     [refusal('checkout-busy', { runId: 'w-aaaabbbbcccc' }), 409, 'checkout-busy', { runId: 'w-aaaabbbbcccc' }, 1],
+    // 165 review A-1: a run whose liveness cannot be read holds the checkout under its own id.
+    [refusal('checkout-busy-unknown', { runId: 'w-aaaabbbbcccc' }), 409, 'checkout-busy-unknown', { runId: 'w-aaaabbbbcccc' }, 1],
     [refusal('dispatch-running', { slug: 'feat-a', driverPid: 4242 }), 409, 'dispatch-running', { slug: 'feat-a', dispatchId: null, driverPid: 4242, reason: null }, 1],
     [refusal('dispatch-running', { slug: 'feat-a', dispatchId: 'd-1' }), 409, 'dispatch-running', { slug: 'feat-a', dispatchId: 'd-1', driverPid: null, reason: null }, 1],
     [refusal('dispatch-running', { slug: 'feat-b', reason: 'store-unreadable' }), 409, 'dispatch-running', { slug: 'feat-b', dispatchId: null, driverPid: null, reason: 'store-unreadable' }, 1],

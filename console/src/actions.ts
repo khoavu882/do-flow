@@ -375,6 +375,7 @@ const START_REFUSALS: Readonly<Record<string, readonly [number, string, string |
   'prompt-leading-at': [400, 'prompt-leading-at', null],
   'model-not-offered': [400, 'model-not-offered', 'models'],
   'checkout-busy': [409, 'checkout-busy', 'run'],
+  'checkout-busy-unknown': [409, 'checkout-busy-unknown', 'run'],
   'dispatch-running': [409, 'dispatch-running', 'dispatch'],
   'harness-not-startable': [409, 'harness-not-startable', 'harness'],
   'nested-start': [409, 'nested-start', 'nested'],

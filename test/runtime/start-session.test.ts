@@ -463,3 +463,76 @@ test('start-options: checkouts, the startable shapes, not-startable reasons, mod
   const mismatch = await executeWorkerCommand({ action: 'start-options', projectKey: 'f'.repeat(16), env: f.env, cwd: f.main, descriptors: DESCRIPTORS, projects: projectsImpl });
   assert.deepEqual([mismatch.exit, mismatch.body.code], [1, 'project-mismatch']);
 });
+
+// ---- 165 review A-1: a run is dead only on positive evidence ------------------------------------------------------------------
+
+const { startSession } = require(path.join(SRC, 'worker', 'start-session.ts'));
+const { SUPERVISOR_FILE } = require(path.join(SRC, 'worker', 'supervisor.ts'));
+
+/** A record whose supervisor never got its pid recorded and whose worker is `proc` (or none), `ageMs` old. */
+function unsupervisedRun(f: any, { proc = null, ageMs = 120000, worktreeKey = f.linkedKey }: any = {}) {
+  const runId = `w-${crypto.randomBytes(6).toString('hex')}`;
+  const r = insertRun(f.store, {
+    runId, kind: 'main-session', task: 'main-session', token: 1, request: requestId(), childOf: null, harness: 'codex',
+    phase: proc ? 'running' : 'starting', createdAt: new Date(Date.now() - ageMs).toISOString(), startedBy: 'console',
+    project: { projectKey: f.projectKey, worktreeKey }, ...(proc ? { worker: proc } : {}),
+  });
+  assert.equal(r.applied, true);
+  return runId;
+}
+
+test('A-1: the CLI dies after spawning the supervisor and before recording its pid; the worker runs; 61 s later a second start is refused checkout-busy', POSIX, async (t: any) => {
+  const f = fixture(t);
+  const env = { ...f.env, FAKE_GATE: f.gate };
+  const reg = loadRegistry({ repoRoot: REPO });
+  // The first start, with a spawn that launches the real supervisor and then "dies": it never records the supervisor's pid.
+  const first = await startSession({
+    ...startArgs(f, { env, harness: 'claude' }), root: f.main, reg, platform: process.platform, clock: () => new Date(), sleep: (ms: number) => new Promise((r) => setTimeout(r, ms)),
+    spawnSupervisor: ({ file, runId }: any) => {
+      const child = spawn(process.execPath, [SUPERVISOR_FILE, file, runId], { detached: true, stdio: 'ignore', cwd: f.main, env });
+      children.push(child);
+      child.unref();
+    },
+  });
+  assert.equal(first.ok, true, JSON.stringify(first));
+  const run = readRuns(f.store)[first.run.runId];
+  assert.equal(run.phase, 'running', JSON.stringify(run));
+  assert.equal(run.supervisor, undefined, 'the supervisor pid was never recorded');
+  assert.ok(run.worker && Number.isInteger(run.worker.pid), 'the supervisor recorded its worker');
+  const later = () => new Date(Date.now() + 61000);
+  const second = await start(f, { now: later, harness: 'codex' });
+  assert.deepEqual([second.exit, second.body.code, second.body.current], [1, 'checkout-busy', { runId: first.run.runId }], JSON.stringify(second.body));
+  assert.equal(Object.keys(readRuns(f.store)).length, 1, 'nothing was inserted');
+});
+
+test('A-1: a run with neither pid recorded, past the launch window, is open while a process names it and dead once none does', POSIX, async (t: any) => {
+  const f = fixture(t);
+  const runId = unsupervisedRun(f);
+  // A process whose environment names the run, as a started harness's does.
+  const named = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 120000)'], { stdio: 'ignore', env: { ...f.env, DOFLOW_STARTED_RUN: runId } });
+  children.push(named);
+  await new Promise((r) => named.once('spawn', r));
+  const held = await start(f, { harness: 'codex' });
+  assert.deepEqual([held.exit, held.body.code, held.body.current], [1, 'checkout-busy', { runId }], JSON.stringify(held.body));
+  named.kill('SIGKILL');
+  await new Promise((r) => named.once('exit', r));
+  const free = await start(f, { harness: 'codex' });
+  assert.equal(free.exit, 0, JSON.stringify(free.body));
+  await ended(f, free.body.run.runId);
+});
+
+test('A-1: a run whose liveness cannot be read is refused checkout-busy-unknown with the cancel that clears it; after that cancel a start is admitted', POSIX, async (t: any) => {
+  const f = fixture(t);
+  // A live pid with no recorded start: `alive` cannot tell it from a reused pid, so the reading is unknown.
+  const proc = { ...liveChild(), start: null };
+  const runId = unsupervisedRun(f, { proc });
+  const refused = await start(f, { harness: 'codex' });
+  assert.deepEqual([refused.exit, refused.body.code, refused.body.current], [1, 'checkout-busy-unknown', { runId }], JSON.stringify(refused.body));
+  assert.match(refused.body.message, new RegExp(`doflow worker --action cancel --slug started-sessions --worker-run ${runId} --operator --via console --reason ended`));
+  const cancel = await executeWorkerCommand({ action: 'cancel', slug: 'started-sessions', workerRun: runId, operator: true, via: 'console', reason: 'ended', env: f.env, cwd: f.main, descriptors: DESCRIPTORS });
+  assert.equal(cancel.exit, 0, JSON.stringify(cancel.body));
+  assert.equal(readRuns(f.store)[runId].phase, 'ended');
+  const free = await start(f, { harness: 'codex' });
+  assert.equal(free.exit, 0, JSON.stringify(free.body));
+  await ended(f, free.body.run.runId);
+});

@@ -310,6 +310,10 @@ function startRefusalLines(code, current, extra = {}) {
     case 'project-not-found': return ['This project is no longer in DoFlow’s index. The project list is read again. Nothing was started.'];
     case 'model-not-offered': return [`${typeof c.harness === 'string' ? c.harness : 'The harness'} does not offer that model any more. The options are read again. Nothing was started.`];
     case 'checkout-busy': return ['A started session is already open in this checkout. Stop it from Layers, then start again. Nothing was started.'];
+    case 'checkout-busy-unknown': return [
+      'A started session in this checkout may still be running, and DoFlow cannot check its processes. Nothing was started.',
+      `If it has ended, clear it in a terminal on this machine: doflow worker --action cancel --operator --slug started-sessions --worker-run ${typeof c.runId === 'string' && RUN_ID.test(c.runId) ? c.runId : '<run id>'} --via console --reason ended`,
+    ];
     case 'dispatch-running': return [`A dispatch is running${typeof c.slug === 'string' ? ` in ${c.slug}` : ''}; start again when it ends. Nothing was started.`];
     case 'harness-not-startable': return [`${typeof c.harness === 'string' ? c.harness : 'The harness'} cannot start here: ${reasonWords(c.reason)}. Nothing was started.`];
     case 'nested-start': return ['This Console runs inside a started session, which cannot start another. Nothing was started.'];
@@ -324,7 +328,7 @@ function startRefusalLines(code, current, extra = {}) {
 }
 
 /** Whether a refusal means the options the form drew are old, so the page reads them again. @param {any} code */
-const refusalRereads = (code) => ['unknown-worktree', 'worktree-gone', 'project-not-found', 'model-not-offered', 'checkout-busy', 'dispatch-running', 'harness-not-startable', 'actor-limit', 'machine-limit'].includes(code);
+const refusalRereads = (code) => ['unknown-worktree', 'worktree-gone', 'project-not-found', 'model-not-offered', 'checkout-busy', 'checkout-busy-unknown', 'dispatch-running', 'harness-not-startable', 'actor-limit', 'machine-limit'].includes(code);
 
 // ---- the state of a start (design §10 states 4 to 8) ---------------------------------------------------------------------------------------------
 
