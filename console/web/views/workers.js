@@ -45,7 +45,7 @@ function concept(matrix, settings, doctor, login) {
     const worker = doctor?.workers?.rows?.find((/** @type {any} */ row) => row.harness === id);
     const pending = doctor === null;
     const installed = pending ? 'not checked yet' : pool?.installed == null ? 'unknown' : pool.installed ? 'yes' : 'no';
-    const loginText = login.body === null && !login.error ? 'not checked yet' : loginCell(login.body?.harnesses?.find((/** @type {any} */ row) => row.harness === id));
+    const loginText = login.error ? 'unknown (could not read)' : login.body === null ? 'not checked yet' : loginCell(login.body.harnesses?.find((/** @type {any} */ row) => row.harness === id));
     const eligible = pending ? 'not checked yet' : worker?.eligible == null ? 'unknown' : worker.eligible ? 'yes' : 'no';
     const gap = pending ? 'not checked yet' : worker?.firstGap ? [worker.firstGap.requirement, worker.firstGap.result, worker.firstGap.reason].filter(Boolean).join(': ') : worker ? 'none reported' : 'unknown';
     return h('tr', {}, [id, model, text(bill ?? matrixRow?.billing), installed, loginText, eligible, gap].map((value) => h('td', {}, value)));
@@ -77,14 +77,22 @@ function renderWorkers(body, _params, local) {
   };
   if (!memory.controller) {
     const apiGet = typeof local.apiGet === 'function' ? local.apiGet : () => Promise.reject({ network: true });
-    memory.controller = createDoctorRead({ apiGet, onChange: (state) => { if (memory.drawConcept) memory.drawConcept(state); } });
+    const doctor = createDoctorRead({ apiGet, onChange: (state) => { if (memory.drawConcept) memory.drawConcept(state); } });
+    // 172 IC-005: the Login column is its own read (the answer of the login store, not doctor): once with doctor's first read and again with each
+    // doctor refresh. A failed read drops the old answer, so the column says it could not read rather than showing a stale one.
+    let reading = false;
+    const readLogin = () => {
+      if (reading) return;
+      reading = true;
+      Promise.resolve(apiGet('/api/harness-login')).then(
+        (/** @type {any} */ body) => { memory.login = { body, error: false }; },
+        () => { memory.login = { body: null, error: true }; },
+      ).then(() => { reading = false; if (memory.drawConcept) memory.drawConcept(memory.controller.state); });
+    };
+    memory.controller = { open: () => doctor.open(), refresh: () => { readLogin(); return doctor.refresh(); }, get state() { return doctor.state; } };
     void memory.controller.open();
-    // 172 IC-005: the Login column is its own read (the answer of the login store, not doctor); once per view instance, like doctor's first read.
     memory.login = { body: null, error: false };
-    Promise.resolve(apiGet('/api/harness-login')).then(
-      (/** @type {any} */ body) => { memory.login = { body, error: false }; },
-      () => { memory.login = { body: null, error: true }; },
-    ).then(() => { if (memory.drawConcept) memory.drawConcept(memory.controller.state); });
+    readLogin();
   }
   memory.drawConcept(memory.controller.state);
   const selectionKey = (/** @type {any} */ selection) => selection ? `${selection.harness}/${selection.group}/${selection.cell}` : '';

@@ -145,6 +145,7 @@ function setup(matrix: any = MATRIX) {
   const render = () => view.renderWorkers(body, {}, local);
   return {
     requests, local, inspector, render,
+    answerDoctorRefresh: () => pending.get('/api/doctor?refresh=1')!.resolve({ doctor: { workers: { rows: [] }, workerPool: { harnesses: [] } }, at: AT, refresh: 'ran' }),
     answer: (doctor: any) => pending.get('/api/doctor')!.resolve({ doctor, at: AT, refresh: 'ran' }),
     answerLogin: (harnesses: any[]) => pending.get('/api/harness-login')!.resolve({ v: 1, harnesses }),
     failLogin: () => pending.get('/api/harness-login')!.reject({ status: 502, code: 'core-contract-mismatch', network: false }),
@@ -225,8 +226,27 @@ test('172: the Login column reads GET /api/harness-login once, apart from doctor
 test('172: a failed login read says unknown in the Login column and leaves the other columns alone; a harness the answer lacks is unknown', async () => {
   const ctx = setup(); const root = ctx.render();
   ctx.failLogin(); await flush();
-  assert.equal(loginCellOf(root, 'codex'), 'unknown');
+  assert.equal(loginCellOf(root, 'codex'), 'unknown (could not read)', 'a failed read is not a real unknown');
   const other = setup(); const second = other.render();
   other.answerLogin([answerOf({ harness: 'pi', state: 'logged-in', reason: null, source: 'recipe', at: AT })]); await flush();
   assert.equal(loginCellOf(second, 'codex'), 'unknown');
+});
+
+test('172: each doctor refresh reads the login answer again; a failed re-read says could not read, a later good one answers', async () => {
+  const ctx = setup(); const root = ctx.render();
+  ctx.answerLogin([answerOf({ harness: 'codex', state: 'logged-in', reason: null, source: 'recipe', at: AT })]); await flush();
+  ctx.answer({ workers: { rows: [] }, workerPool: { harnesses: [] } }); await flush();
+  assert.equal(loginCellOf(root, 'codex'), 'logged-in (login check)');
+  const reads = () => ctx.requests.filter((r: string) => r === '/api/harness-login').length;
+  assert.equal(reads(), 1);
+  void ctx.local.workersMemory.controller.refresh(); await flush();
+  assert.equal(reads(), 2, 'the refresh read the login answer again');
+  assert.ok(ctx.requests.includes('/api/doctor?refresh=1'));
+  ctx.failLogin(); await flush();
+  assert.equal(loginCellOf(root, 'codex'), 'unknown (could not read)', 'the old answer is not shown as if it were current');
+  ctx.answerDoctorRefresh(); await flush();
+  void ctx.local.workersMemory.controller.refresh(); await flush();
+  assert.equal(reads(), 3);
+  ctx.answerLogin([answerOf({ harness: 'codex', state: 'logged-out', reason: 'logged-out', source: 'recipe', at: AT })]); await flush();
+  assert.equal(loginCellOf(root, 'codex'), 'logged-out (login check)');
 });
