@@ -633,13 +633,10 @@ test('a revert of an autopilot merge sets the sentinel once; a person clears it'
   assert.deepEqual([cleared.result.outcome, cleared.result.step], ['acted', 'pick'], 'the same revert does not trip twice');
 });
 
-/** The plan input a gate-b approval records (plan-verification-absent): plan.md, else planning/plan.md, else absent. */
+/** The plan input a gate-b approval records (plan-verification-absent): plan.md, else absent. */
 function planInput(f: any, row: any = ROW) {
-  for (const rel of ['plan.md', 'planning/plan.md']) {
-    const file = path.join(f.featureDir(row), rel);
-    if (fs.existsSync(file)) return { locator: file, sha256: digest(fs.readFileSync(file)) };
-  }
-  return { locator: path.join(f.featureDir(row), 'plan.md'), sha256: digest('') };
+  const file = path.join(f.featureDir(row), 'plan.md');
+  return { locator: file, sha256: digest(fs.existsSync(file) ? fs.readFileSync(file) : '') };
 }
 
 async function completedRow(t: any, { rows, arrange, entry = {} }: any = {}) {

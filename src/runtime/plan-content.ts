@@ -300,14 +300,11 @@ function planFindings({ planAbs, text, displayPath, cwd }: { planAbs: string; te
  * `advisories` are printed and recorded nowhere else. A run with no feature, or a feature with no
  * plan, is refused: the planning stage exists to produce that plan. */
 function planStageExit({ roots, slug }: { roots: string[]; slug: string | null }) {
-  // plan.md, else planning/plan.md under the structured layout (the roadmap facts read the same two).
   const feature = slug ? path.join('agent-docs', 'doflow', slug) : null;
-  const found = feature ? roots.flatMap((r) => ['plan.md', path.join('planning', 'plan.md')].map((rel) => ({ r, rel: path.join(feature, rel) })))
-    .find(({ r, rel }) => fs.existsSync(path.join(r, rel))) : undefined;
-  const relative = found ? found.rel : feature ? path.join(feature, 'plan.md') : null;
-  const root = found?.r;
+  const relative = feature ? path.join(feature, 'plan.md') : null;
+  const root = relative ? roots.find((r) => fs.existsSync(path.join(r, relative))) : undefined;
   if (!relative || !root) {
-    const where = relative ? `${relative} (or planning/plan.md) under ${roots.join(', ')}` : 'a plan: the run names no feature';
+    const where = relative ? `${relative} under ${roots.join(', ')}` : 'a plan: the run names no feature';
     return { refusals: [{ rule: 'plan-missing', severity: 'refuses-exit', path: relative || 'plan.md', line: 1, message: `no plan to check (looked for ${where}); write plan.md before completing the planning stage` }] as Finding[], advisories: [] as Finding[] };
   }
   let planText: string;
