@@ -5,7 +5,7 @@
 // session's model, `resolvePrimary` (settings and observation files). Starts no process.
 
 const { readBindings, resolveBinding, resolveOrchestratorModel } = require('../worker/models.ts');
-const { modelCheck, effortCheck } = require('../worker/model-choice.ts');
+const { modelCheck, providerCheck, effortCheck } = require('../worker/model-choice.ts');
 const { bindingCell } = require('./binding-text.ts');
 
 /** The tier slots shown per harness, then the orchestrator role. */
@@ -20,10 +20,10 @@ function onPath(worker: any, env: any): boolean {
   try { return require('../worker/readiness.ts').findOnPath(binary, env) !== null; } catch { return false; }
 }
 
-/** 169 IC-005: the display cell of a bound choice on one harness: its model and effort checks, computed now (D10) from
+/** 169 IC-005: the display cell of a bound choice on one harness: its model, provider and effort checks, computed now (D10) from
  * the harness's catalogue entry (null for none), and `effortMayLower` from the descriptor's `effort.mayLower` (L-3). */
 function cellFor(choice: any, descriptor: any, entry: any): any {
-  const checks = { model: modelCheck(entry, choice, descriptor), effort: effortCheck(entry, choice, descriptor) };
+  const checks = { model: modelCheck(entry, choice, descriptor), provider: providerCheck(entry, choice, descriptor), effort: effortCheck(entry, choice, descriptor) };
   const effortMayLower = descriptor?.effort?.status === 'supported' && descriptor.effort.mayLower === true;
   return bindingCell(choice, checks, { effortMayLower });
 }

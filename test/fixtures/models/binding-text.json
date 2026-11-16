@@ -221,6 +221,35 @@
    },
    "text": "Gemini 4 Argon (Medium)",
    "code": "`Gemini 4 Argon (Medium)`"
+  },
+  {
+   "cell": {
+    "model": "gpt-y",
+    "provider": "openai",
+    "effort": null,
+    "check": {
+     "model": "listed",
+     "effort": null,
+     "provider": "unchecked"
+    }
+   },
+   "text": "gpt-y (provider openai) [provider unchecked]",
+   "code": "`gpt-y` (provider openai) [provider unchecked]"
+  },
+  {
+   "cell": {
+    "model": "gpt-y",
+    "provider": "openai",
+    "effort": "low",
+    "check": {
+     "model": "listed",
+     "effort": "unchecked",
+     "provider": "unchecked"
+    },
+    "effortMayLower": true
+   },
+   "text": "gpt-y (provider openai, effort low) [provider unchecked, effort unchecked, the harness may lower the effort]",
+   "code": "`gpt-y` (provider openai, effort low) [provider unchecked, effort unchecked, the harness may lower the effort]"
   }
  ]
 }

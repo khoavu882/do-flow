@@ -274,3 +274,21 @@ test('169 A-05: models.enabled marks a listed model by its bare id or by the com
   assert.equal(await describe({ provider: 'openai-codex' }), 'listed');
   assert.equal(await describe(), 'enabled', 'with no provider given, one enabled offering is enough');
 });
+
+test('169 A-08: a bound provider against a listing with no provider column binds, marked provider unchecked', async (t: any) => {
+  const s = setup(t);
+  await s.seed({
+    pi: { harnessId: 'pi', binary: 'pi', installed: true, version: '1', detectedMode: 'subscription', derivedBilling: 'free', offeredModels: [{ id: 'gpt-x' }, { id: 'other' }], lastSyncedAt: NOW, modelList: { status: 'listed' } },
+  });
+  fs.writeFileSync(path.join(s.env.PATH, 'pi'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  // An id the listing lacks is still refused (first: a refusal leaves the process exit code at 1, a later success resets it).
+  await refused(s, { harness: 'pi', tier: 'standard', model: 'nope', provider: 'openai' }, 'unlisted-model');
+  const res = await bind(s, { harness: 'pi', tier: 'light', model: 'gpt-x', provider: 'openai' });
+  assert.equal(res.code, 0, res.out + res.err);
+  const body = JSON.parse(res.out);
+  assert.equal(body.checked, 'listed');
+  assert.deepEqual(body.check, { model: 'listed', effort: null, provider: 'unchecked' });
+  assert.deepEqual(s.bindings(), { pi: { light: { model: 'gpt-x', provider: 'openai' } } });
+  const text = (await call(s, 'list')).out;
+  assert.match(text, /light=gpt-x \(provider openai\) \[provider unchecked\]/);
+});

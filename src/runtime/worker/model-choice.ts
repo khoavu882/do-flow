@@ -102,13 +102,19 @@ function listedOf(entry: any): any[] | null {
 }
 
 /**
- * IC-003: the offered entries (OfferedModel[]) a choice matches. With a provider: same id and provider. Without: the same
- * id, or `provider + separator + id` equal to the model when the descriptor's provider is `id-prefix`.
+ * IC-003: the offered entries (OfferedModel[]) a choice matches. With a provider: same id and provider, or, when none of the
+ * entries with that id carries a provider (A-08), the same id. Without: the same id, or `provider + separator + id` equal to
+ * the model when the descriptor's provider is `id-prefix`.
  */
 function matchListed(entries: any[], choice: ModelChoice, worker: any): any[] {
   const prefix = worker?.provider?.status === 'supported' && worker.provider.via === 'id-prefix' ? worker.provider.separator : null;
+  if (choice.provider !== null) {
+    const sameId = entries.filter((m: any) => m.id === choice.model);
+    const named = sameId.filter((m: any) => m.provider === choice.provider);
+    // A listing that carries no provider for the id cannot say which one lists it: match on the id (`providerCheck` marks it).
+    return named.length > 0 || sameId.some((m: any) => typeof m.provider === 'string') ? named : sameId;
+  }
   return entries.filter((m: any) => {
-    if (choice.provider !== null) return m.id === choice.model && m.provider === choice.provider;
     if (m.id === choice.model) return true;
     return prefix !== null && typeof m.provider === 'string' && m.provider + prefix + m.id === choice.model;
   });
@@ -126,6 +132,17 @@ function modelCheck(entry: any, choice: ModelChoice, worker: any): Check {
   if (matches.length === 0) return 'not-listed';
   if (choice.provider === null && new Set(matches.map((m: any) => m.provider ?? null)).size > 1) return 'several-providers';
   return 'listed';
+}
+
+/**
+ * 169 A-08: `unchecked` when a provider is bound and the matched entries carry none (the listing cannot confirm it); else null.
+ */
+function providerCheck(entry: any, choice: ModelChoice, worker: any): 'unchecked' | null {
+  if (choice.provider === null) return null;
+  const list = listedOf(entry);
+  if (list === null) return null;
+  const matches = matchListed(list, choice, worker);
+  return matches.length > 0 && matches.every((m: any) => typeof m.provider !== 'string') ? 'unchecked' : null;
 }
 
 /** One matched model's verdict on an effort; `offLevel` is the descriptor's level that switches reasoning off. */
@@ -160,4 +177,4 @@ function enabledIn(allowed: string[], model: string, provider: string | null, wo
   return provider !== null && entry?.status === 'supported' && entry.via === 'id-prefix' && allowed.includes(provider + entry.separator + model);
 }
 
-module.exports = { keyOf, choiceOf, composeModelPart, matchListed, modelCheck, effortCheck, enabledIn };
+module.exports = { keyOf, choiceOf, composeModelPart, matchListed, modelCheck, providerCheck, effortCheck, enabledIn };

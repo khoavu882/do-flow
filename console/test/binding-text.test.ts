@@ -42,4 +42,8 @@ test('bindingNotes lists the notes in the core\'s order and nothing for a defaul
     words.bindingNotes({ model: 'gpt-y', provider: null, effort: 'low', check: { model: 'several-providers', effort: 'unchecked' }, effortMayLower: true }),
     ['several providers list it', 'effort unchecked', 'the harness may lower the effort'],
   );
+  assert.deepEqual(
+    words.bindingNotes({ model: 'gpt-y', provider: 'openai', effort: 'low', check: { model: 'listed', effort: 'unchecked', provider: 'unchecked' }, effortMayLower: true }),
+    ['provider unchecked', 'effort unchecked', 'the harness may lower the effort'],
+  );
 });

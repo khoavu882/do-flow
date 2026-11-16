@@ -12,7 +12,7 @@ const FIXTURE = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../fixtur
 test('the fixture is schema 1 and covers the notes of design 7', () => {
   assert.equal(FIXTURE.schema, 1);
   const texts = FIXTURE.rows.map((r: any) => r.text).join('\n');
-  for (const note of ['model unchecked', 'not in the list', 'several providers list it', 'effort unchecked', 'effort not offered by the model', 'the harness may lower the effort', 'harness default', 'unresolved']) {
+  for (const note of ['model unchecked', 'not in the list', 'several providers list it', 'provider unchecked', 'effort unchecked', 'effort not offered by the model', 'the harness may lower the effort', 'harness default', 'unresolved']) {
     assert.ok(texts.includes(note), note);
   }
 });
@@ -39,6 +39,10 @@ test('bindingCell builds the IC-005 cell and the may-lower flag only for a bound
   const noEffort = bindingCell({ model: 'gpt-y', provider: null, effort: null }, { model: 'unchecked', effort: null }, { effortMayLower: true });
   assert.deepEqual(noEffort, { model: 'gpt-y', provider: null, effort: null, check: { model: 'unchecked', effort: null } });
   assert.equal(bindingCell(null, { model: 'unchecked', effort: null }), null);
+  // 169 A-08: the provider mark is carried only when it is `unchecked` and a provider is bound.
+  assert.deepEqual(bindingCell(choice, { model: 'listed', effort: 'listed', provider: 'unchecked' }).check, { model: 'listed', effort: 'listed', provider: 'unchecked' });
+  assert.deepEqual(bindingCell({ model: 'gpt-y', provider: null, effort: null }, { model: 'listed', effort: null, provider: 'unchecked' }).check, { model: 'listed', effort: null });
+  assert.deepEqual(bindingCell(choice, { model: 'listed', effort: 'listed', provider: null }).check, { model: 'listed', effort: 'listed' });
   // Every fixture cell round-trips through the builder and renders to its row.
   for (const row of FIXTURE.rows.filter((r: any) => r.cell && typeof r.cell === 'object')) {
     const c = row.cell;

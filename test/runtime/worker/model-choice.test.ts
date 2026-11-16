@@ -3,7 +3,7 @@
 // test-only Pi-shaped and OpenCode-shaped worker blocks, so no shipped data and no harness CLI is involved.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { choiceOf, composeModelPart, matchListed, modelCheck, effortCheck } = require('../../../src/runtime/worker/model-choice.ts');
+const { choiceOf, composeModelPart, matchListed, modelCheck, providerCheck, effortCheck } = require('../../../src/runtime/worker/model-choice.ts');
 
 const piWorker = (over: any = {}) => ({
   model: { status: 'supported', argv: ['--model', '{model}'] },
@@ -151,4 +151,24 @@ test('effortCheck covers every row of design 6.3', () => {
   assert.equal(effortCheck(both, choice('m', null, 'medium'), w), 'not-offered');
   assert.equal(effortCheck(both, choice('m', null, 'high'), w), 'unchecked');
   assert.equal(effortCheck(both, choice('m', 'b', 'high'), w), 'listed');
+});
+
+test('169 A-08: a bound provider against a listing that carries no provider matches on the id and reads provider unchecked', () => {
+  const w = piWorker();
+  const bare = entryOf([{ id: 'gpt-x' }, { id: 'other' }]);
+  assert.deepEqual(matchListed(bare.offeredModels, choice('gpt-x', 'openai'), w), [{ id: 'gpt-x' }]);
+  assert.equal(modelCheck(bare, choice('gpt-x', 'openai'), w), 'listed');
+  assert.equal(providerCheck(bare, choice('gpt-x', 'openai'), w), 'unchecked');
+  assert.equal(effortCheck(entryOf([{ id: 'gpt-x', effortLevels: ['low'] }]), choice('gpt-x', 'openai', 'low'), w), 'listed');
+  // A listing that carries providers stays strict: a different provider is not-listed, a matching one is checked.
+  const rich = entryOf([GPT_OPENAI, GPT_AZURE]);
+  assert.equal(modelCheck(rich, choice('gpt-x', 'nobody'), w), 'not-listed');
+  assert.equal(providerCheck(rich, choice('gpt-x', 'azure'), w), null);
+  assert.equal(modelCheck(entryOf([GPT_OPENAI, { id: 'gpt-x' }]), choice('gpt-x', 'azure'), w), 'not-listed', 'a mixed listing is not provider-less');
+  assert.equal(providerCheck(entryOf([GPT_OPENAI, { id: 'gpt-x' }]), choice('gpt-x', 'openai'), w), null);
+  // No provider bound, no list, no match: nothing to mark.
+  assert.equal(providerCheck(bare, choice('gpt-x'), w), null);
+  assert.equal(providerCheck(entryOf([], 'none-recorded'), choice('gpt-x', 'openai'), w), null);
+  assert.equal(providerCheck(null, choice('gpt-x', 'openai'), w), null);
+  assert.equal(providerCheck(bare, choice('nope', 'openai'), w), null);
 });
