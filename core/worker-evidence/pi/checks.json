@@ -63,6 +63,14 @@
         "^\\s+--approve, -a\\s+Trust project-local files"
       ],
       "establishes": ["mainSession"]
+    },
+    {
+      "id": "project-trust",
+      "argv": ["--help"],
+      "expect": [
+        "^\\s+--no-approve, -na\\s+Ignore project-local files for this run"
+      ],
+      "establishes": ["mainSession"]
     }
   ]
 }

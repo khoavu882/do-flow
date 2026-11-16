@@ -75,8 +75,8 @@ test('the shipped registry: 7 harnesses, 15 worker and 6 orchestration cells, th
   assert.deepEqual(b.groups.worker, WORKER_NAMES);
   assert.deepEqual(b.groups.orchestration, ORCHESTRATION_NAMES);
   assert.deepEqual(b.counts, {
-    // antigravity's model entry is supported (core/worker-evidence/antigravity/2026-11-07-cli-check.json); 165: mainSession is supported for claude, codex, opencode and pi, unknown for the other three.
-    worker: { supported: 44, unknown: 61, unsupported: 0 },
+    // antigravity's model entry is supported (core/worker-evidence/antigravity/2026-11-07-cli-check.json); 165: mainSession is supported for claude, codex, opencode and pi, unknown for the other three; 168: pi's persistentSession, resume and steering are unsupported.
+    worker: { supported: 44, unknown: 58, unsupported: 3 },
     orchestration: { supported: 23, unknown: 17, unsupported: 2 },
   });
   assert.deepEqual(b.limits, { shown: 7, notShown: 0, cellsNotShown: 0, cut: 0 });
