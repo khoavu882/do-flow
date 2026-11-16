@@ -3,6 +3,7 @@ import { h, mount } from '../dom.js';
 import { renderSection } from '../figures.js';
 import { createDoctorRead } from '../doctor-read.js';
 import { showPanel, hidePanel } from '../shell.js';
+import { bindingText } from '../derive/binding-text.js';
 
 const GROUPS = [['worker', 'Worker'], ['orchestration', 'Orchestration']];
 /** @param {any} status */
@@ -11,6 +12,25 @@ function statusWord(status) { return status === 'supported' ? 'Supported' : stat
 function statusTone(status) { return status === 'supported' ? 'done' : status === 'unsupported' ? 'rejected' : 'unknown'; }
 /** @param {any} value */
 function text(value) { return value === null || value === undefined ? 'unknown' : typeof value === 'object' ? JSON.stringify(value) : String(value); }
+/**
+ * One tier slot of `workers.models` in words, the core's `bindingText` (169 D11): a plain model id, or `{ model, provider?, effort? }`. The
+ * settings hold what was bound, not what the harness listed, so no check notes show here (`modelsText` adds them from the doctor answer);
+ * any other value reads as it is stored.
+ * @param {any} slot
+ */
+function slotText(slot) {
+  if (typeof slot === 'string' && slot !== '') return bindingText({ model: slot, provider: null, effort: null });
+  if (slot && typeof slot === 'object' && typeof slot.model === 'string' && slot.model !== '') return bindingText({ model: slot.model, provider: slot.provider ?? null, effort: slot.effort ?? null });
+  return text(slot);
+}
+/**
+ * `workers.models` of one harness in words: each tier slot as the core's resolved cell when the doctor answer carries one for that tier (its
+ * checks, the may-lower note and the refusal, 169 B-01), else as `slotText` reads what was bound. @param {any} binding @param {any} worker
+ */
+function modelsText(binding, worker) {
+  const cells = new Map((Array.isArray(worker?.bound) ? worker.bound : []).map((/** @type {any} */ item) => [item.tier, item.binding]));
+  return Object.entries(binding).map(([tier, value]) => `${tier}: ${cells.has(tier) ? bindingText(cells.get(tier)) : slotText(value)}`).join(', ') || 'unknown';
+}
 /** @param {any} data @param {string} key */
 function setting(data, key) { return data?.keys?.find((/** @type {any} */ item) => item.key === key)?.views?.[0] ?? null; }
 /** @param {string} caption @param {string[]} columns @param {any[]} rows */
@@ -39,10 +59,10 @@ function concept(matrix, settings, doctor, login) {
   const rows = ids.map((id) => {
     const matrixRow = harnesses.find((/** @type {any} */ row) => row.id === id);
     const binding = models?.value && typeof models.value === 'object' ? models.value[id] : null;
-    const model = binding && typeof binding === 'object' ? Object.entries(binding).map(([tier, value]) => `${tier}: ${text(value)}`).join(', ') || 'unknown' : 'unknown';
     const bill = billing?.value && typeof billing.value === 'object' ? billing.value[id] : null;
     const pool = doctor?.workerPool?.harnesses?.find((/** @type {any} */ row) => row.harness === id);
     const worker = doctor?.workers?.rows?.find((/** @type {any} */ row) => row.harness === id);
+    const model = binding && typeof binding === 'object' ? modelsText(binding, worker) : 'unknown';
     const pending = doctor === null;
     const installed = pending ? 'not checked yet' : pool?.installed == null ? 'unknown' : pool.installed ? 'yes' : 'no';
     const loginText = login.error ? 'unknown (could not read)' : login.body === null ? 'not checked yet' : loginCell(login.body.harnesses?.find((/** @type {any} */ row) => row.harness === id));

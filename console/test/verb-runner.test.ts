@@ -2325,6 +2325,31 @@ test('act start-session leaves --model out for a null, absent or empty model; an
   }
 });
 
+test('169 act start-session adds --provider and --effort after the model when given, leaves them out for null, absent or empty, and checks them', async () => {
+  const f = await writeSetup();
+  const withAll = { ...START_CASE.params, provider: 'openai', effort: 'low' };
+  const result = await f.runner.act('start-session', withAll);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  const at = START_CASE.argv.indexOf('--model') + 2;
+  assert.deepEqual(result.json.argv, [...START_CASE.argv.slice(0, at), '--provider', 'openai', '--effort', 'low', ...START_CASE.argv.slice(at)]);
+  for (const over of [{ provider: null, effort: null }, { provider: '', effort: '' }, {}]) {
+    const plain = await f.runner.act('start-session', { ...START_CASE.params, ...over });
+    assert.equal(plain.ok, true, JSON.stringify(over));
+    assert.deepEqual(plain.json.argv, START_CASE.argv);
+  }
+  const before = f.spawnCalls.length;
+  for (const over of [{ provider: '-p' }, { provider: 'a b' }, { provider: 'p'.repeat(65) }, { provider: 5 }, { effort: '-e' }, { effort: 'a b' }, { effort: 'e'.repeat(33) }, { effort: 'low\n' }]) {
+    assert.deepEqual(await f.runner.act('start-session', { ...START_CASE.params, ...over }), { ok: false, code: 'usage', exit: null }, JSON.stringify(over));
+  }
+  assert.equal(f.spawnCalls.length, before);
+  const accepts = (pattern: RegExp, good: string[], bad: string[]) => {
+    for (const value of good) assert.ok(pattern.test(value), `accepts ${JSON.stringify(value)}`);
+    for (const value of bad) assert.ok(!pattern.test(value), `refuses ${JSON.stringify(value)}`);
+  };
+  accepts(PATTERNS.provider, ['openai', 'a', 'A.b_c-1', 'p'.repeat(64)], ['', '-x', '.x', 'a b', 'a/b', 'p'.repeat(65), 'a\n']);
+  accepts(PATTERNS.effort, ['low', 'xhigh', 'a.b_c-1', 'e'.repeat(32)], ['', '-x', '.x', 'a b', 'e'.repeat(33), 'a\n']);
+});
+
 test('act start-session refuses a bad parameter as usage and spawns nothing', async () => {
   const f = await writeSetup();
   const before = f.spawnCalls.length;

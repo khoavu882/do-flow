@@ -713,7 +713,7 @@ test('165: the start confirmation says what it will do, has no text field, posts
   assert.equal(sent[0].path, '/api/actions/start-session');
   const { requestId, ...rest } = sent[0].body;
   assert.match(requestId, /^[A-Za-z0-9_-]{22}$/);
-  assert.deepEqual(rest, { v: 1, projectKey: PK, worktreeKey: 'aaaaaaaaaaaaaaaa', harness: 'claude', model: null, entry: 'do', prompt: 'Fix the flaky test' });
+  assert.deepEqual(rest, { v: 1, projectKey: PK, worktreeKey: 'aaaaaaaaaaaaaaaa', harness: 'claude', model: null, provider: null, effort: null, entry: 'do', prompt: 'Fix the flaky test' });
   assert.deepEqual(told, ['send']);
   assert.deepEqual(replies, [[200, 'applied']]);
   assert.equal(text(d.result), 'Started. Layers shows the session and its output.');
@@ -767,4 +767,11 @@ test('165: the start spec is null where a field the request carries is missing o
   assert.equal(startSpec({ projectKey: 'x' }), null);
   assert.equal(startSpec({ model: 'claude-opus-5' }).body.model, 'claude-opus-5');
   assert.match(startSpec({ model: 'claude-opus-5' }).effect, /^Start claude \(claude-opus-5\) in do-flow \/ do-flow-fu25\./);
+  // 169: a provider or effort needs a model; the effect names the chosen option's words; the body carries both.
+  assert.equal(startSpec({ provider: 'openai' }), null);
+  assert.equal(startSpec({ effort: 'low' }), null);
+  assert.equal(startSpec({ model: 'gpt-y', provider: '' }), null);
+  const bound = startSpec({ model: 'gpt-y', provider: 'openai', effort: 'low', label: 'gpt-y (provider openai, effort low)' });
+  assert.match(bound.effect, /^Start claude \(gpt-y \(provider openai, effort low\)\) in do-flow \/ do-flow-fu25\./);
+  assert.deepEqual([bound.body.model, bound.body.provider, bound.body.effort], ['gpt-y', 'openai', 'low']);
 });

@@ -119,6 +119,8 @@ const FLAG_ACTIONS: Record<string, { flag: string; actions: string[] }> = Object
   projectKey: { flag: '--project-key', actions: ['start-session', 'start-options'] },
   worktreeKey: { flag: '--worktree-key', actions: ['start-session'] },
   model: { flag: '--model', actions: ['start-session'] },
+  provider: { flag: '--provider', actions: ['start-session'] },
+  effort: { flag: '--effort', actions: ['start-session'] },
   entry: { flag: '--entry', actions: ['start-session'] },
   requestId: { flag: '--request-id', actions: ['start-session'] },
   stdin: { flag: '--stdin', actions: ['start-session'] },
@@ -401,7 +403,7 @@ async function runAction(o: any) {
     },
     edit: editRecord, childOf, request: childOf ? o.request : null,
     ...launchRecord(worker, identity, prompt.bytes.toString('utf8'), edit, binding),
-    ...(binding ? { binding: { model: binding.model, flag: binding.flag } } : {}),
+    ...(binding ? { binding: { model: binding.model, provider: binding.provider ?? null, effort: binding.effort ?? null, flag: binding.flag } } : {}),
     // The binary the probe found, as an absolute path: the supervisor spawns from the execution worktree,
     // where a relative PATH entry would name another file than the one probed.
     descriptor: evaluated.binaryPath && worker?.cli ? { ...worker, cli: { ...worker.cli, binary: evaluated.binaryPath } } : worker,
@@ -576,7 +578,7 @@ function summaryLines(body: any): string[] {
 async function executeWorkerCommand({
   action, slug = null, harness, need, modelCheck, budgetTokens, task, token, promptFile, timeoutSeconds, wait = false,
   workerRun, checks, out, by, reason, edit = false, childOf, request, execWorktree, operator = false, via,
-  projectKey, worktreeKey, model, entry, requestId, stdin = false, readStdin = () => fs.readFileSync(0, 'utf8'),
+  projectKey, worktreeKey, model, provider, effort, entry, requestId, stdin = false, readStdin = () => fs.readFileSync(0, 'utf8'),
   env = process.env, cwd = process.cwd(), resolveSlug = null, platform = process.platform, now = () => new Date(),
   descriptors, registry, coverage, sleep = defaultSleep, binding = null, projects = null,
   view, // test seam: the package view the start verbs read their worker list from
@@ -588,7 +590,7 @@ async function executeWorkerCommand({
     if (action === 'start-session' && typeof env.DOFLOW_STARTED_RUN === 'string') {
       return { exit: 1, body: await startSession({ env }) };
     }
-    refuseMisplacedFlags(action, { slug, harness, need, modelCheck, budgetTokens, task, token, promptFile, timeoutSeconds, wait, workerRun, checks, out, by, reason, edit, childOf, request, execWorktree, operator, via, projectKey, worktreeKey, model, entry, requestId, stdin });
+    refuseMisplacedFlags(action, { slug, harness, need, modelCheck, budgetTokens, task, token, promptFile, timeoutSeconds, wait, workerRun, checks, out, by, reason, edit, childOf, request, execWorktree, operator, via, projectKey, worktreeKey, model, provider, effort, entry, requestId, stdin });
     if (given(task) && !TASK_ID.test(String(task))) throw usage(`--task expects a plan task id such as A.1, got '${task}'`);
     if (given(token)) digits(token, '--token', 1);
     if (given(budgetTokens) && !given(modelCheck)) throw usage('--budget-tokens applies only with --model-check');
@@ -643,7 +645,7 @@ async function executeWorkerCommand({
       case 'start-options': {
         const listProjects = projects ?? require('../fleet/projects.ts').listProjects;
         const o = {
-          projectKey, worktreeKey, harness, model, entry, via, requestId, stdin, readStdin,
+          projectKey, worktreeKey, harness, model, provider, effort, entry, via, requestId, stdin, readStdin,
           env, cwd, root, reg, descriptors, view, platform, clock, sleep, projects: listProjects,
           spawnSupervisor: ({ file, runId }: any) => spawnSupervisor({ file, runId, cwd, env, platform }),
         };

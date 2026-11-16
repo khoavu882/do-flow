@@ -217,7 +217,7 @@ async function checkLogin({ harness, worker, env = process.env, cwd = process.cw
   const listingProblem = flagProblem(worker, recipe.providers.argv);
   if (listingProblem) return unknown(listingProblem, stamp());
   const listing = await run(recipe.providers.argv, LISTING_MS);
-  const parse = parserFor(recipe.providers.parse);
+  const parse = parserFor(recipe.providers);
   if (listing.status !== 'exited' || listing.code !== 0 || listing.truncated || !parse) return unknown('providers-unlisted', stamp());
   const text = String(listing.stdout ?? '');
   const ids: string[] = parse(text).map((model: any) => model.id);

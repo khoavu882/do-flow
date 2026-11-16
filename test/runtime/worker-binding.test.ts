@@ -56,7 +56,7 @@ test('IC-012: resolveBinding and bindingGap implement every table row', () => {
   }
   const bound = set({ claude: { standard: 'm' } });
   const supported = resolveBinding({ ...base, bindings: bound });
-  assert.deepEqual(supported, { model: 'm', source: 'binding', flag: 'supported' });
+  assert.deepEqual(supported, { model: 'm', source: 'binding', flag: 'supported', choice: { model: 'm', provider: null, effort: null } });
   assert.equal(bindingGap(supported), null);
   for (const descriptor of [
     undefined, DESCRIPTORS.claude,
@@ -65,12 +65,105 @@ test('IC-012: resolveBinding and bindingGap implement every table row', () => {
     { model: { status: 'supported', argv: '-m {model}' } },
   ]) {
     const result = resolveBinding({ ...base, descriptor, bindings: bound });
-    assert.deepEqual(result, { model: 'm', source: 'binding', flag: 'unevidenced' });
+    assert.deepEqual(result, { model: 'm', source: 'binding', flag: 'unevidenced', choice: { model: 'm', provider: null, effort: null } });
     assert.deepEqual(bindingGap(result), GAP_FLAG);
   }
   const invalid = resolveBinding({ ...base, bindings: INVALID });
   assert.deepEqual(invalid, { model: null, source: 'invalid', flag: 'n/a' });
   assert.deepEqual(bindingGap(invalid), GAP_INVALID);
+});
+
+const PART = { evidence: ['x'], verification: 'v', verifiedOn: '2026-11-16' };
+const EFFORT = { status: 'supported', ...PART, via: 'flag', argv: ['--thinking', '{effort}'], levels: ['low', 'high'] };
+const PROVIDER = { status: 'supported', ...PART, via: 'id-prefix', separator: '/' };
+const WITH_PARTS = { ...SUP, provider: PROVIDER, effort: EFFORT };
+
+test('169: resolveBinding reads a slot through choiceOf; bindingGap names an unsupported provider, effort or level in order', () => {
+  const base = { worker: 'claude', tier: 'standard' };
+  const slot = (value: any) => set({ claude: { standard: value } });
+  const bound = resolveBinding({ ...base, descriptor: WITH_PARTS, bindings: slot({ model: 'm', provider: 'openai', effort: 'high' }) });
+  assert.deepEqual([bound.model, bound.choice], ['m', { model: 'm', provider: 'openai', effort: 'high' }]);
+  assert.equal(bindingGap(bound), null);
+  const gap = (descriptor: any, value: any) => bindingGap(resolveBinding({ ...base, descriptor, bindings: slot(value) }))?.reason ?? null;
+  const entry = (status: string) => ({ status, evidence: [], verification: 'v', verifiedOn: '2026-11-16', reason: 'none recorded' });
+  assert.equal(gap(SUP, { model: 'm', provider: 'openai' }), 'provider:unsupported');
+  assert.equal(gap({ ...SUP, provider: entry('unknown') }, { model: 'm', provider: 'openai' }), 'provider:unsupported');
+  assert.equal(gap({ ...SUP, effort: entry('unknown') }, { model: 'm', effort: 'high' }), 'effort:unsupported');
+  assert.equal(gap({ ...SUP, effort: entry('unsupported') }, { model: 'm', effort: 'high' }), 'effort:unsupported');
+  assert.equal(gap(WITH_PARTS, { model: 'm', effort: 'turbo' }), 'effort:unknown-level');
+  assert.equal(gap({ ...WITH_PARTS, effort: { ...EFFORT, levels: 'per-model' } }, { model: 'm', effort: 'turbo' }), null);
+  assert.equal(gap(WITH_PARTS, { model: 'm', provider: 'openai', effort: 'turbo' }), 'effort:unknown-level');
+  assert.equal(gap(SUP, { model: 'm', provider: 'openai', effort: 'turbo' }), 'provider:unsupported', 'provider is named before effort');
+  assert.equal(gap(DESCRIPTORS.claude, { model: 'm', effort: 'high' }), 'model-flag:unevidenced', 'the model flag is named first');
+  assert.equal(gap(SUP, 'm'), null);
+  for (const unreadable of [{ model: 'm', effort: 7 }, { provider: 'openai' }, '', 7]) {
+    const result = resolveBinding({ ...base, descriptor: SUP, bindings: slot(unreadable) });
+    assert.deepEqual([result.model, result.source], [null, 'invalid'], JSON.stringify(unreadable));
+  }
+});
+
+test('169 A-05: models.enabled matches the bare id or the composed id of an id-prefix harness', () => {
+  const bindings = set({ claude: { standard: { model: 'm', provider: 'openai' } } });
+  const status = (descriptor: any, allowedModels: string[]) => resolveBinding({ worker: 'claude', tier: 'standard', descriptor, bindings, allowedModels }).enabledStatus;
+  assert.equal(status(WITH_PARTS, ['m']), 'enabled');
+  assert.equal(status(WITH_PARTS, ['openai/m']), 'enabled');
+  assert.equal(status(WITH_PARTS, ['azure/m']), 'disabled');
+  // The composed form exists only where the provider is part of the id.
+  assert.equal(status({ ...WITH_PARTS, provider: { ...PROVIDER, via: 'flag', argv: ['--provider', '{provider}'] } }, ['openai/m']), 'disabled');
+});
+
+test('169: a bound effort reaches the launch record and the worker argv; an unsupported one is refused before the run', POSIX, async (t) => {
+  const p = workerProject(t);
+  const descriptors = { claude: WITH_PARTS };
+  assert.equal((await readiness.probe({ descriptors, env: p.sb.env, cwd: p.sb.root })).disposition, 'probed');
+  const binding = { model: 'm1', provider: 'openai', effort: 'high', flag: 'supported' };
+  const result = await executeWorkerCommand({
+    action: 'run', slug: SLUG, harness: 'claude', task: 'A.1', token: p.token,
+    promptFile: p.promptFile, timeoutSeconds: 60, wait: true, env: p.sb.env, cwd: p.sb.root, descriptors, binding,
+  });
+  assert.equal(result.exit, 0, JSON.stringify(result));
+  const record = runs.readRuns(p.file)[result.body.runId];
+  assert.deepEqual(record.binding, binding);
+  assert.ok(record.recipe.argvShape.includes('{provider}/{model}'));
+  assert.ok(record.recipe.argvShape.includes('{effort}'));
+  const logged = fs.readFileSync(p.sb.log, 'utf8').trim().split('\n').map((line: any) => JSON.parse(line)).find((entry: any) => entry.workerRun === record.runId);
+  assert.equal(logged.argv[logged.argv.indexOf('-m') + 1], 'openai/m1');
+  assert.equal(logged.argv[logged.argv.indexOf('--thinking') + 1], 'high');
+});
+
+test('169: the ladder refuses a rung whose bound effort the harness cannot take, before any launch', POSIX, async (t) => {
+  const sb = makeDispatchSandbox(t, { plan: PLAN, slug: SLUG, identity: { DOFLOW_ATTEMPT: undefined } });
+  const common = { file: attempts.storeFile(sb.root, SLUG), fsImpl: fs, roots: [sb.root], slug: SLUG, env: sb.env, cwd: sb.root };
+  const started = attempts.start({ ...common, by: 'main' });
+  assert.equal(started.disposition, 'started');
+  const dispatchRunId = store.newDispatchRunId();
+  const integration = createIntegrationWorktree({ root: sb.root, slug: SLUG, dispatchRunId, env: sb.env });
+  const file = store.storeFileFor(sb.root, SLUG);
+  store.mutateDispatch(file, (s: any) => {
+    s.run = {
+      dispatchRunId, slug: SLUG, state: 'running', runKey: started.runKey, epoch: started.epoch,
+      concurrency: 1, mode: 'auto', reserveTokens: 1000, attemptSeconds: 60, harness: null,
+      needs: [], spawnGrant: null, createdAt: new Date().toISOString(),
+      integration: { worktree: integration.worktree, branch: integration.branch, base: integration.base, head: integration.head },
+      verify: { argv: sb.verifyArgv, argvSha256: null, argvCount: sb.verifyArgv.length, timeoutSeconds: 60 },
+      fallback: { mode: 'auto', ladder: ['claude'], exhausted: [], holds: {}, events: [], eventsDropped: 0, inSession: true },
+    };
+    return { write: true, result: null };
+  });
+  const settings = path.join(sb.home, '.config', 'doflow', 'settings.json');
+  const unknownEffort = { status: 'unknown', evidence: [], verification: 'v', verifiedOn: '2026-11-16', reason: 'none recorded' };
+  const result = await loop.step({
+    slug: SLUG, env: sb.env, cwd: sb.root, by: 'main', descriptors: { claude: { ...sb.descriptors.claude, model: SUP.model, effort: unknownEffort } },
+    evaluateImpl: () => {
+      fs.mkdirSync(path.dirname(settings), { recursive: true });
+      fs.writeFileSync(settings, JSON.stringify({ schema: 1, 'workers.models': { claude: { standard: { model: 'm1', effort: 'high' } } } }));
+      return { eligible: true, gaps: [] };
+    },
+  });
+  const dispatch = Object.values(store.readDispatch(file).dispatches)[0];
+  assert.ok(dispatch, JSON.stringify(result));
+  assert.ok(result.actions.some((a: any) => a.action === 'launch' && a.reason === 'refused:effort:unsupported'), JSON.stringify(result.actions));
+  assert.deepEqual(runs.readRuns(runs.storeFileFor(sb.root, SLUG)), {});
 });
 
 test('IC-012: inherited worker and tier names never become bindings', () => {
@@ -301,7 +394,7 @@ test('IC-012: command records a supported binding and its argv reaches the fake 
       .find((entry: any) => entry.workerRun === record.runId);
     assert.ok(logged, 'the fake worker was launched');
     if (binding) {
-      assert.deepEqual(record.binding, binding);
+      assert.deepEqual(record.binding, { model: binding.model, provider: null, effort: null, flag: binding.flag });
       assert.ok(record.recipe.argvShape.includes('{model}'));
       const index = logged.argv.indexOf('-m');
       assert.ok(index >= 0);
@@ -372,7 +465,7 @@ test('IC-014: describe reports bindings while eligibility and probe fields stay 
   f.writeUserSettings({ schema: 1, 'workers.models': { claude: { light: 'm1' } } });
   const bound = await executeWorkerCommand(options);
   assert.deepEqual(bound.body.bindings, {
-    light: { model: 'm1', flag: 'unevidenced' },
+    light: { model: 'm1', provider: null, effort: null, flag: 'unevidenced', refused: 'model-flag:unevidenced' },
     standard: { model: null, flag: 'n/a' },
     frontier: { model: null, flag: 'n/a' },
   });
@@ -380,7 +473,11 @@ test('IC-014: describe reports bindings while eligibility and probe fields stay 
     assert.deepEqual(bound.body[key], plain.body[key], key);
   }
   const supported = await executeWorkerCommand({ ...options, descriptors: { claude: SUP } });
-  assert.deepEqual(supported.body.bindings.light, { model: 'm1', flag: 'supported' });
+  assert.deepEqual(supported.body.bindings.light, { model: 'm1', provider: null, effort: null, flag: 'supported' });
+  // 169 A-03: describe carries the bound provider and effort, and `refused` for a part the descriptor cannot pass on.
+  f.writeUserSettings({ schema: 1, 'workers.models': { claude: { light: { model: 'm1', provider: 'openai', effort: 'low' } } } });
+  const parts = await executeWorkerCommand({ ...options, descriptors: { claude: SUP } });
+  assert.deepEqual(parts.body.bindings.light, { model: 'm1', provider: 'openai', effort: 'low', flag: 'supported', refused: 'provider:unsupported' });
   f.writeUserSettings({ schema: 1, 'workers.models': { claude: { ultra: 'm1' } } });
   const invalid = await executeWorkerCommand(options);
   assert.deepEqual(invalid.body.bindings, {
@@ -414,7 +511,7 @@ test('IC-014: worker select has no task and ignores model bindings', async (t) =
   assert.deepEqual(await executeWorkerCommand(options), plain);
 });
 
-test('IC-014: doctor reports bound tiers and binding state without model ids', (t) => {
+test('IC-014 (169): doctor reports bound tiers with their IC-005 binding cell, and the binding state', (t) => {
   const f = createSettingsEnv(t);
   const options = {
     env: f.env({ PATH: '' }), projectRoot: f.project, repoRoot: REPO,
@@ -428,10 +525,10 @@ test('IC-014: doctor reports bound tiers and binding state without model ids', (
   });
   const bound = workersDoctorView(options);
   assert.deepEqual(bound.bindings, { state: 'set', reason: null });
-  assert.deepEqual(bound.rows.find((row: any) => row.harness === 'claude').bound, [{ tier: 'light', flag: 'supported' }]);
-  assert.deepEqual(bound.rows.find((row: any) => row.harness === 'antigravity').bound, [{ tier: 'frontier', flag: 'unevidenced' }]);
-  assert.equal(JSON.stringify(bound).includes('private-m1'), false);
-  assert.equal(JSON.stringify(bound).includes('private-m2'), false);
+  const cell = (model: string, extra: any = {}) => ({ model, provider: null, effort: null, check: { model: 'unchecked', effort: null }, ...extra });
+  assert.deepEqual(bound.rows.find((row: any) => row.harness === 'claude').bound, [{ tier: 'light', flag: 'supported', binding: cell('private-m1') }]);
+  // 169 A-03: a binding dispatch would refuse carries the reason in its cell.
+  assert.deepEqual(bound.rows.find((row: any) => row.harness === 'antigravity').bound, [{ tier: 'frontier', flag: 'unevidenced', binding: cell('private-m2', { refused: 'model-flag:unevidenced' }) }]);
   for (let i = 0; i < plain.rows.length; i += 1) {
     assert.equal(bound.rows[i].eligible, plain.rows[i].eligible);
     assert.deepEqual(bound.rows[i].firstGap, plain.rows[i].firstGap);
@@ -446,10 +543,13 @@ test('IC-014: doctor reports bound tiers and binding state without model ids', (
   assert.match(cli.stdout, /worker claude: .*; bound tiers: none/);
 });
 
-test('IC-014: doctor text prints bound tier flags without printing model ids', (t) => {
+test('IC-014 (169): doctor text names each bound tier with bindingText and its flag', (t) => {
   const f = createSettingsEnv(t);
   f.writeUserSettings({ schema: 1, 'workers.models': { claude: { light: 'private-doctor-model' } } });
   const cli = f.run(['doctor'], { env: { PATH: '' } });
-  assert.match(cli.stdout, /worker claude: .*; bound tiers: light\((?:supported|unevidenced)\)/);
-  assert.equal(cli.stdout.includes('private-doctor-model'), false);
+  assert.match(cli.stdout, /worker claude: .*; bound tiers: light=private-doctor-model \[model unchecked(?:, dispatch refuses it \(model-flag:unevidenced\))?\] \((?:supported|unevidenced)\)/);
+  // 169 A-03: a bound provider the descriptor cannot pass on is named as refused in the doctor line.
+  const refused = createSettingsEnv(t);
+  refused.writeUserSettings({ schema: 1, 'workers.models': { claude: { light: { model: 'private-doctor-model', provider: 'openai' } } } });
+  assert.match(refused.run(['doctor'], { env: { PATH: '' } }).stdout, /bound tiers: light=private-doctor-model \(provider openai\) \[model unchecked, dispatch refuses it \(provider:unsupported\)\]/);
 });

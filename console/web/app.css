@@ -2586,6 +2586,8 @@
   .start__submit { width: 100%; }
   .start__hint { margin: 0; font: var(--type-sm); color: var(--text-muted); }
   .start__hint:empty { display: none; }
+  .start__modelnote { margin: 0; font: var(--type-xs); color: var(--text-muted); overflow-wrap: anywhere; }
+  .start__modelnote[hidden] { display: none; }
   .start__flow, .start__viewonly, .start__refusal {
     display: grid; gap: var(--space-3); min-width: 0; padding: var(--space-4); background: var(--surface); color: var(--text);
     border: 1px solid var(--border); border-left: 4px solid var(--state-pending-mark); border-radius: var(--radius-lg);

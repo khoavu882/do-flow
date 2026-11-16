@@ -110,11 +110,11 @@ test('B-2: a package worker descriptor is held to the same check', () => {
 
 test('B-2 launch: the final argv is checked after the model part is spliced in, so a model id cannot smuggle a widening flag', () => {
   const w = workerOf('codex');
-  assert.deepEqual(mainArgv(w, 'hi', '/tmp/last', 'gpt-x'), ['exec', '--json', '-o', '/tmp/last', '-m', 'gpt-x', '-']);
+  assert.deepEqual(mainArgv(w, 'hi', '/tmp/last', { model: 'gpt-x', provider: null, effort: null }), ['exec', '--json', '-o', '/tmp/last', '-m', 'gpt-x', '-']);
   w.model = { ...w.model, argv: ['-s', '{model}'] };
-  assert.throws(() => mainArgv(w, 'hi', '/tmp/last', 'danger-full-access'), (error: any) => error.code === 'widening-flag' && /-s danger-full-access/.test(error.message));
+  assert.throws(() => mainArgv(w, 'hi', '/tmp/last', { model: 'danger-full-access', provider: null, effort: null }), (error: any) => error.code === 'widening-flag' && /-s danger-full-access/.test(error.message));
   const c = workerOf('claude');
-  assert.throws(() => mainArgv(c, 'hi', undefined, '--dangerously-skip-permissions'), (error: any) => error.code === 'widening-flag');
+  assert.throws(() => mainArgv(c, 'hi', undefined, { model: '--dangerously-skip-permissions', provider: null, effort: null }), (error: any) => error.code === 'widening-flag');
   // The prompt is never read as a flag: it is the user's text, sent whole.
   const o = workerOf('opencode');
   assert.equal(mainArgv(o, 'please use --yolo', undefined, null).at(-1), 'please use --yolo');

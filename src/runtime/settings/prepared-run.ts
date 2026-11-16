@@ -160,6 +160,7 @@ function validatePrepared(doc: Record<string, any>, ctx: any): Entry[] {
           } else {
             const { loadRegistry } = require('../../registry/index.ts');
             const { workerCatalogue } = require('../worker/catalogue.ts');
+            const { choiceOf } = require('../worker/model-choice.ts');
             const workerRegistry = loadRegistry({ repoRoot: ctx.repoRoot, fsImpl: ctx.fsImpl });
             const catalogue = workerCatalogue({ registry: workerRegistry });
             const byId = new Map<string, any>(catalogue.map((worker: any) => [worker.id, worker]));
@@ -170,10 +171,26 @@ function validatePrepared(doc: Record<string, any>, ctx: any): Entry[] {
                 continue;
               }
               const status = worker.worker.model?.status || 'absent';
-              if (status === 'supported') continue;
               for (const tier of Object.keys(value[id])) {
-                errors.push(entry(bindingKey(id, tier), null, 'model-flag-unevidenced',
-                  `${id} has no evidenced model flag (descriptor model is ${status}); dispatch would skip the worker for this binding`));
+                if (status !== 'supported') {
+                  errors.push(entry(bindingKey(id, tier), null, 'model-flag-unevidenced',
+                    `${id} has no evidenced model flag (descriptor model is ${status}); dispatch would skip the worker for this binding`));
+                  continue;
+                }
+                // An object slot is judged as `models --action bind` judges it: a part needs a supported descriptor entry.
+                const choice = choiceOf(value[id][tier]);
+                if (choice === null) continue;
+                for (const part of ['provider', 'effort'] as const) {
+                  if (choice[part] === null || worker.worker[part]?.status === 'supported') continue;
+                  const reason = worker.worker[part]?.reason;
+                  errors.push(entry(bindingKey(id, tier), null, `${part}-unsupported`,
+                    `${part} is not supported on ${id}${typeof reason === 'string' && reason !== '' ? `: ${reason}` : ' (no evidence is recorded for it)'}`));
+                }
+                const levels = worker.worker.effort?.levels;
+                if (choice.effort !== null && worker.worker.effort?.status === 'supported' && Array.isArray(levels) && !levels.includes(choice.effort)) {
+                  errors.push(entry(bindingKey(id, tier), null, 'effort-unknown-level',
+                    `effort '${choice.effort}' is not one of ${id}'s levels: ${levels.join(', ')}`, levels));
+                }
               }
             }
           }

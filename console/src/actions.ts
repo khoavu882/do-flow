@@ -55,7 +55,7 @@ const { project: projectBody } = require('./project.ts');
 type Reply = { status: number, headers?: Record<string, string>, body?: string | Uint8Array };
 type Body = Record<string, any>;
 /** 165 owner ruling C-4: the field kinds `field()` knows; a row's guard (actions-table.test.ts) checks every row's kinds against it. */
-const FIELD_KINDS = Object.freeze(['id', 'slugOpt', 'runId', 'decision', 'revision', 'text', 'key16', 'harness', 'modelOpt', 'entry', 'prompt'] as const);
+const FIELD_KINDS = Object.freeze(['id', 'slugOpt', 'runId', 'decision', 'revision', 'text', 'key16', 'harness', 'modelOpt', 'providerOpt', 'effortOpt', 'entry', 'prompt'] as const);
 type Kind = typeof FIELD_KINDS[number];
 type FieldRule = Readonly<{ kind: Kind, required: boolean }>;
 type Current = Record<string, unknown> | null;
@@ -154,6 +154,9 @@ function field(rule: FieldRule, value: unknown): unknown {
     case 'key16': return typeof value === 'string' && PATTERNS.key16.test(value) ? value : undefined;
     case 'harness': return typeof value === 'string' && PATTERNS.harness.test(value) ? value : undefined;
     case 'modelOpt': return value === null || (typeof value === 'string' && PATTERNS.model.test(value)) ? value : undefined;
+    // 169: null is none bound; the patterns are the core's PROVIDER_RE and EFFORT_RE.
+    case 'providerOpt': return value === null || (typeof value === 'string' && PATTERNS.provider.test(value)) ? value : undefined;
+    case 'effortOpt': return value === null || (typeof value === 'string' && PATTERNS.effort.test(value)) ? value : undefined;
     case 'entry': return typeof value === 'string' && PATTERNS.entry.test(value) ? value : undefined;
     case 'prompt': {
       if (typeof value !== 'string') return undefined;
@@ -348,10 +351,12 @@ const START_CURRENT: Readonly<Record<string, (c: any) => Current | undefined>> =
     ? { slug: c.slug, dispatchId: c.dispatchId ?? null, driverPid: c.driverPid ?? null, reason: c.reason ?? null } : undefined),
   harness: (c: any) => (object(c) && typeof c.harness === 'string' && PATTERNS.harness.test(c.harness) && NOT_STARTABLE.includes(c.reason)
     ? { harness: c.harness, reason: c.reason } : undefined),
+  // 169 IC-007: the entries as the core offers them, without their checks: `{ model, provider, effort, source }`.
   models: (c: any) => {
     if (!object(c) || typeof c.harness !== 'string' || !PATTERNS.harness.test(c.harness) || !Array.isArray(c.models) || c.models.length > MODELS_MAX) return undefined;
-    const models = c.models.map((m: any) => (object(m) && (m.id === null || (typeof m.id === 'string' && PATTERNS.model.test(m.id))) && MODEL_SOURCES.includes(m.source)
-      ? { id: m.id, source: m.source } : null));
+    const part = (value: unknown, re: RegExp) => value === null || (typeof value === 'string' && re.test(value));
+    const models = c.models.map((m: any) => (object(m) && part(m.model, PATTERNS.model) && part(m.provider, PATTERNS.provider) && part(m.effort, PATTERNS.effort) && MODEL_SOURCES.includes(m.source)
+      ? { model: m.model, provider: m.provider, effort: m.effort, source: m.source } : null));
     return models.includes(null) ? undefined : { harness: c.harness, models };
   },
 });
@@ -491,10 +496,10 @@ const ACTIONS: readonly ActionSpec[] = deepFreeze([
     outcome: cancelOutcome('cancel-worker'),
   },
   {
-    // 165 IC-004. The relay label is the actor's; the prompt is the write shape's stdin; a null model leaves `--model` out.
+    // 165 IC-004. The relay label is the actor's; the prompt is the write shape's stdin; a null model, provider or effort leaves its flag out.
     id: 'start-session',
     shape: 'start-session',
-    fields: { worktreeKey: rule('key16'), harness: rule('harness'), model: rule('modelOpt'), entry: rule('entry'), prompt: rule('prompt') },
+    fields: { worktreeKey: rule('key16'), harness: rule('harness'), model: rule('modelOpt'), provider: rule('providerOpt'), effort: rule('effortOpt'), entry: rule('entry'), prompt: rule('prompt') },
     textField: null,
     promptField: 'prompt',
     bodyCap: START_BODY_CAP,
@@ -502,7 +507,7 @@ const ACTIONS: readonly ActionSpec[] = deepFreeze([
     target: (b: Body) => ({ slug: null, taskId: null, gateId: null, runId: null, worktreeKey: b.worktreeKey, harness: b.harness, model: b.model ?? 'default' }),
     expect: () => null,
     params: (b: Body, relay: string) => ({ projectKey: b.projectKey, worktreeKey: b.worktreeKey, harness: b.harness, ...(b.model === null ? {} : { model: b.model as string }),
-      entry: b.entry, relay, requestId: b.requestId, prompt: b.prompt }),
+      ...(b.provider === null ? {} : { provider: b.provider as string }), ...(b.effort === null ? {} : { effort: b.effort as string }), entry: b.entry, relay, requestId: b.requestId, prompt: b.prompt }),
     outcome: startOutcome('start-session'),
   },
 ] as ActionSpec[]);

@@ -63,7 +63,7 @@ test('each row passes its write shape exactly the parameters the shape declares 
     'decide-gate': { v: 1, requestId: 'x'.repeat(22), projectKey: '0123456789abcdef', slug: 'feat-a', taskId: 't1', gateId: 'gate-a', decision: 'approve', note: 'n', expect: { revision: 7 } },
     'close-run': { v: 1, requestId: 'x'.repeat(22), projectKey: '0123456789abcdef', slug: 'feat-a', taskId: 't1', note: 'n', expect: { revision: 7 } },
     'cancel-worker': { v: 1, requestId: 'x'.repeat(22), projectKey: '0123456789abcdef', slug: 'feat-a', runId: 'w-0123456789ab', reason: 'r' },
-    'start-session': { v: 1, requestId: 'x'.repeat(22), projectKey: '0123456789abcdef', worktreeKey: 'fedcba9876543210', harness: 'claude', model: 'claude-opus-5-5', entry: 'do', prompt: 'p' },
+    'start-session': { v: 1, requestId: 'x'.repeat(22), projectKey: '0123456789abcdef', worktreeKey: 'fedcba9876543210', harness: 'claude', model: 'claude-opus-5-5', provider: 'anthropic', effort: 'high', entry: 'do', prompt: 'p' },
   };
   for (const spec of ACTIONS) {
     const shape = WRITE_SHAPES[spec.shape];
@@ -76,6 +76,9 @@ test('each row passes its write shape exactly the parameters the shape declares 
   // 165: a null model is left out of the parameters, so the runner leaves `--model` out.
   const start = ACTIONS.find((spec: any) => spec.id === 'start-session');
   assert.equal(Object.hasOwn(start.params({ ...samples['start-session'], model: null }, 'console'), 'model'), false);
+  // 169: a null provider or effort is left out too, so the runner leaves `--provider` and `--effort` out.
+  const bare = start.params({ ...samples['start-session'], model: null, provider: null, effort: null }, 'console');
+  assert.equal(Object.hasOwn(bare, 'provider') || Object.hasOwn(bare, 'effort'), false);
 });
 
 /**

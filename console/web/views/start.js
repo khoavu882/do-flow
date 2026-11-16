@@ -15,8 +15,9 @@ import { createLogStream } from '../log-store.js';
 import { actionPower, loadActions, onActions } from '../actions.js';
 import { openConfirm, onRefetch, newRequestId, actionButton, notAllowedLine } from './confirm.js';
 import { buildConfirmation } from '../derive/actions.js';
+import { bindingText } from '../derive/binding-text.js';
 import {
-  VIEW_ONLY_WORDS, terminalCommand, NOT_STARTABLE_TITLE, projectRows, harnessRows, harnessOf, modelGroups, checkoutRows, entryChoices, limitWords, dispatchWords,
+  VIEW_ONLY_WORDS, terminalCommand, NOT_STARTABLE_TITLE, projectRows, harnessRows, harnessOf, modelGroups, modelKey, modelChoiceOf, modelNote, checkoutRows, entryChoices, limitWords, dispatchWords,
   permissionWords, readiness, formFor, startBody, attemptFor, settleAttempt, startRefusalLines, refusalRereads, initialFlow, flowReduce, flowWords, optionsErrorWords,
   outputTail, nodeIn, startedByWords,
 } from '../derive/start.js';
@@ -223,7 +224,7 @@ function formBody(st, options) {
   const harnessGroup = group('Harness', startable.length === 0
     ? [h('p', { class: 'start__line' }, 'No harness can start a session here. The reasons are listed below.')]
     : startable.map((/** @type {any} */ row) => h('label', { class: 'start__choice' }, [
-      h('input', { type: 'radio', name: 'start-harness', value: row.harness, checked: form.harness === row.harness, dataset: { focusKey: `start-harness:${row.harness}` }, on: { change: () => set({ harness: row.harness, model: null }) } }),
+      h('input', { type: 'radio', name: 'start-harness', value: row.harness, checked: form.harness === row.harness, dataset: { focusKey: `start-harness:${row.harness}` }, on: { change: () => set({ harness: row.harness, choice: null }) } }),
       h('span', { class: 'start__choice-text' }, [
         h('span', { class: 'mono' }, row.harness),
         row.version ? h('span', { class: 'tag tag--mono' }, row.version) : null,
@@ -241,10 +242,15 @@ function formBody(st, options) {
     ]))),
   ]);
   const groups = chosen === null ? [] : modelGroups(chosen.models);
+  const offeredModels = groups.flatMap((g) => g.models);
+  const picked = modelKey(form.choice);
   const modelSelect = h('select', {
-    id: 'start-model', class: 'start__select', disabled: chosen === null, dataset: { focusKey: 'start-model' },
-    on: { change: (/** @type {any} */ event) => set({ model: event.target.value === '' ? null : String(event.target.value) }) },
-  }, chosen === null ? [h('option', { value: '' }, 'Choose a harness first')] : groups.map((g) => h('optgroup', { label: g.label }, g.models.map((m) => h('option', { value: m.id ?? '', selected: m.id === form.model }, m.label)))));
+    id: 'start-model', class: 'start__select', disabled: chosen === null, dataset: { focusKey: 'start-model' }, 'aria-describedby': 'start-modelnote',
+    on: { change: (/** @type {any} */ event) => set({ choice: modelChoiceOf((offeredModels.find((m) => m.key === String(event.target.value)) ?? { entry: null }).entry) }) },
+  }, chosen === null ? [h('option', { value: '' }, 'Choose a harness first')] : groups.map((g) => h('optgroup', { label: g.label }, g.models.map((m) => h('option', { value: m.key, selected: m.key === picked, disabled: m.refused !== null }, m.label)))));
+  // The line under the select: the chosen option's notes in words (the `?` mark and the word, never colour alone), or the default's own sentence.
+  const note = chosen === null ? null : modelNote((offeredModels.find((m) => m.key === picked) ?? { entry: null }).entry);
+  const modelNoteLine = h('p', { class: 'start__modelnote', id: 'start-modelnote', dataset: { fact: 'model-note' }, hidden: note === null }, note ?? '');
   const entryGroup = group('How the session starts', entryChoices(options).map((e) => h('label', { class: 'start__choice' }, [
     h('input', { type: 'radio', name: 'start-entry', value: e.id, checked: form.entry === e.id, dataset: { focusKey: `start-entry:${e.id}` }, on: { change: () => set({ entry: e.id }) } }),
     h('span', { class: 'start__choice-text' }, [h('span', {}, e.label), h('span', { class: 'start__note' }, e.note)]),
@@ -281,6 +287,7 @@ function formBody(st, options) {
     harnessGroup,
     blockedList,
     labelled('start-model', 'Model', modelSelect),
+    modelNoteLine,
     entryGroup,
     h('div', { class: 'start__field' }, [h('label', { class: 'start__label', for: 'start-prompt' }, 'First text for the session'), area, h('div', { class: 'start__under' }, [issue, count])]),
     h('p', { class: 'start__line', dataset: { fact: 'permission' } }, permissionWords(chosen === null ? 'the harness' : chosen.harness)),
@@ -368,13 +375,16 @@ function openStart(st) {
   const ready = readiness(st.form, options);
   if (!ready.ok) return;
   const project = st.projects.find((/** @type {any} */ p) => p.projectKey === st.projectKey);
+  const choice = st.form.choice ?? null;
+  const offered = choice === null ? undefined : modelGroups((harnessOf(options, st.form.harness) ?? { models: [] }).models).flatMap((g) => g.models).find((m) => m.key === modelKey(choice));
+  const label = offered ? bindingText(offered.entry) : null;
   const spec = buildConfirmation('start-session', {
     projectKey: st.projectKey, project: project ? project.label : null, checkout: ready.checkout.label, worktreeKey: st.form.worktreeKey, harness: st.form.harness,
-    model: st.form.model, entry: st.form.entry, prompt: st.form.prompt,
+    model: choice === null ? null : choice.model, provider: choice === null ? null : choice.provider, effort: choice === null ? null : choice.effort, label, entry: st.form.entry, prompt: st.form.prompt,
   });
   if (spec === null) return;
   const attempt = attemptFor(st.attempt, startBody(st.form), newRequestId);
-  const info = { harness: st.form.harness, model: st.form.model, project: project ? project.label : 'this project', checkout: ready.checkout.label };
+  const info = { harness: st.form.harness, model: choice === null ? null : choice.model, project: project ? project.label : 'this project', checkout: ready.checkout.label };
   const projectKey = st.projectKey;
   openConfirm({ ...spec, requestId: attempt.requestId, refusal: (/** @type {any} */ code, /** @type {any} */ reply) => startRefusalLines(code, reply && reply.body ? reply.body.current : null, { retryAfter: reply && reply.headers ? reply.headers['retry-after'] ?? null : null }) }, {
     onSend: () => {

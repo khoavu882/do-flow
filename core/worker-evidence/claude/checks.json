@@ -75,6 +75,15 @@
         "^\\s+--json\\s+Output as JSON \\(default\\)"
       ],
       "establishes": ["loginProbe"]
+    },
+    {
+      "id": "help-effort",
+      "argv": ["--help"],
+      "expect": [
+        "^\\s+--effort <level>\\s+Effort level for the current session$",
+        "^\\s+\\(low, medium, high, xhigh, max\\)$"
+      ],
+      "establishes": ["effort"]
     }
   ]
 }

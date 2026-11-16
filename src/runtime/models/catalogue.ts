@@ -13,6 +13,13 @@ export interface OfferedModel {
   id: string;
   displayName?: string;
   family?: string;
+  /** The columns a harness's listing carries (169 §6.2); each is stored only when the listing had it. */
+  provider?: string;
+  contextTokens?: number;
+  maxOutputTokens?: number;
+  reasoning?: boolean;
+  effortLevels?: string[];
+  imageInput?: boolean;
 }
 
 /** How the harness's own model list was last read: `listed`, `none-recorded` (the registry records no
@@ -26,6 +33,10 @@ export interface ModelListState {
   dropped?: number;
   /** True when the list was cut at the most ids the catalogue keeps. */
   capped?: boolean;
+  /** The `modelList.columns` targets the listing had a header for. */
+  columns?: string[];
+  /** Rows with the wrong cell count and cells that did not convert, left out of their models. */
+  columnFaults?: number;
 }
 
 export interface HarnessQuota {
@@ -231,11 +242,11 @@ type SyncOptions = {
 };
 
 /** Fills `offeredModels` from the harness's own listing command. A failed listing keeps the previous list, marked stale. */
-async function withListing(result: SyncHarnessResult, options: SyncOptions): Promise<SyncHarnessResult> {
+async function withListing(result: SyncHarnessResult, options: SyncOptions, run: { binaryPath: string | null; env: any; cwd: string }): Promise<SyncHarnessResult> {
   const { listHarnessModels } = require('./list-models.ts');
   const execImpl = options.listExecImpl ?? (options.execFileImpl ? listExecFrom(options.execFileImpl) : undefined);
-  const listing = await listHarnessModels({ descriptor: workerDescriptor(result.harnessId, options), execImpl });
-  if (listing.status === 'listed') return { ...result, offeredModels: listing.models, modelList: { status: 'listed', ...(listing.dropped ? { dropped: listing.dropped } : {}), ...(listing.capped ? { capped: true } : {}) } };
+  const listing = await listHarnessModels({ descriptor: workerDescriptor(result.harnessId, options), execImpl, ...run });
+  if (listing.status === 'listed') return { ...result, offeredModels: listing.models, modelList: { status: 'listed', ...(listing.dropped ? { dropped: listing.dropped } : {}), ...(listing.capped ? { capped: true } : {}), ...(listing.columns ? { columns: listing.columns } : {}), ...(listing.columnFaults ? { columnFaults: listing.columnFaults } : {}) } };
   if (listing.status === 'none-recorded') return { ...result, offeredModels: [], modelList: { status: 'none-recorded', reason: listing.reason } };
   // A list from before this field existed came from the removed hard-coded table, so it is not kept.
   const kept = options.previous?.modelList && options.previous.modelList.status !== 'none-recorded' ? (options.previous.offeredModels ?? []) : [];
@@ -300,7 +311,7 @@ async function syncHarness(
     ...billingOf(answer),
     offeredModels: [],
     lastSyncedAt: new Date().toISOString(),
-  }, options);
+  }, options, { binaryPath: found, env, cwd });
 }
 
 async function syncAllHarnesses(

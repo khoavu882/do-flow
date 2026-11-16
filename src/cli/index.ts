@@ -340,7 +340,7 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--questions-file', 'questionsFile'], // advise: ad hoc question set JSON
   ['--static', 'staticAnswer'],        // advise: explicit caller answer for comparison
   ['--provenance', 'provenance'],      // evidence --action add: extracted | inferred | asserted
-  ['--provider', 'provider'],          // evidence --action add: source.provider
+  ['--provider', 'provider'],          // evidence --action add: source.provider · models bind|describe: the model's provider · worker start-session: the model's provider
   ['--capability', 'capability'],      // evidence --action add: source.capability
   ['--locator', 'locator'],            // evidence --action add: 'path/file[:line]' or a URI
   ['--content', 'content'],            // evidence --action add: the fact or the analysis itself
@@ -388,6 +388,7 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--pick-id', 'pickId'],             // advise --action outcome: retained pick to label
   ['--actual', 'actual'],              // advise --action outcome: observed outcome
   ['--model', 'model'],                // advise --action configure: installed decision-capable model · worker start-session: the model id, default when absent
+  ['--effort', 'effort'],              // models bind: the effort level to bind with the model, in the harness's own vocabulary · worker start-session: the effort level
   ['--project-key', 'projectKey'],     // worker start-session|start-options: the project's 16-hex key (165 IC-001)
   ['--worktree-key', 'worktreeKey'],   // worker start-session: the checkout's 16-hex key
   ['--entry', 'entry'],                // worker start-session: do | none, the prompt's first line (165 P-3)
@@ -817,7 +818,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --kind [--json]                    advise --action report (read-only counts and latency from this project's records)
       --model, --endpoint, --project,
       --off                              advise --action configure
-      --harness, --tier, --model, --allow-unlisted   models --action bind (unbind: --harness, --tier)
+      --harness, --tier, --model, --provider, --effort, --allow-unlisted   models --action bind (unbind: --harness, --tier); describe: --model [--provider]
       --path, --exclude (repeatable)        leak-scan
       --slug | --path                       review --action check (at most one; with neither, the active feature)
       --path <dir>                          package --action check (exactly one package directory)
@@ -864,7 +865,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
                                             evidence: --harness --out and exactly one of --checks <file>
                                             (free CLI checks) or --worker-run <w-id> (an ended run);
                                             start-session: --project-key --worktree-key --harness
-                                            [--model] --entry do|none --request-id --stdin [--via]
+                                            [--model [--provider] [--effort]] --entry do|none --request-id --stdin [--via]
                                             (the prompt on stdin); start-options: --project-key.
                                             Exit 0 done; 1 refused or
                                             none-eligible, the disposition in the JSON; 2 usage)

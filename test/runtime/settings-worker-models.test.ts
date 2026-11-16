@@ -339,3 +339,44 @@ test('IC-003: every shipped model-id or worker-models key defaults to null', () 
     }
   }
 });
+
+// 169 IC-001: a tier slot is a plain model id or {model, provider?, effort?}.
+test('worker-models accepts an object slot with a provider and an effort, and a plain id as before', () => {
+  assert.equal(validateValue(SPEC, { pi: { standard: { model: 'gpt-y', provider: 'openai', effort: 'low' } } }), null);
+  assert.equal(validateValue(SPEC, { pi: { standard: { model: 'gpt-y' } } }), null);
+  assert.equal(validateValue(SPEC, { pi: { light: 'gpt-y', standard: { model: 'gpt-y', effort: 'off' }, orchestrator: { model: 'a/b#c', provider: 'p.q-r_1' } } }), null);
+  assert.equal(validateValue(SPEC, { pi: { standard: 'gpt-y' } }), null);
+});
+
+test('worker-models faults for an object slot name the part and never echo its value', () => {
+  const slot = (value: any) => ({ pi: { standard: value } });
+  for (const [value, code, words, secret] of [
+    [{ model: 'x', extra: 1 }, 'type', "a tier's binding has unknown key 'extra'"],
+    [{ provider: 'openai' }, 'type', "a tier's model must be a model name string"],
+    [{ model: '-rf' }, 'type', "a tier's model must start with a letter or digit", '-rf'],
+    [{ model: 'z'.repeat(121) }, 'length', "a tier's model must be at most 120 characters"],
+    [{ model: 'x', provider: 5 }, 'type', "a tier's provider must be a string", '5'],
+    [{ model: 'x', provider: '' }, 'type', "a tier's provider must"],
+    [{ model: 'x', provider: '-bad' }, 'type', "a tier's provider must", '-bad'],
+    [{ model: 'x', provider: 'p'.repeat(65) }, 'length', "a tier's provider must be at most 64 characters"],
+    [{ model: 'x', effort: 'high high' }, 'type', "a tier's effort must", 'high high'],
+    [{ model: 'x', effort: null }, 'type', "a tier's effort must be a string"],
+    [{ model: 'x', effort: 'e'.repeat(33) }, 'length', "a tier's effort must be at most 32 characters"],
+  ]) {
+    const fault = validateValue(SPEC, slot(value));
+    assert.ok(fault, JSON.stringify(value));
+    assert.equal(fault.code, code, JSON.stringify(value));
+    assert.ok(fault.reason.startsWith(words), fault.reason);
+    if (secret) assert.equal(fault.reason.includes(secret), false, fault.reason);
+  }
+  // Arrays and other non-plain objects are still a model-id type fault, byte for byte.
+  assert.deepEqual(validateValue(SPEC, slot([])), validateValue(SPEC, slot(5)));
+  assert.deepEqual(validateValue(SPEC, slot(new Date(0))), validateValue(SPEC, slot(5)));
+  // The first fault invalidates the whole map.
+  assert.equal(validateValue(SPEC, { codex: { light: 'ok' }, pi: { standard: { model: 'x', effort: '-' } } }).code, 'type');
+});
+
+test('a plain model id fault is unchanged by the object slot', () => {
+  assert.deepEqual(validateValue(SPEC, { codex: { light: '-rf' } }), { code: 'type', reason: "a tier's model must start with a letter or digit, use only letters, digits, spaces and . _ : / @ ( ) [ ] # + -, and not end with a space" });
+  assert.deepEqual(validateValue(SPEC, { codex: { light: 5 } }), { code: 'type', reason: "a tier's model must be a model name string" });
+});

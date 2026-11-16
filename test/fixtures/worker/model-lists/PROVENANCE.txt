@@ -1,0 +1,6 @@
+Trimmed copies of the owner's recorded CLI output (row 169 captures), recorded 2026-11-16. Every line is a verbatim line
+of the capture; only lines were dropped. Model ids and sizes only; no account data. Tests read these instead of running a CLI.
+
+pi-list-models.txt       command: pi --list-models        CLI: pi 1.5.2        header plus 10 rows, every provider, an id under two
+                         providers (gpt-6.1-terra under openai and openai-codex), sizes 1M 128K 200K 8.2K 16.4K 1.0M 4.1K, one "thinking no" row.
+opencode-models.txt      command: opencode models         CLI: opencode 2.2.7  8 lines, every provider (ollama, openai, opencode).

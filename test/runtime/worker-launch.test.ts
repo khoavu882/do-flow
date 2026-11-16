@@ -13,7 +13,8 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { tempDir } = require('../helper/tmp.ts');
 const { IDENTITY_VARS, linkBin, writeScenario, readLog } = require('../helper/fake-harness-cli.ts');
-const { ENV_SET, PROMPT_LIMITS, argvShape, assembleArgv, launchEnv, launchRecord, launchWorker } = require('../../src/runtime/worker/launch.ts');
+const { ENV_SET, PROMPT_LIMITS, argvShape, assembleArgv, launchEnv, launchRecord, launchWorker, mainArgv, mainArgvShape, mainLaunchRecord } = require('../../src/runtime/worker/launch.ts');
+const { loadRegistry } = require('../../src/registry/index.ts');
 const { resolveIdentity } = require('../../src/runtime/context/identity.ts');
 const DESCRIPTORS = require('../fixtures/worker/descriptors.json');
 
@@ -261,4 +262,34 @@ test('IC-012 a missing binary rejects with ENOENT', POSIX_ONLY, async (t) => {
   const { identity } = launchEnv({ env: w.env, runKey: 'abcdef0123456789/r1/w1', token: 1, execWorktree: w.worktree, runId: RUN_ID });
   await assert.rejects(launchWorker({ recipe, prompt: 'p', identity, execWorktree: w.worktree, env: w.env }), { code: 'ENOENT' });
   assert.deepEqual(readLog(w.log), []);
+});
+
+// ---- 169 T4: the main-session argv carries the composed model part -------------------------------------------------------
+
+/** The shipped Pi worker block plus the Pi shape of design §8 (id-prefix provider, `--thinking {effort}` flag effort). */
+function piMain() {
+  const worker = structuredClone(loadRegistry({ repoRoot: path.resolve(__dirname, '../..') }).harnesses.find((h: any) => h.id === 'pi').worker);
+  const entry = { status: 'supported', evidence: ['x'], verification: 'v', verifiedOn: '2026-11-16' };
+  worker.provider = { ...entry, via: 'id-prefix', separator: '/' };
+  worker.effort = { ...entry, via: 'flag', argv: ['--thinking', '{effort}'], levels: ['off', 'low', 'high'] };
+  return worker;
+}
+
+test('169: mainArgv puts the composed model part before the positional tail; a fixed copy of the effort flag is removed', () => {
+  const worker = piMain();
+  worker.mainSession.argv = ['-p', '--thinking', 'off', '--mode', 'json', '--no-approve', '--', '{prompt}'];
+  const argv = mainArgv(worker, 'hello', undefined, { model: 'm1', provider: 'openai', effort: 'high' });
+  assert.deepEqual(argv, ['-p', '--mode', 'json', '--no-approve', '--model', 'openai/m1', '--thinking', 'high', '--', 'hello']);
+  assert.deepEqual(mainArgv(worker, 'hello', undefined, { model: 'm1', provider: null, effort: null }), ['-p', '--thinking', 'off', '--mode', 'json', '--no-approve', '--model', 'm1', '--', 'hello']);
+  assert.deepEqual(mainArgv(worker, 'hello'), ['-p', '--thinking', 'off', '--mode', 'json', '--no-approve', '--', 'hello']);
+});
+
+test('169: the main-session shape and record keep the placeholders, never the bound values', () => {
+  const worker = piMain();
+  const choice = { model: 'secretish-model', provider: 'prov-x', effort: 'high' };
+  const shape = mainArgvShape(worker, 'p', choice);
+  assert.deepEqual(shape.slice(shape.indexOf('--model'), shape.indexOf('--model') + 4), ['--model', '{provider}/{model}', '--thinking', '{effort}']);
+  const text = JSON.stringify(mainLaunchRecord(worker, 'p', choice));
+  for (const value of ['secretish-model', 'prov-x']) assert.equal(text.includes(value), false, value);
+  assert.throws(() => mainArgv(worker, 'p', undefined, { model: 'm1', provider: null, effort: 'turbo' }), { code: 'model-part-invalid' });
 });

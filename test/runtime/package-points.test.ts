@@ -79,7 +79,7 @@ test('the shipped registry is valid and holds the IC-002 facts', () => {
     ['skill', 'open', 'instruction'], ['agent', 'open', 'instruction'],
     ['worker', 'open', 'executable'], ['capability-provider', 'open', 'executable'],
     ['intake-category', 'open', 'inert'],
-    ['model-list-parser', 'reserved', 'executable'], ['control-channel', 'reserved', 'executable'],
+    ['control-channel', 'reserved', 'executable'],
   ]);
   const byId = Object.fromEntries(reg.points.map((p: any) => [p.id, p]));
   assert.equal(byId.skill.validator, 'skill-v1');
@@ -120,36 +120,33 @@ test('POINT_VALIDATORS is a literal map; the preset validators call validatePres
   assert.match(POINT_VALIDATORS['review-preset-v1']('review-deep', { ...review, seats: [] }, context).join('\n'), /seats/);
 });
 
-test('points --json lists nine points with id, versions, tier, status, entry and opensWith', (t: any) => {
+test('points --json lists eight points with id, versions, tier, status, entry and opensWith', (t: any) => {
   const s = scratch(t);
   const res = s.cli(['package', '--action', 'points', '--json']);
   assert.equal(res.status, 0, res.stderr);
   const out = JSON.parse(res.stdout);
   assert.deepEqual(Object.keys(out), ['points']);
-  assert.equal(out.points.length, 9);
+  assert.equal(out.points.length, 8);
   assert.deepEqual(out.points[0], { id: 'review-preset', versions: [1], tier: 'inert', status: 'open', entry: 'file', opensWith: null });
   const cap = out.points.find((p: any) => p.id === 'capability-provider');
   assert.deepEqual(cap, { id: 'capability-provider', versions: [1], tier: 'executable', status: 'open', entry: 'file', opensWith: null });
   assert.deepEqual(out.points, pointRows(REAL));
 });
 
-test('points lists model-list-parser and control-channel as reserved, each opensWith its row', (t: any) => {
+test('points lists control-channel as the one reserved point, opensWith its row (169 removed model-list-parser)', (t: any) => {
   const s = scratch(t);
   const res = s.cli(['package', '--action', 'points', '--json']);
   assert.equal(res.status, 0, res.stderr);
   const rows = JSON.parse(res.stdout).points.slice(7);
   assert.deepEqual(rows, [
-    { id: 'model-list-parser', versions: [], tier: 'executable', status: 'reserved', entry: 'file',
-      opensWith: 'row 169: worker.modelList.format, a field map of grammar model-list-v1 over the list command\'s output' },
     { id: 'control-channel', versions: [], tier: 'executable', status: 'reserved', entry: 'file',
       opensWith: 'row 170: worker.controlChannel, a capability entry whose settled event is a field-map Test list' },
   ]);
   for (const row of rows) assert.ok(row.opensWith.length <= 160, `${row.id} opensWith is at most 160 characters`);
   const byId = Object.fromEntries(REAL.points.map((p: any) => [p.id, p]));
-  for (const id of ['model-list-parser', 'control-channel']) {
-    assert.deepEqual([byId[id].validator, byId[id].consumer, byId[id].referencedBy, byId[id].combine, byId[id].slice, Object.hasOwn(byId[id], 'template')],
-      [null, null, [], 'add-only', '171', false], id);
-  }
+  assert.equal(byId['model-list-parser'], undefined, 'row 169 removed the reserved point (the listing columns are data, not code)');
+  assert.deepEqual([byId['control-channel'].validator, byId['control-channel'].consumer, byId['control-channel'].referencedBy, byId['control-channel'].combine, byId['control-channel'].slice, Object.hasOwn(byId['control-channel'], 'template')],
+    [null, null, [], 'add-only', '171', false]);
 });
 
 test('a contribution to control-channel is refused point-reserved; login-recipe is no point (172 O-5: a worker descriptor carries its recipe)', () => {
@@ -170,11 +167,11 @@ test('points text prints one line per point and writes nothing', (t: any) => {
   const res = s.cli(['package', '--action', 'points']);
   assert.equal(res.status, 0, res.stderr);
   const lines = res.stdout.trim().split('\n');
-  assert.equal(lines.length, 9);
+  assert.equal(lines.length, 8);
   assert.match(lines[0], /^point review-preset: tier=inert status=open entry=file versions=1$/);
   assert.match(lines[5], /^point capability-provider: tier=executable status=open entry=file versions=1$/);
   assert.match(lines[6], /^point intake-category: tier=inert status=open entry=file versions=1$/);
-  assert.match(lines[7], /^point model-list-parser: tier=executable status=reserved entry=file /);
+  assert.match(lines[7], /^point control-channel: tier=executable status=reserved entry=file /);
   assert.deepEqual({ cwd: snapshot(s.cwd), home: snapshot(s.home) }, before);
 });
 

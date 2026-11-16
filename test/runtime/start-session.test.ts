@@ -32,6 +32,8 @@ const { recipeDigest } = require(path.join(SRC, 'worker', 'login.ts'));
 
 const POSIX: any = { skip: process.platform === 'win32' && 'worker process control is unverified on win32' };
 const ENTRY_LINE = 'Use the DoFlow do skill for this request:';
+/** 169 IC-007: the harness default, the one entry whose model is null (a start-options entry is `{model, provider, effort, source, check}`). */
+const DEFAULT_ENTRY = { model: null, provider: null, effort: null, source: 'default', check: null };
 const STORE = (root: string) => path.join(root, '.doflow', 'state', 'worker-runs', 'started-sessions.json');
 
 const FAKE = `#!/usr/bin/env node
@@ -336,7 +338,7 @@ test('refusals: every IC-001 id, exit 1, and no store is changed', POSIX, async 
     assert.equal(body.code, code, JSON.stringify(body));
     assert.equal(typeof body.message, 'string');
     if (current) assert.deepEqual(body.current, current, code);
-    if (code === 'model-not-offered') assert.deepEqual(body.current.models, [{ id: null, source: 'default' }]);
+    if (code === 'model-not-offered') assert.deepEqual(body.current.models, [DEFAULT_ENTRY]);
   }
   assert.deepEqual(stateSnapshot(f), before);
   assert.equal(fakeLog(f).length, 0);
@@ -451,6 +453,74 @@ test('slug-reserved: worker run and dispatch refuse the started-sessions store',
   assert.deepEqual(d.body, { disposition: 'refused', reason: 'slug-reserved', slug: 'started-sessions' });
 });
 
+/** 169 T7: pi takes a provider (id prefix) and an effort (flag); its catalogue lists gpt-y under openai and under other. */
+function bindPi(f: any, slot: any, others: any = {}) {
+  fs.writeFileSync(path.join(f.config, 'doflow', 'settings.json'), JSON.stringify({ schema: 1, 'workers.models': { ...others, pi: { standard: slot, light: 'gpt-y' } } }));
+  fs.mkdirSync(path.join(f.main, '.doflow', 'state', 'models'), { recursive: true });
+  fs.writeFileSync(path.join(f.main, '.doflow', 'state', 'models', 'catalogue.json'), JSON.stringify({
+    version: 1, syncedAt: '2026-11-17T00:00:00.000Z',
+    harnesses: { pi: { installed: true, offeredModels: [{ id: 'gpt-y', provider: 'openai', effortLevels: ['low', 'high'] }, { id: 'gpt-y', provider: 'other' }, { id: 'gpt-z', provider: 'openai' }], modelList: { status: 'listed' } } },
+  }));
+}
+
+test('169 start-options: each binding and observed model is {model, provider, effort, source, check}; a binding a part of which the harness cannot take is refused', POSIX, async (t: any) => {
+  const f = fixture(t, { fakes: ['codex', 'pi'] });
+  bindPi(f, { model: 'gpt-y', provider: 'openai', effort: 'low' }, { codex: { standard: { model: 'gpt-x', effort: 'low' } } });
+  const { exit, body } = await executeWorkerCommand({ action: 'start-options', projectKey: f.projectKey, env: f.env, cwd: f.main, descriptors: DESCRIPTORS, projects: projectsImpl });
+  assert.equal(exit, 0, JSON.stringify(body));
+  const by = Object.fromEntries(body.harnesses.map((h: any) => [h.harness, h]));
+  assert.deepEqual(by.pi.models, [
+    { model: 'gpt-y', provider: 'openai', effort: 'low', source: 'standard', check: { model: 'listed', effort: 'listed' }, effortMayLower: true },
+    { model: 'gpt-y', provider: null, effort: null, source: 'light', check: { model: 'several-providers', effort: null } },
+    { model: 'gpt-y', provider: 'openai', effort: null, source: 'observed', check: { model: 'listed', effort: null } },
+    { model: 'gpt-y', provider: 'other', effort: null, source: 'observed', check: { model: 'listed', effort: null } },
+    { model: 'gpt-z', provider: 'openai', effort: null, source: 'observed', check: { model: 'listed', effort: null } },
+    DEFAULT_ENTRY,
+  ]);
+  assert.deepEqual(by.codex.models, [
+    { model: 'gpt-x', provider: null, effort: 'low', source: 'standard', check: { model: 'unchecked', effort: 'unchecked' }, refused: 'effort:unsupported' },
+    DEFAULT_ENTRY,
+  ]);
+});
+
+test('169 start-session: --model --provider --effort starts only an offered triple, with the part reaching the argv and the record', POSIX, async (t: any) => {
+  const f = fixture(t, { fakes: ['pi'] });
+  bindPi(f, { model: 'gpt-y', provider: 'openai', effort: 'low' });
+  const triple = { harness: 'pi', worktreeKey: f.mainKey, entry: 'none', readStdin: () => 'just text' };
+  const before = stateSnapshot(f);
+  for (const over of [
+    { model: 'gpt-y', provider: 'openai', effort: 'high' }, { model: 'gpt-y', provider: 'other', effort: 'low' }, { model: 'gpt-z', provider: 'openai', effort: 'low' },
+    { model: 'gpt-q', provider: 'openai', effort: 'low' }, { model: 'gpt-y', effort: 'low' },
+  ]) {
+    const { exit, body } = await start(f, { ...triple, ...over });
+    assert.deepEqual([exit, body.code], [1, 'model-not-offered'], JSON.stringify(over));
+    assert.ok(body.current.models.every((m: any) => 'provider' in m && 'effort' in m && 'check' in m));
+  }
+  assert.deepEqual(stateSnapshot(f), before);
+  assert.equal(fakeLog(f).length, 0);
+  const { exit, body } = await start(f, { ...triple, model: 'gpt-y', provider: 'openai', effort: 'low' });
+  assert.equal(exit, 0, JSON.stringify(body));
+  const run = await ended(f, body.run.runId);
+  assert.deepEqual(fakeLog(f)[0].argv, ['-p', '--mode', 'json', '--no-approve', '--model', 'openai/gpt-y', '--thinking', 'low', '--', 'just text']);
+  assert.deepEqual([run.binding.model, run.binding.provider, run.binding.effort, run.binding.source], ['gpt-y', 'openai', 'low', 'standard']);
+  assert.deepEqual(Object.keys(run.descriptor).sort(), ['cli', 'effort', 'loginProbe', 'mainSession', 'model', 'provider']);
+});
+
+test('169 start-session: a refused entry does not start, and a provider or effort without a model, or outside its pattern, is usage', POSIX, async (t: any) => {
+  const f = fixture(t, { fakes: ['codex'] });
+  fs.writeFileSync(path.join(f.config, 'doflow', 'settings.json'), JSON.stringify({ schema: 1, 'workers.models': { codex: { standard: { model: 'gpt-x', effort: 'low' } } } }));
+  const before = stateSnapshot(f);
+  const refused = await start(f, { model: 'gpt-x', effort: 'low' });
+  assert.deepEqual([refused.exit, refused.body.code], [1, 'model-not-offered']);
+  assert.equal(refused.body.current.models[0].refused, 'effort:unsupported');
+  for (const over of [{ provider: 'openai' }, { effort: 'low' }, { model: 'gpt-x', provider: 'a b' }, { model: 'gpt-x', effort: '-low' }]) {
+    const { exit, body } = await start(f, over);
+    assert.deepEqual([exit, body.error], [2, 'usage'], JSON.stringify(over));
+  }
+  assert.deepEqual(stateSnapshot(f), before);
+  assert.equal(fakeLog(f).length, 0);
+});
+
 test('start-options: checkouts, the startable shapes, not-startable reasons, model order and the limits; writes nothing', POSIX, async (t: any) => {
   const f = fixture(t, { fakes: ['codex', 'opencode', 'pi'] });
   fs.writeFileSync(path.join(f.config, 'doflow', 'settings.json'), JSON.stringify({ schema: 1, 'workers.models': { codex: { light: 'gpt-l', frontier: 'gpt-f', standard: 'gpt-f' } } }));
@@ -469,7 +539,8 @@ test('start-options: checkouts, the startable shapes, not-startable reasons, mod
   assert.deepEqual([by.claude.startable, by.claude.reason], [false, 'not-installed']);
   for (const h of ['copilot', 'kiro', 'antigravity']) assert.deepEqual([by[h].startable, by[h].reason], [false, 'no-main-session-shape'], h);
   assert.match(by.copilot.words, /^DoFlow has no recorded headless way to start copilot: /);
-  assert.deepEqual(by.codex.models, [{ id: 'gpt-f', source: 'frontier' }, { id: 'gpt-l', source: 'light' }, { id: null, source: 'default' }]);
+  const plain = (model: string, source: string) => ({ model, provider: null, effort: null, source, check: { model: 'unchecked', effort: null } });
+  assert.deepEqual(by.codex.models, [plain('gpt-f', 'frontier'), plain('gpt-l', 'light'), DEFAULT_ENTRY]);
   assert.deepEqual(body.limits, { perCheckout: 1, perActor: 2, machine: 4, perActorPerHour: 6 });
   assert.deepEqual(body.open, { machine: 1 });
   assert.deepEqual(body.dispatch, { running: false });

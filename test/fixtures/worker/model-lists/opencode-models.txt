@@ -1,0 +1,8 @@
+ollama/gemma4:12b
+ollama/Qwen-3.6-35B:latest
+openai/gpt-5.5
+openai/gpt-5.5-fast
+openai/gpt-6.1-terra
+opencode/big-pickle
+opencode/beam-free
+opencode/iceman-free

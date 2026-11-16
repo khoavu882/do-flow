@@ -30,6 +30,7 @@ const { createAdviceClient } = require('./advice/client.ts');
 const { resolveShadowConfig } = require('./advice/shadow-config.ts');
 const { strengthWords } = require('./advice/strength.ts');
 const { resolveTier } = require('./worker/models.ts');
+const { bindingText } = require('./models/binding-text.ts');
 
 const SCHEMA = 1;
 const REACHABLE = new Set(['selected', 'configured']);
@@ -97,6 +98,7 @@ const cell = (text: any) => String(text).replace(/\|/g, '\\|').replace(/\s+/g, '
 // The hand-back status ids, in the order of core/registry/workflows.json agents.handback.statuses;
 // G76 holds this text, the fallback in do-task-brief.sh and every spec/TOML status line to that list.
 const HANDBACK_IDS = ['done', 'done-with-concerns', 'needs-context', 'blocked'];
+const MODEL_SOURCE_WORDS: Record<string, string> = Object.freeze({ binding: 'binding, user layer', 'main-session': "the main session's model", 'frontier-binding': 'frontier binding, user layer' });
 const trigger = (server: any) => server.trigger.replace(/\.$/, '');
 
 /**
@@ -110,12 +112,13 @@ const trigger = (server: any) => server.trigger.replace(/\.$/, '');
  * @param {string} [input.harness] target harness id
  * @param {Object} [input.primary] resolved primary result (IC-017)
  * @param {Object} [input.bindings] workers.models bindings result (IC-017)
+ * @param {Object|null} [input.catalogue] the observed catalogue, for the model and effort checks of a bound model (169)
  * @param {2|3} [input.headingLevel]
  * @param {string} [input.repoRoot] where `core/registry/rules.json` is read from
  * @param {{feature:?string, runTaskId:?string, stageId:?string, skill:?string}|null} [input.stage]
  * @returns {{markdown: string, record: Object}} the IC-018 record, including model (IC-017), without `tasks`
  */
-function renderBriefTools({ registry, router, probes, reach, owner, tier, harness, primary = null, bindings = null, headingLevel = 2, stage = null, repoRoot = REPO_ROOT }: any) {
+function renderBriefTools({ registry, router, probes, reach, owner, tier, harness, primary = null, bindings = null, catalogue = null, headingLevel = 2, stage = null, repoRoot = REPO_ROOT }: any) {
   const missing: any = [];
   const hashes = '#'.repeat(Number(headingLevel) === 3 ? 3 : 2);
   const primaryHarness = primaryHarnessOf(primary, registry);
@@ -124,16 +127,18 @@ function renderBriefTools({ registry, router, probes, reach, owner, tier, harnes
   const resolved = resolveTier({ dispatchTiers: registry.dispatchTiers, owner, tier, missing });
   const lineHarness = registry.harnesses.some((item: any) => item.id === harness) ? harness : primaryHarness;
   const lineHarnessEntry = lineHarness ? registry.harnesses.find((item: any) => item.id === lineHarness) : null;
-  let model = null;
+  let model: any = null;
+  let modelCell: any = null;
   if (lineHarness) {
-    const { resolveTaskModel } = require('./worker/models.ts');
+    const { resolveTaskModel, bindingGap } = require('./worker/models.ts');
     const binding = resolveTaskModel({ worker: lineHarness, owner, resolvedTier: resolved, bindings, descriptor: lineHarnessEntry?.worker, primary });
     if (binding.source === 'invalid') {
-      model = { harness: lineHarness, id: null, source: 'invalid' };
+      model = { harness: lineHarness, model: null, source: 'invalid' };
     } else if (binding.model !== null && binding.source !== 'harness-default') {
-      model = { harness: lineHarness, id: binding.model, source: binding.source };
+      modelCell = require('./models/tier-view.ts').cellFor(binding.choice, lineHarnessEntry?.worker, catalogue?.harnesses?.[lineHarness] ?? null, bindingGap(binding)?.reason ?? null);
+      model = { harness: lineHarness, model: binding.model, provider: modelCell.provider, effort: modelCell.effort, check: modelCell.check, source: binding.source };
     } else {
-      model = { harness: lineHarness, id: null, source: 'harness-default' };
+      model = { harness: lineHarness, model: null, source: 'harness-default' };
     }
   }
   const sourceText = resolved.source === 'owner' ? `owner ${owner}`
@@ -211,13 +216,9 @@ function renderBriefTools({ registry, router, probes, reach, owner, tier, harnes
     '`references/MODEL_SELECTION.md`.',
     ...(model ? [model.source === 'invalid'
       ? `Model: binding unreadable on \`${model.harness}\`; harness default.`
-      : model.source === 'binding'
-        ? `Model: \`${model.id}\` on \`${model.harness}\` (binding, user layer).`
-        : model.source === 'main-session'
-          ? `Model: \`${model.id}\` on \`${model.harness}\` (the main session's model).`
-          : model.source === 'frontier-binding'
-            ? `Model: \`${model.id}\` on \`${model.harness}\` (frontier binding, user layer).`
-            : `Model: harness default on \`${model.harness}\`.`] : []),
+      : model.source === 'harness-default'
+        ? `Model: harness default on \`${model.harness}\`.`
+        : `Model: ${bindingText(modelCell, { code: true })} on \`${model.harness}\` (${MODEL_SOURCE_WORDS[model.source]}).`] : []),
     '',
     'Tools this machine answers with, per information need. Searching with them before reading whole',
     'files is recommended where it saves reading; it is not required.',
@@ -346,7 +347,8 @@ async function handleBriefToolsCommand({ owner, tier, harness, slug, headingLeve
     const { resolvePrimary } = require('./context/primary.ts');
     try { primary = resolvePrimary({ env, projectRoot, registry }); } catch { notes.push('primary unresolved; default target unchanged'); }
     const bindings = readBindings({ env, projectRoot });
-    const rendered = renderBriefTools({ registry, router, probes, reach, owner, tier, harness, primary, bindings, headingLevel: level, stage, repoRoot });
+    const catalogue = require('./models/catalogue.ts').readCatalogue(projectRoot, { env });
+    const rendered = renderBriefTools({ registry, router, probes, reach, owner, tier, harness, primary, bindings, catalogue, headingLevel: level, stage, repoRoot });
     let markdown = rendered.markdown;
     const record: any = rendered.record;
     record.missing.push(...notes);

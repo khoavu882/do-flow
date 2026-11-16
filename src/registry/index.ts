@@ -713,6 +713,10 @@ const WORKER_OPTIONAL_CAPABILITIES: Record<string, { allowed: string[], required
   model: { allowed: ['argv'], required: ['argv'] },
   // 165 IC-006: how the harness starts a user-visible main session from a prompt. `parser` is a parser id or null.
   mainSession: { allowed: ['argv', 'promptVia', 'parser'], required: ['argv', 'promptVia', 'parser'] },
+  // 169 design §4.1, §4.2: how a tier's provider and effort reach the harness; the transport rules live in model-parts.ts.
+  // `mayLower` (L-3) says the harness may run a lower level than bound when the model cannot run it.
+  provider: { allowed: ['via', 'argv', 'separator'], required: ['via'] },
+  effort: { allowed: ['via', 'argv', 'separator', 'levels', 'offLevel', 'mayLower'], required: ['via', 'levels'] },
 });
 const WORKER_BILLING = new Set(['free', 'metered', 'unknown']);
 const WORKER_KEYS = Object.freeze(['profile', 'billing', ...Object.keys(WORKER_CAPABILITIES), 'modelChecks']);
@@ -725,6 +729,7 @@ const BARE_COMMAND = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const WORKER_RECIPE_FIELDS = new Set([
   'binary', 'versionArgv', 'argv', 'promptVia', 'parser', 'fieldMap', 'marker', 'quotaSignals', 'protectedPaths',
   'output', 'providers', 'answers', 'billing', 'expiry', 'expirySigns', 'hint', 'caveat',
+  'via', 'separator', 'levels', 'offLevel', 'mayLower',
 ]);
 const WORKER_QUOTA_SIGNALS_FIELDS = new Set(['signals', 'unverifiedSignals', 'basis', 'evidence']);
 const WORKER_FACTS = new Set(['hooksLoaded', 'identityForwarded', 'guidanceLoaded', 'login']);
@@ -738,6 +743,8 @@ const WIDENING_CHECKED = Object.freeze(['oneShot', 'mainSession', 'loginProbe'])
 const { secretProblem, secretFlagsProblem } = require('./secret-flags.ts');
 // 172 design §3.2: the login recipe's own checks (L0-L5); its flags (L6) are checked here with every other argv.
 const { validateLoginProbe } = require('./login-recipe.ts');
+// 169 design §4.4: the provider, effort and listing-column grammar (rules 1 to 7).
+const { validateModelParts, validateModelListColumns } = require('./model-parts.ts');
 const MAIN_SESSION_PLACEHOLDERS = new Set(['{prompt}', '{model}', '{lastMessageFile}']);
 const WORKER_ARGV_MAX = 32;
 const WORKER_ARG_MAX_CHARS = 200;
@@ -776,13 +783,15 @@ function workerProtectedPathsProblem(value: any): string | null {
  * `supported` carries `argv` (the arguments after the worker's binary) and `parse`, one of the closed set
  * in src/runtime/models/parsers.ts (`lines`, `tsv-first-column`, `table-column:<name>`); that the set
  * holds every `parse` here is checked by test/runtime/models/list-models.test.ts, so the registry does
- * not require a runtime module. `none-recorded` carries the reason no listing command is recorded. */
+ * not require a runtime module. `none-recorded` carries the reason no listing command is recorded.
+ * 169 §4.3: a `supported` listing may also carry `columns` (a table's other columns, by target field) and
+ * `providerInId` (each listed id is `<provider><separator><id>`); both are checked in model-parts.ts. */
 const MODEL_LIST_PARSE = /^(?:lines|tsv-first-column|table-column:[a-z][a-z0-9-]*)$/;
 function validateModelList(entry: any, fail: (key: string, message: string) => void): void {
   if (!object(entry)) { fail('modelList', 'must be an object'); return; }
   const status = entry.status;
   if (status !== 'supported' && status !== 'none-recorded') { fail('modelList', 'status must be supported or none-recorded'); return; }
-  const allowed = status === 'supported' ? ['status', 'argv', 'parse', 'evidence', 'verifiedOn'] : ['status', 'reason'];
+  const allowed = status === 'supported' ? ['status', 'argv', 'parse', 'evidence', 'verifiedOn', 'columns', 'providerInId'] : ['status', 'reason'];
   for (const field of Object.keys(entry)) if (!allowed.includes(field)) fail('modelList', `has unknown field '${field}' for status ${status}`);
   if (status === 'none-recorded') {
     if (typeof entry.reason !== 'string' || !entry.reason.trim()) fail('modelList', 'none-recorded requires a reason');
@@ -795,6 +804,7 @@ function validateModelList(entry: any, fail: (key: string, message: string) => v
   if (typeof entry.parse !== 'string' || !MODEL_LIST_PARSE.test(entry.parse)) {
     fail('modelList', 'parse must be lines, tsv-first-column or table-column:<name>');
   }
+  validateModelListColumns(entry, fail);
   if (Object.hasOwn(entry, 'evidence') && (!Array.isArray(entry.evidence) || entry.evidence.some((item: any) => typeof item !== 'string'))) {
     fail('modelList', 'evidence must be an array of strings');
   }
@@ -1009,6 +1019,8 @@ function validateWorker(value: any, location: string, errors: string[]): void {
       }
     }
   }
+
+  validateModelParts(value, fail, { declared, secretDeclared });
 
   if (!Object.hasOwn(value, 'modelChecks')) return;
   if (!Array.isArray(value.modelChecks)) { fail('modelChecks', 'must be an array'); return; }

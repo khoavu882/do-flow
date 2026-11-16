@@ -36,9 +36,9 @@ function closestIds(model: string, ids: string[], count = 3): string[] {
   return [...ids].sort((a, b) => distance(model, a) - distance(model, b)).slice(0, count);
 }
 
-/** Sets (`model` a string) or removes (`model` null) `workers.models.<harness>.<slot>` in the user settings file.
- * Returns `{ ok: true, file, map, changed }` or `{ ok: false, detail }`; nothing is written on a refusal. */
-function changeBinding({ harness, slot, model, env = process.env, fsImpl = nodeFs }: any): any {
+/** Sets (`value` a model id string, or `{model, provider?, effort?}` with only the non-null keys) or removes (`value` null)
+ * `workers.models.<harness>.<slot>` in the user settings file. Returns `{ ok: true, file, map, changed }` or `{ ok: false, detail }`; nothing is written on a refusal. */
+function changeBinding({ harness, slot, value, env = process.env, fsImpl = nodeFs }: any): any {
   const home = configHome(env);
   if (!home.dir) return { ok: false, detail: 'no config home resolves; set an absolute HOME or XDG_CONFIG_HOME' };
   const file = path.join(home.dir, 'settings.json');
@@ -50,13 +50,13 @@ function changeBinding({ harness, slot, model, env = process.env, fsImpl = nodeF
     const read = readLayerFile(file, { registry, fsImpl, includeDocument: true });
     if (read.status === 'invalid') return { ok: false, detail: `${file} ${read.reason}; fix or remove it first` };
     const document = read.status === 'ok' && isObject(read.document) ? read.document : {};
-    const map: Record<string, Record<string, string>> = isObject(document[KEY]) ? structuredClone(document[KEY]) : {};
+    const map: Record<string, Record<string, unknown>> = isObject(document[KEY]) ? structuredClone(document[KEY]) : {};
     const before = JSON.stringify(map);
-    if (model === null) {
+    if (value === null) {
       if (map[harness]) delete map[harness][slot];
       if (map[harness] && Object.keys(map[harness]).length === 0) delete map[harness];
     } else {
-      map[harness] = { ...(map[harness] || {}), [slot]: model };
+      map[harness] = { ...(map[harness] || {}), [slot]: value };
     }
     if (JSON.stringify(map) === before) return { ok: true, file, map, changed: false };
 

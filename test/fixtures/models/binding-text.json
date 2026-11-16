@@ -1,0 +1,298 @@
+{
+ "schema": 1,
+ "rows": [
+  {
+   "cell": null,
+   "text": "harness default",
+   "code": "harness default"
+  },
+  {
+   "cell": "unresolved:settings-invalid",
+   "text": "unresolved",
+   "code": "unresolved"
+  },
+  {
+   "cell": {
+    "model": "gpt-y",
+    "provider": null,
+    "effort": null,
+    "check": {
+     "model": "listed",
+     "effort": null
+    }
+   },
+   "text": "gpt-y",
+   "code": "`gpt-y`"
+  },
+  {
+   "cell": {
+    "model": "gpt-y",
+    "provider": "openai",
+    "effort": null,
+    "check": {
+     "model": "listed",
+     "effort": null
+    }
+   },
+   "text": "gpt-y (provider openai)",
+   "code": "`gpt-y` (provider openai)"
+  },
+  {
+   "cell": {
+    "model": "gpt-y",
+    "provider": null,
+    "effort": "low",
+    "check": {
+     "model": "listed",
+     "effort": "listed"
+    }
+   },
+   "text": "gpt-y (effort low)",
+   "code": "`gpt-y` (effort low)"
+  },
+  {
+   "cell": {
+    "model": "gpt-y",
+    "provider": "openai",
+    "effort": "low",
+    "check": {
+     "model": "listed",
+     "effort": "listed"
+    }
+   },
+   "text": "gpt-y (provider openai, effort low)",
+   "code": "`gpt-y` (provider openai, effort low)"
+  },
+  {
+   "cell": {
+    "model": "gpt-y",
+    "provider": null,
+    "effort": null,
+    "check": {
+     "model": "unchecked",
+     "effort": null
+    }
+   },
+   "text": "gpt-y [model unchecked]",
+   "code": "`gpt-y` [model unchecked]"
+  },
+  {
+   "cell": {
+    "model": "gpt-y",
+    "provider": null,
+    "effort": null,
+    "check": {
+     "model": "not-listed",
+     "effort": null
+    }
+   },
+   "text": "gpt-y [not in the list]",
+   "code": "`gpt-y` [not in the list]"
+  },
+  {
+   "cell": {
+    "model": "gpt-y",
+    "provider": null,
+    "effort": null,
+    "check": {
+     "model": "several-providers",
+     "effort": null
+    }
+   },
+   "text": "gpt-y [several providers list it]",
+   "code": "`gpt-y` [several providers list it]"
+  },
+  {
+   "cell": {
+    "model": "gpt-y",
+    "provider": "openai",
+    "effort": "low",
+    "check": {
+     "model": "listed",
+     "effort": "unchecked"
+    }
+   },
+   "text": "gpt-y (provider openai, effort low) [effort unchecked]",
+   "code": "`gpt-y` (provider openai, effort low) [effort unchecked]"
+  },
+  {
+   "cell": {
+    "model": "gpt-y",
+    "provider": null,
+    "effort": "high",
+    "check": {
+     "model": "listed",
+     "effort": "not-offered"
+    }
+   },
+   "text": "gpt-y (effort high) [effort not offered by the model]",
+   "code": "`gpt-y` (effort high) [effort not offered by the model]"
+  },
+  {
+   "cell": {
+    "model": "gpt-y",
+    "provider": null,
+    "effort": "low",
+    "check": {
+     "model": "listed",
+     "effort": "listed"
+    },
+    "effortMayLower": true
+   },
+   "text": "gpt-y (effort low) [the harness may lower the effort]",
+   "code": "`gpt-y` (effort low) [the harness may lower the effort]"
+  },
+  {
+   "cell": {
+    "model": "gpt-y",
+    "provider": null,
+    "effort": "low",
+    "check": {
+     "model": "listed",
+     "effort": "unchecked"
+    },
+    "effortMayLower": true
+   },
+   "text": "gpt-y (effort low) [effort unchecked, the harness may lower the effort]",
+   "code": "`gpt-y` (effort low) [effort unchecked, the harness may lower the effort]"
+  },
+  {
+   "cell": {
+    "model": "gpt-y",
+    "provider": "openai",
+    "effort": "xhigh",
+    "check": {
+     "model": "several-providers",
+     "effort": "not-offered"
+    },
+    "effortMayLower": true
+   },
+   "text": "gpt-y (provider openai, effort xhigh) [several providers list it, effort not offered by the model, the harness may lower the effort]",
+   "code": "`gpt-y` (provider openai, effort xhigh) [several providers list it, effort not offered by the model, the harness may lower the effort]"
+  },
+  {
+   "cell": {
+    "model": "gpt-y",
+    "provider": null,
+    "effort": "low",
+    "check": {
+     "model": "unchecked",
+     "effort": "unchecked"
+    }
+   },
+   "text": "gpt-y (effort low) [model unchecked, effort unchecked]",
+   "code": "`gpt-y` (effort low) [model unchecked, effort unchecked]"
+  },
+  {
+   "cell": {
+    "model": "gpt-y",
+    "provider": null,
+    "effort": "low",
+    "check": {
+     "model": "not-listed",
+     "effort": "unchecked"
+    }
+   },
+   "text": "gpt-y (effort low) [not in the list, effort unchecked]",
+   "code": "`gpt-y` (effort low) [not in the list, effort unchecked]"
+  },
+  {
+   "cell": {
+    "model": "openai/gpt-x#high",
+    "provider": null,
+    "effort": null,
+    "check": {
+     "model": "unchecked",
+     "effort": null
+    }
+   },
+   "text": "openai/gpt-x#high [model unchecked]",
+   "code": "`openai/gpt-x#high` [model unchecked]"
+  },
+  {
+   "cell": {
+    "model": "Gemini 4 Argon (Medium)",
+    "provider": null,
+    "effort": null,
+    "check": {
+     "model": "listed",
+     "effort": null
+    }
+   },
+   "text": "Gemini 4 Argon (Medium)",
+   "code": "`Gemini 4 Argon (Medium)`"
+  },
+  {
+   "cell": {
+    "model": "gpt-y",
+    "provider": "openai",
+    "effort": null,
+    "check": {
+     "model": "listed",
+     "effort": null,
+     "provider": "unchecked"
+    }
+   },
+   "text": "gpt-y (provider openai) [provider unchecked]",
+   "code": "`gpt-y` (provider openai) [provider unchecked]"
+  },
+  {
+   "cell": {
+    "model": "gpt-y",
+    "provider": "openai",
+    "effort": "low",
+    "check": {
+     "model": "listed",
+     "effort": "unchecked",
+     "provider": "unchecked"
+    },
+    "effortMayLower": true
+   },
+   "text": "gpt-y (provider openai, effort low) [provider unchecked, effort unchecked, the harness may lower the effort]",
+   "code": "`gpt-y` (provider openai, effort low) [provider unchecked, effort unchecked, the harness may lower the effort]"
+  },
+  {
+   "cell": {
+    "model": "gpt-y",
+    "provider": "openai",
+    "effort": null,
+    "check": {
+     "model": "listed",
+     "effort": null
+    },
+    "refused": "provider:unsupported"
+   },
+   "text": "gpt-y (provider openai) [dispatch refuses it (provider:unsupported)]",
+   "code": "`gpt-y` (provider openai) [dispatch refuses it (provider:unsupported)]"
+  },
+  {
+   "cell": {
+    "model": "gpt-y",
+    "provider": null,
+    "effort": "low",
+    "check": {
+     "model": "unchecked",
+     "effort": "unchecked"
+    },
+    "effortMayLower": true,
+    "refused": "effort:unknown-level"
+   },
+   "text": "gpt-y (effort low) [model unchecked, effort unchecked, the harness may lower the effort, dispatch refuses it (effort:unknown-level)]",
+   "code": "`gpt-y` (effort low) [model unchecked, effort unchecked, the harness may lower the effort, dispatch refuses it (effort:unknown-level)]"
+  },
+  {
+   "cell": {
+    "model": "gpt-y",
+    "provider": null,
+    "effort": null,
+    "check": {
+     "model": "unchecked",
+     "effort": null
+    },
+    "refused": "model-flag:unevidenced"
+   },
+   "text": "gpt-y [model unchecked, dispatch refuses it (model-flag:unevidenced)]",
+   "code": "`gpt-y` [model unchecked, dispatch refuses it (model-flag:unevidenced)]"
+  }
+ ]
+}
