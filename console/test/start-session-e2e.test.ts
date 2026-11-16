@@ -297,12 +297,17 @@ test('a control device over Bearer starts: startedBy is device.d-<12 hex>; the a
   assert.ok(begin && end, JSON.stringify(lines));
   assert.equal(end.outcome, 'applied');
   assert.equal(end.actor.deviceId, control.device.id);
-  assert.equal(typeof end.at === 'string' || typeof begin.at === 'string', true, 'a time');
-  const flat = JSON.stringify(end);
-  assert.ok(flat.includes(w.key), 'the project');
-  assert.ok(flat.includes('codex'), 'the harness');
-  assert.ok(/"model":"default"|"default"/.test(flat), 'model default');
-  assert.ok(flat.includes(String(body.prompt.length)), 'the prompt length');
+  // 165 review B-6: each fact in its own field, not a substring of the line.
+  const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+  assert.match(begin.at, ISO, 'the begin time');
+  assert.match(end.at, ISO, 'the end time');
+  assert.ok(Date.parse(end.at) >= Date.parse(begin.at), 'the end is not before the begin');
+  for (const line of [begin, end]) {
+    assert.equal(line.project, w.key, 'the project');
+    assert.deepEqual(line.target, { slug: null, taskId: null, gateId: null, runId: line === end ? run.runId : null, worktreeKey: w.linkedKey, harness: 'codex', model: 'default' }, 'harness, model default, checkout');
+    assert.deepEqual(line.input, { decision: null, textChars: [...body.prompt].length, entry: 'do' }, 'the prompt length and the entry');
+    assert.deepEqual([line.actor.kind, line.actor.deviceId, line.actor.scope, line.actor.transport], ['device', control.device.id, 'control', 'native']);
+  }
   assert.equal(l.scratch.text().includes(MARKER), false, 'the prompt text is in no log line');
   assert.equal(reply.body.includes(MARKER), false, 'the prompt text is in no reply');
   assert.equal(JSON.stringify(w.runs()).includes(MARKER), false, 'nor in the run record');
@@ -425,11 +430,16 @@ test('GET /api/start and /api/start/options for the loopback session: every regi
   const body = json(options);
   const registry = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'harnesses.json'), 'utf8'));
   const ids = (Array.isArray(registry) ? registry : registry.harnesses ?? Object.keys(registry).map((id) => ({ id, ...registry[id] }))).map((h: any) => h.id);
-  const listed = body.harnesses.map((h: any) => h.harness ?? h.id);
+  const listed = body.harnesses.map((h: any) => h.harness);
   assert.deepEqual([...listed].sort(), [...ids].sort(), 'every registry harness is listed');
-  const startable = (id: string) => body.harnesses.find((h: any) => (h.harness ?? h.id) === id);
+  const startable = (id: string) => body.harnesses.find((h: any) => h.harness === id);
   for (const id of ['claude', 'codex', 'opencode', 'pi']) assert.equal(startable(id).startable, true, `${id}: ${JSON.stringify(startable(id))}`);
   assert.equal(startable('copilot').startable, false);
   assert.equal(body.harnesses.some((h: any) => h.preferred === true || h.default === true), false, 'none preferred');
-  assert.ok(Array.isArray(body.worktrees) ? body.worktrees.some((x: any) => x.worktreeKey === w.linkedKey) : true);
+  // 165 review B-5: the real field, `checkouts`, with the linked checkout present beside the main one.
+  assert.equal('worktrees' in body, false);
+  assert.ok(Array.isArray(body.checkouts), JSON.stringify(body).slice(0, 200));
+  assert.deepEqual(body.checkouts.map((c: any) => [c.worktreeKey, c.main, c.busy]), [[w.mainKey, true, null], [w.linkedKey, false, null]], 'the main checkout first, then the linked one, neither busy');
+  for (const c of body.checkouts) assert.deepEqual(Object.keys(c).sort(), ['branch', 'busy', 'label', 'main', 'observedSession', 'worktreeKey']);
+
 });
