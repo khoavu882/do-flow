@@ -177,6 +177,11 @@ function registryKind(context: DecisionPointContext): RegistryKind | null {
   }
 }
 
+/** The static answer the client checks and the pick line records; an empty one (`advise --kind` without --static) is none. */
+function staticAnswerOf(context: Pick<DecisionPointContext, 'staticAnswer' | 'staticPick'>): string | null {
+  return context.staticAnswer || context.staticPick || null;
+}
+
 /**
  * Asks the advisor with `model` (the one effective model; the client's own setting when null), bounded by `budget`.
  * When the budget ends the call's signal is aborted, so the client drops its request, socket and timer. The client is
@@ -202,7 +207,7 @@ async function askAdvisor(context: DecisionPointContext, services: DispatcherSer
       kind: context.kind,
       // The client checks a static answer against the first question, which is wrong for a multi-question set (a label is
       // not a level of a score question) and meaningless for a call-built kind; the dispatcher still records staticPick.
-      staticAnswer: callBuilt ? null : context.staticAnswer ?? context.staticPick,
+      staticAnswer: callBuilt ? null : staticAnswerOf(context),
       caller: context.caller,
       taskId: context.taskId ?? null,
       record: false,
@@ -297,7 +302,7 @@ function recordCall(context: DecisionPointContext, services: DispatcherServices,
       answer,
       extra,
       question: context.questionSet?.questions?.[0],
-      staticAnswer: context.staticAnswer ?? context.staticPick,
+      staticAnswer: staticAnswerOf(context),
       provider: asked.provider,
       state: context.questionSet?.state ?? context.state,
       taskId: context.taskId ?? null,

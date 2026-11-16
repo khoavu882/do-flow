@@ -90,7 +90,7 @@ function runCli(args: string[], { cwd, env }: any): Promise<any> {
   });
 }
 
-/** Every file under `dir` whose path runs through an `advice` folder, as { path: text }. */
+/** Every record file under `dir` whose path runs through an `advice` folder, as { path: text }; the shadow-slot lease files a detached call holds while it runs are not records. */
 function adviceFiles(dir: string): Record<string, string> {
   const found: Record<string, string> = {};
   const walk = (directory: string) => {
@@ -98,7 +98,7 @@ function adviceFiles(dir: string): Record<string, string> {
     for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
       const full = path.join(directory, entry.name);
       if (entry.isDirectory()) walk(full);
-      else if (full.split(path.sep).includes('advice')) found[full] = fs.readFileSync(full, 'utf8');
+      else if (full.split(path.sep).includes('advice') && !full.split(path.sep).includes('shadow-slots')) found[full] = fs.readFileSync(full, 'utf8');
     }
   };
   walk(dir);
@@ -147,11 +147,11 @@ async function claimSetup(w: ReturnType<typeof world>) {
 }
 
 /** The command under test for each hook, with the ids/timestamps a run writes anew blanked from its output. */
-const SURFACES: Array<{ name: string; kind: Kind; skip?: any; prepare?: (w: any) => Promise<any>; args: (ctx: any) => string[] }> = [
+const SURFACES: Array<{ name: string; kind: Kind; detached?: boolean; skip?: any; prepare?: (w: any) => Promise<any>; args: (ctx: any) => string[] }> = [
   { name: 'guidance retrieve', kind: 'rerank', args: () => ['retrieve', '--query', `calibration procedure widget ${SENTINEL_QUERY}`] },
   { name: 'code retrieve', kind: 'rerank', skip: NO_RG, args: (ctx) => ['retrieve', '--scope', 'code', '--root', ctx.projectRoot, '--query', 'parseToken'] },
   {
-    name: 'claim link', kind: 'claim-support', prepare: claimSetup,
+    name: 'claim link', kind: 'claim-support', detached: true, prepare: claimSetup,
     args: (ctx) => ['claim', '--task-id', TASK, '--action', 'link', '--claim-id', ctx.claimId, '--evidence-id', ctx.evidenceId, '--relation', 'supports'],
   },
 ];
@@ -168,6 +168,12 @@ async function scenario(t: any, surface: (typeof SURFACES)[number], { kindValue,
   const ctx: any = { projectRoot: w.f.project, ...(surface.prepare ? await surface.prepare(w) : {}) };
   const before = fake.requests.length;
   const out = await w.run(surface.args(ctx));
+  // A detached surface (row 174): the shadow call runs in a child that outlives the command, so the store is read by polling
+  // until the one expected line is there (at most the kind's budget plus slack), never by loosening the count.
+  if (surface.detached && kindValue && kindValue !== 'off') {
+    const deadline = Date.now() + BUDGET_MS + SLACK_MS;
+    while (records(w.advice()).length < 1 && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 50));
+  }
   return { ...out, stdout: normalise(out.stdout), requests: fake.requests.slice(before), files: w.advice(), lines: records(w.advice()) };
 }
 
@@ -207,8 +213,10 @@ for (const surface of SURFACES) {
       assert.equal(hung.status, off.status);
       assert.equal(hung.stdout, off.stdout);
       assert.equal(hung.requests.length, 1);
-      assert.ok(hung.firstOutAt !== null && hung.firstOutAt < hung.endedAt - BUDGET_MS / 2, `first output at ${hung.firstOutAt} ms, ended at ${hung.endedAt} ms`);
+      // A detached surface ends at once and its child records the miss later; an in-process one prints, then waits out the budget.
+      if (!surface.detached) assert.ok(hung.firstOutAt !== null && hung.firstOutAt < hung.endedAt - BUDGET_MS / 2, `first output at ${hung.firstOutAt} ms, ended at ${hung.endedAt} ms`);
       assert.ok(hung.endedAt < BUDGET_MS + SLACK_MS, `the process took ${hung.endedAt} ms`);
+      if (surface.detached) assert.ok(hung.endedAt < SLACK_MS, `a detached surface must not wait for its child: the process took ${hung.endedAt} ms`);
       const stored = Object.values(hung.files).join('');
       for (const sentinel of SENTINELS) assert.ok(!stored.includes(sentinel), `${sentinel} must not be stored`);
       assert.deepEqual(hung.lines.map((line: any) => [line.kind, line.reason]), [[surface.kind, 'timeout']]);

@@ -257,7 +257,9 @@ test('IC-005 unavailable: a closed loopback port is unreachable and never reject
 test('IC-005 unavailable: timeout covers a slow response and never rejects', async (t) => {
   const server = await startFakeServer({ routes: { 'POST /v1/systemone': { status: 200, body: { answers: {} }, delayMs: 500 } } });
   onClose(t, server);
-  const { createClient, roots }: any = fixture(t, { endpoint: server.origin, lookup: loopbackLookup, adviceOverrides: { timeoutMs: 150 } });
+  // A kind call is bounded by the kind's budgetMs (row 174 O-3), not timeoutMs: shorten the tier kind's budget below the 500 ms reply.
+  const kinds = BASE_ADVICE.kinds.map((kind: any) => (kind.id === 'tier' ? { ...kind, budgetMs: 150 } : kind));
+  const { createClient, roots }: any = fixture(t, { endpoint: server.origin, lookup: loopbackLookup, adviceOverrides: { kinds } });
   const result = await createClient().ask({ questionSet: CHOICE_SET, kind: 'tier', caller: 'advise' });
   assert.equal(result.status, 'unavailable');
   assert.equal(result.reason, 'timeout');

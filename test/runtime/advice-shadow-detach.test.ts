@@ -372,3 +372,19 @@ test('O-2: a spawn that throws, or a child that fails to start, records a spawn-
   await new Promise((resolve) => setTimeout(resolve, 300));
   assert.equal(model.asks().length, 0);
 });
+
+test('O-2: a call with no static answer (advise --kind without --static) records a pick, not a config-invalid miss', async (t) => {
+  const model = await fakeModel(t, answering(() => 'LOW'));
+  const s = store(t, model.origin);
+  const levels = { LOW: { description: 'Low risk' }, MEDIUM: { description: 'Medium risk' }, HIGH: { description: 'High risk' } };
+  const question = materializeKind('verify-risk', { adviceRegistry: ADVICE, sources: { verification: { riskLevels: levels } } }).question;
+  const state = 'A change to the payment path.';
+  // The shape `advise --kind verify-risk` hands the dispatcher without --static: staticPick is '' and staticAnswer is absent.
+  await interceptDecisionPoint({
+    kind: 'verify-risk', caller: 'advise', state, staticPick: '', staticAnswer: undefined, taskId: null,
+    questionSet: { state, questions: [question] }, adviceRegistry: ADVICE, projectRoot: s.projectRoot, env: s.env,
+  }, { roots: s.roots, shadowConfig: { kind: 'verify-risk', mode: 'shadow', model: 'm' } });
+  const lines = (await waitFor(() => s.lines().length && s.lines())) || [];
+  assert.deepEqual(lines.map((line: any) => [line.type, line.kind, line.pick, line.reason]), [['pick', 'verify-risk', 'LOW', undefined]], JSON.stringify(lines));
+  assert.equal(model.asks().length, 1);
+});
