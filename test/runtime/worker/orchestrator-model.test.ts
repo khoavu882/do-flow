@@ -152,7 +152,7 @@ function briefFor(owner: string, overrides: any = {}) {
 test('the brief Model line for delivery-lead names the resolved orchestrator model and where it came from', () => {
   const session = briefFor('delivery-lead', { primary: main('session-1') });
   assert.ok(session.markdown.includes("Model: `session-1` [model unchecked] on `codex` (the main session's model)."), session.markdown);
-  assert.deepEqual(session.record.model, { harness: 'codex', id: 'session-1', provider: null, effort: null, check: { model: 'unchecked', effort: null }, source: 'main-session' });
+  assert.deepEqual(session.record.model, { harness: 'codex', model: 'session-1', provider: null, effort: null, check: { model: 'unchecked', effort: null }, source: 'main-session' });
   const frontier = briefFor('delivery-lead');
   assert.ok(frontier.markdown.includes('Model: `front-1` [model unchecked] on `codex` (frontier binding, user layer).'));
   assert.equal(frontier.record.model.source, 'frontier-binding');

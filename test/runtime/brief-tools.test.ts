@@ -319,7 +319,7 @@ test('IC-017: a binding is shown for a valid explicit harness and resolved tier'
     bindings: { state: 'set', map: { [id]: { frontier: 'gpt-6-luna' } }, reason: null },
   });
   assert.ok(markdown.includes(`Tier: \`frontier\` (task line), per\n\`references/MODEL_SELECTION.md\`.\nModel: \`gpt-6-luna\` [model unchecked] on \`${id}\` (binding, user layer).\n\n`));
-  assert.deepEqual(record.model, { harness: id, id: 'gpt-6-luna', provider: null, effort: null, check: { model: 'unchecked', effort: null }, source: 'binding' });
+  assert.deepEqual(record.model, { harness: id, model: 'gpt-6-luna', provider: null, effort: null, check: { model: 'unchecked', effort: null }, source: 'binding' });
 });
 
 test('169: the Model line is bindingText of the same cell the other surfaces show, with the effort and may-lower notes', (t) => {
@@ -339,7 +339,7 @@ test('169: the Model line is bindingText of the same cell the other surfaces sho
   const cell = cellFor(value, worker, catalogue.harnesses[id]);
   assert.equal(bindingText(cell, { code: true }), '`gpt-y` (provider openai, effort low) [effort unchecked, the harness may lower the effort]');
   assert.ok(markdown.includes(`Model: ${bindingText(cell, { code: true })} on \`${id}\` (binding, user layer).`), markdown);
-  assert.deepEqual(record.model, { harness: id, id: 'gpt-y', provider: 'openai', effort: 'low', check: { model: 'listed', effort: 'unchecked' }, source: 'binding' });
+  assert.deepEqual(record.model, { harness: id, model: 'gpt-y', provider: 'openai', effort: 'low', check: { model: 'listed', effort: 'unchecked' }, source: 'binding' });
   // A plain id several providers list keeps running as typed and says so (R-8).
   const plain = render(t, { registry: custom, harness: id, tier: 'frontier', catalogue, bindings: { state: 'set', map: { [id]: { frontier: 'gpt-y' } }, reason: null } });
   assert.ok(plain.markdown.includes(`Model: \`gpt-y\` [several providers list it] on \`${id}\` (binding, user layer).`), plain.markdown);
@@ -356,10 +356,10 @@ test('IC-017: absent and invalid bindings produce explicit harness-default lines
   const id = registry.harnesses[0].id;
   const fallback = render(t, { harness: id, tier: 'frontier', bindings: { state: 'unset', map: null, reason: null } });
   assert.ok(fallback.markdown.includes(`Model: harness default on \`${id}\`.`));
-  assert.deepEqual(fallback.record.model, { harness: id, id: null, source: 'harness-default' });
+  assert.deepEqual(fallback.record.model, { harness: id, model: null, source: 'harness-default' });
   const invalid = render(t, { harness: id, bindings: { state: 'invalid', map: null, reason: 'unreadable' } });
   assert.ok(invalid.markdown.includes(`Model: binding unreadable on \`${id}\`; harness default.`));
-  assert.deepEqual(invalid.record.model, { harness: id, id: null, source: 'invalid' });
+  assert.deepEqual(invalid.record.model, { harness: id, model: null, source: 'invalid' });
 });
 
 test('IC-017: primary harness is the default target, while an explicit valid harness wins', (t) => {
@@ -422,7 +422,7 @@ test('IC-017: the CLI reads the resolved primary and global model binding', (t) 
   assert.equal(defaultRun.status, 0, defaultRun.stderr);
   const defaultResult = JSON.parse(defaultRun.stdout);
   assert.equal(defaultResult.record.harness, id);
-  assert.deepEqual(defaultResult.record.model, { harness: id, id: null, source: 'harness-default' });
+  assert.deepEqual(defaultResult.record.model, { harness: id, model: null, source: 'harness-default' });
   assert.ok(defaultResult.markdown.includes('Model: harness default on `' + id + '`.' ));
 
   const configDir = path.join(env.XDG_CONFIG_HOME, 'doflow');
@@ -434,7 +434,7 @@ test('IC-017: the CLI reads the resolved primary and global model binding', (t) 
   const boundRun = run();
   assert.equal(boundRun.status, 0, boundRun.stderr);
   const boundResult = JSON.parse(boundRun.stdout);
-  assert.deepEqual(boundResult.record.model, { harness: id, id: 'gpt-6-luna', provider: null, effort: null, check: { model: 'unchecked', effort: null }, source: 'binding' });
+  assert.deepEqual(boundResult.record.model, { harness: id, model: 'gpt-6-luna', provider: null, effort: null, check: { model: 'unchecked', effort: null }, source: 'binding' });
   assert.ok(boundResult.markdown.includes('Model: `gpt-6-luna` [model unchecked] on `' + id + '` (binding, user layer).'));
 });
 
@@ -447,7 +447,7 @@ test('IC-017: an explicit harness without config home reports an unreadable bind
     { cwd: proj, env: { PATH: env.PATH, DOFLOW_FAILURE_CAPTURE: '' }, encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
   const actual = JSON.parse(result.stdout);
-  assert.deepEqual(actual.record.model, { harness: id, id: null, source: 'invalid' });
+  assert.deepEqual(actual.record.model, { harness: id, model: null, source: 'invalid' });
   assert.ok(actual.markdown.includes('Model: binding unreadable on `' + id + '`; harness default.'));
 });
 

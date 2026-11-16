@@ -133,12 +133,12 @@ function renderBriefTools({ registry, router, probes, reach, owner, tier, harnes
     const { resolveTaskModel, bindingGap } = require('./worker/models.ts');
     const binding = resolveTaskModel({ worker: lineHarness, owner, resolvedTier: resolved, bindings, descriptor: lineHarnessEntry?.worker, primary });
     if (binding.source === 'invalid') {
-      model = { harness: lineHarness, id: null, source: 'invalid' };
+      model = { harness: lineHarness, model: null, source: 'invalid' };
     } else if (binding.model !== null && binding.source !== 'harness-default') {
       modelCell = require('./models/tier-view.ts').cellFor(binding.choice, lineHarnessEntry?.worker, catalogue?.harnesses?.[lineHarness] ?? null, bindingGap(binding)?.reason ?? null);
-      model = { harness: lineHarness, id: binding.model, provider: modelCell.provider, effort: modelCell.effort, check: modelCell.check, source: binding.source };
+      model = { harness: lineHarness, model: binding.model, provider: modelCell.provider, effort: modelCell.effort, check: modelCell.check, source: binding.source };
     } else {
-      model = { harness: lineHarness, id: null, source: 'harness-default' };
+      model = { harness: lineHarness, model: null, source: 'harness-default' };
     }
   }
   const sourceText = resolved.source === 'owner' ? `owner ${owner}`
