@@ -24,7 +24,7 @@ Lists of harness ids are not edited by hand. `src/registry/harness-ids.ts` reads
 
 The descriptor is the `worker` block of the harness row in `harnesses.json`. A package can also contribute one through the `worker` contribution point. Its keys are checked by `validateWorker` in `src/registry/index.ts`.
 
-Required keys: `profile`, `billing`, `modelChecks`, and one capability entry each for `cli`, `oneShot`, `structuredOutput`, `readOnly`, `spawnDenial`, `runnableProbe`, `hooksProbe`, `guidanceProbe`, `loginProbe`, `persistentSession`, `resume` and `steering`. Optional keys: `isolatedEdit`, `model`, `mainSession`, `family`, `modelList` and `wideningFlags`.
+Required keys: `profile`, `billing`, `modelChecks`, and one capability entry each for `cli`, `oneShot`, `structuredOutput`, `readOnly`, `spawnDenial`, `runnableProbe`, `hooksProbe`, `guidanceProbe`, `loginProbe`, `persistentSession`, `resume` and `steering`. Optional keys: `isolatedEdit`, `model`, `mainSession`, `family`, `modelList`, `wideningFlags` and `secretFlags`.
 
 Every capability entry has `status` (`supported`, `unsupported` or `unknown`), `evidence`, `verification` and `verifiedOn`.
 
@@ -36,6 +36,10 @@ Every capability entry has `status` (`supported`, `unsupported` or `unknown`), `
 - A package worker carries `fieldMap` and no `parser`. Its map id must not be the id of a code parser.
 
 Two per-id fact pins in `test/guards/worker-descriptors.test.ts` are still added by hand, with the evidence: `PARSER_BY_HARNESS`, and `MAIN_SESSION_PARSER_BY_HARNESS` when `mainSession` is supported. They are not id lists. Each records, for one harness, which parser the evidence shows. Guard G41.3 asks for a pin for every supported `structuredOutput`.
+
+### The login recipe
+
+`loginProbe` says how DoFlow learns that the harness is logged in. Declare it `supported` only when the harness's own `--help` shows a status command and what its exit codes mean; otherwise leave it `unknown` with the reason, never a guess. DoFlow runs that argv and nothing else, and never opens a credential file. `secretFlags` adds flags or subcommands that print a credential, which no argv may carry. Both are in [Login state](reference.md#login-state); conform checks the recipe.
 
 ## Step 2: the field map
 
