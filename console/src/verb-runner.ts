@@ -25,7 +25,7 @@
 // carries `at`, the runner clock's ms when the child closed.
 //
 // Write path (162 IC-003, D9): the runner is no longer read-only. It has exactly one write path, `act()`, over a
-// second frozen table, WRITE_SHAPES (`decide-gate`, `close-run`, `cancel-worker`), that `run()` refuses and that
+// second frozen table, WRITE_SHAPES (`decide-gate`, `close-run`, `cancel-worker` and, from 165, `start-session`), that `run()` refuses and that
 // `act()` alone accepts (and `act()` refuses every read shape). Every write shape is project-scoped, with the same
 // projectKey -> root map as `transcript`. `act()` has no cache, no single flight and no backoff, one write slot of
 // its own outside the pool (writes queue in arrival order; reads go on beside one), a 30 s timeout, and the same

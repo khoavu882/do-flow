@@ -18,6 +18,7 @@ exact flags, exit codes and settings are in [Reference](reference.md), and insta
 | Write documentation | `/do-document` | [Write and maintain documentation](#write-and-maintain-documentation) |
 | Pick up what a feature left undone | `/do maintain` | [Keep track of what is left](#keep-track-of-what-is-left) |
 | Advance a list of features | `doflow roadmap` | [Drive the roadmap one step at a time](#drive-the-roadmap-one-step-at-a-time) |
+| Start a session from a browser or phone | the Console's Start page | [Start a session from the Console or the app](#start-a-session-from-the-console-or-the-app) |
 | Not sure | `/do`, which classifies the task and routes it | [Work across supported tools](#work-across-supported-tools) |
 
 ## Deliver a feature
@@ -482,6 +483,33 @@ doflow config validate workers.enabled '["worker-a","worker-b","primary"]' --lay
 - A run that returned `blocked: budget` never closes, and every later call on it blocks again. Start a new run by naming an unused id: `doflow roadmap --action next --run rl-<yyyymmdd>-<4 characters>` (characters from `0-9` and `a-z` without `i`, `l`, `o` and `u`). Later calls without `--run` use the newest open run. A gate-b the loop approved stays valid across runs, because the approved feature head is kept in the approval itself. The blocked record stays until its `closedAt` is set; set it by hand if you want retention to remove it.
 - `lease-held` with `annotations.holder` naming a process that is gone: on the same host the next call takes the lease over itself. If the holder is on another host, its process id may have been reused, or the lease file is unreadable, the loop refuses forever by design. Check that no `next` is running, then delete `.doflow/state/roadmap/lease.json`, and `.doflow/state/roadmap/lease.reclaim` if it is there (a stale `lease.reclaim` blocks every call the same way). A call that answers `lease-lost` found its lease replaced mid-call and wrote nothing more; call `next` again.
 - Scheduling covers the rows in the seed only. A `feat/*` branch, worktree or run that no seeded row names counts toward neither the cap on work in progress nor the write-set overlap check, and `status` does not list it. Look for such leftovers yourself with `git worktree list` and `git branch --list 'feat/*'`.
+
+## Start a session from the Console or the app
+
+You can start a coding session in a checkout of one of your projects from the DoFlow Console (`doflow ui`, see [`console/README.md`](https://github.com/khoavu882/do-flow/blob/develop/console/README.md)) instead of opening a terminal. DoFlow runs the harness's command line headless in that checkout with the text you give it, and shows its output and its state while it runs. The same start is one command, `doflow worker --action start-session` (flags and refusals in [Reference](reference.md#started-sessions)).
+
+**Who may start one.** The Console on the machine that runs it (the page you opened from the link `doflow ui` printed), or a phone paired over the app with the `control` scope. A phone that paired through its browser can only view, and a `view` device does not see the form: it sees why, and the command to run in a terminal.
+
+**The form** is the Start page (`#/start`). You choose, in this order:
+
+1. the project, when the Console lists more than one;
+2. a checkout of it (one that already has a started session open is greyed out);
+3. a harness. Nothing is preselected. The page lists the harnesses that can start here, and apart from them each one that cannot, with the reason: copilot, kiro and antigravity are not started (see Reference), and a harness that is not installed or is logged out is listed as such;
+4. a model, or the harness's default;
+5. how the session starts: with DoFlow's `do` skill (the default: your text is sent after the line `Use the DoFlow do skill for this request:` and a blank line) or your text alone;
+6. the first text, up to 8000 characters.
+
+Start opens a confirmation. After you confirm, the page follows the session: its state, its output and error output as they are written (masked, the last 200 lines), and a link to it in Layers.
+
+**Permissions.** DoFlow adds no flag that widens what the session may do; it runs with the harness's own permission settings in that checkout. If the session needs an approval, nobody can give it from the page: it waits, skips that step or exits. If that is not what you want, start the session yourself in a terminal.
+
+**What is visible.** With opencode and pi the text goes to the harness as a command-line argument, so anyone on the machine can read it in the process list while the session runs; the form says so. For claude and codex it goes on stdin. The text is stored under `.doflow/state/session-prompts/` (readable by you only), and it is never written to the Console's action log or to a reply. Layers lists it as a file of the session and shows it masked, to any session or device that may open Layers, a view device included. A text that starts with `-` is refused when you send it alone or to opencode or pi; one that starts with `@` is refused for opencode and pi.
+
+**Stop it.** The Stop session button on the page (it needs a device that may stop workers, which is the same `control` scope), or `doflow worker --action cancel --operator --slug started-sessions --worker-run <id> --via console --reason <text>` in a terminal. A started session also ends by itself after 3600 seconds.
+
+**Limits.** One open session per checkout, 2 per device or Console session, 4 on the machine, and 6 starts per hour for each device or session. A dispatch running in the project blocks a start until it ends. A refusal says which limit and nothing is started. A request that is sent again after a timeout is answered with the session it already started, not a second one.
+
+**Known limit.** The four harnesses that can start (claude, codex, opencode, pi) are recorded from their `--help` text only; the registry says each combination is untested until a live run, so a start can fail in a way the recorded help text does not show.
 
 ## Work across supported tools
 

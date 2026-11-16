@@ -9,8 +9,8 @@
 // here stays refused. A live stream re-runs the device check on every keepalive and ends on a refusal
 // (routes.ts `requireDevice`, live-stream.ts).
 //
-// Feature 162 (IC-007, D6, DEC-009): both scopes read `GET /api/actions`; `control` alone lists the three
-// action routes `POST /api/actions/<id>`, one per ACTION_IDS entry. The list is necessary, not sufficient: an
+// Feature 162 (IC-007, D6, DEC-009): both scopes read `GET /api/actions`; `control` alone lists the action
+// routes `POST /api/actions/<id>`, one per ACTION_IDS entry (three then; 165 adds a fourth, below). The list is necessary, not sufficient: an
 // action also needs `deviceMayAct` (a `control` record paired natively, over the native transport), which the
 // action handler checks (actions.ts), so a control token carried in a browser cookie never acts.
 //
