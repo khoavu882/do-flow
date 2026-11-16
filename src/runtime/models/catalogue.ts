@@ -282,9 +282,12 @@ async function syncHarness(
       if (res.status === 'exited' && res.code === 0) version = parseVersion(String(res.stdout ?? ''));
     }
     if (worker.loginProbe?.status === 'supported') {
-      const { checkLogin, recipeDigest } = require('../worker/login.ts');
-      answer = await checkLogin({ harness: harnessId, worker, env, cwd, binaryPath: found });
-      try { require('../worker/login-store.ts').recordRecipeAnswer(env, harnessId, answer, recipeDigest(worker)); } catch { /* the next check writes it */ }
+      const { checkLogin, recipeDigest, loginAnswerOf } = require('../worker/login.ts');
+      const store = require('../worker/login-store.ts');
+      const recipe = { ...(await checkLogin({ harness: harnessId, worker, env, cwd, binaryPath: found })), digest: recipeDigest(worker) };
+      try { store.recordRecipeAnswer(env, harnessId, recipe, recipe.digest); } catch { /* the next check writes it */ }
+      // Billing follows the answer the shared precedence gives, so a run's recorded expiry still holds over this check.
+      answer = loginAnswerOf({ harness: harnessId, worker, record: { recipe, run: store.readLoginStore(env).harnesses[harnessId]?.run ?? null } });
     }
   }
   return await withListing({

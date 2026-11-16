@@ -168,3 +168,38 @@ test('Slice A: syncHarness and syncAllHarnesses against a fake claude on a scrat
     fs.rmSync(tmpProject, { recursive: true, force: true });
   }
 });
+
+/** A scratch HOME and config home; `bin` names the fake binaries on PATH; a registry whose claude runs `fake-claude`. */
+function loginRig(prefix: string, bin: string[], scenario: any = {}) {
+  const { createScratch, childEnv } = require('../../helper/scratch-env.ts');
+  const { linkBin, writeScenario, readLog } = require('../../helper/fake-harness-cli.ts');
+  const { loadRegistry } = require('../../../src/registry/index.ts');
+  const scratch = createScratch(prefix);
+  const log = path.join(scratch.dir, 'log.jsonl');
+  const env = childEnv(scratch, { PATH: linkBin(path.join(scratch.dir, 'bin'), bin), FAKE_HARNESS_SCENARIO: writeScenario(scratch.dir, scenario), FAKE_HARNESS_LOG: log });
+  const registry = structuredClone(loadRegistry({ repoRoot: path.resolve(__dirname, '..', '..', '..') }));
+  const claude = registry.harnesses.find((h: any) => h.id === 'claude');
+  claude.worker.cli = { ...claude.worker.cli, binary: 'fake-claude' };
+  const view = { packages: [], stateRead: { state: {} }, grants: { grants: [] } };
+  return { scratch, env, registry, worker: claude.worker, view, calls: () => (fs.existsSync(log) ? readLog(log) : []) };
+}
+
+const loginStore = () => require('../../../src/runtime/worker/login-store.ts');
+const loginOf = (r: any) => require('../../../src/runtime/worker/login.ts').loginAnswerOf({ harness: 'claude', worker: r.worker, record: loginStore().readLoginStore(r.env).harnesses.claude ?? null });
+
+test('172 B-04: sync after a recorded expiry with a ready not-seen answer leaves billing unset and the state expired', { skip: process.platform === 'win32' && 'the fake CLI is linked by symlink on POSIX' }, async () => {
+  const r = loginRig('doflow-catalogue-expired-', ['fake-claude'], { byArgv: [
+    { argv: ['--version'], steps: [{ print: 'claude 2.1.0' }, { exit: 0 }] },
+    { argv: ['auth', 'status', '--json'], steps: [{ print: JSON.stringify({ loggedIn: true, authMethod: 'api_key' }) }, { exit: 0 }] },
+  ] });
+  const tmpProject = createTempDir('proj-expired');
+  try {
+    loginStore().recordRunOutcome(r.env, 'claude', { outcome: 'expired', at: new Date(Date.now() - 60000).toISOString(), runId: 'r1' });
+    const result = await syncHarness('claude', { projectRoot: tmpProject, env: r.env, registry: r.registry, view: r.view });
+    assert.equal(loginStore().readLoginStore(r.env).harnesses.claude.recipe.state, 'logged-in', 'the recipe ran and its answer was recorded');
+    assert.equal(loginOf(r).state, 'expired', 'a not-seen recipe does not clear a run\'s expiry (O-3)');
+    assert.deepEqual([result.detectedMode, result.derivedBilling], ['unverified', 'unknown']);
+  } finally {
+    fs.rmSync(tmpProject, { recursive: true, force: true });
+  }
+});
