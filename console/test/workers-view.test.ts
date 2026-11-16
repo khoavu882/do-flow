@@ -195,6 +195,24 @@ test('169: the Workers page shows each tier slot as bindingText, an object slot 
   assert.ok(root.textContent.includes('light: model-one, standard: gpt-y (provider openai, effort low), frontier: gpt-z, bad: 7'), root.textContent);
 });
 
+test('169 B-01: the Workers page renders the resolved cell of a bound tier with its notes (unchecked, may lower, refused), from the doctor answer', async () => {
+  const ctx = setup(MATRIX, { light: { model: 'gpt-y', provider: 'openai', effort: 'low' }, standard: 'model-one', frontier: { model: 'gpt-z', effort: 'high' } });
+  const root = ctx.render();
+  assert.ok(root.textContent.includes('light: gpt-y (provider openai, effort low)'), 'before doctor answers a slot reads as what was bound');
+  ctx.answer({
+    workers: { rows: [{ harness: 'codex', eligible: true, firstGap: null, bound: [
+      { tier: 'light', flag: 'supported', binding: { model: 'gpt-y', provider: 'openai', effort: 'low', check: { model: 'listed', effort: 'unchecked', provider: 'unchecked' }, effortMayLower: true } },
+      { tier: 'standard', flag: 'supported', binding: { model: 'model-one', provider: null, effort: null, check: { model: 'not-listed', effort: null } } },
+      { tier: 'frontier', flag: 'supported', binding: { model: 'gpt-z', provider: null, effort: 'high', check: { model: 'unchecked', effort: 'unchecked' }, refused: 'effort:unsupported' } },
+    ] }] },
+    workerPool: { harnesses: [] },
+  }); await flush();
+  const text = root.textContent;
+  assert.ok(text.includes('light: gpt-y (provider openai, effort low) [provider unchecked, effort unchecked, the harness may lower the effort]'), text);
+  assert.ok(text.includes('standard: model-one [not in the list]'), text);
+  assert.ok(text.includes('frontier: gpt-z (effort high) [model unchecked, effort unchecked, dispatch refuses it (effort:unsupported)]'), text);
+});
+
 test('missing matrix keeps settings and doctor panel usable', () => {
   const ctx = setup(null); const root = ctx.render();
   assert.ok(root.textContent.includes('This DoFlow core does not provide the worker matrix.'));

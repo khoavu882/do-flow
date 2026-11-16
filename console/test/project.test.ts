@@ -1105,7 +1105,7 @@ const START_OPTIONS_BODY = {
     { worktreeKey: KEY_LINKED, label: 'alpha-fix', branch: null, main: false, busy: { runId: RUN_A }, observedSession: null }],
   harnesses: [
     { harness: 'claude', startable: true, reason: null, words: 'claude can start a session here', warnings: ['runnable-not-checked'],
-      login: LOGIN_CLAUDE, version: '2.1.0', liveVerified: false, models: [entryOf('claude-opus-5-5', 'frontier'), entryOf('gpt-y', 'standard', { provider: 'openai', effort: 'low', check: { model: 'several-providers', effort: 'unchecked' }, effortMayLower: true }), entryOf('gpt-q', 'observed', { effort: 'high', refused: 'effort:unsupported' }), entryOf(null, 'default')] },
+      login: LOGIN_CLAUDE, version: '2.1.0', liveVerified: false, models: [entryOf('claude-opus-5-5', 'frontier'), entryOf('gpt-y', 'standard', { provider: 'openai', effort: 'low', check: { model: 'several-providers', effort: 'unchecked', provider: 'unchecked' }, effortMayLower: true }), entryOf('gpt-q', 'observed', { effort: 'high', refused: 'effort:unsupported' }), entryOf(null, 'default')] },
     { harness: 'copilot', startable: false, reason: 'no-main-session-shape', words: 'DoFlow has no recorded headless way to start copilot', warnings: [],
       login: null, version: null, liveVerified: false, models: [entryOf(null, 'default')] },
   ],
@@ -1141,6 +1141,7 @@ test('165 F1 start-options: IC-002 projects through PROJECTORS with the key aske
   assert.deepEqual(model((e) => { e.effort = 'a b'; }), MISMATCH);
   assert.deepEqual(model((e) => { e.check.model = 'maybe'; }), MISMATCH);
   assert.deepEqual(model((e) => { e.check.effort = 'maybe'; }), MISMATCH);
+  assert.deepEqual(model((e) => { e.check.provider = 'maybe'; }), MISMATCH, 'the only provider check word is unchecked');
   assert.deepEqual(model((e) => { e.effortMayLower = 'yes'; }), MISMATCH);
   assert.deepEqual(model((e) => { e.refused = 'because why'; }), MISMATCH);
   assert.deepEqual(model((e) => { e.check = null; }), MISMATCH, 'a model has a check');
@@ -1985,7 +1986,9 @@ function doctorBody(): any {
       state: 'unset', origin: { layer: 'default', source: `${P_HOME}/settings.json` }, inSession: true, reason: MARKER, dangling: [MARKER], bindings: { state: 'unset', reason: MARKER },
       rows: [
         { harness: 'claude', enabled: { state: 'default', position: null, origin: { layer: 'default', source: `${P_HOME}/.config/doflow/settings.json` } }, eligible: false,
-          firstGap: { requirement: 'installed', result: 'unknown', reason: 'probe-stale' }, bound: [{ tier: 'light', flag: MARKER }] },
+          firstGap: { requirement: 'installed', result: 'unknown', reason: 'probe-stale' },
+          // 169 B-01: a bound tier is read as `{tier, flag, binding: <IC-005 cell>}`; a key past those is never read.
+          bound: [{ tier: 'light', flag: 'supported', extra: MARKER, binding: { model: 'gpt-y', provider: 'openai', effort: 'low', check: { model: 'listed', effort: 'unchecked', provider: 'unchecked' }, effortMayLower: true, refused: 'effort:unsupported', note: MARKER } }] },
         { harness: 'codex', enabled: { state: 'enabled', position: 1, origin: { layer: 'user', source: `${P_HOME}/.config/doflow/settings.json` } }, eligible: true, firstGap: null, bound: [] },
         // `firstGap.reason` undefined in the core drops the key from the JSON.
         { harness: 'zz-new', enabled: { state: 'unlisted', position: null, origin: { layer: 'project', source: null } }, eligible: false, firstGap: { requirement: 'login', result: 'missing' }, bound: [] },
@@ -2246,9 +2249,10 @@ test('151 doctor: the IC-010 sections only; a home path in every path field reac
   assert.deepEqual(body.workers, {
     state: 'unset',
     rows: [
-      { harness: 'claude', enabled: { state: 'default', position: null, layer: 'default' }, eligible: false, firstGap: { requirement: 'installed', result: 'unknown', reason: 'probe-stale' } },
-      { harness: 'codex', enabled: { state: 'enabled', position: 1, layer: 'user' }, eligible: true, firstGap: null },
-      { harness: OTHER_HARNESS, enabled: { state: 'unlisted', position: null, layer: 'project' }, eligible: false, firstGap: { requirement: 'login', result: 'missing', reason: null } },
+      { harness: 'claude', enabled: { state: 'default', position: null, layer: 'default' }, eligible: false, firstGap: { requirement: 'installed', result: 'unknown', reason: 'probe-stale' },
+        bound: [{ tier: 'light', flag: 'supported', binding: { model: 'gpt-y', provider: 'openai', effort: 'low', check: { model: 'listed', effort: 'unchecked', provider: 'unchecked' }, effortMayLower: true, refused: 'effort:unsupported' } }] },
+      { harness: 'codex', enabled: { state: 'enabled', position: 1, layer: 'user' }, eligible: true, firstGap: null, bound: [] },
+      { harness: OTHER_HARNESS, enabled: { state: 'unlisted', position: null, layer: 'project' }, eligible: false, firstGap: { requirement: 'login', result: 'missing', reason: null }, bound: [] },
     ],
   });
   assert.deepEqual(body.workerPool, {
@@ -2259,8 +2263,9 @@ test('151 doctor: the IC-010 sections only; a home path in every path field reac
     ],
   });
   const text = JSON.stringify(body);
+  // 169 B-01: `bound` (the tier cells) is read now, so it is not in this list; its own shape is asserted above and in the negative rows.
   for (const dropped of ['identity', 'reach', 'probeCommand', 'binary', 'searched', 'artifact', 'refresh', 'filesScanned', 'description', 'totalProviders', 'origin', 'dangling', 'bindings',
-    'bound', 'reloginHint', 'loginState', 'synced', 'offeredCount', 'models', 'mcp', 'packages', 'transcripts', 'upkeepSwitch', 'decisionModel', 'advice', 'settings', 'rolloutProfile', 'guidance', 'team',
+    'reloginHint', 'loginState', 'synced', 'offeredCount', 'models', 'mcp', 'packages', 'transcripts', 'upkeepSwitch', 'decisionModel', 'advice', 'settings', 'rolloutProfile', 'guidance', 'team',
     'agentToolScope', 'primary', 'inSession']) {
     assert.ok(!text.includes(`"${dropped}"`), dropped);
   }
@@ -2472,6 +2477,10 @@ const MUTATIONS_B4: Record<string, [() => any, Array<[string, (raw: any) => void
     ['worker row enabled layer unknown', (r) => { r.workers.rows[0].enabled.origin.layer = 'cli'; }],
     ['worker row eligible a string', (r) => { r.workers.rows[0].eligible = 'no'; }],
     ['worker row firstGap requirement missing', (r) => { delete r.workers.rows[0].firstGap.requirement; }],
+    ['worker row bound not an array', (r) => { r.workers.rows[0].bound = 'light'; }],
+    ['worker row bound flag unknown', (r) => { r.workers.rows[0].bound[0].flag = 'maybe'; }],
+    ['worker row bound cell model not a model id', (r) => { r.workers.rows[0].bound[0].binding.model = 'a b'; }],
+    ['worker row bound cell refused not a reason', (r) => { r.workers.rows[0].bound[0].binding.refused = 'A B'; }],
     ['workerPool missing', (r) => { delete r.workerPool; }],
     ['workerPool syncedAt not ISO', (r) => { r.workerPool.syncedAt = 'never'; }],
     ['workerPool installed a string', (r) => { r.workerPool.harnesses[0].installed = 'no'; }],

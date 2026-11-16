@@ -1516,6 +1516,24 @@ function doctor(value: unknown, context?: Context) {
       reason: optional(boundedText(512, anchors))(f.reason),
     };
   };
+  const boundTier = (item: unknown) => {
+    const b = record(item);
+    const cell = sRecord(b.binding);
+    const check = sRecord(cell.check);
+    return {
+      tier: id(b.tier),
+      flag: oneOf(['supported', 'unevidenced'])(b.flag),
+      binding: {
+        model: sMatch(START_MODEL)(cell.model), provider: sNull(sMatch(START_PROVIDER))(cell.provider), effort: sNull(sMatch(START_EFFORT))(cell.effort),
+        check: {
+          model: sOneOf(START_MODEL_CHECKS)(check.model), effort: sNull(sOneOf(START_EFFORT_CHECKS))(check.effort),
+          ...(check.provider === undefined ? {} : { provider: sOneOf(['unchecked'])(check.provider) }),
+        },
+        ...(cell.effortMayLower === undefined ? {} : { effortMayLower: sBool(cell.effortMayLower) }),
+        ...(cell.refused === undefined ? {} : { refused: sMatch(START_REFUSED)(cell.refused) }),
+      },
+    };
+  };
   const workerRow = (item: unknown) => {
     const r = record(item);
     const enabled = record(r.enabled);
@@ -1527,6 +1545,9 @@ function doctor(value: unknown, context?: Context) {
         const g = record(v);
         return { requirement: id(g.requirement), result: id(g.result), reason: optional(id)(g.reason) };
       })(r.firstGap),
+      // 169 B-01: each bound tier as the core's IC-005 cell (`models --action list`'s words), so the Workers page shows what dispatch would do
+      // with it: the checks, `effortMayLower` and `refused` where set. A core that sends no `bound` has no bound tier to show.
+      bound: r.bound === undefined ? [] : each(boundTier)(r.bound),
     };
   };
   const poolRow = (item: unknown) => {
@@ -1861,13 +1882,16 @@ function startOptions(value: unknown, context?: Context) {
     const h = sRecord(item);
     const login = sNull(loginAnswer)(h.login);
     // 169 IC-007 (R-7): an entry is the core's IC-005 cell plus its source: `{ model, provider, effort, source, check }`, with `effortMayLower`
-    // and `refused` only when set. The default entry has a null model and no check; a core that still sends `id` fails here.
+    // and `refused` only when set, and `check.provider` (`unchecked`) only when set. The default entry has a null model and no check; a core that still sends `id` fails here.
     const model = (m: unknown) => {
       const e = sRecord(m);
       const id = sNull(sMatch(START_MODEL))(e.model);
       const check = sNull((v) => {
         const c = sRecord(v);
-        return { model: sOneOf(START_MODEL_CHECKS)(c.model), effort: sNull(sOneOf(START_EFFORT_CHECKS))(c.effort) };
+        return {
+          model: sOneOf(START_MODEL_CHECKS)(c.model), effort: sNull(sOneOf(START_EFFORT_CHECKS))(c.effort),
+          ...(c.provider === undefined ? {} : { provider: sOneOf(['unchecked'])(c.provider) }),
+        };
       })(e.check);
       if ((id === null) !== (check === null)) fail();
       return {
