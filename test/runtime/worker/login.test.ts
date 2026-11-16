@@ -402,6 +402,73 @@ test('4.5: 65 entries keep 64 (the oldest goes) and ids no worker catalogue know
   assert.equal(store.MAX_BYTES, 128 * 1024);
 });
 
+const REPO = path.resolve(__dirname, '..', '..', '..');
+const { packageView, resetPackageView } = require('../../../src/runtime/packages/view.ts');
+
+/** A scratch HOME and config home where package `acme` (worker `acme.mycli`) is installed and, as `add` leaves it, disabled. */
+function installedPackage() {
+  const { planPackage, applyPlan } = require('../../../src/runtime/packages/store.ts');
+  const { loadRegistry } = require('../../../src/registry/index.ts');
+  const scratch = createScratch('doflow-login-pkg-');
+  const env = childEnv(scratch);
+  const src = path.join(scratch.dir, 'pkg-src');
+  fs.mkdirSync(path.join(src, 'workers'), { recursive: true });
+  fs.writeFileSync(path.join(src, 'doflow-package.json'), JSON.stringify({
+    manifest: 1, id: 'acme', version: '1.0.0', summary: 'a worker package', doflow: '>=2.0.0-beta.1 <3.0.0',
+    programs: [{ id: 'mycli', binary: 'mycli', argv: 'worker-recipe' }],
+    contributions: [{ point: 'worker', version: 1, id: 'mycli', file: 'workers/mycli.json', programs: ['mycli'] }],
+  }));
+  fs.writeFileSync(path.join(src, 'workers', 'mycli.json'), JSON.stringify(loadRegistry({ repoRoot: REPO }).harnesses.find((h: any) => h.id === 'opencode').worker));
+  const planned = planPackage({ action: 'add', source: src, homeDir: scratch.home, repoRoot: REPO, now: NOW });
+  assert.equal(planned.ok, true, JSON.stringify(planned.findings));
+  assert.equal(applyPlan({ planId: planned.plan.planId, action: 'add', homeDir: scratch.home, repoRoot: REPO, env }).ok, true);
+  resetPackageView();
+  assert.equal(packageView({ env, projectRoot: null, settingsView: {} }).packages.find((p: any) => p.id === 'acme').state, 'disabled');
+  return { scratch, env };
+}
+
+test('4.5 (B-02): a write keeps a package worker that is only disabled or inactive here, and drops ids nothing installs', () => {
+  const { scratch, env } = installedPackage();
+  const seeded = ['acme.mycli', 'gone.worker', 'retired'];
+  for (const id of seeded) store.recordRecipeAnswer(env, id, RECIPE_ANSWER, 'd', { known: seeded });
+  assert.deepEqual(Object.keys(store.readLoginStore(env).harnesses).sort(), seeded);
+  resetPackageView();
+  store.recordRecipeAnswer(env, 'pi', RECIPE_ANSWER, 'd');
+  assert.deepEqual(Object.keys(store.readLoginStore(env).harnesses).sort(), ['acme.mycli', 'pi']);
+
+  // Enabled with no trust grant, the package is installed but not active (needs-trust): its record stays.
+  const { readLock, writeLock, lockPackages } = require('../../../src/state/lockfile.ts');
+  const lockOpts = { scope: 'global', homeDir: scratch.home };
+  const lock = readLock(lockOpts);
+  writeLock(lockOpts, { ...lock, packages: lockPackages(lock).map((row: any) => ({ ...row, enabled: true })) });
+  resetPackageView();
+  assert.equal(packageView({ env, projectRoot: null, settingsView: {} }).packages.find((p: any) => p.id === 'acme').state, 'needs-trust');
+  store.recordRunOutcome(env, 'claude', { outcome: 'expired' }, { now: NOW });
+  assert.deepEqual(Object.keys(store.readLoginStore(env).harnesses).sort(), ['acme.mycli', 'claude', 'pi']);
+});
+
+test('4.5 (B-02): a scratch-env write reads the package inventory of its own HOME, never the real user\'s state', () => {
+  const os = require('node:os');
+  const { configHome } = require('../../../src/runtime/config-home.ts');
+  const { env, scratch } = installedPackage();
+  store.recordRecipeAnswer(env, 'acme.mycli', RECIPE_ANSWER, 'd', { known: ['acme.mycli'] });
+  const real = [path.join(os.homedir(), '.doflow'), configHome(process.env).dir].filter((dir) => typeof dir === 'string' && !dir.startsWith(scratch.dir));
+  const under = (p: string, dir: string) => p === dir || p.startsWith(`${dir}${path.sep}`);
+  const hits: string[] = [];
+  const names = ['readFileSync', 'existsSync', 'statSync', 'lstatSync', 'openSync', 'readdirSync', 'accessSync', 'realpathSync'];
+  const originals = names.map((name) => [name, fs[name]]);
+  for (const [name, original] of originals) fs[name] = function spied(this: any, target: any, ...rest: any[]) { if (typeof target === 'string') hits.push(path.resolve(target)); return original.call(this, target, ...rest); };
+  resetPackageView();
+  try {
+    store.recordRecipeAnswer(env, 'pi', RECIPE_ANSWER, 'd');
+  } finally {
+    for (const [name, original] of originals) fs[name] = original;
+  }
+  assert.deepEqual(hits.filter((p) => real.some((dir) => under(p, dir))), []);
+  assert.ok(hits.includes(path.join(scratch.home, '.doflow', 'doflow.lock')), 'the write read its own HOME\'s package lock (positive control)');
+  assert.ok(store.readLoginStore(env).harnesses['acme.mycli']);
+});
+
 test('4.5: a succeeded run is not written again while the harness reads logged-in from a run under 1 h old', () => {
   const scratch = createScratch('doflow-login-quiet-');
   const env = childEnv(scratch);

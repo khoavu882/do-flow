@@ -7,14 +7,15 @@
  * holding per harness the last recipe answer and the last run outcome. Its one writer path is `updateTaskState`
  * (lock, re-read, temp file, rename), and each write replaces only its own harness's slot, so two projects writing at
  * once keep both. No config home: nothing is written and every read is empty. Bounded at 64 harness entries and
- * 128 KiB; on write, entries for ids no worker catalogue knows are dropped.
+ * 128 KiB; on write, entries for ids this machine knows no worker for (`machineKnows`) are dropped.
  */
 
 const fs = require('node:fs');
 const path = require('node:path');
 const { updateTaskState, readTaskState } = require('../task-state.ts');
 const { configHome } = require('../config-home.ts');
-const { knownWorkerIds } = require('../../registry/worker-ids.ts');
+const { shippedWorkerIds } = require('../../registry/worker-ids.ts');
+const { REPO_ROOT } = require('../../helper/repo-root.ts');
 
 import type { RecipeAnswer } from './login.ts';
 
@@ -62,9 +63,32 @@ function readLoginStore(env: any = process.env): Store {
 
 const newest = (slot: Slot) => Math.max(ms(slot.recipe?.at) || 0, ms(slot.run?.at) || 0);
 
+/**
+ * Whether this machine knows a worker id, for the writer's `env`: a built-in worker of the registry, or a worker any
+ * package installed under `env`'s HOME declares, whatever that package's state (the store is per machine, and a
+ * package disabled or not yet trusted in one project is active in another). The package view is read only when an id
+ * is not a built-in, and without the project's settings or grants, which change a state and never the inventory.
+ */
+function machineKnows(env: any): (id: string) => boolean {
+  let builtin: Set<string> | null = null;
+  let installed: Set<string> | null = null;
+  // Required here, as the worker catalogue does: the registry and the package view load modules that load this one.
+  const { loadRegistry } = require('../../registry/index.ts');
+  const { packageView } = require('../packages/view.ts');
+  return (id) => {
+    builtin ??= new Set(shippedWorkerIds(loadRegistry({ repoRoot: REPO_ROOT })));
+    if (builtin.has(id)) return true;
+    installed ??= new Set(packageView({ env, projectRoot: null, settingsView: {} }).packages.flatMap((pkg: any) => pkg.contributions
+      .filter((c: any) => c.point === 'worker')
+      // A bundled package keeps bare contribution ids in the view; the worker catalogue qualifies every package worker.
+      .map((c: any) => (pkg.firstParty ? `${pkg.id}.${c.qualifiedId}` : c.qualifiedId))));
+    return installed.has(id);
+  };
+}
+
 /** Drops unknown ids, then the oldest entries past 64 or 128 KiB; `keep` (the slot just written) always stays. */
-function prune(harnesses: Record<string, Slot>, keep: string, known: readonly string[]): Record<string, Slot> {
-  const ids = Object.keys(harnesses).filter((id) => id === keep || known.includes(id));
+function prune(harnesses: Record<string, Slot>, keep: string, known: (id: string) => boolean): Record<string, Slot> {
+  const ids = Object.keys(harnesses).filter((id) => id === keep || known(id));
   const order = ids.filter((id) => id !== keep).sort((a, b) => newest(harnesses[b]) - newest(harnesses[a]));
   let kept = [keep, ...order].slice(0, MAX_ENTRIES);
   const build = () => Object.fromEntries(kept.map((id) => [id, harnesses[id]]));
@@ -76,7 +100,7 @@ function prune(harnesses: Record<string, Slot>, keep: string, known: readonly st
 function writeSlot(env: any, harness: string, change: (slot: Slot) => Slot | null, known?: readonly string[]): string | null {
   const file = storeFile(env);
   if (file === null) return null;
-  const ids = known ?? knownWorkerIds({}).ids;
+  const ids = known ? (id: string) => known.includes(id) : machineKnows(env);
   return updateTaskState({
     fsImpl: fs,
     file,
