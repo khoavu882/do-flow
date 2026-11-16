@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /** Atomic writer for one user or project settings layer (086 IC-011). */
 
 const fs = require('node:fs');

@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * Read-side views over the run ledger (FR-012): the three inspection views — trajectory,
  * aggregate stats and missed opportunities — plus the helpers they share.

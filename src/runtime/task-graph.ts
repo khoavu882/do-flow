@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 // Task graph (feature 080, design C2): the plan's tasks as a dependency graph, validated before any
 // ledger rule reads it.
 //

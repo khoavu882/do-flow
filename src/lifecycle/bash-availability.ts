@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 // Preflight for FR-003: hook-bearing installs require an invocable bash interpreter
 // (POSIX bash, Git Bash/MSYS2, or WSL's own bash all satisfy this — from Node's
 // perspective they are indistinguishable, and design.md calls that out explicitly:

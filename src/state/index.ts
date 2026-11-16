@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 // Neutral DoFlow lifecycle state.  This module intentionally has no knowledge of a harness's
 // native directory: callers provide a project root or user home, and adapter-owned paths stay in
 // adapter records.  Legacy manifests are an import source only; they are never changed here.

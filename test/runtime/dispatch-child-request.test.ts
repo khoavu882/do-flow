@@ -6,7 +6,7 @@
 // request of the dispatch whose worker run is the granter (`unknown-request`). A refusal inserts
 // no run.
 //
-// Each case is a sandbox repository (test/helper/dispatch-sandbox.js) with a started 080 run, a
+// Each case is a sandbox repository (test/helper/dispatch-sandbox.ts) with a started 080 run, a
 // subagent claim on an attempt worktree made by createAttemptWorktree, and a live granter edit run
 // of the fake claude CLI (editDescriptors()) that sleeps; the dispatch store is hand-seeded with a
 // running dispatch run whose launched dispatch names that granter. The child PATH is the sandbox's

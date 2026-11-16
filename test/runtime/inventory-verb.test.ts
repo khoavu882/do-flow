@@ -3,13 +3,13 @@
 /**
  * C7 — the `inventory` verb, end to end (feature 041, task D.3; IC-001, IC-002, FR-006).
  *
- * The five modules beneath `src/runtime/inventory/index.js` are each unit-tested beside
+ * The five modules beneath `src/runtime/inventory/index.ts` are each unit-tested beside
  * themselves. Three things are true only of the assembled verb, and are tested here because no
  * unit test can reach them:
  *
  *   1. **The verb stays wired.** IC-001 puts the verb on the runtime seam, which means four
  *      places agree: the dispatcher's Node arm, the dispatcher's `usage()`, the CLI's command
- *      switch, and the verb-reachability allowlist. `test/guards/runtime-unification.test.js`
+ *      switch, and the verb-reachability allowlist. `test/guards/runtime-unification.test.ts`
  *      holds the *rule* (no command off the seam, no verb without a command) and
  *      `test/guards/verb-reachability.test.ts` holds the *allowlist discipline* — but neither
  *      notices a verb deleted from every table at once, because both are satisfied by a verb that
@@ -23,7 +23,7 @@
  *
  * Hermetic throughout. Scope roots are `suiteTempDir` directories; the global scope's root is not a
  * parameter (design R7), so `os.homedir` is relocated around the synchronous call, as
- * `test/lifecycle/dual-scope-read.test.js` does. Nothing is written inside the repository or
+ * `test/lifecycle/dual-scope-read.test.ts` does. Nothing is written inside the repository or
  * inside the real `$HOME`, and no install is performed.
  */
 
@@ -364,7 +364,7 @@ test('IC-001: a restriction naming an installed-but-drifted harness still exits 
  * says remove. Following that remedy would delete a working registration; FR-006 forbids exactly this.
  *
  * The fixture is the case that actually occurred: a Codex MCP server, registered and recorded, whose
- * scope records no selection for it. `test/runtime/inventory-read-scopes.test.js` pins that this
+ * scope records no selection for it. `test/runtime/inventory-read-scopes.test.ts` pins that this
  * fixture really does produce a `remove`; this test pins what the report may say about one.
  *
  * **Task H.1 revised the second half of this test.** It used to assert no finding, no remedy and exit
@@ -726,7 +726,7 @@ test('IC-002: a withheld verdict names no scope, and a shadow names the winning 
 /**
  * A global scope holding four managed copilot files in one wholesale-loaded directory, beside the
  * named strays. `.github/instructions` is wholesale for copilot (`siblings.js`'s `WHOLESALE_ASSETS`,
- * guarded by `test/guards/wholesale-assets.test.js`), and the managed basenames are synthetic so no
+ * guarded by `test/guards/wholesale-assets.test.ts`), and the managed basenames are synthetic so no
  * plan change matches them and no divergence clouds the sibling counts.
  */
 function siblingFixture(strayNames: any) {

@@ -15,7 +15,7 @@ test('EvidenceLedger records evidence with valid kinds and locators', () => {
     taskId: 'task_001',
     kind: 'exact-search',
     source: { provider: 'native.rg', capability: 'code.exact-search' },
-    locator: { file: 'src/runtime/capability-router.js', lineRange: [10, 25] },
+    locator: { file: 'src/runtime/capability-router.ts', lineRange: [10, 25] },
     provenance: 'extracted',
     content: 'class CapabilityRouter {',
   });
@@ -26,7 +26,7 @@ test('EvidenceLedger records evidence with valid kinds and locators', () => {
   assert.equal(retrieved.kind, 'exact-search');
   assert.equal(retrieved.provenance, 'extracted');
   assert.equal(retrieved.freshness.status, 'FRESH');
-  assert.equal(retrieved.locator.file, 'src/runtime/capability-router.js');
+  assert.equal(retrieved.locator.file, 'src/runtime/capability-router.ts');
 });
 
 test('EvidenceLedger rejects invalid evidence kinds or provenance', () => {

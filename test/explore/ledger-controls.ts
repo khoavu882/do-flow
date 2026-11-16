@@ -1,9 +1,9 @@
 'use strict';
 
 // Feature 117 (D-ORCH budget option (b)): the two slow controls of the sequence instrument, run on
-// demand outside npm test: `node --test test/explore/ledger-controls.js`.
+// demand outside npm test: `node --test test/explore/ledger-controls.ts`.
 //   1. Completion-rule negative control: granting the next step on release instead of on re-park
-//      must break the replay determinism that test/state/sequence-gate.test.js asserts.
+//      must break the replay determinism that test/state/sequence-gate.test.ts asserts.
 //   2. Sampler seed determinism: one seed gives byte-equal records (same trace digest) twice, and
 //      another seed gives other schedules.
 

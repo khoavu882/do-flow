@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * `plan-check <plan path> [--json]` (feature 115, IC-001): the plan judgement `planVerdict` makes,
  * printed, plus row 134's content findings (`plan-content.ts`), each with a `path:line`. Read-only:

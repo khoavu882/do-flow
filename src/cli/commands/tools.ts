@@ -2,7 +2,6 @@
 // `doflow tools` — list or manage registered external tools (status/install/update/uninstall).
 // Status is read-only and needs no terminal; with no --tool it lists every registered tool.
 // --force is deliberately unavailable: every mutation gets its own confirmation.
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 const { confirm, promptLine } = require('../../helper/prompt.ts');
 const { loadRegistry } = require('../../registry/index.ts');
 const { INSPECTION_TIMEOUT_MS, commandText, plainCommand, describeInstall, planToolLifecycle, executeToolLifecycle } = require('../../install/tool-lifecycle.ts');

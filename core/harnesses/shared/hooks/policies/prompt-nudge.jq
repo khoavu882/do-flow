@@ -20,7 +20,7 @@
 # single regex scans, slicing and splitting, which jq does natively; lowercasing and the line
 # test, which jq does one character or one line at a time, touch only bounded pieces. Each
 # such shortcut gives the answer IC-005's steps give on the whole prompt (see the differential
-# case in test/hooks/prompt-nudge-decision.test.js).
+# case in test/hooks/prompt-nudge-decision.test.ts).
 
 # Whitespace removed from both ends. The trailing match may start only where a whitespace run
 # starts: a plain \s+$ retries from every position of a long interior run, which is quadratic

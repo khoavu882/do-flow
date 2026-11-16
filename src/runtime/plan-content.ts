@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * Row 134: what a plan says, checked deterministically, beside the task-graph verdict
  * `planVerdict` makes. Each finding carries a `path:line` locator and a severity:

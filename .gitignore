@@ -79,7 +79,7 @@ agent-docs/
 # sandboxes, and generated reports stay local: they are artifacts of paid runs, not corpus.
 # config.json is tracked too — its pinned model is a deliberate comparability constraint (FR-017),
 # not machine-local state. A blanket bench/ rule here is what let the corpus go local-only twice;
-# test/guards/evals.test.js now fails if the corpus stops being present.
+# test/guards/evals.test.ts now fails if the corpus stops being present.
 bench/runs/
 bench/reports/
 .mcp.json

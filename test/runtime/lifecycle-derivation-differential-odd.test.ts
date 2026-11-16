@@ -1,7 +1,7 @@
 'use strict';
 
 // The odd-numbered histories of the derivation differential (see lifecycle-derivation-differential.test.js
-// and test/helper/lifecycle-derivation-reference.js), and the spawn budget of the overview and the
+// and test/helper/lifecycle-derivation-reference.ts), and the spawn budget of the overview and the
 // release preview. Services run in process under a scratch HOME, XDG_CONFIG_HOME and git config (DEC-041).
 //
 // The spawn budget counts the processes the services start, through a counter wrapped around

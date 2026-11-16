@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * 119 C.1 (IC-002, D-5, FR-007): the IO half of reviewer independence. `crossCheckAuthor` reads the reviewed head's
  * `Co-Authored-By` trailers and the slug's task-attempt owners and reports where they contradict the record's

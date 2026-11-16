@@ -3,7 +3,7 @@
 // Feature 095b B.2 (IC-009, IC-010): the review-miss `grade`, `noise` and `report` verbs. A fake
 // reviewer writes findings.json files into a scratch iteration directory; nothing runs a model.
 // Must stub child_process before the first require of the bench modules (pattern:
-// test/bench/bench-noise-nospawn.test.js): any spawn other than a read-only git turns the test red.
+// test/bench/bench-noise-nospawn.test.ts): any spawn other than a read-only git turns the test red.
 
 const cp = require('node:child_process');
 const assert = require('node:assert/strict');

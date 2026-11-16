@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * A call-scoped memo for git answers that cannot change while one runtime call runs (the project root
  * of a path, a repository's common directory). One `git` child costs a process spawn, and a roadmap

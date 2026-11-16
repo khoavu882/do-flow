@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * The cross-scope logical-asset identity (design C3, contract IC-004).
  *
@@ -15,7 +13,7 @@
  *
  * Three properties make the ownership identity sufficient, and each is enforced rather than
  * observed:
- *   - **Mandatory** — `src/lifecycle/index.js` throws on an adapter change carrying no
+ *   - **Mandatory** — `src/lifecycle/index.ts` throws on an adapter change carrying no
  *     `ownershipIdentity`, so every recorded resource has one.
  *   - **Scope-free** — every adapter composes it from the harness id, a role, and a discriminator
  *     drawn from the source tree; never from a destination path or a scope name. An adapter whose

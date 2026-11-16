@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * The per-machine config home (086 IC-003, DD-7): the one place Node code asks where `<home>/doflow`
  * lives. `XDG_CONFIG_HOME` when it is set, non-empty and absolute, else `$HOME/.config` when `HOME` is

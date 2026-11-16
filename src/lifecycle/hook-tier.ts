@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 // Hook tiers (maint-hooks). Content (guidance, skills, agents, MCP) goes to every harness; DoFlow's
 // enforcement (hooks, gates, the bridge) goes only to the harnesses the `hooks.harnesses` setting
 // names. A harness outside that list is planned against a registry copy in which its `hooks`

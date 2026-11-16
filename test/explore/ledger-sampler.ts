@@ -18,7 +18,7 @@ const MAX_SCHEDULES = 5000;
 const PER_SCHEDULE_MS = 5000;
 const PER_RUN_MS = 600000;
 
-const USAGE = `Usage: node test/explore/ledger-sampler.js --scenario S1|S2 [--init none|stale] [--age-at k] [--schedules N] [--seed n] [--replay <trace>] [--json] [--out <path>]
+const USAGE = `Usage: node test/explore/ledger-sampler.ts --scenario S1|S2 [--init none|stale] [--age-at k] [--schedules N] [--seed n] [--replay <trace>] [--json] [--out <path>]
 
 Defaults: --init stale, --schedules 200 (maximum 5000), and a clock-derived seed. A seed is printed so a run can be reproduced. Each schedule has a 5000 ms deadline; a run has a 600000 ms deadline.
 --run-timeout-ms <ms> overrides the per-run kill switch for tests and diagnostics.

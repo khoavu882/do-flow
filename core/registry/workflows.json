@@ -72,7 +72,7 @@
     }
   },
   "agents": {
-    "description": "The `access` of every agent spec in core/shared/agent-specs/, for the runtime: an installed runtime ships core/registry but not core/shared, so `review --action start` and `protocol` read a seat agent's access here. test/guards/agent-roster.test.js (G63) holds it equal to each spec's frontmatter `access`; edit the spec and this entry together.",
+    "description": "The `access` of every agent spec in core/shared/agent-specs/, for the runtime: an installed runtime ships core/registry but not core/shared, so `review --action start` and `protocol` read a seat agent's access here. test/guards/agent-roster.test.ts (G63) holds it equal to each spec's frontmatter `access`; edit the spec and this entry together.",
     "access": {
       "core-implementer": "write",
       "delivery-lead": "write",

@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * The fold (IC-003, IC-004): every lifecycle event file, ordered by `at` then `id`, reduced to the
  * follow-ups, tracked features, goals and release records they describe. The function is pure: no

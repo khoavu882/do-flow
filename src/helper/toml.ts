@@ -5,10 +5,6 @@
 // headers for a surgical, comment-preserving rewrite. It was extracted out of codex-config.js
 // (which is Codex-specific and is moving under src/adapters/codex/) so that non-Codex code, such
 // as the lifecycle layer, can parse TOML without depending on a harness-specific module.
-//
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): authored as `.ts`, run directly by Node
-// native type-stripping — no build step, no runtime dependency. Body stays CommonJS so a `.js`
-// caller's `require('../helper/toml.ts')` keeps working while the rest of the tree is still `.js`.
 
 type TomlScalar = string | number | boolean;
 

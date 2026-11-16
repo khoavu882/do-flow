@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 const { measureFreshness, fileRootFor } = require('./freshness.ts');
 const { measureTreeState, sourceVersionFor } = require('./source-version.ts');
 const { VALID_EVIDENCE_KINDS, VALID_PROVENANCE } = require('./evidence-ledger.ts');

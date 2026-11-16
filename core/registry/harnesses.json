@@ -4085,13 +4085,7 @@
   "retired": [
     {
       "id": "gemini",
-      "displayName": "Gemini CLI",
       "replacement": "antigravity",
-      "retiredOn": "2026-10-26",
-      "reason": "Gemini CLI was replaced upstream by Antigravity CLI on 2026-06-18 and is not optimized for Gemini 4 Argon.",
-      "evidence": [
-        "user statement 2026-10-26 (row 127)"
-      ],
       "removal": {
         "hookCommands": {
           "renderer": "gemini-hooks",

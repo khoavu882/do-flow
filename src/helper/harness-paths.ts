@@ -25,11 +25,6 @@
 // XDG-style directories (~/.config/opencode) are just home-rooted segment joins: no adapter in
 // this repository consults $XDG_* today, so the schema carries no xdg base rather than declaring
 // vocabulary nothing reads.
-//
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): authored as `.ts`, run directly by Node
-// native type-stripping — no build step, no runtime dependency. Body stays CommonJS so a `.js`
-// caller's `require('../helper/harness-paths.ts')` keeps working while the tree is still `.js`. The
-// `./repo-root` require stays bare while repo-root is still `.js`.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -127,7 +122,7 @@ let declaredCache: { repoRoot: string; paths: Record<string, any> } | undefined;
 /** Every harness's declared paths section, keyed by harness id, read straight from
  * core/registry/harnesses.json (memoized per process — the file ships inside the package).
  * Adapters default their factories to this, so a factory called with no arguments and the CLI
- * wiring in src/cli/shared.js#buildAdapterRegistry consume byte-identical declarations. */
+ * wiring in src/cli/shared.ts#buildAdapterRegistry consume byte-identical declarations. */
 function declaredHarnessPaths(repoRoot: string = REPO_ROOT): Record<string, any> {
   if (declaredCache && declaredCache.repoRoot === path.resolve(repoRoot)) return declaredCache.paths;
   const file = path.join(path.resolve(repoRoot), 'core', 'registry', 'harnesses.json');

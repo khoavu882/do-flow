@@ -7,10 +7,6 @@
 // npm-packaged tarball does not reliably preserve the executable bit on arbitrary files (unlike a
 // git checkout, which usually does), so this unconditionally re-adds +x after hook scripts are
 // deployed, regardless of what bit the source file happened to carry on this machine.
-//
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): authored as `.ts`, run directly by Node
-// native type-stripping — no build step, no runtime dependency. Body stays CommonJS so a `.js`
-// caller's `require('../helper/settings-scope.ts')` keeps working while the tree is still `.js`.
 const fs = require('node:fs');
 const path = require('node:path');
 

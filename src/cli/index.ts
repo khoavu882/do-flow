@@ -5,9 +5,8 @@
 // the pre-extraction monolith), the ONE table mapping the ten installer command names to their
 // handlers under commands/, and the runtime verbs' forwarding via ./runtime-commands — whose
 // implementations stay one-per-module in src/runtime/. Adding an installer command means a new
-// file in src/cli/commands/, an entry in COMMANDS, and an edit to test/guards/cli-boundary.test.js,
+// file in src/cli/commands/, an entry in COMMANDS, and an edit to test/guards/cli-boundary.test.ts,
 // which ratchets this surface.
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 const {
   handleCapabilitiesCommand, handleReadinessCommand, handleEvidenceCommand,
   EVIDENCE_SCORE_FIELDS, scoreFieldRefusal,

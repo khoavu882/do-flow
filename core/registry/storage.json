@@ -1863,10 +1863,6 @@
     {
       "file": "src/runtime/worker/evidence.ts",
       "reason": "worker evidence record written to the caller-named --out path under core/worker-evidence/, not a DoFlow store"
-    },
-    {
-      "file": "src/runtime/profiles/rollback.ts",
-      "reason": "writes ephemeral rollback sentinel .doflow/state/rollback.json and circuit-breaker.json"
     }
   ]
 }

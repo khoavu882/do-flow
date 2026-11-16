@@ -296,7 +296,7 @@ test('G12: every runtime command the CLI implements is dispatched by a verb (FR-
   const cli = fs.readFileSync(path.join(REPO, 'src', 'cli', 'runtime-commands.ts'), 'utf8');
   const commands = [...cli.matchAll(/case '([a-z-]+)': return handle[A-Za-z]+Command/g)].map((m) => m[1]);
   assert.ok(commands.length > 0,
-    "expected to parse runtime commands from src/cli/runtime-commands.js's dispatch switch. A command written as a "
+    "expected to parse runtime commands from src/cli/runtime-commands.ts's dispatch switch. A command written as a "
     + "block — case 'x': { ...; return; } — is invisible to this pattern and to G8's, so it would be "
     + 'silently unguarded rather than newly failing; keep the single-expression form');
 
@@ -385,7 +385,7 @@ function documentedCliCommands() {
 // read.
 //
 // Empty by design. A Node verb that should legitimately stay out of `doflow --help` belongs here
-// with the reason it is hidden, in the shape test/guards/verb-reachability.test.js's ALLOWLIST uses —
+// with the reason it is hidden, in the shape test/guards/verb-reachability.test.ts's ALLOWLIST uses —
 // never as a silent omission.
 const HIDDEN_FROM_CLI_HELP: any = new Map([]);
 
@@ -398,7 +398,7 @@ test('G12: doflow --help documents every command the CLI accepts, and nothing it
   assert.deepEqual(undocumented, [],
     '`doflow <name>` accepts these and `doflow --help` never mentions them, so the only way to learn '
     + 'they exist is to read the dispatcher or the source. Add each to the HELP template in '
-    + `src/cli/index.js, or record it in HIDDEN_FROM_CLI_HELP with the reason:\n  ${undocumented.join('\n  ')}`);
+    + `src/cli/index.ts, or record it in HIDDEN_FROM_CLI_HELP with the reason:\n  ${undocumented.join('\n  ')}`);
 
   const phantom = [...documented].filter((name) => !accepted.has(name)).sort();
   assert.deepEqual(phantom, [],
@@ -431,7 +431,7 @@ test('config is a Node verb with list, origin, and JSON help', () => {
 // `require`, instead of asking the dispatcher for the verb that serves it.
 //
 // Deliberately matches invocation, not mention: `references/scaffold.md` names
-// `src/runtime/scaffold/generate.js` several times to say which module produces Part 1, and prose about an
+// `src/runtime/scaffold/generate.ts` several times to say which module produces Part 1, and prose about an
 // implementation is not a call to it.
 const SEAM_BYPASSES: any = [
   [/node\s+(?:--input-type=\S+\s+)?--?e(?:val)?\b/, 'inline `node -e`: evaluates DoFlow code outside the verb table'],
@@ -597,7 +597,7 @@ const DISCOVER_SIGNAL_FIELDS: any = new Map([
 // the moment the analysis stops reproducing it.
 // Empty by design. `retries-without-readiness` was pinned here when this guard was written: it
 // reported CLEAR over a window whose `verify` records carried no exit code, unable to tell a clean
-// run from nothing but failures. That was fixed in src/runtime/trace/ledger.js the same day, and the
+// run from nothing but failures. That was fixed in src/runtime/trace/ledger.ts the same day, and the
 // reverse check below is what detected the fix — a stale exemption fails rather than quietly
 // granting cover the code no longer needs. Add an entry only with the reason a false CLEAR is
 // currently unavoidable, never to silence a fixable one.

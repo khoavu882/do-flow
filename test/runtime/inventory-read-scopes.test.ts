@@ -41,7 +41,7 @@ function treeHash(root: any): any {
 /** The global scope root is derived from os.homedir() and is not an argument (design R7), so a
  * hermetic read of both scopes has to relocate the home directory for the duration of the call.
  * Synchronous, and restored in a finally, because readScopes is synchronous. Same helper A.1's
- * proof (test/lifecycle/dual-scope-read.test.js) uses. */
+ * proof (test/lifecycle/dual-scope-read.test.ts) uses. */
 function withHomeDir(dir: any, fn: any) {
   const original = os.homedir;
   os.homedir = () => dir;

@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * The follow-up service (IC-006 without `report`, IC-003 transitions): add, list, take, settle and
  * promote, over the lifecycle event store. Every function takes the IC-001 root, writes only events

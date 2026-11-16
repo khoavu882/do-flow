@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 const SYSTEMONE_PATH = '/v1/systemone';
 const VERSION_PATH = '/api/version';
 const TAGS_PATH = '/api/tags';

@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 // Byte-preserving member edits on a JSON object's text. Every edit replaces exactly one span of the
 // original string, so whitespace, key order, line endings and every member DoFlow does not touch
 // survive as the user wrote them; re-serialising the parsed document would rewrite all of that.

@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * Helpers and limits shared by every worker parser (IC-001, IC-002). Pure: no I/O, no state.
  * `parsers.ts` and each `parsers/<harness>.ts` import from here.

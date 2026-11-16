@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * The lexical `failure.capture` rule v1 (086 IC-004, DD-3, OI-1): the one line rule over the raw text
  * of `settings.json` that the bash dispatcher, the bash policy, the JS hook runner and Node all apply,

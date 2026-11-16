@@ -86,7 +86,7 @@ function startFakeServer(options = {}) {
 }
 
 async function spawnFakeServer({ routes = {}, dir, timeoutMs = 5000 }: any = {}) {
-  if (typeof dir !== 'string' || !path.isAbsolute(dir)) throw new Error('spawnFakeServer requires an absolute temp directory from test/helper/tmp.js');
+  if (typeof dir !== 'string' || !path.isAbsolute(dir)) throw new Error('spawnFakeServer requires an absolute temp directory from test/helper/tmp.ts');
   const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const routesFile = path.join(dir, `fake-routes-${suffix}.json`);
   const portFile = path.join(dir, `fake-port-${suffix}.txt`);

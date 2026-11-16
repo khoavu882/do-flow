@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -35,7 +33,7 @@ const path = require('node:path');
  *     never as diverged.
  *   - Read-only throughout (NFR-001). Nothing here writes, moves, or deletes.
  *
- * Follows this repo's directory-reading idiom (`src/runtime/knowledge/index-store.js`): a bare
+ * Follows this repo's directory-reading idiom (`src/runtime/knowledge/index-store.ts`): a bare
  * `readdirSync(dir, { withFileTypes: true })` inside a try/catch that skips on failure. A managed
  * asset's parent directory may legitimately not exist — a recorded resource whose file was since
  * removed by hand — and that is not an error this read-only module raises.
@@ -47,11 +45,11 @@ const path = require('node:path');
  * **Nothing in the registry declares load semantics.** This set is derived from adapter behaviour,
  * read off two locators in this repository:
  *
- *   - `src/adapters/copy-tree.js` — the `copilot-rule-instructions` transform (line ~80) renders
+ *   - `src/adapters/copy-tree.ts` — the `copilot-rule-instructions` transform (line ~80) renders
  *     *every* file it copies under an `applyTo: '**'` front-matter header, so every file landing in
  *     `.github/instructions/` is always applied. Asset `instructions.copilot`, native dir
  *     `instructions`.
- *   - `src/adapters/kiro/index.js` (header comment, lines 8-12) — Kiro has no single-file
+ *   - `src/adapters/kiro/index.ts` (header comment, lines 8-12) — Kiro has no single-file
  *     instruction surface and loads every steering file without front-matter. DoFlow-produced
  *     steering holds only the core set (selected via `guidance-manifest`), but the directory is
  *     still loaded wholesale, so an unmanaged file there is operative. Asset

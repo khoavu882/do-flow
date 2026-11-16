@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 // Kiro adapter.
 //
 // Kiro's native root is symmetric across scopes — `.kiro/` (project) / `~/.kiro/` (global) is the

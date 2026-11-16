@@ -5,7 +5,7 @@
 // within budget, no false completion, the BLOCKED report's causes, the repeat block, a granted
 // child run and the run's measurement.
 //
-// Each case is a sandbox repository (test/helper/dispatch-sandbox.js) with a started 080 run, an
+// Each case is a sandbox repository (test/helper/dispatch-sandbox.ts) with a started 080 run, an
 // integration worktree and a seeded dispatch run. The child PATH is the sandbox's scratch bin/
 // alone (fake CLI links, node and git, never dirname(process.execPath), DEC-056); the five DOFLOW_*
 // identity variables are set by the sandbox, DOFLOW_ATTEMPT deleted where a worker is launched.

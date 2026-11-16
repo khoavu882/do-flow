@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * The person-written billing record (`workers.billing`, global-only): which headless workers the
  * owner states are `free` or `metered`. It lets a capped dispatch (`--billing-cap free`) treat a

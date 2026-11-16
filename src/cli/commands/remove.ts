@@ -1,7 +1,6 @@
 'use strict';
 // `doflow remove` — remove only lifecycle-owned native resources; user-owned files are preserved
 // and what remains standing (shared destinations) is reported, not implied.
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 const os = require('node:os');
 const path = require('node:path');
 const { resolveTargets, toolDirs } = require('../../install/targets.ts');

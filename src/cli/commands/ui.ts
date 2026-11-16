@@ -3,7 +3,6 @@
 // Console, a separately installed package (092 IC-008, 160 IC-001); every flag is only forwarded. The package is found by file existence and never loaded into the core: this module
 // loads only node:fs, node:path and node:child_process (test/runtime/ui-launcher.test.ts). It never
 // listens, reads DoFlow state, installs anything, or adds a variable to the Console's environment.
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');

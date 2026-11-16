@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /** Shared redaction rules for settings and their compatibility adapters. */
 const { OFF_WORDS, isOffWord } = require('../off-words.ts');
 

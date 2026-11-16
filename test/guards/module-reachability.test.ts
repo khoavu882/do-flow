@@ -74,9 +74,8 @@ const PATH_CALLER_SURFACES: any = ['package.json', path.join('core', 'shared', '
  */
 const ALLOWLIST: any = new Set(['src/runtime/worker/conform-fake.ts']);
 
-/** Every runtime module file (`.js` or `.ts`) under a source/test root. The TypeScript migration
- * (see agent-docs/BRIEF_GOAL_DOFLOW.md) runs `.ts` directly through Node native type-stripping, so a
- * converted module is still a real node in this tree's require graph and must stay reachable. `.d.ts`
+/** Every runtime module file (`.js` or `.ts`) under a source/test root. Node runs `.ts` directly through
+ * native type-stripping, so a `.ts` module is a real node in this tree's require graph and must stay reachable. `.d.ts`
  * declaration files are not modules and are excluded. */
 function jsFilesUnder(root: any): any {
   const out: any = [];
@@ -262,7 +261,7 @@ test('G16: every ALLOWLIST entry names a module that actually exists', () => {
 });
 
 // G30 — the TypeScript "force rule". DoFlow is migrating src/ to TypeScript run through Node native
-// type-stripping (agent-docs/BRIEF_GOAL_DOFLOW.md). The migration is enforced as direction, not as a
+// type-stripping. The migration is enforced as direction, not as a
 // per-file mandate: the count of plain `.js` modules under src/ may only ever fall. This needs no
 // allowlist and no blocklist of the legitimately-permanent `.js` (a shebang entry point, a module a
 // stripper cannot help) — whatever `.js` remains is simply the ceiling the next change may not raise.

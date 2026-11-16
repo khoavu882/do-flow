@@ -1,14 +1,12 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { resolveBashHelper } = require('../helper/bash-helper.ts');
 
 // `resolveActiveFeature` was moved here from `scaffold/generate.js` (which had it from
 // bin/doflow.js) so the scaffold and the decision register ask the same resolver. The root comes
-// from src/helper/repo-root.js rather than from counting this file's own depth: this code has
+// from src/helper/repo-root.ts rather than from counting this file's own depth: this code has
 // already moved twice, and a miscounted expression would keep resolving, to the wrong directory.
 
 /** The one resolver: beside this module in a checkout, a project `node_modules/` and a global npm install,

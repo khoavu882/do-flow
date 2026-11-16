@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * `trace analyze` (091 IC-001..IC-005, IC-011): three detectors over the spans view of spans.ts,
  * run per scope (each trace, each ungrouped `session:`/`day:` group), each with a state, plus the

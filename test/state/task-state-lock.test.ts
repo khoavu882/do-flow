@@ -2,8 +2,8 @@
 
 // 117 Phase C (FU-8acds5, FU-vgkrvd): the task-state lock's owner entry, in-place reclaim, publication
 // bound, contention rule, owned release and pre-write check, and how it meets the lock of runtimes
-// from before it (test/helper/legacy-lock.js, the e003dc0d code). Interleavings across processes are
-// explored by test/state/ledger-lock-race.test.js and the opt-in sampler; these are the single-process
+// from before it (test/helper/legacy-lock.ts, the e003dc0d code). Interleavings across processes are
+// explored by test/state/ledger-lock-race.test.ts and the opt-in sampler; these are the single-process
 // cases. The safety argument they check, one interleaving at a time, is in the 117 feature records
 // (research/phase-c-protocol.md).
 

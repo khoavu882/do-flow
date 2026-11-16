@@ -17,7 +17,7 @@
 // worker's out file before the next repetition, because the worker's barrier spin blocks its event
 // loop. Workers hold no state between repetitions: each repetition is a fresh sandbox.
 //
-// Every sandbox comes from test/helper/dispatch-sandbox.js: the commands' env PATH is its scratch
+// Every sandbox comes from test/helper/dispatch-sandbox.ts: the commands' env PATH is its scratch
 // bin/ (fake CLI links, node and git, never dirname(process.execPath), DEC-056) and the five
 // DOFLOW_* identity variables are set, DOFLOW_ATTEMPT deleted where a worker is launched. The race
 // workers' own PATH is an empty scratch bin. POSIX only.

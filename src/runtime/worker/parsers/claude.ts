@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * `claude-stream-json-v1` (IC-003): `claude -p … --output-format stream-json --verbose`, one JSON
  * object per line. Pure, never throws, keeps only the masked summary and masked denial fields.

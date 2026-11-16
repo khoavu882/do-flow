@@ -3,7 +3,7 @@
 /**
  * G18: every adapter forwards `force` into `planTree`.
  *
- * `--force` was parsed (src/cli/index.js), threaded onto the lifecycle view (install.js) and into
+ * `--force` was parsed (src/cli/index.ts), threaded onto the lifecycle view (install.js) and into
  * its context (lifecycle/view.ts), and consulted by the conflict predicate (copy-tree.ts) — while
  * six of the adapters omitted it from their own `planTree` call. `planTree` declares
  * `force = false` as a parameter default, so every one of those calls silently received `false`

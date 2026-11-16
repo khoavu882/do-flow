@@ -26,7 +26,7 @@ let counter = 0;
 const unique = (name: any) => `${name}-${(counter += 1)}`;
 
 // The fault is injected into the real Node CLI by a preload in NODE_OPTIONS, which the dispatcher's
-// own `node` child inherits: the same approach test/e2e/failure-capture-cli.test.js takes with
+// own `node` child inherits: the same approach test/e2e/failure-capture-cli.test.ts takes with
 // `--require`. It replaces one function a verb calls, so the verb dies of an internal TypeError.
 fs.writeFileSync(PRELOAD, `'use strict';
 const path = require('node:path');

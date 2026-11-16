@@ -106,14 +106,14 @@ process.stdout.write('compressed output');
   assert.equal(ans.freshness, 'UNKNOWN');
   assert.equal(ans.candidates.length, 10, 'capped at K_MAX.code (10)');
 
-  // First candidate: NODE { capabilities } [src=test/guards/provider-source-mode.test.js loc=L21 community=]
+  // First candidate: NODE { capabilities } [src=test/guards/provider-source-mode.test.ts loc=L21 community=]
   assert.equal(ans.candidates[0].path, 'test/guards/provider-source-mode.test.js');
   assert.equal(ans.candidates[0].startLine, 21);
   assert.equal(ans.candidates[0].endLine, 21);
   assert.equal(ans.candidates[0].provider, 'graphify.query');
   assert.equal(ans.candidates[0].rank, 1);
 
-  // Second candidate: NODE provider-source-mode.test.js [src=test/guards/provider-source-mode.test.js loc=L1 community=]
+  // Second candidate: NODE provider-source-mode.test.js [src=test/guards/provider-source-mode.test.ts loc=L1 community=]
   assert.equal(ans.candidates[1].path, 'test/guards/provider-source-mode.test.js');
   assert.equal(ans.candidates[1].startLine, 1);
   assert.equal(ans.candidates[1].endLine, 1);

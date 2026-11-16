@@ -2,7 +2,7 @@
 
 /**
  * Review-miss scorer (feature 095b, IC-009): grades the findings a reviewer wrote for each corpus
- * case, deterministically, and reads those grades back as the 096 repeat shape `bench/noise.js`
+ * case, deterministically, and reads those grades back as the 096 repeat shape `bench/noise.ts`
  * takes. Offline: reads files only; no model, no subprocess.
  *
  * A case is `found` when some converged finding that was not refuted sits on the expected path, has a

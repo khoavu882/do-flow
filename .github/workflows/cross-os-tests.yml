@@ -61,8 +61,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
-          # Full history and tags: test/e2e/register-followups.e2e.test.js compares against the v1.12.0 tag,
-          # and test/e2e/lifecycle-loop.e2e.test.js against v1.13.0 (it skips, naming the tag, when it is absent).
+          # Full history and tags: test/e2e/register-followups.e2e.test.ts compares against the v1.12.0 tag,
+          # and test/e2e/lifecycle-loop.e2e.test.ts against v1.13.0 (it skips, naming the tag, when it is absent).
           fetch-depth: 0
 
       - name: Setup Node
@@ -110,7 +110,7 @@ jobs:
       # the old matrix too). Known-failing cases, from the latest main run's log and locally:
       #   - post-edit-lint: "expected 4 paths in edited-files.txt, found 0"
       #   - subagent-audit: TODO detection exits before writing ("stat /tmp/baz.go: no such file")
-      #   - pre-compact: last-compact-summary.md not created / missing frontmatter
+      #   - post-compact: summaries/<hash>/local/main/summary.md not created / missing frontmatter
       #   - session-end: session directory not removed, END marker missing from sessions.log
       #   - meta.json: fails where the harness's canonicalized CWD differs from the hook's
       #     canonicalize_path (macOS /tmp symlink) — a fixture/runtime hash divergence.

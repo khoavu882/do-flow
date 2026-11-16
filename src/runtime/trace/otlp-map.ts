@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 const { sha16 } = require('../scaffold/fingerprint.ts');
 const nodeFs = require('node:fs');
 const path = require('node:path');

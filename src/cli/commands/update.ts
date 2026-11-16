@@ -1,7 +1,6 @@
 'use strict';
 // `doflow update` — incremental refresh: diff the pinned/selected state against what is on disk
 // and apply only what changed. Never re-prompts for MCP (reuses each harness's recorded selection).
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 const os = require('node:os');
 const path = require('node:path');
 const { resolveTargets, installedTargets, toolDirs } = require('../../install/targets.ts');

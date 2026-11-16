@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * Masking and normalisation (IC-012). Best-effort, never a guarantee: NFR-003 rests on local-only
  * storage, on keeping a report body on the machine that produced it and on DoFlow never committing

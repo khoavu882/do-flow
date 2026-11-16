@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * The `slot` verb's argument checks and output forms (feature 115, IC-008). The queue itself is
  * `./slots.ts`; this file only maps flags to it and its results to exit codes.

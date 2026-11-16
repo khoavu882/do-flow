@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * The failure store reader and settlement writer (IC-013, IC-014, IC-015). The capture writers append
  * IC-011 lines; this module folds them into entries when they are asked for, so a count is always

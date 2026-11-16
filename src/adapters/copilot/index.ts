@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 // GitHub Copilot CLI adapter.
 //
 // Copilot has no single native root the way Claude's `.claude` is one — instructions, skills,

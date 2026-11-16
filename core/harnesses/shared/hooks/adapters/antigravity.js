@@ -5,8 +5,8 @@
  * Decision Adapter seam, D2). The shared bridge owns native payload decoding.
  *
  * Antigravity's own native contracts — evidenced by core/harnesses/antigravity/hooks/*.sh (the
- * shims src/adapters/antigravity/index.js actually projects today) and
- * src/adapters/antigravity/index.js's own GATE_MATCHER/hookGroups — are NOT uniform across
+ * shims src/adapters/antigravity/index.ts actually projects today) and
+ * src/adapters/antigravity/index.ts's own GATE_MATCHER/hookGroups — are NOT uniform across
  * events. Only PreToolUse and Stop are wired live there today:
  *
  *   PreToolUse : stdin  { toolCall: { name, args }, conversationId, workspacePaths, stepIdx }
@@ -19,7 +19,7 @@
  *                vocabulary than PreToolUse's allow/deny/ask/force_ask, not an oversight.
  *
  * SessionStart and PostToolUse have no dedicated Antigravity-native shim in
- * src/adapters/antigravity/index.js's live projection. No Phase A canonical policy owns PostToolUse today (only
+ * src/adapters/antigravity/index.ts's live projection. No Phase A canonical policy owns PostToolUse today (only
  * session-context, pre-implementation-gate, mcp-tool-guard, stop-check exist),
  * so its native shape is an ack passthrough either way.
  */

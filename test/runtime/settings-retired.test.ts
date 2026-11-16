@@ -26,7 +26,7 @@ function registryWithRetired(t: any) {
   fs.cpSync(path.join(REPO, 'core/registry'), path.join(dir, 'core/registry'), { recursive: true });
   const file = path.join(dir, 'core/registry/harnesses.json');
   const data = JSON.parse(fs.readFileSync(file, 'utf8'));
-  data.retired = [{ ...RETIRED, displayName: 'Old Tool', retiredOn: '2026-10-26', reason: 'fixture', evidence: ['fixture'], removal: {} }];
+  data.retired = [{ ...RETIRED, removal: {} }];
   fs.writeFileSync(file, JSON.stringify(data));
   const loaded = loadSettingsRegistry({ repoRoot: dir });
   assert.equal(loaded.ok, true, loaded.detail);

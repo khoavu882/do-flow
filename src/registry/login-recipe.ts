@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * The static checks of a declared login recipe, `worker.loginProbe` (design 172 section 3.2): L0 size, L1 the
  * `{provider}` slot, L2 output, L3 answers, L4 billing, L5 expiry signs, plus `hint` and `caveat` (LD-1). Pure: no

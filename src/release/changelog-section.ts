@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 // ── One release version, one CHANGELOG section, one GitHub Release body ─────────────────────────
 //
 // `gh release create --generate-notes` lists merged pull requests, and this repository merges

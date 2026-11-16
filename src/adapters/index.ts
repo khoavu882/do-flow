@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 // Harness adapters own native formats and paths. This module intentionally only
 // validates and resolves that boundary; it never reads or writes harness files.
 const { resolveRegistrySource } = require('./resolve-source.ts');

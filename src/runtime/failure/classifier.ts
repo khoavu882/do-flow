@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * The programming-error classifier (IC-010, DEC-013, DEC-031). Decides whether a caught error is a
  * bug in DoFlow worth recording, as opposed to a finding, a refusal, a bad flag or a fault in the

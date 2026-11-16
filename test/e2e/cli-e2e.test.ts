@@ -372,7 +372,7 @@ test('full lifecycle: install -> mutate -> update -> rollback restores the pre-u
   // CLAUDE.md is merge-managed, not mirrored: mutatedContent has no doflow markers, so update
   // must treat it as foreign content and APPEND doflow's section after it (not overwrite it) —
   // that's the whole point of this feature. mutatedContent ends with exactly one "\n", so the
-  // separator-normalization rule (src/helper/marker-merge.js) adds exactly one more before the
+  // separator-normalization rule (src/helper/marker-merge.ts) adds exactly one more before the
   // section.
   const expectedAfterUpdate = `${mutatedContent}\n${cleanContent}`;
   assert.strictEqual(fs.readFileSync(claudeMd, 'utf8'), expectedAfterUpdate, 'update should append doflow\'s section after the foreign (unmarked) content, not overwrite it');

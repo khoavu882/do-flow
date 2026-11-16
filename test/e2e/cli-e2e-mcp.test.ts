@@ -103,7 +103,7 @@ test('--prune keeps only the N most recent backups on both install and update', 
 // asset it copied became adapter-owned via the registry/lifecycle path. The safety properties they
 // covered — rejecting a traversing or missing asset source, and failing cleanly rather than with a
 // raw stack trace — are now enforced earlier and more strongly at registry load time; see
-// test/registry/registry.test.js's "rejects projections to unavailable capabilities and missing source
+// test/registry/registry.test.ts's "rejects projections to unavailable capabilities and missing source
 // files" test.
 
 test('--mcp <list> on global install merges only the selected servers into ~/.claude.json, not .claude/.mcp.json', (t) => {

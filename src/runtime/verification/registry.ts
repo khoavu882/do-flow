@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * The registry-driven layer's own registry: loads and validates `core/registry/verification.json`
  * (plan task C.2, design C7) into the shape `VerificationEngine` (in `verification.js`) compiles

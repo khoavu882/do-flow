@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 // Per-install "this install has" index: the guidance layer's authoritative summary of exactly
 // which MCP servers were selected for this install, so an agent never assumes availability of a
 // server that isn't actually connected. Rendered fresh on every install/update from the resolved

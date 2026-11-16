@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * Named machine-wide slots (feature 115, IC-008 to IC-010): at most one `runSlot` holder per name,
  * waiters served in arrival order. State is one file per slot under the user-state root

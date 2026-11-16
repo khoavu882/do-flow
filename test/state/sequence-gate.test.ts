@@ -95,7 +95,7 @@ test('completion rule: the INTERLEAVED trace replayed 20 times gives one outcome
 });
 
 // The grant-on-release negative control (the completion rule reverted must break this determinism)
-// runs on demand in test/explore/ledger-controls.js, outside npm test (117 D-ORCH budget option (b)).
+// runs on demand in test/explore/ledger-controls.ts, outside npm test (117 D-ORCH budget option (b)).
 
 test('faults: init stale seeds a 60 s old lock; age-lock@k lets B reclaim the lock A holds', async () => {
   let lockAgeMs: any = null;

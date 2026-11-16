@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * Declared retrieval, and the report over it (feature 011, plan task B.1, design component C1;
  * FR-010, FR-013, FR-014, FR-015).

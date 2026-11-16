@@ -3,7 +3,7 @@
 // Feature 081 A.5 (IC-013, DEC-021; FR-019): the worker run store. Insert refuses a second run on
 // one (task, token), live or ended; a refused transition writes nothing; `seq` counts applied
 // transitions; a torn or future-version file is `store-unreadable` and left as it was; and two
-// processes inserting the same token at once through test/helper/race-barrier.js yield one run.
+// processes inserting the same token at once through test/helper/race-barrier.ts yield one run.
 //
 // This file is also the race worker's module. race-barrier.js requires the module it is given and
 // calls one of its fixed operation names, so when required with `--race-worker` the file exports

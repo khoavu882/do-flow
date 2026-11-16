@@ -3,7 +3,7 @@
 // reading 1.2.0; the equality guards caught it after the fact. Distribution versions are now
 // PROJECTED from package.json by src/release/sync-plugin-versions.ts, wired into the npm `version`
 // lifecycle so a release bump rewrites and stages the manifests in the same commit. The equality
-// guards in test/install/doflow.test.js remain the independent check.
+// guards in test/install/doflow.test.ts remain the independent check.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');

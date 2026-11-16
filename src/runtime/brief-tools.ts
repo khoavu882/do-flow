@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * The tier, tools and report-format block of a generated brief (062 CH7, IC-016 to IC-018).
  *

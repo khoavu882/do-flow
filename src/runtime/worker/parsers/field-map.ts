@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * The `jsonl-field-map-v1` interpreter (design 171 section 3.3, IC-001): compiles a validated field map into a frozen
  * parser factory. One line is one JSON event; the first rule whose `when` all hold is applied; `end()` follows the

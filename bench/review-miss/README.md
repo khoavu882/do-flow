@@ -19,7 +19,7 @@ own: nothing in `npm test` or in these verbs makes them.
 | Case | `id`, `key`, `split`, `source`, `rev` (the parent of the fix), `scope` (every parseable converged locator path of the same record that exists at `rev`; a path absent at `rev`, such as a feature record or a file the fix added, is dropped) and `expected` (`path`, `startLine`, `endLine`, `severity`). A case carries no fix commit, summary, evidence, proof or seat text |
 | Split | `heldout` when the first hex digit of sha256(`id`) is below `heldoutBelow` in `config.json`, else `train`; roughly 19 percent are heldout |
 | Found | A converged finding in the reviewer's `findings.json` with status `open`, `fixed` or `user-accepted` (a `refuted` one does not count) on `expected.path`, at a severity at least the expected one (`blocker` above `should-fix` above `note`), with a locator span that overlaps the expected span widened by `tolerance` (3) lines each way. A range is one span; a comma list is separate single-line points, never the lines between (`a.ts:1,56` against 50-52 is a miss, `a.ts:1,55` a hit). The widest locator that counts is `max(maxSpan, expected width + 2 * tolerance)` lines: `maxSpan` (60) is the widest reported span accepted for an expected span that is itself narrower; for a wider expected span the bound is its width plus the tolerance on both sides, so an exact re-report of the finding's own locator (82 and 344 lines in the corpus) is a hit; a comma list is bounded by its extent (last point minus first plus 1), so a long list of scattered points is a miss |
-| Band and decision | The 096 rules in `bench/noise.js`, unchanged; parameters come from `noise` in `bench/config.json` |
+| Band and decision | The 096 rules in `bench/noise.ts`, unchanged; parameters come from `noise` in `bench/config.json` |
 
 ## 2. Cases are generated, never edited
 
@@ -34,7 +34,7 @@ ineligible finding is counted under one skip reason (`not-fixed`, `severity`, `l
 
 ## 3. Verbs
 
-Run as `npm run bench -- review-miss <verb> [flags]` (or `node bench/runner.js review-miss <verb>`). An
+Run as `npm run bench -- review-miss <verb> [flags]` (or `node bench/runner.ts review-miss <verb>`). An
 unknown verb or flag, a missing required flag or an unexpected argument exits 2.
 
 | Verb | Flags | Does | Exit codes |
@@ -57,7 +57,7 @@ unknown verb or flag, a missing required flag or an unexpected argument exits 2.
 
 `grade.json` is `{ schema: 1, iteration, model, commit, runs }`, where `runs` maps each case `key` to
 `{ kind: "review-miss", split, passRate, excluded }` (`passRate` 1 found, 0 not found, null excluded).
-That is the repeat shape `bench/noise.js` reads. Running a reviewer over each case's `rev` and `scope`
+That is the repeat shape `bench/noise.ts` reads. Running a reviewer over each case's `rev` and `scope`
 to produce the `findings.json` files is done by the person running the suite; no verb does it.
 
 ## 5. Handing a case to a reviewer

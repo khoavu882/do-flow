@@ -1,10 +1,7 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
- * Deterministic check execution — the JavaScript port of
- * `core/shared/scripts/doflow/verification/contract_runner.py` (plan task B.3, component C7).
+ * Deterministic check execution (plan task B.3, component C7).
  *
  * Runs an ordered list of shell checks, cheapest and most deterministic first
  * (syntax → compile → types → lint → unit → integration → architecture → scope), and compiles a

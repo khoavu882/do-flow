@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * The `harness-login` store (design 172 section 4.5): one user-level file, `<config home>/state/harness-login.json`,
  * holding per harness the last recipe answer and the last run outcome. Its one writer path is `updateTaskState`

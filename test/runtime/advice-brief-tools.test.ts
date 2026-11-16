@@ -150,11 +150,10 @@ function pickRecords(f: any) {
   return fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim().split('\n').map((line: any) => JSON.parse(line)) : [];
 }
 
-/** Runs the verb in-process with a counting client; `settings` and `sentinel` go into the project first. */
-async function invokeCounted(f: any, { settings, sentinel, env, tier = 'frontier', reply }: any = {}) {
+/** Runs the verb in-process with a counting client; `settings` goes into the project first. */
+async function invokeCounted(f: any, { settings, env, tier = 'frontier', reply }: any = {}) {
   fs.mkdirSync(path.join(f.project, '.doflow', 'state'), { recursive: true });
   if (settings) fs.writeFileSync(path.join(f.project, '.doflow', 'settings.json'), JSON.stringify(settings));
-  if (sentinel) fs.writeFileSync(path.join(f.project, '.doflow', 'state', 'rollback.json'), JSON.stringify(sentinel));
   const registry = loadRegistry({ repoRoot: REPO_ROOT });
   const router: any = new CapabilityRouter({ repoRoot: REPO_ROOT, projectRoot: f.project });
   const calls: any = [];
@@ -275,7 +274,6 @@ test('084: the passed env decides the user settings layer, not the process envir
 const CHOSEN_OFF: any = {
   'settings rollout.profile baseline': { settings: { rollout: { profile: 'baseline' } } },
   'env DOFLOW_ROLLOUT_PROFILE=baseline': { env: { DOFLOW_ROLLOUT_PROFILE: 'baseline' } },
-  'an active rollback sentinel': { sentinel: { active: true, reason: 'manual' } },
   'an invalid profile value': { settings: { rollout: { profile: 'bogus' } } },
 };
 for (const [name, c] of Object.entries(CHOSEN_OFF) as any) {
@@ -283,7 +281,6 @@ for (const [name, c] of Object.entries(CHOSEN_OFF) as any) {
     const f = fixture(t);
     fs.mkdirSync(path.join(f.project, '.doflow', 'state'), { recursive: true });
     if (c.settings) fs.writeFileSync(path.join(f.project, '.doflow', 'settings.json'), JSON.stringify(c.settings));
-    if (c.sentinel) fs.writeFileSync(path.join(f.project, '.doflow', 'state', 'rollback.json'), JSON.stringify(c.sentinel));
     const registry = loadRegistry({ repoRoot: REPO_ROOT });
     const router: any = new CapabilityRouter({ repoRoot: REPO_ROOT, projectRoot: f.project });
     let calls = 0;

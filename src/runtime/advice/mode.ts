@@ -9,7 +9,7 @@ type AdviceMode = 'off' | 'shadow' | 'act';
 
 /**
  * The rollout profile's advisor capability, or null when no profile was chosen. It caps advice only when a
- * profile was chosen (env or settings), a rollback is active or the value is invalid; a project that sets no
+ * profile was chosen (env or settings) or the value is invalid; a project that sets no
  * profile (origin registry-default) keeps advice as configured.
  */
 function profileAdvisorCap({ projectRoot, env, fsImpl }: { projectRoot?: string; env?: Record<string, string | undefined>; fsImpl?: any } = {}): AdvisorCap | null {

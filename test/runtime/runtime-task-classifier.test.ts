@@ -1,6 +1,6 @@
 'use strict';
 
-// First coverage for `src/runtime/task-classifier.js`, and specifically for the fit check — the
+// First coverage for `src/runtime/task-classifier.ts`, and specifically for the fit check — the
 // riskiest thing in it, because every wrong answer it can give is a *confident* one.
 //
 // The finding it exists to prevent: a diagnosis classified as `research` was ACCEPTED, and the

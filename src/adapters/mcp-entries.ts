@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 // MCP entry ownership for the adapters that keep DoFlow's servers as members of a JSON map in a
 // file the harness shares with its user. Ownership is one ledger row per harness, file and server,
 // whose fingerprint is the entry value DoFlow last verified there. A same-named entry no row claims
