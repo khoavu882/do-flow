@@ -1,9 +1,9 @@
 'use strict';
 
-// Feature 085 — Rollout Profiles & Instant Rollback Controller
+// Feature 085 — Rollout Profiles
 // Gate G-P5 Verification Test Suite
 // Covers IC-001 (contextProfile), IC-002 (nativeTelemetry),
-// IC-003 (resolveRolloutProfile, sampler), and IC-004 (rollback, circuit-breaker).
+// and IC-003 (resolveRolloutProfile, sampler).
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
@@ -23,20 +23,13 @@ const {
 } = require('../../src/runtime/profiles/sampler.ts');
 
 const {
-  checkRollbackState,
-  tripRollback,
-  resetRollback,
-  recordProviderFailure,
-} = require('../../src/runtime/profiles/rollback.ts');
-
-const {
   buildProfilesDoctor,
   printProfilesDoctor,
 } = require('../../src/runtime/profiles/doctor.ts');
 
 // --- Test Fixture Helpers ---
 
-function setupTestProject(settingsContent?: any, initialRollback?: any): { projectRoot: string } {
+function setupTestProject(settingsContent?: any): { projectRoot: string } {
   const projectRoot = suiteTempDir('doflow-test-profile-proj-');
   const doflowDir = path.join(projectRoot, '.doflow');
   fs.mkdirSync(doflowDir, { recursive: true });
@@ -45,16 +38,6 @@ function setupTestProject(settingsContent?: any, initialRollback?: any): { proje
     fs.writeFileSync(
       path.join(doflowDir, 'settings.json'),
       JSON.stringify(settingsContent, null, 2),
-      'utf8'
-    );
-  }
-
-  if (initialRollback) {
-    const stateDir = path.join(doflowDir, 'state');
-    fs.mkdirSync(stateDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(stateDir, 'rollback.json'),
-      JSON.stringify(initialRollback, null, 2),
       'utf8'
     );
   }
@@ -331,6 +314,14 @@ describe('IC-003: Rollout Profile Configuration & Resolver (resolve.ts)', () => 
     assert.equal(resolved.origin.detail, 'DOFLOW_ROLLOUT_PROFILE');
   });
 
+  test('DOFLOW_ROLLOUT_PROFILE=baseline forces baseline over a project configured for full', () => {
+    const { projectRoot } = setupTestProject({ 'rollout.profile': 'full' });
+    const resolved = resolveRolloutProfile({ projectRoot, env: { DOFLOW_ROLLOUT_PROFILE: 'baseline' } });
+
+    assert.equal(resolved.name, 'baseline');
+    assert.equal(resolved.origin.source, 'env');
+  });
+
   test('invalid profile in env or settings falls safe to baseline', () => {
     const { projectRoot } = setupTestProject({ 'rollout.profile': 'non-existent-profile' });
     const resolvedFromSettings = resolveRolloutProfile({ projectRoot, env: {} });
@@ -349,17 +340,6 @@ describe('IC-003: Rollout Profile Configuration & Resolver (resolve.ts)', () => 
 
     assert.equal(resolved.name, 'canary');
     assert.equal(resolved.origin.source, 'project');
-  });
-
-  test('rollback sentinel forces baseline even if project configured for full', () => {
-    const { projectRoot } = setupTestProject(
-      { 'rollout.profile': 'full' },
-      { active: true, reason: 'sentinel test', origin: 'sentinel', targetProfile: 'baseline' }
-    );
-    const resolved = resolveRolloutProfile({ projectRoot, env: {} });
-
-    assert.equal(resolved.name, 'baseline');
-    assert.equal(resolved.origin.source, 'sentinel');
   });
 
   test('isCapabilityActive accurately reflects capability status across profiles', () => {
@@ -425,245 +405,17 @@ describe('IC-003: Canary Deterministic Sampler (sampler.ts)', () => {
   });
 });
 
-describe('IC-004: Instant Rollback Controller & Circuit Breaker (rollback.ts)', () => {
-  test('checkRollbackState returns inactive in clean environment', () => {
-    const { projectRoot } = setupTestProject();
-    const state = checkRollbackState({ projectRoot, env: {} });
-    assert.equal(state.active, false);
-    assert.equal(state.reason, null);
-    assert.equal(state.origin, 'none');
-    assert.equal(state.targetProfile, 'baseline');
-  });
-
-  test('checkRollbackState fails closed when the rollback sentinel cannot be read', () => {
-    const { projectRoot } = setupTestProject({ 'rollout.profile': 'full' });
-    const eacces = Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
-    // node:fs reports existsSync false for a path it may not stat; a tripped rollback must not read as inactive.
-    const unreadable = { existsSync: () => false, readFileSync: () => { throw eacces; } };
-    const state = checkRollbackState({ projectRoot, env: {}, fsImpl: unreadable });
-    assert.equal(state.active, true);
-    assert.equal(state.reason, 'rollback-state-unavailable');
-    assert.equal(state.targetProfile, 'baseline');
-
-    const throwing = { existsSync: () => { throw eacces; }, readFileSync: () => { throw eacces; } };
-    assert.equal(checkRollbackState({ projectRoot, env: {}, fsImpl: throwing }).active, true);
-
-    const profile = resolveRolloutProfile({ projectRoot, env: {}, fsImpl: unreadable });
-    assert.equal(profile.name, 'baseline');
-    assert.equal(profile.origin.source, 'sentinel');
-    assert.equal(profile.origin.detail, 'rollback-state-unavailable');
-  });
-
-  test('checkRollbackState fails closed on a real state directory it may not read', { skip: process.platform === 'win32' ? 'no POSIX modes' : process.getuid?.() === 0 ? 'root reads any file' : false }, () => {
-    const { projectRoot } = setupTestProject({ 'rollout.profile': 'full' });
-    tripRollback({ reason: 'tripped before the permissions changed', projectRoot });
-    const stateDir = path.join(projectRoot, '.doflow', 'state');
-    fs.chmodSync(stateDir, 0o000);
-    try {
-      const state = checkRollbackState({ projectRoot, env: {} });
-      assert.equal(state.active, true);
-      assert.equal(state.reason, 'rollback-state-unavailable');
-    } finally {
-      fs.chmodSync(stateDir, 0o755);
-    }
-  });
-
-  test('checkRollbackState detects env override DOFLOW_ROLLOUT_PROFILE=baseline', () => {
-    const { projectRoot } = setupTestProject({ 'rollout.profile': 'full' });
-    const state = checkRollbackState({ projectRoot, env: { DOFLOW_ROLLOUT_PROFILE: 'baseline' } });
-    assert.equal(state.active, true);
-    assert.equal(state.origin, 'env');
-    assert.equal(state.targetProfile, 'baseline');
-  });
-
-  test('tripRollback writes sentinel file and sets rollback active', () => {
-    const { projectRoot } = setupTestProject({ 'rollout.profile': 'full' });
-    const res = tripRollback({ reason: 'Operator requested emergency rollback', projectRoot });
-    assert.equal(res.ok, true);
-    assert.ok(fs.existsSync(res.path));
-
-    const content = JSON.parse(fs.readFileSync(res.path, 'utf8'));
-    assert.equal(content.active, true);
-    assert.equal(content.reason, 'Operator requested emergency rollback');
-    assert.equal(content.origin, 'sentinel');
-    assert.equal(content.targetProfile, 'baseline');
-    assert.ok(content.triggeredAt);
-
-    const state = checkRollbackState({ projectRoot, env: {} });
-    assert.equal(state.active, true);
-    assert.equal(state.origin, 'sentinel');
-    assert.equal(state.reason, 'Operator requested emergency rollback');
-
-    const profile = resolveRolloutProfile({ projectRoot, env: {} });
-    assert.equal(profile.name, 'baseline');
-    assert.equal(profile.origin.source, 'sentinel');
-  });
-
-  test('resetRollback deletes sentinel file and restores configured profile', () => {
-    const { projectRoot } = setupTestProject({ 'rollout.profile': 'canary' });
-    tripRollback({ reason: 'Temporary pause', projectRoot });
-    assert.equal(checkRollbackState({ projectRoot, env: {} }).active, true);
-
-    const resetRes = resetRollback({ projectRoot });
-    assert.equal(resetRes.ok, true);
-
-    const stateAfter = checkRollbackState({ projectRoot, env: {} });
-    assert.equal(stateAfter.active, false);
-
-    const profileAfter = resolveRolloutProfile({ projectRoot, env: {} });
-    assert.equal(profileAfter.name, 'canary');
-    assert.equal(profileAfter.origin.source, 'project');
-  });
-
-  test('resetRollback reports ok:false when the sentinel cannot be removed, and ok:true when it is already gone', () => {
-    const { projectRoot } = setupTestProject({ 'rollout.profile': 'canary' });
-    tripRollback({ reason: 'Temporary pause', projectRoot });
-    const denied = {
-      ...fs,
-      unlinkSync(file: any) {
-        const error: any = new Error('EACCES: permission denied');
-        error.code = 'EACCES';
-        throw error;
-      },
-    };
-    assert.equal(resetRollback({ projectRoot, fsImpl: denied }).ok, false);
-    assert.equal(checkRollbackState({ projectRoot, env: {} }).active, true, 'the sentinel is still in force');
-
-    assert.equal(resetRollback({ projectRoot }).ok, true);
-    assert.equal(resetRollback({ projectRoot }).ok, true, 'nothing left to remove is still a success');
-  });
-
-  test('recordProviderFailure trips breaker after 3 consecutive failures', () => {
-    const { projectRoot } = setupTestProject({ 'rollout.profile': 'full' });
-
-    const f1 = recordProviderFailure('ollama', new Error('timeout 10000ms'), { projectRoot });
-    assert.equal(f1.tripped, false);
-    assert.equal(f1.failureCount, 1);
-    assert.equal(checkRollbackState({ projectRoot, env: {} }).active, false);
-
-    const f2 = recordProviderFailure('ollama', new Error('OOM kill'), { projectRoot });
-    assert.equal(f2.tripped, false);
-    assert.equal(f2.failureCount, 2);
-    assert.equal(checkRollbackState({ projectRoot, env: {} }).active, false);
-
-    const f3 = recordProviderFailure('ollama', new Error('ECONNREFUSED'), { projectRoot });
-    assert.equal(f3.tripped, true);
-    assert.equal(f3.failureCount, 3);
-
-    const state = checkRollbackState({ projectRoot, env: {} });
-    assert.equal(state.active, true);
-    assert.equal(state.origin, 'circuit-breaker');
-
-    const profile = resolveRolloutProfile({ projectRoot, env: {} });
-    assert.equal(profile.name, 'baseline');
-  });
-
-  test('circuit breaker isolates failures per provider', () => {
-    const { projectRoot } = setupTestProject({ 'rollout.profile': 'full' });
-
-    recordProviderFailure('ollama', 'fail-1', { projectRoot });
-    recordProviderFailure('ollama', 'fail-2', { projectRoot });
-
-    // Semble failure starts at count 1, not affected by ollama count
-    const sembleRes = recordProviderFailure('semble', 'fail-semble-1', { projectRoot });
-    assert.equal(sembleRes.tripped, false);
-    assert.equal(sembleRes.failureCount, 1);
-  });
-
-  test('corrupted or unreadable sentinel fails safe to baseline without crashing', () => {
-    const { projectRoot } = setupTestProject();
-    const sentinelPath = path.join(projectRoot, '.doflow', 'state', 'rollback.json');
-    fs.mkdirSync(path.dirname(sentinelPath), { recursive: true });
-    fs.writeFileSync(sentinelPath, '{ corrupted json ! syntax error', 'utf8');
-
-    assert.doesNotThrow(() => {
-      const state = checkRollbackState({ projectRoot, env: {} });
-      assert.equal(state.active, true);
-      assert.equal(state.targetProfile, 'baseline');
-    });
-  });
-});
-
-describe('Gate G-P5 Invariant Verification (Zero-Repo-Change, Zero-Reindex, Sub-5ms)', () => {
-  test('zero-repo-change: tripRollback modifies only .doflow/state/ and touches 0 tracked files', () => {
-    const { projectRoot } = setupTestProject({ 'rollout.profile': 'canary' });
-
-    // Simulate tracked files in the repo root
-    const pkgPath = path.join(projectRoot, 'package.json');
-    const srcPath = path.join(projectRoot, 'src', 'index.ts');
-    const settingsPath = path.join(projectRoot, '.doflow', 'settings.json');
-    fs.mkdirSync(path.join(projectRoot, 'src'), { recursive: true });
-    fs.writeFileSync(pkgPath, JSON.stringify({ name: 'test-pkg', version: '1.0.0' }), 'utf8');
-    fs.writeFileSync(srcPath, 'export const x = 1;\n', 'utf8');
-
-    const pkgStatBefore = fs.statSync(pkgPath);
-    const srcStatBefore = fs.statSync(srcPath);
-    const settingsStatBefore = fs.statSync(settingsPath);
-    const pkgContentBefore = fs.readFileSync(pkgPath, 'utf8');
-    const srcContentBefore = fs.readFileSync(srcPath, 'utf8');
-    const settingsContentBefore = fs.readFileSync(settingsPath, 'utf8');
-
-    // Trigger rollback
-    const tripResult = tripRollback({ reason: 'testing zero-repo-change', projectRoot });
-    assert.equal(tripResult.ok, true);
-
-    // Assert tracked files are completely unmodified
-    assert.equal(fs.readFileSync(pkgPath, 'utf8'), pkgContentBefore);
-    assert.equal(fs.readFileSync(srcPath, 'utf8'), srcContentBefore);
-    assert.equal(fs.readFileSync(settingsPath, 'utf8'), settingsContentBefore);
-    assert.equal(fs.statSync(pkgPath).mtimeMs, pkgStatBefore.mtimeMs);
-    assert.equal(fs.statSync(srcPath).mtimeMs, srcStatBefore.mtimeMs);
-    assert.equal(fs.statSync(settingsPath).mtimeMs, settingsStatBefore.mtimeMs);
-
-    // Assert the created sentinel is strictly in .doflow/state/
-    const stateDir = path.join(projectRoot, '.doflow', 'state');
-    assert.ok(fs.existsSync(stateDir));
-    assert.ok(fs.existsSync(path.join(stateDir, 'rollback.json')));
-  });
-
-  test('zero-reindex: existing semantic index and graph cache are untouched during rollback', () => {
-    const { projectRoot } = setupTestProject({ 'rollout.profile': 'full' });
-    const indexDir = path.join(projectRoot, '.doflow', 'state', 'retrieval');
-    const graphDir = path.join(projectRoot, '.doflow', 'state', 'graph');
-    fs.mkdirSync(indexDir, { recursive: true });
-    fs.mkdirSync(graphDir, { recursive: true });
-
-    const vectorDb = path.join(indexDir, 'embeddings.bin');
-    const graphCache = path.join(graphDir, 'cache.json');
-    fs.writeFileSync(vectorDb, Buffer.from('mock-dense-vector-data'), 'utf8');
-    fs.writeFileSync(graphCache, JSON.stringify({ nodes: ['A', 'B'], edges: [] }), 'utf8');
-
-    const vectorStat = fs.statSync(vectorDb);
-    const graphStat = fs.statSync(graphCache);
-
-    // Trip rollback
-    tripRollback({ reason: 'revert to baseline', projectRoot });
-
-    // Resolve profile (now baseline)
-    const resolved = resolveRolloutProfile({ projectRoot });
-    assert.equal(resolved.name, 'baseline');
-    assert.equal(resolved.capabilities.retrieval, 'lexical');
-
-    // Verify index files still exist with unchanged contents and mtimes
-    assert.ok(fs.existsSync(vectorDb));
-    assert.ok(fs.existsSync(graphCache));
-    assert.equal(fs.statSync(vectorDb).mtimeMs, vectorStat.mtimeMs);
-    assert.equal(fs.statSync(graphCache).mtimeMs, graphStat.mtimeMs);
-    assert.equal(fs.readFileSync(vectorDb).toString(), 'mock-dense-vector-data');
-  });
-
-  test('performance: resolveRolloutProfile and checkRollbackState execute under 5ms', () => {
+describe('Gate G-P5 Invariant Verification (Sub-5ms)', () => {
+  test('performance: resolveRolloutProfile executes under 5ms', () => {
     const { projectRoot } = setupTestProject();
     const iterations = 100;
 
     // Warm-up
     resolveRolloutProfile({ projectRoot });
-    checkRollbackState({ projectRoot });
 
     const start = process.hrtime.bigint();
     for (let i = 0; i < iterations; i++) {
       resolveRolloutProfile({ projectRoot });
-      checkRollbackState({ projectRoot });
     }
     const end = process.hrtime.bigint();
     const totalNs = Number(end - start);
@@ -671,44 +423,10 @@ describe('Gate G-P5 Invariant Verification (Zero-Repo-Change, Zero-Reindex, Sub-
 
     assert.ok(
       avgMs <= 5.0,
-      `Profile resolution and rollback check took ${avgMs.toFixed(3)}ms per call, exceeding 5ms ceiling (NFR-003)`
+      `Profile resolution took ${avgMs.toFixed(3)}ms per call, exceeding 5ms ceiling (NFR-003)`
     );
   });
 
-  test('continuation: provider offline (ECONNREFUSED) records fault and falls back cleanly without throw', () => {
-    const { projectRoot } = setupTestProject({ 'rollout.profile': 'canary' });
-
-    // Simulate provider connection refusal (e.g. Ollama or Semble daemon down)
-    const networkError = new Error('connect ECONNREFUSED 127.0.0.1:11434');
-    (networkError as any).code = 'ECONNREFUSED';
-
-    assert.doesNotThrow(() => {
-      const res = recordProviderFailure('ollama', networkError, { projectRoot });
-      assert.equal(res.tripped, false);
-      assert.equal(res.failureCount, 1);
-    });
-
-    // Profile resolution still succeeds
-    const profile = resolveRolloutProfile({ projectRoot });
-    assert.ok(profile);
-    assert.equal(profile.name, 'canary');
-
-    // Fail 2 more times to trip breaker
-    recordProviderFailure('ollama', networkError, { projectRoot });
-    const tripped = recordProviderFailure('ollama', networkError, { projectRoot });
-    assert.equal(tripped.tripped, true);
-    assert.equal(tripped.failureCount, 3);
-
-    // After trip, state is active rollback
-    const rollback = checkRollbackState({ projectRoot });
-    assert.equal(rollback.active, true);
-    assert.equal(rollback.origin, 'circuit-breaker');
-
-    // Fallback to baseline is instantaneous and clean
-    const fallbackProfile = resolveRolloutProfile({ projectRoot });
-    assert.equal(fallbackProfile.name, 'baseline');
-    assert.equal(fallbackProfile.capabilities.advisor, 'off');
-  });
 });
 
 describe('profiles doctor printer (doctor.ts)', () => {
