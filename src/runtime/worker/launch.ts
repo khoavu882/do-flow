@@ -37,6 +37,9 @@ const { emitContext, utf8Bytes } = require('../context/arbitrate.ts');
 const { grantSummary } = require('../context/summary-store.ts');
 const { wideningProblem, wideningFlagsProblem } = require('../../registry/widening-flags.ts');
 
+/** The parser table, required on first use as before (171 IC-003 resolves every parser id through it). */
+function parsers() { return require('./parsers.ts'); }
+
 type Env = Record<string, string | undefined>;
 /** 120 IC-011 / IC-012: the binding shape consumed by the recipe assembler. */
 type ModelBinding = { model: string | null; flag: 'supported' | 'unevidenced' | 'n/a' };
@@ -193,7 +196,7 @@ function launchRecord(recipe: any, identity: WorkerIdentity, prompt: string, edi
       binary: recipe.cli.binary,
       argvShape: argvShape(recipe, prompt, edit, binding),
       promptVia: promptVia(recipe),
-      parser: recipe.structuredOutput.parser,
+      parser: parsers().parserIdOf(recipe.structuredOutput),
       profile: recipe.profile ?? null,
     },
     envSet: [...ENV_SET],
@@ -255,7 +258,7 @@ function mainLaunchRecord(recipe: any, prompt: string, model: string | null) {
       binary: recipe.cli.binary,
       argvShape: mainArgvShape(recipe, prompt, model),
       promptVia: recipe.mainSession.promptVia === 'argv' ? 'argv' : 'stdin',
-      parser: recipe.mainSession.parser ?? null,
+      parser: parsers().parserIdOf(recipe.mainSession),
       profile: 'main-session',
     },
     envSet: [STARTED_RUN_VAR],
@@ -287,10 +290,11 @@ function launchMainSession({ recipe, prompt, execWorktree, env, runId, model = n
   return Promise.resolve().then(() => {
     const sessionEnv = mainEnv(env, runId);
     const argv = mainArgv(recipe, prompt, lastMessageFile, model);
-    const parser = recipe.mainSession.parser;
-    if (parser !== null && parser !== undefined) {
-      const { PARSERS } = require('./parsers.ts');
-      if (!Object.hasOwn(PARSERS, parser)) throw new LaunchUsageError('parser-unknown', `launchMainSession: parser '${parser}' is not in core PARSERS`);
+    // 171 IC-003: a code parser, or this descriptor's own structuredOutput.fieldMap id.
+    const { parserIdOf, parserOf, UNPARSED } = parsers();
+    const parser = parserIdOf(recipe.mainSession);
+    if (parser !== null && parserOf(recipe, 'main').id === UNPARSED) {
+      throw new LaunchUsageError('parser-unknown', `launchMainSession: parser '${parser}' is not in core PARSERS`);
     }
     const viaStdin = recipe.mainSession.promptVia !== 'argv';
     return spawnHarness(recipe.cli?.binary, argv, { cwd: execWorktree, env: sessionEnv, shell: false }, viaStdin, prompt, { env: sessionEnv, launched: null });
@@ -328,11 +332,10 @@ function launchWorker({ recipe, prompt, identity, execWorktree, env, taskId, gra
     const launched = { reason, bytes: delivered !== null ? utf8Bytes(delivered) : 0 };
     const argv = assembleArgv(recipe, text, edit, lastMessageFile, binding);
     const viaStdin = promptVia(recipe) === 'stdin';
-    if (recipe?.structuredOutput?.parser) {
-      const { PARSERS } = require('./parsers.ts');
-      if (!Object.hasOwn(PARSERS, recipe.structuredOutput.parser)) {
-        throw new LaunchUsageError('parser-unknown', `launchWorker: parser '${recipe.structuredOutput.parser}' is not in core PARSERS`);
-      }
+    const { parserIdOf, parserOf, UNPARSED } = parsers();
+    const parser = parserIdOf(recipe?.structuredOutput);
+    if (parser && parserOf(recipe, 'structured').id === UNPARSED) {
+      throw new LaunchUsageError('parser-unknown', `launchWorker: parser '${parser}' is not in core PARSERS`);
     }
     let file = recipe.cli?.binary;
     let spawnArgs = argv;

@@ -41,7 +41,7 @@ const { readTaskState } = require('../task-state.ts');
 const attempts = require('../task-attempts.ts');
 const { launchWorker, launchMainSession } = require('./launch.ts');
 const { readPrompt: readStoredPrompt } = require('./session-prompt.ts');
-const { parserFor } = require('./parsers.ts');
+const { parserOf, parserIdOf } = require('./parsers.ts');
 const worktreeCheck = require('./worktree-check.ts');
 const processTree = require('./process-tree.ts');
 const { cancelRun, mergeCleanup } = require('./cancel.ts');
@@ -478,8 +478,11 @@ async function superviseRun({
   }
 
   // Step 5: the parser, the output files and the one timer.
-  const parserId = main ? run.descriptor?.mainSession?.parser ?? null : run.descriptor?.structuredOutput?.parser ?? run.recipe?.parser ?? null;
-  const parser = parserFor(parserId).create();
+  // 171 IC-003: resolved through parserOf; a record whose descriptor names no structured parser (an old record)
+  // falls back to the launch record's `recipe.parser`, as before.
+  const descriptor = run.descriptor ?? {};
+  const source = main || parserIdOf(descriptor.structuredOutput) !== null ? descriptor : { structuredOutput: { parser: run.recipe?.parser ?? null } };
+  const parser = parserOf(source, main ? 'main' : 'structured').create();
   const out = createOutputSink({
     stateRoot, runId, stream: 'stdout', onLine: (text) => parser.line(text), onOversize: (looksJson) => parser.oversize(looksJson),
   });

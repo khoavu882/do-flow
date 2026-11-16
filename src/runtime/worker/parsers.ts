@@ -29,6 +29,8 @@ const copilot = require('./parsers/copilot.ts');
 const kiro = require('./parsers/kiro.ts');
 const pi = require('./parsers/pi.ts');
 const antigravity = require('./parsers/antigravity.ts');
+const { compileFieldMap } = require('./parsers/field-map.ts');
+const { canonicalJson } = require('../canonical-json.ts');
 
 import type { Denial, Report } from './parsers/common.ts';
 
@@ -193,4 +195,42 @@ function parserFor(id: string | null | undefined) {
   return Object.prototype.hasOwnProperty.call(PARSERS, id) ? PARSERS[id] : unparsedParser('parser-unknown');
 }
 
-module.exports = { PARSERS, parserFor, JSONL_V1, CODEX_EXEC_JSON_V1, UNPARSED, MAX_DENIALS, DETAIL_CHARS, SUMMARY_BYTES };
+/** 171 IC-003: the parser id a capability entry names; an inline field map's id wins over `parser`. */
+function parserIdOf(entry: any): string | null {
+  return entry?.fieldMap?.id ?? entry?.parser ?? null;
+}
+
+/** 171 IC-003: compiled field maps keyed by canonical JSON, at most `MAP_CACHE_MAX`, the oldest evicted first. */
+const MAP_CACHE_MAX = 64;
+const mapCache = new Map<string, ParserFactory>();
+
+function compiledMap(map: any): ParserFactory | null {
+  let key: string;
+  try { key = canonicalJson(map); } catch { return null; }
+  const cached = mapCache.get(key);
+  if (cached) return cached;
+  let factory: ParserFactory;
+  // A stored descriptor whose map no longer validates reads as no map (unparsed), never a throw in a reader.
+  try { factory = compileFieldMap(map); } catch { return null; }
+  if (mapCache.size >= MAP_CACHE_MAX) mapCache.delete(mapCache.keys().next().value as string);
+  mapCache.set(key, factory);
+  return factory;
+}
+
+/**
+ * 171 IC-003: the parser factory for a descriptor's `structuredOutput` (`structured`) or `mainSession` (`main`).
+ * `PARSERS` is checked first, so a package map never shadows a core parser (S5); then this descriptor's own
+ * `structuredOutput.fieldMap` when its id is the one named; otherwise `parserFor`, the `unparsed` fallback.
+ */
+function parserOf(descriptor: any, which: 'structured' | 'main'): ParserFactory {
+  const id = parserIdOf(which === 'main' ? descriptor?.mainSession : descriptor?.structuredOutput);
+  if (typeof id === 'string' && Object.hasOwn(PARSERS, id)) return PARSERS[id];
+  const map = descriptor?.structuredOutput?.fieldMap;
+  if (id !== null && map?.id === id) {
+    const compiled = compiledMap(map);
+    if (compiled) return compiled;
+  }
+  return parserFor(id);
+}
+
+module.exports = { PARSERS, parserFor, parserOf, parserIdOf, JSONL_V1, CODEX_EXEC_JSON_V1, UNPARSED, MAX_DENIALS, DETAIL_CHARS, SUMMARY_BYTES };

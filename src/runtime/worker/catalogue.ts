@@ -84,6 +84,11 @@ function workerCatalogue({ registry, view, repoRoot = REPO_ROOT }: any = {}): Ar
         if (rawWorker?.structuredOutput?.parser && !Object.hasOwn(PARSERS, rawWorker.structuredOutput.parser)) {
           errors.push(`parser '${rawWorker.structuredOutput.parser}' is not in core PARSERS`);
         }
+        // 171 S5: a package field map can never take a core parser's id (validateWorker cannot tell a package).
+        const mapId = rawWorker?.structuredOutput?.fieldMap?.id;
+        if (typeof mapId === 'string' && Object.hasOwn(PARSERS, mapId)) {
+          errors.push(`fieldMap.id '${mapId}' is a core parser id`);
+        }
         if (errors.length > 0) continue;
 
         const program = (manifest.programs || []).find((p: any) => (c.programs || []).includes(p.id) || p.id === c.id);
