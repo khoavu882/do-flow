@@ -81,8 +81,12 @@ function fullRegistry(registry: any): boolean {
   return Boolean(registry) && Array.isArray(registry.kinds) && Array.isArray(registry.providers) && Boolean(registry.limits);
 }
 
-/** Runs one shadow call from its payload: slot, ask, record, release. Never throws. */
-async function runShadow(payload: any, { fsImpl = fs }: { fsImpl?: any } = {}): Promise<void> {
+/**
+ * Runs one shadow call from its payload: slot, ask, record, release. Never throws. The budget runs from `arrivedAt` (when
+ * the payload arrived), not from when the ask starts, so slow module loading eats the budget instead of pushing the call
+ * past the exit guard in main(): the call ends, records and frees its slot before that guard fires.
+ */
+async function runShadow(payload: any, { fsImpl = fs, arrivedAt = Date.now() }: { fsImpl?: any; arrivedAt?: number } = {}): Promise<void> {
   const { askAdvisor, recordCall, missCall } = require('./shadow-dispatcher.ts');
   const { createAdviceClient } = require('./client.ts');
   const { loadAdviceRegistry } = require('./registry.ts');
@@ -116,7 +120,11 @@ async function runShadow(payload: any, { fsImpl = fs }: { fsImpl?: any } = {}): 
     }
     try {
       const adviceClient = createAdviceClient({ adviceRegistry, roots, fsImpl });
-      const asked = await askAdvisor(context, { ...services, adviceClient }, model, budget);
+      const elapsed = Date.now() - arrivedAt;
+      const remaining = budget - elapsed;
+      const asked = remaining > 0
+        ? await askAdvisor(context, { ...services, adviceClient }, model, remaining)
+        : { ...missCall('timeout', model), durationMs: elapsed };
       recordCall(context, services, 'shadow', asked, payload.pickId, false);
     } finally {
       releaseSlot(slot, fsImpl);
@@ -135,11 +143,12 @@ function main(): void {
     let payload: any = null;
     try { payload = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { process.exit(0); }
     if (!payload || payload.v !== 1 || !Number.isFinite(payload.budgetMs)) process.exit(0);
+    const arrivedAt = Date.now();
     clearTimeout(guard);
     guard = setTimeout(() => process.exit(0), payload.budgetMs + EXIT_GRACE_MS);
     guard.unref();
     try { require('node:module').enableCompileCache(); } catch { /* best-effort */ }
-    runShadow(payload).finally(() => process.exit(0));
+    runShadow(payload, { arrivedAt }).finally(() => process.exit(0));
   });
 }
 

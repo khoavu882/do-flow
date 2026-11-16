@@ -20,6 +20,7 @@ const { loadAdviceRegistry } = require('../../src/runtime/advice/registry.ts');
 const { createAdviceClient } = require('../../src/runtime/advice/client.ts');
 const { materializeKind } = require('../../src/runtime/advice/kinds.ts');
 const { interceptDecisionPoint } = require('../../src/runtime/advice/shadow-dispatcher.ts');
+const { runShadow } = require('../../src/runtime/advice/shadow-runner.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 
 const CLI = path.join(REPO_ROOT, 'bin', 'doflow.js');
@@ -334,6 +335,37 @@ test('A4: an act call and the advice client stop at the kind budgetMs against a 
   assert.deepEqual([asked.status, asked.reason], ['unavailable', 'timeout']);
   assert.ok(clientMs >= 380 && clientMs < 2000, `the client call took ${clientMs} ms against a 400 ms kind budget`);
   assert.ok(await waitFor(() => model.allClosed(), 1000), 'both requests were dropped');
+});
+
+// The budget runs from the payload's arrival (shadow-runner.ts main()), so slow module loading in the child cannot push the
+// call past the exit guard: the call records its miss and frees its slot first.
+
+/** The payload the dispatcher would send for ctx(s): `runShadow` is driven in this process with a chosen arrival time. */
+function shadowPayload(s: any, budgetMs: number) {
+  const { questionSet, adviceRegistry, ...rest } = ctx(s);
+  return { v: 1, context: { ...rest, questionSet, adviceRegistry }, model: 'm', budgetMs, pickId: 'pick-late', roots: s.roots };
+}
+
+test('A4: a shadow call whose budget ran out before it could ask records a timeout miss, makes no request and holds no slot', async (t) => {
+  const model = await fakeModel(t);
+  const s = store(t, model.origin);
+  await runShadow(shadowPayload(s, 1500), { arrivedAt: Date.now() - 2000 });
+  assert.deepEqual(s.lines().map((line: any) => [line.type, line.mode, line.reason]), [['miss', 'shadow', 'timeout']]);
+  assert.equal(model.asks().length, 0, 'nothing was asked');
+  assert.deepEqual(s.slotFiles(), []);
+});
+
+test('A4: a shadow call asks only for what is left of its budget, measured from the payload arrival', async (t) => {
+  const model = await fakeModel(t);
+  const s = store(t, model.origin);
+  const started = Date.now();
+  await runShadow(shadowPayload(s, 1500), { arrivedAt: Date.now() - 1200 });
+  const ranMs = Date.now() - started;
+  assert.deepEqual(s.lines().map((line: any) => [line.type, line.mode, line.reason]), [['miss', 'shadow', 'timeout']]);
+  assert.ok(ranMs < 1000, `the call ran ${ranMs} ms with 300 ms of a 1500 ms budget left`);
+  assert.equal(model.asks().length, 1);
+  assert.deepEqual(s.slotFiles(), []);
+  assert.ok(await waitFor(() => model.allClosed(), 1000), 'the request was dropped');
 });
 
 // ── O-2: the user-level slot set and the failed spawn ───────────────────────────────────────────────────────────
