@@ -39,7 +39,7 @@ Two per-id fact pins in `test/guards/worker-descriptors.test.ts` are still added
 
 ### The login recipe
 
-`loginProbe` says how DoFlow learns that the harness is logged in. Declare it `supported` only when the harness's own `--help` shows a status command and what its exit codes mean; otherwise leave it `unknown` with the reason, never a guess. DoFlow runs that argv and nothing else, and never opens a credential file. `secretFlags` adds flags or subcommands that print a credential, which no argv may carry. Both are in [Login state](reference.md#login-state); conform checks the recipe.
+`loginProbe` says how DoFlow learns that the harness is logged in. Declare it `supported` only when the harness's own help or published docs, cited in `evidence`, show a status command and what its exit codes mean; otherwise leave it `unknown` with the reason, never a guess. DoFlow runs that argv and nothing else, and never opens a credential file. `secretFlags` adds flags or subcommands that print a credential, which no argv may carry. Both are in [Login state](reference.md#login-state); conform checks the recipe.
 
 ## Step 2: the field map
 
