@@ -11,15 +11,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { sourceCommit: gitSourceCommit } = require('../helper/git.ts');
 
-// Explicit migration bridge: pre-registry installations stored this record beneath .claude.
-// Lifecycle commands use the scope-neutral .doflow location; only the neutral-state importer
-// calls the legacy reader below.
-const LEGACY_MANIFEST_FILE_NAME = '.install-manifest.json';
-const MANIFEST_FILE_NAME = LEGACY_MANIFEST_FILE_NAME;
-
-function manifestPath(claudeDir: string): string {
-  return path.join(claudeDir, MANIFEST_FILE_NAME);
-}
+const MANIFEST_FILE_NAME = '.install-manifest.json';
 
 function canonicalManifestPath(scopeRoot: string): string {
   return path.join(path.resolve(scopeRoot), '.doflow', MANIFEST_FILE_NAME);
@@ -40,8 +32,7 @@ function atomicWrite(file: string, manifest: object, date: Date): void {
 }
 
 interface WriteManifestInput {
-  scopeRoot?: string;
-  claudeDir?: string;
+  scopeRoot: string;
   scriptVersion: string;
   operation: string;
   repoRoot: string;
@@ -50,40 +41,24 @@ interface WriteManifestInput {
   date: Date;
   dryRun?: boolean;
   sourceCommit?: string;
-  managedResources?: object[];
 }
 
 /**
  * `sourceCommit` lets a caller (bin/doflow.js) pass an already-resolved commit instead of this
  * module spawning its own `git rev-parse`; omit it to resolve here (e.g. tests calling this module
- * directly). An `mcp_servers` list a 1.18.0 install recorded is carried over as it is and never
- * written anew: doflow.lock records each harness's MCP selection now, and the old list is read only
- * as a fallback for a harness the lock lacks. `managedResources` is the optional ownership ledger
- * for fine-grained Codex resources. Each record uses {target,scope,kind,identity,sourceVersion,
- * fingerprint,selection,recoveryPoint}. Omit it to preserve a ledger written by a newer command.
+ * directly). The record names the tools it lists as installed and nothing else: doflow.lock holds
+ * each harness's MCP selection and the neutral ledger holds ownership.
  */
-function writeManifest({ scopeRoot, claudeDir, scriptVersion, operation, repoRoot, backupId = '', tools, date, dryRun = false, sourceCommit, managedResources }: WriteManifestInput): string {
-  if (!scopeRoot && !claudeDir) throw new Error('scopeRoot is required for lifecycle metadata');
-  const file = scopeRoot ? canonicalManifestPath(scopeRoot) : manifestPath(claudeDir as string);
+function writeManifest({ scopeRoot, scriptVersion, operation, repoRoot, backupId = '', tools, date, dryRun = false, sourceCommit }: WriteManifestInput): string {
+  if (!scopeRoot) throw new Error('scopeRoot is required for lifecycle metadata');
+  const file = canonicalManifestPath(scopeRoot);
   if (dryRun) return file;
 
   // Preserve per-tool last_updated for tools NOT part of this operation (matches sync.sh's
   // incremental jq merge, which only touches the tools passed to write_manifest).
   let existingTools: Record<string, any> = {};
-  let existingMcpServers: any;
-  let existingManagedResources: any;
-  const existingFile = file;
-  if (existingFile && fs.existsSync(existingFile)) {
-    try {
-      const existing = JSON.parse(fs.readFileSync(existingFile, 'utf8'));
-      existingTools = existing.tools || {};
-      existingMcpServers = existing.mcp_servers;
-      // `managedResources` is accepted as a short-lived compatibility alias for manifests
-      // written by pre-release lifecycle work. New writes use the established snake_case
-      // top-level convention, while resource field names stay camelCase as specified by the
-      // ownership contract.
-      existingManagedResources = existing.managed_resources ?? existing.managedResources;
-    } catch { /* start fresh */ }
+  if (fs.existsSync(file)) {
+    try { existingTools = JSON.parse(fs.readFileSync(file, 'utf8')).tools || {}; } catch { /* start fresh */ }
   }
   const ts = date.toISOString().replace(/\.\d+Z$/, 'Z');
   const toolsOut: Record<string, any> = { ...existingTools };
@@ -97,10 +72,7 @@ function writeManifest({ scopeRoot, claudeDir, scriptVersion, operation, repoRoo
     source_commit: sourceCommit ?? gitSourceCommit(repoRoot),
     last_backup_id: backupId,
     tools: toolsOut,
-    mcp_servers: existingMcpServers,
   };
-  const resources = managedResources ?? existingManagedResources;
-  if (resources !== undefined) manifest.managed_resources = resources;
 
   atomicWrite(file, manifest, date);
   return file;
@@ -137,17 +109,11 @@ function readManifestFile(file: string): any {
       backupId: m.last_backup_id ?? 'none',
       tools: m.tools ?? {},
       scriptVersion: m.script_version ?? 'none',
-      mcpServers: m.mcp_servers ?? null,
-      // Older manifests have no ownership ledger. Returning an empty list gives lifecycle
-      // callers a migration-safe baseline without changing their legacy install state.
-      managedResources: Array.isArray(m.managed_resources)
-        ? m.managed_resources
-        : (Array.isArray(m.managedResources) ? m.managedResources : []),
     };
   } catch {
     return {
       operation: 'error', lastRun: 'error', sourceCommit: 'error', backupId: 'error',
-      tools: {}, scriptVersion: 'error', mcpServers: null, managedResources: [],
+      tools: {}, scriptVersion: 'error',
     };
   }
 }
@@ -158,12 +124,6 @@ function readInstallManifest({ scopeRoot }: { scopeRoot: string }): any {
   return readManifestFile(canonicalManifestPath(scopeRoot));
 }
 
-/** Read only the legacy path; neutral-state migration uses this deliberately. */
-function readManifest(claudeDir: string): any {
-  return readManifestFile(manifestPath(claudeDir));
-}
-
 module.exports = {
-  LEGACY_MANIFEST_FILE_NAME, MANIFEST_FILE_NAME, manifestPath, canonicalManifestPath,
-  writeManifest, forgetManifestTools, readManifest, readInstallManifest,
+  MANIFEST_FILE_NAME, canonicalManifestPath, writeManifest, forgetManifestTools, readInstallManifest,
 };

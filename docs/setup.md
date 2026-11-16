@@ -526,9 +526,8 @@ and any registered MCP servers in `.agents/mcp_config.json` (project) or
 Verified ownership and recovery records, lifecycle backups, and install metadata are stored
 independently of the harness: `<project>/.doflow/` for project scope and `~/.doflow/` for user
 scope. Backups live under `.doflow/backups/`, and the lifecycle manifest is
-`.doflow/.install-manifest.json`. Lifecycle commands use these scope-neutral paths exclusively;
-the explicit neutral-state importer still reads historical `.claude` metadata. `list-backups` and
-`rollback` read only `.doflow/backups`.
+`.doflow/.install-manifest.json`. Lifecycle commands use these scope-neutral paths exclusively, and
+`list-backups` and `rollback` read only `.doflow/backups`.
 
 If a configuration update is wrong, restore the named backup with `doflow rollback`. Rollback
 restores the files the backup holds, leaves in place the files the run created and lists them, and

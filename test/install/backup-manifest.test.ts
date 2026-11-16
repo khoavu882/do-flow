@@ -9,7 +9,7 @@ const {
 } = require('../../src/install/backup.ts');
 const { backupSetFromPaths } = require('../../src/install/backup-set.ts');
 const { plantFullBackup } = require('../helper/backup-v1-fixture.ts');
-const { writeManifest, readManifest, readInstallManifest, canonicalManifestPath, manifestPath } = require('../../src/install/manifest.ts');
+const { writeManifest, readInstallManifest, canonicalManifestPath } = require('../../src/install/manifest.ts');
 // `installPaths` is the exact expression install.js/update.js/rollback.js use to pick a backup root,
 // so the tests below derive the write side from the installer's own resolver rather than restating a
 // literal path that could silently drift from it.
@@ -113,17 +113,17 @@ test('createFileBackup disambiguates a same-second id collision instead of overw
 
 test('manifest temp file is written next to the manifest, not shared os.tmpdir() (symlink-race fix)', () => {
   const root = scratchDir();
-  const claudeDir = path.join(root, '.claude');
-  fs.mkdirSync(claudeDir, { recursive: true });
+  const metaDir = path.dirname(canonicalManifestPath(root));
+  fs.mkdirSync(metaDir, { recursive: true });
 
-  // Plant a symlink at a predictable tmp-file path pointing at a victim file outside claudeDir.
+  // Plant a symlink at a predictable tmp-file path pointing at a victim file outside the metadata dir.
   const victim = path.join(root, 'victim.txt');
   fs.writeFileSync(victim, 'ORIGINAL VICTIM CONTENT');
-  const predictedTmp = path.join(claudeDir, `.install-manifest-${process.pid}-${FIXED_DATE.getTime()}.json.tmp`);
+  const predictedTmp = path.join(metaDir, `.install-manifest-${process.pid}-${FIXED_DATE.getTime()}.json.tmp`);
   fs.symlinkSync(victim, predictedTmp);
 
   assert.throws(
-    () => writeManifest({ claudeDir, scriptVersion: '0.1.0', operation: 'install', repoRoot: REPO, tools: ['claude'], date: FIXED_DATE }),
+    () => writeManifest({ scopeRoot: root, scriptVersion: '0.1.0', operation: 'install', repoRoot: REPO, tools: ['claude'], date: FIXED_DATE }),
     /EEXIST/,
     'exclusive-create (wx) must refuse to write through a pre-existing symlink at the predicted path',
   );
@@ -132,58 +132,29 @@ test('manifest temp file is written next to the manifest, not shared os.tmpdir()
 
 test('manifest write/read round-trip, atomic (no .tmp left behind)', () => {
   const root = scratchDir();
-  const claudeDir = path.join(root, '.claude');
-  fs.mkdirSync(claudeDir, { recursive: true });
+  writeManifest({ scopeRoot: root, scriptVersion: '0.1.0', operation: 'install', repoRoot: REPO, backupId: 'install_2026-03-15_10-20-30', tools: ['claude'], date: FIXED_DATE });
 
-  writeManifest({ claudeDir, scriptVersion: '0.1.0', operation: 'install', repoRoot: REPO, backupId: 'install_2026-03-15_10-20-30', tools: ['claude'], date: FIXED_DATE });
-
-  const read = readManifest(claudeDir);
+  const read = readInstallManifest({ scopeRoot: root });
   assert.strictEqual(read.operation, 'install');
   assert.strictEqual(read.backupId, 'install_2026-03-15_10-20-30');
   assert.ok(read.tools.claude.installed);
-  assert.ok(fs.existsSync(manifestPath(claudeDir)));
-  assert.ok(!fs.readdirSync(claudeDir).some((f: any) => f.endsWith('.tmp')), 'no leftover tmp file');
-});
-
-test('manifest preserves other tools\' last_updated across incremental writes', () => {
-  const root = scratchDir();
-  const claudeDir = path.join(root, '.claude');
-  fs.mkdirSync(claudeDir, { recursive: true });
-  writeManifest({ claudeDir, scriptVersion: '0.1.0', operation: 'install', repoRoot: REPO, tools: ['claude', 'codex'], date: FIXED_DATE });
-  const later = new Date('2026-03-16T00:00:00');
-  writeManifest({ claudeDir, scriptVersion: '0.1.0', operation: 'update', repoRoot: REPO, tools: ['claude'], date: later });
-
-  const read = readManifest(claudeDir);
-  assert.strictEqual(read.operation, 'update');
-  assert.ok(read.tools.codex.installed, 'codex entry from the earlier write must survive');
-  assert.notStrictEqual(read.tools.claude.last_updated, read.tools.codex.last_updated);
-});
-
-test('canonical lifecycle manifest lives under .doflow', () => {
-  const root = scratchDir();
-  const projectRoot = path.join(root, 'project');
-  const claudeDir = path.join(projectRoot, '.claude');
-  const canonical = canonicalManifestPath(projectRoot);
-
-  writeManifest({ scopeRoot: projectRoot, claudeDir, scriptVersion: '2.0.0', operation: 'install', repoRoot: REPO, tools: ['codex'], date: FIXED_DATE });
-  assert.ok(fs.existsSync(canonical));
-  assert.ok(!fs.existsSync(manifestPath(claudeDir)), 'new lifecycle writes must not anchor metadata under .claude');
-  assert.equal(readInstallManifest({ scopeRoot: projectRoot }).operation, 'install');
+  assert.ok(fs.existsSync(canonicalManifestPath(root)));
+  assert.ok(!fs.readdirSync(path.dirname(canonicalManifestPath(root))).some((f: any) => f.endsWith('.tmp')), 'no leftover tmp file');
+  assert.ok(!fs.existsSync(path.join(root, '.claude')), 'lifecycle metadata is never anchored under .claude');
 });
 
 test('canonical lifecycle manifest preserves metadata across incremental writes', () => {
   const root = scratchDir();
-  const projectRoot = path.join(root, 'project');
-  writeManifest({ scopeRoot: projectRoot, scriptVersion: 'canonical', operation: 'install', repoRoot: REPO, tools: ['claude', 'codex'], date: FIXED_DATE });
-  writeManifest({ scopeRoot: projectRoot, scriptVersion: 'canonical', operation: 'update', repoRoot: REPO, tools: ['claude'], date: new Date('2026-03-16T00:00:00Z') });
-  const read = readInstallManifest({ scopeRoot: projectRoot });
+  writeManifest({ scopeRoot: root, scriptVersion: 'canonical', operation: 'install', repoRoot: REPO, tools: ['claude', 'codex'], date: FIXED_DATE });
+  writeManifest({ scopeRoot: root, scriptVersion: 'canonical', operation: 'update', repoRoot: REPO, tools: ['claude'], date: new Date('2026-03-16T00:00:00Z') });
+  const read = readInstallManifest({ scopeRoot: root });
   assert.equal(read.operation, 'update');
-  assert.ok(read.tools.codex.installed);
+  assert.ok(read.tools.codex.installed, 'codex entry from the earlier write must survive');
+  assert.notStrictEqual(read.tools.claude.last_updated, read.tools.codex.last_updated);
 });
 
-test('readManifest returns null when no manifest exists yet', () => {
-  const root = scratchDir();
-  assert.strictEqual(readManifest(path.join(root, '.claude')), null);
+test('readInstallManifest returns null when no manifest exists yet', () => {
+  assert.strictEqual(readInstallManifest({ scopeRoot: scratchDir() }), null);
 });
 
 // --- the root the installer writes to is the root list-backups reads --------------------------------
