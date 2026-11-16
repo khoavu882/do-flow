@@ -137,18 +137,17 @@ function reportRetiredMcp(retired: string[]): void {
   console.error('        They were removed from DoFlow; your saved selection is being reconciled.');
 }
 
-/** The scope's doflow.lock, ledger and 1.18.0 manifest MCP list, as the MCP selection functions in
+/** The scope's doflow.lock and ledger, as the MCP selection functions in
  * src/install/mcp.js read them. */
 function scopeSelectionState(scope: any): any {
   const scopeRoot = scope.global ? os.homedir() : path.resolve(scope.projectRoot);
   return {
     lock: readLock(scope.global ? { scope: 'global', homeDir: scopeRoot } : { scope: 'project', projectRoot: scopeRoot }),
     ledger: canonicalLedger(readLedger(stateRoot({ scope: scope.global ? 'global' : 'project', projectRoot: scopeRoot, homeDir: scopeRoot })), scopeRoot),
-    manifestServers: readInstallManifest({ scopeRoot })?.mcpServers ?? null,
   };
 }
 
-const MCP_SOURCE_WORDS = Object.freeze({ flag: '--mcp', prompt: 'prompt', recorded: 'recorded', kept: 'kept', manifest: 'remembered', default: 'default' } as Record<string, string>);
+const MCP_SOURCE_WORDS = Object.freeze({ flag: '--mcp', prompt: 'prompt', recorded: 'recorded', kept: 'kept', default: 'default' } as Record<string, string>);
 
 /** The one line a run names its MCP selections in, from what the plan resolved for each harness:
  * harnesses with the same servers and source share a group, groups follow target order. Prints

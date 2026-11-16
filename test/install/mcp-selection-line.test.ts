@@ -26,10 +26,10 @@ test('each source prints its word, and harnesses share a group only with the sam
     { harness: 'copilot', mcpSelected: [] },
     { harness: 'antigravity', skipped: true, mcpSelected: null },
   ]);
-  const sources = { kiro: 'prompt', pi: 'prompt', claude: 'kept', codex: 'recorded', opencode: 'manifest', copilot: 'default' };
+  const sources = { kiro: 'prompt', pi: 'prompt', claude: 'kept', codex: 'recorded', opencode: 'flag', copilot: 'default' };
   assert.deepEqual(linesOf(() => printMcpSelection(targets, sources)), [
     '[INFO] MCP selection: kiro, pi: context7 (prompt); claude: context7 (kept); codex: none (recorded); '
-      + 'opencode: sequential-thinking (remembered); copilot: none (default)',
+      + 'opencode: sequential-thinking (--mcp); copilot: none (default)',
   ]);
   assert.deepEqual(linesOf(() => printMcpSelection(view([{ harness: 'kiro', mcpSelected: ['context7'] }]), { kiro: 'flag' }, { prefix: '[DRY]' })),
     ['[DRY] MCP selection: kiro: context7 (--mcp)']);

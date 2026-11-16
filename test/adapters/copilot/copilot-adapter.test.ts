@@ -381,33 +381,6 @@ test('A3 copilot: a narrower selection removes the deselected owned entry, and n
   assert.deepEqual(none.ledger.resources, []);
 });
 
-test('A4 copilot: the 1.18.0 registration row is released on install, its entries adopted per server, and dropped on remove', () => {
-  const root = scratch(); const adapter = createCopilotAdapter();
-  const servers = { ...ENTRIES, 'user-server': USER_SERVER };
-  writeMcp(root, { mcpServers: servers });
-  const before = fs.readFileSync(mcpFileIn(root));
-  const legacy = { resources: [{
-    harness: 'copilot', scope: 'project', assetId: 'guidance.codex-pointer', target: mcpFileIn(root),
-    ownershipIdentity: 'copilot:mcp:registration', fingerprint: entryFingerprint(servers),
-  }] };
-
-  assert.deepEqual(adapter.discover({ scope: 'project', scopeRoot: root, mcpAdoptable: [CONTEXT7, SEQUENTIAL], ledger: legacy }).mcpOwned,
-    ['context7', 'sequential-thinking'], 'the registration row leaves adoption open');
-
-  const installed = runMcp(adapter, { root, mcp: [CONTEXT7, SEQUENTIAL], mcpAdoptable: [CONTEXT7, SEQUENTIAL], ledger: legacy });
-  assert.deepEqual(installed.planned.changes.map((change: any) => [change.ownershipIdentity, change.assetId, change.release]),
-    [['copilot:mcp:registration', 'guidance.codex-pointer', true]]);
-  assert.deepEqual(fs.readFileSync(mcpFileIn(root)), before, 'replacing the row writes nothing');
-  assert.deepEqual(installed.ledger.resources.map((row) => row.ownershipIdentity),
-    ['doflow:copilot:mcp-server:context7', 'doflow:copilot:mcp-server:sequential-thinking']);
-
-  const removed = runMcp(adapter, { root, mcpAdoptable: [CONTEXT7, SEQUENTIAL], ledger: legacy, removing: true });
-  assert.deepEqual(removed.planned.changes.map((change: any) => [change.ownershipIdentity, change.release ?? false]),
-    [['copilot:mcp:registration', true], ['doflow:copilot:mcp-server:context7', false], ['doflow:copilot:mcp-server:sequential-thinking', false]]);
-  assert.deepEqual(readMcp(root).mcpServers, { 'user-server': USER_SERVER });
-  assert.deepEqual(removed.ledger.resources, []);
-});
-
 test('A5 copilot: a same-named user entry is kept through install and remove', () => {
   const root = scratch(); const adapter = createCopilotAdapter();
   writeMcp(root, { mcpServers: { context7: USER_SERVER } });

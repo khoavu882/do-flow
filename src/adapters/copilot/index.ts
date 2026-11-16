@@ -46,9 +46,6 @@ const HARNESS = 'copilot';
 const INSTRUCTION_FILE = 'copilot-instructions.md';
 const MCP_CONTAINER = 'mcpServers';
 const MCP_RENDERER = 'copilot-mcp';
-// Releases up to 1.18.0 recorded one row for the whole server map, which cannot say which entries
-// DoFlow wrote; every plan releases it, and the entries are adopted per server instead.
-const LEGACY_MCP_REGISTRATION = `${HARNESS}:mcp:registration`;
 
 /**
  * Native path facts live in core/registry/harnesses.json under this harness's "paths" section and
@@ -283,14 +280,6 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS],
     };
   }
 
-  /** The release of the 1.18.0 whole-map row, under the asset id it was recorded with so the ledger
-   * drops exactly that row. The file is not touched. */
-  function legacyRegistrationReleases(ledger: any) {
-    return (ledger?.resources || []).filter((row: any) => row.harness === HARNESS && row.ownershipIdentity === LEGACY_MCP_REGISTRATION)
-      .map((row: any) => ({ assetId: row.assetId, target: row.target, operation: 'remove', release: true,
-        ownershipIdentity: row.ownershipIdentity, harness: HARNESS, projection: { renderer: MCP_RENDERER } }));
-  }
-
   /** Copilot's MCP entry changes have no asset of their own in core/registry/assets.json (they are a
    * registration side-effect of the selected MCP servers, not a projected asset), so they piggyback
    * on a real asset id already routed to this harness — the same "pseudo-component" technique
@@ -336,7 +325,7 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS],
     const mcpPlan = planMcpEntries({
       ...mcpEntriesInput({ paths: found.paths, mcp, mcpAdoptable, ledger, assets }), files: found.mcpSnapshot, removing,
     });
-    changes.push(...legacyRegistrationReleases(ledger), ...mcpPlan.changes);
+    changes.push(...mcpPlan.changes);
     conflicts.push(...mcpPlan.conflicts);
 
     return { changes, conflicts, notices: [...skills.notices, ...agents.notices, ...rules.notices, ...hooks.notices, ...mcpPlan.notices], paths: found.paths };
