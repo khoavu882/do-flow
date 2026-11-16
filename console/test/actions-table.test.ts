@@ -30,6 +30,10 @@ test('ACTIONS ids, ACTION_IDS and WRITE_SHAPE_IDS are one set; every row names a
   assert.deepEqual(writes, ACTION_IDS.map((id: string) => `POST /api/actions/${id}`));
   assert.ok(DEVICE_ROUTES.view.every((entry: string) => entry.startsWith('GET ')), 'view lists no write');
   assert.ok(DEVICE_ROUTES.view.includes('GET /api/actions') && DEVICE_ROUTES.control.includes('GET /api/actions'));
+  // 165 D7: the start form's two reads are the action's own scope, control only.
+  for (const read of ['GET /api/start', 'GET /api/start/options']) {
+    assert.ok(DEVICE_ROUTES.control.includes(read) && !DEVICE_ROUTES.view.includes(read), read);
+  }
 });
 
 /**
@@ -59,14 +63,48 @@ test('each row passes its write shape exactly the parameters the shape declares 
     'decide-gate': { v: 1, requestId: 'x'.repeat(22), projectKey: '0123456789abcdef', slug: 'feat-a', taskId: 't1', gateId: 'gate-a', decision: 'approve', note: 'n', expect: { revision: 7 } },
     'close-run': { v: 1, requestId: 'x'.repeat(22), projectKey: '0123456789abcdef', slug: 'feat-a', taskId: 't1', note: 'n', expect: { revision: 7 } },
     'cancel-worker': { v: 1, requestId: 'x'.repeat(22), projectKey: '0123456789abcdef', slug: 'feat-a', runId: 'w-0123456789ab', reason: 'r' },
+    'start-session': { v: 1, requestId: 'x'.repeat(22), projectKey: '0123456789abcdef', worktreeKey: 'fedcba9876543210', harness: 'claude', model: 'claude-opus-5-5', entry: 'do', prompt: 'p' },
   };
   for (const spec of ACTIONS) {
-    const declared = WRITE_SHAPES[spec.shape].argv.filter((part: any) => typeof part !== 'string').map((part: any) => part.param);
+    const shape = WRITE_SHAPES[spec.shape];
+    const declared = shape.argv.filter((part: any) => typeof part !== 'string').map((part: any) => part.param);
     const params = spec.params(samples[spec.id], 'device.d-0123456789ab');
-    assert.deepEqual(Object.keys(params).sort(), [...new Set([...declared, 'projectKey'])].sort(), spec.id);
+    assert.deepEqual(Object.keys(params).sort(), [...new Set([...declared, 'projectKey', ...(shape.stdin ? [shape.stdin.param] : [])])].sort(), spec.id);
     assert.equal(params.relay, 'device.d-0123456789ab');
     assert.ok(Object.values(params).every((value) => typeof value === 'string'), `${spec.id}: argv values are strings`);
   }
+  // 165: a null model is left out of the parameters, so the runner leaves `--model` out.
+  const start = ACTIONS.find((spec: any) => spec.id === 'start-session');
+  assert.equal(Object.hasOwn(start.params({ ...samples['start-session'], model: null }, 'console'), 'model'), false);
+});
+
+/**
+ * 165 owner ruling C-4: a prompt-carrying row is more than an id. Every row's field kinds are kinds `field()` knows; every row
+ * has its own `bodyCap`, at least 162's 4 KiB and at most 64 KiB, and only a prompt row raises it; a row's `promptField` is one
+ * of its fields, of kind `prompt`, and is the `stdin` parameter of its write shape; a row without one has a write shape without
+ * `stdin`, and no write shape carries `stdin` that no row's `promptField` names.
+ */
+test('C-4: field kinds are known kinds, bodyCap is present and bounded, a promptField is the write shape\'s stdin parameter, and only a prompt row has a stdin shape', () => {
+  const { FIELD_KINDS, BODY_CAP } = require('../src/actions.ts');
+  assert.ok(Array.isArray(FIELD_KINDS) && FIELD_KINDS.includes('prompt'));
+  for (const spec of ACTIONS) {
+    for (const [name, rule] of Object.entries(spec.fields) as Array<[string, any]>) assert.ok(FIELD_KINDS.includes(rule.kind), `${spec.id}.${name}: ${rule.kind}`);
+    assert.ok(Number.isSafeInteger(spec.bodyCap) && spec.bodyCap >= BODY_CAP && spec.bodyCap <= 65536, `${spec.id} bodyCap ${spec.bodyCap}`);
+    const shape = WRITE_SHAPES[spec.shape];
+    const prompts = Object.entries(spec.fields).filter(([, rule]: any) => rule.kind === 'prompt').map(([name]) => name);
+    if (spec.promptField === null) {
+      assert.equal(shape.stdin, undefined, `${spec.id}: no stdin without a promptField`);
+      assert.deepEqual(prompts, [], `${spec.id}: no prompt field without a promptField`);
+      assert.equal(spec.bodyCap, BODY_CAP, `${spec.id}: keeps 162's cap`);
+    } else {
+      assert.deepEqual(prompts, [spec.promptField], spec.id);
+      assert.ok(shape.stdin, `${spec.id}: its write shape declares stdin`);
+      assert.equal(shape.stdin.param, spec.promptField, spec.id);
+    }
+  }
+  const prompted = ACTIONS.filter((spec: any) => spec.promptField !== null).map((spec: any) => spec.shape).sort();
+  assert.deepEqual(WRITE_SHAPE_IDS.filter((id: string) => WRITE_SHAPES[id].stdin).sort(), prompted);
+  assert.deepEqual(prompted, ['start-session']);
 });
 
 test('a write reaches the core only through runner.act: verb-runner.ts defines it, actions.ts alone calls it', () => {

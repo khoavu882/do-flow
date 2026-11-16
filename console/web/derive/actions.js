@@ -73,6 +73,11 @@ const ACTION_WORDS = Object.freeze({
     effect: (/** @type {any} */ ctx) => `Stop worker ${ctx.worker.runId} (${ctx.worker.harness ? `${ctx.worker.harness}, ` : ''}task ${ctx.worker.task}) of ${ctx.slug} in ${ctx.project}. Its processes get SIGTERM, then SIGKILL after 3 s. Edits it has not handed back stay in its own worktree and are not merged. This cannot be undone.`,
     applied: () => 'Stopped. The page shows the worker run’s new state.',
   }),
+  // 165 design §10: the start confirmation; `model` null is the harness's own default.
+  'start-session': Object.freeze({
+    effect: (/** @type {any} */ ctx) => `Start ${ctx.harness} (${ctx.model ?? 'harness default'}) in ${ctx.project} / ${ctx.checkout}. It runs with ${ctx.harness}’s own permissions. Stop it from Layers.`,
+    applied: () => 'Started. Layers shows the session and its output.',
+  }),
 });
 
 /** The notice after an applied action. @param {string} id @param {any} decision */

@@ -27,6 +27,8 @@ after(() => fs.rmSync(webRoot, { recursive: true, force: true }));
 const place = { projectRoot: os.tmpdir(), home: os.tmpdir() };
 
 const IDS = ['decide-gate', 'close-run', 'cancel-worker'] as const;
+/** Every action GET /api/actions lists, in ACTIONS order: the three of 162 and 165's start-session. */
+const ALL_IDS = [...IDS, 'start-session'];
 type Id = typeof IDS[number];
 const PK = '0123456789abcdef';
 const RUN_ID = 'w-3f2a0b1c2d3e';
@@ -583,13 +585,13 @@ test('GET /api/actions: local, a view device, a control device over Bearer and o
   const first = json(await local.get('/api/actions'));
   assert.deepEqual(first, {
     v: 1, actor: { kind: 'local', transport: 'loopback' },
-    actions: IDS.map((id) => ({ id, allowed: true, reason: null })),
+    actions: ALL_IDS.map((id) => ({ id, allowed: true, reason: null })),
     project: null, textMax: 500, limits: { actor: { perMinute: 6, perHour: 30 }, console: { perMinute: 20 } },
   });
   const old = await local.post('close-run', BODIES['close-run']());
   assert.equal(old.status, 501);
   assert.deepEqual(json(old).error, { code: 'core-lacks-action', verb: 'close-run', exit: 1 });
-  assert.deepEqual(listed(await local.get('/api/actions')), [['decide-gate', true, null], ['close-run', false, 'core-lacks-action'], ['cancel-worker', true, null]]);
+  assert.deepEqual(listed(await local.get('/api/actions')), [['decide-gate', true, null], ['close-run', false, 'core-lacks-action'], ['cancel-worker', true, null], ['start-session', true, null]]);
 
   const w = await lan(t, fakeRunner());
   const view = await w.world.pair('view', 'Viewer', 'native');
@@ -598,14 +600,14 @@ test('GET /api/actions: local, a view device, a control device over Bearer and o
   const get = (headers: Record<string, string>) => w.server.request('GET', '/api/actions', { headers });
   const asView = json(await get({ Authorization: view.bearer }));
   assert.deepEqual(asView.actor, { kind: 'device', deviceId: view.device.id, scope: 'view', transport: 'native' });
-  assert.deepEqual(asView.actions.map((entry: any) => entry.reason), ['phone-scope', 'phone-scope', 'phone-scope']);
-  assert.deepEqual(listed(await get({ Cookie: browserView.cookie })), IDS.map((id) => [id, false, 'phone-scope']));
+  assert.deepEqual(asView.actions.map((entry: any) => entry.reason), ALL_IDS.map(() => 'phone-scope'));
+  assert.deepEqual(listed(await get({ Cookie: browserView.cookie })), ALL_IDS.map((id) => [id, false, 'phone-scope']));
   const asControl = json(await get({ Authorization: control.bearer }));
   assert.deepEqual(asControl.actor, { kind: 'device', deviceId: control.device.id, scope: 'control', transport: 'native' });
-  assert.deepEqual(asControl.actions.map((entry: any) => entry.allowed), [true, true, true]);
+  assert.deepEqual(asControl.actions.map((entry: any) => entry.allowed), ALL_IDS.map(() => true));
   const asBrowser = json(await get({ Cookie: control.cookie, Origin: w.server.origin }));
   assert.equal(asBrowser.actor.transport, 'browser');
-  assert.deepEqual(asBrowser.actions.map((entry: any) => entry.reason), ['action-transport', 'action-transport', 'action-transport']);
+  assert.deepEqual(asBrowser.actions.map((entry: any) => entry.reason), ALL_IDS.map(() => 'action-transport'));
   assert.equal((await get({})).status, 401, 'no device, no answer');
 });
 
@@ -684,16 +686,16 @@ test('162 review 2: GET /api/actions says allowed false, reason action-log-unwri
   const runner = fakeRunner();
   const none = await loopback(t, runner, { log: null });
   const reasons = (reply: { body: string }) => json(reply).actions.map((entry: any) => [entry.id, entry.allowed, entry.reason]);
-  assert.deepEqual(reasons(await none.get('/api/actions')), IDS.map((id) => [id, false, 'action-log-unwritable']));
+  assert.deepEqual(reasons(await none.get('/api/actions')), ALL_IDS.map((id) => [id, false, 'action-log-unwritable']));
   const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-ui-action-log-'));
   t.after(() => fs.rmSync(parent, { recursive: true, force: true }));
   const dir = path.join(parent, 'console');
   fs.writeFileSync(dir, 'a file where the folder should be');
   const broken = await loopback(t, runner, { log: createActionLog({ dir }) });
-  assert.deepEqual(reasons(await broken.get('/api/actions')), IDS.map((id) => [id, false, 'action-log-unwritable']));
+  assert.deepEqual(reasons(await broken.get('/api/actions')), ALL_IDS.map((id) => [id, false, 'action-log-unwritable']));
   assert.equal(errorOf(await broken.post('close-run', BODIES['close-run']())), 'action-log-unwritable');
   fs.rmSync(dir);
-  assert.deepEqual(reasons(await broken.get('/api/actions')), IDS.map((id) => [id, true, null]));
+  assert.deepEqual(reasons(await broken.get('/api/actions')), ALL_IDS.map((id) => [id, true, null]));
   assert.equal(runner.acts.length, 0);
 });
 
@@ -732,4 +734,334 @@ test('162 review 9: a slug, task id and gate id of ID_MAX characters are accepte
     assert.equal((await w.post('decide-gate', BODIES['decide-gate'](over))).status, 400, JSON.stringify(Object.keys(over)));
   }
   assert.equal(runner.acts.length, 1);
+});
+
+// ---- 165 IC-004: the start-session action and the two start reads ----
+
+const WK = 'fedcba9876543210';
+const AGENT_KEY = 'aa11bb22cc33dd44';
+const START_RUN = {
+  runId: RUN_ID, kind: 'main-session', phase: 'running', harness: 'claude', model: null, modelSource: 'default', worktreeKey: WK, startedBy: 'console',
+  createdAt: '2026-11-15T10:00:00.000Z', agentKey: AGENT_KEY, layers: `/layers/${PK}/agent/${AGENT_KEY}`, files: { out: '1111222233334444', err: '5555666677778888' },
+};
+const startedReply = (over: Record<string, unknown> = {}, replayed = false) => ({ ok: true, exit: 0, json: { ok: true, replayed, run: { ...START_RUN, ...over } } });
+const PROMPT = 'Fix the flaky upload test\nand say why it failed';
+const startBody = (over: Record<string, unknown> = {}) => ({ v: 1, requestId: rid(), projectKey: PK, worktreeKey: WK, harness: 'claude', model: null, entry: 'do', prompt: PROMPT, ...over });
+const START_OPTIONS = {
+  project: { projectKey: PK, label: 'alpha', root: null },
+  checkouts: [{ worktreeKey: WK, label: 'alpha', branch: 'main', main: true, busy: null, observedSession: { harness: 'claude', lastSeenAt: '2026-11-15T09:00:00.000Z' } },
+    { worktreeKey: '0000111122223333', label: 'alpha-fix', branch: null, main: false, busy: { runId: 'w-aaaabbbbcccc' }, observedSession: null }],
+  harnesses: [
+    { harness: 'claude', startable: true, reason: null, words: 'claude can start a session here', warnings: ['runnable-not-checked'],
+      login: { state: 'logged-in', checkedAt: '2026-11-15T09:00:00.000Z' }, version: '2.1.0', models: [{ id: 'claude-opus-5-5', source: 'frontier' }, { id: null, source: 'default' }] },
+    { harness: 'copilot', startable: false, reason: 'no-main-session-shape', words: 'DoFlow has no recorded headless way to start copilot', warnings: [],
+      login: null, version: null, models: [{ id: null, source: 'default' }] },
+  ],
+  limits: { perCheckout: 1, perActor: 2, machine: 4, perActorPerHour: 6 },
+  open: { machine: 1 }, dispatch: { running: true, slug: 'feat-a' }, promptMax: { codePoints: 8000, bytes: 32768 },
+  entries: ['do', 'none'], entryLine: 'Use the DoFlow do skill for this request:',
+};
+const LISTING = [
+  { projectKey: PK, label: 'alpha', current: true, temp: false, checkouts: 2, sources: ['hook-dirs'], lastRecordAt: null, root: '/secret/alpha' },
+  { projectKey: '1111111111111111', label: 'beta', current: false, temp: false, checkouts: 1, sources: ['upkeep-roots'], lastRecordAt: '2026-11-15T08:00:00.000Z', root: '/secret/beta' },
+];
+
+/** fakeRunner, whose `act` starts by default, and whose `start-options` read answers `options` (or `optionsAnswer`). */
+function startRunner(answer: Answer = () => startedReply(), optionsAnswer: (params: any) => any = () => ({ ok: true, exit: 0, json: START_OPTIONS })) {
+  const runner: any = fakeRunner(answer, LISTING);
+  const listing = runner.run;
+  runner.optionParams = [] as unknown[];
+  runner.run = async (shape: string, params?: unknown, options?: unknown) => {
+    if (shape !== 'start-options') return listing(shape, params, options);
+    runner.reads.push(shape);
+    runner.readOptions.push(options ?? null);
+    runner.optionParams.push(params);
+    return optionsAnswer(params);
+  };
+  return runner;
+}
+
+test('a view device gets 403 phone-scope on POST /api/actions/start-session and GET /api/start/options; a browser-transport control device gets 403 action-transport on the POST and may read; a control device over Bearer starts with its relay label', async (t) => {
+  const runner = startRunner();
+  const w = await lan(t, runner);
+  const view = await w.world.pair('view', 'Viewer', 'native');
+  const get = (target: string, headers: Record<string, string>) => w.server.request('GET', target, { headers });
+  const posted = await w.post('start-session', startBody(), { Authorization: view.bearer });
+  assert.equal(posted.status, 403);
+  assert.deepEqual(json(posted), { error: { code: 'phone-scope', verb: null, exit: null } });
+  for (const target of [`/api/start/options?projectKey=${PK}`, '/api/start']) {
+    const reply = await get(target, { Authorization: view.bearer });
+    assert.equal(reply.status, 403, target);
+    assert.equal(errorOf(reply), 'phone-scope', target);
+  }
+  const control = await w.world.pair('control');
+  const browser = await w.post('start-session', startBody(), { Cookie: control.cookie, Origin: w.server.origin, 'Sec-Fetch-Site': 'same-origin' });
+  assert.equal(browser.status, 403);
+  assert.equal(errorOf(browser), 'action-transport');
+  assert.equal(runner.acts.length, 0, 'no refused start reached the runner');
+  // D7: the reads need the control scope; the transport rule (162 FR-003) is the action's.
+  assert.equal((await get(`/api/start/options?projectKey=${PK}`, { Cookie: control.cookie, Origin: w.server.origin })).status, 200);
+  assert.equal((await get('/api/start', { Authorization: control.bearer })).status, 200);
+  const body = startBody();
+  const reply = await w.post('start-session', body, { Authorization: control.bearer });
+  assert.equal(reply.status, 200, reply.body);
+  const answer = json(reply);
+  assert.deepEqual([answer.action, answer.requestId, answer.outcome, answer.replayed, answer.by], ['start-session', body.requestId, 'applied', false, `device.${control.device.id}`]);
+  assert.deepEqual(runner.acts.map((call: any) => [call.shape, call.params.relay]), [['start-session', `device.${control.device.id}`]]);
+  const begin = w.lines().find((line) => line.phase === 'begin');
+  assert.deepEqual([begin.actor.kind, begin.actor.deviceId, begin.actor.transport], ['device', control.device.id, 'native']);
+});
+
+test('local start: the prompt reaches act as the stdin parameter only; a null model leaves --model out; the reply carries the core\'s run; the log has FR-010\'s fields and the prompt\'s length, and the prompt is in no line, reply or error', async (t) => {
+  const clock = manual();
+  let next: any = startedReply();
+  const runner = startRunner(() => next);
+  const w = await loopback(t, runner, { now: clock.now });
+  const body = startBody();
+  const reply = await w.post('start-session', body);
+  assert.equal(reply.status, 200, reply.body);
+  assert.deepEqual(runner.acts[0], { shape: 'start-session', params: { projectKey: PK, worktreeKey: WK, harness: 'claude', entry: 'do', relay: 'console', requestId: body.requestId, prompt: PROMPT } });
+  assert.deepEqual(json(reply), { v: 1, action: 'start-session', requestId: body.requestId, outcome: 'applied', replayed: false, by: 'console', result: { replayed: false, run: START_RUN } });
+  clock.t += 3 * MINUTE;
+  next = startedReply({ model: 'claude-opus-5-5', modelSource: 'frontier', phase: 'ended', end: { state: 'exited', at: '2026-11-15T10:00:02.000Z' } });
+  const modelled = await w.post('start-session', startBody({ model: 'claude-opus-5-5', entry: 'none' }));
+  assert.equal(modelled.status, 200, modelled.body);
+  assert.equal(runner.acts[1].params.model, 'claude-opus-5-5');
+  assert.equal(runner.acts[1].params.entry, 'none');
+  assert.deepEqual(json(modelled).result.run.end, { state: 'exited', at: '2026-11-15T10:00:02.000Z' });
+  clock.t += 3 * MINUTE;
+  next = { ok: true, exit: 1, json: { ok: false, code: 'checkout-busy', message: `busy: ${PROMPT}`, current: { runId: 'w-aaaabbbbcccc' } } };
+  const busy = await w.post('start-session', startBody());
+  assert.equal(busy.status, 409);
+  assert.deepEqual(json(busy), { error: { code: 'checkout-busy', verb: 'start-session', exit: 1 }, current: { runId: 'w-aaaabbbbcccc' } });
+  for (const call of runner.acts) {
+    const others = Object.entries(call.params).filter(([name]) => name !== 'prompt').map(([, value]) => value);
+    assert.equal(others.some((value) => String(value).includes('flaky')), false, 'the prompt is in no other parameter');
+  }
+  const ends = w.lines().filter((line) => line.phase === 'end');
+  const begins = w.lines().filter((line) => line.phase === 'begin');
+  assert.deepEqual(begins[0].target, { slug: null, taskId: null, gateId: null, runId: null, worktreeKey: WK, harness: 'claude', model: 'default' });
+  assert.deepEqual(begins[0].input, { decision: null, textChars: [...PROMPT].length, entry: 'do' });
+  assert.equal(begins[0].project, PK);
+  assert.deepEqual([begins[1].target.model, begins[1].input.entry], ['claude-opus-5-5', 'none']);
+  assert.deepEqual(ends.map((line) => [line.outcome, line.code, line.target.runId, line.exit, typeof line.ms]),
+    [['applied', null, RUN_ID, 0, 'number'], ['applied', null, RUN_ID, 0, 'number'], ['refused', 'checkout-busy', null, 1, 'number']]);
+  const text = fs.readFileSync(path.join(w.dir, 'actions.ndjson'), 'utf8');
+  for (const word of ['flaky', 'upload test', 'say why']) {
+    assert.equal(text.includes(word), false, `${word} is not logged`);
+    for (const r of [reply, modelled, busy]) assert.equal(r.body.includes(word), false, `${word} is in no reply`);
+  }
+});
+
+test('the prompt kind: CRLF and CR become LF, C0 (but tab and LF), C1 and bidi controls go; NUL or a lone surrogate is 400 usage; empty is 400 prompt-empty; past 8000 code points 400 prompt-too-long; a body past 40960 bytes is 400 usage; the 162 rows keep 4 KiB', async (t) => {
+  const clock = manual();
+  const runner = startRunner();
+  const w = await loopback(t, runner, { now: clock.now });
+  const emoji = '\u{1F600}'.repeat(8000);
+  const cases: Array<[string, number, string | null]> = [
+    ['one\r\ntwo\rthree', 200, 'one\ntwo\nthree'],
+    ['a\u0007b\u0085c‎d⁦e؜f‮g\u001Bh', 200, 'abcdefgh'],
+    ['col\tcol\nrow', 200, 'col\tcol\nrow'],
+    [emoji, 200, emoji],
+    ['a\u0000b', 400, 'usage'],
+    ['a\uD800b', 400, 'usage'],
+    ['', 400, 'prompt-empty'],
+    [' \n\t‏ ', 400, 'prompt-empty'],
+    [`${emoji}x`, 400, 'prompt-too-long'],
+    ['\u0001'.repeat(7000), 400, 'usage'],
+  ];
+  for (const [prompt, status, expected] of cases) {
+    // One an hour: the start limit (six an hour) and the generic windows never refuse here.
+    clock.t += 61 * MINUTE;
+    const before = runner.acts.length;
+    const reply = await w.post('start-session', startBody({ prompt }));
+    assert.equal(reply.status, status, `${JSON.stringify(prompt).slice(0, 60)}: ${reply.body.slice(0, 200)}`);
+    if (status === 200) assert.equal(runner.acts.at(-1).params.prompt, expected);
+    else {
+      assert.equal(runner.acts.length, before, 'a refused prompt never runs');
+      assert.deepEqual(json(reply), { error: { code: expected, verb: null, exit: null } });
+    }
+  }
+  clock.t += 61 * MINUTE;
+  assert.equal((await w.post('start-session', startBody({ prompt: 'x'.repeat(5000) }))).status, 200, 'a start body is past 4 KiB and under its own cap');
+  clock.t += 61 * MINUTE;
+  assert.equal((await w.post('close-run', BODIES['close-run']({ note: 'x'.repeat(5000) }))).status, 400, 'the 162 rows keep their 4 KiB cap');
+  for (const [name, value] of [['worktreeKey', WK.toUpperCase()], ['harness', 'Claude'], ['model', ''], ['model', '-x'], ['entry', 'auto'], ['entry', null], ['prompt', null], ['relay', 'console']] as Array<[string, unknown]>) {
+    clock.t += 61 * MINUTE;
+    const reply = await w.post('start-session', startBody({ [name]: value }));
+    assert.equal(reply.status, 400, `${name}=${JSON.stringify(value)}`);
+    assert.equal(errorOf(reply), 'usage');
+  }
+  clock.t += 61 * MINUTE;
+  const missing = startBody();
+  delete (missing as any).entry;
+  assert.equal(errorOf(await w.post('start-session', missing)), 'usage', 'entry is never defaulted: absent is usage');
+});
+
+test('the seventh start of an actor in an hour is 429 start-rate-limited with Retry-After; it counts the attempts that reach the core (a core refusal too), not a replay, a body refusal or a start that spawned nothing; another actor has its own hour', async (t) => {
+  const clock = manual();
+  let next: any = startedReply();
+  const runner = startRunner((shape) => (shape === 'start-session' ? next : applied(shape)));
+  const w = await lan(t, runner, { now: clock.now });
+  const phone = await w.world.pair('control', 'Phone');
+  const tablet = await w.world.pair('control', 'Tablet');
+  const start = (device: any, over: Record<string, unknown> = {}) => w.post('start-session', startBody(over), { Authorization: device.bearer });
+  const first = clock.t;
+  const repeated = startBody();
+  for (let index = 0; index < 4; index += 1) {
+    assert.equal((await start(phone)).status, 200, `start ${index + 1}`);
+    clock.t += 2 * MINUTE;
+  }
+  assert.equal((await w.post('start-session', repeated, { Authorization: phone.bearer })).status, 200, 'start 5');
+  assert.equal((await w.post('start-session', repeated, { Authorization: phone.bearer })).status, 200, 'a replay is not counted');
+  assert.equal((await start(phone, { prompt: '' })).status, 400, 'a body refusal is not a start');
+  clock.t += 2 * MINUTE;
+  next = { ok: false, code: 'project-not-found', exit: null };
+  assert.equal((await start(phone)).status, 404, 'a start the runner never spawned is not counted');
+  next = startedReply();
+  assert.equal((await start(phone)).status, 200, 'start 6');
+  assert.equal(runner.acts.length, 8, 'six starts reached act, and the unknown key twice');
+  const limited = await start(phone);
+  assert.equal(limited.status, 429, limited.body);
+  assert.equal(errorOf(limited), 'start-rate-limited');
+  assert.equal(limited.headers['retry-after'], String(60 * 60 - 10 * 60), 'until the first start leaves its hour');
+  assert.equal(runner.acts.length, 8, 'never run');
+  assert.equal((await start(tablet)).status, 200, 'another actor has its own hour');
+  assert.equal((await w.post('decide-gate', BODIES['decide-gate'](), { Authorization: phone.bearer })).status, 200, 'the start limit holds starts only');
+  clock.t = first + 60 * MINUTE;
+  next = { ok: true, exit: 1, json: { ok: false, code: 'machine-limit', message: 'full', current: { open: 4, max: 4 } } };
+  const refused = await start(phone);
+  assert.equal(refused.status, 429, 'the first start has left the hour');
+  assert.equal(errorOf(refused), 'machine-limit');
+  assert.equal(errorOf(await start(phone)), 'start-rate-limited', 'a core refusal reached the core, so it counts');
+  await w.actions.stop();
+  const summaries = w.lines().filter((line) => line.phase === 'summary' && line.code === 'start-rate-limited');
+  assert.deepEqual(summaries.map((line) => [line.count, line.actor.deviceId, line.action]), [[1, phone.device.id, 'start-session'], [1, phone.device.id, 'start-session']]);
+});
+
+test('FR-011: a double tap with one request id starts once and replays the first reply; a repeat the core answers as replayed is 200 with result.replayed', async (t) => {
+  const held = heldRunner();
+  const runner = startRunner((shape, params) => (shape === 'start-session' ? new Promise((resolve) => held.gates.push(() => resolve(startedReply()))) : applied(shape)));
+  const w = await loopback(t, runner);
+  const body = startBody();
+  const firstTap = w.post('start-session', body);
+  const secondTap = w.post('start-session', body);
+  await w.bodiesRead(2);
+  await until(() => held.gates.length === 1, 'the first tap reached act');
+  held.releaseAll();
+  const [one, two] = await Promise.all([firstTap, secondTap]);
+  assert.deepEqual([one.status, two.status], [200, 200]);
+  assert.equal(runner.acts.length, 1, 'one start');
+  assert.deepEqual([json(one).replayed, json(two).replayed], [false, true]);
+  assert.deepEqual(json(two).result, json(one).result);
+  const again = startRunner(() => startedReply({}, true));
+  const v = await loopback(t, again);
+  const replayed = await v.post('start-session', startBody());
+  assert.equal(replayed.status, 200);
+  assert.deepEqual([json(replayed).replayed, json(replayed).result.replayed, json(replayed).result.run.runId], [false, true, RUN_ID]);
+  assert.equal(v.lines().find((line) => line.phase === 'end').outcome, 'replayed', 'the log says the core started nothing');
+});
+
+test('every start-session refusal id maps to IC-004\'s status with the core\'s current; an older core\'s usage is 501 core-lacks-action and GET /api/actions says so; an unknown project is 404 after one refresh and nothing spawns', async (t) => {
+  const refusal = (code: string, current?: unknown) => ({ ok: true, exit: 1, json: { ok: false, code, message: 'words', ...(current === undefined ? {} : { current }) } });
+  const cases: Array<[any, number, string, unknown, number | null]> = [
+    ...['unknown-worktree', 'worktree-gone', 'prompt-empty', 'prompt-nul', 'prompt-too-long', 'prompt-leading-dash', 'prompt-leading-at']
+      .map((code) => [refusal(code), 400, code, undefined, 1] as [any, number, string, unknown, number | null]),
+    [refusal('model-not-offered', { harness: 'claude', models: [{ id: 'claude-opus-5-5', source: 'frontier' }, { id: null, source: 'default' }] }), 400, 'model-not-offered',
+      { harness: 'claude', models: [{ id: 'claude-opus-5-5', source: 'frontier' }, { id: null, source: 'default' }] }, 1],
+    [refusal('checkout-busy', { runId: 'w-aaaabbbbcccc' }), 409, 'checkout-busy', { runId: 'w-aaaabbbbcccc' }, 1],
+    [refusal('dispatch-running', { slug: 'feat-a', driverPid: 4242 }), 409, 'dispatch-running', { slug: 'feat-a', dispatchId: null, driverPid: 4242, reason: null }, 1],
+    [refusal('dispatch-running', { slug: 'feat-a', dispatchId: 'd-1' }), 409, 'dispatch-running', { slug: 'feat-a', dispatchId: 'd-1', driverPid: null, reason: null }, 1],
+    [refusal('dispatch-running', { slug: 'feat-b', reason: 'store-unreadable' }), 409, 'dispatch-running', { slug: 'feat-b', dispatchId: null, driverPid: null, reason: 'store-unreadable' }, 1],
+    [refusal('harness-not-startable', { harness: 'copilot', reason: 'no-main-session-shape' }), 409, 'harness-not-startable', { harness: 'copilot', reason: 'no-main-session-shape' }, 1],
+    [refusal('harness-not-startable', { harness: 'codex', reason: 'logged-out' }), 409, 'harness-not-startable', { harness: 'codex', reason: 'logged-out' }, 1],
+    [refusal('nested-start', { runId: 'w-aaaabbbbcccc' }), 409, 'nested-start', { runId: 'w-aaaabbbbcccc' }, 1],
+    [refusal('actor-limit', { open: 2, max: 2 }), 429, 'actor-limit', { open: 2, max: 2 }, 1],
+    [refusal('machine-limit', { open: 4, max: 4 }), 429, 'machine-limit', { open: 4, max: 4 }, 1],
+    [refusal('project-mismatch', { projectKey: '1111111111111111' }), 404, 'project-not-found', undefined, 1],
+    [refusal('project-not-indexed'), 404, 'project-not-found', undefined, 1],
+    [refusal('something-new'), 502, 'core-contract-mismatch', undefined, 1],
+    [refusal('checkout-busy', { runId: '../x' }), 502, 'core-contract-mismatch', undefined, 1],
+    [refusal('harness-not-startable', { harness: 'copilot', reason: 'a reason of its own' }), 502, 'core-contract-mismatch', undefined, 1],
+    [{ ok: true, exit: 0, json: { ok: true, replayed: false, run: { ...START_RUN, layers: '/elsewhere' } } }, 502, 'core-contract-mismatch', undefined, 0],
+    [{ ok: true, exit: 0, json: { ok: true, replayed: false, run: { ...START_RUN, kind: 'worker' } } }, 502, 'core-contract-mismatch', undefined, 0],
+    [{ ok: false, code: 'timeout', exit: null }, 504, 'action-timeout', undefined, null],
+    [{ ok: false, code: 'core-error', exit: 3 }, 502, 'core-error', undefined, 3],
+    [{ ok: false, code: 'usage', exit: 2 }, 501, 'core-lacks-action', undefined, 2],
+  ];
+  const clock = manual();
+  let next: any = null;
+  const runner = startRunner(() => next);
+  const w = await loopback(t, runner, { now: clock.now });
+  for (const [result, status, code, current, exit] of cases) {
+    clock.t += 61 * MINUTE;
+    next = result;
+    const reply = await w.post('start-session', startBody());
+    const label = JSON.stringify(result).slice(0, 100);
+    assert.equal(reply.status, status, `${label}: ${reply.body}`);
+    assert.deepEqual(json(reply).error, { code, verb: 'start-session', exit }, label);
+    if (current === undefined) assert.equal(Object.hasOwn(json(reply), 'current'), false, label);
+    else assert.deepEqual(json(reply).current, current, label);
+  }
+  const listed = json(await w.get('/api/actions')).actions.find((entry: any) => entry.id === 'start-session');
+  assert.deepEqual(listed, { id: 'start-session', allowed: false, reason: 'core-lacks-action' });
+  // The runner's map lacks the key, refreshed once: 404, and the runner never spawned (it refuses an unknown key before any spawn).
+  const lost = startRunner(() => ({ ok: false, code: 'project-not-found', exit: null }));
+  const v = await loopback(t, lost);
+  const gone = await v.post('start-session', startBody());
+  assert.equal(gone.status, 404);
+  assert.deepEqual(json(gone).error, { code: 'project-not-found', verb: 'start-session', exit: null });
+  assert.deepEqual([lost.acts.length, lost.reads, lost.readOptions], [2, ['projects'], [{ fresh: true }]]);
+});
+
+test('GET /api/start lists the projects by key and label, never a root; GET /api/start/options passes IC-002 through with root null; a bad query is 400 usage, an unknown key 404 after one refresh, an older core 501, a body that does not project 502', async (t) => {
+  let options: any = { ok: true, exit: 0, json: START_OPTIONS };
+  const runner = startRunner(undefined, () => options);
+  const w = await loopback(t, runner);
+  const list = await w.get('/api/start');
+  assert.equal(list.status, 200, list.body);
+  assert.deepEqual(json(list), { v: 1, projects: [{ projectKey: PK, label: 'alpha', current: true }, { projectKey: '1111111111111111', label: 'beta', current: false }], truncated: false });
+  assert.equal(list.body.includes('/secret'), false, 'no root');
+  const read = await w.get(`/api/start/options?projectKey=${PK}`);
+  assert.equal(read.status, 200, read.body);
+  assert.deepEqual(json(read), { v: 1, ...START_OPTIONS });
+  assert.deepEqual(runner.optionParams, [{ projectKey: PK }]);
+  for (const target of ['/api/start/options', `/api/start/options?projectKey=${PK.toUpperCase()}`, `/api/start/options?projectKey=${PK}&projectKey=${PK}`, `/api/start/options?projectKey=${PK}&x=1`, '/api/start?x=1']) {
+    const reply = await w.get(target);
+    assert.equal(reply.status, 400, target);
+    assert.equal(errorOf(reply), 'usage', target);
+  }
+  assert.equal(runner.optionParams.length, 1, 'a bad query never reads');
+  const projected: Array<[unknown, number, string]> = [
+    [{ ok: true, exit: 0, json: { ...START_OPTIONS, project: { ...START_OPTIONS.project, root: '/secret/alpha' } } }, 502, 'core-contract-mismatch'],
+    [{ ok: true, exit: 0, json: { ...START_OPTIONS, harnesses: [{ ...START_OPTIONS.harnesses[0], startable: 'yes' }] } }, 502, 'core-contract-mismatch'],
+    [{ ok: false, code: 'core-error', exit: 2, errorId: 'usage' }, 501, 'core-lacks-verb'],
+    [{ ok: false, code: 'core-error', exit: 1, reason: 'old-core' }, 501, 'core-lacks-verb'],
+    [{ ok: false, code: 'core-error', exit: 2, errorId: 'store-unreadable' }, 502, 'core-error'],
+  ];
+  for (const [answer, status, code] of projected) {
+    options = answer;
+    const reply = await w.get(`/api/start/options?projectKey=${PK}`);
+    assert.equal(reply.status, status, `${JSON.stringify(answer).slice(0, 90)}: ${reply.body}`);
+    assert.equal(errorOf(reply), code);
+    assert.equal(reply.body.includes('/secret'), false);
+  }
+  options = { ok: false, code: 'project-not-found', exit: null };
+  runner.reads.length = 0;
+  runner.readOptions.length = 0;
+  const gone = await w.get(`/api/start/options?projectKey=${PK}`);
+  assert.equal(gone.status, 404);
+  assert.equal(errorOf(gone), 'project-not-found');
+  assert.deepEqual([runner.reads, runner.readOptions], [['start-options', 'projects', 'start-options'], [null, { fresh: true }, null]], 'one fresh projects read, then once more');
+});
+
+test('a POST to /api/actions/start-session refused before an actor exists (403 forbidden-origin, 415 unsupported-media) is counted on the pre-actor summary line of its reason', async (t) => {
+  const runner = startRunner();
+  const w = await loopback(t, runner);
+  assert.equal((await w.post('start-session', startBody(), { Origin: 'http://evil.example' })).status, 403);
+  assert.equal((await w.post('start-session', startBody(), { 'Content-Type': 'text/plain' })).status, 415);
+  assert.equal(runner.acts.length, 0);
+  await w.actions.stop();
+  assert.deepEqual(w.lines().map((line) => [line.phase, line.code, line.count, line.actor.kind, line.action]),
+    [['summary', 'forbidden-origin', 1, 'none', null], ['summary', 'unsupported-media', 1, 'none', null]]);
 });

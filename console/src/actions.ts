@@ -12,20 +12,23 @@
 //   2. the scope (LAN, the wrapper: `deviceMayUse`, else 403 phone-scope);
 //   3. the transport (LAN: `deviceMayAct`, a `control` record paired natively over the native class, else 403
 //      action-transport; loopback: the `local` session acts, behind server.ts's non-GET checks, D5);
-//   4. the body (4 KiB, one JSON object with exactly the row's keys plus `v`, `requestId` and `projectKey`; the
-//      text rule of IC-009; else 400 usage);
+//   4. the body (the row's `bodyCap`: 4 KiB, 40 KiB for start-session; one JSON object with exactly the row's keys plus `v`,
+//      `requestId` and `projectKey`; the text rule of IC-009 or the prompt rule of 165 IC-004; else 400 usage, or 400
+//      prompt-empty / prompt-too-long for a prompt, the core's own ids);
 //   5. idempotency (D12: `(actor, requestId)` for 10 min, 256 entries, least recently used out; a duplicate awaits
 //      or replays the first answer, `replayed: true`, uncounted; another body under the same id is 409
 //      request-reused);
 //   6. the limits (D11: per actor 6 a minute and 30 an hour, per Console 20 a minute; 429 action-rate-limited with
 //      `Retry-After` in whole seconds until the oldest counted attempt leaves its window; counted on the log's
 //      aggregated `rate-limited` line per actor);
-//   7. the queue (one attempt in flight, four waiting, FIFO; else 429 action-busy, `Retry-After: 2`).
+//   7. a row's own limit (165 FR-008: six starts per actor an hour; 429 start-rate-limited with `Retry-After` until the oldest
+//      counted start leaves the hour; it counts the attempts admitted to the queue, and gives one back when nothing ran);
+//   8. the queue (one attempt in flight, four waiting, FIFO; else 429 action-busy, `Retry-After: 2`).
 // A request the server refuses before the wrappers (403 forbidden-origin, 415 unsupported-media) has no actor: it is counted
 // on the `summary` line of its reason with actor kind `none`, one line a minute per reason, whoever sent it.
 // A refusal at 2 to 5 counts against the actor's own windows (never the Console's, so one actor's refusals cannot
 // block another's actions) and, once they are full, is 429 action-rate-limited instead (162 review 1). Every refusal
-// at 2 to 7 is counted on the log's aggregated `summary` line for its code and actor, so a flood adds at most a few
+// at 2 to 8 is counted on the log's aggregated `summary` line for its code and actor, so a flood adds at most a few
 // lines a minute and never rotates the `begin` and `end` lines of attempts that ran out of the log.
 // Then `begin` is logged (fail closed: a line that cannot be written is 503 action-log-unwritable and nothing
 // runs), `runner.act` runs the shape in the project named by `projectKey` (D14; an unknown key refreshes the
@@ -35,7 +38,8 @@
 //
 // The relay label is the actor's, never the body's: `console` for the loopback session, `device.d-<12 hex>` for a
 // device (DEC-007). Free text (`note`, `reason`) is normalized here, passed as one argv element, and logged only as
-// its length. `GET /api/actions` (D13) says, for the asking session, which actions it may take and why not; an
+// its length. A prompt (165 IC-004) is normalized by its own rule, passed only as the write shape's stdin parameter, and
+// logged only as its length; it is in no reply and no error. `GET /api/actions` (D13) says, for the asking session, which actions it may take and why not; an
 // action that answered 501 core-lacks-action is remembered as lacking until the Console restarts.
 //
 // Ceilings: the limits, the idempotency memo and the lacking set are in memory and die with the process; the
@@ -50,21 +54,31 @@ const { project: projectBody } = require('./project.ts');
 
 type Reply = { status: number, headers?: Record<string, string>, body?: string | Uint8Array };
 type Body = Record<string, any>;
-type Kind = 'id' | 'slugOpt' | 'runId' | 'decision' | 'revision' | 'text';
+/** 165 owner ruling C-4: the field kinds `field()` knows; a row's guard (actions-table.test.ts) checks every row's kinds against it. */
+const FIELD_KINDS = Object.freeze(['id', 'slugOpt', 'runId', 'decision', 'revision', 'text', 'key16', 'harness', 'modelOpt', 'entry', 'prompt'] as const);
+type Kind = typeof FIELD_KINDS[number];
 type FieldRule = Readonly<{ kind: Kind, required: boolean }>;
 type Current = Record<string, unknown> | null;
 /**
  * What an attempt came to: the reply's status and code (null when applied), the log's outcome, the core's exit; `current`
  * only on a refusal by state (it may be null there), `ran` false when nothing was spawned.
  */
-type Answer = { status: number, code: string | null, outcome: 'applied' | 'refused' | 'failed' | 'unknown', exit: number | null,
-  verb: string | null, current?: Current, result?: Record<string, unknown>, ran: boolean };
+type Answer = { status: number, code: string | null, outcome: 'applied' | 'refused' | 'failed' | 'unknown' | 'replayed', exit: number | null,
+  verb: string | null, current?: Current, result?: Record<string, unknown>, ran: boolean, runId?: string };
+type Target = { slug: string | null, taskId: string | null, gateId: string | null, runId: string | null,
+  worktreeKey?: string, harness?: string, model?: string };
 type ActionSpec = Readonly<{
   id: string,
   shape: string,
   fields: Readonly<Record<string, FieldRule>>,
   textField: 'note' | 'reason' | null,
-  target(b: Body): { slug: string | null, taskId: string | null, gateId: string | null, runId: string | null },
+  /** 165 C-4: the field of kind `prompt`, which is the write shape's `stdin` parameter; null for every other row. */
+  promptField: 'prompt' | null,
+  /** 165 C-4: this row's body cap in bytes (162's BODY_CAP unless the row carries a prompt). */
+  bodyCap: number,
+  /** 165 FR-008: a limit of this row's own, per actor, on top of 162's; null for none. */
+  limit: Readonly<{ perHour: number, code: string }> | null,
+  target(b: Body): Target,
   expect(b: Body): { revision: number } | null,
   params(b: Body, relay: string): Record<string, string>,
   outcome(result: any, b: Body): Answer,
@@ -73,6 +87,11 @@ type Actor = { kind: 'local', key: 'local', relay: 'console' }
   | { kind: 'device', key: string, relay: string, deviceId: string, scope: string, session: any };
 
 const BODY_CAP = 4096;
+/** 165 IC-004: a start's body: a prompt of 32 KiB and its JSON escapes. */
+const START_BODY_CAP = 40960;
+/** 165 IC-001: the prompt bounds after the prompt rule, the core's PROMPT_MAX (src/runtime/worker/session-prompt.ts). */
+const PROMPT_MAX = Object.freeze({ codePoints: 8000, bytes: 32768 });
+const START_LIMIT = Object.freeze({ perHour: 6, code: 'start-rate-limited' });
 const TEXT_MAX = 500;
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -87,6 +106,11 @@ const REQUEST_ID = /^[A-Za-z0-9_-]{22}$/;
 const DEVICE_ID = /^d-[0-9a-f]{12}$/;
 /** IC-009: removed after NFC and the whitespace rule: C0, DEL and C1, zero-width and bidi controls, the BOM. */
 const REMOVED = /[\u0000-\u001F\u007F-\u009F​-‏‪-‮⁦-⁩﻿]/g;
+/**
+ * 165 IC-004: what the prompt rule removes, the core's STRIPPED (src/runtime/worker/session-prompt.ts): C0 but tab and LF (CR is
+ * mapped to LF before), DEL and C1, the ALM, LRM and RLM marks and the bidi embeddings, overrides and isolates.
+ */
+const PROMPT_REMOVED = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/g;
 const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 const RUN_STATE = /^[A-Z][A-Z_]{0,31}$/;
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
@@ -101,15 +125,43 @@ function normalizeText(raw: string): string | null {
   return raw.normalize('NFC').replace(/[\r\n\t]/g, ' ').replace(REMOVED, '').replace(/ {2,}/g, ' ').trim();
 }
 
+/**
+ * 165 IC-004, distinct from normalizeText: line breaks are kept (CRLF and CR become LF), the PROMPT_REMOVED characters go, nothing
+ * is collapsed or trimmed. Null for a NUL or a lone surrogate (usage): neither is a prompt the core can take on stdin.
+ */
+function normalizePrompt(raw: string): string | null {
+  if (raw.includes('\u0000') || LONE_SURROGATE.test(raw)) return null;
+  return raw.replace(/\r\n?/g, '\n').replace(PROMPT_REMOVED, '');
+}
+
 const codePoints = (text: string) => [...text].length;
 const isId = (value: unknown): value is string => typeof value === 'string' && PATTERNS.id.test(value) && !value.includes('..');
 /** 162 review 9: an id a body may name, at most ID_MAX characters, the bound the action log records in full. */
 const isTarget = (value: unknown): value is string => isId(value) && value.length <= ID_MAX;
 const object = (value: unknown): value is Record<string, any> => value !== null && typeof value === 'object' && !Array.isArray(value);
 
-/** One field's value as the row takes it, or undefined when the rule refuses it. */
+/** A value a rule refuses with an id of its own (a prompt's), not usage. */
+class Refused {
+  code: string;
+  constructor(code: string) { this.code = code; }
+}
+
+/** One field's value as the row takes it, undefined when the rule refuses it (usage), or a Refused with its own id. */
 function field(rule: FieldRule, value: unknown): unknown {
   switch (rule.kind) {
+    case 'key16': return typeof value === 'string' && PATTERNS.key16.test(value) ? value : undefined;
+    case 'harness': return typeof value === 'string' && PATTERNS.harness.test(value) ? value : undefined;
+    case 'modelOpt': return value === null || (typeof value === 'string' && PATTERNS.model.test(value)) ? value : undefined;
+    case 'entry': return typeof value === 'string' && PATTERNS.entry.test(value) ? value : undefined;
+    case 'prompt': {
+      if (typeof value !== 'string') return undefined;
+      const text = normalizePrompt(value);
+      if (text === null) return undefined;
+      // The core's rules and ids (IC-001 step 5): blank is empty; the bounds hold after the rule.
+      if (text.trim() === '') return new Refused('prompt-empty');
+      if (codePoints(text) > PROMPT_MAX.codePoints || Buffer.byteLength(text, 'utf8') > PROMPT_MAX.bytes) return new Refused('prompt-too-long');
+      return text;
+    }
     case 'id': return isTarget(value) ? value : undefined;
     case 'slugOpt': return value === null || isTarget(value) ? value : undefined;
     case 'runId': return typeof value === 'string' && PATTERNS.runId.test(value) ? value : undefined;
@@ -128,26 +180,38 @@ function field(rule: FieldRule, value: unknown): unknown {
   }
 }
 
-/** IC-002: the body of `spec` from `text`, normalized (text fields as IC-009 makes them, a null optional text as ''), or null. */
-function parseBody(spec: ActionSpec, text: string | null): Body | null {
+/**
+ * IC-002: the body of `spec` from `text`, normalized (text fields as IC-009 makes them, a null optional text as '', a prompt as
+ * 165 IC-004 makes it), or the refusal id: `usage`, or a prompt's own id once every other field holds.
+ */
+function readBodyOf(spec: ActionSpec, text: string | null): { body: Body } | { code: string } {
+  const usage = { code: 'usage' };
   let raw: unknown;
   try {
     raw = text === null ? null : JSON.parse(text);
   } catch {
-    return null;
+    return usage;
   }
-  if (!object(raw)) return null;
+  if (!object(raw)) return usage;
   const keys = ['v', 'requestId', 'projectKey', ...Object.keys(spec.fields)];
-  if (Object.keys(raw).sort().join() !== [...keys].sort().join()) return null;
+  if (Object.keys(raw).sort().join() !== [...keys].sort().join()) return usage;
   if (raw.v !== 1 || typeof raw.requestId !== 'string' || !REQUEST_ID.test(raw.requestId)
-    || typeof raw.projectKey !== 'string' || !PATTERNS.key16.test(raw.projectKey)) return null;
+    || typeof raw.projectKey !== 'string' || !PATTERNS.key16.test(raw.projectKey)) return usage;
   const body: Body = { v: 1, requestId: raw.requestId, projectKey: raw.projectKey };
+  let refused: Refused | null = null;
   for (const [name, rule] of Object.entries(spec.fields)) {
     const value = field(rule, raw[name]);
-    if (value === undefined) return null;
-    body[name] = value;
+    if (value === undefined) return usage;
+    if (value instanceof Refused) refused = refused ?? value;
+    else body[name] = value;
   }
-  return body;
+  return refused ? { code: refused.code } : { body };
+}
+
+/** IC-002: the body of `spec` from `text`, normalized, or null for any refusal. */
+function parseBody(spec: ActionSpec, text: string | null): Body | null {
+  const read = readBodyOf(spec, text);
+  return 'body' in read ? read.body : null;
 }
 
 /** The digest of a body as parsed (keys sorted), with the action id, so another action under the same id differs. */
@@ -265,6 +329,105 @@ function cancelOutcome(shape: string) {
   };
 }
 
+// ---- 165 IC-004: start-session's reply ----
+
+const START_PHASES = ['starting', 'running', 'cancelling', 'ended'];
+const MODEL_SOURCES = ['orchestrator', 'frontier', 'standard', 'light', 'observed', 'default'];
+/** IC-001 step 6 / design §9.2: why a harness cannot start here. */
+const NOT_STARTABLE = ['not-listed', 'no-main-session-shape', 'not-installed', 'logged-out'];
+const STARTED_BY = /^(?:manual|console|device\.d-[0-9a-f]{12})$/;
+const MODELS_MAX = 50;
+const count = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0;
+const runIdOrNull = (value: unknown) => (typeof value === 'string' && PATTERNS.runId.test(value) ? value : null);
+
+/** `current` projectors of the core's start refusals; undefined when the core's value does not project. */
+const START_CURRENT: Readonly<Record<string, (c: any) => Current | undefined>> = Object.freeze({
+  run: (c: any) => (object(c) && typeof c.runId === 'string' && PATTERNS.runId.test(c.runId) ? { runId: c.runId } : undefined),
+  // nested-start: the id is the environment's DOFLOW_STARTED_RUN, which the core does not check.
+  nested: (c: any) => (object(c) ? { runId: runIdOrNull(c.runId) } : undefined),
+  open: (c: any) => (object(c) && count(c.open) && count(c.max) ? { open: c.open, max: c.max } : undefined),
+  dispatch: (c: any) => (object(c) && isId(c.slug) && (c.dispatchId === undefined || c.dispatchId === null || isId(c.dispatchId))
+    && (c.driverPid === undefined || Number.isSafeInteger(c.driverPid)) && (c.reason === undefined || isId(c.reason))
+    ? { slug: c.slug, dispatchId: c.dispatchId ?? null, driverPid: c.driverPid ?? null, reason: c.reason ?? null } : undefined),
+  harness: (c: any) => (object(c) && typeof c.harness === 'string' && PATTERNS.harness.test(c.harness) && NOT_STARTABLE.includes(c.reason)
+    ? { harness: c.harness, reason: c.reason } : undefined),
+  models: (c: any) => {
+    if (!object(c) || typeof c.harness !== 'string' || !PATTERNS.harness.test(c.harness) || !Array.isArray(c.models) || c.models.length > MODELS_MAX) return undefined;
+    const models = c.models.map((m: any) => (object(m) && (m.id === null || (typeof m.id === 'string' && PATTERNS.model.test(m.id))) && MODEL_SOURCES.includes(m.source)
+      ? { id: m.id, source: m.source } : null));
+    return models.includes(null) ? undefined : { harness: c.harness, models };
+  },
+});
+
+/**
+ * IC-004: the core's start refusal ids (IC-001), their status and code here, and the projector of the `current` the core gives
+ * with them (null: none is passed). The two project checks are this Console's `project-not-found`: its map and the core's cwd disagree.
+ */
+const START_REFUSALS: Readonly<Record<string, readonly [number, string, string | null]>> = Object.freeze({
+  'unknown-worktree': [400, 'unknown-worktree', null],
+  'worktree-gone': [400, 'worktree-gone', null],
+  'prompt-empty': [400, 'prompt-empty', null],
+  'prompt-nul': [400, 'prompt-nul', null],
+  'prompt-too-long': [400, 'prompt-too-long', null],
+  'prompt-leading-dash': [400, 'prompt-leading-dash', null],
+  'prompt-leading-at': [400, 'prompt-leading-at', null],
+  'model-not-offered': [400, 'model-not-offered', 'models'],
+  'checkout-busy': [409, 'checkout-busy', 'run'],
+  'dispatch-running': [409, 'dispatch-running', 'dispatch'],
+  'harness-not-startable': [409, 'harness-not-startable', 'harness'],
+  'nested-start': [409, 'nested-start', 'nested'],
+  'actor-limit': [429, 'actor-limit', 'open'],
+  'machine-limit': [429, 'machine-limit', 'open'],
+  'project-mismatch': [404, 'project-not-found', null],
+  'project-not-indexed': [404, 'project-not-found', null],
+});
+
+/** IC-001's `run` of a start or a replay, closed; null when it does not project. Its Layers address is rebuilt and must agree. */
+function startRun(run: unknown, projectKey: string): Record<string, unknown> | null {
+  if (!object(run) || typeof run.runId !== 'string' || !PATTERNS.runId.test(run.runId) || run.kind !== 'main-session' || !START_PHASES.includes(run.phase)
+    || typeof run.harness !== 'string' || !PATTERNS.harness.test(run.harness)
+    || !(run.model === null || (typeof run.model === 'string' && PATTERNS.model.test(run.model))) || !MODEL_SOURCES.includes(run.modelSource)
+    || !(run.worktreeKey === null || (typeof run.worktreeKey === 'string' && PATTERNS.key16.test(run.worktreeKey)))
+    || !(run.startedBy === null || (typeof run.startedBy === 'string' && STARTED_BY.test(run.startedBy)))
+    || typeof run.createdAt !== 'string' || !ISO.test(run.createdAt) || typeof run.agentKey !== 'string' || !PATTERNS.key16.test(run.agentKey)
+    || run.layers !== `/layers/${projectKey}/agent/${run.agentKey}`
+    || !object(run.files) || typeof run.files.out !== 'string' || !PATTERNS.key16.test(run.files.out) || typeof run.files.err !== 'string' || !PATTERNS.key16.test(run.files.err)) return null;
+  const projected: Record<string, unknown> = {
+    runId: run.runId, kind: run.kind, phase: run.phase, harness: run.harness, model: run.model, modelSource: run.modelSource, worktreeKey: run.worktreeKey,
+    startedBy: run.startedBy, createdAt: run.createdAt, agentKey: run.agentKey, layers: run.layers, files: { out: run.files.out, err: run.files.err },
+  };
+  if (run.end !== undefined) {
+    if (!object(run.end) || !END_STATES.includes(run.end.state) || typeof run.end.at !== 'string' || !ISO.test(run.end.at)) return null;
+    projected.end = { state: run.end.state, at: run.end.at };
+  }
+  return projected;
+}
+
+/**
+ * start-session (IC-001, IC-004): `{ok:true, replayed, run}` on exit 0 (200 for a start and for the core's replay, which the log
+ * records as `replayed`), `{ok:false, code, message, current?}` on exit 1 by START_REFUSALS. FR-016: an exit 2 `usage` is an older
+ * core without the action, since every flag passed the runner's own patterns first: 501 core-lacks-action.
+ */
+function startOutcome(shape: string) {
+  return (result: any, body: Body): Answer => {
+    if (!result.ok) {
+      if (result.code === 'usage' && result.exit === 2) return answer(501, 'core-lacks-action', 'failed', 2, shape);
+      return failureAnswer(shape, result);
+    }
+    const json = result.json;
+    if (result.exit === 0) {
+      const run = json.ok === true && typeof json.replayed === 'boolean' ? startRun(json.run, body.projectKey) : null;
+      if (run === null) return mismatch(shape, 0);
+      return answer(200, null, json.replayed ? 'replayed' : 'applied', 0, shape, { result: { replayed: json.replayed, run }, runId: run.runId as string });
+    }
+    if (json.ok !== false || typeof json.code !== 'string' || !Object.hasOwn(START_REFUSALS, json.code)) return mismatch(shape, 1);
+    const [status, code, projector] = START_REFUSALS[json.code];
+    if (projector === null) return answer(status, code, 'refused', 1, shape);
+    const current = START_CURRENT[projector](json.current);
+    return current === undefined ? mismatch(shape, 1) : answer(status, code, 'refused', 1, shape, { current });
+  };
+}
+
 const deepFreeze = <T>(value: T): T => {
   if (value && typeof value === 'object') {
     for (const inner of Object.values(value)) deepFreeze(inner);
@@ -277,13 +440,20 @@ const rule = (kind: Kind, required = true): FieldRule => ({ kind, required });
 const slugParam = (b: Body) => (b.slug === null ? {} : { slug: b.slug as string });
 const noteParam = (b: Body) => (b.note === '' ? {} : { note: b.note as string });
 
-/** IC-001: the three actions. A fourth is one row here, one WRITE_SHAPES entry, one ACTION_IDS id and one words entry (IC-012). */
+/**
+ * IC-001: the actions. Another is one row here, one WRITE_SHAPES entry, one ACTION_IDS id and one words entry (IC-012); one that
+ * carries a prompt (165 owner ruling C-4) also needs its field kind (`prompt`), its row's `promptField` and `bodyCap`, and the
+ * runner's `stdin` parameter on its write shape, named like the `promptField` (actions-table.test.ts checks all of it).
+ */
 const ACTIONS: readonly ActionSpec[] = deepFreeze([
   {
     id: 'decide-gate',
     shape: 'decide-gate',
     fields: { slug: rule('slugOpt'), taskId: rule('id'), gateId: rule('id'), decision: rule('decision'), note: rule('text', false), expect: rule('revision') },
     textField: 'note',
+    promptField: null,
+    bodyCap: BODY_CAP,
+    limit: null,
     target: (b: Body) => ({ slug: b.slug, taskId: b.taskId, gateId: b.gateId, runId: null }),
     expect: (b: Body) => ({ revision: b.expect.revision }),
     params: (b: Body, relay: string) => ({ projectKey: b.projectKey, taskId: b.taskId, ...slugParam(b), gate: b.gateId, decision: b.decision,
@@ -295,6 +465,9 @@ const ACTIONS: readonly ActionSpec[] = deepFreeze([
     shape: 'close-run',
     fields: { slug: rule('slugOpt'), taskId: rule('id'), note: rule('text'), expect: rule('revision') },
     textField: 'note',
+    promptField: null,
+    bodyCap: BODY_CAP,
+    limit: null,
     target: (b: Body) => ({ slug: b.slug, taskId: b.taskId, gateId: null, runId: null }),
     expect: (b: Body) => ({ revision: b.expect.revision }),
     params: (b: Body, relay: string) => ({ projectKey: b.projectKey, taskId: b.taskId, ...slugParam(b), revision: String(b.expect.revision), relay, note: b.note }),
@@ -305,11 +478,29 @@ const ACTIONS: readonly ActionSpec[] = deepFreeze([
     shape: 'cancel-worker',
     fields: { slug: rule('id'), runId: rule('runId'), reason: rule('text') },
     textField: 'reason',
+    promptField: null,
+    bodyCap: BODY_CAP,
+    limit: null,
     target: (b: Body) => ({ slug: b.slug, taskId: null, gateId: null, runId: b.runId }),
     expect: () => null,
     // The write shape's free-text parameter is `note`; it is passed after `--reason`.
     params: (b: Body, relay: string) => ({ projectKey: b.projectKey, slug: b.slug, runId: b.runId, relay, note: b.reason }),
     outcome: cancelOutcome('cancel-worker'),
+  },
+  {
+    // 165 IC-004. The relay label is the actor's; the prompt is the write shape's stdin; a null model leaves `--model` out.
+    id: 'start-session',
+    shape: 'start-session',
+    fields: { worktreeKey: rule('key16'), harness: rule('harness'), model: rule('modelOpt'), entry: rule('entry'), prompt: rule('prompt') },
+    textField: null,
+    promptField: 'prompt',
+    bodyCap: START_BODY_CAP,
+    limit: START_LIMIT,
+    target: (b: Body) => ({ slug: null, taskId: null, gateId: null, runId: null, worktreeKey: b.worktreeKey, harness: b.harness, model: b.model ?? 'default' }),
+    expect: () => null,
+    params: (b: Body, relay: string) => ({ projectKey: b.projectKey, worktreeKey: b.worktreeKey, harness: b.harness, ...(b.model === null ? {} : { model: b.model as string }),
+      entry: b.entry, relay, requestId: b.requestId, prompt: b.prompt }),
+    outcome: startOutcome('start-session'),
   },
 ] as ActionSpec[]);
 
@@ -365,6 +556,40 @@ function createLimits() {
       if (mine.length) actors.set(key, mine);
       else actors.delete(key);
       return wait;
+    },
+  };
+}
+
+/**
+ * 165 FR-008: a row's own hourly window per actor (`limit.perHour`), on top of D11's. `admit` counts an attempt and answers
+ * `{ wait: 0, release }` (`release` gives the count back, for an attempt that ran nothing), or the whole seconds until the oldest
+ * counted attempt leaves the hour and counts nothing. Exact within one Console: the check and the count are one synchronous step.
+ */
+function createRowLimits() {
+  const windows = new Map<string, number[]>();
+  return {
+    admit(key: string, perHour: number, t: number): { wait: number, release: () => void } {
+      const mine = (windows.get(key) ?? []).filter((at) => t - at < HOUR_MS);
+      if (mine.length >= perHour) {
+        windows.set(key, mine);
+        return { wait: Math.max(1, Math.ceil((mine[0] + HOUR_MS - t) / 1000)), release: () => {} };
+      }
+      const counted = { at: t };
+      mine.push(counted.at);
+      windows.set(key, mine);
+      let released = false;
+      return {
+        wait: 0,
+        release: () => {
+          if (released) return;
+          released = true;
+          const list = windows.get(key) ?? [];
+          const index = list.indexOf(counted.at);
+          if (index >= 0) list.splice(index, 1);
+          if (list.length) windows.set(key, list);
+          else windows.delete(key);
+        },
+      };
     },
   };
 }
@@ -433,6 +658,7 @@ type Options = { runner: any, log: any, now?: () => number, warn?: (line: string
  */
 function createActions({ runner, log, now = Date.now, warn = () => {} }: Options) {
   const limits = createLimits();
+  const rowLimits = createRowLimits();
   const queue = createQueue();
   const memo = createMemo();
   const lacking = new Set<string>();
@@ -481,7 +707,7 @@ function createActions({ runner, log, now = Date.now, warn = () => {} }: Options
   }
 
   /** begin, act (one projects refresh for an unknown key), end. */
-  async function attempt(spec: ActionSpec, body: Body, actor: Actor, fields: Record<string, unknown>): Promise<Answer> {
+  async function attempt(spec: ActionSpec, body: Body, actor: Actor, fields: Record<string, any>): Promise<Answer> {
     const started = now();
     try {
       await log.begin(fields);
@@ -499,7 +725,9 @@ function createActions({ runner, log, now = Date.now, warn = () => {} }: Options
     const done = spec.outcome(result, body);
     if (done.code === 'core-lacks-action') lacking.add(spec.id);
     const current = done.current ? { state: done.current.state, revision: done.current.revision ?? null } : null;
-    await quietly(() => log.end({ ...fields, outcome: done.outcome, code: done.code, current, exit: done.exit, ms: Math.max(0, now() - started) }));
+    // 165 FR-010: a start's end line names the run it started (or replayed).
+    const target = done.runId === undefined ? fields.target : { ...fields.target, runId: done.runId };
+    await quietly(() => log.end({ ...fields, target, outcome: done.outcome, code: done.code, current, exit: done.exit, ms: Math.max(0, now() - started) }));
     return done;
   }
 
@@ -528,11 +756,13 @@ function createActions({ runner, log, now = Date.now, warn = () => {} }: Options
         const key = keyOf(ctx, ctx.session);
         if (actor === null || (actor.kind === 'device' && !deviceMayAct(actor.session, ctx.clientClass))) return refuse(key, base, 403, 'action-transport');
         if (!log) return errorReply(503, 'action-log-unwritable');
-        const body = parseBody(spec, await readBody(ctx.req, BODY_CAP));
-        if (body === null) return refuse(key, base, 400, 'usage');
+        const read = readBodyOf(spec, await readBody(ctx.req, spec.bodyCap));
+        if ('code' in read) return refuse(key, base, 400, read.code);
+        const body = read.body;
+        const free = spec.textField ?? spec.promptField;
         const fields = {
           ...base, id: body.requestId, project: body.projectKey, target: spec.target(body), expect: spec.expect(body),
-          input: { decision: body.decision ?? null, textChars: spec.textField === null ? null : codePoints(body[spec.textField]) },
+          input: { decision: body.decision ?? null, textChars: free === null ? null : codePoints(body[free]), entry: body.entry ?? null },
         };
         const memoKey = `${actor.key}\n${body.requestId}`;
         const digest = digestOf(spec.id, body);
@@ -545,13 +775,24 @@ function createActions({ runner, log, now = Date.now, warn = () => {} }: Options
         }
         const wait = limits.admit(actor.key, now());
         if (wait > 0) return rateLimited(key, base, wait);
+        let row: { wait: number, release: () => void } | null = null;
+        if (spec.limit !== null) {
+          row = rowLimits.admit(`${spec.id}\n${actor.key}`, spec.limit.perHour, now());
+          if (row.wait > 0) return refuse(key, base, 429, spec.limit.code, { counted: true, headers: { 'Retry-After': String(row.wait) } });
+        }
         const slot = queue.reserve();
-        if (slot === null) return refuse(key, base, 429, 'action-busy', { counted: true, headers: { 'Retry-After': String(BUSY_RETRY_S) } });
+        if (slot === null) {
+          if (row) row.release();
+          return refuse(key, base, 429, 'action-busy', { counted: true, headers: { 'Retry-After': String(BUSY_RETRY_S) } });
+        }
         const settled = slot.ready.then(() => attempt(spec, body, actor, fields)).finally(slot.release);
         memo.set(memoKey, { digest, settled, at: now() });
         const done = await settled;
-        // Nothing ran (no begin line, no spawn): the same request may be tried again.
-        if (!done.ran) memo.delete(memoKey);
+        // Nothing ran (no begin line, no spawn): the same request may be tried again, and it is not a start.
+        if (!done.ran) {
+          memo.delete(memoKey);
+          if (row) row.release();
+        }
         return replyOf(spec, body, actor, done, false);
       },
     };
@@ -615,4 +856,4 @@ function createActions({ runner, log, now = Date.now, warn = () => {} }: Options
   };
 }
 
-module.exports = { ACTIONS, ACTION_IDS, BODY_CAP, LIMITS, TEXT_MAX, createActions, normalizeText, parseBody };
+module.exports = { ACTIONS, ACTION_IDS, BODY_CAP, FIELD_KINDS, LIMITS, PROMPT_MAX, START_BODY_CAP, TEXT_MAX, createActions, normalizePrompt, normalizeText, parseBody };
