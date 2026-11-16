@@ -18,7 +18,6 @@ const {
 } = require('../../src/runtime/profiles/resolve.ts');
 
 const {
-  CanarySampler,
   shouldSample,
   hashKey,
 } = require('../../src/runtime/profiles/sampler.ts');
@@ -64,19 +63,11 @@ function setupTestProject(settingsContent?: any, initialRollback?: any): { proje
 }
 
 function sampleDecision(unitId: string, rate?: number): boolean {
-  if (typeof shouldSample === 'function') {
-    return shouldSample(unitId, rate);
-  }
-  const sampler = new CanarySampler();
-  return sampler.shouldSample(unitId, rate);
+  return shouldSample(unitId, rate);
 }
 
 function computeHash(key: string): number {
-  if (typeof hashKey === 'function') {
-    return hashKey(key);
-  }
-  const sampler = new CanarySampler();
-  return sampler.hashKey(key);
+  return hashKey(key);
 }
 
 // --- Test Suites ---

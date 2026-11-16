@@ -25,17 +25,7 @@ function shouldSample(unitKey: string, sampleRate: number): boolean {
   return normalized < sampleRate;
 }
 
-class CanarySampler {
-  shouldSample(unitKey: string, sampleRate: number = 0.10): boolean {
-    return shouldSample(unitKey, sampleRate);
-  }
-  hashKey(key: string): number {
-    return hashKey(key);
-  }
-}
-
 module.exports = {
   hashKey,
   shouldSample,
-  CanarySampler,
 };
