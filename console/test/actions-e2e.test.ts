@@ -31,7 +31,8 @@ const webRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-ui-actions-e2e-'))
 fs.writeFileSync(path.join(webRoot, 'index.html'), '<!doctype html><title>t</title>');
 after(() => fs.rmSync(webRoot, { recursive: true, force: true }));
 
-const rid = () => crypto.randomBytes(16).toString('base64url');
+// A start-session id begins with a letter or digit (a CLI flag value cannot begin with `-`), so no id here begins with `-` or `_`.
+const rid = () => `r${crypto.randomBytes(16).toString('base64url').slice(1)}`;
 const json = (reply: { body: string }) => JSON.parse(reply.body);
 const GRAPH = 'feat-graph';
 const LEGACY = 'feat-legacy';
