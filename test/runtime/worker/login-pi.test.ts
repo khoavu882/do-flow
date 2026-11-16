@@ -89,6 +89,12 @@ test('the shipped pi recipe against a fake pi gives each row of design §5.2', P
   assert.deepEqual([text.answer.state, text.answer.reason], ['unknown', 'unparseable-output'], 'exit 1 with stdout that is not JSON (an older pi)');
 });
 
+test('pi: a listing that exits 0 with no table (a usage text) reads unknown providers-unparsed, never logged-out', POSIX_ONLY, async () => {
+  const usage = await pi([{ argv: LISTING, steps: [{ print: 'Usage: pi --list-models' }, { exit: 0 }] }]);
+  assert.deepEqual([usage.answer.state, usage.answer.reason], ['unknown', 'providers-unparsed']);
+  assert.deepEqual(usage.calls, [LISTING], 'no check runs on an unparsed listing');
+});
+
 test('pi: a listed name that is not a provider id never reaches a command line', POSIX_ONLY, async () => {
   const { answer, calls } = await pi([listing(['-rf', 'a;b', 'anthropic']), said('anthropic', READY_OAUTH, 0)]);
   assert.equal(answer.state, 'logged-in');

@@ -13,7 +13,7 @@
 
 const { spawnBounded } = require('./process-tree.ts');
 const { compileTest, read } = require('./parsers/field-map.ts');
-const { parserFor } = require('../models/parsers.ts');
+const { parserFor, cleanName } = require('../models/parsers.ts');
 // The same cut quota.ts makes before matching its signals (quota.ts keeps its copy private).
 const { cutBytes } = require('./parsers/common.ts');
 const { descriptorDigest, workerCatalogue } = require('./catalogue.ts');
@@ -155,6 +155,18 @@ function answerOf(recipe: LoginRecipe, result: any): { state: LoginState; reason
   return none(neededJson ? 'unparseable-output' : `exit ${result.code}`);
 }
 
+/**
+ * Whether a listing that gave no row parsed (an empty listing, where `emptyMeans` applies) rather than printed text no
+ * parser reads (a usage line). A `table-column:<name>` listing parsed when a line's whitespace-separated cells name the
+ * column (its header). `lines` and `tsv-first-column` have no header: they parsed with no row only when stdout holds no
+ * text at all. Lines are compared after `cleanName`, so a header past its 120 characters is not seen (reads unparsed).
+ */
+function parsedEmpty(parse: string, text: string): boolean {
+  const column = /^table-column:(.+)$/.exec(parse);
+  if (!column) return cleanName(text) === '';
+  return text.split(/\r\n|[\n\r\u2028\u2029]/).some((line) => cleanName(line).split(' ').includes(column[1]));
+}
+
 /** The harness answer from its providers' answers (design 4.3). */
 function combine(answers: { provider: ProviderAnswer; billing: Billing | null }[], listed: number, at: string): RecipeAnswer {
   const providers = answers.map((entry) => entry.provider);
@@ -209,7 +221,9 @@ async function checkLogin({ harness, worker, env = process.env, cwd = process.cw
   const listing = await run(recipe.providers.argv, LISTING_MS);
   const parse = parserFor(recipe.providers.parse);
   if (listing.status !== 'exited' || listing.code !== 0 || listing.truncated || !parse) return unknown('providers-unlisted', stamp());
-  const ids: string[] = parse(String(listing.stdout ?? '')).map((model: any) => model.id);
+  const text = String(listing.stdout ?? '');
+  const ids: string[] = parse(text).map((model: any) => model.id);
+  if (ids.length === 0 && !parsedEmpty(recipe.providers.parse, text)) return unknown('providers-unparsed', stamp());
   if (ids.length === 0) return { ...unknown('no-provider-listed', stamp()), state: recipe.providers.emptyMeans };
 
   const max = Number.isInteger(recipe.providers.max) ? Math.min(recipe.providers.max as number, MAX_PROVIDERS) : MAX_PROVIDERS;

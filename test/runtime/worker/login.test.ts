@@ -168,6 +168,26 @@ test('4.3: a failed listing reads providers-unlisted; an empty one reads emptyMe
   assert.deepEqual([emptyUnknown.answer.state, emptyUnknown.answer.reason], ['unknown', 'no-provider-listed']);
 });
 
+test('4.3: a listing that gives no row and did not parse reads providers-unparsed; emptyMeans needs a listing that parsed', POSIX_ONLY, async () => {
+  /** The recipe with `parse` against a listing that prints `text` and exits 0. */
+  const listed = async (parse: string, text: string) => {
+    const steps = text === '' ? [{ exit: 0 }] : [{ print: text }, { exit: 0 }];
+    const r = rig({ byArgv: [{ argv: ['--list-models', '--offline'], steps }], run: [{ exit: 9 }] });
+    const probe = { ...PI, providers: { ...PI.providers, parse } };
+    return login.checkLogin({ harness: 'pi', worker: worker(probe), env: r.env, cwd: r.cwd, now: NOW });
+  };
+  const outcome = (answer: any) => [answer.state, answer.reason];
+  // A table kind parsed when its header names the column; a header-less text did not parse.
+  assert.deepEqual(outcome(await listed('table-column:provider', 'Usage: pi --list-models')), ['unknown', 'providers-unparsed']);
+  assert.deepEqual(outcome(await listed('table-column:provider', '')), ['unknown', 'providers-unparsed']);
+  assert.deepEqual(outcome(await listed('table-column:provider', 'provider  model')), ['logged-out', 'no-provider-listed']);
+  // A kind with no header (lines, tsv-first-column) parsed with no row only when stdout holds no text.
+  for (const parse of ['lines', 'tsv-first-column']) {
+    assert.deepEqual(outcome(await listed(parse, 'Usage: pi --list-models')), ['unknown', 'providers-unparsed'], parse);
+    assert.deepEqual(outcome(await listed(parse, '')), ['logged-out', 'no-provider-listed'], parse);
+  }
+});
+
 test('4.3: any provider logged in reads logged-in; billing agrees, mixes, or is null when some were unchecked', POSIX_ONLY, async () => {
   const one = await providers(['anthropic'], { anthropic: READY('oauth') });
   assert.equal(one.answer.state, 'logged-in');
