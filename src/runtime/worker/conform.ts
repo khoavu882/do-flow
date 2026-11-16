@@ -367,7 +367,7 @@ async function modelPart(ctx: any, worker: any, oneShot: Part): Promise<Part> {
   else return part('model-flag', 'unchecked', 'not-declared: oneShot, mainSession');
   if (!isArgv(worker.model.argv)) return part('model-flag', 'failed', 'model has no argv');
   try {
-    expected = via === 'one-shot' ? assembleArgv(worker, MARKER, false, ctx.lastMessageFile, binding) : mainArgv(worker, MARKER, ctx.lastMessageFile, MODEL_ID);
+    expected = via === 'one-shot' ? assembleArgv(worker, MARKER, false, ctx.lastMessageFile, binding) : mainArgv(worker, MARKER, ctx.lastMessageFile, { model: MODEL_ID, provider: null, effort: null });
   } catch (error: any) {
     return part('model-flag', 'failed', error.message);
   }

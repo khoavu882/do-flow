@@ -40,7 +40,7 @@ const { spawn } = require('node:child_process');
 const { emitContext, utf8Bytes } = require('../context/arbitrate.ts');
 const { grantSummary } = require('../context/summary-store.ts');
 const { wideningProblem, wideningFlagsProblem } = require('../../registry/widening-flags.ts');
-const { choiceOf, composeModelPart } = require('./model-choice.ts');
+const { composeModelPart } = require('./model-choice.ts');
 
 /** The parser table, required on first use as before (171 IC-003 resolves every parser id through it). */
 function parsers() { return require('./parsers.ts'); }
@@ -237,17 +237,9 @@ function launchRecord(recipe: any, identity: WorkerIdentity, prompt: string, edi
   };
 }
 
-/** 169: a main-session model as a choice. `model` is a plain id, a ModelChoice-shaped object or null (the harness default). */
-function mainChoice(model: unknown): ModelChoice | null {
-  if (model === null || model === undefined) return null;
-  const choice = choiceOf(model);
-  if (choice === null) throw new LaunchUsageError('model-invalid', 'mainArgv: a model must be a non-empty string');
-  return choice;
-}
-
 /** 165 IC-006, 169 IC-002: `mainSession.argv` with the model part spliced in and the placeholders replaced whole.
- * `model` null is the harness default (no model part). */
-function mainArgvOf(recipe: any, element: string, lastMessageFile: string | undefined, model: unknown, shape: boolean): string[] {
+ * `choice` null is the harness default (no model part). */
+function mainArgvOf(recipe: any, element: string, lastMessageFile: string | undefined, choice: ModelChoice | null, shape: boolean): string[] {
   const entry = recipe?.mainSession;
   if (!entry || entry.status !== 'supported' || !Array.isArray(entry.argv)) {
     throw new LaunchUsageError('recipe-incomplete', "mainArgv: worker 'mainSession' is not supported with an argv");
@@ -255,7 +247,6 @@ function mainArgvOf(recipe: any, element: string, lastMessageFile: string | unde
   if ((entry.promptVia === 'argv') !== entry.argv.includes(PROMPT_ELEMENT)) {
     throw new LaunchUsageError('recipe-incomplete', `mainArgv: promptVia '${entry.promptVia}' and the argv's '{prompt}' element disagree`);
   }
-  const choice = mainChoice(model);
   let modelPart: string[] = [];
   let tail: string[] = entry.argv;
   if (choice !== null) {
@@ -278,12 +269,12 @@ function mainArgvOf(recipe: any, element: string, lastMessageFile: string | unde
   });
 }
 
-function mainArgv(recipe: any, element: string, lastMessageFile?: string, model: string | ModelChoice | null = null): string[] {
+function mainArgv(recipe: any, element: string, lastMessageFile?: string, model: ModelChoice | null = null): string[] {
   return mainArgvOf(recipe, element, lastMessageFile, model, false);
 }
 
 /** 165 IC-003: the stored main-session argv, the prompt hashed, the output path and the model part as placeholders. */
-function mainArgvShape(recipe: any, prompt: string, model: string | ModelChoice | null = null): string[] {
+function mainArgvShape(recipe: any, prompt: string, model: ModelChoice | null = null): string[] {
   const hex = crypto.createHash('sha256').update(prompt, 'utf8').digest('hex');
   return mainArgvOf(recipe, `<prompt sha256:${hex} bytes:${Buffer.byteLength(prompt, 'utf8')}>`, '<last-message-file>', model, true);
 }
@@ -300,7 +291,7 @@ function mainEnv(env: Env, runId: string): Env {
 }
 
 /** 165 IC-003: the launch fields a main-session record stores. Names only, never a value. */
-function mainLaunchRecord(recipe: any, prompt: string, model: string | ModelChoice | null) {
+function mainLaunchRecord(recipe: any, prompt: string, model: ModelChoice | null) {
   return {
     recipe: {
       binary: recipe.cli.binary,
@@ -344,7 +335,7 @@ function refuseUnknownMainParser(recipe: any): void {
 
 /** 165 D1, D9: launches a started main session from its recipe in `execWorktree`. No context emission, no grant. */
 function launchMainSession({ recipe, prompt, execWorktree, env, runId, model = null, lastMessageFile }: {
-  recipe: any; prompt: string; execWorktree: string; env: Env; runId: string; model?: string | ModelChoice | null; lastMessageFile?: string;
+  recipe: any; prompt: string; execWorktree: string; env: Env; runId: string; model?: ModelChoice | null; lastMessageFile?: string;
 }): Promise<any> {
   return Promise.resolve().then(() => {
     const sessionEnv = mainEnv(env, runId);

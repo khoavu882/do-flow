@@ -280,7 +280,7 @@ test('169: mainArgv puts the composed model part before the positional tail; a f
   worker.mainSession.argv = ['-p', '--thinking', 'off', '--mode', 'json', '--no-approve', '--', '{prompt}'];
   const argv = mainArgv(worker, 'hello', undefined, { model: 'm1', provider: 'openai', effort: 'high' });
   assert.deepEqual(argv, ['-p', '--mode', 'json', '--no-approve', '--model', 'openai/m1', '--thinking', 'high', '--', 'hello']);
-  assert.deepEqual(mainArgv(worker, 'hello', undefined, 'm1'), ['-p', '--thinking', 'off', '--mode', 'json', '--no-approve', '--model', 'm1', '--', 'hello']);
+  assert.deepEqual(mainArgv(worker, 'hello', undefined, { model: 'm1', provider: null, effort: null }), ['-p', '--thinking', 'off', '--mode', 'json', '--no-approve', '--model', 'm1', '--', 'hello']);
   assert.deepEqual(mainArgv(worker, 'hello'), ['-p', '--thinking', 'off', '--mode', 'json', '--no-approve', '--', 'hello']);
 });
 
@@ -292,5 +292,4 @@ test('169: the main-session shape and record keep the placeholders, never the bo
   const text = JSON.stringify(mainLaunchRecord(worker, 'p', choice));
   for (const value of ['secretish-model', 'prov-x']) assert.equal(text.includes(value), false, value);
   assert.throws(() => mainArgv(worker, 'p', undefined, { model: 'm1', provider: null, effort: 'turbo' }), { code: 'model-part-invalid' });
-  assert.throws(() => mainArgv(worker, 'p', undefined, ''), { code: 'model-invalid' });
 });
