@@ -8,7 +8,7 @@ const { validateValue } = require('../settings/files.ts');
 const { tierView, cellFor, slotsOf } = require('./tier-view.ts');
 const { bindingText } = require('./binding-text.ts');
 const { changeBinding, closestIds } = require('./bind.ts');
-const { matchListed, modelCheck, effortCheck } = require('../worker/model-choice.ts');
+const { matchListed, modelCheck, effortCheck, enabledIn } = require('../worker/model-choice.ts');
 const { PROVIDER_RE, EFFORT_RE } = require('../../registry/model-parts.ts');
 const { LIST_MAX_MODELS } = require('./list-models.ts');
 const { inWorkerSession } = require('../context/identity.ts');
@@ -177,8 +177,9 @@ function handleList({ json, projectRoot, env, syncOptions = {} }: any): number {
   const models: any[] = [];
   const logins = loginById({ env, projectRoot, view: syncOptions.view });
   for (const [harnessId, h] of Object.entries<any>(catalogue?.harnesses || {})) {
+    const descriptor = workerDescriptor(harnessId, { registry: syncOptions.registry, env, projectRoot, view: syncOptions.view });
     for (const m of h.offeredModels || []) {
-      models.push({ harness: harnessId, model: m.id, displayName: m.displayName || m.id, ...listedFields(m), loginState: stateOf(logins, harnessId), status: allowed.includes(m.id) ? 'enabled' : 'listed' });
+      models.push({ harness: harnessId, model: m.id, displayName: m.displayName || m.id, ...listedFields(m), loginState: stateOf(logins, harnessId), status: enabledIn(allowed, m.id, m.provider ?? null, descriptor) ? 'enabled' : 'listed' });
     }
   }
   const harnesses = view.harnesses;
@@ -275,12 +276,15 @@ async function handleModelsCommand({
     let modelMeta: any = null;
     const logins = loginById({ env, projectRoot });
     const wanted = { model, provider: typeof provider === 'string' && provider !== '' ? provider : null, effort: null };
+    let enabled = allowed.includes(model);
 
     if (catalogue && catalogue.harnesses) {
       for (const [harnessId, h] of Object.entries<any>(catalogue.harnesses)) {
-        const found = matchListed(h.offeredModels || [], wanted, workerDescriptor(harnessId, { registry: syncOptions.registry, env, projectRoot, view: syncOptions.view }));
+        const descriptor = workerDescriptor(harnessId, { registry: syncOptions.registry, env, projectRoot, view: syncOptions.view });
+        const found = matchListed(h.offeredModels || [], wanted, descriptor);
         if (found.length > 0) {
           if (!modelMeta) modelMeta = found[0];
+          if (found.some((m: any) => enabledIn(allowed, m.id, m.provider ?? null, descriptor))) enabled = true;
           matchingHarnesses.push({
             harnessId,
             loginState: stateOf(logins, harnessId),
@@ -305,7 +309,7 @@ async function handleModelsCommand({
       model,
       displayName: modelMeta?.displayName || model,
       family: modelMeta?.family || 'unknown',
-      status: allowed.includes(model) ? 'enabled' : 'listed',
+      status: enabled ? 'enabled' : 'listed',
       harnesses: matchingHarnesses,
     };
 

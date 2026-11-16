@@ -258,3 +258,19 @@ test('an existing plain id that several providers list is shown with the several
   const text = (await call(s, 'list')).out;
   assert.match(text, /light=gpt-6\.1-terra \[several providers list it\]/);
 });
+
+test('169 A-05: models.enabled marks a listed model by its bare id or by the composed provider/id, in list and describe', async (t: any) => {
+  const s = setup(t);
+  await s.seedPi();
+  fs.mkdirSync(path.dirname(s.settingsFile), { recursive: true });
+  fs.writeFileSync(s.settingsFile, JSON.stringify({ schema: 1, 'models.enabled': ['openai/gpt-6.1-terra', 'gpt-6-luna'] }));
+  const rows = JSON.parse((await call(s, 'list', { json: true })).out).models.filter((m: any) => m.harness === 'pi');
+  const status = (model: string, provider: string) => rows.find((m: any) => m.model === model && m.provider === provider)?.status;
+  assert.equal(status('gpt-6.1-terra', 'openai'), 'enabled', 'the composed entry marks its own provider row');
+  assert.equal(status('gpt-6.1-terra', 'openai-codex'), 'listed', 'and no other provider row');
+  assert.equal(status('gpt-6-luna', 'openai-codex'), 'enabled', 'a bare entry still marks the row');
+  const describe = async (extra: any = {}) => JSON.parse((await call(s, 'describe', { model: 'gpt-6.1-terra', json: true, ...extra })).out).status;
+  assert.equal(await describe({ provider: 'openai' }), 'enabled');
+  assert.equal(await describe({ provider: 'openai-codex' }), 'listed');
+  assert.equal(await describe(), 'enabled', 'with no provider given, one enabled offering is enough');
+});

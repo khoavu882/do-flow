@@ -1110,6 +1110,7 @@ function workerPoolDoctorView({
 }: any = {}) {
   const { readCatalogue } = require('./models/catalogue.ts');
   const { readAllowedModels } = require('./worker/models.ts');
+  const { enabledIn } = require('./worker/model-choice.ts');
   const { readWorkerBilling, effectiveBilling } = require('./settings/worker-billing.ts');
   const { activeIds } = require('../registry/harness-ids.ts');
   const { workerCatalogue } = require('./worker/catalogue.ts');
@@ -1126,6 +1127,7 @@ function workerPoolDoctorView({
   const store = readLoginStore(env);
 
   const observedModelIds = new Set<string>();
+  const enabledModelIds = new Set<string>();
   const harnesses: any[] = [];
   const allHarnessIds = Array.from(new Set([...activeIds(repoRoot), ...Object.keys(catalogue?.harnesses || {})]));
 
@@ -1135,7 +1137,9 @@ function workerPoolDoctorView({
     const descBilling = regEntry?.worker?.billing ?? 'unknown';
     const login = loginAnswerOf({ harness: id, worker: workers.get(id) ?? null, record: Object.hasOwn(store.harnesses, id) ? store.harnesses[id] : null });
     for (const m of catEntry?.offeredModels || []) {
-      if (m && m.id) observedModelIds.add(m.id);
+      if (!m || !m.id) continue;
+      observedModelIds.add(m.id);
+      if (enabledIn(allowed, m.id, m.provider ?? null, workers.get(id))) enabledModelIds.add(m.id);
     }
     harnesses.push({
       harness: id,
@@ -1149,17 +1153,12 @@ function workerPoolDoctorView({
     });
   }
 
-  let enabledCount = 0;
-  for (const mId of observedModelIds) {
-    if (allowed.includes(mId)) enabledCount++;
-  }
-
   return {
     state: catalogue ? 'synced' : 'unsynced',
     syncedAt: catalogue?.syncedAt || null,
     harnesses,
     models: {
-      enabledCount,
+      enabledCount: enabledModelIds.size,
       listedCount: observedModelIds.size,
       enabled: allowed,
     },

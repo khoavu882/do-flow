@@ -102,12 +102,14 @@ test('169: resolveBinding reads a slot through choiceOf; bindingGap names an uns
   }
 });
 
-test('169: models.enabled compares the model id only', () => {
+test('169 A-05: models.enabled matches the bare id or the composed id of an id-prefix harness', () => {
   const bindings = set({ claude: { standard: { model: 'm', provider: 'openai' } } });
-  const on = resolveBinding({ worker: 'claude', tier: 'standard', descriptor: WITH_PARTS, bindings, allowedModels: ['m'] });
-  assert.equal(on.enabledStatus, 'enabled');
-  const off = resolveBinding({ worker: 'claude', tier: 'standard', descriptor: WITH_PARTS, bindings, allowedModels: ['openai/m'] });
-  assert.equal(off.enabledStatus, 'disabled');
+  const status = (descriptor: any, allowedModels: string[]) => resolveBinding({ worker: 'claude', tier: 'standard', descriptor, bindings, allowedModels }).enabledStatus;
+  assert.equal(status(WITH_PARTS, ['m']), 'enabled');
+  assert.equal(status(WITH_PARTS, ['openai/m']), 'enabled');
+  assert.equal(status(WITH_PARTS, ['azure/m']), 'disabled');
+  // The composed form exists only where the provider is part of the id.
+  assert.equal(status({ ...WITH_PARTS, provider: { ...PROVIDER, via: 'flag', argv: ['--provider', '{provider}'] } }, ['openai/m']), 'disabled');
 });
 
 test('169: a bound effort reaches the launch record and the worker argv; an unsupported one is refused before the run', POSIX, async (t) => {

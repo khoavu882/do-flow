@@ -150,4 +150,14 @@ function effortCheck(entry: any, choice: ModelChoice, worker: any): EffortCheck 
   return verdicts.size === 1 ? [...verdicts][0] : 'unchecked';
 }
 
-module.exports = { keyOf, choiceOf, composeModelPart, matchListed, modelCheck, effortCheck };
+/**
+ * The one `models.enabled` rule: an entry matches a model when it equals the bare id or the composed id the user would type
+ * (`provider + separator + id`, only where the descriptor puts the provider in the id: `id-prefix`).
+ */
+function enabledIn(allowed: string[], model: string, provider: string | null, worker: any): boolean {
+  if (allowed.includes(model)) return true;
+  const entry = worker?.provider;
+  return provider !== null && entry?.status === 'supported' && entry.via === 'id-prefix' && allowed.includes(provider + entry.separator + model);
+}
+
+module.exports = { keyOf, choiceOf, composeModelPart, matchListed, modelCheck, effortCheck, enabledIn };
