@@ -42,9 +42,8 @@ function walkFiles(relativeDir: any): any {
 }
 
 /** The language of a shipped source file, by extension or shebang; null for data and prose files.
- * `.ts` is a JS-family source: DoFlow runs it directly through Node native type-stripping
- * (agent-docs/BRIEF_GOAL_DOFLOW.md), so a converted writer still makes the same fs write calls and
- * must still be scanned and declared. `.d.ts` is a declaration file, not a module, and is excluded. */
+ * `.ts` is a JS-family source: DoFlow runs it directly through Node native type-stripping,
+ * so a writer in `.ts` still makes the same fs write calls and must still be scanned and declared. `.d.ts` is a declaration file, not a module, and is excluded. */
 function sourceKind(file: any, text: any) {
   if (/\.d\.ts$/.test(file)) return null;
   if (/\.(?:js|cjs|mjs|ts)$/.test(file)) return 'js';

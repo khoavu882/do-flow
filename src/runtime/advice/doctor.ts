@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 const fs = require('node:fs');
 const { resolveRoots } = require('../storage/roots.ts');
 const { loadStorageRegistry } = require('../storage/registry.ts');

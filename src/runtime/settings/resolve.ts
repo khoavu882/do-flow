@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * The settings resolver (086 IC-006, DD-2, DD-5, DD-6; data-model §3-4). `loadSettings()` returns a
  * view; `view.get(key, 'project' | 'global')` folds that key bottom-up from its registry default:

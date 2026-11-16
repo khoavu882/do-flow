@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * The named references a settings key may point at (086 IC-001, DD-1): the one place the settings
  * registry reaches into another registry for a value it must not copy. `valuesRef` names a list of

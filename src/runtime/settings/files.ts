@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * Reading one settings layer file (`settings.json` / `settings.local.json`; 086 IC-002, data-model §2)
  * and the value encodings that file uses. A leaf module: it takes the registry as an argument and

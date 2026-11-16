@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * Where DoFlow's own failures are kept on this machine, and whether capture is on (IC-011, IC-014).
  * One folder per machine, shared by every project (DEC-007), `failures` beside `settings.json` in the

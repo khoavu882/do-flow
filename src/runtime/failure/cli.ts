@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * The `failure` verb (IC-019): `list`, `settle` and `capture` over the machine-wide failure store
  * (IC-011 to IC-015). The store is per machine, so the verb ignores `-g` and works from any

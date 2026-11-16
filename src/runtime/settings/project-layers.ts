@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * 086 IC-007, DD-9: where the project layer of the settings lives. Locates files only; both project
  * files are untrusted (D-16) and the resolver reads them. A linked worktree with no settings of its

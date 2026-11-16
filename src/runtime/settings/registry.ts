@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * The settings key registry and its load-time checks (086 IC-001, DD-1, DD-5, DD-6;
  * data-model §1). `core/registry/settings.json` declares every key DoFlow reads from a settings file:

@@ -131,7 +131,7 @@ function runnerWithoutBridge() {
   return path.join(dir, 'stream-hook-runner.js');
 }
 
-test('stream-hook-runner capture: the runner\'s classifier copy answers like src/runtime/failure/classifier.js on every fixture', () => {
+test('stream-hook-runner capture: the runner\'s classifier copy answers like src/runtime/failure/classifier.ts on every fixture', () => {
   const fixtures: any = [
     new TypeError('x'), new RangeError('x'), new ReferenceError('x'), new SyntaxError('x'), new Error('x'),
     Object.assign(new Error('x'), { name: 'AssertionError' }),

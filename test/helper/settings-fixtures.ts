@@ -122,7 +122,7 @@ function createSettingsEnv(t: any, { prefix = 'doflow-settings-', worktree = fal
   return fixture;
 }
 
-/** One lifecycle event envelope, dated `atMs` (shape as test/runtime/lifecycle-retention.test.js). */
+/** One lifecycle event envelope, dated `atMs` (shape as test/runtime/lifecycle-retention.test.ts). */
 let serial = 0;
 function lifecycleEvent(type: any, data: any, atMs: any) {
   serial += 1;

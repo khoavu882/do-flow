@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * `doflow config validate --prepared-run <file>` (119 IC-010, FR-013, NFR-005). Checks a prepared-run file
  * `{ schema: 1, taskClass, primary: { harness, model }, settings: { <key>: <value> }, presets: { review, debate } }`

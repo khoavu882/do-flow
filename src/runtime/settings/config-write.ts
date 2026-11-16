@@ -1,7 +1,5 @@
 'use strict';
 
-// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
-
 /**
  * `doflow config schema|validate|set|unset` (119 IC-007, IC-008, IC-009; D-2). One read, validate and
  * write path over the settings registry, the resolver and the atomic `writeLayer`. A value is never

@@ -116,7 +116,7 @@ for (const xdg of ['absolute', 'unset']) {
   }
 }
 
-// The IC-004 corpus (the strings of test/settings/lexical.test.js), each written as the bytes of
+// The IC-004 corpus (the strings of test/settings/lexical.test.ts), each written as the bytes of
 // settings.json; `answer` is the lexical rule's result, and capture is off only for 'off'.
 const BOM = '\u00ef\u00bb\u00bf';
 const NBSP = '\u00c2\u00a0'; // U+00A0 as its two UTF-8 bytes, latin1 characters
