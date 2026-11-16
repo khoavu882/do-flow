@@ -115,6 +115,19 @@ test('G84.2 a worker\'s own secretFlags add to the built-in set, a short form on
   assert.equal(secretFlagsProblem(declared), null);
 });
 
+test('G84.2 a flag entry also accepts a short alias of one to three characters after one dash, and nothing longer or odd', () => {
+  for (const flag of ['-t', '-ab', '-abc', '-A1z']) {
+    assert.equal(secretFlagsProblem([{ flag }]), null, flag);
+    assert.equal(secretProblem([flag, 'v'], { binary: 'mycli', declared: [{ flag }] }), flag, `${flag} is matched`);
+    assert.equal(secretProblem([`${flag}=v`], { binary: 'mycli', declared: [{ flag }] }), `${flag}=v`, `${flag}=v is matched`);
+  }
+  for (const flag of ['-abcd', '--', '-', '-a_', '-a-', '- a', '-é']) {
+    assert.notEqual(secretFlagsProblem([{ flag }]), null, flag);
+  }
+  assert.equal(secretProblem(['-abcd'], { binary: 'mycli', declared: [{ flag: '-abc' }] }), null, 'a longer token is another flag');
+  assert.notEqual(secretFlagsProblem([{ flag: '--x', short: '-ab' }]), null, 'a short field stays one character');
+});
+
 test('G84.3 every built-in descriptor passes', () => {
   for (const harness of registry.harnesses) {
     const errors: string[] = [];

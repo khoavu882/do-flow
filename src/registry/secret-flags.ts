@@ -7,7 +7,8 @@
 //
 // Entry shapes:
 //   { flag: '--x', short?: '-x' }   a flag that prints or accepts a secret, with any value (`--x v`, `--x=v`;
-//       a short form also attached, `-xv`).
+//       a short form also attached, `-xv`). `flag` may itself be a short alias of one to three characters (`-t`,
+//       `-abc`), matched exactly; `short` stays one character.
 //   { command: ['auth', 'export'] } 1 to 4 exact argv elements, contiguous, anywhere in argv. Pi and opencode print
 //       secrets through subcommands, not flags, so a flag list alone would miss them.
 // A long `flag` of any set and every owner entry apply to every binary, a package worker's included; a `short` and
@@ -55,6 +56,7 @@ const OWNER: readonly Entry[] = freeze([
 const PLACEHOLDER = /^\{[A-Za-z]+\}$/;
 const LONG = /^--[A-Za-z0-9][A-Za-z0-9-]*$/;
 const SHORT = /^-[A-Za-z0-9]$/;
+const FLAG_ALIAS = /^-[A-Za-z0-9]{1,3}$/;
 const DECLARED_MAX = 32;
 const COMMAND_MAX = 4;
 const COMMAND_WORD_MAX = 64;
@@ -106,7 +108,7 @@ function secretFlagsProblem(value: unknown): string | null {
     const extra = Object.keys(entry).find((key) => !allowed.includes(key));
     if (extra) return `${at} has unknown field '${extra}'`;
     if (kinds[0] === 'flag') {
-      if (!(typeof entry.flag === 'string' && (LONG.test(entry.flag) || SHORT.test(entry.flag)))) return `${at} flag must be --name or -x`;
+      if (!(typeof entry.flag === 'string' && (LONG.test(entry.flag) || FLAG_ALIAS.test(entry.flag)))) return `${at} flag must be --name or -x (one to three characters)`;
       if (Object.hasOwn(entry, 'short') && !(typeof entry.short === 'string' && SHORT.test(entry.short))) return `${at} short must be -x`;
     } else if (!(Array.isArray(entry.command) && entry.command.length >= 1 && entry.command.length <= COMMAND_MAX
       && entry.command.every((word: unknown) => typeof word === 'string' && word !== '' && word === word.trim() && word.length <= COMMAND_WORD_MAX
