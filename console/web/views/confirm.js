@@ -49,7 +49,9 @@ function askRefetch() {
 }
 
 /**
- * A fresh request id: 16 random bytes as base64url, 22 characters (IC-002 `^[A-Za-z0-9_-]{22}$`).
+ * A fresh request id: 16 random bytes as base64url, 22 characters, the first always a letter or digit (`^[A-Za-z0-9][A-Za-z0-9_-]{21}$`):
+ * start-session hands the id to the core as a `--request-id` flag value and the CLI refuses a value that begins with `-`. A leading
+ * `-` or `_` (index 62 or 63 of the alphabet) becomes `A` or `B`, which costs 1 bit of the 128, not the rule.
  * @param {{ getRandomValues: (bytes: Uint8Array) => Uint8Array } | undefined} [source] `crypto` by default
  */
 function newRequestId(source) {
@@ -58,7 +60,8 @@ function newRequestId(source) {
   random.getRandomValues(bytes);
   let binary = '';
   for (const byte of bytes) binary += String.fromCharCode(byte);
-  return globalThis.btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const id = globalThis.btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return id.replace(/^[-_]/, (lead) => (lead === '-' ? 'A' : 'B'));
 }
 
 /**
@@ -75,7 +78,7 @@ function openConfirm(spec, options = {}) {
   const opener = doc.activeElement;
   const id = `confirm-${(opened += 1)}`;
   // Fixed now: what the page drew, and the id this confirmation is known by.
-  const requestId = typeof spec.requestId === 'string' && /^[A-Za-z0-9_-]{22}$/.test(spec.requestId) ? spec.requestId : newRequestId(options.random);
+  const requestId = typeof spec.requestId === 'string' && /^[A-Za-z0-9][A-Za-z0-9_-]{21}$/.test(spec.requestId) ? spec.requestId : newRequestId(options.random);
   const base = JSON.parse(JSON.stringify(spec.body));
   const expect = spec.expect === null ? null : { revision: spec.expect.revision };
   const rule = spec.text;

@@ -32,7 +32,8 @@ const ALL_IDS = [...IDS, 'start-session'];
 type Id = typeof IDS[number];
 const PK = '0123456789abcdef';
 const RUN_ID = 'w-3f2a0b1c2d3e';
-const rid = () => crypto.randomBytes(16).toString('base64url');
+// Never begins with '-' or '_': start-session carries the id as a CLI flag value, and the row refuses such an id (165 row fix).
+const rid = () => `r${crypto.randomBytes(16).toString('base64url').slice(1)}`;
 const BODIES: Record<Id, (over?: Record<string, unknown>) => Record<string, unknown>> = {
   'decide-gate': (over = {}) => ({ v: 1, requestId: rid(), projectKey: PK, slug: 'feat-a', taskId: 't1', gateId: 'gate-a', decision: 'approve', note: null, expect: { revision: 7 }, ...over }),
   'close-run': (over = {}) => ({ v: 1, requestId: rid(), projectKey: PK, slug: null, taskId: 'fix-x', note: 'work ended in PR 41', expect: { revision: 3 }, ...over }),
@@ -937,6 +938,18 @@ test('the seventh start of an actor in an hour is 429 start-rate-limited with Re
   await w.actions.stop();
   const summaries = w.lines().filter((line) => line.phase === 'summary' && line.code === 'start-rate-limited');
   assert.deepEqual(summaries.map((line) => [line.count, line.actor.deviceId, line.action]), [[1, phone.device.id, 'start-session'], [1, phone.device.id, 'start-session']]);
+});
+
+test('a start-session request id beginning with \'-\' is 400 usage and spawns nothing', async (t) => {
+  const runner = startRunner();
+  const w = await loopback(t, runner);
+  for (const lead of ['-', '_']) {
+    const reply = await w.post('start-session', startBody({ requestId: `${lead}ELeibJmLoXmIne4mqreyQ`.slice(0, 22) }));
+    assert.equal(reply.status, 400, `leading ${lead}`);
+    assert.equal(errorOf(reply), 'usage');
+  }
+  assert.equal(runner.acts.length, 0, 'the core never saw it');
+  assert.equal((await w.post('start-session', startBody({ requestId: 'ELeibJmLoXmIne4mqreyQ-' }))).status, 200, 'a dash inside the id is fine');
 });
 
 test('FR-011: a double tap with one request id starts once and replays the first reply; a repeat the core answers as replayed is 200 with result.replayed', async (t) => {

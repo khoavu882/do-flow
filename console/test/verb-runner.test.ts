@@ -2418,5 +2418,5 @@ test('the new patterns: harness, model, entry and the request id', () => {
   accepts(PATTERNS.harness, ['claude', 'codex', 'kiro', 'opencode', 'copilot', 'pi', 'a1', 'a'.repeat(32)], ['-x', 'c', 'Claude', 'a_b', 'a b', 'a'.repeat(33), '1abc', '', 'claude\n']);
   accepts(PATTERNS.model, ['claude-sonnet-4.5', 'gpt-6.1:high', 'a/b@c', 'A', 'm'.repeat(128)], ['-m', '--model', '.x', '', 'a b', 'a\n', 'a\0', 'm'.repeat(129)]);
   accepts(PATTERNS.entry, ['do', 'none'], ['DO', 'do\n', ' do', 'all', '', 'none ']);
-  accepts(PATTERNS.requestId, [REQUEST_ID_A, 'A'.repeat(22), '_-_-_-_-_-_-_-_-_-_-'.padEnd(22, 'a')], ['', 'a'.repeat(21), 'a'.repeat(23), `${'a'.repeat(21)}.`, `${'a'.repeat(21)}\n`]);
+  accepts(PATTERNS.requestId, [REQUEST_ID_A, 'A'.repeat(22), `a${'_-'.repeat(10)}_`, '0'.repeat(22)], ['', '-'.repeat(22), `-${'a'.repeat(21)}`, `_${'a'.repeat(21)}`, 'a'.repeat(21), 'a'.repeat(23), `${'a'.repeat(21)}.`, `${'a'.repeat(21)}\n`]);
 });

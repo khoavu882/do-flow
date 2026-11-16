@@ -133,7 +133,8 @@ function fixture(t: any, { fakes = ['claude', 'codex', 'opencode', 'pi'] }: { fa
   return f;
 }
 
-const requestId = () => crypto.randomBytes(16).toString('base64url');
+// The core refuses an id that begins with '-' or '_'.
+const requestId = () => `r${crypto.randomBytes(16).toString('base64url').slice(1)}`;
 
 function startArgs(f: any, over: any = {}) {
   return {
@@ -351,7 +352,7 @@ test('refusals: every IC-001 id, exit 1, and no store is changed', POSIX, async 
 
 test('usage: a missing --stdin, a malformed key or request id is exit 2 usage', POSIX, async (t: any) => {
   const f = fixture(t);
-  for (const over of [{ stdin: false }, { projectKey: 'XYZ' }, { requestId: 'short' }, { entry: 'maybe' }, { via: 'phone' }]) {
+  for (const over of [{ stdin: false }, { projectKey: 'XYZ' }, { requestId: 'short' }, { requestId: `-${'a'.repeat(21)}` }, { requestId: `_${'a'.repeat(21)}` }, { entry: 'maybe' }, { via: 'phone' }]) {
     const { exit, body } = await start(f, over);
     assert.equal(exit, 2, JSON.stringify(over));
     assert.equal(body.error, 'usage');

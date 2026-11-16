@@ -55,8 +55,8 @@ const ENTRIES = Object.freeze(['do', 'none']);
 const KEY16 = /^[0-9a-f]{16}$/;
 const HARNESS_ID = /^[a-z][a-z0-9-]{1,31}$/;
 const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}$/;
-/** The Console's request id (console/src/verb-runner.ts PATTERNS.requestId): 22 base64url characters. */
-const REQUEST_ID = /^[A-Za-z0-9_-]{22}$/;
+/** The Console's request id (console/src/verb-runner.ts PATTERNS.requestId): 22 base64url characters, the first a letter or digit (the CLI cannot carry a flag value that begins with `-`). */
+const REQUEST_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{21}$/;
 const TIERS = Object.freeze(['orchestrator', 'frontier', 'standard', 'light']);
 const CHECKOUTS_MAX = 64;
 const MODELS_MAX = 50;
@@ -265,7 +265,7 @@ async function startSession(o: any) {
   const worktreeKey = pattern(o.worktreeKey, KEY16, '--worktree-key', '16 lowercase hex characters');
   const harness = pattern(o.harness, HARNESS_ID, '--harness', 'a harness id');
   const entry = pattern(o.entry, /^(?:do|none)$/, '--entry', 'do or none');
-  const requestId = pattern(o.requestId, REQUEST_ID, '--request-id', '22 base64url characters');
+  const requestId = pattern(o.requestId, REQUEST_ID, '--request-id', '22 base64url characters beginning with a letter or digit');
   const model = given(o.model) ? pattern(o.model, MODEL_ID, '--model', 'a model id') : null;
   const startedBy = given(o.via) ? pattern(o.via, RELAY_LABEL, '--via', 'console or device.d-<12 lowercase hex>') : 'manual';
   if (o.stdin !== true) throw new StartUsageError('--stdin is required: the prompt is read from stdin');

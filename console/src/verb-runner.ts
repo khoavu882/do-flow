@@ -307,7 +307,8 @@ const PATTERNS = Object.freeze({
   harness: /^[a-z][a-z0-9-]{1,31}$/,
   model: /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}$/,
   entry: /^(?:do|none)$/,
-  requestId: /^[A-Za-z0-9_-]{22}$/,
+  // Begins with a letter or digit: the CLI reads a flag value that starts with `-` as a missing value, so the core never sees such an id.
+  requestId: /^[A-Za-z0-9][A-Za-z0-9_-]{21}$/,
 });
 const LIMIT_MAX = 500;
 const DAYS_MAX = 90;

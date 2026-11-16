@@ -103,6 +103,8 @@ const MEMO_MS = 10 * MINUTE_MS;
 const FLUSH_EVERY_MS = MINUTE_MS;
 const WARN_EVERY_MS = MINUTE_MS;
 const REQUEST_ID = /^[A-Za-z0-9_-]{22}$/;
+/** start-session carries its id as a CLI flag value, which the CLI refuses when it begins with `-`: this row's id begins with a letter or digit. */
+const START_REQUEST_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{21}$/;
 const DEVICE_ID = /^d-[0-9a-f]{12}$/;
 /** IC-009: removed after NFC and the whitespace rule: C0, DEL and C1, zero-width and bidi controls, the BOM. */
 const REMOVED = /[\u0000-\u001F\u007F-\u009F​-‏‪-‮⁦-⁩﻿]/g;
@@ -195,7 +197,7 @@ function readBodyOf(spec: ActionSpec, text: string | null): { body: Body } | { c
   if (!object(raw)) return usage;
   const keys = ['v', 'requestId', 'projectKey', ...Object.keys(spec.fields)];
   if (Object.keys(raw).sort().join() !== [...keys].sort().join()) return usage;
-  if (raw.v !== 1 || typeof raw.requestId !== 'string' || !REQUEST_ID.test(raw.requestId)
+  if (raw.v !== 1 || typeof raw.requestId !== 'string' || !(spec.id === 'start-session' ? START_REQUEST_ID : REQUEST_ID).test(raw.requestId)
     || typeof raw.projectKey !== 'string' || !PATTERNS.key16.test(raw.projectKey)) return usage;
   const body: Body = { v: 1, requestId: raw.requestId, projectKey: raw.projectKey };
   let refused: Refused | null = null;

@@ -533,7 +533,20 @@ test('requestId: 16 random bytes as 22 base64url characters', () => {
   for (let i = 0; i < 50; i += 1) ids.add(confirm.newRequestId());
   assert.equal(ids.size, 50);
   for (const id of ids) assert.match(id, /^[A-Za-z0-9_-]{22}$/);
-  assert.match(confirm.newRequestId({ getRandomValues: (bytes: Uint8Array) => bytes.fill(255) }), /^_{21}w$/);
+  assert.match(confirm.newRequestId({ getRandomValues: (bytes: Uint8Array) => bytes.fill(255) }), /^[A-Za-z0-9][A-Za-z0-9_-]{21}$/);
+});
+
+test('start-session request ids never begin with \'-\' or \'_\': the leading byte forced through every value 0..255', () => {
+  let seed = 12345;
+  const next = () => { seed = (Math.imul(seed, 1103515245) + 12345) >>> 0; return seed >>> 24; };
+  let count = 0;
+  for (let i = 0; i < 10240; i += 1) {
+    const lead = i % 256;
+    const id = confirm.newRequestId({ getRandomValues: (bytes: Uint8Array) => { for (let k = 0; k < bytes.length; k += 1) bytes[k] = next(); bytes[0] = lead; return bytes; } });
+    assert.match(id, /^[A-Za-z0-9][A-Za-z0-9_-]{21}$/, `leading byte ${lead}`);
+    count += 1;
+  }
+  assert.equal(count, 10240);
 });
 
 // ---- the action client --------------------------------------------------------------------------
