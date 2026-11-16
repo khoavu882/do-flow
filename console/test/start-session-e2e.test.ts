@@ -419,6 +419,48 @@ test('the same requestId is one run (memo); after a Console restart it is 200 re
   w.open();
 });
 
+/** One real core process starting `codex` in the linked checkout of `w`, its fake told to wait on `fakeDir`: `{ exit, body }` once it exits. */
+function raceStart(w: any, fakeDir: string): Promise<{ exit: number | null, body: any, stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [CORE, 'worker', '--action', 'start-session', '--project-key', w.key, '--worktree-key', w.linkedKey, '--harness', 'codex',
+      '--entry', 'none', '--request-id', rid(), '--stdin', '--json'], { cwd: w.main, env: { ...w.env, FAKE_DIR: fakeDir }, stdio: ['pipe', 'pipe', 'pipe'] });
+    let out = '';
+    let err = '';
+    child.stdout.on('data', (chunk: any) => { out += chunk; });
+    child.stderr.on('data', (chunk: any) => { err += chunk; });
+    child.on('error', reject);
+    child.on('close', (exit: number | null) => { try { resolve({ exit, body: JSON.parse(out), stderr: err }); } catch { reject(new Error(`no JSON (exit ${exit}): ${out} ${err}`)); } });
+    child.stdin.end('race');
+  });
+}
+
+const RACE_ROUNDS = 20;
+
+test(`165 review B-7: two real core processes start in one checkout at once, ${RACE_ROUNDS} rounds: exactly one is admitted each round, the other is refused checkout-busy`, { ...POSIX, timeout: 240_000 }, async (t: any) => {
+  const w = world(t);
+  const admitted: string[] = [];
+  for (let round = 0; round < RACE_ROUNDS; round += 1) {
+    // Each round's fakes wait on their own directory, so ending one round's session never ends the next round's early.
+    const fakeDir = path.join(w.dir, `race-${round}`);
+    fs.mkdirSync(fakeDir);
+    // Both are spawned in the same tick and meet only at the core's run-store lock: no sleep orders them.
+    const replies = await Promise.all([raceStart(w, fakeDir), raceStart(w, fakeDir)]);
+    const won = replies.filter((r) => r.exit === 0);
+    const lost = replies.filter((r) => r.exit !== 0);
+    assert.equal(won.length, 1, `round ${round}: ${JSON.stringify(replies.map((r) => [r.exit, r.body]))}`);
+    assert.deepEqual([lost[0].exit, lost[0].body.ok, lost[0].body.code], [1, false, 'checkout-busy'], `round ${round}: ${JSON.stringify(lost[0].body)}`);
+    const runId = won[0].body.run.runId;
+    assert.deepEqual(lost[0].body.current, { runId }, 'the refusal names the admitted run');
+    const open = Object.values(w.runs()).filter((run: any) => run.phase !== 'ended');
+    assert.deepEqual(open.map((run: any) => run.runId), [runId], `round ${round}: one open run in the checkout`);
+    admitted.push(runId);
+    fs.writeFileSync(path.join(fakeDir, 'end'), '');
+    await until(() => w.runs()[runId]?.phase === 'ended', `round ${round}'s session to end`, 30_000);
+  }
+  assert.equal(new Set(admitted).size, RACE_ROUNDS);
+  assert.equal(Object.keys(w.runs()).length, RACE_ROUNDS, 'one run recorded per round, none for a refused start');
+});
+
 test('GET /api/start and /api/start/options for the loopback session: every registry harness listed, the fake ones startable, none preferred', { ...POSIX, timeout: 60_000 }, async (t: any) => {
   const w = world(t);
   const lb = await loopback(t, w);
