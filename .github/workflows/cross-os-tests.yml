@@ -110,7 +110,7 @@ jobs:
       # the old matrix too). Known-failing cases, from the latest main run's log and locally:
       #   - post-edit-lint: "expected 4 paths in edited-files.txt, found 0"
       #   - subagent-audit: TODO detection exits before writing ("stat /tmp/baz.go: no such file")
-      #   - pre-compact: last-compact-summary.md not created / missing frontmatter
+      #   - post-compact: summaries/<hash>/local/main/summary.md not created / missing frontmatter
       #   - session-end: session directory not removed, END marker missing from sessions.log
       #   - meta.json: fails where the harness's canonicalized CWD differs from the hook's
       #     canonicalize_path (macOS /tmp symlink) — a fixture/runtime hash divergence.
