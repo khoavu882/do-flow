@@ -344,9 +344,9 @@ const PARSER_BY_HARNESS: any = {
 const ACCEPTED_KEYS: any = {
   codex: ['isolatedEdit', 'mainSession', 'model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
   opencode: ['mainSession', 'model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
-  claude: ['mainSession', 'model'],
+  claude: ['loginProbe', 'mainSession', 'model'],
   copilot: ['model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
-  pi: ['mainSession', 'model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
+  pi: ['loginProbe', 'mainSession', 'model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
   kiro: ['model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
   antigravity: ['model'],
 };
@@ -442,7 +442,7 @@ test('G41.4: every supported worker entry cites a recorded evidence file that es
 
 test('G41.4 control: an ACCEPTED_KEYS entry with no registry key, one for no harness, and a registry key with no map entry are each reported', () => {
   const registry = structuredClone(shipped().registry);
-  const extraKey = acceptedKeyFindings(registry, { ...ACCEPTED_KEYS, claude: ['mainSession', 'model', 'oneShot'] });
+  const extraKey = acceptedKeyFindings(registry, { ...ACCEPTED_KEYS, claude: [...ACCEPTED_KEYS.claude, 'oneShot'] });
   assert.equal(extraKey.length, 1);
   assert.match(extraKey[0], /ACCEPTED_KEYS lists 'oneShot' for harness 'claude'/);
   const extraHarness = acceptedKeyFindings(registry, { ...ACCEPTED_KEYS, nonesuch: [] });
@@ -458,7 +458,7 @@ test('G41.4 control: a supported key added to claude without a map entry fails',
   for (const id of ['claude']) {
     const registry = structuredClone(shipped().registry);
     const harness = registry.harnesses.find((h: any) => h.id === id);
-    assert.deepEqual(supportedKeys(harness), ['mainSession', 'model'], `${id}: control precondition`);
+    assert.deepEqual(supportedKeys(harness), ['loginProbe', 'mainSession', 'model'], `${id}: control precondition`);
     harness.worker.oneShot = { status: 'supported', evidence: ['https://example.invalid/one-shot'], verification: 'control fixture', verifiedOn: '2026-01-01' };
     assert.deepEqual(acceptedKeyFindings(registry, ACCEPTED_KEYS), [`G41.4: harness '${id}' worker 'oneShot' is supported but not in ACCEPTED_KEYS`], id);
   }

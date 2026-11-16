@@ -349,11 +349,55 @@
           "reason": "no in-repository evidence names this for claude; nothing is inferred from another harness or a model name"
         },
         "loginProbe": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read claude's headless CLI documentation and `claude --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for claude; nothing is inferred from another harness or a model name"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/claude/2026-11-16-cli-check-login-recipe.json",
+            "https://code.claude.com/docs/en/cli-reference (read 2026-11-16): `claude auth status` exits 0 if logged in, 1 if not; its JSON `authMethod` is one of none, claude.ai, oauth_token, api_key, api_key_helper, third_party"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness claude --checks core/worker-evidence/claude/checks.json --out <new cli-check path>` and read the matched `claude auth status --help` lines (check login-recipe); re-read https://code.claude.com/docs/en/cli-reference for the exit codes and the authMethod values. Neither the help nor the docs show that this check runs offline; it was not run with the network off (owner item O-2).",
+          "verifiedOn": "2026-11-16",
+          "argv": [
+            "auth",
+            "status",
+            "--json"
+          ],
+          "output": "json",
+          "answers": [
+            {
+              "exit": 0,
+              "state": "logged-in"
+            },
+            {
+              "exit": 1,
+              "state": "logged-out"
+            }
+          ],
+          "billing": {
+            "path": [
+              "authMethod"
+            ],
+            "values": {
+              "claude.ai": {
+                "mode": "subscription",
+                "billing": "free"
+              },
+              "oauth_token": {
+                "mode": "subscription",
+                "billing": "free"
+              },
+              "api_key": {
+                "mode": "api-key",
+                "billing": "metered"
+              },
+              "api_key_helper": {
+                "mode": "api-key",
+                "billing": "metered"
+              }
+            }
+          },
+          "expiry": "not-seen",
+          "hint": "claude auth login",
+          "caveat": "its help and docs do not show that this check runs offline"
         },
         "persistentSession": {
           "status": "unknown",
@@ -1083,9 +1127,10 @@
         "loginProbe": {
           "status": "unknown",
           "evidence": [],
-          "verification": "Read codex's headless CLI documentation and `codex --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for codex; nothing is inferred from another harness or a model name"
+          "verification": "Run `codex login --help` and `codex login status --help`; a recipe needs the status command's exit codes or a JSON form stated in its help or published docs.",
+          "verifiedOn": "2026-11-16",
+          "reason": "`codex login status --help` (0.164.0) documents no exit code and no JSON output, so its answer could only be guessed",
+          "hint": "codex login"
         },
         "persistentSession": {
           "status": "unknown",
@@ -1648,9 +1693,10 @@
         "loginProbe": {
           "status": "unknown",
           "evidence": [],
-          "verification": "Read opencode's headless CLI documentation and `opencode --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for opencode; nothing is inferred from another harness or a model name"
+          "verification": "Run `opencode auth --help` and `opencode auth list --help`; a recipe needs a documented exit code or named output fields for the list.",
+          "verifiedOn": "2026-11-16",
+          "reason": "`opencode auth list --help` (2.2.7) documents no exit code and does not name the fields a login would be read from",
+          "hint": "opencode auth login"
         },
         "persistentSession": {
           "status": "unknown",
@@ -2143,11 +2189,93 @@
           "reason": "no in-repository evidence names this for pi; nothing is inferred from another harness or a model name"
         },
         "loginProbe": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Run `pi auth --help`; probePi (src/runtime/worker/probes/index.ts) runs its `check` line when shown.",
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/pi/2026-11-16-cli-check-login-recipe.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness pi --checks core/worker-evidence/pi/checks.json --out <new cli-check path>` and read the matched `pi auth --help` lines (check login-recipe): `check` prints ready, not_ready or invalid and exits 0, 1 or 2, and `--no-refresh` leaves an expired OAuth login unrefreshed, so an expired login can read ready (expiry not-seen). The provider_not_found reason on exit 1 is from a run of `pi auth check --provider <p> --json --no-refresh` on pi 1.5.2, 2026-11-16 (design 172 section 2).",
           "verifiedOn": "2026-11-16",
-          "reason": "pi 1.5.2 `pi auth check` needs --provider or --model, which a static argv cannot name; probePi runs it per provider. An expired OAuth login reads as ready under --no-refresh."
+          "argv": [
+            "auth",
+            "check",
+            "--provider",
+            "{provider}",
+            "--json",
+            "--no-refresh"
+          ],
+          "output": "json",
+          "providers": {
+            "argv": [
+              "--list-models",
+              "--offline"
+            ],
+            "parse": "table-column:provider",
+            "emptyMeans": "logged-out",
+            "max": 8
+          },
+          "answers": [
+            {
+              "exit": 0,
+              "state": "logged-in"
+            },
+            {
+              "exit": 1,
+              "when": [
+                {
+                  "path": [
+                    "reason"
+                  ],
+                  "equals": "provider_not_found"
+                }
+              ],
+              "state": "unknown",
+              "reason": "provider-not-found"
+            },
+            {
+              "exit": 1,
+              "when": [
+                {
+                  "path": [
+                    "status"
+                  ],
+                  "equals": "not_ready"
+                }
+              ],
+              "state": "logged-out"
+            },
+            {
+              "exit": 2,
+              "state": "unknown",
+              "reason": "invalid"
+            }
+          ],
+          "billing": {
+            "path": [
+              "authType"
+            ],
+            "values": {
+              "oauth": {
+                "mode": "subscription",
+                "billing": "unknown"
+              },
+              "api_key": {
+                "mode": "api-key",
+                "billing": "metered"
+              }
+            }
+          },
+          "expiry": "not-seen",
+          "expirySigns": {
+            "signs": [
+              "OAuth refresh failed for {provider}",
+              "OAuth refresh returned a token that expires too soon for {provider}"
+            ],
+            "basis": "source",
+            "evidence": [
+              "Pi 1.5.2 @earendil-works/pi-ai dist/auth/resolve.js:81,114 (the text its OAuth refresh throws); not seen on a live run (owner item O-4)"
+            ]
+          },
+          "hint": "pi auth login <provider>"
         },
         "persistentSession": {
           "status": "unsupported",
@@ -2723,9 +2851,10 @@
         "loginProbe": {
           "status": "unknown",
           "evidence": [],
-          "verification": "Read copilot's headless CLI documentation and `copilot --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for copilot; nothing is inferred from another harness or a model name"
+          "verification": "Run `copilot --help` and `copilot login --help`; a recipe needs a login status command whose exit meaning its help or published docs state.",
+          "verifiedOn": "2026-11-16",
+          "reason": "`copilot --help` and `copilot login --help` (1.0.105) list `login` and no status or check command",
+          "hint": "copilot login"
         },
         "persistentSession": {
           "status": "unknown",
@@ -3190,9 +3319,10 @@
         "loginProbe": {
           "status": "unknown",
           "evidence": [],
-          "verification": "Read kiro's headless CLI documentation and `kiro-cli --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for kiro; nothing is inferred from another harness or a model name"
+          "verification": "A person runs `kiro-cli --help` and records any login status command and its exit meaning; agents do not run kiro-cli. The hint `kiro-cli login` is carried from the deleted probe and was not re-checked.",
+          "verifiedOn": "2026-11-16",
+          "reason": "kiro-cli is never run by DoFlow agents, and no recorded help names a login status command for it",
+          "hint": "kiro-cli login"
         },
         "persistentSession": {
           "status": "unknown",
@@ -3677,9 +3807,9 @@
         "loginProbe": {
           "status": "unknown",
           "evidence": [],
-          "verification": "Read antigravity's headless CLI documentation and `agy --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for antigravity; nothing is inferred from another harness or a model name"
+          "verification": "Run `agy --help`; a recipe needs a login status command whose exit meaning its help or published docs state.",
+          "verifiedOn": "2026-11-16",
+          "reason": "`agy --help` (agy 1.5.9) lists no auth, login or status command"
         },
         "persistentSession": {
           "status": "unknown",

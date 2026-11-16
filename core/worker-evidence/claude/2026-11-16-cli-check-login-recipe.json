@@ -1,0 +1,220 @@
+{
+  "binary": "claude",
+  "caveats": [
+    "Added by hand after the verb run, which records no free text. The login-recipe check matched `claude auth status --help` (the --json output form). The exit codes (0 logged in, 1 not) and the authMethod values come from https://code.claude.com/docs/en/cli-reference, read 2026-11-16.",
+    "Running offline is not shown: neither `claude auth status --help` nor the CLI reference says whether this check makes a network call. It was not run with the network off (owner item O-2); the shipped recipe carries this as its caveat."
+  ],
+  "checks": [
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "runnableProbe",
+        "oneShot"
+      ],
+      "exit": 0,
+      "expect": [
+        "^Usage: claude \\[options\\]",
+        "^\\s+-p, --print\\s",
+        "^\\s+--no-session-persistence\\s"
+      ],
+      "id": "print-one-shot",
+      "matched": [
+        "Usage: claude [options] [command] [prompt]",
+        "  --no-session-persistence              Disable session persistence - sessions",
+        "  -p, --print                           Print response and exit (useful for"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "structuredOutput"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--output-format <format>",
+        "or \"stream-json\" \\(realtime",
+        "^\\s+--verbose\\s"
+      ],
+      "id": "structured-output",
+      "matched": [
+        "  --output-format <format>              Output format (only works with --print):",
+        "                                        result), or \"stream-json\" (realtime",
+        "  --verbose                             Override verbose mode setting from"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "readOnly"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--tools <tools\\.\\.\\.>",
+        "^\\s+--permission-mode <mode>",
+        "\"plan\"\\)",
+        "^\\s+--strict-mcp-config\\s"
+      ],
+      "id": "read-only-flags",
+      "matched": [
+        "  --permission-mode <mode>              Permission mode to use for the session",
+        "                                        \"dontAsk\", \"plan\")",
+        "                                        --strict-mcp-config to skip MCP servers",
+        "  --strict-mcp-config                   Only use MCP servers from --mcp-config,",
+        "  --tools <tools...>                    Specify the list of available tools from"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "spawnDenial"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--disallowedTools, --disallowed-tools <tools\\.\\.\\.>$"
+      ],
+      "id": "spawn-denial-flags",
+      "matched": [
+        "  --disallowedTools, --disallowed-tools <tools...>"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "model"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--model <model>\\s"
+      ],
+      "id": "help-model",
+      "matched": [
+        "  --model <model>                       Model for the current session. Provide"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "mainSession"
+      ],
+      "exit": 0,
+      "expect": [
+        "^Usage: claude \\[options\\] \\[command\\] \\[prompt\\]",
+        "^\\s+-p, --print\\s+Print response and exit \\(useful for",
+        "^\\s+--output-format <format>\\s+Output format \\(only works with --print\\):",
+        "\"text\" \\(default\\), \"json\" \\(single"
+      ],
+      "id": "main-session",
+      "matched": [
+        "Usage: claude [options] [command] [prompt]",
+        "  --output-format <format>              Output format (only works with --print):",
+        "                                        \"text\" (default), \"json\" (single",
+        "  -p, --print                           Print response and exit (useful for"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "mainSession"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--add-dir <directories\\.\\.\\.>",
+        "^\\s+--allow-dangerously-skip-permissions\\s",
+        "^\\s+--allowedTools, --allowed-tools <tools\\.\\.\\.>$",
+        "^\\s+--dangerously-skip-permissions\\s",
+        "^\\s+--permission-mode <mode>\\s",
+        "\\(choices: \"acceptEdits\", \"auto\",$",
+        "\"bypassPermissions\", \"manual\",$",
+        "--permission-prompt-tool\\) or \"none\"$",
+        "^\\s+--settings <file-or-json>\\s"
+      ],
+      "id": "widening-flags",
+      "matched": [
+        "  --add-dir <directories...>            Additional directories to allow tool",
+        "  --allow-dangerously-skip-permissions  Enable bypassing all permission checks",
+        "  --allowedTools, --allowed-tools <tools...>",
+        "  --dangerously-skip-permissions        Bypass all permission checks.",
+        "  --permission-mode <mode>              Permission mode to use for the session",
+        "                                        (choices: \"acceptEdits\", \"auto\",",
+        "                                        \"bypassPermissions\", \"manual\",",
+        "                                        --permission-prompt-tool) or \"none\"",
+        "  --settings <file-or-json>             Path to a settings JSON file or a JSON"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "mainSession"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+setup-token\\s+Set up a long-lived authentication token"
+      ],
+      "id": "secret-commands",
+      "matched": [
+        "  setup-token                           Set up a long-lived authentication token"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "auth",
+        "status",
+        "--help"
+      ],
+      "establishes": [
+        "loginProbe"
+      ],
+      "exit": 0,
+      "expect": [
+        "^Usage: claude auth status \\[options\\]",
+        "^\\s+--json\\s+Output as JSON \\(default\\)"
+      ],
+      "id": "login-recipe",
+      "matched": [
+        "Usage: claude auth status [options]",
+        "  --json      Output as JSON (default)"
+      ],
+      "result": "pass"
+    }
+  ],
+  "cliVersion": "2.1.311 (Claude Code)",
+  "establishes": [
+    "loginProbe",
+    "mainSession",
+    "model",
+    "oneShot",
+    "readOnly",
+    "runnableProbe",
+    "spawnDenial",
+    "structuredOutput"
+  ],
+  "harness": "claude",
+  "kind": "cli-check",
+  "recordedAt": "2026-11-16T12:07:59.307Z",
+  "run": null,
+  "schema": "doflow-worker-evidence-v1"
+}
