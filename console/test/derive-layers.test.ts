@@ -26,6 +26,7 @@ async function load(): Promise<any> {
   fs.writeFileSync(path.join(dir, 'derive', 'layers.js'), fs.readFileSync(SOURCE_PATH, 'utf8'));
   fs.writeFileSync(path.join(dir, 'derive', 'actions.js'), fs.readFileSync(path.join(path.dirname(SOURCE_PATH), 'actions.js'), 'utf8')); // the `by` words (162)
   fs.writeFileSync(path.join(dir, 'derive', 'start.js'), fs.readFileSync(path.join(path.dirname(SOURCE_PATH), 'start.js'), 'utf8')); // the started-session words (165)
+  fs.writeFileSync(path.join(dir, 'derive', 'binding-text.js'), fs.readFileSync(path.join(path.dirname(SOURCE_PATH), 'binding-text.js'), 'utf8')); // start.js imports it (169)
   return import(pathToFileURL(path.join(dir, 'derive', 'layers.js')).href);
 }
 

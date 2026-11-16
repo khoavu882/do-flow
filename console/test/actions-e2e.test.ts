@@ -322,7 +322,7 @@ test('AC-8: an old core (exit 1, unknown flag on stderr, empty stdout) is 501 co
   assert.equal(json(cancel).error.code, 'core-lacks-action');
   assert.deepEqual(await listed(), [['decide-gate', false, 'core-lacks-action'], ['close-run', false, 'core-lacks-action'], ['cancel-worker', false, 'core-lacks-action'], ['start-session', true, null]]);
   // 165 FR-016: a core without start-session is 501 core-lacks-action too, and nothing starts.
-  const start = await l.post('start-session', { v: 1, requestId: rid(), projectKey: w.key, worktreeKey: '0123456789abcdef', harness: 'claude', model: null, entry: 'do', prompt: 'hello' }, control.bearer);
+  const start = await l.post('start-session', { v: 1, requestId: rid(), projectKey: w.key, worktreeKey: '0123456789abcdef', harness: 'claude', model: null, provider: null, effort: null, entry: 'do', prompt: 'hello' }, control.bearer);
   assert.equal(start.status, 501, start.body);
   assert.equal(json(start).error.code, 'core-lacks-action');
   assert.equal(start.body.includes('hello'), false);

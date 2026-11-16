@@ -135,6 +135,9 @@ const NOTE_OPT: Param = { param: 'note', flag: '--note', optional: true, free: t
 const WORKTREE: Param = { param: 'worktreeKey', pattern: 'key16' };
 const HARNESS: Param = { param: 'harness', pattern: 'harness' };
 const MODEL_OPT: Param = { param: 'model', pattern: 'model', flag: '--model', optional: true, omitEmpty: true };
+// 169 IC-007: a bound provider and effort follow the model, each its own `--flag value` pair, left out when null, absent or empty.
+const PROVIDER_OPT: Param = { param: 'provider', pattern: 'provider', flag: '--provider', optional: true, omitEmpty: true };
+const EFFORT_OPT: Param = { param: 'effort', pattern: 'effort', flag: '--effort', optional: true, omitEmpty: true };
 const ENTRY: Param = { param: 'entry', pattern: 'entry' };
 const REQUEST: Param = { param: 'requestId', pattern: 'requestId' };
 const PROMPT: Param = { param: 'prompt', free: true };
@@ -208,7 +211,7 @@ const WRITE_SHAPES: Readonly<Record<string, WriteShape>> = deepFreeze({
   },
   // 165 IC-001: start one session in a checkout of the project; the prompt rides stdin (`--stdin`), the key is argv too (the core re-checks it).
   'start-session': {
-    argv: ['worker', '--action', 'start-session', '--project-key', PROJECT, '--worktree-key', WORKTREE, '--harness', HARNESS, MODEL_OPT, '--entry', ENTRY, '--via', RELAY, '--request-id', REQUEST, '--stdin'],
+    argv: ['worker', '--action', 'start-session', '--project-key', PROJECT, '--worktree-key', WORKTREE, '--harness', HARNESS, MODEL_OPT, PROVIDER_OPT, EFFORT_OPT, '--entry', ENTRY, '--via', RELAY, '--request-id', REQUEST, '--stdin'],
     scoped: true,
     stdin: PROMPT,
   },
@@ -307,11 +310,14 @@ const PATTERNS = Object.freeze({
   relay: /^(?:console|device\.d-[0-9a-f]{12})$/,
   /**
    * 165 IC-001: a harness id (form only: the generic id, so a package worker's qualified `<package>.<local>` id passes; the core holds
-   * the worker-id grammar and answers `harness-not-startable` for an id it does not list), a model name, a prompt entry, and the
+   * the worker-id grammar and answers `harness-not-startable` for an id it does not list), a model name, its provider and effort (169), a prompt entry, and the
    * request id (actions.ts REQUEST_ID).
    */
   harness: PARAM_PATTERN,
   model: /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}$/,
+  /** 169: a model's provider and an effort level, as the core takes them (src/registry/model-parts.ts PROVIDER_RE, EFFORT_RE). */
+  provider: /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/,
+  effort: /^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/,
   entry: /^(?:do|none)$/,
   // Begins with a letter or digit: the CLI reads a flag value that starts with `-` as a missing value, so the core never sees such an id.
   requestId: /^[A-Za-z0-9][A-Za-z0-9_-]{21}$/,

@@ -1770,6 +1770,12 @@ function projectSessionsHistory(value: unknown, context?: Context) {
 const START_RUN_ID = /^w-[0-9a-f]{12}$/;
 const START_HARNESS = ID;
 const START_MODEL = /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}$/;
+/** 169 IC-007: a model's provider and effort level (src/registry/model-parts.ts PROVIDER_RE, EFFORT_RE) and a refusal reason (`bindingGap`'s: `part:reason`, `effort:unknown-level`). */
+const START_PROVIDER = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const START_EFFORT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/;
+const START_REFUSED = /^[a-z][a-z:-]{0,63}$/;
+const START_MODEL_CHECKS: readonly string[] = Object.freeze(['listed', 'several-providers', 'not-listed', 'unchecked']);
+const START_EFFORT_CHECKS: readonly string[] = Object.freeze(['listed', 'not-offered', 'unchecked']);
 /** Free words of the core (a reason, a relogin hint): one line of at most 300 characters with no control character. */
 const START_WORDS = /^[^\u0000-\u001F\u007F-\u009F\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]{1,300}$/;
 /** A token that looks like an absolute or home path; a label or words holding one is withheld (the core's label rule allows `/`). */
@@ -1854,9 +1860,21 @@ function startOptions(value: unknown, context?: Context) {
   const harness = (item: unknown) => {
     const h = sRecord(item);
     const login = sNull(loginAnswer)(h.login);
+    // 169 IC-007 (R-7): an entry is the core's IC-005 cell plus its source: `{ model, provider, effort, source, check }`, with `effortMayLower`
+    // and `refused` only when set. The default entry has a null model and no check; a core that still sends `id` fails here.
     const model = (m: unknown) => {
       const e = sRecord(m);
-      return { id: sNull(sMatch(START_MODEL))(e.id), source: sOneOf(START_SOURCES)(e.source) };
+      const id = sNull(sMatch(START_MODEL))(e.model);
+      const check = sNull((v) => {
+        const c = sRecord(v);
+        return { model: sOneOf(START_MODEL_CHECKS)(c.model), effort: sNull(sOneOf(START_EFFORT_CHECKS))(c.effort) };
+      })(e.check);
+      if ((id === null) !== (check === null)) fail();
+      return {
+        model: id, provider: sNull(sMatch(START_PROVIDER))(e.provider), effort: sNull(sMatch(START_EFFORT))(e.effort), source: sOneOf(START_SOURCES)(e.source), check,
+        ...(e.effortMayLower === undefined ? {} : { effortMayLower: sBool(e.effortMayLower) }),
+        ...(e.refused === undefined ? {} : { refused: sMatch(START_REFUSED)(e.refused) }),
+      };
     };
     return {
       harness: sMatch(START_HARNESS)(h.harness), startable: sBool(h.startable), reason: sNull(sOneOf(START_REASONS))(h.reason), words: sWords(h.words),

@@ -747,16 +747,16 @@ const START_RUN = {
 };
 const startedReply = (over: Record<string, unknown> = {}, replayed = false) => ({ ok: true, exit: 0, json: { ok: true, replayed, run: { ...START_RUN, ...over } } });
 const PROMPT = 'Fix the flaky upload test\nand say why it failed';
-const startBody = (over: Record<string, unknown> = {}) => ({ v: 1, requestId: rid(), projectKey: PK, worktreeKey: WK, harness: 'claude', model: null, entry: 'do', prompt: PROMPT, ...over });
+const startBody = (over: Record<string, unknown> = {}) => ({ v: 1, requestId: rid(), projectKey: PK, worktreeKey: WK, harness: 'claude', model: null, provider: null, effort: null, entry: 'do', prompt: PROMPT, ...over });
 const START_OPTIONS = {
   project: { projectKey: PK, label: 'alpha', root: null },
   checkouts: [{ worktreeKey: WK, label: 'alpha', branch: 'main', main: true, busy: null, observedSession: { harness: 'claude', lastSeenAt: '2026-11-15T09:00:00.000Z' } },
     { worktreeKey: '0000111122223333', label: 'alpha-fix', branch: null, main: false, busy: { runId: 'w-aaaabbbbcccc' }, observedSession: null }],
   harnesses: [
     { harness: 'claude', startable: true, reason: null, words: 'claude can start a session here', warnings: ['runnable-not-checked'],
-      login: { harness: 'claude', state: 'logged-in', reason: null, source: 'recipe', at: '2026-11-15T09:00:00.000Z', billing: null, providers: [], provider: null, hint: null, expirySeen: false, last: null, caveat: null }, version: '2.1.0', liveVerified: false, models: [{ id: 'claude-opus-5-5', source: 'frontier' }, { id: null, source: 'default' }] },
+      login: { harness: 'claude', state: 'logged-in', reason: null, source: 'recipe', at: '2026-11-15T09:00:00.000Z', billing: null, providers: [], provider: null, hint: null, expirySeen: false, last: null, caveat: null }, version: '2.1.0', liveVerified: false, models: [{ model: 'claude-opus-5-5', provider: null, effort: null, source: 'frontier', check: { model: 'listed', effort: null } }, { model: null, provider: null, effort: null, source: 'default', check: null }] },
     { harness: 'copilot', startable: false, reason: 'no-main-session-shape', words: 'DoFlow has no recorded headless way to start copilot', warnings: [],
-      login: null, version: null, liveVerified: false, models: [{ id: null, source: 'default' }] },
+      login: null, version: null, liveVerified: false, models: [{ model: null, provider: null, effort: null, source: 'default', check: null }] },
   ],
   limits: { perCheckout: 1, perActor: 2, machine: 4, perActorPerHour: 6 },
   open: { machine: 1 }, dispatch: { running: true, slug: 'feat-a' }, promptMax: { codePoints: 8000, bytes: 32768 },
@@ -829,6 +829,12 @@ test('local start: the prompt reaches act as the stdin parameter only; a null mo
   assert.equal(modelled.status, 200, modelled.body);
   assert.equal(runner.acts[1].params.model, 'claude-opus-5-5');
   assert.equal(runner.acts[1].params.entry, 'none');
+  // 169: a bound provider and effort reach act as parameters; null leaves them out.
+  assert.equal(Object.hasOwn(runner.acts[1].params, 'provider') || Object.hasOwn(runner.acts[1].params, 'effort'), false);
+  clock.t += 3 * MINUTE;
+  const triple = await w.post('start-session', startBody({ model: 'gpt-y', provider: 'openai', effort: 'low' }));
+  assert.equal(triple.status, 200, triple.body);
+  assert.deepEqual([runner.acts[2].params.model, runner.acts[2].params.provider, runner.acts[2].params.effort], ['gpt-y', 'openai', 'low']);
   assert.deepEqual(json(modelled).result.run.end, { state: 'exited', at: '2026-11-15T10:00:02.000Z' });
   clock.t += 3 * MINUTE;
   next = { ok: true, exit: 1, json: { ok: false, code: 'checkout-busy', message: `busy: ${PROMPT}`, current: { runId: 'w-aaaabbbbcccc' } } };
@@ -846,7 +852,7 @@ test('local start: the prompt reaches act as the stdin parameter only; a null mo
   assert.equal(begins[0].project, PK);
   assert.deepEqual([begins[1].target.model, begins[1].input.entry], ['claude-opus-5-5', 'none']);
   assert.deepEqual(ends.map((line) => [line.outcome, line.code, line.target.runId, line.exit, typeof line.ms]),
-    [['applied', null, RUN_ID, 0, 'number'], ['applied', null, RUN_ID, 0, 'number'], ['refused', 'checkout-busy', null, 1, 'number']]);
+    [['applied', null, RUN_ID, 0, 'number'], ['applied', null, RUN_ID, 0, 'number'], ['applied', null, RUN_ID, 0, 'number'], ['refused', 'checkout-busy', null, 1, 'number']]);
   const text = fs.readFileSync(path.join(w.dir, 'actions.ndjson'), 'utf8');
   for (const word of ['flaky', 'upload test', 'say why']) {
     assert.equal(text.includes(word), false, `${word} is not logged`);
@@ -887,7 +893,7 @@ test('the prompt kind: CRLF and CR become LF, C0 (but tab and LF), C1 and bidi c
   assert.equal((await w.post('start-session', startBody({ prompt: 'x'.repeat(5000) }))).status, 200, 'a start body is past 4 KiB and under its own cap');
   clock.t += 61 * MINUTE;
   assert.equal((await w.post('close-run', BODIES['close-run']({ note: 'x'.repeat(5000) }))).status, 400, 'the 162 rows keep their 4 KiB cap');
-  for (const [name, value] of [['worktreeKey', WK.toUpperCase()], ['harness', '.claude'], ['model', ''], ['model', '-x'], ['entry', 'auto'], ['entry', null], ['prompt', null], ['relay', 'console']] as Array<[string, unknown]>) {
+  for (const [name, value] of [['worktreeKey', WK.toUpperCase()], ['harness', '.claude'], ['model', ''], ['model', '-x'], ['provider', ''], ['provider', '-x'], ['provider', 5], ['effort', 'a b'], ['effort', 'e'.repeat(33)], ['entry', 'auto'], ['entry', null], ['prompt', null], ['relay', 'console']] as Array<[string, unknown]>) {
     clock.t += 61 * MINUTE;
     const reply = await w.post('start-session', startBody({ [name]: value }));
     assert.equal(reply.status, 400, `${name}=${JSON.stringify(value)}`);
@@ -897,6 +903,12 @@ test('the prompt kind: CRLF and CR become LF, C0 (but tab and LF), C1 and bidi c
   const missing = startBody();
   delete (missing as any).entry;
   assert.equal(errorOf(await w.post('start-session', missing)), 'usage', 'entry is never defaulted: absent is usage');
+  for (const name of ['provider', 'effort']) {
+    clock.t += 61 * MINUTE;
+    const absent = startBody();
+    delete (absent as any)[name];
+    assert.equal(errorOf(await w.post('start-session', absent)), 'usage', `${name} is never defaulted either: absent is usage`);
+  }
 });
 
 test('the seventh start of an actor in an hour is 429 start-rate-limited with Retry-After; it counts the attempts that reach the core (a core refusal too), not a replay, a body refusal or a start that spawned nothing; another actor has its own hour', async (t) => {
@@ -980,8 +992,8 @@ test('every start-session refusal id maps to IC-004\'s status with the core\'s c
   const cases: Array<[any, number, string, unknown, number | null]> = [
     ...['unknown-worktree', 'worktree-gone', 'prompt-empty', 'prompt-nul', 'prompt-too-long', 'prompt-leading-dash', 'prompt-leading-at']
       .map((code) => [refusal(code), 400, code, undefined, 1] as [any, number, string, unknown, number | null]),
-    [refusal('model-not-offered', { harness: 'claude', models: [{ id: 'claude-opus-5-5', source: 'frontier' }, { id: null, source: 'default' }] }), 400, 'model-not-offered',
-      { harness: 'claude', models: [{ id: 'claude-opus-5-5', source: 'frontier' }, { id: null, source: 'default' }] }, 1],
+    [refusal('model-not-offered', { harness: 'claude', models: [{ model: 'claude-opus-5-5', provider: 'anthropic', effort: 'low', source: 'frontier', check: { model: 'listed', effort: 'listed' }, refused: 'effort:unsupported' }, { model: null, provider: null, effort: null, source: 'default', check: null }] }), 400, 'model-not-offered',
+      { harness: 'claude', models: [{ model: 'claude-opus-5-5', provider: 'anthropic', effort: 'low', source: 'frontier' }, { model: null, provider: null, effort: null, source: 'default' }] }, 1],
     [refusal('checkout-busy', { runId: 'w-aaaabbbbcccc' }), 409, 'checkout-busy', { runId: 'w-aaaabbbbcccc' }, 1],
     // 165 review A-1: a run whose liveness cannot be read holds the checkout under its own id.
     [refusal('checkout-busy-unknown', { runId: 'w-aaaabbbbcccc' }), 409, 'checkout-busy-unknown', { runId: 'w-aaaabbbbcccc' }, 1],

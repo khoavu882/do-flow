@@ -5735,12 +5735,14 @@ test('165 review B-4: Sessions lists an ended started session with how and when 
 });
 
 const WORDS165 = { claude: 'claude can start a session here', opencode: 'opencode can start a session here', codex: 'codex is logged out. Run codex login, then read this page again.', copilot: 'copilot has no recorded way to start a main session, so it is not offered.' };
-const harness165 = (name: string, over: any = {}) => ({ harness: name, startable: true, reason: null, words: (WORDS165 as any)[name], warnings: ['runnable-not-checked'], login: { harness: name, state: 'logged-in', reason: null, source: 'recipe', at: AT(5), billing: null, providers: [], provider: null, hint: null, expirySeen: false, last: null, caveat: null }, version: '1.0.0', models: [{ id: null, source: 'default' }], ...over });
+/** 169 IC-007: a start-options model entry. */
+const model165 = (model: string | null, source: string, over: any = {}) => ({ model, provider: null, effort: null, source, check: model === null ? null : { model: 'unchecked', effort: null }, ...over });
+const harness165 = (name: string, over: any = {}) => ({ harness: name, startable: true, reason: null, words: (WORDS165 as any)[name], warnings: ['runnable-not-checked'], login: { harness: name, state: 'logged-in', reason: null, source: 'recipe', at: AT(5), billing: null, providers: [], provider: null, hint: null, expirySeen: false, last: null, caveat: null }, version: '1.0.0', models: [model165(null, 'default')], ...over });
 const options165 = (over: any = {}) => ({
   v: 1, project: { projectKey: P1, label: 'example-project', root: null },
   checkouts: [{ worktreeKey: WK_MAIN, label: 'do-flow', branch: 'develop', main: true, busy: null, observedSession: null }],
   harnesses: [
-    harness165('claude', { models: [{ id: null, source: 'default' }, { id: 'claude-haiku-5', source: 'light' }, { id: 'claude-sonnet-5', source: 'standard' }, { id: 'claude-opus-5-5', source: 'orchestrator' }, { id: 'claude-seen', source: 'observed' }] }),
+    harness165('claude', { models: [model165(null, 'default'), model165('claude-haiku-5', 'light'), model165('claude-sonnet-5', 'standard'), model165('claude-opus-5-5', 'orchestrator'), model165('claude-seen', 'observed')] }),
     harness165('opencode', { warnings: ['prompt-in-argv', 'login-unknown'] }),
     harness165('codex', { startable: false, reason: 'logged-out', warnings: [] }),
     harness165('copilot', { startable: false, reason: 'no-main-session-shape', warnings: [], login: null }),
@@ -5817,6 +5819,43 @@ test('165 start: nothing is preselected; the harnesses that cannot start are lis
   assert.equal(page.main.querySelector('#start-submit').getAttribute('disabled'), '');
 });
 
+test('169 start: options are labelled with bindingText and keyed by their triple; the note under the select says the notes in words; a refused option is disabled with its reason; the chosen triple is posted and shown in the terminal command', async () => {
+  const entries = [
+    model165(null, 'default'),
+    model165('gpt-y', 'standard', { provider: 'openai', effort: 'low', check: { model: 'listed', effort: 'unchecked' }, effortMayLower: true }),
+    model165('gpt-y', 'light', { check: { model: 'several-providers', effort: null } }),
+    model165('gpt-q', 'observed', { effort: 'high', check: { model: 'listed', effort: 'listed' }, refused: 'effort:unsupported' }),
+  ];
+  const page = await startPage165({ options: options165({ harnesses: [harness165('claude', { models: entries }), harness165('opencode')] }), post: () => applied165() });
+  assert.equal(text(page.main.querySelector('#start-model')), 'Choose a harness first');
+  assert.equal(page.main.querySelector('#start-modelnote').getAttribute('hidden'), '', 'no note before a harness is chosen');
+  await fill165(page);
+  const select = page.main.querySelector('#start-model');
+  const optionOf = (label: string) => select.querySelectorAll('option').find((o: El) => text(o) === label)!;
+  assert.deepEqual(select.querySelectorAll('option').map((o: El) => text(o)), [
+    'gpt-y (provider openai, effort low) [effort unchecked, the harness may lower the effort]',
+    'gpt-y [several providers list it]',
+    'gpt-q (effort high) [cannot start: effort:unsupported]',
+    'Harness default',
+  ]);
+  assert.equal(optionOf('gpt-q (effort high) [cannot start: effort:unsupported]').getAttribute('disabled'), '');
+  assert.equal(optionOf('Harness default').getAttribute('selected'), '', 'the harness default is the choice once a harness is picked');
+  const note = () => page.main.querySelector('#start-modelnote');
+  assert.equal(text(note()), 'The harness picks its own model and effort.');
+  const bound = optionOf('gpt-y (provider openai, effort low) [effort unchecked, the harness may lower the effort]');
+  select.value = bound.getAttribute('value') ?? '';
+  select.fire('change');
+  await settle();
+  assert.equal(text(page.main.querySelector('#start-modelnote')), '? effort unchecked, the harness may lower the effort.');
+  page.main.querySelector('#start-submit').fire('click');
+  const dialog = page.doc.body.querySelector('.confirm');
+  assert.match(text(dialog.querySelector('.confirm__effect')), /^Start claude \(gpt-y \(provider openai, effort low\) \[effort unchecked, the harness may lower the effort\]\) in /);
+  dialog.querySelector('.confirm__verb').fire('click');
+  await settle();
+  const posts = page.calls.filter((c) => c.method === 'POST');
+  assert.deepEqual([posts[0].body.model, posts[0].body.provider, posts[0].body.effort], ['gpt-y', 'openai', 'low']);
+});
+
 test('165 review B-8: a startable harness whose main session was not verified on a live run shows one line saying so; a verified one does not', async () => {
   const page = await startPage165({ options: options165({ harnesses: [harness165('claude', { liveVerified: false }), harness165('opencode', { liveVerified: true, warnings: [] })] }) });
   const lines = page.main.querySelectorAll('[data-fact="live-verified"]');
@@ -5838,7 +5877,7 @@ test('165 start: a start through the dialog posts the body once, then shows Runn
   assert.equal(posts.length, 1);
   assert.match(posts[0].url, /\/api\/actions\/start-session$/);
   assert.match(posts[0].body.requestId, /^[A-Za-z0-9_-]{22}$/);
-  assert.deepEqual({ ...posts[0].body, requestId: undefined }, { v: 1, projectKey: P1, worktreeKey: WK_MAIN, harness: 'claude', model: null, entry: 'do', prompt: 'Fix the failing test', requestId: undefined });
+  assert.deepEqual({ ...posts[0].body, requestId: undefined }, { v: 1, projectKey: P1, worktreeKey: WK_MAIN, harness: 'claude', model: null, provider: null, effort: null, entry: 'do', prompt: 'Fix the failing test', requestId: undefined });
   assert.match(text(page.main.querySelector('.start__flow-title')), /^.\s?Running: claude in example-project \/ do-flow/);
   assert.match(text(page.main.querySelector('.start__flow')), /No output yet/);
   assert.equal(page.main.querySelectorAll('textarea').length, 0, 'the form is out of the way while a session runs');

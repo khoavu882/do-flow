@@ -27,7 +27,8 @@ const PK = '0123456789abcdef';
 const WK1 = 'aaaaaaaaaaaaaaaa';
 const WK2 = 'bbbbbbbbbbbbbbbb';
 
-const model = (id: string | null, source: string) => ({ id, source });
+/** 169 IC-007: a start-options model entry; `over` adds provider, effort, check, effortMayLower or refused. */
+const model = (id: string | null, source: string, over: any = {}) => ({ model: id, provider: null, effort: null, source, check: id === null ? null : { model: 'unchecked', effort: null }, ...over });
 /** 172 IC-001: a LoginAnswer as the core sends it; `over` changes fields. */
 const loginOf = (harness: string, over: any = {}) => ({
   harness, state: 'unknown', reason: 'never-checked', source: 'never-checked', at: null, billing: null, providers: [], provider: null, hint: `${harness} login`, expirySeen: false, last: null, caveat: null, ...over,
@@ -90,20 +91,53 @@ test('no harness is preselected, whatever the options offer; a lone free checkou
   const busy = options({ checkouts: [{ ...options().checkouts[1], busy: { runId: 'w-0123456789ab' } }] });
   assert.equal(start.formFor(busy).worktreeKey, null, 'a busy checkout is never chosen');
   // A re-read keeps what is still on offer and drops what is not.
-  const kept = start.formFor(options(), { worktreeKey: WK2, harness: 'opencode', model: null, entry: 'none', prompt: 'hello' });
+  const kept = start.formFor(options(), { worktreeKey: WK2, harness: 'opencode', choice: null, entry: 'none', prompt: 'hello' });
   assert.deepEqual([kept.worktreeKey, kept.harness, kept.entry, kept.prompt], [WK2, 'opencode', 'none', 'hello']);
-  const gone = start.formFor(options(), { worktreeKey: WK2, harness: 'codex', model: 'x', prompt: 'hello' });
-  assert.deepEqual([gone.harness, gone.model], [null, null], 'a harness that is no longer startable is dropped');
+  const gone = start.formFor(options(), { worktreeKey: WK2, harness: 'codex', choice: { model: 'x', provider: null, effort: null }, prompt: 'hello' });
+  assert.deepEqual([gone.harness, gone.choice], [null, null], 'a harness that is no longer startable is dropped');
+  // 169: the choice is a triple; it stays while that triple is offered and not refused, else it is the harness default.
+  const triple = { model: 'claude-seen-1', provider: null, effort: null };
+  assert.deepEqual(start.formFor(options(), { harness: 'claude', choice: triple }).choice, triple);
+  assert.equal(start.formFor(options(), { harness: 'claude', choice: { ...triple, effort: 'low' } }).choice, null, 'the same model with another effort is another entry');
+  const refused = options();
+  refused.harnesses[0].models.push(model('claude-r', 'standard', { effort: 'low', refused: 'effort:unsupported' }));
+  assert.equal(start.formFor(refused, { harness: 'claude', choice: { model: 'claude-r', provider: null, effort: 'low' } }).choice, null, 'a refused entry cannot be kept');
 });
 
 test('models are grouped by source in the order orchestrator, frontier, standard, light, observed, then the harness default', () => {
   const claude = start.harnessOf(options(), 'claude');
   const groups = start.modelGroups(claude.models);
   assert.deepEqual(groups.map((g: any) => g.source), ['orchestrator', 'frontier', 'standard', 'light', 'observed', 'default']);
-  assert.deepEqual(groups.map((g: any) => g.models.map((m: any) => m.id)), [['claude-opus-5-5'], ['claude-opus-5'], ['claude-sonnet-5'], ['claude-haiku-5'], ['claude-seen-1'], [null]]);
+  assert.deepEqual(groups.map((g: any) => g.models.map((m: any) => m.model)), [['claude-opus-5-5'], ['claude-opus-5'], ['claude-sonnet-5'], ['claude-haiku-5'], ['claude-seen-1'], [null]]);
   assert.equal(groups[5].label, 'Harness default');
   assert.equal(groups[5].models[0].label, 'Harness default');
   assert.deepEqual(start.modelGroups([model(null, 'default')]).map((g: any) => g.source), ['default'], 'an empty group is left out');
+});
+
+test('169: an option is labelled with bindingText of its entry, keyed by its triple; a refused entry says why it cannot start, and each entry has the words of its notes', () => {
+  const entries = [
+    model('gpt-y', 'standard', { provider: 'openai', effort: 'low', check: { model: 'listed', effort: 'unchecked' }, effortMayLower: true }),
+    model('gpt-y', 'light', { check: { model: 'several-providers', effort: null } }),
+    model('gpt-q', 'observed', { effort: 'high', check: { model: 'listed', effort: 'listed' }, refused: 'effort:unsupported' }),
+    model(null, 'default'),
+  ];
+  const flat = start.modelGroups(entries).flatMap((g: any) => g.models);
+  assert.deepEqual(flat.map((m: any) => m.label), [
+    'gpt-y (provider openai, effort low) [effort unchecked, the harness may lower the effort]',
+    'gpt-y [several providers list it]',
+    'gpt-q (effort high) [cannot start: effort:unsupported]',
+    'Harness default',
+  ]);
+  assert.deepEqual(flat.map((m: any) => m.refused), [null, null, 'effort:unsupported', null]);
+  assert.equal(new Set(flat.map((m: any) => m.key)).size, 4, 'one key per triple');
+  assert.equal(start.modelKey({ model: 'gpt-y', provider: null, effort: null }) === start.modelKey({ model: 'gpt-y', provider: 'openai', effort: null }), false);
+  assert.deepEqual(start.modelChoiceOf(entries[0]), { model: 'gpt-y', provider: 'openai', effort: 'low' });
+  assert.equal(start.modelChoiceOf(entries[3]), null, 'the harness default is no choice');
+  assert.equal(start.modelNote(null), 'The harness picks its own model and effort.');
+  assert.equal(start.modelNote(entries[0]), '? effort unchecked, the harness may lower the effort.');
+  assert.equal(start.modelNote(entries[1]), '? several providers list it.');
+  assert.equal(start.modelNote(model('gpt-z', 'standard', { check: { model: 'listed', effort: null } })), null, 'a choice with no notes has no line');
+  assert.equal(start.modelNote(entries[2]), 'Cannot start: effort:unsupported.');
 });
 
 test('opencode and pi carry the prompt-in-argv words; a harness that takes the prompt on stdin carries none', () => {
@@ -146,7 +180,9 @@ test('Start is ready only with a checkout, a startable harness and a text; a run
   assert.equal(start.readiness(form, unread).ok, false);
   assert.equal(start.readiness(form, unread).dispatch, 'This project’s dispatch records cannot be read, so a running dispatch cannot be ruled out; start again when they can be read.');
   assert.equal(start.startRefusalLines('dispatch-running', { slug: null, reason: 'dispatch-unreadable' })[0], 'This project’s dispatch records cannot be read, so a running dispatch cannot be ruled out. Nothing was started.');
-  assert.deepEqual(start.startBody(form), { v: 1, projectKey: PK, worktreeKey: WK1, harness: 'claude', model: null, entry: 'do', prompt: 'Fix the flaky test' });
+  assert.deepEqual(start.startBody(form), { v: 1, projectKey: PK, worktreeKey: WK1, harness: 'claude', model: null, provider: null, effort: null, entry: 'do', prompt: 'Fix the flaky test' });
+  const bound = { ...form, choice: { model: 'gpt-y', provider: 'openai', effort: 'low' } };
+  assert.deepEqual(start.startBody(bound), { v: 1, projectKey: PK, worktreeKey: WK1, harness: 'claude', model: 'gpt-y', provider: 'openai', effort: 'low', entry: 'do', prompt: 'Fix the flaky test' });
 });
 
 test('the entry choices say the default first with the core\'s fixed line; the limits read as one line', () => {
@@ -239,7 +275,7 @@ test('every refusal id and reason id of the start has its own words, and the one
 test('a new request id comes with every submit; a retry of an unanswered one keeps its id, and any other outcome drops it', () => {
   let n = 0;
   const makeId = () => `id-${(n += 1)}`;
-  const body = start.startBody({ projectKey: PK, worktreeKey: WK1, harness: 'claude', model: null, entry: 'do', prompt: 'a' });
+  const body = start.startBody({ projectKey: PK, worktreeKey: WK1, harness: 'claude', choice: null, entry: 'do', prompt: 'a' });
   const first = start.attemptFor(null, body, makeId);
   assert.deepEqual([first.requestId, first.retry], ['id-1', false]);
   assert.equal(start.settleAttempt(first, 'applied'), null);
@@ -280,18 +316,22 @@ test('165 review B-3: the terminal command of a view-only page is the full runna
   assert.deepEqual(flagsOf(line![1]), core, 'the reference names the core\'s required and optional flags');
 
   const id = 'Abcdefghijklmnopqrstuv';
-  const full = start.terminalCommand({ projectKey: PK, worktreeKey: WK1, harness: 'codex', model: 'gpt-5.4', entry: 'none' }, id);
+  const full = start.terminalCommand({ projectKey: PK, worktreeKey: WK1, harness: 'codex', choice: { model: 'gpt-5.4', provider: null, effort: null }, entry: 'none' }, id);
   assert.equal(full, `doflow worker --action start-session --project-key ${PK} --worktree-key ${WK1} --harness codex --model gpt-5.4 --entry none --request-id ${id} --stdin`);
+  // 169: a bound provider and effort add their flags, both in the core's START_FLAGS.optional.
+  const triple = start.terminalCommand({ projectKey: PK, worktreeKey: WK1, harness: 'pi', choice: { model: 'gpt-y', provider: 'openai', effort: 'low' }, entry: 'do' }, id);
+  assert.equal(triple, `doflow worker --action start-session --project-key ${PK} --worktree-key ${WK1} --harness pi --model gpt-y --provider openai --effort low --entry do --request-id ${id} --stdin`);
+  for (const flag of flagsOf(triple).required) assert.ok(core.required.includes(flag) || core.optional.includes(flag), `${flag} is a flag the core takes`);
   const page = flagsOf(full).required;
   for (const flag of core.required) assert.ok(page.includes(flag), `the page's command has ${flag}`);
   for (const flag of page) assert.ok(core.required.includes(flag) || core.optional.includes(flag), `${flag} is a flag the core takes`);
 
   // The harness default sends no --model; the entry defaults to do, as the form does.
-  const plain = start.terminalCommand({ projectKey: PK, worktreeKey: WK1, harness: 'claude', model: null, entry: 'do' }, id);
+  const plain = start.terminalCommand({ projectKey: PK, worktreeKey: WK1, harness: 'claude', choice: null, entry: 'do' }, id);
   assert.deepEqual(flagsOf(plain).required, core.required, 'without a model the command has exactly the required flags');
   assert.ok(!/<|>/.test(plain), 'every value is filled in');
   // A choice the page does not hold, or one outside the core's pattern, is the reference's placeholder, never pasted into the shell.
-  const open = start.terminalCommand({ projectKey: null, worktreeKey: 'nope', harness: 'a b', model: 'x;rm', entry: 'maybe' }, 'short');
+  const open = start.terminalCommand({ projectKey: null, worktreeKey: 'nope', harness: 'a b', choice: { model: 'x;rm', provider: 'a b', effort: 'x;y' }, entry: 'maybe' }, 'short');
   assert.equal(open, 'doflow worker --action start-session --project-key <16 hex> --worktree-key <16 hex> --harness <id> --entry do --request-id <id> --stdin');
   assert.deepEqual(flagsOf(open).required, core.required);
 });

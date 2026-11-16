@@ -1096,15 +1096,18 @@ const LOGIN_CLAUDE = {
   provider: null, hint: 'claude auth login', expirySeen: false, last: null, caveat: 'its help and docs do not show that this check runs offline',
 };
 
+/** 169 IC-007: a start-options model entry as the core sends it. */
+const entryOf = (model: string | null, source: string, over: any = {}) => ({ model, provider: null, effort: null, source, check: model === null ? null : { model: 'listed', effort: null }, ...over });
+
 const START_OPTIONS_BODY = {
   project: { projectKey: KEY_MAIN, label: 'alpha', root: null },
   checkouts: [{ worktreeKey: KEY_MAIN, label: 'alpha', branch: 'main', main: true, busy: null, observedSession: { harness: 'claude', lastSeenAt: '2026-11-15T09:00:00.000Z' } },
     { worktreeKey: KEY_LINKED, label: 'alpha-fix', branch: null, main: false, busy: { runId: RUN_A }, observedSession: null }],
   harnesses: [
     { harness: 'claude', startable: true, reason: null, words: 'claude can start a session here', warnings: ['runnable-not-checked'],
-      login: LOGIN_CLAUDE, version: '2.1.0', liveVerified: false, models: [{ id: 'claude-opus-5-5', source: 'frontier' }, { id: null, source: 'default' }] },
+      login: LOGIN_CLAUDE, version: '2.1.0', liveVerified: false, models: [entryOf('claude-opus-5-5', 'frontier'), entryOf('gpt-y', 'standard', { provider: 'openai', effort: 'low', check: { model: 'several-providers', effort: 'unchecked' }, effortMayLower: true }), entryOf('gpt-q', 'observed', { effort: 'high', refused: 'effort:unsupported' }), entryOf(null, 'default')] },
     { harness: 'copilot', startable: false, reason: 'no-main-session-shape', words: 'DoFlow has no recorded headless way to start copilot', warnings: [],
-      login: null, version: null, liveVerified: false, models: [{ id: null, source: 'default' }] },
+      login: null, version: null, liveVerified: false, models: [entryOf(null, 'default')] },
   ],
   limits: { perCheckout: 1, perActor: 2, machine: 4, perActorPerHour: 6 },
   open: { machine: 1 }, dispatch: { running: true, slug: 'feat-a' }, promptMax: { codePoints: 8000, bytes: 32768 },
@@ -1126,9 +1129,23 @@ test('165 F1 start-options: IC-002 projects through PROJECTORS with the key aske
   const mutate = (edit: (b: any) => void) => { const b = clone(START_OPTIONS_BODY) as any; edit(b); return ask(b); };
   assert.deepEqual(mutate((b) => { b.project.root = '/tmp/x'; }), MISMATCH);
   assert.deepEqual(mutate((b) => { b.harnesses[0].reason = 'because'; }), MISMATCH);
-  assert.deepEqual(mutate((b) => { b.harnesses[0].models.push(...Array.from({ length: 50 }, () => ({ id: null, source: 'default' }))); }), MISMATCH);
+  assert.deepEqual(mutate((b) => { b.harnesses[0].models.push(...Array.from({ length: 50 }, () => entryOf(null, 'default'))); }), MISMATCH);
   assert.deepEqual(mutate((b) => { b.entries = ['do', 'auto']; }), MISMATCH);
   assert.deepEqual(mutate((b) => { delete b.limits; }), MISMATCH);
+  // 169 IC-007 (R-7): a model entry is {model, provider, effort, source, check[, effortMayLower][, refused]}; the old `id` shape, no triple,
+  // a pattern or check word outside its set, and a check where the default has none are a mismatch.
+  const model = (edit: (e: any) => void, at = 1) => mutate((b) => { edit(b.harnesses[0].models[at]); });
+  assert.deepEqual(mutate((b) => { b.harnesses[0].models = [{ id: 'claude-opus-5-5', source: 'frontier' }, { id: null, source: 'default' }]; }), MISMATCH, 'a core with the old id field');
+  for (const field of ['model', 'provider', 'effort', 'check']) assert.deepEqual(model((e) => { delete e[field]; }), MISMATCH, `no ${field}`);
+  assert.deepEqual(model((e) => { e.provider = '-p'; }), MISMATCH);
+  assert.deepEqual(model((e) => { e.effort = 'a b'; }), MISMATCH);
+  assert.deepEqual(model((e) => { e.check.model = 'maybe'; }), MISMATCH);
+  assert.deepEqual(model((e) => { e.check.effort = 'maybe'; }), MISMATCH);
+  assert.deepEqual(model((e) => { e.effortMayLower = 'yes'; }), MISMATCH);
+  assert.deepEqual(model((e) => { e.refused = 'because why'; }), MISMATCH);
+  assert.deepEqual(model((e) => { e.check = null; }), MISMATCH, 'a model has a check');
+  assert.deepEqual(model((e) => { e.check = { model: 'unchecked', effort: null }; }, 3), MISMATCH, 'the default has none');
+  assert.deepEqual(model((e) => { e.source = 'nowhere'; }), MISMATCH);
   // 172 IC-004: the harness `login` is a LoginAnswer (or null); the old `{ state, checkedAt }` pair and an unknown state are a mismatch.
   assert.deepEqual(mutate((b) => { b.harnesses[0].login = { state: 'logged-in', checkedAt: '2026-11-15T09:00:00.000Z' }; }), MISMATCH);
   assert.deepEqual(mutate((b) => { b.harnesses[0].login.state = 'uncalibrated'; }), MISMATCH);
@@ -1143,8 +1160,8 @@ test('165 F1 start-options: IC-002 projects through PROJECTORS with the key aske
   assert.deepEqual(mutate((b) => { b.dispatch = { running: true, slug: null, reason: '../x' }; }), MISMATCH);
   // 165 review A-2: a package worker's qualified id is a harness like any other; it does not turn the whole answer into a mismatch.
   const pkg = mutate((b) => {
-    b.harnesses.push({ harness: 'acme.worker', startable: true, reason: null, words: 'acme.worker can start a session here', warnings: [], login: null, version: null, models: [{ id: null, source: 'default' }] },
-      { harness: 'acme.bare', startable: false, reason: 'no-main-session-shape', words: 'DoFlow has no recorded headless way to start acme.bare', warnings: [], login: null, version: null, models: [{ id: null, source: 'default' }] });
+    b.harnesses.push({ harness: 'acme.worker', startable: true, reason: null, words: 'acme.worker can start a session here', warnings: [], login: null, version: null, models: [entryOf(null, 'default')] },
+      { harness: 'acme.bare', startable: false, reason: 'no-main-session-shape', words: 'DoFlow has no recorded headless way to start acme.bare', warnings: [], login: null, version: null, models: [entryOf(null, 'default')] });
     b.checkouts[0].observedSession.harness = 'acme.worker';
   });
   assert.equal(pkg.ok, true, JSON.stringify(pkg));

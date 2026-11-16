@@ -137,11 +137,11 @@ const settings = { keys: [
   { key: 'workers.models', views: [{ value: { codex: { standard: 'model-one' } }, origin: { layer: 'user' } }] },
   { key: 'workers.billing', views: [{ value: {}, origin: { layer: 'default' } }] },
 ] };
-function setup(matrix: any = MATRIX) {
+function setup(matrix: any = MATRIX, slots: any = { standard: 'model-one' }) {
   const requests: string[] = []; const pending = new Map<string, { resolve: (body: any) => void, reject: (error: any) => void }>();
   const inspector: any = { current: null, open(spec: any) { this.current = spec; }, close() { this.current = null; } };
   const local: any = { route: { id: 'workers', params: {} }, inspector, link: (patch: any) => { local.route.cell = patch?.cell; }, apiGet: (p: string) => { requests.push(p); return new Promise((resolve, reject) => { pending.set(p, { resolve, reject }); }); } };
-  const body = { sections: { matrix: matrix === null ? { ok: false, code: 'core-lacks-verb' } : { ok: true, data: matrix, at: AT }, settings: { ok: true, data: settings, at: AT } } };
+  const body = { sections: { matrix: matrix === null ? { ok: false, code: 'core-lacks-verb' } : { ok: true, data: matrix, at: AT }, settings: { ok: true, data: { keys: settings.keys.map((k: any) => (k.key === 'workers.models' ? { ...k, views: [{ value: { codex: slots }, origin: { layer: 'user' } }] } : k)) }, at: AT } } };
   const render = () => view.renderWorkers(body, {}, local);
   return {
     requests, local, inspector, render,
@@ -188,6 +188,11 @@ test('inspector keeps evidence text inert and concept waits for doctor with no r
   const item = matrix.harnesses[0].cells.worker[name]; item.evidence = [];
   const other = setup(matrix); other.local.route.cell = { harness: first.id, group: 'worker', cell: name }; other.render();
   assert.ok(other.inspector.current.body.textContent.includes('No evidence recorded'));
+});
+
+test('169: the Workers page shows each tier slot as bindingText, an object slot with its provider and effort', () => {
+  const root = setup(MATRIX, { light: 'model-one', standard: { model: 'gpt-y', provider: 'openai', effort: 'low' }, frontier: { model: 'gpt-z' }, bad: 7 }).render();
+  assert.ok(root.textContent.includes('light: model-one, standard: gpt-y (provider openai, effort low), frontier: gpt-z, bad: 7'), root.textContent);
 });
 
 test('missing matrix keeps settings and doctor panel usable', () => {
