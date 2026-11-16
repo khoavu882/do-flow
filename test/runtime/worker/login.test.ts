@@ -303,6 +303,29 @@ test('IC-001: a full LoginAnswer at its limits is at most 1 KiB', () => {
   assert.deepEqual(Object.keys(answer).sort(), ['at', 'billing', 'caveat', 'expirySeen', 'harness', 'hint', 'last', 'provider', 'providers', 'reason', 'source', 'state']);
 });
 
+test('IC-001: the 1 KiB bound is on UTF-8 bytes and holds with multi-byte text at every limit; caveat, then hint, then reason are trimmed', () => {
+  const wide = (n: number) => '\u{1F600}'.repeat(n); // 4 UTF-8 bytes each
+  const bytes = (answer: any) => Buffer.byteLength(JSON.stringify(answer));
+  const providers = Array.from({ length: 8 }, (_, i) => ({ id: `p${i}`, state: 'unknown', mode: null, reason: wide(40) }));
+  const full = { loginProbe: { ...PI, status: 'supported', hint: wide(120), caveat: wide(160) } };
+  const record = (w: any) => ({ recipe: { ...recipeOf(w, 'unknown', -H), reason: wide(200), providers }, run: null });
+  const all = login.loginAnswerOf({ harness: 'acme.mycli', worker: full, record: record(full), now: NOW });
+  assert.ok(bytes(all) <= 1024, `${bytes(all)} bytes`);
+  assert.deepEqual(all.providers, [], 'providers go first');
+  assert.equal(all.caveat, null, 'the caveat goes before the hint is touched');
+  assert.ok(all.hint === null || wide(120).startsWith(all.hint), 'the hint is cut, never re-written');
+  assert.equal(all.reason, wide(160), 'the reason stays whole while the hint can give way');
+
+  // Only part of the caveat has to go: the hint and reason stay whole, and the cut never splits a character.
+  const some = { loginProbe: { ...PI, status: 'supported', hint: 'pi auth login', caveat: '€'.repeat(160) } };
+  const part = login.loginAnswerOf({ harness: 'pi', worker: some, record: { recipe: { ...recipeOf(some, 'unknown', -H), reason: wide(160) }, run: null }, now: NOW });
+  assert.ok(bytes(part) <= 1024, `${bytes(part)} bytes`);
+  assert.equal(part.hint, 'pi auth login');
+  assert.equal(part.reason, wide(160));
+  assert.ok(part.caveat && part.caveat.length < 160 && '€'.repeat(160).startsWith(part.caveat), String(part.caveat));
+  assert.ok(bytes(part) > 1024 - 3, 'the caveat keeps every character that fits');
+});
+
 test('4.6: loginFact maps each state', () => {
   const base = { harness: 'pi', at: at(0), provider: null } as any;
   assert.deepEqual(login.loginFact({ ...base, state: 'logged-in', reason: null }), { state: 'yes', reason: 'logged-in', at: at(0), basis: 'free' });

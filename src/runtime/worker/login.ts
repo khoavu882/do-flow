@@ -290,12 +290,23 @@ function reasonFor(state: LoginState, reason: string | null): string | null {
   return cut(reason ?? (state === 'logged-in' ? null : state), REASON_CHARS);
 }
 
-/** Holds the answer to 1 KiB serialized: provider reasons go first, then providers from the end. */
+/**
+ * Holds the answer to 1 KiB of serialized UTF-8: provider reasons go first, then providers from the end, then the
+ * caveat, the hint and the reason are cut one character at a time from their end, in that order (an emptied one is
+ * null). The reason is cut only once caveat and hint are gone, which takes text at its own limits into the bound.
+ */
 function bounded(answer: LoginAnswer): LoginAnswer {
   const size = () => Buffer.byteLength(JSON.stringify(answer));
   if (size() <= ANSWER_BYTES) return answer;
   answer.providers = answer.providers.map((entry) => ({ ...entry, reason: null }));
   while (size() > ANSWER_BYTES && answer.providers.length > 0) answer.providers.pop();
+  for (const key of ['caveat', 'hint', 'reason'] as const) {
+    const chars = Array.from(answer[key] ?? '');
+    while (size() > ANSWER_BYTES && chars.length > 0) {
+      chars.pop();
+      answer[key] = chars.length > 0 ? chars.join('') : null;
+    }
+  }
   return answer;
 }
 
