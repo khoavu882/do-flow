@@ -18,7 +18,7 @@ The registry rows for a harness:
 - [`transcripts.json`](https://github.com/khoavu882/do-flow/blob/develop/core/registry/transcripts.json): where the harness keeps its session transcripts.
 - [`telemetry.json`](https://github.com/khoavu882/do-flow/blob/develop/core/registry/telemetry.json): the closed list of harness names that telemetry accepts (`vocabularies.harness`).
 
-Lists of harness ids are not edited by hand. `src/registry/harness-ids.ts` reads the ids and binary names from `harnesses.json` when it loads, and the install targets, lifecycle views and probes use that.
+Lists of harness ids are not edited by hand. `src/registry/harness-ids.ts` reads the ids and binary names from `harnesses.json` when it loads, and the install targets, lifecycle views and probes use that. Adding a harness edits the registry and one test pin, the list in `test/registry/harness-ids.test.ts` ("the active harnesses are exactly these"). Every other list in source and tests is derived from the registry, and guard G83 fails on a stray one.
 
 ## Step 1: the descriptor
 
@@ -50,7 +50,7 @@ A rule has `when` and `then`:
 
 When the stream ends, the report follows a fixed order. A denial wins, then an oversize JSON line, then a spawn, then a failed terminal, then a completed terminal with a final message, then a completed terminal without one (`unparsed`, `no-final-message`), then a stream error, and last `missingTerminal`. `finalFallback: "last-message-file"` lets the file that the harness writes stand in for a missing final message.
 
-The registry checks each map when it loads. Every `final`, `summary` and `streamError` path needs an `is: "string"` test on the same path in the same rule. Every rule tests `eventType`. At least one rule completes, and one gives a final message (or `finalFallback` is set). Two tests in one rule must not contradict each other. The map `id` must match `^[a-z][a-z0-9-]{1,47}-v[1-9][0-9]*$`. Free text is masked by DoFlow, not by the map.
+The registry checks each map when it loads. Every `final`, `summary` and `streamError` path needs an `is: "string"` test on the same path in the same rule. Every rule tests `eventType`. At least one rule completes, and one gives a final message (or `finalFallback` is set). Two tests in one rule must not contradict each other. An `equals` or `in` on the `eventType` path must hold strings, because an event type is always a string. A `completed` rule must not also set `spawn`. A `completed` rule is refused when an earlier rule always hides it, if two rules are enough to tell: each test of the earlier rule is implied by a test of the later one (the same `equals`, an `in` that holds the value, an `is` kind that covers it, or `present` on a path the later rule tests). Any other shadowing is not decidable from a pair of rules and is left to the `stream` check of conform (Step 5). The map `id` must match `^[a-z][a-z0-9-]{1,47}-v[1-9][0-9]*$`. Free text is masked by DoFlow, not by the map.
 
 Version 1 has no regex, no text prefix test, no array indexing, no accumulation across events and no cost. A harness that needs one of these keeps a code parser (Step 3).
 
@@ -115,7 +115,7 @@ For a package worker, `<id>` is `<package>.<local>`. Add `--json` for a machine-
 
 Conform runs the descriptor against a fake program, never the real harness. The fake is the only executable on `PATH`. The child gets an environment built from nothing (`PATH`, `HOME`, `LANG` and the conform variables), so no token reaches it. The scratch directory is made in the OS temp directory and removed afterwards, also when conform is stopped by Ctrl-C (SIGINT) or SIGTERM. That directory is its only write: conform writes no telemetry and no store, and no storage upkeep runs after it. It is not supported on Windows.
 
-It checks seven parts, in this order: `binary`, `one-shot`, `prompt-transport`, `model-flag`, `main-session`, `stream` and `login`. A part reads `passed`, `failed` or `unchecked`. A part is `unchecked` when its descriptor entry is not `supported`, or when a part it needs failed. For the `stream` part, conform builds the smallest event for each rule of the field map and checks the report it gives. It also reports a rule that an earlier rule hides. A harness with a code parser leaves `stream` unchecked.
+It checks seven parts, in this order: `binary`, `one-shot`, `prompt-transport`, `model-flag`, `main-session`, `stream` and `login`. A part reads `passed`, `failed` or `unchecked`. A part is `unchecked` when its descriptor entry is not `supported`, or when a part it needs failed. For the `stream` part, conform builds the smallest event for each rule of the field map, one that meets every test of the rule together, and checks the report it gives. It also reports a rule that an earlier rule hides, including the cases the registry cannot decide from a pair of rules. A harness with a code parser leaves `stream` unchecked.
 
 Exit 0: every part that was checked passed. Exit 1: at least one part failed, and each is named. Exit 2: a usage error, an unknown harness, an unsupported platform or no scratch directory.
 
