@@ -8,9 +8,10 @@ const path = require('node:path');
 const {
   loadRegistry, validateRegistry, validateAgentLimits, AGENT_LIMIT_STATUS,
 } = require('../../src/registry/index.ts');
+const { activeIds } = require('../../src/registry/harness-ids.ts');
 
 const REPO = path.resolve(__dirname, '../..');
-const IDS = ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
+const IDS = [...activeIds()];
 
 /** A fresh copy of the shipped registry whose first harness is claude, with a mutation applied. */
 function mutated(mutate: any) {

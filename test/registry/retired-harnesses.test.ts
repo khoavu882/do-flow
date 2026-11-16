@@ -9,6 +9,7 @@ const path = require('node:path');
 const { loadRegistry, validateRegistry, retiredFor, isRetired, harnessFor } = require('../../src/registry/index.ts');
 const { resolveTargets, VALID } = require('../../src/install/targets.ts');
 const { tempDir } = require('../helper/tmp.ts');
+const { activeIds } = require('../../src/registry/harness-ids.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const REGISTRY_DIR = path.join(REPO, 'core', 'registry');
@@ -81,7 +82,7 @@ test('the shipped registry retires gemini for antigravity, with its handover ent
   assert.deepEqual(gemini.removal.hookCommands, { renderer: 'gemini-hooks', key: 'hooks', commands: GEMINI_HOOK_COMMANDS });
   assert.deepEqual(gemini.removal.markerSectionRenderers, ['gemini-instructions']);
   assert.deepEqual(gemini.removal.handover, [{ renderer: 'gemini-instructions', scope: 'global', to: 'antigravity', surface: 'instruction' }]);
-  assert.deepEqual(registry.harnesses.map((h: any) => h.id), ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity']);
+  assert.deepEqual(registry.harnesses.map((h: any) => h.id), activeIds());
   assert.equal(isRetired(registry, 'gemini'), true);
   assert.throws(() => harnessFor(registry, 'gemini'), /Unknown registry harness 'gemini'/);
 });
