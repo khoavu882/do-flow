@@ -1393,10 +1393,11 @@ async function handleDoctorCommand({ json = false, repoRoot, projectRoot = proce
     if (report.workers.state === 'invalid') {
       console.log(`  workers.enabled: invalid (${report.workers.reason})`);
     }
+    const { bindingText } = require('./models/binding-text.ts');
     for (const row of report.workers.rows) {
       const position = row.enabled.position === null ? '' : ` #${row.enabled.position}`;
       const eligibility = row.eligible ? 'eligible' : `ineligible (${row.firstGap.requirement})`;
-      const bound = row.bound.map((item: any) => `${item.tier}=${require('./models/binding-text.ts').bindingText(item.binding)} (${item.flag})`).join(', ') || 'none';
+      const bound = row.bound.map((item: any) => `${item.tier}=${bindingText(item.binding)} (${item.flag})`).join(', ') || 'none';
       console.log(`  worker ${row.harness}: ${row.enabled.state}${position}, ${eligibility}; bound tiers: ${bound}`);
     }
     for (const id of report.workers.dangling) {
