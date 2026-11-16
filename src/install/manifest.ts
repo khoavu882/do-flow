@@ -10,6 +10,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { sourceCommit: gitSourceCommit } = require('../helper/git.ts');
+const { activeIds } = require('../registry/harness-ids.ts');
 
 const MANIFEST_FILE_NAME = '.install-manifest.json';
 
@@ -55,13 +56,16 @@ function writeManifest({ scopeRoot, scriptVersion, operation, repoRoot, backupId
   if (dryRun) return file;
 
   // Preserve per-tool last_updated for tools NOT part of this operation (matches sync.sh's
-  // incremental jq merge, which only touches the tools passed to write_manifest).
+  // incremental jq merge, which only touches the tools passed to write_manifest). An entry for a
+  // harness the registry no longer lists (a retired one: its files are released by the sweep, never
+  // this record) is not carried forward.
   let existingTools: Record<string, any> = {};
   if (fs.existsSync(file)) {
     try { existingTools = JSON.parse(fs.readFileSync(file, 'utf8')).tools || {}; } catch { /* start fresh */ }
   }
   const ts = date.toISOString().replace(/\.\d+Z$/, 'Z');
-  const toolsOut: Record<string, any> = { ...existingTools };
+  const active = new Set<string>(activeIds());
+  const toolsOut: Record<string, any> = Object.fromEntries(Object.entries(existingTools).filter(([tool]) => active.has(tool)));
   for (const t of tools) toolsOut[t] = { installed: true, last_updated: ts };
 
   const manifest: any = {

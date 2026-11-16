@@ -153,6 +153,18 @@ test('canonical lifecycle manifest preserves metadata across incremental writes'
   assert.notStrictEqual(read.tools.claude.last_updated, read.tools.codex.last_updated);
 });
 
+test('the manifest keeps no tools entry for a harness the registry does not list (L2-06)', () => {
+  const root = scratchDir();
+  const file = canonicalManifestPath(root);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const stamp = { installed: true, last_updated: '2026-03-15T10:20:30Z' };
+  fs.writeFileSync(file, JSON.stringify({ script_version: '2.4.0', tools: { claude: stamp, gemini: stamp } }));
+  writeManifest({ scopeRoot: root, scriptVersion: '2.5.0', operation: 'update', repoRoot: REPO, tools: ['codex'], date: FIXED_DATE });
+  const read = readInstallManifest({ scopeRoot: root });
+  assert.deepStrictEqual(Object.keys(read.tools).sort(), ['claude', 'codex'], 'gemini is dropped, claude and codex stay');
+  assert.deepStrictEqual(read.tools.claude, stamp, 'a listed harness keeps its earlier entry');
+});
+
 test('readInstallManifest returns null when no manifest exists yet', () => {
   assert.strictEqual(readInstallManifest({ scopeRoot: scratchDir() }), null);
 });
