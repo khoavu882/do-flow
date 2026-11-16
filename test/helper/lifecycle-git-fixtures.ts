@@ -4,7 +4,7 @@
 // carries an explicit author and committer date from a clock the fixture controls, so merge
 // evidence that depends on "committed at or after the lower bound" is deterministic and never races
 // the wall clock. Nothing runs at require time; each test builds its repositories in a scratch
-// directory from test/helper/scratch-env.js and removes the directory in an `after`.
+// directory from test/helper/scratch-env.ts and removes the directory in an `after`.
 
 const fs = require('node:fs');
 const path = require('node:path');

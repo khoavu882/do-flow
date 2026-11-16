@@ -7,7 +7,7 @@
 // guard tests comparing them were failing correctly (architecture review R8). Hand-editing four
 // files in step is exactly the drift class this repo removes elsewhere by generation, so the
 // npm `version` lifecycle hook runs this script: `npm version <bump>` rewrites the manifests and
-// stages them into the same release commit. The equality guards in test/install/doflow.test.js
+// stages them into the same release commit. The equality guards in test/install/doflow.test.ts
 // stay as the independent check that the projection actually happened.
 
 const fs = require('node:fs');

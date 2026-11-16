@@ -1,5 +1,5 @@
 'use strict';
-// The one line install and update name each harness's MCP selection in (src/cli/shared.js
+// The one line install and update name each harness's MCP selection in (src/cli/shared.ts
 // printMcpSelection): every source word, grouping and the --mcp-without-a-taker line, from a plan's
 // targets alone. The interactive prompt cannot be driven from a spawned CLI, so its word is pinned here.
 const { test } = require('node:test');

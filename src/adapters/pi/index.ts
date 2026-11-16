@@ -43,7 +43,7 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS], env 
   function nativePaths({ scope, scopeRoot }: any = {}) {
     const paths = resolveHarnessPaths(declaredPaths, { scope, scopeRoot });
     // Pi's user-scope mcp.json follows $PI_CODING_AGENT_DIR when set. It is not declared in the
-    // registry because the path schema has no environment base (src/helper/harness-paths.js); the
+    // registry because the path schema has no environment base (src/helper/harness-paths.ts); the
     // guard extension follows it too, while skills and AGENTS.md keep their declared locations.
     if ((scope === 'user' || scope === 'global') && agentDirOverride()) paths.mcp = path.join(path.resolve(agentDirOverride()), 'mcp.json');
     return paths;

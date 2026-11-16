@@ -3,7 +3,7 @@
 /**
  * G21 — the wholesale-asset constant against adapter behaviour (feature 041, task D.3; FR-007).
  *
- * `src/runtime/inventory/siblings.js` reports an unmanaged file only when it sits in a directory
+ * `src/runtime/inventory/siblings.ts` reports an unmanaged file only when it sits in a directory
  * the harness loads **wholesale** — every file present becomes operative context. A directory the
  * harness resolves by name is never even read, because a neighbouring file there cannot take
  * effect. Which directories are which is not declared anywhere: nothing in the registry records
@@ -136,7 +136,7 @@ test('G21: every apply-to-everything projection is in the wholesale-asset set (F
   assert.deepEqual(missing, [],
     'these projections render every file under an apply-to-everything header, so the harness loads '
     + 'their directory wholesale and an unmanaged file dropped there is operative context — but '
-    + "src/runtime/inventory/siblings.js's WHOLESALE_ASSETS does not list them, so `doflow "
+    + "src/runtime/inventory/siblings.ts's WHOLESALE_ASSETS does not list them, so `doflow "
     + 'inventory` never reads those directories and reports nothing found in them. Add each to '
     + `that constant:\n  ${missing.join('\n  ')}`);
 });

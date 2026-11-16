@@ -350,7 +350,7 @@ function harnessMcpSelection(registry: any, harness: any, raw: any) {
 
 /** The shared trees the orphan prune judges, each a group of the assets that project it. Each tree
  * is one source directory projected to one `<scopeRoot>/.doflow/...` tree for every harness, with
- * no layout and no transform (test/guards/runtime-tree.test.js pins that), so a file the current
+ * no layout and no transform (test/guards/runtime-tree.test.ts pins that), so a file the current
  * source no longer ships is dead for every harness at once. The guidance tree is two assets: Kiro
  * projects it through kiro.guidance-tree, every other harness through guidance.context-layer. A
  * harness's own native files name only DOFLOW_CORE.md in it, which every source ships. The scripts

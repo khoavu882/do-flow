@@ -188,7 +188,7 @@ test('ContextPackCompiler compiles compact structured context within budget', ()
 });
 
 test('FreshnessValidator detects modified files and marks evidence STALE', () => {
-  let mockStatusOutput = ' M src/runtime/locator-resolve.js';
+  let mockStatusOutput = ' M src/runtime/locator-resolve.ts';
   const mockGitRunner = (args: any) => {
     if (args[0] === 'status') return mockStatusOutput;
     if (args[0] === 'rev-parse') return 'commit_abc123';
@@ -201,13 +201,13 @@ test('FreshnessValidator detects modified files and marks evidence STALE', () =>
   const evFresh = ledger.addEvidence({
     taskId: 't_fresh',
     kind: 'exact-search',
-    locator: { file: 'src/runtime/leak-scan.js' },
+    locator: { file: 'src/runtime/leak-scan.ts' },
   });
 
   const evStale = ledger.addEvidence({
     taskId: 't_fresh',
     kind: 'exact-search',
-    locator: { file: 'src/runtime/locator-resolve.js' },
+    locator: { file: 'src/runtime/locator-resolve.ts' },
   });
 
   assert.equal(ledger.getEvidence(evFresh).freshness.status, 'FRESH');

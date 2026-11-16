@@ -46,7 +46,7 @@ function loadConfig(file = CONFIG_PATH) {
   return JSON.parse(fs.readFileSync(file, 'utf8'));
 }
 
-/** IC-008 key: digests the revision and the truth, so a changed truth invalidates a noise artifact (pattern: bench/agentic/tasks.js caseKey). */
+/** IC-008 key: digests the revision and the truth, so a changed truth invalidates a noise artifact (pattern: bench/agentic/tasks.ts caseKey). */
 function caseKey({ id, rev, scope, expected }: { id: string; rev: string; scope: any; expected: any }) {
   const { path: p, startLine, endLine, severity } = expected;
   const body = { rev, scope, expected: { path: p, startLine, endLine, severity } };

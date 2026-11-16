@@ -122,7 +122,7 @@ let declaredCache: { repoRoot: string; paths: Record<string, any> } | undefined;
 /** Every harness's declared paths section, keyed by harness id, read straight from
  * core/registry/harnesses.json (memoized per process — the file ships inside the package).
  * Adapters default their factories to this, so a factory called with no arguments and the CLI
- * wiring in src/cli/shared.js#buildAdapterRegistry consume byte-identical declarations. */
+ * wiring in src/cli/shared.ts#buildAdapterRegistry consume byte-identical declarations. */
 function declaredHarnessPaths(repoRoot: string = REPO_ROOT): Record<string, any> {
   if (declaredCache && declaredCache.repoRoot === path.resolve(repoRoot)) return declaredCache.paths;
   const file = path.join(path.resolve(repoRoot), 'core', 'registry', 'harnesses.json');

@@ -1,7 +1,7 @@
 'use strict';
 
 // 081 B.3 (IC-003, IC-012; DEC-030, DEC-037, DEC-045): the worker environment, the launch
-// emission, argv assembly and the spawn. Every spawn resolves to test/helper/fake-harness-cli.js
+// emission, argv assembly and the spawn. Every spawn resolves to test/helper/fake-harness-cli.ts
 // linked into a scratch bin/, and the child PATH is that bin/ plus the directory of
 // process.execPath only (NFR-002). The caller env given to each launch deletes the DOFLOW_* identity
 // variables, so the launcher alone sets them and the developer's shell decides nothing.

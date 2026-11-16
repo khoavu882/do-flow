@@ -1,7 +1,7 @@
 'use strict';
 // runtime-orchestrate.test.js — CLI-level coverage for `doflow orchestrate`, added alongside the
 // feature-023 remediation review. `handleOrchestrateCommand` had zero test coverage before this —
-// not even indirectly, since test/runtime/workflow-orchestrator.test.js only exercises the
+// not even indirectly, since test/runtime/workflow-orchestrator.test.ts only exercises the
 // WorkflowOrchestrator class in-process with an injected readinessEvaluate, never the real
 // EvidenceLedger/ClaimsManager/ReadinessEngine wiring or the CLI's own stateRoot/task-class
 // handling. That gap is exactly how three defects shipped unnoticed:

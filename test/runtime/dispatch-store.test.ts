@@ -4,7 +4,7 @@
 // store. A `write: false` decision and a refused transition leave the file's bytes as they were; an
 // ended dispatch is add-only; a torn or future-version file is `store-unreadable` and left as it
 // was; the step log keeps the newest 500; and two processes moving one dispatch from `admitted` to
-// `claimed` at once through test/helper/race-barrier.js yield one applied transition.
+// `claimed` at once through test/helper/race-barrier.ts yield one applied transition.
 //
 // This file is also the race worker's module. race-barrier.js requires the module it is given and
 // calls one of its fixed operation names, so when required with `--race-worker` the file exports

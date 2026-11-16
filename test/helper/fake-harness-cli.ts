@@ -6,7 +6,7 @@
 //
 // A stand-in for a harness CLI. Tests link this file into a scratch bin/ under each binary name a
 // fake descriptor (test/fixtures/worker/descriptors.json) declares. The child PATH is that scratch
-// bin/ alone, built by test/helper/dispatch-sandbox.js: the fake links, a `node` symlink to
+// bin/ alone, built by test/helper/dispatch-sandbox.ts: the fake links, a `node` symlink to
 // process.execPath, a `git` symlink to the resolved git binary, and named system tools only when a
 // test asks for them (082 DEC-056, NFR-002). It never contains dirname(process.execPath): a node
 // install directory can hold real codex, antigravity or claude binaries. The fake names are

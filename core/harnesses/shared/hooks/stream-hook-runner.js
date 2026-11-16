@@ -71,7 +71,7 @@ function isProgrammingError(error) {
 
 // The config home and the lexical failure.capture rule, copied from src/runtime/config-home.ts and
 // src/runtime/settings/lexical.ts (086 IC-003, IC-004); the marked text is the same in every reader.
-// BEGIN doflow-config-home v1 (rule: src/runtime/config-home.ts; checked by test/guards/settings.test.js)
+// BEGIN doflow-config-home v1 (rule: src/runtime/config-home.ts; checked by test/guards/settings.test.ts)
 function doflowConfigHome(env) {
   const xdg = env.XDG_CONFIG_HOME;
   if (typeof xdg === 'string' && xdg !== '' && path.isAbsolute(xdg)) return path.join(xdg, 'doflow');
@@ -81,7 +81,7 @@ function doflowConfigHome(env) {
 }
 // END doflow-config-home v1
 
-// BEGIN doflow-settings-lexical v1 (rule: src/runtime/settings/lexical.ts; checked by test/guards/settings.test.js)
+// BEGIN doflow-settings-lexical v1 (rule: src/runtime/settings/lexical.ts; checked by test/guards/settings.test.ts)
 const WS = '[ \\t\\n\\v\\f\\r]';
 const CAPTURE_RE = new RegExp(`"failure\\.capture"${WS}*:${WS}*("[^"]*"|[^,}" \\t\\n\\v\\f\\r]*)`, 'g');
 function lexicalCapture(text) {
@@ -206,7 +206,7 @@ function rotateFailures(home) {
 /**
  * The working directory with the home prefix as `~`, matching HOME as given, its real path and
  * `os.homedir()`; under no known home, when HOME is not usable, only the folder name. Same rule as
- * projectName in src/runtime/failure/capture.js (this file ships without src/).
+ * projectName in src/runtime/failure/capture.ts (this file ships without src/).
  */
 function hookProject(cwd, env) {
   const homes = [];
@@ -226,7 +226,7 @@ function hookProject(cwd, env) {
 /**
  * Appends one line only when `file` is absent or a regular file: a FIFO there would block the open
  * until something reads it and stall a guarded tool call. Same rule as appendRegular in
- * src/runtime/failure/capture.js (this file ships without src/).
+ * src/runtime/failure/capture.ts (this file ships without src/).
  */
 function appendRegularLine(file, line) {
   const c = fs.constants;

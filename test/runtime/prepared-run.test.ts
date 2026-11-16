@@ -1,7 +1,7 @@
 'use strict';
 
 // 119 IC-010, FR-013, NFR-005: `doflow config validate --prepared-run <file>`. Each case runs the CLI
-// against a scratch HOME / XDG_CONFIG_HOME and a scratch project (test/helper/settings-fixtures.js)
+// against a scratch HOME / XDG_CONFIG_HOME and a scratch project (test/helper/settings-fixtures.ts)
 // with PATH holding only the directory of this Node binary, so no harness, git or other tool is
 // reachable, and checks nothing is written anywhere.
 

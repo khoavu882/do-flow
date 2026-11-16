@@ -8,7 +8,7 @@ caller (`refactor-shared-format`), and a README table edit that must leave the r
 byte-identical (`doc-options-sync`). A case may carry a `discrimination` note naming what a careless
 run gets wrong; the runner ignores it.
 
-No live results have been captured for this corpus. `test/bench/native-corpus.test.js` validates the
+No live results have been captured for this corpus. `test/bench/native-corpus.test.ts` validates the
 broken fixtures and the grader offline — that every case starts from a fixture failing its own
 `checks`, that `expectedSkills` names skills that actually ship, that `prepare` describes the install
 rather than performing it, and that a run with no controller record grades `INCONCLUSIVE` rather than
@@ -18,9 +18,9 @@ something. Live sessions may incur model usage charges.
 ## Running a case
 
 ```bash
-node bench/native/runner.js list
-node bench/native/runner.js prepare routing codex /tmp/native-routing MODEL HOST_VERSION
-node bench/native/runner.js grade /tmp/native-routing
+node bench/native/runner.ts list
+node bench/native/runner.ts prepare routing codex /tmp/native-routing MODEL HOST_VERSION
+node bench/native/runner.ts grade /tmp/native-routing
 ```
 
 Use an explicit model identifier and the installed host's version. `prepare` creates a new directory

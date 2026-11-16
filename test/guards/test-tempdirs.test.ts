@@ -2,7 +2,7 @@
 
 // G27 — test temporary directories (feature 061, IC-022, FR-025).
 //
-// Every temporary folder a test creates goes through test/helper/tmp.js, whose tempDir() removes it
+// Every temporary folder a test creates goes through test/helper/tmp.ts, whose tempDir() removes it
 // when the test ends and whose suiteTempDir() removes it when the process exits. A test that calls
 // the platform temp-dir functions itself leaves a folder behind whenever its own cleanup is missing
 // or skipped by a failure, and those folders pile up in the OS temp root across runs. This guard
@@ -98,12 +98,12 @@ function scan(files: any, exempt: any) {
   return { findings, staleExemptions };
 }
 
-test('G27: no test creates a temporary directory outside test/helper/tmp.js', () => {
+test('G27: no test creates a temporary directory outside test/helper/tmp.ts', () => {
   const files: any = new Map(testFiles().map((rel: any) => [rel, fs.readFileSync(path.join(REPO, rel), 'utf8')]));
   assert.ok(files.size > 100, `expected the whole test tree, found ${files.size} files`);
   const { findings } = scan(files, EXEMPT);
   assert.deepEqual(findings, [],
-    `temporary directories must come from test/helper/tmp.js (tempDir or suiteTempDir):\n${findings.join('\n')}`);
+    `temporary directories must come from test/helper/tmp.ts (tempDir or suiteTempDir):\n${findings.join('\n')}`);
 });
 
 test('G27: every EXEMPT entry names an existing file that still holds a call', () => {

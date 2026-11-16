@@ -3,7 +3,7 @@
 // Feature 082 B.2 (IC-014; DEC-020, DEC-021, DEC-046, DEC-048): `worker --action run --edit` in
 // src/runtime/worker/command.ts and its isolation check in supervisor.ts.
 //
-// Each case is a sandbox repository (test/helper/dispatch-sandbox.js) with a started 080 run and a
+// Each case is a sandbox repository (test/helper/dispatch-sandbox.ts) with a started 080 run and a
 // subagent claim whose execution worktree is a dispatch attempt worktree made by B.4's
 // createAttemptWorktree under .doflow/state/dispatch-worktrees/d-<12 hex> on
 // doflow-attempt/<slug>/<d-id>. The worker is the fake claude CLI with editDescriptors()'s

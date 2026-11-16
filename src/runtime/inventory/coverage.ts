@@ -10,9 +10,9 @@
  *   $ doflow reconcile -g --dry-run → 10 drifts for 1 harness
  *
  * Both numbers are internally consistent. `status` reads the ledger, which records what DoFlow
- * owns; `reconcile` (`src/cli/commands/reconcile.js`) derives its target set from `doflow.lock`,
+ * owns; `reconcile` (`src/cli/commands/reconcile.ts`) derives its target set from `doflow.lock`,
  * which records what an install *chose*. The lock accumulates: each run keeps every pin whose
- * harness the ledger still holds (`src/lifecycle/view.js#lockDocument`). A harness the ledger holds
+ * harness the ledger still holds (`src/lifecycle/view.ts#lockDocument`). A harness the ledger holds
  * and the lock lacks — one installed before any lock recorded it — is still outside the repair
  * path, and `reconcile` names it rather than converging it. A user must not be able to read the
  * report and reasonably conclude a remedy exists where none does — that is the whole of FR-006.

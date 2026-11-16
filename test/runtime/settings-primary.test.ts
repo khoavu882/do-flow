@@ -2,7 +2,7 @@
 
 // 120 A.2 (IC-002 model-id and env parse `verbatim`, IC-003 primary.*): the three primary declaration
 // keys, the model-id value type, and a worker launch that never inherits the declaration. Every case
-// uses a scratch HOME and project (test/helper/settings-fixtures.js); nothing reads the real config.
+// uses a scratch HOME and project (test/helper/settings-fixtures.ts); nothing reads the real config.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');

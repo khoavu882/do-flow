@@ -1,7 +1,7 @@
 'use strict';
 
 // The always-loaded measurement helper (074 C15, IC-019), extracted unchanged from
-// test/guards/context-budget.test.js so the perf runner can report the same startup byte total
+// test/guards/context-budget.test.ts so the perf runner can report the same startup byte total
 // the G13 guard enforces.
 const fs = require('node:fs');
 const path = require('node:path');

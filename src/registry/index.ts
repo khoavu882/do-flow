@@ -31,7 +31,7 @@ const ORCHESTRATION_OPS = ['spawn', 'wait', 'status', 'cancel', 'resume', 'nest'
 const ORCHESTRATION_FALLBACK = new Set(['sequential', 'manual']);
 // 'core' = must be supported/different (never unavailable) on every currently-integrated harness;
 // 'enhanced' = best-effort, wired wherever a harness's native surface allows. Optional field —
-// a policy without one is neither tier, and test/guards/registry.test.js's core-tier check simply
+// a policy without one is neither tier, and test/guards/registry.test.ts's core-tier check simply
 // skips it. See agent-docs research backing this (LSP capability negotiation, k8s feature gates,
 // progressive enhancement): reducing every policy to the true cross-harness intersection was
 // rejected as a design in favor of this, since it deletes real working capability instead of just

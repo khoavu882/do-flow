@@ -73,7 +73,7 @@ _TOP_LEVEL_FRONTMATTER_KEY_RE = re.compile(r"^([A-Za-z][A-Za-z0-9_-]*)\s*:")
 def frontmatter_keys(lines: List[str]) -> List[str]:
     """Top-level YAML frontmatter keys only — values are irrelevant here, and parsing them
     would take on a YAML dependency this repo deliberately does not have (mirrors
-    test/guards/_shared.js's frontmatterKeys(), same reasoning)."""
+    test/guards/_shared.ts's frontmatterKeys(), same reasoning)."""
     if not lines or lines[0].strip() != "---":
         return []
     keys = []
@@ -221,7 +221,7 @@ def check_boundaries(path: Path, lines: List[str]) -> List[Dict]:
 # Check 3: triggering description strength, SKILL.md frontmatter only
 # --------------------------------------------------------------------------------------
 
-# Same shape as G8's own `argument-hint` extraction regex (test/guards/_shared.js), applied
+# Same shape as G8's own `argument-hint` extraction regex (test/guards/_shared.ts), applied
 # to `description:` instead — an optional wrapping quote, non-greedy body, trailing quote.
 _FRONTMATTER_DESCRIPTION_RE = re.compile(r'^description:\s*"?(.*?)"?\s*$')
 
@@ -280,7 +280,7 @@ def check_description(path: Path, lines: List[str]) -> List[Dict]:
 # Check 4: dangling references/X.md or modes/X.md cross-references
 # --------------------------------------------------------------------------------------
 
-# Same match shape as G3's own dangling-reference regex (test/guards/consumers.test.js).
+# Same match shape as G3's own dangling-reference regex (test/guards/consumers.test.ts).
 _REFERENCE_MENTION_RE = re.compile(r'`?((?:modes|references)/[A-Za-z0-9_.-]+\.md)`?')
 
 

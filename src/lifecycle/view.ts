@@ -56,7 +56,7 @@ function registryLifecycleView({ registry, scope, targets, mcpSelections = {}, r
   const neutralStateRoot = stateRoot({ scope: lifecycleScope, projectRoot: scopeRoot, homeDir: scopeRoot });
   const ledger = canonicalLedger(readLedger(neutralStateRoot), scopeRoot) ?? defaultLedger({ scope: lifecycleScope, scopeRoot });
   const tier = hookHarnesses ? { harnesses: hookHarnesses, workers: null } : resolveHookTier();
-  // Mirrors buildAdapterRegistry() in src/cli/shared.js — including the declared-paths wiring —
+  // Mirrors buildAdapterRegistry() in src/cli/shared.ts — including the declared-paths wiring —
   // and is kept as a literal construction here because the registry guard pins every declared
   // harness into each adapter-registry call site by parsing it.
   const declared = declaredHarnessPaths();

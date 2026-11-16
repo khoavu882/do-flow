@@ -53,7 +53,7 @@ test('CLI usage and bounded seeded JSON record', () => {
   assert.equal(run(['--scenario', 'S1', '--schedules', '6000']).status, 2);
 
   // One seeded schedule: the IC-006 record and a detection-power entry. Seed determinism (the same seed
-  // twice, another seed) runs on demand in test/explore/ledger-controls.js (117 D-ORCH budget option (b)).
+  // twice, another seed) runs on demand in test/explore/ledger-controls.ts (117 D-ORCH budget option (b)).
   const first = run(['--scenario', 'S1', '--init', 'none', '--schedules', '1', '--seed', '1', '--json']);
   assert.equal(first.status, 0, first.stderr);
   assert.equal(first.stderr, '');

@@ -78,7 +78,7 @@ function saveFailedFirstFile(stateDir: string, stateFile: string, state: any, fs
 
 // `handleVerifyCommand` (moved from bin/doflow.js) used bin/doflow.js's own REPO_ROOT — that file's
 // SCRIPT_DIR is bin/, so its repo root is path.dirname(SCRIPT_DIR). This module takes the same root
-// from src/helper/repo-root.js rather than counting its own depth.
+// from src/helper/repo-root.ts rather than counting its own depth.
 
 /** `PASS` and `FAIL` are the Python's vocabulary. `INCONCLUSIVE` is added for the empty-contract
  * case only — see `evaluateContract`. */

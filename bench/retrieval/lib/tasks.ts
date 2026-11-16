@@ -4,9 +4,9 @@
 /**
  * Task file validator and authoring CLI (074 IC-013, PD-4).
  *
- *   node bench/retrieval/lib/tasks.js --fill <file>
- *   node bench/retrieval/lib/tasks.js --check <file> --split <dev|holdout>
- *   node bench/retrieval/lib/tasks.js --merge <out> <in...> [--keep-parts]
+ *   node bench/retrieval/lib/tasks.ts --fill <file>
+ *   node bench/retrieval/lib/tasks.ts --check <file> --split <dev|holdout>
+ *   node bench/retrieval/lib/tasks.ts --merge <out> <in...> [--keep-parts]
  *
  * `--check` prints counts and finding codes with task ids, never task text: a holdout plaintext may
  * be checked in a shared terminal. Every blob is read through one `git cat-file --batch` process.

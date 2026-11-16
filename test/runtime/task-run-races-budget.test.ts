@@ -2,7 +2,7 @@
 
 // Feature 080 R.2 (IC-021, FR-017, NFR-002; DEC-007, DEC-011, DEC-014; RK5): the budget,
 // reservation and epoch races on one ledger, between child processes released together by a file
-// barrier (test/helper/race-barrier.js), each at least 50 repetitions, plus the lock-removal
+// barrier (test/helper/race-barrier.ts), each at least 50 repetitions, plus the lock-removal
 // control on the attempt-limit race.
 //
 // Every repetition reseeds the same ledger, runs the race, and then checks the invariant and that

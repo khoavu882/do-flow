@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * test/runtime/verification-impact.test.js: task A.3 (IC-009, DD-7, DD-8).
+ * test/runtime/verification-impact.test.ts: task A.3 (IC-009, DD-7, DD-8).
  *
  * Impacted test selector: static relative specifier resolution, spawn wildcard,
  * guard directory inclusion, and unknown-file full suite expansion.
@@ -33,7 +33,7 @@ function fixtureProject(t: any, { script = 'node --test test/', files = {} }: an
   return { root, found };
 }
 
-// Execute mutated modules in memory per worker-rules and test/runtime/verification-inflight.test.js:476-
+// Execute mutated modules in memory per worker-rules and test/runtime/verification-inflight.test.ts:476-
 function mutated(file: any, before: any, after: any) {
   const Module = require('node:module');
   const filename = path.join(REPO, 'src/runtime/verification', file);
@@ -383,10 +383,10 @@ test('090 IC-001: test/** helper traversal selects tests importing helper or spa
   const { selectImpactedTests } = require('../../src/runtime/verification/impact.ts');
   const { root, found } = fixtureProject(t, {
     files: {
-      'test/runtime/prepared-run.test.js': "const { createEnv } = require('../helper/settings-fixtures');\n",
+      'test/runtime/prepared-run.test.ts': "const { createEnv } = require('../helper/settings-fixtures');\n",
       'test/runtime/direct-helper.test.js': "const { callLib } = require('../helper/lib-helper');\n",
       'test/runtime/unrelated.test.js': "require('../../src/other.ts');\n",
-      'test/helper/settings-fixtures.js': "const { spawnSync } = require('node:child_process');\nfunction createEnv() { return spawnSync('bin/doflow', ['config']); }\nmodule.exports = { createEnv };\n",
+      'test/helper/settings-fixtures.ts': "const { spawnSync } = require('node:child_process');\nfunction createEnv() { return spawnSync('bin/doflow', ['config']); }\nmodule.exports = { createEnv };\n",
       'test/helper/lib-helper.js': "const lib = require('../../src/lib.ts');\nmodule.exports = { callLib: () => lib };\n",
       'test/guards/g.test.js': "// guard\n",
       'src/lib.ts': "// lib\n",
@@ -395,14 +395,14 @@ test('090 IC-001: test/** helper traversal selects tests importing helper or spa
   });
 
   // 1. Changing src/lib.ts reaches test/runtime/direct-helper.test.js via test/helper/lib-helper.js
-  // and reaches test/runtime/prepared-run.test.js via transitive spawn helper test/helper/settings-fixtures.js
+  // and reaches test/runtime/prepared-run.test.ts via transitive spawn helper test/helper/settings-fixtures.ts
   const resLib = selectImpactedTests({ root, found, changedFiles: ['src/lib.ts'] });
   assert.equal(resLib.mode, 'selected');
   assert.deepEqual(resLib.unknownFiles, []);
   assert.deepEqual(resLib.tests, [
     'test/guards/g.test.js',
     'test/runtime/direct-helper.test.js',
-    'test/runtime/prepared-run.test.js',
+    'test/runtime/prepared-run.test.ts',
   ]);
 
   // 2. Editing test/helper/lib-helper.js directly selects direct-helper.test.js + guard without unknown expansion
@@ -500,14 +500,14 @@ test('090 IC-002: resolveTestsImportingHelper resolves transitive test importers
       'test/hooks/b.test.js': "require('../helper/mid-helper.js');\n",
       'test/hooks/unrelated.test.js': "// unrelated\n",
       'test/helper/mid-helper.js': "require('../hooks/prompt-nudge.shared.js');\n",
-      'test/hooks/prompt-nudge.shared.js': "require('../helper/mid-helper.js');\n", // cycle between helpers
+      'test/hooks/prompt-nudge.shared.ts': "require('../helper/mid-helper.js');\n", // cycle between helpers
     },
   });
 
   const importing = resolveTestsImportingHelper({
     root,
     found,
-    helperFiles: ['test/hooks/prompt-nudge.shared.js'],
+    helperFiles: ['test/hooks/prompt-nudge.shared.ts'],
   });
   assert.deepEqual(importing, ['test/hooks/a.test.js', 'test/hooks/b.test.js']);
 });

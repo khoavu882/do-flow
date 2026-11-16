@@ -5,7 +5,7 @@ const { bashPath } = require('../helper/bash-locator.ts');
 // flags wired through `bin/doflow.js` and the `doflow-run` dispatcher, against the real registry.
 //
 // No harness binary can start (NFR-002). Every child's PATH is the scratch bin/ from
-// test/helper/dispatch-sandbox.js: fake CLI links, `node`, `git`, and for the dispatcher case the
+// test/helper/dispatch-sandbox.ts: fake CLI links, `node`, `git`, and for the dispatcher case the
 // two coreutils the dispatcher calls (dirname, date). The node directory is never on PATH
 // (DEC-056). Every child sets the five DOFLOW_* identity variables through the sandbox.
 

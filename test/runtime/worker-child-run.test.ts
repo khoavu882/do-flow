@@ -4,7 +4,7 @@
 // --request <d-id>.c<n> --exec-worktree <path>` in src/runtime/worker/command.ts, the child key in
 // run-store.ts and the child skip in cancel.ts.
 //
-// Each case is a sandbox repository (test/helper/dispatch-sandbox.js) with a started 080 run, a
+// Each case is a sandbox repository (test/helper/dispatch-sandbox.ts) with a started 080 run, a
 // subagent claim on an attempt worktree made by B.4's createAttemptWorktree, and a live granter: an
 // edit run of the fake claude CLI (editDescriptors()) that sleeps. Children run in child worktrees
 // made by createChildWorktree. The child PATH is the sandbox's scratch bin/ alone (fake CLI links,

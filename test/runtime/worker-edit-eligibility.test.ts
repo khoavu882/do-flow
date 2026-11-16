@@ -2,7 +2,7 @@
 // 082 B.1 (IC-013 readiness half): the edit baseline and isolated-edit eligibility. DEC-020, DEC-052.
 //
 // No case starts a real harness (NFR-002): the edit-capable fake descriptors come from
-// test/helper/dispatch-sandbox.js (editDescriptors) and are passed in process; the probe's child
+// test/helper/dispatch-sandbox.ts (editDescriptors) and are passed in process; the probe's child
 // PATH is the sandbox's scratch bin/ (fake CLI links, node and git symlinks only, never
 // dirname(process.execPath), DEC-056), and the sandbox sets the five DOFLOW_* identity variables in
 // its env. The real-registry case runs with a PATH of one empty scratch directory.

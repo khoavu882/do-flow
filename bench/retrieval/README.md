@@ -80,7 +80,7 @@ The agentic baseline measures file localization by a coding agent, using `fileRe
 
 Holdout evaluation protects against benchmark overfitting per IC-014:
 
-- Encrypted at rest under `bench/retrieval/holdout/` using AES-256-GCM and scrypt key derivation (N=32768, r=8, p=1; bench/retrieval/lib/seal.js KDF).
+- Encrypted at rest under `bench/retrieval/holdout/` using AES-256-GCM and scrypt key derivation (N=32768, r=8, p=1; bench/retrieval/lib/seal.ts KDF).
 - Decryption keys are held strictly outside the repository (`~/.config/doflow/holdout.key` or `DOFLOW_HOLDOUT_KEY`) with 0600 POSIX permissions.
 - **`sealedBy` rule**: Authors who author or seal holdout tasks (`sealedBy`) must not tune later configurations or author tasks for later features (barred from feature 079 and subsequent tuning).
 - **Seal invalidation**: A fresh generation is required when holdout results fed tuning, when more than 6 runs have used the generation, or if plaintext or canary tokens leak into any tracked file.

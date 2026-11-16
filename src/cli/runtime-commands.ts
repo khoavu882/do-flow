@@ -5,7 +5,7 @@
 // `context-pack`, `verify` and `recover` — lives in its engine module under src/runtime/ and is
 // imported below; this file only forwards parsed CLI arguments to it, exactly as the verb-table
 // doctrine requires: one implementation per verb, one table that names them. `bin/doflow.js`
-// forwards here from src/cli/index.js; nothing outside src/runtime/ implements a verb.
+// forwards here from src/cli/index.ts; nothing outside src/runtime/ implements a verb.
 //
 // Uniform contract, shared by every one of those handlers: `--json` prints the library's own
 // object, unmodified; exit 0 = answered, 1 = a finding the caller must act on, 2 = the CLI could
@@ -13,7 +13,7 @@
 // handler ever converts a library's own status into a different one, and none of them substitutes
 // a default for an identity the library refuses to guess.
 //
-// Guard note: test/guards/reachability.test.js and test/guards/runtime-unification.test.js parse
+// Guard note: test/guards/reachability.test.ts and test/guards/runtime-unification.test.ts parse
 // this switch — each case written as the single expression `case '<name>': return
 // handle<Name>Command(...)` — to cross-check the dispatcher's verb table in both directions. Keep
 // every case in exactly that shape.

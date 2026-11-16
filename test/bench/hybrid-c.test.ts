@@ -22,7 +22,7 @@ const report = require('../../bench/retrieval/lib/report.ts');
 
 const PASS = 'a sufficiently long test-only passphrase';
 // FU-w5wv06: H1's control retrieves through native.rg, which spawns `rg` by name; without it the test cannot run.
-// findOnPath is a PATH lookup that starts no process (the same helper test/e2e/dispatch-loop.e2e.test.js loads).
+// findOnPath is a PATH lookup that starts no process (the same helper test/e2e/dispatch-loop.e2e.test.ts loads).
 const RG_SKIP = findOnPath('rg', process.env) ? false : 'ripgrep (rg) not on PATH: native.rg cannot serve the control';
 const git = (root: any, ...args: any[]) => execFileSync('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.test', '-C', root, ...args], { encoding: 'utf8' }).trim();
 const approved: any = { status: 'approved', approvedOn: '2026-10-16' };

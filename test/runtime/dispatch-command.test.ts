@@ -4,7 +4,7 @@
 // verb's handler, called in process through executeDispatchCommand.
 //
 // Flag rules run with no sandbox: a usage error is decided before any read. Every other case is a
-// sandbox repository (test/helper/dispatch-sandbox.js) whose env PATH is the sandbox's scratch bin/
+// sandbox repository (test/helper/dispatch-sandbox.ts) whose env PATH is the sandbox's scratch bin/
 // alone (fake CLI links, node and git, never dirname(process.execPath), DEC-056), with the five
 // DOFLOW_* identity variables set or deleted explicitly per caller. No case launches a worker.
 // POSIX only.

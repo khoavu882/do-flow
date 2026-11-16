@@ -30,7 +30,7 @@ const HARNESS = 'opencode';
  * Payload literal written INTO opencode.json's instructions[] — it names the instruction file the
  * declared `instruction` path installs (harnesses.json "paths".instruction's basename). It is a
  * content string inside a foreign config file, not an install destination, so it stays here;
- * test/guards/harness-paths.test.js cross-checks it against the declaration via a probe install.
+ * test/guards/harness-paths.test.ts cross-checks it against the declaration via a probe install.
  */
 const INSTRUCTION_FILE = 'AGENTS.md';
 const PERMISSIONS_OWNER = 'doflow:guardrails';

@@ -2,7 +2,7 @@
 
 // Feature 082 B.4 (IC-016, IC-017, IC-018, IC-020, IC-021; DEC-004, DEC-014, DEC-022, DEC-023,
 // DEC-036, DEC-049, DEC-050): integration in src/runtime/dispatch/integrate.ts, on a sandbox repo
-// (test/helper/dispatch-sandbox.js) with a real 080 ledger and real git.
+// (test/helper/dispatch-sandbox.ts) with a real 080 ledger and real git.
 //
 // Every child PATH is the sandbox's scratch bin/ (fake CLI links, node and git only, DEC-056); the
 // five DOFLOW_* identity variables are set by the sandbox. Each verification argv starts with the

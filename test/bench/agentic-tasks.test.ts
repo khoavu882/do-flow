@@ -129,7 +129,7 @@ test('truth leak: a query holding a qrel basename or path is refused, in train a
   refusal(() => load({ held }), 'truth-leak');
 
   const prompt = tasks.buildPrompt(load().train[0], 'p');
-  assert.ok(!prompt.includes('test/helper/tmp.js'));
+  assert.ok(!prompt.includes('test/helper/tmp.ts'));
   const leaky = { ...load().train[0], qrels: [{ path: 'Question', startLine: 1, endLine: 1, rel: 2 }] };
   refusal(() => tasks.buildPrompt(leaky, 'p'), 'truth-leak');
 });

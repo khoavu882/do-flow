@@ -23,7 +23,7 @@ const { bashPath } = require('../helper/bash-locator.ts');
 // happens, so a secret written and later removed is caught as well.
 //
 // No real harness runs (NFR-002): every child PATH is the scratch bin/ from
-// test/helper/dispatch-sandbox.js (fake CLI links, node, git, and dirname and date for the
+// test/helper/dispatch-sandbox.ts (fake CLI links, node, git, and dirname and date for the
 // dispatcher), never dirname(process.execPath) (DEC-056). The five DOFLOW_* identity variables are
 // set, DOFLOW_ATTEMPT deleted where a worker is launched. POSIX only.
 

@@ -5,8 +5,8 @@
 // gone is read again after the liveness probe, so an end that lands between the first read and the
 // probe reads as ended rather than lost.
 //
-// The project and run helpers are copied from test/runtime/worker-command.test.js, which is frozen
-// at the 081 baseline (NFR-003, test/runtime/dispatch-compat.test.js). Process cases are POSIX only
+// The project and run helpers are copied from test/runtime/worker-command.test.ts, which is frozen
+// at the 081 baseline (NFR-003, test/runtime/dispatch-compat.test.ts). Process cases are POSIX only
 // (DEC-008).
 
 const test = require('node:test');

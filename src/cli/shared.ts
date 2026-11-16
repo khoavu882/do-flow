@@ -1,6 +1,6 @@
 'use strict';
 // Shared plumbing for the CLI command handlers (src/cli/commands/*) and their dispatch
-// (src/cli/index.js, src/cli/runtime-commands.js). This module owns the facts every command
+// (src/cli/index.ts, src/cli/runtime-commands.ts). This module owns the facts every command
 // needs: where the package root and the entrypoint directory are, the package version, the ONE
 // adapter-registry factory, and the helpers more than one command uses (scope resolution, MCP
 // selection, backup-table printing). Nothing here is harness-specific — native quirks belong in
@@ -61,7 +61,7 @@ function buildAdapterRegistry(): any {
   });
 }
 
-/** Resolve {global, projectRoot} scope options for src/install/targets.js#toolDirs from parsed args. */
+/** Resolve {global, projectRoot} scope options for src/install/targets.ts#toolDirs from parsed args. */
 function scopeOf(o: any): { global: boolean; projectRoot: string } {
   // The single place a project path enters the verbs: canonical, so an aliased spelling (macOS
   // /var -> /private/var) and the real one name the same scope, ledger rows and lock.
@@ -137,7 +137,7 @@ function reportRetiredMcp(retired: string[]): void {
 }
 
 /** The scope's doflow.lock and ledger, as the MCP selection functions in
- * src/install/mcp.js read them. */
+ * src/install/mcp.ts read them. */
 function scopeSelectionState(scope: any): any {
   const scopeRoot = scope.global ? os.homedir() : path.resolve(scope.projectRoot);
   return {

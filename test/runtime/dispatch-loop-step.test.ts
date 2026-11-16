@@ -4,7 +4,7 @@
 // DEC-048, DEC-052): the loop's step order, perform yield and submit, mode selection with the
 // static gate, a subagent attempt through the fake CLI, and a refused launch's retry.
 //
-// Each case is a sandbox repository (test/helper/dispatch-sandbox.js) with a started 080 run, an
+// Each case is a sandbox repository (test/helper/dispatch-sandbox.ts) with a started 080 run, an
 // integration worktree made by B.4's createIntegrationWorktree and a seeded dispatch run (C.5's
 // `start` is not part of this task). The child PATH is the sandbox's scratch bin/ alone (fake CLI
 // links, node and git, never dirname(process.execPath), DEC-056); the five DOFLOW_* identity

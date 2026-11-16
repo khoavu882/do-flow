@@ -1,7 +1,7 @@
 'use strict';
 
 // Feature 080 R.1 (IC-021, NFR-002; FR-008, FR-012; RK5): claim, cancel and finish races on one
-// ledger, between child processes released together by a file barrier (test/helper/race-barrier.js),
+// ledger, between child processes released together by a file barrier (test/helper/race-barrier.ts),
 // each at least 50 repetitions, plus the lock-removal control.
 //
 // Every repetition reseeds the same ledger, runs the race, and then checks the invariant and that
