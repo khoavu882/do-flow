@@ -46,4 +46,9 @@ test('bindingNotes lists the notes in the core\'s order and nothing for a defaul
     words.bindingNotes({ model: 'gpt-y', provider: 'openai', effort: 'low', check: { model: 'listed', effort: 'unchecked', provider: 'unchecked' }, effortMayLower: true }),
     ['provider unchecked', 'effort unchecked', 'the harness may lower the effort'],
   );
+  // 169 A-03: a refused cell ends its notes with the refusal, as the core does.
+  assert.deepEqual(
+    words.bindingNotes({ model: 'gpt-y', provider: 'openai', effort: null, check: { model: 'unchecked', effort: null }, refused: 'provider:unsupported' }),
+    ['model unchecked', 'dispatch refuses it (provider:unsupported)'],
+  );
 });

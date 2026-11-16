@@ -2,7 +2,7 @@
 // and `models list` in the core, here for the start form's options and the Workers page. The Console imports nothing from the core, so
 // this is a copy of `bindingText` in src/runtime/models/binding-text.ts; test/fixtures/models/binding-text.json, read by a core test and
 // by console/test/binding-text.test.ts, holds the two equal. A cell is null (the harness default), an `unresolved:<reason>` string, or
-// `{ model, provider, effort, check: { model, effort, provider? }, effortMayLower? }`. Pure: no DOM, no fetch.
+// `{ model, provider, effort, check: { model, effort, provider? }, effortMayLower?, refused? }`. Pure: no DOM, no fetch.
 
 /** @type {Readonly<Record<string, string>>} */
 const MODEL_NOTES = Object.freeze({ unchecked: 'model unchecked', 'not-listed': 'not in the list', 'several-providers': 'several providers list it' });
@@ -10,9 +10,11 @@ const MODEL_NOTES = Object.freeze({ unchecked: 'model unchecked', 'not-listed': 
 const EFFORT_NOTES = Object.freeze({ unchecked: 'effort unchecked', 'not-offered': 'effort not offered by the model' });
 const PROVIDER_UNCHECKED_NOTE = 'provider unchecked';
 const MAY_LOWER_NOTE = 'the harness may lower the effort';
+/** @param {string} reason */
+const refusedNote = (reason) => `dispatch refuses it (${reason})`;
 
 /**
- * The notes of a cell in the core's order: the model note, the provider-unchecked note, the effort note, then the may-lower note (only with an effort bound).
+ * The notes of a cell in the core's order: the model note, the provider-unchecked note, the effort note, then the may-lower note (only with an effort bound), then the refusal.
  * @param {any} cell
  * @returns {string[]}
  */
@@ -23,6 +25,7 @@ function bindingNotes(cell) {
     cell.provider && cell.check?.provider === 'unchecked' ? PROVIDER_UNCHECKED_NOTE : undefined,
     cell.effort ? EFFORT_NOTES[cell.check?.effort] : undefined,
     cell.effort && cell.effortMayLower === true ? MAY_LOWER_NOTE : undefined,
+    typeof cell.refused === 'string' ? refusedNote(cell.refused) : undefined,
   ].filter(Boolean));
 }
 

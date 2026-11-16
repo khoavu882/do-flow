@@ -276,7 +276,8 @@ function modelGroups(models) {
       label: SOURCE_LABEL[source],
       models: list.filter((m) => m.source === source).map((m) => {
         const refused = typeof m.refused === 'string' ? m.refused : null;
-        const text = m.model === null ? 'Harness default' : bindingText(m);
+        // The option's own ` [cannot start: <reason>]` says the refusal, so the cell's refusal note is not repeated in the words.
+        const text = m.model === null ? 'Harness default' : bindingText({ ...m, refused: undefined });
         return { key: modelKey(m), model: m.model ?? null, provider: m.provider ?? null, effort: m.effort ?? null, refused, entry: m, label: refused === null ? text : `${text} [cannot start: ${refused}]` };
       }),
     }))

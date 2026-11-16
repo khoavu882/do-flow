@@ -225,7 +225,7 @@ function modelsFor({ harness, worker, bindings, catalogue }: any) {
     const key = JSON.stringify([choice.model, choice.provider, choice.effort]);
     if (seen.has(key)) return;
     seen.add(key);
-    out.push({ ...cellFor(choice, worker, listed), source, ...(refused === null ? {} : { refused }) });
+    out.push({ ...cellFor(choice, worker, listed, refused), source });
   };
   // A model reaches argv only through the descriptor's `model` entry (IC-006), so without one only the default is offered.
   if (worker?.model?.status === 'supported' && Array.isArray(worker.model.argv)) {

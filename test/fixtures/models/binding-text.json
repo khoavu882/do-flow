@@ -250,6 +250,49 @@
    },
    "text": "gpt-y (provider openai, effort low) [provider unchecked, effort unchecked, the harness may lower the effort]",
    "code": "`gpt-y` (provider openai, effort low) [provider unchecked, effort unchecked, the harness may lower the effort]"
+  },
+  {
+   "cell": {
+    "model": "gpt-y",
+    "provider": "openai",
+    "effort": null,
+    "check": {
+     "model": "listed",
+     "effort": null
+    },
+    "refused": "provider:unsupported"
+   },
+   "text": "gpt-y (provider openai) [dispatch refuses it (provider:unsupported)]",
+   "code": "`gpt-y` (provider openai) [dispatch refuses it (provider:unsupported)]"
+  },
+  {
+   "cell": {
+    "model": "gpt-y",
+    "provider": null,
+    "effort": "low",
+    "check": {
+     "model": "unchecked",
+     "effort": "unchecked"
+    },
+    "effortMayLower": true,
+    "refused": "effort:unknown-level"
+   },
+   "text": "gpt-y (effort low) [model unchecked, effort unchecked, the harness may lower the effort, dispatch refuses it (effort:unknown-level)]",
+   "code": "`gpt-y` (effort low) [model unchecked, effort unchecked, the harness may lower the effort, dispatch refuses it (effort:unknown-level)]"
+  },
+  {
+   "cell": {
+    "model": "gpt-y",
+    "provider": null,
+    "effort": null,
+    "check": {
+     "model": "unchecked",
+     "effort": null
+    },
+    "refused": "model-flag:unevidenced"
+   },
+   "text": "gpt-y [model unchecked, dispatch refuses it (model-flag:unevidenced)]",
+   "code": "`gpt-y` [model unchecked, dispatch refuses it (model-flag:unevidenced)]"
   }
  ]
 }

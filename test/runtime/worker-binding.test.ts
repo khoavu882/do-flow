@@ -465,7 +465,7 @@ test('IC-014: describe reports bindings while eligibility and probe fields stay 
   f.writeUserSettings({ schema: 1, 'workers.models': { claude: { light: 'm1' } } });
   const bound = await executeWorkerCommand(options);
   assert.deepEqual(bound.body.bindings, {
-    light: { model: 'm1', flag: 'unevidenced' },
+    light: { model: 'm1', provider: null, effort: null, flag: 'unevidenced', refused: 'model-flag:unevidenced' },
     standard: { model: null, flag: 'n/a' },
     frontier: { model: null, flag: 'n/a' },
   });
@@ -473,7 +473,11 @@ test('IC-014: describe reports bindings while eligibility and probe fields stay 
     assert.deepEqual(bound.body[key], plain.body[key], key);
   }
   const supported = await executeWorkerCommand({ ...options, descriptors: { claude: SUP } });
-  assert.deepEqual(supported.body.bindings.light, { model: 'm1', flag: 'supported' });
+  assert.deepEqual(supported.body.bindings.light, { model: 'm1', provider: null, effort: null, flag: 'supported' });
+  // 169 A-03: describe carries the bound provider and effort, and `refused` for a part the descriptor cannot pass on.
+  f.writeUserSettings({ schema: 1, 'workers.models': { claude: { light: { model: 'm1', provider: 'openai', effort: 'low' } } } });
+  const parts = await executeWorkerCommand({ ...options, descriptors: { claude: SUP } });
+  assert.deepEqual(parts.body.bindings.light, { model: 'm1', provider: 'openai', effort: 'low', flag: 'supported', refused: 'provider:unsupported' });
   f.writeUserSettings({ schema: 1, 'workers.models': { claude: { ultra: 'm1' } } });
   const invalid = await executeWorkerCommand(options);
   assert.deepEqual(invalid.body.bindings, {
@@ -521,9 +525,10 @@ test('IC-014 (169): doctor reports bound tiers with their IC-005 binding cell, a
   });
   const bound = workersDoctorView(options);
   assert.deepEqual(bound.bindings, { state: 'set', reason: null });
-  const cell = (model: string) => ({ model, provider: null, effort: null, check: { model: 'unchecked', effort: null } });
+  const cell = (model: string, extra: any = {}) => ({ model, provider: null, effort: null, check: { model: 'unchecked', effort: null }, ...extra });
   assert.deepEqual(bound.rows.find((row: any) => row.harness === 'claude').bound, [{ tier: 'light', flag: 'supported', binding: cell('private-m1') }]);
-  assert.deepEqual(bound.rows.find((row: any) => row.harness === 'antigravity').bound, [{ tier: 'frontier', flag: 'unevidenced', binding: cell('private-m2') }]);
+  // 169 A-03: a binding dispatch would refuse carries the reason in its cell.
+  assert.deepEqual(bound.rows.find((row: any) => row.harness === 'antigravity').bound, [{ tier: 'frontier', flag: 'unevidenced', binding: cell('private-m2', { refused: 'model-flag:unevidenced' }) }]);
   for (let i = 0; i < plain.rows.length; i += 1) {
     assert.equal(bound.rows[i].eligible, plain.rows[i].eligible);
     assert.deepEqual(bound.rows[i].firstGap, plain.rows[i].firstGap);
@@ -542,5 +547,9 @@ test('IC-014 (169): doctor text names each bound tier with bindingText and its f
   const f = createSettingsEnv(t);
   f.writeUserSettings({ schema: 1, 'workers.models': { claude: { light: 'private-doctor-model' } } });
   const cli = f.run(['doctor'], { env: { PATH: '' } });
-  assert.match(cli.stdout, /worker claude: .*; bound tiers: light=private-doctor-model \[model unchecked\] \((?:supported|unevidenced)\)/);
+  assert.match(cli.stdout, /worker claude: .*; bound tiers: light=private-doctor-model \[model unchecked(?:, dispatch refuses it \(model-flag:unevidenced\))?\] \((?:supported|unevidenced)\)/);
+  // 169 A-03: a bound provider the descriptor cannot pass on is named as refused in the doctor line.
+  const refused = createSettingsEnv(t);
+  refused.writeUserSettings({ schema: 1, 'workers.models': { claude: { light: { model: 'private-doctor-model', provider: 'openai' } } } });
+  assert.match(refused.run(['doctor'], { env: { PATH: '' } }).stdout, /bound tiers: light=private-doctor-model \(provider openai\) \[model unchecked, dispatch refuses it \(provider:unsupported\)\]/);
 });

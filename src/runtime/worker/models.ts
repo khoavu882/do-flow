@@ -188,11 +188,17 @@ function bindingGap(result: BindingResolution) {
   return null;
 }
 
-/** IC-014: describe every registry tier without changing worker eligibility. */
+/** IC-014: describe every registry tier without changing worker eligibility. A bound tier carries its provider and effort, and
+ * `refused` (`bindingGap`'s reason) when dispatch would refuse it (169 A-03). */
 function bindingsOf({ worker, descriptor, bindings, tiers, allowedModels }: any) {
   return Object.fromEntries(tiers.map((tier: string) => {
-    const { model, flag, enabledStatus } = resolveBinding({ worker, tier, bindings, descriptor, allowedModels });
-    return [tier, { model, flag, ...(enabledStatus ? { enabledStatus } : {}) }];
+    const resolved = resolveBinding({ worker, tier, bindings, descriptor, allowedModels });
+    const { model, flag, enabledStatus, choice } = resolved;
+    const refused = choice ? bindingGap(resolved)?.reason : undefined;
+    return [tier, {
+      model, ...(choice ? { provider: choice.provider, effort: choice.effort } : {}), flag,
+      ...(enabledStatus ? { enabledStatus } : {}), ...(refused ? { refused } : {}),
+    }];
   }));
 }
 

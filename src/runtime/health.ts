@@ -1064,7 +1064,7 @@ function workersDoctorView({
   const { activeWorkers } = require('./worker/active.ts');
   // Readiness already requires health.ts; load it only after this module has initialized.
   const { select, enabledOf, workerDescriptors } = require('./worker/readiness.ts');
-  const { readBindings, resolveBinding } = require('./worker/models.ts');
+  const { readBindings, resolveBinding, bindingGap } = require('./worker/models.ts');
   const { cellFor } = require('./models/tier-view.ts');
   const observed = require('./models/catalogue.ts').readCatalogue(root, { env });
   const active = activeWorkers({ registry: reg, env, projectRoot: root });
@@ -1079,7 +1079,7 @@ function workersDoctorView({
     const descriptor = entries.find((entry: any) => entry.harness === harness)?.worker;
     const bound = tiers.flatMap((tier: string) => {
       const resolved = resolveBinding({ worker: harness, tier, bindings, descriptor });
-      return resolved.source === 'binding' ? [{ tier, flag: resolved.flag, binding: cellFor(resolved.choice, descriptor, observed?.harnesses?.[harness] ?? null) }] : [];
+      return resolved.source === 'binding' ? [{ tier, flag: resolved.flag, binding: cellFor(resolved.choice, descriptor, observed?.harnesses?.[harness] ?? null, bindingGap(resolved)?.reason ?? null) }] : [];
     });
     return {
       harness,

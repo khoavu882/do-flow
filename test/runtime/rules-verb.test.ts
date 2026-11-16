@@ -168,9 +168,9 @@ test('169: rules text and JSON, and models list, render a provider/effort bindin
   } } }));
   const row = s.json().tiers.models.harnesses.find((h: any) => h.harness === 'codex');
   assert.deepEqual(row.light.check, { model: 'several-providers', effort: null });
-  assert.deepEqual(row.standard, { model: 'gpt-y', provider: null, effort: 'low', check: { model: 'listed', effort: 'unchecked' } });
+  assert.deepEqual(row.standard, { model: 'gpt-y', provider: null, effort: 'low', check: { model: 'listed', effort: 'unchecked' }, refused: 'effort:unsupported' });
   assert.equal(bindingText(row.light), 'gpt-x [several providers list it]');
-  assert.equal(bindingText(row.standard), 'gpt-y (effort low) [effort unchecked]');
+  assert.equal(bindingText(row.standard), 'gpt-y (effort low) [effort unchecked, dispatch refuses it (effort:unsupported)]');
   const text = s.cli([]).stdout;
   assert.match(text, new RegExp(`codex: light=${bindingText(row.light).replace(/[[\]()]/g, '\\$&')} standard=${bindingText(row.standard).replace(/[[\]()]/g, '\\$&')} frontier=harness default`));
   // The same two cells, printed by `models --action list`.
@@ -182,6 +182,32 @@ test('169: rules text and JSON, and models list, render a provider/effort bindin
   console.log = (line: any) => { out += `${line}\n`; };
   try { await handleModelsCommand({ actionGiven: true, action: 'list', projectRoot: s.cwd, env, json: false, syncOptions: { view: { packages: [], stateRead: { state: {} }, grants: { grants: [] } } } }); } finally { console.log = log; }
   assert.ok(out.includes(`light=${bindingText(row.light)}  standard=${bindingText(row.standard)}`), out);
+});
+
+test('169 A-03: a binding dispatch would refuse is shown as refused, with the reason, in rules JSON and text and in models list', async (t) => {
+  const { bindingText } = require('../../src/runtime/models/binding-text.ts');
+  const { handleModelsCommand } = require('../../src/runtime/models/command.ts');
+  // Codex effort is `unknown` in the shipped descriptor, so a bound effort cannot reach the argv.
+  const s = scratch(t, { 'workers.models': { codex: { light: { model: 'gpt-x', effort: 'low' } } } });
+  const catalogue = path.join(s.cwd, '.doflow', 'state', 'models', 'catalogue.json');
+  fs.mkdirSync(path.dirname(catalogue), { recursive: true });
+  fs.writeFileSync(catalogue, JSON.stringify({ version: 1, syncedAt: new Date().toISOString(), harnesses: { codex: {
+    harnessId: 'codex', binary: 'codex', installed: true, version: '1', detectedMode: 'subscription', derivedBilling: 'free', lastSyncedAt: new Date().toISOString(),
+    offeredModels: [{ id: 'gpt-x' }], modelList: { status: 'listed' },
+  } } }));
+  const row = s.json().tiers.models.harnesses.find((h: any) => h.harness === 'codex');
+  assert.equal(row.light.refused, 'effort:unsupported');
+  assert.equal(Object.hasOwn(row.light, 'refused'), true);
+  assert.equal(bindingText(row.light), 'gpt-x (effort low) [effort unchecked, dispatch refuses it (effort:unsupported)]');
+  assert.ok(s.cli([]).stdout.includes(`light=${bindingText(row.light)}`));
+  const home = path.join(s.root, 'home');
+  const env: any = { ...process.env, HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'), PATH: path.join(s.root, 'no-bin') };
+  delete env.DOFLOW_CONFIG_DIR;
+  let out = '';
+  const log = console.log;
+  console.log = (line: any) => { out += `${line}\n`; };
+  try { await handleModelsCommand({ actionGiven: true, action: 'list', projectRoot: s.cwd, env, json: false, syncOptions: { view: { packages: [], stateRead: { state: {} }, grants: { grants: [] } } } }); } finally { console.log = log; }
+  assert.ok(out.includes('dispatch refuses it (effort:unsupported)'), out);
 });
 
 test('an unreadable workers.models gives unresolved:<reason> for every tier and the orchestrator, never null (the harness default)', (t) => {

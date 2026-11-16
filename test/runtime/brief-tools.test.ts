@@ -345,6 +345,13 @@ test('169: the Model line is bindingText of the same cell the other surfaces sho
   assert.ok(plain.markdown.includes(`Model: \`gpt-y\` [several providers list it] on \`${id}\` (binding, user layer).`), plain.markdown);
 });
 
+test('169 A-03: the Model line says dispatch refuses a binding whose provider the harness cannot take', (t) => {
+  const id = registry.harnesses[0].id;
+  // The shipped claude descriptor takes no provider (`unknown`), so a bound provider is refused at dispatch.
+  const { markdown } = render(t, { harness: id, tier: 'frontier', bindings: { state: 'set', map: { [id]: { frontier: { model: 'gpt-y', provider: 'openai' } } }, reason: null } });
+  assert.ok(markdown.includes(`Model: \`gpt-y\` (provider openai) [model unchecked, dispatch refuses it (provider:unsupported)] on \`${id}\` (binding, user layer).`), markdown);
+});
+
 test('IC-017: absent and invalid bindings produce explicit harness-default lines', (t) => {
   const id = registry.harnesses[0].id;
   const fallback = render(t, { harness: id, tier: 'frontier', bindings: { state: 'unset', map: null, reason: null } });

@@ -4,7 +4,7 @@
 // `doflow models --action list` and `doflow rules`. Reads settings, the registry and, for the main
 // session's model, `resolvePrimary` (settings and observation files). Starts no process.
 
-const { readBindings, resolveBinding, resolveOrchestratorModel } = require('../worker/models.ts');
+const { readBindings, resolveBinding, resolveOrchestratorModel, bindingGap } = require('../worker/models.ts');
 const { modelCheck, providerCheck, effortCheck } = require('../worker/model-choice.ts');
 const { bindingCell } = require('./binding-text.ts');
 
@@ -21,11 +21,12 @@ function onPath(worker: any, env: any): boolean {
 }
 
 /** 169 IC-005: the display cell of a bound choice on one harness: its model, provider and effort checks, computed now (D10) from
- * the harness's catalogue entry (null for none), and `effortMayLower` from the descriptor's `effort.mayLower` (L-3). */
-function cellFor(choice: any, descriptor: any, entry: any): any {
+ * the harness's catalogue entry (null for none), `effortMayLower` from the descriptor's `effort.mayLower` (L-3), and `refused`, the reason
+ * dispatch would refuse the binding (`bindingGap`'s; pass `bindingGap(resolved)?.reason`), left out for a binding it would run. */
+function cellFor(choice: any, descriptor: any, entry: any, refused: string | null = null): any {
   const checks = { model: modelCheck(entry, choice, descriptor), provider: providerCheck(entry, choice, descriptor), effort: effortCheck(entry, choice, descriptor) };
   const effortMayLower = descriptor?.effort?.status === 'supported' && descriptor.effort.mayLower === true;
-  return bindingCell(choice, checks, { effortMayLower });
+  return bindingCell(choice, checks, { effortMayLower, refused });
 }
 
 /** `{ primary, bindings, harnesses }`: each installed built-in harness (and any with a binding, installed or not) as
@@ -50,7 +51,7 @@ function tierView({ registry, env = process.env, projectRoot = null, primary: gi
     const bound = bindings.state === 'set' && Object.hasOwn(bindings.map ?? {}, entry.id);
     if (!installed && !bound) return [];
     const listed = observed?.harnesses?.[entry.id] ?? null;
-    const cellOf = (resolved: any) => (resolved.source === 'invalid' ? unresolved : resolved.choice ? cellFor(resolved.choice, descriptor, listed) : null);
+    const cellOf = (resolved: any) => (resolved.source === 'invalid' ? unresolved : resolved.choice ? cellFor(resolved.choice, descriptor, listed, bindingGap(resolved)?.reason ?? null) : null);
     const row: any = { harness: entry.id };
     for (const tier of tiers) row[tier] = cellOf(resolveBinding({ worker: entry.id, tier, bindings, descriptor }));
     const orchestrator = resolveOrchestratorModel({ harness: entry.id, bindings, primary, descriptor });
