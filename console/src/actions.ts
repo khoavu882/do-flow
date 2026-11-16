@@ -210,12 +210,6 @@ function readBodyOf(spec: ActionSpec, text: string | null): { body: Body } | { c
   return refused ? { code: refused.code } : { body };
 }
 
-/** IC-002: the body of `spec` from `text`, normalized, or null for any refusal. */
-function parseBody(spec: ActionSpec, text: string | null): Body | null {
-  const read = readBodyOf(spec, text);
-  return 'body' in read ? read.body : null;
-}
-
 /** The digest of a body as parsed (keys sorted), with the action id, so another action under the same id differs. */
 function digestOf(action: string, body: Body): string {
   const canonical = JSON.stringify([action, Object.keys(body).sort().map((key) => [key, body[key]])]);
@@ -867,4 +861,4 @@ function createActions({ runner, log, now = Date.now, warn = () => {} }: Options
   };
 }
 
-module.exports = { ACTIONS, ACTION_IDS, BODY_CAP, FIELD_KINDS, LIMITS, PROMPT_MAX, START_BODY_CAP, TEXT_MAX, createActions, normalizePrompt, normalizeText, parseBody };
+module.exports = { ACTIONS, ACTION_IDS, BODY_CAP, FIELD_KINDS, LIMITS, PROMPT_MAX, START_BODY_CAP, TEXT_MAX, createActions, normalizePrompt, normalizeText };

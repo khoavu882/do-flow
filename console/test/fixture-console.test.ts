@@ -423,7 +423,7 @@ test('each tick takes the next step of the live run, then reports none left', { 
   assert.equal(full.tick(), null);
 });
 
-test('the Layers world of the full fixture (was the Fleet fixture, V.10): the project, the harness homes, nodes with their transcript notes, and the appending writer, over /api/live', { timeout: 60_000 }, async () => {
+test('the Layers world of the full fixture (V.10): the project, the harness homes, nodes with their transcript notes, and the appending writer, over /api/live', { timeout: 60_000 }, async () => {
   const pk = await currentProject(full, fullApi);
   const layers = openLive(full, fullApi, [`layers:${pk}`]);
   try {

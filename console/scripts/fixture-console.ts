@@ -23,7 +23,7 @@
 //                    completing implementation needs a readiness record, which a fixture does not make.
 //   --append <seconds> every <seconds> (and on a stdin line `append`), the appending writer adds a reply, a tool call and its
 //                    result to the Claude fixture transcript that the Layers agent inspector follows (the `transcript:` lane of the
-//                    live stream). The flag stays: the Layers inspector is what reads that transcript now (the Fleet view is gone).
+//                    live stream). The flag stays: the Layers inspector is what reads that transcript now.
 //   --worker-log <seconds> (feature 150, IC-021) adds the feature feat-chain: run `run-chain` through orchestrate
 //                    (discovery and design passed, gate-0 approved: RUNNING in planning), two plan tasks with three
 //                    subagent attempts (A.1 failed then claimed again, A.2 released), and the shared worker world of
@@ -48,7 +48,7 @@
 // whose liveness is unknown and one held from a second project; a commit in the linked worktree newer than every
 // record there (outside DoFlow); and a second project whose sessions must never reach the Console.
 //
-// The Layers view (V.10, was Fleet) has its own world, written into the same scratch HOME: a second DoFlow project (`beta`) next to the
+// The Layers view (V.10) has its own world, written into the same scratch HOME: a second DoFlow project (`beta`) next to the
 // Console's own, the synthetic transcript homes of V.2 (test/fixtures/transcripts/v8, one per harness, aimed at the Console's
 // project), hook sessions for four harnesses (claude with two subagents, codex, antigravity, opencode) and a one-file wrapper
 // around --core that lists the fixture projects (they sit under a temporary directory, which the real `fleet` verb hides).
@@ -445,10 +445,10 @@ function hookSession(store: string, harness: string, rawId: string, cwd: string)
 }
 
 /**
- * The Layers world (V.10; IC-026; `addFleet` is its old name): a second DoFlow project, one synthetic transcript home per harness aimed at the Console's
+ * The Layers world (V.10; IC-026): a second DoFlow project, one synthetic transcript home per harness aimed at the Console's
  * project, hook sessions for four harnesses, and a wrapper core that lists the fixture projects. Only fixture files are read.
  */
-function addFleet(fixture: Fixture, core: string) {
+function addLayersWorld(fixture: Fixture, core: string) {
   const { main } = fixture;
   const alpha = fs.realpathSync(main);
   const home = fixture.env.HOME;
@@ -477,7 +477,7 @@ function addFleet(fixture: Fixture, core: string) {
   for (const [harness, suffix] of [['claude', 'c001'], ['codex', 'd001'], ['antigravity', 'b001'], ['opencode', '0c00']]) hookSession(store, harness, `${RAW}${suffix}`, alpha);
   hookSession(store, 'claude', `${RAW}c0bb`, beta);
 
-  const wrapper = path.join(fixture.dir, 'fleet-core.js');
+  const wrapper = path.join(fixture.dir, 'layers-core.js');
   fs.writeFileSync(wrapper, [
     "'use strict';",
     'const argv = process.argv.slice(2);',
@@ -745,14 +745,14 @@ async function startFixtureConsole(options: Options): Promise<Handle> {
         addHistoryRuns(fixture);
       }
     }
-    const fleet = addFleet(fixture, options.core);
+    const layersCore = addLayersWorld(fixture, options.core);
     if (options.layers) layersWorld = addLayers(fixture);
     // This helper asserts the world's core-level premises before the Console can publish its URL.
     if (options.manage) buildManageWorld({ fixture, core: options.core });
 
     // A symlink to the core, removed after boot: the handshake passes, the runner's file check then fails.
     let linkDir: string | null = null;
-    let corePath = fleet.wrapper;
+    let corePath = layersCore.wrapper;
     if (options.coreMissing) {
       linkDir = fs.mkdtempSync(path.join(SCRATCH_ROOT, 'doflow-ui-core-'));
       scratch.push(linkDir);
@@ -761,7 +761,7 @@ async function startFixtureConsole(options: Options): Promise<Handle> {
       cleanups.push(() => fs.rmSync(linkDir as string, { recursive: true, force: true }));
     }
 
-    const child = spawn(process.execPath, ['--import', PARENT_WATCH, BIN, '--core', corePath, '--project', fixture.main, '--port', '0'], { cwd: fixture.main, env: { ...fixture.env, ...fleet.env }, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, ['--import', PARENT_WATCH, BIN, '--core', corePath, '--project', fixture.main, '--port', '0'], { cwd: fixture.main, env: { ...fixture.env, ...layersCore.env }, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     let err = '';
     const exited = new Promise<number | null>((resolve) => child.on('exit', (code: number | null) => resolve(code)));
@@ -793,8 +793,8 @@ async function startFixtureConsole(options: Options): Promise<Handle> {
       env: fixture.env,
       runs: fixture.runs,
       scratch,
-      transcript: fleet.transcript,
-      append: () => fleet.append(),
+      transcript: layersCore.transcript,
+      append: () => layersCore.append(),
       chain: chainWorld === null || r1 === null ? null : {
         ...CHAIN, runId: r1, store: chainWorld.store, files: { out: chainWorld.logFile(r1, 'out'), err: chainWorld.logFile(r1, 'err') },
       },
