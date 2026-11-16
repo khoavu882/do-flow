@@ -66,13 +66,15 @@ test('gate-0 reads only its named artifact; every fact has a locator and byte di
   assert.equal(evaluate(env.options.policy, 'feature', 'gate-0', result).decision, 'pass');
 });
 
-test('artifact lookup follows the established intention-first and flat fallback layouts', (t) => {
+test('artifact lookup reads only the structured intention/requirement.md; a flat requirement.md supplies no fact', (t) => {
   const env = setup(t);
-  env.write(`agent-docs/doflow/${row.slug}/requirement.md`, 'No marker here.');
-  const nested = env.write(`agent-docs/doflow/${row.slug}/intention/requirement.md`, '[NEEDS CLARIFICATION: nested]');
-  assert.deepEqual(evaluate(env.options.policy, 'feature', 'gate-0', env.gather('gate-0')).reasons, ['unresolved-clarifications']);
-  fs.unlinkSync(nested);
+  env.write(`agent-docs/doflow/${row.slug}/requirement.md`, '[NEEDS CLARIFICATION: flat]');
+  const nested = env.write(`agent-docs/doflow/${row.slug}/intention/requirement.md`, 'No marker here.');
   assert.equal(evaluate(env.options.policy, 'feature', 'gate-0', env.gather('gate-0')).decision, 'pass');
+  fs.unlinkSync(nested);
+  const missing = evaluate(env.options.policy, 'feature', 'gate-0', env.gather('gate-0'));
+  assert.notEqual(missing.decision, 'pass');
+  assert.ok(!missing.reasons.includes('unresolved-clarifications'), JSON.stringify(missing.reasons));
 });
 
 test('gate-a parses the real task graph and guards plan and seed paths', (t) => {

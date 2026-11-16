@@ -106,11 +106,11 @@ function coverageFindings(planText: string, planPath: string, requirementText: s
     }));
 }
 
-/** The requirement next to a plan, found the way the path resolver finds it: `intention/`
- * under the structured layout, beside the plan otherwise. */
+/** The requirement next to a plan, found the way the path resolver finds it: under `intention/`. */
 function requirementBeside(planAbs: string): string | null {
   const dir = path.dirname(planAbs);
-  return [path.join(dir, 'intention', 'requirement.md'), path.join(dir, 'requirement.md')].find((f) => fs.existsSync(f)) || null;
+  const found = path.join(dir, 'intention', 'requirement.md');
+  return fs.existsSync(found) ? found : null;
 }
 
 // ── constitution (row 134 item 4: a MUST conflict refuses the planning stage's exit) ──────────────

@@ -79,7 +79,8 @@ function scratch(t: any) {
 
 test('plan-check reports a missing story id and a TBD as findings with path:line; the task-graph exit is unchanged', (t) => {
   const s = scratch(t);
-  fs.writeFileSync(path.join(s.cwd, 'requirement.md'), REQUIREMENT);
+  fs.mkdirSync(path.join(s.cwd, 'intention'));
+  fs.writeFileSync(path.join(s.cwd, 'intention', 'requirement.md'), REQUIREMENT);
   fs.writeFileSync(path.join(s.cwd, 'plan.md'), PLAN(['- [ ] A.1 [US1] Build A, owner TBD — acceptance: FR-001, FR-003']));
   const json = s.cli(['plan.md', '--json']);
   assert.equal(json.status, 0, json.stderr);
@@ -87,10 +88,18 @@ test('plan-check reports a missing story id and a TBD as findings with path:line
   assert.equal(body.ok, true);
   assert.deepEqual(body.problems, []);
   const mine = body.findings.filter((f: any) => f.rule === 'coverage' || f.rule === 'placeholder');
-  assert.deepEqual(mine.map((f: any) => `${f.rule} ${f.path}:${f.line}`), ['placeholder plan.md:7', 'coverage requirement.md:6']);
+  assert.deepEqual(mine.map((f: any) => `${f.rule} ${f.path}:${f.line}`), ['placeholder plan.md:7', `coverage ${path.join('intention', 'requirement.md')}:6`]);
   const text = s.cli(['plan.md']);
   assert.equal(text.status, 0);
-  assert.match(text.stdout, /findings: placeholder plan\.md:7, coverage requirement\.md:6/);
+  assert.match(text.stdout, /findings: placeholder plan\.md:7, coverage intention\/requirement\.md:6/);
+});
+
+test('plan-check does not read a requirement.md beside the plan', (t) => {
+  const s = scratch(t);
+  fs.writeFileSync(path.join(s.cwd, 'requirement.md'), REQUIREMENT);
+  fs.writeFileSync(path.join(s.cwd, 'plan.md'), PLAN(['- [ ] A.1 [US1] Build — acceptance: FR-001, FR-003']));
+  const body = JSON.parse(s.cli(['plan.md', '--json']).stdout);
+  assert.deepEqual(body.findings.filter((f: any) => f.rule === 'coverage'), []);
 });
 
 test('plan-check reads requirement.md from intention/ under the structured layout', (t) => {

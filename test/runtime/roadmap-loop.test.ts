@@ -136,6 +136,14 @@ test('next picks exactly one ready row per call, claims it in a sibling worktree
   assert.equal(fs.existsSync(path.join(f.root, '.doflow/state/roadmap/lease.json')), false, 'the lease is held for one call');
 });
 
+test('a flat requirement.md in the feature folder is not the discovery artifact', async (t) => {
+  const f = fixture(t);
+  await f.next();
+  write(path.join(f.featureDir(), 'requirement.md'), 'flat\n');
+  const yielded = await f.next();
+  assert.deepEqual(yielded.result.perform.before, { artifact: 'intention/requirement.md', sha256: null });
+});
+
 test('a skill stage is a perform envelope; only changed bytes plus a newer handoff pass the performed check', async (t) => {
   const f = fixture(t);
   await f.next();

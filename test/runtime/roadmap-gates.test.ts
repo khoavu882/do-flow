@@ -312,7 +312,7 @@ const mutations: any = [
   { name: 'preset option', from: "preset: reviewPreset(get('review-settings')),", to: '', pattern: 'C-2: gate-b findings-valid checks the recorded protocol' },
   { name: 'authors option', from: "authors: get('authoring-identities'),", to: '', pattern: 'D.4: gate-b findings-valid applies the authoring-identities fact' },
   { name: 'preset floor', from: "|| protocolLooserThanPreset(findings.protocol, get('review-settings')?.preset)", to: '', pattern: 'C-2: gate-b findings-valid checks the recorded protocol' },
-  { name: 'artifact layout precedence', module: 'facts', from: "['intention/requirement.md', 'requirement.md']", to: "['requirement.md', 'intention/requirement.md']", pattern: 'artifact lookup follows' },
+  { name: 'flat requirement is read', module: 'facts', from: "? ['intention/requirement.md']", to: "? ['requirement.md', 'intention/requirement.md']", pattern: 'artifact lookup reads only' },
 ];
 for (const fixture of require('../fixtures/roadmap/gates/cases.json')) {
   if (mutations.some((m: any) => m.name === `predicate ${fixture.predicate}`)) continue;
