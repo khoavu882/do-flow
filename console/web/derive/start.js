@@ -177,13 +177,19 @@ function loginLines(login, harness, ago = (iso) => `at ${iso}`) {
       : `${harness} is logged in${billingWords(login.billing)}; a run succeeded ${when}${note}.`;
   } else if (login.state === 'expired') {
     const hint = typeof login.hint === 'string' ? `: run ${login.hint}` : '';
-    sentence = `${harness}’s login expired${typeof login.provider === 'string' ? ` for ${login.provider}` : ''} on a run ${when}${hint}. DoFlow shows it as expired until a run succeeds${login.expirySeen === true ? ' or its login check says logged in' : ''}.`;
+    const named = `${harness}’s login expired${typeof login.provider === 'string' ? ` for ${login.provider}` : ''}`;
+    sentence = login.source === 'recipe'
+      ? `${named} in its login check ${when}${note}${hint}. DoFlow shows it as expired until its login check says otherwise.`
+      : `${named} on a run ${when}${hint}. DoFlow shows it as expired until a run succeeds${login.expirySeen === true ? ' or its login check says logged in' : ''}.`;
   } else if (reason === 'never-checked') {
     sentence = `DoFlow has not checked that ${harness} is logged in; doflow models --action sync checks it.`;
   } else if (reason === NO_RECIPE || reason.startsWith(`${NO_RECIPE}: `)) {
     sentence = `DoFlow cannot check ${harness}’s login${reason === NO_RECIPE ? '' : `: ${reason.slice(NO_RECIPE.length + 2)}`}.`;
   } else if (reason === 'stale' && login.last && typeof login.last === 'object') {
-    sentence = `${harness}’s login was last checked ${typeof login.last.at === 'string' ? ago(login.last.at) : 'a while ago'} (${login.last.state})${note}; that is over a day old.`;
+    const seen = typeof login.last.at === 'string' ? ago(login.last.at) : 'a while ago';
+    sentence = login.last.source === 'last-run'
+      ? `${harness}’s login was last seen on a run ${seen} (${login.last.state}); that is over a day old.`
+      : `${harness}’s login was last checked ${seen} (${login.last.state})${note}; that is over a day old.`;
   } else {
     sentence = `${harness}’s login check gave no answer: ${reason || 'unknown'}${note}.`;
   }

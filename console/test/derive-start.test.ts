@@ -398,6 +398,14 @@ test('172 §7.2: logged-out has no extra line; expired names the provider, the h
     ['antigravity’s login expired on a run <07:00 ago>. DoFlow shows it as expired until a run succeeds.'], 'no hint: no instruction');
 });
 
+test('172 §7.2: an expired answer that came from the login check says so, not "on a run"', () => {
+  const at = '2026-11-16T07:00:00.000Z';
+  assert.deepEqual(lines(loginOf('pi', { state: 'expired', reason: 'provider-expired', source: 'recipe', at, provider: 'openai-codex', hint: 'pi auth login <provider>' }), 'pi'),
+    ['pi’s login expired for openai-codex in its login check <07:00 ago>: run pi auth login <provider>. DoFlow shows it as expired until its login check says otherwise.']);
+  assert.deepEqual(lines(loginOf('claude', { state: 'expired', reason: 'provider-expired', source: 'recipe', at, caveat: 'unproven offline', hint: null })),
+    ['claude’s login expired in its login check <07:00 ago> (unproven offline). DoFlow shows it as expired until its login check says otherwise.']);
+});
+
 test('172 §7.2: the four unknown rows say never checked, no check, stale and no answer', () => {
   assert.deepEqual(lines(loginOf('pi'), 'pi'), ['DoFlow has not checked that pi is logged in; doflow models --action sync checks it.']);
   assert.deepEqual(lines(loginOf('codex', { reason: 'no-recipe: its help documents no exit code' }), 'codex'), ['DoFlow cannot check codex’s login: its help documents no exit code.']);
@@ -407,6 +415,11 @@ test('172 §7.2: the four unknown rows say never checked, no check, stale and no
   assert.deepEqual(lines(loginOf('claude', { reason: 'stale', source: 'recipe', at: '2026-11-14T09:00:00.000Z', caveat: 'unproven offline', last: { state: 'logged-out', source: 'recipe', at: '2026-11-14T09:00:00.000Z' } })),
     ['claude’s login was last checked <09:00 ago> (logged-out) (unproven offline); that is over a day old.']);
   assert.deepEqual(lines(loginOf('claude', { reason: 'timeout', source: 'recipe', at: '2026-11-16T08:00:00.000Z' })), ['claude’s login check gave no answer: timeout.']);
+});
+
+test('172 §7.2: a stale answer whose last was a run says a run, not a login check', () => {
+  assert.deepEqual(lines(loginOf('claude', { reason: 'stale', source: 'last-run', at: '2026-11-14T09:00:00.000Z', last: { state: 'logged-in', source: 'last-run', at: '2026-11-14T09:00:00.000Z' } })),
+    ['claude’s login was last seen on a run <09:00 ago> (logged-in); that is over a day old.']);
 });
 
 test('172 §7.2: a harness with providers adds one line each, `<id>: <state>[, <mode>]`; no login says nothing', () => {
