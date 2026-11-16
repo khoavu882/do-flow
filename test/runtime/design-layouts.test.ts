@@ -67,10 +67,11 @@ function briefFor(design: string) {
   git('commit', '-q', '--allow-empty', '-m', 'init');
   git('checkout', '-q', '-b', 'feat/001-auth');
   const featureDir = path.join(project, 'agent-docs', 'doflow', '001-auth');
-  fs.mkdirSync(featureDir, { recursive: true });
+  fs.mkdirSync(path.join(featureDir, 'intention'), { recursive: true });
+  fs.mkdirSync(path.join(featureDir, 'design'), { recursive: true });
   fs.writeFileSync(path.join(featureDir, 'plan.md'), PLAN);
-  fs.writeFileSync(path.join(featureDir, 'requirement.md'), REQUIREMENT);
-  fs.writeFileSync(path.join(featureDir, 'design.md'), design);
+  fs.writeFileSync(path.join(featureDir, 'intention', 'requirement.md'), REQUIREMENT);
+  fs.writeFileSync(path.join(featureDir, 'design', 'design.md'), design);
   const res = spawnSync(bashPath(), [path.join(bash, 'do-task-brief.sh'), '--task=A.1', '--slug=001-auth'], { cwd: project, encoding: 'utf8', timeout: 120000, env: scratch.env() });
   assert.equal(res.status, 0, res.stderr);
   return fs.readFileSync(path.join(featureDir, 'exec', 'task-A.1-brief.md'), 'utf8');

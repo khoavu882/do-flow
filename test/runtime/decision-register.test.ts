@@ -87,7 +87,7 @@ test('init on an existing register writes nothing and reports created: false', (
   assert.deepEqual(snapshot(r.featureDir), before);
 });
 
-for (const rel of ['intention/requirement.md', 'requirement.md', 'design/design.md', 'design.md', 'plan.md']) {
+for (const rel of ['intention/requirement.md', 'design/design.md', 'plan.md']) {
   test(`init refuses a folder that already holds ${rel}`, () => {
     const r = repo({ [rel]: '# existing\n' });
     const before = snapshot(r.featureDir);
@@ -703,13 +703,14 @@ test('compact reports compaction-failed with failed[] and still carries moved an
   assert.equal(runDecision({ action: 'init', projectRoot: r.root, now: FIXED }).exitCode, 0);
   fs.writeFileSync(path.join(r.featureDir, 'plan.md'), PLAN);
   const design = '# Design\n\n## 9. History\n\n- entry\n\n<!-- never closed\n';
-  fs.writeFileSync(path.join(r.featureDir, 'design.md'), design);
+  fs.mkdirSync(path.join(r.featureDir, 'design'), { recursive: true });
+  fs.writeFileSync(path.join(r.featureDir, 'design/design.md'), design);
   const run = runDecision({ action: 'compact', projectRoot: r.root, now: FIXED });
   assert.equal(run.exitCode, 1);
   assert.equal(run.result.finding, 'compaction-failed');
   assert.equal(run.result.status, 'partial');
   assert.deepEqual(run.result.moved.map((m: any) => m.artifact), ['plan.md']);
   assert.deepEqual(run.result.failed.map((f: any) => f.artifact), ['design.md']);
-  assert.equal(fs.readFileSync(path.join(r.featureDir, 'design.md'), 'utf8'), design);
+  assert.equal(fs.readFileSync(path.join(r.featureDir, 'design/design.md'), 'utf8'), design);
   assert.ok(fs.readFileSync(path.join(r.featureDir, 'plan.md'), 'utf8').includes('Earlier entries:'));
 });

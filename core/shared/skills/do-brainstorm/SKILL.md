@@ -120,14 +120,8 @@ When asking clarifying questions:
    Then `"$DOFLOW" lifecycle --action init --slug="<slug>"` with the `--take`, `--intent` and
    `--goal` the user picked from the overview; report a refusal and continue.
 5. **Write `requirement.md`** — copy the requirement template into the feature dir and fill the
-   tokens from the dialogue. It goes at `agent-docs/doflow/<slug>/intention/requirement.md`: a
-   fresh feature dir holds nothing yet, so step 1's `layout` still reads `legacy` and its
-   `requirement` field still points at the top level — create `intention/` and write there anyway
-   rather than waiting for the resolver, which reports `structured` only once this file exists. The
-   one exception is an existing old-layout feature dir (`layout` is `legacy` **and**
-   `has_requirement` is true): that feature's `design.md`/`plan.md` already sit at the top level, so
-   write to the resolved `requirement` path and leave the dir where it is — this feature performs no
-   migration, and a dir must never resolve as a mix of both layouts.
+   tokens from the dialogue. It goes at `agent-docs/doflow/<slug>/intention/requirement.md`, which
+   is step 1's `requirement` path whether or not the file exists yet.
 The template is `templates/doflow/requirement-template.md` in the install step 1 resolved: take `constitution_base` from that JSON and swap its trailing `guidance/references/CONSTITUTION_BASE.md` for that path.
    WHAT/WHY only: user stories (P1/P2/P3 → US#), `FR-###`, NFRs, out-of-scope, acceptance criteria. Zero `[NEEDS CLARIFICATION]` markers remain in §7 at
    hand-off — every ambiguity from Step 2/3 is either a resolved answer folded into the relevant

@@ -192,7 +192,7 @@ feature_root="$repo_root"
 feature_dir=""; requirement=""; design=""; specs=""; data_model=""; plan=""; state=""; audit=""
 decisions=""; decisions_register=""; has_decisions=false
 has_requirement=false; has_design=false; has_plan=false; has_specs=false; has_data_model=false
-layout="legacy"
+layout="structured"
 intention_next_round=""; design_next_round=""; plan_next_round=""
 if [ -n "$feature_slug" ]; then
   feature_dir="$specs_rel/$feature_slug"
@@ -207,32 +207,21 @@ if [ -n "$feature_slug" ]; then
   state="$feature_dir/state.md"; audit="$feature_dir/audit.md"
   decisions="$feature_dir/decisions.md"; decisions_register="$feature_dir/decisions/register.json"
   [ -f "$abs/decisions/register.json" ] && has_decisions=true
-  # ── layout: computed ONCE from a single file's presence, then used to pick
-  # every path field below — never detected per-field (design.md R4). This is
-  # what makes a self-contradictory mix of old/new paths for the same feature
-  # dir unreachable by construction.
-  [ -f "$abs/intention/requirement.md" ] && layout="structured"
-  if [ "$layout" = "structured" ]; then
-    requirement="$feature_dir/intention/requirement.md"
-    design="$feature_dir/design/design.md"
-    specs="$feature_dir/design/specs.md"
-    data_model="$feature_dir/design/data-model.md"
-    plan="$feature_dir/plan.md"
-    [ -f "$abs/intention/requirement.md" ]  && has_requirement=true
-    [ -f "$abs/design/design.md" ]          && has_design=true
-    [ -f "$abs/design/specs.md" ]           && has_specs=true
-    [ -f "$abs/design/data-model.md" ]      && has_data_model=true
-    [ -f "$abs/plan.md" ]                   && has_plan=true
-  else
-    requirement="$feature_dir/requirement.md"; design="$feature_dir/design.md"
-    plan="$feature_dir/plan.md"
-    [ -f "$abs/requirement.md" ] && has_requirement=true
-    [ -f "$abs/design.md" ]      && has_design=true
-    [ -f "$abs/plan.md" ]        && has_plan=true
-  fi
+  # The feature folder is always laid out as intention/, design/ and a flat plan.md. The paths
+  # resolve whether or not the files exist yet, so a fresh feature dir already names
+  # intention/requirement.md.
+  requirement="$feature_dir/intention/requirement.md"
+  design="$feature_dir/design/design.md"
+  specs="$feature_dir/design/specs.md"
+  data_model="$feature_dir/design/data-model.md"
+  plan="$feature_dir/plan.md"
+  [ -f "$abs/intention/requirement.md" ]  && has_requirement=true
+  [ -f "$abs/design/design.md" ]          && has_design=true
+  [ -f "$abs/design/specs.md" ]           && has_specs=true
+  [ -f "$abs/design/data-model.md" ]      && has_data_model=true
+  [ -f "$abs/plan.md" ]                   && has_plan=true
 
-  # ── per-stage question-log round scan (structured layout only has files to find,
-  # but the scan itself is layout-agnostic — an empty/absent subdir just floors at 1).
+  # ── per-stage question-log round scan (an empty/absent subdir just floors at 1).
   # Skipped in --paths-only mode like the next_number scan below; the three variables
   # stay "" (emitted as null, never a numeric 1) so "not computed in this cheap mode"
   # can never be mistaken for "computed, no rounds yet" ──

@@ -152,8 +152,12 @@ test('v1 policy verdicts match develop native results for every legacy fixture i
       if (scenario.artifacts === 'complete') {
         const featureDir = path.join(repo.root, 'agent-docs/doflow', slug);
         fs.mkdirSync(featureDir, { recursive: true });
-        fs.writeFileSync(path.join(featureDir, 'requirement.md'), '# Requirement\n');
-        fs.writeFileSync(path.join(featureDir, 'design.md'), '# Design\n');
+        // The 0fcd973 baseline gate reads the flat layout and the shipped gate reads intention/ and design/:
+        // both are written so each sees a complete feature.
+        fs.mkdirSync(path.join(featureDir, 'intention'), { recursive: true });
+        fs.mkdirSync(path.join(featureDir, 'design'), { recursive: true });
+        for (const rel of ['requirement.md', 'intention/requirement.md']) fs.writeFileSync(path.join(featureDir, rel), '# Requirement\n');
+        for (const rel of ['design.md', 'design/design.md']) fs.writeFileSync(path.join(featureDir, rel), '# Design\n');
         fs.writeFileSync(path.join(featureDir, 'plan.md'), '# Plan\n');
       }
       const env = { DOFLOW_PROJECT_DIR: repo.root, HOME: scratch.path(`gate-v1-home-${slug}`) };
