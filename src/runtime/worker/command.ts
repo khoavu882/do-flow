@@ -401,7 +401,7 @@ async function runAction(o: any) {
     },
     edit: editRecord, childOf, request: childOf ? o.request : null,
     ...launchRecord(worker, identity, prompt.bytes.toString('utf8'), edit, binding),
-    ...(binding ? { binding: { model: binding.model, flag: binding.flag } } : {}),
+    ...(binding ? { binding: { model: binding.model, provider: binding.provider ?? null, effort: binding.effort ?? null, flag: binding.flag } } : {}),
     // The binary the probe found, as an absolute path: the supervisor spawns from the execution worktree,
     // where a relative PATH entry would name another file than the one probed.
     descriptor: evaluated.binaryPath && worker?.cli ? { ...worker, cli: { ...worker.cli, binary: evaluated.binaryPath } } : worker,

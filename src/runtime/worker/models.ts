@@ -1,8 +1,13 @@
 'use strict';
 
+const { choiceOf } = require('./model-choice.ts');
+
+type ModelChoice = { model: string; provider: string | null; effort: string | null };
+type PartGap = 'provider:unsupported' | 'effort:unsupported' | 'effort:unknown-level';
 type Bindings = {
   state: 'unset' | 'set' | 'invalid';
-  map: Record<string, Record<string, string>> | null;
+  /** A slot holds a plain model id or `{model, provider?, effort?}` (169 IC-001); read it through `choiceOf`. */
+  map: Record<string, Record<string, unknown>> | null;
   reason: string | null;
 };
 
@@ -10,6 +15,10 @@ type BindingResolution = {
   model: string | null;
   source: 'binding' | 'main-session' | 'frontier-binding' | 'harness-default' | 'invalid';
   flag: 'supported' | 'unevidenced' | 'n/a';
+  /** 169: the bound model with its provider and effort; present when a model is bound. */
+  choice?: ModelChoice;
+  /** 169: why the bound provider or effort cannot reach the argv (`bindingGap` reports it); absent when it can. */
+  partGap?: PartGap;
   catalogueStatus?: 'synced' | 'unsynced';
   enabledStatus?: 'enabled' | 'disabled';
 };
@@ -70,6 +79,18 @@ function readAllowedModels({ env = process.env, projectRoot = null }: any = {}):
   }
 }
 
+/** 169: a bound provider or effort the descriptor cannot pass on. Only a `supported` entry takes a part (`unknown` and
+ * `unsupported` alike are refused); a closed `levels` list refuses a level outside it. */
+function partGapOf(choice: ModelChoice, descriptor: any): PartGap | null {
+  if (choice.provider !== null && descriptor?.provider?.status !== 'supported') return 'provider:unsupported';
+  if (choice.effort !== null) {
+    if (descriptor?.effort?.status !== 'supported') return 'effort:unsupported';
+    const levels = descriptor.effort.levels;
+    if (Array.isArray(levels) && !levels.includes(choice.effort)) return 'effort:unknown-level';
+  }
+  return null;
+}
+
 /** IC-012, IC-003: resolve one worker and task tier, checking catalogue sync and models.enabled allow-list. */
 function resolveBinding({ worker, tier, bindings, descriptor, catalogue, allowedModels }: any): BindingResolution {
   if (bindings?.state === 'invalid') {
@@ -85,14 +106,24 @@ function resolveBinding({ worker, tier, bindings, descriptor, catalogue, allowed
     if (allowedModels !== undefined) res.enabledStatus = 'enabled';
     return res;
   }
-  const boundModel = map[worker][tier];
+  const choice: ModelChoice | null = choiceOf(map[worker][tier]);
+  if (choice === null) {
+    const res: BindingResolution = { model: null, source: 'invalid', flag: 'n/a' };
+    if (catalogue !== undefined) res.catalogueStatus = 'unsynced';
+    if (allowedModels !== undefined) res.enabledStatus = 'disabled';
+    return res;
+  }
+  const boundModel = choice.model;
   const supported = descriptor?.model?.status === 'supported' && Array.isArray(descriptor.model.argv);
 
   const res: BindingResolution = {
     model: boundModel,
     source: 'binding',
     flag: supported ? 'supported' : 'unevidenced',
+    choice,
   };
+  const partGap = supported ? partGapOf(choice, descriptor) : null;
+  if (partGap !== null) res.partGap = partGap;
 
   if (catalogue !== undefined) {
     if (catalogue && catalogue.harnesses && Object.hasOwn(catalogue.harnesses, worker)) {
@@ -136,7 +167,7 @@ function resolveOrchestratorModel({ harness, bindings, primary, descriptor, cata
   const trusted = trustedPrimaryModel(primary, harness);
   if (trusted !== null) {
     const supported = descriptor?.model?.status === 'supported' && Array.isArray(descriptor.model.argv);
-    return { model: trusted, source: 'main-session', flag: supported ? 'supported' : 'unevidenced' };
+    return { model: trusted, source: 'main-session', flag: supported ? 'supported' : 'unevidenced', choice: { model: trusted, provider: null, effort: null } };
   }
   const frontier = resolveBinding({ worker: harness, tier: 'frontier', bindings, descriptor, catalogue, allowedModels });
   return frontier.source === 'binding' ? { ...frontier, source: 'frontier-binding' } : own;
@@ -162,6 +193,7 @@ function bindingGap(result: BindingResolution) {
     if (result.flag === 'unevidenced') {
       return { requirement: 'binding', result: 'failed', reason: 'model-flag:unevidenced' };
     }
+    if (result.partGap) return { requirement: 'binding', result: 'failed', reason: result.partGap };
     if (result.catalogueStatus === 'unsynced') {
       return { requirement: 'binding', result: 'failed', reason: 'model-unsynced' };
     }

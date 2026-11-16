@@ -34,6 +34,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const readiness = require('./readiness.ts');
 const { readBindings } = require('./models.ts');
+const { choiceOf } = require('./model-choice.ts');
 const { workerCatalogue } = require('./catalogue.ts');
 const { PARSERS, parserIdOf } = require('./parsers.ts');
 const { workerIdFault } = require('../../registry/worker-ids.ts');
@@ -410,7 +411,7 @@ async function startSession(o: any) {
     startedBy, project: { projectKey, worktreeKey }, execWorktree: checkout.path, entry,
     binding: { model, flag: model === null ? null : 'supported', source: choice.source },
     prompt: { store: 'session-prompts', name: `${runId}.prompt.txt`, sha256: prepared.sha256, bytes: prepared.bytes },
-    ...mainLaunchRecord(worker, prepared.sent, model),
+    ...mainLaunchRecord(worker, prepared.sent, choiceOf(model)),
     // The detached supervisor launches from the record alone: the binary the version read found (an absolute
     // path, as `run` records), the recipe and the model part.
     descriptor: { cli: { binary: facts.found.path }, mainSession: worker.mainSession, ...mapPart(worker), model: worker.model ?? null, ...signsPart(worker) },

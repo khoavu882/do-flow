@@ -26,7 +26,7 @@ const conformModule = () => require(path.join(SRC, 'conform.ts'));
 
 const POSIX: any = { skip: process.platform === 'win32' && 'conform is unsupported on win32 (DEC-008)' };
 const EMPTY_VIEW = Object.freeze({ packages: [], stateRead: { state: { removed: [] } }, grants: { grants: [] } });
-const PARTS = ['binary', 'one-shot', 'prompt-transport', 'model-flag', 'main-session', 'stream', 'login'];
+const PARTS = ['binary', 'one-shot', 'prompt-transport', 'model-flag', 'provider', 'effort', 'main-session', 'stream', 'login'];
 /** The variables the system adds itself, never copied from conform's caller: a POSIX `#!/bin/sh` sets PWD (the
  * scratch home conform chose as cwd) and SHLVL (its own counter) before it execs, and macOS adds
  * __CF_USER_TEXT_ENCODING (the uid's text encoding) to every process it starts. */
@@ -67,7 +67,7 @@ test('conform --harness codex exits 0 and every supported part passes', POSIX, a
   assert.deepEqual(body.parser, { id: 'codex-exec-json-v1', kind: 'field-map' });
   assert.deepEqual(body.parts.map((p: any) => p.part), PARTS);
   assert.deepEqual(resultsOf(body), {
-    binary: 'passed', 'one-shot': 'passed', 'prompt-transport': 'passed', 'model-flag': 'passed',
+    binary: 'passed', 'one-shot': 'passed', 'prompt-transport': 'passed', 'model-flag': 'passed', provider: 'unchecked', effort: 'unchecked',
     'main-session': 'passed', stream: 'passed', login: 'unchecked',
   });
   assert.equal(partOf(body, 'login').reason, 'not-declared');
@@ -494,4 +494,46 @@ test('a ninth harness described by a field map, in a scratch copy of the registr
   assert.deepEqual(body.parser, { id: 'ninth-run-v1', kind: 'field-map' });
   assert.equal(partOf(body, 'stream').result, 'passed');
   assert.deepEqual(body.failed, []);
+});
+
+// ---- 169 T4: the provider and effort parts ---------------------------------------------------------------------------
+
+const PART = { evidence: ['x'], verification: 'v', verifiedOn: '2026-11-16' };
+const piWith = (mutate: (worker: any) => void = () => {}) => registryWith('pi', (worker) => {
+  worker.provider = { status: 'supported', ...PART, via: 'id-prefix', separator: '/' };
+  worker.effort = { status: 'supported', ...PART, via: 'flag', argv: ['--thinking', '{effort}'], levels: ['low', 'high'] };
+  mutate(worker);
+});
+
+test('169: a worker that declares provider and effort passes both parts on the composed argv', POSIX, async (t) => {
+  const { exit, body } = await conformVia(t, 'pi', piWith());
+  assert.equal(exit, 0, JSON.stringify(body));
+  assert.equal(partOf(body, 'provider').result, 'passed', JSON.stringify(partOf(body, 'provider')));
+  assert.equal(partOf(body, 'provider').reason, 'conform-provider-1/conform-model-1 once, via one-shot');
+  assert.equal(partOf(body, 'effort').result, 'passed', JSON.stringify(partOf(body, 'effort')));
+  assert.equal(partOf(body, 'effort').reason, '--thinking low once, via one-shot');
+  assert.deepEqual(body.parts.map((p: any) => p.part), PARTS);
+});
+
+test('169: a per-model effort binds conform-effort-1; an id-suffix transport checks the composed id once', POSIX, async (t) => {
+  const registry = piWith((worker) => { worker.effort = { status: 'supported', ...PART, via: 'id-suffix', separator: '#', levels: 'per-model' }; });
+  const { exit, body } = await conformVia(t, 'pi', registry);
+  assert.equal(exit, 0, JSON.stringify(body));
+  assert.equal(partOf(body, 'effort').reason, 'conform-model-1#conform-effort-1 once, via one-shot');
+});
+
+test('169: the effort part fails when the fake sees the transport flag twice, and a part not declared is unchecked', POSIX, async (t) => {
+  const twice = piWith((worker) => { worker.readOnly.argv = [...worker.readOnly.argv, '--thinking', 'off']; });
+  assertFailsPart(await conformVia(t, 'pi', twice), 'effort', /--thinking appears 2 times/);
+  const shipped = await conformVia(t, 'pi');
+  assert.equal(partOf(shipped.body, 'provider').result, 'unchecked');
+  assert.equal(partOf(shipped.body, 'provider').reason, 'not-declared');
+  assert.equal(partOf(shipped.body, 'effort').reason, 'not-declared');
+});
+
+test('169: a main-session-only worker checks the provider part through mainArgv', POSIX, async (t) => {
+  const registry = piWith((worker) => { worker.oneShot = { status: 'unknown', evidence: [], verification: 'v', verifiedOn: '2026-11-16', reason: 'none' }; });
+  const { body } = await conformVia(t, 'pi', registry);
+  assert.equal(partOf(body, 'provider').result, 'passed', JSON.stringify(partOf(body, 'provider')));
+  assert.match(partOf(body, 'provider').reason, /via main-session$/);
 });

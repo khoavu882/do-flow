@@ -272,3 +272,75 @@ test('IC-011: antigravity free evidence establishes model only when its help lin
     assert.deepEqual(modelCheck.matched, label === 'pass' ? [(help as string).trimEnd()] : []);
   }
 });
+
+// ---- 169 T4: provider and effort reach the argv through composeModelPart ---------------------------------------------
+
+const ENTRY = { evidence: ['x'], verification: 'v', verifiedOn: DATE };
+const LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+/** The shipped Pi worker block plus the Pi shape of design §8: an id-prefix provider and a `--thinking {effort}` flag effort. */
+function piShaped(extra: any = {}) {
+  const worker = workerOf('pi');
+  worker.provider = { status: 'supported', ...ENTRY, via: 'id-prefix', separator: '/' };
+  worker.effort = { status: 'supported', ...ENTRY, via: 'flag', argv: ['--thinking', '{effort}'], levels: LEVELS, offLevel: 'off', mayLower: true };
+  return Object.assign(worker, extra);
+}
+const PI_BASE = () => assembleArgv(workerOf('pi'), 'p', false);
+
+test('169 R-4: with no effort bound the Pi-shaped argv is byte for byte the shipped one, and `--thinking off` stays', () => {
+  const shaped = piShaped();
+  const plain = { model: 'm1', flag: 'supported' };
+  const withNulls = { model: 'm1', provider: null, effort: null, flag: 'supported' };
+  const shipped = assembleArgv(workerOf('pi'), 'p', false, undefined, plain);
+  assert.deepEqual(assembleArgv(shaped, 'p', false, undefined, plain), shipped);
+  assert.deepEqual(assembleArgv(shaped, 'p', false, undefined, withNulls), shipped);
+  assert.deepEqual(argvShape(shaped, 'p', false, withNulls), argvShape(workerOf('pi'), 'p', false, plain));
+  assert.deepEqual(assembleArgv(shaped, 'p', false), PI_BASE());
+  assert.equal(shipped.join(' ').includes('--thinking off'), true);
+});
+
+test('169: a bound effort replaces the fixed `--thinking off` for that run; the level appears once', () => {
+  const argv = assembleArgv(piShaped(), 'p', false, undefined, { model: 'm1', provider: null, effort: 'high', flag: 'supported' });
+  assert.equal(argv.filter((item: string) => item === '--thinking').length, 1);
+  assert.equal(argv[argv.indexOf('--thinking') + 1], 'high');
+  assert.equal(argv.includes('off'), false);
+  assert.deepEqual(argv.slice(2, 4), ['--model', 'm1']);
+  const editable = piShaped({ isolatedEdit: { status: 'supported', ...ENTRY, argv: ['--tools', 'read,edit'] } });
+  const edit = assembleArgv(editable, 'p', true, undefined, { model: 'm1', provider: null, effort: 'high', flag: 'supported' }).join(' ');
+  assert.equal(edit.includes('--thinking high'), true);
+});
+
+test('169: the stored shape holds {model}, {provider} and {effort}, never a bound value', () => {
+  const binding = { model: 'secretish-model', provider: 'prov-x', effort: 'xhigh', flag: 'supported' };
+  const shape = argvShape(piShaped(), 'p', false, binding);
+  assert.equal(shape[shape.indexOf('--thinking') + 1], '{effort}');
+  assert.deepEqual(shape.slice(2, 4), ['--model', '{provider}/{model}']);
+  const record = launchRecord(piShaped(), { run: 'r', lineage: 'l', attempt: '1', runSource: 'claim' }, 'p', false, binding);
+  assert.deepEqual(record.recipe.argvShape, shape);
+  const text = JSON.stringify(record);
+  for (const value of ['secretish-model', 'prov-x', 'xhigh']) assert.equal(text.includes(value), false, value);
+});
+
+test('169: a provider composes through its transport: id-prefix into the id, flag as a pair that replaces a fixed copy', () => {
+  const prefixed = assembleArgv(piShaped(), 'p', false, undefined, { model: 'm1', provider: 'openai', effort: null, flag: 'supported' });
+  assert.deepEqual(prefixed.slice(2, 4), ['--model', 'openai/m1']);
+  const flagged = piShaped({ provider: { status: 'supported', ...ENTRY, via: 'flag', argv: ['--provider', '{provider}'] } });
+  flagged.oneShot.argv = ['--provider=fixed', ...flagged.oneShot.argv];
+  const argv = assembleArgv(flagged, 'p', false, undefined, { model: 'm1', provider: 'openai', effort: null, flag: 'supported' });
+  assert.deepEqual(argv.slice(2, 6), ['--model', 'm1', '--provider', 'openai']);
+  assert.equal(argv.filter((item: string) => item.startsWith('--provider')).length, 1);
+});
+
+test('169: a safety piece keeps its flags; only oneShot, structuredOutput and mainSession are stripped', () => {
+  const worker = piShaped();
+  worker.structuredOutput.argv = ['--thinking', 'low', ...worker.structuredOutput.argv];
+  const argv = assembleArgv(worker, 'p', false, undefined, { model: 'm1', provider: null, effort: 'high', flag: 'supported' });
+  assert.equal(argv.filter((item: string) => item === '--thinking').length, 1);
+  assert.equal(argv.includes('low'), false);
+});
+
+test('169: a part the descriptor cannot take is refused with its reason, a value outside its pattern too', () => {
+  const unknown = piShaped({ effort: { status: 'unknown', evidence: [], verification: 'v', verifiedOn: DATE, reason: 'no evidence' } });
+  assert.throws(() => assembleArgv(unknown, 'p', false, undefined, { model: 'm1', provider: null, effort: 'high', flag: 'supported' }), { code: 'model-part-unsupported' });
+  assert.throws(() => assembleArgv(piShaped(), 'p', false, undefined, { model: 'm1', provider: null, effort: 'turbo', flag: 'supported' }), { code: 'model-part-invalid' });
+  assert.throws(() => argvShape(unknown, 'p', false, { model: 'm1', provider: null, effort: 'high', flag: 'supported' }), { code: 'model-part-unsupported' });
+});

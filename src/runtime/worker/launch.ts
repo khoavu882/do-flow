@@ -15,6 +15,10 @@
 // `{lastMessageFile}` and `{model}` elements are replaced whole, never inside a longer string.
 // `argvShape` writes the prompt as `<prompt sha256:<hex> bytes:<n>>`, the output path as
 // `<last-message-file>` and the model as the original `{model}` placeholder.
+// 169 IC-002: the model part comes from `composeModelPart` (the model, plus a bound provider and effort as the
+// descriptor's `provider` and `effort` entries say). A transport flag the part adds is removed from `oneShot`,
+// `structuredOutput` and `mainSession` (`F v` and `F=v`), so it appears once; with no provider or effort bound nothing
+// is removed and the argv is what it was. The shape keeps `{model}`, `{provider}` and `{effort}`.
 //
 // `launchWorker` runs IC-012 steps 1 to 5: the environment, the optional 078 grant, the launch
 // emission in process, the emission text before the brief, then `spawn` with no shell. It returns a
@@ -36,13 +40,15 @@ const { spawn } = require('node:child_process');
 const { emitContext, utf8Bytes } = require('../context/arbitrate.ts');
 const { grantSummary } = require('../context/summary-store.ts');
 const { wideningProblem, wideningFlagsProblem } = require('../../registry/widening-flags.ts');
+const { choiceOf, composeModelPart } = require('./model-choice.ts');
 
 /** The parser table, required on first use as before (171 IC-003 resolves every parser id through it). */
 function parsers() { return require('./parsers.ts'); }
 
 type Env = Record<string, string | undefined>;
-/** 120 IC-011 / IC-012: the binding shape consumed by the recipe assembler. */
-type ModelBinding = { model: string | null; flag: 'supported' | 'unevidenced' | 'n/a' };
+/** 120 IC-011 / IC-012, 169 IC-002: the binding shape consumed by the recipe assembler; `provider` and `effort` are absent or null for a plain model. */
+type ModelBinding = { model: string | null; provider?: string | null; effort?: string | null; flag: 'supported' | 'unevidenced' | 'n/a' };
+type ModelChoice = { model: string; provider: string | null; effort: string | null };
 
 /** IC-012: the names a launch may set, in the order the run record lists them. The first five are the
  * identity contract; `DOFLOW_WORKER_RUN` (110) carries the worker run id `w-<12 hex>` and nothing else,
@@ -51,7 +57,6 @@ const WORKER_RUN_VAR = 'DOFLOW_WORKER_RUN';
 const ENV_SET = Object.freeze(['DOFLOW_RUN_ID', 'DOFLOW_LINEAGE_ID', 'DOFLOW_ATTEMPT', 'DOFLOW_SESSION_ROLE', 'DOFLOW_WORKTREE', WORKER_RUN_VAR]);
 const PROMPT_ELEMENT = '{prompt}';
 const LAST_MESSAGE_FILE_ELEMENT = '{lastMessageFile}';
-const MODEL_ELEMENT = '{model}';
 /** IC-003 prompt limits in bytes. argv is one under Linux MAX_ARG_STRLEN, which counts the NUL (DEC-062). */
 const PROMPT_LIMITS = Object.freeze({ argv: 131071, stdin: 1048576 });
 const DEFAULT_RUN = 'local';
@@ -120,14 +125,28 @@ function launchEnv({ env, runKey, token, execWorktree, runId, runScoped = false 
   return { env: withIdentity(env, identity, execWorktree, runId), identity };
 }
 
-/** 120 IC-011: only a supported binding supplies a non-empty model element. */
-function boundModel(binding?: ModelBinding | null): string | null {
+/** 120 IC-011: only a supported binding supplies a choice (169: the model with its optional provider and effort). */
+function boundChoice(binding?: ModelBinding | null): ModelChoice | null {
   if (binding?.flag !== 'supported') return null;
   if (typeof binding.model !== 'string' || binding.model.length === 0) {
     throw new LaunchUsageError('model-invalid', 'assembleArgv: a supported model binding requires a non-empty model string');
   }
-  return binding.model;
+  return { model: binding.model, provider: binding.provider ?? null, effort: binding.effort ?? null };
 }
+
+/** 169 IC-002: `argv` without every `F v` pair and `F=v` token for each flag `F` in `flags` (the flags the model part now owns). */
+function withoutFlags(argv: string[], flags: string[]): string[] {
+  if (flags.length === 0) return argv;
+  const out: string[] = [];
+  for (let i = 0; i < argv.length; i += 1) {
+    if (flags.includes(argv[i])) i += 1;
+    else if (!flags.some((flag) => argv[i].startsWith(`${flag}=`))) out.push(argv[i]);
+  }
+  return out;
+}
+
+/** The pieces whose transport flags the model part may take over; a safety piece (readOnly, spawnDenial, isolatedEdit) is never stripped. */
+const STRIPPABLE = new Set(['oneShot', 'structuredOutput', 'mainSession']);
 
 /**
  * 165 review B-2: the final argv, the model already in it and the prompt and output path still placeholders, holds no
@@ -139,19 +158,29 @@ function refuseWidening(recipe: any, argv: string[], mainSession: boolean): void
   if (widening) throw new LaunchUsageError('widening-flag', `the ${mainSession ? 'main-session' : 'worker'} argv holds the widening flag '${widening}'`);
 }
 
-/** IC-003 / 120 IC-011: replace prompt, output path and bound model only as whole elements. */
-function assemble(recipe: any, element: string, edit = false, lastMessageFile?: string, binding?: ModelBinding | null): string[] {
-  const model = boundModel(binding);
+/** IC-003 / 120 IC-011 / 169 IC-002: replace prompt, output path and the model part only as whole elements; `shape` keeps the placeholders. */
+function assemble(recipe: any, element: string, edit = false, lastMessageFile?: string, binding?: ModelBinding | null, shape = false): string[] {
+  const choice = boundChoice(binding);
+  let model: { argv: string[]; strip: string[] } | null = null;
+  if (choice !== null) {
+    if (recipe?.model?.status !== 'supported' || !Array.isArray(recipe.model.argv)) {
+      throw new LaunchUsageError('recipe-incomplete', "assembleArgv: worker 'model' is not supported with an argv");
+    }
+    model = composeModelPart(recipe, choice, { shape });
+  }
   const argv: string[] = [];
   for (const key of edit ? EDIT_RECIPE_ORDER : RECIPE_ORDER) {
-    if (key === 'model' && model === null) continue;
+    if (key === 'model') {
+      if (model !== null) argv.push(...model.argv);
+      continue;
+    }
     const entry = recipe?.[key];
     if (!entry || entry.status !== 'supported' || !Array.isArray(entry.argv)) {
       throw new LaunchUsageError('recipe-incomplete', `assembleArgv: worker '${key}' is not supported with an argv`);
     }
-    argv.push(...entry.argv);
+    argv.push(...(model !== null && STRIPPABLE.has(key) ? withoutFlags(entry.argv, model.strip) : entry.argv));
   }
-  refuseWidening(recipe, argv.map((value) => (value === MODEL_ELEMENT && model !== null ? model : value)), false);
+  refuseWidening(recipe, argv, false);
   return argv.map((value) => {
     if (value === LAST_MESSAGE_FILE_ELEMENT) {
       if (lastMessageFile === undefined) {
@@ -159,7 +188,6 @@ function assemble(recipe: any, element: string, edit = false, lastMessageFile?: 
       }
       return lastMessageFile;
     }
-    if (value === MODEL_ELEMENT && model !== null) return model;
     if (value === PROMPT_ELEMENT && recipe.oneShot.promptVia === 'argv') return element;
     return value;
   });
@@ -187,12 +215,10 @@ function assembleArgv(recipe: any, prompt: string, edit = false, lastMessageFile
   return assemble(recipe, prompt, edit, lastMessageFile, binding);
 }
 
-/** IC-003 / 120 IC-011: the stored shape hashes the prompt and preserves the model placeholder. */
+/** IC-003 / 120 IC-011 / 169 IC-002: the stored shape hashes the prompt and keeps the {model}, {provider} and {effort} placeholders. */
 function argvShape(recipe: any, prompt: string, edit = false, binding?: ModelBinding | null): string[] {
   const hex = crypto.createHash('sha256').update(prompt, 'utf8').digest('hex');
-  const shapeBinding: ModelBinding | null | undefined = boundModel(binding) === null
-    ? binding : { model: MODEL_ELEMENT, flag: 'supported' };
-  return assemble(recipe, `<prompt sha256:${hex} bytes:${Buffer.byteLength(prompt, 'utf8')}>`, edit, '<last-message-file>', shapeBinding);
+  return assemble(recipe, `<prompt sha256:${hex} bytes:${Buffer.byteLength(prompt, 'utf8')}>`, edit, '<last-message-file>', binding, true);
 }
 
 /** IC-012 / data-model §1: the launch fields a run record stores. Names only, never a value. */
@@ -211,9 +237,17 @@ function launchRecord(recipe: any, identity: WorkerIdentity, prompt: string, edi
   };
 }
 
-/** 165 IC-006: `mainSession.argv` with the model part spliced in and the placeholders replaced whole.
+/** 169: a main-session model as a choice. `model` is a plain id, a ModelChoice-shaped object or null (the harness default). */
+function mainChoice(model: unknown): ModelChoice | null {
+  if (model === null || model === undefined) return null;
+  const choice = choiceOf(model);
+  if (choice === null) throw new LaunchUsageError('model-invalid', 'mainArgv: a model must be a non-empty string');
+  return choice;
+}
+
+/** 165 IC-006, 169 IC-002: `mainSession.argv` with the model part spliced in and the placeholders replaced whole.
  * `model` null is the harness default (no model part). */
-function mainArgv(recipe: any, element: string, lastMessageFile?: string, model: string | null = null): string[] {
+function mainArgvOf(recipe: any, element: string, lastMessageFile: string | undefined, model: unknown, shape: boolean): string[] {
   const entry = recipe?.mainSession;
   if (!entry || entry.status !== 'supported' || !Array.isArray(entry.argv)) {
     throw new LaunchUsageError('recipe-incomplete', "mainArgv: worker 'mainSession' is not supported with an argv");
@@ -221,16 +255,19 @@ function mainArgv(recipe: any, element: string, lastMessageFile?: string, model:
   if ((entry.promptVia === 'argv') !== entry.argv.includes(PROMPT_ELEMENT)) {
     throw new LaunchUsageError('recipe-incomplete', `mainArgv: promptVia '${entry.promptVia}' and the argv's '{prompt}' element disagree`);
   }
+  const choice = mainChoice(model);
   let modelPart: string[] = [];
-  if (model !== null) {
-    if (typeof model !== 'string' || model === '') throw new LaunchUsageError('model-invalid', 'mainArgv: a model must be a non-empty string');
+  let tail: string[] = entry.argv;
+  if (choice !== null) {
     if (recipe.model?.status !== 'supported' || !Array.isArray(recipe.model.argv)) {
       throw new LaunchUsageError('recipe-incomplete', "mainArgv: worker 'model' is not supported with an argv");
     }
-    modelPart = recipe.model.argv.map((value: string) => (value === MODEL_ELEMENT ? model : value));
+    const composed = composeModelPart(recipe, choice, { shape });
+    modelPart = composed.argv;
+    tail = withoutFlags(entry.argv, composed.strip);
   }
-  const at = entry.argv.findIndex((value: string) => MAIN_TAIL.has(value));
-  const spliced = at === -1 ? [...entry.argv, ...modelPart] : [...entry.argv.slice(0, at), ...modelPart, ...entry.argv.slice(at)];
+  const at = tail.findIndex((value: string) => MAIN_TAIL.has(value));
+  const spliced = at === -1 ? [...tail, ...modelPart] : [...tail.slice(0, at), ...modelPart, ...tail.slice(at)];
   refuseWidening(recipe, spliced, true);
   return spliced.map((value: string) => {
     if (value === LAST_MESSAGE_FILE_ELEMENT) {
@@ -241,10 +278,14 @@ function mainArgv(recipe: any, element: string, lastMessageFile?: string, model:
   });
 }
 
-/** 165 IC-003: the stored main-session argv, the prompt hashed, the output path and the model as placeholders. */
-function mainArgvShape(recipe: any, prompt: string, model: string | null = null): string[] {
+function mainArgv(recipe: any, element: string, lastMessageFile?: string, model: string | ModelChoice | null = null): string[] {
+  return mainArgvOf(recipe, element, lastMessageFile, model, false);
+}
+
+/** 165 IC-003: the stored main-session argv, the prompt hashed, the output path and the model part as placeholders. */
+function mainArgvShape(recipe: any, prompt: string, model: string | ModelChoice | null = null): string[] {
   const hex = crypto.createHash('sha256').update(prompt, 'utf8').digest('hex');
-  return mainArgv(recipe, `<prompt sha256:${hex} bytes:${Buffer.byteLength(prompt, 'utf8')}>`, '<last-message-file>', model === null ? null : MODEL_ELEMENT);
+  return mainArgvOf(recipe, `<prompt sha256:${hex} bytes:${Buffer.byteLength(prompt, 'utf8')}>`, '<last-message-file>', model, true);
 }
 
 /** 165 D9: the caller's environment without any identity, worker or primary variable, plus DOFLOW_STARTED_RUN. */
@@ -259,7 +300,7 @@ function mainEnv(env: Env, runId: string): Env {
 }
 
 /** 165 IC-003: the launch fields a main-session record stores. Names only, never a value. */
-function mainLaunchRecord(recipe: any, prompt: string, model: string | null) {
+function mainLaunchRecord(recipe: any, prompt: string, model: string | ModelChoice | null) {
   return {
     recipe: {
       binary: recipe.cli.binary,
@@ -303,7 +344,7 @@ function refuseUnknownMainParser(recipe: any): void {
 
 /** 165 D1, D9: launches a started main session from its recipe in `execWorktree`. No context emission, no grant. */
 function launchMainSession({ recipe, prompt, execWorktree, env, runId, model = null, lastMessageFile }: {
-  recipe: any; prompt: string; execWorktree: string; env: Env; runId: string; model?: string | null; lastMessageFile?: string;
+  recipe: any; prompt: string; execWorktree: string; env: Env; runId: string; model?: string | ModelChoice | null; lastMessageFile?: string;
 }): Promise<any> {
   return Promise.resolve().then(() => {
     const sessionEnv = mainEnv(env, runId);

@@ -35,7 +35,7 @@ const { wideningProblem, wideningFlagsProblem } = require('../../registry/wideni
 const { secretProblem, secretFlagsProblem } = require('../../registry/secret-flags.ts');
 const { checkLogin, loginExpiredOf } = require('./login.ts');
 
-const PARTS = Object.freeze(['binary', 'one-shot', 'prompt-transport', 'model-flag', 'main-session', 'stream', 'login']);
+const PARTS = Object.freeze(['binary', 'one-shot', 'prompt-transport', 'model-flag', 'provider', 'effort', 'main-session', 'stream', 'login']);
 const FAKE = path.join(__dirname, 'conform-fake.ts');
 const TIMEOUT_MS = 10000;
 const REASON_CHARS = 160;
@@ -44,6 +44,8 @@ const NAME_CHARS = 64;
 const ANSWER_BYTES = 4096;
 const STDOUT_MAX = 4 * 1048576;
 const MODEL_ID = 'conform-model-1';
+const PROVIDER_ID = 'conform-provider-1';
+const EFFORT_ID = 'conform-effort-1';
 /** Spaces, both quote kinds, `$`, a backslash, a newline and non-ASCII: any shell or re-encoding on the way shows. */
 const MARKER = 'conform marker: \'single\' "double" $HOME \\back\\slash\nsecond line, non-ASCII é ü 漢字';
 const LAST_MESSAGE = 'conform last message';
@@ -380,6 +382,42 @@ async function modelPart(ctx: any, worker: any, oneShot: Part): Promise<Part> {
   return part('model-flag', 'passed', `${MODEL_ID} once, via ${via}`);
 }
 
+/** 169 IC-002: the `provider` or `effort` part. Binds `conform-provider-1` or the first declared level (`conform-effort-1` for
+ * `per-model`) with the model, checks the fake received the composed argv, and that the value reached it once: a flag
+ * transport's flag once (no fixed copy left in the recipe), an id transport's composed id once. */
+async function transportPart(ctx: any, worker: any, kind: 'provider' | 'effort', oneShot: Part): Promise<Part> {
+  const entry = worker[kind];
+  const value = kind === 'provider' ? PROVIDER_ID : (Array.isArray(entry.levels) ? entry.levels[0] : EFFORT_ID);
+  const choice = { model: MODEL_ID, provider: kind === 'provider' ? value : null, effort: kind === 'effort' ? value : null };
+  let via: 'one-shot' | 'main-session';
+  if (supported(worker.oneShot)) {
+    if (oneShot.result !== 'passed') return part(kind, 'unchecked', 'depends-on one-shot');
+    via = 'one-shot';
+  } else if (supported(worker.mainSession)) via = 'main-session';
+  else return part(kind, 'unchecked', 'not-declared: oneShot, mainSession');
+  if (!supported(worker.model)) return part(kind, 'failed', `${kind} is supported but model is not`);
+  let expected: string[];
+  try {
+    expected = via === 'one-shot'
+      ? assembleArgv(worker, MARKER, false, ctx.lastMessageFile, { ...choice, flag: 'supported' })
+      : mainArgv(worker, MARKER, ctx.lastMessageFile, choice);
+  } catch (error: any) {
+    return part(kind, 'failed', error.message);
+  }
+  const run = await runFake(ctx, expected, { stdin: promptInput(worker, MARKER, via === 'main-session').stdin });
+  const problem = argvProblem(run, expected);
+  if (problem) return part(kind, 'failed', problem);
+  if (entry.via === 'flag') {
+    const flag = entry.argv[0];
+    const count = run.log.argv.filter((item: string) => item === flag || item.startsWith(`${flag}=`)).length;
+    if (count !== 1) return part(kind, 'failed', `${flag} appears ${count} times in the ${via} argv, want once`);
+    return part(kind, 'passed', `${flag} ${value} once, via ${via}`);
+  }
+  const composed = expected.filter((item) => item.includes(value));
+  if (composed.length !== 1) return part(kind, 'failed', `${value} appears in ${composed.length} argv elements of the ${via} argv, want one`);
+  return part(kind, 'passed', `${composed[0]} once, via ${via}`);
+}
+
 /** The argv and parser checks launchMainSession makes before it spawns, in its order, then the transport. */
 async function mainSessionPart(ctx: any, worker: any): Promise<Part> {
   const entry = worker.mainSession;
@@ -521,6 +559,8 @@ async function checkParts(ctx: any, worker: any): Promise<Part[]> {
     oneShot,
     transport,
     gate('model-flag', worker.model, binary) ?? await modelPart(ctx, worker, oneShot),
+    gate('provider', worker.provider, binary) ?? await transportPart(ctx, worker, 'provider', oneShot),
+    gate('effort', worker.effort, binary) ?? await transportPart(ctx, worker, 'effort', oneShot),
     gate('main-session', worker.mainSession, binary) ?? await mainSessionPart(ctx, worker),
     gate('stream', worker.structuredOutput, binary) ?? await streamPart(ctx, worker),
     gate('login', worker.loginProbe, binary) ?? await loginPart(ctx, worker),

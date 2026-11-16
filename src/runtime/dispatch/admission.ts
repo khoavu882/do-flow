@@ -135,7 +135,8 @@ function modeOf(answer: any, task: string) {
   return { mode: out.mode, harness: out.mode === 'subagent' ? out.harness ?? null : null, selection: out.selection ?? null };
 }
 
-/** IC-013 / IC-010: validate and copy an optional admission model snapshot. */
+/** IC-013 / IC-010: validate and copy an optional admission model snapshot. 169: `provider` and `effort` (nullable strings) are
+ * copied only when set, so a record of a plain model keeps the shape it had. */
 function modelOf(answer: any, task: string): any {
   if (answer === undefined || answer === null) {
     return { model: { tier: null, requested: null, source: null }, primary: null };
@@ -145,7 +146,7 @@ function modelOf(answer: any, task: string): any {
   const model = answer.model;
   const primary = answer.primary;
   if (!object(answer) || !object(model) || !['light', 'standard', 'frontier'].includes(model.tier)
-    || !nullableString(model.requested) || !['binding', 'main-session', 'frontier-binding', 'harness-default'].includes(model.source)
+    || !nullableString(model.requested) || !nullableString(model.provider ?? null) || !nullableString(model.effort ?? null) || !['binding', 'main-session', 'frontier-binding', 'harness-default'].includes(model.source)
     || (primary !== null && (!object(primary)
       || Object.keys(primary).sort().join(',') !== 'harness,model,state'
       || !nullableString(primary.harness) || !nullableString(primary.model)
@@ -153,7 +154,7 @@ function modelOf(answer: any, task: string): any {
     throw usage(`modelFor('${task}') returned an invalid model snapshot`);
   }
   return {
-    model: { tier: model.tier, requested: model.requested, source: model.source },
+    model: { tier: model.tier, requested: model.requested, source: model.source, ...(model.provider ? { provider: model.provider } : {}), ...(model.effort ? { effort: model.effort } : {}) },
     primary: primary === null ? null : { harness: primary.harness, model: primary.model, state: primary.state },
   };
 }
@@ -169,7 +170,11 @@ function dispatchModelFor({ mode, harness, tier, owner = null, resolvedTier = { 
   const passed = binding !== null && (mode !== 'subagent' || binding.flag === 'supported');
   const bound = passed && binding.model !== null && binding.source !== 'harness-default' && binding.source !== 'invalid';
   return {
-    model: { tier, requested: bound ? binding.model : null, source: bound ? binding.source : 'harness-default' },
+    model: {
+      tier, requested: bound ? binding.model : null, source: bound ? binding.source : 'harness-default',
+      ...(bound && binding.choice?.provider ? { provider: binding.choice.provider } : {}),
+      ...(bound && binding.choice?.effort ? { effort: binding.choice.effort } : {}),
+    },
     primary: mode === 'sequential' && primary
       ? { harness: primary.harness, model: primary.model, state: primary.state }
       : null,
