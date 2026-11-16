@@ -146,7 +146,7 @@ _doflow_em_actions() {
 doflow_emit_prompt() {
   local session="${1:-}" cwd="${2:-}" payload_title="${3:-}" nudge="${5:-}"
   local subagent=false nudge_state=none role kind bootstrapped=false own=none grant=none refused=false
-  local warning=false legacy=false a_slot a_git a_summary a_warning a_grant a_nudge
+  local warning=false a_slot a_git a_summary a_warning a_grant a_nudge
   local sessions dir unit max harness here renderer project="" warnfile="" warntext="" had_c=0 made=0
   local gitfile sumfile=/dev/null grantfile=/dev/null claimed_grant="" absent="" plan out
   local refusal=refused:mandatory-over-budget title=false sumsrc="" sumid="" grantsrc="" warnclaimed=""
@@ -159,7 +159,7 @@ doflow_emit_prompt() {
   [ -z "${4:-}" ] || subagent=true
   [ -z "$nudge" ] || nudge_state=nudge
   if ! declare -F doflow_identity doflow_emission_rule doflow_summary_peek doflow_summary_claim \
-    doflow_grant_peek doflow_grant_claim doflow_summary_adopt_legacy doflow_summary_legacy_present ensure_project_dir >/dev/null 2>&1; then
+    doflow_grant_peek doflow_grant_claim ensure_project_dir >/dev/null 2>&1; then
     _doflow_em_silent deps
     return 0
   fi
@@ -196,13 +196,12 @@ doflow_emit_prompt() {
   harness="${DOFLOW_AGENT:-}"
   [[ $harness =~ ^[A-Za-z0-9._-]{0,40}$ ]] || harness=unknown
 
-  # Step 3: state bits. The project directory, the legacy file, the warning and the owner summary
+  # Step 3: state bits. The project directory, the warning and the owner summary
   # only matter before the bootstrap, so a later prompt reads none of them.
   if [ -e "$dir/injected" ] || [ -L "$dir/injected" ]; then bootstrapped=true; fi
   if [ "$bootstrapped" = false ]; then
     if [ -n "$cwd" ]; then project=$(ensure_project_dir "$cwd" 2>/dev/null) || project=""; fi
     if [ -n "$project" ]; then
-      if doflow_summary_legacy_present "$cwd"; then legacy=true; fi
       warnfile="$project/uncommitted-warning.txt"
       if [ -f "$warnfile" ]; then warning=true; fi
     fi
@@ -216,14 +215,6 @@ doflow_emit_prompt() {
     grant=$DF_GRANT
   fi
   if [ "$grant" = over ] && _doflow_em_seen "$dir/emitted" grant "$DF_GRANT_ID" "$refusal"; then refused=true; fi
-
-  # Step 4: the legacy adoption, then the owner summary bit again.
-  _doflow_em_rule legacy-adopt.legacy "$role:$kind:$subagent:$bootstrapped:$legacy"
-  if [ "$DF_ACTION" = adopt ]; then
-    doflow_summary_adopt_legacy "$cwd" "$DF_ID_WORKTREE" || true
-    doflow_summary_peek "$DF_ID_WORKTREE" "$DF_ID_RUN" "$DF_ID_LINEAGE" "$session"
-    own=$DF_SUMMARY_OWN
-  fi
 
   # Step 5: one lookup per segment.
   _doflow_em_actions

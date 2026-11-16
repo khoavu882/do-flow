@@ -365,26 +365,6 @@ test('DEC-038 a ledger write that throws after the claim gives the summary and t
   assert.equal(store.peekSummary(w.cwd, 'local', 'main', 'sess-m', env).own, 'pending');
 });
 
-test('DEC-043 a legacy summary is adopted on the first default-main prompt and emitted; peek renders it in place', (t) => {
-  const w = world(t);
-  const env = mainEnv(w);
-  const dir: any = path.join(w.store, 'projects', cwdHash(w.cwd));
-  fs.mkdirSync(dir, { recursive: true });
-  const legacy = path.join(dir, 'last-compact-summary.md');
-  fs.writeFileSync(legacy, '---\ncompacted_at: 2026-10-01T09:00:00Z\nsession_id: old\ntrigger: auto\nbranch: topic\n---\n\ncarried-over body\n');
-
-  const peeked = emitContext({ event: 'prompt', cwd: w.cwd, env, sessionId: 'sess-m', peek: true });
-  assert.ok(peeked.text.includes('carried-over body'));
-  assert.ok(fs.existsSync(legacy), 'peek adopts nothing');
-
-  const r = emitContext({ event: 'prompt', cwd: w.cwd, env, sessionId: 'sess-m' });
-  assert.equal(r.decision.reason, 'emit');
-  assert.equal(r.text, peeked.text);
-  assert.ok(r.text.includes('[Prior session summary, compacted 2026-10-01T09:00:00Z on branch topic]\ncarried-over body'));
-  assert.deepEqual(fs.readdirSync(dir), [], 'the legacy file and its .adopting name are gone');
-  assert.deepEqual(fs.readdirSync(store.summaryScope(w.cwd, 'local', 'main', env)), [], 'adopted, then claimed');
-});
-
 test('DEC-042 an unsafe session id is silent for every lineage kind and touches nothing', (t) => {
   const w: any = world(t);
   for (const env of [mainEnv(w), w.env]) {

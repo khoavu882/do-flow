@@ -1,7 +1,7 @@
 'use strict';
 const { bashPath } = require('../helper/bash-locator.ts');
 
-// G38 — context authority (078 IC-020, DEC-019). Six checks, each a pure function over injected
+// G38 — context authority (078 IC-020, DEC-019). Five checks, each a pure function over injected
 // file contents (or, for G38.6, injected identity results), run once on the shipped tree and once
 // with a negative control that seeds one violation and expects exactly one named finding.
 //
@@ -9,8 +9,7 @@ const { bashPath } = require('../helper/bash-locator.ts');
 //   G38.2 emission-rules.sh is the generator's output; emission.jq templates are IC-002's
 //   G38.3 context-entering output (additionalContext, systemMessage, custom_instructions) only
 //         from emission.jq, emission.sh and the three pre-compact hooks, which look the rule up
-//   G38.4 last-compact-summary.md appears only in doflow_summary_adopt_legacy (policies/summary-store.sh)
-//         and legacySummary (summary-store.ts, DEC-043), and neither side ever writes it
+//   (G38.4, the pre-078 summary name, retired with its reader; G38.5 and G38.6 keep their numbers)
 //   G38.5 IC-016's check files reference no emission state and source no emission or summary file
 //   G38.6 identity.sh and identity.ts agree on every case of test/fixtures/identity/cases.json
 //
@@ -366,119 +365,6 @@ function checkG38_3Kiro({ status, stdout }: any) {
   return [];
 }
 
-// ── G38.4: the legacy summary name ──────────────────────────────────────────────────────────────
-
-const LEGACY = 'last-compact-summary.md';
-const STORE = `${POLICIES}/summary-store.sh`;
-/** DEC-043's TypeScript port: the name may appear in legacySummary() only, and nothing there writes it. */
-const TS_STORE = 'src/runtime/context/summary-store.ts';
-const TS_HOLDER_FN = 'legacySummary';
-/** JavaScript write calls and the argument that names their destination. */
-const JS_WRITES: any = { writeFileSync: 0, appendFileSync: 0, writeFile: 0, appendFile: 0, renameSync: 1, linkSync: 1, copyFileSync: 1, symlinkSync: 1 };
-
-function functionRange(lines: any, name: any) {
-  const start = lines.findIndex((line: any) => new RegExp(`^${name}\\(\\)\\s*\\{`).test(line));
-  if (start === -1) return null;
-  const end = lines.findIndex((line: any, index: any) => index > start && line === '}');
-  return [start, end === -1 ? lines.length - 1 : end];
-}
-
-/** A top-level `function <name>(` in JavaScript or TypeScript, to the next column-0 `}`. */
-function jsFunctionRange(lines: any, name: any) {
-  const start = lines.findIndex((line: any) => new RegExp(`^(?:export\\s+)?(?:async\\s+)?function\\s+${name}\\s*\\(`).test(line));
-  if (start === -1) return null;
-  const end = lines.findIndex((line: any, index: any) => index > start && line === '}');
-  return [start, end === -1 ? lines.length - 1 : end];
-}
-
-/** Each write call in comment-free JavaScript, with its destination argument's source text. */
-function jsWriteCalls(code: any) {
-  const out: any = [];
-  const call: any = new RegExp(`\\b(${Object.keys(JS_WRITES).join('|')})\\s*\\(`, 'g');
-  let match;
-  while ((match = call.exec(code))) {
-    const args: any = [];
-    let depth = 1;
-    let current = '';
-    let i = match.index + match[0].length;
-    for (; i < code.length && depth > 0; i += 1) {
-      const ch = code[i];
-      if (ch === "'" || ch === '"' || ch === '`') {
-        let j = i + 1;
-        while (j < code.length && code[j] !== ch) j += code[j] === '\\' ? 2 : 1;
-        current += code.slice(i, j + 1);
-        i = j;
-        continue;
-      }
-      if (ch === '(' || ch === '[' || ch === '{') depth += 1;
-      else if (ch === ')' || ch === ']' || ch === '}') depth -= 1;
-      if (depth === 0) break;
-      if (ch === ',' && depth === 1) { args.push(current.trim()); current = ''; } else current += ch;
-    }
-    args.push(current.trim());
-    out.push({ line: lineOf(code, match.index), fn: match[1], dest: args[JS_WRITES[match[1]]] ?? '' });
-  }
-  return out;
-}
-
-function checkG38_4TS(files: any): any {
-  const findings: any = [];
-  const text = files.get(TS_STORE);
-  if (text === undefined) return findings;
-  const code = jsCode(text);
-  const lines = code.split('\n');
-  const range = jsFunctionRange(lines, TS_HOLDER_FN);
-  const holders: any = new Set();
-  lines.forEach((line, index) => {
-    const names = line.includes(LEGACY);
-    if (names && (!range || index < range[0] || index > range[1])) {
-      findings.push(`G38.4 ${TS_STORE}:${index + 1} names ${LEGACY} outside ${TS_HOLDER_FN}`);
-    }
-    // A variable holding the legacy path: assigned on a line that names it, or from legacySummary().
-    const assigned = line.match(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=]+)?=/);
-    if (assigned && (names || new RegExp(`\\b${TS_HOLDER_FN}\\s*\\(`).test(line))) holders.add(assigned[1]);
-  });
-  const isLegacy = (dest: any) => dest.includes(LEGACY) || holders.has(dest);
-  for (const { line, fn, dest } of jsWriteCalls(code)) {
-    if (isLegacy(dest)) findings.push(`G38.4 ${TS_STORE}:${line} writes ${LEGACY} (${fn} to \`${dest}\`)`);
-  }
-  return findings;
-}
-
-function checkG38_4({ files }: any) {
-  const findings: any = [];
-  for (const [file, text] of files) {
-    if (file === STORE || file === TS_STORE || !text.includes(LEGACY)) continue;
-    text.split('\n').forEach((line: any, index: any) => {
-      if (line.includes(LEGACY)) findings.push(`G38.4 ${file}:${index + 1} names ${LEGACY} outside ${STORE} and ${TS_STORE}`);
-    });
-  }
-  findings.push(...checkG38_4TS(files));
-  const store = files.get(STORE);
-  if (store === undefined) return findings;
-  const lines = store.split('\n');
-  const range = functionRange(lines, 'doflow_summary_adopt_legacy');
-  const holders: any = new Set();
-  lines.forEach((line: any, index: any) => {
-    if (!line.includes(LEGACY)) return;
-    if (!range || index < range[0] || index > range[1]) {
-      findings.push(`G38.4 ${STORE}:${index + 1} names ${LEGACY} outside doflow_summary_adopt_legacy`);
-    }
-    const assigned = line.match(/\b([A-Za-z_]\w*)=/);
-    if (assigned) holders.add(assigned[1]);
-  });
-  const target = `(?:"?\\$\\{?(?:${[...holders].join('|') || '\\b\\B'})\\}?"?|\\S*${LEGACY.replace(/\./g, '\\.')}"?)`;
-  const writes: any = [
-    new RegExp(`>>?\\s*${target}(?:\\s|;|$)`),
-    new RegExp(`\\b(?:touch|tee(?:\\s+-a)?)\\s+${target}`),
-    new RegExp(`\\b(?:cp|mv|ln|install)\\b[^;|&]*\\s${target}\\s*(?:[;|&)]|2>|$)`),
-  ];
-  shellViews(store).code.forEach((line, index) => {
-    if (writes.some((pattern: any) => pattern.test(line))) findings.push(`G38.4 ${STORE}:${index + 1} writes ${LEGACY}`);
-  });
-  return findings;
-}
-
 // ── G38.5: checks are never deduplicated ────────────────────────────────────────────────────────
 
 const IC016_FILES: any = [
@@ -810,52 +696,6 @@ test('G38.3 control (L2-10): a print in the sourced lib.sh is one finding too', 
   one(checkG38_3Kiro(kiroDoorRun(root)), 'agentSpawn wrote 1 byte(s) to stdout');
 });
 
-test('G38.4: last-compact-summary.md is named only by the two adoption functions, and neither writes it', () => {
-  assert.deepEqual(checkG38_4({ files: shipped }), []);
-});
-// The controls count findings the seed adds to the shipped tree's own, so each still reads as one
-// finding while a shipped finding is open (each seed keeps the line numbers of the file it edits
-// or edits a file other than the shipped finding's).
-const fresh4 = (files: any) => {
-  const base: any = new Set(checkG38_4({ files: shipped }));
-  return checkG38_4({ files }).filter((f: any) => !base.has(f));
-};
-test('G38.4 control: a write to the legacy path is one finding', () => {
-  const seeded = edit(STORE, '  [ -f "$old" ] && [ ! -L "$old" ] || return 1\n', '  [ -f "$old" ] && [ ! -L "$old" ] || return 1\n  : > "$old"\n');
-  one(fresh4(seeded), `${STORE}:`);
-  assert.ok(fresh4(seeded)[0].includes(`writes ${'last-compact-summary.md'}`));
-});
-test('G38.4 control: the name in another shipped file is one finding', () => {
-  const seeded = withFile('src/runtime/context/demo.ts', "const legacy = 'last-compact-summary.md';\n");
-  one(fresh4(seeded), 'src/runtime/context/demo.ts:1 names last-compact-summary.md');
-});
-test('G38.4 control: a TypeScript write to the legacy path is one finding naming the call', () => {
-  const anchor = '  return regularFile(old) ? old : null;';
-  const seeded = edit(TS_STORE, anchor, `  fs.writeFileSync(old, ''); ${anchor.trim()}`);
-  const line: any = (seeded.get(TS_STORE) as any).split('\n').findIndex((l: any) => l.includes("fs.writeFileSync(old, '')")) + 1;
-  one(fresh4(seeded), `${TS_STORE}:${line} writes last-compact-summary.md (writeFileSync to \`old\`)`);
-});
-test('G38.4 control: the name in summary-store.ts outside legacySummary is one finding', () => {
-  const anchor = '  if (old === null) return false;';
-  const seeded = edit(TS_STORE, anchor, "  if (old === null || !old.endsWith('last-compact-summary.md')) return false;");
-  const line: any = (seeded.get(TS_STORE) as any).split('\n').findIndex((l: any) => l.includes("endsWith('last-compact")) + 1;
-  one(fresh4(seeded), `${TS_STORE}:${line} names last-compact-summary.md outside legacySummary`);
-});
-test('G38.4 control: renameSync and linkSync onto the legacy path are findings; reading or renaming from it is not', () => {
-  const text = [
-    "const old = path.join(dir, 'last-compact-summary.md');",
-    'fs.renameSync(old, other);',
-    'fs.readFileSync(old);',
-    'fs.renameSync(path.join(a, b), old);',
-    "fs.linkSync(src, path.join(dir, 'last-compact-summary.md'));",
-  ].join('\n');
-  const files: any = new Map([[TS_STORE, `function legacySummary() {\n${text}\n}\n`]]);
-  assert.deepEqual(checkG38_4({ files }).map((f: any) => f.replace(/ \(.*$/, '')), [
-    `G38.4 ${TS_STORE}:5 writes last-compact-summary.md`,
-    `G38.4 ${TS_STORE}:6 writes last-compact-summary.md`,
-  ]);
-});
-
 test('G38.5: IC-016 check files reference no emission state and source no emission or summary file', () => {
   assert.deepEqual(checkG38_5({ files: shipped }), []);
 });
@@ -907,4 +747,4 @@ test('G38.6: DOFLOW_WORKER_RUN is not an identity variable; neither implementati
   assert.equal(tsA.kind, 'launched');
 });
 
-module.exports = { checkG38_1, checkG38_2, checkG38_3, checkG38_4, checkG38_5, checkG38_6 };
+module.exports = { checkG38_1, checkG38_2, checkG38_3, checkG38_5, checkG38_6 };

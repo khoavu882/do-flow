@@ -1,9 +1,9 @@
 'use strict';
 const { bashPath } = require('../helper/bash-locator.ts');
 
-// Feature 078, IC-012 and IC-014 through the installed front doors: compact summaries are scoped by
+// Feature 078, IC-012 through the installed front doors: compact summaries are scoped by
 // (worktree, run, lineage), a worker claims nothing it was not granted, a grant is delivered once,
-// and the pre-078 project-level summary is carried over once and never written again. Every hook
+// and the pre-078 project-level summary path is never written. Every hook
 // runs from an install-shaped mirror under a scratch HOME and XDG_CONFIG_HOME.
 
 const test = require('node:test');
@@ -38,7 +38,6 @@ function hashOf(dir: any) {
   return r.stdout.trim();
 }
 const scopeFile = (dir: any, run = 'local', lineage = 'main') => path.join(STORE, 'summaries', hashOf(dir), run, lineage, 'summary.md');
-const legacyFile = (dir: any) => path.join(STORE, 'projects', hashOf(dir), 'last-compact-summary.md');
 
 function hook(root: any, harness: any, script: any, payload: any, env = {}) {
   const r = spawnSync(bashPath(), [path.join(root, `.${harness}`, 'hooks', script)], {
@@ -150,22 +149,6 @@ test('IC-012, IC-013: a granted worker receives the summary once over two prompt
   assert.equal(fs.readdirSync(path.dirname(granted.path)).length, 0, 'no grant or claim file is left');
   assert.match(fs.readFileSync(scopeFile(dir), 'utf8'), /MAIN-SUMMARY-GRANTED/, 'the owner summary is still pending');
   assert.match(prompt('M', dir).ctx, /^\[Prior session summary/m, 'and its own lineage still claims it');
-});
-
-test('IC-014: a pre-078 project summary is adopted once, removed, and never written again', () => {
-  const dir = worktree();
-  const old = legacyFile(dir);
-  fs.mkdirSync(path.dirname(old), { recursive: true });
-  fs.writeFileSync(old, '---\ncompacted_at: 2026-01-01T00:00:00Z\nsession_id: OLD\ntrigger: auto\nbranch: unknown\n---\n\nSUMMARY-PRE-078\n');
-  assert.match(prompt('P', dir).ctx, /SUMMARY-PRE-078/, 'the first main session receives it');
-  assert.equal(fs.existsSync(old), false, 'the old file is removed');
-  assert.equal(fs.existsSync(scopeFile(dir)), false, 'the adopted copy was claimed');
-  assert.doesNotMatch(prompt('Q', dir).ctx, /SUMMARY-PRE-078/, 'a later session does not receive it again');
-  compact('Q', dir, 'SUMMARY-POST-078');
-  assert.equal(fs.existsSync(old), false, 'a compaction never writes the old path');
-  assert.match(fs.readFileSync(scopeFile(dir), 'utf8'), /SUMMARY-POST-078/);
-  assert.doesNotMatch(prompt('R', dir).ctx, /SUMMARY-PRE-078/);
-  assert.equal(fs.existsSync(old), false);
 });
 
 // ── L1-10: identities a grant must never reach (DEC-039) ────────────────────────────────────────
