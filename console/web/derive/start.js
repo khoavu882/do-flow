@@ -21,6 +21,8 @@ const VIEW_ONLY_WORDS = 'Starting a session needs this machine’s Console or a 
 const ENTRY_DO = 'Start with DoFlow\'s do skill';
 const ENTRY_NONE = 'Send my text only';
 const NOT_STARTABLE_TITLE = 'Not available on this machine';
+/** 165 review B-8: the line of a startable harness whose main-session shape rests on its --help alone. */
+const NOT_LIVE_VERIFIED = 'not yet verified on a live run';
 
 // ---- SHA-256, for the agent key of a started run (the core keys the node `sha16('worker:<runId>')`) ----------------------------------
 
@@ -172,6 +174,9 @@ function harnessRows(options) {
     checkedAt: item.login && typeof item.login.checkedAt === 'string' ? item.login.checkedAt : null,
     warnings: (Array.isArray(item.warnings) ? item.warnings : []).map((/** @type {string} */ id) => ({ id, words: warningWords(id, item.harness) })).filter((/** @type {any} */ w) => w.words !== null),
     argv: Array.isArray(item.warnings) && item.warnings.includes('prompt-in-argv'),
+    // 165 review B-8: true only when the core says so; false and an older core's silence both read as not verified.
+    liveVerified: typeof item.liveVerified === 'boolean' ? item.liveVerified : null,
+    liveLine: item.startable === true && item.liveVerified !== true ? NOT_LIVE_VERIFIED : null,
     models: Array.isArray(item.models) ? item.models : [],
   }));
   return { startable: rows.filter((/** @type {any} */ r) => r.startable), blocked: rows.filter((/** @type {any} */ r) => !r.startable) };
@@ -504,7 +509,7 @@ function startedHere(machine) {
 }
 
 export {
-  VIEW_ONLY_WORDS, terminalCommand, ENTRY_DO, ENTRY_NONE, NOT_STARTABLE_TITLE, SOURCE_ORDER, PHASE_WORDS,
+  VIEW_ONLY_WORDS, terminalCommand, ENTRY_DO, ENTRY_NONE, NOT_STARTABLE_TITLE, NOT_LIVE_VERIFIED, SOURCE_ORDER, PHASE_WORDS,
   sha256Hex, agentKeyOf, startedByWords, starterLabel, endedWords, STARTED_HERE_TITLE, STARTED_HERE_EMPTY, endWords, permissionWords, warningWords,
   projectRows, harnessRows, harnessOf, modelGroups, checkoutRows, entryChoices, limitWords, dispatchWords,
   promptState, formFor, readiness, startBody, attemptFor, settleAttempt,

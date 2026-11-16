@@ -222,6 +222,7 @@ function formBody(st, options) {
         h('span', { class: 'mono' }, row.harness),
         row.version ? h('span', { class: 'tag tag--mono' }, row.version) : null,
         h('span', { class: 'start__note' }, row.words),
+        row.liveLine ? h('span', { class: 'start__note', dataset: { fact: 'live-verified' } }, row.liveLine) : null,
         ...warningLines(row),
       ]),
     ])));

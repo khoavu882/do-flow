@@ -1824,6 +1824,8 @@ function startOptions(value: unknown, context?: Context) {
       harness: sMatch(START_HARNESS)(h.harness), startable: sBool(h.startable), reason: sNull(sOneOf(START_REASONS))(h.reason), words: sWords(h.words),
       warnings: sList(h.warnings, START_BOUNDS.warnings).map(sMatch(ID)), login,
       version: h.version === null ? null : typeof h.version === 'string' ? (START_VERSION.test(h.version) ? h.version : null) : fail(),
+      // 165 review B-8: whether the main-session shape was seen on a live run; a core before it sends none: null, never true.
+      liveVerified: h.liveVerified === undefined ? null : sBool(h.liveVerified),
       models: sList(h.models, START_BOUNDS.models).map(model),
     };
   };

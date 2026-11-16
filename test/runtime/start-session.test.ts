@@ -478,6 +478,26 @@ test('start-options: checkouts, the startable shapes, not-startable reasons, mod
   assert.deepEqual([mismatch.exit, mismatch.body.code], [1, 'project-mismatch']);
 });
 
+test('165 review B-8: a startable harness whose main-session evidence is help-only says liveVerified false; one citing a live-run record says true; nothing is downgraded', POSIX, async (t: any) => {
+  const f = fixture(t);
+  const options = async (descriptors: any) => {
+    const { exit, body } = await executeWorkerCommand({ action: 'start-options', projectKey: f.projectKey, env: f.env, cwd: f.main, descriptors, projects: projectsImpl });
+    assert.equal(exit, 0, JSON.stringify(body));
+    return Object.fromEntries(body.harnesses.map((h: any) => [h.harness, h]));
+  };
+  const by = await options(DESCRIPTORS);
+  // Every built-in main-session shape today rests on a cli-check (--help) record only.
+  for (const h of ['claude', 'codex', 'opencode', 'pi']) assert.deepEqual([by[h].startable, by[h].liveVerified], [true, false], h);
+  for (const h of ['copilot', 'kiro', 'antigravity']) assert.deepEqual([by[h].startable, by[h].liveVerified], [false, false], h);
+  // A live-run record of the harness itself in the evidence list makes it true; one of another harness, a missing file or a cli-check does not.
+  const cited = (evidence: string[]) => ({ ...DESCRIPTORS, claude: { ...DESCRIPTORS.claude, mainSession: { ...DESCRIPTORS.claude.mainSession, evidence } } });
+  const MAIN = 'core/worker-evidence/claude/2026-11-15-cli-check-main-session.json';
+  assert.equal((await options(cited([MAIN, 'core/worker-evidence/claude/2026-11-07-live-run-read-only.json']))).claude.liveVerified, true);
+  assert.equal((await options(cited([MAIN, 'core/worker-evidence/codex/2026-10-18-live-run-read-only.json']))).claude.liveVerified, false, 'another harness\'s run');
+  assert.equal((await options(cited([MAIN, 'core/worker-evidence/claude/no-such-record.json']))).claude.liveVerified, false, 'a missing record');
+  assert.equal((await options(cited([MAIN]))).claude.startable, true, 'help-only stays startable');
+});
+
 // ---- 165 review A-1: a run is dead only on positive evidence ------------------------------------------------------------------
 
 const { startSession } = require(path.join(SRC, 'worker', 'start-session.ts'));

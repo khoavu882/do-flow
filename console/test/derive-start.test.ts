@@ -49,6 +49,16 @@ function options(over: any = {}): any {
   };
 }
 
+test('165 review B-8: a startable harness not verified on a live run carries one line saying so; a verified one carries none, and an unknown one (an older core) is not called verified', () => {
+  const opts = options();
+  opts.harnesses[0].liveVerified = false;
+  opts.harnesses[2].liveVerified = true;
+  const rows = start.harnessRows(opts).startable;
+  assert.deepEqual(rows.map((r: any) => [r.harness, r.liveVerified, r.liveLine]), [['claude', false, 'not yet verified on a live run'], ['opencode', true, null], ['pi', null, 'not yet verified on a live run']]);
+  assert.equal(start.NOT_LIVE_VERIFIED, 'not yet verified on a live run');
+  assert.ok(start.harnessRows(opts).blocked.every((r: any) => r.liveLine === null), 'a harness that cannot start carries no such line');
+});
+
 test('a logged-out harness is not startable with its relogin hint', () => {
   const { startable, blocked } = start.harnessRows(options());
   const codex = blocked.find((r: any) => r.harness === 'codex');

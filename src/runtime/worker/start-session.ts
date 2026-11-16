@@ -47,6 +47,7 @@ const { sha16 } = require('../scaffold/fingerprint.ts');
 const { fileKeyOf } = require('../events/artifacts.ts');
 const { readDispatch } = require('../dispatch/store.ts');
 const { readCatalogue } = require('../models/catalogue.ts');
+const { REPO_ROOT } = require('../../helper/repo-root.ts');
 
 /** The reserved store slug: `worker --action run` and `dispatch` refuse it (`slug-reserved`). */
 const STARTED_SLUG = 'started-sessions';
@@ -130,13 +131,33 @@ function harnessBlocks(reg: any, descriptors: any, view: any) {
 }
 
 /**
- * D10 / §9.2 for one harness: `{ harness, startable, reason, words, warnings, login, version }`, plus the
+ * 165 review B-8: whether the main-session shape was seen on a live run: some record its `mainSession.evidence` cites is a `live-run`
+ * record of this harness (as G41.5 reads `readOnly`). A help-only (`cli-check`) record, a missing or unreadable one, and a package
+ * worker's (its paths are not under DoFlow's root) are false: not verified is the answer whenever it cannot be shown.
+ */
+function liveVerified(harness: string, ms: any): boolean {
+  if (!Array.isArray(ms?.evidence)) return false;
+  return ms.evidence.some((item: unknown) => {
+    if (typeof item !== 'string' || path.isAbsolute(item)) return false;
+    const file = path.resolve(REPO_ROOT, item);
+    if (!file.startsWith(REPO_ROOT + path.sep)) return false;
+    try {
+      const record = JSON.parse(fs.readFileSync(file, 'utf8'));
+      return record?.kind === 'live-run' && record.harness === harness;
+    } catch {
+      return false;
+    }
+  });
+}
+
+/**
+ * D10 / §9.2 for one harness: `{ harness, startable, reason, words, warnings, login, version, liveVerified }`, plus the
  * discover entry as `found` (not part of the reply). The shape is checked first, so a harness DoFlow cannot
  * start headless is never run, not even for its version.
  */
 function harnessFacts({ harness, worker, reg, view, env, cwd, root, nowMs, platform, catalogue }: any) {
   const shut = (reason: string, words: string, extra: any = {}) => ({
-    harness, startable: false, reason, words, warnings: [] as string[], login: null, version: null, found: null, ...extra,
+    harness, startable: false, reason, words, warnings: [] as string[], login: null, version: null, liveVerified: false, found: null, ...extra,
   });
   if (!worker) return shut('not-listed', workerIdFault(harness) ? 'the --harness value is not a DoFlow harness id' : `${harness} is not a DoFlow harness`);
   const ms = worker.mainSession;
@@ -160,7 +181,7 @@ function harnessFacts({ harness, worker, reg, view, env, cwd, root, nowMs, platf
   if (runnable?.state !== 'yes') warnings.push('runnable-not-checked');
   if (login?.state !== 'logged-in') warnings.push('login-not-checked');
   if (ms.promptVia === 'argv') warnings.push('prompt-in-argv');
-  return { harness, startable: true, reason: null, words: `${harness} can start a session here`, warnings, login, version: found.version, found };
+  return { harness, startable: true, reason: null, words: `${harness} can start a session here`, warnings, login, version: found.version, liveVerified: liveVerified(harness, ms), found };
 }
 
 /** IC-002: the models offered for `harness`, de-duplicated in source order, then the harness default; at most 50. */

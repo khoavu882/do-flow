@@ -5779,7 +5779,9 @@ async function fill165(page: Page, harness = 'claude', prompt = 'Fix the failing
 test('165 start: a device that may not start gets the explanation and the terminal command as text, no form and no button', async () => {
   const page = await startPage165({ actions: actions165(false, 'phone-scope', { kind: 'device', deviceId: 'd-0a1b2c3d4e5f', scope: 'view', transport: 'browser' }) });
   assert.match(text(page.main), /Starting a session needs this machine’s Console or a phone paired with control over the app/);
-  assert.match(text(page.main.querySelector('.cmd__text')), /^doflow worker --action start-session /);
+  // 165 review B-3: the whole command from the form's choices (the project, its one free checkout, the do entry) and a request id; the
+  // harness nobody chose is the reference's placeholder.
+  assert.match(text(page.main.querySelector('.cmd__text')), new RegExp(`^doflow worker --action start-session --project-key ${P1} --worktree-key ${WK_MAIN} --harness <id> --entry do --request-id [A-Za-z0-9][A-Za-z0-9_-]{21} --stdin$`));
   assert.equal(page.main.querySelectorAll('button').filter((b: El) => /^Start$/.test(text(b))).length, 0);
   assert.equal(page.main.querySelectorAll('input').length, 0);
   assert.equal(page.calls.filter((c) => c.method === 'POST').length, 0);
@@ -5813,6 +5815,14 @@ test('165 start: nothing is preselected; the harnesses that cannot start are lis
   await fill165(page, 'opencode', '-rf');
   assert.match(text(page.main.querySelector('#start-issue')), /starts with “-”/, 'opencode takes the prompt as an argument: a leading dash is refused whatever the entry');
   assert.equal(page.main.querySelector('#start-submit').getAttribute('disabled'), '');
+});
+
+test('165 review B-8: a startable harness whose main session was not verified on a live run shows one line saying so; a verified one does not', async () => {
+  const page = await startPage165({ options: options165({ harnesses: [harness165('claude', { liveVerified: false }), harness165('opencode', { liveVerified: true, warnings: [] })] }) });
+  const lines = page.main.querySelectorAll('[data-fact="live-verified"]');
+  assert.equal(lines.length, 1);
+  assert.equal(text(lines[0]), 'not yet verified on a live run');
+  assert.equal(lines[0].closest('label')!.querySelector('input').getAttribute('value'), 'claude');
 });
 
 test('165 start: a start through the dialog posts the body once, then shows Running with no output yet, Streaming once the out lane writes, and Ended with its words', async () => {

@@ -1096,9 +1096,9 @@ const START_OPTIONS_BODY = {
     { worktreeKey: KEY_LINKED, label: 'alpha-fix', branch: null, main: false, busy: { runId: RUN_A }, observedSession: null }],
   harnesses: [
     { harness: 'claude', startable: true, reason: null, words: 'claude can start a session here', warnings: ['runnable-not-checked'],
-      login: { state: 'logged-in', checkedAt: '2026-11-15T09:00:00.000Z' }, version: '2.1.0', models: [{ id: 'claude-opus-5-5', source: 'frontier' }, { id: null, source: 'default' }] },
+      login: { state: 'logged-in', checkedAt: '2026-11-15T09:00:00.000Z' }, version: '2.1.0', liveVerified: false, models: [{ id: 'claude-opus-5-5', source: 'frontier' }, { id: null, source: 'default' }] },
     { harness: 'copilot', startable: false, reason: 'no-main-session-shape', words: 'DoFlow has no recorded headless way to start copilot', warnings: [],
-      login: null, version: null, models: [{ id: null, source: 'default' }] },
+      login: null, version: null, liveVerified: false, models: [{ id: null, source: 'default' }] },
   ],
   limits: { perCheckout: 1, perActor: 2, machine: 4, perActorPerHour: 6 },
   open: { machine: 1 }, dispatch: { running: true, slug: 'feat-a' }, promptMax: { codePoints: 8000, bytes: 32768 },
@@ -1124,6 +1124,10 @@ test('165 F1 start-options: IC-002 projects through PROJECTORS with the key aske
   assert.deepEqual(mutate((b) => { b.entries = ['do', 'auto']; }), MISMATCH);
   assert.deepEqual(mutate((b) => { delete b.limits; }), MISMATCH);
   assert.throws(() => project('start-options', START_OPTIONS_BODY), /project key/);
+  // 165 review B-8: liveVerified is a boolean; a core before it sends none, which reads null (unknown), never true.
+  assert.equal(mutate((b) => { b.harnesses[0].liveVerified = true; }).body.harnesses[0].liveVerified, true);
+  assert.equal(mutate((b) => { delete b.harnesses[0].liveVerified; }).body.harnesses[0].liveVerified, null);
+  assert.deepEqual(mutate((b) => { b.harnesses[0].liveVerified = 'yes'; }), MISMATCH);
   // 165 review A-3: dispatch records that cannot be read are a running dispatch with no slug and the core's reason.
   const unreadable = mutate((b) => { b.dispatch = { running: true, slug: null, reason: 'dispatch-unreadable' }; });
   assert.deepEqual(unreadable.body.dispatch, { running: true, slug: null, reason: 'dispatch-unreadable' });
