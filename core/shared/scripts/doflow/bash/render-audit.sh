@@ -112,10 +112,8 @@ if [ -n "$main_root" ] && [ -f "$main_root/$journal_rel" ]; then journal_file="$
 jq -e '.history | type == "array"' "$journal_file" >/dev/null 2>&1 || note "journal-unreadable"
 
 # Consumed from the resolver's own `audit` field rather than recomputed by hand — do-paths.sh is
-# the single source of truth for this path. Unlike requirement/design/plan, `audit` is set once,
-# unconditionally, before the legacy/structured layout branch, so it never varies by layout — but
-# reading it from the resolver rather than recomputing it here still means a future resolver change
-# has one place to land, not two that can drift apart.
+# the single source of truth for this path. Reading it from the resolver rather than recomputing it
+# here means a future resolver change has one place to land, not two that can drift apart.
 [ -n "$audit_rel" ] || note "resolver-missing-audit-path"
 audit_file="$feature_root/$audit_rel"
 

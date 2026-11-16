@@ -299,14 +299,6 @@ test('an unknown role behaves as a worker and writes one diagnostic line to stde
   assert.match(fs.readFileSync(summaryFileFor(cwd), 'utf8'), /SUMMARY-BOGUS/);
 });
 
-test('a summary written before roles existed, with no role line, is claimed by a main session', () => {
-  const cwd = project();
-  const file = path.join(projectDirFor(cwd), 'last-compact-summary.md');
-  fs.writeFileSync(file, '---\ncompacted_at: 2026-01-01T00:00:00Z\nsession_id: OLD\ntrigger: auto\nbranch: unknown\n---\n\nSUMMARY-LEGACY\n');
-  assert.match(prompt('claude', 'P', cwd), /SUMMARY-LEGACY/);
-  assert.equal(summaryFileFor(cwd), undefined);
-});
-
 test('a native subagent payload does not claim the summary or the warning but still gets git context', () => {
   const cwd = project('topic');
   compact('A', cwd, 'MAIN-SUMMARY');

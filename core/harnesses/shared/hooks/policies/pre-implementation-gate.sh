@@ -195,24 +195,14 @@ case "$branch" in
   fix/*|bugfix/*|refactor/*|chore/*|release/*|hotfix/*) exempt=true ;;
 esac
 
-# Layout is decided ONCE from intention/requirement.md's presence, then every
-# path below follows from it — the same single-probe rule do-paths.sh applies,
-# so this probe can never report a self-contradictory mix of layouts. Without
-# the structured arm a fully-planned feature (artifacts under intention/, design/,
-# plan/) read as unplanned here and blocked every source edit.
+# The feature folder is laid out as intention/, design/ and a flat plan.md, the same layout
+# do-paths.sh resolves. Without the intention/ and design/ probes a fully-planned feature read as
+# unplanned here and blocked every source edit.
 probe_artifacts() {
   local dir="$1/$feature_dir"
-  if [ -f "$dir/intention/requirement.md" ]; then
-    has_requirement=true
-    if [ -f "$dir/design/design.md" ]; then has_design=true; else has_design=false; fi
-    if [ -f "$dir/plan.md" ]; then has_plan=true; else has_plan=false; fi
-  elif [ -f "$dir/requirement.md" ]; then
-    has_requirement=true
-    if [ -f "$dir/design.md" ]; then has_design=true; else has_design=false; fi
-    if [ -f "$dir/plan.md" ]; then has_plan=true; else has_plan=false; fi
-  else
-    has_requirement=false; has_design=false; has_plan=false
-  fi
+  if [ -f "$dir/intention/requirement.md" ]; then has_requirement=true; else has_requirement=false; fi
+  if [ -f "$dir/design/design.md" ]; then has_design=true; else has_design=false; fi
+  if [ -f "$dir/plan.md" ]; then has_plan=true; else has_plan=false; fi
 }
 
 # Fallback: no resolver installed for this harness (or it produced nothing

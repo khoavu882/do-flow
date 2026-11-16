@@ -14,7 +14,7 @@ const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env.ts');
 const {
   DEFAULT_GRANT_MAX_BYTES, SUMMARY_ID_PATTERN, SummaryStoreError,
-  adoptLegacy, claimGrant, claimSummary, grantSummary, legacySummary, peekGrant, peekSummary, releaseClaim, summaryScope,
+  claimGrant, claimSummary, grantSummary, peekGrant, peekSummary, releaseClaim, summaryScope,
 } = require('../../src/runtime/context/summary-store.ts');
 const { writeSummary } = require('../helper/summary-fixture.ts');
 const { cwdHash } = require('../../src/runtime/context/identity.ts');
@@ -276,66 +276,4 @@ test('DEC-038 releaseClaim gives a claim back without replacing a newer file', (
   const newer = write(wt, { body: 'newer' });
   assert.equal(releaseClaim(again.claimed, again.origin), false, 'a newer summary keeps the name');
   assert.match(fs.readFileSync(newer.path, 'utf8'), /\n\nnewer\n$/);
-});
-
-/** The pre-078 project summary for cwd, as a pre-078 install left it. */
-function legacyFile(cwd: any, body: any = 'legacy body') {
-  const dir = path.join(ROOT, 'projects', cwdHash(cwd));
-  fs.mkdirSync(dir, { recursive: true });
-  const file = path.join(dir, 'last-compact-summary.md');
-  fs.writeFileSync(file, `---\ncompacted_at: ${AT}\nsession_id: old\ntrigger: auto\nbranch: topic\n---\n\n${body}\n`);
-  return file;
-}
-
-test('DEC-043 adoptLegacy moves the legacy summary into local/main once, frontmatter kept', () => {
-  const wt = worktree();
-  const old = legacyFile(wt);
-  assert.equal(legacySummary(wt, ENV), old);
-  assert.equal(adoptLegacy(wt, wt, ENV), true);
-  assert.equal(legacySummary(wt, ENV), null);
-  assert.deepEqual(fs.readdirSync(path.dirname(old)), [], 'no .adopting file left');
-  const target = path.join(summaryScope(wt, 'local', 'main', ENV), 'summary.md');
-  assert.match(fs.readFileSync(target, 'utf8'), /^---\ncompacted_at: [^]*\n\nlegacy body\n$/);
-  assert.equal(adoptLegacy(wt, wt, ENV), false, 'a second adoption finds nothing');
-});
-
-test('DEC-043 adoptLegacy retires the legacy file when a newer summary is pending, and never adopts a symlink', () => {
-  const wt = worktree();
-  const newer = write(wt, { body: 'newer' });
-  const old = legacyFile(wt);
-  assert.equal(adoptLegacy(wt, wt, ENV), true);
-  assert.equal(fs.existsSync(old), false);
-  assert.match(fs.readFileSync(newer.path, 'utf8'), /\n\nnewer\n$/, 'the pending summary is never replaced');
-
-  const wt2 = worktree();
-  const real = path.join(scratch.dir, `legacy-target-${seq}.md`);
-  fs.writeFileSync(real, 'x\n');
-  const dir = path.join(ROOT, 'projects', cwdHash(wt2));
-  fs.mkdirSync(dir, { recursive: true });
-  fs.symlinkSync(real, path.join(dir, 'last-compact-summary.md'));
-  assert.equal(adoptLegacy(wt2, wt2, ENV), false);
-  assert.equal(fs.existsSync(path.join(summaryScope(wt2, 'local', 'main', ENV), 'summary.md')), false);
-});
-
-test('DEC-043 adoptLegacy claims by rename first: a second adopter mid-adoption finds nothing to adopt', () => {
-  const wt = worktree();
-  legacyFile(wt);
-  const target = path.join(summaryScope(wt, 'local', 'main', ENV), 'summary.md');
-  const realLink = fs.linkSync;
-  let nested: any = null;
-  // Between the first adopter's claim and its link, the owner claims nothing yet and a second
-  // adopter runs: with the legacy file already renamed away it must find nothing.
-  fs.linkSync = (from: any, to: any): any => {
-    if (to === target && nested === null) {
-      nested = { adopted: adoptLegacy(wt, wt, ENV), legacy: legacySummary(wt, ENV) };
-    }
-    return realLink(from, to);
-  };
-  try {
-    assert.equal(adoptLegacy(wt, wt, ENV), true);
-  } finally {
-    fs.linkSync = realLink;
-  }
-  assert.deepEqual(nested, { adopted: false, legacy: null });
-  assert.match(fs.readFileSync(target, 'utf8'), /\n\nlegacy body\n$/);
 });

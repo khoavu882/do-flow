@@ -81,8 +81,7 @@ not have.
    interface and data-model contracts out of `design.md` into `specs.md` §1 as numbered `IC-###`
    entries, so on a feature that has one, `design.md`'s API / Interface Contracts and Data Model sections are a pointer and the contracts this
    plan must decompose toward live only in `specs.md`. Planning from `design.md` alone on such a
-   feature plans against a pointer. When `has_specs` is false (an old-layout feature dir, which never
-   had a `specs.md`), the contracts are still in `design.md` (API / Interface Contracts, Data Model) and there is nothing extra to
+   feature plans against a pointer. When `has_specs` is false, the contracts are still in `design.md` (API / Interface Contracts, Data Model) and there is nothing extra to
    read. Read
    `constitution_base`,
    then read `constitution_local` **only when `has_constitution_local` is true** — use that flag,
@@ -91,12 +90,12 @@ not have.
    the guidance tree's `references/DOFLOW_CHAIN.md` → "Two-tier constitution" for what is computed
    and what is convention.
 5. **Write `plan.md`, sections 1–7** — copy the plan template to the `plan` path step 1 resolved
-   (`<feature_dir>/plan.md`, the same flat location under both the structured and legacy layouts),
+   (`<feature_dir>/plan.md`, flat at the feature root),
    `mkdir -p`-ing its parent directory first.
 The template is `templates/doflow/plan-template.md` in the install step 1 resolved: take `constitution_base` from that JSON and swap its trailing `guidance/references/CONSTITUTION_BASE.md` for that path.
    Fill `[REQUIREMENT_PATH]`/`[DESIGN_PATH]` with that same step 1 resolution's `requirement`/`design`
    fields, verbatim (repo-root-relative, exactly as the resolver returns them) — never hand-written
-   `./` links, which assume the artifact sits next to `plan.md`; under `layout: structured` it
+   `./` links, which assume the artifact sits next to `plan.md`; it
    instead sits in a sibling subdirectory, and only the resolver's own field says which.
    Fill it: approach, research/decisions that resolve every `[NEEDS CLARIFICATION]` from the
    requirement, components, data/contracts, risks, validation strategy.

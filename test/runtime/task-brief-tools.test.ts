@@ -100,10 +100,11 @@ function fixture({ dispatcher = 'fake' }: any = {}) {
   git('commit', '-q', '--allow-empty', '-m', 'init');
   git('checkout', '-q', '-b', `feat/${FEATURE}`);
   const featureDir = path.join(project, 'agent-docs', 'doflow', FEATURE);
-  fs.mkdirSync(featureDir, { recursive: true });
+  fs.mkdirSync(path.join(featureDir, 'intention'), { recursive: true });
+  fs.mkdirSync(path.join(featureDir, 'design'), { recursive: true });
   fs.writeFileSync(path.join(featureDir, 'plan.md'), PLAN);
-  fs.writeFileSync(path.join(featureDir, 'requirement.md'), REQUIREMENT);
-  fs.writeFileSync(path.join(featureDir, 'design.md'), DESIGN);
+  fs.writeFileSync(path.join(featureDir, 'intention', 'requirement.md'), REQUIREMENT);
+  fs.writeFileSync(path.join(featureDir, 'design', 'design.md'), DESIGN);
 
   const brief = (args: any, env: any = {}) => {
     const res = spawnSync(bashPath(), [path.join(bash, 'do-task-brief.sh'), ...args], {
@@ -318,7 +319,7 @@ describe('real dispatcher', () => {
 describe('component ids as the design template writes them', () => {
   // design-template.md numbers components C1, C2; the brief generator also accepts CMP1.
   const TEMPLATE_DESIGN = DESIGN.replace('CMP1', 'C1').replace('**CMP1**', '**C1**');
-  const use = (f: any) => fs.writeFileSync(path.join(f.project, 'agent-docs', 'doflow', FEATURE, 'design.md'), TEMPLATE_DESIGN);
+  const use = (f: any) => fs.writeFileSync(path.join(f.project, 'agent-docs', 'doflow', FEATURE, 'design', 'design.md'), TEMPLATE_DESIGN);
 
   test('single-task and group briefs trace a C1 component serving the FR', () => {
     const f = fixture();

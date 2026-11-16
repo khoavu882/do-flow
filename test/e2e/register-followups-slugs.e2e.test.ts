@@ -95,8 +95,6 @@ describe('RK5: slugs that work today are still accepted', { skip: SKIP }, () => 
     const shapes = [
       ['041-structured', 'structured', false],
       ['042-structured-register', 'structured', true],
-      ['043-legacy', 'legacy', false],
-      ['044-legacy-register', 'legacy', true],
     ];
     for (const [slug, layout, hasDecisions] of shapes) {
       fs.cpSync(path.join(fixtureRoot, slug), path.join(repo, 'agent-docs', 'doflow', slug), { recursive: true });

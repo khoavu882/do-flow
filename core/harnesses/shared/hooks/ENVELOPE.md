@@ -1,4 +1,4 @@
-# The normalized hook envelope, and each front door's share of the migration
+# The normalized hook envelope, and which native event each front door decodes
 
 Every shipped bridge places envelope version 1 under `doflow_event`, beside the native fields. Policies read v1 fields only when `version` is the JSON number `1`; any other version is unsupported and is evaluated as such (IC-034, DEC-030).
 

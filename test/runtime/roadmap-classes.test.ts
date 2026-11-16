@@ -224,7 +224,7 @@ test('a folder that holds artifacts but no decision register is denied once and 
   const row = rowOf('bug');
   const f = fixture(t, [row]);
   await f.next(); // pick
-  write(path.join(f.featureDir(row), 'requirement.md'), 'old\n');
+  write(path.join(f.featureDir(row), 'intention', 'requirement.md'), 'old\n');
   const denied = await f.next();
   assert.deepEqual([denied.result.outcome, denied.result.reason, denied.result.annotations.unreadable], ['denied', 'facts-unreadable', ['decision-register']]);
   const held = await f.next();

@@ -153,18 +153,16 @@ test('every other key is unchanged: only feature_root and the artifact flags tha
   assert.ok(Object.keys(neither).includes('feature_root'));
 });
 
-test('layout, has_* flags and question-round counters follow feature_root; path strings stay repo-relative', () => {
+test('has_* flags and question-round counters follow feature_root; path strings stay repo-relative', () => {
   const t = makeTree();
   const before = paths(t.wt);
   assert.equal(before.has_requirement, false);
-  assert.equal(before.layout, 'legacy');
   const dir = mkFolder(t.main, t.rel, true);
   fs.writeFileSync(path.join(dir, 'intention', 'brainstorm-1-question.md'), 'q\n');
   fs.mkdirSync(path.join(dir, 'decisions'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'decisions', 'register.json'), '{}\n');
   const after = paths(t.wt);
   same(after.feature_root, t.main);
-  assert.equal(after.layout, 'structured');
   assert.equal(after.has_requirement, true);
   assert.equal(after.has_decisions, true);
   assert.equal(after.intention_next_round, 2);
