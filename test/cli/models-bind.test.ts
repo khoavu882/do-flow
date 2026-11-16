@@ -140,7 +140,7 @@ test('a catalogue entry written before model lists existed reads as no list: the
   assert.equal(typed.code, 0, typed.err);
   assert.equal(JSON.parse(typed.out).checked, 'unchecked');
   const plain = await bind(s, { harness: 'codex', tier: 'light', model: 'anything' });
-  assert.match(plain.out, /not checked/);
+  assert.match(plain.out, /^Bound codex light = anything \[model unchecked\] \(wrote /);
   assert.doesNotMatch(plain.out + plain.err, /removed-table-model/);
   // list shows no observed model rows from the old entry.
   const listed = await run({ action: 'list', projectRoot: s.project, env: s.env, json: true });
@@ -158,7 +158,7 @@ test('a harness with no model list accepts the typed id and says it was not chec
   const s = setup(t);
   const res = await bind(s, { harness: 'codex', tier: 'standard', model: 'my-model' });
   assert.equal(res.code, 0);
-  assert.match(res.out, /Bound codex standard = my-model \(not checked: no synced model list for this harness\)/);
+  assert.match(res.out, /Bound codex standard = my-model \[model unchecked\] \(wrote /);
   const json = await bind(s, { harness: 'codex', tier: 'light', model: 'other', json: true });
   assert.equal(JSON.parse(json.out).checked, 'unchecked');
 });
@@ -177,7 +177,7 @@ test('an id outside the harness list is refused with the three closest ids unles
 
   const allowed = await bind(s, { harness: 'opencode', tier: 'frontier', model: 'anthropic/claude-opuss', allowUnlisted: true });
   assert.equal(allowed.code, 0);
-  assert.match(allowed.out, /not in the list; --allow-unlisted/);
+  assert.match(allowed.out, /Bound opencode frontier = anthropic\/claude-opuss \[not in the list\] \(wrote /);
   const listed = await bind(s, { harness: 'opencode', tier: 'light', model: 'anthropic/claude-haiku' });
   assert.equal(listed.code, 0);
   assert.deepEqual(s.bindings(), { opencode: { frontier: 'anthropic/claude-opuss', light: 'anthropic/claude-haiku' } });
@@ -277,14 +277,15 @@ test('list prints one row per installed harness: three tiers, the orchestrator a
   const view = JSON.parse(res.out);
   assert.deepEqual(view.harnesses.map((h: any) => h.harness).sort(), ['codex', 'opencode']);
   const codex = view.harnesses.find((h: any) => h.harness === 'codex');
-  assert.deepEqual(codex, { harness: 'codex', light: 'gpt-6-luna', standard: null, frontier: 'gpt-6.1-sol', orchestrator: 'gpt-6.1-sol', orchestratorSource: 'frontier-binding' });
+  const cell = (model: string) => ({ model, provider: null, effort: null, check: { model: 'unchecked', effort: null } });
+  assert.deepEqual(codex, { harness: 'codex', light: cell('gpt-6-luna'), standard: null, frontier: cell('gpt-6.1-sol'), orchestrator: cell('gpt-6.1-sol'), orchestratorSource: 'frontier-binding' });
   const opencode = view.harnesses.find((h: any) => h.harness === 'opencode');
-  assert.deepEqual(opencode, { harness: 'opencode', light: null, standard: null, frontier: null, orchestrator: 'p/orch', orchestratorSource: 'binding' });
+  assert.deepEqual(opencode, { harness: 'opencode', light: null, standard: null, frontier: null, orchestrator: cell('p/orch'), orchestratorSource: 'binding' });
   assert.deepEqual(view.models, []);
 
   const text = (await run({ action: 'list', projectRoot: s.project, env: s.env })).out;
-  assert.match(text, /codex\s+light=gpt-6-luna\s+standard=harness default\s+frontier=gpt-6\.1-sol\s+orchestrator=gpt-6\.1-sol \(frontier binding\)/);
-  assert.match(text, /opencode\s+light=harness default.*orchestrator=p\/orch \(bound\)/);
+  assert.match(text, /codex\s+light=gpt-6-luna \[model unchecked\]\s+standard=harness default\s+frontier=gpt-6\.1-sol \[model unchecked\]\s+orchestrator=gpt-6\.1-sol \[model unchecked\] \(frontier binding\)/);
+  assert.match(text, /opencode\s+light=harness default.*orchestrator=p\/orch \[model unchecked\] \(bound\)/);
 });
 
 test('a harness that is not installed shows only when it has a binding', async (t: any) => {

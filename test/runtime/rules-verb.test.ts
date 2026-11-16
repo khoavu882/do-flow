@@ -149,11 +149,39 @@ test('a worker model set in the user settings shows against its worker and tier'
     JSON.stringify({ schema: 1, 'workers.models': { [first]: { frontier: 'some-model' } } }));
   const report = s.json();
   const row = report.tiers.models.harnesses.find((h: any) => h.harness === first);
-  assert.equal(row.frontier, 'some-model');
+  assert.deepEqual(row.frontier, { model: 'some-model', provider: null, effort: null, check: { model: 'unchecked', effort: null } });
   assert.equal(row.standard, null);
   // No orchestrator binding and no main session: the bound frontier model is the orchestrator's.
-  assert.equal(row.orchestrator, 'some-model');
+  assert.deepEqual(row.orchestrator, row.frontier);
   assert.equal(row.orchestratorSource, 'frontier-binding');
+});
+
+test('169: rules text and JSON, and models list, render a provider/effort binding and a several-providers plain id through the one bindingText', async (t) => {
+  const { bindingText } = require('../../src/runtime/models/binding-text.ts');
+  const { handleModelsCommand } = require('../../src/runtime/models/command.ts');
+  const s = scratch(t, { 'workers.models': { codex: { light: 'gpt-x', standard: { model: 'gpt-y', effort: 'low' } } } });
+  const catalogue = path.join(s.cwd, '.doflow', 'state', 'models', 'catalogue.json');
+  fs.mkdirSync(path.dirname(catalogue), { recursive: true });
+  fs.writeFileSync(catalogue, JSON.stringify({ version: 1, syncedAt: new Date().toISOString(), harnesses: { codex: {
+    harnessId: 'codex', binary: 'codex', installed: true, version: '1', detectedMode: 'subscription', derivedBilling: 'free', lastSyncedAt: new Date().toISOString(),
+    offeredModels: [{ id: 'gpt-x', provider: 'openai' }, { id: 'gpt-x', provider: 'other' }, { id: 'gpt-y' }], modelList: { status: 'listed' },
+  } } }));
+  const row = s.json().tiers.models.harnesses.find((h: any) => h.harness === 'codex');
+  assert.deepEqual(row.light.check, { model: 'several-providers', effort: null });
+  assert.deepEqual(row.standard, { model: 'gpt-y', provider: null, effort: 'low', check: { model: 'listed', effort: 'unchecked' } });
+  assert.equal(bindingText(row.light), 'gpt-x [several providers list it]');
+  assert.equal(bindingText(row.standard), 'gpt-y (effort low) [effort unchecked]');
+  const text = s.cli([]).stdout;
+  assert.match(text, new RegExp(`codex: light=${bindingText(row.light).replace(/[[\]()]/g, '\\$&')} standard=${bindingText(row.standard).replace(/[[\]()]/g, '\\$&')} frontier=harness default`));
+  // The same two cells, printed by `models --action list`.
+  const home = path.join(s.root, 'home');
+  const env: any = { ...process.env, HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'), PATH: path.join(s.root, 'no-bin') };
+  delete env.DOFLOW_CONFIG_DIR;
+  let out = '';
+  const log = console.log;
+  console.log = (line: any) => { out += `${line}\n`; };
+  try { await handleModelsCommand({ actionGiven: true, action: 'list', projectRoot: s.cwd, env, json: false, syncOptions: { view: { packages: [], stateRead: { state: {} }, grants: { grants: [] } } } }); } finally { console.log = log; }
+  assert.ok(out.includes(`light=${bindingText(row.light)}  standard=${bindingText(row.standard)}`), out);
 });
 
 test('an unreadable workers.models gives unresolved:<reason> for every tier and the orchestrator, never null (the harness default)', (t) => {

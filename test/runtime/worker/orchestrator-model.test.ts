@@ -151,17 +151,17 @@ function briefFor(owner: string, overrides: any = {}) {
 
 test('the brief Model line for delivery-lead names the resolved orchestrator model and where it came from', () => {
   const session = briefFor('delivery-lead', { primary: main('session-1') });
-  assert.ok(session.markdown.includes("Model: `session-1` on `codex` (the main session's model)."), session.markdown);
-  assert.deepEqual(session.record.model, { harness: 'codex', id: 'session-1', source: 'main-session' });
+  assert.ok(session.markdown.includes("Model: `session-1` [model unchecked] on `codex` (the main session's model)."), session.markdown);
+  assert.deepEqual(session.record.model, { harness: 'codex', id: 'session-1', provider: null, effort: null, check: { model: 'unchecked', effort: null }, source: 'main-session' });
   const frontier = briefFor('delivery-lead');
-  assert.ok(frontier.markdown.includes('Model: `front-1` on `codex` (frontier binding, user layer).'));
+  assert.ok(frontier.markdown.includes('Model: `front-1` [model unchecked] on `codex` (frontier binding, user layer).'));
   assert.equal(frontier.record.model.source, 'frontier-binding');
   const bound = briefFor('delivery-lead', { bindings: set({ codex: { orchestrator: 'o-1', frontier: 'front-1' } }), primary: main('session-1') });
-  assert.ok(bound.markdown.includes('Model: `o-1` on `codex` (binding, user layer).'));
+  assert.ok(bound.markdown.includes('Model: `o-1` [model unchecked] on `codex` (binding, user layer).'));
   const none = briefFor('delivery-lead', { bindings: { state: 'unset', map: null, reason: null } });
   assert.ok(none.markdown.includes('Model: harness default on `codex`.'));
   const other = briefFor('core-implementer', { primary: main('session-1'), bindings: set({ codex: { standard: 'std-1', orchestrator: 'o-1' } }) });
-  assert.ok(other.markdown.includes('Model: `std-1` on `codex` (binding, user layer).'), 'only delivery-lead takes the orchestrator model');
+  assert.ok(other.markdown.includes('Model: `std-1` [model unchecked] on `codex` (binding, user layer).'), 'only delivery-lead takes the orchestrator model');
 });
 
 test('169: a slot with a provider and effort resolves to a choice, and the dispatch snapshot keeps both', () => {

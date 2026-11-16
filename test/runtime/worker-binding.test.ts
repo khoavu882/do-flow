@@ -505,7 +505,7 @@ test('IC-014: worker select has no task and ignores model bindings', async (t) =
   assert.deepEqual(await executeWorkerCommand(options), plain);
 });
 
-test('IC-014: doctor reports bound tiers and binding state without model ids', (t) => {
+test('IC-014 (169): doctor reports bound tiers with their IC-005 binding cell, and the binding state', (t) => {
   const f = createSettingsEnv(t);
   const options = {
     env: f.env({ PATH: '' }), projectRoot: f.project, repoRoot: REPO,
@@ -519,10 +519,9 @@ test('IC-014: doctor reports bound tiers and binding state without model ids', (
   });
   const bound = workersDoctorView(options);
   assert.deepEqual(bound.bindings, { state: 'set', reason: null });
-  assert.deepEqual(bound.rows.find((row: any) => row.harness === 'claude').bound, [{ tier: 'light', flag: 'supported' }]);
-  assert.deepEqual(bound.rows.find((row: any) => row.harness === 'antigravity').bound, [{ tier: 'frontier', flag: 'unevidenced' }]);
-  assert.equal(JSON.stringify(bound).includes('private-m1'), false);
-  assert.equal(JSON.stringify(bound).includes('private-m2'), false);
+  const cell = (model: string) => ({ model, provider: null, effort: null, check: { model: 'unchecked', effort: null } });
+  assert.deepEqual(bound.rows.find((row: any) => row.harness === 'claude').bound, [{ tier: 'light', flag: 'supported', binding: cell('private-m1') }]);
+  assert.deepEqual(bound.rows.find((row: any) => row.harness === 'antigravity').bound, [{ tier: 'frontier', flag: 'unevidenced', binding: cell('private-m2') }]);
   for (let i = 0; i < plain.rows.length; i += 1) {
     assert.equal(bound.rows[i].eligible, plain.rows[i].eligible);
     assert.deepEqual(bound.rows[i].firstGap, plain.rows[i].firstGap);
@@ -537,10 +536,9 @@ test('IC-014: doctor reports bound tiers and binding state without model ids', (
   assert.match(cli.stdout, /worker claude: .*; bound tiers: none/);
 });
 
-test('IC-014: doctor text prints bound tier flags without printing model ids', (t) => {
+test('IC-014 (169): doctor text names each bound tier with bindingText and its flag', (t) => {
   const f = createSettingsEnv(t);
   f.writeUserSettings({ schema: 1, 'workers.models': { claude: { light: 'private-doctor-model' } } });
   const cli = f.run(['doctor'], { env: { PATH: '' } });
-  assert.match(cli.stdout, /worker claude: .*; bound tiers: light\((?:supported|unevidenced)\)/);
-  assert.equal(cli.stdout.includes('private-doctor-model'), false);
+  assert.match(cli.stdout, /worker claude: .*; bound tiers: light=private-doctor-model \[model unchecked\] \((?:supported|unevidenced)\)/);
 });

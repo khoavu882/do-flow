@@ -1,18 +1,21 @@
 'use strict';
 
-const { readCatalogue, mergeCatalogueEntries, syncHarness, syncAllHarnesses, workerIds, workerEntries } = require('./catalogue.ts');
+const { readCatalogue, mergeCatalogueEntries, syncHarness, syncAllHarnesses, workerDescriptor, workerIds, workerEntries } = require('./catalogue.ts');
 const { loginAnswers, loginCell } = require('../worker/login.ts');
 const { readAllowedModels, ORCHESTRATOR_KEY } = require('../worker/models.ts');
 const { finishRuntime, usageError } = require('../cli-result.ts');
 const { validateValue } = require('../settings/files.ts');
-const { tierView, shown, slotsOf } = require('./tier-view.ts');
+const { tierView, cellFor, slotsOf } = require('./tier-view.ts');
+const { bindingText } = require('./binding-text.ts');
 const { changeBinding, closestIds } = require('./bind.ts');
+const { matchListed, modelCheck, effortCheck } = require('../worker/model-choice.ts');
+const { PROVIDER_RE, EFFORT_RE } = require('../../registry/model-parts.ts');
 const { LIST_MAX_MODELS } = require('./list-models.ts');
 const { inWorkerSession } = require('../context/identity.ts');
 const { loadRegistry } = require('../../registry/index.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 
-const BIND_USAGE = 'models --action bind --harness <id> --tier <light|standard|frontier|orchestrator> [--model <id>] [--allow-unlisted]';
+const BIND_USAGE = 'models --action bind --harness <id> --tier <light|standard|frontier|orchestrator> [--model <id>] [--provider <p>] [--effort <level>] [--allow-unlisted]';
 const UNBIND_USAGE = 'models --action unbind --harness <id> --tier <light|standard|frontier|orchestrator>';
 
 /** The one-line source note shown beside a resolved model. */
@@ -36,13 +39,35 @@ function loginById({ env, projectRoot, view }: any): Map<string, any> {
 const stateOf = (logins: Map<string, any>, id: string): string => logins.get(id)?.state ?? 'unknown';
 const cellOf = (logins: Map<string, any>, id: string): string => (logins.has(id) ? loginCell(logins.get(id)) : 'unknown');
 
-/** A numbered pick from the harness's own list, on a terminal. Returns the id, or null when nothing valid was chosen. */
-function pickFrom(models: any[], ask: (message: string) => string): string | null {
-  models.forEach((m, i) => console.log(`  ${String(i + 1).padStart(3)}  ${m.id}${m.displayName && m.displayName !== m.id ? `  (${m.displayName})` : ''}`));
+/** A numbered pick from the harness's own list, on a terminal. Returns the picked entry, or null when nothing valid was chosen. */
+function pickFrom(models: any[], ask: (message: string) => string): any {
+  models.forEach((m, i) => console.log(`  ${String(i + 1).padStart(3)}  ${m.id}${m.provider ? ` (provider ${m.provider})` : ''}${m.displayName && m.displayName !== m.id ? `  (${m.displayName})` : ''}`));
   const answer = ask(`Choose 1-${models.length}: `).trim();
   const index = Number(answer);
-  return Number.isInteger(index) && index >= 1 && index <= models.length ? models[index - 1].id : null;
+  return Number.isInteger(index) && index >= 1 && index <= models.length ? models[index - 1] : null;
 }
+
+/** The refusal of a bind: exit 1 with `{ok:false, error, message, ...extra}` (JSON) or the message on stderr. */
+function refuseBind(json: any, error: string, message: string, extra: any = {}): number {
+  if (json) console.log(JSON.stringify({ ok: false, error, message, ...extra }, null, 2));
+  else console.error(`doflow models: ${message}`);
+  return finishRuntime(1);
+}
+
+/** The refusal of a provider or effort the descriptor entry does not take (`unknown`, `unsupported` and an absent entry alike). */
+function partRefusal(part: 'provider' | 'effort', entry: any, harness: string): { error: string; message: string } | null {
+  if (entry?.status === 'supported') return null;
+  const why = typeof entry?.reason === 'string' && entry.reason !== '' ? `: ${entry.reason}` : ' (no evidence is recorded for it)';
+  return { error: `${part}-unsupported`, message: `${part} is not supported on ${harness}${why}` };
+}
+
+/** Numbers and flags of one catalogue entry as the PROVIDER, CONTEXT, MAX OUT, REASONING and IMAGES columns; `-` is not listed. */
+const yesNo = (value: unknown): string => (value === undefined ? '-' : value ? 'yes' : 'no');
+const columnsOf = (m: any): string[] => [m.provider ?? '-', m.contextTokens === undefined ? '-' : String(m.contextTokens), m.maxOutputTokens === undefined ? '-' : String(m.maxOutputTokens), yesNo(m.reasoning), yesNo(m.imageInput)];
+const COLUMN_WIDTHS = [14, 8, 8, 10, 7];
+const NOT_LISTED_FOOTER = '  - = not listed by the harness';
+/** The listed fields of an entry beyond its id and name, and only those it has. */
+const listedFields = (m: any): any => Object.fromEntries(['provider', 'contextTokens', 'maxOutputTokens', 'reasoning', 'imageInput', 'effortLevels'].filter((key) => m[key] !== undefined).map((key) => [key, m[key]]));
 
 /** bind and unbind change the user's own model choices: a worker session does not run them. */
 function refuseWorkerSession(act: string, json: any): number {
@@ -52,63 +77,91 @@ function refuseWorkerSession(act: string, json: any): number {
   return finishRuntime(1);
 }
 
-async function handleBind({ act, harness, tier, model, allowUnlisted, json, projectRoot, env, interactive, ask, syncOptions }: any): Promise<number> {
+async function handleBind({ act, harness, tier, model, provider: givenProvider, effort: givenEffort, allowUnlisted, json, projectRoot, env, interactive, ask, syncOptions }: any): Promise<number> {
   const usage = act === 'bind' ? BIND_USAGE : UNBIND_USAGE;
   if (inWorkerSession(env)) return refuseWorkerSession(act, json);
-  const registry = loadRegistry({ repoRoot: REPO_ROOT });
+  const registry = syncOptions.registry ?? loadRegistry({ repoRoot: REPO_ROOT });
   const slots = [...slotsOf(registry), ORCHESTRATOR_KEY];
   if (!harness || !tier) return usageError('models', `--harness and --tier are required; usage: ${usage}`, json);
   const known = workerIds({ registry, env, projectRoot, view: syncOptions.view });
   if (!known.includes(harness)) return usageError('models', `unknown harness '${harness}'; expected one of: ${known.join(', ')}`, json);
   if (!slots.includes(tier)) return usageError('models', `unknown tier '${tier}'; expected one of: ${slots.join(', ')}`, json);
 
-  let chosen: string | null = null;
+  let value: any = null;
+  let choice: any = null;
   let checked = 'unchecked';
+  let cell: any = null;
   if (act === 'bind') {
-    chosen = typeof model === 'string' && model !== '' ? model : null;
+    const provider = givenProvider === undefined ? null : givenProvider;
+    const effort = givenEffort === undefined ? null : givenEffort;
+    if (provider !== null && !PROVIDER_RE.test(provider)) return usageError('models', '--provider must start with a letter or digit and use only letters, digits, . _ - (at most 64 characters)', json);
+    if (effort !== null && !EFFORT_RE.test(effort)) return usageError('models', '--effort must start with a letter or digit and use only letters, digits, . _ - (at most 32 characters)', json);
+    const descriptor = workerDescriptor(harness, { registry, env, projectRoot, view: syncOptions.view });
+    // The descriptor decides what a part may be before any model question (design 6.4 steps 2 and 3).
+    for (const [part, given] of [['provider', provider], ['effort', effort]] as const) {
+      const refusal = given === null ? null : partRefusal(part, descriptor?.[part], harness);
+      if (refusal) return refuseBind(json, refusal.error, refusal.message);
+    }
+    const levels = descriptor?.effort?.levels;
+    if (effort !== null && Array.isArray(levels) && !levels.includes(effort)) {
+      return refuseBind(json, 'effort-unknown-level', `effort '${effort}' is not one of ${harness}'s levels: ${levels.join(', ')}`, { levels });
+    }
+
+    let entry = readCatalogue(projectRoot)?.harnesses?.[harness] ?? null;
+    let chosen: string | null = typeof model === 'string' && model !== '' ? model : null;
+    let chosenProvider: string | null = provider;
     if (chosen === null) {
       if (!interactive) return usageError('models', `--model is required without a terminal; usage: ${usage}`, json);
-      const res = await syncHarness(harness, { ...syncOptions, projectRoot, env, previous: readCatalogue(projectRoot)?.harnesses?.[harness] ?? null });
+      const res = await syncHarness(harness, { ...syncOptions, projectRoot, env, previous: entry });
       mergeCatalogueEntries({ [harness]: res }, projectRoot);
+      entry = res;
       if (res.offeredModels.length === 0) {
         const why = res.modelList?.reason ? ` (${res.modelList.reason})` : '';
         return usageError('models', `${harness} gave no model list${why}; pass --model <id> to type the id yourself`, json);
       }
       if (res.modelList?.status === 'failed') console.error(`note: the list could not be refreshed (${res.modelList.reason}); showing the last list`);
-      chosen = pickFrom(res.offeredModels, ask);
-      if (chosen === null) return usageError('models', 'no valid choice made; nothing was written', json);
-      checked = 'listed';
+      const rows = provider === null ? res.offeredModels : res.offeredModels.filter((m: any) => m.provider === provider);
+      if (rows.length === 0) return usageError('models', `${harness} lists no model under provider '${provider}'; nothing was written`, json);
+      const picked = pickFrom(rows, ask);
+      if (picked === null) return usageError('models', 'no valid choice made; nothing was written', json);
+      chosen = picked.id;
+      // A picked row's provider is written only where the harness takes one; otherwise the harness chooses.
+      if (chosenProvider === null && typeof picked.provider === 'string' && descriptor?.provider?.status === 'supported') chosenProvider = picked.provider;
     } else {
       const fault = validateValue({ type: 'model-id' }, chosen);
       if (fault) return usageError('models', `--model ${fault.reason}`, json);
-      const entry = readCatalogue(projectRoot)?.harnesses?.[harness];
-      const ids = (entry?.offeredModels || []).map((m: any) => m.id);
-      if (ids.length > 0) {
-        if (ids.includes(chosen)) checked = 'listed';
-        else if (allowUnlisted) checked = 'unlisted-allowed';
-        else {
-          const near = closestIds(chosen, ids);
-          const message = `'${chosen}' is not in ${harness}'s model list${entry?.modelList?.stale ? ' (the last list; it could not be refreshed)' : ''}; closest: ${near.join(', ')}; pass --allow-unlisted to bind it anyway`;
-          if (json) console.log(JSON.stringify({ ok: false, error: 'unlisted-model', message, closest: near }, null, 2));
-          else console.error(`doflow models: ${message}`);
-          return finishRuntime(1);
-        }
-      }
     }
+    choice = { model: chosen, provider: chosenProvider, effort };
+    const modelState = modelCheck(entry, choice, descriptor);
+    if (modelState === 'several-providers') {
+      const providers = [...new Set(matchListed(entry.offeredModels, choice, descriptor).map((m: any) => m.provider))];
+      return refuseBind(json, 'ambiguous-model', `'${chosen}' is listed by several providers on ${harness} (${providers.join(', ')}); pass --provider <p> to choose one`, { providers });
+    }
+    if (modelState === 'not-listed') {
+      if (!allowUnlisted) {
+        const near = closestIds(chosen as string, [...new Set<string>(entry.offeredModels.map((m: any) => m.id))]);
+        return refuseBind(json, 'unlisted-model', `'${chosen}' is not in ${harness}'s model list${entry?.modelList?.stale ? ' (the last list; it could not be refreshed)' : ''}; closest: ${near.join(', ')}; pass --allow-unlisted to bind it anyway`, { closest: near });
+      }
+      checked = 'unlisted-allowed';
+    } else if (modelState === 'listed') checked = 'listed';
+    cell = cellFor(choice, descriptor, entry);
+    if (cell.check.effort === 'not-offered') {
+      return refuseBind(json, 'effort-not-offered', `effort '${effort}' is not offered by '${chosen}' on ${harness} according to its model list; run \`doflow models --action sync\` to refresh the list`);
+    }
+    value = chosenProvider === null && effort === null ? chosen : { model: chosen, ...(chosenProvider !== null ? { provider: chosenProvider } : {}), ...(effort !== null ? { effort } : {}) };
   }
 
-  const done = changeBinding({ harness, slot: tier, model: chosen, env });
+  const done = changeBinding({ harness, slot: tier, value, env });
   if (!done.ok) {
     if (json) console.log(JSON.stringify({ ok: false, error: 'write-failed', message: done.detail }, null, 2));
     else console.error(`doflow models: ${done.detail}`);
     return finishRuntime(1);
   }
-  if (json) {
-    console.log(JSON.stringify({ ok: true, action: act, harness, tier, model: chosen, checked, changed: done.changed, file: done.file }, null, 2));
-  } else if (act === 'bind') {
-    const note = checked === 'unchecked' ? ' (not checked: no synced model list for this harness)'
-      : checked === 'unlisted-allowed' ? ' (not in the list; --allow-unlisted)' : '';
-    console.log(`Bound ${harness} ${tier} = ${chosen}${note} (wrote ${done.file}).`);
+  if (act === 'bind') {
+    if (json) console.log(JSON.stringify({ ok: true, action: act, harness, tier, model: choice.model, provider: choice.provider, effort: choice.effort, checked, check: cell.check, changed: done.changed, file: done.file }, null, 2));
+    else console.log(`Bound ${harness} ${tier} = ${bindingText(cell)} (wrote ${done.file}).`);
+  } else if (json) {
+    console.log(JSON.stringify({ ok: true, action: act, harness, tier, model: null, checked, changed: done.changed, file: done.file }, null, 2));
   } else {
     console.log(done.changed ? `Unbound ${harness} ${tier}: it now uses ${tier === ORCHESTRATOR_KEY ? 'the main session or frontier binding' : 'the harness default'} (wrote ${done.file}).` : `${harness} ${tier} was not bound; nothing written.`);
   }
@@ -118,14 +171,14 @@ async function handleBind({ act, harness, tier, model, allowUnlisted, json, proj
 /** `models --action list`: the model each tier and the orchestrator get on every installed harness, then the observed models. */
 function handleList({ json, projectRoot, env, syncOptions = {} }: any): number {
   const catalogue = readCatalogue(projectRoot);
-  const registry = loadRegistry({ repoRoot: REPO_ROOT });
+  const registry = syncOptions.registry ?? loadRegistry({ repoRoot: REPO_ROOT });
   const view = tierView({ registry, env, projectRoot, catalogue, view: syncOptions.view });
   const allowed = readAllowedModels({ env, projectRoot }) || [];
   const models: any[] = [];
   const logins = loginById({ env, projectRoot, view: syncOptions.view });
   for (const [harnessId, h] of Object.entries<any>(catalogue?.harnesses || {})) {
     for (const m of h.offeredModels || []) {
-      models.push({ harness: harnessId, model: m.id, displayName: m.displayName || m.id, loginState: stateOf(logins, harnessId), status: allowed.includes(m.id) ? 'enabled' : 'listed' });
+      models.push({ harness: harnessId, model: m.id, displayName: m.displayName || m.id, ...listedFields(m), loginState: stateOf(logins, harnessId), status: allowed.includes(m.id) ? 'enabled' : 'listed' });
     }
   }
   const harnesses = view.harnesses;
@@ -138,13 +191,15 @@ function handleList({ json, projectRoot, env, syncOptions = {} }: any): number {
   if (view.bindings.state === 'invalid') console.log(`  workers.models is unreadable (${view.bindings.reason}); every tier reads as the harness default.`);
   if (harnesses.length === 0) console.log('  No installed harness found.');
   for (const h of harnesses) {
-    const tiers = slotsOf(registry).map((tier: string) => `${tier}=${shown(h[tier], view.bindings.state)}`).join('  ');
-    console.log(`  ${h.harness.padEnd(12)} ${tiers}  orchestrator=${shown(h.orchestrator, h.orchestratorSource)} (${SOURCE_NOTE[h.orchestratorSource] ?? h.orchestratorSource})`);
+    const tiers = slotsOf(registry).map((tier: string) => `${tier}=${bindingText(h[tier])}`).join('  ');
+    console.log(`  ${h.harness.padEnd(12)} ${tiers}  orchestrator=${bindingText(h.orchestrator)} (${SOURCE_NOTE[h.orchestratorSource] ?? h.orchestratorSource})`);
   }
   if (models.length > 0) {
     console.log(`Observed Models (${models.length}):`);
-    console.log(`  ${'HARNESS'.padEnd(14)} ${'MODEL'.padEnd(28)} ${'LOGIN'.padEnd(12)} ${'STATUS'}`);
-    for (const row of models) console.log(`  ${row.harness.padEnd(14)} ${row.model.padEnd(28)} ${row.loginState.padEnd(12)} ${row.status}`);
+    const head = ['PROVIDER', 'CONTEXT', 'MAX OUT', 'REASONING', 'IMAGES'].map((name, i) => name.padEnd(COLUMN_WIDTHS[i])).join(' ');
+    console.log(`  ${'HARNESS'.padEnd(14)} ${'MODEL'.padEnd(28)} ${head} ${'LOGIN'.padEnd(12)} ${'STATUS'}`);
+    for (const row of models) console.log(`  ${row.harness.padEnd(14)} ${row.model.padEnd(28)} ${columnsOf(row).map((cell, i) => cell.padEnd(COLUMN_WIDTHS[i])).join(' ')} ${row.loginState.padEnd(12)} ${row.status}`);
+    console.log(NOT_LISTED_FOOTER);
   } else {
     console.log('No observed models. Run `doflow models --action sync` to read each harness\'s own model list.');
   }
@@ -157,6 +212,8 @@ async function handleModelsCommand({
   positional,
   harness,
   model,
+  provider,
+  effort,
   tier,
   allowUnlisted = false,
   json = false,
@@ -204,7 +261,7 @@ async function handleModelsCommand({
   if (act === 'list') return handleList({ json, projectRoot, env, syncOptions });
 
   if (act === 'bind' || act === 'unbind') {
-    return handleBind({ act, harness, tier, model, allowUnlisted, json, projectRoot, env, interactive, ask, syncOptions });
+    return handleBind({ act, harness, tier, model, provider, effort, allowUnlisted, json, projectRoot, env, interactive, ask, syncOptions });
   }
 
   if (act === 'describe') {
@@ -217,17 +274,19 @@ async function handleModelsCommand({
     const matchingHarnesses: any[] = [];
     let modelMeta: any = null;
     const logins = loginById({ env, projectRoot });
+    const wanted = { model, provider: typeof provider === 'string' && provider !== '' ? provider : null, effort: null };
 
     if (catalogue && catalogue.harnesses) {
-      for (const [harnessId, h] of Object.entries(catalogue.harnesses)) {
-        const found = (h.offeredModels || []).find((m: any) => m.id === model);
-        if (found) {
-          if (!modelMeta) modelMeta = found;
+      for (const [harnessId, h] of Object.entries<any>(catalogue.harnesses)) {
+        const found = matchListed(h.offeredModels || [], wanted, workerDescriptor(harnessId, { registry: syncOptions.registry, env, projectRoot, view: syncOptions.view }));
+        if (found.length > 0) {
+          if (!modelMeta) modelMeta = found[0];
           matchingHarnesses.push({
             harnessId,
             loginState: stateOf(logins, harnessId),
             detectedMode: h.detectedMode,
             derivedBilling: h.derivedBilling,
+            offerings: found.map(listedFields),
           });
         }
       }
@@ -237,7 +296,7 @@ async function handleModelsCommand({
       if (json) {
         console.log(JSON.stringify({ error: 'not-found', model }, null, 2));
       } else {
-        console.error(`doflow models: model '${model}' not found in observed catalogue. Run 'doflow models --action sync' to refresh.`);
+        console.error(`doflow models: model '${model}'${wanted.provider ? ` under provider '${wanted.provider}'` : ''} not found in observed catalogue. Run 'doflow models --action sync' to refresh.`);
       }
       return finishRuntime(1);
     }
@@ -259,7 +318,10 @@ async function handleModelsCommand({
       console.log('  Offering Harnesses:');
       for (const h of detail.harnesses) {
         console.log(`    - ${h.harnessId}: ${h.loginState} (mode: ${h.detectedMode}, billing: ${h.derivedBilling})`);
+        console.log(`        ${['PROVIDER', 'CONTEXT', 'MAX OUT', 'REASONING', 'IMAGES'].map((name, i) => name.padEnd(COLUMN_WIDTHS[i])).join(' ')}`);
+        for (const offering of h.offerings) console.log(`        ${columnsOf(offering).map((cell, i) => cell.padEnd(COLUMN_WIDTHS[i])).join(' ')}`);
       }
+      console.log(NOT_LISTED_FOOTER);
     }
     return finishRuntime(0);
   }
