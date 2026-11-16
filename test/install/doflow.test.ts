@@ -76,7 +76,7 @@ test('resolveTargets defaults to claude alone and validates', () => {
 });
 
 test('VALID lists all seven harnesses', () => {
-  assert.deepStrictEqual(VALID, ['claude', 'codex', 'copilot', 'kiro', 'opencode', 'pi', 'antigravity']);
+  assert.deepStrictEqual(VALID, ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity']);
 });
 
 for (const target of ['copilot', 'kiro', 'opencode', 'pi']) {

@@ -1,8 +1,9 @@
 'use strict';
 
 const crypto = require('node:crypto');
+const { activeIds } = require('../registry/harness-ids.ts');
 const CLASS_ORDER = Object.freeze(['unknown', 'unsupported', 'observation', 'advisory', 'blocking']);
-const HARNESS_ORDER = Object.freeze(['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity']);
+const HARNESS_ORDER = activeIds();
 const BEHAVIOUR_ORDER = Object.freeze(['context-authority', 'default-silence', 'summary-scope', 'summary-grant', 'identity', 'check-freshness']);
 const NEVER_BLOCKING_EVENTS = new Set([
   'pi\u0000tool_execution_start', 'antigravity\u0000PostToolUse', 'antigravity\u0000PreInvocation',

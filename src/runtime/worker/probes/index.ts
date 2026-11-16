@@ -6,6 +6,7 @@ const path = require('node:path');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const execFileAsync = promisify(execFile);
+const { activeIds, binaryOf } = require('../../../registry/harness-ids.ts');
 
 import type { SyncHarnessResult, LoginState, DetectedMode, DerivedBilling } from '../../models/catalogue.ts';
 
@@ -32,15 +33,7 @@ const RELOGIN_HINTS: Record<string, string> = {
   antigravity: 'agy',
 };
 
-const HARNESS_BINARIES: Record<string, string> = {
-  claude: 'claude',
-  codex: 'codex',
-  opencode: 'opencode',
-  pi: 'pi',
-  copilot: 'copilot',
-  kiro: 'kiro-cli',
-  antigravity: 'agy',
-};
+const HARNESS_BINARIES: Record<string, string> = Object.fromEntries(activeIds().map((id: string) => [id, binaryOf(id) as string]));
 
 /** How a failed process ended. `code` above reads a missing exit code as 1, so a timeout or a signal looks like an exit 1:
  * a probe that must tell the two apart reads `exited` (a real numeric exit code), `killed` (a timeout) and `signal`. */
