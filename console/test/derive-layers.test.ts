@@ -71,13 +71,13 @@ function layersBody(over: any = {}): any {
     traffic: ok({ v: 1, projectKey: PK, windowMin: 10, agents: [], models: [], pairs: [], notChecked: 0 }),
     coverage: ok([
       { harness: 'claude', main: { observed: true }, subagents: { observed: true }, transcript: { observed: true }, permissions: { observed: true }, questions: { observed: false, reason: 'no-harness-record' } },
-      { harness: 'gemini', main: { observed: true }, subagents: never, transcript: never, permissions: never, questions: { observed: true } },
+      { harness: 'opencode', main: { observed: true }, subagents: never, transcript: never, permissions: never, questions: { observed: true } },
     ]),
   };
   return { v: 1, projectKey: PK, sections: { ...sections, ...over } };
 }
 
-test('a layers patch adding an awaiting gate moves it to the lead card; a gemini coverage row renders `not observed` with its reason, never `idle`', () => {
+test('a layers patch adding an awaiting gate moves it to the lead card; an opencode coverage row renders `not observed` with its reason, never `idle`', () => {
   const before = layers.projectModel(layersBody());
   assert.deepEqual(before.waiting, [], 'no awaiting gate: nothing waits for the user');
   const patched = layersBody({ gates: ok([gate(), gate({ gateId: 'g-plan', name: 'Plan approval', state: 'awaiting', at: '2026-11-15T09:10:00.000Z', by: null })]) });
@@ -89,8 +89,8 @@ test('a layers patch adding an awaiting gate moves it to the lead card; a gemini
   // The decided gate stays on the run row; the awaiting one is on the lead card only.
   const lane = after.lanes.find((l: any) => l.worktreeKey === WK);
   assert.deepEqual(lane.runs[0].gates.map((g: any) => g.gateId), ['g-design']);
-  const gemini = after.coverage.find((row: any) => row.harness === 'gemini');
-  const cells = layers.COVERAGE_COLUMNS.map(([column]: [string]) => layers.coverageCell(column, gemini[column]));
+  const opencode = after.coverage.find((row: any) => row.harness === 'opencode');
+  const cells = layers.COVERAGE_COLUMNS.map(([column]: [string]) => layers.coverageCell(column, opencode[column]));
   assert.deepEqual(cells[1], { observed: false, word: 'not observed', reason: 'no audit hook' });
   assert.deepEqual(cells[2], { observed: false, word: 'not observed', reason: 'no audit hook' });
   for (const cell of cells) assert.notEqual(cell.word, 'idle');
