@@ -705,10 +705,12 @@ const WORKER_CAPABILITIES: Record<string, { allowed: string[], required: string[
 const WORKER_OPTIONAL_CAPABILITIES: Record<string, { allowed: string[], required: string[] }> = Object.freeze({
   isolatedEdit: { allowed: ['argv', 'protectedPaths'], required: ['argv'] },
   model: { allowed: ['argv'], required: ['argv'] },
+  // 165 IC-006: how the harness starts a user-visible main session from a prompt. `parser` is a parser id or null.
+  mainSession: { allowed: ['argv', 'promptVia', 'parser'], required: ['argv', 'promptVia', 'parser'] },
 });
 const WORKER_BILLING = new Set(['free', 'metered', 'unknown']);
 const WORKER_KEYS = Object.freeze(['profile', 'billing', ...Object.keys(WORKER_CAPABILITIES), 'modelChecks']);
-const WORKER_ALLOWED_KEYS = Object.freeze([...WORKER_KEYS, ...Object.keys(WORKER_OPTIONAL_CAPABILITIES), 'family', 'modelList']);
+const WORKER_ALLOWED_KEYS = Object.freeze([...WORKER_KEYS, ...Object.keys(WORKER_OPTIONAL_CAPABILITIES), 'family', 'modelList', 'wideningFlags']);
 const WORKER_ENTRY_FIELDS = new Set(['status', 'evidence', 'verification', 'verifiedOn', 'reason']);
 // Soft hyphen, Mongolian vowel separator, zero-width and directional marks, word joiner and invisible operators, BOM.
 const INVISIBLE_CHARACTER = /[\u00ad\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff]/;
@@ -716,6 +718,11 @@ const WORKER_RECIPE_FIELDS = new Set(['binary', 'versionArgv', 'argv', 'promptVi
 const WORKER_QUOTA_SIGNALS_FIELDS = new Set(['signals', 'unverifiedSignals', 'basis', 'evidence']);
 const WORKER_FACTS = new Set(['hooksLoaded', 'identityForwarded', 'guidanceLoaded', 'login']);
 const WORKER_MODEL_CHECK_FIELDS = new Set(['id', 'argv', 'establishes', 'estimateTokens', 'timeoutSeconds']);
+// 165 FR-015 / owner P-2, review B-2: no recipe carries a flag that widens what the harness may do. The deny list is
+// data with one matcher (widening-flags.ts), run on oneShot.argv and mainSession.argv here and on the final argv at launch.
+const { wideningProblem, wideningFlagsProblem } = require('./widening-flags.ts');
+const WIDENING_CHECKED = Object.freeze(['oneShot', 'mainSession']);
+const MAIN_SESSION_PLACEHOLDERS = new Set(['{prompt}', '{model}', '{lastMessageFile}']);
 const WORKER_ARGV_MAX = 32;
 const WORKER_ARG_MAX_CHARS = 200;
 
@@ -810,6 +817,10 @@ function validateWorker(value: any, location: string, errors: string[]): void {
     fail('family', 'must be a non-empty string');
   }
   if (Object.hasOwn(value, 'modelList')) validateModelList(value.modelList, fail);
+  // 165 review B-2: a worker's own widening flags add to the built-in set; a malformed list is reported and not used.
+  const declaredProblem = Object.hasOwn(value, 'wideningFlags') ? wideningFlagsProblem(value.wideningFlags) : null;
+  if (declaredProblem) fail('wideningFlags', declaredProblem);
+  const declared = Object.hasOwn(value, 'wideningFlags') && !declaredProblem ? value.wideningFlags : [];
 
   for (const [key, rule] of [...Object.entries(WORKER_CAPABILITIES), ...Object.entries(WORKER_OPTIONAL_CAPABILITIES)]) {
     if (!Object.hasOwn(value, key)) continue;
@@ -830,6 +841,10 @@ function validateWorker(value: any, location: string, errors: string[]): void {
       if (WORKER_ENTRY_FIELDS.has(field)) continue;
       if (!WORKER_RECIPE_FIELDS.has(field) || !rule.allowed.includes(field)) { fail(key, `has unknown field '${field}'`); continue; }
       if (entry.status !== 'supported') fail(key, `recipe field '${field}' is allowed only when status is supported`);
+    }
+    if (WIDENING_CHECKED.includes(key) && Array.isArray(entry.argv)) {
+      const widening = wideningProblem(entry.argv, { binary: value.cli?.binary, declared, mainSession: key === 'mainSession' });
+      if (widening) fail(key, `argv must not contain the widening flag '${widening}'`);
     }
     if (entry.status !== 'supported') continue;
     for (const field of rule.required) if (!Object.hasOwn(entry, field)) fail(key, `requires recipe field '${field}' when status is supported`);
@@ -853,10 +868,19 @@ function validateWorker(value: any, location: string, errors: string[]): void {
           fail(key, `${field} must not contain '{model}' outside model.argv`);
         }
         // DEC-066: only oneShot.argv carries the prompt; a second placeholder would duplicate it.
-        if (!(key === 'oneShot' && field === 'argv') && entry[field].includes('{prompt}')) {
+        if (!(key === 'oneShot' && field === 'argv') && !(key === 'mainSession' && field === 'argv') && entry[field].includes('{prompt}')) {
           fail(key, `${field} must not contain '{prompt}' outside oneShot.argv`);
         }
-        if (key === 'structuredOutput' && field === 'argv') {
+        if (key === 'mainSession' && field === 'argv') {
+          // 165: {prompt} and {lastMessageFile} are whole elements; {model} stays model.argv's alone (checked above).
+          if (entry.argv.filter((item: string) => item === '{lastMessageFile}').length > 1) fail(key, "argv must contain '{lastMessageFile}' at most once");
+          for (const item of entry.argv) {
+            const token = /\{[^{}]*\}/.exec(item);
+            if (!token || MAIN_SESSION_PLACEHOLDERS.has(item)) continue;
+            if (MAIN_SESSION_PLACEHOLDERS.has(token[0])) fail(key, `argv holds '${token[0]}' inside a longer element; a placeholder is a whole element`);
+            else fail(key, `argv contains the unknown placeholder '${token[0]}'`);
+          }
+        } else if (key === 'structuredOutput' && field === 'argv') {
           const count = entry.argv.filter((item: any) => item === '{lastMessageFile}').length;
           if (count > 1) {
             fail(key, "argv must contain '{lastMessageFile}' only once and only in structuredOutput.argv");
@@ -870,7 +894,9 @@ function validateWorker(value: any, location: string, errors: string[]): void {
       const problem = workerProtectedPathsProblem(entry.protectedPaths);
       if (problem) fail(key, problem);
     }
-    if (Object.hasOwn(entry, 'parser') && (typeof entry.parser !== 'string' || !entry.parser.trim())) fail(key, 'parser must be a parser id');
+    if (key === 'mainSession' && Object.hasOwn(entry, 'parser')) {
+      if (entry.parser !== null && (typeof entry.parser !== 'string' || !entry.parser.trim())) fail(key, 'parser must be a parser id or null');
+    } else if (Object.hasOwn(entry, 'parser') && (typeof entry.parser !== 'string' || !entry.parser.trim())) fail(key, 'parser must be a parser id');
     if (key === 'structuredOutput' && Object.hasOwn(entry, 'quotaSignals')) {
       const quota = entry.quotaSignals;
       if (!object(quota)) fail(key, 'quotaSignals must be an object');
@@ -927,7 +953,7 @@ function validateWorker(value: any, location: string, errors: string[]): void {
     if (Object.hasOwn(entry, 'marker') && (typeof entry.marker !== 'string' || entry.marker.length < 1 || entry.marker.length > 200)) {
       fail(key, 'marker must be 1 to 200 characters');
     }
-    if (key === 'oneShot' && Object.hasOwn(entry, 'promptVia')) {
+    if ((key === 'oneShot' || key === 'mainSession') && Object.hasOwn(entry, 'promptVia')) {
       const count = Array.isArray(entry.argv) ? entry.argv.filter((item: any) => item === '{prompt}').length : 0;
       if (entry.promptVia === 'argv') {
         if (count !== 1) fail(key, "argv must contain the element '{prompt}' exactly once when promptVia is argv");

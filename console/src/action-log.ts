@@ -32,8 +32,10 @@
 //   log.writeLine(text)           -> the low-level write: one line of at most 2048 bytes, rotation included
 //   log.pid                       -> this process's id, also on every line next to the per-process `seq`
 // `fields` (all optional): id, actor { kind, deviceId, scope, transport }, address, action, project,
-// target { slug, taskId, gateId, runId }, expect { revision }, input { decision, textChars }, outcome, code,
-// current { state, revision }, exit, ms. An enum field with a value outside its set is a programming error and
+// target { slug, taskId, gateId, runId, worktreeKey, harness, model }, expect { revision }, input { decision, textChars, entry },
+// outcome, code, current { state, revision }, exit, ms. 165 FR-010: a start's line has the worktree key, the harness, the model
+// (its id by the runner's model rule, up to 128 characters, or `default`), the entry, the prompt's length as `textChars` (never its
+// text) and, on `end`, the started run's id as `target.runId`. An enum field with a value outside its set is a programming error and
 // rejects with reason `invalid-field`. A target's slug, task id and gate id are kept up to ID_MAX characters, the
 // bound the action routes accept (verb-runner.ts), so every accepted target is recorded (162 review 9); other
 // tokens up to 80. A line with every field at its bound is under LINE_MAX_BYTES.
@@ -67,13 +69,17 @@ const LOCK_FILE = 'actions.lock';
 
 const PHASES = ['begin', 'end', 'summary'] as const;
 /** What a `summary` line counts: a 401, a 429 of the limits, and every refusal before the core (162 review 1), those before an actor exists included. */
-const SUMMARY_CODES = ['unauthenticated', 'rate-limited', 'phone-scope', 'action-transport', 'usage', 'request-reused', 'action-busy', 'forbidden-origin', 'unsupported-media'] as const;
+const SUMMARY_CODES = ['unauthenticated', 'rate-limited', 'phone-scope', 'action-transport', 'usage', 'request-reused', 'action-busy', 'forbidden-origin', 'unsupported-media',
+  // 165: a start-session body's prompt refusals and the start limit, refused before the core like `usage`.
+  'prompt-empty', 'prompt-too-long', 'start-rate-limited'] as const;
 /** The refusals before an actor exists: one reserved bucket each a minute, key and actor fixed, outside MAX_BUCKETS (162 review A-2). */
 const PRE_ACTOR_CODES: readonly string[] = ['forbidden-origin', 'unsupported-media'];
 const KINDS = ['local', 'device', 'unknown', 'none'] as const;
 const SCOPES = ['local', 'view', 'control'] as const;
 const TRANSPORTS = ['loopback', 'native', 'browser'] as const;
 const OUTCOMES = ['applied', 'refused', 'failed', 'unknown', 'replayed'] as const;
+/** 165 IC-001: a start's entry (verb-runner.ts PATTERNS.entry). */
+const ENTRIES = ['do', 'none'] as const;
 
 type Phase = typeof PHASES[number];
 type SummaryCode = typeof SUMMARY_CODES[number];
@@ -82,9 +88,9 @@ type Fields = {
   id?: string | null,
   actor?: { kind?: string, deviceId?: string | null, scope?: string | null, transport?: string | null },
   address?: string | null, action?: string | null, project?: string | null,
-  target?: { slug?: string | null, taskId?: string | null, gateId?: string | null, runId?: string | null },
+  target?: { slug?: string | null, taskId?: string | null, gateId?: string | null, runId?: string | null, worktreeKey?: string | null, harness?: string | null, model?: string | null },
   expect?: { revision?: number | null },
-  input?: { decision?: string | null, textChars?: number | null },
+  input?: { decision?: string | null, textChars?: number | null, entry?: string | null },
   outcome?: string | null, code?: string | null,
   current?: { state?: string | null, revision?: number | null },
   exit?: number | null, ms?: number | null,
@@ -108,6 +114,8 @@ const token = (value: unknown): string | null => (typeof value === 'string' && T
 /** A target id, by the action routes' own rule and bound. */
 const targetId = (value: unknown): string | null => (typeof value === 'string' && value.length <= ID_MAX && PATTERNS.id.test(value) ? value : null);
 const address = (value: unknown): string | null => (typeof value === 'string' && ADDRESS.test(value) ? value : null);
+/** 165: a value by one of the runner's patterns (key16, harness, model: each bounded by its own rule), else null. */
+const patterned = (pattern: keyof typeof PATTERNS, value: unknown): string | null => (typeof value === 'string' && PATTERNS[pattern].test(value) ? value : null);
 const integer = (value: unknown): number | null => (Number.isSafeInteger(value) ? (value as number) : null);
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -146,9 +154,10 @@ function buildLine(phase: Phase, fields: Fields, at: number, pid: number, count:
     address: address(f.address),
     action: token(f.action),
     project: token(f.project),
-    target: { slug: targetId(target.slug), taskId: targetId(target.taskId), gateId: targetId(target.gateId), runId: token(target.runId) },
+    target: { slug: targetId(target.slug), taskId: targetId(target.taskId), gateId: targetId(target.gateId), runId: token(target.runId),
+      worktreeKey: patterned('key16', target.worktreeKey), harness: patterned('harness', target.harness), model: patterned('model', target.model) },
     expect: { revision: integer(expect.revision) },
-    input: { decision: token(input.decision), textChars: integer(input.textChars) },
+    input: { decision: token(input.decision), textChars: integer(input.textChars), entry: member('input.entry', input.entry, ENTRIES) },
     outcome: member('outcome', f.outcome, OUTCOMES),
     code: token(f.code),
     current: { state: token(current.state), revision: integer(current.revision) },

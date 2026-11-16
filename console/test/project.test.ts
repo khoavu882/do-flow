@@ -991,8 +991,9 @@ test('150 worker closed sets match the core source', () => {
   // Isolation reasons: the `[status, reason]` pairs of isolationOf.
   const isolation = between(supervisor, 'function isolationOf', 'function ');
   assert.deepEqual(sorted(CLOSED_SETS.isolationReasons), union([...isolation.matchAll(/\['[a-z]+', '([a-z-]+)'\]/g)].map((m) => m[1])));
-  // Process kinds: every `kind: '...'` the supervisor writes.
-  assert.deepEqual(sorted(CLOSED_SETS.processKinds), union([...supervisor.matchAll(/kind: '([a-z-]+)'/g)].map((m) => m[1])));
+  // Process kinds: every `kind: '...'` the supervisor writes. A comment is no write (165 D1's header names the run kind `main-session`, which is no process kind).
+  const code = supervisor.split('\n').filter((line: string) => !/^\s*\/\//.test(line)).join('\n');
+  assert.deepEqual(sorted(CLOSED_SETS.processKinds), union([...code.matchAll(/kind: '([a-z-]+)'/g)].map((m) => m[1])));
 
   // Report statuses, src/runtime/worker/parsers/common.ts:16 (the Report type's status union).
   const reportStatus = between(read('parsers/common.ts'), 'export type Report', '};').match(/status: ((?:'[a-z-]+'(?: \| )?)+);/);
@@ -1048,6 +1049,98 @@ test('tree: a harness outside the registry is (other); an unknown model is withh
   assert.equal(body.nodes[1].model, WITHHELD);
   assert.deepEqual(body.nodes[1].ended, { at: '2026-10-26T09:50:00.000Z', result: 'exited' });
   assert.deepEqual(body.edges, [{ from: AGENT_A, to: AGENT_B, basis: 'worker-caller' }]);
+});
+
+const START_NODE = {
+  agentKey: AGENT_B, kind: 'started-session', harness: 'claude', model: 'claude-opus-5-5', modelBasis: 'start-record', label: null, depth: 0, worktreeKey: KEY_MAIN,
+  runId: 'w-0123456789ab', startedBy: 'device.d-0123456789ab', phase: 'running', end: null, fileKeys: { out: '1111222233334444', err: '5555666677778888' },
+  observed: { state: 'not-observed', reason: 'not-yet-observed' },
+  startedAt: '2026-11-15T10:00:00.000Z', contextCapturedAt: null, lastRecordAt: '2026-11-15T10:00:00.000Z', liveness: 'process-seen', ended: null,
+  transcript: { reader: null, linked: false, reason: 'no-reader' },
+};
+
+test('165 F1 tree: a started-session node projects with its start facts, and a main-session node still carries none of them', () => {
+  const raw = fixture('tree');
+  raw.nodes.push(clone(START_NODE), { ...clone(START_NODE), agentKey: AGENT_A.replace('a', 'b'), contextCapturedAt: '2026-11-15T10:00:05.000Z',
+    observed: { state: 'observed', sessionKey: 'a1b2c3d4e5f60718', model: 'claude-opus-5-5', lastSeenAt: '2026-11-15T10:01:00.000Z', cwd: `/tmp/${MARKER}` }, pid: 4242 });
+  const result = project('tree', raw);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  const [main, , notYet, joined] = result.body.nodes;
+  assert.equal(Object.hasOwn(main, 'startedBy'), false);
+  assert.deepEqual([notYet.kind, notYet.modelBasis, notYet.startedBy, notYet.phase, notYet.fileKeys, notYet.observed],
+    ['started-session', 'start-record', 'device.d-0123456789ab', 'running', { out: '1111222233334444', err: '5555666677778888' }, { state: 'not-observed', reason: 'not-yet-observed' }]);
+  assert.deepEqual(joined.observed, { state: 'observed', sessionKey: 'a1b2c3d4e5f60718', model: 'claude-opus-5-5', lastSeenAt: '2026-11-15T10:01:00.000Z' });
+  assert.equal(joined.contextCapturedAt, '2026-11-15T10:00:05.000Z');
+  assert.equal(JSON.stringify(result.body).includes(MARKER), false, 'nothing outside the listed fields leaves');
+  assert.deepEqual([notYet.runId, notYet.end], ['w-0123456789ab', null]);
+  assert.equal(Object.hasOwn(main, 'runId') || Object.hasOwn(main, 'end'), false);
+  // 165 F2: the end of a started run: the state from a closed set, the exit code, a bounded reason id.
+  for (const end of [{ state: 'exited', exitCode: 0, reason: null }, { state: 'exited', exitCode: 3, reason: null }, { state: 'cancelled', exitCode: null, reason: null },
+    { state: 'timed-out', exitCode: null, reason: null }, { state: 'exited', exitCode: null, reason: 'prompt-unwritable' }]) {
+    const ended = fixture('tree');
+    ended.nodes.push({ ...clone(START_NODE), phase: 'ended', end, pid: 7 });
+    assert.deepEqual(project('tree', ended).body.nodes[2].end, end);
+  }
+  // A started-session node lacking one of its facts, or holding one outside its set, is no partial body.
+  for (const [name, bad] of [['runId', undefined], ['runId', 'w-xyz'], ['runId', '../../etc'], ['end', undefined], ['end', { state: 'paused', exitCode: null, reason: null }], ['end', { state: 'exited', exitCode: 'x', reason: null }],
+    ['end', { state: 'exited', exitCode: -1, reason: null }], ['end', { state: 'exited', exitCode: null, reason: '/etc/passwd' }], ['startedBy', undefined], ['phase', 'paused'], ['fileKeys', { out: 'x', err: 'y' }], ['observed', { state: 'seen' }], ['observed', { state: 'not-observed' }]] as Array<[string, unknown]>) {
+    const broken = fixture('tree');
+    broken.nodes.push({ ...clone(START_NODE), [name]: bad });
+    assert.deepEqual(project('tree', broken), MISMATCH, `${name}=${JSON.stringify(bad)}`);
+  }
+});
+
+const START_OPTIONS_BODY = {
+  project: { projectKey: KEY_MAIN, label: 'alpha', root: null },
+  checkouts: [{ worktreeKey: KEY_MAIN, label: 'alpha', branch: 'main', main: true, busy: null, observedSession: { harness: 'claude', lastSeenAt: '2026-11-15T09:00:00.000Z' } },
+    { worktreeKey: KEY_LINKED, label: 'alpha-fix', branch: null, main: false, busy: { runId: RUN_A }, observedSession: null }],
+  harnesses: [
+    { harness: 'claude', startable: true, reason: null, words: 'claude can start a session here', warnings: ['runnable-not-checked'],
+      login: { state: 'logged-in', checkedAt: '2026-11-15T09:00:00.000Z' }, version: '2.1.0', liveVerified: false, models: [{ id: 'claude-opus-5-5', source: 'frontier' }, { id: null, source: 'default' }] },
+    { harness: 'copilot', startable: false, reason: 'no-main-session-shape', words: 'DoFlow has no recorded headless way to start copilot', warnings: [],
+      login: null, version: null, liveVerified: false, models: [{ id: null, source: 'default' }] },
+  ],
+  limits: { perCheckout: 1, perActor: 2, machine: 4, perActorPerHour: 6 },
+  open: { machine: 1 }, dispatch: { running: true, slug: 'feat-a' }, promptMax: { codePoints: 8000, bytes: 32768 },
+  entries: ['do', 'none'], entryLine: 'Use the DoFlow do skill for this request:',
+};
+
+test('165 F1 start-options: IC-002 projects through PROJECTORS with the key asked for; the key, a root, a bound or a field outside its set is core-contract-mismatch', () => {
+  const ask = (raw: unknown, projectKey = KEY_MAIN) => project('start-options', raw, { projectKey });
+  const ok = ask({ ...clone(START_OPTIONS_BODY), extra: MARKER });
+  assert.equal(ok.ok, true, JSON.stringify(ok));
+  assert.deepEqual(ok.body, START_OPTIONS_BODY, 'the same body, nothing added, nothing outside it');
+  const planted = clone(START_OPTIONS_BODY) as any;
+  planted.checkouts[0].label = '/Users/someone/code';
+  planted.harnesses[0].words = 'log in at ~/secret/path first';
+  planted.harnesses[0].version = 'not a version!';
+  const withheld = ask(planted).body;
+  assert.deepEqual([withheld.checkouts[0].label, withheld.harnesses[0].words, withheld.harnesses[0].version], [WITHHELD, WITHHELD, null]);
+  assert.deepEqual(ask(START_OPTIONS_BODY, KEY_LINKED), MISMATCH, 'another project key than the one asked for');
+  const mutate = (edit: (b: any) => void) => { const b = clone(START_OPTIONS_BODY) as any; edit(b); return ask(b); };
+  assert.deepEqual(mutate((b) => { b.project.root = '/tmp/x'; }), MISMATCH);
+  assert.deepEqual(mutate((b) => { b.harnesses[0].reason = 'because'; }), MISMATCH);
+  assert.deepEqual(mutate((b) => { b.harnesses[0].models.push(...Array.from({ length: 50 }, () => ({ id: null, source: 'default' }))); }), MISMATCH);
+  assert.deepEqual(mutate((b) => { b.entries = ['do', 'auto']; }), MISMATCH);
+  assert.deepEqual(mutate((b) => { delete b.limits; }), MISMATCH);
+  assert.throws(() => project('start-options', START_OPTIONS_BODY), /project key/);
+  // 165 review B-8: liveVerified is a boolean; a core before it sends none, which reads null (unknown), never true.
+  assert.equal(mutate((b) => { b.harnesses[0].liveVerified = true; }).body.harnesses[0].liveVerified, true);
+  assert.equal(mutate((b) => { delete b.harnesses[0].liveVerified; }).body.harnesses[0].liveVerified, null);
+  assert.deepEqual(mutate((b) => { b.harnesses[0].liveVerified = 'yes'; }), MISMATCH);
+  // 165 review A-3: dispatch records that cannot be read are a running dispatch with no slug and the core's reason.
+  const unreadable = mutate((b) => { b.dispatch = { running: true, slug: null, reason: 'dispatch-unreadable' }; });
+  assert.deepEqual(unreadable.body.dispatch, { running: true, slug: null, reason: 'dispatch-unreadable' });
+  assert.deepEqual(mutate((b) => { b.dispatch = { running: true, slug: null, reason: '../x' }; }), MISMATCH);
+  // 165 review A-2: a package worker's qualified id is a harness like any other; it does not turn the whole answer into a mismatch.
+  const pkg = mutate((b) => {
+    b.harnesses.push({ harness: 'acme.worker', startable: true, reason: null, words: 'acme.worker can start a session here', warnings: [], login: null, version: null, models: [{ id: null, source: 'default' }] },
+      { harness: 'acme.bare', startable: false, reason: 'no-main-session-shape', words: 'DoFlow has no recorded headless way to start acme.bare', warnings: [], login: null, version: null, models: [{ id: null, source: 'default' }] });
+    b.checkouts[0].observedSession.harness = 'acme.worker';
+  });
+  assert.equal(pkg.ok, true, JSON.stringify(pkg));
+  assert.deepEqual(pkg.body.harnesses.map((h: any) => [h.harness, h.startable, h.reason]), [['claude', true, null], ['copilot', false, 'no-main-session-shape'], ['acme.worker', true, null], ['acme.bare', false, 'no-main-session-shape']]);
+  assert.equal(pkg.body.checkouts[0].observedSession.harness, 'acme.worker');
 });
 
 test('transcript: text and args are masked a second time and the cap is re-checked', () => {

@@ -1,6 +1,6 @@
 # DoFlow Console design
 
-Read this before you change `console/web/`. It is the design of record of the Console: a local web UI that is becoming the remote control of DoFlow, read on a phone first and on a desktop second; it reads through the core and, since row 162, relays three decisions to it (decide a gate, close a run, cancel a worker) (plain ES modules, no build step, no runtime dependency, CSP `default-src 'self'`). The shipped truth is `console/web/tokens.css` (tokens, both themes) and `console/web/app.css` (components). The two generated blocks below are rewritten from those files by `node console/scripts/build-design-md.ts --write`, and `console/test/design-md.test.ts` fails when they drift. Everything outside the generated blocks is hand-written; a token or class named in it must exist in the CSS (the test checks it).
+Read this before you change `console/web/`. It is the design of record of the Console: a local web UI that is becoming the remote control of DoFlow, read on a phone first and on a desktop second; it reads through the core and, since rows 162 and 165, relays four decisions to it (decide a gate, close a run, cancel a worker, start a session) (plain ES modules, no build step, no runtime dependency, CSP `default-src 'self'`). The shipped truth is `console/web/tokens.css` (tokens, both themes) and `console/web/app.css` (components). The two generated blocks below are rewritten from those files by `node console/scripts/build-design-md.ts --write`, and `console/test/design-md.test.ts` fails when they drift. Everything outside the generated blocks is hand-written; a token or class named in it must exist in the CSS (the test checks it).
 
 ## Principles
 
@@ -44,10 +44,13 @@ Each line is a choice and the reading it rejected.
 - **Connecting and paused are neutral panels.** Rejected: the failure tint for a stream that has not failed.
 - **Gate cards are compact on a phone** (smaller head and padding; a task id equal to its slug is said once). Rejected: the desktop card at full height, which showed two gates per screen.
 
-### Slot for work not built yet
+### Start a session (row 165)
 
-- **Row 165, start a session.** The entry is the reserved item `.navrail__slot` (`data-slot="start-session"`, hidden until built) between Sessions and Layers: the centre of the tab bar on a phone, a button in the rail above. The flow (project, harness, model, first prompt) is a full view at its own hash, one question per screen on a phone, not a dialog: it has to survive a reload and the back step.
-
+- **The entry** is the item `.navrail__slot` (`data-slot="start-session"`, label "Start", a plus icon) between Sessions and Layers, always shown in `index.html`: a link in the rail at 768 and above, an item in the tab bar below. The slot is not hidden. A device that may not start still opens the page and reads why (below).
+- **One scrolling form page, not a dialog and not one question per screen.** `#/start` is `.start-view` holding `.start`: the project (a select, shown only when more than one project is known), the checkout (radio rows `.start__choice`; a busy checkout is disabled and says why; the main checkout first), the harness (radio rows, none preselected; a startable harness whose main-session shape was not seen on a live run carries the note "not yet verified on a live run"; a harness that cannot start is listed with its reason under "Not available on this machine", `.start__blocked`), the model (a select grouped by where the id comes from, disabled until a harness is chosen), how the session starts ("Start with DoFlow's do skill", the default, or "Send my text only"), the first text with its `n / 8000` count (`.start__count`, `data-over` when too long), one sentence on the harness's permission mode, the limits line, and the Start button (`.start__submit`, full width, disabled with the missing step said beside it). The button opens the confirmation dialog of feature 162, which names the harness, model, checkout and project; nothing starts before it is confirmed. Rejected: a dialog (it does not survive a reload or the back step) and one question per screen on a phone: that idea is not done and no row promises it.
+- **After the confirmation the page follows the session** in `.start__flow`, whose `data-state` is one of form, starting, running, streaming, ended, refused or unknown. The output is two panes (`.start__tail`, the last 200 lines of the session's `file:` lanes, masked); a Stop session button asks the same dialog; "Open it in Layers" links to the session's agent page; "Start another" returns to the form after an end. A refusal says its reason in words and states that nothing was started (`.start__refusal`). After a lost reply the state is "unknown": it says there was no answer and to check Sessions, and starting again sends the same request id, which the core starts once.
+- **A device that may not start** (a view device) gets `.start__viewonly`: one sentence and the terminal command, no form and no button.
+- **Where else it shows.** Sessions lists "Sessions started in this project" (`.started-here`): the open ones and the newest ended ones, at most 8, newest first, each with who started it (`console`, a paired device's relay label such as `device.d-0123456789ab`, or `terminal` for a start typed in a terminal), its phase or how it ended and when, and its Layers link; the empty words show only when the project has no started session at all, and Layers shows the one `started-session` node; its inspector pane `.started` (`.started__facts`, `.started__acts`) has the facts, the Stop control and the same output panes. Words follow the rest of the Console: "process seen", never "active" or "live".
 
 ## Tokens
 
@@ -271,9 +274,10 @@ Generated list of the top-level class blocks in `app.css` (elements are `block__
 `.rail-note`, `.rail-scroll`, `.reltime`, `.replay`, `.replay-host`, `.run-head`, `.run-list`
 `.run-rail`, `.run-row`, `.run-section`, `.sbar`, `.segmented`, `.sessions`, `.sfilter`, `.sfoot`
 `.sgroup`, `.shape`, `.shell`, `.shold`, `.site-header`, `.skel`, `.skeleton`, `.skip`, `.slane`
-`.slane-children`, `.snote`, `.spanel`, `.srow`, `.srows`, `.state-panel`, `.stream`, `.summary`
-`.tag`, `.theme`, `.tile`, `.timeline`, `.tl`, `.tl-item`, `.tl-list`, `.ttable`, `.vh`
-`.view-enter`, `.view-head`, `.view-note`, `.view-title`, `.wf`, `.wf-list`, `.wtabs`
+`.slane-children`, `.snote`, `.spanel`, `.srow`, `.srows`, `.start`, `.start-view`, `.started`
+`.started-here`, `.state-panel`, `.stream`, `.summary`, `.tag`, `.theme`, `.tile`, `.timeline`
+`.tl`, `.tl-item`, `.tl-list`, `.ttable`, `.vh`, `.view-enter`, `.view-head`, `.view-note`
+`.view-title`, `.wf`, `.wf-list`, `.wtabs`
 <!-- /generated -->
 
 What an agent most often touches:

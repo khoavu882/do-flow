@@ -5,7 +5,8 @@
 // `POST /api/session`, the launch-code exchange (092 IC-011), in loopback mode and `POST /api/pair`
 // (device-auth.ts, 160 IC-006) in LAN mode, and in both modes the action routes `POST /api/actions/<id>`
 // (actions.ts, 162 IC-002; `action: true`: the wrappers log their refusals through the route's own `refused`
-// and `unauthenticated`), and the one stream route is
+// and `unauthenticated`; 165 adds `start-session`, and the start form's two reads `GET /api/start` and `GET /api/start/options`,
+// which scopes.ts gives to `control` only), and the one stream route is
 // `GET /api/live` (`stream: true`: the handler writes to `ctx.res` over time and
 // returns null once it has taken the response over; before that it may still return an error Reply). `buildRoutes` puts every
 // other /api route behind the session check (loopback) or the paired-device check and the scope list of
@@ -709,6 +710,39 @@ const sessionsHistoryRoute = (runner: Runner, anchors: Anchors): Route['handler'
   return history.ok ? jsonReply(200, history.body) : history.reply;
 };
 
+// ---- 165 D7, IC-002: the start form's reads, GET /api/start and GET /api/start/options (scopes.ts: control and local only) ----
+
+/** `GET /api/start`: the projects a session can start in, by key and label (and the Console's own as `current`); never a root. */
+const startProjectsRoute = (runner: Runner): Route['handler'] => async (ctx) => {
+  if (queryOf(ctx.req, []) === null) return errorReply(400, 'usage');
+  const list = await read(runner, 'projects', {});
+  if (!list.ok) return list.reply;
+  const projects = list.body.projects.map((entry: any) => ({ projectKey: entry.projectKey, label: entry.label, current: entry.current }));
+  return jsonReply(200, { v: 1, projects, truncated: list.body.truncated });
+};
+
+/**
+ * `GET /api/start/options?projectKey=K`: IC-002 for one project, through `start-options` (scoped: run in that project's root). A
+ * key the runner's map lacks refreshes `projects` once, past its cache (as an action does), before 404 project-not-found. An older
+ * core is 501 core-lacks-verb: a reply naming an unknown flag, or `usage` to a query whose one parameter the runner checked.
+ */
+const startOptionsRoute = (runner: Runner): Route['handler'] => async (ctx) => {
+  const query = queryOf(ctx.req, ['projectKey']);
+  const projectKey = query?.get('projectKey');
+  if (projectKey === undefined || !PATTERNS.key16.test(projectKey)) return errorReply(400, 'usage');
+  let result = await runner.run('start-options', { projectKey });
+  if (!result.ok && result.code === 'project-not-found') {
+    await runner.run('projects', {}, { fresh: true });
+    result = await runner.run('start-options', { projectKey });
+  }
+  if (!result.ok) {
+    if (result.code === 'core-error' && result.exit === 2 && result.errorId === 'usage') return errorReply(501, 'core-lacks-verb', 'start-options', null);
+    return failureReply('start-options', result);
+  }
+  const projected = project('start-options', result.json, { projectKey });
+  return projected.ok ? jsonReply(200, { v: 1, ...projected.body }) : errorReply(502, 'core-contract-mismatch', 'start-options', 0);
+};
+
 /**
  * The Console's table (IC-005) over `runner`: every /api route but the exchange is behind the session
  * check (buildRoutes), every one is GET but the action routes of `actions` (actions.ts, 162 IC-002: one
@@ -745,6 +779,8 @@ function consoleRoutes(runner: Runner, access: any = processSessions, live: Live
     { method: 'GET', path: '/api/storage', handler: storageRoute(runner, anchors) },
     { method: 'GET', path: '/api/sessions-history', handler: sessionsHistoryRoute(runner, anchors) },
     { method: 'GET', path: '/api/live', stream: true, handler: liveRoute(live, streamCap) },
+    { method: 'GET', path: '/api/start', handler: startProjectsRoute(runner) },
+    { method: 'GET', path: '/api/start/options', handler: startOptionsRoute(runner) },
     ...actionRoutes,
     staticFallback,
   ]);

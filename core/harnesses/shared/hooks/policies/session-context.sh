@@ -198,6 +198,11 @@ fi
 
 # ── Write git-context.json ────────────────────────────────────────────────────
 
+# 165 C-7: a session the Console started carries its worker run id in DOFLOW_STARTED_RUN; the tree joins
+# the started run and this session on it. Only the run id's exact shape is recorded; any other value is ignored.
+STARTED_RUN=""
+if [[ "${DOFLOW_STARTED_RUN:-}" =~ ^w-[0123456789abcdef]{12}$ ]]; then STARTED_RUN=$DOFLOW_STARTED_RUN; fi
+
 # Use jq -n for full construction — avoids heredoc variable interpolation
 # which can produce invalid JSON if numeric fields contain unexpected output.
 jq -n \
@@ -210,6 +215,7 @@ jq -n \
   --argjson is_git       "$IS_GIT_REPO" \
   --arg     cwd          "$CWD" \
   --arg     captured_at  "$TIMESTAMP" \
+  --arg     started_run  "$STARTED_RUN" \
   '{
     branch:           $branch,
     sha:              $sha,
@@ -220,7 +226,7 @@ jq -n \
     is_git_repo:      $is_git,
     cwd:              $cwd,
     captured_at:      $captured_at
-  }' > "$SESSION_PATH/git-context.json"
+  } + (if $started_run == "" then {} else {started_run: $started_run} end)' > "$SESSION_PATH/git-context.json"
 
 # ── Write meta.json ───────────────────────────────────────────────────────────
 

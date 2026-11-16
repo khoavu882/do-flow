@@ -5,7 +5,8 @@
 //
 //   projects  the `fleet --action projects` body without `root`, from the child's project index
 //   activity  for the first ACTIVITY_PROJECTS projects in `projects` order: open and awaiting
-//             orchestration runs, the newest awaiting gates, open worker runs, observed sessions
+//             orchestration runs, the newest awaiting gates, open worker runs, started sessions (open, then the newest ended)
+//             (165: the newest 8 and a count), observed sessions
 //             and their harnesses, and the stores that failed to read
 //
 // Live from watch events and the 1 s pass: the index sources mark both sections, each shown
@@ -36,6 +37,8 @@ type SectionResult = { exit: number; json: any };
 /** IC-002, IC-008: the projects `activity` summarizes, and the awaiting gates listed per project. */
 const ACTIVITY_PROJECTS = 16;
 const GATE_LIMIT = 8;
+/** 165 D8: the started sessions listed per project. */
+const STARTED_LIMIT = 8;
 /** At most one `activity` recompute per this many ms (leading and trailing, detector.ts). */
 const ACTIVITY_THROTTLE_MS = 1000;
 
@@ -99,19 +102,39 @@ function orchestrationActivity(entry: { main: string; checkouts: string[] }): { 
   return { runs, gates: gates.slice(0, GATE_LIMIT), unreadable };
 }
 
-/** Worker runs whose phase is not `ended`, over the project's worker-run store (the lifecycle root is the main checkout). */
-function workerActivity(main: string): { open: number; unreadable: boolean } {
+/**
+ * Worker runs whose phase is not `ended`, over the project's worker-run store (the lifecycle root is the main checkout).
+ * 165 D8: a run of kind `main-session` is a started session, not a worker run, and is never in `open`. 165 review B-4: the
+ * started list is every open one and then the newest ended ones (by `createdAt`) up to STARTED_LIMIT, newest `createdAt` first
+ * (then run id), each with `end` (`{state, at}`, null while open); `startedCount` counts every started session the store holds.
+ */
+function workerActivity(main: string): { open: number; started: any[]; startedCount: number; unreadable: boolean } {
   const dir = path.join(main, '.doflow', 'state', 'worker-runs');
   let names: string[];
-  try { names = fs.readdirSync(dir).filter((name: string) => JSON_RECORD.test(name) && isSafeSlug(name.slice(0, -'.json'.length))).sort(); } catch { return { open: 0, unreadable: false }; }
+  try { names = fs.readdirSync(dir).filter((name: string) => JSON_RECORD.test(name) && isSafeSlug(name.slice(0, -'.json'.length))).sort(); } catch { return { open: 0, started: [], startedCount: 0, unreadable: false }; }
   let open = 0;
   let unreadable = false;
+  const live: any[] = [];
+  const ended: any[] = [];
   for (const name of names) {
     try {
-      for (const run of Object.values(readRuns(path.join(dir, name))) as any[]) if (run && run.phase !== 'ended') open += 1;
+      for (const run of Object.values(readRuns(path.join(dir, name))) as any[]) {
+        if (!run) continue;
+        const done = run.phase === 'ended';
+        if (run.kind !== 'main-session') { if (!done) open += 1; continue; }
+        const end = done && run.end && typeof run.end.state === 'string' ? { state: run.end.state, at: isoOrNull(run.end.at) } : null;
+        (done ? ended : live).push({
+          runId: run.runId ?? null, harness: run.harness ?? null, model: run.binding?.model ?? null, phase: run.phase, startedBy: run.startedBy ?? null,
+          worktreeKey: run.project?.worktreeKey ?? null, createdAt: isoOrNull(run.createdAt), end,
+        });
+      }
     } catch { unreadable = true; }
   }
-  return { open, unreadable };
+  const time = (r: any) => (r.createdAt === null ? -Infinity : Date.parse(r.createdAt));
+  const newest = (a: any, b: any) => time(b) - time(a) || (a.runId < b.runId ? -1 : a.runId > b.runId ? 1 : 0);
+  const kept = live.sort(newest).slice(0, STARTED_LIMIT);
+  const started = [...kept, ...ended.sort(newest).slice(0, STARTED_LIMIT - kept.length)].sort(newest);
+  return { open, started, startedCount: live.length + ended.length, unreadable };
 }
 
 /** `primary --action observed`'s sessions of the project, with the checkout list replayed from the index. */
@@ -171,6 +194,8 @@ function machineSpec(ctx: MachineContext): any {
         runs: orchestration.runs,
         gates: orchestration.gates,
         workers: { open: workers.open },
+        started: workers.started,
+        startedCount: workers.startedCount,
         sessions: { observed: sessions.observed, harnesses: sessions.harnesses },
         unreadable,
       };
@@ -209,4 +234,4 @@ function machineSpec(ctx: MachineContext): any {
   };
 }
 
-module.exports = { machineSpec, ACTIVITY_PROJECTS, GATE_LIMIT, ACTIVITY_THROTTLE_MS, SECTIONS };
+module.exports = { machineSpec, ACTIVITY_PROJECTS, GATE_LIMIT, STARTED_LIMIT, ACTIVITY_THROTTLE_MS, SECTIONS };

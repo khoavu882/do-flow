@@ -46,6 +46,39 @@ test('162 IC-006: the machine activity gate carries the run revision, null when 
   assert.deepEqual(activityOf([{ ...awaiting, revision: -2 }]), { ok: false, code: 'core-contract-mismatch' });
 });
 
+test('165 F1: the machine activity item carries the started sessions (at most 8, the seven item keys) and their count; an older core that sent none reads null, never zero', () => {
+  const started = (n: number) => ({ runId: `w-00000000000${n}`, harness: 'claude', model: n === 0 ? null : 'claude-opus-5-5', phase: 'running', startedBy: n === 1 ? 'device.d-0123456789ab' : 'console',
+    worktreeKey: WK, createdAt: '2026-11-15T10:00:00.000Z', prompt: 'planted prompt', pid: 4242 });
+  const itemOf = (extra: Record<string, unknown>) => (composeMachine(new Map([['activity', { exit: 0, json: { v: 1, limits: { projects: 1, notShown: 0, watched: 1, fingerprintOnly: 0 },
+    items: [{ ...activityItem([]), ...extra }] } }]])) as any).body.sections.activity;
+  const kept = itemOf({ started: [started(0), started(1)], startedCount: 11 });
+  assert.equal(kept.ok, true, JSON.stringify(kept));
+  const item = kept.data.items[0];
+  assert.equal(item.startedCount, 11);
+  assert.deepEqual(Object.keys(item.started[0]).sort(), ['createdAt', 'end', 'harness', 'model', 'phase', 'runId', 'startedBy', 'worktreeKey']);
+  assert.equal(item.started[0].end, null, 'a core before 165 review B-4 sends no end: null');
+  assert.deepEqual(item.started.map((s: any) => [s.runId, s.model, s.startedBy]), [['w-000000000000', null, 'console'], ['w-000000000001', 'claude-opus-5-5', 'device.d-0123456789ab']]);
+  assert.equal(JSON.stringify(item).includes('planted'), false);
+  assert.deepEqual([itemOf({}).data.items[0].started, itemOf({}).data.items[0].startedCount], [null, null]);
+  assert.equal(itemOf({ started: Array.from({ length: 8 }, (_, n) => started(n)), startedCount: 8 }).ok, true);
+  for (const bad of [{ started: Array.from({ length: 9 }, (_, n) => started(n)), startedCount: 9 }, { started: [{ ...started(0), phase: 'paused' }], startedCount: 1 }, { started: [{ ...started(0), runId: 'x' }], startedCount: 1 },
+    { started: [started(0)], startedCount: -1 }, { started: [started(0)], startedCount: 1.5 }]) {
+    assert.deepEqual(itemOf(bad), { ok: false, code: 'core-contract-mismatch' }, JSON.stringify(bad).slice(0, 80));
+  }
+});
+
+test('165 review B-4: a started session of the machine list carries its end, { state, at } of the closed end states, null while open', () => {
+  const started = (over: Record<string, unknown>) => ({ runId: 'w-000000000001', harness: 'codex', model: null, phase: 'ended', startedBy: 'manual', worktreeKey: WK, createdAt: '2026-11-15T10:00:00.000Z', ...over });
+  const itemOf = (list: unknown[]) => (composeMachine(new Map([['activity', { exit: 0, json: { v: 1, limits: { projects: 1, notShown: 0, watched: 1, fingerprintOnly: 0 },
+    items: [{ ...activityItem([]), started: list, startedCount: list.length }] } }]])) as any).body.sections.activity;
+  const kept = itemOf([started({ end: { state: 'cancelled', at: '2026-11-15T10:05:00.000Z', reason: 'planted' } }), started({ runId: 'w-000000000002', phase: 'running', end: null })]);
+  assert.equal(kept.ok, true, JSON.stringify(kept));
+  assert.deepEqual(kept.data.items[0].started.map((s: any) => s.end), [{ state: 'cancelled', at: '2026-11-15T10:05:00.000Z' }, null]);
+  for (const end of [{ state: 'paused', at: null }, { state: 'exited', at: 'yesterday' }, 'exited']) {
+    assert.deepEqual(itemOf([started({ end })]), { ok: false, code: 'core-contract-mismatch' }, JSON.stringify(end));
+  }
+});
+
 const reviewsOf = async (rows: unknown[]) => ((await composeLayers(WK, new Map([['reviews', { exit: 0, json: rows }]]), async () => ({ ok: false }))) as any).body.sections.reviews;
 
 test('161 review C: an unreadable review keeps the core\'s reason (too-large); other rows carry none', async () => {

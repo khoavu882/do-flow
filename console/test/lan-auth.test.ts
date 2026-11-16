@@ -28,10 +28,12 @@ const json = (reply: { body: string }) => JSON.parse(reply.body);
 const FOUR = ['/api/info', '/api/runs', '/api/runs/:slug/:taskId', '/api/workflows'];
 const ADDED_161 = ['/api/live', '/api/sessions', '/api/worker-runs/:slug', '/api/worker-runs/:slug/:runId/result', '/api/worker-runs/:slug/:runId/status',
   '/api/worker-runs/:slug/:runId/log', '/api/worker-runs/:slug/:runId/transcript'];
-// 162 IC-007: both scopes read what they may do; `control` alone lists the three action routes.
+// 162 IC-007: both scopes read what they may do; `control` alone lists the action routes.
 const ADDED_162 = ['/api/actions'];
 const READS = [...FOUR, ...ADDED_161, ...ADDED_162];
-const ACTION_ROUTES = ['/api/actions/decide-gate', '/api/actions/close-run', '/api/actions/cancel-worker'];
+const ACTION_ROUTES = ['/api/actions/decide-gate', '/api/actions/close-run', '/api/actions/cancel-worker', '/api/actions/start-session'];
+// 165 D7: the two reads of the start form are control-only (and local), so a view device does not see them.
+const START_READS = ['/api/start', '/api/start/options'];
 // The removed Fleet paths stay refused even on a table that still had them; so does every management route.
 const OTHERS = ['/api/fleet', '/api/transcript', '/api/stream', '/api/settings', '/api/sessions-history', '/api/workers', '/api/doctor', '/api/followups', '/api/added-later'];
 const probe = (routePath: string) => ({ method: 'GET', path: routePath, handler: (ctx: any) => jsonReply(200, { ran: routePath, session: ctx.session }) });
@@ -207,12 +209,12 @@ test('the REAL route table: every /api route that is not in the device list is r
   const apiRoutes = table.filter((route: any) => isApiPath(route.path) && route.path !== '/api/pair');
   assert.ok(apiRoutes.length >= 15, `the table has ${apiRoutes.length} /api routes`);
   assert.deepEqual(apiRoutes.filter((route: any) => route.method !== 'GET').map((route: any) => `${route.method} ${route.path}`), ACTION_ROUTES.map((p) => `POST ${p}`),
-    'every /api route but the pairing exchange and the three action routes is a GET');
+    'every /api route but the pairing exchange and the four action routes is a GET');
   assert.ok(apiRoutes.filter((route: any) => route.method !== 'GET').every((route: any) => route.action === true), 'each action route is declared action: true');
   const allowed = apiRoutes.filter((route: any) => deviceMayUse('view', route.method, route.path)).map((route: any) => route.path).sort();
   assert.deepEqual(allowed, [...READS].sort(), 'the device list names routes the table really has, and nothing else');
   const controlOnly = apiRoutes.filter((route: any) => deviceMayUse('control', route.method, route.path) && !deviceMayUse('view', route.method, route.path));
-  assert.deepEqual(controlOnly.map((route: any) => `${route.method} ${route.path}`), ACTION_ROUTES.map((p) => `POST ${p}`));
+  assert.deepEqual(controlOnly.map((route: any) => `${route.method} ${route.path}`), [...START_READS.map((p) => `GET ${p}`), ...ACTION_ROUTES.map((p) => `POST ${p}`)]);
   const refused = apiRoutes.filter((route: any) => !deviceMayUse('view', route.method, route.path)).map((route: any) => route.path);
   for (const management of ['/api/settings', '/api/doctor', '/api/storage', '/api/workers', '/api/followups', '/api/advice', '/api/sessions-history']) {
     assert.ok(refused.includes(management), `${management} stays off the device list`);
@@ -320,7 +322,7 @@ test('past the certificate end date every device request and the pairing exchang
 test('the scope list is frozen, names the device reads for both scopes and the action routes for control only, and refuses an unknown scope or another write', () => {
   assert.ok(Object.isFrozen(DEVICE_ROUTES) && Object.isFrozen(DEVICE_ROUTES.view) && Object.isFrozen(DEVICE_ROUTES.control) && Object.isFrozen(ACTION_IDS));
   assert.deepEqual([...DEVICE_ROUTES.view].sort(), READS.map((p) => `GET ${p}`).sort());
-  assert.deepEqual([...DEVICE_ROUTES.control], [...DEVICE_ROUTES.view, ...ACTION_ROUTES.map((p) => `POST ${p}`)]);
+  assert.deepEqual([...DEVICE_ROUTES.control], [...DEVICE_ROUTES.view, ...START_READS.map((p) => `GET ${p}`), ...ACTION_ROUTES.map((p) => `POST ${p}`)]);
   for (const routePath of ACTION_ROUTES) {
     assert.equal(deviceMayUse('control', 'POST', routePath), true, routePath);
     assert.equal(deviceMayUse('view', 'POST', routePath), false, routePath);

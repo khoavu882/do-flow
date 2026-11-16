@@ -154,6 +154,7 @@ function hashFor(route) {
   }
   if (id === 'layers') return '#/layers';
   if (id === 'more') return '#/more';
+  if (id === 'start') return '#/start';
   if (id === 'layers-project') {
     // One selection at most: an agent or a file, each a 16-hex key (IC-001).
     if (!KEY16.test(params.project) || (params.agent !== undefined && !KEY16.test(params.agent)) || (params.file !== undefined && !KEY16.test(params.file))) return null;

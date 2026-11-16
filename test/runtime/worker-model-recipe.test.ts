@@ -258,7 +258,8 @@ test('IC-011: antigravity free evidence establishes model only when its help lin
         return { status: 0, stdout: Buffer.from(argv[0] === '--version' ? '1.4.6\n' : help) };
       },
     });
-    assert.deepEqual(calls, [['--version'], ['--help'], ['--help'], ['--help'], ['--help'], ['--help']]);
+    // 165 review B-2 added the widening-flags check: a sixth --help.
+    assert.deepEqual(calls, [['--version'], ['--help'], ['--help'], ['--help'], ['--help'], ['--help'], ['--help']]);
     assert.deepEqual(result.establishes, expected, label);
     const record = JSON.parse(fs.readFileSync(out, 'utf8'));
     assert.equal(record.cliVersion, '1.4.6');

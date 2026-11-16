@@ -22,6 +22,12 @@
 // comparison, the attempt branch and `merge-base --is-ancestor <edit.base> HEAD`, with `readOnly`
 // left null. The attempt worktree's files are not compared: they are the change.
 //
+// A started main session (165 D1, `kind: 'main-session'`) takes one branch at each step: no 080
+// attempt re-check, the prompt read from the `session-prompts` store and checked against the record's
+// sha256, no before or after snapshot (it may change its checkout: that is its work), the launch
+// through `launchMainSession` (D9: no identity, no context emission), and `mainSession.parser`, which
+// may be null: the end state then comes from the exit code alone (design R2).
+//
 // This is the one module under `src/runtime/worker/` that holds a direct fs write call: the output
 // sink's `mkdirSync` and `createWriteStream` (IC-018, IC-027, RK3). Every record write goes through
 // the run store's `transition`.
@@ -33,7 +39,8 @@ const { spawnSync } = require('node:child_process');
 const { readRuns, transition, RUN_ID } = require('./run-store.ts');
 const { readTaskState } = require('../task-state.ts');
 const attempts = require('../task-attempts.ts');
-const { launchWorker } = require('./launch.ts');
+const { launchWorker, launchMainSession } = require('./launch.ts');
+const { readPrompt: readStoredPrompt } = require('./session-prompt.ts');
 const { parserFor } = require('./parsers.ts');
 const worktreeCheck = require('./worktree-check.ts');
 const processTree = require('./process-tree.ts');
@@ -61,6 +68,8 @@ const DEFAULT_TIMEOUT_SECONDS = 1800;
 /** How long the streams may stay open after the worker's exit (a grandchild may hold them). */
 const DRAIN_MS = 500;
 const STREAMS = Object.freeze({ stdout: 'out', stderr: 'err' });
+/** 165 D1: the run kind of a started main session. */
+const MAIN_SESSION = 'main-session';
 /** 082 IC-014: the bound on each attempt-worktree git read, and the variables it drops (081 REPO_ENV). */
 const EDIT_GIT_TIMEOUT_MS = 10000;
 const REPO_ENV = Object.freeze(['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY']);
@@ -297,9 +306,10 @@ function attemptActive(ledger: string, run: any): boolean {
   }
 }
 
-function promptUnchanged(run: any): Buffer | null {
+function promptUnchanged(run: any, root: string): Buffer | null {
   try {
-    const bytes = fs.readFileSync(run.prompt.path);
+    // 165 IC-005: a started session's prompt is in the session-prompts store, named by its run id.
+    const bytes = run.kind === MAIN_SESSION ? Buffer.from(readStoredPrompt(root, run.runId), 'utf8') : fs.readFileSync(run.prompt.path);
     return crypto.createHash('sha256').update(bytes).digest('hex') === run.prompt.sha256 ? bytes : null;
   } catch {
     return null;
@@ -362,10 +372,10 @@ function readLastMessage(parser: any, file: string, stateRoot: string): any {
  */
 async function superviseRun({
   file, runId, env = process.env, cwd = process.cwd(), platform = process.platform, now = () => new Date(),
-  launch = launchWorker, escalate = processTree.escalate, cancel = cancelRun,
+  launch = launchWorker, launchMain = launchMainSession, escalate = processTree.escalate, cancel = cancelRun,
 }: any) {
   const clock = typeof now === 'function' ? now : () => now;
-  const { stateRoot, ledger } = rootsFor(file);
+  const { root, stateRoot, ledger } = rootsFor(file);
   const current = () => readRuns(file)[runId];
   const notStarted = (reason: string) => transition(file, runId, ['starting'], (run: any) => {
     const at = iso(clock);
@@ -377,34 +387,38 @@ async function superviseRun({
   // Step 1: the run, the attempt and the prompt.
   const run = current();
   if (!run || run.phase !== 'starting') return run ?? null;
-  if (!attemptActive(ledger, run)) {
+  const main = run.kind === MAIN_SESSION;
+  if (!main && !attemptActive(ledger, run)) {
     notStarted('attempt-not-active');
     return current();
   }
-  const promptBytes = promptUnchanged(run);
+  const promptBytes = promptUnchanged(run, root);
   if (!promptBytes) {
     notStarted('prompt-changed');
     return current();
   }
 
   // Step 2: the before snapshot; for an edit run the caller checkout and the attempt HEAD (082 IC-014).
-  let before: any;
+  let before: any = null;
   let attemptBefore: any = null;
-  try {
-    before = worktreeCheck.snapshot(run.edit ? run.edit.callerTop : run.execWorktree);
-    if (run.edit) attemptBefore = attemptHead(run.execWorktree, env);
-  } catch {
-    before = null;
-  }
-  if (!before || before.incomplete || (run.edit && !attemptBefore)) {
-    notStarted('snapshot-failed');
-    return current();
+  if (!main) {
+    try {
+      before = worktreeCheck.snapshot(run.edit ? run.edit.callerTop : run.execWorktree);
+      if (run.edit) attemptBefore = attemptHead(run.execWorktree, env);
+    } catch {
+      before = null;
+    }
+    if (!before || before.incomplete || (run.edit && !attemptBefore)) {
+      notStarted('snapshot-failed');
+      return current();
+    }
   }
 
   // Step 3: `launchingAt`, then the launch. A refused transition means a cancel took the run.
   const marked = transition(file, runId, ['starting'], (r: any) => { r.launchingAt = iso(clock); });
   if (!marked.applied) return current();
-  const usesLastMessageFile = run.descriptor?.structuredOutput?.argv?.includes('{lastMessageFile}') === true;
+  const outputArgv = main ? run.descriptor?.mainSession?.argv : run.descriptor?.structuredOutput?.argv;
+  const usesLastMessageFile = Array.isArray(outputArgv) && outputArgv.includes('{lastMessageFile}');
   const lastMessageFile = usesLastMessageFile ? path.join(stateRoot, 'worker-output', `${runId}.last.log`) : undefined;
   let launched: any;
   try {
@@ -412,12 +426,17 @@ async function superviseRun({
       fs.mkdirSync(path.dirname(lastMessageFile), { recursive: true });
       fs.rmSync(lastMessageFile, { force: true });
     }
-    launched = await launch({
-      recipe: run.descriptor, prompt: promptBytes.toString('utf8'), identity: run.identity, runId,
-      execWorktree: run.execWorktree, env, taskId: run.task, ...(run.edit ? { edit: true } : {}),
-      ...(lastMessageFile ? { lastMessageFile } : {}),
-      ...(run.binding ? { binding: run.binding } : {}),
-    });
+    launched = main
+      ? await launchMain({
+        recipe: run.descriptor, prompt: promptBytes.toString('utf8'), runId, execWorktree: run.execWorktree, env,
+        model: run.binding?.model ?? null, ...(lastMessageFile ? { lastMessageFile } : {}),
+      })
+      : await launch({
+        recipe: run.descriptor, prompt: promptBytes.toString('utf8'), identity: run.identity, runId,
+        execWorktree: run.execWorktree, env, taskId: run.task, ...(run.edit ? { edit: true } : {}),
+        ...(lastMessageFile ? { lastMessageFile } : {}),
+        ...(run.binding ? { binding: run.binding } : {}),
+      });
   } catch (error: any) {
     notStarted(typeof error?.code === 'string' && error.code ? error.code : 'launch-failed');
     return current();
@@ -439,7 +458,7 @@ async function superviseRun({
     r.worker = worker;
     r.startedAt = startedAt.toISOString();
     r.deadline = deadline.toISOString();
-    r.launched = launched.launched;
+    if (launched.launched) r.launched = launched.launched;
   });
   if (!running.applied) {
     // A cancel took the run after the spawn: end this supervisor's own worker and record it (DEC-040).
@@ -459,7 +478,8 @@ async function superviseRun({
   }
 
   // Step 5: the parser, the output files and the one timer.
-  const parser = parserFor(run.descriptor?.structuredOutput?.parser ?? run.recipe?.parser ?? null).create();
+  const parserId = main ? run.descriptor?.mainSession?.parser ?? null : run.descriptor?.structuredOutput?.parser ?? run.recipe?.parser ?? null;
+  const parser = parserFor(parserId).create();
   const out = createOutputSink({
     stateRoot, runId, stream: 'stdout', onLine: (text) => parser.line(text), onOversize: (looksJson) => parser.oversize(looksJson),
   });
@@ -511,7 +531,9 @@ async function superviseRun({
   const output = { stdout: await out.end(), stderr: await err.end() };
   let readOnly: any = null;
   let isolation: any = null;
-  if (run.edit) {
+  if (main) {
+    // A started session changes its checkout as its work; there is no read-only check to make.
+  } else if (run.edit) {
     isolation = isolationOf(run, before, attemptBefore, env);
   } else {
     try {

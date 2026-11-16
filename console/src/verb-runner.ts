@@ -25,7 +25,7 @@
 // carries `at`, the runner clock's ms when the child closed.
 //
 // Write path (162 IC-003, D9): the runner is no longer read-only. It has exactly one write path, `act()`, over a
-// second frozen table, WRITE_SHAPES (`decide-gate`, `close-run`, `cancel-worker`), that `run()` refuses and that
+// second frozen table, WRITE_SHAPES (`decide-gate`, `close-run`, `cancel-worker` and, from 165, `start-session`), that `run()` refuses and that
 // `act()` alone accepts (and `act()` refuses every read shape). Every write shape is project-scoped, with the same
 // projectKey -> root map as `transcript`. `act()` has no cache, no single flight and no backoff, one write slot of
 // its own outside the pool (writes queue in arrival order; reads go on beside one), a 30 s timeout, and the same
@@ -33,6 +33,8 @@
 // stdout is data (the core's refusals are JSON on exit 1); exit 2 is `usage`; any other outcome is a failure. A write that
 // ran drops the cached reads that expire and their flights in progress (`forgetState`), so the next read is the core's answer
 // after the write, not up to a ttl old; `projects`, `doctor` and the once-per-process reads keep their entries and flights.
+// 165 IC-001: a write shape may declare `stdin`, one free parameter written to the core's stdin (UTF-8) and then ended; only
+// that spawn pipes stdin (every other keeps 'ignore'), and the text is never in argv, a log or a result.
 
 const childProcess = require('node:child_process');
 const fs = require('node:fs');
@@ -41,7 +43,8 @@ const path = require('node:path');
 /**
  * `pattern` names an entry of PATTERNS (default `id`); `flag` makes the parameter its own `--flag value` pair, omitted when
  * `optional` and absent. `free` (162): free text, checked only to be one string without a NUL (the caller normalizes it, IC-009),
- * passed as exactly one argv element; empty is refused, or, with `omitEmpty`, left out with its flag.
+ * passed as exactly one argv element; empty is refused, or, with `omitEmpty`, left out with its flag. 165: `omitEmpty` on a patterned
+ * parameter also leaves it out, with its flag, when it is null or empty; any other value must match.
  */
 type Param = { param: string; pattern?: keyof typeof PATTERNS; flag?: string; optional?: true; free?: true; omitEmpty?: true };
 interface Shape {
@@ -128,6 +131,13 @@ const DECISION: Param = { param: 'decision', pattern: 'decision' };
 const GATE: Param = { param: 'gate' };
 const NOTE: Param = { param: 'note', free: true };
 const NOTE_OPT: Param = { param: 'note', flag: '--note', optional: true, free: true, omitEmpty: true };
+// 165 IC-001/IC-004: the start-session parameters. The prompt is the shape's stdin, never an argv element.
+const WORKTREE: Param = { param: 'worktreeKey', pattern: 'key16' };
+const HARNESS: Param = { param: 'harness', pattern: 'harness' };
+const MODEL_OPT: Param = { param: 'model', pattern: 'model', flag: '--model', optional: true, omitEmpty: true };
+const ENTRY: Param = { param: 'entry', pattern: 'entry' };
+const REQUEST: Param = { param: 'requestId', pattern: 'requestId' };
+const PROMPT: Param = { param: 'prompt', free: true };
 
 /** IC-003, the whole allow-list. `--json` is appended to every shape. */
 const SHAPES: Readonly<Record<string, Shape>> = deepFreeze({
@@ -166,6 +176,8 @@ const SHAPES: Readonly<Record<string, Shape>> = deepFreeze({
   'storage-report': { argv: ['storage', '--action', 'report'], ttl: 30_000, usageIsOldCore: true },
   'worker-matrix': { argv: ['worker-matrix'], ttl: Infinity, byCoreVersion: true },
   'sessions-history': { argv: ['sessions-history', DAYS_OPT, LIMIT_OPT], ttl: 5_000 },
+  // 165 IC-004: what a project can start. Scoped like `transcript`, but the core re-checks the key, so it is argv too.
+  'start-options': { argv: ['worker', '--action', 'start-options', '--project-key', PROJECT], ttl: 5_000, scoped: true },
 });
 const SHAPE_IDS: readonly string[] = Object.freeze(Object.keys(SHAPES));
 
@@ -176,6 +188,8 @@ const SHAPE_IDS: readonly string[] = Object.freeze(Object.keys(SHAPES));
 interface WriteShape {
   readonly argv: readonly (string | Param)[];
   readonly scoped: true;
+  /** 165: the free parameter written to the core's stdin (UTF-8, then ended) instead of argv; only this shape's spawn pipes stdin. */
+  readonly stdin?: Param;
 }
 const WRITE_SHAPES: Readonly<Record<string, WriteShape>> = deepFreeze({
   'decide-gate': {
@@ -189,6 +203,12 @@ const WRITE_SHAPES: Readonly<Record<string, WriteShape>> = deepFreeze({
   'cancel-worker': {
     argv: ['worker', '--action', 'cancel', '--slug', SLUG, '--worker-run', RUN, '--operator', '--via', RELAY, '--reason', NOTE],
     scoped: true,
+  },
+  // 165 IC-001: start one session in a checkout of the project; the prompt rides stdin (`--stdin`), the key is argv too (the core re-checks it).
+  'start-session': {
+    argv: ['worker', '--action', 'start-session', '--project-key', PROJECT, '--worktree-key', WORKTREE, '--harness', HARNESS, MODEL_OPT, '--entry', ENTRY, '--via', RELAY, '--request-id', REQUEST, '--stdin'],
+    scoped: true,
+    stdin: PROMPT,
   },
 });
 const WRITE_SHAPE_IDS: readonly string[] = Object.freeze(Object.keys(WRITE_SHAPES));
@@ -283,6 +303,16 @@ const PATTERNS = Object.freeze({
   decision: /^(?:approve|reject)$/,
   revision: /^(?:0|[1-9][0-9]{0,8})$/,
   relay: /^(?:console|device\.d-[0-9a-f]{12})$/,
+  /**
+   * 165 IC-001: a harness id (form only: the generic id, so a package worker's qualified `<package>.<local>` id passes; the core holds
+   * the worker-id grammar and answers `harness-not-startable` for an id it does not list), a model name, a prompt entry, and the
+   * request id (actions.ts REQUEST_ID).
+   */
+  harness: PARAM_PATTERN,
+  model: /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}$/,
+  entry: /^(?:do|none)$/,
+  // Begins with a letter or digit: the CLI reads a flag value that starts with `-` as a missing value, so the core never sees such an id.
+  requestId: /^[A-Za-z0-9][A-Za-z0-9_-]{21}$/,
 });
 const LIMIT_MAX = 500;
 const DAYS_MAX = 90;
@@ -302,6 +332,11 @@ const IDENTITY_VARIABLES: readonly string[] = Object.freeze([
   'DOFLOW_WORKTREE',
 ]);
 const PASS_THROUGH: readonly string[] = Object.freeze(['DOFLOW_CONFIG_DIR', 'DOFLOW_TELEMETRY', 'DOFLOW_FAILURE_CAPTURE', 'DOFLOW_RETENTION_HOURS']);
+/**
+ * 165 review B-1: the one variable a write shape also passes. A Console run inside a started session carries that session's
+ * `DOFLOW_STARTED_RUN`; the start shape passes it so the core's own `nested-start` refusal fires. No other shape gets it.
+ */
+const WRITE_PASS_THROUGH: Readonly<Record<string, readonly string[]>> = Object.freeze({ 'start-session': Object.freeze(['DOFLOW_STARTED_RUN']) });
 
 const POOL_SIZE = 2;
 /** IC-024: slots beyond the pool that only `transcript` may take. */
@@ -325,13 +360,14 @@ const labelled = (result: Result, fresh: Fresh): Result => stamp({ ...result, fr
  * The argv of a shape with its parameters filled, and the project key of a scoped shape, or null when
  * the call is not on the allow-list.
  */
-function buildArgv(shapeId: unknown, params: unknown, shapes: Readonly<Record<string, { argv: readonly (string | Param)[]; scoped?: true }>> = SHAPES): { argv: string[]; projectKey: string | null } | null {
+function buildArgv(shapeId: unknown, params: unknown, shapes: Readonly<Record<string, { argv: readonly (string | Param)[]; scoped?: true; stdin?: Param }>> = SHAPES): { argv: string[]; projectKey: string | null; stdin: string | null } | null {
   if (typeof shapeId !== 'string' || !Object.hasOwn(shapes, shapeId)) return null;
   const given = params ?? {};
   if (typeof given !== 'object' || Array.isArray(given)) return null;
   const shape = shapes[shapeId];
   const declared = shape.argv.filter((part): part is Param => typeof part !== 'string');
   if (shape.scoped) declared.push(PROJECT);
+  if (shape.stdin) declared.push(shape.stdin);
   const keys = Object.keys(given);
   if (!keys.every((key) => declared.some((part) => part.param === key))) return null;
   if (!declared.every((part) => part.optional || keys.includes(part.param))) return null;
@@ -343,6 +379,8 @@ function buildArgv(shapeId: unknown, params: unknown, shapes: Readonly<Record<st
     }
     const value = (given as Record<string, unknown>)[part.param];
     if (value === undefined && part.optional) continue;
+    // 165: a patterned `omitEmpty` parameter (the model) is also left out, flag and all, when null or empty.
+    if (part.omitEmpty && !part.free && (value === null || value === '')) continue;
     if (typeof value !== 'string') return null;
     if (part.free) {
       // 162: text is the caller's to normalize (IC-009); a NUL would make the spawn throw, so it is usage, never core-unreachable.
@@ -356,22 +394,30 @@ function buildArgv(shapeId: unknown, params: unknown, shapes: Readonly<Record<st
     argv.push(value);
   }
   argv.push('--json');
+  // 165: the stdin text is one non-empty string without a NUL, like any free parameter, and is not in argv.
+  let stdin: string | null = null;
+  if (shape.stdin) {
+    const text = (given as Record<string, unknown>)[shape.stdin.param];
+    if (typeof text !== 'string' || text === '' || text.includes('\0')) return null;
+    stdin = text;
+  }
   const projectKey = (given as Record<string, unknown>).projectKey;
   if (shape.scoped) {
     if (typeof projectKey !== 'string' || !acceptable(PROJECT.pattern!, projectKey)) return null;
-    return { argv, projectKey };
+    return { argv, projectKey, stdin };
   }
-  return { argv, projectKey: null };
+  return { argv, projectKey: null, stdin };
 }
 
-/** The parent environment minus every DOFLOW_* and identity variable, plus the pass-throughs and DOFLOW_UPKEEP=off. */
-function childEnv(parent: Record<string, string | undefined>): Record<string, string> {
+/** The parent environment minus every DOFLOW_* and identity variable, plus the pass-throughs (and the write shape's own, B-1) and DOFLOW_UPKEEP=off. */
+function childEnv(parent: Record<string, string | undefined>, writeShape: string | null = null): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [name, value] of Object.entries(parent)) {
     if (value === undefined || name.toUpperCase().startsWith('DOFLOW_') || IDENTITY_VARIABLES.includes(name)) continue;
     env[name] = value;
   }
-  for (const name of PASS_THROUGH) {
+  const own = writeShape !== null && Object.hasOwn(WRITE_PASS_THROUGH, writeShape) ? WRITE_PASS_THROUGH[writeShape] : [];
+  for (const name of [...PASS_THROUGH, ...own]) {
     const value = parent[name];
     if (value !== undefined) env[name] = value;
   }
@@ -402,7 +448,7 @@ function errorIdOf(chunks: Buffer[]): string | null {
 
 /**
  * 162 IC-003: the result of a write child that has closed. A timeout is `timeout`; an old core (the read rule: exit 1 or 2,
- * empty stdout, the unknown marker, no `[ERROR]`) is `old-core`; exit 2 is `usage`; an exit 1 with empty stdout and an `[ERROR]`
+ * empty stdout, the unknown marker, no `[ERROR]`) is `old-core`; exit 2 is `usage` (with the core's `error` id when it printed one); an exit 1 with empty stdout and an `[ERROR]`
  * line is `core-error`; an exit 0 or 1 whose stdout is one JSON object is data (the core's refusals are JSON on exit 1); anything
  * else is `core-error`, with the core's own `error` id when it printed one. Stderr is only ever the two markers.
  */
@@ -410,7 +456,11 @@ function writeOutcome(code: number | null, failure: string | null, bytes: number
   if (failure === 'timeout') return { ok: false, code: 'timeout', exit: null };
   if (failure !== null) return { ok: false, code: 'core-error', exit: null, reason: failure };
   if ((code === 1 || code === 2) && bytes === 0 && !stderr.seen.error && stderr.seen.unknown) return { ok: false, code: 'core-error', exit: code, reason: 'old-core' };
-  if (code === 2) return { ok: false, code: 'usage', exit: 2 };
+  if (code === 2) {
+    // 165 F1: the core's own `error` id stays (a start-session `store-unreadable` is not a missing action), as on the read path.
+    const id = errorIdOf(chunks);
+    return id === null ? { ok: false, code: 'usage', exit: 2 } : { ok: false, code: 'usage', exit: 2, errorId: id };
+  }
   // 162 review 7: exit 1, nothing on stdout and an `[ERROR]` line is the core's own error, not a refusal it printed as data.
   if (code === 1 && bytes === 0 && stderr.seen.error) return { ok: false, code: 'core-error', exit: 1 };
   if (code === 0 || code === 1) {
@@ -445,8 +495,8 @@ function createVerbRunner(options: RunnerOptions) {
   let reservedActive = 0;
   let stopped = false;
 
-  /** One spawn of the core, of a read `shape` or, with `null`, of a write (162: `act`). Resolves when the child has closed; never rejects. */
-  function spawnCore(shape: Shape | null, argv: string[], cwd: string, flightKey: string): Promise<Result> {
+  /** One spawn of the core, of a read `shape` or, with `null`, of a write (162: `act`). Resolves when the child has closed; never rejects. A write with `stdin` pipes it, writes the text and ends it (165). */
+  function spawnCore(shape: Shape | null, argv: string[], cwd: string, flightKey: string, stdin: string | null = null, writeShape: string | null = null): Promise<Result> {
     const write = shape === null;
     return new Promise((resolveResult) => {
       const resolve = (result: Bare) => resolveResult(stamp(result, clock.now()));
@@ -455,11 +505,16 @@ function createVerbRunner(options: RunnerOptions) {
         if (!fs.statSync(corePath).isFile()) return resolve(unreachable());
         child = spawnImpl(process.execPath, [corePath, ...argv], {
           cwd,
-          env: childEnv(env),
+          env: childEnv(env, write ? writeShape : null),
           shell: false,
-          stdio: ['ignore', 'pipe', 'pipe'],
+          stdio: [stdin === null ? 'ignore' : 'pipe', 'pipe', 'pipe'],
           windowsHide: true,
         });
+        if (stdin !== null) {
+          // A child that died first fails the write with EPIPE: that is its exit, which 'close' reports, never a Console crash.
+          child.stdin.on('error', () => {});
+          child.stdin.end(Buffer.from(stdin, 'utf8'));
+        }
       } catch {
         return resolve(unreachable());
       }
@@ -691,7 +746,7 @@ function createVerbRunner(options: RunnerOptions) {
     if (root === undefined) return stamp({ ok: false, code: 'project-not-found', exit: null }, clock.now());
     const turn = writeTail.then(async () => {
       if (stopped) return stamp(unreachable(), clock.now());
-      const result = await spawnCore(null, built.argv, root, '');
+      const result = await spawnCore(null, built.argv, root, '', built.stdin, shapeId);
       forgetState();
       return result;
     });
@@ -879,6 +934,7 @@ module.exports = {
   OUTPUT_CAP_BYTES,
   PARAM_PATTERN,
   PASS_THROUGH,
+  WRITE_PASS_THROUGH,
   PATTERNS,
   ID_MAX,
   POOL_SIZE,

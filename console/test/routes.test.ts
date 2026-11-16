@@ -3,7 +3,7 @@
 // IC-005 read routes over a scripted runner (feature 093, C.1). The runner answers from the real core
 // outputs under fixtures/core/ (which carry the planted marker in every free-text field), so each case
 // checks what the route does with a runner result: body shape, error code mapping, the session check,
-// the parameter pattern, and that the only non-GET routes are POST /api/session and the three action routes
+// the parameter pattern, and that the only non-GET routes are POST /api/session and the four action routes
 // (162; their behaviour is actions-routes.test.ts). The real core is
 // exercised end to end by read-contract.test.ts.
 
@@ -106,7 +106,7 @@ const errorBody = (code: string, verb: string | null = null, exit: number | null
 /** 161: the fixtures, and core-unreachable for every shape they lack (a device now reaches the worker-run reads). */
 const reachRunner = () => scripted(new Proxy({}, { get: (_target, shape) => (Object.hasOwn(DEFAULTS, shape) ? undefined : () => ({ ok: false, code: 'core-unreachable', exit: null })) }));
 
-const ACTION_WRITES = ['POST /api/actions/decide-gate', 'POST /api/actions/close-run', 'POST /api/actions/cancel-worker'];
+const ACTION_WRITES = ['POST /api/actions/decide-gate', 'POST /api/actions/close-run', 'POST /api/actions/cancel-worker', 'POST /api/actions/start-session'];
 
 test('route table: frozen, the only non-GET routes are POST /api/session and the three action routes, the one stream route is GET /api/live (161: no Fleet routes), the IC-005 read paths plus /api/live and /api/actions, the device list the device reads', async (t) => {
   const routes = consoleRoutes(scripted(), createSessions());
@@ -115,7 +115,7 @@ test('route table: frozen, the only non-GET routes are POST /api/session and the
   assert.deepEqual(routes.filter((route: any) => route.stream).map((route: any) => `${route.method} ${route.path}`), ['GET /api/live']);
   assert.deepEqual(routes.filter((route: any) => route.method === 'GET').map((route: any) => route.path).sort(),
     ['/*', '/api/actions', '/api/advice', '/api/doctor', '/api/followups', '/api/followups/:id', '/api/info', '/api/live', '/api/runs', '/api/runs/:slug/:taskId',
-      '/api/sessions', '/api/sessions-history', '/api/settings', '/api/storage',
+      '/api/sessions', '/api/sessions-history', '/api/settings', '/api/start', '/api/start/options', '/api/storage',
       '/api/worker-runs/:slug', '/api/worker-runs/:slug/:runId/log', '/api/worker-runs/:slug/:runId/result', '/api/worker-runs/:slug/:runId/status',
       '/api/worker-runs/:slug/:runId/transcript', '/api/workers', '/api/workflows', '/healthz']);
   // The device list (scopes.ts, 160 IC-007, 161 IC-009) by behaviour: a paired device passes the device check on exactly the device reads,

@@ -1,0 +1,155 @@
+{
+  "binary": "opencode",
+  "checks": [
+    {
+      "argv": [
+        "run",
+        "--help"
+      ],
+      "establishes": [
+        "runnableProbe",
+        "oneShot"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+opencode run \\[flags\\] \\[<message\\.\\.\\.>\\]",
+        "^\\s+message\\.\\.\\. string\\s+Message to send"
+      ],
+      "id": "print-one-shot",
+      "matched": [
+        "  opencode run [flags] [<message...>]",
+        "  message... string    Message to send (optional)"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "run",
+        "--help"
+      ],
+      "establishes": [
+        "structuredOutput"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--format choice\\s+Output format \\(choices: default, json\\)",
+        "^\\s+--standalone\\s+Run with a private server"
+      ],
+      "id": "structured-output",
+      "matched": [
+        "  --format choice           Output format (choices: default, json)",
+        "  --standalone                                                        Run with a private server instead of the background service"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "run",
+        "--help"
+      ],
+      "establishes": [
+        "readOnly"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--agent string\\s+Agent to use"
+      ],
+      "id": "read-only-flags",
+      "matched": [
+        "  --agent string            Agent to use"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "run",
+        "--help"
+      ],
+      "establishes": [
+        "spawnDenial"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--agent string\\s+Agent to use"
+      ],
+      "id": "spawn-denial-flags",
+      "matched": [
+        "  --agent string            Agent to use"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "run",
+        "--help"
+      ],
+      "establishes": [
+        "model"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--model, -m string\\s"
+      ],
+      "id": "help-model",
+      "matched": [
+        "  --model, -m string        Model to use in the format provider/model#variant"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "run",
+        "--help"
+      ],
+      "establishes": [
+        "mainSession"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+opencode run \\[flags\\] \\[<message\\.\\.\\.>\\]",
+        "^\\s+message\\.\\.\\. string\\s+Message to send",
+        "^\\s+--format choice\\s+Output format \\(choices: default, json\\)"
+      ],
+      "id": "main-session",
+      "matched": [
+        "  opencode run [flags] [<message...>]",
+        "  message... string    Message to send (optional)",
+        "  --format choice           Output format (choices: default, json)"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "run",
+        "--help"
+      ],
+      "establishes": [
+        "mainSession"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--auto\\s+Auto-approve permissions"
+      ],
+      "id": "widening-flags",
+      "matched": [
+        "  --auto                    Auto-approve permissions that are not explicitly denied"
+      ],
+      "result": "pass"
+    }
+  ],
+  "cliVersion": "opencode v2.2.7",
+  "establishes": [
+    "mainSession",
+    "model",
+    "oneShot",
+    "readOnly",
+    "runnableProbe",
+    "spawnDenial",
+    "structuredOutput"
+  ],
+  "harness": "opencode",
+  "kind": "cli-check",
+  "recordedAt": "2026-11-16T04:42:13.610Z",
+  "run": null,
+  "schema": "doflow-worker-evidence-v1"
+}

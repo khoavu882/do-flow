@@ -372,7 +372,7 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--stage-id', 'stageId'],           // research-request: active feature stage
   ['--question', 'question'],           // research-request: external question
   ['--blocking', 'blocking'],           // research-request: true | false
-  ['--request-id', 'requestId'],       // research-request: request to resolve
+  ['--request-id', 'requestId'],       // research-request: request to resolve · worker start-session: the 22-character retry key (165 IC-001)
   ['--outcome', 'researchOutcome'],    // research-request: answered | unresolved
   ['--gap', 'gap'],                     // research-request: unresolved reason
   ['--stage', 'stage'],                // retrieval-plan: the stage id declaring the plan;
@@ -388,11 +388,14 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--risk', 'risk'],                  // verify: risk level selecting the required tiers
   ['--pick-id', 'pickId'],             // advise --action outcome: retained pick to label
   ['--actual', 'actual'],              // advise --action outcome: observed outcome
-  ['--model', 'model'],                // advise --action configure: installed decision-capable model
+  ['--model', 'model'],                // advise --action configure: installed decision-capable model · worker start-session: the model id, default when absent
+  ['--project-key', 'projectKey'],     // worker start-session|start-options: the project's 16-hex key (165 IC-001)
+  ['--worktree-key', 'worktreeKey'],   // worker start-session: the checkout's 16-hex key
+  ['--entry', 'entry'],                // worker start-session: do | none, the prompt's first line (165 P-3)
   ['--endpoint', 'endpoint'],          // advise --action configure: loopback Ollama endpoint
   ['--owner', 'owner'],                // brief-tools: the agent type the brief is for
   ['--tier', 'tier'],                  // brief-tools: the task line's tier (light | standard | frontier) · models bind|unbind: the tier slot, or orchestrator
-  ['--harness', 'harness'],            // brief-tools: the harness the brief is for
+  ['--harness', 'harness'],            // brief-tools: the harness the brief is for · worker start-session: the harness to start
   ['--policy', 'policy'],              // enforcement: lifecycle policy id
   ['--profile', 'profile'],             // enforcement profile; retrieve --scope code: lexical-only|hybrid
   ['--root', 'root'],                    // retrieve --scope code: project root (never harness-home)
@@ -585,7 +588,7 @@ Commands:
   orchestrate          Start or resume a run: complete stages, decide gates (--action)
   research-request     Open, list or resolve a feature-stage research question (--task-id)
   task-attempt         Claim, finish, release, run controls, resume, inspect, reopen or report usage on a plan's task attempts (--action, --slug)
-  worker               Discover, probe, describe, select, run, status or cancel an external headless worker on a claimed task (--action)
+  worker               Discover, probe, describe, select, run, status or cancel an external headless worker on a claimed task, or start a main session (--action)
   dispatch             Run a feature's task graph: start, step, run, submit, spawn, pause, inspect, cancel, takeover or resume (--action)
   retrieve             BM25 guidance search by default; use --scope code for scoped project retrieval (--query)
   model-role           Resolve a model role to ranked provider candidates (--role, --exclude-family)
@@ -722,7 +725,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
                        outcome: record|show · advise: ask|outcome|configure|report · tools: see below
                        followup: add|list|take|settle|promote|report
                        task-attempt: claim|finish|release|status|start|pause|cancel|resume|inspect|reopen|report-usage
-                       worker: discover|probe|describe|select|run|status|cancel|evidence
+                       worker: discover|probe|describe|select|run|status|cancel|evidence|start-session|start-options
                        dispatch: start|step|run|submit|spawn|pause|inspect|cancel|takeover|resume
                        lifecycle: overview|init|release|status|merged
                        goal: add|item|check|link|list|done
@@ -795,7 +798,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
                                             stale-revision unless the run is at revision n; nothing is written
       --via console|device.d-<12 hex>       orchestrate --action decide-gate (without --policy) | close: the relay
                                             label recorded as the entry's by (default manual); also worker --action
-                                            cancel --operator, where it is required
+                                            cancel --operator, where it is required, and start-session
       --operator                            worker --action cancel: cancel a worker of another run, for a person at
                                             the machine or a paired control device acting through the Console; needs
                                             --via; refused inside a worker session
@@ -851,7 +854,8 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --timeout-seconds, --wait, --edit,
       --child-of, --request, --exec-worktree,
       --worker-run, --by, --reason,
-      --checks, --out                       worker (probe: [--model-check <id> --budget-tokens <n>];
+      --checks, --out, --project-key,
+      --worktree-key, --entry               worker (probe: [--model-check <id> --budget-tokens <n>];
                                             describe: --harness [--edit]; select: [--edit];
                                             run: --harness --task --token
                                             --prompt-file [--timeout-seconds 1-14400] [--wait] [--edit]
@@ -859,7 +863,10 @@ Runtime verb arguments (accept --flag value or --flag=value):
                                             status, cancel: --worker-run or --task --token;
                                             cancel also --by --reason;
                                             evidence: --harness --out and exactly one of --checks <file>
-                                            (free CLI checks) or --worker-run <w-id> (an ended run).
+                                            (free CLI checks) or --worker-run <w-id> (an ended run);
+                                            start-session: --project-key --worktree-key --harness
+                                            [--model] --entry do|none --request-id --stdin [--via]
+                                            (the prompt on stdin); start-options: --project-key.
                                             Exit 0 done; 1 refused or
                                             none-eligible, the disposition in the JSON; 2 usage)
       --slug, --by, --reason, --concurrency,

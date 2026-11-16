@@ -12,6 +12,7 @@
 //   .doflow/state/dispatch-envelopes/<dispatchId>.result.json    result
 //   .doflow/state/dispatch-envelopes/<requestId>.prompt.txt      spawn-prompt (dispatchId = the request id)
 //   .doflow/state/worker-output/<runId>.out.log | .err.log       worker-out, worker-err (never .last.log)
+//   .doflow/state/session-prompts/<runId>.prompt.txt             session-prompt (165: a started session's prompt)
 // Only `lstat` regular files are listed (a symbolic link is skipped, and no directory on the way
 // down from the checkout may be a link); an id or feature that is not id-shaped (so any `/`, `\` or `..`) is skipped; at most
 // ARTIFACT_LIMIT, newest first. fileKey = sha16(checkoutRoot + "\0" + relPath) with `/` separators.
@@ -32,7 +33,7 @@ const LIST_CAP = 2000;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const RUN_ID = /^w-[0-9a-f]{12}$/;
 
-type Kind = 'task-brief' | 'task-brief-record' | 'group-brief' | 'group-brief-record' | 'task-report' | 'handoff' | 'result' | 'spawn-prompt' | 'worker-out' | 'worker-err';
+type Kind = 'task-brief' | 'task-brief-record' | 'group-brief' | 'group-brief-record' | 'task-report' | 'handoff' | 'result' | 'spawn-prompt' | 'worker-out' | 'worker-err' | 'session-prompt';
 type Rule = { re: RegExp; kind: Kind; field: 'task' | 'group' | 'dispatchId' | 'runId' };
 
 const EXEC_RULES: readonly Rule[] = Object.freeze([
@@ -47,6 +48,9 @@ const DISPATCH_RULES: readonly Rule[] = Object.freeze([
   { re: /^(.+)\.result\.json$/, kind: 'result', field: 'dispatchId' },
   { re: /^(.+)\.prompt\.txt$/, kind: 'spawn-prompt', field: 'dispatchId' },
 ]);
+const SESSION_PROMPT_RULES: readonly Rule[] = Object.freeze([
+  { re: /^(w-[0-9a-f]{12})\.prompt\.txt$/, kind: 'session-prompt', field: 'runId' },
+]);
 const WORKER_RULES: readonly Rule[] = Object.freeze([
   { re: /^(w-[0-9a-f]{12})\.out\.log$/, kind: 'worker-out', field: 'runId' },
   { re: /^(w-[0-9a-f]{12})\.err\.log$/, kind: 'worker-err', field: 'runId' },
@@ -55,6 +59,7 @@ const WORKER_RULES: readonly Rule[] = Object.freeze([
 /** The relative directories each checkout contributes and the rules of their files. */
 const DISPATCH_DIR = ['.doflow', 'state', 'dispatch-envelopes'];
 const WORKER_DIR = ['.doflow', 'state', 'worker-output'];
+const SESSION_PROMPT_DIR = ['.doflow', 'state', 'session-prompts'];
 const FEATURES_DIR = ['agent-docs', 'doflow'];
 
 interface Artifact {
@@ -62,6 +67,12 @@ interface Artifact {
   task?: string; group?: string; dispatchId?: string; runId?: string; bytes: number; at: string;
 }
 interface Scan { items: Artifact[]; files: Map<string, { path: string; kind: Kind; root: string }> }
+
+/** fileKey = sha16(checkoutRoot + "\0" + relPath), `relPath` with `/` separators: the one formula the index and the
+ * start-session reply (165 IC-001) both use. */
+function fileKeyOf(checkout: string, rel: string): string {
+  return sha16(`${checkout}\0${rel}`);
+}
 
 /**
  * The names in `checkout/<parts>` when every directory on the way down from the checkout is a real
@@ -93,7 +104,7 @@ function featureDirs(checkout: string, fsImpl: any): Array<{ feature: string; pa
 
 /**
  * The directories an index reads, per checkout, for a channel's sources: the features directory,
- * each feature directory, each `exec` directory, the dispatch-envelopes and worker-output directories.
+ * each feature directory, each `exec` directory, the dispatch-envelopes, worker-output and session-prompts directories.
  */
 function artifactDirs(checkouts: readonly string[], fsImpl: any = fs): { features: string[]; featureDirs: string[]; exec: string[]; state: string[] } {
   const out = { features: [] as string[], featureDirs: [] as string[], exec: [] as string[], state: [] as string[] };
@@ -104,7 +115,7 @@ function artifactDirs(checkouts: readonly string[], fsImpl: any = fs): { feature
       out.featureDirs.push(dir);
       out.exec.push(path.join(dir, 'exec'));
     }
-    out.state.push(path.join(checkout, ...DISPATCH_DIR), path.join(checkout, ...WORKER_DIR));
+    out.state.push(path.join(checkout, ...DISPATCH_DIR), path.join(checkout, ...WORKER_DIR), path.join(checkout, ...SESSION_PROMPT_DIR));
   }
   return out;
 }
@@ -130,7 +141,7 @@ function scanArtifacts(checkouts: readonly string[], fsImpl: any = fs): Scan {
       if (!st.isFile()) continue; // a symbolic link, a directory or anything else is never listed
       const rel = path.relative(checkout, file).split(path.sep).join('/');
       const item: Artifact = {
-        fileKey: sha16(`${checkout}\0${rel}`), kind: rule.kind, worktreeKey: cwdHash(checkout), feature,
+        fileKey: fileKeyOf(checkout, rel), kind: rule.kind, worktreeKey: cwdHash(checkout), feature,
         [rule.field]: value, bytes: st.size, at: new Date(st.mtimeMs).toISOString(),
       } as Artifact;
       found.push({ item, file, root: checkout, ms: st.mtimeMs });
@@ -140,6 +151,7 @@ function scanArtifacts(checkouts: readonly string[], fsImpl: any = fs): Scan {
     for (const { feature, parts } of featureDirs(checkout, fsImpl)) take(checkout, [...parts, 'exec'], EXEC_RULES, feature);
     take(checkout, DISPATCH_DIR, DISPATCH_RULES, null);
     take(checkout, WORKER_DIR, WORKER_RULES, null);
+    take(checkout, SESSION_PROMPT_DIR, SESSION_PROMPT_RULES, null);
   }
   found.sort((a, b) => b.ms - a.ms || (a.item.fileKey < b.item.fileKey ? -1 : a.item.fileKey > b.item.fileKey ? 1 : 0));
   const kept = found.slice(0, ARTIFACT_LIMIT);
@@ -154,4 +166,4 @@ function findArtifact(checkouts: readonly string[], fileKey: string, fsImpl: any
   return scanArtifacts(checkouts, fsImpl).files.get(fileKey) ?? null;
 }
 
-module.exports = { scanArtifacts, findArtifact, artifactDirs, ARTIFACT_LIMIT };
+module.exports = { scanArtifacts, findArtifact, artifactDirs, fileKeyOf, ARTIFACT_LIMIT };

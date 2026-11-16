@@ -31,7 +31,8 @@ const webRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-ui-actions-e2e-'))
 fs.writeFileSync(path.join(webRoot, 'index.html'), '<!doctype html><title>t</title>');
 after(() => fs.rmSync(webRoot, { recursive: true, force: true }));
 
-const rid = () => crypto.randomBytes(16).toString('base64url');
+// A start-session id begins with a letter or digit (a CLI flag value cannot begin with `-`), so no id here begins with `-` or `_`.
+const rid = () => `r${crypto.randomBytes(16).toString('base64url').slice(1)}`;
 const json = (reply: { body: string }) => JSON.parse(reply.body);
 const GRAPH = 'feat-graph';
 const LEGACY = 'feat-legacy';
@@ -293,7 +294,7 @@ test('cancel-worker on the real core: a control device stops another lineage\'s 
   assert.deepEqual(l.lines().filter((line) => line.phase === 'end').map((line) => [line.outcome, line.code ?? null]), [['applied', null], ['refused', 'stale']]);
 });
 
-test('AC-8: an old core (exit 1, unknown flag on stderr, empty stdout) is 501 core-lacks-action on every action, writes nothing, and GET /api/actions then reports each action with core-lacks-action', { timeout: 180_000 }, async (t: any) => {
+test('AC-8: an old core (exit 1, unknown flag on stderr, empty stdout) is 501 core-lacks-action on every action (165: start-session too), writes nothing, and GET /api/actions then reports each action with core-lacks-action', { timeout: 180_000 }, async (t: any) => {
   const w = world(t);
   const oldCore = path.join(w.dir, 'old-core.js');
   fs.writeFileSync(oldCore, [
@@ -308,18 +309,24 @@ test('AC-8: an old core (exit 1, unknown flag on stderr, empty stdout) is 501 co
   const before = w.status(GRAPH, 'run-gate');
   const early = snapshotTrees(w.roots);
   const listed = async () => json(await l.list(control.bearer)).actions.map((row: any) => [row.id, row.allowed, row.reason]);
-  assert.deepEqual(await listed(), [['decide-gate', true, null], ['close-run', true, null], ['cancel-worker', true, null]]);
+  assert.deepEqual(await listed(), [['decide-gate', true, null], ['close-run', true, null], ['cancel-worker', true, null], ['start-session', true, null]]);
 
   const gate = await l.post('decide-gate', gateBody(w, before.revision), control.bearer);
   assert.equal(gate.status, 501, gate.body);
   assert.equal(json(gate).error.code, 'core-lacks-action');
-  assert.deepEqual(await listed(), [['decide-gate', false, 'core-lacks-action'], ['close-run', true, null], ['cancel-worker', true, null]]);
+  assert.deepEqual(await listed(), [['decide-gate', false, 'core-lacks-action'], ['close-run', true, null], ['cancel-worker', true, null], ['start-session', true, null]]);
   const close = await l.post('close-run', closeBody(w, 1), control.bearer);
   assert.equal(close.status, 501, close.body);
   const cancel = await l.post('cancel-worker', { v: 1, requestId: rid(), projectKey: w.key, slug: GRAPH, runId: 'w-0123456789ab', reason: 'r' }, control.bearer);
   assert.equal(cancel.status, 501, cancel.body);
   assert.equal(json(cancel).error.code, 'core-lacks-action');
-  assert.deepEqual(await listed(), [['decide-gate', false, 'core-lacks-action'], ['close-run', false, 'core-lacks-action'], ['cancel-worker', false, 'core-lacks-action']]);
+  assert.deepEqual(await listed(), [['decide-gate', false, 'core-lacks-action'], ['close-run', false, 'core-lacks-action'], ['cancel-worker', false, 'core-lacks-action'], ['start-session', true, null]]);
+  // 165 FR-016: a core without start-session is 501 core-lacks-action too, and nothing starts.
+  const start = await l.post('start-session', { v: 1, requestId: rid(), projectKey: w.key, worktreeKey: '0123456789abcdef', harness: 'claude', model: null, entry: 'do', prompt: 'hello' }, control.bearer);
+  assert.equal(start.status, 501, start.body);
+  assert.equal(json(start).error.code, 'core-lacks-action');
+  assert.equal(start.body.includes('hello'), false);
+  assert.deepEqual((await listed()).at(-1), ['start-session', false, 'core-lacks-action']);
   assert.deepEqual(snapshotTrees(w.roots), early, 'an old core wrote nothing');
   assert.equal(w.status(GRAPH, 'run-gate').revision, before.revision);
 });

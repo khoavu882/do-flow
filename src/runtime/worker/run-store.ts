@@ -117,9 +117,12 @@ function sameKey(a: any, b: any): boolean {
 /**
  * Inserts a run with `seq: 0`. Refused, with no write, when any run in the store, live or ended,
  * has the same `task`, `token`, `childOf` and `request`: `{ applied: false, reason: 'run-exists', runId, phase }`.
- * @returns {{ applied: true, run: Object } | { applied: false, reason: 'run-exists', runId: string, phase: string }}
+ * 165 IC-005: `options.refuse(store)`, when given, runs inside the lock after the `run-exists` checks (so a
+ * replay wins) on a structured clone of the store; a `{ code, current }` answer is a refusal with no write:
+ * `{ applied: false, reason: code, current }`. It must be pure over the store, like every callback here.
+ * @returns {{ applied: true, run: Object } | { applied: false, reason: string, runId?: string, phase?: string, current?: any }}
  */
-function insertRun(file: string, record: any, fsImpl: any = fs): any {
+function insertRun(file: string, record: any, fsImpl: any = fs, options: { refuse?: (store: any) => { code: string; current: any } | null } = {}): any {
   if (!record || typeof record !== 'object') throw new RunStoreError('usage', 'a run record must be an object');
   if (typeof record.runId !== 'string' || !RUN_ID.test(record.runId)) throw new RunStoreError('usage', `run id '${record.runId}' is not 'w-' plus 12 hex characters`);
   if (typeof record.task !== 'string' || record.task === '') throw new RunStoreError('usage', 'a run record needs a task');
@@ -129,6 +132,8 @@ function insertRun(file: string, record: any, fsImpl: any = fs): any {
     const existing = Object.values(store.runs).find((run: any) => sameKey(run, record)) as any;
     if (existing) return { write: false, result: { applied: false, reason: 'run-exists', runId: existing.runId, phase: existing.phase } };
     if (store.runs[record.runId]) return { write: false, result: { applied: false, reason: 'run-exists', runId: record.runId, phase: store.runs[record.runId].phase } };
+    const refusal = options.refuse ? options.refuse(structuredClone(store)) : null;
+    if (refusal) return { write: false, result: { applied: false, reason: refusal.code, current: refusal.current } };
     const run = { ...structuredClone(record), seq: 0 };
     store.runs[run.runId] = run;
     return { write: true, result: { applied: true, run: structuredClone(run) } };

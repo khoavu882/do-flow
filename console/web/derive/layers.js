@@ -12,6 +12,7 @@
 // ---- the transcript panel's helpers --------------------------------------------------------------------------------------
 
 import { byWords } from './actions.js';
+import { startedByWords, endWords, PHASE_WORDS } from './start.js';
 
 /** The events a stream panel keeps (V8 7b.2). */
 const MAX_EVENTS = 500;
@@ -22,6 +23,7 @@ const KIND_WORD = Object.freeze({
   'doflow-run': 'DoFlow run',
   'worker-run': 'Worker run',
   'child-worker-run': 'Child worker run',
+  'started-session': 'Started session',
 });
 
 const two = (/** @type {number} */ n) => String(n).padStart(2, '0');
@@ -317,6 +319,21 @@ function summarizedLine(foot) {
 /** The lane rows of a checkout take at most this many briefs and hand-backs. */
 const BRIEF_LIMIT = 12;
 
+/** The reasons a started session was not observed, in words (the tree's `observed.reason`). @type {Readonly<Record<string, string>>} */
+const NOT_OBSERVED_WORD = Object.freeze({ 'not-yet-observed': 'not seen yet', 'no-session-hook': 'this harness has no session hook' });
+
+/** What the page says of a started session's `observed` fact (165: one node; the observed session is the same node). @param {any} observed */
+function observedWords(observed) {
+  if (observed && observed.state === 'observed') return 'session observed';
+  const reason = observed && typeof observed.reason === 'string' ? observed.reason : '';
+  return `session not observed: ${NOT_OBSERVED_WORD[reason] ?? (reason === '' ? 'no reason recorded' : reason.replace(/-/g, ' '))}`;
+}
+
+/** The words of a started-session node: who started it, its phase, whether the harness's own session was seen, how it ended (null while it runs). @param {any} node */
+function startedWords(node) {
+  return { startedBy: startedByWords(node.startedBy), phase: PHASE_WORDS[node.phase] ?? 'phase not recorded', observed: observedWords(node.observed), end: node.end ? endWords(node.end) : null };
+}
+
 /** Worker-run nodes of the agent tree. */
 const WORKER_KINDS = Object.freeze(['worker-run', 'child-worker-run']);
 
@@ -432,6 +449,7 @@ function projectModel(body) {
       process: PROCESS_WORD[node.liveness] ?? 'process not checked', linked: node.transcript.linked === true, reason: node.transcript.reason,
       audit: line ? { word: AUDIT_WORD[line.event] ?? 'recorded', at: line.at } : null,
       toolCalls: t ? t.toolCalls : null, eventsPerMin: t ? t.eventsPerMin : null,
+      ...(node.kind === 'started-session' ? { ...startedWords(node), runId: node.runId, fileKeys: node.fileKeys ?? null } : {}),
     };
   };
 
@@ -444,7 +462,9 @@ function projectModel(body) {
     const sorted = (/** @type {any[]} */ list, field = 'startedAt') => [...list].sort((a, b) => byNewest(a, b, field, 'agentKey'));
     return {
       worktreeKey: checkout.worktreeKey, label: checkout.label, branch: checkout.branch, main: checkout.main,
-      orchestrator: sorted(nodes.filter((n) => mine(n) && n.kind === 'main-session'), 'contextCapturedAt').map(agentRow),
+      // 165: a started session is the orchestrator lane's one node of its run; it has no context capture before it is observed, so it is ordered by its start.
+      orchestrator: [...nodes.filter((n) => mine(n) && (n.kind === 'main-session' || n.kind === 'started-session'))]
+        .map((n) => ({ ...n, orderAt: n.contextCapturedAt ?? n.startedAt ?? null })).sort((a, b) => byNewest(a, b, 'orderAt', 'agentKey')).map(agentRow),
       runs: runs.filter((r) => r.runKey !== null && r.runKey !== undefined && r.runKey.split('/')[0] === checkout.worktreeKey).map(runRow),
       workers: sorted(nodes.filter((n) => mine(n) && WORKER_KINDS.includes(n.kind))).map(agentRow),
       subagents: sorted(nodes.filter((n) => mine(n) && n.kind === 'harness-subagent')).map(agentRow),
@@ -516,6 +536,7 @@ function projectLabel(machine, projectKey) {
 }
 
 export {
+  startedWords,
   MAX_EVENTS, stamp, secondsStamp, kindWord, nodeTitle, titleIsLabel, fingerprint, appendEvents, splitMasked, usageLine, resultBits, recordWords, seconds,
   sectionOf, STREAM_STATES, streamState, streamCopy, gateWords, machineModel, summarizedLine, BRIEF_LIMIT, projectModel, COVERAGE_COLUMNS, coverageCell,
   reasonWord, projectLabel, reviewWords, PROCESS_WORD,

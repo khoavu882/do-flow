@@ -134,6 +134,8 @@ async function endTree({ file, runId, run, platform, sleep, clock, escalate }: a
 
 /** 082 IC-015: what step 4 records for a child run, which has no 080 attempt of its own. */
 const CHILD_SKIP = Object.freeze({ disposition: 'skipped', reason: 'child-run' });
+/** 165 D1, RK4: a started main session has no 080 attempt, so step 4 is skipped and the attempt store is not read or written. */
+const MAIN_SESSION_SKIP = Object.freeze({ disposition: 'skipped', reason: 'main-session' });
 
 /** IC-021 step 1's identity refusal for `key`. An operator cancel (162 DEC-007) also needs a caller
  * outside every worker session and every run: role `main`, lineage kind `default-main`. */
@@ -213,6 +215,8 @@ async function cancelRun({
   // Step 4, after the tree is ended.
   const attemptCancel = marked.run.childOf
     ? { ...CHILD_SKIP }
+    : marked.run.kind === 'main-session'
+    ? { ...MAIN_SESSION_SKIP }
     : attemptCancelStep({ file, run: marked.run, by: String(by), reason: why, env, cwd, clock, cancelImpl });
 
   // Step 5: always written.

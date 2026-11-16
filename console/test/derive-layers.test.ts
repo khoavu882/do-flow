@@ -25,6 +25,7 @@ async function load(): Promise<any> {
   fs.writeFileSync(path.join(dir, 'package.json'), '{"type":"module"}\n');
   fs.writeFileSync(path.join(dir, 'derive', 'layers.js'), fs.readFileSync(SOURCE_PATH, 'utf8'));
   fs.writeFileSync(path.join(dir, 'derive', 'actions.js'), fs.readFileSync(path.join(path.dirname(SOURCE_PATH), 'actions.js'), 'utf8')); // the `by` words (162)
+  fs.writeFileSync(path.join(dir, 'derive', 'start.js'), fs.readFileSync(path.join(path.dirname(SOURCE_PATH), 'start.js'), 'utf8')); // the started-session words (165)
   return import(pathToFileURL(path.join(dir, 'derive', 'layers.js')).href);
 }
 
@@ -206,4 +207,50 @@ test('161 review C: a review too large to read says "not read: too large"; an au
   ]);
   assert.deepEqual(layers.projectModel(layersBody({ sessions })).unreadLogs, [{ harness: 'claude', log: 'audit' }, { harness: 'codex', log: 'denials' }]);
   assert.deepEqual(layers.projectModel(layersBody()).unreadLogs, []);
+});
+
+// ---- 165: the started-session node ------------------------------------------------------------------------------------------------
+
+const STARTED_KEY = 'ee11ff22aa33bb44';
+function started(over: any = {}): any {
+  return node({
+    agentKey: STARTED_KEY, kind: 'started-session', harness: 'claude', model: null, modelBasis: null, contextCapturedAt: null, startedAt: '2026-11-16T08:00:00.000Z',
+    lastRecordAt: '2026-11-16T08:00:00.000Z', runId: 'w-0123456789ab', startedBy: 'console', phase: 'running', end: null, liveness: 'process-seen',
+    fileKeys: { out: '1111111111111111', err: '2222222222222222' }, observed: { state: 'not-observed', reason: 'not-yet-observed' },
+    transcript: { reader: null, linked: false, reason: 'no-reader' }, ...over,
+  });
+}
+const withStarted = (extra: any = {}, nodes: any[] = [started(extra)]) => layers.projectModel(layersBody({
+  tree: ok({ v: 1, projectKey: PK, nodes: [node(), ...nodes], edges: [], limits: { nodes: 2, notChecked: 0 }, unreadable: 0 }),
+}));
+
+test('165: a started session is ONE node in the orchestrator lane, titled "started session", with its starter and its two file lanes', () => {
+  const model = withStarted();
+  const lane = model.lanes.find((l: any) => l.worktreeKey === WK);
+  assert.equal(lane.orchestrator.length, 2, 'the main session and the started session, no second node');
+  assert.equal(lane.workers.length, 0, 'never a worker row');
+  const row = lane.orchestrator.find((r: any) => r.kind === 'started-session');
+  assert.match(row.title, /started session/i);
+  assert.equal(row.startedBy, 'started from the Console');
+  assert.deepEqual(row.fileKeys, { out: '1111111111111111', err: '2222222222222222' });
+  assert.equal(row.phase, 'process seen');
+  assert.equal(model.nodes.get(STARTED_KEY).kind, 'started-session');
+});
+
+test('165: a not-observed started session says "session not observed" with its reason words; an observed one says when it was seen', () => {
+  const row = (extra: any) => withStarted(extra).lanes[0].orchestrator.find((r: any) => r.kind === 'started-session');
+  assert.equal(row({}).observed, 'session not observed: not seen yet');
+  assert.equal(row({ observed: { state: 'not-observed', reason: 'no-session-hook' } }).observed, 'session not observed: this harness has no session hook');
+  assert.match(row({ observed: { state: 'observed', sessionKey: 'cc11dd22ee33ff44', model: 'claude-opus-5-5', lastSeenAt: '2026-11-16T08:05:00.000Z' } }).observed, /^session observed/);
+  assert.equal(row({ startedBy: 'device.d-0123456789ab' }).startedBy, 'started from paired device d-0123456789ab');
+  assert.equal(row({ startedBy: null }).startedBy, 'starter not recorded');
+});
+
+test('165 F2: a started session words how it ended from its own end, and the join through the machine list is gone', () => {
+  const row = (extra: any) => withStarted(extra).lanes[0].orchestrator.find((r: any) => r.kind === 'started-session');
+  assert.equal(row({}).end, null);
+  assert.equal(row({ phase: 'ended', end: { state: 'exited', exitCode: 3, reason: null } }).end, 'The session exited with code 3. Its error output is below.');
+  assert.equal(row({ phase: 'ended', end: { state: 'exited', exitCode: null, reason: 'prompt-unwritable' } }).end, 'The session did not start: its prompt could not be written. Nothing ran.');
+  assert.equal(row({ runId: 'w-0123456789ab' }).runId, 'w-0123456789ab');
+  assert.equal('startedRunId' in layers, false);
 });

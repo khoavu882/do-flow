@@ -286,3 +286,28 @@ test('a start recorded under another time zone and locale is read alive under TZ
   const outcome = await tree.escalate({ proc: worker });
   assert.equal(outcome.status, 'verified');
 });
+
+// 165 review A-1: the listing a started run's liveness is decided from; a failure is null (unknown), never an empty list.
+test('processTexts: darwin reads one ps -wwAE listing; linux reads this user\'s /proc entries; a failure or another platform is null', () => {
+  const calls: any[] = [];
+  const run = (args: string[], opts: any) => { calls.push([args, opts]); return 'node supervisor.ts w-aaaabbbbcccc\n\nsleep 5 HOME=/h\n'; };
+  assert.deepEqual(tree.processTexts({ platform: 'darwin', run }), ['node supervisor.ts w-aaaabbbbcccc', 'sleep 5 HOME=/h']);
+  assert.deepEqual(calls[0][0], ['-wwAE', '-o', 'command=']);
+  assert.ok(calls[0][1].maxBuffer > 1024 * 1024, 'the listing is read with a bound larger than the default');
+  assert.equal(tree.processTexts({ platform: 'darwin', run: () => null }), null);
+  assert.equal(tree.processTexts({ platform: 'win32', run }), null);
+  assert.equal(tree.processTexts({ platform: 'freebsd', run }), null);
+  const files: any = { '/proc/1/cmdline': 'init\0', '/proc/1/environ': '', '/proc/7/cmdline': 'fake\0-p\0', '/proc/7/environ': 'DOFLOW_STARTED_RUN=w-aaaabbbbcccc\0' };
+  const proc = (owner: any, readable = true) => ({
+    readdirSync: () => ['1', '7', 'self', '9'],
+    statSync: (p: string) => ({ uid: p === '/proc/1' ? 0 : owner }),
+    readFileSync: (p: string) => {
+      if (p.startsWith('/proc/9/')) { const e: any = new Error('gone'); e.code = 'ENOENT'; throw e; }
+      if (!readable) { const e: any = new Error('denied'); e.code = 'EACCES'; throw e; }
+      return Buffer.from(files[p]);
+    },
+  });
+  assert.deepEqual(tree.processTexts({ platform: 'linux', fsImpl: proc(501), uid: 501 }), ['fake -p  DOFLOW_STARTED_RUN=w-aaaabbbbcccc ']);
+  assert.equal(tree.processTexts({ platform: 'linux', fsImpl: proc(501, false), uid: 501 }), null, 'an unreadable entry of this user is unknown');
+  assert.equal(tree.processTexts({ platform: 'linux', fsImpl: proc(501), uid: null }), null);
+});

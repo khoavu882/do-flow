@@ -33,6 +33,33 @@
       "argv": ["--help"],
       "expect": ["^\\s+--model <model>\\s"],
       "establishes": ["model"]
+    },
+    {
+      "id": "main-session",
+      "argv": ["--help"],
+      "expect": [
+        "^Usage: claude \\[options\\] \\[command\\] \\[prompt\\]",
+        "^\\s+-p, --print\\s+Print response and exit \\(useful for",
+        "^\\s+--output-format <format>\\s+Output format \\(only works with --print\\):",
+        "\"text\" \\(default\\), \"json\" \\(single"
+      ],
+      "establishes": ["mainSession"]
+    },
+    {
+      "id": "widening-flags",
+      "argv": ["--help"],
+      "expect": [
+        "^\\s+--add-dir <directories\\.\\.\\.>",
+        "^\\s+--allow-dangerously-skip-permissions\\s",
+        "^\\s+--allowedTools, --allowed-tools <tools\\.\\.\\.>$",
+        "^\\s+--dangerously-skip-permissions\\s",
+        "^\\s+--permission-mode <mode>\\s",
+        "\\(choices: \"acceptEdits\", \"auto\",$",
+        "\"bypassPermissions\", \"manual\",$",
+        "--permission-prompt-tool\\) or \"none\"$",
+        "^\\s+--settings <file-or-json>\\s"
+      ],
+      "establishes": ["mainSession"]
     }
   ]
 }

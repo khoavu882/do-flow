@@ -55,7 +55,7 @@ test('one append writes one whole line: the closed fields, the file 0600, the fo
   assert.equal(lines.length, 2);
   assert.deepEqual(Object.keys(lines[0]), ['v', 'at', 'pid', 'seq', 'phase', 'id', 'actor', 'address', 'action', 'project', 'target', 'expect', 'input', 'outcome', 'code', 'current', 'exit', 'ms', 'count']);
   assert.deepEqual(lines[0].actor, { kind: 'device', deviceId: 'd-0123456789ab', scope: 'control', transport: 'native' });
-  assert.deepEqual(lines[0].target, { slug: null, taskId: 'T1', gateId: 'gate-a', runId: null });
+  assert.deepEqual(lines[0].target, { slug: null, taskId: 'T1', gateId: 'gate-a', runId: null, worktreeKey: null, harness: null, model: null });
   assert.equal(lines[0].phase, 'begin');
   assert.equal(lines[0].at, '2026-11-15T10:00:30.000Z');
   assert.equal(lines[0].pid, 4242);
@@ -296,13 +296,34 @@ test('162 review 9: every target id the action routes accept (up to ID_MAX chara
   const root = scratch();
   const log = open(root);
   const at = (c: string) => `a${c.repeat(ID_MAX - 1)}`;
-  const target = { slug: at('s'), taskId: at('t'), gateId: at('g'), runId: 'w-0123456789ab' };
+  // 165: the start fields at their bounds too: a model of 128 characters, a harness of 32.
+  const target = { slug: at('s'), taskId: at('t'), gateId: at('g'), runId: 'w-0123456789ab', worktreeKey: '0123456789abcdef', harness: `a${'-'.repeat(31)}`, model: `a${'/'.repeat(127)}` };
   const t80 = 'x'.repeat(80);
   await log.begin({ id: t80, actor: { kind: 'device', deviceId: t80, scope: 'control', transport: 'native' }, address: 'f'.repeat(45), action: t80, project: t80,
-    target, expect: { revision: Number.MAX_SAFE_INTEGER }, input: { decision: t80, textChars: Number.MAX_SAFE_INTEGER }, outcome: 'replayed', code: t80,
+    target, expect: { revision: Number.MAX_SAFE_INTEGER }, input: { decision: t80, textChars: Number.MAX_SAFE_INTEGER, entry: 'none' }, outcome: 'replayed', code: t80,
     current: { state: t80, revision: Number.MAX_SAFE_INTEGER }, exit: Number.MAX_SAFE_INTEGER, ms: Number.MAX_SAFE_INTEGER });
   const [line] = linesOf(path.join(root, 'console', 'actions.ndjson'));
   assert.deepEqual(line.target, target);
   await log.begin({ target: { slug: `${at('s')}s` } });
   assert.equal(linesOf(path.join(root, 'console', 'actions.ndjson'))[1].target.slug, null, 'past the bound the routes refuse it; the log never carries it');
+});
+
+test('165 FR-010: a start line records the worktree key, the harness, the model or default, the entry and the prompt length; a value outside its rule is null, an unknown entry refused', async () => {
+  const root = scratch();
+  const log = open(root);
+  await log.begin({ id: 'r', action: 'start-session', project: '0123456789abcdef', target: { worktreeKey: 'fedcba9876543210', harness: 'claude', model: 'openrouter/anthropic/claude@v5' }, input: { textChars: 47, entry: 'do' } });
+  await log.end({ id: 'r', action: 'start-session', target: { worktreeKey: 'FEDCBA9876543210', harness: 'Claude Code', model: 'two words', runId: 'w-0123456789ab' }, input: { entry: 'none' }, outcome: 'applied', exit: 0, ms: 1200 });
+  await log.end({ id: 'r', target: { model: 'default' }, outcome: 'replayed' });
+  const [begin, end, replay] = linesOf(path.join(root, 'console', 'actions.ndjson'));
+  assert.deepEqual(begin.target, { slug: null, taskId: null, gateId: null, runId: null, worktreeKey: 'fedcba9876543210', harness: 'claude', model: 'openrouter/anthropic/claude@v5' });
+  assert.deepEqual(begin.input, { decision: null, textChars: 47, entry: 'do' });
+  assert.deepEqual(end.target, { slug: null, taskId: null, gateId: null, runId: 'w-0123456789ab', worktreeKey: null, harness: null, model: null });
+  assert.equal(end.input.entry, 'none');
+  assert.equal(replay.target.model, 'default');
+  await refused(log.end({ input: { entry: 'auto' } }), 'invalid-field');
+});
+
+test('165: start-rate-limited is a summary code', async () => {
+  const { SUMMARY_CODES } = require('../src/action-log.ts');
+  assert.ok(SUMMARY_CODES.includes('start-rate-limited'));
 });

@@ -67,8 +67,8 @@ const CLOSED_SETS = Object.freeze({
   /** src/runtime/fleet/projects.ts sources (IC-019) */
   projectSources: Object.freeze(['upkeep-roots', 'hook-dirs']),
   /** src/runtime/fleet/tree.ts node kinds, model bases, liveness and edge bases (IC-020) */
-  agentKinds: Object.freeze(['main-session', 'harness-subagent', 'doflow-run', 'worker-run', 'child-worker-run']),
-  modelBases: Object.freeze(['hook-observation', 'worker-binding', 'harness-record', 'dispatch-snapshot']),
+  agentKinds: Object.freeze(['main-session', 'started-session', 'harness-subagent', 'doflow-run', 'worker-run', 'child-worker-run']),
+  modelBases: Object.freeze(['hook-observation', 'worker-binding', 'harness-record', 'dispatch-snapshot', 'start-record']),
   livenessStates: Object.freeze(['process-seen', 'process-gone', 'not-checked']),
   edgeBases: Object.freeze(['harness-subagent-record', 'worker-caller', 'worker-childOf', 'attempt-runKey', 'dispatch-claim']),
   /** IC-020 `transcript.reason` and IC-022 */
@@ -683,12 +683,34 @@ function projects(value: unknown) {
   };
 }
 
+/**
+ * 165 D8: what a `started-session` node adds to IC-020: who started it, its run phase, its run id, how it ended (state, exit code, why it never started), the two output files' keys and whether a hook
+ * session joined it (`observed`: the session's key, model and last record, or why none did). No other node carries these fields.
+ */
+const startedFacts = (n: Record<string, unknown>) => {
+  const files = record(n.fileKeys);
+  const seen = record(n.observed);
+  const state = oneOf(['observed', 'not-observed'])(seen.state);
+  return {
+    runId: runId(n.runId),
+    startedBy: label(n.startedBy),
+    phase: oneOf(CLOSED_SETS.phases)(n.phase),
+    end: orNull((v) => {
+      const e = record(v);
+      return { state: oneOf(CLOSED_SETS.endStates)(e.state), exitCode: orNull(count)(e.exitCode), reason: orNull(id)(e.reason) };
+    })(n.end),
+    fileKeys: { out: key16(files.out), err: key16(files.err) },
+    observed: state === 'observed' ? { state, sessionKey: key16(seen.sessionKey), model: orNull(label)(seen.model), lastSeenAt: orNull(iso)(seen.lastSeenAt) } : { state, reason: id(seen.reason) },
+  };
+};
+
 /** IC-020. No session id, file, pid or path exists in the input; `harness` outside the registry reads `(other)`. */
 function tree(value: unknown) {
   const body = record(value);
   const node = (item: unknown) => {
     const n = record(item);
     return {
+      ...(n.kind === 'started-session' ? startedFacts(n) : {}),
       agentKey: key16(n.agentKey),
       kind: oneOf(CLOSED_SETS.agentKinds)(n.kind),
       harness: orNull(harness)(n.harness),
@@ -837,7 +859,7 @@ function traffic(value: unknown) {
 // ---- 151 IC-007, IC-008: the Settings and Advice reads ----
 
 type Anchors = { project: string[]; projectLayers: string[]; configHome: string[]; home: string[] };
-type Context = { workflow?: unknown; exit?: number | null; anchors?: Anchors };
+type Context = { workflow?: unknown; exit?: number | null; anchors?: Anchors; projectKey?: string };
 const ANCHOR_GROUPS = ['project', 'projectLayers', 'configHome', 'home'] as const;
 
 /** The server's anchors (place.ts `anchorsOf`). A projector that places paths or text cannot run without them: a defect in the caller, so it throws. */
@@ -1740,6 +1762,92 @@ function projectSessionsHistory(value: unknown, context?: Context) {
   };
 }
 
+// ---- 165 IC-002: the start form's options (`worker --action start-options`) ----
+
+/**
+ * The form of a started run's id, a harness id and a model name (verb-runner.ts PATTERNS); the core checks them against its own registry.
+ * A harness id is the generic `ID`, so a package worker's qualified id (165 review A-2) is listed like a built-in one.
+ */
+const START_RUN_ID = /^w-[0-9a-f]{12}$/;
+const START_HARNESS = ID;
+const START_MODEL = /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}$/;
+/** Free words of the core (a reason, a relogin hint): one line of at most 300 characters with no control character. */
+const START_WORDS = /^[^\u0000-\u001F\u007F-\u009F\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]{1,300}$/;
+/** A token that looks like an absolute or home path; a label or words holding one is withheld (the core's label rule allows `/`). */
+const START_PATH = /(?:^|[\s(])(?:\/|~\/|[A-Za-z]:\\)/;
+const START_VERSION = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$/;
+const START_SOURCES: readonly string[] = Object.freeze(['orchestrator', 'frontier', 'standard', 'light', 'observed', 'default']);
+const START_REASONS: readonly string[] = Object.freeze(['not-listed', 'no-main-session-shape', 'not-installed', 'logged-out']);
+const START_BOUNDS = Object.freeze({ checkouts: 64, harnesses: 32, models: 50, warnings: 8 });
+
+const sRecord = (value: unknown): Record<string, any> => (value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, any> : fail());
+const sList = (value: unknown, max: number): unknown[] => (Array.isArray(value) && value.length <= max ? value : fail());
+const sCount = (value: unknown): number => (Number.isSafeInteger(value) && (value as number) >= 0 ? value as number : fail());
+const sBool = (value: unknown): boolean => (typeof value === 'boolean' ? value : fail());
+const sMatch = (re: RegExp) => (value: unknown): string => (typeof value === 'string' && re.test(value) ? value : fail());
+const sNull = <T>(check: (value: unknown) => T) => (value: unknown): T | null => (value === null ? null : check(value));
+const sLabel = (value: unknown): string => (typeof value !== 'string' ? fail()
+  : value === WITHHELD || (LABEL.test(value) && !START_PATH.test(value)) ? value : WITHHELD);
+const sWords = (value: unknown): string => (typeof value !== 'string' ? fail() : START_WORDS.test(value) && !START_PATH.test(value) ? value : WITHHELD);
+const sOneOf = (set: readonly string[]) => (value: unknown): string => (typeof value === 'string' && set.includes(value) ? value : fail());
+
+/**
+ * IC-002, closed: the core's start options with every field checked and nothing else; `project.root` must be null (the core never
+ * sends it) and `project.projectKey` the one asked for. Labels and words that look like a path are withheld. A field that fails its check is a Mismatch (`core-contract-mismatch`); `context.projectKey` is the key asked for.
+ */
+function startOptions(value: unknown, context?: Context) {
+  const projectKey = context?.projectKey;
+  if (typeof projectKey !== 'string' || !KEY16.test(projectKey)) throw new TypeError('start-options needs the project key asked for');
+  const body = sRecord(value);
+  const asked = sRecord(body.project);
+  if (asked.projectKey !== projectKey || asked.root !== null) fail();
+  const checkout = (item: unknown) => {
+    const c = sRecord(item);
+    const busy = sNull((v) => ({ runId: sMatch(START_RUN_ID)(sRecord(v).runId) }))(c.busy);
+    const observed = sNull((v) => {
+      const o = sRecord(v);
+      return { harness: sNull(sMatch(START_HARNESS))(o.harness), lastSeenAt: sMatch(ISO)(o.lastSeenAt) };
+    })(c.observedSession);
+    return { worktreeKey: sMatch(KEY16)(c.worktreeKey), label: sLabel(c.label), branch: sNull(sLabel)(c.branch), main: sBool(c.main), busy, observedSession: observed };
+  };
+  const harness = (item: unknown) => {
+    const h = sRecord(item);
+    const login = sNull((v) => {
+      const l = sRecord(v);
+      return { state: sNull(sMatch(ID))(l.state), checkedAt: sNull(sMatch(ISO))(l.checkedAt) };
+    })(h.login);
+    const model = (m: unknown) => {
+      const e = sRecord(m);
+      return { id: sNull(sMatch(START_MODEL))(e.id), source: sOneOf(START_SOURCES)(e.source) };
+    };
+    return {
+      harness: sMatch(START_HARNESS)(h.harness), startable: sBool(h.startable), reason: sNull(sOneOf(START_REASONS))(h.reason), words: sWords(h.words),
+      warnings: sList(h.warnings, START_BOUNDS.warnings).map(sMatch(ID)), login,
+      version: h.version === null ? null : typeof h.version === 'string' ? (START_VERSION.test(h.version) ? h.version : null) : fail(),
+      // 165 review B-8: whether the main-session shape was seen on a live run; a core before it sends none: null, never true.
+      liveVerified: h.liveVerified === undefined ? null : sBool(h.liveVerified),
+      models: sList(h.models, START_BOUNDS.models).map(model),
+    };
+  };
+  const limits = sRecord(body.limits);
+  const dispatch = sRecord(body.dispatch);
+  const promptMax = sRecord(body.promptMax);
+  const running = sBool(dispatch.running);
+  return {
+    project: { projectKey, label: sLabel(asked.label), root: null },
+    checkouts: sList(body.checkouts, START_BOUNDS.checkouts).map(checkout),
+    harnesses: sList(body.harnesses, START_BOUNDS.harnesses).map(harness),
+    limits: { perCheckout: sCount(limits.perCheckout), perActor: sCount(limits.perActor), machine: sCount(limits.machine), perActorPerHour: sCount(limits.perActorPerHour) },
+    open: { machine: sCount(sRecord(body.open).machine) },
+    // 165 review A-3: dispatch records the core cannot read are a running dispatch with no slug and the core's reason.
+    dispatch: !running ? { running: false } : dispatch.slug === null ? { running: true, slug: null, reason: sMatch(ID)(dispatch.reason) } : { running: true, slug: sMatch(ID)(dispatch.slug) },
+    promptMax: { codePoints: sCount(promptMax.codePoints), bytes: sCount(promptMax.bytes) },
+    entries: sList(body.entries, 2).map(sOneOf(['do', 'none'])),
+    entryLine: sWords(body.entryLine),
+  };
+}
+
+
 const PROJECTORS: Readonly<Record<string, (value: unknown, context?: any) => unknown>> = Object.freeze({
   list, status, timeline, attempts, workflow, capabilities, version,
   observed, slots, 'worker-status': workerStatus, roadmap,
@@ -1747,7 +1855,7 @@ const PROJECTORS: Readonly<Record<string, (value: unknown, context?: any) => unk
   'worker-runs': workerRuns, 'worker-result': workerResult, 'worker-run-status': workerStatus, 'worker-log': workerLog,
   'config-list': configList, 'config-schema': configSchema, 'advise-report': adviseReport, 'advice-picks': advicePicks,
   followups, 'followup-record': followupRecord, 'lifecycle-overview': lifecycleOverview, doctor, 'storage-report': storageReport, 'worker-matrix': workerMatrix,
-  'sessions-history': projectSessionsHistory,
+  'sessions-history': projectSessionsHistory, 'start-options': startOptions,
 });
 const PROJECTOR_IDS: readonly string[] = Object.freeze(Object.keys(PROJECTORS));
 

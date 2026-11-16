@@ -7,7 +7,8 @@
  * (`header`, and the metadata mode for the last record time), task attempts by run/lineage, worker runs
  * (caller, `childOf`, binding, end, a bounded process check) and the dispatch `primary` snapshot.
  * Every edge names the record it comes from; two nodes merge only on a shared key (a runKey, a run id,
- * an agent key), never on a harness or a model. A label is the record's own role text, never invented.
+ * an agent key), never on a harness or a model; a started session and the hook session whose SessionStart record names
+ * its run id (`started_run`, 165 C-7) are one node. A label is the record's own role text, never invented.
  * A transcript is joined by session id alone (gate-a Q4 A); nothing is written, no path, pid or raw
  * session id is printed. `internal` (not part of the body) carries what V.6 needs per node: the file to open, and
  * `records` (DoFlow's own records of the agent: type, time, task, result) and `holds` (the tasks it is working on).
@@ -29,6 +30,8 @@ const { loadTranscriptRegistry } = require('../transcripts/registry.ts');
 const { readJsonFile, label } = require('../transcripts/cursor.ts');
 const { confinedReader } = require('../events/confined.ts');
 const { isSafeSlug } = require('../task-scope.ts');
+const { fileKeyOf } = require('../events/artifacts.ts');
+const { REPO_ROOT } = require('../../helper/repo-root.ts');
 
 const MAX_SESSIONS = 64;
 const MAX_NODES = 256;
@@ -39,6 +42,7 @@ const SUBAGENT_FILES = 64;
 const NEEDLE_BYTES = 2 * 1024 * 1024;
 const SESSION_DIR = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const RUN_KEY = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
+const STARTED_RUN = /^w-[0-9a-f]{12}$/; // session-context.sh records DOFLOW_STARTED_RUN only in this shape (165 C-7)
 
 const READERS: Record<string, () => any> = {
   'claude-jsonl': () => require('../transcripts/readers/claude-jsonl.ts'),
@@ -212,18 +216,134 @@ function buildTree({
     return null;
   };
 
+  // ---- worker runs, read before the main sessions: a started session is joined by the hook session naming it ----
+  const readStores = (checkout: string, dirName: string, read: (file: string) => any): Array<[string, any]> => {
+    const dir = path.join(checkout, '.doflow', 'state', dirName);
+    let names: string[] = [];
+    try { names = fsImpl.readdirSync(dir).filter((x: string) => x.endsWith('.json')).sort(); } catch { return []; }
+    const out: Array<[string, any]> = [];
+    for (const name of names) {
+      try { const data = read(path.join(dir, name)); if (data) out.push([name, data]); } catch { counts.unreadable += 1; }
+    }
+    return out;
+  };
+  const runs = new Map<string, any>();
+  for (const checkout of checkouts) {
+    for (const [name, byId] of readStores(checkout, 'worker-runs', (file) => readRuns(file, fsImpl))) {
+      for (const [runId, run] of Object.entries(byId) as Array<[string, any]>) if (!runs.has(runId)) runs.set(runId, { run, checkout, slug: slugOf(null, name) });
+    }
+  }
+  /** The run id a session's SessionStart record names (`started_run`, session-context.sh), in the run id's exact shape; else null. */
+  const startedRunOf = (rawId: string | null): string | null => {
+    if (root === null || rawId === null) return null;
+    const file = path.join(root, 'sessions', rawId, 'git-context.json');
+    try {
+      if (!fsImpl.lstatSync(file).isFile()) return null;
+      const id = JSON.parse(fsImpl.readFileSync(file, 'utf8'))?.started_run;
+      return typeof id === 'string' && STARTED_RUN.test(id) ? id : null;
+    } catch { return null; }
+  };
+  // 165 C-7: an exact join, never by time or cwd. One hook session joins a started run, the earliest captured when more
+  // than one names it (the others stay their own nodes); a session naming no started run of this project is a normal node.
+  const joins = new Map<string, any>(); // started run id -> the session that joins it
+  for (const s of sessions.slice(0, MAX_SESSIONS)) {
+    const id = startedRunOf(rawIds.get(s.sessionKey) ?? null);
+    if (id === null || runs.get(id)?.run.kind !== 'main-session') continue;
+    const had = joins.get(id);
+    if (!had || (s.contextCapturedAt ?? '~') < (had.contextCapturedAt ?? '~')) joins.set(id, s);
+  }
+  const joinedRun = new Map<any, string>([...joins].map(([id, s]) => [s, id]));
+  let sessionHooks: any = null;
+  /** A started run no hook session joined: why, from the session-context mapping in lifecycle.json. */
+  const notObserved = (harness: string | null): any => {
+    if (sessionHooks === null) {
+      try { sessionHooks = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core/registry/lifecycle.json'), 'utf8')).policies.find((p: any) => p.id === 'session-context').mappings; } catch { sessionHooks = {}; }
+    }
+    const status = harness ? sessionHooks[harness]?.status : null;
+    return { state: 'not-observed', reason: status === 'supported' || status === 'different' ? 'not-yet-observed' : 'no-session-hook' };
+  };
+  const runNode = (runKey: string, extra: any = {}): any => {
+    if (!RUN_KEY.test(runKey)) return null;
+    return node(sha16(`doflow:${runKey}`), { kind: 'doflow-run', worktreeKey: runKey.split('/')[0], ...extra }, { runKey });
+  };
+  const workerKey = (runId: string) => sha16(`worker:${runId}`);
+  // 165 F2: how a started run ended, so the page words the end without the machine list: the state, the exit code (null when the
+  // process left none) and the reason a process never started; null while the run has not ended.
+  const startedEnd = (run: any) => {
+    if (!run.end || typeof run.end.state !== 'string') return null;
+    const p = run.process;
+    return {
+      state: run.end.state, exitCode: p?.kind === 'exited' && Number.isInteger(p.code) ? p.code : null,
+      reason: p?.kind === 'not-started' && typeof p.reason === 'string' ? label(p.reason) : null,
+    };
+  };
+  const builtRuns = new Map<string, any>(); // run id -> its node and what its edges need, built once
+  const workerNodeOf = (runId: string): any => {
+    if (builtRuns.has(runId)) return builtRuns.get(runId);
+    const { run, checkout, slug } = runs.get(runId);
+    // 165 D8: a started session (record kind `main-session`) is its own node kind under the same agent key; the starter's
+    // run key is not a caller, so it gets no caller or attempt edge and no hold (its `task` is the kind, not a task).
+    const startedSession = run.kind === 'main-session';
+    const caller = !startedSession && run.caller && typeof run.caller.runKey === 'string' ? runNode(run.caller.runKey) : null;
+    const harness = harnessOf(run.harness);
+    const isChild = typeof run.childOf === 'string' && run.childOf !== '';
+    let liveness = 'not-checked';
+    if (run.phase !== 'ended') {
+      if (checks < MAX_CHECKS) {
+        checks += 1;
+        const seen = [alive(run.supervisor, { platform }), alive(run.worker, { platform })];
+        liveness = seen.includes(true) ? 'process-seen' : seen.every((v) => v === false) ? 'process-gone' : 'not-checked';
+      } else counts.notChecked += 1;
+    }
+    const rel = (stream: string) => `.doflow/state/worker-output/${runId}.${stream}.log`;
+    const n = node(workerKey(runId), {
+      kind: startedSession ? 'started-session' : isChild ? 'child-worker-run' : 'worker-run', harness, model: label(run.binding?.model),
+      modelBasis: run.binding?.model ? (startedSession ? 'start-record' : 'worker-binding') : null,
+      depth: isChild ? 2 : caller ? 1 : 0,
+      worktreeKey: startedSession ? (run.project?.worktreeKey ?? cwdHash(checkout)) : (run.caller?.runKey ?? '').split('/')[0] || cwdHash(checkout),
+      ...(startedSession ? {
+        runId, startedBy: label(run.startedBy), phase: run.phase, end: startedEnd(run), fileKeys: { out: fileKeyOf(checkout, rel('out')), err: fileKeyOf(checkout, rel('err')) }, observed: notObserved(harness),
+      } : {}),
+      startedAt: run.startedAt ?? run.createdAt ?? null, lastRecordAt: run.end?.at ?? run.startedAt ?? run.createdAt ?? null, liveness,
+      ended: run.end && typeof run.end.at === 'string' ? { at: run.end.at, result: typeof run.end.state === 'string' ? run.end.state : null } : null,
+      transcript: transcriptOf(harness, null),
+    }, { harness, runId });
+    const out = { n, run, caller, isChild, startedSession };
+    builtRuns.set(runId, out);
+    if (!n) return out;
+    const task = label(run.task);
+    const startedAt = run.startedAt ?? run.createdAt;
+    if (typeof startedAt === 'string') note(n, 'records', { type: 'worker-run-start', at: startedAt, task, result: null });
+    if (run.end && typeof run.end.at === 'string') note(n, 'records', { type: 'worker-run-end', at: run.end.at, task, result: typeof run.end.state === 'string' ? label(run.end.state) : null });
+    if (!startedSession && run.phase !== 'ended' && typeof run.task === 'string') note(n, 'holds', { slug, task: run.task });
+    return out;
+  };
+
   const mains: any[] = [];
   for (const s of sessions.slice(0, MAX_SESSIONS)) {
-    const harness = harnessOf(s.harness);
+    const startedRun = joinedRun.get(s) ?? null;
+    const harness = startedRun ? harnessOf(runs.get(startedRun).run.harness) : harnessOf(s.harness);
     const rawId = rawIds.get(s.sessionKey) ?? null;
     const file = harness && rawId ? locate(harness, rawId) : null;
     const agentKey = sha16(`${harness ?? ''}:${rawId ?? s.sessionKey}`);
     const companion = file && harness === 'kiro' ? file.replace(/\.jsonl$/, '.json') : undefined;
-    const n = node(agentKey, {
-      kind: 'main-session', harness, model: label(s.model), modelBasis: s.model ? 'hook-observation' : null, worktreeKey: s.worktreeKey,
-      contextCapturedAt: s.contextCapturedAt, lastRecordAt: (file && harness && lastAt(harness, file, companion)) || s.lastHookRecordAt,
-      transcript: transcriptOf(harness, file),
-    }, { harness, sessionId: rawId, file, companion });
+    const lastRecordAt = (file && harness && lastAt(harness, file, companion)) || s.lastHookRecordAt;
+    let n: any;
+    if (startedRun) {
+      // 165 C-7: the session a started run became is the run's node: it keeps the run's key, file keys and Stop, and gains
+      // the observed session's facts and transcript; it is never also a main-session node.
+      n = workerNodeOf(startedRun).n;
+      if (n) {
+        if (n.model === null && s.model) Object.assign(n, { model: label(s.model), modelBasis: 'hook-observation' });
+        Object.assign(n, { contextCapturedAt: s.contextCapturedAt, observed: { state: 'observed', sessionKey: s.sessionKey, model: label(s.model), lastSeenAt: lastRecordAt }, transcript: transcriptOf(harness, file) });
+        node(n.agentKey, {}, { harness, sessionId: rawId, file, companion });
+      }
+    } else {
+      n = node(agentKey, {
+        kind: 'main-session', harness, model: label(s.model), modelBasis: s.model ? 'hook-observation' : null, worktreeKey: s.worktreeKey,
+        contextCapturedAt: s.contextCapturedAt, lastRecordAt, transcript: transcriptOf(harness, file),
+      }, { harness, sessionId: rawId, file, companion });
+    }
     if (n) {
       mains.push({ n, harness, rawId, file });
       if (s.contextCapturedAt) note(n, 'records', { type: 'hook-record', at: s.contextCapturedAt, task: null, result: null });
@@ -292,20 +412,6 @@ function buildTree({
   }
 
   // ---- DoFlow records: attempts, worker runs, dispatch --------------------------------------------------
-  const readStores = (checkout: string, dirName: string, read: (file: string) => any): Array<[string, any]> => {
-    const dir = path.join(checkout, '.doflow', 'state', dirName);
-    let names: string[] = [];
-    try { names = fsImpl.readdirSync(dir).filter((x: string) => x.endsWith('.json')).sort(); } catch { return []; }
-    const out: Array<[string, any]> = [];
-    for (const name of names) {
-      try { const data = read(path.join(dir, name)); if (data) out.push([name, data]); } catch { counts.unreadable += 1; }
-    }
-    return out;
-  };
-  const runNode = (runKey: string, extra: any = {}): any => {
-    if (!RUN_KEY.test(runKey)) return null;
-    return node(sha16(`doflow:${runKey}`), { kind: 'doflow-run', worktreeKey: runKey.split('/')[0], ...extra }, { runKey });
-  };
   const attemptRuns = new Map<string, any>(); // `task#token` -> runKey of the attempt
   for (const checkout of checkouts) {
     for (const [name, store] of readStores(checkout, 'task-attempts', (file) => readTaskState(fsImpl, file))) {
@@ -330,39 +436,10 @@ function buildTree({
     }
   }
 
-  const runs = new Map<string, any>();
-  for (const checkout of checkouts) {
-    for (const [name, byId] of readStores(checkout, 'worker-runs', (file) => readRuns(file, fsImpl))) {
-      for (const [runId, run] of Object.entries(byId) as Array<[string, any]>) if (!runs.has(runId)) runs.set(runId, { run, checkout, slug: slugOf(null, name) });
-    }
-  }
   const ordered = [...runs.entries()].sort((a, b) => String(b[1].run.startedAt ?? b[1].run.createdAt ?? '').localeCompare(String(a[1].run.startedAt ?? a[1].run.createdAt ?? '')) || (a[0] < b[0] ? -1 : 1));
-  const workerKey = (runId: string) => sha16(`worker:${runId}`);
-  for (const [runId, { run, checkout, slug }] of ordered) {
-    const caller = run.caller && typeof run.caller.runKey === 'string' ? runNode(run.caller.runKey) : null;
-    const harness = harnessOf(run.harness);
-    const isChild = typeof run.childOf === 'string' && run.childOf !== '';
-    let liveness = 'not-checked';
-    if (run.phase !== 'ended') {
-      if (checks < MAX_CHECKS) {
-        checks += 1;
-        const seen = [alive(run.supervisor, { platform }), alive(run.worker, { platform })];
-        liveness = seen.includes(true) ? 'process-seen' : seen.every((v) => v === false) ? 'process-gone' : 'not-checked';
-      } else counts.notChecked += 1;
-    }
-    const n = node(workerKey(runId), {
-      kind: isChild ? 'child-worker-run' : 'worker-run', harness, model: label(run.binding?.model), modelBasis: run.binding?.model ? 'worker-binding' : null,
-      depth: isChild ? 2 : caller ? 1 : 0, worktreeKey: (run.caller?.runKey ?? '').split('/')[0] || cwdHash(checkout),
-      startedAt: run.startedAt ?? run.createdAt ?? null, lastRecordAt: run.end?.at ?? run.startedAt ?? run.createdAt ?? null, liveness,
-      ended: run.end && typeof run.end.at === 'string' ? { at: run.end.at, result: typeof run.end.state === 'string' ? run.end.state : null } : null,
-      transcript: transcriptOf(harness, null),
-    }, { harness, runId });
-    if (!n) continue;
-    const task = label(run.task);
-    const startedAt = run.startedAt ?? run.createdAt;
-    if (typeof startedAt === 'string') note(n, 'records', { type: 'worker-run-start', at: startedAt, task, result: null });
-    if (run.end && typeof run.end.at === 'string') note(n, 'records', { type: 'worker-run-end', at: run.end.at, task, result: typeof run.end.state === 'string' ? label(run.end.state) : null });
-    if (run.phase !== 'ended' && typeof run.task === 'string') note(n, 'holds', { slug, task: run.task });
+  for (const [runId] of ordered) {
+    const { n, run, caller, isChild, startedSession } = workerNodeOf(runId);
+    if (!n || startedSession) continue;
     if (isChild) edge(workerKey(run.childOf), n.agentKey, 'worker-childOf');
     else if (caller) edge(caller.agentKey, n.agentKey, 'worker-caller');
     else {

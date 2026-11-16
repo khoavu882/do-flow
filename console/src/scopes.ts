@@ -9,13 +9,19 @@
 // here stays refused. A live stream re-runs the device check on every keepalive and ends on a refusal
 // (routes.ts `requireDevice`, live-stream.ts).
 //
-// Feature 162 (IC-007, D6, DEC-009): both scopes read `GET /api/actions`; `control` alone lists the three
-// action routes `POST /api/actions/<id>`, one per ACTION_IDS entry. The list is necessary, not sufficient: an
+// Feature 162 (IC-007, D6, DEC-009): both scopes read `GET /api/actions`; `control` alone lists the action
+// routes `POST /api/actions/<id>`, one per ACTION_IDS entry (three then; 165 adds a fourth, below). The list is necessary, not sufficient: an
 // action also needs `deviceMayAct` (a `control` record paired natively, over the native transport), which the
 // action handler checks (actions.ts), so a control token carried in a browser cookie never acts.
+//
+// Feature 165 (IC-004, D7): `start-session` is a fourth action id, and the start form's two reads, `GET /api/start` and
+// `GET /api/start/options`, are `control` only (and the loopback session): a `view` device would see a form it can never
+// submit. The reads need the scope alone; the transport rule (`deviceMayAct`) is the action's, as for every action.
 
 /** The Console's action ids (IC-001): each is a route suffix, an actions.ts ACTIONS row and a verb-runner WRITE_SHAPES id. */
-const ACTION_IDS: readonly string[] = Object.freeze(['decide-gate', 'close-run', 'cancel-worker']);
+const ACTION_IDS: readonly string[] = Object.freeze(['decide-gate', 'close-run', 'cancel-worker', 'start-session']);
+/** 165 D7: the start form's reads, the action's own scope. */
+const START_READS: readonly string[] = Object.freeze(['GET /api/start', 'GET /api/start/options']);
 
 const READS = Object.freeze([
   'GET /api/info', 'GET /api/runs', 'GET /api/runs/:slug/:taskId', 'GET /api/workflows',
@@ -27,7 +33,7 @@ const READS = Object.freeze([
 
 const DEVICE_ROUTES: Readonly<Record<'view' | 'control', readonly string[]>> = Object.freeze({
   view: READS,
-  control: Object.freeze([...READS, ...ACTION_IDS.map((id) => `POST /api/actions/${id}`)]),
+  control: Object.freeze([...READS, ...START_READS, ...ACTION_IDS.map((id) => `POST /api/actions/${id}`)]),
 });
 
 /** Reachable with no device: the pairing exchange itself. */

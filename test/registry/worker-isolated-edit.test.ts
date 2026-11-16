@@ -45,6 +45,7 @@ test('isolatedEdit: exported as an optional capability, WORKER_KEYS unchanged', 
   assert.deepEqual(WORKER_OPTIONAL_CAPABILITIES, {
     isolatedEdit: { allowed: ['argv', 'protectedPaths'], required: ['argv'] },
     model: { allowed: ['argv'], required: ['argv'] },
+    mainSession: { allowed: ['argv', 'promptVia', 'parser'], required: ['argv', 'promptVia', 'parser'] },
   });
   assert.ok(!WORKER_KEYS.includes('isolatedEdit'));
 });

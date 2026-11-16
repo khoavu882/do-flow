@@ -39,6 +39,26 @@
       "argv": ["--help"],
       "expect": ["^\\s+--model <model>$"],
       "establishes": ["model"]
+    },
+    {
+      "id": "widening-flags",
+      "argv": ["--help"],
+      "expect": [
+        "^\\s+--trust-folder$",
+        "^\\s+--allow-all-tools$",
+        "^\\s+--allow-all-paths$",
+        "^\\s+--allow-all-urls$",
+        "^\\s+--allow-all$",
+        "^\\s+--allow-tool \\[<tools>\\.\\.\\.\\]$",
+        "^\\s+--allow-url \\[<urls>\\.\\.\\.\\]$",
+        "^\\s+--yolo$",
+        "^\\s+--add-dir <directory>$",
+        "^\\s+--mode <mode>$",
+        "possible values: interactive, plan, autopilot\\]$",
+        "^\\s+--autopilot$",
+        "^\\s+--assisted-approval$"
+      ],
+      "establishes": ["mainSession"]
     }
   ]
 }

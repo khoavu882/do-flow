@@ -533,7 +533,20 @@ test('requestId: 16 random bytes as 22 base64url characters', () => {
   for (let i = 0; i < 50; i += 1) ids.add(confirm.newRequestId());
   assert.equal(ids.size, 50);
   for (const id of ids) assert.match(id, /^[A-Za-z0-9_-]{22}$/);
-  assert.match(confirm.newRequestId({ getRandomValues: (bytes: Uint8Array) => bytes.fill(255) }), /^_{21}w$/);
+  assert.match(confirm.newRequestId({ getRandomValues: (bytes: Uint8Array) => bytes.fill(255) }), /^[A-Za-z0-9][A-Za-z0-9_-]{21}$/);
+});
+
+test('start-session request ids never begin with \'-\' or \'_\': the leading byte forced through every value 0..255', () => {
+  let seed = 12345;
+  const next = () => { seed = (Math.imul(seed, 1103515245) + 12345) >>> 0; return seed >>> 24; };
+  let count = 0;
+  for (let i = 0; i < 10240; i += 1) {
+    const lead = i % 256;
+    const id = confirm.newRequestId({ getRandomValues: (bytes: Uint8Array) => { for (let k = 0; k < bytes.length; k += 1) bytes[k] = next(); bytes[0] = lead; return bytes; } });
+    assert.match(id, /^[A-Za-z0-9][A-Za-z0-9_-]{21}$/, `leading byte ${lead}`);
+    count += 1;
+  }
+  assert.equal(count, 10240);
 });
 
 // ---- the action client --------------------------------------------------------------------------
@@ -674,4 +687,84 @@ test('"Review again" builds the confirmation from what `make` returns by then, n
   await flush();
   const next = doc.body.querySelector('.confirm') as El;
   assert.equal(text(next.querySelector('.confirm__title') as El), 'Approve Plan approval');
+});
+
+// ---- 165 T7: the start of a session through the same dialog -----------------------------------------------------------
+
+const startSpec = (over: any = {}) => words.buildConfirmation('start-session', {
+  projectKey: PK, project: 'do-flow', checkout: 'do-flow-fu25', worktreeKey: 'aaaaaaaaaaaaaaaa', harness: 'claude', model: null, entry: 'do', prompt: 'Fix the flaky test', ...over,
+});
+const startOk = () => ({ status: 200, headers: {}, body: { v: 1, action: 'start-session', requestId: 'x', outcome: 'applied', replayed: false, by: 'console', result: { replayed: false, run: { runId: 'w-0123456789ab', phase: 'running' } } } });
+
+test('165: the start confirmation says what it will do, has no text field, posts the complete body once with the requestId, and tells the page', async () => {
+  const sent = transportOf(() => startOk());
+  const told: string[] = [];
+  const replies: any[] = [];
+  const d = open(startSpec(), { onSend: () => told.push('send'), onReply: (reply: any, state: string) => replies.push([reply.status, state]) });
+  assert.equal(text(d.root.querySelector('.confirm__title') as El), 'Start claude');
+  assert.equal(text(d.root.querySelector('.confirm__effect') as El), 'Start claude (harness default) in do-flow / do-flow-fu25. It runs with claude’s own permissions. Stop it from Layers.');
+  assert.equal(d.hidden(d.root.querySelector('.confirm__field') as El), true, 'no text field');
+  assert.equal(d.disabled(d.verb), false, 'the verb is open: the form already holds the prompt');
+  assert.equal(text(d.verb), 'Start claude');
+  d.verb.fire('click');
+  d.verb.fire('click');
+  await flush();
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].path, '/api/actions/start-session');
+  const { requestId, ...rest } = sent[0].body;
+  assert.match(requestId, /^[A-Za-z0-9_-]{22}$/);
+  assert.deepEqual(rest, { v: 1, projectKey: PK, worktreeKey: 'aaaaaaaaaaaaaaaa', harness: 'claude', model: null, entry: 'do', prompt: 'Fix the flaky test' });
+  assert.deepEqual(told, ['send']);
+  assert.deepEqual(replies, [[200, 'applied']]);
+  assert.equal(text(d.result), 'Started. Layers shows the session and its output.');
+  assert.equal(d.handle.requestId, requestId);
+});
+
+test('165 review A-2: a package worker\'s qualified id builds a start confirmation; an id outside the generic id form does not', () => {
+  const spec = startSpec({ harness: 'acme.worker' });
+  assert.equal(spec?.title, 'Start acme.worker');
+  assert.equal(spec?.body.harness, 'acme.worker');
+  for (const harness of ['', '.x', 'a b', 'a/b']) assert.equal(startSpec({ harness }), null, harness);
+});
+
+test('165: a spec that carries a requestId reuses it (the retry of an unanswered start); a malformed one is replaced; 504 says "No answer; check Sessions before trying again."', async () => {
+  const sent = transportOf(() => refusal(504, 'action-timeout'));
+  const reuse = 'AAAAAAAAAAAAAAAAAAAAAA';
+  const d = open({ ...startSpec(), requestId: reuse });
+  d.verb.fire('click');
+  await flush();
+  assert.equal(sent[0].body.requestId, reuse);
+  assert.equal(d.handle.state(), 'unknown');
+  assert.equal(text(d.result), 'No answer; check Sessions before trying again.');
+  confirm.closeConfirm();
+  const bad = open({ ...startSpec(), requestId: 'short' });
+  bad.verb.fire('click');
+  await flush();
+  assert.notEqual(sent[1].body.requestId, 'short');
+  assert.match(sent[1].body.requestId, /^[A-Za-z0-9_-]{22}$/);
+});
+
+test('165: a refusal of the start takes the lines the spec gives; without them the generic words stay (a gate refusal is unchanged)', async () => {
+  transportOf(() => refusal(409, 'dispatch-running', { current: { slug: '165-start' } }));
+  const d = open({ ...startSpec(), refusal: (code: string, reply: any) => [`${code}: ${reply.body.current.slug}`] });
+  d.verb.fire('click');
+  await flush();
+  assert.equal(d.handle.state(), 'refused');
+  assert.equal(text(d.result), 'dispatch-running: 165-start');
+  confirm.closeConfirm();
+  transportOf(() => refusal(403, 'phone-scope'));
+  const g = open(gateSpec());
+  g.verb.fire('click');
+  await flush();
+  assert.equal(text(g.result), 'This device may only read. Pair a control device from the Android app to act.');
+});
+
+test('165: the start spec is null where a field the request carries is missing or malformed; a model may be a real id or null', () => {
+  assert.equal(startSpec({ worktreeKey: 'x' }), null);
+  assert.equal(startSpec({ harness: '' }), null);
+  assert.equal(startSpec({ entry: 'other' }), null);
+  assert.equal(startSpec({ prompt: '' }), null);
+  assert.equal(startSpec({ projectKey: 'x' }), null);
+  assert.equal(startSpec({ model: 'claude-opus-5' }).body.model, 'claude-opus-5');
+  assert.match(startSpec({ model: 'claude-opus-5' }).effect, /^Start claude \(claude-opus-5\) in do-flow \/ do-flow-fu25\./);
 });

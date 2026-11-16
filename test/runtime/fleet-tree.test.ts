@@ -236,6 +236,92 @@ test('worker runs: caller and childOf edges, ended, the process check, runs merg
   assert.ok(!JSON.stringify(body).includes('w-aaaa') && !JSON.stringify(body).includes('wk1/run1'));
 });
 
+/** A started session as `worker --action start-session` records it (165 IC-003), plus an ordinary worker run in the same store. */
+function started(f: any, phase = 'running', over: any = {}) {
+  const runId = 'w-5555555555ee';
+  writeStore(f, 'worker-runs', 'started-sessions', {
+    slug: 'started-sessions', runs: {
+      [runId]: {
+        runId, kind: 'main-session', task: 'main-session', token: 1, seq: 1, request: 'r'.repeat(22), childOf: null, harness: 'claude', phase,
+        createdAt: '2026-11-15T01:00:00.000Z', startedAt: '2026-11-15T01:00:02.000Z', startedBy: 'device.d-0123456789ab',
+        caller: { runKey: 'wk9/run9/lin9', run: 'run9', lineage: 'lin9' }, project: { projectKey: cwdHash(f.main), worktreeKey: cwdHash(f.main) },
+        binding: { model: 'claude-fixture-9', source: 'catalogue' }, supervisor: { pid: 5, start: 'x' },
+        ...(phase === 'ended' ? { end: { state: 'exited', at: '2026-11-15T01:09:00.000Z' } } : {}),
+        ...over,
+      },
+      'w-6666666666ff': { runId: 'w-6666666666ff', task: 'A.1', token: 1, seq: 1, harness: 'codex', phase: 'running', startedAt: '2026-11-15T01:05:00.000Z', childOf: null },
+    },
+  });
+  return runId;
+}
+
+test('a main-session run is a started-session node with file keys', (t) => {
+  const f = world(t, { fixtures: false });
+  const runId = started(f);
+  const body = tree(f, { alive: () => true });
+  const n = byKey(body, sha16(`worker:${runId}`));
+  assert.ok(n, 'the run is a node under the worker key');
+  assert.deepEqual([n.kind, n.harness, n.model, n.modelBasis, n.depth], ['started-session', 'claude', 'claude-fixture-9', 'start-record', 0]);
+  assert.deepEqual([n.startedBy, n.phase, n.worktreeKey, n.liveness], ['device.d-0123456789ab', 'running', cwdHash(f.main), 'process-seen']);
+  const rel = (stream: string) => `.doflow/state/worker-output/${runId}.${stream}.log`;
+  assert.deepEqual(n.fileKeys, { out: sha16(`${f.main}\0${rel('out')}`), err: sha16(`${f.main}\0${rel('err')}`) });
+  assert.equal(body.nodes.filter((x: any) => x.kind === 'worker-run' && x.agentKey === n.agentKey).length, 0, 'not also a worker node');
+  assert.equal(body.nodes.filter((x: any) => x.agentKey === n.agentKey).length, 1);
+  assert.deepEqual(n.observed, { state: 'not-observed', reason: 'not-yet-observed' }, 'claude has a session hook; no session names the run yet');
+  assert.deepEqual(body.edges, [], 'no caller edge and no doflow-run node from the starter\'s run key');
+  // An ordinary run in the same store is unchanged: no kind, no started fields.
+  const w = byKey(body, sha16('worker:w-6666666666ff'));
+  assert.deepEqual([w.kind, w.modelBasis, 'fileKeys' in w, 'startedBy' in w], ['worker-run', null, false, false]);
+  const json = JSON.stringify(body);
+  assert.ok(!json.includes(f.main), 'no path');
+  assert.equal(json.split(runId).length, 2, 'the run id appears once: the started-session node\'s own runId');
+});
+
+test('165 F2: a started-session node carries its run id, and no other node does', (t) => {
+  const f = world(t, { fixtures: false });
+  const runId = started(f);
+  const body = tree(f, { alive: () => true });
+  const n = byKey(body, sha16(`worker:${runId}`));
+  assert.equal(n.runId, runId);
+  assert.equal('runId' in byKey(body, sha16('worker:w-6666666666ff')), false);
+});
+
+test('165 F2: a started-session node carries how its run ended: exit code, stop, time-out and not started', (t) => {
+  const at = '2026-11-15T01:09:00.000Z';
+  const cases: Array<[any, any]> = [
+    [{}, null],
+    [{ end: { state: 'exited', at }, process: { kind: 'exited', code: 0, signal: null, at } }, { state: 'exited', exitCode: 0, reason: null }],
+    [{ end: { state: 'exited', at }, process: { kind: 'exited', code: 3, signal: null, at } }, { state: 'exited', exitCode: 3, reason: null }],
+    [{ end: { state: 'cancelled', at }, process: { kind: 'exited', code: null, signal: 'SIGTERM', at } }, { state: 'cancelled', exitCode: null, reason: null }],
+    [{ end: { state: 'timed-out', at }, process: { kind: 'exited', code: null, signal: 'SIGKILL', at } }, { state: 'timed-out', exitCode: null, reason: null }],
+    [{ end: { state: 'exited', at }, process: { kind: 'not-started', reason: 'prompt-unwritable', at, detail: 'EACCES' } }, { state: 'exited', exitCode: null, reason: 'prompt-unwritable' }],
+  ];
+  for (const [over, want] of cases) {
+    const f = world(t, { fixtures: false });
+    const runId = started(f, want ? 'ended' : 'running', over);
+    const n = byKey(tree(f, { alive: () => false }), sha16(`worker:${runId}`));
+    assert.deepEqual(n.end, want, JSON.stringify(over));
+  }
+});
+
+test('165 C-7: the hook session naming a started run is that run\'s node, with its transcript and sub-agents', (t) => {
+  const f = world(t);
+  const runId = started(f);
+  session(f, 'claude', `${ID}c001`, f.main);
+  const ctx = path.join(f.store, 'sessions', `${ID}c001`, 'git-context.json');
+  fs.writeFileSync(ctx, JSON.stringify({ ...JSON.parse(fs.readFileSync(ctx, 'utf8')), started_run: runId }));
+  const built = buildTree({ env: env(f), cwd: f.main, platform: TRANSCRIPT_PLATFORM, alive: () => true });
+  const body = built.body;
+  assert.equal(byKey(body, AK('claude', `${ID}c001`)), undefined, 'no main-session node of its own');
+  const n = byKey(body, sha16(`worker:${runId}`));
+  assert.deepEqual([n.kind, n.model, n.modelBasis, n.transcript.linked], ['started-session', 'claude-fixture-9', 'start-record', true]);
+  assert.deepEqual([n.observed.state, n.observed.sessionKey, n.observed.model], ['observed', sha16(`${ID}c001`), 'claude-fixture-1']);
+  const afx1 = byKey(body, AK('claude', `${ID}c001`, 'afx1'));
+  assert.ok(edgesOf(body, 'harness-subagent-record').some((e: any) => e.from === n.agentKey && e.to === afx1.agentKey), 'its sub-agents hang under the one node');
+  assert.equal(built.internal.get(n.agentKey).runId, runId);
+  assert.equal(typeof built.internal.get(n.agentKey).file, 'string', 'the transcript opens from the joined node');
+});
+
 test('no-merge: sessions and runs of one harness and model stay separate nodes', (t) => {
   const f = world(t, { fixtures: false });
   session(f, 'claude', `${ID}c001`, f.main, 'same-model-1');
