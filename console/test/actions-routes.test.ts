@@ -27,8 +27,8 @@ after(() => fs.rmSync(webRoot, { recursive: true, force: true }));
 const place = { projectRoot: os.tmpdir(), home: os.tmpdir() };
 
 const IDS = ['decide-gate', 'close-run', 'cancel-worker'] as const;
-/** Every action GET /api/actions lists, in ACTIONS order: the three of 162 and 165's start-session. */
-const ALL_IDS = [...IDS, 'start-session'];
+/** Every action GET /api/actions lists, in ACTIONS order: the three of 162, 165's start-session and 170's three session actions. */
+const ALL_IDS = [...IDS, 'start-session', 'session-send', 'session-steer', 'session-stop'];
 type Id = typeof IDS[number];
 const PK = '0123456789abcdef';
 const RUN_ID = 'w-3f2a0b1c2d3e';
@@ -592,7 +592,7 @@ test('GET /api/actions: local, a view device, a control device over Bearer and o
   const old = await local.post('close-run', BODIES['close-run']());
   assert.equal(old.status, 501);
   assert.deepEqual(json(old).error, { code: 'core-lacks-action', verb: 'close-run', exit: 1 });
-  assert.deepEqual(listed(await local.get('/api/actions')), [['decide-gate', true, null], ['close-run', false, 'core-lacks-action'], ['cancel-worker', true, null], ['start-session', true, null]]);
+  assert.deepEqual(listed(await local.get('/api/actions')), ALL_IDS.map((id) => [id, id !== 'close-run', id === 'close-run' ? 'core-lacks-action' : null]));
 
   const w = await lan(t, fakeRunner());
   const view = await w.world.pair('view', 'Viewer', 'native');
@@ -1115,4 +1115,168 @@ test('a POST to /api/actions/start-session refused before an actor exists (403 f
   await w.actions.stop();
   assert.deepEqual(w.lines().map((line) => [line.phase, line.code, line.count, line.actor.kind, line.action]),
     [['summary', 'forbidden-origin', 1, 'none', null], ['summary', 'unsupported-media', 1, 'none', null]]);
+});
+
+
+// ---- 170 IC-005: session-send, session-steer and session-stop ----
+
+const SESSION_IDS = ['session-send', 'session-steer', 'session-stop'] as const;
+const MESSAGE = 'Please also run the upload tests\nand tell me which one is flaky';
+const sessionBody = (id: string, over: Record<string, unknown> = {}) => ({ v: 1, requestId: rid(), projectKey: PK, runId: RUN_ID, ...(id === 'session-stop' ? {} : { message: MESSAGE }), ...over });
+const TURN = { observed: true, state: 'working', since: '2026-11-17T09:59:00.000Z', seq: 2 };
+const sent = (kind: string, over: Record<string, unknown> = {}) => ({ ok: true, exit: 0, json: {
+  ok: true, replayed: false, message: { seq: 3, kind, state: 'written', answer: 'accepted', at: '2026-11-17T10:00:00.000Z', bytes: 57 }, turn: TURN, channel: 'open', ...over } });
+const KIND_OF: Record<string, string> = { 'session-send': 'follow-up', 'session-steer': 'steer', 'session-stop': 'stop' };
+const sessionRefusal = (code: string, current?: unknown, message = 'the core\'s words') => ({ ok: true, exit: 1, json: { ok: false, code, message, ...(current === undefined ? {} : { current }) } });
+
+test('170 a view device gets 403 phone-scope on every session action; a browser-transport control device gets 403 action-transport; a control device over Bearer reaches act with its relay label and the message only as a parameter', async (t) => {
+  const runner = fakeRunner((shape) => sent(KIND_OF[shape]));
+  const w = await lan(t, runner);
+  const view = await w.world.pair('view', 'Viewer', 'native');
+  const control = await w.world.pair('control');
+  for (const id of SESSION_IDS) {
+    const asView = await w.post(id, sessionBody(id), { Authorization: view.bearer });
+    assert.equal(asView.status, 403, id);
+    assert.deepEqual(json(asView), { error: { code: 'phone-scope', verb: null, exit: null } }, id);
+    const asBrowser = await w.post(id, sessionBody(id), { Cookie: control.cookie, Origin: w.server.origin, 'Sec-Fetch-Site': 'same-origin' });
+    assert.equal(asBrowser.status, 403, id);
+    assert.equal(errorOf(asBrowser), 'action-transport', id);
+  }
+  assert.equal(runner.acts.length, 0, 'no refused action reached the runner');
+  for (const id of SESSION_IDS) {
+    const body = sessionBody(id);
+    const reply = await w.post(id, body, { Authorization: control.bearer });
+    assert.equal(reply.status, 200, `${id}: ${reply.body}`);
+    assert.deepEqual([json(reply).action, json(reply).outcome, json(reply).by], [id, 'applied', `device.${control.device.id}`]);
+  }
+  assert.deepEqual(runner.acts.map((call: any) => [call.shape, call.params.relay, 'message' in call.params]),
+    SESSION_IDS.map((id) => [id, `device.${control.device.id}`, id !== 'session-stop']));
+  const first = runner.acts[0];
+  assert.deepEqual(Object.keys(first.params).sort(), ['message', 'projectKey', 'relay', 'requestId', 'runId']);
+  assert.equal(first.params.message, MESSAGE);
+  for (const call of runner.acts) assert.equal(Object.entries(call.params).some(([name, value]) => name !== 'message' && String(value).includes('flaky')), false);
+});
+
+test('170 local session actions: the reply is the closed projection of the core\'s IC-001 reply; the log names the run and holds no message text', async (t) => {
+  const runner = fakeRunner((shape) => sent(KIND_OF[shape], { extra: 'dropped', message: { seq: 3, kind: KIND_OF[shape], state: 'written', answer: 'accepted', at: '2026-11-17T10:00:00.000Z', bytes: 57, text: 'leak' } }));
+  const w = await loopback(t, runner);
+  const replies = [];
+  for (const id of SESSION_IDS) {
+    const body = sessionBody(id);
+    const reply = await w.post(id, body);
+    assert.equal(reply.status, 200, `${id}: ${reply.body}`);
+    assert.deepEqual(json(reply), { v: 1, action: id, requestId: body.requestId, outcome: 'applied', replayed: false, by: 'console', result: {
+      replayed: false, message: { seq: 3, kind: KIND_OF[id], state: 'written', answer: 'accepted', at: '2026-11-17T10:00:00.000Z', bytes: 57 }, turn: TURN, channel: 'open' } }, id);
+    replies.push(reply);
+  }
+  const begins = w.lines().filter((line) => line.phase === 'begin');
+  const ends = w.lines().filter((line) => line.phase === 'end');
+  assert.deepEqual(begins.map((line) => [line.action, line.target.runId, line.project]), SESSION_IDS.map((id) => [id, RUN_ID, PK]));
+  assert.deepEqual(ends.map((line) => [line.action, line.outcome, line.target.runId, line.exit]), SESSION_IDS.map((id) => [id, 'applied', RUN_ID, 0]));
+  const text = fs.readFileSync(path.join(w.dir, 'actions.ndjson'), 'utf8');
+  for (const word of ['upload tests', 'flaky', 'leak', 'dropped']) {
+    assert.equal(text.includes(word), false, `${word} is not logged`);
+    for (const reply of replies) assert.equal(reply.body.includes(word), false, `${word} is in no reply`);
+  }
+  // The core's own replay and a pending message project too.
+  const replay = fakeRunner(() => sent('follow-up', { replayed: true }));
+  const r = await loopback(t, replay);
+  const again = await r.post('session-send', sessionBody('session-send'));
+  assert.equal(again.status, 200);
+  assert.equal(json(again).result.replayed, true);
+  assert.equal(r.lines().find((line) => line.phase === 'end').outcome, 'replayed');
+  const pending = fakeRunner(() => sent('steer', { message: { seq: null, kind: 'steer', state: 'pending', answer: null, at: '2026-11-17T10:00:00.000Z', bytes: 3 }, turn: { observed: false, reason: 'no-event-yet', since: null }, channel: 'closed' }));
+  const p = await loopback(t, pending);
+  const waiting = await p.post('session-steer', sessionBody('session-steer'));
+  assert.equal(waiting.status, 200);
+  assert.deepEqual(json(waiting).result.message, { seq: null, kind: 'steer', state: 'pending', answer: null, at: '2026-11-17T10:00:00.000Z', bytes: 3 });
+  assert.deepEqual(json(waiting).result.turn, { observed: false, reason: 'no-event-yet', since: null });
+});
+
+test('170 a message follows the prompt rule: empty is 400 prompt-empty, past 8000 code points 400 prompt-too-long, a body past 40960 bytes 400 usage; a stop takes no message and the 162 cap; a request id beginning with \'-\' is 400 usage', async (t) => {
+  const clock = manual();
+  const runner = fakeRunner((shape) => sent(KIND_OF[shape]));
+  const w = await loopback(t, runner, { now: clock.now });
+  const status = async (id: string, body: unknown) => { clock.t += MINUTE; const reply = await w.post(id, body); return [reply.status, reply.status === 200 ? null : errorOf(reply)]; };
+  assert.deepEqual(await status('session-send', sessionBody('session-send', { message: ' \n\t ' })), [400, 'prompt-empty']);
+  assert.deepEqual(await status('session-steer', sessionBody('session-steer', { message: 'x'.repeat(8001) })), [400, 'prompt-too-long']);
+  assert.deepEqual(await status('session-send', sessionBody('session-send', { message: 'a\0b' })), [400, 'usage']);
+  assert.deepEqual(await status('session-send', sessionBody('session-send', { message: 'é'.repeat(8000) })), [200, null]);
+  assert.deepEqual(await status('session-send', sessionBody('session-send', { message: 'x'.repeat(41000) })), [400, 'usage']);
+  assert.deepEqual(await status('session-stop', sessionBody('session-stop', { message: 'x' })), [400, 'usage']);
+  assert.deepEqual(await status('session-send', sessionBody('session-send', { runId: 'w-short' })), [400, 'usage']);
+  assert.deepEqual(await status('session-stop', sessionBody('session-stop', { requestId: `-${rid().slice(1)}` })), [400, 'usage']);
+  assert.deepEqual(await status('session-send', sessionBody('session-send', { requestId: `-${rid().slice(1)}` })), [400, 'usage']);
+  assert.deepEqual(await status('session-stop', `{"v":1,"requestId":"${rid()}","projectKey":"${PK}","runId":"${RUN_ID}","pad":"${'x'.repeat(5000)}"}`), [400, 'usage']);
+  assert.equal(runner.acts.length, 1, 'only the one valid message reached the runner');
+});
+
+test('170 every core refusal of a session action maps to its status: 409, 429 with Retry-After, 404, 400, 403, 501; the core\'s id and words are the reply\'s; a bad answer is 502', async (t) => {
+  const clock = manual();
+  let next: any = null;
+  const runner = fakeRunner(() => next);
+  const w = await loopback(t, runner, { now: clock.now });
+  const RUN = { runId: RUN_ID };
+  const cases: Array<[any, number, string, unknown, number | null, string | null]> = [
+    ...['no-channel', 'no-steer', 'channel-closed', 'channel-busy', 'run-ended', 'started-without-channel'].map((code) => [sessionRefusal(code, RUN), 409, code, RUN, 1, 'the core\'s words'] as any),
+    [sessionRefusal('channel-closed', { ...RUN, reason: 'supervisor-gone' }), 409, 'channel-closed', { ...RUN, reason: 'supervisor-gone' }, 1, 'the core\'s words'],
+    [sessionRefusal('not-working', { turn: { observed: true, state: 'waiting', since: '2026-11-17T09:59:00.000Z', seq: 4 } }), 409, 'not-working',
+      { turn: { observed: true, state: 'waiting', since: '2026-11-17T09:59:00.000Z', seq: 4 } }, 1, 'the core\'s words'],
+    [sessionRefusal('stdin-stalled', { ...RUN, turn: TURN }, 'the harness did not read its input'), 409, 'stdin-stalled', { ...RUN, turn: TURN }, 1, 'the harness did not read its input'],
+    [sessionRefusal('write-failed', RUN, 'the write failed'), 409, 'write-failed', RUN, 1, 'the write failed'],
+    [sessionRefusal('actor-rate-limited', { retryAfterSeconds: 37 }), 429, 'actor-rate-limited', { retryAfterSeconds: 37 }, 1, 'the core\'s words'],
+    ...['unknown-run', 'not-a-session'].map((code) => [sessionRefusal(code, RUN), 404, code, RUN, 1, 'the core\'s words'] as any),
+    ...['prompt-empty', 'prompt-too-long', 'command-not-allowed'].map((code) => [sessionRefusal(code, RUN), 400, code, RUN, 1, 'the core\'s words'] as any),
+    [sessionRefusal('nested-send', { runId: 'w-aaaabbbbcccc' }), 403, 'nested-send', { runId: 'w-aaaabbbbcccc' }, 1, 'the core\'s words'],
+    // The environment's value is the core's to pass on unchecked: not a run id, it is left out.
+    [sessionRefusal('nested-send', { runId: 'not a run id' }), 403, 'nested-send', undefined, 1, 'the core\'s words'],
+    [sessionRefusal('sender-in-run', { reason: 'in-worker' }), 403, 'sender-in-run', { reason: 'in-worker' }, 1, 'the core\'s words'],
+    [sessionRefusal('project-mismatch', { projectKey: '1111111111111111' }), 404, 'project-not-found', undefined, 1, null],
+    [sessionRefusal('project-not-indexed'), 404, 'project-not-found', undefined, 1, null],
+    [sessionRefusal('something-new'), 502, 'core-contract-mismatch', undefined, 1, null],
+    [sessionRefusal('unknown-run', { runId: '../x' }), 502, 'core-contract-mismatch', undefined, 1, null],
+    [sessionRefusal('actor-rate-limited', { retryAfterSeconds: 0 }), 502, 'core-contract-mismatch', undefined, 1, null],
+    [sessionRefusal('not-working', { turn: { observed: 'yes' } }), 502, 'core-contract-mismatch', undefined, 1, null],
+    [{ ok: true, exit: 0, json: { ok: true, replayed: false, message: { seq: 1, kind: 'steer', state: 'refused', answer: null, at: '2026-11-17T10:00:00.000Z', bytes: 1 }, turn: TURN, channel: 'open' } }, 502, 'core-contract-mismatch', undefined, 0, null],
+    [{ ok: false, code: 'timeout', exit: null }, 504, 'action-timeout', undefined, null, null],
+    [{ ok: false, code: 'core-error', exit: 3 }, 502, 'core-error', undefined, 3, null],
+    [{ ok: false, code: 'usage', exit: 2 }, 501, 'core-lacks-action', undefined, 2, null],
+  ];
+  for (const [result, status, code, current, exit, words] of cases) {
+    clock.t += 61 * MINUTE;
+    next = result;
+    const reply = await w.post('session-send', sessionBody('session-send'));
+    const label = JSON.stringify(result).slice(0, 110);
+    assert.equal(reply.status, status, `${label}: ${reply.body}`);
+    assert.deepEqual([json(reply).error.code, json(reply).error.verb, json(reply).error.exit], [code, 'session-send', exit], label);
+    assert.equal(json(reply).error.message ?? null, words, label);
+    if (current === undefined) assert.equal(Object.hasOwn(json(reply), 'current'), false, label);
+    else assert.deepEqual(json(reply).current, current, label);
+    assert.equal(reply.headers['retry-after'], code === 'actor-rate-limited' && status === 429 ? '37' : undefined, label);
+    assert.equal(reply.body.includes('flaky'), false, 'the message is in no error');
+  }
+  const listed = json(await w.get('/api/actions')).actions;
+  assert.deepEqual(listed.filter((entry: any) => entry.reason === 'core-lacks-action').map((entry: any) => entry.id), ['session-send'], 'only the action that met the old core is lacking');
+  // The core's words are shown only when they are words: a path or a control character withholds them.
+  for (const message of ['see /Users/kai/secret', 'a\u0007b', '', 'x'.repeat(301)]) {
+    clock.t += 61 * MINUTE;
+    next = sessionRefusal('channel-closed', RUN, message);
+    const reply = await w.post('session-stop', sessionBody('session-stop'));
+    assert.equal(reply.status, 409);
+    assert.equal(Object.hasOwn(json(reply).error, 'message'), false, JSON.stringify(message));
+  }
+  // The same refusal replayed keeps its status, words and Retry-After.
+  clock.t += 61 * MINUTE;
+  next = sessionRefusal('actor-rate-limited', { retryAfterSeconds: 12 });
+  const body = sessionBody('session-steer');
+  const first = await w.post('session-steer', body);
+  const second = await w.post('session-steer', body);
+  assert.deepEqual([first.status, second.status, first.headers['retry-after'], second.headers['retry-after']], [429, 429, '12', '12']);
+  assert.equal(json(second).replayed, true);
+  // An unknown project is 404 after one refresh and nothing spawns.
+  const lost = fakeRunner(() => ({ ok: false, code: 'project-not-found', exit: null }));
+  const v = await loopback(t, lost);
+  const gone = await v.post('session-stop', sessionBody('session-stop'));
+  assert.equal(gone.status, 404);
+  assert.deepEqual(json(gone).error, { code: 'project-not-found', verb: 'session-stop', exit: null });
 });

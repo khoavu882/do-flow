@@ -20,8 +20,8 @@
 //
 // Feature 172 (IC-005): `GET /api/harness-login` (each worker harness's login answer) is a plain read for both scopes.
 
-/** The Console's action ids (IC-001): each is a route suffix, an actions.ts ACTIONS row and a verb-runner WRITE_SHAPES id. */
-const ACTION_IDS: readonly string[] = Object.freeze(['decide-gate', 'close-run', 'cancel-worker', 'start-session']);
+/** The Console's action ids (IC-001): each is a route suffix, an actions.ts ACTIONS row and a verb-runner WRITE_SHAPES id. 170 IC-005: `session-send`, `session-steer` and `session-stop` are three more, control scope and loopback like the rest. */
+const ACTION_IDS: readonly string[] = Object.freeze(['decide-gate', 'close-run', 'cancel-worker', 'start-session', 'session-send', 'session-steer', 'session-stop']);
 /** 165 D7: the start form's reads, the action's own scope. */
 const START_READS: readonly string[] = Object.freeze(['GET /api/start', 'GET /api/start/options']);
 

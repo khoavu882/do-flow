@@ -40,7 +40,7 @@ function findOnPath(tool: string): string | undefined {
   return undefined;
 }
 
-/** The test files of the models and worker folders, relative to the repo, this file excluded. */
+/** The test files of the models and worker folders (and the Console's actions e2e, 170), relative to the repo, this file excluded. */
 function targetFiles(): string[] {
   const files: string[] = [];
   const add = (dir: string, keep: (name: string) => boolean) => {
@@ -50,6 +50,8 @@ function targetFiles(): string[] {
   add('test/runtime/worker', () => true);
   add('test/runtime', (name) => name.startsWith('worker-'));
   add('test/cli', (name) => name.startsWith('models-'));
+  // Row 170: the Console's actions e2e spawns the fake channel harness (test/helper/fake-channel-harness.ts) through the real core and supervisor.
+  add('console/test', (name) => name === 'actions-e2e.test.ts');
   return files;
 }
 

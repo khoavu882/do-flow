@@ -12,9 +12,9 @@
 //   2. the scope (LAN, the wrapper: `deviceMayUse`, else 403 phone-scope);
 //   3. the transport (LAN: `deviceMayAct`, a `control` record paired natively over the native class, else 403
 //      action-transport; loopback: the `local` session acts, behind server.ts's non-GET checks, D5);
-//   4. the body (the row's `bodyCap`: 4 KiB, 40 KiB for start-session; one JSON object with exactly the row's keys plus `v`,
-//      `requestId` and `projectKey`; the text rule of IC-009 or the prompt rule of 165 IC-004; else 400 usage, or 400
-//      prompt-empty / prompt-too-long for a prompt, the core's own ids);
+//   4. the body (the row's `bodyCap`: 4 KiB, 40 KiB for start-session, session-send and session-steer; one JSON object with exactly
+//      the row's keys plus `v`, `requestId` and `projectKey`; the text rule of IC-009 or the prompt rule of 165 IC-004; else 400
+//      usage, or 400 prompt-empty / prompt-too-long for a prompt or a message, the core's own ids);
 //   5. idempotency (D12: `(actor, requestId)` for 10 min, 256 entries, least recently used out; a duplicate awaits
 //      or replays the first answer, `replayed: true`, uncounted; another body under the same id is 409
 //      request-reused);
@@ -38,8 +38,10 @@
 //
 // The relay label is the actor's, never the body's: `console` for the loopback session, `device.d-<12 hex>` for a
 // device (DEC-007). Free text (`note`, `reason`) is normalized here, passed as one argv element, and logged only as
-// its length. A prompt (165 IC-004) is normalized by its own rule, passed only as the write shape's stdin parameter, and
-// logged only as its length; it is in no reply and no error. `GET /api/actions` (D13) says, for the asking session, which actions it may take and why not; an
+// its length. A prompt (165 IC-004) or a message (170: `session-send`, `session-steer`) is normalized by its own rule, passed only as
+// the write shape's stdin parameter, and logged only as its length; it is in no reply and no error. The three session actions (170 IC-001,
+// IC-005) reply with the closed projection of the core's `{ok, replayed, message, turn, channel}` or its refusal (409, 429 with `Retry-After`,
+// 404, 400, 403 by the core's own ids, and its words as the error's `message`). `GET /api/actions` (D13) says, for the asking session, which actions it may take and why not; an
 // action that answered 501 core-lacks-action is remembered as lacking until the Console restarts.
 //
 // Ceilings: the limits, the idempotency memo and the lacking set are in memory and die with the process; the
@@ -64,7 +66,9 @@ type Current = Record<string, unknown> | null;
  * only on a refusal by state (it may be null there), `ran` false when nothing was spawned.
  */
 type Answer = { status: number, code: string | null, outcome: 'applied' | 'refused' | 'failed' | 'unknown' | 'replayed', exit: number | null,
-  verb: string | null, current?: Current, result?: Record<string, unknown>, ran: boolean, runId?: string, errorId?: string };
+  verb: string | null, current?: Current, result?: Record<string, unknown>, ran: boolean, runId?: string, errorId?: string,
+  /** 170: the core's own words for a refusal of a session action, as the error body's `message`; `retryAfter` whole seconds, the 429's header. */
+  message?: string, retryAfter?: number };
 type Target = { slug: string | null, taskId: string | null, gateId: string | null, runId: string | null,
   worktreeKey?: string, harness?: string, model?: string };
 type ActionSpec = Readonly<{
@@ -72,8 +76,8 @@ type ActionSpec = Readonly<{
   shape: string,
   fields: Readonly<Record<string, FieldRule>>,
   textField: 'note' | 'reason' | null,
-  /** 165 C-4: the field of kind `prompt`, which is the write shape's `stdin` parameter; null for every other row. */
-  promptField: 'prompt' | null,
+  /** 165 C-4: the field of kind `prompt`, which is the write shape's `stdin` parameter (170: `message` for a send or a steer); null for every other row. */
+  promptField: 'prompt' | 'message' | null,
   /** 165 C-4: this row's body cap in bytes (162's BODY_CAP unless the row carries a prompt). */
   bodyCap: number,
   /** 165 FR-008: a limit of this row's own, per actor, on top of 162's; null for none. */
@@ -89,7 +93,13 @@ type Actor = { kind: 'local', key: 'local', relay: 'console' }
 const BODY_CAP = 4096;
 /** 165 IC-004: a start's body: a prompt of 32 KiB and its JSON escapes. */
 const START_BODY_CAP = 40960;
-/** 165 IC-001: the prompt bounds after the prompt rule, the core's PROMPT_MAX (src/runtime/worker/session-prompt.ts). */
+/** 170 IC-005: a send's or a steer's body: a message of 32 KiB and its JSON escapes, as a start's. */
+const MESSAGE_BODY_CAP = START_BODY_CAP;
+/**
+ * 165 IC-001: the prompt bounds after the prompt rule, the core's PROMPT_MAX (src/runtime/worker/session-prompt.ts); 170: a message's
+ * bounds are the same two numbers (channel.ts CHANNEL_LIMITS). This mirrors the core's value only to answer a too-long text before a spawn;
+ * the core re-checks it and its answer is the one that counts.
+ */
 const PROMPT_MAX = Object.freeze({ codePoints: 8000, bytes: 32768 });
 const START_LIMIT = Object.freeze({ perHour: 6, code: 'start-rate-limited' });
 const TEXT_MAX = 500;
@@ -105,6 +115,8 @@ const WARN_EVERY_MS = MINUTE_MS;
 const REQUEST_ID = /^[A-Za-z0-9_-]{22}$/;
 /** start-session carries its id as a CLI flag value, which the CLI refuses when it begins with `-`: this row's id begins with a letter or digit. */
 const START_REQUEST_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{21}$/;
+/** The actions whose request id is a CLI flag value (the core's own pattern): start-session (165) and the three session actions (170). */
+const FLAG_ID_ACTIONS: readonly string[] = Object.freeze(['start-session', 'session-send', 'session-steer', 'session-stop']);
 const DEVICE_ID = /^d-[0-9a-f]{12}$/;
 /** IC-009: removed after NFC and the whitespace rule: C0, DEL and C1, zero-width and bidi controls, the BOM. */
 const REMOVED = /[\u0000-\u001F\u007F-\u009F​-‏‪-‮⁦-⁩﻿]/g;
@@ -200,7 +212,7 @@ function readBodyOf(spec: ActionSpec, text: string | null): { body: Body } | { c
   if (!object(raw)) return usage;
   const keys = ['v', 'requestId', 'projectKey', ...Object.keys(spec.fields)];
   if (Object.keys(raw).sort().join() !== [...keys].sort().join()) return usage;
-  if (raw.v !== 1 || typeof raw.requestId !== 'string' || !(spec.id === 'start-session' ? START_REQUEST_ID : REQUEST_ID).test(raw.requestId)
+  if (raw.v !== 1 || typeof raw.requestId !== 'string' || !(FLAG_ID_ACTIONS.includes(spec.id) ? START_REQUEST_ID : REQUEST_ID).test(raw.requestId)
     || typeof raw.projectKey !== 'string' || !PATTERNS.key16.test(raw.projectKey)) return usage;
   const body: Body = { v: 1, requestId: raw.requestId, projectKey: raw.projectKey };
   let refused: Refused | null = null;
@@ -436,6 +448,116 @@ function startOutcome(shape: string) {
   };
 }
 
+// ---- 170 IC-001, IC-005: the reply of session-send, session-steer and session-stop ----
+
+const TOKEN = /^[a-z][a-z0-9:_-]{0,63}$/;
+const MESSAGE_KINDS = ['follow-up', 'steer', 'stop'];
+/** An `ok: true` reply says `written` or `pending` (the verb waited 2 s and the file still waits); a refused or failed entry is `ok: false`. */
+const MESSAGE_STATES = ['written', 'pending'];
+const MESSAGE_ANSWERS = ['accepted', 'refused'];
+/** The core's words for a refusal: one line of at most 300 characters, no control character, and none that looks like a path. */
+const CORE_WORDS = /^[^\u0000-\u001F\u007F-\u009F\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]{1,300}$/;
+const CORE_PATH = /(?:^|[\s(])(?:\/|~\/|[A-Za-z]:\\)/;
+const RETRY_AFTER_MAX = 86_400;
+const isIso = (value: unknown): value is string => typeof value === 'string' && ISO.test(value);
+
+/** IC-002's `Turn`, closed; undefined when it does not project. */
+function turnOf(turn: any): Record<string, unknown> | undefined {
+  if (!object(turn)) return undefined;
+  if (turn.observed === true) {
+    return (turn.state === 'working' || turn.state === 'waiting') && isIso(turn.since) && count(turn.seq)
+      ? { observed: true, state: turn.state, since: turn.since, seq: turn.seq } : undefined;
+  }
+  return turn.observed === false && typeof turn.reason === 'string' && TOKEN.test(turn.reason) && (turn.since === null || isIso(turn.since))
+    ? { observed: false, reason: turn.reason, since: turn.since } : undefined;
+}
+
+/** IC-001's `ok: true` reply, closed; null when it does not project. */
+function sessionResult(json: any): Record<string, unknown> | null {
+  const m = json.message;
+  const turn = turnOf(json.turn);
+  if (typeof json.replayed !== 'boolean' || turn === undefined || (json.channel !== 'open' && json.channel !== 'closed') || !object(m)
+    || !(m.seq === null || count(m.seq)) || !MESSAGE_KINDS.includes(m.kind) || !MESSAGE_STATES.includes(m.state)
+    || !(m.answer === null || MESSAGE_ANSWERS.includes(m.answer)) || !isIso(m.at) || !count(m.bytes)) return null;
+  return { replayed: json.replayed, message: { seq: m.seq, kind: m.kind, state: m.state, answer: m.answer, at: m.at, bytes: m.bytes }, turn, channel: json.channel };
+}
+
+/**
+ * IC-001's `current` of a refusal, closed: the run id, the turn, a reason and the seconds to wait, each only when the core gave it.
+ * `nested-send` carries the environment's DOFLOW_STARTED_RUN, which the core does not check: it is left out when it is no run id.
+ * Null for none; undefined when a part the core gave does not project.
+ */
+function sessionCurrent(c: unknown, code: string): Current | undefined {
+  if (c === undefined || c === null) return null;
+  if (!object(c)) return undefined;
+  const current: Record<string, unknown> = {};
+  if (c.runId !== undefined) {
+    if (typeof c.runId === 'string' && PATTERNS.runId.test(c.runId)) current.runId = c.runId;
+    else if (code !== 'nested-send') return undefined;
+  }
+  if (c.turn !== undefined) {
+    const turn = turnOf(c.turn);
+    if (turn === undefined) return undefined;
+    current.turn = turn;
+  }
+  if (c.reason !== undefined) {
+    if (typeof c.reason !== 'string' || !TOKEN.test(c.reason)) return undefined;
+    current.reason = c.reason;
+  }
+  if (c.retryAfterSeconds !== undefined) {
+    if (!Number.isSafeInteger(c.retryAfterSeconds) || c.retryAfterSeconds < 1 || c.retryAfterSeconds > RETRY_AFTER_MAX) return undefined;
+    current.retryAfterSeconds = c.retryAfterSeconds;
+  }
+  return Object.keys(current).length === 0 ? null : current;
+}
+
+/** IC-001/IC-005: the core's refusal ids of a send, a steer and a stop, and the status each is here. The core's id is the Console's. */
+const SESSION_REFUSALS: Readonly<Record<string, number>> = Object.freeze({
+  'no-channel': 409, 'no-steer': 409, 'channel-closed': 409, 'not-working': 409, 'channel-busy': 409, 'run-ended': 409,
+  'started-without-channel': 409, 'stdin-stalled': 409, 'write-failed': 409,
+  'actor-rate-limited': 429,
+  'unknown-run': 404, 'not-a-session': 404,
+  'prompt-empty': 400, 'prompt-too-long': 400, 'command-not-allowed': 400,
+  'nested-send': 403, 'sender-in-run': 403,
+});
+/** A delivery that failed (not a refusal by a rule): the log says `failed`. */
+const SESSION_FAILURES = ['stdin-stalled', 'write-failed'];
+
+/**
+ * send, steer and stop (IC-001): `{ok:true, replayed, message, turn, channel}` on exit 0, `{ok:false, code, message, current?}` on exit 1 by
+ * SESSION_REFUSALS; the project checks are this Console's `project-not-found`, as start's. An exit 2 `usage` is an older core without the
+ * action (501), as start's. The core's words ride as the error body's `message`, and `retryAfterSeconds` as the 429's `Retry-After`.
+ */
+function sessionOutcome(shape: string) {
+  return (result: any): Answer => {
+    if (!result.ok) {
+      if (result.code === 'usage' && result.exit === 2) {
+        return result.errorId === undefined || result.errorId === 'usage'
+          ? answer(501, 'core-lacks-action', 'failed', 2, shape)
+          : answer(502, 'core-error', 'failed', 2, shape, { errorId: result.errorId });
+      }
+      return failureAnswer(shape, result);
+    }
+    const json = result.json;
+    if (result.exit === 0) {
+      const projected = json.ok === true ? sessionResult(json) : null;
+      if (projected === null) return mismatch(shape, 0);
+      return answer(200, null, projected.replayed ? 'replayed' : 'applied', 0, shape, { result: projected });
+    }
+    if (json.ok !== false || typeof json.code !== 'string') return mismatch(shape, 1);
+    if (json.code === 'project-mismatch' || json.code === 'project-not-indexed') return answer(404, 'project-not-found', 'refused', 1, shape);
+    if (!Object.hasOwn(SESSION_REFUSALS, json.code)) return mismatch(shape, 1);
+    const current = sessionCurrent(json.current, json.code);
+    if (current === undefined) return mismatch(shape, 1);
+    const words = typeof json.message === 'string' && CORE_WORDS.test(json.message) && !CORE_PATH.test(json.message) ? json.message : undefined;
+    const retry = current === null ? undefined : current.retryAfterSeconds;
+    return answer(SESSION_REFUSALS[json.code], json.code, SESSION_FAILURES.includes(json.code) ? 'failed' : 'refused', 1, shape, {
+      ...(current === null ? {} : { current }), ...(words === undefined ? {} : { message: words }),
+      ...(json.code === 'actor-rate-limited' && typeof retry === 'number' ? { retryAfter: retry } : {}),
+    });
+  };
+}
+
 const deepFreeze = <T>(value: T): T => {
   if (value && typeof value === 'object') {
     for (const inner of Object.values(value)) deepFreeze(inner);
@@ -509,6 +631,33 @@ const ACTIONS: readonly ActionSpec[] = deepFreeze([
     params: (b: Body, relay: string) => ({ projectKey: b.projectKey, worktreeKey: b.worktreeKey, harness: b.harness, ...(b.model === null ? {} : { model: b.model as string }),
       ...(b.provider === null ? {} : { provider: b.provider as string }), ...(b.effort === null ? {} : { effort: b.effort as string }), entry: b.entry, relay, requestId: b.requestId, prompt: b.prompt }),
     outcome: startOutcome('start-session'),
+  },
+  // 170 IC-005. The run id is the target; the message is the write shape's stdin, in no argv, reply or log line; the core's limits apply.
+  ...['session-send', 'session-steer'].map((id) => ({
+    id,
+    shape: id,
+    fields: { runId: rule('runId'), message: rule('prompt') },
+    textField: null,
+    promptField: 'message',
+    bodyCap: MESSAGE_BODY_CAP,
+    limit: null,
+    target: (b: Body) => ({ slug: null, taskId: null, gateId: null, runId: b.runId }),
+    expect: () => null,
+    params: (b: Body, relay: string) => ({ projectKey: b.projectKey, runId: b.runId, relay, requestId: b.requestId, message: b.message }),
+    outcome: sessionOutcome(id),
+  })),
+  {
+    id: 'session-stop',
+    shape: 'session-stop',
+    fields: { runId: rule('runId') },
+    textField: null,
+    promptField: null,
+    bodyCap: BODY_CAP,
+    limit: null,
+    target: (b: Body) => ({ slug: null, taskId: null, gateId: null, runId: b.runId }),
+    expect: () => null,
+    params: (b: Body, relay: string) => ({ projectKey: b.projectKey, runId: b.runId, relay, requestId: b.requestId }),
+    outcome: sessionOutcome('session-stop'),
   },
 ] as ActionSpec[]);
 
@@ -706,14 +855,18 @@ function createActions({ runner, log, now = Date.now, warn = () => {} }: Options
     return reply;
   }
 
+  /** 170: a 429 from the core's own limit says when to come back, in whole seconds. */
+  const withRetry = (reply: Reply, done: Answer): Reply => (done.retryAfter === undefined ? reply : withHeader(reply, 'Retry-After', String(done.retryAfter)));
+
   function replyOf(spec: ActionSpec, body: Body, actor: Actor, done: Answer, replayed: boolean): Reply {
     if (done.status === 200) return jsonReply(200, { v: 1, action: spec.id, requestId: body.requestId, outcome: 'applied', replayed, by: actor.relay, result: done.result });
     const reply = errorReply(done.status, done.code as string, done.verb, done.exit);
-    if (done.current === undefined && done.errorId === undefined && !replayed) return reply;
-    // 162 review 11: a replayed error says so, with the first reply's status and `current`. 165 F1: a core error says which id.
+    if (done.current === undefined && done.errorId === undefined && done.message === undefined && !replayed) return withRetry(reply, done);
+    // 162 review 11: a replayed error says so, with the first reply's status and `current`. 165 F1: a core error says which id. 170: and its words.
     const plain = JSON.parse(String(reply.body));
     if (done.errorId !== undefined) plain.error.id = done.errorId;
-    return jsonReply(done.status, { ...plain, ...(done.current === undefined ? {} : { current: done.current }), ...(replayed ? { replayed: true } : {}) });
+    if (done.message !== undefined) plain.error.message = done.message;
+    return withRetry(jsonReply(done.status, { ...plain, ...(done.current === undefined ? {} : { current: done.current }), ...(replayed ? { replayed: true } : {}) }), done);
   }
 
   /** begin, act (one projects refresh for an unknown key), end. */

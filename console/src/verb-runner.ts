@@ -25,7 +25,7 @@
 // carries `at`, the runner clock's ms when the child closed.
 //
 // Write path (162 IC-003, D9): the runner is no longer read-only. It has exactly one write path, `act()`, over a
-// second frozen table, WRITE_SHAPES (`decide-gate`, `close-run`, `cancel-worker` and, from 165, `start-session`), that `run()` refuses and that
+// second frozen table, WRITE_SHAPES (`decide-gate`, `close-run`, `cancel-worker` and, from 165, `start-session`, from 170 `session-send`, `session-steer` and `session-stop`), that `run()` refuses and that
 // `act()` alone accepts (and `act()` refuses every read shape). Every write shape is project-scoped, with the same
 // projectKey -> root map as `transcript`. `act()` has no cache, no single flight and no backoff, one write slot of
 // its own outside the pool (writes queue in arrival order; reads go on beside one), a 30 s timeout, and the same
@@ -35,6 +35,9 @@
 // after the write, not up to a ttl old; `projects`, `doctor` and the once-per-process reads keep their entries and flights.
 // 165 IC-001: a write shape may declare `stdin`, one free parameter written to the core's stdin (UTF-8) and then ended; only
 // that spawn pipes stdin (every other keeps 'ignore'), and the text is never in argv, a log or a result.
+// 170 IC-005: three more write shapes, `session-send`, `session-steer` and `session-stop` (`worker --action send | steer | stop`); the first
+// two carry the message as their `stdin` (`message`), the third has none. The core's verb waits up to 2 s for the supervisor's answer, inside
+// the 30 s write timeout.
 
 const childProcess = require('node:child_process');
 const fs = require('node:fs');
@@ -141,6 +144,8 @@ const EFFORT_OPT: Param = { param: 'effort', pattern: 'effort', flag: '--effort'
 const ENTRY: Param = { param: 'entry', pattern: 'entry' };
 const REQUEST: Param = { param: 'requestId', pattern: 'requestId' };
 const PROMPT: Param = { param: 'prompt', free: true };
+// 170 IC-005: the message of a send or a steer is the shape's stdin, never an argv element.
+const MESSAGE: Param = { param: 'message', free: true };
 
 /** IC-003, the whole allow-list. `--json` is appended to every shape. */
 const SHAPES: Readonly<Record<string, Shape>> = deepFreeze({
@@ -214,6 +219,21 @@ const WRITE_SHAPES: Readonly<Record<string, WriteShape>> = deepFreeze({
     argv: ['worker', '--action', 'start-session', '--project-key', PROJECT, '--worktree-key', WORKTREE, '--harness', HARNESS, MODEL_OPT, PROVIDER_OPT, EFFORT_OPT, '--entry', ENTRY, '--via', RELAY, '--request-id', REQUEST, '--stdin'],
     scoped: true,
     stdin: PROMPT,
+  },
+  // 170 IC-001/IC-005: a message to a running started session. The run id is the core's `--worker-run`; the text rides stdin; the request id is argv.
+  'session-send': {
+    argv: ['worker', '--action', 'send', '--project-key', PROJECT, '--worker-run', RUN, '--via', RELAY, '--request-id', REQUEST, '--stdin'],
+    scoped: true,
+    stdin: MESSAGE,
+  },
+  'session-steer': {
+    argv: ['worker', '--action', 'steer', '--project-key', PROJECT, '--worker-run', RUN, '--via', RELAY, '--request-id', REQUEST, '--stdin'],
+    scoped: true,
+    stdin: MESSAGE,
+  },
+  'session-stop': {
+    argv: ['worker', '--action', 'stop', '--project-key', PROJECT, '--worker-run', RUN, '--via', RELAY, '--request-id', REQUEST],
+    scoped: true,
   },
 });
 const WRITE_SHAPE_IDS: readonly string[] = Object.freeze(Object.keys(WRITE_SHAPES));
@@ -344,7 +364,13 @@ const PASS_THROUGH: readonly string[] = Object.freeze(['DOFLOW_CONFIG_DIR', 'DOF
  * 165 review B-1: the one variable a write shape also passes. A Console run inside a started session carries that session's
  * `DOFLOW_STARTED_RUN`; the start shape passes it so the core's own `nested-start` refusal fires. No other shape gets it.
  */
-const WRITE_PASS_THROUGH: Readonly<Record<string, readonly string[]>> = Object.freeze({ 'start-session': Object.freeze(['DOFLOW_STARTED_RUN']) });
+const WRITE_PASS_THROUGH: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  'start-session': Object.freeze(['DOFLOW_STARTED_RUN']),
+  // 170 IC-001 check 1: the core refuses `nested-send` from the same variable.
+  'session-send': Object.freeze(['DOFLOW_STARTED_RUN']),
+  'session-steer': Object.freeze(['DOFLOW_STARTED_RUN']),
+  'session-stop': Object.freeze(['DOFLOW_STARTED_RUN']),
+});
 
 const POOL_SIZE = 2;
 /** IC-024: slots beyond the pool that only `transcript` may take. */

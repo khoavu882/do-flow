@@ -64,6 +64,9 @@ test('each row passes its write shape exactly the parameters the shape declares 
     'close-run': { v: 1, requestId: 'x'.repeat(22), projectKey: '0123456789abcdef', slug: 'feat-a', taskId: 't1', note: 'n', expect: { revision: 7 } },
     'cancel-worker': { v: 1, requestId: 'x'.repeat(22), projectKey: '0123456789abcdef', slug: 'feat-a', runId: 'w-0123456789ab', reason: 'r' },
     'start-session': { v: 1, requestId: 'x'.repeat(22), projectKey: '0123456789abcdef', worktreeKey: 'fedcba9876543210', harness: 'claude', model: 'claude-opus-5-5', provider: 'anthropic', effort: 'high', entry: 'do', prompt: 'p' },
+    'session-send': { v: 1, requestId: 'x'.repeat(22), projectKey: '0123456789abcdef', runId: 'w-0123456789ab', message: 'm' },
+    'session-steer': { v: 1, requestId: 'x'.repeat(22), projectKey: '0123456789abcdef', runId: 'w-0123456789ab', message: 'm' },
+    'session-stop': { v: 1, requestId: 'x'.repeat(22), projectKey: '0123456789abcdef', runId: 'w-0123456789ab' },
   };
   for (const spec of ACTIONS) {
     const shape = WRITE_SHAPES[spec.shape];
@@ -107,7 +110,43 @@ test('C-4: field kinds are known kinds, bodyCap is present and bounded, a prompt
   }
   const prompted = ACTIONS.filter((spec: any) => spec.promptField !== null).map((spec: any) => spec.shape).sort();
   assert.deepEqual(WRITE_SHAPE_IDS.filter((id: string) => WRITE_SHAPES[id].stdin).sort(), prompted);
-  assert.deepEqual(prompted, ['start-session']);
+  assert.deepEqual(prompted, ['session-send', 'session-steer', 'start-session']);
+});
+
+/**
+ * 170 IC-005: the three session rows. Send and steer take a run id and a `message` of the `prompt` kind (the core's rule and ids), carry the
+ * message only as the write shape's stdin, and have the prompt rows' 40 KiB body; stop takes a run id alone, with the 162 cap. The target is
+ * the run, no row has a limit of its own (the core's apply), and the request id is a CLI flag value, so none may begin with '-'.
+ */
+test('170 IC-005: session-send, session-steer and session-stop have the kinds, caps, target and stdin the design names', () => {
+  const { START_BODY_CAP, BODY_CAP } = require('../src/actions.ts');
+  const row = (id: string) => ACTIONS.find((spec: any) => spec.id === id);
+  for (const id of ['session-send', 'session-steer']) {
+    const spec = row(id);
+    assert.deepEqual(spec.fields, { runId: { kind: 'runId', required: true }, message: { kind: 'prompt', required: true } }, id);
+    assert.equal(spec.promptField, 'message');
+    assert.equal(spec.textField, null);
+    assert.equal(spec.bodyCap, START_BODY_CAP);
+    assert.equal(spec.bodyCap, 40960);
+    assert.deepEqual(WRITE_SHAPES[spec.shape].stdin, { param: 'message', free: true });
+    assert.ok(!WRITE_SHAPES[spec.shape].argv.includes('--reason') && !WRITE_SHAPES[spec.shape].argv.some((part: any) => part && part.param === 'message'), 'the message is not an argv parameter');
+  }
+  const stop = row('session-stop');
+  assert.deepEqual(stop.fields, { runId: { kind: 'runId', required: true } });
+  assert.equal(stop.promptField, null);
+  assert.equal(stop.bodyCap, BODY_CAP);
+  assert.equal(WRITE_SHAPES['session-stop'].stdin, undefined);
+  const body = { v: 1, requestId: 'x'.repeat(22), projectKey: '0123456789abcdef', runId: 'w-0123456789ab', message: 'm' };
+  for (const id of ['session-send', 'session-steer', 'session-stop']) {
+    const spec = row(id);
+    assert.deepEqual(spec.target(body), { slug: null, taskId: null, gateId: null, runId: 'w-0123456789ab' }, id);
+    assert.equal(spec.expect(body), null);
+    assert.equal(spec.limit, null, `${id}: no limit of its own, the core's apply`);
+    assert.equal(WRITE_SHAPES[spec.shape].argv.at(-1) === '--stdin', id !== 'session-stop');
+  }
+  assert.deepEqual(DEVICE_ROUTES.control.filter((entry: string) => /session-(send|steer|stop)$/.test(entry)),
+    ['POST /api/actions/session-send', 'POST /api/actions/session-steer', 'POST /api/actions/session-stop']);
+  assert.ok(DEVICE_ROUTES.view.every((entry: string) => !/session-/.test(entry)), 'a view device lists none of them');
 });
 
 test('a write reaches the core only through runner.act: verb-runner.ts defines it, actions.ts alone calls it', () => {
