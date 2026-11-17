@@ -42,7 +42,7 @@ const CEILINGS: readonly (readonly [string, number, number])[] = [
   ['paths --json', 0, 896], // 841 B
   ['config --json', 0, 49536], // 48,988 B (141: five keys grew it: advice.kinds.rerank, advice.kinds.claim-support, advice.models.rerank, advice.models.claim-support, advice.criteria.rerank; 143: team.enforcement)
   ['doctor --json', 0, 30592], // 29,549 B (1,024 B margin, design R7; 172 T6: a login answer per harness, IC-003; was 26,665 B)
-  ['storage --json', 0, 14592], // 14,056 B
+  ['storage --json', 0, 15360], // 14,802 B (170 T4: the channel-spool store row)
   ['indicators --json', 0, 704], // 619 B
   ['package --action list --json', 0, 1920], // 1,424 B (169 T1: model-list-parser removed, control-channel the one reserved point; was 1,636 B)
   ['failure --action list --json', 0, 256], // 231 B
