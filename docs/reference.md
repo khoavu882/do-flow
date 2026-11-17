@@ -866,6 +866,7 @@ These are the stores DoFlow keeps on this machine. A pruned store has the bound 
 | `worker-probes` | `.doflow/state/worker-probes` | keep newest 16; prune entries older than 30 days |
 | `worker-output` | `.doflow/state/worker-output` | keep newest 200; prune entries older than 30 days |
 | `session-prompts` | `.doflow/state/session-prompts` | keep newest 200; prune entries older than 30 days |
+| `channel-spool` | `.doflow/state/channel-spool` | keep newest 16; prune entries older than 1 days |
 | `dispatch` | `.doflow/state/dispatch` | prune finished work after 30 days |
 | `roadmap` | `.doflow/state/roadmap` | prune finished work after 30 days |
 | `dispatch-envelopes` | `.doflow/state/dispatch-envelopes` | keep newest 400; prune entries older than 30 days |
