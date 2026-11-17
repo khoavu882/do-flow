@@ -7,6 +7,7 @@ const { loadAdviceRegistry } = require('./registry.ts');
 const { resolveSetting } = require('./config.ts');
 const { createAdviceClient } = require('./client.ts');
 const { readWindow } = require('./record.ts');
+const { isRetiredOutcome } = require('./retired.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 
 const WINDOW_DAYS = 90;
@@ -34,7 +35,7 @@ function agreementRows(registry: any, records: any) {
   const picks = records.filter(({ record }: any) => record.type === 'pick');
   const outcomes = new Map();
   for (const { record } of records) {
-    if (record.type !== 'outcome' || typeof record.pickId !== 'string') continue;
+    if (record.type !== 'outcome' || typeof record.pickId !== 'string' || isRetiredOutcome(record)) continue;
     const current = outcomes.get(record.pickId);
     if (!current || String(record.at).localeCompare(String(current.at)) >= 0) outcomes.set(record.pickId, record);
   }

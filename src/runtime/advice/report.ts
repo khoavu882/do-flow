@@ -8,6 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { readWindow } = require('./record.ts');
+const { isRetiredOutcome } = require('./retired.ts');
 const { evaluateBenchBar } = require('./bench-gate.ts');
 
 const SCHEMA = 1;
@@ -138,7 +139,7 @@ function buildReport({
     } else if (typeof record.kind === 'string' && record.type === 'miss') {
       if (!missesBy.has(record.kind)) missesBy.set(record.kind, []);
       missesBy.get(record.kind)!.push(record);
-    } else if (record.type === 'outcome' && typeof record.pickId === 'string' && typeof record.actual === 'string') {
+    } else if (record.type === 'outcome' && typeof record.pickId === 'string' && typeof record.actual === 'string' && !isRetiredOutcome(record)) {
       const prior = outcomes.get(record.pickId);
       if (!prior || String(record.at) >= prior.at) outcomes.set(record.pickId, { at: String(record.at), actual: record.actual });
     }

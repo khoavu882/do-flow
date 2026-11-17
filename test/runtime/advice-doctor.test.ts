@@ -186,8 +186,8 @@ test('IC-015 aggregates retained picks and outcomes by registry kind, includes a
   assert.deepEqual(Object.keys(json), ['windowDays', 'store', 'kinds', 'unreadableLines']);
   assert.equal(json.unreadableLines, 1);
   assert.deepEqual(json.kinds.map((row: any) => row.kind), [...kinds, 'adhoc']);
-  assert.equal(json.kinds[0].picks, 3); assert.equal(json.kinds[0].matched, 2);
-  assert.deepEqual(json.kinds[0].outcomeSources, ['brief-record'], 'an old classify-verdict outcome still counts, under no label');
+  assert.equal(json.kinds[0].picks, 3); assert.equal(json.kinds[0].withOutcome, 2); assert.equal(json.kinds[0].matched, 1);
+  assert.deepEqual(json.kinds[0].outcomeSources, ['brief-record'], 'an old classify-verdict outcome counts in no figure (174 R-05)');
   const text = section(f.run().stdout, '[Advice Agreement]');
   assert.match(text, /done = tier the brief named\)/, 'the retired classify-verdict source has no label of its own');
   assert.doesNotMatch(text, /accepted class/);

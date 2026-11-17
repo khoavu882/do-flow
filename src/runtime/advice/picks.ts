@@ -25,6 +25,7 @@ const { loadAdviceRegistry } = require('./registry.ts');
 const { loadStorageRegistry } = require('../storage/registry.ts');
 const { resolveRoots } = require('../storage/roots.ts');
 const { readWindow } = require('./record.ts');
+const { isRetiredOutcome } = require('./retired.ts');
 const { maskBody, shown } = require('../mask.ts');
 const { maskJson } = require('../events/envelope.ts');
 const { finishRuntime } = require('../cli-result.ts');
@@ -161,7 +162,7 @@ function compute(options: PicksOptions): Answer {
     if (day > to) continue;
     if (!TYPES.has(record.type) || !isTime(record.at)) { skipped += 1; continue; }
     if (record.type === 'outcome') {
-      if (typeof record.pickId === 'string' && typeof record.actual === 'string') {
+      if (typeof record.pickId === 'string' && typeof record.actual === 'string' && !isRetiredOutcome(record)) {
         const prior = outcomes.get(record.pickId);
         if (!prior || Date.parse(record.at) >= Date.parse(prior.at)) outcomes.set(record.pickId, { at: record.at, actual: record.actual });
       }

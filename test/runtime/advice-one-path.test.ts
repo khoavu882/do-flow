@@ -28,8 +28,8 @@ test('the one-path helpers are gone from the advice modules', () => {
   assert.doesNotMatch(read('src/runtime/advice/shadow-config.ts'), /kindSet/);
 });
 
-test('classify records no outcome: no appendOutcome, and no classify-verdict source anywhere in src', () => {
-  assert.doesNotMatch(read('src/runtime/task-classifier.ts'), /appendOutcome|findPick/);
+test('classify records no outcome: no appendOutcome, and classify-verdict appears in src only as a retired outcome source', () => {
+  assert.doesNotMatch(read('src/runtime/task-classifier.ts'), /appendOutcome|findPick|classify-verdict/);
   const found: string[] = [];
   const walk = (dir: string) => {
     for (const entry of fs.readdirSync(path.join(REPO_ROOT, dir), { withFileTypes: true })) {
@@ -39,5 +39,6 @@ test('classify records no outcome: no appendOutcome, and no classify-verdict sou
     }
   };
   walk('src');
-  assert.deepEqual(found, []);
+  assert.deepEqual(found, [path.join('src', 'runtime', 'advice', 'retired.ts')]);
+  assert.deepEqual(require('../../src/runtime/advice/retired.ts').RETIRED_OUTCOME_SOURCES, ['classify-verdict']);
 });
