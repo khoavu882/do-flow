@@ -55,7 +55,7 @@ const CEILINGS: readonly (readonly [string, number, number])[] = [
   ['protocol --action list --json', 0, 2688], // 2,522 B
   ['primary --action resolve --json', 0, 192], // 142 B
   ['advice-picks --json', 0, 7040], // 6,692 B (151 IC-001: 91 days, no picks on the fixture)
-  ['worker-matrix --json', 0, 91072], // 90,548 B (169: two cells per harness, provider and effort, design R5, with their evidence; roundUp64(measured + 512 B); was 80,273 B)
+  ['worker-matrix --json', 0, 92352], // 91,794 B (170: pi's controlChannel entry, the capture C-1 data; roundUp64(measured + 512 B); was 90,548 B)
 ];
 
 const WRITES_STATE = 'writes-state';
