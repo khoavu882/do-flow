@@ -46,7 +46,7 @@ test('one append writes one whole line: the closed fields, the file 0600, the fo
   fs.mkdirSync(folder, { mode: 0o755 });
   fs.chmodSync(folder, 0o755);
   const log = open(root, { now: clock().now, pid: 4242 });
-  const first = await log.begin({ id: 'req-1', actor: { kind: 'device', deviceId: 'd-0123456789ab', scope: 'control', transport: 'native' }, address: '192.168.1.20', action: 'decide-gate', project: 'p1234567890abcdef', target: { taskId: 'T1', gateId: 'gate-a' }, expect: { revision: 7 }, input: { decision: 'approve', textChars: 0 } });
+  const first = await log.begin({ id: 'req-1', actor: { kind: 'device', deviceId: 'd-0123456789ab', scope: 'control', transport: 'native' }, address: '192.168.1.20', action: 'decide-gate', project: 'p1234567890abcdef', target: { taskId: 'T1', gateId: 'gate-a' }, expect: { revision: 7 }, input: { decision: 'approve', textBytes: 0 } });
   await log.end({ id: 'req-1', outcome: 'applied', current: { state: 'RUNNING', revision: 8 }, exit: 0, ms: 412 });
   assert.equal(first.pid, 4242);
   assert.equal(modeOf(path.join(folder, 'actions.ndjson')), 0o600);
@@ -300,7 +300,7 @@ test('162 review 9: every target id the action routes accept (up to ID_MAX chara
   const target = { slug: at('s'), taskId: at('t'), gateId: at('g'), runId: 'w-0123456789ab', worktreeKey: '0123456789abcdef', harness: `a${'-'.repeat(31)}`, model: `a${'/'.repeat(127)}` };
   const t80 = 'x'.repeat(80);
   await log.begin({ id: t80, actor: { kind: 'device', deviceId: t80, scope: 'control', transport: 'native' }, address: 'f'.repeat(45), action: t80, project: t80,
-    target, expect: { revision: Number.MAX_SAFE_INTEGER }, input: { decision: t80, textChars: Number.MAX_SAFE_INTEGER, entry: 'none' }, outcome: 'replayed', code: t80,
+    target, expect: { revision: Number.MAX_SAFE_INTEGER }, input: { decision: t80, textBytes: Number.MAX_SAFE_INTEGER, entry: 'none' }, outcome: 'replayed', code: t80,
     current: { state: t80, revision: Number.MAX_SAFE_INTEGER }, exit: Number.MAX_SAFE_INTEGER, ms: Number.MAX_SAFE_INTEGER });
   const [line] = linesOf(path.join(root, 'console', 'actions.ndjson'));
   assert.deepEqual(line.target, target);
@@ -311,16 +311,30 @@ test('162 review 9: every target id the action routes accept (up to ID_MAX chara
 test('165 FR-010: a start line records the worktree key, the harness, the model or default, the entry and the prompt length; a value outside its rule is null, an unknown entry refused', async () => {
   const root = scratch();
   const log = open(root);
-  await log.begin({ id: 'r', action: 'start-session', project: '0123456789abcdef', target: { worktreeKey: 'fedcba9876543210', harness: 'claude', model: 'openrouter/anthropic/claude@v5' }, input: { textChars: 47, entry: 'do' } });
+  await log.begin({ id: 'r', action: 'start-session', project: '0123456789abcdef', target: { worktreeKey: 'fedcba9876543210', harness: 'claude', model: 'openrouter/anthropic/claude@v5' }, input: { textBytes: 47, entry: 'do' } });
   await log.end({ id: 'r', action: 'start-session', target: { worktreeKey: 'FEDCBA9876543210', harness: 'Claude Code', model: 'two words', runId: 'w-0123456789ab' }, input: { entry: 'none' }, outcome: 'applied', exit: 0, ms: 1200 });
   await log.end({ id: 'r', target: { model: 'default' }, outcome: 'replayed' });
   const [begin, end, replay] = linesOf(path.join(root, 'console', 'actions.ndjson'));
   assert.deepEqual(begin.target, { slug: null, taskId: null, gateId: null, runId: null, worktreeKey: 'fedcba9876543210', harness: 'claude', model: 'openrouter/anthropic/claude@v5' });
-  assert.deepEqual(begin.input, { decision: null, textChars: 47, entry: 'do' });
+  assert.deepEqual(begin.input, { decision: null, textBytes: 47, entry: 'do' });
   assert.deepEqual(end.target, { slug: null, taskId: null, gateId: null, runId: 'w-0123456789ab', worktreeKey: null, harness: null, model: null });
   assert.equal(end.input.entry, 'none');
   assert.equal(replay.target.model, 'default');
   await refused(log.end({ input: { entry: 'auto' } }), 'invalid-field');
+});
+
+test('170 R-6: the input records `textBytes` (an integer, bytes), never `textChars` and never the text; a value that is not an integer is null', async () => {
+  const root = scratch();
+  const log = open(root);
+  await log.begin({ id: 'r', action: 'session-send', input: { textBytes: Buffer.byteLength('é', 'utf8'), entry: 'none' } });
+  await log.begin({ id: 's', action: 'session-send', input: { textBytes: 1.5 } });
+  await log.begin({ id: 't', action: 'session-send', input: { textChars: 7, text: 'é' } as any });
+  const [first, second, third] = linesOf(path.join(root, 'console', 'actions.ndjson'));
+  assert.deepEqual(first.input, { decision: null, textBytes: 2, entry: 'none' }, '"é" is two bytes');
+  assert.equal(second.input.textBytes, null);
+  assert.deepEqual(Object.keys(third.input), ['decision', 'textBytes', 'entry'], 'no textChars and no text key, whatever the caller passes');
+  assert.equal(third.input.textBytes, null);
+  assert.equal(fs.readFileSync(path.join(root, 'console', 'actions.ndjson'), 'utf8').includes('textChars'), false);
 });
 
 test('165: start-rate-limited is a summary code', async () => {

@@ -305,7 +305,7 @@ test('a control device over Bearer starts: startedBy is device.d-<12 hex>; the a
   for (const line of [begin, end]) {
     assert.equal(line.project, w.key, 'the project');
     assert.deepEqual(line.target, { slug: null, taskId: null, gateId: null, runId: line === end ? run.runId : null, worktreeKey: w.linkedKey, harness: 'codex', model: 'default' }, 'harness, model default, checkout');
-    assert.deepEqual(line.input, { decision: null, textChars: [...body.prompt].length, entry: 'do' }, 'the prompt length and the entry');
+    assert.deepEqual(line.input, { decision: null, textBytes: Buffer.byteLength(body.prompt, 'utf8'), entry: 'do' }, 'the prompt size in bytes and the entry');
     assert.deepEqual([line.actor.kind, line.actor.deviceId, line.actor.scope, line.actor.transport], ['device', control.device.id, 'control', 'native']);
   }
   assert.equal(l.scratch.text().includes(MARKER), false, 'the prompt text is in no log line');

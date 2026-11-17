@@ -335,7 +335,7 @@ test('IC-009 text: NFC, whitespace to a space, controls and invisible marks remo
   const text = fs.readFileSync(path.join(w.dir, 'actions.ndjson'), 'utf8');
   for (const word of ['line one', 'stop now', 'xxxxxxxx', '😀']) assert.equal(text.includes(word), false, `${word} is not logged`);
   const begins = w.lines().filter((line) => line.phase === 'begin');
-  assert.deepEqual(begins.map((line) => line.input.textChars), [500, 17, 8, 0, 0, 500]);
+  assert.deepEqual(begins.map((line) => line.input.textBytes), [2000, 17, 8, 0, 0, 500], 'UTF-8 bytes: 500 emoji are 2000, not 500');
 });
 
 const MINUTE = 60_000;
@@ -848,7 +848,7 @@ test('local start: the prompt reaches act as the stdin parameter only; a null mo
   const ends = w.lines().filter((line) => line.phase === 'end');
   const begins = w.lines().filter((line) => line.phase === 'begin');
   assert.deepEqual(begins[0].target, { slug: null, taskId: null, gateId: null, runId: null, worktreeKey: WK, harness: 'claude', model: 'default' });
-  assert.deepEqual(begins[0].input, { decision: null, textChars: [...PROMPT].length, entry: 'do' });
+  assert.deepEqual(begins[0].input, { decision: null, textBytes: Buffer.byteLength(PROMPT, 'utf8'), entry: 'do' });
   assert.equal(begins[0].project, PK);
   assert.deepEqual([begins[1].target.model, begins[1].input.entry], ['claude-opus-5-5', 'none']);
   assert.deepEqual(ends.map((line) => [line.outcome, line.code, line.target.runId, line.exit, typeof line.ms]),
@@ -1210,6 +1210,20 @@ test('170 local session actions: the reply is the closed projection of the core\
   assert.equal(waiting.status, 200);
   assert.deepEqual(json(waiting).result.message, { seq: null, kind: 'steer', state: 'pending', answer: null, at: '2026-11-17T10:00:00.000Z', bytes: 3 });
   assert.deepEqual(json(waiting).result.turn, { observed: false, reason: 'no-event-yet', since: null });
+});
+
+test('170 R-6 the log\'s input.textBytes is the UTF-8 byte length of a message, a note and a prompt, and the line has no textChars and no text', async (t) => {
+  const clock = manual();
+  const runner = fakeRunner((shape) => (shape === 'close-run' ? applied(shape) : sent(KIND_OF[shape])));
+  const w = await loopback(t, runner, { now: clock.now });
+  assert.equal((await w.post('session-send', sessionBody('session-send', { message: 'é' }))).status, 200);
+  assert.equal((await w.post('session-steer', sessionBody('session-steer', { message: '😀é' }))).status, 200);
+  assert.equal((await w.post('session-stop', sessionBody('session-stop'))).status, 200);
+  assert.equal((await w.post('close-run', BODIES['close-run']({ note: 'ééé' }))).status, 200);
+  const begins = w.lines().filter((line) => line.phase === 'begin');
+  assert.deepEqual(begins.map((line) => [line.action, line.input.textBytes]), [['session-send', 2], ['session-steer', 6], ['session-stop', null], ['close-run', 6]]);
+  for (const line of w.lines()) assert.equal(Object.hasOwn(line.input ?? {}, 'textChars'), false);
+  assert.equal(fs.readFileSync(path.join(w.dir, 'actions.ndjson'), 'utf8').includes('textChars'), false);
 });
 
 test('170 a message follows the prompt rule: empty is 400 prompt-empty, past 8000 code points 400 prompt-too-long, a body past 40960 bytes 400 usage; a stop takes no message and the 162 cap; a request id beginning with \'-\' is 400 usage', async (t) => {

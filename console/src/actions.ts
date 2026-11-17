@@ -894,7 +894,7 @@ function createActions({ runner, log, now = Date.now, warn = () => {} }: Options
         const free = spec.textField ?? spec.promptField;
         const fields = {
           ...base, id: body.requestId, project: body.projectKey, target: spec.target(body), expect: spec.expect(body),
-          input: { decision: body.decision ?? null, textChars: free === null ? null : codePoints(body[free]), entry: body.entry ?? null },
+          input: { decision: body.decision ?? null, textBytes: free === null ? null : Buffer.byteLength(body[free] as string, 'utf8'), entry: body.entry ?? null },
         };
         const memoKey = `${actor.key}\n${body.requestId}`;
         const digest = digestOf(spec.id, body);

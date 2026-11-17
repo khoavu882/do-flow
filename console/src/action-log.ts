@@ -32,9 +32,9 @@
 //   log.writeLine(text)           -> the low-level write: one line of at most 2048 bytes, rotation included
 //   log.pid                       -> this process's id, also on every line next to the per-process `seq`
 // `fields` (all optional): id, actor { kind, deviceId, scope, transport }, address, action, project,
-// target { slug, taskId, gateId, runId, worktreeKey, harness, model }, expect { revision }, input { decision, textChars, entry },
+// target { slug, taskId, gateId, runId, worktreeKey, harness, model }, expect { revision }, input { decision, textBytes, entry },
 // outcome, code, current { state, revision }, exit, ms. 165 FR-010: a start's line has the worktree key, the harness, the model
-// (its id by the runner's model rule, up to 128 characters, or `default`), the entry, the prompt's length as `textChars` (never its
+// (its id by the runner's model rule, up to 128 characters, or `default`), the entry, the prompt's size in UTF-8 bytes as `textBytes` (never its
 // text) and, on `end`, the started run's id as `target.runId`. An enum field with a value outside its set is a programming error and
 // rejects with reason `invalid-field`. A target's slug, task id and gate id are kept up to ID_MAX characters, the
 // bound the action routes accept (verb-runner.ts), so every accepted target is recorded (162 review 9); other
@@ -90,7 +90,7 @@ type Fields = {
   address?: string | null, action?: string | null, project?: string | null,
   target?: { slug?: string | null, taskId?: string | null, gateId?: string | null, runId?: string | null, worktreeKey?: string | null, harness?: string | null, model?: string | null },
   expect?: { revision?: number | null },
-  input?: { decision?: string | null, textChars?: number | null, entry?: string | null },
+  input?: { decision?: string | null, textBytes?: number | null, entry?: string | null },
   outcome?: string | null, code?: string | null,
   current?: { state?: string | null, revision?: number | null },
   exit?: number | null, ms?: number | null,
@@ -157,7 +157,7 @@ function buildLine(phase: Phase, fields: Fields, at: number, pid: number, count:
     target: { slug: targetId(target.slug), taskId: targetId(target.taskId), gateId: targetId(target.gateId), runId: token(target.runId),
       worktreeKey: patterned('key16', target.worktreeKey), harness: patterned('harness', target.harness), model: patterned('model', target.model) },
     expect: { revision: integer(expect.revision) },
-    input: { decision: token(input.decision), textChars: integer(input.textChars), entry: member('input.entry', input.entry, ENTRIES) },
+    input: { decision: token(input.decision), textBytes: integer(input.textBytes), entry: member('input.entry', input.entry, ENTRIES) },
     outcome: member('outcome', f.outcome, OUTCOMES),
     code: token(f.code),
     current: { state: token(current.state), revision: integer(current.revision) },
