@@ -2,7 +2,7 @@
 
 // G30 — decision-model advice cannot leak into hooks, dependencies or unsafe runtime modules. The one child process the
 //       advice folder may start is the detached shadow call (row 174 O-2): `child_process` is allowed only in
-//       shadow-dispatcher.ts, and there only as `spawn(process.execPath, [RUNNER], ...)` with RUNNER the shadow-runner beside it,
+//       shadow-dispatcher.ts, and there only as `spawn(process.execPath, [RUNNER, handoff], ...)` with RUNNER the shadow-runner beside it,
 //       named with the dispatcher's own extension so it resolves in the published `.js` package too (G30.3). The detached child is why record.ts and the hooks stay free of it too.
 // G31 — advice corpus and tier criteria remain synchronized with their source registries, and every registered
 //       advice kind has a call site that still exists, outside comments and prose: asked by a runtime verb, or an
@@ -76,7 +76,7 @@ function blankComments(text: string): string {
   return text.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' ')).replace(/\/\/[^\n]*/g, (m) => ' '.repeat(m.length));
 }
 
-/** The one spawn shadow-dispatcher.ts may hold: spawn(process.execPath, [RUNNER], ...), no shell, no exec*, no fork. */
+/** The one spawn shadow-dispatcher.ts may hold: spawn(process.execPath, [RUNNER, handoff], ...), no shell, no exec*, no fork. */
 function checkShadowSpawn(file: string, text: string): any {
   const code = blankComments(text);
   const lineAt = (index: number) => code.slice(0, index).split('\n').length;
@@ -89,8 +89,8 @@ function checkShadowSpawn(file: string, text: string): any {
   const callCount = [...code.matchAll(/\bspawn\s*\)?\s*\(/g)].length;
   if (callCount !== 1 || calls.length !== 1) findings.push(`${file}:1 must hold exactly one spawn call (found ${callCount})`);
   for (const call of calls) {
-    if (call[1] !== 'process.execPath' || call[2].replace(/\s+/g, '') !== '[RUNNER]') {
-      findings.push(`${file}:${lineAt(call.index as number)} the only spawn is spawn(process.execPath, [RUNNER], ...)`);
+    if (call[1] !== 'process.execPath' || call[2].replace(/\s+/g, '') !== '[RUNNER,handoff]') {
+      findings.push(`${file}:${lineAt(call.index as number)} the only spawn is spawn(process.execPath, [RUNNER, handoff], ...)`);
     }
   }
   if (!/const RUNNER = path\.join\(__dirname, `shadow-runner\$\{path\.extname\(__filename\)\}`\);/.test(code)) {
@@ -400,7 +400,7 @@ test('G30.3 controls: child_process is allowed only in shadow-dispatcher.ts, and
     "const { spawn } = require('node:child_process');",
     'const RUNNER = path.join(__dirname, `shadow-runner${path.extname(__filename)}`);',
     '// exec(...) and spawn(other, [x]) in a comment are not code',
-    'const child = (services.spawn || spawn)(process.execPath, [RUNNER], { detached: true });',
+    'const child = (services.spawn || spawn)(process.execPath, [RUNNER, handoff], { detached: true });',
     '',
   ].join('\n');
   const run = (extra: any) => checkG30Requires({ files: new Map(Object.entries(extra)) });
@@ -411,7 +411,9 @@ test('G30.3 controls: child_process is allowed only in shadow-dispatcher.ts, and
   const rejected: Record<string, string> = {
     'a second spawn of another command': good + "spawn('git', ['status']);\n",
     'a different first argument': good.replace('process.execPath', "'node'"),
-    'a different second argument': good.replace('[RUNNER]', "['other.js']"),
+    'a different second argument': good.replace('[RUNNER, handoff]', "['other.js']"),
+    'an argument more': good.replace('[RUNNER, handoff]', "[RUNNER, handoff, '--eval']"),
+    'the runner alone': good.replace('[RUNNER, handoff]', '[RUNNER]'),
     'a shell option': good.replace('detached: true', 'shell: true'),
     'exec': good + "exec('ls');\n",
     'execFileSync': good + "execFileSync('ls');\n",

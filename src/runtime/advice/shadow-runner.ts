@@ -1,18 +1,20 @@
 'use strict';
 
-// The detached shadow call (row 174 O-2, O-5). shadow-dispatcher.ts takes one of the user's shadow slots, spawns this
-// file detached, with stdout and stderr ignored, and writes one JSON payload to its stdin: the call's context (the state
-// text and question set travel only here, in memory, never in argv, env or a file), the effective model, the budget,
-// the pick id, the store roots and the slot it took for this child. The child asks the advisor bounded by the budget,
-// records its pick or miss through the dispatcher's recordCall (record.ts: digests and byte counts, never the state
-// text), frees the slot and exits. It never outlives the budget by more than EXIT_GRACE_MS, nor its slot's staleness.
+// The detached shadow call (row 174 O-2, O-5). shadow-dispatcher.ts takes one of the user's shadow slots, writes one
+// JSON payload to a handoff file beside it (row 174 R-02) and spawns this file detached, with no stdio at all and the
+// handoff's path as its one argument: the call's context (the state text and question set never travel in argv or
+// env), the effective model, the budget, the pick id, the store roots and the slot taken for this child. The child
+// reads and removes the handoff before anything else, asks the advisor bounded by the budget, records its pick or miss
+// through the dispatcher's recordCall (record.ts: digests and byte counts, never the state text), frees the slot and
+// exits. It never outlives the budget by more than EXIT_GRACE_MS, nor its slot's staleness.
 //
 // Slots (store advice-shadow-slots-user): at most `shadowSlots` (core/registry/advice.json) shadow children run at once
 // across every project of this user, one file each, created with O_EXCL by the parent BEFORE it spawns (row 174 R-04),
 // so a burst of calls cannot start more children than slots. The parent creates a slot with no pid and names the child's
-// pid in it once spawned (adoptSlot). A slot is removed by the child it was taken for; a stale slot (its pid is gone, or
-// it is older than its budget plus SLOT_MARGIN_MS) is reclaimed in place, by one call only (reclaimSlot). A call that
-// finds no free slot records a `busy` miss and starts no child.
+// pid in it once spawned (adoptSlot). A slot is removed by the child it was taken for, with its handoff if still there;
+// a stale slot (its pid is gone, or it is older than its budget plus SLOT_MARGIN_MS) is reclaimed in place, by one call
+// only (reclaimSlot), and the handoff its child never read goes with it. A call that finds no free slot records a
+// `busy` miss and starts no child.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -23,10 +25,13 @@ const SLOT_MARGIN_MS = 5000;
 const EXIT_GRACE_MS = 1000;
 /** Reclaim lock rounds of one stale holding: a round is passed only when its lock was left by a call that died. */
 const RECLAIM_ROUNDS = 4;
-/** Before the payload names a budget: the registry's ceiling for any call (advice.json timeoutMs is at most 30000). */
-const FIRST_GUARD_MS = 30000;
 
 type Slot = { file: string; token: string; startedAt: number };
+
+/** The handoff file of the slot file `file` held under `token`: the child's payload until the child reads it. */
+function handoffFile(file: string, token: string): string {
+  return file.replace(/\.json$/, `.payload-${token}.json`);
+}
 
 function pidAlive(pid: unknown): boolean {
   if (!Number.isInteger(pid) || (pid as number) <= 0) return false;
@@ -87,6 +92,10 @@ function reclaimSlot(file: string, body: string, token: string, budgetMs: number
       const temp = `${file}.tmp-${token}`;
       fsImpl.writeFileSync(temp, body);
       fsImpl.renameSync(temp, file);
+      // The stale holding's child never read its handoff, or died before removing it: it holds the state text.
+      if (seen.held) {
+        try { fsImpl.unlinkSync(handoffFile(file, seen.key)); } catch { /* read and removed by its child */ }
+      }
       for (let earlier = 0; earlier < round; earlier += 1) {
         try { fsImpl.unlinkSync(lockOf(earlier)); } catch { /* gone already */ }
       }
@@ -133,8 +142,31 @@ function adoptSlot(slot: Slot, pid: unknown, fsImpl: any = fs): void {
   } catch { /* the slot stays without a pid: its age frees it */ }
 }
 
-/** Removes the slot when it is still this call's (a reclaimed slot belongs to another call now). */
+/**
+ * Writes the child's payload to the slot's handoff file (O_EXCL, readable by this user only) and returns its path. A
+ * local write of a payload whose state is within limits.maxStateBytes: nothing waits on a reader.
+ */
+function writeHandoff(slot: Slot, text: string, fsImpl: any = fs): string {
+  const file = handoffFile(slot.file, slot.token);
+  fsImpl.writeFileSync(file, text, { flag: 'wx', mode: 0o600 });
+  return file;
+}
+
+/** Reads and removes a handoff file; the parsed payload, or null. */
+function readHandoff(file: unknown, fsImpl: any = fs): any {
+  if (typeof file !== 'string' || !file) return null;
+  let payload: any = null;
+  try { payload = JSON.parse(fsImpl.readFileSync(file, 'utf8')); } catch { payload = null; }
+  try { fsImpl.unlinkSync(file); } catch { /* gone already */ }
+  return payload;
+}
+
+/**
+ * Removes the slot when it is still this call's (a reclaimed slot belongs to another call now), and its handoff file
+ * when no child read it.
+ */
 function releaseSlot(slot: Slot, fsImpl: any = fs): void {
+  try { fsImpl.unlinkSync(handoffFile(slot.file, slot.token)); } catch { /* read and removed by the child */ }
   try {
     if (JSON.parse(fsImpl.readFileSync(slot.file, 'utf8'))?.token === slot.token) fsImpl.unlinkSync(slot.file);
   } catch { /* gone already */ }
@@ -218,33 +250,24 @@ async function askAndRecord(payload: any, fsImpl: any, arrivedAt: number, slot: 
   } catch { /* advice is advisory: a failed shadow call leaves nothing behind but its slot release */ }
 }
 
-/** Reads the payload from stdin first (the parent's pipe waits on that), then loads the rest. */
+/** Reads and removes the handoff named by the one argument first, then loads the rest. */
 function main(): void {
-  let guard = setTimeout(() => process.exit(0), FIRST_GUARD_MS);
+  const payload = readHandoff(process.argv[2]);
+  const slot = payloadSlot(payload);
+  if (!payload || payload.v !== 1 || !Number.isFinite(payload.budgetMs)) {
+    if (slot) releaseSlot(slot);
+    process.exit(0);
+  }
+  const arrivedAt = Date.now();
+  const guard = setTimeout(() => {
+    if (slot) releaseSlot(slot);
+    process.exit(0);
+  }, Math.max(0, deadlineOf(payload.budgetMs, arrivedAt, slot) + EXIT_GRACE_MS - Date.now()));
   guard.unref();
-  const chunks: Buffer[] = [];
-  process.stdin.on('data', (chunk: Buffer) => chunks.push(chunk));
-  process.stdin.on('error', () => process.exit(0));
-  process.stdin.on('end', () => {
-    let payload: any = null;
-    try { payload = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { process.exit(0); }
-    const slot = payloadSlot(payload);
-    if (!payload || payload.v !== 1 || !Number.isFinite(payload.budgetMs)) {
-      if (slot) releaseSlot(slot);
-      process.exit(0);
-    }
-    const arrivedAt = Date.now();
-    clearTimeout(guard);
-    guard = setTimeout(() => {
-      if (slot) releaseSlot(slot);
-      process.exit(0);
-    }, Math.max(0, deadlineOf(payload.budgetMs, arrivedAt, slot) + EXIT_GRACE_MS - Date.now()));
-    guard.unref();
-    try { require('node:module').enableCompileCache(); } catch { /* best-effort */ }
-    runShadow(payload, { arrivedAt }).finally(() => process.exit(0));
-  });
+  try { require('node:module').enableCompileCache(); } catch { /* best-effort */ }
+  runShadow(payload, { arrivedAt }).finally(() => process.exit(0));
 }
 
 if (require.main === module) main();
 
-module.exports = { takeSlot, adoptSlot, releaseSlot, fullRegistry, runShadow, SLOT_STORE, SLOT_MARGIN_MS };
+module.exports = { takeSlot, adoptSlot, writeHandoff, releaseSlot, fullRegistry, runShadow, SLOT_STORE, SLOT_MARGIN_MS };

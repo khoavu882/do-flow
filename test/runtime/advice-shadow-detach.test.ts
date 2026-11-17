@@ -255,10 +255,10 @@ test('A1: classify, claim link and review start end within 100 ms of the kind-of
   }
 });
 
-// ── O-5: the payload reaches the child in memory and survives the parent's exit ──────────────────────────────────
+// ── O-5: the payload reaches the child whole through its handoff file and survives the parent's exit ──────────────
 
-// The shipped registry stays behind, so its payload fits one pipe buffer; an injected registry crosses with the state,
-// past 64 KiB, and the parent's write waits for the child to read it.
+// The shipped registry stays behind; an injected registry crosses with the state, past 64 KiB (more than a pipe buffer
+// held, before the handoff was a file). The child removes the handoff, so no state text stays behind.
 for (const [which, registry] of [['the shipped registry', ADVICE], ['an injected registry (a payload past 64 KiB)', registryWith('tier', budgetOf('tier') - 1)]]) {
   test(`O-5: a near-maximal state reaches the detached child whole although the parent exits right after the call, with ${which}`, async (t) => {
     const model = await fakeModel(t, answering(() => 'frontier'));
@@ -292,8 +292,58 @@ for (const [which, registry] of [['the shipped registry', ADVICE], ['an injected
     const picks = path.join(s.roots['project-state'], 'advice', 'picks');
     const stored = fs.readdirSync(picks).map((name: string) => fs.readFileSync(path.join(picks, name), 'utf8')).join('');
     assert.equal(stored.includes('b'.repeat(64)), false, 'the record keeps a digest, never the state text');
+    assert.ok(await waitFor(() => s.slotFiles().length === 0), `the child removed its handoff and freed its slot: ${s.slotFiles().join(', ')}`);
   });
 }
+
+// ── R-02: the handoff to the child never blocks the command ────────────────────────────────────────────────────
+
+test('R-02: with a child that never reads anything, a payload past 64 KiB still returns the call within the A1 bound', async (t) => {
+  const model = await fakeModel(t, answering(() => 'frontier'));
+  const s = store(t, model.origin);
+  const registry = registryWith('tier', budgetOf('tier') - 1);
+  const state = 'a\n'.repeat(11500) + 'b'.repeat(ADVICE.limits.maxStateBytes - 200 - 23000);
+  assert.ok(Buffer.byteLength(JSON.stringify(state)) + Buffer.byteLength(JSON.stringify(registry)) > 65536);
+  const context = { ...ctx(s), state, questionSet: { state, questions: [TIER] }, adviceRegistry: registry };
+  // The injected spawn starts a process that never reads its input and lives past this test's timeout.
+  const script = `
+    const cp = require('node:child_process');
+    const { interceptDecisionPoint } = require(${JSON.stringify(DISPATCHER)});
+    const context = JSON.parse(require('node:fs').readFileSync(0, 'utf8'));
+    let pid = null;
+    const deaf = (_command, _args, options) => {
+      const child = cp.spawn(process.execPath, ['-e', 'setTimeout(() => {}, 12000)'], options);
+      pid = child.pid;
+      return child;
+    };
+    const started = process.hrtime.bigint();
+    interceptDecisionPoint(context, { roots: ${JSON.stringify(s.roots)}, spawn: deaf, shadowConfig: ${JSON.stringify(SHADOW)} }).then((res) => {
+      process.stdout.write(JSON.stringify({ mode: res.mode, pid, ms: Number(process.hrtime.bigint() - started) / 1e6 }));
+      process.exit(0);
+    });`;
+  const parent = spawnSync(process.execPath, ['-e', script], { input: JSON.stringify(context), env: s.env, encoding: 'utf8', timeout: 8000 });
+  assert.equal(parent.signal, null, 'the command was still blocked on the handoff 8 s later');
+  assert.equal(parent.status, 0, parent.stderr);
+  const out = JSON.parse(parent.stdout);
+  t.after(() => { try { process.kill(out.pid, 'SIGKILL'); } catch { /* gone */ } });
+  assert.equal(out.mode, 'shadow');
+  t.diagnostic(`parent-side cost of the shadow call with a child that never reads: ${out.ms.toFixed(1)} ms`);
+  assert.ok(out.ms <= 100, `the call took ${Math.round(out.ms)} ms with a child that never reads`);
+});
+
+test('R-02: a state over limits.maxStateBytes is an over-limit miss recorded before the call returns; no child, no slot', async (t) => {
+  const model = await fakeModel(t, answering(() => 'frontier'));
+  const s = store(t, model.origin);
+  const state = 'x'.repeat(ADVICE.limits.maxStateBytes + 1);
+  let started = 0;
+  const counting = (command: string, args: string[], options: any) => { started += 1; return spawn(command, args, options); };
+  const res = await interceptDecisionPoint({ ...ctx(s), state, questionSet: { state, questions: [TIER] } }, { roots: s.roots, spawn: counting, shadowConfig: SHADOW });
+  assert.deepEqual([res.mode, res.effectiveDecision], ['shadow', 'light']);
+  assert.equal(started, 0, 'no child starts for an oversized state');
+  assert.deepEqual(s.lines().map((line: any) => [line.type, line.mode, line.reason]), [['miss', 'shadow', 'over-limit']]);
+  assert.deepEqual(s.slotFiles(), []);
+  assert.equal(model.asks().length, 0);
+});
 
 // ── A4: the kind budget bounds a shadow child and an act call ────────────────────────────────────────────────────
 

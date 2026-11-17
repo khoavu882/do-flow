@@ -13,7 +13,7 @@ const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
-const { takeSlot, adoptSlot, releaseSlot, fullRegistry, SLOT_STORE } = require('./shadow-runner.ts');
+const { takeSlot, adoptSlot, writeHandoff, releaseSlot, fullRegistry, SLOT_STORE } = require('./shadow-runner.ts');
 
 /**
  * The detached shadow call's entry point (row 174 O-2), with this file's own extension: `.ts` in the checkout, `.js` in
@@ -105,8 +105,6 @@ interface DecisionPointContext {
   staticAnswer?: string | null;
   /** false keeps the decision write-free: no pick or miss is recorded. */
   record?: boolean;
-  /** A lower budget for this call in ms; the kind's registry budgetMs bounds it either way (row 174 O-3). */
-  budgetMs?: number;
   /**
    * Data for the pick line's extra payload, rebuilt by kind once the call is answered (DESCRIBERS): a callback cannot
    * cross into the detached shadow child, so a call site hands data, never a function. record.ts keeps only its
@@ -146,8 +144,8 @@ function positive(value: unknown): value is number {
 }
 
 /**
- * The budget of one advisor call (row 174 O-3): the kind's registry budgetMs, lowered by the context's own `budgetMs`
- * when that is smaller; the registry's timeoutMs only for a kind the registry does not list; 0 (no call) when unknown.
+ * The budget of one advisor call (row 174 O-3): the kind's registry budgetMs; the registry's timeoutMs only for a kind
+ * the registry does not list; 0 (no call) when unknown.
  */
 function budgetMs(context: DecisionPointContext): number {
   let own = registryKind(context)?.budgetMs;
@@ -160,9 +158,7 @@ function budgetMs(context: DecisionPointContext): number {
       own = 0;
     }
   }
-  const ceiling = positive(own) ? own : 0;
-  const given = context.budgetMs;
-  return positive(given) && (ceiling === 0 || given < ceiling) ? given : ceiling;
+  return positive(own) ? own : 0;
 }
 
 const MODE_RANK: Record<string, number> = { off: 0, shadow: 1, act: 2 };
@@ -303,7 +299,10 @@ function missCall(reason: string, model: string | null): AdvisorCall {
   return { status: 'miss', pick: null, answer: null, answers: [], reason, provider: null, model, durationMs: 0 };
 }
 
-/** What the detached child receives on stdin (row 174 O-5): in memory only, never in argv, env or a file. */
+/**
+ * What the detached child reads from its handoff file (row 174 R-02): written by this process, readable by this user
+ * only, in the slot store; the child reads and removes it first. Never in argv or env (O-5).
+ */
 interface ShadowPayload {
   v: 1;
   context: Pick<DecisionPointContext, 'kind' | 'caller' | 'state' | 'staticPick' | 'staticAnswer' | 'taskId' | 'questionSet' | 'adviceRegistry' | 'lineExtra'>;
@@ -315,9 +314,9 @@ interface ShadowPayload {
   slot: { file: string; token: string; startedAt: number };
 }
 
-/** The registry whose shadowSlots bound the call: the context's when it is a full one, else the shipped one. */
-function slotRegistry(context: DecisionPointContext): { shadowSlots?: number } | null {
-  if (fullRegistry(context.adviceRegistry)) return context.adviceRegistry as { shadowSlots?: number };
+/** The registry whose shadowSlots and limits bound the call: the context's when it is a full one, else the shipped one. */
+function slotRegistry(context: DecisionPointContext): { shadowSlots?: number; limits?: { maxStateBytes?: number } } | null {
+  if (fullRegistry(context.adviceRegistry)) return context.adviceRegistry as { shadowSlots?: number; limits?: { maxStateBytes?: number } };
   try {
     const loaded = loadAdviceRegistry({ repoRoot: REPO_ROOT });
     return loaded.ok ? loaded.registry : null;
@@ -349,26 +348,31 @@ function shippedRegistry(registry: unknown): boolean {
   }
 }
 
+/** Whether the call's state is over the kind's input cap (limits.maxStateBytes, the cap client.ts and cli.ts apply). */
+function overLimit(context: DecisionPointContext): boolean {
+  const cap = slotRegistry(context)?.limits?.maxStateBytes;
+  if (!positive(cap)) return false;
+  const bytes = (text: unknown) => (typeof text === 'string' ? Buffer.byteLength(text, 'utf8') : 0);
+  return Math.max(bytes(context.state), bytes(context.questionSet?.state)) > cap;
+}
+
 /**
  * Takes a shadow slot (none free: a `busy` miss, no child) and hands the call to a detached child (shadow-runner.ts),
- * which asks, records its pick or miss, frees the slot and exits; the command never waits for the model. The child holds neither this process's event loop nor its stdio:
- * its stdout and stderr are ignored and its handle is unref'd. The payload goes through the child's stdin pipe, written
- * in blocking mode, so it is in the pipe or read by the child before this returns and survives the command calling
- * process.exit right after. The shipped registry stays behind (the child loads it), so a state within limits.maxBodyBytes
- * fits the pipe's buffer (64 KiB on Linux and macOS) and costs one write; a larger payload (an injected registry with a
- * near-maximal state) waits for the child to start and read, about its start-up time. The child reads its stdin before
- * anything else. Where the pipe cannot block, the write stays queued and referenced until
- * read, and is dropped once the budget ends. A runner file that is missing, or a spawn that fails, records a
- * `spawn-failed` miss and makes no call; a child that starts but cannot load the modules it asks with records that miss
- * itself (shadow-runner.ts). The one silent case left: a child that cannot load record.ts, which writes every record.
+ * which asks, records its pick or miss, frees the slot and exits; the command never waits for the model. The handoff
+ * never blocks the command (row 174 R-02): a state over limits.maxStateBytes is an `over-limit` miss before anything
+ * is taken or written, and the payload, bounded by that cap, is one local write to the slot's handoff file; the child
+ * gets the file's path as its one argument and no stdio at all (no pipe that a child that never reads could fill), its
+ * handle is unref'd, and the file is there before this returns, so it survives the command calling process.exit right
+ * after. A runner file that is missing, a handoff that cannot be written, or a spawn that fails frees the slot and
+ * records a `spawn-failed` miss; a child that starts but cannot load the modules it asks with records that miss itself
+ * (shadow-runner.ts). The one silent case left: a child that cannot load record.ts, which writes every record.
  * Never throws.
- * Ceiling accepted: a child that is alive but never reads (stopped by a signal) holds a payload over the buffer, and so
- * the command, on its blocking write.
  */
 function spawnShadow(context: DecisionPointContext, services: DispatcherServices, model: string | null, budget: number, pickId: string): void {
   const roots = storeRoots(context, services);
   if (!roots) return;
   const miss = (reason: string) => recordCall(context, services, 'shadow', missCall(reason, model), pickId, false);
+  if (overLimit(context)) { miss('over-limit'); return; }
   if (!fs.existsSync(RUNNER)) { miss('spawn-failed'); return; }
   const slot = admit(context, roots, budget);
   if (!slot) { miss('busy'); return; }
@@ -396,18 +400,11 @@ function spawnShadow(context: DecisionPointContext, services: DispatcherServices
       },
       model, budgetMs: budget, pickId, roots, slot,
     };
-    const child = (services.spawn || spawn)(process.execPath, [RUNNER], {
-      detached: true, stdio: ['pipe', 'ignore', 'ignore'], env: context.env || process.env, windowsHide: true,
+    const handoff = writeHandoff(slot, JSON.stringify(payload));
+    const child = (services.spawn || spawn)(process.execPath, [RUNNER, handoff], {
+      detached: true, stdio: 'ignore', env: context.env || process.env, windowsHide: true,
     });
     child.once('error', failed);
-    const stdin = child.stdin;
-    if (!stdin) { failed(); return; }
-    stdin.on('error', () => {});
-    try { (stdin as any)._handle?.setBlocking?.(true); } catch { /* the queued write below still delivers on a normal exit */ }
-    const drop = setTimeout(() => stdin.destroy(), budget);
-    drop.unref();
-    stdin.once('close', () => clearTimeout(drop));
-    stdin.end(JSON.stringify(payload));
     adoptSlot(slot, child.pid);
     child.unref();
   } catch {

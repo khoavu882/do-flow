@@ -356,6 +356,11 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
     };
   }
 
+  /** A partial registry whose tier kind has a budgetMs of `ms`: the dispatcher bounds the call by it. */
+  function withBudget(ms: number) {
+    return { timeoutMs: 1000, kinds: [{ id: 'tier', budgetMs: ms }] };
+  }
+
   /**
    * Turns advice on in the store's user settings against an in-process fake server answering `route` (or the fake's
    * default). A shadow call runs in a detached child that builds its own client from these settings (row 174 O-2).
@@ -642,7 +647,7 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
     const never = { ask: () => new Promise(() => {}) };
     const started = Date.now();
     const res: any = await Promise.race([
-      interceptDecisionPoint(ctx(s, { budgetMs: 50 }), {
+      interceptDecisionPoint(ctx(s, { adviceRegistry: withBudget(50) }), {
         adviceClient: never, roots: s.roots, benchGate: passGate, shadowConfig: { kind: 'tier', mode: 'act', model: 'm' },
       }),
       new Promise((_resolve, reject) => setTimeout(() => reject(new Error('the dispatcher did not return within its budget')), 1500)),
@@ -657,7 +662,7 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
     const s = store(t);
     await advised(t, s, { stall: true });
     const started = Date.now();
-    const res = await interceptDecisionPoint(ctx(s, { budgetMs: 300 }), {
+    const res = await interceptDecisionPoint(ctx(s, { adviceRegistry: withBudget(300) }), {
       roots: s.roots, shadowConfig: { kind: 'tier', mode: 'shadow', model: 'm' },
     });
     assert.ok(Date.now() - started < 300, 'shadow returns before the budget');
@@ -677,7 +682,7 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
     const script = `
       const { interceptDecisionPoint } = require(${JSON.stringify(DISPATCHER)});
       interceptDecisionPoint({ kind: 'tier', caller: 'brief-tools', state: ${JSON.stringify(QUESTION_SET.state)}, staticPick: 'light',
-        questionSet: ${JSON.stringify(QUESTION_SET)}, budgetMs: 300,
+        questionSet: ${JSON.stringify(QUESTION_SET)}, adviceRegistry: ${JSON.stringify(withBudget(300))},
         projectRoot: ${JSON.stringify(s.projectRoot)}, env: ${JSON.stringify(s.env)} },
         { roots: ${JSON.stringify(s.roots)}, shadowConfig: { kind: 'tier', mode: 'shadow', model: 'm' } })
         .then((res) => console.log(res.mode));`;
@@ -721,7 +726,7 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
     const adviceRegistry = { ...loadAdviceRegistry({ repoRoot: REPO_ROOT }).registry, timeoutMs: 60000 };
     const adviceClient = createAdviceClient({ adviceRegistry, roots: s.roots, lookup: () => { /* never answers */ } });
     const started = Date.now();
-    const res = await interceptDecisionPoint(ctx(s, { budgetMs: 300 }), {
+    const res = await interceptDecisionPoint(ctx(s, { adviceRegistry: withBudget(300) }), {
       adviceClient, roots: s.roots, benchGate: passGate, shadowConfig: { kind: 'tier', mode: 'act', model: 'm' },
     });
     assert.ok(Date.now() - started < 2000, `the act call took ${Date.now() - started}ms against a 300 ms budget`);
