@@ -3,7 +3,7 @@
 // IC-005 read routes over a scripted runner (feature 093, C.1). The runner answers from the real core
 // outputs under fixtures/core/ (which carry the planted marker in every free-text field), so each case
 // checks what the route does with a runner result: body shape, error code mapping, the session check,
-// the parameter pattern, and that the only non-GET routes are POST /api/session and the four action routes
+// the parameter pattern, and that the only non-GET routes are POST /api/session and the seven action routes
 // (162; their behaviour is actions-routes.test.ts). The real core is
 // exercised end to end by read-contract.test.ts.
 
@@ -106,9 +106,10 @@ const errorBody = (code: string, verb: string | null = null, exit: number | null
 /** 161: the fixtures, and core-unreachable for every shape they lack (a device now reaches the worker-run reads). */
 const reachRunner = () => scripted(new Proxy({}, { get: (_target, shape) => (Object.hasOwn(DEFAULTS, shape) ? undefined : () => ({ ok: false, code: 'core-unreachable', exit: null })) }));
 
-const ACTION_WRITES = ['POST /api/actions/decide-gate', 'POST /api/actions/close-run', 'POST /api/actions/cancel-worker', 'POST /api/actions/start-session'];
+const ACTION_WRITES = ['POST /api/actions/decide-gate', 'POST /api/actions/close-run', 'POST /api/actions/cancel-worker', 'POST /api/actions/start-session',
+  'POST /api/actions/session-send', 'POST /api/actions/session-steer', 'POST /api/actions/session-stop'];
 
-test('route table: frozen, the only non-GET routes are POST /api/session and the three action routes, the one stream route is GET /api/live (161: no Fleet routes), the IC-005 read paths plus /api/live and /api/actions, the device list the device reads', async (t) => {
+test('route table: frozen, the only non-GET routes are POST /api/session and the seven action routes, the one stream route is GET /api/live (161: no Fleet routes), the IC-005 read paths plus /api/live and /api/actions, the device list the device reads', async (t) => {
   const routes = consoleRoutes(scripted(), createSessions());
   assert.ok(Object.isFrozen(routes) && routes.every((route: any) => Object.isFrozen(route)));
   assert.deepEqual(routes.filter((route: any) => route.method !== 'GET').map((route: any) => `${route.method} ${route.path}`), ['POST /api/session', ...ACTION_WRITES]);
@@ -119,7 +120,7 @@ test('route table: frozen, the only non-GET routes are POST /api/session and the
       '/api/worker-runs/:slug', '/api/worker-runs/:slug/:runId/log', '/api/worker-runs/:slug/:runId/result', '/api/worker-runs/:slug/:runId/status',
       '/api/worker-runs/:slug/:runId/transcript', '/api/workers', '/api/workflows', '/healthz']);
   // The device list (scopes.ts, 160 IC-007, 161 IC-009) by behaviour: a paired device passes the device check on exactly the device reads,
-  // and the LAN table has POST /api/pair and the three action routes as its only non-GET routes and no launch-code exchange.
+  // and the LAN table has POST /api/pair and the seven action routes as its only non-GET routes and no launch-code exchange.
   const world = lanWorld(t);
   const { cookie } = await world.pair('view');
   const lanRoutes = consoleRoutes(reachRunner(), world.auth);
