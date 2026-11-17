@@ -1168,7 +1168,7 @@ test('165 F1 start-options: IC-002 projects through PROJECTORS with the key aske
     assert.deepEqual(mutate((b) => { b.harnesses[0].channel = bad; }), MISMATCH, JSON.stringify(bad).slice(0, 80));
   }
   assert.equal(mutate((b) => { b.harnesses[0].channel = { state: 'unknown', reason: 'x'.repeat(301), liveVerified: false, unverified: [] }; }).body.harnesses[0].channel.reason, '(withheld)', 'words past 300 characters are withheld, as `words` is');
-  assert.equal(mutate((b) => { b.harnesses[0].channel = { ...CHANNEL, unverified: ['see /Users/kai/x'] }; }).body.harnesses[0].channel.unverified[0], '(withheld)', 'a path is withheld');
+  assert.equal(mutate((b) => { b.harnesses[0].channel = { ...CHANNEL, unverified: ['see /srv/x'] }; }).body.harnesses[0].channel.unverified[0], '(withheld)', 'a path is withheld');
   // 165 review A-3: dispatch records that cannot be read are a running dispatch with no slug and the core's reason.
   const unreadable = mutate((b) => { b.dispatch = { running: true, slug: null, reason: 'dispatch-unreadable' }; });
   assert.deepEqual(unreadable.body.dispatch, { running: true, slug: null, reason: 'dispatch-unreadable' });

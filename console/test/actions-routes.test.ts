@@ -1292,7 +1292,7 @@ test('170 every core refusal of a session action maps to its status: 409, 429 wi
   const listed = json(await w.get('/api/actions')).actions;
   assert.deepEqual(listed.filter((entry: any) => entry.reason === 'core-lacks-action').map((entry: any) => entry.id), ['session-send'], 'only the action that met the old core is lacking');
   // The core's words are shown only when they are words: a path or a control character withholds them.
-  for (const message of ['see /Users/kai/secret', 'a\u0007b', '', 'x'.repeat(301)]) {
+  for (const message of ['see /srv/secret', 'a\u0007b', '', 'x'.repeat(301)]) {
     clock.t += 61 * MINUTE;
     next = sessionRefusal('channel-closed', RUN, message);
     const reply = await w.post('session-stop', sessionBody('session-stop'));
