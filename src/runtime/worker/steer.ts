@@ -163,9 +163,9 @@ async function steerSession(o: any) {
 
   // One spool file, then the wait for the supervisor's ledger entry.
   const at = clock().toISOString();
-  let bytes: number;
+  const bytes = text === undefined ? 0 : Buffer.byteLength(text, 'utf8'); // the text's size, as a replay and the ledger give it (not the spool file's)
   try {
-    bytes = dropMessage(root, runId, { kind, requestId, by, at, ...(text === undefined ? {} : { text }) }).bytes;
+    dropMessage(root, runId, { kind, requestId, by, at, ...(text === undefined ? {} : { text }) });
   } catch (error: any) {
     if (error?.name !== 'SpoolError') throw error;
     if (error.code === 'message-too-large') return refusal('prompt-too-long', 'the message is too large for the channel', { runId });

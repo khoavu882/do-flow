@@ -410,6 +410,22 @@ test('checks 10 and 11: channel-busy at four waiting (never for stop), actor-rat
 
 // ── What comes back from the supervisor ──────────────────────────────────────────────────────────
 
+test('a pending reply carries the text\'s UTF-8 byte size, on the call that wrote the file and on its replay, 0 for a stop', async (t: any) => {
+  const f = fixture(t);
+  const runId = seedOpen(f);
+  const id = rid();
+  const text = 'h\u00e9llo \u4e16\u754c';
+  const size = Buffer.byteLength(text, 'utf8');
+  assert.notEqual(size, text.length);
+  const first = await verb(f, runId, 'send', { requestId: id, text, virtual: true });
+  assert.deepEqual([first.body.ok, first.body.replayed, first.body.message.state, first.body.message.bytes], [true, false, 'pending', size]);
+  const again = await verb(f, runId, 'send', { requestId: id });
+  assert.deepEqual([again.body.replayed, again.body.message.state, again.body.message.bytes], [true, 'pending', size]);
+  spool.takeMessages(f.root, runId);
+  const stop = await verb(f, runId, 'stop', { virtual: true });
+  assert.deepEqual([stop.body.message.state, stop.body.message.bytes], ['pending', 0]);
+});
+
 test('a supervisor-side refusal or failure comes back ok:false with its own code, and a replay of it answers the same; a wait that ends is pending', async (t: any) => {
   const f = fixture(t);
   const runId = seedOpen(f);
