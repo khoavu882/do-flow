@@ -4,7 +4,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { PARSERS, parserFor } = require('../../src/runtime/worker/parsers.ts');
+const { PARSERS, parserFor, parserOf } = require('../../src/runtime/worker/parsers.ts');
 
 const ID = 'doflow-jsonl-v1';
 
@@ -175,4 +175,23 @@ test('an oversize line that does not look like JSON is ignored, and the unparsed
   const fallback = parserFor(null).create();
   fallback.oversize(true);
   assert.equal(fallback.end().ignoredLines, 1);
+});
+
+test('170: parserOf(descriptor, "channel") reads controlChannel.parser, falls back to unparsed, and takes the worker\'s own map id', () => {
+  const channel = (parser: string | null) => ({ controlChannel: { status: 'supported', parser } });
+  assert.equal(parserOf(channel('pi-json-v1'), 'channel'), PARSERS['pi-json-v1']);
+  // the channel's id is its own: structuredOutput's parser does not stand in for it
+  assert.equal(parserOf({ ...channel(null), structuredOutput: { parser: 'pi-json-v1' } }, 'channel').create().end().status, 'unparsed');
+  assert.equal(parserOf({ controlChannel: { status: 'unknown' } }, 'channel').create().end().status, 'unparsed');
+  assert.equal(parserOf({}, 'channel').create().end().status, 'unparsed');
+  const map = {
+    id: 'acme-stream-v1', format: 'jsonl-field-map-v1', eventType: ['type'], missingTerminal: 'no-done',
+    rules: [
+      { when: [{ path: ['type'], equals: 'message' }, { path: ['text'], is: 'string' }], then: { final: ['text'] } },
+      { when: [{ path: ['type'], equals: 'done' }], then: { terminal: { outcome: 'completed' } } },
+    ],
+  };
+  const own = parserOf({ ...channel('acme-stream-v1'), structuredOutput: { fieldMap: map } }, 'channel');
+  assert.equal(own.id, 'acme-stream-v1');
+  assert.equal(parserOf(channel('acme-stream-v1'), 'channel').create().end().status, 'unparsed', 'another worker\'s map id resolves to nothing');
 });
