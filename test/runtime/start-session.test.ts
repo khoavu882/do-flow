@@ -958,3 +958,36 @@ test('A-2: a harness with a supported channel starts through it: the record says
   while (fs.existsSync(spoolDir) && Date.now() < by) await new Promise((r) => setTimeout(r, 20));
   assert.equal(fs.existsSync(spoolDir), false, 'the spool is removed');
 });
+
+test('R-5: the seventh start by one actor within an hour, counting ended runs here and in another indexed project, is refused start-rate-limited with retryAfterSeconds', POSIX, async (t: any) => {
+  const f = fixture(t);
+  const second = path.join(f.dir, 'second');
+  repo(second);
+  fs.writeFileSync(path.join(f.home, '.doflow', 'state', 'upkeep-roots'), `${f.main}\n${second}\n`);
+  const now = Date.now();
+  const endedRun = (root: string, minutesAgo: number, startedBy = 'console') => {
+    const runId = `w-${crypto.randomBytes(6).toString('hex')}`;
+    const createdAt = new Date(now - minutesAgo * 60000).toISOString();
+    const r = insertRun(STORE(root), {
+      runId, kind: 'main-session', task: 'main-session', token: 1, request: requestId(), childOf: null, harness: 'codex',
+      phase: 'ended', createdAt, startedBy, project: { projectKey: cwdHash(root), worktreeKey: 'a'.repeat(16) }, end: { state: 'exited', at: createdAt },
+    });
+    assert.equal(r.applied, true);
+  };
+  // Six by console in the hour (the oldest 50 minutes ago), one older than the hour, and one by another actor.
+  for (const minutes of [50, 40, 30, 20]) endedRun(f.main, minutes);
+  for (const minutes of [10, 5]) endedRun(second, minutes);
+  endedRun(f.main, 61);
+  endedRun(f.main, 1, 'manual');
+  const before = stateSnapshot(f);
+  const { exit, body } = await start(f);
+  assert.deepEqual([exit, body.code, body.current.started, body.current.max], [1, 'start-rate-limited', 6, 6], JSON.stringify(body));
+  assert.ok(body.current.retryAfterSeconds > 9 * 60 && body.current.retryAfterSeconds <= 10 * 60, `the oldest of the six leaves its hour in about 10 minutes: ${body.current.retryAfterSeconds}`);
+  assert.equal(typeof body.message, 'string');
+  assert.deepEqual(stateSnapshot(f), before);
+  assert.equal(fakeLog(f).length, 0);
+  // Another actor has its own count.
+  const other = await start(f, { via: undefined });
+  assert.equal(other.exit, 0, JSON.stringify(other.body));
+  await ended(f, other.body.run.runId);
+});
