@@ -14,7 +14,7 @@
 //   tasks:<slug>         attempts, runs, worker:<task>:<token>* (one per active attempt, at most 16)
 //   worker:<runId>       status*, result
 //   machine              projects, activity (161 IC-002; machine.ts, over the child's project index)
-//   layers:<pk>          checkouts, tree*, runs, gates, artifacts, reviews, sessions, traffic*, coverage
+//   layers:<pk>          checkouts, tree*, runs, gates, artifacts, reviews, sessions, traffic*, coverage, channels*
 //                        (161 IC-003; layers.ts, over the child's project index)
 //   (* derived from the clock or a process: recomputed by the detector's 5 s pass)
 //
@@ -118,8 +118,8 @@ const CATALOGUE: Readonly<Record<Channel['kind'], { sections: readonly string[];
   worker: Object.freeze({ sections: Object.freeze(['status', 'result']), derived: Object.freeze(['status']) }),
   machine: Object.freeze({ sections: Object.freeze(['projects', 'activity']), derived: Object.freeze([]) }),
   layers: Object.freeze({
-    sections: Object.freeze(['checkouts', 'tree', 'runs', 'gates', 'artifacts', 'reviews', 'sessions', 'traffic', 'coverage']),
-    derived: Object.freeze(['tree', 'traffic']),
+    sections: Object.freeze(['checkouts', 'tree', 'runs', 'gates', 'artifacts', 'reviews', 'sessions', 'traffic', 'coverage', 'channels']),
+    derived: Object.freeze(['tree', 'traffic', 'channels']),
   }),
 });
 
