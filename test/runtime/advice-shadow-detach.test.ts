@@ -399,6 +399,26 @@ for (const [why, holder] of [
   });
 }
 
+test('R-04: a burst of shadow calls starts at most shadowSlots children; the rest record busy before they return', async (t) => {
+  const model = await fakeModel(t);
+  const s = store(t, model.origin);
+  const registry = registryWith('tier', 400);
+  const burst = ADVICE.shadowSlots + 3;
+  let started = 0;
+  const counting = (command: string, args: string[], options: any) => { started += 1; return spawn(command, args, options); };
+  for (let call = 0; call < burst; call += 1) {
+    const res = await interceptDecisionPoint(ctx(s, { adviceRegistry: registry }), { roots: s.roots, spawn: counting, shadowConfig: SHADOW });
+    assert.equal(res.mode, 'shadow');
+  }
+  assert.equal(started, ADVICE.shadowSlots, `${burst} calls started ${started} children`);
+  assert.deepEqual(s.lines().map((line: any) => [line.type, line.reason]), Array(burst - ADVICE.shadowSlots).fill(['miss', 'busy']),
+    'each call past the slots recorded its busy miss before it returned');
+  const settled = await waitFor(() => s.lines().length === burst && model.allClosed() && s.slotFiles().length === 0, 400 + CHILD_SLACK_MS);
+  assert.ok(settled, `the admitted calls were still running ${400 + CHILD_SLACK_MS} ms later`);
+  assert.deepEqual(s.lines().slice(burst - ADVICE.shadowSlots).map((line: any) => [line.type, line.reason]), Array(ADVICE.shadowSlots).fill(['miss', 'timeout']));
+  assert.equal(model.asks().length, ADVICE.shadowSlots);
+});
+
 test('R-03: several calls reclaiming one stale slot at once: at most one takes it, wherever the others cut in', (t) => {
   const dir = path.join(tempDir(t, 'doflow-advice-reclaim-'), 'slots');
   const contenders = 5;

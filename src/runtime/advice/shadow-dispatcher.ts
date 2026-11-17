@@ -7,12 +7,13 @@ const { appendPick, appendMiss, newPickId } = require('./record.ts');
 const { createAdviceClient } = require('./client.ts');
 const { loadAdviceRegistry } = require('./registry.ts');
 const { loadStorageRegistry } = require('../storage/registry.ts');
-const { resolveRoots } = require('../storage/roots.ts');
+const { resolveRoots, resolveStorePath } = require('../storage/roots.ts');
 const { profileAdvisorCap, capMode } = require('./mode.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const { takeSlot, adoptSlot, releaseSlot, fullRegistry, SLOT_STORE } = require('./shadow-runner.ts');
 
 /**
  * The detached shadow call's entry point (row 174 O-2), with this file's own extension: `.ts` in the checkout, `.js` in
@@ -310,6 +311,33 @@ interface ShadowPayload {
   budgetMs: number;
   pickId: string;
   roots: StoreRoots;
+  /** The slot this process took for the child (shadow-runner.ts takeSlot); the child frees it. */
+  slot: { file: string; token: string; startedAt: number };
+}
+
+/** The registry whose shadowSlots bound the call: the context's when it is a full one, else the shipped one. */
+function slotRegistry(context: DecisionPointContext): { shadowSlots?: number } | null {
+  if (fullRegistry(context.adviceRegistry)) return context.adviceRegistry as { shadowSlots?: number };
+  try {
+    const loaded = loadAdviceRegistry({ repoRoot: REPO_ROOT });
+    return loaded.ok ? loaded.registry : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Takes one of the user's shadow slots for a child about to start (row 174 R-04): admission happens here, before any
+ * process exists, so at most `shadowSlots` shadow children are alive per user at any time. Null when none is free.
+ */
+function admit(context: DecisionPointContext, roots: StoreRoots, budget: number): { file: string; token: string; startedAt: number } | null {
+  try {
+    const limit = slotRegistry(context)?.shadowSlots;
+    const dir = resolveStorePath({ store: SLOT_STORE, roots });
+    return dir && Number.isInteger(limit) && (limit as number) > 0 ? takeSlot(dir, limit, budget) : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Whether `registry` is the shipped core/registry/advice.json, which the detached child loads itself. */
@@ -322,8 +350,8 @@ function shippedRegistry(registry: unknown): boolean {
 }
 
 /**
- * Hands one shadow call to a detached child (shadow-runner.ts), which takes a slot, asks, records its pick or miss and
- * exits; the command never waits for the model. The child holds neither this process's event loop nor its stdio:
+ * Takes a shadow slot (none free: a `busy` miss, no child) and hands the call to a detached child (shadow-runner.ts),
+ * which asks, records its pick or miss, frees the slot and exits; the command never waits for the model. The child holds neither this process's event loop nor its stdio:
  * its stdout and stderr are ignored and its handle is unref'd. The payload goes through the child's stdin pipe, written
  * in blocking mode, so it is in the pipe or read by the child before this returns and survives the command calling
  * process.exit right after. The shipped registry stays behind (the child loads it), so a state within limits.maxBodyBytes
@@ -340,8 +368,17 @@ function shippedRegistry(registry: unknown): boolean {
 function spawnShadow(context: DecisionPointContext, services: DispatcherServices, model: string | null, budget: number, pickId: string): void {
   const roots = storeRoots(context, services);
   if (!roots) return;
-  const failed = () => recordCall(context, services, 'shadow', missCall('spawn-failed', model), pickId, false);
-  if (!fs.existsSync(RUNNER)) { failed(); return; }
+  const miss = (reason: string) => recordCall(context, services, 'shadow', missCall(reason, model), pickId, false);
+  if (!fs.existsSync(RUNNER)) { miss('spawn-failed'); return; }
+  const slot = admit(context, roots, budget);
+  if (!slot) { miss('busy'); return; }
+  let settled = false;
+  const failed = () => {
+    if (settled) return;
+    settled = true;
+    releaseSlot(slot);
+    miss('spawn-failed');
+  };
   try {
     const registry = context.adviceRegistry;
     // The state usually is the question set's state too: it crosses once, and the child puts it back (shadow-runner.ts).
@@ -357,7 +394,7 @@ function spawnShadow(context: DecisionPointContext, services: DispatcherServices
         adviceRegistry: Array.isArray(registry?.kinds) && !shippedRegistry(registry) ? registry : undefined,
         lineExtra: context.lineExtra,
       },
-      model, budgetMs: budget, pickId, roots,
+      model, budgetMs: budget, pickId, roots, slot,
     };
     const child = (services.spawn || spawn)(process.execPath, [RUNNER], {
       detached: true, stdio: ['pipe', 'ignore', 'ignore'], env: context.env || process.env, windowsHide: true,
@@ -371,6 +408,7 @@ function spawnShadow(context: DecisionPointContext, services: DispatcherServices
     drop.unref();
     stdin.once('close', () => clearTimeout(drop));
     stdin.end(JSON.stringify(payload));
+    adoptSlot(slot, child.pid);
     child.unref();
   } catch {
     failed();

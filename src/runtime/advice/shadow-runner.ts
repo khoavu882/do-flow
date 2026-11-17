@@ -1,17 +1,18 @@
 'use strict';
 
-// The detached shadow call (row 174 O-2, O-5). shadow-dispatcher.ts spawns this file detached, with stdout and stderr
-// ignored, and writes one JSON payload to its stdin: the call's context (the state text and question set travel only
-// here, in memory, never in argv, env or a file), the effective model, the budget, the pick id and the store roots.
-// The child takes one of the user's shadow slots, asks the advisor bounded by the budget, records its pick or miss
-// through the dispatcher's recordCall (record.ts: digests and byte counts, never the state text), frees the slot and
-// exits. It never outlives the budget by more than EXIT_GRACE_MS.
+// The detached shadow call (row 174 O-2, O-5). shadow-dispatcher.ts takes one of the user's shadow slots, spawns this
+// file detached, with stdout and stderr ignored, and writes one JSON payload to its stdin: the call's context (the state
+// text and question set travel only here, in memory, never in argv, env or a file), the effective model, the budget,
+// the pick id, the store roots and the slot it took for this child. The child asks the advisor bounded by the budget,
+// records its pick or miss through the dispatcher's recordCall (record.ts: digests and byte counts, never the state
+// text), frees the slot and exits. It never outlives the budget by more than EXIT_GRACE_MS, nor its slot's staleness.
 //
-// Slots (store advice-shadow-slots-user): at most `shadowSlots` (core/registry/advice.json) shadow calls run at once
-// across every project of this user, one file each, created with O_EXCL so two children never hold the same one. A
-// slot is removed by the call that took it; a stale slot (its pid is gone, or it is older than its budget plus
-// SLOT_MARGIN_MS) is reclaimed in place, by one call only (reclaimSlot). A call that finds no free slot records a `busy`
-// miss and makes no call.
+// Slots (store advice-shadow-slots-user): at most `shadowSlots` (core/registry/advice.json) shadow children run at once
+// across every project of this user, one file each, created with O_EXCL by the parent BEFORE it spawns (row 174 R-04),
+// so a burst of calls cannot start more children than slots. The parent creates a slot with no pid and names the child's
+// pid in it once spawned (adoptSlot). A slot is removed by the child it was taken for; a stale slot (its pid is gone, or
+// it is older than its budget plus SLOT_MARGIN_MS) is reclaimed in place, by one call only (reclaimSlot). A call that
+// finds no free slot records a `busy` miss and starts no child.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -25,7 +26,7 @@ const RECLAIM_ROUNDS = 4;
 /** Before the payload names a budget: the registry's ceiling for any call (advice.json timeoutMs is at most 30000). */
 const FIRST_GUARD_MS = 30000;
 
-type Slot = { file: string; token: string };
+type Slot = { file: string; token: string; startedAt: number };
 
 function pidAlive(pid: unknown): boolean {
   if (!Number.isInteger(pid) || (pid as number) <= 0) return false;
@@ -54,6 +55,8 @@ function staleSlot(seen: { held: any; mtimeMs: number }, now: number, fallbackBu
   if (!held) return now - seen.mtimeMs > SLOT_MARGIN_MS;
   const budget = Number.isFinite(held.budgetMs) && held.budgetMs > 0 ? held.budgetMs : fallbackBudget;
   if (!Number.isFinite(held.startedAt) || now - held.startedAt > budget + SLOT_MARGIN_MS) return true;
+  // No pid yet: the parent took it and its child is not named yet, so only its age can make it stale.
+  if (held.pid === null) return false;
   return !alive(held.pid);
 }
 
@@ -95,23 +98,39 @@ function reclaimSlot(file: string, body: string, token: string, budgetMs: number
   return false;
 }
 
-/** Takes one of `limit` slots under `dir`, or returns null when every one is held by a live, in-budget call. */
+/**
+ * Takes one of `limit` slots under `dir` for a child not started yet (no pid), or returns null when every one is held by
+ * a live, in-budget call.
+ */
 function takeSlot(dir: string, limit: number, budgetMs: number, {
-  now = Date.now, pid = process.pid, alive = pidAlive, fsImpl = fs,
-}: { now?: () => number; pid?: number; alive?: (pid: unknown) => boolean; fsImpl?: any } = {}): Slot | null {
+  now = Date.now, alive = pidAlive, fsImpl = fs,
+}: { now?: () => number; alive?: (pid: unknown) => boolean; fsImpl?: any } = {}): Slot | null {
   fsImpl.mkdirSync(dir, { recursive: true });
   const token = crypto.randomBytes(6).toString('hex');
-  const body = JSON.stringify({ pid, token, startedAt: now(), budgetMs });
+  const startedAt = now();
+  const body = JSON.stringify({ pid: null, token, startedAt, budgetMs });
   for (let index = 0; index < limit; index += 1) {
     const file = path.join(dir, `slot-${index}.json`);
     try {
       fsImpl.writeFileSync(file, body, { flag: 'wx' });
-      return { file, token };
+      return { file, token, startedAt };
     } catch (error: any) {
-      if (error?.code === 'EEXIST' && reclaimSlot(file, body, token, budgetMs, now, alive, fsImpl)) return { file, token };
+      if (error?.code === 'EEXIST' && reclaimSlot(file, body, token, budgetMs, now, alive, fsImpl)) return { file, token, startedAt };
     }
   }
   return null;
+}
+
+/** Names the started child's pid in its slot (one rename), so the slot is freed for reuse as soon as the child is gone. */
+function adoptSlot(slot: Slot, pid: unknown, fsImpl: any = fs): void {
+  if (!Number.isInteger(pid)) return;
+  try {
+    const held = JSON.parse(fsImpl.readFileSync(slot.file, 'utf8'));
+    if (held?.token !== slot.token) return;
+    const temp = `${slot.file}.tmp-${slot.token}`;
+    fsImpl.writeFileSync(temp, JSON.stringify({ ...held, pid }));
+    fsImpl.renameSync(temp, slot.file);
+  } catch { /* the slot stays without a pid: its age frees it */ }
 }
 
 /** Removes the slot when it is still this call's (a reclaimed slot belongs to another call now). */
@@ -125,18 +144,43 @@ function fullRegistry(registry: any): boolean {
   return Boolean(registry) && Array.isArray(registry.kinds) && Array.isArray(registry.providers) && Boolean(registry.limits);
 }
 
+/** The slot a payload names, or null. */
+function payloadSlot(payload: any): Slot | null {
+  const slot = payload?.slot;
+  if (!slot || typeof slot.file !== 'string' || typeof slot.token !== 'string' || !Number.isFinite(slot.startedAt)) return null;
+  return { file: slot.file, token: slot.token, startedAt: slot.startedAt };
+}
+
 /**
- * Runs one shadow call from its payload: slot, ask, record, release. Never throws. The budget runs from `arrivedAt` (when
- * the payload arrived), not from when the ask starts, so slow module loading eats the budget instead of pushing the call
- * past the exit guard in main(): the call ends, records and frees its slot before that guard fires.
+ * When the call must have ended: its budget from `arrivedAt` (when the payload arrived), not from when the ask starts,
+ * so slow module loading eats the budget instead of pushing the call past the exit guard in main(); and never later
+ * than its slot can be reclaimed for its age, less EXIT_GRACE_MS, so a late-starting child is gone before its slot is
+ * reused and the slot bound holds.
+ */
+function deadlineOf(budget: number, arrivedAt: number, slot: Slot | null): number {
+  const own = arrivedAt + budget;
+  return slot ? Math.min(own, slot.startedAt + budget + SLOT_MARGIN_MS - EXIT_GRACE_MS) : own;
+}
+
+/**
+ * Runs one shadow call from its payload: ask, record, release the payload's slot. Never throws. The call ends by
+ * deadlineOf, so it records and frees its slot before the exit guard in main() fires.
  */
 async function runShadow(payload: any, { fsImpl = fs, arrivedAt = Date.now() }: { fsImpl?: any; arrivedAt?: number } = {}): Promise<void> {
-  let askAdvisor: any, recordCall: any, missCall: any, createAdviceClient: any, loadAdviceRegistry: any, resolveStorePath: any, REPO_ROOT: any;
+  const slot = payloadSlot(payload);
+  try {
+    await askAndRecord(payload, fsImpl, arrivedAt, slot);
+  } finally {
+    if (slot) releaseSlot(slot, fsImpl);
+  }
+}
+
+async function askAndRecord(payload: any, fsImpl: any, arrivedAt: number, slot: Slot | null): Promise<void> {
+  let askAdvisor: any, recordCall: any, missCall: any, createAdviceClient: any, loadAdviceRegistry: any, REPO_ROOT: any;
   try {
     ({ askAdvisor, recordCall, missCall } = require('./shadow-dispatcher.ts'));
     ({ createAdviceClient } = require('./client.ts'));
     ({ loadAdviceRegistry } = require('./registry.ts'));
-    ({ resolveStorePath } = require('../storage/roots.ts'));
     ({ REPO_ROOT } = require('../../helper/repo-root.ts'));
   } catch {
     // A child that cannot load what it asks with is not silent: it records a spawn-failed miss through record.ts alone.
@@ -165,27 +209,12 @@ async function runShadow(payload: any, { fsImpl = fs, arrivedAt = Date.now() }: 
     }
     const model = typeof payload.model === 'string' && payload.model ? payload.model : null;
     const services = { roots };
-    const limit = adviceRegistry?.shadowSlots;
-    const dir = resolveStorePath({ store: SLOT_STORE, roots, fsImpl });
-    let slot: Slot | null = null;
-    try {
-      if (dir && Number.isInteger(limit) && limit > 0) slot = takeSlot(dir, limit, budget, { fsImpl });
-    } catch { slot = null; }
-    if (!slot) {
-      recordCall(context, services, 'shadow', missCall('busy', model), payload.pickId, false);
-      return;
-    }
-    try {
-      const adviceClient = createAdviceClient({ adviceRegistry, roots, fsImpl });
-      const elapsed = Date.now() - arrivedAt;
-      const remaining = budget - elapsed;
-      const asked = remaining > 0
-        ? await askAdvisor(context, { ...services, adviceClient }, model, remaining)
-        : { ...missCall('timeout', model), durationMs: elapsed };
-      recordCall(context, services, 'shadow', asked, payload.pickId, false);
-    } finally {
-      releaseSlot(slot, fsImpl);
-    }
+    const adviceClient = createAdviceClient({ adviceRegistry, roots, fsImpl });
+    const remaining = deadlineOf(budget, arrivedAt, slot) - Date.now();
+    const asked = remaining > 0
+      ? await askAdvisor(context, { ...services, adviceClient }, model, remaining)
+      : { ...missCall('timeout', model), durationMs: Date.now() - arrivedAt };
+    recordCall(context, services, 'shadow', asked, payload.pickId, false);
   } catch { /* advice is advisory: a failed shadow call leaves nothing behind but its slot release */ }
 }
 
@@ -199,10 +228,17 @@ function main(): void {
   process.stdin.on('end', () => {
     let payload: any = null;
     try { payload = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { process.exit(0); }
-    if (!payload || payload.v !== 1 || !Number.isFinite(payload.budgetMs)) process.exit(0);
+    const slot = payloadSlot(payload);
+    if (!payload || payload.v !== 1 || !Number.isFinite(payload.budgetMs)) {
+      if (slot) releaseSlot(slot);
+      process.exit(0);
+    }
     const arrivedAt = Date.now();
     clearTimeout(guard);
-    guard = setTimeout(() => process.exit(0), payload.budgetMs + EXIT_GRACE_MS);
+    guard = setTimeout(() => {
+      if (slot) releaseSlot(slot);
+      process.exit(0);
+    }, Math.max(0, deadlineOf(payload.budgetMs, arrivedAt, slot) + EXIT_GRACE_MS - Date.now()));
     guard.unref();
     try { require('node:module').enableCompileCache(); } catch { /* best-effort */ }
     runShadow(payload, { arrivedAt }).finally(() => process.exit(0));
@@ -211,4 +247,4 @@ function main(): void {
 
 if (require.main === module) main();
 
-module.exports = { takeSlot, releaseSlot, runShadow, SLOT_STORE, SLOT_MARGIN_MS };
+module.exports = { takeSlot, adoptSlot, releaseSlot, fullRegistry, runShadow, SLOT_STORE, SLOT_MARGIN_MS };
