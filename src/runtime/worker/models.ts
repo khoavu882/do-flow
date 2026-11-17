@@ -1,8 +1,13 @@
 'use strict';
 
+const { choiceOf, enabledIn } = require('./model-choice.ts');
+
+type ModelChoice = { model: string; provider: string | null; effort: string | null };
+type PartGap = 'provider:unsupported' | 'effort:unsupported' | 'effort:unknown-level';
 type Bindings = {
   state: 'unset' | 'set' | 'invalid';
-  map: Record<string, Record<string, string>> | null;
+  /** A slot holds a plain model id or `{model, provider?, effort?}` (169 IC-001); read it through `choiceOf`. */
+  map: Record<string, Record<string, unknown>> | null;
   reason: string | null;
 };
 
@@ -10,7 +15,10 @@ type BindingResolution = {
   model: string | null;
   source: 'binding' | 'main-session' | 'frontier-binding' | 'harness-default' | 'invalid';
   flag: 'supported' | 'unevidenced' | 'n/a';
-  catalogueStatus?: 'synced' | 'unsynced';
+  /** 169: the bound model with its provider and effort; present when a model is bound. */
+  choice?: ModelChoice;
+  /** 169: why the bound provider or effort cannot reach the argv (`bindingGap` reports it); absent when it can. */
+  partGap?: PartGap;
   enabledStatus?: 'enabled' | 'disabled';
 };
 
@@ -70,42 +78,52 @@ function readAllowedModels({ env = process.env, projectRoot = null }: any = {}):
   }
 }
 
-/** IC-012, IC-003: resolve one worker and task tier, checking catalogue sync and models.enabled allow-list. */
-function resolveBinding({ worker, tier, bindings, descriptor, catalogue, allowedModels }: any): BindingResolution {
+/** 169: a bound provider or effort the descriptor cannot pass on. Only a `supported` entry takes a part (`unknown` and
+ * `unsupported` alike are refused); a closed `levels` list refuses a level outside it. */
+function partGapOf(choice: ModelChoice, descriptor: any): PartGap | null {
+  if (choice.provider !== null && descriptor?.provider?.status !== 'supported') return 'provider:unsupported';
+  if (choice.effort !== null) {
+    if (descriptor?.effort?.status !== 'supported') return 'effort:unsupported';
+    const levels = descriptor.effort.levels;
+    if (Array.isArray(levels) && !levels.includes(choice.effort)) return 'effort:unknown-level';
+  }
+  return null;
+}
+
+/** IC-012, IC-003: resolve one worker and task tier, checking the models.enabled allow-list (`enabledIn`: the bare or the composed id). */
+function resolveBinding({ worker, tier, bindings, descriptor, allowedModels }: any): BindingResolution {
   if (bindings?.state === 'invalid') {
     const res: BindingResolution = { model: null, source: 'invalid', flag: 'n/a' };
-    if (catalogue !== undefined) res.catalogueStatus = 'unsynced';
     if (allowedModels !== undefined) res.enabledStatus = 'disabled';
     return res;
   }
   const map = bindings?.state === 'set' ? bindings.map : null;
   if (!map || !Object.hasOwn(map, worker) || !Object.hasOwn(map[worker], tier)) {
     const res: BindingResolution = { model: null, source: 'harness-default', flag: 'n/a' };
-    if (catalogue !== undefined) res.catalogueStatus = 'synced';
     if (allowedModels !== undefined) res.enabledStatus = 'enabled';
     return res;
   }
-  const boundModel = map[worker][tier];
+  const choice: ModelChoice | null = choiceOf(map[worker][tier]);
+  if (choice === null) {
+    const res: BindingResolution = { model: null, source: 'invalid', flag: 'n/a' };
+    if (allowedModels !== undefined) res.enabledStatus = 'disabled';
+    return res;
+  }
+  const boundModel = choice.model;
   const supported = descriptor?.model?.status === 'supported' && Array.isArray(descriptor.model.argv);
 
   const res: BindingResolution = {
     model: boundModel,
     source: 'binding',
     flag: supported ? 'supported' : 'unevidenced',
+    choice,
   };
-
-  if (catalogue !== undefined) {
-    if (catalogue && catalogue.harnesses && Object.hasOwn(catalogue.harnesses, worker)) {
-      const offered = catalogue.harnesses[worker]?.offeredModels || [];
-      res.catalogueStatus = offered.some((m: any) => m.id === boundModel) ? 'synced' : 'unsynced';
-    } else {
-      res.catalogueStatus = 'unsynced';
-    }
-  }
+  const partGap = supported ? partGapOf(choice, descriptor) : null;
+  if (partGap !== null) res.partGap = partGap;
 
   if (allowedModels !== undefined) {
     if (Array.isArray(allowedModels)) {
-      res.enabledStatus = allowedModels.includes(boundModel) ? 'enabled' : 'disabled';
+      res.enabledStatus = enabledIn(allowedModels, boundModel, choice.provider, descriptor) ? 'enabled' : 'disabled';
     } else {
       res.enabledStatus = 'disabled';
     }
@@ -130,15 +148,15 @@ function trustedPrimaryModel(primary: any, harness: string): string | null {
  * (`binding`); the primary's own model when `harness` is the primary's harness and that model is trusted
  * (`trustedPrimaryModel`; `main-session`); the bound `frontier` id (`frontier-binding`); else the harness default.
  * An unreadable binding is `invalid`, as for a tier. `primary` is a `resolvePrimary` result or null. */
-function resolveOrchestratorModel({ harness, bindings, primary, descriptor, catalogue, allowedModels }: any): BindingResolution {
-  const own = resolveBinding({ worker: harness, tier: ORCHESTRATOR_KEY, bindings, descriptor, catalogue, allowedModels });
+function resolveOrchestratorModel({ harness, bindings, primary, descriptor, allowedModels }: any): BindingResolution {
+  const own = resolveBinding({ worker: harness, tier: ORCHESTRATOR_KEY, bindings, descriptor, allowedModels });
   if (own.source !== 'harness-default') return own;
   const trusted = trustedPrimaryModel(primary, harness);
   if (trusted !== null) {
     const supported = descriptor?.model?.status === 'supported' && Array.isArray(descriptor.model.argv);
-    return { model: trusted, source: 'main-session', flag: supported ? 'supported' : 'unevidenced' };
+    return { model: trusted, source: 'main-session', flag: supported ? 'supported' : 'unevidenced', choice: { model: trusted, provider: null, effort: null } };
   }
-  const frontier = resolveBinding({ worker: harness, tier: 'frontier', bindings, descriptor, catalogue, allowedModels });
+  const frontier = resolveBinding({ worker: harness, tier: 'frontier', bindings, descriptor, allowedModels });
   return frontier.source === 'binding' ? { ...frontier, source: 'frontier-binding' } : own;
 }
 
@@ -149,10 +167,10 @@ function usesOrchestratorModel(owner: unknown, resolvedTier: { source?: string }
 }
 
 /** One resolver for every dispatch: the orchestrator rule for its owner, else the tier binding. */
-function resolveTaskModel({ worker, owner, resolvedTier, bindings, descriptor, primary = null, catalogue, allowedModels }: any): BindingResolution {
+function resolveTaskModel({ worker, owner, resolvedTier, bindings, descriptor, primary = null, allowedModels }: any): BindingResolution {
   return usesOrchestratorModel(owner, resolvedTier)
-    ? resolveOrchestratorModel({ harness: worker, bindings, primary, descriptor, catalogue, allowedModels })
-    : resolveBinding({ worker, tier: resolvedTier.tier, bindings, descriptor, catalogue, allowedModels });
+    ? resolveOrchestratorModel({ harness: worker, bindings, primary, descriptor, allowedModels })
+    : resolveBinding({ worker, tier: resolvedTier.tier, bindings, descriptor, allowedModels });
 }
 
 /** IC-012, IC-003: a binding denial narrows this task's ladder, rather than becoming a launch failure. */
@@ -162,9 +180,7 @@ function bindingGap(result: BindingResolution) {
     if (result.flag === 'unevidenced') {
       return { requirement: 'binding', result: 'failed', reason: 'model-flag:unevidenced' };
     }
-    if (result.catalogueStatus === 'unsynced') {
-      return { requirement: 'binding', result: 'failed', reason: 'model-unsynced' };
-    }
+    if (result.partGap) return { requirement: 'binding', result: 'failed', reason: result.partGap };
     if (result.enabledStatus === 'disabled') {
       return { requirement: 'binding', result: 'failed', reason: 'model-disabled' };
     }
@@ -172,11 +188,17 @@ function bindingGap(result: BindingResolution) {
   return null;
 }
 
-/** IC-014: describe every registry tier without changing worker eligibility. */
-function bindingsOf({ worker, descriptor, bindings, tiers, catalogue, allowedModels }: any) {
+/** IC-014: describe every registry tier without changing worker eligibility. A bound tier carries its provider and effort, and
+ * `refused` (`bindingGap`'s reason) when dispatch would refuse it (169 A-03). */
+function bindingsOf({ worker, descriptor, bindings, tiers, allowedModels }: any) {
   return Object.fromEntries(tiers.map((tier: string) => {
-    const { model, flag, catalogueStatus, enabledStatus } = resolveBinding({ worker, tier, bindings, descriptor, catalogue, allowedModels });
-    return [tier, { model, flag, ...(catalogueStatus ? { catalogueStatus } : {}), ...(enabledStatus ? { enabledStatus } : {}) }];
+    const resolved = resolveBinding({ worker, tier, bindings, descriptor, allowedModels });
+    const { model, flag, enabledStatus, choice } = resolved;
+    const refused = choice ? bindingGap(resolved)?.reason : undefined;
+    return [tier, {
+      model, ...(choice ? { provider: choice.provider, effort: choice.effort } : {}), flag,
+      ...(enabledStatus ? { enabledStatus } : {}), ...(refused ? { refused } : {}),
+    }];
   }));
 }
 

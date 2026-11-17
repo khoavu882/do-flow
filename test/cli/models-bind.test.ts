@@ -69,6 +69,7 @@ test('the refusal says when the list it checked against is the last one, kept st
 
 test('the sync line says how many ids were left out and when the list was cut', async (t: any) => {
   const s = setup(t);
+  fs.writeFileSync(path.join(s.bin, 'opencode'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
   const execFileImpl = (_bin: string, args: string[], _opts: any, cb: any) => (args[0] === 'models'
     ? cb(null, `--foo\n${Array.from({ length: 600 }, (_, i) => `p/m${i}`).join('\n')}\n`, '') : cb(null, '1.0.0', ''));
   const res = await run({ action: 'sync', harness: 'opencode', projectRoot: s.project, env: s.env, syncOptions: { execFileImpl, homeDir: s.root } });
@@ -92,6 +93,8 @@ test('list --json gives unresolved:<reason> for the tier fields when workers.mod
 
 test('two syncs of different harnesses in one project both keep their entry, and no lock is left behind', async (t: any) => {
   const s = setup(t);
+  fs.writeFileSync(path.join(s.bin, 'opencode'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  fs.writeFileSync(path.join(s.bin, 'pi'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
   const later = (answer: string, ms: number) => (_bin: string, args: string[], _opts: any, cb: any) => {
     setTimeout(() => (args[0] === 'models' || args[0] === '--list-models' ? cb(null, answer, '') : cb(null, '1.0.0', '')), ms);
   };
@@ -111,7 +114,7 @@ test('two syncs of different harnesses in one project both keep their entry, and
   const file = path.join(s.project, '.doflow', 'state', 'models', 'catalogue.json');
   const stored = JSON.parse(fs.readFileSync(file, 'utf8'));
   assert.deepEqual(Object.keys(stored.harnesses).sort(), ['opencode', 'pi']);
-  assert.deepEqual(stored.harnesses.opencode.offeredModels, [{ id: 'a/one' }]);
+  assert.deepEqual(stored.harnesses.opencode.offeredModels, [{ id: 'one', provider: 'a' }]);
   assert.equal(fs.existsSync(`${file}.lock`), false);
 });
 
@@ -140,7 +143,7 @@ test('a catalogue entry written before model lists existed reads as no list: the
   assert.equal(typed.code, 0, typed.err);
   assert.equal(JSON.parse(typed.out).checked, 'unchecked');
   const plain = await bind(s, { harness: 'codex', tier: 'light', model: 'anything' });
-  assert.match(plain.out, /not checked/);
+  assert.match(plain.out, /^Bound codex light = anything \[model unchecked\] \(wrote /);
   assert.doesNotMatch(plain.out + plain.err, /removed-table-model/);
   // list shows no observed model rows from the old entry.
   const listed = await run({ action: 'list', projectRoot: s.project, env: s.env, json: true });
@@ -158,7 +161,7 @@ test('a harness with no model list accepts the typed id and says it was not chec
   const s = setup(t);
   const res = await bind(s, { harness: 'codex', tier: 'standard', model: 'my-model' });
   assert.equal(res.code, 0);
-  assert.match(res.out, /Bound codex standard = my-model \(not checked: no synced model list for this harness\)/);
+  assert.match(res.out, /Bound codex standard = my-model \[model unchecked\] \(wrote /);
   const json = await bind(s, { harness: 'codex', tier: 'light', model: 'other', json: true });
   assert.equal(JSON.parse(json.out).checked, 'unchecked');
 });
@@ -177,7 +180,7 @@ test('an id outside the harness list is refused with the three closest ids unles
 
   const allowed = await bind(s, { harness: 'opencode', tier: 'frontier', model: 'anthropic/claude-opuss', allowUnlisted: true });
   assert.equal(allowed.code, 0);
-  assert.match(allowed.out, /not in the list; --allow-unlisted/);
+  assert.match(allowed.out, /Bound opencode frontier = anthropic\/claude-opuss \[not in the list\] \(wrote /);
   const listed = await bind(s, { harness: 'opencode', tier: 'light', model: 'anthropic/claude-haiku' });
   assert.equal(listed.code, 0);
   assert.deepEqual(s.bindings(), { opencode: { frontier: 'anthropic/claude-opuss', light: 'anthropic/claude-haiku' } });
@@ -209,6 +212,7 @@ test('without --model and without a terminal bind exits 2 with the usage line', 
 
 test('on a terminal bind syncs the harness, prints a numbered list and binds the chosen id', async (t: any) => {
   const s = setup(t);
+  fs.writeFileSync(path.join(s.bin, 'opencode'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
   const asked: string[] = [];
   const execFileImpl = (_bin: string, args: string[], _o: any, cb: any) => (args[0] === 'models' ? cb(null, 'a/one\nb/two\nc/three\n', '') : cb(null, '1.0.0', ''));
   const res = await bind(s, {
@@ -216,12 +220,12 @@ test('on a terminal bind syncs the harness, prints a numbered list and binds the
     syncOptions: { execFileImpl, homeDir: s.root },
   });
   assert.equal(res.code, 0, res.err);
-  assert.match(res.out, /1  a\/one\n\s+2  b\/two\n\s+3  c\/three/);
+  assert.match(res.out, /1  one \(provider a\)\n\s+2  two \(provider b\)\n\s+3  three \(provider c\)/);
   assert.deepEqual(asked, ['Choose 1-3: ']);
-  assert.deepEqual(s.bindings(), { opencode: { standard: 'b/two' } });
+  assert.deepEqual(s.bindings(), { opencode: { standard: { model: 'two', provider: 'b' } } });
   const bad = await bind(s, { harness: 'opencode', tier: 'light', interactive: true, ask: () => '9', syncOptions: { execFileImpl, homeDir: s.root } });
   assert.equal(bad.code, 2);
-  assert.deepEqual(s.bindings(), { opencode: { standard: 'b/two' } });
+  assert.deepEqual(s.bindings(), { opencode: { standard: { model: 'two', provider: 'b' } } });
 });
 
 test('the picker on a harness with no list exits 2 and tells the person to type the id', async (t: any) => {
@@ -277,14 +281,15 @@ test('list prints one row per installed harness: three tiers, the orchestrator a
   const view = JSON.parse(res.out);
   assert.deepEqual(view.harnesses.map((h: any) => h.harness).sort(), ['codex', 'opencode']);
   const codex = view.harnesses.find((h: any) => h.harness === 'codex');
-  assert.deepEqual(codex, { harness: 'codex', light: 'gpt-6-luna', standard: null, frontier: 'gpt-6.1-sol', orchestrator: 'gpt-6.1-sol', orchestratorSource: 'frontier-binding' });
+  const cell = (model: string) => ({ model, provider: null, effort: null, check: { model: 'unchecked', effort: null } });
+  assert.deepEqual(codex, { harness: 'codex', light: cell('gpt-6-luna'), standard: null, frontier: cell('gpt-6.1-sol'), orchestrator: cell('gpt-6.1-sol'), orchestratorSource: 'frontier-binding' });
   const opencode = view.harnesses.find((h: any) => h.harness === 'opencode');
-  assert.deepEqual(opencode, { harness: 'opencode', light: null, standard: null, frontier: null, orchestrator: 'p/orch', orchestratorSource: 'binding' });
+  assert.deepEqual(opencode, { harness: 'opencode', light: null, standard: null, frontier: null, orchestrator: cell('p/orch'), orchestratorSource: 'binding' });
   assert.deepEqual(view.models, []);
 
   const text = (await run({ action: 'list', projectRoot: s.project, env: s.env })).out;
-  assert.match(text, /codex\s+light=gpt-6-luna\s+standard=harness default\s+frontier=gpt-6\.1-sol\s+orchestrator=gpt-6\.1-sol \(frontier binding\)/);
-  assert.match(text, /opencode\s+light=harness default.*orchestrator=p\/orch \(bound\)/);
+  assert.match(text, /codex\s+light=gpt-6-luna \[model unchecked\]\s+standard=harness default\s+frontier=gpt-6\.1-sol \[model unchecked\]\s+orchestrator=gpt-6\.1-sol \[model unchecked\] \(frontier binding\)/);
+  assert.match(text, /opencode\s+light=harness default.*orchestrator=p\/orch \[model unchecked\] \(bound\)/);
 });
 
 test('a harness that is not installed shows only when it has a binding', async (t: any) => {

@@ -187,7 +187,7 @@ function unwatchProbe(child: any): void {
   if (!liveProbes.size) stopWatching();
 }
 
-/** The default probe: runs the program without a shell, answers with its stdout, or rejects with an error whose `code` is
+/** The default probe: runs the program without a shell (in `opts.env` and `opts.cwd` when given), answers with its stdout, or rejects with an error whose `code` is
  * ENOENT (not found), ETIMEDOUT (no answer in `opts.timeout` ms; its whole process tree is ended by then) or EMAXBUFFER
  * (more than `opts.maxBuffer` bytes of stdout; the tree is ended and nothing is kept). */
 function probeExec(file: string, args: string[], opts: any): Promise<string> {
@@ -196,7 +196,7 @@ function probeExec(file: string, args: string[], opts: any): Promise<string> {
     let timer: any;
     const out: Buffer[] = [];
     const err: Buffer[] = [];
-    const child = spawn(file, args, { stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32' });
+    const child = spawn(file, args, { stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32', ...(opts?.env ? { env: opts.env } : {}), ...(opts?.cwd ? { cwd: opts.cwd } : {}) });
     const finish = (settle: (value: any) => void, value: any) => {
       if (settled) return;
       settled = true;

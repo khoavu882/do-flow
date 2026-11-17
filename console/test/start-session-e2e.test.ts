@@ -212,7 +212,7 @@ async function lan(t: any, w: any, opts: { env?: Record<string, string>, log?: a
 }
 
 const startBody = (w: any, over: Record<string, unknown> = {}) => ({
-  v: 1, requestId: rid(), projectKey: w.key, worktreeKey: w.linkedKey, harness: 'codex', model: null, entry: 'do', prompt: `hello ${MARKER}`, ...over,
+  v: 1, requestId: rid(), projectKey: w.key, worktreeKey: w.linkedKey, harness: 'codex', model: null, provider: null, effort: null, entry: 'do', prompt: `hello ${MARKER}`, ...over,
 });
 
 async function until(check: () => any, what: string, ms = 20_000) {

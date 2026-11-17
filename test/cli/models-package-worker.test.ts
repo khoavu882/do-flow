@@ -113,11 +113,11 @@ test('a package worker declaring modelList and a model flag is synced, listed, b
 
   const listed = JSON.parse((await run({ ...common, action: 'list', json: true })).out);
   const row = listed.harnesses.find((h: any) => h.harness === 'acme.mycli');
-  assert.equal(row.frontier, 'mine/large');
-  assert.equal(row.orchestrator, 'mine/large');
+  assert.deepEqual(row.frontier, { model: 'mine/large', provider: null, effort: null, check: { model: 'listed', effort: null } });
+  assert.deepEqual(row.orchestrator, row.frontier);
   assert.deepEqual(listed.models.filter((m: any) => m.harness === 'acme.mycli').map((m: any) => m.model), ['mine/small', 'mine/large']);
   const view = tierView({ registry: loadRegistry({ repoRoot: REPO_ROOT }), env: f.env, projectRoot: f.project, primary: null, view: f.view });
-  assert.equal(view.harnesses.find((h: any) => h.harness === 'acme.mycli').frontier, 'mine/large');
+  assert.equal(view.harnesses.find((h: any) => h.harness === 'acme.mycli').frontier.model, 'mine/large');
 
   const unbound = await run({ ...common, action: 'unbind', harness: 'acme.mycli', tier: 'frontier' });
   assert.equal(unbound.code, 0, unbound.err);

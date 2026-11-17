@@ -33,7 +33,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const readiness = require('./readiness.ts');
-const { readBindings } = require('./models.ts');
+const { readBindings, resolveBinding, bindingGap } = require('./models.ts');
+const { PROVIDER_RE, EFFORT_RE } = require('../../registry/model-parts.ts');
+const { cellFor } = require('../models/tier-view.ts');
 const { workerCatalogue } = require('./catalogue.ts');
 const { PARSERS, parserIdOf } = require('./parsers.ts');
 const { workerIdFault } = require('../../registry/worker-ids.ts');
@@ -70,7 +72,7 @@ const TIERS = Object.freeze(['orchestrator', 'frontier', 'standard', 'light']);
  */
 const START_FLAGS = Object.freeze({
   required: Object.freeze(['--project-key', '--worktree-key', '--harness', '--entry', '--request-id', '--stdin']),
-  optional: Object.freeze(['--model', '--via', '--json']),
+  optional: Object.freeze(['--model', '--provider', '--effort', '--via', '--json']),
 });
 const CHECKOUTS_MAX = 64;
 const MODELS_MAX = 50;
@@ -207,23 +209,36 @@ function harnessFacts({ harness, worker, reg, view, env, cwd, root, nowMs, platf
   return { harness, startable: true, reason: null, words: `${harness} can start a session here`, warnings, login, version: found.version, liveVerified: liveVerified(harness, ms), found };
 }
 
-/** IC-002: the models offered for `harness`, de-duplicated in source order, then the harness default; at most 50. */
+/**
+ * IC-002, 169 IC-007: the models offered for `harness`, in source order (each tier binding, then each model the harness listed),
+ * then the harness default; at most 50. An entry is the IC-005 cell of its choice, `{ model, provider, effort, check, effortMayLower? }`,
+ * with its `source`; a bound entry the harness cannot take a part of carries `refused: <reason>` (`bindingGap`'s reason) and cannot
+ * start. An entry is one triple: the same model under another provider or effort is another entry. The default is `model: null`.
+ */
 function modelsFor({ harness, worker, bindings, catalogue }: any) {
   const out: any[] = [];
   const seen = new Set<string>();
-  const add = (id: any, source: string) => {
-    if (typeof id !== 'string' || !MODEL_ID.test(id) || seen.has(id) || out.length >= MODELS_MAX - 1) return;
-    seen.add(id);
-    out.push({ id, source });
+  const listed = catalogue?.harnesses && Object.hasOwn(catalogue.harnesses, harness) ? catalogue.harnesses[harness] : null;
+  const add = (choice: any, source: string, refused: string | null = null) => {
+    if (!choice || !MODEL_ID.test(choice.model) || out.length >= MODELS_MAX - 1) return;
+    if ((choice.provider !== null && !PROVIDER_RE.test(choice.provider)) || (choice.effort !== null && !EFFORT_RE.test(choice.effort))) return;
+    const key = JSON.stringify([choice.model, choice.provider, choice.effort]);
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ ...cellFor(choice, worker, listed, refused), source });
   };
   // A model reaches argv only through the descriptor's `model` entry (IC-006), so without one only the default is offered.
   if (worker?.model?.status === 'supported' && Array.isArray(worker.model.argv)) {
-    const map = bindings?.state === 'set' && bindings.map && Object.hasOwn(bindings.map, harness) ? bindings.map[harness] : null;
-    for (const tier of TIERS) add(map && Object.hasOwn(map, tier) ? map[tier] : null, tier);
-    const entry = catalogue?.harnesses && Object.hasOwn(catalogue.harnesses, harness) ? catalogue.harnesses[harness] : null;
-    for (const model of Array.isArray(entry?.offeredModels) ? entry.offeredModels : []) add(model?.id, 'observed');
+    for (const tier of TIERS) {
+      const bound = resolveBinding({ worker: harness, tier, bindings, descriptor: worker });
+      if (bound.source === 'binding') add(bound.choice, tier, bindingGap(bound)?.reason ?? null);
+    }
+    const byProvider = worker.provider?.status === 'supported';
+    for (const model of Array.isArray(listed?.offeredModels) ? listed.offeredModels : []) {
+      add({ model: model?.id, provider: byProvider && typeof model?.provider === 'string' ? model.provider : null, effort: null }, 'observed');
+    }
   }
-  out.push({ id: null, source: 'default' });
+  out.push({ model: null, provider: null, effort: null, source: 'default', check: null });
   return out;
 }
 
@@ -334,7 +349,7 @@ const replayOf = (runs: Record<string, any>, requestId: string) => (Object.value
   .find((run) => run.kind === KIND && run.task === KIND && run.token === 1 && (run.childOf ?? null) === null && run.request === requestId) ?? null;
 
 /**
- * IC-001. `o`: the flags (`projectKey`, `worktreeKey`, `harness`, `model`, `entry`, `via`, `requestId`, `stdin`),
+ * IC-001. `o`: the flags (`projectKey`, `worktreeKey`, `harness`, `model`, `provider`, `effort`, `entry`, `via`, `requestId`, `stdin`),
  * `readStdin()`, `env`, `cwd`, `root` (the lifecycle project root), `reg`, `descriptors`, `platform`, `clock`, `sleep`,
  * `projects(o)` (listProjects) and `spawnSupervisor({ file, runId })`. Resolves IC-001's reply.
  */
@@ -356,6 +371,9 @@ async function startSession(o: any) {
   const entry = pattern(o.entry, /^(?:do|none)$/, '--entry', 'do or none');
   const requestId = pattern(o.requestId, REQUEST_ID, '--request-id', '22 base64url characters beginning with a letter or digit');
   const model = given(o.model) ? pattern(o.model, MODEL_ID, '--model', 'a model id') : null;
+  const provider = given(o.provider) ? pattern(o.provider, PROVIDER_RE, '--provider', 'a provider id') : null;
+  const effort = given(o.effort) ? pattern(o.effort, EFFORT_RE, '--effort', 'an effort level') : null;
+  if (model === null && (provider !== null || effort !== null)) throw new StartUsageError('--provider and --effort need --model');
   const startedBy = given(o.via) ? pattern(o.via, RELAY_LABEL, '--via', 'console or device.d-<12 lowercase hex>') : 'manual';
   if (o.stdin !== true) throw new StartUsageError('--stdin is required: the prompt is read from stdin');
 
@@ -386,10 +404,13 @@ async function startSession(o: any) {
   const facts = harnessFacts({ harness, worker, reg, view, env, cwd, root, nowMs, platform });
   if (!facts.startable) return refusal('harness-not-startable', facts.words, { harness, reason: facts.reason });
 
-  // Step 7: the model is one the options offer.
+  // Step 7: the model, provider and effort are one triple the options offer, and not a refused one.
   const offered = modelsFor({ harness, worker, bindings: readBindings({ env, projectRoot: root }), catalogue });
-  const choice = offered.find((m: any) => m.id === model) ?? null;
-  if (!choice) return refusal('model-not-offered', `${harness} is not offered the model '${model}' here`, { harness, models: offered });
+  const choice = offered.find((m: any) => m.model === model && m.provider === provider && m.effort === effort) ?? null;
+  if (!choice || choice.refused) {
+    const what = [model, provider === null ? null : `provider ${provider}`, effort === null ? null : `effort ${effort}`].filter((part) => part !== null).join(', ');
+    return refusal('model-not-offered', `${harness} is not offered '${what}' here${choice ? ` (${choice.refused})` : ''}`, { harness, models: offered });
+  }
 
   // Step 8: no dispatch of this project is running.
   const dispatch = dispatchRunning(root, platform);
@@ -408,12 +429,16 @@ async function startSession(o: any) {
     harness, phase: 'starting', createdAt: clock().toISOString(), timeoutSeconds: TIMEOUT_SECONDS, cliVersion: facts.version,
     caller: { lineageKind: key.identity.lineageKind, runKey: key.runKey },
     startedBy, project: { projectKey, worktreeKey }, execWorktree: checkout.path, entry,
-    binding: { model, flag: model === null ? null : 'supported', source: choice.source },
+    binding: { model, provider, effort, flag: model === null ? null : 'supported', source: choice.source },
     prompt: { store: 'session-prompts', name: `${runId}.prompt.txt`, sha256: prepared.sha256, bytes: prepared.bytes },
-    ...mainLaunchRecord(worker, prepared.sent, model),
+    ...mainLaunchRecord(worker, prepared.sent, model === null ? null : { model, provider, effort }),
     // The detached supervisor launches from the record alone: the binary the version read found (an absolute
     // path, as `run` records), the recipe and the model part.
-    descriptor: { cli: { binary: facts.found.path }, mainSession: worker.mainSession, ...mapPart(worker), model: worker.model ?? null, ...signsPart(worker) },
+    // The provider and effort entries ride along only when the choice uses them: the supervisor composes the model part from the record.
+    descriptor: {
+      cli: { binary: facts.found.path }, mainSession: worker.mainSession, ...mapPart(worker), model: worker.model ?? null, ...signsPart(worker),
+      ...(provider === null ? {} : { provider: worker.provider }), ...(effort === null ? {} : { effort: worker.effort }),
+    },
   };
   // Liveness is read outside the lock (`ps` is a process); a run inserted after this reading is counted open and live.
   const named = namingScan(platform);

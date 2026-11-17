@@ -1,0 +1,11 @@
+provider      model                       context  max-out  thinking  images
+anthropic     claude-fable-5              1M       128K     yes       yes   
+anthropic     claude-haiku-4-5            200K     64K      yes       yes   
+ollama-local  Gemma-4-12b-Comp            128K     16.4K    no        no    
+ollama-local  Qwen-3.6-35B                128K     16.4K    yes       yes   
+openai        gpt-4                       8.2K     8.2K     no        no    
+openai        gpt-4.1                     1.0M     32.8K    no        yes   
+openai        gpt-4-turbo                 128K     4.1K     no        yes   
+openai        gpt-6.1-terra               272K     128K     yes       yes   
+openai-codex  gpt-6-luna                  272K     128K     yes       yes   
+openai-codex  gpt-6.1-terra               500K     128K     yes       yes   

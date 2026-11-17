@@ -60,6 +60,12 @@
         "^\\s+export\\s+print stored credentials, including secrets, as JSON"
       ],
       "establishes": ["mainSession"]
+    },
+    {
+      "id": "help-provider",
+      "argv": ["run", "--help"],
+      "expect": ["^\\s+--model, -m string\\s+Model to use in the format provider/model#variant$"],
+      "establishes": ["provider"]
     }
   ]
 }

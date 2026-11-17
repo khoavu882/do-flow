@@ -73,9 +73,9 @@ const ACTION_WORDS = Object.freeze({
     effect: (/** @type {any} */ ctx) => `Stop worker ${ctx.worker.runId} (${ctx.worker.harness ? `${ctx.worker.harness}, ` : ''}task ${ctx.worker.task}) of ${ctx.slug} in ${ctx.project}. Its processes get SIGTERM, then SIGKILL after 3 s. Edits it has not handed back stay in its own worktree and are not merged. This cannot be undone.`,
     applied: () => 'Stopped. The page shows the worker run’s new state.',
   }),
-  // 165 design §10: the start confirmation; `model` null is the harness's own default.
+  // 165 design §10: the start confirmation; `model` null is the harness's own default. 169: `label` is the chosen option's words (bindingText), when it has a provider or effort.
   'start-session': Object.freeze({
-    effect: (/** @type {any} */ ctx) => `Start ${ctx.harness} (${ctx.model ?? 'harness default'}) in ${ctx.project} / ${ctx.checkout}. It runs with ${ctx.harness}’s own permissions. Stop it from Layers.`,
+    effect: (/** @type {any} */ ctx) => `Start ${ctx.harness} (${ctx.label ?? ctx.model ?? 'harness default'}) in ${ctx.project} / ${ctx.checkout}. It runs with ${ctx.harness}’s own permissions. Stop it from Layers.`,
     applied: () => 'Started. Layers shows the session and its output.',
   }),
 });
@@ -194,7 +194,7 @@ function textState(rule, value) {
  * @param {any} ctx decide-gate: { projectKey, project, slug, taskId, gate: {id, name}, decision, revision };
  *   close-run: { projectKey, project, slug, taskId, current: {type, id} | null, revision };
  *   cancel-worker: { projectKey, project, slug, worker: {runId, harness, task} };
- *   start-session (165): { projectKey, project, checkout, worktreeKey, harness, model, entry, prompt }
+ *   start-session (165): { projectKey, project, checkout, worktreeKey, harness, model, provider, effort, label, entry, prompt }
  * @returns {{ actionId: string, title: string, effect: string, verb: string, tone: 'approve' | 'danger', text: { field: string, required: boolean, max: number, label: string } | null, expect: { revision: number } | null, body: Record<string, any>, decision: string | null, unknown?: string } | null}
  */
 function buildConfirmation(id, ctx) {
@@ -256,26 +256,30 @@ function buildConfirmation(id, ctx) {
 
 /**
  * 165 design §10 state 3: the start confirmation. It has no text field (`text: null`: the start form holds the prompt), no `expect`, and its
- * body is complete but for the request id. `ctx` is `{ projectKey, project, checkout, worktreeKey, harness, model, entry, prompt }`.
+ * body is complete but for the request id. `ctx` is `{ projectKey, project, checkout, worktreeKey, harness, model, provider, effort, label, entry, prompt }`.
  * @param {any} ctx @param {string} project
  */
 function buildStartConfirmation(ctx, project) {
   const model = ctx.model === null || ctx.model === undefined ? null : ctx.model;
+  const provider = ctx.provider === null || ctx.provider === undefined ? null : ctx.provider;
+  const effort = ctx.effort === null || ctx.effort === undefined ? null : ctx.effort;
   if (!KEY16.test(String(ctx.worktreeKey)) || !isId(ctx.harness)) return null;
   if (model !== null && (typeof model !== 'string' || model === '')) return null;
+  if ((provider !== null || effort !== null) && model === null) return null;
+  if ((provider !== null && (typeof provider !== 'string' || provider === '')) || (effort !== null && (typeof effort !== 'string' || effort === ''))) return null;
   if (ctx.entry !== 'do' && ctx.entry !== 'none') return null;
   if (typeof ctx.prompt !== 'string' || ctx.prompt === '') return null;
   const checkout = typeof ctx.checkout === 'string' && ctx.checkout !== '' ? ctx.checkout : ctx.worktreeKey.slice(0, 8);
   return {
     actionId: 'start-session',
     title: `Start ${ctx.harness}`,
-    effect: ACTION_WORDS['start-session'].effect({ harness: ctx.harness, model, project, checkout }),
+    effect: ACTION_WORDS['start-session'].effect({ harness: ctx.harness, model, label: typeof ctx.label === 'string' && ctx.label !== '' ? ctx.label : null, project, checkout }),
     verb: `Start ${ctx.harness}`,
     tone: /** @type {'approve'} */ ('approve'),
     text: null,
     expect: null,
     unknown: 'No answer; check Sessions before trying again.',
-    body: { v: 1, projectKey: ctx.projectKey, worktreeKey: ctx.worktreeKey, harness: ctx.harness, model, entry: ctx.entry, prompt: ctx.prompt },
+    body: { v: 1, projectKey: ctx.projectKey, worktreeKey: ctx.worktreeKey, harness: ctx.harness, model, provider, effort, entry: ctx.entry, prompt: ctx.prompt },
     decision: null,
   };
 }

@@ -40,6 +40,7 @@ const { readRuns, transition, RUN_ID } = require('./run-store.ts');
 const { readTaskState } = require('../task-state.ts');
 const attempts = require('../task-attempts.ts');
 const { launchWorker, launchMainSession } = require('./launch.ts');
+const { choiceOf } = require('./model-choice.ts');
 const { readPrompt: readStoredPrompt } = require('./session-prompt.ts');
 const { parserOf, parserIdOf } = require('./parsers.ts');
 const worktreeCheck = require('./worktree-check.ts');
@@ -431,7 +432,7 @@ async function superviseRun({
     launched = main
       ? await launchMain({
         recipe: run.descriptor, prompt: promptBytes.toString('utf8'), runId, execWorktree: run.execWorktree, env,
-        model: run.binding?.model ?? null, ...(lastMessageFile ? { lastMessageFile } : {}),
+        model: choiceOf(run.binding), ...(lastMessageFile ? { lastMessageFile } : {}),
       })
       : await launch({
         recipe: run.descriptor, prompt: promptBytes.toString('utf8'), identity: run.identity, runId,

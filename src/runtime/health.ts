@@ -1064,7 +1064,9 @@ function workersDoctorView({
   const { activeWorkers } = require('./worker/active.ts');
   // Readiness already requires health.ts; load it only after this module has initialized.
   const { select, enabledOf, workerDescriptors } = require('./worker/readiness.ts');
-  const { readBindings, resolveBinding } = require('./worker/models.ts');
+  const { readBindings, resolveBinding, bindingGap } = require('./worker/models.ts');
+  const { cellFor } = require('./models/tier-view.ts');
+  const observed = require('./models/catalogue.ts').readCatalogue(root, { env });
   const active = activeWorkers({ registry: reg, env, projectRoot: root });
   const bindings = readBindings({ env, projectRoot: root });
   const entries = workerDescriptors({ descriptors, registry: reg });
@@ -1077,7 +1079,7 @@ function workersDoctorView({
     const descriptor = entries.find((entry: any) => entry.harness === harness)?.worker;
     const bound = tiers.flatMap((tier: string) => {
       const resolved = resolveBinding({ worker: harness, tier, bindings, descriptor });
-      return resolved.source === 'binding' ? [{ tier, flag: resolved.flag }] : [];
+      return resolved.source === 'binding' ? [{ tier, flag: resolved.flag, binding: cellFor(resolved.choice, descriptor, observed?.harnesses?.[harness] ?? null, bindingGap(resolved)?.reason ?? null) }] : [];
     });
     return {
       harness,
@@ -1108,6 +1110,7 @@ function workerPoolDoctorView({
 }: any = {}) {
   const { readCatalogue } = require('./models/catalogue.ts');
   const { readAllowedModels } = require('./worker/models.ts');
+  const { enabledIn } = require('./worker/model-choice.ts');
   const { readWorkerBilling, effectiveBilling } = require('./settings/worker-billing.ts');
   const { activeIds } = require('../registry/harness-ids.ts');
   const { workerCatalogue } = require('./worker/catalogue.ts');
@@ -1124,6 +1127,7 @@ function workerPoolDoctorView({
   const store = readLoginStore(env);
 
   const observedModelIds = new Set<string>();
+  const enabledModelIds = new Set<string>();
   const harnesses: any[] = [];
   const allHarnessIds = Array.from(new Set([...activeIds(repoRoot), ...Object.keys(catalogue?.harnesses || {})]));
 
@@ -1133,7 +1137,9 @@ function workerPoolDoctorView({
     const descBilling = regEntry?.worker?.billing ?? 'unknown';
     const login = loginAnswerOf({ harness: id, worker: workers.get(id) ?? null, record: Object.hasOwn(store.harnesses, id) ? store.harnesses[id] : null });
     for (const m of catEntry?.offeredModels || []) {
-      if (m && m.id) observedModelIds.add(m.id);
+      if (!m || !m.id) continue;
+      observedModelIds.add(m.id);
+      if (enabledIn(allowed, m.id, m.provider ?? null, workers.get(id))) enabledModelIds.add(m.id);
     }
     harnesses.push({
       harness: id,
@@ -1147,17 +1153,12 @@ function workerPoolDoctorView({
     });
   }
 
-  let enabledCount = 0;
-  for (const mId of observedModelIds) {
-    if (allowed.includes(mId)) enabledCount++;
-  }
-
   return {
     state: catalogue ? 'synced' : 'unsynced',
     syncedAt: catalogue?.syncedAt || null,
     harnesses,
     models: {
-      enabledCount,
+      enabledCount: enabledModelIds.size,
       listedCount: observedModelIds.size,
       enabled: allowed,
     },
@@ -1389,10 +1390,11 @@ async function handleDoctorCommand({ json = false, repoRoot, projectRoot = proce
     if (report.workers.state === 'invalid') {
       console.log(`  workers.enabled: invalid (${report.workers.reason})`);
     }
+    const { bindingText } = require('./models/binding-text.ts');
     for (const row of report.workers.rows) {
       const position = row.enabled.position === null ? '' : ` #${row.enabled.position}`;
       const eligibility = row.eligible ? 'eligible' : `ineligible (${row.firstGap.requirement})`;
-      const bound = row.bound.map((item: any) => `${item.tier}(${item.flag})`).join(', ') || 'none';
+      const bound = row.bound.map((item: any) => `${item.tier}=${bindingText(item.binding)} (${item.flag})`).join(', ') || 'none';
       console.log(`  worker ${row.harness}: ${row.enabled.state}${position}, ${eligibility}; bound tiers: ${bound}`);
     }
     for (const id of report.workers.dangling) {

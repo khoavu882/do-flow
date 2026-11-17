@@ -91,6 +91,18 @@
         "^\\s+--no-refresh\\s+Do not refresh expired OAuth credentials during check"
       ],
       "establishes": ["loginProbe"]
+    },
+    {
+      "id": "help-provider",
+      "argv": ["--help"],
+      "expect": ["^\\s+--model <pattern>\\s+Model pattern or ID \\(supports \"provider/id\""],
+      "establishes": ["provider"]
+    },
+    {
+      "id": "help-thinking",
+      "argv": ["--help"],
+      "expect": ["^\\s+--thinking <level>\\s+Set thinking level: off, minimal, low, medium, high, xhigh, max$"],
+      "establishes": ["effort"]
     }
   ]
 }

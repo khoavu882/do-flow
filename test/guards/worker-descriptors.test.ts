@@ -308,10 +308,10 @@ const PARSER_BY_HARNESS: any = {
 
 const ACCEPTED_KEYS: any = {
   codex: ['isolatedEdit', 'mainSession', 'model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
-  opencode: ['mainSession', 'model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
-  claude: ['loginProbe', 'mainSession', 'model'],
+  opencode: ['mainSession', 'model', 'oneShot', 'provider', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
+  claude: ['effort', 'loginProbe', 'mainSession', 'model'],
   copilot: ['model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
-  pi: ['loginProbe', 'mainSession', 'model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
+  pi: ['effort', 'loginProbe', 'mainSession', 'model', 'oneShot', 'provider', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
   kiro: ['model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
   antigravity: ['model'],
 };
@@ -423,7 +423,7 @@ test('G41.4 control: a supported key added to claude without a map entry fails',
   for (const id of ['claude']) {
     const registry = structuredClone(shipped().registry);
     const harness = registry.harnesses.find((h: any) => h.id === id);
-    assert.deepEqual(supportedKeys(harness), ['loginProbe', 'mainSession', 'model'], `${id}: control precondition`);
+    assert.deepEqual(supportedKeys(harness), ['effort', 'loginProbe', 'mainSession', 'model'], `${id}: control precondition`);
     harness.worker.oneShot = { status: 'supported', evidence: ['https://example.invalid/one-shot'], verification: 'control fixture', verifiedOn: '2026-01-01' };
     assert.deepEqual(acceptedKeyFindings(registry, ACCEPTED_KEYS), [`G41.4: harness '${id}' worker 'oneShot' is supported but not in ACCEPTED_KEYS`], id);
   }

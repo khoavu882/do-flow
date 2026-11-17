@@ -5,6 +5,7 @@
 // an unanswered one (a 504) keeps its id, so the core replays it instead of starting twice. Every string reaches the page as a text node.
 
 import { refusalWords } from './actions.js';
+import { bindingText, bindingNotes } from './binding-text.js';
 
 const KEY16 = /^[0-9a-f]{16}$/;
 const RUN_ID = /^w-[0-9a-f]{12}$/;
@@ -14,6 +15,8 @@ const PROMPT_REMOVED = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F؜‎‏‪-‮�
 
 /** The core's patterns (src/runtime/worker/start-session.ts step 2): a value outside one is never written into the terminal command. */
 const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}$/;
+const PROVIDER_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const EFFORT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/;
 const REQUEST_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{21}$/;
 const HARNESS_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 /** The one sentence of a page that cannot start (design §10 state 1). */
@@ -66,18 +69,24 @@ function sha256Hex(text) {
 /**
  * 165 review B-3: the terminal form of the start, for a device that may not start from the page: the whole command of docs/reference.md's
  * **Command.** line with the form's choices and a fresh request id, the first text on stdin. A choice the page does not hold, or one
- * outside the core's pattern, is the reference's placeholder; no `--model` is the harness default and no `--via` is a manual start.
- * @param {{ projectKey?: any, worktreeKey?: any, harness?: any, model?: any, entry?: any } | null | undefined} choices @param {any} requestId
+ * outside the core's pattern, is the reference's placeholder; no `--model` is the harness default (and no provider or effort), a bound
+ * provider and effort add `--provider` and `--effort` after the model, and no `--via` is a manual start.
+ * @param {{ projectKey?: any, worktreeKey?: any, harness?: any, choice?: any, entry?: any } | null | undefined} choices @param {any} requestId
  */
 function terminalCommand(choices, requestId) {
   const c = choices && typeof choices === 'object' ? choices : {};
   const fit = (/** @type {any} */ value, /** @type {RegExp} */ re, /** @type {string} */ hole) => (typeof value === 'string' && re.test(value) ? value : hole);
+  const choice = c.choice && typeof c.choice === 'object' ? c.choice : null;
+  const flag = (/** @type {string} */ name, /** @type {any} */ value, /** @type {RegExp} */ re) => (choice !== null && typeof value === 'string' && re.test(value) ? `${name} ${value}` : null);
+  const model = choice === null ? null : flag('--model', choice.model, MODEL_ID);
   return [
     'doflow worker --action start-session',
     `--project-key ${fit(c.projectKey, KEY16, '<16 hex>')}`,
     `--worktree-key ${fit(c.worktreeKey, KEY16, '<16 hex>')}`,
     `--harness ${fit(c.harness, HARNESS_ID, '<id>')}`,
-    typeof c.model === 'string' && MODEL_ID.test(c.model) ? `--model ${c.model}` : null,
+    model,
+    model === null ? null : flag('--provider', choice.provider, PROVIDER_ID),
+    model === null ? null : flag('--effort', choice.effort, EFFORT_ID),
     `--entry ${c.entry === 'none' ? 'none' : 'do'}`,
     `--request-id ${fit(requestId, REQUEST_ID, '<id>')}`,
     '--stdin',
@@ -245,8 +254,18 @@ const SOURCE_ORDER = Object.freeze(['orchestrator', 'frontier', 'standard', 'lig
 const SOURCE_LABEL = Object.freeze({ orchestrator: 'Orchestrator', frontier: 'Frontier', standard: 'Standard', light: 'Light', observed: 'Seen in use', default: 'Harness default' });
 
 /**
+ * The key of a model triple: one string per `{ model, provider, effort }`, the option value of the select. The same model under another
+ * provider or effort is another entry. @param {{ model?: any, provider?: any, effort?: any } | null} triple
+ */
+const modelKey = (triple) => (triple && triple.model !== null && triple.model !== undefined ? JSON.stringify([triple.model, triple.provider ?? null, triple.effort ?? null]) : '');
+
+/** The choice an entry stands for, `{ model, provider, effort }`; null for the harness default. @param {any} entry */
+const modelChoiceOf = (entry) => (entry && typeof entry.model === 'string' ? { model: entry.model, provider: entry.provider ?? null, effort: entry.effort ?? null } : null);
+
+/**
  * The models of one harness grouped by source in the order orchestrator, frontier, standard, light, observed, then the harness default;
- * an empty group is left out. The `default` entry (id null) reads "Harness default".
+ * an empty group is left out. Each option is labelled with `bindingText` of its entry (the core's words), a refused entry ends
+ * ` [cannot start: <reason>]`, and the `default` entry (model null) reads "Harness default". `key` is the option value.
  * @param {any[]} models
  */
 function modelGroups(models) {
@@ -255,9 +274,25 @@ function modelGroups(models) {
     .map((source) => ({
       source,
       label: SOURCE_LABEL[source],
-      models: list.filter((m) => m.source === source).map((m) => ({ id: m.id ?? null, label: m.id ?? 'Harness default' })),
+      models: list.filter((m) => m.source === source).map((m) => {
+        const refused = typeof m.refused === 'string' ? m.refused : null;
+        // The option's own ` [cannot start: <reason>]` says the refusal, so the cell's refusal note is not repeated in the words.
+        const text = m.model === null ? 'Harness default' : bindingText({ ...m, refused: undefined });
+        return { key: modelKey(m), model: m.model ?? null, provider: m.provider ?? null, effort: m.effort ?? null, refused, entry: m, label: refused === null ? text : `${text} [cannot start: ${refused}]` };
+      }),
     }))
     .filter((group) => group.models.length > 0);
+}
+
+/**
+ * The line under the model select: the chosen option's notes in words, behind the `?` mark (shape plus word, never colour alone); the
+ * refusal for a refused entry; the harness's own pick for the default; null for a choice with nothing to say. @param {any} entry the chosen entry, or null for the default
+ */
+function modelNote(entry) {
+  if (entry === null || entry === undefined || entry.model === null) return 'The harness picks its own model and effort.';
+  if (typeof entry.refused === 'string') return `Cannot start: ${entry.refused}.`;
+  const notes = bindingNotes(entry);
+  return notes.length === 0 ? null : `? ${notes.join(', ')}.`;
 }
 
 /** The checkouts of the options: the main one first, a busy one marked and not choosable. @param {any} options */
@@ -326,8 +361,8 @@ function promptState(value, max, how) {
 // ---- the form ----------------------------------------------------------------------------------------------------------------------------
 
 /**
- * The form after the options for a project arrived. No harness is chosen. The model starts as the harness default once a harness is
- * picked (`null`, a real choice), the entry as the do skill, and a checkout is chosen only when exactly one can be.
+ * The form after the options for a project arrived. No harness is chosen. The model choice (`{ model, provider, effort }`) starts as the harness
+ * default once a harness is picked (`null`, a real choice), the entry as the do skill, and a checkout is chosen only when exactly one can be.
  * @param {any} options @param {any} [previous] the form before a re-read: what is still on offer stays chosen
  */
 function formFor(options, previous) {
@@ -337,9 +372,9 @@ function formFor(options, previous) {
   const worktreeKey = checkouts.some((c) => c.worktreeKey === keep.worktreeKey && c.busy === null) ? keep.worktreeKey : free.length === 1 ? free[0].worktreeKey : null;
   const harness = harnessRows(options).startable.some((/** @type {any} */ r) => r.harness === keep.harness) ? keep.harness : null;
   const offered = harness === null ? [] : modelGroups(harnessOf(options, harness).models).flatMap((g) => g.models);
-  const model = harness !== null && offered.some((m) => m.id === keep.model) ? keep.model : null;
+  const choice = harness !== null && keep.choice && offered.some((m) => m.refused === null && m.model !== null && m.key === modelKey(keep.choice)) ? modelChoiceOf(keep.choice) : null;
   const entry = keep.entry === 'none' && entryChoices(options).some((e) => e.id === 'none') ? 'none' : 'do';
-  return { projectKey: options && options.project ? options.project.projectKey : null, worktreeKey, harness, model, entry, prompt: typeof keep.prompt === 'string' ? keep.prompt : '' };
+  return { projectKey: options && options.project ? options.project.projectKey : null, worktreeKey, harness, choice, entry, prompt: typeof keep.prompt === 'string' ? keep.prompt : '' };
 }
 
 /**
@@ -361,7 +396,12 @@ function readiness(form, options) {
 
 /** The body of `POST /api/actions/start-session` without its request id (IC-004; the dialog adds it). @param {any} form */
 function startBody(form) {
-  return { v: 1, projectKey: form.projectKey, worktreeKey: form.worktreeKey, harness: form.harness, model: form.model, entry: form.entry, prompt: form.prompt };
+  const choice = form.choice ?? null;
+  return {
+    v: 1, projectKey: form.projectKey, worktreeKey: form.worktreeKey, harness: form.harness,
+    model: choice === null ? null : choice.model, provider: choice === null ? null : choice.provider ?? null, effort: choice === null ? null : choice.effort ?? null,
+    entry: form.entry, prompt: form.prompt,
+  };
 }
 
 // ---- the request id of an attempt ----------------------------------------------------------------------------------------------------------
@@ -561,7 +601,7 @@ function startedHere(machine) {
 }
 
 export {
-  VIEW_ONLY_WORDS, terminalCommand, ENTRY_DO, ENTRY_NONE, NOT_STARTABLE_TITLE, NOT_LIVE_VERIFIED, SOURCE_ORDER, PHASE_WORDS,
+  VIEW_ONLY_WORDS, terminalCommand, modelKey, modelChoiceOf, modelNote, ENTRY_DO, ENTRY_NONE, NOT_STARTABLE_TITLE, NOT_LIVE_VERIFIED, SOURCE_ORDER, PHASE_WORDS,
   sha256Hex, agentKeyOf, startedByWords, starterLabel, endedWords, STARTED_HERE_TITLE, STARTED_HERE_EMPTY, endWords, permissionWords, warningWords, loginLines,
   projectRows, harnessRows, harnessOf, modelGroups, checkoutRows, entryChoices, limitWords, dispatchWords,
   promptState, formFor, readiness, startBody, attemptFor, settleAttempt,

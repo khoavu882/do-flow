@@ -1,0 +1,50 @@
+{
+  "binary": "pi",
+  "checks": [
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "provider"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--model <pattern>\\s+Model pattern or ID \\(supports \"provider/id\""
+      ],
+      "id": "help-provider",
+      "matched": [
+        "  --model <pattern>              Model pattern or ID (supports \"provider/id\" and optional \":<thinking>\")"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "effort"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--thinking <level>\\s+Set thinking level: off, minimal, low, medium, high, xhigh, max$"
+      ],
+      "id": "help-thinking",
+      "matched": [
+        "  --thinking <level>             Set thinking level: off, minimal, low, medium, high, xhigh, max"
+      ],
+      "result": "pass"
+    }
+  ],
+  "cliVersion": "1.5.2",
+  "establishes": [
+    "effort",
+    "provider"
+  ],
+  "handAdded": "Hand-added for row 169: the matched lines are copied from core/worker-evidence/pi/2026-11-16-cli-check-widening-flags.json; no CLI was run for this record.",
+  "harness": "pi",
+  "kind": "cli-check",
+  "recordedAt": "2026-11-16T04:42:18.799Z",
+  "run": null,
+  "schema": "doflow-worker-evidence-v1"
+}

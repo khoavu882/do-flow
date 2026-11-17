@@ -104,3 +104,17 @@ test('evidence: the live-run sentence names the version the live-run records car
     assert.ok(said && live.length > 0 && live.every((v: string) => v === said), `${key}: sentence says ${said}, records say ${live.join(', ')}`);
   }
 });
+
+test('169 model parts: provider and effort cite a Pi 1.5.2 record whose help-provider and help-thinking checks passed, and effort says the harness may lower the level', () => {
+  for (const [key, check, needle] of [['provider', 'help-provider', 'provider/id'], ['effort', 'help-thinking', 'xhigh, max']]) {
+    const entry = pi[key];
+    assert.equal(entry.status, 'supported', key);
+    const hit = entry.evidence.map((name: string) => record(name)).find((r: any) => r.checks.some((c: any) => c.id === check && c.result === 'pass' && c.exit === 0
+      && c.matched.some((line: string) => line.includes(needle))));
+    assert.ok(hit, `${key}: no cited record has a passing ${check} check`);
+    assert.equal(hit.cliVersion, '1.5.2');
+    assert.ok(hit.establishes.includes(key));
+  }
+  assert.equal(pi.effort.mayLower, true);
+  assert.match(pi.effort.verification, /has not been verified on a live run/);
+});

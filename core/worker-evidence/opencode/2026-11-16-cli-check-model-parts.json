@@ -1,0 +1,33 @@
+{
+  "binary": "opencode",
+  "checks": [
+    {
+      "argv": [
+        "run",
+        "--help"
+      ],
+      "establishes": [
+        "provider"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--model, -m string\\s+Model to use in the format provider/model#variant$"
+      ],
+      "id": "help-provider",
+      "matched": [
+        "  --model, -m string        Model to use in the format provider/model#variant"
+      ],
+      "result": "pass"
+    }
+  ],
+  "cliVersion": "opencode v2.2.7",
+  "establishes": [
+    "provider"
+  ],
+  "handAdded": "Hand-added for row 169: the matched lines are copied from core/worker-evidence/opencode/2026-11-16-cli-check-widening-flags.json; no CLI was run for this record.",
+  "harness": "opencode",
+  "kind": "cli-check",
+  "recordedAt": "2026-11-16T04:42:13.610Z",
+  "run": null,
+  "schema": "doflow-worker-evidence-v1"
+}

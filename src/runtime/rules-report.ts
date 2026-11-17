@@ -295,9 +295,9 @@ function rulesLines(report: any): string[] {
       lines.push(`  main session: ${main}; orchestrator = bound orchestrator, else the main session's model on its harness, else frontier, else default`);
       if (view.bindings.state === 'invalid') lines.push(`  workers.models is unreadable (${view.bindings.reason}); every model reads as unresolved`);
       lines.push(`  model per installed harness (${report.tiers.modelsSource}): ${view.harnesses.length === 0 ? 'no installed or bound harness' : ''}`.trimEnd());
-      const model = (id: string | null, source = 'binding') => (source === 'invalid' ? 'unresolved' : id ?? 'default');
+      const { bindingText } = require('./models/binding-text.ts');
       for (const h of view.harnesses) {
-        lines.push(`    ${h.harness}: ${report.tiers.tiers.map((tier: string) => `${tier}=${model(h[tier], view.bindings.state)}`).join(' ')} orchestrator=${model(h.orchestrator, h.orchestratorSource)} (${h.orchestratorSource})`);
+        lines.push(`    ${h.harness}: ${report.tiers.tiers.map((tier: string) => `${tier}=${bindingText(h[tier])}`).join(' ')} orchestrator=${bindingText(h.orchestrator)} (${h.orchestratorSource})`);
       }
     }
   }

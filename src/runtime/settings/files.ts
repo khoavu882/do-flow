@@ -13,6 +13,7 @@
 
 const nodeFs = require('node:fs');
 const { workerIdFault, LADDER_MAX } = require('../../registry/worker-ids.ts');
+const { PROVIDER_RE, EFFORT_RE } = require('../../registry/model-parts.ts');
 
 /** A file larger than this is a layer fault, not a read (data-model §2). */
 const MAX_BYTES = 65536;
@@ -64,6 +65,34 @@ function jsonFailure(error: any, text: string, bomBytes = 0): { offset: number |
 /** IC-002 `model-id`: 1 to 120 characters, a leading letter or digit (so never `-`), no trailing space. */
 const MODEL_ID_RE = /^[A-Za-z0-9][A-Za-z0-9 ._:/@()[\]#+-]*$/;
 const MODEL_ID_MAX = 120;
+const BINDING_KEYS = ['model', 'provider', 'effort'];
+const PROVIDER_MAX = 64;
+const EFFORT_MAX = 32;
+const KEY_ECHO_MAX = 32;
+
+/** 169 IC-001: a tier slot is a model id string or a plain object `{model, provider?, effort?}`; the first fault wins. */
+function validateBindingSlot(slot: unknown): ValueFault | null {
+  const plain = isObject(slot) && (Object.getPrototypeOf(slot) === Object.prototype || Object.getPrototypeOf(slot) === null);
+  const modelFault = (value: unknown) => {
+    const fault = validateValue({ type: 'model-id' }, value);
+    return fault ? { code: fault.code, reason: `a tier's model ${fault.reason}` } : null;
+  };
+  if (!plain) return modelFault(slot);
+  const binding = slot as Record<string, unknown>;
+  const unknown = Object.keys(binding).find((key) => !BINDING_KEYS.includes(key));
+  if (unknown !== undefined) return { code: 'type', reason: `a tier's binding has unknown key '${unknown.slice(0, KEY_ECHO_MAX)}'` };
+  const fault = modelFault(binding.model);
+  if (fault) return fault;
+  for (const [part, re, max] of [['provider', PROVIDER_RE, PROVIDER_MAX], ['effort', EFFORT_RE, EFFORT_MAX]] as const) {
+    if (!Object.hasOwn(binding, part)) continue;
+    const value = binding[part];
+    if (typeof value !== 'string') return { code: 'type', reason: `a tier's ${part} must be a string` };
+    if (value.length > max) return { code: 'length', reason: `a tier's ${part} must be at most ${max} characters` };
+    if (!re.test(value)) return { code: 'type', reason: `a tier's ${part} must start with a letter or digit and use only letters, digits, . _ -` };
+  }
+  return null;
+}
+
 /** The two billing values a person may record (the registry's `unknown` is not a claim). */
 const RECORDED_BILLING = ['free', 'metered'];
 const BILLING_ENTRY_FIELDS = ['billing', 'asserted', 'basis'];
@@ -194,8 +223,8 @@ function validateValue(spec: any, value: unknown, enumValues: readonly string[] 
         for (const tier of tiers) {
           if (slots.length === 0) return { code: 'enum', reason: 'has no allowed tiers available' };
           if (!slots.includes(tier)) return { code: 'enum', reason: `each key must be one of: ${slots.join(', ')}` };
-          const modelFault = validateValue({ type: 'model-id' }, entry[tier]);
-          if (modelFault) return { code: modelFault.code, reason: `a tier's model ${modelFault.reason}` };
+          const slotFault = validateBindingSlot(entry[tier]);
+          if (slotFault) return slotFault;
         }
       }
       return null;

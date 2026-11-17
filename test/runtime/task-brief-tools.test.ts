@@ -309,7 +309,7 @@ describe('real dispatcher', () => {
     const record = JSON.parse(f.read(`${EXEC}/task-A.1-brief.json`));
     assert.equal(record.harness, 'claude');
     assert.match(md, /^Model: harness default on `claude`\.$/m);
-    assert.deepEqual(record.model, { harness: 'claude', id: null, source: 'harness-default' });
+    assert.deepEqual(record.model, { harness: 'claude', model: null, source: 'harness-default' });
     assert.equal(record.owner, 'core-implementer');
     assert.equal(record.tierSource, 'task');
     assert.deepEqual(record.tasks, [{ id: 'A.1', report: `${EXEC}/task-A.1-report.md` }]);

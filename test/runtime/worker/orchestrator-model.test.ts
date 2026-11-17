@@ -151,15 +151,36 @@ function briefFor(owner: string, overrides: any = {}) {
 
 test('the brief Model line for delivery-lead names the resolved orchestrator model and where it came from', () => {
   const session = briefFor('delivery-lead', { primary: main('session-1') });
-  assert.ok(session.markdown.includes("Model: `session-1` on `codex` (the main session's model)."), session.markdown);
-  assert.deepEqual(session.record.model, { harness: 'codex', id: 'session-1', source: 'main-session' });
+  assert.ok(session.markdown.includes("Model: `session-1` [model unchecked] on `codex` (the main session's model)."), session.markdown);
+  assert.deepEqual(session.record.model, { harness: 'codex', model: 'session-1', provider: null, effort: null, check: { model: 'unchecked', effort: null }, source: 'main-session' });
   const frontier = briefFor('delivery-lead');
-  assert.ok(frontier.markdown.includes('Model: `front-1` on `codex` (frontier binding, user layer).'));
+  assert.ok(frontier.markdown.includes('Model: `front-1` [model unchecked] on `codex` (frontier binding, user layer).'));
   assert.equal(frontier.record.model.source, 'frontier-binding');
   const bound = briefFor('delivery-lead', { bindings: set({ codex: { orchestrator: 'o-1', frontier: 'front-1' } }), primary: main('session-1') });
-  assert.ok(bound.markdown.includes('Model: `o-1` on `codex` (binding, user layer).'));
+  assert.ok(bound.markdown.includes('Model: `o-1` [model unchecked] on `codex` (binding, user layer).'));
   const none = briefFor('delivery-lead', { bindings: { state: 'unset', map: null, reason: null } });
   assert.ok(none.markdown.includes('Model: harness default on `codex`.'));
   const other = briefFor('core-implementer', { primary: main('session-1'), bindings: set({ codex: { standard: 'std-1', orchestrator: 'o-1' } }) });
-  assert.ok(other.markdown.includes('Model: `std-1` on `codex` (binding, user layer).'), 'only delivery-lead takes the orchestrator model');
+  assert.ok(other.markdown.includes('Model: `std-1` [model unchecked] on `codex` (binding, user layer).'), 'only delivery-lead takes the orchestrator model');
+});
+
+test('169: a slot with a provider and effort resolves to a choice, and the dispatch snapshot keeps both', () => {
+  const entry = { status: 'supported', evidence: ['x'], verification: 'v', verifiedOn: '2026-11-16' };
+  const piLike = { ...descriptor, provider: { ...entry, via: 'id-prefix', separator: '/' }, effort: { ...entry, via: 'flag', argv: ['--thinking', '{effort}'], levels: ['low', 'high'] } };
+  const bindings = set({ codex: { frontier: { model: 'm-1', provider: 'openai', effort: 'high' }, light: 'plain-1' } });
+  const frontier = resolveTaskModel({ worker: 'codex', owner: 'core-implementer', resolvedTier: { tier: 'frontier', source: 'owner' }, bindings, descriptor: piLike });
+  assert.deepEqual([frontier.model, frontier.choice], ['m-1', { model: 'm-1', provider: 'openai', effort: 'high' }]);
+  assert.equal(bindingGap(frontier), null);
+  const record = dispatchModelFor({ mode: 'subagent', harness: 'codex', tier: 'frontier', bindings, primary: null, descriptor: piLike });
+  assert.deepEqual(record.model, { tier: 'frontier', requested: 'm-1', source: 'binding', provider: 'openai', effort: 'high' });
+  const plain = dispatchModelFor({ mode: 'subagent', harness: 'codex', tier: 'light', bindings, primary: null, descriptor: piLike });
+  assert.deepEqual(plain.model, { tier: 'light', requested: 'plain-1', source: 'binding' });
+  const none = dispatchModelFor({ mode: 'subagent', harness: 'codex', tier: 'standard', bindings, primary: null, descriptor: piLike });
+  assert.deepEqual(none.model, { tier: 'standard', requested: null, source: 'harness-default' });
+});
+
+test('169: the orchestrator rule carries a bound orchestrator slot as a choice', () => {
+  const out = resolveOrchestratorModel({ harness: 'codex', bindings: set({ codex: { orchestrator: { model: 'orch-1', effort: 'high' } } }), primary: null, descriptor });
+  assert.deepEqual([out.model, out.source, out.choice], ['orch-1', 'binding', { model: 'orch-1', provider: null, effort: 'high' }]);
+  assert.equal(bindingGap(out)?.reason, 'effort:unsupported', 'the shipped codex effort entry is not supported');
 });

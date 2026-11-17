@@ -1185,7 +1185,7 @@ async function launch(p: any, admitted: any, plan: any, view: any) {
       await failDispatch(p, d, ['claimed'], 'report-denied', gap.reason, null, null);
       return;
     }
-    if (resolved.flag === 'supported') binding = { model: resolved.model, flag: 'supported' };
+    if (resolved.flag === 'supported') binding = { model: resolved.model, provider: resolved.choice?.provider ?? null, effort: resolved.choice?.effort ?? null, flag: 'supported' };
   }
   const planTask = plan.graph.tasks.find((t: any) => t.id === d.task);
   const record = view.tasks.find((r: any) => r.id === d.task);

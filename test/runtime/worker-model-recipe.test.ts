@@ -11,7 +11,7 @@ const path = require('node:path');
 const { tempDir } = require('../helper/tmp.ts');
 const { loadRegistry, validateRegistry } = require('../../src/registry/index.ts');
 const {
-  assembleArgv, argvShape, launchRecord, RECIPE_ORDER, EDIT_RECIPE_ORDER,
+  assembleArgv, argvShape, launchRecord, mainArgv, RECIPE_ORDER, EDIT_RECIPE_ORDER,
 } = require('../../src/runtime/worker/launch.ts');
 const { recordCliChecks } = require('../../src/runtime/worker/evidence.ts');
 const DESCRIPTORS = require('../fixtures/worker/descriptors.json');
@@ -271,4 +271,127 @@ test('IC-011: antigravity free evidence establishes model only when its help lin
     assert.deepEqual(modelCheck.establishes, ['model']);
     assert.deepEqual(modelCheck.matched, label === 'pass' ? [(help as string).trimEnd()] : []);
   }
+});
+
+// ---- 169 T4: provider and effort reach the argv through composeModelPart ---------------------------------------------
+
+const ENTRY = { evidence: ['x'], verification: 'v', verifiedOn: DATE };
+const LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+/** The shipped Pi worker block plus the Pi shape of design §8: an id-prefix provider and a `--thinking {effort}` flag effort. */
+function piShaped(extra: any = {}) {
+  const worker = workerOf('pi');
+  worker.provider = { status: 'supported', ...ENTRY, via: 'id-prefix', separator: '/' };
+  worker.effort = { status: 'supported', ...ENTRY, via: 'flag', argv: ['--thinking', '{effort}'], levels: LEVELS, offLevel: 'off', mayLower: true };
+  return Object.assign(worker, extra);
+}
+const PI_BASE = () => assembleArgv(workerOf('pi'), 'p', false);
+
+test('169 R-4: with no effort bound the Pi-shaped argv is byte for byte the shipped one, and `--thinking off` stays', () => {
+  const shaped = piShaped();
+  const plain = { model: 'm1', flag: 'supported' };
+  const withNulls = { model: 'm1', provider: null, effort: null, flag: 'supported' };
+  const shipped = assembleArgv(workerOf('pi'), 'p', false, undefined, plain);
+  assert.deepEqual(assembleArgv(shaped, 'p', false, undefined, plain), shipped);
+  assert.deepEqual(assembleArgv(shaped, 'p', false, undefined, withNulls), shipped);
+  assert.deepEqual(argvShape(shaped, 'p', false, withNulls), argvShape(workerOf('pi'), 'p', false, plain));
+  assert.deepEqual(assembleArgv(shaped, 'p', false), PI_BASE());
+  assert.equal(shipped.join(' ').includes('--thinking off'), true);
+});
+
+test('169: a bound effort replaces the fixed `--thinking off` for that run; the level appears once', () => {
+  const argv = assembleArgv(piShaped(), 'p', false, undefined, { model: 'm1', provider: null, effort: 'high', flag: 'supported' });
+  assert.equal(argv.filter((item: string) => item === '--thinking').length, 1);
+  assert.equal(argv[argv.indexOf('--thinking') + 1], 'high');
+  assert.equal(argv.includes('off'), false);
+  assert.deepEqual(argv.slice(2, 4), ['--model', 'm1']);
+  const editable = piShaped({ isolatedEdit: { status: 'supported', ...ENTRY, argv: ['--tools', 'read,edit'] } });
+  const edit = assembleArgv(editable, 'p', true, undefined, { model: 'm1', provider: null, effort: 'high', flag: 'supported' }).join(' ');
+  assert.equal(edit.includes('--thinking high'), true);
+});
+
+test('169: the stored shape holds {model}, {provider} and {effort}, never a bound value', () => {
+  const binding = { model: 'secretish-model', provider: 'prov-x', effort: 'xhigh', flag: 'supported' };
+  const shape = argvShape(piShaped(), 'p', false, binding);
+  assert.equal(shape[shape.indexOf('--thinking') + 1], '{effort}');
+  assert.deepEqual(shape.slice(2, 4), ['--model', '{provider}/{model}']);
+  const record = launchRecord(piShaped(), { run: 'r', lineage: 'l', attempt: '1', runSource: 'claim' }, 'p', false, binding);
+  assert.deepEqual(record.recipe.argvShape, shape);
+  const text = JSON.stringify(record);
+  for (const value of ['secretish-model', 'prov-x', 'xhigh']) assert.equal(text.includes(value), false, value);
+});
+
+test('169: a provider composes through its transport: id-prefix into the id, flag as a pair that replaces a fixed copy', () => {
+  const prefixed = assembleArgv(piShaped(), 'p', false, undefined, { model: 'm1', provider: 'openai', effort: null, flag: 'supported' });
+  assert.deepEqual(prefixed.slice(2, 4), ['--model', 'openai/m1']);
+  const flagged = piShaped({ provider: { status: 'supported', ...ENTRY, via: 'flag', argv: ['--provider', '{provider}'] } });
+  flagged.oneShot.argv = ['--provider=fixed', ...flagged.oneShot.argv];
+  const argv = assembleArgv(flagged, 'p', false, undefined, { model: 'm1', provider: 'openai', effort: null, flag: 'supported' });
+  assert.deepEqual(argv.slice(2, 6), ['--model', 'm1', '--provider', 'openai']);
+  assert.equal(argv.filter((item: string) => item.startsWith('--provider')).length, 1);
+});
+
+test('169: a safety piece keeps its flags; only oneShot, structuredOutput and mainSession are stripped', () => {
+  const worker = piShaped();
+  worker.structuredOutput.argv = ['--thinking', 'low', ...worker.structuredOutput.argv];
+  const argv = assembleArgv(worker, 'p', false, undefined, { model: 'm1', provider: null, effort: 'high', flag: 'supported' });
+  assert.equal(argv.filter((item: string) => item === '--thinking').length, 1);
+  assert.equal(argv.includes('low'), false);
+});
+
+test('169: a part the descriptor cannot take is refused with its reason, a value outside its pattern too', () => {
+  const unknown = piShaped({ effort: { status: 'unknown', evidence: [], verification: 'v', verifiedOn: DATE, reason: 'no evidence' } });
+  assert.throws(() => assembleArgv(unknown, 'p', false, undefined, { model: 'm1', provider: null, effort: 'high', flag: 'supported' }), { code: 'model-part-unsupported' });
+  assert.throws(() => assembleArgv(piShaped(), 'p', false, undefined, { model: 'm1', provider: null, effort: 'turbo', flag: 'supported' }), { code: 'model-part-invalid' });
+  assert.throws(() => argvShape(unknown, 'p', false, { model: 'm1', provider: null, effort: 'high', flag: 'supported' }), { code: 'model-part-unsupported' });
+});
+
+// ---- 169 review A-01: a keyed effort transport strips only its own key ------------------------------------------------
+
+/** The reviewer's case: codex-shaped, effort carried by `-c model_reasoning_effort={effort}`, other fixed `-c k=v` pairs around it. */
+function keyedEffort() {
+  const worker = workerOf('codex');
+  worker.effort = { status: 'supported', ...ENTRY, via: 'flag', argv: ['-c', 'model_reasoning_effort={effort}'], levels: ['low', 'high'] };
+  worker.oneShot.argv = ['-c', 'hide_agent_reasoning=true', '-c', 'file_opener=none', '-c', 'model_reasoning_effort=low', '-'];
+  worker.structuredOutput.argv = ['--json', '-c', 'hide_agent_reasoning=true', '-c=model_reasoning_effort=medium', '-o', '{lastMessageFile}'];
+  worker.mainSession.argv = ['exec', '-c', 'file_opener=none', '-c', 'model_reasoning_effort=low', '--json', '-o', '{lastMessageFile}', '-'];
+  return worker;
+}
+const PAIRS = (argv: string[]) => argv.flatMap((item: string, i: number) => (item === '-c' ? [`${item} ${argv[i + 1]}`] : []));
+
+test('169 A-01: a keyed effort transport drops only its own `-c <key>=...` pair; every other fixed pair survives', () => {
+  const bound = { model: 'm1', provider: null, effort: 'high', flag: 'supported' };
+  const argv = assembleArgv(keyedEffort(), 'p', false, '/tmp/lm', bound);
+  for (const pair of ['-c hide_agent_reasoning=true', '-c file_opener=none']) assert.ok(PAIRS(argv).includes(pair), pair);
+  assert.equal(PAIRS(argv).filter((pair: string) => pair.startsWith('-c model_reasoning_effort=')).length, 1);
+  assert.equal(argv.includes('-c=model_reasoning_effort=medium'), false, 'the `F=key=...` token of the same key is dropped too');
+  assert.equal(argv.filter((item: string) => item === 'hide_agent_reasoning=true').length, 2, 'both pieces keep their pair');
+  const main = mainArgv(keyedEffort(), 'p', '/tmp/lm', { model: 'm1', provider: null, effort: 'high' });
+  assert.ok(main.includes('file_opener=none'));
+  assert.equal(PAIRS(main).filter((pair: string) => pair.startsWith('-c model_reasoning_effort=')).length, 1);
+  assert.ok(main.includes('model_reasoning_effort=high'));
+});
+
+test('169 A-01: a bare effort value (no key) still drops every `F v` pair of its flag', () => {
+  const argv = assembleArgv(piShaped(), 'p', false, undefined, { model: 'm1', provider: null, effort: 'high', flag: 'supported' });
+  assert.equal(argv.includes('off'), false);
+});
+
+// ---- 169 review A-06: the launcher runs the secret check on the final argv ---------------------------------------------
+
+test('169 A-06: a bound value that forms a secret-printing command in the final argv is refused, in the worker and the main-session argv', () => {
+  const worker = piShaped({ provider: { status: 'supported', ...ENTRY, via: 'flag', argv: ['--provider', '{provider}'] } });
+  const bound = (provider: string) => ({ model: 'm1', provider, effort: null, flag: 'supported' });
+  for (const [label, run] of [
+    ['one-shot', () => assembleArgv(worker, 'p', false, undefined, bound('print-api-key'))],
+    ['main session', () => mainArgv(worker, 'p', undefined, { model: 'm1', provider: 'print-api-key', effort: null })],
+  ] as const) {
+    assert.throws(run, { code: 'secret-flag', message: /print-api-key/ }, label);
+  }
+  // A model id counts too, and so does a command the worker declares in its own `secretFlags`.
+  assert.throws(() => assembleArgv(workerOf('pi'), 'p', false, undefined, { model: 'print-bearer-token', flag: 'supported' }), { code: 'secret-flag' });
+  const declared = piShaped({ secretFlags: [{ command: ['leak-me'] }] });
+  assert.throws(() => assembleArgv(declared, 'p', false, undefined, { model: 'leak-me', provider: null, effort: null, flag: 'supported' }), { code: 'secret-flag' });
+  // A harmless value and an unbound launch are untouched.
+  assert.doesNotThrow(() => assembleArgv(worker, 'p', false, undefined, bound('openai')));
+  assert.doesNotThrow(() => assembleArgv(declared, 'p', false));
 });
