@@ -12,7 +12,9 @@
 // (2) usage, (3) `project-mismatch` / `project-not-indexed`, (4) `unknown-worktree` / `worktree-gone`,
 // (5) the prompt ids from `preparePrompt`, (6) `harness-not-startable`, (7) `model-not-offered`,
 // (8) `dispatch-running`, (9) under the store lock `checkout-busy`, `actor-limit`, `machine-limit`,
-// `start-rate-limited`. A harness whose control channel is supported always starts through it (170 A-2).
+// `start-rate-limited`. A harness whose control channel is supported always starts through it (170 A-2): the first
+// prompt is then refused `command-not-allowed` at (5) when it starts with the channel's command prefix (R-4), and
+// framed exactly as the supervisor will frame it, so a prompt the channel would refuse is refused before any write.
 // A request id already in the store is a replay: it is answered right after (3), before the checks
 // that read the machine as it is now, so a retry of a started request returns that run whatever has
 // changed since, and starts nothing; the store lock repeats the check, so two racing requests yield
@@ -43,7 +45,7 @@ const { PARSERS, parserIdOf } = require('./parsers.ts');
 const { workerIdFault } = require('../../registry/worker-ids.ts');
 const { storeFileFor, newRunId, insertRun, transition, readRuns } = require('./run-store.ts');
 const { mainLaunchRecord, STARTED_RUN_VAR } = require('./launch.ts');
-const { compileChannel } = require('./channel.ts');
+const { compileChannel, frameMessage, commandRefusal, idOf } = require('./channel.ts');
 const { preparePrompt, writePrompt, ENTRY_LINE, PROMPT_MAX } = require('./session-prompt.ts');
 const processTree = require('./process-tree.ts');
 const { RELAY_LABEL } = require('../relay-label.ts');
@@ -439,6 +441,15 @@ async function startSession(o: any) {
   const promptVia = channel === null && worker?.mainSession?.promptVia === 'argv' ? 'argv' : 'stdin';
   const prepared = preparePrompt(o.readStdin(), { entry, promptVia });
   if (!prepared.ok) return refusal(prepared.code, `the prompt is refused: ${prepared.code}`);
+  if (channel !== null) {
+    // R-4 on the person's text, then the supervisor's own framing of what is sent (caps, prefix, record size).
+    const framed = commandRefusal(channel, prepared.text) ? { ok: false, code: 'command-not-allowed' } : frameMessage(channel, 'first', { text: prepared.sent, id: idOf(1) });
+    if (!framed.ok) {
+      return refusal(framed.code, framed.code === 'command-not-allowed'
+        ? `${harness} reads a message starting with '${channel.commandPrefix}' as its own command; DoFlow does not send one`
+        : `the prompt is refused: ${framed.code}`);
+    }
+  }
 
   // Step 6: the harness is startable here and now.
   const catalogue = readCatalogue(root, { env });

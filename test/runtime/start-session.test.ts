@@ -959,6 +959,26 @@ test('A-2: a harness with a supported channel starts through it: the record says
   assert.equal(fs.existsSync(spoolDir), false, 'the spool is removed');
 });
 
+test('R-4: a first prompt that starts with the channel command prefix is refused command-not-allowed before any write; a harness without a channel starts it as before', POSIX, async (t: any) => {
+  const f = channelFixture(t);
+  const before = stateSnapshot(f);
+  for (const entry of ['do', 'none']) {
+    const { exit, body } = await start(f, { harness: 'pi', entry, descriptors: WITH_CHANNEL, readStdin: () => '/help' });
+    assert.deepEqual([exit, body.ok, body.code], [1, false, 'command-not-allowed'], JSON.stringify(body));
+    assert.equal(typeof body.message, 'string');
+  }
+  assert.deepEqual(stateSnapshot(f), before, 'no run, prompt or spool is written');
+  assert.equal(fs.existsSync(f.channelLog), false, 'nothing reached the harness');
+  // codex has no channel: its prompt is not a channel record, so the prefix means nothing to it (row 165 unchanged).
+  const plain = await start(f, { harness: 'codex', readStdin: () => '/help' });
+  assert.equal(plain.exit, 0, JSON.stringify(plain.body));
+  const run = await ended(f, plain.body.run.runId);
+  assert.equal(run.recipe.promptVia, 'stdin');
+  assert.equal(run.channel, undefined);
+  assert.equal(run.descriptor.controlChannel.status, 'unknown', 'the unsupported entry is copied for the reader');
+  assert.equal(fakeLog(f)[0].stdin, `${ENTRY_LINE}\n\n/help`);
+});
+
 test('R-5: the seventh start by one actor within an hour, counting ended runs here and in another indexed project, is refused start-rate-limited with retryAfterSeconds', POSIX, async (t: any) => {
   const f = fixture(t);
   const second = path.join(f.dir, 'second');
