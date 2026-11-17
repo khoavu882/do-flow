@@ -156,10 +156,11 @@ function harnessBlocks(reg: any, descriptors: any, view: any) {
  * 165 review B-8: whether the main-session shape was seen on a live run: some record its `mainSession.evidence` cites is a `live-run`
  * record of this harness (as G41.5 reads `readOnly`). A help-only (`cli-check`) record, a missing or unreadable one, and a package
  * worker's (its paths are not under DoFlow's root) are false: not verified is the answer whenever it cannot be shown.
+ * 170 D11: `entry` is any capability entry that carries evidence (`mainSession`, `controlChannel`).
  */
-function liveVerified(harness: string, ms: any): boolean {
-  if (!Array.isArray(ms?.evidence)) return false;
-  return ms.evidence.some((item: unknown) => {
+function liveVerified(harness: string, entry: any): boolean {
+  if (!Array.isArray(entry?.evidence)) return false;
+  return entry.evidence.some((item: unknown) => {
     if (typeof item !== 'string' || path.isAbsolute(item)) return false;
     const file = path.resolve(REPO_ROOT, item);
     if (!file.startsWith(REPO_ROOT + path.sep)) return false;
@@ -173,14 +174,31 @@ function liveVerified(harness: string, ms: any): boolean {
 }
 
 /**
+ * 170 IC-006: the channel fact of one harness, `{ state, reason, liveVerified, unverified }`. A descriptor without a
+ * `controlChannel` entry (or one with another status) is `unknown`, never `unsupported`: nothing is said without evidence (R-11).
+ */
+function channelFact(harness: string, worker: any) {
+  const entry = worker?.controlChannel;
+  const state = entry?.status === 'supported' || entry?.status === 'unsupported' ? entry.status : 'unknown';
+  const fallback = worker ? 'no-control-channel-entry' : 'not-listed';
+  return {
+    state,
+    reason: state === 'supported' ? null : typeof entry?.reason === 'string' ? entry.reason : fallback,
+    liveVerified: state === 'supported' && liveVerified(harness, entry),
+    unverified: state === 'supported' && Array.isArray(entry.unverified) ? entry.unverified.filter((u: unknown) => typeof u === 'string') : [] as string[],
+  };
+}
+
+/**
  * D10 / §9.2 for one harness: `{ harness, startable, reason, words, warnings, login, version, liveVerified }`, plus the
  * discover entry as `found` (not part of the reply). The shape is checked first, so a harness DoFlow cannot
  * start headless is never run, not even for its version. `login` is 172's `LoginAnswer` from `store` (null before
  * the harness is found installed).
  */
 function harnessFacts({ harness, worker, reg, view, env, cwd, root, nowMs, platform, store }: any) {
+  const channel = channelFact(harness, worker);
   const shut = (reason: string, words: string, extra: any = {}) => ({
-    harness, startable: false, reason, words, warnings: [] as string[], login: null, version: null, liveVerified: false, found: null, ...extra,
+    harness, startable: false, reason, words, warnings: [] as string[], login: null, version: null, liveVerified: false, channel, found: null, ...extra,
   });
   if (!worker) return shut('not-listed', workerIdFault(harness) ? 'the --harness value is not a DoFlow harness id' : `${harness} is not a DoFlow harness`);
   const ms = worker.mainSession;
@@ -206,7 +224,8 @@ function harnessFacts({ harness, worker, reg, view, env, cwd, root, nowMs, platf
   if (login.state === 'expired') warnings.push('login-expired');
   else if (login.state === 'unknown') warnings.push('login-unknown');
   if (ms.promptVia === 'argv') warnings.push('prompt-in-argv');
-  return { harness, startable: true, reason: null, words: `${harness} can start a session here`, warnings, login, version: found.version, liveVerified: liveVerified(harness, ms), found };
+  if (channel.state === 'supported' && !channel.liveVerified) warnings.push('channel-not-verified-live');
+  return { harness, startable: true, reason: null, words: `${harness} can start a session here`, warnings, login, version: found.version, liveVerified: liveVerified(harness, ms), channel, found };
 }
 
 /**
@@ -565,4 +584,4 @@ function startOptions(o: any) {
   };
 }
 
-module.exports = { startSession, startOptions, STARTED_SLUG, KIND, LIMITS, START_FLAGS, StartUsageError };
+module.exports = { startSession, startOptions, liveness, namingScan, STARTED_SLUG, KIND, LIMITS, START_FLAGS, StartUsageError };

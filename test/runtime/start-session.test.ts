@@ -572,6 +572,44 @@ test('165 review B-8: a startable harness whose main-session evidence is help-on
   assert.equal((await options(cited([MAIN]))).claude.startable, true, 'help-only stays startable');
 });
 
+test('170 IC-006: each harness entry carries the channel fact; a supported channel not cited to a live run warns channel-not-verified-live', POSIX, async (t: any) => {
+  const f = fixture(t);
+  const options = async (descriptors: any) => {
+    const { exit, body } = await executeWorkerCommand({ action: 'start-options', projectKey: f.projectKey, env: f.env, cwd: f.main, descriptors, projects: projectsImpl });
+    assert.equal(exit, 0, JSON.stringify(body));
+    return Object.fromEntries(body.harnesses.map((h: any) => [h.harness, h]));
+  };
+  // Every built-in is unknown with the descriptor's own reason: nothing is said without evidence (R-11).
+  const by = await options(DESCRIPTORS);
+  for (const [harness, entry] of Object.entries(by) as any[]) {
+    assert.equal(DESCRIPTORS[harness].controlChannel.status, 'unknown', harness);
+    assert.deepEqual(entry.channel, { state: 'unknown', reason: DESCRIPTORS[harness].controlChannel.reason, liveVerified: false, unverified: [] }, harness);
+    assert.equal(typeof entry.channel.reason, 'string');
+    assert.ok(!entry.warnings.includes('channel-not-verified-live'), harness);
+  }
+  // A supported channel with no live-run citation: state supported, the descriptor's unverified phrases, and the warning on a startable harness.
+  const withChannel = (harness: string, over: any) => ({ ...DESCRIPTORS, [harness]: { ...DESCRIPTORS[harness], controlChannel: { ...DESCRIPTORS[harness].controlChannel, status: 'supported', ...over } } });
+  const CLI_CHECK = 'core/worker-evidence/claude/2026-11-15-cli-check-main-session.json';
+  const LIVE = 'core/worker-evidence/claude/2026-11-07-live-run-read-only.json';
+  const unverified = await options(withChannel('claude', { evidence: [CLI_CHECK], unverified: ['follow-up not run', 'steer not run'] }));
+  assert.deepEqual(unverified.claude.channel, { state: 'supported', reason: null, liveVerified: false, unverified: ['follow-up not run', 'steer not run'] });
+  assert.equal(unverified.claude.startable, true);
+  assert.ok(unverified.claude.warnings.includes('channel-not-verified-live'));
+  // Citing a live-run record of the harness itself verifies it: no warning. Another harness's record does not.
+  const verified = await options(withChannel('claude', { evidence: [CLI_CHECK, LIVE] }));
+  assert.deepEqual(verified.claude.channel, { state: 'supported', reason: null, liveVerified: true, unverified: [] });
+  assert.ok(!verified.claude.warnings.includes('channel-not-verified-live'));
+  const other = await options(withChannel('claude', { evidence: [CLI_CHECK, 'core/worker-evidence/codex/2026-10-18-live-run-read-only.json'] }));
+  assert.equal(other.claude.channel.liveVerified, false);
+  assert.ok(other.claude.warnings.includes('channel-not-verified-live'));
+  // The fact does not depend on the harness being startable: copilot has no main-session shape and still reports its channel.
+  const shut = await options(withChannel('copilot', { evidence: [CLI_CHECK], unverified: ['nothing run'] }));
+  assert.deepEqual([shut.copilot.startable, shut.copilot.channel.state, shut.copilot.warnings], [false, 'supported', []]);
+  // A descriptor with no controlChannel entry is unknown, never unsupported.
+  const { controlChannel, ...bare } = DESCRIPTORS.pi;
+  assert.deepEqual((await options({ ...DESCRIPTORS, pi: bare })).pi.channel, { state: 'unknown', reason: 'no-control-channel-entry', liveVerified: false, unverified: [] });
+});
+
 // ---- 165 review A-1: a run is dead only on positive evidence ------------------------------------------------------------------
 
 const { startSession } = require(path.join(SRC, 'worker', 'start-session.ts'));
