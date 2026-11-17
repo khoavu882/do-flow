@@ -10,9 +10,8 @@
 // Slots (store advice-shadow-slots-user): at most `shadowSlots` (core/registry/advice.json) shadow calls run at once
 // across every project of this user, one file each, created with O_EXCL so two children never hold the same one. A
 // slot is removed by the call that took it; a stale slot (its pid is gone, or it is older than its budget plus
-// SLOT_MARGIN_MS) is reclaimed in place. A call that finds no free slot records a `busy` miss and makes no call.
-// Ceiling accepted: two children that reclaim the same stale slot at the same moment can both run, so the bound can be
-// passed by one call for the length of that race.
+// SLOT_MARGIN_MS) is reclaimed in place, by one call only (reclaimSlot). A call that finds no free slot records a `busy`
+// miss and makes no call.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -21,6 +20,8 @@ const crypto = require('node:crypto');
 const SLOT_STORE = { root: 'user-state', path: 'advice/shadow-slots' };
 const SLOT_MARGIN_MS = 5000;
 const EXIT_GRACE_MS = 1000;
+/** Reclaim lock rounds of one stale holding: a round is passed only when its lock was left by a call that died. */
+const RECLAIM_ROUNDS = 4;
 /** Before the payload names a budget: the registry's ceiling for any call (advice.json timeoutMs is at most 30000). */
 const FIRST_GUARD_MS = 30000;
 
@@ -36,16 +37,62 @@ function pidAlive(pid: unknown): boolean {
   }
 }
 
-/** Whether the slot file is held by no live, in-budget call. A file being written (unreadable) is live while young. */
-function staleSlot(file: string, now: number, fallbackBudget: number, alive: (pid: unknown) => boolean, fsImpl: any): boolean {
+/** What a slot file holds: its holder, or null while it is unreadable (being written), and the key of that holding. */
+function readSlot(file: string, fsImpl: any): { held: any; key: string; mtimeMs: number } | null {
+  let mtimeMs: number;
+  try { mtimeMs = fsImpl.statSync(file).mtimeMs; } catch { return null; }
   let held: any = null;
   try { held = JSON.parse(fsImpl.readFileSync(file, 'utf8')); } catch { held = null; }
-  if (!held || typeof held !== 'object') {
-    try { return now - fsImpl.statSync(file).mtimeMs > SLOT_MARGIN_MS; } catch { return true; }
-  }
+  if (!held || typeof held !== 'object') held = null;
+  const key = held && typeof held.token === 'string' && /^[0-9a-z]{1,32}$/.test(held.token) ? held.token : `m${Math.floor(mtimeMs)}`;
+  return { held, key, mtimeMs };
+}
+
+/** Whether the slot is held by no live, in-budget call. A file being written (unreadable) is live while young. */
+function staleSlot(seen: { held: any; mtimeMs: number }, now: number, fallbackBudget: number, alive: (pid: unknown) => boolean): boolean {
+  const { held } = seen;
+  if (!held) return now - seen.mtimeMs > SLOT_MARGIN_MS;
   const budget = Number.isFinite(held.budgetMs) && held.budgetMs > 0 ? held.budgetMs : fallbackBudget;
   if (!Number.isFinite(held.startedAt) || now - held.startedAt > budget + SLOT_MARGIN_MS) return true;
   return !alive(held.pid);
+}
+
+/**
+ * Replaces the stale slot `file` with `body`, atomically against every other call reclaiming it (row 174 R-03): only the
+ * call that creates the holding's reclaim lock (O_EXCL, named after the stale holding's key) may replace it, and only
+ * while the slot still holds that holding; the replacement is one rename, so the slot is never absent. A lock is held for
+ * a few system calls, so one older than SLOT_MARGIN_MS was left by a call that died holding it: the next round's lock
+ * is taken instead.
+ */
+function reclaimSlot(file: string, body: string, token: string, budgetMs: number, now: () => number, alive: (pid: unknown) => boolean, fsImpl: any): boolean {
+  const seen = readSlot(file, fsImpl);
+  if (!seen || !staleSlot(seen, now(), budgetMs, alive)) return false;
+  const lockOf = (round: number) => `${file}.reclaim-${seen.key}-${round}`;
+  for (let round = 0; round < RECLAIM_ROUNDS; round += 1) {
+    const lock = lockOf(round);
+    try {
+      fsImpl.writeFileSync(lock, '', { flag: 'wx' });
+    } catch (error: any) {
+      if (error?.code !== 'EEXIST') return false;
+      let age = 0;
+      try { age = now() - fsImpl.statSync(lock).mtimeMs; } catch { return false; }
+      if (age > SLOT_MARGIN_MS) continue;
+      return false;
+    }
+    try {
+      if (readSlot(file, fsImpl)?.key !== seen.key) return false;
+      const temp = `${file}.tmp-${token}`;
+      fsImpl.writeFileSync(temp, body);
+      fsImpl.renameSync(temp, file);
+      for (let earlier = 0; earlier < round; earlier += 1) {
+        try { fsImpl.unlinkSync(lockOf(earlier)); } catch { /* gone already */ }
+      }
+      return true;
+    } finally {
+      try { fsImpl.unlinkSync(lock); } catch { /* gone already */ }
+    }
+  }
+  return false;
 }
 
 /** Takes one of `limit` slots under `dir`, or returns null when every one is held by a live, in-budget call. */
@@ -57,14 +104,11 @@ function takeSlot(dir: string, limit: number, budgetMs: number, {
   const body = JSON.stringify({ pid, token, startedAt: now(), budgetMs });
   for (let index = 0; index < limit; index += 1) {
     const file = path.join(dir, `slot-${index}.json`);
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      try {
-        fsImpl.writeFileSync(file, body, { flag: 'wx' });
-        return { file, token };
-      } catch (error: any) {
-        if (error?.code !== 'EEXIST' || !staleSlot(file, now(), budgetMs, alive, fsImpl)) break;
-        try { fsImpl.unlinkSync(file); } catch { /* another child reclaimed it first */ }
-      }
+    try {
+      fsImpl.writeFileSync(file, body, { flag: 'wx' });
+      return { file, token };
+    } catch (error: any) {
+      if (error?.code === 'EEXIST' && reclaimSlot(file, body, token, budgetMs, now, alive, fsImpl)) return { file, token };
     }
   }
   return null;

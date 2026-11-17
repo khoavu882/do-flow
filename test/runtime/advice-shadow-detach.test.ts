@@ -20,7 +20,7 @@ const { loadAdviceRegistry } = require('../../src/runtime/advice/registry.ts');
 const { createAdviceClient } = require('../../src/runtime/advice/client.ts');
 const { materializeKind } = require('../../src/runtime/advice/kinds.ts');
 const { interceptDecisionPoint } = require('../../src/runtime/advice/shadow-dispatcher.ts');
-const { runShadow } = require('../../src/runtime/advice/shadow-runner.ts');
+const { runShadow, takeSlot } = require('../../src/runtime/advice/shadow-runner.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 
 const CLI = path.join(REPO_ROOT, 'bin', 'doflow.js');
@@ -398,6 +398,62 @@ for (const [why, holder] of [
     assert.deepEqual(s.slotFiles(), Array.from({ length: ADVICE.shadowSlots }, (_v, index) => `slot-${index}.json`).slice(1));
   });
 }
+
+test('R-03: several calls reclaiming one stale slot at once: at most one takes it, wherever the others cut in', (t) => {
+  const dir = path.join(tempDir(t, 'doflow-advice-reclaim-'), 'slots');
+  const contenders = 5;
+  // Contender A is paused before its k-th file-system call after it started; the others run to the end in that gap.
+  // Every k up to the last call A makes is tried, so each step of A's reclaim is cut into once.
+  for (let k = 1; k <= 12; k += 1) {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, 'slot-0.json');
+    fs.writeFileSync(file, JSON.stringify({ pid: process.pid, token: 'stale0', startedAt: Date.now() - 3_600_000, budgetMs: 1000 }));
+    const won: Array<{ who: string; token: string }> = [];
+    let calls = 0;
+    let cut = false;
+    const others = () => {
+      for (let index = 1; index < contenders; index += 1) {
+        const slot = takeSlot(dir, 1, 1000);
+        if (slot) won.push({ who: `other${index}`, token: slot.token });
+      }
+    };
+    const paused = new Proxy(fs, {
+      get(target: any, name: string) {
+        const real = target[name];
+        if (typeof real !== 'function') return real;
+        return (...args: any[]) => {
+          calls += 1;
+          if (calls === k && !cut) { cut = true; others(); }
+          return real.apply(target, args);
+        };
+      },
+    });
+    const a = takeSlot(dir, 1, 1000, { fsImpl: paused });
+    if (a) won.push({ who: 'A', token: a.token });
+    if (!cut) break; // A made fewer than k calls: every step has been cut into.
+    assert.ok(won.length <= 1, `cut before A's call ${k}: ${won.map((w) => w.who).join(' and ')} all took the one slot`);
+    assert.equal(won.length, 1, `cut before A's call ${k}: nobody took the stale slot`);
+    assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).token, won[0].token, 'the slot file is the winner\'s');
+    assert.deepEqual(fs.readdirSync(dir), ['slot-0.json'], 'no claim or temp file is left behind');
+  }
+});
+
+test('R-03: a reclaim lock left by a call that died is passed once it is older than the margin; a young one is respected', (t) => {
+  const dir = path.join(tempDir(t, 'doflow-advice-reclaim-'), 'slots');
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, 'slot-0.json');
+  const lock = `${file}.reclaim-stale0-0`;
+  fs.writeFileSync(file, JSON.stringify({ pid: process.pid, token: 'stale0', startedAt: Date.now() - 3_600_000, budgetMs: 1000 }));
+  fs.writeFileSync(lock, '');
+  assert.equal(takeSlot(dir, 1, 1000), null, 'a young lock: another call is reclaiming the slot');
+  const old = (Date.now() - 60_000) / 1000;
+  fs.utimesSync(lock, old, old);
+  const slot = takeSlot(dir, 1, 1000);
+  assert.ok(slot, 'an old lock is passed');
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).token, slot.token);
+  assert.deepEqual(fs.readdirSync(dir), ['slot-0.json']);
+});
 
 test('O-2: a spawn that throws, or a child that fails to start, records a spawn-failed miss and makes no call', async (t) => {
   const model = await fakeModel(t, answering(() => 'frontier'));
