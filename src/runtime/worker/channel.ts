@@ -130,12 +130,23 @@ function commandRefusal(compiled: Compiled, text: string): 'command-not-allowed'
 /**
  * The path every message takes to a record: `first` and `follow-up` use the follow-up template, `steer` its own
  * (`no-steer` when the descriptor has none), `stop` the stop template. The caps and the command prefix apply to the
- * person's text; `messageText` runs after them, so a later frame cannot push a person's text over a cap unseen.
+ * person's text; `messageText` runs after them, so a later frame cannot push a person's text over a cap unseen. A
+ * `first` message is the exception: its text is what 165 composed to send, so it keeps 165's entry rule (no text cap)
+ * and meets only the record cap and R-4.
  */
-function frameMessage(compiled: Compiled, kind: Kind, vars: { text?: string; id?: string | null }): Framed {
+function frameMessage(compiled: Compiled, kind: Kind, vars: { text?: string; person?: string; id?: string | null }): Framed {
   if (kind === 'stop') return record(compiled.templates.stop, '', vars?.id ?? null);
   const template = kind === 'steer' ? compiled.templates.steer : compiled.templates.followUp;
   if (!template) return { ok: false, code: 'no-steer' };
+  if (kind === 'first') {
+    // 165's `preparePrompt` already capped the person's text; `text` here is what is sent (entry line included), so only
+    // the framed-record cap applies. R-4 looks at `person`, the text before the entry line, when the caller has it.
+    const text = vars?.text;
+    if (typeof text !== 'string') return { ok: false, code: 'prompt-empty' };
+    const person = typeof vars?.person === 'string' ? vars.person : text;
+    if (commandRefusal(compiled, person)) return { ok: false, code: 'command-not-allowed' };
+    return record(template, messageText(kind, text), vars?.id ?? null);
+  }
   const refused = textRefusal(vars?.text) ?? commandRefusal(compiled, vars.text as string);
   if (refused) return { ok: false, code: refused };
   return record(template, messageText(kind, vars.text as string), vars?.id ?? null);

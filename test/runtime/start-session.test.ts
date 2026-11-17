@@ -959,6 +959,22 @@ test('A-2: a harness with a supported channel starts through it: the record says
   assert.equal(fs.existsSync(spoolDir), false, 'the spool is removed');
 });
 
+test('170 T4c: a channel start with an 8000-code-point text and entry do is accepted, not prompt-too-long; 8001 still is', POSIX, async (t: any) => {
+  const f = channelFixture(t);
+  const text = 'a'.repeat(8000);
+  const { exit, body } = await start(f, { harness: 'pi', entry: 'do', descriptors: WITH_CHANNEL, readStdin: () => text });
+  assert.equal(exit, 0, JSON.stringify(body));
+  const runId = body.run.runId;
+  const until = Date.now() + 10000;
+  while (!(fs.existsSync(f.channelLog) && readRuns(f.store)[runId]?.channel?.state === 'open') && Date.now() < until) await new Promise((r) => setTimeout(r, 20));
+  assert.equal(JSON.parse(fs.readFileSync(f.channelLog, 'utf8')).message, `${ENTRY_LINE}\n\n${text}`);
+  const cancel = await executeWorkerCommand({ action: 'cancel', slug: 'started-sessions', workerRun: runId, by: 'test', reason: 'done with it', env: f.env, cwd: f.main, descriptors: WITH_CHANNEL });
+  assert.equal(cancel.body.disposition, 'cancelled', JSON.stringify(cancel.body));
+  await ended(f, runId);
+  const over = await start(f, { harness: 'pi', entry: 'do', descriptors: WITH_CHANNEL, readStdin: () => 'a'.repeat(8001) });
+  assert.deepEqual([over.exit, over.body.code], [1, 'prompt-too-long']);
+});
+
 test('R-4: a first prompt that starts with the channel command prefix is refused command-not-allowed before any write; a harness without a channel starts it as before', POSIX, async (t: any) => {
   const f = channelFixture(t);
   const before = stateSnapshot(f);

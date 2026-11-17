@@ -18,7 +18,7 @@ const SRC = path.join(REPO, 'src', 'runtime');
 const spool = require(path.join(SRC, 'worker', 'channel-spool.ts'));
 const { superviseRun, SUPERVISOR_FILE } = require(path.join(SRC, 'worker', 'supervisor.ts'));
 const { storeFileFor, newRunId, insertRun, readRuns, transition } = require(path.join(SRC, 'worker', 'run-store.ts'));
-const { writePrompt } = require(path.join(SRC, 'worker', 'session-prompt.ts'));
+const { writePrompt, ENTRY_LINE } = require(path.join(SRC, 'worker', 'session-prompt.ts'));
 const { mainLaunchRecord } = require(path.join(SRC, 'worker', 'launch.ts'));
 const { executeWorkerCommand } = require(path.join(SRC, 'worker', 'command.ts'));
 const tree = require(path.join(SRC, 'worker', 'process-tree.ts'));
@@ -180,14 +180,14 @@ function fixture(t: any) {
 }
 
 /** A `starting` channel session as start-session records it: the prompt in its store, the launch record, the descriptor. */
-function seed(f: any, sent: string) {
+function seed(f: any, sent: string, entry = 'none') {
   const runId = newRunId();
   const descriptor = { ...structuredClone(PI), cli: { binary: path.join(f.bin, 'fake-pi') }, controlChannel: structuredClone(CHANNEL) };
   writePrompt(f.root, runId, sent, { isEnded: () => false });
   const r = insertRun(f.file, {
     runId, kind: 'main-session', task: 'main-session', token: 1, request: requestId(), childOf: null, harness: 'pi', phase: 'starting',
     createdAt: new Date().toISOString(), timeoutSeconds: 600, startedBy: 'console', project: { projectKey: 'a'.repeat(16), worktreeKey: 'b'.repeat(16) },
-    execWorktree: f.root, entry: 'none', binding: null,
+    execWorktree: f.root, entry, binding: null,
     prompt: { store: 'session-prompts', name: `${runId}.prompt.txt`, sha256: crypto.createHash('sha256').update(sent, 'utf8').digest('hex'), bytes: Buffer.byteLength(sent) },
     ...mainLaunchRecord(descriptor, sent, null, true),
     descriptor,
@@ -273,6 +273,23 @@ test('channel: the first prompt is the framed follow-up, a spool message arrives
   assert.deepEqual([run.phase, run.channel.state, run.channel.closedReason, run.process.code], ['ended', 'closed', 'idle', 0]);
   assert.equal(fs.existsSync(dir), false, 'the spool is removed at the end');
   assert.equal(logLines(f).length, 2);
+});
+
+test('170 T4c: with entry do the supervisor sends an entry-prefixed first prompt over the cap rule and refuses one whose person text starts with the command prefix', POSIX, async (t: any) => {
+  const f = fixture(t);
+  const fine = seed(f, `${ENTRY_LINE}\n\n${'a'.repeat(8000)}`, 'do');
+  f.supervising.push(superviseRun({ file: f.file, runId: fine, env: f.env, cwd: f.root, channel: { pollMs: 20 } }));
+  await until(() => ledgerOf(f, fine)[0]?.outcome === 'written', 'the entry-prefixed first prompt written');
+  assert.equal(ledgerOf(f, fine)[0].reason, null);
+  await executeWorkerCommand({ action: 'cancel', slug: 'started-sessions', workerRun: fine, operator: true, via: 'console', reason: 'done', env: f.env, cwd: f.root });
+  await until(() => runOf(f, fine)?.phase === 'ended', 'the first session ended');
+
+  const logged = logLines(f).length;
+  const bad = seed(f, `${ENTRY_LINE}\n\n/help`, 'do');
+  await superviseRun({ file: f.file, runId: bad, env: f.env, cwd: f.root, channel: { pollMs: 20 } });
+  assert.deepEqual([ledgerOf(f, bad)[0]?.outcome, ledgerOf(f, bad)[0]?.reason], ['refused', 'command-not-allowed']);
+  assert.equal(runOf(f, bad).channel.closedReason, 'first-refused');
+  assert.equal(logLines(f).length, logged, 'the command never reached the harness');
 });
 
 test('channel: a harness that refuses the first record leaves the turn not observed, message-refused; its exit closes the channel', POSIX, async (t: any) => {

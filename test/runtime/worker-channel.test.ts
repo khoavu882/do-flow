@@ -8,7 +8,7 @@ const {
   CHANNEL_LIMITS, compileChannel, messageText, frame, frameMessage, commandRefusal, idOf, answerOf, TurnTracker, admit, createTurnCoalescer,
 } = require('../../src/runtime/worker/channel.ts');
 const { PARSERS, parserOf } = require('../../src/runtime/worker/parsers.ts');
-const { PROMPT_MAX } = require('../../src/runtime/worker/session-prompt.ts');
+const { PROMPT_MAX, ENTRY_LINE } = require('../../src/runtime/worker/session-prompt.ts');
 
 // A channel shaped like Pi's RPC mode (design 4.3): one follow-up record for the first prompt and later ones.
 function piLike(extra: any = {}) {
@@ -135,6 +135,21 @@ test('frameMessage: refuses blank, over-cap and command-prefixed text, and a ste
   const noSteer: any = piLike();
   delete noSteer.controlChannel.messages.steer;
   assert.deepEqual(frameMessage(compileChannel(noSteer), 'steer', { text: 'x', id: 'd-1' }), { ok: false, code: 'no-steer' });
+});
+
+test('170 T4c: the first prompt keeps 165\'s entry rule (no text cap, no blank check, record cap and R-4 only); a follow-up keeps the cap', () => {
+  const compiled = channel();
+  const text = `${ENTRY_LINE}\n\n${'a'.repeat(8000)}`;
+  const first = frameMessage(compiled, 'first', { text, id: 'd-1' });
+  assert.equal(first.ok, true, JSON.stringify(first));
+  assert.equal(JSON.parse(first.record.toString('utf8')).message, text, 'sent as is');
+  assert.deepEqual(frameMessage(compiled, 'follow-up', { text: 'a'.repeat(8001), id: 'd-2' }), { ok: false, code: 'prompt-too-long' });
+  assert.equal(frameMessage(compiled, 'follow-up', { text: 'a'.repeat(8000), id: 'd-2' }).ok, true);
+  // R-4 reads the person's text: an entry-prefixed `/x` is refused when the caller names the person's text, an entry-prefixed normal text is not.
+  assert.deepEqual(frameMessage(compiled, 'first', { text: `${ENTRY_LINE}\n\n/x`, person: '/x', id: 'd-1' }), { ok: false, code: 'command-not-allowed' });
+  assert.equal(frameMessage(compiled, 'first', { text: `${ENTRY_LINE}\n\nhi`, person: 'hi', id: 'd-1' }).ok, true);
+  // The 64 KiB record cap still applies to a first prompt.
+  assert.deepEqual(frameMessage(compiled, 'first', { text: 'a'.repeat(70000), id: 'd-1' }), { ok: false, code: 'prompt-too-long' });
 });
 
 test('commandRefusal (R-4): "/x" and "  /x" refused, "a /x" allowed, no prefix allows everything, no rewrite', () => {
