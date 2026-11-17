@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env.ts');
-const { spawnFakeServer, startFakeServer } = require('../helper/fake-decision-server.ts');
+const { spawnFakeServer, startFakeServer, closedEndpoint } = require('../helper/fake-decision-server.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const { loadRegistry } = require('../../src/registry/index.ts');
 const { CapabilityRouter } = require('../../src/runtime/capability-router.ts');
@@ -74,7 +74,7 @@ test('IC-011/012: an act answer follows Tier and retains the static tier and rec
 
 test('174 O-1: an unreachable model is a shadow call whose child records the miss; the block is unchanged', async (t) => {
   const f = fixture(t);
-  f.enable('http://127.0.0.1:9');
+  f.enable(await closedEndpoint());
   const baseline = answer(f.run([]).stdout);
   const result = f.run(['--tasks', 'A.1']);
   assert.equal(result.status, 0, result.stderr);

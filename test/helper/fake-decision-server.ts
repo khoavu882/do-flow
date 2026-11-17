@@ -166,4 +166,18 @@ if (require.main === module && process.argv[2] === '--child') {
   runChild(process.argv[3], process.argv[4]).catch(() => process.exit(1));
 }
 
-module.exports = { startFakeServer, spawnFakeServer, answering };
+/**
+ * An endpoint nothing listens on: a server takes an ephemeral port, reads it and closes, so a connection to it is refused
+ * without the test depending on a fixed port being free. A real service could take the port in the gap, which is far less
+ * likely than one already listening on a well-known port.
+ */
+async function closedEndpoint(): Promise<string> {
+  const net = require('node:net');
+  const server = net.createServer();
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  return `http://127.0.0.1:${port}`;
+}
+
+module.exports = { startFakeServer, spawnFakeServer, answering, closedEndpoint };

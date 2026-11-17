@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp.ts');
-const { startFakeServer, spawnFakeServer } = require('../helper/fake-decision-server.ts');
+const { startFakeServer, spawnFakeServer, closedEndpoint } = require('../helper/fake-decision-server.ts');
 const { loadAdviceRegistry } = require('../../src/runtime/advice/registry.ts');
 const { loadStorageRegistry } = require('../../src/runtime/storage/registry.ts');
 const { resolveRoots } = require('../../src/runtime/storage/roots.ts');
@@ -327,7 +327,7 @@ test('IC-005 inspect reports reachability, version and capability fallback throu
 
 test('IC-005 inspect reports unreachable and refused without rejecting', async (t) => {
   const { createClient }: any = fixture(t, { lookup: (_host: any, _options: any, callback: any) => callback(null, [{ address: '198.51.100.1', family: 4 }]) });
-  const unreachable = await createClient().inspect({ endpoint: 'http://127.0.0.1:9', model: 'clef-flash', provider: 'ollama' });
+  const unreachable = await createClient().inspect({ endpoint: await closedEndpoint(), model: 'clef-flash', provider: 'ollama' });
   assert.equal(unreachable.endpoint.state, 'unreachable');
   const refused = await createClient().inspect({ endpoint: 'http://model.example:11434', model: 'clef-flash', provider: 'ollama' });
   assert.equal(refused.endpoint.state, 'refused');
