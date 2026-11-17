@@ -31,7 +31,8 @@ const { resolveRoots } = require(path.join(REPO_ROOT, 'src', 'runtime', 'storage
 
 const SETTINGS = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'settings.json'), 'utf8')).keys;
 const SHIPPED_VERDICTS = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'advice-verdicts.json'), 'utf8'));
-const KINDS: string[] = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'advice.json'), 'utf8')).kinds.map((k: any) => k.id);
+/** The kinds something asks at runtime: the ones with an advice.kinds setting and a record (the core's report lists these). */
+const KINDS: string[] = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'advice.json'), 'utf8')).kinds.filter((k: any) => k.askedBy?.length > 0).map((k: any) => k.id);
 
 const NOW = Date.parse('2026-11-09T10:00:00.000Z');
 const AT = '2026-11-09T10:00:05.000Z';
@@ -202,7 +203,7 @@ before(async () => {
   assert.equal(picks.exit, 0);
   const registry = loadAdviceRegistry({ repoRoot: REPO_ROOT }).registry;
   const roots = resolveRoots({ registry: loadStorageRegistry({ repoRoot: REPO_ROOT }), projectRoot: proj, global: false, env });
-  const report = buildReport({ roots, kinds: registry.kinds.map((k: any) => k.id), now: () => new Date(NOW), adviceRegistry: registry, projectRoot: proj, env });
+  const report = buildReport({ roots, kinds: KINDS, now: () => new Date(NOW), adviceRegistry: registry, projectRoot: proj, env });
 
   const anchors = anchorsOf({ projectRoot: proj, home });
   const projected = (shape: string, raw: any) => {
@@ -300,20 +301,18 @@ test('IC-018 settings: advice.enabled and every kind with its layer; task-class 
   assert.deepEqual(rows.get('advice.enabled'), ['false', 'default']);
   assert.deepEqual(rows.get('advice.kinds.task-class'), ['shadow', 'project']);
   for (const kind of KINDS.filter((k) => k !== 'task-class')) assert.deepEqual(rows.get(`advice.kinds.${kind}`), [UNSET, 'default'], kind);
-  assert.equal(table.rows.length, 1 + KINDS.length, 'advice.enabled and the eight kinds');
+  assert.equal(table.rows.length, 1 + KINDS.length, 'advice.enabled and the kinds something asks');
   for (const th of section.querySelector('tbody').querySelectorAll('th')) assert.equal(th.getAttribute('scope'), 'row');
 });
 
-test('IC-018 settings: the rerank and claim-support key descriptions say act is held at shadow; no combined mode is computed', () => {
+test('IC-018 settings: the claim-support key description says act is held at shadow; no combined mode is computed', () => {
   const root = render(BODY);
   const section = sectionOf(root, 'advice-settings');
   const text = section.textContent;
-  for (const kind of ['rerank', 'claim-support']) {
-    const description = SETTINGS[`advice.kinds.${kind}`].description;
-    assert.ok(description.includes('act is accepted but held at shadow'), `${kind}: the registry says it`);
-    assert.ok(text.includes(description), `${kind}: its description is shown whole`);
-  }
-  assert.ok(!text.includes(SETTINGS['advice.kinds.tier'].description), 'only the two held kinds show a description');
+  const description = SETTINGS['advice.kinds.claim-support'].description;
+  assert.ok(description.includes('act is accepted but held at shadow'), 'the registry says it');
+  assert.ok(text.includes(description), 'its description is shown whole');
+  assert.ok(!text.includes(SETTINGS['advice.kinds.tier'].description), 'only the held kind shows a description');
   assert.doesNotMatch(root.textContent, /effective|combined/i, 'DEC-008: no combined effective mode');
 });
 
@@ -351,14 +350,8 @@ test('IC-018 figures: no 0 and no empty cell where the body holds null (FR-026)'
   }
 });
 
-test('IC-018 figures: the rerank and claim-support blocks follow the kinds', () => {
+test('IC-018 figures: the claim-support block follows its kind', () => {
   const section = sectionOf(render(BODY), 'advice-figures');
-  const rerank = factMap(sectionOf(section, 'advice-rerank'));
-  assert.equal(rerank.get('Top-1 changed'), 'no data (n=0)');
-  assert.equal(rerank.get('Mean rank displacement per candidate'), 'no data (n=0)');
-  assert.equal(rerank.get('Criteria in force'), 'registry, digest 9939ded87e67');
-  assert.equal(rerank.get('Criteria warning'), 'no warning');
-  assert.equal(rerank.get('Would drop, ladder arm (measurement only)'), 'no data (n=0)');
   const claim = factMap(sectionOf(section, 'advice-claim-support'));
   assert.equal(claim.get('Supports'), 'no data (n=0)');
   assert.equal(claim.get('Contradicts'), 'no data (n=0)');
@@ -366,15 +359,12 @@ test('IC-018 figures: the rerank and claim-support blocks follow the kinds', () 
 
   const body = clone(BODY);
   body.sections.report.data.claimSupport.byRelation.supports = { n: 4, modelYes: 3, agree: 3 };
-  body.sections.report.data.rerank.top1Changed = { n: 4, changed: 1 };
   const again = sectionOf(render(body), 'advice-figures');
   assert.equal(factMap(sectionOf(again, 'advice-claim-support')).get('Supports'), 'picks 4; model said yes 3 of 4; agrees with the recorded relation 3 of 4 (75%), n=4');
-  assert.equal(factMap(sectionOf(again, 'advice-rerank')).get('Top-1 changed'), '1 of 4 (25%), n=4');
 
-  delete body.sections.report.data.rerank;
   delete body.sections.report.data.claimSupport;
   const without = render(body);
-  assert.ok(!without.querySelectorAll('section').some((s: El) => s.getAttribute('aria-labelledby') === 'advice-rerank'), 'no block the report did not print');
+  assert.ok(!without.querySelectorAll('section').some((s: El) => s.getAttribute('aria-labelledby') === 'advice-claim-support'), 'no block the report did not print');
 });
 
 // ---- picks per day ------------------------------------------------------------------------------
@@ -575,7 +565,7 @@ test('an ok picks section with no pick says so', () => {
 
 test('NFR-005: every string reaches the page as a text node; links are fragments of the advice route only', () => {
   const body = clone(BODY);
-  const row = body.sections.settings.data.keys.find((r: any) => r.key === 'advice.kinds.rerank');
+  const row = body.sections.settings.data.keys.find((r: any) => r.key === 'advice.kinds.claim-support');
   row.meta.description = '<img src=x onerror=alert(1)> held';
   const inspector = fakeInspector();
   const root = view.renderAdvice(body, {}, { inspector, route: { id: 'advice', params: {}, pick: PICK_IDS.tier[1] }, link: null });

@@ -31,21 +31,6 @@ function kindFigures(row) {
   ]));
 }
 /** @param {any} block */
-function rerankFigures(block) {
-  const change = (/** @type {any} */ part) => agreement({ n: part.n, agree: part.changed });
-  const displacement = (/** @type {any} */ part) => part == null ? 'unknown' : part.n === 0 ? 'no data (n=0)' : `${part.mean ?? 'unknown'}, n=${part.n}`;
-  const thresholds = block.wouldDrop.thresholds.map((/** @type {any} */ t) => `${t.field} ${t.value}: ${t.wouldDrop} of ${t.ofCandidates} candidates, ${t.top1WouldDrop} of ${t.ofPicks} top picks`).join('; ') || 'no data (n=0)';
-  return section('advice-rerank', 'Rerank', facts([
-    ['Picks', countText(block.n.picks)], ['Misses', countText(block.n.misses)], ['Without payload', countText(block.withoutPayload)],
-    ['Top-1 changed', change(block.top1Changed)], ['Mean rank displacement per candidate', block.n.picks === 0 ? 'no data (n=0)' : displacement(block.meanRankDisplacement)], ['First stage duration', duration(block.firstStageMs)],
-    ['Choice arm', `${block.arms.choice.picks} picks; ${change(block.arms.choice.top1Changed)}; displacement ${displacement(block.arms.choice.meanRankDisplacement)}`],
-    ['Ladder arm', `${block.arms.ladder.picks} picks; ${change(block.arms.ladder.top1Changed)}; displacement ${displacement(block.arms.ladder.meanRankDisplacement)}`],
-    ['Criteria in force', `${block.criteria.source ?? 'unknown'}, digest ${block.criteria.digest ?? 'unknown'}`], ['Criteria warning', block.criteria.warning ?? 'no warning'],
-    ['Criteria recorded', `${block.criteria.recorded.n}; registry ${block.criteria.recorded.bySource.registry}, settings ${block.criteria.recorded.bySource.settings}, unrecorded ${block.criteria.recorded.bySource.unrecorded}`],
-    ['Would drop, ladder arm (measurement only)', block.wouldDrop.picks === 0 ? 'no data (n=0)' : thresholds],
-  ]));
-}
-/** @param {any} block */
 function claimFigures(block) {
   const relation = (/** @type {any} */ part) => part.n === 0 ? 'no data (n=0)' : `picks ${part.n}; model said yes ${part.modelYes} of ${part.n}; agrees with the recorded relation ${agreement(part)}`;
   return section('advice-claim-support', 'Claim support', facts([
@@ -55,13 +40,13 @@ function claimFigures(block) {
 }
 /** @param {any} report */
 function figures(report) {
-  return [h('p', {}, `Last 90 days: ${report.window.from} to ${report.window.to} (UTC)`), report.kinds.map(kindFigures), report.rerank ? rerankFigures(report.rerank) : null, report.claimSupport ? claimFigures(report.claimSupport) : null];
+  return [h('p', {}, `Last 90 days: ${report.window.from} to ${report.window.to} (UTC)`), report.kinds.map(kindFigures), report.claimSupport ? claimFigures(report.claimSupport) : null];
 }
 /** @param {any} data */
 function settings(data) {
   const chosen = data.keys.filter((/** @type {any} */ row) => row.key === 'advice.enabled' || row.key.startsWith('advice.kinds.'));
   const rows = chosen.map((/** @type {any} */ row) => h('tr', {}, [h('th', { scope: 'row' }, row.key), h('td', {}, row.views[0].value === null ? "not set (the kind's own path)" : String(row.views[0].value)), h('td', {}, row.views[0].origin.layer)]));
-  const descriptions = chosen.filter((/** @type {any} */ row) => ['advice.kinds.rerank', 'advice.kinds.claim-support'].includes(row.key)).map((/** @type {any} */ row) => h('p', {}, `${row.key}: ${row.meta.description}`));
+  const descriptions = chosen.filter((/** @type {any} */ row) => row.key === 'advice.kinds.claim-support').map((/** @type {any} */ row) => h('p', {}, `${row.key}: ${row.meta.description}`));
   return [table('Advice settings', ['Key', 'Value', 'Layer'], rows), descriptions];
 }
 /** @param {any} picks */

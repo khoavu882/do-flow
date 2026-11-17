@@ -232,13 +232,9 @@ test('the verdict is bound to the criteria in force: the digest comes from resol
   assert.equal(base.verdicts.every((v: any) => v.criteriaDigest === registryCriteria.digest), true);
   assert.equal(base.out.some((line: string) => /^criteria: /.test(line)), false, 'no criteria warning: nothing overrides the registry text');
 
-  // The setting is gone: a value handed to the gate changes neither the questions nor the digest.
-  const custom = ['Not related.', 'Same topic only.', 'Part of the answer.', 'Nearly all of the answer.', 'The whole answer.', 'Pick the best passage.'].join('\n');
-  const ignored = await run(t, { items, arm: 'both', extra: { criteriaValue: custom } });
-  assert.equal(ignored.verdicts.every((v: any) => v.criteriaDigest === registryCriteria.digest), true);
-  const choiceCall = ignored.client.calls.find((c: any) => c.questionSet.questions.length === 1);
+  const choiceCall = base.client.calls.find((c: any) => c.questionSet.questions.length === 1);
   assert.equal(choiceCall.questionSet.questions[0].instructions, RERANK.instructions);
-  const ladderCall = ignored.client.calls.find((c: any) => c.questionSet.questions.length > 1);
+  const ladderCall = base.client.calls.find((c: any) => c.questionSet.questions.length > 1);
   assert.deepEqual(ladderCall.questionSet.questions[0].criteria, RERANK.scoreLadder.criteria);
 });
 
