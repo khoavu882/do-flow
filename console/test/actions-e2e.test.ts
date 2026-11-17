@@ -329,15 +329,15 @@ test('AC-8: an old core (exit 1, unknown flag on stderr, empty stdout) is 501 co
   assert.equal(json(start).error.code, 'core-lacks-action');
   assert.equal(start.body.includes('hello'), false);
   assert.deepEqual((await listed()).find((row: any) => row[0] === 'start-session'), ['start-session', false, 'core-lacks-action']);
-  // 170: a core without send and steer is 501 core-lacks-action on each; the message is in no reply.
-  for (const id of ['session-send', 'session-steer']) {
+  // 170: a core without send, steer and stop is 501 core-lacks-action on each (R-5: none is counted against D11's six a minute); the message is in no reply.
+  for (const id of ['session-send', 'session-steer', 'session-stop']) {
     const sessionBody = { v: 1, requestId: rid(), projectKey: w.key, runId: 'w-0123456789ab', ...(id === 'session-stop' ? {} : { message: 'hello again' }) };
     const reply = await l.post(id, sessionBody, control.bearer);
     assert.equal(reply.status, 501, `${id}: ${reply.body}`);
     assert.equal(json(reply).error.code, 'core-lacks-action', id);
     assert.equal(reply.body.includes('hello'), false, id);
   }
-  assert.deepEqual((await listed()).slice(-3), [['session-send', false, 'core-lacks-action'], ['session-steer', false, 'core-lacks-action'], ['session-stop', true, null]]);
+  assert.deepEqual((await listed()).slice(-3), [['session-send', false, 'core-lacks-action'], ['session-steer', false, 'core-lacks-action'], ['session-stop', false, 'core-lacks-action']]);
   assert.deepEqual(snapshotTrees(w.roots), early, 'an old core wrote nothing');
   assert.equal(w.status(GRAPH, 'run-gate').revision, before.revision);
 });
@@ -538,13 +538,21 @@ test('170 a loopback send, steer and stop reach a session through the real core,
   const command = await post('session-send', body({ message: '/quit now' }));
   assert.equal(command.status, 400, command.body);
   assert.equal(json(command).error.code, 'command-not-allowed');
+  const empty = await post('session-send', body({ message: '  ' }));
+  assert.equal(empty.status, 400, empty.body);
+  assert.equal(json(empty).error.code, 'prompt-empty');
+  const wrongProject = await post('session-stop', body({ projectKey: '0123456789abcdef' }));
+  assert.equal(wrongProject.status, 404, wrongProject.body);
+  assert.equal(json(wrongProject).error.code, 'project-not-found');
+  // R-5: nine attempts of one actor in one minute, and the Console's own windows (six a minute) refused none of them.
+  assert.equal([steered, notWorking, sent, again, stopped, unknown, command, empty, wrongProject].some((reply) => reply.status === 429), false);
 
   // The action log names the run and holds no message text; no reply holds it either.
   const lines = fs.readFileSync(path.join(dir, 'actions.ndjson'), 'utf8').trim().split('\n').map((line: string) => JSON.parse(line));
   const ends = lines.filter((line: any) => line.phase === 'end' && line.action.startsWith('session-'));
   assert.deepEqual(ends.map((line: any) => [line.action, line.outcome, line.target.runId]), [
     ['session-steer', 'applied', f.runId], ['session-steer', 'refused', f.runId], ['session-send', 'applied', f.runId], ['session-send', 'replayed', f.runId],
-    ['session-stop', 'applied', f.runId], ['session-send', 'refused', 'w-000000000000'], ['session-send', 'refused', f.runId]]);
+    ['session-stop', 'applied', f.runId], ['session-send', 'refused', 'w-000000000000'], ['session-send', 'refused', f.runId], ['session-stop', 'refused', f.runId]]);
   const logged = fs.readFileSync(path.join(dir, 'actions.ndjson'), 'utf8');
   for (const word of [SECRET, 'change course', 'and then this', 'too late']) {
     assert.equal(logged.includes(word), false, `${word} is not logged`);

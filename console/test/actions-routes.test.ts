@@ -878,7 +878,7 @@ test('the prompt kind: CRLF and CR become LF, C0 (but tab and LF), C1 and bidi c
     ['\u0001'.repeat(7000), 400, 'usage'],
   ];
   for (const [prompt, status, expected] of cases) {
-    // One an hour: the start limit (six an hour) and the generic windows never refuse here.
+    // One an hour: D11's windows never refuse here.
     clock.t += 61 * MINUTE;
     const before = runner.acts.length;
     const reply = await w.post('start-session', startBody({ prompt }));
@@ -911,45 +911,64 @@ test('the prompt kind: CRLF and CR become LF, C0 (but tab and LF), C1 and bidi c
   }
 });
 
-test('the seventh start of an actor in an hour is 429 start-rate-limited with Retry-After; it counts the attempts that reach the core (a core refusal too), not a replay, a body refusal or a start that spawned nothing; another actor has its own hour', async (t) => {
+test('170 R-5 the Console holds no hourly start limit: the seventh start of an actor reaches the core, whose start-rate-limited is 429 with Retry-After from its retryAfterSeconds; a bad answer is 502', async (t) => {
   const clock = manual();
   let next: any = startedReply();
   const runner = startRunner((shape) => (shape === 'start-session' ? next : applied(shape)));
   const w = await lan(t, runner, { now: clock.now });
   const phone = await w.world.pair('control', 'Phone');
-  const tablet = await w.world.pair('control', 'Tablet');
-  const start = (device: any, over: Record<string, unknown> = {}) => w.post('start-session', startBody(over), { Authorization: device.bearer });
-  const first = clock.t;
-  const repeated = startBody();
-  for (let index = 0; index < 4; index += 1) {
-    assert.equal((await start(phone)).status, 200, `start ${index + 1}`);
+  const start = (over: Record<string, unknown> = {}) => w.post('start-session', startBody(over), { Authorization: phone.bearer });
+  for (let index = 0; index < 7; index += 1) {
+    assert.equal((await start()).status, 200, `start ${index + 1}: the Console does not refuse the seventh`);
     clock.t += 2 * MINUTE;
   }
-  assert.equal((await w.post('start-session', repeated, { Authorization: phone.bearer })).status, 200, 'start 5');
-  assert.equal((await w.post('start-session', repeated, { Authorization: phone.bearer })).status, 200, 'a replay is not counted');
-  assert.equal((await start(phone, { prompt: '' })).status, 400, 'a body refusal is not a start');
-  clock.t += 2 * MINUTE;
-  next = { ok: false, code: 'project-not-found', exit: null };
-  assert.equal((await start(phone)).status, 404, 'a start the runner never spawned is not counted');
-  next = startedReply();
-  assert.equal((await start(phone)).status, 200, 'start 6');
-  assert.equal(runner.acts.length, 8, 'six starts reached act, and the unknown key twice');
-  const limited = await start(phone);
+  assert.equal(runner.acts.length, 7, 'seven starts reached act');
+  const core = (current: unknown) => ({ ok: true, exit: 1, json: { ok: false, code: 'start-rate-limited', message: 'too many starts', current } });
+  next = core({ started: 6, max: 6, retryAfterSeconds: 2640 });
+  const limited = await start();
   assert.equal(limited.status, 429, limited.body);
   assert.equal(errorOf(limited), 'start-rate-limited');
-  assert.equal(limited.headers['retry-after'], String(60 * 60 - 10 * 60), 'until the first start leaves its hour');
-  assert.equal(runner.acts.length, 8, 'never run');
-  assert.equal((await start(tablet)).status, 200, 'another actor has its own hour');
-  assert.equal((await w.post('decide-gate', BODIES['decide-gate'](), { Authorization: phone.bearer })).status, 200, 'the start limit holds starts only');
-  clock.t = first + 60 * MINUTE;
-  next = { ok: true, exit: 1, json: { ok: false, code: 'machine-limit', message: 'full', current: { open: 4, max: 4 } } };
-  const refused = await start(phone);
-  assert.equal(refused.status, 429, 'the first start has left the hour');
-  assert.equal(errorOf(refused), 'machine-limit');
-  assert.equal(errorOf(await start(phone)), 'start-rate-limited', 'a core refusal reached the core, so it counts');
+  assert.equal(limited.headers['retry-after'], '2640', 'the core\'s number, not the Console\'s');
+  assert.deepEqual(json(limited).current, { started: 6, max: 6, retryAfterSeconds: 2640 });
+  assert.equal(runner.acts.length, 8, 'it reached the core');
+  clock.t += 2 * MINUTE;
+  for (const bad of [undefined, { started: 6, max: 6 }, { started: 6, max: 6, retryAfterSeconds: 0 }, { started: -1, max: 6, retryAfterSeconds: 5 }, { started: 6, max: 6, retryAfterSeconds: 'soon' }]) {
+    next = core(bad);
+    const reply = await start();
+    assert.equal(reply.status, 502, JSON.stringify(bad));
+    assert.equal(errorOf(reply), 'core-contract-mismatch');
+    assert.equal(reply.headers['retry-after'], undefined);
+    clock.t += 2 * MINUTE;
+  }
   await w.actions.stop();
-  const summaries = w.lines().filter((line) => line.phase === 'summary' && line.code === 'start-rate-limited');
-  assert.deepEqual(summaries.map((line) => [line.count, line.actor.deviceId, line.action]), [[1, phone.device.id, 'start-session'], [1, phone.device.id, 'start-session']]);
+  assert.equal(w.lines().some((line) => line.phase === 'summary' && line.code === 'start-rate-limited'), false, 'the Console counted no start-rate-limited of its own');
+});
+
+test('170 R-5 the three session actions are not counted against D11: 31 sends by one actor and a flood of refusals before the core are never the Console\'s 429; the core\'s own 429 carries its Retry-After', async (t) => {
+  const clock = manual();
+  let next: any = null;
+  const runner = fakeRunner((shape) => next ?? ((SESSION_IDS as readonly string[]).includes(shape) ? sent(KIND_OF[shape]) : applied(shape)));
+  const w = await lan(t, runner, { now: clock.now });
+  const phone = await w.world.pair('control', 'Phone');
+  const send = (id: string, device: any, over: Record<string, unknown> = {}) => w.post(id, sessionBody(id, over), { Authorization: device.bearer });
+  for (let index = 0; index < 31; index += 1) {
+    assert.equal((await send('session-send', phone)).status, 200, `send ${index + 1}`);
+  }
+  assert.equal(runner.acts.length, 31, 'all 31 sends in one minute reached the core');
+  for (const id of ['session-steer', 'session-stop']) assert.equal((await send(id, phone)).status, 200, `${id} after 31 sends`);
+  // The refusals before the core are not counted either: a flood of 400s never turns into the Console's 429.
+  for (let index = 0; index < 40; index += 1) assert.equal((await send('session-send', phone, { message: '' })).status, 400, `empty ${index + 1}`);
+  // A D11 row is still counted, and the session actions did not use its window.
+  const mark = runner.acts.length;
+  for (let index = 0; index < 6; index += 1) assert.equal((await w.post('decide-gate', BODIES['decide-gate'](), { Authorization: phone.bearer })).status, 200, `decide ${index + 1}`);
+  assert.equal(errorOf(await w.post('decide-gate', BODIES['decide-gate'](), { Authorization: phone.bearer })), 'action-rate-limited');
+  assert.equal(runner.acts.length, mark + 6);
+  // The core's own limit is what the actor then sees, with its Retry-After; the Console adds none.
+  next = sessionRefusal('actor-rate-limited', { retryAfterSeconds: 41 });
+  const refused = await send('session-send', phone);
+  assert.deepEqual([refused.status, errorOf(refused), refused.headers['retry-after']], [429, 'actor-rate-limited', '41']);
+  await w.actions.stop();
+  assert.equal(w.lines().some((line) => line.phase === 'summary' && line.actor?.deviceId === phone.device.id && line.code === 'rate-limited' && line.action !== 'decide-gate'), false);
 });
 
 test('a start-session request id beginning with \'-\' is 400 usage and spawns nothing', async (t) => {

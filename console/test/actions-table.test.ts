@@ -141,9 +141,12 @@ test('170 IC-005: session-send, session-steer and session-stop have the kinds, c
     const spec = row(id);
     assert.deepEqual(spec.target(body), { slug: null, taskId: null, gateId: null, runId: 'w-0123456789ab' }, id);
     assert.equal(spec.expect(body), null);
-    assert.equal(spec.limit, null, `${id}: no limit of its own, the core's apply`);
+    assert.equal(spec.coreLimited, true, `${id}: D11 does not count it, the core's limits apply (R-5)`);
+    assert.equal(Object.hasOwn(spec, 'limit'), false, `${id}: no limit of the Console's own`);
     assert.equal(WRITE_SHAPES[spec.shape].argv.at(-1) === '--stdin', id !== 'session-stop');
   }
+  assert.deepEqual(ACTIONS.filter((spec: any) => !/^session-/.test(spec.id)).map((spec: any) => [spec.id, spec.coreLimited, Object.hasOwn(spec, 'limit')]),
+    [['decide-gate', false, false], ['close-run', false, false], ['cancel-worker', false, false], ['start-session', false, false]], 'the other rows stay in D11; start-session has no row limit (R-5: the core holds it)');
   assert.deepEqual(DEVICE_ROUTES.control.filter((entry: string) => /session-(send|steer|stop)$/.test(entry)),
     ['POST /api/actions/session-send', 'POST /api/actions/session-steer', 'POST /api/actions/session-stop']);
   assert.ok(DEVICE_ROUTES.view.every((entry: string) => !/session-/.test(entry)), 'a view device lists none of them');
