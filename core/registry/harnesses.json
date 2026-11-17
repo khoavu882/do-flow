@@ -2362,11 +2362,98 @@
           "reason": "Pi has the flags, but no worker recipe drives them (oneShot passes --no-session) and guard G41's ACCEPTED_KEYS lists no supported resume for pi. Help and docs read, no live run."
         },
         "controlChannel": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Record the doc capture C-1 (`worker --action evidence --docs-root`) for pi's RPC mode, then declare the channel.",
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/pi/2026-11-17-cli-check-control-channel.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness pi --checks core/worker-evidence/pi/checks.json --docs-root <pi docs and package root> --out <new cli-check path>` and read the matched lines (checks help-rpc-mode, help-no-approve-channel, doc-rpc-*, source-*). Recorded 2026-11-17 on pi 1.5.2 (capture C-1): `--mode rpc` and `--no-approve` are listed in `pi --help`; docs/rpc.md and docs/rpc-commands.md give strict LF-framed JSONL, the prompt command with `streamingBehavior` `steer` or `followUp`, `abort`, an `id` repeated on the response and `success` true or false; docs/json.md lists `agent_start` and `agent_settled` (not `agent_end`) as the turn events; stdin close is documented as an orderly shutdown. A text starting with `/` runs an extension command, hence `commandPrefix`. Not verified live: no run of pi in rpc mode, so the turn events in rpc mode, a steer taken while working and the exit after stdin closes are read from docs and source only (`unverified`).",
           "verifiedOn": "2026-11-17",
-          "reason": "awaiting the recorded doc capture C-1"
+          "argv": [
+            "--mode",
+            "rpc",
+            "--no-approve"
+          ],
+          "framing": "jsonl-lf",
+          "parser": "pi-json-v1",
+          "commandPrefix": "/",
+          "messages": {
+            "followUp": {
+              "type": "prompt",
+              "message": "{text}",
+              "streamingBehavior": "followUp",
+              "id": "{id}"
+            },
+            "steer": {
+              "type": "prompt",
+              "message": "{text}",
+              "streamingBehavior": "steer",
+              "id": "{id}"
+            },
+            "stop": {
+              "type": "abort",
+              "id": "{id}"
+            }
+          },
+          "turn": {
+            "working": [
+              {
+                "path": [
+                  "type"
+                ],
+                "equals": "agent_start"
+              }
+            ],
+            "settled": [
+              {
+                "path": [
+                  "type"
+                ],
+                "equals": "agent_settled"
+              }
+            ]
+          },
+          "answer": {
+            "id": [
+              "id"
+            ],
+            "accepted": [
+              {
+                "path": [
+                  "type"
+                ],
+                "equals": "response"
+              },
+              {
+                "path": [
+                  "success"
+                ],
+                "equals": true
+              }
+            ],
+            "refused": [
+              {
+                "path": [
+                  "type"
+                ],
+                "equals": "response"
+              },
+              {
+                "path": [
+                  "success"
+                ],
+                "equals": false
+              }
+            ]
+          },
+          "close": {
+            "stdinEof": "exits",
+            "graceSeconds": 10
+          },
+          "unverified": [
+            "turn events in rpc mode",
+            "steer taken while working",
+            "exit after stdin closes"
+          ]
         },
         "isolatedEdit": {
           "status": "unknown",

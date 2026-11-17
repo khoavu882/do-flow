@@ -12,6 +12,7 @@ const REPO = path.resolve(__dirname, '../..');
 const { loadRegistry, validateWorker } = require('../../src/registry/index.ts');
 const { wideningProblem } = require('../../src/registry/widening-flags.ts');
 const { mainArgv } = require('../../src/runtime/worker/launch.ts');
+const { compileChannel } = require('../../src/runtime/worker/channel.ts');
 
 const registry = loadRegistry({ repoRoot: REPO });
 const pi = registry.harnesses.find((h: any) => h.id === 'pi').worker;
@@ -58,11 +59,29 @@ test('capabilities: resume and persistentSession are each decided, with evidence
   }
 });
 
-test('170: pi declares no control channel yet: unknown, awaiting the recorded doc capture C-1, with no evidence cited', () => {
-  assert.equal(pi.controlChannel.status, 'unknown');
-  assert.deepEqual(pi.controlChannel.evidence, []);
-  assert.equal(pi.controlChannel.reason, 'awaiting the recorded doc capture C-1');
+test('170: pi ships a supported control channel on capture C-1, not verified live, with agent_settled as the settled event', () => {
+  const entry = pi.controlChannel;
+  assert.equal(entry.status, 'supported');
+  assert.deepEqual(entry.evidence, ['core/worker-evidence/pi/2026-11-17-cli-check-control-channel.json']);
+  assert.equal(entry.verifiedOn, '2026-11-17');
+  assert.deepEqual(entry.argv, ['--mode', 'rpc', '--no-approve']);
+  assert.equal(entry.framing, 'jsonl-lf');
+  assert.equal(entry.parser, 'pi-json-v1');
+  assert.equal(entry.commandPrefix, '/');
+  assert.deepEqual(entry.turn.settled, [{ path: ['type'], equals: 'agent_settled' }]);
+  assert.deepEqual(entry.close, { stdinEof: 'exits', graceSeconds: 10 });
+  assert.deepEqual(entry.unverified, ['turn events in rpc mode', 'steer taken while working', 'exit after stdin closes']);
+  assert.ok(!entry.evidence.some((item: string) => /live-run/.test(item)), 'no live run of rpc mode is cited');
   assert.ok(!Object.hasOwn(pi, 'steering'));
+  const cited = record(entry.evidence[0]);
+  assert.equal(cited.cliVersion, '1.5.2');
+  const turn = cited.checks.find((c: any) => c.id === 'doc-rpc-turn-events');
+  assert.equal(turn.result, 'pass');
+  assert.ok(turn.matched.some((line: string) => line.includes('`agent_settled`')), 'the record shows agent_settled');
+  const errors: string[] = [];
+  validateWorker(pi, "harness 'pi'", errors);
+  assert.deepEqual(errors, []);
+  assert.notEqual(compileChannel(pi), null, 'the channel compiles');
 });
 
 test('login probe: Pi ships the design 172 section 3.3 recipe as supported, with the answers, expiry signs and evidence of pi 1.5.2', () => {

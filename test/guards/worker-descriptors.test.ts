@@ -125,14 +125,15 @@ function recordEstablishes(item: any, harnessId: any, key: any, repoRoot: any, w
   try { record = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return false; }
   if (!record || record.schema !== EVIDENCE_SCHEMA || record.harness !== harnessId) return false;
   if (typeof record.cliVersion !== 'string' || !cliVersionMatches(record.cliVersion, harnessId, repoRoot)) return false;
-  if (!Array.isArray(record.establishes) || !record.establishes.includes(key)) return false;
+  // A key with parts (controlChannel, 170 IC-008) is listed as `<key>:<part>` tokens; checksEstablish then requires every part the entry needs.
+  if (!Array.isArray(record.establishes) || !record.establishes.some((listed: any) => listed === key || (typeof listed === 'string' && listed.startsWith(`${key}:`)))) return false;
   if (record.kind === 'live-run') {
     // A read-only run counts only when the worktree check afterwards was clean (142 IC-013 rule 3).
     const worktreeOk = record.run?.edit === true || record.run?.readOnly?.status === 'clean';
     return record.run?.report?.status === 'success' && record.run?.resultOffered === true && worktreeOk && shapeMatchesRecipe(record, key, worker);
   }
   if (record.kind !== 'cli-check' || record.run !== null) return false;
-  return checksEstablish(record, harnessId, key, repoRoot);
+  return checksEstablish(record, harnessId, key, repoRoot, worker?.[key] ?? null);
 }
 
 /** G41.4: every supported capability entry cites a record that establishes it. */
@@ -311,7 +312,7 @@ const ACCEPTED_KEYS: any = {
   opencode: ['mainSession', 'model', 'oneShot', 'provider', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
   claude: ['effort', 'loginProbe', 'mainSession', 'model'],
   copilot: ['model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
-  pi: ['effort', 'loginProbe', 'mainSession', 'model', 'oneShot', 'provider', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
+  pi: ['controlChannel', 'effort', 'loginProbe', 'mainSession', 'model', 'oneShot', 'provider', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
   kiro: ['model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
   antigravity: ['model'],
 };

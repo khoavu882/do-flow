@@ -76,8 +76,8 @@ test('the shipped registry: 7 harnesses, 17 worker and 6 orchestration cells, th
   assert.deepEqual(b.groups.worker, WORKER_NAMES);
   assert.deepEqual(b.groups.orchestration, ORCHESTRATION_NAMES);
   assert.deepEqual(b.counts, {
-    // antigravity's model entry is supported (core/worker-evidence/antigravity/2026-11-07-cli-check.json); 165: mainSession is supported for claude, codex, opencode and pi, unknown for the other three; 168: pi's persistentSession and resume are unsupported; 172: claude's and pi's loginProbe are supported (design §3.3); 169: provider and effort are declared on all seven (supported: claude effort, opencode provider, pi provider and effort); 170: controlChannel is unknown on all seven.
-    worker: { supported: 50, unknown: 67, unsupported: 2 },
+    // antigravity's model entry is supported (core/worker-evidence/antigravity/2026-11-07-cli-check.json); 165: mainSession is supported for claude, codex, opencode and pi, unknown for the other three; 168: pi's persistentSession and resume are unsupported; 172: claude's and pi's loginProbe are supported (design §3.3); 169: provider and effort are declared on all seven (supported: claude effort, opencode provider, pi provider and effort); 170: controlChannel is supported for pi (capture C-1, not verified live) and unknown on the other six.
+    worker: { supported: 51, unknown: 66, unsupported: 2 },
     orchestration: { supported: 23, unknown: 17, unsupported: 2 },
   });
   assert.deepEqual(b.limits, { shown: 7, notShown: 0, cellsNotShown: 0, cut: 0 });

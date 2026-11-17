@@ -184,7 +184,8 @@ test('validateWorker: the channel is checked once, with the block\'s mainSession
 
 test('validateWorker: an unknown channel entry takes no recipe field, a supported one takes the grammar fields', () => {
   const worker = piWorker();
-  worker.controlChannel.close = { stdinEof: 'exits', graceSeconds: 1 };
+  // pi ships a supported channel (T9a), so the unknown entry is written out here.
+  worker.controlChannel = { status: 'unknown', evidence: [], verification: 'v', verifiedOn: '2026-11-17', reason: 'r', close: { stdinEof: 'exits', graceSeconds: 1 } };
   const errors: string[] = [];
   validateWorker(worker, "harness 'pi'", errors);
   assert.match(errors.join('\n'), /worker 'controlChannel': recipe field 'close' is allowed only when status is supported/);

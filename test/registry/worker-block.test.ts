@@ -64,10 +64,10 @@ const FREE_CHECK_RECIPES: any = {
   },
 };
 const PER_HARNESS_REASON = ['oneShot', 'structuredOutput', 'spawnDenial']; // isolatedEdit's reason is pinned in worker-isolated-edit.test.js
-const PI_DECIDED = ['loginProbe', 'persistentSession', 'resume'];
+// 170 T9a: pi's controlChannel is a supported channel on capture C-1, pinned exactly in pi-worker-truth.test.ts.
+const PI_DECIDED = ['loginProbe', 'persistentSession', 'resume', 'controlChannel'];
 /** 170 design §11: why each built-in harness declares no control channel. */
 const CHANNEL_REASON: any = Object.fromEntries(['claude', 'codex', 'opencode', 'copilot', 'antigravity'].map((id) => [id, `no recorded capture shows an input mode for later messages for ${id}; nothing is inferred from another harness`]));
-CHANNEL_REASON.pi = 'awaiting the recorded doc capture C-1';
 CHANNEL_REASON.kiro = 'recorded `kiro-cli chat --help` (3.1.0, 2026-11-07) lists stream-json output of ACP events but no input mode for later messages; kiro-cli is never executed here (out of quota)';
 const BINARIES: any = { claude: 'claude', codex: 'codex', opencode: 'opencode', pi: 'pi', copilot: 'copilot', kiro: 'kiro-cli', antigravity: 'agy' };
 
@@ -181,7 +181,7 @@ test('worker: the seven harnesses declare IC-002 values and nothing else as supp
         continue;
       }
       if (key === 'controlChannel') {
-        // 170 D12, R-11: every built-in channel is `unknown` with its reason until a capture decides it (pinned exactly).
+        // 170 D12, R-11: every built-in channel but pi's is `unknown` with its reason until a capture decides it (pinned exactly).
         const { status, evidence, verifiedOn, reason } = worker[key];
         assert.deepEqual({ status, evidence, verifiedOn, reason }, { status: 'unknown', evidence: [], verifiedOn: '2026-11-17', reason: CHANNEL_REASON[harness.id] }, `${harness.id} controlChannel`);
         continue;
@@ -250,8 +250,9 @@ test('worker: the five supported opencode and kiro entries equal their IC-009 re
     for (const key of ['hooksProbe', 'guidanceProbe', 'loginProbe', 'persistentSession', 'resume', 'controlChannel', 'isolatedEdit']) {
       // 168: pi's persistentSession and resume are `unsupported` with evidence (pi-worker-truth.test.ts).
       // 172: pi's loginProbe is a supported login recipe (design §3.3), pinned in pi-worker-truth.test.ts.
+      // 170: pi's controlChannel is supported on capture C-1, pinned in pi-worker-truth.test.ts.
       const decided = id === 'pi' && ['persistentSession', 'resume'].includes(key);
-      const expected = id === 'pi' && key === 'loginProbe' ? 'supported' : decided ? 'unsupported' : 'unknown';
+      const expected = id === 'pi' && (key === 'loginProbe' || key === 'controlChannel') ? 'supported' : decided ? 'unsupported' : 'unknown';
       assert.equal(worker[key].status, expected, `${id} ${key}`);
     }
   }

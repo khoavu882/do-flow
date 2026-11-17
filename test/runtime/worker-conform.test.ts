@@ -568,7 +568,7 @@ test('169 A-07: an id transport counts argv elements equal to the composed id, n
 
 // ---- the control-channel part (row 170 T6, IC-007) -----------------------------------------------------------
 
-/** A Pi-shaped channel (design 170 section 11) as a fixture: the registry still ships Pi's as unknown. */
+/** A Pi-shaped channel (design 170 section 11) as a fixture, with a short grace and its own unverified list. */
 const piChannel = (extra: any = {}) => ({
   status: 'supported', evidence: [], verification: 'fixture', verifiedOn: '2026-11-17',
   argv: ['--mode', 'rpc', '--no-approve'], framing: 'jsonl-lf', parser: 'pi-json-v1', commandPrefix: '/',
@@ -651,7 +651,8 @@ test('a fake that ignores stdin EOF fails "did not exit within graceSeconds afte
 });
 
 test('a harness without a supported channel reports control-channel unchecked: not-declared', POSIX, async (t) => {
-  const { exit, body } = await conformVia(t, 'pi');
+  // claude ships its channel as unknown (design 170 section 11); pi's is supported since T9a.
+  const { exit, body } = await conformVia(t, 'claude');
   assert.equal(exit, 0, JSON.stringify(body));
   assert.deepEqual(partOf(body, 'control-channel'), { part: 'control-channel', result: 'unchecked', reason: 'not-declared' });
 });
