@@ -19,6 +19,10 @@
 //
 // This module makes no fs write call: every write goes through the run store's `transition`, and
 // the 080 ledger is written only by 080's own `cancel` (G26 (b), IC-027).
+//
+// 170 (R-9, R-10): a started session's channel spool is removed by its supervisor when the run ends. When the
+// supervisor is not seen alive after step 5 (it was killed and its harness ignored the closed stdin), this module
+// removes the spool through channel-spool.ts, its only writer; a removal that fails is left to upkeep's 1-day bound.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -28,6 +32,7 @@ const { runKeyFor, identityRefusal } = require('../task-run.ts');
 const { inWorkerSession } = require('../context/identity.ts');
 const attempts = require('../task-attempts.ts');
 const { RELAY_LABEL } = require('../relay-label.ts');
+const { removeSpool } = require('./channel-spool.ts');
 
 /** A `cancelling` run whose request is younger than this belongs to the canceller that holds it. */
 const CANCEL_TAKEOVER_MS = 30000;
@@ -228,6 +233,9 @@ async function cancelRun({
     run.phase = 'ended';
   });
   if (!ended.applied) return refused('run-ended', runId, { endState: ended.run?.end?.state ?? null, cleanup, attemptCancel });
+  if (marked.run.kind === 'main-session' && processTree.alive(marked.run.supervisor, { platform }) !== true) {
+    try { removeSpool(ledgerFor(file).root, runId); } catch { /* upkeep's 1-day bound removes it */ }
+  }
   return {
     disposition: 'cancelled',
     runId,

@@ -28,9 +28,17 @@
 // through `launchMainSession` (D9: no identity, no context emission), and `mainSession.parser`, which
 // may be null: the end state then comes from the exit code alone (design R2).
 //
+// A started session whose harness declares a supported control channel (170 §5.2, `recipe.promptVia: 'channel'`) is
+// launched through `launchChannelSession` with stdin kept open, and this process is that pipe's only writer: it writes
+// the stored prompt as the first framed follow-up, takes later messages from the session's spool (`channel-spool.ts`),
+// re-checks each (kind, R-4 command prefix, FR-013 turn rule, D6 limits, caps) and frames it through `channel.ts`, and
+// tracks the turn from the harness's own events into `channel` (IC-002, coalesced, D9). When this process dies the
+// kernel closes the pipe and the harness reads EOF (design 5.3, R-9): no orphan is left that the descriptor can end.
+//
 // This is the one module under `src/runtime/worker/` that holds a direct fs write call: the output
 // sink's `mkdirSync` and `createWriteStream` (IC-018, IC-027, RK3). Every record write goes through
-// the run store's `transition`; the run's login outcome (172 design 4.5) goes through `login-store.ts`.
+// the run store's `transition`; the run's login outcome (172 design 4.5) goes through `login-store.ts`;
+// the spool through `channel-spool.ts`.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -39,7 +47,9 @@ const { spawnSync } = require('node:child_process');
 const { readRuns, transition, RUN_ID } = require('./run-store.ts');
 const { readTaskState } = require('../task-state.ts');
 const attempts = require('../task-attempts.ts');
-const { launchWorker, launchMainSession } = require('./launch.ts');
+const { launchWorker, launchMainSession, launchChannelSession } = require('./launch.ts');
+const { compileChannel, frameMessage, idOf, TurnTracker, admit, createTurnCoalescer } = require('./channel.ts');
+const { createSpool, spoolDir, takeMessages, removeSpool } = require('./channel-spool.ts');
 const { choiceOf } = require('./model-choice.ts');
 const { readPrompt: readStoredPrompt } = require('./session-prompt.ts');
 const { parserOf, parserIdOf } = require('./parsers.ts');
@@ -76,6 +86,19 @@ const MAIN_SESSION = 'main-session';
 /** 082 IC-014: the bound on each attempt-worktree git read, and the variables it drops (081 REPO_ENV). */
 const EDIT_GIT_TIMEOUT_MS = 10000;
 const REPO_ENV = Object.freeze(['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY']);
+/** 170 §5.2 step 5: a turn waiting this long with no message closes stdin (`idle`). */
+const CHANNEL_IDLE_MS = 30 * 60 * 1000;
+/** 170 D3: the spool poll beside its watch. */
+const SPOOL_POLL_MS = 100;
+/** 170 §5.2 step 4: the longest wait for one record to reach the pipe (else `failed`, `stdin-stalled`). */
+const STDIN_DRAIN_MS = 10000;
+/** IC-002: the ledger keeps its newest entries. */
+const LEDGER_MAX = 128;
+/** Who may send (165 `--via` labels, `manual` for a terminal) and 165's request id. */
+const ACTOR = /^(?:manual|console|device\.d-[0-9a-f]{12})$/;
+const REQUEST_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{21}$/;
+/** A channel write reaches the record in any phase: a canceller may have ended the run before the harness exits. */
+const CHANNEL_PHASES = Object.freeze(['starting', 'running', 'cancelling', 'ended']);
 
 const iso = (clock: () => Date) => clock().toISOString();
 
@@ -368,6 +391,242 @@ function readLastMessage(parser: any, file: string, stateRoot: string): any {
   }
 }
 
+/** IC-002's `channel` as the supervisor first writes it, before the launch (170 §5.2 step 1). */
+function openingChannel() {
+  return {
+    v: 1, state: 'opening', closedReason: null, turn: { observed: false, reason: 'no-event-yet', since: null },
+    sent: { count: 0, bytes: 0, lastAt: null }, ledger: [] as any[],
+  };
+}
+
+/**
+ * 170 §5.2 steps 2 to 6 for one session: `open(prompt)` after `running`, `line(text)` for each stdout line, `exited(run)`
+ * when the harness exits, `finish()` once its streams are drained. Every record write goes through `transition` and
+ * never throws out (the harness keeps its supervisor); turn writes are coalesced (D9). A ledger entry holds the byte
+ * count of the person's text (0 for a stop), never the text. `options`: `now` (the idle clock, ms), `idleMs`, `pollMs`,
+ * `drainMs`, for tests.
+ */
+function channelSide({ file, runId, root, run, compiled, child, clock, options = {} }: any) {
+  const idleMs: number = options.idleMs ?? CHANNEL_IDLE_MS;
+  const pollMs: number = options.pollMs ?? SPOOL_POLL_MS;
+  const drainMs: number = options.drainMs ?? STDIN_DRAIN_MS;
+  const idleNow: () => number = options.now ?? (() => clock().getTime());
+  const ledger: any[] = [];
+  const tracker = new TurnTracker(compiled, () => clock().getTime());
+  let seq = 0;
+  let inflight: number | null = null;
+  let early: { seq: number; answer: string } | null = null;
+  let closing: string | null = null;
+  let quietFrom = idleNow();
+  let pumping = false;
+  let again = false;
+  let watcher: any = null;
+  let poll: any = null;
+
+  const update = (apply: (channel: any) => void) => {
+    try {
+      transition(file, runId, CHANNEL_PHASES, (r: any) => { if (r.channel) apply(r.channel); });
+    } catch {
+      // an unreadable store: the next write carries the state again
+    }
+  };
+  const coalescer = createTurnCoalescer((turn: any) => update((c) => { c.turn = turn; }));
+
+  function append(entry: any) {
+    if (early && early.seq === entry.seq) {
+      if (entry.outcome === 'written') entry.answer = early.answer;
+      early = null;
+    }
+    ledger.push(entry);
+    if (ledger.length > LEDGER_MAX) ledger.splice(0, ledger.length - LEDGER_MAX);
+    update((c) => {
+      c.ledger = [...(Array.isArray(c.ledger) ? c.ledger : []), entry].slice(-LEDGER_MAX);
+      if (entry.outcome === 'written') c.sent = { count: (c.sent?.count ?? 0) + 1, bytes: (c.sent?.bytes ?? 0) + entry.bytes, lastAt: entry.at };
+    });
+  }
+
+  function answered(found: { seq: number; answer: string }) {
+    const entry = ledger.find((e) => e.seq === found.seq);
+    if (!entry) {
+      // The harness may answer before the write's callback ran: kept for the entry in flight only.
+      if (found.seq === inflight) early = found;
+      return;
+    }
+    if (entry.outcome !== 'written' || entry.answer !== null) return;
+    entry.answer = found.answer;
+    update((c) => {
+      const stored = Array.isArray(c.ledger) ? c.ledger.find((e: any) => e?.seq === found.seq) : null;
+      if (stored) stored.answer = found.answer;
+    });
+  }
+
+  function stopWatching() {
+    if (watcher) {
+      try { watcher.close(); } catch { /* closed */ }
+      watcher = null;
+    }
+    if (poll) clearInterval(poll);
+    poll = null;
+  }
+
+  /** Closes the channel once: no message is taken after this, and stdin ends (destroyed after a write error). */
+  function close(reason: string) {
+    if (closing !== null) return;
+    closing = reason;
+    stopWatching();
+    coalescer.flush();
+    update((c) => { c.state = 'closed'; c.closedReason = reason; });
+    const stdin = child.stdin;
+    if (!stdin) return;
+    if (reason === 'write-failed') stdin.destroy();
+    else stdin.end();
+  }
+
+  /** `null` once the record reached the pipe, else the failure reason. */
+  function writeStdin(bytes: Buffer): Promise<string | null> {
+    const stdin = child.stdin;
+    if (!stdin || stdin.destroyed || stdin.writableEnded) return Promise.resolve('channel-closed');
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = (outcome: string | null) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        resolve(outcome);
+      };
+      // Known ceiling: a stalled record stays in the stream's buffer and may still reach the harness after the entry
+      // says failed; the entry records that it was not seen to arrive within the bound.
+      const timer = setTimeout(() => finish('stdin-stalled'), drainMs);
+      try {
+        stdin.write(bytes, (error: any) => finish(error ? 'write-failed' : null));
+      } catch {
+        finish('write-failed');
+      }
+    });
+  }
+
+  /** One message, re-checked here whatever the verb checked: the turn rule (FR-013), D6, then the caps and R-4 in framing. */
+  async function deliver(kind: string, by: string, requestId: string | null, text: string | undefined, waiting: number): Promise<boolean> {
+    seq += 1;
+    const n = seq;
+    const base = { seq: n, kind, by, requestId, at: iso(clock), bytes: typeof text === 'string' ? Buffer.byteLength(text, 'utf8') : 0, answer: null };
+    const fail = (outcome: string, reason: string) => {
+      append({ ...base, outcome, reason });
+      return false;
+    };
+    if (closing !== null) return fail('failed', 'channel-closed');
+    if (kind !== 'first') {
+      const turn = tracker.turn;
+      if (kind !== 'follow-up' && turn.observed && turn.state === 'waiting') return fail('refused', 'not-working');
+      const admitted = admit(ledger, by, kind as any, clock().getTime(), waiting);
+      if (!admitted.ok) return fail('refused', admitted.code);
+    }
+    const framed = frameMessage(compiled, kind as any, { text, id: idOf(n) });
+    if (!framed.ok) return fail('refused', framed.code);
+    inflight = n;
+    const outcome = await writeStdin(framed.record);
+    inflight = null;
+    if (outcome !== null) {
+      fail('failed', outcome);
+      if (outcome === 'write-failed') close('write-failed');
+      return false;
+    }
+    append({ ...base, outcome: 'written', reason: null });
+    quietFrom = idleNow();
+    return true;
+  }
+
+  /** Takes what the spool holds, oldest first, one record at a time. A file the spool refused is already deleted. */
+  async function pump() {
+    if (pumping) {
+      again = true;
+      return;
+    }
+    pumping = true;
+    try {
+      do {
+        again = false;
+        if (closing !== null) return;
+        let taken: any[] = [];
+        try { taken = takeMessages(root, runId); } catch { taken = []; }
+        let waiting = 0;
+        for (const item of taken) {
+          if (!item.ok) continue;
+          const m = item.message;
+          if (!ACTOR.test(m.by) || (m.requestId !== null && !REQUEST_ID.test(m.requestId))) continue;
+          await deliver(m.kind, m.by, m.requestId, m.text, waiting);
+          if (m.kind !== 'stop') waiting += 1;
+        }
+      } while (again);
+    } finally {
+      pumping = false;
+    }
+  }
+
+  function tick() {
+    const turn = tracker.turn;
+    if (closing === null && turn.observed && turn.state === 'waiting' && idleNow() - quietFrom >= idleMs) close('idle');
+    else void pump();
+  }
+
+  return {
+    close,
+    /** Step 2: the stored prompt as the first framed message (seq 1, `by` the starter), then `open` and the spool. */
+    async open(prompt: string) {
+      child.stdin?.on('error', () => close('write-failed'));
+      const written = await deliver('first', typeof run.startedBy === 'string' ? run.startedBy : 'manual', typeof run.request === 'string' ? run.request : null, prompt, 0);
+      if (!written) {
+        close(ledger[ledger.length - 1]?.outcome === 'refused' ? 'first-refused' : 'write-failed');
+        return;
+      }
+      if (closing !== null) return;
+      update((c) => { if (c.state === 'opening') c.state = 'open'; });
+      try {
+        watcher = fs.watch(spoolDir(root, runId), () => { void pump(); });
+        watcher.on('error', () => {});
+      } catch {
+        watcher = null; // the poll alone
+      }
+      poll = setInterval(tick, pollMs);
+      void pump();
+    },
+    /** Step 3: a stdout line; a `working` or `settled` event moves the turn, an answer marks its ledger entry. */
+    line(text: string) {
+      if (text.trimStart()[0] !== '{') return;
+      let event: any;
+      try { event = JSON.parse(text); } catch { return; }
+      const { changed, answer } = tracker.feed(event);
+      if (changed) {
+        const turn = tracker.turn;
+        if (turn.observed && turn.state === 'waiting') quietFrom = idleNow();
+        coalescer.push(turn);
+      }
+      if (answer) answered(answer);
+    },
+    /** Step 6, at the harness's exit: closed with the reason a canceller left, else `harness-exited`. */
+    exited(record: any) {
+      close(record?.cancel?.source === 'timeout' ? 'timeout' : record?.cancel ? 'cancelled' : 'harness-exited');
+    },
+    /** Step 6, once the streams are done: the last turn written, every message left logged failed, the spool removed. */
+    finish() {
+      close('harness-exited');
+      coalescer.flush();
+      let left: any[] = [];
+      try { left = takeMessages(root, runId); } catch { left = []; }
+      for (const item of left) {
+        if (!item.ok || !ACTOR.test(item.message.by)) continue;
+        const m = item.message;
+        seq += 1;
+        append({
+          seq, kind: m.kind, by: m.by, requestId: m.requestId !== null && REQUEST_ID.test(m.requestId) ? m.requestId : null, at: iso(clock),
+          bytes: typeof m.text === 'string' ? Buffer.byteLength(m.text, 'utf8') : 0, outcome: 'failed', reason: 'channel-closed', answer: null,
+        });
+      }
+      try { removeSpool(root, runId); } catch { /* upkeep removes it */ }
+    },
+  };
+}
+
 /**
  * IC-014 steps 1 to 7 for `runId` in the run store `file`. Resolves the run's record as it stands
  * when the supervisor is done. `env`, `cwd` and `platform` default to this process's; `launch`,
@@ -375,7 +634,8 @@ function readLastMessage(parser: any, file: string, stateRoot: string): any {
  */
 async function superviseRun({
   file, runId, env = process.env, cwd = process.cwd(), platform = process.platform, now = () => new Date(),
-  launch = launchWorker, launchMain = launchMainSession, escalate = processTree.escalate, cancel = cancelRun,
+  launch = launchWorker, launchMain = launchMainSession, launchChannel = launchChannelSession, escalate = processTree.escalate, cancel = cancelRun,
+  channel: channelOptions = {},
 }: any) {
   const clock = typeof now === 'function' ? now : () => now;
   const { root, stateRoot, ledger } = rootsFor(file);
@@ -400,6 +660,16 @@ async function superviseRun({
     notStarted('prompt-changed');
     return current();
   }
+  // 170 §5.2: a session started through its control channel; a record that says so with no channel that compiles does not start.
+  const viaChannel = main && run.recipe?.promptVia === 'channel';
+  const compiled = viaChannel ? compileChannel(run.descriptor) : null;
+  if (viaChannel && !compiled) {
+    notStarted('channel-invalid');
+    return current();
+  }
+  const dropSpool = () => {
+    try { removeSpool(root, runId); } catch { /* upkeep removes it */ }
+  };
 
   // Step 2: the before snapshot; for an edit run the caller checkout and the attempt HEAD (082 IC-014).
   let before: any = null;
@@ -418,9 +688,25 @@ async function superviseRun({
   }
 
   // Step 3: `launchingAt`, then the launch. A refused transition means a cancel took the run.
-  const marked = transition(file, runId, ['starting'], (r: any) => { r.launchingAt = iso(clock); });
-  if (!marked.applied) return current();
-  const outputArgv = main ? run.descriptor?.mainSession?.argv : run.descriptor?.structuredOutput?.argv;
+  // 170 §5.2 step 1: a channel session's spool (0700) and `channel.state: 'opening'` come first.
+  if (compiled) {
+    try {
+      createSpool(root, runId);
+    } catch {
+      dropSpool();
+      notStarted('spool-unwritable');
+      return current();
+    }
+  }
+  const marked = transition(file, runId, ['starting'], (r: any) => {
+    r.launchingAt = iso(clock);
+    if (compiled) r.channel = openingChannel();
+  });
+  if (!marked.applied) {
+    dropSpool();
+    return current();
+  }
+  const outputArgv = compiled ? run.descriptor.controlChannel.argv : main ? run.descriptor?.mainSession?.argv : run.descriptor?.structuredOutput?.argv;
   const usesLastMessageFile = Array.isArray(outputArgv) && outputArgv.includes('{lastMessageFile}');
   const lastMessageFile = usesLastMessageFile ? path.join(stateRoot, 'worker-output', `${runId}.last.log`) : undefined;
   let launched: any;
@@ -429,7 +715,9 @@ async function superviseRun({
       fs.mkdirSync(path.dirname(lastMessageFile), { recursive: true });
       fs.rmSync(lastMessageFile, { force: true });
     }
-    launched = main
+    launched = compiled
+      ? await launchChannel({ recipe: run.descriptor, runId, execWorktree: run.execWorktree, env, model: choiceOf(run.binding) })
+      : main
       ? await launchMain({
         recipe: run.descriptor, prompt: promptBytes.toString('utf8'), runId, execWorktree: run.execWorktree, env,
         model: choiceOf(run.binding), ...(lastMessageFile ? { lastMessageFile } : {}),
@@ -441,6 +729,10 @@ async function superviseRun({
         ...(run.binding ? { binding: run.binding } : {}),
       });
   } catch (error: any) {
+    if (compiled) dropSpool();
+    transition(file, runId, ['starting'], (r: any) => {
+      if (r.channel) Object.assign(r.channel, { state: 'closed', closedReason: 'not-started' });
+    });
     notStarted(typeof error?.code === 'string' && error.code ? error.code : 'launch-failed');
     return current();
   }
@@ -467,8 +759,11 @@ async function superviseRun({
     // A cancel took the run after the spawn: end this supervisor's own worker and record it (DEC-040).
     child.stdout?.resume();
     child.stderr?.resume();
+    child.stdin?.destroy();
     const outcome = await escalate({ proc: worker, platform });
+    if (compiled) dropSpool();
     transition(file, runId, ['cancelling', 'ended'], (r: any) => {
+      if (r.channel) Object.assign(r.channel, { state: 'closed', closedReason: 'cancelled' });
       r.supervisorCleanup = {
         at: iso(clock), worker, status: outcome.status ?? 'unknown', reason: outcome.reason ?? null,
         survivors: outcome.survivors ?? [], zombies: outcome.zombies ?? [],
@@ -485,9 +780,15 @@ async function superviseRun({
   // falls back to the launch record's `recipe.parser`, as before.
   const descriptor = run.descriptor ?? {};
   const source = main || parserIdOf(descriptor.structuredOutput) !== null ? descriptor : { structuredOutput: { parser: run.recipe?.parser ?? null } };
-  const parser = parserOf(source, main ? 'main' : 'structured').create();
+  const parser = parserOf(source, compiled ? 'channel' : main ? 'main' : 'structured').create();
+  const side = compiled ? channelSide({ file, runId, root, run, compiled, child, clock, options: channelOptions }) : null;
   const out = createOutputSink({
-    stateRoot, runId, stream: 'stdout', onLine: (text) => parser.line(text), onOversize: (looksJson) => parser.oversize(looksJson),
+    stateRoot, runId, stream: 'stdout',
+    onLine: (text) => {
+      parser.line(text);
+      if (side) side.line(text);
+    },
+    onOversize: (looksJson) => parser.oversize(looksJson),
   });
   const err = createOutputSink({ stateRoot, runId, stream: 'stderr' });
   child.stdout?.on('data', (chunk: Buffer) => out.write(chunk));
@@ -505,6 +806,7 @@ async function superviseRun({
       .then(() => cancel({ file, runId, by: 'doflow-worker', reason: `timeout after ${timeoutSeconds}s`, source: 'timeout', env, cwd, platform }))
       .catch((error: any) => ({ disposition: 'error', reason: error?.code ?? 'cancel-threw' }));
   }, Math.max(0, deadline.getTime() - clock().getTime()));
+  if (side) side.open(promptBytes.toString('utf8')).catch(() => side.close('write-failed'));
 
   // Step 6: the exit and the recorded outcomes. These writes also reach a run a timeout or a cancel
   // already ended, where each field is added only when absent and the end is never touched (DEC-056).
@@ -514,6 +816,11 @@ async function superviseRun({
   };
   const { code, signal } = await exited;
   clearTimeout(timer);
+  if (side) {
+    let record: any = null;
+    try { record = current(); } catch { record = null; }
+    side.exited(record);
+  }
   transition(file, runId, STEP6, (r: any) => put(r, 'process', { kind: 'exited', code, signal, at: iso(clock) }));
   // The group may outlive its leader: end what remains before the after snapshot (DEC-058). The
   // reading is recorded as `process.groupAlive` (false, true or 'unknown'; absent on win32, where no
@@ -534,6 +841,7 @@ async function superviseRun({
   await boundedWait(streamsDone, DRAIN_MS);
   child.stdout?.destroy();
   child.stderr?.destroy();
+  if (side) side.finish();
   const output = { stdout: await out.end(), stderr: await err.end() };
   let readOnly: any = null;
   let isolation: any = null;

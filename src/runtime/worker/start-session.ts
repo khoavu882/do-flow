@@ -12,6 +12,7 @@
 // (2) usage, (3) `project-mismatch` / `project-not-indexed`, (4) `unknown-worktree` / `worktree-gone`,
 // (5) the prompt ids from `preparePrompt`, (6) `harness-not-startable`, (7) `model-not-offered`,
 // (8) `dispatch-running`, (9) under the store lock `checkout-busy`, `actor-limit`, `machine-limit`.
+// A harness whose control channel is supported always starts through it (170 A-2).
 // A request id already in the store is a replay: it is answered right after (3), before the checks
 // that read the machine as it is now, so a retry of a started request returns that run whatever has
 // changed since, and starts nothing; the store lock repeats the check, so two racing requests yield
@@ -41,6 +42,7 @@ const { PARSERS, parserIdOf } = require('./parsers.ts');
 const { workerIdFault } = require('../../registry/worker-ids.ts');
 const { storeFileFor, newRunId, insertRun, transition, readRuns } = require('./run-store.ts');
 const { mainLaunchRecord, STARTED_RUN_VAR } = require('./launch.ts');
+const { compileChannel } = require('./channel.ts');
 const { preparePrompt, writePrompt, ENTRY_LINE, PROMPT_MAX } = require('./session-prompt.ts');
 const processTree = require('./process-tree.ts');
 const { RELAY_LABEL } = require('../relay-label.ts');
@@ -133,9 +135,11 @@ function worktreeGone(main: string, worktreeKey: string): boolean {
  * field map, only when `mainSession.parser` is no `PARSERS` key and names that map's id. A built-in's record stays unchanged.
  */
 function mapPart(worker: any): { structuredOutput?: { fieldMap: any } } {
-  const id = parserIdOf(worker.mainSession);
   const map = worker.structuredOutput?.fieldMap;
-  return typeof id === 'string' && !Object.hasOwn(PARSERS, id) && map?.id === id ? { structuredOutput: { fieldMap: map } } : {};
+  // 170: a channel's parser may name the same map (C5), so either id carries it.
+  const named = [parserIdOf(worker.mainSession), parserIdOf(worker.controlChannel)]
+    .some((id) => typeof id === 'string' && !Object.hasOwn(PARSERS, id) && map?.id === id);
+  return named ? { structuredOutput: { fieldMap: map } } : {};
 }
 
 /** 172 FR-011: the expiry signs the supervisor matches on a started session's failure, only when the worker declares some. */
@@ -223,7 +227,8 @@ function harnessFacts({ harness, worker, reg, view, env, cwd, root, nowMs, platf
   if (runnable?.state !== 'yes') warnings.push('runnable-not-checked');
   if (login.state === 'expired') warnings.push('login-expired');
   else if (login.state === 'unknown') warnings.push('login-unknown');
-  if (ms.promptVia === 'argv') warnings.push('prompt-in-argv');
+  // 170 A-2: a harness with a supported channel takes its prompt as a framed message, never in argv.
+  if (ms.promptVia === 'argv' && compileChannel(worker) === null) warnings.push('prompt-in-argv');
   if (channel.state === 'supported' && !channel.liveVerified) warnings.push('channel-not-verified-live');
   return { harness, startable: true, reason: null, words: `${harness} can start a session here`, warnings, login, version: found.version, liveVerified: liveVerified(harness, ms), channel, found };
 }
@@ -414,7 +419,8 @@ async function startSession(o: any) {
   // Step 5: the prompt, as the harness takes it.
   const blocks = harnessBlocks(reg, descriptors, view);
   const worker = blocks.find((b: any) => b.harness === harness)?.worker ?? null;
-  const promptVia = worker?.mainSession?.promptVia === 'argv' ? 'argv' : 'stdin';
+  const channel = worker ? compileChannel(worker) : null;
+  const promptVia = channel === null && worker?.mainSession?.promptVia === 'argv' ? 'argv' : 'stdin';
   const prepared = preparePrompt(o.readStdin(), { entry, promptVia });
   if (!prepared.ok) return refusal(prepared.code, `the prompt is refused: ${prepared.code}`);
 
@@ -450,12 +456,14 @@ async function startSession(o: any) {
     startedBy, project: { projectKey, worktreeKey }, execWorktree: checkout.path, entry,
     binding: { model, provider, effort, flag: model === null ? null : 'supported', source: choice.source },
     prompt: { store: 'session-prompts', name: `${runId}.prompt.txt`, sha256: prepared.sha256, bytes: prepared.bytes },
-    ...mainLaunchRecord(worker, prepared.sent, model === null ? null : { model, provider, effort }),
+    ...mainLaunchRecord(worker, prepared.sent, model === null ? null : { model, provider, effort }, channel !== null),
     // The detached supervisor launches from the record alone: the binary the version read found (an absolute
     // path, as `run` records), the recipe and the model part.
     // The provider and effort entries ride along only when the choice uses them: the supervisor composes the model part from the record.
     descriptor: {
       cli: { binary: facts.found.path }, mainSession: worker.mainSession, ...mapPart(worker), model: worker.model ?? null, ...signsPart(worker),
+      // 170 IC-002: the channel the supervisor launches through, and for a session without one its reason.
+      ...(worker.controlChannel ? { controlChannel: worker.controlChannel } : {}),
       ...(provider === null ? {} : { provider: worker.provider }), ...(effort === null ? {} : { effort: worker.effort }),
     },
   };

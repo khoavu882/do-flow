@@ -4,7 +4,12 @@
 // `started-sessions.json`: for each started main session, whether it has a control channel, whose turn it is and the
 // newest messages sent. The supervisor writes the facts (`channel.turn`, `channel.sent`, `channel.ledger`, IC-002); this
 // module only reads them, and the one thing it adds is what a record cannot say about itself: a run that has not ended
-// whose supervisor is gone (R-9), which reads `not observed`, `supervisor-gone`, channel or not.
+// whose supervisor is gone (R-9), which reads `not observed`, `supervisor-gone`, channel or not, and whatever its harness
+// does (one that ignores its closed stdin still runs; only the supervisor's own reading says it is gone).
+//
+// A session without a channel says why (T4): its record's `descriptor.controlChannel` is an entry that is not supported
+// (`none`, `no-channel`, with that entry's reason in `words`), or the record has none at all (`started-without-channel`,
+// a session started before row 170). A supported entry with no `channel` yet is a channel still opening.
 //
 // No text field exists in the record and none is copied: an item holds counts, kinds, actors, times and outcomes only.
 // Ceilings: 16 items (open first, newest first), 8 `recent` each. Liveness (`ps`) is read for an open run at most once per
@@ -13,6 +18,7 @@
 
 const { storeFileFor, readRuns } = require('../worker/run-store.ts');
 const { liveness, namingScan, STARTED_SLUG, KIND } = require('../worker/start-session.ts');
+const processTree = require('../worker/process-tree.ts');
 const { sha16 } = require('../scaffold/fingerprint.ts');
 
 const ITEMS = 16;
@@ -27,6 +33,7 @@ const OUTCOMES = ['written', 'refused', 'failed'];
 const ANSWERS = ['accepted', 'refused'];
 const CHANNEL_STATES: Record<string, 'open' | 'closed'> = { opening: 'open', open: 'open', closed: 'closed' };
 const ACTOR_CHARS = 64;
+const WORDS_CHARS = 200;
 
 type Turn = { observed: true; state: 'working' | 'waiting'; since: string; seq: number } | { observed: false; reason: string; since: string | null };
 type Reading = { state: string; at: number; sig: string };
@@ -56,15 +63,24 @@ function recentOf(ledger: unknown): any[] {
   return out.slice(-RECENT).reverse();
 }
 
+/** Why a record holds no usable `channel`: `{ channel, reason, words }` from its descriptor's entry (see the header). */
+function withoutChannel(run: any): { channel: 'open' | 'closed' | 'none'; reason: string; words: string | null } {
+  const entry = run.descriptor?.controlChannel;
+  if (!entry || typeof entry !== 'object') return { channel: 'none', reason: 'started-without-channel', words: null };
+  if (entry.status === 'supported') return run.phase === 'ended' ? { channel: 'closed', reason: 'not-opened', words: null } : { channel: 'open', reason: 'opening', words: null };
+  return { channel: 'none', reason: 'no-channel', words: typeof entry.reason === 'string' ? entry.reason.slice(0, WORDS_CHARS) : null };
+}
+
 /** One item of IC-004 from a run record and the supervisor liveness read for it (`null` when none was read). */
 function itemOf(run: any, alive: string | null): any {
   const channel = run.channel && typeof run.channel === 'object' ? run.channel : null;
   const state = channel ? CHANNEL_STATES[channel.state] : undefined;
+  const missing = !channel || state === undefined ? withoutChannel(run) : null;
   const ended = run.phase === 'ended';
   let turn: Turn;
   if (ended) turn = gone('run-ended', isoOf(run.end?.at));
-  else if (alive === 'dead') turn = gone('supervisor-gone');
-  else if (!channel || state === undefined) turn = gone('started-without-channel');
+  else if (alive === 'dead' || alive === 'supervisor-gone') turn = gone('supervisor-gone');
+  else if (missing) turn = missing.channel === 'none' ? gone(missing.reason) : gone('no-event-yet');
   else if (state === 'closed') turn = gone('channel-closed');
   else turn = turnOf(channel.turn);
   const sent = channel?.sent;
@@ -72,14 +88,23 @@ function itemOf(run: any, alive: string | null): any {
     runId: run.runId,
     agentKey: sha16(`worker:${run.runId}`), // as the start reply's run and the tree name it
     harness: typeof run.harness === 'string' ? run.harness : null,
-    channel: state ?? 'none',
-    reason: !channel || state === undefined ? 'started-without-channel'
+    channel: missing ? missing.channel : state,
+    reason: missing ? missing.reason
       : state === 'closed' ? (typeof channel.closedReason === 'string' ? channel.closedReason.slice(0, 64) : null)
         : channel.state === 'opening' ? 'opening' : null,
+    words: missing ? missing.words : null,
     turn,
     sent: { count: count(sent?.count), lastAt: isoOf(sent?.lastAt) },
     recent: recentOf(channel?.ledger),
   };
+}
+
+/** The reading of one open run: `supervisor-gone` when its recorded supervisor is seen gone (R-9, whatever its harness
+ * still does), else `liveness`'s `live`, `dead` or `unknown`. */
+function readingOf(run: any, platform: string, now: number, named: (runId: string) => string): string {
+  const supervisor = run.supervisor ? processTree.alive(run.supervisor, { platform }) : 'unknown';
+  if (supervisor === false) return 'supervisor-gone';
+  return supervisor === true ? 'live' : liveness(run, platform, now, named);
 }
 
 /**
@@ -102,7 +127,7 @@ function channelsBody({ root, now, platform = process.platform, cache, fsImpl }:
     .sort((a, b) => (cache.get(a.runId)?.at ?? 0) - (cache.get(b.runId)?.at ?? 0)).slice(0, LIVENESS_READS);
   if (due.length > 0) {
     const named = namingScan(platform);
-    for (const run of due) cache.set(run.runId, { state: liveness(run, platform, now, named), at: now, sig: sigOf(run) });
+    for (const run of due) cache.set(run.runId, { state: readingOf(run, platform, now, named), at: now, sig: sigOf(run) });
   }
   const items = shown.map((run) => {
     const held = run.phase === 'ended' ? undefined : cache.get(run.runId);

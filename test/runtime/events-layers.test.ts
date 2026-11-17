@@ -717,11 +717,34 @@ test('170 T7: channels lists a started session as open/working, a dead superviso
   assert.deepEqual(by[id(3)].recent, []);
   assert.deepEqual([by[id(2)].channel, by[id(2)].turn.reason], ['none', 'supervisor-gone'], 'R-9: no channel and a dead supervisor');
   assert.deepEqual(by[id(1)].turn, { observed: false, reason: 'run-ended', since: at(9000) });
+  assert.equal(by[id(3)].words, null, 'a record with no channel entry carries no words');
   writeStarted(a, [startedRun(6, { phase: 'cancelling', channel: channelBlock({ state: 'closed', closedReason: 'stdin-closed' }) })]);
   const [shut] = (await channelsOf(f, a)).json.items;
   assert.deepEqual([shut.channel, shut.reason, shut.turn], ['closed', 'stdin-closed', { observed: false, reason: 'channel-closed', since: null }]);
-  for (const item of items) assert.deepEqual(Object.keys(item), ['runId', 'agentKey', 'harness', 'channel', 'reason', 'turn', 'sent', 'recent']);
+  for (const item of items) assert.deepEqual(Object.keys(item), ['runId', 'agentKey', 'harness', 'channel', 'reason', 'words', 'turn', 'sent', 'recent']);
   assert.ok(!JSON.stringify(section.json).includes(SENTINEL), 'no text field of the record is copied');
+});
+
+test('170 T4: a session whose descriptor has an unsupported channel reads none/no-channel with its reason; one whose harness outlives its supervisor reads supervisor-gone', async (t) => {
+  const f = fixture(t);
+  const a = project(f, 'proj-noch');
+  const dead = deadProc();
+  const supported = { status: 'supported', argv: ['--mode', 'rpc'] };
+  writeStarted(a, [
+    startedRun(4, { descriptor: { controlChannel: { status: 'unknown', reason: 'no channel mode is documented for this harness '.repeat(8) } } }),
+    startedRun(3, { supervisor: dead, worker: aliveProc(), descriptor: { controlChannel: supported }, channel: channelBlock() }),
+    startedRun(2, { descriptor: { controlChannel: supported } }),
+    startedRun(1, { phase: 'ended', end: { state: 'exited', at: at(9000) }, descriptor: { controlChannel: supported } }),
+  ]);
+  const { items } = (await channelsOf(f, a)).json;
+  const by = Object.fromEntries(items.map((x: any) => [x.runId.slice(-1), x]));
+  assert.deepEqual([by['4'].channel, by['4'].reason, by['4'].turn], ['none', 'no-channel', { observed: false, reason: 'no-channel', since: null }]);
+  assert.equal(by['4'].words.length, 200, 'the descriptor reason is bounded');
+  assert.ok(by['4'].words.startsWith('no channel mode is documented'));
+  // R-9: a harness that ignored its closed stdin still runs; its supervisor is gone, so the turn is not observed.
+  assert.deepEqual([by['3'].channel, by['3'].turn], ['open', { observed: false, reason: 'supervisor-gone', since: null }]);
+  assert.deepEqual([by['2'].channel, by['2'].reason, by['2'].words, by['2'].turn.reason], ['open', 'opening', null, 'no-event-yet'], 'a supported channel not yet written is opening');
+  assert.deepEqual([by['1'].channel, by['1'].reason, by['1'].turn.reason], ['closed', 'not-opened', 'run-ended']);
 });
 
 test('170 T7: channels shows at most 16 items and 8 recent each, newest first, a missing store as no items and an unreadable one as a failed section', async (t) => {
