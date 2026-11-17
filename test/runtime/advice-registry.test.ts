@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp.ts');
-const { loadAdviceRegistry } = require('../../src/runtime/advice/registry.ts');
+const { loadAdviceRegistry, validateAdviceRegistry } = require('../../src/runtime/advice/registry.ts');
 const { buildPackage } = require('../../src/release/build-package.ts');
 
 const REPO = path.resolve(__dirname, '../..');
@@ -287,3 +287,32 @@ for (const [index, kind] of validRegistry().kinds.entries()) {
 expectInvalid('shadowSlots missing', 'shadowSlots', (r: any) => { delete r.shadowSlots; });
 expectInvalid('shadowSlots zero', 'shadowSlots', (r: any) => { r.shadowSlots = 0; });
 expectInvalid('shadowSlots fraction', 'shadowSlots', (r: any) => { r.shadowSlots = 1.5; });
+
+// ── row 174 L-2: removedSettings is validated, and no key in it is still declared in settings.json ──
+
+test('row 174 L-2: the shipped removedSettings are five distinct advice. keys, none declared in settings.json', () => {
+  const removed: string[] = validRegistry().removedSettings;
+  assert.equal(removed.length, 5);
+  assert.equal(new Set(removed).size, 5);
+  const declared = Object.keys(JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/settings.json'), 'utf8')).keys);
+  assert.deepEqual(removed.filter((key) => declared.includes(key)), []);
+  const result = loadAdviceRegistry({ repoRoot: REPO });
+  assert.equal(result.ok, true, result.detail);
+});
+
+expectInvalid('removedSettings missing', 'removedSettings', (r: any) => { delete r.removedSettings; });
+expectInvalid('removedSettings not an array', 'removedSettings', (r: any) => { r.removedSettings = 'advice.kinds.rerank'; });
+expectInvalid('an empty removedSettings entry', 'removedSettings[1]', (r: any) => { r.removedSettings[1] = ''; });
+expectInvalid('a removedSettings entry that is not a string', 'removedSettings[0]', (r: any) => { r.removedSettings[0] = 7; });
+expectInvalid('a removedSettings entry outside advice.', 'removedSettings[2]', (r: any) => { r.removedSettings[2] = 'review.depth'; });
+expectInvalid('a duplicate removedSettings entry', 'removedSettings[1]', (r: any) => { r.removedSettings[1] = r.removedSettings[0]; });
+expectInvalid('a removedSettings entry settings.json still declares', 'removedSettings[0]', (r: any) => { r.removedSettings[0] = 'advice.kinds.tier'; });
+
+test('row 174 L-2: the declared-key check reads the settings registry it is given', () => {
+  const registry = validRegistry();
+  const key = registry.removedSettings[0];
+  const withKey = validateAdviceRegistry(registry, { repoRoot: REPO, settings: { keys: { [key]: {} } } });
+  assert.equal(withKey.ok, false);
+  assert.match(withKey.errors.join('; '), /removedSettings\[0\] names 'advice\.kinds\.rerank', which core\/registry\/settings\.json still declares/);
+  assert.equal(validateAdviceRegistry(registry, { repoRoot: REPO, settings: { keys: {} } }).ok, true);
+});
