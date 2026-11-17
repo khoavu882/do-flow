@@ -16,6 +16,7 @@ const { resolveShadowConfig } = require('./shadow-config.ts');
 const { profileAdvisorCap, capMode } = require('./mode.ts');
 const { materializeKind, validateQuestionSet, validateStaticAnswer } = require('./kinds.ts');
 const { findPick, appendOutcome } = require('./record.ts');
+const { removedKeyDiagnostics } = require('./retired.ts');
 const { strengthWords } = require('./strength.ts');
 const { buildReport, renderText } = require('./report.ts');
 const { inWorkerSession } = require('../context/identity.ts');
@@ -40,12 +41,17 @@ function loadRuntime({ projectRoot, global = false }: any = {}) {
   return { adviceRegistry, adviceError: advice.ok ? null : advice.detail, storage, roots, sources, projectLayers };
 }
 
-function emitResult(result: any, { json, kind }: any) {
+/** The JSON body of a response, with the removed-setting diagnostics (retired.ts) in `warnings` when there are any. */
+function jsonBody(value: any, options: any) {
+  return JSON.stringify(options?.warnings?.length ? { ...value, warnings: options.warnings } : value, null, 2);
+}
+
+function emitResult(result: any, { json, kind, warnings }: any) {
   if (result.reason === 'over-limit') {
     return usageError('advise', result.detail || 'request exceeds an advice limit', json);
   }
   if (json) {
-    console.log(JSON.stringify(result, null, 2));
+    console.log(jsonBody(result, { warnings }));
   } else if (result.status === 'answered') {
     for (const answer of result.answers) {
       const staticText = answer.staticAnswer === null ? '' : ` Static answer: ${answer.staticAnswer}.`;
@@ -171,7 +177,7 @@ async function handleConfigure(options: any, runtime: any) {
   const discloseWrite = (setting: any) => {
     const result: any = { written: file, setting };
     if (inheritedFromMain) result.inheritedFromMainCheckout = true;
-    if (json) console.log(JSON.stringify(result, null, 2));
+    if (json) console.log(jsonBody(result, options));
     else if (inheritedFromMain) console.log(`(inherited from the main checkout)`);
   };
   if (hasOff) {
@@ -225,7 +231,7 @@ async function handleAsk(options: any, runtime: any) {
       status: 'off', reason: 'config-invalid', detail: adviceError || 'advice registry is missing',
       provider: null, model: null, endpoint: null, decidedBy: { user: null, project: null }, durationMs: 0, answers: [],
     };
-    return emitResult(result, { json: options.json, kind: options.kind || 'adhoc' });
+    return emitResult(result, { json: options.json, kind: options.kind || 'adhoc', warnings: options.warnings });
   }
 
   let kind = 'adhoc';
@@ -255,7 +261,7 @@ async function handleAsk(options: any, runtime: any) {
   const result = await askThroughDispatcher({
     options, runtime, parsed, questionSet, kind, questionError,
   });
-  return emitResult(result, { json: options.json, kind });
+  return emitResult(result, { json: options.json, kind, warnings: options.warnings });
 }
 
 /** The shape client.ask returns, for an ask that made no model call (off, or shadow where the child asks). */
@@ -332,7 +338,7 @@ function handleOutcome(options: any, runtime: any) {
     pickId: options.pickId, actual: options.actual, source: 'caller', roots: runtime.roots, store: found.store,
   });
   if (!written) return writeFailure(`could not record outcome for ${options.pickId}`, json);
-  if (json) console.log(JSON.stringify({ pickId: options.pickId, actual: options.actual, recorded: true, file: written.file }, null, 2));
+  if (json) console.log(jsonBody({ pickId: options.pickId, actual: options.actual, recorded: true, file: written.file }, options));
   else console.log(`Recorded outcome ${options.actual} for ${options.pickId}.`);
   return finishRuntime(0);
 }
@@ -347,7 +353,7 @@ function handleReport(options: any, runtime: any) {
     return usageError('advise', `unknown --kind '${options.kind}'; known kinds: ${ids.join(', ')}`, json);
   }
   const report = buildReport({ roots, kinds: ids, kind: options.kind ?? null, global: options.global === true });
-  console.log(json ? JSON.stringify(report, null, 2) : renderText(report));
+  console.log(json ? jsonBody(report, options) : renderText(report));
   return finishRuntime(0);
 }
 
@@ -363,7 +369,10 @@ async function handleAdviseCommand(options: any = {}) {
   try {
     const projectRoot = options.global ? null : path.resolve(options.projectRoot || process.cwd());
     const runtime = loadRuntime({ projectRoot, global: options.global });
-    const shaped = { ...options, projectRoot };
+    // A removed setting key still in a settings file: said once on stderr in text mode, in `warnings` of the JSON body in --json.
+    const warnings = removedKeyDiagnostics(runtime.roots, runtime.adviceRegistry);
+    if (!options.json) for (const line of warnings) console.error(`advise: ${line}`);
+    const shaped = { ...options, projectRoot, warnings };
     if (action === 'configure') return await handleConfigure(shaped, runtime);
     if (action === 'outcome') return handleOutcome(shaped, runtime);
     if (action === 'report') return handleReport(shaped, runtime);

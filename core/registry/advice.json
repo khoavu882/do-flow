@@ -5,6 +5,7 @@
   "shadowSlots": 4,
   "probeTimeoutMs": 1500,
   "doctorBudgetMs": 6000,
+  "removedSettings": ["advice.kinds.rerank", "advice.models.rerank", "advice.criteria.rerank", "advice.kinds.followup-triage", "advice.models.followup-triage"],
   "limits": {
     "maxStateBytes": 49152,
     "maxBodyBytes": 61440,

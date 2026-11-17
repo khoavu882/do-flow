@@ -699,7 +699,7 @@ Failure capture also reads `failure.capture` from `<config home>/settings.json` 
 
 `advice.kinds.claim-support` takes `off`, `shadow` or `act`. Unset records in shadow when a decision model is configured and makes no call otherwise, and an invalid value is off. The kind is held at `shadow`: a value of `act` is accepted and runs as `shadow` with a warning (see [The evidence path](#the-evidence-path)). The advice setting must be on, and the kind needs a decision model. `advice.models.claim-support` names the model for that kind; unset uses `advice.model`. What the kind records, and what `doflow advise --action report` shows, is under [Decision model](#decision-model-report-evidence-and-shadow-kinds).
 
-The `rerank` kind has no setting and no runtime caller: `retrieve` makes no decision-model call, and the kind stays in `core/registry/advice.json` only so that `bench advice-gate --kind rerank` can measure it (see [Rerank, offline only](#rerank-offline-only)).
+The `rerank` kind has no setting and no runtime caller: `retrieve` makes no decision-model call, and the kind stays in `core/registry/advice.json` only so that `bench advice-gate --kind rerank` can measure it (see [Rerank, offline only](#rerank-offline-only)). A user or project `settings.json` that still holds a removed key (`advice.kinds.rerank`, `advice.models.rerank`, `advice.criteria.rerank`, `advice.kinds.followup-triage` or `advice.models.followup-triage`) is told so: `doflow advise` prints one line per key on stderr, or lists them in `warnings` with `--json`, and `doflow doctor` lists them under the decision model. The key is ignored; delete it.
 
 ## Decision model: report, evidence and shadow kinds
 
