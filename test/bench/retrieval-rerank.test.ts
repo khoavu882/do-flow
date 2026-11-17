@@ -129,7 +129,7 @@ function run(t: any, { items, client, arm, write = false, verdicts = EMPTY, extr
   const clientUsed = client ?? fakeClient({ items });
   return adviceGate({
     kind: 'rerank', arm, write, adviceRegistry: REGISTRY, setting: SETTING, client: clientUsed, registryDir: reg.dir,
-    criteriaValue: null, firstStage: () => ({ items, snapshotId: 1, tasksSha256: SHA }),
+    firstStage: () => ({ items, snapshotId: 1, tasksSha256: SHA }),
     now: () => new Date('2026-11-06T00:00:00.000Z'), log: (s: string) => out.push(s), error: (s: string) => err.push(s),
     ...extra,
   }).then((result: any) => ({ ...result, out, err, reg, client: clientUsed }));
@@ -225,29 +225,17 @@ test('a task with no judged positive is excluded from quality and listed; a task
   assert.equal(result.client.calls.length, 66);
 });
 
-test('the verdict is bound to the criteria in force: the digest comes from resolveRerankCriteria', async (t) => {
+test('the verdict is bound to the criteria in force: the digest comes from resolveRerankCriteria, the registry text only', async (t) => {
   const items = syntheticItems(30);
-  const registryCriteria = resolveRerankCriteria({ value: null, kind: RERANK });
+  const registryCriteria = resolveRerankCriteria({ kind: RERANK });
   const base = await run(t, { items, arm: 'both' });
   assert.equal(base.verdicts.every((v: any) => v.criteriaDigest === registryCriteria.digest), true);
+  assert.equal(base.out.some((line: string) => /^criteria: /.test(line)), false, 'no criteria warning: nothing overrides the registry text');
 
-  const custom = [
-    'Not related.', 'Same topic only.', 'Part of the answer.', 'Nearly all of the answer.', 'The whole answer.', 'Pick the best passage.',
-  ].join('\n');
-  const overridden = await run(t, { items, arm: 'both', extra: { criteriaValue: custom } });
-  const expected = resolveRerankCriteria({ value: custom, kind: RERANK });
-  assert.equal(expected.source, 'settings');
-  assert.notEqual(expected.digest, registryCriteria.digest);
-  assert.equal(overridden.verdicts.every((v: any) => v.criteriaDigest === expected.digest), true);
-  // The texts in force reach the questions: the choice instruction on the choice arm, the ladder on the ladder arm.
-  const choiceCall = overridden.client.calls.find((c: any) => c.questionSet.questions.length === 1);
-  assert.equal(choiceCall.questionSet.questions[0].instructions, 'Pick the best passage.');
-  const ladderCall = overridden.client.calls.find((c: any) => c.questionSet.questions.length > 1);
-  assert.deepEqual(ladderCall.questionSet.questions[0].criteria.slice(0, 2), ['Not related.', 'Same topic only.']);
-
-  const invalid = await run(t, { items, arm: 'ladder', extra: { criteriaValue: 'one line only' } });
-  assert.equal(invalid.verdicts[0].criteriaDigest, registryCriteria.digest, 'an invalid override leaves the registry text and its digest in force');
-  assert.match(invalid.out[0], /criteria: advice\.criteria\.rerank has 1 lines/);
+  const choiceCall = base.client.calls.find((c: any) => c.questionSet.questions.length === 1);
+  assert.equal(choiceCall.questionSet.questions[0].instructions, RERANK.instructions);
+  const ladderCall = base.client.calls.find((c: any) => c.questionSet.questions.length > 1);
+  assert.deepEqual(ladderCall.questionSet.questions[0].criteria, RERANK.scoreLadder.criteria);
 });
 
 test('--write stores one verdict per (kind, model, arm) in a temp registry, replacing only its own entries', async (t) => {

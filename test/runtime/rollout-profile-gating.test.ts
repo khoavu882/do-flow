@@ -10,7 +10,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp.ts');
 const { interceptDecisionPoint } = require('../../src/runtime/advice/shadow-dispatcher.ts');
-const { profileAdvisorCap, capMode, unsetKindPath } = require('../../src/runtime/advice/mode.ts');
+const { profileAdvisorCap, capMode } = require('../../src/runtime/advice/mode.ts');
 
 /** A project with optional settings and an env whose user settings home is empty. */
 function project(t: any, { settings }: any = {}) {
@@ -60,22 +60,21 @@ for (const [name, c] of Object.entries(CASES) as any) {
   });
 }
 
-// 084 C-6 (D2): the profile's cap as mode.ts reads it from the project, for a set kind (configured act) and an unset one.
+// 084 C-6 (D2): the profile's cap as mode.ts reads it from the project, for a configured act.
 const CAP_CASES: any = {
-  'no profile (registry default)': { cap: null, setAct: 'act', unset: 'legacy' },
-  'settings rollout.profile baseline': { settings: { rollout: { profile: 'baseline' } }, cap: 'off', setAct: 'off', unset: 'off' },
-  'env DOFLOW_ROLLOUT_PROFILE=baseline': { env: { DOFLOW_ROLLOUT_PROFILE: 'baseline' }, cap: 'off', setAct: 'off', unset: 'off' },
-  'invalid profile value': { settings: { rollout: { profile: 'bogus' } }, cap: 'off', setAct: 'off', unset: 'off' },
-  'settings rollout.profile canary': { settings: { rollout: { profile: 'canary' } }, cap: 'shadow', setAct: 'shadow', unset: 'shadow' },
-  'settings rollout.profile staged': { settings: { rollout: { profile: 'staged' } }, cap: 'staged', setAct: 'shadow', unset: 'shadow' },
-  'settings rollout.profile full': { settings: { rollout: { profile: 'full' } }, cap: 'act', setAct: 'act', unset: 'legacy' },
+  'no profile (registry default)': { cap: null, setAct: 'act' },
+  'settings rollout.profile baseline': { settings: { rollout: { profile: 'baseline' } }, cap: 'off', setAct: 'off' },
+  'env DOFLOW_ROLLOUT_PROFILE=baseline': { env: { DOFLOW_ROLLOUT_PROFILE: 'baseline' }, cap: 'off', setAct: 'off' },
+  'invalid profile value': { settings: { rollout: { profile: 'bogus' } }, cap: 'off', setAct: 'off' },
+  'settings rollout.profile canary': { settings: { rollout: { profile: 'canary' } }, cap: 'shadow', setAct: 'shadow' },
+  'settings rollout.profile staged': { settings: { rollout: { profile: 'staged' } }, cap: 'staged', setAct: 'shadow' },
+  'settings rollout.profile full': { settings: { rollout: { profile: 'full' } }, cap: 'act', setAct: 'act' },
 };
 for (const [name, c] of Object.entries(CAP_CASES) as any) {
-  test(`084 C-6 mode: ${name} caps a configured act to ${c.setAct} and routes an unset kind to ${c.unset}`, (t) => {
+  test(`084 C-6 mode: ${name} caps a configured act to ${c.setAct}`, (t) => {
     const p = project(t, c);
     const cap = profileAdvisorCap({ projectRoot: p.root, env: { ...p.env, ...(c.env || {}) } });
     assert.equal(cap, c.cap);
     assert.equal(capMode(cap, 'act'), c.setAct);
-    assert.equal(unsetKindPath(cap), c.unset);
   });
 }

@@ -1,6 +1,9 @@
 'use strict';
 
-// G30 — decision-model advice cannot leak into hooks, dependencies or unsafe runtime modules.
+// G30 — decision-model advice cannot leak into hooks, dependencies or unsafe runtime modules. The one child process the
+//       advice folder may start is the detached shadow call (row 174 O-2): `child_process` is allowed only in
+//       shadow-dispatcher.ts, and there only as `spawn(process.execPath, [RUNNER, handoff], ...)` with RUNNER the shadow-runner beside it,
+//       named with the dispatcher's own extension so it resolves in the published `.js` package too (G30.3). The detached child is why record.ts and the hooks stay free of it too.
 // G31 — advice corpus and tier criteria remain synchronized with their source registries, and every registered
 //       advice kind has a call site that still exists, outside comments and prose: asked by a runtime verb, or an
 //       `advise --kind` step in a bash block of a skill with an `advise --action outcome` line beside it (G31.4).
@@ -66,8 +69,47 @@ function checkG30Dependencies({ files }: any): any {
   return findings;
 }
 
+const SHADOW_DISPATCHER = 'src/runtime/advice/shadow-dispatcher.ts';
+
+/** Blanks comments, keeping every newline, so a regex over the result still reports the source line. */
+function blankComments(text: string): string {
+  return text.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' ')).replace(/\/\/[^\n]*/g, (m) => ' '.repeat(m.length));
+}
+
+/** The one spawn shadow-dispatcher.ts may hold: spawn(process.execPath, [RUNNER, handoff], ...), no shell, no exec*, no fork. */
+function checkShadowSpawn(file: string, text: string): any {
+  const code = blankComments(text);
+  const lineAt = (index: number) => code.slice(0, index).split('\n').length;
+  const findings: any = [];
+  const importMatch = code.match(/const\s*\{([^}]*)\}\s*=\s*require\s*\(\s*(['"])(?:node:)?child_process\2\s*\)/);
+  if (!importMatch || importMatch[1].trim() !== 'spawn') {
+    findings.push(`${file}:${importMatch ? lineAt(importMatch.index as number) : 1} must import exactly { spawn } from child_process`);
+  }
+  const calls = [...code.matchAll(/\bspawn\s*\)?\s*\(\s*([^,()]+?)\s*,\s*(\[[^\]]*\])/g)];
+  const callCount = [...code.matchAll(/\bspawn\s*\)?\s*\(/g)].length;
+  if (callCount !== 1 || calls.length !== 1) findings.push(`${file}:1 must hold exactly one spawn call (found ${callCount})`);
+  for (const call of calls) {
+    if (call[1] !== 'process.execPath' || call[2].replace(/\s+/g, '') !== '[RUNNER,handoff]') {
+      findings.push(`${file}:${lineAt(call.index as number)} the only spawn is spawn(process.execPath, [RUNNER, handoff], ...)`);
+    }
+  }
+  if (!/const RUNNER = path\.join\(__dirname, `shadow-runner\$\{path\.extname\(__filename\)\}`\);/.test(code)) {
+    findings.push(`${file}:1 RUNNER must be path.join(__dirname, \`shadow-runner\${path.extname(__filename)}\`)`);
+  }
+  for (const match of code.matchAll(/\b(?:exec|execSync|execFile|execFileSync|spawnSync|fork)\s*\(|\bshell\s*:/g)) {
+    findings.push(`${file}:${lineAt(match.index as number)} '${match[0].replace(/\s*\($/, '')}' is not permitted: only a plain spawn of the runner`);
+  }
+  return findings;
+}
+
 function checkG30Requires({ files }: any) {
   const findings: any = [];
+  const importPattern = /(?:require\s*\(|\bfrom\b|\bimport\s*\()\s*(['"])(?:node:)?child_process\1/;
+  for (const hit of pathLines(files, (file: any) => file.startsWith('src/runtime/advice/') && file !== SHADOW_DISPATCHER)) {
+    if (importPattern.test(hit.text)) findings.push(`${hit.file}:${hit.line} child_process is allowed only in ${SHADOW_DISPATCHER}`);
+  }
+  const dispatcher = getFile(files, SHADOW_DISPATCHER);
+  if (dispatcher !== undefined) findings.push(...checkShadowSpawn(SHADOW_DISPATCHER, dispatcher));
   const requirePattern = /require\s*\(\s*(['"])(?:node:)?(http|https|dns|net|child_process)\1\s*\)/g;
   for (const hit of pathLines(files, (file: any) => file.startsWith('src/runtime/advice/'))) {
     for (const match of hit.text.matchAll(requirePattern)) {
@@ -75,7 +117,8 @@ function checkG30Requires({ files }: any) {
       const base = hit.file.slice('src/runtime/advice/'.length);
       const provider = /^providers\/[^/]+\.(?:js|ts)$/.test(base);
       let allowed = true;
-      if (['net', 'child_process'].includes(moduleName)) allowed = false;
+      if (moduleName === 'child_process') continue; // judged above, per file
+      if (moduleName === 'net') allowed = false;
       else if (['record', 'config'].includes(base.replace(/\.(?:js|ts)$/, ''))) allowed = false;
       else if (['http', 'https'].includes(moduleName)) allowed = base.replace(/\.(?:js|ts)$/, '') === 'client' || provider;
       else if (moduleName === 'dns') allowed = base.replace(/\.(?:js|ts)$/, '') === 'endpoint-guard';
@@ -190,20 +233,18 @@ function checkG31TierText({ files }: any): any {
   return findings;
 }
 
-// G31.4 — every registered advice kind has a call site that still exists. Comments never count.
+// G31.4 — every registered advice kind that something asks has a call site that still exists. Comments never count.
 //  - A runtime-asked kind names the verb that asks it: that source file must, outside comments, ask advice for the kind
 //    (`ask`) and, where the verb records the outcome (`outcome`), record it. `review-depth` records no outcome today
-//    (`review start` returns no pick id; its dispatcher path writes the pick line only, and its unset-kind path
-//    writes nothing), so it has `outcome: null`; a skill step cannot close that gap, and the day the verb records
+//    (`review start` returns no pick id; its dispatcher path writes the pick line only), so it has `outcome: null`; a skill step cannot close that gap, and the day the verb records
 //    one this entry must say so.
 //  - Every other kind needs an `advise --kind <id>` line inside a fenced bash block of a SKILL.md or reference, with an
 //    `advise --action outcome` line in the same block or in the next bash block of that file, if that block asks nothing itself. Prose, shell comments and
 //    HTML comments do not count. A new kind lands in one of the two places, or this fails.
 const RUNTIME_ASKED: any = {
-  'task-class': { caller: 'classify', file: 'src/runtime/task-classifier.ts', outcome: /\bappendOutcome\(/ },
+  // Row 174 O-6: classify records no task-class outcome; the class the workflow ran under is not linked to the pick.
+  'task-class': { caller: 'classify', file: 'src/runtime/task-classifier.ts', outcome: null },
   'review-depth': { caller: 'review', file: 'src/runtime/review/start.ts', outcome: null },
-  // 141 B.5: the detached shadow hook of `retrieve` asks it; no ground truth exists at the call site, so no outcome.
-  rerank: { caller: 'retrieve', file: 'src/runtime/knowledge/retrieval.ts', outcome: null },
   // 141 D.3: the detached shadow hook of `claim --action link` asks it; the recorded relation is the static answer, so no outcome line.
   'claim-support': { caller: 'claim', file: 'src/runtime/claims.ts', outcome: null },
 };
@@ -241,6 +282,8 @@ function checkG31CallSites({ files, docs }: any): any {
     .filter(([file]: any) => /(?:^|\/)SKILL\.md$|\/references\/[^/]+\.md$/.test(file))
     .map(([file, text]: any) => ({ file, blocks: bashBlocks(text) }));
   for (const kind of registry.kinds) {
+    // A kind nothing asks (an empty askedBy, `rerank`: measured offline by `bench advice-gate`) has no call site to keep.
+    if (kind.askedBy.length === 0) continue;
     const runtime = RUNTIME_ASKED[kind.id];
     if (runtime) {
       if (!kind.askedBy.includes(runtime.caller)) findings.push(`${kind.id}: askedBy must name '${runtime.caller}'`);
@@ -351,6 +394,39 @@ test('G30.3 controls: rejects forbidden record/config placements and permits app
   assert.ok(findings.some((finding: any) => finding.includes('src/runtime/advice/providers/process.js:1')));
   assert.equal(findings.length, 6);
 });
+test('G30.3 controls: child_process is allowed only in shadow-dispatcher.ts, and there only as the spawn of the runner', () => {
+  const dispatcher = 'src/runtime/advice/shadow-dispatcher.ts';
+  const good = [
+    "const { spawn } = require('node:child_process');",
+    'const RUNNER = path.join(__dirname, `shadow-runner${path.extname(__filename)}`);',
+    '// exec(...) and spawn(other, [x]) in a comment are not code',
+    'const child = (services.spawn || spawn)(process.execPath, [RUNNER, handoff], { detached: true });',
+    '',
+  ].join('\n');
+  const run = (extra: any) => checkG30Requires({ files: new Map(Object.entries(extra)) });
+  assert.deepEqual(run({ [dispatcher]: good }), [], 'the approved spawn passes');
+  const other = run({ [dispatcher]: good, 'src/runtime/advice/client.ts': "const cp = require('node:child_process');\n" });
+  assert.deepEqual(other.map((f: any) => f.split(' ')[0]), ['src/runtime/advice/client.ts:1']);
+  assert.ok(run({ 'src/runtime/advice/shadow-runner.ts': "import { spawn } from 'child_process';\n" }).length === 1, 'an import form of child_process elsewhere');
+  const rejected: Record<string, string> = {
+    'a second spawn of another command': good + "spawn('git', ['status']);\n",
+    'a different first argument': good.replace('process.execPath', "'node'"),
+    'a different second argument': good.replace('[RUNNER, handoff]', "['other.js']"),
+    'an argument more': good.replace('[RUNNER, handoff]', "[RUNNER, handoff, '--eval']"),
+    'the runner alone': good.replace('[RUNNER, handoff]', '[RUNNER]'),
+    'a shell option': good.replace('detached: true', 'shell: true'),
+    'exec': good + "exec('ls');\n",
+    'execFileSync': good + "execFileSync('ls');\n",
+    'spawnSync': good + "spawnSync('ls', []);\n",
+    'a wider import': good.replace('{ spawn }', '{ spawn, exec }'),
+    'a RUNNER elsewhere': good.replace('`shadow-runner${', '`../elsewhere${'),
+    'a RUNNER with a fixed extension': good.replace('`shadow-runner${path.extname(__filename)}`', "'shadow-runner.ts'"),
+  };
+  for (const [name, text] of Object.entries(rejected)) {
+    assert.ok(run({ [dispatcher]: text }).length > 0, `${name} must fail`);
+  }
+  assert.ok(run({ [dispatcher]: good + "spawn('git', ['status']);\n" })[0].startsWith(`${dispatcher}:`), 'findings carry file:line');
+});
 test('G30.4: shipped providers contain no write routes or server start', () => {
   assert.deepEqual(checkG30ProviderRoutes({ files: shipped }), []);
 });
@@ -437,10 +513,28 @@ test('G31.4: every registered advice kind has a runtime ask or a skill call site
     assert.ok(names(mutate(REFERENCE, (t) => t.replace(/```bash\n("\$DOFLOW" advise --kind mcp-need)/, 'Run $1')), 'mcp-need'));
     assert.ok(names(mutate(REFERENCE, (t) => t.replaceAll('```bash', '```text')), 'tier'));
   });
+  test('G31.4 control: a kind with an empty askedBy needs no call site, and one with a caller does', () => {
+    const files: any = new Map(shipped);
+    const advice = JSON.parse(files.get('core/registry/advice.json'));
+    const offline = advice.kinds.find((kind: any) => kind.id === 'rerank');
+    assert.deepEqual(offline.askedBy, []);
+    assert.equal(names(checkG31CallSites({ files, docs: skillDocs }), 'rerank'), false);
+    offline.askedBy = ['retrieve'];
+    files.set('core/registry/advice.json', JSON.stringify(advice));
+    assert.ok(names(checkG31CallSites({ files, docs: skillDocs }), 'rerank'), 'a named caller with no call site is reported');
+  });
   test('G31.4 control: a runtime-asked kind is named when its call or its outcome record is gone or commented out', () => {
     const classifier = 'src/runtime/task-classifier.ts';
     assert.ok(names(mutate(classifier, (t) => t.replace(/\b(client\.ask|interceptDecisionPoint)\(/g, '// $1(')), 'task-class'));
-    assert.ok(names(mutate(classifier, (t) => t.replace(/\bappendOutcome\(/g, '// appendOutcome(')), 'task-class'));
+    // No shipped runtime kind records an outcome now (O-6), so the outcome check is exercised with a stand-in pattern that
+    // the classifier source does match, then restored.
+    const entry = RUNTIME_ASKED['task-class'];
+    entry.outcome = /\bsecondOpinion\(/;
+    try {
+      assert.deepEqual(checkG31CallSites({ files: shipped, docs: skillDocs }), []);
+      const findings = mutate(classifier, (t) => t.replace(/\bsecondOpinion\(/g, '// secondOpinion('));
+      assert.ok(findings.some((finding: any) => /^task-class: .* no longer records its outcome/.test(finding)), JSON.stringify(findings));
+    } finally { entry.outcome = null; }
     const review = 'src/runtime/review/start.ts';
     assert.ok(names(mutate(review, (t) => t.replace(/\b(client\.ask|interceptDecisionPoint)\(/g, '/* $1( */')), 'review-depth'));
     assert.ok(names(mutate(review, (t) => t.replaceAll("'review-depth'", "/* 'review-depth' */")), 'review-depth'));

@@ -194,11 +194,14 @@ function createAdviceClient({
       const adapter = provider && ADAPTERS[provider.adapter];
       if (!provider || !adapter) return unavailable('config-invalid', `provider adapter '${provider?.adapter || setting.provider}' is unavailable`);
 
+      // A kind call is bounded by the kind's budgetMs (row 174 O-3); timeoutMs bounds a kind-less (adhoc) ask only.
+      let budgetMs = adviceRegistry.timeoutMs;
       if (effectiveKind !== 'adhoc') {
         const namedKind = adviceRegistry.kinds?.find((entry: any) => entry.id === effectiveKind);
         if (!namedKind || !matchesNamedKind(namedKind, questionSet)) {
           return unavailable('config-invalid', `question set does not match kind '${effectiveKind}'`);
         }
+        if (Number.isInteger(namedKind.budgetMs) && namedKind.budgetMs > 0) budgetMs = namedKind.budgetMs;
       }
       const questionValidation = validateQuestionSet(questionSet, { adviceRegistry });
       if (!questionValidation.ok) return unavailable('config-invalid', questionValidation.detail);
@@ -222,11 +225,11 @@ function createAdviceClient({
       const endpointCheck = await checkEndpoint(setting.endpoint, {
         lookup,
         file: setting.decidedBy?.user || 'provider default',
-        timeoutMs: Math.max(0, adviceRegistry.timeoutMs - durationSince(startedAt)),
+        timeoutMs: Math.max(0, budgetMs - durationSince(startedAt)),
         signal,
       });
       if (!endpointCheck.ok) return unavailable(endpointCheck.reason || 'non-loopback', endpointCheck.message);
-      const remainingMs = adviceRegistry.timeoutMs - durationSince(startedAt);
+      const remainingMs = budgetMs - durationSince(startedAt);
       if (remainingMs <= 0) return unavailable('timeout', 'decision model request budget exhausted');
       if (signal?.aborted) return unavailable('timeout', 'decision model request aborted by the caller');
 

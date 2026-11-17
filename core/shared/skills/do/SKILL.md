@@ -38,7 +38,6 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
      `doflow-run lifecycle --action overview --maintain --since T --view brief --json` (`doflow-run` is the
      `$DOFLOW` resolved above), and settle each pending item with the question tool through the
      `doflow-run followup`, `doflow-run goal` or `doflow-run failure` command its `next` lines give.
-     Advice on a follow-up: `references/advice_calls.md`, followup-triage.
      Rerun with the same `--since T` until nothing is pending. A product problem the user reports
      goes to `doflow-run followup --action report`; a large goal they state, to
      `doflow-run goal --action add`. It edits no source file.

@@ -6,6 +6,7 @@ const { REPO_ROOT } = require('../../helper/repo-root.ts');
 
 const ADVICE_FILE = 'core/registry/advice.json';
 const MODELS_FILE = 'core/registry/models.json';
+const SETTINGS_FILE = 'core/registry/settings.json';
 const ADAPTER_DIR = 'src/runtime/advice/providers';
 // The adapter is a sibling module of this file, so it has this file's own extension: `.ts` in a
 // checkout, `.js` in the package `build:package` stages (every module there is stripped to `.js`).
@@ -18,6 +19,8 @@ const RERANK_LABELS = 16;
 const LADDER_LEVELS = 5;
 // The exclusive upper bound of each threshold list: a probability, and a score on the 0 to 4 ladder.
 const THRESHOLD_LISTS: Record<string, number> = { confidenceBelow: 1, expectedBelow: 4 };
+// A removed setting key (`removedSettings`, row 174 L-2): a dotted `advice.` key, no longer declared in settings.json.
+const REMOVED_KEY = /^advice(\.[a-z0-9-]+)+$/;
 const LIMIT_FIELDS = ['maxStateBytes', 'maxBodyBytes', 'minQuestions', 'maxQuestions', 'minOptions', 'maxOptions'];
 const BAND_FIELDS: Record<string, string[]> = {
   choice: ['clearAt', 'splitWithin'],
@@ -50,9 +53,6 @@ function validateGate(gate: any, errors: string[]): void {
     addError(errors, 'gate.quality', 'must be an object');
   } else {
     if (!isNumber(quality.lowerBoundAbove)) addError(errors, 'gate.quality.lowerBoundAbove', 'must be a finite number');
-    if (!isNumber(quality.nonInferiorityDelta) || quality.nonInferiorityDelta < 0) {
-      addError(errors, 'gate.quality.nonInferiorityDelta', 'must be a number of at least 0');
-    }
     if (!isNumber(quality.confidence) || quality.confidence <= 0 || quality.confidence > 1) {
       addError(errors, 'gate.quality.confidence', 'must be a number above 0 and at most 1');
     }
@@ -71,7 +71,6 @@ function validateGate(gate: any, errors: string[]): void {
         if (!Number.isInteger(cap) || (cap as number) <= 0) addError(errors, 'gate.latency.p95CapMs', `${id} must be a positive integer`);
       }
     }
-    if (!isNumber(latency.ratioMax) || latency.ratioMax < 1) addError(errors, 'gate.latency.ratioMax', 'must be a number of at least 1');
   }
 }
 
@@ -156,8 +155,8 @@ function validateClaimSupportParams(params: any, limits: any, base: string, erro
 function validateCallBuiltFields(kind: any, registry: any, base: string, errors: string[]): void {
   const callBuilt = kind.criteriaFrom === CALL_BUILT;
   if (Object.hasOwn(kind, 'maxMode') && !MODES.includes(kind.maxMode)) addError(errors, `${base}.maxMode`, `must be one of ${MODES.join(', ')}`);
-  if (Object.hasOwn(kind, 'budgetMs')
-    && (!Number.isInteger(kind.budgetMs) || kind.budgetMs < 100 || (Number.isInteger(registry.timeoutMs) && kind.budgetMs > registry.timeoutMs))) {
+  // Every kind carries its own call budget (row 174 O-3): a kind call is bounded by it, never by timeoutMs.
+  if (!Number.isInteger(kind.budgetMs) || kind.budgetMs < 100 || (Number.isInteger(registry.timeoutMs) && kind.budgetMs > registry.timeoutMs)) {
     addError(errors, `${base}.budgetMs`, 'must be an integer from 100 to timeoutMs');
   }
   if (Object.hasOwn(kind, 'description') && (typeof kind.description !== 'string' || !kind.description.trim())) {
@@ -186,7 +185,20 @@ function validateCallBuiltFields(kind: any, registry: any, base: string, errors:
   if (Object.hasOwn(kind, 'thresholds')) validateThresholds(kind.thresholds, base, errors);
 }
 
-function validateAdviceRegistry(registry: any, { repoRoot = REPO_ROOT, models, fsImpl = fs }: any = {}): { ok: boolean; errors: string[] } {
+// `removedSettings`: the keys the retired-setting diagnostic names (retired.ts). A key settings.json still declares is not removed.
+function validateRemovedSettings(list: any, declared: Set<string> | null, errors: string[]): void {
+  if (!Array.isArray(list)) { addError(errors, 'removedSettings', 'must be an array'); return; }
+  const seen = new Set<string>();
+  list.forEach((key: any, index: number) => {
+    const base = `removedSettings[${index}]`;
+    if (typeof key !== 'string' || !REMOVED_KEY.test(key)) { addError(errors, base, 'must be a dotted advice. setting key'); return; }
+    if (seen.has(key)) addError(errors, base, `duplicates '${key}'`);
+    seen.add(key);
+    if (declared?.has(key)) addError(errors, base, `names '${key}', which ${SETTINGS_FILE} still declares`);
+  });
+}
+
+function validateAdviceRegistry(registry: any, { repoRoot = REPO_ROOT, models, settings, fsImpl = fs }: any = {}): { ok: boolean; errors: string[] } {
   const errors: string[] = [];
   if (!isObject(registry)) return { ok: false, errors: ['registry must be an object'] };
 
@@ -198,6 +210,9 @@ function validateAdviceRegistry(registry: any, { repoRoot = REPO_ROOT, models, f
   }
   if (!Number.isInteger(registry.doctorBudgetMs) || registry.doctorBudgetMs <= 0) {
     addError(errors, 'doctorBudgetMs', 'must be a positive integer');
+  }
+  if (!Number.isInteger(registry.shadowSlots) || registry.shadowSlots < 1 || registry.shadowSlots > 64) {
+    addError(errors, 'shadowSlots', 'must be an integer from 1 to 64');
   }
 
   const limits = registry.limits;
@@ -250,6 +265,12 @@ function validateAdviceRegistry(registry: any, { repoRoot = REPO_ROOT, models, f
   }
 
   if (Object.hasOwn(registry, 'gate')) validateGate(registry.gate, errors);
+
+  if (!settings) {
+    try { settings = JSON.parse(fsImpl.readFileSync(path.join(repoRoot, SETTINGS_FILE), 'utf8')); }
+    catch (error: any) { addError(errors, SETTINGS_FILE, `could not be loaded: ${error.message}`); }
+  }
+  validateRemovedSettings(registry.removedSettings, isObject(settings?.keys) ? new Set(Object.keys(settings.keys)) : null, errors);
 
   if (!models) {
     try { models = JSON.parse(fsImpl.readFileSync(path.join(repoRoot, MODELS_FILE), 'utf8')); }

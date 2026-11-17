@@ -188,6 +188,12 @@ model, but cannot enable advice or select an endpoint or provider. Decision-mode
 resolve only to loopback addresses; DoFlow rejects non-loopback endpoints. DoFlow never pulls a
 model or starts Ollama.
 
+With advice on and a model set, every advice kind not set to `off` makes a shadow call: it records a pick
+beside the static answer, shows nothing, and runs in a detached child, so no command waits for the model.
+That includes `claim-support`. To stop one kind, set `advice.kinds.<kind>` to `off` in the settings file;
+the keys are in the [reference](reference.md#settings-keys), and what a shadow call does is under
+[Shadow calls](reference.md#shadow-calls).
+
 ## Installation modes
 
 ### CLI installation

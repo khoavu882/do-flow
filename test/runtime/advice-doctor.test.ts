@@ -8,7 +8,7 @@ const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env.ts');
 const { tempDirOutsideProfile } = require('../helper/outside-profile.ts');
 const { systemPath } = require('../helper/system-path.ts');
-const { startFakeServer, spawnFakeServer } = require('../helper/fake-decision-server.ts');
+const { startFakeServer, spawnFakeServer, closedEndpoint } = require('../helper/fake-decision-server.ts');
 const { buildAdviceDoctor } = require('../../src/runtime/advice/doctor.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 
@@ -16,7 +16,7 @@ const BIN = path.join(REPO_ROOT, 'bin/doflow.js');
 // `doctor` runs `<harness> --version` for every harness it finds on PATH (seconds each for some); these
 // tests read the advice sections only, so the spawned doctor sees node and the system tools and no harness.
 const DOCTOR_PATH = systemPath(path.dirname(process.execPath));
-const kinds = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core/registry/advice.json'), 'utf8')).kinds.map((kind: any) => kind.id);
+const kinds = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core/registry/advice.json'), 'utf8')).kinds.filter((kind: any) => kind.askedBy.length > 0).map((kind: any) => kind.id);
 
 function fixture(t: any, setting?: any) {
   const scratch = createScratch('doflow-advice-doctor-');
@@ -79,7 +79,7 @@ test('an error thrown while building the report is named by its message, not as 
     assert.match(section(result.stdout, '[Decision Model]'), expected);
     assert.doesNotMatch(result.stdout, /endpoint\s+http:/);
   }
-  const f = fixture(t, enabled('http://127.0.0.1:9'));
+  const f = fixture(t, enabled(await closedEndpoint()));
   const result = f.run();
   assert.equal(result.status, 0, result.stderr);
   assert.match(section(result.stdout, '[Decision Model]'), /UNREACHABLE/);
@@ -186,9 +186,11 @@ test('IC-015 aggregates retained picks and outcomes by registry kind, includes a
   assert.deepEqual(Object.keys(json), ['windowDays', 'store', 'kinds', 'unreadableLines']);
   assert.equal(json.unreadableLines, 1);
   assert.deepEqual(json.kinds.map((row: any) => row.kind), [...kinds, 'adhoc']);
-  assert.equal(json.kinds[0].picks, 3); assert.equal(json.kinds[0].matched, 2);
+  assert.equal(json.kinds[0].picks, 3); assert.equal(json.kinds[0].withOutcome, 2); assert.equal(json.kinds[0].matched, 1);
+  assert.deepEqual(json.kinds[0].outcomeSources, ['brief-record'], 'an old classify-verdict outcome counts in no figure (174 R-05)');
   const text = section(f.run().stdout, '[Advice Agreement]');
-  assert.match(text, /done = tier the brief named or accepted class/);
+  assert.match(text, /done = tier the brief named\)/, 'the retired classify-verdict source has no label of its own');
+  assert.doesNotMatch(text, /accepted class/);
   assert.match(text, /done = value the caller recorded/);
   assert.match(text, /calls unavailable/);
   assert.match(text, /no picks recorded/);
@@ -196,6 +198,25 @@ test('IC-015 aggregates retained picks and outcomes by registry kind, includes a
   assert.doesNotMatch(text, /%|\d\s*\/\s*\d/);
   const empty = fixture(t);
   assert.match(section(empty.run().stdout, '[Advice Agreement]'), /No picks recorded here\./);
+});
+
+test('174: a retained pick of a kind since removed (followup-triage, rerank) neither crashes doctor nor adds a row', (t) => {
+  const f = fixture(t);
+  const root = path.join(f.project, '.doflow/state/advice/picks');
+  const at = new Date().toISOString();
+  const records: any = [
+    { type: 'pick', pickId: 'g1', at, kind: 'followup-triage', pick: 'file', mode: 'shadow' },
+    { type: 'outcome', pickId: 'g1', at, actual: 'file', source: 'caller' },
+    { type: 'pick', pickId: 'g2', at, kind: 'rerank', pick: 'a', mode: 'shadow', rerank: { arms: {} } },
+    { type: 'pick', pickId: 'g3', at, kind: 'tier', pick: 'standard' },
+  ];
+  write(path.join(root, `${at.slice(0, 10)}.jsonl`), `${records.map(JSON.stringify).join('\n')}\n`);
+  const result = f.run(true);
+  assert.equal(result.status, 0, result.stderr);
+  const json = JSON.parse(result.stdout).advice;
+  assert.deepEqual(json.kinds.map((row: any) => row.kind), kinds);
+  assert.equal(json.kinds.find((row: any) => row.kind === 'tier').picks, 1);
+  assert.equal(f.run().status, 0);
 });
 
 test('advice leaves a real runtime-no-reach health finding and exit status unchanged when off or the endpoint fails', async (t) => {
@@ -301,10 +322,12 @@ test('084 C-4/C-7: doctor counts a dispatcher pick, its outcome and an unavailab
   const roots = resolveRoots({ registry: loadStorageRegistry({ repoRoot: REPO_ROOT }), projectRoot: f.project, env });
   const questionSet = { state: 's', questions: [{ name: 'tier', type: 'choice', instructions: 'Choose.', options: { light: 'L', standard: 'S', frontier: 'F' } }] };
   const context = { kind: 'tier', caller: 'brief-tools', state: 's', staticPick: 'light', questionSet, adviceRegistry: { timeoutMs: 1000 }, projectRoot: f.project, env };
-  const shadow = { kind: 'tier', mode: 'shadow', model: 'm' };
+  // act with a passing bench bar asks in this process (a shadow call asks in a detached child, which an injected client cannot reach)
+  const shadow = { kind: 'tier', mode: 'act', model: 'm' };
+  const benchGate = () => ({ passed: true });
   const answer = { status: 'answered', model: 'm', answers: [{ name: 'tier', type: 'choice', pick: 'standard', strength: { word: 'clear', between: null }, probabilities: {}, confidence: 0.9 }] };
-  const picked = await interceptDecisionPoint(context, { adviceClient: { ask: async () => answer }, roots, shadowConfig: shadow });
-  await interceptDecisionPoint(context, { adviceClient: { ask: async () => ({ status: 'unavailable', reason: 'timeout', answers: [] }) }, roots, shadowConfig: shadow });
+  const picked = await interceptDecisionPoint(context, { adviceClient: { ask: async () => answer }, roots, shadowConfig: shadow, benchGate });
+  await interceptDecisionPoint(context, { adviceClient: { ask: async () => ({ status: 'unavailable', reason: 'timeout', answers: [] }) }, roots, shadowConfig: shadow, benchGate });
   const until = Date.now() + 1000;
   while (readWindow({ roots }).records.length < 2 && Date.now() < until) await new Promise((resolve) => setTimeout(resolve, 5));
   assert.ok(appendOutcome({ roots, pickId: picked.pickId, actual: 'standard', source: 'caller', store: 'project-state' }));

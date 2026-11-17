@@ -301,21 +301,6 @@ async function askAdvice({ decision, risk, taskClass, slug, files, cwd, env, adv
       `changed files: ${files ?? 'unknown'}`, `decided depth: ${decision.depth}`].join('\n');
     const { resolveShadowConfig } = require('../advice/shadow-config.ts');
     const shadow = resolveShadowConfig('review-depth', { projectRoot: path.resolve(cwd), env, roots });
-    if (!shadow.kindSet) {
-      // advice.kinds.review-depth unset: ask the client directly, as before the dispatcher, and unrecorded. A chosen
-      // rollout profile caps it: off asks nothing, and shadow asks nothing too, since this path records nothing.
-      const { profileAdvisorCap, unsetKindPath } = require('../advice/mode.ts');
-      const route = unsetKindPath(profileAdvisorCap({ projectRoot: path.resolve(cwd), env }));
-      if (route === 'off') return { status: 'off', pick: null };
-      if (route === 'shadow') return { status: 'shadow', pick: null, reason: null };
-      const result = await client.ask({
-        questionSet: { state, questions: [built.question] },
-        kind: 'review-depth', staticAnswer: decision.depth, caller: 'review', taskId: slug, record: false,
-      });
-      const pick = result?.answers?.[0]?.pick;
-      if (result?.status === 'answered' && (pick === 'single' || pick === 'deep')) return { status: 'answered', pick };
-      return { status: result?.status === 'off' ? 'off' : 'unavailable', pick: null };
-    }
     const { interceptDecisionPoint } = require('../advice/shadow-dispatcher.ts');
     const intercepted = await interceptDecisionPoint({
       kind: 'review-depth', caller: 'review', state, staticPick: decision.depth,
@@ -517,8 +502,9 @@ async function handleReviewStart({ slug, base, preset, json = false, cwd, env, r
     const decided = resolveProtocol({ ...facts, advicePick: null });
     if (!decided.ok) return refuseResolution(decided.reason);
     const advice = await askAdvice({ decision: { depth: decided.protocol.depth, scope }, risk: result.risk, taskClass, slug: resolvedSlug, files: paths ? paths.length : null, cwd, env, adviceClient });
-    // The advice await can take a while: what the precondition and the risk were read from must still stand.
-    if (seen && advice.status !== 'off') {
+    // An awaited advice call can take a while: what the precondition and the risk were read from must still stand. An
+    // off or shadow result made no wait on the model (shadow runs detached), so there is nothing to re-read.
+    if (seen && advice.status !== 'off' && advice.status !== 'shadow') {
       const now = readHeadState(cwd, env);
       const records = parseRecordLines(verificationRunRecordFile(verificationRunsRoot(cwd), verifyId as string));
       if (now.head !== seen.head || now.clean !== seen.clean || 'error' in records || records.text !== seen.text) {

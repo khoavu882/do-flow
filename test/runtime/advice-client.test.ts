@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp.ts');
-const { startFakeServer, spawnFakeServer } = require('../helper/fake-decision-server.ts');
+const { startFakeServer, spawnFakeServer, closedEndpoint } = require('../helper/fake-decision-server.ts');
 const { loadAdviceRegistry } = require('../../src/runtime/advice/registry.ts');
 const { loadStorageRegistry } = require('../../src/runtime/storage/registry.ts');
 const { resolveRoots } = require('../../src/runtime/storage/roots.ts');
@@ -257,7 +257,9 @@ test('IC-005 unavailable: a closed loopback port is unreachable and never reject
 test('IC-005 unavailable: timeout covers a slow response and never rejects', async (t) => {
   const server = await startFakeServer({ routes: { 'POST /v1/systemone': { status: 200, body: { answers: {} }, delayMs: 500 } } });
   onClose(t, server);
-  const { createClient, roots }: any = fixture(t, { endpoint: server.origin, lookup: loopbackLookup, adviceOverrides: { timeoutMs: 150 } });
+  // A kind call is bounded by the kind's budgetMs (row 174 O-3), not timeoutMs: shorten the tier kind's budget below the 500 ms reply.
+  const kinds = BASE_ADVICE.kinds.map((kind: any) => (kind.id === 'tier' ? { ...kind, budgetMs: 150 } : kind));
+  const { createClient, roots }: any = fixture(t, { endpoint: server.origin, lookup: loopbackLookup, adviceOverrides: { kinds } });
   const result = await createClient().ask({ questionSet: CHOICE_SET, kind: 'tier', caller: 'advise' });
   assert.equal(result.status, 'unavailable');
   assert.equal(result.reason, 'timeout');
@@ -325,7 +327,7 @@ test('IC-005 inspect reports reachability, version and capability fallback throu
 
 test('IC-005 inspect reports unreachable and refused without rejecting', async (t) => {
   const { createClient }: any = fixture(t, { lookup: (_host: any, _options: any, callback: any) => callback(null, [{ address: '198.51.100.1', family: 4 }]) });
-  const unreachable = await createClient().inspect({ endpoint: 'http://127.0.0.1:9', model: 'clef-flash', provider: 'ollama' });
+  const unreachable = await createClient().inspect({ endpoint: await closedEndpoint(), model: 'clef-flash', provider: 'ollama' });
   assert.equal(unreachable.endpoint.state, 'unreachable');
   const refused = await createClient().inspect({ endpoint: 'http://model.example:11434', model: 'clef-flash', provider: 'ollama' });
   assert.equal(refused.endpoint.state, 'refused');

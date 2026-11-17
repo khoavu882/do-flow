@@ -1,6 +1,6 @@
 'use strict';
 
-// How a chosen rollout profile caps advice. One table for the dispatcher (set kinds) and the callers' unset-kind path.
+// How a chosen rollout profile caps advice. One table for the dispatcher, for every kind.
 
 const { resolveRolloutProfile } = require('../profiles/resolve.ts');
 
@@ -27,11 +27,4 @@ function capMode(cap: unknown, configuredMode: unknown): AdviceMode {
   return 'off';
 }
 
-/** What the unset-kind path does under a cap: the legacy ask (no cap, or act), shadow (record, never show or apply) or off. */
-function unsetKindPath(cap: unknown): 'legacy' | 'shadow' | 'off' {
-  if (cap === null || cap === 'act') return 'legacy';
-  if (cap === 'shadow' || cap === 'staged') return 'shadow';
-  return 'off';
-}
-
-module.exports = { profileAdvisorCap, capMode, unsetKindPath };
+module.exports = { profileAdvisorCap, capMode };

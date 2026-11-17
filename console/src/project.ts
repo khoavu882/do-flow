@@ -910,7 +910,6 @@ const answer: Check<string> = (value) => {
 /** `PICK_ID`, src/runtime/advice/record.ts:115 */
 const PICK_ID = /^adv-[0-9]{13}-[0-9a-f]{6}$/;
 const pickId: Check<string> = (value) => (typeof value === 'string' && PICK_ID.test(value) ? value : fail());
-const hex12: Check<string> = (value) => (typeof value === 'string' && HEAD12.test(value) ? value : fail());
 /** IC-008: a miss reason that is not an id is counted in this one row. */
 const OTHER_REASON = '(other)';
 
@@ -1116,15 +1115,7 @@ const agreement = (value: unknown) => {
   const a = record(value);
   return { n: count(a.n), agree: count(a.agree) };
 };
-const changed = (value: unknown) => {
-  const c = record(value);
-  return { n: count(c.n), changed: count(c.changed) };
-};
-const displacement = (value: unknown) => {
-  const d = record(value);
-  return { n: count(d.n), mean: rate(d.mean) };
-};
-/** `{n, p50, p90, p95}`; the rerank and claim-support blocks print no `p90`, so there it is kept only when present. */
+/** `{n, p50, p90, p95}`; the claim-support block prints no `p90`, so there it is kept only when present. */
 const percentiles = (p90Optional: boolean) => (value: unknown) => {
   const p = record(value);
   const n = count(p.n);
@@ -1152,45 +1143,6 @@ function adviseReport(value: unknown, context?: Context) {
       })(k.modes),
       durationMs: orNull(percentiles(false))(k.durationMs),
       missDurationMs: orNull(percentiles(false))(k.missDurationMs),
-    };
-  };
-  const arm = (item: unknown) => {
-    const a = record(item);
-    return { picks: count(a.picks), top1Changed: changed(a.top1Changed), meanRankDisplacement: orNull(displacement)(a.meanRankDisplacement) };
-  };
-  const threshold = (item: unknown) => {
-    const t = record(item);
-    return {
-      field: oneOf(['confidenceBelow', 'expectedBelow'])(t.field),
-      value: rate(t.value),
-      wouldDrop: count(t.wouldDrop),
-      ofCandidates: count(t.ofCandidates),
-      top1WouldDrop: count(t.top1WouldDrop),
-      ofPicks: count(t.ofPicks),
-    };
-  };
-  const rerank = (item: unknown) => {
-    const r = record(item);
-    const arms = record(r.arms);
-    const criteria = record(r.criteria);
-    const recorded = record(criteria.recorded);
-    const bySource = record(recorded.bySource);
-    const wouldDrop = record(r.wouldDrop);
-    return {
-      n: pickCounts(r.n),
-      withoutPayload: count(r.withoutPayload),
-      missesByReason: missesByReason(r.missesByReason),
-      top1Changed: changed(r.top1Changed),
-      meanRankDisplacement: orNull(displacement)(r.meanRankDisplacement),
-      firstStageMs: percentiles(true)(r.firstStageMs),
-      arms: { choice: arm(arms.choice), ladder: arm(arms.ladder) },
-      criteria: {
-        source: orNull(oneOf(['registry', 'settings']))(criteria.source),
-        digest: orNull(hex12)(criteria.digest),
-        warning: orNull(boundedText(512, anchors))(criteria.warning),
-        recorded: { n: count(recorded.n), bySource: { registry: count(bySource.registry), settings: count(bySource.settings), unrecorded: count(bySource.unrecorded) } },
-      },
-      wouldDrop: { picks: count(wouldDrop.picks), candidates: count(wouldDrop.candidates), thresholds: each(threshold)(wouldDrop.thresholds) },
     };
   };
   const relation = (item: unknown) => {
@@ -1225,8 +1177,7 @@ function adviseReport(value: unknown, context?: Context) {
     window: windowOf(body.window),
     unreadable: count(body.unreadable),
     kinds: Object.entries(record(body.kinds)).map(kindRow),
-    // The core prints these two blocks only when their kind is shown (report.ts:254, :255).
-    rerank: optional(rerank)(body.rerank),
+    // The core prints this block only when its kind is shown.
     claimSupport: optional(claimSupport)(body.claimSupport),
     verdicts: each(verdict)(body.verdicts),
   };

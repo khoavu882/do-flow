@@ -7,11 +7,11 @@ const { loadAdviceRegistry } = require('./registry.ts');
 const { resolveSetting } = require('./config.ts');
 const { createAdviceClient } = require('./client.ts');
 const { readWindow } = require('./record.ts');
+const { isRetiredOutcome, removedKeyDiagnostics } = require('./retired.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 
 const WINDOW_DAYS = 90;
 const DONE_PHRASES: Record<string, string> = Object.freeze({
-  'classify-verdict': 'accepted class',
   'brief-record': 'tier the brief named',
   caller: 'value the caller recorded',
 });
@@ -35,12 +35,12 @@ function agreementRows(registry: any, records: any) {
   const picks = records.filter(({ record }: any) => record.type === 'pick');
   const outcomes = new Map();
   for (const { record } of records) {
-    if (record.type !== 'outcome' || typeof record.pickId !== 'string') continue;
+    if (record.type !== 'outcome' || typeof record.pickId !== 'string' || isRetiredOutcome(record)) continue;
     const current = outcomes.get(record.pickId);
     if (!current || String(record.at).localeCompare(String(current.at)) >= 0) outcomes.set(record.pickId, record);
   }
   const misses = records.filter(({ record }: any) => record.type === 'miss');
-  const ids = [...(registry.kinds || []).map((kind: any) => kind.id)];
+  const ids = [...(registry.kinds || []).filter((kind: any) => kind.askedBy?.length > 0).map((kind: any) => kind.id)];
   if (picks.some(({ record }: any) => record.kind === 'adhoc')) ids.push('adhoc');
   return ids.map((kind) => {
     const kindPicks = picks.filter(({ record }: any) => record.kind === kind);
@@ -77,6 +77,7 @@ async function buildAdviceDoctor({ repoRoot = REPO_ROOT, projectRoot = process.c
     const setting = loaded.ok ? resolveSetting({ adviceRegistry: registry, roots, env, fsImpl }) : {
       state: 'off', reason: 'config-invalid', decidedBy: { user: null, project: null }, modelFrom: null, notes: [loaded.detail],
     };
+    const removedKeys = removedKeyDiagnostics(roots, registry, fsImpl);
     const store = selectedStore(roots);
     const selectedRoots = store.id === 'advice-picks-project'
       ? { 'project-state': store.root }
@@ -99,7 +100,7 @@ async function buildAdviceDoctor({ repoRoot = REPO_ROOT, projectRoot = process.c
         timeoutMs: probeTimeoutMs ?? registry.probeTimeoutMs });
       const provider = registry.providers.find((p: any) => p.id === setting.provider) || {};
       decisionModel = {
-        setting: { state: 'on', reason: null, decidedBy: setting.decidedBy, modelFrom: setting.modelFrom, notes: setting.notes || [] },
+        setting: { state: 'on', reason: null, decidedBy: setting.decidedBy, modelFrom: setting.modelFrom, notes: [...(setting.notes || []), ...removedKeys] },
         endpoint: { url: setting.endpoint, state: inspection.endpoint.state, version: inspection.endpoint.version,
           minVersion: provider.minVersion || null, versionOk: inspection.endpoint.versionOk, message: inspection.endpoint.message },
         model: { name: setting.model, installed: inspection.model.installed, decisionCapable: inspection.model.decisionCapable },
@@ -108,13 +109,13 @@ async function buildAdviceDoctor({ repoRoot = REPO_ROOT, projectRoot = process.c
       };
     } else {
       decisionModel = {
-        setting: { state: 'off', reason: setting.reason, decidedBy: setting.decidedBy || { user: null, project: null }, modelFrom: setting.modelFrom || null, notes: setting.notes || [] },
+        setting: { state: 'off', reason: setting.reason, decidedBy: setting.decidedBy || { user: null, project: null }, modelFrom: setting.modelFrom || null, notes: [...(setting.notes || []), ...removedKeys] },
         endpoint: { url: setting.endpoint || null, state: 'not-checked', version: null, minVersion: registry?.providers?.[0]?.minVersion || null, versionOk: false, message: null },
         model: { name: setting.model || null, installed: false, decisionCapable: false },
         decisionModels: [], lastCall: latestCall(window.records),
       };
     }
-    return { decisionModel, advice, _inspection: inspection, _offReason: setting.state === 'off' ? (loaded.ok ? offReason(setting) : `unreadable advice registry: ${loaded.detail}`) : null };
+    return { decisionModel, advice, _removedKeys: removedKeys, _inspection: inspection, _offReason: setting.state === 'off' ? (loaded.ok ? offReason(setting) : `unreadable advice registry: ${loaded.detail}`) : null };
   } catch (error: any) {
     return { decisionModel: { setting: { state: 'off', reason: 'config-invalid', decidedBy: { user: null, project: null }, modelFrom: null, notes: [error.message] },
       endpoint: { url: null, state: 'not-checked', version: null, minVersion: null, versionOk: false, message: null },
@@ -127,6 +128,7 @@ function printAdviceDoctor(report: any) {
   const decision = report.decisionModel;
   const inspection = report._inspection;
   console.log('\n[Decision Model] — advisory, never blocking');
+  for (const line of report._removedKeys || []) console.log(`  ${line}`);
   if (decision.setting.state === 'off') {
     console.log(`  off (${report._offReason}). To turn it on: doflow advise --action configure --model <a decision-capable model>`);
   } else {
