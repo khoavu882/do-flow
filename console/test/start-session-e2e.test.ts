@@ -342,10 +342,12 @@ test('refusals: view 403 phone-scope; browser-transport control 403 action-trans
   assert.deepEqual([busy.status, json(busy).error.code], [409, 'checkout-busy'], busy.body);
   assert.equal(json(busy).current.runId, json(gone).result.run.runId);
   assert.equal(spawned(), 1, 'a refusal spawns nothing');
-  // A leading dash is refused for the argv harnesses, whatever the entry (in the other checkout).
+  // A leading dash is refused for the argv harness whatever the entry, and for any harness with entry none (in the other checkout).
+  // pi with entry do is not in the loop: since row 170 pi has a control channel, so its prompt goes on stdin, not argv, and the dash is
+  // accepted by design (session-prompt.test.ts 'the leading-dash rule'); posting it here would spawn a session and take the checkout.
   const dashes = await lan(t, w);
   const dashDevice = await dashes.devices.pair('control', 'Dash phone');
-  for (const harness of ['opencode', 'pi']) for (const entry of ['do', 'none']) {
+  for (const [harness, entry] of [['opencode', 'do'], ['opencode', 'none'], ['pi', 'none']]) {
     const dash = await dashes.post('start-session', startBody(w, { harness, entry, worktreeKey: w.mainKey, prompt: `-x ${MARKER}` }), dashDevice.bearer);
     assert.deepEqual([dash.status, json(dash).error.code], [400, 'prompt-leading-dash'], `${harness}/${entry}: ${dash.body}`);
   }
