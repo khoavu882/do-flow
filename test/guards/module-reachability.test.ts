@@ -72,7 +72,7 @@ const PATH_CALLER_SURFACES: any = ['package.json', path.join('core', 'shared', '
  * conform-fake.ts (171 R8) is run as a script: conform.ts writes a shell wrapper that execs
  * `node <path.join(__dirname, 'conform-fake.ts')>`, a computed path no text scan sees.
  * shadow-runner.ts (174 T1) is the detached child of a shadow advice call: shadow-dispatcher.ts spawns it by
- * `path.join(__dirname, 'shadow-runner.ts')`, a computed path as well.
+ * `path.join(__dirname, `shadow-runner${path.extname(__filename)}`)` (the runner takes the dispatcher's own extension), a computed path as well.
  */
 const ALLOWLIST: any = new Set(['src/runtime/worker/conform-fake.ts', 'src/runtime/advice/shadow-runner.ts']);
 
