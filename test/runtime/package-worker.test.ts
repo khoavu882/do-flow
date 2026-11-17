@@ -288,3 +288,29 @@ test('170 D2: a package worker declares a control channel through the worker poi
   old.steering = { status: 'unknown', evidence: [], verification: 'v', verifiedOn: '2026-11-17', reason: 'r' };
   assert.ok(POINT_VALIDATORS['worker-v1']('mycli', old, { packageId: 'acme' }).some((err: string) => /steering was replaced by controlChannel \(row 170\)/.test(err)));
 });
+
+test('170 C5: a package channel parser is a core parser or the worker\'s own fieldMap id, nothing else', () => {
+  const channelWorker = (parser: string | null, mapId?: string) => {
+    const worker: any = validWorkerJson();
+    worker.mainSession = {
+      status: 'supported', evidence: ['test'], verification: 'Check mycli mainSession', verifiedOn: '2026-11-17',
+      argv: ['--json', '{prompt}'], promptVia: 'argv', parser: 'doflow-jsonl-v1',
+    };
+    if (mapId) { delete worker.structuredOutput.parser; worker.structuredOutput.fieldMap = MAP(mapId); }
+    worker.controlChannel = {
+      status: 'supported', evidence: ['test'], verification: 'Check mycli controlChannel', verifiedOn: '2026-11-17',
+      argv: ['--stdin-json'], framing: 'jsonl-lf', parser,
+      messages: { followUp: { type: 'message', text: '{text}' }, stop: { type: 'stop' } },
+      turn: { working: [{ path: ['type'], equals: 'busy' }], settled: [{ path: ['type'], equals: 'idle' }] },
+      close: { stdinEof: 'exits', graceSeconds: 5 },
+      unverified: ['everything: declared from docs only'],
+    };
+    return worker;
+  };
+  const check = (worker: any) => POINT_VALIDATORS['worker-v1']('mycli', worker, { packageId: 'acme' });
+  assert.deepEqual(check(channelWorker('acme-stream-v1', 'acme-stream-v1')), []);
+  assert.deepEqual(check(channelWorker(null)), []);
+  const errors = check(channelWorker('nonexistent-parser'));
+  assert.ok(errors.some((err: string) => /worker 'controlChannel': parser 'nonexistent-parser' is not a registered core parser or this worker's structuredOutput\.fieldMap\.id/.test(err)), JSON.stringify(errors));
+  assert.ok(check(channelWorker('other-map-v1', 'acme-stream-v1')).length > 0, 'another worker\'s map id is refused');
+});

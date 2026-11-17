@@ -71,6 +71,11 @@ function workerValidator(id: string, worker: any, context: any = {}): string[] {
       errors.push(`${location} worker 'structuredOutput': fieldMap.id '${mapId}' is a core parser id`);
     }
   }
+  // 170 C5: a channel's parser, when a string, is a core parser or this worker's own field-map id (the registry holds no PARSERS list).
+  const channelParser = worker && typeof worker === 'object' ? worker.controlChannel?.parser : undefined;
+  if (typeof channelParser === 'string' && !Object.hasOwn(PARSERS, channelParser) && channelParser !== worker.structuredOutput?.fieldMap?.id) {
+    errors.push(`${location} worker 'controlChannel': parser '${channelParser}' is not a registered core parser or this worker's structuredOutput.fieldMap.id`);
+  }
   return errors;
 }
 
