@@ -524,7 +524,7 @@ const TURN_REASON_WORDS = Object.freeze({
 
 /** Why a channel closed, in words (the supervisor's `closedReason`). @type {Readonly<Record<string, string>>} */
 const CLOSED_WORDS = Object.freeze({
-  idle: 'it sat idle too long and its channel was closed',
+  'unused-timeout': 'it sat unused for 30 minutes and its channel was closed',
   'harness-exited': 'the harness exited',
   'write-failed': 'a message could not be written to it',
   'not-started': 'it never started',

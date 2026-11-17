@@ -306,7 +306,7 @@ test('170 §10 closed or ended: "Ended: <closedReason words>", no Send, Steer or
   const closed = view(chan({ channel: 'closed', reason: 'harness-exited', turn: unseen('channel-closed') }));
   assert.equal(closed.badge.word, 'Ended: the harness exited');
   assert.deepEqual([closed.controls, ...flags(closed)], [false, false, false, false, true]);
-  assert.equal(view(chan({ channel: 'closed', reason: 'idle', turn: unseen('channel-closed') })).badge.word, 'Ended: it sat idle too long and its channel was closed');
+  assert.equal(view(chan({ channel: 'closed', reason: 'unused-timeout', turn: unseen('channel-closed') })).badge.word, 'Ended: it sat unused for 30 minutes and its channel was closed');
   assert.equal(view(chan({ channel: 'closed', reason: null, turn: unseen('channel-closed') })).badge.word, 'Ended: the session ended');
   const ended = view(chan({ channel: 'closed', reason: 'cancelled', turn: unseen('run-ended') }), { phase: 'ended' });
   assert.deepEqual([ended.badge.word, ended.badge.token, ended.controls, ...flags(ended)], ['Ended: it was stopped', 'done', false, false, false, false, false]);

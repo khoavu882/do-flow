@@ -5791,7 +5791,7 @@ test('170 layers pane, no channel: "Send is unavailable: <reason>" and End sessi
   assert.deepEqual(labels170(none.page), ['End session']);
   mock.timers.reset();
   uninstallPage();
-  const closed = await pane170(chan170({ channel: 'closed', reason: 'idle', turn: { observed: false, reason: 'run-ended', since: AT(0) } }), { node: { phase: 'ended', ended: { at: AT(0), result: 'cancelled' }, end: { state: 'cancelled', exitCode: null, reason: null } } });
+  const closed = await pane170(chan170({ channel: 'closed', reason: 'unused-timeout', turn: { observed: false, reason: 'run-ended', since: AT(0) } }), { node: { phase: 'ended', ended: { at: AT(0), result: 'cancelled' }, end: { state: 'cancelled', exitCode: null, reason: null } } });
   assert.match(text(closed.page.inspector.querySelector('[data-fact="turn"]')), /^Ended: /);
   assert.deepEqual(labels170(closed.page), []);
 });

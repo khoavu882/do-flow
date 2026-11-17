@@ -357,10 +357,10 @@ test('check 7: prompt-empty, prompt-too-long (code points and bytes) and command
 
 test('check 8: a closed channel is channel-closed (naming the cancel), before the turn rule', async (t: any) => {
   const f = fixture(t);
-  const runId = seedOpen(f, { state: 'closed', closedReason: 'idle', turn: { observed: true, state: 'waiting', since: iso(), seq: 1 } });
+  const runId = seedOpen(f, { state: 'closed', closedReason: 'unused-timeout', turn: { observed: true, state: 'waiting', since: iso(), seq: 1 } });
   for (const action of ['send', 'steer', 'stop']) {
     const r = await verb(f, runId, action);
-    assert.deepEqual([r.exit, r.body.code, r.body.current.reason], [1, 'channel-closed', 'idle'], action);
+    assert.deepEqual([r.exit, r.body.code, r.body.current.reason], [1, 'channel-closed', 'unused-timeout'], action);
     assert.ok(r.body.message.includes(`--worker-run ${runId} --operator --via console --reason ended`));
   }
   assert.deepEqual(waiting(f, runId), []);

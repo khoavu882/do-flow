@@ -86,7 +86,7 @@ const MAIN_SESSION = 'main-session';
 /** 082 IC-014: the bound on each attempt-worktree git read, and the variables it drops (081 REPO_ENV). */
 const EDIT_GIT_TIMEOUT_MS = 10000;
 const REPO_ENV = Object.freeze(['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY']);
-/** 170 §5.2 step 5: a turn waiting this long with no message closes stdin (`idle`). */
+/** 170 §5.2 step 5: a turn waiting this long with no message closes stdin (`unused-timeout`). */
 const CHANNEL_IDLE_MS = 30 * 60 * 1000;
 /** 170 D3: the spool poll beside its watch. */
 const SPOOL_POLL_MS = 100;
@@ -568,7 +568,7 @@ function channelSide({ file, runId, root, run, compiled, child, clock, options =
 
   function tick() {
     const turn = tracker.turn;
-    if (closing === null && turn.observed && turn.state === 'waiting' && idleNow() - quietFrom >= idleMs) close('idle');
+    if (closing === null && turn.observed && turn.state === 'waiting' && idleNow() - quietFrom >= idleMs) close('unused-timeout');
     else void pump();
   }
 

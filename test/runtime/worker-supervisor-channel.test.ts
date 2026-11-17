@@ -270,7 +270,7 @@ test('channel: the first prompt is the framed follow-up, a spool message arrives
   assert.equal(runOf(f, runId).channel.state, 'open');
   clock += 60 * 1000;
   const run = await done;
-  assert.deepEqual([run.phase, run.channel.state, run.channel.closedReason, run.process.code], ['ended', 'closed', 'idle', 0]);
+  assert.deepEqual([run.phase, run.channel.state, run.channel.closedReason, run.process.code], ['ended', 'closed', 'unused-timeout', 0]);
   assert.equal(fs.existsSync(dir), false, 'the spool is removed at the end');
   assert.equal(logLines(f).length, 2);
 });

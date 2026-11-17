@@ -732,13 +732,13 @@ test('170 T9d: a run that ended reads channel closed whatever its record says: c
   const ended = { phase: 'ended', end: { state: 'cancelled', at: at(9000) } };
   writeStarted(a, [
     startedRun(3, { ...ended, supervisor: dead, worker: dead, channel: channelBlock({ state: 'open' }) }),
-    startedRun(2, { ...ended, channel: channelBlock({ state: 'open', closedReason: 'idle' }) }),
+    startedRun(2, { ...ended, channel: channelBlock({ state: 'open', closedReason: 'unused-timeout' }) }),
     startedRun(1, { phase: 'ended', supervisor: dead, worker: dead, channel: channelBlock({ state: 'open' }) }),
   ]);
   const { items } = (await channelsOf(f, a)).json;
   const by = Object.fromEntries(items.map((x: any) => [x.runId.slice(-1), x]));
   assert.deepEqual([by['3'].channel, by['3'].reason, by['3'].turn.reason], ['closed', 'cancelled', 'run-ended'], 'killed supervisor, then cancelled');
-  assert.deepEqual([by['2'].channel, by['2'].reason], ['closed', 'idle'], 'the record\'s own reason wins');
+  assert.deepEqual([by['2'].channel, by['2'].reason], ['closed', 'unused-timeout'], 'the record\'s own reason wins');
   assert.deepEqual([by['1'].channel, by['1'].reason], ['closed', 'run-ended'], 'an ended run is not read for liveness, so its reason does not claim a dead supervisor');
 });
 
