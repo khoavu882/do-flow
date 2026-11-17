@@ -438,6 +438,7 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--stream', 'stream'],              // worker-log: out or err, validated in the verb (150 IC-002)
   ['--checks', 'checks'],              // worker evidence: checks file
   ['--out', 'out'],                    // worker evidence: output record path
+  ['--docs-root', 'docsRoot'],         // worker evidence: the root doc checks read from (row 170)
   ['--model-check', 'modelCheck'],     // worker probe: a declared model-check id
   // 082 dispatch (IC-001, IC-038) and worker --child-of (IC-015). Read as text and validated in
   // executeDispatchCommand / handleWorkerCommand. `--slug`, `--by`, `--reason`, `--mode`,
@@ -854,7 +855,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --timeout-seconds, --wait, --edit,
       --child-of, --request, --exec-worktree,
       --worker-run, --by, --reason,
-      --checks, --out, --project-key,
+      --checks, --out, --docs-root, --project-key,
       --worktree-key, --entry               worker (probe: [--model-check <id> --budget-tokens <n>];
                                             describe: --harness [--edit]; select: [--edit];
                                             run: --harness --task --token
@@ -863,7 +864,8 @@ Runtime verb arguments (accept --flag value or --flag=value):
                                             status, cancel: --worker-run or --task --token;
                                             cancel also --by --reason;
                                             evidence: --harness --out and exactly one of --checks <file>
-                                            (free CLI checks) or --worker-run <w-id> (an ended run);
+                                            (free CLI checks; [--docs-root <dir>] the root its doc checks
+                                            read) or --worker-run <w-id> (an ended run);
                                             start-session: --project-key --worktree-key --harness
                                             [--model [--provider] [--effort]] --entry do|none --request-id --stdin [--via]
                                             (the prompt on stdin); start-options: --project-key.
