@@ -28,7 +28,7 @@ const STORAGE = loadStorageRegistry({ repoRoot: REPO_ROOT });
 const NOW = () => new Date('2026-06-10T12:00:00.000Z');
 const FROM = '2026-03-12';
 const TO = '2026-06-10';
-const REGISTRY_KINDS = ['tier', 'task-class', 'verify-risk', 'review-depth', 'mcp-need', 'followup-triage', 'rerank', 'claim-support'];
+const REGISTRY_KINDS = ['tier', 'task-class', 'verify-risk', 'review-depth', 'mcp-need', 'claim-support'];
 const BODY_KEYS = ['v', 'window', 'kind', 'kinds', 'stores', 'days', 'picks', 'limits'];
 const DAY_KEYS = ['day', 'coverage', 'unreadableLines', 'picks'];
 const PICK_KEYS = ['pickId', 'kind', 'at', 'mode', 'pick', 'static', 'agree', 'outcome'];
@@ -222,17 +222,18 @@ test('--kind task-class and --kind adhoc narrow kinds, days[].picks and picks', 
 test(`33 kinds give the first ${32}; the records of the kind past the bound are counted in skipped`, (t) => {
   const fx = fixture(t);
   assert.equal(PICK_KINDS_LIMIT, 32);
-  const extras = Array.from({ length: 25 }, (_, i) => `extra-${String(i + 1).padStart(2, '0')}`);
+  const extras = Array.from({ length: PICK_KINDS_LIMIT + 1 - REGISTRY_KINDS.length }, (_, i) => `extra-${String(i + 1).padStart(2, '0')}`);
   extras.forEach((kind, i) => pick(fx, `2026-06-08T10:${String(i).padStart(2, '0')}:00.000Z`, { kind }));
-  pick(fx, '2026-06-08T11:00:00.000Z', { kind: 'extra-25' });
+  pick(fx, '2026-06-08T11:00:00.000Z', { kind: extras[extras.length - 1] });
   const b = body(fx);
   assert.equal(REGISTRY_KINDS.length + extras.length, 33);
+  const room = PICK_KINDS_LIMIT - REGISTRY_KINDS.length;
   assert.equal(b.kinds.length, 32);
-  assert.deepEqual(b.kinds, [...REGISTRY_KINDS, ...extras.slice(0, 24)]);
-  assert.equal(b.picks.some((p: any) => p.kind === 'extra-25'), false);
-  assert.equal(Object.hasOwn(dayOf(b, '2026-06-08').picks, 'extra-25'), false);
+  assert.deepEqual(b.kinds, [...REGISTRY_KINDS, ...extras.slice(0, room)]);
+  assert.equal(b.picks.some((p: any) => p.kind === extras[room]), false);
+  assert.equal(Object.hasOwn(dayOf(b, '2026-06-08').picks, extras[room]), false);
   assert.equal(b.limits.skipped, 2);
-  assert.deepEqual(b.limits, { shown: 24, notShown: 0, skipped: 2 });
+  assert.deepEqual(b.limits, { shown: room, notShown: 0, skipped: 2 });
 });
 
 // ── Picks ────────────────────────────────────────────────────────────────────────────────────────

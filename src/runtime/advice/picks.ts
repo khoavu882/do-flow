@@ -25,6 +25,7 @@ const { loadAdviceRegistry } = require('./registry.ts');
 const { loadStorageRegistry } = require('../storage/registry.ts');
 const { resolveRoots } = require('../storage/roots.ts');
 const { readWindow } = require('./record.ts');
+const { isRetiredOutcome } = require('./retired.ts');
 const { maskBody, shown } = require('../mask.ts');
 const { maskJson } = require('../events/envelope.ts');
 const { finishRuntime } = require('../cli-result.ts');
@@ -106,7 +107,7 @@ function agreeOf(a: string | null, b: string | null): boolean | null {
   return a === b;
 }
 
-/** The registry's kind ids and the record roots, or null when a registry cannot be loaded. */
+/** The ids of the kinds something asks at runtime (a non-empty askedBy) and the record roots, or null when a registry cannot be loaded. */
 function loadSources(options: PicksOptions, fsImpl: any): { ids: string[]; roots: Record<string, string | null> } | null {
   try {
     const advice = loadAdviceRegistry({ repoRoot: REPO_ROOT, fsImpl });
@@ -115,7 +116,7 @@ function loadSources(options: PicksOptions, fsImpl: any): { ids: string[]; roots
     const storage = loadStorageRegistry({ repoRoot: REPO_ROOT, fsImpl });
     const projectRoot = path.resolve(options.cwd ?? process.cwd());
     const roots = resolveRoots({ registry: storage, projectRoot, global: false, env: options.env ?? process.env });
-    return { ids: kinds.map((entry: any) => entry.id), roots };
+    return { ids: kinds.filter((entry: any) => entry.askedBy?.length > 0).map((entry: any) => entry.id), roots };
   } catch {
     return null;
   }
@@ -161,7 +162,7 @@ function compute(options: PicksOptions): Answer {
     if (day > to) continue;
     if (!TYPES.has(record.type) || !isTime(record.at)) { skipped += 1; continue; }
     if (record.type === 'outcome') {
-      if (typeof record.pickId === 'string' && typeof record.actual === 'string') {
+      if (typeof record.pickId === 'string' && typeof record.actual === 'string' && !isRetiredOutcome(record)) {
         const prior = outcomes.get(record.pickId);
         if (!prior || Date.parse(record.at) >= Date.parse(prior.at)) outcomes.set(record.pickId, { at: record.at, actual: record.actual });
       }

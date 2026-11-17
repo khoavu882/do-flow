@@ -552,6 +552,26 @@
       ]
     },
     {
+      "id": "advice-shadow-slots-user",
+      "root": "user-state",
+      "path": "advice/shadow-slots",
+      "entry": "file",
+      "match": "^slot-[0-9]{1,2}(?:\\.payload-[0-9a-f]{12})?\\.json$",
+      "rule": "existing",
+      "bound": {
+        "text": "at most shadowSlots slot files (core/registry/advice.json), one per live detached shadow child, each taken before the child starts and removed when it ends, with at most one handoff file each, which the child removes on start; a stale slot (its child gone, or older than its budget plus 5 s) is reclaimed in place by one call, with its handoff"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/advice/shadow-runner.ts"
+      ],
+      "source": {
+        "file": "src/runtime/advice/shadow-runner.ts",
+        "pattern": "SLOT_MARGIN_MS = 5000"
+      }
+    },
+    {
       "id": "slots-user",
       "root": "user-state",
       "path": "slots",

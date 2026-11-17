@@ -1381,7 +1381,6 @@ const pctl = (n: number, p50: number | null, p90: number | null, p95: number | n
 /** `advise --action report --json` as src/runtime/advice/report.ts:210 builds it. */
 function adviseReportBody(): any {
   const empty = { n: { picks: 0, misses: 0 }, missesByReason: {}, agreeStatic: null, agreeOutcome: null, elevated: null, modes: null, durationMs: null, missDurationMs: null };
-  const arm = { picks: 1, top1Changed: { n: 1, changed: 0 }, meanRankDisplacement: { n: 1, mean: 0.5 } };
   return {
     schema: 1, scope: `this project only ${MARKER}`,
     window: { from: '2026-08-11', to: '2026-11-09', maxAgeDays: 90 },
@@ -1391,12 +1390,6 @@ function adviseReportBody(): any {
         elevated: 0, modes: { shadow: 6, act: 1, unrecorded: 1 }, durationMs: pctl(8, 3239, 4764, 4764), missDurationMs: pctl(0, null, null, null) },
       'task-class': empty,
       adhoc: { ...empty, missesByReason: { 'provider-error': 2 } },
-    },
-    rerank: {
-      n: { picks: 1, misses: 0 }, withoutPayload: 0, missesByReason: {}, top1Changed: { n: 1, changed: 0 }, meanRankDisplacement: { n: 1, mean: 0.5 },
-      firstStageMs: { n: 1, p50: 12, p95: 12 }, arms: { choice: arm, ladder: { ...arm, picks: 0, meanRankDisplacement: null } },
-      criteria: { source: 'registry', digest: '9939ded87e67', warning: PLANTED_BASE, recorded: { n: 1, bySource: { registry: 1, settings: 0, unrecorded: 0 }, digests: { abcdefabcdef: 1, [MARKER]: 1 } } },
-      wouldDrop: { picks: 0, candidates: 0, illustrative: true, thresholds: [{ field: 'confidenceBelow', value: 0.5, wouldDrop: 0, ofCandidates: 0, top1WouldDrop: 0, ofPicks: 0 }] },
     },
     claimSupport: {
       n: { picks: 2, misses: 1 }, withoutPayload: 1, missesByReason: { [`${MARKER} x`]: 1 },
@@ -1554,7 +1547,7 @@ test('151 config-list: a global (-g) load with no project root, layers or config
 test('151 config-list: settingKey accepts every key of core/registry/settings.json', () => {
   const registry = JSON.parse(fs.readFileSync(path.join(CORE_SRC, '..', '..', 'core', 'registry', 'settings.json'), 'utf8'));
   const names = Object.keys(registry.keys);
-  assert.equal(names.length, 47);
+  assert.equal(names.length, 42);
   const raw = configListBody();
   raw.keys = Object.fromEntries(names.map((name) => [name, resolution151(name, 'project')]));
   const result = project('config-list', raw, CTX);
@@ -1610,7 +1603,6 @@ test('151: a text over its cap is withheld whole, with no prefix of it in the bo
     ['config-list', 'note text', 512, (r, t) => { r.notes[0].text = t; }, (b) => b.notes[0].text],
     ['config-schema', 'statement', 512, (r, t) => { r.invariants[0].statement = t; }, (b) => b.invariants[0].statement],
     ['config-schema', 'enforcedBy', 128, (r, t) => { r.invariants[0].enforcedBy = t; }, (b) => b.invariants[0].enforcedBy],
-    ['advise-report', 'criteria warning', 512, (r, t) => { r.rerank.criteria.warning = t; }, (b) => b.rerank.criteria.warning],
     ['advise-report', 'verdict reason', 256, (r, t) => { r.verdicts[0].reason = t; }, (b) => b.verdicts[0].reason],
   ];
   const bodies: Record<string, () => any> = { 'config-list': configListBody, 'config-schema': configSchemaBody, 'advise-report': adviseReportBody };
@@ -1655,7 +1647,7 @@ test('151 advise-report: IC-008 fields; non-id reasons folded to (other); record
   assert.equal(result.ok, true, JSON.stringify(result));
   const body = result.body;
   assert.deepEqual(absent(body), []);
-  assert.deepEqual(Object.keys(body), ['v', 'schema', 'window', 'unreadable', 'kinds', 'rerank', 'claimSupport', 'verdicts']);
+  assert.deepEqual(Object.keys(body), ['v', 'schema', 'window', 'unreadable', 'kinds', 'claimSupport', 'verdicts']);
   assert.deepEqual([body.v, body.schema, body.window, body.unreadable], [1, 1, { from: '2026-08-11', to: '2026-11-09', maxAgeDays: 90 }, 2]);
   assert.deepEqual(body.kinds.map((k: any) => k.kind), ['tier', 'task-class', 'adhoc']);
   assert.deepEqual(body.kinds[0], {
@@ -1665,10 +1657,6 @@ test('151 advise-report: IC-008 fields; non-id reasons folded to (other); record
   });
   assert.deepEqual(body.kinds[1], { kind: 'task-class', n: { picks: 0, misses: 0 }, missesByReason: [], agreeStatic: null, agreeOutcome: null, elevated: null, modes: null, durationMs: null, missDurationMs: null });
   assert.deepEqual(body.kinds[2].missesByReason, [{ reason: 'provider-error', n: 2 }]);
-  assert.deepEqual(body.rerank.criteria, { source: 'registry', digest: '9939ded87e67', warning: PLACED_BASE, recorded: { n: 1, bySource: { registry: 1, settings: 0, unrecorded: 0 } } });
-  assert.deepEqual(body.rerank.firstStageMs, { n: 1, p50: 12, p95: 12 });
-  assert.deepEqual(body.rerank.arms.ladder, { picks: 0, top1Changed: { n: 1, changed: 0 }, meanRankDisplacement: null });
-  assert.deepEqual(body.rerank.wouldDrop, { picks: 0, candidates: 0, thresholds: [{ field: 'confidenceBelow', value: 0.5, wouldDrop: 0, ofCandidates: 0, top1WouldDrop: 0, ofPicks: 0 }] });
   assert.deepEqual(body.claimSupport, {
     n: { picks: 2, misses: 1 }, withoutPayload: 1, missesByReason: [{ reason: '(other)', n: 1 }],
     byRelation: { supports: { n: 1, modelYes: 1, agree: 1 }, contradicts: { n: 0, modelYes: 0, agree: 0 } }, durationMs: { n: 2, p50: 10, p95: 20 },
@@ -1679,12 +1667,10 @@ test('151 advise-report: IC-008 fields; non-id reasons folded to (other); record
   ]);
   const text = JSON.stringify(body);
   for (const dropped of ['digests', 'abcdefabcdef', 'illustrative', 'scope']) assert.ok(!text.includes(dropped), dropped);
-  // A report without the rerank and claim-support blocks (neither kind shown) reads them as null.
+  // A report without the claim-support block (its kind not shown) reads it as null.
   const narrow = adviseReportBody();
-  delete narrow.rerank;
   delete narrow.claimSupport;
   const n = project('advise-report', narrow, CTX).body;
-  assert.equal(n.rerank, null);
   assert.equal(n.claimSupport, null);
 });
 
@@ -1810,13 +1796,6 @@ const MUTATIONS_151: Record<string, [() => any, Array<[string, (raw: any) => voi
     ['durationMs.p90 missing on a kind', (r) => { delete r.kinds.tier.durationMs.p90; }],
     ['durationMs.p50 negative', (r) => { r.kinds.tier.durationMs.p50 = -1; }],
     ['elevated a string', (r) => { r.kinds.tier.elevated = '0'; }],
-    ['rerank not an object', (r) => { r.rerank = 'none'; }],
-    ['rerank arms.choice missing', (r) => { delete r.rerank.arms.choice; }],
-    ['rerank criteria source unknown', (r) => { r.rerank.criteria.source = 'env'; }],
-    ['rerank criteria digest not 12 hex', (r) => { r.rerank.criteria.digest = 'XYZ'; }],
-    ['rerank recorded.bySource missing', (r) => { delete r.rerank.criteria.recorded.bySource; }],
-    ['rerank threshold field unknown', (r) => { r.rerank.wouldDrop.thresholds[0].field = 'scoreBelow'; }],
-    ['rerank meanRankDisplacement.mean a string', (r) => { r.rerank.meanRankDisplacement.mean = '0.5'; }],
     ['claimSupport byRelation.contradicts missing', (r) => { delete r.claimSupport.byRelation.contradicts; }],
     ['claimSupport durationMs missing', (r) => { delete r.claimSupport.durationMs; }],
     ['verdicts missing', (r) => { delete r.verdicts; }],

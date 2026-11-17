@@ -71,8 +71,10 @@ const PATH_CALLER_SURFACES: any = ['package.json', path.join('core', 'shared', '
  * "Nothing calls it" is never a reason — that module is dead, and belongs deleted, not exempted.
  * conform-fake.ts (171 R8) is run as a script: conform.ts writes a shell wrapper that execs
  * `node <path.join(__dirname, 'conform-fake.ts')>`, a computed path no text scan sees.
+ * shadow-runner.ts (174 T1) is the detached child of a shadow advice call: shadow-dispatcher.ts spawns it by
+ * `path.join(__dirname, `shadow-runner${path.extname(__filename)}`)` (the runner takes the dispatcher's own extension), a computed path as well.
  */
-const ALLOWLIST: any = new Set(['src/runtime/worker/conform-fake.ts']);
+const ALLOWLIST: any = new Set(['src/runtime/worker/conform-fake.ts', 'src/runtime/advice/shadow-runner.ts']);
 
 /** Every runtime module file (`.js` or `.ts`) under a source/test root. Node runs `.ts` directly through
  * native type-stripping, so a `.ts` module is a real node in this tree's require graph and must stay reachable. `.d.ts`

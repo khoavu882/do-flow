@@ -3,7 +3,7 @@
 // Feature 095b B.1 (IC-001), 119 A.4 (IC-005): `review --action start`; the depth rule is `resolveProtocol` (review-protocol-resolve.test.js). Every case runs in a
 // scratch git repository with a scratch HOME; nothing is written to the real record or advice stores.
 
-const { test } = require('node:test');
+const { test, before } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -16,6 +16,10 @@ const { reviewPrecondition } = require('../../src/runtime/review/start.ts');
 const { protocolDigest } = require('../../src/runtime/review/resolve-protocol.ts');
 const { storeFileFor } = require('../../src/runtime/dispatch/store.ts');
 const { cwdHash } = require('../../src/runtime/context/identity.ts');
+const { startFakeServer, answering, closedEndpoint } = require('../helper/fake-decision-server.ts');
+// an endpoint nothing listens on, resolved once before the tests run
+let CLOSED_ENDPOINT = '';
+before(async () => { CLOSED_ENDPOINT = await closedEndpoint(); });
 
 const CLI = path.join(REPO_ROOT, 'bin', 'doflow.js');
 const SLUG = '095b-review-depth';
@@ -79,7 +83,7 @@ function repo(t: any, { taskClass = 'feature', files = { 'src/a.ts': 'export {};
     // merged into the user settings.json the fixture already wrote (its OPT_IN document), not a replacement
     const file = path.join(env.XDG_CONFIG_HOME, 'doflow', 'settings.json');
     const current = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : { schema: 1 };
-    put(env.XDG_CONFIG_HOME, 'doflow/settings.json', JSON.stringify({ ...current, 'advice.enabled': true, 'advice.provider': 'ollama', 'advice.endpoint': 'http://127.0.0.1:9', 'advice.model': 'clef-flash' }));
+    put(env.XDG_CONFIG_HOME, 'doflow/settings.json', JSON.stringify({ ...current, 'advice.enabled': true, 'advice.provider': 'ollama', 'advice.endpoint': CLOSED_ENDPOINT, 'advice.model': 'clef-flash' }));
   };
   return { dir, cwd, env, base, head, lines, line, enableAdvice, git: (args: any) => git(cwd, env, args) };
 }
@@ -799,33 +803,48 @@ test('N-6: every error refusal prints applicable null; a precondition refusal st
 
 // ---- IC-001 step 6: advice raises, never lowers ---------------------------------------------------
 
-function fakeClient(answer: any): any {
-  const calls: any = [];
-  return { calls, ask: async (request: any) => { calls.push(request); return answer; } };
+/**
+ * An awaited act answer cannot be reached by a real run (the shipped bench verdicts are empty, so act degrades to shadow):
+ * the dispatcher's reply is stood in for. `resolution` is what interceptDecisionPoint returns; `during` runs while the
+ * "call" is in flight. The contexts the verb handed over are returned. The real function is restored after the test.
+ */
+let REAL_INTERCEPT: any = null;
+function stubDispatcher(t: any, resolution: any, during: any = null): any[] {
+  const dispatcher = require('../../src/runtime/advice/shadow-dispatcher.ts');
+  REAL_INTERCEPT ??= dispatcher.interceptDecisionPoint;
+  t.after(() => { dispatcher.interceptDecisionPoint = REAL_INTERCEPT; });
+  const contexts: any[] = [];
+  dispatcher.interceptDecisionPoint = async (context: any) => {
+    contexts.push(context);
+    if (during) during();
+    if (resolution instanceof Error) throw resolution;
+    return { kind: 'review-depth', staticPick: context.staticPick, pickId: null, elevated: false, agreed: null, ...resolution };
+  };
+  return contexts;
 }
-const answered = (pick: any) => ({ status: 'answered', answers: [{ pick, pickId: null }] });
 
 test('advice: an answer of single over a decided deep leaves deep', async (t) => {
   const r = repo(t);
   r.lines([r.line()]);
   r.enableAdvice();
-  const client = fakeClient(answered('single'));
-  const { json } = await start(r, { adviceClient: client });
-  assert.equal(client.calls.length, 1);
-  assert.equal(client.calls[0].kind, 'review-depth');
-  assert.equal(client.calls[0].staticAnswer, 'deep');
+  // the raise-only rule keeps the decided deep over an advisor's single
+  const contexts = stubDispatcher(t, { mode: 'act', advisorPick: 'single', effectiveDecision: 'deep' });
+  const { json } = await start(r);
+  assert.equal(contexts.length, 1);
+  assert.equal(contexts[0].kind, 'review-depth');
+  assert.equal(contexts[0].staticPick, 'deep');
   assert.equal(json.depth, 'deep');
   assert.equal(json.depthBasis.raisedBy, 'policy');
-  assert.deepEqual(json.advice, { status: 'answered', pick: 'single' });
+  assert.deepEqual(json.advice, { status: 'answered', pick: 'deep' });
 });
 
 test('advice: an answer of deep over a decided single raises it, raisedBy advice, seats from the deep policy', async (t) => {
   const r: any = repo(t, { taskClass: 'bug', attended: true, files: { 'docs/a.md': 'x\n' } });
   r.lines([r.line({ risk: 'LOW' })]);
   r.enableAdvice();
-  const client = fakeClient(answered('deep'));
-  const { json } = await start(r, { adviceClient: client, base: r.base });
-  assert.equal(client.calls[0].staticAnswer, 'single');
+  const contexts = stubDispatcher(t, { mode: 'act', advisorPick: 'deep', effectiveDecision: 'deep' });
+  const { json } = await start(r, { base: r.base });
+  assert.equal(contexts[0].staticPick, 'single');
   assert.equal(json.depth, 'deep');
   assert.equal(json.seats, 2);
   assert.equal(json.depthBasis.raisedBy, 'advice');
@@ -842,24 +861,57 @@ test('FU-md0ywe: a HEAD, tree or record change during the advice call is refused
     const r = repo(t);
     r.lines([r.line()]);
     r.enableAdvice();
-    const client: any = { calls: [], ask: async (request: any) => { client.calls.push(request); move(r); return answered('deep'); } };
-    const { exitCode, json } = await start(r, { adviceClient: client });
-    assert.equal(client.calls.length, 1, name);
+    const contexts = stubDispatcher(t, { mode: 'act', advisorPick: 'deep', effectiveDecision: 'deep' }, () => move(r));
+    const { exitCode, json } = await start(r);
+    assert.equal(contexts.length, 1, name);
     assert.equal(exitCode, 1, name);
     assert.equal(json.error, 'state-moved', name);
   }
   const r = repo(t);
   r.lines([r.line()]);
   r.enableAdvice();
-  const { exitCode, json } = await start(r, { adviceClient: fakeClient(answered('deep')) });
+  stubDispatcher(t, { mode: 'act', advisorPick: 'deep', effectiveDecision: 'deep' });
+  const { exitCode, json } = await start(r);
   assert.equal([exitCode, json.ok].join(), '0,true');
+});
+
+/** Puts a `git` shim first on the repo env's PATH that logs each call's first argument; returns the counter for one. */
+function countGit(t: any, r: any) {
+  const real = spawnSync('which', ['git'], { encoding: 'utf8' }).stdout.trim();
+  const bin = path.join(r.dir, 'shim-bin');
+  const log = path.join(r.dir, 'git-calls.log');
+  fs.mkdirSync(bin);
+  fs.writeFileSync(path.join(bin, 'git'), `#!/bin/sh\nfor a in "$@"; do case "$a" in -*|*/*) ;; *) echo "$a" >> '${log}'; break;; esac; done\nexec '${real}' "$@"\n`, { mode: 0o755 });
+  r.env.PATH = `${bin}${path.delimiter}${r.env.PATH}`;
+  return (sub: string) => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').split('\n').filter((l: string) => l === sub).length : 0);
+}
+
+test('row 174: a shadow advice result skips the state-moved re-read (no wait on the model); an awaited act answer keeps it', { skip: process.platform === 'win32' }, async (t) => {
+  // shadow: the precondition reads the working tree once (`git status`), and nothing reads it again after the advice call
+  const shadowRepo = kindsRepo(t, 'shadow');
+  const shadowStatuses = countGit(t, shadowRepo);
+  await serveAdvice(t, shadowRepo, 'deep');
+  const shadow = await start(shadowRepo, { base: shadowRepo.base });
+  assert.equal(shadow.json.advice.status, 'shadow');
+  await adviceLines(shadowRepo);
+  assert.equal(shadowStatuses('status'), 1, 'one working-tree read: the precondition, not a re-read after the advice call');
+  // act (an awaited client answer): the second read happens, and a moved state is refused (FU-md0ywe above)
+  const actRepo = repo(t);
+  actRepo.lines([actRepo.line()]);
+  actRepo.enableAdvice();
+  const actStatuses = countGit(t, actRepo);
+  stubDispatcher(t, { mode: 'act', advisorPick: 'deep', effectiveDecision: 'deep' });
+  const act = await start(actRepo);
+  assert.equal(act.json.advice.status, 'answered');
+  assert.equal(actStatuses('status'), 2, 'the precondition read and the re-read after the awaited advice call');
 });
 
 test('Q-A1: --preset review-single with an advice answer of deep on a light LOW change is not a refusal; the run preset wins', async (t) => {
   const r: any = repo(t, { taskClass: 'bug', attended: true, files: { 'docs/a.md': 'x\n' } });
   r.lines([r.line({ risk: 'LOW' })]);
   r.enableAdvice();
-  const { exitCode, json } = await start(r, { adviceClient: fakeClient(answered('deep')), base: r.base, preset: 'review-single' });
+  stubDispatcher(t, { mode: 'act', advisorPick: 'deep', effectiveDecision: 'deep' });
+  const { exitCode, json } = await start(r, { base: r.base, preset: 'review-single' });
   assert.equal(exitCode, 0);
   assert.equal(json.protocol.id, 'review-single');
   assert.equal(json.protocol.origins.id, 'run');
@@ -917,10 +969,12 @@ test('advice: an unavailable answer, or a client that throws, changes nothing', 
   const r: any = repo(t, { taskClass: 'bug', attended: true, files: { 'docs/a.md': 'x\n' } });
   r.lines([r.line({ risk: 'LOW' })]);
   r.enableAdvice();
-  const unavailable = await start(r, { adviceClient: fakeClient({ status: 'unavailable', reason: 'timeout', answers: [] }), base: r.base });
+  stubDispatcher(t, { mode: 'act', advisorPick: null, effectiveDecision: 'single' });
+  const unavailable = await start(r, { base: r.base });
   assert.equal(unavailable.json.depth, 'single');
   assert.deepEqual(unavailable.json.advice, { status: 'unavailable', pick: null });
-  const throwing = await start(r, { adviceClient: { ask: async () => { throw new Error('boom'); } }, base: r.base });
+  stubDispatcher(t, new Error('boom'));
+  const throwing = await start(r, { base: r.base });
   assert.equal(throwing.exitCode, 0);
   assert.equal(throwing.json.depth, 'single');
   assert.equal(throwing.json.advice.status, 'unavailable');
@@ -929,19 +983,19 @@ test('advice: an unavailable answer, or a client that throws, changes nothing', 
 test('advice: setting off makes no client call', async (t) => {
   const r = repo(t);
   r.lines([r.line()]);
-  const client = fakeClient(answered('deep'));
-  const { json } = await start(r, { adviceClient: client });
-  assert.equal(client.calls.length, 0);
+  const contexts = stubDispatcher(t, { mode: 'act', advisorPick: 'deep', effectiveDecision: 'deep' });
+  const { json } = await start(r);
+  assert.equal(contexts.length, 0, 'the dispatcher is never reached');
   assert.deepEqual(json.advice, { status: 'off', pick: null });
 });
 
 test('advice: a refused review makes no client call; a not-applicable one still decides its depth', async (t) => {
   const refused = repo(t);
   refused.enableAdvice();
-  const client = fakeClient(answered('deep'));
-  const refusal = await start(refused, { adviceClient: client });
+  const contexts = stubDispatcher(t, { mode: 'act', advisorPick: 'deep', effectiveDecision: 'deep' });
+  const refusal = await start(refused);
   assert.equal(refusal.exitCode, 1);
-  assert.equal(client.calls.length, 0);
+  assert.equal(contexts.length, 0);
   const exempt = repo(t, { taskClass: 'documentation' });
   const { exitCode, json } = await start(exempt);
   assert.equal(exitCode, 0);
@@ -1144,7 +1198,7 @@ const adviceStore = (r: any) => fs.existsSync(path.join(r.cwd, '.doflow', 'state
 async function adviceLines(r: any): Promise<any[]> {
   const dir = path.join(r.cwd, '.doflow', 'state', 'advice', 'picks');
   const read = () => (fs.existsSync(dir) ? fs.readdirSync(dir).flatMap((f: string) => fs.readFileSync(path.join(dir, f), 'utf8').split('\n').filter(Boolean).map((l: string) => JSON.parse(l))) : []);
-  for (let i = 0; i < 50 && read().length === 0; i++) await new Promise((resolve) => setTimeout(resolve, 20));
+  for (let i = 0; i < 250 && read().length === 0; i++) await new Promise((resolve) => setTimeout(resolve, 20));
   await new Promise((resolve) => setTimeout(resolve, 20));
   return read();
 }
@@ -1153,16 +1207,25 @@ const stateEntries = (r: any) => {
   const root = path.join(r.cwd, '.doflow', 'state');
   return fs.existsSync(root) ? fs.readdirSync(root).sort() : [];
 };
-const fullAnswer = (pick: string) => ({
-  status: 'answered', provider: 'fake', model: 'clef-flash',
-  answers: [{ name: 'depth', type: 'choice', pick, probabilities: { single: 0.4, deep: 0.6 }, confidence: 0.6, strength: { word: 'lean', between: ['single', 'deep'] } }],
-});
+/**
+ * Points the user's advice endpoint at an in-process fake server answering `pick`: a shadow call runs in a detached child
+ * that builds its own client from the settings (row 174 O-2). `asks()` counts its decision requests.
+ */
+async function serveAdvice(t: any, r: any, pick: string) {
+  const server: any = await startFakeServer({ routes: { 'POST /v1/systemone': answering(() => pick) } });
+  t.after(() => server.close());
+  const file = path.join(r.env.XDG_CONFIG_HOME, 'doflow', 'settings.json');
+  fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), 'advice.endpoint': server.origin }));
+  return { asks: () => server.requests.filter((request: any) => request.pathname === '/v1/systemone').length };
+}
 
 test('084 H2: advice.kinds.review-depth off makes no client call', async (t) => {
   const r = kindsRepo(t, 'off');
-  const client = fakeClient(answered('deep'));
-  const { json } = await start(r, { adviceClient: client, base: r.base });
-  assert.equal(client.calls.length, 0);
+  const advice = await serveAdvice(t, r, 'deep');
+  const { json } = await start(r, { base: r.base });
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  assert.equal(advice.asks(), 0, 'off makes no model call');
+  assert.equal(adviceStore(r), false);
   assert.equal(json.depth, 'single');
   assert.deepEqual(json.advice, { status: 'off', pick: null });
 });
@@ -1170,8 +1233,8 @@ test('084 H2: advice.kinds.review-depth off makes no client call', async (t) => 
 test('084 H2: advice.kinds.review-depth shadow writes exactly one advice line and no review or telemetry file', async (t) => {
   const r = kindsRepo(t, 'shadow');
   const before = stateEntries(r);
-  const client = fakeClient(fullAnswer('deep'));
-  const { json } = await start(r, { adviceClient: client, base: r.base });
+  const advice = await serveAdvice(t, r, 'deep');
+  const { json } = await start(r, { base: r.base });
   assert.equal(json.depth, 'single');
   assert.equal(json.depthBasis.raisedBy, null);
   assert.deepEqual(json.advice, { status: 'shadow', pick: null, reason: null });
@@ -1182,53 +1245,54 @@ test('084 H2: advice.kinds.review-depth shadow writes exactly one advice line an
   assert.equal(lines[0].mode, 'shadow');
   assert.match(lines[0].stateDigest, /^sha256:[0-9a-f]{64}$/, 'the state is stored as a digest, not as text');
   assert.equal(lines[0].state, undefined);
-  assert.equal(client.calls.length, 1);
-  assert.equal(client.calls[0].record, false, 'the dispatcher, not the client, records');
+  assert.equal(lines[0].pick, 'deep');
+  assert.equal(advice.asks(), 1);
   assert.deepEqual(stateEntries(r).filter((e: string) => !before.includes(e)), ['advice'], 'no review or telemetry file');
 });
 
 test('084 H2: advice.kinds.review-depth act without a passed bench bar keeps the decided depth and says why', async (t) => {
   const r = kindsRepo(t, 'act');
-  const client = fakeClient(answered('deep'));
-  const { json } = await start(r, { adviceClient: client, base: r.base });
+  const advice = await serveAdvice(t, r, 'deep');
+  const { json } = await start(r, { base: r.base });
   assert.equal(json.depth, 'single');
   assert.equal(json.depthBasis.raisedBy, null);
   assert.equal(json.advice.status, 'shadow');
   assert.equal(json.advice.pick, null);
   assert.match(json.advice.reason, /^BENCH_BAR_UNMET: /);
   const lines = await adviceLines(r);
-  assert.equal(client.calls.length, 1, 'degraded to shadow: the call is made and recorded');
+  assert.equal(advice.asks(), 1, 'degraded to shadow: the call is made and recorded');
   assert.equal(lines.length, 1);
   assert.equal(lines[0].mode, 'shadow');
-  const text = await start(r, { adviceClient: fakeClient(answered('deep')), base: r.base, json: false });
+  const text = await start(r, { base: r.base, json: false });
   assert.ok(text.out.some((line: string) => /^advice: status=shadow reason=BENCH_BAR_UNMET: /.test(line)), text.out.join('\n'));
 });
 
 test('084 D3: advice.kinds.review-depth act with a passing bench file in the project keeps the decided depth', async (t) => {
   const r = kindsRepo(t, 'act', { bench: true });
-  const client = fakeClient(answered('deep'));
-  const { json } = await start(r, { adviceClient: client, base: r.base });
+  const advice = await serveAdvice(t, r, 'deep');
+  const { json } = await start(r, { base: r.base });
   assert.equal(json.depth, 'single');
   assert.equal(json.depthBasis.raisedBy, null);
   assert.equal(json.advice.status, 'shadow');
   assert.equal(json.advice.pick, null);
   assert.match(json.advice.reason, /^BENCH_BAR_UNMET: /);
   const lines = await adviceLines(r);
-  assert.equal(client.calls.length, 1, 'degraded to shadow: the call is made and recorded');
+  assert.equal(advice.asks(), 1, 'degraded to shadow: the call is made and recorded');
   assert.equal(lines.length, 1);
   assert.equal(lines[0].mode, 'shadow');
 });
 
 test('085 H1: DOFLOW_ROLLOUT_PROFILE=baseline in the verb env turns a configured act off', async (t) => {
   const r = kindsRepo(t, 'act', { bench: true });
-  const client = fakeClient(answered('deep'));
-  const { json } = await start({ ...r, env: { ...r.env, DOFLOW_ROLLOUT_PROFILE: 'baseline' } }, { adviceClient: client, base: r.base });
-  assert.equal(client.calls.length, 0);
+  const advice = await serveAdvice(t, r, 'deep');
+  const { json } = await start({ ...r, env: { ...r.env, DOFLOW_ROLLOUT_PROFILE: 'baseline' } }, { base: r.base });
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  assert.equal(advice.asks(), 0);
   assert.equal(json.depth, 'single');
   assert.deepEqual(json.advice, { status: 'off', pick: null });
 });
 
-// 085 H1 on the unset-kinds path: a chosen profile whose advisor is off skips the client call.
+// 085 H1 with advice.kinds unset: a chosen profile whose advisor is off makes no model call.
 const CHOSEN_OFF: any = {
   'settings rollout.profile baseline': { settings: { rollout: { profile: 'baseline' } } },
   'env DOFLOW_ROLLOUT_PROFILE=baseline': { env: { DOFLOW_ROLLOUT_PROFILE: 'baseline' } },
@@ -1240,16 +1304,18 @@ for (const [name, c] of Object.entries(CHOSEN_OFF) as any) {
     r.lines([r.line({ risk: 'LOW' })]);
     r.enableAdvice();
     if (c.settings) put(r.cwd, '.doflow/settings.json', JSON.stringify(c.settings));
-    const client = fakeClient(answered('deep'));
-    const { json } = await start({ ...r, env: { ...r.env, ...(c.env || {}) } }, { adviceClient: client, base: r.base });
-    assert.equal(client.calls.length, 0);
+    const advice = await serveAdvice(t, r, 'deep');
+    const { json } = await start({ ...r, env: { ...r.env, ...(c.env || {}) } }, { base: r.base });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(advice.asks(), 0);
+    assert.equal(adviceStore(r), false);
     assert.equal(json.depth, 'single');
     assert.deepEqual(json.advice, { status: 'off', pick: null });
   });
 }
 
-// 084 C-6: on the unset-kinds path a shadow cap (canary, or staged per D2) never raises the depth, and the write-free
-// verb asks nothing, since it could not record the answer.
+// 084 C-6: with advice.kinds unset a shadow cap (canary, or staged per D2) is the same shadow call: the model's deep is
+// recorded and never raises the depth.
 const CHOSEN_SHADOW: any = {
   'settings rollout.profile canary': { settings: { rollout: { profile: 'canary' } } },
   'env DOFLOW_ROLLOUT_PROFILE=canary': { env: { DOFLOW_ROLLOUT_PROFILE: 'canary' } },
@@ -1260,44 +1326,56 @@ for (const [name, c] of Object.entries(CHOSEN_SHADOW) as any) {
     const r: any = repo(t, { taskClass: 'bug', attended: true, files: { 'docs/a.md': 'x\n' } });
     r.lines([r.line({ risk: 'LOW' })]);
     r.enableAdvice();
+    put(r.cwd, '.git/info/exclude', '.doflow/\n');
     if (c.settings) put(r.cwd, '.doflow/settings.json', JSON.stringify(c.settings));
-    const client = fakeClient(answered('deep'));
-    const { json } = await start({ ...r, env: { ...r.env, ...(c.env || {}) } }, { adviceClient: client, base: r.base });
+    const advice = await serveAdvice(t, r, 'deep');
+    const { json } = await start({ ...r, env: { ...r.env, ...(c.env || {}) } }, { base: r.base });
     assert.equal(json.depth, 'single');
     assert.equal(json.depthBasis.raisedBy, null);
     assert.deepEqual(json.advice, { status: 'shadow', pick: null, reason: null });
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    assert.equal(client.calls.length, 0, 'no call: the answer could be neither applied nor recorded');
-    assert.equal(fs.existsSync(path.join(r.cwd, '.doflow', 'state', 'advice')), false);
+    const lines = await adviceLines(r);
+    assert.equal(advice.asks(), 1, 'one call, made by the detached child');
+    assert.deepEqual(lines.map((line: any) => ({ kind: line.kind, caller: line.caller, mode: line.mode, pick: line.pick })),
+      [{ kind: 'review-depth', caller: 'review', mode: 'shadow', pick: 'deep' }]);
   });
 }
 
-test('084 C-6: with advice.kinds unset and no profile chosen the legacy raise still applies', async (t) => {
+test('174 O-1: with advice.kinds.review-depth unset and a model configured the dispatcher takes a shadow call and never raises the depth', async (t) => {
   const r: any = repo(t, { taskClass: 'bug', attended: true, files: { 'docs/a.md': 'x\n' } });
   r.lines([r.line({ risk: 'LOW' })]);
   r.enableAdvice();
-  const client = fakeClient(answered('deep'));
-  const { json } = await start(r, { adviceClient: client, base: r.base });
-  assert.equal(client.calls.length, 1);
-  assert.equal(client.calls[0].record, false);
-  assert.equal(adviceStore(r), false, 'unset kind: nothing is written');
-  assert.equal(json.depth, 'deep');
-  assert.equal(json.depthBasis.raisedBy, 'advice');
-  assert.deepEqual(json.advice, { status: 'answered', pick: 'deep' });
+  put(r.cwd, '.git/info/exclude', '.doflow/\n');
+  const advice = await serveAdvice(t, r, 'deep');
+  const { json } = await start(r, { base: r.base });
+  assert.equal(json.depth, 'single', 'the model answered deep; an unmeasured answer does not raise the depth');
+  assert.equal(json.depthBasis.raisedBy, null);
+  assert.deepEqual(json.advice, { status: 'shadow', pick: null, reason: null });
+  const lines = await adviceLines(r);
+  assert.equal(advice.asks(), 1);
+  assert.deepEqual(lines.map((line: any) => ({ kind: line.kind, caller: line.caller, mode: line.mode, pick: line.pick })),
+    [{ kind: 'review-depth', caller: 'review', mode: 'shadow', pick: 'deep' }]);
+});
+
+test('174 O-1: with advice.kinds.review-depth unset and no model configured nothing is asked or recorded', async (t) => {
+  const r: any = repo(t, { taskClass: 'bug', attended: true, files: { 'docs/a.md': 'x\n' } });
+  r.lines([r.line({ risk: 'LOW' })]);
+  r.enableAdvice();
+  const file = path.join(r.env.XDG_CONFIG_HOME, 'doflow', 'settings.json');
+  fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), 'advice.model': null }));
+  const advice = await serveAdvice(t, r, 'deep');
+  const { json } = await start(r, { base: r.base });
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  assert.equal(advice.asks(), 0);
+  assert.equal(adviceStore(r), false);
+  assert.equal(json.depth, 'single');
+  assert.deepEqual(json.advice, { status: 'off', pick: null });
 });
 
 // 084 C-10: a set kind consumes the dispatcher's mode and effectiveDecision, never advisorPick alone.
-function stubDispatcher(t: any, resolution: any) {
-  const dispatcher = require('../../src/runtime/advice/shadow-dispatcher.ts');
-  const saved = dispatcher.interceptDecisionPoint;
-  t.after(() => { dispatcher.interceptDecisionPoint = saved; });
-  dispatcher.interceptDecisionPoint = async () => ({ kind: 'review-depth', staticPick: 'single', pickId: null, elevated: false, agreed: null, ...resolution });
-}
-
 test('084 C-10: a shadow result carrying a deep pick never raises the depth', async (t) => {
   const r = kindsRepo(t, 'act');
   stubDispatcher(t, { mode: 'shadow', advisorPick: 'deep', effectiveDecision: 'single' });
-  const { json } = await start(r, { adviceClient: fakeClient(answered('deep')), base: r.base });
+  const { json } = await start(r, { base: r.base });
   assert.equal(json.depth, 'single');
   assert.deepEqual(json.advice, { status: 'shadow', pick: null, reason: null });
 });
@@ -1305,7 +1383,7 @@ test('084 C-10: a shadow result carrying a deep pick never raises the depth', as
 test('084 C-10: an act result applies the effective decision, not the raw advisor pick', async (t) => {
   const r = kindsRepo(t, 'act');
   stubDispatcher(t, { mode: 'act', advisorPick: 'deep', effectiveDecision: 'single' });
-  const { json } = await start(r, { adviceClient: fakeClient(answered('deep')), base: r.base });
+  const { json } = await start(r, { base: r.base });
   assert.equal(json.depth, 'single');
   assert.deepEqual(json.advice, { status: 'answered', pick: 'single' });
 });

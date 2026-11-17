@@ -69,7 +69,7 @@ const registryCase = (mod: any) => {
 };
 
 test('groupKeys: every key of core/registry/settings.json is in exactly one group, in registry order, Other holding the eight remaining prefixes', () => {
-  assert.equal(REGISTRY_KEYS.length >= 47, true, 'the registry still lists its keys');
+  assert.equal(REGISTRY_KEYS.length >= 42, true, 'the registry still lists its keys');
   registryCase(settings);
 });
 

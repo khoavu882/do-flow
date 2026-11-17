@@ -13,10 +13,13 @@ const { createSettingsEnv, REPO } = require('../helper/settings-fixtures.ts');
 const { loadSettings } = require('../../src/runtime/settings/resolve.ts');
 const { resolveShadowConfig } = require('../../src/runtime/advice/shadow-config.ts');
 
-const KINDS: string[] = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/advice.json'), 'utf8')).kinds.map((kind: any) => kind.id);
+const REGISTRY: any = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/advice.json'), 'utf8'));
+// A kind nothing asks at runtime (empty askedBy) has no settings; the guard in test/guards/settings.test.ts (G44 S7) holds that.
+const KINDS: string[] = REGISTRY.kinds.filter((kind: any) => kind.askedBy.length > 0).map((kind: any) => kind.id);
 
-test('the advice registry still declares the eight kinds this file covers', () => {
-  assert.deepEqual(KINDS, ['tier', 'task-class', 'verify-risk', 'review-depth', 'mcp-need', 'followup-triage', 'rerank', 'claim-support']);
+test('the advice registry asks these six kinds at runtime; rerank stays only for offline measurement', () => {
+  assert.deepEqual(KINDS, ['tier', 'task-class', 'verify-risk', 'review-depth', 'mcp-need', 'claim-support']);
+  assert.deepEqual(REGISTRY.kinds.find((kind: any) => kind.id === 'rerank').askedBy, []);
 });
 
 // ── config validate ───────────────────────────────────────────────────────────────────────────────
@@ -113,14 +116,13 @@ function viewSays(view: any, kind: string) {
   const model = view.get(`advice.models.${kind}`);
   return {
     mode: mode.value ?? 'off',
-    kindSet: mode.origin.layer !== 'default' || mode.candidates.length > 0,
     model: model.value,
   };
 }
 
 function runtimeSays(f: any, kind: string) {
   const cfg = resolveShadowConfig(kind, { projectRoot: f.project, env: f.env() });
-  return { mode: cfg.mode, kindSet: cfg.kindSet, model: cfg.decidedBy.model ? cfg.model : null };
+  return { mode: cfg.mode, model: cfg.decidedBy.model ? cfg.model : null };
 }
 
 function product(values: unknown[], n: number): unknown[][] {

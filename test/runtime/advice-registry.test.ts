@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp.ts');
-const { loadAdviceRegistry } = require('../../src/runtime/advice/registry.ts');
+const { loadAdviceRegistry, validateAdviceRegistry } = require('../../src/runtime/advice/registry.ts');
 const { buildPackage } = require('../../src/release/build-package.ts');
 
 const REPO = path.resolve(__dirname, '../..');
@@ -57,7 +57,7 @@ test('IC-003: shipped registry loads with the fixed limits, bands, providers and
     minVersion: '0.35.1', capability: 'decision',
   }]);
   assert.deepEqual(registry.kinds.map((kind: any) => kind.id), [
-    'tier', 'task-class', 'verify-risk', 'review-depth', 'mcp-need', 'followup-triage', 'rerank', 'claim-support',
+    'tier', 'task-class', 'verify-risk', 'review-depth', 'mcp-need', 'rerank', 'claim-support',
   ]);
   assert.deepEqual(Object.keys(registry.kinds[0].criteria), MODELS.dispatchTiers.tiers);
   assert.deepEqual(Object.keys(MODELS.providers).length > 0, true);
@@ -79,8 +79,8 @@ test('141 IC-001: the shipped gate block carries the proposed illustrative defau
   assert.equal(result.ok, true, result.detail);
   assert.deepEqual(result.registry.gate, {
     version: 1, illustrative: true, minCases: 30, validShareMin: 0.99,
-    quality: { lowerBoundAbove: 0, nonInferiorityDelta: 0.02, confidence: 0.95, resamples: 10000, seed: 20261106 },
-    latency: { p95CapMs: { default: 5000, rerank: 3000 }, ratioMax: 2 },
+    quality: { lowerBoundAbove: 0, confidence: 0.95, resamples: 10000, seed: 20261106 },
+    latency: { p95CapMs: { default: 5000, rerank: 3000 } },
   });
 });
 
@@ -100,7 +100,6 @@ expectInvalid('gate validShareMin above one', 'gate.validShareMin', (r: any) => 
 expectInvalid('gate validShareMin string', 'gate.validShareMin', (r: any) => { r.gate.validShareMin = '0.99'; });
 expectInvalid('gate quality missing', 'gate.quality', (r: any) => { delete r.gate.quality; });
 expectInvalid('gate lowerBoundAbove', 'gate.quality.lowerBoundAbove', (r: any) => { r.gate.quality.lowerBoundAbove = null; });
-expectInvalid('gate nonInferiorityDelta negative', 'gate.quality.nonInferiorityDelta', (r: any) => { r.gate.quality.nonInferiorityDelta = -0.01; });
 expectInvalid('gate confidence zero', 'gate.quality.confidence', (r: any) => { r.gate.quality.confidence = 0; });
 expectInvalid('gate confidence above one', 'gate.quality.confidence', (r: any) => { r.gate.quality.confidence = 95; });
 expectInvalid('gate resamples below 1000', 'gate.quality.resamples', (r: any) => { r.gate.quality.resamples = 999; });
@@ -108,7 +107,6 @@ expectInvalid('gate seed', 'gate.quality.seed', (r: any) => { r.gate.quality.see
 expectInvalid('gate latency missing', 'gate.latency', (r: any) => { delete r.gate.latency; });
 expectInvalid('gate p95 default missing', 'gate.latency.p95CapMs', (r: any) => { delete r.gate.latency.p95CapMs.default; });
 expectInvalid('gate p95 cap not positive', 'gate.latency.p95CapMs', (r: any) => { r.gate.latency.p95CapMs.rerank = 0; });
-expectInvalid('gate ratioMax below one', 'gate.latency.ratioMax', (r: any) => { r.gate.latency.ratioMax = 0.5; });
 
 test('141 IC-004: the shipped verdict file is empty in the IC-004 shape', () => {
   const file = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/advice-verdicts.json'), 'utf8'));
@@ -177,51 +175,50 @@ test('maint-advise-ext: the packaged tree still rejects a missing adapter and an
 
 const rerankOf = (r: any) => r.kinds.find((kind: any) => kind.id === 'rerank');
 
-test('141 IC-001: the shipped rerank kind carries the B.3 numbers, the ladder text and the illustrative thresholds', () => {
+test('141 IC-001: the shipped rerank kind (offline measurement only) carries the B.3 numbers, the ladder text and the illustrative thresholds', () => {
   const result = loadAdviceRegistry({ repoRoot: REPO });
   assert.equal(result.ok, true, result.detail);
   const kind = rerankOf(result.registry);
   assert.equal(kind.type, 'choice');
   assert.equal(kind.criteriaFrom, 'call');
-  assert.equal(kind.maxMode, 'shadow');
   assert.equal(kind.budgetMs, 5000);
-  assert.deepEqual(kind.askedBy, ['retrieve']);
+  assert.deepEqual(kind.askedBy, [], 'nothing asks rerank at run time; bench advice-gate scores it offline');
   assert.deepEqual(kind.params, {
     arm: 'choice', minCandidates: 2, maxCandidates: 16, candidateBytes: 800, queryBytes: 2048, criteriaBytes: 1536,
   });
   assert.equal(kind.scoreLadder.criteria.length, 5);
   assert.ok(kind.scoreLadder.instructions.includes('<label>'));
   assert.deepEqual(kind.thresholds, { illustrative: true, confidenceBelow: [0.5, 0.7, 0.9], expectedBelow: [1, 2] });
-  assert.match(kind.description, /budgetMs 5000/);
+  assert.match(kind.description, /Offline measurement only/);
   assert.equal(result.registry.gate.latency.p95CapMs.rerank, 3000, 'the latency bar is not loosened to fit the measurement');
 });
 
-expectInvalid('rerank maxMode', 'kinds[6].maxMode', (r: any) => { rerankOf(r).maxMode = 'always'; });
-expectInvalid('rerank budgetMs below 100', 'kinds[6].budgetMs', (r: any) => { rerankOf(r).budgetMs = 99; });
-expectInvalid('rerank budgetMs above timeoutMs', 'kinds[6].budgetMs', (r: any) => { rerankOf(r).budgetMs = 15001; });
-expectInvalid('rerank budgetMs fraction', 'kinds[6].budgetMs', (r: any) => { rerankOf(r).budgetMs = 5000.5; });
-expectInvalid('kind description empty', 'kinds[6].description', (r: any) => { rerankOf(r).description = ' '; });
+expectInvalid('rerank maxMode', 'kinds[5].maxMode', (r: any) => { rerankOf(r).maxMode = 'always'; });
+expectInvalid('rerank budgetMs below 100', 'kinds[5].budgetMs', (r: any) => { rerankOf(r).budgetMs = 99; });
+expectInvalid('rerank budgetMs above timeoutMs', 'kinds[5].budgetMs', (r: any) => { rerankOf(r).budgetMs = 15001; });
+expectInvalid('rerank budgetMs fraction', 'kinds[5].budgetMs', (r: any) => { rerankOf(r).budgetMs = 5000.5; });
+expectInvalid('kind description empty', 'kinds[5].description', (r: any) => { rerankOf(r).description = ' '; });
 expectInvalid('params without criteriaFrom call or maxMode', 'kinds[0].params', (r: any) => { r.kinds[0].params = { size: 1 }; });
 expectInvalid('params value not a positive integer', 'kinds[4].params.size', (r: any) => { r.kinds[4].maxMode = 'shadow'; r.kinds[4].params = { size: 0 }; });
-expectInvalid('call kind with a static criteria map', 'kinds[6]', (r: any) => { rerankOf(r).criteria = { a: 'x' }; });
-expectInvalid('rerank arm', 'kinds[6].params.arm', (r: any) => { rerankOf(r).params.arm = 'both'; });
-expectInvalid('rerank minCandidates below limits.minOptions', 'kinds[6].params.minCandidates', (r: any) => { rerankOf(r).params.minCandidates = 1; });
-expectInvalid('rerank maxCandidates above the label alphabet', 'kinds[6].params.maxCandidates', (r: any) => { rerankOf(r).params.maxCandidates = 17; });
-expectInvalid('rerank maxCandidates below minCandidates', 'kinds[6].params.minCandidates', (r: any) => { rerankOf(r).params.maxCandidates = 1; rerankOf(r).params.minCandidates = 2; });
-expectInvalid('rerank candidateBytes zero', 'kinds[6].params.candidateBytes', (r: any) => { rerankOf(r).params.candidateBytes = 0; });
-expectInvalid('rerank queryBytes missing', 'kinds[6].params.queryBytes', (r: any) => { delete rerankOf(r).params.queryBytes; });
+expectInvalid('call kind with a static criteria map', 'kinds[5]', (r: any) => { rerankOf(r).criteria = { a: 'x' }; });
+expectInvalid('rerank arm', 'kinds[5].params.arm', (r: any) => { rerankOf(r).params.arm = 'both'; });
+expectInvalid('rerank minCandidates below limits.minOptions', 'kinds[5].params.minCandidates', (r: any) => { rerankOf(r).params.minCandidates = 1; });
+expectInvalid('rerank maxCandidates above the label alphabet', 'kinds[5].params.maxCandidates', (r: any) => { rerankOf(r).params.maxCandidates = 17; });
+expectInvalid('rerank maxCandidates below minCandidates', 'kinds[5].params.minCandidates', (r: any) => { rerankOf(r).params.maxCandidates = 1; rerankOf(r).params.minCandidates = 2; });
+expectInvalid('rerank candidateBytes zero', 'kinds[5].params.candidateBytes', (r: any) => { rerankOf(r).params.candidateBytes = 0; });
+expectInvalid('rerank queryBytes missing', 'kinds[5].params.queryBytes', (r: any) => { delete rerankOf(r).params.queryBytes; });
 expectInvalid('rerank choice-arm body rule', 'maxCandidates * candidateBytes + queryBytes', (r: any) => { rerankOf(r).params.candidateBytes = 1800; });
 expectInvalid('rerank ladder-arm body rule', 'maxCandidates * (candidateBytes + criteriaBytes) + queryBytes', (r: any) => { rerankOf(r).params.criteriaBytes = 2000; });
-expectInvalid('scoreLadder missing on a call kind with an arm', 'kinds[6].scoreLadder', (r: any) => { delete rerankOf(r).scoreLadder; });
-expectInvalid('scoreLadder instructions without <label>', 'kinds[6].scoreLadder.instructions', (r: any) => { rerankOf(r).scoreLadder.instructions = 'Rate it.'; });
-expectInvalid('scoreLadder with 4 levels', 'kinds[6].scoreLadder.criteria', (r: any) => { rerankOf(r).scoreLadder.criteria.pop(); });
-expectInvalid('scoreLadder with a repeated level', 'kinds[6].scoreLadder.criteria', (r: any) => { rerankOf(r).scoreLadder.criteria[1] = rerankOf(r).scoreLadder.criteria[0]; });
-expectInvalid('scoreLadder with an empty level', 'kinds[6].scoreLadder.criteria', (r: any) => { rerankOf(r).scoreLadder.criteria[2] = ' '; });
-expectInvalid('scoreLadder over criteriaBytes', 'kinds[6].scoreLadder.criteria', (r: any) => { rerankOf(r).params.criteriaBytes = 100; });
-expectInvalid('thresholds not illustrative', 'kinds[6].thresholds.illustrative', (r: any) => { rerankOf(r).thresholds.illustrative = false; });
-expectInvalid('thresholds confidence out of range', 'kinds[6].thresholds.confidenceBelow', (r: any) => { rerankOf(r).thresholds.confidenceBelow = [1]; });
-expectInvalid('thresholds expected out of range', 'kinds[6].thresholds.expectedBelow', (r: any) => { rerankOf(r).thresholds.expectedBelow = [0]; });
-expectInvalid('thresholds list too long', 'kinds[6].thresholds.confidenceBelow', (r: any) => { rerankOf(r).thresholds.confidenceBelow = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]; });
+expectInvalid('scoreLadder missing on a call kind with an arm', 'kinds[5].scoreLadder', (r: any) => { delete rerankOf(r).scoreLadder; });
+expectInvalid('scoreLadder instructions without <label>', 'kinds[5].scoreLadder.instructions', (r: any) => { rerankOf(r).scoreLadder.instructions = 'Rate it.'; });
+expectInvalid('scoreLadder with 4 levels', 'kinds[5].scoreLadder.criteria', (r: any) => { rerankOf(r).scoreLadder.criteria.pop(); });
+expectInvalid('scoreLadder with a repeated level', 'kinds[5].scoreLadder.criteria', (r: any) => { rerankOf(r).scoreLadder.criteria[1] = rerankOf(r).scoreLadder.criteria[0]; });
+expectInvalid('scoreLadder with an empty level', 'kinds[5].scoreLadder.criteria', (r: any) => { rerankOf(r).scoreLadder.criteria[2] = ' '; });
+expectInvalid('scoreLadder over criteriaBytes', 'kinds[5].scoreLadder.criteria', (r: any) => { rerankOf(r).params.criteriaBytes = 100; });
+expectInvalid('thresholds not illustrative', 'kinds[5].thresholds.illustrative', (r: any) => { rerankOf(r).thresholds.illustrative = false; });
+expectInvalid('thresholds confidence out of range', 'kinds[5].thresholds.confidenceBelow', (r: any) => { rerankOf(r).thresholds.confidenceBelow = [1]; });
+expectInvalid('thresholds expected out of range', 'kinds[5].thresholds.expectedBelow', (r: any) => { rerankOf(r).thresholds.expectedBelow = [0]; });
+expectInvalid('thresholds list too long', 'kinds[5].thresholds.confidenceBelow', (r: any) => { rerankOf(r).thresholds.confidenceBelow = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]; });
 
 test('141 IC-001: a registry without the rerank kind still loads (no such call is made)', (t) => {
   const result = loadAdviceRegistry(writeFixture(t, (r: any) => { r.kinds = r.kinds.filter((kind: any) => kind.id !== 'rerank'); }));
@@ -240,23 +237,82 @@ test('141 IC-001: the shipped claim-support kind is a shadow-only yes/no kind wi
   assert.equal(kind.yes, 'The passage fully supports the claim');
   assert.equal(kind.no, 'The passage does not fully support the claim');
   assert.equal(kind.maxMode, 'shadow');
-  assert.equal(kind.budgetMs, 5000);
+  assert.equal(kind.budgetMs, 1500);
   assert.deepEqual(kind.askedBy, ['claim']);
   assert.deepEqual(kind.params, { claimBytes: 1024, passageBytes: 2048 });
   assert.equal(Object.hasOwn(kind, 'criteria') || Object.hasOwn(kind, 'criteriaFrom'), false);
 });
 
-expectInvalid('claim-support maxMode', 'kinds[7].maxMode', (r: any) => { claimOf(r).maxMode = 'always'; });
-expectInvalid('claim-support budgetMs above timeoutMs', 'kinds[7].budgetMs', (r: any) => { claimOf(r).budgetMs = 15001; });
-expectInvalid('claim-support yes text empty', 'kinds[7].yes', (r: any) => { claimOf(r).yes = ' '; });
-expectInvalid('claim-support no text missing', 'kinds[7].no', (r: any) => { delete claimOf(r).no; });
-expectInvalid('claim-support claimBytes zero', 'kinds[7].params.claimBytes', (r: any) => { claimOf(r).params.claimBytes = 0; });
-expectInvalid('claim-support passageBytes missing', 'kinds[7].params.passageBytes', (r: any) => { delete claimOf(r).params.passageBytes; });
+expectInvalid('claim-support maxMode', 'kinds[6].maxMode', (r: any) => { claimOf(r).maxMode = 'always'; });
+expectInvalid('claim-support budgetMs above timeoutMs', 'kinds[6].budgetMs', (r: any) => { claimOf(r).budgetMs = 15001; });
+expectInvalid('claim-support yes text empty', 'kinds[6].yes', (r: any) => { claimOf(r).yes = ' '; });
+expectInvalid('claim-support no text missing', 'kinds[6].no', (r: any) => { delete claimOf(r).no; });
+expectInvalid('claim-support claimBytes zero', 'kinds[6].params.claimBytes', (r: any) => { claimOf(r).params.claimBytes = 0; });
+expectInvalid('claim-support passageBytes missing', 'kinds[6].params.passageBytes', (r: any) => { delete claimOf(r).params.passageBytes; });
 expectInvalid('claim-support state rule', 'claimBytes + passageBytes + 64', (r: any) => { claimOf(r).params.passageBytes = r.limits.maxStateBytes; });
-expectInvalid('claim-support with criteria and criteriaFrom both', 'kinds[7]', (r: any) => { claimOf(r).criteria = { a: 'x' }; claimOf(r).criteriaFrom = 'workflows.classes'; });
+expectInvalid('claim-support with criteria and criteriaFrom both', 'kinds[6]', (r: any) => { claimOf(r).criteria = { a: 'x' }; claimOf(r).criteriaFrom = 'workflows.classes'; });
 expectInvalid('a choice kind with neither criteria nor criteriaFrom', 'kinds[0]', (r: any) => { delete r.kinds[0].criteria; });
 
 test('141 IC-001: a registry without the claim-support kind still loads (no such call is made)', (t) => {
   const result = loadAdviceRegistry(writeFixture(t, (r: any) => { r.kinds = r.kinds.filter((kind: any) => kind.id !== 'claim-support'); }));
   assert.equal(result.ok, true, result.detail);
+});
+
+test('row 174: askedBy names the real callers - mcp-need is asked by the do skill, rerank by nothing', () => {
+  const result = loadAdviceRegistry({ repoRoot: REPO });
+  assert.equal(result.ok, true, result.detail);
+  const askedBy = Object.fromEntries(result.registry.kinds.map((kind: any) => [kind.id, kind.askedBy]));
+  assert.deepEqual(askedBy['mcp-need'], ['do']);
+  assert.deepEqual(askedBy.rerank, []);
+  assert.deepEqual(Object.keys(result.registry.gate.quality).sort(), ['confidence', 'lowerBoundAbove', 'resamples', 'seed']);
+  assert.deepEqual(Object.keys(result.registry.gate.latency), ['p95CapMs']);
+});
+
+// ── row 174 O-3: every kind carries its own call budget, and the detached shadow calls share a user-level slot limit ──
+
+test('row 174 O-3: every shipped kind has its budgetMs as data, and timeoutMs is left to a kind-less ask', () => {
+  const result = loadAdviceRegistry({ repoRoot: REPO });
+  assert.equal(result.ok, true, result.detail);
+  assert.deepEqual(Object.fromEntries(result.registry.kinds.map((kind: any) => [kind.id, kind.budgetMs])), {
+    tier: 1500, 'task-class': 3000, 'verify-risk': 2000, 'review-depth': 1500, 'mcp-need': 1500, rerank: 5000, 'claim-support': 1500,
+  });
+  assert.equal(result.registry.timeoutMs, 15000);
+  assert.match(result.registry.description, /warm measurements with headroom/);
+  assert.equal(result.registry.shadowSlots, 4);
+});
+
+for (const [index, kind] of validRegistry().kinds.entries()) {
+  expectInvalid(`${kind.id} without budgetMs`, `kinds[${index}].budgetMs`, (r: any) => { delete r.kinds[index].budgetMs; });
+}
+expectInvalid('shadowSlots missing', 'shadowSlots', (r: any) => { delete r.shadowSlots; });
+expectInvalid('shadowSlots zero', 'shadowSlots', (r: any) => { r.shadowSlots = 0; });
+expectInvalid('shadowSlots fraction', 'shadowSlots', (r: any) => { r.shadowSlots = 1.5; });
+
+// ── row 174 L-2: removedSettings is validated, and no key in it is still declared in settings.json ──
+
+test('row 174 L-2: the shipped removedSettings are five distinct advice. keys, none declared in settings.json', () => {
+  const removed: string[] = validRegistry().removedSettings;
+  assert.equal(removed.length, 5);
+  assert.equal(new Set(removed).size, 5);
+  const declared = Object.keys(JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/settings.json'), 'utf8')).keys);
+  assert.deepEqual(removed.filter((key) => declared.includes(key)), []);
+  const result = loadAdviceRegistry({ repoRoot: REPO });
+  assert.equal(result.ok, true, result.detail);
+});
+
+expectInvalid('removedSettings missing', 'removedSettings', (r: any) => { delete r.removedSettings; });
+expectInvalid('removedSettings not an array', 'removedSettings', (r: any) => { r.removedSettings = 'advice.kinds.rerank'; });
+expectInvalid('an empty removedSettings entry', 'removedSettings[1]', (r: any) => { r.removedSettings[1] = ''; });
+expectInvalid('a removedSettings entry that is not a string', 'removedSettings[0]', (r: any) => { r.removedSettings[0] = 7; });
+expectInvalid('a removedSettings entry outside advice.', 'removedSettings[2]', (r: any) => { r.removedSettings[2] = 'review.depth'; });
+expectInvalid('a duplicate removedSettings entry', 'removedSettings[1]', (r: any) => { r.removedSettings[1] = r.removedSettings[0]; });
+expectInvalid('a removedSettings entry settings.json still declares', 'removedSettings[0]', (r: any) => { r.removedSettings[0] = 'advice.kinds.tier'; });
+
+test('row 174 L-2: the declared-key check reads the settings registry it is given', () => {
+  const registry = validRegistry();
+  const key = registry.removedSettings[0];
+  const withKey = validateAdviceRegistry(registry, { repoRoot: REPO, settings: { keys: { [key]: {} } } });
+  assert.equal(withKey.ok, false);
+  assert.match(withKey.errors.join('; '), /removedSettings\[0\] names 'advice\.kinds\.rerank', which core\/registry\/settings\.json still declares/);
+  assert.equal(validateAdviceRegistry(registry, { repoRoot: REPO, settings: { keys: {} } }).ok, true);
 });

@@ -156,9 +156,7 @@ async function rerankGate(options: any) {
   if (!probe.model?.decisionCapable) return fail(1, `model '${effectiveModel}' is not decision-capable`);
 
   // The criteria in force come from the resolver the runtime uses; its digest binds each verdict to them.
-  const criteria = resolveRerankCriteria({
-    value: options.criteriaValue, kind: kindEntry, adviceRegistry, projectRoot: options.projectRoot ?? path.resolve(process.cwd()), env: options.env ?? process.env,
-  });
+  const criteria = resolveRerankCriteria({ kind: kindEntry, adviceRegistry });
   let firstStage: any;
   try {
     firstStage = await (options.firstStage ?? defaultFirstStage(repoRoot, options.tmp))();

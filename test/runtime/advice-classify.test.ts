@@ -163,23 +163,18 @@ test('IC-010 feature-off request and malformed request-file fail open without ch
 
 test('IC-010 agreeing and differing picks print only the advisory line after Fit', async (t) => {
   const f = fixture(t);
-  const server = await f.startServer();
-  f.enable(server.origin);
-
-  const agree = f.run(['--task-class', 'feature', '--calling-skill', 'do', '--request', 'Build a new capability.']);
-  assert.equal(agree.status, 0, agree.stderr);
-  assert.match(agree.stdout, /Fit: NOT_APPLICABLE \(caller-is-a-router\)\nSecond opinion: agrees with 'feature' \(clear\)\./);
-  const agreeLine = agree.stdout.split('\n').find((line: any) => line.startsWith('Second opinion:'));
+  const agree = await classifyStubbed(t, f, { mode: 'act', staticPick: 'feature', advisorPick: 'feature', effectiveDecision: 'feature' }, { taskClass: 'feature', json: false });
+  assert.match(agree.printed, /Fit: NOT_APPLICABLE \(caller-is-a-router\)\nSecond opinion: agrees with 'feature' \(clear\)\./);
+  const agreeLine = agree.printed.split('\n').find((line: any) => line.startsWith('Second opinion:'));
   assert.doesNotMatch(agreeLine, /\d|%/);
 
-  const differ = f.run(['--task-class', 'bug', '--calling-skill', 'do', '--request', 'Fix a broken behavior.']);
-  assert.equal(differ.status, 0, differ.stderr);
-  assert.match(differ.stdout, /Fit: NOT_APPLICABLE \(caller-is-a-router\)\nSecond opinion: 'feature' \(clear\), differs from the proposed 'bug'\. Validation alone decides the class\./);
-  const differLine = differ.stdout.split('\n').find((line: any) => line.startsWith('Second opinion:'));
+  const differ = await classifyStubbed(t, f, { mode: 'act', staticPick: 'bug', advisorPick: 'feature', effectiveDecision: 'feature' }, { taskClass: 'bug', json: false });
+  assert.match(differ.printed, /Fit: NOT_APPLICABLE \(caller-is-a-router\)\nSecond opinion: 'feature' \(clear\), differs from the proposed 'bug'\. Validation alone decides the class\./);
+  const differLine = differ.printed.split('\n').find((line: any) => line.startsWith('Second opinion:'));
   assert.doesNotMatch(differLine, /\d|%/);
 });
 
-test('IC-010 preserves the accepted classifier verdict and records only an ACCEPTED outcome', async (t) => {
+test('IC-010 preserves the accepted classifier verdict and records no outcome for it (174 O-6)', async (t) => {
   const f = fixture(t);
   const server = await f.startServer();
   f.enable(server.origin);
@@ -191,25 +186,16 @@ test('IC-010 preserves the accepted classifier verdict and records only an ACCEP
   for (const field of ['outcome', 'taskClass', 'workflow', 'fit', 'message', 'validClasses', 'suggestions']) {
     assert.deepEqual(afterJson[field], beforeJson[field], `${field} must remain authoritative from validation`);
   }
-  assert.equal(afterJson.secondOpinion.status, 'answered');
-  assert.equal(afterJson.secondOpinion.proposed, 'bug');
-  assert.equal(afterJson.secondOpinion.pick, 'feature');
-  assert.equal(afterJson.secondOpinion.agrees, false);
-  const file = path.join(f.project, '.doflow', 'state', 'advice', 'picks', `${new Date().toISOString().slice(0, 10)}.jsonl`);
-  const records = fs.readFileSync(file, 'utf8').trim().split('\n').map((line: any) => JSON.parse(line));
-  const pick = records.find((record: any) => record.type === 'pick' && record.pickId === afterJson.secondOpinion.pickId);
-  assert.ok(pick);
-  const outcomes = records.filter((record: any) => record.type === 'outcome' && record.pickId === pick.pickId);
-  assert.deepEqual(outcomes.map(({ actual, source }: any) => ({ actual, source })), [{ actual: 'bug', source: 'classify-verdict' }]);
+  assert.equal(afterJson.secondOpinion.status, 'shadow', 'an unset kind with a model is a shadow call: no opinion is shown');
+  assert.equal(afterJson.secondOpinion.pick, null);
+  const records = await settledPickRecords(f);
+  assert.deepEqual(records.map(({ type, mode, caller, static: s, pick }: any) => ({ type, mode, caller, static: s, pick })),
+    [{ type: 'pick', mode: 'shadow', caller: 'classify', static: 'bug', pick: 'feature' }]);
+  assert.deepEqual(outcomeRecords(f), []);
 
   const rejected = f.run(['--task-class', 'research', '--calling-skill', 'do-diagnose', '--request', 'Research the topic.', '--json']);
   assert.equal(rejected.status, 1);
-  const rejectedJson = JSON.parse(rejected.stdout);
-  assert.equal(rejectedJson.outcome, 'REJECTED');
-  const afterRejected = fs.readFileSync(file, 'utf8').trim().split('\n').map((line: any) => JSON.parse(line));
-  const rejectedPick = afterRejected.find((record: any) => record.type === 'pick' && record.pickId === rejectedJson.secondOpinion.pickId);
-  assert.ok(rejectedPick);
-  assert.equal(afterRejected.some((record: any) => record.type === 'outcome' && record.pickId === rejectedPick.pickId), false);
+  assert.equal(JSON.parse(rejected.stdout).outcome, 'REJECTED');
 });
 
 // ---- 084 H2: advice.kinds.task-class routes classify through the dispatcher only when it is set ----
@@ -229,6 +215,15 @@ function pickRecords(f: any) {
   const file = path.join(f.project, '.doflow', 'state', 'advice', 'picks', `${new Date().toISOString().slice(0, 10)}.jsonl`);
   return fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim().split('\n').map((line: any) => JSON.parse(line)) : [];
 }
+/** The pick records once the detached shadow call (row 174 O-2) has written one, or after 5 s. */
+async function settledPickRecords(f: any) {
+  const until = Date.now() + 5000;
+  while (Date.now() < until && pickRecords(f).length === 0) await new Promise((resolve) => setTimeout(resolve, 10));
+  return pickRecords(f);
+}
+/** Records an outcome line? Every line of the day's pick file that is an outcome, whatever its source. */
+const outcomeRecords = (f: any) => pickRecords(f).filter((record: any) => record.type === 'outcome');
+
 const ACCEPTED_ARGS = ['--task-class', 'bug', '--calling-skill', 'do', '--request', 'A broken behavior needs a repair.', '--json'];
 
 /**
@@ -247,22 +242,38 @@ async function runCounted(t: any, f: any, args: any, { settings, env }: any = {}
   child.stdout.on('data', (chunk: any) => { stdout += chunk; });
   child.stderr.on('data', (chunk: any) => { stderr += chunk; });
   const status = await new Promise((resolve) => child.on('close', resolve));
-  const asks = server.requests.filter((r: any) => r.method === 'POST' && r.pathname === '/v1/systemone').length;
-  return { status, stdout, stderr, asks };
+  // Read when asserted: a shadow call runs in a detached child (row 174 O-2) that may ask after the verb has exited.
+  return { status, stdout, stderr, get asks() { return server.requests.filter((r: any) => r.method === 'POST' && r.pathname === '/v1/systemone').length; } };
 }
 
-test('084 H2: with advice.kinds.task-class unset the client records the pick, as before the dispatcher', async (t) => {
+test('174 O-1: with advice.kinds.task-class unset and a model configured classify takes the dispatcher path in shadow', async (t) => {
   const f = fixture(t);
-  const server = await f.startServer();
-  f.enable(server.origin);
-  const result = f.run(ACCEPTED_ARGS);
+  const result = await runCounted(t, f, ACCEPTED_ARGS);
   assert.equal(result.status, 0, result.stderr);
   const opinion = JSON.parse(result.stdout).secondOpinion;
-  assert.equal(opinion.status, 'answered');
-  assert.equal(opinion.model, 'clef-flash');
-  const pick = pickRecords(f).find((record: any) => record.type === 'pick' && record.pickId === opinion.pickId);
-  assert.equal(pick.question, 'task-class', 'the client pick record, not the dispatcher one');
-  assert.equal(Object.hasOwn(pick, 'mode'), false);
+  assert.equal(opinion.status, 'shadow');
+  assert.equal(opinion.pick, null, 'nothing is shown');
+  const records = await settledPickRecords(f);
+  assert.equal(result.asks, 1);
+  assert.deepEqual(records.map(({ type, mode, caller, question, pick, model }: any) => ({ type, mode, caller, question, pick, model })),
+    [{ type: 'pick', mode: 'shadow', caller: 'classify', question: 'task-class', pick: 'feature', model: 'clef-flash' }]);
+});
+
+test('174 O-1: with advice.kinds.task-class unset and no model configured classify asks nothing', async (t) => {
+  const f = fixture(t);
+  const server: any = await startFakeServer();
+  t.after(() => server.close());
+  fs.writeFileSync(path.join(f.scratch.xdg, 'doflow', 'settings.json'), JSON.stringify({
+    schema: 1, 'advice.enabled': true, 'advice.provider': 'ollama', 'advice.endpoint': server.origin, 'advice.model': null,
+  }));
+  const child = spawn(bashPath(), [RUN, 'classify', ...ACCEPTED_ARGS], { cwd: f.project, env: f.env });
+  let stdout = '';
+  child.stdout.on('data', (chunk: any) => { stdout += chunk; });
+  await new Promise((resolve) => child.on('close', resolve));
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  assert.equal(JSON.parse(stdout).secondOpinion.status, 'off');
+  assert.equal(server.requests.filter((r: any) => r.method === 'POST').length, 0);
+  assert.deepEqual(pickRecords(f), []);
 });
 
 test('084 H2: advice.kinds.task-class off asks nothing and records nothing', async (t) => {
@@ -286,8 +297,8 @@ test('084 H2: advice.kinds.task-class shadow keeps the verdict, shows no opinion
   assert.equal(json.secondOpinion.status, 'shadow');
   assert.equal(json.secondOpinion.reason, null);
   assert.equal(json.secondOpinion.pick, null);
+  const records = await settledPickRecords(f);
   assert.equal(result.asks, 1);
-  const records = pickRecords(f);
   assert.deepEqual(records.map(({ type, mode, caller, static: s, pick, model }: any) => ({ type, mode, caller, static: s, pick, model })),
     [{ type: 'pick', mode: 'shadow', caller: 'classify', static: 'bug', pick: 'feature', model: 'clef-flash' }]);
 });
@@ -303,8 +314,8 @@ test('084 D3: advice.kinds.task-class act with a passing bench file in the proje
   assert.equal(json.secondOpinion.status, 'shadow');
   assert.equal(json.secondOpinion.pick, null);
   assert.match(json.secondOpinion.reason, /^BENCH_BAR_UNMET: /);
+  const records = await settledPickRecords(f);
   assert.equal(result.asks, 1, 'the degraded shadow query runs');
-  const records = pickRecords(f);
   assert.deepEqual(records.map(({ type, mode, pick, model }: any) => ({ type, mode, pick, model })),
     [{ type: 'pick', mode: 'shadow', pick: 'feature', model: 'clef-flash' }]);
   assert.equal(records.some((record: any) => record.type === 'outcome'), false, 'no pick was shown, so no outcome is joined');
@@ -319,8 +330,9 @@ test('084 H2: advice.kinds.task-class act without a passed bench bar falls back 
   assert.equal(json.secondOpinion.status, 'shadow');
   assert.equal(json.secondOpinion.pick, null);
   assert.match(json.secondOpinion.reason, /^BENCH_BAR_UNMET: /);
+  const records = await settledPickRecords(f);
   assert.equal(result.asks, 1, 'the degraded shadow query runs');
-  assert.deepEqual(pickRecords(f).map(({ type, mode, pick, model }: any) => ({ type, mode, pick, model })),
+  assert.deepEqual(records.map(({ type, mode, pick, model }: any) => ({ type, mode, pick, model })),
     [{ type: 'pick', mode: 'shadow', pick: 'feature', model: 'clef-flash' }]);
 });
 
@@ -356,7 +368,7 @@ for (const [name, c] of Object.entries(CHOSEN_OFF) as any) {
   });
 }
 
-// 084 C-6: on the unset-kinds path a shadow cap (canary, or staged per D2) records the opinion and shows none.
+// 084 C-6: with advice.kinds unset a shadow cap (canary, or staged per D2) is the same shadow call: it shows no pick.
 const CHOSEN_SHADOW: any = {
   'settings rollout.profile canary': { settings: { rollout: { profile: 'canary' } } },
   'env DOFLOW_ROLLOUT_PROFILE=canary': { env: { DOFLOW_ROLLOUT_PROFILE: 'canary' } },
@@ -374,37 +386,26 @@ for (const [name, c] of Object.entries(CHOSEN_SHADOW) as any) {
       status: 'shadow', reason: null, pick: null, strength: null, between: null, agrees: null, proposed: null,
       pickId: null, probabilities: null, confidence: null, model: null,
     });
-    assert.equal(result.asks, 1, 'the same single call the legacy path makes');
-    const records = pickRecords(f);
+    const records = await settledPickRecords(f);
+    assert.equal(result.asks, 1, 'one call, made by the detached child');
     const picks = records.filter((record: any) => record.type === 'pick');
-    assert.deepEqual(picks.map(({ question, pick, static: s, model, caller }: any) => ({ question, pick, static: s, model, caller })),
-      [{ question: 'task-class', pick: 'feature', static: 'bug', model: 'clef-flash', caller: 'classify' }]);
-    assert.deepEqual(records.filter((record: any) => record.type === 'outcome').map(({ pickId, actual, source }: any) => ({ pickId, actual, source })),
-      [{ pickId: picks[0].pickId, actual: 'bug', source: 'classify-verdict' }]);
+    assert.deepEqual(picks.map(({ question, pick, static: s, model, caller, mode }: any) => ({ question, pick, static: s, model, caller, mode })),
+      [{ question: 'task-class', pick: 'feature', static: 'bug', model: 'clef-flash', caller: 'classify', mode: 'shadow' }]);
+    assert.deepEqual(outcomeRecords(f), [], 'the verdict is not an observation of the pick');
   });
 }
 
-test('084 C-6: the same request with no profile chosen still shows the legacy answer', async (t) => {
-  const f = fixture(t);
-  const result = await runCounted(t, f, ACCEPTED_ARGS);
-  assert.equal(result.status, 0, result.stderr);
-  const opinion = JSON.parse(result.stdout).secondOpinion;
-  assert.equal(opinion.status, 'answered');
-  assert.equal(opinion.pick, 'feature');
-  assert.equal(result.asks, 1);
-});
-
 // The settings layers come from the `env` the caller passes, never from this process's environment.
-async function classifyInProcess(f: any, env: any) {
+async function classifyInProcess(f: any, env: any, { taskClass = 'bug', json = true }: any = {}) {
   const { handleClassifyCommand } = require('../../src/runtime/task-classifier.ts');
   let printed = '';
   const oldLog = console.log;
   const savedExit = process.exitCode;
   console.log = (text: any) => { printed += `${text}\n`; };
   try {
-    await handleClassifyCommand({ taskClass: 'bug', callingSkill: 'do', request: 'A broken behavior needs a repair.', projectRoot: f.project, env, json: true });
+    await handleClassifyCommand({ taskClass, callingSkill: 'do', request: 'A broken behavior needs a repair.', projectRoot: f.project, env, json });
   } finally { console.log = oldLog; process.exitCode = savedExit; }
-  return JSON.parse(printed).secondOpinion;
+  return json ? JSON.parse(printed).secondOpinion : printed;
 }
 
 test('084: the passed env decides the user settings layer for classify, not the process environment', async (t) => {
@@ -413,37 +414,38 @@ test('084: the passed env decides the user settings layer for classify, not the 
   f.enable(server.origin);
   const other = path.join(f.scratch.dir, 'other-xdg');
   fs.mkdirSync(path.join(other, 'doflow'), { recursive: true });
-  fs.writeFileSync(path.join(other, 'doflow', 'settings.json'), JSON.stringify({ schema: 1, 'advice.kinds.task-class': 'act', 'advice.enabled': false }));
+  fs.writeFileSync(path.join(other, 'doflow', 'settings.json'), JSON.stringify({
+    schema: 1, 'advice.kinds.task-class': 'off', 'advice.enabled': true, 'advice.endpoint': server.origin, 'advice.model': 'clef-flash',
+  }));
   const saved = process.env.XDG_CONFIG_HOME;
   process.env.XDG_CONFIG_HOME = other;
   t.after(() => { if (saved === undefined) delete process.env.XDG_CONFIG_HOME; else process.env.XDG_CONFIG_HOME = saved; });
   const opinion = await classifyInProcess(f, f.scratch.env());
-  assert.equal(opinion.status, 'answered', 'advice.kinds.task-class is unset in the passed env, so the client answers as on the legacy path');
+  assert.equal(opinion.status, 'shadow', 'advice.kinds.task-class is unset in the passed env, so the kind is shadow');
   // control: the same file in the passed env's config home turns the kind off
   const control = await classifyInProcess(f, f.scratch.env({ XDG_CONFIG_HOME: other }));
-  assert.notEqual(control.status, 'answered');
+  assert.equal(control.status, 'off');
 });
 
 // 084 C-10: a set kind consumes the dispatcher's mode and effectiveDecision, never advisorPick alone.
-async function classifyWithDispatcher(t: any, f: any, resolution: any) {
+let REAL_INTERCEPT: any = null;
+async function classifyStubbed(t: any, f: any, resolution: any, { taskClass = 'bug', json = true }: any = {}) {
   const dispatcher = require('../../src/runtime/advice/shadow-dispatcher.ts');
-  const saved = dispatcher.interceptDecisionPoint;
-  t.after(() => { dispatcher.interceptDecisionPoint = saved; });
+  // The real function, kept once: a test that stubs twice must not restore the first stub.
+  REAL_INTERCEPT ??= dispatcher.interceptDecisionPoint;
+  t.after(() => { dispatcher.interceptDecisionPoint = REAL_INTERCEPT; });
   dispatcher.interceptDecisionPoint = async () => ({
     kind: 'task-class', staticPick: 'bug', pickId: 'adv-0000000000000-000000', elevated: false, agreed: null,
     advisorAnswer: { name: 'task-class', pick: resolution.advisorPick, strength: { word: 'clear', between: null }, probabilities: null, confidence: null, model: 'clef-flash' },
     ...resolution,
   });
-  setKinds(f, { 'task-class': 'act' });
-  const { handleClassifyCommand } = require('../../src/runtime/task-classifier.ts');
-  let printed = '';
-  const oldLog = console.log;
-  const savedExit = process.exitCode;
-  console.log = (text: any) => { printed += `${text}\n`; };
-  try {
-    await handleClassifyCommand({ taskClass: 'bug', callingSkill: 'do', request: 'A broken behavior needs a repair.', projectRoot: f.project, env: f.scratch.env(), json: true });
-  } finally { console.log = oldLog; process.exitCode = savedExit; }
-  return JSON.parse(printed).secondOpinion;
+  const server = await f.startServer();
+  f.enable(server.origin);
+  const result = await classifyInProcess(f, f.scratch.env(), { taskClass, json });
+  return json ? { opinion: result, printed: '' } : { opinion: null, printed: result };
+}
+async function classifyWithDispatcher(t: any, f: any, resolution: any) {
+  return (await classifyStubbed(t, f, resolution)).opinion;
 }
 
 test('084 C-10: a shadow result shows no pick even when it carries one', async (t) => {
@@ -460,4 +462,32 @@ test('084 C-10: an act result shows the effective decision, not the raw advisor 
   assert.equal(opinion.status, 'answered');
   assert.equal(opinion.pick, 'bug');
   assert.equal(opinion.agrees, true);
+});
+
+/** The dispatcher with the bench bar passed: the shipped verdicts are empty, so no real run reaches act. */
+function withPassingBar(t: any) {
+  const gatePath = require.resolve('../../src/runtime/advice/bench-gate.ts');
+  const dispatcherPath = require.resolve('../../src/runtime/advice/shadow-dispatcher.ts');
+  const gate = require(gatePath);
+  const saved = gate.evaluateBenchBar;
+  gate.evaluateBenchBar = () => ({ passed: true });
+  delete require.cache[dispatcherPath];
+  t.after(() => { gate.evaluateBenchBar = saved; delete require.cache[dispatcherPath]; });
+}
+
+test('174 O-6: an act answer past the bench bar is shown, recorded as a pick, and gets no outcome line', async (t) => {
+  const f = fixture(t);
+  const server: any = await startFakeServer();
+  t.after(() => server.close());
+  f.enable(server.origin);
+  setKinds(f, { 'task-class': 'act' });
+  withPassingBar(t);
+  const opinion = await classifyInProcess(f, f.scratch.env());
+  assert.equal(opinion.status, 'answered');
+  assert.equal(opinion.pick, 'feature');
+  const records = pickRecords(f);
+  assert.deepEqual(records.filter((record: any) => record.type === 'pick').map(({ mode, caller, static: s }: any) => ({ mode, caller, static: s })),
+    [{ mode: 'act', caller: 'classify', static: 'bug' }]);
+  assert.deepEqual(outcomeRecords(f), []);
+  assert.equal(records.some((record: any) => record.source === 'classify-verdict'), false);
 });

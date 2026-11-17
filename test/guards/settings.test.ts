@@ -438,22 +438,32 @@ function unregisteredSettingsReads(sources: any, keys: string[]) {
   return [...new Set(errors)];
 }
 
-/** Every advice kind in core/registry/advice.json has its per-kind mode and model keys. */
-function missingAdviceKindKeys(advice: any, keys: string[]) {
-  return advice.kinds.flatMap((kind: any) => [`advice.kinds.${kind.id}`, `advice.models.${kind.id}`])
-    .filter((key: string) => !keys.includes(key))
-    .map((key: string) => `${SETTINGS_FILE} does not register ${key}`);
+/**
+ * Every advice kind that something asks (a non-empty `askedBy`) has its per-kind mode and model keys, and a kind nothing
+ * asks (an empty `askedBy`, the offline-measured `rerank`) has neither: a setting for it would change nothing.
+ */
+function adviceKindKeyFindings(advice: any, keys: string[]) {
+  const findings: string[] = [];
+  for (const kind of advice.kinds) {
+    const asked = Array.isArray(kind.askedBy) && kind.askedBy.length > 0;
+    for (const key of [`advice.kinds.${kind.id}`, `advice.models.${kind.id}`]) {
+      if (asked && !keys.includes(key)) findings.push(`${SETTINGS_FILE} does not register ${key}`);
+      if (!asked && keys.includes(key)) findings.push(`${SETTINGS_FILE} registers ${key}, but kind ${kind.id} has an empty askedBy`);
+    }
+  }
+  return findings;
 }
 
-test('G44 S7: every key a direct settings-file reader names is registered, and every advice kind has its keys', () => {
+test('G44 S7: every key a direct settings-file reader names is registered, and every asked advice kind has its keys', () => {
   const keys = Object.keys(readJson(SETTINGS_FILE).keys);
   assert.deepEqual(unregisteredSettingsReads(walkSourceFiles(REPO, 'src'), keys), []);
-  assert.deepEqual(missingAdviceKindKeys(readJson('core/registry/advice.json'), keys), []);
+  assert.deepEqual(adviceKindKeyFindings(readJson('core/registry/advice.json'), keys), []);
 });
 
-test('G44 S7 control: an unregistered key read by a settings-file reader, and a kind without keys, are rejected', () => {
+test('G44 S7 control: an unregistered key read by a settings-file reader, a kind without keys and keys of an unasked kind are rejected', () => {
   const advice = readJson('core/registry/advice.json');
-  const kindKeys = advice.kinds.flatMap((kind: any) => [`advice.kinds.${kind.id}`, `advice.models.${kind.id}`]);
+  const askedIds = advice.kinds.filter((kind: any) => kind.askedBy.length > 0).map((kind: any) => kind.id);
+  const kindKeys = askedIds.flatMap((id: string) => [`advice.kinds.${id}`, `advice.models.${id}`]);
   const keys = [...Object.keys(readJson(SETTINGS_FILE).keys), ...kindKeys];
   const reader = {
     file: 'src/runtime/fake-reader.ts',
@@ -469,9 +479,162 @@ test('G44 S7 control: an unregistered key read by a settings-file reader, and a 
   ]);
   assert.deepEqual(unregisteredSettingsReads([{ ...reader, text: reader.text.replace('settings.json', 'other.json') }], withoutKinds), [],
     'a file that names no settings layer file is not a direct reader');
-  assert.deepEqual(missingAdviceKindKeys(advice, keys), []);
-  assert.deepEqual(missingAdviceKindKeys(advice, keys.filter((key) => key !== 'advice.models.mcp-need')),
+  assert.deepEqual(adviceKindKeyFindings(advice, keys), []);
+  assert.deepEqual(adviceKindKeyFindings(advice, keys.filter((key) => key !== 'advice.models.mcp-need')),
     [`${SETTINGS_FILE} does not register advice.models.mcp-need`]);
+  const unasked = advice.kinds.find((kind: any) => kind.askedBy.length === 0);
+  assert.ok(unasked, 'the registry keeps one kind with an empty askedBy (rerank, measured offline)');
+  assert.deepEqual(adviceKindKeyFindings(advice, [...keys, `advice.kinds.${unasked.id}`]),
+    [`${SETTINGS_FILE} registers advice.kinds.${unasked.id}, but kind ${unasked.id} has an empty askedBy`]);
+});
+
+// G44 S8 (row 174) — every `advice.*` key in core/registry/settings.json has a live reader, so a setting never again
+// ships that nothing reads. A key is live when (1) each of its `consumers` is a shipped src/ file that names the key
+// outside a comment and is reached by `require` from src/cli/index.ts, and (2) for `advice.kinds.<k>` and
+// `advice.models.<k>`, the kind <k> in core/registry/advice.json has a non-empty `askedBy` whose every entry is a live
+// caller of that kind: a runtime caller whose source dispatches it (`interceptDecisionPoint({ kind: '<k>', caller: '<entry>'`),
+// the `advise` verb for a kind with a static question, or a skill directory of that name whose bash block runs
+// `advise --kind <k>`. A kind some caller names but nothing dispatches is how `rerank` and `followup-triage` shipped
+// settings that did nothing.
+const ADVICE_ENTRY = 'src/cli/index.ts';
+
+function stripSourceComments(text: string): string {
+  return text.replace(/\/\*[\s\S]*?\*\//g, ' ').split('\n').map((line) => line.replace(/(^|[^:])\/\/.*$/, '$1')).join('\n');
+}
+
+/** Every src/ file reached by a relative require from the entry, as a set of repo-relative paths. */
+function reachedFrom(entry: string, texts: Map<string, string>): Set<string> {
+  const seen = new Set<string>();
+  const visit = (file: string) => {
+    if (seen.has(file) || !texts.has(file)) return;
+    seen.add(file);
+    for (const [, target] of (texts.get(file) as string).matchAll(/require\(\s*['"](\.[^'"]+)['"]\s*\)/g)) {
+      const base = path.posix.normalize(path.posix.join(path.posix.dirname(file), target));
+      const found = [base, `${base}.ts`, `${base}/index.ts`].find((candidate) => texts.has(candidate));
+      if (found) visit(found);
+    }
+  };
+  visit(entry);
+  return seen;
+}
+
+/** True when a bash fence of the skill's markdown holds `advise --kind <id>` on a line that is not a shell comment. */
+function skillRunsKind(markdown: string, id: string): boolean {
+  const call = new RegExp(`advise --kind ${id}(?![\\w-])`);
+  let inBash = false;
+  for (const line of markdown.replace(/<!--[\s\S]*?-->/g, ' ').split('\n')) {
+    const fence = /^\s*(`{3,}|~{3,})\s*([\w-]*)\s*$/.exec(line);
+    if (fence) { inBash = !inBash && /^(?:bash|sh|shell|zsh)$/.test(fence[2]); continue; }
+    if (inBash && !/^\s*#/.test(line) && call.test(line)) return true;
+  }
+  return false;
+}
+
+/**
+ * True when the source reads the key through the runtime's accessors, not merely names it: `getSettingValue(<obj>, '<key>')`
+ * or `<view>.get('<key>'` for a fixed key, and the same call with a template `advice.<group>.${...}` for a per-kind key.
+ * A string literal that is only assigned, listed or logged does not read anything.
+ */
+function readsKey(code: string, key: string, group: string | null): boolean {
+  const accessor = String.raw`(?:getSettingValue\(\s*[\w.]+\s*,|\.get\()\s*`;
+  const keyText = group ? String.raw`\`advice\.${group}\.\$\{` : `'${key.replace(/\./g, '\\.')}'`;
+  return new RegExp(accessor + keyText).test(code);
+}
+
+function adviceReaderFindings({ settings, advice, sources, skills }: { settings: any; advice: any; sources: Map<string, string>; skills: Map<string, string> }): string[] {
+  const findings: string[] = [];
+  const code = new Map([...sources].map(([file, text]) => [file, stripSourceComments(text)]));
+  const reached = reachedFrom(ADVICE_ENTRY, sources);
+  const liveCaller = (kind: any, caller: string): boolean => {
+    for (const [file, text] of skills) {
+      if (file.startsWith(`core/shared/skills/${caller}/`) && skillRunsKind(text, kind.id)) return true;
+    }
+    for (const [file, text] of code) {
+      if (!reached.has(file) || !text.includes('interceptDecisionPoint(')) continue;
+      if (new RegExp(`kind:\\s*'${kind.id}',\\s*caller:\\s*'${caller}'`).test(text)) return true;
+      // The verb takes the kind from --kind, so it dispatches every kind that has a static question.
+      if (caller === 'advise' && file === 'src/runtime/advice/cli.ts' && /caller:\s*'advise'/.test(text) && kind.criteriaFrom !== 'call') return true;
+    }
+    return false;
+  };
+  for (const [key, spec] of Object.entries<any>(settings.keys)) {
+    if (!key.startsWith('advice.')) continue;
+    const perKind = /^advice\.(kinds|models)\.(.+)$/.exec(key);
+    if (!Array.isArray(spec.consumers) || spec.consumers.length === 0) findings.push(`${key}: no consumers listed`);
+    for (const consumer of spec.consumers || []) {
+      if (!code.has(consumer)) { findings.push(`${key}: consumer ${consumer} is not a shipped src/ file`); continue; }
+      if (!reached.has(consumer)) findings.push(`${key}: consumer ${consumer} is not reached from ${ADVICE_ENTRY}`);
+      const names = readsKey(code.get(consumer) as string, key, perKind ? perKind[1] : null);
+      if (!names) findings.push(`${key}: consumer ${consumer} does not read it`);
+    }
+    if (!perKind) continue;
+    const kind = advice.kinds.find((entry: any) => entry.id === perKind[2]);
+    if (!kind) { findings.push(`${key}: no kind ${perKind[2]} in core/registry/advice.json`); continue; }
+    if (!Array.isArray(kind.askedBy) || kind.askedBy.length === 0) { findings.push(`${key}: kind ${kind.id} has an empty askedBy, so nothing asks it`); continue; }
+    for (const caller of kind.askedBy) {
+      if (!liveCaller(kind, caller)) findings.push(`${key}: kind ${kind.id} lists askedBy '${caller}', which does not dispatch it`);
+    }
+  }
+  return findings;
+}
+
+function adviceReaderInputs() {
+  const sources = new Map<string, string>(walkSourceFiles(REPO, 'src').map(({ file, text }: any) => [file, text]));
+  const skills = new Map<string, string>();
+  const walk = (dir: string) => {
+    for (const entry of fs.readdirSync(path.join(REPO, dir), { withFileTypes: true })) {
+      const rel = `${dir}/${entry.name}`;
+      if (entry.isDirectory()) walk(rel);
+      else if (entry.name.endsWith('.md')) skills.set(rel, fs.readFileSync(path.join(REPO, rel), 'utf8'));
+    }
+  };
+  walk('core/shared/skills');
+  return { settings: readJson(SETTINGS_FILE), advice: readJson('core/registry/advice.json'), sources, skills };
+}
+
+test('G44 S8: every advice.* setting has a live reader: a consumer reached from the CLI, and for a kind key a caller that dispatches the kind', () => {
+  const inputs = adviceReaderInputs();
+  assert.ok(Object.keys(inputs.settings.keys).filter((key) => key.startsWith('advice.')).length >= 10, 'the advice keys must still be found');
+  assert.deepEqual(adviceReaderFindings(inputs), []);
+});
+
+test('G44 S8 control: a planted key, a kind nothing asks, a caller that does not call the kind and an unread consumer are each reported', () => {
+  const inputs = adviceReaderInputs();
+  const plant = (change: (draft: any) => void) => {
+    const draft = JSON.parse(JSON.stringify({ settings: inputs.settings, advice: inputs.advice }));
+    change(draft);
+    return adviceReaderFindings({ ...inputs, settings: draft.settings, advice: draft.advice });
+  };
+  const key = (consumers: string[]) => ({ ...inputs.settings.keys['advice.kinds.tier'], consumers });
+
+  assert.deepEqual(plant((d) => { d.settings.keys['advice.kinds.ghost'] = key(['src/runtime/advice/shadow-config.ts']); }),
+    ['advice.kinds.ghost: no kind ghost in core/registry/advice.json']);
+  assert.deepEqual(plant((d) => { d.settings.keys['advice.kinds.rerank'] = key(['src/runtime/advice/shadow-config.ts']); }),
+    ['advice.kinds.rerank: kind rerank has an empty askedBy, so nothing asks it']);
+  assert.deepEqual(plant((d) => { d.advice.kinds.find((kind: any) => kind.id === 'tier').askedBy.push('retrieve'); }),
+    ["advice.kinds.tier: kind tier lists askedBy 'retrieve', which does not dispatch it", "advice.models.tier: kind tier lists askedBy 'retrieve', which does not dispatch it"]);
+  assert.deepEqual(plant((d) => { d.advice.kinds.find((kind: any) => kind.id === 'mcp-need').askedBy = ['do-test']; }),
+    ["advice.kinds.mcp-need: kind mcp-need lists askedBy 'do-test', which does not dispatch it", "advice.models.mcp-need: kind mcp-need lists askedBy 'do-test', which does not dispatch it"]);
+  assert.deepEqual(plant((d) => { d.settings.keys['advice.model'].consumers = ['src/runtime/advice/criteria.ts']; }),
+    ["advice.model: consumer src/runtime/advice/criteria.ts is not reached from src/cli/index.ts", "advice.model: consumer src/runtime/advice/criteria.ts does not read it"]);
+  assert.deepEqual(plant((d) => { d.settings.keys['advice.model'].consumers = ['src/runtime/advice/missing.ts']; }),
+    ['advice.model: consumer src/runtime/advice/missing.ts is not a shipped src/ file']);
+  assert.deepEqual(plant((d) => { d.settings.keys['advice.model'].consumers = []; }), ['advice.model: no consumers listed']);
+
+  // A consumer whose only mention of a key is an unused string literal does not read it.
+  const stripped = (file: string, drop: RegExp, extra: string) => adviceReaderFindings({ ...inputs, sources: new Map([...inputs.sources, [file, `${(inputs.sources.get(file) as string).replace(drop, 'void 0')}\n${extra}\n`]]) });
+  assert.deepEqual(stripped('src/runtime/advice/config.ts', /\.get\('advice\.endpoint'/g, "const unused = 'advice.endpoint';").filter((line) => line.startsWith('advice.endpoint')),
+    ['advice.endpoint: consumer src/runtime/advice/config.ts does not read it']);
+  assert.deepEqual(stripped('src/runtime/advice/shadow-config.ts', /getSettingValue\(content, `advice\.kinds\.\$\{kind\}`\)/g, 'const unused = `advice.kinds.${kind}`;').filter((line) => line.startsWith('advice.kinds.tier')),
+    ['advice.kinds.tier: consumer src/runtime/advice/shadow-config.ts does not read it']);
+});
+
+test('G44 S8 control: the comment-stripping and fence rules ignore a call that only a comment or a shell comment makes', () => {
+  assert.equal(skillRunsKind('```bash\n# advise --kind tier\n```\n', 'tier'), false);
+  assert.equal(skillRunsKind('advise --kind tier in prose\n', 'tier'), false);
+  assert.equal(skillRunsKind('```bash\n"$DOFLOW" advise --kind tier --state x\n```\n', 'tier'), true);
+  assert.equal(skillRunsKind('```bash\n"$DOFLOW" advise --kind tier-x --state x\n```\n', 'tier'), false);
+  assert.equal(stripSourceComments("// interceptDecisionPoint(\nconst a = 1; // kind: 'tier'\n/* caller: 'x' */").includes('interceptDecisionPoint'), false);
 });
 
 // A function that takes an `env` resolves the storage roots and the settings layers from it, never from this process's

@@ -25,11 +25,47 @@ function defaultResponse({ method, pathname, body }: any) {
   return { status: 404, body: { error: 'not found' } };
 }
 
+/**
+ * A route that answers every /v1/systemone question validly with `choose(name, question)`: an option of a choice
+ * question, a criteria index of a score question, or the yes probability of a yes/no question. `undefined` takes the
+ * first option, index 0 or 0.7. The chosen option or index gets 0.7 or 0.6 of the probability.
+ */
+function answering(choose: (name: string, question: any) => any = () => undefined) {
+  return ({ body }: any) => {
+    const answers: any = {};
+    for (const [name, question] of Object.entries((body?.questions || {}) as Record<string, any>)) {
+      const chosen = choose(name, question);
+      if (question.type === 'choice') {
+        const options = Object.keys(question.criteria || {});
+        const pick = chosen ?? options[0];
+        const probabilities = Object.fromEntries(options.map((option) => [option, option === pick ? 0.7 : 0.3 / Math.max(1, options.length - 1)]));
+        answers[name] = { choice: pick, probabilities, confidence: 0.7 };
+      } else if (question.type === 'score') {
+        const criteria: string[] = question.criteria || [];
+        const index = chosen ?? 0;
+        const probabilities = Object.fromEntries(criteria.map((_c, i) => [String(i), i === index ? 0.6 : 0.4 / Math.max(1, criteria.length - 1)]));
+        const score = criteria.reduce((total, _c, i) => total + i * probabilities[String(i)], 0);
+        answers[name] = { type: 'score', legend: Object.fromEntries(criteria.map((c, i) => [String(i), c])), probabilities, score, confidence: 0.6 };
+      } else {
+        answers[name] = { noul: chosen ?? 0.7 };
+      }
+    }
+    return { status: 200, body: { answers } };
+  };
+}
+
 async function writeResponse(response: any, res: any) {
   if (response.delayMs) await new Promise((resolve) => setTimeout(resolve, response.delayMs));
   if (res.destroyed) return;
   const status = response.status ?? 200;
   const headers = { ...(response.headers || {}) };
+  // `stall`: the headers and the first bytes of a reply are sent and the body is never finished, as a model that stops
+  // mid-reply does. The socket stays open until the client drops it or the server closes.
+  if (response.stall) {
+    res.writeHead(status, { 'content-type': 'application/json', ...headers });
+    res.write('{"answers":{');
+    return;
+  }
   let payload;
   if (typeof response.body === 'string') payload = response.body;
   else if (response.body === undefined) payload = '';
@@ -130,4 +166,18 @@ if (require.main === module && process.argv[2] === '--child') {
   runChild(process.argv[3], process.argv[4]).catch(() => process.exit(1));
 }
 
-module.exports = { startFakeServer, spawnFakeServer };
+/**
+ * An endpoint nothing listens on: a server takes an ephemeral port, reads it and closes, so a connection to it is refused
+ * without the test depending on a fixed port being free. A real service could take the port in the gap, which is far less
+ * likely than one already listening on a well-known port.
+ */
+async function closedEndpoint(): Promise<string> {
+  const net = require('node:net');
+  const server = net.createServer();
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  return `http://127.0.0.1:${port}`;
+}
+
+module.exports = { startFakeServer, spawnFakeServer, answering, closedEndpoint };
