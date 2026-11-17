@@ -1214,7 +1214,8 @@ test('161 IC-003: the layers member is closed-field and masked; runs rows gain t
   assert.equal(member.status, 200);
   assert.deepEqual(Object.keys(member.body), ['v', 'projectKey', 'sections']);
   assert.equal(member.body.projectKey, PK);
-  assert.deepEqual(Object.keys(member.body.sections), ['checkouts', 'tree', 'runs', 'gates', 'artifacts', 'reviews', 'sessions', 'traffic', 'coverage']);
+  assert.deepEqual(Object.keys(member.body.sections), ['checkouts', 'tree', 'runs', 'gates', 'artifacts', 'reviews', 'sessions', 'traffic', 'coverage', 'channels']);
+  assert.deepEqual(member.body.sections.channels, { ok: false, code: 'section-missing' }, '170: a core that sent no channels section reads section-missing; the other sections are unchanged');
   assert.deepEqual(member.body.sections.reviews, { ok: false, code: 'core-error' });
   assert.deepEqual(member.body.sections.coverage, { ok: false, code: 'core-contract-mismatch' });
   for (const name of ['checkouts', 'tree', 'runs', 'gates', 'artifacts', 'sessions', 'traffic']) assert.equal(member.body.sections[name].ok, true, name);

@@ -89,3 +89,56 @@ test('161 review C: an unreadable review keeps the core\'s reason (too-large); o
   assert.equal('reason' in kept.data[1], false, 'no reason key when the core sent none');
   assert.deepEqual(await reviewsOf([row({ state: 'unreadable', reason: 'not an id!' })]), { ok: false, code: 'core-contract-mismatch' });
 });
+
+// ---- 170 IC-004: the `channels` section ----
+
+const channelItem = (over: Record<string, unknown> = {}) => ({
+  runId: 'w-0123456789ab', agentKey: 'f1e2d3c4b5a69788', harness: 'pi', channel: 'open', reason: null, words: null,
+  turn: { observed: true, state: 'working', since: '2026-11-17T09:00:00.000Z', seq: 4 }, sent: { count: 2, lastAt: '2026-11-17T09:01:00.000Z' },
+  recent: [{ seq: 3, kind: 'follow-up', by: 'console', at: '2026-11-17T09:01:00.000Z', bytes: 41, outcome: 'written', answer: 'accepted' },
+    { seq: 2, kind: 'steer', by: 'device.d-0a1b2c3d4e5f', at: '2026-11-17T09:00:30.000Z', bytes: 12, outcome: 'refused', answer: null }],
+  ...over,
+});
+const channelsOf = async (json: unknown) => ((await composeLayers(WK, new Map([['channels', { exit: 0, json }]]), async () => ({ ok: false }))) as any).body.sections.channels;
+
+test('170 IC-004: the layers member lists channels last; one that the core did not send is section-missing, and the others are unchanged', async () => {
+  const member = (await composeLayers(WK, new Map(), async () => ({ ok: false }))) as any;
+  assert.deepEqual(Object.keys(member.body.sections), ['checkouts', 'tree', 'runs', 'gates', 'artifacts', 'reviews', 'sessions', 'traffic', 'coverage', 'channels']);
+  assert.deepEqual(member.body.sections.channels, { ok: false, code: 'section-missing' });
+});
+
+test('170 IC-004: a channels item keeps its closed fields; a field the core adds (a text, a pid) does not leave', async () => {
+  const kept = await channelsOf({ v: 1, items: [channelItem({ text: 'planted text', pid: 4242 })] });
+  assert.equal(kept.ok, true, JSON.stringify(kept));
+  assert.deepEqual(kept.data, { v: 1, items: [channelItem()] });
+  const planted = await channelsOf({ v: 1, items: [channelItem({ recent: [{ ...channelItem().recent[0], text: 'planted text' }] })] });
+  assert.equal(JSON.stringify(planted).includes('planted text'), false);
+  assert.deepEqual(Object.keys(planted.data.items[0].recent[0]).sort(), ['answer', 'at', 'by', 'bytes', 'kind', 'outcome', 'seq']);
+});
+
+test('170 IC-004: a channel without one keeps its reason and the descriptor sentence; a not-observed turn keeps its reason', async () => {
+  const none = await channelsOf({ v: 1, items: [channelItem({ channel: 'none', reason: 'no-channel', words: 'no recorded capture shows an input mode', turn: { observed: false, reason: 'no-channel', since: null }, sent: { count: 0, lastAt: null }, recent: [] })] });
+  assert.equal(none.ok, true, JSON.stringify(none));
+  assert.deepEqual([none.data.items[0].channel, none.data.items[0].reason, none.data.items[0].words, none.data.items[0].turn], ['none', 'no-channel', 'no recorded capture shows an input mode', { observed: false, reason: 'no-channel', since: null }]);
+});
+
+test('170 IC-004: a value outside the closed shape is a contract mismatch: a state, a kind, an answer, a turn, a run id, more than 16 items or 8 recent', async () => {
+  const mismatch = { ok: false, code: 'core-contract-mismatch' };
+  const recent = channelItem().recent[0];
+  for (const bad of [
+    channelItem({ channel: 'opening' }), channelItem({ runId: 'x' }), channelItem({ agentKey: 'nope' }), channelItem({ turn: { observed: true, state: 'idle', since: '2026-11-17T09:00:00.000Z', seq: 1 } }),
+    channelItem({ turn: { observed: false, since: null } }), channelItem({ sent: { count: -1, lastAt: null } }), channelItem({ recent: [{ ...recent, kind: 'abort' }] }),
+    channelItem({ recent: [{ ...recent, answer: 'ok' }] }), channelItem({ recent: [{ ...recent, at: 'yesterday' }] }), channelItem({ recent: Array.from({ length: 9 }, () => recent) }),
+  ]) assert.deepEqual(await channelsOf({ v: 1, items: [bad] }), mismatch, JSON.stringify(bad).slice(0, 80));
+  assert.deepEqual(await channelsOf({ v: 1, items: Array.from({ length: 17 }, () => channelItem()) }), mismatch);
+  assert.deepEqual(await channelsOf({ v: 2, items: [] }), mismatch);
+  assert.equal((await channelsOf({ v: 1, items: Array.from({ length: 16 }, () => channelItem()) })).ok, true);
+});
+
+test('170 IC-004: the sentence and the labels are masked, and an actor label that could be a place is withheld', async () => {
+  const kept = await channelsOf({ v: 1, items: [channelItem({ channel: 'none', reason: 'no-channel', words: 'contact planted.person@example.com', recent: [{ ...channelItem().recent[0], by: '/work/planted' }] })] });
+  assert.equal(kept.ok, true, JSON.stringify(kept));
+  assert.equal(JSON.stringify(kept).includes('planted.person@example.com'), false);
+  assert.ok(JSON.stringify(kept).includes('<email>') || JSON.stringify(kept).includes('<masked>'));
+  assert.equal(kept.data.items[0].recent[0].by, '(withheld)');
+});
