@@ -71,12 +71,21 @@ function withoutChannel(run: any): { channel: 'open' | 'closed' | 'none'; reason
   return { channel: 'none', reason: 'no-channel', words: typeof entry.reason === 'string' ? entry.reason.slice(0, WORDS_CHARS) : null };
 }
 
+/** Why a channel reads closed: the record's `closedReason`, else (a run that ended under an open record) its end state, else `supervisor-gone`. */
+function closedReasonOf(run: any, channel: any, ended: boolean): string | null {
+  if (typeof channel.closedReason === 'string') return channel.closedReason.slice(0, 64);
+  if (!ended || channel.state === 'closed') return null;
+  return typeof run.end?.state === 'string' && run.end.state !== '' ? run.end.state.slice(0, 64) : 'supervisor-gone';
+}
+
 /** One item of IC-004 from a run record and the supervisor liveness read for it (`null` when none was read). */
 function itemOf(run: any, alive: string | null): any {
   const channel = run.channel && typeof run.channel === 'object' ? run.channel : null;
-  const state = channel ? CHANNEL_STATES[channel.state] : undefined;
-  const missing = !channel || state === undefined ? withoutChannel(run) : null;
   const ended = run.phase === 'ended';
+  const recorded = channel ? CHANNEL_STATES[channel.state] : undefined;
+  // Only the supervisor writes `channel`, and one killed mid-run leaves `open`: a run that has ended reads closed whatever it says.
+  const state = ended && recorded !== undefined ? 'closed' : recorded;
+  const missing = !channel || state === undefined ? withoutChannel(run) : null;
   let turn: Turn;
   if (ended) turn = gone('run-ended', isoOf(run.end?.at));
   else if (alive === 'dead' || alive === 'supervisor-gone') turn = gone('supervisor-gone');
@@ -90,7 +99,7 @@ function itemOf(run: any, alive: string | null): any {
     harness: typeof run.harness === 'string' ? run.harness : null,
     channel: missing ? missing.channel : state,
     reason: missing ? missing.reason
-      : state === 'closed' ? (typeof channel.closedReason === 'string' ? channel.closedReason.slice(0, 64) : null)
+      : state === 'closed' ? closedReasonOf(run, channel, ended)
         : channel.state === 'opening' ? 'opening' : null,
     words: missing ? missing.words : null,
     turn,

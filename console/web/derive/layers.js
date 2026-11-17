@@ -530,6 +530,7 @@ const CLOSED_WORDS = Object.freeze({
   'not-started': 'it never started',
   'not-opened': 'its channel never opened',
   cancelled: 'it was stopped',
+  'supervisor-gone': 'its supervisor stopped',
 });
 
 /** Why a session has no channel, in words, when the record carries no sentence of its own. @type {Readonly<Record<string, string>>} */

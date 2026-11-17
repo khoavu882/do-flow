@@ -311,6 +311,7 @@ test('170 §10 closed or ended: "Ended: <closedReason words>", no Send, Steer or
   const ended = view(chan({ channel: 'closed', reason: 'cancelled', turn: unseen('run-ended') }), { phase: 'ended' });
   assert.deepEqual([ended.badge.word, ended.badge.token, ended.controls, ...flags(ended)], ['Ended: it was stopped', 'done', false, false, false, false, false]);
   assert.equal(view(chan({ turn: unseen('run-ended') })).badge.word, 'Ended: the session ended', 'a run that ended whose record still says open');
+  assert.equal(view(chan({ channel: 'closed', reason: 'supervisor-gone', turn: unseen('run-ended') })).badge.word, 'Ended: its supervisor stopped', 'an ended run whose supervisor died with the channel open');
 });
 
 test('170 §10 no channel: "Send is unavailable: <reason>" with the descriptor\'s sentence, End session only', () => {
