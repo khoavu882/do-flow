@@ -26,7 +26,7 @@ const conformModule = () => require(path.join(SRC, 'conform.ts'));
 
 const POSIX: any = { skip: process.platform === 'win32' && 'conform is unsupported on win32 (DEC-008)' };
 const EMPTY_VIEW = Object.freeze({ packages: [], stateRead: { state: { removed: [] } }, grants: { grants: [] } });
-const PARTS = ['binary', 'one-shot', 'prompt-transport', 'model-flag', 'provider', 'effort', 'main-session', 'stream', 'login'];
+const PARTS = ['binary', 'one-shot', 'prompt-transport', 'model-flag', 'provider', 'effort', 'main-session', 'control-channel', 'stream', 'login'];
 /** The variables the system adds itself, never copied from conform's caller: a POSIX `#!/bin/sh` sets PWD (the
  * scratch home conform chose as cwd) and SHLVL (its own counter) before it execs, and macOS adds
  * __CF_USER_TEXT_ENCODING (the uid's text encoding) to every process it starts. */
@@ -68,9 +68,10 @@ test('conform --harness codex exits 0 and every supported part passes', POSIX, a
   assert.deepEqual(body.parts.map((p: any) => p.part), PARTS);
   assert.deepEqual(resultsOf(body), {
     binary: 'passed', 'one-shot': 'passed', 'prompt-transport': 'passed', 'model-flag': 'passed', provider: 'unchecked', effort: 'unchecked',
-    'main-session': 'passed', stream: 'passed', login: 'unchecked',
+    'main-session': 'passed', 'control-channel': 'unchecked', stream: 'passed', login: 'unchecked',
   });
   assert.equal(partOf(body, 'login').reason, 'not-declared');
+  assert.equal(partOf(body, 'control-channel').reason, 'not-declared');
   assert.deepEqual(body.failed, []);
 });
 
@@ -563,4 +564,100 @@ test('169 A-07: an id transport counts argv elements equal to the composed id, n
   assert.equal(exit, 0, JSON.stringify(body));
   assert.equal(partOf(body, 'provider').result, 'passed', JSON.stringify(partOf(body, 'provider')));
   assert.equal(partOf(body, 'provider').reason, 'conform-provider-1/conform-model-1 once, via one-shot');
+});
+
+// ---- the control-channel part (row 170 T6, IC-007) -----------------------------------------------------------
+
+/** A Pi-shaped channel (design 170 section 11) as a fixture: the registry still ships Pi's as unknown. */
+const piChannel = (extra: any = {}) => ({
+  status: 'supported', evidence: [], verification: 'fixture', verifiedOn: '2026-11-17',
+  argv: ['--mode', 'rpc', '--no-approve'], framing: 'jsonl-lf', parser: 'pi-json-v1', commandPrefix: '/',
+  messages: {
+    followUp: { type: 'prompt', message: '{text}', streamingBehavior: 'followUp', id: '{id}' },
+    steer: { type: 'prompt', message: '{text}', streamingBehavior: 'steer', id: '{id}' },
+    stop: { type: 'abort', id: '{id}' },
+  },
+  turn: { working: [{ path: ['type'], equals: 'agent_start' }], settled: [{ path: ['type'], equals: 'agent_settled' }] },
+  answer: {
+    id: ['id'],
+    accepted: [{ path: ['type'], equals: 'response' }, { path: ['success'], equals: true }],
+    refused: [{ path: ['type'], equals: 'response' }, { path: ['success'], equals: false }],
+  },
+  close: { stdinEof: 'exits', graceSeconds: 1 },
+  unverified: ['turn events in rpc mode'],
+  ...extra,
+});
+const withChannel = (extra?: any, edit?: (entry: any) => void) => registryWith('pi', (w) => {
+  w.controlChannel = piChannel(extra);
+  edit?.(w.controlChannel);
+});
+const CHANNEL_TEXT = 'Conform message: \'single\' "double" $HOME \\back\\slash\nsecond line, é 漢字';
+const pidGone = (pid: number) => {
+  try { process.kill(pid, 0); return false; } catch (error: any) { return error.code === 'ESRCH'; }
+};
+
+test('a fake with a Pi-shaped channel passes control-channel, which sits right after main-session, with the exact framed bytes', POSIX, async (t) => {
+  const logs: any[] = [];
+  const { exit, body } = await conformModule().conform({ harness: 'pi', registry: withChannel(), view: EMPTY_VIEW, onLog: (log: any) => logs.push(log) });
+  assert.equal(exit, 0, JSON.stringify(body));
+  const names = body.parts.map((p: any) => p.part);
+  assert.equal(names[names.indexOf('main-session') + 1], 'control-channel');
+  assert.deepEqual(names, PARTS);
+  assert.deepEqual(partOf(body, 'control-channel'), {
+    part: 'control-channel', result: 'passed', reason: '3 records byte for byte, turn working then waiting, answers by id, exit after stdin closed',
+  });
+  const channel = logs.find((log) => Array.isArray(log.received));
+  assert.deepEqual(channel.argv, ['--mode', 'rpc', '--no-approve']);
+  assert.deepEqual(channel.received, [
+    `${JSON.stringify({ type: 'prompt', message: CHANNEL_TEXT, streamingBehavior: 'followUp', id: 'd-1' })}\n`,
+    `${JSON.stringify({ type: 'prompt', message: CHANNEL_TEXT, streamingBehavior: 'steer', id: 'd-2' })}\n`,
+    `${JSON.stringify({ type: 'abort', id: 'd-3' })}\n`,
+  ]);
+  assert.ok(pidGone(channel.pid), 'the fake has ended');
+});
+
+test('a channel with no steer template and no answer sends two records and passes', POSIX, async (t) => {
+  const reg = withChannel({}, (entry) => {
+    delete entry.messages.steer;
+    delete entry.answer;
+    entry.messages.followUp = { type: 'prompt', message: '{text}' };
+    entry.messages.stop = { type: 'abort' };
+  });
+  const logs: any[] = [];
+  const { exit, body } = await conformModule().conform({ harness: 'pi', registry: reg, view: EMPTY_VIEW, onLog: (log: any) => logs.push(log) });
+  assert.equal(exit, 0, JSON.stringify(body));
+  assert.equal(partOf(body, 'control-channel').reason, '2 records byte for byte, turn working then waiting, exit after stdin closed');
+  assert.deepEqual(logs.find((log) => Array.isArray(log.received)).received, [
+    `${JSON.stringify({ type: 'prompt', message: CHANNEL_TEXT })}\n`, `${JSON.stringify({ type: 'abort' })}\n`,
+  ]);
+});
+
+test('a fake that receives a record with an extra key fails control-channel by name', POSIX, async () => {
+  const { exit, body } = await conformModule().conform({ harness: 'pi', registry: withChannel(), view: EMPTY_VIEW, channelFake: 'extra-key' });
+  assertFailsPart({ exit, body }, 'control-channel', /did not take record 1: followUp: record holds the key 'id' the template does not/);
+  assert.deepEqual(body.failed, ['control-channel']);
+});
+
+test('a fake that ignores stdin EOF fails "did not exit within graceSeconds after stdin closed" and none of it remains', POSIX, async () => {
+  const logs: any[] = [];
+  const started = Date.now();
+  const { exit, body } = await conformModule().conform({ harness: 'pi', registry: withChannel(), view: EMPTY_VIEW, channelFake: 'ignore-eof', onLog: (log: any) => logs.push(log) });
+  assertFailsPart({ exit, body }, 'control-channel', /did not exit within graceSeconds after stdin closed \(1 s\)/);
+  assert.ok(Date.now() - started < 8000, 'the wait is the descriptor\'s graceSeconds, not conform\'s 10 s spawn bound');
+  const pid = logs.find((log) => log.pid)?.pid;
+  assert.ok(Number.isInteger(pid), 'the fake logged its pid');
+  for (let i = 0; i < 50 && !pidGone(pid); i += 1) await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.ok(pidGone(pid), `the ignore-eof fake ${pid} is gone`);
+});
+
+test('a harness without a supported channel reports control-channel unchecked: not-declared', POSIX, async (t) => {
+  const { exit, body } = await conformVia(t, 'pi');
+  assert.equal(exit, 0, JSON.stringify(body));
+  assert.deepEqual(partOf(body, 'control-channel'), { part: 'control-channel', result: 'unchecked', reason: 'not-declared' });
+});
+
+test('a channel entry that fails its own validation fails control-channel, naming nothing else', POSIX, async () => {
+  const reg = withChannel({}, (entry) => { entry.turn.settled = entry.turn.working; });
+  const { exit, body } = await conformModule().conform({ harness: 'pi', registry: reg, view: EMPTY_VIEW });
+  assertFailsPart({ exit, body }, 'control-channel', /does not pass its own validation/);
 });
