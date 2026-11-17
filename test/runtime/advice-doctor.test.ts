@@ -8,7 +8,7 @@ const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env.ts');
 const { tempDirOutsideProfile } = require('../helper/outside-profile.ts');
 const { systemPath } = require('../helper/system-path.ts');
-const { startFakeServer, spawnFakeServer } = require('../helper/fake-decision-server.ts');
+const { startFakeServer, spawnFakeServer, closedEndpoint } = require('../helper/fake-decision-server.ts');
 const { buildAdviceDoctor } = require('../../src/runtime/advice/doctor.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 
@@ -79,7 +79,7 @@ test('an error thrown while building the report is named by its message, not as 
     assert.match(section(result.stdout, '[Decision Model]'), expected);
     assert.doesNotMatch(result.stdout, /endpoint\s+http:/);
   }
-  const f = fixture(t, enabled('http://127.0.0.1:9'));
+  const f = fixture(t, enabled(await closedEndpoint()));
   const result = f.run();
   assert.equal(result.status, 0, result.stderr);
   assert.match(section(result.stdout, '[Decision Model]'), /UNREACHABLE/);

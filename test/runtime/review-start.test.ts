@@ -3,7 +3,7 @@
 // Feature 095b B.1 (IC-001), 119 A.4 (IC-005): `review --action start`; the depth rule is `resolveProtocol` (review-protocol-resolve.test.js). Every case runs in a
 // scratch git repository with a scratch HOME; nothing is written to the real record or advice stores.
 
-const { test } = require('node:test');
+const { test, before } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -16,7 +16,10 @@ const { reviewPrecondition } = require('../../src/runtime/review/start.ts');
 const { protocolDigest } = require('../../src/runtime/review/resolve-protocol.ts');
 const { storeFileFor } = require('../../src/runtime/dispatch/store.ts');
 const { cwdHash } = require('../../src/runtime/context/identity.ts');
-const { startFakeServer, answering } = require('../helper/fake-decision-server.ts');
+const { startFakeServer, answering, closedEndpoint } = require('../helper/fake-decision-server.ts');
+// an endpoint nothing listens on, resolved once before the tests run
+let CLOSED_ENDPOINT = '';
+before(async () => { CLOSED_ENDPOINT = await closedEndpoint(); });
 
 const CLI = path.join(REPO_ROOT, 'bin', 'doflow.js');
 const SLUG = '095b-review-depth';
@@ -80,7 +83,7 @@ function repo(t: any, { taskClass = 'feature', files = { 'src/a.ts': 'export {};
     // merged into the user settings.json the fixture already wrote (its OPT_IN document), not a replacement
     const file = path.join(env.XDG_CONFIG_HOME, 'doflow', 'settings.json');
     const current = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : { schema: 1 };
-    put(env.XDG_CONFIG_HOME, 'doflow/settings.json', JSON.stringify({ ...current, 'advice.enabled': true, 'advice.provider': 'ollama', 'advice.endpoint': 'http://127.0.0.1:9', 'advice.model': 'clef-flash' }));
+    put(env.XDG_CONFIG_HOME, 'doflow/settings.json', JSON.stringify({ ...current, 'advice.enabled': true, 'advice.provider': 'ollama', 'advice.endpoint': CLOSED_ENDPOINT, 'advice.model': 'clef-flash' }));
   };
   return { dir, cwd, env, base, head, lines, line, enableAdvice, git: (args: any) => git(cwd, env, args) };
 }

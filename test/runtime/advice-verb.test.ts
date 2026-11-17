@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env.ts');
-const { spawnFakeServer } = require('../helper/fake-decision-server.ts');
+const { spawnFakeServer, closedEndpoint } = require('../helper/fake-decision-server.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 
 const RUN = path.join(REPO_ROOT, 'core/shared/scripts/doflow/bin/doflow-run');
@@ -159,7 +159,7 @@ test('IC-008 usage errors cover kind/question selection, state, files, server, s
   assert.match(tooLarge.stderr, /49152/);
 });
 
-test('IC-008 off prints its status and unavailable prints the none line, both exit zero', (t) => {
+test('IC-008 off prints its status and unavailable prints the none line, both exit zero', async (t) => {
   const off = fixture(t);
   const offResult = off.run(['--action', 'ask', '--kind', 'tier', '--state', 'state']);
   assert.equal(offResult.status, 0, offResult.stderr);
@@ -169,7 +169,7 @@ test('IC-008 off prints its status and unavailable prints the none line, both ex
   assert.equal(JSON.parse(offJson.stdout).reason, 'not-configured');
 
   // an ad hoc ask is the direct one, so an unreachable model is reported at once
-  const unavailable: any = fixture(t, { setting: userSetting('http://127.0.0.1:9') });
+  const unavailable: any = fixture(t, { setting: userSetting(await closedEndpoint()) });
   const args = ['--action', 'ask', '--questions-file', questionFile(unavailable), '--state', 'state'];
   const unavailableResult = unavailable.run(args);
   assert.equal(unavailableResult.status, 0, unavailableResult.stderr);
@@ -313,7 +313,7 @@ test('configure at user level with no config home exits 2 naming HOME or XDG_CON
 
 for (const failure of [
   { name: 'endpoint refusal', endpoint: 'http://192.0.2.1:11434', args: [], expected: 'only loopback addresses are allowed' },
-  { name: 'unreachable endpoint', endpoint: 'http://127.0.0.1:9', routes: null, args: [], expected: 'Ollama did not answer at http://127.0.0.1:9; start it yourself and re-run. Nothing was written.' },
+  { name: 'unreachable endpoint', endpoint: 'closed', routes: null, args: [], expected: 'Ollama did not answer at {endpoint}; start it yourself and re-run. Nothing was written.' },
   { name: 'old version', endpoint: 'server', routes: { 'GET /api/version': { status: 200, body: { version: '0.30.0' } } }, args: [], expected: 'Ollama 0.30.0' },
   { name: 'model missing', endpoint: 'server', routes: { 'GET /api/tags': { status: 200, body: { models: [{ name: 'other:latest', capabilities: ['decision'] }] } } }, model: 'missing-model', args: [], expected: "model missing-model is not installed; run 'ollama pull missing-model' yourself. Nothing was written." },
   { name: 'model not decision capable', endpoint: 'server', routes: { 'GET /api/tags': { status: 200, body: { models: [{ name: 'clef-flash:latest', capabilities: ['completion'] }] } } }, args: [], expected: 'decision-capable here: none. Nothing was written.' },
@@ -322,10 +322,11 @@ for (const failure of [
     const f = fixture(t);
     let endpoint = failure.endpoint;
     if (endpoint === 'server') endpoint = (await f.startServer(failure.routes || {})).origin;
+    if (endpoint === 'closed') endpoint = await closedEndpoint();
     const model = failure.model || 'clef-flash';
     const result = f.run(['--action', 'configure', '--model', model, '--endpoint', endpoint, ...failure.args]);
     assert.equal(result.status, 1, result.stderr);
-    assert.ok(result.stderr.includes(failure.expected), result.stderr);
+    assert.ok(result.stderr.includes(failure.expected.replace('{endpoint}', endpoint)), result.stderr);
     assert.equal(fs.readFileSync(f.userSettingsFile, 'utf8'), f.baseline, 'failed configuration must not write');
   });
 }
