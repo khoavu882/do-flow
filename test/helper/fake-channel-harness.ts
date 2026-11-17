@@ -10,7 +10,7 @@
 //   - each received line is appended byte-exact (with its LF) to FAKE_CHANNEL_LOG;
 //   - its pid is written to FAKE_CHANNEL_PID when that is set;
 //   - per record: a `response` `{type, id, success}` repeating the record's `id`, then `agent_start`, two output
-//     lines, and `agent_end`; with FAKE_CHANNEL_GATE set, `agent_end` for the n-th record waits until the file
+//     lines, `agent_end` and then `agent_settled` (the shipped Pi descriptor settles on `agent_settled`, a test fixture on `agent_end`); with FAKE_CHANNEL_GATE set, `agent_end` for the n-th record waits until the file
 //     `<FAKE_CHANNEL_GATE>-<n>` exists (polled every 20 ms, at most 60 s), so a test sees the turn working first;
 //   - stdin EOF exits 0, unless FAKE_CHANNEL_MODE is `ignore-eof` (it then stays alive until it is killed);
 //   - FAKE_CHANNEL_MODE `refuse` answers every record `success: false` and starts no turn.
@@ -51,6 +51,7 @@ async function answer(line: Buffer, n: number): Promise<void> {
   emit({ type: 'message_end', text: `done with record ${n}` });
   if (gate) await waitFor(`${gate}-${n}`);
   emit({ type: 'agent_end', aborted: record?.type === 'abort' });
+  emit({ type: 'agent_settled' }); // Pi emits this after `agent_end`; the shipped Pi descriptor settles on it
 }
 
 let pending = Buffer.alloc(0);

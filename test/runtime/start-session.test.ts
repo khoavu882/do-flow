@@ -974,6 +974,10 @@ test('T9a: the shipped Pi descriptor starts through its channel on the C-1 argv,
   const run = readRuns(f.store)[runId];
   assert.deepEqual([run.recipe.promptVia, run.recipe.parser, run.recipe.argvShape], ['channel', 'pi-json-v1', ['--mode', 'rpc', '--no-approve']]);
   assert.equal(fs.readFileSync(f.channelLog, 'utf8'), `${JSON.stringify({ type: 'prompt', message: `${ENTRY_LINE}\n\nhello there`, streamingBehavior: 'followUp', id: 'd-1' })}\n`);
+  // The shipped descriptor settles on `agent_settled`, which the fake emits after `agent_end`: the turn reaches waiting.
+  const settledBy = Date.now() + 10000;
+  while (readRuns(f.store)[runId]?.channel?.turn?.state !== 'waiting' && Date.now() < settledBy) await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual([readRuns(f.store)[runId].channel.turn.observed, readRuns(f.store)[runId].channel.turn.state], [true, 'waiting']);
   const cancel = await executeWorkerCommand({ action: 'cancel', slug: 'started-sessions', workerRun: runId, by: 'test', reason: 'done with it', env: f.env, cwd: f.main, descriptors: DESCRIPTORS });
   assert.equal(cancel.body.disposition, 'cancelled', JSON.stringify(cancel.body));
   await ended(f, runId);
