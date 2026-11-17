@@ -1161,11 +1161,13 @@ test('165 F1 start-options: IC-002 projects through PROJECTORS with the key aske
   assert.equal(mutate((b) => { delete b.harnesses[0].channel; }).body.harnesses[0].channel, null);
   assert.deepEqual(mutate((b) => { b.harnesses[0].channel = { state: 'unknown', reason: 'no-control-channel-entry', liveVerified: false, unverified: [] }; }).body.harnesses[0].channel,
     { state: 'unknown', reason: 'no-control-channel-entry', liveVerified: false, unverified: [] });
+  assert.equal(mutate((b) => { b.harnesses[0].channel = { state: 'unknown', reason: 'r'.repeat(300), liveVerified: false, unverified: [] }; }).ok, true, 'a descriptor sentence of 300 characters');
   assert.equal(mutate((b) => { b.harnesses[0].channel = { ...CHANNEL, unverified: Array.from({ length: 8 }, () => 'x'.repeat(120)) }; }).ok, true, 'eight of 120 characters');
   for (const bad of [{ ...CHANNEL, state: 'none' }, { ...CHANNEL, liveVerified: 'yes' }, { ...CHANNEL, reason: 5 }, { ...CHANNEL, unverified: Array.from({ length: 9 }, () => 'x') },
     { ...CHANNEL, unverified: ['x'.repeat(121)] }, { ...CHANNEL, unverified: [5] }, { state: 'supported', reason: null, liveVerified: false }, 'supported']) {
     assert.deepEqual(mutate((b) => { b.harnesses[0].channel = bad; }), MISMATCH, JSON.stringify(bad).slice(0, 80));
   }
+  assert.equal(mutate((b) => { b.harnesses[0].channel = { state: 'unknown', reason: 'x'.repeat(301), liveVerified: false, unverified: [] }; }).body.harnesses[0].channel.reason, '(withheld)', 'words past 300 characters are withheld, as `words` is');
   assert.equal(mutate((b) => { b.harnesses[0].channel = { ...CHANNEL, unverified: ['see /Users/kai/x'] }; }).body.harnesses[0].channel.unverified[0], '(withheld)', 'a path is withheld');
   // 165 review A-3: dispatch records that cannot be read are a running dispatch with no slug and the core's reason.
   const unreadable = mutate((b) => { b.dispatch = { running: true, slug: null, reason: 'dispatch-unreadable' }; });

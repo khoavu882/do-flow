@@ -1882,7 +1882,8 @@ function startOptions(value: unknown, context?: Context) {
   const channel = (value: unknown) => {
     const c = sRecord(value);
     const phrase = (v: unknown) => (typeof v === 'string' && v.length <= START_BOUNDS.channelPhrase ? sWords(v) : fail());
-    return { state: sOneOf(['supported', 'unsupported', 'unknown'])(c.state), reason: sNull(phrase)(c.reason), liveVerified: sBool(c.liveVerified),
+    // `reason` is a descriptor's sentence (as `words` is: up to 300 characters); an `unverified` entry is a short phrase.
+    return { state: sOneOf(['supported', 'unsupported', 'unknown'])(c.state), reason: sNull(sWords)(c.reason), liveVerified: sBool(c.liveVerified),
       unverified: sList(c.unverified, START_BOUNDS.unverified).map(phrase) };
   };
   const harness = (item: unknown) => {
