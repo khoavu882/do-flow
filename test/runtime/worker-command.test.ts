@@ -20,7 +20,7 @@ const { linkBin, writeScenario, readLog } = require('../helper/fake-harness-cli.
 const DESCRIPTORS = require('../fixtures/worker/descriptors.json');
 
 const SRC = path.join(__dirname, '..', '..', 'src', 'runtime');
-const { executeWorkerCommand, handleWorkerCommand, ACTIONS } = require(path.join(SRC, 'worker', 'command.ts'));
+const { executeWorkerCommand, handleWorkerCommand, ACTIONS, FLAG_ACTIONS } = require(path.join(SRC, 'worker', 'command.ts'));
 const { storeFileFor, newRunId, insertRun, readRuns, transition } = require(path.join(SRC, 'worker', 'run-store.ts'));
 const { ENV_SET, launchEnv, launchRecord } = require(path.join(SRC, 'worker', 'launch.ts'));
 const readiness = require(path.join(SRC, 'worker', 'readiness.ts'));
@@ -305,7 +305,21 @@ test('handleWorkerCommand maps dispositions to exits 0, 1 and 2', async (t): Pro
   assert.equal(await handleWorkerCommand({ ...base, action: 'status', task: 'A.1', token: p.token, json: false }), 0);
   assert.match(logs.pop(), /^status task A\.1 token \d+ no run$/);
   process.exitCode = saved;
-  assert.deepEqual(ACTIONS, ['discover', 'probe', 'describe', 'select', 'run', 'status', 'cancel', 'evidence', 'start-session', 'start-options', 'conform', 'login-state']);
+  assert.deepEqual(ACTIONS, ['discover', 'probe', 'describe', 'select', 'run', 'status', 'cancel', 'evidence', 'start-session', 'start-options', 'conform', 'login-state', 'send', 'steer', 'stop']);
+});
+
+// ── 170 IC-001: the three message verbs take the same few flags, and none takes the text ─────────
+
+test('send, steer and stop take --project-key --worker-run --request-id --via (--stdin for send and steer only) and no action takes --text', (t) => {
+  const takes = (flag: string) => Object.values(FLAG_ACTIONS).find((entry: any) => entry.flag === flag)?.actions ?? [];
+  for (const flag of ['--project-key', '--worker-run', '--request-id', '--via']) {
+    for (const action of ['send', 'steer', 'stop']) assert.ok(takes(flag).includes(action), `${flag} applies to ${action}`);
+  }
+  assert.deepEqual(['send', 'steer', 'stop'].filter((action) => takes('--stdin').includes(action)), ['send', 'steer']);
+  assert.deepEqual(takes('--text'), [], 'the text comes from stdin only');
+  for (const flag of ['--slug', '--harness', '--model', '--worktree-key', '--entry', '--by', '--reason', '--operator']) {
+    for (const action of ['send', 'steer', 'stop']) assert.ok(!takes(flag).includes(action), `${flag} does not apply to ${action}`);
+  }
 });
 
 // ── 110: the worker process sees its own run id ───────────────────────────────────────────────

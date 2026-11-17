@@ -50,7 +50,7 @@ const { readBindings } = require('./models.ts');
 const { workerCatalogue } = require('./catalogue.ts');
 const { storeFileFor, newRunId, insertRun, transition, readRuns, RUN_ID } = require('./run-store.ts');
 const evidence = require('./evidence.ts');
-const { launchEnv, launchRecord, PROMPT_LIMITS } = require('./launch.ts');
+const { launchEnv, launchRecord, PROMPT_LIMITS, STARTED_RUN_VAR } = require('./launch.ts');
 const { BASE_FILE } = require('../worktree.ts');
 const { SUPERVISOR_FILE, resultOfRun } = require('./supervisor.ts');
 const { cancelRun, callerRefusal, RELAY_LABEL } = require('./cancel.ts');
@@ -65,12 +65,13 @@ const { loadRegistry } = require('../../registry/index.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { readDispatch, storeFileFor: dispatchStoreFileFor } = require('../dispatch/store.ts');
 const { startSession, startOptions, STARTED_SLUG, KIND: MAIN_SESSION_KIND } = require('./start-session.ts');
+const { steerSession } = require('./steer.ts');
 const { conform, conformLines } = require('./conform.ts');
 const { loginAnswers, loginCell } = require('./login.ts');
 
-const ACTIONS = Object.freeze(['discover', 'probe', 'describe', 'select', 'run', 'status', 'cancel', 'evidence', 'start-session', 'start-options', 'conform', 'login-state']);
-/** 165 IC-001 / IC-002 and 172 IC-002: the actions that answer with no disposition: exit 0, or 1 for `ok: false`. */
-const OK_ACTIONS = Object.freeze(['start-session', 'start-options', 'login-state']);
+const ACTIONS = Object.freeze(['discover', 'probe', 'describe', 'select', 'run', 'status', 'cancel', 'evidence', 'start-session', 'start-options', 'conform', 'login-state', 'send', 'steer', 'stop']);
+/** 165 IC-001 / IC-002, 172 IC-002 and 170 IC-001: the actions that answer with no disposition: exit 0, or 1 for `ok: false`. */
+const OK_ACTIONS = Object.freeze(['start-session', 'start-options', 'login-state', 'send', 'steer', 'stop']);
 /** IC-025: the dispositions that exit 0; `refused` and `none-eligible` exit 1. */
 const EXIT_ZERO = Object.freeze(['discovered', 'probed', 'described', 'selected', 'started', 'cancelled', 'status', 'recorded']);
 const ERROR_CODES = Object.freeze(['usage', 'store-unreadable', 'registry-invalid']);
@@ -109,22 +110,24 @@ const FLAG_ACTIONS: Record<string, { flag: string; actions: string[] }> = Object
   promptFile: { flag: '--prompt-file', actions: ['run'] },
   timeoutSeconds: { flag: '--timeout-seconds', actions: ['run'] },
   wait: { flag: '--wait', actions: ['run'] },
-  workerRun: { flag: '--worker-run', actions: ['status', 'cancel', 'evidence'] },
+  workerRun: { flag: '--worker-run', actions: ['status', 'cancel', 'evidence', 'send', 'steer', 'stop'] },
   checks: { flag: '--checks', actions: ['evidence'] },
   out: { flag: '--out', actions: ['evidence'] },
   docsRoot: { flag: '--docs-root', actions: ['evidence'] },
   by: { flag: '--by', actions: ['cancel'] },
   reason: { flag: '--reason', actions: ['cancel'] },
   operator: { flag: '--operator', actions: ['cancel'] },
-  via: { flag: '--via', actions: ['cancel', 'start-session'] },
-  projectKey: { flag: '--project-key', actions: ['start-session', 'start-options'] },
+  via: { flag: '--via', actions: ['cancel', 'start-session', 'send', 'steer', 'stop'] },
+  projectKey: { flag: '--project-key', actions: ['start-session', 'start-options', 'send', 'steer', 'stop'] },
   worktreeKey: { flag: '--worktree-key', actions: ['start-session'] },
   model: { flag: '--model', actions: ['start-session'] },
   provider: { flag: '--provider', actions: ['start-session'] },
   effort: { flag: '--effort', actions: ['start-session'] },
   entry: { flag: '--entry', actions: ['start-session'] },
-  requestId: { flag: '--request-id', actions: ['start-session'] },
-  stdin: { flag: '--stdin', actions: ['start-session'] },
+  requestId: { flag: '--request-id', actions: ['start-session', 'send', 'steer', 'stop'] },
+  stdin: { flag: '--stdin', actions: ['start-session', 'send', 'steer'] },
+  // 170: a message's text is read from stdin only, never from a flag, so no action takes `--text`.
+  text: { flag: '--text', actions: [] },
 });
 
 /** DEC-063: the execArgv entries the supervisor spawn forwards; every other entry is dropped. */
@@ -543,8 +546,9 @@ function summaryLines(body: any): string[] {
   if (Array.isArray(body.parts)) return conformLines(body);
   // 172 IC-002: login-state, one doctor cell per harness.
   if (Array.isArray(body.harnesses) && Object.keys(body).length === 1) return body.harnesses.map((a: any) => `${a.harness}  ${loginCell(a)}`);
-  // 165: start-session and start-options.
+  // 165: start-session and start-options. 170: send, steer and stop.
   if (body.ok === false && typeof body.code === 'string') return [`refused ${body.code}`];
+  if (body.ok === true && body.message) return [`${body.replayed ? 'replayed ' : ''}${body.message.kind} ${body.message.state}${body.message.answer ? ` (${body.message.answer})` : ''}`];
   if (body.ok === true && body.run) return [`${body.replayed ? 'replayed' : 'started'} ${body.run.runId} ${body.run.phase}`];
   if (body.project && Array.isArray(body.checkouts) && Array.isArray(body.harnesses)) {
     return body.harnesses.map((h: any) => `${h.harness}  ${h.startable ? 'startable' : `not startable: ${h.reason}`}`);
@@ -579,7 +583,7 @@ function summaryLines(body: any): string[] {
 async function executeWorkerCommand({
   action, slug = null, harness, need, modelCheck, budgetTokens, task, token, promptFile, timeoutSeconds, wait = false,
   workerRun, checks, out, docsRoot, by, reason, edit = false, childOf, request, execWorktree, operator = false, via,
-  projectKey, worktreeKey, model, provider, effort, entry, requestId, stdin = false, readStdin = () => fs.readFileSync(0, 'utf8'),
+  projectKey, worktreeKey, model, provider, effort, entry, requestId, stdin = false, text, readStdin = () => fs.readFileSync(0, 'utf8'),
   env = process.env, cwd = process.cwd(), resolveSlug = null, platform = process.platform, now = () => new Date(),
   descriptors, registry, coverage, sleep = defaultSleep, binding = null, projects = null,
   view, // test seam: the package view the start verbs read their worker list from
@@ -591,7 +595,11 @@ async function executeWorkerCommand({
     if (action === 'start-session' && typeof env.DOFLOW_STARTED_RUN === 'string') {
       return { exit: 1, body: await startSession({ env }) };
     }
-    refuseMisplacedFlags(action, { slug, harness, need, modelCheck, budgetTokens, task, token, promptFile, timeoutSeconds, wait, workerRun, checks, out, docsRoot, by, reason, edit, childOf, request, execWorktree, operator, via, projectKey, worktreeKey, model, provider, effort, entry, requestId, stdin });
+    // 170 IC-001 check 1: a message sent from inside a started session is refused before its flags are read.
+    if (['send', 'steer', 'stop'].includes(action) && typeof env[STARTED_RUN_VAR] === 'string') {
+      return { exit: 1, body: await steerSession({ action, env }) };
+    }
+    refuseMisplacedFlags(action, { slug, harness, need, modelCheck, budgetTokens, task, token, promptFile, timeoutSeconds, wait, workerRun, checks, out, docsRoot, by, reason, edit, childOf, request, execWorktree, operator, via, projectKey, worktreeKey, model, provider, effort, entry, requestId, stdin, text });
     if (given(task) && !TASK_ID.test(String(task))) throw usage(`--task expects a plan task id such as A.1, got '${task}'`);
     if (given(token)) digits(token, '--token', 1);
     if (given(budgetTokens) && !given(modelCheck)) throw usage('--budget-tokens applies only with --model-check');
@@ -651,6 +659,14 @@ async function executeWorkerCommand({
           spawnSupervisor: ({ file, runId }: any) => spawnSupervisor({ file, runId, cwd, env, platform }),
         };
         body = action === 'start-session' ? await startSession(o) : startOptions(o);
+        break;
+      }
+      // 170 IC-001: a message to a running session, through the session's spool.
+      case 'send':
+      case 'steer':
+      case 'stop': {
+        const listProjects = projects ?? require('../fleet/projects.ts').listProjects;
+        body = await steerSession({ action, projectKey, workerRun, requestId, via, stdin, readStdin, env, cwd, root, platform, clock, sleep, projects: listProjects });
         break;
       }
       case 'run': {
