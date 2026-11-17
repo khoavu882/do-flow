@@ -413,12 +413,12 @@
           "verifiedOn": "2026-10-15",
           "reason": "no in-repository evidence names this for claude; nothing is inferred from another harness or a model name"
         },
-        "steering": {
+        "controlChannel": {
           "status": "unknown",
           "evidence": [],
-          "verification": "Read claude's headless CLI documentation and `claude --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for claude; nothing is inferred from another harness or a model name"
+          "verification": "Read claude's headless CLI documentation and `claude --help` for an input mode that takes later messages; record the flag and its source.",
+          "verifiedOn": "2026-11-17",
+          "reason": "no recorded capture shows an input mode for later messages for claude; nothing is inferred from another harness"
         },
         "isolatedEdit": {
           "status": "unknown",
@@ -1174,12 +1174,12 @@
           "verifiedOn": "2026-10-15",
           "reason": "no in-repository evidence names this for codex; nothing is inferred from another harness or a model name"
         },
-        "steering": {
+        "controlChannel": {
           "status": "unknown",
           "evidence": [],
-          "verification": "Read codex's headless CLI documentation and `codex --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for codex; nothing is inferred from another harness or a model name"
+          "verification": "Read codex's headless CLI documentation and `codex --help` for an input mode that takes later messages; record the flag and its source.",
+          "verifiedOn": "2026-11-17",
+          "reason": "no recorded capture shows an input mode for later messages for codex; nothing is inferred from another harness"
         },
         "isolatedEdit": {
           "status": "supported",
@@ -1756,12 +1756,12 @@
           "verifiedOn": "2026-10-15",
           "reason": "no in-repository evidence names this for opencode; nothing is inferred from another harness or a model name"
         },
-        "steering": {
+        "controlChannel": {
           "status": "unknown",
           "evidence": [],
-          "verification": "Read opencode's headless CLI documentation and `opencode --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for opencode; nothing is inferred from another harness or a model name"
+          "verification": "Read opencode's headless CLI documentation and `opencode --help` for an input mode that takes later messages; record the flag and its source.",
+          "verifiedOn": "2026-11-17",
+          "reason": "no recorded capture shows an input mode for later messages for opencode; nothing is inferred from another harness"
         },
         "isolatedEdit": {
           "status": "unknown",
@@ -2361,14 +2361,12 @@
           "verifiedOn": "2026-11-16",
           "reason": "Pi has the flags, but no worker recipe drives them (oneShot passes --no-session) and guard G41's ACCEPTED_KEYS lists no supported resume for pi. Help and docs read, no live run."
         },
-        "steering": {
-          "status": "unsupported",
-          "evidence": [
-            "pi 1.5.2 docs/cli-integration.md: JSON mode 'does not accept later commands'"
-          ],
-          "verification": "Re-read docs/cli-integration.md of the installed pi.",
-          "verifiedOn": "2026-11-16",
-          "reason": "`steer` exists only in `--mode rpc`, which no worker recipe drives. Docs read, no live run."
+        "controlChannel": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Record the doc capture C-1 (`worker --action evidence --docs-root`) for pi's RPC mode, then declare the channel.",
+          "verifiedOn": "2026-11-17",
+          "reason": "awaiting the recorded doc capture C-1"
         },
         "isolatedEdit": {
           "status": "unknown",
@@ -2977,12 +2975,12 @@
           "verifiedOn": "2026-10-15",
           "reason": "no in-repository evidence names this for copilot; nothing is inferred from another harness or a model name"
         },
-        "steering": {
+        "controlChannel": {
           "status": "unknown",
           "evidence": [],
-          "verification": "Read copilot's headless CLI documentation and `copilot --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for copilot; nothing is inferred from another harness or a model name"
+          "verification": "Read copilot's headless CLI documentation and `copilot --help` for an input mode that takes later messages; record the flag and its source.",
+          "verifiedOn": "2026-11-17",
+          "reason": "no recorded capture shows an input mode for later messages for copilot; nothing is inferred from another harness"
         },
         "isolatedEdit": {
           "status": "unknown",
@@ -3459,12 +3457,12 @@
           "verifiedOn": "2026-10-15",
           "reason": "no in-repository evidence names this for kiro; nothing is inferred from another harness or a model name"
         },
-        "steering": {
+        "controlChannel": {
           "status": "unknown",
           "evidence": [],
-          "verification": "Read kiro's headless CLI documentation and `kiro-cli --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for kiro; nothing is inferred from another harness or a model name"
+          "verification": "Read kiro's `kiro-cli chat --help` and its documentation for an input mode that takes later messages; record the flag and its source.",
+          "verifiedOn": "2026-11-17",
+          "reason": "recorded `kiro-cli chat --help` (3.1.0, 2026-11-07) lists stream-json output of ACP events but no input mode for later messages; kiro-cli is never executed here (out of quota)"
         },
         "isolatedEdit": {
           "status": "unknown",
@@ -3964,12 +3962,12 @@
           "verifiedOn": "2026-10-15",
           "reason": "no in-repository evidence names this for antigravity; nothing is inferred from another harness or a model name"
         },
-        "steering": {
+        "controlChannel": {
           "status": "unknown",
           "evidence": [],
-          "verification": "Read antigravity's headless CLI documentation and `agy --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for antigravity; nothing is inferred from another harness or a model name"
+          "verification": "Read antigravity's headless CLI documentation and `agy --help` for an input mode that takes later messages; record the flag and its source.",
+          "verifiedOn": "2026-11-17",
+          "reason": "no recorded capture shows an input mode for later messages for antigravity; nothing is inferred from another harness"
         },
         "isolatedEdit": {
           "status": "unknown",

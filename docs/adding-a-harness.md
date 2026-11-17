@@ -24,7 +24,7 @@ Lists of harness ids are not edited by hand. `src/registry/harness-ids.ts` reads
 
 The descriptor is the `worker` block of the harness row in `harnesses.json`. A package can also contribute one through the `worker` contribution point. Its keys are checked by `validateWorker` in `src/registry/index.ts`.
 
-Required keys: `profile`, `billing`, `modelChecks`, and one capability entry each for `cli`, `oneShot`, `structuredOutput`, `readOnly`, `spawnDenial`, `runnableProbe`, `hooksProbe`, `guidanceProbe`, `loginProbe`, `persistentSession`, `resume` and `steering`. Optional keys: `isolatedEdit`, `model`, `provider`, `effort`, `mainSession`, `family`, `modelList`, `wideningFlags` and `secretFlags`.
+Required keys: `profile`, `billing`, `modelChecks`, and one capability entry each for `cli`, `oneShot`, `structuredOutput`, `readOnly`, `spawnDenial`, `runnableProbe`, `hooksProbe`, `guidanceProbe`, `loginProbe`, `persistentSession`, `resume` and `controlChannel`. Optional keys: `isolatedEdit`, `model`, `provider`, `effort`, `mainSession`, `family`, `modelList`, `wideningFlags` and `secretFlags`.
 
 Every capability entry has `status` (`supported`, `unsupported` or `unknown`), `evidence`, `verification` and `verifiedOn`.
 

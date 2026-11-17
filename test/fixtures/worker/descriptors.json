@@ -136,7 +136,7 @@
       "verifiedOn": "2026-10-15",
       "reason": "declared, not implemented in 081"
     },
-    "steering": {
+    "controlChannel": {
       "status": "unknown",
       "evidence": [],
       "verification": "Not declared by this fake descriptor; see test/fixtures/worker/descriptors.json.",
@@ -282,7 +282,7 @@
       "verifiedOn": "2026-10-15",
       "reason": "declared, not implemented in 081"
     },
-    "steering": {
+    "controlChannel": {
       "status": "unknown",
       "evidence": [],
       "verification": "Not declared by this fake descriptor; see test/fixtures/worker/descriptors.json.",
@@ -424,7 +424,7 @@
       "verifiedOn": "2026-10-15",
       "reason": "declared, not implemented in 081"
     },
-    "steering": {
+    "controlChannel": {
       "status": "unknown",
       "evidence": [],
       "verification": "Not declared by this fake descriptor; see test/fixtures/worker/descriptors.json.",
@@ -565,7 +565,7 @@
       "verifiedOn": "2026-10-15",
       "reason": "declared, not implemented in 081"
     },
-    "steering": {
+    "controlChannel": {
       "status": "unknown",
       "evidence": [],
       "verification": "Not declared by this fake descriptor; see test/fixtures/worker/descriptors.json.",

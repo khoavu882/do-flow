@@ -499,7 +499,7 @@ const BLOCKING_HOOK = 'blocking-hook:';
 /** IC-001's capability keys, in declaration order (IC-009 `declared`). */
 const CAPABILITIES = Object.freeze([
   'cli', 'oneShot', 'structuredOutput', 'readOnly', 'spawnDenial', 'runnableProbe', 'hooksProbe', 'guidanceProbe', 'loginProbe',
-  'persistentSession', 'resume', 'steering',
+  'persistentSession', 'resume', 'controlChannel',
 ]);
 const FACT_REQUIREMENTS: Record<string, string> = Object.freeze({
   installed: 'installed', runnable: 'runnable', 'hooks-loaded': 'hooksLoaded',

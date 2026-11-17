@@ -1,7 +1,7 @@
 'use strict';
 // Row 168: the Pi worker block says only what the installed Pi (1.5.2) shows. The main-session recipe passes the
 // project-trust flag that makes a headless run load no unapproved project code (`--no-approve`) and never the
-// approving one; resume, persistentSession and steering are decided, not unknown; every Pi evidence record names
+// approving one; resume and persistentSession are decided, not unknown; every Pi evidence record names
 // the Pi version it was taken on. Guard G41 (test/guards/worker-descriptors.test.ts) is not touched by this file.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -47,8 +47,8 @@ test('trust: the main-session entry cites a Pi 1.5.2 record whose project-trust 
   assert.ok(hit.establishes.includes('mainSession'));
 });
 
-test('capabilities: resume, persistentSession and steering are each decided, with evidence that names the Pi version', () => {
-  for (const key of ['resume', 'persistentSession', 'steering']) {
+test('capabilities: resume and persistentSession are each decided, with evidence that names the Pi version', () => {
+  for (const key of ['resume', 'persistentSession']) {
     const entry = pi[key];
     assert.ok(entry.status === 'supported' || entry.status === 'unsupported', `${key} is ${entry.status}`);
     assert.ok(entry.evidence.length > 0, key);
@@ -56,6 +56,13 @@ test('capabilities: resume, persistentSession and steering are each decided, wit
     assert.equal(entry.verifiedOn, '2026-11-16', key);
     assert.ok(!('reason' in entry) || entry.reason.trim() !== '', key);
   }
+});
+
+test('170: pi declares no control channel yet: unknown, awaiting the recorded doc capture C-1, with no evidence cited', () => {
+  assert.equal(pi.controlChannel.status, 'unknown');
+  assert.deepEqual(pi.controlChannel.evidence, []);
+  assert.equal(pi.controlChannel.reason, 'awaiting the recorded doc capture C-1');
+  assert.ok(!Object.hasOwn(pi, 'steering'));
 });
 
 test('login probe: Pi ships the design 172 section 3.3 recipe as supported, with the answers, expiry signs and evidence of pi 1.5.2', () => {

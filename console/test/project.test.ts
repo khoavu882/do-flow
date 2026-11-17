@@ -2030,7 +2030,7 @@ function storageBody(): any {
   };
 }
 
-const WORKER_CELLS = ['cli', 'oneShot', 'structuredOutput', 'readOnly', 'spawnDenial', 'runnableProbe', 'hooksProbe', 'guidanceProbe', 'loginProbe', 'persistentSession', 'resume', 'steering', 'isolatedEdit', 'model'];
+const WORKER_CELLS = ['cli', 'oneShot', 'structuredOutput', 'readOnly', 'spawnDenial', 'runnableProbe', 'hooksProbe', 'guidanceProbe', 'loginProbe', 'persistentSession', 'resume', 'controlChannel', 'isolatedEdit', 'model'];
 const ORCH_CELLS = ['spawn', 'wait', 'status', 'cancel', 'resume', 'nest'];
 const EVIDENCE_URL = 'https://code.claude.com/docs/en/tools-reference → Agent: "Spawns a subagent with its own context window to handle a task."';
 

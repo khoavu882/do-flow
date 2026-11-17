@@ -683,7 +683,7 @@ function acmePackage(f: any, { fieldMap = null }: { fieldMap?: any } = {}) {
     structuredOutput: supported(fieldMap ? { argv: [], fieldMap } : { argv: [], parser: 'doflow-jsonl-v1' }),
     ...(mainSession ? { mainSession: supported({ argv: ['{prompt}'], promptVia: 'argv', parser: fieldMap ? fieldMap.id : null }) } : {}),
     readOnly: unknown('readOnly'), spawnDenial: unknown('spawnDenial'), runnableProbe: unknown('runnableProbe'), hooksProbe: unknown('hooksProbe'),
-    guidanceProbe: unknown('guidanceProbe'), loginProbe: unknown('loginProbe'), persistentSession: unknown('persistentSession'), resume: unknown('resume'), steering: unknown('steering'),
+    guidanceProbe: unknown('guidanceProbe'), loginProbe: unknown('loginProbe'), persistentSession: unknown('persistentSession'), resume: unknown('resume'), controlChannel: unknown('controlChannel'),
     modelChecks: [],
   });
   const src = path.join(f.dir, 'pkg-src');

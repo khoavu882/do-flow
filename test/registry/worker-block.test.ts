@@ -64,7 +64,11 @@ const FREE_CHECK_RECIPES: any = {
   },
 };
 const PER_HARNESS_REASON = ['oneShot', 'structuredOutput', 'spawnDenial']; // isolatedEdit's reason is pinned in worker-isolated-edit.test.js
-const PI_DECIDED = ['loginProbe', 'persistentSession', 'resume', 'steering'];
+const PI_DECIDED = ['loginProbe', 'persistentSession', 'resume'];
+/** 170 design §11: why each built-in harness declares no control channel. */
+const CHANNEL_REASON: any = Object.fromEntries(['claude', 'codex', 'opencode', 'copilot', 'antigravity'].map((id) => [id, `no recorded capture shows an input mode for later messages for ${id}; nothing is inferred from another harness`]));
+CHANNEL_REASON.pi = 'awaiting the recorded doc capture C-1';
+CHANNEL_REASON.kiro = 'recorded `kiro-cli chat --help` (3.1.0, 2026-11-07) lists stream-json output of ACP events but no input mode for later messages; kiro-cli is never executed here (out of quota)';
 const BINARIES: any = { claude: 'claude', codex: 'codex', opencode: 'opencode', pi: 'pi', copilot: 'copilot', kiro: 'kiro-cli', antigravity: 'agy' };
 
 /** 172 design §3.3: the five harnesses without a login recipe read `unknown`, each with the help it was checked against and why. */
@@ -153,7 +157,7 @@ test('worker: the seven harnesses declare IC-002 values and nothing else as supp
         assert.equal(worker[key].verifiedOn, '2026-11-07', `${harness.id} ${key} verifiedOn`);
         continue;
       }
-      // 168: pi's loginProbe, persistentSession, resume and steering are decided on 2026-11-16 and pinned in pi-worker-truth.test.ts.
+      // 168: pi's loginProbe, persistentSession and resume are decided on 2026-11-16 and pinned in pi-worker-truth.test.ts.
       if (harness.id === 'pi' && PI_DECIDED.includes(key)) continue;
       // 172: claude's loginProbe ships as a supported login recipe (design §3.3 plus the LD-1 caveat); this is its exact pin.
       if (harness.id === 'claude' && key === 'loginProbe') {
@@ -174,6 +178,12 @@ test('worker: the seven harnesses declare IC-002 values and nothing else as supp
           caveat: 'its help and docs do not show that this check runs offline',
         }, 'claude loginProbe');
         assert.match(recipe.evidence[1], /^https:\/\/code\.claude\.com\/docs\/en\/cli-reference /, 'claude loginProbe docs evidence');
+        continue;
+      }
+      if (key === 'controlChannel') {
+        // 170 D12, R-11: every built-in channel is `unknown` with its reason until a capture decides it (pinned exactly).
+        const { status, evidence, verifiedOn, reason } = worker[key];
+        assert.deepEqual({ status, evidence, verifiedOn, reason }, { status: 'unknown', evidence: [], verifiedOn: '2026-11-17', reason: CHANNEL_REASON[harness.id] }, `${harness.id} controlChannel`);
         continue;
       }
       if (key === 'loginProbe') {
@@ -237,10 +247,10 @@ test('worker: the five supported opencode and kiro entries equal their IC-009 re
       assert.deepEqual({ argv, promptVia, parser }, { promptVia: undefined, parser: undefined, ...(recipe as any) }, `${id} ${key}`);
     }
     // nothing beyond the five and the model flag: the unprobed capabilities stay unknown
-    for (const key of ['hooksProbe', 'guidanceProbe', 'loginProbe', 'persistentSession', 'resume', 'steering', 'isolatedEdit']) {
-      // 168: pi's persistentSession, resume and steering are `unsupported` with evidence (pi-worker-truth.test.ts).
+    for (const key of ['hooksProbe', 'guidanceProbe', 'loginProbe', 'persistentSession', 'resume', 'controlChannel', 'isolatedEdit']) {
+      // 168: pi's persistentSession and resume are `unsupported` with evidence (pi-worker-truth.test.ts).
       // 172: pi's loginProbe is a supported login recipe (design §3.3), pinned in pi-worker-truth.test.ts.
-      const decided = id === 'pi' && ['persistentSession', 'resume', 'steering'].includes(key);
+      const decided = id === 'pi' && ['persistentSession', 'resume'].includes(key);
       const expected = id === 'pi' && key === 'loginProbe' ? 'supported' : decided ? 'unsupported' : 'unknown';
       assert.equal(worker[key].status, expected, `${id} ${key}`);
     }
@@ -275,16 +285,27 @@ test('worker: validateWorker accepts a full supported recipe in isolation', () =
     loginProbe: supported({ argv: ['--whoami'], ...LOGIN_RECIPE }),
     persistentSession: supported({}),
     resume: { status: 'unsupported', evidence: ['docs'], verification: 'Read it.', verifiedOn: '2026-10-15' },
-    steering: { status: 'unknown', evidence: [], verification: 'Read it.', verifiedOn: '2026-10-15', reason: 'unread' },
+    controlChannel: { status: 'unknown', evidence: [], verification: 'Read it.', verifiedOn: '2026-10-15', reason: 'unread' },
     modelChecks: [{ id: 'hooks-check', argv: ['-p', 'x'], establishes: ['hooksLoaded', 'login'], estimateTokens: 1, timeoutSeconds: 600 }],
   }, "harness 'claude'", errors);
   assert.deepEqual(errors, []);
+});
+
+test('170 D12: no shipped worker block carries steering, and each declares controlChannel', () => {
+  const registry = loadRegistry({ repoRoot: REPO });
+  assert.ok(!Object.hasOwn(WORKER_CAPABILITIES, 'steering'));
+  assert.ok(Object.hasOwn(WORKER_CAPABILITIES, 'controlChannel'));
+  for (const harness of registry.harnesses.filter((h: any) => Object.hasOwn(BINARIES, h.id))) {
+    assert.ok(!Object.hasOwn(harness.worker, 'steering'), `${harness.id} still carries steering`);
+    assert.ok(Object.hasOwn(harness.worker, 'controlChannel'), `${harness.id} lacks controlChannel`);
+  }
 });
 
 const cases = [
   ['a missing block', (_w: any, harness: any) => { delete harness.worker; }, /worker '\*': worker block is required/],
   ['a missing key', (w: any) => { delete w.loginProbe; }, /worker 'loginProbe': is missing/],
   ['an unknown key', (w: any) => { w.dispatch = {}; }, /worker 'dispatch': is not a worker key/],
+  ['a block still carrying steering (170 D12)', (w: any) => { w.steering = structuredClone(w.controlChannel); }, /worker 'steering': steering was replaced by controlChannel \(row 170\)/],
   ['a bad status', (w: any) => { w.readOnly.status = 'maybe'; }, /worker 'readOnly': status must be supported, unsupported, or unknown/],
   ['empty evidence on supported', (w: any) => { w.cli.evidence = []; }, /worker 'cli': evidence must not be empty when status is supported/],
   ['a missing reason on unknown', (w: any) => { delete w.hooksProbe.reason; }, /worker 'hooksProbe': requires a reason when status is unknown/],
@@ -379,7 +400,7 @@ test('worker: a mainSession may carry {prompt} once (argv) or {lastMessageFile} 
     structuredOutput: supported({ argv: ['--json'], parser: 'doflow-jsonl-v1' }),
     readOnly: supported({ argv: ['--read-only'] }), spawnDenial: supported({ argv: ['--no-agents'] }), runnableProbe: supported({ argv: ['--probe'] }),
     hooksProbe: supported({ argv: ['--hooks'] }), guidanceProbe: supported({ argv: ['--guidance'], marker: 'M' }), loginProbe: supported({ argv: ['--whoami'], ...LOGIN_RECIPE }),
-    persistentSession: supported({}), resume: supported({}), steering: supported({}),
+    persistentSession: supported({}), resume: supported({}), controlChannel: { status: 'unknown', evidence: [], verification: 'Read it.', verifiedOn: '2026-10-15', reason: 'unread' },
     mainSession: supported({ argv: ['run', '--format', 'json', '--', '{prompt}'], promptVia: 'argv', parser: 'doflow-jsonl-v1' }),
     modelChecks: [],
   }, "harness 'claude'", errors);
@@ -392,7 +413,7 @@ test('worker: a mainSession may carry {prompt} once (argv) or {lastMessageFile} 
     structuredOutput: supported({ argv: ['--json'], parser: 'doflow-jsonl-v1' }),
     readOnly: supported({ argv: ['--read-only'] }), spawnDenial: supported({ argv: ['--no-agents'] }), runnableProbe: supported({ argv: ['--probe'] }),
     hooksProbe: supported({ argv: ['--hooks'] }), guidanceProbe: supported({ argv: ['--guidance'], marker: 'M' }), loginProbe: supported({ argv: ['--whoami'], ...LOGIN_RECIPE }),
-    persistentSession: supported({}), resume: supported({}), steering: supported({}),
+    persistentSession: supported({}), resume: supported({}), controlChannel: { status: 'unknown', evidence: [], verification: 'Read it.', verifiedOn: '2026-10-15', reason: 'unread' },
     mainSession: supported({ argv: ['exec', '-o', '{lastMessageFile}', '-'], promptVia: 'stdin', parser: null }),
     modelChecks: [],
   }, "harness 'claude'", second);

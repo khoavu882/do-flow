@@ -103,10 +103,10 @@ function validWorkerJson() {
       verifiedOn: '2026-10-24',
       reason: 'test',
     },
-    steering: {
+    controlChannel: {
       status: 'unknown',
       evidence: [],
-      verification: 'Check steering',
+      verification: 'Check controlChannel',
       verifiedOn: '2026-10-24',
       reason: 'test',
     },
@@ -259,4 +259,32 @@ test('a parser id not in PARSERS is refused by worker-v1 validator', () => {
 
   const errors = POINT_VALIDATORS['worker-v1']('mycli', badWorker, { packageId: 'acme' });
   assert.ok(errors.some((err: string) => /parser 'nonexistent-parser' is not a registered core parser/.test(err)));
+});
+
+test('170 D2: a package worker declares a control channel through the worker point, with the same checks a built-in takes', () => {
+  const withChannel = (channel: any) => {
+    const worker: any = validWorkerJson();
+    worker.mainSession = {
+      status: 'supported', evidence: ['test'], verification: 'Check mycli mainSession', verifiedOn: '2026-11-17',
+      argv: ['--json', '{prompt}'], promptVia: 'argv', parser: 'doflow-jsonl-v1',
+    };
+    worker.controlChannel = channel;
+    return worker;
+  };
+  const channel = () => ({
+    status: 'supported', evidence: ['test'], verification: 'Check mycli controlChannel', verifiedOn: '2026-11-17',
+    argv: ['--stdin-json'], framing: 'jsonl-lf', parser: 'doflow-jsonl-v1',
+    messages: { followUp: { type: 'message', text: '{text}' }, stop: { type: 'stop' } },
+    turn: { working: [{ path: ['type'], equals: 'busy' }], settled: [{ path: ['type'], equals: 'idle' }] },
+    close: { stdinEof: 'exits', graceSeconds: 5 },
+    unverified: ['everything: declared from docs only'],
+  });
+  assert.deepEqual(POINT_VALIDATORS['worker-v1']('mycli', withChannel(channel()), { packageId: 'acme' }), []);
+  const bad: any = channel();
+  bad.messages.followUp.text = 'say {text}';
+  const errors = POINT_VALIDATORS['worker-v1']('mycli', withChannel(bad), { packageId: 'acme' });
+  assert.ok(errors.some((err: string) => /^package 'acme' worker 'mycli' worker 'controlChannel'\.messages\.followUp\.text: a placeholder/.test(err)), JSON.stringify(errors));
+  const old: any = withChannel(channel());
+  old.steering = { status: 'unknown', evidence: [], verification: 'v', verifiedOn: '2026-11-17', reason: 'r' };
+  assert.ok(POINT_VALIDATORS['worker-v1']('mycli', old, { packageId: 'acme' }).some((err: string) => /steering was replaced by controlChannel \(row 170\)/.test(err)));
 });

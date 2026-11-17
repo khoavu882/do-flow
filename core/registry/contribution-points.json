@@ -27,10 +27,7 @@
       "referencedBy": [], "slice": "D", "template": "package-templates/capability-provider" },
     { "id": "intake-category", "versions": [1], "tier": "inert", "status": "open", "entry": "file",
       "validator": "intake-category-v1", "combine": "add-only", "consumer": "src/runtime/intake/taxonomy.ts",
-      "referencedBy": [], "slice": "136", "template": "package-templates/intake-category" },
-    { "id": "control-channel", "versions": [], "tier": "executable", "status": "reserved", "entry": "file",
-      "validator": null, "combine": "add-only", "consumer": null, "referencedBy": [], "slice": "171",
-      "opensWith": "row 170: worker.controlChannel, a capability entry whose settled event is a field-map Test list" }
+      "referencedBy": [], "slice": "136", "template": "package-templates/intake-category" }
   ],
   "bundled": [
     { "id": "doflow", "dir": "core/registry/packages/doflow", "contentDigest": "da001c06367a2aec28840a2e6d5355a7ee8f7d8a7638d09ddae3bac7d3f0fa64" }

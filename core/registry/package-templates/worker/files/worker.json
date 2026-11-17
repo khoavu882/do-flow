@@ -81,10 +81,10 @@
     "verifiedOn": "2026-10-24",
     "reason": "template"
   },
-  "steering": {
+  "controlChannel": {
     "status": "unknown",
     "evidence": [],
-    "verification": "Check steering capability",
+    "verification": "Check controlChannel capability",
     "verifiedOn": "2026-10-24",
     "reason": "template"
   },
