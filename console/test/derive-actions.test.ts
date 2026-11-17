@@ -158,3 +158,54 @@ test('the cancel words: who asked for a worker stop, from the worker status `can
   assert.equal(words.cancelWords({ by: null, source: 'timeout', requestedAt: null }), 'by the deadline');
   for (const odd of [{ by: 'person', source: 'operator' }, { by: null, source: 'user' }, { by: 'x', source: 'other' }, 'console', 7]) assert.equal(words.cancelWords(odd), 'requester not recorded', JSON.stringify(odd));
 });
+
+// ---- 170 T8b: the three session actions ----
+
+const RUN = 'w-0123456789ab';
+const sessionCtx = (over: any = {}) => ({ projectKey: PK, project: 'do-flow', runId: RUN, harness: 'pi', message: 'now check the tests', ...over });
+
+test('170: send, steer and stop each have effect and applied words that name the session and the project, and never the message text', () => {
+  const send = words.buildConfirmation('session-send', sessionCtx());
+  assert.equal(send.effect, `Send your message to session ${RUN} (pi) in do-flow. It queues as a follow-up for the session’s next turn. DoFlow’s records keep its size and who sent it, never its text.`);
+  const steer = words.buildConfirmation('session-steer', sessionCtx());
+  assert.match(steer.effect, /^Steer session w-0123456789ab \(pi\) in do-flow\. /);
+  assert.match(steer.effect, /use Send/i);
+  const stop = words.buildConfirmation('session-stop', sessionCtx({ message: undefined }));
+  assert.match(stop.effect, /^Stop the current turn of session w-0123456789ab \(pi\) in do-flow\. /);
+  assert.match(stop.effect, /stays open/);
+  assert.match(stop.effect, /End session/);
+  for (const spec of [send, steer, stop]) assert.equal(spec.effect.includes('now check the tests'), false, 'the text is in no sentence');
+  assert.equal(words.appliedWords('session-send', null), 'Sent. The session’s reply appears in its output.');
+  assert.equal(words.appliedWords('session-steer', null), 'Steer sent. The session’s reply appears in its output.');
+  assert.equal(words.appliedWords('session-stop', null), 'Stop turn sent. The session stays open.');
+});
+
+test('170: the session confirmations have no field, no expect and a body of exactly IC-005\'s fields; stop carries no message', () => {
+  const send = words.buildConfirmation('session-send', sessionCtx());
+  assert.deepEqual([send.actionId, send.text, send.expect, send.verb, send.tone], ['session-send', null, null, 'Send message', 'approve']);
+  assert.deepEqual(send.body, { v: 1, projectKey: PK, runId: RUN, message: 'now check the tests' });
+  const steer = words.buildConfirmation('session-steer', sessionCtx({ message: 'line one\nline two' }));
+  assert.deepEqual(steer.body, { v: 1, projectKey: PK, runId: RUN, message: 'line one\nline two' }, 'a message keeps its line breaks');
+  const stop = words.buildConfirmation('session-stop', sessionCtx());
+  assert.deepEqual(stop.body, { v: 1, projectKey: PK, runId: RUN });
+  assert.equal(stop.tone, 'danger');
+  assert.equal(Object.hasOwn(stop.body, 'message'), false);
+});
+
+test('170: a session confirmation is not built from a bad run id, an empty, NUL, lone-surrogate or too long message', () => {
+  assert.equal(words.buildConfirmation('session-send', sessionCtx({ runId: 'w-1' })), null);
+  assert.equal(words.buildConfirmation('session-stop', sessionCtx({ runId: null })), null);
+  for (const message of [undefined, '', '  \n ', 'a\u0000b', '\uD800', 'x'.repeat(8001), 'é'.repeat(16385)]) assert.equal(words.buildConfirmation('session-steer', sessionCtx({ message })), null, JSON.stringify(message));
+  assert.notEqual(words.buildConfirmation('session-send', sessionCtx({ message: 'x'.repeat(8000) })), null, '8000 code points is the limit, not over it');
+});
+
+test('170: every refusal code of the session actions has its own sentence; the core\'s words follow; a rate limit says when to try again', () => {
+  const codes = ['no-channel', 'started-without-channel', 'no-steer', 'channel-closed', 'not-working', 'channel-busy', 'run-ended', 'stdin-stalled', 'write-failed', 'actor-rate-limited',
+    'unknown-run', 'not-a-session', 'prompt-empty', 'prompt-too-long', 'command-not-allowed', 'nested-send', 'sender-in-run'];
+  assert.deepEqual(Object.keys(words.SESSION_REFUSAL_WORDS).sort(), [...codes].sort());
+  for (const code of codes) assert.ok(words.SESSION_REFUSAL_WORDS[code].endsWith('.'), code);
+  const lines = words.sessionRefusalLines('actor-rate-limited', { status: 429, headers: { 'retry-after': '41' }, body: { error: { code: 'actor-rate-limited', message: 'six messages a minute' } } });
+  assert.deepEqual(lines, [words.SESSION_REFUSAL_WORDS['actor-rate-limited'], 'six messages a minute', 'Try again in 41 s.']);
+  assert.deepEqual(words.sessionRefusalLines('not-working', null), [words.SESSION_REFUSAL_WORDS['not-working']]);
+  assert.match(words.sessionRefusalLines('brand-new-code', null)[0], /brand-new-code/);
+});
