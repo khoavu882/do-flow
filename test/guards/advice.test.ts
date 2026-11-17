@@ -2,8 +2,8 @@
 
 // G30 — decision-model advice cannot leak into hooks, dependencies or unsafe runtime modules. The one child process the
 //       advice folder may start is the detached shadow call (row 174 O-2): `child_process` is allowed only in
-//       shadow-dispatcher.ts, and there only as `spawn(process.execPath, [RUNNER], ...)` with RUNNER the shadow-runner.ts
-//       beside it (G30.3). The detached child is why record.ts and the hooks stay free of it too.
+//       shadow-dispatcher.ts, and there only as `spawn(process.execPath, [RUNNER], ...)` with RUNNER the shadow-runner beside it,
+//       named with the dispatcher's own extension so it resolves in the published `.js` package too (G30.3). The detached child is why record.ts and the hooks stay free of it too.
 // G31 — advice corpus and tier criteria remain synchronized with their source registries, and every registered
 //       advice kind has a call site that still exists, outside comments and prose: asked by a runtime verb, or an
 //       `advise --kind` step in a bash block of a skill with an `advise --action outcome` line beside it (G31.4).
@@ -93,8 +93,8 @@ function checkShadowSpawn(file: string, text: string): any {
       findings.push(`${file}:${lineAt(call.index as number)} the only spawn is spawn(process.execPath, [RUNNER], ...)`);
     }
   }
-  if (!/const RUNNER = path\.join\(__dirname, 'shadow-runner\.ts'\);/.test(code)) {
-    findings.push(`${file}:1 RUNNER must be path.join(__dirname, 'shadow-runner.ts')`);
+  if (!/const RUNNER = path\.join\(__dirname, `shadow-runner\$\{path\.extname\(__filename\)\}`\);/.test(code)) {
+    findings.push(`${file}:1 RUNNER must be path.join(__dirname, \`shadow-runner\${path.extname(__filename)}\`)`);
   }
   for (const match of code.matchAll(/\b(?:exec|execSync|execFile|execFileSync|spawnSync|fork)\s*\(|\bshell\s*:/g)) {
     findings.push(`${file}:${lineAt(match.index as number)} '${match[0].replace(/\s*\($/, '')}' is not permitted: only a plain spawn of the runner`);
@@ -398,7 +398,7 @@ test('G30.3 controls: child_process is allowed only in shadow-dispatcher.ts, and
   const dispatcher = 'src/runtime/advice/shadow-dispatcher.ts';
   const good = [
     "const { spawn } = require('node:child_process');",
-    "const RUNNER = path.join(__dirname, 'shadow-runner.ts');",
+    'const RUNNER = path.join(__dirname, `shadow-runner${path.extname(__filename)}`);',
     '// exec(...) and spawn(other, [x]) in a comment are not code',
     'const child = (services.spawn || spawn)(process.execPath, [RUNNER], { detached: true });',
     '',
@@ -417,7 +417,8 @@ test('G30.3 controls: child_process is allowed only in shadow-dispatcher.ts, and
     'execFileSync': good + "execFileSync('ls');\n",
     'spawnSync': good + "spawnSync('ls', []);\n",
     'a wider import': good.replace('{ spawn }', '{ spawn, exec }'),
-    'a RUNNER elsewhere': good.replace("'shadow-runner.ts'", "'../elsewhere.ts'"),
+    'a RUNNER elsewhere': good.replace('`shadow-runner${', '`../elsewhere${'),
+    'a RUNNER with a fixed extension': good.replace('`shadow-runner${path.extname(__filename)}`', "'shadow-runner.ts'"),
   };
   for (const [name, text] of Object.entries(rejected)) {
     assert.ok(run({ [dispatcher]: text }).length > 0, `${name} must fail`);

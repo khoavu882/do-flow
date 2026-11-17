@@ -14,8 +14,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 
-/** The detached shadow call's entry point (row 174 O-2). */
-const RUNNER = path.join(__dirname, 'shadow-runner.ts');
+/**
+ * The detached shadow call's entry point (row 174 O-2), with this file's own extension: `.ts` in the checkout, `.js` in
+ * the published package, where every source is converted (src/release/build-package.ts).
+ */
+const RUNNER = path.join(__dirname, `shadow-runner${path.extname(__filename)}`);
 
 /** The advice registry's kinds (core/registry/advice.json). */
 type AdviceKind = 'tier' | 'task-class' | 'verify-risk' | 'review-depth' | 'mcp-need' | 'claim-support';
@@ -327,7 +330,9 @@ function shippedRegistry(registry: unknown): boolean {
  * fits the pipe's buffer (64 KiB on Linux and macOS) and costs one write; a larger payload (an injected registry with a
  * near-maximal state) waits for the child to start and read, about its start-up time. The child reads its stdin before
  * anything else. Where the pipe cannot block, the write stays queued and referenced until
- * read, and is dropped once the budget ends. A spawn that fails records a `spawn-failed` miss and makes no call.
+ * read, and is dropped once the budget ends. A runner file that is missing, or a spawn that fails, records a
+ * `spawn-failed` miss and makes no call; a child that starts but cannot load the modules it asks with records that miss
+ * itself (shadow-runner.ts). The one silent case left: a child that cannot load record.ts, which writes every record.
  * Never throws.
  * Ceiling accepted: a child that is alive but never reads (stopped by a signal) holds a payload over the buffer, and so
  * the command, on its blocking write.
@@ -336,6 +341,7 @@ function spawnShadow(context: DecisionPointContext, services: DispatcherServices
   const roots = storeRoots(context, services);
   if (!roots) return;
   const failed = () => recordCall(context, services, 'shadow', missCall('spawn-failed', model), pickId, false);
+  if (!fs.existsSync(RUNNER)) { failed(); return; }
   try {
     const registry = context.adviceRegistry;
     // The state usually is the question set's state too: it crosses once, and the child puts it back (shadow-runner.ts).

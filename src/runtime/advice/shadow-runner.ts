@@ -87,11 +87,24 @@ function fullRegistry(registry: any): boolean {
  * past the exit guard in main(): the call ends, records and frees its slot before that guard fires.
  */
 async function runShadow(payload: any, { fsImpl = fs, arrivedAt = Date.now() }: { fsImpl?: any; arrivedAt?: number } = {}): Promise<void> {
-  const { askAdvisor, recordCall, missCall } = require('./shadow-dispatcher.ts');
-  const { createAdviceClient } = require('./client.ts');
-  const { loadAdviceRegistry } = require('./registry.ts');
-  const { resolveStorePath } = require('../storage/roots.ts');
-  const { REPO_ROOT } = require('../../helper/repo-root.ts');
+  let askAdvisor: any, recordCall: any, missCall: any, createAdviceClient: any, loadAdviceRegistry: any, resolveStorePath: any, REPO_ROOT: any;
+  try {
+    ({ askAdvisor, recordCall, missCall } = require('./shadow-dispatcher.ts'));
+    ({ createAdviceClient } = require('./client.ts'));
+    ({ loadAdviceRegistry } = require('./registry.ts'));
+    ({ resolveStorePath } = require('../storage/roots.ts'));
+    ({ REPO_ROOT } = require('../../helper/repo-root.ts'));
+  } catch {
+    // A child that cannot load what it asks with is not silent: it records a spawn-failed miss through record.ts alone.
+    try {
+      const { appendMiss } = require('./record.ts');
+      const context = payload?.context;
+      if (payload?.roots && typeof payload.roots === 'object' && typeof context?.kind === 'string') {
+        appendMiss({ roots: payload.roots, fsImpl, kind: context.kind, caller: context.caller, reason: 'spawn-failed', model: payload.model ?? null, durationMs: 0, mode: 'shadow' });
+      }
+    } catch { /* record.ts itself cannot load: nothing can be written (shadow-dispatcher.ts spawnShadow) */ }
+    return;
+  }
   try {
     const roots = payload?.roots;
     const budget = payload?.budgetMs;
