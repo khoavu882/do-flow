@@ -725,7 +725,7 @@ test('170 T7: channels lists a started session as open/working, a dead superviso
   assert.ok(!JSON.stringify(section.json).includes(SENTINEL), 'no text field of the record is copied');
 });
 
-test('170 T9d: a run that ended reads channel closed whatever its record says: closedReason, else the end state, else supervisor-gone', async (t) => {
+test('170 T9d: a run that ended reads channel closed whatever its record says: closedReason, else the end state, else run-ended', async (t) => {
   const f = fixture(t);
   const a = project(f, 'proj-endopen');
   const dead = deadProc();
@@ -739,7 +739,7 @@ test('170 T9d: a run that ended reads channel closed whatever its record says: c
   const by = Object.fromEntries(items.map((x: any) => [x.runId.slice(-1), x]));
   assert.deepEqual([by['3'].channel, by['3'].reason, by['3'].turn.reason], ['closed', 'cancelled', 'run-ended'], 'killed supervisor, then cancelled');
   assert.deepEqual([by['2'].channel, by['2'].reason], ['closed', 'idle'], 'the record\'s own reason wins');
-  assert.deepEqual([by['1'].channel, by['1'].reason], ['closed', 'supervisor-gone']);
+  assert.deepEqual([by['1'].channel, by['1'].reason], ['closed', 'run-ended'], 'an ended run is not read for liveness, so its reason does not claim a dead supervisor');
 });
 
 test('170 T4: a session whose descriptor has an unsupported channel reads none/no-channel with its reason; one whose harness outlives its supervisor reads supervisor-gone', async (t) => {

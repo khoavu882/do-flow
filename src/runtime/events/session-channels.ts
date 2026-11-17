@@ -71,11 +71,11 @@ function withoutChannel(run: any): { channel: 'open' | 'closed' | 'none'; reason
   return { channel: 'none', reason: 'no-channel', words: typeof entry.reason === 'string' ? entry.reason.slice(0, WORDS_CHARS) : null };
 }
 
-/** Why a channel reads closed: the record's `closedReason`, else (a run that ended under an open record) its end state, else `supervisor-gone`. */
+/** Why a channel reads closed: the record's `closedReason`, else (a run that ended under an open record) its end state, else `run-ended` (an ended run is never read for liveness). */
 function closedReasonOf(run: any, channel: any, ended: boolean): string | null {
   if (typeof channel.closedReason === 'string') return channel.closedReason.slice(0, 64);
   if (!ended || channel.state === 'closed') return null;
-  return typeof run.end?.state === 'string' && run.end.state !== '' ? run.end.state.slice(0, 64) : 'supervisor-gone';
+  return typeof run.end?.state === 'string' && run.end.state !== '' ? run.end.state.slice(0, 64) : 'run-ended';
 }
 
 /** One item of IC-004 from a run record and the supervisor liveness read for it (`null` when none was read). */
