@@ -419,11 +419,14 @@ test('the same requestId is one run (memo); after a Console restart it is 200 re
   w.open();
 });
 
-/** One real core process starting `codex` in the linked checkout of `w`, its fake told to wait on `fakeDir`: `{ exit, body }` once it exits. */
-function raceStart(w: any, fakeDir: string): Promise<{ exit: number | null, body: any, stderr: string }> {
+/**
+ * One real core process starting `codex` in the linked checkout of `w` as `actor` (the core's `--via` label), its fake told to wait on
+ * `fakeDir`: `{ exit, body }` once it exits.
+ */
+function raceStart(w: any, fakeDir: string, actor: string): Promise<{ exit: number | null, body: any, stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [CORE, 'worker', '--action', 'start-session', '--project-key', w.key, '--worktree-key', w.linkedKey, '--harness', 'codex',
-      '--entry', 'none', '--request-id', rid(), '--stdin', '--json'], { cwd: w.main, env: { ...w.env, FAKE_DIR: fakeDir }, stdio: ['pipe', 'pipe', 'pipe'] });
+      '--entry', 'none', '--via', actor, '--request-id', rid(), '--stdin', '--json'], { cwd: w.main, env: { ...w.env, FAKE_DIR: fakeDir }, stdio: ['pipe', 'pipe', 'pipe'] });
     let out = '';
     let err = '';
     child.stdout.on('data', (chunk: any) => { out += chunk; });
@@ -444,7 +447,10 @@ test(`165 review B-7: two real core processes start in one checkout at once, ${R
     const fakeDir = path.join(w.dir, `race-${round}`);
     fs.mkdirSync(fakeDir);
     // Both are spawned in the same tick and meet only at the core's run-store lock: no sleep orders them.
-    const replies = await Promise.all([raceStart(w, fakeDir), raceStart(w, fakeDir)]);
+    // 170 R-5: the core allows an actor 6 starts an hour. Each round is its own actor, so the twenty rounds do not meet that limit and the
+    // two starts of a round, one actor, still meet only the checkout lock.
+    const actor = `device.d-${round.toString(16).padStart(12, '0')}`;
+    const replies = await Promise.all([raceStart(w, fakeDir, actor), raceStart(w, fakeDir, actor)]);
     const won = replies.filter((r) => r.exit === 0);
     const lost = replies.filter((r) => r.exit !== 0);
     assert.equal(won.length, 1, `round ${round}: ${JSON.stringify(replies.map((r) => [r.exit, r.body]))}`);
