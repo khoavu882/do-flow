@@ -15,15 +15,13 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { storeFileFor, readRuns, RUN_ID } = require('./run-store.ts');
-const { STARTED_SLUG, KIND, StartUsageError } = require('./start-session.ts');
+const { STARTED_SLUG, KIND, StartUsageError, resolveProject, pattern, refusal, KEY16, REQUEST_ID } = require('./start-session.ts');
 const { STARTED_RUN_VAR } = require('./launch.ts');
 const { compileChannel, frameMessage, admit, idOf, CHANNEL_LIMITS } = require('./channel.ts');
 const { spoolDir, dropMessage, waitingNames, FILE_MAX } = require('./channel-spool.ts');
 const { callerRefusal } = require('./cancel.ts');
 const processTree = require('./process-tree.ts');
 const { RELAY_LABEL } = require('../relay-label.ts');
-const { cwdHash } = require('../context/identity.ts');
-const { listCheckouts } = require('../checkouts.ts');
 const { runKeyFor } = require('../task-run.ts');
 
 /** IC-001: the longest the verb waits for the supervisor's ledger entry, and the poll between reads of the record. */
@@ -31,23 +29,10 @@ const WAIT_MS = 2000;
 const POLL_MS = 25;
 /** After a written entry, the longest extra wait for the harness's answer (inside the 2 s). */
 const ANSWER_MS = 500;
-const KEY16 = /^[0-9a-f]{16}$/;
-/** The Console's request id (165 IC-001): 22 base64url characters, the first a letter or digit. */
-const REQUEST_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{21}$/;
 const MESSAGE_KIND: Record<string, 'follow-up' | 'steer' | 'stop'> = Object.freeze({ send: 'follow-up', steer: 'steer', stop: 'stop' });
 const ACTIONS = Object.freeze(Object.keys(MESSAGE_KIND));
 
 type Turn = { observed: true; state: 'working' | 'waiting'; since: string; seq: number } | { observed: false; reason: string; since: string | null };
-
-function refusal(code: string, message: string, current?: any) {
-  return { ok: false, code, message, ...(current === undefined ? {} : { current }) };
-}
-
-function pattern(value: any, re: RegExp, flag: string, what: string): string {
-  if (value === undefined || value === null || value === false) throw new StartUsageError(`${flag} is required`);
-  if (typeof value !== 'string' || !re.test(value)) throw new StartUsageError(`${flag} expects ${what}, got '${value}'`);
-  return value;
-}
 
 /** The cancel that ends a session whose channel is closed or whose supervisor is gone (IC-001 check 8). */
 const cancelWords = (runId: string) => `doflow worker --action cancel --slug ${STARTED_SLUG} --worker-run ${runId} --operator --via console --reason ended`;
@@ -120,13 +105,8 @@ async function steerSession(o: any) {
   if (kind !== 'stop' && o.stdin !== true) throw new StartUsageError('--stdin is required: the message is read from stdin');
 
   // Check 3: the cwd's project is the one --project-key names, and it is indexed.
-  const listed = listCheckouts({ cwd });
-  const here = listed.ok && listed.main ? cwdHash(listed.main) : null;
-  if (here !== projectKey) return refusal('project-mismatch', 'this command runs in another project than --project-key names', { projectKey: here });
-  const found = projects({ env, cwd });
-  if (!(found?.ok && found.body.projects.some((p: any) => p.projectKey === projectKey))) {
-    return refusal('project-not-indexed', "this project is not in DoFlow's project index on this machine");
-  }
+  const resolved = resolveProject({ cwd, env, projectKey, projects });
+  if (resolved.refused) return resolved.refused;
 
   // Check 4: the run.
   const file = storeFileFor(root, STARTED_SLUG);

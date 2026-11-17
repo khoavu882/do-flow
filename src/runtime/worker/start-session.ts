@@ -627,4 +627,4 @@ function startOptions(o: any) {
   };
 }
 
-module.exports = { startSession, startOptions, liveness, namingScan, STARTED_SLUG, KIND, LIMITS, START_FLAGS, StartUsageError };
+module.exports = { startSession, startOptions, liveness, namingScan, STARTED_SLUG, KIND, LIMITS, START_FLAGS, StartUsageError, resolveProject, pattern, refusal, KEY16, REQUEST_ID };
