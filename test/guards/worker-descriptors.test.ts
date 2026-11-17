@@ -1,6 +1,6 @@
 'use strict';
 
-// G41 — worker descriptors (081 IC-031, DEC-013; 109 IC-009; 142 IC-013). Five checks, each a pure function over an
+// G41 — worker descriptors (081 IC-031, DEC-013; 109 IC-009; 142 IC-013; 170 channel pins). Five checks and the channel pins, each a pure function over an
 // injected registry, run once on the shipped tree and once on an in-memory copy seeded with one
 // violation per check.
 //
@@ -21,6 +21,13 @@
 //         literal ACCEPTED_KEYS, and each structuredOutput parser to the literal PARSER_BY_HARNESS (142 IC-013)
 //   G41.5 outside codex, each supported readOnly and spawnDenial entry cites a live-run record that
 //         passes the G41.4 test for that key (a cli-check alone is not enough)
+//   G41 channel (170 T9a) a supported `controlChannel` (a) cites a record that lists every `controlChannel:<part>`
+//         token the entry needs (argv, messages, turn, close, and answer when declared), each recomputed from a
+//         passing check (the entry is checksEstablish's fifth argument); (b) declares the parser its
+//         CHANNEL_PARSER_BY_HARNESS pin names; (c) equals the literal CHANNEL_TEMPLATES pin in argv, messages, turn,
+//         answer and commandPrefix, so a changed `type` or turn event fails until a person edits the pin beside the
+//         record that backs it; (d) without a cited live-run record of its own harness, carries a non-empty
+//         `unverified` list
 //
 // validateWorker() (src/registry/index.ts) checks shape; this guard checks meaning.
 
@@ -344,6 +351,177 @@ function mainSessionParserFindings(registry: any, map: any, parsers: any) {
   }
   return findings;
 }
+
+// 170 T9a: the parser each supported `controlChannel` declares, and the literal templates a built-in channel is pinned to.
+const CHANNEL_PARSER_BY_HARNESS: any = { pi: 'pi-json-v1' };
+
+// Not derived from the registry: a changed record type, turn event or answer test fails here until a person edits this
+// literal in the same change as the capture that backs it (Pi: core/worker-evidence/pi/2026-11-17-cli-check-control-channel.json).
+const CHANNEL_TEMPLATES: any = {
+  pi: {
+    argv: ['--mode', 'rpc', '--no-approve'],
+    commandPrefix: '/',
+    messages: {
+      followUp: { type: 'prompt', message: '{text}', streamingBehavior: 'followUp', id: '{id}' },
+      steer: { type: 'prompt', message: '{text}', streamingBehavior: 'steer', id: '{id}' },
+      stop: { type: 'abort', id: '{id}' },
+    },
+    turn: { working: [{ path: ['type'], equals: 'agent_start' }], settled: [{ path: ['type'], equals: 'agent_settled' }] },
+    answer: {
+      id: ['id'],
+      accepted: [{ path: ['type'], equals: 'response' }, { path: ['success'], equals: true }],
+      refused: [{ path: ['type'], equals: 'response' }, { path: ['success'], equals: false }],
+    },
+  },
+};
+
+const supportedChannels = (registry: any) => registry.harnesses.filter((h: any) => h.worker?.controlChannel?.status === 'supported');
+
+/** G41.3 (170): a supported controlChannel declares exactly its mapped parser; every mapped id is a key of `parsers` and a supported channel. */
+function channelParserFindings(registry: any, map: any, parsers: any) {
+  const findings: any = [];
+  for (const [id, parser] of Object.entries(map)) {
+    if (!Object.hasOwn(parsers, parser as any)) findings.push(`G41.3: CHANNEL_PARSER_BY_HARNESS maps '${id}' to ${JSON.stringify(parser)}, which is not a key of PARSERS`);
+    if (!supportedChannels(registry).some((h: any) => h.id === id)) findings.push(`G41.3: CHANNEL_PARSER_BY_HARNESS lists '${id}', which has no supported controlChannel`);
+  }
+  for (const harness of supportedChannels(registry)) {
+    if (!Object.hasOwn(map, harness.id)) findings.push(`G41.3: harness '${harness.id}' has a supported controlChannel but no entry in CHANNEL_PARSER_BY_HARNESS`);
+    else if (harness.worker.controlChannel.parser !== map[harness.id]) findings.push(`G41.3: harness '${harness.id}' declares controlChannel parser ${JSON.stringify(harness.worker.controlChannel.parser)}, expected ${JSON.stringify(map[harness.id])}`);
+  }
+  return findings;
+}
+
+/** G41 channel pin: every supported channel equals its CHANNEL_TEMPLATES literal in argv, messages, turn, answer and commandPrefix. */
+function channelTemplateFindings(registry: any, pins: any) {
+  const findings: any = [];
+  const supported = supportedChannels(registry);
+  for (const id of Object.keys(pins)) {
+    if (!supported.some((h: any) => h.id === id)) findings.push(`G41 channel: CHANNEL_TEMPLATES lists '${id}', which has no supported controlChannel`);
+  }
+  for (const harness of supported) {
+    if (!Object.hasOwn(pins, harness.id)) { findings.push(`G41 channel: harness '${harness.id}' has a supported controlChannel but no entry in CHANNEL_TEMPLATES`); continue; }
+    for (const field of ['argv', 'messages', 'turn', 'answer', 'commandPrefix']) {
+      if (!sameJson(canonicalJson(harness.worker.controlChannel[field]), canonicalJson(pins[harness.id][field]))) {
+        findings.push(`G41 channel: harness '${harness.id}' controlChannel.${field} is ${JSON.stringify(harness.worker.controlChannel[field])}, CHANNEL_TEMPLATES pins ${JSON.stringify(pins[harness.id][field])}`);
+      }
+    }
+  }
+  return findings;
+}
+
+/** Key order does not make two templates different. */
+function canonicalJson(value: any): any {
+  if (Array.isArray(value)) return value.map(canonicalJson);
+  if (value === null || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalJson(value[key])]));
+}
+
+/** G41 channel unverified rule: a supported channel with no cited live-run record of its own harness lists what is not verified. */
+function channelUnverifiedFindings(registry: any) {
+  const findings: any = [];
+  for (const harness of supportedChannels(registry)) {
+    const entry = harness.worker.controlChannel;
+    const liveRun = new RegExp(`^core/worker-evidence/${harness.id}/[^/]*live-run[^/]*\\.json$`);
+    const live = (Array.isArray(entry.evidence) ? entry.evidence : []).some((item: any) => typeof item === 'string' && liveRun.test(item));
+    const listed = Array.isArray(entry.unverified) && entry.unverified.length > 0 && entry.unverified.every((phrase: any) => typeof phrase === 'string' && phrase.trim() !== '');
+    if (!live && !listed) findings.push(`G41 channel: harness '${harness.id}' controlChannel is supported with no live-run record of its own and an empty or missing 'unverified'`);
+  }
+  return findings;
+}
+
+test('G41.3 (170): every supported controlChannel declares exactly its mapped parser; the control reports a wrong one, a missing map entry and a stale one', () => {
+  const { registry } = shipped();
+  assert.deepEqual(channelParserFindings(registry, CHANNEL_PARSER_BY_HARNESS, PARSERS), []);
+  assert.match(channelParserFindings(registry, { pi: 'codex-exec-json-v1' }, PARSERS).join('\n'), /harness 'pi' declares controlChannel parser "pi-json-v1", expected "codex-exec-json-v1"/);
+  assert.match(channelParserFindings(registry, { pi: 'not-a-registered-parser' }, PARSERS).join('\n'), /maps 'pi' to "not-a-registered-parser".*not a key of PARSERS/);
+  assert.match(channelParserFindings(registry, {}, PARSERS).join('\n'), /harness 'pi' has a supported controlChannel but no entry/);
+  assert.match(channelParserFindings(registry, { ...CHANNEL_PARSER_BY_HARNESS, claude: 'claude-stream-json-v1' }, PARSERS).join('\n'), /lists 'claude', which has no supported controlChannel/);
+  const copy = structuredClone(registry);
+  copy.harnesses.find((h: any) => h.id === 'pi').worker.controlChannel.parser = 'codex-exec-json-v1';
+  assert.match(channelParserFindings(copy, CHANNEL_PARSER_BY_HARNESS, PARSERS).join('\n'), /harness 'pi' declares controlChannel parser "codex-exec-json-v1"/);
+});
+
+test('G41 channel: every built-in supported controlChannel equals its CHANNEL_TEMPLATES literal', () => {
+  const { registry } = shipped();
+  assert.deepEqual(channelTemplateFindings(registry, CHANNEL_TEMPLATES), []);
+  assert.deepEqual(supportedChannels(registry).map((h: any) => h.id), Object.keys(CHANNEL_TEMPLATES), 'the pin lists exactly the supported channels');
+});
+
+test('G41 channel control: a changed record type, turn event, answer test, argv, command prefix, a stale pin or a missing pin is reported', () => {
+  const edits: Array<[string, (entry: any) => void, RegExp]> = [
+    ['stop type', (e) => { e.messages.stop.type = 'cancel'; }, /controlChannel\.messages is/],
+    ['steer behavior', (e) => { e.messages.steer.streamingBehavior = 'followUp'; }, /controlChannel\.messages is/],
+    ['settled event', (e) => { e.turn.settled = [{ path: ['type'], equals: 'agent_end' }]; }, /controlChannel\.turn is/],
+    ['answer test', (e) => { e.answer.accepted = [{ path: ['type'], equals: 'response' }]; }, /controlChannel\.answer is/],
+    ['argv', (e) => { e.argv = ['--mode', 'rpc']; }, /controlChannel\.argv is/],
+    ['command prefix', (e) => { e.commandPrefix = '!'; }, /controlChannel\.commandPrefix is/],
+  ];
+  for (const [what, edit, expected] of edits) {
+    const registry = structuredClone(shipped().registry);
+    edit(registry.harnesses.find((h: any) => h.id === 'pi').worker.controlChannel);
+    const findings = channelTemplateFindings(registry, CHANNEL_TEMPLATES);
+    assert.equal(findings.length, 1, `${what}: ${findings.join('\n')}`);
+    assert.match(findings[0], expected, what);
+  }
+  const registry = structuredClone(shipped().registry);
+  assert.match(channelTemplateFindings(registry, {}).join('\n'), /harness 'pi' has a supported controlChannel but no entry in CHANNEL_TEMPLATES/);
+  assert.match(channelTemplateFindings(registry, { ...CHANNEL_TEMPLATES, claude: CHANNEL_TEMPLATES.pi }).join('\n'), /lists 'claude', which has no supported controlChannel/);
+  // Key order is not a change.
+  const reordered = structuredClone(registry);
+  const pi = reordered.harnesses.find((h: any) => h.id === 'pi').worker.controlChannel;
+  pi.messages.stop = { id: '{id}', type: 'abort' };
+  assert.deepEqual(channelTemplateFindings(reordered, CHANNEL_TEMPLATES), []);
+});
+
+test('G41 channel: a supported channel without a live-run record of its own harness lists what is unverified; the control removes the list, and a live-run citation lifts the need', () => {
+  const { registry } = shipped();
+  assert.deepEqual(channelUnverifiedFindings(registry), []);
+  const pi = registry.harnesses.find((h: any) => h.id === 'pi').worker.controlChannel;
+  assert.ok(pi.unverified.length > 0 && !pi.evidence.some((item: string) => /live-run/.test(item)), 'control precondition: pi cites no live run and lists unverified items');
+  for (const drop of [(e: any) => { delete e.unverified; }, (e: any) => { e.unverified = []; }, (e: any) => { e.unverified = ['  ']; }]) {
+    const copy = structuredClone(registry);
+    drop(copy.harnesses.find((h: any) => h.id === 'pi').worker.controlChannel);
+    assert.deepEqual(channelUnverifiedFindings(copy), ["G41 channel: harness 'pi' controlChannel is supported with no live-run record of its own and an empty or missing 'unverified'"]);
+  }
+  const live = structuredClone(registry);
+  const entry = live.harnesses.find((h: any) => h.id === 'pi').worker.controlChannel;
+  delete entry.unverified;
+  entry.evidence = [...entry.evidence, 'core/worker-evidence/pi/2026-11-07-live-run-read-only.json'];
+  assert.deepEqual(channelUnverifiedFindings(live), [], 'a live-run record of pi lifts the need');
+  entry.evidence = [...registry.harnesses.find((h: any) => h.id === 'pi').worker.controlChannel.evidence, 'core/worker-evidence/codex/2026-10-18-live-run-read-only.json'];
+  assert.equal(channelUnverifiedFindings(live).length, 1, 'another harness\'s live run does not');
+});
+
+test('G41.4 channel control: each controlChannel part token is recomputed from a passing check, and the entry makes the answer part required', (t) => {
+  const piEntry = () => shipped().registry.harnesses.find((h: any) => h.id === 'pi').worker.controlChannel;
+  const cited = piEntry().evidence[0];
+  const scratch = (mutate: (record: any) => void) => {
+    const root = tempDir(t, 'doflow-g41-channel-');
+    const dir = path.join(root, path.dirname(cited));
+    fs.mkdirSync(dir, { recursive: true });
+    fs.copyFileSync(path.join(REPO, path.dirname(cited), 'checks.json'), path.join(dir, 'checks.json'));
+    const record = JSON.parse(fs.readFileSync(path.join(REPO, cited), 'utf8'));
+    mutate(record);
+    fs.writeFileSync(path.join(root, cited), JSON.stringify(record));
+    return { root, record };
+  };
+  const registryAt = () => { const r = structuredClone(shipped().registry); r.harnesses = r.harnesses.filter((h: any) => h.id === 'pi'); return r; };
+  const channelFindings = (root: string) => establishingRecordFindings(registryAt(), root).filter((f: any) => f.includes("'controlChannel'"));
+  assert.deepEqual(channelFindings(scratch(() => {}).root), [], 'the intact copy establishes controlChannel');
+  // Every check that establishes a part token fails: the part, and so the key, is withdrawn.
+  const failPart = (part: string) => (record: any) => {
+    for (const check of record.checks) if (check.establishes.includes(`controlChannel:${part}`)) Object.assign(check, { result: 'fail', exit: 1, matched: [] });
+  };
+  for (const part of ['argv', 'messages', 'turn', 'close']) {
+    assert.equal(channelFindings(scratch(failPart(part)).root).length, 1, `no passing ${part} check withdraws controlChannel`);
+  }
+  // One failing check of two that establish the same part keeps it.
+  assert.deepEqual(channelFindings(scratch((record: any) => { Object.assign(record.checks.find((c: any) => c.id === 'help-rpc-mode'), { result: 'fail', exit: 1, matched: [] }); }).root), []);
+  const noAnswer = scratch(failPart('answer'));
+  assert.equal(channelFindings(noAnswer.root).length, 1, 'without a passing answer check the entry that declares answer is not established');
+  assert.equal(checksEstablish(noAnswer.record, 'pi', 'controlChannel', noAnswer.root, null), true, 'the same record passes when the entry is not passed (the fifth argument is what requires :answer)');
+  assert.equal(checksEstablish(noAnswer.record, 'pi', 'controlChannel', noAnswer.root, piEntry()), false);
+});
 
 test('G41.3: PARSER_BY_HARNESS names every parser-bearing harness, each id a key of PARSERS', () => {
   assert.ok(Object.keys(PARSER_BY_HARNESS).length > 0 && Object.keys(PARSER_BY_HARNESS).every((id) => ACTIVE_HARNESS_IDS.includes(id)), 'every pin key is a registry id');
