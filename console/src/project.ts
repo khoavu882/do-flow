@@ -1804,7 +1804,8 @@ const START_PATH = /(?:^|[\s(])(?:\/|~\/|[A-Za-z]:\\)/;
 const START_VERSION = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$/;
 const START_SOURCES: readonly string[] = Object.freeze(['orchestrator', 'frontier', 'standard', 'light', 'observed', 'default']);
 const START_REASONS: readonly string[] = Object.freeze(['not-listed', 'no-main-session-shape', 'not-installed', 'logged-out']);
-const START_BOUNDS = Object.freeze({ checkouts: 64, harnesses: 32, models: 50, warnings: 8 });
+/** 170 IC-006: a harness's channel `unverified` list holds at most 8 phrases of at most 120 characters. */
+const START_BOUNDS = Object.freeze({ checkouts: 64, harnesses: 32, models: 50, warnings: 8, unverified: 8, channelPhrase: 120 });
 
 const sRecord = (value: unknown): Record<string, any> => (value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, any> : fail());
 const sList = (value: unknown, max: number): unknown[] => (Array.isArray(value) && value.length <= max ? value : fail());
@@ -1878,6 +1879,12 @@ function startOptions(value: unknown, context?: Context) {
     })(c.observedSession);
     return { worktreeKey: sMatch(KEY16)(c.worktreeKey), label: sLabel(c.label), branch: sNull(sLabel)(c.branch), main: sBool(c.main), busy, observedSession: observed };
   };
+  const channel = (value: unknown) => {
+    const c = sRecord(value);
+    const phrase = (v: unknown) => (typeof v === 'string' && v.length <= START_BOUNDS.channelPhrase ? sWords(v) : fail());
+    return { state: sOneOf(['supported', 'unsupported', 'unknown'])(c.state), reason: sNull(phrase)(c.reason), liveVerified: sBool(c.liveVerified),
+      unverified: sList(c.unverified, START_BOUNDS.unverified).map(phrase) };
+  };
   const harness = (item: unknown) => {
     const h = sRecord(item);
     const login = sNull(loginAnswer)(h.login);
@@ -1906,6 +1913,8 @@ function startOptions(value: unknown, context?: Context) {
       version: h.version === null ? null : typeof h.version === 'string' ? (START_VERSION.test(h.version) ? h.version : null) : fail(),
       // 165 review B-8: whether the main-session shape was seen on a live run; a core before it sends none: null, never true.
       liveVerified: h.liveVerified === undefined ? null : sBool(h.liveVerified),
+      // 170 IC-006: whether the harness takes a follow-up and a steer on a control channel; a core before it sends none: null, never a state.
+      channel: h.channel === undefined ? null : channel(h.channel),
       models: sList(h.models, START_BOUNDS.models).map(model),
     };
   };
