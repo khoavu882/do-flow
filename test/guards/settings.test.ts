@@ -530,6 +530,17 @@ function skillRunsKind(markdown: string, id: string): boolean {
   return false;
 }
 
+/**
+ * True when the source reads the key through the runtime's accessors, not merely names it: `getSettingValue(<obj>, '<key>')`
+ * or `<view>.get('<key>'` for a fixed key, and the same call with a template `advice.<group>.${...}` for a per-kind key.
+ * A string literal that is only assigned, listed or logged does not read anything.
+ */
+function readsKey(code: string, key: string, group: string | null): boolean {
+  const accessor = String.raw`(?:getSettingValue\(\s*[\w.]+\s*,|\.get\()\s*`;
+  const keyText = group ? String.raw`\`advice\.${group}\.\$\{` : `'${key.replace(/\./g, '\\.')}'`;
+  return new RegExp(accessor + keyText).test(code);
+}
+
 function adviceReaderFindings({ settings, advice, sources, skills }: { settings: any; advice: any; sources: Map<string, string>; skills: Map<string, string> }): string[] {
   const findings: string[] = [];
   const code = new Map([...sources].map(([file, text]) => [file, stripSourceComments(text)]));
@@ -553,7 +564,7 @@ function adviceReaderFindings({ settings, advice, sources, skills }: { settings:
     for (const consumer of spec.consumers || []) {
       if (!code.has(consumer)) { findings.push(`${key}: consumer ${consumer} is not a shipped src/ file`); continue; }
       if (!reached.has(consumer)) findings.push(`${key}: consumer ${consumer} is not reached from ${ADVICE_ENTRY}`);
-      const names = perKind ? (code.get(consumer) as string).includes(`advice.${perKind[1]}.\${`) : (code.get(consumer) as string).includes(`'${key}'`);
+      const names = readsKey(code.get(consumer) as string, key, perKind ? perKind[1] : null);
       if (!names) findings.push(`${key}: consumer ${consumer} does not read it`);
     }
     if (!perKind) continue;
@@ -609,6 +620,13 @@ test('G44 S8 control: a planted key, a kind nothing asks, a caller that does not
   assert.deepEqual(plant((d) => { d.settings.keys['advice.model'].consumers = ['src/runtime/advice/missing.ts']; }),
     ['advice.model: consumer src/runtime/advice/missing.ts is not a shipped src/ file']);
   assert.deepEqual(plant((d) => { d.settings.keys['advice.model'].consumers = []; }), ['advice.model: no consumers listed']);
+
+  // A consumer whose only mention of a key is an unused string literal does not read it.
+  const stripped = (file: string, drop: RegExp, extra: string) => adviceReaderFindings({ ...inputs, sources: new Map([...inputs.sources, [file, `${(inputs.sources.get(file) as string).replace(drop, 'void 0')}\n${extra}\n`]]) });
+  assert.deepEqual(stripped('src/runtime/advice/config.ts', /\.get\('advice\.endpoint'/g, "const unused = 'advice.endpoint';").filter((line) => line.startsWith('advice.endpoint')),
+    ['advice.endpoint: consumer src/runtime/advice/config.ts does not read it']);
+  assert.deepEqual(stripped('src/runtime/advice/shadow-config.ts', /getSettingValue\(content, `advice\.kinds\.\$\{kind\}`\)/g, 'const unused = `advice.kinds.${kind}`;').filter((line) => line.startsWith('advice.kinds.tier')),
+    ['advice.kinds.tier: consumer src/runtime/advice/shadow-config.ts does not read it']);
 });
 
 test('G44 S8 control: the comment-stripping and fence rules ignore a call that only a comment or a shell comment makes', () => {
