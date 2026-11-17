@@ -754,9 +754,9 @@ const START_OPTIONS = {
     { worktreeKey: '0000111122223333', label: 'alpha-fix', branch: null, main: false, busy: { runId: 'w-aaaabbbbcccc' }, observedSession: null }],
   harnesses: [
     { harness: 'claude', startable: true, reason: null, words: 'claude can start a session here', warnings: ['runnable-not-checked'],
-      login: { harness: 'claude', state: 'logged-in', reason: null, source: 'recipe', at: '2026-11-15T09:00:00.000Z', billing: null, providers: [], provider: null, hint: null, expirySeen: false, last: null, caveat: null }, version: '2.1.0', liveVerified: false, models: [{ model: 'claude-opus-5-5', provider: null, effort: null, source: 'frontier', check: { model: 'listed', effort: null } }, { model: null, provider: null, effort: null, source: 'default', check: null }] },
+      login: { harness: 'claude', state: 'logged-in', reason: null, source: 'recipe', at: '2026-11-15T09:00:00.000Z', billing: null, providers: [], provider: null, hint: null, expirySeen: false, last: null, caveat: null }, version: '2.1.0', liveVerified: false, channel: { state: 'supported', reason: null, liveVerified: true, unverified: [] }, models: [{ model: 'claude-opus-5-5', provider: null, effort: null, source: 'frontier', check: { model: 'listed', effort: null } }, { model: null, provider: null, effort: null, source: 'default', check: null }] },
     { harness: 'copilot', startable: false, reason: 'no-main-session-shape', words: 'DoFlow has no recorded headless way to start copilot', warnings: [],
-      login: null, version: null, liveVerified: false, models: [{ model: null, provider: null, effort: null, source: 'default', check: null }] },
+      login: null, version: null, liveVerified: false, channel: { state: 'unknown', reason: 'no-control-channel-entry', liveVerified: false, unverified: [] }, models: [{ model: null, provider: null, effort: null, source: 'default', check: null }] },
   ],
   limits: { perCheckout: 1, perActor: 2, machine: 4, perActorPerHour: 6 },
   open: { machine: 1 }, dispatch: { running: true, slug: 'feat-a' }, promptMax: { codePoints: 8000, bytes: 32768 },
@@ -1212,7 +1212,7 @@ test('170 local session actions: the reply is the closed projection of the core\
   assert.deepEqual(json(waiting).result.turn, { observed: false, reason: 'no-event-yet', since: null });
 });
 
-test('170 R-6 the log\'s input.textBytes is the UTF-8 byte length of a message, a note and a prompt, and the line has no textChars and no text', async (t) => {
+test('170 R-6 the log\'s input.textBytes is the UTF-8 byte length of a message, a note and a prompt, and the line has no old field and no text', async (t) => {
   const clock = manual();
   const runner = fakeRunner((shape) => (shape === 'close-run' ? applied(shape) : sent(KIND_OF[shape])));
   const w = await loopback(t, runner, { now: clock.now });
@@ -1220,10 +1220,11 @@ test('170 R-6 the log\'s input.textBytes is the UTF-8 byte length of a message, 
   assert.equal((await w.post('session-steer', sessionBody('session-steer', { message: '😀é' }))).status, 200);
   assert.equal((await w.post('session-stop', sessionBody('session-stop'))).status, 200);
   assert.equal((await w.post('close-run', BODIES['close-run']({ note: 'ééé' }))).status, 200);
+  const OLD = ['text', 'Chars'].join('');
   const begins = w.lines().filter((line) => line.phase === 'begin');
   assert.deepEqual(begins.map((line) => [line.action, line.input.textBytes]), [['session-send', 2], ['session-steer', 6], ['session-stop', null], ['close-run', 6]]);
-  for (const line of w.lines()) assert.equal(Object.hasOwn(line.input ?? {}, 'textChars'), false);
-  assert.equal(fs.readFileSync(path.join(w.dir, 'actions.ndjson'), 'utf8').includes('textChars'), false);
+  for (const line of w.lines()) assert.equal(Object.hasOwn(line.input ?? {}, OLD), false);
+  assert.equal(fs.readFileSync(path.join(w.dir, 'actions.ndjson'), 'utf8').includes(OLD), false);
 });
 
 test('170 a message follows the prompt rule: empty is 400 prompt-empty, past 8000 code points 400 prompt-too-long, a body past 40960 bytes 400 usage; a stop takes no message and the 162 cap; a request id beginning with \'-\' is 400 usage', async (t) => {

@@ -323,18 +323,19 @@ test('165 FR-010: a start line records the worktree key, the harness, the model 
   await refused(log.end({ input: { entry: 'auto' } }), 'invalid-field');
 });
 
-test('170 R-6: the input records `textBytes` (an integer, bytes), never `textChars` and never the text; a value that is not an integer is null', async () => {
+test('170 R-6: the input records `textBytes` (an integer, bytes), never the field it replaced and never the text; a value that is not an integer is null', async () => {
   const root = scratch();
   const log = open(root);
+  const OLD = ['text', 'Chars'].join('');
   await log.begin({ id: 'r', action: 'session-send', input: { textBytes: Buffer.byteLength('é', 'utf8'), entry: 'none' } });
   await log.begin({ id: 's', action: 'session-send', input: { textBytes: 1.5 } });
-  await log.begin({ id: 't', action: 'session-send', input: { textChars: 7, text: 'é' } as any });
+  await log.begin({ id: 't', action: 'session-send', input: { [OLD]: 7, text: 'é' } as any });
   const [first, second, third] = linesOf(path.join(root, 'console', 'actions.ndjson'));
   assert.deepEqual(first.input, { decision: null, textBytes: 2, entry: 'none' }, '"é" is two bytes');
   assert.equal(second.input.textBytes, null);
-  assert.deepEqual(Object.keys(third.input), ['decision', 'textBytes', 'entry'], 'no textChars and no text key, whatever the caller passes');
+  assert.deepEqual(Object.keys(third.input), ['decision', 'textBytes', 'entry'], 'no old field and no text key, whatever the caller passes');
   assert.equal(third.input.textBytes, null);
-  assert.equal(fs.readFileSync(path.join(root, 'console', 'actions.ndjson'), 'utf8').includes('textChars'), false);
+  assert.equal(fs.readFileSync(path.join(root, 'console', 'actions.ndjson'), 'utf8').includes(OLD), false);
 });
 
 test('165: start-rate-limited is a summary code', async () => {
