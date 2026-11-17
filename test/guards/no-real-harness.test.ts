@@ -50,8 +50,8 @@ function targetFiles(): string[] {
   add('test/runtime/worker', () => true);
   add('test/runtime', (name) => name.startsWith('worker-'));
   add('test/cli', (name) => name.startsWith('models-'));
-  // Row 170: the Console's actions e2e spawns the fake channel harness (test/helper/fake-channel-harness.ts) through the real core and supervisor.
-  add('console/test', (name) => name === 'actions-e2e.test.ts');
+  // Row 170: the Console's actions e2e and measure-steer spawn the fake channel harness (test/helper/fake-channel-harness.ts) through the real core and supervisor.
+  add('console/test', (name) => name === 'actions-e2e.test.ts' || name === 'measure-steer.test.ts');
   return files;
 }
 
