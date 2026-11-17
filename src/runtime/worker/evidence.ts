@@ -4,6 +4,7 @@
 // live-run evidence copies only the bounded, non-content fields from an ended worker record.
 
 const fs = require('node:fs');
+const crypto = require('node:crypto');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const readiness = require('./readiness.ts');
@@ -18,6 +19,11 @@ const MAX_ARGV = 32;
 const MAX_ARG_CHARS = 200;
 const MAX_MATCHED_LINES = 20;
 const MATCHED_LINE_CHARS = 200;
+// 170 IC-008: a doc check reads one file of a docs root: a relative path, no `..` segment, at most 1 MiB.
+const DOC_PATH = /^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/;
+const DOC_MAX_BYTES = 1024 * 1024;
+// A capability with parts is established only when every part its entry needs is: the part tokens a check may establish.
+const PART_TOKEN = /^controlChannel:(argv|messages|turn|close|answer)$/;
 
 class WorkerEvidenceError extends Error {
   declare code: string;
@@ -92,16 +98,23 @@ function validateChecks(data: any, harness: string, worker: any) {
     const where = `checks[${index}]`;
     if (!check || typeof check !== 'object' || Array.isArray(check)) usage('checks-invalid', `${where} must be an object`);
     if (typeof check.id !== 'string' || check.id === '') usage('checks-invalid', `${where}.id must be a non-empty string`);
-    const problem = argvProblem(check.argv);
-    if (problem) usage('checks-invalid', `${where}.argv ${problem}`);
-    if (!freeArgv(check.argv)) {
-      usage('checks-invalid', `check '${check.id}' (${where}) is not a free check: its argv must be exactly --version, subcommand words ending in --help or -h, or 'features list' with --disable <name> pairs`);
+    if (Object.hasOwn(check, 'doc') === Object.hasOwn(check, 'argv')) usage('checks-invalid', `${where} must carry exactly one of argv or doc`);
+    if (Object.hasOwn(check, 'doc')) {
+      if (typeof check.doc !== 'string' || !DOC_PATH.test(check.doc) || check.doc.split('/').some((part: string) => part === '.' || part === '..')) {
+        usage('checks-invalid', `${where}.doc must be a relative path of plain segments (letters, digits, . _ -), without '.' or '..' segments`);
+      }
+    } else {
+      const problem = argvProblem(check.argv);
+      if (problem) usage('checks-invalid', `${where}.argv ${problem}`);
+      if (!freeArgv(check.argv)) {
+        usage('checks-invalid', `check '${check.id}' (${where}) is not a free check: its argv must be exactly --version, subcommand words ending in --help or -h, or 'features list' with --disable <name> pairs`);
+      }
     }
     if (!Array.isArray(check.expect) || check.expect.length === 0) usage('checks-invalid', `${where}.expect must be a non-empty array`);
     check.expect.forEach((pattern: any, expectIndex: number) => expression(pattern, `${where}.expect[${expectIndex}]`));
     if (!Array.isArray(check.establishes) || check.establishes.length === 0
-      || check.establishes.some((key: any) => typeof key !== 'string' || !capabilities.has(key))) {
-      usage('checks-invalid', `${where}.establishes must name worker capabilities other than 'cli'`);
+      || check.establishes.some((key: any) => typeof key !== 'string' || !(capabilities.has(key) || PART_TOKEN.test(key)))) {
+      usage('checks-invalid', `${where}.establishes must name worker capabilities other than 'cli', or a controlChannel:<part> token`);
     }
   }
   return data;
@@ -193,11 +206,48 @@ function dateValue(now: any): string {
   return date.toISOString();
 }
 
+/** The real path of the docs root; a missing or non-directory root is a usage refusal that names the flag. */
+function docsRootReal(docsRoot: any, fsImpl: any): string {
+  if (typeof docsRoot !== 'string' || docsRoot === '') usage('docs-root-required', 'the checks file has doc checks: --docs-root <dir> is required');
+  try {
+    const real = fsImpl.realpathSync(docsRoot);
+    if (!fsImpl.statSync(real).isDirectory()) usage('docs-root-invalid', '--docs-root is not a directory');
+    return real;
+  } catch (error: any) {
+    if (error instanceof WorkerEvidenceError) throw error;
+    usage('docs-root-invalid', `--docs-root cannot be read: ${error?.code || 'error'}`);
+  }
+}
+
+/** One doc of the root: its real path stays inside the real root, it is a regular file of at most 1 MiB. Reasons never name a path. */
+function readDoc(rootReal: string, doc: string, fsImpl: any): Buffer {
+  let real: string;
+  try { real = fsImpl.realpathSync(path.join(rootReal, doc)); } catch (error: any) { refuse(`doc-unreadable (${doc}: ${error?.code || 'error'})`); }
+  const inside = path.relative(rootReal, real);
+  if (inside === '' || inside === '..' || inside.startsWith(`..${path.sep}`) || path.isAbsolute(inside)) refuse(`doc-outside-root (${doc})`);
+  let bytes: Buffer;
+  try {
+    const stat = fsImpl.statSync(real);
+    if (!stat.isFile()) refuse(`doc-not-file (${doc})`);
+    if (stat.size > DOC_MAX_BYTES) refuse(`doc-too-large (${doc})`);
+    bytes = fsImpl.readFileSync(real);
+  } catch (error: any) {
+    if (error instanceof WorkerEvidenceError) throw error;
+    refuse(`doc-unreadable (${doc}: ${error?.code || 'error'})`);
+  }
+  if (bytes.length > DOC_MAX_BYTES) refuse(`doc-too-large (${doc})`);
+  return bytes;
+}
+
 /** Runs a declared free-check file against the named harness binary and writes an IC-005 record. */
 function recordCliChecks({ checksFile, harness, worker, out, cwd = process.cwd(), env = process.env,
-  now = () => new Date(), platform = process.platform, fsImpl = fs, spawnSyncImpl = spawnSync }: any = {}) {
+  now = () => new Date(), platform = process.platform, fsImpl = fs, spawnSyncImpl = spawnSync, docsRoot }: any = {}) {
   const target = outPathAndCheck(out, cwd, fsImpl);
   const checks = validateChecks(readChecks(path.resolve(cwd, String(checksFile)), fsImpl), harness, worker);
+  // 170 IC-008: every doc is read and bounded before the binary runs, so a refusal leaves no process behind.
+  const docChecks = checks.checks.filter((check: any) => Object.hasOwn(check, 'doc'));
+  const rootReal = docChecks.length ? docsRootReal(docsRoot, fsImpl) : null;
+  const docBytes = new Map(docChecks.map((check: any) => [check.id, readDoc(rootReal as string, check.doc, fsImpl)]));
   const binaryPath = readiness.findOnPath(checks.binary, env, platform);
   if (!binaryPath) refuse('version-unmatched');
 
@@ -210,6 +260,19 @@ function recordCliChecks({ checksFile, harness, worker, out, cwd = process.cwd()
   const cliVersion = maskBody(versionMatch).text.slice(0, MATCHED_LINE_CHARS);
   const recordedChecks = checks.checks.map((check: any) => {
     const patterns = check.expect.map((pattern: string, index: number) => expression(pattern, `check '${check.id}' expect[${index}]`));
+    if (Object.hasOwn(check, 'doc')) {
+      const bytes: Buffer = docBytes.get(check.id) as Buffer;
+      const docLines = lines(bytes);
+      return {
+        id: check.id,
+        doc: check.doc,
+        sha256: crypto.createHash('sha256').update(bytes).digest('hex'),
+        expect: [...check.expect],
+        matched: matchedLines(docLines, patterns),
+        result: patterns.every((pattern: RegExp) => docLines.some((line) => pattern.test(line))) ? 'pass' : 'fail',
+        establishes: [...check.establishes],
+      };
+    }
     const result = runBounded(binaryPath, check.argv, { env, cwd, spawnSyncImpl });
     const outputLines = lines(`${result.stdout ?? ''}\n${result.stderr ?? ''}`);
     const allExpectationsMatched = patterns.every((pattern: RegExp) => outputLines.some((line) => pattern.test(line)));

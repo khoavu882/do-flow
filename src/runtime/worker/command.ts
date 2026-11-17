@@ -112,6 +112,7 @@ const FLAG_ACTIONS: Record<string, { flag: string; actions: string[] }> = Object
   workerRun: { flag: '--worker-run', actions: ['status', 'cancel', 'evidence'] },
   checks: { flag: '--checks', actions: ['evidence'] },
   out: { flag: '--out', actions: ['evidence'] },
+  docsRoot: { flag: '--docs-root', actions: ['evidence'] },
   by: { flag: '--by', actions: ['cancel'] },
   reason: { flag: '--reason', actions: ['cancel'] },
   operator: { flag: '--operator', actions: ['cancel'] },
@@ -577,7 +578,7 @@ function summaryLines(body: any): string[] {
  */
 async function executeWorkerCommand({
   action, slug = null, harness, need, modelCheck, budgetTokens, task, token, promptFile, timeoutSeconds, wait = false,
-  workerRun, checks, out, by, reason, edit = false, childOf, request, execWorktree, operator = false, via,
+  workerRun, checks, out, docsRoot, by, reason, edit = false, childOf, request, execWorktree, operator = false, via,
   projectKey, worktreeKey, model, provider, effort, entry, requestId, stdin = false, readStdin = () => fs.readFileSync(0, 'utf8'),
   env = process.env, cwd = process.cwd(), resolveSlug = null, platform = process.platform, now = () => new Date(),
   descriptors, registry, coverage, sleep = defaultSleep, binding = null, projects = null,
@@ -590,7 +591,7 @@ async function executeWorkerCommand({
     if (action === 'start-session' && typeof env.DOFLOW_STARTED_RUN === 'string') {
       return { exit: 1, body: await startSession({ env }) };
     }
-    refuseMisplacedFlags(action, { slug, harness, need, modelCheck, budgetTokens, task, token, promptFile, timeoutSeconds, wait, workerRun, checks, out, by, reason, edit, childOf, request, execWorktree, operator, via, projectKey, worktreeKey, model, provider, effort, entry, requestId, stdin });
+    refuseMisplacedFlags(action, { slug, harness, need, modelCheck, budgetTokens, task, token, promptFile, timeoutSeconds, wait, workerRun, checks, out, docsRoot, by, reason, edit, childOf, request, execWorktree, operator, via, projectKey, worktreeKey, model, provider, effort, entry, requestId, stdin });
     if (given(task) && !TASK_ID.test(String(task))) throw usage(`--task expects a plan task id such as A.1, got '${task}'`);
     if (given(token)) digits(token, '--token', 1);
     if (given(budgetTokens) && !given(modelCheck)) throw usage('--budget-tokens applies only with --model-check');
@@ -695,12 +696,13 @@ async function executeWorkerCommand({
         const hasChecks = given(checks);
         const hasWorkerRun = given(workerRun);
         if (hasChecks === hasWorkerRun) throw usage('--action evidence needs exactly one of --checks or --worker-run');
+        if (given(docsRoot) && !hasChecks) throw usage('--docs-root applies only with --checks');
         const worker = workerBlock(reg, descriptors, String(harness));
         const outFile = path.resolve(cwd, String(out));
         if (hasChecks) {
           body = evidence.recordCliChecks({
             checksFile: path.resolve(cwd, String(checks)), harness: String(harness), worker, out: outFile,
-            cwd: root, env, now: clock, platform,
+            cwd: root, env, now: clock, platform, docsRoot: given(docsRoot) ? path.resolve(cwd, String(docsRoot)) : undefined,
           });
         } else {
           if (!RUN_ID.test(String(workerRun))) throw usage(`--worker-run expects 'w-' plus 12 lowercase hex characters, got '${workerRun}'`);
