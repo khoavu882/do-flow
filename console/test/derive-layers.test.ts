@@ -255,3 +255,125 @@ test('165 F2: a started session words how it ended from its own end, and the joi
   assert.equal(row({ runId: 'w-0123456789ab' }).runId, 'w-0123456789ab');
   assert.equal('startedRunId' in layers, false);
 });
+
+// ---- 170 design §10: a started session's control channel ----
+
+const RUN = 'w-0123456789ab';
+const CONTROL = { allowed: true, reason: null };
+const working = { observed: true, state: 'working', since: '2026-11-17T09:00:00.000Z', seq: 3 };
+const waiting = { ...working, state: 'waiting' };
+const unseen = (reason: string) => ({ observed: false, reason, since: null });
+const chan = (over: any = {}) => ({
+  runId: RUN, agentKey: 'f1e2d3c4b5a69788', harness: 'pi', channel: 'open', reason: null, words: null, turn: working, sent: { count: 2, lastAt: '2026-11-17T09:01:00.000Z' },
+  recent: [{ seq: 3, kind: 'follow-up', by: 'console', at: '2026-11-17T09:01:00.000Z', bytes: 41, outcome: 'written', answer: 'accepted' }], ...over,
+});
+const found = (item: any) => ({ state: 'ok', code: null, item });
+const view = (item: any, over: any = {}) => layers.sessionModel({ channels: found(item), phase: 'running', send: CONTROL, end: true, ...over });
+const flags = (m: any) => [m.send.enabled, m.steer.enabled, m.stopTurn.enabled, m.end];
+
+test('170 §10 open, working: badge "Working", Send, Steer, Stop turn and End session are all enabled', () => {
+  const m = view(chan());
+  assert.deepEqual([m.show, m.badge.word, m.badge.token, m.controls], [true, 'Working', 'running', true]);
+  assert.deepEqual(flags(m), [true, true, true, true]);
+});
+
+test('170 §10 open, waiting: "Waiting for you"; Send and End session on, Steer off with "it is waiting: send instead", Stop turn off', () => {
+  const m = view(chan({ turn: waiting }));
+  assert.deepEqual([m.badge.word, m.badge.token], ['Waiting for you', 'awaiting']);
+  assert.deepEqual(flags(m), [true, false, false, true]);
+  assert.equal(m.steer.why, 'it is waiting: send instead');
+  assert.match(m.stopTurn.why, /^it is waiting/);
+});
+
+test('170 §10 open, not observed: "Not observed: <reason words>" and Send, Steer, Stop turn, End session all enabled', () => {
+  for (const [reason, words] of [['no-event-yet', 'no turn event seen yet'], ['message-refused', 'its last message was refused'], ['opening', 'its channel is opening'], ['odd-new-reason', 'odd new reason']]) {
+    const m = view(chan({ turn: unseen(reason) }));
+    assert.equal(m.badge.word, `Not observed: ${words}`, reason);
+    assert.deepEqual(flags(m), [true, true, true, true], reason);
+  }
+});
+
+test('170 §10 supervisor gone: "Not observed: its supervisor stopped. End it with End session.", Send disabled (so are Steer and Stop turn: all three go through it), End session on', () => {
+  const m = view(chan({ turn: unseen('supervisor-gone') }));
+  assert.equal(m.badge.word, 'Not observed: its supervisor stopped. End it with End session.');
+  assert.deepEqual(flags(m), [false, false, false, true]);
+  assert.equal(m.send.why, 'its supervisor stopped');
+  assert.equal(m.controls, true, 'the box is drawn, disabled');
+  assert.equal(view(chan({ turn: unseen('supervisor-gone') }), { end: false }).badge.word, 'Not observed: its supervisor stopped.', 'no End session to point to');
+});
+
+test('170 §10 closed or ended: "Ended: <closedReason words>", no Send, Steer or Stop turn; a closed channel of a session still running keeps End session', () => {
+  const closed = view(chan({ channel: 'closed', reason: 'harness-exited', turn: unseen('channel-closed') }));
+  assert.equal(closed.badge.word, 'Ended: the harness exited');
+  assert.deepEqual([closed.controls, ...flags(closed)], [false, false, false, false, true]);
+  assert.equal(view(chan({ channel: 'closed', reason: 'idle', turn: unseen('channel-closed') })).badge.word, 'Ended: it sat idle too long and its channel was closed');
+  assert.equal(view(chan({ channel: 'closed', reason: null, turn: unseen('channel-closed') })).badge.word, 'Ended: the session ended');
+  const ended = view(chan({ channel: 'closed', reason: 'cancelled', turn: unseen('run-ended') }), { phase: 'ended' });
+  assert.deepEqual([ended.badge.word, ended.badge.token, ended.controls, ...flags(ended)], ['Ended: it was stopped', 'done', false, false, false, false, false]);
+  assert.equal(view(chan({ turn: unseen('run-ended') })).badge.word, 'Ended: the session ended', 'a run that ended whose record still says open');
+});
+
+test('170 §10 no channel: "Send is unavailable: <reason>" with the descriptor\'s sentence, End session only', () => {
+  const none = view(chan({ channel: 'none', reason: 'no-channel', words: 'no recorded capture shows an input mode for claude.', turn: unseen('no-channel'), sent: { count: 0, lastAt: null }, recent: [] }));
+  assert.equal(none.note, 'Send is unavailable: no recorded capture shows an input mode for claude');
+  assert.deepEqual([none.badge, none.controls, ...flags(none)], [null, false, false, false, false, true]);
+  assert.equal(view(chan({ channel: 'none', reason: 'started-without-channel', turn: unseen('started-without-channel') })).note, 'Send is unavailable: it was started without a control channel');
+  assert.equal(view(chan({ channel: 'none', reason: 'no-channel', words: null, turn: unseen('no-channel') })).note, 'Send is unavailable: this harness has no control channel recorded');
+});
+
+test('170 §10 view device: the badge and the reply only, with the sentence; no box, no End session; a device whose core lacks the action says that instead', () => {
+  const m = view(chan(), { send: { allowed: false, reason: 'phone-scope' }, end: false });
+  assert.equal(m.badge.word, 'Working');
+  assert.equal(m.note, 'Sending needs this machine’s Console or a phone paired with control over the app.');
+  assert.deepEqual([m.controls, ...flags(m)], [false, false, false, false, false]);
+  assert.equal(view(chan(), { send: { allowed: false, reason: 'action-transport' } }).note, layers.VIEW_DEVICE_WORDS);
+  assert.match(view(chan(), { send: { allowed: false, reason: 'core-lacks-action' } }).note, /cannot take this action/);
+  assert.equal(view(chan(), { send: { allowed: false, reason: null } }).note, null, 'before the page has heard what the device may do');
+  assert.equal(view(chan(), { send: { allowed: false, reason: 'core-lacks-action' }, end: true }).end, true, 'End session is its own action');
+});
+
+test('170 §10: nothing is claimed without a channels section; an unreadable one and a run it does not list say so; a session being ended offers no message', () => {
+  const absent = layers.sessionModel({ channels: { state: 'absent', code: null, item: null }, phase: 'running', send: CONTROL, end: true });
+  assert.deepEqual([absent.show, absent.badge, absent.controls, absent.end], [false, null, false, true], 'End session is its own action: it stays');
+  assert.equal(layers.sessionModel({ channels: { state: 'unreadable', code: 'section-missing', item: null }, phase: 'running', send: CONTROL, end: true }).show, false, 'an older core');
+  const unreadable = layers.sessionModel({ channels: { state: 'unreadable', code: 'core-error', item: null }, phase: 'running', send: CONTROL, end: true });
+  assert.deepEqual([unreadable.show, unreadable.badge.word, unreadable.controls, unreadable.end], [true, 'Not observed: the channel state could not be read', false, true]);
+  assert.match(view(null).badge.word, /^Not observed: the Console holds no channel record/);
+  const closing = view(chan(), { phase: 'cancelling' });
+  assert.deepEqual([closing.badge.word, ...flags(closing)], ['Working', false, false, false, false]);
+  assert.equal(closing.send.why, 'it is being ended');
+});
+
+test('170 §10 recent messages: kind, who, when, bytes and accepted or refused; no text, and the field set is closed', () => {
+  const m = view(chan({ recent: [
+    { seq: 4, kind: 'steer', by: 'device.d-0a1b2c3d4e5f', at: '2026-11-17T09:02:00.000Z', bytes: 12, outcome: 'refused', answer: null },
+    { seq: 3, kind: 'follow-up', by: 'console', at: '2026-11-17T09:01:00.000Z', bytes: 41, outcome: 'written', answer: 'accepted' },
+    { seq: 2, kind: 'stop', by: 'manual', at: '2026-11-17T09:00:30.000Z', bytes: 0, outcome: 'written', answer: 'refused' },
+    { seq: 1, kind: 'first', by: 'console', at: '2026-11-17T09:00:00.000Z', bytes: 90, outcome: 'failed', answer: null },
+  ] }));
+  assert.deepEqual(m.recent.map((r: any) => [r.kind, r.who, r.bytes, r.result]), [
+    ['Steer', 'paired device d-0a1b2c3d4e5f', '12 B', 'refused'], ['Send', 'Console', '41 B', 'accepted'], ['Stop turn', 'terminal', '0 B', 'refused'], ['First text', 'Console', '90 B', 'failed']]);
+  assert.deepEqual(Object.keys(m.recent[0]).sort(), ['at', 'bytes', 'kind', 'result', 'seq', 'who']);
+});
+
+test('170: the channels section reaches the project model by run id, and `channelIn` reads one run from a member body', () => {
+  const body = layersBody({ channels: ok({ v: 1, items: [chan(), chan({ runId: 'w-aaaaaaaaaaaa' })] }) });
+  const model = layers.projectModel(body);
+  assert.deepEqual(model.sections.channels, { state: 'ok', code: null });
+  assert.deepEqual([...model.channels.items.keys()], [RUN, 'w-aaaaaaaaaaaa']);
+  assert.equal(layers.channelIn(body, RUN).item.runId, RUN);
+  assert.deepEqual(layers.channelIn(body, 'w-bbbbbbbbbbbb'), { state: 'ok', code: null, item: null });
+  assert.deepEqual(layers.channelIn(layersBody({ channels: bad('section-missing') }), RUN), { state: 'unreadable', code: 'section-missing', item: null });
+  assert.deepEqual(layers.channelIn(null, RUN), { state: 'absent', code: null, item: null });
+  assert.equal(layers.projectModel(layersBody()).channels.state, 'absent');
+  assert.equal(layers.projectModel(layersBody()).withheld.some((w: any) => w.section === 'channels'), false, 'an older core\'s missing section is not a page-wide warning');
+});
+
+test('170: the message box state counts code points and refuses empty, NUL and over-limit text in words', () => {
+  assert.deepEqual([layers.messageState('check the tests').ok, layers.messageState('check the tests').codePoints], [true, 15]);
+  assert.equal(layers.messageState('  \n').ok, false);
+  assert.equal(layers.messageState('').issue, null, 'empty says nothing: the button is off, no scolding');
+  assert.match(layers.messageState('a\u0000b').issue, /NUL/);
+  assert.match(layers.messageState('x'.repeat(8001)).issue, /longer than 8000/);
+  assert.equal(layers.messageState('x'.repeat(8000)).ok, true);
+});

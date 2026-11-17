@@ -22,7 +22,7 @@ import { createLogStream } from '../log-store.js';
 import { showPanel, hidePanel } from '../shell.js';
 import { isChannel } from '../live.js';
 import { actionArea, actionButton, notAllowedLine } from './confirm.js';
-import { tailPane } from './start.js';
+import { tailPane, createSessionControls } from './start.js';
 import { buildConfirmation } from '../derive/actions.js';
 import {
   nodeTitle, titleIsLabel, kindWord, stamp, streamState, streamCopy, machineModel, projectModel, summarizedLine, COVERAGE_COLUMNS, coverageCell, projectLabel, startedWords,
@@ -735,7 +735,7 @@ function syncInspector(local, data, params) {
   const key = `${sel.kind}|${sel.key}|${present}`;
   if (local.selKey === key) {
     if (sel.kind === 'agent' && node && node.kind === 'started-session' && local.startedPane) {
-      const sig = JSON.stringify(node);
+      const sig = startedSig(local, node);
       if (local.nodeSig !== sig) {
         local.nodeSig = sig;
         local.startedPane.update(node);
@@ -826,42 +826,52 @@ function setLaneNote(local, code) {
   local.laneNote.removeAttribute('hidden');
 }
 
+/** The channels entry of a started session from the page's model: `{ state, code, item }` as derive/layers.js `channelIn` says it. @param {any} model @param {string} runId */
+const channelsOf = (model, runId) => (model ? { state: model.channels.state, code: model.channels.code, item: model.channels.items.get(runId) ?? null } : { state: 'absent', code: null, item: null });
+
+/** What the started pane draws from: the node and the run's channels entry, so a change of either repaints it. @param {any} local @param {any} node */
+const startedSig = (local, node) => JSON.stringify([node, channelsOf(local.model, node.runId)]);
+
 /**
  * 165: the pane of a started session: who started it, its phase and whether the harness's own session was seen, the two output lanes
- * (`file:` lanes, masked, the last 200 lines) and Stop, which opens the cancel-worker confirmation of the `started-sessions` store.
+ * (`file:` lanes, masked, the last 200 lines). 170: the turn badge, the message box (Send, Steer, Stop turn), the recent messages and End
+ * session, which opens the cancel-worker confirmation of the `started-sessions` store (views/start.js `createSessionControls`).
  * The node carries its own run id and how it ended (165 F2), so neither depends on the machine's started list.
  * @param {any} local @param {string} pk @param {any} node @param {() => void} close
  */
 function openStarted(local, pk, node, close) {
   const title = h('h2', { class: 'fpanel__title', id: 'layers-started-title', tabindex: '-1' }, 'Started session');
   const facts = h('div', { class: 'started__facts' });
-  const acts = h('div', { class: 'started__acts' });
   const out = tailPane('Output');
   const err = tailPane('Error output');
+  let held = node;
+  const controls = createSessionControls({
+    projectKey: pk, project: () => (local.who ? local.who.label : null), runId: node.runId, harness: node.harness ?? null, phase: node.phase ?? null,
+    stopSpec: () => (held.phase !== 'starting' && held.phase !== 'running' ? null : buildConfirmation('cancel-worker', {
+      projectKey: pk, project: local.who ? local.who.label : null, slug: 'started-sessions', worker: { runId: held.runId, harness: held.harness, task: 'main-session' },
+    })),
+  });
   const el = h('section', { class: 'layers-inspect started', 'aria-labelledby': 'layers-started-title', dataset: { stream: 'started' } }, [
-    title, facts, acts, h('p', { class: 'logpane__note' }, MASKED_SENTENCE), out.el, err.el,
+    title, facts, controls.el, h('p', { class: 'logpane__note' }, MASKED_SENTENCE), out.el, err.el,
   ]);
   /** @param {any} current */
   const update = (current) => {
+    held = current;
     const words = startedWords(current);
-    const live = current.phase === 'starting' || current.phase === 'running';
-    const stop = () => (!live ? null : buildConfirmation('cancel-worker', {
-      projectKey: pk, project: local.who ? local.who.label : null, slug: 'started-sessions', worker: { runId: current.runId, harness: current.harness, task: 'main-session' },
-    }));
     mount(facts, [
       h('p', { class: 'started__line' }, withSep([current.harness ? h('span', { class: 'tag tag--mono' }, current.harness) : null, current.model ?? 'model not recorded', words.startedBy, words.phase])),
       h('p', { class: 'started__line' }, words.observed),
       current.ended ? h('p', { class: 'started__line' }, ['ended ', reltime(current.ended.at, Date.now()), words.end ? `. ${words.end}` : '']) : null,
     ]);
-    mount(acts, actionArea(() => (live ? [actionButton({ id: 'cancel-worker', label: 'Stop session', tone: 'danger', make: stop }), stop() === null ? null : notAllowedLine(['cancel-worker'])] : null), 'acts acts--head'));
+    controls.set({ channels: channelsOf(local.model, current.runId), phase: current.phase ?? null });
   };
   update(node);
   local.startedPane = { update };
-  local.nodeSig = JSON.stringify(node);
+  local.nodeSig = startedSig(local, node);
   local.startedStreams = [];
   local.laneKey = `started:${pk}:${node.agentKey}`;
   /** @type {Array<() => void>} */
-  const offs = [];
+  const offs = [() => controls.destroy()];
   for (const [which, pane] of /** @type {const} */ ([['out', out], ['err', err]])) {
     const fileKey = node.fileKeys ? node.fileKeys[which] : null;
     if (typeof fileKey !== 'string' || !/^[0-9a-f]{16}$/.test(fileKey)) continue;
