@@ -301,9 +301,11 @@ describe('real dispatcher', () => {
     assert.equal(res.status, 0, res.stderr);
     const data = JSON.parse(res.stdout);
     const md = f.read(`${EXEC}/task-A.1-brief.md`);
-    assert.match(md, /^## Tier and tools$/m);
+    // 173 T2: the verb's block is a frame now (T3 lays the brief out around it): header, Tools block, report lines.
+    assert.match(md, /^## Tools$/m);
     assert.match(md, /^Tier: `frontier` \(task line\)/m);
-    assert.match(md, /^## Report format$/m);
+    assert.match(md, /^<output_format>$/m);
+    assert.match(md, /^End your report with one line `Status: <status>`/m);
     assert.doesNotMatch(md, /Not generated/);
     assert.equal(data.record, `${EXEC}/task-A.1-brief.json`);
     const record = JSON.parse(f.read(`${EXEC}/task-A.1-brief.json`));

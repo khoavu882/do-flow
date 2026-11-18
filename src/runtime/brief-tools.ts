@@ -31,6 +31,8 @@ const { resolveShadowConfig } = require('./advice/shadow-config.ts');
 const { strengthWords } = require('./advice/strength.ts');
 const { resolveTier } = require('./worker/models.ts');
 const { bindingText } = require('./models/binding-text.ts');
+const { composeFrame } = require('./prompt/frame.ts');
+const { handbackLines } = require('./prompt/handback.ts');
 
 const SCHEMA = 1;
 const REACHABLE = new Set(['selected', 'configured']);
@@ -95,9 +97,6 @@ function resolveRoute(router: any, route: any, probes: any) {
 }
 
 const cell = (text: any) => String(text).replace(/\|/g, '\\|').replace(/\s+/g, ' ');
-// The hand-back status ids, in the order of core/registry/workflows.json agents.handback.statuses;
-// G76 holds this text, the fallback in do-task-brief.sh and every spec/TOML status line to that list.
-const HANDBACK_IDS = ['done', 'done-with-concerns', 'needs-context', 'blocked'];
 const MODEL_SOURCE_WORDS: Record<string, string> = Object.freeze({ binding: 'binding, user layer', 'main-session': "the main session's model", 'frontier-binding': 'frontier binding, user layer' });
 const trigger = (server: any) => server.trigger.replace(/\.$/, '');
 
@@ -116,11 +115,11 @@ const trigger = (server: any) => server.trigger.replace(/\.$/, '');
  * @param {2|3} [input.headingLevel]
  * @param {string} [input.repoRoot] where `core/registry/rules.json` is read from
  * @param {{feature:?string, runTaskId:?string, stageId:?string, skill:?string}|null} [input.stage]
- * @returns {{markdown: string, record: Object}} the IC-018 record, including model (IC-017), without `tasks`
+ * @returns {{markdown: string, record: Object, parts: {header: string[][], rules: string[], tools: string, report: string[]}}}
+ *   the IC-018 record, including model (IC-017), without `tasks`; `parts` is the block before it is framed (173 §6.3)
  */
 function renderBriefTools({ registry, router, probes, reach, owner, tier, harness, primary = null, bindings = null, catalogue = null, headingLevel = 2, stage = null, repoRoot = REPO_ROOT }: any) {
   const missing: any = [];
-  const hashes = '#'.repeat(Number(headingLevel) === 3 ? 3 : 2);
   const primaryHarness = primaryHarnessOf(primary, registry);
   const target = chooseTarget({ registry, reach, harness, primaryHarness, missing });
   const targetHarness = target ? registry.harnesses.find((item: any) => item.id === target) : null;
@@ -203,23 +202,20 @@ function renderBriefTools({ registry, router, probes, reach, owner, tier, harnes
   });
   const also = registry.mcp.filter((server: any) => !expectedIds.has(server.id) && hasServer(reach, target, server.id));
   const list = (servers: any) => (servers.length ? servers.map((server: any) => `\`${server.id}\` (${trigger(server)})`).join('; ') : 'none');
-  const targetName = targetHarness ? targetHarness.displayName || targetHarness.id : 'any installed harness';
+  const targetName = 'this harness';
 
   const carried = loadBriefRules(repoRoot);
   if ('reason' in carried) missing.push(`brief-rules: ${carried.reason}`);
 
-  const lines = [
-    ...('lines' in carried ? [`${hashes} Rules that apply to you`, '', ...carried.lines.map((line: string) => `- ${line}`), ''] : []),
-    `${hashes} Tier and tools`,
-    '',
-    `Tier: \`${resolved.tier}\` (${sourceText}), per`,
-    '`references/MODEL_SELECTION.md`.',
-    ...(model ? [model.source === 'invalid'
-      ? `Model: binding unreadable on \`${model.harness}\`; harness default.`
+  const header: string[][] = [['Tier', `\`${resolved.tier}\` (${sourceText}), per \`references/MODEL_SELECTION.md\`.`]];
+  if (model) {
+    header.push(['Model', model.source === 'invalid'
+      ? `binding unreadable on \`${model.harness}\`; harness default.`
       : model.source === 'harness-default'
-        ? `Model: harness default on \`${model.harness}\`.`
-        : `Model: ${bindingText(modelCell, { code: true })} on \`${model.harness}\` (${MODEL_SOURCE_WORDS[model.source]}).`] : []),
-    '',
+        ? `harness default on \`${model.harness}\`.`
+        : `${bindingText(modelCell, { code: true })} on \`${model.harness}\` (${MODEL_SOURCE_WORDS[model.source]}).`]);
+  }
+  const lines = [
     'Tools this machine answers with, per information need. Searching with them before reading whole',
     'files is recommended where it saves reading; it is not required.',
     '',
@@ -241,14 +237,7 @@ function renderBriefTools({ registry, router, probes, reach, owner, tier, harnes
       lines.push(`Vendor/library facts: \`${s.id}\` first, else a URL, else UNVERIFIED.`);
     }
   }
-  lines.push(
-    '',
-    `${hashes} Report format`,
-    '',
-    'Put one line naming every tool and MCP server you used just before the final status line:',
-    '`Tools used: <name>[=used|nothing-usable|unavailable|skipped:<reason>], ...`',
-    `End ${Number(headingLevel) === 3 ? "each task's report" : 'your report'} with one line \`Status: <status>\`, where the status is one of ${HANDBACK_IDS.map((id) => `\`${id}\``).join(', ')}.`,
-  );
+  const parts = { header, rules: 'lines' in carried ? [...carried.lines] : [], tools: lines.join('\n'), report: handbackLines({ group: Number(headingLevel) === 3 }) };
 
   const record = {
     schema: SCHEMA,
@@ -266,7 +255,20 @@ function renderBriefTools({ registry, router, probes, reach, owner, tier, harnes
     tools,
     missing,
   };
-  return { markdown: `${lines.join('\n')}\n`, record };
+  return { markdown: frameOf(parts), record, parts };
+}
+
+/** The block as one valid prompt frame: the header, the rules and tools as constraint blocks, and the report lines. */
+function frameOf(parts: any): string {
+  const constraints = [
+    ...(parts.rules.length ? [{ heading: 'Rules', body: parts.rules }] : []),
+    { heading: 'Tools', body: parts.tools },
+  ];
+  return composeFrame({
+    header: parts.header,
+    instructions: { outcome: 'Use the tier and tools below for this dispatch.', constraints, stop: 'Stop when the dispatch carries the tier and tools; then write the report.' },
+    output_format: { reader: 'The session that dispatched you', lines: parts.report },
+  }, { maxBytes: null }).text;
 }
 
 /** The stage a feature's run is at, or null when there is no readable run or it is not at a stage. */
@@ -349,7 +351,7 @@ async function handleBriefToolsCommand({ owner, tier, harness, slug, headingLeve
     const bindings = readBindings({ env, projectRoot });
     const catalogue = require('./models/catalogue.ts').readCatalogue(projectRoot, { env });
     const rendered = renderBriefTools({ registry, router, probes, reach, owner, tier, harness, primary, bindings, catalogue, headingLevel: level, stage, repoRoot });
-    let markdown = rendered.markdown;
+    const { parts } = rendered;
     const record: any = rendered.record;
     record.missing.push(...notes);
     record.createdAt = now().toISOString();
@@ -387,8 +389,8 @@ async function handleBriefToolsCommand({ owner, tier, harness, slug, headingLeve
           if (added) {
             record.advice = added;
             if (added.status === 'answered') {
-              const line = `Decision model: \`${added.pick}\` (${strengthWords({ word: added.strength, between: added.between })}), advisory. The tier above stands unless you change it.`;
-              markdown = markdown.replace(/(Tier: `[^`]+`[^\n]*\n`references\/MODEL_SELECTION\.md`\.(?:\nModel: [^\n]*)?)\n\n/, `$1\n${line}\n\n`);
+              const line = `\`${added.pick}\` (${strengthWords({ word: added.strength, between: added.between })}), advisory. The tier above stands unless you change it.`;
+              parts.header.push(['Decision model', line]);
             }
           }
         }
@@ -396,7 +398,8 @@ async function handleBriefToolsCommand({ owner, tier, harness, slug, headingLeve
         record.advice = { kind: 'tier', status: 'unavailable', reason: error?.reason || 'config-invalid' };
       }
     }
-    if (json) console.log(JSON.stringify({ markdown, record }, null, 2));
+    const markdown = frameOf(parts);
+    if (json) console.log(JSON.stringify({ markdown, record, parts }, null, 2));
     else process.stdout.write(markdown);
     return finishRuntime(0);
   } catch (error: any) {

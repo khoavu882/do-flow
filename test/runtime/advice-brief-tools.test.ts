@@ -59,7 +59,10 @@ test('IC-011/012: an act answer follows Tier and retains the static tier and rec
   // act past the bench bar cannot be reached from a spawned verb (the shipped verdicts are empty): stand in for it.
   stubDispatcher(t, { mode: 'act', staticPick: 'standard', advisorPick: 'frontier', effectiveDecision: 'frontier', agreed: false });
   const { baseline, actual } = await invokeCounted(f, { tier: 'standard' });
-  const tierParagraph = 'Tier: `standard` (task line), per\n`references/MODEL_SELECTION.md`.';
+  const tierParagraph = 'Tier: `standard` (task line), per `references/MODEL_SELECTION.md`.';
+  assert.deepEqual(baseline.parts.header.map(([key]: any) => key), ['Tier']);
+  assert.deepEqual(actual.parts.header.map(([key]: any) => key), ['Tier', 'Decision model']);
+  assert.match(actual.parts.header[1][1], /^`frontier` \(clear\), advisory\. The tier above stands unless you change it\.$/);
   assert.ok(actual.markdown.includes(`${tierParagraph}\nDecision model: `), actual.markdown);
   assert.match(actual.markdown, /Decision model: `frontier` \(clear\), advisory\. The tier above stands unless you change it\./);
   assert.equal(actual.markdown.match(/^Decision model:/gm)?.length, 1);

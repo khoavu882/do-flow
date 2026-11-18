@@ -261,7 +261,9 @@ bt_emit() { # bt_emit <heading level>
   fi
   [ -z "$bt_rules" ] || printf '%s\n\n' "$bt_rules"
   printf '%s Tier and tools\n\nNot generated: %s. Name the tier and tools in the dispatch.\n\n' "$h" "$bt_reason"
-  printf '%s Report format\n\nPut one line naming every tool and MCP server you used just before the final status line:\n' "$h"
+  printf '%s Report format\n\n' "$h"
+  printf '%s\n' "If this brief's scope was wrong or missed something, add one line \`Brief feedback: <what>\` before the tools line; leave it out otherwise."
+  printf '%s\n' 'Put one line naming every tool and MCP server you used just before the final status line:'
   printf '%s\n' '`Tools used: <name>[=used|nothing-usable|unavailable|skipped:<reason>], ...`'
   printf 'End %s with one line `Status: <status>`, where the status is one of `done`, `done-with-concerns`, `needs-context`, `blocked`.\n' "$who"
 }
