@@ -1772,6 +1772,10 @@
       "reason": "agent-docs deliverable (<feature>/page.html, or the file --out names, written by tmp and rename); OS temp scratch for the renderer, removed by dispose()"
     },
     {
+      "file": "src/runtime/prompt/command.ts",
+      "reason": "the file --out names (a prompt or brief the caller keeps), written by a temp file beside it and a rename; removed if the write fails"
+    },
+    {
       "file": "src/runtime/worker/conform.ts",
       "reason": "OS temp scratch (doflow-conform-*) for the fake harness, its only write; removed in finally and on SIGINT or SIGTERM; the CLI runs no upkeep after conform (runsUpkeep in src/cli/runtime-commands.ts), so it writes no store, telemetry or .gitignore"
     },

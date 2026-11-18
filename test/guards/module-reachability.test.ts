@@ -73,8 +73,9 @@ const PATH_CALLER_SURFACES: any = ['package.json', path.join('core', 'shared', '
  * `node <path.join(__dirname, 'conform-fake.ts')>`, a computed path no text scan sees.
  * shadow-runner.ts (174 T1) is the detached child of a shadow advice call: shadow-dispatcher.ts spawns it by
  * `path.join(__dirname, `shadow-runner${path.extname(__filename)}`)` (the runner takes the dispatcher's own extension), a computed path as well.
+ * prompt/handback.ts (173 T1) has no consumer until 173 T2 makes brief-tools.ts take its report lines from it; T2 removes this entry.
  */
-const ALLOWLIST: any = new Set(['src/runtime/worker/conform-fake.ts', 'src/runtime/advice/shadow-runner.ts']);
+const ALLOWLIST: any = new Set(['src/runtime/worker/conform-fake.ts', 'src/runtime/advice/shadow-runner.ts', 'src/runtime/prompt/handback.ts']);
 
 /** Every runtime module file (`.js` or `.ts`) under a source/test root. Node runs `.ts` directly through
  * native type-stripping, so a `.ts` module is a real node in this tree's require graph and must stay reachable. `.d.ts`

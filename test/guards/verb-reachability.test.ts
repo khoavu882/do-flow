@@ -90,6 +90,7 @@ const ALLOWLIST: any = new Map([
     'brief-tools',
     'called by do-task-brief.sh, never by a skill',
   ],
+  ['prompt-frame', 'the one prompt composer (173 IC-002): called by do-task-brief.sh and do-review-package.sh and by the runtime, which the guidance names by its `--action guide` form once 173 T7 lands, so no skill invokes it as a step'],
   ['worker', '081 builds the adapter; its caller is the 082 dispatcher, so no skill invokes it yet'],
   ['dispatch', '082 builds the loop; skill text is unchanged in 082 (DEC-032), so no skill invokes it yet'],
   ['context-emit', 'launcher entry for 081; no skill invokes it'],

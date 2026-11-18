@@ -88,6 +88,7 @@ const UNMEASURED: Readonly<Record<string, string>> = {
   outcome: WRITES_STATE,
   'parallel-check': NEEDS_LIVE_RUN,
   'plan-check': NEEDS_LIVE_RUN,
+  'prompt-frame': WRITES_STATE, // --out writes the frame; 173 T7 moves it to CEILINGS once its guide exists
   readiness: NEEDS_LIVE_RUN,
   reconcile: INSTALLER,
   recover: NEEDS_LIVE_RUN,
