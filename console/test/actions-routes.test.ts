@@ -944,7 +944,7 @@ test('170 R-5 the Console holds no hourly start limit: the seventh start of an a
   assert.equal(w.lines().some((line) => line.phase === 'summary' && line.code === 'start-rate-limited'), false, 'the Console counted no start-rate-limited of its own');
 });
 
-test('170 R-5 the three session actions are not counted against D11: 31 sends by one actor and a flood of refusals before the core are never the Console\'s 429; the core\'s own 429 carries its Retry-After', async (t) => {
+test('170 R-5 the three session actions that reach the core are not counted against D11: 31 sends by one actor are never the Console\'s 429; the core\'s own 429 carries its Retry-After', async (t) => {
   const clock = manual();
   let next: any = null;
   const runner = fakeRunner((shape) => next ?? ((SESSION_IDS as readonly string[]).includes(shape) ? sent(KIND_OF[shape]) : applied(shape)));
@@ -956,8 +956,9 @@ test('170 R-5 the three session actions are not counted against D11: 31 sends by
   }
   assert.equal(runner.acts.length, 31, 'all 31 sends in one minute reached the core');
   for (const id of ['session-steer', 'session-stop']) assert.equal((await send(id, phone)).status, 200, `${id} after 31 sends`);
-  // The refusals before the core are not counted either: a flood of 400s never turns into the Console's 429.
-  for (let index = 0; index < 40; index += 1) assert.equal((await send('session-send', phone, { message: '' })).status, 400, `empty ${index + 1}`);
+  // The refusals before the core are counted against the actor's own windows (170 review A-03, own test below); five stay under the cap, and a minute later the window is clear.
+  for (let index = 0; index < 5; index += 1) assert.equal((await send('session-send', phone, { message: '' })).status, 400, `empty ${index + 1}`);
+  clock.t += 2 * MINUTE;
   // A D11 row is still counted, and the session actions did not use its window.
   const mark = runner.acts.length;
   for (let index = 0; index < 6; index += 1) assert.equal((await w.post('decide-gate', BODIES['decide-gate'](), { Authorization: phone.bearer })).status, 200, `decide ${index + 1}`);
@@ -969,6 +970,36 @@ test('170 R-5 the three session actions are not counted against D11: 31 sends by
   assert.deepEqual([refused.status, errorOf(refused), refused.headers['retry-after']], [429, 'actor-rate-limited', '41']);
   await w.actions.stop();
   assert.equal(w.lines().some((line) => line.phase === 'summary' && line.actor?.deviceId === phone.device.id && line.code === 'rate-limited' && line.action !== 'decide-gate'), false);
+});
+
+test('170 review A-03: a flood of refusals before the core on the session actions (a view device\'s phone-scope, a control device\'s bad body and reused request id) counts against the actor\'s own windows and meets 429 action-rate-limited, never reaching the runner; another actor is not blocked', async (t) => {
+  const clock = manual();
+  const runner = fakeRunner((shape) => sent(KIND_OF[shape]));
+  const w = await lan(t, runner, { now: clock.now });
+  const view = await w.world.pair('view', 'Viewer', 'native');
+  const control = await w.world.pair('control', 'Phone');
+  const statuses: Record<string, number[]> = { view: [], bad: [], reused: [] };
+  const first = sessionBody('session-send');
+  assert.equal((await w.post('session-send', first, { Authorization: control.bearer })).status, 200, 'a request that reaches the core is admitted');
+  for (let index = 0; index < 20; index += 1) {
+    statuses.view.push((await w.post('session-send', sessionBody('session-send'), { Authorization: view.bearer })).status);
+    statuses.bad.push((await w.post('session-steer', sessionBody('session-steer', { message: '' }), { Authorization: control.bearer })).status);
+  }
+  assert.deepEqual([...new Set(statuses.view.slice(0, 6))], [403]);
+  assert.deepEqual([...new Set(statuses.view.slice(6))], [429], 'the seventh refusal of a view device in a minute');
+  assert.deepEqual([...new Set(statuses.bad.slice(0, 6))], [400]);
+  assert.deepEqual([...new Set(statuses.bad.slice(6))], [429]);
+  assert.equal(runner.acts.length, 1, 'no refused request reached the runner');
+  // The window slides: a minute later the control device is refused (reused id, 409) and counted again, then 429.
+  clock.t += 2 * MINUTE;
+  for (let index = 0; index < 8; index += 1) statuses.reused.push((await w.post('session-send', { ...first, message: 'another text' }, { Authorization: control.bearer })).status);
+  assert.deepEqual([...new Set(statuses.reused.slice(0, 6))], [409]);
+  assert.deepEqual([...new Set(statuses.reused.slice(6))], [429]);
+  // Never the Console's window: another actor still acts.
+  const other = await w.world.pair('control', 'Tablet');
+  assert.equal((await w.post('session-send', sessionBody('session-send'), { Authorization: other.bearer })).status, 200);
+  await w.actions.stop();
+  assert.ok(w.lines().some((line) => line.phase === 'summary' && line.code === 'rate-limited' && line.actor?.deviceId === view.device.id && line.action === 'session-send'));
 });
 
 test('a start-session request id beginning with \'-\' is 400 usage and spawns nothing', async (t) => {

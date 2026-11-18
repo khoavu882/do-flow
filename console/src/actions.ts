@@ -20,14 +20,15 @@
 //      request-reused);
 //   6. the limits (D11: per actor 6 a minute and 30 an hour, per Console 20 a minute; 429 action-rate-limited with
 //      `Retry-After` in whole seconds until the oldest counted attempt leaves its window; counted on the log's
-//      aggregated `rate-limited` line per actor). The three session actions (170 R-5) are not counted here: the core's limits are
-//      theirs. A start's hourly limit is the core's too (`start-rate-limited`); the Console holds no limit of its own for either and
-//      maps the core's refusal to 429 with `Retry-After` from its `retryAfterSeconds`;
+//      aggregated `rate-limited` line per actor). The three session actions (170 R-5) are not counted here once a request reaches the core:
+//      the core's limits are theirs. A start's hourly limit is the core's too (`start-rate-limited`); the Console holds no limit of its
+//      own for either and maps the core's refusal to 429 with `Retry-After` from its `retryAfterSeconds`;
 //   7. the queue (one attempt in flight, four waiting, FIFO; else 429 action-busy, `Retry-After: 2`).
 // A request the server refuses before the wrappers (403 forbidden-origin, 415 unsupported-media) has no actor: it is counted
 // on the `summary` line of its reason with actor kind `none`, one line a minute per reason, whoever sent it.
 // A refusal at 2 to 5 counts against the actor's own windows (never the Console's, so one actor's refusals cannot
-// block another's actions) and, once they are full, is 429 action-rate-limited instead (162 review 1). Every refusal
+// block another's actions) and, once they are full, is 429 action-rate-limited instead (162 review 1), for the session actions too
+// (170 review A-03): nothing else limits a request that never reaches the core. Every refusal
 // at 2 to 7 is counted on the log's aggregated `summary` line for its code and actor, so a flood adds at most a few
 // lines a minute and never rotates the `begin` and `end` lines of attempts that ran out of the log.
 // Then `begin` is logged (fail closed: a line that cannot be written is 503 action-log-unwritable and nothing
@@ -810,8 +811,8 @@ function createActions({ runner, log, now = Date.now, warn = () => {} }: Options
   }
 
   /**
-   * A refusal before any spawn (162 review 1): counted against the actor's own windows unless `counted` already (then a full
-   * window answers 429 instead; a session action, 170 R-5, is never counted, and its refusal is never a 429 of the Console's), and on the aggregated `summary` line of its code and actor, never a line of its own.
+   * A refusal before any spawn (162 review 1): counted against the actor's own windows (a full window answers 429 instead), for every action, a
+   * session action too (170 review A-03), unless `counted` says the attempt was admitted already; and on the aggregated `summary` line of its code and actor, never a line of its own.
    */
   async function refuse(key: string, base: Record<string, unknown>, status: number, code: string, options: { counted?: boolean, headers?: Record<string, string> } = {}): Promise<Reply> {
     if (!options.counted) {
@@ -872,7 +873,7 @@ function createActions({ runner, log, now = Date.now, warn = () => {} }: Options
       method: 'POST' as const,
       path,
       action: true as const,
-      refused: (ctx: any, session: any, code: string) => refuse(keyOf(ctx, session), baseOf(ctx, session), 403, code, { counted: spec.coreLimited }),
+      refused: (ctx: any, session: any, code: string) => refuse(keyOf(ctx, session), baseOf(ctx, session), 403, code),
       // A refusal of server.ts before any actor exists: counted on the one line a minute of its reason, whoever sent it.
       refusedEarly: async (code: string) => {
         if (log) await quietly(() => log.summary(code as 'forbidden-origin' | 'unsupported-media', 'none', { actor: { kind: 'none' } }));
@@ -886,10 +887,10 @@ function createActions({ runner, log, now = Date.now, warn = () => {} }: Options
         const actor = actorOf(ctx);
         const base = baseOf(ctx, ctx.session);
         const key = keyOf(ctx, ctx.session);
-        if (actor === null || (actor.kind === 'device' && !deviceMayAct(actor.session, ctx.clientClass))) return refuse(key, base, 403, 'action-transport', { counted: spec.coreLimited });
+        if (actor === null || (actor.kind === 'device' && !deviceMayAct(actor.session, ctx.clientClass))) return refuse(key, base, 403, 'action-transport');
         if (!log) return errorReply(503, 'action-log-unwritable');
         const read = readBodyOf(spec, await readBody(ctx.req, spec.bodyCap));
-        if ('code' in read) return refuse(key, base, 400, read.code, { counted: spec.coreLimited });
+        if ('code' in read) return refuse(key, base, 400, read.code);
         const body = read.body;
         const free = spec.textField ?? spec.promptField;
         const fields = {
@@ -900,7 +901,7 @@ function createActions({ runner, log, now = Date.now, warn = () => {} }: Options
         const digest = digestOf(spec.id, body);
         const seen = memo.get(memoKey, now());
         if (seen) {
-          if (seen.digest !== digest) return refuse(key, base, 409, 'request-reused', { counted: spec.coreLimited });
+          if (seen.digest !== digest) return refuse(key, base, 409, 'request-reused');
           const first = await seen.settled;
           await quietly(() => log.end({ ...fields, outcome: 'replayed', code: first.code, exit: first.exit }));
           return replyOf(spec, body, actor, first, true);
