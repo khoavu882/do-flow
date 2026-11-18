@@ -198,7 +198,7 @@ test('G78 control: a script with no rule ledger above it still writes the brief 
   assert.ok(data.missing.some((m: string) => /^brief-rules: .*rules\.json/.test(m)), JSON.stringify(data.missing));
 });
 
-// --- the real do-review-package.sh (FU-txy416): the same rules block as the briefs, before the diff -----
+// --- the real do-review-package.sh (FU-txy416): the same rules as the briefs, in the package's instructions -----
 
 const PACKAGE_SCRIPT = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bash', 'do-review-package.sh');
 
@@ -223,24 +223,26 @@ function reviewPackage(script = PACKAGE_SCRIPT) {
   return { data, md: data.path ? fs.readFileSync(path.join(dir, data.path), 'utf8') : '' };
 }
 
-test('G78 (f): the real review package carries every must-carry line once, before the commits and the diff', () => {
+test('G78 (f): the real review package carries every must-carry line once, under ## Rules in its instructions', () => {
   const lines = mustCarryLines(source);
   const { data, md } = reviewPackage();
   assert.equal(Object.hasOwn(data, 'missing'), false, JSON.stringify(data));
   assert.deepEqual(ruleFindings(md, lines), []);
-  assert.match(md, /^# Review package: [0-9a-f]+\.\.[0-9a-f]+\n\n## Rules that apply to you\n\n- /);
-  assert.ok(md.indexOf('## Rules that apply to you') < md.indexOf('## Commits'));
-  assert.ok(md.indexOf(lines[lines.length - 1]) < md.indexOf('## Diff'));
+  assert.match(md, /^Review package: [0-9a-f]+\.\.[0-9a-f]+\n\n<role>\n/);
+  assert.ok(md.indexOf('</input>\n\n<instructions>') < md.indexOf('\n## Rules\n- '));
+  assert.ok(md.indexOf(lines[lines.length - 1]) < md.indexOf('\n## Stop rule\n'));
   assert.match(md, /\+changed/, 'the diff is still there');
 });
 
-test('G78 control: a package script with no rule ledger above it still writes the package and names the loss in missing', () => {
+test('G78 control: a package script with no rule ledger or dispatcher above it still writes the package, unframed, and names both losses in missing', () => {
   const tree = freshDir('rp-tree');
   fs.cpSync(path.dirname(PACKAGE_SCRIPT), path.join(tree, 'doflow', 'bash'), { recursive: true });
   const homeless = reviewPackage(path.join(tree, 'doflow', 'bash', 'do-review-package.sh'));
-  assert.doesNotMatch(homeless.md, /Rules that apply to you/);
-  assert.match(homeless.md, /## Diff/);
+  assert.doesNotMatch(homeless.md, /^## Rules$|Rules that apply to you/m);
+  assert.match(homeless.md, /^frame-unavailable: /);
+  assert.match(homeless.md, /^\+changed$/m, 'the diff is still there');
   assert.ok(homeless.data.missing.some((m: string) => /^brief-rules: .*rules\.json/.test(m)), JSON.stringify(homeless.data));
+  assert.ok(homeless.data.missing.some((m: string) => /^prompt-frame: /.test(m)), JSON.stringify(homeless.data));
 });
 
 // --- the report contract: tool evidence, then the final status line --------------------------------

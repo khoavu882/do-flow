@@ -23,8 +23,11 @@ case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; th
 #
 # Emits: {path, commits, bytes, base, head}, plus missing[] when the rules block could not be built.
 #
-# Between the title and the commit list the package carries the "Rules that apply to you" block: the
-# mustCarry lines of the rule ledger (core/registry/rules.json), as the task and group briefs print them.
+# The package is a prompt frame written by `doflow-run prompt-frame`: the header, a role, the commits, the
+# stat summary and the diff as input documents, the instructions with the "Rules" block (the mustCarry lines of
+# the rule ledger, core/registry/rules.json, as the task and group briefs print them) and the stop rule, and
+# the reply format. When the verb cannot run the package is written unframed, first line
+# `frame-unavailable: <reason>`, and missing[] names `prompt-frame: <reason>`.
 
 set -uo pipefail
 
@@ -115,7 +118,7 @@ registry_file() { # registry_file <name>
 }
 
 missing='[]'
-rules_block=""
+rule_lines=""
 rules_file="$(registry_file rules.json)"
 if [ -z "$rules_file" ]; then
   missing='["brief-rules: core/registry/rules.json is missing"]'
@@ -123,25 +126,63 @@ else
   rule_lines="$(jq -r 'if (.mustCarry | type) == "array" and (.mustCarry | length) > 0 and (.mustCarry | all(type == "string")) then .mustCarry[] | "- " + . else empty end' "$rules_file" 2>/dev/null)"
   if [ -z "$rule_lines" ]; then
     missing='["brief-rules: core/registry/rules.json has no mustCarry array"]'
-  else
-    rules_block="$(printf '## Rules that apply to you\n\n%s\n' "$rule_lines")"
   fi
 fi
 
+# The package is a prompt frame (row 173): each body is written to a file in a scratch dir and the
+# `prompt-frame` verb reads them by path, so no diff text ever passes through a command line or a JSON
+# document. The dispatcher is found as do-task-brief.sh finds it.
+tmp="$(mktemp -d 2>/dev/null)" || tmp=""
+if [ -z "$tmp" ]; then
+  jq -n --arg path "$out_rel" \
+    '{error:"write-failed", path:$path, hint:"the review package could not be written — no scratch directory"}'
+  exit 2
+fi
+trap 'rm -rf "$tmp"' EXIT
+
 write_ok=1
-{
-  echo "# Review package: $base7..$head7"
-  echo
-  if [ -n "$rules_block" ]; then printf '%s\n\n' "$rules_block"; fi
-  echo "## Commits"
-  git log --oneline "$base..$head_ref"
-  echo
-  echo "## Files changed"
-  git diff --stat "$base..$head_ref"
-  echo
-  echo "## Diff"
-  git diff -U10 "$base..$head_ref"
-} > "$out_abs" 2>/dev/null || write_ok=0
+printf 'Review package: %s..%s\n' "$base7" "$head7" > "$tmp/header" || write_ok=0
+printf 'You are a reviewer of commits `%s..%s`; you read and report, and change nothing.\n' "$base7" "$head7" > "$tmp/role" || write_ok=0
+git log --oneline "$base..$head_ref" > "$tmp/commits" 2>/dev/null || write_ok=0
+git diff --stat "$base..$head_ref" > "$tmp/stat" 2>/dev/null || write_ok=0
+git diff -U10 "$base..$head_ref" > "$tmp/diff" 2>/dev/null || write_ok=0
+printf '%s\n' 'Review the diff in input against the rules below and the protocol your dispatch names.' > "$tmp/outcome" || write_ok=0
+printf '%s\n' 'Stop when every changed file has been read; a finding needs a file and line.' > "$tmp/stop" || write_ok=0
+printf '%s\n' 'The session that dispatched you' > "$tmp/reader" || write_ok=0
+printf '%s\n' 'Use the findings format and the closing `Status:` line your dispatch names.' > "$tmp/lines" || write_ok=0
+if [ -n "$rule_lines" ]; then printf '%s\n' "$rule_lines" > "$tmp/rules" || write_ok=0; fi
+
+frame_reason=""
+if [ "$write_ok" -eq 1 ]; then
+  dispatcher="$script_dir/../bin/doflow-run"
+  if [ ! -f "$dispatcher" ]; then
+    frame_reason="the dispatcher was not found"
+  else
+    frame_args=(prompt-frame --action render --json --out "$out_abs"
+      --part "header=$tmp/header" --part "role=$tmp/role"
+      --part "input.doc:id=commits=$tmp/commits"
+      --part "input.doc:id=files changed=$tmp/stat"
+      --part "input.doc:id=diff=$tmp/diff"
+      --part "instructions.outcome=$tmp/outcome")
+    if [ -n "$rule_lines" ]; then frame_args+=(--part "instructions.constraint:Rules=$tmp/rules"); fi
+    frame_args+=(--part "instructions.stop=$tmp/stop" --part "output_format.reader=$tmp/reader" --part "output_format.lines=$tmp/lines")
+    (cd "$repo_root" 2>/dev/null && bash "$dispatcher" "${frame_args[@]}" </dev/null >/dev/null 2>&1)
+    frame_rc=$?
+    if [ "$frame_rc" -ne 0 ]; then frame_reason="prompt-frame exited $frame_rc"; fi
+  fi
+  if [ -n "$frame_reason" ]; then
+    # Fail open: the package is still written, unframed (the header, then each body in section order,
+    # one blank line between), and the loss is named in missing[] — a reviewer with no frame beats none.
+    {
+      echo "frame-unavailable: $frame_reason"
+      cat "$tmp/header"
+      for part in role commits stat diff outcome rules stop reader lines; do
+        if [ -s "$tmp/$part" ]; then echo; cat "$tmp/$part"; fi
+      done
+    } > "$out_abs" 2>/dev/null || write_ok=0
+    missing="$(printf '%s' "$missing" | jq -c --arg reason "prompt-frame: $frame_reason" '. + [$reason]')"
+  fi
+fi
 
 # Reporting a path for a file that was never written is worse than failing: the caller
 # dispatches a reviewer at nothing, and the reviewer's own fallback re-derives the diff in

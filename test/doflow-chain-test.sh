@@ -443,7 +443,7 @@ BASE_SHA="$(git rev-parse HEAD~1)"; HEAD_SHA="$(git rev-parse HEAD)"
 PKG="$("$PACKAGE" --task=A.1 --base="$BASE_SHA" --head="$HEAD_SHA")"
 eq "package counts the commits in range" "$(printf '%s' "$PKG" | jq -r '.commits')" "1"
 eq "package file exists"                 "$([ -f "$(printf '%s' "$PKG" | jq -r '.path')" ] && echo yes)" "yes"
-eq "package holds the diff body"          "$(grep -c '^## Diff' "$(printf '%s' "$PKG" | jq -r '.path')")" "1"
+eq "package holds the diff as a framed document" "$(grep -c '^<document id="diff">$' "$(printf '%s' "$PKG" | jq -r '.path')")" "1"
 # Named per RANGE, not per task: a re-review must not read the diff the first review already saw.
 eq "package is named per range" \
    "$(printf '%s' "$PKG" | jq -r '.path' | grep -c "review-$(git rev-parse --short "$BASE_SHA")\.\.$(git rev-parse --short "$HEAD_SHA")\.diff")" "1"
