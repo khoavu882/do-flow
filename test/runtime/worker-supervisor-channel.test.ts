@@ -19,7 +19,7 @@ const spool = require(path.join(SRC, 'worker', 'channel-spool.ts'));
 const { superviseRun, SUPERVISOR_FILE } = require(path.join(SRC, 'worker', 'supervisor.ts'));
 const { storeFileFor, newRunId, insertRun, readRuns, transition } = require(path.join(SRC, 'worker', 'run-store.ts'));
 const { writePrompt, ENTRY_LINE } = require(path.join(SRC, 'worker', 'session-prompt.ts'));
-const { mainLaunchRecord } = require(path.join(SRC, 'worker', 'launch.ts'));
+const { mainLaunchRecord, launchChannelSession } = require(path.join(SRC, 'worker', 'launch.ts'));
 const { executeWorkerCommand } = require(path.join(SRC, 'worker', 'command.ts'));
 const tree = require(path.join(SRC, 'worker', 'process-tree.ts'));
 const { channelsBody } = require(path.join(SRC, 'events', 'session-channels.ts'));
@@ -213,6 +213,30 @@ function detachedSupervisor(f: any, runId: string, env: any) {
 
 const gone = (proc: any) => tree.alive(proc) === false && tree.groupAlive(proc.pgid, proc.start) === false;
 
+/**
+ * The real channel launch, wrapped so a test can hold every stdin write until it calls `release()`: the write's
+ * callback has not run, as for a harness that does not read its stdin (the drain-stall seam).
+ */
+function holdingLaunch() {
+  const gate: any = { held: true, queue: [] as Array<() => void> };
+  gate.release = () => {
+    gate.held = false;
+    for (const go of gate.queue.splice(0)) go();
+  };
+  gate.launch = async (o: any) => {
+    const r = await launchChannelSession(o);
+    const stdin = r.child.stdin;
+    const write = stdin.write.bind(stdin);
+    stdin.write = (chunk: any, cb: any) => {
+      if (!gate.held) return write(chunk, cb);
+      gate.queue.push(() => write(chunk, cb));
+      return true;
+    };
+    return r;
+  };
+  return gate;
+}
+
 test('channel: the first prompt is the framed follow-up, a spool message arrives byte-exact and leaves the spool, the turn goes working then waiting, the ledger holds bytes but no text, and 30 idle minutes close it', POSIX, async (t: any) => {
   const f = fixture(t);
   const first = 'first words for the session';
@@ -305,6 +329,24 @@ test('A-01: the supervisor refuses the 61st follow-up of the hour after 72 later
   assert.deepEqual([ledger[127].kind, ledger[127].outcome, ledger[127].reason], ['follow-up', 'refused', 'actor-rate-limited']);
   assert.equal(logLines(f).length, 61, 'the first prompt and 60 follow-ups reached the harness, not the 61st');
   assert.deepEqual(runOf(f, runId).channel.stamps.console.messages.length, 60, 'the record carries the 60 stamps the verb pre-checks');
+});
+
+test('B-03: five follow-ups taken together from an idle spool are all written; none is channel-busy', POSIX, async (t: any) => {
+  const f = fixture(t);
+  const runId = seed(f, 'batch first prompt');
+  const gate = holdingLaunch();
+  f.supervising.push(superviseRun({ file: f.file, runId, env: f.env, cwd: f.root, launchChannel: gate.launch, channel: { pollMs: 20 } }));
+  await until(() => gate.queue.length === 1, 'the first prompt held');
+  // The spool is not watched until the first prompt is written: the five are taken in one batch.
+  for (const n of [1, 2, 3, 4, 5]) drop(f, runId, 'follow-up', `batch ${n}`);
+  gate.release();
+  await until(() => ledgerOf(f, runId).length >= 6, 'six entries');
+  assert.deepEqual(ledgerOf(f, runId).map((e: any) => [e.seq, e.outcome, e.reason]), [1, 2, 3, 4, 5, 6].map((n) => [n, 'written', null]));
+  await until(() => logLines(f).length >= 6, 'six records');
+  // Names dropped in one millisecond order by their random hex, so the texts are compared as a set; ids d-2..d-6 in order.
+  const sent = logLines(f).slice(1).map((line: string) => JSON.parse(line));
+  assert.deepEqual(sent.map((r: any) => r.id), ['d-2', 'd-3', 'd-4', 'd-5', 'd-6']);
+  assert.deepEqual(sent.map((r: any) => r.message).sort(), ['batch 1', 'batch 2', 'batch 3', 'batch 4', 'batch 5']);
 });
 
 test('170 T4c: with entry do the supervisor sends an entry-prefixed first prompt over the cap rule and refuses one whose person text starts with the command prefix', POSIX, async (t: any) => {

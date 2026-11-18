@@ -557,13 +557,14 @@ function channelSide({ file, runId, root, run, compiled, child, clock, options =
         if (closing !== null) return;
         let taken: any[] = [];
         try { taken = takeMessages(root, runId); } catch { taken = []; }
-        let waiting = 0;
         for (const item of taken) {
           if (!item.ok) continue;
           const m = item.message;
           if (!ACTOR.test(m.by) || (m.requestId !== null && !REQUEST_ID.test(m.requestId))) continue;
-          await deliver(m.kind, m.by, m.requestId, m.text, waiting);
-          if (m.kind !== 'stop') waiting += 1;
+          // `waiting` counts the messages queued ahead of this one and not yet written (review B-03). Each one ahead was
+          // written, refused or failed before this await returned, so none is still waiting: a batch taken together is
+          // never refused for its own size. The verb's count is the spool files ahead of its drop.
+          await deliver(m.kind, m.by, m.requestId, m.text, 0);
         }
       } while (again);
     } finally {
