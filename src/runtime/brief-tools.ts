@@ -97,6 +97,8 @@ function resolveRoute(router: any, route: any, probes: any) {
 }
 
 const cell = (text: any) => String(text).replace(/\|/g, '\\|').replace(/\s+/g, ' ');
+/** A table cell as a code span, so an angle slot in it (`<query>`) reads as a literal command, not as a placeholder; `\|` stays valid inside a span in a table. */
+const codeCell = (text: any) => `\`${cell(text)}\``;
 const MODEL_SOURCE_WORDS: Record<string, string> = Object.freeze({ binding: 'binding, user layer', 'main-session': "the main session's model", 'frontier-binding': 'frontier binding, user layer' });
 const trigger = (server: any) => server.trigger.replace(/\.$/, '');
 
@@ -161,20 +163,20 @@ function renderBriefTools({ registry, router, probes, reach, owner, tier, harnes
     let how;
     if (mcp && template && hasServer(reach, target, mcp.server)) {
       form = 'mcp';
-      how = template.replace('{server}', () => mcp.server).replace('{tool}', () => mcp.tool);
+      how = codeCell(template.replace('{server}', () => mcp.server).replace('{tool}', () => mcp.tool));
     } else if (!cli) {
       form = 'none';
-      how = execution?.reason || 'no command form is available';
+      how = cell(execution?.reason || 'no command form is available');
     } else if (mcp && !target) {
       form = 'neutral';
-      how = `${cli}; MCP server ${mcp.server}, tool ${mcp.tool}, where your harness registers it`;
+      how = `${codeCell(cli)}; ${cell(`MCP server ${mcp.server}, tool ${mcp.tool}, where your harness registers it`)}`;
     } else {
       form = 'cli';
-      how = cli;
+      how = codeCell(cli);
     }
     const named = found.status === 'UNVERIFIED' ? `${provider.id} (unverified: no probe)` : provider.id;
     const use = found.via === 'fallback' ? `no healthy ${route.capability} provider; fallback ${named}` : named;
-    rows.push(`| ${cell(intent)} | ${cell(use)} | ${cell(how)} |`);
+    rows.push(`| ${cell(intent)} | ${cell(use)} | ${how} |`);
     tools.push({ intent, capability: found.capability, provider: provider.id, status: found.status, form });
   }
 

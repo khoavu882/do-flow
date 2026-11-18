@@ -172,9 +172,24 @@ test('a server the target harness does not have gets the CLI form even where the
 
 test('no target harness gives the neutral form: CLI plus where the MCP tool would be', (t) => {
   const { markdown, record } = render(t);
-  assert.match(row(markdown, 'locate-concept'), new RegExp(`MCP server ${SEARCH.mcp.server}, tool ${SEARCH.mcp.tool}, where your harness registers it`));
+  assert.match(row(markdown, 'locate-concept'), new RegExp(`\\| \`semble search [^\`]*\`; MCP server ${SEARCH.mcp.server}, tool ${SEARCH.mcp.tool}, where your harness registers it \\|$`));
   assert.equal(record.harness, null);
   assert.equal(record.tools.find((entry: any) => entry.intent === 'locate-concept').form, 'neutral');
+});
+
+test('no angle slot in the tools block sits outside a code span, in the neutral, cli and mcp forms (G85 check 4)', (t) => {
+  const withMcp: any = { [SEARCH.mcp.server]: 'configured' };
+  const forms = [
+    render(t),
+    render(t, { reach: reachOf([[CLAUDE.id, 'project', withMcp], [OTHER_HARNESS.id, 'global', withMcp]]), harness: OTHER_HARNESS.id }),
+    render(t, { reach: reachOf([[CLAUDE.id, 'project', withMcp]]), harness: CLAUDE.id }),
+  ];
+  assert.deepEqual(forms.map((form: any) => form.record.tools.find((entry: any) => entry.intent === 'locate-concept').form), ['neutral', 'cli', 'mcp']);
+  for (const { parts } of forms) {
+    const outside = parts.tools.replace(/`[^`\n]*`/g, '');
+    assert.doesNotMatch(outside, /<[a-z][a-z0-9-]*>/, outside);
+    assert.match(parts.tools, /`rg -i '<query>' \.`/);
+  }
 });
 
 test('one table row per routes.json intent, in file order', (t) => {
@@ -293,7 +308,7 @@ test('a fixture registry with one more intent and one more provider reaches the 
   const { markdown, record } = renderBriefTools({
     registry: { ...registry, capabilities }, router, probes: probesFor(router), reach: null, owner: 'core-implementer', stage: null,
   });
-  assert.match(row(markdown, 'fixture-need'), /\| fixture\.provider \| fixture-bin /);
+  assert.match(row(markdown, 'fixture-need'), /\| fixture\.provider \| `fixture-bin '<query>'` \|/);
   assert.equal(record.tools[record.tools.length - 1].intent, 'fixture-need');
 });
 
