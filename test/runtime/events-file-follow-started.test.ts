@@ -18,6 +18,7 @@ const { fileKeyOf, scanArtifacts } = require('../../src/runtime/events/artifacts
 const { handleEventsCommand } = require('../../src/runtime/events/command.ts');
 const { createProjectsIndex } = require('../../src/runtime/events/projects-index.ts');
 const { readRuns } = require('../../src/runtime/worker/run-store.ts');
+const { preparePrompt } = require('../../src/runtime/worker/session-prompt.ts');
 
 const WIN = process.platform === 'win32';
 const DEADLINE_MS = 20000;
@@ -60,7 +61,7 @@ function world(t: any) {
   const out = path.join(state, 'worker-output', `${RUN_ID}.out.log`);
   const prompt = path.join(state, 'session-prompts', `${RUN_ID}.prompt.txt`);
   fs.writeFileSync(out, 'boot line\n');
-  fs.writeFileSync(prompt, `Use the DoFlow do skill for this request:\n\nrotate ${GH} please\n`, { mode: 0o600 });
+  fs.writeFileSync(prompt, preparePrompt(`rotate ${GH} please`, { entry: 'do', promptVia: 'stdin' }).sent, { mode: 0o600 });
   const env = {
     HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: config, PATH: process.env.PATH, TMPDIR: process.env.TMPDIR,
     GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV,
@@ -153,7 +154,11 @@ test('165 D8: the session prompt is followed through the same lane, masked', { s
   await f.until('the prompt snapshot', () => f.frames().some((x: any) => x.type === 'snapshot'));
   const [snap] = f.frames();
   assert.equal(snap.data.log, 'open');
-  assert.deepEqual(texts([snap]), ['Use the DoFlow do skill for this request:', '', 'rotate <masked> please']);
+  assert.deepEqual(texts([snap]), [
+    '<input>', '<document id="request">', 'rotate <masked> please', '</document>', '</input>', '',
+    '<instructions>', 'Use the DoFlow do skill for the request in input.', '', '## Stop rule', 'Stop when the do skill\'s workflow ends or asks the person a question.', '</instructions>', '',
+    '<output_format>', 'The person who started this session reads this reply; put the conclusion first.', '</output_format>',
+  ]);
   assert.ok(!f.out.includes(GH), 'the secret in a prompt is masked');
   await f.stop();
 });

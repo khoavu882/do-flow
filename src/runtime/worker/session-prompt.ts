@@ -68,6 +68,24 @@ function preparePrompt(raw: any, opts: { entry: string; promptVia: string }): Pr
   return { ok: true, text, sent, sha256: crypto.createHash('sha256').update(sent, 'utf8').digest('hex'), bytes: Buffer.byteLength(sent, 'utf8') };
 }
 
+const REQUEST_OPEN = '<input>\n<document id="request">\n';
+const REQUEST_CLOSE = `\n</document>\n</input>\n\n<instructions>\n${ENTRY_LINE}\n`;
+// What the composer's escape wrote for a frame tag (`<role` becomes `&lt;role`), written back.
+const ESCAPED_TAG = /&lt;(\s*\/?\s*)(role|context|input|instructions|example|output_format|document)(?=[\s>/])/gi;
+
+/**
+ * The person's text of a prompt entry `do` sent: the body of its `request` document with the composer's tag escape
+ * reversed, or `undefined` when `sent` is not that frame (entry `none` sends the text alone). The supervisor's R-4
+ * re-check reads the person's text through it. The composer's escape is not one-to-one (a text that itself held `&lt;role`
+ * reads back as `<role`), which a check of a command prefix does not mind.
+ */
+function requestOfPrompt(sent: any): string | undefined {
+  if (typeof sent !== 'string' || !sent.startsWith(REQUEST_OPEN)) return undefined;
+  const end = sent.indexOf(REQUEST_CLOSE, REQUEST_OPEN.length - 1);
+  if (end < 0) return undefined;
+  return sent.slice(REQUEST_OPEN.length, end).replace(ESCAPED_TAG, '<$1$2');
+}
+
 function promptFile(mainRoot: string, runId: string): string {
   if (typeof runId !== 'string' || !RUN_ID.test(runId)) throw new TypeError(`run id '${runId}' is not 'w-' plus 12 hex characters`);
   return path.join(mainRoot, '.doflow', 'state', STORE, `${runId}.prompt.txt`);
@@ -119,4 +137,4 @@ function readPrompt(mainRoot: string, runId: string): string {
   return fs.readFileSync(promptFile(mainRoot, runId), 'utf8');
 }
 
-module.exports = { ENTRY_LINE, PROMPT_MAX, preparePrompt, writePrompt, readPrompt };
+module.exports = { ENTRY_LINE, PROMPT_MAX, preparePrompt, requestOfPrompt, writePrompt, readPrompt };

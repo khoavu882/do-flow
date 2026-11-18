@@ -139,8 +139,8 @@ function frameMessage(compiled: Compiled, kind: Kind, vars: { text?: string; per
   const template = kind === 'steer' ? compiled.templates.steer : compiled.templates.followUp;
   if (!template) return { ok: false, code: 'no-steer' };
   if (kind === 'first') {
-    // 165's `preparePrompt` already capped the person's text; `text` here is what is sent (entry line included), so only
-    // the framed-record cap applies. R-4 looks at `person`, the text before the entry line, when the caller has it.
+    // 165's `preparePrompt` already capped the person's text; `text` here is what is sent (a prompt frame for entry `do`),
+    // so only the framed-record cap applies. R-4 looks at `person`, the frame's request text, when the caller has it.
     const text = vars?.text;
     if (typeof text !== 'string') return { ok: false, code: 'prompt-empty' };
     const person = typeof vars?.person === 'string' ? vars.person : text;

@@ -18,7 +18,7 @@ const SRC = path.join(REPO, 'src', 'runtime');
 const spool = require(path.join(SRC, 'worker', 'channel-spool.ts'));
 const { superviseRun, SUPERVISOR_FILE } = require(path.join(SRC, 'worker', 'supervisor.ts'));
 const { storeFileFor, newRunId, insertRun, readRuns, transition } = require(path.join(SRC, 'worker', 'run-store.ts'));
-const { writePrompt, ENTRY_LINE } = require(path.join(SRC, 'worker', 'session-prompt.ts'));
+const { writePrompt, preparePrompt } = require(path.join(SRC, 'worker', 'session-prompt.ts'));
 const { mainLaunchRecord, launchChannelSession } = require(path.join(SRC, 'worker', 'launch.ts'));
 const { executeWorkerCommand } = require(path.join(SRC, 'worker', 'command.ts'));
 const tree = require(path.join(SRC, 'worker', 'process-tree.ts'));
@@ -355,19 +355,23 @@ test('B-03: five follow-ups taken together from an idle spool are all written; n
   assert.deepEqual(sent.map((r: any) => r.message).sort(), ['batch 1', 'batch 2', 'batch 3', 'batch 4', 'batch 5']);
 });
 
-test('170 T4c: with entry do the supervisor sends an entry-prefixed first prompt over the cap rule and refuses one whose person text starts with the command prefix', POSIX, async (t: any) => {
+test('170 T4c: with entry do the supervisor sends a framed entry first prompt over the cap rule and refuses one whose person text starts with the command prefix', POSIX, async (t: any) => {
   const f = fixture(t);
-  const fine = seed(f, `${ENTRY_LINE}\n\n${'a'.repeat(8000)}`, 'do');
+  const fine = seed(f, preparePrompt('a'.repeat(8000), { entry: 'do', promptVia: 'stdin' }).sent, 'do');
   f.supervising.push(superviseRun({ file: f.file, runId: fine, env: f.env, cwd: f.root, channel: { pollMs: 20 } }));
-  await until(() => ledgerOf(f, fine)[0]?.outcome === 'written', 'the entry-prefixed first prompt written');
+  await until(() => ledgerOf(f, fine)[0]?.outcome === 'written', 'the framed first prompt written');
   assert.equal(ledgerOf(f, fine)[0].reason, null);
   await executeWorkerCommand({ action: 'cancel', slug: 'started-sessions', workerRun: fine, operator: true, via: 'console', reason: 'done', env: f.env, cwd: f.root });
   await until(() => runOf(f, fine)?.phase === 'ended', 'the first session ended');
 
   const logged = logLines(f).length;
-  const bad = seed(f, `${ENTRY_LINE}\n\n/help`, 'do');
-  await superviseRun({ file: f.file, runId: bad, env: f.env, cwd: f.root, channel: { pollMs: 20 } });
+  const bad = seed(f, preparePrompt('/help', { entry: 'do', promptVia: 'stdin' }).sent, 'do');
+  const refusing = superviseRun({ file: f.file, runId: bad, env: f.env, cwd: f.root, channel: { pollMs: 20 } });
+  f.supervising.push(refusing);
+  // Waits for the first ledger entry, not for the supervisor: a re-check that passes the command would leave the session running.
+  await until(() => ledgerOf(f, bad)[0] !== undefined, 'the first prompt decided');
   assert.deepEqual([ledgerOf(f, bad)[0]?.outcome, ledgerOf(f, bad)[0]?.reason], ['refused', 'command-not-allowed']);
+  await refusing;
   assert.equal(runOf(f, bad).channel.closedReason, 'first-refused');
   assert.equal(logLines(f).length, logged, 'the command never reached the harness');
 });

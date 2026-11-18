@@ -23,6 +23,7 @@ const { maskBody } = require('../../src/runtime/mask.ts');
 const { gateName, REVIEW_BYTES } = require('../../src/runtime/events/layers.ts');
 const { channelsBody, ITEMS, RECENT, LIVENESS_READS } = require('../../src/runtime/events/session-channels.ts');
 const { procStart } = require('../../src/runtime/worker/process-tree.ts');
+const { preparePrompt } = require('../../src/runtime/worker/session-prompt.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 
 const WIN = process.platform === 'win32';
@@ -363,7 +364,7 @@ test('165 D8: a started session\'s prompt file is a session-prompt artifact; onl
   const root = fs.realpathSync(tempDir(t, 'doflow-events-artifacts-'));
   const dir = path.join(root, '.doflow', 'state', 'session-prompts');
   const at = Date.now() - 5000;
-  const prompt = write(path.join(dir, 'w-0123456789ab.prompt.txt'), 'Use the DoFlow do skill for this request:\n\nfix it\n', at);
+  const prompt = write(path.join(dir, 'w-0123456789ab.prompt.txt'), preparePrompt('fix it', { entry: 'do', promptVia: 'stdin' }).sent, at);
   write(path.join(dir, 'w-nothex.prompt.txt'), 'x', at);
   write(path.join(dir, 'w-0123456789ab.out.log'), 'x', at);
   const outside = write(path.join(root, 'outside.txt'), 'SECRET', at);

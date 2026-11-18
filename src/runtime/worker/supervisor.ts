@@ -51,7 +51,7 @@ const { launchWorker, launchMainSession, launchChannelSession } = require('./lau
 const { compileChannel, frameMessage, idOf, TurnTracker, admit, tally, createTurnCoalescer } = require('./channel.ts');
 const { createSpool, spoolDir, takeMessages, removeSpool } = require('./channel-spool.ts');
 const { choiceOf } = require('./model-choice.ts');
-const { readPrompt: readStoredPrompt, ENTRY_LINE } = require('./session-prompt.ts');
+const { readPrompt: readStoredPrompt, requestOfPrompt } = require('./session-prompt.ts');
 const { parserOf, parserIdOf } = require('./parsers.ts');
 const worktreeCheck = require('./worktree-check.ts');
 const processTree = require('./process-tree.ts');
@@ -540,9 +540,8 @@ function channelSide({ file, runId, root, run, compiled, child, clock, options =
       const admitted = admit(counted, by, kind as any, clock().getTime(), waiting);
       if (!admitted.ok) return fail('refused', admitted.code);
     }
-    // The stored first prompt starts with the entry line when the entry is `do`; R-4 is about the person's text after it.
-    const entryHead = `${ENTRY_LINE}\n\n`;
-    const person = kind === 'first' && run.entry === 'do' && typeof text === 'string' && text.startsWith(entryHead) ? text.slice(entryHead.length) : undefined;
+    // The stored first prompt is a frame when the entry is `do`; R-4 is about the person's text inside it.
+    const person = kind === 'first' && run.entry === 'do' ? requestOfPrompt(text) : undefined;
     const framed = frameMessage(compiled, kind as any, { text, person, id: idOf(n) });
     if (!framed.ok) return fail('refused', framed.code);
     inflight = n;
