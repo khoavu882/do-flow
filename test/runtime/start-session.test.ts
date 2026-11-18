@@ -601,10 +601,31 @@ test('170 IC-006: each harness entry carries the channel fact; a supported chann
   assert.deepEqual(unverified.claude.channel, { state: 'supported', reason: null, liveVerified: false, unverified: ['follow-up not run', 'steer not run'] });
   assert.equal(unverified.claude.startable, true);
   assert.ok(unverified.claude.warnings.includes('channel-not-verified-live'));
-  // Citing a live-run record of the harness itself verifies it: no warning. Another harness's record does not.
-  const verified = await options(withChannel('claude', { evidence: [CLI_CHECK, LIVE] }));
+  // 170 review A-05: a live-run record of the harness that does not establish the controlChannel:* parts (a one-shot, a
+  // read-only run) does not lift "not verified" for the channel, whether it is claude's own or pi's 2026-11-07 one.
+  const oneShot = await options(withChannel('claude', { evidence: [CLI_CHECK, LIVE] }));
+  assert.deepEqual(oneShot.claude.channel, { state: 'supported', reason: null, liveVerified: false, unverified: [] });
+  assert.ok(oneShot.claude.warnings.includes('channel-not-verified-live'));
+  const PI_ONE_SHOT = 'core/worker-evidence/pi/2026-11-07-live-run-spawn.json';
+  assert.equal(JSON.parse(fs.readFileSync(path.join(REPO, PI_ONE_SHOT), 'utf8')).kind, 'live-run');
+  const piOneShot = await options({ ...DESCRIPTORS, pi: { ...DESCRIPTORS.pi, controlChannel: { ...DESCRIPTORS.pi.controlChannel, evidence: [...DESCRIPTORS.pi.controlChannel.evidence, PI_ONE_SHOT] } } });
+  assert.equal(piOneShot.pi.channel.liveVerified, false);
+  assert.ok(piOneShot.pi.warnings.includes('channel-not-verified-live'));
+  // Positive control: a live-run record of the harness that establishes every controlChannel:* part verifies it (a scratch
+  // record under the repo's gitignored tmp/, since evidence paths must resolve inside the repo; removed after).
+  fs.mkdirSync(path.join(REPO, 'tmp'), { recursive: true });
+  const scratch = fs.mkdtempSync(path.join(REPO, 'tmp', 'a05-'));
+  t.after(() => fs.rmSync(scratch, { recursive: true, force: true }));
+  const record = (name: string, establishes: string[]) => {
+    fs.writeFileSync(path.join(scratch, name), JSON.stringify({ kind: 'live-run', harness: 'claude', establishes }));
+    return path.relative(REPO, path.join(scratch, name));
+  };
+  const parts = ['argv', 'messages', 'turn', 'close', 'answer'].map((part) => `controlChannel:${part}`);
+  const verified = await options(withChannel('claude', { evidence: [CLI_CHECK, record('full.json', parts)] }));
   assert.deepEqual(verified.claude.channel, { state: 'supported', reason: null, liveVerified: true, unverified: [] });
   assert.ok(!verified.claude.warnings.includes('channel-not-verified-live'));
+  const partial = await options(withChannel('claude', { evidence: [CLI_CHECK, record('partial.json', parts.slice(0, 3))] }));
+  assert.equal(partial.claude.channel.liveVerified, false, 'a record establishing only some parts');
   const other = await options(withChannel('claude', { evidence: [CLI_CHECK, 'core/worker-evidence/codex/2026-10-18-live-run-read-only.json'] }));
   assert.equal(other.claude.channel.liveVerified, false);
   assert.ok(other.claude.warnings.includes('channel-not-verified-live'));

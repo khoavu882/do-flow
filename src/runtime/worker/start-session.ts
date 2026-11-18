@@ -164,9 +164,11 @@ function harnessBlocks(reg: any, descriptors: any, view: any) {
  * 165 review B-8: whether the main-session shape was seen on a live run: some record its `mainSession.evidence` cites is a `live-run`
  * record of this harness (as G41.5 reads `readOnly`). A help-only (`cli-check`) record, a missing or unreadable one, and a package
  * worker's (its paths are not under DoFlow's root) are false: not verified is the answer whenever it cannot be shown.
- * 170 D11: `entry` is any capability entry that carries evidence (`mainSession`, `controlChannel`).
+ * 170 D11: `entry` is any capability entry that carries evidence (`mainSession`, `controlChannel`). 170 review A-05: a channel
+ * passes the `controlChannel:*` `parts`; a record lifts "not verified" for it only when its `establishes` lists every one,
+ * so a live one-shot or read-only record of the same harness does not.
  */
-function liveVerified(harness: string, entry: any): boolean {
+function liveVerified(harness: string, entry: any, parts: readonly string[] = []): boolean {
   if (!Array.isArray(entry?.evidence)) return false;
   return entry.evidence.some((item: unknown) => {
     if (typeof item !== 'string' || path.isAbsolute(item)) return false;
@@ -174,12 +176,16 @@ function liveVerified(harness: string, entry: any): boolean {
     if (!file.startsWith(REPO_ROOT + path.sep)) return false;
     try {
       const record = JSON.parse(fs.readFileSync(file, 'utf8'));
-      return record?.kind === 'live-run' && record.harness === harness;
+      return record?.kind === 'live-run' && record.harness === harness
+        && parts.every((part) => Array.isArray(record.establishes) && record.establishes.includes(part));
     } catch {
       return false;
     }
   });
 }
+
+/** The parts a live run must establish for a channel to read as verified live (the `controlChannel:*` ids of a checks file). */
+const CHANNEL_PARTS = ['argv', 'messages', 'turn', 'close', 'answer'].map((part) => `controlChannel:${part}`);
 
 /**
  * 170 IC-006: the channel fact of one harness, `{ state, reason, liveVerified, unverified }`. A descriptor without a
@@ -192,7 +198,7 @@ function channelFact(harness: string, worker: any) {
   return {
     state,
     reason: state === 'supported' ? null : typeof entry?.reason === 'string' ? entry.reason : fallback,
-    liveVerified: state === 'supported' && liveVerified(harness, entry),
+    liveVerified: state === 'supported' && liveVerified(harness, entry, CHANNEL_PARTS),
     unverified: state === 'supported' && Array.isArray(entry.unverified) ? entry.unverified.filter((u: unknown) => typeof u === 'string') : [] as string[],
   };
 }
