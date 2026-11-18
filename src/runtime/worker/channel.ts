@@ -8,6 +8,7 @@
 const { validateControlChannel } = require('../../registry/control-channel.ts');
 const { compileTest, read } = require('./parsers/field-map.ts');
 const { PROMPT_MAX } = require('./session-prompt.ts');
+const { composeFrame, isEmptyBody } = require('../prompt/frame.ts');
 
 type Check = (event: any) => boolean;
 type Template = Record<string, any>;
@@ -78,8 +79,26 @@ function compileChannel(descriptor: any): Compiled | null {
   } catch { return null; }
 }
 
-/** The row-173 seam: every person's text passes through here, identity in this row, before it is framed. */
-function messageText(_kind: Kind, text: string): string { return text; }
+const FOLLOW_UP_OUTCOME = 'Continue this session with the person\'s message in input.';
+const STEER_OUTCOME = 'Change course as the person\'s message in input asks, then continue.';
+const MESSAGE_STOP = 'Stop when the request is met or you need the person.';
+const MESSAGE_READER = 'The person who started this session';
+
+/**
+ * Every person's text passes through here, after the caps, before it is put in a record (row 173 §6.7). A `first`
+ * message is already the prompt 165 composed and is sent as is; a `follow-up` or a `steer` is the `message` document of
+ * a prompt frame. `room` is the bytes the record leaves for the text (the record cap less the template's own bytes).
+ * @returns the text to send, or null when it does not fit `room` or the frame reads it as empty (a placeholder such as `none`)
+ */
+function messageText(kind: Kind, text: string, room: number): string | null {
+  if (kind === 'first') return text;
+  const framed = composeFrame({
+    input: [{ id: 'message', text }],
+    instructions: { outcome: kind === 'steer' ? STEER_OUTCOME : FOLLOW_UP_OUTCOME, stop: MESSAGE_STOP },
+    output_format: { reader: MESSAGE_READER },
+  }, { maxBytes: room });
+  return framed.ok && framed.omitted.length === 0 ? framed.text : null;
+}
 
 function holdsText(template: Template): boolean {
   return Object.values(template).some((value) => value === TEXT || (value !== null && typeof value === 'object' && holdsText(value)));
@@ -98,6 +117,11 @@ function textRefusal(text: unknown): 'prompt-empty' | 'prompt-too-long' | null {
   if (typeof text !== 'string' || text.trim() === '') return 'prompt-empty';
   if ([...text].length > CHANNEL_LIMITS.textCodePoints || Buffer.byteLength(text, 'utf8') > CHANNEL_LIMITS.textBytes) return 'prompt-too-long';
   return null;
+}
+
+/** The bytes of a record whose text is empty: the template's own, which the text and its frame must leave room for. */
+function emptyRecordBytes(template: Template, id: string | null): number {
+  return Buffer.byteLength(`${JSON.stringify(fill(template, '', id ?? ''))}\n`, 'utf8');
 }
 
 function record(template: Template, text: string, id: string | null): Framed {
@@ -145,11 +169,13 @@ function frameMessage(compiled: Compiled, kind: Kind, vars: { text?: string; per
     if (typeof text !== 'string') return { ok: false, code: 'prompt-empty' };
     const person = typeof vars?.person === 'string' ? vars.person : text;
     if (commandRefusal(compiled, person)) return { ok: false, code: 'command-not-allowed' };
-    return record(template, messageText(kind, text), vars?.id ?? null);
+    return record(template, messageText(kind, text, CHANNEL_LIMITS.recordBytes) as string, vars?.id ?? null);
   }
   const refused = textRefusal(vars?.text) ?? commandRefusal(compiled, vars.text as string);
   if (refused) return { ok: false, code: refused };
-  return record(template, messageText(kind, vars.text as string), vars?.id ?? null);
+  const sent = messageText(kind, vars.text as string, CHANNEL_LIMITS.recordBytes - emptyRecordBytes(template, vars?.id ?? null));
+  if (sent === null) return { ok: false, code: isEmptyBody(vars.text) ? 'prompt-empty' : 'prompt-too-long' };
+  return record(template, sent, vars?.id ?? null);
 }
 
 /** The id placeholder value of ledger entry `seq`, read back by `answerOf`. */

@@ -206,6 +206,14 @@ const runOf = (f: any, runId: string) => readRuns(f.file)[runId];
 const logLines = (f: any): string[] => (fs.existsSync(f.log) ? fs.readFileSync(f.log, 'utf8').split(/(?<=\n)/).filter(Boolean) : []);
 const ledgerOf = (f: any, runId: string) => runOf(f, runId)?.channel?.ledger ?? [];
 const drop = (f: any, runId: string, kind: string, text?: string, by = 'console') => spool.dropMessage(f.root, runId, { kind, requestId: requestId(), by, at: at(), ...(text === undefined ? {} : { text }) });
+/** The prompt frame a follow-up or a steer sends (row 173 §6.7), written out so a change to it is seen here. */
+const messageFrame = (body: string, outcome: string) => [
+  '<input>', '<document id="message">', body, '</document>', '</input>', '',
+  '<instructions>', outcome, '', '## Stop rule', 'Stop when the request is met or you need the person.', '</instructions>', '',
+  '<output_format>', 'The person who started this session reads this reply; put the conclusion first.', '</output_format>', '',
+].join('\n');
+const FOLLOW_UP = 'Continue this session with the person\'s message in input.';
+const STEER = 'Change course as the person\'s message in input asks, then continue.';
 const record = (template: any, text: string, id: string) => `${JSON.stringify({ ...template, message: text, id })}\n`;
 
 /** The supervisor of `runId` as `worker --action start-session` spawns it: detached, its pid recorded by compare-and-set. */
@@ -259,7 +267,7 @@ test('channel: the first prompt is the framed follow-up, a spool message arrives
 
   drop(f, runId, 'follow-up', second);
   await until(() => logLines(f).length >= 2, 'the spool message');
-  assert.equal(logLines(f)[1], record(CHANNEL.messages.followUp, second, 'd-2'), 'byte-exact, id d-2');
+  assert.equal(logLines(f)[1], record(CHANNEL.messages.followUp, messageFrame(second, FOLLOW_UP), 'd-2'), 'byte-exact, id d-2');
   const dir = spool.spoolDir(f.root, runId);
   assert.deepEqual(fs.readdirSync(dir), [], 'a taken message is gone from the spool');
 
@@ -352,7 +360,7 @@ test('B-03: five follow-ups taken together from an idle spool are all written; n
   // Names dropped in one millisecond order by their random hex, so the texts are compared as a set; ids d-2..d-6 in order.
   const sent = logLines(f).slice(1).map((line: string) => JSON.parse(line));
   assert.deepEqual(sent.map((r: any) => r.id), ['d-2', 'd-3', 'd-4', 'd-5', 'd-6']);
-  assert.deepEqual(sent.map((r: any) => r.message).sort(), ['batch 1', 'batch 2', 'batch 3', 'batch 4', 'batch 5']);
+  assert.deepEqual(sent.map((r: any) => r.message).sort(), [1, 2, 3, 4, 5].map((n) => messageFrame(`batch ${n}`, FOLLOW_UP)));
 });
 
 test('170 T4c: with entry do the supervisor sends a framed entry first prompt over the cap rule and refuses one whose person text starts with the command prefix', POSIX, async (t: any) => {
