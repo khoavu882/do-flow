@@ -2,7 +2,7 @@
 
 Choose the lowest capable tier. Name it on every dispatch. Pass the model id the brief header's `Model:` line
 names; where it names none, translate the tier to the harness's own id yourself from ids the harness lists.
-The parent's choice does not reach subagents; where per-call selection is unavailable, set the
+Do not rely on the parent's choice reaching subagents; where per-call selection is unavailable, set the
 model in the agent definition. An unset tier is a defect.
 
 ## Capability tiers
@@ -19,7 +19,7 @@ Consequential decisions gate money paths, releases or tests, rewrite history, se
 authorize unchecked action. Gather evidence at `standard`; judge it at `frontier`. Split mixed-tier
 work or use the higher tier.
 
-Effort is a separate dial: an agent spec's `effort:` is the default only where the harness descriptor says it is read.
+Effort is a separate dial: an agent spec's `effort:` is the default only where the harness reads the spec's `effort:`.
 
 ## Choosing a tier for implementation
 
