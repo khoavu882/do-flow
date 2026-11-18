@@ -44,7 +44,7 @@ const CEILINGS: readonly (readonly [string, number, number])[] = [
   ['doctor --json', 0, 30592], // 29,549 B (1,024 B margin, design R7; 172 T6: a login answer per harness, IC-003; was 26,665 B)
   ['storage --json', 0, 15360], // 14,802 B (170 T4: the channel-spool store row)
   ['indicators --json', 0, 704], // 619 B
-  ['package --action list --json', 0, 1920], // 1,424 B (169 T1: model-list-parser removed, control-channel the one reserved point; was 1,636 B)
+  ['package --action list --json', 0, 1920], // 1,220 B (169 T1: model-list-parser removed; 170 R-7: the reserved control-channel point removed too, a package declares a channel on the open worker point; was 1,424 B; the ceiling is left as it was)
   ['failure --action list --json', 0, 256], // 231 B
   ['git-state --json', 0, 320], // 276 B
   ['inventory --json', 0, 1088], // 1,002 B
