@@ -6,7 +6,7 @@ below is common to all of them. Read this before writing a batch.
 
 ## The batch
 
-One pass at the stage boundary, never one call per fact. The batch file is a JSON array, one object
+One pass at the stage boundary, not one call per fact. The batch file is a JSON array, one object
 per item — scratch input, deleted after the write. It is validated whole: **one rejected item writes
 nothing**, so a half-written stage never reads as complete.
 

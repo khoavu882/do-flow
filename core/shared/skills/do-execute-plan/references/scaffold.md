@@ -9,7 +9,7 @@
 - Constraints (carried from the design — do not relax these)
 
 Read this file only when `/do-execute-plan --scaffold` is the active invocation. It is step 5 of
-`do-execute-plan`'s Behavioral Flow, factored out here per Anthropic's progressive-disclosure
+`do-execute-plan`'s Behavioral Flow, factored out here per progressive-disclosure
 guidance so the other invocation modes (`--scope next|phase:N|all|resume`, and the `--review`
 modifier) don't pay the token cost of this algorithm on every invocation.
 

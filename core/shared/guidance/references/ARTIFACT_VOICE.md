@@ -10,7 +10,7 @@ into a session by default.
 Three minimums apply to every artifact before any category below. One bullet carries one claim, so a
 reader can accept or reject it on its own. A `**Detail**` entry is written in complete sentences,
 because a reviewer has to read it as an explanation. Bracket placeholders are filled in or deleted,
-never stacked where a sentence belongs.
+not stacked where a sentence belongs.
 
 ### Content patterns
 

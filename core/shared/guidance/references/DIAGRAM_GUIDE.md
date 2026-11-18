@@ -2,7 +2,7 @@
 
 `ARTIFACT_FORMAT.md` §4 says which artifact carries which diagram slot. This file says what belongs
 inside one. Read on demand by `do-brainstorm`, `do-design` and `do-plan` at the point each fills a
-slot, and never loaded by default.
+slot, and not loaded by default.
 
 **Scope.** These rules govern every Mermaid diagram in a feature directory, including ones in
 `as-is/`, `target/` or any other subdirectory; the slot registry in `ARTIFACT_FORMAT.md` §4

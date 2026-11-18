@@ -60,9 +60,7 @@ one that governs dispatch).
 "$DOFLOW" task-brief --group=<PHASE>:<OWNER> --tasks=<id,id,...> --harness=<your harness id> --json
 ```
 
-Writes the group brief and returns its path in `path`. The brief carries the shared preamble
-once (where this fits, global constraints, component boundary), then a per-task block for each id in
-the order given. Pass this file to the subagent — it is the whole contract for that dispatch.
+Writes the group brief and returns its path in `path`. The brief is one prompt frame: shared context and documents once, then one instructions block per task, in the order given. Pass this file to the subagent — it is the whole contract for that dispatch.
 
 For a single-task group the brief is byte-identical to `--task=<id>` output, so a one-task group and
 an ungrouped task are the same dispatch.

@@ -1,13 +1,13 @@
 # Model Selection — choosing a tier per dispatch
 
-Choose the lowest capable tier. Name it on every dispatch. Pass the model id the brief's `Model:` line
-names; where it names none, translate the tier to the harness's own id yourself, and never invent one.
-Never assume the parent's choice reaches subagents; where per-call selection is unavailable, set the
+Choose the lowest capable tier. Name it on every dispatch. Pass the model id the brief header's `Model:` line
+names; where it names none, translate the tier to the harness's own id yourself from ids the harness lists.
+The parent's choice does not reach subagents; where per-call selection is unavailable, set the
 model in the agent definition. An unset tier is a defect.
 
 ## Capability tiers
 
-Tiers describe capability; model names vary by harness, so never hardcode a vendor model name here.
+Tiers describe capability; model names vary by harness, so none is written here.
 
 | Tier | Work |
 |---|---|
@@ -19,8 +19,7 @@ Consequential decisions gate money paths, releases or tests, rewrite history, se
 authorize unchecked action. Gather evidence at `standard`; judge it at `frontier`. Split mixed-tier
 work or use the higher tier.
 
-Effort is a separate dial: an agent spec's `effort:` is the default where the harness reads it
-(Claude Code) and ignored elsewhere.
+Effort is a separate dial: an agent spec's `effort:` is the default only where the harness descriptor says it is read.
 
 ## Choosing a tier for implementation
 
@@ -57,8 +56,8 @@ tier is unavailable. Review at most once per phase or fix batch; re-review after
 
 ## Briefs and inheritance
 
-Give `light` and `standard` agents exact files, values or `path:line`, steps, and a check command.
-Give `frontier` agents intent, constraints, evidence, settled decisions, and their open choices.
+Give `light` and `standard` agents exact files, values and a check command in `instructions`.
+Give `frontier` agents intent and constraints in `instructions`, evidence in `input`, settled decisions in `context`, and their open choices.
 Agents that may spawn agents inherit this policy and the tier table, and name the tier/model per dispatch.
 
 ## Escalation inside a fix loop
@@ -69,8 +68,8 @@ After a stuck implementer, raise the tier at least once and use a fresh context.
 
 `dispatchTiers.byOwner` in `core/registry/models.json` sets each archetype's tier, G29 pins it to the
 table above, and `resolveTier` renders it into every brief. A person binds a model per tier per harness
-(and one for the orchestrator, which `delivery-lead` takes), and the brief's `Model:` line carries it:
+(and the orchestrator's, which `delivery-lead` takes), and the brief header's `Model:` line carries it:
 where a harness supports per-call model selection, pass that id, else translate `record.tier`; where it
 honors only `model: inherit`, the tier is a request the host cannot set and the worker runs on the
-session model — say which case applied in the hand-off. No cross-harness mechanism reads a worker's effective model, so the policy is verified
-by the rendered request plus G29, never by observation.
+session model — say which case applied in the hand-off. No cross-harness mechanism reads a worker's effective model: the rendered
+request plus G29 verify the policy, not observation.

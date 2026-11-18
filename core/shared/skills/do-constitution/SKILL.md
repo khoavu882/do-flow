@@ -54,11 +54,11 @@ The template is `templates/doflow/constitution-template.md` in the install step 
    in the agent context file without rewriting it:
    ```bash
    printf 'doflow: active constitution = agent-docs/constitution.md (v<version>), overlaying CONSTITUTION_BASE.md.\n' \
-     | "$DOFLOW" sync-context --file CLAUDE.md   # or AGENTS.md for Codex
+     | "$DOFLOW" sync-context --file CLAUDE.md   # or the context file your harness reads
    ```
    The verb acknowledges in plain text on success. **Any non-zero exit means the pointer did not
    land** — 1 the write failed, 2 the call was malformed. Report it in step 6 as a failed
-   propagation; never claim the context file was updated on a non-zero exit.
+   propagation, not as an updated context file.
 6. **Stop** — report the version, the Sync Impact summary, and the propagated context file (or the
    propagation failure from step 5).
 
