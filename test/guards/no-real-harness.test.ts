@@ -40,7 +40,7 @@ function findOnPath(tool: string): string | undefined {
   return undefined;
 }
 
-/** The test files of the models and worker folders (and the Console's actions e2e, 170), relative to the repo, this file excluded. */
+/** The test files of the models and worker folders (and the Console's actions e2e, 170, and the dispatch loop's, 173), relative to the repo, this file excluded. */
 function targetFiles(): string[] {
   const files: string[] = [];
   const add = (dir: string, keep: (name: string) => boolean) => {
@@ -49,6 +49,9 @@ function targetFiles(): string[] {
   add('test/runtime/models', () => true);
   add('test/runtime/worker', () => true);
   add('test/runtime', (name) => name.startsWith('worker-'));
+  // Row 173 T5: the headless handoff prompt, and the dispatch loop tests that launch fake workers with it.
+  add('test/runtime', (name) => name === 'handoff-prompt.test.ts' || name === 'dispatch-loop-step.test.ts');
+  add('test/e2e', (name) => name === 'dispatch-loop.e2e.test.ts');
   add('test/cli', (name) => name.startsWith('models-'));
   // Row 170: the Console's actions e2e and measure-steer spawn the fake channel harness (test/helper/fake-channel-harness.ts) through the real core and supervisor.
   add('console/test', (name) => name === 'actions-e2e.test.ts' || name === 'measure-steer.test.ts');
