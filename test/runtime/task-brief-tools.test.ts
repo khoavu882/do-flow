@@ -281,8 +281,9 @@ describe('group mode', () => {
     inOrder(md, ['<role>', '<context>', '<input>', '<instructions>', '<output_format>']);
     assert.match(md, /^Why A\.1: \*\*US1 \(P1\):\*\* As a user, I want to log in\.$/m);
     assert.match(md, /^Why A\.2: \*\*US1 \(P1\):\*\*/m);
-    inOrder(md, [`<document path="${REQ_PATH}#4">`, `<document path="${DESIGN_PATH}">`, `<document path="${SPECS_PATH}#1">`, `<document path="${REQ_PATH}">`]);
-    assert.equal(count(md, `<document path="${REQ_PATH}">`), 2, 'one requirements document per task');
+    inOrder(md, [`<document path="${REQ_PATH}#4">`, `<document path="${DESIGN_PATH}">`, `<document path="${SPECS_PATH}#1">`, '<document id="requirements A.1">', '<document id="requirements A.2">']);
+    assert.equal(count(md, '<document id="requirements '), 2, 'one requirements document per task, each named by its task');
+    assert.equal(count(md, `<document path="${REQ_PATH}">`), 0, 'no shared path attribute that ties a document to no task');
     inOrder(md, ['Build tasks `A.1, A.2` in this order; each task writes its own report before the next starts.', '## Task A.1\n', '## Task A.2\n', '## Rules\n', '## Tools\n', '## Stop rule\n']);
     assert.equal(count(md, '## Tools\n'), 1);
     assert.equal(count(md, '## Rules\n'), 1);

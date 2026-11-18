@@ -449,7 +449,7 @@ compose_group_brief() { # compose_group_brief <phase> <owner> <task ids, comma-j
   bf_part "input.doc:path=$specs_rel#1" contracts
   for idx in "${!task_ids[@]}"; do
     if [ -n "${task_fr_lists[$idx]}" ]; then req_text "${task_fr_lists[$idx]}" > "$bf_dir/requirements-$idx"; fi
-    bf_part "input.doc:path=$req_rel" "requirements-$idx"
+    bf_part "input.doc:id=requirements ${task_ids[$idx]}" "requirements-$idx"
   done
   bf_part "instructions.outcome" outcome
   for idx in "${!task_ids[@]}"; do
