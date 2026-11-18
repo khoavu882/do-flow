@@ -166,9 +166,13 @@ if [ "$write_ok" -eq 1 ]; then
       --part "instructions.outcome=$tmp/outcome")
     if [ -n "$rule_lines" ]; then frame_args+=(--part "instructions.constraint:Rules=$tmp/rules"); fi
     frame_args+=(--part "instructions.stop=$tmp/stop" --part "output_format.reader=$tmp/reader" --part "output_format.lines=$tmp/lines")
-    (cd "$repo_root" 2>/dev/null && bash "$dispatcher" "${frame_args[@]}" </dev/null >/dev/null 2>&1)
+    frame_answer="$(cd "$repo_root" 2>/dev/null && bash "$dispatcher" "${frame_args[@]}" </dev/null 2>/dev/null)"
     frame_rc=$?
-    if [ "$frame_rc" -ne 0 ]; then frame_reason="prompt-frame exited $frame_rc"; fi
+    if [ "$frame_rc" -ne 0 ]; then
+      # The verb's own refusal is JSON with a `.code`; an absent verb or any other stdout keeps the bare exit.
+      frame_code="$(printf '%s' "$frame_answer" | jq -r '.code // empty' 2>/dev/null)"
+      if [ -n "$frame_code" ]; then frame_reason="$frame_code (exit $frame_rc)"; else frame_reason="prompt-frame exited $frame_rc"; fi
+    fi
   fi
   if [ -n "$frame_reason" ]; then
     # Fail open: the package is still written, unframed (the header, then each body in section order,

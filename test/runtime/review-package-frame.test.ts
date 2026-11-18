@@ -112,6 +112,7 @@ function strippedTree(stub: string | null) {
 
 for (const [name, stub, reason] of [
   ['a dispatcher whose prompt-frame fails', '#!/usr/bin/env bash\necho "boom" >&2\nexit 2\n', 'prompt-frame exited 2'],
+  ['a dispatcher whose prompt-frame refuses with a code', '#!/usr/bin/env bash\necho \'{"error":"frame-spec-invalid","code":"frame-part-unreadable","detail":"x"}\'\nexit 2\n', 'frame-part-unreadable (exit 2)'],
   ['no dispatcher at all', null, 'the dispatcher was not found'],
 ] as Array<[string, string | null, string]>) {
   test(`O-1: ${name} still writes the package, unframed, first line frame-unavailable`, () => {

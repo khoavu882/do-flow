@@ -356,14 +356,18 @@ bf_close() { # bf_close: stop rule, reader and report lines
 # unframed: first line `frame-unavailable: <reason>`, the header, then each part's body in section order, one blank
 # line between; the loss is named in missing[] and the exit status is what it would have been (IC-019's fail-open).
 bf_render() { # bf_render <brief file>
-  local dispatcher="$script_dir/../bin/doflow-run" reason="" rc part
+  local dispatcher="$script_dir/../bin/doflow-run" reason="" rc part answer code
   if [ ! -f "$dispatcher" ]; then
     reason="the dispatcher was not found"
   else
-    (cd "${repo_root:-.}" 2>/dev/null && bash "$dispatcher" prompt-frame --action render --json --out "$1" \
-      --part "header=$bf_dir/header" "${bf_args[@]}" </dev/null >/dev/null 2>&1)
+    answer="$(cd "${repo_root:-.}" 2>/dev/null && bash "$dispatcher" prompt-frame --action render --json --out "$1" \
+      --part "header=$bf_dir/header" "${bf_args[@]}" </dev/null 2>/dev/null)"
     rc=$?
-    if [ "$rc" -ne 0 ]; then reason="prompt-frame exited $rc"; fi
+    if [ "$rc" -ne 0 ]; then
+      # The verb's own refusal is JSON with a `.code`; an absent verb or any other stdout keeps the bare exit.
+      code="$(printf '%s' "$answer" | jq -r '.code // empty' 2>/dev/null)"
+      if [ -n "$code" ]; then reason="$code (exit $rc)"; else reason="prompt-frame exited $rc"; fi
+    fi
   fi
   [ -n "$reason" ] || return 0
   {

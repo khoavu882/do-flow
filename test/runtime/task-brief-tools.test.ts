@@ -28,6 +28,7 @@ after(() => scratch.remove());
 const FAKE_RUN = `#!/usr/bin/env bash
 if [ "$1" = prompt-frame ]; then
   [ "\${FRAME_MODE:-ok}" = fail ] && { echo "frame boom" >&2; exit 3; }
+  [ "\${FRAME_MODE:-ok}" = spec-error ] && { echo '{"error":"frame-spec-invalid","code":"frame-role-not-sentence","detail":"role must be one sentence"}'; exit 2; }
   exec bash "$REAL_RUN" "$@"
 fi
 printf '%s\\n' "$*" >> "$FAKE_LOG"
@@ -416,6 +417,17 @@ describe('fail-open', () => {
       'A.1 [P] [US1] build the handler', 'integration test on the login route', 'Edit only these files', '- FAKE RULE ONE', 'FAKE TOOLS BLOCK', 'Stop when the success criteria hold', 'The session that dispatched you', 'FAKE REPORT LINE']);
     assert.equal(md.includes('\n\n\n'), false);
     noEmptyBodies(md);
+  });
+
+  test('(f) a spec error from prompt-frame puts its code in the reason; a verb that is absent or prints no code keeps the bare exit', () => {
+    const f = fixture();
+    const res = f.brief(['--task=A.1', `--slug=${FEATURE}`], { FRAME_MODE: 'spec-error' });
+    assert.equal(res.status, 0, res.stderr);
+    assert.deepEqual(res.data.missing, ['prompt-frame: frame-role-not-sentence (exit 2)']);
+    assert.match(f.read(`${EXEC}/task-A.1-brief.md`), /^frame-unavailable: frame-role-not-sentence \(exit 2\)\nBrief: task A\.1 of /);
+    const absent = fixture();
+    const bare = absent.brief(['--task=A.1', `--slug=${FEATURE}`], { FRAME_MODE: 'fail' });
+    assert.deepEqual(bare.data.missing, ['prompt-frame: prompt-frame exited 3'], 'stderr only, no code: the bare exit');
   });
 
   test('(f) the group brief is unframed the same way', () => {
