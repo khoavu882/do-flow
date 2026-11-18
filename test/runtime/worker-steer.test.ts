@@ -20,7 +20,7 @@ const spool = require(path.join(SRC, 'worker', 'channel-spool.ts'));
 const { superviseRun, SUPERVISOR_FILE } = require(path.join(SRC, 'worker', 'supervisor.ts'));
 const { storeFileFor, newRunId, insertRun, readRuns, transition } = require(path.join(SRC, 'worker', 'run-store.ts'));
 const { writePrompt } = require(path.join(SRC, 'worker', 'session-prompt.ts'));
-const { mainLaunchRecord } = require(path.join(SRC, 'worker', 'launch.ts'));
+const { mainLaunchRecord, launchChannelSession } = require(path.join(SRC, 'worker', 'launch.ts'));
 const { executeWorkerCommand, handleWorkerCommand } = require(path.join(SRC, 'worker', 'command.ts'));
 const { CHANNEL_LIMITS } = require(path.join(SRC, 'worker', 'channel.ts'));
 const tree = require(path.join(SRC, 'worker', 'process-tree.ts'));
@@ -241,6 +241,45 @@ test('a killed supervisor reads channel-closed, supervisor-gone, naming the canc
   const cancel = await executeWorkerCommand({ action: 'cancel', slug: 'started-sessions', workerRun: runId, operator: true, via: 'console', reason: 'ended', env: f.env, cwd: f.root });
   assert.equal(cancel.body.disposition, 'cancelled', JSON.stringify(cancel.body));
   await until(() => gone(worker), 'the harness group gone', 5000);
+});
+
+test('A-02: a retry dropped while the first write is stalled is written once; its answer is the first message\'s entry', POSIX, async (t: any) => {
+  const f = fixture(t);
+  const runId = seed(f, { sent: 'first words' });
+  // The real launch, with stdin writes held while `held` is set: a harness not reading its stdin (the drain-stall seam).
+  const gate: any = { held: false, queue: [] as Array<() => void> };
+  const launch = async (o: any) => {
+    const r = await launchChannelSession(o);
+    const stdin = r.child.stdin;
+    const write = stdin.write.bind(stdin);
+    stdin.write = (chunk: any, cb: any) => {
+      if (!gate.held) return write(chunk, cb);
+      gate.queue.push(() => write(chunk, cb));
+      return true;
+    };
+    return r;
+  };
+  f.supervising.push(superviseRun({ file: f.file, runId, env: f.env, cwd: f.root, launchChannel: launch, channel: { pollMs: 20 } }));
+  await until(() => runOf(f, runId)?.channel?.state === 'open' && runOf(f, runId).channel.turn.state === 'waiting', 'the turn waiting');
+
+  const id = rid();
+  gate.held = true;
+  const first = verb(f, runId, 'send', { requestId: id, text: 'say it once' });
+  await until(() => gate.queue.length === 1, 'the first write held');
+  // The first file is taken and its write is stalled: no ledger entry and no spool file name the id, so the retry drops.
+  const retry = verb(f, runId, 'send', { requestId: id, text: 'say it once' });
+  await until(() => waiting(f, runId).length === 1, 'the retry dropped');
+  gate.held = false;
+  for (const go of gate.queue.splice(0)) go();
+  const [a, b] = await Promise.all([first, retry]);
+  await sleep(300);
+  assert.equal(logLines(f).filter((line) => line.includes('say it once')).length, 1, 'the harness received the message once');
+  assert.deepEqual(ledgerOf(f, runId).filter((e: any) => e.requestId === id).map((e: any) => [e.seq, e.outcome]), [[2, 'written']], 'one ledger entry for the id');
+  assert.deepEqual(waiting(f, runId), [], 'the retry file was taken and skipped');
+  assert.deepEqual([a.body.ok, a.body.message.seq, a.body.message.state], [true, 2, 'written']);
+  assert.deepEqual([b.exit, b.body.ok, b.body.message.seq, b.body.message.state, b.body.message.at], [0, true, 2, 'written', a.body.message.at], 'the retry answers with the first message\'s entry');
+  const later = await verb(f, runId, 'send', { requestId: id, text: 'say it once' });
+  assert.deepEqual([later.body.replayed, later.body.message.seq], [true, 2], 'a later retry is the recorded replay');
 });
 
 // ── IC-001's checks, in order, each before any write ─────────────────────────────────────────────

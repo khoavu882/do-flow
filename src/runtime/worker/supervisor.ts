@@ -416,6 +416,20 @@ function channelSide({ file, runId, root, run, compiled, child, clock, options =
   const tracker = new TurnTracker(compiled, () => clock().getTime());
   let seq = 0;
   let inflight: number | null = null;
+  /**
+   * Review A-02: every request id this supervisor has taken, is writing or has recorded. A file whose id is among them is
+   * a retry that passed the verb's replay check while its first was in flight: it is taken and skipped, never written
+   * again, and the first message's ledger entry is its answer. Known ceiling: the set grows with the ids taken over the
+   * session's life (one hour, the started-session timeout), a 22-character string each.
+   */
+  const seen = new Set<string>();
+  /** True when `requestId` was seen already; else it is marked seen now. A message without an id is never a retry. */
+  const repeated = (requestId: string | null): boolean => {
+    if (requestId === null) return false;
+    if (seen.has(requestId)) return true;
+    seen.add(requestId);
+    return false;
+  };
   let early: { seq: number; answer: string } | null = null;
   let closing: string | null = null;
   let quietFrom = idleNow();
@@ -561,6 +575,7 @@ function channelSide({ file, runId, root, run, compiled, child, clock, options =
           if (!item.ok) continue;
           const m = item.message;
           if (!ACTOR.test(m.by) || (m.requestId !== null && !REQUEST_ID.test(m.requestId))) continue;
+          if (repeated(m.requestId)) continue;
           // `waiting` counts the messages queued ahead of this one and not yet written (review B-03). Each one ahead was
           // written, refused or failed before this await returned, so none is still waiting: a batch taken together is
           // never refused for its own size. The verb's count is the spool files ahead of its drop.
@@ -625,6 +640,7 @@ function channelSide({ file, runId, root, run, compiled, child, clock, options =
       for (const item of left) {
         if (!item.ok || !ACTOR.test(item.message.by)) continue;
         const m = item.message;
+        if (m.requestId !== null && REQUEST_ID.test(m.requestId) && repeated(m.requestId)) continue;
         seq += 1;
         append({
           seq, kind: m.kind, by: m.by, requestId: m.requestId !== null && REQUEST_ID.test(m.requestId) ? m.requestId : null, at: iso(clock),
