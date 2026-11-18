@@ -500,7 +500,7 @@ You can start a coding session in a checkout of one of your projects from the Do
 2. a checkout of it (one that already has a started session open is greyed out);
 3. a harness. Nothing is preselected. The page lists the harnesses that can start here, and apart from them each one that cannot, with the reason: copilot, kiro and antigravity are not started (see Reference), and a harness that is not installed or is logged out is listed as such; a harness whose login DoFlow cannot check (codex and opencode today) can start, and the page says so beside it;
 4. a model, or the harness's default;
-5. how the session starts: with DoFlow's `do` skill (the default: your text is sent after the line `Use the DoFlow do skill for this request:` and a blank line) or your text alone;
+5. how the session starts: with DoFlow's `do` skill (the default: your text is sent as the request in a prompt frame whose instruction is `Use the DoFlow do skill for the request in input.`) or your text alone;
 6. the first text, up to 8000 characters.
 
 Start opens a confirmation. After you confirm, the page follows the session: its state, its output and error output as they are written (masked, the last 200 lines), and a link to it in Layers.
