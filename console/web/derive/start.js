@@ -329,12 +329,15 @@ function checkoutRows(options) {
   return [...rows.filter((/** @type {any} */ r) => r.main), ...rows.filter((/** @type {any} */ r) => !r.main)];
 }
 
-/** The two entries of the form, the default first (design §10). @param {any} options */
+/**
+ * The two entries of the form, the default first (design §10). Row 173: the core sends the text of entry `do` as the request inside a
+ * prompt frame whose instruction is `entryLine`, so the note says that, not that the line comes first. @param {any} options
+ */
 function entryChoices(options) {
   const offered = options && Array.isArray(options.entries) ? options.entries : ['do', 'none'];
-  const line = options && typeof options.entryLine === 'string' ? options.entryLine : 'Use the DoFlow do skill for this request:';
+  const line = options && typeof options.entryLine === 'string' ? options.entryLine : 'Use the DoFlow do skill for the request in input.';
   return [
-    { id: 'do', label: ENTRY_DO, note: `Sends “${line}”, a blank line, then your text.` },
+    { id: 'do', label: ENTRY_DO, note: `Sends the instruction “${line}” with your text marked as the request.` },
     { id: 'none', label: ENTRY_NONE, note: 'Sends your text and nothing else.' },
   ].filter((e) => offered.includes(e.id));
 }

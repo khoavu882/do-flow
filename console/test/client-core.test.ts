@@ -5923,7 +5923,7 @@ const options165 = (over: any = {}) => ({
     harness165('copilot', { startable: false, reason: 'no-main-session-shape', warnings: [], login: null }),
   ],
   limits: { perCheckout: 1, perActor: 2, machine: 4, perActorPerHour: 6 }, open: { machine: 0 }, dispatch: { running: false }, promptMax: { codePoints: 8000, bytes: 32768 },
-  entries: ['do', 'none'], entryLine: 'Use the DoFlow do skill for this request:', ...over,
+  entries: ['do', 'none'], entryLine: 'Use the DoFlow do skill for the request in input.', ...over,
 });
 function route165(state: { options?: any, actions?: Reply, post?: (init: any) => Reply | 'network' } = {}) {
   return (target: string, init: any): Reply | 'network' | Promise<Reply> => {

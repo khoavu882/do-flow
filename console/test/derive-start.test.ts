@@ -52,7 +52,7 @@ function options(over: any = {}): any {
       { harness: 'kiro', startable: false, reason: 'not-installed', words: 'kiro is not installed on this machine', warnings: [], login: null, version: null, models: [] },
     ],
     limits: { perCheckout: 1, perActor: 2, machine: 4, perActorPerHour: 6 }, open: { machine: 1 }, dispatch: { running: false },
-    promptMax: { codePoints: 8000, bytes: 32768 }, entries: ['do', 'none'], entryLine: 'Use the DoFlow do skill for this request:', ...over,
+    promptMax: { codePoints: 8000, bytes: 32768 }, entries: ['do', 'none'], entryLine: 'Use the DoFlow do skill for the request in input.', ...over,
   };
 }
 
@@ -160,7 +160,7 @@ test('the prompt count is in code points against 8000; a leading dash is refused
   assert.equal(start.promptState('🙂'.repeat(30), { codePoints: 8000, bytes: 100 }, how('do', false)).issue, 'prompt-too-long', 'the bytes bound holds too (120 bytes, 30 code points)');
   assert.equal(start.promptState('-x', undefined, how('do', true)).issue, 'prompt-leading-dash', 'argv, entry do');
   assert.equal(start.promptState('-x', undefined, how('none', false)).issue, 'prompt-leading-dash', 'entry none');
-  assert.equal(start.promptState('-x', undefined, how('do', false)).issue, null, 'stdin with the do skill: the entry line comes first');
+  assert.equal(start.promptState('-x', undefined, how('do', false)).issue, null, 'stdin with the do skill: the text goes inside the frame, not first');
   assert.equal(start.promptState('@file', undefined, how('do', true)).issue, 'prompt-leading-at');
   assert.equal(start.promptState('@file', undefined, how('do', false)).issue, null);
   assert.equal(start.promptState('a\u0000b', undefined, how('do', false)).issue, 'prompt-nul');
@@ -188,7 +188,10 @@ test('Start is ready only with a checkout, a startable harness and a text; a run
 test('the entry choices say the default first with the core\'s fixed line; the limits read as one line', () => {
   const entries = start.entryChoices(options());
   assert.deepEqual(entries.map((e: any) => [e.id, e.label]), [['do', 'Start with DoFlow\'s do skill'], ['none', 'Send my text only']]);
-  assert.match(entries[0].note, /Use the DoFlow do skill for this request:/);
+  // Row 173: the core frames the text of entry do, the line being the frame's instruction; the note says so and no longer says the line comes first.
+  assert.equal(entries[0].note, 'Sends the instruction “Use the DoFlow do skill for the request in input.” with your text marked as the request.');
+  assert.equal(start.entryChoices(options({ entryLine: 'Another line.' }))[0].note, 'Sends the instruction “Another line.” with your text marked as the request.', 'the line is the core\'s, not the Console\'s');
+  assert.equal(entries[1].note, 'Sends your text and nothing else.');
   assert.equal(start.limitWords(options()), '1 of 4 sessions open on this machine; 1 per checkout, 2 per device and 6 starts per device per hour.');
   assert.deepEqual(start.checkoutRows(options()).map((c: any) => c.label), ['do-flow', 'do-flow-fu25'], 'the main checkout first');
 });
