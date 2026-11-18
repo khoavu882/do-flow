@@ -209,12 +209,12 @@ gate anchored before its own stage, or start a workflow run for a standalone rev
 
 ## Running the review in a subagent
 
-Dispatch a review over a large change whole to the `reviewer` agent, which returns its report here.
+A review over a large change can be dispatched whole to the `reviewer` agent, which returns its report here.
 Use it when this session wrote the change or needs its context for other work.
 
 Only **where** the review runs changes: it loads the same rules files and dispatch tables,
-states the same Review Contract, and returns the same verdict vocabulary; a report that differs from
-an in-session one is a defect, not a variant.
+states the same Review Contract, and returns the same verdict vocabulary; a differing report
+is a defect, not a variant.
 
 Review read-only at `frontier`, with an agent and model different from the author; pass the brief's
 bound model id where it names one, else translate the tier. Brief each seat in the prompt frame (`"$DOFLOW" prompt-frame --action guide` prints `PROMPT_FRAME.md`); the review package is its input. Follow the protocol `review --action start` prints; each `protocol.blocker` is a blocker rule.
