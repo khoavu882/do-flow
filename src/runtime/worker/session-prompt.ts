@@ -71,7 +71,7 @@ function preparePrompt(raw: any, opts: { entry: string; promptVia: string }): Pr
 const REQUEST_OPEN = '<input>\n<document id="request">\n';
 const REQUEST_CLOSE = `\n</document>\n</input>\n\n<instructions>\n${ENTRY_LINE}\n`;
 // What the composer's escape wrote for a frame tag (`<role` becomes `&lt;role`), written back.
-const ESCAPED_TAG = /&lt;(\s*\/?\s*)(role|context|input|instructions|example|output_format|document)(?=[\s>/])/gi;
+const ESCAPED_TAG = /&lt;(\s*\/?\s*)(role|context|input|instructions|example|output_format|document)(?=[\s>/]|$)/gi;
 
 /**
  * The person's text of a prompt entry `do` sent: the body of its `request` document with the composer's tag escape

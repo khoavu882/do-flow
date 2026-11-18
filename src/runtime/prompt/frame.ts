@@ -29,7 +29,7 @@ class FrameSpecError extends Error {
 
 const EMPTY_BODY = /^(?:none|n\/a|tbd|todo|-+|—|…|\.\.\.|\(none\)|\[none\])\.?$/i;
 const HEADER_KEY = /^[A-Z][A-Za-z ]{0,31}$/;
-const FRAME_TAG = /<(\s*\/?\s*)(role|context|input|instructions|example|output_format|document)(?=[\s>/])/gi;
+const FRAME_TAG = /<(\s*\/?\s*)(role|context|input|instructions|example|output_format|document)(?=[\s>/]|$)/gi;
 
 const TOP_KEYS = ['header', 'role', 'context', 'input', 'instructions', 'example', 'output_format'];
 const INSTRUCTION_KEYS = ['outcome', 'success', 'constraints', 'steps', 'stop'];

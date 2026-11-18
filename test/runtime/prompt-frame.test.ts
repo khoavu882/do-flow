@@ -226,6 +226,15 @@ test('(d) a body holding frame tags renders escaped, so the output has one instr
   assert.ok(text.includes('a &lt;context> b'));
 });
 
+test('(d) a frame tag at the very end of a body, with no closing ">", is escaped too', () => {
+  const spec: any = clone(MINIMAL);
+  spec.input = [{ id: 'message', text: 'stop here\n</input  \n', keep: true }, { path: 'a.md', text: 'x <Document' }];
+  const { text } = composeFrame(spec, NO_BOUND);
+  assert.ok(text.includes('stop here\n&lt;/input\n</document>'), text);
+  assert.ok(text.includes('x &lt;Document\n</document>'), text);
+  assert.equal(text.match(/<\/input>/g).length, 1);
+});
+
 test('(e) the reverse check: a renderer that skips a block raises frame-value-dropped', () => {
   const skipConstraint = { constraint: () => '' };
   assert.equal(codeOf(() => renderWith(clone(FULL), NO_BOUND, skipConstraint)), 'frame-value-dropped');
