@@ -69,7 +69,7 @@ function mapWorker(map: any = fieldMap()): any {
     loginProbe: entry('unknown'),
     persistentSession: entry('unknown'),
     resume: entry('unknown'),
-    steering: entry('unknown'),
+    controlChannel: entry('unknown'),
     modelChecks: [],
   };
 }

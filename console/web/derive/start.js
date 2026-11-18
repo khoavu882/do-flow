@@ -218,6 +218,29 @@ function projectRows(body) {
   return [...rows.filter((/** @type {any} */ p) => p.current), ...rows.filter((/** @type {any} */ p) => !p.current)];
 }
 
+/** 170 design §10: whether a started session of the harness can be talked to while it runs. */
+const CHANNEL_TALK = 'You can talk to it while it runs.';
+
+/**
+ * The words of a harness's `channel` fact (170 IC-006: `{ state, reason, liveVerified, unverified }`, null from a core before it): supported and
+ * live-verified says one sentence; supported and not verified adds the warning with the first thing left unverified; unsupported and unknown say that
+ * it runs one prompt and why Send is unavailable (the descriptor's reason, as the core gave it). Null for a core that sent none: nothing is claimed.
+ * @param {any} channel
+ * @returns {{ state: string, line: string, warning: string | null } | null}
+ */
+function channelWords(channel) {
+  if (!channel || typeof channel !== 'object') return null;
+  if (channel.state === 'supported') {
+    const first = Array.isArray(channel.unverified) && typeof channel.unverified[0] === 'string' ? channel.unverified[0] : null;
+    return {
+      state: 'supported', line: CHANNEL_TALK,
+      warning: channel.liveVerified === true ? null : `Talking to it is not verified on a live run${first === null ? '' : `: ${first}`}.`,
+    };
+  }
+  const reason = typeof channel.reason === 'string' && channel.reason !== '' ? channel.reason.replace(/[.\s]+$/, '') : 'no reason recorded';
+  return { state: channel.state === 'unsupported' ? 'unsupported' : 'unknown', line: `Runs one prompt; Send is unavailable: ${reason}.`, warning: null };
+}
+
 /**
  * The harnesses of the options: the ones that can start in the core's registry order, then the ones that cannot, each with the core's
  * words, the words of its login (`loginLines`) and, for a logged-out one, when the login was checked. Nothing is marked preferred or chosen.
@@ -239,6 +262,7 @@ function harnessRows(options, ago) {
     liveVerified: typeof item.liveVerified === 'boolean' ? item.liveVerified : null,
     liveLine: item.startable === true && item.liveVerified !== true ? NOT_LIVE_VERIFIED : null,
     models: Array.isArray(item.models) ? item.models : [],
+    channel: channelWords(item.channel),
   }));
   return { startable: rows.filter((/** @type {any} */ r) => r.startable), blocked: rows.filter((/** @type {any} */ r) => !r.startable) };
 }
@@ -474,8 +498,8 @@ const refusalRereads = (code) => ['unknown-worktree', 'worktree-gone', 'project-
 
 // ---- the state of a start (design §10 states 4 to 8) ---------------------------------------------------------------------------------------------
 
-/** @returns {{ step: string, info: any, run: any, refusal: any, node: any }} */
-const initialFlow = () => ({ step: 'form', info: null, run: null, refusal: null, node: null });
+/** @returns {{ step: string, info: any, run: any, refusal: any, node: any, channels: { state: string, code: string | null, item: any } }} */
+const initialFlow = () => ({ step: 'form', info: null, run: null, refusal: null, node: null, channels: { state: 'absent', code: null, item: null } });
 
 /**
  * The state machine of one start: form -> starting -> running -> streaming -> ended, or form -> starting -> refused | unknown. Events:
@@ -495,6 +519,8 @@ function flowReduce(flow, event) {
       return { ...flow, step: 'refused', run: null, refusal: { code, current: reply.body && reply.body.current ? reply.body.current : null, status: reply.status, retryAfter: reply.headers ? reply.headers['retry-after'] ?? null : null } };
     }
     case 'output': return flow.step === 'running' && event.text === true ? { ...flow, step: 'streaming' } : flow;
+    // 170: the run's entry of the `channels` section (`channelIn` of derive/layers.js), kept beside the node; it changes no step.
+    case 'channel': return flow.run === null ? flow : { ...flow, channels: event.channels };
     case 'node': {
       if (flow.run === null || (flow.step !== 'running' && flow.step !== 'streaming' && flow.step !== 'ended')) return flow;
       const node = event.node;
@@ -603,6 +629,7 @@ function startedHere(machine) {
 export {
   VIEW_ONLY_WORDS, terminalCommand, modelKey, modelChoiceOf, modelNote, ENTRY_DO, ENTRY_NONE, NOT_STARTABLE_TITLE, NOT_LIVE_VERIFIED, SOURCE_ORDER, PHASE_WORDS,
   sha256Hex, agentKeyOf, startedByWords, starterLabel, endedWords, STARTED_HERE_TITLE, STARTED_HERE_EMPTY, endWords, permissionWords, warningWords, loginLines,
+  CHANNEL_TALK, channelWords,
   projectRows, harnessRows, harnessOf, modelGroups, checkoutRows, entryChoices, limitWords, dispatchWords,
   promptState, formFor, readiness, startBody, attemptFor, settleAttempt,
   OUTPUT_LINES, outputTail, optionsErrorWords, nodeIn, startRefusalLines, refusalRereads, initialFlow, flowReduce, flowWords, startedItems, startedHere,

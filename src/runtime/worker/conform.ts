@@ -12,7 +12,8 @@
 // caller variable reaches the child, and nothing is written outside the scratch: no telemetry, no store, and the
 // CLI runs no storage upkeep after it (`runsUpkeep` in src/cli/runtime-commands.ts).
 //
-// Parts, in order (§6.2): binary, one-shot, prompt-transport, model-flag, main-session, stream, login. A part is
+// Parts, in order (§6.2; 169 added provider and effort, 170 control-channel): binary, one-shot, prompt-transport,
+// model-flag, provider, effort, main-session, control-channel, stream, login. A part is
 // `unchecked: not-declared` when its entry is not `supported`, and `unchecked: depends-on <part>` when a part it
 // needs failed. The stream cases are synthesized from the field map (§6.3); a code parser leaves stream
 // `unchecked: code-parser`. Exit (§6.4): 0 when no part failed, 1 naming each failed part, 2 for
@@ -35,8 +36,9 @@ const { exitFact } = require('./readiness.ts');
 const { wideningProblem, wideningFlagsProblem } = require('../../registry/widening-flags.ts');
 const { secretProblem, secretFlagsProblem } = require('../../registry/secret-flags.ts');
 const { checkLogin, loginExpiredOf } = require('./login.ts');
+const { compileChannel, frameMessage, idOf, TurnTracker } = require('./channel.ts');
 
-const PARTS = Object.freeze(['binary', 'one-shot', 'prompt-transport', 'model-flag', 'provider', 'effort', 'main-session', 'stream', 'login']);
+const PARTS = Object.freeze(['binary', 'one-shot', 'prompt-transport', 'model-flag', 'provider', 'effort', 'main-session', 'control-channel', 'stream', 'login']);
 const FAKE = path.join(__dirname, 'conform-fake.ts');
 const TIMEOUT_MS = 10000;
 const REASON_CHARS = 160;
@@ -553,6 +555,133 @@ async function loginPart(ctx: any, worker: any): Promise<Part> {
   return part('login', 'passed', `${answers.length} answers, ${signs.length} signs, providers ${recipe.providers ? 'yes' : 'no'}`);
 }
 
+// ---- the control-channel part (170 IC-007) ------------------------------------------------------------------
+
+/** How long the fake has to answer the three records; `close.graceSeconds` is the descriptor's own bound for the exit. */
+const CHANNEL_WAIT_MS = 5000;
+/** Quotes, a backslash, `$`, a newline and non-ASCII: the record's JSON encoding shows any shortcut. */
+const CHANNEL_TEXT = 'Conform message: \'single\' "double" $HOME \\back\\slash\nsecond line, é 漢字';
+/** The turn each record leaves behind: a follow-up or steer starts work, a stop settles it. */
+const CHANNEL_TURN: Record<string, string> = { followUp: 'working', steer: 'working', stop: 'waiting' };
+
+const textOf = (bytes: Buffer): string => json(bytes.toString('utf8'));
+
+/**
+ * IC-007: starts the channel argv with stdin kept open and writes one follow-up, one steer (when declared) and one
+ * stop, each framed by `frameMessage`. The fake (conform-fake.ts), told the templates and the working, settled and
+ * answer events the tests synthesize, logs the bytes it received and answers; conform checks those bytes equal the
+ * frames, that the tracker reads working after the follow-up and the steer and waiting after the stop, that each
+ * answer carries its record's id and reads accepted, then closes stdin and fails the part when the fake has not
+ * exited within `graceSeconds`. The fake runs in its own process group, killed at the end whatever the outcome.
+ */
+async function controlChannelPart(ctx: any, worker: any): Promise<Part> {
+  const entry = worker.controlChannel;
+  const compiled = compileChannel(worker);
+  if (!compiled) return part('control-channel', 'failed', 'controlChannel does not pass its own validation');
+  try {
+    refuseUnknownMainParser(worker, 'channel');
+  } catch (error: any) {
+    return part('control-channel', 'failed', error.message);
+  }
+  const kinds: [string, string][] = [['follow-up', 'followUp'], ...(compiled.templates.steer ? [['steer', 'steer'] as [string, string]] : []), ['stop', 'stop']];
+  const frames: any[] = [];
+  for (const [i, [kind, name]] of kinds.entries()) {
+    const framed = frameMessage(compiled, kind, { text: CHANNEL_TEXT, id: idOf(i + 1) });
+    if (!framed.ok) return part('control-channel', 'failed', `the ${name} message is refused: ${framed.code}`);
+    frames.push(framed.record);
+  }
+  const accepted = entry.answer ? eventFor({ when: entry.answer.accepted }, 0) : null;
+  if (accepted) set(accepted, entry.answer.id, idOf(0));
+  const answer = accepted ? { idPath: entry.answer.id, accepted } : null;
+  const templates = structuredClone(compiled.templates);
+  if (ctx.channelFake === 'extra-key') {
+    // The fake is told a followUp template without its last key, so the record conform sends holds one key more.
+    const keys = Object.keys(templates.followUp);
+    delete templates.followUp[keys[keys.length - 1]];
+  }
+  const spec = {
+    templates, answer, mode: ctx.channelFake === 'ignore-eof' ? 'ignore-eof' : 'normal',
+    working: eventFor({ when: entry.turn.working }, 0), settled: eventFor({ when: entry.turn.settled }, 0),
+  };
+
+  const n = ctx.spawns++;
+  const script = path.join(ctx.dir, 'log', `${n}.script.json`);
+  const log = path.join(ctx.dir, 'log', `${n}.log`);
+  fs.writeFileSync(script, JSON.stringify({ channel: spec }));
+  const events: any[] = [];
+  let pending = '';
+  let ended: any = null;
+  const child = spawn(ctx.fake, compiled.argv, {
+    cwd: ctx.home, shell: false, detached: true, stdio: ['pipe', 'pipe', 'ignore'],
+    env: {
+      PATH: ctx.bin, HOME: ctx.home, LANG: 'C.UTF-8',
+      DOFLOW_CONFORM_NODE: process.execPath, DOFLOW_CONFORM_FAKE: FAKE, DOFLOW_CONFORM_SCRIPT: script, DOFLOW_CONFORM_LOG: log, DOFLOW_CONFORM_EXIT: '0',
+    },
+  });
+  const killGroup = () => {
+    if (ended === null && child.pid) try { process.kill(-child.pid, 'SIGKILL'); } catch { /* already gone */ }
+  };
+  ctx.child = { kill: killGroup };
+  child.stdin.on('error', () => {});
+  child.stdout.on('data', (chunk: Buffer) => {
+    const lines = (pending + chunk.toString('utf8')).split('\n');
+    pending = lines.pop() ?? '';
+    for (const line of lines) {
+      try { events.push(JSON.parse(line)); } catch { events.push(null); }
+    }
+  });
+  child.on('error', (error: any) => { ended ??= { code: null, signal: null, error: error?.code || 'spawn-failed' }; });
+  child.on('exit', (code: number | null, signal: string | null) => { ended ??= { code, signal }; });
+  const until = async (done: () => boolean, ms: number): Promise<boolean> => {
+    const end = Date.now() + ms;
+    while (!done()) {
+      if (Date.now() > end) return false;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    return true;
+  };
+  const fail = (reason: string) => part('control-channel', 'failed', reason);
+  try {
+    for (const record of frames) child.stdin.write(record);
+    const per = answer ? 2 : 1;
+    const mismatch = () => events.find((event) => event?.conformFake === 'mismatch');
+    const answered = await until(() => events.length >= per * frames.length || mismatch() !== undefined || ended !== null, CHANNEL_WAIT_MS);
+    const refused = mismatch();
+    if (refused) return fail(`the fake did not take record ${refused.n}: ${refused.problem}`);
+    if (!answered || events.length < per * frames.length) {
+      return fail(ended ? `the fake ended ${describeExit({ status: 'exited', ...ended })} after ${events.length} of ${per * frames.length} events` : `the fake sent ${events.length} of ${per * frames.length} events within ${CHANNEL_WAIT_MS / 1000} s`);
+    }
+    const lines = fs.readFileSync(log, 'utf8').split('\n').filter(Boolean).map((line: string) => JSON.parse(line));
+    const received = lines.slice(1).map((line: any) => Buffer.from(String(line.received), 'base64'));
+    if (typeof ctx.onLog === 'function') ctx.onLog({ ...lines[0], received: received.map((bytes: Buffer) => bytes.toString('utf8')) });
+    if (received.length !== frames.length) return fail(`the fake received ${received.length} records, want ${frames.length}`);
+    for (const [i, record] of frames.entries()) {
+      if (!received[i].equals(record)) return fail(`record ${i + 1} (${kinds[i][1]}): the fake received ${textOf(received[i])}, want ${textOf(record)}`);
+    }
+    const tracker = new TurnTracker(compiled);
+    const answers: any[] = [];
+    for (const [i, [, name]] of kinds.entries()) {
+      for (let k = 0; k < per; k += 1) {
+        const fed = tracker.feed(events[i * per + k]);
+        if (fed.answer) answers.push(fed.answer);
+      }
+      const turn: any = tracker.turn;
+      const got = turn.observed ? turn.state : `not observed (${turn.reason})`;
+      if (got !== CHANNEL_TURN[name]) return fail(`after the ${name} record the turn reads ${got}, want ${CHANNEL_TURN[name]}`);
+    }
+    const wanted = answer ? kinds.map((_, i) => ({ seq: i + 1, answer: 'accepted' })) : [];
+    if (json(answers) !== json(wanted)) return fail(`the answers read ${json(answers)}, want ${json(wanted)}`);
+    child.stdin.end();
+    if (!await until(() => ended !== null, compiled.graceSeconds * 1000)) {
+      return fail(`the fake did not exit within graceSeconds after stdin closed (${compiled.graceSeconds} s)`);
+    }
+    return part('control-channel', 'passed', `${frames.length} records byte for byte, turn working then waiting${answer ? ', answers by id' : ''}, exit after stdin closed`);
+  } finally {
+    killGroup();
+    ctx.child = null;
+  }
+}
+
 /** §6.2: every part in order, with `not-declared` and `depends-on` applied before a part runs. */
 async function checkParts(ctx: any, worker: any): Promise<Part[]> {
   const gate = (name: string, entry: any, needs: Part | null): Part | null => {
@@ -571,6 +700,7 @@ async function checkParts(ctx: any, worker: any): Promise<Part[]> {
     gate('provider', worker.provider, binary) ?? await transportPart(ctx, worker, 'provider', oneShot),
     gate('effort', worker.effort, binary) ?? await transportPart(ctx, worker, 'effort', oneShot),
     gate('main-session', worker.mainSession, binary) ?? await mainSessionPart(ctx, worker),
+    gate('control-channel', worker.controlChannel, binary) ?? await controlChannelPart(ctx, worker),
     gate('stream', worker.structuredOutput, binary) ?? await streamPart(ctx, worker),
     gate('login', worker.loginProbe, binary) ?? await loginPart(ctx, worker),
   ];
@@ -594,9 +724,11 @@ function fit(body: any): any {
 /**
  * IC-005: conforms `harness` (a built-in id or a package `<pkg>.<local>` id) and resolves `{ exit, body }`.
  * `registry`, `view` and `repoRoot` reach `workerCatalogue`; `tmpDir` is where the scratch is made; `onLog` (a
- * test seam) receives each record the fake logged.
+ * test seam) receives each record the fake logged. `channelFake` (a test seam, never reached from the CLI) makes the
+ * control-channel fake a defective one: `ignore-eof` stays alive after stdin closes, `extra-key` expects a followUp
+ * template with one key fewer than conform sends.
  */
-async function conform({ harness, registry, view, repoRoot, platform = process.platform, tmpDir = os.tmpdir(), onLog = null }: any = {}): Promise<{ exit: number; body: any }> {
+async function conform({ harness, registry, view, repoRoot, platform = process.platform, tmpDir = os.tmpdir(), onLog = null, channelFake = null }: any = {}): Promise<{ exit: number; body: any }> {
   const entries = workerCatalogue({ registry, view, ...(repoRoot ? { repoRoot } : {}) });
   const entry = entries.find((item: any) => item.id === harness);
   if (!entry) return refusal('unknown-harness', `unknown harness '${cutChars(String(harness), NAME_CHARS)}'; known: ${entries.map((item: any) => item.id).join(', ')}`);
@@ -612,7 +744,7 @@ async function conform({ harness, registry, view, repoRoot, platform = process.p
   const scratch = dir;
   const ctx: any = {
     dir: scratch, bin: path.join(scratch, 'bin'), home: path.join(scratch, 'home'), lastMessageFile: path.join(scratch, 'home', 'last-message.txt'),
-    fake: null, spawns: 0, onLog, oneShot: null, child: null,
+    fake: null, spawns: 0, onLog, oneShot: null, child: null, channelFake,
   };
   // B5: a signal ends the running fake and removes the scratch, then takes its default course (it is re-raised once
   // no other listener is left; a process that has others exits 128+n). The handlers live only while conform runs.

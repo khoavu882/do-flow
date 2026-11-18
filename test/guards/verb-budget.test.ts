@@ -42,9 +42,9 @@ const CEILINGS: readonly (readonly [string, number, number])[] = [
   ['paths --json', 0, 896], // 841 B
   ['config --json', 0, 49536], // 48,988 B (141: five advice keys grew it: a mode and a model key for claim-support, and three keys of the rerank kind that row 174 removed again; 143: team.enforcement)
   ['doctor --json', 0, 30592], // 29,549 B (1,024 B margin, design R7; 172 T6: a login answer per harness, IC-003; was 26,665 B)
-  ['storage --json', 0, 14592], // 14,056 B
+  ['storage --json', 0, 15360], // 14,802 B (170 T4: the channel-spool store row)
   ['indicators --json', 0, 704], // 619 B
-  ['package --action list --json', 0, 1920], // 1,424 B (169 T1: model-list-parser removed, control-channel the one reserved point; was 1,636 B)
+  ['package --action list --json', 0, 1920], // 1,220 B (169 T1: model-list-parser removed; 170 R-7: the reserved control-channel point removed too, a package declares a channel on the open worker point; was 1,424 B; the ceiling is left as it was)
   ['failure --action list --json', 0, 256], // 231 B
   ['git-state --json', 0, 320], // 276 B
   ['inventory --json', 0, 1088], // 1,002 B
@@ -55,7 +55,7 @@ const CEILINGS: readonly (readonly [string, number, number])[] = [
   ['protocol --action list --json', 0, 2688], // 2,522 B
   ['primary --action resolve --json', 0, 192], // 142 B
   ['advice-picks --json', 0, 7040], // 6,692 B (151 IC-001: 91 days, no picks on the fixture)
-  ['worker-matrix --json', 0, 91072], // 90,548 B (169: two cells per harness, provider and effort, design R5, with their evidence; roundUp64(measured + 512 B); was 80,273 B)
+  ['worker-matrix --json', 0, 92352], // 91,794 B (170: pi's controlChannel entry, the capture C-1 data; roundUp64(measured + 512 B); was 90,548 B)
 ];
 
 const WRITES_STATE = 'writes-state';

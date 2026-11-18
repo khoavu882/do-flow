@@ -31,7 +31,7 @@ function workerJson() {
     model: supported({ argv: ['--model', '{model}'] }),
     modelList: { status: 'supported', argv: ['list-models'], parse: 'lines', verifiedOn: '2026-10-24', evidence: ['test'] },
     readOnly: unknown('readOnly'), spawnDenial: unknown('spawnDenial'), runnableProbe: unknown('runnableProbe'), hooksProbe: unknown('hooksProbe'),
-    guidanceProbe: unknown('guidanceProbe'), loginProbe: unknown('loginProbe'), persistentSession: unknown('persistentSession'), resume: unknown('resume'), steering: unknown('steering'),
+    guidanceProbe: unknown('guidanceProbe'), loginProbe: unknown('loginProbe'), persistentSession: unknown('persistentSession'), resume: unknown('resume'), controlChannel: unknown('controlChannel'),
     modelChecks: [],
   };
 }

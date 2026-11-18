@@ -13,7 +13,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { tempDir } = require('../helper/tmp.ts');
 const { IDENTITY_VARS, linkBin, writeScenario, readLog } = require('../helper/fake-harness-cli.ts');
-const { ENV_SET, PROMPT_LIMITS, argvShape, assembleArgv, launchEnv, launchRecord, launchWorker, mainArgv, mainArgvShape, mainLaunchRecord } = require('../../src/runtime/worker/launch.ts');
+const { ENV_SET, PROMPT_LIMITS, argvShape, assembleArgv, launchEnv, launchRecord, launchWorker, mainArgv, mainArgvShape, mainLaunchRecord, launchChannelSession } = require('../../src/runtime/worker/launch.ts');
 const { loadRegistry } = require('../../src/registry/index.ts');
 const { resolveIdentity } = require('../../src/runtime/context/identity.ts');
 const DESCRIPTORS = require('../fixtures/worker/descriptors.json');
@@ -292,4 +292,66 @@ test('169: the main-session shape and record keep the placeholders, never the bo
   const text = JSON.stringify(mainLaunchRecord(worker, 'p', choice));
   for (const value of ['secretish-model', 'prov-x']) assert.equal(text.includes(value), false, value);
   assert.throws(() => mainArgv(worker, 'p', undefined, { model: 'm1', provider: null, effort: 'turbo' }), { code: 'model-part-invalid' });
+});
+
+// ---- 170 §5.1: the channel launch ------------------------------------------------------------------------------------------
+
+/** piMain() with a Pi-like control channel (design 4.3) whose argv holds a fixed copy of the effort flag. */
+function piChannel() {
+  const worker = piMain();
+  worker.controlChannel = {
+    status: 'supported', evidence: ['x'], verification: 'v', verifiedOn: '2026-11-17',
+    argv: ['--thinking', 'off', '--mode', 'rpc', '--no-approve'], framing: 'jsonl-lf', parser: 'pi-json-v1', commandPrefix: '/',
+    messages: { followUp: { type: 'prompt', message: '{text}', id: '{id}' }, stop: { type: 'abort', id: '{id}' } },
+    turn: { working: [{ path: ['type'], equals: 'agent_start' }], settled: [{ path: ['type'], equals: 'agent_end' }] },
+    close: { stdinEof: 'exits', graceSeconds: 3 },
+    unverified: ['x'],
+  };
+  return worker;
+}
+
+test('170: a channel record stores the channel argv with the model part at the end, promptVia channel and the channel parser; no prompt and no bound value', () => {
+  const worker = piChannel();
+  const choice = { model: 'secretish-model', provider: 'prov-x', effort: 'high' };
+  const rec = mainLaunchRecord(worker, 'the prompt text', choice, true);
+  assert.deepEqual(rec.recipe.argvShape, ['--mode', 'rpc', '--no-approve', '--model', '{provider}/{model}', '--thinking', '{effort}']);
+  assert.deepEqual([rec.recipe.promptVia, rec.recipe.parser, rec.recipe.profile], ['channel', 'pi-json-v1', 'main-session']);
+  const text = JSON.stringify(rec);
+  for (const value of ['secretish-model', 'prov-x', 'the prompt text']) assert.equal(text.includes(value), false, value);
+  assert.equal(mainLaunchRecord(worker, 'p', null).recipe.promptVia, 'argv', 'without the flag the row-165 shape is unchanged');
+});
+
+test('170: launchChannelSession spawns the channel argv plus the model part with stdin piped and left open; an unsupported entry or a refused argv throws before a spawn', POSIX_ONLY, async (t: any) => {
+  const dir = tempDir(t, 'doflow-launch-channel-');
+  const bin = path.join(dir, 'bin');
+  fs.mkdirSync(bin);
+  fs.symlinkSync(path.join(__dirname, '..', 'helper', 'fake-channel-harness.ts'), path.join(bin, 'fake-pi'));
+  fs.symlinkSync(process.execPath, path.join(bin, 'node'));
+  const log = path.join(dir, 'channel.log');
+  const worker = { ...piChannel(), cli: { binary: path.join(bin, 'fake-pi') } };
+  const env = { PATH: bin, HOME: dir, FAKE_CHANNEL_LOG: log, DOFLOW_RUN_ID: 'r-caller', DOFLOW_SESSION_ROLE: 'worker' };
+  const { child } = await launchChannelSession({ recipe: worker, execWorktree: dir, env, runId: RUN_ID, model: { model: 'm1', provider: null, effort: 'high' } });
+  t.after(() => { try { process.kill(-child.pid, 'SIGKILL'); } catch { /* gone */ } });
+  const exited = new Promise((resolve) => child.once('exit', (code: number | null) => resolve(code)));
+  child.stdout.resume();
+  child.stderr.resume();
+  assert.ok(child.stdin && !child.stdin.writableEnded, 'stdin is a pipe left open for the supervisor');
+  const wait = async (n: number) => {
+    const until = Date.now() + 10000;
+    while ((fs.existsSync(log) ? fs.readFileSync(log, 'utf8').split('\n').length - 1 : 0) < n && Date.now() < until) await new Promise((r) => setTimeout(r, 20));
+  };
+  child.stdin.write('{"type":"prompt","message":"one","id":"d-1"}\n');
+  await wait(1);
+  child.stdin.write('{"type":"prompt","message":"two","id":"d-2"}\n');
+  await wait(2);
+  assert.equal(fs.readFileSync(log, 'utf8'), '{"type":"prompt","message":"one","id":"d-1"}\n{"type":"prompt","message":"two","id":"d-2"}\n', 'two records, one write each, on one open stdin');
+  child.stdin.end();
+  assert.equal(await exited, 0, 'the harness ends at stdin EOF');
+  assert.deepEqual(child.spawnargs.slice(1), ['--mode', 'rpc', '--no-approve', '--model', 'm1', '--thinking', 'high']);
+
+  const unknown = { ...worker, controlChannel: { status: 'unknown', reason: 'not documented' } };
+  await assert.rejects(launchChannelSession({ recipe: unknown, execWorktree: dir, env, runId: RUN_ID }), { code: 'recipe-incomplete' });
+  const widened = { ...worker, controlChannel: { ...worker.controlChannel, argv: ['--mode', 'rpc', '--dangerously-skip-permissions'] } };
+  await assert.rejects(launchChannelSession({ recipe: widened, execWorktree: dir, env, runId: RUN_ID }), { code: 'widening-flag' });
+  await assert.rejects(launchChannelSession({ recipe: { ...worker, controlChannel: { ...worker.controlChannel, parser: 'no-such-parser' } }, execWorktree: dir, env, runId: RUN_ID }), { code: 'parser-unknown' });
 });

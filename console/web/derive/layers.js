@@ -11,8 +11,8 @@
 
 // ---- the transcript panel's helpers --------------------------------------------------------------------------------------
 
-import { byWords } from './actions.js';
-import { startedByWords, endWords, PHASE_WORDS } from './start.js';
+import { byWords, notAllowedWords } from './actions.js';
+import { startedByWords, endWords, PHASE_WORDS, promptState } from './start.js';
 
 /** The events a stream panel keeps (V8 7b.2). */
 const MAX_EVENTS = 500;
@@ -402,7 +402,7 @@ function projectModel(body) {
   const sec = {
     checkouts: sectionOf(body, 'checkouts'), tree: sectionOf(body, 'tree'), runs: sectionOf(body, 'runs'), gates: sectionOf(body, 'gates'),
     artifacts: sectionOf(body, 'artifacts'), reviews: sectionOf(body, 'reviews'), sessions: sectionOf(body, 'sessions'),
-    traffic: sectionOf(body, 'traffic'), coverage: sectionOf(body, 'coverage'),
+    traffic: sectionOf(body, 'traffic'), coverage: sectionOf(body, 'coverage'), channels: sectionOf(body, 'channels'),
   };
   const state = (/** @type {string} */ name) => ({ state: sec[/** @type {keyof typeof sec} */ (name)].state, code: sec[/** @type {keyof typeof sec} */ (name)].code });
   /** @type {any[]} */
@@ -422,6 +422,9 @@ function projectModel(body) {
   const traffic = sec.traffic.state === 'ok' ? sec.traffic.data : null;
   const trafficBy = new Map((traffic && Array.isArray(traffic.agents) ? traffic.agents : []).map((/** @type {any} */ a) => [a.agentKey, a]));
   const audit = auditLines(sessions);
+  // 170 IC-004: the control channel of each started session, by its run id; the section's own state says why none is held.
+  /** @type {any[]} */
+  const channelItems = sec.channels.state === 'ok' && Array.isArray(sec.channels.data.items) ? sec.channels.data.items : [];
 
   const waiting = gateEvents.filter((g) => g.state === 'awaiting').sort((a, b) => byNewest(a, b, 'at', 'taskId'));
   /** The decided and skipped gate events of a run, newest first. @param {string | null} runKey @param {string} taskId */
@@ -490,7 +493,8 @@ function projectModel(body) {
   }
   return {
     present: body !== null && body !== undefined,
-    sections: { checkouts: state('checkouts'), tree: state('tree'), runs: state('runs'), gates: state('gates'), artifacts: state('artifacts'), reviews: state('reviews'), sessions: state('sessions'), traffic: state('traffic'), coverage: state('coverage') },
+    sections: { checkouts: state('checkouts'), tree: state('tree'), runs: state('runs'), gates: state('gates'), artifacts: state('artifacts'), reviews: state('reviews'), sessions: state('sessions'), traffic: state('traffic'), coverage: state('coverage'), channels: state('channels') },
+    channels: { ...state('channels'), items: new Map(channelItems.map((item) => [item.runId, item])) },
     waiting: waiting.map((g) => ({ ...g, ...gateWords(g) })),
     lanes,
     loose,
@@ -502,6 +506,143 @@ function projectModel(body) {
     withheld,
     unreadLogs,
   };
+}
+
+// ---- a started session's control channel (170 design §10) --------------------------------------------------------------------------
+
+/** The reasons a turn is not observed, in words (the turn's `reason`, design §7). @type {Readonly<Record<string, string>>} */
+const TURN_REASON_WORDS = Object.freeze({
+  'no-event-yet': 'no turn event seen yet',
+  'message-refused': 'its last message was refused',
+  'channel-closed': 'its channel is closed',
+  opening: 'its channel is opening',
+  'run-ended': 'the session ended',
+  'supervisor-gone': 'its supervisor stopped',
+  'no-channel': 'it has no control channel',
+  'started-without-channel': 'it was started without a control channel',
+});
+
+/** Why a channel closed, in words (the supervisor's `closedReason`). @type {Readonly<Record<string, string>>} */
+const CLOSED_WORDS = Object.freeze({
+  'unused-timeout': 'it sat unused for 30 minutes and its channel was closed',
+  'harness-exited': 'the harness exited',
+  'write-failed': 'a message could not be written to it',
+  'first-refused': 'its first text was refused by the channel',
+  timeout: 'it ran past its time limit and was stopped',
+  'not-started': 'it never started',
+  'not-opened': 'its channel never opened',
+  cancelled: 'it was stopped',
+  'supervisor-gone': 'its supervisor stopped',
+});
+
+/** Why a session has no channel, in words, when the record carries no sentence of its own. @type {Readonly<Record<string, string>>} */
+const NO_CHANNEL_WORDS = Object.freeze({
+  'no-channel': 'this harness has no control channel recorded',
+  'started-without-channel': 'it was started without a control channel',
+});
+
+/** One word for each kind of message. @type {Readonly<Record<string, string>>} */
+const MESSAGE_KIND_WORDS = Object.freeze({ first: 'First text', 'follow-up': 'Send', steer: 'Steer', stop: 'Stop turn' });
+
+/** The sentence of a device that may read but not act. */
+const VIEW_DEVICE_WORDS = 'Sending needs this machine’s Console or a phone paired with control over the app.';
+
+const sentence = (/** @type {string} */ text) => text.replace(/[.\s]+$/, '');
+const dashed = (/** @type {string} */ code) => code.replace(/-/g, ' ');
+
+/**
+ * The channels section of a `layers` member body for one run: `{ state, code, item }`, `state` as `sectionOf` (`absent` when there is no
+ * body or the core sent no such section), `item` the run's entry or null.
+ * @param {any} body @param {string} runId
+ */
+function channelIn(body, runId) {
+  const section = sectionOf(body, 'channels');
+  if (section.state !== 'ok') return { state: section.state, code: section.code, item: null };
+  const items = section.data && Array.isArray(section.data.items) ? section.data.items : [];
+  return { state: 'ok', code: null, item: items.find((/** @type {any} */ i) => i && i.runId === runId) ?? null };
+}
+
+/** Who sent a message, in words: the relay label the core recorded. @param {any} by */
+function whoWords(by) {
+  if (by === 'console') return 'Console';
+  if (by === 'manual') return 'terminal';
+  const device = typeof by === 'string' ? /^device\.(d-[0-9a-f]{12})$/.exec(by) : null;
+  return device ? `paired device ${device[1]}` : typeof by === 'string' && by !== '' ? by : 'not recorded';
+}
+
+/** The recent messages of a channel item as rows of words: kind, who, when (the ISO time), bytes, accepted or refused; never text. @param {any} item */
+function recentWords(item) {
+  const list = item && Array.isArray(item.recent) ? item.recent : [];
+  return list.map((/** @type {any} */ m) => ({
+    seq: m.seq, kind: MESSAGE_KIND_WORDS[m.kind] ?? m.kind, who: whoWords(m.by), at: m.at, bytes: `${m.bytes} B`,
+    result: m.outcome === 'refused' || m.answer === 'refused' ? 'refused' : m.outcome === 'failed' ? 'failed' : m.answer === 'accepted' ? 'accepted' : 'written',
+  }));
+}
+
+/**
+ * What a started session's page says and enables (design §10), from the run's `channels` entry (`channelIn`), the run's phase and what this device may
+ * do (`send`: the power of the three session actions, which share a scope; `end`: whether End session may be pressed). A state the record does not state
+ * is never claimed: "Working" and "Waiting for you" come only from an observed turn.
+ * `show` false: say nothing (no channels section from the core). `badge` is `{ token, face, word }` or null; `note` one sentence or null; `controls` whether the message
+ * box and its buttons are drawn; each of `send`, `steer`, `stopTurn` is `{ enabled, why }`; `end` whether End session is offered; `viewDevice`/`deviceNote` the
+ * words of a device that cannot act.
+ * @param {{ channels: { state: string, code: string | null, item: any }, phase: string | null, send: { allowed: boolean, reason: string | null }, end: boolean }} input
+ */
+function sessionModel({ channels, phase, send, end }) {
+  const live = phase === 'starting' || phase === 'running';
+  const off = { enabled: false, why: null };
+  /** @type {{ show: boolean, badge: any, note: string | null, controls: boolean, send: any, steer: any, stopTurn: any, end: boolean, recent: any[], sent: any }} */
+  const out = { show: true, badge: null, note: null, controls: false, send: off, steer: off, stopTurn: off, end: live && end, recent: [], sent: null };
+  if (channels.state === 'absent' || (channels.state === 'unreadable' && channels.code === 'section-missing')) return { ...out, show: false };
+  if (channels.state === 'unreadable') {
+    return { ...out, badge: { token: 'unknown', face: 'unknown', word: 'Not observed: the channel state could not be read' }, note: `The channels section is unreadable (${channels.code ?? 'unknown'}).` };
+  }
+  const item = channels.item;
+  if (item === null) return { ...out, badge: { token: 'unknown', face: 'unknown', word: 'Not observed: the Console holds no channel record for this session' } };
+  const turn = item.turn && typeof item.turn === 'object' ? item.turn : { observed: false, reason: 'no-event-yet' };
+  const recent = recentWords(item);
+  const sent = item.sent ?? null;
+  const ended = phase === 'ended' || turn.reason === 'run-ended';
+  if (ended || item.channel === 'closed') {
+    const why = item.channel === 'closed' && typeof item.reason === 'string' && item.reason !== '' ? (CLOSED_WORDS[item.reason] ?? dashed(item.reason)) : 'the session ended';
+    return { ...out, badge: { token: ended ? 'done' : 'unknown', face: ended ? 'check' : 'unknown', word: `Ended: ${why}` }, recent, sent };
+  }
+  if (item.channel === 'none') {
+    const why = typeof item.words === 'string' && item.words !== '' ? sentence(item.words) : (NO_CHANNEL_WORDS[item.reason] ?? 'it has no control channel');
+    return { ...out, note: `Send is unavailable: ${why}`, recent, sent };
+  }
+  // An open channel: the badge is the turn's own state.
+  const gone = turn.observed !== true && turn.reason === 'supervisor-gone';
+  /** @type {{ token: string, face: string, word: string }} */
+  let badge;
+  if (turn.observed === true && turn.state === 'working') badge = { token: 'running', face: 'running', word: 'Working' };
+  else if (turn.observed === true && turn.state === 'waiting') badge = { token: 'awaiting', face: 'awaiting', word: 'Waiting for you' };
+  else if (gone) badge = { token: 'unknown', face: 'unknown', word: out.end ? 'Not observed: its supervisor stopped. End it with End session.' : 'Not observed: its supervisor stopped.' };
+  else badge = { token: 'unknown', face: 'unknown', word: `Not observed: ${TURN_REASON_WORDS[turn.reason] ?? dashed(String(turn.reason))}` };
+  if (!send.allowed) {
+    const note = send.reason === null ? null : (notAllowedWords(send.reason) !== null && send.reason !== 'phone-scope' && send.reason !== 'action-transport' ? notAllowedWords(send.reason) : VIEW_DEVICE_WORDS);
+    return { ...out, badge, note, recent, sent };
+  }
+  const closing = phase === 'cancelling';
+  const gate = (/** @type {string | null} */ why) => (closing ? { enabled: false, why: 'it is being ended' } : gone ? { enabled: false, why: 'its supervisor stopped' } : { enabled: why === null, why });
+  const waiting = turn.observed === true && turn.state === 'waiting';
+  return {
+    ...out, badge, controls: true, recent, sent,
+    send: gate(null),
+    steer: gate(waiting ? 'it is waiting: send instead' : null),
+    stopTurn: gate(waiting ? 'it is waiting: there is no turn to stop' : null),
+  };
+}
+
+/**
+ * The message box's state: the text as the Console and the core read it (`promptState`), whether Send and Steer may use it, and the one issue
+ * in words. @param {any} value
+ */
+function messageState(value) {
+  const state = promptState(value, undefined, { entry: 'do', argv: false });
+  const words = state.issue === 'prompt-nul' ? 'The message holds a NUL character, which cannot be sent. Remove it.'
+    : state.issue === 'prompt-too-long' ? 'The message is longer than 8000 characters or 32 KiB. Shorten it.' : null;
+  return { text: state.text, codePoints: state.codePoints, max: state.max, ok: state.issue === null, issue: words };
 }
 
 /** The coverage sources in the order of the table, with their words. */
@@ -540,4 +681,5 @@ export {
   MAX_EVENTS, stamp, secondsStamp, kindWord, nodeTitle, titleIsLabel, fingerprint, appendEvents, splitMasked, usageLine, resultBits, recordWords, seconds,
   sectionOf, STREAM_STATES, streamState, streamCopy, gateWords, machineModel, summarizedLine, BRIEF_LIMIT, projectModel, COVERAGE_COLUMNS, coverageCell,
   reasonWord, projectLabel, reviewWords, PROCESS_WORD,
+  VIEW_DEVICE_WORDS, MESSAGE_KIND_WORDS, TURN_REASON_WORDS, CLOSED_WORDS, channelIn, whoWords, recentWords, sessionModel, messageState,
 };

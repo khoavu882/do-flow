@@ -173,7 +173,7 @@ test('placement rule: {lastMessageFile} once in structuredOutput.argv is accepte
     loginProbe: supported({ argv: ['--whoami'], ...LOGIN_RECIPE }),
     persistentSession: supported({}),
     resume: { status: 'unsupported', evidence: ['docs'], verification: 'Read it.', verifiedOn: '2026-10-18' },
-    steering: { status: 'unknown', evidence: [], verification: 'Read it.', verifiedOn: '2026-10-18', reason: 'unread' },
+    controlChannel: { status: 'unknown', evidence: [], verification: 'Read it.', verifiedOn: '2026-10-18', reason: 'unread' },
     modelChecks: [],
   }, "harness 'codex'", errors);
   assert.deepEqual(errors, []);
@@ -204,7 +204,7 @@ test('placement rule: {lastMessageFile} rejected anywhere else or twice (negativ
     loginProbe: supported({ argv: ['--whoami'], ...LOGIN_RECIPE }),
     persistentSession: supported({}),
     resume: { status: 'unsupported', evidence: ['docs'], verification: 'Read it.', verifiedOn: '2026-10-18' },
-    steering: { status: 'unknown', evidence: [], verification: 'Read it.', verifiedOn: '2026-10-18', reason: 'unread' },
+    controlChannel: { status: 'unknown', evidence: [], verification: 'Read it.', verifiedOn: '2026-10-18', reason: 'unread' },
     modelChecks: [],
   });
 

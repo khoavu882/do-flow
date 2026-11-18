@@ -26,7 +26,7 @@ type WorkflowOf = (taskClass: string) => Promise<{ ok: boolean; json?: unknown }
 /** IC-002: the sections of `machine`. */
 const MACHINE_SECTIONS: readonly string[] = Object.freeze(['projects', 'activity']);
 /** IC-003: the sections of `layers:<pk>`, in the order the member lists them. */
-const LAYERS_SECTIONS: readonly string[] = Object.freeze(['checkouts', 'tree', 'runs', 'gates', 'artifacts', 'reviews', 'sessions', 'traffic', 'coverage']);
+const LAYERS_SECTIONS: readonly string[] = Object.freeze(['checkouts', 'tree', 'runs', 'gates', 'artifacts', 'reviews', 'sessions', 'traffic', 'coverage', 'channels']);
 /** IC-003 artifact kinds (do-exec-paths.sh, dispatch/envelope.ts; 165 IC-005: a started session's prompt, src/runtime/events/artifacts.ts). */
 const ARTIFACT_KINDS: readonly string[] = Object.freeze(['task-brief', 'task-brief-record', 'group-brief', 'group-brief-record', 'task-report', 'handoff', 'result',
   'spawn-prompt', 'worker-out', 'worker-err', 'session-prompt']);
@@ -39,7 +39,14 @@ const DECIDER = /^(?:autopilot|manual|console|device\.d-[0-9a-f]{12})$/;
 const decider: Check<string> = (value) => (typeof value === 'string' && DECIDER.test(value) ? value : fail());
 const STORES: readonly string[] = Object.freeze(['absent', 'present']);
 /** IC-003 and IC-002 bounds; a section past one breaks the contract. */
-const BOUNDS = Object.freeze({ checkouts: 64, gates: 64, artifacts: 64, reviews: 16, sessions: 16, audit: 8, denials: 3, coverage: 32, activity: 16, activityGates: 8, activityStarted: 8, harnesses: 32, unreadable: 32 });
+const BOUNDS = Object.freeze({ checkouts: 64, gates: 64, artifacts: 64, reviews: 16, sessions: 16, audit: 8, denials: 3, coverage: 32, activity: 16, activityGates: 8, activityStarted: 8, harnesses: 32, unreadable: 32, channelItems: 16, channelRecent: 8 });
+/** 170 IC-004 (src/runtime/events/session-channels.ts): a channel's descriptor sentence in characters, and a reason or an actor label. */
+const CHANNEL_WORDS_CHARS = 200;
+const CHANNEL_REASON_CHARS = 64;
+const CHANNEL_STATES: readonly string[] = Object.freeze(['open', 'closed', 'none']);
+const MESSAGE_KINDS: readonly string[] = Object.freeze(['first', 'follow-up', 'steer', 'stop']);
+const MESSAGE_OUTCOMES: readonly string[] = Object.freeze(['written', 'refused', 'failed']);
+const MESSAGE_ANSWERS: readonly string[] = Object.freeze(['accepted', 'refused']);
 /** IC-003: a denial reason, in characters, as the core caps it. */
 const REASON_CHARS = 200;
 /** A gate name is registry text; anything longer is not one. */
@@ -247,8 +254,35 @@ function coverage(value: unknown) {
   return each(entry, BOUNDS.coverage)(value);
 }
 
+/**
+ * 170 IC-004: the `channels` section: for each started main session whether it has a control channel, whose turn it is and its newest
+ * messages, counts and kinds only (the core's record holds no text). `words` is the descriptor's sentence of a session without a channel (T7).
+ */
+function channels(value: unknown) {
+  const body = record(value);
+  const turn = (v: unknown) => {
+    const t = record(v);
+    if (t.observed === true) return { observed: true, state: oneOf(['working', 'waiting'])(t.state), since: iso(t.since), seq: count(t.seq) };
+    return t.observed === false ? { observed: false, reason: id(t.reason), since: orNull(iso)(t.since) } : fail();
+  };
+  const message = (v: unknown) => {
+    const m = record(v);
+    return { seq: count(m.seq), kind: oneOf(MESSAGE_KINDS)(m.kind), by: label(m.by), at: iso(m.at), bytes: count(m.bytes), outcome: oneOf(MESSAGE_OUTCOMES)(m.outcome), answer: orNull(oneOf(MESSAGE_ANSWERS))(m.answer) };
+  };
+  const item = (v: unknown) => {
+    const c = record(v);
+    const sent = record(c.sent);
+    return {
+      runId: (typeof c.runId === 'string' && RUN_ID.test(c.runId) ? c.runId : fail()) as string, agentKey: key16(c.agentKey), harness: orNull(id)(c.harness),
+      channel: oneOf(CHANNEL_STATES)(c.channel), reason: orNull(capped(CHANNEL_REASON_CHARS))(c.reason), words: orNull(capped(CHANNEL_WORDS_CHARS))(c.words),
+      turn: turn(c.turn), sent: { count: count(sent.count), lastAt: orNull(iso)(sent.lastAt) }, recent: each(message, BOUNDS.channelRecent)(c.recent),
+    };
+  };
+  return { v: one(body.v), items: each(item, BOUNDS.channelItems)(body.items) };
+}
+
 const LAYERS_PROJECTORS: Readonly<Record<string, Check<unknown>>> = Object.freeze({
-  checkouts, tree: viaProject('tree'), runs, gates, artifacts, reviews, sessions, traffic: viaProject('traffic'), coverage,
+  checkouts, tree: viaProject('tree'), runs, gates, artifacts, reviews, sessions, traffic: viaProject('traffic'), coverage, channels,
 });
 
 // ---- members ----

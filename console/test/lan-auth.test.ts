@@ -33,7 +33,8 @@ const ADDED_162 = ['/api/actions'];
 // 172 IC-005: each worker harness's login answer is a read for both scopes (the start form's reads stay control only).
 const ADDED_172 = ['/api/harness-login'];
 const READS = [...FOUR, ...ADDED_161, ...ADDED_162, ...ADDED_172];
-const ACTION_ROUTES = ['/api/actions/decide-gate', '/api/actions/close-run', '/api/actions/cancel-worker', '/api/actions/start-session'];
+const ACTION_ROUTES = ['/api/actions/decide-gate', '/api/actions/close-run', '/api/actions/cancel-worker', '/api/actions/start-session',
+  '/api/actions/session-send', '/api/actions/session-steer', '/api/actions/session-stop'];
 // 165 D7: the two reads of the start form are control-only (and local), so a view device does not see them.
 const START_READS = ['/api/start', '/api/start/options'];
 // The removed Fleet paths stay refused even on a table that still had them; so does every management route.
@@ -211,7 +212,7 @@ test('the REAL route table: every /api route that is not in the device list is r
   const apiRoutes = table.filter((route: any) => isApiPath(route.path) && route.path !== '/api/pair');
   assert.ok(apiRoutes.length >= 15, `the table has ${apiRoutes.length} /api routes`);
   assert.deepEqual(apiRoutes.filter((route: any) => route.method !== 'GET').map((route: any) => `${route.method} ${route.path}`), ACTION_ROUTES.map((p) => `POST ${p}`),
-    'every /api route but the pairing exchange and the four action routes is a GET');
+    'every /api route but the pairing exchange and the seven action routes is a GET');
   assert.ok(apiRoutes.filter((route: any) => route.method !== 'GET').every((route: any) => route.action === true), 'each action route is declared action: true');
   const allowed = apiRoutes.filter((route: any) => deviceMayUse('view', route.method, route.path)).map((route: any) => route.path).sort();
   assert.deepEqual(allowed, [...READS].sort(), 'the device list names routes the table really has, and nothing else');
@@ -223,9 +224,10 @@ test('the REAL route table: every /api route that is not in the device list is r
   }
   for (const removed of ['/api/fleet', '/api/transcript', '/api/stream']) assert.equal(apiRoutes.some((route: any) => route.path === removed), false, `${removed} is gone`);
   for (const scope of ['view', 'control'] as const) {
-    const device = await world.pair(scope);
     for (const route of apiRoutes) {
       if (deviceMayUse(scope, route.method, route.path)) continue;
+      // A fresh device for each route: refusals count against the actor's own windows (170 review A-03), so one device's seventh would be 429.
+      const device = await world.pair(scope);
       const reply = route.method === 'GET'
         ? await server.request('GET', concrete(route.path).replace(/:[A-Za-z]+/g, 'x1'), { headers: { Authorization: device.bearer } })
         : await server.request(route.method, route.path, { headers: { Authorization: device.bearer, 'Content-Type': 'application/json' }, body: '{}' });

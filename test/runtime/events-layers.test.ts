@@ -10,7 +10,7 @@ const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
 const fs = require('node:fs');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 const { cwdHash } = require('../../src/runtime/context/identity.ts');
 const { sha16 } = require('../../src/runtime/scaffold/fingerprint.ts');
@@ -21,11 +21,13 @@ const { scanArtifacts, findArtifact, artifactDirs, ARTIFACT_LIMIT } = require('.
 const { AUDIT } = require('../../src/runtime/events/coverage.ts');
 const { maskBody } = require('../../src/runtime/mask.ts');
 const { gateName, REVIEW_BYTES } = require('../../src/runtime/events/layers.ts');
+const { channelsBody, ITEMS, RECENT, LIVENESS_READS } = require('../../src/runtime/events/session-channels.ts');
+const { procStart } = require('../../src/runtime/worker/process-tree.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 
 const WIN = process.platform === 'win32';
 const SCRATCH = 'scratch.noindex'; // not in any fixture path, so the scratch projects are listed
-const SECTIONS = ['artifacts', 'checkouts', 'coverage', 'gates', 'reviews', 'runs', 'sessions', 'traffic', 'tree'];
+const SECTIONS = ['artifacts', 'channels', 'checkouts', 'coverage', 'gates', 'reviews', 'runs', 'sessions', 'traffic', 'tree'];
 
 async function settle(): Promise<void> {
   for (let i = 0; i < 20; i += 1) await new Promise((resolve) => setImmediate(resolve));
@@ -644,4 +646,224 @@ test('161 IC-001: a layers channel for a project key the index does not know is 
   assert.deepEqual(layersOf(stdout.frames(), unknown).map((frame) => frame.type), ['gone'], stdout.text + stderr.text);
   stdin.emit('end');
   assert.equal(await done, 0);
+});
+
+// ---- 170 T7 (IC-004, D7, D9, section 7, R-9): the `channels` section ------------------------------------------------------------
+
+const SENTINEL = 'SENTINEL-TEXT-170';
+const at = (ms: number) => new Date(Date.UTC(2026, 10, 17, 10, 0, 0) + ms).toISOString();
+
+/** A process record that is alive (this test process) and one that is not (a child that has exited). */
+const aliveProc = () => ({ pid: process.pid, pgid: process.pid, start: procStart(process.pid) });
+function deadProc() {
+  const child = spawnSync(process.execPath, ['-e', '0']);
+  assert.ok(Number.isInteger(child.pid) && child.pid > 0);
+  return { pid: child.pid, pgid: child.pid, start: 'Mon Jan  1 00:00:00 2024' };
+}
+
+function startedRun(i: number, over: any = {}) {
+  const runId = `w-${i.toString(16).padStart(12, '0')}`;
+  return {
+    runId, kind: 'main-session', task: 'main-session', token: 1, request: `r${'x'.repeat(21)}`, childOf: null, harness: 'pi', phase: 'running', seq: 1,
+    createdAt: at(i * 1000), startedBy: 'console', prompt: SENTINEL, supervisor: aliveProc(), worker: aliveProc(), ...over,
+  };
+}
+const channelBlock = (over: any = {}) => ({
+  v: 1, state: 'open', closedReason: null, turn: { observed: true, state: 'working', since: at(500), seq: 4 }, sent: { count: 0, bytes: 0, lastAt: null }, ledger: [], ...over,
+});
+const ledgerEntry = (seq: number, over: any = {}) => ({ seq, kind: 'follow-up', by: 'console', requestId: null, at: at(seq * 10), bytes: 12, outcome: 'written', reason: null, answer: null, ...over });
+
+function writeStarted(root: string, runs: any[]) {
+  write(path.join(root, '.doflow', 'state', 'worker-runs', 'started-sessions.json'),
+    JSON.stringify({ slug: 'started-sessions', version: 1, revision: 1, runs: Object.fromEntries(runs.map((r) => [r.runId, r])) }));
+}
+
+async function channelsOf(f: any, a: string, clock = fakeClock()) {
+  const spec = channelSpec(`layers:${cwdHash(a)}`, { cwd: a, env: f.env, index: indexFor(f, a, () => clock.now()) });
+  const { sections } = await spec.compute(['channels']);
+  assert.deepEqual(Object.keys(sections), ['channels']);
+  return sections.channels;
+}
+
+test('170 T7: channels lists a started session as open/working, a dead supervisor as supervisor-gone, a session without a channel as none/started-without-channel, with or without a live supervisor', async (t) => {
+  const f = fixture(t);
+  const a = project(f, 'proj-ch');
+  const dead = deadProc();
+  writeStarted(a, [
+    startedRun(5, { channel: channelBlock({ sent: { count: 2, bytes: 30, lastAt: at(40) }, text: SENTINEL, ledger: [ledgerEntry(1, { text: SENTINEL, requestId: SENTINEL }), ledgerEntry(2, { kind: 'steer', outcome: 'refused', reason: 'not-working', answer: 'refused' })] }) }),
+    startedRun(4, { supervisor: dead, worker: dead, channel: channelBlock() }),
+    startedRun(3, {}),
+    startedRun(2, { supervisor: dead, worker: dead }),
+    startedRun(1, { phase: 'ended', end: { state: 'exited', at: at(9000) }, channel: channelBlock() }),
+  ]);
+  const section = await channelsOf(f, a);
+  assert.equal(section.exit, 0, JSON.stringify(section.json));
+  const { v, items } = section.json;
+  assert.equal(v, 1);
+  const id = (i: number) => `w-${i.toString(16).padStart(12, '0')}`;
+  assert.deepEqual(items.map((x: any) => x.runId), [id(5), id(4), id(3), id(2), id(1)], 'open first, newest first, then ended');
+  const by = Object.fromEntries(items.map((x: any) => [x.runId, x]));
+  assert.deepEqual(by[id(5)].turn, { observed: true, state: 'working', since: at(500), seq: 4 });
+  assert.deepEqual([by[id(5)].channel, by[id(5)].reason, by[id(5)].harness, by[id(5)].agentKey], ['open', null, 'pi', sha16(`worker:${id(5)}`)]);
+  assert.deepEqual(by[id(5)].sent, { count: 2, lastAt: at(40) });
+  assert.deepEqual(by[id(5)].recent, [
+    { seq: 2, kind: 'steer', by: 'console', at: at(20), bytes: 12, outcome: 'refused', answer: 'refused' },
+    { seq: 1, kind: 'follow-up', by: 'console', at: at(10), bytes: 12, outcome: 'written', answer: null },
+  ]);
+  assert.deepEqual(by[id(4)].turn, { observed: false, reason: 'supervisor-gone', since: null }, 'a channel whose supervisor died');
+  assert.equal(by[id(4)].channel, 'open');
+  assert.deepEqual([by[id(3)].channel, by[id(3)].reason, by[id(3)].turn], ['none', 'started-without-channel', { observed: false, reason: 'started-without-channel', since: null }]);
+  assert.deepEqual(by[id(3)].sent, { count: 0, lastAt: null });
+  assert.deepEqual(by[id(3)].recent, []);
+  assert.deepEqual([by[id(2)].channel, by[id(2)].turn.reason], ['none', 'supervisor-gone'], 'R-9: no channel and a dead supervisor');
+  assert.deepEqual(by[id(1)].turn, { observed: false, reason: 'run-ended', since: at(9000) });
+  assert.equal(by[id(3)].words, null, 'a record with no channel entry carries no words');
+  writeStarted(a, [startedRun(6, { phase: 'cancelling', channel: channelBlock({ state: 'closed', closedReason: 'stdin-closed' }) })]);
+  const [shut] = (await channelsOf(f, a)).json.items;
+  assert.deepEqual([shut.channel, shut.reason, shut.turn], ['closed', 'stdin-closed', { observed: false, reason: 'channel-closed', since: null }]);
+  for (const item of items) assert.deepEqual(Object.keys(item), ['runId', 'agentKey', 'harness', 'channel', 'reason', 'words', 'turn', 'sent', 'recent']);
+  assert.ok(!JSON.stringify(section.json).includes(SENTINEL), 'no text field of the record is copied');
+});
+
+test('170 T9d: a run that ended reads channel closed whatever its record says: closedReason, else the end state, else run-ended', async (t) => {
+  const f = fixture(t);
+  const a = project(f, 'proj-endopen');
+  const dead = deadProc();
+  const ended = { phase: 'ended', end: { state: 'cancelled', at: at(9000) } };
+  writeStarted(a, [
+    startedRun(3, { ...ended, supervisor: dead, worker: dead, channel: channelBlock({ state: 'open' }) }),
+    startedRun(2, { ...ended, channel: channelBlock({ state: 'open', closedReason: 'unused-timeout' }) }),
+    startedRun(1, { phase: 'ended', supervisor: dead, worker: dead, channel: channelBlock({ state: 'open' }) }),
+  ]);
+  const { items } = (await channelsOf(f, a)).json;
+  const by = Object.fromEntries(items.map((x: any) => [x.runId.slice(-1), x]));
+  assert.deepEqual([by['3'].channel, by['3'].reason, by['3'].turn.reason], ['closed', 'cancelled', 'run-ended'], 'killed supervisor, then cancelled');
+  assert.deepEqual([by['2'].channel, by['2'].reason], ['closed', 'unused-timeout'], 'the record\'s own reason wins');
+  assert.deepEqual([by['1'].channel, by['1'].reason], ['closed', 'run-ended'], 'an ended run is not read for liveness, so its reason does not claim a dead supervisor');
+});
+
+test('170 T4: a session whose descriptor has an unsupported channel reads none/no-channel with its reason; one whose harness outlives its supervisor reads supervisor-gone', async (t) => {
+  const f = fixture(t);
+  const a = project(f, 'proj-noch');
+  const dead = deadProc();
+  const supported = { status: 'supported', argv: ['--mode', 'rpc'] };
+  writeStarted(a, [
+    startedRun(4, { descriptor: { controlChannel: { status: 'unknown', reason: 'no channel mode is documented for this harness '.repeat(8) } } }),
+    startedRun(3, { supervisor: dead, worker: aliveProc(), descriptor: { controlChannel: supported }, channel: channelBlock() }),
+    startedRun(2, { descriptor: { controlChannel: supported } }),
+    startedRun(1, { phase: 'ended', end: { state: 'exited', at: at(9000) }, descriptor: { controlChannel: supported } }),
+  ]);
+  const { items } = (await channelsOf(f, a)).json;
+  const by = Object.fromEntries(items.map((x: any) => [x.runId.slice(-1), x]));
+  assert.deepEqual([by['4'].channel, by['4'].reason, by['4'].turn], ['none', 'no-channel', { observed: false, reason: 'no-channel', since: null }]);
+  assert.equal(by['4'].words.length, 300, 'the descriptor reason is bounded at the 300 characters the Console accepts');
+  assert.ok(by['4'].words.startsWith('no channel mode is documented'));
+  // 170 review A-08: a 300-character reason comes through whole, with none of it cut.
+  const whole = 'r'.repeat(300);
+  writeStarted(a, [startedRun(7, { descriptor: { controlChannel: { status: 'unknown', reason: whole } } })]);
+  assert.equal((await channelsOf(f, a)).json.items.find((x: any) => x.runId.endsWith('7')).words, whole);
+  // R-9: a harness that ignored its closed stdin still runs; its supervisor is gone, so the turn is not observed.
+  assert.deepEqual([by['3'].channel, by['3'].turn], ['open', { observed: false, reason: 'supervisor-gone', since: null }]);
+  assert.deepEqual([by['2'].channel, by['2'].reason, by['2'].words, by['2'].turn.reason], ['open', 'opening', null, 'no-event-yet'], 'a supported channel not yet written is opening');
+  assert.deepEqual([by['1'].channel, by['1'].reason, by['1'].turn.reason], ['closed', 'not-opened', 'run-ended']);
+});
+
+test('170 T7: channels shows at most 16 items and 8 recent each, newest first, a missing store as no items and an unreadable one as a failed section', async (t) => {
+  const f = fixture(t);
+  const a = project(f, 'proj-cap');
+  assert.deepEqual((await channelsOf(f, a)).json, { v: 1, items: [] });
+  const ledger = Array.from({ length: 12 }, (_, i) => ledgerEntry(i + 1));
+  writeStarted(a, Array.from({ length: 20 }, (_, i) => startedRun(i + 1, { phase: 'ended', end: { state: 'exited', at: at(99000) }, channel: channelBlock({ ledger }) })));
+  const { items } = (await channelsOf(f, a)).json;
+  assert.equal(items.length, ITEMS);
+  assert.equal(ITEMS, 16);
+  assert.equal(items[0].runId, `w-${(20).toString(16).padStart(12, '0')}`, 'newest first');
+  assert.deepEqual(items[0].recent.map((r: any) => r.seq), [12, 11, 10, 9, 8, 7, 6, 5]);
+  assert.equal(RECENT, 8);
+  write(path.join(a, '.doflow', 'state', 'worker-runs', 'started-sessions.json'), '{not json');
+  const broken = await channelsOf(f, a);
+  assert.deepEqual([broken.exit, broken.json], [1, { v: 1, error: 'cannot-read-sessions' }]);
+});
+
+test('170 T7: supervisor liveness is read for at most 4 runs a call, the longest unread first, and a reading is reused while fresh', async (t) => {
+  const f = fixture(t);
+  const a = project(f, 'proj-live');
+  const dead = deadProc();
+  writeStarted(a, Array.from({ length: 6 }, (_, i) => startedRun(i + 1, { supervisor: dead, worker: dead, channel: channelBlock() })));
+  const cache = new Map();
+  const gone = (body: any) => body.items.filter((x: any) => x.turn.reason === 'supervisor-gone').map((x: any) => x.runId.slice(-1));
+  const t0 = Date.now();
+  assert.equal(LIVENESS_READS, 4);
+  assert.deepEqual(gone(channelsBody({ root: a, now: t0, cache })), ['6', '5', '4', '3'], 'four reads: the other two are not called dead on no reading');
+  assert.deepEqual(gone(channelsBody({ root: a, now: t0 + 1000, cache })), ['6', '5', '4', '3', '2', '1'], 'the unread two are read next');
+  assert.equal(cache.size, 6);
+
+  // A reading is reused while fresh: a supervisor that dies inside the window shows at the next pass after it, not before.
+  const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore' });
+  t.after(() => { child.kill('SIGKILL'); });
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const proc = { pid: child.pid, pgid: child.pid, start: procStart(child.pid) };
+  assert.ok(proc.start, 'the child is listed by ps');
+  writeStarted(a, [startedRun(7, { supervisor: proc, worker: proc, channel: channelBlock() })]);
+  const live = new Map();
+  assert.deepEqual(gone(channelsBody({ root: a, now: t0, cache: live })), []);
+  const exited = new Promise((resolve) => child.once('exit', resolve));
+  child.kill('SIGKILL');
+  await exited;
+  assert.deepEqual(gone(channelsBody({ root: a, now: t0 + 1000, cache: live })), [], 'still the fresh reading');
+  assert.deepEqual(gone(channelsBody({ root: a, now: t0 + 5000, cache: live })), ['7'], 'the next pass reads it dead');
+});
+
+test('170 T7: a started-sessions write emits a channels patch at the next pass, never throttled, and the section holds no text', async (t) => {
+  const saved = process.exitCode;
+  t.after(() => { process.exitCode = saved; });
+  const f = fixture(t);
+  const a = project(f, 'proj-p');
+  const pk = cwdHash(a);
+  const clock = fakeClock();
+  writeStarted(a, [startedRun(1, { channel: channelBlock() })]);
+  const watch = fakeWatch();
+  const calls: Array<{ at: number; only: string[] | null }> = [];
+  const specFor = (channel: any, ctx: any) => {
+    const spec = channelSpec(channel, ctx);
+    const compute = spec.compute;
+    spec.compute = (only?: string[]) => { calls.push({ at: clock.now(), only: only ? [...only] : null }); return compute(only); };
+    return spec;
+  };
+  const stdin = fakeStdin();
+  const stdout = sink();
+  const stderr = sink();
+  const done = handleEventsCommand({
+    follow: true, control: 'stdin', json: true, flags: ['--follow', '--control', '--json'], positional: [], cwd: a, env: f.env,
+    stdin, stdout, stderr, clock, watch, signals: new EventEmitter(), epoch: '0a1b2c3d', specFor,
+    projectsIndex: indexFor(f, a, () => clock.now()),
+  });
+  stdin.json('sub', `layers:${pk}`);
+  await settle();
+  const [snapshot] = layersOf(stdout.frames(), pk);
+  assert.equal(snapshot?.type, 'snapshot', stdout.text + stderr.text);
+  assert.equal(snapshot.data.sections.channels.json.items[0].turn.state, 'working');
+
+  // The supervisor settles the turn: the store changes, and the next pass patches `channels` with the new turn.
+  writeStarted(a, [startedRun(1, { channel: channelBlock({ turn: { observed: true, state: 'waiting', since: at(900), seq: 5 }, ledger: [ledgerEntry(1, { text: SENTINEL })] }) })]);
+  await clock.advance(1100);
+  const patch = layersOf(stdout.frames(), pk).find((frame) => frame.type === 'patch' && frame.data.sections.channels);
+  assert.ok(patch, `a channels patch: ${stdout.text}`);
+  assert.equal(patch.data.sections.channels.json.items[0].turn.state, 'waiting');
+  assert.ok(!stdout.text.includes(SENTINEL), 'no text reaches the wire');
+
+  // The worker-runs directory is watched; a change there recomputes channels every debounce, where tree is held to one a second.
+  const storeWatch = watch.open(path.join(a, '.doflow', 'state', 'worker-runs'))[0];
+  assert.ok(storeWatch, 'the worker-runs directory is watched');
+  const start = clock.now();
+  for (let i = 0; i < 15; i += 1) {
+    storeWatch.emit('change', 'started-sessions.json');
+    await clock.advance(200);
+  }
+  stdin.emit('end');
+  assert.equal(await done, 0);
+  assert.equal(stderr.text, '');
+  const inBurst = (name: string) => calls.filter((c) => c.only !== null && c.only.includes(name) && c.at >= start && c.at < start + 3000).length;
+  assert.ok(inBurst('channels') >= 14, `channels every debounce: ${inBurst('channels')}`);
+  assert.ok(inBurst('tree') <= 4, `tree stays throttled: ${inBurst('tree')}`);
 });

@@ -8,13 +8,14 @@
 // The page reads the form back from `local.start`, so a repaint (the project list changed) loses nothing the person typed. Every string
 // from the Console is a text node; no markup is written and no style is set.
 
-import { h, mount } from '../dom.js';
+import { h, mount, icon } from '../dom.js';
 import { commandBlock, reltime, ageText } from '../states.js';
 import { createPoller } from '../poll.js';
 import { createLogStream } from '../log-store.js';
 import { actionPower, loadActions, onActions } from '../actions.js';
 import { openConfirm, onRefetch, newRequestId, actionButton, notAllowedLine } from './confirm.js';
-import { buildConfirmation } from '../derive/actions.js';
+import { buildConfirmation, sessionRefusalLines, messagePending, PENDING_WORDS } from '../derive/actions.js';
+import { sessionModel, channelIn, messageState } from '../derive/layers.js';
 import { bindingText } from '../derive/binding-text.js';
 import {
   VIEW_ONLY_WORDS, terminalCommand, NOT_STARTABLE_TITLE, projectRows, harnessRows, harnessOf, modelGroups, modelKey, modelChoiceOf, modelNote, checkoutRows, entryChoices, limitWords, dispatchWords,
@@ -24,6 +25,8 @@ import {
 
 const START_POLL_MS = 30000;
 const KEY16 = /^[0-9a-f]{16}$/;
+/** 170: a message that goes with the badge: said once, under the box. */
+const MESSAGE_TEXT_HINT = 'Messages are not kept in DoFlow’s records: only their size and who sent them.';
 const MASKED_SENTENCE = 'Text is masked, best effort: DoFlow’s redactor can miss a secret that has no known shape.';
 
 /** What Start is waiting for, in words, in the order the form asks. @type {Readonly<Record<string, string>>} */
@@ -92,6 +95,149 @@ function tailPane(label) {
   };
 }
 
+// ---- a started session's controls (170 design §10) ---------------------------------------------------------------------------------
+
+/**
+ * The turn badge, the message box with Send, Steer and Stop turn, End session and the recent messages of one started session, drawn by the start
+ * page's flow panel and by the Layers agent pane alike. What it says is `sessionModel` of derive/layers.js; it holds the text the person typed
+ * and the request id of an unanswered attempt, so a refresh of the page's data changes the badge and the buttons and never the box. A write
+ * goes only through the one confirmation dialog (`openConfirm`), as every action does; Stop turn is `session-stop`, End session is `cancel-worker`
+ * and the two are never the same button.
+ * `set({ channels, phase })` takes what the live layers member says; the controls repaint themselves when the page learns what the device may do.
+ * @param {{ projectKey: string, project: () => string | null, runId: string, harness: string | null, phase: string | null, stopSpec: () => any }} ctx `phase` is the run's phase at the start
+ */
+function createSessionControls(ctx) {
+  /** @type {{ channels: { state: string, code: string | null, item: any }, phase: string | null }} */
+  let input = { channels: { state: 'absent', code: null, item: null }, phase: ctx.phase };
+  /** @type {{ requestId: string, signature: string } | null} */
+  let attempt = null;
+  let model = sessionModel({ ...input, send: actionPower('session-send'), end: false });
+
+  const badge = h('p', { class: 'started__line', role: 'status', dataset: { fact: 'turn' }, hidden: true });
+  const note = h('p', { class: 'start__line', dataset: { fact: 'channel-note' }, hidden: true });
+  const area = h('textarea', {
+    id: `session-message-${ctx.runId}`, class: 'start__prompt', rows: 3, autocomplete: 'off', 'aria-describedby': `session-count-${ctx.runId} session-hint-${ctx.runId}`, dataset: { focusKey: `session-message:${ctx.runId}` },
+    on: { input: () => { waiting.textContent = ''; show(waiting, false); paintBox(); } },
+  });
+  const waiting = h('p', { class: 'start__hint', role: 'status', dataset: { fact: 'message-pending' }, hidden: true });
+  const count = h('span', { class: 'start__count', id: `session-count-${ctx.runId}` });
+  const issue = h('p', { class: 'start__warn', hidden: true });
+  const button = (/** @type {string} */ id, /** @type {string} */ label, /** @type {string} */ cls) => h('button', { type: 'button', class: cls, dataset: { action: id, focusKey: `${id}:${ctx.runId}` }, on: { click: () => open(id) } }, label);
+  const send = button('session-send', 'Send', 'btn btn--act');
+  const steer = button('session-steer', 'Steer', 'btn btn--act');
+  const stopTurn = button('session-stop', 'Stop turn', 'btn btn--secondary');
+  const why = () => h('span', { class: 'acts__reason', hidden: true });
+  const whys = { send: why(), steer: why(), stopTurn: why() };
+  const box = h('div', { class: 'start__field', dataset: { fact: 'message-box' } }, [
+    h('label', { class: 'start__label', for: `session-message-${ctx.runId}` }, 'Message to the session'),
+    area,
+    waiting,
+    h('div', { class: 'start__under' }, [issue, count]),
+    h('p', { class: 'start__hint', id: `session-hint-${ctx.runId}` }, MESSAGE_TEXT_HINT),
+    h('div', { class: 'acts__row' }, [send, whys.send, steer, whys.steer, stopTurn, whys.stopTurn]),
+  ]);
+  const endHost = h('div', { class: 'acts' });
+  const recentHost = h('div', { dataset: { fact: 'recent-messages' }, hidden: true });
+  const boxHost = h('div', {});
+  const el = h('div', { class: 'session', dataset: { session: ctx.runId } }, [badge, note, boxHost, endHost, recentHost]);
+  /** What the three buttons and the lists last drew: a part is rebuilt only when it changed, so a focus on it survives a refresh. */
+  const drawn = { badge: '', end: '', recent: '' };
+
+  /** @param {any} node @param {boolean} on */
+  const show = (node, on) => {
+    if (on) node.removeAttribute('hidden');
+    else node.setAttribute('hidden', '');
+  };
+
+  function paintBox() {
+    const text = messageState(area.value);
+    count.textContent = `${text.codePoints} / ${text.max}`;
+    issue.textContent = text.issue ?? '';
+    show(issue, text.issue !== null);
+    for (const [node, state, needsText, hint] of /** @type {const} */ ([[send, model.send, true, whys.send], [steer, model.steer, true, whys.steer], [stopTurn, model.stopTurn, false, whys.stopTurn]])) {
+      const on = state.enabled && (!needsText || text.ok);
+      if (on) node.removeAttribute('disabled');
+      else node.setAttribute('disabled', '');
+      hint.textContent = state.why ?? '';
+      show(hint, state.why !== null);
+    }
+  }
+
+  function paintEnd() {
+    const power = actionPower('cancel-worker');
+    const open = ctx.stopSpec() !== null;
+    const key = `${model.end}|${open}|${power.allowed}|${power.reason}`;
+    if (key === drawn.end) return;
+    drawn.end = key;
+    mount(endHost, model.end ? actionButton({ id: 'cancel-worker', label: 'End session', tone: 'danger', make: ctx.stopSpec }) : open ? notAllowedLine(['cancel-worker']) : null);
+  }
+
+  function paintRecent() {
+    const key = JSON.stringify(model.recent);
+    if (key === drawn.recent) return;
+    drawn.recent = key;
+    show(recentHost, model.recent.length > 0);
+    mount(recentHost, model.recent.length === 0 ? null : [
+      h('h3', { class: 'start__sub' }, 'Recent messages'),
+      h('ul', { class: 'start__blocked-list' }, model.recent.map((/** @type {any} */ m) => h('li', { dataset: { seq: String(m.seq), result: m.result } }, `${m.kind} · ${m.who} · ${reltime(m.at, Date.now())} · ${m.bytes} · ${m.result}`))),
+    ]);
+  }
+
+  /** Recomputes the model from what the page last heard, then draws what changed. */
+  function refresh() {
+    const end = ctx.stopSpec() !== null && actionPower('cancel-worker').allowed;
+    model = sessionModel({ ...input, send: actionPower('session-send'), end });
+    const badgeKey = JSON.stringify(model.badge);
+    if (badgeKey !== drawn.badge) {
+      drawn.badge = badgeKey;
+      mount(badge, model.badge === null ? null : [h('span', { class: 'badge', dataset: { state: model.badge.token } }, [icon(model.badge.face, 12), model.badge.word])]);
+    }
+    show(badge, model.badge !== null);
+    note.textContent = model.note ?? '';
+    show(note, model.note !== null);
+    // The box is in the page only while it can be used; the same element comes back, so a typed message survives.
+    if (model.controls && !boxHost.contains(box)) boxHost.append(box);
+    else if (!model.controls && boxHost.contains(box)) box.remove();
+    paintBox();
+    paintEnd();
+    paintRecent();
+  }
+
+  /** The person pressed Send, Steer or Stop turn: the confirmation of this message, with the request id of an unanswered attempt kept. @param {string} id */
+  function open(id) {
+    const spec = buildConfirmation(id, { projectKey: ctx.projectKey, project: ctx.project(), runId: ctx.runId, harness: ctx.harness, message: id === 'session-stop' ? undefined : area.value });
+    if (spec === null) return;
+    const mine = attemptFor(attempt, spec.body, newRequestId);
+    attempt = mine;
+    openConfirm({ ...spec, requestId: mine.requestId, reopen: () => buildConfirmation(id, { projectKey: ctx.projectKey, project: ctx.project(), runId: ctx.runId, harness: ctx.harness, message: id === 'session-stop' ? undefined : area.value }),
+      refusal: (/** @type {any} */ code, /** @type {any} */ reply) => sessionRefusalLines(code, reply) }, {
+      onReply: (/** @type {any} */ reply, /** @type {string} */ state) => {
+        // 170 review A-07: a pending message is in the spool and not yet taken. The text stays and the attempt is kept, so the next press with
+        // the same text is the same request id and the core's replay says what became of it.
+        const pending = state === 'applied' && messagePending(id, reply);
+        attempt = pending ? mine : settleAttempt(mine, state);
+        if (state === 'applied' && id !== 'session-stop' && !pending) area.value = '';
+        waiting.textContent = pending ? PENDING_WORDS : '';
+        show(waiting, pending);
+        refresh();
+      },
+    });
+  }
+
+  const off = onActions(refresh);
+  void loadActions();
+  refresh();
+  return {
+    el,
+    /** @param {{ channels: { state: string, code: string | null, item: any }, phase: string | null }} next */
+    set(next) {
+      input = next;
+      refresh();
+    },
+    destroy() { off(); },
+  };
+}
+
 // ---- the state of the page -------------------------------------------------------------------------------------------------------
 
 /** @param {any} local */
@@ -99,7 +245,7 @@ function stateOf(local) {
   if (!local.start) {
     local.start = {
       alive: true, body: null, projects: [], projectKey: null, seq: 0, options: { state: 'idle', body: null, error: null }, form: null, flow: initialFlow(), attempt: null,
-      actionsRead: false, offActions: null, offRefetch: null, flowProject: null, run: null, streams: [], offs: [], tails: null, terminalRequestId: null,
+      actionsRead: false, offActions: null, offRefetch: null, flowProject: null, run: null, streams: [], offs: [], tails: null, controls: null, terminalRequestId: null,
     };
   }
   return local.start;
@@ -131,6 +277,8 @@ function closeRun(st) {
   st.offs = [];
   st.run = null;
   st.tails = null;
+  if (st.controls) st.controls.destroy();
+  st.controls = null;
 }
 
 /**
@@ -231,6 +379,9 @@ function formBody(st, options) {
         h('span', { class: 'start__note' }, row.words),
         ...loginNotes(row),
         row.liveLine ? h('span', { class: 'start__note', dataset: { fact: 'live-verified' } }, row.liveLine) : null,
+        // 170 design §10: whether a session of this harness can be talked to while it runs, and, when that is not verified on a live run, what is not.
+        row.channel ? h('span', { class: 'start__note', dataset: { fact: 'channel' } }, row.channel.line) : null,
+        row.channel && row.channel.warning ? h('span', { class: 'start__warn', dataset: { warning: 'channel-not-verified-live' } }, row.channel.warning) : null,
         ...warningLines(row),
       ]),
     ])));
@@ -316,14 +467,13 @@ function optionsBody(st) {
 /** The panel of a start that is under way or ended: the words, the output, Stop, and the way back. @param {any} st */
 function flowPanel(st) {
   const words = flowWords(st.flow);
-  const stop = words.stop ? actionButton({ id: 'cancel-worker', label: 'Stop session', tone: 'danger', make: () => stopSpec(st) }) : null;
   return h('section', { class: 'start__flow', 'aria-labelledby': 'start-flow-title', dataset: { state: words.token, step: st.flow.step } }, clean([
     h('h2', { class: 'start__flow-title', id: 'start-flow-title', tabindex: '-1' }, [h('span', { class: 'start__mark', 'aria-hidden': 'true' }, MARK[words.token] ?? '?'), ' ', words.title]),
     st.flow.run && st.flow.node ? h('p', { class: 'start__line' }, [startedByWords(st.flow.node.startedBy), ' · ', st.flow.node.observed && st.flow.node.observed.state === 'observed' ? 'session observed' : 'session not observed']) : null,
     ...words.lines.map((/** @type {string} */ line) => h('p', { class: 'start__line', role: 'status' }, line)),
     words.output && st.tails ? [h('p', { class: 'logpane__note' }, MASKED_SENTENCE), st.tails.out.el, st.tails.err.el] : null,
     st.run ? h('p', { class: 'start__line' }, [h('a', { class: 'layers-link', href: `#/layers/${st.flowProject}/agent/${st.run.agentKey}` }, 'Open it in Layers')]) : null,
-    stop ? h('div', { class: 'acts' }, stop) : (words.stop ? h('div', { class: 'acts' }, notAllowedLine(['cancel-worker'])) : null),
+    st.controls ? st.controls.el : null,
     st.flow.step === 'ended' ? h('div', { class: 'start__actions' }, h('button', { type: 'button', class: 'btn btn--secondary', on: { click: () => again(st) } }, 'Start another')) : null,
   ]));
 }
@@ -408,6 +558,11 @@ function watch(st, projectKey, run) {
   st.run = run;
   st.flowProject = projectKey;
   st.tails = { out: tailPane('Output'), err: tailPane('Error output') };
+  // 170: the turn badge, the message box and End session (the old Stop session button) of the run; fed by the `channels` section and the node.
+  st.controls = createSessionControls({
+    projectKey, project: () => { const p = st.projects.find((/** @type {any} */ q) => q.projectKey === projectKey); return p ? p.label : null; },
+    runId: run.runId, harness: run.harness ?? null, phase: run.phase ?? null, stopSpec: () => stopSpec(st),
+  });
   const store = typeof st.local.getStore === 'function' ? st.local.getStore() : null;
   if (!store) return;
   /** @param {any} event */
@@ -416,6 +571,7 @@ function watch(st, projectKey, run) {
     const before = st.flow;
     st.flow = flowReduce(st.flow, event);
     if (before.step !== st.flow.step || before.node !== st.flow.node) paint(st);
+    if (st.controls) st.controls.set({ channels: st.flow.channels, phase: st.flow.node ? st.flow.node.phase ?? null : st.flow.step === 'ended' ? 'ended' : run.phase ?? null });
   };
   for (const which of /** @type {const} */ (['out', 'err'])) {
     const fileKey = run.files ? run.files[which] : null;
@@ -433,6 +589,7 @@ function watch(st, projectKey, run) {
     if (event.kind !== 'state') return;
     const member = event.state && typeof event.state === 'object' ? event.state.layers : null;
     if (!member || member.status !== 200) return;
+    apply({ type: 'channel', channels: channelIn(member.body, run.runId) });
     apply({ type: 'node', node: nodeIn(member.body, run.agentKey) });
   }));
 }
@@ -496,4 +653,4 @@ function teardownStart(local) {
 /** @param {any} data */
 const startKey = (data) => JSON.stringify(projectRows(data));
 
-export { connectStart, renderStart, teardownStart, startKey, tailPane };
+export { connectStart, renderStart, teardownStart, startKey, tailPane, createSessionControls };

@@ -1105,9 +1105,9 @@ const START_OPTIONS_BODY = {
     { worktreeKey: KEY_LINKED, label: 'alpha-fix', branch: null, main: false, busy: { runId: RUN_A }, observedSession: null }],
   harnesses: [
     { harness: 'claude', startable: true, reason: null, words: 'claude can start a session here', warnings: ['runnable-not-checked'],
-      login: LOGIN_CLAUDE, version: '2.1.0', liveVerified: false, models: [entryOf('claude-opus-5-5', 'frontier'), entryOf('gpt-y', 'standard', { provider: 'openai', effort: 'low', check: { model: 'several-providers', effort: 'unchecked', provider: 'unchecked' }, effortMayLower: true }), entryOf('gpt-q', 'observed', { effort: 'high', refused: 'effort:unsupported' }), entryOf(null, 'default')] },
+      login: LOGIN_CLAUDE, version: '2.1.0', liveVerified: false, channel: { state: 'supported', reason: null, liveVerified: false, unverified: ['close on stdin end'] }, models: [entryOf('claude-opus-5-5', 'frontier'), entryOf('gpt-y', 'standard', { provider: 'openai', effort: 'low', check: { model: 'several-providers', effort: 'unchecked', provider: 'unchecked' }, effortMayLower: true }), entryOf('gpt-q', 'observed', { effort: 'high', refused: 'effort:unsupported' }), entryOf(null, 'default')] },
     { harness: 'copilot', startable: false, reason: 'no-main-session-shape', words: 'DoFlow has no recorded headless way to start copilot', warnings: [],
-      login: null, version: null, liveVerified: false, models: [entryOf(null, 'default')] },
+      login: null, version: null, liveVerified: false, channel: { state: 'unknown', reason: 'no-control-channel-entry', liveVerified: false, unverified: [] }, models: [entryOf(null, 'default')] },
   ],
   limits: { perCheckout: 1, perActor: 2, machine: 4, perActorPerHour: 6 },
   open: { machine: 1 }, dispatch: { running: true, slug: 'feat-a' }, promptMax: { codePoints: 8000, bytes: 32768 },
@@ -1155,6 +1155,20 @@ test('165 F1 start-options: IC-002 projects through PROJECTORS with the key aske
   assert.equal(mutate((b) => { b.harnesses[0].liveVerified = true; }).body.harnesses[0].liveVerified, true);
   assert.equal(mutate((b) => { delete b.harnesses[0].liveVerified; }).body.harnesses[0].liveVerified, null);
   assert.deepEqual(mutate((b) => { b.harnesses[0].liveVerified = 'yes'; }), MISMATCH);
+  // 170 IC-006: a harness's channel fact is projected closed and bounded; a core before it sends none, which reads null; a bad one is a mismatch.
+  const CHANNEL = { state: 'supported', reason: null, liveVerified: false, unverified: ['close on stdin end'], extra: 'dropped' };
+  assert.deepEqual(mutate((b) => { b.harnesses[0].channel = CHANNEL; }).body.harnesses[0].channel, { state: 'supported', reason: null, liveVerified: false, unverified: ['close on stdin end'] });
+  assert.equal(mutate((b) => { delete b.harnesses[0].channel; }).body.harnesses[0].channel, null);
+  assert.deepEqual(mutate((b) => { b.harnesses[0].channel = { state: 'unknown', reason: 'no-control-channel-entry', liveVerified: false, unverified: [] }; }).body.harnesses[0].channel,
+    { state: 'unknown', reason: 'no-control-channel-entry', liveVerified: false, unverified: [] });
+  assert.equal(mutate((b) => { b.harnesses[0].channel = { state: 'unknown', reason: 'r'.repeat(300), liveVerified: false, unverified: [] }; }).ok, true, 'a descriptor sentence of 300 characters');
+  assert.equal(mutate((b) => { b.harnesses[0].channel = { ...CHANNEL, unverified: Array.from({ length: 8 }, () => 'x'.repeat(120)) }; }).ok, true, 'eight of 120 characters');
+  for (const bad of [{ ...CHANNEL, state: 'none' }, { ...CHANNEL, liveVerified: 'yes' }, { ...CHANNEL, reason: 5 }, { ...CHANNEL, unverified: Array.from({ length: 9 }, () => 'x') },
+    { ...CHANNEL, unverified: ['x'.repeat(121)] }, { ...CHANNEL, unverified: [5] }, { state: 'supported', reason: null, liveVerified: false }, 'supported']) {
+    assert.deepEqual(mutate((b) => { b.harnesses[0].channel = bad; }), MISMATCH, JSON.stringify(bad).slice(0, 80));
+  }
+  assert.equal(mutate((b) => { b.harnesses[0].channel = { state: 'unknown', reason: 'x'.repeat(301), liveVerified: false, unverified: [] }; }).body.harnesses[0].channel.reason, '(withheld)', 'words past 300 characters are withheld, as `words` is');
+  assert.equal(mutate((b) => { b.harnesses[0].channel = { ...CHANNEL, unverified: ['see /srv/x'] }; }).body.harnesses[0].channel.unverified[0], '(withheld)', 'a path is withheld');
   // 165 review A-3: dispatch records that cannot be read are a running dispatch with no slug and the core's reason.
   const unreadable = mutate((b) => { b.dispatch = { running: true, slug: null, reason: 'dispatch-unreadable' }; });
   assert.deepEqual(unreadable.body.dispatch, { running: true, slug: null, reason: 'dispatch-unreadable' });
@@ -2009,7 +2023,7 @@ function storageBody(): any {
   };
 }
 
-const WORKER_CELLS = ['cli', 'oneShot', 'structuredOutput', 'readOnly', 'spawnDenial', 'runnableProbe', 'hooksProbe', 'guidanceProbe', 'loginProbe', 'persistentSession', 'resume', 'steering', 'isolatedEdit', 'model'];
+const WORKER_CELLS = ['cli', 'oneShot', 'structuredOutput', 'readOnly', 'spawnDenial', 'runnableProbe', 'hooksProbe', 'guidanceProbe', 'loginProbe', 'persistentSession', 'resume', 'controlChannel', 'isolatedEdit', 'model'];
 const ORCH_CELLS = ['spawn', 'wait', 'status', 'cancel', 'resume', 'nest'];
 const EVIDENCE_URL = 'https://code.claude.com/docs/en/tools-reference → Agent: "Spawns a subagent with its own context window to handle a task."';
 

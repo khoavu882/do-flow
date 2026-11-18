@@ -323,6 +323,9 @@ if (!inserted.applied) { console.error(JSON.stringify(inserted)); process.exit(1
 const sink = createOutputSink({ stateRoot, runId, stream: 'stdout' });
 const { writePrompt } = require(${JSON.stringify(path.join(REPO, 'src/runtime/worker/session-prompt.ts'))});
 writePrompt(path.resolve(stateRoot, '..', '..'), runId, 'a prompt', { isEnded: () => true });
+const spool = require(${JSON.stringify(path.join(REPO, 'src/runtime/worker/channel-spool.ts'))});
+spool.createSpool(path.resolve(stateRoot, '..', '..'), runId);
+spool.dropMessage(path.resolve(stateRoot, '..', '..'), runId, { kind: 'follow-up', requestId: null, by: 'console', at: new Date().toISOString(), text: 'a message' });
 sink.write('one line\\n');
 sink.end().then(() => process.exit(0), () => process.exit(1));`;
     // No CLI step can write the three dispatch stores: the real registry makes every harness

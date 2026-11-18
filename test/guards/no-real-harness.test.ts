@@ -40,7 +40,7 @@ function findOnPath(tool: string): string | undefined {
   return undefined;
 }
 
-/** The test files of the models and worker folders, relative to the repo, this file excluded. */
+/** The test files of the models and worker folders (and the Console's actions e2e, 170), relative to the repo, this file excluded. */
 function targetFiles(): string[] {
   const files: string[] = [];
   const add = (dir: string, keep: (name: string) => boolean) => {
@@ -50,6 +50,8 @@ function targetFiles(): string[] {
   add('test/runtime/worker', () => true);
   add('test/runtime', (name) => name.startsWith('worker-'));
   add('test/cli', (name) => name.startsWith('models-'));
+  // Row 170: the Console's actions e2e and measure-steer spawn the fake channel harness (test/helper/fake-channel-harness.ts) through the real core and supervisor.
+  add('console/test', (name) => name === 'actions-e2e.test.ts' || name === 'measure-steer.test.ts');
   return files;
 }
 
@@ -77,6 +79,9 @@ test('no test in the models and worker folders reaches a real harness binary', {
   const env: any = { ...process.env, PATH: bin };
   assert.deepEqual(env.PATH.split(path.delimiter), [bin], 'the tripwire directory is the only PATH entry of the child');
   delete env.NODE_TEST_CONTEXT;
+  // This process's TMPDIR is a `doflow-test.noindex` scratch root (test/helper/tmp.ts), which the core's project listing skips; the
+  // Console's actions e2e (170) makes its roots under the platform temp folder and needs them listed. The helper-using tests set their own in the child.
+  delete env.TMPDIR;
   const run = spawnSync(process.execPath, ['--test', '--test-reporter=tap', ...files], { cwd: REPO, env, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
   const found = fs.readdirSync(markers).map((name: string) => `${name}: ${fs.readFileSync(path.join(markers, name), 'utf8').trim().split('\n')[0]}`);
   assert.deepEqual(found, [], `${found.length} harness binaries were reached from ${files.length} test files (child exit ${run.status})`);

@@ -113,3 +113,39 @@ test('worker evidence still refuses unknown flags before running the harness', P
   assert.match(result.stderr, /unknown flag '--unknown-worker-flag'/);
   assert.equal(fs.existsSync(p.calls), false, 'unknown flags are rejected before the evidence action');
 });
+
+test('worker evidence CLI forwards --docs-root so a doc check reads from it (170)', POSIX_ONLY, (t) => {
+  const p = project(t);
+  const docs = path.join(p.work, 'docs-root');
+  fs.mkdirSync(docs);
+  fs.writeFileSync(path.join(docs, 'rpc.md'), '# RPC\n\nClose the stdin to end.\n');
+  const checks = path.join(p.work, 'doc-checks.json');
+  fs.writeFileSync(checks, JSON.stringify({
+    schema: 'doflow-worker-checks-v1',
+    harness: 'codex',
+    binary: 'codex',
+    version: { argv: ['--version'], expect: '^codex-cli \\d+\\.\\d+\\.\\d+' },
+    checks: [{ id: 'rpc-doc', doc: 'rpc.md', expect: ['^Close the stdin to end\\.$'], establishes: ['oneShot'] }],
+  }, null, 2));
+  const out = path.join(p.work, 'evidence.json');
+
+  const result = p.cli(
+    'worker', '--action', 'evidence', '--harness', 'codex',
+    '--checks', checks, '--docs-root', docs, '--out', out, '--json',
+  );
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const record = JSON.parse(fs.readFileSync(out, 'utf8'));
+  assert.equal(record.checks.length, 1);
+  assert.equal(record.checks[0].doc, 'rpc.md');
+  assert.equal(record.checks[0].result, 'pass');
+  assert.deepEqual(record.establishes, ['oneShot']);
+});
+
+test('--docs-root with another worker action is a usage error', POSIX_ONLY, (t) => {
+  const p = project(t);
+
+  const result = p.cli('worker', '--action', 'status', '--docs-root', p.work);
+  assert.equal(result.status, 2, result.stderr || result.stdout);
+  assert.match(result.stdout + result.stderr, /--docs-root/);
+  assert.equal(fs.existsSync(p.calls), false, 'a usage refusal never runs the fake harness');
+});

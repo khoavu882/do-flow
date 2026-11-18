@@ -344,6 +344,25 @@
       ]
     },
     {
+      "id": "channel-spool",
+      "root": "project-state",
+      "path": "channel-spool",
+      "entry": "dir",
+      "match": "^w-[0-9a-f]{12}$",
+      "rule": "count-and-age",
+      "bound": {
+        "keepNewest": 16,
+        "maxAgeDays": 1
+      },
+      "protect": null,
+      "moments": [
+        "verb"
+      ],
+      "writers": [
+        "src/runtime/worker/channel-spool.ts"
+      ]
+    },
+    {
       "id": "dispatch",
       "root": "project-state",
       "path": "dispatch",

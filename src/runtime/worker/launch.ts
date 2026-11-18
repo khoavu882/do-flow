@@ -309,14 +309,27 @@ function mainEnv(env: Env, runId: string): Env {
   return out;
 }
 
-/** 165 IC-003: the launch fields a main-session record stores. Names only, never a value. */
-function mainLaunchRecord(recipe: any, prompt: string, model: ModelChoice | null) {
+/**
+ * 170 §5.1: `controlChannel.argv` with the model part at the end. C4 keeps `{prompt}`, `-` and `--` out of a channel argv,
+ * so `mainArgvOf` takes its `at === -1` branch (the model part appended) and runs both refuse checks on the final argv.
+ */
+function channelArgvOf(recipe: any, choice: ModelChoice | null, shape: boolean): string[] {
+  const entry = recipe?.controlChannel;
+  if (!entry || entry.status !== 'supported' || !Array.isArray(entry.argv)) {
+    throw new LaunchUsageError('recipe-incomplete', "channelArgv: worker 'controlChannel' is not supported with an argv");
+  }
+  return mainArgvOf({ ...recipe, mainSession: { status: 'supported', argv: entry.argv, promptVia: 'stdin' } }, '', undefined, choice, shape);
+}
+
+/** 165 IC-003, 170 §5.1: the launch fields a main-session record stores. Names only, never a value. A session started
+ * through its control channel (`channel`) stores the channel argv and `promptVia: 'channel'`. */
+function mainLaunchRecord(recipe: any, prompt: string, model: ModelChoice | null, channel = false) {
   return {
     recipe: {
       binary: recipe.cli.binary,
-      argvShape: mainArgvShape(recipe, prompt, model),
-      promptVia: recipe.mainSession.promptVia === 'argv' ? 'argv' : 'stdin',
-      parser: parsers().parserIdOf(recipe.mainSession),
+      argvShape: channel ? channelArgvOf(recipe, model, true) : mainArgvShape(recipe, prompt, model),
+      promptVia: channel ? 'channel' : recipe.mainSession.promptVia === 'argv' ? 'argv' : 'stdin',
+      parser: parsers().parserIdOf(channel ? recipe.controlChannel : recipe.mainSession),
       profile: 'main-session',
     },
     envSet: [STARTED_RUN_VAR],
@@ -324,30 +337,33 @@ function mainLaunchRecord(recipe: any, prompt: string, model: ModelChoice | null
   };
 }
 
-/** Spawns `file` detached; `input.stdin`, when set, is written to stdin and ended. Resolves `{ child, ...extra }` once spawned. */
-function spawnHarness(file: string, args: string[], options: any, input: { stdin: Buffer | null }, extra: any): Promise<any> {
+/**
+ * Spawns `file` detached; `input.stdin`, when set, is written to stdin and ended. `input.keepOpen` (170 §5.1) pipes stdin
+ * and leaves it open for the caller, its only writer. Resolves `{ child, ...extra }` once spawned.
+ */
+function spawnHarness(file: string, args: string[], options: any, input: { stdin: Buffer | null; keepOpen?: boolean }, extra: any): Promise<any> {
   const viaStdin = input.stdin !== null;
+  const piped = viaStdin || input.keepOpen === true;
   return new Promise((resolve, reject) => {
-    const child = spawn(file, args, { ...options, detached: true, stdio: [viaStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'] });
+    const child = spawn(file, args, { ...options, detached: true, stdio: [piped ? 'pipe' : 'ignore', 'pipe', 'pipe'] });
     // Kept attached: a reject after the resolve is a no-op, and an early error never goes unhandled.
     child.on('error', reject);
     child.once('spawn', () => {
-      if (viaStdin) {
-        // A process that exits before reading closes the pipe; its exit is what the supervisor records.
-        child.stdin.on('error', () => {});
-        child.stdin.end(input.stdin);
-      }
+      // A process that exits before reading closes the pipe; its exit is what the supervisor records.
+      if (piped) child.stdin.on('error', () => {});
+      if (viaStdin) child.stdin.end(input.stdin);
       resolve({ child, ...extra });
     });
   });
 }
 
 /** 171 IC-003: the main session's parser is a code parser, or this descriptor's own structuredOutput.fieldMap id;
- * one that resolves to unparsed throws `parser-unknown`. launchMainSession and conform's main-session part call it. */
-function refuseUnknownMainParser(recipe: any): void {
+ * one that resolves to unparsed throws `parser-unknown`. launchMainSession and conform's main-session part call it;
+ * `which: 'channel'` checks `controlChannel.parser` (170). */
+function refuseUnknownMainParser(recipe: any, which: 'main' | 'channel' = 'main'): void {
   const { parserIdOf, parserOf, UNPARSED } = parsers();
-  const parser = parserIdOf(recipe.mainSession);
-  if (parser !== null && parserOf(recipe, 'main').id === UNPARSED) {
+  const parser = parserIdOf(which === 'channel' ? recipe.controlChannel : recipe.mainSession);
+  if (parser !== null && parserOf(recipe, which).id === UNPARSED) {
     throw new LaunchUsageError('parser-unknown', `launchMainSession: parser '${parser}' is not in core PARSERS`);
   }
 }
@@ -361,6 +377,22 @@ function launchMainSession({ recipe, prompt, execWorktree, env, runId, model = n
     const argv = mainArgv(recipe, prompt, lastMessageFile, model);
     refuseUnknownMainParser(recipe);
     return spawnHarness(recipe.cli?.binary, argv, { cwd: execWorktree, env: sessionEnv, shell: false }, promptInput(recipe, prompt, true), { env: sessionEnv, launched: null });
+  });
+}
+
+/**
+ * 170 §5.1: launches a started session through its control channel: the channel argv with the model part at the end, the
+ * 165 D9 environment, detached with `shell: false`, and stdin a pipe KEPT OPEN. The caller (the supervisor) is the pipe's
+ * only writer: the prompt goes in as the first framed message, and when the caller dies the pipe closes (no orphan).
+ */
+function launchChannelSession({ recipe, execWorktree, env, runId, model = null }: {
+  recipe: any; execWorktree: string; env: Env; runId: string; model?: ModelChoice | null;
+}): Promise<any> {
+  return Promise.resolve().then(() => {
+    const sessionEnv = mainEnv(env, runId);
+    const argv = channelArgvOf(recipe, model, false);
+    refuseUnknownMainParser(recipe, 'channel');
+    return spawnHarness(recipe.cli?.binary, argv, { cwd: execWorktree, env: sessionEnv, shell: false }, { stdin: null, keepOpen: true }, { env: sessionEnv, launched: null });
   });
 }
 
@@ -421,6 +453,6 @@ function launchWorker({ recipe, prompt, identity, execWorktree, env, taskId, gra
 
 module.exports = {
   ENV_SET, PROMPT_LIMITS, RECIPE_ORDER, EDIT_RECIPE_ORDER, STARTED_RUN_VAR, LaunchUsageError, argvShape, assembleArgv,
-  launchEnv, launchRecord, launchWorker, mainArgv, mainArgvShape, mainEnv, mainLaunchRecord, launchMainSession, promptInput,
-  refuseUnknownMainParser,
+  launchEnv, launchRecord, launchWorker, mainArgv, mainArgvShape, mainEnv, mainLaunchRecord, launchMainSession, launchChannelSession,
+  promptInput, refuseUnknownMainParser,
 };

@@ -22,7 +22,7 @@ const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const CLI = path.join(REPO_ROOT, 'bin', 'doflow.js');
 const RUN = path.join(REPO_ROOT, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
 const HARNESSES: any = ACTIVE_HARNESS_IDS;
-const ACTIONS: any = ['discover', 'probe', 'describe', 'select', 'run', 'status', 'cancel', 'evidence', 'start-session', 'start-options', 'login-state'];
+const ACTIONS: any = ['discover', 'probe', 'describe', 'select', 'run', 'status', 'cancel', 'evidence', 'start-session', 'start-options', 'login-state', 'send', 'steer', 'stop'];
 const DISPATCHER_TOOLS: any = ['dirname', 'date'];
 const WIN = process.platform === 'win32';
 
@@ -141,7 +141,7 @@ test('worker --help lists the eleven actions, the evidence flags included', (t) 
   assert.ok(line, 'the help names the worker actions');
   assert.deepEqual(line.trim().replace(/^worker: /, '').split('|'), ACTIONS);
   assert.match(r.stdout, /^ {2}worker {2,}\S/m, 'worker has a command line in the help');
-  assert.match(r.stdout, /--checks, --out, --project-key,\n\s+--worktree-key, --entry\s+worker \(/, 'the help lists the evidence flags --checks and --out');
+  assert.match(r.stdout, /--checks, --out, --docs-root, --project-key,\n\s+--worktree-key, --entry\s+worker \(/, 'the help lists the evidence flags --checks, --out and --docs-root');
   assert.match(r.stdout, /evidence: --harness --out and exactly one of --checks/);
 });
 
@@ -206,4 +206,52 @@ test('worker --operator without --via, and --via without --operator, are exit 2 
     assert.deepEqual([r.data.ok, r.data.error], [false, 'usage']);
   }
   assert.deepEqual(fs.readFileSync(store), before, 'a usage error writes nothing');
+});
+
+// ── 170 IC-001: send, steer and stop through bin/doflow.js ──────────────────────────────────────
+
+const KEY = 'a'.repeat(16);
+const RUN_ID = 'w-0123456789ab';
+const REQ = 'rAAAAAAAAAAAAAAAAAAAAA';
+
+test('worker --action send|steer|stop: usage is exit 2, a refusal is exit 1 with the IC-001 JSON, and nothing reads the text from a flag', (t) => {
+  const p = project(t);
+  const base = ['--project-key', KEY, '--worker-run', RUN_ID, '--request-id', REQ, '--via', 'console'];
+  const inRun = p.cli('--action', 'send', ...base, '--stdin', '--json');
+  assert.equal(inRun.status, 1, inRun.stderr || inRun.stdout);
+  assert.deepEqual([inRun.data.ok, inRun.data.code], [false, 'sender-in-run'], 'the default test environment is inside run r1');
+  const usage = p.cliEnv(deskEnv, '--action', 'send', ...base, '--json');
+  assert.equal(usage.status, 2, usage.stderr || usage.stdout);
+  assert.deepEqual([usage.data.ok, usage.data.error], [false, 'usage']);
+  assert.match(usage.data.message, /--stdin is required/);
+  const textFlag = p.cliEnv(deskEnv, '--action', 'steer', ...base, '--stdin', '--text', 'a message', '--json');
+  assert.equal(textFlag.status, 2, textFlag.stderr || textFlag.stdout);
+  assert.match(textFlag.data.message, /--text does not apply to --action steer/);
+  const messageFlag = p.cliEnv(deskEnv, '--action', 'send', ...base, '--stdin', '--message', 'a message', '--json');
+  assert.notEqual(messageFlag.status, 0, 'an unknown flag is refused before the verb runs');
+  assert.equal(messageFlag.stdout, '');
+  assert.match(messageFlag.stderr, /unknown flag '--message'/);
+  const stdinOnStop = p.cliEnv(deskEnv, '--action', 'stop', ...base, '--stdin', '--json');
+  assert.equal(stdinOnStop.status, 2);
+  assert.match(stdinOnStop.data.message, /--stdin does not apply to --action stop/);
+  // The project the key names is not this one: refused, exit 1, JSON on stdout, nothing read from stdin.
+  const mismatch = p.cliEnv(deskEnv, '--action', 'stop', ...base, '--json');
+  assert.equal(mismatch.status, 1, mismatch.stderr || mismatch.stdout);
+  assert.deepEqual([mismatch.data.ok, mismatch.data.code], [false, 'project-mismatch']);
+  const text = p.cliEnv(deskEnv, '--action', 'send', ...base, '--stdin');
+  assert.equal(text.status, 1);
+  assert.equal(text.stderr.trim(), 'refused project-mismatch', 'one summary line');
+});
+
+test('worker --action send inside a started session is nested-send, exit 1, before any flag is read', (t) => {
+  const r = project(t).cliEnv((env: any) => { env.DOFLOW_STARTED_RUN = RUN_ID; return env; }, '--action', 'send', '--json');
+  assert.equal(r.status, 1, r.stderr || r.stdout);
+  assert.deepEqual([r.data.ok, r.data.code, r.data.current.runId], [false, 'nested-send', RUN_ID]);
+});
+
+test('worker --help names send, steer and stop and how they take the message', (t) => {
+  const r = project(t).cli('--help');
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /send, steer: --project-key --worker-run --request-id --stdin \[--via\]/);
+  assert.match(r.stdout, /\(the message on stdin\); stop: the same without --stdin/);
 });

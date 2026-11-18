@@ -371,7 +371,7 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--stage-id', 'stageId'],           // research-request: active feature stage
   ['--question', 'question'],           // research-request: external question
   ['--blocking', 'blocking'],           // research-request: true | false
-  ['--request-id', 'requestId'],       // research-request: request to resolve · worker start-session: the 22-character retry key (165 IC-001)
+  ['--request-id', 'requestId'],       // research-request: request to resolve · worker start-session|send|steer|stop: the 22-character retry key (165 IC-001, 170 IC-001)
   ['--outcome', 'researchOutcome'],    // research-request: answered | unresolved
   ['--gap', 'gap'],                     // research-request: unresolved reason
   ['--stage', 'stage'],                // retrieval-plan: the stage id declaring the plan;
@@ -389,7 +389,7 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--actual', 'actual'],              // advise --action outcome: observed outcome
   ['--model', 'model'],                // advise --action configure: installed decision-capable model · worker start-session: the model id, default when absent
   ['--effort', 'effort'],              // models bind: the effort level to bind with the model, in the harness's own vocabulary · worker start-session: the effort level
-  ['--project-key', 'projectKey'],     // worker start-session|start-options: the project's 16-hex key (165 IC-001)
+  ['--project-key', 'projectKey'],     // worker start-session|start-options|send|steer|stop: the project's 16-hex key (165 IC-001)
   ['--worktree-key', 'worktreeKey'],   // worker start-session: the checkout's 16-hex key
   ['--entry', 'entry'],                // worker start-session: do | none, the prompt's first line (165 P-3)
   ['--endpoint', 'endpoint'],          // advise --action configure: loopback Ollama endpoint
@@ -438,6 +438,7 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--stream', 'stream'],              // worker-log: out or err, validated in the verb (150 IC-002)
   ['--checks', 'checks'],              // worker evidence: checks file
   ['--out', 'out'],                    // worker evidence: output record path
+  ['--docs-root', 'docsRoot'],         // worker evidence: the root doc checks read from (row 170)
   ['--model-check', 'modelCheck'],     // worker probe: a declared model-check id
   // 082 dispatch (IC-001, IC-038) and worker --child-of (IC-015). Read as text and validated in
   // executeDispatchCommand / handleWorkerCommand. `--slug`, `--by`, `--reason`, `--mode`,
@@ -725,7 +726,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
                        outcome: record|show · advise: ask|outcome|configure|report · tools: see below
                        followup: add|list|take|settle|promote|report
                        task-attempt: claim|finish|release|status|start|pause|cancel|resume|inspect|reopen|report-usage
-                       worker: discover|probe|describe|select|run|status|cancel|evidence|start-session|start-options|login-state
+                       worker: discover|probe|describe|select|run|status|cancel|evidence|start-session|start-options|login-state|send|steer|stop
                        dispatch: start|step|run|submit|spawn|pause|inspect|cancel|takeover|resume
                        lifecycle: overview|init|release|status|merged
                        goal: add|item|check|link|list|done
@@ -854,7 +855,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --timeout-seconds, --wait, --edit,
       --child-of, --request, --exec-worktree,
       --worker-run, --by, --reason,
-      --checks, --out, --project-key,
+      --checks, --out, --docs-root, --project-key,
       --worktree-key, --entry               worker (probe: [--model-check <id> --budget-tokens <n>];
                                             describe: --harness [--edit]; select: [--edit];
                                             run: --harness --task --token
@@ -863,10 +864,13 @@ Runtime verb arguments (accept --flag value or --flag=value):
                                             status, cancel: --worker-run or --task --token;
                                             cancel also --by --reason;
                                             evidence: --harness --out and exactly one of --checks <file>
-                                            (free CLI checks) or --worker-run <w-id> (an ended run);
+                                            (free CLI checks; [--docs-root <dir>] the root its doc checks
+                                            read) or --worker-run <w-id> (an ended run);
                                             start-session: --project-key --worktree-key --harness
                                             [--model [--provider] [--effort]] --entry do|none --request-id --stdin [--via]
                                             (the prompt on stdin); start-options: --project-key.
+                                            send, steer: --project-key --worker-run --request-id --stdin [--via]
+                                            (the message on stdin); stop: the same without --stdin.
                                             Exit 0 done; 1 refused or
                                             none-eligible, the disposition in the JSON; 2 usage)
       --slug, --by, --reason, --concurrency,

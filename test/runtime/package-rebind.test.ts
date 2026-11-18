@@ -42,7 +42,7 @@ function makeWorkerPackage(srcDir: string) {
     loginProbe: { status: 'unknown', evidence: [], verification: 'v', verifiedOn: '2026-10-24', reason: 'test' },
     persistentSession: { status: 'unknown', evidence: [], verification: 'v', verifiedOn: '2026-10-24', reason: 'test' },
     resume: { status: 'unknown', evidence: [], verification: 'v', verifiedOn: '2026-10-24', reason: 'test' },
-    steering: { status: 'unknown', evidence: [], verification: 'v', verifiedOn: '2026-10-24', reason: 'test' },
+    controlChannel: { status: 'unknown', evidence: [], verification: 'v', verifiedOn: '2026-10-24', reason: 'test' },
     modelChecks: [],
   }, null, 2));
 

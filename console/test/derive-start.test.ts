@@ -480,3 +480,53 @@ test('172 IC-004: harnessRows carries the sentence per row from the options, the
   assert.equal(start.warningWords('login-expired', 'pi'), 'pi’s login has expired.');
   assert.equal(start.warningWords('login-not-checked', 'pi'), null, 'the old warning id is gone');
 });
+
+// ---- 170 design §10: the harness row says whether it can be talked to ----
+
+const channelFact = (over: any = {}) => ({ state: 'supported', reason: null, liveVerified: true, unverified: [], ...over });
+
+test('170 §10 start form: supported and live-verified says "You can talk to it while it runs." and nothing else', () => {
+  const opts = options();
+  opts.harnesses[3].channel = channelFact();
+  const pi = start.harnessRows(opts).startable.find((r: any) => r.harness === 'pi');
+  assert.deepEqual(pi.channel, { state: 'supported', line: 'You can talk to it while it runs.', warning: null });
+  assert.equal(start.CHANNEL_TALK, 'You can talk to it while it runs.');
+});
+
+test('170 §10 start form: supported but not live-verified adds the warning with the first thing unverified', () => {
+  const opts = options();
+  opts.harnesses[3].channel = channelFact({ liveVerified: false, unverified: ['turn events in rpc mode', 'steer taken while working', 'exit after stdin closes'] });
+  const pi = start.harnessRows(opts).startable.find((r: any) => r.harness === 'pi');
+  assert.deepEqual([pi.channel.line, pi.channel.warning], ['You can talk to it while it runs.', 'Talking to it is not verified on a live run: turn events in rpc mode.']);
+  opts.harnesses[3].channel = channelFact({ liveVerified: false, unverified: [] });
+  assert.equal(start.harnessRows(opts).startable.find((r: any) => r.harness === 'pi').channel.warning, 'Talking to it is not verified on a live run.');
+});
+
+test('170 §10 start form: unsupported and unknown say it runs one prompt and the reason Send is unavailable, without a doubled full stop', () => {
+  const opts = options();
+  opts.harnesses[0].channel = channelFact({ state: 'unknown', reason: 'no recorded capture shows an input mode for later messages for claude; nothing is inferred from another harness.', liveVerified: false });
+  opts.harnesses[2].channel = channelFact({ state: 'unsupported', reason: 'the harness reads one prompt and exits', liveVerified: false });
+  opts.harnesses[3].channel = channelFact({ state: 'unknown', reason: null, liveVerified: false });
+  const rows = start.harnessRows(opts).startable;
+  const line = (harness: string) => rows.find((r: any) => r.harness === harness).channel;
+  assert.deepEqual(line('claude'), { state: 'unknown', line: 'Runs one prompt; Send is unavailable: no recorded capture shows an input mode for later messages for claude; nothing is inferred from another harness.', warning: null });
+  assert.equal(line('opencode').line, 'Runs one prompt; Send is unavailable: the harness reads one prompt and exits.');
+  assert.equal(line('pi').line, 'Runs one prompt; Send is unavailable: no reason recorded.');
+});
+
+test('170 §10 start form: a core that sent no channel fact is not claimed to have or lack one', () => {
+  for (const row of [...start.harnessRows(options()).startable, ...start.harnessRows(options()).blocked]) assert.equal(row.channel, null, row.harness);
+  assert.equal(start.channelWords(undefined), null);
+  assert.equal(start.channelWords('supported'), null);
+});
+
+test('170: the flow keeps the run\'s channels entry beside its node, only once there is a run, and the entry changes no step', () => {
+  const run = { runId: 'w-0123456789ab', kind: 'main-session', phase: 'running', harness: 'pi', files: { out: 'dddddddddddddddd', err: 'eeeeeeeeeeeeeeee' } };
+  const channels = { state: 'ok', code: null, item: { runId: run.runId, channel: 'open' } };
+  const before = start.flowReduce(start.initialFlow(), { type: 'channel', channels });
+  assert.deepEqual(before.channels, { state: 'absent', code: null, item: null }, 'no run yet: nothing is kept');
+  let flow = start.flowReduce(start.flowReduce(start.initialFlow(), { type: 'sending', info: { harness: 'pi', model: null, project: 'p', checkout: 'c' } }), { type: 'reply', reply: { status: 200, headers: {}, body: { result: { run } } } });
+  flow = start.flowReduce(flow, { type: 'channel', channels });
+  assert.deepEqual([flow.step, flow.channels], ['running', channels]);
+  assert.deepEqual(start.flowReduce(flow, { type: 'again' }).channels, { state: 'absent', code: null, item: null });
+});

@@ -90,6 +90,8 @@ function fakeDescriptors() {
 }
 
 const DESCRIPTORS = fakeDescriptors();
+/** Pi ships a supported control channel (170 T9a), so a Pi start goes through it; the print-mode shape tests run Pi with its channel unknown. */
+const PRINT_PI = { ...DESCRIPTORS, pi: { ...DESCRIPTORS.pi, controlChannel: { status: 'unknown', evidence: [], verification: 'print-mode fixture', verifiedOn: '2026-11-17', reason: 'print-mode fixture' } } };
 /** listProjects with the shipped scratch filter turned off: every fixture lives under the test temp root. */
 const projectsImpl = (o: any) => listProjects({ ...o, scratchName: 'no-such-scratch-name' });
 const children: any[] = [];
@@ -225,7 +227,7 @@ for (const [harness, expectArgv, viaStdin] of [
 ] as const) {
   test(`${harness} shape: argv ${expectArgv.join(' ')}, the prompt ${viaStdin ? 'on stdin' : 'as one argv element'}, identity unset, DOFLOW_STARTED_RUN set`, POSIX, async (t: any) => {
     const f = fixture(t);
-    const { exit, body } = await start(f, { harness });
+    const { exit, body } = await start(f, { harness, descriptors: PRINT_PI });
     assert.equal(exit, 0, JSON.stringify(body));
     await ended(f, body.run.runId);
     const [call] = fakeLog(f);
@@ -256,7 +258,7 @@ test('entry none sends the text alone; the model part is spliced per harness as 
   const cases: any = { codex: ['gpt-x', ['exec', '--json', '-o', '*', '-m', 'gpt-x', '-']], claude: ['opus-x', ['-p', '--output-format', 'text', '--model', 'opus-x']], opencode: ['oc/x', ['run', '--format', 'json', '--model', 'oc/x', 'just text']], pi: ['pi-x', ['-p', '--mode', 'json', '--no-approve', '--model', 'pi-x', '--', 'just text']] };
   for (const [harness, [model, argv]] of Object.entries(cases) as any) {
     const worktreeKey = harness === 'codex' || harness === 'opencode' ? f.linkedKey : f.mainKey;
-    const { exit, body } = await start(f, { harness, model, entry: 'none', worktreeKey, readStdin: () => 'just text' });
+    const { exit, body } = await start(f, { harness, model, entry: 'none', worktreeKey, readStdin: () => 'just text', descriptors: PRINT_PI });
     assert.equal(exit, 0, JSON.stringify(body));
     assert.equal(body.run.model, model);
     await ended(f, body.run.runId);
@@ -332,7 +334,7 @@ test('refusals: every IC-001 id, exit 1, and no store is changed', POSIX, async 
   ];
   const before = stateSnapshot(f);
   for (const [code, over, current] of cases) {
-    const { exit, body } = await start(f, over);
+    const { exit, body } = await start(f, { descriptors: PRINT_PI, ...over });
     assert.equal(exit, 1, `${code}: ${JSON.stringify(body)}`);
     assert.equal(body.ok, false);
     assert.equal(body.code, code, JSON.stringify(body));
@@ -486,7 +488,7 @@ test('169 start-options: each binding and observed model is {model, provider, ef
 test('169 start-session: --model --provider --effort starts only an offered triple, with the part reaching the argv and the record', POSIX, async (t: any) => {
   const f = fixture(t, { fakes: ['pi'] });
   bindPi(f, { model: 'gpt-y', provider: 'openai', effort: 'low' });
-  const triple = { harness: 'pi', worktreeKey: f.mainKey, entry: 'none', readStdin: () => 'just text' };
+  const triple = { harness: 'pi', worktreeKey: f.mainKey, entry: 'none', readStdin: () => 'just text', descriptors: PRINT_PI };
   const before = stateSnapshot(f);
   for (const over of [
     { model: 'gpt-y', provider: 'openai', effort: 'high' }, { model: 'gpt-y', provider: 'other', effort: 'low' }, { model: 'gpt-z', provider: 'openai', effort: 'low' },
@@ -503,7 +505,8 @@ test('169 start-session: --model --provider --effort starts only an offered trip
   const run = await ended(f, body.run.runId);
   assert.deepEqual(fakeLog(f)[0].argv, ['-p', '--mode', 'json', '--no-approve', '--model', 'openai/gpt-y', '--thinking', 'low', '--', 'just text']);
   assert.deepEqual([run.binding.model, run.binding.provider, run.binding.effort, run.binding.source], ['gpt-y', 'openai', 'low', 'standard']);
-  assert.deepEqual(Object.keys(run.descriptor).sort(), ['cli', 'effort', 'loginProbe', 'mainSession', 'model', 'provider']);
+  // 170 T4: the record also carries the harness's controlChannel entry (here the fixture's `unknown`), so a reader can say why it has no channel.
+  assert.deepEqual(Object.keys(run.descriptor).sort(), ['cli', 'controlChannel', 'effort', 'loginProbe', 'mainSession', 'model', 'provider']);
 });
 
 test('169 start-session: a refused entry does not start, and a provider or effort without a model, or outside its pattern, is usage', POSIX, async (t: any) => {
@@ -570,6 +573,68 @@ test('165 review B-8: a startable harness whose main-session evidence is help-on
   assert.equal((await options(cited([MAIN, 'core/worker-evidence/codex/2026-10-18-live-run-read-only.json']))).claude.liveVerified, false, 'another harness\'s run');
   assert.equal((await options(cited([MAIN, 'core/worker-evidence/claude/no-such-record.json']))).claude.liveVerified, false, 'a missing record');
   assert.equal((await options(cited([MAIN]))).claude.startable, true, 'help-only stays startable');
+});
+
+test('170 IC-006: each harness entry carries the channel fact; a supported channel not cited to a live run warns channel-not-verified-live', POSIX, async (t: any) => {
+  const f = fixture(t);
+  const options = async (descriptors: any) => {
+    const { exit, body } = await executeWorkerCommand({ action: 'start-options', projectKey: f.projectKey, env: f.env, cwd: f.main, descriptors, projects: projectsImpl });
+    assert.equal(exit, 0, JSON.stringify(body));
+    return Object.fromEntries(body.harnesses.map((h: any) => [h.harness, h]));
+  };
+  // Every built-in but pi's is unknown with the descriptor's own reason: nothing is said without evidence (R-11).
+  const by = await options(DESCRIPTORS);
+  // Pi ships a supported channel on capture C-1 with no live run: its fact is supported, unverified, and warns.
+  assert.deepEqual(by.pi.channel, { state: 'supported', reason: null, liveVerified: false, unverified: DESCRIPTORS.pi.controlChannel.unverified });
+  assert.ok(by.pi.warnings.includes('channel-not-verified-live'));
+  for (const [harness, entry] of Object.entries(by).filter(([harness]) => harness !== 'pi') as any[]) {
+    assert.equal(DESCRIPTORS[harness].controlChannel.status, 'unknown', harness);
+    assert.deepEqual(entry.channel, { state: 'unknown', reason: DESCRIPTORS[harness].controlChannel.reason, liveVerified: false, unverified: [] }, harness);
+    assert.equal(typeof entry.channel.reason, 'string');
+    assert.ok(!entry.warnings.includes('channel-not-verified-live'), harness);
+  }
+  // A supported channel with no live-run citation: state supported, the descriptor's unverified phrases, and the warning on a startable harness.
+  const withChannel = (harness: string, over: any) => ({ ...DESCRIPTORS, [harness]: { ...DESCRIPTORS[harness], controlChannel: { ...DESCRIPTORS[harness].controlChannel, status: 'supported', ...over } } });
+  const CLI_CHECK = 'core/worker-evidence/claude/2026-11-15-cli-check-main-session.json';
+  const LIVE = 'core/worker-evidence/claude/2026-11-07-live-run-read-only.json';
+  const unverified = await options(withChannel('claude', { evidence: [CLI_CHECK], unverified: ['follow-up not run', 'steer not run'] }));
+  assert.deepEqual(unverified.claude.channel, { state: 'supported', reason: null, liveVerified: false, unverified: ['follow-up not run', 'steer not run'] });
+  assert.equal(unverified.claude.startable, true);
+  assert.ok(unverified.claude.warnings.includes('channel-not-verified-live'));
+  // 170 review A-05: a live-run record of the harness that does not establish the controlChannel:* parts (a one-shot, a
+  // read-only run) does not lift "not verified" for the channel, whether it is claude's own or pi's 2026-11-07 one.
+  const oneShot = await options(withChannel('claude', { evidence: [CLI_CHECK, LIVE] }));
+  assert.deepEqual(oneShot.claude.channel, { state: 'supported', reason: null, liveVerified: false, unverified: [] });
+  assert.ok(oneShot.claude.warnings.includes('channel-not-verified-live'));
+  const PI_ONE_SHOT = 'core/worker-evidence/pi/2026-11-07-live-run-spawn.json';
+  assert.equal(JSON.parse(fs.readFileSync(path.join(REPO, PI_ONE_SHOT), 'utf8')).kind, 'live-run');
+  const piOneShot = await options({ ...DESCRIPTORS, pi: { ...DESCRIPTORS.pi, controlChannel: { ...DESCRIPTORS.pi.controlChannel, evidence: [...DESCRIPTORS.pi.controlChannel.evidence, PI_ONE_SHOT] } } });
+  assert.equal(piOneShot.pi.channel.liveVerified, false);
+  assert.ok(piOneShot.pi.warnings.includes('channel-not-verified-live'));
+  // Positive control: a live-run record of the harness that establishes every controlChannel:* part verifies it (a scratch
+  // record under the repo's gitignored tmp/, since evidence paths must resolve inside the repo; removed after).
+  const scratch = path.join(REPO, 'tmp', `a05-${process.pid}-${crypto.randomBytes(4).toString('hex')}`);
+  fs.mkdirSync(scratch, { recursive: true });
+  t.after(() => fs.rmSync(scratch, { recursive: true, force: true }));
+  const record = (name: string, establishes: string[]) => {
+    fs.writeFileSync(path.join(scratch, name), JSON.stringify({ kind: 'live-run', harness: 'claude', establishes }));
+    return path.relative(REPO, path.join(scratch, name));
+  };
+  const parts = ['argv', 'messages', 'turn', 'close', 'answer'].map((part) => `controlChannel:${part}`);
+  const verified = await options(withChannel('claude', { evidence: [CLI_CHECK, record('full.json', parts)] }));
+  assert.deepEqual(verified.claude.channel, { state: 'supported', reason: null, liveVerified: true, unverified: [] });
+  assert.ok(!verified.claude.warnings.includes('channel-not-verified-live'));
+  const partial = await options(withChannel('claude', { evidence: [CLI_CHECK, record('partial.json', parts.slice(0, 3))] }));
+  assert.equal(partial.claude.channel.liveVerified, false, 'a record establishing only some parts');
+  const other = await options(withChannel('claude', { evidence: [CLI_CHECK, 'core/worker-evidence/codex/2026-10-18-live-run-read-only.json'] }));
+  assert.equal(other.claude.channel.liveVerified, false);
+  assert.ok(other.claude.warnings.includes('channel-not-verified-live'));
+  // The fact does not depend on the harness being startable: copilot has no main-session shape and still reports its channel.
+  const shut = await options(withChannel('copilot', { evidence: [CLI_CHECK], unverified: ['nothing run'] }));
+  assert.deepEqual([shut.copilot.startable, shut.copilot.channel.state, shut.copilot.warnings], [false, 'supported', []]);
+  // A descriptor with no controlChannel entry is unknown, never unsupported.
+  const { controlChannel, ...bare } = DESCRIPTORS.pi;
+  assert.deepEqual((await options({ ...DESCRIPTORS, pi: bare })).pi.channel, { state: 'unknown', reason: 'no-control-channel-entry', liveVerified: false, unverified: [] });
 });
 
 // ---- 165 review A-1: a run is dead only on positive evidence ------------------------------------------------------------------
@@ -683,7 +748,7 @@ function acmePackage(f: any, { fieldMap = null }: { fieldMap?: any } = {}) {
     structuredOutput: supported(fieldMap ? { argv: [], fieldMap } : { argv: [], parser: 'doflow-jsonl-v1' }),
     ...(mainSession ? { mainSession: supported({ argv: ['{prompt}'], promptVia: 'argv', parser: fieldMap ? fieldMap.id : null }) } : {}),
     readOnly: unknown('readOnly'), spawnDenial: unknown('spawnDenial'), runnableProbe: unknown('runnableProbe'), hooksProbe: unknown('hooksProbe'),
-    guidanceProbe: unknown('guidanceProbe'), loginProbe: unknown('loginProbe'), persistentSession: unknown('persistentSession'), resume: unknown('resume'), steering: unknown('steering'),
+    guidanceProbe: unknown('guidanceProbe'), loginProbe: unknown('loginProbe'), persistentSession: unknown('persistentSession'), resume: unknown('resume'), controlChannel: unknown('controlChannel'),
     modelChecks: [],
   });
   const src = path.join(f.dir, 'pkg-src');
@@ -769,7 +834,7 @@ test('171 T3b: a built-in\'s stored descriptor has no structuredOutput, and a pa
   const builtin = await start(f, { harness: 'codex', view });
   assert.equal(builtin.exit, 0, JSON.stringify(builtin.body));
   const run = await ended(f, builtin.body.run.runId);
-  assert.deepEqual(Object.keys(run.descriptor).sort(), ['cli', 'mainSession', 'model']);
+  assert.deepEqual(Object.keys(run.descriptor).sort(), ['cli', 'controlChannel', 'mainSession', 'model'], '170 T4: the controlChannel entry is copied');
   // codex's own map is compiled into PARSERS, so it is not copied into the record either.
   assert.equal(Object.hasOwn(run.descriptor, 'structuredOutput'), false);
   const plain = await start(f, { harness: 'acme.worker', view });
@@ -863,4 +928,147 @@ test('172 AC-6 control: a codex with a recipe and a stored logged-out answer is 
   const h = body.harnesses.find((item: any) => item.harness === 'codex');
   assert.deepEqual([h.startable, h.reason, h.login.state], [false, 'logged-out', 'logged-out']);
   assert.equal(h.warnings.includes('login-unknown'), false);
+});
+
+// ---- 170 T4 (A-2, R-4, R-5): a channel harness starts through its channel; a command is refused; starts per hour --------------
+
+/** A channel shaped like Pi's RPC mode (design 4.3): the shipped descriptors all say `unknown`, so the tests declare one. */
+const PI_CHANNEL = {
+  status: 'supported', evidence: ['test'], verification: 'v', verifiedOn: '2026-11-17',
+  argv: ['--mode', 'rpc', '--no-approve'], framing: 'jsonl-lf', parser: 'pi-json-v1', commandPrefix: '/',
+  messages: {
+    followUp: { type: 'prompt', message: '{text}', streamingBehavior: 'followUp', id: '{id}' },
+    steer: { type: 'steer', message: '{text}', id: '{id}' },
+    stop: { type: 'abort', id: '{id}' },
+  },
+  turn: { working: [{ path: ['type'], equals: 'agent_start' }], settled: [{ path: ['type'], equals: 'agent_end' }] },
+  answer: {
+    id: ['id'],
+    accepted: [{ path: ['type'], equals: 'response' }, { path: ['success'], equals: true }],
+    refused: [{ path: ['type'], equals: 'response' }, { path: ['success'], equals: false }],
+  },
+  close: { stdinEof: 'exits', graceSeconds: 3 },
+  unverified: ['declared for the tests only'],
+};
+const WITH_CHANNEL = { ...DESCRIPTORS, pi: { ...DESCRIPTORS.pi, controlChannel: PI_CHANNEL } };
+
+/** The fixture with `fake-pi` linked to the fake channel harness (test/helper/fake-channel-harness.ts). */
+function channelFixture(t: any) {
+  const f = fixture(t, { fakes: ['claude', 'codex', 'opencode'] });
+  fs.symlinkSync(path.join(REPO, 'test', 'helper', 'fake-channel-harness.ts'), path.join(f.bin, 'fake-pi'));
+  f.channelLog = path.join(f.dir, 'channel.log');
+  f.env = { ...f.env, FAKE_CHANNEL_LOG: f.channelLog };
+  return f;
+}
+
+test('A-2: a harness with a supported channel starts through it: the record says promptVia channel and carries the entry, the first prompt is the framed follow-up', POSIX, async (t: any) => {
+  const f = channelFixture(t);
+  const { exit, body } = await start(f, { harness: 'pi', descriptors: WITH_CHANNEL });
+  assert.equal(exit, 0, JSON.stringify(body));
+  const runId = body.run.runId;
+  const sent = `${ENTRY_LINE}\n\nhello there`;
+  const until = Date.now() + 10000;
+  while (!(fs.existsSync(f.channelLog) && readRuns(f.store)[runId]?.channel?.state === 'open') && Date.now() < until) await new Promise((r) => setTimeout(r, 20));
+  const run = readRuns(f.store)[runId];
+  assert.deepEqual([run.recipe.promptVia, run.recipe.parser, run.recipe.argvShape], ['channel', 'pi-json-v1', ['--mode', 'rpc', '--no-approve']]);
+  assert.deepEqual(run.descriptor.controlChannel, PI_CHANNEL);
+  assert.equal(run.channel.state, 'open');
+  assert.equal(fs.readFileSync(f.channelLog, 'utf8'), `${JSON.stringify({ type: 'prompt', message: sent, streamingBehavior: 'followUp', id: 'd-1' })}\n`);
+  const cancel = await executeWorkerCommand({ action: 'cancel', slug: 'started-sessions', workerRun: runId, by: 'test', reason: 'done with it', env: f.env, cwd: f.main, descriptors: WITH_CHANNEL });
+  assert.equal(cancel.body.disposition, 'cancelled', JSON.stringify(cancel.body));
+  const done = await ended(f, runId);
+  assert.deepEqual([done.channel.state, done.channel.closedReason], ['closed', 'cancelled']);
+  // The live supervisor removes the spool once the harness streams are drained, after the cancel's end is written.
+  const spoolDir = path.join(f.main, '.doflow', 'state', 'channel-spool', runId);
+  const by = Date.now() + 10000;
+  while (fs.existsSync(spoolDir) && Date.now() < by) await new Promise((r) => setTimeout(r, 20));
+  assert.equal(fs.existsSync(spoolDir), false, 'the spool is removed');
+});
+
+test('T9a: the shipped Pi descriptor starts through its channel on the C-1 argv, the first prompt a framed follow-up', POSIX, async (t: any) => {
+  const f = channelFixture(t);
+  const { exit, body } = await start(f, { harness: 'pi' });
+  assert.equal(exit, 0, JSON.stringify(body));
+  const runId = body.run.runId;
+  const until = Date.now() + 10000;
+  while (!(fs.existsSync(f.channelLog) && readRuns(f.store)[runId]?.channel?.state === 'open') && Date.now() < until) await new Promise((r) => setTimeout(r, 20));
+  const run = readRuns(f.store)[runId];
+  assert.deepEqual([run.recipe.promptVia, run.recipe.parser, run.recipe.argvShape], ['channel', 'pi-json-v1', ['--mode', 'rpc', '--no-approve']]);
+  assert.equal(fs.readFileSync(f.channelLog, 'utf8'), `${JSON.stringify({ type: 'prompt', message: `${ENTRY_LINE}\n\nhello there`, streamingBehavior: 'followUp', id: 'd-1' })}\n`);
+  // The shipped descriptor settles on `agent_settled`, which the fake emits after `agent_end`: the turn reaches waiting.
+  const settledBy = Date.now() + 10000;
+  while (readRuns(f.store)[runId]?.channel?.turn?.state !== 'waiting' && Date.now() < settledBy) await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual([readRuns(f.store)[runId].channel.turn.observed, readRuns(f.store)[runId].channel.turn.state], [true, 'waiting']);
+  const cancel = await executeWorkerCommand({ action: 'cancel', slug: 'started-sessions', workerRun: runId, by: 'test', reason: 'done with it', env: f.env, cwd: f.main, descriptors: DESCRIPTORS });
+  assert.equal(cancel.body.disposition, 'cancelled', JSON.stringify(cancel.body));
+  await ended(f, runId);
+});
+
+test('170 T4c: a channel start with an 8000-code-point text and entry do is accepted, not prompt-too-long; 8001 still is', POSIX, async (t: any) => {
+  const f = channelFixture(t);
+  const text = 'a'.repeat(8000);
+  const { exit, body } = await start(f, { harness: 'pi', entry: 'do', descriptors: WITH_CHANNEL, readStdin: () => text });
+  assert.equal(exit, 0, JSON.stringify(body));
+  const runId = body.run.runId;
+  const until = Date.now() + 10000;
+  while (!(fs.existsSync(f.channelLog) && readRuns(f.store)[runId]?.channel?.state === 'open') && Date.now() < until) await new Promise((r) => setTimeout(r, 20));
+  assert.equal(JSON.parse(fs.readFileSync(f.channelLog, 'utf8')).message, `${ENTRY_LINE}\n\n${text}`);
+  const cancel = await executeWorkerCommand({ action: 'cancel', slug: 'started-sessions', workerRun: runId, by: 'test', reason: 'done with it', env: f.env, cwd: f.main, descriptors: WITH_CHANNEL });
+  assert.equal(cancel.body.disposition, 'cancelled', JSON.stringify(cancel.body));
+  await ended(f, runId);
+  const over = await start(f, { harness: 'pi', entry: 'do', descriptors: WITH_CHANNEL, readStdin: () => 'a'.repeat(8001) });
+  assert.deepEqual([over.exit, over.body.code], [1, 'prompt-too-long']);
+});
+
+test('R-4: a first prompt that starts with the channel command prefix is refused command-not-allowed before any write; a harness without a channel starts it as before', POSIX, async (t: any) => {
+  const f = channelFixture(t);
+  const before = stateSnapshot(f);
+  for (const entry of ['do', 'none']) {
+    const { exit, body } = await start(f, { harness: 'pi', entry, descriptors: WITH_CHANNEL, readStdin: () => '/help' });
+    assert.deepEqual([exit, body.ok, body.code], [1, false, 'command-not-allowed'], JSON.stringify(body));
+    assert.equal(typeof body.message, 'string');
+  }
+  assert.deepEqual(stateSnapshot(f), before, 'no run, prompt or spool is written');
+  assert.equal(fs.existsSync(f.channelLog), false, 'nothing reached the harness');
+  // codex has no channel: its prompt is not a channel record, so the prefix means nothing to it (row 165 unchanged).
+  const plain = await start(f, { harness: 'codex', readStdin: () => '/help' });
+  assert.equal(plain.exit, 0, JSON.stringify(plain.body));
+  const run = await ended(f, plain.body.run.runId);
+  assert.equal(run.recipe.promptVia, 'stdin');
+  assert.equal(run.channel, undefined);
+  assert.equal(run.descriptor.controlChannel.status, 'unknown', 'the unsupported entry is copied for the reader');
+  assert.equal(fakeLog(f)[0].stdin, `${ENTRY_LINE}\n\n/help`);
+});
+
+test('R-5: the seventh start by one actor within an hour, counting ended runs here and in another indexed project, is refused start-rate-limited with retryAfterSeconds', POSIX, async (t: any) => {
+  const f = fixture(t);
+  const second = path.join(f.dir, 'second');
+  repo(second);
+  fs.writeFileSync(path.join(f.home, '.doflow', 'state', 'upkeep-roots'), `${f.main}\n${second}\n`);
+  const now = Date.now();
+  const endedRun = (root: string, minutesAgo: number, startedBy = 'console') => {
+    const runId = `w-${crypto.randomBytes(6).toString('hex')}`;
+    const createdAt = new Date(now - minutesAgo * 60000).toISOString();
+    const r = insertRun(STORE(root), {
+      runId, kind: 'main-session', task: 'main-session', token: 1, request: requestId(), childOf: null, harness: 'codex',
+      phase: 'ended', createdAt, startedBy, project: { projectKey: cwdHash(root), worktreeKey: 'a'.repeat(16) }, end: { state: 'exited', at: createdAt },
+    });
+    assert.equal(r.applied, true);
+  };
+  // Six by console in the hour (the oldest 50 minutes ago), one older than the hour, and one by another actor.
+  for (const minutes of [50, 40, 30, 20]) endedRun(f.main, minutes);
+  for (const minutes of [10, 5]) endedRun(second, minutes);
+  endedRun(f.main, 61);
+  endedRun(f.main, 1, 'manual');
+  const before = stateSnapshot(f);
+  const { exit, body } = await start(f);
+  assert.deepEqual([exit, body.code, body.current.started, body.current.max], [1, 'start-rate-limited', 6, 6], JSON.stringify(body));
+  assert.ok(body.current.retryAfterSeconds > 9 * 60 && body.current.retryAfterSeconds <= 10 * 60, `the oldest of the six leaves its hour in about 10 minutes: ${body.current.retryAfterSeconds}`);
+  assert.equal(typeof body.message, 'string');
+  assert.deepEqual(stateSnapshot(f), before);
+  assert.equal(fakeLog(f).length, 0);
+  // Another actor has its own count.
+  const other = await start(f, { via: undefined });
+  assert.equal(other.exit, 0, JSON.stringify(other.body));
+  await ended(f, other.body.run.runId);
 });

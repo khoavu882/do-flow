@@ -347,3 +347,23 @@ test('161 IC-002: the machine channel is catalogued with projects and activity a
   assert.deepEqual(sections.activity, { exit: 0, json: { v: 1, limits: { projects: 16, notShown: 0, watched: 0, fingerprintOnly: 0 }, items: [] } });
   await assert.rejects(spec.compute(['list']), /'list' is not a section of a machine channel/);
 });
+
+// 170 D7, IC-004: `layers` lists `channels` last, derived and with no throttle, and the `worker-runs` directory of every checkout
+// recomputes it beside `tree`; the other stores of that group do not.
+test('170 D7: the layers catalogue lists channels as a derived section the worker-runs store recomputes, with no throttle', (t) => {
+  assert.deepEqual([...CATALOGUE.layers.sections].slice(-2), ['coverage', 'channels']);
+  assert.deepEqual([...CATALOGUE.layers.derived], ['tree', 'traffic', 'channels']);
+  const main = fs.realpathSync(tempDir(t, 'doflow-sections-layers-'));
+  const index = {
+    ensure() {}, generation: () => 1, now: () => 0, sessionsDir: () => null, replay: () => ({ status: 1 }),
+    lookup: (key: string) => (key === 'a'.repeat(16) ? { projectKey: key, main, checkouts: [main] } : null),
+  };
+  const spec = channelSpec(`layers:${'a'.repeat(16)}`, { cwd: main, env: {}, index });
+  assert.deepEqual(spec.sectionNames().slice(-2), ['coverage', 'channels']);
+  assert.equal(spec.isDerived('channels'), true);
+  const sources = spec.sources();
+  const stores = Object.fromEntries(['worker-runs', 'task-attempts', 'dispatch'].map((name) => [name, sources.directories.find((d: any) => d.path === path.join(main, '.doflow', 'state', name))?.sections]));
+  assert.deepEqual(stores, { 'worker-runs': ['tree', 'channels'], 'task-attempts': ['tree'], dispatch: ['tree'] });
+  assert.deepEqual(sources.derived, ['tree', 'traffic', 'channels']);
+  assert.equal('channels' in sources.policies, false, 'no throttle for channels');
+});

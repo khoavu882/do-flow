@@ -12,23 +12,24 @@
 //   2. the scope (LAN, the wrapper: `deviceMayUse`, else 403 phone-scope);
 //   3. the transport (LAN: `deviceMayAct`, a `control` record paired natively over the native class, else 403
 //      action-transport; loopback: the `local` session acts, behind server.ts's non-GET checks, D5);
-//   4. the body (the row's `bodyCap`: 4 KiB, 40 KiB for start-session; one JSON object with exactly the row's keys plus `v`,
-//      `requestId` and `projectKey`; the text rule of IC-009 or the prompt rule of 165 IC-004; else 400 usage, or 400
-//      prompt-empty / prompt-too-long for a prompt, the core's own ids);
+//   4. the body (the row's `bodyCap`: 4 KiB, 40 KiB for start-session, session-send and session-steer; one JSON object with exactly
+//      the row's keys plus `v`, `requestId` and `projectKey`; the text rule of IC-009 or the prompt rule of 165 IC-004; else 400
+//      usage, or 400 prompt-empty / prompt-too-long for a prompt or a message, the core's own ids);
 //   5. idempotency (D12: `(actor, requestId)` for 10 min, 256 entries, least recently used out; a duplicate awaits
 //      or replays the first answer, `replayed: true`, uncounted; another body under the same id is 409
 //      request-reused);
 //   6. the limits (D11: per actor 6 a minute and 30 an hour, per Console 20 a minute; 429 action-rate-limited with
 //      `Retry-After` in whole seconds until the oldest counted attempt leaves its window; counted on the log's
-//      aggregated `rate-limited` line per actor);
-//   7. a row's own limit (165 FR-008: six starts per actor an hour; 429 start-rate-limited with `Retry-After` until the oldest
-//      counted start leaves the hour; it counts the attempts admitted to the queue, and gives one back when nothing ran);
-//   8. the queue (one attempt in flight, four waiting, FIFO; else 429 action-busy, `Retry-After: 2`).
+//      aggregated `rate-limited` line per actor). The three session actions (170 R-5) are not counted here once a request reaches the core:
+//      the core's limits are theirs. A start's hourly limit is the core's too (`start-rate-limited`); the Console holds no limit of its
+//      own for either and maps the core's refusal to 429 with `Retry-After` from its `retryAfterSeconds`;
+//   7. the queue (one attempt in flight, four waiting, FIFO; else 429 action-busy, `Retry-After: 2`).
 // A request the server refuses before the wrappers (403 forbidden-origin, 415 unsupported-media) has no actor: it is counted
 // on the `summary` line of its reason with actor kind `none`, one line a minute per reason, whoever sent it.
 // A refusal at 2 to 5 counts against the actor's own windows (never the Console's, so one actor's refusals cannot
-// block another's actions) and, once they are full, is 429 action-rate-limited instead (162 review 1). Every refusal
-// at 2 to 8 is counted on the log's aggregated `summary` line for its code and actor, so a flood adds at most a few
+// block another's actions) and, once they are full, is 429 action-rate-limited instead (162 review 1), for the session actions too
+// (170 review A-03): nothing else limits a request that never reaches the core. Every refusal
+// at 2 to 7 is counted on the log's aggregated `summary` line for its code and actor, so a flood adds at most a few
 // lines a minute and never rotates the `begin` and `end` lines of attempts that ran out of the log.
 // Then `begin` is logged (fail closed: a line that cannot be written is 503 action-log-unwritable and nothing
 // runs), `runner.act` runs the shape in the project named by `projectKey` (D14; an unknown key refreshes the
@@ -38,8 +39,10 @@
 //
 // The relay label is the actor's, never the body's: `console` for the loopback session, `device.d-<12 hex>` for a
 // device (DEC-007). Free text (`note`, `reason`) is normalized here, passed as one argv element, and logged only as
-// its length. A prompt (165 IC-004) is normalized by its own rule, passed only as the write shape's stdin parameter, and
-// logged only as its length; it is in no reply and no error. `GET /api/actions` (D13) says, for the asking session, which actions it may take and why not; an
+// its length. A prompt (165 IC-004) or a message (170: `session-send`, `session-steer`) is normalized by its own rule, passed only as
+// the write shape's stdin parameter, and logged only as its length; it is in no reply and no error. The three session actions (170 IC-001,
+// IC-005) reply with the closed projection of the core's `{ok, replayed, message, turn, channel}` or its refusal (409, 429 with `Retry-After`,
+// 404, 400, 403 by the core's own ids, and its words as the error's `message`). `GET /api/actions` (D13) says, for the asking session, which actions it may take and why not; an
 // action that answered 501 core-lacks-action is remembered as lacking until the Console restarts.
 //
 // Ceilings: the limits, the idempotency memo and the lacking set are in memory and die with the process; the
@@ -64,7 +67,9 @@ type Current = Record<string, unknown> | null;
  * only on a refusal by state (it may be null there), `ran` false when nothing was spawned.
  */
 type Answer = { status: number, code: string | null, outcome: 'applied' | 'refused' | 'failed' | 'unknown' | 'replayed', exit: number | null,
-  verb: string | null, current?: Current, result?: Record<string, unknown>, ran: boolean, runId?: string, errorId?: string };
+  verb: string | null, current?: Current, result?: Record<string, unknown>, ran: boolean, runId?: string, errorId?: string,
+  /** 170: the core's own words for a refusal of a session action, as the error body's `message`; `retryAfter` whole seconds, the 429's header. */
+  message?: string, retryAfter?: number };
 type Target = { slug: string | null, taskId: string | null, gateId: string | null, runId: string | null,
   worktreeKey?: string, harness?: string, model?: string };
 type ActionSpec = Readonly<{
@@ -72,12 +77,12 @@ type ActionSpec = Readonly<{
   shape: string,
   fields: Readonly<Record<string, FieldRule>>,
   textField: 'note' | 'reason' | null,
-  /** 165 C-4: the field of kind `prompt`, which is the write shape's `stdin` parameter; null for every other row. */
-  promptField: 'prompt' | null,
+  /** 165 C-4: the field of kind `prompt`, which is the write shape's `stdin` parameter (170: `message` for a send or a steer); null for every other row. */
+  promptField: 'prompt' | 'message' | null,
   /** 165 C-4: this row's body cap in bytes (162's BODY_CAP unless the row carries a prompt). */
   bodyCap: number,
-  /** 165 FR-008: a limit of this row's own, per actor, on top of 162's; null for none. */
-  limit: Readonly<{ perHour: number, code: string }> | null,
+  /** 170 R-5: true for a session action, which D11's windows do not count (the core's limits apply); false for every other row. */
+  coreLimited: boolean,
   target(b: Body): Target,
   expect(b: Body): { revision: number } | null,
   params(b: Body, relay: string): Record<string, string>,
@@ -89,9 +94,14 @@ type Actor = { kind: 'local', key: 'local', relay: 'console' }
 const BODY_CAP = 4096;
 /** 165 IC-004: a start's body: a prompt of 32 KiB and its JSON escapes. */
 const START_BODY_CAP = 40960;
-/** 165 IC-001: the prompt bounds after the prompt rule, the core's PROMPT_MAX (src/runtime/worker/session-prompt.ts). */
+/** 170 IC-005: a send's or a steer's body: a message of 32 KiB and its JSON escapes, as a start's. */
+const MESSAGE_BODY_CAP = START_BODY_CAP;
+/**
+ * 165 IC-001: the prompt bounds after the prompt rule, the core's PROMPT_MAX (src/runtime/worker/session-prompt.ts); 170: a message's
+ * bounds are the same two numbers (channel.ts CHANNEL_LIMITS). This mirrors the core's value only to answer a too-long text before a spawn;
+ * the core re-checks it and its answer is the one that counts.
+ */
 const PROMPT_MAX = Object.freeze({ codePoints: 8000, bytes: 32768 });
-const START_LIMIT = Object.freeze({ perHour: 6, code: 'start-rate-limited' });
 const TEXT_MAX = 500;
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -105,6 +115,8 @@ const WARN_EVERY_MS = MINUTE_MS;
 const REQUEST_ID = /^[A-Za-z0-9_-]{22}$/;
 /** start-session carries its id as a CLI flag value, which the CLI refuses when it begins with `-`: this row's id begins with a letter or digit. */
 const START_REQUEST_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{21}$/;
+/** The actions whose request id is a CLI flag value (the core's own pattern): start-session (165) and the three session actions (170). */
+const FLAG_ID_ACTIONS: readonly string[] = Object.freeze(['start-session', 'session-send', 'session-steer', 'session-stop']);
 const DEVICE_ID = /^d-[0-9a-f]{12}$/;
 /** IC-009: removed after NFC and the whitespace rule: C0, DEL and C1, zero-width and bidi controls, the BOM. */
 const REMOVED = /[\u0000-\u001F\u007F-\u009F​-‏‪-‮⁦-⁩﻿]/g;
@@ -200,7 +212,7 @@ function readBodyOf(spec: ActionSpec, text: string | null): { body: Body } | { c
   if (!object(raw)) return usage;
   const keys = ['v', 'requestId', 'projectKey', ...Object.keys(spec.fields)];
   if (Object.keys(raw).sort().join() !== [...keys].sort().join()) return usage;
-  if (raw.v !== 1 || typeof raw.requestId !== 'string' || !(spec.id === 'start-session' ? START_REQUEST_ID : REQUEST_ID).test(raw.requestId)
+  if (raw.v !== 1 || typeof raw.requestId !== 'string' || !(FLAG_ID_ACTIONS.includes(spec.id) ? START_REQUEST_ID : REQUEST_ID).test(raw.requestId)
     || typeof raw.projectKey !== 'string' || !PATTERNS.key16.test(raw.projectKey)) return usage;
   const body: Body = { v: 1, requestId: raw.requestId, projectKey: raw.projectKey };
   let refused: Refused | null = null;
@@ -345,6 +357,9 @@ const START_CURRENT: Readonly<Record<string, (c: any) => Current | undefined>> =
   // nested-start: the id is the environment's DOFLOW_STARTED_RUN, which the core does not check.
   nested: (c: any) => (object(c) ? { runId: runIdOrNull(c.runId) } : undefined),
   open: (c: any) => (object(c) && count(c.open) && count(c.max) ? { open: c.open, max: c.max } : undefined),
+  // 170 R-5: the core's hourly limit of an actor's starts; `retryAfterSeconds` is the 429's `Retry-After` too.
+  rate: (c: any) => (object(c) && count(c.started) && count(c.max) && Number.isSafeInteger(c.retryAfterSeconds) && c.retryAfterSeconds >= 1 && c.retryAfterSeconds <= RETRY_AFTER_MAX
+    ? { started: c.started, max: c.max, retryAfterSeconds: c.retryAfterSeconds } : undefined),
   // 165 review A-3: `slug` is null when the core cannot read the dispatch records; its `reason` then says so.
   dispatch: (c: any) => (object(c) && (isId(c.slug) || (c.slug === null && isId(c.reason))) && (c.dispatchId === undefined || c.dispatchId === null || isId(c.dispatchId))
     && (c.driverPid === undefined || Number.isSafeInteger(c.driverPid)) && (c.reason === undefined || isId(c.reason))
@@ -380,6 +395,7 @@ const START_REFUSALS: Readonly<Record<string, readonly [number, string, string |
   'harness-not-startable': [409, 'harness-not-startable', 'harness'],
   'nested-start': [409, 'nested-start', 'nested'],
   'actor-limit': [429, 'actor-limit', 'open'],
+  'start-rate-limited': [429, 'start-rate-limited', 'rate'],
   'machine-limit': [429, 'machine-limit', 'open'],
   'project-mismatch': [404, 'project-not-found', null],
   'project-not-indexed': [404, 'project-not-found', null],
@@ -432,7 +448,118 @@ function startOutcome(shape: string) {
     const [status, code, projector] = START_REFUSALS[json.code];
     if (projector === null) return answer(status, code, 'refused', 1, shape);
     const current = START_CURRENT[projector](json.current);
-    return current === undefined ? mismatch(shape, 1) : answer(status, code, 'refused', 1, shape, { current });
+    if (current === undefined) return mismatch(shape, 1);
+    return answer(status, code, 'refused', 1, shape, { current, ...(status === 429 && current !== null && typeof current.retryAfterSeconds === 'number' ? { retryAfter: current.retryAfterSeconds } : {}) });
+  };
+}
+
+// ---- 170 IC-001, IC-005: the reply of session-send, session-steer and session-stop ----
+
+const TOKEN = /^[a-z][a-z0-9:_-]{0,63}$/;
+const MESSAGE_KINDS = ['follow-up', 'steer', 'stop'];
+/** An `ok: true` reply says `written` or `pending` (the verb waited 2 s and the file still waits); a refused or failed entry is `ok: false`. */
+const MESSAGE_STATES = ['written', 'pending'];
+const MESSAGE_ANSWERS = ['accepted', 'refused'];
+/** The core's words for a refusal: one line of at most 300 characters, no control character, and none that looks like a path. */
+const CORE_WORDS = /^[^\u0000-\u001F\u007F-\u009F\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]{1,300}$/;
+const CORE_PATH = /(?:^|[\s(])(?:\/|~\/|[A-Za-z]:\\)/;
+const RETRY_AFTER_MAX = 86_400;
+const isIso = (value: unknown): value is string => typeof value === 'string' && ISO.test(value);
+
+/** IC-002's `Turn`, closed; undefined when it does not project. */
+function turnOf(turn: any): Record<string, unknown> | undefined {
+  if (!object(turn)) return undefined;
+  if (turn.observed === true) {
+    return (turn.state === 'working' || turn.state === 'waiting') && isIso(turn.since) && count(turn.seq)
+      ? { observed: true, state: turn.state, since: turn.since, seq: turn.seq } : undefined;
+  }
+  return turn.observed === false && typeof turn.reason === 'string' && TOKEN.test(turn.reason) && (turn.since === null || isIso(turn.since))
+    ? { observed: false, reason: turn.reason, since: turn.since } : undefined;
+}
+
+/** IC-001's `ok: true` reply, closed; null when it does not project. */
+function sessionResult(json: any): Record<string, unknown> | null {
+  const m = json.message;
+  const turn = turnOf(json.turn);
+  if (typeof json.replayed !== 'boolean' || turn === undefined || (json.channel !== 'open' && json.channel !== 'closed') || !object(m)
+    || !(m.seq === null || count(m.seq)) || !MESSAGE_KINDS.includes(m.kind) || !MESSAGE_STATES.includes(m.state)
+    || !(m.answer === null || MESSAGE_ANSWERS.includes(m.answer)) || !isIso(m.at) || !count(m.bytes)) return null;
+  return { replayed: json.replayed, message: { seq: m.seq, kind: m.kind, state: m.state, answer: m.answer, at: m.at, bytes: m.bytes }, turn, channel: json.channel };
+}
+
+/**
+ * IC-001's `current` of a refusal, closed: the run id, the turn, a reason and the seconds to wait, each only when the core gave it.
+ * `nested-send` carries the environment's DOFLOW_STARTED_RUN, which the core does not check: it is left out when it is no run id.
+ * Null for none; undefined when a part the core gave does not project.
+ */
+function sessionCurrent(c: unknown, code: string): Current | undefined {
+  if (c === undefined || c === null) return null;
+  if (!object(c)) return undefined;
+  const current: Record<string, unknown> = {};
+  if (c.runId !== undefined) {
+    if (typeof c.runId === 'string' && PATTERNS.runId.test(c.runId)) current.runId = c.runId;
+    else if (code !== 'nested-send') return undefined;
+  }
+  if (c.turn !== undefined) {
+    const turn = turnOf(c.turn);
+    if (turn === undefined) return undefined;
+    current.turn = turn;
+  }
+  if (c.reason !== undefined) {
+    if (typeof c.reason !== 'string' || !TOKEN.test(c.reason)) return undefined;
+    current.reason = c.reason;
+  }
+  if (c.retryAfterSeconds !== undefined) {
+    if (!Number.isSafeInteger(c.retryAfterSeconds) || c.retryAfterSeconds < 1 || c.retryAfterSeconds > RETRY_AFTER_MAX) return undefined;
+    current.retryAfterSeconds = c.retryAfterSeconds;
+  }
+  return Object.keys(current).length === 0 ? null : current;
+}
+
+/** IC-001/IC-005: the core's refusal ids of a send, a steer and a stop, and the status each is here. The core's id is the Console's. */
+const SESSION_REFUSALS: Readonly<Record<string, number>> = Object.freeze({
+  'no-channel': 409, 'no-steer': 409, 'channel-closed': 409, 'not-working': 409, 'channel-busy': 409, 'run-ended': 409,
+  'started-without-channel': 409, 'stdin-stalled': 409, 'write-failed': 409,
+  'actor-rate-limited': 429,
+  'unknown-run': 404, 'not-a-session': 404,
+  'prompt-empty': 400, 'prompt-too-long': 400, 'command-not-allowed': 400,
+  'nested-send': 403, 'sender-in-run': 403,
+});
+/** A delivery that failed (not a refusal by a rule): the log says `failed`. */
+const SESSION_FAILURES = ['stdin-stalled', 'write-failed'];
+
+/**
+ * send, steer and stop (IC-001): `{ok:true, replayed, message, turn, channel}` on exit 0, `{ok:false, code, message, current?}` on exit 1 by
+ * SESSION_REFUSALS; the project checks are this Console's `project-not-found`, as start's. An exit 2 `usage` is an older core without the
+ * action (501), as start's. The core's words ride as the error body's `message`, and `retryAfterSeconds` as the 429's `Retry-After`.
+ */
+function sessionOutcome(shape: string) {
+  return (result: any): Answer => {
+    if (!result.ok) {
+      if (result.code === 'usage' && result.exit === 2) {
+        return result.errorId === undefined || result.errorId === 'usage'
+          ? answer(501, 'core-lacks-action', 'failed', 2, shape)
+          : answer(502, 'core-error', 'failed', 2, shape, { errorId: result.errorId });
+      }
+      return failureAnswer(shape, result);
+    }
+    const json = result.json;
+    if (result.exit === 0) {
+      const projected = json.ok === true ? sessionResult(json) : null;
+      if (projected === null) return mismatch(shape, 0);
+      return answer(200, null, projected.replayed ? 'replayed' : 'applied', 0, shape, { result: projected });
+    }
+    if (json.ok !== false || typeof json.code !== 'string') return mismatch(shape, 1);
+    if (json.code === 'project-mismatch' || json.code === 'project-not-indexed') return answer(404, 'project-not-found', 'refused', 1, shape);
+    if (!Object.hasOwn(SESSION_REFUSALS, json.code)) return mismatch(shape, 1);
+    const current = sessionCurrent(json.current, json.code);
+    if (current === undefined) return mismatch(shape, 1);
+    const words = typeof json.message === 'string' && CORE_WORDS.test(json.message) && !CORE_PATH.test(json.message) ? json.message : undefined;
+    const retry = current === null ? undefined : current.retryAfterSeconds;
+    return answer(SESSION_REFUSALS[json.code], json.code, SESSION_FAILURES.includes(json.code) ? 'failed' : 'refused', 1, shape, {
+      ...(current === null ? {} : { current }), ...(words === undefined ? {} : { message: words }),
+      ...(json.code === 'actor-rate-limited' && typeof retry === 'number' ? { retryAfter: retry } : {}),
+    });
   };
 }
 
@@ -461,7 +588,7 @@ const ACTIONS: readonly ActionSpec[] = deepFreeze([
     textField: 'note',
     promptField: null,
     bodyCap: BODY_CAP,
-    limit: null,
+    coreLimited: false,
     target: (b: Body) => ({ slug: b.slug, taskId: b.taskId, gateId: b.gateId, runId: null }),
     expect: (b: Body) => ({ revision: b.expect.revision }),
     params: (b: Body, relay: string) => ({ projectKey: b.projectKey, taskId: b.taskId, ...slugParam(b), gate: b.gateId, decision: b.decision,
@@ -475,7 +602,7 @@ const ACTIONS: readonly ActionSpec[] = deepFreeze([
     textField: 'note',
     promptField: null,
     bodyCap: BODY_CAP,
-    limit: null,
+    coreLimited: false,
     target: (b: Body) => ({ slug: b.slug, taskId: b.taskId, gateId: null, runId: null }),
     expect: (b: Body) => ({ revision: b.expect.revision }),
     params: (b: Body, relay: string) => ({ projectKey: b.projectKey, taskId: b.taskId, ...slugParam(b), revision: String(b.expect.revision), relay, note: b.note }),
@@ -488,7 +615,7 @@ const ACTIONS: readonly ActionSpec[] = deepFreeze([
     textField: 'reason',
     promptField: null,
     bodyCap: BODY_CAP,
-    limit: null,
+    coreLimited: false,
     target: (b: Body) => ({ slug: b.slug, taskId: null, gateId: null, runId: b.runId }),
     expect: () => null,
     // The write shape's free-text parameter is `note`; it is passed after `--reason`.
@@ -503,12 +630,39 @@ const ACTIONS: readonly ActionSpec[] = deepFreeze([
     textField: null,
     promptField: 'prompt',
     bodyCap: START_BODY_CAP,
-    limit: START_LIMIT,
+    coreLimited: false,
     target: (b: Body) => ({ slug: null, taskId: null, gateId: null, runId: null, worktreeKey: b.worktreeKey, harness: b.harness, model: b.model ?? 'default' }),
     expect: () => null,
     params: (b: Body, relay: string) => ({ projectKey: b.projectKey, worktreeKey: b.worktreeKey, harness: b.harness, ...(b.model === null ? {} : { model: b.model as string }),
       ...(b.provider === null ? {} : { provider: b.provider as string }), ...(b.effort === null ? {} : { effort: b.effort as string }), entry: b.entry, relay, requestId: b.requestId, prompt: b.prompt }),
     outcome: startOutcome('start-session'),
+  },
+  // 170 IC-005. The run id is the target; the message is the write shape's stdin, in no argv, reply or log line; the core's limits apply.
+  ...['session-send', 'session-steer'].map((id) => ({
+    id,
+    shape: id,
+    fields: { runId: rule('runId'), message: rule('prompt') },
+    textField: null,
+    promptField: 'message',
+    bodyCap: MESSAGE_BODY_CAP,
+    coreLimited: true,
+    target: (b: Body) => ({ slug: null, taskId: null, gateId: null, runId: b.runId }),
+    expect: () => null,
+    params: (b: Body, relay: string) => ({ projectKey: b.projectKey, runId: b.runId, relay, requestId: b.requestId, message: b.message }),
+    outcome: sessionOutcome(id),
+  })),
+  {
+    id: 'session-stop',
+    shape: 'session-stop',
+    fields: { runId: rule('runId') },
+    textField: null,
+    promptField: null,
+    bodyCap: BODY_CAP,
+    coreLimited: true,
+    target: (b: Body) => ({ slug: null, taskId: null, gateId: null, runId: b.runId }),
+    expect: () => null,
+    params: (b: Body, relay: string) => ({ projectKey: b.projectKey, runId: b.runId, relay, requestId: b.requestId }),
+    outcome: sessionOutcome('session-stop'),
   },
 ] as ActionSpec[]);
 
@@ -568,40 +722,6 @@ function createLimits() {
   };
 }
 
-/**
- * 165 FR-008: a row's own hourly window per actor (`limit.perHour`), on top of D11's. `admit` counts an attempt and answers
- * `{ wait: 0, release }` (`release` gives the count back, for an attempt that ran nothing), or the whole seconds until the oldest
- * counted attempt leaves the hour and counts nothing. Exact within one Console: the check and the count are one synchronous step.
- */
-function createRowLimits() {
-  const windows = new Map<string, number[]>();
-  return {
-    admit(key: string, perHour: number, t: number): { wait: number, release: () => void } {
-      const mine = (windows.get(key) ?? []).filter((at) => t - at < HOUR_MS);
-      if (mine.length >= perHour) {
-        windows.set(key, mine);
-        return { wait: Math.max(1, Math.ceil((mine[0] + HOUR_MS - t) / 1000)), release: () => {} };
-      }
-      const counted = { at: t };
-      mine.push(counted.at);
-      windows.set(key, mine);
-      let released = false;
-      return {
-        wait: 0,
-        release: () => {
-          if (released) return;
-          released = true;
-          const list = windows.get(key) ?? [];
-          const index = list.indexOf(counted.at);
-          if (index >= 0) list.splice(index, 1);
-          if (list.length) windows.set(key, list);
-          else windows.delete(key);
-        },
-      };
-    },
-  };
-}
-
 /** One attempt in flight, WAITING_MAX waiting, first in first out; `reserve` is null when full. */
 function createQueue() {
   let running = false;
@@ -630,6 +750,9 @@ function createQueue() {
     },
   };
 }
+
+/** 170 review A-07: a 200 whose message the core answered `pending` (written to the spool, not yet taken by the harness). */
+const isPendingMessage = (done: Answer): boolean => done.status === 200 && (done.result?.message as { state?: unknown } | null | undefined)?.state === 'pending';
 
 type Memo = { digest: string, settled: Promise<Answer>, at: number };
 
@@ -666,7 +789,6 @@ type Options = { runner: any, log: any, now?: () => number, warn?: (line: string
  */
 function createActions({ runner, log, now = Date.now, warn = () => {} }: Options) {
   const limits = createLimits();
-  const rowLimits = createRowLimits();
   const queue = createQueue();
   const memo = createMemo();
   const lacking = new Set<string>();
@@ -692,8 +814,8 @@ function createActions({ runner, log, now = Date.now, warn = () => {} }: Options
   }
 
   /**
-   * A refusal before any spawn (162 review 1): counted against the actor's own windows unless `counted` already (then a full
-   * window answers 429 instead), and on the aggregated `summary` line of its code and actor, never a line of its own.
+   * A refusal before any spawn (162 review 1): counted against the actor's own windows (a full window answers 429 instead), for every action, a
+   * session action too (170 review A-03), unless `counted` says the attempt was admitted already; and on the aggregated `summary` line of its code and actor, never a line of its own.
    */
   async function refuse(key: string, base: Record<string, unknown>, status: number, code: string, options: { counted?: boolean, headers?: Record<string, string> } = {}): Promise<Reply> {
     if (!options.counted) {
@@ -706,14 +828,18 @@ function createActions({ runner, log, now = Date.now, warn = () => {} }: Options
     return reply;
   }
 
+  /** 170: a 429 from the core's own limit says when to come back, in whole seconds. */
+  const withRetry = (reply: Reply, done: Answer): Reply => (done.retryAfter === undefined ? reply : withHeader(reply, 'Retry-After', String(done.retryAfter)));
+
   function replyOf(spec: ActionSpec, body: Body, actor: Actor, done: Answer, replayed: boolean): Reply {
     if (done.status === 200) return jsonReply(200, { v: 1, action: spec.id, requestId: body.requestId, outcome: 'applied', replayed, by: actor.relay, result: done.result });
     const reply = errorReply(done.status, done.code as string, done.verb, done.exit);
-    if (done.current === undefined && done.errorId === undefined && !replayed) return reply;
-    // 162 review 11: a replayed error says so, with the first reply's status and `current`. 165 F1: a core error says which id.
+    if (done.current === undefined && done.errorId === undefined && done.message === undefined && !replayed) return withRetry(reply, done);
+    // 162 review 11: a replayed error says so, with the first reply's status and `current`. 165 F1: a core error says which id. 170: and its words.
     const plain = JSON.parse(String(reply.body));
     if (done.errorId !== undefined) plain.error.id = done.errorId;
-    return jsonReply(done.status, { ...plain, ...(done.current === undefined ? {} : { current: done.current }), ...(replayed ? { replayed: true } : {}) });
+    if (done.message !== undefined) plain.error.message = done.message;
+    return withRetry(jsonReply(done.status, { ...plain, ...(done.current === undefined ? {} : { current: done.current }), ...(replayed ? { replayed: true } : {}) }), done);
   }
 
   /** begin, act (one projects refresh for an unknown key), end. */
@@ -772,7 +898,7 @@ function createActions({ runner, log, now = Date.now, warn = () => {} }: Options
         const free = spec.textField ?? spec.promptField;
         const fields = {
           ...base, id: body.requestId, project: body.projectKey, target: spec.target(body), expect: spec.expect(body),
-          input: { decision: body.decision ?? null, textChars: free === null ? null : codePoints(body[free]), entry: body.entry ?? null },
+          input: { decision: body.decision ?? null, textBytes: free === null ? null : Buffer.byteLength(body[free] as string, 'utf8'), entry: body.entry ?? null },
         };
         const memoKey = `${actor.key}\n${body.requestId}`;
         const digest = digestOf(spec.id, body);
@@ -780,29 +906,27 @@ function createActions({ runner, log, now = Date.now, warn = () => {} }: Options
         if (seen) {
           if (seen.digest !== digest) return refuse(key, base, 409, 'request-reused');
           const first = await seen.settled;
-          await quietly(() => log.end({ ...fields, outcome: 'replayed', code: first.code, exit: first.exit }));
-          return replyOf(spec, body, actor, first, true);
+          // 170 review A-07: a message the core answered `pending` (still in the spool) is not a final answer. The same request id goes to
+          // the core again, which replays what became of it; the memo then holds that answer.
+          if (!isPendingMessage(first)) {
+            await quietly(() => log.end({ ...fields, outcome: 'replayed', code: first.code, exit: first.exit }));
+            return replyOf(spec, body, actor, first, true);
+          }
+          if (memo.get(memoKey, now()) === seen) memo.delete(memoKey);
         }
-        const wait = limits.admit(actor.key, now());
-        if (wait > 0) return rateLimited(key, base, wait);
-        let row: { wait: number, release: () => void } | null = null;
-        if (spec.limit !== null) {
-          row = rowLimits.admit(`${spec.id}\n${actor.key}`, spec.limit.perHour, now());
-          if (row.wait > 0) return refuse(key, base, 429, spec.limit.code, { counted: true, headers: { 'Retry-After': String(row.wait) } });
+        if (!spec.coreLimited) {
+          const wait = limits.admit(actor.key, now());
+          if (wait > 0) return rateLimited(key, base, wait);
         }
         const slot = queue.reserve();
         if (slot === null) {
-          if (row) row.release();
           return refuse(key, base, 429, 'action-busy', { counted: true, headers: { 'Retry-After': String(BUSY_RETRY_S) } });
         }
         const settled = slot.ready.then(() => attempt(spec, body, actor, fields)).finally(slot.release);
         memo.set(memoKey, { digest, settled, at: now() });
         const done = await settled;
-        // Nothing ran (no begin line, no spawn): the same request may be tried again, and it is not a start.
-        if (!done.ran) {
-          memo.delete(memoKey);
-          if (row) row.release();
-        }
+        // Nothing ran (no begin line, no spawn): the same request may be tried again.
+        if (!done.ran) memo.delete(memoKey);
         return replyOf(spec, body, actor, done, false);
       },
     };

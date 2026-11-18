@@ -24,7 +24,7 @@ Lists of harness ids are not edited by hand. `src/registry/harness-ids.ts` reads
 
 The descriptor is the `worker` block of the harness row in `harnesses.json`. A package can also contribute one through the `worker` contribution point. Its keys are checked by `validateWorker` in `src/registry/index.ts`.
 
-Required keys: `profile`, `billing`, `modelChecks`, and one capability entry each for `cli`, `oneShot`, `structuredOutput`, `readOnly`, `spawnDenial`, `runnableProbe`, `hooksProbe`, `guidanceProbe`, `loginProbe`, `persistentSession`, `resume` and `steering`. Optional keys: `isolatedEdit`, `model`, `provider`, `effort`, `mainSession`, `family`, `modelList`, `wideningFlags` and `secretFlags`.
+Required keys: `profile`, `billing`, `modelChecks`, and one capability entry each for `cli`, `oneShot`, `structuredOutput`, `readOnly`, `spawnDenial`, `runnableProbe`, `hooksProbe`, `guidanceProbe`, `loginProbe`, `persistentSession`, `resume` and `controlChannel`. Optional keys: `isolatedEdit`, `model`, `provider`, `effort`, `mainSession`, `family`, `modelList`, `wideningFlags` and `secretFlags`.
 
 Every capability entry has `status` (`supported`, `unsupported` or `unknown`), `evidence`, `verification` and `verifiedOn`.
 
@@ -35,7 +35,7 @@ Every capability entry has `status` (`supported`, `unsupported` or `unknown`), `
 - `structuredOutput` names its parser by `parser`, by an inline `fieldMap` (Step 2), or by both. When both are present, `parser` must equal `fieldMap.id`. `mainSession.parser` is a code parser id, or the `fieldMap.id` of the same worker.
 - A package worker carries `fieldMap` and no `parser`. Its map id must not be the id of a code parser.
 
-Two per-id fact pins in `test/guards/worker-descriptors.test.ts` are still added by hand, with the evidence: `PARSER_BY_HARNESS`, and `MAIN_SESSION_PARSER_BY_HARNESS` when `mainSession` is supported. They are not id lists. Each records, for one harness, which parser the evidence shows. Guard G41.3 asks for a pin for every supported `structuredOutput`.
+Two per-id fact pins in `test/guards/worker-descriptors.test.ts` are still added by hand, with the evidence: `PARSER_BY_HARNESS`, and `MAIN_SESSION_PARSER_BY_HARNESS` when `mainSession` is supported. They are not id lists. Each records, for one harness, which parser the evidence shows. Guard G41.3 asks for a pin for every supported `structuredOutput`. A supported `controlChannel` adds two more: `CHANNEL_PARSER_BY_HARNESS` (the parser its entry names) and `CHANNEL_TEMPLATES`, which pins the entry's `argv`, `messages`, `turn`, `answer` and `commandPrefix` as literals, so a changed record shape is an edit a person makes beside the evidence that backs it.
 
 ### Provider, effort and the model list
 
@@ -53,6 +53,26 @@ The evidence bar is the same as for every other entry: a `supported` provider or
 ### The login recipe
 
 `loginProbe` says how DoFlow learns that the harness is logged in. Declare it `supported` only when the harness's own help or published docs, cited in `evidence`, show a status command and what its exit codes mean; otherwise leave it `unknown` with the reason, never a guess. DoFlow runs that argv and nothing else, and never opens a credential file. `secretFlags` adds flags or subcommands that print a credential, which no argv may carry. Both are in [Login state](reference.md#login-state); conform checks the recipe.
+
+### The control channel
+
+`controlChannel` says whether a started session of the harness can be sent a message while it runs, and how. It replaces the old `steering` entry, which only recorded a status: a descriptor that still carries `steering` is refused, and the message names `controlChannel`. Declare it `supported` only when the harness's own help or documentation, cited in `evidence`, shows a mode that reads one JSON record per line on stdin and the events that mark a turn; otherwise leave it `unknown` with the reason, or `unsupported` when the record shows the harness cannot. You write no code: the channel is data and one generic runner drives it. A package worker declares it in the same `worker` block, through the `worker` contribution point; there is no separate point.
+
+A `supported` entry holds:
+
+- `argv`: the arguments that start the harness in that mode. No `-` or `--` element and no placeholder, and the same widening-flag and secret-flag checks as `mainSession.argv`. Keep the trust flags the harness's `mainSession` recipe keeps.
+- `framing`: `jsonl-lf` (one JSON object per line, LF-terminated), the only value.
+- `parser`: the parser that reads the harness's stdout, a code parser id, this worker's `structuredOutput.fieldMap.id`, or `null`.
+- `messages`: three record templates, `followUp`, `stop` and optionally `steer`. A template is an object of literals and two whole-string placeholders: `{text}` (the person's message, exactly once in `followUp` and `steer`, never in `stop`) and `{id}` (a correlation id `d-<n>`, present in every template exactly when `answer` is declared). A placeholder is never part of a longer string. DoFlow fills the template, serializes it with `JSON.stringify` and adds a line feed, so the text cannot break out of its record. The first prompt of a session is sent as a `followUp` record.
+- `turn`: `working` and `settled`, each a list of 1 to 8 tests in the field-map test grammar (Step 2). The state a person sees, Working or Waiting for you, comes only from an event that meets one list; no event may meet both.
+- `answer` (optional): `id` (the path where the harness repeats the record's `{id}`), `accepted` and `refused` (test lists). With it, a message's ledger entry says whether the harness accepted it.
+- `close`: `{stdinEof: "exits", graceSeconds}`. DoFlow closes stdin when the supervisor ends, so a harness that does not exit on end of input is a defect, and conform fails it.
+- `commandPrefix` (optional): 1 to 4 characters. A harness that runs a message starting with it as its own command (Pi: `/`) gets no such message: DoFlow refuses it `command-not-allowed` and does not escape or rewrite it.
+- `unverified`: 1 to 8 short phrases naming what only a live run can show. It is required unless an `evidence` item is a `live-run` record of this harness, and the start form shows "Talking to it is not verified on a live run".
+
+Evidence comes from documentation as well as from `--help`. A check in `core/worker-evidence/<id>/checks.json` may name `doc`, a path relative to a docs root, instead of `argv`; `doflow worker --action evidence --harness <id> --checks <path> --out <path> --docs-root <dir>` reads each doc (inside the root, at most 1 MiB), tests the check's `expect` patterns against its lines and records the file's SHA-256 and the matched lines, never an absolute path. Each part of the channel is established by checks whose `establishes` carry `controlChannel:argv`, `controlChannel:messages`, `controlChannel:turn` and `controlChannel:close`, and `controlChannel:answer` when `answer` is declared. Guard G41.4 counts the entry established only when every one of them is, recomputed from the record.
+
+Prove the entry with `doflow worker --action conform --harness <id>` (Step 5). Its `control-channel` part starts the argv under a fake with stdin kept open, writes a follow-up, a steer (when declared) and a stop, and checks that the fake received exactly the bytes DoFlow frames for each, that the turn reads working after the follow-up and the steer and waiting after the stop, that each answer carries its record's id, and that the fake exits within `graceSeconds` after stdin closes. The part is `unchecked` when the entry is not `supported`.
 
 ## Step 2: the field map
 
@@ -131,7 +151,7 @@ For a package worker, `<id>` is `<package>.<local>`. Add `--json` for a machine-
 
 Conform runs the descriptor against a fake program, never the real harness. The fake is the only executable on `PATH`. The child gets an environment built from nothing (`PATH`, `HOME`, `LANG` and the conform variables), so no token reaches it. The scratch directory is made in the OS temp directory and removed afterwards, also when conform is stopped by Ctrl-C (SIGINT) or SIGTERM. That directory is its only write: conform writes no telemetry and no store, and no storage upkeep runs after it. It is not supported on Windows.
 
-It checks nine parts, in this order: `binary`, `one-shot`, `prompt-transport`, `model-flag`, `provider`, `effort`, `main-session`, `stream` and `login`. A part reads `passed`, `failed` or `unchecked`. A part is `unchecked` when its descriptor entry is not `supported`, or when a part it needs failed. For the `stream` part, conform builds the smallest event for each rule of the field map, one that meets every test of the rule together, and checks the report it gives. It also reports a rule that an earlier rule hides, including the cases the registry cannot decide from a pair of rules. A harness with a code parser leaves `stream` unchecked.
+It checks ten parts, in this order: `binary`, `one-shot`, `prompt-transport`, `model-flag`, `provider`, `effort`, `main-session`, `control-channel`, `stream` and `login`. A part reads `passed`, `failed` or `unchecked`. A part is `unchecked` when its descriptor entry is not `supported`, or when a part it needs failed. For the `stream` part, conform builds the smallest event for each rule of the field map, one that meets every test of the rule together, and checks the report it gives. It also reports a rule that an earlier rule hides, including the cases the registry cannot decide from a pair of rules. A harness with a code parser leaves `stream` unchecked.
 
 Exit 0: every part that was checked passed. Exit 1: at least one part failed, and each is named. Exit 2: a usage error, an unknown harness, an unsupported platform or no scratch directory.
 

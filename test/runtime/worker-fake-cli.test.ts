@@ -205,7 +205,7 @@ test('fake descriptors: registered harness ids, each block passes validateWorker
   }
   const probes: any = ['runnableProbe', 'hooksProbe', 'guidanceProbe', 'loginProbe'];
   const full = DESCRIPTORS.claude;
-  for (const key of Object.keys(WORKER_CAPABILITIES).filter((k) => !['persistentSession', 'resume', 'steering'].includes(k))) {
+  for (const key of Object.keys(WORKER_CAPABILITIES).filter((k) => !['persistentSession', 'resume', 'controlChannel'].includes(k))) {
     assert.equal(full[key].status, 'supported', `claude ${key}`);
   }
   assert.equal(full.structuredOutput.parser, 'doflow-jsonl-v1');

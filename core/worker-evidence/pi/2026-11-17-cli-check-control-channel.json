@@ -1,0 +1,480 @@
+{
+  "binary": "pi",
+  "checks": [
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "runnableProbe",
+        "oneShot"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+pi \\[options\\] \\[--\\] \\[@files\\.\\.\\.\\] \\[messages\\.\\.\\.\\]",
+        "^\\s+--print, -p\\s+Non-interactive mode: process prompt and exit",
+        "^\\s+--no-session\\s+Don't save session",
+        "^\\s+--thinking <level>\\s+Set thinking level: off,",
+        "^\\s+--no-skills, -ns\\s+Disable skills discovery",
+        "^\\s+--no-context-files, -nc\\s+Disable AGENTS\\.md and CLAUDE\\.md",
+        "^\\s+--offline\\s+Disable startup network operations"
+      ],
+      "id": "print-one-shot",
+      "matched": [
+        "  pi [options] [--] [@files...] [messages...]",
+        "  --print, -p                    Non-interactive mode: process prompt and exit",
+        "  --no-session                   Don't save session (ephemeral)",
+        "  --thinking <level>             Set thinking level: off, minimal, low, medium, high, xhigh, max",
+        "  --no-skills, -ns               Disable skills discovery and loading",
+        "  --no-context-files, -nc        Disable AGENTS.md and CLAUDE.md discovery and loading",
+        "  --offline                      Disable startup network operations (same as PI_OFFLINE=1)"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "structuredOutput"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--mode <mode>\\s+Output mode: text \\(default\\), json, or rpc"
+      ],
+      "id": "structured-output",
+      "matched": [
+        "  --mode <mode>                  Output mode: text (default), json, or rpc"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "readOnly"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--tools, -t <tools>\\s+Comma-separated allowlist of tool names"
+      ],
+      "id": "read-only-flags",
+      "matched": [
+        "  --tools, -t <tools>            Comma-separated allowlist of tool names or patterns (*) to enable"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "spawnDenial"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--no-extensions, -ne\\s+Disable extension discovery",
+        "^\\s+--no-mcp\\s+Disable built-in MCP support"
+      ],
+      "id": "spawn-denial-flags",
+      "matched": [
+        "  --no-extensions, -ne           Disable extension discovery and built-in extensions (explicit -e paths still work)",
+        "  --no-mcp                       Disable built-in MCP support: no servers connect and no MCP tools"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "model"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--model <pattern>\\s"
+      ],
+      "id": "help-model",
+      "matched": [
+        "  --model <pattern>              Model pattern or ID (supports \"provider/id\" and optional \":<thinking>\")"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "mainSession"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+pi \\[options\\] \\[--\\] \\[@files\\.\\.\\.\\] \\[messages\\.\\.\\.\\]",
+        "^\\s+--print, -p\\s+Non-interactive mode: process prompt and exit",
+        "^\\s+--mode <mode>\\s+Output mode: text \\(default\\), json, or rpc",
+        "^\\s+--\\s+End option parsing; treat remaining arguments as messages/files"
+      ],
+      "id": "main-session",
+      "matched": [
+        "  pi [options] [--] [@files...] [messages...]",
+        "  --mode <mode>                  Output mode: text (default), json, or rpc",
+        "  --print, -p                    Non-interactive mode: process prompt and exit",
+        "  --                             End option parsing; treat remaining arguments as messages/files"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "mainSession"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--approve, -a\\s+Trust project-local files"
+      ],
+      "id": "widening-flags",
+      "matched": [
+        "  --approve, -a                  Trust project-local files for this run"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "mainSession"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--no-approve, -na\\s+Ignore project-local files for this run"
+      ],
+      "id": "project-trust",
+      "matched": [
+        "  --no-approve, -na              Ignore project-local files for this run"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "auth",
+        "--help"
+      ],
+      "establishes": [
+        "mainSession"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+pi auth print-api-key\\b",
+        "^\\s+pi auth print-bearer-token\\b",
+        "^\\s+--credentials\\s+Emit the credential"
+      ],
+      "id": "secret-commands",
+      "matched": [
+        "  pi auth print-api-key [--provider <provider>] [--model <model>]",
+        "  pi auth print-bearer-token [--provider <provider>] [--model <model>] [--min-expiry <duration>]",
+        "  --credentials           Emit the credential from check, or include it in JSON output"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "auth",
+        "--help"
+      ],
+      "establishes": [
+        "loginProbe"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+pi auth check \\[--provider <provider>\\] \\[--model <model>\\] \\[--json\\]",
+        "^\\s+check\\s+Print ready, not_ready, or invalid; exit with 0, 1, or 2",
+        "^\\s+--no-refresh\\s+Do not refresh expired OAuth credentials during check"
+      ],
+      "id": "login-recipe",
+      "matched": [
+        "  pi auth check [--provider <provider>] [--model <model>] [--json] [--credentials] [--no-refresh]",
+        "  check                   Print ready, not_ready, or invalid; exit with 0, 1, or 2",
+        "  --no-refresh            Do not refresh expired OAuth credentials during check"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "provider"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--model <pattern>\\s+Model pattern or ID \\(supports \"provider/id\""
+      ],
+      "id": "help-provider",
+      "matched": [
+        "  --model <pattern>              Model pattern or ID (supports \"provider/id\" and optional \":<thinking>\")"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "effort"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--thinking <level>\\s+Set thinking level: off, minimal, low, medium, high, xhigh, max$"
+      ],
+      "id": "help-thinking",
+      "matched": [
+        "  --thinking <level>             Set thinking level: off, minimal, low, medium, high, xhigh, max"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "controlChannel:argv"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--mode <mode>\\s+Output mode: text \\(default\\), json, or rpc$"
+      ],
+      "id": "help-rpc-mode",
+      "matched": [
+        "  --mode <mode>                  Output mode: text (default), json, or rpc"
+      ],
+      "result": "pass"
+    },
+    {
+      "argv": [
+        "--help"
+      ],
+      "establishes": [
+        "controlChannel:argv"
+      ],
+      "exit": 0,
+      "expect": [
+        "^\\s+--no-approve, -na\\s+Ignore project-local files for this run$"
+      ],
+      "id": "help-no-approve-channel",
+      "matched": [
+        "  --no-approve, -na              Ignore project-local files for this run"
+      ],
+      "result": "pass"
+    },
+    {
+      "doc": "docs/rpc.md",
+      "establishes": [
+        "controlChannel:argv"
+      ],
+      "expect": [
+        "^pi --mode rpc --no-session$",
+        "^RPC uses strict JSONL framing\\. Write one complete JSON object per record and terminate it with LF"
+      ],
+      "id": "doc-rpc-start",
+      "matched": [
+        "pi --mode rpc --no-session",
+        "RPC uses strict JSONL framing. Write one complete JSON object per record and terminate it with LF (`\\n`). Read stdout as a byte or UTF-8 stream and split records only on LF. Strip an optional precedin"
+      ],
+      "result": "pass",
+      "sha256": "54e29df00e080c962df4fbb516dc441a9ce6805287bea61d45f3c99f92078446"
+    },
+    {
+      "doc": "docs/rpc-commands.md",
+      "establishes": [
+        "controlChannel:messages"
+      ],
+      "expect": [
+        "^\\*\\*During streaming\\*\\*: If the agent is already streaming, you must specify `streamingBehavior` to queue the message:$",
+        "^- `\"steer\"`: Queue the message while the agent is running\\.",
+        "^- `\"followUp\"`: Wait until the agent finishes\\."
+      ],
+      "id": "doc-rpc-prompt-streaming",
+      "matched": [
+        "**During streaming**: If the agent is already streaming, you must specify `streamingBehavior` to queue the message:",
+        "- `\"steer\"`: Queue the message while the agent is running. It is delivered after the current assistant turn finishes executing its tool calls, before the next LLM call.",
+        "- `\"followUp\"`: Wait until the agent finishes. Message is delivered only when agent stops."
+      ],
+      "result": "pass",
+      "sha256": "4deeee367852f4633ef594bc079f9e9fb14640a4e3ba8a69b7c89b6f54740838"
+    },
+    {
+      "doc": "docs/rpc-commands.md",
+      "establishes": [
+        "controlChannel:messages"
+      ],
+      "expect": [
+        "^### abort$",
+        "^\\{\"type\": \"abort\"\\}$"
+      ],
+      "id": "doc-rpc-abort",
+      "matched": [
+        "### abort",
+        "{\"type\": \"abort\"}"
+      ],
+      "result": "pass",
+      "sha256": "4deeee367852f4633ef594bc079f9e9fb14640a4e3ba8a69b7c89b6f54740838"
+    },
+    {
+      "doc": "docs/rpc.md",
+      "establishes": [
+        "controlChannel:messages"
+      ],
+      "expect": [
+        "^Every command accepts an optional string `id`\\. A matching response repeats it:$",
+        "^\\{\"id\":\"req-1\",\"type\":\"get_state\"\\}$"
+      ],
+      "id": "doc-rpc-message-id",
+      "matched": [
+        "Every command accepts an optional string `id`. A matching response repeats it:",
+        "{\"id\":\"req-1\",\"type\":\"get_state\"}"
+      ],
+      "result": "pass",
+      "sha256": "54e29df00e080c962df4fbb516dc441a9ce6805287bea61d45f3c99f92078446"
+    },
+    {
+      "doc": "docs/rpc-commands.md",
+      "establishes": [
+        "controlChannel:messages"
+      ],
+      "expect": [
+        "^\\*\\*Extension commands\\*\\*: If the message is an extension command \\(e\\.g\\., `/mycommand`\\), it executes immediately even during streaming\\."
+      ],
+      "id": "doc-rpc-command-prefix",
+      "matched": [
+        "**Extension commands**: If the message is an extension command (e.g., `/mycommand`), it executes immediately even during streaming. Extension commands manage their own LLM interaction via `pi.sendMess"
+      ],
+      "result": "pass",
+      "sha256": "4deeee367852f4633ef594bc079f9e9fb14640a4e3ba8a69b7c89b6f54740838"
+    },
+    {
+      "doc": "dist/core/agent-session.js",
+      "establishes": [
+        "controlChannel:messages"
+      ],
+      "expect": [
+        "^\\s+throw new Error\\(\"Agent is already processing\\. Specify streamingBehavior \\('steer' or 'followUp'\\) to queue the message\\.\"\\);$",
+        "^\\s+if \\(options\\.streamingBehavior === \"followUp\"\\) \\{$"
+      ],
+      "id": "source-queue-while-streaming",
+      "matched": [
+        "                throw new Error(\"Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.\");",
+        "            if (options.streamingBehavior === \"followUp\") {"
+      ],
+      "result": "pass",
+      "sha256": "ee756f6f74afe9f8930ebf216c95334605d913a275a0eec2c9702f101baef3c3"
+    },
+    {
+      "doc": "docs/json.md",
+      "establishes": [
+        "controlChannel:turn"
+      ],
+      "expect": [
+        "^\\| `agent_start` \\| None \\| A low-level agent run started\\. \\|$",
+        "^\\| `agent_settled` \\| `aborted` \\| Pi will not continue automatically"
+      ],
+      "id": "doc-rpc-turn-events",
+      "matched": [
+        "| `agent_start` | None | A low-level agent run started. |",
+        "| `agent_settled` | `aborted` | Pi will not continue automatically through retries, compaction recovery, or queued messages. `aborted` is `true` when the run ended because it was aborted. |"
+      ],
+      "result": "pass",
+      "sha256": "f103191816fdcf3627dfc98b89acad8a28eee737697130ddaeb2581131213543"
+    },
+    {
+      "doc": "docs/rpc.md",
+      "establishes": [
+        "controlChannel:close"
+      ],
+      "expect": [
+        "^Close the child's stdin to request an orderly shutdown\\."
+      ],
+      "id": "doc-rpc-stdin-close",
+      "matched": [
+        "Close the child's stdin to request an orderly shutdown. Pi disposes the active runtime and waits for pending work to finish before exiting, so give it time to exit before killing it. Clients should st"
+      ],
+      "result": "pass",
+      "sha256": "54e29df00e080c962df4fbb516dc441a9ce6805287bea61d45f3c99f92078446"
+    },
+    {
+      "doc": "dist/modes/rpc/rpc-mode.js",
+      "establishes": [
+        "controlChannel:close"
+      ],
+      "expect": [
+        "^\\s+const onInputEnd = \\(\\) => \\{$",
+        "^\\s+process\\.stdin\\.on\\(\"end\", onInputEnd\\);$"
+      ],
+      "id": "source-stdin-end-shutdown",
+      "matched": [
+        "    const onInputEnd = () => {",
+        "    process.stdin.on(\"end\", onInputEnd);"
+      ],
+      "result": "pass",
+      "sha256": "505297dba2df1de3003c0399b3312fd581359a4e27a5e9262b274b6cb5cb4ef3"
+    },
+    {
+      "doc": "docs/rpc.md",
+      "establishes": [
+        "controlChannel:answer"
+      ],
+      "expect": [
+        "^\\{\"id\":\"req-1\",\"type\":\"response\",\"command\":\"get_state\",\"success\":true",
+        "^Use unique IDs whenever more than one command can be outstanding\\."
+      ],
+      "id": "doc-rpc-response-id",
+      "matched": [
+        "{\"id\":\"req-1\",\"type\":\"response\",\"command\":\"get_state\",\"success\":true,\"data\":{\"...\":\"...\"}}",
+        "Use unique IDs whenever more than one command can be outstanding. Command handling is asynchronous, so clients should correlate by ID rather than response order."
+      ],
+      "result": "pass",
+      "sha256": "54e29df00e080c962df4fbb516dc441a9ce6805287bea61d45f3c99f92078446"
+    },
+    {
+      "doc": "docs/rpc-commands.md",
+      "establishes": [
+        "controlChannel:answer"
+      ],
+      "expect": [
+        "^`success: true` means the prompt was accepted, queued, or handled immediately\\. `success: false` means the prompt was rejected before acceptance\\."
+      ],
+      "id": "doc-rpc-prompt-outcome",
+      "matched": [
+        "`success: true` means the prompt was accepted, queued, or handled immediately. `success: false` means the prompt was rejected before acceptance. Failures after acceptance are reported through the norm"
+      ],
+      "result": "pass",
+      "sha256": "4deeee367852f4633ef594bc079f9e9fb14640a4e3ba8a69b7c89b6f54740838"
+    }
+  ],
+  "cliVersion": "1.5.2",
+  "establishes": [
+    "controlChannel:answer",
+    "controlChannel:argv",
+    "controlChannel:close",
+    "controlChannel:messages",
+    "controlChannel:turn",
+    "effort",
+    "loginProbe",
+    "mainSession",
+    "model",
+    "oneShot",
+    "provider",
+    "readOnly",
+    "runnableProbe",
+    "spawnDenial",
+    "structuredOutput"
+  ],
+  "harness": "pi",
+  "kind": "cli-check",
+  "recordedAt": "2026-11-17T02:17:19.571Z",
+  "run": null,
+  "schema": "doflow-worker-evidence-v1"
+}

@@ -621,14 +621,14 @@ const writeDone = (mode) => {
     process.stdout.write(JSON.stringify({ v: 1, ok: true, argv, cwd: process.cwd() }));
   }
 };
-// 165: a start-session child reads its prompt from stdin and echoes the bytes back (base64), so a case sees exactly what arrived.
+// 165 (170: and a send or a steer, its message): a child reads its prompt from stdin and echoes the bytes back (base64), so a case sees exactly what arrived.
 const echoStdin = () => {
   const parts = [];
   process.stdin.on('data', (chunk) => parts.push(chunk));
   process.stdin.on('end', () => process.stdout.write(JSON.stringify({ v: 1, ok: true, argv, cwd: process.cwd(), stdinB64: Buffer.concat(parts).toString('base64') })));
 };
 const done = () => {
-  if (argv[0] === 'worker' && argv[2] === 'start-session') {
+  if (argv[0] === 'worker' && (argv[2] === 'start-session' || argv[2] === 'send' || argv[2] === 'steer')) {
     echoStdin();
   } else if (isWrite && process.env.FAKE_WRITE_MODE) {
     writeDone(process.env.FAKE_WRITE_MODE);
@@ -1858,6 +1858,23 @@ const START_CASE = {
   argv: ['worker', '--action', 'start-session', '--project-key', KEY_A, '--worktree-key', KEY_B, '--harness', 'claude', '--model', 'claude-sonnet-4.5', '--entry', 'do', '--via', 'console', '--request-id', REQUEST_ID_A, '--stdin', '--json'],
 };
 
+/** 170 IC-005: the three session writes; the message of a send or a steer rides stdin (`message`), a stop has none. */
+const SESSION_PARAMS = { projectKey: KEY_A, runId: RUN_ID, relay: 'console', requestId: REQUEST_ID_A };
+const SESSION_CASES: Record<string, { params: Record<string, string>; argv: string[] }> = {
+  'session-send': {
+    params: { ...SESSION_PARAMS, message: PROMPT },
+    argv: ['worker', '--action', 'send', '--project-key', KEY_A, '--worker-run', RUN_ID, '--via', 'console', '--request-id', REQUEST_ID_A, '--stdin', '--json'],
+  },
+  'session-steer': {
+    params: { ...SESSION_PARAMS, message: PROMPT },
+    argv: ['worker', '--action', 'steer', '--project-key', KEY_A, '--worker-run', RUN_ID, '--via', 'console', '--request-id', REQUEST_ID_A, '--stdin', '--json'],
+  },
+  'session-stop': {
+    params: { ...SESSION_PARAMS },
+    argv: ['worker', '--action', 'stop', '--project-key', KEY_A, '--worker-run', RUN_ID, '--via', 'console', '--request-id', REQUEST_ID_A, '--json'],
+  },
+};
+
 /** A fleet runner whose key map is filled, so a scoped write finds its root. */
 async function writeSetup(writeMode?: string, extraEnv: Record<string, string> = {}, mode = 'echo') {
   const f = fleetSetup(mode, { ...(writeMode ? { FAKE_WRITE_MODE: writeMode } : {}), ...extraEnv });
@@ -1867,7 +1884,7 @@ async function writeSetup(writeMode?: string, extraEnv: Record<string, string> =
 }
 
 test('WRITE_SHAPES is the frozen IC-003 set, apart from the read allow-list', () => {
-  assert.deepEqual([...WRITE_SHAPE_IDS], ['decide-gate', 'close-run', 'cancel-worker', 'start-session']);
+  assert.deepEqual([...WRITE_SHAPE_IDS], ['decide-gate', 'close-run', 'cancel-worker', 'start-session', 'session-send', 'session-steer', 'session-stop']);
   assert.ok(Object.isFrozen(WRITE_SHAPES) && Object.isFrozen(WRITE_SHAPE_IDS));
   for (const id of WRITE_SHAPE_IDS) {
     assert.ok(Object.isFrozen(WRITE_SHAPES[id]) && Object.isFrozen(WRITE_SHAPES[id].argv), `${id} is frozen`);
@@ -1910,19 +1927,27 @@ test('act runs exactly the IC-003 argv plus --json, shell off, in the root of th
   assert.ok(!f.writeStarts().at(-1).argv.includes('--note'));
 });
 
-test('165 review B-1: DOFLOW_STARTED_RUN reaches the core for the start-session write only; every other write and every read is stripped of it', async () => {
-  assert.deepEqual(JSON.parse(JSON.stringify(WRITE_PASS_THROUGH)), { 'start-session': ['DOFLOW_STARTED_RUN'] });
+test('165 review B-1 (170): DOFLOW_STARTED_RUN reaches the core for the start-session and the three session writes only; every other write and every read is stripped of it', async () => {
+  const passes = ['start-session', 'session-send', 'session-steer', 'session-stop'];
+  assert.deepEqual(JSON.parse(JSON.stringify(WRITE_PASS_THROUGH)), Object.fromEntries(passes.map((id) => [id, ['DOFLOW_STARTED_RUN']])));
   assert.ok(Object.isFrozen(WRITE_PASS_THROUGH) && Object.isFrozen(WRITE_PASS_THROUGH['start-session']));
   const f = await writeSetup(undefined, { DOFLOW_STARTED_RUN: 'w-0123456789ab', DOFLOW_SCOPE: 'global' });
   for (const [id, expected] of Object.entries(WRITE_CASES)) assert.equal((await f.runner.act(id, expected.params)).ok, true, id);
   assert.equal((await f.runner.act('start-session', START_CASE.params)).ok, true);
+  for (const [id, expected] of Object.entries(SESSION_CASES)) assert.equal((await f.runner.act(id, expected.params)).ok, true, id);
   const starts = f.starts();
   const doflowOf = (start: any) => Object.keys(start.env).filter((name) => name.startsWith('DOFLOW_')).sort();
   const startSession = starts.filter((s: any) => s.argv[1] === '--action' && s.argv[2] === 'start-session');
   assert.equal(startSession.length, 1);
   assert.equal(startSession[0].env.DOFLOW_STARTED_RUN, 'w-0123456789ab');
   assert.deepEqual(doflowOf(startSession[0]), ['DOFLOW_STARTED_RUN', 'DOFLOW_UPKEEP'], 'no other DOFLOW_* variable');
-  const others = starts.filter((s: any) => !startSession.includes(s));
+  const sessions = starts.filter((s: any) => ['send', 'steer', 'stop'].includes(s.argv[2]));
+  assert.equal(sessions.length, 3);
+  for (const start of sessions) {
+    assert.equal(start.env.DOFLOW_STARTED_RUN, 'w-0123456789ab', start.argv.join(' '));
+    assert.deepEqual(doflowOf(start), ['DOFLOW_STARTED_RUN', 'DOFLOW_UPKEEP'], start.argv.join(' '));
+  }
+  const others = starts.filter((s: any) => !startSession.includes(s) && !sessions.includes(s));
   assert.ok(others.length >= 4, 'the three other writes and the projects read');
   for (const start of others) assert.deepEqual(doflowOf(start), ['DOFLOW_UPKEEP'], start.argv.join(' '));
 });
@@ -2014,7 +2039,7 @@ test('a bad parameter is usage before any spawn: patterns, missing or extra keys
 
   // `run` refuses every write id, with a full and valid parameter set.
   for (const id of WRITE_SHAPE_IDS) {
-    const params = id === 'start-session' ? START_CASE.params : WRITE_CASES[id].params;
+    const params = id === 'start-session' ? START_CASE.params : Object.hasOwn(SESSION_CASES, id) ? SESSION_CASES[id].params : WRITE_CASES[id].params;
     assert.deepEqual(await f.runner.run(id, params), { ok: false, code: 'usage', exit: null }, id);
   }
   assert.equal(f.spawnCalls.length, before);
@@ -2372,14 +2397,69 @@ test('act start-session refuses a bad parameter as usage and spawns nothing', as
   assert.equal(f.spawnCalls.length, before, 'nothing spawned');
 });
 
-test('only start-session declares stdin; every other spawn keeps stdin ignored', async () => {
-  assert.deepEqual(WRITE_SHAPE_IDS.filter((id: string) => 'stdin' in WRITE_SHAPES[id]), ['start-session']);
+test('170 act session-send, session-steer and session-stop run the IC-005 argv; the message rides the core\'s stdin and no argv element; a stop spawns without stdin', async () => {
+  const f = await writeSetup();
+  for (const id of ['session-send', 'session-steer']) {
+    const expected = SESSION_CASES[id];
+    const result = await f.runner.act(id, expected.params);
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.deepEqual(result.json.argv, expected.argv, id);
+    assert.equal(stdinOf(result), PROMPT, `${id}: the child read exactly the message bytes`);
+    assert.equal(result.json.argv.some((element: string) => element.includes('fix the login')), false, `${id}: no message text in argv`);
+    const call = f.spawnCalls.at(-1);
+    assert.deepEqual(call.options.stdio, ['pipe', 'pipe', 'pipe']);
+    assert.equal(call.options.shell, false);
+  }
+  const stop = await f.runner.act('session-stop', SESSION_CASES['session-stop'].params);
+  assert.equal(stop.ok, true, JSON.stringify(stop));
+  assert.deepEqual(stop.json.argv, SESSION_CASES['session-stop'].argv);
+  assert.deepEqual(f.spawnCalls.at(-1).options.stdio, ['ignore', 'pipe', 'pipe']);
+  const started = f.writeStarts();
+  assert.equal(started.length, 3);
+  for (const start of started) {
+    assert.equal(start.cwd, f.rootA);
+    assert.ok(!start.argv.includes(KEY_A) || start.argv[start.argv.indexOf('--project-key') + 1] === KEY_A);
+  }
+  // A message of any bytes survives: a leading dash, a newline-only edge, a large text.
+  for (const message of ['--json', '-x', '\n', 'a\r\nb\n', 'x'.repeat(100_000), '😀 end']) {
+    const again = await f.runner.act('session-send', { ...SESSION_CASES['session-send'].params, message });
+    assert.equal(stdinOf(again), message, JSON.stringify(message.slice(0, 20)));
+    assert.deepEqual(again.json.argv, SESSION_CASES['session-send'].argv);
+  }
+});
+
+test('170 act refuses a bad session parameter as usage and spawns nothing: the run id and request id patterns, a stop with a message, a send without one', async () => {
+  const f = await writeSetup();
+  const before = f.spawnCalls.length;
+  const send = SESSION_CASES['session-send'].params;
+  const stop = SESSION_CASES['session-stop'].params;
+  const refused: Array<[string, Record<string, any>]> = [
+    ['session-send', { ...send, runId: 'w-1A2B3C4D5E6F' }], ['session-send', { ...send, runId: '--operator' }], ['session-send', { ...send, runId: undefined }],
+    ['session-send', { ...send, requestId: '-bcdefghijklmnopqrstuv' }], ['session-send', { ...send, requestId: 'short' }], ['session-send', { ...send, requestId: undefined }],
+    ['session-send', { ...send, relay: 'manual' }], ['session-send', { ...send, relay: undefined }],
+    ['session-send', { ...send, message: undefined }], ['session-send', { ...send, message: '' }], ['session-send', { ...send, message: 'a\0b' }], ['session-send', { ...send, message: 5 }],
+    ['session-send', { ...send, projectKey: 'nope' }], ['session-send', { ...send, extra: 'x' }],
+    ['session-steer', { ...send, message: undefined }], ['session-steer', { ...send, prompt: 'x' }],
+    ['session-stop', { ...stop, message: 'x' }], ['session-stop', { ...stop, runId: 'w-short' }], ['session-stop', { ...stop, requestId: undefined }],
+  ];
+  for (const [id, params] of refused) {
+    const cleaned = Object.fromEntries(Object.entries(params).filter(([, value]) => value !== undefined));
+    assert.deepEqual(await f.runner.act(id, cleaned), { ok: false, code: 'usage', exit: null }, `${id} ${JSON.stringify(cleaned).slice(0, 120)}`);
+  }
+  assert.equal(f.spawnCalls.length, before, 'nothing spawned');
+});
+
+test('only start-session, session-send and session-steer declare stdin; every other spawn keeps stdin ignored', async () => {
+  assert.deepEqual(WRITE_SHAPE_IDS.filter((id: string) => 'stdin' in WRITE_SHAPES[id]), ['start-session', 'session-send', 'session-steer']);
+  assert.deepEqual(WRITE_SHAPES['session-send'].stdin, { param: 'message', free: true });
+  assert.deepEqual(WRITE_SHAPES['session-steer'].stdin, { param: 'message', free: true });
   assert.equal(SHAPE_IDS.filter((id: string) => 'stdin' in SHAPES[id]).length, 0);
   assert.deepEqual(WRITE_SHAPES['start-session'].stdin, { param: 'prompt', free: true });
   const f = await writeSetup();
   await f.runner.run('projects', {});
   await f.runner.run('start-options', { projectKey: KEY_A });
   for (const [id, case_] of Object.entries(WRITE_CASES)) assert.equal((await f.runner.act(id, case_.params)).ok, true, id);
+  assert.equal((await f.runner.act('session-stop', SESSION_CASES['session-stop'].params)).ok, true);
   const piped = f.spawnCalls.filter((call: any) => !call.args.includes('--stdin'));
   assert.ok(piped.length >= 5);
   for (const call of piped) assert.deepEqual(call.options.stdio, ['ignore', 'pipe', 'pipe'], call.args.slice(1).join(' '));

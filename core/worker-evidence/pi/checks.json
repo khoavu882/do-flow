@@ -103,6 +103,109 @@
       "argv": ["--help"],
       "expect": ["^\\s+--thinking <level>\\s+Set thinking level: off, minimal, low, medium, high, xhigh, max$"],
       "establishes": ["effort"]
+    },
+    {
+      "id": "help-rpc-mode",
+      "argv": ["--help"],
+      "expect": ["^\\s+--mode <mode>\\s+Output mode: text \\(default\\), json, or rpc$"],
+      "establishes": ["controlChannel:argv"]
+    },
+    {
+      "id": "help-no-approve-channel",
+      "argv": ["--help"],
+      "expect": ["^\\s+--no-approve, -na\\s+Ignore project-local files for this run$"],
+      "establishes": ["controlChannel:argv"]
+    },
+    {
+      "id": "doc-rpc-start",
+      "doc": "docs/rpc.md",
+      "expect": [
+        "^pi --mode rpc --no-session$",
+        "^RPC uses strict JSONL framing\\. Write one complete JSON object per record and terminate it with LF"
+      ],
+      "establishes": ["controlChannel:argv"]
+    },
+    {
+      "id": "doc-rpc-prompt-streaming",
+      "doc": "docs/rpc-commands.md",
+      "expect": [
+        "^\\*\\*During streaming\\*\\*: If the agent is already streaming, you must specify `streamingBehavior` to queue the message:$",
+        "^- `\"steer\"`: Queue the message while the agent is running\\.",
+        "^- `\"followUp\"`: Wait until the agent finishes\\."
+      ],
+      "establishes": ["controlChannel:messages"]
+    },
+    {
+      "id": "doc-rpc-abort",
+      "doc": "docs/rpc-commands.md",
+      "expect": [
+        "^### abort$",
+        "^\\{\"type\": \"abort\"\\}$"
+      ],
+      "establishes": ["controlChannel:messages"]
+    },
+    {
+      "id": "doc-rpc-message-id",
+      "doc": "docs/rpc.md",
+      "expect": [
+        "^Every command accepts an optional string `id`\\. A matching response repeats it:$",
+        "^\\{\"id\":\"req-1\",\"type\":\"get_state\"\\}$"
+      ],
+      "establishes": ["controlChannel:messages"]
+    },
+    {
+      "id": "doc-rpc-command-prefix",
+      "doc": "docs/rpc-commands.md",
+      "expect": ["^\\*\\*Extension commands\\*\\*: If the message is an extension command \\(e\\.g\\., `/mycommand`\\), it executes immediately even during streaming\\."],
+      "establishes": ["controlChannel:messages"]
+    },
+    {
+      "id": "source-queue-while-streaming",
+      "doc": "dist/core/agent-session.js",
+      "expect": [
+        "^\\s+throw new Error\\(\"Agent is already processing\\. Specify streamingBehavior \\('steer' or 'followUp'\\) to queue the message\\.\"\\);$",
+        "^\\s+if \\(options\\.streamingBehavior === \"followUp\"\\) \\{$"
+      ],
+      "establishes": ["controlChannel:messages"]
+    },
+    {
+      "id": "doc-rpc-turn-events",
+      "doc": "docs/json.md",
+      "expect": [
+        "^\\| `agent_start` \\| None \\| A low-level agent run started\\. \\|$",
+        "^\\| `agent_settled` \\| `aborted` \\| Pi will not continue automatically"
+      ],
+      "establishes": ["controlChannel:turn"]
+    },
+    {
+      "id": "doc-rpc-stdin-close",
+      "doc": "docs/rpc.md",
+      "expect": ["^Close the child's stdin to request an orderly shutdown\\."],
+      "establishes": ["controlChannel:close"]
+    },
+    {
+      "id": "source-stdin-end-shutdown",
+      "doc": "dist/modes/rpc/rpc-mode.js",
+      "expect": [
+        "^\\s+const onInputEnd = \\(\\) => \\{$",
+        "^\\s+process\\.stdin\\.on\\(\"end\", onInputEnd\\);$"
+      ],
+      "establishes": ["controlChannel:close"]
+    },
+    {
+      "id": "doc-rpc-response-id",
+      "doc": "docs/rpc.md",
+      "expect": [
+        "^\\{\"id\":\"req-1\",\"type\":\"response\",\"command\":\"get_state\",\"success\":true",
+        "^Use unique IDs whenever more than one command can be outstanding\\."
+      ],
+      "establishes": ["controlChannel:answer"]
+    },
+    {
+      "id": "doc-rpc-prompt-outcome",
+      "doc": "docs/rpc-commands.md",
+      "expect": ["^`success: true` means the prompt was accepted, queued, or handled immediately\\. `success: false` means the prompt was rejected before acceptance\\."],
+      "establishes": ["controlChannel:answer"]
     }
   ]
 }

@@ -1,7 +1,7 @@
 'use strict';
 
 // Feature 161 IC-003 (D5-D8, FR-009): the `layers:<pk>` channel of `doflow events --follow`: one
-// project, every checkout of it, in nine sections.
+// project, every checkout of it, in ten sections.
 //
 //   checkouts  [{worktreeKey, label, branch, main}]                          .git/worktrees, full pass
 //   tree       the `fleet --action tree` body (buildTree)                     derived, <= 1 per 1000 ms
@@ -12,6 +12,7 @@
 //   sessions   <= 16 sessions {sessionKey, harness, audit, denials}         session dirs, audit tails
 //   traffic    the transcript stats body (computeStats)                       derived, <= 1 per 5000 ms
 //   coverage   per registry harness, what is observed and why not (coverage.ts)          full pass
+//   channels   170 IC-004: <= 16 started sessions {runId, channel, turn, sent, recent} (session-channels.ts)  derived, never throttled
 //
 // The project is the child's project index's (`lookup`); a key it does not know after one refresh
 // makes the channel `gone` (compute returns `gone: true`). Joins use exact keys only (D5): an audit
@@ -41,14 +42,15 @@ const { isChannelId } = require('./channels.ts');
 const { scanArtifacts, artifactDirs } = require('./artifacts.ts');
 const { coverageBody, AUDIT } = require('./coverage.ts');
 const { openConfined, readConfined } = require('./confined.ts');
+const { channelsBody } = require('./session-channels.ts');
 
 type Env = Record<string, string | undefined>;
 type SectionResult = { exit: number; json: any };
 
-const SECTIONS: readonly string[] = Object.freeze(['checkouts', 'tree', 'runs', 'gates', 'artifacts', 'reviews', 'sessions', 'traffic', 'coverage']);
+const SECTIONS: readonly string[] = Object.freeze(['checkouts', 'tree', 'runs', 'gates', 'artifacts', 'reviews', 'sessions', 'traffic', 'coverage', 'channels']);
 /** Derived from processes and transcripts: recomputed by the detector's 5 s pass too. */
-const DERIVED: readonly string[] = Object.freeze(['tree', 'traffic']);
-/** IC-003, IC-008: `tree` at most once per second, `traffic` once per 5 s; `gates` never throttled. */
+const DERIVED: readonly string[] = Object.freeze(['tree', 'traffic', 'channels']);
+/** IC-003, IC-008: `tree` at most once per second, `traffic` once per 5 s; `gates` and `channels` (170 D7) never throttled. */
 const POLICIES = Object.freeze({ tree: Object.freeze({ throttleMs: 1000 }), traffic: Object.freeze({ throttleMs: 5000 }) });
 
 const GATE_RUNS = 8;
@@ -338,6 +340,7 @@ function layersSpec(channel: { kind: 'layers'; name: string; projectKey: string 
   let looked = false;
   let sessionDirs: string[] = [];
   let files = new Map<string, { path: string; kind: string }>();
+  const liveReadings = new Map<string, { state: string; at: number; sig: string }>();
 
   function current(): Entry | null {
     if (!looked) { entry = index.lookup(channel.projectKey); looked = true; }
@@ -351,7 +354,7 @@ function layersSpec(channel: { kind: 'layers'; name: string; projectKey: string 
     const directories: any[] = [{ path: path.join(e.main, '.git', 'worktrees'), match: /^[^.]/ }];
     for (const root of e.checkouts) {
       for (const d of orchestrationDirs(root)) directories.push({ ...d, sections: ['runs', 'gates'] });
-      for (const store of ['worker-runs', 'task-attempts', 'dispatch']) directories.push({ path: path.join(root, '.doflow', 'state', store), match: JSON_RECORD, sections: ['tree'] });
+      for (const store of ['worker-runs', 'task-attempts', 'dispatch']) directories.push({ path: path.join(root, '.doflow', 'state', store), match: JSON_RECORD, sections: store === 'worker-runs' ? ['tree', 'channels'] : ['tree'] });
     }
     const dirs = artifactDirs(e.checkouts, fsImpl);
     for (const d of dirs.features) directories.push({ path: d, match: /^[^.]/, sections: ['artifacts', 'reviews'] });
@@ -414,6 +417,9 @@ function layersSpec(channel: { kind: 'layers'; name: string; projectKey: string 
       sections.traffic = stats.ok ? ok(stats.body) : failed(stats.error);
     }
     if (names.has('coverage')) sections.coverage = ok(coverageBody());
+    if (names.has('channels')) {
+      try { sections.channels = ok(channelsBody({ root: e.main, now: index.now(), cache: liveReadings, fsImpl })); } catch { sections.channels = failed('cannot-read-sessions'); }
+    }
     return { sections };
   }
 

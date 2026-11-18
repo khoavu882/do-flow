@@ -409,3 +409,28 @@ test("an operator cancel's step-4 080 refusal is recorded in attemptCancel and t
   assert.equal(p.run(runId).end.state, 'cancelled');
   assert.equal(p.attempt().state, 'active');
 });
+
+// ── 170 R-9, R-10: a started session's spool when its supervisor is gone ──────────────────────────────────────────
+
+test('170: ending a started session whose supervisor is gone removes its channel spool; a live supervisor removes its own', REAL, async (t) => {
+  const p = project(t);
+  const s = spies();
+  const spool = require(path.join(SRC, 'worker', 'channel-spool.ts'));
+  const { spawnSync } = require('node:child_process');
+  const exited = spawnSync(process.execPath, ['-e', '']);
+  const dead = { pid: exited.pid, pgid: exited.pid, start: 'Thu Jan  1 00:00:00 1970' };
+  const main = (supervisor: any, token: number) => p.seed({ kind: 'main-session', task: 'main-session', token, supervisor, worker: dead, startedAt: new Date().toISOString() });
+  const orphaned = main(dead, 1);
+  const supervised = main(recordedPid(process.pid), 2);
+  for (const runId of [orphaned, supervised]) {
+    spool.createSpool(p.dir, runId);
+    spool.dropMessage(p.dir, runId, { kind: 'follow-up', requestId: null, by: 'console', at: new Date().toISOString(), text: 'left behind' });
+  }
+  for (const runId of [orphaned, supervised]) {
+    const answer = await p.cancel(runId, { escalate: s.escalate, cancelImpl: s.cancelImpl });
+    assert.equal(answer.disposition, 'cancelled', JSON.stringify(answer));
+  }
+  assert.equal(fs.existsSync(spool.spoolDir(p.dir, orphaned)), false, 'no supervisor will remove it: the cancel does');
+  assert.equal(fs.existsSync(spool.spoolDir(p.dir, supervised)), true, 'a live supervisor logs what is left and removes it itself');
+  assert.equal(s.calls.cancel, 0, 'a started session has no 080 attempt');
+});

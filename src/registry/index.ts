@@ -704,7 +704,9 @@ const WORKER_CAPABILITIES: Record<string, { allowed: string[], required: string[
   },
   persistentSession: { allowed: [], required: [] },
   resume: { allowed: [], required: [] },
-  steering: { allowed: [], required: [] },
+  // 170 design §4.1: the long-lived control channel (grammar control-channel-v1, src/registry/control-channel.ts). It
+  // replaces the status-only `steering` entry; the closed field set per level and its required keys are that module's.
+  controlChannel: { allowed: ['argv', 'framing', 'parser', 'messages', 'turn', 'answer', 'close', 'unverified', 'commandPrefix'], required: [] },
 });
 /** Capability entries a `worker` block may carry but need not (082 IC-013, DEC-020; 120 IC-011).
  * Absent reads as `unknown`; present, the entry takes every IC-001 capability-entry rule. */
@@ -730,6 +732,7 @@ const WORKER_RECIPE_FIELDS = new Set([
   'binary', 'versionArgv', 'argv', 'promptVia', 'parser', 'fieldMap', 'marker', 'quotaSignals', 'protectedPaths',
   'output', 'providers', 'answers', 'billing', 'expiry', 'expirySigns', 'hint', 'caveat',
   'via', 'separator', 'levels', 'offLevel', 'mayLower',
+  'framing', 'messages', 'turn', 'answer', 'close', 'unverified', 'commandPrefix',
 ]);
 const WORKER_QUOTA_SIGNALS_FIELDS = new Set(['signals', 'unverifiedSignals', 'basis', 'evidence']);
 const WORKER_FACTS = new Set(['hooksLoaded', 'identityForwarded', 'guidanceLoaded', 'login']);
@@ -743,6 +746,8 @@ const WIDENING_CHECKED = Object.freeze(['oneShot', 'mainSession', 'loginProbe'])
 const { secretProblem, secretFlagsProblem } = require('./secret-flags.ts');
 // 172 design §3.2: the login recipe's own checks (L0-L5); its flags (L6) are checked here with every other argv.
 const { validateLoginProbe } = require('./login-recipe.ts');
+// 170 design §4.2: the control-channel grammar's own checks (C0-C7), argv widening and secret checks included.
+const { validateControlChannel } = require('./control-channel.ts');
 // 169 design §4.4: the provider, effort and listing-column grammar (rules 1 to 7).
 const { validateModelParts, validateModelListColumns } = require('./model-parts.ts');
 const MAIN_SESSION_PLACEHOLDERS = new Set(['{prompt}', '{model}', '{lastMessageFile}']);
@@ -832,7 +837,9 @@ function validateWorker(value: any, location: string, errors: string[]): void {
   const fail = (key: string, message: string) => issue(errors, `${location} worker '${key}'`, message);
   if (!object(value)) { fail('*', 'worker block is required and must be an object'); return; }
   for (const key of WORKER_KEYS) if (!Object.hasOwn(value, key)) fail(key, 'is missing');
-  for (const key of Object.keys(value)) if (!WORKER_ALLOWED_KEYS.includes(key)) fail(key, 'is not a worker key');
+  // 170 D12: a block still carrying the old status-only entry is refused naming its replacement, not as an unknown key.
+  if (Object.hasOwn(value, 'steering')) fail('steering', 'steering was replaced by controlChannel (row 170)');
+  for (const key of Object.keys(value)) if (key !== 'steering' && !WORKER_ALLOWED_KEYS.includes(key)) fail(key, 'is not a worker key');
 
   if (Object.hasOwn(value, 'profile') && value.profile !== null && !COVERAGE_PROFILES.has(value.profile)) {
     fail('profile', 'must be a lifecycle coverage profile or null');
@@ -878,6 +885,16 @@ function validateWorker(value: any, location: string, errors: string[]): void {
       if (WORKER_ENTRY_FIELDS.has(field)) continue;
       if (!WORKER_RECIPE_FIELDS.has(field) || !rule.allowed.includes(field)) { fail(key, `has unknown field '${field}'`); continue; }
       if (entry.status !== 'supported' && !rule.anyStatus?.includes(field)) fail(key, `recipe field '${field}' is allowed only when status is supported`);
+    }
+    if (key === 'controlChannel') {
+      // 170: the channel's argv, templates and tests are checked in one place; the argv rules below do not apply to it.
+      validateControlChannel(entry, `${location} worker '${key}'`, errors, {
+        binary: value.cli?.binary, declared, secretDeclared,
+        fieldMapId: value.structuredOutput?.fieldMap?.id ?? null,
+        mainSessionStatus: value.mainSession?.status ?? 'unknown',
+        harnessId: /^harness '([^']+)'/.exec(location)?.[1] ?? null,
+      });
+      continue;
     }
     const wideningCheck = (field: string, argv: unknown) => {
       if (!Array.isArray(argv)) return;

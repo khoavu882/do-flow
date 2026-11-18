@@ -11,7 +11,10 @@
 // `startSession` runs IC-001's checks in order, each refused before any write: (1) `nested-start`,
 // (2) usage, (3) `project-mismatch` / `project-not-indexed`, (4) `unknown-worktree` / `worktree-gone`,
 // (5) the prompt ids from `preparePrompt`, (6) `harness-not-startable`, (7) `model-not-offered`,
-// (8) `dispatch-running`, (9) under the store lock `checkout-busy`, `actor-limit`, `machine-limit`.
+// (8) `dispatch-running`, (9) under the store lock `checkout-busy`, `actor-limit`, `machine-limit`,
+// `start-rate-limited`. A harness whose control channel is supported always starts through it (170 A-2): the first
+// prompt is then refused `command-not-allowed` at (5) when it starts with the channel's command prefix (R-4), and
+// framed exactly as the supervisor will frame it, so a prompt the channel would refuse is refused before any write.
 // A request id already in the store is a replay: it is answered right after (3), before the checks
 // that read the machine as it is now, so a retry of a started request returns that run whatever has
 // changed since, and starts nothing; the store lock repeats the check, so two racing requests yield
@@ -20,7 +23,8 @@
 //
 // Limits (P-4): 1 open per checkout, exact under the lock; 2 per actor and 4 on the machine, counted
 // in this store under the lock plus every other indexed project's store read just before it (design
-// R3 accepts the cross-project race). A run is not open only on positive evidence that it is dead
+// R3 accepts the cross-project race). 170 R-5: 6 starts per actor per hour, counted the same way over
+// every started session created in the last hour, ended or not. A run is not open only on positive evidence that it is dead
 // (R5, 165 review A-1: `liveness` below); one whose liveness cannot be read counts open, and in the
 // checkout it is refused `checkout-busy-unknown`, which names the cancel that clears it. No probe is
 // run: readiness reads the version (`discover`), the probe record and the models catalogue, and login is the
@@ -41,6 +45,7 @@ const { PARSERS, parserIdOf } = require('./parsers.ts');
 const { workerIdFault } = require('../../registry/worker-ids.ts');
 const { storeFileFor, newRunId, insertRun, transition, readRuns } = require('./run-store.ts');
 const { mainLaunchRecord, STARTED_RUN_VAR } = require('./launch.ts');
+const { compileChannel, frameMessage, commandRefusal, idOf } = require('./channel.ts');
 const { preparePrompt, writePrompt, ENTRY_LINE, PROMPT_MAX } = require('./session-prompt.ts');
 const processTree = require('./process-tree.ts');
 const { RELAY_LABEL } = require('../relay-label.ts');
@@ -80,6 +85,7 @@ const MODELS_MAX = 50;
 const LABEL = /^[A-Za-z0-9 ._:/@-]{1,64}$/;
 const START_WAIT_MS = 10000;
 const START_POLL_MS = 100;
+const HOUR_MS = 60 * 60 * 1000;
 /** A `starting` run with no supervisor recorded is open this long after its creation (the spawn is in flight). */
 const UNSUPERVISED_GRACE_MS = 60000;
 
@@ -133,9 +139,11 @@ function worktreeGone(main: string, worktreeKey: string): boolean {
  * field map, only when `mainSession.parser` is no `PARSERS` key and names that map's id. A built-in's record stays unchanged.
  */
 function mapPart(worker: any): { structuredOutput?: { fieldMap: any } } {
-  const id = parserIdOf(worker.mainSession);
   const map = worker.structuredOutput?.fieldMap;
-  return typeof id === 'string' && !Object.hasOwn(PARSERS, id) && map?.id === id ? { structuredOutput: { fieldMap: map } } : {};
+  // 170: a channel's parser may name the same map (C5), so either id carries it.
+  const named = [parserIdOf(worker.mainSession), parserIdOf(worker.controlChannel)]
+    .some((id) => typeof id === 'string' && !Object.hasOwn(PARSERS, id) && map?.id === id);
+  return named ? { structuredOutput: { fieldMap: map } } : {};
 }
 
 /** 172 FR-011: the expiry signs the supervisor matches on a started session's failure, only when the worker declares some. */
@@ -156,20 +164,43 @@ function harnessBlocks(reg: any, descriptors: any, view: any) {
  * 165 review B-8: whether the main-session shape was seen on a live run: some record its `mainSession.evidence` cites is a `live-run`
  * record of this harness (as G41.5 reads `readOnly`). A help-only (`cli-check`) record, a missing or unreadable one, and a package
  * worker's (its paths are not under DoFlow's root) are false: not verified is the answer whenever it cannot be shown.
+ * 170 D11: `entry` is any capability entry that carries evidence (`mainSession`, `controlChannel`). 170 review A-05: a channel
+ * passes the `controlChannel:*` `parts`; a record lifts "not verified" for it only when its `establishes` lists every one,
+ * so a live one-shot or read-only record of the same harness does not.
  */
-function liveVerified(harness: string, ms: any): boolean {
-  if (!Array.isArray(ms?.evidence)) return false;
-  return ms.evidence.some((item: unknown) => {
+function liveVerified(harness: string, entry: any, parts: readonly string[] = []): boolean {
+  if (!Array.isArray(entry?.evidence)) return false;
+  return entry.evidence.some((item: unknown) => {
     if (typeof item !== 'string' || path.isAbsolute(item)) return false;
     const file = path.resolve(REPO_ROOT, item);
     if (!file.startsWith(REPO_ROOT + path.sep)) return false;
     try {
       const record = JSON.parse(fs.readFileSync(file, 'utf8'));
-      return record?.kind === 'live-run' && record.harness === harness;
+      return record?.kind === 'live-run' && record.harness === harness
+        && parts.every((part) => Array.isArray(record.establishes) && record.establishes.includes(part));
     } catch {
       return false;
     }
   });
+}
+
+/** The parts a live run must establish for a channel to read as verified live (the `controlChannel:*` ids of a checks file). */
+const CHANNEL_PARTS = ['argv', 'messages', 'turn', 'close', 'answer'].map((part) => `controlChannel:${part}`);
+
+/**
+ * 170 IC-006: the channel fact of one harness, `{ state, reason, liveVerified, unverified }`. A descriptor without a
+ * `controlChannel` entry (or one with another status) is `unknown`, never `unsupported`: nothing is said without evidence (R-11).
+ */
+function channelFact(harness: string, worker: any) {
+  const entry = worker?.controlChannel;
+  const state = entry?.status === 'supported' || entry?.status === 'unsupported' ? entry.status : 'unknown';
+  const fallback = worker ? 'no-control-channel-entry' : 'not-listed';
+  return {
+    state,
+    reason: state === 'supported' ? null : typeof entry?.reason === 'string' ? entry.reason : fallback,
+    liveVerified: state === 'supported' && liveVerified(harness, entry, CHANNEL_PARTS),
+    unverified: state === 'supported' && Array.isArray(entry.unverified) ? entry.unverified.filter((u: unknown) => typeof u === 'string') : [] as string[],
+  };
 }
 
 /**
@@ -179,8 +210,9 @@ function liveVerified(harness: string, ms: any): boolean {
  * the harness is found installed).
  */
 function harnessFacts({ harness, worker, reg, view, env, cwd, root, nowMs, platform, store }: any) {
+  const channel = channelFact(harness, worker);
   const shut = (reason: string, words: string, extra: any = {}) => ({
-    harness, startable: false, reason, words, warnings: [] as string[], login: null, version: null, liveVerified: false, found: null, ...extra,
+    harness, startable: false, reason, words, warnings: [] as string[], login: null, version: null, liveVerified: false, channel, found: null, ...extra,
   });
   if (!worker) return shut('not-listed', workerIdFault(harness) ? 'the --harness value is not a DoFlow harness id' : `${harness} is not a DoFlow harness`);
   const ms = worker.mainSession;
@@ -205,8 +237,10 @@ function harnessFacts({ harness, worker, reg, view, env, cwd, root, nowMs, platf
   if (runnable?.state !== 'yes') warnings.push('runnable-not-checked');
   if (login.state === 'expired') warnings.push('login-expired');
   else if (login.state === 'unknown') warnings.push('login-unknown');
-  if (ms.promptVia === 'argv') warnings.push('prompt-in-argv');
-  return { harness, startable: true, reason: null, words: `${harness} can start a session here`, warnings, login, version: found.version, liveVerified: liveVerified(harness, ms), found };
+  // 170 A-2: a harness with a supported channel takes its prompt as a framed message, never in argv.
+  if (ms.promptVia === 'argv' && compileChannel(worker) === null) warnings.push('prompt-in-argv');
+  if (channel.state === 'supported' && !channel.liveVerified) warnings.push('channel-not-verified-live');
+  return { harness, startable: true, reason: null, words: `${harness} can start a session here`, warnings, login, version: found.version, liveVerified: liveVerified(harness, ms), channel, found };
 }
 
 /**
@@ -318,9 +352,22 @@ function openRuns(runs: Record<string, any>, platform: string, nowMs: number, na
     .filter((entry) => entry.state !== 'dead');
 }
 
-/** The open started sessions of every other indexed project: `{ total, byActor }`. An unreadable store counts nothing. */
+/** 170 R-5: the creation times (ms) of the started sessions in `runs` created in the hour before `nowMs`, by actor. */
+function startsByActor(runs: Record<string, any>, nowMs: number, into: Map<string, number[]> = new Map()): Map<string, number[]> {
+  for (const run of Object.values(runs) as any[]) {
+    const at = Date.parse(run?.createdAt);
+    if (run?.kind !== KIND || !Number.isFinite(at) || at <= nowMs - HOUR_MS || at > nowMs) continue;
+    into.set(run.startedBy, [...(into.get(run.startedBy) ?? []), at]);
+  }
+  return into;
+}
+
+/**
+ * The open started sessions of every other indexed project: `{ total, byActor }`, and `startedByActor`, the creation
+ * times of the sessions each actor started there in the last hour (R-5). An unreadable store counts nothing.
+ */
 function elsewhere(others: any[], platform: string, nowMs: number, named: (runId: string) => string) {
-  const out = { total: 0, byActor: new Map<string, number>() };
+  const out = { total: 0, byActor: new Map<string, number>(), startedByActor: new Map<string, number[]>() };
   for (const project of others) {
     let runs: any = {};
     try { runs = readRuns(storeFileFor(project.root, STARTED_SLUG)); } catch { continue; }
@@ -328,6 +375,7 @@ function elsewhere(others: any[], platform: string, nowMs: number, named: (runId
       out.total += 1;
       out.byActor.set(run.startedBy, (out.byActor.get(run.startedBy) ?? 0) + 1);
     }
+    startsByActor(runs, nowMs, out.startedByActor);
   }
   return out;
 }
@@ -395,9 +443,19 @@ async function startSession(o: any) {
   // Step 5: the prompt, as the harness takes it.
   const blocks = harnessBlocks(reg, descriptors, view);
   const worker = blocks.find((b: any) => b.harness === harness)?.worker ?? null;
-  const promptVia = worker?.mainSession?.promptVia === 'argv' ? 'argv' : 'stdin';
+  const channel = worker ? compileChannel(worker) : null;
+  const promptVia = channel === null && worker?.mainSession?.promptVia === 'argv' ? 'argv' : 'stdin';
   const prepared = preparePrompt(o.readStdin(), { entry, promptVia });
   if (!prepared.ok) return refusal(prepared.code, `the prompt is refused: ${prepared.code}`);
+  if (channel !== null) {
+    // R-4 on the person's text, then the supervisor's own framing of what is sent (caps, prefix, record size).
+    const framed = commandRefusal(channel, prepared.text) ? { ok: false, code: 'command-not-allowed' } : frameMessage(channel, 'first', { text: prepared.sent, id: idOf(1) });
+    if (!framed.ok) {
+      return refusal(framed.code, framed.code === 'command-not-allowed'
+        ? `${harness} reads a message starting with '${channel.commandPrefix}' as its own command; DoFlow does not send one`
+        : `the prompt is refused: ${framed.code}`);
+    }
+  }
 
   // Step 6: the harness is startable here and now.
   const catalogue = readCatalogue(root, { env });
@@ -431,12 +489,14 @@ async function startSession(o: any) {
     startedBy, project: { projectKey, worktreeKey }, execWorktree: checkout.path, entry,
     binding: { model, provider, effort, flag: model === null ? null : 'supported', source: choice.source },
     prompt: { store: 'session-prompts', name: `${runId}.prompt.txt`, sha256: prepared.sha256, bytes: prepared.bytes },
-    ...mainLaunchRecord(worker, prepared.sent, model === null ? null : { model, provider, effort }),
+    ...mainLaunchRecord(worker, prepared.sent, model === null ? null : { model, provider, effort }, channel !== null),
     // The detached supervisor launches from the record alone: the binary the version read found (an absolute
     // path, as `run` records), the recipe and the model part.
     // The provider and effort entries ride along only when the choice uses them: the supervisor composes the model part from the record.
     descriptor: {
       cli: { binary: facts.found.path }, mainSession: worker.mainSession, ...mapPart(worker), model: worker.model ?? null, ...signsPart(worker),
+      // 170 IC-002: the channel the supervisor launches through, and for a session without one its reason.
+      ...(worker.controlChannel ? { controlChannel: worker.controlChannel } : {}),
       ...(provider === null ? {} : { provider: worker.provider }), ...(effort === null ? {} : { effort: worker.effort }),
     },
   };
@@ -444,6 +504,7 @@ async function startSession(o: any) {
   const named = namingScan(platform);
   const states = new Map((Object.values(readRuns(file)) as any[]).filter(isOpenShape).map((run) => [run.runId, liveness(run, platform, nowMs(), named)]));
   const away = elsewhere(resolved.others, platform, nowMs(), named);
+  const startedAt = nowMs();
   const inserted = insertRun(file, record, fs, {
     refuse: (store: any) => {
       const open = (Object.values(store.runs) as any[]).filter((run) => isOpenShape(run) && states.get(run.runId) !== 'dead');
@@ -455,6 +516,12 @@ async function startSession(o: any) {
       if (mine >= LIMITS.perActor) return { code: 'actor-limit', current: { open: mine, max: LIMITS.perActor } };
       const all = open.length + away.total;
       if (all >= LIMITS.machine) return { code: 'machine-limit', current: { open: all, max: LIMITS.machine } };
+      // R-5: the actor's starts in the last hour, here under the lock and in the other projects' stores.
+      const starts = [...(startsByActor(store.runs, startedAt).get(startedBy) ?? []), ...(away.startedByActor.get(startedBy) ?? [])].sort((a, b) => a - b);
+      if (starts.length >= LIMITS.perActorPerHour) {
+        const retryAfterSeconds = Math.max(1, Math.ceil((starts[starts.length - LIMITS.perActorPerHour] + HOUR_MS - startedAt) / 1000));
+        return { code: 'start-rate-limited', current: { started: starts.length, max: LIMITS.perActorPerHour, retryAfterSeconds } };
+      }
       return null;
     },
   });
@@ -500,6 +567,7 @@ const LIMIT_WORDS: Record<string, string> = Object.freeze({
   'checkout-busy': 'a started session is already open in this checkout',
   'actor-limit': `this actor already has ${LIMITS.perActor} started sessions open`,
   'machine-limit': `${LIMITS.machine} started sessions are already open on this machine`,
+  'start-rate-limited': `this actor has started ${LIMITS.perActorPerHour} sessions in the last hour; start again later`,
 });
 
 /** IC-002's `observedSession` per checkout: the newest hook-observed session there, `{ harness, lastSeenAt }`. */
@@ -565,4 +633,4 @@ function startOptions(o: any) {
   };
 }
 
-module.exports = { startSession, startOptions, STARTED_SLUG, KIND, LIMITS, START_FLAGS, StartUsageError };
+module.exports = { startSession, startOptions, liveness, namingScan, STARTED_SLUG, KIND, LIMITS, START_FLAGS, StartUsageError, resolveProject, pattern, refusal, KEY16, REQUEST_ID };

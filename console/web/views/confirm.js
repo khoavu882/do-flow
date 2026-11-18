@@ -151,7 +151,7 @@ function openConfirm(spec, options = {}) {
       refreshed = askRefetch();
     } else if (reply.status === 200 && code === null) {
       state = 'applied';
-      say([appliedWords(spec.actionId, spec.decision)]);
+      say([appliedWords(spec.actionId, spec.decision, reply)]);
       refreshed = askRefetch();
     } else if (reply.status === 409 && code === 'stale') {
       state = 'stale';

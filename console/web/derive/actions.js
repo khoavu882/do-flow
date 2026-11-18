@@ -78,10 +78,38 @@ const ACTION_WORDS = Object.freeze({
     effect: (/** @type {any} */ ctx) => `Start ${ctx.harness} (${ctx.label ?? ctx.model ?? 'harness default'}) in ${ctx.project} / ${ctx.checkout}. It runs with ${ctx.harness}’s own permissions. Stop it from Layers.`,
     applied: () => 'Started. Layers shows the session and its output.',
   }),
+  // 170 design §10: a message to a started session that has a control channel; the text is the confirmation's body, never in these words.
+  'session-send': Object.freeze({
+    effect: (/** @type {any} */ ctx) => `Send your message to session ${ctx.runId}${ctx.harness ? ` (${ctx.harness})` : ''} in ${ctx.project}. It queues as a follow-up for the session’s next turn. DoFlow’s records keep its size and who sent it, never its text.`,
+    applied: () => 'Sent. The session’s reply appears in its output.',
+  }),
+  'session-steer': Object.freeze({
+    effect: (/** @type {any} */ ctx) => `Steer session ${ctx.runId}${ctx.harness ? ` (${ctx.harness})` : ''} in ${ctx.project}. The message goes to the harness during its current turn, to change what it is doing now. To queue a follow-up instead, use Send. DoFlow’s records keep its size and who sent it, never its text.`,
+    applied: () => 'Steer sent. The session’s reply appears in its output.',
+  }),
+  'session-stop': Object.freeze({
+    effect: (/** @type {any} */ ctx) => `Stop the current turn of session ${ctx.runId}${ctx.harness ? ` (${ctx.harness})` : ''} in ${ctx.project}. The harness is asked to abort what it is doing; the session stays open and takes your next message. To end the session, use End session.`,
+    applied: () => 'Stop turn sent. The session stays open.',
+  }),
 });
 
-/** The notice after an applied action. @param {string} id @param {any} decision */
-function appliedWords(id, decision) {
+/** 170 review A-07: what a message the core answered `pending` (in the session's spool, not yet taken) says; the text stays in the box. */
+const PENDING_WORDS = 'Waiting to be taken: the message is queued for the session and its harness has not taken it yet. Your text stays in the box. Press Send or Steer again to see whether it was taken.';
+
+/**
+ * 170 review A-07: whether a reply is a 200 of `session-send` or `session-steer` whose message the core answered `pending`. The final state
+ * comes with the replay of the same request id.
+ * @param {string} id @param {any} reply the transport's reply
+ */
+function messagePending(id, reply) {
+  if (id !== 'session-send' && id !== 'session-steer') return false;
+  const message = reply && reply.status === 200 && reply.body && reply.body.result ? reply.body.result.message : null;
+  return !!message && typeof message === 'object' && message.state === 'pending';
+}
+
+/** The notice after an applied action; a pending message says it waits. @param {string} id @param {any} decision @param {any} [reply] */
+function appliedWords(id, decision, reply) {
+  if (messagePending(id, reply)) return PENDING_WORDS;
   const words = ACTION_WORDS[id];
   return words ? words.applied({ decision }) : 'Applied.';
 }
@@ -121,6 +149,43 @@ const REFUSAL_WORDS = Object.freeze({
   'action-log-unwritable': 'The Console could not record this attempt, so it did not run. Nothing was applied.',
   'action-timeout': UNKNOWN_WORDS,
 });
+
+/**
+ * 170 IC-005: the refusals of `session-send`, `session-steer` and `session-stop`, by the core's id (the Console passes it on as its own).
+ * @type {Readonly<Record<string, string>>}
+ */
+const SESSION_REFUSAL_WORDS = Object.freeze({
+  'no-channel': 'This session has no control channel, so it cannot be talked to. Nothing was sent.',
+  'started-without-channel': 'This session was started without a control channel. Nothing was sent.',
+  'no-steer': 'This harness has no steer. Use Send to queue a follow-up. Nothing was sent.',
+  'channel-closed': 'The session’s channel is closed. Nothing was sent.',
+  'not-working': 'The session is not working on a turn, so there is nothing to steer or stop. Nothing was sent.',
+  'channel-busy': 'Messages are already waiting for this session. Try again in a moment. Nothing was sent.',
+  'run-ended': 'The session has ended. Nothing was sent.',
+  'stdin-stalled': 'The session did not take the message. It may have stopped reading. Nothing was applied.',
+  'write-failed': 'The message could not be written to the session. Nothing was applied.',
+  'actor-rate-limited': 'This device sent too many messages in a short time. Nothing was sent.',
+  'unknown-run': 'DoFlow has no such session. Nothing was sent.',
+  'not-a-session': 'That run is not a started session. Nothing was sent.',
+  'prompt-empty': 'Write a message first. Nothing was sent.',
+  'prompt-too-long': 'The message is longer than 8000 characters or 32 KiB. Shorten it. Nothing was sent.',
+  'command-not-allowed': 'The harness reads a message that starts with its command prefix as a command, so DoFlow does not send it. Start the message with a word. Nothing was sent.',
+  'nested-send': 'This Console runs inside a started session, which cannot message another. Nothing was sent.',
+  'sender-in-run': 'This Console runs inside a DoFlow run, which cannot message a session. Nothing was sent.',
+});
+
+/**
+ * The lines of a refused session action: the words of its id, then the core's own sentence when it sent one and it adds something, then
+ * the wait for a rate limit. A code this table does not know falls back to `refusalWords`.
+ * @param {any} code @param {any} [reply] `{ status, body, headers }`
+ * @returns {string[]}
+ */
+function sessionRefusalLines(code, reply) {
+  const own = typeof code === 'string' ? SESSION_REFUSAL_WORDS[code] : undefined;
+  const wait = reply && reply.headers && /^[0-9]{1,5}$/.test(String(reply.headers['retry-after'] ?? '')) ? [`Try again in ${reply.headers['retry-after']} s.`] : [];
+  const core = reply && reply.body && reply.body.error && typeof reply.body.error.message === 'string' ? reply.body.error.message : '';
+  return [own ?? refusalWords(code), ...(own !== undefined && core !== '' ? [core] : []), ...wait];
+}
 
 /** @param {any} code */
 function refusalWords(code) {
@@ -194,6 +259,7 @@ function textState(rule, value) {
  * @param {any} ctx decide-gate: { projectKey, project, slug, taskId, gate: {id, name}, decision, revision };
  *   close-run: { projectKey, project, slug, taskId, current: {type, id} | null, revision };
  *   cancel-worker: { projectKey, project, slug, worker: {runId, harness, task} };
+ *   session-send, session-steer (170): { projectKey, project, runId, harness, message }; session-stop: the same without `message`;
  *   start-session (165): { projectKey, project, checkout, worktreeKey, harness, model, provider, effort, label, entry, prompt }
  * @returns {{ actionId: string, title: string, effect: string, verb: string, tone: 'approve' | 'danger', text: { field: string, required: boolean, max: number, label: string } | null, expect: { revision: number } | null, body: Record<string, any>, decision: string | null, unknown?: string } | null}
  */
@@ -202,6 +268,7 @@ function buildConfirmation(id, ctx) {
   if (typeof ctx.projectKey !== 'string' || !KEY16.test(ctx.projectKey)) return null;
   const project = typeof ctx.project === 'string' && ctx.project !== '' ? ctx.project : ctx.projectKey.slice(0, 8);
   if (id === 'start-session') return buildStartConfirmation(ctx, project);
+  if (id === 'session-send' || id === 'session-steer' || id === 'session-stop') return buildSessionConfirmation(id, ctx, project);
   const slug = ctx.slug === null || ctx.slug === undefined ? null : ctx.slug;
   if (slug !== null && !isId(slug)) return null;
   const base = { v: 1, projectKey: ctx.projectKey, slug };
@@ -284,6 +351,44 @@ function buildStartConfirmation(ctx, project) {
   };
 }
 
+/** The longest message, as the Console and the core bound it (src/actions.ts PROMPT_MAX): code points and UTF-8 bytes. */
+const MESSAGE_MAX = Object.freeze({ codePoints: 8000, bytes: 32768 });
+
+/**
+ * 170 IC-005: the confirmation of a message to a started session (`session-send`, `session-steer`) or of a stop of its turn (`session-stop`).
+ * Like the start it has no field (`text: null`: the message box holds the text), no `expect`, and a body complete but for the request id;
+ * the message is the body's `message`, in no sentence. `ctx` is `{ projectKey, project, runId, harness, message }` (`message` only for a
+ * send and a steer). Null when the run id is not one, or the message is empty, holds a NUL or a lone surrogate, or is over the limit.
+ * @param {string} id @param {any} ctx @param {string} project
+ */
+function buildSessionConfirmation(id, ctx, project) {
+  if (typeof ctx.runId !== 'string' || !WORKER_RUN.test(ctx.runId)) return null;
+  const harness = typeof ctx.harness === 'string' && isId(ctx.harness) ? ctx.harness : null;
+  const verbs = { 'session-send': ['Send', 'Send message'], 'session-steer': ['Steer', 'Steer'], 'session-stop': ['Stop turn', 'Stop turn'] };
+  const [title, verb] = /** @type {Record<string, string[]>} */ (verbs)[id];
+  const base = { v: 1, projectKey: ctx.projectKey, runId: ctx.runId };
+  /** @type {Record<string, any>} */
+  let body = base;
+  if (id !== 'session-stop') {
+    const message = ctx.message;
+    if (typeof message !== 'string' || message.includes('\u0000') || LONE_SURROGATE.test(message) || message.trim() === '') return null;
+    if ([...message].length > MESSAGE_MAX.codePoints || new TextEncoder().encode(message).length > MESSAGE_MAX.bytes) return null;
+    body = { ...base, message };
+  }
+  return {
+    actionId: id,
+    title: `${title} session ${ctx.runId}`,
+    effect: ACTION_WORDS[id].effect({ runId: ctx.runId, harness, project }),
+    verb,
+    tone: /** @type {'approve' | 'danger'} */ (id === 'session-stop' ? 'danger' : 'approve'),
+    text: null,
+    expect: null,
+    unknown: 'No answer; the session’s output shows whether it took the message. Do not send it again until you have looked.',
+    body,
+    decision: null,
+  };
+}
+
 /** The reason line shown where a command block stays because the action is not allowed here, by the reason `GET /api/actions` gave. @type {Readonly<Record<string, string>>} */
 const NOT_ALLOWED_WORDS = Object.freeze({
   'phone-scope': 'Actions need a control device paired from the Android app.',
@@ -296,5 +401,5 @@ const NOT_ALLOWED_WORDS = Object.freeze({
 const notAllowedWords = (reason) => (typeof reason === 'string' ? NOT_ALLOWED_WORDS[reason] ?? null : null);
 
 export {
-  TEXT_MAX, ACTION_WORDS, REFUSAL_WORDS, UNKNOWN_WORDS, REREAD_WORDS, NOT_ALLOWED_WORDS, byWords, cancelWords, refusalWords, staleWords, appliedWords, normalizeText, textState, buildConfirmation, notAllowedWords,
+  TEXT_MAX, MESSAGE_MAX, ACTION_WORDS, REFUSAL_WORDS, SESSION_REFUSAL_WORDS, PENDING_WORDS, messagePending, UNKNOWN_WORDS, REREAD_WORDS, NOT_ALLOWED_WORDS, byWords, cancelWords, refusalWords, sessionRefusalLines, staleWords, appliedWords, normalizeText, textState, buildConfirmation, notAllowedWords,
 };

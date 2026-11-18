@@ -160,12 +160,13 @@ function compiledMap(map: any): ParserFactory | null {
 }
 
 /**
- * 171 IC-003: the parser factory for a descriptor's `structuredOutput` (`structured`) or `mainSession` (`main`).
+ * 171 IC-003: the parser factory for a descriptor's `structuredOutput` (`structured`), `mainSession` (`main`) or, row 170,
+ * `controlChannel` (`channel`).
  * `PARSERS` is checked first, so a package map never shadows a core parser (S5); then this descriptor's own
  * `structuredOutput.fieldMap` when its id is the one named; otherwise `parserFor`, the `unparsed` fallback.
  */
-function parserOf(descriptor: any, which: 'structured' | 'main'): ParserFactory {
-  const id = parserIdOf(which === 'main' ? descriptor?.mainSession : descriptor?.structuredOutput);
+function parserOf(descriptor: any, which: 'structured' | 'main' | 'channel'): ParserFactory {
+  const id = parserIdOf(which === 'main' ? descriptor?.mainSession : which === 'channel' ? descriptor?.controlChannel : descriptor?.structuredOutput);
   if (typeof id === 'string' && Object.hasOwn(PARSERS, id)) return PARSERS[id];
   const map = descriptor?.structuredOutput?.fieldMap;
   if (id !== null && map?.id === id) {

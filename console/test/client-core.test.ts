@@ -5620,7 +5620,7 @@ const startedNode = (over: any = {}) => lnode(startedAgentKey(), {
 const treeWith = (nodes: any[]) => ({ tree: lok({ v: 1, projectKey: P1, nodes, edges: [], limits: { nodes: nodes.length, notChecked: 0 }, unreadable: 0 }) });
 const actions165 = (allowed: boolean, reason: string | null = null, actor: any = { kind: 'local', transport: 'loopback' }) => reply(200, {
   v: 1, actor, textMax: 500, limits: {}, project: { projectKey: P1, label: 'example-project' },
-  actions: ['start-session', 'cancel-worker', 'decide-gate', 'close-run'].map((id) => ({ id, allowed, reason })),
+  actions: ['start-session', 'cancel-worker', 'decide-gate', 'close-run', 'session-send', 'session-steer', 'session-stop'].map((id) => ({ id, allowed, reason })),
 });
 const fileFrame = (fileKey: string, _id: string, pieces: any[], to: number) => ({ v: 1, ch: `file:${P1}:${fileKey}`, id: `4242:${to}:1:1`, type: 'snapshot', at: new Date(Date.now()).toISOString(), data: { log: 'open', ino: '4242', from: 0, to, pieces, phase: null, end: null } });
 
@@ -5637,7 +5637,7 @@ test('165 layers: a started session is one node in the orchestrator lane, titled
   assert.equal(page.main.querySelectorAll('.lane')[0].querySelectorAll('.lane__title').filter((t: El) => text(t) === 'Worker runs').length, 0, 'never a worker row');
 });
 
-test('165 layers: the pane of a started session follows its out and err file lanes, and Stop opens the cancel-worker confirmation of the started-sessions store', async () => {
+test('165 layers: the pane of a started session follows its out and err file lanes, and End session opens the cancel-worker confirmation of the started-sessions store', async () => {
   const base = (target: string, init: any) => (target === '/api/actions' ? actions165(true)
     : target === '/api/actions/cancel-worker' ? reply(200, { v: 1, action: 'cancel-worker', requestId: 'x', outcome: 'applied', replayed: false, by: 'console', result: { runId: RUN165 } })
       : standard(target, init));
@@ -5655,7 +5655,7 @@ test('165 layers: the pane of a started session follows its out and err file lan
   assert.match(text(page.inspector.querySelectorAll('pre')[0]), /hello from the session/);
   assert.match(text(page.inspector), /masked/i);
   const stop = page.inspector.querySelector('.btn--act');
-  assert.equal(text(stop), 'Stop session');
+  assert.equal(text(stop), 'End session');
   stop.fire('click');
   const dialog = page.doc.body.querySelector('.confirm');
   assert.match(text(dialog.querySelector('.confirm__title')), new RegExp(`Stop worker ${RUN165}`));
@@ -5693,6 +5693,181 @@ for (const [end, want] of END_CASES_165) {
     assert.match(text(ended.inspector), want);
   });
 }
+
+// ---- 170 design §10: the turn badge, the message box and End session on the pane of a started session ----------------------------------
+
+const turn170 = (state: 'working' | 'waiting') => ({ observed: true, state, since: AT(1), seq: 3 });
+const chan170 = (over: any = {}) => ({
+  runId: RUN165, agentKey: startedAgentKey(), harness: 'pi', channel: 'open', reason: null, words: null, turn: turn170('working'), sent: { count: 1, lastAt: AT(1) },
+  recent: [{ seq: 3, kind: 'follow-up', by: 'console', at: AT(1), bytes: 41, outcome: 'written', answer: 'accepted' }], ...over,
+});
+const applied170 = (action: string) => reply(200, { v: 1, action, requestId: 'x', outcome: 'applied', replayed: false, by: 'console', result: { runId: RUN165 } });
+const VIEW_DEVICE = { kind: 'device', deviceId: 'd-0a1b2c3d4e5f', scope: 'view', transport: 'browser' };
+/** The Layers pane of the started session with `item` in its `channels` section (null: the section holds no entry for the run). */
+async function pane170(item: any, how: { actions?: Reply, node?: any, post?: (target: string, init: any) => Reply } = {}) {
+  const base = (target: string, init: any) => (target === '/api/actions' ? how.actions ?? actions165(true)
+    : target === '/api/actions/cancel-worker' ? applied170('cancel-worker')
+      : target.startsWith('/api/actions/session-') ? (how.post ? how.post(target, init) : applied170(target.slice('/api/actions/'.length)))
+        : standard(target, init));
+  const page = await startLayers(`#/layers/${P1}/agent/${startedAgentKey()}`, FakeES, base);
+  const body = (it: any) => layersBody({ ...treeWith([lnode(A_MAIN), startedNode(how.node ?? {})]), channels: lok({ v: 1, items: it === null ? [] : [it] }) });
+  const es = await openedLayers(page, [], body(item));
+  await settle();
+  return { page, es, body };
+}
+const button170 = (page: Page, label: string) => page.inspector.querySelectorAll('button').find((b: El) => text(b) === label);
+const labels170 = (page: Page) => page.inspector.querySelectorAll('button').map((b: El) => text(b)).filter((t: string) => t !== 'Close details');
+const off170 = (b: El) => b.getAttribute('disabled') !== null;
+const type170 = (page: Page, value: string) => { const area = page.inspector.querySelector('textarea'); area.value = value; area.fire('input'); };
+
+test('170 layers pane, open and working: badge "Working"; Send, Steer, Stop turn and End session; Send and Steer wait for text; Send posts the message with a fresh request id', async () => {
+  const { page } = await pane170(chan170());
+  assert.match(text(page.inspector.querySelector('[data-fact="turn"]')), /Working/);
+  assert.deepEqual(labels170(page), ['Send', 'Steer', 'Stop turn', 'End session']);
+  assert.deepEqual(['Send', 'Steer', 'Stop turn'].map((l) => off170(button170(page, l)!)), [true, true, false], 'no text: Send and Steer are shut');
+  type170(page, 'Also run the lint');
+  assert.deepEqual(['Send', 'Steer', 'Stop turn'].map((l) => off170(button170(page, l)!)), [false, false, false]);
+  button170(page, 'Send')!.fire('click');
+  const dialog = page.doc.body.querySelector('.confirm');
+  assert.equal(dialog.querySelector('.confirm__field').getAttribute('hidden'), '', 'the box holds the text; the dialog has no field');
+  dialog.querySelector('.confirm__verb').fire('click');
+  await settle();
+  const posts = page.calls.filter((c) => c.method === 'POST');
+  assert.equal(posts.length, 1);
+  assert.match(posts[0].url, /\/api\/actions\/session-send$/);
+  assert.match(posts[0].body.requestId, /^[A-Za-z0-9_-]{22}$/);
+  assert.deepEqual({ ...posts[0].body, requestId: undefined }, { v: 1, projectKey: P1, runId: RUN165, message: 'Also run the lint', requestId: undefined });
+  assert.equal(page.inspector.querySelector('textarea').value, '', 'an applied send empties the box');
+  const recent = text(page.inspector.querySelector('[data-fact="recent-messages"]'));
+  assert.match(recent, /Send.*Console.*41 B.*accepted/);
+  assert.doesNotMatch(recent, /Also run the lint/, 'a recent message shows kind, who, size and result, never its text');
+});
+
+test('170 review A-07: a pending answer says "waiting to be taken" and keeps the text in the box; the replay of the same request id that answers written gives the final state and empties it', async () => {
+  const message = (state: string) => ({ seq: state === 'pending' ? null : 3, kind: 'follow-up', state, answer: state === 'pending' ? null : 'accepted', at: AT(1), bytes: 17 });
+  const answers = ['pending', 'written'];
+  const { page } = await pane170(chan170(), { post: (target) => reply(200, { v: 1, action: 'session-send', requestId: 'x', outcome: 'applied', replayed: answers.length === 1, by: 'console', result: { replayed: answers.length === 1, message: message(answers.shift()!), turn: turn170('working'), channel: 'open' } }) });
+  type170(page, 'Also run the lint');
+  button170(page, 'Send')!.fire('click');
+  page.doc.body.querySelector('.confirm__verb').fire('click');
+  await settle();
+  assert.match(text(page.doc.body.querySelector('.confirm__result')), /^Waiting to be taken/);
+  assert.equal(page.inspector.querySelector('textarea').value, 'Also run the lint', 'a pending message keeps its text');
+  assert.match(text(page.inspector.querySelector('[data-fact="message-pending"]')), /^Waiting to be taken/);
+  page.doc.body.querySelectorAll('.confirm').forEach((d: El) => d.remove());
+  button170(page, 'Send')!.fire('click');
+  page.doc.body.querySelector('.confirm__verb').fire('click');
+  await settle();
+  const posts = page.calls.filter((c) => c.method === 'POST');
+  assert.equal(posts.length, 2);
+  assert.equal(posts[1].body.requestId, posts[0].body.requestId, 'the same request id, so the replay says what became of it');
+  assert.match(text(page.doc.body.querySelector('.confirm__result')), /^Sent\./);
+  assert.equal(page.inspector.querySelector('textarea').value, '', 'the final state empties the box');
+  assert.equal(page.inspector.querySelector('[data-fact="message-pending"]').getAttribute('hidden'), '');
+});
+
+test('170 layers pane, Steer posts session-steer with the message, Stop turn posts session-stop with no message, and End session is the separate cancel-worker confirmation', async () => {
+  const { page } = await pane170(chan170());
+  type170(page, 'Use the other branch');
+  button170(page, 'Steer')!.fire('click');
+  page.doc.body.querySelector('.confirm__verb').fire('click');
+  await settle();
+  button170(page, 'Stop turn')!.fire('click');
+  assert.match(text(page.doc.body.querySelector('.confirm__title')), /^Stop turn session w-/);
+  page.doc.body.querySelector('.confirm__verb').fire('click');
+  await settle();
+  const posts = page.calls.filter((c) => c.method === 'POST');
+  assert.deepEqual(posts.map((c) => c.url.replace(/^.*\/api\/actions\//, '')), ['session-steer', 'session-stop']);
+  assert.deepEqual({ ...posts[0].body, requestId: undefined }, { v: 1, projectKey: P1, runId: RUN165, message: 'Use the other branch', requestId: undefined });
+  assert.deepEqual({ ...posts[1].body, requestId: undefined }, { v: 1, projectKey: P1, runId: RUN165, requestId: undefined }, 'Stop turn carries no message');
+  page.doc.body.querySelectorAll('.confirm').forEach((d: El) => d.remove());
+  button170(page, 'End session')!.fire('click');
+  assert.match(text(page.doc.body.querySelector('.confirm__title')), new RegExp(`Stop worker ${RUN165}`), 'End session is the cancel-worker confirmation, not session-stop');
+});
+
+test('170 layers pane, open and waiting: "Waiting for you"; Send stays on, Steer says "it is waiting: send instead", Stop turn is shut', async () => {
+  const { page } = await pane170(chan170({ turn: turn170('waiting') }));
+  assert.match(text(page.inspector.querySelector('[data-fact="turn"]')), /Waiting for you/);
+  type170(page, 'Yes, go on');
+  assert.deepEqual(['Send', 'Steer', 'Stop turn'].map((l) => off170(button170(page, l)!)), [false, true, true]);
+  assert.match(text(page.inspector.querySelector('[data-fact="message-box"]')), /it is waiting: send instead/);
+  assert.ok(button170(page, 'End session'));
+});
+
+test('170 layers pane, not observed: the reason in words with every button on; a supervisor that stopped disables Send and says End it with End session', async () => {
+  const seen = await pane170(chan170({ turn: { observed: false, reason: 'message-refused', since: null } }));
+  assert.match(text(seen.page.inspector.querySelector('[data-fact="turn"]')), /^Not observed: its last message was refused/);
+  type170(seen.page, 'hello');
+  assert.deepEqual(['Send', 'Steer', 'Stop turn'].map((l) => off170(button170(seen.page, l)!)), [false, false, false]);
+  mock.timers.reset();
+  uninstallPage();
+  const gone = await pane170(chan170({ turn: { observed: false, reason: 'supervisor-gone', since: null } }));
+  assert.match(text(gone.page.inspector.querySelector('[data-fact="turn"]')), /Not observed: its supervisor stopped\. End it with End session\./);
+  type170(gone.page, 'hello');
+  assert.equal(off170(button170(gone.page, 'Send')!), true);
+  assert.ok(button170(gone.page, 'End session'));
+});
+
+test('170 layers pane, no channel: "Send is unavailable: <reason>" and End session only; an ended or closed one says "Ended: <why>" with no button', async () => {
+  const none = await pane170(chan170({ channel: 'none', reason: 'no-channel', words: 'the harness reads one prompt only.', turn: { observed: false, reason: 'no-channel', since: null }, recent: [] }));
+  assert.match(text(none.page.inspector.querySelector('[data-fact="channel-note"]')), /^Send is unavailable: the harness reads one prompt only$/);
+  assert.deepEqual(labels170(none.page), ['End session']);
+  mock.timers.reset();
+  uninstallPage();
+  const closed = await pane170(chan170({ channel: 'closed', reason: 'unused-timeout', turn: { observed: false, reason: 'run-ended', since: AT(0) } }), { node: { phase: 'ended', ended: { at: AT(0), result: 'cancelled' }, end: { state: 'cancelled', exitCode: null, reason: null } } });
+  assert.match(text(closed.page.inspector.querySelector('[data-fact="turn"]')), /^Ended: /);
+  assert.deepEqual(labels170(closed.page), []);
+});
+
+test('170 layers pane, a view device sees the badge and the replies and the words that sending needs control; no button; a core without the channels section shows End session only', async () => {
+  const view = await pane170(chan170(), { actions: actions165(false, 'phone-scope', VIEW_DEVICE) });
+  assert.match(text(view.page.inspector.querySelector('[data-fact="turn"]')), /Working/);
+  assert.match(text(view.page.inspector.querySelector('[data-fact="channel-note"]')), /^Sending needs this machine’s Console or a phone paired with control over the app\.$/);
+  assert.deepEqual(labels170(view.page), []);
+  assert.equal(view.page.inspector.querySelector('textarea'), null, 'no box for a device that cannot send');
+  assert.equal(view.page.calls.filter((c) => c.method === 'POST').length, 0);
+  mock.timers.reset();
+  uninstallPage();
+  const old = await pane170(null);
+  assert.match(text(old.page.inspector.querySelector('[data-fact="turn"]')), /^Not observed: the Console holds no channel record/);
+});
+
+test('170 layers pane: the typed message and the focus survive a new snapshot that changes the turn', async () => {
+  const { page, es, body } = await pane170(chan170());
+  type170(page, 'half a thought');
+  const area = page.inspector.querySelector('textarea');
+  area.focus();
+  es.emit('message', liveFrame(`layers:${P1}`, 'snapshot', member('layers', body(chan170({ turn: turn170('waiting') })))));
+  await settle();
+  assert.match(text(page.inspector.querySelector('[data-fact="turn"]')), /Waiting for you/);
+  assert.equal(page.inspector.querySelector('textarea').value, 'half a thought');
+  assert.equal(page.doc.activeElement, page.inspector.querySelector('textarea'));
+});
+
+test('170 start flow panel: the same badge, message box and End session under the run, fed by the layers member; the harness row says whether it can be talked to', async () => {
+  const withChannel = (state: string, reason: string | null, extra: any = {}) => ({ state, reason, liveVerified: state === 'supported' && extra.liveVerified !== false, unverified: extra.unverified ?? [] });
+  const options = options165({ harnesses: [
+    harness165('claude', { channel: withChannel('supported', null) }),
+    harness165('opencode', { channel: withChannel('supported', null, { liveVerified: false, unverified: ['no live run recorded'] }) }),
+    harness165('codex', { channel: withChannel('unsupported', 'the harness reads one prompt only.'), startable: true, reason: null }),
+  ] });
+  const page = await startPage165({ options, post: () => applied165() });
+  const rows = page.main.querySelectorAll('[data-fact="channel"]').map((n: El) => text(n));
+  assert.deepEqual(rows, ['You can talk to it while it runs.', 'You can talk to it while it runs.', 'Runs one prompt; Send is unavailable: the harness reads one prompt only.']);
+  assert.match(text(page.main.querySelector('[data-warning="channel-not-verified-live"]')), /^Talking to it is not verified on a live run: no live run recorded/);
+  await fill165(page);
+  page.main.querySelector('#start-submit').fire('click');
+  page.doc.body.querySelector('.confirm__verb').fire('click');
+  await settle();
+  await advance(100);
+  const live = liveES();
+  live.open();
+  live.emit('message', liveFrame(`layers:${P1}`, 'snapshot', member('layers', layersBody({ ...treeWith([startedNode()]), channels: lok({ v: 1, items: [chan170()] }) }))));
+  await settle();
+  const flow = page.main.querySelector('.start__flow');
+  assert.match(text(flow.querySelector('[data-fact="turn"]')), /Working/);
+  assert.deepEqual(flow.querySelectorAll('button').map((b: El) => text(b)).filter((t: string) => ['Send', 'Steer', 'Stop turn', 'End session'].includes(t)), ['Send', 'Steer', 'Stop turn', 'End session']);
+});
 
 test('165 sessions: "Started here" lists the sessions started in the project with a Layers link each; a core that reports none says so, and nothing shows before the machine member arrives', async () => {
   const page = await startLive('#/sessions', liveRoute(sessionsRoute(BUSY)));
@@ -5891,12 +6066,12 @@ test('165 start: a start through the dialog posts the body once, then shows Runn
   assert.match(text(page.main.querySelector('.start__flow')), /the last 200 lines/);
   const out = text(page.main.querySelectorAll('pre')[0]);
   assert.ok(out.startsWith('out 50\n') && out.endsWith('out 249'), 'the last 200 lines');
-  assert.match(text(page.main.querySelector('.start__flow')), /Stop session/);
+  assert.match(text(page.main.querySelector('.start__flow')), /End session/);
   live.emit('message', liveFrame(`layers:${P1}`, 'snapshot', member('layers', layersBody(treeWith([startedNode({ phase: 'ended', ended: { at: AT(0), result: 'timed-out' }, end: { state: 'timed-out', exitCode: null, reason: null } })])))));
   await settle();
   assert.match(text(page.main.querySelector('.start__flow-title')), /Ended: claude/);
   assert.match(text(page.main.querySelector('.start__flow')), /passed its 3600 s limit/);
-  assert.equal(page.main.querySelectorAll('.btn--act').filter((b: El) => /Stop session/.test(text(b))).length, 0);
+  assert.equal(page.main.querySelectorAll('.btn--act').filter((b: El) => /End session/.test(text(b))).length, 0);
   assert.ok(String(page.main.querySelector('.layers-link')?.getAttribute('href')).startsWith(`#/layers/${P1}/agent/`));
 });
 

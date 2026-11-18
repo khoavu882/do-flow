@@ -305,7 +305,7 @@ test('a control device over Bearer starts: startedBy is device.d-<12 hex>; the a
   for (const line of [begin, end]) {
     assert.equal(line.project, w.key, 'the project');
     assert.deepEqual(line.target, { slug: null, taskId: null, gateId: null, runId: line === end ? run.runId : null, worktreeKey: w.linkedKey, harness: 'codex', model: 'default' }, 'harness, model default, checkout');
-    assert.deepEqual(line.input, { decision: null, textChars: [...body.prompt].length, entry: 'do' }, 'the prompt length and the entry');
+    assert.deepEqual(line.input, { decision: null, textBytes: Buffer.byteLength(body.prompt, 'utf8'), entry: 'do' }, 'the prompt size in bytes and the entry');
     assert.deepEqual([line.actor.kind, line.actor.deviceId, line.actor.scope, line.actor.transport], ['device', control.device.id, 'control', 'native']);
   }
   assert.equal(l.scratch.text().includes(MARKER), false, 'the prompt text is in no log line');
@@ -342,10 +342,12 @@ test('refusals: view 403 phone-scope; browser-transport control 403 action-trans
   assert.deepEqual([busy.status, json(busy).error.code], [409, 'checkout-busy'], busy.body);
   assert.equal(json(busy).current.runId, json(gone).result.run.runId);
   assert.equal(spawned(), 1, 'a refusal spawns nothing');
-  // A leading dash is refused for the argv harnesses, whatever the entry (in the other checkout).
+  // A leading dash is refused for the argv harness whatever the entry, and for any harness with entry none (in the other checkout).
+  // pi with entry do is not in the loop: since row 170 pi has a control channel, so its prompt goes on stdin, not argv, and the dash is
+  // accepted by design (session-prompt.test.ts 'the leading-dash rule'); posting it here would spawn a session and take the checkout.
   const dashes = await lan(t, w);
   const dashDevice = await dashes.devices.pair('control', 'Dash phone');
-  for (const harness of ['opencode', 'pi']) for (const entry of ['do', 'none']) {
+  for (const [harness, entry] of [['opencode', 'do'], ['opencode', 'none'], ['pi', 'none']]) {
     const dash = await dashes.post('start-session', startBody(w, { harness, entry, worktreeKey: w.mainKey, prompt: `-x ${MARKER}` }), dashDevice.bearer);
     assert.deepEqual([dash.status, json(dash).error.code], [400, 'prompt-leading-dash'], `${harness}/${entry}: ${dash.body}`);
   }
@@ -419,11 +421,14 @@ test('the same requestId is one run (memo); after a Console restart it is 200 re
   w.open();
 });
 
-/** One real core process starting `codex` in the linked checkout of `w`, its fake told to wait on `fakeDir`: `{ exit, body }` once it exits. */
-function raceStart(w: any, fakeDir: string): Promise<{ exit: number | null, body: any, stderr: string }> {
+/**
+ * One real core process starting `codex` in the linked checkout of `w` as `actor` (the core's `--via` label), its fake told to wait on
+ * `fakeDir`: `{ exit, body }` once it exits.
+ */
+function raceStart(w: any, fakeDir: string, actor: string): Promise<{ exit: number | null, body: any, stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [CORE, 'worker', '--action', 'start-session', '--project-key', w.key, '--worktree-key', w.linkedKey, '--harness', 'codex',
-      '--entry', 'none', '--request-id', rid(), '--stdin', '--json'], { cwd: w.main, env: { ...w.env, FAKE_DIR: fakeDir }, stdio: ['pipe', 'pipe', 'pipe'] });
+      '--entry', 'none', '--via', actor, '--request-id', rid(), '--stdin', '--json'], { cwd: w.main, env: { ...w.env, FAKE_DIR: fakeDir }, stdio: ['pipe', 'pipe', 'pipe'] });
     let out = '';
     let err = '';
     child.stdout.on('data', (chunk: any) => { out += chunk; });
@@ -444,7 +449,10 @@ test(`165 review B-7: two real core processes start in one checkout at once, ${R
     const fakeDir = path.join(w.dir, `race-${round}`);
     fs.mkdirSync(fakeDir);
     // Both are spawned in the same tick and meet only at the core's run-store lock: no sleep orders them.
-    const replies = await Promise.all([raceStart(w, fakeDir), raceStart(w, fakeDir)]);
+    // 170 R-5: the core allows an actor 6 starts an hour. Each round is its own actor, so the twenty rounds do not meet that limit and the
+    // two starts of a round, one actor, still meet only the checkout lock.
+    const actor = `device.d-${round.toString(16).padStart(12, '0')}`;
+    const replies = await Promise.all([raceStart(w, fakeDir, actor), raceStart(w, fakeDir, actor)]);
     const won = replies.filter((r) => r.exit === 0);
     const lost = replies.filter((r) => r.exit !== 0);
     assert.equal(won.length, 1, `round ${round}: ${JSON.stringify(replies.map((r) => [r.exit, r.body]))}`);
