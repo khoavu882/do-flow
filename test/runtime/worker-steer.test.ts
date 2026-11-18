@@ -140,6 +140,14 @@ function seedOpen(f: any, { turn = { observed: true, state: 'working', since: is
 const runOf = (f: any, runId: string) => readRuns(f.file)[runId];
 const ledgerOf = (f: any, runId: string) => runOf(f, runId)?.channel?.ledger ?? [];
 const logLines = (f: any): string[] => (fs.existsSync(f.log) ? fs.readFileSync(f.log, 'utf8').split(/(?<=\n)/).filter(Boolean) : []);
+/** The prompt frame a follow-up or a steer sends (row 173 §6.7), written out so a change to it is seen here. */
+const messageFrame = (body: string, outcome: string) => [
+  '<input>', '<document id="message">', body, '</document>', '</input>', '',
+  '<instructions>', outcome, '', '## Stop rule', 'Stop when the request is met or you need the person.', '</instructions>', '',
+  '<output_format>', 'The person who started this session reads this reply; put the conclusion first.', '</output_format>', '',
+].join('\n');
+const FOLLOW_UP = 'Continue this session with the person\'s message in input.';
+const STEER = 'Change course as the person\'s message in input asks, then continue.';
 const record = (template: any, text: string, id: string) => `${JSON.stringify({ ...template, message: text, id })}\n`;
 const waiting = (f: any, runId: string) => spool.waitingNames(f.root, runId);
 const gone = (proc: any) => tree.alive(proc) === false && tree.groupAlive(proc.pgid, proc.start) === false;
@@ -190,7 +198,7 @@ test('send, steer and stop reach a running session byte-exact; the reply is IC-0
   assert.deepEqual([sent.body.ok, sent.body.replayed, sent.body.channel], [true, false, 'open']);
   assert.deepEqual([sent.body.message.seq, sent.body.message.kind, sent.body.message.state, sent.body.message.answer, sent.body.message.bytes], [2, 'follow-up', 'written', 'accepted', Buffer.byteLength(text)]);
   assert.match(sent.body.message.at, /^\d{4}-\d\d-\d\dT/);
-  assert.equal(logLines(f)[1], record(CHANNEL.messages.followUp, text, 'd-2'), 'the record is framed byte-exact with the ledger id');
+  assert.equal(logLines(f)[1], record(CHANNEL.messages.followUp, messageFrame(text, FOLLOW_UP), 'd-2'), 'the record is framed byte-exact with the ledger id');
   assert.equal(sent.body.turn.observed, true);
   assert.equal(ledgerOf(f, runId).find((e: any) => e.requestId === id).by, 'console');
 
@@ -208,7 +216,7 @@ test('send, steer and stop reach a running session byte-exact; the reply is IC-0
   await until(() => runOf(f, runId).channel.turn.state === 'working', 'working again');
   const steered = await verb(f, runId, 'steer', { text: 'change course' });
   assert.deepEqual([steered.exit, steered.body.ok, steered.body.message.kind, steered.body.message.state], [0, true, 'steer', 'written']);
-  assert.equal(logLines(f)[2], record(CHANNEL.messages.steer, 'change course', 'd-3'));
+  assert.equal(logLines(f)[2], record(CHANNEL.messages.steer, messageFrame('change course', STEER), 'd-3'));
   const stopped = await verb(f, runId, 'stop');
   assert.deepEqual([stopped.exit, stopped.body.ok, stopped.body.message.kind, stopped.body.message.state, stopped.body.message.bytes], [0, true, 'stop', 'written', 0]);
   assert.equal(logLines(f)[3], `${JSON.stringify({ type: 'abort', id: 'd-4' })}\n`);

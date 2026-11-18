@@ -23,6 +23,7 @@ const { maskBody } = require('../../src/runtime/mask.ts');
 const { gateName, REVIEW_BYTES } = require('../../src/runtime/events/layers.ts');
 const { channelsBody, ITEMS, RECENT, LIVENESS_READS } = require('../../src/runtime/events/session-channels.ts');
 const { procStart } = require('../../src/runtime/worker/process-tree.ts');
+const { preparePrompt } = require('../../src/runtime/worker/session-prompt.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 
 const WIN = process.platform === 'win32';
@@ -363,7 +364,7 @@ test('165 D8: a started session\'s prompt file is a session-prompt artifact; onl
   const root = fs.realpathSync(tempDir(t, 'doflow-events-artifacts-'));
   const dir = path.join(root, '.doflow', 'state', 'session-prompts');
   const at = Date.now() - 5000;
-  const prompt = write(path.join(dir, 'w-0123456789ab.prompt.txt'), 'Use the DoFlow do skill for this request:\n\nfix it\n', at);
+  const prompt = write(path.join(dir, 'w-0123456789ab.prompt.txt'), preparePrompt('fix it', { entry: 'do', promptVia: 'stdin' }).sent, at);
   write(path.join(dir, 'w-nothex.prompt.txt'), 'x', at);
   write(path.join(dir, 'w-0123456789ab.out.log'), 'x', at);
   const outside = write(path.join(root, 'outside.txt'), 'SECRET', at);
@@ -374,6 +375,23 @@ test('165 D8: a started session\'s prompt file is a session-prompt artifact; onl
   assert.deepEqual(findArtifact([root], scan.items[0].fileKey), { path: prompt, kind: 'session-prompt', root });
   assert.ok(!JSON.stringify(scan.items).includes(root), 'no path in an item');
   assert.ok(artifactDirs([root]).state.includes(dir), 'the directory is watched');
+});
+
+test('173 O-3: a subagent worker\'s handoff prompt is a handoff-prompt artifact beside its handoff; the spawn-prompt rule never takes it', (t) => {
+  const root = fs.realpathSync(tempDir(t, 'doflow-events-artifacts-'));
+  const dir = path.join(root, '.doflow', 'state', 'dispatch-envelopes');
+  const base = Date.now() - 10000;
+  write(path.join(dir, 'd-0123456789ab.handoff.json'), '{}', base + 1000);
+  const prompt = write(path.join(dir, 'd-0123456789ab.handoff-prompt.txt'), '<role>\nworker\n</role>\n', base + 2000);
+  write(path.join(dir, 'req-1.prompt.txt'), 'p', base + 3000);
+  const scan = scanArtifacts([root]);
+  assert.deepEqual(scan.items.map((i: any) => [i.kind, i.dispatchId]), [
+    ['spawn-prompt', 'req-1'], ['handoff-prompt', 'd-0123456789ab'], ['handoff', 'd-0123456789ab'],
+  ]);
+  const listed = scan.items[1];
+  assert.equal(listed.fileKey, fileKeyOf(root, '.doflow/state/dispatch-envelopes/d-0123456789ab.handoff-prompt.txt'));
+  assert.deepEqual(findArtifact([root], listed.fileKey), { path: prompt, kind: 'handoff-prompt', root });
+  assert.ok(!JSON.stringify(scan.items).includes(root), 'no path in an item');
 });
 
 test('161 IC-003: artifacts keep the 64 newest', (t) => {

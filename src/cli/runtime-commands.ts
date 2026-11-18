@@ -46,6 +46,7 @@ const { handleWorkerCommand } = require('../runtime/worker/command.ts');
 const { handleDispatchCommand } = require('../runtime/dispatch/command.ts');
 const { handleRetrieveCommand } = require('../runtime/knowledge/retrieval.ts');
 const { handleModelRoleCommand } = require('../runtime/model-router.ts');
+const { handlePromptFrameCommand } = require('../runtime/prompt/command.ts');
 const { handleRouteCommand } = require('../runtime/capability-router.ts');
 const { handleContextPackCommand } = require('../runtime/context-pack.ts');
 const { handleRetrievalPlanCommand } = require('../runtime/retrieval-plan.ts');
@@ -452,6 +453,7 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
       taskId: o.taskId, need: o.need, slug: storeSlug, stateRoot: o.scope === 'code' ? storeRoot : undefined, repoRoot: REPO_ROOT,
       projectRoot: retrieveProjectRoot(o) });
     case 'brief-tools': return handleBriefToolsCommand({ owner: o.owner, tier: o.tier, harness: o.harness, slug: o.slug, headingLevel: o.headingLevel, tasks: o.tasks, json: o.json, repoRoot: REPO_ROOT, projectRoot: storeRoot, buildAdapters: buildAdapterRegistry });
+    case 'prompt-frame': return handlePromptFrameCommand({ action: o.actionGiven ? o.action : undefined, specFile: o.specFile, parts: o.parts, budgetLines: o.budgetLines, maxBytes: o.maxBytes, out: o.out, json: o.json, cwd: process.cwd() });
     case 'advise': return handleAdviseCommand({ action: o.action, actionGiven: o.actionGiven, kind: o.kind, server: o.server, state: o.state, stateFile: o.stateFile, staticAnswer: o.staticAnswer, questionsFile: o.questionsFile, taskId: o.taskId, pickId: o.pickId, actual: o.actual, model: o.model, endpoint: o.endpoint, off: o.off, project: o.project, force: o.force, global: o.global, json: o.json, projectRoot: evidenceRoot(o) });
     case 'model-role': return handleModelRoleCommand({ role: o.role, exclude: o.exclude, excludeFamilies: o.excludeFamily, json: o.json, repoRoot: REPO_ROOT });
     case 'route': return handleRouteCommand({ intent: o.intent, query: o.query, harness: o.harness, check: o.check, json: o.json, projectRoot: evidenceRoot(o) });

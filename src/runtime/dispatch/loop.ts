@@ -63,7 +63,9 @@ const { teamGate } = require('../team/evaluate.ts');
 const { registerDriver, endDriver, admit, dispatchModelFor, MAIN_SESSION_MODES, BUDGET_REFUSALS } = require('./admission.ts');
 const integrate = require('./integrate.ts');
 const { classFor, endAttempt, releaseAttempt, usageFor, SIGNALS } = require('./attempt-end.ts');
-const { buildHandoff, buildResult, writeEnvelope, cutUtf8, normalizeFile } = require('./envelope.ts');
+const { buildHandoff, buildResult, writeEnvelope, writeHandoffPrompt, cutUtf8, normalizeFile } = require('./envelope.ts');
+const { handoffPrompt } = require('./handoff-prompt.ts');
+const { loadBriefRules } = require('../brief-rules.ts');
 const { runVerification } = require('./verify-run.ts');
 const { REQUEST_ID } = require('./grants.ts');
 
@@ -1092,6 +1094,25 @@ function deltasFor(p: any, s: any, d: any) {
   return { runBase, attemptBase, changes: changes.map((c) => ({ path: c.path, change: c.change, dispatchId: by.get(c.path) ?? null })) };
 }
 
+/** Row 173 (design §6.4, O9b): the summary of each `deps` task's latest completed dispatch, read from
+ * its result envelope; a task with none, or whose envelope cannot be read, is left out (no hand-back yet). */
+function upstreamFor(p: any, s: any, deps: string[]) {
+  const latest = new Map<string, any>();
+  const done = (Object.values(s.dispatches) as any[]).filter((x) => x.disposition === 'completed' && x.envelopes && x.envelopes.result)
+    .sort((a, b) => String(a.endedAt).localeCompare(String(b.endedAt)));
+  for (const x of done) latest.set(x.task, x);
+  const out: Array<{ id: string, summary: string }> = [];
+  for (const id of deps) {
+    const x = latest.get(id);
+    if (!x) continue;
+    try {
+      const result = JSON.parse(fs.readFileSync(path.join(p.stateRoot, x.envelopes.result), 'utf8'));
+      out.push({ id, summary: result.summary == null ? '' : String(result.summary) });
+    } catch { /* unreadable: the prompt says no hand-back yet */ }
+  }
+  return out;
+}
+
 function workerOf(p: any, harness: string | null) {
   if (!harness) return null;
   if (p.descriptors && Object.hasOwn(p.descriptors, harness)) return p.descriptors[harness];
@@ -1099,7 +1120,7 @@ function workerOf(p: any, harness: string | null) {
   return entry ? entry.worker : null;
 }
 
-/** IC-010 handoff for a claimed dispatch. */
+/** IC-010 handoff for a claimed dispatch, with the upstream hand-backs its prompt frames (row 173). */
 function handoffFor(p: any, s: any, d: any, planTask: any, record: any) {
   const files: string[] = (planTask.files || []).map(String);
   const sources = [
@@ -1113,9 +1134,10 @@ function handoffFor(p: any, s: any, d: any, planTask: any, record: any) {
   const subagent = d.mode === 'subagent';
   const worker = subagent ? workerOf(p, d.harness) : null;
   const grant = d.grant && d.grant.depth === 1 && d.grant.children > 0 ? d.grant : null;
-  return buildHandoff({
+  const dependsOn: string[] = (planTask.taskDeps || []).map(String);
+  const value = buildHandoff({
     dispatchId: d.dispatchId, dispatchRunId: s.run.dispatchRunId, slug: p.slug, mode: d.mode,
-    task: { id: planTask.id, phase: planTask.phase, owner: planTask.owner ?? null, text: planTask.description ?? '', files, dependsOn: planTask.taskDeps || [] },
+    task: { id: planTask.id, phase: planTask.phase, owner: planTask.owner ?? null, text: planTask.description ?? '', files, dependsOn },
     acceptance: planTask.acceptance || [],
     sources,
     deltas: deltasFor(p, s, d),
@@ -1131,6 +1153,7 @@ function handoffFor(p: any, s: any, d: any, planTask: any, record: any) {
       spawn: grant ? ['dispatch', '--action', 'spawn', '--slug', p.slug, '--prompt-file', '<path>', '--reserve-tokens', '<n>'] : null,
     },
   });
+  return { value, upstream: upstreamFor(p, s, dependsOn) };
 }
 
 /** IC-005's perform yield for a launched main-session dispatch. */
@@ -1189,7 +1212,7 @@ async function launch(p: any, admitted: any, plan: any, view: any) {
   }
   const planTask = plan.graph.tasks.find((t: any) => t.id === d.task);
   const record = view.tasks.find((r: any) => r.id === d.task);
-  const value = handoffFor(p, s, d, planTask, record);
+  const { value, upstream } = handoffFor(p, s, d, planTask, record);
   const handoff = writeEnvelope({ stateRoot: p.stateRoot, dispatchId: d.dispatchId, kind: 'handoff', value });
   const seconds = Number.isInteger(s.run.attemptSeconds) ? s.run.attemptSeconds : ATTEMPT_SECONDS_DEFAULT;
 
@@ -1202,12 +1225,42 @@ async function launch(p: any, admitted: any, plan: any, view: any) {
     return;
   }
 
+  /** A launch that starts no worker: the dispatch keeps its handoff pointer and fails `run-refused`. */
+  const refuse = async (reason: string) => {
+    mutateDispatch(p.file, (st: any) => {
+      const cur = st.dispatches[d.dispatchId];
+      if (cur && cur.phase === 'claimed') cur.envelopes = { handoff: handoff.pointer, result: null };
+      return { write: true, result: null };
+    });
+    p.act('launch', d, 'refused', reason, Date.now() - started);
+    await failDispatch(p, d, ['claimed'], 'run-refused', reason, null, null);
+  };
+
+  // Row 173 (DD-10): the worker reads a prompt frame holding the envelope, never the bare JSON.
+  let prompt: any;
+  try {
+    const carried = loadBriefRules(REPO_ROOT);
+    prompt = handoffPrompt({
+      envelope: fs.readFileSync(handoff.path, 'utf8'),
+      envelopePath: [...path.relative(p.root, p.stateRoot).split(path.sep), ...handoff.pointer.split('/')].join('/'),
+      upstream,
+      rules: 'lines' in carried ? carried.lines : [],
+    });
+  } catch (error: any) {
+    prompt = { ok: false, code: error && typeof error.code === 'string' ? error.code : 'prompt-unrenderable' };
+  }
+  if (!prompt.ok) {
+    await refuse(prompt.code);
+    return;
+  }
+  const promptFile = writeHandoffPrompt({ stateRoot: p.stateRoot, dispatchId: d.dispatchId, text: prompt.text });
+
   let outcome: any;
   try {
     outcome = await executeWorkerCommand({
       action: 'run', edit: true, slug: p.slug, harness: d.harness, task: d.task, token: d.token,
       binding,
-      promptFile: handoff.path, timeoutSeconds: seconds + BACKSTOP_SECONDS,
+      promptFile: promptFile.path, timeoutSeconds: seconds + BACKSTOP_SECONDS,
       env: p.env, cwd: p.cwd, platform: p.platform, now: p.clock, descriptors: p.descriptors, registry: p.reg(), coverage: p.coverage,
     });
   } catch (error: any) {
@@ -1234,14 +1287,7 @@ async function launch(p: any, admitted: any, plan: any, view: any) {
     p.act('launch', d, moved.applied ? 'subagent' : `moved:${moved.phase}`, `${d.harness} ${body.runId}`, Date.now() - started);
     return;
   }
-  const reason = body.reason || body.error || 'refused';
-  mutateDispatch(p.file, (st: any) => {
-    const cur = st.dispatches[d.dispatchId];
-    if (cur && cur.phase === 'claimed') cur.envelopes = { handoff: handoff.pointer, result: null };
-    return { write: true, result: null };
-  });
-  p.act('launch', d, 'refused', reason, Date.now() - started);
-  await failDispatch(p, d, ['claimed'], 'run-refused', reason, null, null);
+  await refuse(body.reason || body.error || 'refused');
 }
 
 /**

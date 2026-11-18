@@ -80,7 +80,7 @@ function row(markdown: any, intent: any) {
 
 test('a brief recommends a healthy provider and names the tier of the owner', (t) => {
   const { markdown, record } = render(t);
-  assert.match(markdown, /^## Tier and tools\n\nTier: `standard` \(owner core-implementer\), per\n`references\/MODEL_SELECTION.md`\./m);
+  assert.match(markdown, /^Tier: `standard` \(owner core-implementer\), per `references\/MODEL_SELECTION.md`\.$/m);
   assert.doesNotMatch(markdown, /Pass it as the model/, 'X5: the dispatched agent cannot choose its model');
   assert.match(markdown, /recommended/);
   assert.match(markdown, /not required/);
@@ -172,9 +172,24 @@ test('a server the target harness does not have gets the CLI form even where the
 
 test('no target harness gives the neutral form: CLI plus where the MCP tool would be', (t) => {
   const { markdown, record } = render(t);
-  assert.match(row(markdown, 'locate-concept'), new RegExp(`MCP server ${SEARCH.mcp.server}, tool ${SEARCH.mcp.tool}, where your harness registers it`));
+  assert.match(row(markdown, 'locate-concept'), new RegExp(`\\| \`semble search [^\`]*\`; MCP server ${SEARCH.mcp.server}, tool ${SEARCH.mcp.tool}, where your harness registers it \\|$`));
   assert.equal(record.harness, null);
   assert.equal(record.tools.find((entry: any) => entry.intent === 'locate-concept').form, 'neutral');
+});
+
+test('no angle slot in the tools block sits outside a code span, in the neutral, cli and mcp forms (G85 check 4)', (t) => {
+  const withMcp: any = { [SEARCH.mcp.server]: 'configured' };
+  const forms = [
+    render(t),
+    render(t, { reach: reachOf([[CLAUDE.id, 'project', withMcp], [OTHER_HARNESS.id, 'global', withMcp]]), harness: OTHER_HARNESS.id }),
+    render(t, { reach: reachOf([[CLAUDE.id, 'project', withMcp]]), harness: CLAUDE.id }),
+  ];
+  assert.deepEqual(forms.map((form: any) => form.record.tools.find((entry: any) => entry.intent === 'locate-concept').form), ['neutral', 'cli', 'mcp']);
+  for (const { parts } of forms) {
+    const outside = parts.tools.replace(/`[^`\n]*`/g, '');
+    assert.doesNotMatch(outside, /<[a-z][a-z0-9-]*>/, outside);
+    assert.match(parts.tools, /`rg -i '<query>' \.`/);
+  }
 });
 
 test('one table row per routes.json intent, in file order', (t) => {
@@ -210,7 +225,7 @@ test('an expected server the target cannot reach is stated; selected servers out
   }]]);
   const { markdown, record } = render(t, { reach, harness: CLAUDE.id, stage: { feature: 'f', runTaskId: 'f', stageId: 'design', skill: STEP_SKILL } });
   assert.match(markdown, new RegExp(`Expected for ${STEP_SKILL}: .*\`${STEPPED.id}\``));
-  assert.ok(markdown.includes(`\`${STEPPED.id}\` is not reachable on ${CLAUDE.displayName || CLAUDE.id}; report it as \`${STEPPED.id}=unavailable\`.`), markdown);
+  assert.ok(markdown.includes(`\`${STEPPED.id}\` is not reachable on this harness; report it as \`${STEPPED.id}=unavailable\`.`), markdown);
   const expected = record.expected.find((entry: any) => entry.server === STEPPED.id);
   assert.equal(expected.reach, 'unreachable');
   assert.equal(record.stage, 'design');
@@ -223,8 +238,7 @@ test('an expected server the target cannot reach is stated; selected servers out
 
 test('X1: an expected server DoFlow cannot confirm is hedged, never stated unreachable', (t) => {
   const stage: any = { feature: 'f', runTaskId: 'f', stageId: 'design', skill: STEP_SKILL };
-  const name = CLAUDE.displayName || CLAUDE.id;
-  const hedge = `\`${STEPPED.id}\` may not be reachable on ${name}; if no tool answers, report \`${STEPPED.id}=unavailable\`.`;
+  const hedge = `\`${STEPPED.id}\` may not be reachable on this harness; if no tool answers, report \`${STEPPED.id}=unavailable\`.`;
   const unknown = render(t, { reach: reachOf([[CLAUDE.id, 'project', { [STEPPED.id]: 'unknown' }]]), harness: CLAUDE.id, stage });
   assert.ok(unknown.markdown.includes(hedge), unknown.markdown);
   assert.ok(!unknown.markdown.includes('is not reachable'), unknown.markdown);
@@ -238,7 +252,7 @@ test('X1: an expected server DoFlow cannot confirm is hedged, never stated unrea
   // No target: any-harness answer null is unknown and hedged on "any installed harness".
   const neutral = render(t, { reach: reachOf([[CLAUDE.id, 'project', { [STEPPED.id]: 'unknown' }], [OTHER_HARNESS.id, 'project', {}]]), stage });
   assert.equal(neutral.record.expected.find((entry: any) => entry.server === STEPPED.id).reach, 'unknown');
-  assert.ok(neutral.markdown.includes(`\`${STEPPED.id}\` may not be reachable on any installed harness;`), neutral.markdown);
+  assert.ok(neutral.markdown.includes(`\`${STEPPED.id}\` may not be reachable on this harness;`), neutral.markdown);
 });
 
 test('a reachable expected server is not reported unavailable', (t) => {
@@ -248,14 +262,11 @@ test('a reachable expected server is not reported unavailable', (t) => {
   assert.equal(record.expected.find((entry: any) => entry.server === STEPPED.id).reach, 'reachable');
 });
 
-test('heading levels 2 and 3 change only the heading marks', (t) => {
+test('heading levels 2 and 3 change only the wording of the status line', (t) => {
   const two = render(t, { headingLevel: 2 }).markdown;
   const three = render(t, { headingLevel: 3 }).markdown;
-  assert.match(two, /^## Tier and tools\n/m);
-  assert.match(two, /^## Report format\n/m);
-  assert.match(three, /^### Tier and tools\n/m);
-  assert.match(three, /^### Report format\n/m);
-  assert.equal(three.replace(/^### /gm, '## ').replace(/each task's report/, 'your report'), two);
+  assert.doesNotMatch(three, /^### /m, 'the frame has one heading level');
+  assert.equal(three.replace(/each task's report/, 'your report'), two);
   assert.match(two, /Tools used: <name>\[=used\|nothing-usable\|unavailable\|skipped:<reason>\]/);
 });
 
@@ -297,7 +308,7 @@ test('a fixture registry with one more intent and one more provider reaches the 
   const { markdown, record } = renderBriefTools({
     registry: { ...registry, capabilities }, router, probes: probesFor(router), reach: null, owner: 'core-implementer', stage: null,
   });
-  assert.match(row(markdown, 'fixture-need'), /\| fixture\.provider \| fixture-bin /);
+  assert.match(row(markdown, 'fixture-need'), /\| fixture\.provider \| `fixture-bin '<query>'` \|/);
   assert.equal(record.tools[record.tools.length - 1].intent, 'fixture-need');
 });
 
@@ -318,7 +329,7 @@ test('IC-017: a binding is shown for a valid explicit harness and resolved tier'
     harness: id, tier: 'frontier',
     bindings: { state: 'set', map: { [id]: { frontier: 'gpt-6-luna' } }, reason: null },
   });
-  assert.ok(markdown.includes(`Tier: \`frontier\` (task line), per\n\`references/MODEL_SELECTION.md\`.\nModel: \`gpt-6-luna\` [model unchecked] on \`${id}\` (binding, user layer).\n\n`));
+  assert.ok(markdown.includes(`Tier: \`frontier\` (task line), per \`references/MODEL_SELECTION.md\`.\nModel: \`gpt-6-luna\` [model unchecked] on \`${id}\` (binding, user layer).\n\n`));
   assert.deepEqual(record.model, { harness: id, model: 'gpt-6-luna', provider: null, effort: null, check: { model: 'unchecked', effort: null }, source: 'binding' });
 });
 
@@ -487,21 +498,23 @@ test('every other outcome exits 0: an unknown harness, an unknown owner, no run'
   assert.equal(parsed.record.harness, null);
   assert.equal(parsed.record.tierSource, 'default');
   assert.ok(parsed.record.missing.length >= 2);
-  assert.match(parsed.markdown, /^## Tier and tools/m);
+  assert.match(parsed.markdown, /^Tier: /);
+  assert.match(parsed.markdown, /\n## Tools\n/);
 });
 
 test('without --json the markdown alone is printed', (t) => {
   const result = cli(t, ['--owner', 'core-implementer', '--heading-level', '3']);
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /^### Tier and tools\n/m);
-  assert.match(result.stdout, /\n### Report format\n/);
+  assert.match(result.stdout, /^Tier: /);
+  assert.match(result.stdout, /<instructions>[\s\S]*<\/instructions>\n\n<output_format>[\s\S]*<\/output_format>\n$/);
+  assert.match(result.stdout, /End each task's report with one line/);
 });
 
 test('through doflow-run with storage upkeep due, --json stdout is one JSON document (RK1)', (t) => {
   const result = cli(t, ['--owner', 'core-implementer', '--json'], { viaRun: true });
   assert.equal(result.status, 0, result.stderr);
   const parsed = JSON.parse(result.stdout);
-  assert.deepEqual(Object.keys(parsed).sort(), ['markdown', 'record']);
+  assert.deepEqual(Object.keys(parsed).sort(), ['markdown', 'parts', 'record']);
   assert.equal(parsed.record.owner, 'core-implementer');
 });
 
@@ -547,4 +560,90 @@ test('currentStageOf: reads stageId, skill and taskClass from run', (t) => {
   assert.equal(stage.taskClass, 'dependency-change');
   assert.ok(stage.stageId);
   assert.ok(stage.skill);
+});
+
+// --- row 173 T2: the block as parts, and as one valid prompt frame ----------------------------------
+
+const { handbackLines } = require('../../src/runtime/prompt/handback.ts');
+
+const count = (text: string, needle: string) => text.split(needle).length - 1;
+
+test('173 T2: parts holds the header pairs, the rules, the tools text and the report lines', (t) => {
+  const id = CLAUDE.id;
+  const { markdown, record, parts }: any = render(t, { harness: id, tier: 'frontier', bindings: { state: 'absent', map: {}, reason: null } });
+  assert.deepEqual(Object.keys(parts).sort(), ['header', 'report', 'rules', 'tools']);
+  assert.deepEqual(parts.header.map(([key]: any) => key), ['Tier', 'Model']);
+  assert.match(parts.header[0][1], /^`frontier` \(task line\), per `references\/MODEL_SELECTION\.md`\.$/);
+  assert.equal(parts.header[1][1], `harness default on \`${id}\`.`);
+  assert.ok(parts.rules.length >= 3 && parts.rules.every((line: any) => typeof line === 'string' && !line.startsWith('- ')));
+  assert.match(parts.tools, /^Tools this machine answers with/);
+  assert.ok(parts.tools.split('\n').some((line: any) => line.startsWith('| locate-concept |')));
+  assert.deepEqual(parts.report, handbackLines({ group: false }));
+  assert.equal(record.tier, 'frontier', 'the record keeps its shape');
+  assert.ok(markdown.startsWith('Tier: `frontier` (task line), per `references/MODEL_SELECTION.md`.\nModel: '), markdown);
+});
+
+test('173 T2: a block with no model line and no rules has a one-pair header and no Rules block', (t) => {
+  const { proj } = projectDir(t);
+  const { parts, markdown, record }: any = render(t, { repoRoot: proj });
+  assert.deepEqual(parts.header.map(([key]: any) => key), ['Tier']);
+  assert.deepEqual(parts.rules, []);
+  assert.doesNotMatch(markdown, /^## Rules$/m);
+  assert.ok(record.missing.some((m: string) => m.startsWith('brief-rules: ')));
+});
+
+test('173 T2: markdown is one valid frame: both tags once, the blocks in order, nothing between the sections', (t) => {
+  const { markdown, parts }: any = render(t);
+  for (const tag of ['instructions', 'output_format']) {
+    assert.equal(count(markdown, `<${tag}>`), 1, tag);
+    assert.equal(count(markdown, `</${tag}>`), 1, tag);
+  }
+  assert.equal(count(markdown, '<document'), 0);
+  assert.match(markdown, /<\/instructions>\n\n<output_format>\n/);
+  assert.ok(markdown.includes('<instructions>\nUse the tier and tools below for this dispatch.\n\n## Rules\n- '));
+  assert.ok(markdown.indexOf('\n## Rules\n') < markdown.indexOf('\n## Tools\n'));
+  assert.ok(markdown.indexOf('\n## Tools\n') < markdown.indexOf('\n## Stop rule\n'));
+  assert.ok(markdown.includes(`\n## Tools\n${parts.tools}\n\n## Stop rule\n`));
+  assert.ok(markdown.trimEnd().endsWith('</output_format>'));
+  assert.equal(markdown.split('\n')[0].startsWith('Tier: '), true, 'the header comes before every section');
+  assert.doesNotMatch(markdown, /Tier and tools|Report format|Rules that apply to you/);
+});
+
+test('173 T2: no vendor display name appears in markdown or parts, whatever the target', (t) => {
+  const names = registry.harnesses.map((harness: any) => harness.displayName).filter(Boolean);
+  assert.ok(names.length > 0);
+  const reach = reachOf([[CLAUDE.id, 'project', { [STEPPED.id]: 'not-selected' }]]);
+  const stage = { feature: 'f', runTaskId: 'f', stageId: 'design', skill: STEP_SKILL };
+  for (const overrides of [{ reach, harness: CLAUDE.id, stage }, { reach: null, stage }, {}]) {
+    const out: any = render(t, overrides);
+    const all = `${out.markdown}\n${JSON.stringify(out.parts)}`;
+    for (const name of names) assert.ok(!all.includes(name), `${name} in the output`);
+  }
+  const unreachable: any = render(t, { reach, harness: CLAUDE.id, stage });
+  assert.ok(unreachable.markdown.includes(`\`${STEPPED.id}\` is not reachable on this harness; report it as \`${STEPPED.id}=unavailable\`.`), unreachable.markdown);
+});
+
+test('173 T2: the report lines put the Brief feedback line before Tools used, and heading level 3 words the status for a group', (t) => {
+  const single: any = render(t);
+  const group: any = render(t, { headingLevel: 3 });
+  assert.deepEqual(single.parts.report, handbackLines({ group: false }));
+  assert.deepEqual(group.parts.report, handbackLines({ group: true }));
+  assert.ok(single.parts.report[0].includes('`Brief feedback: <what>`'));
+  assert.ok(single.parts.report.findIndex((l: string) => l.includes('Brief feedback:')) < single.parts.report.findIndex((l: string) => l.startsWith('`Tools used: ')));
+  assert.ok(single.parts.report.at(-1).startsWith('End your report with one line'));
+  assert.ok(group.parts.report.at(-1).startsWith("End each task's report with one line"));
+  assert.ok(single.markdown.includes(`<output_format>\nThe session that dispatched you reads this reply; put the conclusion first.\n${single.parts.report.join('\n')}\n</output_format>`));
+  assert.ok(group.markdown.includes(group.parts.report.join('\n')));
+  assert.ok(!group.markdown.includes('\nEnd your report'));
+});
+
+test('173 T2: --json prints markdown, record and parts; the text mode prints the same markdown', (t) => {
+  const json = cli(t, ['--owner', 'core-implementer', '--json']);
+  assert.equal(json.status, 0, json.stderr);
+  const parsed = JSON.parse(json.stdout);
+  assert.deepEqual(Object.keys(parsed).sort(), ['markdown', 'parts', 'record']);
+  assert.deepEqual(Object.keys(parsed.parts).sort(), ['header', 'report', 'rules', 'tools']);
+  const text = cli(t, ['--owner', 'core-implementer']);
+  assert.equal(text.status, 0, text.stderr);
+  assert.equal(text.stdout, parsed.markdown);
 });

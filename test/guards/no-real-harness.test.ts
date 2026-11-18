@@ -30,7 +30,11 @@ function harnessBinaries(): string[] {
 }
 
 /** Non-harness tools the child tests shell out to; each is linked from the first directory of the parent PATH that holds it. */
-const TOOLS = ['git', 'dirname', 'basename', 'date', 'rm', 'mkdir', 'cp', 'chmod', 'cat', 'sleep', 'yes', 'ps', 'find'];
+const TOOLS = [
+  'git', 'dirname', 'basename', 'date', 'rm', 'mkdir', 'cp', 'chmod', 'cat', 'sleep', 'yes', 'ps', 'find',
+  // Row 173 T8: what the brief generator and review package scripts run through the real dispatcher.
+  'bash', 'jq', 'mktemp', 'sed', 'awk', 'tr', 'head', 'tail', 'grep', 'sort', 'uniq', 'wc', 'cut', 'readlink', 'id', 'perl', 'mv', 'ls', 'env', 'uname', 'shasum', 'tee', 'xargs',
+];
 
 function findOnPath(tool: string): string | undefined {
   for (const dir of (process.env.PATH ?? '').split(path.delimiter)) {
@@ -40,7 +44,7 @@ function findOnPath(tool: string): string | undefined {
   return undefined;
 }
 
-/** The test files of the models and worker folders (and the Console's actions e2e, 170), relative to the repo, this file excluded. */
+/** The test files of the models and worker folders (and the Console's actions e2e, 170, and the dispatch loop's, 173), relative to the repo, this file excluded. */
 function targetFiles(): string[] {
   const files: string[] = [];
   const add = (dir: string, keep: (name: string) => boolean) => {
@@ -49,6 +53,13 @@ function targetFiles(): string[] {
   add('test/runtime/models', () => true);
   add('test/runtime/worker', () => true);
   add('test/runtime', (name) => name.startsWith('worker-'));
+  // Row 173 T5: the headless handoff prompt, and the dispatch loop tests that launch fake workers with it.
+  add('test/runtime', (name) => name === 'handoff-prompt.test.ts' || name === 'dispatch-loop-step.test.ts');
+  add('test/e2e', (name) => name === 'dispatch-loop.e2e.test.ts');
+  // Row 173 T8: the prompt frame's spawning tests: the verb, the brief generator and review package scripts through the real
+  // dispatcher, the started session's prompt, and the G85 guard whose fixtures run those scripts.
+  add('test/runtime', (name) => ['prompt-frame.test.ts', 'review-package-frame.test.ts', 'task-brief-tools.test.ts', 'session-prompt.test.ts'].includes(name));
+  add('test/guards', (name) => name === 'prompt-frame.test.ts');
   add('test/cli', (name) => name.startsWith('models-'));
   // Row 170: the Console's actions e2e and measure-steer spawn the fake channel harness (test/helper/fake-channel-harness.ts) through the real core and supervisor.
   add('console/test', (name) => name === 'actions-e2e.test.ts' || name === 'measure-steer.test.ts');

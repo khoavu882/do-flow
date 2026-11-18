@@ -592,6 +592,14 @@ const withChannel = (extra?: any, edit?: (entry: any) => void) => registryWith('
   edit?.(w.controlChannel);
 });
 const CHANNEL_TEXT = 'Conform message: \'single\' "double" $HOME \\back\\slash\nsecond line, é 漢字';
+/** The prompt frame a follow-up or a steer sends (row 173 §6.7), written out so a change to it is seen here. */
+const messageFrame = (body: string, outcome: string) => [
+  '<input>', '<document id="message">', body, '</document>', '</input>', '',
+  '<instructions>', outcome, '', '## Stop rule', 'Stop when the request is met or you need the person.', '</instructions>', '',
+  '<output_format>', 'The person who started this session reads this reply; put the conclusion first.', '</output_format>', '',
+].join('\n');
+const FOLLOW_UP = 'Continue this session with the person\'s message in input.';
+const STEER = 'Change course as the person\'s message in input asks, then continue.';
 const pidGone = (pid: number) => {
   try { process.kill(pid, 0); return false; } catch (error: any) { return error.code === 'ESRCH'; }
 };
@@ -609,8 +617,8 @@ test('a fake with a Pi-shaped channel passes control-channel, which sits right a
   const channel = logs.find((log) => Array.isArray(log.received));
   assert.deepEqual(channel.argv, ['--mode', 'rpc', '--no-approve']);
   assert.deepEqual(channel.received, [
-    `${JSON.stringify({ type: 'prompt', message: CHANNEL_TEXT, streamingBehavior: 'followUp', id: 'd-1' })}\n`,
-    `${JSON.stringify({ type: 'prompt', message: CHANNEL_TEXT, streamingBehavior: 'steer', id: 'd-2' })}\n`,
+    `${JSON.stringify({ type: 'prompt', message: messageFrame(CHANNEL_TEXT, FOLLOW_UP), streamingBehavior: 'followUp', id: 'd-1' })}\n`,
+    `${JSON.stringify({ type: 'prompt', message: messageFrame(CHANNEL_TEXT, STEER), streamingBehavior: 'steer', id: 'd-2' })}\n`,
     `${JSON.stringify({ type: 'abort', id: 'd-3' })}\n`,
   ]);
   assert.ok(pidGone(channel.pid), 'the fake has ended');
@@ -628,7 +636,7 @@ test('a channel with no steer template and no answer sends two records and passe
   assert.equal(exit, 0, JSON.stringify(body));
   assert.equal(partOf(body, 'control-channel').reason, '2 records byte for byte, turn working then waiting, exit after stdin closed');
   assert.deepEqual(logs.find((log) => Array.isArray(log.received)).received, [
-    `${JSON.stringify({ type: 'prompt', message: CHANNEL_TEXT })}\n`, `${JSON.stringify({ type: 'abort' })}\n`,
+    `${JSON.stringify({ type: 'prompt', message: messageFrame(CHANNEL_TEXT, FOLLOW_UP) })}\n`, `${JSON.stringify({ type: 'abort' })}\n`,
   ]);
 });
 

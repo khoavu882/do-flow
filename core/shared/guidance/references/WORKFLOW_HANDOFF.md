@@ -67,7 +67,7 @@ After a skill finishes its work, call the resolved runtime seam:
 ```
 
 Pass `--mcp-outcome <server>=used|nothing-usable|skipped:<reason>|unavailable` once per MCP server
-your step names; a server left without one prints a warning, never a block.
+your step names; a server left without one prints a warning, not a block.
 
 Pass `--task-class` only when a classifying skill has accepted that class and may start a run.
 With no run and no class the result is `standalone` and no state is created. A run supplies its own

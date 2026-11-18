@@ -354,7 +354,7 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--invariants', 'invariants'],      // readiness: the invariants a refactor must preserve
   ['--objective', 'objective'],        // context-pack
   ['--mandatory-file', 'mandatoryFile'], // context-pack: caller-supplied mandatory fields
-  ['--max-bytes', 'maxBytes'],         // context-pack: per-call cap in bytes
+  ['--max-bytes', 'maxBytes'],         // context-pack: per-call cap in bytes · prompt-frame render: refuse a larger frame (exit 3)
   ['--expand', 'expand'],              // context-pack: pointer id to expand
   // 078 context-emit (IC-005). Identity is read from the environment only; no flag sets it.
   ['--event', 'event'],                // context-emit: launch | prompt | delta
@@ -437,7 +437,8 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--worker-run', 'workerRun'],       // worker status|cancel, worker-log, worker-result: a w-<12 hex> run id
   ['--stream', 'stream'],              // worker-log: out or err, validated in the verb (150 IC-002)
   ['--checks', 'checks'],              // worker evidence: checks file
-  ['--out', 'out'],                    // worker evidence: output record path
+  ['--out', 'out'],                    // worker evidence: output record path · prompt-frame render: the file the frame is written to
+  ['--spec-file', 'specFile'],         // prompt-frame render: the FrameSpec as a JSON file
   ['--docs-root', 'docsRoot'],         // worker evidence: the root doc checks read from (row 170)
   ['--model-check', 'modelCheck'],     // worker probe: a declared model-check id
   // 082 dispatch (IC-001, IC-038) and worker --child-of (IC-015). Read as text and validated in
@@ -490,6 +491,7 @@ const RUNTIME_LIST_FLAGS = new Map([
   ['--feature', 'feature'],            // lifecycle --action release: a feature slug to add, one per occurrence
   ['--item', 'item'],                  // goal --action add: a checklist item, one per occurrence · goal --action check: the one item id (C3)
   ['--blocker', 'blocker'],            // dispatch submit: one blocker line per occurrence, at most 20
+  ['--part', 'parts'],                 // prompt-frame render: <key>=<file>, one frame part per occurrence
 ]);
 
 /** Non-negative integer arguments. */
@@ -497,6 +499,7 @@ const RUNTIME_INT_FLAGS = new Map([
   ['--iteration', 'iteration'],        // recover: retries already spent, bounding the retry budget
   ['--observed-exit', 'observedExit'], // evidence --action add: exit status of the observed command (0 is meaningful)
   ['--timeout', 'timeout'],            // slot --action run: seconds to wait for the slot; the verb checks 1 to 86400 (115 IC-008)
+  ['--budget-lines', 'budgetLines'],   // prompt-frame render with --part: the reply's line budget (the composer wants a positive integer)
   ['--expect-revision', 'expectRevision'], // orchestrate decide-gate|close: refuse unless the run is at this revision (162 IC-004)
 ]);
 
@@ -595,6 +598,7 @@ Commands:
   model-role           Resolve a model role to ranked provider candidates (--role, --exclude-family)
   advise               Route decision questions to the configured local model (--action)
   brief-tools          Tier, tools and report-format block for a dispatch brief (--owner)
+  prompt-frame         Compose a prompt in the six-section frame, or print its guide (--action render|guide)
   route                Resolve an information need to a healthy provider (--intent)
   verify               Compile the verification contract and report against it (--task-id)
   recover              Classify a verification failure and plan the bounded retry (--error)
@@ -812,6 +816,13 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --baseline-ref                     verify
       --owner, --tier, --harness, --tasks <id,...>,
       --heading-level 2|3                   brief-tools (--slug names the feature whose run gives the stage)
+      --spec-file <json> | --part <key>=<file> (repeatable; --budget-lines <n>)
+                                            prompt-frame render. Keys: header, role, context, example,
+                                            instructions.outcome|success|steps|stop|constraint:<Heading>,
+                                            output_format.reader|lines, input.doc:path=<rel>|id=<id>[;kind=hand-back].
+                                            The file follows the key's first '=' (for input.doc: the '=' after
+                                            its path or id), so a file path may hold '='.
+      --max-bytes <n>, --out <file>         prompt-frame render: exit 3 over n bytes; write the frame to a file
       --kind, --state, --state-file,
       --questions-file, --server,
       --static                           advise --action ask

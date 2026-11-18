@@ -354,6 +354,7 @@ const crypto2 = require('node:crypto');
 const { superviseRun } = require('../../src/runtime/worker/supervisor.ts');
 const { storeFileFor, newRunId, insertRun, readRuns } = require('../../src/runtime/worker/run-store.ts');
 const { writePrompt } = require('../../src/runtime/worker/session-prompt.ts');
+const { messageText, CHANNEL_LIMITS } = require('../../src/runtime/worker/channel.ts');
 const { mainLaunchRecord } = require('../../src/runtime/worker/launch.ts');
 const { workerCatalogue } = require('../../src/runtime/worker/catalogue.ts');
 const { loadRegistry } = require('../../src/registry/index.ts');
@@ -505,7 +506,10 @@ test('170 a loopback send, steer and stop reach a session through the real core,
     [false, 'open', 'steer', 'written', Buffer.byteLength(`change course ${SECRET}`)]);
   assert.ok([null, 'accepted'].includes(steer.result.message.answer), String(steer.result.message.answer));
   assert.equal(steer.result.turn.observed, true);
-  assert.equal(f.records()[1], `${JSON.stringify({ ...CHANNEL.messages.steer, message: `change course ${SECRET}`, id: 'd-2' })}\n`, 'the harness read the steer byte-exact');
+  // Row 173 §6.7: a steer reaches the harness as the core's prompt frame around the person's text (the ledger and the reply count the person's bytes).
+  const framedSteer = messageText('steer', `change course ${SECRET}`, CHANNEL_LIMITS.recordBytes);
+  assert.ok(typeof framedSteer === 'string' && framedSteer.includes(`change course ${SECRET}`) && framedSteer !== `change course ${SECRET}`, 'the steer is framed');
+  assert.equal(f.records()[1], `${JSON.stringify({ ...CHANNEL.messages.steer, message: framedSteer, id: 'd-2' })}\n`, 'the harness read the framed steer byte-exact');
 
   // Let the turn settle: a steer needs a turn in progress (409 not-working, with the turn), a follow-up goes through.
   fs.writeFileSync(`${f.gate}-1`, '');

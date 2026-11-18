@@ -4,11 +4,7 @@ Use `references/MODEL_SELECTION.md`; follow `PRINCIPLES.md` and `rules/RULES.md`
 
 ## Role and handoff
 
-Decide, verify, keep records. Delegate for what it buys: parallel work on disjoint write sets,
-a reader not anchored on your view, a review of your own change, a long task kept out of your
-context. Otherwise work in the session; a
-subagent costs a context load and a lossy summary each way. Check author and trailers after agent
-commits.
+Decide, verify, keep records. Check author and trailers after agent commits.
 
 ## Finishing
 
@@ -18,8 +14,8 @@ self-contained report: result, verified, not verified, what awaits the user.
 
 ## Brief and tools
 
-Brief with **Goal**, **Context** (`path:line`), **Write set**, **Rules**, **Acceptance and
-verification**, **Report format**, and a model/tier. Put long briefs in files. Keep settled scope
+Write each brief in the prompt frame (`"$DOFLOW" prompt-frame --action guide` prints
+`PROMPT_FRAME.md`). Put long briefs in files. Keep settled scope
 in the dispatch; a mid-run message may be ignored, so verify the hand-back. Use a fresh agent when
 scope grows.
 

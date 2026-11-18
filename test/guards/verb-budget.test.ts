@@ -49,13 +49,14 @@ const CEILINGS: readonly (readonly [string, number, number])[] = [
   ['git-state --json', 0, 320], // 276 B
   ['inventory --json', 0, 1088], // 1,002 B
   ['attendance --task-id x --json', 0, 64], // 55 B
-  ['help', 0, 6656], // 6,282 B (text; the verb has no JSON form; 151: the advice-picks and worker-matrix usage lines)
+  ['help', 0, 7104], // 6,732 B (text; the verb has no JSON form; 151: the advice-picks and worker-matrix usage lines; 173 T1: the prompt-frame usage line, G12 requires one per dispatched verb; was 6,656 B)
   ['prereqs --json', 0, 128], // 113 B
   ['models --action list --json', 0, 1600], // 1,467 B (one row per installed harness: three tiers, orchestrator and its source)
   ['protocol --action list --json', 0, 2688], // 2,522 B
   ['primary --action resolve --json', 0, 192], // 142 B
   ['advice-picks --json', 0, 7040], // 6,692 B (151 IC-001: 91 days, no picks on the fixture)
   ['worker-matrix --json', 0, 92352], // 91,794 B (170: pi's controlChannel entry, the capture C-1 data; roundUp64(measured + 512 B); was 90,548 B)
+  ['prompt-frame --action guide', 0, 2560], // 2,395 B (173 T7: the guide file's text, PROMPT_FRAME.md; roundUp64(measured + 5%))
 ];
 
 const WRITES_STATE = 'writes-state';

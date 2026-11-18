@@ -267,7 +267,12 @@ test('a control device over Bearer starts a fake codex session and its out log s
   assert.equal(startedNodes(w), 1, 'one started-session node');
   assert.equal(w.calls().length, 1, 'one fake launched');
   assert.equal(w.calls()[0].env.DOFLOW_STARTED_RUN, run.runId, 'the session carries its run id');
-  assert.equal(w.calls()[0].stdin, `Use the DoFlow do skill for this request:\n\nhello ${MARKER}`);
+  // Row 173 §6.6: the core sends the person's text as the request document of a prompt frame whose instruction is the entry line.
+  assert.equal(w.calls()[0].stdin, [
+    '<input>', '<document id="request">', `hello ${MARKER}`, '</document>', '</input>', '',
+    '<instructions>', 'Use the DoFlow do skill for the request in input.', '', '## Stop rule', 'Stop when the do skill\'s workflow ends or asks the person a question.', '</instructions>', '',
+    '<output_format>', 'The person who started this session reads this reply; put the conclusion first.', '</output_format>', '',
+  ].join('\n'));
 
   const cancel = await lb.post('cancel-worker', { v: 1, requestId: rid(), projectKey: w.key, slug: 'started-sessions', runId: run.runId, reason: 'stop it' });
   assert.equal(cancel.status, 200, cancel.body);

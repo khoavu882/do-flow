@@ -1111,7 +1111,7 @@ const START_OPTIONS_BODY = {
   ],
   limits: { perCheckout: 1, perActor: 2, machine: 4, perActorPerHour: 6 },
   open: { machine: 1 }, dispatch: { running: true, slug: 'feat-a' }, promptMax: { codePoints: 8000, bytes: 32768 },
-  entries: ['do', 'none'], entryLine: 'Use the DoFlow do skill for this request:',
+  entries: ['do', 'none'], entryLine: 'Use the DoFlow do skill for the request in input.',
 };
 
 test('165 F1 start-options: IC-002 projects through PROJECTORS with the key asked for; the key, a root, a bound or a field outside its set is core-contract-mismatch', () => {

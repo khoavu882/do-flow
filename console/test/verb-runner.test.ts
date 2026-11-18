@@ -1852,7 +1852,7 @@ const WRITE_CASES: Record<string, { params: Record<string, string>; argv: string
 const DEVICE_RELAY = 'device.d-0123456789ab';
 /** 165 IC-001: the start-session write; the prompt is a parameter of the shape but rides the core's stdin, never argv. */
 const REQUEST_ID_A = 'abcdefghijklmnopqrstuv';
-const PROMPT = 'Use the DoFlow do skill for this request:\n\nfix the login page --and "quote" $(x) ünïcode ✓';
+const PROMPT = 'fix the login page --and "quote" $(x) ünïcode ✓';
 const START_CASE = {
   params: { projectKey: KEY_A, worktreeKey: KEY_B, harness: 'claude', model: 'claude-sonnet-4.5', entry: 'do', relay: 'console', requestId: REQUEST_ID_A, prompt: PROMPT } as Record<string, any>,
   argv: ['worker', '--action', 'start-session', '--project-key', KEY_A, '--worktree-key', KEY_B, '--harness', 'claude', '--model', 'claude-sonnet-4.5', '--entry', 'do', '--via', 'console', '--request-id', REQUEST_ID_A, '--stdin', '--json'],

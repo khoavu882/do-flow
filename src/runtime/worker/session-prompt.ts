@@ -2,7 +2,7 @@
 
 // Row 165 (FR-005, FR-006; design IC-005, D4, D5): the first prompt of a session started from the
 // Console. `preparePrompt` is pure: it normalizes the person's text, caps it, composes what is sent
-// and refuses text a harness CLI would misread. `writePrompt` and `readPrompt` keep what is sent in
+// (row 173 §6.6: entry `do` puts the text in a prompt frame) and refuses text a harness CLI would misread. `writePrompt` and `readPrompt` keep what is sent in
 // the declared store `session-prompts` (`.doflow/state/session-prompts/<runId>.prompt.txt`, mode
 // 0600), so the run record carries a pointer and a hash, never the text.
 //
@@ -14,8 +14,12 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { RUN_ID } = require('./run-store.ts');
+const { composeFrame } = require('../prompt/frame.ts');
 
-const ENTRY_LINE = 'Use the DoFlow do skill for this request:';
+/** The outcome of the frame entry `do` sends; `start-options` shows it as `entryLine`. */
+const ENTRY_LINE = 'Use the DoFlow do skill for the request in input.';
+const ENTRY_STOP = 'Stop when the do skill\'s workflow ends or asks the person a question.';
+const ENTRY_READER = 'The person who started this session';
 // 8000 code points is at most 32000 UTF-8 bytes, so the byte cap is a backstop that cannot bind first.
 const PROMPT_MAX = Object.freeze({ codePoints: 8000, bytes: 32768 });
 const STORE = 'session-prompts';
@@ -30,10 +34,13 @@ type Prepared = { ok: true; text: string; sent: string; sha256: string; bytes: n
 
 /**
  * @param raw the person's text
- * @param opts `entry` `do` (the entry line and a blank line, then the text) or `none` (the text alone);
+ * @param opts `entry` `do` (a prompt frame: the text as the `request` document of `input`, `ENTRY_LINE` as the
+ *   outcome, a stop rule, the person as the reader) or `none` (the text alone);
  *   `promptVia` `stdin` or `argv` (how the harness takes it).
  * @returns `{ ok: true, text, sent, sha256, bytes }`, `sha256` (hex) and `bytes` being of `sent` in UTF-8, or
  *   `{ ok: false, code }` with `prompt-nul`, `prompt-empty`, `prompt-too-long`, `prompt-leading-dash` or `prompt-leading-at`.
+ *   The caps and the dash and at-sign checks are of the person's text, not of the frame. For entry `do`, a placeholder such as `none` or
+ *   `TBD` is the person's text and is sent in its frame; only blank text is `prompt-empty`.
  */
 function preparePrompt(raw: any, opts: { entry: string; promptVia: string }): Prepared {
   const { entry, promptVia } = opts || ({} as any);
@@ -46,8 +53,37 @@ function preparePrompt(raw: any, opts: { entry: string; promptVia: string }): Pr
   if ([...text].length > PROMPT_MAX.codePoints || Buffer.byteLength(text, 'utf8') > PROMPT_MAX.bytes) return { ok: false, code: 'prompt-too-long' };
   if (text.startsWith('-') && (entry === 'none' || promptVia === 'argv')) return { ok: false, code: 'prompt-leading-dash' };
   if (text.startsWith('@') && promptVia === 'argv') return { ok: false, code: 'prompt-leading-at' };
-  const sent = entry === 'do' ? `${ENTRY_LINE}\n\n${text}` : text;
+  let sent = text;
+  if (entry === 'do') {
+    // The frame adds at most a few hundred bytes, and escaping a frame tag 3 bytes per tag, so 1024 over the text cap is room enough.
+    const framed = composeFrame({
+      input: [{ id: 'request', text, keep: true }],
+      instructions: { outcome: ENTRY_LINE, stop: ENTRY_STOP },
+      output_format: { reader: ENTRY_READER },
+    }, { maxBytes: PROMPT_MAX.bytes + 1024 });
+    if (!framed.ok) return { ok: false, code: 'prompt-too-long' };
+    if (framed.omitted.length > 0) return { ok: false, code: 'prompt-empty' };
+    sent = framed.text;
+  }
   return { ok: true, text, sent, sha256: crypto.createHash('sha256').update(sent, 'utf8').digest('hex'), bytes: Buffer.byteLength(sent, 'utf8') };
+}
+
+const REQUEST_OPEN = '<input>\n<document id="request">\n';
+const REQUEST_CLOSE = `\n</document>\n</input>\n\n<instructions>\n${ENTRY_LINE}\n`;
+// What the composer's escape wrote for a frame tag (`<role` becomes `&lt;role`), written back.
+const ESCAPED_TAG = /&lt;(\s*\/?\s*)(role|context|input|instructions|example|output_format|document)(?=[\s>/]|$)/gi;
+
+/**
+ * The person's text of a prompt entry `do` sent: the body of its `request` document with the composer's tag escape
+ * reversed, or `undefined` when `sent` is not that frame (entry `none` sends the text alone). The supervisor's R-4
+ * re-check reads the person's text through it. The composer's escape is not one-to-one (a text that itself held `&lt;role`
+ * reads back as `<role`), which a check of a command prefix does not mind.
+ */
+function requestOfPrompt(sent: any): string | undefined {
+  if (typeof sent !== 'string' || !sent.startsWith(REQUEST_OPEN)) return undefined;
+  const end = sent.indexOf(REQUEST_CLOSE, REQUEST_OPEN.length - 1);
+  if (end < 0) return undefined;
+  return sent.slice(REQUEST_OPEN.length, end).replace(ESCAPED_TAG, '<$1$2');
 }
 
 function promptFile(mainRoot: string, runId: string): string {
@@ -101,4 +137,4 @@ function readPrompt(mainRoot: string, runId: string): string {
   return fs.readFileSync(promptFile(mainRoot, runId), 'utf8');
 }
 
-module.exports = { ENTRY_LINE, PROMPT_MAX, preparePrompt, writePrompt, readPrompt };
+module.exports = { ENTRY_LINE, PROMPT_MAX, preparePrompt, requestOfPrompt, writePrompt, readPrompt };

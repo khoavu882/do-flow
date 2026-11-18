@@ -406,6 +406,7 @@ Artifact and repository state:
   parallel-check   dispatch groups and write-set collisions for one plan phase
   task-brief       task brief extraction for execution
   brief-tools      tier, tools and report-format block for a brief (called by task-brief)
+  prompt-frame     compose a prompt in the six-section frame, or print its guide
   advise           local decision-model routing, outcomes and configuration
   review-package   assemble a review payload
   sync-context     write a marker-delimited block (stdin) into an agent context file
@@ -584,7 +585,7 @@ shell_helper_for() {
 is_node_verb() {
   case "$1" in
     classify|workflow|route|evidence|claim|readiness|context-pack|context-emit|context-grant|retrieval-plan|outcome|scaffold|decision|review-pack|intake|followup|lifecycle|goal|failure|verify|recover|leak-scan|\
-trace|stats|indicators|discover|inventory|capabilities|enforcement|doctor|config|orchestrate|research-request|task-attempt|worker|dispatch|retrieve|model-role|storage|brief-tools|advise|roadmap|plan-check|review|protocol|rules|primary|fleet|transcript|events|worker-log|worker-result|worker-runs|advice-picks|worker-matrix|sessions-history|package|slot|models|worktree|attendance) return 0 ;;
+trace|stats|indicators|discover|inventory|capabilities|enforcement|doctor|config|orchestrate|research-request|task-attempt|worker|dispatch|retrieve|model-role|storage|brief-tools|prompt-frame|advise|roadmap|plan-check|review|protocol|rules|primary|fleet|transcript|events|worker-log|worker-result|worker-runs|advice-picks|worker-matrix|sessions-history|package|slot|models|worktree|attendance) return 0 ;;
     *) return 1 ;;
   esac
 }

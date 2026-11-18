@@ -347,6 +347,7 @@ const AUDIT_WORD = Object.freeze({ SubagentStart: 'started', SubagentStop: 'stop
 const KIND_WORDS = Object.freeze({
   'task-brief': 'task brief', 'task-brief-record': 'task brief record', 'group-brief': 'group brief', 'group-brief-record': 'group brief record',
   'task-report': 'task report', handoff: 'hand-back', result: 'result', 'spawn-prompt': 'spawn prompt', 'worker-out': 'worker stdout', 'worker-err': 'worker stderr',
+  'handoff-prompt': 'worker prompt', // 173 O-3: the prompt frame a subagent worker reads, beside its hand-back
 });
 
 /**

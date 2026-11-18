@@ -11,6 +11,7 @@
 //   .doflow/state/dispatch-envelopes/<dispatchId>.handoff.json   handoff
 //   .doflow/state/dispatch-envelopes/<dispatchId>.result.json    result
 //   .doflow/state/dispatch-envelopes/<requestId>.prompt.txt      spawn-prompt (dispatchId = the request id)
+//   .doflow/state/dispatch-envelopes/<dispatchId>.handoff-prompt.txt   handoff-prompt (173: a subagent worker's prompt frame)
 //   .doflow/state/worker-output/<runId>.out.log | .err.log       worker-out, worker-err (never .last.log)
 //   .doflow/state/session-prompts/<runId>.prompt.txt             session-prompt (165: a started session's prompt)
 // Only `lstat` regular files are listed (a symbolic link is skipped, and no directory on the way
@@ -33,7 +34,7 @@ const LIST_CAP = 2000;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const RUN_ID = /^w-[0-9a-f]{12}$/;
 
-type Kind = 'task-brief' | 'task-brief-record' | 'group-brief' | 'group-brief-record' | 'task-report' | 'handoff' | 'result' | 'spawn-prompt' | 'worker-out' | 'worker-err' | 'session-prompt';
+type Kind = 'task-brief' | 'task-brief-record' | 'group-brief' | 'group-brief-record' | 'task-report' | 'handoff' | 'result' | 'spawn-prompt' | 'handoff-prompt' | 'worker-out' | 'worker-err' | 'session-prompt';
 type Rule = { re: RegExp; kind: Kind; field: 'task' | 'group' | 'dispatchId' | 'runId' };
 
 const EXEC_RULES: readonly Rule[] = Object.freeze([
@@ -47,6 +48,8 @@ const DISPATCH_RULES: readonly Rule[] = Object.freeze([
   { re: /^(.+)\.handoff\.json$/, kind: 'handoff', field: 'dispatchId' },
   { re: /^(.+)\.result\.json$/, kind: 'result', field: 'dispatchId' },
   { re: /^(.+)\.prompt\.txt$/, kind: 'spawn-prompt', field: 'dispatchId' },
+  // 173 (owner ruling O-3): `.handoff-prompt.txt` never matches the rule above (`-prompt`, not `.prompt`), so no file changes kind.
+  { re: /^(.+)\.handoff-prompt\.txt$/, kind: 'handoff-prompt', field: 'dispatchId' },
 ]);
 const SESSION_PROMPT_RULES: readonly Rule[] = Object.freeze([
   { re: /^(w-[0-9a-f]{12})\.prompt\.txt$/, kind: 'session-prompt', field: 'runId' },

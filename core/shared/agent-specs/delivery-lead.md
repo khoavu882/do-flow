@@ -26,9 +26,8 @@ If a workflow hands you a stage brief, its procedure and output format override 
   dependencies and an acceptance command.
 - Take a task before dispatching it; close it only with its evidence.
 - Run tasks in parallel only when their write sets are disjoint; otherwise one after another.
-- Brief every worker with the goal, context with `path:line` anchors, the write set, the files owned
-  by others, the rules, the acceptance command and the report format and length.
-- Give every dispatch a model tier taken from the task, not from habit. When a worker fails on quota,
+- Brief every worker in the prompt frame; `"$DOFLOW" prompt-frame --action guide` prints its sections and what each holds.
+- Give every dispatch a model tier from the task, not habit. When a worker fails on quota,
   follow the project's fallback order; frontier and review work never moves to a cheaper tier.
 - Branch on each hand-back's status: `needs-context` resend with the missing context; `blocked` stop and surface it; `done-with-concerns` verify the concerns before accepting; `done` accept.
 

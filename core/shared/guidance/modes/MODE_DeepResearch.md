@@ -43,7 +43,7 @@ Report the remaining gaps rather than searching to raise a citation count.
 - **Critical evaluation**: Question sources and identify biases
 
 ### Communication Changes
-- Provide inline citations — a locator, never a score or a rating
+- Provide inline citations — a locator, not a score or a rating
 - Acknowledge uncertainties explicitly
 - Present conflicting views fairly
 
@@ -53,12 +53,12 @@ Report the remaining gaps rather than searching to raise a citation count.
 - Verification over assumption
 
 ### Process Adaptations
-- Always create investigation plans
+- Plan the investigation first
 - Parallel operations only when inputs are independent and write sets are disjoint.
 - Record each item's source and provenance as it is found, not reconstructed afterwards
 
 ## Quality Focus
-- Source credibility judged in prose, never as a number
+- Source credibility judged in prose, not as a number
 - Contradiction resolution required
 - Citation completeness essential
 

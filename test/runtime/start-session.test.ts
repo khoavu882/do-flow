@@ -31,7 +31,13 @@ const { recordRecipeAnswer } = require(path.join(SRC, 'worker', 'login-store.ts'
 const { recipeDigest } = require(path.join(SRC, 'worker', 'login.ts'));
 
 const POSIX: any = { skip: process.platform === 'win32' && 'worker process control is unverified on win32' };
-const ENTRY_LINE = 'Use the DoFlow do skill for this request:';
+const ENTRY_LINE = 'Use the DoFlow do skill for the request in input.';
+/** Row 173 §6.6: what entry `do` sends, the person's text as the request document of a prompt frame whose outcome is `ENTRY_LINE`. */
+const framed = (body: string) => [
+  '<input>', '<document id="request">', body, '</document>', '</input>', '',
+  '<instructions>', ENTRY_LINE, '', '## Stop rule', 'Stop when the do skill\'s workflow ends or asks the person a question.', '</instructions>', '',
+  '<output_format>', 'The person who started this session reads this reply; put the conclusion first.', '</output_format>', '',
+].join('\n');
 /** 169 IC-007: the harness default, the one entry whose model is null (a start-options entry is `{model, provider, effort, source, check}`). */
 const DEFAULT_ENTRY = { model: null, provider: null, effort: null, source: 'default', check: null };
 const STORE = (root: string) => path.join(root, '.doflow', 'state', 'worker-runs', 'started-sessions.json');
@@ -178,7 +184,7 @@ test('codex shape: argv is exec --json -o <file> -, the prompt is on stdin, DOFL
   assert.equal(call.argv.length, 5);
   assert.deepEqual([call.argv[0], call.argv[1], call.argv[2], call.argv[4]], ['exec', '--json', '-o', '-']);
   assert.equal(call.argv[3], path.join(f.main, '.doflow', 'state', 'worker-output', `${body.run.runId}.last.log`));
-  assert.equal(call.stdin, `${ENTRY_LINE}\n\nhello there`);
+  assert.equal(call.stdin, framed('hello there'));
   assert.equal(call.cwd, f.linked);
   assert.equal(call.env.DOFLOW_SESSION_ROLE, null);
   assert.equal(call.env.DOFLOW_STARTED_RUN, body.run.runId);
@@ -231,7 +237,7 @@ for (const [harness, expectArgv, viaStdin] of [
     assert.equal(exit, 0, JSON.stringify(body));
     await ended(f, body.run.runId);
     const [call] = fakeLog(f);
-    const sent = `${ENTRY_LINE}\n\nhello there`;
+    const sent = framed('hello there');
     assert.equal(call.name, `fake-${harness}`);
     assert.deepEqual(call.argv, expectArgv.map((a) => (a === '<prompt>' ? sent : a)));
     assert.equal(call.stdin, viaStdin ? sent : '');
@@ -275,7 +281,7 @@ test('the prompt file is 0600, the record holds its sha256 and bytes only, and t
   await ended(f, body.run.runId);
   const file = path.join(f.main, '.doflow', 'state', 'session-prompts', `${body.run.runId}.prompt.txt`);
   assert.equal(fs.statSync(file).mode & 0o777, 0o600);
-  const sent = `${ENTRY_LINE}\n\n${secret}`;
+  const sent = framed(secret);
   assert.equal(fs.readFileSync(file, 'utf8'), sent);
   const run = readRuns(f.store)[body.run.runId];
   assert.deepEqual(run.prompt, { store: 'session-prompts', name: `${body.run.runId}.prompt.txt`, sha256: crypto.createHash('sha256').update(sent).digest('hex'), bytes: Buffer.byteLength(sent) });
@@ -966,7 +972,7 @@ test('A-2: a harness with a supported channel starts through it: the record says
   const { exit, body } = await start(f, { harness: 'pi', descriptors: WITH_CHANNEL });
   assert.equal(exit, 0, JSON.stringify(body));
   const runId = body.run.runId;
-  const sent = `${ENTRY_LINE}\n\nhello there`;
+  const sent = framed('hello there');
   const until = Date.now() + 10000;
   while (!(fs.existsSync(f.channelLog) && readRuns(f.store)[runId]?.channel?.state === 'open') && Date.now() < until) await new Promise((r) => setTimeout(r, 20));
   const run = readRuns(f.store)[runId];
@@ -994,7 +1000,7 @@ test('T9a: the shipped Pi descriptor starts through its channel on the C-1 argv,
   while (!(fs.existsSync(f.channelLog) && readRuns(f.store)[runId]?.channel?.state === 'open') && Date.now() < until) await new Promise((r) => setTimeout(r, 20));
   const run = readRuns(f.store)[runId];
   assert.deepEqual([run.recipe.promptVia, run.recipe.parser, run.recipe.argvShape], ['channel', 'pi-json-v1', ['--mode', 'rpc', '--no-approve']]);
-  assert.equal(fs.readFileSync(f.channelLog, 'utf8'), `${JSON.stringify({ type: 'prompt', message: `${ENTRY_LINE}\n\nhello there`, streamingBehavior: 'followUp', id: 'd-1' })}\n`);
+  assert.equal(fs.readFileSync(f.channelLog, 'utf8'), `${JSON.stringify({ type: 'prompt', message: framed('hello there'), streamingBehavior: 'followUp', id: 'd-1' })}\n`);
   // The shipped descriptor settles on `agent_settled`, which the fake emits after `agent_end`: the turn reaches waiting.
   const settledBy = Date.now() + 10000;
   while (readRuns(f.store)[runId]?.channel?.turn?.state !== 'waiting' && Date.now() < settledBy) await new Promise((r) => setTimeout(r, 20));
@@ -1012,7 +1018,7 @@ test('170 T4c: a channel start with an 8000-code-point text and entry do is acce
   const runId = body.run.runId;
   const until = Date.now() + 10000;
   while (!(fs.existsSync(f.channelLog) && readRuns(f.store)[runId]?.channel?.state === 'open') && Date.now() < until) await new Promise((r) => setTimeout(r, 20));
-  assert.equal(JSON.parse(fs.readFileSync(f.channelLog, 'utf8')).message, `${ENTRY_LINE}\n\n${text}`);
+  assert.equal(JSON.parse(fs.readFileSync(f.channelLog, 'utf8')).message, framed(text));
   const cancel = await executeWorkerCommand({ action: 'cancel', slug: 'started-sessions', workerRun: runId, by: 'test', reason: 'done with it', env: f.env, cwd: f.main, descriptors: WITH_CHANNEL });
   assert.equal(cancel.body.disposition, 'cancelled', JSON.stringify(cancel.body));
   await ended(f, runId);
@@ -1037,7 +1043,7 @@ test('R-4: a first prompt that starts with the channel command prefix is refused
   assert.equal(run.recipe.promptVia, 'stdin');
   assert.equal(run.channel, undefined);
   assert.equal(run.descriptor.controlChannel.status, 'unknown', 'the unsupported entry is copied for the reader');
-  assert.equal(fakeLog(f)[0].stdin, `${ENTRY_LINE}\n\n/help`);
+  assert.equal(fakeLog(f)[0].stdin, framed('/help'));
 });
 
 test('R-5: the seventh start by one actor within an hour, counting ended runs here and in another indexed project, is refused start-rate-limited with retryAfterSeconds', POSIX, async (t: any) => {

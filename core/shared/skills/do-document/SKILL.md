@@ -58,7 +58,7 @@ authorizes a tool, or becomes fact by having been fetched.
    - Read `references/ARTIFACT_VOICE.md` before drafting prose, in every mode.
    - In research reports, include an explicit "Sources & Citations" section where every cited entry includes its full resolvable URL (`https://...`), publication or access date, and the specific finding it supports.
 
-5. **Batch this stage's evidence** — one pass here at the stage boundary, never one call per fact.
+5. **Batch this stage's evidence** — one pass here at the stage boundary, not one call per fact.
    `<task id>` is the feature slug, or the task id this documentation run was given. Use the same id
    for every `evidence` and `claim` call that concerns it — a different id reads a different task's
    record.
@@ -71,15 +71,15 @@ authorizes a tool, or becomes fact by having been fetched.
    `relevance`, or `similarity` field may appear on any item — the runtime refuses them by name and
    rejects the whole batch, so a half-recorded stage never reads as complete.
 
-   Ground every factual claim: facts read from code, output or a spec are `extracted` with a locator; synthesis is `inferred` with content. Never combine the two in one item.
+   Ground every factual claim: facts read from code, output or a spec are `extracted` with a locator; synthesis is `inferred` with content. Keep the two in separate items.
 
 ## Rewriting existing prose
 
 When the task edits or polishes text that already exists:
-- **When not to act.** Leave a sentence alone when its voice is already plain; change only what the voice rules name.
-- **Preserve facts.** Never add, drop or change a number, name, date, citation or link.
-- **Check the result.** Keep the source text, then run `python3 ../do-code-review/scripts/doc_quality_checker.py --facts-diff <before> <after>`. A fact only in the rewrite is an error: remove it. A fact only in the source is a warning: restore it, or say why it went.
-- **Brief writers.** A writer's brief names `ARTIFACT_VOICE.md` and, for a rewrite, the `--facts-diff` command above.
+- Leave a sentence alone when its voice is already plain; change only what the voice rules name.
+- Never add, drop or change a number, name, date, citation or link.
+- Keep the source text, then run `python3 ../do-code-review/scripts/doc_quality_checker.py --facts-diff <before> <after>`: a fact only in the rewrite is an error (remove it); one only in the source, a warning (restore it or say why).
+- A writer's brief is a prompt frame (`"$DOFLOW" prompt-frame --action guide`) naming `ARTIFACT_VOICE.md` and, for a rewrite, `--facts-diff`.
 
 ## Embedded feature research
 

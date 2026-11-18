@@ -396,3 +396,15 @@ test('170: the message box state counts code points and refuses empty, NUL and o
   assert.match(layers.messageState('x'.repeat(8001)).issue, /longer than 8000/);
   assert.equal(layers.messageState('x'.repeat(8000)).ok, true);
 });
+
+test('173 O-3: a subagent worker\'s handoff prompt is a row of "Briefs and hand-backs" beside its hand-back and result, as "worker prompt"', () => {
+  const artifact = (kind: string, fileKey: string, at: string) => ({ fileKey, kind, worktreeKey: WK, feature: null, dispatchId: 'd-0123456789ab', bytes: 2, at });
+  const model = layers.projectModel(layersBody({ artifacts: ok([
+    artifact('handoff', '1111111111111111', '2026-11-15T09:00:00.000Z'),
+    artifact('handoff-prompt', '2222222222222222', '2026-11-15T09:00:01.000Z'),
+    artifact('result', '3333333333333333', '2026-11-15T09:05:00.000Z'),
+  ]) }));
+  const lane = model.lanes.find((l: any) => l.worktreeKey === WK);
+  assert.deepEqual(lane.briefs.map((f: any) => [f.kind, f.kindWord]), [['result', 'result'], ['handoff-prompt', 'worker prompt'], ['handoff', 'hand-back']]);
+  assert.equal(model.files.get('2222222222222222').kind, 'handoff-prompt', 'the inspector finds it by its fileKey, like any artifact');
+});

@@ -27,9 +27,10 @@ type WorkflowOf = (taskClass: string) => Promise<{ ok: boolean; json?: unknown }
 const MACHINE_SECTIONS: readonly string[] = Object.freeze(['projects', 'activity']);
 /** IC-003: the sections of `layers:<pk>`, in the order the member lists them. */
 const LAYERS_SECTIONS: readonly string[] = Object.freeze(['checkouts', 'tree', 'runs', 'gates', 'artifacts', 'reviews', 'sessions', 'traffic', 'coverage', 'channels']);
-/** IC-003 artifact kinds (do-exec-paths.sh, dispatch/envelope.ts; 165 IC-005: a started session's prompt, src/runtime/events/artifacts.ts). */
+/** IC-003 artifact kinds (do-exec-paths.sh, dispatch/envelope.ts; 165 IC-005: a started session's prompt; 173 O-3: a subagent worker's
+ * handoff prompt, src/runtime/events/artifacts.ts). */
 const ARTIFACT_KINDS: readonly string[] = Object.freeze(['task-brief', 'task-brief-record', 'group-brief', 'group-brief-record', 'task-report', 'handoff', 'result',
-  'spawn-prompt', 'worker-out', 'worker-err', 'session-prompt']);
+  'spawn-prompt', 'worker-out', 'worker-err', 'session-prompt', 'handoff-prompt']);
 const REVIEW_STATES: readonly string[] = Object.freeze(['absent', 'unreadable', 'invalid', 'ok']);
 /** src/runtime/review/findings.ts `countFindings`, its number fields (`task` is the feature, already a field of the row). */
 const REVIEW_COUNTS: readonly string[] = Object.freeze(['seats', 'seat_findings', 'converged', 'blocker', 'should_fix', 'note', 'open', 'fixed', 'refuted',
