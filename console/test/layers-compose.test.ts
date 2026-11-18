@@ -90,6 +90,18 @@ test('161 review C: an unreadable review keeps the core\'s reason (too-large); o
   assert.deepEqual(await reviewsOf([row({ state: 'unreadable', reason: 'not an id!' })]), { ok: false, code: 'core-contract-mismatch' });
 });
 
+// ---- 173 O-3: the handoff-prompt artifact kind ----
+
+const artifactsOf = async (json: unknown) => ((await composeLayers(WK, new Map([['artifacts', { exit: 0, json }]]), async () => ({ ok: false }))) as any).body.sections.artifacts;
+
+test('173 O-3: an artifact of kind handoff-prompt passes the closed kind set beside handoff; a kind outside it is still a contract mismatch', async () => {
+  const item = (kind: string, fileKey: string) => ({ fileKey, kind, worktreeKey: WK, feature: null, dispatchId: 'd-0123456789ab', bytes: 2, at: '2026-11-15T09:00:00.000Z' });
+  const kept = await artifactsOf([item('handoff-prompt', '2222222222222222'), item('handoff', '1111111111111111')]);
+  assert.equal(kept.ok, true, JSON.stringify(kept));
+  assert.deepEqual(kept.data.map((a: any) => [a.kind, a.dispatchId]), [['handoff-prompt', 'd-0123456789ab'], ['handoff', 'd-0123456789ab']]);
+  assert.deepEqual(await artifactsOf([item('handoff-brief', '2222222222222222')]), { ok: false, code: 'core-contract-mismatch' });
+});
+
 // ---- 170 IC-004: the `channels` section ----
 
 const channelItem = (over: Record<string, unknown> = {}) => ({
