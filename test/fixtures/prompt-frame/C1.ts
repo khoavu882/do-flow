@@ -1,6 +1,6 @@
 'use strict';
 
-// Site C1 (with C3 and C4, which it carries): the task brief and the one-task group, from do-task-brief.sh and the
+// Site C1 (with C4, which it carries; C3 has its own fixture): the task brief and the one-task group, from do-task-brief.sh and the
 // real dispatcher (brief-tools and prompt-frame), in a scratch feature.
 
 const { feature, EXEC, FEATURE } = require('./_project.ts');

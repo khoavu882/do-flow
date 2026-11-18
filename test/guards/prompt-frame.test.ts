@@ -166,7 +166,9 @@ function referenceProblems(text: string): string[] {
 // ── the inventory ────────────────────────────────────────────────────────────────────────────────
 
 const SOURCE_EXT = /\.(?:ts|js|cjs|mjs|sh|jq)$/;
-const USES_COMPOSER = [/require\([^)]*prompt\/frame(?:\.ts)?['"`]\s*\)/, /prompt-frame --action render/];
+const FRAME_MODULE = 'src/runtime/prompt/frame';
+const REQUIRE_CALL = /require\(\s*['"`]([^'"`]+)['"`]\s*\)/g;
+const RENDER_CALL = /prompt-frame --action render/;
 
 function sourceFiles(root: string, dir: string): string[] {
   const out: string[] = [];
@@ -192,9 +194,15 @@ function inventoryProblems(root: string, inventory: any, fixtureDir: string = FI
     if (s.status === 'exempt' && !(typeof s.reason === 'string' && s.reason.trim())) found.push(`G85.1 ${s.id} is exempt without a reason`);
     if (!fs.existsSync(path.join(root, s.file))) found.push(`G85.1 ${s.id} lists ${s.file}, which does not exist`);
   }
-  const using = (rel: string) => { const text = fs.readFileSync(path.join(root, rel), 'utf8'); return USES_COMPOSER.some((re) => re.test(text)); };
+  // A `require(...)` counts when its path, resolved from the requiring file, is the composer module.
+  for (const rel of Object.keys(inventory.composerFiles ?? {})) if (!fs.existsSync(path.join(root, rel))) found.push(`G85.1 composer file ${rel} does not exist`);
+  const using = (rel: string) => {
+    const text = fs.readFileSync(path.join(root, rel), 'utf8');
+    if (RENDER_CALL.test(text)) return true;
+    return [...text.matchAll(REQUIRE_CALL)].some((m) => m[1].startsWith('.') && path.posix.normalize(path.posix.join(path.posix.dirname(rel), m[1])).replace(/\.ts$/, '') === FRAME_MODULE);
+  };
   for (const dir of ['src', 'core', 'bench']) {
-    for (const rel of sourceFiles(root, dir)) if (using(rel) && !framedFiles.has(rel)) found.push(`G85.1 ${rel} composes a prompt through the frame and is not a framed site's file`);
+    for (const rel of sourceFiles(root, dir)) if (using(rel) && !framedFiles.has(rel) && !(rel in (inventory.composerFiles ?? {}))) found.push(`G85.1 ${rel} composes a prompt through the frame and is not a framed site's file`);
   }
   for (const s of framed) {
     if (fs.existsSync(path.join(root, s.file)) && !using(s.file)) found.push(`G85.1 ${s.id} is framed but ${s.file} does not use the composer`);
@@ -336,7 +344,8 @@ test('composer control: a supplied block the renderer is patched to skip is a dr
 test('G85.1 control: a scratch file that requires prompt/frame.ts without an entry fails the inventory; so do a missing file, a framed site that does not compose, and an unnamed fixture', () => {
   const root = path.join(scratch.dir, 'inventory');
   const write = (rel: string, text: string) => { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text); };
-  write('src/composes.ts', "const { composeFrame } = require('./prompt/frame.ts');\n");
+  write('src/runtime/composes.ts', "const { composeFrame } = require('./prompt/frame.ts');\n");
+  write('src/runtime/prompt/sibling.ts', "const { composeFrame } = require('./frame.ts');\n");
   write('core/runs-render.sh', 'doflow-run prompt-frame --action render --json --out x\n');
   write('src/plain.ts', "const fs = require('node:fs');\n");
   const fixtures = path.join(root, 'fixtures');
@@ -346,11 +355,15 @@ test('G85.1 control: a scratch file that requires prompt/frame.ts without an ent
   const problems = inventoryProblems(root, inventory, fixtures);
   assert.deepEqual(problems, [
     'G85.1 C2 lists src/gone.ts, which does not exist',
-    "G85.1 src/composes.ts composes a prompt through the frame and is not a framed site's file",
+    "G85.1 src/runtime/composes.ts composes a prompt through the frame and is not a framed site's file",
+    "G85.1 src/runtime/prompt/sibling.ts composes a prompt through the frame and is not a framed site's file",
     "G85.1 core/runs-render.sh composes a prompt through the frame and is not a framed site's file",
     'G85.1 C1 is framed but src/plain.ts does not use the composer',
     'G85.1 fixture orphan.ts is named by no framed site',
   ].sort((a, b) => problems.indexOf(a) - problems.indexOf(b)));
-  const listed = { sites: [{ id: 'C1', file: 'src/composes.ts', status: 'framed', fixture: 'C1' }, { id: 'C2', file: 'core/runs-render.sh', status: 'framed', fixture: 'C2' }] };
-  assert.deepEqual(inventoryProblems(root, listed, fixtures), ['G85.1 C2 has no fixture file', 'G85.1 fixture orphan.ts is named by no framed site']);
+  const listed = { sites: [{ id: 'C1', file: 'src/runtime/composes.ts', status: 'framed', fixture: 'C1' }, { id: 'C2', file: 'core/runs-render.sh', status: 'framed', fixture: 'C2' }] };
+  assert.deepEqual(inventoryProblems(root, listed, fixtures).sort(), [
+    'G85.1 C2 has no fixture file', 'G85.1 fixture orphan.ts is named by no framed site',
+    "G85.1 src/runtime/prompt/sibling.ts composes a prompt through the frame and is not a framed site's file",
+  ].sort());
 });

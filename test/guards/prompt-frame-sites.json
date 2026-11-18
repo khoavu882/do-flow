@@ -3,10 +3,11 @@
     "Anthropic", "OpenAI", "Google", "Amazon", "Claude", "GPT", "Gemini", "Codex", "Copilot", "Kiro", "OpenCode",
     "Antigravity", "Opus", "Sonnet", "Haiku", "Fable", "Mythos"
   ],
+  "composerFiles": { "src/runtime/prompt/command.ts": "the prompt-frame verb: it renders a spec the caller supplies, so it is the composer's own entry, not a site that composes a prompt of its own" },
   "sites": [
     { "id": "C1", "file": "core/shared/scripts/doflow/bash/do-task-brief.sh", "status": "framed", "fixture": "C1" },
     { "id": "C2", "file": "core/shared/scripts/doflow/bash/do-task-brief.sh", "status": "framed", "fixture": "C2" },
-    { "id": "C3", "file": "src/runtime/brief-tools.ts", "status": "framed", "fixture": "C1" },
+    { "id": "C3", "file": "src/runtime/brief-tools.ts", "status": "framed", "fixture": "C3" },
     { "id": "C5", "file": "core/shared/scripts/doflow/bash/do-review-package.sh", "status": "framed", "fixture": "C5" },
     { "id": "C6", "file": "src/runtime/dispatch/handoff-prompt.ts", "status": "framed", "fixture": "C6" },
     { "id": "C8", "file": "src/runtime/worker/session-prompt.ts", "status": "framed", "fixture": "C8" },
