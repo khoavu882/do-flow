@@ -1243,6 +1243,22 @@ test('170 local session actions: the reply is the closed projection of the core\
   assert.deepEqual(json(waiting).result.turn, { observed: false, reason: 'no-event-yet', since: null });
 });
 
+test('170 review A-07: a pending message is not pinned in the idempotency memo; the same request id goes to the core again and the memo then holds the written answer', async (t) => {
+  const PENDING = { seq: null, kind: 'follow-up', state: 'pending', answer: null, at: '2026-11-17T10:00:00.000Z', bytes: 3 };
+  let step = 0;
+  const runner = fakeRunner(() => (step++ === 0 ? sent('follow-up', { message: PENDING }) : sent('follow-up', { replayed: true })));
+  const w = await loopback(t, runner);
+  const body = sessionBody('session-send');
+  const first = await w.post('session-send', body);
+  assert.deepEqual([first.status, json(first).result.message.state], [200, 'pending']);
+  const second = await w.post('session-send', body);
+  assert.equal(runner.acts.length, 2, 'the pending answer was not replayed from the memo');
+  assert.deepEqual([second.status, json(second).result.message.state, json(second).result.replayed], [200, 'written', true]);
+  const third = await w.post('session-send', body);
+  assert.equal(runner.acts.length, 2, 'a final answer is replayed from the memo');
+  assert.deepEqual([json(third).result.message.state, json(third).replayed], ['written', true]);
+});
+
 test('170 R-6 the log\'s input.textBytes is the UTF-8 byte length of a message, a note and a prompt, and the line has no old field and no text', async (t) => {
   const clock = manual();
   const runner = fakeRunner((shape) => (shape === 'close-run' ? applied(shape) : sent(KIND_OF[shape])));

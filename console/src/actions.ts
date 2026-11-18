@@ -751,6 +751,9 @@ function createQueue() {
   };
 }
 
+/** 170 review A-07: a 200 whose message the core answered `pending` (written to the spool, not yet taken by the harness). */
+const isPendingMessage = (done: Answer): boolean => done.status === 200 && (done.result?.message as { state?: unknown } | null | undefined)?.state === 'pending';
+
 type Memo = { digest: string, settled: Promise<Answer>, at: number };
 
 /** D12: `(actor, requestId)` to the first attempt's digest and answer, MEMO_ENTRIES at most, least recently used out, MEMO_MS each. */
@@ -903,8 +906,13 @@ function createActions({ runner, log, now = Date.now, warn = () => {} }: Options
         if (seen) {
           if (seen.digest !== digest) return refuse(key, base, 409, 'request-reused');
           const first = await seen.settled;
-          await quietly(() => log.end({ ...fields, outcome: 'replayed', code: first.code, exit: first.exit }));
-          return replyOf(spec, body, actor, first, true);
+          // 170 review A-07: a message the core answered `pending` (still in the spool) is not a final answer. The same request id goes to
+          // the core again, which replays what became of it; the memo then holds that answer.
+          if (!isPendingMessage(first)) {
+            await quietly(() => log.end({ ...fields, outcome: 'replayed', code: first.code, exit: first.exit }));
+            return replyOf(spec, body, actor, first, true);
+          }
+          if (memo.get(memoKey, now()) === seen) memo.delete(memoKey);
         }
         if (!spec.coreLimited) {
           const wait = limits.admit(actor.key, now());

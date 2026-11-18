@@ -178,6 +178,11 @@ test('170: send, steer and stop each have effect and applied words that name the
   assert.equal(words.appliedWords('session-send', null), 'Sent. The session’s reply appears in its output.');
   assert.equal(words.appliedWords('session-steer', null), 'Steer sent. The session’s reply appears in its output.');
   assert.equal(words.appliedWords('session-stop', null), 'Stop turn sent. The session stays open.');
+  const reply = (state: string) => ({ status: 200, body: { result: { message: { state } } } });
+  assert.equal(words.appliedWords('session-send', null, reply('pending')), words.PENDING_WORDS, '170 review A-07: a pending message says it waits to be taken');
+  assert.match(words.PENDING_WORDS, /^Waiting to be taken/);
+  assert.equal(words.appliedWords('session-send', null, reply('written')), 'Sent. The session’s reply appears in its output.');
+  assert.deepEqual([['session-send', 'pending'], ['session-steer', 'pending'], ['session-stop', 'pending'], ['session-send', 'written']].map(([id, state]) => words.messagePending(id, reply(state))), [true, true, false, false]);
 });
 
 test('170: the session confirmations have no field, no expect and a body of exactly IC-005\'s fields; stop carries no message', () => {

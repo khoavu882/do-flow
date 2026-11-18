@@ -93,8 +93,23 @@ const ACTION_WORDS = Object.freeze({
   }),
 });
 
-/** The notice after an applied action. @param {string} id @param {any} decision */
-function appliedWords(id, decision) {
+/** 170 review A-07: what a message the core answered `pending` (in the session's spool, not yet taken) says; the text stays in the box. */
+const PENDING_WORDS = 'Waiting to be taken: the message is queued for the session and its harness has not taken it yet. Your text stays in the box. Press Send or Steer again to see whether it was taken.';
+
+/**
+ * 170 review A-07: whether a reply is a 200 of `session-send` or `session-steer` whose message the core answered `pending`. The final state
+ * comes with the replay of the same request id.
+ * @param {string} id @param {any} reply the transport's reply
+ */
+function messagePending(id, reply) {
+  if (id !== 'session-send' && id !== 'session-steer') return false;
+  const message = reply && reply.status === 200 && reply.body && reply.body.result ? reply.body.result.message : null;
+  return !!message && typeof message === 'object' && message.state === 'pending';
+}
+
+/** The notice after an applied action; a pending message says it waits. @param {string} id @param {any} decision @param {any} [reply] */
+function appliedWords(id, decision, reply) {
+  if (messagePending(id, reply)) return PENDING_WORDS;
   const words = ACTION_WORDS[id];
   return words ? words.applied({ decision }) : 'Applied.';
 }
@@ -386,5 +401,5 @@ const NOT_ALLOWED_WORDS = Object.freeze({
 const notAllowedWords = (reason) => (typeof reason === 'string' ? NOT_ALLOWED_WORDS[reason] ?? null : null);
 
 export {
-  TEXT_MAX, MESSAGE_MAX, ACTION_WORDS, REFUSAL_WORDS, SESSION_REFUSAL_WORDS, UNKNOWN_WORDS, REREAD_WORDS, NOT_ALLOWED_WORDS, byWords, cancelWords, refusalWords, sessionRefusalLines, staleWords, appliedWords, normalizeText, textState, buildConfirmation, notAllowedWords,
+  TEXT_MAX, MESSAGE_MAX, ACTION_WORDS, REFUSAL_WORDS, SESSION_REFUSAL_WORDS, PENDING_WORDS, messagePending, UNKNOWN_WORDS, REREAD_WORDS, NOT_ALLOWED_WORDS, byWords, cancelWords, refusalWords, sessionRefusalLines, staleWords, appliedWords, normalizeText, textState, buildConfirmation, notAllowedWords,
 };

@@ -14,7 +14,7 @@ import { createPoller } from '../poll.js';
 import { createLogStream } from '../log-store.js';
 import { actionPower, loadActions, onActions } from '../actions.js';
 import { openConfirm, onRefetch, newRequestId, actionButton, notAllowedLine } from './confirm.js';
-import { buildConfirmation, sessionRefusalLines } from '../derive/actions.js';
+import { buildConfirmation, sessionRefusalLines, messagePending, PENDING_WORDS } from '../derive/actions.js';
 import { sessionModel, channelIn, messageState } from '../derive/layers.js';
 import { bindingText } from '../derive/binding-text.js';
 import {
@@ -117,8 +117,9 @@ function createSessionControls(ctx) {
   const note = h('p', { class: 'start__line', dataset: { fact: 'channel-note' }, hidden: true });
   const area = h('textarea', {
     id: `session-message-${ctx.runId}`, class: 'start__prompt', rows: 3, autocomplete: 'off', 'aria-describedby': `session-count-${ctx.runId} session-hint-${ctx.runId}`, dataset: { focusKey: `session-message:${ctx.runId}` },
-    on: { input: () => paintBox() },
+    on: { input: () => { waiting.textContent = ''; show(waiting, false); paintBox(); } },
   });
+  const waiting = h('p', { class: 'start__hint', role: 'status', dataset: { fact: 'message-pending' }, hidden: true });
   const count = h('span', { class: 'start__count', id: `session-count-${ctx.runId}` });
   const issue = h('p', { class: 'start__warn', hidden: true });
   const button = (/** @type {string} */ id, /** @type {string} */ label, /** @type {string} */ cls) => h('button', { type: 'button', class: cls, dataset: { action: id, focusKey: `${id}:${ctx.runId}` }, on: { click: () => open(id) } }, label);
@@ -130,6 +131,7 @@ function createSessionControls(ctx) {
   const box = h('div', { class: 'start__field', dataset: { fact: 'message-box' } }, [
     h('label', { class: 'start__label', for: `session-message-${ctx.runId}` }, 'Message to the session'),
     area,
+    waiting,
     h('div', { class: 'start__under' }, [issue, count]),
     h('p', { class: 'start__hint', id: `session-hint-${ctx.runId}` }, MESSAGE_TEXT_HINT),
     h('div', { class: 'acts__row' }, [send, whys.send, steer, whys.steer, stopTurn, whys.stopTurn]),
@@ -209,9 +211,14 @@ function createSessionControls(ctx) {
     attempt = mine;
     openConfirm({ ...spec, requestId: mine.requestId, reopen: () => buildConfirmation(id, { projectKey: ctx.projectKey, project: ctx.project(), runId: ctx.runId, harness: ctx.harness, message: id === 'session-stop' ? undefined : area.value }),
       refusal: (/** @type {any} */ code, /** @type {any} */ reply) => sessionRefusalLines(code, reply) }, {
-      onReply: (/** @type {any} */ _reply, /** @type {string} */ state) => {
-        attempt = settleAttempt(mine, state);
-        if (state === 'applied' && id !== 'session-stop') area.value = '';
+      onReply: (/** @type {any} */ reply, /** @type {string} */ state) => {
+        // 170 review A-07: a pending message is in the spool and not yet taken. The text stays and the attempt is kept, so the next press with
+        // the same text is the same request id and the core's replay says what became of it.
+        const pending = state === 'applied' && messagePending(id, reply);
+        attempt = pending ? mine : settleAttempt(mine, state);
+        if (state === 'applied' && id !== 'session-stop' && !pending) area.value = '';
+        waiting.textContent = pending ? PENDING_WORDS : '';
+        show(waiting, pending);
         refresh();
       },
     });

@@ -5743,6 +5743,29 @@ test('170 layers pane, open and working: badge "Working"; Send, Steer, Stop turn
   assert.doesNotMatch(recent, /Also run the lint/, 'a recent message shows kind, who, size and result, never its text');
 });
 
+test('170 review A-07: a pending answer says "waiting to be taken" and keeps the text in the box; the replay of the same request id that answers written gives the final state and empties it', async () => {
+  const message = (state: string) => ({ seq: state === 'pending' ? null : 3, kind: 'follow-up', state, answer: state === 'pending' ? null : 'accepted', at: AT(1), bytes: 17 });
+  const answers = ['pending', 'written'];
+  const { page } = await pane170(chan170(), { post: (target) => reply(200, { v: 1, action: 'session-send', requestId: 'x', outcome: 'applied', replayed: answers.length === 1, by: 'console', result: { replayed: answers.length === 1, message: message(answers.shift()!), turn: turn170('working'), channel: 'open' } }) });
+  type170(page, 'Also run the lint');
+  button170(page, 'Send')!.fire('click');
+  page.doc.body.querySelector('.confirm__verb').fire('click');
+  await settle();
+  assert.match(text(page.doc.body.querySelector('.confirm__result')), /^Waiting to be taken/);
+  assert.equal(page.inspector.querySelector('textarea').value, 'Also run the lint', 'a pending message keeps its text');
+  assert.match(text(page.inspector.querySelector('[data-fact="message-pending"]')), /^Waiting to be taken/);
+  page.doc.body.querySelectorAll('.confirm').forEach((d: El) => d.remove());
+  button170(page, 'Send')!.fire('click');
+  page.doc.body.querySelector('.confirm__verb').fire('click');
+  await settle();
+  const posts = page.calls.filter((c) => c.method === 'POST');
+  assert.equal(posts.length, 2);
+  assert.equal(posts[1].body.requestId, posts[0].body.requestId, 'the same request id, so the replay says what became of it');
+  assert.match(text(page.doc.body.querySelector('.confirm__result')), /^Sent\./);
+  assert.equal(page.inspector.querySelector('textarea').value, '', 'the final state empties the box');
+  assert.equal(page.inspector.querySelector('[data-fact="message-pending"]').getAttribute('hidden'), '');
+});
+
 test('170 layers pane, Steer posts session-steer with the message, Stop turn posts session-stop with no message, and End session is the separate cancel-worker confirmation', async () => {
   const { page } = await pane170(chan170());
   type170(page, 'Use the other branch');
