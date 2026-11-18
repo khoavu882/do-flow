@@ -1,6 +1,6 @@
 'use strict';
 
-// Send-to-page lag of a message to a started session (row 170 T8b; requirement NFR-003, design section 10). Dev only: console/scripts/ is
+// Lag from the supervisor's admission of a message to a started session to the page's data (row 170 T8b; requirement NFR-003, design section 10). Dev only: console/scripts/ is
 // not in the package's `files`. It follows measure-layers.ts (feature 161 T8), whose budget it keeps (row 161: p50 < 300 ms, max < 1000 ms).
 //
 //   node console/scripts/measure-steer.ts [--core <abs path to bin/doflow.js>] [--samples <1..40>]
