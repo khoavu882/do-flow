@@ -613,8 +613,8 @@ test('170 IC-006: each harness entry carries the channel fact; a supported chann
   assert.ok(piOneShot.pi.warnings.includes('channel-not-verified-live'));
   // Positive control: a live-run record of the harness that establishes every controlChannel:* part verifies it (a scratch
   // record under the repo's gitignored tmp/, since evidence paths must resolve inside the repo; removed after).
-  fs.mkdirSync(path.join(REPO, 'tmp'), { recursive: true });
-  const scratch = fs.mkdtempSync(path.join(REPO, 'tmp', 'a05-'));
+  const scratch = path.join(REPO, 'tmp', `a05-${process.pid}-${crypto.randomBytes(4).toString('hex')}`);
+  fs.mkdirSync(scratch, { recursive: true });
   t.after(() => fs.rmSync(scratch, { recursive: true, force: true }));
   const record = (name: string, establishes: string[]) => {
     fs.writeFileSync(path.join(scratch, name), JSON.stringify({ kind: 'live-run', harness: 'claude', establishes }));
