@@ -224,9 +224,10 @@ test('the REAL route table: every /api route that is not in the device list is r
   }
   for (const removed of ['/api/fleet', '/api/transcript', '/api/stream']) assert.equal(apiRoutes.some((route: any) => route.path === removed), false, `${removed} is gone`);
   for (const scope of ['view', 'control'] as const) {
-    const device = await world.pair(scope);
     for (const route of apiRoutes) {
       if (deviceMayUse(scope, route.method, route.path)) continue;
+      // A fresh device for each route: refusals count against the actor's own windows (170 review A-03), so one device's seventh would be 429.
+      const device = await world.pair(scope);
       const reply = route.method === 'GET'
         ? await server.request('GET', concrete(route.path).replace(/:[A-Za-z]+/g, 'x1'), { headers: { Authorization: device.bearer } })
         : await server.request(route.method, route.path, { headers: { Authorization: device.bearer, 'Content-Type': 'application/json' }, body: '{}' });
