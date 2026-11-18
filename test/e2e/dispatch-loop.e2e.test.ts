@@ -367,6 +367,19 @@ scenario('graph-completion', 'a graph runs to verified completion: the third tas
   assert.equal(s.run.verifications.at(-1).evidenceId, c.finalVerification.evidenceId, 'the final evidence is recorded on the run');
   assert.deepEqual(c.tasks.map((x: any) => x.id), ['A.1', 'A.2', 'A.3']);
   assert.equal(fs.readFileSync(path.join(c.integration.worktree, 'src', 'join.js'), 'utf8'), '// A.3 token 1\n');
+  // Row 173 T5: a subagent reads the framed prompt beside its envelope, A.3's holding A.1's and A.2's hand-backs; a
+  // main session reads the envelope and no prompt file is written.
+  const envelopes = path.join(p.root, '.doflow', 'state', 'dispatch-envelopes');
+  const prompts = fs.readdirSync(envelopes).filter((name: any) => name.endsWith('.handoff-prompt.txt')).sort();
+  if (mode !== 'subagent') assert.deepEqual(prompts, [], `${mode} writes no handoff prompt`);
+  else {
+    assert.deepEqual(prompts, Object.values(s.dispatches).map((d: any) => `${d.dispatchId}.handoff-prompt.txt`).sort(), 'one prompt per subagent dispatch');
+    for (const d of Object.values(s.dispatches) as any[]) assert.equal(readRuns(p.runStore)[d.workerRunId].prompt.path, path.join(envelopes, `${d.dispatchId}.handoff-prompt.txt`));
+    const joined = fs.readFileSync(path.join(envelopes, `${done('A.3').dispatchId}.handoff-prompt.txt`), 'utf8');
+    assert.ok(joined.includes(`<document path=".doflow/state/dispatch-envelopes/${done('A.3').dispatchId}.handoff.json">`), joined.slice(0, 400));
+    for (const task of ['A.1', 'A.2']) assert.match(joined, new RegExp(`<document id="hand-back ${task}" kind="hand-back">\\nedited\\n</document>`));
+    assert.equal(joined.includes('no hand-back yet'), false, 'both upstream tasks handed back');
+  }
   assert.deepEqual(callerState(p.root, p.env), p.before, 'the caller checkout is never written');
   return outcomeOf(p, last.outcome);
 });

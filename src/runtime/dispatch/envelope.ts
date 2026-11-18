@@ -254,6 +254,21 @@ function writeEnvelope({ stateRoot, dispatchId, kind, value }: { stateRoot: stri
   };
 }
 
+/**
+ * Row 173 (design §6.4): writes a subagent's framed handoff prompt (`handoff-prompt.ts`) beside its
+ * envelope as `<stateRoot>/dispatch-envelopes/<dispatchId>.handoff-prompt.txt`, through the same
+ * temporary file and rename. Returns `{ path, pointer, bytes }`; `pointer` is relative to `stateRoot`.
+ */
+function writeHandoffPrompt({ stateRoot, dispatchId, text }: { stateRoot: string, dispatchId: string, text: string }) {
+  if (typeof dispatchId !== 'string' || !SAFE_ID.test(dispatchId)) throw new TypeError(`invalid dispatch id '${dispatchId}'`);
+  const dir = path.join(stateRoot, ENVELOPE_DIR);
+  fs.mkdirSync(dir, { recursive: true });
+  const pointer = `${ENVELOPE_DIR}/${dispatchId}.handoff-prompt.txt`;
+  const file = path.join(stateRoot, pointer);
+  writeAtomic(file, text);
+  return { path: file, pointer, bytes: Buffer.byteLength(text, 'utf8') };
+}
+
 module.exports = {
   ENVELOPE_DIR,
   BOUNDS,
@@ -265,4 +280,5 @@ module.exports = {
   buildHandoff,
   buildResult,
   writeEnvelope,
+  writeHandoffPrompt,
 };

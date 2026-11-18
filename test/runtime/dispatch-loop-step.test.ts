@@ -25,6 +25,8 @@ const readiness = require(path.join(SRC, 'worker', 'readiness.ts'));
 const store = require(path.join(SRC, 'dispatch', 'store.ts'));
 const { createIntegrationWorktree } = require(path.join(SRC, 'dispatch', 'integrate.ts'));
 const loop = require(path.join(SRC, 'dispatch', 'loop.ts'));
+const { readRuns, storeFileFor: runStoreFileFor } = require(path.join(SRC, 'worker', 'run-store.ts'));
+const ENVELOPE_STORE = require('../../core/registry/storage.json').stores.find((x: any) => x.id === 'dispatch-envelopes');
 
 const SLUG = '082-loop-step-fixture';
 const POSIX: any = { skip: process.platform === 'win32' && 'tree cleanup is unverified on win32 (NFR-005)' };
@@ -75,6 +77,7 @@ async function project(t: any, {
   if (probe) assert.equal((await readiness.probe({ descriptors: sb.descriptors, env, cwd: root })).disposition, 'probed');
   const read = () => store.readDispatch(file);
   const ledger = () => JSON.parse(fs.readFileSync(ledgerFile, 'utf8'));
+  const runStore = runStoreFileFor(root, SLUG);
   const options = (extra: any = {}) => ({ slug: SLUG, env, cwd: root, by: 'main', descriptors: sb.descriptors, ...extra });
   const step = (extra: any = {}) => loop.step(options(extra));
   /** The test performer: writes `files` into the yielded worktree, then submits. */
@@ -82,7 +85,7 @@ async function project(t: any, {
     for (const [rel, text] of Object.entries(files)) fs.writeFileSync(path.join(yieldOf.worktree, rel), text);
     return loop.submit(options({ dispatchId: yieldOf.dispatchId, status: 'success', summary: `done ${yieldOf.task}`, ...extra }));
   };
-  return { sb, root, env, file, ledgerFile, common, started, integration, read, ledger, options, step, perform, before: callerState(root, env) };
+  return { sb, root, env, file, ledgerFile, runStore, common, started, integration, read, ledger, options, step, perform, before: callerState(root, env) };
 }
 
 const states = (p: any) => Object.fromEntries(attempts.inspect({ ...p.common }).tasks.map((r: any) => [r.id, r.state]));
@@ -238,7 +241,65 @@ test('IC-022 / DEC-048: with the claude fake supported the attempt runs subagent
   assert.deepEqual([handoff.mode, handoff.budget.attemptSeconds, handoff.report.parser], ['subagent', 60, 'doflow-jsonl-v1']);
   const runArgv = fs.readFileSync(p.sb.log, 'utf8').trim().split('\n').map((l: any) => JSON.parse(l).argv).filter((a: any) => a[0] === '--edit-in-cwd');
   assert.equal(runArgv.length, 1, 'one edit run');
+  // Row 173 T5: the worker's --prompt-file is the framed prompt beside the envelope, in the dispatch-envelopes store.
+  const promptPath = readRuns(p.runStore)[d.workerRunId].prompt.path;
+  assert.equal(promptPath, path.join(p.root, '.doflow', 'state', 'dispatch-envelopes', `${d.dispatchId}.handoff-prompt.txt`));
+  assert.match(path.basename(promptPath), new RegExp(ENVELOPE_STORE.match), 'the prompt file is in the dispatch-envelopes store');
+  const prompt = fs.readFileSync(promptPath, 'utf8');
+  assert.ok(prompt.startsWith(`<role>\nYou are the \`core-implementer\` implementing task \`A.1\` of feature \`${SLUG}\` in an isolated worktree.\n</role>`), prompt.slice(0, 300));
+  assert.ok(prompt.includes(`<document path=".doflow/state/dispatch-envelopes/${d.dispatchId}.handoff.json">\n`), 'the envelope is the path document');
+  assert.ok(runArgv[0].at(-1).endsWith(`\n${prompt}`), 'the fake worker received the framed prompt after the context pack the worker layer puts first');
   assert.deepEqual(callerState(p.root, p.env), p.before);
+});
+
+test('row 173 T5 (g): sequential and manual modes yield the envelope and write no handoff prompt', POSIX, async (t) => {
+  for (const mode of ['sequential', 'manual']) {
+    const p = await project(t, { plan: 'disjoint', mode, concurrency: 1 });
+    const r = await p.step();
+    assert.equal(r.outcome, 'perform', JSON.stringify(r));
+    assert.equal(r.perform.mode, mode);
+    const listed = fs.readdirSync(path.join(p.root, '.doflow', 'state', 'dispatch-envelopes'));
+    assert.deepEqual(listed, [`${r.perform.dispatchId}.handoff.json`], `${mode}: the envelope only`);
+    assert.equal(JSON.parse(fs.readFileSync(r.perform.handoff.path, 'utf8')).schema, 'doflow-handoff-v1');
+  }
+});
+
+test('row 173 T5 (f): a handoff prompt over 65536 B fails the launch prompt-too-large before any worker starts, and the retry runs sequential', POSIX, async (t) => {
+  // Each upstream hand-back is 1998 B of `<role>`, which the frame escapes to 2997 B: 24 of them pass the bound.
+  const deps = Array.from({ length: 24 }, (_, i) => `A.${i + 1}`);
+  const join = `A.${deps.length + 1}`;
+  const plan = [
+    '# Implementation Plan: dispatch fixture, an oversize handoff prompt', '', '**Task graph:** v1', '', '## 8. Tasks', '', '### Phase A', '',
+    ...deps.map((id, i) => `- [ ] ${id} Write module ${i + 1} — owner: core-implementer; files: src/m${i + 1}.js\n`),
+    `- [ ] ${join} Join every module — owner: core-implementer; files: src/join.js; depends-on: ${deps.join(', ')}`, '',
+  ].join('\n');
+  const p = await project(t, { plan, mode: 'sequential', concurrency: 1, probe: true });
+  const summary = '<role>'.repeat(333);
+  let submitted = 0;
+  let r: any = null;
+  for (let i = 0; i < 120 && !(r && r.outcome === 'perform' && r.perform.task === join); i += 1) {
+    r = await p.step();
+    assert.notEqual(r.outcome, 'blocked', JSON.stringify(r.blocked));
+    if (r.outcome !== 'perform' || r.perform.task === join) continue;
+    const done = await p.perform(r.perform, { [`src/m${r.perform.task.slice(2)}.js`]: `// ${r.perform.task}\n` }, { summary });
+    assert.equal(done.disposition, 'submitted', JSON.stringify(done));
+    submitted += 1;
+    // Every upstream is in: the join task is selected under auto, where the claude fake is eligible.
+    if (submitted === deps.length) store.mutateDispatch(p.file, (s: any) => { s.run.mode = 'auto'; return { write: true, result: null }; });
+  }
+  assert.equal(r.perform.task, join, JSON.stringify(r));
+  const tries = (Object.values(p.read().dispatches) as any[]).filter((d) => d.task === join).sort((a, b) => a.token - b.token);
+  assert.deepEqual(tries.map((d) => [d.token, d.mode, d.disposition, d.failureClass]), [[1, 'subagent', 'failed', 'launch'], [2, 'sequential', null, null]]);
+  assert.equal(tries[0].workerRunId ?? null, null, 'no worker run was started');
+  assert.equal(tries[0].envelopes.handoff, `dispatch-envelopes/${tries[0].dispatchId}.handoff.json`, 'the envelope was written and kept');
+  const envelopes = path.join(p.root, '.doflow', 'state', 'dispatch-envelopes');
+  assert.equal(fs.existsSync(path.join(envelopes, `${tries[0].dispatchId}.handoff-prompt.txt`)), false, 'no prompt file over the bound');
+  const steps = p.read().steps.flatMap((x: any) => x.actions);
+  assert.ok(steps.some((a: any) => a.action === 'launch' && a.task === join && a.reason === 'refused:prompt-too-large'), JSON.stringify(steps.filter((a: any) => a.task === join)));
+  const [a1] = p.ledger().tasks[join].attempts;
+  assert.match(a1.reason, /^launch: prompt-too-large/);
+  const edits = fs.existsSync(p.sb.log) ? fs.readFileSync(p.sb.log, 'utf8').trim().split('\n').filter((l: any) => JSON.parse(l).argv[0] === '--edit-in-cwd') : [];
+  assert.deepEqual(edits, [], 'no harness run was spawned');
 });
 
 test('171 review: a package worker carrying only a fieldMap reports the map id as the handoff report.parser', POSIX, async (t) => {
