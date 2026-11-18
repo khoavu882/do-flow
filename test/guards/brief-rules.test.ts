@@ -180,21 +180,23 @@ test('G78 (d): the real script gives a task brief with an owner, one without and
   assert.doesNotMatch(owned.md, /Not generated/, 'the verb produced the block');
   assert.deepEqual(ruleFindings(owned.md, lines), [], 'task with an owner');
   const unowned = brief(['--task=A.5'], 'task-A.5-brief.md');
-  assert.match(unowned.md, /Not generated: the task line names no owner/, 'the static fallback');
+  assert.match(unowned.md, /^Not generated: `the task line names no owner`\./m, 'the static fallback');
   assert.deepEqual(ruleFindings(unowned.md, lines), [], 'task without an owner');
   assert.deepEqual(unowned.data.missing.filter((m: string) => m.startsWith('brief-rules')), []);
   const group = brief(['--group=A:core-implementer', '--tasks=A.1,A.2'], 'group-A-core-implementer-brief.md');
   assert.deepEqual(ruleFindings(group.md, lines), [], 'group brief');
   assert.match(group.md, /^## Rules$/m, 'the framed block the verb returned');
-  assert.match(unowned.md, /^## Rules that apply to you\n/m);
+  assert.match(unowned.md, /^## Rules\n- /m, 'the fallback keeps the Rules block');
 });
 
 test('G78 control: a script with no rule ledger above it still writes the brief and names the loss in missing', () => {
   const tree = freshDir('tree');
   fs.cpSync(path.dirname(SCRIPT), path.join(tree, 'doflow', 'bash'), { recursive: true });
   const { data, md } = project(path.join(tree, 'doflow', 'bash', 'do-task-brief.sh'))(['--task=A.5'], 'task-A.5-brief.md');
-  assert.match(md, /Not generated: the task line names no owner/);
-  assert.doesNotMatch(md, /Rules that apply to you/);
+  assert.match(md, /^frame-unavailable: the dispatcher was not found\n/);
+  assert.match(md, /^Not generated: `the task line names no owner`\./m);
+  assert.doesNotMatch(md, /^## Rules$|Rules that apply to you/m);
+  assert.ok(data.missing.some((m: string) => /^prompt-frame: /.test(m)), JSON.stringify(data.missing));
   assert.ok(data.missing.some((m: string) => /^brief-rules: .*rules\.json/.test(m)), JSON.stringify(data.missing));
 });
 
@@ -250,16 +252,6 @@ test('G78 control: a package script with no rule ledger or dispatcher above it s
 const workflowIds = (): string[] => JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'workflows.json'), 'utf8')).agents.handback.statuses.map((x: any) => x.id);
 const statusSentence = (subject: string, ids: string[]) => `End ${subject} with one line \`Status: <status>\`, where the status is one of ${ids.map((id) => `\`${id}\``).join(', ')}.`;
 
-/** The "Report format" section of a brief: its heading line to the next heading or the end. */
-function reportSection(md: string): string[] {
-  const all = md.split('\n');
-  const start = all.findIndex((l) => /^#{2,3} Report format$/.test(l));
-  assert.ok(start >= 0, 'a Report format section');
-  const rest = all.slice(start + 1);
-  const end = rest.findIndex((l) => /^#{1,3} /.test(l));
-  return (end < 0 ? rest : rest.slice(0, end)).filter((l) => l.trim() !== '');
-}
-
 /** The report lines of a framed brief: the `<output_format>` body after its reader line. */
 function framedReport(md: string): string[] {
   const body = md.split('<output_format>\n')[1]?.split('\n</output_format>')[0];
@@ -292,8 +284,8 @@ test('G78 (e): the rendered report format, the script fallback and the spec stat
   }
   const brief = project();
   const fallback = brief(['--task=A.5'], 'task-A.5-brief.md');
-  assert.deepEqual(contractFindings(reportSection(fallback.md), 'your report', ids), [], 'single-task fallback');
-  assert.deepEqual(reportSection(fallback.md), handbackLines({ group: false }), 'the fallback report lines are the composer\'s');
+  assert.deepEqual(contractFindings(framedReport(fallback.md), 'your report', ids), [], 'single-task fallback');
+  assert.deepEqual(framedReport(fallback.md), handbackLines({ group: false }), 'the fallback report lines are the composer\'s');
   const group = brief(['--group=A:core-implementer', '--tasks=A.1,A.2'], 'group-A-core-implementer-brief.md');
   assert.deepEqual(contractFindings(framedReport(group.md), "each task's report", ids), [], 'group brief');
   assert.deepEqual(framedReport(group.md), handbackLines({ group: true }), 'the group brief carries the composer\'s lines');

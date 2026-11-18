@@ -61,7 +61,8 @@ function briefFor(design: string) {
   for (const helper of ['do-paths.sh', 'do-exec-paths.sh', 'do-task-brief.sh']) fs.copyFileSync(path.join(SCRIPTS, 'bash', helper), path.join(bash, helper));
   fs.mkdirSync(path.join(dir, 'tree', 'core', 'registry'), { recursive: true });
   fs.copyFileSync(path.join(ROOT, 'core', 'registry', 'rules.json'), path.join(dir, 'tree', 'core', 'registry', 'rules.json'));
-  fs.writeFileSync(path.join(bin, 'doflow-run'), '#!/usr/bin/env bash\necho "fake dispatcher" >&2\nexit 3\n', { mode: 0o755 });
+  // brief-tools fails (the brief carries the fallback Tools text); prompt-frame is the real verb.
+  fs.writeFileSync(path.join(bin, 'doflow-run'), '#!/usr/bin/env bash\n[ "$1" = prompt-frame ] && exec bash "$REAL_RUN" "$@"\necho "fake dispatcher" >&2\nexit 3\n', { mode: 0o755 });
   const git = (...args: string[]) => spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.test', ...args], { cwd: project, encoding: 'utf8', env: scratch.env() });
   git('init', '-q', '-b', 'main');
   git('commit', '-q', '--allow-empty', '-m', 'init');
@@ -72,7 +73,9 @@ function briefFor(design: string) {
   fs.writeFileSync(path.join(featureDir, 'plan.md'), PLAN);
   fs.writeFileSync(path.join(featureDir, 'intention', 'requirement.md'), REQUIREMENT);
   fs.writeFileSync(path.join(featureDir, 'design', 'design.md'), design);
-  const res = spawnSync(bashPath(), [path.join(bash, 'do-task-brief.sh'), '--task=A.1', '--slug=001-auth'], { cwd: project, encoding: 'utf8', timeout: 120000, env: scratch.env() });
+  const res = spawnSync(bashPath(), [path.join(bash, 'do-task-brief.sh'), '--task=A.1', '--slug=001-auth'], {
+    cwd: project, encoding: 'utf8', timeout: 120000, env: scratch.env({ REAL_RUN: path.join(SCRIPTS, 'bin', 'doflow-run'), DOFLOW_CLI: path.join(ROOT, 'bin', 'doflow.js') }),
+  });
   assert.equal(res.status, 0, res.stderr);
   return fs.readFileSync(path.join(featureDir, 'exec', 'task-A.1-brief.md'), 'utf8');
 }
@@ -80,8 +83,10 @@ function briefFor(design: string) {
 test('do-task-brief.sh composes the component boundary from the section titled Components, numbered 5 or 3', () => {
   for (const [label, design] of [['new layout (section 5)', NEW_DESIGN], ['old layout (section 3)', OLD_DESIGN], ['old title "Component map"', OLD_MAP], ['old title "Component Contracts & Data Flow"', OLD_CONTRACTS]]) {
     const md = briefFor(design);
-    assert.match(md, /^## Component boundary$/m, label);
-    assert.match(md, /CMP1\*\* → owns credential verification\./, label);
+    const boundary = md.match(/<document path="[^"]*design\.md">\n([\s\S]*?)\n<\/document>/)?.[1];
+    assert.ok(boundary, `${label}: the component boundary is a document of the frame`);
+    assert.match(boundary, /CMP1\*\* → owns credential verification\./, label);
+    assert.doesNotMatch(boundary, /decoy row/, label);
     assert.doesNotMatch(md, /decoy row/, label);
   }
 });

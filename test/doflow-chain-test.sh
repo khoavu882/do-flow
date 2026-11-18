@@ -416,8 +416,8 @@ eq "unresolvable story is reported in missing[]" \
 # Group mode brief composition
 TB_GRP="$("$BRIEF" --group=A:backend-architect --tasks=A.1,A.2)"
 eq "group brief traces all tasks" "$(printf '%s' "$TB_GRP" | jq -c '.tasks')" '["A.1","A.2"]'
-eq "group brief shared context exists" "$([ -f agent-docs/doflow/001-auth/exec/group-A-backend-architect-brief.md ] && grep -c '^## Shared context' agent-docs/doflow/001-auth/exec/group-A-backend-architect-brief.md)" "1"
-eq "group brief task order exists" "$(grep -c '^## Task order' agent-docs/doflow/001-auth/exec/group-A-backend-architect-brief.md)" "1"
+eq "group brief is one frame" "$([ -f agent-docs/doflow/001-auth/exec/group-A-backend-architect-brief.md ] && grep -c '^<instructions>$' agent-docs/doflow/001-auth/exec/group-A-backend-architect-brief.md)" "1"
+eq "group brief states the task order" "$(grep -c '^Build tasks `A.1, A.2` in this order' agent-docs/doflow/001-auth/exec/group-A-backend-architect-brief.md)" "1"
 eq "group brief has task A.1 block" "$(grep -c '^## Task A.1' agent-docs/doflow/001-auth/exec/group-A-backend-architect-brief.md)" "1"
 eq "group brief has task A.2 block" "$(grep -c '^## Task A.2' agent-docs/doflow/001-auth/exec/group-A-backend-architect-brief.md)" "1"
 # Single-task byte-identity invariant (RK1): diff group of 1 against single task brief
@@ -430,11 +430,14 @@ NODISP="$("$BRIEF" --task=A.1)"; NODISP_RC=$?
 mv "$FAKE/scripts/doflow/bin/doflow-run.off" "$FAKE/scripts/doflow/bin/doflow-run"
 eq "no dispatcher -> exit 0" "$NODISP_RC" "0"
 eq "no dispatcher -> missing[] names brief-tools" "$(printf '%s' "$NODISP" | jq -r 'any(.missing[]; . == "brief-tools: the dispatcher was not found")')" "true"
-eq "no dispatcher -> brief still carries the rules block" \
-   "$(grep -c '^## Rules that apply to you$' agent-docs/doflow/001-auth/exec/task-A.1-brief.md)" "1"
+eq "no dispatcher -> the brief is written unframed" \
+   "$(head -1 agent-docs/doflow/001-auth/exec/task-A.1-brief.md)" "frame-unavailable: the dispatcher was not found"
+eq "no dispatcher -> missing[] names prompt-frame" "$(printf '%s' "$NODISP" | jq -r 'any(.missing[]; . == "prompt-frame: the dispatcher was not found")')" "true"
+eq "no dispatcher -> brief still carries the rules" \
+   "$(grep -cxF -- "- $(jq -r '.mustCarry[0]' "$FAKE/runtime/core/registry/rules.json")" agent-docs/doflow/001-auth/exec/task-A.1-brief.md)" "1"
 eq "no dispatcher -> no record" "$(printf '%s' "$NODISP" | jq -r '.record')" "null"
 eq "no dispatcher -> Not generated line" \
-   "$(grep -c '^Not generated: the dispatcher was not found. Name the tier and tools in the dispatch.$' agent-docs/doflow/001-auth/exec/task-A.1-brief.md)" "1"
+   "$(grep -c '^Not generated: `the dispatcher was not found`. Name the tier and tools in the dispatch.$' agent-docs/doflow/001-auth/exec/task-A.1-brief.md)" "1"
 "$BRIEF" --task=A.1 >/dev/null 2>&1
 
 echo "[do-review-package]"

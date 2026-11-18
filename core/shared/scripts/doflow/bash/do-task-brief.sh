@@ -24,14 +24,17 @@ case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; th
 # `missing[]` rather than yielding a quietly thin brief the implementer cannot tell
 # is incomplete.
 #
-# Every brief also closes with a tier, tools and report-format block (IC-017) that the
-# `brief-tools` verb composes from the registries and this machine's probes; this script reads the
-# task line's `owner:` and `tier:`, calls the dispatcher once per brief and writes the block plus
-# the `*-brief.json` record (IC-018) beside the brief. It names no tool, provider, server or tier.
-# It fails open (IC-019): a missing dispatcher, a non-zero exit or output that is not the expected
-# JSON gives a "Not generated" line, the must-carry rules (read from the rule ledger,
-# `core/registry/rules.json`, whatever the task line's owner) and a static report-format block, a
-# `missing[]` note, no record, and the exit status the brief would otherwise have had.
+# Every brief is a prompt frame written by `doflow-run prompt-frame` (row 173, design §6): a header, a role, the
+# context, the requirement, constraint, boundary and contract text as input documents, the instructions
+# (the task, its write set, success criteria, rules, tools and stop rule) and the reply format. Each part is
+# written to a scratch file and passed by path. The tier, tools, rules and report lines come from the
+# `brief-tools` verb, called once per brief; this script reads the task line's `owner:` and `tier:`, writes the
+# `*-brief.json` record (IC-018) beside the brief, and names no tool, provider, server or tier.
+# It fails open twice (IC-019). When `brief-tools` cannot answer (no dispatcher, a non-zero exit, output that is
+# not the expected JSON) the Tools text says "Not generated", the rules are read from the rule ledger
+# (`core/registry/rules.json`) and the report lines are static; no record is written. When `prompt-frame` cannot
+# run, the brief is written unframed (first line `frame-unavailable: <reason>`, the header, then each body in
+# section order). Either way `missing[]` names the loss and the exit status is what the brief would have had.
 #
 # Usage:
 #   do-task-brief.sh --task=<id> [--harness=<id>] [--slug=<slug>] [--json]
@@ -138,9 +141,12 @@ fi
 resolved="$(bash "$script_dir/do-paths.sh" --json ${slug_override:+--slug="$slug_override"} 2>/dev/null)"
 repo_root="$(printf '%s' "$resolved" | jq -r '.repo_root // empty')"
 plan_abs="$repo_root/$(printf '%s' "$resolved" | jq -r '.plan // empty')"
-req_abs="$repo_root/$(printf '%s' "$resolved" | jq -r '.requirement // empty')"
-des_abs="$repo_root/$(printf '%s' "$resolved" | jq -r '.design // empty')"
-specs_abs="$repo_root/$(printf '%s' "$resolved" | jq -r '.specs // empty')"
+req_rel="$(printf '%s' "$resolved" | jq -r '.requirement // empty')"
+des_rel="$(printf '%s' "$resolved" | jq -r '.design // empty')"
+specs_rel="$(printf '%s' "$resolved" | jq -r '.specs // empty')"
+req_abs="$repo_root/$req_rel"
+des_abs="$repo_root/$des_rel"
+specs_abs="$repo_root/$specs_rel"
 has_specs="$(printf '%s' "$resolved" | jq -r '.has_specs // false')"
 brief_abs="$repo_root/$brief_rel"
 record_rel="$(printf '%s' "$paths" | jq -r '.brief_record // empty')"
@@ -190,15 +196,56 @@ to_json_array() {
   fi
 }
 
+# ── text of each source section, as the brief's parts carry it ───────────────
+why_text() { # why_text <story id>: the story's line and its continuation, from requirement.md section 2
+  section "$req_abs" '^## 2[.]' | awk -v s="$1" '
+    $0 ~ ("^- \\*\\*" s "([^0-9]|$)") { inside = 1; sub(/^- /, ""); print; next }
+    inside && /^- \*\*/ { exit }
+    inside { print }'
+}
+
+req_text() { # req_text <FR ids>: the detail of each FR, requirement.md section 3
+  local fr
+  for fr in $1; do detail_for "$req_abs" '^## 3[.]' "$fr"; done
+}
+
+nfr_text() { # every NFR detail: requirement.md section 4 binds every task
+  section "$req_abs" '^## 4[.]' | awk '/^- \*\*NFR-/ { p = 1 } p' | sed '/^$/d'
+}
+
+comp_text() { # comp_text <component ids, one per line>: their detail from design.md Components
+  local cmp
+  printf '%s\n' "$1" | while read -r cmp; do
+    [ -n "$cmp" ] && detail_for "$des_abs" '^## [0-9]+[.] Component' "$cmp"
+  done
+}
+
+# specs.md §1 IN FULL, deliberately unfiltered: an IC-### entry carries no FR or component linkage field,
+# so there is nothing to filter it by the way comp_text filters design.md Components rows on the FRs they name.
+specs_text() {
+  section "$specs_abs" '^## 1[.]' | awk 'NF { p = 1 } p'
+}
+
+bar_rows() { # bar_rows <FR ids> <phase letter>: plan.md section 7 rows of those FRs, then the phase's checkpoint line
+  local fr
+  for fr in $1; do section "$plan_abs" '^## 7[.]' | grep -F "| $fr |" || true; done
+  if [ -n "$2" ]; then grep -F "After Phase $2:" "$plan_abs" | sed 's/^- //' || true; fi
+}
+
+task_text() { # task_text <task line>: the line without its checkbox
+  printf '%s\n' "$1" | sed -E 's/^- \[[ x]\] //'
+}
+
 # ── tier, tools and report format (IC-017 to IC-019) ─────────────────────────
 # A task line field is "; <name>: <value>" or "— <name>: <value>"; the value is one safe word.
 task_field() { # task_field <task line> <name>
   printf '%s' "$1" | sed -nE "s/.*(; |— )$2: *([A-Za-z0-9_-]+).*/\\2/p"
 }
 
-# Sets bt_md and bt_record on success, bt_reason on every failure; never exits.
+# Sets bt_parts (the verb's header, rules, tools and report) and bt_record on success, bt_reason on
+# every failure; never exits.
 bt_verb() { # bt_verb <owner> <tier> <heading level> <task ids>
-  bt_md=""; bt_record=""; bt_reason=""
+  bt_parts=""; bt_record=""; bt_reason=""
   local dispatcher="$script_dir/../bin/doflow-run" out rc
   if [ -z "$1" ]; then bt_reason="the task line names no owner"; return 0; fi
   if [ ! -f "$dispatcher" ]; then bt_reason="the dispatcher was not found"; return 0; fi
@@ -207,10 +254,10 @@ bt_verb() { # bt_verb <owner> <tier> <heading level> <task ids>
     --heading-level "$3" ${4:+--tasks "$4"} </dev/null 2>/dev/null)"
   rc=$?
   if [ "$rc" -ne 0 ]; then bt_reason="brief-tools exited $rc"; return 0; fi
-  if ! printf '%s' "$out" | jq -e '(.markdown | type == "string" and length > 0) and (.record | type == "object")' >/dev/null 2>&1; then
+  if ! printf '%s' "$out" | jq -e '(.parts.header | type == "array") and (.parts.rules | type == "array") and (.parts.tools | type == "string" and length > 0) and (.parts.report | type == "array" and length > 0) and (.record | type == "object")' >/dev/null 2>&1; then
     bt_reason="brief-tools printed unparseable output"; return 0
   fi
-  bt_md="$(printf '%s' "$out" | jq -r '.markdown')"
+  bt_parts="$(printf '%s' "$out" | jq -c '.parts')"
   bt_record="$(printf '%s' "$out" | jq -c '.record')"
   return 0
 }
@@ -230,43 +277,192 @@ registry_file() { # registry_file <name>
   return 0
 }
 
-# Sets bt_rules to the "Rules that apply to you" block (the mustCarry lines of the rule ledger, as
-# src/runtime/brief-rules.ts renders them) when the verb did not produce the brief block, which
-# already carries it; names the reason in missing[] when the ledger cannot be read. Never exits.
-bt_rules_load() { # bt_rules_load <heading level>
+# Sets bt_rules to the lines of the Rules block ("- <rule>"): the verb's own when it answered, else the
+# mustCarry lines of the rule ledger (as src/runtime/brief-rules.ts renders them); names the reason in
+# missing[] when the ledger cannot be read. Never exits.
+bt_rules_load() {
   bt_rules=""
-  [ -z "$bt_md" ] || return 0
-  local h="##" file lines
-  [ "$1" = "3" ] && h="###"
+  if [ -n "$bt_parts" ]; then
+    bt_rules="$(printf '%s' "$bt_parts" | jq -r '.rules[] | "- " + .')"
+    return 0
+  fi
+  local file lines
   file="$(registry_file rules.json)"
   if [ -z "$file" ]; then missing+=("brief-rules: core/registry/rules.json is missing"); return 0; fi
   lines="$(jq -r 'if (.mustCarry | type) == "array" and (.mustCarry | length) > 0 and (.mustCarry | all(type == "string")) then .mustCarry[] | "- " + . else empty end' "$file" 2>/dev/null)"
   if [ -z "$lines" ]; then missing+=("brief-rules: core/registry/rules.json has no mustCarry array"); return 0; fi
-  bt_rules="$(printf '%s Rules that apply to you\n\n%s\n' "$h" "$lines")"
+  bt_rules="$lines"
 }
 
-# The tier and tools block, the rules and the report format the task line's owner and tier give.
+# The tier and tools, the rules and the report format the task line's owner and tier give.
 bt_call() { # bt_call <owner> <tier> <heading level> <task ids>
   bt_verb "$@"
-  bt_rules_load "$3"
+  bt_rules_load
 }
 
-# The block for the brief: the verb's markdown, or the rules and the static fallback (no tool names).
-bt_emit() { # bt_emit <heading level>
-  local h="##" who="your report"
-  if [ "$1" = "3" ]; then h="###"; who="each task's report"; fi
-  if [ -n "$bt_md" ]; then
-    printf '%s\n' "$bt_md"
+# ── the brief as a prompt frame (row 173) ────────────────────────────────────
+# Each part is written to a file in a scratch directory and the `prompt-frame` verb reads them by path, so no
+# requirement text ever passes through a command line or a JSON document. The dispatcher is found as bt_verb finds it.
+bf_dir=""; bf_args=(); bf_order=()
+bf_start() { # a scratch directory for the parts, removed on exit; false when none can be made
+  bf_dir="$(mktemp -d 2>/dev/null)" || bf_dir=""
+  [ -n "$bf_dir" ] || return 1
+  trap 'rm -rf "$bf_dir"' EXIT
+  bf_args=(); bf_order=()
+}
+
+bf_part() { # bf_part <key> <file name in the scratch dir>: a part with a body is passed to the verb; an empty one is left out
+  [ -s "$bf_dir/$2" ] || return 0
+  bf_args+=(--part "$1=$bf_dir/$2"); bf_order+=("$bf_dir/$2")
+}
+
+# The header lines of the verb's answer (Tier, Model, Decision model); none when the verb did not answer.
+bt_header_lines() {
+  if [ -n "$bt_parts" ]; then printf '%s' "$bt_parts" | jq -r '.header[] | "\(.[0]): \(.[1])"'; fi
+}
+
+# Writes the rules, tools and report parts of the tools block into the scratch dir: the verb's, or the
+# fallback (no tool names): the rules, "Not generated" and the static report lines.
+bt_parts_write() { # bt_parts_write <heading level>
+  [ -z "$bt_rules" ] || printf '%s\n' "$bt_rules" > "$bf_dir/rules"
+  if [ -n "$bt_parts" ]; then
+    printf '%s' "$bt_parts" | jq -r '.tools' > "$bf_dir/tools"
+    printf '%s' "$bt_parts" | jq -r '.report[]' > "$bf_dir/report"
     return 0
   fi
-  [ -z "$bt_rules" ] || printf '%s\n\n' "$bt_rules"
-  printf '%s Tier and tools\n\nNot generated: %s. Name the tier and tools in the dispatch.\n\n' "$h" "$bt_reason"
-  printf '%s Report format\n\n' "$h"
-  printf '%s\n' "If this brief's scope was wrong or missed something, add one line \`Brief feedback: <what>\` before the tools line; leave it out otherwise."
-  printf '%s\n' 'Put one line naming every tool and MCP server you used just before the final status line:'
-  printf '%s\n' '`Tools used: <name>[=used|nothing-usable|unavailable|skipped:<reason>], ...`'
-  printf 'End %s with one line `Status: <status>`, where the status is one of `done`, `done-with-concerns`, `needs-context`, `blocked`.\n' "$who"
+  local who="your report"
+  if [ "$1" = "3" ]; then who="each task's report"; fi
+  printf 'Not generated: `%s`. Name the tier and tools in the dispatch.\n' "$bt_reason" > "$bf_dir/tools"
+  {
+    printf '%s\n' "If this brief's scope was wrong or missed something, add one line \`Brief feedback: <what>\` before the tools line; leave it out otherwise."
+    printf '%s\n' 'Put one line naming every tool and MCP server you used just before the final status line:'
+    printf '%s\n' '`Tools used: <name>[=used|nothing-usable|unavailable|skipped:<reason>], ...`'
+    printf 'End %s with one line `Status: <status>`, where the status is one of `done`, `done-with-concerns`, `needs-context`, `blocked`.\n' "$who"
+  } > "$bf_dir/report"
 }
+
+# The parts every brief ends with, in section order: the outcome's task text is the caller's, the rest is common.
+bf_close() { # bf_close: stop rule, reader and report lines
+  printf '%s\n' 'Stop when the success criteria hold, or when a blocker needs the dispatcher; then write the report.' > "$bf_dir/stop"
+  printf '%s\n' 'The session that dispatched you' > "$bf_dir/reader"
+  bf_part "instructions.constraint:Rules" rules
+  bf_part "instructions.constraint:Tools" tools
+  bf_part "instructions.stop" stop
+  bf_part "output_format.reader" reader
+  bf_part "output_format.lines" report
+}
+
+# Frames the parts into $1. When the verb cannot run (no dispatcher, a non-zero exit) the brief is still written,
+# unframed: first line `frame-unavailable: <reason>`, the header, then each part's body in section order, one blank
+# line between; the loss is named in missing[] and the exit status is what it would have been (IC-019's fail-open).
+bf_render() { # bf_render <brief file>
+  local dispatcher="$script_dir/../bin/doflow-run" reason="" rc part
+  if [ ! -f "$dispatcher" ]; then
+    reason="the dispatcher was not found"
+  else
+    (cd "${repo_root:-.}" 2>/dev/null && bash "$dispatcher" prompt-frame --action render --json --out "$1" \
+      --part "header=$bf_dir/header" "${bf_args[@]}" </dev/null >/dev/null 2>&1)
+    rc=$?
+    if [ "$rc" -ne 0 ]; then reason="prompt-frame exited $rc"; fi
+  fi
+  [ -n "$reason" ] || return 0
+  {
+    echo "frame-unavailable: $reason"
+    cat "$bf_dir/header"
+    for part in "${bf_order[@]}"; do echo; cat "$part"; done
+  } > "$1" 2>/dev/null || return 1
+  missing+=("prompt-frame: $reason")
+}
+
+# The task brief (design §6.1) of one task; the one-task group brief is this same call.
+compose_task_brief() { # compose_task_brief <id> <task line> <phase heading> <phase letter> <story> <files> <FR ids> <components> <owner>
+  local id="$1" line="$2" phase="$3" letter="$4" story="$5" files="$6" frs="$7" comps="$8" owner="$9"
+  bf_start || return 1
+  {
+    echo "Brief: task $id${feature_slug:+ of $feature_slug}"
+    echo "Composed from: $composed_from"
+    bt_header_lines
+  } > "$bf_dir/header"
+  printf 'You are %simplementing task `%s`%s.\n' "${owner:+the \`$owner\` }" "$id" "${feature_slug:+ of feature \`$feature_slug\`}" > "$bf_dir/role"
+  {
+    if [ -n "$phase" ]; then echo "Phase: ${phase#\#\#\# }"; fi
+    section "$plan_abs" '^## 1[.]' | sed '/^$/d' | head -8
+    if [ -n "$story" ] && [ -f "$req_abs" ]; then why_text "$story" | sed '1s/^/Why: /'; fi
+  } > "$bf_dir/context"
+  if [ -n "$frs" ]; then req_text "$frs" > "$bf_dir/requirements"; fi
+  if [ -f "$req_abs" ]; then nfr_text > "$bf_dir/nfr"; fi
+  if [ -n "$comps" ]; then comp_text "$comps" > "$bf_dir/boundary"; fi
+  if [ "$has_specs" = "true" ] && [ -f "$specs_abs" ]; then specs_text > "$bf_dir/contracts"; fi
+  {
+    task_text "$line"
+    echo 'Use the values in input verbatim; this brief carries every value the task needs, so the plan need not be opened.'
+  } > "$bf_dir/outcome"
+  bar_rows "$frs" "$letter" > "$bf_dir/success"
+  if [ -n "$files" ]; then printf "Edit only these files, because the task's review compares the diff with them: %s\n" "$files" > "$bf_dir/writeset"; fi
+  bt_parts_write 2
+
+  bf_part role role
+  bf_part context context
+  bf_part "input.doc:path=$req_rel" requirements
+  bf_part "input.doc:path=$req_rel#4" nfr
+  bf_part "input.doc:path=$des_rel" boundary
+  bf_part "input.doc:path=$specs_rel#1" contracts
+  bf_part "instructions.outcome" outcome
+  bf_part "instructions.success" success
+  bf_part "instructions.constraint:Write set" writeset
+  bf_close
+  bf_render "$brief_abs"
+}
+
+# The group brief (design §6.2) of two or more tasks: shared documents once, one Task block per task.
+compose_group_brief() { # compose_group_brief <phase> <owner> <task ids, comma-joined>
+  local phase="$1" owner="$2" ids="$3" idx tid t_line t_story t_files rows
+  bf_start || return 1
+  {
+    echo "Brief: group $group_id${feature_slug:+ of $feature_slug}"
+    echo "Composed from: $composed_from"
+    bt_header_lines
+  } > "$bf_dir/header"
+  printf 'You are %simplementing tasks `%s` of phase `%s`, one after another in the order given.\n' "${owner:+the \`$owner\` }" "$ids" "$phase" > "$bf_dir/role"
+  {
+    section "$plan_abs" '^## 1[.]' | sed '/^$/d' | head -8
+    if [ -f "$req_abs" ]; then
+      for idx in "${!task_ids[@]}"; do
+        if [ -n "${task_stories[$idx]}" ]; then why_text "${task_stories[$idx]}" | sed "1s/^/Why ${task_ids[$idx]}: /"; fi
+      done
+    fi
+  } > "$bf_dir/context"
+  if [ -f "$req_abs" ]; then nfr_text > "$bf_dir/nfr"; fi
+  if [ -n "$all_comps_raw" ]; then comp_text "$all_comps_raw" > "$bf_dir/boundary"; fi
+  if [ "$has_specs" = "true" ] && [ -f "$specs_abs" ]; then specs_text > "$bf_dir/contracts"; fi
+  printf 'Build tasks `%s` in this order; each task writes its own report before the next starts.\n' "$ids" > "$bf_dir/outcome"
+  bt_parts_write 3
+
+  bf_part role role
+  bf_part context context
+  bf_part "input.doc:path=$req_rel#4" nfr
+  bf_part "input.doc:path=$des_rel" boundary
+  bf_part "input.doc:path=$specs_rel#1" contracts
+  for idx in "${!task_ids[@]}"; do
+    if [ -n "${task_fr_lists[$idx]}" ]; then req_text "${task_fr_lists[$idx]}" > "$bf_dir/requirements-$idx"; fi
+    bf_part "input.doc:path=$req_rel" "requirements-$idx"
+  done
+  bf_part "instructions.outcome" outcome
+  for idx in "${!task_ids[@]}"; do
+    tid="${task_ids[$idx]}"; t_line="${task_lines[$idx]}"; t_files="${task_files[$idx]}"
+    [ -n "$t_line" ] || continue
+    rows="$(bar_rows "${task_fr_lists[$idx]}" "${task_phase_letters[$idx]}")"
+    {
+      task_text "$t_line"
+      if [ -n "$t_files" ]; then echo "Files you own: $t_files"; fi
+      if [ -n "$rows" ]; then echo 'Verification:'; printf '%s\n' "$rows" | sed 's/^/- /'; fi
+    } > "$bf_dir/task-$idx"
+    bf_part "instructions.constraint:Task $tid" "task-$idx"
+  done
+  bf_close
+  bf_render "$brief_abs"
+}
+
 
 # Writes the record beside the brief with its tasks filled in; sets record_out to its path, or to ""
 # when there is nothing to write or the write failed.
@@ -341,76 +537,8 @@ if [ "$mode" = "task" ]; then
 
   # Compose brief
   write_ok=1
-  {
-    echo "# Task brief: $task_id"
-    echo
-    echo "> Composed from $composed_from. This brief is your requirements —"
-    echo "> use the exact values it gives, verbatim. You do not need to open the plan."
-    echo
-    echo "## The task"
-    echo
-    echo "${task_line#- \[ \] }"
-    echo
-    [ -n "$phase_heading" ] && { echo "Phase: ${phase_heading#\#\#\# }"; echo; }
-    [ -n "$files_field" ] && { echo "Files you own: $files_field"; echo; }
-
-    echo "## Where this fits"
-    echo
-    section "$plan_abs" '^## 1[.]' | sed '/^$/d' | head -8
-    echo
-
-    if [ -n "$story" ] && [ -f "$req_abs" ]; then
-      echo "## Why (user story)"
-      echo
-      section "$req_abs" '^## 2[.]' | awk -v s="$story" '
-        $0 ~ ("^- \\*\\*" s "([^0-9]|$)") { inside = 1; sub(/^- /, ""); print; next }
-        inside && /^- \*\*/ { exit }
-        inside { print }' || true
-      echo
-    fi
-
-    if [ -n "$frs" ]; then
-      echo "## Requirements — build exactly these"
-      echo
-      for fr in $frs; do detail_for "$req_abs" '^## 3[.]' "$fr"; done
-      echo
-    fi
-
-    if [ -f "$req_abs" ]; then
-      echo "## Global constraints — these bind every task"
-      echo
-      section "$req_abs" '^## 4[.]' | awk '/^- \*\*NFR-/ { p = 1 } p' | sed '/^$/d'
-      echo
-    fi
-
-    if [ -n "$components" ]; then
-      echo "## Component boundary"
-      echo
-      printf '%s\n' "$components" | while read -r cmp; do
-        [ -n "$cmp" ] && detail_for "$des_abs" '^## [0-9]+[.] Component' "$cmp"
-      done
-      echo
-    fi
-
-    if [ "$has_specs" = "true" ] && [ -f "$specs_abs" ]; then
-      echo "## Interface contracts"
-      echo
-      # §1 IN FULL, deliberately unfiltered: an IC-### entry carries no FR or component
-      # linkage field, so there is nothing to filter it by the way "component boundary"
-      # above filters design.md Components & Boundaries rows on the FRs they name.
-      section "$specs_abs" '^## 1[.]' | awk 'NF { p = 1 } p'
-      echo
-    fi
-
-    echo "## Verification bar"
-    echo
-    for fr in $frs; do
-      section "$plan_abs" '^## 7[.]' | grep -F "| $fr |" || true
-    done
-    [ -n "$phase_letter" ] && grep -F "After Phase $phase_letter:" "$plan_abs" || true
-    echo
-    bt_emit 2
-  } > "$brief_abs" || write_ok=0
+  compose_task_brief "$task_id" "$task_line" "$phase_heading" "$phase_letter" "$story" "$files_field" "$frs" "$components" \
+    "$(task_field "$task_line" owner)" || write_ok=0
 
   if [ "${write_ok:-1}" -eq 0 ] || [ ! -s "$brief_abs" ]; then
     jq -n --arg path "$brief_rel" \
@@ -540,179 +668,13 @@ else
       done | sort -u)"
     fi
 
-    {
-      echo "# Task brief: $t_id"
-      echo
-      echo "> Composed from $composed_from. This brief is your requirements —"
-      echo "> use the exact values it gives, verbatim. You do not need to open the plan."
-      echo
-      echo "## The task"
-      echo
-      echo "${t_line#- \[ \] }"
-      echo
-      [ -n "$t_phase" ] && { echo "Phase: ${t_phase#\#\#\# }"; echo; }
-      [ -n "$t_files" ] && { echo "Files you own: $t_files"; echo; }
-
-      echo "## Where this fits"
-      echo
-      section "$plan_abs" '^## 1[.]' | sed '/^$/d' | head -8
-      echo
-
-      if [ -n "$t_story" ] && [ -f "$req_abs" ]; then
-        echo "## Why (user story)"
-        echo
-        section "$req_abs" '^## 2[.]' | awk -v s="$t_story" '
-          $0 ~ ("^- \\*\\*" s "([^0-9]|$)") { inside = 1; sub(/^- /, ""); print; next }
-          inside && /^- \*\*/ { exit }
-          inside { print }' || true
-        echo
-      fi
-
-      if [ -n "$t_frs" ]; then
-        echo "## Requirements — build exactly these"
-        echo
-        for fr in $t_frs; do detail_for "$req_abs" '^## 3[.]' "$fr"; done
-        echo
-      fi
-
-      if [ -f "$req_abs" ]; then
-        echo "## Global constraints — these bind every task"
-        echo
-        section "$req_abs" '^## 4[.]' | awk '/^- \*\*NFR-/ { p = 1 } p' | sed '/^$/d'
-        echo
-      fi
-
-      if [ -n "$t_comps" ]; then
-        echo "## Component boundary"
-        echo
-        printf '%s\n' "$t_comps" | while read -r cmp; do
-          [ -n "$cmp" ] && detail_for "$des_abs" '^## [0-9]+[.] Component' "$cmp"
-        done
-        echo
-      fi
-
-      if [ "$has_specs" = "true" ] && [ -f "$specs_abs" ]; then
-        echo "## Interface contracts"
-        echo
-        # §1 IN FULL, deliberately unfiltered — see the --task= path above: an IC-### entry
-        # carries no FR or component linkage field to filter it by.
-        section "$specs_abs" '^## 1[.]' | awk 'NF { p = 1 } p'
-        echo
-      fi
-
-      echo "## Verification bar"
-      echo
-      for fr in $t_frs; do
-        section "$plan_abs" '^## 7[.]' | grep -F "| $fr |" || true
-      done
-      [ -n "$t_phase_let" ] && grep -F "After Phase $t_phase_let:" "$plan_abs" || true
-      echo
-      bt_emit 2
-    } > "$brief_abs" || write_ok=0
+    compose_task_brief "$t_id" "$t_line" "$t_phase" "$t_phase_let" "$t_story" "$t_files" "$t_frs" "$t_comps" "$group_owner" || write_ok=0
 
   else
-    # Multi-task group: shared preamble once + one block per task
-    {
-      echo "# Group brief: $group_id"
-      echo
-      echo "> Composed from $composed_from. This brief covers multiple tasks that share an owner."
-      echo
-      echo "## Shared context"
-      echo
-      echo "### Where this fits"
-      echo
-      section "$plan_abs" '^## 1[.]' | sed '/^$/d' | head -8
-      echo
-
-      if [ -f "$req_abs" ]; then
-        echo "### Global constraints — these bind every task"
-        echo
-        section "$req_abs" '^## 4[.]' | awk '/^- \*\*NFR-/ { p = 1 } p' | sed '/^$/d'
-        echo
-      fi
-
-      if [ -n "$all_comps_raw" ]; then
-        echo "### Component boundary"
-        echo
-        printf '%s\n' "$all_comps_raw" | while read -r cmp; do
-          [ -n "$cmp" ] && detail_for "$des_abs" '^## [0-9]+[.] Component' "$cmp"
-        done
-        echo
-      fi
-
-      if [ "$has_specs" = "true" ] && [ -f "$specs_abs" ]; then
-        echo "### Interface contracts"
-        echo
-        # §1 IN FULL, deliberately unfiltered — see the --task= path above: an IC-### entry
-        # carries no FR or component linkage field to filter it by. Shared context, since
-        # every task in the group is bound by the same contracts.
-        section "$specs_abs" '^## 1[.]' | awk 'NF { p = 1 } p'
-        echo
-      fi
-
-      bt_emit 3
-      echo
-
-      echo "## Task order"
-      echo
-      task_order=""
-      for tid in "${task_ids[@]}"; do
-        if [ -n "$task_order" ]; then
-          task_order="$task_order → $tid"
-        else
-          task_order="$tid"
-        fi
-      done
-      echo "$task_order   (write each task's report before starting the next)"
-      echo
-
-      for idx in "${!task_ids[@]}"; do
-        tid="${task_ids[$idx]}"
-        t_line="${task_lines[$idx]}"
-        t_phase="${task_phases[$idx]}"
-        t_phase_let="${task_phase_letters[$idx]}"
-        t_story="${task_stories[$idx]}"
-        t_files="${task_files[$idx]}"
-        t_frs="${task_fr_lists[$idx]}"
-
-        echo "## Task $tid"
-        echo
-        echo "${t_line#- \[ \] }"
-        echo
-
-        if [ -n "$t_story" ] && [ -f "$req_abs" ]; then
-          echo "### Why (user story)"
-          echo
-          section "$req_abs" '^## 2[.]' | awk -v s="$t_story" '
-            $0 ~ ("^- \\*\\*" s "([^0-9]|$)") { inside = 1; sub(/^- /, ""); print; next }
-            inside && /^- \*\*/ { exit }
-            inside { print }' || true
-          echo
-        fi
-
-        if [ -n "$t_frs" ]; then
-          echo "### Requirements — build exactly these"
-          echo
-          for fr in $t_frs; do detail_for "$req_abs" '^## 3[.]' "$fr"; done
-          echo
-        fi
-
-        if [ -n "$t_files" ]; then
-          echo "### Files you own"
-          echo
-          echo "$t_files"
-          echo
-        fi
-
-        echo "### Verification bar"
-        echo
-        for fr in $t_frs; do
-          section "$plan_abs" '^## 7[.]' | grep -F "| $fr |" || true
-        done
-        [ -n "$t_phase_let" ] && grep -F "After Phase $t_phase_let:" "$plan_abs" || true
-        echo
-      done
-    } > "$brief_abs" || write_ok=0
+    # Multi-task group: the shared documents once, one block per task
+    task_ids_list=""
+    for tid in "${task_ids[@]}"; do task_ids_list="${task_ids_list:+$task_ids_list, }$tid"; done
+    compose_group_brief "${group_id%%:*}" "$group_owner" "$task_ids_list" || write_ok=0
   fi
 
   if [ "${write_ok:-1}" -eq 0 ] || [ ! -s "$brief_abs" ]; then
