@@ -217,7 +217,7 @@ states the same Review Contract, and returns the same verdict vocabulary; a diff
 is a defect, not a variant.
 
 Review read-only at `frontier`, with an agent and model different from the author; pass the brief's
-bound model id where it names one, else translate the tier. Brief each seat in the prompt frame (`"$DOFLOW" prompt-frame --action guide` prints `PROMPT_FRAME.md`); the review package is its input. Follow the protocol `review --action start` prints; each `protocol.blocker` is a blocker rule.
+bound model id where it names one, else translate the tier to an id the harness lists; never invent one. Brief each seat in the prompt frame (`"$DOFLOW" prompt-frame --action guide` prints `PROMPT_FRAME.md`); the review package is its input. Follow the protocol `review --action start` prints; each `protocol.blocker` is a blocker rule.
 Re-review only fixes automatically: read only `reviewedHead`..new head
 (`"$DOFLOW" review-package --task=<task id> --base=<reviewedHead> --head=HEAD`), raise `rounds` by
 one, and at round 3 ask the author to reconsider the approach. See `references/MODEL_SELECTION.md`.
