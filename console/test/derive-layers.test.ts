@@ -302,6 +302,24 @@ test('170 §10 supervisor gone: "Not observed: its supervisor stopped. End it wi
   assert.equal(view(chan({ turn: unseen('supervisor-gone') }), { end: false }).badge.word, 'Not observed: its supervisor stopped.', 'no End session to point to');
 });
 
+test('170 review A-08: every reason the supervisor closes a channel for has a sentence of its own, and none says a state word', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'runtime', 'worker', 'supervisor.ts'), 'utf8');
+  // The reasons the supervisor writes: a direct `close('x')`, a `closedReason: 'x'`, and the branches of the two close calls that choose one.
+  const written = new Set<string>();
+  for (const found of source.matchAll(/\bclose\('([a-z-]+)'\)|closedReason: '([a-z-]+)'/g)) written.add(found[1] ?? found[2]);
+  for (const reason of ['first-refused', 'write-failed', 'timeout', 'cancelled', 'harness-exited']) {
+    assert.ok(source.includes(`'${reason}'`), `${reason} is still a reason the supervisor writes`);
+    written.add(reason);
+  }
+  assert.ok(written.size >= 7, `the scan found the reasons: ${[...written].join(', ')}`);
+  for (const reason of written) {
+    const words = layers.CLOSED_WORDS[reason];
+    assert.equal(typeof words, 'string', `${reason} has a page sentence`);
+    assert.doesNotMatch(words, /\b(active|online|idle)\b/i, `${reason}: no state word`);
+    assert.equal(view(chan({ channel: 'closed', reason, turn: unseen('channel-closed') })).badge.word, `Ended: ${words}`, reason);
+  }
+});
+
 test('170 §10 closed or ended: "Ended: <closedReason words>", no Send, Steer or Stop turn; a closed channel of a session still running keeps End session', () => {
   const closed = view(chan({ channel: 'closed', reason: 'harness-exited', turn: unseen('channel-closed') }));
   assert.equal(closed.badge.word, 'Ended: the harness exited');

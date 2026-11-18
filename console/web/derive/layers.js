@@ -527,6 +527,8 @@ const CLOSED_WORDS = Object.freeze({
   'unused-timeout': 'it sat unused for 30 minutes and its channel was closed',
   'harness-exited': 'the harness exited',
   'write-failed': 'a message could not be written to it',
+  'first-refused': 'its first text was refused by the channel',
+  timeout: 'it ran past its time limit and was stopped',
   'not-started': 'it never started',
   'not-opened': 'its channel never opened',
   cancelled: 'it was stopped',
