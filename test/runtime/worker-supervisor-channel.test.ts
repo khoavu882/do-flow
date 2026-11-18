@@ -121,15 +121,21 @@ const PI = workerCatalogue({ registry: loadRegistry({ repoRoot: REPO }) }).find(
 const requestId = () => `r${crypto.randomBytes(16).toString('base64url').slice(1)}`;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function until<T>(read: () => T, what: string, ms = 10000): Promise<T> {
+async function until<T>(read: () => T, what: string, ms = 10000, every = 20): Promise<T> {
   const end = Date.now() + ms;
   for (;;) {
     const value = read();
     if (value) return value;
     if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
-    await sleep(20);
+    await sleep(every);
   }
 }
+
+/**
+ * A wait on process liveness: each read runs `ps`, so it polls every 200 ms, and the 30 s ceiling is a bound for a loaded
+ * machine, not the expected time (review B-04). The order of events is asserted by the caller, not the time.
+ */
+const PROCESS_WAIT = Object.freeze({ ms: 30000, every: 200 });
 
 function git(cwd: string, ...args: string[]) {
   const r = spawnSync('git', ['-C', cwd, '-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
@@ -379,7 +385,7 @@ test('channel: a harness that refuses the first record leaves the turn not obser
   assert.equal(fs.existsSync(spool.spoolDir(f.root, runId)), false);
 });
 
-test('no orphan: SIGKILL of the supervisor closes the harness stdin, so the harness and its group are gone within graceSeconds + 2 s and the spool holds no text', POSIX, async (t: any) => {
+test('no orphan: SIGKILL of the supervisor closes the harness stdin, so the supervisor is gone and then the harness and its group, and the spool holds no text', POSIX, async (t: any) => {
   const f = fixture(t);
   const first = 'kill test first prompt';
   const runId = seed(f, first);
@@ -392,7 +398,11 @@ test('no orphan: SIGKILL of the supervisor closes the harness stdin, so the harn
   assert.equal(logLines(f)[0], record(CHANNEL.messages.followUp, first, 'd-1'));
 
   process.kill(supervisor.pid, 'SIGKILL');
-  await until(() => gone(worker), 'the harness group gone', (CHANNEL.close.graceSeconds + 2) * 1000);
+  // The order: the supervisor is dead first; its death closes the harness stdin, and then the harness group is gone.
+  const order: string[] = [];
+  await until(() => tree.alive(supervisor) === false && order.push('supervisor-gone'), 'the supervisor gone', PROCESS_WAIT.ms, PROCESS_WAIT.every);
+  await until(() => gone(worker) && order.push('harness-group-gone'), 'the harness group gone', PROCESS_WAIT.ms, PROCESS_WAIT.every);
+  assert.deepEqual(order, ['supervisor-gone', 'harness-group-gone']);
   assert.equal(tree.alive(supervisor), false);
   const dir = spool.spoolDir(f.root, runId);
   const left = fs.existsSync(dir) ? fs.readdirSync(dir) : [];
@@ -413,7 +423,7 @@ test('R-9: a harness that ignores its closed stdin outlives the killed superviso
   await until(() => runOf(f, runId)?.channel?.state === 'open' && runOf(f, runId).channel.turn.state === 'waiting', 'the turn waiting');
   const worker = runOf(f, runId).worker;
   process.kill(supervisor.pid, 'SIGKILL');
-  await until(() => tree.alive(supervisor) === false, 'the supervisor gone');
+  await until(() => tree.alive(supervisor) === false, 'the supervisor gone', PROCESS_WAIT.ms, PROCESS_WAIT.every);
   await sleep(1000);
   assert.equal(tree.alive(worker), true, 'the stubborn harness survives its supervisor');
   const dir = spool.spoolDir(f.root, runId);
@@ -423,7 +433,7 @@ test('R-9: a harness that ignores its closed stdin outlives the killed superviso
 
   const cancel = await executeWorkerCommand({ action: 'cancel', slug: 'started-sessions', workerRun: runId, operator: true, via: 'console', reason: 'stubborn harness', env: f.env, cwd: f.root });
   assert.equal(cancel.body.disposition, 'cancelled', JSON.stringify(cancel.body));
-  await until(() => gone(worker), 'the stubborn group gone', 5000);
+  await until(() => gone(worker), 'the stubborn group gone', PROCESS_WAIT.ms, PROCESS_WAIT.every);
   assert.equal(fs.existsSync(dir), false, 'the cancel removed the spool');
   assert.equal(runOf(f, runId).phase, 'ended');
 });
