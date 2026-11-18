@@ -1,0 +1,22 @@
+{
+  "vendorNames": [
+    "Anthropic", "OpenAI", "Google", "Amazon", "Claude", "GPT", "Gemini", "Codex", "Copilot", "Kiro", "OpenCode",
+    "Antigravity", "Opus", "Sonnet", "Haiku", "Fable", "Mythos"
+  ],
+  "sites": [
+    { "id": "C1", "file": "core/shared/scripts/doflow/bash/do-task-brief.sh", "status": "framed", "fixture": "C1" },
+    { "id": "C2", "file": "core/shared/scripts/doflow/bash/do-task-brief.sh", "status": "framed", "fixture": "C2" },
+    { "id": "C3", "file": "src/runtime/brief-tools.ts", "status": "framed", "fixture": "C1" },
+    { "id": "C5", "file": "core/shared/scripts/doflow/bash/do-review-package.sh", "status": "framed", "fixture": "C5" },
+    { "id": "C6", "file": "src/runtime/dispatch/handoff-prompt.ts", "status": "framed", "fixture": "C6" },
+    { "id": "C8", "file": "src/runtime/worker/session-prompt.ts", "status": "framed", "fixture": "C8" },
+    { "id": "C16", "file": "src/runtime/worker/channel.ts", "status": "framed", "fixture": "C16" },
+    { "id": "C7", "file": "src/runtime/dispatch/grants.ts", "status": "exempt", "reason": "written by a worker and copied unchanged with its sha256; the handoff's Children block tells the granting worker to write it in the frame" },
+    { "id": "C9", "file": "src/runtime/advice/providers/ollama-systemone.ts", "status": "exempt", "reason": "the wire is a scorer protocol whose state is the subject and whose answer shape the protocol fixes (K-1)" },
+    { "id": "C10", "file": "src/runtime/review/resolve-protocol.ts", "status": "exempt", "reason": "key=value protocol lines to the orchestrating session" },
+    { "id": "C11", "file": "core/harnesses/shared/hooks/policies/emission.jq", "status": "exempt", "reason": "context injection with no instructions or output" },
+    { "id": "C12-C14", "file": "bench/agentic/tasks.ts", "status": "exempt", "reason": "measuring instruments whose template hash is pinned" },
+    { "id": "C15", "file": "core/shared/agent-specs/delivery-lead.md", "status": "exempt", "reason": "static per-harness system text; the layout prose is reworded in the guide's pointer edit (design 10.2)" },
+    { "id": "C17", "file": "src/runtime/worker/launch.ts", "status": "exempt", "reason": "context injection with no instructions or output, row 078's contract, like C11: the worker layer prepends the ContextPack block (src/runtime/context/compose.ts, src/runtime/context-pack.ts) in front of a headless worker's prompt" }
+  ]
+}
