@@ -16,6 +16,9 @@ const { composeFrame, FrameSpecError } = require('./frame.ts');
 const MAX_INPUT_BYTES = 4 * 1024 * 1024;
 const GUIDE = path.join('core', 'shared', 'guidance', 'references', 'PROMPT_FRAME.md');
 const DOC_KEY = /^input\.doc:(path|id)=(.+?)(?:;kind=(source|hand-back))?$/;
+// The key of an `input.doc:` part holds its own `=` (`path=<rel>`, `id=<id>`), so the file begins at the first `=`
+// after that value (and after `;kind=...`); a document path or id therefore holds no `=`. Any other key ends at the first `=`.
+const DOC_PART = /^input\.doc:(?:path|id)=[^=]+?(?:;kind=(?:source|hand-back))?(?==)/;
 const CONSTRAINT_PREFIX = 'instructions.constraint:';
 
 /** Reads one input file as UTF-8 text, at most 4 MiB; `code` names the failure for the error shape. */
@@ -34,7 +37,8 @@ class PartUsage extends Error {}
 const lines = (body: string): string[] => body.split(/\r?\n/).filter((line) => line.trim() !== '');
 
 /**
- * The FrameSpec of a list of `<key>=<file>` parts. The file is whatever follows the last `=`; the key is
+ * The FrameSpec of a list of `<key>=<file>` parts. The file is whatever follows the key's end (the first `=`, or for
+ * `input.doc:` the first `=` after its path or id and `;kind=`), so a file path may hold `=`; the key is
  * one of header, role, context, instructions.outcome|success|steps|stop, instructions.constraint:<Heading>
  * (repeatable), example, output_format.reader|lines, input.doc:path=<rel>|input.doc:id=<id>[;kind=hand-back]
  * (repeatable). Unknown keys and empty parts are the composer's to refuse, as for a spec file.
@@ -45,7 +49,7 @@ function specFromParts(parts: string[], { budgetLines, cwd }: { budgetLines?: nu
   const fmt = () => (spec.output_format = spec.output_format || {});
   const seen = new Set<string>();
   for (const part of parts) {
-    const cut = part.lastIndexOf('=');
+    const cut = part.match(DOC_PART)?.[0].length ?? part.indexOf('=');
     if (cut < 1 || cut === part.length - 1) throw new PartUsage(`--part expects <key>=<file>, got '${part}'`);
     const key = part.slice(0, cut);
     const body = () => readInput(part.slice(cut + 1), 'frame-part-unreadable', cwd);

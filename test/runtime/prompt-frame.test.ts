@@ -420,6 +420,25 @@ test('--part: the parts of a spec render byte-equal to the same spec through --s
   assert.equal(viaParts.stdout, GOLDEN);
 });
 
+test('--part: the file path splits at the key\'s first "=", so a path may hold "=", for a plain key and for input.doc:', () => {
+  const f = (name: string, text: string) => write(`parts/a=b/${name}`, text);
+  const part = (key: string, name: string, text: string) => ['--part', `${key}=${f(name, text)}`];
+  const base = [
+    ...part('instructions.outcome', 'o=1.txt', 'Build the thing.\n'),
+    ...part('instructions.stop', 's=1.txt', 'Stop when done.\n'),
+    ...part('output_format.reader', 'r=1.txt', 'The lead\n'),
+  ];
+  const plain = run(['--action', 'render', ...base, ...part('role', 'role=1.txt', 'You are the `implementer`.\n')]);
+  assert.equal(plain.status, 0, plain.stderr);
+  assert.ok(plain.stdout.includes('<role>\nYou are the `implementer`.\n</role>'), plain.stdout);
+  const docs = run(['--action', 'render', ...base,
+    ...part('input.doc:path=agent-docs/x.md', 'd=1.txt', 'FR-1 holds.\n'),
+    ...part('input.doc:id=hand-back A.1;kind=hand-back', 'd=2.txt', 'Status: done\n')]);
+  assert.equal(docs.status, 0, docs.stderr);
+  assert.ok(docs.stdout.includes('<document path="agent-docs/x.md">\nFR-1 holds.\n</document>'), docs.stdout);
+  assert.ok(docs.stdout.includes('<document id="hand-back A.1" kind="hand-back">\nStatus: done\n</document>'), docs.stdout);
+});
+
 test('--part: validation is the composer\'s, and an unreadable part file exits 2 with frame-part-unreadable', () => {
   const missing = run(['--action', 'render', '--part', `role=${path.join(scratch.dir, 'no-such-file.txt')}`, '--json']);
   assert.equal(missing.status, 2);
