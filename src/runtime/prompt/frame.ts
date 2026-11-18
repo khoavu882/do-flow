@@ -34,7 +34,17 @@ const FRAME_TAG = /<(\s*\/?\s*)(role|context|input|instructions|example|output_f
 const TOP_KEYS = ['header', 'role', 'context', 'input', 'instructions', 'example', 'output_format'];
 const INSTRUCTION_KEYS = ['outcome', 'success', 'constraints', 'steps', 'stop'];
 const BLOCK_KEYS = ['heading', 'body'];
-const DOC_KEYS = ['path', 'id', 'kind', 'text'];
+/**
+ * One document of `input`.
+ * @typedef {Object} Doc
+ * @property {string} [path] the source path (exactly one of `path` and `id`)
+ * @property {string} [id] the document id
+ * @property {'source'|'hand-back'} [kind]
+ * @property {string} text the body
+ * @property {boolean} [keep] the body is a person's own words: a placeholder such as `none` or `N/A` is text, not an
+ *   empty part, so it is kept and escaped like any other. Only a blank body is still left out.
+ */
+const DOC_KEYS = ['path', 'id', 'kind', 'text', 'keep'];
 const FORMAT_KEYS = ['reader', 'budgetLines', 'lines'];
 
 /** Whether `s` says nothing: blank, or a placeholder such as `none`, `N/A`, `TBD`, a dash or `(none)`. */
@@ -147,8 +157,10 @@ function normalize(spec: any, omitted: string[]): any {
       const name = doc.path !== undefined ? 'path' : 'id';
       if (typeof doc[name] !== 'string' || doc[name].trim() === '') fail('frame-document-source', `input[${i}].${name} is not a non-empty string`);
       if (doc.kind !== undefined && doc.kind !== 'source' && doc.kind !== 'hand-back') fail('frame-document-source', `input[${i}].kind is source or hand-back`);
+      if (doc.keep !== undefined && typeof doc.keep !== 'boolean') fail('frame-document-source', `input[${i}].keep is true or false`);
       escAttr(doc[name], `input[${i}].${name}`);
-      if (isEmptyBody(text(doc.text, `input[${i}].text`))) omitted.push(`input.document[${i}]`);
+      const body = text(doc.text, `input[${i}].text`);
+      if (doc.keep === true ? body.trim() === '' : isEmptyBody(body)) omitted.push(`input.document[${i}]`);
       else n.input.push({ i, doc: { [name]: doc[name], ...(doc.kind === undefined ? {} : { kind: doc.kind }), text: norm(doc.text) } });
     });
     if (n.input.length === 0) omitted.push('input');

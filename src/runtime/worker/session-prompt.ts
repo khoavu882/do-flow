@@ -39,8 +39,8 @@ type Prepared = { ok: true; text: string; sent: string; sha256: string; bytes: n
  *   `promptVia` `stdin` or `argv` (how the harness takes it).
  * @returns `{ ok: true, text, sent, sha256, bytes }`, `sha256` (hex) and `bytes` being of `sent` in UTF-8, or
  *   `{ ok: false, code }` with `prompt-nul`, `prompt-empty`, `prompt-too-long`, `prompt-leading-dash` or `prompt-leading-at`.
- *   The caps and the dash and at-sign checks are of the person's text, not of the frame. For entry `do`, a text the
- *   frame reads as empty (a placeholder such as `none` or `TBD`, which it would leave out) is `prompt-empty`.
+ *   The caps and the dash and at-sign checks are of the person's text, not of the frame. For entry `do`, a placeholder such as `none` or
+ *   `TBD` is the person's text and is sent in its frame; only blank text is `prompt-empty`.
  */
 function preparePrompt(raw: any, opts: { entry: string; promptVia: string }): Prepared {
   const { entry, promptVia } = opts || ({} as any);
@@ -57,7 +57,7 @@ function preparePrompt(raw: any, opts: { entry: string; promptVia: string }): Pr
   if (entry === 'do') {
     // The frame adds at most a few hundred bytes, and escaping a frame tag 3 bytes per tag, so 1024 over the text cap is room enough.
     const framed = composeFrame({
-      input: [{ id: 'request', text }],
+      input: [{ id: 'request', text, keep: true }],
       instructions: { outcome: ENTRY_LINE, stop: ENTRY_STOP },
       output_format: { reader: ENTRY_READER },
     }, { maxBytes: PROMPT_MAX.bytes + 1024 });

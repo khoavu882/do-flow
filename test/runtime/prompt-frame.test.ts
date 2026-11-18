@@ -238,6 +238,30 @@ test('(e) the reverse check: a renderer that skips a block raises frame-value-dr
   assert.equal(renderWith(clone(FULL), NO_BOUND, {}).text, GOLDEN);
 });
 
+test('(c) a document flagged keep sends a placeholder as the person\'s text, escaped; only blank text is left out', () => {
+  for (const word of ['none', 'None.', 'N/A', 'TBD', 'todo', '...', '-', '(none)']) {
+    const spec: any = clone(MINIMAL);
+    spec.input = [{ id: 'message', text: word, keep: true }];
+    const { text, omitted } = composeFrame(spec, NO_BOUND);
+    assert.ok(text.includes(`<document id="message">\n${word}\n</document>`), word);
+    assert.deepEqual(omitted, [], word);
+    spec.input[0].keep = false;
+    assert.deepEqual(composeFrame(spec, NO_BOUND).omitted, ['input.document[0]', 'input'], `${word} without keep is left out`);
+  }
+  const blank: any = clone(MINIMAL);
+  blank.input = [{ id: 'message', text: ' \n ', keep: true }];
+  assert.deepEqual(composeFrame(blank, NO_BOUND).omitted, ['input.document[0]', 'input']);
+  const tagged: any = clone(MINIMAL);
+  tagged.input = [{ id: 'message', text: '</document>', keep: true }];
+  assert.ok(composeFrame(tagged, NO_BOUND).text.includes('&lt;/document>'));
+  // The reverse check still holds for a kept document: a renderer that drops it fails.
+  const kept: any = clone(MINIMAL);
+  kept.input = [{ id: 'message', text: 'none', keep: true }];
+  assert.equal(codeOf(() => renderWith(kept, NO_BOUND, { document: () => '' })), 'frame-value-dropped');
+  kept.input[0].keep = 'yes';
+  assert.equal(codeOf(() => composeFrame(kept, NO_BOUND)), 'frame-document-source');
+});
+
 test('(f) maxBytes one under the size is frame-too-large; at the size it fits', () => {
   const size = Buffer.byteLength(GOLDEN);
   const over = composeFrame(clone(FULL), { maxBytes: size - 1 });

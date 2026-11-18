@@ -8,7 +8,7 @@
 const { validateControlChannel } = require('../../registry/control-channel.ts');
 const { compileTest, read } = require('./parsers/field-map.ts');
 const { PROMPT_MAX } = require('./session-prompt.ts');
-const { composeFrame, isEmptyBody } = require('../prompt/frame.ts');
+const { composeFrame } = require('../prompt/frame.ts');
 
 type Check = (event: any) => boolean;
 type Template = Record<string, any>;
@@ -88,12 +88,12 @@ const MESSAGE_READER = 'The person who started this session';
  * Every person's text passes through here, after the caps, before it is put in a record (row 173 §6.7). A `first`
  * message is already the prompt 165 composed and is sent as is; a `follow-up` or a `steer` is the `message` document of
  * a prompt frame. `room` is the bytes the record leaves for the text (the record cap less the template's own bytes).
- * @returns the text to send, or null when it does not fit `room` or the frame reads it as empty (a placeholder such as `none`)
+ * @returns the text to send, or null when it does not fit `room` or the text is blank
  */
 function messageText(kind: Kind, text: string, room: number): string | null {
   if (kind === 'first') return text;
   const framed = composeFrame({
-    input: [{ id: 'message', text }],
+    input: [{ id: 'message', text, keep: true }],
     instructions: { outcome: kind === 'steer' ? STEER_OUTCOME : FOLLOW_UP_OUTCOME, stop: MESSAGE_STOP },
     output_format: { reader: MESSAGE_READER },
   }, { maxBytes: room });
@@ -174,7 +174,7 @@ function frameMessage(compiled: Compiled, kind: Kind, vars: { text?: string; per
   const refused = textRefusal(vars?.text) ?? commandRefusal(compiled, vars.text as string);
   if (refused) return { ok: false, code: refused };
   const sent = messageText(kind, vars.text as string, CHANNEL_LIMITS.recordBytes - emptyRecordBytes(template, vars?.id ?? null));
-  if (sent === null) return { ok: false, code: isEmptyBody(vars.text) ? 'prompt-empty' : 'prompt-too-long' };
+  if (sent === null) return { ok: false, code: 'prompt-too-long' };
   return record(template, sent, vars?.id ?? null);
 }
 

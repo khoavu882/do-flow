@@ -59,11 +59,14 @@ test('a text holding frame tags stays one request document: the tags are written
   assert.deepEqual([r.sent.match(/<document /g).length, r.sent.match(/<\/document>/g).length, r.sent.match(/<\/input>/g).length, r.sent.match(/<instructions>/g).length], [1, 1, 1, 1]);
 });
 
-test('a text the frame would read as empty (a placeholder such as "none" or "TBD") is prompt-empty for entry do, never sent without its request', () => {
-  for (const raw of ['none', 'TBD', '...', '(none)']) {
-    assert.deepEqual(preparePrompt(raw, STDIN_DO), { ok: false, code: 'prompt-empty' }, raw);
-    assert.equal(preparePrompt(raw, STDIN_NONE).ok, true, `${raw}: entry none sends it as it is`);
+test('a placeholder such as "none" or "TBD" is the person\'s request for entry do, sent in its frame; only blank text is prompt-empty', () => {
+  for (const raw of ['none', 'TBD', '...', '(none)', 'N/A', '-']) {
+    const r: any = preparePrompt(raw, STDIN_DO);
+    assert.equal(r.ok, true, raw);
+    assert.equal(r.sent, framed(raw), raw);
+    assert.equal(preparePrompt(raw, STDIN_NONE).ok, raw !== '-', `${raw}: entry none sends it as it is`);
   }
+  assert.deepEqual(preparePrompt('  \n', STDIN_DO), { ok: false, code: 'prompt-empty' });
 });
 
 test('8001 code points is prompt-too-long; 8000 passes', () => {
