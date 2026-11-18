@@ -5,7 +5,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  CHANNEL_LIMITS, compileChannel, messageText, frame, frameMessage, commandRefusal, idOf, answerOf, TurnTracker, admit, createTurnCoalescer,
+  CHANNEL_LIMITS, compileChannel, messageText, frame, frameMessage, commandRefusal, idOf, answerOf, TurnTracker, admit, tally, createTurnCoalescer,
 } = require('../../src/runtime/worker/channel.ts');
 const { PARSERS, parserOf } = require('../../src/runtime/worker/parsers.ts');
 const { PROMPT_MAX, ENTRY_LINE } = require('../../src/runtime/worker/session-prompt.ts');
@@ -234,8 +234,12 @@ test('answerOf: d-<seq> with a matching test list; anything else is null', () =>
   assert.equal(answerOf(compileChannel(bare), { type: 'response', id: 'd-1', success: true }), null);
 });
 
+/** The stamps the supervisor keeps after these ledger entries, oldest first (`tally` folds each one in). */
 function ledger(entries: Array<[string, string, number]>, by = 'alice', outcome = 'written') {
-  return entries.map(([kind, who, agoMs], i) => ({ seq: i + 1, kind, by: who || by, at: new Date(T0 - agoMs).toISOString(), outcome }));
+  return entries
+    .map(([kind, who, agoMs], i) => ({ seq: i + 1, kind, by: who || by, at: new Date(T0 - agoMs).toISOString(), outcome }))
+    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at))
+    .reduce((counted: any, entry: any) => tally(counted, entry), {});
 }
 
 test('admit: the 7th message in a minute is refused with retryAfterSeconds; follow-up and steer count together', () => {
@@ -244,10 +248,12 @@ test('admit: the 7th message in a minute is refused with retryAfterSeconds; foll
   assert.deepEqual(refused, { ok: false, code: 'actor-rate-limited', retryAfterSeconds: 10 });
   assert.deepEqual(admit(six, 'alice', 'steer', T0), refused);
   assert.deepEqual(admit(six, 'alice', 'follow-up', T0 + 10000), { ok: true }, 'the oldest left its minute');
-  assert.deepEqual(admit(six.slice(1), 'alice', 'follow-up', T0), { ok: true }, 'five in the minute');
+  assert.deepEqual(admit(ledger([['steer', '', 40000], ['follow-up', '', 30000], ['steer', '', 20000], ['follow-up', '', 10000], ['follow-up', '', 5000]]), 'alice', 'follow-up', T0), { ok: true }, 'five in the minute');
   assert.deepEqual(admit(six, 'bob', 'follow-up', T0), { ok: true }, 'another actor has its own budget');
-  assert.deepEqual(admit(six.map((e: any) => ({ ...e, outcome: 'refused' })), 'alice', 'follow-up', T0), { ok: true }, 'a refused entry costs nothing');
-  assert.deepEqual(admit(six.map((e: any) => ({ ...e, kind: 'first' })), 'alice', 'follow-up', T0), { ok: true }, 'the starter\'s first prompt counts toward nothing');
+  const sixAgo: Array<[string, string, number]> = [['follow-up', '', 50000], ['steer', '', 40000], ['follow-up', '', 30000], ['steer', '', 20000], ['follow-up', '', 10000], ['follow-up', '', 5000]];
+  assert.deepEqual(admit(ledger(sixAgo, 'alice', 'refused'), 'alice', 'follow-up', T0), { ok: true }, 'a refused entry costs nothing');
+  assert.deepEqual(admit(ledger(sixAgo, 'alice', 'failed'), 'alice', 'follow-up', T0), { ok: true }, 'a failed entry costs nothing');
+  assert.deepEqual(admit(ledger(sixAgo.map(([, who, ago]) => ['first', who, ago] as [string, string, number])), 'alice', 'follow-up', T0), { ok: true }, 'the starter\'s first prompt counts toward nothing');
   assert.deepEqual(admit([], 'alice', 'follow-up', T0), { ok: true });
 });
 
@@ -256,7 +262,7 @@ test('admit: the 61st message in an hour is refused with the wait until the olde
   // oldest is 3590000 ms ago: leaves the hour in 10 s
   const refused = admit(sixty, 'alice', 'steer', T0);
   assert.deepEqual(refused, { ok: false, code: 'actor-rate-limited', retryAfterSeconds: 10 });
-  assert.deepEqual(admit(sixty.slice(1), 'alice', 'follow-up', T0), { ok: true }, '59 in the hour');
+  assert.deepEqual(admit(ledger(Array.from({ length: 59 }, (_, i) => ['follow-up', '', 3000000 + i * 10000] as [string, string, number])), 'alice', 'follow-up', T0), { ok: true }, '59 in the hour');
   // 60 in the hour and 6 in the minute: both windows must open, so the longer wait (the hour's oldest, 3530 s ago) is reported
   const mixed = ledger([...Array.from({ length: 54 }, (_, i) => ['follow-up', '', 3000000 + i * 10000] as [string, string, number]), ...Array.from({ length: 6 }, (_, i) => ['follow-up', '', 55000 - i * 1000] as [string, string, number])]);
   assert.deepEqual(admit(mixed, 'alice', 'follow-up', T0), { ok: false, code: 'actor-rate-limited', retryAfterSeconds: 70 });
@@ -265,10 +271,49 @@ test('admit: the 61st message in an hour is refused with the wait until the olde
 test('admit: the 7th stop in a minute is refused; stops do not spend the message budget and vice versa', () => {
   const stops = ledger(Array.from({ length: 6 }, (_, i) => ['stop', '', 50000 - i * 5000] as [string, string, number]));
   assert.deepEqual(admit(stops, 'alice', 'stop', T0), { ok: false, code: 'actor-rate-limited', retryAfterSeconds: 10 });
-  assert.deepEqual(admit(stops.slice(1), 'alice', 'stop', T0), { ok: true });
+  assert.deepEqual(admit(ledger(Array.from({ length: 5 }, (_, i) => ['stop', '', 45000 - i * 5000] as [string, string, number])), 'alice', 'stop', T0), { ok: true });
   assert.deepEqual(admit(stops, 'alice', 'follow-up', T0), { ok: true });
   const messages = ledger(Array.from({ length: 6 }, (_, i) => ['follow-up', '', 50000 - i * 5000] as [string, string, number]));
   assert.deepEqual(admit(messages, 'alice', 'stop', T0), { ok: true });
+});
+
+test('A-01: the hourly count is exact when other entries would have evicted the actor\'s stamps from a 128-entry ledger', () => {
+  // Review A-01 (Seat A's reproducer): 60 follow-ups in 10 minutes, then 72 more entries to 22 minutes. The displayed
+  // ledger keeps only its newest 128 entries; the stamps admit counts from keep every message younger than an hour.
+  const t0 = Date.parse('2026-11-18T10:00:00Z');
+  const shown: any[] = [];
+  let counted: any = {};
+  let seq = 0;
+  const write = (kind: string, ms: number, outcome = 'written') => {
+    const entry = { seq: ++seq, kind, by: 'console', at: new Date(ms).toISOString(), outcome };
+    shown.push(entry);
+    if (shown.length > 128) shown.splice(0, shown.length - 128);
+    counted = tally(counted, entry);
+  };
+  let sent = 0;
+  for (let m = 0; m < 10; m += 1) {
+    for (let i = 0; i < 6; i += 1) {
+      const at = t0 + m * 60000 + i * 1000;
+      if (admit(counted, 'console', 'follow-up', at).ok) { write('follow-up', at); sent += 1; }
+    }
+  }
+  assert.equal(sent, 60);
+  for (let m = 10; m < 22; m += 1) {
+    for (let i = 0; i < 6; i += 1) {
+      const at = t0 + m * 60000 + i * 1000;
+      assert.equal(admit(counted, 'console', 'stop', at).ok, true);
+      write('stop', at);
+    }
+  }
+  const now = t0 + 22 * 60000;
+  assert.equal(shown.length, 128, 'the displayed ledger keeps its 128 entries');
+  assert.ok(shown.filter((e) => e.kind === 'follow-up').length < 60, 'the displayed ledger alone would under-count');
+  assert.deepEqual(admit(counted, 'console', 'follow-up', now), { ok: false, code: 'actor-rate-limited', retryAfterSeconds: 38 * 60 });
+  // Bounded by time and by the limit, and no text: 60 message stamps, the last minute's 6 stops, numbers only.
+  assert.deepEqual([counted.console.messages.length, counted.console.stops.length], [60, 6]);
+  assert.ok([...counted.console.messages, ...counted.console.stops].every((n: any) => typeof n === 'number'));
+  const later = tally(counted, { kind: 'stop', by: 'manual', at: new Date(t0 + 70 * 60000).toISOString(), outcome: 'written' });
+  assert.deepEqual(Object.keys(later), ['manual'], 'an actor with no stamp left in its window is dropped');
 });
 
 test('admit: the 5th waiting message is channel-busy (no retryAfterSeconds); a stop is never refused for it', () => {

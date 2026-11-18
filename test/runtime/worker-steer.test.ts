@@ -128,10 +128,10 @@ function seed(f: any, { sent = 'first prompt', controlChannel = structuredClone(
 }
 
 /** A process-free open channel session: the record as the supervisor keeps it, and its spool. */
-function seedOpen(f: any, { turn = { observed: true, state: 'working', since: iso(), seq: 1 }, ledger = [] as any[], state = 'open', closedReason = null as any, controlChannel = structuredClone(CHANNEL) }: any = {}) {
+function seedOpen(f: any, { turn = { observed: true, state: 'working', since: iso(), seq: 1 }, ledger = [] as any[], stamps = {} as any, state = 'open', closedReason = null as any, controlChannel = structuredClone(CHANNEL) }: any = {}) {
   const runId = seed(f, { controlChannel });
   transition(f.file, runId, ['starting'], (run: any) => {
-    run.channel = { v: 1, state, closedReason, turn, sent: { count: 0, bytes: 0, lastAt: null }, ledger };
+    run.channel = { v: 1, state, closedReason, turn, sent: { count: 0, bytes: 0, lastAt: null }, ledger, stamps };
   });
   spool.createSpool(f.root, runId);
   return runId;
@@ -399,7 +399,13 @@ test('checks 10 and 11: channel-busy at four waiting (never for stop), actor-rat
   // Six follow-ups by this actor in the last minute: the seventh waits. Another actor is not limited.
   const now = Date.now();
   const ledger = Array.from({ length: 6 }, (_, i) => ({ seq: i + 2, kind: 'follow-up', by: 'console', requestId: rid(), at: iso(now - 50_000 + i * 1000), bytes: 3, outcome: 'written', reason: null, answer: 'accepted' }));
-  const limited = seedOpen(f, { ledger });
+  const stamps = { console: { messages: ledger.map((e) => Date.parse(e.at)), stops: [] } };
+  const limited = seedOpen(f, { ledger, stamps });
+  // The count is the stamps', not the displayed ledger's (review A-01): an empty ledger with 60 stamps in the hour still limits.
+  const hourly = seedOpen(f, { stamps: { console: { messages: Array.from({ length: 60 }, (_, i) => now - 3_500_000 + i * 1000), stops: [] } } });
+  const capped = await verb(f, hourly, 'send');
+  assert.deepEqual([capped.exit, capped.body.code], [1, 'actor-rate-limited']);
+  assert.ok(capped.body.current.retryAfterSeconds >= 99 && capped.body.current.retryAfterSeconds <= 101, JSON.stringify(capped.body));
   const r = await verb(f, limited, 'send');
   assert.deepEqual([r.exit, r.body.code], [1, 'actor-rate-limited']);
   assert.ok(Number.isInteger(r.body.current.retryAfterSeconds) && r.body.current.retryAfterSeconds >= 1 && r.body.current.retryAfterSeconds <= 60, JSON.stringify(r.body));

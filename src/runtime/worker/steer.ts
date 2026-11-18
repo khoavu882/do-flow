@@ -154,7 +154,7 @@ async function steerSession(o: any) {
   // Checks 10 and 11: waiting files and the per-actor limits (D6).
   let queued = 0;
   try { queued = waitingNames(root, runId).length; } catch { queued = 0; }
-  const admitted = admit(run.channel.ledger, by, kind, nowMs(), queued);
+  const admitted = admit(run.channel.stamps, by, kind, nowMs(), queued);
   if (!admitted.ok) {
     return admitted.code === 'channel-busy'
       ? refusal('channel-busy', `${CHANNEL_LIMITS.waiting} messages already wait for this session; try again in a moment`, { runId })
@@ -201,7 +201,7 @@ function answer(run: any, entry: any, replayed: boolean, gone: boolean, now: num
     const code = typeof entry.reason === 'string' && entry.reason !== '' ? entry.reason : entry.outcome;
     const current: any = { runId: run.runId, turn };
     if (code === 'actor-rate-limited') {
-      const again = admit(run.channel?.ledger ?? [], entry.by, entry.kind, now, 0);
+      const again = admit(run.channel?.stamps, entry.by, entry.kind, now, 0);
       if (!again.ok && again.retryAfterSeconds) current.retryAfterSeconds = again.retryAfterSeconds;
     }
     return refusal(code, `the session ${entry.outcome === 'refused' ? 'refused' : 'could not take'} the message: ${code}`, current);

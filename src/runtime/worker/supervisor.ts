@@ -48,7 +48,7 @@ const { readRuns, transition, RUN_ID } = require('./run-store.ts');
 const { readTaskState } = require('../task-state.ts');
 const attempts = require('../task-attempts.ts');
 const { launchWorker, launchMainSession, launchChannelSession } = require('./launch.ts');
-const { compileChannel, frameMessage, idOf, TurnTracker, admit, createTurnCoalescer } = require('./channel.ts');
+const { compileChannel, frameMessage, idOf, TurnTracker, admit, tally, createTurnCoalescer } = require('./channel.ts');
 const { createSpool, spoolDir, takeMessages, removeSpool } = require('./channel-spool.ts');
 const { choiceOf } = require('./model-choice.ts');
 const { readPrompt: readStoredPrompt, ENTRY_LINE } = require('./session-prompt.ts');
@@ -412,6 +412,7 @@ function channelSide({ file, runId, root, run, compiled, child, clock, options =
   const drainMs: number = options.drainMs ?? STDIN_DRAIN_MS;
   const idleNow: () => number = options.now ?? (() => clock().getTime());
   const ledger: any[] = [];
+  let counted: any = {};
   const tracker = new TurnTracker(compiled, () => clock().getTime());
   let seq = 0;
   let inflight: number | null = null;
@@ -439,8 +440,12 @@ function channelSide({ file, runId, root, run, compiled, child, clock, options =
     }
     ledger.push(entry);
     if (ledger.length > LEDGER_MAX) ledger.splice(0, ledger.length - LEDGER_MAX);
+    // D6 counts from the stamps, never from the capped ledger (review A-01); the record carries them for the verb.
+    counted = tally(counted, entry);
+    const stamps = counted;
     update((c) => {
       c.ledger = [...(Array.isArray(c.ledger) ? c.ledger : []), entry].slice(-LEDGER_MAX);
+      c.stamps = stamps;
       if (entry.outcome === 'written') c.sent = { count: (c.sent?.count ?? 0) + 1, bytes: (c.sent?.bytes ?? 0) + entry.bytes, lastAt: entry.at };
     });
   }
@@ -518,7 +523,7 @@ function channelSide({ file, runId, root, run, compiled, child, clock, options =
     if (kind !== 'first') {
       const turn = tracker.turn;
       if (kind !== 'follow-up' && turn.observed && turn.state === 'waiting') return fail('refused', 'not-working');
-      const admitted = admit(ledger, by, kind as any, clock().getTime(), waiting);
+      const admitted = admit(counted, by, kind as any, clock().getTime(), waiting);
       if (!admitted.ok) return fail('refused', admitted.code);
     }
     // The stored first prompt starts with the entry line when the entry is `do`; R-4 is about the person's text after it.

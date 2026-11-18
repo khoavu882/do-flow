@@ -275,6 +275,38 @@ test('channel: the first prompt is the framed follow-up, a spool message arrives
   assert.equal(logLines(f).length, 2);
 });
 
+test('A-01: the supervisor refuses the 61st follow-up of the hour after 72 later entries pushed older ones out of the 128-entry ledger', POSIX, async (t: any) => {
+  const f = fixture(t);
+  const runId = seed(f, 'rate test first prompt');
+  const t0 = Date.parse('2026-11-18T10:00:00Z');
+  let fake = t0;
+  const done = superviseRun({ file: f.file, runId, env: f.env, cwd: f.root, now: () => new Date(fake), channel: { pollMs: 20, now: Date.now } });
+  f.supervising.push(done);
+  await until(() => runOf(f, runId)?.channel?.state === 'open' && runOf(f, runId).channel.turn.state === 'waiting', 'the turn waiting');
+  const last = () => ledgerOf(f, runId).reduce((n: number, e: any) => Math.max(n, e.seq), 0);
+  // Batches of at most 4, each recorded before the next, so `channel-busy` never enters the count.
+  const batch = async (texts: string[]) => {
+    const want = last() + texts.length;
+    for (const text of texts) drop(f, runId, 'follow-up', text);
+    await until(() => last() >= want, `seq ${want}`);
+  };
+  for (let m = 0; m < 10; m += 1) {
+    fake = t0 + m * 60000;
+    await batch(['a', 'b', 'c', 'd']);
+    await batch(['e', 'f']);
+  }
+  assert.equal(ledgerOf(f, runId).filter((e: any) => e.kind === 'follow-up' && e.outcome === 'written').length, 60);
+  fake = t0 + 10 * 60000;
+  for (let i = 0; i < 18; i += 1) await batch(['/x', '/x', '/x', '/x']);
+  fake = t0 + 22 * 60000;
+  await batch(['the sixty-first']);
+  const ledger = ledgerOf(f, runId);
+  assert.equal(ledger.length, 128, 'the displayed ledger keeps its newest 128 entries');
+  assert.deepEqual([ledger[127].kind, ledger[127].outcome, ledger[127].reason], ['follow-up', 'refused', 'actor-rate-limited']);
+  assert.equal(logLines(f).length, 61, 'the first prompt and 60 follow-ups reached the harness, not the 61st');
+  assert.deepEqual(runOf(f, runId).channel.stamps.console.messages.length, 60, 'the record carries the 60 stamps the verb pre-checks');
+});
+
 test('170 T4c: with entry do the supervisor sends an entry-prefixed first prompt over the cap rule and refuses one whose person text starts with the command prefix', POSIX, async (t: any) => {
   const f = fixture(t);
   const fine = seed(f, `${ENTRY_LINE}\n\n${'a'.repeat(8000)}`, 'do');

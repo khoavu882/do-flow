@@ -201,15 +201,48 @@ class TurnTracker {
   }
 }
 
-/** The oldest-first counted entries of `actor` of `kinds` written inside `windowMs` of `now`; their ms stamps. */
-function stamps(ledger: readonly LedgerEntry[], actor: string, kinds: string[], windowMs: number, now: number): number[] {
-  const out: number[] = [];
-  for (const entry of ledger ?? []) {
-    if (entry?.by !== actor || entry.outcome !== 'written' || !kinds.includes(entry.kind)) continue;
-    const at = Date.parse(entry.at);
-    if (Number.isFinite(at) && at > now - windowMs && at <= now) out.push(at);
+/**
+ * Per actor, the ms stamps of the messages written for it: follow-ups and steers together (`messages`, one hour of
+ * them) and stops (`stops`, one minute). Kept apart from the 128-entry ledger, so no stamp `admit` still counts is
+ * evicted by other entries (review A-01). A stamp is a number: no text.
+ */
+type Stamps = Record<string, { messages: number[]; stops: number[] }>;
+type Group = 'messages' | 'stops';
+
+const GROUPS: Readonly<Record<Group, { windowMs: number; keep: number }>> = Object.freeze({
+  messages: { windowMs: HOUR_MS, keep: CHANNEL_LIMITS.messagesPerHour },
+  stops: { windowMs: MINUTE_MS, keep: CHANNEL_LIMITS.stopsPerMinute },
+});
+
+/** The oldest-first stamps of `actor`'s `group` inside `windowMs` of `now`; a malformed shape reads as none. */
+function within(counted: Stamps | null | undefined, actor: string, group: Group, windowMs: number, now: number): number[] {
+  const list = counted && typeof counted === 'object' ? counted[actor]?.[group] : undefined;
+  if (!Array.isArray(list)) return [];
+  return list.filter((at) => Number.isFinite(at) && at > now - windowMs && at <= now).sort((a, b) => a - b);
+}
+
+/**
+ * The stamps after ledger entry `entry`: a written follow-up, steer or stop adds its stamp; a `first`, refused or failed
+ * entry adds none. Every actor's lists are pruned to their window and to the newest `admit` can count (60 messages,
+ * 6 stops), which changes no decision and no retry wait; an actor left with none is dropped.
+ */
+function tally(counted: Stamps | null | undefined, entry: LedgerEntry): Stamps {
+  const at = Date.parse(entry?.at);
+  const now = Number.isFinite(at) ? at : Date.now();
+  const group: Group | null = entry?.kind === 'stop' ? 'stops' : entry?.kind === 'follow-up' || entry?.kind === 'steer' ? 'messages' : null;
+  const counts = group !== null && entry.outcome === 'written' && Number.isFinite(at) && typeof entry.by === 'string';
+  const known = counted && typeof counted === 'object' ? Object.keys(counted) : [];
+  const out: Stamps = {};
+  for (const actor of new Set([...known, ...(counts ? [entry.by] : [])])) {
+    const next = { messages: [] as number[], stops: [] as number[] };
+    for (const name of ['messages', 'stops'] as const) {
+      const list = within(counted, actor, name, GROUPS[name].windowMs, now);
+      if (counts && actor === entry.by && name === group) list.push(at);
+      next[name] = list.slice(-GROUPS[name].keep);
+    }
+    if (next.messages.length > 0 || next.stops.length > 0) out[actor] = next;
   }
-  return out.sort((a, b) => a - b);
+  return out;
 }
 
 /** Seconds until the entry that must age out for one more to fit has left its window; at least 1. */
@@ -218,21 +251,19 @@ function retryAfter(found: number[], limit: number, windowMs: number, now: numbe
 }
 
 /**
- * D6, exact at the supervisor and pre-checked by the verb. Counted per actor from the ledger entries that were
- * written: follow-ups and steers together 6 a minute and 60 an hour, stops 6 a minute. `waiting` is the number of
- * messages queued and not yet written (the spool files); a fifth is `channel-busy`, never for a stop. A `first` entry
- * (the starter's prompt) counts toward nothing.
+ * D6, exact at the supervisor and pre-checked by the verb. Counted per actor from `counted` (see `tally`): follow-ups
+ * and steers together 6 a minute and 60 an hour, stops 6 a minute. `waiting` is the number of messages queued and not
+ * yet written; a fifth is `channel-busy`, never for a stop.
  */
-function admit(ledger: readonly LedgerEntry[], actor: string, kind: 'follow-up' | 'steer' | 'stop', now: number, waiting: number = 0): Admission {
+function admit(counted: Stamps | null | undefined, actor: string, kind: 'follow-up' | 'steer' | 'stop', now: number, waiting: number = 0): Admission {
   if (kind === 'stop') {
-    const minute = stamps(ledger, actor, ['stop'], MINUTE_MS, now);
+    const minute = within(counted, actor, 'stops', MINUTE_MS, now);
     return minute.length >= CHANNEL_LIMITS.stopsPerMinute
       ? { ok: false, code: 'actor-rate-limited', retryAfterSeconds: retryAfter(minute, CHANNEL_LIMITS.stopsPerMinute, MINUTE_MS, now) }
       : { ok: true };
   }
   if (waiting >= CHANNEL_LIMITS.waiting) return { ok: false, code: 'channel-busy' };
-  const kinds = ['follow-up', 'steer'];
-  const hour = stamps(ledger, actor, kinds, HOUR_MS, now);
+  const hour = within(counted, actor, 'messages', HOUR_MS, now);
   const minute = hour.filter((at) => at > now - MINUTE_MS);
   const waits: number[] = [];
   if (minute.length >= CHANNEL_LIMITS.messagesPerMinute) waits.push(retryAfter(minute, CHANNEL_LIMITS.messagesPerMinute, MINUTE_MS, now));
@@ -281,5 +312,5 @@ function createTurnCoalescer(
 }
 
 module.exports = {
-  CHANNEL_LIMITS, compileChannel, messageText, frame, frameMessage, commandRefusal, idOf, answerOf, TurnTracker, admit, createTurnCoalescer,
+  CHANNEL_LIMITS, compileChannel, messageText, frame, frameMessage, commandRefusal, idOf, answerOf, TurnTracker, admit, tally, createTurnCoalescer,
 };
