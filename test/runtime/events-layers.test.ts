@@ -756,8 +756,12 @@ test('170 T4: a session whose descriptor has an unsupported channel reads none/n
   const { items } = (await channelsOf(f, a)).json;
   const by = Object.fromEntries(items.map((x: any) => [x.runId.slice(-1), x]));
   assert.deepEqual([by['4'].channel, by['4'].reason, by['4'].turn], ['none', 'no-channel', { observed: false, reason: 'no-channel', since: null }]);
-  assert.equal(by['4'].words.length, 200, 'the descriptor reason is bounded');
+  assert.equal(by['4'].words.length, 300, 'the descriptor reason is bounded at the 300 characters the Console accepts');
   assert.ok(by['4'].words.startsWith('no channel mode is documented'));
+  // 170 review A-08: a 300-character reason comes through whole, with none of it cut.
+  const whole = 'r'.repeat(300);
+  writeStarted(a, [startedRun(7, { descriptor: { controlChannel: { status: 'unknown', reason: whole } } })]);
+  assert.equal((await channelsOf(f, a)).json.items.find((x: any) => x.runId.endsWith('7')).words, whole);
   // R-9: a harness that ignored its closed stdin still runs; its supervisor is gone, so the turn is not observed.
   assert.deepEqual([by['3'].channel, by['3'].turn], ['open', { observed: false, reason: 'supervisor-gone', since: null }]);
   assert.deepEqual([by['2'].channel, by['2'].reason, by['2'].words, by['2'].turn.reason], ['open', 'opening', null, 'no-event-yet'], 'a supported channel not yet written is opening');

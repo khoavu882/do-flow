@@ -33,7 +33,8 @@ const OUTCOMES = ['written', 'refused', 'failed'];
 const ANSWERS = ['accepted', 'refused'];
 const CHANNEL_STATES: Record<string, 'open' | 'closed'> = { opening: 'open', open: 'open', closed: 'closed' };
 const ACTOR_CHARS = 64;
-const WORDS_CHARS = 200;
+/** The Console's own limit on a core sentence (`CORE_WORDS`, `START_WORDS`: one line of at most 300 characters): a `words` cut shorter would show a sentence the descriptor wrote whole as a truncated one. */
+const WORDS_CHARS = 300;
 
 type Turn = { observed: true; state: 'working' | 'waiting'; since: string; seq: number } | { observed: false; reason: string; since: string | null };
 type Reading = { state: string; at: number; sig: string };
