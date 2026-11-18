@@ -18,7 +18,7 @@
 //   G85.5  no vendor or model name in any section but an input document's body, and none in the guide, the pointer-
 //          edited guidance files or the agent spec; the one list is the inventory's `vendorNames`.
 //   G85.6  no request to think step by step or explain reasoning.
-//   G85.7  the guide's first table equals the composer's SECTIONS and REQUIRED, the guide is at most 3072 bytes, and
+//   G85.7  the guide's first table and docs/reference.md's Prompt frame table equal the composer's SECTIONS and REQUIRED, the guide is at most 3072 bytes, and
 //          no SKILL.md names it by a `references/` path.
 //   Controls (design §7.4): a planted-bad input for each check fails it, and the escape keeps a hostile document
 //   from opening a section.
@@ -37,6 +37,7 @@ const VENDOR_NAMES: readonly string[] = INVENTORY.vendorNames;
 const VENDOR_PATTERN = new RegExp(`\\b(?:${VENDOR_NAMES.join('|')})\\b`, 'g');
 const GUIDE = 'core/shared/guidance/references/PROMPT_FRAME.md';
 const GUIDE_MAX_BYTES = 3072;
+const REFERENCE = 'docs/reference.md';
 
 /** The guidance files whose text carries no vendor or model name (design §10.2). */
 const NEUTRAL_FILES: readonly string[] = [
@@ -151,6 +152,17 @@ function guideProblems(text: string): string[] {
   return found;
 }
 
+/** G85.7 over docs/reference.md's "Prompt frame" table: its section names and required column against the composer's. */
+function referenceProblems(text: string): string[] {
+  const at = text.indexOf('### Prompt frame');
+  if (at < 0) return ['G85.7 docs/reference.md has no "Prompt frame" section'];
+  const rows = [...text.slice(at).matchAll(/^\| `([a-z_]+)` \| (yes|no) \|/gm)].map((m) => [m[1], m[2]]);
+  const found: string[] = [];
+  if (JSON.stringify(rows.map((r) => r[0])) !== JSON.stringify(SECTIONS)) found.push(`G85.7 the reference's Prompt frame table lists ${rows.map((r) => r[0]).join(', ')}, the composer ${SECTIONS.join(', ')}`);
+  if (JSON.stringify(rows.filter((r) => r[1] === 'yes').map((r) => r[0])) !== JSON.stringify(REQUIRED)) found.push('G85.7 the reference marks a different required set than the composer');
+  return found;
+}
+
 // ── the inventory ────────────────────────────────────────────────────────────────────────────────
 
 const SOURCE_EXT = /\.(?:ts|js|cjs|mjs|sh|jq)$/;
@@ -224,6 +236,7 @@ test('G85.5 and G85.7: the guide and the pointer-edited guidance files name no v
   }
   assert.deepEqual(found, []);
   assert.deepEqual(guideProblems(fs.readFileSync(path.join(REPO, GUIDE), 'utf8')), []);
+  assert.deepEqual(referenceProblems(fs.readFileSync(path.join(REPO, REFERENCE), 'utf8')), []);
   const skills = path.join(REPO, 'core', 'shared', 'skills');
   const named = fs.readdirSync(skills).filter((d: string) => fs.existsSync(path.join(skills, d, 'SKILL.md')) && /references\/PROMPT_FRAME/.test(fs.readFileSync(path.join(skills, d, 'SKILL.md'), 'utf8')));
   assert.deepEqual(named, [], 'no SKILL.md names the guide by a references/ path');
@@ -300,6 +313,14 @@ test('G85.7 control: a guide table in another order, with another required set, 
   assert.ok(guideProblems(swapped).length > 0);
   assert.ok(guideProblems(guide.replace(/(\| `instructions` \| )yes/, '$1no')).some((p) => /required/.test(p)));
   assert.ok(guideProblems(`${guide}${'x'.repeat(GUIDE_MAX_BYTES)}`).some((p) => /bytes/.test(p)));
+});
+
+test('G85.7 control: the reference table in another order or with another required set fails', () => {
+  const ref = fs.readFileSync(path.join(REPO, REFERENCE), 'utf8');
+  assert.deepEqual(referenceProblems(ref), []);
+  const reordered = ref.replace('| `role` | no |', '| `TMP` | no |').replace('| `context` | no |', '| `role` | no |').replace('| `TMP` | no |', '| `context` | no |');
+  assert.ok(referenceProblems(reordered).some((p) => /lists/.test(p)));
+  assert.ok(referenceProblems(ref.replace(/(\| `instructions` \| )yes/, '$1no')).some((p) => /required/.test(p)));
 });
 
 test('composer control: a spec with an unknown key (slackBlock) fails before rendering', () => {
