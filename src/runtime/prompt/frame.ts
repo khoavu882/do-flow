@@ -298,4 +298,4 @@ function composeFrame(spec: any, opts: any): any {
   return renderWith(spec, opts, {});
 }
 
-module.exports = { composeFrame, renderWith, renderDocument, isEmptyBody, SECTIONS, REQUIRED, FrameSpecError };
+module.exports = { composeFrame, renderWith, renderDocument, isEmptyBody, SECTIONS, REQUIRED, FRAME_TAG, FrameSpecError };
