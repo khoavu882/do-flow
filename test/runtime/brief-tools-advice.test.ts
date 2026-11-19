@@ -24,7 +24,7 @@ function answer(stdout: any) {
 }
 
 function fixture(t: any) {
-  const scratch = createScratch('doflow-advice-brief-tools-');
+  const scratch = createScratch('doflow-brief-tools-advice-');
   const project = path.join(scratch.dir, 'project');
   const featureDir = path.join(project, 'agent-docs/doflow/001-feature');
   fs.mkdirSync(featureDir, { recursive: true });

@@ -2,7 +2,7 @@
 
 // Row 174 O-1 and O-6: there is one dispatcher path. The three callers that had a second, unset-kind path (classify,
 // brief-tools, review start) no longer branch on whether a kind is set, never ask the client directly, and classify writes
-// no outcome of its own. Behaviour is covered per caller (advice-classify, advice-brief-tools, review-start,
+// no outcome of its own. Behaviour is covered per caller (advice-classify, brief-tools-advice, review-start,
 // advice-ask-modes); this file pins the removal of the code itself.
 
 const test = require('node:test');

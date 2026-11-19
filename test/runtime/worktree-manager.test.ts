@@ -1,5 +1,5 @@
 'use strict';
-// dispatch-worktree-manager.test.js — 082 IC-016's WorktreeManager amendment (branch prefix,
+// worktree-manager.test.ts — 082 IC-016's WorktreeManager amendment (branch prefix,
 // bounded git env) and IC-021's removeVerified, on a temp repository.
 //
 // Every git child the manager starts gets an explicit env: PATH is one scratch bin holding only a
