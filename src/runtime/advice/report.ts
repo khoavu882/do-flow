@@ -19,7 +19,7 @@ const { loadAdviceRegistry } = require('./registry.ts');
 const { materializeKind } = require('./kinds.ts');
 const { score } = require('./replay/score.ts');
 const { effectiveBars } = require('./replay/bars.ts');
-const { getSource } = require('./replay/sources/index.ts');
+const { getSource, buildCases, optionNames } = require('./replay/sources/index.ts');
 const { readResults } = require('./replay/results.ts');
 const { rejudge, questionDigest, builderDigest, barsDigest, caseSetDigest, projectKey } = require('./replay/trust.ts');
 
@@ -146,13 +146,13 @@ function movedDigests(entry: any, { question, source, registryKind, bars }: any)
  * Whether the cases a result was measured on are still the cases of this project: `same` or `changed` when the entry's
  * project key is this project's, `other-project` when it is another's, `not-checked` with no project or no source.
  */
-function caseSetState(entry: any, { projectRoot, roots, registryKind, fsImpl, keyOfHere }: any): string {
+function caseSetState(entry: any, { projectRoot, roots, registryKind, fsImpl, keyOfHere, options }: any): string {
   if (!projectRoot) return 'not-checked';
   if (entry.caseSet.projectKey !== keyOfHere) return 'other-project';
   const source = getSource(entry.caseSet.source);
   if (!source) return 'not-checked';
   try {
-    const built = source.build({ projectRoot, roots, kind: registryKind, fsImpl });
+    const built = buildCases(source, { projectRoot, roots, kind: registryKind, fsImpl }, options);
     return caseSetDigest(built.cases) === entry.caseSet.digest ? 'same' : 'changed';
   } catch { return 'not-checked'; }
 }
@@ -165,13 +165,13 @@ function localResults({ roots, registry, sources, shown, projectRoot, fsImpl }: 
     .sort((a: any, b: any) => (a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : a.modelDigest < b.modelDigest ? -1 : a.modelDigest > b.modelDigest ? 1 : 0));
   return entries.map((entry: any) => {
     const registryKind = (registry?.kinds || []).find((kind: any) => kind?.id === entry.kind) ?? null;
+    const built = registry ? materializeKind(entry.kind, { adviceRegistry: registry, sources }) : { ok: false, detail: 'the advice registry cannot be read' };
     const row: any = {
       kind: entry.kind, provider: entry.provider, model: entry.model, modelDigest: entry.modelDigest, runAt: entry.runAt,
       replayed: entry.caseSet.replayed, eligible: entry.caseSet.eligible,
       standing: 'unknown', reason: '', failedChecks: [], stale: [],
-      caseSet: caseSetState(entry, { projectRoot, roots, registryKind, fsImpl, keyOfHere }),
+      caseSet: caseSetState(entry, { projectRoot, roots, registryKind, fsImpl, keyOfHere, options: built.ok ? optionNames(built.question) : null }),
     };
-    const built = registry ? materializeKind(entry.kind, { adviceRegistry: registry, sources }) : { ok: false, detail: 'the advice registry cannot be read' };
     if (!built.ok) return { ...row, reason: `the question cannot be built: ${built.detail}` };
     const bars = effectiveBars({ registry, kind: entry.kind, roots, fsImpl });
     if (!bars.ok) return { ...row, reason: `bars-override-invalid: ${bars.errors[0]}` };

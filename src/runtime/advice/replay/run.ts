@@ -23,7 +23,7 @@ const { readSeedSwitch } = require('../../settings/autopilot.ts');
 const { listCheckouts } = require('../../checkouts.ts');
 const { score, judge } = require('./score.ts');
 const { effectiveBars, OVERRIDE_FILE } = require('./bars.ts');
-const { getSource } = require('./sources/index.ts');
+const { getSource, buildCases, optionNames } = require('./sources/index.ts');
 const { readResults, writeResult, resultsFile } = require('./results.ts');
 const { questionDigest, builderDigest, barsDigest, caseSetDigest, projectKey } = require('./trust.ts');
 
@@ -184,8 +184,9 @@ async function handleReplay(options: any, runtime: any, { inspectFailure, create
     if (refusedUpFront) return fail('write-refused', `--write refused (${refusedUpFront}): ${PERSON_ONLY}; nothing was asked`, { refused: refusedUpFront });
   }
 
-  // 4. The cases.
-  const eligible = projectRoot ? source.build({ projectRoot, roots, kind: registryKind }) : { cases: [], skipped: {} };
+  // 4. The cases, those whose label and rule are options of the question.
+  const optionList = optionNames(question);
+  const eligible = projectRoot ? buildCases(source, { projectRoot, roots, kind: registryKind }, optionList) : { cases: [], skipped: {} };
   if (eligible.cases.length === 0) {
     const skipped = counts(eligible.skipped);
     return fail('no-cases', `no cases for ${kind}: ${skipped ? `skipped ${skipped}` : 'nothing recorded to replay'}; nothing was asked`);
@@ -207,8 +208,7 @@ async function handleReplay(options: any, runtime: any, { inspectFailure, create
   }
 
   // 6. Figures, standing, and the stored entry for this project, kind and model build.
-  const optionNames = question.type === 'yesno' ? ['yes', 'no'] : Object.keys(question.options || {});
-  const metrics = score(answered, { options: optionNames, bars: bars.bars, budgetMs });
+  const metrics = score(answered, { options: optionList, bars: bars.bars, budgetMs });
   const judged = judge(metrics, bars.bars, budgetMs, source);
   const setDigest = caseSetDigest(eligible.cases);
   const key = projectKey(projectRoot);

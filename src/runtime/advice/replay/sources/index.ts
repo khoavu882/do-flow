@@ -33,4 +33,23 @@ function getSource(id: unknown): CaseSource | null {
   return typeof id === 'string' && Object.hasOwn(SOURCES, id) ? SOURCES[id] : null;
 }
 
-module.exports = { SOURCES, SOURCE_IDS, getSource };
+/** The option names of a materialised question: `yes` and `no` for a yes/no kind, else the keys of its options. */
+function optionNames(question: any): string[] {
+  return question?.type === 'yesno' ? ['yes', 'no'] : Object.keys(question?.options || {});
+}
+
+/**
+ * The cases of `source` for the kind whose question has `options`, the way replay and the report both read them (design
+ * section 4): a case whose label or rule is not one of `options` is left out and counted under `skipped['bad-label']`,
+ * so a stray class never reaches the scorer or the case-set digest. `options` null (the question could not be built)
+ * applies no filter.
+ */
+function buildCases(source: CaseSource, input: Parameters<CaseSource['build']>[0], options: readonly string[] | null) {
+  const built = source.build(input);
+  if (!options) return built;
+  const cases = built.cases.filter((c) => options.includes(c.label) && options.includes(c.rule));
+  const dropped = built.cases.length - cases.length;
+  return { cases, skipped: dropped ? { ...built.skipped, 'bad-label': (built.skipped['bad-label'] || 0) + dropped } : built.skipped };
+}
+
+module.exports = { SOURCES, SOURCE_IDS, getSource, buildCases, optionNames };
