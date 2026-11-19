@@ -171,7 +171,7 @@ When `doflow-run` selects a CLI from the caller's checkout, it warns on stderr i
 | `failure` | List, settle or switch off the failures DoFlow captured on this machine \(--action list\|settle\|capture\) |
 | `roadmap` | Session-driven autopilot runner \(--action render\|status\|next\|audit\|report\|init-policy \[--check\] \[--row &lt;id&gt;\] \[--run &lt;id&gt;\]\). |
 | `plan-check` | Check a plan's task lines the way the task-attempt ledger reads them: plan-check &lt;plan path&gt; \[--json\] |
-| `review` | Validate a feature's review/findings.json; print errors, advisories and counts \(exit 0 valid, 1 invalid, 2 usage\). |
+| `review` | Validate a feature's review/findings.json \(exit 0 valid, 1 invalid, 2 usage\), start a review, or list possible duplicate seat findings \(--action check\|start\|similar; similar: \[--seats &lt;file&gt;\]\). |
 | `protocol` | Print the review and debate protocol presets, or the one a run would use \(read-only, writes nothing\). |
 | `rules` | Print the values the runtime owns for this project, each with its source \(read-only, writes nothing\). |
 | `primary` | Resolve which harness and model the main session runs \(read-only\). |

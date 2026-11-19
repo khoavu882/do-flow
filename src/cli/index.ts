@@ -637,7 +637,7 @@ Commands:
                        roadmap seed --action check|apply|amend --draft <path> [--json] validates and writes new rows;
                        rows written while autopilot is on land proposed; roadmap promote <id...> [--json] (person: asks y/N on the terminal) makes them ready
   plan-check           Check a plan's task lines the way the task-attempt ledger reads them: plan-check <plan path> [--json]
-  review               Validate a feature's review/findings.json; print errors, advisories and counts (exit 0 valid, 1 invalid, 2 usage).
+  review               Validate a feature's review/findings.json (exit 0 valid, 1 invalid, 2 usage), start a review, or list possible duplicate seat findings (--action check|start|similar; similar: [--seats <file>]).
                        review --action check [--slug <name> | --path <findings.json>] [--json]
                        review --action start [--slug <name>] [--base <ref>] [--json] [--preset <id>]   verify precondition and review protocol; --base must be the review's base (exit 0 ok or not applicable, 1 refused, 2 usage)
                        review --action similar [--slug <name>] [--seats <file>] [--out <file>] [--json]   advisory list of possible duplicate seat findings, written only once the model check is shown (exit 0, 1 bad seats or no feature, 2 usage)
