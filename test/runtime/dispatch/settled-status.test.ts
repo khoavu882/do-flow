@@ -6,7 +6,7 @@
 // probe reads as ended rather than lost.
 //
 // The project and run helpers are copied from test/runtime/worker/command.test.ts, which is frozen
-// at the 081 baseline (NFR-003, test/runtime/dispatch-compat.test.ts). Process cases are POSIX only
+// at the 081 baseline (NFR-003, test/runtime/dispatch/compat.test.ts). Process cases are POSIX only
 // (DEC-008).
 
 const test = require('node:test');
@@ -15,11 +15,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { execFileSync, spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.ts');
-const { linkBin, writeScenario } = require('../helper/fake-harness-cli.ts');
-const DESCRIPTORS = require('../fixtures/worker/descriptors.json');
+const { tempDir } = require('../../helper/tmp.ts');
+const { linkBin, writeScenario } = require('../../helper/fake-harness-cli.ts');
+const DESCRIPTORS = require('../../fixtures/worker/descriptors.json');
 
-const SRC = path.join(__dirname, '..', '..', 'src', 'runtime');
+const SRC = path.join(__dirname, '..', '..', '..', 'src', 'runtime');
 const { storeFileFor, newRunId, insertRun, readRuns, transition } = require(path.join(SRC, 'worker', 'run-store.ts'));
 const { launchEnv, launchRecord } = require(path.join(SRC, 'worker', 'launch.ts'));
 const attempts = require(path.join(SRC, 'task-attempts.ts'));

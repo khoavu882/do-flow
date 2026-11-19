@@ -17,9 +17,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { makeDispatchSandbox } = require('../helper/dispatch-sandbox.ts');
+const { makeDispatchSandbox } = require('../../helper/dispatch-sandbox.ts');
 
-const SRC = path.join(__dirname, '..', '..', 'src', 'runtime');
+const SRC = path.join(__dirname, '..', '..', '..', 'src', 'runtime');
 const { executeWorkerCommand } = require(path.join(SRC, 'worker', 'command.ts'));
 const { storeFileFor, readRuns } = require(path.join(SRC, 'worker', 'run-store.ts'));
 const { cancelRun } = require(path.join(SRC, 'worker', 'cancel.ts'));

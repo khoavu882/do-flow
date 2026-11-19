@@ -13,9 +13,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { tempDir } = require('../helper/tmp.ts');
+const { tempDir } = require('../../helper/tmp.ts');
 
-const SRC = path.join(__dirname, '..', '..', 'src', 'runtime');
+const SRC = path.join(__dirname, '..', '..', '..', 'src', 'runtime');
 const { runVerification, endVerification, argvDigest } = require(path.join(SRC, 'dispatch', 'verify-run.ts'));
 const tree = require(path.join(SRC, 'worker', 'process-tree.ts'));
 const { EvidenceLedger } = require(path.join(SRC, 'evidence-ledger.ts'));

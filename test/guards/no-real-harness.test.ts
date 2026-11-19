@@ -59,7 +59,7 @@ function targetFiles(): string[] {
   walk('test/runtime/models');
   walk('test/runtime/worker');
   // Row 173 T5: the headless handoff prompt, and the dispatch loop tests that launch fake workers with it.
-  add('test/runtime', (name) => name === 'handoff-prompt.test.ts' || name === 'dispatch-loop-step.test.ts');
+  add('test/runtime/dispatch', (name) => name === 'handoff-prompt.test.ts' || name === 'loop-step.test.ts');
   add('test/e2e', (name) => name === 'dispatch-loop.e2e.test.ts');
   // Row 173 T8: the prompt frame's spawning tests: the verb, the brief generator and review package scripts through the real
   // dispatcher, and the G85 guard whose fixtures run those scripts (the started session's prompt test sits in worker/, so the walk takes it).

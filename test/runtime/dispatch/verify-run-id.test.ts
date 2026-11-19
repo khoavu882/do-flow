@@ -11,10 +11,10 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp.ts');
-const { makeDispatchSandbox } = require('../helper/dispatch-sandbox.ts');
+const { tempDir } = require('../../helper/tmp.ts');
+const { makeDispatchSandbox } = require('../../helper/dispatch-sandbox.ts');
 
-const SRC = path.join(__dirname, '..', '..', 'src', 'runtime');
+const SRC = path.join(__dirname, '..', '..', '..', 'src', 'runtime');
 const { buildVerifyRecords } = require(path.join(SRC, 'verification', 'telemetry-emit.ts'));
 const { runVerification } = require(path.join(SRC, 'dispatch', 'verify-run.ts'));
 const attempts = require(path.join(SRC, 'task-attempts.ts'));
@@ -98,7 +98,7 @@ test('buildVerifyRecords: dispatch source with invalid token or path writes null
   const report: any = { status: 'PASS', startedAt: '2026-10-18T00:00:00.000Z', finishedAt: '2026-10-18T00:00:01.000Z', tiers: [] };
   const pathRecords = buildVerifyRecords({
     report,
-    ctx: { verifyId: 'd'.repeat(16), source: 'dispatch', taskId: 'A.1', dispatchRun: path.join(__dirname, 'project', 'path') },
+    ctx: { verifyId: 'd'.repeat(16), source: 'dispatch', taskId: 'A.1', dispatchRun: path.join(__dirname, '..', 'project', 'path') },
   });
   assert.equal(pathRecords[0].dispatch_run, null, 'a path is never written as dispatch_run');
 

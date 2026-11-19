@@ -16,10 +16,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { makeDispatchSandbox } = require('../helper/dispatch-sandbox.ts');
-const { createSettingsEnv } = require('../helper/settings-fixtures.ts');
+const { makeDispatchSandbox } = require('../../helper/dispatch-sandbox.ts');
+const { createSettingsEnv } = require('../../helper/settings-fixtures.ts');
 
-const REPO = path.join(__dirname, '..', '..');
+const REPO = path.join(__dirname, '..', '..', '..');
 const SRC = path.join(REPO, 'src', 'runtime');
 const QUOTA_TEXT = 'rate limit';
 const supervisor = require(path.join(SRC, 'worker', 'supervisor.ts'));

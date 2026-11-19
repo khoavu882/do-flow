@@ -1,5 +1,5 @@
 'use strict';
-const { bashPath } = require('../helper/bash-locator.ts');
+const { bashPath } = require('../../helper/bash-locator.ts');
 
 // Feature 082 C.6 (IC-001, IC-038 wiring, DEC-032, DEC-055): the `dispatch` verb and worker's 082
 // flags wired through `bin/doflow.js` and the `doflow-run` dispatcher, against the real registry.
@@ -13,8 +13,8 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { makeDispatchSandbox } = require('../helper/dispatch-sandbox.ts');
-const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
+const { makeDispatchSandbox } = require('../../helper/dispatch-sandbox.ts');
+const { REPO_ROOT } = require('../../../src/helper/repo-root.ts');
 
 const CLI = path.join(REPO_ROOT, 'bin', 'doflow.js');
 const RUN = path.join(REPO_ROOT, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');

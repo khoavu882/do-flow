@@ -21,7 +21,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 
-const REPO = path.join(__dirname, '..', '..');
+const REPO = path.join(__dirname, '..', '..', '..');
 const loop = require(path.join(REPO, 'src', 'runtime', 'dispatch', 'loop.ts'));
 const { loadRegistry } = require(path.join(REPO, 'src', 'registry', 'index.ts'));
 

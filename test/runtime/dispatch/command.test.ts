@@ -14,10 +14,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { makeDispatchSandbox, PLAN_DIR } = require('../helper/dispatch-sandbox.ts');
-const { tempDir } = require('../helper/tmp.ts');
+const { makeDispatchSandbox, PLAN_DIR } = require('../../helper/dispatch-sandbox.ts');
+const { tempDir } = require('../../helper/tmp.ts');
 
-const SRC = path.join(__dirname, '..', '..', 'src', 'runtime');
+const SRC = path.join(__dirname, '..', '..', '..', 'src', 'runtime');
 const attempts = require(path.join(SRC, 'task-attempts.ts'));
 const { runKeyFor } = require(path.join(SRC, 'task-run.ts'));
 const store = require(path.join(SRC, 'dispatch', 'store.ts'));

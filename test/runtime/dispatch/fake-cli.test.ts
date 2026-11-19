@@ -1,5 +1,5 @@
 'use strict';
-const { bashPath } = require('../helper/bash-locator.ts');
+const { bashPath } = require('../../helper/bash-locator.ts');
 // 082 IC-041 fixtures (DEC-010, DEC-056): the fake CLI's dispatch steps, the edit-capable fake
 // descriptors, the graph-plan fixtures and the dispatch sandbox. No case starts a real harness
 // (NFR-002): every child PATH is the sandbox's scratch bin/ alone, and every child env sets the five
@@ -9,13 +9,13 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.ts');
-const { IDENTITY_VARS } = require('../helper/fake-harness-cli.ts');
+const { tempDir } = require('../../helper/tmp.ts');
+const { IDENTITY_VARS } = require('../../helper/fake-harness-cli.ts');
 const {
   makeDispatchSandbox, editDescriptors, PLAN_DIR, PLAN_FIXTURES, FAKE_BINARIES, EDIT_ARGV, HARNESS_BINARIES,
-} = require('../helper/dispatch-sandbox.ts');
-const { validateWorker } = require('../../src/registry/index.ts');
-const { loadPlan } = require('../../src/runtime/task-attempts.ts');
+} = require('../../helper/dispatch-sandbox.ts');
+const { validateWorker } = require('../../../src/registry/index.ts');
+const { loadPlan } = require('../../../src/runtime/task-attempts.ts');
 
 const POSIX_ONLY: any = { skip: process.platform === 'win32' && 'tree cleanup is unverified on win32 (NFR-005)' };
 
@@ -217,7 +217,7 @@ test('sandbox: named system tools only, and a harness name is refused', POSIX_ON
 });
 
 test('sandbox (SF-6): HARNESS_BINARIES is every registry harness id and worker binary, agy included, and each is refused', POSIX_ONLY, (t) => {
-  const registry = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'core', 'registry', 'harnesses.json'), 'utf8'));
+  const registry = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', '..', 'core', 'registry', 'harnesses.json'), 'utf8'));
   const expected: any = new Set();
   for (const h of registry.harnesses) {
     expected.add(h.id);

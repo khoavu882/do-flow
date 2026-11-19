@@ -17,23 +17,23 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { makeDispatchSandbox } = require('../helper/dispatch-sandbox.ts');
+const { makeDispatchSandbox } = require('../../helper/dispatch-sandbox.ts');
 
-const SRC = path.join(__dirname, '..', '..', 'src', 'runtime');
+const SRC = path.join(__dirname, '..', '..', '..', 'src', 'runtime');
 const attempts = require(path.join(SRC, 'task-attempts.ts'));
 const readiness = require(path.join(SRC, 'worker', 'readiness.ts'));
 const store = require(path.join(SRC, 'dispatch', 'store.ts'));
 const { createIntegrationWorktree } = require(path.join(SRC, 'dispatch', 'integrate.ts'));
 const loop = require(path.join(SRC, 'dispatch', 'loop.ts'));
-const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
-const { loadRegistry } = require('../../src/registry/index.ts');
-const { CapabilityRouter } = require('../../src/runtime/capability-router.ts');
+const { REPO_ROOT } = require('../../../src/helper/repo-root.ts');
+const { loadRegistry } = require('../../../src/registry/index.ts');
+const { CapabilityRouter } = require('../../../src/runtime/capability-router.ts');
 const { renderBriefTools } = require(path.join(SRC, 'brief-tools.ts'));
 const { resolvePrimary } = require(path.join(SRC, 'context', 'primary.ts'));
 const { recordRecipeAnswer } = require(path.join(SRC, 'worker', 'login-store.ts'));
 const { recipeDigest } = require(path.join(SRC, 'worker', 'login.ts'));
 const { readRuns, storeFileFor: runStoreFileFor } = require(path.join(SRC, 'worker', 'run-store.ts'));
-const ENVELOPE_STORE = require('../../core/registry/storage.json').stores.find((x: any) => x.id === 'dispatch-envelopes');
+const ENVELOPE_STORE = require('../../../core/registry/storage.json').stores.find((x: any) => x.id === 'dispatch-envelopes');
 
 const SLUG = '082-loop-step-fixture';
 const POSIX: any = { skip: process.platform === 'win32' && 'tree cleanup is unverified on win32 (NFR-005)' };
@@ -261,7 +261,7 @@ test('IC-022 / DEC-048: with the claude fake supported the attempt runs subagent
 
 // ---- 178 T5 (f), (g): the headless launch follows the driver's session effort ---------------------------------------------
 
-const FAKE_CLI = require('../helper/fake-harness-cli.ts').FAKE_CLI;
+const FAKE_CLI = require('../../helper/fake-harness-cli.ts').FAKE_CLI;
 const SESSION_NAMES = ['CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_EFFORT', 'CLAUDE_CODE_EFFORT_LEVEL'];
 const PI_EFFORT = { status: 'supported', evidence: ['x'], verification: 'v', verifiedOn: '2026-11-16', via: 'flag', argv: ['--thinking', '{effort}'], levels: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'], offLevel: 'off', mayLower: true };
 

@@ -6,7 +6,7 @@
 //
 // Each case is a sandbox repository (test/helper/dispatch-sandbox.ts) with a started 080 run, an
 // integration worktree made by createIntegrationWorktree and a seeded dispatch run, as in
-// test/runtime/dispatch-loop-step.test.js. Fake workers run through the loop where a live process
+// test/runtime/dispatch/loop-step.test.ts. Fake workers run through the loop where a live process
 // matters; other dispatches, worker runs and drivers are seeded through the stores' own writers.
 // The child PATH is the sandbox's scratch bin/ alone (fake CLI links, node and git, never
 // dirname(process.execPath), DEC-056); the five DOFLOW_* identity variables are set by the sandbox,
@@ -17,10 +17,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
-const { makeDispatchSandbox } = require('../helper/dispatch-sandbox.ts');
-const { tempDir } = require('../helper/tmp.ts');
+const { makeDispatchSandbox } = require('../../helper/dispatch-sandbox.ts');
+const { tempDir } = require('../../helper/tmp.ts');
 
-const SRC = path.join(__dirname, '..', '..', 'src', 'runtime');
+const SRC = path.join(__dirname, '..', '..', '..', 'src', 'runtime');
 const attempts = require(path.join(SRC, 'task-attempts.ts'));
 const readiness = require(path.join(SRC, 'worker', 'readiness.ts'));
 const tree = require(path.join(SRC, 'worker', 'process-tree.ts'));

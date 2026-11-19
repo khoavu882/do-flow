@@ -19,14 +19,14 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { ACTIVE_HARNESS_IDS } = require('../helper/harness-ids.ts');
+const { ACTIVE_HARNESS_IDS } = require('../../helper/harness-ids.ts');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { makeDispatchSandbox } = require('../helper/dispatch-sandbox.ts');
-const { IDENTITY_VARS } = require('../helper/fake-harness-cli.ts');
-const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
-const { storeFileFor } = require('../../src/runtime/dispatch/store.ts');
+const { makeDispatchSandbox } = require('../../helper/dispatch-sandbox.ts');
+const { IDENTITY_VARS } = require('../../helper/fake-harness-cli.ts');
+const { REPO_ROOT } = require('../../../src/helper/repo-root.ts');
+const { storeFileFor } = require('../../../src/runtime/dispatch/store.ts');
 
 const CLI = path.join(REPO_ROOT, 'bin', 'doflow.js');
 const SLUG = '082-dispatch-compat';

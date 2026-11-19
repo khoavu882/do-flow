@@ -10,12 +10,12 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { tempDir } = require('../helper/tmp.ts');
-const { storeFileFor, readDispatch } = require('../../src/runtime/dispatch/store.ts');
-const { ENVELOPE_DIR } = require('../../src/runtime/dispatch/envelope.ts');
+const { tempDir } = require('../../helper/tmp.ts');
+const { storeFileFor, readDispatch } = require('../../../src/runtime/dispatch/store.ts');
+const { ENVELOPE_DIR } = require('../../../src/runtime/dispatch/envelope.ts');
 const {
   MAX_CHILDREN, validateGrant, copyGrant, requestSpawn, spawnStatus,
-} = require('../../src/runtime/dispatch/grants.ts');
+} = require('../../../src/runtime/dispatch/grants.ts');
 
 const SLUG = 'feat-grants';
 const RUN_KEY = 'abc123/r0/main';

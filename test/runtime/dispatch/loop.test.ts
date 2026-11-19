@@ -8,11 +8,11 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp.ts');
-const { makeDispatchSandbox, editDescriptors } = require('../helper/dispatch-sandbox.ts');
-const supervisor = require('../../src/runtime/worker/supervisor.ts');
+const { tempDir } = require('../../helper/tmp.ts');
+const { makeDispatchSandbox, editDescriptors } = require('../../helper/dispatch-sandbox.ts');
+const supervisor = require('../../../src/runtime/worker/supervisor.ts');
 
-// Match the quota stand-in in dispatch-fallback.test.js before loop captures resultOfRun.
+// Match the quota stand-in in dispatch/fallback.test.ts before loop captures resultOfRun.
 const realResultOfRun = supervisor.resultOfRun;
 supervisor.resultOfRun = (run: any) => {
   const out = realResultOfRun(run);
@@ -22,16 +22,16 @@ supervisor.resultOfRun = (run: any) => {
   return { resultOffered: false, withheld: out.withheld.map((r: any) => (r === 'report-failure' ? 'report-quota' : r)) };
 };
 
-const attempts = require('../../src/runtime/task-attempts.ts');
-const readiness = require('../../src/runtime/worker/readiness.ts');
-const store = require('../../src/runtime/dispatch/store.ts');
-const { createIntegrationWorktree } = require('../../src/runtime/dispatch/integrate.ts');
-const loop = require('../../src/runtime/dispatch/loop.ts');
-const { loadRegistry } = require('../../src/registry/index.ts');
-const { resolveTier } = require('../../src/runtime/worker/models.ts');
+const attempts = require('../../../src/runtime/task-attempts.ts');
+const readiness = require('../../../src/runtime/worker/readiness.ts');
+const store = require('../../../src/runtime/dispatch/store.ts');
+const { createIntegrationWorktree } = require('../../../src/runtime/dispatch/integrate.ts');
+const loop = require('../../../src/runtime/dispatch/loop.ts');
+const { loadRegistry } = require('../../../src/registry/index.ts');
+const { resolveTier } = require('../../../src/runtime/worker/models.ts');
 supervisor.resultOfRun = realResultOfRun;
 
-const REPO = path.join(__dirname, '..', '..');
+const REPO = path.join(__dirname, '..', '..', '..');
 const REG = loadRegistry({ repoRoot: REPO });
 const SLUG = '120-enabled-loop-fixture';
 const POSIX = { skip: process.platform === 'win32' && 'tree cleanup is unverified on win32 (NFR-005)' };
@@ -290,7 +290,7 @@ test('IC-013 loop: an unbound worker records the owner tier and harness default'
 });
 
 test('orchestrator slot loop: owner delivery-lead records the orchestrator model (the frontier binding, then a bound orchestrator)', POSIX, async (t) => {
-  const plan = fs.readFileSync(path.join(__dirname, '..', 'fixtures', 'dispatch', 'plans', 'budget.md'), 'utf8').replace('owner: core-implementer', 'owner: delivery-lead');
+  const plan = fs.readFileSync(path.join(__dirname, '..', '..', 'fixtures', 'dispatch', 'plans', 'budget.md'), 'utf8').replace('owner: core-implementer', 'owner: delivery-lead');
   const write = (p: any, models: any) => {
     const settings = path.join(p.sb.home, '.config', 'doflow', 'settings.json');
     fs.mkdirSync(path.dirname(settings), { recursive: true });
@@ -309,7 +309,7 @@ test('orchestrator slot loop: owner delivery-lead records the orchestrator model
 });
 
 test('orchestrator slot loop: selection, launch and record agree on the main-session model; no flag evidenced means none is recorded', POSIX, async (t) => {
-  const plan = fs.readFileSync(path.join(__dirname, '..', 'fixtures', 'dispatch', 'plans', 'budget.md'), 'utf8').replace('owner: core-implementer', 'owner: delivery-lead');
+  const plan = fs.readFileSync(path.join(__dirname, '..', '..', 'fixtures', 'dispatch', 'plans', 'budget.md'), 'utf8').replace('owner: core-implementer', 'owner: delivery-lead');
   const p = await project(t, { plan }); // no model flag is evidenced on any worker
   const user = path.join(p.sb.home, '.config', 'doflow', 'settings.json');
   fs.mkdirSync(path.dirname(user), { recursive: true });
@@ -324,7 +324,7 @@ test('orchestrator slot loop: selection, launch and record agree on the main-ses
 });
 
 test('orchestrator slot loop: a project primary.model never reaches the launch argv; only the resolved orchestrator id does', POSIX, async (t) => {
-  const plan = fs.readFileSync(path.join(__dirname, '..', 'fixtures', 'dispatch', 'plans', 'budget.md'), 'utf8').replace('owner: core-implementer', 'owner: delivery-lead');
+  const plan = fs.readFileSync(path.join(__dirname, '..', '..', 'fixtures', 'dispatch', 'plans', 'budget.md'), 'utf8').replace('owner: core-implementer', 'owner: delivery-lead');
   const launched = async (userSettings: any, projectSettings: any) => {
     const p = await project(t, { plan, modelFlag: true });
     const user = path.join(p.sb.home, '.config', 'doflow', 'settings.json');

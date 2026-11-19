@@ -16,9 +16,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { makeDispatchSandbox } = require('../helper/dispatch-sandbox.ts');
+const { makeDispatchSandbox } = require('../../helper/dispatch-sandbox.ts');
 
-const SRC = path.join(__dirname, '..', '..', 'src', 'runtime');
+const SRC = path.join(__dirname, '..', '..', '..', 'src', 'runtime');
 const attempts = require(path.join(SRC, 'task-attempts.ts'));
 const readiness = require(path.join(SRC, 'worker', 'readiness.ts'));
 const { readRuns, storeFileFor: runStoreFileFor } = require(path.join(SRC, 'worker', 'run-store.ts'));
@@ -354,7 +354,7 @@ test('RT-7: a worker run that ends with survivors during deferredRemovals is nev
   const crypto = require('node:crypto');
   const { insertRun, newRunId, transition } = require(path.join(SRC, 'worker', 'run-store.ts'));
   const { launchEnv, launchRecord } = require(path.join(SRC, 'worker', 'launch.ts'));
-  const DESCRIPTORS = require('../fixtures/worker/descriptors.json');
+  const DESCRIPTORS = require('../../fixtures/worker/descriptors.json');
   const p = await project(t, { plan: ONE_TASK, mode: 'sequential' });
   const first = await p.step();
   assert.equal(first.outcome, 'perform', JSON.stringify(first.actions));

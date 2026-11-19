@@ -2,7 +2,7 @@
 
 // The person-written billing record `workers.billing`: registry type rules, value rules, the global-only
 // reader (readWorkerBilling) and the effective-billing table (effectiveBilling). The dispatch side is
-// in dispatch-billing-cap.test.js.
+// in test/runtime/dispatch/billing-cap.test.ts.
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');

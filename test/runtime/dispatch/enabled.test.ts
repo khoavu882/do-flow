@@ -9,9 +9,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { makeDispatchSandbox } = require('../helper/dispatch-sandbox.ts');
-const store = require('../../src/runtime/dispatch/store.ts');
-const { executeDispatchCommand } = require('../../src/runtime/dispatch/command.ts');
+const { makeDispatchSandbox } = require('../../helper/dispatch-sandbox.ts');
+const store = require('../../../src/runtime/dispatch/store.ts');
+const { executeDispatchCommand } = require('../../../src/runtime/dispatch/command.ts');
 
 const SLUG = '120-dispatch-enabled-fixture';
 const POSIX = { skip: process.platform === 'win32' && 'tree cleanup is unverified on win32 (NFR-005)' };

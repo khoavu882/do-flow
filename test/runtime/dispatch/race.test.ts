@@ -26,7 +26,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 
 if (process.argv[2] === '--race-worker') {
-  const { executeDispatchCommand } = require('../../src/runtime/dispatch/command.ts');
+  const { executeDispatchCommand } = require('../../../src/runtime/dispatch/command.ts');
   const settle = (out: any, value: any) => {
     const tmp = `${out}.${process.pid}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(value));
@@ -45,11 +45,11 @@ if (process.argv[2] === '--race-worker') {
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { tempDir } = require('../helper/tmp.ts');
-const { startWorkers } = require('../helper/race-barrier.ts');
-const { makeDispatchSandbox } = require('../helper/dispatch-sandbox.ts');
+const { tempDir } = require('../../helper/tmp.ts');
+const { startWorkers } = require('../../helper/race-barrier.ts');
+const { makeDispatchSandbox } = require('../../helper/dispatch-sandbox.ts');
 
-const SRC = path.join(__dirname, '..', '..', 'src', 'runtime');
+const SRC = path.join(__dirname, '..', '..', '..', 'src', 'runtime');
 const attempts = require(path.join(SRC, 'task-attempts.ts'));
 const readiness = require(path.join(SRC, 'worker', 'readiness.ts'));
 const store = require(path.join(SRC, 'dispatch', 'store.ts'));

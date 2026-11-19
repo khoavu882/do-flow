@@ -15,7 +15,7 @@
 const path = require('node:path');
 
 if (process.argv[2] === '--race-worker') {
-  const { admit } = require('../../src/runtime/dispatch/admission.ts');
+  const { admit } = require('../../../src/runtime/dispatch/admission.ts');
   module.exports = {
     claim: ({ fsImpl, ctx, ...rest }: any) => admit({
       ...rest, ctx: { ...ctx, fsImpl }, driver: { pid: process.pid, start: null },
@@ -28,10 +28,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const { spawnSync } = require('node:child_process');
-const { makeDispatchSandbox } = require('../helper/dispatch-sandbox.ts');
-const { startWorkers } = require('../helper/race-barrier.ts');
+const { makeDispatchSandbox } = require('../../helper/dispatch-sandbox.ts');
+const { startWorkers } = require('../../helper/race-barrier.ts');
 
-const SRC = path.join(__dirname, '..', '..', 'src', 'runtime');
+const SRC = path.join(__dirname, '..', '..', '..', 'src', 'runtime');
 const { start, claim, finish } = require(path.join(SRC, 'task-attempts.ts'));
 const { procStart } = require(path.join(SRC, 'worker', 'process-tree.ts'));
 const store = require(path.join(SRC, 'dispatch', 'store.ts'));

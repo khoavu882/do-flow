@@ -6,13 +6,13 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { parseArgs } = require('../../src/cli/index.ts');
-const { executeDispatchCommand, summaryLines } = require('../../src/runtime/dispatch/command.ts');
-const readiness = require('../../src/runtime/worker/readiness.ts');
-const { readRuns, storeFileFor: workerRunsFile } = require('../../src/runtime/worker/run-store.ts');
-const { readDispatch, storeFileFor } = require('../../src/runtime/dispatch/store.ts');
-const controls = require('../../src/runtime/dispatch/controls.ts');
-const { makeDispatchSandbox } = require('../helper/dispatch-sandbox.ts');
+const { parseArgs } = require('../../../src/cli/index.ts');
+const { executeDispatchCommand, summaryLines } = require('../../../src/runtime/dispatch/command.ts');
+const readiness = require('../../../src/runtime/worker/readiness.ts');
+const { readRuns, storeFileFor: workerRunsFile } = require('../../../src/runtime/worker/run-store.ts');
+const { readDispatch, storeFileFor } = require('../../../src/runtime/dispatch/store.ts');
+const controls = require('../../../src/runtime/dispatch/controls.ts');
+const { makeDispatchSandbox } = require('../../helper/dispatch-sandbox.ts');
 
 const SLUG = '108-billing-fixture';
 const SUCCESS: any = { type: 'result', status: 'success', summary: 'billing fixture complete' };
@@ -78,7 +78,7 @@ test('dispatch CLI parses the cap and dispatch start rejects every cap except fr
 test('the CLI forwards --billing-cap to dispatch start and persists it on the run', POSIX, async (t) => {
   const sb = makeDispatchSandbox(t, { plan: 'dependent', slug: SLUG });
   const result = spawnSync(process.execPath, [
-    path.resolve(__dirname, '../../bin/doflow.js'),
+    path.resolve(__dirname, '../../../bin/doflow.js'),
     'dispatch', '--action', 'start', '--slug', SLUG, '--billing-cap', 'free', '--by', 'main', '--mode', 'auto',
     '--verify-argv', JSON.stringify(sb.verifyArgv), '--json',
   ], { cwd: sb.root, env: { ...process.env, ...sb.env }, encoding: 'utf8' });
@@ -164,7 +164,7 @@ function writeUserRecord(sb: any, value: any) {
 }
 
 function doflow(sb: any, args: any) {
-  return spawnSync(process.execPath, [path.resolve(__dirname, '../../bin/doflow.js'), ...args], {
+  return spawnSync(process.execPath, [path.resolve(__dirname, '../../../bin/doflow.js'), ...args], {
     cwd: sb.root, env: { ...process.env, ...sb.env }, encoding: 'utf8',
   });
 }

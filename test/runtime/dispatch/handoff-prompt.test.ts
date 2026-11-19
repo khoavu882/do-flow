@@ -5,17 +5,17 @@
 // document, the upstream hand-backs beside it, and renders the loop rules with their reasons. Pure:
 // the one file written is the golden envelope of case (a). The loop cases (the worker's prompt file,
 // main-session modes writing none, an oversize prompt failing before any spawn) are in
-// test/runtime/dispatch-loop-step.test.ts.
+// test/runtime/dispatch/loop-step.test.ts.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { tempDir } = require('../helper/tmp.ts');
-const { buildHandoff, writeEnvelope, FIXED_CONSTRAINTS } = require('../../src/runtime/dispatch/envelope.ts');
-const { handoffPrompt, RENDERED_RULES, MAX_BYTES } = require('../../src/runtime/dispatch/handoff-prompt.ts');
-const { handbackLines } = require('../../src/runtime/prompt/handback.ts');
+const { tempDir } = require('../../helper/tmp.ts');
+const { buildHandoff, writeEnvelope, FIXED_CONSTRAINTS } = require('../../../src/runtime/dispatch/envelope.ts');
+const { handoffPrompt, RENDERED_RULES, MAX_BYTES } = require('../../../src/runtime/dispatch/handoff-prompt.ts');
+const { handbackLines } = require('../../../src/runtime/prompt/handback.ts');
 
 const SLUG = '173-handoff-fixture';
 const DISPATCH = 'd-0123456789ab';

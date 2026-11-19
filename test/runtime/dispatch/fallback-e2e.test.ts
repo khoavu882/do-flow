@@ -7,18 +7,18 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { makeDispatchSandbox } = require('../helper/dispatch-sandbox.ts');
-const { readLog } = require('../helper/fake-harness-cli.ts');
-const attempts = require('../../src/runtime/task-attempts.ts');
-const dispatchStore = require('../../src/runtime/dispatch/store.ts');
-const loop = require('../../src/runtime/dispatch/loop.ts');
-const { executeDispatchCommand } = require('../../src/runtime/dispatch/command.ts');
-const readiness = require('../../src/runtime/worker/readiness.ts');
+const { makeDispatchSandbox } = require('../../helper/dispatch-sandbox.ts');
+const { readLog } = require('../../helper/fake-harness-cli.ts');
+const attempts = require('../../../src/runtime/task-attempts.ts');
+const dispatchStore = require('../../../src/runtime/dispatch/store.ts');
+const loop = require('../../../src/runtime/dispatch/loop.ts');
+const { executeDispatchCommand } = require('../../../src/runtime/dispatch/command.ts');
+const readiness = require('../../../src/runtime/worker/readiness.ts');
 
 const SLUG = '106-fallback-e2e';
 const POSIX: any = { skip: process.platform === 'win32' && 'dispatch sandbox cleanup is unverified on win32' };
 /** The codex entry's registry signals, read, not copied (106 review C-6). */
-const SIGNALS = require('../../src/registry/index.ts').loadRegistry({ repoRoot: path.join(__dirname, '..', '..') }).harnesses.find((h: any) => h.id === 'codex').worker.structuredOutput.quotaSignals.signals;
+const SIGNALS = require('../../../src/registry/index.ts').loadRegistry({ repoRoot: path.join(__dirname, '..', '..', '..') }).harnesses.find((h: any) => h.id === 'codex').worker.structuredOutput.quotaSignals.signals;
 const QUOTA: any = { type: 'result', status: 'failure', summary: 'You have hit your usage limit' };
 const SUCCESS: any = { type: 'result', status: 'success', summary: 'edited' };
 const PLAN = (owner: any = 'core-implementer') => [
@@ -27,7 +27,7 @@ const PLAN = (owner: any = 'core-implementer') => [
 ].join('\n');
 
 function descriptorsFor({ secondSignals = false, firstSignals = true, codexFirst = false }: any = {}) {
-  const box = require('../fixtures/worker/descriptors.json');
+  const box = require('../../fixtures/worker/descriptors.json');
   const descriptors = structuredClone(box);
   if (codexFirst) {
     // The rung-1 worker speaks the real Codex stream shape: `exec --json -o <file>`, parsed by codex-exec-json-v1.

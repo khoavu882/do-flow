@@ -1,5 +1,5 @@
 'use strict';
-const { bashPath } = require('../helper/bash-locator.ts');
+const { bashPath } = require('../../helper/bash-locator.ts');
 
 // Feature 082 D.4 (IC-040 leak scan, NFR-006; FR-006, FR-007; DEC-005, DEC-024, DEC-027, DEC-058):
 // planted secrets never reach a dispatch record, envelope, step record, ledger line, evidence item,
@@ -34,9 +34,9 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const { fileURLToPath } = require('node:url');
-const { makeDispatchSandbox } = require('../helper/dispatch-sandbox.ts');
+const { makeDispatchSandbox } = require('../../helper/dispatch-sandbox.ts');
 
-const REPO = path.join(__dirname, '..', '..');
+const REPO = path.join(__dirname, '..', '..', '..');
 const SRC_ROOT = `${path.join(REPO, 'src')}${path.sep}`;
 const SRC = path.join(REPO, 'src', 'runtime');
 const readiness = require(path.join(SRC, 'worker', 'readiness.ts'));

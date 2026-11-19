@@ -13,7 +13,7 @@
 const path = require('node:path');
 
 if (process.argv[2] === '--race-worker') {
-  const { transitionDispatch } = require('../../src/runtime/dispatch/store.ts');
+  const { transitionDispatch } = require('../../../src/runtime/dispatch/store.ts');
   module.exports = {
     claim: ({ file, dispatchId, fsImpl }: any) => transitionDispatch(file, dispatchId, ['admitted'], (d: any) => {
       d.phase = 'claimed';
@@ -26,12 +26,12 @@ if (process.argv[2] === '--race-worker') {
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const { tempDir } = require('../helper/tmp.ts');
-const { startWorkers } = require('../helper/race-barrier.ts');
+const { tempDir } = require('../../helper/tmp.ts');
+const { startWorkers } = require('../../helper/race-barrier.ts');
 const {
   storeFileFor, newDispatchRunId, newDispatchId, readDispatch, mutateDispatch, transitionDispatch,
   PHASES, STEP_LIMIT, DISPATCH_RUN_ID, DISPATCH_ID,
-} = require('../../src/runtime/dispatch/store.ts');
+} = require('../../../src/runtime/dispatch/store.ts');
 
 const SLUG = '082-dispatch-store';
 const REPS = 50;
@@ -260,7 +260,7 @@ test('two processes moving one dispatch from admitted to claimed yield one appli
 // RT-2: one run-state setter. A held state (a cancel's, a lost driver's, a completion) is moved only
 // by its owner; every other writer leaves it, returning false.
 test('RT-2: setRunState keeps cancelling, cancelled, completed and resume-required against every writer but their owner', () => {
-  const { setRunState } = require('../../src/runtime/dispatch/store.ts');
+  const { setRunState } = require('../../../src/runtime/dispatch/store.ts');
   assert.equal(typeof setRunState, 'function', 'store.ts exports the one run-state setter');
   const at = (state: any) => ({ run: { state } });
   for (const held of ['cancelling', 'cancelled', 'completed', 'resume-required']) {

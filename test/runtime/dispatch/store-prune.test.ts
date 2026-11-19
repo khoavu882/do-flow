@@ -13,10 +13,10 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp.ts');
-const registry = require('../../core/registry/storage.json');
-const { runPass } = require('../../src/runtime/storage/engine.ts');
-const { workStatus } = require('../../src/runtime/storage/work-status.ts');
+const { tempDir } = require('../../helper/tmp.ts');
+const registry = require('../../../core/registry/storage.json');
+const { runPass } = require('../../../src/runtime/storage/engine.ts');
+const { workStatus } = require('../../../src/runtime/storage/work-status.ts');
 
 const NOW = Date.parse('2026-10-16T12:00:00Z');
 const DAY = 24 * 60 * 60 * 1000;
