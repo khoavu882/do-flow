@@ -313,7 +313,7 @@ test('084 D3: advice.kinds.task-class act with a passing bench file in the proje
   assert.equal(json.taskClass, 'bug', 'validation alone decides the class');
   assert.equal(json.secondOpinion.status, 'shadow');
   assert.equal(json.secondOpinion.pick, null);
-  assert.match(json.secondOpinion.reason, /^BENCH_BAR_UNMET: /);
+  assert.match(json.secondOpinion.reason, /^LOCAL_RESULT_UNMET: none: /);
   const records = await settledPickRecords(f);
   assert.equal(result.asks, 1, 'the degraded shadow query runs');
   assert.deepEqual(records.map(({ type, mode, pick, model }: any) => ({ type, mode, pick, model })),
@@ -329,7 +329,7 @@ test('084 H2: advice.kinds.task-class act without a passed bench bar falls back 
   assert.equal(json.taskClass, 'bug');
   assert.equal(json.secondOpinion.status, 'shadow');
   assert.equal(json.secondOpinion.pick, null);
-  assert.match(json.secondOpinion.reason, /^BENCH_BAR_UNMET: /);
+  assert.match(json.secondOpinion.reason, /^LOCAL_RESULT_UNMET: none: /);
   const records = await settledPickRecords(f);
   assert.equal(result.asks, 1, 'the degraded shadow query runs');
   assert.deepEqual(records.map(({ type, mode, pick, model }: any) => ({ type, mode, pick, model })),
@@ -450,10 +450,10 @@ async function classifyWithDispatcher(t: any, f: any, resolution: any) {
 
 test('084 C-10: a shadow result shows no pick even when it carries one', async (t) => {
   const f = fixture(t);
-  const opinion = await classifyWithDispatcher(t, f, { mode: 'shadow', advisorPick: 'feature', effectiveDecision: 'bug', warning: 'BENCH_BAR_UNMET: x' });
+  const opinion = await classifyWithDispatcher(t, f, { mode: 'shadow', advisorPick: 'feature', effectiveDecision: 'bug', warning: 'LOCAL_RESULT_UNMET: none: x' });
   assert.equal(opinion.status, 'shadow');
   assert.equal(opinion.pick, null);
-  assert.equal(opinion.reason, 'BENCH_BAR_UNMET: x');
+  assert.equal(opinion.reason, 'LOCAL_RESULT_UNMET: none: x');
 });
 
 test('084 C-10: an act result shows the effective decision, not the raw advisor pick', async (t) => {
@@ -464,24 +464,24 @@ test('084 C-10: an act result shows the effective decision, not the raw advisor 
   assert.equal(opinion.agrees, true);
 });
 
-/** The dispatcher with the bench bar passed: the shipped verdicts are empty, so no real run reaches act. */
-function withPassingBar(t: any) {
-  const gatePath = require.resolve('../../src/runtime/advice/bench-gate.ts');
+/** The dispatcher with the trust evaluator answering `standing`: no shipped source certifies, so no real run reaches act. */
+function atStanding(t: any, standing: string) {
+  const trustPath = require.resolve('../../src/runtime/advice/replay/trust.ts');
   const dispatcherPath = require.resolve('../../src/runtime/advice/shadow-dispatcher.ts');
-  const gate = require(gatePath);
-  const saved = gate.evaluateBenchBar;
-  gate.evaluateBenchBar = () => ({ passed: true });
+  const trust = require(trustPath);
+  const saved = trust.evaluateTrust;
+  trust.evaluateTrust = async () => ({ standing, reason: `injected ${standing}`, failedChecks: [], staleDigest: null, modelDigest: 'sha256:00' });
   delete require.cache[dispatcherPath];
-  t.after(() => { gate.evaluateBenchBar = saved; delete require.cache[dispatcherPath]; });
+  t.after(() => { trust.evaluateTrust = saved; delete require.cache[dispatcherPath]; });
 }
 
-test('174 O-6: an act answer past the bench bar is shown, recorded as a pick, and gets no outcome line', async (t) => {
+test('174 O-6: an act answer at standing act is shown, recorded as a pick, and gets no outcome line', async (t) => {
   const f = fixture(t);
   const server: any = await startFakeServer();
   t.after(() => server.close());
   f.enable(server.origin);
   setKinds(f, { 'task-class': 'act' });
-  withPassingBar(t);
+  atStanding(t, 'act');
   const opinion = await classifyInProcess(f, f.scratch.env());
   assert.equal(opinion.status, 'answered');
   assert.equal(opinion.pick, 'feature');
@@ -490,4 +490,20 @@ test('174 O-6: an act answer past the bench bar is shown, recorded as a pick, an
     [{ mode: 'act', caller: 'classify', static: 'bug' }]);
   assert.deepEqual(outcomeRecords(f), []);
   assert.equal(records.some((record: any) => record.source === 'classify-verdict'), false);
+});
+
+test('175 T7: classify has no show surface, so task-class act at standing show runs as shadow and shows no pick', async (t) => {
+  const f = fixture(t);
+  const server: any = await startFakeServer();
+  t.after(() => server.close());
+  f.enable(server.origin);
+  setKinds(f, { 'task-class': 'act' });
+  atStanding(t, 'show');
+  const opinion = await classifyInProcess(f, f.scratch.env());
+  assert.equal(opinion.status, 'shadow');
+  assert.equal(opinion.pick, null);
+  assert.equal(opinion.reason, 'LOCAL_RESULT_UNMET: show: injected show');
+  const until = Date.now() + 5000;
+  while (Date.now() < until && pickRecords(f).length === 0) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.deepEqual(pickRecords(f).filter((record: any) => record.type === 'pick').map(({ mode }: any) => mode), ['shadow']);
 });

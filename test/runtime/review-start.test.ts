@@ -1258,13 +1258,13 @@ test('084 H2: advice.kinds.review-depth act without a passed bench bar keeps the
   assert.equal(json.depthBasis.raisedBy, null);
   assert.equal(json.advice.status, 'shadow');
   assert.equal(json.advice.pick, null);
-  assert.match(json.advice.reason, /^BENCH_BAR_UNMET: /);
+  assert.match(json.advice.reason, /^LOCAL_RESULT_UNMET: none: /);
   const lines = await adviceLines(r);
   assert.equal(advice.asks(), 1, 'degraded to shadow: the call is made and recorded');
   assert.equal(lines.length, 1);
   assert.equal(lines[0].mode, 'shadow');
   const text = await start(r, { base: r.base, json: false });
-  assert.ok(text.out.some((line: string) => /^advice: status=shadow reason=BENCH_BAR_UNMET: /.test(line)), text.out.join('\n'));
+  assert.ok(text.out.some((line: string) => /^advice: status=shadow reason=LOCAL_RESULT_UNMET: none: /.test(line)), text.out.join('\n'));
 });
 
 test('084 D3: advice.kinds.review-depth act with a passing bench file in the project keeps the decided depth', async (t) => {
@@ -1275,7 +1275,7 @@ test('084 D3: advice.kinds.review-depth act with a passing bench file in the pro
   assert.equal(json.depthBasis.raisedBy, null);
   assert.equal(json.advice.status, 'shadow');
   assert.equal(json.advice.pick, null);
-  assert.match(json.advice.reason, /^BENCH_BAR_UNMET: /);
+  assert.match(json.advice.reason, /^LOCAL_RESULT_UNMET: none: /);
   const lines = await adviceLines(r);
   assert.equal(advice.asks(), 1, 'degraded to shadow: the call is made and recorded');
   assert.equal(lines.length, 1);

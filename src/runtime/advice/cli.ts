@@ -138,7 +138,7 @@ function inspectFailure(inspected: any, { endpoint, model, provider }: any) {
     return `advise: provider ${provider.id} version ${inspected.endpoint.version || 'unknown'} at ${endpoint} is older than ${provider.minVersion}. Nothing was written.`;
   }
   if (!inspected.model.installed) {
-    return `advise: model ${model} is not installed; run 'ollama pull ${model}' yourself. Nothing was written.`;
+    return `advise: model ${model} is not installed at provider ${provider.id}; install it with that provider's own tool and re-run. Nothing was written.`;
   }
   if (!inspected.model.decisionCapable) {
     const capable = inspected.models
@@ -276,9 +276,10 @@ function noCallResult(status: string, reason: string | null, detail: string | nu
 
 /**
  * One ask, through the one dispatcher path (row 174). A named kind runs in the mode `advice.kinds.<kind>` and the
- * rollout profile's cap give it: off asks nothing, shadow hands the call to the detached child and shows nothing, act
- * shows the model's answer once the kind passes the bench bar (below it the call is a shadow one, with its warning).
- * An ad hoc question set has no kind setting: the profile cap alone decides between off, shadow and the direct ask.
+ * rollout profile's cap give it: off asks nothing, shadow hands the call to the detached child and shows nothing; show
+ * and act print the model's answer once the kind's local result stands at show or act (175 IC-009: the ask is a show
+ * surface; below the standing the call is a shadow one, with its LOCAL_RESULT_UNMET warning). An ad hoc question set has
+ * no kind setting: the profile cap alone decides between off, shadow and the direct ask.
  */
 async function askThroughDispatcher({ options, runtime, parsed, questionSet, kind, questionError }: any) {
   const { adviceRegistry, roots, sources } = runtime;
@@ -304,17 +305,21 @@ async function askThroughDispatcher({ options, runtime, parsed, questionSet, kin
   const shadowConfig = parsed.hasKind
     ? resolveShadowConfig(kind, { projectRoot, env, roots, global: options.global })
     : { kind, mode: capMode(cap, 'act') === 'shadow' ? 'shadow' : 'off', model: null };
-  // The client's own reply, kept so an act answer prints as it always did; the dispatcher asks through this wrapper.
+  // The client's own reply, kept so a shown or act answer prints as it always did; the dispatcher asks through this
+  // wrapper, and reads the model build's digest through the same client.
   let reply: any = null;
-  const adviceClient = { ask: async (askOptions: any) => { reply = await client.ask(askOptions); return reply; } };
+  const adviceClient = {
+    ask: async (askOptions: any) => { reply = await client.ask(askOptions); return reply; },
+    modelDigest: (digestOptions: any) => client.modelDigest(digestOptions),
+  };
   const intercepted = await interceptDecisionPoint({
     kind, caller: 'advise', state: questionSet.state, staticPick: options.staticAnswer ?? '', staticAnswer: options.staticAnswer,
-    questionSet, adviceRegistry, taskId: options.taskId ?? null, projectRoot, env,
+    questionSet, adviceRegistry, taskId: options.taskId ?? null, projectRoot, env, surface: 'show',
   }, { adviceClient, roots, shadowConfig });
   if (intercepted.mode === 'off') return noCallResult('off', null, null, setting);
   if (intercepted.mode === 'shadow') return noCallResult('shadow', intercepted.warning || null, null, setting);
-  // Act: the client's own reply, with the pick id the dispatcher recorded; a question the materialiser could not build
-  // keeps its own diagnostic.
+  // Show and act: the client's own reply, with the pick id the dispatcher recorded; a question the materialiser could
+  // not build keeps its own diagnostic.
   if (!reply) return { ...noCallResult('off', 'timeout', null, setting), status: 'unavailable' };
   if (questionError && reply.reason === 'config-invalid') reply = { ...reply, detail: questionError };
   if (reply.status !== 'answered') return reply;

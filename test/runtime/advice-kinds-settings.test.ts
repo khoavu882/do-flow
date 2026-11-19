@@ -96,7 +96,7 @@ test('control: config still notes an advice.kinds key for an undeclared kind as 
 
 // ── the validated view agrees with the runtime reader ─────────────────────────────────────────────
 
-const MODE_VALUES = [undefined, 'off', 'shadow', 'act', 'offf', 7];
+const MODE_VALUES = [undefined, 'off', 'shadow', 'show', 'act', 'offf', 7];
 const MODEL_VALUES = [undefined, 'm-a', '', 5];
 const LAYERS = ['local', 'project', 'user'] as const;
 

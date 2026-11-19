@@ -243,7 +243,7 @@ test('084 H2: advice.kinds.tier act without a passed bench bar falls back to sha
   const actual = answer(f.run(['--tasks', 'A.1']).stdout);
   assert.equal(actual.markdown, baseline.markdown);
   assert.equal(actual.record.advice.status, 'shadow');
-  assert.match(actual.record.advice.reason, /^BENCH_BAR_UNMET: /);
+  assert.match(actual.record.advice.reason, /^LOCAL_RESULT_UNMET: none: /);
   assert.deepEqual((await settledPickRecords(f)).map(({ type, mode, pick, model }: any) => ({ type, mode, pick, model })),
     [{ type: 'pick', mode: 'shadow', pick: 'light', model: 'clef-flash' }]);
 });
@@ -260,7 +260,7 @@ test('084 D3: advice.kinds.tier act with a passing bench file in the project sti
   assert.equal(actual.markdown, baseline.markdown, 'no pick is shown');
   assert.doesNotMatch(actual.markdown, /Decision model:/);
   assert.equal(actual.record.advice.status, 'shadow');
-  assert.match(actual.record.advice.reason, /^BENCH_BAR_UNMET: /);
+  assert.match(actual.record.advice.reason, /^LOCAL_RESULT_UNMET: none: /);
   assert.deepEqual((await settledPickRecords(f)).map(({ type, mode, pick, model }: any) => ({ type, mode, pick, model })),
     [{ type: 'pick', mode: 'shadow', pick: 'light', model: 'clef-flash' }]);
 });
@@ -345,10 +345,10 @@ function stubDispatcher(t: any, resolution: any) {
 
 test('084 C-10: a shadow result shows no tier pick even when it carries one', async (t) => {
   const f = fixture(t);
-  stubDispatcher(t, { mode: 'shadow', staticPick: 'standard', advisorPick: 'frontier', effectiveDecision: 'standard', warning: 'BENCH_BAR_UNMET: x' });
+  stubDispatcher(t, { mode: 'shadow', staticPick: 'standard', advisorPick: 'frontier', effectiveDecision: 'standard', warning: 'LOCAL_RESULT_UNMET: none: x' });
   const { baseline, actual } = await invokeCounted(f, { settings: { advice: { kinds: { tier: 'act' } } }, tier: 'standard' });
   assert.equal(actual.markdown, baseline.markdown);
-  assert.deepEqual(actual.record.advice, { kind: 'tier', status: 'shadow', reason: 'BENCH_BAR_UNMET: x' });
+  assert.deepEqual(actual.record.advice, { kind: 'tier', status: 'shadow', reason: 'LOCAL_RESULT_UNMET: none: x' });
 });
 
 test('084 C-10: an act result shows the effective decision, not the raw advisor pick', async (t) => {

@@ -322,12 +322,12 @@ test('084 C-4/C-7: doctor counts a dispatcher pick, its outcome and an unavailab
   const roots = resolveRoots({ registry: loadStorageRegistry({ repoRoot: REPO_ROOT }), projectRoot: f.project, env });
   const questionSet = { state: 's', questions: [{ name: 'tier', type: 'choice', instructions: 'Choose.', options: { light: 'L', standard: 'S', frontier: 'F' } }] };
   const context = { kind: 'tier', caller: 'brief-tools', state: 's', staticPick: 'light', questionSet, adviceRegistry: { timeoutMs: 1000 }, projectRoot: f.project, env };
-  // act with a passing bench bar asks in this process (a shadow call asks in a detached child, which an injected client cannot reach)
+  // act at standing act asks in this process (a shadow call asks in a detached child, which an injected client cannot reach)
   const shadow = { kind: 'tier', mode: 'act', model: 'm' };
-  const benchGate = () => ({ passed: true });
+  const trust = () => ({ standing: 'act', reason: 'injected' });
   const answer = { status: 'answered', model: 'm', answers: [{ name: 'tier', type: 'choice', pick: 'standard', strength: { word: 'clear', between: null }, probabilities: {}, confidence: 0.9 }] };
-  const picked = await interceptDecisionPoint(context, { adviceClient: { ask: async () => answer }, roots, shadowConfig: shadow, benchGate });
-  await interceptDecisionPoint(context, { adviceClient: { ask: async () => ({ status: 'unavailable', reason: 'timeout', answers: [] }) }, roots, shadowConfig: shadow, benchGate });
+  const picked = await interceptDecisionPoint(context, { adviceClient: { ask: async () => answer }, roots, shadowConfig: shadow, trust });
+  await interceptDecisionPoint(context, { adviceClient: { ask: async () => ({ status: 'unavailable', reason: 'timeout', answers: [] }) }, roots, shadowConfig: shadow, trust });
   const until = Date.now() + 1000;
   while (readWindow({ roots }).records.length < 2 && Date.now() < until) await new Promise((resolve) => setTimeout(resolve, 5));
   assert.ok(appendOutcome({ roots, pickId: picked.pickId, actual: 'standard', source: 'caller', store: 'project-state' }));

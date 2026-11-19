@@ -2,8 +2,9 @@
 
 // Row 174 (T2): `advise --action ask` goes through the one dispatcher path. A named kind runs in the mode
 // advice.kinds.<kind> and the rollout profile's cap give it: off asks nothing and prints status off, shadow hands the call
-// to the detached child and prints status shadow, act shows the model's answer once the bench bar is passed. A model is
-// only ever the fake decision server of test/helper/fake-decision-server.ts, under a scratch HOME and config home.
+// to the detached child and prints status shadow, show and act print the model's answer once the kind's local result
+// stands at show or act (175 IC-009; the ask has a show surface). A model is only ever the fake decision server of
+// test/helper/fake-decision-server.ts, under a scratch HOME and config home.
 
 const { bashPath } = require('../helper/bash-locator.ts');
 const test = require('node:test');
@@ -90,7 +91,8 @@ for (const [kind, spec] of Object.entries(KINDS) as any) {
   for (const [name, settings] of [
     ['shadow', { advice: { kinds: { [kind]: 'shadow' } } }],
     ['unset with a decision model configured', {}],
-    ['act below the bench bar', { advice: { kinds: { [kind]: 'act' } } }],
+    ['act with no local result', { advice: { kinds: { [kind]: 'act' } } }],
+    ['show with no local result', { advice: { kinds: { [kind]: 'show' } } }],
     ['act under a canary profile', { advice: { kinds: { [kind]: 'act' } }, rollout: { profile: 'canary' } }],
   ] as any) {
     test(`${kind}: ${name} prints status: shadow, shows no answer and the child records one shadow pick`, async (t) => {
@@ -103,7 +105,7 @@ for (const [kind, spec] of Object.entries(KINDS) as any) {
       const json = JSON.parse((await f.ask([...spec.args, '--json'])).stdout);
       assert.equal(json.status, 'shadow');
       assert.deepEqual(json.answers, []);
-      if (name === 'act below the bench bar') assert.match(json.reason, /^BENCH_BAR_UNMET: /);
+      if (/no local result/.test(name)) assert.equal(json.reason, `LOCAL_RESULT_UNMET: none: kind '${kind}' has no replay source`);
       else assert.equal(json.reason, null);
       await f.untilAsks(2);
       const until = Date.now() + 5000;
@@ -180,23 +182,23 @@ test('adhoc: with no cap the ask is direct and answered', async (t) => {
   assert.equal(f.asks(), 1);
 });
 
-// ---- act past the bench bar, in this process: the shipped verdicts are empty, so no spawned run reaches it ----
+// ---- show and act at a local standing, in this process: no shipped source certifies, so no spawned run reaches them ----
 
 /**
- * Loads advice/cli.ts with the dispatcher's bench bar passed; restored after the test. The scratch HOME and config home
- * are applied to this process first, because the verb reads its store roots from the process environment: without it the
- * in-process call would read the developer's own settings (O-7: never a real model).
+ * Loads advice/cli.ts with the trust evaluator (replay/trust.ts) answering `standing`; restored after the test. The scratch
+ * HOME and config home are applied to this process first, because the verb reads its store roots from the process
+ * environment: without it the in-process call would read the developer's own settings (O-7: never a real model).
  */
-function cliWithPassingBar(t: any, f: any) {
+function cliAtStanding(t: any, f: any, standing: string) {
   f.scratch.apply();
   t.after(() => f.scratch.restore());
-  const gatePath = require.resolve('../../src/runtime/advice/bench-gate.ts');
+  const trustPath = require.resolve('../../src/runtime/advice/replay/trust.ts');
   const reload = [require.resolve('../../src/runtime/advice/shadow-dispatcher.ts'), require.resolve('../../src/runtime/advice/cli.ts')];
-  const gate = require(gatePath);
-  const saved = gate.evaluateBenchBar;
-  gate.evaluateBenchBar = () => ({ passed: true });
+  const trust = require(trustPath);
+  const saved = trust.evaluateTrust;
+  trust.evaluateTrust = async () => ({ standing, reason: `injected ${standing}`, failedChecks: [], staleDigest: null, modelDigest: 'sha256:00' });
   for (const file of reload) delete require.cache[file];
-  t.after(() => { gate.evaluateBenchBar = saved; for (const file of reload) delete require.cache[file]; });
+  t.after(() => { trust.evaluateTrust = saved; for (const file of reload) delete require.cache[file]; });
   return require('../../src/runtime/advice/cli.ts').handleAdviseCommand;
 }
 
@@ -212,23 +214,42 @@ async function inProcess(handle: any, f: any, options: any) {
 }
 
 for (const [kind, spec] of Object.entries(KINDS) as any) {
-  test(`${kind}: act past the bench bar shows the model's answer, with its pick id, and records an act pick`, async (t) => {
+  for (const [setTo, standing, recorded] of [['act', 'act', 'act'], ['show', 'show', 'show'], ['show', 'act', 'show'], ['act', 'show', 'show']]) {
+    test(`${kind}: ${setTo} at standing ${standing} shows the model's answer, with its pick id, and records a pick in mode ${recorded}`, async (t) => {
+      const f = await fixture(t);
+      f.settings({ advice: { kinds: { [kind]: setTo } } });
+      const handle = cliAtStanding(t, f, standing);
+      const common: any = { kind, state: 'The state.', staticAnswer: spec.args[spec.args.indexOf('--static') + 1] };
+      if (kind === 'mcp-need') common.server = 'context7';
+      const result = JSON.parse(await inProcess(handle, f, { ...common, json: true }));
+      assert.equal(result.endpoint, f.server.origin, 'the scratch settings, never the developer\'s own model');
+      assert.equal(result.status, 'answered');
+      assert.deepEqual(Object.keys(result), ['status', 'reason', 'detail', 'provider', 'model', 'endpoint', 'decidedBy', 'durationMs', 'answers']);
+      assert.equal(result.answers[0].kind, kind);
+      assert.equal(result.answers[0].pick, spec.pick);
+      assert.match(result.answers[0].pickId, /^adv-[0-9]{13}-[0-9a-f]{6}$/);
+      assert.equal(f.asks(), 1);
+      const picks = f.records().filter((r: any) => r.type === 'pick');
+      assert.deepEqual(picks.map(({ pickId, mode, caller }: any) => ({ pickId, mode, caller })), [{ pickId: result.answers[0].pickId, mode: recorded, caller: 'advise' }]);
+      const text = await inProcess(handle, f, common);
+      assert.match(text, new RegExp(`^Advice \\(${kind}\\): ${spec.pick}, `));
+    });
+  }
+
+  test(`${kind}: show below the show standing prints status: shadow with LOCAL_RESULT_UNMET and shows no answer`, async (t) => {
     const f = await fixture(t);
-    f.settings({ advice: { kinds: { [kind]: 'act' } } });
-    const handle = cliWithPassingBar(t, f);
+    f.settings({ advice: { kinds: { [kind]: 'show' } } });
+    const handle = cliAtStanding(t, f, 'below-show');
     const common: any = { kind, state: 'The state.', staticAnswer: spec.args[spec.args.indexOf('--static') + 1] };
     if (kind === 'mcp-need') common.server = 'context7';
     const result = JSON.parse(await inProcess(handle, f, { ...common, json: true }));
-    assert.equal(result.endpoint, f.server.origin, 'the scratch settings, never the developer\'s own model');
-    assert.equal(result.status, 'answered');
-    assert.deepEqual(Object.keys(result), ['status', 'reason', 'detail', 'provider', 'model', 'endpoint', 'decidedBy', 'durationMs', 'answers']);
-    assert.equal(result.answers[0].kind, kind);
-    assert.equal(result.answers[0].pick, spec.pick);
-    assert.match(result.answers[0].pickId, /^adv-[0-9]{13}-[0-9a-f]{6}$/);
-    assert.equal(f.asks(), 1);
-    const picks = f.records().filter((r: any) => r.type === 'pick');
-    assert.deepEqual(picks.map(({ pickId, mode, caller }: any) => ({ pickId, mode, caller })), [{ pickId: result.answers[0].pickId, mode: 'act', caller: 'advise' }]);
-    const text = await inProcess(handle, f, common);
-    assert.match(text, new RegExp(`^Advice \\(${kind}\\): ${spec.pick}, `));
+    assert.equal(result.status, 'shadow');
+    assert.equal(result.reason, 'LOCAL_RESULT_UNMET: below-show: injected below-show');
+    assert.deepEqual(result.answers, []);
+    // The detached child still asks once and records a shadow pick.
+    await f.untilAsks(1);
+    const until = Date.now() + 5000;
+    while (Date.now() < until && f.records().length === 0) await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.deepEqual(f.records().map(({ type, mode }: any) => ({ type, mode })), [{ type: 'pick', mode: 'shadow' }]);
   });
 }

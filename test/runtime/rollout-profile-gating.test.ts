@@ -43,8 +43,8 @@ for (const [name, c] of Object.entries(CASES) as any) {
     }, {
       adviceClient: { ask: async () => { asked += 1; return { status: 'answered', answers: [{ pick: 'standard' }] }; } },
       shadowConfig: { kind: 'tier', mode: 'act', model: 'm' },
-      // The bar passes here, so what the case tests is the profile cap, not the gate.
-      benchGate: async () => ({ passed: true, reason: 'test' }),
+      // The local result stands at act here, so what the case tests is the profile cap, not the trust evaluator.
+      trust: async () => ({ standing: 'act', reason: 'test' }),
     });
     assert.equal(res.mode, c.expectAdvisor);
     if (c.expectAdvisor === 'act') {

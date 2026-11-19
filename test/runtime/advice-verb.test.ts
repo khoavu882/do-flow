@@ -315,7 +315,7 @@ for (const failure of [
   { name: 'endpoint refusal', endpoint: 'http://192.0.2.1:11434', args: [], expected: 'only loopback addresses are allowed' },
   { name: 'unreachable endpoint', endpoint: 'closed', routes: null, args: [], expected: 'advise: provider ollama did not answer at {endpoint}; start it yourself and re-run. Nothing was written.' },
   { name: 'old version', endpoint: 'server', routes: { 'GET /api/version': { status: 200, body: { version: '0.30.0' } } }, args: [], expected: 'advise: provider ollama version 0.30.0 at {endpoint} is older than 0.35.1. Nothing was written.' },
-  { name: 'model missing', endpoint: 'server', routes: { 'GET /api/tags': { status: 200, body: { models: [{ name: 'other:latest', capabilities: ['decision'] }] } } }, model: 'missing-model', args: [], expected: "model missing-model is not installed; run 'ollama pull missing-model' yourself. Nothing was written." },
+  { name: 'model missing', endpoint: 'server', routes: { 'GET /api/tags': { status: 200, body: { models: [{ name: 'other:latest', capabilities: ['decision'] }] } } }, model: 'missing-model', args: [], expected: "model missing-model is not installed at provider ollama; install it with that provider's own tool and re-run. Nothing was written." },
   { name: 'model not decision capable', endpoint: 'server', routes: { 'GET /api/tags': { status: 200, body: { models: [{ name: 'clef-flash:latest', capabilities: ['completion'] }] } } }, args: [], expected: 'decision-capable here: none. Nothing was written.' },
 ]) {
   test(`IC-021 configure checks ${failure.name} before writing`, async (t) => {

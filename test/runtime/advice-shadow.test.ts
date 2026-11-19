@@ -73,7 +73,7 @@ describe('IC-001: resolveShadowConfig (Per-Kind Shadow Configuration)', () => {
     assert.deepEqual(cfg.diagnostics, []);
   });
 
-  test('resolves off, shadow, and act modes per kind from advice.kinds.<kind>', () => {
+  test('resolves off, shadow, show and act modes per kind from advice.kinds.<kind>', () => {
     const { root, fsImpl, env } = setupConfigEnv({
       advice: {
         enabled: true,
@@ -81,6 +81,7 @@ describe('IC-001: resolveShadowConfig (Per-Kind Shadow Configuration)', () => {
           tier: 'shadow',
           'task-class': 'off',
           'verify-risk': 'act',
+          'mcp-need': 'show',
         },
       },
     });
@@ -93,6 +94,9 @@ describe('IC-001: resolveShadowConfig (Per-Kind Shadow Configuration)', () => {
 
     const verifyRiskCfg = resolveShadowConfig('verify-risk', { projectRoot: root, fsImpl, env });
     assert.equal(verifyRiskCfg.mode, 'act');
+
+    const mcpNeedCfg = resolveShadowConfig('mcp-need', { projectRoot: root, fsImpl, env });
+    assert.equal(mcpNeedCfg.mode, 'show', '175 O-1: show is a value of advice.kinds.<kind>');
   });
 
   test('resolves per-kind model override from advice.models.<kind>', () => {
@@ -143,7 +147,7 @@ describe('IC-001: resolveShadowConfig (Per-Kind Shadow Configuration)', () => {
     const cfg = resolveShadowConfig('tier', { projectRoot: root, env });
     assert.equal(cfg.mode, 'off');
     assert.match(cfg.decidedBy.mode, /^local:/);
-    assert.ok(cfg.diagnostics.some((d: string) => /advice\.kinds\.tier/.test(d) && /offf/.test(d)), JSON.stringify(cfg.diagnostics));
+    assert.ok(cfg.diagnostics.some((d: string) => /advice\.kinds\.tier/.test(d) && /offf/.test(d) && /expected off, shadow, show or act/.test(d)), JSON.stringify(cfg.diagnostics));
   });
 
   for (const [name, text] of [['corrupt JSON', '{"advice.kinds.tier": "off"'], ['a non-object JSON value', '[]']]) {
@@ -384,8 +388,14 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
     return check();
   }
 
-  const passGate = async () => ({ passed: true, reason: 'injected' });
-  const failGate = async () => ({ passed: false, reason: 'injected failure' });
+  /** An injected trust evaluator (replay/trust.ts evaluateTrust) at `standing`; it keeps every request it is given. */
+  function trustAt(standing: string, reason = `injected ${standing}`) {
+    const requests: any[] = [];
+    const trust = async (request: any) => { requests.push(request); return { standing, reason, failedChecks: [], staleDigest: null, modelDigest: 'sha256:00' }; };
+    return Object.assign(trust, { requests });
+  }
+  const passGate = trustAt('act', 'injected');
+  const failGate = async () => ({ standing: 'below-show', reason: 'injected failure', failedChecks: [], staleDigest: null, modelDigest: 'sha256:00' });
 
   test('mode off returns staticPick without asking the advisor or recording', async (t) => {
     const s = store(t);
@@ -431,11 +441,11 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
     assert.match(line.stateDigest, /^sha256:[0-9a-f]{64}$/);
   });
 
-  test('mode act applies the elevation invariant when the injected bench gate passes, and records act', async (t) => {
+  test('mode act applies the elevation invariant at the injected standing act, and records act', async (t) => {
     const s = store(t);
     const c = client((options: any) => answered('standard', options.model));
     const res = await interceptDecisionPoint(ctx(s), {
-      adviceClient: c, roots: s.roots, benchGate: passGate, shadowConfig: { kind: 'tier', mode: 'act', model: 'verified-model:7b' },
+      adviceClient: c, roots: s.roots, trust: passGate, shadowConfig: { kind: 'tier', mode: 'act', model: 'verified-model:7b' },
     });
     assert.equal(res.mode, 'act');
     assert.equal(res.advisorPick, 'standard');
@@ -449,16 +459,16 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
     assert.equal(line.model, 'verified-model:7b');
   });
 
-  test('mode act degrades to shadow with BENCH_BAR_UNMET, and the shadow query runs and records', async (t) => {
+  test('mode act degrades to shadow with LOCAL_RESULT_UNMET, and the shadow query runs and records', async (t) => {
     const s = store(t);
     const a = await advised(t, s, answering(() => 'frontier'));
     const res = await interceptDecisionPoint(ctx(s), {
-      roots: s.roots, benchGate: failGate, shadowConfig: { kind: 'tier', mode: 'act', model: 'unverified-weak-model:0.5b' },
+      roots: s.roots, trust: failGate, shadowConfig: { kind: 'tier', mode: 'act', model: 'unverified-weak-model:0.5b' },
     });
-    assert.equal(res.mode, 'shadow', 'mode must degrade to shadow when bench bar fails');
+    assert.equal(res.mode, 'shadow', 'mode must degrade to shadow below the act standing');
     assert.equal(res.effectiveDecision, 'light', 'effective decision remains staticPick on degradation');
     assert.equal(res.advisorPick, null);
-    assert.equal(res.warning, 'BENCH_BAR_UNMET: injected failure');
+    assert.equal(res.warning, 'LOCAL_RESULT_UNMET: below-show: injected failure');
     const lines = await waitFor(() => s.lines().length && s.lines());
     assert.equal(a.asks().length, 1, 'the degraded shadow query ran');
     assert.equal(lines.length, 1);
@@ -471,13 +481,14 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
     const s = store(t);
     const c = client(answered('frontier'));
     const res = await interceptDecisionPoint(ctx(s, { record: false }), {
-      adviceClient: c, roots: s.roots, benchGate: passGate, shadowConfig: { kind: 'tier', mode: 'act', model: 'm' },
+      adviceClient: c, roots: s.roots, trust: passGate, shadowConfig: { kind: 'tier', mode: 'act', model: 'm' },
     });
     assert.equal(c.calls.length, 1);
     assert.equal(c.calls[0].length, 1, 'ask takes one options object');
-    const { signal, ...options } = c.calls[0][0];
+    const { signal, timeoutMs, ...options } = c.calls[0][0];
     assert.ok(signal instanceof AbortSignal, 'the call carries the budget signal');
     assert.equal(signal.aborted, false, 'an answer inside the budget is not aborted');
+    assert.ok(Number.isInteger(timeoutMs) && timeoutMs > 0 && timeoutMs <= 1500, `the call carries what is left of the shipped tier budgetMs: ${timeoutMs}`);
     assert.deepEqual(options, {
       questionSet: QUESTION_SET, kind: 'tier', staticAnswer: 'light', caller: 'brief-tools', taskId: 'task-abc', record: false, model: 'm',
     });
@@ -493,10 +504,10 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
       'advice.kinds.tier': 'act', 'advice.models.tier': 'A', 'advice.model': 'B',
     }));
     const gated: string[] = [];
-    const benchGate = async (_kind: string, model: string) => { gated.push(model); return { passed: model === 'A', reason: `bench for ${model}` }; };
+    const trust = async ({ model }: any) => { gated.push(model); return { standing: model === 'A' ? 'act' : 'none', reason: `result for ${model}` }; };
     // Like the real client: without a model override it asks its own setting's model (B).
     const c = client((options: any) => answered('standard', options.model ?? 'B'));
-    const res = await interceptDecisionPoint(ctx(s), { adviceClient: c, roots: s.roots, benchGate });
+    const res = await interceptDecisionPoint(ctx(s), { adviceClient: c, roots: s.roots, trust });
     assert.deepEqual(gated, ['A']);
     assert.equal(c.calls[0][0].model, 'A', 'the client request carries the benched model');
     assert.equal(res.mode, 'act');
@@ -504,16 +515,16 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
     assert.equal(line.model, 'A', 'the record names the model that was asked');
   });
 
-  test('C-3: act with no named model never passes the bar', async (t) => {
+  test('C-3: act with no named model never reaches the trust evaluator', async (t) => {
     const s = store(t);
     let gated = 0;
     const res = await interceptDecisionPoint(ctx(s, { record: false }), {
       adviceClient: client(answered('frontier')), roots: s.roots,
-      benchGate: async () => { gated += 1; return { passed: true, reason: 'x' }; },
+      trust: async () => { gated += 1; return { standing: 'act', reason: 'x' }; },
       shadowConfig: { kind: 'tier', mode: 'act', model: null },
     });
     assert.equal(res.mode, 'shadow');
-    assert.match(res.warning, /^BENCH_BAR_UNMET: /);
+    assert.match(res.warning, /^LOCAL_RESULT_UNMET: unknown: /);
     assert.equal(gated, 0);
   });
 
@@ -538,7 +549,7 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
     await interceptDecisionPoint(ctx(s), { roots: s.roots, shadowConfig: { kind: 'tier', mode: 'shadow', model: 'm' } });
     await waitFor(() => s.lines().length);
     const throwing = { ask: async () => { throw new Error('boom'); } };
-    await interceptDecisionPoint(ctx(s), { adviceClient: throwing, roots: s.roots, benchGate: passGate, shadowConfig: { kind: 'tier', mode: 'act', model: 'm' } });
+    await interceptDecisionPoint(ctx(s), { adviceClient: throwing, roots: s.roots, trust: passGate, shadowConfig: { kind: 'tier', mode: 'act', model: 'm' } });
     const lines = await waitFor(() => s.lines().length >= 2 && s.lines());
     assert.deepEqual(lines.map((line: any) => [line.type, line.mode, line.reason]), [['miss', 'shadow', 'malformed-reply'], ['miss', 'act', 'config-invalid']]);
   });
@@ -550,10 +561,10 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
     const spawn = () => { spawned += 1; throw new Error('no child may start'); };
     const shadow = await interceptDecisionPoint(ctx(s, { record: false }), { adviceClient: c, roots: s.roots, spawn, shadowConfig: { kind: 'tier', mode: 'shadow', model: 'm' } });
     const degraded = await interceptDecisionPoint(ctx(s, { record: false }), {
-      adviceClient: c, roots: s.roots, spawn, benchGate: failGate, shadowConfig: { kind: 'tier', mode: 'act', model: 'm' },
+      adviceClient: c, roots: s.roots, spawn, trust: failGate, shadowConfig: { kind: 'tier', mode: 'act', model: 'm' },
     });
     assert.deepEqual([shadow.mode, degraded.mode, shadow.effectiveDecision, degraded.effectiveDecision], ['shadow', 'shadow', 'light', 'light']);
-    assert.match(degraded.warning, /^BENCH_BAR_UNMET: /);
+    assert.match(degraded.warning, /^LOCAL_RESULT_UNMET: below-show: /);
     assert.equal(spawned, 0, 'a shadow call that records nothing is pure spend: no child starts');
     assert.equal(c.calls.length, 0);
     assert.deepEqual(s.lines(), []);
@@ -567,22 +578,22 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
     let gated = 0;
     const res = await interceptDecisionPoint(ctx(s), {
       roots: s.roots, shadowConfig: { kind: 'tier', mode: 'act', model: 'm' },
-      benchGate: async () => { gated += 1; return { passed: true, reason: 'injected' }; },
+      trust: async () => { gated += 1; return { standing: 'act', reason: 'injected' }; },
     });
     assert.equal(res.mode, 'shadow');
     assert.equal(res.effectiveDecision, 'light');
     assert.equal(res.advisorPick, null);
-    assert.equal(gated, 0, 'a capped act never reaches the bench gate');
+    assert.equal(gated, 0, 'a capped act never reaches the trust evaluator');
     const lines = await waitFor(() => s.lines().length && s.lines());
     assert.deepEqual(lines.map((line: any) => [line.type, line.mode, line.pick]), [['pick', 'shadow', 'standard']]);
   });
 
-  test('a kind with a registry maxMode shadow is held there: act is lowered to ACT_NOT_SUPPORTED and never reaches the bench gate', async (t) => {
+  test('a kind with a registry maxMode shadow is held there: act is lowered to ACT_NOT_SUPPORTED and never reaches the trust evaluator', async (t) => {
     const s = store(t);
     await advised(t, s, answering(() => 'standard'));
     const held = { timeoutMs: 1000, kinds: [{ id: 'tier', maxMode: 'shadow', budgetMs: 1000 }] };
     const res = await interceptDecisionPoint(ctx(s, { adviceRegistry: held }), {
-      roots: s.roots, benchGate: () => { throw new Error('the bench gate must not be reached'); }, shadowConfig: { kind: 'tier', mode: 'act', model: 'm' },
+      roots: s.roots, trust: () => { throw new Error('the trust evaluator must not be reached'); }, shadowConfig: { kind: 'tier', mode: 'act', model: 'm' },
     });
     assert.equal(res.mode, 'shadow');
     assert.equal(res.warning, "ACT_NOT_SUPPORTED: kind 'tier' is limited to shadow");
@@ -597,7 +608,7 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
     const s = store(t);
     const res = await interceptDecisionPoint(ctx(s), {
       adviceClient: client({ status: 'unavailable', reason: 'unreachable', answers: [] }), roots: s.roots,
-      benchGate: passGate, shadowConfig: { kind: 'tier', mode: 'act', model: 'm' },
+      trust: passGate, shadowConfig: { kind: 'tier', mode: 'act', model: 'm' },
     });
     assert.equal(res.advisorPick, null);
     assert.equal(res.effectiveDecision, 'light');
@@ -648,7 +659,7 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
     const started = Date.now();
     const res: any = await Promise.race([
       interceptDecisionPoint(ctx(s, { adviceRegistry: withBudget(50) }), {
-        adviceClient: never, roots: s.roots, benchGate: passGate, shadowConfig: { kind: 'tier', mode: 'act', model: 'm' },
+        adviceClient: never, roots: s.roots, trust: passGate, shadowConfig: { kind: 'tier', mode: 'act', model: 'm' },
       }),
       new Promise((_resolve, reject) => setTimeout(() => reject(new Error('the dispatcher did not return within its budget')), 1500)),
     ]);
@@ -727,11 +738,181 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
     const adviceClient = createAdviceClient({ adviceRegistry, roots: s.roots, lookup: () => { /* never answers */ } });
     const started = Date.now();
     const res = await interceptDecisionPoint(ctx(s, { adviceRegistry: withBudget(300) }), {
-      adviceClient, roots: s.roots, benchGate: passGate, shadowConfig: { kind: 'tier', mode: 'act', model: 'm' },
+      adviceClient, roots: s.roots, trust: passGate, shadowConfig: { kind: 'tier', mode: 'act', model: 'm' },
     });
     assert.ok(Date.now() - started < 2000, `the act call took ${Date.now() - started}ms against a 300 ms budget`);
     assert.equal(res.effectiveDecision, 'light');
     assert.deepEqual(s.lines().map((line: any) => [line.type, line.reason, line.mode]), [['miss', 'timeout', 'act']]);
+  });
+
+  // ---- 175 IC-009: the show and act gate, judged on the local result at every decision ----
+
+  /** The tier context with a show surface (the caller displays the answer); `extra` overrides. */
+  const shown = (s: any, extra: any = {}) => ctx(s, { surface: 'show', ...extra });
+  const config = (mode: string, extra: any = {}) => ({ kind: 'tier', mode, model: 'm', ...extra });
+
+  test('175 T7 (a): an unset kind runs in shadow whatever the store holds, and never asks the trust evaluator', async (t) => {
+    const s = store(t);
+    await advised(t, s, answering(() => 'standard'));
+    const trust = trustAt('act');
+    // The settings layers set no advice.kinds.tier: shadow-config resolves it to shadow (row 174 O-1).
+    const resolved = await interceptDecisionPoint(shown(s), { roots: s.roots, trust });
+    // A config that says act with no layer deciding the mode is still an unset kind.
+    const unset = await interceptDecisionPoint(shown(s, { record: false }), {
+      adviceClient: client(answered('standard')), roots: s.roots, trust, shadowConfig: config('act', { decidedBy: { mode: null, model: null } }),
+    });
+    assert.deepEqual([resolved.mode, unset.mode], ['shadow', 'shadow']);
+    assert.deepEqual([resolved.effectiveDecision, unset.effectiveDecision], ['light', 'light']);
+    assert.equal(unset.warning, undefined);
+    assert.equal(trust.requests.length, 0, 'an unset kind is shadow before any trust call');    await waitFor(() => s.lines().length);
+  });
+
+  test('175 T7 (b): show at standing show with a show surface shows the answer, keeps the static decision and records mode show', async (t) => {
+    const s = store(t);
+    const c = client((options: any) => answered('standard', options.model));
+    const trust = trustAt('show');
+    const res = await interceptDecisionPoint(shown(s), { adviceClient: c, roots: s.roots, trust, shadowConfig: config('show') });
+    assert.equal(res.mode, 'show');
+    assert.equal(res.advisorPick, 'standard');
+    assert.equal(res.advisorAnswer.pick, 'standard');
+    assert.equal(res.effectiveDecision, 'light', 'a shown answer never changes the decision');
+    assert.equal(res.elevated, false);
+    assert.equal(res.agreed, false);
+    assert.equal(res.warning, undefined);
+    assert.equal(c.calls.length, 1);
+    assert.equal(trust.requests.length, 1);
+    const [request] = trust.requests;
+    assert.deepEqual([request.kind, request.model, request.projectRoot], ['tier', 'm', s.projectRoot]);
+    assert.deepEqual(request.question, QUESTION_SET.questions[0], 'the question the decision asks is the one judged');
+    assert.deepEqual(request.roots, s.roots);
+    const [line] = s.lines();
+    assert.deepEqual([line.type, line.pickId, line.mode, line.elevated, line.pick, line.static], ['pick', res.pickId, 'show', false, 'standard', 'light']);
+  });
+
+  test('175 T7 (c): show without a show surface runs as shadow with no trust call and no awaited model call', async (t) => {
+    const s = store(t);
+    const c = client(answered('standard'));
+    const trust = trustAt('act');
+    let spawned = 0;
+    const spawn = () => { spawned += 1; throw new Error('no child'); };
+    const res = await interceptDecisionPoint(ctx(s, { record: false }), { adviceClient: c, roots: s.roots, spawn, trust, shadowConfig: config('show') });
+    assert.equal(res.mode, 'shadow');
+    assert.equal(res.effectiveDecision, 'light');
+    assert.equal(res.advisorPick, null);
+    assert.equal(res.warning, undefined);
+    assert.equal(trust.requests.length, 0);
+    assert.equal(c.calls.length, 0);
+    assert.equal(spawned, 0);
+  });
+
+  test('175 T7 (d): act at standing show is shown with a show surface, never elevated, and shadow without one', async (t) => {
+    const s = store(t);
+    const c = client((options: any) => answered('frontier', options.model));
+    const res = await interceptDecisionPoint(shown(s), { adviceClient: c, roots: s.roots, trust: trustAt('show'), shadowConfig: config('act') });
+    assert.equal(res.mode, 'show');
+    assert.equal(res.advisorPick, 'frontier');
+    assert.equal(res.effectiveDecision, 'light');
+    assert.equal(res.elevated, false);
+    assert.deepEqual(s.lines().map((line: any) => [line.mode, line.elevated]), [['show', false]]);
+    const hidden = await interceptDecisionPoint(ctx(s, { record: false }), { adviceClient: c, roots: s.roots, trust: trustAt('show', 'the show bar holds; the act bar does not'), shadowConfig: config('act') });
+    assert.equal(hidden.mode, 'shadow');
+    assert.equal(hidden.advisorPick, null);
+    assert.equal(hidden.warning, 'LOCAL_RESULT_UNMET: show: the show bar holds; the act bar does not');
+    assert.equal(c.calls.length, 1, 'no surface: no awaited call');
+  });
+
+  test('175 T7 (e): act at standing act is elevated as before, with or without a show surface', async (t) => {
+    const s = store(t);
+    const c = client((options: any) => answered('standard', options.model));
+    for (const context of [ctx(s), shown(s)]) {
+      const res = await interceptDecisionPoint(context, { adviceClient: c, roots: s.roots, trust: trustAt('act'), shadowConfig: config('act') });
+      assert.deepEqual([res.mode, res.effectiveDecision, res.elevated, res.advisorPick], ['act', 'standard', true, 'standard']);
+    }
+    assert.deepEqual(s.lines().map((line: any) => [line.mode, line.elevated]), [['act', true], ['act', true]]);
+  });
+
+  for (const standing of ['below-show', 'below-minimum', 'measure-only', 'unknown', 'stale', 'none']) {
+    test(`175 T7 (f): standing ${standing} runs show and act as shadow with LOCAL_RESULT_UNMET and its reason`, async (t) => {
+      const s = store(t);
+      const c = client(answered('standard'));
+      for (const mode of ['show', 'act']) {
+        for (const context of mode === 'act' ? [ctx(s, { record: false }), shown(s, { record: false })] : [shown(s, { record: false })]) {
+          const res = await interceptDecisionPoint(context, { adviceClient: c, roots: s.roots, trust: trustAt(standing, `why ${standing}`), shadowConfig: config(mode) });
+          assert.equal(res.mode, 'shadow', `${mode} at ${standing}`);
+          assert.equal(res.effectiveDecision, 'light');
+          assert.equal(res.advisorPick, null);
+          assert.equal(res.warning, `LOCAL_RESULT_UNMET: ${standing}: why ${standing}`);
+        }
+      }
+      assert.equal(c.calls.length, 0, 'below the standing the model is never asked on the waited path');
+    });
+  }
+
+  test('175 T7 (f): with no injection the shipped evaluator judges: a kind with no replay source is none', async (t) => {
+    const s = store(t);
+    const c = client(answered('standard'));
+    const res = await interceptDecisionPoint(shown(s, { record: false }), { adviceClient: c, roots: s.roots, shadowConfig: config('act') });
+    assert.equal(res.mode, 'shadow');
+    assert.equal(res.warning, "LOCAL_RESULT_UNMET: none: kind 'tier' has no replay source");
+    assert.equal(c.calls.length, 0);
+  });
+
+  test('175 T7 (g): a staged or canary rollout profile lowers show to shadow before any trust call', async (t) => {
+    for (const profile of ['staged', 'canary']) {
+      const s = store(t);
+      fs.mkdirSync(path.join(s.projectRoot, '.doflow'));
+      fs.writeFileSync(path.join(s.projectRoot, '.doflow', 'settings.json'), JSON.stringify({ rollout: { profile } }));
+      const trust = trustAt('act');
+      const res = await interceptDecisionPoint(shown(s, { record: false }), { adviceClient: client(answered('standard')), roots: s.roots, trust, shadowConfig: config('show') });
+      assert.equal(res.mode, 'shadow', profile);
+      assert.equal(trust.requests.length, 0, profile);
+    }
+  });
+
+  test('175 T7 (h): a registry maxMode show holds act at show, and the held warning names the limit', async (t) => {
+    const s = store(t);
+    const held = { timeoutMs: 1000, kinds: [{ id: 'tier', maxMode: 'show', budgetMs: 1000 }] };
+    const c = client((options: any) => answered('frontier', options.model));
+    const res = await interceptDecisionPoint(shown(s, { adviceRegistry: held }), { adviceClient: c, roots: s.roots, trust: trustAt('act'), shadowConfig: config('act') });
+    assert.equal(res.mode, 'show');
+    assert.equal(res.warning, "ACT_NOT_SUPPORTED: kind 'tier' is limited to show");
+    assert.equal(res.effectiveDecision, 'light');
+    assert.equal(res.elevated, false);
+    assert.equal(res.advisorPick, 'frontier');
+    const below = await interceptDecisionPoint(shown(s, { adviceRegistry: held, record: false }), { adviceClient: c, roots: s.roots, trust: trustAt('none', 'no result'), shadowConfig: config('act') });
+    assert.equal(below.mode, 'shadow');
+    assert.equal(below.warning, "ACT_NOT_SUPPORTED: kind 'tier' is limited to show; LOCAL_RESULT_UNMET: none: no result");
+  });
+
+  test('175 T7 (i): the trust listing and the ask share one budgetMs deadline and one abort signal', async (t) => {
+    const s = store(t);
+    const requests: any[] = [];
+    const slowTrust = async (request: any) => {
+      requests.push(request);
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      return { standing: 'act', reason: 'x' };
+    };
+    const c = client((options: any) => answered('standard', options.model));
+    const res = await interceptDecisionPoint(shown(s, { adviceRegistry: withBudget(400) }), { adviceClient: c, roots: s.roots, trust: slowTrust, shadowConfig: config('act') });
+    assert.equal(res.mode, 'act');
+    assert.equal(requests[0].timeoutMs, 400, 'the listing gets the whole budget; the client caps it at probeTimeoutMs');
+    const asked = c.calls[0][0];
+    assert.equal(asked.signal, requests[0].signal, 'one abort signal for both calls');
+    assert.ok(asked.timeoutMs > 0 && asked.timeoutMs <= 400 - 140, `the ask gets only what is left: ${asked.timeoutMs}`);
+  });
+
+  test('175 T7 (i): a trust call that outlives the budget leaves the static decision within it, unasked', async (t) => {
+    const s = store(t);
+    let signal: any = null;
+    const never = async (request: any) => { signal = request.signal; return new Promise(() => {}); };
+    const c = client(answered('standard'));
+    const started = Date.now();
+    const res = await interceptDecisionPoint(shown(s, { adviceRegistry: withBudget(100), record: false }), { adviceClient: c, roots: s.roots, trust: never, shadowConfig: config('act') });
+    assert.ok(Date.now() - started < 1000, `took ${Date.now() - started}ms against a 100 ms budget`);
+    assert.equal(res.mode, 'shadow');
+    assert.match(res.warning, /^LOCAL_RESULT_UNMET: unknown: .*timeout/);
+    assert.equal(signal.aborted, true, 'the budget aborts the listing');
+    assert.equal(c.calls.length, 0);
   });
 });
 
@@ -810,7 +991,7 @@ describe('141 IC-010: the call-built multi-question call (kind rerank, offline)'
     assert.ok(asked.answers.every((answer: any) => answer.model === 'm'));
   });
 
-  test('a kind without maxMode still reaches the bench gate and act, and a miss line keeps its shape', async (t) => {
+  test('a kind without maxMode still reaches the trust evaluator and act, and a miss line keeps its shape', async (t) => {
     const s = store(t);
     const gated: string[] = [];
     const tierSet = { state: 's', questions: [{ name: 'tier', type: 'choice', instructions: 'Choose.', options: { light: 'L', standard: 'S', frontier: 'F' } }] };
@@ -818,7 +999,7 @@ describe('141 IC-010: the call-built multi-question call (kind rerank, offline)'
     const c = recordingClient(answered);
     const res = await interceptDecisionPoint({
       kind: 'tier', caller: 'brief-tools', state: 's', staticPick: 'light', questionSet: tierSet, adviceRegistry: ADVICE, projectRoot: s.projectRoot, env: s.env,
-    }, { adviceClient: c, roots: s.roots, benchGate: async (kind: string) => { gated.push(kind); return { passed: true, reason: 'x' }; }, shadowConfig: { kind: 'tier', mode: 'act', model: 'm' } });
+    }, { adviceClient: c, roots: s.roots, trust: async ({ kind }: any) => { gated.push(kind); return { standing: 'act', reason: 'x' }; }, shadowConfig: { kind: 'tier', mode: 'act', model: 'm' } });
     assert.deepEqual(gated, ['tier']);
     assert.equal(res.mode, 'act');
     assert.equal(res.warning, undefined);
