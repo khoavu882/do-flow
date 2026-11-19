@@ -1360,7 +1360,7 @@ Why a known session level is not passed:
 | `no-lower-level` | `<w> has no level at or below the <h> session's <l>` |
 | `no-ordered-list` | `<w> has no <l>, and <h> lists its levels per model, so no lower level is known` |
 
-**The brief.** `brief-tools` adds an `Effort:` header line after `Model:`, for the same harness, and leaves it out when the brief names no harness (as it does `Model:`). For example:
+**The brief.** `brief-tools` adds an `Effort:` header line after `Model:`, for the same harness, and leaves it out when the brief names no harness (as it does `Model:`) and when the binding has a gap (the `Model:` line then names the refusal, and the record's `effortPlan` is null). For example:
 
 ```text
 Effort: `high`, the `claude` session's level (`CLAUDE_EFFORT`) on `pi`.
