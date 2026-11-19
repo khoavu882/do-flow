@@ -574,9 +574,9 @@ test('175 IC-007 (c): a listing without the model, a listing without digests, a 
   const without = await startFakeServer({ routes: { 'GET /api/tags': { status: 200, body: tagsListing({ models: ['other:latest'] }) } } });
   const noDigests = await startFakeServer({ routes: { 'GET /api/tags': { status: 200, body: tagsListing({ omitDigest: true }) } } });
   const broken = await startFakeServer({ routes: { 'GET /api/tags': { status: 500, body: { error: 'boom' } } } });
-  const slow = await startFakeServer({ routes: { 'GET /api/tags': { status: 200, body: tagsListing(), delayMs: 600 } } });
+  const slow = await startFakeServer({ routes: { 'GET /api/tags': { status: 200, body: tagsListing(), delayMs: 4000 } } });
   for (const server of [without, noDigests, broken, slow]) onClose(t, server);
-  const { createClient }: any = fixture(t, { lookup: loopbackLookup, adviceOverrides: { probeTimeoutMs: 150 } });
+  const { createClient }: any = fixture(t, { lookup: loopbackLookup, adviceOverrides: { probeTimeoutMs: 1500 } });
   const client = createClient();
   const ask = (server: any, extra: any = {}) => client.modelDigest({ endpoint: server.origin, model: 'clef-flash', provider: 'ollama', timeoutMs: 5000, ...extra });
   assert.deepEqual(await ask(without), { digest: null, reason: 'model-not-listed' });
@@ -584,10 +584,10 @@ test('175 IC-007 (c): a listing without the model, a listing without digests, a 
   assert.deepEqual(await ask(broken), { digest: null, reason: 'server-error' });
   const started = Date.now();
   assert.deepEqual(await ask(slow), { digest: null, reason: 'timeout' });
-  assert.ok(Date.now() - started < 500, 'a caller timeout above probeTimeoutMs is capped at probeTimeoutMs');
+  assert.ok(Date.now() - started < 3500, 'a caller timeout above probeTimeoutMs is capped at probeTimeoutMs (1500), not the 4000 ms listing delay');
   const shorter = Date.now();
   assert.deepEqual(await ask(slow, { timeoutMs: 40 }), { digest: null, reason: 'timeout' });
-  assert.ok(Date.now() - shorter < 140, 'a caller timeout below the cap is kept');
+  assert.ok(Date.now() - shorter < 1000, 'a caller timeout below the cap is kept (40 ms, not the 1500 ms cap)');
   const controller = new AbortController();
   controller.abort();
   assert.deepEqual(await ask(without, { signal: controller.signal }), { digest: null, reason: 'timeout' });
@@ -595,6 +595,18 @@ test('175 IC-007 (c): a listing without the model, a listing without digests, a 
   assert.deepEqual(await client.modelDigest({ endpoint: without.origin, model: 'clef-flash', provider: 'no-such-provider', timeoutMs: 500 }), { digest: null, reason: 'config-invalid' });
   const remote: any = fixture(t, { lookup: (_host: any, _options: any, callback: any) => callback(null, [{ address: '198.51.100.1', family: 4 }]) });
   assert.deepEqual(await remote.createClient().modelDigest({ endpoint: 'http://model.example:11434', model: 'clef-flash', provider: 'ollama', timeoutMs: 500 }), { digest: null, reason: 'non-loopback' });
+});
+
+test('175 IC-007: an in-flight read is not shared, so a short timeout that expires does not fail a concurrent longer one', async (t) => {
+  resetModelDigestMemo();
+  const server = await startFakeServer({ routes: { 'GET /api/tags': { status: 200, body: tagsListing(), delayMs: 300 } } });
+  onClose(t, server);
+  const { createClient }: any = fixture(t, { lookup: loopbackLookup, adviceOverrides: { probeTimeoutMs: 5000 } });
+  const client = createClient();
+  const ask = (timeoutMs: number) => client.modelDigest({ endpoint: server.origin, model: 'clef-flash', provider: 'ollama', timeoutMs });
+  const [short, long] = await Promise.all([ask(40), ask(5000)]);
+  assert.deepEqual(short, { digest: null, reason: 'timeout' });
+  assert.equal(long.digest, `sha256:${digestOf('clef-flash:latest')}`);
 });
 
 test('175 IC-007: a miss is not remembered, so a model pulled later is found by the next call', async (t) => {

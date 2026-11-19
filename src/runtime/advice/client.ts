@@ -155,8 +155,8 @@ function matchesNamedKind(namedKind: any, questionSet: any): boolean {
         && CALL_LABELS.includes(question.name.slice(-1)))));
 }
 
-// A model digest is memoised per process by (endpoint, model): the listing is read once, whoever asks. A miss is not kept.
-const DIGEST_MEMO = new Map<string, Promise<{ digest: string | null; reason: string | null }>>();
+// A model digest is memoised per process by (endpoint, model): a hit is read once and shared; a miss, and a read still in flight, are not kept.
+const DIGEST_MEMO = new Map<string, { digest: string | null; reason: string | null }>();
 
 /** Empties the model digest memo (tests; a long-lived process that wants a fresh read). */
 function resetModelDigestMemo(): void {
@@ -406,10 +406,10 @@ function createAdviceClient({
   function modelDigest({ endpoint, model, provider: providerId, timeoutMs, signal }: any = {}): Promise<{ digest: string | null; reason: string | null }> {
     const key = JSON.stringify([endpoint, model]);
     const known = DIGEST_MEMO.get(key);
-    if (known) return known;
+    if (known) return Promise.resolve(known);
+    // Only a resolved hit is shared: an in-flight read carries its caller's timeout and signal, which another caller must not inherit.
     const read = readModelDigest({ endpoint, model, providerId, timeoutMs, signal });
-    DIGEST_MEMO.set(key, read);
-    read.then((result) => { if (result.digest === null && DIGEST_MEMO.get(key) === read) DIGEST_MEMO.delete(key); });
+    read.then((result) => { if (result.digest !== null) DIGEST_MEMO.set(key, result); });
     return read;
   }
 
