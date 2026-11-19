@@ -10,7 +10,7 @@ const {
   parseMandatoryFile,
   applyMandatoryOverride,
 } = require('../../src/runtime/context/mandatory.ts');
-const { handleContextPackCommand } = require('../../src/runtime/context-pack.ts');
+const { handleContextPackCommand } = require('../../src/runtime/context/context-pack.ts');
 const featureResolve = require('../../src/runtime/feature-resolve.ts');
 
 const FIXTURES_DIR = path.resolve(__dirname, '../fixtures/context-pack');

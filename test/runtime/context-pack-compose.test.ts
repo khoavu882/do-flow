@@ -157,7 +157,7 @@ test('compose: fitting on markdown only fails on a fixture where JSON is the lar
 
 test('compose: compileBoundedContextPack is an adapter over linearFit and calls it once (negative control)', () => {
   const compose = require('../../src/runtime/context/compose.ts');
-  const { ContextPackCompiler } = require('../../src/runtime/context-pack.ts');
+  const { ContextPackCompiler } = require('../../src/runtime/context/context-pack.ts');
   const compiler: any = new ContextPackCompiler();
 
   let fitCalls = 0;

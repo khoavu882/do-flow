@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { ContextPackCompiler } = require('../../src/runtime/context-pack.ts');
+const { ContextPackCompiler } = require('../../src/runtime/context/context-pack.ts');
 const { EXIT } = require('../../src/runtime/cli-result.ts');
 const { formatMarkdown, formatJson } = require('../../src/runtime/context/compose.ts');
 

@@ -11,7 +11,7 @@
 
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { emitContext } = require('../../src/runtime/context-pack.ts');
+const { emitContext } = require('../../src/runtime/context/context-pack.ts');
 const { grantSummary } = require('../../src/runtime/context/summary-store.ts');
 
 /**

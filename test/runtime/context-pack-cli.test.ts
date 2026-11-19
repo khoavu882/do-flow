@@ -146,7 +146,7 @@ test('context-pack-cli: readiness --invariants flag is accepted and not a usage 
 });
 
 test('context-pack-cli: negative control — removing null fallback fails', (t) => {
-  const { handleContextPackCommand } = require('../../src/runtime/context-pack.ts');
+  const { handleContextPackCommand } = require('../../src/runtime/context/context-pack.ts');
   const root = setupTestProject(t, 'doflow-cli-neg-null-');
 
   let output = '';
@@ -422,7 +422,7 @@ test('FU-674pfd: without --slug a task id naming another feature selects that fe
   assert.equal(pack().objective, 'Objective of feature BRAVO.');
   assert.ok(fs.existsSync(path.join(main, '.doflow', 'state', 'delivery', '079-b.json')), 'the delivery is recorded under the task id\'s feature');
   // The pack a context-emit event delivers selects the same feature.
-  const { packForEmission } = require('../../src/runtime/context-pack.ts');
+  const { packForEmission } = require('../../src/runtime/context/context-pack.ts');
   const emitted = packForEmission({ root: fs.realpathSync(wt), stateRoot: fs.realpathSync(main), taskId: '079-b', noRecord: true });
   assert.match(emitted.output, /Objective of feature BRAVO\./);
   assert.equal(emitted.output.includes('ALPHA'), false);

@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp.ts');
-const { ContextPackCompiler } = require('../../src/runtime/context-pack.ts');
+const { ContextPackCompiler } = require('../../src/runtime/context/context-pack.ts');
 const { formatMarkdown, formatJson } = require('../../src/runtime/context/compose.ts');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');

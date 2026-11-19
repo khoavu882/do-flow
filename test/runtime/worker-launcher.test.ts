@@ -30,7 +30,7 @@ const { buildInstallMirror } = require('../helper/hook-fixtures.ts');
 const { writeSummary } = require('../helper/summary-fixture.ts');
 const { launchEnv, launchWorker } = require('../../src/runtime/worker/launch.ts');
 const { observeForwarding } = require('../../src/runtime/worker/readiness.ts');
-const { emitContext } = require('../../src/runtime/context-pack.ts');
+const { emitContext } = require('../../src/runtime/context/context-pack.ts');
 const { stateDir } = require('../../src/runtime/context/identity.ts');
 const DESCRIPTORS = require('../fixtures/worker/descriptors.json');
 

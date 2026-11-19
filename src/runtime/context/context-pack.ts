@@ -3,14 +3,14 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { EvidenceLedger } = require('./evidence-ledger.ts');
-const { ClaimsManager } = require('./claims.ts');
-const { ResearchRequestStore } = require('./research-request.ts');
-const { finishRuntime, usageError, EXIT } = require('./cli-result.ts');
+const { EvidenceLedger } = require('../evidence-ledger.ts');
+const { ClaimsManager } = require('../claims.ts');
+const { ResearchRequestStore } = require('../research-request.ts');
+const { finishRuntime, usageError, EXIT } = require('../cli-result.ts');
 const nativeConsoleLog = console.log;
-const { resolveFeature, isSafeSlug } = require('./task-scope.ts');
-const { readRegister } = require('./decision-register.ts');
-const compose = require('./context/compose.ts');
+const { resolveFeature, isSafeSlug } = require('../task-scope.ts');
+const { readRegister } = require('../decision-register.ts');
+const compose = require('./compose.ts');
 const {
   FIELD_CLASSES,
   buildPackItem,
@@ -37,22 +37,22 @@ const {
   formatOverflowMessage,
   formatMarkdown,
   formatJson,
-} = require('./context/compose.ts');
+} = require('./compose.ts');
 const {
   extractMandatory,
   parseMandatoryFile,
   applyMandatoryOverride,
-} = require('./context/mandatory.ts');
+} = require('./mandatory.ts');
 
 const NO_DECISIONS = Object.freeze({ available: false, live: [], liveCount: 0 });
 
-const { TASK_CLASS_BUDGETS, resolveBudget, getRegisteredHarnessIds, getRegisteredHarnesses } = require('./context/budget.ts');
-const { createDeliveryEntry, readDeliveryEntry, recordDelivery, makeTokenRecord } = require('./context/delivery-store.ts');
-const { boundedAcquire } = require('./task-state.ts');
-const pointerTools = require('./context/pointer.ts');
-const { arbitrate, emitContext } = require('./context/arbitrate.ts');
-const { updateTaskState } = require('./task-state.ts');
-const { taskRecord } = require('./task-scope.ts');
+const { TASK_CLASS_BUDGETS, resolveBudget, getRegisteredHarnessIds, getRegisteredHarnesses } = require('./budget.ts');
+const { createDeliveryEntry, readDeliveryEntry, recordDelivery, makeTokenRecord } = require('./delivery-store.ts');
+const { boundedAcquire } = require('../task-state.ts');
+const pointerTools = require('./pointer.ts');
+const { arbitrate, emitContext } = require('./arbitrate.ts');
+const { updateTaskState } = require('../task-state.ts');
+const { taskRecord } = require('../task-scope.ts');
 
 let correctiveTrimFallbackCount = 0;
 function getCorrectiveTrimFallbackCount(): number { return correctiveTrimFallbackCount; }
@@ -1063,7 +1063,7 @@ function handleContextPackCommand({
   // Issue #9 stage 3: a recorded delivery is named on the run stage active now (best effort, never fails the verb).
   if (pack.delivery?.recorded === true) {
     try {
-      require('./workflow-orchestrator.ts').recordStagePack({ stateRoot: root, sourceRoot: source, taskId, slug: (explicitSlug === undefined ? slug : explicitSlug) || null, digest: pack.delivery.packDigest,
+      require('../workflow-orchestrator.ts').recordStagePack({ stateRoot: root, sourceRoot: source, taskId, slug: (explicitSlug === undefined ? slug : explicitSlug) || null, digest: pack.delivery.packDigest,
         checkout: !feature.error && feature.paths?.repo_root ? { repoRoot: feature.paths.repo_root, branch: feature.paths.branch || null } : null });
     } catch { /* an unrecorded link is unknown, not a failure */ }
   }
@@ -1314,7 +1314,7 @@ function gatherMandatory({ root, taskId, feature }: any) {
     if (planPath && fs.existsSync(planPath)) {
       try {
         const planText = fs.readFileSync(planPath, 'utf8');
-        const { parsePlan } = require('./scaffold/artifacts.ts');
+        const { parsePlan } = require('../scaffold/artifacts.ts');
         const parsedPlan = parsePlan(planText);
         const matchedTask = (parsedPlan.tasks || []).find(
           (t: any) => t.id === taskId || t.id.toLowerCase() === taskId.toLowerCase()

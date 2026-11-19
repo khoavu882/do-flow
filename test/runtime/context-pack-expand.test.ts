@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp.ts');
-const { handleContextPackCommand } = require('../../src/runtime/context-pack.ts');
+const { handleContextPackCommand } = require('../../src/runtime/context/context-pack.ts');
 const { createDeliveryEntry, recordDelivery } = require('../../src/runtime/context/delivery-store.ts');
 
 function capture(options: any) {

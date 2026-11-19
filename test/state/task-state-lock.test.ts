@@ -612,7 +612,7 @@ test('C-6: the ledger reports an exhausted lock-lost as lock-lost after its two 
 
 test('C-6: context-pack delivery names an exhausted lock-lost lock-lost, not an unwritable store', (t) => {
   const { recordDelivery } = require('../../src/runtime/context/delivery-store.ts');
-  const { classifyStoreFailure } = require('../../src/runtime/context-pack.ts');
+  const { classifyStoreFailure } = require('../../src/runtime/context/context-pack.ts');
   const root = tempDir(t, 'doflow-task-state-lost-pack-');
   const file = path.join(root, '.doflow/state/delivery/T1.json');
   let thrown: any = null;

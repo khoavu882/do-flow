@@ -19,6 +19,6 @@
     { "id": "C11", "file": "core/harnesses/shared/hooks/policies/emission.jq", "status": "exempt", "reason": "context injection with no instructions or output" },
     { "id": "C12-C14", "file": "bench/agentic/tasks.ts", "status": "exempt", "reason": "measuring instruments whose template hash is pinned" },
     { "id": "C15", "file": "core/shared/agent-specs/delivery-lead.md", "status": "exempt", "reason": "static per-harness system text; the layout prose is reworded in the guide's pointer edit (design 10.2)" },
-    { "id": "C17", "file": "src/runtime/worker/launch.ts", "status": "exempt", "reason": "context injection with no instructions or output, row 078's contract, like C11: the worker layer prepends the ContextPack block (src/runtime/context/compose.ts, src/runtime/context-pack.ts) in front of a headless worker's prompt" }
+    { "id": "C17", "file": "src/runtime/worker/launch.ts", "status": "exempt", "reason": "context injection with no instructions or output, row 078's contract, like C11: the worker layer prepends the ContextPack block (src/runtime/context/compose.ts, src/runtime/context/context-pack.ts) in front of a headless worker's prompt" }
   ]
 }

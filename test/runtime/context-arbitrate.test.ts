@@ -12,7 +12,7 @@ const path = require('node:path');
 const {
   EMISSION_RULES, INPUT_DOMAINS, arbitrate, renderEmission, ruleAction, ruleVector, utf8Bytes,
 } = require('../../src/runtime/context/arbitrate.ts');
-const contextPack = require('../../src/runtime/context-pack.ts');
+const contextPack = require('../../src/runtime/context/context-pack.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const CORPUS = JSON.parse(fs.readFileSync(path.join(REPO, 'test/fixtures/emission/render-corpus.json'), 'utf8'));

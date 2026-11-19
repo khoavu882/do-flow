@@ -7,7 +7,7 @@ const path = require('node:path');
 const { tempDir } = require('../helper/tmp.ts');
 const { collectPointers, readPointerSlice } = require('../../src/runtime/context/pointer.ts');
 const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
-const { handleContextPackCommand } = require('../../src/runtime/context-pack.ts');
+const { handleContextPackCommand } = require('../../src/runtime/context/context-pack.ts');
 const { createDeliveryEntry, recordDelivery } = require('../../src/runtime/context/delivery-store.ts');
 
 const SLUG = '136-fixture';
